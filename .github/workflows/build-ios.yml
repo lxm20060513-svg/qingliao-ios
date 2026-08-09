@@ -49,24 +49,22 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             archive
 
-      - name: Export unsigned IPA
+      - name: Package unsigned IPA (Payload zip, for SideStore)
         run: |
-          mkdir -p build/ipa
-          xcodebuild -exportArchive \
-            -archivePath build/App.xcarchive \
-            -exportPath build/ipa \
-            -exportOptionsPlist exportOptions.plist \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO
+          # exportArchive 要求 archive 含签名 team，unsigned 无法导出 → 手动打包
+          mkdir -p build/ipa/Payload
+          cp -R build/App.xcarchive/Products/Applications/App.app build/ipa/Payload/
+          cd build/ipa && zip -qry ../qingliao-unsigned.ipa Payload/
+          ls -la ../qingliao-unsigned.ipa
 
       - name: Verify IPA
         run: |
-          ls -la build/ipa/
-          file build/ipa/*.ipa
+          file build/qingliao-unsigned.ipa
+          unzip -l build/qingliao-unsigned.ipa | head -8
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
         with:
           name: qingliao-unsigned-ipa
-          path: build/ipa/*.ipa
+          path: build/qingliao-unsigned.ipa
           if-no-files-found: error
