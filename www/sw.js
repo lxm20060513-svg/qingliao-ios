@@ -1,12 +1,12 @@
 /* 轻聊 PWA Service Worker — V1.3 (performance)
  * 策略：
  *  - /api/、/v1/ 请求绝不缓存（聊天/任务/HA 等动态数据）
- *  - HTML 导航 stale-while-revalidate（缓存秒开 + 后台更新；发版靠"新版提示→强制刷新"生效）
+ *  - HTML 导航 network-first（发版立即生效；离线回退缓存）
  *  - 静态资源（icons/manifest/libs/app.js）cache-first
  *  - FORCE_RELOAD 消息：清空缓存后让页面刷新（配合 SWR 拿到最新版）
  * 更新发版时：改 CACHE_NAME 版本号 + skipWaiting 立即接管
  */
-const CACHE_NAME = 'qingliao-v43';
+const CACHE_NAME = 'qingliao-v45';
 const PRECACHE_URLS = [
   '/',
   '/manifest.json',
@@ -56,17 +56,14 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // HTML 导航：stale-while-revalidate —— 有缓存立即返回（秒开），后台拉新更新缓存；无缓存走网络
+  // HTML 导航：network-first —— 内网应用保证发版立即生效（网络失败才回退缓存）
   if (event.request.mode === 'navigate') {
     event.respondWith(
-      caches.match(event.request).then((cached) => {
-        const networkFetch = fetch(event.request).then((res) => {
-          const copy = res.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
-          return res;
-        }).catch(() => cached);
-        return cached || networkFetch;
-      })
+      fetch(event.request).then((res) => {
+        const copy = res.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+        return res;
+      }).catch(() => caches.match(event.request))
     );
     return;
   }
