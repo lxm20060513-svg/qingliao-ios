@@ -62,6 +62,20 @@ jobs:
           file build/qingliao-unsigned.ipa
           unzip -l build/qingliao-unsigned.ipa | head -8
 
+      - name: Push IPA to NAS (轻聊文件管理，手机直接下载)
+        env:
+          QL_PASS: ${{ secrets.QINGLIAO_PASS }}
+          QL_SERVER: ${{ secrets.QINGLIAO_SERVER }}
+        run: |
+          TOKEN=$(curl -s -X POST "$QL_SERVER/api/auth/login" -H 'Content-Type: application/json' \
+            -d "{\"username\":\"qingliao\",\"password\":\"$QL_PASS\",\"remember\":false}" \
+            | python3 -c 'import sys,json; print(json.load(sys.stdin).get("token",""))')
+          if [ -z "$TOKEN" ]; then echo "::error::NAS 登录失败"; exit 1; fi
+          RESP=$(curl -s -X POST "$QL_SERVER/api/files/upload" -H "X-Auth-Token: $TOKEN" \
+            -F "file=@build/qingliao-unsigned.ipa;filename=qingliao-unsigned.ipa")
+          echo "NAS 上传响应: $RESP"
+          echo "$RESP" | grep -q '"ok":true' && echo "NAS_UPLOAD_OK" || { echo "::error::NAS 上传失败"; exit 1; }
+
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
         with:

@@ -1,7 +1,7 @@
 import urllib.request, json, time
 
 TOKEN = "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"
-RUN_ID = 31305133186
+RUN_ID = 31305227835
 API = f"https://api.github.com/repos/lxm20060513-svg/qingliao-ios/actions/runs/{RUN_ID}"
 
 def get(url):
