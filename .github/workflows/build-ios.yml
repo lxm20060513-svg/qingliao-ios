@@ -22,7 +22,9 @@ jobs:
         run: npm ci
 
       - name: Add iOS platform (generates Xcode project)
-        run: npx cap add ios
+        run: |
+          rm -rf ios   # 双保险：仓库绝不提交 ios/（Capacitor 生成物）
+          npx cap add ios
 
       - name: Sync web assets into iOS project
         run: npx cap sync ios
