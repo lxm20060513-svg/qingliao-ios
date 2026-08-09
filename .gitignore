@@ -1,0 +1,5 @@
+node_modules/
+ios/
+build/
+*.ipa
+.DS_Store

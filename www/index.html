@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>轻聊</title>
+  <!-- PWA V0.24 -->
+  <meta name="theme-color" content="#0a84ff">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="轻聊">
+  <link rel="manifest" href="/manifest.json">
+  <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png">
+  <link rel="icon" type="image/png" sizes="512x512" href="/icons/icon-512.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+  <link rel="apple-touch-icon" sizes="152x152" href="/icons/icon-192.png">
+  <link rel="apple-touch-icon" sizes="120x120" href="/icons/icon-192.png">
+  <style>/* History actions */.history-actions {display:flex;gap:8px;margin-bottom:12px;}.btn-small {padding:6px 12px;font-size:12px;border:1px solid var(--border);background:var(--accent);color:#fff;border-radius:8px;cursor:pointer;}.btn-small:hover {opacity:0.9;transform:translateY(-1px);}:root{--bg:#f2f2f7;--bg-card:#ffffff;--bg-sidebar:#f7f7f9;--bg-input:#e5e5ea;--border:#d1d1d6;--text:#000000;--text-secondary:#3c3c43;--text-muted:#8e8e93;--accent:#0a84ff;--accent-soft:rgba(0,122,255,0.1);--danger:#ff3b30;--user-bubble:#0a84ff;--user-text:#ffffff;--assistant-bubble:#e5e5ea;--assistant-bubble-border:#d1d1d6;--assistant-text:#000000;}.dark{--bg:#111111;--bg-card:#1c1c1e;--bg-sidebar:#1c1c1e;--bg-input:#2c2c2e;--border:#38383a;--text:#f5f5f5;--text-secondary:#a1a1a6;--text-muted:#6e6e73;--accent:#60a5fa;--accent-soft:rgba(96,165,250,0.12);--danger:#ef4444;--user-bubble:#0a84ff;--user-text:#ffffff;--assistant-bubble:#2c2c2e;--assistant-text:#f5f5f5;}* {box-sizing:border-box;-webkit-tap-highlight-color:transparent;}html,body {margin:0;padding:0;height:100%;overflow:hidden;}body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;background:var(--bg);color:var(--text);overflow:hidden;}.app{display:flex;height:100dvh;height:100vh;overflow:hidden;}.sidebar{width:240px;background:var(--bg-sidebar);border-right:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0;z-index:100;}.sidebar-header{padding:16px;padding-top:max(16px,env(safe-area-inset-top,0px));border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;}.sidebar-brand {font-weight:600;font-size:16px;color:var(--text);}.sidebar-nav{flex:1;overflow-y:auto;padding:8px;padding-bottom:max(8px,env(safe-area-inset-bottom,0px));}.nav-item{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:8px;color:var(--text-secondary);font-weight:600;text-decoration:none;font-size:15px;margin-bottom:2px;cursor:pointer;border:none;background:none;width:100%;text-align:left;}.nav-item:hover {background:color-mix(in srgb,var(--accent-soft) 85%,black);color:var(--text);}.nav-item.active {background:color-mix(in srgb,var(--accent-soft) 85%,black);color:var(--accent);}.nav-item svg {width:20px;height:20px;flex-shrink:0;}.icon-btn{width:100%;padding:8px;border:1px solid var(--border);border-radius:8px;background:var(--bg-card);color:var(--text);cursor:pointer;font-size:14px;}.main{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0;}header,.main-header{position:fixed;top:0;left:0;right:0;height:calc(52px + env(safe-area-inset-top,0px));min-height:calc(52px + env(safe-area-inset-top,0px));padding:0 16px;padding-top:max(0px,env(safe-area-inset-top,0px));border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;background:var(--bg-card);z-index:1050;}.header-center{position:absolute;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);}.header-model{font-weight:500;color:var(--text-secondary);background:color-mix(in srgb,var(--accent-soft) 85%,black);padding:2px 8px;border-radius:4px;font-size:12px;}.header-status{display:flex;align-items:center;gap:4px;}.status-dot{width:6px;height:6px;border-radius:50%;background:#22c55e;flex-shrink:0;}.status-dot.offline{background:#ef4444;}.status-text{font-size:12px;white-space:nowrap;}.header-right{margin-left:auto;display:flex;align-items:center;gap:6px;}.header-left{display:flex;align-items:center;gap:8px;}.menu-btn{display:none;background:none;border:none;color:var(--text);font-size:20px;cursor:pointer;padding:4px;}.sidebar-toggle{display:none;background:none;border:none;color:var(--text);font-size:20px;cursor:pointer;padding:4px;}.page-title{font-size:16px;font-weight:600;margin:0;color:var(--text);}.header-right{display:flex;align-items:center;gap:8px;}.page{flex:1;display:none;flex-direction:column;min-height:0;padding-top:calc(52px + env(safe-area-inset-top,0px));padding-bottom:max(0px,env(safe-area-inset-bottom,0px));}#page-chat{padding-bottom:0;}#chat{padding-bottom:calc(76px + env(safe-area-inset-bottom,0px));}/*聊天页输入区自带底部安全区，避免双重留白*/.page.active {display:flex;}#page-chat{padding-bottom:0;}.page:not(.active) .chat-container {display:none;}.chat-container{flex:1;display:flex;flex-direction:column;min-height:0;overflow:hidden;}.chat-messages,#chat{flex:1;overflow-y:auto;min-height:0;padding:16px;padding-top:16px;padding-bottom:calc(76px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;gap:6px;}.chat-messages > .msg:first-child,#chat > .msg:first-child{margin-top:0;}.msg{position:relative;max-width:85%;padding:3px 14px;border-radius:20px;font-size:15px;line-height:1.2;word-break:break-word;margin-top:2px;}.msg.user{align-self:flex-end;background:var(--user-bubble);color:var(--user-text);border-bottom-right-radius:4px;margin-right:36px;/* 给外侧头像留空间 */}.msg.assistant{align-self:flex-start;background:var(--assistant-bubble);color:var(--assistant-text);border:1px solid var(--assistant-bubble-border);border-bottom-left-radius:4px;margin-left:36px;/* 给外侧头像留空间 */}/* 气泡尾巴（iMessage 小三角） */.msg.user::after{content:'';position:absolute;bottom:0;right:-7px;width:0;height:0;border-left:8px solid var(--user-bubble);border-bottom:8px solid transparent;}.msg.assistant::after{content:'';position:absolute;bottom:0;left:-7px;width:0;height:0;border-right:8px solid var(--assistant-bubble);border-bottom:8px solid transparent;}/* iMessage 风格：头像移到气泡外侧 */.msg .msg-avatar{position:absolute;top:50%;transform:translateY(-50%);width:26px;height:26px;font-size:11px;box-shadow:0 1px 3px rgba(0,0,0,0.15);}.msg.user .msg-avatar{right:-34px;background:#34c759;/* iOS 绿色头像（用户） */}.msg.assistant .msg-avatar{left:-34px;background:var(--accent);}/* iMessage 不显示发送者名字 */.msg .msg-sender {display:none;}/* 时间戳移到气泡底部 */.msg .msg-time{display:block;font-size:10.5px;opacity:0.55;margin-top:3px;text-align:right;}.msg.assistant .msg-time {text-align:left;}.msg.system{align-self:center;background:color-mix(in srgb,var(--accent-soft) 85%,black);color:var(--accent);font-size:12px;padding:6px 12px;border-radius:18px;}.msg.error{align-self:center;background:rgba(255,59,48,0.1);color:var(--danger);font-size:13px;border-radius:10px;}.msg ul,.msg ol{margin:4px 0;padding-left:20px;}.msg li{margin-bottom:2px;}.msg strong{font-weight:600;}.msg code{background:var(--bg-input);padding:1px 4px;border-radius:3px;font-size:12px;font-family:monospace;}.msg pre{background:var(--bg-input);border-radius:8px;padding:10px 12px;overflow-x:auto;margin:6px 0;position:relative;font-size:12.5px;line-height:1.5;}.msg pre code{background:none;padding:0;font-size:12.5px;}.msg table{border-collapse:collapse;margin:6px 0;font-size:13px;max-width:100%;display:block;overflow-x:auto;}.msg table th,.msg table td{border:1px solid var(--border);padding:4px 10px;text-align:left;}.msg table th {background:var(--bg-input);font-weight:600;}.msg blockquote{margin:6px 0;padding:4px 12px;border-left:3px solid var(--accent);opacity:0.85;}.msg h1,.msg h2,.msg h3,.msg h4{margin:10px 0 6px;font-weight:600;line-height:1.3;}.msg h1 {font-size:17px;}.msg h2 {font-size:16px;}.msg h3 {font-size:15px;}.msg h4 {font-size:14px;}.msg hr {border:none;border-top:1px solid var(--border);margin:8px 0;}.code-header{display:flex;justify-content:space-between;align-items:center;padding:4px 12px;background:var(--bg-input);border-radius:8px 8px 0 0;font-size:11px;color:var(--text-muted);margin-top:6px;}.code-header + pre {margin-top:0;border-radius:0 0 8px 8px;}.copy-code-btn{border:none;background:none;color:var(--text-muted);cursor:pointer;font-size:11px;padding:2px 6px;border-radius:4px;}.copy-code-btn:hover {background:var(--bg-input);color:var(--text);}.code-fold-btn{border:none;background:none;color:var(--text-muted);cursor:pointer;font-size:11px;padding:2px 6px;border-radius:4px;}.code-fold-btn:hover {background:var(--bg-input);color:var(--text);}.msg-actions{display:flex;gap:4px;margin-top:6px;opacity:0;transition:opacity 0.15s;}.msg:hover .msg-actions {opacity:1;}.msg-action-btn{border:1px solid var(--border);background:var(--bg-card);color:var(--text-secondary);cursor:pointer;font-size:11px;padding:2px 8px;border-radius:6px;}.msg-action-btn:hover {background:var(--bg-input);color:var(--text);}.msg-action-btn.copied {color:#22c55e;border-color:#22c55e;}.msg img{max-width:100%;border-radius:8px;cursor:zoom-in;margin:4px 0;}.typing-indicator{display:inline-flex;gap:4px;padding:4px 2px;}.typing-indicator span{width:6px;height:6px;border-radius:50%;background:var(--text-muted);animation:typingBounce 1.2s infinite;}.typing-indicator span:nth-child(2) {animation-delay:0.2s;}.typing-indicator span:nth-child(3) {animation-delay:0.4s;}@keyframes typingBounce{0%,60%,100% {transform:translateY(0);opacity:0.5;}30% {transform:translateY(-4px);opacity:1;}}.msg-header{display:flex;align-items:center;gap:6px;margin-bottom:2px;}.msg-avatar{width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;background:var(--accent);color:#fff;}.msg-sender {font-size:11px;font-weight:600;opacity:0.7;}.msg-time {font-size:11px;opacity:0.5;margin-left:auto;}.welcome{text-align:center;padding:80px 20px;color:var(--text-muted);}.welcome-icon {font-size:40px;margin-bottom:16px;opacity:0.6;}.welcome-title {font-size:18px;font-weight:600;margin-bottom:8px;color:var(--text-secondary);}.welcome-desc {font-size:15px;line-height:1.5;opacity:0.7;}.chat-input-area{position:fixed;left:0;right:0;bottom:0;z-index:1050;padding:10px 16px max(10px,env(safe-area-inset-bottom,0px));border-top:1px solid var(--border);background:var(--bg-card);}.input-wrapper{display:flex;gap:8px;max-width:800px;margin:0 auto;}.chat-input{flex:1;padding:10px 14px;border:1px solid var(--border);border-radius:18px;background:var(--bg-input);color:var(--text);font-size:14px;outline:none;font-family:inherit;resize:none;line-height:1.4;max-height:120px;min-height:40px;overflow-y:auto;display:block;box-sizing:border-box;}.chat-input:focus {border-color:var(--accent);}.stop-btn{background:var(--danger) !important;font-size:14px !important;}.attach-btn{width:40px;height:40px;border:none;border-radius:50%;background:var(--bg-input);color:var(--text-secondary);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;}.attach-btn:hover{background:color-mix(in srgb,var(--accent-soft) 85%,black);color:var(--accent);}.send-btn{width:40px;height:40px;border:none;border-radius:50%;background:var(--accent);color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;}.send-btn:disabled {opacity:0.5;cursor:not-allowed;}.panel{flex:1;overflow-y:auto;padding:16px;}/* === 智能家居 === */.ha-header{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px;}.ha-tabs{display:flex;gap:6px;flex-wrap:wrap;}.ha-tab{padding:7px 14px;border:1px solid var(--border);border-radius:18px;background:var(--bg-card);color:var(--text-secondary);cursor:pointer;font-size:13px;transition:all 0.2s;}.ha-tab.active{background:var(--accent);color:#fff;border-color:var(--accent);}.ha-actions{display:flex;align-items:center;gap:10px;}/* 刷新按钮：iOS 风格 SVG 图标 + 柔和背景 */.ha-refresh-btn{width:30px;height:30px;border:none;border-radius:50%;background:color-mix(in srgb,var(--accent-soft) 55%,transparent);color:var(--accent);display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all 0.2s;padding:0;flex-shrink:0;}.ha-refresh-btn svg{width:15px;height:15px;}.ha-refresh-btn:hover{background:color-mix(in srgb,var(--accent-soft) 90%,transparent);transform:rotate(90deg);}.ha-refresh-btn:active{background:var(--accent);color:#fff;transform:rotate(180deg);}.ha-refresh-btn.spinning{animation:haSpin 0.7s linear infinite;}@keyframes haSpin{to {transform:rotate(360deg);}}.ha-autorefresh{font-size:12px;color:var(--text-muted);display:flex;align-items:center;gap:4px;cursor:pointer;}.ha-status{font-size:12px;color:var(--text-muted);margin-bottom:10px;min-height:16px;}.ha-status.error {color:var(--danger);}/* === 智能家居总览条 === */.ha-overview{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;}.ha-overview-item{background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:7px 12px;display:flex;align-items:center;gap:8px;flex:1;min-width:100px;max-width:180px;}.ha-overview-item .ov-icon {font-size:14px;}.ha-overview-item .ov-info {display:flex;flex-direction:column;line-height:1.25;}.ha-overview-item .ov-label {font-size:9px;color:var(--text-muted);}.ha-overview-item .ov-value {font-size:12px;font-weight:700;color:var(--text);}.ha-overview-item .ov-value.warn {color:var(--danger);}.ha-overview-item .ov-value.ok {color:#22c55e;}/* === HomeKit 风格设备卡片 === */.ha-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;}.ha-device{background:var(--bg-card);border:1px solid var(--border);border-radius:20px;padding:12px 12px;display:flex;flex-direction:column;gap:6px;cursor:pointer;transition:all 0.25s;position:relative;min-height:88px;box-shadow:0 1px 4px rgba(0,0,0,0.05);}.ha-device:hover {transform:translateY(-2px);box-shadow:0 4px 14px rgba(0,0,0,0.1);}.ha-device .ha-icon {font-size:22px;}.ha-device .ha-name{font-size:12px;font-weight:500;color:var(--text);line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;flex:1;}.ha-device .ha-state{font-size:10.5px;color:var(--text-muted);}/* 状态行：状态文字 + 内联小开关（与传感器排版一致） */.ha-device .ha-state-row{display:flex;align-items:center;justify-content:space-between;gap:6px;}.ha-device .ha-state-row .ha-state{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}.ha-device.on{border-color:var(--accent);background:color-mix(in srgb,var(--accent-soft) 35%,var(--bg-card));box-shadow:0 2px 12px color-mix(in srgb,var(--accent) 25%,transparent);}.ha-device.on .ha-state {color:var(--accent);font-weight:600;}.ha-device.off {opacity:0.85;}.ha-device.unavailable {opacity:0.4;cursor:not-allowed;}/* 小型圆形开关按钮（内联，与传感器排版一致） */.ha-device .ha-toggle{width:24px;height:24px;border:none;border-radius:50%;background:var(--bg-input);color:var(--text-secondary);cursor:pointer;font-size:11px;transition:all 0.25s;display:flex;align-items:center;justify-content:center;box-shadow:inset 0 1px 3px rgba(0,0,0,0.12);flex-shrink:0;padding:0;}.ha-device.on .ha-toggle{background:var(--accent);color:#fff;box-shadow:0 2px 6px color-mix(in srgb,var(--accent) 40%,transparent);}.ha-device .ha-toggle:hover {transform:scale(1.1);}.ha-device .ha-toggle:active {transform:scale(0.92);}.ha-device.busy {pointer-events:none;opacity:0.6;}/* === 空调卡片（上下结构） === */.ha-device.climate-card{grid-column:1 / -1;min-height:0;flex-direction:column;gap:10px;padding:12px 16px;border-radius:22px;background:linear-gradient(135deg,color-mix(in srgb,var(--accent-soft) 60%,var(--bg-card)),var(--bg-card) 60%);}.ha-device.climate-card.on{background:linear-gradient(135deg,color-mix(in srgb,var(--accent) 22%,var(--bg-card)),color-mix(in srgb,var(--accent-soft) 55%,var(--bg-card)) 70%);}/* 顶部信息行 */.ha-climate-top{display:flex;align-items:center;gap:12px;width:100%;}.ha-device.climate-card .ha-climate-left{display:flex;flex-direction:row;align-items:center;gap:10px;flex-shrink:0;min-width:110px;}.ha-device.climate-card .ha-icon {font-size:26px;}.ha-device.climate-card .ha-temp{font-size:30px;font-weight:700;color:var(--text);line-height:1;}.ha-device.climate-card .ha-temp span {font-size:14px;font-weight:400;color:var(--text-muted);}.ha-device.climate-card .ha-climate-info{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px;}.ha-device.climate-card .ha-name{font-size:13px;-webkit-line-clamp:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}.ha-device.climate-card .ha-state{font-size:11px;font-weight:600;}/* 空调电源开关（右上角） */.ha-climate-power{flex-shrink:0;width:40px;height:40px;border:none;border-radius:50%;background:var(--bg-input);color:var(--text-secondary);cursor:pointer;font-size:17px;display:flex;align-items:center;justify-content:center;transition:all 0.25s;box-shadow:inset 0 2px 4px rgba(0,0,0,0.12);}.ha-device.climate-card.on .ha-climate-power{background:var(--accent);color:#fff;box-shadow:0 3px 12px color-mix(in srgb,var(--accent) 45%,transparent);}.ha-climate-power:hover {transform:scale(1.06);}.ha-climate-power:active {transform:scale(0.94);}/* 底部控制按钮行：从左到右排列 */.ha-climate-controls-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap;width:100%;padding-top:8px;border-top:1px solid color-mix(in srgb,var(--border) 60%,transparent);}.ha-climate-controls-row .ha-controls-label{font-size:11px;color:var(--text-muted);margin-right:4px;white-space:nowrap;}.ha-climate-controls{display:flex;gap:5px;flex-wrap:wrap;align-items:center;}.ha-climate-controls + .ha-climate-controls {margin-left:2px;}.ha-climate-controls button{padding:4px 11px;border:1px solid var(--border);border-radius:14px;background:var(--bg-card);color:var(--text-secondary);font-size:11px;cursor:pointer;transition:all 0.2s;}.ha-climate-controls button:hover {border-color:var(--accent);color:var(--accent);}.ha-climate-controls button.active{background:var(--accent);color:#fff;border-color:var(--accent);box-shadow:0 2px 8px color-mix(in srgb,var(--accent) 35%,transparent);}.ha-climate-controls .temp-btn{min-width:30px;font-weight:700;font-size:14px;border-radius:50%;width:30px;height:30px;padding:0;display:flex;align-items:center;justify-content:center;}.log-empty{text-align:center;padding:30px;color:var(--text-muted);font-size:13px;}/* === 日志模块 === */.log-header{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:12px;}.log-tabs{display:flex;gap:6px;}.log-tab{padding:7px 14px;border:1px solid var(--border);border-radius:18px;background:var(--bg-card);color:var(--text-secondary);cursor:pointer;font-size:13px;transition:all 0.2s;}.log-tab.active{background:var(--accent);color:#fff;border-color:var(--accent);}.log-actions{display:flex;gap:8px;}.log-filter{display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap;}.log-select{padding:6px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg-card);color:var(--text);font-size:13px;}.log-list{background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:8px 0;max-height:calc(100vh - 260px);overflow-y:auto;}.log-item{display:flex;align-items:flex-start;gap:8px;padding:6px 14px;font-size:13px;border-bottom:1px solid color-mix(in srgb,var(--border) 50%,transparent);line-height:1.4;}.log-item:last-child {border-bottom:none;}.log-icon {flex-shrink:0;}.log-time{flex-shrink:0;color:var(--text-muted);font-size:11.5px;font-family:monospace;white-space:nowrap;}.log-source{flex-shrink:0;font-size:10px;font-weight:600;padding:1px 7px;border-radius:8px;margin-top:1px;white-space:nowrap;align-self:flex-start;}.log-source.hermes {background:color-mix(in srgb,#0a84ff 15%,transparent);color:var(--accent);}.log-source.cron {background:color-mix(in srgb,#22c55e 15%,transparent);color:#22c55e;}.log-source.haproxy {background:color-mix(in srgb,#d97706 15%,transparent);color:#d97706;}.log-msg{color:var(--text);word-break:break-all;flex:1;}.log-msg.error {color:var(--danger);}.log-msg.warn {color:#d97706;}.log-empty{text-align:center;padding:30px;color:var(--text-muted);font-size:13px;}/* === 定时任务 === */.jobs-toolbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:10px;flex-wrap:wrap;}.jobs-toolbar-left,.jobs-toolbar-right{display:flex;gap:8px;align-items:center;}.job-card{background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:14px 16px;margin-bottom:10px;transition:all 0.2s;}.job-card:hover {border-color:color-mix(in srgb,var(--accent) 40%,var(--border));}.job-card.disabled {opacity:0.65;}.job-card-top{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;}.job-card-name{font-size:14.5px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;}.job-card-status{font-size:11px;padding:2px 10px;border-radius:10px;flex-shrink:0;}.job-card-status.on{background:color-mix(in srgb,#22c55e 15%,transparent);color:#16a34a;}.job-card-status.off{background:var(--bg-input);color:var(--text-muted);}.job-card-schedule{font-family:monospace;font-size:12px;color:var(--accent);background:var(--accent-soft);padding:2px 8px;border-radius:6px;display:inline-block;margin-bottom:6px;}.job-card-prompt{font-size:12.5px;color:var(--text-secondary);line-height:1.45;margin-bottom:8px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}.job-card-meta{display:flex;gap:14px;font-size:11.5px;color:var(--text-muted);margin-bottom:10px;flex-wrap:wrap;}.job-card-actions{display:flex;gap:6px;flex-wrap:wrap;}.job-action-btn{padding:5px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg-card);color:var(--text-secondary);font-size:12px;cursor:pointer;transition:all 0.15s;}.job-action-btn:hover {border-color:var(--accent);color:var(--accent);}.job-action-btn.primary {color:var(--accent);border-color:var(--accent-soft);}.job-action-btn.danger {color:var(--danger);}.job-action-btn.danger:hover {border-color:var(--danger);}.job-form-row {margin-bottom:12px;}.job-form-label{display:block;font-size:12px;color:var(--text-muted);margin-bottom:5px;}.job-form-input{width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg-input);color:var(--text);font-size:13px;outline:none;box-sizing:border-box;font-family:inherit;}.job-form-input:focus {border-color:var(--accent);}.job-form-error {font-size:12px;color:var(--danger);min-height:16px;margin-bottom:8px;}.job-form-actions {display:flex;gap:8px;}/* === 文件管理 === */.file-auth-layer{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:var(--bg);z-index:10;}.file-auth-box{background:var(--bg-card);border:1px solid var(--border);border-radius:20px;padding:32px 28px;width:280px;text-align:center;box-shadow:0 8px 30px rgba(0,0,0,0.1);}.file-auth-icon {font-size:36px;margin-bottom:8px;}.file-auth-title {font-size:16px;font-weight:700;color:var(--text);margin-bottom:4px;}.file-auth-desc {font-size:12.5px;color:var(--text-muted);margin-bottom:16px;}.file-auth-input{width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:10px;background:var(--bg-input);color:var(--text);font-size:14px;outline:none;box-sizing:border-box;margin-bottom:8px;}.file-auth-input:focus {border-color:var(--accent);}.file-auth-error {font-size:12px;color:var(--danger);min-height:16px;margin-bottom:6px;}.file-auth-btn{width:100%;padding:10px;border:none;border-radius:10px;background:var(--accent);color:#fff;font-size:14px;font-weight:600;cursor:pointer;transition:opacity 0.2s;}.file-auth-btn:hover {opacity:0.9;}.file-auth-btn:disabled {opacity:0.5;cursor:not-allowed;}.file-header {margin-bottom:12px;}.file-tabs{display:flex;gap:6px;}.file-tab{padding:7px 14px;border:1px solid var(--border);border-radius:18px;background:var(--bg-card);color:var(--text-secondary);cursor:pointer;font-size:13px;transition:all 0.2s;}.file-tab.active{background:var(--accent);color:#fff;border-color:var(--accent);}.file-breadcrumb{display:flex;align-items:center;flex-wrap:wrap;gap:4px;margin-bottom:8px;font-size:13px;}.file-crumb{color:var(--accent);cursor:pointer;padding:3px 6px;border-radius:6px;}.file-crumb:hover {background:var(--accent-soft);}.file-crumb-sep {color:var(--text-muted);}.file-toolbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;}.file-toolbar-actions{display:flex;gap:8px;}.file-count{font-size:12px;color:var(--text-muted);}.file-list{background:var(--bg-card);border:1px solid var(--border);border-radius:12px;overflow:hidden;}.file-item{display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;transition:background 0.15s;border-bottom:1px solid color-mix(in srgb,var(--border) 50%,transparent);}.file-item:last-child {border-bottom:none;}.file-item:hover {background:var(--accent-soft);}.file-item .file-icon {font-size:20px;flex-shrink:0;}.file-item .file-info{flex:1;min-width:0;}.file-item .file-name{font-size:13.5px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}.file-item .file-meta{font-size:11px;color:var(--text-muted);margin-top:1px;}.file-item .file-actions{display:flex;gap:6px;flex-shrink:0;}.file-action-btn{padding:4px 9px;border:1px solid var(--border);border-radius:8px;background:var(--bg-card);color:var(--text-secondary);font-size:11.5px;cursor:pointer;transition:all 0.15s;}.file-action-btn:hover {border-color:var(--accent);color:var(--accent);}.file-action-btn.download {color:var(--accent);border-color:var(--accent-soft);}/* 预览弹窗 */.file-preview-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);z-index:9999;display:none;align-items:center;justify-content:center;padding:20px;}.file-preview-overlay.show {display:flex;}.file-preview-box{background:var(--bg);border-radius:14px;max-width:90vw;max-height:85vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,0.3);}.file-preview-header{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-bottom:1px solid var(--border);font-size:13px;font-weight:600;color:var(--text);}.file-preview-close{background:none;border:none;font-size:16px;color:var(--text-muted);cursor:pointer;padding:4px;}.file-preview-close:hover {color:var(--danger);}.file-preview-body{padding:14px 16px;overflow:auto;min-width:300px;max-width:80vw;}.file-preview-body img{max-width:100%;max-height:65vh;border-radius:8px;display:block;}.file-preview-body pre{margin:0;font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-all;color:var(--text);max-height:60vh;overflow:auto;}.card{background:var(--bg-card);border:1px solid var(--border);border-radius:12px;overflow:hidden;position:relative;box-shadow:0 1px 3px rgba(0,0,0,0.04);}.card-title{padding:16px;font-size:16px;font-weight:600;border-bottom:1px solid var(--border);color:var(--text);}.card-body{padding:16px;font-size:14px;color:var(--text-secondary);}.btn{padding:8px 16px;border:none;border-radius:8px;background:var(--accent);color:#fff;cursor:pointer;font-size:14px;}.btn:hover {opacity:0.9;transform:translateY(-1px);}.session-item{padding:12px;background:var(--bg-card);border:1px solid var(--border);border-radius:10px;margin-bottom:8px;cursor:pointer;}.session-item {position:relative;}.session-item:hover {border-color:var(--accent);}.session-item.active {border-color:var(--accent);background:color-mix(in srgb,var(--accent-soft) 85%,black);}.session-title {font-size:14px;font-weight:500;margin-bottom:4px;color:var(--text);}.session-meta {font-size:11px;color:var(--text-muted);}.session-export {padding:4px 8px;font-size:12px;border:none;background:transparent;color:var(--text-secondary);cursor:pointer;border-radius:4px;}.session-export:hover {background:var(--bg-input);color:var(--text);}.session-delete{position:absolute;top:8px;right:8px;width:24px;height:24px;border:none;background:transparent;color:var(--text-muted);font-size:16px;cursor:pointer;border-radius:4px;display:flex;align-items:center;justify-content:center;opacity:0;transition:all 0.2s;}.session-item:hover .session-delete {opacity:1;}.session-search{width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg-input);color:var(--text);font-size:13px;outline:none;margin-bottom:12px;box-sizing:border-box;}.session-search:focus {border-color:var(--accent);}.session-pin{border:none;background:transparent;color:var(--text-muted);cursor:pointer;font-size:13px;padding:2px 6px;border-radius:4px;opacity:0;transition:opacity 0.2s;}.session-item:hover .session-pin {opacity:1;}.session-pin.pinned {opacity:1;color:var(--accent);}.session-rename{border:none;background:transparent;color:var(--text-muted);cursor:pointer;font-size:12px;padding:2px 6px;border-radius:4px;opacity:0;transition:opacity 0.2s;}.session-item:hover .session-rename {opacity:1;}.image-preview-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.85);z-index:9999;display:flex;align-items:center;justify-content:center;cursor:zoom-out;opacity:0;pointer-events:none;transition:opacity 0.2s;}.image-preview-overlay.show{opacity:1;pointer-events:auto;}.image-preview-overlay img{max-width:92%;max-height:92%;border-radius:8px;object-fit:contain;}.pinned-session{border-left:3px solid var(--accent) !important;}.session-delete:hover {background:#fee;color:#c00;}.empty-state{text-align:center;padding:40px 20px;color:var(--text-muted);}@media (max-width:768px){.sidebar{position:fixed !important;left:-100% !important;top:0 !important;bottom:0 !important;transition:left 0.3s ease !important;width:280px !important;z-index:1100 !important;box-shadow:0 0 30px rgba(0,0,0,0.25) !important;padding-top:env(safe-area-inset-top,0px) !important;padding-bottom:env(safe-area-inset-bottom,0px) !important;box-sizing:border-box;}.sidebar.open {left:0 !important;}.menu-btn {display:block !important;}/* 侧栏打开时遮罩 */.sidebar-mask{position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:1090;display:none;}.sidebar-mask.show {display:block;}/* 聊天区域占满，输入区贴合底部 */.main {margin-left:0 !important;}.chat-messages {padding-bottom:16px;}.chat-input-area {padding:8px 12px max(10px,env(safe-area-inset-bottom,0px));}.input-wrapper {gap:8px;}/* 消息气泡更紧凑 */.msg {max-width:85%;}.msg.user {margin-right:30px;}.msg.assistant {margin-left:30px;}.msg .msg-avatar {width:24px;height:24px;}.msg.user .msg-avatar {right:-30px;}.msg.assistant .msg-avatar {left:-30px;}/* 头部紧凑：隐藏模型显示，绿点紧贴 Chat */.header {height:50px;min-height:50px;padding:0 12px;}.header-model {display:none;}.header-center{position:static;transform:none;margin-left:6px;}.status-text {display:none;}.status-dot {width:8px;height:8px;}/* 智能家居：卡片单列/双列自适应 + 总览横滑 */.ha-grid {grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px;}.ha-overview{display:flex;overflow-x:auto;-webkit-overflow-scrolling:touch;flex-wrap:nowrap;padding-bottom:6px;scrollbar-width:none;}.ha-overview::-webkit-scrollbar {display:none;}.ha-overview-item {flex-shrink:0;min-width:90px;}.ha-device.climate-card {flex-direction:column;align-items:flex-start;gap:10px;}.ha-climate-controls-row {flex-wrap:wrap;}/* 文件管理 */.file-item {padding:12px 12px;}.file-item .file-name {font-size:13px;}.file-action-btn {padding:6px 10px;font-size:12px;}.file-tabs,.log-tabs,.file-toolbar-actions {flex-wrap:wrap;}/* 日志/技能/任务 */.log-item {padding:8px 12px;}.log-time {min-width:0;font-size:11px;}.log-filter {gap:6px;}.log-select {padding:8px 10px;}.job-card {padding:12px 14px;}.job-card-actions {gap:8px;}.job-action-btn {padding:8px 14px;font-size:12.5px;flex:1;text-align:center;min-width:0;}.job-card-actions {display:grid;grid-template-columns:1fr 1fr;}.jobs-toolbar {padding:0 2px;}/* 弹窗占满 */.file-preview-overlay {padding:10px;}.file-preview-box {max-width:100%;width:100%;max-height:92vh;}.file-preview-body {max-width:100%;}/* 面板内边距 */.panel {padding:12px;}.push-switch{position:relative;display:inline-block;width:46px;height:28px;flex-shrink:0;}
+.push-switch input{opacity:0;width:0;height:0;}
+.push-slider{position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background:var(--bg-input);border-radius:28px;transition:0.25s;}
+.push-slider:before{position:absolute;content:'';height:24px;width:24px;left:2px;top:2px;background:#fff;border-radius:50%;transition:0.25s;box-shadow:0 1px 3px rgba(0,0,0,0.25);}
+.push-switch input:checked + .push-slider{background:#34c759;}
+.push-switch input:checked + .push-slider:before{transform:translateX(18px);}
+.qm-group{padding:8px 14px 5px;font-size:11px;font-weight:700;color:var(--text-muted);background:var(--accent-soft);}
+.qm-dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-left:8px;flex-shrink:0;vertical-align:middle;cursor:pointer;}
+.qm-dot-ok{background:#34c759;}
+.qm-dot-fail{background:#ff3b30;}
+.qm-dot-wait{background:#8e8e93;animation:qm-blink 1s infinite;}
+@keyframes qm-blink{50%{opacity:0.3;}}
+.qm-row{display:flex;align-items:center;justify-content:space-between;padding:9px 14px;border-bottom:1px solid color-mix(in srgb,var(--border) 40%,transparent);}
+.qm-row:last-child{border-bottom:none;}
+.qm-name{font-size:13px;color:var(--text);}
+.qm-name.qm-current{color:var(--accent);font-weight:600;}
+.qm-badge{font-size:11px;color:var(--accent);font-weight:600;padding:3px 10px;border-radius:10px;background:var(--accent-soft);flex-shrink:0;}
+.qm-btn{font-size:11px !important;padding:4px 10px !important;flex-shrink:0;}
+/* === NAS 面板（V1.7.4 HomeKit 风格） === */.nas-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;}.nas-status-text{font-size:12px;color:var(--text-muted);}.nas-card{background:var(--bg-card);border:1px solid var(--border);border-radius:20px;padding:12px 16px;margin-bottom:10px;box-shadow:0 1px 4px rgba(0,0,0,0.05);}.nas-card-title{font-size:13px;font-weight:700;color:var(--text);margin-bottom:8px;}.nas-info-row{display:flex;justify-content:space-between;align-items:center;padding:5px 0;font-size:13px;color:var(--text-secondary);}.nas-info-row b{color:var(--text);font-weight:600;}.nas-meter{height:8px;background:var(--bg-input);border-radius:4px;overflow:hidden;margin:6px 0 4px;}.nas-bar{height:100%;border-radius:4px;background:var(--accent);transition:width 0.5s ease;min-width:2px;}.nas-bar.warn{background:#d97706;}.nas-bar.crit{background:var(--danger);}.nas-meter-text{font-size:12px;color:var(--text-muted);}.nas-disk{margin-bottom:10px;}.nas-disk:last-child{margin-bottom:0;}.nas-disk-row{display:flex;justify-content:space-between;font-size:12.5px;color:var(--text-secondary);margin-bottom:2px;}.nas-disk-row b{color:var(--text);font-weight:600;}.nas-note{font-size:10.5px;color:var(--text-muted);font-weight:400;}/* 服务卡片内存角标 */.nas-mem{font-size:10px;color:var(--text-muted);background:var(--bg-input);padding:1px 7px;border-radius:8px;white-space:nowrap;}/* 服务卡片状态点 */.nas-svc-dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:5px;}.nas-svc-dot.ok{background:#22c55e;}.nas-svc-dot.fail{background:#ef4444;}.nas-svc-dot.wait{background:#9ca3af;}/* 触控目标最小 44px */.nav-item {min-height:48px;}.file-action-btn,.job-action-btn,.log-tab,.file-tab,.btn-small {min-height:40px;}.attach-btn,.send-btn,.stop-btn {width:42px;height:42px;}.session-item {padding:12px 10px;}/* 表格横向滚动 *//* 历史会话搜索框 */.session-search {font-size:15px;padding:10px 12px;}/* 代码块字号 */pre,code {font-size:12.5px;}}/* 小屏手机（≤480px）进一步收紧 */@media (max-width:480px){.ha-grid {grid-template-columns:repeat(2,1fr);gap:8px;}.ha-device {min-height:82px;padding:10px;}.ha-device .ha-icon {font-size:20px;}.ha-device.climate-card {grid-column:1 / -1;}.msg {max-width:85%;}.msg.user {margin-right:28px;}.msg.assistant {margin-left:28px;}.msg.user .msg-avatar {right:-28px;}.msg.assistant .msg-avatar {left:-28px;}.welcome {padding:50px 16px;}.welcome-icon {font-size:32px;}.file-preview-body {padding:10px;}.file-auth-box {width:90%;padding:26px 20px;}.file-auth-input {font-size:16px;padding:12px 14px;}.job-card-actions {grid-template-columns:1fr 1fr;}.job-form-input {font-size:16px;}.log-item {flex-wrap:wrap;}.log-time {width:100%;margin-bottom:2px;}.log-msg {width:100%;}.chat-input-area {padding-left:8px;padding-right:8px;}.input-wrapper .chat-input {font-size:16px;}}</style>
+<script src="/libs/marked.min.js"></script>
+<script src="/libs/purify.min.js"></script>
+<link rel="stylesheet" href="/libs/github.min.css" id="hljsLight">
+<link rel="stylesheet" href="/libs/github-dark.min.css" id="hljsDark" disabled>
+</head>
+<body>
+  <!-- V1.8.4 登录层 -->
+  <div id="loginOverlay" style="display:none;position:fixed;inset:0;z-index:99999;background:#f2f2f7;justify-content:center;align-items:center;padding:24px;overflow-y:auto;">
+    <div style="width:100%;max-width:340px;background:#fff;border-radius:20px;padding:28px 24px;box-shadow:0 8px 40px rgba(0,0,0,0.12);">
+      <div style="text-align:center;margin-bottom:20px;">
+        <div style="font-size:28px;">💬</div>
+        <div style="font-size:20px;font-weight:700;color:#1c1c1e;margin-top:4px;">轻聊</div>
+        <div style="font-size:12px;color:#8e8e93;margin-top:2px;">连接你的 AI 助手</div>
+      </div>
+      <div style="font-size:12px;color:#8e8e93;margin-bottom:6px;">服务器地址</div>
+      <input id="loginServer" placeholder="http://192.168.31.40:8080" style="width:100%;box-sizing:border-box;padding:12px;border:1px solid #e5e5ea;border-radius:12px;font-size:15px;margin-bottom:12px;background:#f8f8fa;" autocomplete="off">
+      <input id="loginUser" placeholder="用户名" style="width:100%;box-sizing:border-box;padding:12px;border:1px solid #e5e5ea;border-radius:12px;font-size:15px;margin-bottom:12px;background:#f8f8fa;" autocomplete="username">
+      <input id="loginPass" type="password" placeholder="密码" style="width:100%;box-sizing:border-box;padding:12px;border:1px solid #e5e5ea;border-radius:12px;font-size:15px;margin-bottom:8px;background:#f8f8fa;" autocomplete="current-password">
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:#3a3a3c;margin-bottom:14px;">
+        <input type="checkbox" id="loginRemember" checked style="width:16px;height:16px;"> 记住登录（7 天免登录）
+      </label>
+      <div id="loginError" style="font-size:13px;color:#ff3b30;margin-bottom:10px;min-height:18px;"></div>
+      <button id="loginBtn" onclick="doLogin()" style="width:100%;padding:13px;background:#007aff;color:#fff;border:none;border-radius:12px;font-size:16px;font-weight:600;">登 录</button>
+    </div>
+  </div>
+  <div class="app">
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <div class="sidebar-brand">轻聊</div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <button class="sidebar-toggle" id="sidebarCollapse" aria-label="收起" style="background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.25);color:#fff;">‹</button>
+
+        </div>
+      </div>
+      <nav class="sidebar-nav">
+        <button class="nav-item active" data-page="chat">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          <span>Chat</span>
+        </button>
+        <button class="nav-item" data-page="nas">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4M6 7h.01M10 7h.01M6 11h.01M10 11h.01"/></svg>
+          <span>NAS 面板</span>
+        </button>
+        <button class="nav-item" data-page="kanban">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 12h18M3 12l3-3M3 12l3 3"/><rect x="7" y="4" width="14" height="16" rx="2"/><line x1="7" y1="10" x2="21" y2="10"/></svg>
+          <span>智能家居</span>
+        </button>
+        <button class="nav-item" data-page="files">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+          <span>文件管理</span>
+        </button>
+        <button class="nav-item" data-page="jobs">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+          <span>定时任务</span>
+        </button>
+        <button class="nav-item" data-page="logs">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          <span>日志</span>
+        </button>
+        <button class="nav-item" data-page="history">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          <span>历史会话</span>
+        </button>
+        <button class="nav-item" data-page="settings">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20a8 8 0 1 0 0-16 8 8 0 0 0 0 16Z"/><path d="M12 14a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z"/><path d="M12 2v2"/><path d="M12 22v-2"/><path d="m17 20.66-1-1.73"/><path d="M11 10.27 7 3.34"/><path d="m20.66 17-1.73-1"/><path d="m3.34 7 1.73 1"/><path d="M2 12h2"/><path d="M22 12h-2"/></svg>
+          <span>设置</span>
+        </button>
+        <button class="nav-item" data-page="about">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+          <span>关于轻聊</span>
+        </button>
+      </nav>
+      
+    </aside>
+    <div class="sidebar-mask" id="sidebarMask"></div>
+
+
+    <main class="main">
+      <div class="page" id="page-nas">
+        <div class="panel">
+          <div class="nas-header">
+            <span class="nas-status-text" id="nasStatusText">加载中…</span>
+            <button class="ha-refresh-btn" id="nasRefreshBtn" title="刷新"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6"/></svg></button>
+          </div>
+          <!-- 概览条（HomeKit 风格） -->
+          <div class="ha-overview" style="margin-bottom:12px;">
+            <div class="ha-overview-item"><span class="ov-icon">⚡</span><div class="ov-info"><span class="ov-label">CPU</span><span class="ov-value" id="nasOvCpu">-</span></div></div>
+            <div class="ha-overview-item"><span class="ov-icon">🧠</span><div class="ov-info"><span class="ov-label">内存</span><span class="ov-value" id="nasOvMem">-</span></div></div>
+            <div class="ha-overview-item"><span class="ov-icon">💾</span><div class="ov-info"><span class="ov-label">磁盘</span><span class="ov-value" id="nasOvDisk">-</span></div></div>
+            <div class="ha-overview-item"><span class="ov-icon">🕐</span><div class="ov-info"><span class="ov-label">运行</span><span class="ov-value" id="nasOvUptime" style="font-size:10px;">-</span></div></div>
+          </div>
+          <!-- 服务卡片网格 -->
+          <div class="ha-grid" id="nasServices" style="margin-bottom:12px;"></div>
+          <!-- 系统信息 -->
+          <div class="nas-card">
+            <div class="nas-card-title">系统信息</div>
+            <div class="nas-info-row"><span>主机名</span><b id="nasHostname">-</b></div>
+            <div class="nas-info-row"><span>运行时间</span><b id="nasUptime">-</b></div>
+          </div>
+          <!-- 磁盘 -->
+          <div class="nas-card">
+            <div class="nas-card-title">磁盘</div>
+            <div id="nasDisks"></div>
+          </div>
+        </div>
+      </div>
+      <div class="page active" id="page-chat">
+        <header>
+          <div class="header-left">
+            <button class="menu-btn" id="menuBtn" aria-label="菜单">☰</button>
+            <h1 class="page-title" id="pageTitle">Chat</h1>
+          </div>
+          <div class="header-center">
+            <span class="header-model" id="headerModel">deepseek-v4-flash</span>
+            <span class="header-status" id="headerStatus">
+              <span class="status-dot online"></span>
+              <span class="status-text">已连接</span>
+            </span>
+          </div>
+          <div class="header-right">
+            <button class="icon-btn" id="themeBtn" aria-label="切换主题">◐</button>
+          </div>
+        </header>
+
+        <div class="chat-container">
+          <div class="chat-messages" id="chat">
+            <div class="welcome">
+              <div class="welcome-icon">💬</div>
+              <div class="welcome-title">你好，我是轻聊</div>
+              <div class="welcome-desc">输入消息与 轻聊 对话</div>
+            </div>
+          </div>
+          <div class="chat-input-area">
+            <div id="attachedFiles" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px;min-height:0;"></div>
+            <div class="input-wrapper">
+              <button class="attach-btn" id="attachBtn" title="添加附件">📎</button>
+              <textarea class="chat-input" id="input" placeholder="输入消息..." autocomplete="off" rows="1"></textarea>
+              <button class="send-btn" id="sendBtn" title="发送">↑</button>
+              <button class="send-btn stop-btn" id="stopBtn" title="停止生成" style="display:none;">■</button>
+            </div>
+            <input type="file" id="fileInput" multiple style="display:none">
+          </div>
+        </div>
+      </div>
+
+      <div class="page" id="page-jobs">
+        <div class="panel">
+          <div class="jobs-toolbar">
+            <div class="jobs-toolbar-left">
+              <button class="btn" id="newJobBtn">＋ 新增任务</button>
+            </div>
+            <div class="jobs-toolbar-right">
+              <button class="btn-small" id="refreshJobsBtn">🔄 刷新</button>
+            </div>
+          </div>
+          <div id="jobsList"><div style="text-align:center;color:var(--text-muted);padding:40px 0;">加载中...</div></div>
+        </div>
+        <!-- 任务编辑弹窗 -->
+        <div class="file-preview-overlay" id="jobModalOverlay">
+          <div class="file-preview-box" style="max-width:520px;">
+            <div class="file-preview-header">
+              <span id="jobModalTitle">新增任务</span>
+              <button class="file-preview-close" id="jobModalClose">✕</button>
+            </div>
+            <div class="file-preview-body">
+              <div class="job-form-row">
+                <label class="job-form-label">任务名称</label>
+                <input type="text" id="jobFormName" class="job-form-input" placeholder="例如：每日简报">
+              </div>
+              <div class="job-form-row">
+                <label class="job-form-label">执行计划</label>
+                <input type="text" id="jobFormCron" class="job-form-input" placeholder="cron 表达式，例如：0 9 * * *">
+              </div>
+              <div class="job-form-row">
+                <label class="job-form-label">提示词</label>
+                <textarea id="jobFormPrompt" class="job-form-input" rows="4" placeholder="任务执行内容描述..."></textarea>
+              </div>
+              <div class="job-form-row">
+                <label class="job-form-label">投递目标</label>
+                <select id="jobFormDeliver" class="job-form-input">
+                  <option value="origin">原会话</option>
+                  <option value="weixin">微信</option>
+                  <option value="local">本地保存</option>
+                  <option value="all">全部渠道</option>
+                </select>
+              </div>
+              <div class="job-form-row" style="margin-bottom:16px;">
+                <label class="job-form-label" style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+                  <input type="checkbox" id="jobFormEnabled" checked> 启用任务
+                </label>
+              </div>
+              <div class="job-form-error" id="jobFormError"></div>
+              <div class="job-form-actions">
+                <button class="file-auth-btn" id="jobFormSave" style="flex:1;">保存</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="page" id="page-kanban">
+        <div class="panel">
+          <div class="ha-header">
+            <div class="ha-tabs">
+              <button class="ha-tab active" data-ha-tab="lights">💡 灯光</button>
+              <button class="ha-tab" data-ha-tab="climate">🌡️ 空调</button>
+              <button class="ha-tab" data-ha-tab="sensors">📊 传感器</button>
+              <button class="ha-tab" data-ha-tab="switches">🔌 开关</button>
+            </div>
+            <div class="ha-actions">
+              <button class="ha-refresh-btn" id="haRefreshBtn" title="刷新">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><polyline points="21 3 21 9 15 9"/></svg>
+              </button>
+              <label class="ha-autorefresh"><input type="checkbox" id="haAutoRefresh" checked> 自动刷新</label>
+            </div>
+          </div>
+          <div class="ha-overview" id="haOverview">
+            <div class="ha-overview-item"><span class="ov-icon">💡</span><div class="ov-info"><span class="ov-label">灯开启</span><span class="ov-value" id="ovLights">-</span></div></div>
+            <div class="ha-overview-item"><span class="ov-icon">🌡️</span><div class="ov-info"><span class="ov-label">空调运行</span><span class="ov-value" id="ovClimate">-</span></div></div>
+            <div class="ha-overview-item"><span class="ov-icon">🔒</span><div class="ov-info"><span class="ov-label">门锁电量</span><span class="ov-value" id="ovLockBattery">-</span></div></div>
+            <div class="ha-overview-item"><span class="ov-icon">📷</span><div class="ov-info"><span class="ov-label">猫眼电量</span><span class="ov-value" id="ovDoorbellBattery">-</span></div></div>
+            <div class="ha-overview-item"><span class="ov-icon">🚨</span><div class="ov-info"><span class="ov-label">安防状态</span><span class="ov-value" id="ovAlarm">-</span></div></div>
+          </div>
+          <div id="haStatus" class="ha-status"></div>
+          <div id="haDeviceGrid" class="ha-grid"></div>
+        </div>
+      </div>
+
+      <div class="page" id="page-logs">
+        <div class="panel">
+          <div class="log-header">
+            <div class="log-tabs">
+              <button class="log-tab active" data-log-tab="op">📋 操作日志</button>
+              <button class="log-tab" data-log-tab="sys">🖥️ 系统日志</button>
+            </div>
+            <div class="log-actions">
+              <button class="btn-small" id="logExportBtn">📤 导出</button>
+              <button class="btn-small" id="logClearBtn" style="background:var(--danger);">🗑️ 清空</button>
+            </div>
+          </div>
+          <div class="log-filter" id="logFilterRow" style="display:none;">
+            <select id="sysLogLevel" class="log-select">
+              <option value="all">全部级别</option>
+              <option value="ERROR">ERROR</option>
+              <option value="WARNING">WARNING</option>
+              <option value="INFO">INFO</option>
+            </select>
+            <input class="session-search" id="sysLogSearch" placeholder="🔍 搜索日志..." style="margin-bottom:0;">
+            <button class="btn-small" id="sysLogRefresh">🔄 刷新</button>
+            <button class="btn-small" id="sysLogClear" style="background:var(--danger);">🗑️ 清除</button>
+          </div>
+          <div id="opLogsList" class="log-list"></div>
+          <div id="sysLogsList" class="log-list" style="display:none;"></div>
+        </div>
+      </div>
+
+
+      <div class="page" id="page-files">
+        <div class="panel" id="filePanel">
+          <div class="file-header">
+            <div class="file-tabs">
+              <button class="file-tab active" data-file-tab="nas">📁 NAS 文件</button>
+              <button class="file-tab" data-file-tab="chat">💬 聊天文件</button>
+            </div>
+          </div>
+          <!-- NAS 文件浏览 -->
+          <div id="nasFilePanel">
+            <div class="file-breadcrumb" id="fileBreadcrumb"></div>
+            <div class="file-toolbar">
+              <span class="file-count" id="fileCount"></span>
+              <div class="file-toolbar-actions">
+                <button class="btn-small" id="fileUploadBtn">⬆ 上传到微信文件</button>
+                <button class="btn-small" id="fileRefreshBtn">🔄 刷新</button>
+              </div>
+            </div>
+            <input type="file" id="fileUploadInput" style="display:none;" multiple>
+            <div id="fileList" class="file-list"><div class="log-empty">加载中...</div></div>
+          </div>
+          <!-- 聊天本地文件 -->
+          <div id="chatFilePanel" style="display:none;">
+            <div id="chatFileList" class="file-list"><div class="log-empty">暂无聊天文件</div></div>
+          </div>
+        </div>
+        <!-- 文件预览弹窗 -->
+        <div class="file-preview-overlay" id="filePreviewOverlay">
+          <div class="file-preview-box">
+            <div class="file-preview-header">
+              <span id="filePreviewTitle"></span>
+              <button class="file-preview-close" id="filePreviewClose">✕</button>
+            </div>
+            <div class="file-preview-body" id="filePreviewBody"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="page" id="page-settings">
+        <div class="panel">
+          <!-- 外观 -->
+          <div class="card">
+            <div class="card-title">🎨 外观</div>
+            <div class="card-body">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+                <div>
+                  <div style="font-size:13px;color:var(--text);">深色模式</div>
+                  <div style="font-size:11px;color:var(--text-muted);">切换明暗主题</div>
+                </div>
+                <button class="btn-small" id="themeBtn3">切换</button>
+              </div>
+              <div style="display:flex;align-items:center;justify-content:space-between;">
+                <div>
+                  <div style="font-size:13px;color:var(--text);">当前模型</div>
+                  <div style="font-size:11px;color:var(--text-muted);">聊天使用的 AI 模型</div>
+                </div>
+                <span id="settingsModel" style="font-size:13px;font-weight:600;color:var(--accent);">--</span>
+              </div>
+              <!-- V1.4 微信推送开关 -->
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-top:10px;">
+                <div>
+                  <div style="font-size:13px;color:var(--text);">微信推送</div>
+                  <div style="font-size:11px;color:var(--text-muted);">回复完成时发微信通知（离开 App 也能收到）</div>
+                </div>
+                <label class="push-switch">
+                  <input type="checkbox" id="pushToggle">
+                  <span class="push-slider"></span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <!-- V1.5 模型快捷切换 -->
+          <div class="card" style="margin-top:12px;">
+            <div class="card-title" style="display:flex;align-items:center;justify-content:space-between;">
+              <span>🧠 模型快捷切换</span>
+              <button class="msg-action-btn" onclick="refreshModelStatus()" style="font-size:11px;">🔄 刷新</button>
+            </div>
+            <div class="card-body" style="padding:0;">
+              <div id="quickModelsList" style="max-height:340px;overflow-y:auto;-webkit-overflow-scrolling:touch;"></div>
+            </div>
+          </div>
+
+          <!-- 数据管理 -->
+          <div class="card" style="margin-top:12px;">
+            <div class="card-title">💾 数据管理</div>
+            <div class="card-body">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+                <div>
+                  <div style="font-size:13px;color:var(--text);">导出全部会话</div>
+                  <div style="font-size:11px;color:var(--text-muted);">所有聊天记录导出为 JSON</div>
+                </div>
+                <button class="btn-small" onclick="exportAllSessions()">导出</button>
+              </div>
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+                <div>
+                  <div style="font-size:13px;color:var(--text);">导入会话</div>
+                  <div style="font-size:11px;color:var(--text-muted);">从 JSON 文件恢复聊天</div>
+                </div>
+                <button class="btn-small" onclick="importSession()">导入</button>
+              </div>
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+                <div>
+                  <div style="font-size:13px;color:var(--text);">导出操作日志</div>
+                  <div style="font-size:11px;color:var(--text-muted);">聊天/设备操作记录</div>
+                </div>
+                <button class="btn-small" onclick="exportOpLogs()">导出</button>
+              </div>
+
+            </div>
+          </div>
+
+          <!-- 连接信息（V1.8.4：服务器地址配置） -->
+          <div class="card" style="margin-top:12px;">
+            <div class="card-title">🔌 连接信息</div>
+            <div class="card-body">
+              <div style="font-size:12.5px;color:var(--text-secondary);line-height:1.8;margin-bottom:12px;">
+                <div>• 当前地址：<code style="font-size:12px;" id="currentServer">--</code></div>
+                <div>• 连接状态：<span id="settingsStatus">--</span></div>
+              </div>
+              <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px;">服务器地址（默认跟随当前页面）</div>
+              <div style="display:flex;gap:8px;">
+                <input id="serverInput" placeholder="http://192.168.31.40:8080" style="flex:1;min-width:0;padding:10px 12px;border:1px solid var(--border);border-radius:10px;font-size:13px;background:var(--bg-input, #fff);color:var(--text);" autocomplete="off">
+              </div>
+              <div style="display:flex;gap:8px;margin-top:8px;">
+                <button class="btn-small" onclick="testServerConn()">测试连接</button>
+                <button class="btn-small" onclick="saveServerAddr()" style="background:var(--accent);color:#fff;">保存并重载</button>
+              </div>
+              <div id="serverMsg" style="font-size:12px;color:var(--text-muted);margin-top:8px;min-height:16px;"></div>
+            </div>
+          </div>
+
+          <!-- 账号与安全（V1.8.4） -->
+          <div class="card" style="margin-top:12px;">
+            <div class="card-title">🔑 账号与安全</div>
+            <div class="card-body">
+              <div style="font-size:12.5px;color:var(--text-secondary);margin-bottom:10px;">
+                当前用户：<b id="currentUser">--</b>
+              </div>
+              <div style="font-size:13px;color:var(--text);margin-bottom:8px;">修改登录密码</div>
+              <input id="oldPass" type="password" placeholder="旧密码" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:10px;font-size:13px;margin-bottom:8px;background:var(--bg-input,#fff);color:var(--text);" autocomplete="current-password">
+              <input id="newPass" type="password" placeholder="新密码（至少 6 位）" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:10px;font-size:13px;margin-bottom:8px;background:var(--bg-input,#fff);color:var(--text);" autocomplete="new-password">
+              <input id="newPass2" type="password" placeholder="确认新密码" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:10px;font-size:13px;margin-bottom:8px;background:var(--bg-input,#fff);color:var(--text);" autocomplete="new-password">
+              <div id="pwMsg" style="font-size:12px;color:var(--text-muted);margin-bottom:8px;min-height:16px;"></div>
+              <div style="display:flex;gap:8px;">
+                <button class="btn-small" onclick="changePassword()">修改密码</button>
+                <button class="btn-small" onclick="doLogout()" style="background:var(--danger,#ff3b30);color:#fff;">退出登录</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 关于 -->
+          <div class="card" style="margin-top:12px;">
+            <div class="card-title" style="cursor:pointer;user-select:none;" id="versionCardTitle">
+              <span>ℹ️ 版本信息</span>
+              <span id="versionToggleIcon" style="font-size:12px;color:var(--text-muted);margin-left:8px;">▼</span>
+            </div>
+            <div class="card-body">
+              <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+                <span style="font-size:13px;color:var(--text-muted);">当前版本</span>
+                <span id="webuiVersion" style="font-weight:600;color:var(--accent);font-size:15px;">--</span>
+              </div>
+              <div id="releaseNotes" style="display:none;font-size:13px;color:var(--text-secondary);line-height:1.6;border-top:1px solid var(--border);padding-top:12px;"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="page" id="page-about">
+        <div class="panel">
+          <div class="card">
+            <div class="card-title">📖 关于轻聊</div>
+            <div class="card-body" style="font-size:13px;color:var(--text-secondary);line-height:1.9;">
+              <div style="text-align:center;margin:12px 0 16px;">
+                <div style="font-size:40px;">💬</div>
+                <div style="font-size:18px;font-weight:700;color:var(--text);margin-top:6px;">轻聊</div>
+                <div style="font-size:12px;color:var(--text-muted);">家庭 NAS 上的 AI 聊天助手</div>
+              </div>
+              <div style="color:var(--text);font-weight:600;margin-bottom:4px;">项目介绍</div>
+              <div>轻聊是一款部署在家庭 NAS 上的 AI 聊天助手，支持多模型切换、流式对话、文件解析、图片理解、智能家居控制与 NAS 状态面板。</div>
+              <div style="color:var(--text);font-weight:600;margin:12px 0 4px;">使用小贴士</div>
+              <div>• 发 PDF / Word / Excel 可让 AI 提炼内容</div>
+              <div>• 发图片可让 AI 看图回答</div>
+              <div>• 设置页可切换模型、配置服务器地址、修改登录密码</div>
+              <div>• 勾选"记住登录"后 7 天内免登录</div>
+              <div style="color:var(--text);font-weight:600;margin:12px 0 4px;">版本</div>
+              <div>轻聊 <span id="aboutVersion" style="color:var(--accent);font-weight:600;">--</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="page" id="page-history">
+        <div class="panel">
+          <div class="card">
+            <div class="card-title">历史会话</div>
+            <div class="card-body">
+              <button class="btn" id="newSessionBtn" style="margin-bottom:12px;">+ 新建会话</button>
+              <input class="session-search" id="sessionSearch" placeholder="🔍 搜索会话..." autocomplete="off">
+              <div class="history-actions" style="margin-bottom:12px;">
+                <button class="btn-small" onclick="importSession()">📥 导入会话</button>
+                <button class="btn-small" onclick="exportAllSessions()">📤 导出会话</button>
+              </div>
+              <div id="sessionList"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <div class="image-preview-overlay" id="imagePreviewOverlay">
+    <img id="imagePreviewImg" src="" alt="预览">
+  </div>
+
+  <script src="/app.js"></script>
+  <script>
+    /* PWA V0.24: Service Worker 注册（仅 HTTPS/localhost 生效，失败静默） */
+    // V1.8.4 IPA 适配：capacitor://（WebView 壳）下跳过 SW 注册（WKWebView 不支持，注册必失败）
+    if ('serviceWorker' in navigator && location.protocol !== 'capacitor:' && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+      window.addEventListener('load', function () {
+        navigator.serviceWorker.register('/sw.js').catch(function (err) {
+          console.warn('SW register failed:', err);
+        });
+        // 启动时从 NAS 拉取合并会话（静默降级本地）
+        if (typeof syncFromNas === 'function') syncFromNas();
+      });
+      // 页面回到前台时也同步一次（跨设备：PWA 记录后切到浏览器可见）
+      document.addEventListener('visibilitychange', function () {
+        if (document.visibilityState === 'visible') {
+          // 新架构：NAS 后端持流，前端只轮询。回前台立即拉一次增量——
+          // 后台期间后端照常输出并落盘，积压内容一次拉回，不丢、不重头
+          if (typeof window.__pollOnce === 'function') window.__pollOnce();
+          if (typeof syncFromNas === 'function') {
+            clearTimeout(window.__syncPullTimer);
+            window.__syncPullTimer = setTimeout(syncFromNas, 500);
+          }
+        }
+      });
+    }
+    // V1.2：新版本 SW 接管时提示刷新（首次安装不触发——controller 从 null 变有值不算 change）
+    // V1.3：HTML 走 SWR 缓存优先，刷新前必须先清缓存（postMessage FORCE_RELOAD → SW 清缓存 → RELOAD_NOW）
+    if (navigator.serviceWorker && location.protocol !== 'capacitor:') {
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        setTimeout(() => {
+          if (typeof showToast === 'function') showToast('发现新版本，点击刷新生效', () => {
+            if (navigator.serviceWorker.controller) {
+              navigator.serviceWorker.controller.postMessage({ type: 'FORCE_RELOAD' });
+            } else {
+              location.reload();
+            }
+          });
+        }, 400);
+      });
+      navigator.serviceWorker.addEventListener('message', (e) => {
+        if (e.data && e.data.type === 'RELOAD_NOW') location.reload();
+      });
+    }
+  </script>
+</body>
+</html>

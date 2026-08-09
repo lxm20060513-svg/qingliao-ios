@@ -1,0 +1,70 @@
+name: Build iOS IPA (unsigned, for SideStore)
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-ipa:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Capacitor deps
+        run: npm ci
+
+      - name: Add iOS platform (generates Xcode project)
+        run: npx cap add ios
+
+      - name: Sync web assets into iOS project
+        run: npx cap sync ios
+
+      - name: Configure Info.plist (ATS allow http for LAN NAS)
+        run: |
+          plutil -insert NSAppTransportSecurity -json '{"NSAllowsArbitraryLoads": true}' ios/App/App/Info.plist
+          plutil -insert NSAppTransportSecurity.NSAllowsLocalNetworking -bool true ios/App/App/Info.plist
+          # 应用名中文 + 状态栏样式
+          plutil -replace CFBundleDisplayName -string '轻聊' ios/App/App/Info.plist
+          echo "--- Info.plist ATS ---"
+          plutil -p ios/App/App/Info.plist | grep -A3 NSAppTransport
+
+      - name: Archive (unsigned)
+        run: |
+          xcodebuild -workspace ios/App/App.xcworkspace \
+            -scheme App \
+            -configuration Release \
+            -destination generic/platform=iOS \
+            -archivePath build/App.xcarchive \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            archive
+
+      - name: Export unsigned IPA
+        run: |
+          mkdir -p build/ipa
+          xcodebuild -exportArchive \
+            -archivePath build/App.xcarchive \
+            -exportPath build/ipa \
+            -exportOptionsPlist exportOptions.plist \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO
+
+      - name: Verify IPA
+        run: |
+          ls -la build/ipa/
+          file build/ipa/*.ipa
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: qingliao-unsigned-ipa
+          path: build/ipa/*.ipa
+          if-no-files-found: error

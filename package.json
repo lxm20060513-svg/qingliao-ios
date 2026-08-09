@@ -1,0 +1,19 @@
+{
+  "name": "qingliao-ios",
+  "version": "1.8.4",
+  "private": true,
+  "description": "轻聊 iOS 壳工程（Capacitor 8）——GitHub Actions 编译 unsigned IPA，SideStore 签名安装",
+  "scripts": {
+    "sync:web": "node scripts/sync-web.js",
+    "add:ios": "npx cap add ios",
+    "build:ipa": "bash scripts/build-ipa.sh"
+  },
+  "dependencies": {
+    "@capacitor/core": "^8.5.0",
+    "@capacitor/ios": "^8.5.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.5.0",
+    "typescript": "^5.0.0"
+  }
+}
