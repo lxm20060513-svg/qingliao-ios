@@ -19,7 +19,7 @@ plutil -insert NSAppTransportSecurity -json '{"NSAllowsArbitraryLoads": true}' i
 plutil -insert NSAppTransportSecurity.NSAllowsLocalNetworking -bool true ios/App/App/Info.plist || true
 
 echo "==> Archive（不签名）"
-xcodebuild -workspace ios/App/App.xcworkspace \
+xcodebuild -project ios/App/App.xcodeproj \
   -scheme App -configuration Release \
   -destination generic/platform=iOS \
   -archivePath build/App.xcarchive \

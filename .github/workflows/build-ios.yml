@@ -40,7 +40,7 @@ jobs:
 
       - name: Archive (unsigned)
         run: |
-          xcodebuild -workspace ios/App/App.xcworkspace \
+          xcodebuild -project ios/App/App.xcodeproj \
             -scheme App \
             -configuration Release \
             -destination generic/platform=iOS \
