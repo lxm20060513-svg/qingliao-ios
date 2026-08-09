@@ -6,6 +6,9 @@ on:
     tags:
       - 'v*'
 
+permissions:
+  contents: write   # 创建 Release / 上传 IPA 资产
+
 jobs:
   build-ipa:
     runs-on: macos-latest
