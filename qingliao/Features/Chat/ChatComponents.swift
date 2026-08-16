@@ -213,6 +213,50 @@ struct MessageBubble: View {
             : (scheme == .dark ? Color(uiColor: .systemGray5) : Color(uiColor: .systemGray6))
     }
 
+    /// v2.0.123：图片/文件卡片的长按菜单（文字区由 UITextView 编辑菜单接管，不再走这里）
+    @ViewBuilder
+    private var cardMenu: some View {
+        Button {
+            UIPasteboard.general.string = message.content
+        } label: {
+            Label("复制", systemImage: "doc.on.doc")
+        }
+        Button {
+            onQuote()
+        } label: {
+            Label("引用", systemImage: "quote.opening")
+        }
+        Button {
+            onShare()
+        } label: {
+            Label("分享", systemImage: "square.and.arrow.up")
+        }
+        Button {
+            onBigBang()
+        } label: {
+            Label("大爆炸", systemImage: "burst.fill")
+        }
+        if !message.isUser {
+            Button {
+                onRegenerate()
+            } label: {
+                Label("重新生成", systemImage: "arrow.clockwise")
+            }
+        }
+        if canWithdraw {
+            Button {
+                onWithdraw()
+            } label: {
+                Label("撤回", systemImage: "arrow.uturn.backward")
+            }
+        }
+        Button(role: .destructive) {
+            onDelete()
+        } label: {
+            Label("删除", systemImage: "trash")
+        }
+    }
+
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
             if message.isUser {
@@ -246,12 +290,16 @@ struct MessageBubble: View {
                             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                             // v2.0.36：点击查看大图
                             .onTapGesture { onImageTap() }
+                            // v2.0.123：图片长按菜单（原气泡级菜单移到这里，不抢占文字长按）
+                            .contextMenu { cardMenu }
                     }
                     if !message.content.isEmpty {
                         if message.isUser {
                             // v2.0.87q：文件消息微信风格卡片（图标+文件名+状态）
                             if let file = parseFileMessage(message.content) {
                                 FileMessageCard(file: file)
+                                    // v2.0.123：文件卡片长按菜单（原气泡级菜单移到这里）
+                                    .contextMenu { cardMenu }
                             } else {
                                 // v2.0.122：UITextView 渲染 —— 长按弹菜单（复制/选取文字/引用/分享/大爆炸/撤回/删除）
                                 SelectableTextLabel(
@@ -396,51 +444,10 @@ struct MessageBubble: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: message.isUser ? .trailing : .leading)
-        // 长按：复制 / 引用 / 分享 / 大爆炸 / 重新生成（AI 消息）/ 撤回 / 删除
-        // v2.0.122：「选取文字」已移入 UITextView 原生编辑菜单（SelectableTextLabel），
-        //           点选后从手按位置选中文字、出现拖动手柄可自由拖动；此处保留其余菜单项
-        .contextMenu {
-            Button {
-                UIPasteboard.general.string = message.content
-            } label: {
-                Label("复制", systemImage: "doc.on.doc")
-            }
-            Button {
-                onQuote()
-            } label: {
-                Label("引用", systemImage: "quote.opening")
-            }
-            Button {
-                onShare()
-            } label: {
-                Label("分享", systemImage: "square.and.arrow.up")
-            }
-            Button {
-                onBigBang()
-            } label: {
-                Label("大爆炸", systemImage: "burst.fill")
-            }
-            if !message.isUser {
-                Button {
-                    onRegenerate()
-                } label: {
-                    Label("重新生成", systemImage: "arrow.clockwise")
-                }
-            }
-            // v2.0.92：撤回（仅自己的消息 + 10 秒内 + 未撤回 + 未失败）
-            if canWithdraw {
-                Button {
-                    onWithdraw()
-                } label: {
-                    Label("撤回", systemImage: "arrow.uturn.backward")
-                }
-            }
-            Button(role: .destructive) {
-                onDelete()
-            } label: {
-                Label("删除", systemImage: "trash")
-            }
-        }
+        // v2.0.123：气泡级 contextMenu 已移除——它会抢占 UITextView 长按手势，
+        //           导致 SelectableTextLabel 的编辑菜单（含「选取文字」）弹不出来。
+        //           菜单分发：文字区 → UITextView 编辑菜单；图片/文件卡片 → 各自的 contextMenu；
+        //           代码块/表格 → MessageBlockView 内部 contextMenu。
     }
 
     /// 消息内容分段：``` 代码块 → 等宽深色块；其余 → markdown

@@ -90,7 +90,8 @@ Theme/LiquidGlass.swift  玻璃主题 + SiriGlowOverlay（参数化发光）
 - **v2.0.119**：智能建议卡门锁风格（标题左上 / 内容靠左 / 右上小胶囊）；本地模型列表选中勾选（`currentLocal` 对比 qingliao_provider==local）
 - **v2.0.120**：智能建议卡浅色边框（strokeBorder 0.8pt）
 - **v2.0.121（攒着未发）**：DockerSheet YAML 输入框键盘收回修复（iOS 17 FocusState 偶发失效 → `resignFirstResponder` 强制收回 + 提交部署时先收键盘）；设置页全部开关统一绿底小号（`tint(.green)` + `scaleEffect(0.8)`，9 处）
-- **v2.0.122（攒着未发）**：聊天文字长按菜单新增「选取文字」——文字渲染从 SwiftUI Text 改为 UITextView 包装（`SelectableTextLabel.swift` 新文件），长按文字弹出原生编辑菜单（复制/选取文字/引用/分享/大爆炸/重新生成/删除/撤回），点「选取文字」→ 菜单消失、手按位置的词被选中、出现原生拖动手柄可自由拖动选取范围；气泡级 contextMenu 保留其余菜单项（图片/文件卡片/代码块/表格区域仍走 SwiftUI 菜单），原 v2.0.121 的「选取文字模式」（selectingText 状态）整体移除
+- **v2.0.122**：聊天文字长按菜单新增「选取文字」——文字渲染从 SwiftUI Text 改为 UITextView 包装（`SelectableTextLabel.swift` 新文件），长按文字弹出原生编辑菜单（复制/选取文字/引用/分享/大爆炸/重新生成/删除/撤回），点「选取文字」→ 菜单消失、手按位置的词被选中、出现原生拖动手柄可自由拖动选取范围；原 v2.0.121 的「选取文字模式」（selectingText 状态）整体移除。**⚠️ v2.0.122 实测 bug：气泡级 contextMenu 抢占长按手势，文字编辑菜单（含选取文字）弹不出来，用户长按只见旧菜单** → v2.0.123 修复
+- **v2.0.123**：修复长按菜单无「选取文字」——根因是 MessageBubble 气泡整体挂的 `.contextMenu`（UIContextMenuInteraction 长按手势）抢占了 UITextView 的编辑菜单手势。修复：**移除气泡级 contextMenu**，菜单按区域分发——文字区（用户文本/AI markdown/AI 折叠）由 SelectableTextLabel 的 UITextView 编辑菜单接管（含选取文字）；图片/文件卡片各自挂 `.contextMenu { cardMenu }`（复制/引用/分享/大爆炸/重新生成/撤回/删除，与原菜单一致）；代码块/表格仍走 MessageBlockView 内部 SwiftUI 菜单。顺带补上 project.yml 版本号（v2.0.121/122 漏改，还是 2.0.120）
 - 本地模型链路：聊天模型选择「本地模型（断网兜底）」→ provider=local + model=Ollama 模型名 → 后端 stream_api 直连 Ollama（不经 Hermes）
 
 ## 🔀 分支与版本
