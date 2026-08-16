@@ -83,6 +83,15 @@ Theme/LiquidGlass.swift  玻璃主题 + SiriGlowOverlay（参数化发光）
 - **崩溃上报**：signal handler 只允许 POSIX open/write/close/getenv/strcpy + C 字符串字面量直写（任何 Swift String 构造都非 signal-safe）；完整栈走 NSException handler；崩溃信息下次启动 flush 上传
 - **列表崩溃三连排查**：①从有到无同帧 → VStack+分帧两步走；②TabView 隐藏页清空 → 换掉 .scrollPosition（PreferenceKey 方案）；③数组就地 removeAll + ForEach diff → 后端驱动 + load() 整体替换
 
+## 🆕 近期变更（2026-08-16，v2.0.117 → v2.0.120，接手必读）
+
+- **v2.0.117**：智能建议长条卡；本地模型初版（设置开关）；Siri 快捷指令移除（QingliaoAppIntents.swift 已删，勿加回）
+- **v2.0.118**：天气修复（`loadWeather` 带 city 参数——原无 city 走 IP 定位，NAS 出口无公网 IP → temp null 不显示温度）；设置页 6 分类重组（账号与安全 / 连接与模型 / AI 智能 / Agent 设置 / 数据与自动化 / 外观与显示）；本地模型自主管理（`LocalModelsSheet.swift` 新文件：动态列表 / 点选勾选 / 拉取新模型 / 左滑删除）；模型选择弹窗本地分组动态拉取 `/api/local/models`
+- **v2.0.119**：智能建议卡门锁风格（标题左上 / 内容靠左 / 右上小胶囊）；本地模型列表选中勾选（`currentLocal` 对比 qingliao_provider==local）
+- **v2.0.120**：智能建议卡浅色边框（strokeBorder 0.8pt）
+- **v2.0.121（攒着未发）**：DockerSheet YAML 输入框键盘收回修复（iOS 17 FocusState 偶发失效 → `resignFirstResponder` 强制收回 + 提交部署时先收键盘）；设置页全部开关统一绿底小号（`tint(.green)` + `scaleEffect(0.8)`，9 处）
+- 本地模型链路：聊天模型选择「本地模型（断网兜底）」→ provider=local + model=Ollama 模型名 → 后端 stream_api 直连 Ollama（不经 Hermes）
+
 ## 🔀 分支与版本
 
 - `native-2.0`：唯一开发分支（默认分支）；旧 `master` 本地残留可忽略（勿 push）
