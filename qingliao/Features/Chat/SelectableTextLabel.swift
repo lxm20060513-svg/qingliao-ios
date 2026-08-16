@@ -56,10 +56,26 @@ struct SelectableTextLabel: UIViewRepresentable {
         let parent: SelectableTextLabel
         init(parent: SelectableTextLabel) { self.parent = parent }
 
-        // iOS 16+：完全接管长按编辑菜单（替代系统 拷贝/选取/全选 等）
+        // v2.0.124：iOS 26+ 新 API —— iOS 27 上旧 API 不再调用，必须实现这个
+        //（旧 API editMenuForTextIn 自 iOS 26 起废弃，不实现则长按弹系统默认菜单，自定义项全丢）
+        func textView(_ textView: UITextView,
+                      editMenuForTextInRanges ranges: [NSValue],
+                      suggestedActions: [UIMenuElement]) -> UIMenu? {
+            guard let first = ranges.first?.nonretainedObjectValue as? UITextRange else {
+                return nil
+            }
+            return buildMenu(for: first, in: textView)
+        }
+
+        // iOS 16-25：旧 API（低版本兼容）
         func textView(_ textView: UITextView,
                       editMenuForTextIn range: UITextRange,
                       suggestedActions: [UIMenuElement]) -> UIMenu? {
+            return buildMenu(for: range, in: textView)
+        }
+
+        /// 自定义编辑菜单：复制/选取文字/引用/分享/大爆炸/重新生成/撤回/删除
+        private func buildMenu(for range: UITextRange, in textView: UITextView) -> UIMenu {
             var children: [UIMenuElement] = []
 
             children.append(UIAction(title: "复制", image: UIImage(systemName: "doc.on.doc")) { _ in
@@ -67,14 +83,19 @@ struct SelectableTextLabel: UIViewRepresentable {
             })
 
             // 核心：选中手按位置的词 → 系统显示拖动手柄，可自由拖动选取范围
+            // v2.0.124：iOS 26 弃用 selectedTextRange，改用 selectedRanges: [NSRange]（需把 UITextRange 换算成 NSRange）
             children.append(UIAction(title: "选取文字", image: UIImage(systemName: "selection.pin.in.out")) { _ in
                 let pos = range.start
+                let target: UITextRange
                 if let wordRange = textView.tokenizer.rangeEnclosingPosition(
                     pos, with: .word, inDirection: .layout(.right)) {
-                    textView.selectedTextRange = wordRange
+                    target = wordRange
                 } else {
-                    textView.selectedTextRange = range
+                    target = range
                 }
+                let start = textView.offset(from: textView.beginningOfDocument, to: target.start)
+                let length = textView.offset(from: target.start, to: target.end)
+                textView.selectedRanges = [NSRange(location: start, length: length)]
             })
 
             children.append(UIAction(title: "引用", image: UIImage(systemName: "quote.opening")) { _ in
