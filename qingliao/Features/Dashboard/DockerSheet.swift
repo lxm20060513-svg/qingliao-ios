@@ -68,7 +68,12 @@ struct DockerSheet: View {
                 }
                 ToolbarItemGroup(placement: .keyboard) {
                     Spacer()
-                    Button("完成") { focused = false }
+                    // v2.0.120 fix：iOS 17 TextEditor FocusState 偶发不收回键盘——强制 resign
+                    Button("完成") {
+                        focused = false
+                        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),
+                                                        to: nil, from: nil, for: nil)
+                    }
                 }
             }
             .confirmationDialog("删除容器？", isPresented: .init(
@@ -148,6 +153,10 @@ struct DockerSheet: View {
     }
 
     private func deploy() async {
+        // v2.0.120：提交部署时立即收键盘（不等部署完成）
+        focused = false
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),
+                                        to: nil, from: nil, for: nil)
         busy = true
         defer { busy = false }
         let n = name.trimmingCharacters(in: .whitespacesAndNewlines)

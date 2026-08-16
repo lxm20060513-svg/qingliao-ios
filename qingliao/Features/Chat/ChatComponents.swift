@@ -59,19 +59,81 @@ struct MessageContentBlock: Identifiable {
 }
 
 /// AI 消息分段渲染：markdown（容错解析，保留部分排版） / 代码块（等宽深色）
+/// v2.0.122：markdown 段改用 SelectableTextLabel（UITextView）——长按菜单含「选取文字」，
+///           点选后文字从手按位置选中、出现原生拖动手柄可自由拖动；代码块/表格保留 SwiftUI 菜单。
 struct MessageBlockView: View {
     let block: MessageContentBlock
     // v2.0.38：聊天字体大小（与 MessageBubble 同源）
     @AppStorage("qingliao_font_size") private var fontSize = 15.0   // v2.0.87r：默认15号
+    // v2.0.122：长按菜单回调（markdown 段 → UITextView 原生编辑菜单；代码块/表格 → SwiftUI 菜单）
+    var onCopy: () -> Void = {}
+    var onQuote: () -> Void = {}
+    var onShare: () -> Void = {}
+    var onBigBang: () -> Void = {}
+    var onDelete: () -> Void = {}
+    var onRegenerate: (() -> Void)? = nil
+    var onWithdraw: (() -> Void)? = nil
+
+    /// 代码块/表格共用的 SwiftUI 长按菜单（与原气泡级菜单项一致）
+    @ViewBuilder
+    private var bubbleMenu: some View {
+        Button {
+            onCopy()
+        } label: {
+            Label("复制", systemImage: "doc.on.doc")
+        }
+        Button {
+            onQuote()
+        } label: {
+            Label("引用", systemImage: "quote.opening")
+        }
+        Button {
+            onShare()
+        } label: {
+            Label("分享", systemImage: "square.and.arrow.up")
+        }
+        Button {
+            onBigBang()
+        } label: {
+            Label("大爆炸", systemImage: "burst.fill")
+        }
+        if let onRegenerate {
+            Button {
+                onRegenerate()
+            } label: {
+                Label("重新生成", systemImage: "arrow.clockwise")
+            }
+        }
+        if let onWithdraw {
+            Button {
+                onWithdraw()
+            } label: {
+                Label("撤回", systemImage: "arrow.uturn.backward")
+            }
+        }
+        Button(role: .destructive) {
+            onDelete()
+        } label: {
+            Label("删除", systemImage: "trash")
+        }
+    }
 
     var body: some View {
         switch block.kind {
         case .markdown(let text):
-            // v2.0.34：改用自研轻量渲染器（标题/加粗/斜体/代码/列表/引用），
-            // 不再依赖 AttributedString(markdown:) 系统解析（iOS 上输出纯文本不可控）
-            Text(MarkdownRenderer.render(text, baseSize: CGFloat(fontSize)))
-                .lineSpacing(3)
-                .textSelection(.enabled)
+            // v2.0.122：UITextView 渲染 —— 长按文字弹菜单，点「选取文字」从手按位置选中可拖动
+            SelectableTextLabel(
+                attributedText: NSAttributedString(MarkdownRenderer.render(text, baseSize: CGFloat(fontSize))),
+                fallbackColor: .label,
+                onCopy: onCopy,
+                onQuote: onQuote,
+                onShare: onShare,
+                onBigBang: onBigBang,
+                onDelete: onDelete,
+                onRegenerate: onRegenerate,
+                onWithdraw: onWithdraw
+            )
+            .frame(maxWidth: .infinity, alignment: .leading)
         case .code(let text):
             // v2.0.36：代码块加复制按钮（右上角）
             VStack(alignment: .leading, spacing: 6) {
@@ -100,9 +162,11 @@ struct MessageBlockView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Color.black.opacity(0.06))
             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .contextMenu { bubbleMenu }
         case .table(let rows):
             // v2.0.87d：markdown 表格渲染（表头加粗 + 斑马纹 + 横向滚动）
             MarkdownTableView(rows: rows)
+                .contextMenu { bubbleMenu }
         }
     }
 }
@@ -127,6 +191,15 @@ struct MessageBubble: View {
     @State private var expanded = false
     // v2.0.81：AI 回复朗读状态（全局单例）
     @ObservedObject private var speech = SpeechManager.shared
+
+    /// v2.0.92：撤回条件（自己的消息 + 10 秒内 + 未撤回 + 未失败），菜单项按此显隐
+    private var canWithdraw: Bool {
+        if message.isUser, !message.withdrawn, !message.failed,
+           let ts = message.timestamp {
+            return Date().timeIntervalSince1970 - ts / 1000 < 10
+        }
+        return false
+    }
 
     /// 用户气泡蓝：深色用深蓝，浅色用亮蓝（对比度适配）
     private var userBubbleColor: Color {
@@ -180,20 +253,39 @@ struct MessageBubble: View {
                             if let file = parseFileMessage(message.content) {
                                 FileMessageCard(file: file)
                             } else {
-                                Text(AttributedString(message.content))
-                                    .font(.system(size: CGFloat(fontSize)))   // v2.0.38 字号可调
-                                    .lineSpacing(3)
-                                    .foregroundStyle(.white)
-                                    .textSelection(.enabled)
+                                // v2.0.122：UITextView 渲染 —— 长按弹菜单（复制/选取文字/引用/分享/大爆炸/撤回/删除）
+                                SelectableTextLabel(
+                                    attributedText: NSAttributedString(string: message.content, attributes: [
+                                        .font: UIFont.systemFont(ofSize: CGFloat(fontSize)),
+                                        .foregroundColor: UIColor.white
+                                    ]),
+                                    fallbackColor: .white,
+                                    onCopy: { UIPasteboard.general.string = message.content },
+                                    onQuote: onQuote,
+                                    onShare: onShare,
+                                    onBigBang: onBigBang,
+                                    onDelete: onDelete,
+                                    onRegenerate: nil,
+                                    onWithdraw: canWithdraw ? onWithdraw : nil
+                                )
                             }
                         } else {
                             // v2.0.65：AI 超长消息折叠（>800 字收成展开全文）
                             if message.content.count > 800 && !expanded {
-                                Text(String(message.content.prefix(800)) + "…")
-                                    .font(.system(size: CGFloat(fontSize)))
-                                    .lineSpacing(3)
-                                    .foregroundStyle(.primary)
-                                    .textSelection(.enabled)
+                                SelectableTextLabel(
+                                    attributedText: NSAttributedString(string: String(message.content.prefix(800)) + "…", attributes: [
+                                        .font: UIFont.systemFont(ofSize: CGFloat(fontSize)),
+                                        .foregroundColor: UIColor.label
+                                    ]),
+                                    fallbackColor: .label,
+                                    onCopy: { UIPasteboard.general.string = message.content },
+                                    onQuote: onQuote,
+                                    onShare: onShare,
+                                    onBigBang: onBigBang,
+                                    onDelete: onDelete,
+                                    onRegenerate: onRegenerate,
+                                    onWithdraw: nil
+                                )
                                 Button {
                                     withAnimation(.easeOut(duration: 0.2)) { expanded = true }
                                 } label: {
@@ -207,7 +299,14 @@ struct MessageBubble: View {
                                 // AI 消息：代码块分段渲染（等宽 + 深色背景），其余 markdown
                                 VStack(alignment: .leading, spacing: 6) {
                                     ForEach(0..<contentBlocks.count, id: \.self) { i in
-                                        MessageBlockView(block: contentBlocks[i])
+                                        MessageBlockView(block: contentBlocks[i],
+                                                        onCopy: { UIPasteboard.general.string = message.content },
+                                                        onQuote: onQuote,
+                                                        onShare: onShare,
+                                                        onBigBang: onBigBang,
+                                                        onDelete: onDelete,
+                                                        onRegenerate: onRegenerate,
+                                                        onWithdraw: nil)
                                     }
                                 }
                             }
@@ -297,7 +396,9 @@ struct MessageBubble: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: message.isUser ? .trailing : .leading)
-        // 长按：复制 / 引用 / 删除 / 分享 / 大爆炸 / 重新生成（AI 消息）
+        // 长按：复制 / 引用 / 分享 / 大爆炸 / 重新生成（AI 消息）/ 撤回 / 删除
+        // v2.0.122：「选取文字」已移入 UITextView 原生编辑菜单（SelectableTextLabel），
+        //           点选后从手按位置选中文字、出现拖动手柄可自由拖动；此处保留其余菜单项
         .contextMenu {
             Button {
                 UIPasteboard.general.string = message.content
@@ -327,9 +428,7 @@ struct MessageBubble: View {
                 }
             }
             // v2.0.92：撤回（仅自己的消息 + 10 秒内 + 未撤回 + 未失败）
-            if message.isUser && !message.withdrawn && !message.failed,
-               let ts = message.timestamp,
-               Date().timeIntervalSince1970 - ts / 1000 < 10 {
+            if canWithdraw {
                 Button {
                     onWithdraw()
                 } label: {

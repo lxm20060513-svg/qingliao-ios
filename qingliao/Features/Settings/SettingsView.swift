@@ -95,7 +95,8 @@ struct SettingsView: View {
                             Spacer()
                             Toggle("", isOn: $faceIDLogin)
                                 .labelsHidden()
-                                .tint(Color.accentColor)
+                                .scaleEffect(0.8)
+                                .tint(.green)
                         }
                         .padding(.horizontal, 14)
                         .padding(.vertical, 10)
@@ -125,7 +126,8 @@ struct SettingsView: View {
                             Spacer()
                             Toggle("", isOn: $appLockOn)
                                 .labelsHidden()
-                                .tint(Color.accentColor)
+                                .scaleEffect(0.8)
+                                .tint(.green)
                         }
                         .padding(.horizontal, 14)
                         .padding(.vertical, 10)
@@ -174,6 +176,7 @@ struct SettingsView: View {
                             Toggle("", isOn: $localModelOn)
                                 .labelsHidden()
                                 .scaleEffect(0.8)
+                                .tint(.green)
                                 .onChange(of: localModelOn) { _, new in
                                     Task {
                                         _ = try? await auth.json("/api/local/toggle", method: "POST",
@@ -249,6 +252,7 @@ struct SettingsView: View {
                             Toggle("", isOn: $pushWeixin)
                                 .labelsHidden()
                                 .scaleEffect(0.8)
+                                .tint(.green)
                                 .onChange(of: pushWeixin) { _, new in
                                     Task {
                                         _ = try? await auth.json("/api/push/settings", method: "POST",
@@ -303,7 +307,8 @@ struct SettingsView: View {
                             Spacer()
                             Toggle("", isOn: $agentOn)
                                 .labelsHidden()
-                                .tint(Color.accentColor)
+                                .scaleEffect(0.8)
+                                .tint(.green)
                         }
                         .padding(.horizontal, 14)
                         .padding(.vertical, 10)
@@ -385,7 +390,8 @@ struct SettingsView: View {
                                 Spacer()
                                 Toggle("", isOn: $hideDock)
                                     .labelsHidden()
-                                    .tint(Color.accentColor)
+                                    .scaleEffect(0.8)
+                                    .tint(.green)
                             }
                             .padding(.horizontal, 14)
                             .padding(.vertical, 10)
@@ -414,7 +420,8 @@ struct SettingsView: View {
                                 Spacer()
                                 Toggle("", isOn: $glowOn)
                                     .labelsHidden()
-                                    .tint(Color.accentColor)
+                                    .scaleEffect(0.8)
+                                    .tint(.green)
                             }
                             .padding(.horizontal, 14)
                             .padding(.vertical, 10)
@@ -432,7 +439,8 @@ struct SettingsView: View {
                                 Spacer()
                                 Toggle("", isOn: $siriGlowOn)
                                     .labelsHidden()
-                                    .tint(Color.accentColor)
+                                    .scaleEffect(0.8)
+                                    .tint(.green)
                             }
                             .padding(.horizontal, 14)
                             .padding(.vertical, 10)
@@ -967,6 +975,7 @@ struct SettingRow: View {
                 Toggle("", isOn: toggle)
                     .labelsHidden()
                     .scaleEffect(0.8)
+                    .tint(.green)
             }
         }
         .padding(.horizontal, 14)
