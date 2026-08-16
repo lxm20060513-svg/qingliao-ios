@@ -63,7 +63,7 @@ struct SelectableTextLabel: UIViewRepresentable {
             var children: [UIMenuElement] = []
 
             children.append(UIAction(title: "复制", image: UIImage(systemName: "doc.on.doc")) { _ in
-                parent.onCopy()
+                self.parent.onCopy()
             })
 
             // 核心：选中手按位置的词 → 系统显示拖动手柄，可自由拖动选取范围
@@ -78,13 +78,13 @@ struct SelectableTextLabel: UIViewRepresentable {
             })
 
             children.append(UIAction(title: "引用", image: UIImage(systemName: "quote.opening")) { _ in
-                parent.onQuote()
+                self.parent.onQuote()
             })
             children.append(UIAction(title: "分享", image: UIImage(systemName: "square.and.arrow.up")) { _ in
-                parent.onShare()
+                self.parent.onShare()
             })
             children.append(UIAction(title: "大爆炸", image: UIImage(systemName: "burst.fill")) { _ in
-                parent.onBigBang()
+                self.parent.onBigBang()
             })
             if let onRegenerate = parent.onRegenerate {
                 children.append(UIAction(title: "重新生成", image: UIImage(systemName: "arrow.clockwise")) { _ in
@@ -97,7 +97,7 @@ struct SelectableTextLabel: UIViewRepresentable {
                 })
             }
             children.append(UIAction(title: "删除", image: UIImage(systemName: "trash"), attributes: .destructive) { _ in
-                parent.onDelete()
+                self.parent.onDelete()
             })
             return UIMenu(children: children)
         }
