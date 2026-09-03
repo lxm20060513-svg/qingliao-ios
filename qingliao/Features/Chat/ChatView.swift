@@ -410,6 +410,51 @@ struct ChatView: View {
         Button("取消", role: .cancel) {}
     }
 
+    /// v3.3.0：输入区抽离——原 body 内 if selectMode/else(ChatInputBar 17参+多closure) 内联
+    /// 过长是压垮 Xcode26 type-check 的"最后一根稻草"（v3.2.4 能过因 body 没这么重）。
+    /// 抽成独立属性给 type-checker 更小的表达式单元。
+    @ViewBuilder
+    private var inputArea: some View {
+        if selectMode {
+            mergeSelectBar
+        } else {
+            ChatInputBar(text: $inputText,
+                     focused: $inputFocus,
+                     streaming: stream.isStreaming,
+                     onSend: { send() },
+                     onStop: {
+                         // v2.0.88：点停止 = 取消当前回答 + 清空排队消息（不再自动发）
+                         clearPendingQueue()
+                         stream.stop(auth: auth)
+                     },
+                     onPickAttachment: {
+                         withAnimation(.spring(duration: 0.3, bounce: 0.2)) {
+                             showAttachmentMenu.toggle()
+                         }
+                     },
+                     onCamera: { showCameraPicker = true },
+                     isRecording: voiceRecorder.isRecording,
+                    // v2.0.96：语音转文字（长按发送按钮）
+                    voiceMode: voiceMode,
+                    onVoiceModeToggle: { toggleVoiceMode(keyboardWasUp: kb.isVisible) },
+                    transcribing: transcribing,
+                    onCancelTranscribe: { stopTranscribe() },
+                    onLongPressInput: { keyboardWasUp in toggleVoiceMode(keyboardWasUp: keyboardWasUp) },
+                    // v3.0.4：云端模式无后端 ASR → 关闭全部语音入口
+                    voiceEnabled: !CloudConfig.shared.isCloudMode,
+                    // v2.0.132：点击智能球 → 全屏粒子爆发
+                    onFullBurst: {
+                        showFullBurst = true
+                        Task { try? await Task.sleep(for: .seconds(1.55)); showFullBurst = false }
+                    })
+                    // v2.0.129：球态输入框 —— 绑定会话 id，切会话重建复位（展开态在切会话后回球态）
+                    .id(chat.sessionId)
+                    // v2.0.135：消费输入栏区域的点击，防冒泡到消息区 ZStack 根手势误收键盘
+                    // （TextField/按钮自身优先消费，此手势只兜底输入栏空白处）
+                    .onTapGesture {}
+        }
+    }
+
     /// 切换聊天角色：先保存当前会话（快照捕获防清空竞态）→ 停流 → 换独立新会话 → 清输入态
     /// v3.0.7 fix：切换放 Task 内延迟到保存完成，且切前校验 botId 未再变（防快速连点 A→B→C 乱序）
     /// v3.0.11 fix（bot 串话根治）：先清排队队列、再停流——原顺序（先停流）会让 onFinished 的
@@ -572,44 +617,7 @@ struct ChatView: View {
             // v3.0.81：上下文使用率指示器
             contextUsageBar
             // v3.3.0：多选合并模式 → 输入栏替换为合并操作条（全选/计数/合并发送/取消）
-            if selectMode {
-                mergeSelectBar
-            } else {
-                ChatInputBar(text: $inputText,
-                         focused: $inputFocus,
-                         streaming: stream.isStreaming,
-                         onSend: { send() },
-                         onStop: {
-                             // v2.0.88：点停止 = 取消当前回答 + 清空排队消息（不再自动发）
-                             clearPendingQueue()
-                             stream.stop(auth: auth)
-                         },
-                         onPickAttachment: {
-                             withAnimation(.spring(duration: 0.3, bounce: 0.2)) {
-                                 showAttachmentMenu.toggle()
-                             }
-                         },
-                         onCamera: { showCameraPicker = true },
-                         isRecording: voiceRecorder.isRecording,
-                        // v2.0.96：语音转文字（长按发送按钮）
-                        voiceMode: voiceMode,
-                        onVoiceModeToggle: { toggleVoiceMode(keyboardWasUp: kb.isVisible) },
-                        transcribing: transcribing,
-                        onCancelTranscribe: { stopTranscribe() },
-                        onLongPressInput: { keyboardWasUp in toggleVoiceMode(keyboardWasUp: keyboardWasUp) },
-                        // v3.0.4：云端模式无后端 ASR → 关闭全部语音入口
-                        voiceEnabled: !CloudConfig.shared.isCloudMode,
-                        // v2.0.132：点击智能球 → 全屏粒子爆发
-                        onFullBurst: {
-                            showFullBurst = true
-                            Task { try? await Task.sleep(for: .seconds(1.55)); showFullBurst = false }
-                        })
-                        // v2.0.129：球态输入框 —— 绑定会话 id，切会话重建复位（展开态在切会话后回球态）
-                        .id(chat.sessionId)
-                        // v2.0.135：消费输入栏区域的点击，防冒泡到消息区 ZStack 根手势误收键盘
-                        // （TextField/按钮自身优先消费，此手势只兜底输入栏空白处）
-                        .onTapGesture {}
-            }   // v3.3.0：多选模式 if-else 闭合
+            inputArea
             // v3.0.64：改用 iOS 26 系统原生 TabView tab bar 后，键盘避让交由系统安全区 + 原生键盘避让。
             // 旧手动 offset（kb 高度 / 76）是为自定义 DockBar（内容铺到屏幕底再叠 dock）设计，原生 tab bar 下会双重叠加冒高，故移除。
             // v3.0.67：输入框与 dock / 键盘均留 10pt 呼吸（Round-1「贴键盘 0」已改主意为也要留隙）。
