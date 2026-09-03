@@ -1,8 +1,7 @@
 # 轻聊 App 项目交接文档
 
 > 最后更新：2026-09-03
-> 最新版本：v3.2.3/398（2026-09-03 已发版：语音卡死渲染层根治）
-> 待发版本：v3.2.4/399（2026-09-03 已 commit `a0c0c61` + 本地 tag `v3.2.4`，语音回归最原始基线；**发版卡在 apple 拿写权限 token**，见 v3.2.5 末尾）
+> 最新版本：v3.2.4/399（2026-09-03 已发版 **svg 通道**：语音回归最原始基线，IPA 已转存 NAS `轻聊app/qingliao-3.2.4.ipa`）
 > 后端已上线：v3.2.5（2026-09-03 已部署重启，复读补强——状态播报型 assistant 也压）
 
 ---
@@ -63,9 +62,9 @@
 - **验证**（容器内实测）：`_is_status_verbose("内存：共19.4GB，已用5.6GB，可用13.8GB（28%）")`=True；`_is_status_verbose("你好呀，今天天气不错")`=False；含播报句的 assistant 被压缩为占位 ✓
 - 部署：备份 `.bak325`，md5=`8b0cf62f`，`docker stop/start` 重启，容器 `CONT_SYNTAX_OK`
 - ⚠️ 误伤权衡：状态播报句本就不承载可持续对话信息（每轮可重新生成），压掉仅防复读，不影响正常对话
-- **iOS v3.2.4 发版卡 apple token**：`apple` remote 里原写权限 token（`ghp_uT...LinnE`，属 lxm20060513-apple）已失效（push 403 / ls-remote Auth failed）；`.gh_cred` 的 token 属 **lxm20060513-svg**（读 apple 仓库 OK 但无写，push 报 `denied to lxm20060513-svg`）。发版需 lxm20060513-apple 账号的 repo 写权限 PAT（临时用 `git remote set-url apple https://lxm20060513-apple:<新PAT>@github.com/lxm20060513-apple/qingliao-ios.git` 更新即可）
+- **iOS v3.2.4 发版通道（2026-09-03 转 svg 成功，⚠️ 修正 v3.2.1 前旧认知）**：`apple` remote 原写权限 token（`ghp_uT...LinnE`，属 lxm20060513-apple）**已失效**（push 403 / ls-remote Auth failed）；`.gh_cred` 的 token 属 **lxm20060513-svg**（读 apple 仓库 OK 但无写，push 报 `denied to lxm20060513-svg`）。**结论：svg 仓库(origin) 也是可用的发版通道**——svg 是 `public`（无 private 额度限制）、CI 至今健康（v3.1.8 2026-09-03 02:02 还在 svg 成功）、workflow unsigned 不嵌签名 secret、svg token 有写权限。**本次 v3.2.4 即走 svg 发版成功**（tag 推 `origin`，run 33776506689 success，IPA 校验 3.2.4/399 通过，md5 `cc1ca046` 转存 NAS）。下次发版优先 svg（origin）；仅当 svg 出问题时才需 apple 新 PAT。
 
-### v3.2.4（2026-09-03 已 commit `a0c0c61`，**待发版**，用户拍板"先攒着"：语音转文字回归最原始基线）
+### v3.2.4（2026-09-03 已发版 svg：语音转文字回归最原始基线）
 
 > 背景：用户反馈 v3.2.3/398 后"触发语音转文字还是会卡死，偶尔不卡死也转不出文字"，拍板"去掉系统降噪功能回归最原始"；中途确认**语音模式流光动画保留**。
 
@@ -82,7 +81,7 @@
 - 回归静态"红点 + 松开上屏"（v3.0.85 前样式），删 `recordingStartTime/recordingDuration/formatDuration`
 - **流光保留**：`(streaming || voiceMode)` 均启用（用户拍板）。voiceMode 期间唯一动态视图即此流光，无 shadow 不触发 stroker；卡死防护靠 v3.2.3 三件套（流光无 shadow + 15fps + 外层阴影静态化在 overlay 前）
 
-**③ 版本号**：project.yml 3.2.4 / 399（4 处同步）。全量 swiftc 语法预检通过。
+**③ 版本号**：project.yml 3.2.4 / 399（4 处同步）。全量 swiftc 语法预检通过。**2026-09-03 已发版（svg 通道）**：tag `v3.2.4` 推 `origin`，run 33776506689 success，IPA 校验 3.2.4/399 通过，md5 `cc1ca046` 转存 NAS `轻聊app/qingliao-3.2.4.ipa`。
 
 ### v3.2.3（2026-09-03 已发版 398，commit `6698364`：语音转文字卡死真根因定案——渲染层，非音频层）
 
@@ -493,9 +492,11 @@ Hermes 主动推送收件箱（inbox）：让 Hermes 能主动推消息给轻聊
 
 ## 三、CI/CD 发包流程
 
+> ⚠️ 2026-09-03 修正：**svg(origin) 是可用的发版通道（本次 v3.2.4 走 svg 成功）**，且 token 有效无需额外操作；apple 是备用通道（token 已失效需换新 PAT）。**优先推 svg(origin)**。
+
 ### 触发条件
 
-`feature/handoff-301` 分支上推送 `v*` tag 到 **apple remote** 会自动触发 `.github/workflows/build-ios.yml`（查 CI 状态查 `lxm20060513-apple/qingliao-ios`）。
+`feature/handoff-301` 分支上推送 `v*` tag 到 **origin(svg)** 会自动触发 `.github/workflows/build-ios.yml`（查 CI 状态查 `lxm20060513-svg/qingliao-ios`；该仓库 public 无额度限制、CI 无签名 secret、svg token 有写权限）。
 
 ### 完整流程
 
@@ -509,20 +510,19 @@ bash check_swift.sh
 # 3. 改版本号（project.yml 4 处同步：MARKETING_VERSION / CURRENT_PROJECT_VERSION / CFBundleShortVersionString / CFBundleVersion）
 #    ⚠️ SideStore 同名覆盖不生效——版本号必须递增
 
-# 4. commit + 推 apple（token 内嵌在 remote URL，直接 push 即可）
+# 4. commit + 推 svg(origin)（token 内嵌 origin remote URL，直接 push 即可）
 git add -A && git commit -m "fix: ... (vX.Y.Z)"
 git tag vX.Y.Z
-git -c http.version=HTTP/1.1 -c http.lowSpeedLimit=0 -c http.lowSpeedTime=999 push apple feature/handoff-301 vX.Y.Z
+git -c http.version=HTTP/1.1 -c http.lowSpeedLimit=0 -c http.lowSpeedTime=999 push origin feature/handoff-301:feature/handoff-301 vX.Y.Z
 
-# 5. 等 CI 完成（~15-20 分钟），盯 apple 仓库 runs：
-#    token 提取：git config --get remote.apple.url | sed -E 's#https://[^:]+:([^@]+)@.*#\1#'
-curl -s -H "Authorization: Bearer <token>" -H "Accept: application/vnd.github+json" \
-  "https://api.github.com/repos/lxm20060513-apple/qingliao-ios/actions/runs?per_page=3"
+# 5. 等 CI 完成（~15-20 分钟），盯 svg 仓库 runs（token 从 .gh_cred 读）：
+TOKEN=$(cat /opt/data/.gh_cred|tr -d ' \n')
+curl -s -H "Authorization: token $TOKEN" "https://api.github.com/repos/lxm20060513-svg/qingliao-ios/actions/runs?per_page=3"
 
-# 6. 下载 IPA（artifact 下载 302 重定向到 Azure blob，urllib 会 403，用 curl -sSL）：
-#    curl -sSL -o artifact.zip -H "Authorization: Bearer <token>" -H "Accept: application/vnd.github+json" <archive_download_url>
-#    解包后必须校验 Info.plist 的 CFBundleShortVersionString == tag 版本（v2.0.53 教训：版本号没随 tag 升=装了新版崩溃日志显示旧版）
-# 7. 转存 NAS：SFTP put 到 docker/hermes/_upload.ipa → sudo cp 到目标 → chmod 644 → md5sum 两端比对
+# 6. 下载 IPA（artifact 302 重定向到 Azure blob，urllib 会 403，用 curl -sSL + Bearer + Accept json）：
+curl -sSL -o artifact.zip -H "Authorization: Bearer $TOKEN" -H "Accept: application/vnd.github+json" <archive_download_url>
+#    解包得 qingliao-2.0-unsigned.ipa → 必须校验 Info.plist 的 CFBundleShortVersionString == tag 版本（v2.0.53 教训）
+# 7. 转存 NAS：SFTP put 到 docker/hermes/_upload.ipa → sudo cp(chmod 644) 到 轻聊app/qingliao-<ver>.ipa → md5sum 两端比对
 ```
 
 ### 关键点
