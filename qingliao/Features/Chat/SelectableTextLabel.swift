@@ -41,6 +41,8 @@ struct SelectableTextLabel: UIViewRepresentable {
     var onDelete: () -> Void = {}
     var onRegenerate: (() -> Void)? = nil
     var onWithdraw: (() -> Void)? = nil
+    // v3.3.0：多选合并转发入口（文字长按菜单）
+    var onMultiSelect: () -> Void = {}
 
     // v3.0.13：布局跟踪——SwiftUI 只在 observed 属性变化时调 updateUIView，气泡在展开/折叠动画
     // 期间宽度渐进变化时 updateUIView 可能不重进，导致 UITextView 的 NSTextContainer 锁在动画起始的
@@ -239,6 +241,10 @@ struct SelectableTextLabel: UIViewRepresentable {
             })
             children.append(UIAction(title: "分享", image: UIImage(systemName: "square.and.arrow.up")) { _ in
                 self.parent.onShare()
+            })
+            // v3.3.0：多选合并转发入口
+            children.append(UIAction(title: "多选", image: UIImage(systemName: "checkmark.circle")) { _ in
+                self.parent.onMultiSelect()
             })
             children.append(UIAction(title: "大爆炸", image: UIImage(systemName: "burst.fill")) { _ in
                 self.parent.onBigBang()

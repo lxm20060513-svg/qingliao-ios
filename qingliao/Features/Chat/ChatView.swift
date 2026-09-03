@@ -212,6 +212,12 @@ struct ChatView: View {
     // v3.0.51 A2：极长会话分页懒加载——初始只渲染尾部最近 N 条，顶部可"加载更早"
     @State var displayLimit = 300
     private static let loadMoreStep = 300
+    // v3.3.0：多选合并发送——选择模式开关 + 选中消息 id 集合
+    @State var selectMode = false
+    @State var selectedMsgIDs: Set<String> = []
+    @State var selectBlocked = false      // 流式中尝试进入多选 → 提示
+    @State var mergeTooMany = false       // 合并超过 99 条 → 提示
+    static let maxMergeCount = 99
     // v3.0.51 A2 fix：缓存可见消息数组——仅在消息数量/显示上限变化时重建，
     // 避免每帧 stream.delta 触发 body 重建 O(visible) 数组
     @State private var visibleMessagesCache: [MessageRowItem] = []
@@ -482,6 +488,16 @@ struct ChatView: View {
                 Button("分享会话卡片") {
                     shareSessionCard()
                 }
+                // v3.3.0：多选合并发送（勾选多条 → 合并成一张卡片图片 → 系统分享/微信）
+                Button("多选合并发送") {
+                    if stream.isStreaming {
+                        selectBlocked = true
+                    } else {
+                        inputFocus = false
+                        selectedMsgIDs.removeAll()
+                        withAnimation(.easeOut(duration: 0.2)) { selectMode = true }
+                    }
+                }
                 // v2.0.43：上下文信息 + 一键压缩
                 Button("上下文：约 \(chat.contextInfo.tokens) tokens · \(chat.contextInfo.count) 条") {}
                 Button("压缩上下文（保留最近 20 条）") {
@@ -559,7 +575,11 @@ struct ChatView: View {
                 .padding(.horizontal, 18)
                 .padding(.bottom, 2)
             }
-            ChatInputBar(text: $inputText,
+            // v3.3.0：多选合并模式 → 输入栏替换为合并操作条（全选/计数/合并发送/取消）
+            if selectMode {
+                mergeSelectBar
+            } else {
+                ChatInputBar(text: $inputText,
                          focused: $inputFocus,
                          streaming: stream.isStreaming,
                          onSend: { send() },
@@ -593,6 +613,7 @@ struct ChatView: View {
                         // v2.0.135：消费输入栏区域的点击，防冒泡到消息区 ZStack 根手势误收键盘
                         // （TextField/按钮自身优先消费，此手势只兜底输入栏空白处）
                         .onTapGesture {}
+            }   // v3.3.0：多选模式 if-else 闭合
             // v3.0.64：改用 iOS 26 系统原生 TabView tab bar 后，键盘避让交由系统安全区 + 原生键盘避让。
             // 旧手动 offset（kb 高度 / 76）是为自定义 DockBar（内容铺到屏幕底再叠 dock）设计，原生 tab bar 下会双重叠加冒高，故移除。
             // v3.0.67：输入框与 dock / 键盘均留 10pt 呼吸（Round-1「贴键盘 0」已改主意为也要留隙）。
@@ -616,6 +637,18 @@ struct ChatView: View {
             Button("好的", role: .cancel) {}
         } message: {
             Text("AI 正在回答，稍等片刻再发送文件。")
+        }
+        // v3.3.0：流式中进入多选提示
+        .alert("AI 回答中", isPresented: $selectBlocked) {
+            Button("好的", role: .cancel) {}
+        } message: {
+            Text("AI 正在回答，回答完成后再多选合并。")
+        }
+        // v3.3.0：合并条数超限提示
+        .alert("合并条数超限", isPresented: $mergeTooMany) {
+            Button("好的", role: .cancel) {}
+        } message: {
+            Text("最多合并 \(Self.maxMergeCount) 条，请减少勾选后再合并。")
         }
         // v3.0.18：云端工具写操作确认（日历/提醒/计时器）
         .confirmationDialog("确认执行？", isPresented: Binding(
@@ -745,6 +778,12 @@ struct ChatView: View {
         }
         chatMessageBubble(msg)
             .id(msg.id)
+            // v3.3.0：多选模式 → 全行可点勾选 + 右上角选中圆圈
+            .overlay {
+                if selectMode {
+                    selectOverlay(for: msg)
+                }
+            }
             // 气泡出现动效：淡入 + 轻微上移（灵动）
             // v2.0.38：去掉 .animation(value: messages.count)——
             // 批量清空（清空会话/新建会话）时全 cell 同时移除的 spring 动画曾导致闪退
@@ -778,7 +817,120 @@ struct ChatView: View {
             UINotificationFeedbackGenerator().notificationOccurred(.success)
         } onAIImageTap: { url in
             openAIImage(url)
+        } onMultiSelect: {
+            // v3.3.0：长按菜单「多选」——进入多选模式并预选本条
+            if stream.isStreaming {
+                selectBlocked = true
+            } else {
+                inputFocus = false
+                selectedMsgIDs.removeAll()
+                selectedMsgIDs.insert(msg.id)
+                withAnimation(.easeOut(duration: 0.2)) { selectMode = true }
+            }
         }
+    }
+
+    // MARK: - v3.3.0 多选合并发送（勾选消息 → 合并卡片图片 → 系统分享）
+
+    /// 消息气泡右上角选择覆盖层：全行点击勾选 + 选中圆圈指示
+    private func selectOverlay(for msg: ChatMessage) -> some View {
+        let sel = selectedMsgIDs.contains(msg.id)
+        return ZStack(alignment: .topTrailing) {
+            // 全行点击捕获层——选择模式拦截下层手势（长按菜单/文本选择不误触），点击即勾选
+            Color.clear
+                .contentShape(Rectangle())
+                .onTapGesture { toggleSelect(msg) }
+            Image(systemName: sel ? "checkmark.circle.fill" : "circle")
+                .font(.system(size: 20, weight: .semibold))
+                .foregroundStyle(sel ? Color.blue : Color.secondary.opacity(0.55))
+                .background(Circle().fill(Color(uiColor: .systemBackground)).padding(-1.5))
+                .padding(.trailing, 6)
+                .padding(.top, 2)
+                .allowsHitTesting(false)
+        }
+    }
+
+    /// 勾选/取消勾选
+    private func toggleSelect(_ msg: ChatMessage) {
+        if selectedMsgIDs.contains(msg.id) {
+            selectedMsgIDs.remove(msg.id)
+        } else {
+            selectedMsgIDs.insert(msg.id)
+        }
+        UISelectionFeedbackGenerator().selectionChanged()
+    }
+
+    /// 全选/取消全选
+    private func toggleSelectAll() {
+        if selectedMsgIDs.count >= chat.messages.count {
+            selectedMsgIDs.removeAll()
+        } else {
+            selectedMsgIDs = Set(chat.messages.map(\.id))
+        }
+    }
+
+    /// 退出选择模式
+    private func exitSelectMode() {
+        inputFocus = false
+        withAnimation(.easeOut(duration: 0.2)) {
+            selectMode = false
+            selectedMsgIDs.removeAll()
+        }
+    }
+
+    /// 选择模式底部操作条（替代输入栏）：全选 + 已选计数 + 取消 + 合并发送
+    private var mergeSelectBar: some View {
+        HStack(spacing: 14) {
+            Button {
+                toggleSelectAll()
+            } label: {
+                Text(selectedMsgIDs.count >= chat.messages.count && !chat.messages.isEmpty ? "取消全选" : "全选")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(Color.accentColor)
+            }
+            .buttonStyle(.plain)
+            Text("已选 \(selectedMsgIDs.count) 条")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 4)
+            Button {
+                exitSelectMode()
+            } label: {
+                Text("取消")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            Button {
+                mergeAndShare()
+            } label: {
+                Text("合并发送")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 9)
+                    .background(
+                        selectedMsgIDs.isEmpty
+                            ? Color.secondary.opacity(0.35)
+                            : LinearGradient(colors: [.blue, .indigo],
+                                             startPoint: .leading, endPoint: .trailing),
+                        in: Capsule()
+                    )
+            }
+            .buttonStyle(.plain)
+            .disabled(selectedMsgIDs.isEmpty)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.8)
+        )
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .transition(.move(edge: .bottom).combined(with: .opacity))
     }
 
     /// v3.0.15：流式输出气泡——拆独立计算属性（防 messageList 巨型 body type-check 超时）

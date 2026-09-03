@@ -80,6 +80,8 @@ struct MessageBlockView: View {
     var onPin: ((String) -> Void)? = nil
     // v2.0.128：AI 图片点击打开大图（传图片 URL/data URL）
     var onImageTap: (String) -> Void = { _ in }
+    // v3.3.0：多选合并转发入口（AI 消息段落长按菜单）
+    var onMultiSelect: () -> Void = {}
     // v3.0.17：流式输出中用 SwiftUI Text 渲染（UITextView 在流式高频更新下有锁旧窄布局/字体缩放 bug 家族，
     // 见 references/ui-textview-layout-shrink.md；流式中无需长按菜单，落库后恢复 SelectableTextLabel）
     var useSwiftUIText = false
@@ -137,6 +139,12 @@ struct MessageBlockView: View {
             onShare()
         } label: {
             Label("分享", systemImage: "square.and.arrow.up")
+        }
+        // v3.3.0：多选合并转发入口
+        Button {
+            onMultiSelect()
+        } label: {
+            Label("多选", systemImage: "checkmark.circle")
         }
         Button {
             onBigBang()
@@ -219,7 +227,8 @@ struct MessageBlockView: View {
                     onBigBang: onBigBang,
                     onDelete: onDelete,
                     onRegenerate: onRegenerate,
-                    onWithdraw: onWithdraw
+                    onWithdraw: onWithdraw,
+                    onMultiSelect: onMultiSelect
                 )
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -519,6 +528,7 @@ struct FileMessageCard: View {
 
 struct SessionCardView: View {
     let rows: [(role: String, text: String)]
+    var title: String = "轻聊 AI 会话"   // v3.3.0：合并发送时自定义标题
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -526,7 +536,7 @@ struct SessionCardView: View {
                 Image(systemName: "bubble.left.and.bubble.right.fill")
                     .font(.system(size: 17))
                     .foregroundStyle(LinearGradient(colors: [.blue, .indigo], startPoint: .topLeading, endPoint: .bottomTrailing))
-                Text("轻聊 AI 会话")
+                Text(title)
                     .font(.system(size: 17, weight: .bold))
             }
             Text(formattedDate)

@@ -29,7 +29,30 @@ extension ChatView {
         presentShare([img])
     }
 
-    // MARK: - 消息操作
+    /// v3.3.0：多选合并发送——勾选消息按时间序打包成一张卡片图片 → 系统分享（微信可发）
+    /// 内容只丢原文不加工；图片/语音/撤回消息降级为占位文本
+    func mergeAndShare() {
+        let picked = chat.messages.filter { selectedMsgIDs.contains($0.id) }
+        guard !picked.isEmpty else { return }
+        if picked.count > Self.maxMergeCount {
+            mergeTooMany = true
+            return
+        }
+        let rows = picked.map { msg -> (role: String, text: String) in
+            if msg.withdrawn { return (msg.role, "[已撤回]") }
+            if let img = msg.imageDataURL, !img.isEmpty { return (msg.role, "[图片]") }
+            if msg.audioPath != nil { return (msg.role, "[语音]") }
+            var t = msg.content.replacingOccurrences(of: "\n", with: " ")
+            if t.count > 120 { t = String(t.prefix(120)) + "…" }
+            return (msg.role, t)
+        }
+        let card = SessionCardView(rows: rows)
+        let renderer = ImageRenderer(content: card)
+        renderer.scale = 3   // @3x 高清
+        guard let img = renderer.uiImage else { return }
+        exitSelectMode()
+        presentShare([img])
+    }
 
     /// v2.0.36：单条删除（按索引精确删除，防同内容 hash id 误删）
     /// v2.0.102：同步移除对应排队项（修复排队消息删除后"复活"自动重发）

@@ -18,6 +18,8 @@ struct MessageBubble: View {
     var onPin: ((String) -> Void)? = nil
     // v2.0.128：AI 消息内图片点击（传 URL/data URL，打开大图）
     var onAIImageTap: (String) -> Void = { _ in }
+    // v3.3.0：多选合并转发——长按菜单「多选」入口（进入多选模式并预选本条）
+    var onMultiSelect: () -> Void = {}
     // v3.0.15：AI 流式输出中——头像显示粒子球（orbits 流动），替代静态脑形标
     var streamingAvatar: Bool = false
     // v3.0.17：流式输出中 markdown 段用 SwiftUI Text 渲染（绕开 UITextView 流式锁窄布局 bug 家族）
@@ -68,6 +70,12 @@ struct MessageBubble: View {
             onShare()
         } label: {
             Label("分享", systemImage: "square.and.arrow.up")
+        }
+        // v3.3.0：多选合并转发入口（图片/文件卡片长按菜单）
+        Button {
+            onMultiSelect()
+        } label: {
+            Label("多选", systemImage: "checkmark.circle")
         }
         Button {
             onBigBang()
@@ -184,7 +192,8 @@ struct MessageBubble: View {
                                     onBigBang: onBigBang,
                                     onDelete: onDelete,
                                     onRegenerate: nil,
-                                    onWithdraw: canWithdraw ? onWithdraw : nil
+                                    onWithdraw: canWithdraw ? onWithdraw : nil,
+                                    onMultiSelect: onMultiSelect
                                 )
                             }
                         } else {
@@ -216,6 +225,7 @@ struct MessageBubble: View {
                                                                                     onWithdraw: nil,
                                                                                     onPin: onPin,
                                                                                     onImageTap: { url in onAIImageTap(url) },   // v2.0.128：AI 图片点击打开大图
+                                                                                    onMultiSelect: onMultiSelect,   // v3.3.0：多选合并转发
                                                                                     useSwiftUIText: true,
                                                                                     streaming: streamingText)   // v3.0.41 性能：流式中纯 Text 渲染（跳过 markdown 解析）
                                                                 }
@@ -438,6 +448,7 @@ struct MessageBubble: View {
                                 onWithdraw: nil,
                                 onPin: onPin,
                                 onImageTap: { url in onAIImageTap(url) },
+                                onMultiSelect: onMultiSelect,   // v3.3.0：多选合并转发
                                 useSwiftUIText: true,
                                 streaming: false)
             }
