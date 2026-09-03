@@ -348,6 +348,68 @@ struct ChatView: View {
         }
     }
 
+    /// v3.3.0：confirmationDialog 内容抽离（原内联 Menu+8个Button 过长致 Xcode26
+    /// type-check 超时——508行报 "unable to type-check in reasonable time"）。
+    /// 抽成独立 @ViewBuilder 属性给 type-checker 更小的表达式单元。
+    @ViewBuilder
+    private var chatActionDialogContent: some View {
+        Menu("导出会话记录") {
+            Button("纯文本 (.txt)") {
+                exportText = chat.exportText()
+                showExporter = true
+            }
+            Button("Markdown (.md)") {
+                exportMarkdown = chat.exportMarkdown()
+                showMarkdownExporter = true
+            }
+            Button("PDF (.pdf)") {
+                exportPDFData = ChatPDFDocument.generate(
+                    title: chat.title, messages: chat.messages)
+                showPDFExporter = true
+            }
+        }
+        // v2.0.92：会话分享卡片（渲染精美图片 → 系统分享/微信）
+        Button("分享会话卡片") {
+            shareSessionCard()
+        }
+        // v3.3.0：多选合并发送（勾选多条 → 合并成一张卡片图片 → 系统分享/微信）
+        Button("多选合并发送") {
+            if stream.isStreaming {
+                selectBlocked = true
+            } else {
+                inputFocus = false
+                selectedMsgIDs.removeAll()
+                withAnimation(.easeOut(duration: 0.2)) { selectMode = true }
+            }
+        }
+        // v2.0.43：上下文信息 + 一键压缩
+        Button("上下文：约 \(chat.contextInfo.tokens) tokens · \(chat.contextInfo.count) 条") {}
+        Button("压缩上下文（保留最近 20 条）") {
+            if chat.compressContext() {
+                Task { await chat.saveToServer(auth: auth) }
+            }
+        }
+        // v2.0.116：AI 总结会话（走正常流式，AI 回复要点总结）
+        Button("AI 总结会话") {
+            summarizeSession()
+        }
+        // v3.0.27：长文目录
+        Button("长文目录") {
+            showTOCSheet = true
+        }
+        Button("清空本会话消息", role: .destructive) {
+            // v2.0.40：两步走清空——先切欢迎页分支（列表立即卸载，数据未动），
+            // 下一帧再清数据。列表销毁与数据清空完全错开，杜绝同帧崩溃。
+            clearing = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                withAnimation(nil) { chat.clearMessages() }
+                clearing = false
+            }
+            Task { await chat.saveToServer(auth: auth) }
+        }
+        Button("取消", role: .cancel) {}
+    }
+
     /// 切换聊天角色：先保存当前会话（快照捕获防清空竞态）→ 停流 → 换独立新会话 → 清输入态
     /// v3.0.7 fix：切换放 Task 内延迟到保存完成，且切前校验 botId 未再变（防快速连点 A→B→C 乱序）
     /// v3.0.11 fix（bot 串话根治）：先清排队队列、再停流——原顺序（先停流）会让 onFinished 的
@@ -474,61 +536,7 @@ struct ChatView: View {
                        showStatus: true,
                        statusColor: headerColor)
             .confirmationDialog("聊天操作", isPresented: $showMoreMenu, titleVisibility: .visible) {
-                Menu("导出会话记录") {
-                    Button("纯文本 (.txt)") {
-                        exportText = chat.exportText()
-                        showExporter = true
-                    }
-                    Button("Markdown (.md)") {
-                        exportMarkdown = chat.exportMarkdown()
-                        showMarkdownExporter = true
-                    }
-                    Button("PDF (.pdf)") {
-                        exportPDFData = ChatPDFDocument.generate(
-                            title: chat.title, messages: chat.messages)
-                        showPDFExporter = true
-                    }
-                }
-                // v2.0.92：会话分享卡片（渲染精美图片 → 系统分享/微信）
-                Button("分享会话卡片") {
-                    shareSessionCard()
-                }
-                // v3.3.0：多选合并发送（勾选多条 → 合并成一张卡片图片 → 系统分享/微信）
-                Button("多选合并发送") {
-                    if stream.isStreaming {
-                        selectBlocked = true
-                    } else {
-                        inputFocus = false
-                        selectedMsgIDs.removeAll()
-                        withAnimation(.easeOut(duration: 0.2)) { selectMode = true }
-                    }
-                }
-                // v2.0.43：上下文信息 + 一键压缩
-                Button("上下文：约 \(chat.contextInfo.tokens) tokens · \(chat.contextInfo.count) 条") {}
-                Button("压缩上下文（保留最近 20 条）") {
-                    if chat.compressContext() {
-                        Task { await chat.saveToServer(auth: auth) }
-                    }
-                }
-                // v2.0.116：AI 总结会话（走正常流式，AI 回复要点总结）
-                Button("AI 总结会话") {
-                    summarizeSession()
-                }
-                // v3.0.27：长文目录
-                Button("长文目录") {
-                    showTOCSheet = true
-                }
-                Button("清空本会话消息", role: .destructive) {
-                    // v2.0.40：两步走清空——先切欢迎页分支（列表立即卸载，数据未动），
-                    // 下一帧再清数据。列表销毁与数据清空完全错开，杜绝同帧崩溃。
-                    clearing = true
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
-                        withAnimation(nil) { chat.clearMessages() }
-                        clearing = false
-                    }
-                    Task { await chat.saveToServer(auth: auth) }
-                }
-                Button("取消", role: .cancel) {}
+                chatActionDialogContent
             }
             if sentOK {
                 HStack(spacing: 5) {
