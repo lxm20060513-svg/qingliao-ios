@@ -328,6 +328,26 @@ struct ChatView: View {
         .buttonStyle(.plain)
     }
 
+    /// v3.3.0：header 右侧 trailing 组件抽离（PageHeader 的 AnyView(HStack{...}) 内联在 body
+    /// 里过复杂，Xcode 26 type-check 超时——469-472行报 "unable to type-check in reasonable time"）。
+    /// 抽成独立计算属性给 type-checker 更小的表达式单元。
+    @ViewBuilder
+    private var headerTrailingItems: some View {
+        HStack(spacing: 10) {
+            if !CloudConfig.shared.isCloudMode {
+                botSelectorBar
+            }
+            Button {
+                showMoreMenu = true
+            } label: {
+                Image(systemName: "ellipsis.circle")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(Color.accentColor)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
     /// 切换聊天角色：先保存当前会话（快照捕获防清空竞态）→ 停流 → 换独立新会话 → 清输入态
     /// v3.0.7 fix：切换放 Task 内延迟到保存完成，且切前校验 botId 未再变（防快速连点 A→B→C 乱序）
     /// v3.0.11 fix（bot 串话根治）：先清排队队列、再停流——原顺序（先停流）会让 onFinished 的
@@ -450,22 +470,7 @@ struct ChatView: View {
         VStack(spacing: 0) {
             PageHeader(title: "聊天",
                        subtitle: headerSubtitle,
-                       trailing: AnyView(
-                           // v3.0.7 beautify：Bot 角色胶囊移到 header（本地模式）；右侧跟更多菜单
-                           HStack(spacing: 10) {
-                               if !CloudConfig.shared.isCloudMode {
-                                   botSelectorBar
-                               }
-                               Button {
-                                   showMoreMenu = true
-                               } label: {
-                                   Image(systemName: "ellipsis.circle")
-                                       .font(.system(size: 17, weight: .semibold))
-                                       .foregroundStyle(Color.accentColor)
-                               }
-                               .buttonStyle(.plain)
-                           }
-                       ),
+                       trailing: AnyView(headerTrailingItems),
                        showStatus: true,
                        statusColor: headerColor)
             .confirmationDialog("聊天操作", isPresented: $showMoreMenu, titleVisibility: .visible) {
