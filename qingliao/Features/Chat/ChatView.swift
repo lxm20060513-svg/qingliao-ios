@@ -558,7 +558,6 @@ struct ChatView: View {
             // v3.0.7 beautify：Bot 选择器已移到 header（本地模式），此处不再单独占一行
             // v3.0.81：上下文使用率指示器
             contextUsageBar
-            }
             // v3.3.0：多选合并模式 → 输入栏替换为合并操作条（全选/计数/合并发送/取消）
             if selectMode {
                 mergeSelectBar
