@@ -557,23 +557,7 @@ struct ChatView: View {
             quotedReplyBar
             // v3.0.7 beautify：Bot 选择器已移到 header（本地模式），此处不再单独占一行
             // v3.0.81：上下文使用率指示器
-            if chat.contextInfo.count > 10 {
-                HStack(spacing: 4) {
-                    Spacer()
-                    let usage = chat.contextUsage(maxTokens: 4000)
-                    let percent = Int(usage * 100)
-                    Circle()
-                        .fill(percent > 80 ? .red : percent > 50 ? .orange : .green)
-                        .frame(width: 6, height: 6)
-                    Text("\(percent)%")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                    Text("\(chat.contextInfo.tokens) tokens")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.tertiary)
-                }
-                .padding(.horizontal, 18)
-                .padding(.bottom, 2)
+            contextUsageBar
             }
             // v3.3.0：多选合并模式 → 输入栏替换为合并操作条（全选/计数/合并发送/取消）
             if selectMode {
@@ -830,6 +814,31 @@ struct ChatView: View {
         }
     }
 
+    /// v3.0.81：上下文使用率指示器（独立计算属性——含嵌套三元+插值，抽离防 body type-check 超时）
+    private var contextUsageBar: some View {
+        Group {
+            if chat.contextInfo.count > 10 {
+                let usage = chat.contextUsage(maxTokens: 4000)
+                let percent = Int(usage * 100)
+                let levelColor: Color = percent > 80 ? .red : (percent > 50 ? .orange : .green)
+                HStack(spacing: 4) {
+                    Spacer()
+                    Circle()
+                        .fill(levelColor)
+                        .frame(width: 6, height: 6)
+                    Text("\(percent)%")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                    Text("\(chat.contextInfo.tokens) tokens")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.tertiary)
+                }
+                .padding(.horizontal, 18)
+                .padding(.bottom, 2)
+            }
+        }
+    }
+
     // MARK: - v3.3.0 多选合并发送（勾选消息 → 合并卡片图片 → 系统分享）
 
     /// 消息气泡右上角选择覆盖层：全行点击勾选 + 选中圆圈指示
@@ -869,8 +878,8 @@ struct ChatView: View {
         }
     }
 
-    /// 退出选择模式
-    private func exitSelectMode() {
+    /// 退出选择模式（ChatViewExport.mergeAndShare 跨文件调用，故 internal）
+    func exitSelectMode() {
         inputFocus = false
         withAnimation(.easeOut(duration: 0.2)) {
             selectMode = false
@@ -911,9 +920,9 @@ struct ChatView: View {
                     .padding(.vertical, 9)
                     .background(
                         selectedMsgIDs.isEmpty
-                            ? Color.secondary.opacity(0.35)
-                            : LinearGradient(colors: [.blue, .indigo],
-                                             startPoint: .leading, endPoint: .trailing),
+                            ? AnyShapeStyle(Color.secondary.opacity(0.35))
+                            : AnyShapeStyle(LinearGradient(colors: [.blue, .indigo],
+                                             startPoint: .leading, endPoint: .trailing)),
                         in: Capsule()
                     )
             }
