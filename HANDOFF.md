@@ -1,7 +1,9 @@
 # 轻聊 App 项目交接文档
 
-> 最后更新：2026-09-02
-> 最新版本：v3.1.7（2026-09-03 已发版，语音卡死修复 + 502修复 + SiriBall长按语音）
+> 最后更新：2026-09-03
+> 最新版本：v3.2.3/398（2026-09-03 已发版：语音卡死渲染层根治）
+> 待发版本：v3.2.4/399（2026-09-03 已 commit `a0c0c61` + 本地 tag `v3.2.4`，语音回归最原始基线；**发版卡在 apple 拿写权限 token**，见 v3.2.5 末尾）
+> 后端已上线：v3.2.5（2026-09-03 已部署重启，复读补强——状态播报型 assistant 也压）
 
 ---
 
@@ -9,11 +11,11 @@
 
 **轻聊** 是一个 iOS 原生 AI 聊天 App，Swift 6 + SwiftUI 开发，支持本地 AI 和云端 AI 双模式。
 
-- **仓库**：https://github.com/lxm20060513-svg/qingliao-ios
-- **主分支**：`native-3.0`（v3.x 开发线）
-- **开发分支**：`feature/handoff-301`（当前活跃）
+- **仓库**：两个 remote——`origin` = `https://github.com/lxm20060513-svg/qingliao-ios`（旧通道）；**`apple` = `https://github.com/lxm20060513-apple/qingliao-ios`（发版正经通道，tag/CI 在此触发，v3.2.0+ 全打这）**（⚠️ README/旧文档指向 svg 是误导，v3.2.1 实证）
+- **主分支**：`native-3.0`（v3.x 开发线，停在 v3.0.34 旧 commit，发版不走它）
+- **开发分支**：`feature/handoff-301`（当前活跃，发版 commit 都打这）
 - **旧分支**：`native-2.0`（v2.0.140 已冻结，带 tag `v2.0.140`）
-- **Tag 规范**：`v3.0.XX`，CI 自动触发构建
+- **Tag 规范**：`v3.2.X` 推 **apple** remote 触发 CI（查/盯 CI 查 `lxm20060513-apple/qingliao-ios` actions runs，不是 svg）；token 从 `git config --get remote.apple.url` 取冒号后部分
 
 ### 核心架构
 
@@ -51,7 +53,53 @@
 
 ## 二、版本历史
 
+### v3.2.5（2026-09-03 后端已部署重启：复读补强——状态播报型 assistant 也压）
+
+> 背景：用户反馈"正常交流中间会插一段已回复过的查内存回复"。v3.2.4 的 `_compress_long_assistants` 只压 **超长(>80字)** assistant，而"查内存/CPU/温度/容器"这类**工具播报型结语约 50-60 字(<80)**逃过压缩、又不在紧贴最新user的 `msgs[-2]`（`_break_repeat_seed` 也漏）→ 原文进上下文被模型整段复述 + 顺杆爬（"现在有空间了，我来整理记忆"）。
+
+**改动（仅 `stream_api.py`）**：
+- 新增 `_is_status_verbose(text)` + `_STATUS_VERBOSE_RE`：识别系统状态播报句（内存/CPU/SSD/磁盘/负载 + 已用/可用/占比/GB/MB/°C 等数据特征；或服务器/容器状态）
+- `_compress_long_assistants` 压缩条件扩展：`len>80` **或** `_is_status_verbose` → 一律压为占位（无论长短）
+- **验证**（容器内实测）：`_is_status_verbose("内存：共19.4GB，已用5.6GB，可用13.8GB（28%）")`=True；`_is_status_verbose("你好呀，今天天气不错")`=False；含播报句的 assistant 被压缩为占位 ✓
+- 部署：备份 `.bak325`，md5=`8b0cf62f`，`docker stop/start` 重启，容器 `CONT_SYNTAX_OK`
+- ⚠️ 误伤权衡：状态播报句本就不承载可持续对话信息（每轮可重新生成），压掉仅防复读，不影响正常对话
+- **iOS v3.2.4 发版卡 apple token**：`apple` remote 里原写权限 token（`ghp_uT...LinnE`，属 lxm20060513-apple）已失效（push 403 / ls-remote Auth failed）；`.gh_cred` 的 token 属 **lxm20060513-svg**（读 apple 仓库 OK 但无写，push 报 `denied to lxm20060513-svg`）。发版需 lxm20060513-apple 账号的 repo 写权限 PAT（临时用 `git remote set-url apple https://lxm20060513-apple:<新PAT>@github.com/lxm20060513-apple/qingliao-ios.git` 更新即可）
+
+### v3.2.4（2026-09-03 已 commit `a0c0c61`，**待发版**，用户拍板"先攒着"：语音转文字回归最原始基线）
+
+> 背景：用户反馈 v3.2.3/398 后"触发语音转文字还是会卡死，偶尔不卡死也转不出文字"，拍板"去掉系统降噪功能回归最原始"；中途确认**语音模式流光动画保留**。
+
+**① `VoiceRecorder.swift` 回归 v3.0.85 前最简基线（核心）**
+- **去掉 `.voiceChat` 系统降噪/回声消除**（v3.0.85/9-01 引入，语音问题时间线起点——卡死即此后被报）
+- **去掉 `.playAndRecord + .defaultToSpeaker`**（v3.1.4 引入）与 **后台异步配置**（v3.1.7 引入）
+- 改回 `setCategory(.record, mode: .default)` **同步** start/stop：触发即录、松手必有文件
+- 修复"偶尔转不出文字"根因：v3.1.7 异步化后松手太快 → `stop()=nil` → 静默吞掉（无提示无文字）；同步后此路径消除
+- 删除死代码 `stopCurrentSegment()/resumeSegment()`（v3.0.77 起整段录音，无调用者）
+- ⚠️ **v3.1.2/3.1.4/3.1.7 三轮音频层修复方向均被 v3.2.4 回退**——v3.2.3 的 .ips 铁证卡死根因在渲染层（流光阴影 stroker），音频会话阻塞（100ms-1s 卡顿层）≠ 5s 冻结。回归 .record 同步开销极小，主线程无感知
+
+**② `ChatInputBar.swift` 录音中 UI 静态化**
+- 去掉 v3.0.85 加的录音计时器（0.1s TimelineView 驱动 `recordingDuration`）+ 1Hz 红点闪烁
+- 回归静态"红点 + 松开上屏"（v3.0.85 前样式），删 `recordingStartTime/recordingDuration/formatDuration`
+- **流光保留**：`(streaming || voiceMode)` 均启用（用户拍板）。voiceMode 期间唯一动态视图即此流光，无 shadow 不触发 stroker；卡死防护靠 v3.2.3 三件套（流光无 shadow + 15fps + 外层阴影静态化在 overlay 前）
+
+**③ 版本号**：project.yml 3.2.4 / 399（4 处同步）。全量 swiftc 语法预检通过。
+
+### v3.2.3（2026-09-03 已发版 398，commit `6698364`：语音转文字卡死真根因定案——渲染层，非音频层）
+
+- **现象**：任意语音入口（智能球/输入框/发送键长按）触发 → 整 App 无响应每次必现；v3.1.2/3.1.4/3.1.7 三轮音频层修复全无效
+- **决定性证据**：用户 iPhone 系统 `.ips` watchdog 日志（bug_type 309 / 0x8BADF00D / FRONTBOARD kill 5s）主线程栈：`ShapeLayerShadowHelper.updateShadow → Path.cgPath → RB::Path::Mapper::add_rounded_rect → CG::stroker::path_stroke_round_cube_offset` 自我递归（SIGKILL 捕不到，App 崩溃上报拿不到此栈，只能让用户从「设置→隐私→分析与改进→分析数据」导 qingliao 开头 .ips）
+- **根因**：voiceMode 激活输入栏流光 overlay（TimelineView 30fps 每帧重建圆角 Capsule 渐变）+ 流光自带 `.shadow(6)` + 外层整栏 `.shadow(14)` 双叠 → 每帧逼 iOS 27 stroker 重算圆角阴影路径 → 病态递归 100% CPU 主线程冻结。Circle 阴影走不同 mapper 不触发（球态 30fps 呼吸不卡的原因）
+- **修复（仅 ChatInputBar.swift）三件套**：① 流光层去 `.shadow` ② 30fps→15fps ③ 外层 `.shadow(radius 14)` modifier 移到 `.overlay{流光}` 之前（`.background → .shadow → .overlay(动态层)` 顺序 = 阴影只覆盖静态层）
+- **类级教训**：「每帧变化的视图 + .shadow」是 iOS 27 主线程卡死高危组合；排查"整 App 无响应"先分崩溃 vs 卡死（卡死=系统 .ips bug_type 309，崩溃=crash_pending.json Signal 条目），主线程栈只能靠导 .ips
+
+### v3.2.2（2026-09-03 已发版 397：回复+推送重复根治——用户拍板"在看也推 + App端去重"）
+
+- App `InboxStore.shouldSkipDuplicate` 加 `extra: stream.content` 兜底（流式回复一定在 stream.content，即使 chat.messages 暂缺也能命中去重，稳住去重竞态）
+- 后端 `_maybe_push_app` 曾试加"用户在看则不推"门控（`lastPoll` 判断）→ **按用户意愿回滚**为"完成即推"（用户明确"希望在看也推"，重复由 App 端拦截）。`.bak322gate` 留档
+- ⚠️ 修正踩坑第 10 条：最终方案不是门控，是"完成即推 + App 端 stream.content 兜底去重"
+
 ### v3.1.7（2026-09-03 已发版：语音卡死修复 + 502修复 + SiriBall长按语音）
+> ⚠️ **① 的音频层异步化方案已被 v3.2.4 整体回退**（真根因是 v3.2.3 定案的渲染层，且异步化引入"松手太快 stop()=nil 静默吞掉"新问题）。保留此记录仅作历史；接手语音问题先读 v3.2.4/v3.2.3。
 
 **① 语音转文字卡死修复**（`VoiceRecorder.swift`）：
 - **根因**：`start()` 中 `AVAudioSession.setCategory(.playAndRecord)` + `setActive(true)` 在主线程同步执行，首次调用初始化音频管线阻塞 100-500ms → UI 冻结
@@ -447,42 +495,47 @@ Hermes 主动推送收件箱（inbox）：让 Hermes 能主动推消息给轻聊
 
 ### 触发条件
 
-`feature/handoff-301` 分支上推送 `v*` tag 会自动触发 `.github/workflows/build-ios.yml`。
+`feature/handoff-301` 分支上推送 `v*` tag 到 **apple remote** 会自动触发 `.github/workflows/build-ios.yml`（查 CI 状态查 `lxm20060513-apple/qingliao-ios`）。
 
 ### 完整流程
 
 ```bash
-# 1. 进入本地仓库
+# 1. 进入本地仓库（主副本，发版用这份；勿放 /tmp 会被重启清空）
 cd /opt/data/qingliao_ios
 
-# 2. check_swift 语法检查
+# 2. check_swift 语法检查（全量 parse + 单测）
 bash check_swift.sh
 
-# 3. 改版本号（project.yml 4 处同步）
-sed -i 's/X.Y.Z/A.B.C/g; s/\"OLD_BUILD\"/\"NEW_BUILD\"/g' project.yml
+# 3. 改版本号（project.yml 4 处同步：MARKETING_VERSION / CURRENT_PROJECT_VERSION / CFBundleShortVersionString / CFBundleVersion）
+#    ⚠️ SideStore 同名覆盖不生效——版本号必须递增
 
-# 4. commit + push
-git add -A && git commit -m "fix: ... (vA.B.C)"
-git tag vA.B.C
-git -c http.version=HTTP/1.1 -c http.lowSpeedLimit=0 -c http.lowSpeedTime=999 push origin feature/handoff-301 vA.B.C
+# 4. commit + 推 apple（token 内嵌在 remote URL，直接 push 即可）
+git add -A && git commit -m "fix: ... (vX.Y.Z)"
+git tag vX.Y.Z
+git -c http.version=HTTP/1.1 -c http.lowSpeedLimit=0 -c http.lowSpeedTime=999 push apple feature/handoff-301 vX.Y.Z
 
-# 5. 等 CI 完成（~15-20 分钟）
-curl -s "https://api.github.com/repos/lxm20060513-svg/qingliao-ios/actions/runs?per_page=2"
+# 5. 等 CI 完成（~15-20 分钟），盯 apple 仓库 runs：
+#    token 提取：git config --get remote.apple.url | sed -E 's#https://[^:]+:([^@]+)@.*#\1#'
+curl -s -H "Authorization: Bearer <token>" -H "Accept: application/vnd.github+json" \
+  "https://api.github.com/repos/lxm20060513-apple/qingliao-ios/actions/runs?per_page=3"
 
-# 6. 下载 IPA + 转存 NAS
-# SFTP put 到 docker/hermes/_upload.ipa，然后 sudo cp 到目标目录
+# 6. 下载 IPA（artifact 下载 302 重定向到 Azure blob，urllib 会 403，用 curl -sSL）：
+#    curl -sSL -o artifact.zip -H "Authorization: Bearer <token>" -H "Accept: application/vnd.github+json" <archive_download_url>
+#    解包后必须校验 Info.plist 的 CFBundleShortVersionString == tag 版本（v2.0.53 教训：版本号没随 tag 升=装了新版崩溃日志显示旧版）
+# 7. 转存 NAS：SFTP put 到 docker/hermes/_upload.ipa → sudo cp 到目标 → chmod 644 → md5sum 两端比对
 ```
 
 ### 关键点
 
 - **project.yml 版本号 4 处**：MARKETING_VERSION / CURRENT_PROJECT_VERSION / CFBundleShortVersionString / CFBundleVersion
-- **NAS SFTP chroot**：根目录是 `/volume1/`，SFTP 用相对路径 `docker/hermes/...`
-- **NAS 上传**：SFTP put 到 `docker/hermes/_upload.ipa` → sudo cp 到目标 → chmod 644
+- **发版走 apple remote**（tag 推 `apple` = lxm20060513-apple/qingliao-ios）；`origin`(svg) 是旧通道不发版
+- **NAS SFTP chroot**：根目录是 `/volume1/`，SFTP 用相对路径 `docker/hermes/...`（写绝对路径会双写前缀 `/volume1/volume1/` → ENOENT）
+- **NAS 上传**：SFTP put 到 `docker/hermes/_upload.ipa` → sudo cp（用 `/bin/cp` 或 `\cp` 绕 `cp -i` 别名，防 overwrite 交互卡死）到目标 → chmod 644
 - **NAS 凭据**：`/opt/data/.nas_cred`（单行纯密码，含 @ 勿截断）
-- **GitHub 凭据**：`/opt/data/.gh_cred`（明文 40 字符 token）
+- **GitHub 凭据**：token 内嵌 apple remote URL（`git config --get remote.apple.url` 取冒号后 40 位）；`/opt/data/.gh_cred` 可能过期优先用前者
 - **git push 重试**：`for i in $(seq 1 8); do git -c http.version=HTTP/1.1 ... && break; sleep 10; done`
 - **盯 CI cron**：构建成功后删 cron，勿空转复读
-- **paramiko venv**：`/opt/data/paramiko_old/bin/python3`
+- **Swift 预检**：`export HOME=/opt/data/home LD_LIBRARY_PATH=/opt/data/swift-libs && /opt/data/swift-toolchain/swift-6.0.3-RELEASE-ubuntu24.04/usr/bin/swiftc -parse <files>`（或 bash check_swift.sh）
 
 ---
 
@@ -520,12 +573,13 @@ curl -s "https://api.github.com/repos/lxm20060513-svg/qingliao-ios/actions/runs?
 - 重试循环最多 8 次，间隔 10s
 
 ### 5. CI 失败重发
-- 删 tag 重建 + 重推：`git push origin :refs/tags/vX` + 本地 `git tag -d` + `git tag vX` + push
+- 删 tag 重建 + 重推（**apple** remote）：`git push apple :refs/tags/vX` + 本地 `git tag -d` + `git tag vX` + `git push apple feature/handoff-301 vX`
 
-### 6. 智能球语音功能（v3.0.73 已全部移除）
+### 6. 智能球语音功能（v3.0.73 已移除，⚠️ v3.1.7 起球长按语音转文字回归，勿照本操作）
 - v3.0.70-72 三次尝试修复语音松手上屏 bug 均失败
 - 根因链：DragGesture 移除 → 透明 overlay 拦截松手 → overlay 改 allowsHitTesting(false) → 仍有问题
-- 最终方案：球的语音功能全部移除，语音转文字只保留在输入栏（send 按钮/输入框长按）
+- 最终方案（v3.0.73）：球的**语音对讲/按住说话**功能全部移除（-335 行）；语音转文字保留在输入栏（send 按钮/输入框长按）
+- ⚠️ **v3.1.7 起 `SiriBallView` 加回「长按=语音转文字」（`ExclusiveGesture(LongPress, Tap)`，v2.0.98 SIGTRAP 教训：勿叠加 onTap+onLongPress）**——与输入栏长按同路径 `toggleVoiceMode`，单击仍展开输入框。本条"球无语音"结论已不适用于 v3.1.7+
 
 ### 7. 容器文件系统只读
 - NAS 容器对 `/volume1/docker/hermes/微信文件/轻聊app/` 是只读的
@@ -534,7 +588,8 @@ curl -s "https://api.github.com/repos/lxm20060513-svg/qingliao-ios/actions/runs?
 
 ### 8. 音频会话未释放
 - 多次录音后 `AVAudioSession.setCategory(.record)` 可能失败（上次录音未正确释放）
-- 修复：录音前先 `try? session.setActive(false, options: .notifyOthersOnDeactivation)`
+- v3.0.74 曾试"录音前先 `try? session.setActive(false)`" → ⚠️ **v3.0.76 已回退**（该改动实测导致录音采不到字节、松手必弹"录音太短"）
+- 当前（v3.2.4 回归 .record 同步基线）不前置 setActive(false)：会话还原靠 `stop()` 内 `setCategory(.playback)` + `setActive(false, .notifyOthersOnDeactivation)`（v2.0.102 起，同时保证 TTS 朗读有声）
 
 ### 9. token 迁 Keychain 遗漏升级用户 → 全接口 401（v3.0.84 引入，v3.0.86 修复）
 - v3.0.84 把 token 从 UserDefaults 明文迁到 Keychain，但 `AuthStore.init()` **只从 Keychain 读**，**没兜底升级用户**——升级用户此前 token 一直存 UserDefaults、Keychain 为空，但登录布尔(UserDefaults)仍为 `true`。
@@ -548,7 +603,7 @@ curl -s "https://api.github.com/repos/lxm20060513-svg/qingliao-ios/actions/runs?
 - ⚠️ v3.0.87 初版只用 `contains` 直比：后端用 `re.sub(r"\s+"," ",...)` 把回复压成单行、流式 content 保留换行 → 匹配不上失效。v3.0.88 加 `normalizeWhitespace`（换行/多空格→单空格）双向比对 + `hasPrefix` 截断前缀兜底才生效。
 - ⚠️ v3.0.90 再补**时序竞态**：v3.0.88 只在「回复已落库」时能去重，但后端 done 即推、App 落库要等 `finish→upsertAssistant`——InboxStore 轮询抢在落库前拉到推送就漏。修复：流式进行中（`stream.isStreaming`）本轮不注入，等落库后下一轮必命中。类级：**比对类去重必须考虑「数据还没写入」的竞态窗口，不能只比对已存在的消息**。
 - 类级：**两个独立链路（后端自动推 + App 端注入）叠加在同一会话时，必须先想清楚会不会重复**；比对文本务必先统一空白格式（推送可能压行、会话保留换行），否则 contains 匹配失败。
-- ⚠️ v3.2.2（2026-09-03）**根治**：前面 v3.0.88/90 都是 App 端**被动去重**（依赖时序命中），仍会在竞态缝隙漏网（用户实测「流式回复 + 🔔推送」重复再现）。方案A：后端 `_maybe_push_app` 加「**用户在看则不推**」门控（复用 `PUSH_IDLE_SECONDS=30`，与 `_maybe_push` 推微信一致）——用户正盯着 App 看流式回复（`/api/stream` 轮询活跃，`lastPollAt` 近）就不推收件箱（前台不重复）；用户离开/后台 >30s 无轮询才推（后台仍有记录）。同时 App 端 `shouldSkipDuplicate` 加 `extra: stream.content` 兜底——即使 `chat.messages` 因时序暂缺该回复，`stream.content` 必持有，可稳定命中去重。**注意**：改后端必须重建镜像（见第16条），只改宿主不生效。
+- ⚠️ v3.2.2（2026-09-03）**根治**：前面 v3.0.88/90 都是 App 端**被动去重**（依赖时序命中），仍会在竞态缝隙漏网（用户实测「流式回复 + 🔔推送」重复再现）。**曾试方案A**：后端 `_maybe_push_app` 加「用户在看则不推」门控（复用 `PUSH_IDLE_SECONDS=30`，用户正盯着 App 看流式回复就不推收件箱）——**用户拍板否决"看不推"**（明确"希望在看也推"），已回滚为"完成即推"。**最终方案（v3.2.2 定案）= 后端完成即推 + App 端 `shouldSkipDuplicate` 加 `extra: stream.content` 兜底**（流式回复一定在 `stream.content`，即使 `chat.messages` 因时序暂缺也能命中去重）。**类级教训：去重逻辑的比对源必须是"数据源本身"（流式缓冲）而不只是"已落库消息"，落库与比对存在时间差必有竞态缺口；"要不要加门控"是产品语义决策，先问用户拍板再改，改了要能干净回滚（`.bak322gate` 留档）。**
 
 ### 11. NAS 发版脚本 cp 弹 overwrite 交互卡死（v3.0.90 实踩）
 - NAS root shell 的 `cp` 是 `cp -i` 别名（`cp -f` 也弹「overwrite?」）→ 自动化脚本用 `cp` 传 IPA 会卡在交互确认，md5 校验拿不到。
@@ -580,7 +635,14 @@ curl -s "https://api.github.com/repos/lxm20060513-svg/qingliao-ios/actions/runs?
 - **类级**：**聊天主模型（mimo）≠ 工具调用模型（deepseek），二者必须解耦**。v3.0.30 曾把 Agent 模型改成"跟随设置页选定模型"，是背离 v3.1.8 已验证决策的回归。排查"Agent 分流生效但 400/空回复"先看 debug 日志的 `model/provider`——若 Agent 行显示 mimo/xiaomi 即用错模型，Agent 必须走 deepseek 等支持 tool calling 的 provider。
 - ⚠️ 本机相关 provider 速记：`mimo-v2.5`(xiaomi) 不支持原生 tool calling；`deepseek`(deepseek) 支持。Agent 恒用 deepseek。
 
-### 16. 后端代码改动必须重建镜像，不是重启容器（v3.2.1 实踩，决定性 — "始终不生效"总根源）
+### 16. 后端代码部署：先 docker inspect mounts 实测，再决定重建 or 重启（v3.2.3 更新，原"必须重建镜像"结论已被实证推翻）
+> ⚠️ **本节下方旧结论（必须重建镜像）在 v3.2.2 之后已过时**——compose 已变：`docker inspect qingliao` 实测 mounts 含 `/volume1/docker/hermes/微信文件/轻聊web => 同路径 (rw)`（宿主 backend 容器内直读）+ `/tmp (rw)` + `/volume1 (ro)` + docker.sock。
+> - **v3.2.3 实证**：改宿主 `tool_executor.py` → 只 `docker rm -f qingliao && docker compose up -d` 重启 → 容器内实测函数输出新逻辑 ✓ 生效，**无需重建镜像**。
+> - ⚠️ **陷阱**：容器内 `/app/backend/*.py` 仍是镜像 COPY 残留的**旧文件**（md5/日期对不上宿主）——**别拿 `/app/backend` md5 判断部署是否生效**（会误判"没生效"白重建镜像）。运行中的 qingliao_all.py 实际加载宿主 bind mount 路径；生效判据 = **docker exec 实测函数输出**，不是文件 md5。
+> - **决策流程**：① `docker inspect qingliao --format '{{range .Mounts}}{{.Source}} => {{.Destination}} ({{.Mode}}){{println}}{{end}}'` ② 有 轻聊web => 同路径/含 backend 的 rw bind mount → 改宿主 + 重启容器（rm -f + compose up -d）；无 → 走下方旧流程重建镜像。
+
+以下为 v3.2.2 之前（compose 无 bind mount 时期）的旧记录，保留备查：
+
 - **现象**：反复改进宿主 `backend/stream_api.py`（复读修复/Agent400修复都用 `docker exec qingliao sh -c 'md5sum /volume1/.../backend/stream_api.py'` 验证到了新函数），但 App 复读还在、Agent 还 400——**声称部署的修复始终不生效**。
 - **根因**：容器**实际运行的不是 bind mount 的宿主 backend，而是镜像内 `COPY backend/` 固化的 `/app/backend`**！
   - 容器挂载只有 3 项：`/usr/bin/docker`、`/data`、`/var/run/docker.sock` —— **根本没挂宿主 backend 到 `/app/backend`**
@@ -620,9 +682,8 @@ curl -s "https://api.github.com/repos/lxm20060513-svg/qingliao-ios/actions/runs?
 
 | 环节 | 路径 |
 |---|---|
-| **git 仓库** | `https://github.com/lxm20060513-svg/qingliao-ios`（origin，含 token 不带在文档里） |
-| **App 本地仓库** | `/opt/data/qingliao_ios/`（主开发副本，分支 `feature/handoff-301`；`native-3.0` 为主分支基线，tag `v3.0.XX` 触发 CI） |
-| **App 发版常用副本** | `/opt/data/ql_ipa2/`（发版衔接先 `git status` 看在途未提交改动；仓库勿放 /tmp 会被重启清空） |
+| **git 仓库** | 双 remote：`origin`=svg（旧通道）/ `apple`=lxm20060513-apple（**发版通道**，token 内嵌 URL 不带在文档里） |
+| **App 本地仓库** | `/opt/data/qingliao_ios/`（**主开发+发版副本**，分支 `feature/handoff-301`；发版 commit/tag 都打这，**勿放 /tmp 会被重启清空**；旧副本 ql_ipa2 已删） |
 | **NAS 后端（线上运行）** | `/volume1/docker/hermes/微信文件/轻聊web/backend/`（容器 `qingliao` 挂载，**非** `/opt/data/ql_backend` 历史副本） |
 | **NAS 前端** | `/volume1/docker/hermes/微信文件/轻聊web/frontend/` |
 | **NAS IPA 存放** | `/volume1/docker/hermes/微信文件/轻聊app/` |
