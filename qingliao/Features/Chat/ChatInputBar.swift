@@ -19,9 +19,6 @@ struct ChatInputBar: View {
     var onVoiceModeToggle: () -> Void = {}
     // v2.0.100：转写中动画（输入框「语音转换中…」+ 按钮转圈）
     var transcribing: Bool = false
-    // v3.0.85：录音计时器
-    @State private var recordingStartTime: Date?
-    @State private var recordingDuration: TimeInterval = 0
     // v2.0.101：转写停止按钮回调
     var onCancelTranscribe: () -> Void = {}
     // v2.0.106：长按输入框触发语音转文字（效果与长按发送键一致，不弹键盘）
@@ -103,44 +100,18 @@ struct ChatInputBar: View {
             .buttonStyle(.plain)
 
             if isRecording {
-                // 录音中：红点 + 计时器 + 提示
-                HStack(spacing: 8) {
+                // v3.2.4：录音中 UI 回归最原始静态样式（v3.0.85 前基线）——红点 + 松开上屏，
+                // 无 1Hz 红点闪烁 / 无 0.1s TimelineView 计时器（v3.0.85 加的"录音计时器"）。
+                // 触发语音时输入栏零动态视图，杜绝任何每帧重绘/动画叠加。
+                HStack(spacing: 5) {
                     Circle().fill(Color.red).frame(width: 7, height: 7)
-                        .opacity(recordingDuration.truncatingRemainder(dividingBy: 1.0) < 0.5 ? 1 : 0.3)
-                    Text(formatDuration(recordingDuration))
-                        .font(.system(size: 13, weight: .medium, design: .monospaced))
-                        .foregroundStyle(Color.red)
-                    Spacer()
                     Text("松开上屏")
                         .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(Color.red.opacity(0.7))
+                        .foregroundStyle(Color.red)
                 }
-                .padding(.horizontal, 12)
                 .padding(.vertical, 7)
                 .frame(maxWidth: .infinity)
                 .background(Color.red.opacity(0.08), in: Capsule())
-                .onAppear {
-                    recordingStartTime = Date()
-                    recordingDuration = 0
-                }
-                .onDisappear {
-                    recordingStartTime = nil
-                    recordingDuration = 0
-                }
-                .overlay(alignment: .trailing) {
-                    // 用 TimelineView 驱动计时器更新
-                    TimelineView(.periodic(from: .now, by: 0.1)) { ctx in
-                        Color.clear.onAppear {
-                            // 首次出现
-                        }
-                        .onChange(of: ctx.date) { _, newDate in
-                            if let start = recordingStartTime {
-                                recordingDuration = newDate.timeIntervalSince(start)
-                            }
-                        }
-                    }
-                    .allowsHitTesting(false)
-                }
             } else {
                 // v3.0.40：回滚富文本输入（UITextView 桥接体验不佳）→ 恢复原 TextField(axis:.vertical)
                 // v2.0.34：placeholder 用 overlay 自定义（vertical axis 的 TextField 自带
@@ -275,6 +246,9 @@ struct ChatInputBar: View {
         // v2.0.87s：等待回复特效（v2.0.87ay：改回 87 版效果——内部旋转流光，Siri 淡雅）
         // v2.0.96：语音转文字模式同样开启 Siri 流光
         .overlay {
+            // v3.2.4：流光在 streaming / voiceMode 均启用（用户拍板：语音模式保留流光视觉）。
+            // 卡死防护靠 v3.2.3 三件套（流光无 shadow + 15fps + 外层阴影静态化在 overlay 前），
+            // voiceMode 期间唯一动态视图即此流光，无 shadow 不触发 stroker 病态路径。
             if (streaming || voiceMode) && UserDefaults.standard.bool(forKey: "qingliao_input_glow") {
                 // v2.0.139 性能：流光 60→30fps（旋转渐变肉眼无差，重绘开销减半）
                 // v3.2.3：30→15fps + **去掉 .shadow**——每帧变化的渐变+阴影=每帧送 stroker 算圆角
@@ -298,13 +272,6 @@ struct ChatInputBar: View {
             }
         }
         .padding(.horizontal, 18)   // v2.0.87aw：输入框宽度收窄（12→18）
-    }
-
-    // v3.0.85：格式化录音时长（秒 → "0:05"）
-    private func formatDuration(_ d: TimeInterval) -> String {
-        let m = Int(d) / 60
-        let s = Int(d) % 60
-        return String(format: "%d:%02d", m, s)
     }
 }
 
