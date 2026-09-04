@@ -279,27 +279,7 @@ struct DashboardView: View {
                         }
                     }
                     if !hiddenUsageProviders.isEmpty {
-                        HStack(spacing: 6) {
-                            Image(systemName: "eye.slash")
-                                .font(.system(size: 11))
-                                .foregroundStyle(.tertiary)
-                            Text("已隐藏 \(hiddenUsageProviders.count) 个模型服务 · 点击恢复")
-                                .font(.system(size: 12))
-                                .foregroundStyle(.tertiary)
-                            Spacer()
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .dashboardCard(cornerRadius: 10)
-                        .contentShape(Rectangle())
-                        .onTapGesture { showUsageRestore = true }
-                        .confirmationDialog("恢复已隐藏的模型服务", isPresented: $showUsageRestore, titleVisibility: .visible) {
-                            ForEach(Array(hiddenUsageProviders).sorted()) { p in
-                                Button(p) { unhideUsageProvider(p) }
-                            }
-                            Button("恢复全部") { hiddenUsageRaw = "" }
-                            Button("取消", role: .cancel) {}
-                        }
+                        usageRestoreRow()
                     }
 
                     // v3.0.18：设备一键体检（六维诊断：服务/磁盘/容器/负载/内存/温度）
@@ -791,6 +771,32 @@ struct DashboardView: View {
         Text(s)
             .font(.system(size: 15, weight: .bold))
             .padding(.top, 6)
+    }
+
+    /// v3.4.2b：已隐藏用量卡恢复行（点击弹菜单逐张恢复/全部恢复）——独立方法
+    /// 防 confirmationDialog 动态按钮在 body 大表达式内 type-check 超时
+    private func usageRestoreRow() -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "eye.slash")
+                .font(.system(size: 11))
+                .foregroundStyle(.tertiary)
+            Text("已隐藏 \(hiddenUsageProviders.count) 个模型服务 · 点击恢复")
+                .font(.system(size: 12))
+                .foregroundStyle(.tertiary)
+            Spacer()
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .dashboardCard(cornerRadius: 10)
+        .contentShape(Rectangle())
+        .onTapGesture { showUsageRestore = true }
+        .confirmationDialog("恢复已隐藏的模型服务", isPresented: $showUsageRestore, titleVisibility: .visible) {
+            ForEach(Array(hiddenUsageProviders).sorted(), id: \.self) { p in
+                Button(p) { unhideUsageProvider(p) }
+            }
+            Button("恢复全部") { hiddenUsageRaw = "" }
+            Button("取消", role: .cancel) {}
+        }
     }
 }
 
