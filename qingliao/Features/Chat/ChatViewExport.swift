@@ -221,16 +221,19 @@ extension ChatView {
                 chat.append(m)
                 startCloudStream(for: m)
             } else {
-                chat.append(.local(role: "user", content: content))
+                // v3.3.3：接住 m 作为落库锚点（防延迟回调把文件回复贴到新消息后）
+                let m = ChatMessage.local(role: "user", content: content)
+                chat.append(m)
                 let history = chat.historyPayload()
                 // v3.0.81：统一模型优先级链（免费 > 视觉 > Agent > 主模型）
                 let (useModel, useProvider) = resolveModel()
+                stream.pendingUserMsgId = m.id   // v3.3.3：文件消息流锚点
                 await stream.start(auth: auth, sessionId: chat.sessionId, model: useModel,
                                    provider: useProvider, messages: history) { success, error in
                     if !success {
-                        chat.upsertAssistant(stream.content.isEmpty ? "⚠️ \(error)" : stream.content + "\n\n⚠️ \(error)", agent: stream.isAgent)
+                        chat.upsertAssistant(stream.content.isEmpty ? "⚠️ \(error)" : stream.content + "\n\n⚠️ \(error)", agent: stream.isAgent, afterUserID: m.id)
                     } else {
-                        chat.upsertAssistant(stream.content, agent: stream.isAgent)
+                        chat.upsertAssistant(stream.content, agent: stream.isAgent, afterUserID: m.id)
                         showSentOK()
                         // v2.0.36：App 退后台时 AI 回复完成发本地通知
                         if UIApplication.shared.applicationState != .active {

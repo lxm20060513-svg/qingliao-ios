@@ -139,7 +139,33 @@ final class ChatStore {
     /// v2.0.102：去重仅限"连续两条 assistant 内容相同"（流式重复场景）——
     ///           上一条若是用户消息（新一轮提问），即使内容相同也必须新增（修复相同回复被吞）
     /// 扩大去重范围到最近 5 条：极短时间多次调用（重试/网络抖动）可能产生多条相同 assistant
-    func upsertAssistant(_ text: String, agent: Bool = false) {
+    /// v3.3.3：错位复读根治（2026-09-04 实据）——支持 afterUserID 锚定：回答必须落在
+    ///          "发起它的 user 消息"之后。此前所有完成回调无条件 append 到 messages 末尾，
+    ///          后台恢复/延迟完成回调执行时若用户已发新消息，旧答被贴到新问题后（App 侧
+    ///          历史错位：13:40 的回答 13:43:41 才落库贴在"告诉我哪个版本"后；Hermes 侧
+    ///          transcript 全程正常 = 模型无辜，纯 App 落库锚点缺陷）。带锚点时仅在该轮
+    ///          回复区（锚点后、下一个 user 前）去重与插入，杜绝跨轮污染。
+    func upsertAssistant(_ text: String, agent: Bool = false, afterUserID: String? = nil) {
+        let ts = Date().timeIntervalSince1970 * 1000
+        if let anchorID = afterUserID,
+           let anchorIdx = messages.lastIndex(where: { $0.isUser && $0.id == anchorID }) {
+            // 该轮回复区右边界（开区间）：锚点之后直到下一个 user 消息
+            var regionEnd = anchorIdx + 1
+            while regionEnd < messages.count, !messages[regionEnd].isUser { regionEnd += 1 }
+            // 同轮竞态双落库（正常完成 + 恢复完成/重放）→ 区域内最后一条内容相同则跳过
+            if regionEnd - 1 > anchorIdx,
+               messages[regionEnd - 1].role == "assistant",
+               messages[regionEnd - 1].content == text {
+                messages[regionEnd - 1].agent = agent || messages[regionEnd - 1].agent
+                return
+            }
+            // 插入到该轮回复区末尾——其后若有排队/新发 user 消息，保持原位不被错位污染
+            var m = ChatMessage(role: "assistant", content: text, timestamp: ts)
+            m.agent = agent   // v2.0.96b：Agent 回复标记
+            messages.insert(m, at: regionEnd)
+            return
+        }
+        // —— 无锚点：原末尾语义（兼容无发起消息的调用方）——
         let checkCount = min(messages.count, 5)
         let tail = messages.suffix(checkCount)
         // 检查最近 N 条中是否有连续相同内容的 assistant（含当前最后一条）
@@ -152,7 +178,7 @@ final class ChatStore {
                 return
             }
         }
-        var m = ChatMessage(role: "assistant", content: text, timestamp: Date().timeIntervalSince1970 * 1000)
+        var m = ChatMessage(role: "assistant", content: text, timestamp: ts)
         m.agent = agent   // v2.0.96b：Agent 回复标记
         messages.append(m)
     }

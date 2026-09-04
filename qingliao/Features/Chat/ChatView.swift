@@ -557,10 +557,12 @@ struct ChatView: View {
         // v2.0.61：杀后台流式恢复（幂等——无持久化任务时静默返回）
         .task {
             await stream.restoreIfNeeded(auth: auth) { success, err in
+                // v3.3.3：恢复的旧回答锚定回发起 user 消息，不 append 到用户新消息后
+                let anchor = stream.pendingUserMsgId
                 if success {
-                    chat.upsertAssistant(stream.content, agent: stream.isAgent)
+                    chat.upsertAssistant(stream.content, agent: stream.isAgent, afterUserID: anchor)
                 } else {
-                    chat.upsertAssistant(stream.content.isEmpty ? "⚠️ \(err)" : stream.content + "\n\n⚠️ \(err)", agent: stream.isAgent)
+                    chat.upsertAssistant(stream.content.isEmpty ? "⚠️ \(err)" : stream.content + "\n\n⚠️ \(err)", agent: stream.isAgent, afterUserID: anchor)
                 }
                 Task { await chat.saveToServer(auth: auth) }
             }
@@ -1356,6 +1358,7 @@ struct ChatView: View {
         let (useModel, useProvider) = resolveModel(hasImage: msg.imageDataURL != nil)
 
         Task {
+            stream.pendingUserMsgId = msg.id   // v3.3.3：记录发起 user 消息，恢复/延迟回调落库锚点
             await stream.start(
                 auth: auth,
                 sessionId: chat.sessionId,
@@ -1369,9 +1372,9 @@ struct ChatView: View {
                     chat.markFailed(id: msg.id)   // v2.0.59 失败标记 → 重试按钮
                     // v3.0.19：限流错误友好提示（sensenova 等免费额度 tpm 爆了 → 提示换路由）
                     let friendly = Self.friendlyStreamError(error)
-                    chat.upsertAssistant(stream.content.isEmpty ? "⚠️ \(friendly)" : stream.content + "\n\n⚠️ \(friendly)", agent: stream.isAgent)
+                    chat.upsertAssistant(stream.content.isEmpty ? "⚠️ \(friendly)" : stream.content + "\n\n⚠️ \(friendly)", agent: stream.isAgent, afterUserID: msg.id)
                 } else {
-                    chat.upsertAssistant(stream.content, agent: stream.isAgent)
+                    chat.upsertAssistant(stream.content, agent: stream.isAgent, afterUserID: msg.id)
                     showSentOK()
                     // v3.1.9 fix：流式完成 → 快拉收件箱（后端 _maybe_push_app 已入队本次回复，
                     // 此刻 isStreaming=false 且回复已落库 → 去重命中、不重复注入）
@@ -1467,7 +1470,7 @@ struct ChatView: View {
                 guard chat.sessionId == startSid else { return }
                 if let finalText, !finalText.isEmpty {
                     // 落库 assistant 消息（替换掉 streamingBubble）
-                    chat.upsertAssistant(finalText)
+                    chat.upsertAssistant(finalText, afterUserID: msg.id)
                     showSentOK()
                     // v3.0.19：语音指令回复完成 → TTS 播报摘要
 
@@ -1477,16 +1480,16 @@ struct ChatView: View {
                     }
                 } else if acc.text.isEmpty {
                     chat.markFailed(id: msg.id)
-                    chat.upsertAssistant("⚠️ 云端未返回内容")
+                    chat.upsertAssistant("⚠️ 云端未返回内容", afterUserID: msg.id)
                 } else {
-                    chat.upsertAssistant(acc.text)
+                    chat.upsertAssistant(acc.text, afterUserID: msg.id)
                 }
                 CloudSessionStore.shared.saveChat(store: chat)
                 finishCloudQueue()
             } catch {
                 guard chat.sessionId == startSid else { return }
                 chat.markFailed(id: msg.id)
-                chat.upsertAssistant("⚠️ \(error.localizedDescription)")
+                chat.upsertAssistant("⚠️ \(error.localizedDescription)", afterUserID: msg.id)
                 CloudSessionStore.shared.saveChat(store: chat)
                 finishCloudQueue()
             }
@@ -1689,6 +1692,8 @@ struct ChatView: View {
               let idx = chat.messages.firstIndex(where: { $0.id == id }) else { return }
         // 截断到该消息前（含该消息），重新生成它之后的内容
         chat.messages.removeSubrange(idx...)
+        // v3.3.3：截断后的最后 user = 本轮回话锚点（回答必须落在其后，防错位复读）
+        let anchorUserID = chat.messages.last(where: { $0.isUser })?.id
         // v3.0.84fix：云端模式走 startCloudStream（原直接 stream.start 打本地 NAS，云端 regenerate 全废）
         if CloudConfig.shared.isCloudMode {
             let lastUser = chat.messages.last(where: { $0.isUser })?.content ?? ""
@@ -1702,12 +1707,13 @@ struct ChatView: View {
         // v3.0.81：统一模型优先级链（免费 > 视觉 > Agent > 主模型）
         let (useModel, useProvider) = resolveModel(hasImage: lastUserHasImage)
         Task {
+            stream.pendingUserMsgId = anchorUserID   // v3.3.3：regenerate 锚点（杀后台恢复也用）
             await stream.start(auth: auth, sessionId: chat.sessionId, model: useModel,
                                provider: useProvider, messages: history) { success, error in
                 if !success {
-                    chat.upsertAssistant(stream.content.isEmpty ? "⚠️ \(error)" : stream.content + "\n\n⚠️ \(error)", agent: stream.isAgent)
+                    chat.upsertAssistant(stream.content.isEmpty ? "⚠️ \(error)" : stream.content + "\n\n⚠️ \(error)", agent: stream.isAgent, afterUserID: anchorUserID)
                 } else {
-                    chat.upsertAssistant(stream.content, agent: stream.isAgent)
+                    chat.upsertAssistant(stream.content, agent: stream.isAgent, afterUserID: anchorUserID)
                     showSentOK()
                     // v3.1.9 fix：云端模式流式完成同样触发快拉（与本地模式一致）
                     InboxStore.shared.triggerFastPoll()

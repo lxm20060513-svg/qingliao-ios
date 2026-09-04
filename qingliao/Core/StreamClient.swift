@@ -33,6 +33,9 @@ final class StreamClient {
     private var generation = 0
     // v3.0.81：后台任务标识——iOS 挂起前最多续 ~30s，让轮询/recover 有机会完成
     private var bgTaskId: UIBackgroundTaskIdentifier = .invalid
+    // v3.3.3：当前流的"发起 user 消息 id"——落库锚点（跨杀后台恢复时也由此传递）。
+    // 防延迟完成回调/恢复把旧答 append 到用户新消息之后（错位复读根因，2026-09-04 实据）。
+    var pendingUserMsgId: String?
 
     /// 启动流式请求
     func start(auth: AuthStore, sessionId: String, model: String, provider: String,
@@ -244,6 +247,7 @@ final class StreamClient {
         let d: [String: Any] = [
             "taskId": taskId, "sessionId": sessionId,
             "offset": offset, "content": persistedContent,
+            "userMsgId": pendingUserMsgId ?? "",   // v3.3.3：恢复落库锚点
             "ts": Date().timeIntervalSince1970
         ]
         UserDefaults.standard.set(d, forKey: "qingliao_stream_pending")
@@ -255,6 +259,7 @@ final class StreamClient {
         guard !isStreaming else { return }
         stopPolling()
         generation += 1   // v3.0.50：恢复时同样废除在途旧轮询代
+        pendingUserMsgId = nil   // v3.3.3：先清残留，再从持久化读回真实锚点
 
         guard let d = UserDefaults.standard.dictionary(forKey: "qingliao_stream_pending") else { return }
         // 超过 30 分钟的任务视为失效（服务器端流可能已回收）
@@ -270,6 +275,9 @@ final class StreamClient {
         offset = (d["offset"] as? Int) ?? 0
         content = (d["content"] as? String) ?? ""
         recoverTried = false
+        if let uid = d["userMsgId"] as? String, !uid.isEmpty {
+            pendingUserMsgId = uid   // v3.3.3：恢复旧任务 → 落库锚定回原 user 消息
+        }
         if let sid = d["sessionId"] as? String {
             auth.currentStreamSessionId = sid
         }
