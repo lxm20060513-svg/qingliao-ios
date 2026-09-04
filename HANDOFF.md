@@ -1,7 +1,7 @@
 # 轻聊 App 项目交接文档
 
 > 最后更新：2026-09-04
-> 最新版本：v3.3.1/401（2026-09-04 已发版 **svg 通道**：bot 模式彻底移除 + 消息落盘修复；IPA 已校验 3.3.1/401，md5 `ea72ed87`）
+> 最新版本：v3.3.2/402（2026-09-04 已发版 **svg 通道**：bot 模式移除 + vision 模型识别修复(mimo)；IPA 已校验 3.3.2/402，md5 `0e608b44`）
 > 后端已上线：v3.2.7（方案C 上下文上移 Hermes）+ **v3.3.1 修复**：图片管道 multimodal 透传（`_build_hermes_messages` 保留 list）、语音 asr_server 修复（`asr_server.py` 已入 hermes-data 并拉起 9144 监听）
 
 ---
@@ -52,7 +52,7 @@
 
 ## 二、版本历史
 
-### v3.3.1（2026-09-04 已发版 svg 通道，commit `91b71fb`/`7e4afd2`：bot 模式彻底移除 + 消息落盘修复 + 后端图片/语音修复）
+### v3.3.1（2026-09-04 已发版 svg 通道，commit `91b71fb`/`7e4afd2`：bot 模式移除 + vision 模型识别修复(mimo) + 后端图片/语音修复）
 
 > 背景：用户拍板「彻底移除 bot 模式」（旧 bot 会话弃，不兼容保留）+ 反馈「消息不被落盘」「图片不识别」。本版 iOS 侧移除 bot + 修消息落盘；后端同步部署图片 multimodal 透传 + 语音 asr_server 修复。
 
@@ -64,7 +64,7 @@
 - **图片管道 multimodal 透传**：`_build_hermes_messages`/`_build_hermes_agent_prompt` 保留 `isinstance(last_user,list)` 原样透传（不 `str()` 打平），`_worker` 提取 `last_user_text` 与原始 `last_user` 分离——App 发图不再被后端丢 image_url 块
 - **语音"一直转换中"根治**：根因=`asr_server.py` 从未放入容器挂载的 `hermes-data`（容器 `/opt/data`），`_ensure_server` 拉起时报 `can't open file /opt/data/asr_server.py` → 9144 永不监听 → 转写超时。修复=`asr_server.py`（2006B）写入 `/opt/data`（=容器挂载目录）并拉起，`[asr] listening on 127.0.0.1:9144`，9144 探测 501 正常
 
-**③ 版本号**：project.yml 3.3.1/401（4 处）。**发版通道 svg(origin)**：分支预检 CI success（run 397），tag `v3.3.1` 推 origin 触发发版 CI success（run 398），IPA 校验 3.3.1/401 通过，md5 `ea72ed87` 转存 NAS `轻聊app/qingliao-3.3.1.ipa`。
+**③ 版本号**：project.yml 3.3.1/401（4 处）。**发版通道 svg(origin)**：分支预检 CI success（run 397），tag `v3.3.1` 推 origin 触发发版 CI success（run 398），IPA 校验 3.3.1/401 通过，md5 `0e608b44` 转存 NAS `轻聊app/qingliao-3.3.1.ipa`。
 
 ### v3.3.0（2026-09-04 已发版 svg 通道，commit `2354847`：多选合并发送 + 三处 type-check 超时块抽离）
 
