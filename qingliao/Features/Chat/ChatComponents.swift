@@ -197,6 +197,7 @@ struct MessageBlockView: View {
                     .font(.system(size: CGFloat(fontSize)))
                     .lineSpacing(aiLineSpacing)
                     .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else if useSwiftUIText && text.count <= 6000 {
                 // v3.0.17：流式输出中的 AI 长文 —— SwiftUI Text 原生渲染，无 UITextView 布局锁/字体缩放问题
@@ -206,6 +207,7 @@ struct MessageBlockView: View {
                     .font(.system(size: CGFloat(fontSize)))
                     .lineSpacing(aiLineSpacing)
                     .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .contextMenu { bubbleMenu }
             } else {
