@@ -1,8 +1,8 @@
 # 轻聊 App 项目交接文档
 
-> 最后更新：2026-09-03
-> 最新版本：v3.2.4/399（2026-09-03 已发版 **svg 通道**：语音回归最原始基线，IPA 已转存 NAS `轻聊app/qingliao-3.2.4.ipa`）
-> 后端已上线：v3.2.5（2026-09-03 已部署重启，复读补强——状态播报型 assistant 也压）
+> 最后更新：2026-09-04
+> 最新版本：v3.3.0/400（2026-09-04 已发版 **svg 通道**：多选合并发送，IPA 已校验 3.3.0/400，md5 `c44165fe`）
+> 后端已上线：v3.2.7（2026-09-04 已部署重启，**方案C**：上下文托管上移 Hermes 9123 按 sessionId 服务端续接，根治复读，回退开关 `STREAM_HERMES_SESSION`）
 
 ---
 
@@ -51,6 +51,47 @@
 ---
 
 ## 二、版本历史
+
+### v3.3.0（2026-09-04 已发版 svg 通道，commit `2354847`：多选合并发送 + 三处 type-check 超时块抽离）
+
+> 背景：用户反馈"AI 每轮新回答都变成同一段旧话"（复读）。方案C（上下文托管上移 Hermes）已在后端根治（见下方后端 v3.2.7）。iOS 侧本次主要是多选合并功能 + 编译修复。
+
+**① 多选合并发送**（v3.3.0 核心功能，commit `07567cd`/`6b87af1`）：
+- 右上角菜单 / 长按菜单「多选」进入勾选模式（流式中拦截提示，上限 99 条）
+- 全行点击勾选 + 圆圈指示；底部操作条（全选/取消/已选计数/合并发送）
+- `ChatViewExport.mergeAndShare` 按时间序打包选中消息 → SessionCardView 卡片图(@3x) → 系统分享（微信可发）
+- 只丢原文，图片/语音/撤回降级占位
+
+**② 编译修复（关键，否则 v3.3.0 无法编译）**：
+- **删多余闭合 `}`**：v3.3.0 抽离 `contextUsageBar` 时在 ChatView.body 残留一个多余闭合大括号（原属于被替换掉的 `if chat.contextInfo.count > 10 {...}`），导致 `struct ChatView` 提前闭合 → `downloadImage`（static func）被挤出类型作用域 → "static methods may only be declared on a type" + 顶层 extraneous '}'。已删。
+- **三处 type-check 超时块抽离**（Xcode 26 type-check "unable to type-check in reasonable time"）：body 太重是根因，逐次报错 462→508→665，三处分别是：
+  - `headerTrailingItems`（PageHeader 的 `AnyView(HStack{...})` 内联过复杂）
+  - `chatActionDialogContent`（confirmationDialog 内联 Menu + 8 Button 过大）
+  - `inputArea`（`if selectMode/else(ChatInputBar 17参+多closure)` 内联，v3.3.0 最大新增块）
+- 每次改后 `check_swift.sh` 语法预检通过；最终 CI success。
+
+**③ 版本号**：project.yml 3.3.0 / 400。**发版通道：svg(origin)**（记忆：apple token 已失效，svg 为可用通道）。tag `v3.3.0` 推 origin，CI success，IPA 校验 3.3.0/400 通过，md5 `c44165fe` 已下载待转存 NAS。
+
+### 后端 v3.2.7（2026-09-04 已部署重启，**方案C**：上下文托管上移 Hermes，根治复读）
+
+> 用户拍板走方案C（"我愿意走C，不然很难成为生产力工具"）+ "同步移除bot模式" + "统一走hermes"。方案C 让轻聊从「上下文管理者」退化为「流式转发代理」——历史由 Hermes 按 sessionId 服务端托管续接，从架构层面根治复读（不再靠启发式防复读压缩）。
+
+**① 核心机制**（`stream_api.py`）：
+- 新增 `_use_hermes_session()`（读 env `STREAM_HERMES_SESSION`，=1 启用，=0 回退现状）+ `_hermes_session_header()`（`ql_<sessionId>` 前缀头）
+- 请求体只传**最新 user 消息** + `X-Hermes-Session-Id: ql_<sessionId>` 头；历史由 Hermes 从 state.db 按 sessionId 续接（微信通道同款机制）
+- 所有 provider（deepseek/mimo/**local/Ollama**）统一走 Hermes 9123，靠 body 里 `provider` 字段精确路由
+- Agent 工具循环也交给 Hermes `run_conversation`（86+ 工具），走 SSE 流式；`_hermes_stream_worker` 保留 `_maybe_push`/`_maybe_push_app` 推送链
+- 回退路径保留：`_agent_loop`/`tool_executor`/防复读函数仅作回退（用户要求可回退，不删）
+
+**② bot 模式废除**：`_apply_bot` 函数、`_build_messages` bot 分支、`stream_start` bot 字段处理全部移除（后端忽略 bot 字段保持兼容）。
+
+**③ 验证**：
+- 普通路径 E2E PASS：让记住 `/opt/data/qingliao_ios/HANDOFF.md` → 回复"已记住" → 第二轮问路径 → 精确复述
+- Agent 路径 E2E PASS：「查内存」→ Hermes 工具循环返回真实 NAS 数据（19.8G/已用5.6G/可用14.2G/28%）
+- code review 7 项全过；`_hermes_stream_worker` 确认推送链保留
+- 容器重建后 `_use_hermes_session()=True` 生效；compose 第24行加 `STREAM_HERMES_SESSION=1`
+
+**④ 部署**：备份 `.bak327`；compose 加 env；`docker rm -f + docker compose up -d` 重建容器（⚠️ 裸 `docker start` 不应用 compose 改动）。**方案C 后端与 iOS 无耦合（sessionId 已在 iOS 稳定持久），iOS 无需改动。**
 
 ### v3.2.5（2026-09-03 后端已部署重启：复读补强——状态播报型 assistant 也压）
 
