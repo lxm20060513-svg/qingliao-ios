@@ -229,6 +229,10 @@ struct ChatView: View {
     private struct MessageRowItem: Identifiable {
         let index: Int
         let msg: ChatMessage
+        /// v3.4.2：前一条消息快照（渲染期分隔线判定用）。渲染路径禁止再索引可变
+        /// chat.messages——原 chat.messages[idx-1] 在消息增删/清空竞态下越界 →
+        /// SIGTRAP（2026-09-04 崩溃栈 atos 实证 ChatView.swift:669）
+        let prevMsg: ChatMessage?
         var id: String { msg.id }
     }
     // v3.0.51 A2 fix：缓存可见消息数组——仅在消息数量/显示上限变化时重建，
@@ -236,7 +240,9 @@ struct ChatView: View {
     private func refreshVisibleMessages() {
         let msgs = chat.messages
         let start = visibleStartIndex
-        visibleMessagesCache = (start..<msgs.count).map { MessageRowItem(index: $0, msg: msgs[$0]) }
+        visibleMessagesCache = (start..<msgs.count).map {
+            MessageRowItem(index: $0, msg: msgs[$0], prevMsg: $0 > 0 ? msgs[$0 - 1] : nil)
+        }
     }
 
     // 模型/提供商可从模型管理面板选择（UserDefaults 持久化）
@@ -662,19 +668,19 @@ struct ChatView: View {
     }
 
     /// v3.0.51：单条消息整行（日期分隔 + 时间分隔 + 气泡）——拆独立方法防 ForEach type-check 超时
+    /// v3.4.2：改吃 entry 快照（prevMsg），渲染不再索引可变 chat.messages（越界 SIGTRAP 根治）
     @ViewBuilder
-    private func messageRow(idx: Int, msg: ChatMessage) -> some View {
+    private func messageRow(entry: MessageRowItem) -> some View {
+        let msg = entry.msg
         // v2.0.60：跨天 → 日期分隔线（微信式：昨天/M月d日）
-        if idx > 0,
-           let prevTs = chat.messages[idx - 1].timestamp,
+        if let prevTs = entry.prevMsg?.timestamp,
            let curTs = msg.timestamp,
            !Calendar.current.isDate(Date(timeIntervalSince1970: curTs / 1000),
                                    inSameDayAs: Date(timeIntervalSince1970: prevTs / 1000)) {
             dateDivider(curTs)
         }
         // 相邻消息间隔 >5 分钟：插入居中时间分隔（微信式）
-        if idx > 0,
-           let prevTs = chat.messages[idx - 1].timestamp,
+        if let prevTs = entry.prevMsg?.timestamp,
            let curTs = msg.timestamp,
            curTs - prevTs > 300_000 {
             timeDivider(curTs)
@@ -913,7 +919,8 @@ struct ChatView: View {
                                         }
                                         ForEach(visibleMessagesCache) { entry in
                                                                     // v3.0.51：整行（日期分隔 + 时间分隔 + 气泡）拆辅助函数，ForEach 内只留薄调用
-                                                                    messageRow(idx: entry.index, msg: entry.msg)
+                                                                    // v3.4.2：吃 entry 快照（含 prevMsg），渲染不触碰可变 chat.messages
+                                                                    messageRow(entry: entry)
                                                                 }
                         // v3.0.18：云端工具执行卡片（显示在流式气泡上方）
                         // v3.0.18 fix：改用 @Observable cloudStreamUI.toolCards（引用类型，闭包安全）
