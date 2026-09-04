@@ -1,7 +1,7 @@
 # 轻聊 App 项目交接文档
 
 > 最后更新：2026-09-04
-> 最新版本：v3.3.2/402（2026-09-04 已发版 **svg 通道**：bot 模式移除 + vision 模型识别修复(mimo)；IPA 已校验 3.3.2/402，md5 `0e608b44`）
+> 最新版本：v3.3.3/403（2026-09-04 已发版 **svg 通道**：错位复读锚定根治——assistant 落库锚定发起 user 消息；IPA 已校验 3.3.3/403，md5 `0abd6e23`）
 > 后端已上线：v3.2.7（方案C 上下文上移 Hermes）+ **v3.3.1 修复**：图片管道 multimodal 透传（`_build_hermes_messages` 保留 list）、语音 asr_server 修复（`asr_server.py` 已入 hermes-data 并拉起 9144 监听）
 
 ---
@@ -51,6 +51,10 @@
 ---
 
 ## 二、版本历史
+
+### v3.3.3（2026-09-04 已发版 svg 通道，commit `f685ba5`：错位复读锚定根治）
+
+**错位复读根治（2026-09-04 用户报"聊天过程中重复了几次一样的回答"）**：stream 文件铁证——App POST 的 messages 里旧 assistant 回答被错位粘贴（胡志明答贴到"轻聊app开发"后、MiMo 旧答贴到"告诉我哪个版本"后、v56 比 v3.3.1 还晚落库），Hermes transcript 全程正常 = 模型无辜，纯 App 落库锚点缺陷。根治 = `ChatStore.upsertAssistant` 支持 `afterUserID` 锚定（回答插到发起它的 user 消息之后，同轮回复区去重，杜绝延迟完成回调/杀后台恢复/排队场景把旧答 append 到新 user 后）；`StreamClient.persistState` 增 `userMsgId` 跨进程传锚点；全部落库路径锚定（startStream/restoreIfNeeded/regenerate/sendFile/云端 4 处）。改动 4 文件 +62/-19。旧会话错位历史（763E/BEB57A）清洗待发版后执行。
 
 ### v3.3.1（2026-09-04 已发版 svg 通道，commit `91b71fb`/`7e4afd2`：bot 模式移除 + vision 模型识别修复(mimo) + 后端图片/语音修复）
 
