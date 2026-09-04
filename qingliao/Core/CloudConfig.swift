@@ -260,6 +260,10 @@ final class CloudConfig {
         if m.contains("glm-5") {
             return true
         }
+        // MiMo-V2.5 原生多模态（支持文本/图片/视频/音频）
+        if m.contains("mimo") {
+            return true
+        }
         return false
     }
 
