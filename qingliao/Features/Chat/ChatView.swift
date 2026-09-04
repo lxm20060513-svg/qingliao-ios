@@ -150,6 +150,7 @@ struct ChatView: View {
     @Environment(AuthStore.self) var auth
     @Environment(ChatStore.self) var chat
     @Environment(StreamClient.self) var stream
+    @Environment(InboxStore.self) var inbox   // v3.4.0：底部上拉手动拉取收件箱
     @Environment(KeyboardObserver.self) var kb
     @State var pinStore = PinStore.shared   // v3.0.74：钉一钉
 
@@ -205,6 +206,8 @@ struct ChatView: View {
     // 闭包捕获引用而非 struct 值拷贝，避免 Task 内 self 旧副本 → 状态更新丢失）
     @State var toolGate = ToolConfirmGate()
     @State var cloudStreamUI = CloudStreamUIState()
+    // v3.4.0：底部上拉拉取收件箱状态（@Observable 引用——拖动高频写不重建 ChatView body）
+    @State var inboxPull = InboxPullState()
     // v3.0.27：长文目录
     @State var showTOCSheet = false
     // v3.0.51 A2：极长会话分页懒加载——初始只渲染尾部最近 N 条，顶部可"加载更早"
@@ -494,6 +497,10 @@ struct ChatView: View {
                             .contentShape(Rectangle())
                             .onTapGesture { exitVoiceMode() }
                     }
+                }
+                .overlay(alignment: .bottom) {
+                    // v3.4.0：底部上拉拉取收件箱——拖动指示器 / 拉取中 spinner / 结果 toast
+                    InboxPullLayer(state: inboxPull)
                 }
             // v3.0.77：移除 v3.0.36 分段流式（边说边出字实时显示）——改回整段录音一次转写
             // 图片预览条（选图后显示）
@@ -956,6 +963,8 @@ struct ChatView: View {
                                 streamingBubble
                             }
                         }
+                        // v3.4.0：底部上拉锚点（收件箱拉取检测）——上报内容末尾位置
+                        InboxPullAnchor()
                     }
                     .padding(.horizontal, 12)
                     .padding(.top, 8)
@@ -1011,6 +1020,8 @@ struct ChatView: View {
             }
             // 滚动消息区即收起键盘（微信式）
             .scrollDismissesKeyboard(.immediately)
+            // v3.4.0：底部上拉拉取收件箱手势（simultaneous 不吞滚动；触底后才累计，见 InboxPullRefresh.swift）
+            .simultaneousGesture(inboxPullDrag)
             // v2.0.135：ScrollView 是 UIKit 桥接视图，其区域点击不冒泡到 ZStack 根手势
             // （v2.0.112b 把 onTapGesture 移到 ZStack 后，有消息时点空白收键盘失效，用户复报）
             // → ScrollView 自身也挂一个：点消息区空白收键盘（点气泡由 MessageBubble 手势优先消费，不受影响）
@@ -1031,6 +1042,16 @@ struct ChatView: View {
         }
         }
         }
+        // v3.4.0：底部上拉收件箱——命名坐标空间 + 可视高度上报 + 锚点/视口 preference 缓存
+        // （坐标空间须同时包含 ScrollView 内锚点与容器视口；几何缓存写引用属性不触发 body 重建）
+        .coordinateSpace(name: InboxPullState.spaceName)
+        .background(
+            GeometryReader { geo in
+                Color.clear.preference(key: InboxViewportKey.self, value: geo.size.height)
+            }
+        )
+        .onPreferenceChange(InboxPullAnchorKey.self) { inboxPull.anchorY = $0 }
+        .onPreferenceChange(InboxViewportKey.self) { inboxPull.viewportHeight = $0 }
         // v2.0.112b：点消息区空白收键盘——原 onTapGesture 只挂 ScrollView（有消息才显示），
         // 欢迎页（无消息）状态点空白无法收键盘 → 移到 ZStack 根统一生效
         // v2.0.135：ZStack 无 contentShape 时透明空白不可命中（此前只有点 logo/气泡才触发收键盘）
