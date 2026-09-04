@@ -2,6 +2,11 @@ name: Build iOS IPA (native SwiftUI, unsigned for SideStore)
 
 on:
   workflow_dispatch:
+    inputs:
+      crash_offsets:
+        description: '崩溃地址 offsets（空格分隔，如 0x10c738 0x10c9b0）→ 构建后用 dSYM atos 符号化并打印到日志'
+        required: false
+        type: string
   push:
     tags:
       - 'v*'
@@ -47,6 +52,30 @@ jobs:
         run: |
           file build/qingliao-2.0-unsigned.ipa
           unzip -l build/qingliao-2.0-unsigned.ipa | head -8
+
+      - name: Upload dSYM artifact (崩溃符号化留底, v3.4.2)
+        uses: actions/upload-artifact@v4
+        with:
+          name: qingliao-dsym
+          path: build/App.xcarchive/dSYMs
+          if-no-files-found: ignore
+
+      - name: Symbolicate crash offsets (atos)
+        if: ${{ github.event.inputs.crash_offsets != '' }}
+        run: |
+          python3 - <<'PYEOF'
+          import subprocess
+          off_s = "${{ github.event.inputs.crash_offsets }}"
+          dsym = 'build/App.xcarchive/dSYMs/Qingliao.app.dSYM/Contents/Resources/DWARF/Qingliao'
+          for off in off_s.split():
+              try:
+                  addr = 0x100000000 + int(off, 16)
+                  r = subprocess.run(['atos', '-o', dsym, '-l', '0x100000000', hex(addr)],
+                                     capture_output=True, text=True)
+                  print(f'{off}: {r.stdout.strip() or r.stderr.strip()}')
+              except Exception as e:
+                  print(f'{off}: ERR {e}')
+          PYEOF
 
       - name: Upload IPA to GitHub Release (Hermes 下载后转存 NAS)
         env:
