@@ -44,13 +44,13 @@ final class InboxPullState {
 
 /// 内容末尾锚点的 minY（in .named(InboxPullState.spaceName)）
 struct InboxPullAnchorKey: PreferenceKey {
-    static var defaultValue: CGFloat = .infinity
+    static let defaultValue: CGFloat = .infinity
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }
 
 /// 消息列表可视高度
 struct InboxViewportKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
+    static let defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }
 
