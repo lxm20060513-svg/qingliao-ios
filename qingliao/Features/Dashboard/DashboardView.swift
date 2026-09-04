@@ -15,8 +15,23 @@ struct DashboardView: View {
     // v3.0.36：模型使用量栏（/api/nas/providers-usage）
     @State private var providerUsages: [ProviderUsage] = []
     @State private var usageError = ""
-    // v3.4.2：模型使用量卡片长按隐藏（整节；UserDefaults 持久化，隐藏后原位显示恢复行）
-    @AppStorage("dashboard_usage_card_hidden") private var usageCardHidden = false
+    // v3.4.2b：模型使用量卡隐藏集合——长按单卡只隐藏该 provider（逗号分隔 id 持久化）
+    @AppStorage("dashboard_hidden_usage_providers") private var hiddenUsageRaw = ""
+    @State private var showUsageRestore = false
+
+    private var hiddenUsageProviders: Set<String> {
+        Set(hiddenUsageRaw.split(separator: ",").map(String.init))
+    }
+    private func hideUsageProvider(_ id: String) {
+        var s = hiddenUsageProviders
+        s.insert(id)
+        hiddenUsageRaw = s.sorted().joined(separator: ",")
+    }
+    private func unhideUsageProvider(_ id: String) {
+        var s = hiddenUsageProviders
+        s.remove(id)
+        hiddenUsageRaw = s.sorted().joined(separator: ",")
+    }
     @State private var haEntities: [HAEntity] = []
     @State private var router = RouterStatus()
     @State private var scrollPos = ScrollPosition()
@@ -228,13 +243,47 @@ struct DashboardView: View {
                     }
 
                     // v3.0.36：模型使用量（DeepSeek/StepFun 官方余额；无接口 provider 降级显示）
-                    // v3.4.2：长按任意用量卡 → 隐藏整节（持久化）；隐藏后原位显示恢复行，点击复原
-                    if usageCardHidden {
+                    // v3.4.2b：长按任意用量卡 → 只隐藏该 provider 卡（持久化）；
+                    // 节底部显示"已隐藏 N 个 · 点击恢复"（弹菜单逐张恢复/全部恢复）
+                    sectionTitle("模型使用量")
+                    if usageError.isEmpty && providerUsages.isEmpty {
+                        Text("加载中…")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                            .padding(.vertical, 6)
+                    } else if !usageError.isEmpty {
+                        Text(usageError)
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                            .padding(.vertical, 6)
+                    } else {
+                        let visible = providerUsages.filter { !hiddenUsageProviders.contains($0.id) }
+                        if visible.isEmpty {
+                            Text("已全部隐藏 · 点下方恢复")
+                                .font(.system(size: 12))
+                                .foregroundStyle(.tertiary)
+                                .padding(.vertical, 6)
+                        } else {
+                            LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
+                                ForEach(visible) { u in
+                                    UsageCard(usage: u)
+                                        .contextMenu {
+                                            Button(role: .destructive) {
+                                                hideUsageProvider(u.id)
+                                            } label: {
+                                                Label("隐藏此卡片", systemImage: "eye.slash")
+                                            }
+                                        }
+                                }
+                            }
+                        }
+                    }
+                    if !hiddenUsageProviders.isEmpty {
                         HStack(spacing: 6) {
-                            Image(systemName: "chart.bar.fill")
+                            Image(systemName: "eye.slash")
                                 .font(.system(size: 11))
                                 .foregroundStyle(.tertiary)
-                            Text("模型使用量已隐藏 · 点击恢复")
+                            Text("已隐藏 \(hiddenUsageProviders.count) 个模型服务 · 点击恢复")
                                 .font(.system(size: 12))
                                 .foregroundStyle(.tertiary)
                             Spacer()
@@ -243,32 +292,13 @@ struct DashboardView: View {
                         .padding(.vertical, 8)
                         .dashboardCard(cornerRadius: 10)
                         .contentShape(Rectangle())
-                        .onTapGesture { usageCardHidden = false }
-                    } else {
-                        sectionTitle("模型使用量")
-                        if usageError.isEmpty && providerUsages.isEmpty {
-                            Text("加载中…")
-                                .font(.system(size: 12))
-                                .foregroundStyle(.secondary)
-                                .padding(.vertical, 6)
-                        } else if !usageError.isEmpty {
-                            Text(usageError)
-                                .font(.system(size: 12))
-                                .foregroundStyle(.secondary)
-                                .padding(.vertical, 6)
-                        } else {
-                            LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
-                                ForEach(providerUsages) { u in
-                                    UsageCard(usage: u)
-                                        .contextMenu {
-                                            Button(role: .destructive) {
-                                                usageCardHidden = true
-                                            } label: {
-                                                Label("隐藏模型使用量卡片", systemImage: "eye.slash")
-                                            }
-                                        }
-                                }
+                        .onTapGesture { showUsageRestore = true }
+                        .confirmationDialog("恢复已隐藏的模型服务", isPresented: $showUsageRestore, titleVisibility: .visible) {
+                            ForEach(Array(hiddenUsageProviders).sorted()) { p in
+                                Button(p) { unhideUsageProvider(p) }
                             }
+                            Button("恢复全部") { hiddenUsageRaw = "" }
+                            Button("取消", role: .cancel) {}
                         }
                     }
 
