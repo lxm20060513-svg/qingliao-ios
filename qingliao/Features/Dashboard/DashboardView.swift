@@ -15,6 +15,8 @@ struct DashboardView: View {
     // v3.0.36：模型使用量栏（/api/nas/providers-usage）
     @State private var providerUsages: [ProviderUsage] = []
     @State private var usageError = ""
+    // v3.4.2：模型使用量卡片长按隐藏（整节；UserDefaults 持久化，隐藏后原位显示恢复行）
+    @AppStorage("dashboard_usage_card_hidden") private var usageCardHidden = false
     @State private var haEntities: [HAEntity] = []
     @State private var router = RouterStatus()
     @State private var scrollPos = ScrollPosition()
@@ -226,21 +228,46 @@ struct DashboardView: View {
                     }
 
                     // v3.0.36：模型使用量（DeepSeek/StepFun 官方余额；无接口 provider 降级显示）
-                    sectionTitle("模型使用量")
-                    if usageError.isEmpty && providerUsages.isEmpty {
-                        Text("加载中…")
-                            .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
-                            .padding(.vertical, 6)
-                    } else if !usageError.isEmpty {
-                        Text(usageError)
-                            .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
-                            .padding(.vertical, 6)
+                    // v3.4.2：长按任意用量卡 → 隐藏整节（持久化）；隐藏后原位显示恢复行，点击复原
+                    if usageCardHidden {
+                        HStack(spacing: 6) {
+                            Image(systemName: "chart.bar.fill")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.tertiary)
+                            Text("模型使用量已隐藏 · 点击恢复")
+                                .font(.system(size: 12))
+                                .foregroundStyle(.tertiary)
+                            Spacer()
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .dashboardCard(cornerRadius: 10)
+                        .contentShape(Rectangle())
+                        .onTapGesture { usageCardHidden = false }
                     } else {
-                        LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
-                            ForEach(providerUsages) { u in
-                                UsageCard(usage: u)
+                        sectionTitle("模型使用量")
+                        if usageError.isEmpty && providerUsages.isEmpty {
+                            Text("加载中…")
+                                .font(.system(size: 12))
+                                .foregroundStyle(.secondary)
+                                .padding(.vertical, 6)
+                        } else if !usageError.isEmpty {
+                            Text(usageError)
+                                .font(.system(size: 12))
+                                .foregroundStyle(.secondary)
+                                .padding(.vertical, 6)
+                        } else {
+                            LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
+                                ForEach(providerUsages) { u in
+                                    UsageCard(usage: u)
+                                        .contextMenu {
+                                            Button(role: .destructive) {
+                                                usageCardHidden = true
+                                            } label: {
+                                                Label("隐藏模型使用量卡片", systemImage: "eye.slash")
+                                            }
+                                        }
+                                }
                             }
                         }
                     }
