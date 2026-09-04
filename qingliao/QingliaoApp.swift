@@ -10,8 +10,6 @@ struct QingliaoApp: App {
     @State private var stream = StreamClient()
     @State private var keyboard = KeyboardObserver()
     @State private var inbox = InboxStore.shared
-    // v3.0.7：Bot Mode 数据（NAS bots.json 缓存 + 选中状态）
-    @State private var botStore = BotStore.shared
     // v3.0.27：会话分类
     @State private var categoryStore = CategoryStore()
     @AppStorage("qingliao_appearance") private var appearance = "system"   // dark / light / system（v2.0.42 默认跟随系统，与 SettingsView 默认值一致）
@@ -24,7 +22,6 @@ struct QingliaoApp: App {
                 .environment(stream)
                 .environment(keyboard)
                 .environment(inbox)
-                .environment(botStore)
                 .environment(categoryStore)
                 .environment(SessionTagStore.shared)   // v3.0.51 B7：会话标签
                 .preferredColorScheme(colorScheme)

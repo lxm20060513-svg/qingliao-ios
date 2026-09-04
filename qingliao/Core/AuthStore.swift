@@ -361,9 +361,8 @@ final class AuthStore {
     // MARK: - 流式专用（relay 路径参数版）
 
     /// 流式启动：蜂窝 → relay POST /r/stream/start/{uid}；Wi-Fi → 直连 POST /api/stream/start
-    /// v3.0.7：bot 参数（Bot Mode）→ payload 带 bot id，NAS 后端注入人设并覆盖模型
     func streamStart(sessionId: String, model: String, provider: String,
-                     messages: [[String: Any]], bot: String? = nil) async throws -> String {
+                     messages: [[String: Any]]) async throws -> String {
         // v2.0.98：Agent 开关（设置页 qingliao_agent_enabled，默认开；关闭后后端走普通 LLM 不调用工具）
         // v3.2.1 双保险：key 缺失时 bool(forKey:) 返回 false 会误发 false 到后端（设置页显示"开"却请求不带 Agent）。
         // QL 设置页对 agentEnabled 无任何"默认写盘"逻辑（@AppStorage 默认 true 只影响 UI），
@@ -379,7 +378,6 @@ final class AuthStore {
             "pushEnabled": false,
             "agentEnabled": agentOn
         ]
-        if let bot, !bot.isEmpty { payload["bot"] = bot }
         let bodyData = try JSONSerialization.data(withJSONObject: payload)
         // v2.0.116 fix：流式请求必须带 X-Auth-Token（鉴权收紧后无 token 恒 401；
         // 原只带 Content-Type——AUTO_LOGIN 时代被免鉴权掩盖）

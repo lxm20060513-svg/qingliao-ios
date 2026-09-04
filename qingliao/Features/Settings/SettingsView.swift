@@ -29,7 +29,6 @@ struct SettingsView: View {
     @State var showAppearance = false   // v3.0.4：外观弹窗（与云端统一）
     @State var scrollPos = ScrollPosition()
     @State var showModelSheet = false
-    @State var showBotManage = false   // v3.0.7：Bot 管理
     @State var showWechatChannel = false   // v3.0.19：微信窗通道模型设置
     @State var showAbout = false
     @State var confirmLogout = false   // v3.0.5 review fix：退出登录二次确认（与云端一致）
@@ -133,11 +132,6 @@ struct SettingsView: View {
         }
         .sheet(isPresented: $showWechatChannel) {
             WechatChannelSheet()
-                .presentationDetents([.medium, .large])
-        }
-        .sheet(isPresented: $showBotManage) {
-            // v3.0.7：Bot 管理（云端模式下 BotStore 拉取会失败，入口标注「仅本地模式」）
-            BotManageSheet()
                 .presentationDetents([.medium, .large])
         }
         .sheet(isPresented: $showAbout) {

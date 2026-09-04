@@ -5,7 +5,6 @@ import SwiftUI
 struct SessionsView: View {
     @Environment(AuthStore.self) private var auth
     @Environment(ChatStore.self) private var chat
-    @Environment(BotStore.self) private var botStore   // v3.0.7：bot 分组显示
     @Environment(CategoryStore.self) private var categoryStore   // v3.0.27：会话分类
     @Environment(SessionTagStore.self) private var tagStore     // v3.0.51 B7：会话标签
 
@@ -195,14 +194,10 @@ struct SessionsView: View {
                                 // v2.0.133g：VStack → LazyVStack——会话多时全量渲染拖慢 TabView 切页；
                                 // 删除已改后端驱动+load() 整体刷新（v2.0.56 根治），无就地 diff 崩溃路径，安全
                                 LazyVStack(spacing: 8) {
-                                    ForEach(groupedSessions, id: \.key) { group in
-                                        // v3.0.7：bot 组显示组头（通用助手组也显示「主 Agent」标识，v3.0.8 起）
-                                        // v3.0.8 CI fix：拆成辅助函数，type-check 收敛
-                                        botGroupHeaderIfNeeded(group.key)
-                                        ForEach(group.items) { s in
-                                            // v3.0.51：会话 cell（SessionRow+长按菜单）拆辅助函数，避免嵌套 ForEach type-check 超时
-                                            sessionCell(s)
-                                        }
+                                    // v3.3.0：bot 模式已移除，会话列表不再按 bot 分组，直接平铺
+                                    ForEach(sortedSessions) { s in
+                                        // v3.0.51：会话 cell（SessionRow+长按菜单）拆辅助函数，避免嵌套 ForEach type-check 超时
+                                        sessionCell(s)
                                     }
                                 }
                             }
@@ -222,10 +217,6 @@ struct SessionsView: View {
         // v2.0.102：切回会话列表立即刷新（聊天里新建/重命名后列表即时更新，原只有 .task 首刷）
         .onAppear {
             Task { await load() }
-            // v3.0.7：Bot 列表加载（节流版：5min 缓存内不重复请求，免切页触发网络+状态翻转）
-            if !CloudConfig.shared.isCloudMode {
-                Task { await botStore.load(auth: auth) }
-            }
         }
         // v2.0.78：搜索键盘完成按钮
         .toolbar {
@@ -352,73 +343,6 @@ struct SessionsView: View {
             if a != b { return a > b }
             return ($0.lastTime ?? 0) > ($1.lastTime ?? 0)
         }
-    }
-
-    // MARK: - v3.0.7 Bot 会话分组
-
-    /// 会话分组视图模型（通用助手 = key ""；bot 组 = bot id）
-    private struct BotGroup: Identifiable {
-        let key: String
-        let title: String
-        let items: [ChatSession]
-        var id: String { key }
-    }
-
-    /// 按 bot 分组（保持 sortedSessions 的顺序：组序 = 组内最近活动时间，组内仍按时间倒序）
-    /// bot 已删除的会话回落"通用助手"组（原 Bot 删除不级联删会话）
-    private var groupedSessions: [BotGroup] {
-        var groups: [String: [ChatSession]] = [:]
-        var order: [String] = []
-        for s in sortedSessions {
-            let rawKey = ChatStore.botID(fromSessionID: s.id) ?? ""
-            let key = (rawKey.isEmpty || botStore.bot(rawKey) == nil) ? "" : rawKey
-            if groups[key] == nil {
-                groups[key] = []
-                order.append(key)
-            }
-            groups[key]?.append(s)
-        }
-        return order.map { key in
-            let title = key.isEmpty ? "通用助手" : (botStore.bot(key)?.name ?? "Bot")
-            return BotGroup(key: key, title: title, items: groups[key] ?? [])
-        }
-    }
-
-    /// v3.0.7：bot 组头（头像 + 名字，仅 bot 会话组显示）
-    // v3.0.8 CI fix：@ViewBuilder 辅助函数，组内 if-let 拆出避免 type-check 超时
-    // v3.0.8 beautify：通用助手 = 主 Agent，也显示组头（与其他 bot 视觉区分）
-    @ViewBuilder
-    private func botGroupHeaderIfNeeded(_ key: String) -> some View {
-        let groupTitle = key.isEmpty ? "通用助手 · 主 Agent" : (botStore.bot(key)?.name ?? "Bot")
-        if key.isEmpty {
-            // 通用助手（主 Agent）组头——AI 科幻图标（六边形网格，v3.0.9）
-            HStack(spacing: 6) {
-                Image(systemName: "circle.hexagongrid.fill")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(Color.accentColor)
-                Text(groupTitle)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Color.accentColor)
-                Spacer()
-            }
-            .padding(.horizontal, 4)
-            .padding(.top, 8)
-            .padding(.bottom, 2)
-        } else if let b = botStore.bot(key) {
-            botGroupHeader(b)
-        }
-    }
-
-    private func botGroupHeader(_ b: QingliaoBot) -> some View {
-        HStack(spacing: 6) {
-            b.avatarIcon(size: 12)   // v3.0.7 beautify：sfs 符号 / emoji 统一渲染
-            Text(b.name)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.secondary)
-            Spacer()
-        }
-        .padding(.horizontal, 4)
-        .padding(.top, 6)
     }
 
     /// v3.0.51：会话 cell（SessionRow + 长按菜单）——拆辅助函数，防嵌套 ForEach type-check 超时

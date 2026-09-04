@@ -151,7 +151,6 @@ struct ChatView: View {
     @Environment(ChatStore.self) var chat
     @Environment(StreamClient.self) var stream
     @Environment(KeyboardObserver.self) var kb
-    @Environment(BotStore.self) var botStore   // v3.0.7：Bot Mode
     @State var pinStore = PinStore.shared   // v3.0.74：钉一钉
 
     @State var inputText = ""
@@ -176,7 +175,6 @@ struct ChatView: View {
     @State var showCompressingAlert = false  // v3.0.81：AI 摘要压缩中
     @State var pendingSend: (text: String, imageData: String?)?
     @State var showModelSheet = false   // 模型快速切换
-    @State var showBotManage = false   // v3.0.7：Bot 管理入口（选择器内跳转）
     @State var showAttachmentMenu = false
     // v2.0.96：Hermes 捷径面板（官方斜杠命令）
     @State var showHermesShortcut = false
@@ -252,91 +250,12 @@ struct ChatView: View {
         serverOnline == true ? .green : (serverOnline == false ? .red : .gray)
     }
 
-    // MARK: - v3.0.7 Bot 选择器
-
-    /// 实际生效的 bot id：Bot 已删除（列表无此 id）→ 回落空（nil = 通用助手），
-    /// 保证发送不带 bot 字段时后端恢复 KB 注入 + agent 分流（人设本身也没了）
-    private var effectiveBot: String? {
-        guard let id = chat.botId, botStore.bot(id) != nil else { return nil }
-        return id
-    }
-
-    /// 输入栏上方角色切换条：当前角色胶囊 + 菜单（通用助手 / 各 Bot / 管理入口）
-    /// v3.0.7 beautify：改为 header 右下紧凑胶囊（本地模式才显示）
-    private var botSelectorBar: some View {
-        let current = botStore.bot(chat.botId)
-        return Menu {
-                Button {
-                    switchBot(to: nil)
-                } label: {
-                    // v3.0.11 fix：图标与胶囊内当前角色图标一致（v3.0.9 通用助手已改科幻图标）
-                    Label(chat.botId == nil ? "✓ 通用助手" : "通用助手",
-                          systemImage: "circle.hexagongrid.fill")
-                }
-                if !botStore.bots.isEmpty {
-                    Divider()
-                    ForEach(botStore.bots) { b in
-                        Button {
-                            switchBot(to: b.id)
-                        } label: {
-                            // v3.0.11 fix：菜单内头像跟随 Bot 设定的图标（原硬编码
-                            // person.crop.circle.badge.checkmark，用户设定图标不显示）
-                            Label {
-                                Text(chat.botId == b.id ? "✓ \(b.name)" : b.name)
-                            } icon: {
-                                b.avatarIcon(size: 14)
-                                    .frame(width: 20, height: 20)
-                            }
-                        }
-                    }
-                }
-            Divider()
-            Button {
-                showBotManage = true
-            } label: {
-                Label("管理 Bot…", systemImage: "gearshape")
-            }
-        } label: {
-            HStack(spacing: 5) {
-                // v3.0.7 beautify：统一头像渲染（sfs 符号 / emoji）
-                // v3.0.8 CI fix：some View 不能 ?? 拼接 Text，改用 @ViewBuilder Group
-                // v3.0.8 beautify：通用助手用扁平头像符号（替代 emoji 🤖）
-                Group {
-                    if let c = current {
-                        c.avatarIcon(size: 13)
-                    } else {
-                        // v3.0.9：通用助手科幻图标（六边形网格 = AI 感知网络）
-                        Image(systemName: "circle.hexagongrid.fill")
-                            .font(.system(size: 13))
-                            .foregroundStyle(Color.accentColor)
-                    }
-                }
-                Text(current?.name ?? "通用助手")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 8, weight: .bold))
-                    .foregroundStyle(.tertiary)
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            // v3.0.7 beautify：毛玻璃胶囊 + 浅描边（定稿 UI：玻璃小元素 + 0.8pt 描边）
-            .background(.ultraThinMaterial, in: Capsule())
-            .overlay(Capsule().strokeBorder(Color.white.opacity(0.12), lineWidth: 0.8))
-        }
-        .buttonStyle(.plain)
-    }
-
     /// v3.3.0：header 右侧 trailing 组件抽离（PageHeader 的 AnyView(HStack{...}) 内联在 body
     /// 里过复杂，Xcode 26 type-check 超时——469-472行报 "unable to type-check in reasonable time"）。
     /// 抽成独立计算属性给 type-checker 更小的表达式单元。
     @ViewBuilder
     private var headerTrailingItems: some View {
         HStack(spacing: 10) {
-            if !CloudConfig.shared.isCloudMode {
-                botSelectorBar
-            }
             Button {
                 showMoreMenu = true
             } label: {
@@ -453,35 +372,6 @@ struct ChatView: View {
                     // （TextField/按钮自身优先消费，此手势只兜底输入栏空白处）
                     .onTapGesture {}
         }
-    }
-
-    /// 切换聊天角色：先保存当前会话（快照捕获防清空竞态）→ 停流 → 换独立新会话 → 清输入态
-    /// v3.0.7 fix：切换放 Task 内延迟到保存完成，且切前校验 botId 未再变（防快速连点 A→B→C 乱序）
-    /// v3.0.11 fix（bot 串话根治）：先清排队队列、再停流——原顺序（先停流）会让 onFinished 的
-    /// sendQueued 在队列清空前触发，用旧 bot 的会话/人设跨会话起新流 → 回答出现在新 bot 聊天里。
-    /// 顺序与停止按钮（onStop）一致：clearPendingQueue → stream.stop。
-    func switchBot(to id: String?) {
-        guard chat.botId != id else { return }
-        let fromID = chat.botId
-        let snapshotID = chat.sessionId
-        let snapshotMessages = chat.messages
-        let snapshotTitle = chat.title
-        // v3.0.11：必须先清队列再停流（顺序反了 = 跨会话幽灵流）
-        clearPendingQueue()
-        if stream.isStreaming { stream.stop(auth: auth) }
-        Task {
-            if !snapshotMessages.isEmpty {
-                await chat.saveToServer(auth: auth, sessionId: snapshotID,
-                                        messages: snapshotMessages, title: snapshotTitle)
-            }
-            // 保存期间用户又切了其它角色 → 丢弃本次过期切换（最终以最后一次为准）
-            guard chat.botId == fromID else { return }
-            chat.switchBot(id: id)
-        }
-        inputText = ""
-        pendingImage = nil
-        pendingImageData = nil
-        quotedMessage = nil
     }
 
     // MARK: - v3.0.7 fix：输入栏上方三个小条拆独立 property（body 瘦身，防 type-check 超时）
@@ -1156,16 +1046,10 @@ struct ChatView: View {
             serverOnline = r.hasPrefix("✅")
             // v3.0.7：Bot 列表加载（节流版：5min 缓存内不重复请求，免切页触发网络+状态翻转）
             if !CloudConfig.shared.isCloudMode {
-                await botStore.load(auth: auth)
             }
         }
         .sheet(isPresented: $showModelSheet) {
             ModelSheet(current: modelName)
-                .presentationDetents([.medium, .large])
-        }
-        .sheet(isPresented: $showBotManage) {
-            // v3.0.7：Bot 管理（列表/新建/编辑/删除）
-            BotManageSheet()
                 .presentationDetents([.medium, .large])
         }
         .fullScreenCover(item: $bigBangPayload) { payload in
@@ -1446,6 +1330,9 @@ struct ChatView: View {
         withAnimation(.spring(duration: 0.25, bounce: 0.15)) {
             chat.append(msg)
         }
+        // v3.3.0 fix：消息落盘必须在 append 后立即执行（不能依赖流式回答后才 saveToServer）。
+        // 否则 App 被杀/网络断开/流式失败时，用户刚发的消息只存在内存里，丢了。
+        Task { await chat.saveToServer(auth: auth) }
         startStream(for: msg)
     }
 
@@ -1474,8 +1361,7 @@ struct ChatView: View {
                 sessionId: chat.sessionId,
                 model: useModel,
                 provider: useProvider,
-                messages: history,
-                bot: effectiveBot
+                messages: history
             ) { success, error in
                 sendingLock = false   // 无论结果，先释放发送锁
                 guard chat.sessionId == startSid else { return }   // 已切换会话 → 本次结果丢弃
@@ -1661,7 +1547,6 @@ struct ChatView: View {
                                    "messages": messages,
                                    "pushEnabled": false,
                                    "agentEnabled": true]
-        if let b = effectiveBot, !b.isEmpty { body["bot"] = b }
         guard let bodyData = try? JSONSerialization.data(withJSONObject: body),
               let bodyStr = String(data: bodyData, encoding: .utf8) else { return Int.max }
         let payload: [String: Any] = ["m": "POST", "p": "/api/stream/start", "b": bodyStr]

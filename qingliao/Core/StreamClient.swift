@@ -34,9 +34,9 @@ final class StreamClient {
     // v3.0.81：后台任务标识——iOS 挂起前最多续 ~30s，让轮询/recover 有机会完成
     private var bgTaskId: UIBackgroundTaskIdentifier = .invalid
 
-    /// 启动流式请求（v3.0.7：bot 透传给 streamStart）
+    /// 启动流式请求
     func start(auth: AuthStore, sessionId: String, model: String, provider: String,
-               messages: [[String: Any]], bot: String? = nil,
+               messages: [[String: Any]],
                onFinished: ((Bool, String) -> Void)? = nil) async {
         stopPolling()
         generation += 1   // v3.0.50：废除在途旧轮询代
@@ -58,7 +58,7 @@ final class StreamClient {
 
         do {
             let tid = try await auth.streamStart(sessionId: sessionId, model: model,
-                                                 provider: provider, messages: messages, bot: bot)
+                                                 provider: provider, messages: messages)
             taskId = tid
             startPolling(auth: auth)
             // v3.0.81：注册后台任务，延长 iOS 挂起前的存活时间（最多 ~30s）

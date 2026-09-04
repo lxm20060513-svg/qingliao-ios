@@ -44,10 +44,6 @@ extension SettingsView {
             SettingRow(icon: "cpu.fill", iconColor: .orange, title: "模型管理", value: currentModel, chevron: true)
                 .onTapGesture { showModelSheet = true }
             Divider().padding(.leading, 52)
-            SettingRow(icon: "person.2.crop.square.stack.fill", iconColor: .teal, title: "Bot 管理",
-                       value: CloudConfig.shared.isCloudMode ? "仅本地模式" : nil, chevron: true)
-                .onTapGesture { showBotManage = true }
-            Divider().padding(.leading, 52)
             SettingRow(icon: "bubble.left.and.bubble.right.fill", iconColor: .blue,
                        title: "微信通道模型", value: wechatChannelModel, chevron: true)
                 .onTapGesture { showWechatChannel = true }
