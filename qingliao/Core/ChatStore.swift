@@ -19,6 +19,22 @@ final class ChatStore {
     }()
 
     private let defaults = UserDefaults.standard
+    // 重复回复兜底：assistant 内容归一化指纹
+    private static func assistantKey(_ text: String) -> String {
+        let lowered = text.lowercased()
+        let trimmed = lowered.trimmingCharacters(in: .whitespacesAndNewlines)
+        let collapsed = trimmed.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+        return collapsed
+    }
+    private func isAssistantDuplicate(_ text: String, in region: ArraySlice<ChatMessage>) -> Bool {
+        let key = ChatStore.assistantKey(text)
+        guard !key.isEmpty else { return false }
+        let window = region.suffix(8)
+        for m in window where m.role == "assistant" {
+            if ChatStore.assistantKey(m.content) == key { return true }
+        }
+        return false
+    }
     // v3.0.7 修复：debounce 保存任务——快速切换会话/连续操作时只保存最后一次
     private var saveTask: Task<Void, Never>?
     // v3.0.1 fix：云端/本地会话 id 用不同 key 隔离（原共用一个 key → 切模式串 sessionId）
@@ -152,11 +168,19 @@ final class ChatStore {
             // 该轮回复区右边界（开区间）：锚点之后直到下一个 user 消息
             var regionEnd = anchorIdx + 1
             while regionEnd < messages.count, !messages[regionEnd].isUser { regionEnd += 1 }
+            let region = messages[anchorIdx..<regionEnd]
             // 同轮竞态双落库（正常完成 + 恢复完成/重放）→ 区域内最后一条内容相同则跳过
             if regionEnd - 1 > anchorIdx,
                messages[regionEnd - 1].role == "assistant",
                messages[regionEnd - 1].content == text {
                 messages[regionEnd - 1].agent = agent || messages[regionEnd - 1].agent
+                return
+            }
+            // 归一化相似度兜底：改写型重复也跳过
+            if isAssistantDuplicate(text, in: region) {
+                if let last = region.last, last.role == "assistant" {
+                    messages[regionEnd - 1].agent = agent || messages[regionEnd - 1].agent
+                }
                 return
             }
             // 插入到该轮回复区末尾——其后若有排队/新发 user 消息，保持原位不被错位污染
@@ -166,8 +190,7 @@ final class ChatStore {
             return
         }
         // —— 无锚点：原末尾语义（兼容无发起消息的调用方）——
-        let checkCount = min(messages.count, 5)
-        let tail = messages.suffix(checkCount)
+        let tail = messages.suffix(8)
         // 检查最近 N 条中是否有连续相同内容的 assistant（含当前最后一条）
         if let idx = messages.indices.last, idx > 0,
            messages[idx].role == "assistant", messages[idx].content == text {
@@ -177,6 +200,13 @@ final class ChatStore {
                 messages[idx].agent = agent || messages[idx].agent
                 return
             }
+        }
+        // 归一化相似度兜底：最近 8 条 assistant 文本高度相似则跳过
+        if isAssistantDuplicate(text, in: tail) {
+            if let last = messages.last, last.role == "assistant" {
+                last.agent = agent || last.agent
+            }
+            return
         }
         var m = ChatMessage(role: "assistant", content: text, timestamp: ts)
         m.agent = agent   // v2.0.96b：Agent 回复标记
