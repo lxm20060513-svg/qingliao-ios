@@ -20,7 +20,7 @@ final class StreamClient {
     var errorMessage = ""
     var isAgent = false        // v2.0.96b：Agent 回复标记（工具调用）
 
-    private var taskId = ""
+    var taskId = ""
     private var offset = 0
     private var failCount = 0
     private var idleStreak = 0

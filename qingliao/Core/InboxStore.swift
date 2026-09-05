@@ -94,14 +94,14 @@ final class InboxStore {
                 // 完成则不写盘），导致去重两个比对源都空 → 误判不重复 → 重复注入 🔔推送气泡。
                 // 修复：去重未命中且流式"刚完成/有未落库内容"时，延迟 1.5s 等恢复稳定再重比对一次，
                 // 仍不命中才注入。既不违背「在看也推」（最终仍会注入，只是先确认不重复），又根治竞态漏网。
-                if !shouldSkipDuplicate(push: it.text, in: chat.messages, extra: stream?.content ?? "") {
+                if !shouldSkipDuplicate(push: it.text, in: chat.messages, extra: stream?.content ?? "", sourceTaskId: it.sourceTaskId) {
                     // 流式已结束（isDone）但去重未命中 → 极可能是"后台完成/落库竞态"窗口（chat.messages
                     // 的 upsertAssistant 尚未执行、stream.content 已被清空重建）。此时去重比对源暂空，
                     // 若直接注入必双份。延迟 1.5s 等落库/恢复稳定后再重比对一次，仍不命中才注入。
                     // 不违背「在看也推」——最终仍会注入，只是先确认不重复再注入。
                     if let s = stream, s.isDone {
                         try? await Task.sleep(for: .seconds(1.5))
-                        if shouldSkipDuplicate(push: it.text, in: chat.messages, extra: stream?.content ?? "") {
+                        if shouldSkipDuplicate(push: it.text, in: chat.messages, extra: stream?.content ?? "", sourceTaskId: it.sourceTaskId) {
                             await markDone(id, auth: auth)
                             continue
                         }
@@ -132,7 +132,9 @@ final class InboxStore {
     /// 直接 contains 会匹配失败 → 重复注入。改为双方先压缩空白再双向比对 + 截断前缀兜底。
     /// v3.2.1 加固：extra 参数额外比对 stream.content（流式进行中的当前回复）——即使 chat.messages
     /// 因时序暂缺该回复（pollOnce 抢在 upsertAssistant 落库前），只要 stream.content 持有即可命中去重。
-    private func shouldSkipDuplicate(push text: String, in messages: [ChatMessage], extra: String = "") -> Bool {
+    private func shouldSkipDuplicate(push text: String, in messages: [ChatMessage], extra: String = "", sourceTaskId: String? = nil) -> Bool {
+        // v3.4.8：taskId 去重——推送 source_task_id 与当前流式任务 taskId 相同 → 同一回复必然跳过（不依赖内容/状态）
+        if let sid = sourceTaskId, !sid.isEmpty, stream?.taskId == sid { return true }
         let core = normalizeWhitespace(text).replacingOccurrences(of: "…", with: "")
         guard !core.isEmpty else { return false }
         // 先比对当前流式内容（最可靠——流式回复一定在 stream.content）
@@ -193,12 +195,12 @@ final class InboxStore {
 
     // MARK: - 后端 API
 
-    private func inboxItems(_ auth: AuthStore) async throws -> [(id: String, text: String)] {
+    private func inboxItems(_ auth: AuthStore) async throws -> [(id: String, text: String, sourceTaskId: String?)] {
         let json = try await auth.json("/api/inbox", method: "GET")
         guard let arr = json["items"] as? [[String: Any]] else { return [] }
         return arr.compactMap { d in
             guard let id = d["id"] as? String, let text = d["text"] as? String else { return nil }
-            return (id, text)
+            return (id, text, d["source_task_id"] as? String)
         }
     }
 

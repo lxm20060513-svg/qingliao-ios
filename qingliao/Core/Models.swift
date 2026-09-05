@@ -107,17 +107,6 @@ struct ChatMessage: Identifiable, Equatable {
 
 // MARK: - v3.0.68 语音对讲轮次（浮层对话，不落库主 session）
 
-struct VoiceChatTurn: Identifiable {
-    let id: UUID
-    let role: String   // "user" / "assistant"
-    let text: String
-    init(role: String, text: String) {
-        self.id = UUID()
-        self.role = role
-        self.text = text
-    }
-    var isUser: Bool { role == "user" }
-}
 
 // MARK: - 会话（/api/sessions/list）
 

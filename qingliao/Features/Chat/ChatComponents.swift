@@ -7,30 +7,6 @@ import AVFoundation
 // MARK: - v2.0.65 气泡小尾巴（iMessage 式：AI 左下 / 用户右下）
 // v2.0.66：单 Shape 一体化（圆角矩形 + 尾巴同路径，之前的 ZStack overlay 方案尾巴被挤进气泡内不显示）
 
-struct BubbleShape: Shape {
-    let tailLeft: Bool   // 尾巴朝左（AI 消息）
-    let radius: CGFloat
-    func path(in rect: CGRect) -> Path {
-        let r = radius
-        let tailW: CGFloat = 8   // 尾巴凸出宽度
-        let tailH: CGFloat = 16  // 尾巴高度
-        var p = Path()
-        // 圆角矩形主体
-        p.addRoundedRect(in: rect, cornerSize: CGSize(width: r, height: r))
-        // 尾巴：底部角落朝外凸出（与主体同填充色，天然一体）
-        if tailLeft {
-            p.move(to: CGPoint(x: rect.minX + r, y: rect.maxY - tailH))
-            p.addLine(to: CGPoint(x: rect.minX - tailW, y: rect.maxY - tailH / 2))
-            p.addLine(to: CGPoint(x: rect.minX + r, y: rect.maxY))
-        } else {
-            p.move(to: CGPoint(x: rect.maxX - r, y: rect.maxY - tailH))
-            p.addLine(to: CGPoint(x: rect.maxX + tailW, y: rect.maxY - tailH / 2))
-            p.addLine(to: CGPoint(x: rect.maxX - r, y: rect.maxY))
-        }
-        p.closeSubpath()
-        return p
-    }
-}
 
 
 struct ScrollOffsetKey: PreferenceKey {
