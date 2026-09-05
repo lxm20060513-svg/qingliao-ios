@@ -228,7 +228,10 @@ final class ChatStore {
         // 本地模式：主模型支持视觉 OR 配置了视觉模型自动切换
         let visionOK: Bool = {
             if CloudConfig.shared.isCloudMode {
-                return CloudConfig.shared.activeConfig?.supportsVision ?? false
+                if CloudConfig.shared.activeConfig?.supportsVision ?? false { return true }
+                let modelName = CloudConfig.shared.activeConfig?.model ?? ""
+                if !modelName.isEmpty, CloudConfig.modelSupportsVision(modelName) { return true }
+                return false
             }
             // 本地模式：主模型支持视觉 → 直接 OK
             let mainModel = UserDefaults.standard.string(forKey: "qingliao_model") ?? ""
@@ -271,28 +274,25 @@ final class ChatStore {
         }
     }
 
-    /// 参数化快照版：切换会话前调用——切换会清空 messages，
-    /// 异步保存若不捕获快照会读到空数组丢会话。消息降级规则与 saveToServer 一致。
+    /// 参数化快照版：切换会话前调用——切换会清空 messages，异步保存若不捕获快照会读到空数组丢会话。
+    /// v3.4.x fix：图片消息保留 imageDataURL，避免重启/切会话后只剩 [图片] 占位
     func saveToServer(auth: AuthStore, sessionId sid: String, messages msgs: [ChatMessage], title t: String) async {
         guard !msgs.isEmpty else { return }
-        // v3.0.1 fix：云端模式会话存本地文件，绝不写后端（否则串到本地 AI）
         if CloudConfig.shared.isCloudMode {
             CloudSessionStore.shared.saveChat(sessionId: sid, messages: msgs, title: t)
             return
         }
         let msgsPayload: [[String: Any]] = msgs.map { m in
-            var content = m.content
-            if m.imageDataURL != nil {
-                let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
-                content = trimmed.isEmpty ? "[图片]" : trimmed + "\n[图片]"
-            }
-            if m.audioPath != nil {   // v2.0.61：语音消息降级为文本（文件在本地，不同步服务器）
-                content = "[语音]"
-            }
-            var p: [String: Any] = ["role": m.role, "content": content]
+            var p: [String: Any] = ["role": m.role, "content": m.content]
             if let ts = m.timestamp { p["timestamp"] = ts }
-            if m.isPush { p["isPush"] = true }    // v3.0.83fix：isPush 落库（推送标记持久化，防标签丢失/重开污染）
-            if m.agent { p["agent"] = true }      // v3.0.83fix：agent 落库
+            if let img = m.imageDataURL, !img.isEmpty {
+                p["imageDataURL"] = img
+            }
+            if m.audioPath != nil {
+                p["content"] = "[语音]"
+            }
+            if m.isPush { p["isPush"] = true }
+            if m.agent { p["agent"] = true }
             return p
         }
         let firstUserText = msgs.first(where: { $0.isUser })?.content.prefix(30).description ?? ""

@@ -54,7 +54,7 @@ final class CloudSessionStore {
         }
     }
 
-    /// 从 ChatStore 保存当前会话（消息降级规则与后端一致：图片→[图片]，语音→[语音]）
+    /// 从 ChatStore 保存当前会话（消息保留 imageDataURL，避免重启/切会话后只剩 [图片] 占位）
     func saveChat(store: ChatStore) {
         saveChat(sessionId: store.sessionId, messages: store.messages, title: store.title)
     }
@@ -63,17 +63,15 @@ final class CloudSessionStore {
     func saveChat(sessionId: String, messages msgs: [ChatMessage], title t: String) {
         guard !msgs.isEmpty else { return }
         let msgsPayload: [[String: Any]] = msgs.map { m in
-            var content = m.content
-            if m.imageDataURL != nil {
-                let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
-                content = trimmed.isEmpty ? "[图片]" : trimmed + "\n[图片]"
+            var p: [String: Any] = ["role": m.role, "content": m.content]
+            if let ts = m.timestamp { p["timestamp"] = ts }
+            if let img = m.imageDataURL, !img.isEmpty {
+                p["imageDataURL"] = img
             }
             if m.audioPath != nil {
-                content = "[语音]"
+                p["content"] = "[语音]"
             }
-            var p: [String: Any] = ["role": m.role, "content": content]
-            if let ts = m.timestamp { p["timestamp"] = ts }
-            if m.isPush { p["isPush"] = true }    // v3.0.83fix：isPush 落库（云端）
+            if m.isPush { p["isPush"] = true }    // v3.0.83fix：isPush 持久化（云端磁盘）
             if m.agent { p["agent"] = true }
             return p
         }

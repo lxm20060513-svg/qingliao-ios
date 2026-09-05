@@ -73,7 +73,9 @@ struct ChatMessage: Identifiable, Equatable {
         }
         let isPush = d["isPush"] as? Bool ?? false
         let isAgent = d["agent"] as? Bool ?? false
-        var msg = ChatMessage(role: role, content: text, timestamp: ts)
+        // v3.4.x fix：恢复图片 URL 读取，避免历史消息只有 [图片] 占位、无实物图
+        let imageURL = d["imageDataURL"] as? String
+        var msg = ChatMessage(role: role, content: text, timestamp: ts, imageDataURL: imageURL)
         msg.isPush = isPush
         msg.agent = isAgent
         return msg
