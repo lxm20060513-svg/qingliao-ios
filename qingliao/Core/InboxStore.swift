@@ -89,20 +89,36 @@ final class InboxStore {
                 // v3.2.1 加固：同时比对 stream.content——时序竞态下 chat.messages 可能暂缺该流式回复
                 //（upsertAssistant 落库与 pollOnce 比对存在缝隙），但 stream.content 仍持有该回复 →
                 // 纳入比对可稳定命中去重，不重复注入。
-                if shouldSkipDuplicate(push: it.text, in: chat.messages, extra: stream?.content ?? "") {
+                // v3.4.6 fix（后台恢复竞态）：回复若在"App 切后台"期间完成，回前台 refreshOnActive 立即
+                // pollOnce 时，stream.content 可能尚未重建/落库（persistState 只在 isStreaming 时记录，后台
+                // 完成则不写盘），导致去重两个比对源都空 → 误判不重复 → 重复注入 🔔推送气泡。
+                // 修复：去重未命中且流式"刚完成/有未落库内容"时，延迟 1.5s 等恢复稳定再重比对一次，
+                // 仍不命中才注入。既不违背「在看也推」（最终仍会注入，只是先确认不重复），又根治竞态漏网。
+                if !shouldSkipDuplicate(push: it.text, in: chat.messages, extra: stream?.content ?? "") {
+                    // 流式已结束（isDone）但去重未命中 → 极可能是"后台完成/落库竞态"窗口（chat.messages
+                    // 的 upsertAssistant 尚未执行、stream.content 已被清空重建）。此时去重比对源暂空，
+                    // 若直接注入必双份。延迟 1.5s 等落库/恢复稳定后再重比对一次，仍不命中才注入。
+                    // 不违背「在看也推」——最终仍会注入，只是先确认不重复再注入。
+                    if let s = stream, s.isDone {
+                        try? await Task.sleep(for: .seconds(1.5))
+                        if shouldSkipDuplicate(push: it.text, in: chat.messages, extra: stream?.content ?? "") {
+                            await markDone(id, auth: auth)
+                            continue
+                        }
+                    }
+                    // 注入当前会话（assistant 角色 + 推送标记）
+                    var msg = ChatMessage(role: "assistant", content: it.text,
+                                          timestamp: Date().timeIntervalSince1970 * 1000)
+                    msg.isPush = true
+                    chat.append(msg)
+                    lastInjectedCount += 1
+                    // 弹本地通知（侧载无 APNs，用本地通知横幅兜底；App 前台也弹）
+                    NotificationHelper.notify(title: "轻聊 · 推送", body: it.text, sessionId: chat.sessionId)
+                    // 标记已读（防重复；失败不阻塞，下轮靠 consumedIds 去重）
                     await markDone(id, auth: auth)
-                    continue
+                } else {
+                    await markDone(id, auth: auth)
                 }
-                // 注入当前会话（assistant 角色 + 推送标记）
-                var msg = ChatMessage(role: "assistant", content: it.text,
-                                      timestamp: Date().timeIntervalSince1970 * 1000)
-                msg.isPush = true
-                chat.append(msg)
-                lastInjectedCount += 1
-                // 弹本地通知（侧载无 APNs，用本地通知横幅兜底；App 前台也弹）
-                NotificationHelper.notify(title: "轻聊 · 推送", body: it.text, sessionId: chat.sessionId)
-                // 标记已读（防重复；失败不阻塞，下轮靠 consumedIds 去重）
-                await markDone(id, auth: auth)
             }
             // 注入后保存会话，让推送消息也落库（用户切会话/重开还能看到）
             await chat.saveToServer(auth: auth)

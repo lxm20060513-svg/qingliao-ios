@@ -1,8 +1,9 @@
 # 轻聊 App 项目交接文档
 
 > 最后更新：2026-09-05
-> 最新版本：**v3.4.5/409（2026-09-05 已发版 svg 通道，commit `6e0ed7f`）**：在 v3.4.4 基础上追加两项复读修复——①assistant 内容指纹去重（改写型重复也拦截）②发送侧同内容 60s 幂等窗口（防重投）；IPA 已校验 3.4.5/409，md5 `1d6f5f0e7322081711284df8b3eb18bf` 已转存 NAS `轻聊app/qingliao-3.4.5-unsigned.ipa`；仍在服务端待补 Hermes state.db 去重 + 后端 frequency_penalty 兜底
-> 上一版：v3.4.4/408（2026-09-05 已发版 svg 通道，commit `ca8d027`）：①SIGTRAP 崩溃根治（渲染吃快照）②用量卡长按单卡隐藏 ③AI 长回复多气泡截断省略号根治（MarkdownRenderer `.fixedSize`）④版本号双处一致；IPA 已校验 3.4.4/408，md5 `0b148909b6299dcd8f83ec927acd0e4e` 已转存 NAS `轻聊app/qingliao-3.4.4-unsigned.ipa`
+> 最新版本：**v3.4.7/411（2026-09-05 发版中）**：①「切后台再进」流式回复+🔔推送气泡重复根治（InboxStore 去重未命中且流式已结束 isDone 时，延迟 1.5s 等落库/恢复稳定再重比对，仍不命中才注入；不违背"在看也推"语义）②CloudConfig 视觉识别补 stepfun ③stepfun 防复读强模型判定（后端早已部署）；IPA 待校验
+> 上一版：v3.4.6/410（2026-09-05 已发版，commit `ee9b509`）：修复底部上拉拉取收件箱异常提示“拉取失败”（每次拉取前清空旧错误，避免历史失败持续残留）；IPA 已校验 3.4.6/410，md5 `379092441445e896263b981edf16e571` 已转存 NAS `轻聊app/qingliao-3.4.6-unsigned.ipa`（标准 IPA，含 Payload/ 目录）；服务端仍待补 Hermes state.db 去重 + 后端 frequency_penalty 兜底
+> 上一版：v3.4.5/409（2026-09-05 已发版 svg 通道，commit `6e0ed7f`）：在 v3.4.4 基础上追加两项复读修复——①assistant 内容指纹去重（改写型重复也拦截）②发送侧同内容 60s 幂等窗口（防重投）；IPA 已校验 3.4.5/409，md5 `1d6f5f0e7322081711284df8b3eb18bf` 已转存 NAS `轻聊app/qingliao-3.4.5-unsigned.ipa`
 > 上一版：v3.3.3/403（2026-09-04 svg 通道：错位复读锚定根治——assistant 落库锚定发起 user 消息；IPA md5 `0abd6e23`）
 > 后端已上线：v3.2.7（方案C 上下文上移 Hermes）+ **v3.3.1 修复**：图片管道 multimodal 透传（`_build_hermes_messages` 保留 list）、语音 asr_server 修复（`asr_server.py` 已入 hermes-data 并拉起 9144 监听）
 

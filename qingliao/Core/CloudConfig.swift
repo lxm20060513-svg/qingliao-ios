@@ -249,7 +249,8 @@ final class CloudConfig {
         let m = model.lowercased()
         if m.contains("gpt-4o") || m.contains("gpt-5") || m.contains("vision")
             || m.contains("-omni") || m.contains("omni") || m.contains("multimodal")
-            || m.contains("u1") || m.contains("glm-4v") || m.contains("flash-lite") {
+            || m.contains("u1") || m.contains("glm-4v") || m.contains("flash-lite")
+            || m.contains("step") || m.contains("stepfun") {
             return true
         }
         // MiniMax M 系列（M1/M2/M2.x/M3 等）全系支持多模态视觉
