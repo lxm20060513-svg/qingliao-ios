@@ -68,6 +68,7 @@ final class InboxStore {
     /// 拉一次收件箱，把新消息注入当前聊天会话。
     func pollOnce() async {
         guard let auth, let chat else { return }
+        lastError = nil  // 每次拉取前清空旧错误，避免上一次失败持续显示
         do {
             let items = try await inboxItems(auth)
             lastInjectedCount = 0

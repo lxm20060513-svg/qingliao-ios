@@ -1,7 +1,7 @@
 # 轻聊 App 项目交接文档
 
 > 最后更新：2026-09-05
-> 最新版本：**v3.4.5/409（待发版）**：在 v3.4.4 基础上追加两项复读修复——①assistant 内容指纹去重（改写型重复也拦截）②发送侧同内容 60s 幂等窗口（防重投）；仍在服务端待补 Hermes state.db 去重 + 后端 frequency_penalty 兜底
+> 最新版本：**v3.4.5/409（2026-09-05 已发版 svg 通道，commit `6e0ed7f`）**：在 v3.4.4 基础上追加两项复读修复——①assistant 内容指纹去重（改写型重复也拦截）②发送侧同内容 60s 幂等窗口（防重投）；IPA 已校验 3.4.5/409，md5 `1d6f5f0e7322081711284df8b3eb18bf` 已转存 NAS `轻聊app/qingliao-3.4.5-unsigned.ipa`；仍在服务端待补 Hermes state.db 去重 + 后端 frequency_penalty 兜底
 > 上一版：v3.4.4/408（2026-09-05 已发版 svg 通道，commit `ca8d027`）：①SIGTRAP 崩溃根治（渲染吃快照）②用量卡长按单卡隐藏 ③AI 长回复多气泡截断省略号根治（MarkdownRenderer `.fixedSize`）④版本号双处一致；IPA 已校验 3.4.4/408，md5 `0b148909b6299dcd8f83ec927acd0e4e` 已转存 NAS `轻聊app/qingliao-3.4.4-unsigned.ipa`
 > 上一版：v3.3.3/403（2026-09-04 svg 通道：错位复读锚定根治——assistant 落库锚定发起 user 消息；IPA md5 `0abd6e23`）
 > 后端已上线：v3.2.7（方案C 上下文上移 Hermes）+ **v3.3.1 修复**：图片管道 multimodal 透传（`_build_hermes_messages` 保留 list）、语音 asr_server 修复（`asr_server.py` 已入 hermes-data 并拉起 9144 监听）
