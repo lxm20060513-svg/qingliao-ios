@@ -203,8 +203,8 @@ final class ChatStore {
         }
         // 归一化相似度兜底：最近 8 条 assistant 文本高度相似则跳过
         if isAssistantDuplicate(text, in: tail) {
-            if let last = messages.last, last.role == "assistant" {
-                last.agent = agent || last.agent
+            if let lastIdx = messages.indices.last, messages[lastIdx].role == "assistant" {
+                messages[lastIdx].agent = agent || messages[lastIdx].agent
             }
             return
         }
