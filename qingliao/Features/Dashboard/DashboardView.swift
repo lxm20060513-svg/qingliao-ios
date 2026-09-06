@@ -238,22 +238,9 @@ struct DashboardView: View {
                         ServiceCard(name: "运行时间", icon: "clock.fill", running: true, detail: nas.uptime)
                         // v2.0.86：硬件温度（CPU / NVMe）
                         ServiceCard(name: "温度", icon: "thermometer", running: true, detail: hwDetail)
-                    }
-
-                    // 磁盘：汇总卡 + 系统盘分区卡片直接展示在面板中
-                    VStack(alignment: .leading, spacing: 8) {
+                        // v3.4.13：磁盘汇总卡并入 NAS 面板网格（与温度卡等尺寸）；看板移除「系统盘」分区卡片栏目（分区已收进磁盘弹窗分组展示）
                         MeterCard(name: "磁盘", icon: "internaldrive.fill", value: nas.maxDiskPctText, sub: "\(nas.disks.filter { $0.isSystem }.count) 系统盘 · \(nas.disks.filter { !$0.isSystem }.count) 数据卷 · 点击查看", ratio: nas.maxDiskPct / 100.0, color: .orange)
                             .onTapGesture { activeSheet = .disks }
-                        let systemDisks = nas.disks.filter { $0.isSystem }
-                        if !systemDisks.isEmpty {
-                            // 系统盘分区标题（置于磁盘汇总卡下方）
-                            sectionTitle("系统盘")
-                            LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
-                                ForEach(systemDisks) { d in
-                                    DiskTile(disk: d)
-                                }
-                            }
-                        }
                     }
 
                     // v3.0.36：模型使用量（DeepSeek/StepFun 官方余额；无接口 provider 降级显示）
@@ -1728,7 +1715,12 @@ struct MeterCard: View {
             }
             Text(value).font(.system(size: 18, weight: .bold)).padding(.top, 6)
             if let sub {
-                Text(sub).font(.system(size: 10)).foregroundStyle(.tertiary).padding(.top, 1)
+                Text(sub)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+                    .padding(.top, 1)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
             }
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
