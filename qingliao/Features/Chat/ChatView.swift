@@ -1794,11 +1794,10 @@ struct ChatView: View {
         if hasImage, let vision = CloudConfig.effectiveVisionModel() {
             return (vision.model, vision.provider)
         }
-        // Agent 模型：agent 开启 + 已配置独立模型
-        let agentOn = UserDefaults.standard.bool(forKey: UserDefaultsKey.agentEnabled)
+        // Agent 模型：已配置独立模型即优先（v3.4.11：开关已移除，恒开启）
         let agentModelName = UserDefaults.standard.string(forKey: UserDefaultsKey.agentModel) ?? ""
         let agentProviderName = UserDefaults.standard.string(forKey: UserDefaultsKey.agentProvider) ?? ""
-        if agentOn && !agentModelName.isEmpty {
+        if !agentModelName.isEmpty {
             return (agentModelName, agentProviderName)
         }
         return (modelName, provider)

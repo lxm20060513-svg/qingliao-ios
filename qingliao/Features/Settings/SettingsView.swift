@@ -83,8 +83,6 @@ struct SettingsView: View {
     @State var showLineSpacingOptions = false
     // v2.0.129：Siri 圆球输入（默认开——输入框区显示多彩圆球，单击展开 / 长按语音转文字）
     @AppStorage("qingliao_ball_input") var ballInput = true
-    // v2.0.98：Agent 智能回复开关（关闭后请求不带 agent 能力，走普通 LLM 回复）
-    @AppStorage(UserDefaultsKey.agentEnabled) var agentOn = true
 
     var body: some View {
         VStack(spacing: 0) {

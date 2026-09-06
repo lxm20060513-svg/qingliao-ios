@@ -175,27 +175,12 @@ extension SettingsView {
     }
 
     @ViewBuilder var agentSection: some View {
+        // v3.4.11：移除「Agent 智能回复」开关——后端主链路（STREAM_HERMES_SESSION=1）v3.4.8 起
+        // 所有聊天恒走 Hermes agent 工具循环，开关已无实权（只影响日志/回退路径），移除 UI 防误导；
+        // Agent 模型/关键词/记忆入口保留（模型仍影响 resolveModel 选型，关键词/记忆管理后端端点仍活）。
         SectionHeader("Agent 设置")
         VStack(spacing: 0) {
-            HStack(spacing: 12) {
-                Image(systemName: "wand.and.stars")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: 28, height: 28)
-                    .background(LinearGradient(colors: [.blue, .indigo, .pink],
-                                               startPoint: .topLeading, endPoint: .bottomTrailing),
-                                in: RoundedRectangle(cornerRadius: 7, style: .continuous))
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Agent 智能回复").font(.system(size: 15)).foregroundStyle(.primary)
-                    Text(agentOn ? "已开启：查磁盘/内存/控制设备等直接调用工具" : "已关闭：所有对话走普通 AI 回复")
-                        .font(.system(size: 11)).foregroundStyle(.secondary)
-                }
-                Spacer()
-                Toggle("", isOn: $agentOn).labelsHidden().scaleEffect(0.8).tint(.green)
-            }
-            .padding(.horizontal, 14).padding(.vertical, 10)
             // v3.0.20：Agent 模型自定义（可单独指定 Agent 使用的模型，不依赖主模型）
-            Divider().padding(.leading, 52)
             SettingRow(icon: "cpu.fill", iconColor: .indigo, title: "Agent 模型",
                        value: agentModel.isEmpty ? "跟随主模型" : agentModel, chevron: true)
                 .onTapGesture { showAgentModelSheet = true }
@@ -204,12 +189,11 @@ extension SettingsView {
                 .onTapGesture { withAnimation(.easeOut(duration: 0.2)) { showAgentHelp.toggle() } }
             if showAgentHelp {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Agent 回复 = 直连模型 + NAS 本地工具，不经 Hermes。")
+                    Text("Agent 回复恒走 Hermes 智能体：查磁盘/内存、控制设备等自动调用工具")
                     Text("▸ 直接问：查磁盘/内存/温度、控制设备、执行场景，自动调用工具回复")
                     Text("▸ 记忆规则：说「以后XX都用agent」，下次同类问题直接 Agent 处理")
                     Text("▸ 复杂任务（联网搜索/写脚本/操作文件）自动转交 Hermes 执行")
                     Text("▸ 普通聊天走 Hermes（带 AI 记忆）；Agent 只参考轻聊记忆与规则")
-                    Text("▸ 关闭开关后：所有对话走普通 AI 回复")
                 }
                 .font(.system(size: 12)).foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)

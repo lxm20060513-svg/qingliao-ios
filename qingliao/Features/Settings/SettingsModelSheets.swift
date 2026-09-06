@@ -74,9 +74,8 @@ struct ModelSheet: View {
     // v3.0.57：免费模型开关（keyless opencode-free）——开启后用 Hermes 内置免费档，免任何 Key
     @AppStorage(UserDefaultsKey.freeModel) private var freeModelOn = false
     @AppStorage(UserDefaultsKey.freeModelName) private var freeModelName = "nemotron-3.5-lightning-free"
-    // v3.0.33：Agent 模型覆盖提示（Agent 开关开且配置了 agent 模型时，聊天实际走 agent 模型）
+    // v3.0.33：Agent 模型覆盖提示（配置了 agent 模型时，聊天实际走 agent 模型）
     @AppStorage(UserDefaultsKey.agentModel) private var agentModel = ""
-    @AppStorage(UserDefaultsKey.agentEnabled) private var agentOn = true
     // v3.0.18：本地模型（Ollama 已安装，自主选择——动态拉取 /api/local/models）
     @State private var localInstalled: [String] = []
     // v3.0.10：视觉模型配置弹窗（模型管理内导航）
@@ -173,9 +172,9 @@ struct ModelSheet: View {
                     .font(.system(size: 11))
                     .foregroundStyle(deleteResultMsg.hasPrefix("✅") ? Color.green : Color.orange)
             }
-            // v3.0.33：Agent 模型覆盖提示——Agent 开关开且配置了 agent 模型时，
+            // v3.0.33：Agent 模型覆盖提示——配置了 agent 模型时，
             // 聊天实际走 agent 模型（视觉模型 > Agent 模型 > 主模型），此处选主模型不会生效
-            if agentOn && !agentModel.isEmpty {
+            if !agentModel.isEmpty {
                 HStack(spacing: 10) {
                     Image(systemName: "sparkles")
                         .font(.system(size: 12))
@@ -183,7 +182,7 @@ struct ModelSheet: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("聊天实际使用 Agent 模型：\(agentModel)")
                             .font(.system(size: 13, weight: .medium))
-                        Text("Agent 开关开启时优先用 Agent 模型，这里设置主模型不生效；可在设置页「Agent 模型」改为跟随主模型")
+                        Text("配置了 Agent 模型时优先使用，这里设置主模型不生效；可在设置页「Agent 模型」改为跟随主模型")
                             .font(.system(size: 10.5)).foregroundStyle(.tertiary)
                     }
                     Spacer()

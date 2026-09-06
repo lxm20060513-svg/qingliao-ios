@@ -363,20 +363,17 @@ final class AuthStore {
     /// 流式启动：蜂窝 → relay POST /r/stream/start/{uid}；Wi-Fi → 直连 POST /api/stream/start
     func streamStart(sessionId: String, model: String, provider: String,
                      messages: [[String: Any]]) async throws -> String {
-        // v2.0.98：Agent 开关（设置页 qingliao_agent_enabled，默认开；关闭后后端走普通 LLM 不调用工具）
+        // v2.0.98：Agent 能力随 streamStart 上报（默认开）
         // v3.2.1 双保险：key 缺失时 bool(forKey:) 返回 false 会误发 false 到后端（设置页显示"开"却请求不带 Agent）。
-        // QL 设置页对 agentEnabled 无任何"默认写盘"逻辑（@AppStorage 默认 true 只影响 UI），
-        // 因此这里显式兜底：key 不存在或无值 → 默认 true。真正写入 UserDefaults 的权限交给设置页 Toggle，
-        // register(defaults:) 已在 App 启动兜底，此处再读一次防御键值被误置 false 的旧版残留。
-        let stored = UserDefaults.standard.object(forKey: UserDefaultsKey.agentEnabled)
-        let agentOn: Bool = (stored as? Bool) ?? true
+        // v3.4.11：设置页「Agent 智能回复」开关已移除——后端主链路 v3.4.8 起所有聊天恒走 Hermes agent
+        // 工具循环，开关本无实权；此处恒发 true，避免旧版残留的 false 键值继续误伤。
         var payload: [String: Any] = [
             "sessionId": sessionId,
             "model": model,
             "provider": provider,
             "messages": messages,
             "pushEnabled": false,
-            "agentEnabled": agentOn
+            "agentEnabled": true
         ]
         let bodyData = try JSONSerialization.data(withJSONObject: payload)
         // v2.0.116 fix：流式请求必须带 X-Auth-Token（鉴权收紧后无 token 恒 401；
