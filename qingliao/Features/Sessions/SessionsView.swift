@@ -639,13 +639,13 @@ struct BotCard: View {
     @State private var cloudConfig = CloudConfig.shared
 
     // 按模式取当前模型：云端读 CloudConfig.activeConfig，本地读 qingliao_model
-    // v3.0.20：Agent 模型自定义——配置了独立模型时显示 agent 模型（v3.4.11：开关已移除，恒开启）
+    // v3.0.20：Agent 模型自定义——配置了独立模型时显示 agent 模型（v3.4.12：开关已移除，恒开启）
     private var displayModel: String {
         if CloudConfig.shared.isCloudMode {
             let c = CloudConfig.shared.activeConfig
             return "\(c?.name ?? "云端")/\(c?.model ?? "未选")"
         }
-        // v3.4.11：Agent 开关已移除（后端恒走 Hermes agent），配置了独立模型即显示
+        // v3.4.12：Agent 开关已移除（后端恒走 Hermes agent），配置了独立模型即显示
         let agentModel = UserDefaults.standard.string(forKey: UserDefaultsKey.agentModel) ?? ""
         if !agentModel.isEmpty {
             return "\(provider)/\(agentModel)"

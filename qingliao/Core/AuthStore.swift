@@ -393,7 +393,7 @@ final class AuthStore {
                      messages: [[String: Any]]) async throws -> String {
         // v2.0.98：Agent 能力随 streamStart 上报（默认开）
         // v3.2.1 双保险：key 缺失时 bool(forKey:) 返回 false 会误发 false 到后端（设置页显示"开"却请求不带 Agent）。
-        // v3.4.11：设置页「Agent 智能回复」开关已移除——后端主链路 v3.4.8 起所有聊天恒走 Hermes agent
+        // v3.4.12：设置页「Agent 智能回复」开关已移除——后端主链路 v3.4.8 起所有聊天恒走 Hermes agent
         // 工具循环，开关本无实权；此处恒发 true，避免旧版残留的 false 键值继续误伤。
         var payload: [String: Any] = [
             "sessionId": sessionId,

@@ -186,7 +186,7 @@ extension SettingsView {
     }
 
     @ViewBuilder var agentSection: some View {
-        // v3.4.11：移除「Agent 智能回复」开关——后端主链路（STREAM_HERMES_SESSION=1）v3.4.8 起
+        // v3.4.12：移除「Agent 智能回复」开关——后端主链路（STREAM_HERMES_SESSION=1）v3.4.8 起
         // 所有聊天恒走 Hermes agent 工具循环，开关已无实权（只影响日志/回退路径），移除 UI 防误导；
         // Agent 模型/关键词/记忆入口保留（模型仍影响 resolveModel 选型，关键词/记忆管理后端端点仍活）。
         SectionHeader("Agent 设置")

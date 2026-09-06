@@ -71,7 +71,7 @@ struct QingliaoApp: App {
     init() {
         // v2.0.43：崩溃捕获（写本地文件），登录后由 RootView 上报
         CrashReporter.install()
-        // v3.4.11：移除 register(defaults: [agentEnabled: true])——设置页「Agent 智能回复」开关已删，
+        // v3.4.12：移除 register(defaults: [agentEnabled: true])——设置页「Agent 智能回复」开关已删，
         // AuthStore.streamStart 恒发 agentEnabled=true，不再读该 UserDefaults 键，兜底注册已无意义。
     }
 

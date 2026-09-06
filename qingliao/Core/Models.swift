@@ -5,7 +5,7 @@ import SwiftUI
 
 /// App 全局 UserDefaults key 集中管理，防止拼写错误导致静默失效
 enum UserDefaultsKey {
-    // v3.4.11：agentEnabled key 已移除——「Agent 智能回复」开关删除后无任何读取方
+    // v3.4.12：agentEnabled key 已移除——「Agent 智能回复」开关删除后无任何读取方
     // （AuthStore.streamStart 恒发 agentEnabled=true 走字面量，不再读 UserDefaults）
     static let agentModel   = "qingliao_agent_model"
     static let agentProvider = "qingliao_agent_provider"
