@@ -1376,10 +1376,11 @@ struct ChatView: View {
             startCloudStream(for: msg)
             return
         }
-        // v3.4.9 方案C：不再喂 app 端全量历史——只传当前 user 消息，
-        // 上下文由后端 Hermes 按 sessionId(ql_<sid>) 从 state.db 续接（根治复读）。
-        // 蜂窝 relay 大小由 sendCore 的 relayPayloadLength/splitLongText 按单条消息估算。
-        let history: [[String: Any]] = [msg.asPayload()]
+        // v3.4.10 X方案：发「断种子净化完整历史」给后端（不再只传当前消息）。
+        // 后端 _build_hermes_messages 对完整历史再做 _sanitize_history/_compress_long_assistants/
+        // _break_repeat_seed，并去掉 X-Hermes-Session-Id（不再让 Hermes 用 state.db 重建未净化会话）。
+        // 上下文=净化历史 → 不复读；且保留 app 按会话选模型 + 图片 + 流式。
+        let history: [[String: Any]] = chat.historyPayload()
         let startSid = chat.sessionId
 
         // v3.0.81：统一模型优先级链（免费 > 视觉 > Agent > 主模型）
