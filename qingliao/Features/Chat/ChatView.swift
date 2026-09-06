@@ -15,6 +15,8 @@ extension Notification.Name {
     static let qingliaoDashboardRefresh = Notification.Name("qingliao_dashboard_refresh")
     // v2.0.133f：离开看板通知——看板 30s 轮询在隐藏页也跑，切页时抢帧；隐藏时暂停轮询
     static let qingliaoDashboardLeave = Notification.Name("qingliao_dashboard_leave")
+    // v3.4.14：系统分享收件通知（DockTabView.onOpenURL 捕获分享后广播，ChatView 消费发送）
+    static let qingliaoShareIncoming = Notification.Name("qingliao_share_incoming")
 }
 
 // MARK: - v2.0.60 通知点击直达会话（AppDelegate 捕获通知点击 → 存 sessionId）
@@ -645,6 +647,23 @@ struct ChatView: View {
             }
         }
         .animation(.easeOut(duration: 0.15), value: showFullBurst)
+        // v3.4.14 系统分享收件消费：广播或 onAppear 兜底时，把 ShareRouter 里待处理的内容逐条发送
+        .onReceive(NotificationCenter.default.publisher(for: .qingliaoShareIncoming)) { _ in
+            drainShareInbox()
+        }
+        .onAppear { drainShareInbox() }
+    }
+
+    // MARK: - v3.4.14 系统分享收件
+    /// 逐条消费 ShareRouter 待处理分享：图片压缩后走 sendCore(imageData:)，文本直接 sendCore(text:)。
+    private func drainShareInbox() {
+        while let p = ShareRouter.shared.dequeue() {
+            if let image = p.image, let data = compressImage(image) {
+                sendCore(text: p.text ?? "", imageData: data)
+            } else {
+                sendCore(text: p.text ?? "", imageData: nil)
+            }
+        }
     }
 
     // MARK: - 消息列表

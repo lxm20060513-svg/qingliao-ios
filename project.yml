@@ -25,8 +25,8 @@ targets:
       path: qingliao/Info.plist
       properties:
         CFBundleDisplayName: 轻聊
-        CFBundleShortVersionString: "3.4.13"
-        CFBundleVersion: "416"
+        CFBundleShortVersionString: "3.4.14"
+        CFBundleVersion: "417"
         NSLocationWhenInUseUsageDescription: 用于获取当前定位显示天气信息
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
@@ -34,12 +34,43 @@ targets:
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
         ITSAppUsesNonExemptEncryption: false
+        # v3.4.14 系统分享接入口：声明能打开的文件类型/UTI，侧载 App 也能作为系统分享目标
+        LSSupportsOpeningDocumentsInPlace: true
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: 图片
+            LSHandlerRank: Default
+            LSItemContentTypes:
+              - public.image
+          - CFBundleTypeName: 视频
+            LSHandlerRank: Default
+            LSItemContentTypes:
+              - public.movie
+          - CFBundleTypeName: 音频
+            LSHandlerRank: Default
+            LSItemContentTypes:
+              - public.audio
+          - CFBundleTypeName: 文本
+            LSHandlerRank: Default
+            LSItemContentTypes:
+              - public.text
+          - CFBundleTypeName: PDF
+            LSHandlerRank: Default
+            LSItemContentTypes:
+              - com.adobe.pdf
+          - CFBundleTypeName: 通用文件
+            LSHandlerRank: Default
+            LSItemContentTypes:
+              - public.item
+          - CFBundleTypeName: 数据
+            LSHandlerRank: Default
+            LSItemContentTypes:
+              - public.data
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.qingliao.app2
         INFOPLIST_KEY_CFBundleDisplayName: 轻聊
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-        MARKETING_VERSION: "3.4.13"
-        CURRENT_PROJECT_VERSION: "416"
+        MARKETING_VERSION: "3.4.14"
+        CURRENT_PROJECT_VERSION: "417"
         ENABLE_PREVIEWS: YES
         CODE_SIGNING_ALLOWED: "NO"

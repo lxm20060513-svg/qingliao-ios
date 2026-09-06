@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 enum DockTab: String, CaseIterable, Identifiable {
     case chat, sessions, dashboard, settings
@@ -100,7 +101,34 @@ struct DockTabView: View {
                     }
                 }
             }
+            // v3.4.14 系统分享接入口：捕获从其他 App 分享进来的内容 → 入 ShareRouter + 通知 ChatView
+            .onOpenURL { url in
+                handleShareURL(url)
+            }
         }
+    }
+
+    // MARK: - v3.4.14 系统分享接入口
+    /// 解析系统分享的 URL（文件/图片/文本/链接）→ 生成 SharedPayload 入 ShareRouter，切到聊天页并广播。
+    private func handleShareURL(_ url: URL) {
+        var payload: SharedPayload?
+        if url.isFileURL {
+            let accessing = url.startAccessingSecurityScopedResource()
+            defer { if accessing { url.stopAccessingSecurityScopedResource() } }
+            if let image = UIImage(contentsOfFile: url.path) {
+                payload = SharedPayload(text: nil, image: image, sourceName: url.lastPathComponent)
+            } else if let text = try? String(contentsOf: url, encoding: .utf8) {
+                payload = SharedPayload(text: text, image: nil, sourceName: url.lastPathComponent)
+            }
+        } else if let scheme = url.scheme, scheme == "http" || scheme == "https" {
+            payload = SharedPayload(text: url.absoluteString, image: nil, sourceName: nil)
+        } else if let text = try? String(contentsOf: url, encoding: .utf8) {
+            payload = SharedPayload(text: text, image: nil, sourceName: url.lastPathComponent)
+        }
+        guard let payload else { return }
+        ShareRouter.shared.enqueue(payload)
+        selected = .chat
+        NotificationCenter.default.post(name: .qingliaoShareIncoming, object: nil)
     }
 }
 
