@@ -1321,8 +1321,8 @@ struct ChatView: View {
         // v2.0.126：蜂窝 relay 3.5KB 限制自动分段（粘贴长文本不丢内容）
         // relay payload = base64url(JSON{m,p,h,b}) 进 URL；限制 ~3.5KB；WiFi 直连无限制不走此分支
         if imageData == nil, NetworkMonitor.shared.isCellular, text.count > 200 {
-            let hist = chat.historyPayload()
-            if relayPayloadLength(messages: hist + [["role": "user", "content": text]]) > 3400 {
+            // v3.4.9 方案C：只传当前消息，relay 大小按单条消息估算（不再叠加全量历史）
+            if relayPayloadLength(messages: [["role": "user", "content": text]]) > 3400 {
                 let chunks = splitLongText(text)
                 if chunks.count > 1 {
                     // 顺序：第一段先发（流式中走排队路径排最前），后续段再入队
@@ -1376,11 +1376,10 @@ struct ChatView: View {
             startCloudStream(for: msg)
             return
         }
-        // v2.0.126：蜂窝 relay 3.5KB 限制——历史从后往前保留直到 payload 达标（只影响蜂窝兜底路径）
-        var history = chat.historyPayload()
-        if NetworkMonitor.shared.isCellular {
-            history = relaySafeHistory(history)
-        }
+        // v3.4.9 方案C：不再喂 app 端全量历史——只传当前 user 消息，
+        // 上下文由后端 Hermes 按 sessionId(ql_<sid>) 从 state.db 续接（根治复读）。
+        // 蜂窝 relay 大小由 sendCore 的 relayPayloadLength/splitLongText 按单条消息估算。
+        let history: [[String: Any]] = [msg.asPayload()]
         let startSid = chat.sessionId
 
         // v3.0.81：统一模型优先级链（免费 > 视觉 > Agent > 主模型）
@@ -1569,47 +1568,75 @@ struct ChatView: View {
 
     // MARK: - v2.0.126 蜂窝 relay 3.5KB 限制（粘贴长文本自动分段）
 
-    /// 模拟 SafariRelay.relay 的最终 URL 长度：payload={m,p,h,b} → base64url → /r?r=<b64>
+    /// 估算 relay 最终 URL 长度：payload={m,p,b} → base64url → /r?r=<b64>
     /// 用于发送前预判是否超限（限制 ~3.5KB = 3584，保守取 3400）
-    /// v3.0.7：bot 字段同步进估算（与 streamStart payload 一致，否则低估长度导致 relay 超限）
+    /// v3.4.9 fix：原实现用 `JSONSerialization.data(withJSONObject:)` 序列化整个 body 估长——
+    ///           ① splitLongText 每轮二分都全量序列化（O(n²)）；② JSONSerialization 对
+    ///           部分超长/结构输入会抛 **NSException**（ObjC 异常），Swift 的 `try?`/do-catch
+    ///           接不住，直接穿透到 `objc_exception_throw` → SIGABRT（蜂窝+贴超长文本点发送必现）。
+    ///           改为纯字节估算（UTF-8 字节 + base64url 膨胀 + JSON 结构开销），**完全不调用
+    ///           JSONSerialization**，既去崩溃源又去 O(n²)。
     private func relayPayloadLength(messages: [[String: Any]]) -> Int {
-        var body: [String: Any] = ["sessionId": chat.sessionId,
-                                   "model": modelName,
-                                   "provider": provider,
-                                   "messages": messages,
-                                   "pushEnabled": false,
-                                   "agentEnabled": true]
-        guard let bodyData = try? JSONSerialization.data(withJSONObject: body),
-              let bodyStr = String(data: bodyData, encoding: .utf8) else { return Int.max }
-        let payload: [String: Any] = ["m": "POST", "p": "/api/stream/start", "b": bodyStr]
-        guard let jsonData = try? JSONSerialization.data(withJSONObject: payload) else { return Int.max }
-        let b64Len = Int(ceil(Double(jsonData.count) * 4 / 3))   // base64url ≈ 4/3 膨胀
-        return auth.serverURL.count + 8 + b64Len                 // https://host:port/r?r=
+        // body JSON 字节数（保守偏大 +12%：payload 里 bodyStr 作为字符串再辗转义，裕量）
+        let bodyBytes = Self.estimateBodyBytes(messages: messages,
+                                               sessionId: chat.sessionId,
+                                               model: modelName,
+                                               provider: provider)
+        // payload = {"m":"POST","p":"/api/stream/start","b":<bodyStr>}——结构开销 + 转义裕量
+        let payloadBytes = Int(Double(bodyBytes) * 1.12) + 40
+        let b64Len = Int(ceil(Double(payloadBytes) * 4 / 3))   // base64url ≈ 4/3 膨胀
+        return auth.serverURL.count + 8 + b64Len               // https://host:port/r?r=
     }
 
-    /// 蜂窝下历史从后往前保留，直到 payload ≤ 3400（AI 至少看到最近上下文 + 新消息）
-    /// v3.0.53 fix：带图消息绝不能因 3400 relay 上限被裁成空数组（否则蜂窝发图 → messages 空 → 后端 400 messages required）。
-    /// 带图消息走 CFStream 直连（不受 relay 3400 限制），必须保留图片本身；此函数仅作 relay 兜底的历史裁剪。
-    private func relaySafeHistory(_ history: [[String: Any]]) -> [[String: Any]] {
-        let limit = 3400
-        if relayPayloadLength(messages: history) <= limit { return history }
-        var kept: [[String: Any]] = []
-        for m in history.reversed() {
-            let hasImage = (m["content"] as? [[String: Any]])?.contains { ($0["type"] as? String) == "image_url" } ?? false
-            let test = [m] + kept
-            let within = relayPayloadLength(messages: test) <= limit
-            if within || hasImage {
-                kept = test
+    /// body JSON 字节数估（保守偏大）：字符串按 UTF-8 字节，键值加引号/冒号/逗号/括号结构开销
+    private static func estimateBodyBytes(messages: [[String: Any]], sessionId: String, model: String, provider: String) -> Int {
+        var n = 0
+        n += utf8Len(sessionId) + 14      // "sessionId":""
+        n += utf8Len(model) + 9           // "model":""
+        n += utf8Len(provider) + 12       // "provider":""
+        n += utf8Len("messages") + 7      // "messages":
+        for m in messages {
+            n += 2                        // {}
+            for (k, v) in m {
+                n += utf8Len(k) + 4       // "k":
+                n += jsonValueApproxBytes(v)
             }
-            if !within && !hasImage { break }
         }
-        return kept
+        n += 2                            // ]
+        n += utf8Len("pushEnabled") + 16  // "pushEnabled":false,
+        n += utf8Len("agentEnabled") + 15 // "agentEnabled":true
+        return n
     }
+
+    private static func jsonValueApproxBytes(_ v: Any) -> Int {
+        if let s = v as? String {
+            return utf8Len(s) + 2         // 两个引号
+        }
+        if let b = v as? Bool {
+            return b ? 4 : 5              // true/false
+        }
+        if let a = v as? [Any] {
+            var n = 2                     // []
+            for e in a { n += jsonValueApproxBytes(e) }
+            return n
+        }
+        if let d = v as? [String: Any] {
+            var n = 2                     // {}
+            for (k, vv) in d {
+                n += utf8Len(k) + 4
+                n += jsonValueApproxBytes(vv)
+            }
+            return n
+        }
+        return 16                         // 数字/其它，保守
+    }
+
+    private static func utf8Len(_ s: String) -> Int { s.utf8.count }
 
     /// 长文本拆段：每段使「历史 + 该段」payload ≤ 3400（二分最大前缀，至少 1 字符防死循环）
     private func splitLongText(_ text: String) -> [String] {
         let limit = 3400
-        let baseHistory = chat.historyPayload()
+        let baseHistory: [[String: Any]] = []   // v3.4.9 方案C：只传当前消息，无历史叠加
         var chunks: [String] = []
         var rest = text
         while !rest.isEmpty {

@@ -242,7 +242,10 @@ final class ChatStore {
         // v3.0.83fix：isPush=1 的推送消息不进模型上下文（推送被当AI回复污染对话的根治）
         // 推送消息是 Hermes 主动注入的，不该作为历史喂给模型。保留在会话展示，但历史重放滤掉。
         // v3.1.12：错误占位（⚠️/HTTP Error/连接中断）同样不进上下文——脏历史诱导模型复读
-        let ctxMessages = messages.filter { !$0.isPush && !$0.isErrorPlaceholder }
+        // v3.4.9 防复读：在滤脏占位后，再做历史净化（去连续重复 assistant / 保证以 user 结尾 /
+        //              断掉"紧贴最新 user 的 assistant 续写种子" msgs[-2]）——镜像后端 _sanitize_history
+        //              + _break_repeat_seed 的 App 侧防御，确保喂给 Hermes 的上下文不再含"可续写素材"。
+        let ctxMessages = Self.sanitizeForContext(messages.filter { !$0.isPush && !$0.isErrorPlaceholder })
         return ctxMessages.map { m in
             var p = m.asPayload()
             if m.imageDataURL == nil {
@@ -254,6 +257,45 @@ final class ChatStore {
             }
             return p
         }
+    }
+
+    /// v3.4.9 防复读：历史净化（镜像后端 `_sanitize_history` + `_break_repeat_seed` 的 App 侧防御）。
+    ///
+    /// 复读根因（2026-09-03 实证）：模型"续写"上下文里紧邻的旧 assistant 回复/工具播报结语，而非回答新问题。
+    /// 三原则：
+    ///   ① 剔脏占位——isPush / 错误占位（⚠️/HTTP Error/连接中断）已在上层 filter 剔除。
+    ///   ② 去连续重复 assistant——连续相同 assistant 只留最后一条（复读产物）。
+    ///   ③ 保证以 user 结尾——剥离末尾孤立 assistant/system，防模型续写旧回复；
+    ///      并把"紧贴最新 user 的 assistant（msgs[-2]）"压缩为不可续写占位，断掉可续写素材。
+    /// 只压缩成占位、绝不删除内容；对过期历史同样生效——喂进上下文的复读种子被抽掉，任何模型都不复读。
+    private static func sanitizeForContext(_ msgs: [ChatMessage]) -> [ChatMessage] {
+        var out: [ChatMessage] = []
+        for m in msgs {
+            // ② 连续相同 assistant 只留最后一条（复读产物）
+            if m.role == "assistant",
+               let last = out.last, last.role == "assistant",
+               last.content == m.content {
+                continue
+            }
+            out.append(m)
+        }
+        // ③ 剥离末尾孤立 assistant/system → 保证以 user 结尾
+        while let last = out.last, last.role != "user" {
+            out.removeLast()
+        }
+        // ③ 断掉"紧贴最新 user 的 assistant 续写种子"（msgs[-2]）：压缩为不可续写占位
+        if out.count >= 2, out[out.count - 1].role == "user", out[out.count - 2].role == "assistant" {
+            let prev = out[out.count - 2]
+            let placeholder = ChatMessage(role: prev.role,
+                                          content: "（上一轮回复已省略，请直接回答最新用户消息，不要续写或复述此条内容）",
+                                          timestamp: prev.timestamp, imageDataURL: prev.imageDataURL)
+            out[out.count - 2] = placeholder
+        }
+        // 边界保护：若剥离后全空（异常历史），保留最后一条原始消息，避免模型收到空上下文
+        if out.isEmpty, let lastOriginal = msgs.last {
+            out = [lastOriginal]
+        }
+        return out
     }
 
     /// 保存会话（v3.0.1：按模式分流——云端写本地 CloudSessionStore 文件，本地走后端）
