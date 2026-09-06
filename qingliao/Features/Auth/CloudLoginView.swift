@@ -183,7 +183,7 @@ struct CloudLoginView: View {
             }
         }
         .sheet(isPresented: $showAddSheet) {
-            CloudProviderSheet(existing: config.providers) { newConfig in
+            CloudProviderSheet { newConfig in
                 config.saveProvider(newConfig)
                 config.activeProviderID = newConfig.providerID
                 selectedID = newConfig.providerID
@@ -219,11 +219,10 @@ struct CloudLoginView: View {
     }
 }
 
-// MARK: - 添加/编辑厂商表单
+// MARK: - 添加厂商表单
 
 struct CloudProviderSheet: View {
     @Environment(\.dismiss) private var dismiss
-    let existing: [CloudProviderConfig]
     let onSave: (CloudProviderConfig) -> Void
 
     @State private var presetID = "deepseek"

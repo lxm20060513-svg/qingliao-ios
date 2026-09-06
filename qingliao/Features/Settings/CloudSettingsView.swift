@@ -14,6 +14,10 @@ struct CloudSettingsView: View {
     // v3.0.57：免费模型开关（keyless opencode-free）——复用本地同一 key（双模式唯一开关，不各做一套）
     @AppStorage(UserDefaultsKey.freeModel) private var freeModelOn = false
     @State private var pendingDeleteID: String?   // v3.0.57：云端厂商删除确认
+    // v-review fix（维度3）：外观摘要与消费方同源 @AppStorage 读取（勿用 UserDefaults 直读——
+    // 直读缺省 false 与消费方默认 true 相悖，全新安装摘要与实际开关状态矛盾）
+    @AppStorage("qingliao_siri_glow") private var siriGlowOn = false
+    @AppStorage("qingliao_ball_input") private var ballInputOn = true
 
     var body: some View {
         VStack(spacing: 0) {
@@ -45,22 +49,8 @@ struct CloudSettingsView: View {
                     }
                     .glassListCard()
                     .onChange(of: freeModelOn) { _, on in
-                        if on {
-                            // v3.0.57 review fix：active 已是 opencode-free 时不覆写 prev（防 prev 被污染成 free，关开关永久失效丢付费恢复路径）
-                            if config.activeProviderID != "opencode-free" {
-                                UserDefaults.standard.set(config.activeProviderID, forKey: "qingliao_cloud_free_prev")
-                            }
-                            config.activateFreeProvider()
-                        } else {
-                            if let prev = UserDefaults.standard.string(forKey: "qingliao_cloud_free_prev"),
-                               !prev.isEmpty, prev != "opencode-free",
-                               config.providers.contains(where: { $0.providerID == prev }) {
-                                config.activeProviderID = prev
-                            } else if config.activeProviderID.hasSuffix("opencode-free") {
-                                // v3.0.57 review fix：prev 失效且当前在免费档 → 退回首个非 keyless 付费厂商，避免"UI 关实则仍免费"失配
-                                config.activeProviderID = config.providers.first(where: { !$0.keyless })?.providerID ?? ""
-                            }
-                        }
+                        // v3.0.57 review fix：与 ModelSheet 顶部开关共用同一实现（行为不许分叉）
+                        config.enableFreeModel(on)
                     }
                     // 云端模型（对齐本地「连接与模型」卡片风格）
                     SectionHeader("云端模型")
@@ -116,7 +106,7 @@ struct CloudSettingsView: View {
                             }
                         }
                         Divider().padding(.leading, 52)
-                        SettingRow(icon: "plus.circle.fill", iconColor: .blue, title: "添加/编辑厂商", chevron: true)
+                        SettingRow(icon: "plus.circle.fill", iconColor: .blue, title: "添加厂商", chevron: true)
                             .onTapGesture { showAddSheet = true }
                         Divider().padding(.leading, 52)
                         SettingRow(icon: "cpu.fill", iconColor: .orange, title: "模型管理", value: activeProviderModel, chevron: true)
@@ -135,7 +125,7 @@ struct CloudSettingsView: View {
                         }
                         Button("取消", role: .cancel) { pendingDeleteID = nil }
                     } message: {
-                        Text("将从云端厂商列表移除该厂商（含其 API Key）。无法使用的厂商删除后可在「添加/编辑厂商」重新配置。")
+                        Text("将从云端厂商列表移除该厂商（含其 API Key）。无法使用的厂商删除后可在「添加厂商」重新配置。")
                     }
 
                     // v3.0.18：本地工具（云端 function calling 手机工具集）
@@ -207,7 +197,7 @@ struct CloudSettingsView: View {
             }
         }
         .sheet(isPresented: $showAddSheet) {
-            CloudProviderSheet(existing: config.providers) { newConfig in
+            CloudProviderSheet { newConfig in
                 config.saveProvider(newConfig)
                 config.activeProviderID = newConfig.providerID
             }
@@ -236,8 +226,8 @@ struct CloudSettingsView: View {
 
     /// 外观摘要（对齐本地 SettingRow 的 value 显示）
     private var appearanceSummary: String {
-        let siri = UserDefaults.standard.bool(forKey: "qingliao_siri_glow") ? "发光开" : "发光关"
-        let ball = UserDefaults.standard.bool(forKey: "qingliao_ball_input") ? "智能球" : "输入框"
+        let siri = siriGlowOn ? "发光开" : "发光关"
+        let ball = ballInputOn ? "智能球" : "输入框"
         return "\(siri) · \(ball)"
     }
 

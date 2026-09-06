@@ -20,7 +20,16 @@ struct ServerSheet: View {
         let stripped = s.replacingOccurrences(of: "https://", with: "")
             .replacingOccurrences(of: "http://", with: "")
         let parts = stripped.split(separator: ":")
-        guard parts.count <= 2 else { return "格式错误，应为 host:port" }
+        if parts.count > 2 {
+            // v-review fix：冒号多于 1 段 → IPv6 字面量地址（fe80::1 / fe80::1:8123 等），
+            // 不再按 host:port 拆分拒绝；仅做基本的非空/无空白与路径校验
+            let ipv6 = stripped.trimmingCharacters(in: .whitespaces)
+            guard !ipv6.isEmpty else { return "主机名不能为空" }
+            if ipv6.contains(" ") || ipv6.contains("/") {
+                return "IPv6 地址格式非法"
+            }
+            return nil
+        }
         let host = String(parts[0]).trimmingCharacters(in: .whitespaces)
         guard !host.isEmpty else { return "主机名不能为空" }
         let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: ".-"))

@@ -246,12 +246,16 @@ final class ChatStore {
         //              断掉"紧贴最新 user 的 assistant 续写种子" msgs[-2]）——镜像后端 _sanitize_history
         //              + _break_repeat_seed 的 App 侧防御，确保喂给 Hermes 的上下文不再含"可续写素材"。
         let ctxMessages = Self.sanitizeForContext(messages.filter { !$0.isPush && !$0.isErrorPlaceholder })
-        return ctxMessages.map { m in
+        // v3.4.x code review fix：落实注释原语义——只保留"最后一条带图消息"的 imageDataURL
+        //（前面已发过的图片不进 payload，防 base64 全量重复膨胀）；其余带图消息降级为 [图片] 占位文本
+        let lastImageIdx = ctxMessages.lastIndex { $0.imageDataURL != nil }
+        return ctxMessages.enumerated().map { (i, m) in
             var p = m.asPayload()
             if m.imageDataURL == nil {
                 p["content"] = m.content
-            } else if !visionOK {
-                // 不支持视觉 → 图片降级为文本（内容 + [图片] 标记）
+            } else if i != lastImageIdx || !visionOK {
+                // 非最后一条带图消息：图片不再携带 base64，降级为文本（内容 + [图片] 标记）；
+                // 最后一条但当前不支持视觉 → 同样降级（原逻辑）
                 let t = m.content.trimmingCharacters(in: .whitespacesAndNewlines)
                 p["content"] = t.isEmpty ? "[图片]" : t + "\n[图片]"
             }
@@ -330,6 +334,8 @@ final class ChatStore {
             if let img = m.imageDataURL, !img.isEmpty {
                 p["imageDataURL"] = img
             }
+            // v3.4.x code review fix：持久化 uid，跨重启消息 id 稳定（消息唯一性/杀后台锚定依赖）
+            if let u = m.uid, !u.isEmpty { p["uid"] = u }
             if m.audioPath != nil {
                 p["content"] = "[语音]"
             }
@@ -559,9 +565,12 @@ final class ChatStore {
         if NetworkMonitor.shared.isCellular {
             return await uploadImageChunked(imageData, auth: auth)
         }
-        guard let config = CloudConfig.shared.activeConfig else { return nil }
-        var base = config.baseURL
-        if !base.hasPrefix("http") { base = "https://" + base }
+        // v3.4.x code review fix（高）：上传目标必须是自家 NAS（auth.serverURL），此前误用
+        // CloudConfig.shared.activeConfig.baseURL（云端大模型厂商，如 api.deepseek.com/v1）拼 NAS 专属
+        // 端点 /api/files/upload → WiFi 图片持久化恒打错主机静默失败，且把 NAS 的 X-Auth-Token
+        // 发给了第三方云厂商（token 泄露面）。现统一拼 NAS：X-Auth-Token 只发自家服务器；
+        // cloud 模式图片持久化另走图床链路（上传前已有 isCloudMode 分流，此处只服务本地/后端上传）。
+        guard let base = Self.nasBaseURL(auth: auth) else { return nil }
         guard let url = URL(string: base + "/api/files/upload") else { return nil }
 
         var req = URLRequest(url: url)
@@ -579,13 +588,13 @@ final class ChatStore {
         body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
         req.httpBody = body
 
-        guard let (data, _) = try? await URLSession.shared.data(for: req) else { return nil }
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+        guard let (data, resp) = try? await URLSession.shared.data(for: req),
+              (resp as? HTTPURLResponse)?.statusCode == 200,
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let fileURL = json["url"] as? String else { return nil }
-        // v3.0.37：后端返回相对路径 → 拼 baseURL 成完整可访问 URL（WiFi 直连 / 蜂窝中继均按各自 base）
+        // v3.0.37：后端返回相对路径 → 拼 NAS base 成完整可访问 URL
         if fileURL.hasPrefix("/") {
-            let trimmedBase = base.hasSuffix("/") ? String(base.dropLast()) : base
-            return trimmedBase + fileURL
+            return base + fileURL
         }
         return fileURL
     }
@@ -594,9 +603,9 @@ final class ChatStore {
     /// 服务端按 offset 写 staging、收齐自动组回完整文件返回 url。
     /// 片大小自适应：从 16KB 起，某一片失败 → 整体减半重试（换新 uploadId），直到摸出蜂窝能通过的临界值。
     private func uploadImageChunked(_ imageData: Data, auth: AuthStore) async -> String? {
-        guard let config = CloudConfig.shared.activeConfig else { return nil }
-        var base = config.baseURL
-        if !base.hasPrefix("http") { base = "https://" + base }
+        // v3.4.x code review fix（高）：与 WiFi 路径同源——目标主机取 NAS（auth.serverURL），
+        // 不再用 CloudConfig.activeConfig.baseURL（云厂商）；相对路径回填同样拼 NAS。
+        guard let base = Self.nasBaseURL(auth: auth) else { return nil }
 
         var slice = min(imageData.count, 16 * 1024)
         while slice >= 1024 {
@@ -621,8 +630,7 @@ final class ChatStore {
                 // 最后一片：服务端返回组装好的 fileURL
                 if let rel = json["url"] as? String {
                     if rel.hasPrefix("/") {
-                        let trimmed = base.hasSuffix("/") ? String(base.dropLast()) : base
-                        return trimmed + rel
+                        return base + rel
                     }
                     return rel
                 }
@@ -633,5 +641,15 @@ final class ChatStore {
             slice /= 2
         }
         return nil
+    }
+
+    /// NAS 上传基准地址（从 auth.serverURL 归一化：补 scheme、去尾斜杠）。
+    /// 空/不可用返回 nil（调用方走 base64 fallback）。
+    private static func nasBaseURL(auth: AuthStore) -> String? {
+        var base = auth.serverURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        if base.isEmpty { return nil }
+        if !base.hasPrefix("http") { base = "https://" + base }
+        while base.hasSuffix("/") { base.removeLast() }
+        return base
     }
 }

@@ -32,6 +32,29 @@ enum ModelProvidersCache {
     }
 }
 
+// MARK: - v3.0.57 fix：免费模型开关唯一实现（ModelSheet 与 CloudSettingsView 共用，行为不许分叉）
+// ON：记录 prev 后切 keyless 免费档；OFF：恢复 prev（prev 失效则退回首个非 keyless 付费厂商）
+extension CloudConfig {
+    func enableFreeModel(_ on: Bool) {
+        if on {
+            // active 已是 opencode-free 时不覆写 prev（防 prev 被污染成 free，关开关永久失效丢付费恢复路径）
+            if activeProviderID != "opencode-free" {
+                UserDefaults.standard.set(activeProviderID, forKey: "qingliao_cloud_free_prev")
+            }
+            activateFreeProvider()
+        } else {
+            if let prev = UserDefaults.standard.string(forKey: "qingliao_cloud_free_prev"),
+               !prev.isEmpty, prev != "opencode-free",
+               providers.contains(where: { $0.providerID == prev }) {
+                activeProviderID = prev
+            } else if activeProviderID.hasSuffix("opencode-free") {
+                // prev 失效且当前在免费档 → 退回首个非 keyless 付费厂商，避免「UI 关实则仍免费」失配
+                activeProviderID = providers.first(where: { !$0.keyless })?.providerID ?? ""
+            }
+        }
+    }
+}
+
 // MARK: - v3.0.74 自定义 provider 模型组（用户自主添加 BASE_URL/API Key，后端 custom_providers.json 存储，免更新 App）
 struct CustomProviderItem: Identifiable, Hashable {
     let id: String
@@ -155,6 +178,11 @@ struct ModelSheet: View {
                     RoundedRectangle(cornerRadius: 13, style: .continuous)
                         .strokeBorder(freeModelOn ? Color.green.opacity(0.4) : Color.primary.opacity(0.08), lineWidth: 0.8)
                 )
+                // v3.0.57 review fix：ModelSheet 开关补齐与云端设置卡一致的完整逻辑
+                // （原 ON 不写 prev / OFF 不恢复 → 关闭免费档后 activeProviderID 仍停在 opencode-free，请求仍走免费档）
+                .onChange(of: freeModelOn) { _, on in
+                    CloudConfig.shared.enableFreeModel(on)
+                }
                 // 在线状态 + 同步结果
                 HStack(spacing: 5) {
                 Circle().fill(syncing ? Color.orange : Color.green).frame(width: 7, height: 7)
@@ -412,8 +440,9 @@ struct ModelSheet: View {
             // v3.0.4：首次打开自动拉取通用 provider 列表（免手动同步）
             if allProviders.isEmpty {
                 // v3.0.35：先展示缓存（有则免转圈/免空白），后台刷新替换
-                if !ModelProvidersCache.load().isEmpty {
-                    allProviders = ModelProvidersCache.load()
+                let cached = ModelProvidersCache.load()   // v-review fix：缓存到局部变量，避免同一数据重复反序列化
+                if !cached.isEmpty {
+                    allProviders = cached
                 }
                 Task { await loadAllProviders() }
             }

@@ -70,9 +70,20 @@ extension SettingsView {
             Spacer()
             Toggle("", isOn: $localModelOn).labelsHidden().scaleEffect(0.8).tint(.green)
                 .onChange(of: localModelOn) { _, new in
+                    guard !localModelSyncing else { return }
                     Task {
-                        _ = try? await auth.json("/api/local/toggle", method: "POST", body: ["on": new])
-                        await loadLocalStatus()
+                        do {
+                            _ = try await auth.json("/api/local/toggle", method: "POST", body: ["on": new])
+                            await loadLocalStatus()
+                        } catch {
+                            // v-review fix：切换失败回滚开关（防「开关 ON 但后端未启动/超时」脱钩）
+                            if localModelOn == new {
+                                localModelSyncing = true
+                                localModelOn = !new
+                                localModelSyncing = false
+                                localStatusText = "切换失败，请检查连接后重试"
+                            }
+                        }
                     }
                 }
         }
@@ -215,46 +226,10 @@ extension SettingsView {
         VStack(spacing: 0) {
             SettingRow(icon: "circle.lefthalf.filled", iconColor: .purple, title: "外观", value: appearanceName, chevron: true)
                 .onTapGesture { withAnimation(.easeOut(duration: 0.2)) { showAppearance = true } }
-            if showAppearanceOptions {
-                HStack(spacing: 8) {
-                    appearanceOption("深色", value: "dark")
-                    appearanceOption("浅色", value: "light")
-                    appearanceOption("跟随系统", value: "system")
-                }
-                .padding(.horizontal, 14).padding(.bottom, 10)
-                Divider().padding(.leading, 52)
-                toggleRow(icon: "waveform", iconColor: .purple, title: "输入框流光光效", isOn: $glowOn)
-                Divider().padding(.leading, 52)
-                toggleRow(icon: "sparkles.rectangle.stack", iconColor: .indigo, title: "Siri 边框发光", isOn: $siriGlowOn)
-                if siriGlowOn {
-                    siriGlowSliders
-                }
-                Divider().padding(.leading, 52)
-                SettingRow(icon: "text.line.first.and.arrowtriangle.forward", iconColor: .indigo,
-                           title: "AI 输出行高", value: String(format: "%.1f", aiLineSpacing))
-                    .onTapGesture { withAnimation(.easeOut(duration: 0.2)) { showLineSpacingOptions.toggle() } }
-                if showLineSpacingOptions {
-                    HStack(spacing: 10) {
-                        Text("紧凑").font(.system(size: 12)).foregroundStyle(.secondary)
-                        Slider(value: $aiLineSpacing, in: 0...6, step: 0.5).tint(Color.accentColor)
-                        Text("宽松").font(.system(size: 16)).foregroundStyle(.secondary)
-                    }
-                    .padding(.horizontal, 14).padding(.bottom, 10)
-                }
-                Divider().padding(.leading, 52)
-                toggleRow(icon: "circle.circle.fill", iconColor: .accentColor, title: "智能球", isOn: $ballInput)
-            }
+            // v3.x review fix：showAppearanceOptions 死代码块（深浅色 chips/输入框流光/Siri 发光滑条/
+            // AI 输出行高/智能球）永不显示（唯一写点恒置 false）——已删除，统一由 AppearanceSheet 管理
         }
         .glassListCard()
-    }
-
-    @ViewBuilder var siriGlowSliders: some View {
-        Divider().padding(.leading, 52)
-        glowSlider("亮度", value: $glowBrightness, range: 0.2...1.5, format: "%.0f%%")
-        glowSlider("呼吸频率", value: $glowFreq, range: 0.5...6.0, format: "%.1f")
-        glowSlider("呼吸幅度", value: $glowAmp, range: 0...0.4, format: "%.2f")
-        glowSlider("光带范围", value: $glowWidth, range: 10...44, format: "%.0fpt")
-            .padding(.bottom, 6)
     }
 
     @ViewBuilder var aboutSection: some View {

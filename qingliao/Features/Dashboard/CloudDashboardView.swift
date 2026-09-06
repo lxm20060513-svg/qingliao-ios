@@ -112,46 +112,11 @@ struct CloudDashboardView: View {
     }
 }
 
-// MARK: - WeatherBadge 图标/颜色静态方法（云端看板复用；原实例属性为 private 不可访问）
-
-extension WeatherBadge {
-    static func icon(for c: Int?) -> String {
-        guard let c else { return "cloud.fill" }
-        switch c {
-        case 0: return "sun.max.fill"
-        case 1: return "sun.min.fill"
-        case 2: return "cloud.sun.fill"
-        case 3: return "cloud.fill"
-        case 45, 48: return "cloud.fog.fill"
-        case 51...67: return "cloud.rain.fill"
-        case 71...77: return "cloud.snow.fill"
-        case 80...82: return "cloud.heavyrain.fill"
-        case 95...99: return "cloud.bolt.rain.fill"
-        default: return "cloud.fill"
-        }
-    }
-
-    static func color(for c: Int?) -> Color {
-        guard let c else { return .secondary }
-        switch c {
-        case 0, 1: return .orange
-        case 2: return .yellow
-        case 3: return .secondary
-        case 45, 48: return .gray
-        case 51...82: return .blue
-        case 71...77: return .cyan
-        case 95...99: return .purple
-        default: return .secondary
-        }
-    }
-}
-
 // MARK: - v3.0.27 用量统计卡片
 
 struct UsageStatsCard: View {
     let chat: ChatStore
     @State private var sessionCount = 0
-    @State private var totalMessages = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -182,11 +147,10 @@ struct UsageStatsCard: View {
     }
 
     private func loadStats() async {
-        // 从 CloudSessionStore 读取会话数和总消息数
+        // 从 CloudSessionStore 读取会话数（v-review fix：totalMessages 赋值后从未被读取，已删）
         let store = CloudSessionStore.shared
         store.load()
         sessionCount = store.sessions.count
-        totalMessages = store.sessions.reduce(0) { $0 + $1.messages.count }
     }
 }
 

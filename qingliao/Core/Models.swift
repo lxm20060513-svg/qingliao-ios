@@ -15,7 +15,7 @@ enum UserDefaultsKey {
 
 // MARK: - 聊天消息（content 可能是纯文本或数组，手动解析最稳）
 
-struct ChatMessage: Identifiable, Equatable {
+struct ChatMessage: Identifiable, Equatable, Sendable {
     let role: String        // user / assistant / system
     let content: String     // 纯文本形态（数组 content 取 text 部分）
     let timestamp: TimeInterval?   // 毫秒
@@ -27,6 +27,16 @@ struct ChatMessage: Identifiable, Equatable {
     var agent: Bool = false        // v2.0.96b：Agent 回复标记（工具调用回复，显示标签）
     var voiceCommand: Bool = false   // v3.0.19：语音指令触发（长按智能球，显示 🎤 标记）
     var isPush: Bool = false         // v3.0.82：Hermes 主动推送消息（本地收件箱注入，显示"推送"标签）
+    /// v3.4.x code review fix：id 唯一性兜底短后缀——id 由 role+content 哈希+timestamp 拼成，
+    /// timestamp 为 nil 或同毫秒重复内容时两条消息 id 会撞（ForEach 重复 id / Equatable 误判同一消息）。
+    /// 新创建消息自动带随机 8 位十六进制 uid；持久化时随消息写入 "uid" 字段、解析时读回，
+    /// 因此跨重启仍保持稳定（杀后台恢复的 afterUserID 锚定不受影响）；历史无 uid 数据保持原确定性 id。
+    var uid: String? = Self.makeUid()
+
+    /// 生成唯一短后缀（8 位十六进制，碰撞概率可忽略）
+    private static func makeUid() -> String {
+        String(format: "%08x", UInt32.random(in: 0 ... UInt32.max))
+    }
 
     /// v3.1.12：错误占位识别——App 失败提示（⚠️/HTTP Error/连接中断等）被 upsert 成 assistant
     /// 混入历史是复读污染源之一：此类消息只用于 UI 展示，绝不允许进入模型上下文。
@@ -51,7 +61,11 @@ struct ChatMessage: Identifiable, Equatable {
         return h
     }
     var id: String {
-        "\(role)-\(Self.stableHash(content))-\(Self.stableHash(imageDataURL ?? ""))-\(timestamp ?? 0)"
+        // v3.4.x code review fix：带 uid 的消息 id 唯一；无 uid（历史数据）保持原确定性格式
+        if let uid, !uid.isEmpty {
+            return "\(role)-\(Self.stableHash(content))-\(Self.stableHash(imageDataURL ?? ""))-\(timestamp ?? 0)-\(uid)"
+        }
+        return "\(role)-\(Self.stableHash(content))-\(Self.stableHash(imageDataURL ?? ""))-\(timestamp ?? 0)"
     }
     var isUser: Bool { role == "user" }
 
@@ -61,12 +75,21 @@ struct ChatMessage: Identifiable, Equatable {
         let role = d["role"] as? String ?? ""
         let ts = d["timestamp"] as? TimeInterval
         var text = ""
+        // v3.4.x code review fix：多模态 content 里的 image_url 块 url 不再丢弃（旧数据/多模态变体），
+        // 取出最后一个图片块的 url 回填 imageDataURL，历史重放能渲染真实图而非只剩占位
+        var imageURLFromBlocks: String? = nil
         if let s = d["content"] as? String {
             text = s
         } else if let arr = d["content"] as? [[String: Any]] {
             // 多模态块：拼接 text 字段，图片记为 [图片]（历史消息不带 data URL，防超大 JSON）
             text = arr.compactMap { $0["text"] as? String }.joined(separator: "\n")
-            let hasImage = arr.contains { ($0["type"] as? String) == "image_url" }
+            imageURLFromBlocks = arr.compactMap { block -> String? in
+                guard (block["type"] as? String) == "image_url",
+                      let iu = block["image_url"] as? [String: Any],
+                      let u = iu["url"] as? String, !u.isEmpty else { return nil }
+                return u
+            }.last
+            let hasImage = imageURLFromBlocks != nil
             if hasImage {
                 let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
                 text = t.isEmpty ? "[图片]" : t + "\n[图片]"
@@ -76,9 +99,12 @@ struct ChatMessage: Identifiable, Equatable {
         let isAgent = d["agent"] as? Bool ?? false
         // v3.4.x fix：恢复图片 URL 读取，避免历史消息只有 [图片] 占位、无实物图
         let imageURL = d["imageDataURL"] as? String
-        var msg = ChatMessage(role: role, content: text, timestamp: ts, imageDataURL: imageURL)
+        var msg = ChatMessage(role: role, content: text, timestamp: ts,
+                              imageDataURL: imageURL ?? imageURLFromBlocks)
         msg.isPush = isPush
         msg.agent = isAgent
+        // v3.4.x code review fix：读回持久化的 uid（保持跨重启 id 稳定）；无则置 nil 走确定性旧格式
+        msg.uid = d["uid"] as? String
         return msg
     }
 
@@ -111,7 +137,7 @@ struct ChatMessage: Identifiable, Equatable {
 
 // MARK: - 会话（/api/sessions/list）
 
-struct ChatSession: Identifiable {
+struct ChatSession: Identifiable, Sendable {
     let id: String
     var title: String   // v2.0.43 重命名（SessionsView 本地改）
     let messages: [ChatMessage]
@@ -279,9 +305,6 @@ struct NASStatus {
     var qingliaoDockerMemText: String { qingliaoDockerMem.map { $0.byteText } ?? "--" }
     var cpuText: String { String(format: "%.1f%%", cpu) }
     var maxDiskPctText: String { String(format: "%.0f%%", maxDiskPct) }
-    /// v3.0.22：硬件温度预格式化（DashboardView hwDetail 内联格式化搬到模型层）
-    var hwCpuText: String { "" }
-    var hwSsdText: String { "" }
 }
 
 // MARK: - NAS 磁盘

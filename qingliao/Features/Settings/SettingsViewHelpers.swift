@@ -25,22 +25,14 @@ extension SettingsView {
         }
         .padding(.horizontal, 14).padding(.vertical, 10)
     }
-
-    func glowSlider(_ label: String, value: Binding<Double>, range: ClosedRange<Double>, format: String) -> some View {
-        HStack(spacing: 10) {
-            Text(label).font(.system(size: 13)).foregroundStyle(.secondary).frame(width: 52, alignment: .leading)
-            Slider(value: value, in: range).tint(Color.accentColor)
-            Text(String(format: format, value.wrappedValue)).font(.system(size: 12)).foregroundStyle(.secondary).frame(width: 42, alignment: .trailing)
-        }
-        .padding(.horizontal, 14).padding(.vertical, 4)
-    }
 }
 
 // MARK: - 辅助函数
 
 extension SettingsView {
 
-    /// v2.0.117：加载本地模型状态（容器 + 已装模型）
+    /// v2.0.117：加载本地模型状态（容器 + 已装模型）——后端为源：
+    /// v-review fix：依据 /api/local/status 的 container 状态回写开关，防 UI 与后端脱钩
     func loadLocalStatus() async {
         if let j = try? await auth.json("/api/local/status") {
             let up = (j["container"] as? String) == "up"
@@ -50,6 +42,14 @@ extension SettingsView {
             } else {
                 localStatusText = "已停止（点开关开启）"
             }
+            // 回写开关（加守卫防 onChange 回声 POST 循环）
+            if localModelOn != up {
+                localModelSyncing = true
+                localModelOn = up
+                localModelSyncing = false
+            }
+        } else {
+            localStatusText = "状态获取失败"
         }
     }
 
@@ -82,24 +82,6 @@ extension SettingsView {
         if let j = try? await auth.json("/api/agent/rules") {
             agentRuleCount = (j["rules"] as? [Any] ?? []).count
         }
-    }
-
-    func appearanceOption(_ name: String, value: String) -> some View {
-        Button {
-            appearance = value
-            withAnimation(.easeOut(duration: 0.2)) { showAppearanceOptions = false }
-        } label: {
-            Text(name)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(appearance == value ? Color.white : Color.primary)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 8)
-                .background(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(appearance == value ? Color.accentColor : Color(uiColor: .systemGray5))
-                )
-        }
-        .buttonStyle(.plain)
     }
 
     var appearanceName: String {

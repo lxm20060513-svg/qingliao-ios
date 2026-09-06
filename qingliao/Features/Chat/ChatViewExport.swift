@@ -8,6 +8,9 @@ extension ChatView {
     func withdrawMessage(_ msg: ChatMessage) {
         if let idx = chat.messages.firstIndex(where: { $0.id == msg.id }) {
             chat.messages[idx].withdrawn = true
+            // v3.0.86 fix：撤回是就地改元素（count 不变，不会触发 count onChange）——
+            // 显式重建可见缓存，否则 MessageRowItem 快照 withdrawn=false，气泡永远显示原文
+            refreshVisibleMessages()
             Task { await chat.saveToServer(auth: auth) }
         }
     }
@@ -56,10 +59,16 @@ extension ChatView {
 
     /// v2.0.36：单条删除（按索引精确删除，防同内容 hash id 误删）
     /// v2.0.102：同步移除对应排队项（修复排队消息删除后"复活"自动重发）
+    /// v3.0.86 fix：按 msg.id 删除（原 timestamp+role+content 三元组——同内容多条合法存在时
+    /// 会删错/删到最早那条）；pendingQueue 清理同样精确：仅当被删消息本身在排队中才移除
+    /// 一个对应项（同文多条排队时不再被 removeAll 一并误清 → 其余排队行“复活”后无人发送）
     func deleteMessage(_ msg: ChatMessage) {
-        if let idx = chat.messages.firstIndex(where: { $0.timestamp == msg.timestamp && $0.role == msg.role && $0.content == msg.content }) {
+        if let idx = chat.messages.firstIndex(where: { $0.id == msg.id }) {
             withAnimation { chat.messages.remove(at: idx) }
-            pendingQueue.removeAll { $0.text == msg.content && $0.imageData == msg.imageDataURL }
+            if msg.queued,
+               let qIdx = pendingQueue.firstIndex(where: { $0.text == msg.content && $0.imageData == msg.imageDataURL }) {
+                pendingQueue.remove(at: qIdx)
+            }
             Task { await chat.saveToServer(auth: auth) }
         }
     }

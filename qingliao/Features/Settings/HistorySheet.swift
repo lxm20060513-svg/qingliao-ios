@@ -11,6 +11,7 @@ struct HistorySheet: View {
     @State private var editMode = EditMode.inactive
     @State private var selected = Set<String>()   // 多选删除（按 id）
     @State private var showClearConfirm = false   // 全部清除确认
+    @State private var deleteError: String?   // v-review fix：滑动删除失败提示
 
     var body: some View {
         NavigationStack {
@@ -131,6 +132,15 @@ struct HistorySheet: View {
                 Text("此操作不可恢复，确定删除全部执行记录？")
             }
             .task { await load() }
+            // v-review fix：滑动删除失败提示
+            .alert("删除失败", isPresented: Binding(
+                get: { deleteError != nil },
+                set: { if !$0 { deleteError = nil } }
+            )) {
+                Button("好的", role: .cancel) { deleteError = nil }
+            } message: {
+                Text(deleteError ?? "")
+            }
         }
         .presentationDetents([.large])
     }
@@ -142,12 +152,22 @@ struct HistorySheet: View {
         loaded = true
     }
 
-    /// 滑动单条删除（非编辑模式）
+    /// 滑动单条删除（非编辑模式）——v-review fix：失败回滚（本地快照恢复）+ 提示，
+    /// 与其余后端列表驱动的删除保持一致，不再静默吞错
     private func deleteRows(_ offsets: IndexSet) {
         let ids = offsets.map { items[$0].id }
+        let snapshot = items
         items.remove(atOffsets: offsets)
         Task {
-            _ = try? await auth.json("/api/history?ids=\(ids.joined(separator: ","))", method: "DELETE")
+            do {
+                let j = try await auth.json("/api/history?ids=\(ids.joined(separator: ","))", method: "DELETE")
+                if let list = j["history"] as? [[String: Any]] {
+                    items = list.map { HistoryItem($0) }
+                }
+            } catch {
+                items = snapshot
+                deleteError = "删除失败，已恢复列表"
+            }
         }
     }
 

@@ -30,6 +30,9 @@ struct ChatInputBar: View {
     @State private var pressKeyboardUp = false
     // v2.0.129：Siri 圆球输入（设置开关，默认开）——默认状态是圆球，单击展开输入框，长按语音转文字
     @AppStorage("qingliao_ball_input") private var ballInput = true
+    // v-review fix（维度3）：输入框流光开关与设置页同源 @AppStorage 默认 true——
+    // 原 UserDefaults.standard.bool 无默认(false)：全新安装设置页显示「开」但门控不生效，拨动一次才对齐
+    @AppStorage("qingliao_input_glow") private var inputGlowOn = true
     @State private var ballExpanded = false   // 球 → 输入框展开态（切会话由外层 .id() 重建复位）
     // v2.0.132：点击球触发全屏粒子爆发（满屏散开）——由外层 ChatView 挂全屏特效层（局部 BurstEffect 已删，视觉重叠且双 TimelineView 掉帧）
     var onFullBurst: () -> Void = {}
@@ -249,7 +252,7 @@ struct ChatInputBar: View {
             // v3.2.4：流光在 streaming / voiceMode 均启用（用户拍板：语音模式保留流光视觉）。
             // 卡死防护靠 v3.2.3 三件套（流光无 shadow + 15fps + 外层阴影静态化在 overlay 前），
             // voiceMode 期间唯一动态视图即此流光，无 shadow 不触发 stroker 病态路径。
-            if (streaming || voiceMode) && UserDefaults.standard.bool(forKey: "qingliao_input_glow") {
+            if (streaming || voiceMode) && inputGlowOn {
                 // v2.0.139 性能：流光 60→30fps（旋转渐变肉眼无差，重绘开销减半）
                 // v3.2.3：30→15fps + **去掉 .shadow**——每帧变化的渐变+阴影=每帧送 stroker 算圆角
                 // 阴影路径（iOS 27 RenderBox 卡死源）。旋转渐变无锐边，15fps 肉眼无差，观感不变。

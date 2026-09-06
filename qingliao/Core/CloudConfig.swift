@@ -108,20 +108,34 @@ final class CloudConfig {
         mode = QingliaoMode(rawValue: UserDefaults.standard.string(forKey: "qingliao_mode") ?? "") ?? .local
         activeProviderID = UserDefaults.standard.string(forKey: "qingliao_cloud_provider") ?? ""
         loadProviders()
-        // 无厂商时预置一个 DeepSeek 空配置，方便首次进入
-        if providers.isEmpty {
-            let p = CloudProviderPreset.presets[0]
-            providers.append(CloudProviderConfig(providerID: p.id, name: p.name,
-                                                 baseURL: p.baseURL, apiKey: "", model: p.defaultModel))
-            saveProviders()
-            activeProviderID = p.id
+        // v3.4.x code review fix（低）：本地模式不再强制 seed DeepSeek 空配置——此前本地用户
+        // 的 activeConfig 恒指向云端厂商（api.deepseek.com），与 uploadImage 等误用叠加放大误导，
+        // 且无云配置的本地用户 isConfigured/activeConfig 语义失真。仅云端模式（或切到云端时）seed。
+        if mode == .cloud {
+            seedDefaultProviderIfNeeded()
         }
     }
 
     var isCloudMode: Bool { mode == .cloud }
 
     /// 切换模式（云端→本地 或反之）
-    func setMode(_ m: QingliaoMode) { mode = m }
+    func setMode(_ m: QingliaoMode) {
+        mode = m
+        // v3.4.x code review fix：切到云端且尚无任何厂商配置 → 补预置（首次进云端可配置）
+        if m == .cloud {
+            seedDefaultProviderIfNeeded()
+        }
+    }
+
+    /// 无厂商时预置一个 DeepSeek 空配置，方便首次进入（仅云端模式/进入云端配置时调用）
+    private func seedDefaultProviderIfNeeded() {
+        guard providers.isEmpty else { return }
+        let p = CloudProviderPreset.presets[0]
+        providers.append(CloudProviderConfig(providerID: p.id, name: p.name,
+                                             baseURL: p.baseURL, apiKey: "", model: p.defaultModel))
+        saveProviders()
+        activeProviderID = p.id
+    }
 
     /// 当前生效的云端配置（含 Keychain key）
     var activeConfig: CloudProviderConfig? {

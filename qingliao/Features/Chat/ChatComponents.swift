@@ -6,16 +6,6 @@ import AVFoundation
 
 // MARK: - v2.0.65 气泡小尾巴（iMessage 式：AI 左下 / 用户右下）
 // v2.0.66：单 Shape 一体化（圆角矩形 + 尾巴同路径，之前的 ZStack overlay 方案尾巴被挤进气泡内不显示）
-
-
-
-struct ScrollOffsetKey: PreferenceKey {
-    static let defaultValue: CGFloat = 0   // v2.0.51：static let 不可变即并发安全（协议 get-only）
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
-    }
-}
-
 /// BigBang 全屏炸开载荷（fullScreenCover(item:) 需要 Identifiable）
 struct BigBangPayload: Identifiable {
     let id = UUID()
@@ -167,9 +157,11 @@ struct MessageBlockView: View {
         switch block.kind {
         case .markdown(let text):
             if streaming {
-                // v3.0.59 fix：流式中也走 cachedRenderText（AttributedString）——
-                // 纯 SwiftUI Text 在多段落气泡中会截断显示 "…"，改用与落库后一致的渲染路径
-                Text(cachedRenderText(text))
+                // v3.0.86 fix：流式输出用纯 SwiftUI Text，跳过 markdown 解析/AttributedString 转换——
+                // （对齐 65 行 streaming 语义注释）。cachedRenderText 按 text.hashValue 判键，流式每帧
+                // 文本不同 → 全量 MarkdownRenderer 解析整段已输出文本 = O(n²)（长回复尾部卡顿主因）。
+                // 纯文本渲染零解析；落库后的静态消息仍走下方完整 markdown 渲染路径
+                Text(text)
                     .font(.system(size: CGFloat(fontSize)))
                     .lineSpacing(aiLineSpacing)
                     .textSelection(.enabled)

@@ -65,7 +65,7 @@ struct VisionModelSheet: View {
                             Image(systemName: mainModelSupportsVision ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
                                 .foregroundStyle(mainModelSupportsVision ? .green : .orange)
                             VStack(alignment: .leading, spacing: 2) {
-                                Text("主模型：\\(mainModel)")
+                                Text("主模型：\(mainModel)")
                                     .font(.system(size: 13, weight: .medium))
                                 Text(mainModelSupportsVision
                                      ? "已支持视觉，无需配置备用模型"
@@ -120,8 +120,9 @@ struct VisionModelSheet: View {
 
                 // MARK: - 模型列表选择（点选打勾 = 设为共享视觉模型）
                 Section("选择视觉模型（点选打勾）") {
-                    if deepseekModels.isEmpty && localInstalled.isEmpty && allProviders.isEmpty {
-                        Text("暂无可用模型\\n请先在「模型管理」中同步模型列表")
+                    if deepseekModels.isEmpty && localInstalled.isEmpty && allProviders.isEmpty
+                        && opencodeAppleModels.isEmpty && stepfunModels.isEmpty && sensenovaModels.isEmpty {
+                        Text("暂无可用模型\n请先在「模型管理」中同步模型列表")
                             .font(.system(size: 12)).foregroundStyle(.secondary)
                     } else {
                         // opencode（apple）模型
@@ -210,13 +211,13 @@ struct VisionModelSheet: View {
         if !enabled { return "已关闭" }
         if mainModelSupportsVision { return "主模型支持视觉，无需配置" }
         if selectedModel.isEmpty { return "未配置视觉模型" }
-        return "已配置：\\(selectedModel)"
+        return "已配置：\(selectedModel)"
     }
 
     /// 共享视觉模型显示文案
     private var sharedVisionDisplay: String {
         if selectedModel.isEmpty { return "未配置（主模型支持视觉时直接用主模型；主模型不支持时发图会降级为纯文本）" }
-        return "\\(selectedModel)（\\(providerDisplayName(selectedProvider))）"
+        return "\(selectedModel)（\(providerDisplayName(selectedProvider))）"
     }
 
     private func modelDisplayName(provider: String, model: String) -> String {
@@ -336,7 +337,7 @@ struct VisionModelSheet: View {
         Task {
             let ok = await pushToBackendAsync(provider: provider, model: model)
             if ok {
-                syncResult = "✅ 已共享：\\(model)（App + 微信通道，gateway 重启后生效，约 10-30 秒）"
+                syncResult = "✅ 已共享：\(model)（App + 微信通道，gateway 重启后生效，约 10-30 秒）"
             } else {
                 syncResult = "⚠️ 微信通道同步失败（App 本地已生效，可稍后重试）"
             }

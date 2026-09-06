@@ -25,9 +25,17 @@ enum BigBangParser {
             Locale(identifier: "zh_CN") as CFLocale
         ) else {
             // CFStringTokenizerCreate 返回 nil（内存压力/输入异常），降级为逐字拆分
-            return text.isEmpty ? [] : Array(stride(from: 0, to: maxLen, by: 1)).map {
-                BigBangWord(id: $0, text: String(ns.character(at: $0)))
+            // v-review fix：按 Unicode 标量遍历（勿用 UTF-16 ns.character(at:)——emoji 等代理对
+            // 会被拆成两个孤立码元显示乱码）
+            guard !text.isEmpty else { return [] }
+            var fallback: [BigBangWord] = []
+            var used = 0
+            for scalar in text.unicodeScalars {
+                if used >= maxLen { break }
+                fallback.append(BigBangWord(id: fallback.count, text: String(scalar)))
+                used += 1
             }
+            return fallback
         }
 
         func appendGap(from: Int, to: Int) {

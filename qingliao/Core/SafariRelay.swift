@@ -21,6 +21,13 @@ final class SafariRelay: NSObject {
     /// 回调 scheme（Info.plist 已注册 qingliao URL Type）
     private let callbackScheme = "qingliao"
 
+    /// v3.4.x code review fix（高）：runASWAS 终态共享状态（ASWAS 串行 → 单实例足够；全在 MainActor 访问）。
+    /// 完成回调 / start() 失败 / 超时定时器 / Task 取消 四条路径只允许一个赢家（pendingASWASDone 闸门），
+    /// 保证 continuation 恰好 resume 一次、relayQueue 排队请求不被永久堵死。
+    private var pendingASWASCont: CheckedContinuation<URL, Error>?
+    private var pendingTimeoutTimer: DispatchSourceTimer?
+    private var pendingASWASDone = false
+
     /// 上下文提供方（iOS 13+ ASWAS 必需）
     private let contextProvider = RelayContextProvider()
 
@@ -131,38 +138,96 @@ final class SafariRelay: NSObject {
     private func runASWAS(url: URL, timeout: TimeInterval) async throws -> URL {
         // 串行：若已有 sheet 在跑，异步等待（不忙等，挂起到队列）
         await acquireRelaySlot()
-        // 原子标志位：确保 cont.resume 只被调用一次（error/callbackURL 竞态下防双重 resume）
-        let didResume = UnsafeMutablePointer<Int32>.allocate(capacity: 1)
-        didResume.pointee = 0
-        defer { didResume.deallocate() }
-        return try await withCheckedThrowingContinuation { cont in
-            let session = ASWebAuthenticationSession(
-                url: url,
-                callbackURLScheme: callbackScheme
-            ) { callbackURL, error in
-                // 原子 CAS：仅第一个到达的路径（error 或 callbackURL）执行 resume
-                guard OSAtomicCompareAndSwap32(0, 1, didResume) else { return }
-                self.releaseRelaySlot()
-                if let error = error as? ASWebAuthenticationSessionError {
-                    if error.code == .canceledLogin {
-                        cont.resume(throwing: APIError.relayCancelled)
-                    } else {
-                        cont.resume(throwing: APIError.badResponseDetail("aswas: \(error.localizedDescription)"))
-                    }
-                    return
-                }
-                guard let callbackURL else {
-                    cont.resume(throwing: APIError.badResponseDetail("aswas: no callback url"))
-                    return
-                }
-                cont.resume(returning: callbackURL)
-            }
-            session.presentationContextProvider = contextProvider
-            // 共享 Safari cookie/session（用户已在 Safari 信任过证书、可能登录过）
-            session.prefersEphemeralWebBrowserSession = false
-            session.start()
-            activeSession = session
+        // v3.4.x code review fix（高）：排队等待期间 Task 已被取消 → 释放队列立即抛错，
+        // 防排队请求随取消永久挂起
+        if Task.isCancelled {
+            releaseRelaySlot()
+            throw CancellationError()
         }
+        pendingASWASDone = false
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (cont: CheckedContinuation<URL, Error>) in
+                pendingASWASCont = cont
+                let session = ASWebAuthenticationSession(
+                    url: url,
+                    callbackURLScheme: callbackScheme
+                ) { callbackURL, error in
+                    // 完成回调（成功/用户取消/系统错误）——唯一正常终态入口
+                    self.finishASWAS(callbackURL: callbackURL, error: error)
+                }
+                session.presentationContextProvider = contextProvider
+                // 共享 Safari cookie/session（用户已在 Safari 信任过证书、可能登录过）
+                session.prefersEphemeralWebBrowserSession = false
+                // v3.4.x code review fix（高）：先置 activeSession 再 start()——若 start() 同步
+                // 触发完成回调（极端竞态），releaseRelaySlot 仍能正确清位，防残留 session 永久堵死队列
+                activeSession = session
+                // v3.4.x code review fix（高）：start() 返回 false（无可用 presentation anchor/
+                // 系统拒绝）→ 立即 resume 错误并释放队列——否则回调永不触发、continuation 永不
+                // resume，后续所有排队请求（relayQueue）被永久堵死（网络层停摆）
+                guard session.start() else {
+                    abortASWAS(error: APIError.badResponseDetail("aswas: session.start() 失败"))
+                    return
+                }
+                // v3.4.x code review fix（高）：timeout 参数真正生效——此前从未被使用，
+                // 请求可永久挂起。超时强制 cancel session + resume 错误，防 sheet 永久悬挂
+                let timer = DispatchSource.makeTimerSource(queue: .main)
+                timer.schedule(deadline: .now() + timeout, leeway: .milliseconds(100))
+                timer.setEventHandler { [weak self] in
+                    Task { @MainActor in
+                        guard let self, !self.pendingASWASDone else { return }
+                        self.abortASWAS(error: APIError.timeout)
+                    }
+                }
+                timer.resume()
+                pendingTimeoutTimer = timer
+            }
+        } onCancel: {
+            // v3.4.x code review fix（高）：Task 取消传播（原实现无任何取消钩子）——
+            // 终止 ASWAS sheet、释放队列并 resume，防 continuation 泄漏
+            Task { @MainActor in
+                guard !self.pendingASWASDone else { return }
+                self.abortASWAS(error: CancellationError())
+            }
+        }
+    }
+
+    /// ASWAS 正常终态（回调成功/用户取消/系统错误）：清理定时器与状态后释放队列。
+    /// 只允许第一个到达的终态路径执行（pendingASWASDone 闸门）。
+    private func finishASWAS(callbackURL: URL?, error: Error?) {
+        guard !pendingASWASDone else { return }
+        pendingASWASDone = true
+        pendingTimeoutTimer?.cancel()
+        pendingTimeoutTimer = nil
+        let cont = pendingASWASCont
+        pendingASWASCont = nil
+        // 先释放队列再 resume：若下一个排队请求被同步唤醒（重入），它能看到干净的 pending 状态
+        releaseRelaySlot()
+        if let error = error as? ASWebAuthenticationSessionError {
+            if error.code == .canceledLogin {
+                cont?.resume(throwing: APIError.relayCancelled)
+            } else {
+                cont?.resume(throwing: APIError.badResponseDetail("aswas: \(error.localizedDescription)"))
+            }
+            return
+        }
+        guard let callbackURL else {
+            cont?.resume(throwing: APIError.badResponseDetail("aswas: no callback url"))
+            return
+        }
+        cont?.resume(returning: callbackURL)
+    }
+
+    /// ASWAS 异常终态（start() 失败 / 超时 / Task 取消）：cancel session、释放队列并 resume 错误
+    private func abortASWAS(error: Error) {
+        guard !pendingASWASDone else { return }
+        pendingASWASDone = true
+        pendingTimeoutTimer?.cancel()
+        pendingTimeoutTimer = nil
+        let cont = pendingASWASCont
+        pendingASWASCont = nil
+        activeSession?.cancel()   // 终止 Safari sheet；其完成回调到达时被 pendingASWASDone 闸门挡住
+        releaseRelaySlot()
+        cont?.resume(throwing: error)
     }
 
     /// base64url 编码（URL 安全）

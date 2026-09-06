@@ -83,7 +83,16 @@ struct DockTabView: View {
             .task {
                 guard let sid = UserDefaults.standard.string(forKey: "qingliao_open_session") else { return }
                 UserDefaults.standard.removeObject(forKey: "qingliao_open_session")
-                if let arr = try? await auth.jsonArray("/api/sessions/list") {
+                if CloudConfig.shared.isCloudMode {
+                    // v-review fix：云端会话存本地 CloudSessionStore——不再向 NAS /api/sessions/list 发无谓请求，
+                    // 否则 sid 必然找不到、通知深链无法直达会话
+                    let store = CloudSessionStore.shared
+                    store.load()
+                    if let s = store.sessions.first(where: { $0.id == sid }) {
+                        chat.load(s)
+                        selected = .chat
+                    }
+                } else if let arr = try? await auth.jsonArray("/api/sessions/list") {
                     let sessions = arr.compactMap { ChatSession.parse($0 as? [String: Any] ?? [:]) }
                     if let s = sessions.first(where: { $0.id == sid }) {
                         chat.load(s)

@@ -80,10 +80,6 @@ final class QingliaoAppDelegate: NSObject, UIApplicationDelegate,
     }
 }
 
-// MARK: - v2.0.50 滚动位置检测（替代 .scrollPosition）
-// .scrollPosition 在 TabView 隐藏页内容清空时是已知崩溃点（SIGTRAP），
-// 换 GeometryReader + PreferenceKey：滚动时上报内容区 minY，取负后语义同 scrollPos.y
-
 /// v2.0.88：排队待发消息（AI 回答中发送，当前回答结束后自动逐条发送）
 struct PendingSend {
     let text: String
@@ -175,7 +171,6 @@ struct ChatView: View {
     @State var showLongContextAlert = false
     @State var showCompressingAlert = false  // v3.0.81：AI 摘要压缩中
     @State var pendingSend: (text: String, imageData: String?)?
-    @State var showModelSheet = false   // 模型快速切换
     @State var showAttachmentMenu = false
     // v2.0.96：Hermes 捷径面板（官方斜杠命令）
     @State var showHermesShortcut = false
@@ -209,7 +204,7 @@ struct ChatView: View {
     @State var cloudStreamUI = CloudStreamUIState()
     // v3.4.0：底部上拉拉取收件箱状态（@Observable 引用——拖动高频写不重建 ChatView body）
     @State var inboxPull = InboxPullState()
-    // v3.0.27：长文目录
+    // v3.0.27：章节列表（纯静态展示，不做滚动导航）
     @State var showTOCSheet = false
     // v3.0.51 A2：极长会话分页懒加载——初始只渲染尾部最近 N 条，顶部可"加载更早"
     @State var displayLimit = 300
@@ -223,6 +218,8 @@ struct ChatView: View {
     // v3.0.51 A2 fix：缓存可见消息数组——仅在消息数量/显示上限变化时重建，
     // 避免每帧 stream.delta 触发 body 重建 O(visible) 数组
     @State private var visibleMessagesCache: [MessageRowItem] = []
+    // v3.0.86 fix：是否贴底（onScrollGeometryChange 实时维护）——流式自动滚底仅贴底时生效
+    @State private var isScrollPinned = true
     private var visibleMessageCount: Int { min(chat.messages.count, displayLimit) }
     /// 可见窗口起始绝对索引（用于日期分隔线的 prevTs 取真实前一条）
     private var visibleStartIndex: Int { chat.messages.count - visibleMessageCount }
@@ -238,7 +235,7 @@ struct ChatView: View {
     }
     // v3.0.51 A2 fix：缓存可见消息数组——仅在消息数量/显示上限变化时重建，
     // 避免每帧 stream.delta 触发 body 重建 O(visible) 数组
-    private func refreshVisibleMessages() {
+    func refreshVisibleMessages() {
         let msgs = chat.messages
         let start = visibleStartIndex
         visibleMessagesCache = (start..<msgs.count).map {
@@ -311,8 +308,7 @@ struct ChatView: View {
                 withAnimation(.easeOut(duration: 0.2)) { selectMode = true }
             }
         }
-        // v2.0.43：上下文信息 + 一键压缩
-        Button("上下文：约 \(chat.contextInfo.tokens) tokens · \(chat.contextInfo.count) 条") {}
+        // v2.0.43：上下文信息并入 dialog message（不再是空 action 按钮）
         Button("压缩上下文（保留最近 20 条）") {
             if chat.compressContext() {
                 Task { await chat.saveToServer(auth: auth) }
@@ -322,8 +318,8 @@ struct ChatView: View {
         Button("AI 总结会话") {
             summarizeSession()
         }
-        // v3.0.27：长文目录
-        Button("长文目录") {
+        // v3.0.27：章节列表（纯静态展示，不做滚动导航）
+        Button("章节列表") {
             showTOCSheet = true
         }
         Button("清空本会话消息", role: .destructive) {
@@ -361,7 +357,15 @@ struct ChatView: View {
                              showAttachmentMenu.toggle()
                          }
                      },
-                     onCamera: { showCameraPicker = true },
+                     onCamera: {
+                        // v3.0.86 fix：模拟器/无摄像头 iPad 先查可用性——sourceType=.camera 在无相机
+                        // 设备上 present 即抛 NSInvalidArgumentException；不可用改走相册（PhotosPicker）
+                        if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                            showCameraPicker = true
+                        } else {
+                            showPhotoPicker = true
+                        }
+                    },
                      isRecording: voiceRecorder.isRecording,
                     // v2.0.96：语音转文字（长按发送按钮）
                     voiceMode: voiceMode,
@@ -482,6 +486,8 @@ struct ChatView: View {
                        statusColor: headerColor)
             .confirmationDialog("聊天操作", isPresented: $showMoreMenu, titleVisibility: .visible) {
                 chatActionDialogContent
+            } message: {
+                Text("上下文：约 \(chat.contextInfo.tokens) tokens · \(chat.contextInfo.count) 条")
             }
             if sentOK {
                 HStack(spacing: 5) {
@@ -605,7 +611,7 @@ struct ChatView: View {
             }
             .presentationDetents([.medium, .large])
         }
-        // v3.0.27：长文目录/大纲导航
+        // v3.0.27：章节列表（纯静态展示——TOCItem 行号关联具体消息的滚动实现不可靠，不做点击导航）
         .sheet(isPresented: $showTOCSheet) {
             TOCSheet(headers: MarkdownRenderer.extractHeaders(
                 chat.messages.filter { $0.role == "assistant" }.map(\.content).joined(separator: "\n")
@@ -977,16 +983,8 @@ struct ChatView: View {
                     .padding(.bottom, 8)
                     .id("messages")   // v2.0.39：与欢迎页分支区分身份
                 }
-            // v2.0.50：.scrollPosition 在隐藏页内容清空时是已知崩溃点（新建会话=TabView
-            // 隐藏页清空→scrollPos 更新异常→SIGTRAP）→ 换 GeometryReader + PreferenceKey 检测滚动
             // v2.0.111：消息区背景透明（ScrollView 默认白底遮住上方 logo/内容）
             .scrollContentBackground(.hidden)
-            .background(
-                GeometryReader { geo in
-                    Color.clear.preference(key: ScrollOffsetKey.self,
-                                            value: geo.frame(in: .named("scrollspace")).minY)
-                }
-            )
             // v2.0.86h：Dock 滑动隐藏已删除（从未生效，手动开关替代）
             // v2.0.43：搜索定位——滚动到命中消息并高亮 2 秒
             .onChange(of: chat.highlightTarget?.content) { _, _ in
@@ -1002,28 +1000,6 @@ struct ChatView: View {
                     withAnimation(.easeOut(duration: 0.3)) { highlightMessageID = nil }
                 }
             }
-            // v2.0.58：两步走新建会话——先切欢迎页（列表卸载），下一帧再清数据
-            // （v2.0.44 的切tab+延迟清空在 tab 过渡期仍崩，清空按钮的两步走才是稳定模式）
-            .onChange(of: chat.pendingNewSession) { _, pending in
-                guard pending else { return }
-                clearing = true
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
-                    // v3.0.11 fix：新建会话前先清队列+停流——原实现旧流仍在跑，
-                    // 回答内容会持续显示/落进新会话（同 bot 串话根因族）
-                    clearPendingQueue()
-                    if stream.isStreaming { stream.stop(auth: auth) }
-                    withAnimation(nil) { chat.newSession() }
-                    chat.pendingNewSession = false
-                    clearing = false
-                }
-            }
-            // v2.0.88：切换/新建会话 → 清空待发队列（避免排队消息发到别的会话）
-            .onChange(of: chat.sessionId) {
-                clearPendingQueue()
-                cloudStreamUI.toolCards = []   // v3.0.18 fix：工具卡片跨会话残留清理（通过 @Observable 引用类型）
-                // v3.0.51 A1：会话加载后重传残留 base64 图片（重启续传/失败重传）
-                Task { await chat.retryPendingImageUploads(auth: auth) }
-            }
             // 滚动消息区即收起键盘（微信式）
             .scrollDismissesKeyboard(.immediately)
             // v3.4.1：底部上拉拉取收件箱——官方滚动几何回调（每帧实时含过拉 bounce）。
@@ -1034,21 +1010,35 @@ struct ChatView: View {
             } action: { _, overscroll in
                 inboxPullHandleScroll(overscroll: overscroll)
             }
+            // v3.0.86 fix：贴底检测（pinned）——内容不满屏或已滚到底（容差 8pt）视为贴底。
+            // 流式自动滚底仅贴底时生效：用户上翻阅读历史时 pinned=false，不被 delta 拽回底部
+            .onScrollGeometryChange(for: Bool.self) { geo in
+                let maxY = geo.contentSize.height - geo.containerSize.height
+                let bottomMax = max(0, maxY)
+                return geo.contentSize.height <= geo.containerSize.height
+                    || geo.contentOffset.y >= bottomMax - 8
+            } action: { _, pinned in
+                isScrollPinned = pinned
+            }
             // v2.0.135：ScrollView 是 UIKit 桥接视图，其区域点击不冒泡到 ZStack 根手势
             // （v2.0.112b 把 onTapGesture 移到 ZStack 后，有消息时点空白收键盘失效，用户复报）
             // → ScrollView 自身也挂一个：点消息区空白收键盘（点气泡由 MessageBubble 手势优先消费，不受影响）
             .onTapGesture {
                 inputFocus = false
             }
+            // v3.0.86 fix：缓存刷新已上提 ZStack 层 onChange（ScrollView 卸载/欢迎态也生效），
+            // 此处的 count 变化只负责贴底滚动（消息 append 场景）
             .onChange(of: chat.messages.count) {
-                refreshVisibleMessages()
                 scrollBottom(proxy)
             }
             .onChange(of: displayLimit) { _, _ in
                 refreshVisibleMessages()
             }
-            .onChange(of: stream.content) {
-                scrollBottom(proxy)
+            // v3.0.86 fix：流式内容变化仅在用户贴底时自动滚底（isScrollPinned 由下方
+            // onScrollGeometryChange 实时维护）——上翻阅读历史不再被 delta 拽回；无动画防高频打断
+            .onChange(of: stream.content) { _, _ in
+                guard isScrollPinned else { return }
+                scrollBottom(proxy, animated: false)
             }
 
         }
@@ -1063,19 +1053,38 @@ struct ChatView: View {
         .onTapGesture {
             inputFocus = false
         }
+        // v3.0.86 fix：以下 onChange 挂在 messageList 的 ZStack 层（不随欢迎页/清空态卸载的
+        // ScrollView 走）——两步走清空/新建会话/整组替换消息（ChatStore.load 新旧条数相同）
+        // 时可见缓存仍能重建，根治「空态后首条消息错显上一会话缓存行」
+        .onChange(of: chat.sessionId) {
+            clearPendingQueue()
+            refreshVisibleMessages()
+            cloudStreamUI.toolCards = []   // v3.0.18 fix：工具卡片跨会话残留清理（通过 @Observable 引用类型）
+            // v3.0.51 A1：会话加载后重传残留 base64 图片（重启续传/失败重传）
+            Task { await chat.retryPendingImageUploads(auth: auth) }
+        }
+        .onChange(of: chat.messages.count) {
+            refreshVisibleMessages()
+        }
+        .onChange(of: chat.pendingNewSession) { _, pending in
+            guard pending else { return }
+            clearing = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                // v3.0.11 fix：新建会话前先清队列+停流——原实现旧流仍在跑，
+                // 回答内容会持续显示/落进新会话（同 bot 串话根因族）
+                clearPendingQueue()
+                if stream.isStreaming { stream.stop(auth: auth) }
+                withAnimation(nil) { chat.newSession() }
+                chat.pendingNewSession = false
+                clearing = false
+            }
+        }
         .task {
             // v3.0.51 A2 fix：初始化可见消息缓存（首次渲染不为空）
             refreshVisibleMessages()
             // 服务器连接状态检测（真实绿点）
             let r = await auth.testConnection(server: auth.serverURL)
             serverOnline = r.hasPrefix("✅")
-            // v3.0.7：Bot 列表加载（节流版：5min 缓存内不重复请求，免切页触发网络+状态翻转）
-            if !CloudConfig.shared.isCloudMode {
-            }
-        }
-        .sheet(isPresented: $showModelSheet) {
-            ModelSheet(current: modelName)
-                .presentationDetents([.medium, .large])
         }
         .fullScreenCover(item: $bigBangPayload) { payload in
             BigBangView(text: payload.text)
@@ -1085,37 +1094,13 @@ struct ChatView: View {
             Button("压缩后发送") {
                 if let p = pendingSend {
                     chat.compressContext()
-                    inputText = ""   // v2.0.102：确认发送才清空（取消保留草稿）
-                    pendingImage = nil
-                    pendingImageData = nil
-                    if p.imageData != nil {
-                        // v3.0.37：图片持久化
-                        Task {
-                            let persisted = await persistImageIfNeeded(p.imageData)
-                            sendCore(text: p.text, imageData: persisted)
-                        }
-                    } else {
-                        sendCore(text: p.text, imageData: nil)
-                    }
+                    sendPendingNow(p)
                 }
-                pendingSend = nil
             }
             Button("直接发送") {
                 if let p = pendingSend {
-                    inputText = ""   // v2.0.102：确认发送才清空（取消保留草稿）
-                    pendingImage = nil
-                    pendingImageData = nil
-                    if p.imageData != nil {
-                        // v3.0.37：图片持久化
-                        Task {
-                            let persisted = await persistImageIfNeeded(p.imageData)
-                            sendCore(text: p.text, imageData: persisted)
-                        }
-                    } else {
-                        sendCore(text: p.text, imageData: nil)
-                    }
+                    sendPendingNow(p)
                 }
-                pendingSend = nil
             }
             Button("取消", role: .cancel) { pendingSend = nil }
         } message: {
@@ -1203,13 +1188,20 @@ struct ChatView: View {
             .padding(.vertical, 4)
     }
 
-    private func scrollBottom(_ proxy: ScrollViewProxy) {
-        withAnimation(.easeOut(duration: 0.15)) {
+    /// v3.0.86 fix：滚底可关内层动画——流式高频 delta 下 withAnimation 每帧重启互相打断，
+    /// 流式路径用 animated: false（贴底滚动瞬时完成）；消息 append（用户发送）保留轻动画
+    private func scrollBottom(_ proxy: ScrollViewProxy, animated: Bool = true) {
+        let action = {
             if stream.isStreaming {
                 proxy.scrollTo("streaming", anchor: .bottom)
             } else if let last = chat.messages.last {
                 proxy.scrollTo(last.id, anchor: .bottom)
             }
+        }
+        if animated {
+            withAnimation(.easeOut(duration: 0.15)) { action() }
+        } else {
+            action()
         }
     }
 
@@ -1220,6 +1212,24 @@ struct ChatView: View {
         guard !chat.messages.isEmpty else { return }
         guard !stream.isStreaming else { return }
         sendCore(text: "请用简洁的要点总结我们这次对话（分点列出，突出结论和待办）", imageData: nil)
+    }
+
+    /// v3.0.86 fix：统一「确认发送」路径——pendingSend 解包 → 清输入框/图片 → 图片持久化 → sendCore。
+    /// 原长上下文弹窗「压缩后发送/直接发送」与自动压缩完成后三份重复拷贝，抽此统一（后续改一处即可）
+    private func sendPendingNow(_ p: (text: String, imageData: String?)) {
+        pendingSend = nil
+        inputText = ""   // v2.0.102：确认发送才清空（取消保留草稿）
+        pendingImage = nil
+        pendingImageData = nil
+        if p.imageData != nil {
+            // v3.0.37：图片持久化
+            Task {
+                let persisted = await persistImageIfNeeded(p.imageData)
+                sendCore(text: p.text, imageData: persisted)
+            }
+        } else {
+            sendCore(text: p.text, imageData: nil)
+        }
     }
 
     /// v3.0.37：图片持久化——base64 图片上传 NAS 换 URL（节省内存/跨设备可见/重启不丢）
@@ -1267,16 +1277,7 @@ struct ChatView: View {
                 }
                 // 压缩完成后发送
                 if let p = pendingSend {
-                    inputText = ""
-                    pendingImage = nil
-                    pendingImageData = nil
-                    if p.imageData != nil {
-                        let persisted = await persistImageIfNeeded(p.imageData)
-                        sendCore(text: p.text, imageData: persisted)
-                    } else {
-                        sendCore(text: p.text, imageData: nil)
-                    }
-                    pendingSend = nil
+                    sendPendingNow(p)
                 }
             }
             return
@@ -1545,20 +1546,6 @@ struct ChatView: View {
         }
     }
 
-    /// 云端流式增量：更新最后一条 assistant 消息内容（流式过程中不追加新消息，只更新）
-    private func cloudUpsertDelta(_ text: String) {
-        if let idx = chat.messages.indices.last,
-           chat.messages[idx].role == "assistant" {
-            // 更新最后一条 assistant（重建 struct，保留时间戳）
-            let old = chat.messages[idx]
-            chat.messages[idx] = ChatMessage(role: "assistant", content: text,
-                                             timestamp: old.timestamp ?? Date().timeIntervalSince1970 * 1000)
-        } else {
-            // 无 assistant 尾巴 → 新建（首段）
-            chat.upsertAssistant(text)
-        }
-    }
-
     /// 云端模式回答完成 → 自动发送队列下一条
     private func finishCloudQueue() {
         if !pendingQueue.isEmpty {
@@ -1663,6 +1650,8 @@ struct ChatView: View {
             $0.queued && $0.content == item.text && $0.imageDataURL == item.imageData
         }) {
             chat.messages[idx].queued = false
+            // v3.0.86 fix：就地改 queued（count 不变）→ 显式重建缓存，即时去掉「排队中」角标
+            refreshVisibleMessages()
             startStream(for: chat.messages[idx])
         }
         // v2.0.102：排队消息已不在列表（被删除/清空/切换）→ 直接丢弃，不重发（修复"删除后复活"）
@@ -1674,6 +1663,8 @@ struct ChatView: View {
         for i in chat.messages.indices where chat.messages[i].queued {
             chat.messages[i].queued = false
         }
+        // v3.0.86 fix：queued 就地复位（count 不变）→ 显式重建缓存，「排队中」角标即时消失
+        refreshVisibleMessages()
     }
 
     /// v2.0.62：打开图片查看器（收集会话内全部图片消息 → 相册翻页）
@@ -1812,27 +1803,6 @@ struct ChatView: View {
         }
     }
 
-    /// 内联附件面板按钮（类微信 + 面板样式）
-    func attachButton(_ icon: String, _ name: String, _ color: Color,
-                              action: @escaping () -> Void) -> some View {
-        Button {
-            withAnimation(.spring(duration: 0.3, bounce: 0.2)) { showAttachmentMenu = false }
-            action()
-        } label: {
-            VStack(spacing: 5) {
-                Image(systemName: icon)
-                    .font(.system(size: 19))
-                    .foregroundStyle(.white)
-                    .frame(width: 46, height: 46)
-                    .background(color.gradient, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
-                Text(name)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .buttonStyle(.plain)
-    }
-
     /// v2.0.96b：发牌弹出附件按钮（idx 控制延迟，依次从底部弹出 + 回弹）
     /// v2.0.96c：onAppear 驱动（if 包裹下按钮创建即终态，值动画无效 → 子视图内部 appeared 状态）
     func menuButton(_ icon: String, _ name: String, _ color: Color, idx: Int,
@@ -1941,7 +1911,7 @@ struct DealAttachmentButton: View {
 // MARK: - 消息气泡
 
 
-// MARK: - v3.0.27 长文目录弹窗
+// MARK: - v3.0.27 章节列表弹窗（纯静态章节标题展示，不做大纲导航）
 
 struct TOCSheet: View {
     let headers: [MarkdownRenderer.TOCItem]
@@ -1966,7 +1936,7 @@ struct TOCSheet: View {
                     .listRowBackground(Color.clear)
                 }
             }
-            .navigationTitle("目录")
+            .navigationTitle("章节列表")
             .navigationBarTitleDisplayMode(.inline)
             .listStyle(.plain)
         }

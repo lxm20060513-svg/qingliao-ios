@@ -6,7 +6,10 @@ import UIKit
 @MainActor
 private let imageCache = NSCache<NSString, UIImage>()
 
-/// v3.0.x fix：base64 解码放到后台队列，避免大图片阻塞主线程
+// v3.4.x code review fix（低）：注释与实现对齐——本文件有两个入口：
+//  dataURLImage（同步）：小图（<100KB）主线程直解；大图也同步解码保证首帧立即可见（单帧卡顿代价）
+//  asyncDataURLImage（异步）：大图 base64 在后台队列解码、主线程回调（滚动场景请走此入口）
+// 后台解码队列只服务 asyncDataURLImage，不存在"所有图片都后台解码"。
 private let _imageDecodeQueue = DispatchQueue(label: "qingliao.image.decode", qos: .userInitiated)
 
 /// 初始化缓存限制（App 启动时调用一次；避免首次使用前 0 限制 → 无上限缓存）
@@ -31,21 +34,10 @@ func dataURLImage(_ urlStr: String) -> UIImage? {
         b64 = String(urlStr[urlStr.index(after: comma)...])
     }
     guard let imgData = Data(base64Encoded: b64, options: .ignoreUnknownCharacters) else { return nil }
-    // 小图片（< 100KB）直接在主线程解码（dispatch 开销 > 解码开销）
-    if imgData.count < 100_000 {
-        guard let img = UIImage(data: imgData) else { return nil }
-        if imageCache.totalCostLimit == 0 {
-            imageCache.totalCostLimit = 40 * 1024 * 1024
-        }
-        imageCache.setObject(img, forKey: urlStr as NSString, cost: imgData.count)
-        return img
-    }
-    // 大图片：先在主线程解码（保证首次也能显示），但 base64 Data 已在上面解析完，此步仅 UIImage init
-    // 真正的优化：AIImageView 等调用方应使用 asyncDataURLImage（见下方）
+    // v3.4.x code review fix（低）：本入口为同步解码——小图主线程直解（dispatch 开销 > 解码开销）；
+    // ≥100KB 大图也在此同步解码以保证首帧立即显示，代价是单帧主线程卡顿；滚动场景大图应走
+    // asyncDataURLImage。totalCostLimit 已由 initImageCacheLimit(App 启动时)初始化，移除判 0 冗余设置。
     guard let img = UIImage(data: imgData) else { return nil }
-    if imageCache.totalCostLimit == 0 {
-        imageCache.totalCostLimit = 40 * 1024 * 1024
-    }
     imageCache.setObject(img, forKey: urlStr as NSString, cost: imgData.count)
     return img
 }
@@ -68,9 +60,7 @@ func asyncDataURLImage(_ urlStr: String, decoded: @escaping @MainActor (UIImage)
     _imageDecodeQueue.async {
         guard let img = UIImage(data: imgData) else { return }
         DispatchQueue.main.async {
-            if imageCache.totalCostLimit == 0 {
-                imageCache.totalCostLimit = 40 * 1024 * 1024
-            }
+            // imageCache.totalCostLimit 已由 initImageCacheLimit 初始化（v3.4.x code review fix）
             imageCache.setObject(img, forKey: urlStr as NSString, cost: imgData.count)
             decoded(img)
         }
@@ -94,10 +84,25 @@ func setRemoteImageCache(_ urlStr: String, _ img: UIImage, cost: Int) {
     remoteImageCache.setObject(img, forKey: remoteCacheKey(urlStr), cost: cost)
 }
 
-/// v3.0.x fix：缓存 key 去除 query 参数（同一资源不同 token/时间戳共享缓存）
+/// v3.4.x code review fix（低）：缓存 key = host + path + 白名单 query（排序）。
+/// 原实现只取 URL.path——不同 host（图床/多 NAS）或同 path 不同 query（缩略尺寸 ?w=100 vs ?w=800、
+/// 版本参数）的资源会共用条目串图；同时保留去"易变签名参数"（token/时间戳类）共享缓存的原意。
 @MainActor
 private func remoteCacheKey(_ urlStr: String) -> NSString {
     guard let url = URL(string: urlStr) else { return urlStr as NSString }
-    // 用 path（去除 query/fragment）作为 key
-    return url.path as NSString
+    // 易变/不决定内容的参数剔除（签名/时间戳），其余 query 全部保留并排序，保证 key 稳定
+    let volatile: Set<String> = ["token", "auth", "sign", "signature", "sig", "expires", "exp",
+                                 "ts", "t", "_t", "timestamp", "rand", "random", "v", "updated"]
+    var comp = URLComponents(url: url, resolvingAgainstBaseURL: false)
+    if var items = comp?.queryItems {
+        items = items.filter { !volatile.contains(($0.name.lowercased())) }
+        items.sort { ($0.name.lowercased(), $0.value ?? "") < ($1.name.lowercased(), $1.value ?? "") }
+        comp?.queryItems = items
+    }
+    let host = url.host ?? ""
+    let path = url.path
+    if let q = comp?.query, !q.isEmpty {
+        return (host + path + "?" + q) as NSString
+    }
+    return (host + path) as NSString
 }

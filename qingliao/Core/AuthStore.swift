@@ -220,16 +220,41 @@ final class AuthStore {
 
         // v3.1.8 fix: 登录接口401正常抛错（触发重新登录），其余接口401静默转200
         // 原因：反代链路(Lucky)可能丢X-Auth-Token头，导致后端返回401；3.1.8前一直正常工作
-        if code == 401 && !path.contains("/api/auth/login") {
-            let fakeResp = HTTPURLResponse(url: URL(string: serverURL + path)!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+        // v3.4.x code review fix（中）：不再把 401 全量伪装成 200 吞错——只对"无害 GET 状态/列表类
+        // 白名单接口"降级为 200（兼容反代丢头的只读轮询/看板场景）；鉴权（/api/auth/）与写接口
+        // 及其余 401 正常抛 APIError.unauthorized（恢复真实构造点），token 过期/吊销能真正触发重新登录，
+        // 401 错误体也不再被当成功 JSON 交给上层解析（缺键静默 no-op/误报 badJSON）。
+        if code == 401 && !path.contains("/api/auth/") && method == "GET" && isHarmlessStatusRead(path) {
+            guard let url = URL(string: serverURL + path) else { throw APIError.badURL }
+            guard let fakeResp = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil) else {
+                throw APIError.badResponse
+            }
             return (data, fakeResp)
         }
         guard (200..<300).contains(code) else {
+            // 登录接口 401 保持 server(401)（旧语义：错误提示归 login 的 catch）；其余 401 → 重新登录
+            if code == 401 && !path.contains("/api/auth/login") { throw APIError.unauthorized }
             throw APIError.server(code)
         }
-        let url = URL(string: serverURL + path) ?? URL(string: "https://localhost")!
-        let http = HTTPURLResponse(url: url, statusCode: code, httpVersion: nil, headerFields: nil)!
+        guard let url = URL(string: serverURL + path) else { throw APIError.badURL }
+        guard let http = HTTPURLResponse(url: url, statusCode: code, httpVersion: nil, headerFields: nil) else {
+            throw APIError.badResponse
+        }
         return (data, http)
+    }
+
+    /// 无害 GET 状态/列表白名单：仅这些接口的 401 降级为 200（纯只读轮询/看板/列表刷新，
+    /// 响应失败无副作用）；鉴权、写接口与敏感读（/api/secrets、/api/files/pin_read、/api/auth/* 等）
+    /// 不在白名单 → 401 抛 APIError.unauthorized。
+    private func isHarmlessStatusRead(_ path: String) -> Bool {
+        let prefixes = [
+            "/api/nas/", "/api/hw/", "/api/ha/", "/api/router/", "/api/weather",
+            "/api/sessions/", "/api/docker/", "/api/scenes/", "/api/automations/",
+            "/api/agent/", "/api/memory/", "/api/push/", "/api/kb/", "/api/history",
+            "/api/cron/", "/api/logs/", "/api/channel/", "/api/stream/",
+            "/api/local/", "/api/inbox", "/api/files/config",
+        ]
+        return prefixes.contains { path.hasPrefix($0) }
     }
 
     /// Wi-Fi 直连：URLSession（ephemeral，瞬断重试 3 次）——蜂窝外免 relay 弹窗

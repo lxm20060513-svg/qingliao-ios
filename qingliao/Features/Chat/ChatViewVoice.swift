@@ -69,8 +69,8 @@ extension ChatView {
                     voiceTooShort = true
                 }
             } catch {
+                guard token == transcribeToken else { return }   // v3.0.86 fix：先校验代次再复位（与成功分支同序）——旧代次 Task 失败不得关掉新一轮转写动画
                 transcribing = false
-                guard token == transcribeToken else { return }
                 voiceTooShort = true
             }
         }

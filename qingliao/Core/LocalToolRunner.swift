@@ -223,6 +223,11 @@ enum LocalToolRunner {
     // v3.0.x fix：缓存 Date/ISO8601 Formatter（避免每次工具调用重复创建 → 主线程卡顿）
     private static let iso8601: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
+        // v3.2.x review fix：ISO8601DateFormatter 默认 timeZone = GMT——而 schema 注释声明
+        // start/end/due 为「本地时间，无时区」（如 2026-08-21T15:00:00），按 GMT 解释会整体偏移
+        // N 小时（东八区 = 晚 8 小时）。显式 .current，与 parseFlexibleDate(flexibleDateFmt) 的
+        // timeZone = .current 保持一致。
+        f.timeZone = .current
         return f
     }()
     private static let displayDateFmt: DateFormatter = {

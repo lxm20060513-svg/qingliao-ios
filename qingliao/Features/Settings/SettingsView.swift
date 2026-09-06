@@ -20,12 +20,10 @@ struct SettingsView: View {
     @State var showLogs = false
     // v3.0.74：钉一钉存储路径
     @State var showPinPath = false
-    @State var pinPathEdit = ""
     var pinPathDisplay: String {
         let p = PinStore.shared.storagePath
         return p.isEmpty ? "默认路径" : (p.count > 20 ? "..." + p.suffix(17) : p)
     }
-    @State var showAppearanceOptions = false
     @State var showAppearance = false   // v3.0.4：外观弹窗（与云端统一）
     @State var scrollPos = ScrollPosition()
     @State var showModelSheet = false
@@ -34,7 +32,6 @@ struct SettingsView: View {
     @State var confirmLogout = false   // v3.0.5 review fix：退出登录二次确认（与云端一致）
     @State var secretCount = 0
     @State var showHASettings = false
-    @State var haAddress = ""
     // v3.0.17：聊天字体大小从一级菜单移除（外观二级菜单持有），fontSize 声明一并清理
     // v3.0.9：外观下天气城市已移除（天气城市设定在看板 WeatherBadge 点按处），相关状态一并清理
     // v2.0.101：Agent 使用说明内联展开
@@ -52,6 +49,7 @@ struct SettingsView: View {
     @State var showHistory = false
     // v2.0.117：本地模型（Ollama 断网兜底）
     @AppStorage("qingliao_local_model") var localModelOn = false
+    @State var localModelSyncing = false   // v-review fix：程序化回写开关时抑制 onChange 回声 POST
     @State var localStatusText = "未开启"
     @State var localUpdateText = "断网兜底用本地模型"
     @State var localChecking = false
@@ -63,27 +61,15 @@ struct SettingsView: View {
     // v3.0.81：上下文管理
     @AppStorage("qingliao_context_auto_compress") var contextAutoCompress = false
     @AppStorage("qingliao_context_threshold") var contextThreshold = 4000
-    // v2.0.87ax：输入框流光光效开关
-    @AppStorage("qingliao_input_glow") var glowOn = true
-    // v2.0.87bb：Siri 边框发光开关
-    @AppStorage("qingliao_siri_glow") var siriGlowOn = true
-    // v2.0.90a：Siri 动效自定义参数（默认 = v2.0.87bn 定稿效果）
-    @AppStorage("qingliao_siri_glow_brightness") var glowBrightness = 1.0
-    @AppStorage("qingliao_siri_glow_freq") var glowFreq = 2.2
-    @AppStorage("qingliao_siri_glow_amp") var glowAmp = 0.18
-    @AppStorage("qingliao_siri_glow_width") var glowWidth = 22.0
     // v2.0.88：Face ID 登录开关（关闭后删除 Keychain 凭据，登录页不再显示快捷按钮）
     @AppStorage("qingliao_faceid_login") var faceIDLogin = true
     @State var faceIDAuthFailed = false   // v2.0.89f：开关打开时系统授权失败提示
     // v2.0.92：App 锁开关（启动时 Face ID 验证）
     @AppStorage("qingliao_app_lock") var appLockOn = false
     @State var appLockAuthFailed = false
-    // v2.0.128：AI 输出行高（0-6 步进 0.5，默认 1.0 = 紧凑；滑条控制）
-    @AppStorage("qingliao_ai_line_spacing") var aiLineSpacing = 1.0
-    @State var showLineSpacingOptions = false
-    // v2.0.129：Siri 圆球输入（默认开——输入框区显示多彩圆球，单击展开 / 长按语音转文字）
-    @AppStorage("qingliao_ball_input") var ballInput = true
-
+    // v2.0.128：AI 输出行高（0-6 步进 0.5，默认 1.0 = 紧凑；滑条控制）已随死代码外观块删除——
+    // 行高/流光/Siri 发光/智能球全部统一由 AppearanceSheet 管理（与云端同一组件）
+    // v2.0.102：切回设置页刷新计数（密码管理/记忆增删后行尾数字即时更新，原只有 .task 首刷）
     var body: some View {
         VStack(spacing: 0) {
             PageHeader(title: "设置")
@@ -177,6 +163,9 @@ struct SettingsView: View {
         }
         // v2.0.102：切回设置页刷新计数（密码管理/记忆增删后行尾数字即时更新，原只有 .task 首刷）
         .onAppear { Task { await loadCounts() } }
-        .task { await loadCounts() }
+        .task {
+            await loadCounts()
+            await loadLocalStatus()   // v-review fix：进入设置页即以后端 /api/local/status 校准本地模型开关
+        }
     }
 }

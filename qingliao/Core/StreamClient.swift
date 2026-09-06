@@ -244,9 +244,14 @@ final class StreamClient {
         guard isStreaming, !taskId.isEmpty else { return }
         // 截断过长内容，避免超 UserDefaults 4MB 限制导致崩溃
         let persistedContent = content.count > 4096 ? String(content.prefix(4096)) : content
+        // v3.4.x code review fix（低）：offset 必须与截断后的内容对齐——此前存完整 offset +
+        // 4096 截断内容，恢复时用截断内容 + 真实 offset 续轮询，>4096 字长回复的中段（4096..offset）
+        // 永久缺失（除非后续 recover 成功覆盖）。截断后持久化 offset = min(offset, 内容长度)，
+        // 恢复后从截断点续拉，前缀 + 后续轮询内容拼回完整回复。
+        let persistedOffset = min(offset, persistedContent.count)
         let d: [String: Any] = [
             "taskId": taskId, "sessionId": sessionId,
-            "offset": offset, "content": persistedContent,
+            "offset": persistedOffset, "content": persistedContent,
             "userMsgId": pendingUserMsgId ?? "",   // v3.3.3：恢复落库锚点
             "ts": Date().timeIntervalSince1970
         ]

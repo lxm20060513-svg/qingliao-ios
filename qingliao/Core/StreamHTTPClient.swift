@@ -196,18 +196,66 @@ final class StreamHTTPClient: @unchecked Sendable {
     }
 
     /// 按 Content-Length 判断响应是否完整（kimi-k3 确认的根因修复：Safari/curl 同款判定）
+    /// v3.4.x code review fix（中）：支持 Transfer-Encoding: chunked——无 Content-Length 的响应
+    /// （nginx/gunicorn 对上游无 CL 自动转 chunked）按块长逐块累积，读到 0 终块 + 尾部空行即收齐，
+    /// 不再只能等 EOF（Connection: close）后把带 chunk 帧的原始体当 body 解析（偶发坏响应根因）。
     fileprivate static func isResponseComplete(_ buffer: Data) -> Bool {
         guard let headerEnd = buffer.range(of: Data("\r\n\r\n".utf8)) else { return false }
         let headerText = String(data: buffer[..<headerEnd.lowerBound], encoding: .utf8) ?? ""
+        var contentLength: Int?
+        var chunked = false
         for line in headerText.split(separator: "\r\n") {
-            if line.lowercased().hasPrefix("content-length:"),
+            let lower = line.lowercased()
+            if lower.hasPrefix("content-length:"),
                let lenStr = line.split(separator: ":").last?.trimmingCharacters(in: .whitespaces),
                let len = Int(lenStr) {
-                let bodyLen = buffer.count - headerEnd.upperBound
-                return bodyLen >= len
+                contentLength = len
+            } else if lower.hasPrefix("transfer-encoding:"), lower.contains("chunked") {
+                chunked = true
             }
         }
+        if chunked {
+            // RFC 7230：有 Transfer-Encoding 时以 chunked 为准（忽略 Content-Length）
+            return dechunkBody(Data(buffer[headerEnd.upperBound...])) != nil
+        }
+        if let len = contentLength {
+            let bodyLen = buffer.count - headerEnd.upperBound
+            return bodyLen >= len
+        }
         return false
+    }
+
+    /// 解析 chunked body（块长行 hex 可带 ";扩展"，数据块后跟 CRLF，0 终块后跟可选 trailer + 空行）：
+    /// 完整收齐 → 返回去帧后的原始数据；未收齐/畸形 → nil（调用方继续等数据或按 EOF 原样兜底）
+    fileprivate static func dechunkBody(_ body: Data) -> Data? {
+        var out = Data()
+        var idx = body.startIndex
+        while idx < body.endIndex {
+            // 块长行：hex(+可选 ";ext") + CRLF
+            guard let lineEnd = body[idx...].range(of: Data("\r\n".utf8)) else { return nil }
+            let sizeLine = String(data: body[idx..<lineEnd.lowerBound], encoding: .ascii) ?? ""
+            let hexPart = sizeLine.split(separator: ";", maxSplits: 1).first?
+                .trimmingCharacters(in: .whitespaces) ?? ""
+            guard let chunkSize = Int(hexPart, radix: 16), chunkSize >= 0 else { return nil }
+            let dataStart = lineEnd.upperBound
+            if chunkSize == 0 {
+                // 终块：其后为可选 trailer（header 行，CRLF 结尾）+ 空行；空行即 chunked body 结束
+                var t = dataStart
+                while t < body.endIndex {
+                    guard let le = body[t...].range(of: Data("\r\n".utf8)) else { return nil }
+                    if le.lowerBound == t { return out }   // 空行 → 收齐
+                    t = le.upperBound
+                }
+                return nil
+            }
+            let chunkEnd = dataStart + chunkSize
+            // 数据块本身 + 块尾 CRLF 必须完整
+            guard chunkEnd + 2 <= body.endIndex,
+                  body[chunkEnd..<(chunkEnd + 2)] == Data("\r\n".utf8) else { return nil }
+            out.append(body[dataStart..<chunkEnd])
+            idx = chunkEnd + 2
+        }
+        return nil
     }
 
     /// 解析 HTTP 响应：状态行 + 头 + body
@@ -216,7 +264,7 @@ final class StreamHTTPClient: @unchecked Sendable {
             return (data, 0)
         }
         let headerPart = data[..<headerEnd.lowerBound]
-        let bodyPart = data[headerEnd.upperBound...]
+        var body = Data(data[headerEnd.upperBound...])
         let headerText = String(data: headerPart, encoding: .utf8) ?? ""
         var code = 0
         if let firstLine = headerText.split(separator: "\r\n").first {
@@ -225,7 +273,14 @@ final class StreamHTTPClient: @unchecked Sendable {
                 code = Int(parts[1]) ?? 0
             }
         }
-        return (Data(bodyPart), code)
+        // v3.4.x code review fix（中）：chunked 响应收齐/EOF 后先剥离 chunk 帧再交上层解析——
+        // 此前带十六进制块长行 + CRLF 的原始体被直接当 body 返回 → JSON 解析失败/数据错乱
+        let headerLower = headerText.lowercased()
+        if headerLower.contains("transfer-encoding:"), headerLower.contains("chunked"),
+           let de = dechunkBody(body) {
+            body = de
+        }
+        return (body, code)
     }
 }
 

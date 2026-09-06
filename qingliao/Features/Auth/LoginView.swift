@@ -204,8 +204,10 @@ struct LoginView: View {
                             DispatchQueue.main.async {
                                 guard success, let cred = FaceIDStore.load() else { return }
                                 // v2.0.102：Face ID 凭据服务器与当前输入不一致时提示（防静默登录到旧服务器）
+                                // v-review fix：归一化（补默认 scheme / 小写 / 去尾斜杠）后再比对，
+                                // 避免格式略异（大小写、http 前缀、尾斜杠）误报「不一致」阻断一键登录
                                 let input = server.trimmingCharacters(in: .whitespacesAndNewlines)
-                                if !input.isEmpty && input != cred.server {
+                                if !input.isEmpty && normalizeServerAddress(input) != normalizeServerAddress(cred.server) {
                                     showServerMismatch = true
                                     return
                                 }
@@ -302,6 +304,21 @@ struct LoginView: View {
     private func refreshFaceID() {
         let on = UserDefaults.standard.object(forKey: "qingliao_faceid_login") as? Bool ?? true
         faceIDReady = on
+    }
+
+    /// v-review fix：服务器地址归一化——补默认 scheme、转小写（host/port 不区分大小写）、去尾斜杠；
+    /// 供 Face ID 凭据与当前输入比对使用（两端同规则）
+    private func normalizeServerAddress(_ raw: String) -> String {
+        var s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !s.isEmpty else { return s }
+        if !s.hasPrefix("http://") && !s.hasPrefix("https://") {
+            s = "http://" + s
+        }
+        s = s.lowercased()
+        while s.hasSuffix("/") {
+            s.removeLast()
+        }
+        return s
     }
 }
 

@@ -401,25 +401,61 @@ struct MessageBubble: View {
     private static var _blocksCache: [String: [MessageContentBlock]] = [:]
 
     /// 指定文本的 markdown 分段渲染（v3.0.51：多气泡段落各自解析）
+    /// v3.0.86 fix：代码块 fence 改逐行状态计数（原 components(separatedBy: "```") + i%2 假设
+    /// fence 严格成对——AI 输出含单个不配对 ```（或行内以 ``` 开头未闭合）时，其后的整段 markdown
+    /// 会被整体当代码块渲染：丢排版、等宽黑底）。现按行扫描：配对 fence 成代码块，fence 自带语言
+    /// 标记（```lang 同行），不额外吞代码正文；结尾仍开着 fence（不配对）则按原文 markdown 处理
     private static func blocks(for text: String, serverURL: String, streaming: Bool) -> [MessageContentBlock] {
         if streaming {
             return [.init(kind: .markdown(text))]
         }
-        let parts = Self.expandMediaMarks(text, serverURL: serverURL).components(separatedBy: "```")
+        let lines = Self.expandMediaMarks(text, serverURL: serverURL).components(separatedBy: "\n")
         var blocks: [MessageContentBlock] = []
-        for (i, p) in parts.enumerated() {
-            if i % 2 == 1 {
-                // 代码块：去掉语言标记行
-                let lines = p.split(separator: "\n", maxSplits: 1).map(String.init)
-                let body = lines.count > 1 ? lines[1] : p
-                blocks.append(.init(kind: .code(body.trimmingCharacters(in: .whitespacesAndNewlines))))
-            } else if !p.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        var mdBuf: [String] = []        // 当前 markdown 段（未进 fence 的行）
+        var codeBuf: [String] = []      // 当前代码块内容（fence 内的行）
+        var openFenceLine = ""          // 未配对兜底时恢复原文用
+        var inFence = false
+
+        func flushMarkdown() {
+            let seg = mdBuf.joined(separator: "\n")
+            mdBuf = []
+            if !seg.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 // v2.0.87d：markdown 段内拆出表格块（| a | b | + 分隔行）
-                for k in Self.splitMarkdownTable(p) {
+                for k in Self.splitMarkdownTable(seg) {
                     blocks.append(.init(kind: k))
                 }
             }
         }
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("```") {
+                if inFence {
+                    // 关闭 fence：收集行成代码块
+                    inFence = false
+                    let body = codeBuf.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+                    codeBuf = []
+                    if !body.isEmpty {
+                        blocks.append(.init(kind: .code(body)))
+                    }
+                } else {
+                    // 打开 fence：先落 markdown 段，记录 fence 行原文（未配对兜底）
+                    flushMarkdown()
+                    inFence = true
+                    openFenceLine = line
+                    codeBuf = []
+                }
+            } else if inFence {
+                codeBuf.append(line)
+            } else {
+                mdBuf.append(line)
+            }
+        }
+        if inFence {
+            // 结尾仍开着 fence（不配对）→ 按原文处理，不当代码块渲染
+            mdBuf = [openFenceLine] + codeBuf
+            codeBuf = []
+        }
+        flushMarkdown()
         return blocks.isEmpty ? [.init(kind: .markdown(text))] : blocks
     }
 

@@ -68,7 +68,10 @@ final class VoiceRecorder: NSObject, ObservableObject, @preconcurrency AVAudioRe
                 audioURL = nil
                 lastRecordOK = false
             }
-            return true
+            // v3.2.x review fix：record()==false（麦克风被占用/会话未激活等）必须返回 false，与
+            // catch 分支一致——调用方 ChatViewVoice 靠返回值区分「录音已启动」vs「麦克风失败」，
+            // 原实现 false 时仍 return true → UI 误入语音模式、松手 stop()=nil 静默无转写。
+            return ok
         } catch {
             NSLog("[VOICE] recorder create failed: \(error)")
             recorder = nil

@@ -164,7 +164,7 @@ enum MarkdownRenderer {
         return AttributedString(ns)
     }
 
-    // MARK: - v3.0.27 大纲导航：提取 Markdown 标题
+    // MARK: - v3.0.27 章节列表：提取 Markdown 标题（供章节列表弹窗静态展示）
 
     struct TOCItem: Identifiable {
         let id = UUID()
