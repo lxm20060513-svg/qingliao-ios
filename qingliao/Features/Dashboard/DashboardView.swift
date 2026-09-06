@@ -229,7 +229,7 @@ struct DashboardView: View {
                         MeterCard(name: "内存", icon: "memorychip.fill", value: nas.memUsedText, sub: "/ \(nas.memTotalText)", ratio: nas.memPct, color: .green)
                         MeterCard(name: "磁盘", icon: "internaldrive.fill", value: nas.maxDiskPctText, sub: "\\(nas.disks.filter { $0.isSystem }.count) 系统盘 · \\(nas.disks.filter { !$0.isSystem }.count) 数据卷 · 点击查看", ratio: nas.maxDiskPct / 100.0, color: .orange)
                             .onTapGesture { activeSheet = .disks }
-                        ServiceCard(name: "轻聊后端", icon: "server.rack", running: nas.qingliaoAlive, detail: nas.qingliaoMemText)
+                        ServiceCard(name: "轻聊后端", icon: "server.rack", running: nas.qingliaoAlive, detail: "Docker 内存 \(nas.qingliaoDockerMemText)")
                             .onTapGesture { activeSheet = .service }
                         ServiceCard(name: "Hermes 网关", icon: "sparkles", running: nas.hermesAlive, detail: nas.hermesMemText)
                             .onTapGesture { activeSheet = .serviceHermes }

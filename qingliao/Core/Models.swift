@@ -237,6 +237,7 @@ struct NASStatus {
     var disks: [NASDisk] = []
     var qingliaoAlive = false
     var qingliaoMem = 0.0
+    var qingliaoDockerMem: Double? = nil   // v3.4.6：Docker 侧实际内存占用
     var hermesAlive = false
     var hermesMem = 0.0
     var hermesVersion = ""   // v3.0.8：Hermes 容器版本（docker exec 实时读）
@@ -261,6 +262,7 @@ struct NASStatus {
         if let svc = j["services"] as? [String: Any] {
             s.qingliaoAlive = (svc["qingliao"] as? Bool) ?? false
             s.qingliaoMem = (svc["qingliao_mem"] as? Double) ?? 0
+            s.qingliaoDockerMem = svc["qingliao_docker_mem"] as? Double
             s.hermesAlive = (svc["hermes"] as? Bool) ?? false
             s.hermesMem = (svc["hermes_mem"] as? Double) ?? 0
             s.hermesVersion = (svc["hermes_version"] as? String) ?? ""
@@ -273,6 +275,7 @@ struct NASStatus {
     var memTotalText: String { memTotal.byteText }
     var qingliaoMemText: String { qingliaoMem.byteText }
     var hermesMemText: String { hermesMem.byteText }
+    var qingliaoDockerMemText: String { qingliaoDockerMem.map { $0.byteText } ?? "--" }
     var cpuText: String { String(format: "%.1f%%", cpu) }
     var maxDiskPctText: String { String(format: "%.0f%%", maxDiskPct) }
     /// v3.0.22：硬件温度预格式化（DashboardView hwDetail 内联格式化搬到模型层）
