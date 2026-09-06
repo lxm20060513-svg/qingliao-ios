@@ -3,6 +3,11 @@
 > 3 并行子代理分模块审查（Core/Chat/Settings·Dashboard·Features），69 Swift 文件 / 2.2 万行。
 > 纯只读审查，未改文件。统计：**0 紧急 / 6 高 / 18 中 / 26 低**。
 > 同日已实施：Agent 智能回复开关移除（commit 6a9700c）+ 看板 eMMC 系统盘数据打通。
+>
+> **✅ 修复状态（2026-09-06 晚）：50/50 全部修复。**
+> 主修复批次 commit `1d6181d`（33 文件 +680/-434）+ 补漏 `4623f17`（AuthStore remember=false Keychain）。
+> 验证：swiftc -parse 全量通过 + CI macOS 编译预检 success（run 34034745716）。
+> 待真机回归重点：流式滚底/撤回即时刷新/图片上传 NAS/新会话首条消息。
 
 
 ## 1. Core 层
