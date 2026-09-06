@@ -156,9 +156,12 @@ final class AuthStore {
                 isLoggedIn = true
                 defaults.set(true, forKey: loggedKey)
                 // v2.0.88：Face ID 登录开关开启（默认开）时保存凭据到 Keychain
+                // v3.4.12fix：remember=false（用户关「记住我」）时不落凭据，并清掉历史凭据——密码存储不得违背用户意图
                 let faceIDOn = defaults.object(forKey: "qingliao_faceid_login") as? Bool ?? true
-                if faceIDOn {
+                if faceIDOn && remember {
                     FaceIDStore.save(server: serverURL, username: username, password: password)
+                } else if !remember {
+                    FaceIDStore.clear()
                 }
             } else {
                 errorMessage = "用户名或密码错误"
