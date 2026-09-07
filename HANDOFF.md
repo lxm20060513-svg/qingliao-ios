@@ -1,7 +1,9 @@
 # 轻聊 App 项目交接文档
 
-> 最后更新：2026-09-06
-> 最新版本：**v3.4.13/416（2026-09-06 已发版，commit `141bb5f`）看板磁盘布局调整**：①看板 NAS 面板移除「系统盘」分区卡片栏目（系统盘分区/数据卷分区详情全部收进磁盘弹窗 `DisksSheet`，按 `kind` 分组展示，卡片弹窗内容不变）②磁盘卡片改并入 NAS 面板 2 列栅格、与温度卡等尺寸（`MeterCard`），仍点击进 `DisksSheet`；IPA 已校验 3.4.13，md5 `d3ddcb6ac46981f92651d2960799846d`，已转存 NAS `轻聊app/qingliao-3.4.13-unsigned.ipa`（CI run 34037251162 success）
+> 最后更新：2026-09-07
+> 最新版本：**v3.4.15/418（2026-09-07 已发版，commit `e2a6034`）批量三合一**：①**大爆炸气泡级炸开 A+B**（`references/bigbang-bubble-scope.md`）——多气泡段落各炸各段，长按先选文字则只炸选区，不再每次炸整段 msg.content；②**灵动岛发光三度调亮调艳**（LiquidGlass.swift IslandGlowOverlay：呼吸底值 0.30→0.46、饱和度×1.5、光带 5→7pt、blur 5→4、内圈白线 0.65→0.9，Siri 边框发光不受影响）；③**分享会话卡片内容与会话完全一致**——移除 120 字截断+换行压平，图片/语音/撤回占位与气泡文案对齐，分享卡片与多选合并共用同一行构造；IPA 已校验 3.4.15/418，md5 `d50ee280a357dacfa3169a92c28512af`，已转存 NAS `轻聊app/qingliao-3.4.15-unsigned.ipa`（CI run 34085315897 success）
+> 上一版：**v3.4.14/417（2026-09-06 已发版，commit `a2da948`）系统分享接入口**：iOS 系统分享面板可分享会话内容
+> 上一版：**v3.4.13/416（2026-09-06 已发版，commit `141bb5f`）看板磁盘布局调整**：①看板 NAS 面板移除「系统盘」分区卡片栏目（系统盘分区/数据卷分区详情全部收进磁盘弹窗 `DisksSheet`，按 `kind` 分组展示，卡片弹窗内容不变）②磁盘卡片改并入 NAS 面板 2 列栅格、与温度卡等尺寸（`MeterCard`），仍点击进 `DisksSheet`；IPA 已校验 3.4.13，md5 `d3ddcb6ac46981f92651d2960799846d`，已转存 NAS `轻聊app/qingliao-3.4.13-unsigned.ipa`（CI run 34037251162 success）
 > 上一版：**v3.4.10/414（2026-09-06 已发版，commit `1399450`）X方案根治复读**：①App `startStream` 回退发「断种子净化完整历史」`chat.historyPayload()`（内置 sanitizeForContext 断 msgs[-2] 种子）②后端 `_build_hermes_messages` 改发净化历史（`_sanitize_history`+`_compress_long_assistants`+`_break_repeat_seed`）③**去掉 `X-Hermes-Session-Id`**（方案C分支+回退分支，Hermes 不再用 state.db 重建未净化原始会话 → 复读根因堵死；保留模型选择/图片/流式/工具）；IPA 已校验 3.4.10，md5 `1c431ce60c121f4958d0a96967a46f1a`，已转存 NAS `轻聊app/qingliao-3.4.10-unsigned.ipa`（CI run 34022566849 success）
 > 上一版：**v3.4.9/413（2026-09-06 已发版，commit `2504ea7`）**：①方案C 会话托管根治复读（后端 `STREAM_HERMES_SESSION=1` 所有聊天恒走 Hermes agent，只发 system+最新user+会话头 `X-Hermes-Session-Id:ql_<sid>`，Hermes 从 state.db 按 ql_<sid> 续上下文=微信/QQ 机制；App 端 `startStream` 只传当前 user 消息、不再喂全量 historyPayload）②蜂窝+贴超长文本发送 SIGABRT 崩溃根治（`relayPayloadLength` 改纯字节估算，彻底移除 JSONSerialization）③App 端历史净化 `sanitizeForContext`（镜像后端 `_sanitize_history`+`_break_repeat_seed`）；IPA 已校验 3.4.9，md5 `128791b5a307c9ead476fbd095a1c459` 已转存 NAS `轻聊app/qingliao-3.4.9-unsigned.ipa`
 
