@@ -31,6 +31,9 @@ struct DockTabView: View {
     @Environment(ChatStore.self) private var chat
     @Environment(StreamClient.self) private var stream
     @Environment(\.horizontalSizeClass) private var hSize
+    // v3.4.x 任务中心：收件箱非 reply 任务汇总入口
+    @State private var showTaskCenter = false
+    @State private var taskStore = TaskCenterStore.shared
 
     var body: some View {
         // v3.0.64：改用 iOS 26 系统原生 TabView tab bar —— 系统自动渲染液态玻璃 tab bar，
@@ -80,6 +83,40 @@ struct DockTabView: View {
                 if new == .dashboard {
                     NotificationCenter.default.post(name: .qingliaoDashboardRefresh, object: nil)
                 }
+            }
+            // v3.4.x 任务中心：右上角悬浮入口（钟形图标 + 未读红点），点击弹全屏任务列表。
+            // 仅当有任务（非 reply 收件）时显示；无任务隐藏，不打扰。
+            .overlay(alignment: .topTrailing) {
+                if taskStore.uncompleted > 0 {
+                    Button {
+                        showTaskCenter = true
+                    } label: {
+                        ZStack(alignment: .topTrailing) {
+                            Image(systemName: "bell.badge")
+                                .font(.system(size: 18, weight: .medium))
+                                .foregroundStyle(.primary)
+                                .padding(11)
+                                .background(.ultraThinMaterial)
+                                .clipShape(Circle())
+                                .shadow(color: .black.opacity(0.1), radius: 5, y: 2)
+                            if taskStore.uncompleted > 0 {
+                                Text("\(min(taskStore.uncompleted, 99))")
+                                    .font(.system(size: 10, weight: .bold))
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 5)
+                                    .padding(.vertical, 1)
+                                    .background(Color.red)
+                                    .clipShape(Capsule())
+                                    .offset(x: 2, y: -2)
+                            }
+                        }
+                    }
+                    .padding(.trailing, 14)
+                    .padding(.top, 6)
+                }
+            }
+            .fullScreenCover(isPresented: $showTaskCenter) {
+                TaskCenterView()
             }
             .task {
                 guard let sid = UserDefaults.standard.string(forKey: "qingliao_open_session") else { return }

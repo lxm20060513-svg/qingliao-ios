@@ -83,6 +83,16 @@ final class InboxStore {
                 let id = it.id
                 guard !consumedIds.contains(id) else { continue }
                 consume(id)
+                // v3.4.x 任务中心：非 reply（定时/后台/系统事件）不注入会话气泡，进任务中心列表。
+                // reply 仍是 AI 回复摘要 → 走原有注入链路（会话气泡 + 去重 + 标记已读）。
+                if it.taskType != "reply" {
+                    TaskCenterStore.shared.add(TaskCenterItem(
+                        id: id, text: it.text, taskType: it.taskType,
+                        sourceTaskId: it.sourceTaskId))
+                    NotificationHelper.notify(title: "轻聊 · 任务", body: it.text, sessionId: chat.sessionId)
+                    await markDone(id, auth: auth)
+                    continue
+                }
                 // v3.0.87 fix：去重——AI 回复完成自动推(_maybe_push_app)的摘要与该会话流式渲染的回复重复。
                 // 当前会话最后一条 assistant(非推送) 文本已包含此推送正文 → 判定为同一条回复，不再重复注入（仅标记已读），
                 // 避免用户看到「流式回复 + 🔔推送」两条相同内容。
@@ -175,12 +185,12 @@ final class InboxStore {
 
     // MARK: - 后端 API
 
-    private func inboxItems(_ auth: AuthStore) async throws -> [(id: String, text: String, sourceTaskId: String?)] {
+    private func inboxItems(_ auth: AuthStore) async throws -> [(id: String, text: String, sourceTaskId: String?, taskType: String)] {
         let json = try await auth.json("/api/inbox", method: "GET")
         guard let arr = json["items"] as? [[String: Any]] else { return [] }
         return arr.compactMap { d in
             guard let id = d["id"] as? String, let text = d["text"] as? String else { return nil }
-            return (id, text, d["source_task_id"] as? String)
+            return (id, text, d["source_task_id"] as? String, d["task_type"] as? String ?? "reply")
         }
     }
 
@@ -189,7 +199,73 @@ final class InboxStore {
     }
 }
 
-// MARK: - v3.4.x 收件箱/流式回复去重判定的纯函数收敛（抽自 shouldSkipDuplicate，可单测防漂移）
+// MARK: - v3.4.x 任务中心：收件箱从"推送气泡"升级为"任务列表"
+
+/// 一条任务（收件箱非 AI 回复的来源：定时/自动任务/系统通知）
+struct TaskCenterItem: Identifiable, Codable, Equatable {
+    let id: String
+    let text: String
+    let taskType: String        // cron / system（reply 不进任务中心，只进会话气泡）
+    let sourceTaskId: String?   // 用于跳原文/去重
+    let createdAt: TimeInterval
+    var completed: Bool
+
+    init(id: String, text: String, taskType: String, sourceTaskId: String? = nil,
+         createdAt: TimeInterval = Date().timeIntervalSince1970, completed: Bool = false) {
+        self.id = id; self.text = text; self.taskType = taskType
+        self.sourceTaskId = sourceTaskId; self.createdAt = createdAt; self.completed = completed
+    }
+}
+
+/// 任务中心存储：收件箱非 reply 推送汇总为可分类任务列表，本地持久化。
+/// 生命周期：inbox pollOnce 拉到非 reply → addTask（按 sourceTaskId 去重）→ 用户点击跳原会话/标记完成。
+@MainActor
+@Observable
+final class TaskCenterStore {
+    static let shared = TaskCenterStore()
+    private let key = "qingliao_task_center"
+    private(set) var tasks: [TaskCenterItem] = []
+
+    private init() {
+        if let data = UserDefaults.standard.data(forKey: key),
+           let arr = try? JSONDecoder().decode([TaskCenterItem].self, from: data) {
+            tasks = arr
+        }
+    }
+
+    private func save() {
+        if let data = try? JSONEncoder().encode(tasks) {
+            UserDefaults.standard.set(data, forKey: key)
+        }
+    }
+
+    /// 新增任务（按 id/sourceTaskId 去重，避免轮询重复拉取堆积）
+    func add(_ item: TaskCenterItem) {
+        if !item.id.isEmpty, tasks.contains(where: { $0.id == item.id }) { return }
+        if let sid = item.sourceTaskId, !sid.isEmpty,
+           tasks.contains(where: { $0.sourceTaskId == sid }) { return }
+        tasks.append(item)
+        if tasks.count > 200 { tasks = Array(tasks.suffix(200)) }   // 防无限增长
+        save()
+    }
+
+    /// 标记完成/未完成
+    func setCompleted(_ id: String, _ done: Bool) {
+        if let idx = tasks.firstIndex(where: { $0.id == id }) {
+            tasks[idx].completed = done
+            save()
+        }
+    }
+
+    /// 清理已完成
+    func clearCompleted() {
+        tasks.removeAll { $0.completed }
+        save()
+    }
+
+    var uncompleted: Int { tasks.count { !$0.completed } }
+}
+
 
 /// 收件箱推送 vs 会话内流式回复去重。
 /// 纯函数、无实例/无 IO：输入推送文本 + 会话消息 + 流式内容 + taskId，输出是否该跳过（不注入重复）。

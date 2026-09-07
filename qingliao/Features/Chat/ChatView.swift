@@ -17,6 +17,8 @@ extension Notification.Name {
     static let qingliaoDashboardLeave = Notification.Name("qingliao_dashboard_leave")
     // v3.4.14：系统分享收件通知（DockTabView.onOpenURL 捕获分享后广播，ChatView 消费发送）
     static let qingliaoShareIncoming = Notification.Name("qingliao_share_incoming")
+    // v3.4.x：任务中心「发送到当前会话」通知（TaskCenterView 广播，ChatView 消费发送）
+    static let qingliaoTaskSend = Notification.Name("qingliao_task_send")
 }
 
 // MARK: - v2.0.60 通知点击直达会话（AppDelegate 捕获通知点击 → 存 sessionId）
@@ -83,7 +85,8 @@ final class QingliaoAppDelegate: NSObject, UIApplicationDelegate,
 }
 
 /// v2.0.88：排队待发消息（AI 回答中发送，当前回答结束后自动逐条发送）
-struct PendingSend {
+/// v3.4.x：Codable —— 排队队列落盘持久化，杀 App/断网重启后自动恢复补发（不丢消息）。
+struct PendingSend: Codable, Equatable {
     let text: String
     let imageData: String?
 }
@@ -207,6 +210,8 @@ struct ChatView: View {
     @State var cloudStreamUI = CloudStreamUIState()
     // v3.4.0：底部上拉拉取收件箱状态（@Observable 引用——拖动高频写不重建 ChatView body）
     @State var inboxPull = InboxPullState()
+    // v3.4.x 存储自洁：长会话超阈值提示手动归档（消息数超限显示提示条，点击导出）
+    @State var showArchiveHint = false
     // v3.0.27：章节列表（纯静态展示，不做滚动导航）
     @State var showTOCSheet = false
     // v3.0.51 A2：极长会话分页懒加载——初始只渲染尾部最近 N 条，顶部可"加载更早"
@@ -648,11 +653,45 @@ struct ChatView: View {
             }
         }
         .animation(.easeOut(duration: 0.15), value: showFullBurst)
+        // v3.4.x 存储自洁：长会话超阈值 → 顶部滑出提示条，点击手动归档导出
+        .overlay(alignment: .top) {
+            if showArchiveHint {
+                archiveBanner
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .zIndex(20)
+            }
+        }
+        .onChange(of: chat.messages.count) { _, newCount in
+            // 超阈值（300 条）显示归档提示；回到阈值下自动隐藏
+            withAnimation(.spring(duration: 0.3, bounce: 0.1)) {
+                showArchiveHint = newCount >= Self.archiveThreshold && !chat.messages.isEmpty
+            }
+        }
         // v3.4.14 系统分享收件消费：广播或 onAppear 兜底时，把 ShareRouter 里待处理的内容逐条发送
         .onReceive(NotificationCenter.default.publisher(for: .qingliaoShareIncoming)) { _ in
             drainShareInbox()
         }
-        .onAppear { drainShareInbox() }
+        // v3.4.x 任务中心：点击任务「发送到当前会话」→ 把任务文本作为用户消息发送
+        .onReceive(NotificationCenter.default.publisher(for: .qingliaoTaskSend)) { note in
+            if let text = note.object as? String, !text.isEmpty {
+                sendCore(text: text, imageData: nil)
+            }
+        }
+        .onAppear {
+            drainShareInbox()
+            // v3.4.x 发送可靠性：启动恢复上次未发出的排队消息（杀 App/断网重启不丢）→ 立即补发
+            restorePendingQueue()
+            if !pendingQueue.isEmpty, !stream.isStreaming {
+                let next = pendingQueue.removeFirst()
+                persistPendingQueue()
+                if let idx = chat.messages.firstIndex(where: { $0.queued && $0.content == next.text }) {
+                    let m = chat.messages[idx]
+                    startStream(for: m)
+                } else {
+                    sendQueued(next)
+                }
+            }
+        }
     }
 
     // MARK: - v3.4.14 系统分享收件
@@ -1327,6 +1366,57 @@ struct ChatView: View {
 
     /// v2.0.59：发送核心（send / 失败重试共用）
     /// v2.0.88：AI 回答中发送不再被拦截——消息上屏 + 入队，当前回答结束后自动逐条发送
+    /// v3.4.x 存储自洁：长会话归档提示。
+    /// 超阈值（300 条）时顶部显示提示条，点击后导出当前会话为文本（复用 chat.exportText）。
+    static let archiveThreshold = 300
+
+    @ViewBuilder
+    private var archiveBanner: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "doc.richtext")
+                .font(.system(size: 15))
+                .foregroundStyle(.orange)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("会话内容较多")
+                    .font(.system(size: 13, weight: .semibold))
+                Text("\\(chat.messages.count) 条消息 · 建议归档导出以省存储")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button("归档") { exportArchiveSafe() }
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(Color.orange)
+                .clipShape(Capsule())
+            Button {
+                withAnimation { showArchiveHint = false }
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(.ultraThinMaterial)
+        .overlay(RoundedRectangle(cornerRadius: 0).stroke(Color.orange.opacity(0.3), lineWidth: 0.8))
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .shadow(color: .black.opacity(0.08), radius: 8, y: 3)
+        .padding(.horizontal, 12)
+        .padding(.top, 8)
+    }
+
+    /// 安全导出当前会话（复用 ChatStore.exportText），弹系统分享面板（可存文件/备忘录）。
+    @MainActor
+    private func exportArchiveSafe() {
+        let text = chat.exportText()
+        guard !text.isEmpty else { return }
+        presentShare([text])
+    }
+
     /// v2.0.102：sendingLock 同步置位——防极快双击时 isStreaming 尚未置位导致双流竞态
     /// v3.4.x：quotedText 参数——长按「引用」后把被引用的原文挂到消息上（气泡内可视化引用块）
     func sendCore(text: String, imageData: String?, quotedText: String? = nil) {
@@ -1359,6 +1449,7 @@ struct ChatView: View {
                             chat.append(m)
                         }
                         pendingQueue.append(PendingSend(text: c, imageData: nil))
+                        persistPendingQueue()
                     }
                     Task { await chat.saveToServer(auth: auth) }
                     return
@@ -1374,6 +1465,7 @@ struct ChatView: View {
                 chat.append(msg)
             }
             pendingQueue.append(PendingSend(text: text, imageData: imageData))
+            persistPendingQueue()
             Task { await chat.saveToServer(auth: auth) }
             return
         }
@@ -1459,6 +1551,7 @@ struct ChatView: View {
                 // v2.0.88：回答完成（成功/失败/停止）→ 自动发送队列中的下一条
                 if !pendingQueue.isEmpty {
                     let next = pendingQueue.removeFirst()
+                    persistPendingQueue()
                     sendQueued(next)
                 }
             }
@@ -1638,6 +1731,7 @@ struct ChatView: View {
     private func finishCloudQueue() {
         if !pendingQueue.isEmpty {
             let next = pendingQueue.removeFirst()
+            persistPendingQueue()
             sendQueued(next)
         }
     }
@@ -1745,9 +1839,28 @@ struct ChatView: View {
         // v2.0.102：排队消息已不在列表（被删除/清空/切换）→ 直接丢弃，不重发（修复"删除后复活"）
     }
 
+    /// v3.4.x 发送可靠性：队列落盘持久化 + 启动恢复补发（杀 App/断网重启不丢排队消息）
+    private static let pendingQueueKey = "qingliao_pending_queue"
+
+    func persistPendingQueue() {
+        if let d = try? JSONEncoder().encode(pendingQueue) {
+            UserDefaults.standard.set(d, forKey: Self.pendingQueueKey)
+        }
+    }
+
+    func restorePendingQueue() {
+        guard pendingQueue.isEmpty,
+              let d = UserDefaults.standard.data(forKey: Self.pendingQueueKey),
+              let arr = try? JSONDecoder().decode([PendingSend].self, from: d),
+              !arr.isEmpty else { return }
+        pendingQueue = arr
+        UserDefaults.standard.removeObject(forKey: Self.pendingQueueKey)
+    }
+
     /// v2.0.88：取消排队（停止按钮/切换会话）——清队列 + 消息恢复"已送达"状态
     func clearPendingQueue() {
         pendingQueue.removeAll()
+        UserDefaults.standard.removeObject(forKey: Self.pendingQueueKey)
         for i in chat.messages.indices where chat.messages[i].queued {
             chat.messages[i].queued = false
         }

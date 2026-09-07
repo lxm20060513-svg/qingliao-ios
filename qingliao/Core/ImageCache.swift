@@ -67,21 +67,103 @@ func asyncDataURLImage(_ urlStr: String, decoded: @escaping @MainActor (UIImage)
     }
 }
 
+// v3.4.x 存储自洁：远程图磁盘缓存——重启复用省流量，带大小上限 LRU 清理（防磁盘无限膨胀）。
+// 远程 AI 图/图床图下载后写 Caches/RemoteImages/<key>.jpg，内存 NSCache 命中前先查磁盘。
+private enum RemoteDiskCache {
+    static let dirName = "RemoteImages"
+    static let maxBytes = 150 * 1024 * 1024   // 150MB 上限，超出按最后访问时间清理
+    static var dirURL: URL? {
+        try? FileManager.default.url(for: .cachesDirectory, in: .userDomainMask,
+                                     appropriateFor: nil, create: true)
+            .appendingPathComponent(dirName, isDirectory: true)
+    }
+    static func fileURL(_ key: NSString) -> URL? {
+        guard let dir = dirURL else { return nil }
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        // key 可能含路径分隔符/`?`→ 哈希成安全文件名
+        let safe = String(format: "%x", key.hash)
+        return dir.appendingPathComponent(safe + ".jpg")
+    }
+
+    /// 写磁盘（写成功后若超限，清理最久未访问的缓存）
+    static func write(_ key: NSString, _ data: Data) {
+        guard let url = fileURL(key) else { return }
+        try? data.write(to: url, options: .atomic)
+        _ = touch(url)
+        enforceLimit()
+    }
+
+    /// 读磁盘（命中则 touch 更新访问时间）
+    static func read(_ key: NSString) -> Data? {
+        guard let url = fileURL(key) else { return nil }
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        _ = touch(url)
+        return try? Data(contentsOf: url)
+    }
+
+    /// 更新访问时间（LSUtility 无，用 FileManager contentModificationDate——touch 后记内存表）
+    private static var touchTimes: [String: Date] = [:]
+    @discardableResult
+    private static func touch(_ url: URL) -> Bool {
+        touchTimes[url.lastPathComponent] = Date()
+        return true
+    }
+
+    /// LRU 清理：磁盘总大小超上限 → 按访问时间从旧到新删除，直到低于上限的 80%
+    static func enforceLimit() {
+        guard let dir = dirURL else { return }
+        let files = (try? FileManager.default.contentsOfDirectory(
+            at: dir, includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey])) ?? []
+        var total = files.reduce(0) { $0 + (try? $1.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0) ?? 0 }
+        guard total > maxBytes else { return }
+        // 按访问时间排序（用 touchTimes 记录，无记录则读 contentModificationDate）
+        let sorted = files.sorted { a, b in
+            let ta = touchTimes[a.lastPathComponent] ?? (try? a.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+            let tb = touchTimes[b.lastPathComponent] ?? (try? b.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+            return ta < tb
+        }
+        var toDelete = total
+        for f in sorted {
+            let sz = (try? f.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+            try? FileManager.default.removeItem(at: f)
+            touchTimes.removeValue(forKey: f.lastPathComponent)
+            toDelete -= sz
+            if toDelete <= Int(Double(maxBytes) * 0.8) { break }
+        }
+    }
+}
+
+// MARK: - 远程图缓存（内存 + 磁盘双层）
+
 /// v2.0.128：已下载的远程图片缓存（AI 发图 / 大图查看器共用，滚动复用不重复下载）
 @MainActor
 private let remoteImageCache = NSCache<NSString, UIImage>()
 
 @MainActor
 func cachedRemoteImage(_ urlStr: String) -> UIImage? {
-    remoteImageCache.object(forKey: remoteCacheKey(urlStr))
+    let key = remoteCacheKey(urlStr)
+    if let img = remoteImageCache.object(forKey: key) {
+        return img
+    }
+    // v3.4.x：内存未命中 → 查磁盘，命中则解码回写内存（重启复用省流量）
+    if let data = RemoteDiskCache.read(key), let img = UIImage(data: data) {
+        remoteImageCache.setObject(img, forKey: key, cost: data.count)
+        return img
+    }
+    return nil
 }
 
 @MainActor
 func setRemoteImageCache(_ urlStr: String, _ img: UIImage, cost: Int) {
+    let key = remoteCacheKey(urlStr)
     if remoteImageCache.totalCostLimit == 0 {
         remoteImageCache.totalCostLimit = 40 * 1024 * 1024   // 40MB
     }
-    remoteImageCache.setObject(img, forKey: remoteCacheKey(urlStr), cost: cost)
+    remoteImageCache.setObject(img, forKey: key, cost: cost)
+    // v3.4.x：顺手写磁盘（远程图持久化，重启可复用）
+    if let data = img.jpegData(compressionQuality: 0.9) {
+        RemoteDiskCache.write(key, data)
+    }
 }
 
 /// v3.4.x code review fix（低）：缓存 key = host + path + 白名单 query（排序）。
