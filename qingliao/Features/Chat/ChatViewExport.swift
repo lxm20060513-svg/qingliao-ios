@@ -15,16 +15,21 @@ extension ChatView {
         }
     }
 
+    /// 会话卡片行 = 消息在聊天里的忠实呈现（完整原文、保留换行，与气泡内容一致）；
+    /// 图片/语音/撤回无法用纯文本还原 → 用与聊天语义一致的占位文本
+    func cardRow(for msg: ChatMessage) -> (role: String, text: String) {
+        if msg.withdrawn { return (msg.role, "已撤回") }                    // 气泡同文案
+        if let img = msg.imageDataURL, !img.isEmpty { return (msg.role, "[图片]") }
+        if msg.audioPath != nil { return (msg.role, "[语音]") }
+        return (msg.role, msg.content)
+    }
+
     /// v2.0.92：分享会话卡片（最近 15 条渲染成图片 → 系统分享/微信）
+    /// 卡片内容与会话内容保持一致：完整原文不截断、保留换行（v2.0.92 曾压平换行+120字截断，已移除）
     func shareSessionCard() {
         let msgs = Array(chat.messages.suffix(15))
         guard !msgs.isEmpty else { return }
-        let rows = msgs.map { msg -> (role: String, text: String) in
-            if msg.withdrawn { return (msg.role, "[已撤回]") }
-            var t = msg.content.replacingOccurrences(of: "\n", with: " ")
-            if t.count > 120 { t = String(t.prefix(120)) + "…" }
-            return (msg.role, t)
-        }
+        let rows = msgs.map { cardRow(for: $0) }
         let card = SessionCardView(rows: rows)
         let renderer = ImageRenderer(content: card)
         renderer.scale = 3   // @3x 高清
@@ -41,14 +46,7 @@ extension ChatView {
             mergeTooMany = true
             return
         }
-        let rows = picked.map { msg -> (role: String, text: String) in
-            if msg.withdrawn { return (msg.role, "[已撤回]") }
-            if let img = msg.imageDataURL, !img.isEmpty { return (msg.role, "[图片]") }
-            if msg.audioPath != nil { return (msg.role, "[语音]") }
-            var t = msg.content.replacingOccurrences(of: "\n", with: " ")
-            if t.count > 120 { t = String(t.prefix(120)) + "…" }
-            return (msg.role, t)
-        }
+        let rows = picked.map { cardRow(for: $0) }
         let card = SessionCardView(rows: rows)
         let renderer = ImageRenderer(content: card)
         renderer.scale = 3   // @3x 高清
