@@ -192,8 +192,8 @@ struct IslandGlowOverlay: View {
     var body: some View {
         TimelineView(.animation) { context in
             let t = context.date.timeIntervalSinceReferenceDate
-            // 呼吸（与 Siri 发光同公式，参数联动）
-            let breathe = (0.30 + glowAmp * (sin(t * glowFreq) + 1) / 2) * glowBrightness
+            // 呼吸（与 Siri 发光同公式，参数联动）；灵动岛版底值 0.30→0.46：整体更亮（0.46~0.64）
+            let breathe = (0.46 + glowAmp * (sin(t * glowFreq) + 1) / 2) * glowBrightness
             GeometryReader { geo in
                 let top = geo.safeAreaInsets.top
                 // 灵动岛中心 Y = 状态栏内（v3.0.37：下移 10pt 贴合真实灵动岛——原 -6 偏上；v3.0.44：再下移 1pt；v3.0.57：再下移 2pt；v3.0.58：再下移 1pt）
@@ -202,6 +202,7 @@ struct IslandGlowOverlay: View {
                 ZStack {
                     // 外圈光晕（胶囊描边 + 渐变呼吸）
                     // v3.0.57：颜色调亮——透明度系数提高（0.65/0.55/0.5 → 0.9/0.8/0.75）；v3.0.58：再调亮调艳（→ 1.0/0.95/0.92 近满饱和）
+                    // 三度调亮调艳——呼吸底值 0.30→0.46、饱和度 ×1.5、光带 5→7pt、blur 5→4（色芯更聚更艳）
                     RoundedRectangle(cornerRadius: islandH / 2, style: .continuous)
                         .strokeBorder(
                             AngularGradient(
@@ -209,13 +210,14 @@ struct IslandGlowOverlay: View {
                                          .pink.opacity(0.92 * breathe), .blue.opacity(1.00 * breathe)],
                                 center: .center
                             ),
-                            lineWidth: 5
+                            lineWidth: 7
                         )
                         .frame(width: islandW + 8, height: islandH + 8)
-                        .blur(radius: 5)
+                        .blur(radius: 4)
+                        .saturation(1.5)
                     // 内层实心发光（贴近胶囊边缘）
                     RoundedRectangle(cornerRadius: islandH / 2, style: .continuous)
-                        .strokeBorder(.white.opacity(0.65 * breathe), lineWidth: 2)
+                        .strokeBorder(.white.opacity(0.9 * breathe), lineWidth: 2)
                         .frame(width: islandW, height: islandH)
                         .blur(radius: 2)
                 }
