@@ -102,11 +102,22 @@ private enum RemoteDiskCache {
     }
 
     /// 更新访问时间（LSUtility 无，用 FileManager contentModificationDate——touch 后记内存表）
-    private static var touchTimes: [String: Date] = [:]
+    /// v3.4.x fix：Swift 6 严格并发——静态可变属性须标注 nonisolated(unsafe)，否则报非并发安全
+    nonisolated(unsafe) private static var touchTimes: [String: Date] = [:]
     @discardableResult
     private static func touch(_ url: URL) -> Bool {
         touchTimes[url.lastPathComponent] = Date()
         return true
+    }
+
+    /// 读文件大小（把 try? ... ?? 0 抽成简单函数，规避 Swift 诊断 bug）
+    private static func fileSize(_ url: URL) -> Int {
+        (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+    }
+    /// 读最后访问时间（touchTimes 优先，无记录回退 contentModificationDate）
+    private static func lastAccess(_ url: URL) -> Date {
+        touchTimes[url.lastPathComponent] ??
+            ((try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast)
     }
 
     /// LRU 清理：磁盘总大小超上限 → 按访问时间从旧到新删除，直到低于上限的 80%
@@ -114,17 +125,12 @@ private enum RemoteDiskCache {
         guard let dir = dirURL else { return }
         let files = (try? FileManager.default.contentsOfDirectory(
             at: dir, includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey])) ?? []
-        var total = files.reduce(0) { $0 + (try? $1.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0) ?? 0 }
+        let total = files.reduce(0) { $0 + fileSize($1) }
         guard total > maxBytes else { return }
-        // 按访问时间排序（用 touchTimes 记录，无记录则读 contentModificationDate）
-        let sorted = files.sorted { a, b in
-            let ta = touchTimes[a.lastPathComponent] ?? (try? a.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-            let tb = touchTimes[b.lastPathComponent] ?? (try? b.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-            return ta < tb
-        }
+        let sorted = files.sorted { lastAccess($0) < lastAccess($1) }
         var toDelete = total
         for f in sorted {
-            let sz = (try? f.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+            let sz = fileSize(f)
             try? FileManager.default.removeItem(at: f)
             touchTimes.removeValue(forKey: f.lastPathComponent)
             toDelete -= sz

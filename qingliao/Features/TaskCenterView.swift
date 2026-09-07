@@ -89,7 +89,11 @@ struct TaskCenterView: View {
 
     private var filteredTasks: [TaskCenterItem] {
         switch filter {
-        case .all: store.tasks.sorted { ($0.completed, $0.createdAt) < ($1.completed, $1.createdAt) }
+        case .all: store.tasks.sorted { a, b in
+            // 未完成在前；同完成态按时间从新到旧
+            if a.completed != b.completed { return !a.completed }
+            return a.createdAt > b.createdAt
+        }
         case .cron: store.tasks.filter { $0.taskType == "cron" }.sorted { $0.createdAt > $1.createdAt }
         case .system: store.tasks.filter { $0.taskType == "system" }.sorted { $0.createdAt > $1.createdAt }
         }
