@@ -732,8 +732,8 @@ struct ChatView: View {
         MessageBubble(message: msg,
                       isHighlighted: msg.id == highlightMessageID) {
             regenerate(at: msg.id)
-        } onBigBang: {
-            bigBangPayload = BigBangPayload(text: msg.content)
+        } onBigBang: { text in
+            bigBangPayload = BigBangPayload(text: text)
         } onQuote: {
             quotedMessage = msg
             inputFocus = true

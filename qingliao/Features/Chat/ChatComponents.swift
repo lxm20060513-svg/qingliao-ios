@@ -38,7 +38,7 @@ struct MessageBlockView: View {
     var onCopy: () -> Void = {}
     var onQuote: () -> Void = {}
     var onShare: () -> Void = {}
-    var onBigBang: () -> Void = {}
+    var onBigBang: (String) -> Void = { _ in }
     var onDelete: () -> Void = {}
     var onRegenerate: (() -> Void)? = nil
     var onWithdraw: (() -> Void)? = nil
@@ -113,7 +113,14 @@ struct MessageBlockView: View {
             Label("多选", systemImage: "checkmark.circle")
         }
         Button {
-            onBigBang()
+            let text: String
+            switch block.kind {
+            case .markdown(let s): text = s
+            case .code(let s): text = s
+            case .table(let rows): text = rows.map { $0.joined(separator: " | ") }.joined(separator: "\n")
+            case .image(let url): text = url
+            }
+            onBigBang(text)
         } label: {
             Label("大爆炸", systemImage: "burst.fill")
         }

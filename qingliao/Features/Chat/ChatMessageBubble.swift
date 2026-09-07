@@ -7,7 +7,7 @@ struct MessageBubble: View {
     let message: ChatMessage
     var isHighlighted: Bool = false   // v2.0.43 搜索定位高亮
     var onRegenerate: () -> Void = {}
-    var onBigBang: () -> Void = {}
+    var onBigBang: (String) -> Void = { _ in }
     var onQuote: () -> Void = {}      // v2.0.36 引用回复
     var onDelete: () -> Void = {}     // v2.0.36 单条删除
     var onShare: () -> Void = {}      // v2.0.36 分享文本
@@ -78,7 +78,7 @@ struct MessageBubble: View {
             Label("多选", systemImage: "checkmark.circle")
         }
         Button {
-            onBigBang()
+            onBigBang(message.content)
         } label: {
             Label("大爆炸", systemImage: "burst.fill")
         }
@@ -478,7 +478,7 @@ struct MessageBubble: View {
                                 onCopy: { UIPasteboard.general.string = para },
                                 onQuote: onQuote,
                                 onShare: onShare,
-                                onBigBang: onBigBang,
+                                onBigBang: { onBigBang($0) },
                                 onDelete: onDelete,
                                 onRegenerate: onRegenerate,
                                 onWithdraw: nil,

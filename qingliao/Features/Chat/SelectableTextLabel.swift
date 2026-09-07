@@ -36,7 +36,7 @@ struct SelectableTextLabel: UIViewRepresentable {
     var onCopy: () -> Void = {}
     var onQuote: () -> Void = {}
     var onShare: () -> Void = {}
-    var onBigBang: () -> Void = {}
+    var onBigBang: (String) -> Void = { _ in }
     // v3.0.8：onSelectText 已随「选择文本」菜单项移除（复制选中覆盖），不再使用
     var onDelete: () -> Void = {}
     var onRegenerate: (() -> Void)? = nil
@@ -247,7 +247,13 @@ struct SelectableTextLabel: UIViewRepresentable {
                 self.parent.onMultiSelect()
             })
             children.append(UIAction(title: "大爆炸", image: UIImage(systemName: "burst.fill")) { _ in
-                self.parent.onBigBang()
+                // v3.0.x：气泡级炸开——先选中文字则炸选区，否则炸当前气泡整段
+                if hasSelection, let sel = textView.selectedTextRange,
+                   let t = textView.text(in: sel), !t.isEmpty {
+                    self.parent.onBigBang(t)
+                } else {
+                    self.parent.onBigBang(textView.text ?? self.parent.attributedText.string)
+                }
             })
 
             // v3.0.8：移除「选择文本」——已有「复制选中」（长按选区直接复制），该入口冗余
