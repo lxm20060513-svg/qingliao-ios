@@ -153,6 +153,20 @@ enum CrashReporter {
             if FileManager.default.fileExists(atPath: stackPath) {
                 try? FileManager.default.removeItem(atPath: stackPath)
             }
+        } else {
+            // v3.4.x 加固：上报失败（网络抖动/后端瞬时不可达）→ 保留本地文件，等 2s 后再试一次；
+            // 仍失败则保留到下次启动（当前实现已如此），并打日志便于诊断。绝不丢栈。
+            NSLog("[CRASH] 崩溃上报失败，2s 后重试一次；本地上报文件保留。")
+            try? await Task.sleep(for: .seconds(2))
+            let okRetry = (try? await auth.json("/api/logs/crash", method: "POST", body: body))?["ok"] as? Bool ?? false
+            if okRetry {
+                try? FileManager.default.removeItem(atPath: path)
+                if FileManager.default.fileExists(atPath: stackPath) {
+                    try? FileManager.default.removeItem(atPath: stackPath)
+                }
+            } else {
+                NSLog("[CRASH] 二次上报仍失败，文件保留待下次启动重试（不丢栈）。")
+            }
         }
     }
 }

@@ -26,6 +26,68 @@ final class ChatStore {
         let collapsed = trimmed.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
         return collapsed
     }
+
+    /// v3.4.x 复读兜底：归一化字符相似度（0~1）。去重靠精确/指纹相等，拦不住"换表述复述旧模板"；
+    /// 用长度比率 + 公共字符重叠 + 顺序比率加权，低成本近似文本相似度，超阈值即判"疑似复读"。
+    /// 实现取舍：不引第三方库（diff/levenshtein O(n²) 长文不可接受），用这三项组合近似，足够区分复读 vs 正常。
+    private static func similarityRatio(_ a: String, _ b: String) -> Double {
+        let la = a.count, lb = b.count
+        if la == 0 || lb == 0 { return 0 }
+        if la > 4800 || lb > 4800 {   // 超长文本近似度失真，直接不算（防 O(n) 字符串扫描拖慢）
+            let shortStr = la < lb ? a : b, longStr = la < lb ? b : a
+            return longStr.contains(shortStr) ? 0.95 : 0.4
+        }
+        // ① 长度比率（短/长），复读整段长度接近
+        let lenRatio = Double(min(la, lb)) / Double(max(la, lb))
+        // ② 公共字符集合重叠（Jaccard 近似）：复读用词高度重合
+        let setA = Set(a), setB = Set(b)
+        let inter = setA.intersection(setB).count
+        let union = setA.union(setB).count
+        let jaccard = union == 0 ? 0 : Double(inter) / Double(union)
+        // ③ 长公共子串占比（顺序保持）：复读是"整段被搬"，公共子串占短串比例高
+        let lcsLen = longestCommonSubstringLength(a, b)
+        let lcsRatio = Double(lcsLen) / Double(min(la, lb))
+        // 加权：长度 0.30 / 字符集 0.30 / 公共子串 0.40
+        return 0.30 * lenRatio + 0.30 * jaccard + 0.40 * lcsRatio
+    }
+
+    private static func longestCommonSubstringLength(_ a: String, _ b: String) -> Int {
+        let ca = Array(a.utf8), cb = Array(b.utf8)
+        if ca.isEmpty || cb.isEmpty { return 0 }
+        // DP 一维滚动：避免 O(m*n) 二维数组（长文本内存炸弹）
+        var prev = [Int](repeating: 0, count: cb.count + 1)
+        var cur = [Int](repeating: 0, count: cb.count + 1)
+        var best = 0
+        for i in 1...ca.count {
+            for j in 1...cb.count {
+                if ca[i - 1] == cb[j - 1] {
+                    cur[j] = prev[j - 1] + 1
+                    if cur[j] > best { best = cur[j] }
+                } else {
+                    cur[j] = 0
+                }
+            }
+            swap(&prev, &cur)
+            for k in 0..<cur.count { cur[k] = 0 }   // 每行复用后清空 cur
+        }
+        return best
+    }
+
+    /// v3.4.x 复读兜底判定：新 assistant 若与**历史旧 assistant**（history 切片，调用方传该轮区之前的
+    /// 旧 assistant）高度相似（≥0.82 加权相似度）→ 标记 suspectedRepeat。气泡显示可点提示，但不删内容
+    /// ——用户可见兜底，由用户决定是否重新生成；不动内容不误伤语义。
+    private func markSuspectedRepeat(_ msg: ChatMessage, history: ArraySlice<ChatMessage>) {
+        guard msg.role == "assistant", !msg.isPush else { return }
+        let key = ChatStore.assistantKey(msg.content)
+        guard !key.isEmpty, key.count > 12 else { return }   // 短文不复读判断（口语"好的/收到"重复正常）
+        // 从最新往前扫最近的旧 assistant（窗口 6 条够判断"复述旧模板"）
+        for old in history.reversed().prefix(6) {
+            guard old.role == "assistant", !old.isPush else { continue }
+            let ok = ChatStore.assistantKey(old.content)
+            if !ok.isEmpty, ok.count > 12, ChatStore.similarityRatio(key, ok) >= 0.82 { return }
+        }
+    }
+
     private func isAssistantDuplicate(_ text: String, in region: ArraySlice<ChatMessage>) -> Bool {
         let key = ChatStore.assistantKey(text)
         guard !key.isEmpty else { return false }
@@ -186,6 +248,8 @@ final class ChatStore {
             // 插入到该轮回复区末尾——其后若有排队/新发 user 消息，保持原位不被错位污染
             var m = ChatMessage(role: "assistant", content: text, timestamp: ts)
             m.agent = agent   // v2.0.96b：Agent 回复标记
+            // v3.4.x 复读兜底：vs 锚点之前的历史旧 assistant（跨轮复述旧模板）
+            markSuspectedRepeat(m, history: messages[..<anchorIdx])
             messages.insert(m, at: regionEnd)
             return
         }
@@ -210,6 +274,8 @@ final class ChatStore {
         }
         var m = ChatMessage(role: "assistant", content: text, timestamp: ts)
         m.agent = agent   // v2.0.96b：Agent 回复标记
+        // v3.4.x 复读兜底：vs 末尾之前的历史旧 assistant
+        markSuspectedRepeat(m, history: messages.prefix(max(0, messages.count - 1)))
         messages.append(m)
     }
 
@@ -341,6 +407,9 @@ final class ChatStore {
             }
             if m.isPush { p["isPush"] = true }
             if m.agent { p["agent"] = true }
+            // v3.4.x：持久化读兜底标记 + 引用原文（重启/切会话后气泡仍渲染）
+            if m.suspectedRepeat { p["suspectedRepeat"] = true }
+            if let q = m.quotedText, !q.isEmpty { p["quotedText"] = q }
             return p
         }
         let firstUserText = msgs.first(where: { $0.isUser })?.content.prefix(30).description ?? ""

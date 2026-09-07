@@ -132,31 +132,11 @@ final class InboxStore {
     /// 直接 contains 会匹配失败 → 重复注入。改为双方先压缩空白再双向比对 + 截断前缀兜底。
     /// v3.2.1 加固：extra 参数额外比对 stream.content（流式进行中的当前回复）——即使 chat.messages
     /// 因时序暂缺该回复（pollOnce 抢在 upsertAssistant 落库前），只要 stream.content 持有即可命中去重。
+    /// v3.4.x 收敛：判定逻辑抽到静态纯函数 InboxDedup.shouldSkip（可单测防漂移），实例方法只做壳。
     private func shouldSkipDuplicate(push text: String, in messages: [ChatMessage], extra: String = "", sourceTaskId: String? = nil) -> Bool {
-        // v3.4.8：taskId 去重——推送 source_task_id 与当前流式任务 taskId 相同 → 同一回复必然跳过（不依赖内容/状态）
-        if let sid = sourceTaskId, !sid.isEmpty, stream?.taskId == sid { return true }
-        let core = normalizeWhitespace(text).replacingOccurrences(of: "…", with: "")
-        guard !core.isEmpty else { return false }
-        // 先比对当前流式内容（最可靠——流式回复一定在 stream.content）
-        let ex = normalizeWhitespace(extra).replacingOccurrences(of: "…", with: "")
-        if !ex.isEmpty, ex == core || ex.contains(core) || core.contains(ex) { return true }
-        for m in messages.reversed() {
-            guard m.role == "assistant" && !m.isPush else { continue }
-            let cm = normalizeWhitespace(m.content)
-            // 双向包含：完整回复包含推送摘要（长回复被截断）或推送摘要包含完整回复
-            if cm.contains(core) || core.contains(cm) { return true }
-            // 截断前缀兜底：推送是完整回复的截断（前 N 字）摘要，且摘要足够长避免短文本误判
-            if core.count >= 10, cm.hasPrefix(core) { return true }
-        }
-        return false
+        InboxDedup.shouldSkip(push: text, in: messages, extra: extra, sourceTaskId: sourceTaskId, currentTaskId: stream?.taskId)
     }
 
-    /// 压缩全部空白（换行/多空格 → 单空格），使推送摘要（已压单行）与流式回复（带换行）可比对
-    private func normalizeWhitespace(_ s: String) -> String {
-        return s.replacingOccurrences(of: "\n", with: " ")
-                .replacingOccurrences(of: "\r", with: " ")
-                .split(separator: " ").joined(separator: " ")
-    }
     // MARK: - 轮询启动/停止
 
     /// 启动后台轮询（App 前台持续拉）。防重复启动。
@@ -206,5 +186,53 @@ final class InboxStore {
 
     private func markDone(_ id: String, auth: AuthStore) async {
         _ = try? await auth.request("/api/inbox/\(id)/done", method: "POST", body: [:])
+    }
+}
+
+// MARK: - v3.4.x 收件箱/流式回复去重判定的纯函数收敛（抽自 shouldSkipDuplicate，可单测防漂移）
+
+/// 收件箱推送 vs 会话内流式回复去重。
+/// 纯函数、无实例/无 IO：输入推送文本 + 会话消息 + 流式内容 + taskId，输出是否该跳过（不注入重复）。
+///
+/// 背景：后端 _maybe_push_app 在 AI 回复 done 时把完整回复 `re.sub(r"\s+"," ",...)` 压成单行摘要推收件箱；
+/// 而 App 会话内是带换行的流式回复。若直接字符串相等匹配会因空白/换行不一致而失配 → 重复注入。
+/// 因此：① normalizeWhitespace 两边压成单行 ② 双向 contains（完整含摘要 / 摘要含完整）③ 截断前缀兜底
+/// ④ v3.4.8 taskId 同源铁证（推送 source_task_id == 当前流式 taskId → 必然同一条）。
+enum InboxDedup {
+    static func shouldSkip(push text: String, in messages: [ChatMessage], extra: String = "",
+                           sourceTaskId: String? = nil, currentTaskId: String? = nil) -> Bool {
+        // ④ taskId 同源去重：推送 source_task_id 与当前流式任务 taskId 相同 → 同一回复必然跳过（最可靠）
+        if let sid = sourceTaskId, !sid.isEmpty, sid == currentTaskId { return true }
+
+        let core = normalizeWhitespace(text).replacingOccurrences(of: "…", with: "")
+        guard !core.isEmpty else { return false }
+
+        // ① 先比对当前流式内容（流式回复一定在 extra=stream.content）
+        let ex = normalizeWhitespace(extra).replacingOccurrences(of: "…", with: "")
+        // 流式内容是"完整原文"，core 是压单行的摘要——同一份文本压制后应相等或互为包含。
+        var streamHit = false
+        if !ex.isEmpty {
+            if ex == core { streamHit = true }
+            else if core.count >= 10, ex.contains(core) || core.contains(ex) { streamHit = true }
+        }
+        if streamHit { return true }
+
+        // ② 会话内已落库的 assistant（非推送）双向包含
+        for m in messages.reversed() {
+            guard m.role == "assistant", !m.isPush else { continue }
+            let cm = normalizeWhitespace(m.content)
+            // 子串包含同样要 core ≥10 字：短推送（如"好的/收到"）是正常口语，被长历史包含会误判跳过
+            if core.count >= 10, cm.contains(core) || core.contains(cm) { return true }
+            // ③ 截断前缀兜底：推送是完整回复的截断（前 N 字）摘要，且摘要足够长避免短文本误判
+            if core.count >= 10, cm.hasPrefix(core) { return true }
+        }
+        return false
+    }
+
+    /// 压缩全部空白（换行/多空格 → 单空格），使推送摘要（已压单行）与流式回复（带换行）可比对
+    static func normalizeWhitespace(_ s: String) -> String {
+        s.replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\r", with: " ")
+            .split(separator: " ").joined(separator: " ")
     }
 }

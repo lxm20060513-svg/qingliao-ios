@@ -191,6 +191,7 @@ struct ChatView: View {
     @State var transcribeToken = 0   // v2.0.101：转写代次（停止/新转写递增，旧 Task 结果作废）
     @State var voiceAuthFailed = false
     @State var sendingLock = false   // v2.0.102：发送锁（防双击双流竞态）
+    @State var autoRetryCount = 0    // v3.4.x：消息失败自动重试计数（网络类错误最多自动重试 2 次，防死循环）
     @State private var lastSentSignature: (sessionId: String, text: String, ts: TimeInterval)?  // 同内容 60s 幂等
     @State var fileSendBlocked = false   // v2.0.102：流式中发文件提示
     @State var voiceTooShort = false   // v2.0.102：录音太短提示
@@ -1272,6 +1273,8 @@ struct ChatView: View {
         // v2.0.88f：去掉 isStreaming 拦截——AI 回答中发送走 sendCore 排队路径
         guard !text.isEmpty || img != nil else { return }
         // v2.0.36：引用回复（markdown 引用块注入，AI 可见上下文）
+        // v3.4.x：quotedText 存原始引用文本，供气泡内可视化引用块渲染（与上方 markdown 注入并存）
+        let quotedText = quotedMessage?.content
         if let q = quotedMessage, !text.isEmpty {
             let quoted = q.content.replacingOccurrences(of: "\n", with: "\n> ")
             text = "> " + quoted + "\n\n" + text
@@ -1315,17 +1318,18 @@ struct ChatView: View {
             // v3.0.37：图片持久化——base64 先上传 NAS 换 URL 再发送（旧消息/失败仍走 base64）
             Task {
                 let persisted = await persistImageIfNeeded(img)
-                sendCore(text: text, imageData: persisted)
+                sendCore(text: text, imageData: persisted, quotedText: quotedText)
             }
         } else {
-            sendCore(text: text, imageData: nil)
+            sendCore(text: text, imageData: nil, quotedText: quotedText)
         }
     }
 
     /// v2.0.59：发送核心（send / 失败重试共用）
     /// v2.0.88：AI 回答中发送不再被拦截——消息上屏 + 入队，当前回答结束后自动逐条发送
     /// v2.0.102：sendingLock 同步置位——防极快双击时 isStreaming 尚未置位导致双流竞态
-    func sendCore(text: String, imageData: String?) {
+    /// v3.4.x：quotedText 参数——长按「引用」后把被引用的原文挂到消息上（气泡内可视化引用块）
+    func sendCore(text: String, imageData: String?, quotedText: String? = nil) {
         // v3.4.x：同内容短时间幂等（60s 内相同文本+同会话只发一次，防抖动/重试/恢复重复投递）
         let now = Date().timeIntervalSince1970
         if let last = lastSentSignature, last.sessionId == chat.sessionId, last.text == text, now - last.ts < 60 {
@@ -1349,6 +1353,7 @@ struct ChatView: View {
                     sendCore(text: chunks[0], imageData: nil)
                     for c in chunks.dropFirst() {
                         var m = ChatMessage.local(role: "user", content: c, imageDataURL: nil)
+                        m.quotedText = quotedText
                         m.queued = true
                         withAnimation(.spring(duration: 0.25, bounce: 0.15)) {
                             chat.append(m)
@@ -1363,6 +1368,7 @@ struct ChatView: View {
         if stream.isStreaming {
             // 排队路径：消息立即显示（标记排队中），回答结束后自动发送
             var msg = ChatMessage.local(role: "user", content: text, imageDataURL: imageData)
+            msg.quotedText = quotedText
             msg.queued = true
             withAnimation(.spring(duration: 0.25, bounce: 0.15)) {
                 chat.append(msg)
@@ -1377,6 +1383,7 @@ struct ChatView: View {
         // v2.0.65：发送通知 → Dock 聊天图标轻跳
         NotificationCenter.default.post(name: .qingliaoSent, object: nil)
         var msg = ChatMessage.local(role: "user", content: text, imageDataURL: imageData)
+        msg.quotedText = quotedText
         // v2.0.59：单条插入动效（批量移除才崩，插入安全）
         withAnimation(.spring(duration: 0.25, bounce: 0.15)) {
             chat.append(msg)
@@ -1418,10 +1425,16 @@ struct ChatView: View {
                 sendingLock = false   // 无论结果，先释放发送锁
                 guard chat.sessionId == startSid else { return }   // 已切换会话 → 本次结果丢弃
                 if !success {
-                    chat.markFailed(id: msg.id)   // v2.0.59 失败标记 → 重试按钮
-                    // v3.0.19：限流错误友好提示（sensenova 等免费额度 tpm 爆了 → 提示换路由）
-                    let friendly = Self.friendlyStreamError(error)
-                    chat.upsertAssistant(stream.content.isEmpty ? "⚠️ \(friendly)" : stream.content + "\n\n⚠️ \(friendly)", agent: stream.isAgent, afterUserID: msg.id)
+                    // v3.4.x：网络类错误自动重试（连接中断/超时/无法连接），限流/用户停止/业务失败不重试
+                    if self.isRetryableStreamError(error) {
+                        chat.markFailed(id: msg.id)   // 先标记（失败态显示），重试成功会覆盖
+                        self.autoRetryStream(for: msg)
+                    } else {
+                        chat.markFailed(id: msg.id)   // v2.0.59 失败标记 → 重试按钮
+                        // v3.0.19：限流错误友好提示（sensenova 等免费额度 tpm 爆了 → 提示换路由）
+                        let friendly = Self.friendlyStreamError(error)
+                        chat.upsertAssistant(stream.content.isEmpty ? "⚠️ \(friendly)" : stream.content + "\n\n⚠️ \(friendly)", agent: stream.isAgent, afterUserID: msg.id)
+                    }
                 } else {
                     chat.upsertAssistant(stream.content, agent: stream.isAgent, afterUserID: msg.id)
                     showSentOK()
@@ -1452,7 +1465,63 @@ struct ChatView: View {
         }
     }
 
-    // MARK: - v3.0 云端流式直连（SSE 增量拼接，UI 与本地模式一致）
+    // MARK: - v3.4.x 消息失败自动重试（网络类错误自动重试 2 次指数退避）
+
+    /// 判断流式错误是否"值得自动重试"——网络瞬时故障/超时类可重试；
+    /// 用户主动停止/取消/限流(429)/业务失败(401/400)不重试（重试也无效或违背用户意图）。
+    private func isRetryableStreamError(_ error: String) -> Bool {
+        let low = error.lowercased()
+        // 用户主动动作：停止/取消 → 不重试
+        if low.contains("已停止") || low.contains("已取消") { return false }
+        // 业务失败：权限/4xx/5xx 服务端明确拒绝 → 不重试
+        if low.contains("401") || low.contains("400") || low.contains("403")
+            || low.contains("404") || low.contains("429") || low.contains("500")
+            || low.contains("rate limit") || low.contains("tpm") || low.contains("exhausted") { return false }
+        // 其余（连接中断/超时/无法连接/网络/未返回内容 等）视为可重试
+        return true
+    }
+
+    /// v3.4.x 自动重试：沿用原消息（用户消息已在 messages，只重发 assistant 请求），
+    /// 不新增 user 消息、不触发 lastSentSignature 幂等（那是 sendCore 的护栏，重发需绕过）。
+    /// 指数退避：1s → 2s。
+    private func autoRetryStream(for msg: ChatMessage) {
+        guard autoRetryCount < 2 else {
+            autoRetryCount = 0   // 重试耗尽 → 复位，等手动按钮
+            return
+        }
+        autoRetryCount += 1
+        let history = chat.historyPayload()
+        let startSid = chat.sessionId
+        let (useModel, useProvider) = resolveModel(hasImage: msg.imageDataURL != nil)
+        let delay = autoRetryCount == 1 ? 1.0 : 2.0
+        Task {
+            try? await Task.sleep(for: .seconds(delay))
+            guard chat.sessionId == startSid, !stream.isStreaming else { return }
+            stream.pendingUserMsgId = msg.id
+            await stream.start(auth: auth, sessionId: chat.sessionId, model: useModel,
+                               provider: useProvider, messages: history) { success, error in
+                sendingLock = false
+                guard chat.sessionId == startSid else { return }
+                if !success {
+                    // 仍失败：继续重试或最终标记失败（不吞用户消息）
+                    if self.isRetryableStreamError(error), self.autoRetryCount < 2 {
+                        self.autoRetryStream(for: msg)
+                    } else {
+                        chat.markFailed(id: msg.id)
+                        let friendly = Self.friendlyStreamError(error)
+                        chat.upsertAssistant(stream.content.isEmpty ? "⚠️ \(friendly)" : stream.content + "\n\n⚠️ \(friendly)", agent: stream.isAgent, afterUserID: msg.id)
+                    }
+                } else {
+                    chat.upsertAssistant(stream.content, agent: stream.isAgent, afterUserID: msg.id)
+                    showSentOK()
+                    InboxStore.shared.triggerFastPoll()
+                }
+                Task { await chat.saveToServer(auth: auth) }
+            }
+        }
+    }
+
+    /// v3.0 云端流式直连（SSE 增量拼接，UI 与本地模式一致）
 
     /// 云端模式回答：直连 OpenAI 兼容端点，逐段追加 assistant 内容
     /// v3.0.18：改用 stream.content 驱动 streamingBubble（粒子头像 + SwiftUI Text 渲染），结束落库；

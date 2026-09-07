@@ -144,6 +144,24 @@ struct MessageBubble: View {
 
             // v2.0.66：气泡主体（单 Shape 背景带尾巴，不再用 ZStack overlay）
             VStack(alignment: message.isUser ? .trailing : .leading, spacing: 6) {
+                    // v3.4.x：气泡内可视化引用块——长按「引用」后，用户气泡顶部显示被引用原文（微信式）
+                    if let q = message.quotedText, !q.isEmpty {
+                        HStack(spacing: 6) {
+                            Image(systemName: "quote.opening")
+                                .font(.system(size: 10))
+                                .foregroundStyle(Color.accentColor)
+                            Text(q)
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(2)
+                                .multilineTextAlignment(message.isUser ? .trailing : .leading)
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 5)
+                        .background(Color.accentColor.opacity(0.10), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .frame(maxWidth: .infinity, alignment: message.isUser ? .trailing : .leading)
+                    }
                     // v2.0.92：撤回消息 → 灰色"已撤回"占位（内容不再显示）
                     if message.withdrawn {
                         Text("已撤回")
@@ -299,6 +317,26 @@ struct MessageBubble: View {
                             .background(Color.blue.opacity(0.10), in: Capsule())
                             .padding(.top, 1)
                     }
+                    // v3.4.x 复读兜底：AI 回复与旧回复高度相似（换表述复述旧模板，去重/净化拦不住）
+                    // → 显示可点提示，让用户一键重新生成换角度；不删内容不误伤语义。
+                    if message.suspectedRepeat && !streamingText {
+                        Button {
+                            onRegenerate()
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .font(.system(size: 9, weight: .semibold))
+                                Text("疑似重复回复，点此重新生成")
+                                    .font(.system(size: 10, weight: .medium))
+                            }
+                            .foregroundStyle(Color.orange)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3)
+                            .background(Color.orange.opacity(0.12), in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.top, 3)
+                    }
                 }
                 .padding(.horizontal, isMultiBubbleAI ? 2 : 13)
                 .padding(.vertical, isMultiBubbleAI ? 2 : 9)
@@ -413,6 +451,7 @@ struct MessageBubble: View {
         var blocks: [MessageContentBlock] = []
         var mdBuf: [String] = []        // 当前 markdown 段（未进 fence 的行）
         var codeBuf: [String] = []      // 当前代码块内容（fence 内的行）
+        var codeLang: String? = nil     // v3.4.x：fence 语言标记（```lang）——语法高亮用
         var openFenceLine = ""          // 未配对兜底时恢复原文用
         var inFence = false
 
@@ -435,14 +474,16 @@ struct MessageBubble: View {
                     let body = codeBuf.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
                     codeBuf = []
                     if !body.isEmpty {
-                        blocks.append(.init(kind: .code(body)))
+                        blocks.append(.init(kind: .code(body, codeLang)))
                     }
+                    codeLang = nil
                 } else {
-                    // 打开 fence：先落 markdown 段，记录 fence 行原文（未配对兜底）
+                    // 打开 fence：先落 markdown 段，记录 fence 行原文（未配对兜底）；提取语言标记
                     flushMarkdown()
                     inFence = true
                     openFenceLine = line
                     codeBuf = []
+                    codeLang = Self.fenceLanguage(line)
                 }
             } else if inFence {
                 codeBuf.append(line)
@@ -457,6 +498,16 @@ struct MessageBubble: View {
         }
         flushMarkdown()
         return blocks.isEmpty ? [.init(kind: .markdown(text))] : blocks
+    }
+
+    /// v3.4.x：提取 fence 行尾部的语言标记（```swift / ```python 等），规范化小写。
+    /// 用于代码块语法高亮；无标记或非已知语言返回 nil（走纯等宽字渲染）。
+    private static func fenceLanguage(_ line: String) -> String? {
+        let t = line.trimmingCharacters(in: .whitespaces)
+        guard t.hasPrefix("```") else { return nil }
+        let lang = t.dropFirst(3).trimmingCharacters(in: .whitespaces)
+        guard !lang.isEmpty else { return nil }
+        return lang.lowercased()
     }
 
     /// v3.0.51：AI 消息是否为「多气泡段落」渲染（>1 段且非图片消息）

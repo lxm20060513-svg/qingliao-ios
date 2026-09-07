@@ -18,7 +18,7 @@ struct MessageContentBlock: Identifiable {
     let id = UUID()
     enum Kind {
         case markdown(String)
-        case code(String)
+        case code(String, String?)     // v3.4.x：代码块带语言标记（```lang → lang，用于语法高亮）
         case table([[String]])   // v2.0.87d：markdown 表格（表头+数据行）
         case image(String)       // v2.0.128：AI 回复中的图片（URL 或 data URL）
     }
@@ -116,7 +116,7 @@ struct MessageBlockView: View {
             let text: String
             switch block.kind {
             case .markdown(let s): text = s
-            case .code(let s): text = s
+            case .code(let s, _): text = s
             case .table(let rows): text = rows.map { $0.joined(separator: " | ") }.joined(separator: "\n")
             case .image(let url): text = url
             }
@@ -144,7 +144,7 @@ struct MessageBlockView: View {
                 let text: String
                 switch block.kind {
                 case .markdown(let s): text = s
-                case .code(let s): text = s
+                case .code(let s, _): text = s
                 case .table(let rows): text = rows.map { $0.joined(separator: " | ") }.joined(separator: "\n")
                 case .image(let url): text = url
                 }
@@ -214,11 +214,11 @@ struct MessageBlockView: View {
             AIImageView(url: url)
                 .onTapGesture { onImageTap(url) }
                 .contextMenu { bubbleMenu }
-        case .code(let text):
-            // v2.0.36：代码块加复制按钮（右上角）
+        case .code(let text, let lang):
+            // v2.0.36：代码块加复制按钮（右上角）；v3.4.x 语法高亮（已知语言按 token 着色）
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
-                    Text("代码")
+                    Text(lang.map { $0.uppercased() } ?? "代码")
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(.tertiary)
                     Spacer()
@@ -232,10 +232,18 @@ struct MessageBlockView: View {
                     .buttonStyle(.plain)
                 }
                 ScrollView(.horizontal, showsIndicators: false) {
-                    Text(text)
-                        .font(.system(size: max(12, CGFloat(fontSize)), design: .monospaced))
-                        .textSelection(.enabled)
-                        .padding(.bottom, 4)
+                    // v3.4.x：有语言标记 → 语法高亮；无 → 纯等宽字（原行为）
+                    if let lang, SyntaxHighlighter.supports(lang) {
+                        Text(AttributedString(SyntaxHighlighter.highlight(text, language: lang,
+                                                                         baseSize: max(12, CGFloat(fontSize)))))
+                            .textSelection(.enabled)
+                            .padding(.bottom, 4)
+                    } else {
+                        Text(text)
+                            .font(.system(size: max(12, CGFloat(fontSize)), design: .monospaced))
+                            .textSelection(.enabled)
+                            .padding(.bottom, 4)
+                    }
                 }
             }
             .padding(10)

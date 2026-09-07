@@ -27,6 +27,11 @@ struct ChatMessage: Identifiable, Equatable, Sendable {
     var agent: Bool = false        // v2.0.96b：Agent 回复标记（工具调用回复，显示标签）
     var voiceCommand: Bool = false   // v3.0.19：语音指令触发（长按智能球，显示 🎤 标记）
     var isPush: Bool = false         // v3.0.82：Hermes 主动推送消息（本地收件箱注入，显示"推送"标签）
+    /// v3.4.x 复读兜底：AI 回复与窗口内旧 assistant 高度相似（归一化字符相似度 ≥0.82）被标记。
+    /// 气泡下显示「疑似重复回复·重新生成」可点提示——去重/净化拦不住"换表述复述旧模板"时的用户可见兜底。
+    var suspectedRepeat: Bool = false
+    /// v3.4.x 引用回复：长按消息「引用」后，该消息携带被引用的原文摘要（气泡内可视化引用块）。
+    var quotedText: String?          // 被引用的原文（用户气泡顶部显示，便于对上文）
     /// v3.4.x code review fix：id 唯一性兜底短后缀——id 由 role+content 哈希+timestamp 拼成，
     /// timestamp 为 nil 或同毫秒重复内容时两条消息 id 会撞（ForEach 重复 id / Equatable 误判同一消息）。
     /// 新创建消息自动带随机 8 位十六进制 uid；持久化时随消息写入 "uid" 字段、解析时读回，
@@ -103,6 +108,9 @@ struct ChatMessage: Identifiable, Equatable, Sendable {
                               imageDataURL: imageURL ?? imageURLFromBlocks)
         msg.isPush = isPush
         msg.agent = isAgent
+        // v3.4.x：读回复读兜底标记 + 引用原文（重启/切会话后仍显示）
+        msg.suspectedRepeat = d["suspectedRepeat"] as? Bool ?? false
+        msg.quotedText = d["quotedText"] as? String
         // v3.4.x code review fix：读回持久化的 uid（保持跨重启 id 稳定）；无则置 nil 走确定性旧格式
         msg.uid = d["uid"] as? String
         return msg
