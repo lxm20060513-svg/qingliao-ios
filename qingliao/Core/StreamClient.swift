@@ -36,6 +36,47 @@ final class StreamClient {
     // v3.3.3：当前流的"发起 user 消息 id"——落库锚点（跨杀后台恢复时也由此传递）。
     // 防延迟完成回调/恢复把旧答 append 到用户新消息之后（错位复读根因，2026-09-04 实据）。
     var pendingUserMsgId: String?
+    // v3.4.20：打字机平滑释放——content 是真实全文（落库/恢复逻辑不受影响），
+    // UI 读 smoothedContent：定时器每 tick 从 content 追加一小段，观感从"整段跳变"变"逐字流"。
+    // 注意：streamingBubble 渲染、落库(upsertAssistant)读的仍是 content——平滑层只在展示端。
+    var smoothedContent = ""
+    private var smoothTask: Task<Void, Never>?
+
+    /// UI 渲染应读取的内容——平滑层激活（smoothTask 在跑）时=smoothedContent，
+    /// 否则（云端路径/已收尾）=content 全文。兜底永不为空，落库/恢复零影响。
+    var displayContent: String { smoothTask != nil ? smoothedContent : content }
+
+    private func startSmooth() {
+        smoothTask?.cancel()
+        smoothedContent = ""
+        smoothTask = Task { [weak self] in
+            while let self, !Task.isCancelled {
+                if self.isDone && self.smoothedContent.count >= self.content.count { break }
+                if self.smoothedContent.count < self.content.count {
+                    // 每次 tick 释放 1-3 个字符（追赶积压时加速），_utf8 兼容 emoji 安全切片
+                    let backlog = self.content.count - self.smoothedContent.count
+                    let step = backlog > 60 ? 4 : (backlog > 20 ? 2 : 1)
+                    let s = self.smoothedContent
+                    let idx = s.index(s.startIndex, offsetBy: min(step, backlog), limitedBy: s.endIndex) ?? s.endIndex
+                    self.smoothedContent = String(s[..<idx])
+                }
+                try? await Task.sleep(for: .milliseconds(48))   // v3.0.41 红线：50ms 级节流（高频全树重建曾卡死）
+            }
+            // 收尾：确保完整（done 后剩余部分一次性补齐）
+            if let self { self.smoothedContent = self.content }
+        }
+    }
+
+    private func stopSmooth() {
+        smoothTask?.cancel()
+        smoothTask = nil
+        smoothedContent = content
+    }
+
+    /// v3.4.20：云端流式路径（startCloudStream 不经过 start()）的平滑层启动入口
+    func startSmoothPublic() { startSmooth() }
+    /// v3.4.20：云端流式路径的平滑层收尾入口
+    func stopSmoothPublic() { stopSmooth() }
 
     /// 启动流式请求
     func start(auth: AuthStore, sessionId: String, model: String, provider: String,
@@ -48,6 +89,7 @@ final class StreamClient {
         failCount = 0
         idleStreak = 0
         recoverTried = false
+        startSmooth()   // v3.4.20：打字机平滑释放启动
         interval = 0.25
         isStreaming = true
         isDone = false
@@ -183,6 +225,7 @@ final class StreamClient {
         status = success ? "done" : "error"
         errorMessage = error
         stopPolling()
+        stopSmooth()   // v3.4.20：平滑层收尾（剩余内容一次性补齐）
         clearPersisted()
         endBgTask()   // v3.0.81：结束后台任务
         onFinished?(success, error)

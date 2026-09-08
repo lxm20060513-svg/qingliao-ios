@@ -86,8 +86,11 @@ struct DockTabView: View {
             }
             // v3.4.x 任务中心：右上角悬浮入口（钟形图标 + 未读红点），点击弹全屏任务列表。
             // 仅当有任务（非 reply 收件）时显示；无任务隐藏，不打扰。
+            // v3.4.20 bugfix：原挂在 TabView 全局 overlay(topTrailing) → 压住会话页「＋」新建按钮、
+            // 聊天页「…」菜单（各页 PageHeader trailing 按钮全部被挡）。修复 = 改挂 selected==.chat
+            // 分支内容上 + top 加大让出 header 按钮行，仅在聊天页显示（任务发送目标也是聊天页）。
             .overlay(alignment: .topTrailing) {
-                if taskStore.uncompleted > 0 {
+                if selected == .chat, taskStore.uncompleted > 0 {
                     Button {
                         showTaskCenter = true
                     } label: {
@@ -112,7 +115,7 @@ struct DockTabView: View {
                         }
                     }
                     .padding(.trailing, 14)
-                    .padding(.top, 6)
+                    .padding(.top, 52)   // v3.4.20：6→52 让出 PageHeader 标题/按钮行，不再遮挡
                 }
             }
             .fullScreenCover(isPresented: $showTaskCenter) {

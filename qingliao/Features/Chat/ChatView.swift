@@ -759,11 +759,15 @@ struct ChatView: View {
                     selectOverlay(for: msg)
                 }
             }
-            // 气泡出现动效：淡入 + 轻微上移（灵动）
+            // 气泡出现动效（v3.4.20 分级）：用户消息从底部轻滑入（微信式方向感），
+            // AI 消息淡入+微缩放；移除仍为纯淡入淡出。
             // v2.0.38：去掉 .animation(value: messages.count)——
             // 批量清空（清空会话/新建会话）时全 cell 同时移除的 spring 动画曾导致闪退
-            .transition(.asymmetric(insertion: .opacity.combined(with: .scale(scale: 0.96)),
-                                    removal: .opacity))
+            .transition(.asymmetric(
+                insertion: msg.role == "user"
+                    ? .opacity.combined(with: .offset(y: 14))
+                    : .opacity.combined(with: .scale(scale: 0.96)),
+                removal: .opacity))
     }
 
     /// v3.0.51：单条消息气泡构造——拆独立方法（防消息列表 ForEach 内 type-check 超时）
@@ -937,7 +941,8 @@ struct ChatView: View {
     @ViewBuilder
     private var streamingBubble: some View {
         MessageBubble(
-            message: ChatMessage(role: "assistant", content: stream.content, timestamp: nil, agent: stream.isAgent),
+            // v3.4.20：读 displayContent（打字机平滑层）——本地/云端流式观感从"整段跳变"变"逐字流"
+            message: ChatMessage(role: "assistant", content: stream.displayContent, timestamp: nil, agent: stream.isAgent),
             onAIImageTap: { url in openAIImage(url) },   // v2.0.128：流式中 AI 图片可点（参数须在 streamingAvatar 前）
             streamingAvatar: true,   // v3.0.15：AI 输出中头像 = 粒子球
             streamingText: true   // v3.0.17：流式长文用 SwiftUI Text 渲染（根治 UITextView 锁窄缩小）
@@ -1197,11 +1202,14 @@ struct ChatView: View {
         var body: some View {
             HStack(spacing: 5) {
                 ForEach(0..<3, id: \.self) { i in
+                    // v3.4.20：三点跳动 → 蓝紫渐变脉冲圆（与发送按钮/Siri 流光同语言，"AI 活着"统一视觉）
                     Circle()
-                        .fill(Color.secondary.opacity(0.6))
+                        .fill(LinearGradient(colors: [.blue, .indigo, .pink],
+                                             startPoint: .topLeading, endPoint: .bottomTrailing))
                         .frame(width: 8, height: 8)
-                        .offset(y: animating ? -4 : 4)
-                        .animation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true).delay(Double(i) * 0.15), value: animating)
+                        .scaleEffect(animating ? 1.0 : 0.55)
+                        .opacity(animating ? 1.0 : 0.45)
+                        .animation(.easeInOut(duration: 0.6).repeatForever(autoreverses: true).delay(Double(i) * 0.18), value: animating)
                 }
             }
             .onAppear { animating = true }
@@ -1379,7 +1387,7 @@ struct ChatView: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text("会话内容较多")
                     .font(.system(size: 13, weight: .semibold))
-                Text("\\(chat.messages.count) 条消息 · 建议归档导出以省存储")
+                Text("\(chat.messages.count) 条消息 · 建议归档导出以省存储")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }
@@ -1628,6 +1636,7 @@ struct ChatView: View {
         stream.content = ""
         stream.isAgent = false
         cloudStreamUI.toolCards = []  // v3.0.18 fix：通过 @Observable 引用类型重置
+        stream.startSmoothPublic()   // v3.4.20：云端流式同样启用打字机平滑释放
         CloudBackend.shared.isStreaming = true   // v3.0.2：标记云端流式进行中（驱动 Siri 发光）
         // v3.0.18 fix：Task 显式捕获引用对象（chat/stream @Environment 类引用），
         // 避免隐式捕获 struct 值副本导致 Task 内 self 旧副本 → 后续更新丢失
@@ -1636,6 +1645,7 @@ struct ChatView: View {
                 sendingLock = false
                 stream.isStreaming = false
                 stream.isDone = true
+                stream.stopSmoothPublic()   // v3.4.20：云端路径平滑层收尾
                 CloudBackend.shared.isStreaming = false
             }
             do {
