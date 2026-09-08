@@ -199,6 +199,8 @@ struct ProviderUsage: Identifiable {
     // plan 百分比配额（opencode /zen/go/v1/usage）
     let usagePercent: [String: Double]   // rolling/weekly/monthly → percent
     let usageReset: [String: String]     // rolling/weekly/monthly → resetsAt ISO
+    // v3.4.18：智谱 Coding Plan 双窗口余量（label/total/remaining/used_pct/next_reset）
+    let windows: [[String: Any]]
 
     var id: String { provider }
 
@@ -207,6 +209,10 @@ struct ProviderUsage: Identifiable {
         if unsupported { return "控制台查看" }
         if mode == "plan", let monthly = usagePercent["monthly"] {
             return String(format: "月用量 %.0f%%", monthly)
+        }
+        // v3.4.18：智谱双窗口 → 主文本显示5小时窗口余量
+        if let w5 = windows.first, let remain = w5["remaining"] as? Int, let total = w5["total"] as? Int {
+            return "\(remain) / \(total)"
         }
         if total > 0 {
             let sym = currency == "USD" ? "$" : "¥"
@@ -219,6 +225,11 @@ struct ProviderUsage: Identifiable {
     var detailText: String {
         if unsupported { return error.isEmpty ? "无公开接口" : error }
         if !available { return error.isEmpty ? "不可用" : error }
+        // v3.4.18：智谱双窗口 → 副文本显示周窗口余量百分比
+        if windows.count >= 2, let wk = windows[1] as? [String: Any],
+           let usedPct = wk["used_pct"] as? Int {
+            return String(format: "周窗口 余 %d%%", 100 - usedPct)
+        }
         if mode == "plan" {
             var parts: [String] = []
             if let w = usagePercent["weekly"] { parts.append(String(format: "周 %.0f%%", w)) }
@@ -256,7 +267,8 @@ struct ProviderUsage: Identifiable {
             currency: b["currency"] as? String ?? "CNY",
             error: d["error"] as? String ?? "",
             usagePercent: pct,
-            usageReset: reset
+            usageReset: reset,
+            windows: (d["windows"] as? [[String: Any]]) ?? []
         )
     }
 }

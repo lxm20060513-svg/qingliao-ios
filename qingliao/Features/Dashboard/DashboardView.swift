@@ -1590,6 +1590,7 @@ struct UsageCard: View {
         case "opencode-apple", "opencode": return "o.circle.fill"
         case "sensenova": return "s.square.fill"
         case "zai": return "z.circle.fill"
+        case "zai-coding": return "z.circle.fill"
         default: return "terminal.fill"
         }
     }
@@ -1598,6 +1599,17 @@ struct UsageCard: View {
     private var planPercent: Double? {
         guard usage.mode == "plan" else { return nil }
         return usage.usagePercent["monthly"]
+    }
+
+    /// v3.4.18：智谱双窗口主进度（5小时窗口已用百分比；无数据 nil）
+    private var windowPercent: Double? {
+        guard let w5 = usage.windows.first else { return nil }
+        if let p = w5["used_pct"] as? Int { return Double(p) }
+        if let p = w5["used_pct"] as? Double { return p }
+        if let used = w5["used"] as? Int, let total = w5["total"] as? Int, total > 0 {
+            return Double(used) / Double(total) * 100
+        }
+        return nil
     }
 
     var body: some View {
@@ -1627,6 +1639,18 @@ struct UsageCard: View {
                 .minimumScaleFactor(0.7)
             // v3.0.36 plan（opencode）：月用量进度条
             if let pct = planPercent, usage.mode == "plan" {
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(Color(uiColor: .systemGray5))
+                        Capsule()
+                            .fill(pct >= 90 ? Color.red : (pct >= 60 ? Color.orange : Color.green))
+                            .frame(width: geo.size.width * min(max(pct / 100.0, 0), 1))
+                    }
+                }
+                .frame(height: 4)
+            }
+            // v3.4.18 智谱双窗口：5小时窗口用量进度条
+            else if let pct = windowPercent {
                 GeometryReader { geo in
                     ZStack(alignment: .leading) {
                         Capsule().fill(Color(uiColor: .systemGray5))
