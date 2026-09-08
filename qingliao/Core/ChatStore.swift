@@ -225,6 +225,14 @@ final class ChatStore {
     ///          回复区（锚点后、下一个 user 前）去重与插入，杜绝跨轮污染。
     func upsertAssistant(_ text: String, agent: Bool = false, afterUserID: String? = nil) {
         let ts = Date().timeIntervalSince1970 * 1000
+        // 🚨 v3.4.22 复读根治第一层：全历史精确查重（在所有分支之前）。
+        // 实证（2026-09-08 晚 stream dump）：恢复链路 anchor 失配/重试路径会把同一条旧回答
+        // 重复落库 3 次（msg1==msg3==msg7，1284 字完全相同）——原去重只查锚点同轮区域/末尾
+        // 8 条，隔了新消息就漏。旧回答一旦重复进历史，模型每轮都能看到 → 持续复读。
+        // 新回答文本不可能与历史完全一致，此处拦截零误伤。
+        if messages.contains(where: { $0.role == "assistant" && $0.content == text }) {
+            return
+        }
         if let anchorID = afterUserID,
            let anchorIdx = messages.lastIndex(where: { $0.isUser && $0.id == anchorID }) {
             // 该轮回复区右边界（开区间）：锚点之后直到下一个 user 消息
@@ -340,7 +348,14 @@ final class ChatStore {
     /// 只压缩成占位、绝不删除内容；对过期历史同样生效——喂进上下文的复读种子被抽掉，任何模型都不复读。
     private static func sanitizeForContext(_ msgs: [ChatMessage]) -> [ChatMessage] {
         var out: [ChatMessage] = []
+        // 🚨 v3.4.22 复读根治第二层：全历史 assistant 去重（不要求连续）。
+        // 存量损坏会话里同一条旧回答可能已重复 N 次（非连续分布），原"连续相同"过滤拦不住；
+        // 重复旧回答进上下文 = 模型每轮都有复读素材。同文只保留最早一条。
+        var seenAssistant = Set<String>()
         for m in msgs {
+            if m.role == "assistant" {
+                if !seenAssistant.insert(m.content).inserted { continue }
+            }
             // ② 连续相同 assistant 只留最后一条（复读产物）
             if m.role == "assistant",
                let last = out.last, last.role == "assistant",
