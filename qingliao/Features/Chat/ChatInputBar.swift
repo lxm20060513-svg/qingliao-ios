@@ -36,6 +36,25 @@ struct ChatInputBar: View {
     @State private var ballExpanded = false   // 球 → 输入框展开态（切会话由外层 .id() 重建复位）
     // v2.0.132：点击球触发全屏粒子爆发（满屏散开）——由外层 ChatView 挂全屏特效层（局部 BurstEffect 已删，视觉重叠且双 TimelineView 掉帧）
     var onFullBurst: () -> Void = {}
+    // v3.4.19：发送按钮三态（空闲淡灰/有字蓝紫/发送回弹缩放）——仅视觉反馈，手势结构不动
+    @State private var sendScale: CGFloat = 1.0
+
+    // 发送按钮配色三态：语音模式=Siri 彩、空文本=淡灰、有字=蓝紫渐变
+    private var sendColors: [Color] {
+        if voiceMode { return [.blue, .indigo, .pink] }
+        if text.isEmpty { return [Color(uiColor: .systemGray4), Color(uiColor: .systemGray3)] }
+        return [.blue, .indigo]
+    }
+
+    // 发送触发：缩放回弹 + 原发送逻辑（长按转文字路径不受影响，不触发动画）
+    private func fireSend() {
+        withAnimation(.spring(response: 0.22, dampingFraction: 0.55)) { sendScale = 1.25 }
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(0.12))
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.45)) { sendScale = 1.0 }
+        }
+        onSend()
+    }
 
     var body: some View {
         Group {
@@ -208,6 +227,8 @@ struct ChatInputBar: View {
                         .foregroundStyle(.white)
                         .frame(width: 32, height: 32)
                         .contentShape(Circle())
+                        // v3.4.19：发送回弹缩放（仅轻点发送路径，长按转文字不缩放）
+                        .scaleEffect(sendScale)
                         .gesture(
                             LongPressGesture(minimumDuration: 0.4)
                                 .exclusively(before: TapGesture())
@@ -219,13 +240,13 @@ struct ChatInputBar: View {
                                         if voiceEnabled {
                                             onVoiceModeToggle()
                                         } else {
-                                            onSend()
+                                            fireSend()
                                         }
                                     case .second:
                                         if voiceMode {
                                             onVoiceModeToggle()
                                         } else {
-                                            onSend()
+                                            fireSend()
                                         }
                                     }
                                 }
@@ -233,10 +254,12 @@ struct ChatInputBar: View {
                 }
             }
             .background(
-                LinearGradient(colors: voiceMode ? [.blue, .indigo, .pink] : [.blue, .indigo],
+                // v3.4.19：三态配色（语音=Siri 彩/空=淡灰/有字=蓝紫），渐变过渡动画
+                LinearGradient(colors: sendColors,
                                startPoint: .topLeading, endPoint: .bottomTrailing),
                 in: Capsule()
             )
+            .animation(.easeInOut(duration: 0.25), value: sendColors)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
