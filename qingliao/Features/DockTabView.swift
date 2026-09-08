@@ -31,10 +31,6 @@ struct DockTabView: View {
     @Environment(ChatStore.self) private var chat
     @Environment(StreamClient.self) private var stream
     @Environment(\.horizontalSizeClass) private var hSize
-    // v3.4.x 任务中心：收件箱非 reply 任务汇总入口
-    @State private var showTaskCenter = false
-    @State private var taskStore = TaskCenterStore.shared
-
     var body: some View {
         // v3.0.64：改用 iOS 26 系统原生 TabView tab bar —— 系统自动渲染液态玻璃 tab bar，
         // 自带按压放大/流动折射/边缘高光（即用户要的控制中心那种原生效果）。
@@ -84,45 +80,8 @@ struct DockTabView: View {
                     NotificationCenter.default.post(name: .qingliaoDashboardRefresh, object: nil)
                 }
             }
-            // v3.4.x 任务中心：右上角悬浮入口（玻璃钟形图标 + 未读数），点击弹全屏任务列表。
-            // v3.4.23 可见性修复：原条件仅"有未完成任务"，但收件箱几乎全是 reply（被去重跳过，
-            // 不进任务中心）→ uncompleted 恒 0 → 入口永不出现。现改为"未完成任务>0 或 AI 正在
-            // 干活（streaming）"，让用户随时能点开任务中心看后台进行中的工作。
-            .overlay(alignment: .topTrailing) {
-                if selected == .chat, taskStore.uncompleted > 0 || stream.isStreaming {
-                    Button {
-                        showTaskCenter = true
-                    } label: {
-                        // v3.4.23 视觉美化：真液态玻璃圆片（glassEffect）+ 未读数玻璃胶囊角标，
-                        // 对齐全站 Liquid Glass 规范（旧版 ultraThinMaterial+红点偏生硬）
-                        ZStack(alignment: .topTrailing) {
-                            Image(systemName: "bell.fill")
-                                .font(.system(size: 17, weight: .semibold))
-                                .foregroundStyle(.primary)
-                                .frame(width: 42, height: 42)
-                                .glassEffect()
-                                .overlay(
-                                    Circle().strokeBorder(Color.white.opacity(0.15), lineWidth: 0.8)
-                                )
-                                .shadow(color: .black.opacity(0.12), radius: 8, y: 3)
-                            // 未读数：小红胶囊 + 白描边（浮于玻璃片右上角）
-                            Text("\(min(taskStore.uncompleted, 99))")
-                                .font(.system(size: 11, weight: .bold, design: .rounded))
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 5.5)
-                                .padding(.vertical, 2)
-                                .background(Capsule().fill(Color.red))
-                                .overlay(Capsule().strokeBorder(.white.opacity(0.85), lineWidth: 1))
-                                .offset(x: 7, y: -5)
-                        }
-                    }
-                    .padding(.trailing, 14)
-                    .padding(.top, 52)   // v3.4.20：6→52 让出 PageHeader 标题/按钮行，不再遮挡
-                }
-            }
-            .fullScreenCover(isPresented: $showTaskCenter) {
-                TaskCenterView()
-            }
+            // v3.4.24：任务中心悬浮入口已移除——迁入聊天页 header（三个点旁常驻小图标），
+            // 见 ChatView.headerTrailingItems。此处不再挂全局 overlay（避免遮挡各页右上角按钮）。
             .task {
                 guard let sid = UserDefaults.standard.string(forKey: "qingliao_open_session") else { return }
                 UserDefaults.standard.removeObject(forKey: "qingliao_open_session")
@@ -152,6 +111,7 @@ struct DockTabView: View {
 
     // MARK: - v3.4.14 系统分享接入口
     /// 解析系统分享的 URL（文件/图片/文本/链接）→ 生成 SharedPayload 入 ShareRouter，切到聊天页并广播。
+    /// v3.4.24：地图 App 分享的定位链接 → 解析经纬度入 SharedPayload.location（AI 推荐周边）。
     private func handleShareURL(_ url: URL) {
         var payload: SharedPayload?
         if url.isFileURL {
@@ -163,7 +123,21 @@ struct DockTabView: View {
                 payload = SharedPayload(text: text, image: nil, sourceName: url.lastPathComponent)
             }
         } else if let scheme = url.scheme, scheme == "http" || scheme == "https" {
-            payload = SharedPayload(text: url.absoluteString, image: nil, sourceName: nil)
+            // v3.4.24：先试地图定位链接解析（geo:/高德/百度/腾讯/苹果地图…）
+            if let loc = MapLocationParser.parse(url) {
+                let cl = CLLocation(latitude: loc.coord.latitude, longitude: loc.coord.longitude)
+                payload = SharedPayload(text: url.absoluteString, image: nil,
+                                        sourceName: loc.place, location: cl)
+            } else {
+                payload = SharedPayload(text: url.absoluteString, image: nil, sourceName: nil)
+            }
+        } else if url.scheme?.lowercased() == "geo" {
+            // v3.4.24：geo: URI（部分地图 App 用非 http scheme 分享）
+            if let loc = MapLocationParser.parse(url) {
+                let cl = CLLocation(latitude: loc.coord.latitude, longitude: loc.coord.longitude)
+                payload = SharedPayload(text: url.absoluteString, image: nil,
+                                        sourceName: loc.place, location: cl)
+            }
         } else if let text = try? String(contentsOf: url, encoding: .utf8) {
             payload = SharedPayload(text: text, image: nil, sourceName: url.lastPathComponent)
         }

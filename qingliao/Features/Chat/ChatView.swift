@@ -1,4 +1,5 @@
 import SwiftUI
+import CoreLocation
 import PhotosUI
 import PDFKit
 import UniformTypeIdentifiers
@@ -163,6 +164,9 @@ struct ChatView: View {
     @State var quotedMessage: ChatMessage?
     @State var viewerPayload: ImageViewPayload?
     @State var showMoreMenu = false
+    // v3.4.24：任务中心全屏页（header 常驻小图标入口，原 DockTabView 全局 overlay 已移除）
+    @State var showTaskCenter = false
+    @State private var taskStore = TaskCenterStore.shared
     @State var showExporter = false
     @State var showMarkdownExporter = false
     @State var showPDFExporter = false
@@ -268,9 +272,31 @@ struct ChatView: View {
     /// v3.3.0：header 右侧 trailing 组件抽离（PageHeader 的 AnyView(HStack{...}) 内联在 body
     /// 里过复杂，Xcode 26 type-check 超时——469-472行报 "unable to type-check in reasonable time"）。
     /// 抽成独立计算属性给 type-checker 更小的表达式单元。
+    /// v3.4.24：任务中心入口迁入 header（三个点旁）——原 DockTabView 全局 overlay 悬浮片
+    /// 改为常驻小图标（不再依赖"有未完成任务"才出现），与三个点同尺寸同色对齐。
     @ViewBuilder
     private var headerTrailingItems: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 12) {
+            Button {
+                showTaskCenter = true
+            } label: {
+                ZStack(alignment: .topTrailing) {
+                    Image(systemName: "checklist")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(Color.accentColor)
+                        .frame(width: 20, height: 20)
+                    if taskStore.uncompleted > 0 {
+                        Circle()
+                            .fill(Color.red)
+                            .frame(width: 7, height: 7)
+                            .overlay(Circle().strokeBorder(Color(uiColor: .systemBackground), lineWidth: 1))
+                            .offset(x: 4, y: -3)
+                    }
+                }
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("任务中心")
+
             Button {
                 showMoreMenu = true
             } label: {
@@ -497,6 +523,10 @@ struct ChatView: View {
             } message: {
                 Text("上下文：约 \(chat.contextInfo.tokens) tokens · \(chat.contextInfo.count) 条")
             }
+            // v3.4.24：任务中心全屏页（header 三个点旁的常驻入口）
+            .fullScreenCover(isPresented: $showTaskCenter) {
+                TaskCenterView()
+            }
             if sentOK {
                 HStack(spacing: 5) {
                     Image(systemName: "checkmark.circle.fill")
@@ -696,14 +726,35 @@ struct ChatView: View {
 
     // MARK: - v3.4.14 系统分享收件
     /// 逐条消费 ShareRouter 待处理分享：图片压缩后走 sendCore(imageData:)，文本直接 sendCore(text:)。
+    /// v3.4.24 定位分享：地图 App 分享的坐标 → 拼成带"周边推荐"指令的定位消息，AI 直接给周边推荐/资讯。
     private func drainShareInbox() {
         while let p = ShareRouter.shared.dequeue() {
             if let image = p.image, let data = compressImage(image) {
                 sendCore(text: p.text ?? "", imageData: data)
+            } else if let loc = p.location {
+                sendCore(text: Self.locationMessage(loc, placeName: p.sourceName, originLink: p.text), imageData: nil)
             } else {
                 sendCore(text: p.text ?? "", imageData: nil)
             }
         }
+    }
+
+    /// v3.4.24：定位消息组装（地点名 + 经纬度 + 分享原链 + 周边推荐指令）
+    static func locationMessage(_ loc: CLLocation, placeName: String?, originLink: String?) -> String {
+        let coordTxt = String(format: "%.6f,%.6f", loc.coordinate.latitude, loc.coordinate.longitude)
+        var lines: [String] = []
+        if let p = placeName, !p.isEmpty {
+            lines.append("📍 我分享了一个位置：\(p)")
+        } else {
+            lines.append("📍 我分享了一个位置")
+        }
+        lines.append("坐标：\(coordTxt)（纬度,经度）")
+        if let link = originLink, !link.isEmpty {
+            lines.append("分享链接：\(link)")
+        }
+        lines.append("")
+        lines.append("请根据这个定位推荐周边业态（美食/咖啡/超市/加油站等实用的去处），并介绍周边相关资讯。若链接里没有具体坐标，请先尝试从链接本身解析位置信息。")
+        return lines.joined(separator: "\n")
     }
 
     // MARK: - 消息列表
