@@ -26,7 +26,7 @@ targets:
       properties:
         CFBundleDisplayName: 轻聊
         CFBundleShortVersionString: "3.4.23"
-        CFBundleVersion: "426"
+        CFBundleVersion: "427"
         NSLocationWhenInUseUsageDescription: 用于获取当前定位显示天气信息
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
@@ -71,6 +71,6 @@ targets:
         INFOPLIST_KEY_CFBundleDisplayName: 轻聊
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         MARKETING_VERSION: "3.4.23"
-        CURRENT_PROJECT_VERSION: "426"
+        CURRENT_PROJECT_VERSION: "427"
         ENABLE_PREVIEWS: YES
         CODE_SIGNING_ALLOWED: "NO"
