@@ -386,7 +386,7 @@ struct SecretEditSheet: View {
                     Spacer()
                 }
                 .padding(.vertical, 11)
-                .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+                .background(Color.accentColor, in: Capsule())
                 .foregroundStyle(.white)
                 .font(.system(size: 15, weight: .semibold))
             }

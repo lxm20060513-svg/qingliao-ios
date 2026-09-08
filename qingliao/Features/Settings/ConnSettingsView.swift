@@ -189,7 +189,7 @@ private struct UploadDirSheet: View {
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 12)
-                    .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .background(Color.accentColor, in: Capsule())
             }
             .buttonStyle(.plain)
             .disabled(saving || path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)

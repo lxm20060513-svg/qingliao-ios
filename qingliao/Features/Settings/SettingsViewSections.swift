@@ -254,7 +254,7 @@ extension SettingsView {
             }
             .foregroundStyle(.red)
             .padding(.horizontal, 40).padding(.vertical, 13)
-            .background(Color.red.opacity(0.35), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .background(Color.red.opacity(0.35), in: Capsule())
         }
         .buttonStyle(.plain)
         .confirmationDialog("退出登录？", isPresented: $confirmLogout, titleVisibility: .visible) {

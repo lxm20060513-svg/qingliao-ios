@@ -194,7 +194,8 @@ struct ChatInputBar: View {
                         .font(.system(size: 13, weight: .bold))
                         .foregroundStyle(.white)
                         .frame(width: 32, height: 32)
-                        .background(Color.red.opacity(0.8), in: Circle())
+                        // v3.4.21：停止按钮 Circle → 红胶囊（与发送按钮 Capsule 同族，二元控件形态统一）
+                        .background(Color.red.opacity(0.8), in: Capsule())
                 }
                 .buttonStyle(.plain)
             }
@@ -217,7 +218,8 @@ struct ChatInputBar: View {
                                 .font(.system(size: 11, weight: .bold))
                                 .foregroundStyle(.white)
                                 .frame(width: 26, height: 26)
-                                .background(Color.red.opacity(0.85), in: Circle())
+                                // v3.4.21：红胶囊（与停止/发送按钮同族）
+                                .background(Color.red.opacity(0.85), in: Capsule())
                         }
                         .buttonStyle(.plain)
                     }

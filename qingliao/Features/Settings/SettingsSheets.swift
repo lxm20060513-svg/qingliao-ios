@@ -93,7 +93,7 @@ struct ServerSheet: View {
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 12)
-                    .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .background(Color.accentColor, in: Capsule())
             }
             .buttonStyle(.plain)
             .padding(.horizontal, 18)
@@ -158,7 +158,7 @@ struct PinPathSheet: View {
                         .foregroundStyle(.white)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)
-                        .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .background(Color.accentColor, in: Capsule())
                 }
                 .buttonStyle(.plain)
                 .padding(.horizontal, 18)
@@ -250,7 +250,7 @@ struct PasswordSheet: View {
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 12)
-                    .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .background(Color.accentColor, in: Capsule())
             }
             .buttonStyle(.plain)
             .padding(.horizontal, 18)
@@ -399,7 +399,7 @@ struct SessionLocSheet: View {
                     Spacer()
                 }
                 .padding(.vertical, 12)
-                .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .background(Color.accentColor, in: Capsule())
                 .foregroundStyle(.white)
                 .font(.system(size: 15, weight: .semibold))
             }
