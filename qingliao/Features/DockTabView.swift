@@ -1,4 +1,5 @@
 import SwiftUI
+import CoreLocation
 import UIKit
 
 enum DockTab: String, CaseIterable, Identifiable {
