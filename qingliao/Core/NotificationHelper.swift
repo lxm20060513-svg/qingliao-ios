@@ -4,6 +4,11 @@ import UserNotifications
 // MARK: - v2.0.36 本地通知（AI 回复完成提醒等）
 
 enum NotificationHelper {
+    /// v3.4.23：App 图标角标——跟随任务中心未读数（收到任务/推送时 +1，进任务中心查看清零）
+    static func setBadge(_ count: Int) {
+        UNUserNotificationCenter.current().setBadgeCount(max(0, min(count, 99)))
+    }
+
     /// App 启动时请求通知权限（记录结果，便于排查通知不弹的问题）
     static func requestAuth() {
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, error in

@@ -12,9 +12,12 @@ struct TaskCenterView: View {
     @State private var filter: TaskFilter = .all
     @State private var actionItem: TaskCenterItem?
     @State private var sending = false
+    // v3.4.23：进行中任务（后端 /api/tasks/active——AI 干活中的流式任务 + 后台作业）
+    @State private var activeTasks: [AuthStore.ActiveTask] = []
+    @State private var activeTimer: Timer?
 
     enum TaskFilter: String, CaseIterable, Identifiable {
-        case all = "全部", cron = "任务", system = "通知"
+        case all = "全部", active = "进行中", cron = "任务", system = "通知"
         var id: String { rawValue }
     }
 
@@ -31,19 +34,31 @@ struct TaskCenterView: View {
                 .padding(.horizontal)
                 .padding(.top, 8)
 
-                let filtered = filteredTasks
-                if filtered.isEmpty {
+                // v3.4.23：显示条件 = 进行中任务非空 或 未完成任务非空
+                if activeTasks.isEmpty && activeOnlyTasks.isEmpty {
                     emptyState
                 } else {
                     List {
-                        Section {
-                            ForEach(filtered) { item in
-                                TaskRow(item: item)
-                                    .contentShape(Rectangle())
-                                    .onTapGesture { actionItem = item }
+                        // v3.4.23：进行中分区（仅"全部/进行中"页显示；running 置顶实时刷新）
+                        if filter == .all || filter == .active {
+                            if !activeTasks.isEmpty {
+                                Section("⏳ 进行中") {
+                                    ForEach(activeTasks) { t in
+                                        ActiveTaskRow(task: t)
+                                    }
+                                }
                             }
-                            .onDelete { idx in
-                                for i in idx { store.setCompleted(filtered[i].id, true) }
+                        }
+                        if !activeOnlyTasks.isEmpty {
+                            Section {
+                                ForEach(activeOnlyTasks) { item in
+                                    TaskRow(item: item)
+                                        .contentShape(Rectangle())
+                                        .onTapGesture { actionItem = item }
+                                }
+                                .onDelete { idx in
+                                    for i in idx { store.setCompleted(activeOnlyTasks[i].id, true) }
+                                }
                             }
                         }
                     }
@@ -52,6 +67,11 @@ struct TaskCenterView: View {
             }
             .navigationTitle("任务中心")
             .navigationBarTitleDisplayMode(.inline)
+            .onAppear { startActivePolling() }
+            .onDisappear {
+                activeTimer?.invalidate()
+                activeTimer = nil
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("关闭") { dismiss() }
@@ -89,13 +109,36 @@ struct TaskCenterView: View {
 
     private var filteredTasks: [TaskCenterItem] {
         switch filter {
-        case .all: store.tasks.sorted { a, b in
-            // 未完成在前；同完成态按时间从新到旧
-            if a.completed != b.completed { return !a.completed }
-            return a.createdAt > b.createdAt
-        }
         case .cron: store.tasks.filter { $0.taskType == "cron" }.sorted { $0.createdAt > $1.createdAt }
         case .system: store.tasks.filter { $0.taskType == "system" }.sorted { $0.createdAt > $1.createdAt }
+        default:
+            // all / active：未完成在前；同完成态按时间从新到旧
+            store.tasks.sorted { a, b in
+                if a.completed != b.completed { return !a.completed }
+                return a.createdAt > b.createdAt
+            }
+        }
+    }
+
+    private var activeOnlyTasks: [TaskCenterItem] {
+        if filter == .active {
+            // 「进行中」页 = 进行中任务 + 未完成任务列表
+            return store.tasks.filter { !$0.completed }.sorted { $0.createdAt > $1.createdAt }
+        }
+        return filteredTasks
+    }
+
+    /// v3.4.23：拉取进行中任务 + 定时刷新（页面存活期间每 2s 一轮，dismiss 时停）
+    private func startActivePolling() {
+        activeTimer?.invalidate()
+        let t = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { _ in
+            Task { @MainActor in
+                activeTasks = await auth.fetchActiveTasks()
+            }
+        }
+        activeTimer = t
+        Task { @MainActor in
+            activeTasks = await auth.fetchActiveTasks()
         }
     }
 
@@ -124,16 +167,65 @@ struct TaskCenterView: View {
     }
 }
 
+// MARK: - v3.4.23 进行中任务行（AI 回复中 / 后台作业）
+private struct ActiveTaskRow: View {
+    let task: AuthStore.ActiveTask
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "arrow.triangle.2.circlepath")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(.green)
+                .frame(width: 30, height: 30)
+                .background(Circle().fill(Color.green.opacity(0.14)))
+                .overlay(Circle().strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.8))
+            VStack(alignment: .leading, spacing: 3) {
+                Text(task.title.isEmpty ? "正在处理" : task.title)
+                    .font(.subheadline)
+                    .lineLimit(2)
+                HStack(spacing: 6) {
+                    if !task.detail.isEmpty {
+                        Text(task.detail)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    Text(elapsed)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            Spacer()
+            ProgressView()
+                .controlSize(.small)
+        }
+        .padding(.vertical, 4)
+    }
+
+    private var elapsed: String {
+        guard task.createdAt > 0 else { return "" }
+        let secs = Int(Date().timeIntervalSince1970 - task.createdAt)
+        if secs < 60 { return "\(max(secs, 0))s" }
+        return "\(secs / 60)m\(secs % 60)s"
+    }
+}
+
 // MARK: - 单条任务行
 private struct TaskRow: View {
     let item: TaskCenterItem
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
+            // v3.4.23：图标玻璃小圆片（类型色 tint + 极淡底色），对齐全站卡片规范
             Image(systemName: iconName)
-                .font(.system(size: 15))
-                .foregroundStyle(iconColor)
-                .frame(width: 22)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(item.completed ? Color.secondary : iconColor)
+                .frame(width: 30, height: 30)
+                .background(
+                    Circle().fill(iconColor.opacity(item.completed ? 0.06 : 0.14))
+                )
+                .overlay(
+                    Circle().strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.8)
+                )
             VStack(alignment: .leading, spacing: 3) {
                 Text(item.text)
                     .font(.subheadline)
@@ -142,12 +234,12 @@ private struct TaskRow: View {
                     .lineLimit(3)
                 HStack(spacing: 6) {
                     Text(typeLabel)
-                        .font(.caption2)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(typeColor.opacity(0.14))
+                        .font(.caption2.weight(.medium))
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 2.5)
+                        .background(Capsule().fill(typeColor.opacity(0.13)))
+                        .overlay(Capsule().strokeBorder(typeColor.opacity(0.22), lineWidth: 0.7))
                         .foregroundStyle(typeColor)
-                        .clipShape(Capsule())
                     Text(relativeTime)
                         .font(.caption2)
                         .foregroundStyle(.secondary)

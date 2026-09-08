@@ -63,6 +63,27 @@ final class InboxStore {
         self.stream = stream
     }
 
+    /// v3.4.23：搭载投递消费——StreamClient poll 响应捎带的收件箱消息走此入口。
+    /// 与 pollOnce 同一套去重/分流/标记已读逻辑（复用 consumeOne），
+    /// 立即处理不等 5s 轮询（推送滞后根治）。
+    func ingestPiggyback(_ items: [[String: Any]]) {
+        guard let auth, let chat else { return }
+        guard !items.isEmpty else { return }
+        // 流式进行中仍可安全消费：reply 类有 shouldSkipDuplicate+延迟重检兜底，
+        // 非 reply 类直接进任务中心，均不依赖流式结束
+        Task {
+            for d in items {
+                guard let id = d["id"] as? String, !id.isEmpty,
+                      let text = d["text"] as? String else { continue }
+                let sourceTaskId = d["source_task_id"] as? String
+                let taskType = d["task_type"] as? String ?? "reply"
+                await consumeOne(id: id, text: text, sourceTaskId: sourceTaskId,
+                                 taskType: taskType, auth: auth, chat: chat)
+            }
+            await chat.saveToServer(auth: auth)
+        }
+    }
+
     // MARK: - 消费消息（注入当前会话 + 通知 + 标已读）
 
     /// 拉一次收件箱，把新消息注入当前聊天会话。
@@ -80,61 +101,57 @@ final class InboxStore {
             // 流结束 15s 后下一轮再比对，此时回复已落库，去重必然命中。
             if let s = stream, s.isStreaming { return }
             for it in items {
-                let id = it.id
-                guard !consumedIds.contains(id) else { continue }
-                consume(id)
-                // v3.4.x 任务中心：非 reply（定时/后台/系统事件）不注入会话气泡，进任务中心列表。
-                // reply 仍是 AI 回复摘要 → 走原有注入链路（会话气泡 + 去重 + 标记已读）。
-                if it.taskType != "reply" {
-                    TaskCenterStore.shared.add(TaskCenterItem(
-                        id: id, text: it.text, taskType: it.taskType,
-                        sourceTaskId: it.sourceTaskId))
-                    NotificationHelper.notify(title: "轻聊 · 任务", body: it.text, sessionId: chat.sessionId)
-                    await markDone(id, auth: auth)
-                    continue
-                }
-                // v3.0.87 fix：去重——AI 回复完成自动推(_maybe_push_app)的摘要与该会话流式渲染的回复重复。
-                // 当前会话最后一条 assistant(非推送) 文本已包含此推送正文 → 判定为同一条回复，不再重复注入（仅标记已读），
-                // 避免用户看到「流式回复 + 🔔推送」两条相同内容。
-                // v3.2.1 加固：同时比对 stream.content——时序竞态下 chat.messages 可能暂缺该流式回复
-                //（upsertAssistant 落库与 pollOnce 比对存在缝隙），但 stream.content 仍持有该回复 →
-                // 纳入比对可稳定命中去重，不重复注入。
-                // v3.4.6 fix（后台恢复竞态）：回复若在"App 切后台"期间完成，回前台 refreshOnActive 立即
-                // pollOnce 时，stream.content 可能尚未重建/落库（persistState 只在 isStreaming 时记录，后台
-                // 完成则不写盘），导致去重两个比对源都空 → 误判不重复 → 重复注入 🔔推送气泡。
-                // 修复：去重未命中且流式"刚完成/有未落库内容"时，延迟 1.5s 等恢复稳定再重比对一次，
-                // 仍不命中才注入。既不违背「在看也推」（最终仍会注入，只是先确认不重复），又根治竞态漏网。
-                if !shouldSkipDuplicate(push: it.text, in: chat.messages, extra: stream?.content ?? "", sourceTaskId: it.sourceTaskId) {
-                    // 流式已结束（isDone）但去重未命中 → 极可能是"后台完成/落库竞态"窗口（chat.messages
-                    // 的 upsertAssistant 尚未执行、stream.content 已被清空重建）。此时去重比对源暂空，
-                    // 若直接注入必双份。延迟 1.5s 等落库/恢复稳定后再重比对一次，仍不命中才注入。
-                    // 不违背「在看也推」——最终仍会注入，只是先确认不重复再注入。
-                    if let s = stream, s.isDone {
-                        try? await Task.sleep(for: .seconds(1.5))
-                        if shouldSkipDuplicate(push: it.text, in: chat.messages, extra: stream?.content ?? "", sourceTaskId: it.sourceTaskId) {
-                            await markDone(id, auth: auth)
-                            continue
-                        }
-                    }
-                    // 注入当前会话（assistant 角色 + 推送标记）
-                    var msg = ChatMessage(role: "assistant", content: it.text,
-                                          timestamp: Date().timeIntervalSince1970 * 1000)
-                    msg.isPush = true
-                    chat.append(msg)
-                    lastInjectedCount += 1
-                    // 弹本地通知（侧载无 APNs，用本地通知横幅兜底；App 前台也弹）
-                    NotificationHelper.notify(title: "轻聊 · 推送", body: it.text, sessionId: chat.sessionId)
-                    // 标记已读（防重复；失败不阻塞，下轮靠 consumedIds 去重）
-                    await markDone(id, auth: auth)
-                } else {
-                    await markDone(id, auth: auth)
-                }
+                await consumeOne(id: it.id, text: it.text, sourceTaskId: it.sourceTaskId,
+                                 taskType: it.taskType, auth: auth, chat: chat)
             }
             // 注入后保存会话，让推送消息也落库（用户切会话/重开还能看到）
             await chat.saveToServer(auth: auth)
         } catch {
             lastError = "\(error)"
         }
+    }
+
+    /// v3.4.23：单条收件消息消费（去重 → 分流任务中心/会话气泡 → 通知 → 标已读）。
+    /// pollOnce（5s 轮询）与 ingestPiggyback（搭载投递）共用。
+    private func consumeOne(id: String, text: String, sourceTaskId: String?, taskType: String,
+                            auth: AuthStore, chat: ChatStore) async {
+        guard !consumedIds.contains(id) else {
+            await markDone(id, auth: auth)
+            return
+        }
+        consume(id)
+        // 非 reply（定时/后台/系统事件）不注入会话气泡，进任务中心列表
+        if taskType != "reply" {
+            TaskCenterStore.shared.add(TaskCenterItem(
+                id: id, text: text, taskType: taskType,
+                sourceTaskId: sourceTaskId))
+            NotificationHelper.notify(title: "轻聊 · 任务", body: text, sessionId: chat.sessionId)
+            await markDone(id, auth: auth)
+            return
+        }
+        // reply 去重（详见 InboxDedup）：taskId 同源铁证 + 双向包含 + 截断前缀
+        if !shouldSkipDuplicate(push: text, in: chat.messages, extra: stream?.content ?? "", sourceTaskId: sourceTaskId) {
+            // 流式已结束（isDone）但去重未命中 → 极可能是"后台完成/落库竞态"窗口（chat.messages
+            // 的 upsertAssistant 尚未执行、stream.content 已被清空重建）。此时去重比对源暂空，
+            // 若直接注入必双份。延迟 1.5s 等落库/恢复稳定后再重比对一次，仍不命中才注入。
+            // 不违背「在看也推」——最终仍会注入，只是先确认不重复再注入。
+            if let s = stream, s.isDone {
+                try? await Task.sleep(for: .seconds(1.5))
+                if shouldSkipDuplicate(push: text, in: chat.messages, extra: stream?.content ?? "", sourceTaskId: sourceTaskId) {
+                    await markDone(id, auth: auth)
+                    return
+                }
+            }
+            // 注入当前会话（assistant 角色 + 推送标记）
+            var msg = ChatMessage(role: "assistant", content: text,
+                                  timestamp: Date().timeIntervalSince1970 * 1000)
+            msg.isPush = true
+            chat.append(msg)
+            lastInjectedCount += 1
+            // 弹本地通知（侧载无 APNs，用本地通知横幅兜底；App 前台也弹）
+            NotificationHelper.notify(title: "轻聊 · 推送", body: text, sessionId: chat.sessionId)
+        }
+        await markDone(id, auth: auth)
     }
 
     /// v3.0.88 fix：收件箱推送 vs 会话内流式回复去重（v3.0.87 版因空白格式不匹配失效）。
@@ -247,6 +264,8 @@ final class TaskCenterStore {
         tasks.append(item)
         if tasks.count > 200 { tasks = Array(tasks.suffix(200)) }   // 防无限增长
         save()
+        // v3.4.23：App 图标角标跟随未完成数（通知中心 badge）
+        NotificationHelper.setBadge(uncompleted)
     }
 
     /// 标记完成/未完成
@@ -254,6 +273,7 @@ final class TaskCenterStore {
         if let idx = tasks.firstIndex(where: { $0.id == id }) {
             tasks[idx].completed = done
             save()
+            NotificationHelper.setBadge(uncompleted)
         }
     }
 
@@ -261,6 +281,7 @@ final class TaskCenterStore {
     func clearCompleted() {
         tasks.removeAll { $0.completed }
         save()
+        NotificationHelper.setBadge(uncompleted)
     }
 
     var uncompleted: Int { tasks.count { !$0.completed } }

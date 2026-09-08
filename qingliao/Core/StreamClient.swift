@@ -149,10 +149,15 @@ final class StreamClient {
 
     private func pollOnce(auth: AuthStore, generation: Int) async {
         do {
-            let (c, done, st, err, agent) = try await auth.streamPoll(taskId: taskId, offset: offset)
+            let (c, done, st, err, agent, piggyback) = try await auth.streamPoll(taskId: taskId, offset: offset)
             guard generation == self.generation else { return }   // v3.0.50：旧代轮询丢弃
             if agent { isAgent = true }   // v2.0.96b：Agent 回复标记
             failCount = 0
+            // v3.4.23：搭载投递消费——poll 响应里捎带的收件箱消息立即注入任务中心/会话，
+            // 不等 InboxStore 下一轮 5s 轮询（推送滞后根治的 App 侧半边）
+            if !piggyback.isEmpty {
+                InboxStore.shared.ingestPiggyback(piggyback)
+            }
             if !c.isEmpty {
                 offset += c.count
                 content += c

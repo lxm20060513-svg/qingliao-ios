@@ -255,7 +255,7 @@ final class AuthStore {
             "/api/sessions/", "/api/docker/", "/api/scenes/", "/api/automations/",
             "/api/agent/", "/api/memory/", "/api/push/", "/api/kb/", "/api/history",
             "/api/cron/", "/api/logs/", "/api/channel/", "/api/stream/",
-            "/api/local/", "/api/inbox", "/api/files/config",
+            "/api/local/", "/api/inbox", "/api/files/config", "/api/tasks",
         ]
         return prefixes.contains { path.hasPrefix($0) }
     }
@@ -479,7 +479,38 @@ final class AuthStore {
         return j["text"] as? String ?? ""
     }
 
-    func streamPoll(taskId: String, offset: Int) async throws -> (String, Bool, String, String, Bool) {
+    /// v3.4.23 任务中心：进行中任务（后端 /api/tasks/active）
+    /// kind=stream（AI 回复中）/ bg（后台作业）；status=running/done/error
+    struct ActiveTask: Identifiable {
+        let id: String          // jobId
+        let kind: String        // stream / bg
+        let title: String
+        let detail: String
+        let status: String      // running / done / error
+        let createdAt: TimeInterval
+    }
+
+    func fetchActiveTasks() async -> [ActiveTask] {
+        guard !token.isEmpty else { return [] }
+        do {
+            let json = try await self.json("/api/tasks/active", method: "GET")
+            guard let arr = json["tasks"] as? [[String: Any]] else { return [] }
+            return arr.compactMap { d in
+                guard let jid = d["jobId"] as? String, !jid.isEmpty else { return nil }
+                return ActiveTask(
+                    id: jid,
+                    kind: d["kind"] as? String ?? "stream",
+                    title: d["title"] as? String ?? "",
+                    detail: d["detail"] as? String ?? "",
+                    status: d["status"] as? String ?? "running",
+                    createdAt: (d["createdAt"] as? Double) ?? (d["createdAt"] as? TimeInterval) ?? 0)
+            }
+        } catch {
+            return []
+        }
+    }
+
+    func streamPoll(taskId: String, offset: Int) async throws -> (String, Bool, String, String, Bool, [[String: Any]]) {
         let (data, code): (Data, Int)
         // v2.0.116 fix：轮询也带 X-Auth-Token（后端 do_GET 统一鉴权）
         if NetworkMonitor.shared.isCellular {
@@ -502,7 +533,9 @@ final class AuthStore {
         let status = j["status"] as? String ?? ""
         let error = j["error"] as? String ?? ""
         let agent = j["agent"] as? Bool ?? false   // v2.0.96b：Agent 回复标记
-        return (content, done, status, error, agent)
+        // v3.4.23：搭载的收件箱待推消息（后端 piggyback，老后端无此键=空数组）
+        let inbox = j["inbox"] as? [[String: Any]] ?? []
+        return (content, done, status, error, agent, inbox)
     }
 
     /// v3.0.31：流式任务恢复——qingliao 服务重启后内存任务丢失（poll 404），

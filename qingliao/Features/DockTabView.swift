@@ -94,24 +94,27 @@ struct DockTabView: View {
                     Button {
                         showTaskCenter = true
                     } label: {
+                        // v3.4.23 视觉美化：真液态玻璃圆片（glassEffect）+ 未读数玻璃胶囊角标，
+                        // 对齐全站 Liquid Glass 规范（旧版 ultraThinMaterial+红点偏生硬）
                         ZStack(alignment: .topTrailing) {
-                            Image(systemName: "bell.badge")
-                                .font(.system(size: 18, weight: .medium))
+                            Image(systemName: "bell.fill")
+                                .font(.system(size: 17, weight: .semibold))
                                 .foregroundStyle(.primary)
-                                .padding(11)
-                                .background(.ultraThinMaterial)
-                                .clipShape(Circle())
-                                .shadow(color: .black.opacity(0.1), radius: 5, y: 2)
-                            if taskStore.uncompleted > 0 {
-                                Text("\(min(taskStore.uncompleted, 99))")
-                                    .font(.system(size: 10, weight: .bold))
-                                    .foregroundStyle(.white)
-                                    .padding(.horizontal, 5)
-                                    .padding(.vertical, 1)
-                                    .background(Color.red)
-                                    .clipShape(Capsule())
-                                    .offset(x: 2, y: -2)
-                            }
+                                .frame(width: 42, height: 42)
+                                .glassEffect()
+                                .overlay(
+                                    Circle().strokeBorder(Color.white.opacity(0.15), lineWidth: 0.8)
+                                )
+                                .shadow(color: .black.opacity(0.12), radius: 8, y: 3)
+                            // 未读数：小红胶囊 + 白描边（浮于玻璃片右上角）
+                            Text("\(min(taskStore.uncompleted, 99))")
+                                .font(.system(size: 11, weight: .bold, design: .rounded))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 5.5)
+                                .padding(.vertical, 2)
+                                .background(Capsule().fill(Color.red))
+                                .overlay(Capsule().strokeBorder(.white.opacity(0.85), lineWidth: 1))
+                                .offset(x: 7, y: -5)
                         }
                     }
                     .padding(.trailing, 14)
