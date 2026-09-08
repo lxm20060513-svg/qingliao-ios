@@ -334,7 +334,7 @@ final class ChatStore {
     /// 复读根因（2026-09-03 实证）：模型"续写"上下文里紧邻的旧 assistant 回复/工具播报结语，而非回答新问题。
     /// 三原则：
     ///   ① 剔脏占位——isPush / 错误占位（⚠️/HTTP Error/连接中断）已在上层 filter 剔除。
-    ///   ② 去连续重复 assistant——连续相同 assistant 只留最后一条（复读产物）。
+    ///   ② 去连续重复 assistant/user——连续相同 assistant 或 user 只留最后一条（复读产物）。
     ///   ③ 保证以 user 结尾——剥离末尾孤立 assistant/system，防模型续写旧回复；
     ///      并把"紧贴最新 user 的 assistant（msgs[-2]）"压缩为不可续写占位，断掉可续写素材。
     /// 只压缩成占位、绝不删除内容；对过期历史同样生效——喂进上下文的复读种子被抽掉，任何模型都不复读。
@@ -344,6 +344,14 @@ final class ChatStore {
             // ② 连续相同 assistant 只留最后一条（复读产物）
             if m.role == "assistant",
                let last = out.last, last.role == "assistant",
+               last.content == m.content {
+                continue
+            }
+            // ②.5 v3.4.18 复读根治：连续相同 user 只留最后一条。
+            // 发送重试/恢复错位会在历史里堆出 N 条相同 user（后端 body_dump 实证 8 条
+            // 重复 user 淹没最新问题），原样进上下文 → 模型把旧问题当最新问题作答。
+            if m.role == "user",
+               let last = out.last, last.role == "user",
                last.content == m.content {
                 continue
             }
