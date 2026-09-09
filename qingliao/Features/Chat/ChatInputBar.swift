@@ -36,10 +36,9 @@ struct ChatInputBar: View {
     @State private var ballExpanded = false   // 球 → 输入框展开态（切会话由外层 .id() 重建复位）
     // v2.0.132：点击球触发全屏粒子爆发（满屏散开）——由外层 ChatView 挂全屏特效层（局部 BurstEffect 已删，视觉重叠且双 TimelineView 掉帧）
     var onFullBurst: () -> Void = {}
-    // v3.4.19：发送按钮三态（空闲淡灰/有字蓝紫/发送回弹缩放）——仅视觉反馈，手势结构不动
-    @State private var sendScale: CGFloat = 1.0
     // v3.4.25：上下文阈值预警——外部传入上下文使用率（0-1），超 0.8 发送键变橙轻提醒
     var contextUsage: Double = 0
+    @State private var sendScale: CGFloat = 1.0
 
     // 发送按钮配色三态：语音模式=Siri 彩、空文本=淡灰、有字=蓝紫渐变
     // v3.4.25：+第四态——上下文使用率超 80% 时有字状态变橙（轻提醒，不阻断发送）
