@@ -36,6 +36,11 @@ targets:
         ITSAppUsesNonExemptEncryption: false
         # v3.4.14 系统分享接入口：声明能打开的文件类型/UTI，侧载 App 也能作为系统分享目标
         LSSupportsOpeningDocumentsInPlace: true
+        # v3.4.25：注册 qingliao:// URL Scheme——地图/Safari 分享面板更稳定出现轻聊入口
+        CFBundleURLTypes:
+          - CFBundleURLName: com.qingliao.app2
+            CFBundleURLSchemes:
+              - qingliao
         CFBundleDocumentTypes:
           - CFBundleTypeName: 图片
             LSHandlerRank: Default
