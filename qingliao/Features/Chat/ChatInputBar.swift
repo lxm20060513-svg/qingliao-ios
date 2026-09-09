@@ -110,18 +110,23 @@ struct ChatInputBar: View {
         HStack(spacing: 8) {
             Button(action: onPickAttachment) {
                 Image(systemName: "paperclip")
-                    .font(.system(size: 17))
+                    .font(.system(size: 15, weight: .medium))
                     .foregroundStyle(.secondary)
-                    .padding(4)
+                    .frame(width: 32, height: 30)
+                    // v3.4.26：附件/相机纳入胶囊语义——低透明外圈（次级操作，弱于实底发送钮）
+                    .background(Color.primary.opacity(0.05), in: Capsule())
+                    .overlay(Capsule().strokeBorder(Color.primary.opacity(0.10), lineWidth: 0.8))
             }
             .buttonStyle(.plain)
 
             // v2.0.38：拍照输入
             Button(action: onCamera) {
                 Image(systemName: "camera")
-                    .font(.system(size: 16))
+                    .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(.secondary)
-                    .padding(4)
+                    .frame(width: 32, height: 30)
+                    .background(Color.primary.opacity(0.05), in: Capsule())
+                    .overlay(Capsule().strokeBorder(Color.primary.opacity(0.10), lineWidth: 0.8))
             }
             .buttonStyle(.plain)
 

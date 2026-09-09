@@ -36,6 +36,19 @@ enum NotificationHelper {
         UNUserNotificationCenter.current().add(req)
     }
 
+    /// v3.4.26：AI 回复完成通知——正文取回复首句（不点亮屏幕也能瞥见答了什么）
+    /// 从回复文本提取第一句非空行：去 markdown 符号，截 50 字；空则回退默认文案
+    static func notifyReply(_ reply: String, sessionId: String?) {
+        var s = reply
+        for ch in ["```", "*", "`", "#", ">"] { s = s.replacingOccurrences(of: ch, with: "") }
+        let firstLine = s.components(separatedBy: .newlines).first {
+            !$0.trimmingCharacters(in: .whitespaces).isEmpty
+        }
+        let preview = (firstLine ?? "").trimmingCharacters(in: .whitespaces)
+        notify(title: "轻聊", body: preview.isEmpty ? "AI 回复完成，点击查看" : "💬 " + String(preview.prefix(50)),
+               sessionId: sessionId)
+    }
+
     /// djb2 稳定哈希（与 ChatStore.stableHash 同款；UInt64 无符号 → 天然无 abs 溢出问题）
     private static func stableHash(_ s: String) -> UInt64 {
         var h: UInt64 = 5381

@@ -12,10 +12,8 @@ import UserNotifications
 
 extension Notification.Name {
     static let qingliaoSent = Notification.Name("qingliao_sent")
-    // v2.0.102c：切回看板刷新通知（TabView 切 tab 在 iOS 27 不触发子页 onAppear 的兜底）
-    static let qingliaoDashboardRefresh = Notification.Name("qingliao_dashboard_refresh")
-    // v2.0.133f：离开看板通知——看板 30s 轮询在隐藏页也跑，切页时抢帧；隐藏时暂停轮询
-    static let qingliaoDashboardLeave = Notification.Name("qingliao_dashboard_leave")
+    // v3.4.26：看板轮询 Leave/Refresh 通知已移除——改 DockTabView → DashboardView(isActive:) 参数直传，
+    // 生命周期收进 DashboardView 自身（见 DashboardView.onChange/.task(id:)）；通知名定义随引用清除
     // v3.4.14：系统分享收件通知（DockTabView.onOpenURL 捕获分享后广播，ChatView 消费发送）
     static let qingliaoShareIncoming = Notification.Name("qingliao_share_incoming")
     // v3.4.x：任务中心「发送到当前会话」通知（TaskCenterView 广播，ChatView 消费发送）
@@ -65,7 +63,8 @@ final class QingliaoAppDelegate: NSObject, UIApplicationDelegate,
             if status == "done" || status == "error" {
                 // 回复完成 → 本地通知 + 清理持久化任务
                 let sid = d["sessionId"] as? String
-                NotificationHelper.notify(title: "轻聊", body: "AI 回复完成，点击查看", sessionId: sid)
+                // v3.4.26：正文取回复首句（后端 GET /api/stream/{taskId} 返回 content）
+                NotificationHelper.notifyReply((j["content"] as? String) ?? "", sessionId: sid)
                 UserDefaults.standard.removeObject(forKey: "qingliao_stream_pending")
                 completionHandler(.newData)
             } else {
@@ -1730,9 +1729,9 @@ struct ChatView: View {
                     // v3.0.19：语音指令回复完成 → TTS 播报摘要
 
                     // v2.0.36：App 退后台时 AI 回复完成发本地通知（v2.0.60 携带会话 id）
+                    // v3.4.26：正文取回复首句（notifyReply），不点亮屏幕可见答了什么
                     if UIApplication.shared.applicationState != .active {
-                        NotificationHelper.notify(title: "轻聊", body: "AI 回复完成，点击查看",
-                                                  sessionId: chat.sessionId)
+                        NotificationHelper.notifyReply(stream.content, sessionId: chat.sessionId)
                     }
                 }
                 // 保存会话到后端（会话记录同步）
@@ -1882,8 +1881,7 @@ struct ChatView: View {
                     // v3.0.19：语音指令回复完成 → TTS 播报摘要
 
                     if UIApplication.shared.applicationState != .active {
-                        NotificationHelper.notify(title: "轻聊", body: "AI 回复完成，点击查看",
-                                                  sessionId: chat.sessionId)
+                        NotificationHelper.notifyReply(finalText, sessionId: chat.sessionId)
                     }
                 } else if acc.text.isEmpty {
                     chat.markFailed(id: msg.id)

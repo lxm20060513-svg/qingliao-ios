@@ -8,6 +8,9 @@ enum DashboardSheet: String, Identifiable {
 }
 
 struct DashboardView: View {
+    // v3.4.26：看板是否激活（DockTabView 直传 selected == .dashboard）——替代 Leave/Refresh 通知
+    // 激活才跑 30s 轮询/切回立即刷新；去通知隐式耦合，生命周期收进自身
+    var isActive: Bool = true
     @Environment(AuthStore.self) private var auth
     @Environment(\.colorScheme) private var scheme   // v3.0.9：背景毛玻璃化深浅适配
 
@@ -371,40 +374,25 @@ struct DashboardView: View {
                 Text("场景「\(confirmSceneRun?.name ?? "")」包含安全相关动作（布防/离家/断电），执行后可能改变家庭安防状态。")
             }
         }
-        // v2.0.96b：切回看板立即刷新（对话里生成场景后看板即时联动；TabView 切回触发 onAppear）
-        // v2.0.102：单一刷新入口（onAppear 首刷+切回刷），.task 只跑 30s 轮询——修并发双刷/旧响应覆盖
-        // v2.0.102c：onReceive 通知刷新（iOS 27 切 tab 不触发 onAppear 的兜底，DockTabView 切回时发通知）
-        .onReceive(NotificationCenter.default.publisher(for: .qingliaoDashboardRefresh)) { _ in
-            // v2.0.133f：回到看板 → 恢复轮询 + 立即刷新
-            isDashboardVisible = true
-            Task {
-                await refresh()
-                await loadDockerCount()
-                await loadWeatherWithCity()
-            }
-        }
-        // v2.0.133f：离开看板 → 暂停 30s 轮询（隐藏页刷新抢帧，切页卡顿源之一）
-        .onReceive(NotificationCenter.default.publisher(for: .qingliaoDashboardLeave)) { _ in
-            isDashboardVisible = false
-        }
-        .onAppear {
-            isDashboardVisible = true
-            Task {
-                await refresh()
-                await loadDockerCount()      // v2.0.102：切回也刷 Docker 数（部署后返回看板即时更新）
-                await loadWeatherWithCity()  // v2.0.102：切回也刷天气（设置页改城市后即时生效）
-            }
-        }
-        .task {
+        // v2.0.96b：切回看板立即刷新（对话里生成场景后看板即时联动）
+        // v2.0.102：单一刷新入口（.task 首刷+轮询）——修并发双刷/旧响应覆盖
+        // v3.4.26：通知 → isActive 参数直传生命周期驱动——
+        //   DockTabView 传 selected==.dashboard；task(id:) 激活即启：首刷全套 → 30s 轮询；
+        //   离开 = task 取消（sleep 中断）→ 隐藏页零轮询不抢帧；切回 = task 重启自动首刷（等效原 Refresh 通知）
+        .task(id: isActive) {
+            guard isActive else { return }   // 隐藏态不启动（首次在非看板 tab 时无空转）
             // v2.0.86：硬件温度（CPU / NVMe）首屏加载
             await loadHw()
             // v3.0.74：从 NAS 加载钉一钉数据
             await pinStore.loadFromServer()
+            // 首刷全套（首次进入 / 每次切回 task 重启都会执行——等效原 onAppear + Refresh 通知）
+            await refresh()
+            await loadDockerCount()
+            await loadWeatherWithCity()
             // 30s 自动刷新（v2.0.87c：10→30s，省电省流量，看板数据变化不敏感）
-            // v2.0.133f：仅看板可见时刷——隐藏页轮询会抢 TabView 切页动画帧
+            // v2.0.133f：仅看板可见时刷——隐藏页轮询会抢 TabView 切页动画帧（isActive 变 false → task 取消即停）
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(30))
-                guard isDashboardVisible else { continue }
                 await refresh()
                 await loadHw()
             }
@@ -413,8 +401,6 @@ struct DashboardView: View {
 
     // MARK: - 数据
 
-    // v2.0.133g：看板是否可见（离开看板暂停 30s 轮询——隐藏页刷新抢 TabView 切页动画帧）
-    @State private var isDashboardVisible = true
     // v2.0.86：硬件温度状态
     @State private var hwCpu: Double?
     @State private var hwSsd: Double?

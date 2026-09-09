@@ -61,7 +61,9 @@ struct DockTabView: View {
                     CloudDashboardView()
                         .tabTransition(for: .dashboard, selected: $selected)
                 } else {
-                    DashboardView()
+                    // v3.4.26：isActive 参数直传（selected==.dashboard），替代 qingliaoDashboardLeave/Refresh 通知——
+                    // 轮询暂停/恢复收进 DashboardView 自身生命周期，去隐式耦合
+                    DashboardView(isActive: selected == .dashboard)
                         .tabTransition(for: .dashboard, selected: $selected)
                 }
                 if CloudConfig.shared.isCloudMode {
@@ -73,14 +75,7 @@ struct DockTabView: View {
                 }
             }
             // v3.0.60 回顾：系统 tab bar 自行处理滚动边缘玻璃；此处不再加纯色背景掐死折射
-            .onChange(of: selected) { _, new in
-                if new != .dashboard {
-                    NotificationCenter.default.post(name: .qingliaoDashboardLeave, object: nil)
-                }
-                if new == .dashboard {
-                    NotificationCenter.default.post(name: .qingliaoDashboardRefresh, object: nil)
-                }
-            }
+            // v3.4.26：切页暂停/恢复看板轮询已改参数直传（DashboardView(isActive:)），通知已移除
             // v3.4.24：任务中心悬浮入口已移除——迁入聊天页 header（三个点旁常驻小图标），
             // 见 ChatView.headerTrailingItems。此处不再挂全局 overlay（避免遮挡各页右上角按钮）。
             .task {
