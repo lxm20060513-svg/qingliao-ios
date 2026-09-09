@@ -12,7 +12,7 @@ struct TaskCenterView: View {
     @State private var filter: TaskFilter = .all
     @State private var actionItem: TaskCenterItem?
     @State private var sending = false
-    // v3.4.23：进行中任务（后端 /api/tasks/active——AI 干活中的流式任务 + 后台作业）
+    // v3.4.23：进行中任务（后端 /api/agent/tasks/active——AI 干活中的流式任务 + 后台作业；v3.4.25 改别名路径过 lucky 反代）
     @State private var activeTasks: [AuthStore.ActiveTask] = []
     @State private var activeTimer: Timer?
 

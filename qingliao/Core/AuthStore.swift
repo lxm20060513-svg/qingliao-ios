@@ -479,8 +479,9 @@ final class AuthStore {
         return j["text"] as? String ?? ""
     }
 
-    /// v3.4.23 任务中心：进行中任务（后端 /api/tasks/active）
-    /// kind=stream（AI 回复中）/ bg（后台作业）；status=running/done/error
+    /// v3.4.23 任务中心：进行中任务
+    /// v3.4.25：路径改用 /api/agent/tasks/active——16666(lucky) 反代只放行 /api/agent 前缀，
+    /// 原 /api/tasks 前缀被 lucky 404，App 主链路（https://域名:16666）拉不到任务中心
     struct ActiveTask: Identifiable {
         let id: String          // jobId
         let kind: String        // stream / bg
@@ -493,7 +494,7 @@ final class AuthStore {
     func fetchActiveTasks() async -> [ActiveTask] {
         guard !token.isEmpty else { return [] }
         do {
-            let json = try await self.json("/api/tasks/active", method: "GET")
+            let json = try await self.json("/api/agent/tasks/active", method: "GET")
             guard let arr = json["tasks"] as? [[String: Any]] else { return [] }
             return arr.compactMap { d in
                 guard let jid = d["jobId"] as? String, !jid.isEmpty else { return nil }
