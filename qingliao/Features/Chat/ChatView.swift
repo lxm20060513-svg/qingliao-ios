@@ -199,7 +199,7 @@ struct ChatView: View {
     @State var voiceAuthFailed = false
     @State var sendingLock = false   // v2.0.102：发送锁（防双击双流竞态）
     @State var autoRetryCount = 0    // v3.4.x：消息失败自动重试计数（网络类错误最多自动重试 2 次，防死循环）
-    @State private var lastSentSignature: (sessionId: String, text: String, ts: TimeInterval)?  // 同内容 60s 幂等
+    @State private var lastSentSignature: (sessionId: String, text: String, image: String?, ts: TimeInterval)?  // 同内容 60s 幂等（v3.4.27 fix：签名含图片指纹——纯图 text 恒空，无图指纹会把 60s 内第二张纯图误判重复丢弃）
     @State var fileSendBlocked = false   // v2.0.102：流式中发文件提示
     @State var voiceTooShort = false   // v2.0.102：录音太短提示
     @State var voiceDiag = ""   // v3.0.78 诊断：录音链路诊断信息
@@ -1613,11 +1613,13 @@ struct ChatView: View {
     /// v3.4.x：quotedText 参数——长按「引用」后把被引用的原文挂到消息上（气泡内可视化引用块）
     func sendCore(text: String, imageData: String?, quotedText: String? = nil) {
         // v3.4.x：同内容短时间幂等（60s 内相同文本+同会话只发一次，防抖动/重试/恢复重复投递）
+        // v3.4.27 fix：比较须含 image 指纹——纯图 text 恒空，只比 text 会把 60s 内第二张纯图误判重复丢弃（拍照/相册连发纯图被吞）
         let now = Date().timeIntervalSince1970
-        if let last = lastSentSignature, last.sessionId == chat.sessionId, last.text == text, now - last.ts < 60 {
+        if let last = lastSentSignature, last.sessionId == chat.sessionId, last.text == text,
+           last.image == imageData, now - last.ts < 60 {
             return
         }
-        lastSentSignature = (chat.sessionId, text, now)
+        lastSentSignature = (chat.sessionId, text, imageData, now)
         // v3.0.52：蜂窝下 base64 图 body 过大 → 先超强压缩（uploadImage 蜂窝大概率失败退回 base64 大 body，
         // 导致 CFStream/relay 载不动 → 后端 bad json 400；压小后直连可过）
         let imageData = compressForCellular(imageData)
