@@ -542,6 +542,8 @@ struct ChatView: View {
                 .padding(.vertical, 4)
                 .transition(.opacity)
             }
+            // v3.4.26：续聊芯片条——有消息且非流式时显示在消息区上方（话题延续入口）
+            continueChipsBar
             messageList
                 .overlay {
                     // v3.0.79：点按空白处停止录音（exitVoiceMode 注释原本就写"按钮/空白点击共用"，此处补上空白点击）
@@ -852,7 +854,9 @@ struct ChatView: View {
         chat.messages.isEmpty ? "我能帮你查资料、写代码、执行自动化任务" : "随时继续刚才的话题"
     }
 
-    /// v3.4.25：上下文感知建议芯片（icon/title/prompt 三元组，Identifiable 结构供 ForEach）
+    // v3.4.25：上下文感知建议芯片（icon/title/prompt 三元组，Identifiable 结构供 ForEach）
+    // v3.4.26 修复：原「继续话题/总结对话」组写在非空分支，但欢迎页只在空会话渲染 → 永远不显示。
+    // 现统一由 showContinueChips 控制：非空会话在 header 下方悬浮显示该组芯片（新会话仍走欢迎页）。
     private var welcomeSuggestions: [WelcomeSuggestion] {
         if chat.messages.isEmpty {
             return [
@@ -868,6 +872,38 @@ struct ChatView: View {
             WelcomeSuggestion(icon: "summarize", title: "总结对话", prompt: "请用 3-5 条要点总结我们这段对话的关键内容。"),
             WelcomeSuggestion(icon: "questionmark.bubble", title: "有疑问", prompt: "关于刚才的内容，我还有几个问题想深入。")
         ]
+    }
+
+    /// v3.4.26：续聊芯片条（非空会话且非流式时显示在消息区顶部；点按直接发送延续指令）
+    @ViewBuilder
+    private var continueChipsBar: some View {
+        if !chat.messages.isEmpty && !stream.isStreaming {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(welcomeSuggestions) { s in
+                        Button {
+                            Haptics.tap()
+                            sendCore(text: s.prompt, imageData: nil)
+                        } label: {
+                            HStack(spacing: 5) {
+                                Image(systemName: s.icon)
+                                    .font(.system(size: 11, weight: .medium))
+                                Text(s.title)
+                                    .font(.system(size: 12, weight: .medium))
+                            }
+                            .foregroundStyle(Color.accentColor)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 7)
+                            .background(Color.accentColor.opacity(0.08), in: Capsule())
+                            .overlay(Capsule().strokeBorder(Color.accentColor.opacity(0.15), lineWidth: 0.8))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 14)
+            }
+            .padding(.vertical, 6)
+        }
     }
 
     /// v3.0.51：单条消息整行（日期分隔 + 时间分隔 + 气泡）——拆独立方法防 ForEach type-check 超时
