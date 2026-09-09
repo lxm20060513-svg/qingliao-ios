@@ -139,8 +139,9 @@ func asyncDataURLImage(_ urlStr: String, displayWidthPT: CGFloat? = nil,
         decoded(img)
         return
     }
-    // v3.4.25 CI fix：key 跨并发域传给后台闭包 → 先拷贝为本地 Sendable 值（Swift 6 sending 检查）
-    let capturedKey = key
+    // v3.4.25 CI fix②：NSString 非 Sendable，跨并发域传桥接类型必触发 sending 检查。
+    // key 语义上只是不可变字符串 → 落为 String 值拷贝（Sendable），后台回调内再桥接回 NSString
+    let keyString = key as String
     _imageDecodeQueue.async {
         // v3.4.25：后台下采样解码（ImageIO），峰值内存 ≈ 档位尺寸而非原图全像素
         let img = useTier ? downsampledImage(imgData, maxPixelSize: tier) : UIImage(data: imgData)
@@ -148,7 +149,7 @@ func asyncDataURLImage(_ urlStr: String, displayWidthPT: CGFloat? = nil,
         let cost = decodedImageCost(img, fallback: imgData.count)
         DispatchQueue.main.async {
             // imageCache.totalCostLimit 已由 initImageCacheLimit 初始化（v3.4.x code review fix）
-            imageCache.setObject(img, forKey: capturedKey, cost: cost)
+            imageCache.setObject(img, forKey: keyString as NSString, cost: cost)
             decoded(img)
         }
     }
