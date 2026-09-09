@@ -450,6 +450,10 @@ struct SessionsView: View {
         isLoading = true
         errorText = nil
         lastLoadAt = Date()
+        // v3.4.x：冷启动缓存先显——联网前先读本地缓存会话列表（上次成功拉取的快照），
+        // 秒显不白屏；联网成功后再刷新覆盖。UI 已有 `isLoading && sessions.isEmpty` 判空才转圈，
+        // 因此先填缓存（sessions 非空）不会触发 loading 占位，直接展示列表。
+        loadFromSessionCache()
         // v3.0 云端模式：会话历史存 App 本地（CloudSessionStore），不走后端
         if CloudConfig.shared.isCloudMode {
             CloudSessionStore.shared.load()
@@ -464,12 +468,44 @@ struct SessionsView: View {
             // 最新 → 最旧
             sessions = raw.compactMap { ChatSession.parse($0 as? [String: Any] ?? [:]) }
                 .sorted { ($0.lastTime ?? 0) > ($1.lastTime ?? 0) }
+            // v3.4.x：联网成功写缓存（下次冷启动秒显）
+            saveToSessionCache(raw)
             // v2.0.65：同步未读红点
             chat.syncUnread(from: sessions, currentId: chat.sessionId)
         } catch {
             errorText = "加载失败，请检查连接"
         }
         isLoading = false
+    }
+
+    // MARK: - v3.4.x 会话列表冷启动缓存（秒显 + 限容防 4MB 超限）
+
+    private static let sessionCacheKey = "qingliao_sessions_cache"
+
+    /// 读本地缓存（仅本地模式）：从上次成功拉取的原始 JSON 还原会话列表。
+    /// 失败/无缓存/云端模式一律静默返回，不影响正常联网加载。
+    private func loadFromSessionCache() {
+        guard !CloudConfig.shared.isCloudMode,
+              let data = UserDefaults.standard.data(forKey: Self.sessionCacheKey),
+              let raw = try? JSONSerialization.jsonObject(with: data) as? [Any] else { return }
+        sessions = raw.compactMap { ChatSession.parse($0 as? [String: Any] ?? [:]) }
+            .sorted { ($0.lastTime ?? 0) > ($1.lastTime ?? 0) }
+        chat.syncUnread(from: sessions, currentId: chat.sessionId)
+    }
+
+    /// 写缓存：限制最近 100 个会话、每个会话消息截断最近 50 条，控制 UserDefaults 体积。
+    private func saveToSessionCache(_ raw: [Any]) {
+        guard !CloudConfig.shared.isCloudMode else { return }
+        let limited: [Any] = Array(raw.prefix(100)).map { s -> Any in
+            guard var d = s as? [String: Any] else { return s }
+            if var msgs = d["messages"] as? [Any], msgs.count > 50 {
+                d["messages"] = Array(msgs.suffix(50))
+            }
+            return d
+        }
+        if let data = try? JSONSerialization.data(withJSONObject: limited) {
+            UserDefaults.standard.set(data, forKey: Self.sessionCacheKey)
+        }
     }
 
     // v2.0.87ad：多选切换 / 批量删除

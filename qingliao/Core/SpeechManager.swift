@@ -1,4 +1,5 @@
 import AVFoundation
+import CryptoKit   // v3.4.x：TTS 缓存 key 用 SHA256 摘要（避免原文作文件名含非法字符）
 import Foundation
 
 // MARK: - v2.0.81 AI 回复朗读 SpeechManager（全局单例，多消息共用；朗读中再点停止）
@@ -82,10 +83,17 @@ final class SpeechManager: NSObject, ObservableObject, AVSpeechSynthesizerDelega
             speakViaSystem(clean, id: id)
             return
         }
+        let voice = CloudConfig.ttsVoice
+        let provider = CloudConfig.ttsProvider
+        let model = CloudConfig.ttsModel
+        // v3.4.x：TTS 本地缓存——同一段话(同 voice/provider/model)不重复请求云端，命中直接播省额度更快。
+        // 代次校验先行：缓存命中回放仍需 gen 有效（用户已切走则丢弃，不播陈旧音频）。
+        guard gen == ttsGeneration else { return }
+        if let cached = Self.readTTSCache(clean: clean, voice: voice, provider: provider, model: model) {
+            try? self.playAudio(cached)
+            return
+        }
         do {
-            let voice = CloudConfig.ttsVoice
-            let provider = CloudConfig.ttsProvider
-            let model = CloudConfig.ttsModel
             let (data, resp) = try await auth.request("/api/tts", method: "POST",
                 body: ["text": clean, "voice": voice, "provider": provider, "model": model])
             // 代次校验：请求期间用户已停止/切到别的朗读 → 丢弃过期结果
@@ -96,6 +104,7 @@ final class SpeechManager: NSObject, ObservableObject, AVSpeechSynthesizerDelega
                   let audioData = Data(base64Encoded: b64) else {
                 throw APIError.badResponse
             }
+            Self.writeTTSCache(audioData, clean: clean, voice: voice, provider: provider, model: model)
             try self.playAudio(audioData)
         } catch {
             // 代次过期不回退（用户已切走）；否则回退系统语音（不静默，保底可听）
@@ -115,6 +124,52 @@ final class SpeechManager: NSObject, ObservableObject, AVSpeechSynthesizerDelega
         p.prepareToPlay()
         p.play()
         player = p
+    }
+
+    // MARK: - v3.4.x TTS 本地缓存（同一段话不重复请求云端 /api/tts）
+
+    /// TTS 缓存目录：Documents/TTSCache。
+    private static var ttsCacheDir: URL {
+        let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("TTSCache", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    /// 缓存文件路径 = SHA256(text|voice|provider|model) 十六进制 + .mp3
+    private static func ttsCachePath(clean: String, voice: String, provider: String, model: String) -> URL {
+        let combo = "\(clean)|\(voice)|\(provider)|\(model)"
+        let digest = SHA256.hash(data: Data(combo.utf8)).map { String(format: "%02x", $0) }.joined()
+        return ttsCacheDir.appendingPathComponent(digest + ".mp3")
+    }
+
+    /// 命中缓存返回音频 Data；未命中/读取失败返回 nil。
+    private static func readTTSCache(clean: String, voice: String, provider: String, model: String) -> Data? {
+        let url = ttsCachePath(clean: clean, voice: voice, provider: provider, model: model)
+        return try? Data(contentsOf: url)
+    }
+
+    /// 写缓存（失败静默，不影响播放）；写后做容量控制。
+    private static func writeTTSCache(_ audio: Data, clean: String, voice: String, provider: String, model: String) {
+        let url = ttsCachePath(clean: clean, voice: voice, provider: provider, model: model)
+        try? audio.write(to: url)
+        evictTTSCacheIfNeeded()
+    }
+
+    /// 缓存文件超过 128 条时删最旧（按 mtime），防无限膨胀。
+    private static func evictTTSCacheIfNeeded() {
+        let dir = ttsCacheDir
+        guard let files = try? FileManager.default.contentsOfDirectory(
+            at: dir, includingPropertiesForKeys: [.contentModificationDateKey]),
+            files.count > 128 else { return }
+        let sorted = files.sorted {
+            let d0 = (try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+            let d1 = (try? $1.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+            return d0 < d1
+        }
+        for f in sorted.prefix(files.count - 128) {
+            try? FileManager.default.removeItem(at: f)
+        }
     }
 
     // MARK: - AVSpeechSynthesizerDelegate

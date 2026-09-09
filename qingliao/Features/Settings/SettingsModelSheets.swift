@@ -252,12 +252,18 @@ struct ModelSheet: View {
                         let hardcoded = ["opencode", "opencode-apple", "deepseek", "stepfun", "sensenova", "local"]
                         // v3.0.74：自定义 provider 单独渲染（见 customProvidersSection），此处跳过避免重复
                         let customIDs = Set(customProviders.map { $0.id })
-                        if !hardcoded.contains(p.id) && !customIDs.contains(p.id) && !hiddenProviders.contains(p.id) && !p.models.isEmpty {
-                            groupSection(providerDisplayName(p.id),
-                                         models: p.models.filter { !hiddenModels.contains("\(p.id):\($0)") }.map {
-                                         ($0, providerModelDisplayName(p.id, $0), p.id) },
-                                         onHideProvider: { toggleHideProvider(p.id) },
-                                         onDeleteProvider: { confirmDeleteProvider = p.id })
+                        if !hardcoded.contains(p.id) && !customIDs.contains(p.id) && !hiddenProviders.contains(p.id) {
+                            if p.models.isEmpty {
+                                // v3.4.x：key 健康自检——空 models 的 provider 主动提示 key 无效/未配置，而非静默消失
+                                ProviderKeyIssueRow(name: providerDisplayName(p.id))
+                                    .padding(.bottom, 4)
+                            } else {
+                                groupSection(providerDisplayName(p.id),
+                                             models: p.models.filter { !hiddenModels.contains("\(p.id):\($0)") }.map {
+                                             ($0, providerModelDisplayName(p.id, $0), p.id) },
+                                             onHideProvider: { toggleHideProvider(p.id) },
+                                             onDeleteProvider: { confirmDeleteProvider = p.id })
+                            }
                         }
                     }
                     // 管理隐藏的 provider（恢复入口）
@@ -1289,6 +1295,29 @@ struct WechatChannelSheet: View {
         case "ollama": return "本地模型（Ollama）"
         default: return id
         }
+    }
+}
+
+// MARK: - v3.4.x key 健康自检提示行（空 models 的 provider = key 无效/未配置，主动提示而非静默消失）
+
+struct ProviderKeyIssueRow: View {
+    let name: String
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 12))
+                .foregroundStyle(.orange)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(name)
+                    .font(.system(size: 13, weight: .medium))
+                Text("API Key 无效或未配置，未拉取到模型（请到模型管理顶部点「同步模型」或检查 key）")
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+        }
+        .padding(11)
+        .background(Color.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
     }
 }
 

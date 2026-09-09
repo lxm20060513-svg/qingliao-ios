@@ -28,9 +28,23 @@ final class VoiceRecorder: NSObject, ObservableObject, @preconcurrency AVAudioRe
         return dir.appendingPathComponent(name)
     }
 
+    /// v3.4.x：清理旧录音文件——每次开始新录音前，把 Documents 里所有 voice_asr_*.m4a 删除，
+    /// 防长会话持续堆积。安全依据：stop() 返回 url 后 uploadAndTranscribe 已同步读入内存 data，
+    /// 转写只看内存不再依赖磁盘文件；start() 前上一段录音必已结束（语音模式一次只录一段）。
+    private static func cleanupStaleRecordings() {
+        let fm = FileManager.default
+        let dir = fm.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        guard let items = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) else { return }
+        for item in items where item.lastPathComponent.hasPrefix("voice_asr_") && item.pathExtension == "m4a" {
+            try? fm.removeItem(at: item)
+        }
+    }
+
     /// 开始录音（同步：立即配置会话并开录——v3.2.4 回归 v3.0.85 前最简基线）
     /// 返回是否成功；失败 = 无麦克风权限 / 会话配置失败
     func start() -> Bool {
+        // v3.4.x：录音前清理上一段旧录音文件（防 Documents 堆积 .m4a）
+        Self.cleanupStaleRecordings()
         let session = AVAudioSession.sharedInstance()
         do {
             // v3.2.4：.record + .default —— 回归最原始，无 .voiceChat 降噪/回声消除（v3.0.85 引入后卡死）、

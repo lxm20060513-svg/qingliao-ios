@@ -167,7 +167,13 @@ final class StreamClient {
                 idleStreak += 1
                 // v3.0.57：首 token 思考期高频空轮 0.25s——首 token 落地后最快 0.25s 拉到
                 //（原 0.8s 分级，最坏要多等 0.8s 才见首字）；NAS 本机查询瞬时，空轮 0.25s 可接受
-                if interval != 0.25 { interval = 0.25 }
+                // v3.4.x：稳定空转降频——连续空转超 ~12 次(≈3s)仍无内容(长思考/挂起)降频到 0.8s 省电省流量；
+                // 一旦有内容(上方有内容分支)立即回 0.15s。首 token 阶段(空轮≤12)保持 0.25s，不牺牲首字延迟。
+                if idleStreak <= 12 {
+                    if interval != 0.25 { interval = 0.25 }
+                } else {
+                    if interval != 0.8 { interval = 0.8 }
+                }
             }
             if done {
                 finish(success: st != "error", error: err)
