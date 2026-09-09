@@ -409,7 +409,7 @@ struct ChatView: View {
                     onLongPressInput: { keyboardWasUp in toggleVoiceMode(keyboardWasUp: keyboardWasUp) },
                     // v3.0.4：云端模式无后端 ASR → 关闭全部语音入口
                     voiceEnabled: !CloudConfig.shared.isCloudMode,
-                    // v3.4.25：上下文使用率传入——超 80% 发送键变橙轻提醒
+                    // v3.4.25：上下文使用率传入——超 80% 发送键变橙轻提醒（须在 onFullBurst 前声明序）
                     contextUsage: chat.contextUsage(maxTokens: 4000),
                     // v2.0.132：点击智能球 → 全屏粒子爆发
                     onFullBurst: {
@@ -805,7 +805,7 @@ struct ChatView: View {
             // v3.4.25：上下文感知建议芯片——新会话给开场模板，续聊会话给话题延续入口
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
-                    ForEach(welcomeSuggestions, id: \.self) { s in
+                    ForEach(welcomeSuggestions) { s in
                         Button {
                             Haptics.tap()
                             if chat.messages.isEmpty {
@@ -852,21 +852,21 @@ struct ChatView: View {
         chat.messages.isEmpty ? "我能帮你查资料、写代码、执行自动化任务" : "随时继续刚才的话题"
     }
 
-    /// v3.4.25：上下文感知建议芯片（icon/title/prompt 三元组）
-    private var welcomeSuggestions: [(icon: String, title: String, prompt: String)] {
+    /// v3.4.25：上下文感知建议芯片（icon/title/prompt 三元组，Identifiable 结构供 ForEach）
+    private var welcomeSuggestions: [WelcomeSuggestion] {
         if chat.messages.isEmpty {
             return [
-                ("sparkles", "帮我写", "帮我写一份"),
-                ("character.bubble", "翻译", "请将以下内容翻译成英文：\n"),
-                ("brain", "头脑风暴", "请围绕以下主题给出 5 个有创意的点子：\n"),
-                ("list.bullet.rectangle", "待办整理", "请把以下内容整理成清晰的待办清单：\n")
+                WelcomeSuggestion(icon: "sparkles", title: "帮我写", prompt: "帮我写一份"),
+                WelcomeSuggestion(icon: "character.bubble", title: "翻译", prompt: "请将以下内容翻译成英文：\n"),
+                WelcomeSuggestion(icon: "brain", title: "头脑风暴", prompt: "请围绕以下主题给出 5 个有创意的点子：\n"),
+                WelcomeSuggestion(icon: "list.bullet.rectangle", title: "待办整理", prompt: "请把以下内容整理成清晰的待办清单：\n")
             ]
         }
         // 续聊会话：话题延续 + 通用工具
         return [
-            ("arrow.uturn.forward", "继续话题", "我们刚才聊到哪里了？请简要回顾并继续。"),
-            ("summarize", "总结对话", "请用 3-5 条要点总结我们这段对话的关键内容。"),
-            ("questionmark.bubble", "有疑问", "关于刚才的内容，我还有几个问题想深入。")
+            WelcomeSuggestion(icon: "arrow.uturn.forward", title: "继续话题", prompt: "我们刚才聊到哪里了？请简要回顾并继续。"),
+            WelcomeSuggestion(icon: "summarize", title: "总结对话", prompt: "请用 3-5 条要点总结我们这段对话的关键内容。"),
+            WelcomeSuggestion(icon: "questionmark.bubble", title: "有疑问", prompt: "关于刚才的内容，我还有几个问题想深入。")
         ]
     }
 
@@ -2274,6 +2274,14 @@ struct DealAttachmentButton: View {
 
 
 // MARK: - v3.0.27 章节列表弹窗（纯静态章节标题展示，不做大纲导航）
+
+/// v3.4.25：欢迎页建议芯片数据模型（Identifiable 供 ForEach 直接迭代）
+struct WelcomeSuggestion: Identifiable {
+    let id = UUID()
+    let icon: String
+    let title: String
+    let prompt: String
+}
 
 struct TOCSheet: View {
     let headers: [MarkdownRenderer.TOCItem]
