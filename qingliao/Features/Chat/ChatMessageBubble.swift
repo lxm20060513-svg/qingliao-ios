@@ -58,8 +58,18 @@ struct MessageBubble: View {
     private var cardMenu: some View {
         Button {
             UIPasteboard.general.string = message.content
+            Haptics.success()   // v3.4.25：复制成功触感
         } label: {
             Label("复制", systemImage: "doc.on.doc")
+        }
+        // v3.4.25：AI 回复中的地点一键开地图——从消息文本提取地址/地名，跳苹果地图（通用）；
+        // 装了高德则优先高德（国内 POI 更准）。提取不到地址（无中文地名特征）时不显示此项
+        if let addr = Self.extractAddress(from: message.content) {
+            Button {
+                Self.openInMaps(address: addr)
+            } label: {
+                Label("在地图中打开「\(addr)」", systemImage: "mappin.and.ellipse")
+            }
         }
         Button {
             onQuote()
@@ -171,12 +181,14 @@ struct MessageBubble: View {
                     } else if let img = message.imageDataURL {
                         if img.hasPrefix("http") {
                             // v3.0.37：图片持久化 —— URL 图片（已上传 NAS）用 AsyncImage 加载
-                            AIImageView(url: img)
+                            // v3.4.25：data URL 图片按气泡显示宽度下采样解码（≥100KB 大图省内存）
+                            AIImageView(url: img, displayWidthPT: 200)
                                 .frame(maxWidth: 200, maxHeight: 200)
                                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                                 .onTapGesture { onImageTap() }
                                 .contextMenu { cardMenu }
-                        } else if let uiImg = dataURLImage(img) {
+                        } else if let uiImg = dataURLImage(img, displayWidthPT: 200) {
+                            // v3.4.25：传气泡显示宽度 → ≥100KB 大图按 512/1024 档位下采样解码（内存不随原图像素放大）
                             Image(uiImage: uiImg)
                                 .resizable()
                                 .scaledToFill()
@@ -251,14 +263,39 @@ struct MessageBubble: View {
                                                     }
                                                 }
                     }
-                    // v2.0.59：发送失败 → 重试按钮（红色，点击按原内容重发）
+                    // v2.0.59：发送失败 → 重试入口
+                    // v3.4.25：微信式失败态——红色感叹号圆标 + 「消息未发出」+「点击重试」，整行可点
                     if message.isUser && message.failed {
                         Button {
                             onRetry()
                         } label: {
-                            Label("发送失败，点击重试", systemImage: "arrow.clockwise")
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundStyle(.red)
+                            HStack(spacing: 5) {
+                                Image(systemName: "exclamationmark.circle.fill")
+                                    .font(.system(size: 13))
+                                    .foregroundStyle(.red)
+                                Text("消息未发出")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(.secondary)
+                                Text("点击重试")
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundStyle(Color.accentColor)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.top, 2)
+                    }
+                    // v3.4.25：AI 错误占位 → 快捷重试行（红描边气泡下「重新生成」，免翻长按菜单）
+                    if !message.isUser && message.isErrorPlaceholder {
+                        Button {
+                            onRegenerate()
+                        } label: {
+                            HStack(spacing: 5) {
+                                Image(systemName: "arrow.clockwise")
+                                    .font(.system(size: 10, weight: .semibold))
+                                Text("重新生成")
+                                    .font(.system(size: 11, weight: .medium))
+                            }
+                            .foregroundStyle(.red.opacity(0.85))
                         }
                         .buttonStyle(.plain)
                         .padding(.top, 2)
@@ -352,10 +389,14 @@ struct MessageBubble: View {
                     }
                 )
                 // v2.0.43 搜索定位高亮边框
+                // v3.4.25：错误占位 → 红描边分层（错误一眼可辨，不再与正常回复同观感）
                 .overlay(
                     Group {
                         if isMultiBubbleAI {
                             Color.clear
+                        } else if message.isErrorPlaceholder {
+                            RoundedRectangle(cornerRadius: 15, style: .continuous)
+                                .strokeBorder(Color.red.opacity(0.55), lineWidth: 1.2)
                         } else {
                             RoundedRectangle(cornerRadius: 15, style: .continuous)
                                 .strokeBorder(isHighlighted ? Color.accentColor : .clear, lineWidth: 2)
@@ -649,6 +690,50 @@ struct MessageBubble: View {
         return data.isEmpty ? [header] : [header] + data
     }
 
+    // MARK: - v3.4.25 AI 回复地点一键开地图
+
+    /// 从消息文本提取地址/地名：优先取「地址/位于/坐标附近」等引导词后的片段，
+    /// 兜底取第一条含「路|街|区|县|市|省|大厦|广场|中心|店|餐厅|咖啡」的行前 30 字。
+    /// 提取不到（纯代码/闲聊）返回 nil，菜单不显示地图项。
+    static func extractAddress(from text: String) -> String? {
+        let leadWords = ["地址：", "地址:", "位于", "坐落在", "地图：", "位置：", "位置:"]
+        for line in text.components(separatedBy: .newlines) {
+            let t = line.trimmingCharacters(in: .whitespaces)
+            for w in leadWords {
+                if let r = t.range(of: w) {
+                    let seg = String(t[r.upperBound...]).prefix(30)
+                    if seg.count >= 2 { return String(seg) }
+                }
+            }
+        }
+        let poiKeys = ["路", "街", "大道", "区", "县", "市", "省", "大厦", "广场", "购物中心", "门店", "餐厅", "咖啡"]
+        for line in text.components(separatedBy: .newlines) {
+            let t = line.trimmingCharacters(in: .whitespaces)
+            guard t.count >= 3, t.count <= 60,
+                  !t.hasPrefix("#"), !t.hasPrefix("|"), !t.contains("```") else { continue }
+            if poiKeys.contains(where: { t.contains($0) }) {
+                return String(t.prefix(30))
+            }
+        }
+        return nil
+    }
+
+    /// 打开地图 App 查询地址：装了高德走高德（国内 POI 更准），否则苹果地图（系统自带必有）
+    static func openInMaps(address: String) {
+        let encoded = address.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? address
+        // 高德 URL Scheme：iosamap://path?dname=xxx&mode=route&src=qingliao
+        if let amap = URL(string: "iosamap://path?dname=\(encoded)&mode=route&src=qingliao"),
+           UIApplication.shared.canOpenURL(amap) {
+            UIApplication.shared.open(amap)
+            return
+        }
+        // 苹果地图通用链接（无需 info.plist 白名单）
+        if let apple = URL(string: "https://maps.apple.com/?q=\(encoded)"),
+           UIApplication.shared.canOpenURL(apple) {
+            UIApplication.shared.open(apple)
+        }
+    }
+
 }
 
 // MARK: - v2.0.128 AI 直接发图（消息内图片渲染）
@@ -659,13 +744,15 @@ struct MessageBubble: View {
 /// 尺寸：圆角 12、最大宽 240、最大高 240（与原用户图片消息一致），点击由外层 onTapGesture 处理。
 struct AIImageView: View {
     let url: String
+    // v3.4.25：显示宽度(pt)——≥100KB 大图 dataURL 按此宽度下采样解码（512/1024 档），默认 240（气泡图上限）
+    var displayWidthPT: CGFloat = 240
     @State private var image: UIImage?
     @State private var failed = false
 
     var body: some View {
         if url.hasPrefix("data:image/") {
-            // base64 data URL → 本地解码（复用 ImageCache）
-            if let img = dataURLImage(url) {
+            // base64 data URL → 本地解码（复用 ImageCache）；v3.4.25：按显示宽度下采样
+            if let img = dataURLImage(url, displayWidthPT: displayWidthPT) {
                 Image(uiImage: img)
                     .resizable()
                     .scaledToFill()

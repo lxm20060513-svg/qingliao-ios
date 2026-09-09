@@ -6,6 +6,7 @@ import SwiftUI
 
 struct GlassCard: ViewModifier {
     var cornerRadius: CGFloat = 18
+    @Environment(\.colorScheme) private var scheme   // v3.4.25：深色描边对比度需要感知深浅色
 
     func body(content: Content) -> some View {
         content
@@ -13,9 +14,11 @@ struct GlassCard: ViewModifier {
             .glassEffect()
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             // 液态玻璃自带边缘光泽，仅保留极轻描边增强边界
+            // v3.4.25：深色模式描边对比度校准——纯黑下白 0.15 描边在玻璃边缘几乎不可见（发灰糊边），
+            // 深色提到 0.22；浅色玻璃自带亮边反而过亮，降到 0.12，深浅观感一致
             .overlay(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .strokeBorder(Color.white.opacity(0.15), lineWidth: 0.8)
+                    .strokeBorder(Color.white.opacity(scheme == .dark ? 0.22 : 0.12), lineWidth: 0.8)
             )
             .shadow(color: Color.black.opacity(0.12), radius: 14, y: 5)
     }

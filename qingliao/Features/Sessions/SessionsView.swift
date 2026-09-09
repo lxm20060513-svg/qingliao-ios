@@ -17,9 +17,7 @@ struct SessionsView: View {
     @State private var searchText = ""
     // v2.0.78：搜索框焦点（键盘收回）
     @FocusState private var focused: Bool
-    @State private var searchResults: [[String: Any]] = []
-    @State private var searching = false
-    @State private var searchTask: Task<Void, Never>?
+    // v3.4.25：本地实时搜索——直接过滤内存 sessions（标题+消息内容），不再走后端接口
     @State private var pinnedIDs: Set<String> = Set(UserDefaults.standard.stringArray(forKey: "qingliao_pinned_sessions") ?? [])
     // v2.0.60：会话收藏（⭐）
     @State private var favIDs: Set<String> = Set(UserDefaults.standard.stringArray(forKey: "qingliao_fav_sessions") ?? [])
@@ -64,45 +62,21 @@ struct SessionsView: View {
                 }
                 addButton
             }))
-            // v2.0.36：会话搜索框（v2.0.78：放大镜可点收起 + 键盘完成）
+            // v3.4.25：会话搜索框（毛玻璃风格 glassListCard 与 App 列表卡一致；输入即本地过滤）
             HStack(spacing: 8) {
-                Image(systemName: isSearching ? "magnifyingglass.circle.fill" : "magnifyingglass")
+                Image(systemName: "magnifyingglass")
                     .font(.system(size: 13))
-                    .foregroundStyle(isSearching ? Color.accentColor : Color(uiColor: .tertiaryLabel))
-                    .onTapGesture {
-                        if isSearching {
-                            // 搜索中点击放大镜 = 清空并收起（含键盘）
-                            searchText = ""
-                            searchResults = []
-                            focused = false
-                        } else {
-                            focused = true
-                        }
-                    }
+                    .foregroundStyle(Color(uiColor: .tertiaryLabel))
                 TextField("搜索会话与消息", text: $searchText)
                     .font(.system(size: 14))
                     .autocorrectionDisabled()
                     .submitLabel(.search)
                     .focused($focused)
                     .onSubmit { focused = false }   // 键盘「搜索」= 收起
-                    .onChange(of: searchText) { _, new in
-                        searchTask?.cancel()
-                        guard !new.trimmingCharacters(in: .whitespaces).isEmpty else {
-                            searchResults = []
-                            return
-                        }
-                        let q = new
-                        searchTask = Task {
-                            try? await Task.sleep(for: .milliseconds(450))
-                            guard !Task.isCancelled else { return }
-                            await search(q)
-                        }
-                    }
                 if isSearching {
                     Button {
-                        searchText = ""
-                        searchResults = []
-                        focused = false   // v2.0.78：清空同时收键盘
+                        searchText = ""   // v3.4.25：清空搜索即恢复全量列表
+                        focused = false   // 清空同时收键盘
                     } label: {
                         Image(systemName: "xmark.circle.fill")
                             .font(.system(size: 14))
@@ -113,7 +87,7 @@ struct SessionsView: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
-            .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .glassListCard()   // v3.4.25：毛玻璃风格（Theme/LiquidGlass.swift GlassListCard）
             .padding(.horizontal, 14)
             .padding(.bottom, 8)
             if isLoading && sessions.isEmpty {
@@ -135,35 +109,18 @@ struct SessionsView: View {
                 ScrollView {
                     VStack(spacing: 10) {
                         if isSearching {
-                            // v2.0.36：搜索结果
-                            if searching {
-                                ProgressView().tint(.secondary).padding(.top, 30)
-                            } else if searchResults.isEmpty {
-                                // v2.0.65：空状态插画
-                                VStack(spacing: 10) {
-                                    ZStack {
-                                        Circle()
-                                            .fill(LinearGradient(colors: [Color.teal.opacity(0.25), Color.blue.opacity(0.15)],
-                                                                 startPoint: .topLeading, endPoint: .bottomTrailing))
-                                            .frame(width: 64, height: 64)
-                                        Image(systemName: "magnifyingglass")
-                                            .font(.system(size: 24))
-                                            .foregroundStyle(Color.teal.opacity(0.7))
-                                    }
-                                    Text("未找到相关内容")
-                                        .font(.system(size: 13))
-                                        .foregroundStyle(.secondary)
-                                    Text("换个关键词试试，可搜索消息内容")
-                                        .font(.system(size: 11))
-                                        .foregroundStyle(.tertiary)
-                                }
-                                .padding(.top, 40)
+                            // v3.4.25：本地过滤结果（标题 + 消息内容，实时无防抖）
+                            if filteredSessions.isEmpty {
+                                // v3.4.25：无匹配空态 → 统一 EmptyStateView 场景插画
+                                EmptyStateView(icon: "magnifyingglass",
+                                               title: "未找到相关会话",
+                                               subtitle: "换个关键词试试，可搜索标题与消息内容",
+                                               iconColors: [.teal, .blue])
+                                    .padding(.top, 20)
                             } else {
-                                VStack(spacing: 8) {
-                                    ForEach(Array(searchResults.enumerated()), id: \.offset) { _, r in
-                                        SearchResultRow(result: r) {
-                                            openSearchResult(r)
-                                        }
+                                LazyVStack(spacing: 8) {
+                                    ForEach(filteredSessions) { s in
+                                        sessionCell(s)
                                     }
                                 }
                             }
@@ -345,6 +302,17 @@ struct SessionsView: View {
         }
     }
 
+    /// v3.4.25：本地实时过滤——匹配标题或任一消息内容（大小写不敏感）；
+    /// 复用 sortedSessions 排序（置顶 > 收藏 > 时间），清空搜索词即恢复全量
+    private var filteredSessions: [ChatSession] {
+        let q = searchText.trimmingCharacters(in: .whitespaces)
+        guard !q.isEmpty else { return sortedSessions }
+        return sortedSessions.filter { s in
+            if s.title.localizedCaseInsensitiveContains(q) { return true }
+            return s.messages.contains { $0.content.localizedCaseInsensitiveContains(q) }
+        }
+    }
+
     /// v3.0.51：会话 cell（SessionRow + 长按菜单）——拆辅助函数，防嵌套 ForEach type-check 超时
     @ViewBuilder
     private func sessionCell(_ s: ChatSession) -> some View {
@@ -471,40 +439,6 @@ struct SessionsView: View {
                 }]],
                 "deleted": [] as [Any]
             ])
-        }
-    }
-
-    private func search(_ q: String) async {
-        searching = true
-        defer { searching = false }
-        guard let j = try? await auth.json("/api/sessions/search", method: "POST", body: ["q": q]),
-              let arr = j["results"] as? [[String: Any]] else {
-            // v2.0.102：失败时仅当查询词未变才清空（防旧请求晚到覆盖新结果）
-            if q == searchText { searchResults = [] }
-            return
-        }
-        // v2.0.102：竞态防护——旧查询响应晚到时不覆盖新查询结果
-        if q == searchText {
-            searchResults = arr
-        }
-    }
-
-    /// 搜索结果 → 打开对应会话（按 id 从完整列表找到并加载），并定位命中消息
-    private func openSearchResult(_ r: [String: Any]) {
-        let sid = r["id"] as? String ?? ""
-        if let s = sessions.first(where: { $0.id == sid }) {
-            chat.load(s)
-            chat.markRead(s.id)   // v2.0.65 打开即读
-            // v2.0.43：设置定位目标（ChatView 滚动+高亮命中消息）
-            if let hits = r["hits"] as? [[String: Any]], let first = hits.first {
-                chat.highlightTarget = (role: first["role"] as? String ?? "assistant",
-                                        content: first["content"] as? String ?? "")
-            } else {
-                chat.highlightTarget = nil
-            }
-            searchText = ""
-            searchResults = []
-            onOpenSession?()
         }
     }
 
@@ -701,54 +635,6 @@ struct BotCard: View {
     }
 }
 
-// MARK: - v2.0.36 搜索结果行（会话标题 + 命中片段）
-
-struct SearchResultRow: View {
-    let result: [String: Any]
-    var action: () -> Void = {}
-
-    var body: some View {
-        HStack(spacing: 12) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(LinearGradient(colors: [Color.green.opacity(0.18), Color.teal.opacity(0.12)],
-                                         startPoint: .topLeading, endPoint: .bottomTrailing))
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 14))
-                    .foregroundStyle(Color.green.opacity(0.8))
-            }
-            .frame(width: 38, height: 38)
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text(result["title"] as? String ?? "新对话")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-                if let hits = result["hits"] as? [[String: Any]], let first = hits.first {
-                    Text((first["snippet"] as? String) ?? "")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                }
-            }
-            Spacer(minLength: 8)
-            Image(systemName: "chevron.right")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.tertiary)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 11)
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.09), lineWidth: 0.8)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .contentShape(Rectangle())
-        .onTapGesture { action() }
-    }
-}
-
 // MARK: - 会话行
 
 struct SessionRow: View {
@@ -760,15 +646,42 @@ struct SessionRow: View {
     var checked = false
     var action: () -> Void = {}
 
+    // MARK: - v3.4.25 会话头像个性化（id hash → 稳定的色系×图标组合）
+
+    /// 8 组柔和渐变色系（深浅色都保证白图标可读：主色 0.75 + 辅色 0.55 透明度）
+    private var avatarColors: [Color] {
+        let palettes: [[Color]] = [
+            [.blue, .indigo], [.orange, .pink], [.green, .mint], [.purple, .indigo],
+            [.cyan, .blue], [.pink, .red], [.yellow, .orange], [.teal, .green]
+        ]
+        let idx = abs(avatarHash) % palettes.count
+        return [palettes[idx][0].opacity(0.75), palettes[idx][1].opacity(0.55)]
+    }
+
+    /// 6 个语义图标（纯视觉映射，非关键词解析——hash 稳定即可）
+    private var avatarIcon: String {
+        let icons = ["bubble.left.fill", "text.bubble.fill", "chevron.left.forwardslash.chevron.right",
+                     "sparkles", "lightbulb.fill", "book.fill"]
+        return icons[abs(avatarHash >> 3) % icons.count]
+    }
+
+    private var avatarHash: Int {
+        var h = 0
+        for b in session.id.utf8 { h = (h &* 31 &+ Int(b)) & 0xFFFFFFF }
+        return h
+    }
+
     var body: some View {
         HStack(spacing: 12) {
+            // v3.4.25：会话头像个性化——按会话 id hash 稳定映射到 8 色系 × 6 图标组合，
+            // 不同类型会话一眼可辨（微信式视觉锚点）；hash 稳定 = 同一会话永远同一头像
             ZStack {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(LinearGradient(colors: [Color.blue.opacity(0.18), Color.indigo.opacity(0.12)],
+                    .fill(LinearGradient(colors: avatarColors,
                                          startPoint: .topLeading, endPoint: .bottomTrailing))
-                Image(systemName: "bubble.left.fill")
-                    .font(.system(size: 15))
-                    .foregroundStyle(Color.blue.opacity(0.8))
+                Image(systemName: avatarIcon)
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.92))
             }
             .frame(width: 38, height: 38)
 

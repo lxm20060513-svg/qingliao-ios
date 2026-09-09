@@ -38,11 +38,15 @@ struct ChatInputBar: View {
     var onFullBurst: () -> Void = {}
     // v3.4.19：发送按钮三态（空闲淡灰/有字蓝紫/发送回弹缩放）——仅视觉反馈，手势结构不动
     @State private var sendScale: CGFloat = 1.0
+    // v3.4.25：上下文阈值预警——外部传入上下文使用率（0-1），超 0.8 发送键变橙轻提醒
+    var contextUsage: Double = 0
 
     // 发送按钮配色三态：语音模式=Siri 彩、空文本=淡灰、有字=蓝紫渐变
+    // v3.4.25：+第四态——上下文使用率超 80% 时有字状态变橙（轻提醒，不阻断发送）
     private var sendColors: [Color] {
         if voiceMode { return [.blue, .indigo, .pink] }
         if text.isEmpty { return [Color(uiColor: .systemGray4), Color(uiColor: .systemGray3)] }
+        if contextUsage > 0.8 { return [.orange, .yellow.opacity(0.9)] }
         return [.blue, .indigo]
     }
 
@@ -53,6 +57,7 @@ struct ChatInputBar: View {
             try? await Task.sleep(for: .seconds(0.12))
             withAnimation(.spring(response: 0.3, dampingFraction: 0.45)) { sendScale = 1.0 }
         }
+        Haptics.tap()   // v3.4.25：统一触感——发送 = 轻点
         onSend()
     }
 

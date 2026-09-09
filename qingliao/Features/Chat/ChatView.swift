@@ -409,6 +409,8 @@ struct ChatView: View {
                     onLongPressInput: { keyboardWasUp in toggleVoiceMode(keyboardWasUp: keyboardWasUp) },
                     // v3.0.4：云端模式无后端 ASR → 关闭全部语音入口
                     voiceEnabled: !CloudConfig.shared.isCloudMode,
+                    // v3.4.25：上下文使用率传入——超 80% 发送键变橙轻提醒
+                    contextUsage: chat.contextUsage(maxTokens: 4000),
                     // v2.0.132：点击智能球 → 全屏粒子爆发
                     onFullBurst: {
                         showFullBurst = true
@@ -653,7 +655,15 @@ struct ChatView: View {
         .sheet(isPresented: $showTOCSheet) {
             TOCSheet(headers: MarkdownRenderer.extractHeaders(
                 chat.messages.filter { $0.role == "assistant" }.map(\.content).joined(separator: "\n")
-            ))
+            ), onNavigate: { item in
+                // v3.4.25：章节真导航——复用会话搜索的 highlightTarget 定位机制滚动+高亮
+                let msgs = chat.messages
+                if item.lineIndex < msgs.count {
+                    let target = msgs[item.lineIndex]
+                    chat.highlightTarget = (role: target.role, content: target.content)
+                    showTOCSheet = false
+                }
+            })
             .presentationDetents([.medium])
         }
         .fileImporter(isPresented: $showFileImporter,
@@ -731,8 +741,15 @@ struct ChatView: View {
         while let p = ShareRouter.shared.dequeue() {
             if let image = p.image, let data = compressImage(image) {
                 sendCore(text: p.text ?? "", imageData: data)
-            } else if let loc = p.location {
+            } else if let loc = p.location, loc.coordinate.isValid {
+                // v3.4.25：短链无坐标时 isValid=false → 走降级分支，避免"坐标：nan,nan"落消息
                 sendCore(text: Self.locationMessage(loc, placeName: p.sourceName, originLink: p.text), imageData: nil)
+            } else if p.location != nil {
+                // 地图短链未解析出坐标：只发地点名+原链，AI 端自行从链接解析位置
+                let link = p.text ?? ""
+                let name = p.sourceName ?? ""
+                let fallback = name.isEmpty ? "📍 我分享了一个位置链接：\(link)" : "📍 我分享了一个位置：\(name)\n分享链接：\(link)"
+                sendCore(text: fallback, imageData: nil)
             } else {
                 sendCore(text: p.text ?? "", imageData: nil)
             }
@@ -763,25 +780,94 @@ struct ChatView: View {
     private var welcomeView: some View {
         VStack(spacing: 12) {
             ZStack {
+                // v3.4.25：粒子球版 logo（复用 OrbEngine，与流式头像同语言）替代静态渐变圆
                 Circle()
-                    .fill(LinearGradient(colors: [.blue, .indigo, .purple],
+                    .fill(LinearGradient(colors: [.blue.opacity(0.10), .indigo.opacity(0.06)],
                                          startPoint: .topLeading, endPoint: .bottomTrailing))
-                    .frame(width: 72, height: 72)
-                    .shadow(color: .indigo.opacity(0.25), radius: 12, y: 4)
+                    .frame(width: 96, height: 96)
+                OrbCanvasView(mode: .orbits, size: 96)
+                    .allowsHitTesting(false)
                 Image(systemName: "bubble.left.and.bubble.right.fill")
                     .font(.system(size: 28))
                     .foregroundStyle(.white)
+                    .shadow(color: .indigo.opacity(0.35), radius: 6, y: 2)
             }
-            Text("你好，我是轻聊")
+            // v3.4.25：问候语随时段变化
+            Text(welcomeGreeting)
                 .font(.system(size: 17, weight: .bold))
                 .foregroundStyle(
                     LinearGradient(colors: [.blue, .purple],
-                                   startPoint: .leading, endPoint: .trailing)
+                                   startPoint: .topLeading, endPoint: .bottomTrailing)
                 )
-            Text("输入消息与 AI 对话")
+            Text(welcomeSubtitle)
                 .font(.system(size: 13))
                 .foregroundStyle(.secondary)
+            // v3.4.25：上下文感知建议芯片——新会话给开场模板，续聊会话给话题延续入口
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(welcomeSuggestions, id: \.self) { s in
+                        Button {
+                            Haptics.tap()
+                            if chat.messages.isEmpty {
+                                inputText = s.prompt
+                                inputFocus = true
+                            } else {
+                                // 续聊场景直接发送延续指令
+                                sendCore(text: s.prompt, imageData: nil)
+                            }
+                        } label: {
+                            HStack(spacing: 5) {
+                                Image(systemName: s.icon)
+                                    .font(.system(size: 11, weight: .medium))
+                                Text(s.title)
+                                    .font(.system(size: 12, weight: .medium))
+                            }
+                            .foregroundStyle(Color.accentColor)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 7)
+                            .background(Color.accentColor.opacity(0.08), in: Capsule())
+                            .overlay(Capsule().strokeBorder(Color.accentColor.opacity(0.15), lineWidth: 0.8))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 24)
+            }
         }
+    }
+
+    /// v3.4.25：时段问候语
+    private var welcomeGreeting: String {
+        let h = Calendar.current.component(.hour, from: Date())
+        switch h {
+        case 5..<11: return "早上好 ☀️"
+        case 11..<13: return "中午好 🌤"
+        case 13..<18: return "下午好 🌤"
+        case 18..<23: return "晚上好 🌙"
+        default: return "夜深了 🌌"
+        }
+    }
+
+    private var welcomeSubtitle: String {
+        chat.messages.isEmpty ? "我能帮你查资料、写代码、执行自动化任务" : "随时继续刚才的话题"
+    }
+
+    /// v3.4.25：上下文感知建议芯片（icon/title/prompt 三元组）
+    private var welcomeSuggestions: [(icon: String, title: String, prompt: String)] {
+        if chat.messages.isEmpty {
+            return [
+                ("sparkles", "帮我写", "帮我写一份"),
+                ("character.bubble", "翻译", "请将以下内容翻译成英文：\n"),
+                ("brain", "头脑风暴", "请围绕以下主题给出 5 个有创意的点子：\n"),
+                ("list.bullet.rectangle", "待办整理", "请把以下内容整理成清晰的待办清单：\n")
+            ]
+        }
+        // 续聊会话：话题延续 + 通用工具
+        return [
+            ("arrow.uturn.forward", "继续话题", "我们刚才聊到哪里了？请简要回顾并继续。"),
+            ("summarize", "总结对话", "请用 3-5 条要点总结我们这段对话的关键内容。"),
+            ("questionmark.bubble", "有疑问", "关于刚才的内容，我还有几个问题想深入。")
+        ]
     }
 
     /// v3.0.51：单条消息整行（日期分隔 + 时间分隔 + 气泡）——拆独立方法防 ForEach type-check 超时
@@ -1178,7 +1264,13 @@ struct ChatView: View {
             // v3.0.51 A1：会话加载后重传残留 base64 图片（重启续传/失败重传）
             Task { await chat.retryPendingImageUploads(auth: auth) }
         }
+        // v3.4.25：改双重触发——count（增删）+ lastID（整组替换/清空重建时 count 不变，仅靠
+        // sessionId 兜底会漏渲染；lastID 变化补上「同条数内容替换」场景，且流式 tick 不改 lastID，
+        // 不引入额外高频重建）
         .onChange(of: chat.messages.count) {
+            refreshVisibleMessages()
+        }
+        .onChange(of: chat.messages.last?.id ?? "") { _, _ in
             refreshVisibleMessages()
         }
         .onChange(of: chat.pendingNewSession) { _, pending in
@@ -1372,10 +1464,15 @@ struct ChatView: View {
         guard !text.isEmpty || img != nil else { return }
         // v2.0.36：引用回复（markdown 引用块注入，AI 可见上下文）
         // v3.4.x：quotedText 存原始引用文本，供气泡内可视化引用块渲染（与上方 markdown 注入并存）
+        // v3.4.25：引用指令显式化——注入带定位提示的引用前缀，让模型明确「回答的是针对这条旧消息的新问题」，
+        //          而非把引用原文又复述一遍（长会话里引用一条很久之前的消息时尤其重要）
         let quotedText = quotedMessage?.content
         if let q = quotedMessage, !text.isEmpty {
             let quoted = q.content.replacingOccurrences(of: "\n", with: "\n> ")
-            text = "> " + quoted + "\n\n" + text
+            let quoteHint = q.isUser
+                ? "\n\n（我在引用我之前发的一条消息并向你提问，请针对这条消息的内容回答下方新问题，不要复述原文）"
+                : "\n\n（我在引用你之前的一条回复并向你提问，请针对该回复的内容回答下方新问题，不要重复输出该回复）"
+            text = "> " + quoted + quoteHint + "\n\n" + text
         }
         // v2.0.102：清空输入框移到发送确认之后——长上下文弹窗点"取消"时草稿保留（修复草稿丢失）
         quotedMessage = nil
@@ -1530,7 +1627,7 @@ struct ChatView: View {
         }
         guard !sendingLock else { return }   // 双击保护：第一次发送的流尚未置位时，第二次直接忽略
         sendingLock = true
-        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        Haptics.tap()   // v3.4.25：统一触感
         // v2.0.65：发送通知 → Dock 聊天图标轻跳
         NotificationCenter.default.post(name: .qingliaoSent, object: nil)
         var msg = ChatMessage.local(role: "user", content: text, imageDataURL: imageData)
@@ -1987,7 +2084,10 @@ struct ChatView: View {
 
     /// v2.0.59：失败消息重试（移除失败标记后按原内容重发）
     func retryMessage(_ msg: ChatMessage) {
-        guard !stream.isStreaming else { return }
+        guard !stream.isStreaming else {
+            Haptics.error()   // v3.4.25：流式中重试被拒 → 错误触感
+            return
+        }
         if let idx = chat.messages.firstIndex(where: { $0.id == msg.id }) {
             chat.messages.remove(at: idx)
         }
@@ -2177,6 +2277,8 @@ struct DealAttachmentButton: View {
 
 struct TOCSheet: View {
     let headers: [MarkdownRenderer.TOCItem]
+    // v3.4.25：章节点击导航回调——传入后行可点，滚动到对应消息并高亮（复用 highlightTarget 机制）
+    var onNavigate: ((MarkdownRenderer.TOCItem) -> Void)? = nil
 
     var body: some View {
         NavigationStack {
@@ -2194,6 +2296,16 @@ struct TOCSheet: View {
                                           weight: item.level == 1 ? .bold : .medium))
                             .foregroundStyle(.primary)
                         Spacer()
+                        if onNavigate != nil {
+                            Image(systemName: "arrow.up.right")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        // v3.4.25：真导航（此前注释自认"点击导航不可靠"，highlightTarget 机制已稳定后启用）
+                        onNavigate?(item)
                     }
                     .listRowBackground(Color.clear)
                 }

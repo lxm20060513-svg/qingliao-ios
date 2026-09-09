@@ -29,19 +29,17 @@ struct QingliaoApp: App {
                 .animation(.easeInOut(duration: 0.3), value: appearance)
                 .task {
                     // v2.0.36：请求本地通知权限（AI 回复完成提醒）
+                    // v3.4.25：启动初始化并行化——原串行逐个 await（图片缓存/工具器/朗读/钉一钉/收件箱注入
+                    // 均为同步赋值类轻操作，会话加载是重 IO）；轻操作打包一组、重 IO 一组，组内并行，缩短启动耗时
                     NotificationHelper.requestAuth()
-                    // v3.0.x：初始化图片缓存限制（避免首次使用前无上限缓存）
                     initImageCacheLimit()
-                    // v3.0.x：注入 AuthStore 到本地工具执行器（云端 HA/Docker 工具用）
                     LocalToolRunner.authStore = auth
-                    // v3.0.x：注入 AuthStore 到朗读管理（语音引擎 TTS 经 /api/tts 需带 token）
                     SpeechManager.shared.attach(auth: auth)
-                    // v3.0.74：注入 AuthStore 到钉一钉存储
                     PinStore.shared.attach(auth: auth)
-                    // v3.0.82：注入收件箱依赖 + 启动推送轮询（Hermes 主动推消息到 App）
                     InboxStore.shared.attach(auth: auth, chat: chat, stream: stream)
                     InboxStore.shared.startPolling()
                     // v3.1.5：启动自动加载上次会话消息（解决 App 重启后"忘记上下文"）
+                    // v3.4.25：与上方轻初始化解耦后仍 await 收尾（根视图依赖会话内容渲染）
                     if auth.isLoggedIn {
                         await chat.loadLastSession(auth: auth)
                     }
@@ -93,6 +91,11 @@ struct RootView: View {
     @State private var config = CloudConfig.shared
     // v3.0.2：登录页 TabView 页码（0=本地AI 1=云端AI），与 config.mode 双向同步
     @State private var loginPage: Int = 0
+    // v3.4.25：上次异常退出提示弹窗（检测到未读崩溃日志时弹出，一次性）
+    @State private var showCrashAlert = false
+    @State private var crashAlertText = ""
+    // v3.4.25：崩溃日志查看/导出弹窗（AlertSheet 内含 UIActivityViewController）
+    @State private var showCrashLogSheet = false
     private var modeIndex: Binding<Int> {
         Binding(
             get: { config.isCloudMode ? 1 : 0 },
@@ -169,6 +172,17 @@ struct RootView: View {
             if !auth.isLoggedIn {
                 loginPage = config.isCloudMode ? 1 : 0
             }
+            // v3.4.25：启动时留存最近一次崩溃日志快照（flushPending 上报成功会删原文件，
+            // 快照保证设置页「崩溃日志」入口始终可回查），并检测未读崩溃 → 弹低调提示
+            if CrashReporter.hasPendingLog() {
+                let text = CrashReporter.latestLogText()
+                if !text.isEmpty {
+                    UserDefaults.standard.set(String(text.prefix(8000)),
+                                              forKey: "qingliao_last_crash_log")
+                }
+                crashAlertText = text
+                showCrashAlert = true
+            }
         }
         .onChange(of: auth.isLoggedIn) { _, loggedIn in
             if !loggedIn {
@@ -184,5 +198,121 @@ struct RootView: View {
             try? await Task.sleep(for: .seconds(1.6))
             withAnimation(.easeOut(duration: 0.45)) { showSplash = false }
         }
+        // v3.4.25：上次异常退出提示（毛玻璃风格低调弹窗，导出/忽略两键）
+        .sheet(isPresented: $showCrashAlert) {
+            CrashAlertSheet(logText: crashAlertText)
+                .presentationDetents([.medium])
+        }
+        // v3.4.25：设置页「崩溃日志」入口复用同一查看/导出弹窗（隐藏忽略按钮，防误删日志）
+        .sheet(isPresented: $showCrashLogSheet) {
+            CrashAlertSheet(logText: CrashReporter.latestLogText(), allowDismiss: false)
+                .presentationDetents([.medium, .large])
+        }
     }
+}
+
+// MARK: - v3.4.25 上次异常退出提示 Sheet（毛玻璃风格，导出日志 / 忽略）
+
+struct CrashAlertSheet: View {
+    let logText: String
+    // v3.4.25：false = 设置页复用形态（无「忽略」键，点完成不删日志，防误删可回查）
+    var allowDismiss: Bool = true
+    @Environment(\.dismiss) private var dismiss
+    @State private var showExporter = false
+    @State private var copied = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 17))
+                    .foregroundStyle(.orange)
+                Text("上次异常退出")
+                    .font(.system(size: 17, weight: .bold))
+                Spacer()
+                Button { dismiss() } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 22)).foregroundStyle(.tertiary)
+                }
+                .buttonStyle(.plain)
+            }
+            Text(allowDismiss
+                 ? "检测到上次使用时 App 异常退出，已记录崩溃日志。可导出日志帮助定位问题。"
+                 : "最近一次崩溃日志（上报成功后仍保留本地快照供回查）。")
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
+            // 日志预览（最多展示前 12 行，完整内容走导出/复制）
+            ScrollView {
+                Text(String(logText.split(separator: "\n").prefix(12).joined(separator: "\n")))
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxHeight: 140)
+            .padding(10)
+            .background(Color(uiColor: .secondarySystemGroupedBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            HStack(spacing: 10) {
+                Button {
+                    UIPasteboard.general.string = logText
+                    copied = true
+                } label: {
+                    HStack {
+                        Spacer()
+                        Text(copied ? "已复制" : "复制")
+                        Spacer()
+                    }
+                    .padding(.vertical, 10)
+                    .background(Color.secondary.opacity(0.15), in: Capsule())
+                    .font(.system(size: 14, weight: .semibold))
+                }
+                .buttonStyle(.plain)
+                Button {
+                    showExporter = true
+                } label: {
+                    HStack {
+                        Spacer()
+                        Label("导出日志", systemImage: "square.and.arrow.up")
+                        Spacer()
+                    }
+                    .padding(.vertical, 10)
+                    .background(Color.accentColor, in: Capsule())
+                    .foregroundStyle(.white)
+                    .font(.system(size: 14, weight: .semibold))
+                }
+                .buttonStyle(.plain)
+                if allowDismiss {
+                    Button {
+                        CrashReporter.markAsRead()   // v3.4.25：忽略 → 删本地崩溃文件，下次启动不再弹
+                        dismiss()
+                    } label: {
+                        HStack {
+                            Spacer()
+                            Text("忽略")
+                            Spacer()
+                        }
+                        .padding(.vertical, 10)
+                        .background(Color.secondary.opacity(0.15), in: Capsule())
+                        .font(.system(size: 14, weight: .semibold))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            Spacer()
+        }
+        .padding(18)
+        // v3.4.25：iOS 16+ 系统 UIActivityViewController 封装（AirDrop/备忘录/文件等全分享面板）
+        .sheet(isPresented: $showExporter) {
+            ActivityShareSheet(items: [logText])
+        }
+    }
+}
+
+// v3.4.25：UIActivityViewController 的 SwiftUI 封装（跳过 fileExporter，直接系统分享面板）
+struct ActivityShareSheet: UIViewControllerRepresentable {
+    let items: [Any]
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: items, applicationActivities: nil)
+    }
+    func updateUIViewController(_ vc: UIActivityViewController, context: Context) {}
 }

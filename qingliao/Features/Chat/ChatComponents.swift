@@ -168,12 +168,27 @@ struct MessageBlockView: View {
                 // （对齐 65 行 streaming 语义注释）。cachedRenderText 按 text.hashValue 判键，流式每帧
                 // 文本不同 → 全量 MarkdownRenderer 解析整段已输出文本 = O(n²)（长回复尾部卡顿主因）。
                 // 纯文本渲染零解析；落库后的静态消息仍走下方完整 markdown 渲染路径
-                Text(text)
-                    .font(.system(size: CGFloat(fontSize)))
-                    .lineSpacing(aiLineSpacing)
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                // v3.4.25：尾部窗口渲染——超长回复（>3000字）流式中只渲染末尾 3000 字。
+                // Text 每帧全量排版 O(n)，几万字时打字后期每帧排版成本线性涨 = 长回答越打越卡；
+                // 窗口化后每帧排版成本恒定，头部已滚出屏幕的内容流式完成后由落库渲染补全
+                if text.count > 3000 {
+                    let tail = String(text.suffix(3000))
+                    // 从字符边界对齐到最近换行，避免窗口起点切断 Markdown 语法/中文词
+                    let aligned = tail.firstIndex(of: "\n").map { String(tail[$0...]) } ?? tail
+                    Text(aligned)
+                        .font(.system(size: CGFloat(fontSize)))
+                        .lineSpacing(aiLineSpacing)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    Text(text)
+                        .font(.system(size: CGFloat(fontSize)))
+                        .lineSpacing(aiLineSpacing)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
             } else if useSwiftUIText && text.count <= 6000 {
                 // v3.0.17：流式输出中的 AI 长文 —— SwiftUI Text 原生渲染，无 UITextView 布局锁/字体缩放问题
                 // v3.0.18：AI 消息落库后也保持 SwiftUI Text（不再切回 UITextView）——根治"字挤小框"
@@ -222,14 +237,11 @@ struct MessageBlockView: View {
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(.tertiary)
                     Spacer()
-                    Button {
-                        UIPasteboard.general.string = text
-                    } label: {
-                        Label("复制", systemImage: "doc.on.doc")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(Color.accentColor)
-                    }
-                    .buttonStyle(.plain)
+                    // v3.4.25：代码块复制按钮重做——低调半透明 doc.on.doc 图标（无文字），点击复制
+                    // 代码正文（fence 围栏已在 blocks(for:) 拆段时剥离，text 本就不含 ```），
+                    // 短暂显示 checkmark 反馈 1.5s 后还原；按压有 opacity 缩放反馈。
+                    // 拆成独立小 View：深层嵌套大视图里加子视图易触发 SwiftUI type-check 超时（类级坑）
+                    CodeCopyButton(codeText: text)
                 }
                 ScrollView(.horizontal, showsIndicators: false) {
                     // v3.4.x：有语言标记 → 语法高亮；无 → 纯等宽字（原行为）
@@ -256,6 +268,58 @@ struct MessageBlockView: View {
             MarkdownTableView(rows: rows)
                 .contextMenu { bubbleMenu }
         }
+    }
+}
+
+// MARK: - v3.4.25 代码块复制按钮（独立小 View：避免大 body 嵌套 type-check 超时）
+
+/// v3.4.25：低调半透明按钮样式——常态 opacity 0.55，按压时高亮 + 微缩放（isPressed 驱动，
+/// 不用手势叠加：DragGesture 挂 Button 上与 tap 手势有互相干扰风险）
+private struct CodeCopyButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .opacity(configuration.isPressed ? 1.0 : 0.55)
+            .scaleEffect(configuration.isPressed ? 0.88 : 1.0)
+            .animation(.easeInOut(duration: 0.12), value: configuration.isPressed)
+    }
+}
+
+/// 低调半透明的复制按钮：SF Symbol doc.on.doc，点击复制代码正文（不含 ``` 围栏），
+/// 短暂显示 checkmark 反馈 1.5s 后还原；hover（iPad 指针悬停）高亮，按压有反馈。
+private struct CodeCopyButton: View {
+    let codeText: String
+    // v3.4.25：复制成功反馈（true = 显示 checkmark）
+    @State private var copied = false
+    // v3.4.25：还原定时任务（重复点击先取消旧任务，避免 checkmark 提前消失）
+    @State private var resetTask: Task<Void, Never>? = nil
+    // v3.4.25：hover 状态（iPad 指针悬停高亮）
+    @State private var hovered = false
+
+    var body: some View {
+        Button {
+            UIPasteboard.general.string = codeText
+            // UISelectionFeedbackGenerator：轻触感反馈（低成本，点击有实感）
+            UISelectionFeedbackGenerator().selectionChanged()
+            copied = true
+            resetTask?.cancel()
+            resetTask = Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 1_500_000_000)
+                guard !Task.isCancelled else { return }
+                copied = false
+            }
+        } label: {
+            Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(copied ? Color.green : Color.secondary)
+                .padding(4)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(CodeCopyButtonStyle())
+        // v3.4.25：hover（iPad 指针/悬停）反馈——半透明 → 完全不透明
+        .opacity(hovered ? 1.0 : 0.55)
+        .animation(.easeInOut(duration: 0.15), value: hovered)
+        .onHover { hovered = $0 }
+        .accessibilityLabel(copied ? "已复制" : "复制代码")
     }
 }
 

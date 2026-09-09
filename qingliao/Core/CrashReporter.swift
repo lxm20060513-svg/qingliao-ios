@@ -170,3 +170,52 @@ enum CrashReporter {
         }
     }
 }
+
+// MARK: - v3.4.25 本地崩溃日志：下次启动提示 + 设置页查看/导出
+
+extension CrashReporter {
+    /// v3.4.25：本地是否留有未读崩溃日志（crash_pending.json 或 crash_stack.txt 任一存在）
+    static func hasPendingLog() -> Bool {
+        let path = qlCrashFilePath()
+        if FileManager.default.fileExists(atPath: path) { return true }
+        let stackPath = ((path as NSString).deletingLastPathComponent) + "/crash_stack.txt"
+        return FileManager.default.fileExists(atPath: stackPath)
+    }
+
+    /// v3.4.25：读取最近一次崩溃日志全文（类型/时间/detail + crash_stack.txt 调用栈）。
+    /// 文件被 flushPending 上报成功后删除时，回退启动时留存的 UserDefaults 快照
+    /// （qingliao_last_crash_log，RootView onAppear 写入），保证设置页随时可回查。
+    static func latestLogText() -> String {
+        var out = ""
+        let path = qlCrashFilePath()
+        if let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+           let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            let type = (obj["type"] as? String) ?? "Unknown"
+            let detail = (obj["detail"] as? String) ?? ""
+            let ts = (obj["ts"] as? Double) ?? 0
+            var head = "类型: " + type
+            if ts > 0 {
+                let f = DateFormatter()
+                f.dateFormat = "yyyy-MM-dd HH:mm:ss"
+                head += "  时间: " + f.string(from: Date(timeIntervalSince1970: ts))
+            }
+            out = head + "\n" + detail
+        }
+        let stackPath = ((path as NSString).deletingLastPathComponent) + "/crash_stack.txt"
+        if let s = try? String(contentsOfFile: stackPath, encoding: .utf8), !s.isEmpty {
+            out = out.isEmpty ? s : out + "\n" + s
+        }
+        if out.isEmpty {
+            out = UserDefaults.standard.string(forKey: "qingliao_last_crash_log") ?? ""
+        }
+        return out
+    }
+
+    /// v3.4.25：标记已读（用户点「忽略」或已导出）→ 删除本地崩溃文件，下次启动不再弹窗
+    static func markAsRead() {
+        let path = qlCrashFilePath()
+        try? FileManager.default.removeItem(atPath: path)
+        let stackPath = ((path as NSString).deletingLastPathComponent) + "/crash_stack.txt"
+        try? FileManager.default.removeItem(atPath: stackPath)
+    }
+}

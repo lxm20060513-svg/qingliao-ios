@@ -26,7 +26,7 @@ targets:
       properties:
         CFBundleDisplayName: 轻聊
         CFBundleShortVersionString: "3.4.25"
-        CFBundleVersion: "428"
+        CFBundleVersion: "429"
         NSLocationWhenInUseUsageDescription: 用于获取当前定位显示天气信息
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
@@ -41,6 +41,9 @@ targets:
           - CFBundleURLName: com.qingliao.app2
             CFBundleURLSchemes:
               - qingliao
+        # v3.4.25：AI 回复地点一键开地图——查询高德是否安装（canOpenURL 必须先声明白名单）
+        LSApplicationQueriesSchemes:
+          - iosamap
         CFBundleDocumentTypes:
           - CFBundleTypeName: 图片
             LSHandlerRank: Default

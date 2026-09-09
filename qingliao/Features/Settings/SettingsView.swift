@@ -47,6 +47,8 @@ struct SettingsView: View {
     @AppStorage(UserDefaultsKey.agentProvider) var agentProvider = ""
     // v2.0.116：执行历史弹窗
     @State var showHistory = false
+    // v3.4.25：崩溃日志查看/导出弹窗
+    @State var showCrashLog = false
     // v2.0.117：本地模型（Ollama 断网兜底）
     @AppStorage("qingliao_local_model") var localModelOn = false
     @State var localModelSyncing = false   // v-review fix：程序化回写开关时抑制 onChange 回声 POST
@@ -156,6 +158,11 @@ struct SettingsView: View {
         // v2.0.116：执行历史弹窗
         .sheet(isPresented: $showHistory) {
             HistorySheet()
+        }
+        // v3.4.25：崩溃日志查看/导出弹窗
+        .sheet(isPresented: $showCrashLog) {
+            CrashAlertSheet(logText: CrashReporter.latestLogText(), allowDismiss: false)
+                .presentationDetents([.medium, .large])
         }
         // v2.0.118：本地模型管理弹窗
         .sheet(isPresented: $showLocalModels) {

@@ -229,8 +229,10 @@ final class ChatStore {
         // 实证（2026-09-08 晚 stream dump）：恢复链路 anchor 失配/重试路径会把同一条旧回答
         // 重复落库 3 次（msg1==msg3==msg7，1284 字完全相同）——原去重只查锚点同轮区域/末尾
         // 8 条，隔了新消息就漏。旧回答一旦重复进历史，模型每轮都能看到 → 持续复读。
-        // 新回答文本不可能与历史完全一致，此处拦截零误伤。
-        if messages.contains(where: { $0.role == "assistant" && $0.content == text }) {
+        // v3.4.25：加长度门槛——短回复（≤30字）不同上下文可合法同文（"好的"/"1"），全历史
+        // 查重会误吞；只对长回复做全历史拦截，短回复仍走锚点区域去重兜底。
+        if text.count > 30,
+           messages.contains(where: { $0.role == "assistant" && $0.content == text }) {
             return
         }
         if let anchorID = afterUserID,
@@ -409,9 +411,25 @@ final class ChatStore {
         }
     }
 
+    // v3.4.25：写库串行链——所有 saveToServer 的实际网络写经此 FIFO 排队。
+    // 根治乱序覆盖：旧快照的网络写若慢于新快照（500ms 防抖后仍可能并发在途），
+    // 后到者会以旧消息数组覆盖新数组丢消息；串行链保证写入顺序 = 调度顺序，
+    // 最终落库状态必为最新快照。
+    private var saveWriteChain: Task<Void, Never> = Task {}
+
     /// 参数化快照版：切换会话前调用——切换会清空 messages，异步保存若不捕获快照会读到空数组丢会话。
     /// v3.4.x fix：图片消息保留 imageDataURL，避免重启/切会话后只剩 [图片] 占位
     func saveToServer(auth: AuthStore, sessionId sid: String, messages msgs: [ChatMessage], title t: String) async {
+        let prev = saveWriteChain
+        saveWriteChain = Task { [weak self] in
+            await prev.value   // 等前一个写完成（FIFO）
+            await self?.writeSessionSnapshot(auth: auth, sessionId: sid, messages: msgs, title: t)
+        }
+        await saveWriteChain.value
+    }
+
+    /// 实际写库（原 saveToServer 参数版逻辑，移入此名；由串行链调用）
+    private func writeSessionSnapshot(auth: AuthStore, sessionId sid: String, messages msgs: [ChatMessage], title t: String) async {
         guard !msgs.isEmpty else { return }
         if CloudConfig.shared.isCloudMode {
             CloudSessionStore.shared.saveChat(sessionId: sid, messages: msgs, title: t)

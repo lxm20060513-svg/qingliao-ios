@@ -172,6 +172,11 @@ extension SettingsView {
             Divider().padding(.leading, 52)
             SettingRow(icon: "doc.text.fill", iconColor: .orange, title: "日志", chevron: true)
                 .onTapGesture { showLogs = true }
+            // v3.4.25：崩溃日志查看/导出入口
+            Divider().padding(.leading, 52)
+            SettingRow(icon: "exclamationmark.triangle.fill", iconColor: .red, title: "崩溃日志",
+                       value: CrashReporter.hasPendingLog() ? "有待查看" : "查看最近一次", chevron: true)
+                .onTapGesture { showCrashLog = true }
             // v3.0.74：钉一钉存储路径
             Divider().padding(.leading, 52)
             SettingRow(icon: "pin.fill", iconColor: .indigo, title: "钉一钉存储",
