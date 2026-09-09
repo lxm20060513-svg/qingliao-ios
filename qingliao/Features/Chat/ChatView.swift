@@ -409,13 +409,13 @@ struct ChatView: View {
                     onLongPressInput: { keyboardWasUp in toggleVoiceMode(keyboardWasUp: keyboardWasUp) },
                     // v3.0.4：云端模式无后端 ASR → 关闭全部语音入口
                     voiceEnabled: !CloudConfig.shared.isCloudMode,
-                    // v3.4.25：上下文使用率传入——超 80% 发送键变橙轻提醒（须在 onFullBurst 前声明序）
-                    contextUsage: chat.contextUsage(maxTokens: 4000),
-                    // v2.0.132：点击智能球 → 全屏粒子爆发
+                    // v2.0.132：点击智能球 → 全屏粒子爆发（声明序在 contextUsage 前，调用序须一致）
                     onFullBurst: {
                         showFullBurst = true
                         Task { try? await Task.sleep(for: .seconds(1.55)); showFullBurst = false }
-                    })
+                    },
+                    // v3.4.25：上下文使用率传入——超 80% 发送键变橙轻提醒
+                    contextUsage: chat.contextUsage(maxTokens: 4000))
                     // v2.0.129：球态输入框 —— 绑定会话 id，切会话重建复位（展开态在切会话后回球态）
                     .id(chat.sessionId)
                     // v2.0.135：消费输入栏区域的点击，防冒泡到消息区 ZStack 根手势误收键盘
