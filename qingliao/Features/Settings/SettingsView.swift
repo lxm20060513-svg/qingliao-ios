@@ -52,7 +52,9 @@ struct SettingsView: View {
     // v2.0.116：执行历史弹窗
     @State var showHistory = false
     // v3.4.25：崩溃日志查看/导出弹窗
-    @State var showCrashLog = false
+    // v3.6.0：原独立「崩溃日志」弹窗整合进「诊断」页（DiagnosticsView 内含崩溃日志分组），
+    //         避免两个重复又可能互相矛盾的入口；本页不再单独持有该弹窗状态。
+    @State var showDiagnostics = false
     // v2.0.117：本地模型（Ollama 断网兜底）
     @AppStorage("qingliao_local_model") var localModelOn = false
     @State var localModelSyncing = false   // v-review fix：程序化回写开关时抑制 onChange 回声 POST
@@ -171,9 +173,10 @@ struct SettingsView: View {
         .sheet(isPresented: $showHistory) {
             HistorySheet()
         }
-        // v3.4.25：崩溃日志查看/导出弹窗
-        .sheet(isPresented: $showCrashLog) {
-            CrashAlertSheet(logText: CrashReporter.latestLogText(), allowDismiss: false)
+        // v3.6.0：原「崩溃日志」行整合为「诊断」页（App 自身诊断：版本/设备/网络/后端连通性/
+        // 崩溃与卡顿记录/一键复制导出/手动上报），崩溃日志查看导出在该页内，入口不再重复。
+        .sheet(isPresented: $showDiagnostics) {
+            DiagnosticsView()
                 .presentationDetents([.medium, .large])
         }
         // v2.0.118：本地模型管理弹窗

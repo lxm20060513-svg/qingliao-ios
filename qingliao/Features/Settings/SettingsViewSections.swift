@@ -176,11 +176,12 @@ extension SettingsView {
             Divider().padding(.leading, 52)
             SettingRow(icon: "doc.text.fill", iconColor: .orange, title: "日志", chevron: true)
                 .onTapGesture { showLogs = true }
-            // v3.4.25：崩溃日志查看/导出入口
+            // v3.6.0：崩溃日志入口整合为「诊断」页（App 自身诊断 + 崩溃/卡顿自上报）
             Divider().padding(.leading, 52)
-            SettingRow(icon: "exclamationmark.triangle.fill", iconColor: .red, title: "崩溃日志",
-                       value: CrashReporter.hasPendingLog() ? "有待查看" : "查看最近一次", chevron: true)
-                .onTapGesture { showCrashLog = true }
+            SettingRow(icon: "stethoscope", iconColor: .red, title: "诊断",
+                       value: CrashReporter.hasPendingLog() ? "有待查看" : "设备/网络/崩溃记录",
+                       chevron: true)
+                .onTapGesture { showDiagnostics = true }
             // v3.0.74：钉一钉存储路径
             Divider().padding(.leading, 52)
             SettingRow(icon: "pin.fill", iconColor: .indigo, title: "钉一钉存储",
