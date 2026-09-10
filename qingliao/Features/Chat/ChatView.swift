@@ -160,6 +160,8 @@ struct ChatView: View {
     @State var sentOK = false
     @State var serverOnline: Bool?   // 服务器连接状态（真实绿点）
     // v2.0.36：引用回复 / 图片查看器 / 导出
+    // v3.4.29：图片 zoom 转场命名空间（气泡小图 → 全屏大图的生长关系）
+    @Namespace private var zoomNS
     @State var quotedMessage: ChatMessage?
     @State var viewerPayload: ImageViewPayload?
     @State var showMoreMenu = false
@@ -937,7 +939,8 @@ struct ChatView: View {
     @ViewBuilder
     private func chatMessageBubble(_ msg: ChatMessage) -> some View {
         MessageBubble(message: msg,
-                      isHighlighted: msg.id == highlightMessageID) {
+                      isHighlighted: msg.id == highlightMessageID,
+                      zoomNS: zoomNS) {   // v3.4.29：zoom 转场（非闭包实参须在 trailing closure 之前）
             regenerate(at: msg.id)
         } onBigBang: { text in
             bigBangPayload = BigBangPayload(text: text)
@@ -958,7 +961,7 @@ struct ChatView: View {
             pinStore.add(content: text, sourceSessionId: chat.sessionId, sourceRole: msg.role)
             UINotificationFeedbackGenerator().notificationOccurred(.success)
         } onAIImageTap: { url in
-            openAIImage(url)
+            openAIImage(url, sourceID: msg.id)   // v3.4.29：带转场源
         } onMultiSelect: {
             // v3.3.0：长按菜单「多选」——进入多选模式并预选本条
             if stream.isStreaming {
@@ -1347,7 +1350,13 @@ struct ChatView: View {
         }
         // v2.0.36：图片大图查看器（v2.0.62 相册翻页）
         .fullScreenCover(item: $viewerPayload) { p in
-            ImageViewer(images: p.images, index: p.index)
+            // v3.4.29：zoom 转场——全屏大图从被点的小图"生长"出来（iOS 18+ 原生，支持 fullScreenCover）
+            if p.sourceID.isEmpty {
+                ImageViewer(images: p.images, index: p.index)
+            } else {
+                ImageViewer(images: p.images, index: p.index)
+                    .navigationTransition(.zoom(sourceID: p.sourceID, in: zoomNS))
+            }
         }
         // v2.0.36：导出会话记录
         .fileExporter(isPresented: $showExporter,
@@ -2090,15 +2099,15 @@ struct ChatView: View {
         guard !images.isEmpty,
               let rawIdx = imgMsgs.firstIndex(where: { $0.element.id == msg.id }) else { return }
         let idx = min(rawIdx, images.count - 1)   // v2.0.102：坏图跳过导致偏移时钳制
-        viewerPayload = ImageViewPayload(images: images, index: idx)
+        viewerPayload = ImageViewPayload(images: images, index: idx, sourceID: msg.id)   // v3.4.29：转场源
     }
 
     /// v2.0.128：AI 消息内图片点击 → 打开大图查看器（单张）
     /// data URL 直接解码进查看器；http(s) URL 双通道下载（URLSession → 自签证书降级 CFStream）
-    func openAIImage(_ url: String) {
+    func openAIImage(_ url: String, sourceID: String = "") {
         if url.hasPrefix("data:image/") {
             if let img = dataURLImage(url) {
-                viewerPayload = ImageViewPayload(images: [img], index: 0)
+                viewerPayload = ImageViewPayload(images: [img], index: 0, sourceID: sourceID)
             }
             return
         }
@@ -2107,7 +2116,7 @@ struct ChatView: View {
             let img = await Self.downloadImage(url: url, u: u)
             guard let img else { return }
             await MainActor.run {
-                viewerPayload = ImageViewPayload(images: [img], index: 0)
+                viewerPayload = ImageViewPayload(images: [img], index: 0, sourceID: sourceID)
             }
         }
     }

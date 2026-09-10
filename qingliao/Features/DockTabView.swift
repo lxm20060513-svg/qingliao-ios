@@ -160,7 +160,7 @@ private struct TabTransitionModifier: ViewModifier {
         content
             .tag(tab)
             .tabItem { Label(tab.title, systemImage: tab.icon) }
-            .scaleEffect(appeared ? 1 : 0.97, anchor: .center)
+            .scaleEffect(appeared ? 1 : 0.985, anchor: .center)   // v3.4.29：0.97→0.985，入场更细腻
             .animation(Motion.snap, value: appeared)
             .onAppear {
                 Task { try? await Task.sleep(for: .seconds(0.01)); appeared = true }

@@ -7,6 +7,31 @@ struct ImageViewPayload: Identifiable {
     let id = UUID()
     let images: [UIImage]   // v2.0.62：全部图片消息（相册翻页）
     var index: Int
+    // v3.4.29：zoom 转场源 id（被点气泡的消息 id）；空 = 不做转场（走系统默认呈现）
+    var sourceID: String = ""
+}
+
+// MARK: - v3.4.29 图片 zoom 转场源修饰器
+// iOS 18+ matchedTransitionSource 需与目标侧 .navigationTransition(.zoom(sourceID:in:)) 配对；
+// ns 为空时原样返回（不参与转场）。抽成修饰器避免在每个图片分支写 if 分支。
+struct ZoomSourceModifier: ViewModifier {
+    let id: String
+    let ns: Namespace.ID?
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if let ns {
+            content.matchedTransitionSource(id: id, in: ns)
+        } else {
+            content
+        }
+    }
+}
+
+extension View {
+    func zoomSource(id: String, ns: Namespace.ID?) -> some View {
+        modifier(ZoomSourceModifier(id: id, ns: ns))
+    }
 }
 
 // v2.0.62：相册式查看器——横向滑动翻页 + 每页双击/捏合缩放 + 保存

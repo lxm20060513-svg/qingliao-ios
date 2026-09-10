@@ -6,6 +6,8 @@ import SwiftUI
 struct MessageBubble: View {
     let message: ChatMessage
     var isHighlighted: Bool = false   // v2.0.43 搜索定位高亮
+    // v3.4.29：图片 zoom 转场命名空间（气泡小图 → 全屏大图生长）
+    var zoomNS: Namespace.ID? = nil
     var onRegenerate: () -> Void = {}
     var onBigBang: (String) -> Void = { _ in }
     var onQuote: () -> Void = {}      // v2.0.36 引用回复
@@ -188,6 +190,7 @@ struct MessageBubble: View {
                             AIImageView(url: img, displayWidthPT: AdaptiveLayout.chatImageMax(hSize))
                                 .frame(maxWidth: AdaptiveLayout.chatImageMax(hSize), maxHeight: AdaptiveLayout.chatImageMax(hSize))
                                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                .zoomSource(id: message.id, ns: zoomNS)   // v3.4.29：zoom 转场源
                                 .onTapGesture { onImageTap() }
                                 .contextMenu { cardMenu }
                         } else if let uiImg = dataURLImage(img, displayWidthPT: AdaptiveLayout.chatImageMax(hSize)) {
@@ -197,6 +200,7 @@ struct MessageBubble: View {
                                 .scaledToFill()
                                 .frame(maxWidth: AdaptiveLayout.chatImageMax(hSize), maxHeight: AdaptiveLayout.chatImageMax(hSize))
                                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                .zoomSource(id: message.id, ns: zoomNS)   // v3.4.29：zoom 转场源
                                 // v2.0.36：点击查看大图
                                 .onTapGesture { onImageTap() }
                                 // v2.0.125：图片长按菜单（原气泡级菜单移到这里，不抢占文字长按）

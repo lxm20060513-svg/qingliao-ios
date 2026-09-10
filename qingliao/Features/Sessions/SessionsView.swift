@@ -335,6 +335,12 @@ struct SessionsView: View {
                 onOpenSession?()
             }
         }
+        // v3.4.29：滚动层次感——行进出视口时轻微缩放 + 淡出（须在 LazyVStack 内）
+        .scrollTransition(.interactive, axis: .vertical) { content, phase in
+            content
+                .scaleEffect(phase.isIdentity ? 1 : 0.965)
+                .opacity(phase.isIdentity ? 1 : 0.75)
+        }
         .contextMenu {
             Button {
                 togglePin(s)
