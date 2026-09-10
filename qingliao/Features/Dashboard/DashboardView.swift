@@ -93,7 +93,7 @@ struct DashboardView: View {
                                         .padding(.vertical, 4)
                                         .background(Color.accentColor.opacity(0.12), in: Capsule())
                                 }
-                                .buttonStyle(.plain)
+                                .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
                                 .foregroundStyle(Color.accentColor)
                             }
                         }
@@ -119,7 +119,7 @@ struct DashboardView: View {
                                     .padding(.vertical, 6)
                                     .background(Color.accentColor.opacity(0.12), in: Capsule())
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
                             .foregroundStyle(Color.accentColor)
                         }
                     }
@@ -931,7 +931,7 @@ struct ServiceControlSheet: View {
                 .background(Color(uiColor: .secondarySystemGroupedBackground))  // v2.0.87h：弹窗玻璃下扁平化
                 .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
             .padding(.horizontal, 16)
             .padding(.top, 10)
 
@@ -969,7 +969,7 @@ struct ServiceControlSheet: View {
                         .strokeBorder(Color.red.opacity(0.25), lineWidth: 1)
                 )
             }
-            .buttonStyle(.plain)
+            .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
             .padding(.horizontal, 16)
             .padding(.top, 10)
             .confirmationDialog("停止后轻聊将完全不可用，需在 NAS 上手动启动", isPresented: $showStopConfirm, titleVisibility: .visible) {
@@ -1157,7 +1157,7 @@ struct HADeviceSheet: View {
                     .strokeBorder(Color.primary.opacity(isOn ? 0.28 : 0.10), lineWidth: 0.8)
             )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
     }
 
     // MARK: - 空调卡（PWA climate-card 复刻：跨行渐变卡 + 电源圆钮 + 模式胶囊）
@@ -1201,7 +1201,7 @@ struct HADeviceSheet: View {
                     .frame(width: 32, height: 32)
                     .shadow(color: isOn ? Color.accentColor.opacity(0.5) : .clear, radius: 6)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
             }
 
             // 温度：目标大字 + 室温 + 步进
@@ -1227,7 +1227,7 @@ struct HADeviceSheet: View {
                         .frame(width: 30, height: 30)
                         .background(Color(uiColor: .systemGray5), in: Circle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
                 Button {
                     setTemp(e, value: target + step)
                 } label: {
@@ -1236,7 +1236,7 @@ struct HADeviceSheet: View {
                         .frame(width: 30, height: 30)
                         .background(Color(uiColor: .systemGray5), in: Circle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
             }
 
             // 模式按钮行
@@ -1261,7 +1261,7 @@ struct HADeviceSheet: View {
                                     .strokeBorder(active ? Color.accentColor.opacity(0.5) : Color.clear, lineWidth: 1.2)
                             )
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
                 }
             }
 
@@ -1286,7 +1286,7 @@ struct HADeviceSheet: View {
                                             .fill(active ? Color.indigo : Color(uiColor: .systemGray5))
                                     )
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
                         }
                     }
                 }

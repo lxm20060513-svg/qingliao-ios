@@ -17,7 +17,7 @@ struct FullScreenBurst: View {
         // 类型错误会让编译器报外层 generic parameter 'Content' could not be inferred（check_swift.sh 查不出）
         GeometryReader { geo in
             // 粒子层：160 颗飞散粒子（v2.0.138：波纹层已移除，仅粒子）
-            let schedule: AnimationTimelineSchedule = .animation(minimumInterval: 1.0 / 60.0)
+            let schedule: AnimationTimelineSchedule = .animation(minimumInterval: 1.0 / 30.0)
             TimelineView(schedule) { context in
                 BurstCanvas(date: context.date, spawn: spawn)
             }

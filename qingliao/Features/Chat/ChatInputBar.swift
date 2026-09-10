@@ -125,7 +125,7 @@ struct ChatInputBar: View {
                     .background(Color.primary.opacity(0.05), in: Capsule())
                     .overlay(Capsule().strokeBorder(Color.primary.opacity(0.10), lineWidth: 0.8))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
 
             // v2.0.38：拍照输入
             Button(action: onCamera) {
@@ -136,7 +136,7 @@ struct ChatInputBar: View {
                     .background(Color.primary.opacity(0.05), in: Capsule())
                     .overlay(Capsule().strokeBorder(Color.primary.opacity(0.10), lineWidth: 0.8))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
 
             if isRecording {
                 // v3.2.4：录音中 UI 回归最原始静态样式（v3.0.85 前基线）——红点 + 松开上屏，
@@ -214,7 +214,7 @@ struct ChatInputBar: View {
                         // v3.4.21：停止按钮 Circle → 红胶囊（与发送按钮 Capsule 同族，二元控件形态统一）
                         .background(Color.red.opacity(0.8), in: Capsule())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
             }
 
             // v2.0.96：发送按钮——普通发送；语音模式下点击=退出；长按=进入语音转文字（Siri 彩色图标）
@@ -238,7 +238,7 @@ struct ChatInputBar: View {
                                 // v3.4.21：红胶囊（与停止/发送按钮同族）
                                 .background(Color.red.opacity(0.85), in: Capsule())
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
                     }
                 } else {
                     Image(systemName: voiceMode ? "waveform" : "arrow.up")

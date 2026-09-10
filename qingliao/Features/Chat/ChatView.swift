@@ -299,7 +299,7 @@ struct ChatView: View {
                     }
                 }
             }
-            .buttonStyle(.plain)
+            .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
             .accessibilityLabel("任务中心")
 
             Button {
@@ -309,7 +309,7 @@ struct ChatView: View {
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(Color.accentColor)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
         }
     }
 
@@ -823,7 +823,7 @@ struct ChatView: View {
                             .background(Color.accentColor.opacity(0.08), in: Capsule())
                             .overlay(Capsule().strokeBorder(Color.accentColor.opacity(0.15), lineWidth: 0.8))
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
                     }
                 }
                 .padding(.horizontal, 24)
@@ -889,7 +889,7 @@ struct ChatView: View {
                                 .background(.ultraThinMaterial, in: Capsule())
                                 .overlay(Capsule().strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.8))
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
                     }
                 }
                 .padding(.horizontal, 14)
@@ -1058,7 +1058,7 @@ struct ChatView: View {
                     .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(Color.accentColor)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
             Text("已选 \(selectedMsgIDs.count) 条")
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(.secondary)
@@ -1070,7 +1070,7 @@ struct ChatView: View {
                     .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(.secondary)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
             Button {
                 mergeAndShare()
             } label: {
@@ -1087,7 +1087,7 @@ struct ChatView: View {
                         in: Capsule()
                     )
             }
-            .buttonStyle(.plain)
+            .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
             .disabled(selectedMsgIDs.isEmpty)
         }
         .padding(.horizontal, 14)
@@ -1151,7 +1151,7 @@ struct ChatView: View {
                                                 .padding(.horizontal, 14)
                                                 .background(Color.secondary.opacity(0.08), in: Capsule())
                                             }
-                                            .buttonStyle(.plain)
+                                            .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
                                             .padding(.bottom, 2)
                                         }
                                         ForEach(visibleMessagesCache) { entry in

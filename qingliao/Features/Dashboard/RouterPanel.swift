@@ -84,7 +84,7 @@ struct RouterPanel: View {
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(Color.accentColor)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
                 .disabled(router.busy)
             }
 
@@ -166,7 +166,7 @@ struct ClashSheet: View {
                     .padding(.vertical, 18)
                     .background(Color.green.gradient, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
                 .disabled(router.busy)
 
                 // 关闭 Clash
@@ -189,7 +189,7 @@ struct ClashSheet: View {
                     .padding(.vertical, 18)
                     .background(Color.red.gradient, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
                 .disabled(router.busy)
             }
             Spacer()

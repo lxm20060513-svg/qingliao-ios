@@ -60,7 +60,7 @@ struct SessionsView: View {
                             .font(.system(size: 18, weight: .medium))
                             .foregroundStyle(editing ? Color.accentColor : Color.secondary)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
                 }
                 addButton
             }))
@@ -211,7 +211,7 @@ struct SessionsView: View {
                             .font(.system(size: 13, weight: .medium))
                             .foregroundStyle(Color.accentColor)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
                     Spacer()
                     Text("\(selectedIds.count) 条")
                         .font(.system(size: 13))
@@ -227,7 +227,7 @@ struct SessionsView: View {
                             .background(selectedIds.isEmpty ? Color.red.opacity(0.4) : Color.red,
                                         in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
                     .disabled(selectedIds.isEmpty)
                 }
                 .padding(.horizontal, 18)
@@ -293,7 +293,7 @@ struct SessionsView: View {
                 .foregroundStyle(Color.accentColor)
                 .symbolEffect(.bounce, value: plusBounceTick)   // v3.4.29：新建图标弹动
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
     }
 
     // MARK: - v2.0.36 搜索 / 置顶
