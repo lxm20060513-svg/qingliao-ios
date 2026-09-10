@@ -373,6 +373,7 @@ final class CloudConfig {
     private static let _ttsSupported: [(provider: String, model: String, label: String)] = [
         ("xiaomi", "mimo-v2.5-tts", "小米 MiMo"),
         ("zai", "glm-tts", "智谱 GLM"),
+        ("stepfun", "stepaudio-2.5-tts", "阶跃 StepAudio"),
     ]
     /// 公开访问器（供 UI 动态读取，未来支持插件追加）
     static var ttsSupported: [(provider: String, model: String, label: String)] {
@@ -389,10 +390,19 @@ final class CloudConfig {
     static let zaiTtsVoices: [(name: String, id: String)] = [
         ("女声", "female"), ("男声", "male"),
     ]
+    /// v3.5.x：阶跃 StepAudio 2.5 TTS 预置音色（voice id 已实测 200）
+    static let stepfunTtsVoices: [(name: String, id: String)] = [
+        ("磁性男声", "cixingnansheng"), ("温柔男声", "wenrounansheng"),
+        ("气质温婉（女）", "elegantgentle-female"), ("活力轻快（女）", "livelybreezy-female"),
+    ]
 
     /// 按模型返回音色列表
     static func ttsVoicesFor(provider: String, model: String) -> [(name: String, id: String)] {
-        provider == "zai" ? zaiTtsVoices : xiaomiTtsVoices
+        switch provider {
+        case "zai": return zaiTtsVoices
+        case "stepfun": return stepfunTtsVoices
+        default: return xiaomiTtsVoices
+        }
     }
     /// 按 provider/model 过滤支持 TTS 的模型（allProviders 传入）——只显示已同步到模型列表（=配置了 key）的，防选了但调用失败
     static func ttsModelOptions(from providers: [(id: String, models: [String])]) -> [(provider: String, model: String, label: String)] {
