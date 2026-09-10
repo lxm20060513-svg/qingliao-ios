@@ -29,8 +29,8 @@ targets:
         CFBundleDevelopmentRegion: zh_CN
         CFBundleLocalizations:
           - zh-Hans
-        CFBundleShortVersionString: "3.5.2"
-        CFBundleVersion: "436"
+        CFBundleShortVersionString: "3.6.0"
+        CFBundleVersion: "437"
         NSLocationWhenInUseUsageDescription: 用于获取当前定位显示天气信息
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:

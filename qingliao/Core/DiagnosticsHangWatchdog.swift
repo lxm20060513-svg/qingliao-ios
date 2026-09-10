@@ -257,7 +257,8 @@ final class HangWatchdog: @unchecked Sendable {
             var cnt = mach_msg_type_number_t(MemoryLayout<arm_thread_state64_t>.size / MemoryLayout<Int32>.size)
             let ok = withUnsafeMutablePointer(to: &st) { p -> Bool in
                 p.withMemoryRebound(to: natural_t.self, capacity: Int(cnt)) { np in
-                    thread_get_state(mainPort, thread_flavor_t(ARM_THREAD_STATE64), np, &cnt) == KERN_SUCCESS
+                    // thread_state_flavor_t 是 Int32（ARM_THREAD_STATE64 是 UInt32 常量），必须显式转换
+                    thread_get_state(mainPort, thread_state_flavor_t(ARM_THREAD_STATE64), np, &cnt) == KERN_SUCCESS
                 }
             }
             if ok {
@@ -317,15 +318,17 @@ final class HangWatchdog: @unchecked Sendable {
     private func captureMainThreadInfo() {
         let pt = pthread_self()
         mainPort = pthread_mach_thread_np(pt)
-        guard let sp = pthread_get_stackaddr_np(pt) else {
+        // pthread_get_stackaddr_np 返回非可选指针（栈顶）；拿不到栈大小就整体置 0 = 不采样
+        let sp = pthread_get_stackaddr_np(pt)
+        let top = UInt64(UInt(bitPattern: sp))
+        let size = UInt64(pthread_get_stacksize_np(pt))
+        guard top > size else {
             stackLow = 0
             stackHigh = 0
             return
         }
-        let top = UInt64(UInt(bitPattern: sp))
-        let size = UInt64(pthread_get_stacksize_np(pt))
         stackHigh = top
-        stackLow = top > size ? (top - size) : 0
+        stackLow = top - size
     }
 
     // MARK: 前台门控
