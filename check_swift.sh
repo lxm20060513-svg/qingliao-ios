@@ -29,5 +29,9 @@ rm -rf /tmp/ql_diag_main && mkdir -p /tmp/ql_diag_main
 cp scripts/test_diag.swift /tmp/ql_diag_main/main.swift
 $SWIFT/swiftc -swift-version 6 -o /tmp/test_diag /tmp/ql_diag_main/main.swift \
     qingliao/Core/DiagnosticsPayload.swift qingliao/Core/DiagnosticsStore.swift 2>&1 | head -10
-/tmp/test_diag
+/tmp/test_diag || exit 1
+
+echo "=== 5. Agent 结果卡片解析单元测试 ==="
+$SWIFT/swiftc -swift-version 6 -o /tmp/test_agent_card qingliao/Core/AgentCardParser.swift scripts/test_agent_card.swift 2>&1 | head -10
+/tmp/test_agent_card
 exit $?
