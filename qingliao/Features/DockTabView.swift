@@ -76,8 +76,9 @@ struct DockTabView: View {
                         .tabTransition(for: .settings, selected: $selected)
                 }
             }
-            // v3.4.29：滚动时 tab bar 自动缩到角落（iOS 26 原生 API，iPhone 有效），内容区更开阔
-            .tabBarMinimizeBehavior(.onScrollDown)
+            // v3.4.30：装机实测后按用户要求关闭自动收缩——tab bar 常驻不缩，滚动时不再变窄
+            // （v3.4.29 曾设为 .onScrollDown：向下滚动缩到角落只剩图标，用户不需要）
+            .tabBarMinimizeBehavior(.never)
             // v3.4.29：切 tab 触感——挂在一处（TabView），别挂进每个 tab 的 modifier（会响 4 次）
             .onChange(of: selected) { _, _ in Haptics.tap() }
             // v3.0.60 回顾：系统 tab bar 自行处理滚动边缘玻璃；此处不再加纯色背景掐死折射
