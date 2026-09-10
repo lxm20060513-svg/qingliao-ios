@@ -102,15 +102,18 @@ struct PageHeader: View {
     // 真实状态点：默认不显示（装饰性绿点已废弃），需要状态指示的页面显式传入
     var showStatus: Bool = false
     var statusColor: Color = .green
+    // v3.5.1：AI 正在输入态（微信式）——subtitle 位置显示「AI 正在输入…」+ 三点呼吸，替代状态点
+    var busy: Bool = false
 
     /// 显式 init：避免复杂调用处 memberwise init 推断导致类型检查超时
     init(title: String, subtitle: String? = nil, trailing: AnyView? = nil,
-         showStatus: Bool = false, statusColor: Color = .green) {
+         showStatus: Bool = false, statusColor: Color = .green, busy: Bool = false) {
         self.title = title
         self.subtitle = subtitle
         self.trailing = trailing
         self.showStatus = showStatus
         self.statusColor = statusColor
+        self.busy = busy
     }
 
     var body: some View {
@@ -123,18 +126,40 @@ struct PageHeader: View {
             }
             if let subtitle {
                 HStack(spacing: 5) {
-                    if showStatus {
+                    if busy {
+                        // v3.5.1：AI 正在输入（三点呼吸，仅 opacity 动画——守 v3.2.3 渲染红线）
+                        BusyDots()
+                    } else if showStatus {
                         Circle().fill(statusColor).frame(width: 6, height: 6)
                     }
-                    Text(subtitle)
+                    Text(busy ? "AI 正在输入…" : subtitle)
                         .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(busy ? Color.accentColor : Color.secondary)
                 }
             }
         }
         .padding(.horizontal, 18)
         .padding(.top, 6)
         .padding(.bottom, 8)
+    }
+}
+
+/// v3.5.1：header 小三点（AI 正在输入）——3 个 3.5pt 圆点依次呼吸。
+/// 只用 opacity 动画、无 shadow/blur，守住 v3.2.3 渲染卡死红线。
+struct BusyDots: View {
+    @State private var on = false
+    var body: some View {
+        HStack(spacing: 2.5) {
+            ForEach(0..<3, id: \.self) { i in
+                Circle()
+                    .fill(Color.accentColor)
+                    .frame(width: 3.5, height: 3.5)
+                    .opacity(on ? 1.0 : 0.28)
+                    .animation(.easeInOut(duration: 0.55).repeatForever(autoreverses: true)
+                        .delay(Double(i) * 0.16), value: on)
+            }
+        }
+        .onAppear { on = true }
     }
 }
 

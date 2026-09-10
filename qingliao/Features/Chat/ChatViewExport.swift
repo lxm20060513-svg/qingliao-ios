@@ -239,6 +239,9 @@ extension ChatView {
                                    provider: useProvider, messages: history) { success, error in
                     if !success {
                         chat.upsertAssistant(stream.content.isEmpty ? "⚠️ \(error)" : stream.content + "\n\n⚠️ \(error)", agent: stream.isAgent, afterUserID: m.id)
+                    } else if stream.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        // v3.5.1：空回复 → 明确提示（不用 markFailed，见 handleEmptyReply 注释）
+                        chat.upsertAssistant(Self.emptyReplyNote, agent: true, afterUserID: m.id)
                     } else {
                         chat.upsertAssistant(stream.content, agent: stream.isAgent, afterUserID: m.id)
                         showSentOK()

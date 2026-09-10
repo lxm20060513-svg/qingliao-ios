@@ -159,6 +159,10 @@ struct ChatView: View {
     @FocusState var inputFocus: Bool
     @State var sentOK = false
     @State var serverOnline: Bool?   // 服务器连接状态（真实绿点）
+    // v3.5.1：AI 正在输入 状态——服务器侧真相兜底（App 重开/离开聊天页后仍能显示）
+    @State var remoteBusy = false
+    @State var remoteBusyFails = 0   // 探针连续失败次数（≥3 收起状态，防幽灵）
+    @State var probing = false       // 探针循环单例守卫
     // v2.0.36：引用回复 / 图片查看器 / 导出
     // v3.4.29：图片 zoom 转场命名空间（气泡小图 → 全屏大图的生长关系）
     @Namespace private var zoomNS
@@ -266,6 +270,12 @@ struct ChatView: View {
     @AppStorage("qingliao_model") private var modelName = "deepseek-v4-flash"
     @AppStorage("qingliao_provider") private var provider = "opencode"
 
+    /// v3.5.1：是否有 AI 在处理本会话——本地流 / 云端流 / 服务器兜底探测（三合一）。
+    /// 本地流按会话收窄：stream 是全局单例，会话 A 在跑时切到 B 不该显示"AI 正在输入"。
+    private var aiBusy: Bool {
+        (stream.isStreaming && auth.currentStreamSessionId == chat.sessionId)
+            || CloudBackend.shared.isStreaming || remoteBusy
+    }
     /// 头部状态文案/颜色（独立计算属性，避免 body 内嵌套三元）
     private var headerSubtitle: String {
         serverOnline == nil ? "检测中" : (serverOnline == true ? "在线" : "离线")
@@ -512,7 +522,8 @@ struct ChatView: View {
                        subtitle: headerSubtitle,
                        trailing: AnyView(headerTrailingItems),
                        showStatus: true,
-                       statusColor: headerColor)
+                       statusColor: headerColor,
+                       busy: aiBusy)
             .confirmationDialog("聊天操作", isPresented: $showMoreMenu, titleVisibility: .visible) {
                 chatActionDialogContent
             } message: {
@@ -611,16 +622,9 @@ struct ChatView: View {
         }
         // v2.0.61：杀后台流式恢复（幂等——无持久化任务时静默返回）
         .task {
-            await stream.restoreIfNeeded(auth: auth) { success, err in
-                // v3.3.3：恢复的旧回答锚定回发起 user 消息，不 append 到用户新消息后
-                let anchor = stream.pendingUserMsgId
-                if success {
-                    chat.upsertAssistant(stream.content, agent: stream.isAgent, afterUserID: anchor)
-                } else {
-                    chat.upsertAssistant(stream.content.isEmpty ? "⚠️ \(err)" : stream.content + "\n\n⚠️ \(err)", agent: stream.isAgent, afterUserID: anchor)
-                }
-                Task { await chat.saveToServer(auth: auth) }
-            }
+            await resumePersistedStream()
+            // v3.5.1：AI 正在输入 探针（仅当有遗留任务标记时才发请求；服务器说没了就清标记收起状态）
+            await busyProbeLoop()
         }
         .photosPicker(isPresented: $showPhotoPicker, selection: $photoItem, matching: .images)
         // v2.0.38：拍照输入（拍完进图片预览条，确认后发送）
@@ -1820,6 +1824,9 @@ struct ChatView: View {
                         let friendly = Self.friendlyStreamError(error)
                         chat.upsertAssistant(stream.content.isEmpty ? "⚠️ \(friendly)" : stream.content + "\n\n⚠️ \(friendly)", agent: stream.isAgent, afterUserID: msg.id)
                     }
+                } else if stream.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    // v3.5.1：空回复 → 重试一次 / 明确提示（原来静默"已送达"，用户以为没发出去）
+                    self.handleEmptyReply(for: msg)
                 } else {
                     chat.upsertAssistant(stream.content, agent: stream.isAgent, afterUserID: msg.id)
                     showSentOK()
@@ -1848,6 +1855,96 @@ struct ChatView: View {
                     sendQueued(next)
                 }
             }
+        }
+    }
+
+    // MARK: - v3.5.1 AI 正在输入 状态（header 小字）
+
+    /// 空回复提示文案：本地流正常结束但内容为空（典型=长任务跑满步数上限 / 上游未回吐最终文本）。
+    /// ⚠️ 必须 ≤30 字：ChatStore.upsertAssistant 对 >30 字文本做全历史精确查重，超长文案在
+    /// 同一会话第二次空回复时会被静默吞掉（又变成"没反应"）。
+    static let emptyReplyNote = "⚠️ 本轮空回复：点上方「重新生成」（长任务易被截断）"
+
+    /// v3.5.1：接回在途任务（杀后台/重启前的流）——抽成方法供 .task 与「AI 正在输入」探针共用，
+    /// 保证两条路径落库回调一致（否则探针接回的回复没有 onFinished 收尾，答案会丢）。
+    private func resumePersistedStream() async {
+        await stream.restoreIfNeeded(auth: auth) { success, err in
+            // v3.3.3：恢复的旧回答锚定回发起 user 消息，不 append 到用户新消息后
+            let anchor = stream.pendingUserMsgId
+            if success {
+                // v3.5.1：恢复回来的任务内容为空 → 明确提示（原来静默落一条空消息）
+                if stream.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    chat.upsertAssistant(Self.emptyReplyNote, agent: true, afterUserID: anchor)
+                } else {
+                    chat.upsertAssistant(stream.content, agent: stream.isAgent, afterUserID: anchor)
+                }
+            } else {
+                chat.upsertAssistant(stream.content.isEmpty ? "⚠️ \(err)" : stream.content + "\n\n⚠️ \(err)", agent: stream.isAgent, afterUserID: anchor)
+            }
+            Task { await chat.saveToServer(auth: auth) }
+        }
+    }
+
+    /// 空回复处理：只落提示气泡（文案含 ⚠️ → 气泡自带「重新生成」快捷入口，一键重试）。
+    /// 不做两件曾考虑过的事：
+    ///  ① 不 markFailed——那是"消息未发出"语义，且 failed 全仓库无复位点 → 用户消息会永久挂
+    ///     红叹号，点击还会删掉该消息重发（实际已送达服务器）；
+    ///  ② 不自动重试——autoRetryStream 延迟 1s 且入口 guard !isStreaming，紧随其后的队列发送
+    ///     会抢跑把它静默丢弃（正好又是"没反应"），重试成功也可能与提示气泡并存造成双气泡。
+    private func handleEmptyReply(for msg: ChatMessage) {
+        autoRetryCount = 0
+        chat.upsertAssistant(Self.emptyReplyNote, agent: true, afterUserID: msg.id)
+    }
+
+    /// 探针循环：每 6s 跑一次；空闲（无遗留标记）时直接返回，不产生网络请求。
+    /// `probing` 守卫防视图重复创建出两个并发循环。
+    private func busyProbeLoop() async {
+        guard !probing else { return }
+        probing = true
+        defer { probing = false }
+        while !Task.isCancelled {
+            await probeRemoteBusy()
+            try? await Task.sleep(for: .seconds(6))
+        }
+    }
+
+    /// 服务器侧真相：有遗留任务标记 → 先显示"正在输入"，再问 /api/stream/recover 纠正。
+    /// 服务器说该会话已无进行中任务（或标记超过 30 分钟失效）→ 收起状态（不动持久化标记）。
+    private func probeRemoteBusy() async {
+        if stream.isStreaming { remoteBusy = false; return }
+        if CloudConfig.shared.isCloudMode { remoteBusy = CloudBackend.shared.isStreaming; return }
+        guard let pending = UserDefaults.standard.dictionary(forKey: "qingliao_stream_pending") else {
+            remoteBusy = false   // 无遗留标记 = 本机没有在跑的请求
+            return
+        }
+        // 标记属于别的会话 → 本会话既不显示忙碌，也不能拿本会话去问 recover
+        guard (pending["sessionId"] as? String) == chat.sessionId else {
+            remoteBusy = false
+            return
+        }
+        // 超过 30 分钟视为失效（与 StreamClient.restoreIfNeeded 同规则）
+        if let ts = pending["ts"] as? TimeInterval, Date().timeIntervalSince1970 - ts > 1800 {
+            remoteBusy = false
+            return
+        }
+        remoteBusy = true   // 先显示，再由服务器结果纠正
+        let sid = chat.sessionId
+        guard !sid.isEmpty else { remoteBusy = false; return }
+        do {
+            let (tid, _, done, status, _) = try await auth.streamRecover(sessionId: sid)
+            let alive = (tid?.isEmpty == false) && !done && status == "streaming"
+            remoteBusy = alive
+            remoteBusyFails = 0
+            if alive, !stream.isStreaming {
+                // 服务器说任务还在跑但本机没在收 → 主动接回（否则只能看状态、回复永远不到）
+                await resumePersistedStream()
+            }
+            // 注：!alive 不清理持久化标记——后端 recover 内存分支取同会话"最旧"匹配任务
+            // （可能已 done），误清会把仍在途的答案永久丢弃；标记由 finish()/30 分钟规则回收。
+        } catch {
+            // 网络失败：连续 3 次拿不到服务器结论就收起（防"幽灵输入中"）
+            remoteBusyFails += 1
+            if remoteBusyFails >= 3 { remoteBusy = false }
         }
     }
 
@@ -1903,6 +2000,9 @@ struct ChatView: View {
                         let friendly = Self.friendlyStreamError(error)
                         chat.upsertAssistant(stream.content.isEmpty ? "⚠️ \(friendly)" : stream.content + "\n\n⚠️ \(friendly)", agent: stream.isAgent, afterUserID: msg.id)
                     }
+                } else if stream.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    // v3.5.1：重试仍是空回复 → 明确提示
+                    self.handleEmptyReply(for: msg)
                 } else {
                     chat.upsertAssistant(stream.content, agent: stream.isAgent, afterUserID: msg.id)
                     showSentOK()
@@ -2264,6 +2364,9 @@ struct ChatView: View {
                                provider: useProvider, messages: history) { success, error in
                 if !success {
                     chat.upsertAssistant(stream.content.isEmpty ? "⚠️ \(error)" : stream.content + "\n\n⚠️ \(error)", agent: stream.isAgent, afterUserID: anchorUserID)
+                } else if stream.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    // v3.5.1：空回复 → 明确提示（不用 markFailed，见 handleEmptyReply 注释）
+                    chat.upsertAssistant(Self.emptyReplyNote, agent: true, afterUserID: anchorUserID)
                 } else {
                     chat.upsertAssistant(stream.content, agent: stream.isAgent, afterUserID: anchorUserID)
                     showSentOK()
