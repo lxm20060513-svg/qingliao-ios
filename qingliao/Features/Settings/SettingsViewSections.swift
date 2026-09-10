@@ -187,6 +187,11 @@ extension SettingsView {
             SettingRow(icon: "pin.fill", iconColor: .indigo, title: "钉一钉存储",
                        value: pinPathDisplay, chevron: true)
                 .onTapGesture { showPinPath = true }
+            // v3.5.x：生活卡片设置（股票 / 资讯 / 快递 / 价格监控）
+            Divider().padding(.leading, 52)
+            SettingRow(icon: "rectangle.grid.2x2", iconColor: .green, title: "生活卡片",
+                       value: "股票 / 资讯 / 快递 / 价格监控", chevron: true)
+                .onTapGesture { showLifeCards = true }
         }
         .glassListCard()
         .sheet(isPresented: $showPinPath) {

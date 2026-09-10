@@ -68,6 +68,8 @@ struct DashboardView: View {
     @State private var life = LifeCardsData()
     @State private var lifeLoading = false
     @State private var lifeError = ""
+    // v3.5.x：生活卡片设置页（看板股票卡片增删入口）
+    @State private var showLifeSettings = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -328,9 +330,12 @@ struct DashboardView: View {
                         }
                     }
                     // v3.5.x：生活数据（股票行情 + RSS/博客更新）——可折叠、失败降级为小字
-                    LifeCardsSection(data: life, loading: lifeLoading, error: lifeError) {
-                        Task { await loadLife() }
-                    }
+                    LifeCardsSection(data: life,
+                                     loading: lifeLoading,
+                                     error: lifeError,
+                                     onDeleteStock: { st in Task { await deleteStock(st) } },
+                                     onAddStock: { showLifeSettings = true },
+                                     onRefresh: { Task { await loadLife() } })
                 }
                 .padding(.horizontal, 14)
                 .padding(.bottom, 100)
@@ -364,6 +369,11 @@ struct DashboardView: View {
                     DockerSheet()
                         .presentationDetents([.medium, .large])
                 }
+            }
+            // v3.5.x：生活卡片设置页（股票 / 资讯 / 快递 / 价格监控）
+            .sheet(isPresented: $showLifeSettings) {
+                LifeCardsSettingsView()
+                    .presentationDetents([.medium, .large])
             }
             // v2.0.96：场景执行结果提示
             .alert("场景执行结果", isPresented: $showSceneResult) {
@@ -489,6 +499,28 @@ struct DashboardView: View {
         } else {
             lifeError = "获取失败（后端未接线或网络不可用）"
         }
+    }
+
+    /// v3.5.x：看板长按「删除这张卡片」——配置里去掉该股票后立即重拉 /api/life/cards
+    private func deleteStock(_ s: LifeStock) async {
+        guard let cfgJ = await auth.jsonOrLog("/api/life/config"),
+              let cfgDict = cfgJ["config"] as? [String: Any] else {
+            lifeError = "读取生活卡片配置失败"
+            return
+        }
+        var cfg = LifeConfig.parse(cfgDict)
+        let market = s.id.split(separator: ".").first.map { String($0) } ?? ""
+        cfg.stocks.removeAll { $0.code == s.code && (market.isEmpty || $0.market == market) }
+        guard let j = await auth.jsonOrLog("/api/life/config", method: "POST", body: ["config": cfg.json]) else {
+            lifeError = "删除失败：网络或后端不可用"
+            return
+        }
+        if (j["ok"] as? Bool) == false {
+            lifeError = (j["error"] as? String) ?? "删除失败"
+            return
+        }
+        lifeError = ""
+        await loadLife()
     }
 
     private func loadRouter() async {

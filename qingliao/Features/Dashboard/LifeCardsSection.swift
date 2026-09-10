@@ -11,6 +11,9 @@ struct LifeCardsSection: View {
     let data: LifeCardsData
     let loading: Bool
     var error: String = ""          // 传输层错误（网络/未接线）
+    // v3.5.x：股票卡片长按增删（删除 → POST /api/life/config 去掉该股票；添加 → 打开设置页）
+    var onDeleteStock: (LifeStock) -> Void = { _ in }
+    var onAddStock: () -> Void = {}
     var onRefresh: () -> Void = {}
 
     @AppStorage("dashboard_life_expanded") private var expanded = true
@@ -32,6 +35,19 @@ struct LifeCardsSection: View {
             if loading {
                 ProgressView().controlSize(.small)
             }
+            // v3.5.x：添加股票卡片入口（打开生活卡片设置页）
+            Button {
+                onAddStock()
+            } label: {
+                Label("添加股票", systemImage: "plus")
+                    .font(.system(size: 10))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(Color.accentColor.opacity(0.12), in: Capsule())
+            }
+            .buttonStyle(PressStyle())
+            .foregroundStyle(Color.accentColor)
+            .accessibilityLabel("添加股票卡片")
             Button {
                 onRefresh()
             } label: {
@@ -80,7 +96,7 @@ struct LifeCardsSection: View {
             } else {
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: 10),
                                     GridItem(.flexible(), spacing: 10)], spacing: 10) {
-                    ForEach(data.stocks) { LifeStockCard(stock: $0) }
+                    ForEach(data.stocks) { s in stockCell(s) }
                 }
             }
             // 博客/资讯：整宽卡（对齐 PinCard 的长卡形态）
@@ -103,6 +119,20 @@ struct LifeCardsSection: View {
                     .padding(.horizontal, 4)
             }
         }
+    }
+
+    /// 行情卡 + 长按菜单（删除这张卡片 → 后端配置里去掉该股票 → 看板重拉）
+    @ViewBuilder
+    private func stockCell(_ s: LifeStock) -> some View {
+        LifeStockCard(stock: s)
+            .contentShape(Rectangle())
+            .contextMenu {
+                Button(role: .destructive) {
+                    onDeleteStock(s)
+                } label: {
+                    Label("删除这张卡片", systemImage: "trash")
+                }
+            }
     }
 
     private var degradeText: String {
