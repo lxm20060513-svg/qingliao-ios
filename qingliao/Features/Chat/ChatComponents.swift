@@ -21,6 +21,7 @@ struct MessageContentBlock: Identifiable {
         case code(String, String?)     // v3.4.x：代码块带语言标记（```lang → lang，用于语法高亮）
         case table([[String]])   // v2.0.87d：markdown 表格（表头+数据行）
         case image(String)       // v2.0.128：AI 回复中的图片（URL 或 data URL）
+        case agentCard(AgentCard)   // v3.5.0：Agent 结果卡片（```ql-card 围栏 → 结构化卡片）
     }
     let kind: Kind
 }
@@ -119,6 +120,7 @@ struct MessageBlockView: View {
             case .code(let s, _): text = s
             case .table(let rows): text = rows.map { $0.joined(separator: " | ") }.joined(separator: "\n")
             case .image(let url): text = url
+            case .agentCard(let card): text = card.plainText   // v3.5.0：卡片降级为纯文本（复制/大爆炸/钉一钉）
             }
             onBigBang(text)
         } label: {
@@ -147,6 +149,7 @@ struct MessageBlockView: View {
                 case .code(let s, _): text = s
                 case .table(let rows): text = rows.map { $0.joined(separator: " | ") }.joined(separator: "\n")
                 case .image(let url): text = url
+                case .agentCard(let card): text = card.plainText   // v3.5.0：卡片降级为纯文本
                 }
                 onPin(text)
             } label: {
@@ -271,6 +274,10 @@ struct MessageBlockView: View {
         case .table(let rows):
             // v2.0.87d：markdown 表格渲染（表头加粗 + 斑马纹 + 横向滚动）
             MarkdownTableView(rows: rows)
+                .contextMenu { bubbleMenu }
+        case .agentCard(let card):
+            // v3.5.0：Agent 结果卡片（```ql-card 围栏）——单卡玻璃 + 0.8pt 描边，长按菜单同其他段
+            AgentResultCard(card: card)
                 .contextMenu { bubbleMenu }
         }
     }
