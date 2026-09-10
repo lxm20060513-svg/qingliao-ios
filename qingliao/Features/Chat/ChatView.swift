@@ -1365,7 +1365,7 @@ struct ChatView: View {
                 // sessionId 已换成新值，与 sendCore 的 60s 幂等签名（含 sessionId）不冲突
                 if chat.pendingNewSessionReset {
                     chat.pendingNewSessionReset = false
-                    sendCore(text: "/new", imageData: nil)
+                    silentGatewayReset()
                 }
             }
         }
@@ -1693,6 +1693,23 @@ struct ChatView: View {
 
     /// v2.0.102：sendingLock 同步置位——防极快双击时 isStreaming 尚未置位导致双流竞态
     /// v3.4.x：quotedText 参数——长按「引用」后把被引用的原文挂到消息上（气泡内可视化引用块）
+    /// v3.4.29：静默重置 gateway 上下文（新建会话「加号」入口）
+    /// 只向后端投一条 /new 触发 gateway 侧会话重置——不落本地消息、不接流式、不显示气泡，
+    /// 用户看到的仍是干净的新会话 + 欢迎页（区别于手动发 /new：那条走 sendCore 是可见的普通消息）
+    private func silentGatewayReset() {
+        // 云端模式直连大模型 API，没有 gateway 会话上下文概念 → 无需重置
+        guard !CloudConfig.shared.isCloudMode else { return }
+        let (useModel, useProvider) = resolveModel(hasImage: false)
+        let sid = chat.sessionId   // 已是新建后的新 sessionId
+        // 只投单条 /new（不带历史）：gateway 收到命令即重置，带历史只是白传一遍上下文
+        let payload: [[String: Any]] = [["role": "user", "content": "/new"]]
+        Task { @MainActor in
+            // fire-and-forget：结果不影响 UI；失败静默（下次点加号会再投一次）
+            _ = try? await auth.streamStart(sessionId: sid, model: useModel,
+                                            provider: useProvider, messages: payload)
+        }
+    }
+
     func sendCore(text: String, imageData: String?, quotedText: String? = nil) {
         // v3.4.x：同内容短时间幂等（60s 内相同文本+同会话只发一次，防抖动/重试/恢复重复投递）
         // v3.4.27 fix：比较须含 image 指纹——纯图 text 恒空，只比 text 会把 60s 内第二张纯图误判重复丢弃（拍照/相册连发纯图被吞）
