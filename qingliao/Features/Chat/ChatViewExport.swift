@@ -235,8 +235,10 @@ extension ChatView {
                 // v3.0.81：统一模型优先级链（免费 > 视觉 > Agent > 主模型）
                 let (useModel, useProvider) = resolveModel()
                 stream.pendingUserMsgId = m.id   // v3.3.3：文件消息流锚点
+                let startSid = chat.sessionId   // v3.5.2：会话切换后本次结果丢弃（与 startStream 一致）
                 await stream.start(auth: auth, sessionId: chat.sessionId, model: useModel,
                                    provider: useProvider, messages: history) { success, error in
+                    guard chat.sessionId == startSid else { return }   // 已切换会话 → 本次结果丢弃
                     if !success {
                         chat.upsertAssistant(stream.content.isEmpty ? "⚠️ \(error)" : stream.content + "\n\n⚠️ \(error)", agent: stream.isAgent, afterUserID: m.id)
                     } else if stream.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {

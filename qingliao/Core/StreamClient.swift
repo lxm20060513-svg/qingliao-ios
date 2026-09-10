@@ -202,9 +202,10 @@ final class StreamClient {
         } catch APIError.server(404) {
             guard generation == self.generation else { return }
             // v3.0.31：任务丢失（qingliao 重启/内存回收）→ 尝试 recover 续上，避免长任务白等
+            // v3.5.2：此处本地任务已确认失效（404）→ 允许采纳服务端返回的任务
             if !recoverTried {
                 recoverTried = true
-                if await tryRecover(auth: auth) { return }
+                if await tryRecover(auth: auth, localTaskGone: true) { return }
             }
             failCount += 1
             if failCount >= 10 {
@@ -215,7 +216,8 @@ final class StreamClient {
             failCount += 1
             // v3.0.80：后台回来网络会话失效（非 404 的普通失败）也走 recover 续流，
             // 原来只有 404 才触发 → 前台恢复场景 10 连败直接终结，生成内容被截断
-            if failCount == 3, !recoverFailTried {
+            // v3.5.2：≥3 且未被消费时都允许 recover（候选被忽略时会归还机会，见 tryRecover 注释）
+            if failCount >= 3, !recoverFailTried {
                 recoverFailTried = true
                 if await tryRecover(auth: auth) { return }
             }
@@ -235,13 +237,37 @@ final class StreamClient {
 
     /// v3.0.31：poll 404 恢复——调 /api/stream/recover 找回任务（内存优先、磁盘 streams/*.json 兜底）。
     /// 返回 true 表示已接管（继续轮询或已收尾），false = recover 请求本身失败（走 failCount）。
-    private func tryRecover(auth: AuthStore) async -> Bool {
+    ///
+    /// v3.5.2 复读根治（唯一判据）：服务端按 sessionId 找到的可能是**同会话更早的历史任务**
+    /// （2026-09-10 实据：回前台 recover 拿到 20 分钟前那条已完成任务，客户端直接采纳其 content
+    /// 且 done=true 收流 → 旧答案被当本轮回复落库 = 复读）。故只采纳两种：
+    ///   ① 就是本机在跑的这条任务（tid == taskId）：磁盘兜底可能多出尾段，取较长者续上；
+    ///   ② 另一条**仍在途**的任务（done=false 且 status=streaming）：在途内容必然属于本轮，采纳安全。
+    /// 其余（异任务且已完成）一律不采纳：本地流还活着就忽略并继续轮询；本地任务已确认失效
+    /// （poll 404 → localTaskGone=true）则直接收尾报错，让用户重发——绝不复活旧答案。
+    private func tryRecover(auth: AuthStore, localTaskGone: Bool = false) async -> Bool {
         do {
             let (tid, rContent, done, st, err) = try await auth.streamRecover(sessionId: auth.currentStreamSessionId)
             if let tid, !tid.isEmpty {
-                // 找回成功：换新 taskId；磁盘兜底内容可能比本地多最后一段（节流写盘延迟），取较长者续上
+                let isSameTask = (tid == self.taskId)
+                let inFlight = (!done && st == "streaming")
+                if !isSameTask, !inFlight {
+                    // 没采纳 → 把「普通失败路径那一次 recover 机会」还回去（v3.5.2 code review：
+                    // 原实现把"忽略"也当"已接管"消费掉，弱网下会白丢本轮唯一一次续流机会）
+                    recoverFailTried = false
+                    if localTaskGone { finish(success: false, error: "连接中断，请重试") }
+                    return true
+                }
+                // 采纳：换 taskId
                 taskId = tid
-                if rContent.count > content.count {
+                if isSameTask {
+                    // 同一任务：磁盘兜底内容可能比本地多最后一段（节流写盘延迟），取较长者续上
+                    if rContent.count > content.count {
+                        content = rContent
+                        offset = rContent.count
+                    }
+                } else {
+                    // 换成了另一条在途任务：内容整体属于新任务，必须整体替换（防止新旧前缀混拼）
                     content = rContent
                     offset = rContent.count
                 }
@@ -351,13 +377,18 @@ final class StreamClient {
 
     /// App 重开后恢复：有未完成任务 → 回填内容并继续轮询（无任务时静默返回）
     /// v2.0.102：先停旧轮询再恢复——防 .task 重复触发/恢复与手动 start 重叠导致双轮询
-    func restoreIfNeeded(auth: AuthStore, onFinished: ((Bool, String) -> Void)? = nil) async {
+    /// v3.5.2：新增 sessionId 校验——标记只允许在它所属的会话里被恢复，
+    /// 否则会把别的会话（或陈旧任务）的内容 upsert 到当前会话（跨会话旧内容落库）。
+    func restoreIfNeeded(auth: AuthStore, sessionId: String? = nil,
+                         onFinished: ((Bool, String) -> Void)? = nil) async {
         guard !isStreaming else { return }
         stopPolling()
         generation += 1   // v3.0.50：恢复时同样废除在途旧轮询代
         pendingUserMsgId = nil   // v3.3.3：先清残留，再从持久化读回真实锚点
 
         guard let d = UserDefaults.standard.dictionary(forKey: "qingliao_stream_pending") else { return }
+        // v3.5.2：标记不属于当前会话 → 不恢复、也不清标记（它可能仍属于自己那个会话，等切回去再接）
+        if let expect = sessionId, let markerSid = d["sessionId"] as? String, markerSid != expect { return }
         // 超过 30 分钟的任务视为失效（服务器端流可能已回收）
         if let ts = d["ts"] as? TimeInterval, Date().timeIntervalSince1970 - ts > 1800 {
             UserDefaults.standard.removeObject(forKey: "qingliao_stream_pending")
@@ -381,6 +412,40 @@ final class StreamClient {
         isDone = false
         self.onFinished = onFinished
         startPolling(auth: auth)
+    }
+
+    /// v3.5.2：接回「服务器侧仍在途、但本机没有可用标记」的任务。
+    ///
+    /// 背景（用户实报）：弱网连败 15 次 / 或流被别的路径收尾时 `finish()` 会清掉持久化标记，
+    /// 而**服务器侧任务还在跑**——原来的「AI 正在输入」探针以标记为前提，此时连问都不问服务器，
+    /// 前台一点提示都没有，用户以为 AI 停了，答案也永远回不来。
+    ///
+    /// 安全边界：调用方只在 recover 明确回「done=false 且 status=streaming」时才允许调用——
+    /// 在途任务的内容必然属于本轮，不会把上一轮的旧答案复活（复读事故的护栏）。
+    func adoptRemote(taskId tid: String, content initial: String, sessionId: String,
+                     auth: AuthStore, onFinished: ((Bool, String) -> Void)? = nil) {
+        guard !isStreaming, !tid.isEmpty else { return }
+        stopPolling()
+        generation += 1
+        pendingUserMsgId = nil
+        taskId = tid
+        content = initial
+        offset = initial.count
+        recoverTried = false
+        recoverFailTried = false
+        failCount = 0
+        idleStreak = 0
+        backoff = 0.5
+        interval = 0.25
+        isStreaming = true
+        isDone = false
+        status = "streaming"
+        errorMessage = ""
+        self.onFinished = onFinished
+        auth.currentStreamSessionId = sessionId
+        persistState(sessionId: sessionId)   // 重新落标记：切页/杀 App/再回前台也能续上
+        startPolling(auth: auth)
+        beginBgTask()
     }
 
     private func clearPersisted() {

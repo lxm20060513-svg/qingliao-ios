@@ -161,8 +161,9 @@ struct ChatView: View {
     @State var serverOnline: Bool?   // 服务器连接状态（真实绿点）
     // v3.5.1：AI 正在输入 状态——服务器侧真相兜底（App 重开/离开聊天页后仍能显示）
     @State var remoteBusy = false
-    @State var remoteBusyFails = 0   // 探针连续失败次数（≥3 收起状态，防幽灵）
+    @State var remoteBusyFails = 0   // 探针连续失败次数（v3.5.2：≥5 才收起状态，防弱网抖动误灭）
     @State var probing = false       // 探针循环单例守卫
+    @State var probeTick = 0         // v3.5.2：无本机标记时每 2 拍问一次服务器（12s 降频）
     // v2.0.36：引用回复 / 图片查看器 / 导出
     // v3.4.29：图片 zoom 转场命名空间（气泡小图 → 全屏大图的生长关系）
     @Namespace private var zoomNS
@@ -1868,7 +1869,7 @@ struct ChatView: View {
     /// v3.5.1：接回在途任务（杀后台/重启前的流）——抽成方法供 .task 与「AI 正在输入」探针共用，
     /// 保证两条路径落库回调一致（否则探针接回的回复没有 onFinished 收尾，答案会丢）。
     private func resumePersistedStream() async {
-        await stream.restoreIfNeeded(auth: auth) { success, err in
+        await stream.restoreIfNeeded(auth: auth, sessionId: chat.sessionId) { success, err in
             // v3.3.3：恢复的旧回答锚定回发起 user 消息，不 append 到用户新消息后
             let anchor = stream.pendingUserMsgId
             if success {
@@ -1896,7 +1897,7 @@ struct ChatView: View {
         chat.upsertAssistant(Self.emptyReplyNote, agent: true, afterUserID: msg.id)
     }
 
-    /// 探针循环：每 6s 跑一次；空闲（无遗留标记）时直接返回，不产生网络请求。
+    /// 探针循环：每 6s 跑一次（v3.5.2：无本机标记时 probeRemoteBusy 内部自行降频到 12s）。
     /// `probing` 守卫防视图重复创建出两个并发循环。
     private func busyProbeLoop() async {
         guard !probing else { return }
@@ -1908,43 +1909,69 @@ struct ChatView: View {
         }
     }
 
-    /// 服务器侧真相：有遗留任务标记 → 先显示"正在输入"，再问 /api/stream/recover 纠正。
-    /// 服务器说该会话已无进行中任务（或标记超过 30 分钟失效）→ 收起状态（不动持久化标记）。
+    /// 服务器侧真相（v3.5.2 重写）：**服务器才是唯一真相来源**，本机标记只用于"抢先显示"。
+    ///
+    /// 旧逻辑以「本机还有持久化标记」为前提：没有标记就直接收起状态，连服务器都不问。
+    /// 但 finish()（弱网连败 / 收尾）会清掉标记，而服务器侧任务仍在跑 → 前台一点提示都没有，
+    /// 用户以为 AI 停了、答案也回不来（2026-09-11 实报）。现在无条件问服务器，再按结论决定接回。
     private func probeRemoteBusy() async {
         if stream.isStreaming { remoteBusy = false; return }
         if CloudConfig.shared.isCloudMode { remoteBusy = CloudBackend.shared.isStreaming; return }
-        guard let pending = UserDefaults.standard.dictionary(forKey: "qingliao_stream_pending") else {
-            remoteBusy = false   // 无遗留标记 = 本机没有在跑的请求
-            return
-        }
-        // 标记属于别的会话 → 本会话既不显示忙碌，也不能拿本会话去问 recover
-        guard (pending["sessionId"] as? String) == chat.sessionId else {
-            remoteBusy = false
-            return
-        }
-        // 超过 30 分钟视为失效（与 StreamClient.restoreIfNeeded 同规则）
-        if let ts = pending["ts"] as? TimeInterval, Date().timeIntervalSince1970 - ts > 1800 {
-            remoteBusy = false
-            return
-        }
-        remoteBusy = true   // 先显示，再由服务器结果纠正
         let sid = chat.sessionId
-        guard !sid.isEmpty else { remoteBusy = false; return }
+        guard !sid.isEmpty, auth.isLoggedIn else { remoteBusy = false; return }
+        let pending = UserDefaults.standard.dictionary(forKey: "qingliao_stream_pending")
+        let pendingSame = (pending?["sessionId"] as? String) == sid
+        let pendingFresh: Bool = {
+            guard pendingSame, let ts = pending?["ts"] as? TimeInterval else { return false }
+            return Date().timeIntervalSince1970 - ts <= 1800
+        }()
+        if pendingFresh { remoteBusy = true }   // 有新鲜标记 → 先显示，服务器结论回来再纠正
+        // 无本机标记（纯服务器探测）时降频到 12s（省电/省流量）；有标记保持 6s 快速纠正
+        if pendingFresh {
+            probeTick = 0
+        } else {
+            probeTick += 1
+            if probeTick % 2 != 0 { return }
+        }
         do {
-            let (tid, _, done, status, _) = try await auth.streamRecover(sessionId: sid)
+            let (tid, rContent, done, status, _) = try await auth.streamRecover(sessionId: sid)
             let alive = (tid?.isEmpty == false) && !done && status == "streaming"
             remoteBusy = alive
             remoteBusyFails = 0
-            if alive, !stream.isStreaming {
-                // 服务器说任务还在跑但本机没在收 → 主动接回（否则只能看状态、回复永远不到）
-                await resumePersistedStream()
+            guard alive, !stream.isStreaming, let tid, !tid.isEmpty else { return }
+            // 服务器侧确有在途任务而本机没在收 → 接回
+            if pendingFresh, ((pending?["taskId"] as? String) ?? "") == tid {
+                await resumePersistedStream()          // 标记就是这条 → 走原路（锚点能对回原 user 消息）
+            } else {
+                await adoptRemoteStream(taskId: tid, content: rContent)
             }
-            // 注：!alive 不清理持久化标记——后端 recover 内存分支取同会话"最旧"匹配任务
-            // （可能已 done），误清会把仍在途的答案永久丢弃；标记由 finish()/30 分钟规则回收。
+            // 注：!alive 不清理持久化标记——服务端历史任务可能是 done，误清会把仍在途的答案永久丢弃；
+            // 标记由 finish()/30 分钟规则回收。
         } catch {
-            // 网络失败：连续 3 次拿不到服务器结论就收起（防"幽灵输入中"）
+            // 网络失败：连续 5 次（≈30s）拿不到服务器结论才收起（弱网抖动不再瞬间熄灭提示）
             remoteBusyFails += 1
-            if remoteBusyFails >= 3 { remoteBusy = false }
+            if remoteBusyFails >= 5 { remoteBusy = false }
+        }
+    }
+
+    /// v3.5.2：接回服务器侧在途任务（本机无标记 / 标记与服务器不一致时用）。
+    /// 只会在 recover 回「未完成（status=streaming）」时被调用 → 内容必然是本轮生成的，
+    /// 不会复活旧答案（复读事故护栏）。落库回调与 resumePersistedStream 对齐（答案不丢）。
+    private func adoptRemoteStream(taskId tid: String, content: String) async {
+        guard !stream.isStreaming else { return }
+        let anchor = chat.messages.last(where: { $0.role == "user" })?.id
+        stream.adoptRemote(taskId: tid, content: content, sessionId: chat.sessionId, auth: auth) { success, err in
+            if success {
+                if stream.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    chat.upsertAssistant(Self.emptyReplyNote, agent: true, afterUserID: anchor)
+                } else {
+                    chat.upsertAssistant(stream.content, agent: stream.isAgent, afterUserID: anchor)
+                }
+            } else {
+                chat.upsertAssistant(stream.content.isEmpty ? "⚠️ " + err : stream.content + "\n\n⚠️ " + err,
+                                     agent: stream.isAgent, afterUserID: anchor)
+            }
+            Task { await chat.saveToServer(auth: auth) }
         }
     }
 
@@ -2360,8 +2387,10 @@ struct ChatView: View {
         let (useModel, useProvider) = resolveModel(hasImage: lastUserHasImage)
         Task {
             stream.pendingUserMsgId = anchorUserID   // v3.3.3：regenerate 锚点（杀后台恢复也用）
+            let startSid = chat.sessionId   // v3.5.2：会话切换后本次结果丢弃（与 startStream 一致）
             await stream.start(auth: auth, sessionId: chat.sessionId, model: useModel,
                                provider: useProvider, messages: history) { success, error in
+                guard chat.sessionId == startSid else { return }   // 已切换会话 → 本次结果丢弃
                 if !success {
                     chat.upsertAssistant(stream.content.isEmpty ? "⚠️ \(error)" : stream.content + "\n\n⚠️ \(error)", agent: stream.isAgent, afterUserID: anchorUserID)
                 } else if stream.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
