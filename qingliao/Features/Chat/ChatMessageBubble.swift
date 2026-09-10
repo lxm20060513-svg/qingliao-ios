@@ -508,9 +508,44 @@ struct MessageBubble: View {
     /// 会被整体当代码块渲染：丢排版、等宽黑底）。现按行扫描：配对 fence 成代码块，fence 自带语言
     /// 标记（```lang 同行），不额外吞代码正文；结尾仍开着 fence（不配对）则按原文 markdown 处理
     private static func blocks(for text: String, serverURL: String, streaming: Bool) -> [MessageContentBlock] {
+        // v3.5.0：Agent 结果卡片（```ql-card 围栏）——先做廉价门控，无标记 → 老路径逐字不变（零回归）
         if streaming {
-            return [.init(kind: .markdown(text))]
+            guard AgentCardParser.containsCardMarker(text) else {
+                return [.init(kind: .markdown(text))]
+            }
+            // 有卡片标记：卡片感知切分——已闭合围栏 → 卡片；未闭合 / JSON 非法 → 文本（打字机继续逐字流，不出半截卡片）
+            var out: [MessageContentBlock] = []
+            for seg in AgentCardParser.parse(text) {
+                switch seg {
+                case .card(let card):
+                    out.append(.init(kind: .agentCard(card)))
+                case .text(let t):
+                    if !t.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        out.append(.init(kind: .markdown(t)))
+                    }
+                }
+            }
+            return out.isEmpty ? [.init(kind: .markdown(text))] : out
         }
+        guard AgentCardParser.containsCardMarker(text) else {
+            return blocksPlain(for: text, serverURL: serverURL)
+        }
+        // 静态：卡片段走卡片渲染，其余文本段仍走原分段（代码块/表格/图片全保留）
+        var out: [MessageContentBlock] = []
+        for seg in AgentCardParser.parse(text) {
+            switch seg {
+            case .card(let card):
+                out.append(.init(kind: .agentCard(card)))
+            case .text(let t):
+                if t.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { continue }
+                out.append(contentsOf: blocksPlain(for: t, serverURL: serverURL))
+            }
+        }
+        return out.isEmpty ? blocksPlain(for: text, serverURL: serverURL) : out
+    }
+
+    /// v3.5.0：原 blocks 主体（卡片切分抽出后保留原名语义）——不改任何既有分段逻辑
+    private static func blocksPlain(for text: String, serverURL: String) -> [MessageContentBlock] {
         let lines = Self.expandMediaMarks(text, serverURL: serverURL).components(separatedBy: "\n")
         var blocks: [MessageContentBlock] = []
         var mdBuf: [String] = []        // 当前 markdown 段（未进 fence 的行）
