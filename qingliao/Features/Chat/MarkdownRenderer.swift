@@ -125,7 +125,7 @@ enum MarkdownRenderer {
         for m in re.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
             let r = m.range
             if r.location > pos {
-                out.append(renderPlainWithLinks(ns.substring(with: NSRange(location: pos, length: r.location - pos)), font, color))
+                out.append(NSAttributedString(renderPlainWithLinks(ns.substring(with: NSRange(location: pos, length: r.location - pos)), font, color)))
             }
             let token = ns.substring(with: r)
             if token.hasPrefix("**"), token.hasSuffix("**") {
@@ -148,13 +148,13 @@ enum MarkdownRenderer {
                     var urlStr = String(body[close.upperBound...])
                     // 相对/无 scheme 的 url 补 https（防点击无效）
                     if !urlStr.contains("://") { urlStr = "https://" + urlStr }
-                    out.append(linkText(label, urlStr, font))
+                    out.append(NSAttributedString(linkText(label, urlStr, font)))
                 }
             }
             pos = r.location + r.length
         }
         if pos < ns.length {
-            out.append(renderPlainWithLinks(ns.substring(from: pos), font, color))
+            out.append(NSAttributedString(renderPlainWithLinks(ns.substring(from: pos), font, color)))
         }
         return AttributedString(out)
     }
@@ -182,7 +182,7 @@ enum MarkdownRenderer {
             }
             let trimmedLen = urlStr.count
             if trimmedLen > 0 {
-                out.append(linkText(urlStr, urlStr, font))
+                out.append(NSAttributedString(linkText(urlStr, urlStr, font)))
                 pos = r.location + trimmedLen
             } else {
                 pos = r.location
