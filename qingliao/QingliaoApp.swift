@@ -192,11 +192,14 @@ struct RootView: View {
         }
         .task {
             // v2.0.43：登录态下上报上次崩溃（不阻塞启动）
+            // v3.4.29：改为真·后台——原 await 让「网络往返 + 1.6s」串行叠加，启动总时长被上报耗时拖长
             if auth.isLoggedIn {
-                await CrashReporter.flushPending(auth: auth)
+                Task { await CrashReporter.flushPending(auth: auth) }
             }
-            try? await Task.sleep(for: .seconds(1.6))
-            withAnimation(.easeOut(duration: 0.45)) { showSplash = false }
+            // v3.4.29：Splash 由固定 1.6s 空等 → 最短 0.6s（保留品牌节奏）。
+            // 首屏内容全部来自本地数据（会话消息/AI 记忆），无需等网络
+            try? await Task.sleep(for: .seconds(0.6))
+            withAnimation(Motion.emerge) { showSplash = false }
         }
         // v3.4.25：上次异常退出提示（毛玻璃风格低调弹窗，导出/忽略两键）
         .sheet(isPresented: $showCrashAlert) {

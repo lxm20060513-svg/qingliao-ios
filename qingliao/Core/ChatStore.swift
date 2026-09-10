@@ -9,6 +9,8 @@ final class ChatStore {
     var sessionId: String
     var messages: [ChatMessage] = []
     var title = ""
+    /// v3.4.29：最近一次从会话列表加载进来的会话——供欢迎页「继续上次」入口一键回归（内存态，无需持久化）
+    private(set) var lastLoadedSession: ChatSession?
 
     // 缓存的 DateFormatter，避免循环内重复创建（~1ms/次）
     private static let exportDateFormatter: DateFormatter = {
@@ -121,6 +123,7 @@ final class ChatStore {
         sessionId = s.id
         title = s.title
         messages = s.messages
+        lastLoadedSession = s   // v3.4.29：欢迎页「继续上次」用
         defaults.set(sessionId, forKey: sessionKey)
     }
 

@@ -773,7 +773,10 @@ struct ChatView: View {
 
     // v2.0.111：欢迎页独立于 ScrollView——不再受滚动容器背景/裁剪影响，logo 永远完整显示
     private var welcomeView: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 0) {
+            // v3.4.29：顶部弹性留白（原写死在容器上的 padding(.top,120)）——小屏不再被挤压，大屏自然下移，最多 120pt
+            Spacer(minLength: 56).frame(maxHeight: 120)
+
             ZStack {
                 // v3.4.25：粒子球版 logo（复用 OrbEngine，与流式头像同语言）替代静态渐变圆
                 Circle()
@@ -787,17 +790,26 @@ struct ChatView: View {
                     .foregroundStyle(.white)
                     .shadow(color: .indigo.opacity(0.35), radius: 6, y: 2)
             }
-            // v3.4.25：问候语随时段变化
-            Text(welcomeGreeting)
-                .font(.system(size: 17, weight: .bold))
-                .foregroundStyle(
-                    LinearGradient(colors: [.blue, .purple],
-                                   startPoint: .topLeading, endPoint: .bottomTrailing)
-                )
-            Text(welcomeSubtitle)
-                .font(.system(size: 13))
-                .foregroundStyle(.secondary)
+
+            // v3.4.29：文案组与 logo 拉开距离（原整体 spacing 12 → 96pt 的球和文字贴在一起，头重脚轻）
+            // 现改为分组：logo↔文案 18pt，问候↔副标题 6pt（同组紧、跨组松）
+            VStack(spacing: 6) {
+                // v3.4.25：问候语随时段变化
+                Text(welcomeGreeting)
+                    .font(.system(size: 17, weight: .bold))
+                    .foregroundStyle(
+                        LinearGradient(colors: [.blue, .purple],
+                                       startPoint: .topLeading, endPoint: .bottomTrailing)
+                    )
+                Text(welcomeSubtitle)
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.top, 18)
+
             // v3.4.25：上下文感知建议芯片——新会话给开场模板，续聊会话给话题延续入口
+            // v3.4.29：统一为全站玻璃淡雅风（原 accentColor 实色底+同色文字，与顶部续聊芯片条是两套观感；
+            // 且高饱和蓝抢了问候语的视觉主角位）；水平内边距 24 → 16 与消息区/续聊条对齐
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     ForEach(welcomeSuggestions) { s in
@@ -817,16 +829,53 @@ struct ChatView: View {
                                 Text(s.title)
                                     .font(.system(size: 12, weight: .medium))
                             }
-                            .foregroundStyle(Color.accentColor)
+                            .foregroundStyle(.secondary)
                             .padding(.horizontal, 12)
                             .padding(.vertical, 7)
-                            .background(Color.accentColor.opacity(0.08), in: Capsule())
-                            .overlay(Capsule().strokeBorder(Color.accentColor.opacity(0.15), lineWidth: 0.8))
+                            .background(.ultraThinMaterial, in: Capsule())
+                            .overlay(Capsule().strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.8))
                         }
                         .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
                     }
                 }
-                .padding(.horizontal, 24)
+                .padding(.horizontal, 16)
+            }
+            .padding(.top, 18)
+
+            // v3.4.29：继续上次会话——用户手动新建/清空会话后一键回到上一个会话，免切「会话」tab 再找
+            // （启动自动 loadLastSession 只覆盖 App 重启场景，新建会话后原先没有任何回归路径）
+            if let last = chat.lastLoadedSession, last.id != chat.sessionId, !clearing {
+                Button {
+                    Haptics.tap()
+                    chat.load(last)
+                } label: {
+                    HStack(spacing: 9) {
+                        Image(systemName: "arrow.uturn.backward.circle")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(.secondary)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("继续上次")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(.secondary)
+                            Text(last.title.isEmpty ? "未命名会话" : last.title)
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(.primary)
+                                .lineLimit(1)
+                        }
+                        Spacer(minLength: 8)
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.8))
+                }
+                .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
+                .padding(.horizontal, 16)
+                .padding(.top, 16)
             }
         }
     }
@@ -1122,8 +1171,7 @@ struct ChatView: View {
             if (chat.messages.isEmpty || clearing) && !stream.isStreaming {
                 welcomeView
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                    .padding(.top, 120)
-                    .id("welcome")
+                    .id("welcome")   // v3.4.29：原 padding(.top,120) 已移入 welcomeView 顶部弹性留白（小屏不再挤）
             } else {
             ScrollViewReader { proxy in
             ScrollView {
@@ -1318,9 +1366,15 @@ struct ChatView: View {
         .task {
             // v3.0.51 A2 fix：初始化可见消息缓存（首次渲染不为空）
             refreshVisibleMessages()
+            // v3.4.29：先用上次结果填充状态点——首屏不再闪"检测中"灰点（后台校验回来再纠正）
+            if let cached = UserDefaults.standard.object(forKey: "qingliao_server_online_cache") as? Bool {
+                serverOnline = cached
+            }
             // 服务器连接状态检测（真实绿点）
             let r = await auth.testConnection(server: auth.serverURL)
-            serverOnline = r.hasPrefix("✅")
+            let ok = r.hasPrefix("✅")
+            serverOnline = ok
+            UserDefaults.standard.set(ok, forKey: "qingliao_server_online_cache")   // v3.4.29：写缓存供下次首屏
         }
         .fullScreenCover(item: $bigBangPayload) { payload in
             BigBangView(text: payload.text)
