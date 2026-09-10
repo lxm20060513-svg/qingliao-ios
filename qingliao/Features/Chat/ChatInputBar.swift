@@ -27,6 +27,8 @@ struct ChatInputBar: View {
     // v3.0.4：语音功能启用开关——云端模式无后端 ASR，关闭全部语音入口（长按/按钮）
     var voiceEnabled: Bool = true
     @Environment(KeyboardObserver.self) private var kbEnv
+    // v3.4.28：横屏限宽
+    @Environment(\.horizontalSizeClass) private var hSizeInput
     @State private var pressKeyboardUp = false
     // v2.0.129：Siri 圆球输入（设置开关，默认开）——默认状态是圆球，单击展开输入框，长按语音转文字
     @AppStorage("qingliao_ball_input") private var ballInput = true
@@ -88,6 +90,9 @@ struct ChatInputBar: View {
                 .transition(.scale(1.35).combined(with: .opacity))
             } else {
                 fullInputBar
+                    // v3.4.28：横屏限宽居中（竖屏 .infinity 不变）
+                    .frame(maxWidth: AdaptiveLayout.contentMaxWidth(hSizeInput))
+                    .frame(maxWidth: .infinity)
                     // v2.0.130：输入框从球心缩放展开——v2.0.132 优化：同样去掉 blurReplace
                     .transition(.scale(0.5).combined(with: .opacity))
             }

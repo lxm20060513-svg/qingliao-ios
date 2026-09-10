@@ -106,6 +106,10 @@ enum MarkdownRenderer {
     private static let orderedListRegex: NSRegularExpression? = {
         try? NSRegularExpression(pattern: #"^\d+[\.、]\s"#)
     }()
+    /// v3.4.28：裸链接（非 markdown 语法的 http/https/www 直链）
+    private static let bareLinkRegex: NSRegularExpression? = {
+        try? NSRegularExpression(pattern: #"https?://[^\s<>()\[\]{}"']+|www\.[^\s<>()\[\]{}"']+"#)
+    }()
 
     // MARK: - 行内语法：**加粗** `代码` *斜体* [链接](url)
 
@@ -121,8 +125,7 @@ enum MarkdownRenderer {
         for m in re.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
             let r = m.range
             if r.location > pos {
-                out.append(NSAttributedString(string: ns.substring(with: NSRange(location: pos, length: r.location - pos)),
-                                              attributes: [.font: font, .foregroundColor: color]))
+                out.append(renderPlainWithLinks(ns.substring(with: NSRange(location: pos, length: r.location - pos)), font, color))
             }
             let token = ns.substring(with: r)
             if token.hasPrefix("**"), token.hasSuffix("**") {
@@ -138,20 +141,70 @@ enum MarkdownRenderer {
                                               attributes: [.font: UIFont.italicSystemFont(ofSize: font.pointSize),
                                                            .foregroundColor: color]))
             } else if token.hasPrefix("[") {
-                // [text](url) → 蓝色文本
+                // [text](url) → 蓝色 + .link 属性（v3.4.28：Text/UITextView 点击可开浏览器）
                 let body = String(token.dropFirst().dropLast())
                 if let close = body.range(of: "](") {
-                    out.append(NSAttributedString(string: String(body[..<close.lowerBound]),
-                                                  attributes: [.font: font, .foregroundColor: UIColor.systemBlue]))
+                    let label = String(body[..<close.lowerBound])
+                    var urlStr = String(body[close.upperBound...])
+                    // 相对/无 scheme 的 url 补 https（防点击无效）
+                    if !urlStr.contains("://") { urlStr = "https://" + urlStr }
+                    out.append(linkText(label, urlStr, font))
                 }
             }
             pos = r.location + r.length
+        }
+        if pos < ns.length {
+            out.append(renderPlainWithLinks(ns.substring(from: pos), font, color))
+        }
+        return AttributedString(out)
+    }
+
+    // MARK: - v3.4.28 裸链接识别
+
+    /// 普通文本渲染 + 裸链接识别（http/https/www 直链 → 蓝色下划线可点击）
+    private static func renderPlainWithLinks(_ text: String, _ font: UIFont, _ color: UIColor) -> AttributedString {
+        guard let re = bareLinkRegex, !text.isEmpty else {
+            return styled(text, font, color)
+        }
+        let ns = text as NSString
+        let out = NSMutableAttributedString()
+        var pos = 0
+        for m in re.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
+            let r = m.range
+            if r.location > pos {
+                out.append(NSAttributedString(string: ns.substring(with: NSRange(location: pos, length: r.location - pos)),
+                                              attributes: [.font: font, .foregroundColor: color]))
+            }
+            var urlStr = ns.substring(with: r)
+            // 尾部标点剥离（中文句读/英文句号常紧跟链接，属句子而非 URL）
+            while let last = urlStr.last, ".,;!?。，；！？）】》".contains(last) {
+                urlStr.removeLast()
+            }
+            let trimmedLen = urlStr.count
+            if trimmedLen > 0 {
+                out.append(linkText(urlStr, urlStr, font))
+                pos = r.location + trimmedLen
+            } else {
+                pos = r.location
+            }
         }
         if pos < ns.length {
             out.append(NSAttributedString(string: ns.substring(from: pos),
                                           attributes: [.font: font, .foregroundColor: color]))
         }
         return AttributedString(out)
+    }
+
+    /// 链接统一样式：蓝色 + 下划线 + .link 属性（SwiftUI Text 可点 / UITextView dataDetector 兜底）
+    private static func linkText(_ label: String, _ urlStr: String, _ font: UIFont) -> AttributedString {
+        var full = urlStr
+        if !full.contains("://") { full = "https://" + full }
+        var attr = AttributedString(label)
+        attr.font = .systemFont(ofSize: font.pointSize)
+        attr.foregroundColor = .systemBlue
+        attr.underlineStyle = .single
+        if let u = URL(string: full) { attr.link = u }
+        return attr
     }
 
     private static func styled(_ s: String, _ font: UIFont, _ color: UIColor) -> AttributedString {

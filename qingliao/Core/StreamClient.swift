@@ -29,6 +29,8 @@ final class StreamClient {
     private var interval: TimeInterval = 0.25
     private var pollTask: Task<Void, Never>?
     private var onFinished: ((Bool, String) -> Void)?   // (success, errorMessage)
+    // v3.4.x 弱网重连 ②：失败指数退避基数（成功后重置 0.5s，失败翻倍至 8s 封顶）
+    private var backoff: TimeInterval = 0.5
     // v3.0.50 稳定性：代际计数——停止/重启后旧轮询 resume 时丢弃结果，防污染新流
     private var generation = 0
     // v3.0.81：后台任务标识——iOS 挂起前最多续 ~30s，让轮询/recover 有机会完成
@@ -88,6 +90,7 @@ final class StreamClient {
         offset = 0
         failCount = 0
         idleStreak = 0
+        backoff = 0.5   // v3.4.x：新流重置退避
         recoverTried = false
         startSmooth()   // v3.4.20：打字机平滑释放启动
         interval = 0.25
@@ -148,6 +151,24 @@ final class StreamClient {
     }
 
     private func pollOnce(auth: AuthStore, generation: Int) async {
+        // v3.4.x 弱网重连 ①：系统路径断网（NWPath unsatisfied）时不出请求——
+        // 蜂窝断网期每次请求白烧 10s 超时，10 连败要 ~100s 才进恢复且无网时 recover 也必败；
+        // 改为挂起轮询、每 2s 探测一次路径状态，网络恢复（satisfied）立即续流
+        if !NetworkMonitor.shared.isSatisfied {
+            guard generation == self.generation else { return }
+            status = "waiting_network"
+            var waited = 0
+            while waited < 120, !Task.isCancelled,
+                  !NetworkMonitor.shared.isSatisfied,
+                  generation == self.generation, !self.isDone {
+                try? await Task.sleep(for: .seconds(2))
+                waited += 2
+            }
+            guard generation == self.generation, !self.isDone else { return }
+            status = ""
+            if waited >= 120 { finish(success: false, error: "网络长时间不可用，请检查网络后重试") }
+            return   // 网络恢复 → 本轮直接返回，下一轮按正常间隔续流
+        }
         do {
             let (c, done, st, err, agent, piggyback) = try await auth.streamPoll(taskId: taskId, offset: offset)
             guard generation == self.generation else { return }   // v3.0.50：旧代轮询丢弃
@@ -198,10 +219,18 @@ final class StreamClient {
                 recoverFailTried = true
                 if await tryRecover(auth: auth) { return }
             }
-            if failCount >= 10 {
+            // v3.4.x 弱网重连 ②：失败期指数退避——0.5s→1s→2s→4s→8s 封顶，
+            // 替代原来固定 0.15-0.8s 密集重试（弱网期烧流量+耗电，成功概率极低）
+            if failCount >= 2 {
+                backoff = min(backoff * 2, 8)
+                interval = backoff
+            }
+            if failCount >= 15 {
                 finish(success: false, error: "连接中断，请重试")
             }
         }
+        // 成功响应后重置退避（放在函数尾部，成功路径 failCount=0 时执行）
+        if failCount == 0 { backoff = 0.5 }
     }
 
     /// v3.0.31：poll 404 恢复——调 /api/stream/recover 找回任务（内存优先、磁盘 streams/*.json 兜底）。
@@ -273,6 +302,14 @@ final class StreamClient {
         recoverTried = false
         recoverFailTried = false
         failCount = 0
+        backoff = 0.5   // v3.4.x：重置退避（后台回来网络通常已恢复）
+        // v3.4.x 弱网重连 ③：网络未就绪（路径 unsatisfied）时先等网络再 recover——
+        // 刚回前台蜂窝会话重建需要 1-3s，立即 recover 大概率白失败一次
+        var waited = 0
+        while waited < 10, !NetworkMonitor.shared.isSatisfied {
+            try? await Task.sleep(for: .seconds(1))
+            waited += 1
+        }
         // v3.0.81：后台回来先刷新网络会话（蜂窝/IPv6 连接可能已过期），再做 recover
         await auth.refreshConnection()
         let recovered = await tryRecover(auth: auth)

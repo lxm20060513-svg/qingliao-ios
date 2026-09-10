@@ -51,6 +51,10 @@ extension SettingsView {
             SettingRow(icon: "house.fill", iconColor: .purple, title: "HA 设置", chevron: true)
                 .onTapGesture { showHASettings = true }
             Divider().padding(.leading, 52)
+            // v3.5.0：MCP 工具服务（App 配 key → Hermes 原生 MCP 工具）
+            SettingRow(icon: "puzzlepiece.extension.fill", iconColor: .teal, title: "MCP 工具服务", chevron: true)
+                .onTapGesture { showMCPSettings = true }
+            Divider().padding(.leading, 52)
             localModelToggle
         }
         .glassListCard()

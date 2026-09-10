@@ -28,6 +28,8 @@ struct MessageBubble: View {
     @AppStorage("qingliao_font_size") private var fontSize = 15.0   // v2.0.87r：默认15号
     // v2.0.128：AI 输出行高（设置页滑条，实时生效）
     @AppStorage("qingliao_ai_line_spacing") private var aiLineSpacing = 1.0
+    // v3.4.28：横屏自适应（气泡/图片宽度按宽屏放宽）
+    @Environment(\.horizontalSizeClass) private var hSize
     // v2.0.65：深浅色气泡双色值 / 超长消息折叠
     @Environment(\.colorScheme) private var scheme
     // v2.0.130：AI 发图 MEDIA 路径 → 服务器图片 URL（读 App 配置的服务器地址）
@@ -182,17 +184,18 @@ struct MessageBubble: View {
                         if img.hasPrefix("http") {
                             // v3.0.37：图片持久化 —— URL 图片（已上传 NAS）用 AsyncImage 加载
                             // v3.4.25：data URL 图片按气泡显示宽度下采样解码（≥100KB 大图省内存）
-                            AIImageView(url: img, displayWidthPT: 200)
-                                .frame(maxWidth: 200, maxHeight: 200)
+                            // v3.4.28：横屏放宽到 280
+                            AIImageView(url: img, displayWidthPT: AdaptiveLayout.chatImageMax(hSize))
+                                .frame(maxWidth: AdaptiveLayout.chatImageMax(hSize), maxHeight: AdaptiveLayout.chatImageMax(hSize))
                                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                                 .onTapGesture { onImageTap() }
                                 .contextMenu { cardMenu }
-                        } else if let uiImg = dataURLImage(img, displayWidthPT: 200) {
+                        } else if let uiImg = dataURLImage(img, displayWidthPT: AdaptiveLayout.chatImageMax(hSize)) {
                             // v3.4.25：传气泡显示宽度 → ≥100KB 大图按 512/1024 档位下采样解码（内存不随原图像素放大）
                             Image(uiImage: uiImg)
                                 .resizable()
                                 .scaledToFill()
-                                .frame(maxWidth: 200, maxHeight: 200)
+                                .frame(maxWidth: AdaptiveLayout.chatImageMax(hSize), maxHeight: AdaptiveLayout.chatImageMax(hSize))
                                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                                 // v2.0.36：点击查看大图
                                 .onTapGesture { onImageTap() }
@@ -320,31 +323,38 @@ struct MessageBubble: View {
                         .padding(.top, 1)
                     }
                     // v2.0.81：AI 消息朗读（点击播放/停止，中文 TTS）
+                    // v3.4.x：播放中显示声波跳动动画（3 音柱 TimelineView 驱动），播完自动复原
                     if !message.isUser && !message.content.isEmpty {
                         Button {
                             SpeechManager.shared.toggle(message.content, id: message.id)
                         } label: {
-                            Image(systemName: speech.speakingID == message.id
-                                  ? "speaker.wave.2.fill" : "speaker.wave.2")
-                                .font(.system(size: 11))
-                                .foregroundStyle(speech.speakingID == message.id
-                                                 ? Color.accentColor : .secondary)
+                            if speech.speakingID == message.id {
+                                // 播放中：3 根音柱跳动（10fps，低耗不卡渲染）
+                                TimelineView(.periodic(from: .now, by: 0.1)) { ctx in
+                                    let t = ctx.date.timeIntervalSinceReferenceDate
+                                    HStack(spacing: 1.5) {
+                                        ForEach(0..<3, id: \.self) { i in
+                                            // 三根音柱相位错开，正弦起伏 3..11pt
+                                            Capsule()
+                                                .fill(Color.accentColor)
+                                                .frame(width: 2, height: max(3, 7 + 4 * sin(t * 6 + Double(i) * 1.3)))
+                                        }
+                                    }
+                                    .frame(height: 12)   // 固定高度防行高抖动
+                                }
                                 .padding(.top, 1)
+                            } else {
+                                Image(systemName: "speaker.wave.2")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(.secondary)
+                                    .padding(.top, 1)
+                            }
                         }
                         .buttonStyle(.plain)
                     }
-                    // v2.0.96b：Agent 回复标记（工具调用回复小标签）
-                    if message.agent {
-                        Text("Agent 回复")
-                            .font(.system(size: 9, weight: .semibold))
-                            .foregroundStyle(LinearGradient(colors: [.blue, .indigo, .pink],
-                                                            startPoint: .topLeading, endPoint: .bottomTrailing))
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Color.accentColor.opacity(0.12), in: Capsule())
-                            .padding(.top, 1)
-                    }
-                    // v3.0.82：Hermes 主动推送标签（收件箱注入，蓝色系——区别于渐变 Agent 标签）
+                    // v3.4.x：移除「Agent 回复」标签——v3.4.8 起所有回复恒走 Hermes agent，
+                    // 标注已无信息量（用户确认移除）。agent 字段链路保留（落库/推送兼容不动）。
+                    // v3.0.82：Hermes 主动推送标签（收件箱注入，蓝色系）
                     if message.isPush {
                         Text("🔔 推送")
                             .font(.system(size: 9, weight: .semibold))
@@ -403,7 +413,7 @@ struct MessageBubble: View {
                         }
                     }
                 )
-            .frame(maxWidth: 366, alignment: message.isUser ? .trailing : .leading)   // v2.0.41 气泡加宽 350→366（贴红线/近满宽）
+            .frame(maxWidth: AdaptiveLayout.bubbleMaxWidth(hSize), alignment: message.isUser ? .trailing : .leading)   // v3.4.28 横屏自适应（竖屏仍 366）
             // v2.0.85c：气泡出现微动画（缩放 + 淡入，单条插入安全）
             .transition(.scale(scale: 0.94, anchor: message.isUser ? .trailing : .leading)
                 .combined(with: .opacity))
@@ -587,7 +597,7 @@ struct MessageBubble: View {
             RoundedRectangle(cornerRadius: 15, style: .continuous)
                 .fill(aiBubbleColor)
         )
-        .frame(maxWidth: 366, alignment: .leading)
+        .frame(maxWidth: AdaptiveLayout.bubbleMaxWidth(hSize), alignment: .leading)
     }
 
     /// v2.0.130：AI 发图 —— Hermes 回复的 MEDIA:/路径 协议 → markdown 图片语法

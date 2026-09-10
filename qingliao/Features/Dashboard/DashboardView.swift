@@ -13,6 +13,8 @@ struct DashboardView: View {
     var isActive: Bool = true
     @Environment(AuthStore.self) private var auth
     @Environment(\.colorScheme) private var scheme   // v3.0.9：背景毛玻璃化深浅适配
+    // v3.4.28：横屏限宽
+    @Environment(\.horizontalSizeClass) private var hSizeBoard
 
     @State private var nas = NASStatus()
     // v3.0.36：模型使用量栏（/api/nas/providers-usage）
@@ -324,6 +326,9 @@ struct DashboardView: View {
                 }
                 .padding(.horizontal, 14)
                 .padding(.bottom, 100)
+                // v3.4.28：横屏限宽居中
+                .frame(maxWidth: .infinity)
+                .frame(maxWidth: AdaptiveLayout.contentMaxWidth(hSizeBoard))
             }
             .scrollPosition($scrollPos)
             // v2.0.86h：Dock 滑动隐藏已删除（从未生效，手动开关替代）

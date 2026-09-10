@@ -75,7 +75,8 @@ struct SelectableTextLabel: UIViewRepresentable {
         tv.textContainer.lineFragmentPadding = 0
         tv.textContainer.widthTracksTextView = true
         tv.delegate = context.coordinator
-        tv.dataDetectorTypes = []
+        // v3.4.28：识别链接（.link 属性文字可点）——点击由 shouldInteractWith 接管统一开 Safari
+        tv.dataDetectorTypes = [.link]
         // 尺寸行为与 SwiftUI Text 一致：短文本气泡窄、长文本换行不撑爆
         //（hugging required → 按内容宽；compression low → 超宽时压缩换行）
         tv.setContentHuggingPriority(.required, for: .horizontal)
@@ -186,6 +187,17 @@ struct SelectableTextLabel: UIViewRepresentable {
         // v2.0.132：上次渲染的内容指纹（文本长度|行距|颜色），未变则跳过重建
         var lastKey = ""
         init(parent: SelectableTextLabel) { self.parent = parent }
+
+        // v3.4.28：链接点击统一开浏览器（不让 UITextView 弹内嵌 SFSafari 预览）
+        func textView(_ textView: UITextView,
+                      shouldInteractWith URL: URL,
+                      in characterRange: NSRange,
+                      interaction: UITextItemInteraction) -> Bool {
+            if interaction == .invokeDefaultAction {
+                UIApplication.shared.open(URL)
+            }
+            return false
+        }
 
         // iOS 26+ 新 API（部署目标 26.0，唯一生效路径；旧 API editMenuForTextIn 已弃用不再调用）
         // 🚨 关键坑（v2.0.124/125 改坏根源）：iOS 26 全面转向 NSRange 体系（selectedRanges:

@@ -193,6 +193,7 @@ struct MessageBlockView: View {
                 // v3.0.17：流式输出中的 AI 长文 —— SwiftUI Text 原生渲染，无 UITextView 布局锁/字体缩放问题
                 // v3.0.18：AI 消息落库后也保持 SwiftUI Text（不再切回 UITextView）——根治"字挤小框"
                 // 长按菜单用 contextMenu 提供（复制/引用/分享/大爆炸/重新生成/撤回/删除，与 UITextView 编辑菜单一致）
+                // v3.4.28：environment openURL 接管链接点击 → 直接开浏览器（.link 属性文字可点）
                 Text(cachedRenderText(text))
                     .font(.system(size: CGFloat(fontSize)))
                     .lineSpacing(aiLineSpacing)
@@ -200,6 +201,10 @@ struct MessageBlockView: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .contextMenu { bubbleMenu }
+                    .environment(\.openURL, OpenURLAction { url in
+                        UIApplication.shared.open(url)
+                        return .handled
+                    })
             } else {
                 // v3.0.41 fix：超长静态文本（>6000 字）改回 UITextView 渲染——
                 // SwiftUI 大 Text 在 LazyVStack 滚动时每次布局都全量 CoreText 排版（几万字），
@@ -356,6 +361,7 @@ struct ChatPDFDocument: FileDocument {
     }
 
     /// 从消息列表生成 PDF（UIKit 排版 A4）
+    /// v3.4.28：图片消息真图嵌入（按比例缩放进版心，放不下先换页；解码失败降级占位文字）
     static func generate(title: String, messages: [ChatMessage]) -> Data {
         let pageRect = CGRect(x: 0, y: 0, width: 595, height: 842) // A4
         let margin: CGFloat = 50
@@ -363,6 +369,7 @@ struct ChatPDFDocument: FileDocument {
         let titleFont = UIFont.systemFont(ofSize: 18, weight: .bold)
         let bodyFont = UIFont.systemFont(ofSize: 12)
         let metaFont = UIFont.systemFont(ofSize: 10)
+        let imageMaxHeight: CGFloat = 560   // 单图高度上限（超出裁剪，防单图占满整页）
 
         let renderer = UIGraphicsPDFRenderer(bounds: pageRect)
         return renderer.pdfData { ctx in
@@ -411,22 +418,114 @@ struct ChatPDFDocument: FileDocument {
                 y += metaSize.height + 4
 
                 var content = m.content
-                if m.imageDataURL != nil {
+                let hasImage = m.imageDataURL != nil && !(m.imageDataURL ?? "").isEmpty
+                if hasImage {
                     let c = content.trimmingCharacters(in: .whitespacesAndNewlines)
-                    content = c.isEmpty ? "[图片]" : c + "\n[图片]"
+                    content = c.isEmpty ? "[图片]" : c
                 }
                 let bodyAttrs: [NSAttributedString.Key: Any] = [
                     .font: bodyFont, .foregroundColor: UIColor.label
                 ]
-                let bodySize = (content as NSString).boundingRect(
-                    with: CGSize(width: contentWidth, height: .greatestFiniteMagnitude),
-                    options: .usesLineFragmentOrigin, attributes: bodyAttrs, context: nil
-                )
-                checkSpace(bodySize.height + 12)
-                (content as NSString).draw(in: CGRect(x: margin, y: y, width: contentWidth, height: bodySize.height), withAttributes: bodyAttrs)
-                y += bodySize.height + 12
+                if !content.isEmpty {
+                    let bodySize = (content as NSString).boundingRect(
+                        with: CGSize(width: contentWidth, height: .greatestFiniteMagnitude),
+                        options: .usesLineFragmentOrigin, attributes: bodyAttrs, context: nil
+                    )
+                    checkSpace(bodySize.height + 12)
+                    (content as NSString).draw(in: CGRect(x: margin, y: y, width: contentWidth, height: bodySize.height), withAttributes: bodyAttrs)
+                    y += bodySize.height + 8
+                }
+
+                // v3.4.28：真图嵌入（dataURL 解码 → 等比缩放进版心；页尾放不下先换页）
+                if hasImage, let img = dataURLImage(m.imageDataURL ?? "") {
+                    let ratio = img.size.width > 0 ? img.size.height / img.size.width : 1
+                    var drawW = contentWidth
+                    var drawH = drawW * ratio
+                    if drawH > imageMaxHeight {
+                        drawH = imageMaxHeight
+                        drawW = drawH / ratio
+                    }
+                    checkSpace(drawH + 14)
+                    let imgRect = CGRect(x: margin + (contentWidth - drawW) / 2, y: y,
+                                         width: drawW, height: drawH)
+                    UIColor.secondarySystemBackground.setFill()
+                    ctx.cgContext.fill(imgRect)
+                    img.draw(in: imgRect)
+                    y += drawH + 12
+                } else if hasImage {
+                    // 解码失败降级：占位文字（原行为）
+                    checkSpace(20)
+                    let ph = "[图片]" as NSString
+                    ph.draw(at: CGPoint(x: margin, y: y), withAttributes: bodyAttrs)
+                    y += 20
+                }
+                y += 4
             }
         }
+    }
+}
+
+// MARK: - v3.4.28 会话导出文档（.html）——图片 base64 内嵌，浏览器打开即看
+
+struct ChatHTMLDocument: FileDocument {
+    var html: String
+    static var readableContentTypes: [UTType] { [.html] }
+    init(html: String) { self.html = html }
+    init(configuration: ReadConfiguration) throws {
+        html = String(data: configuration.file.regularFileContents ?? Data(), encoding: .utf8) ?? ""
+    }
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
+        FileWrapper(regularFileWithContents: Data(html.utf8))
+    }
+
+    /// 从消息列表生成单文件 HTML（图片走原 dataURL 直接内嵌，零解码零转码）
+    static func generate(title: String, messages: [ChatMessage]) -> String {
+        var body: [String] = []
+        let df = DateFormatter()
+        df.dateFormat = "yyyy-MM-dd HH:mm"
+        func esc(_ s: String) -> String {
+            s.replacingOccurrences(of: "&", with: "&amp;")
+             .replacingOccurrences(of: "<", with: "&lt;")
+             .replacingOccurrences(of: ">", with: "&gt;")
+        }
+        for m in messages {
+            let who = m.isUser ? "我" : "AI"
+            let t = m.timestamp.map { df.string(from: Date(timeIntervalSince1970: $0 / 1000)) } ?? ""
+            let cls = m.isUser ? "msg user" : "msg ai"
+            var inner = ""
+            if let img = m.imageDataURL, !img.isEmpty, img.hasPrefix("data:image/") {
+                inner += "<img src=\"\(img)\" alt=\"图片\">"
+            }
+            let text = m.withdrawn ? "已撤回"
+                : (m.audioPath != nil ? "[语音]" : m.content)
+            if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                // AI 内容按 markdown 轻渲染（换行保底），防长段落挤成一坨
+                let htmlText = esc(text)
+                    .replacingOccurrences(of: "\n", with: "<br>")
+                inner += "<p>\(htmlText)</p>"
+            }
+            body.append("<div class=\"\(cls)\"><div class=\"meta\">\(esc(who)) · \(esc(t))</div><div class=\"bubble\">\(inner)</div></div>")
+        }
+        return """
+        <!DOCTYPE html>
+        <html lang="zh-CN"><head><meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>\(esc(title.isEmpty ? "轻聊会话导出" : title))</title>
+        <style>
+        body{font-family:-apple-system,'PingFang SC',sans-serif;background:#f5f5f7;margin:0;padding:16px;max-width:680px;margin:0 auto;}
+        h1{font-size:18px;color:#1d1d1f;}
+        .msg{margin:12px 0;display:flex;flex-direction:column;}
+        .meta{font-size:11px;color:#86868b;margin:0 4px 4px;}
+        .bubble{background:#fff;border-radius:12px;padding:10px 14px;box-shadow:0 1px 2px rgba(0,0,0,.06);}
+        .msg.user{align-items:flex-end;}
+        .msg.user .bubble{background:#d6f5d6;}
+        .bubble p{margin:0;font-size:14px;line-height:1.6;color:#1d1d1f;word-break:break-word;}
+        .bubble img{max-width:100%;border-radius:8px;margin-top:6px;}
+        </style></head><body>
+        <h1>\(esc(title.isEmpty ? "轻聊会话导出" : title))</h1>
+        \(body.joined(separator: "\n"))
+        </body></html>
+        """
     }
 }
 
@@ -435,6 +534,9 @@ struct ChatPDFDocument: FileDocument {
 
 private struct MarkdownTableView: View {
     let rows: [[String]]
+    // v3.5.0：表格分享（CSV → 系统分享面板，Numbers/WPS/Excel 可直接导入）
+    @State private var showShare = false
+    @State private var csvURL: URL?
 
     /// 每列统一宽度（按该列最长内容估宽，中文 12pt 约 13px/字）
     private var colWidths: [CGFloat] {
@@ -448,21 +550,21 @@ private struct MarkdownTableView: View {
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             VStack(alignment: .leading, spacing: 0) {
-                ForEach(rows.indices, id: \.self) { r in
-                    HStack(spacing: 0) {
-                        ForEach(rows[r].indices, id: \.self) { c in
-                            Text(rows[r][c])
-                                .font(.system(size: 12, weight: r == 0 ? .semibold : .regular))
-                                .foregroundStyle(r == 0 ? Color.primary : Color.secondary)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 6)
-                                .frame(width: colWidths.indices.contains(c) ? colWidths[c] : 80, alignment: .leading)
-                                .background(r == 0
-                                            ? Color.accentColor.opacity(0.08)
-                                            : (r % 2 == 0 ? Color.primary.opacity(0.03) : Color.clear))
-                        }
+                HStack(alignment: .top, spacing: 0) {
+                    // v3.5.0：分享按钮（低调半透明，与 CodeCopyButton 同款视觉语言）
+                    Button {
+                        csvURL = Self.makeCSV(rows: rows)
+                        showShare = csvURL != nil
+                    } label: {
+                        Image(systemName: "square.and.arrow.up")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(Color.secondary)
+                            .padding(4)
+                            .contentShape(Rectangle())
                     }
-                    Divider().overlay(Color.primary.opacity(0.07))
+                    .buttonStyle(CodeCopyButtonStyle())
+                    .accessibilityLabel("导出表格")
+                    tableGrid
                 }
             }
             .padding(8)
@@ -471,6 +573,56 @@ private struct MarkdownTableView: View {
             .padding(.vertical, 2)
         }
         .textSelection(.enabled)
+        .sheet(isPresented: $showShare) {
+            if let csvURL {
+                ActivityShareSheet(items: [csvURL])
+            }
+        }
+    }
+
+    /// 表格本体（拆出独立计算属性：分享按钮加入后避免 body 嵌套超 type-check 阈值）
+    private var tableGrid: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(rows.indices, id: \.self) { r in
+                HStack(spacing: 0) {
+                    ForEach(rows[r].indices, id: \.self) { c in
+                        Text(rows[r][c])
+                            .font(.system(size: 12, weight: r == 0 ? .semibold : .regular))
+                            .foregroundStyle(r == 0 ? Color.primary : Color.secondary)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .frame(width: colWidths.indices.contains(c) ? colWidths[c] : 80, alignment: .leading)
+                            .background(r == 0
+                                        ? Color.accentColor.opacity(0.08)
+                                        : (r % 2 == 0 ? Color.primary.opacity(0.03) : Color.clear))
+                    }
+                }
+                Divider().overlay(Color.primary.opacity(0.07))
+            }
+        }
+    }
+
+    /// rows → CSV 临时文件（RFC 4180 转义：含逗号/引号/换行的字段加引号，引号翻倍）
+    private static func makeCSV(rows: [[String]]) -> URL? {
+        func esc(_ s: String) -> String {
+            if s.contains(",") || s.contains("\"") || s.contains("\n") {
+                return "\"\(s.replacingOccurrences(of: "\"", with: "\"\""))\""
+            }
+            return s
+        }
+        let csv = rows.map { $0.map(esc).joined(separator: ",") }.joined(separator: "\r\n")
+        let dir = FileManager.default.temporaryDirectory
+        let stamp = Int(Date().timeIntervalSince1970)
+        let url = dir.appendingPathComponent("qingliao_table_\(stamp).csv")
+        do {
+            // BOM 头：Excel/WPS 直接打开 UTF-8 中文不乱码
+            var data = Data([0xEF, 0xBB, 0xBF])
+            data.append(Data(csv.utf8))
+            try data.write(to: url)
+            return url
+        } catch {
+            return nil
+        }
     }
 }
 

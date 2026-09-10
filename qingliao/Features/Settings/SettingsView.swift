@@ -5,6 +5,8 @@ import LocalAuthentication
 
 struct SettingsView: View {
     @Environment(AuthStore.self) var auth
+    // v3.4.28：横屏限宽
+    @Environment(\.horizontalSizeClass) private var hSizeSettings
     @AppStorage("qingliao_appearance") var appearance = "system"   // dark/light/system（默认跟随系统）
 
     // v2.0.83c：连接设置二级页（服务器地址/测试连接/会话存储位置收进二级）
@@ -32,6 +34,8 @@ struct SettingsView: View {
     @State var confirmLogout = false   // v3.0.5 review fix：退出登录二次确认（与云端一致）
     @State var secretCount = 0
     @State var showHASettings = false
+    // v3.5.0：MCP 工具服务管理弹窗
+    @State var showMCPSettings = false
     // v3.0.17：聊天字体大小从一级菜单移除（外观二级菜单持有），fontSize 声明一并清理
     // v3.0.9：外观下天气城市已移除（天气城市设定在看板 WeatherBadge 点按处），相关状态一并清理
     // v2.0.101：Agent 使用说明内联展开
@@ -88,6 +92,9 @@ struct SettingsView: View {
                 }
                 .padding(.horizontal, 14)
                 .padding(.bottom, 100)
+                // v3.4.28：横屏限宽居中
+                .frame(maxWidth: .infinity)
+                .frame(maxWidth: AdaptiveLayout.contentMaxWidth(hSizeSettings))
             }
             .scrollPosition($scrollPos)
         }
@@ -141,6 +148,11 @@ struct SettingsView: View {
         .sheet(isPresented: $showHASettings) {
             HASettingsSheet()
                 .presentationDetents([.medium])
+        }
+        // v3.5.0：MCP 工具服务管理
+        .sheet(isPresented: $showMCPSettings) {
+            MCPSettingsSheet()
+                .presentationDetents([.medium, .large])
         }
         // v2.0.105：Agent 关键词管理
         .sheet(isPresented: $showAgentKeywords) {

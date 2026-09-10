@@ -88,10 +88,18 @@ final class SpeechManager: NSObject, ObservableObject, AVSpeechSynthesizerDelega
         let model = CloudConfig.ttsModel
         // v3.4.x：TTS 本地缓存——同一段话(同 voice/provider/model)不重复请求云端，命中直接播省额度更快。
         // 代次校验先行：缓存命中回放仍需 gen 有效（用户已切走则丢弃，不播陈旧音频）。
+        // v3.4.x fix：缓存命中不再"必然 return"——缓存文件可能损坏/为空导致 AVAudioPlayer 初始化
+        // 失败（原 try? 静默吞掉 → 用户看到"点了没反应"）。改为：缓存播放成功才算完成；
+        // 失败清掉坏缓存，继续走下方云端请求（再失败还有系统语音兜底）。
         guard gen == ttsGeneration else { return }
         if let cached = Self.readTTSCache(clean: clean, voice: voice, provider: provider, model: model) {
-            try? self.playAudio(cached)
-            return
+            do {
+                try playAudio(cached)
+                return
+            } catch {
+                try? FileManager.default.removeItem(at: Self.ttsCachePath(clean: clean, voice: voice, provider: provider, model: model))
+                NSLog("[TTS] 缓存播放失败已清除坏缓存，转云端请求: \(error)")
+            }
         }
         do {
             let (data, resp) = try await auth.request("/api/tts", method: "POST",

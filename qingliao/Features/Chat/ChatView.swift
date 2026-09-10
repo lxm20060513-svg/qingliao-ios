@@ -169,9 +169,13 @@ struct ChatView: View {
     @State var showExporter = false
     @State var showMarkdownExporter = false
     @State var showPDFExporter = false
+    // v3.4.28：导出格式选择面板 + HTML 导出
+    @State var showExportSheet = false
+    @State var showHTMLExporter = false
     @State var exportText = ""
     @State var exportMarkdown = ""
     @State var exportPDFData: Data?
+    @State var exportHTML = ""
     @State var clearing = false          // v2.0.40 清空会话两步走标志
     // v2.0.43：快捷指令 / 搜索定位高亮
     @State var showQuickPrompts = false
@@ -312,20 +316,8 @@ struct ChatView: View {
     /// 抽成独立 @ViewBuilder 属性给 type-checker 更小的表达式单元。
     @ViewBuilder
     private var chatActionDialogContent: some View {
-        Menu("导出会话记录") {
-            Button("纯文本 (.txt)") {
-                exportText = chat.exportText()
-                showExporter = true
-            }
-            Button("Markdown (.md)") {
-                exportMarkdown = chat.exportMarkdown()
-                showMarkdownExporter = true
-            }
-            Button("PDF (.pdf)") {
-                exportPDFData = ChatPDFDocument.generate(
-                    title: chat.title, messages: chat.messages)
-                showPDFExporter = true
-            }
+        Button("导出会话记录") {
+            showExportSheet = true
         }
         // v2.0.92：会话分享卡片（渲染精美图片 → 系统分享/微信）
         Button("分享会话卡片") {
@@ -874,6 +866,9 @@ struct ChatView: View {
     }
 
     /// v3.4.26：续聊芯片条（非空会话且非流式时显示在消息区顶部；点按直接发送延续指令）
+    /// v3.4.x 美化：去高饱和纯蓝（用户反馈突兀）——改 Siri 淡雅低饱和风：
+    /// 图标走柔和渐变（每芯片独立色系）、文字 secondary 中性、底 ultraThinMaterial 玻璃、0.8pt 淡描边，
+    /// 与全站胶囊/玻璃卡片观感统一。
     @ViewBuilder
     private var continueChipsBar: some View {
         if !chat.messages.isEmpty && !stream.isStreaming {
@@ -884,17 +879,13 @@ struct ChatView: View {
                             Haptics.tap()
                             sendCore(text: s.prompt, imageData: nil)
                         } label: {
-                            HStack(spacing: 5) {
-                                Image(systemName: s.icon)
-                                    .font(.system(size: 11, weight: .medium))
-                                Text(s.title)
-                                    .font(.system(size: 12, weight: .medium))
-                            }
-                            .foregroundStyle(Color.accentColor)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 7)
-                            .background(Color.accentColor.opacity(0.08), in: Capsule())
-                            .overlay(Capsule().strokeBorder(Color.accentColor.opacity(0.15), lineWidth: 0.8))
+                            Text(s.title)
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 7)
+                                .background(.ultraThinMaterial, in: Capsule())
+                                .overlay(Capsule().strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.8))
                         }
                         .buttonStyle(.plain)
                     }
@@ -1371,6 +1362,16 @@ struct ChatView: View {
                       document: ChatPDFDocument(data: exportPDFData ?? Data()),
                       contentType: .pdf,
                       defaultFilename: "轻聊会话") { _ in }
+        // v3.4.28：导出格式选择面板 + HTML 导出
+        .sheet(isPresented: $showExportSheet) {
+            ChatExportSheet(title: chat.title, messages: chat.messages) { format in
+                handleExport(format)
+            }
+        }
+        .fileExporter(isPresented: $showHTMLExporter,
+                      document: ChatHTMLDocument(html: exportHTML),
+                      contentType: .html,
+                      defaultFilename: "轻聊会话") { _ in }
         // v2.0.36：录音权限被拒提示
     }
 
@@ -1575,7 +1576,7 @@ struct ChatView: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            Button("归档") { exportArchiveSafe() }
+            Button("归档") { showExportSheet = true }
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(.white)
                 .padding(.horizontal, 12)
@@ -1600,12 +1601,25 @@ struct ChatView: View {
         .padding(.top, 8)
     }
 
-    /// 安全导出当前会话（复用 ChatStore.exportText），弹系统分享面板（可存文件/备忘录）。
+    /// v3.4.28：导出格式分发（导出面板/归档条共用）——按所选格式准备内容并弹对应 fileExporter
     @MainActor
-    private func exportArchiveSafe() {
-        let text = chat.exportText()
-        guard !text.isEmpty else { return }
-        presentShare([text])
+    func handleExport(_ format: ChatExportFormat) {
+        switch format {
+        case .pdf:
+            exportPDFData = ChatPDFDocument.generate(
+                title: chat.title, messages: chat.messages)
+            showPDFExporter = true
+        case .html:
+            exportHTML = ChatHTMLDocument.generate(
+                title: chat.title, messages: chat.messages)
+            showHTMLExporter = true
+        case .markdown:
+            exportMarkdown = chat.exportMarkdown()
+            showMarkdownExporter = true
+        case .plainText:
+            exportText = chat.exportText()
+            showExporter = true
+        }
     }
 
     /// v2.0.102：sendingLock 同步置位——防极快双击时 isStreaming 尚未置位导致双流竞态
@@ -1769,7 +1783,7 @@ struct ChatView: View {
 
     /// v3.4.x 自动重试：沿用原消息（用户消息已在 messages，只重发 assistant 请求），
     /// 不新增 user 消息、不触发 lastSentSignature 幂等（那是 sendCore 的护栏，重发需绕过）。
-    /// 指数退避：1s → 2s。
+    /// 指数退避：1s → 2s；弱网断网时先等网络恢复再重试（v3.4.x 弱网重连 ④）。
     private func autoRetryStream(for msg: ChatMessage) {
         guard autoRetryCount < 2 else {
             autoRetryCount = 0   // 重试耗尽 → 复位，等手动按钮
@@ -1782,6 +1796,12 @@ struct ChatView: View {
         let delay = autoRetryCount == 1 ? 1.0 : 2.0
         Task {
             try? await Task.sleep(for: .seconds(delay))
+            // 断网状态（电梯/地库/切网）：不出无效请求，等网络恢复（最多 60s）再重试
+            var waited = 0
+            while waited < 60, !NetworkMonitor.shared.isSatisfied {
+                try? await Task.sleep(for: .seconds(2))
+                waited += 2
+            }
             guard chat.sessionId == startSid, !stream.isStreaming else { return }
             stream.pendingUserMsgId = msg.id
             await stream.start(auth: auth, sessionId: chat.sessionId, model: useModel,
