@@ -26,7 +26,7 @@ struct QingliaoApp: App {
                 .environment(SessionTagStore.shared)   // v3.0.51 B7：会话标签
                 .preferredColorScheme(colorScheme)
                 // v3.0.22：主题切换过渡动画（深色/浅色切换平滑过渡）
-                .animation(.easeInOut(duration: 0.3), value: appearance)
+                .animation(Motion.settle, value: appearance)
                 .task {
                     // v2.0.36：请求本地通知权限（AI 回复完成提醒）
                     // v3.4.25：启动初始化并行化——原串行逐个 await（图片缓存/工具器/朗读/钉一钉/收件箱注入
@@ -131,7 +131,7 @@ struct RootView: View {
             // v2.0.92：App 锁遮罩（已登录 + 开关开 + 未解锁时覆盖，splash 之下）
             if auth.isLoggedIn && appLockOn && !appUnlocked {
                 AppLockView {
-                    withAnimation(.easeOut(duration: 0.3)) { appUnlocked = true }
+                    withAnimation(Motion.settle) { appUnlocked = true }
                 }
                 .zIndex(5)
                 .transition(.opacity)
@@ -158,7 +158,7 @@ struct RootView: View {
             }
         }
         // v3.0.1：模式切换驱动登录页过渡动画（ModeSwitchBar 点击 → mode 变化 → 平滑滑动淡入）
-        .animation(.spring(duration: 0.35, bounce: 0.18), value: config.mode)
+        .animation(Motion.emerge, value: config.mode)
         // v3.0.3 fix：ModeSwitchBar 点「本地/云端」改 mode 后，同步登录 TabView 页码 + 复位会话语境
         // （原挂在 if/else 上导致 onChange 无法解析 → 移到 View 链末尾）
         .onChange(of: config.mode) { _, new in

@@ -1209,6 +1209,8 @@ struct HADeviceSheet: View {
                 HStack(alignment: .firstTextBaseline, spacing: 2) {
                     Text(String(format: "%.0f", target))
                         .font(.system(size: 32, weight: .bold))
+                        .contentTransition(.numericText(value: target))   // v3.4.29：调温数字滚动
+                        .animation(Motion.snap, value: target)
                     Text("°")
                         .font(.system(size: 15))
                         .foregroundStyle(.secondary)
@@ -1728,7 +1730,11 @@ struct MeterCard: View {
                     .fill(ratio > 0.9 ? Color.red : (ratio > 0.75 ? Color.orange : Color.green))
                     .frame(width: 8, height: 8)
             }
-            Text(value).font(.system(size: 18, weight: .bold)).padding(.top, 6)
+            Text(value)
+                .font(.system(size: 18, weight: .bold))
+                .contentTransition(.numericText())            // v3.4.29：数值滚动而非硬跳
+                .animation(Motion.snap, value: value)
+                .padding(.top, 6)
             if let sub {
                 Text(sub)
                     .font(.system(size: 10))

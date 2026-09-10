@@ -41,6 +41,8 @@ struct ChatInputBar: View {
     // v3.4.25：上下文阈值预警——外部传入上下文使用率（0-1），超 0.8 发送键变橙轻提醒
     var contextUsage: Double = 0
     @State private var sendScale: CGFloat = 1.0
+    // v3.4.29：发送动作图标弹一下（symbolEffect 驱动，无自定义动画开销）
+    @State private var sendBounceTick = 0
 
     // 发送按钮配色三态：语音模式=Siri 彩、空文本=淡灰、有字=蓝紫渐变
     // v3.4.25：+第四态——上下文使用率超 80% 时有字状态变橙（轻提醒，不阻断发送）
@@ -53,11 +55,12 @@ struct ChatInputBar: View {
 
     // 发送触发：缩放回弹 + 原发送逻辑（长按转文字路径不受影响，不触发动画）
     private func fireSend() {
-        withAnimation(.spring(response: 0.22, dampingFraction: 0.55)) { sendScale = 1.25 }
+        withAnimation(Motion.tap) { sendScale = 1.25 }
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(0.12))
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.45)) { sendScale = 1.0 }
+            withAnimation(Motion.snap) { sendScale = 1.0 }
         }
+        sendBounceTick += 1     // v3.4.29：图标弹一下（发送的可见反馈）
         Haptics.tap()   // v3.4.25：统一触感——发送 = 轻点
         onSend()
     }
@@ -241,6 +244,7 @@ struct ChatInputBar: View {
                     Image(systemName: voiceMode ? "waveform" : "arrow.up")
                         .font(.system(size: voiceMode ? 15 : 14, weight: .bold))
                         .foregroundStyle(.white)
+                        .symbolEffect(.bounce, value: sendBounceTick)   // v3.4.29：发送图标弹动
                         .frame(width: 32, height: 32)
                         .contentShape(Circle())
                         // v3.4.19：发送回弹缩放（仅轻点发送路径，长按转文字不缩放）
@@ -275,7 +279,7 @@ struct ChatInputBar: View {
                                startPoint: .topLeading, endPoint: .bottomTrailing),
                 in: Capsule()
             )
-            .animation(.easeInOut(duration: 0.25), value: sendColors)
+            .animation(Motion.snap, value: sendColors)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
@@ -287,7 +291,7 @@ struct ChatInputBar: View {
             Capsule().strokeBorder(Color.blue.opacity(focused ? 0.45 : 0), lineWidth: 0.8)
                 .allowsHitTesting(false)
         }
-        .animation(.easeInOut(duration: 0.25), value: focused)
+        .animation(Motion.snap, value: focused)
         // v3.2.3 渲染卡死根治：外层阴影移到流光 overlay **之前**——阴影只对静态背景/内容生效，
         // 不再因流光每帧变化触发阴影 CGPath 重算（.ips 8BADF00D 主线程栈铁证：
         // ShapeLayerShadowHelper.updateShadow → Path.cgPath → RenderBox CG::stroker 病态递归卡死）

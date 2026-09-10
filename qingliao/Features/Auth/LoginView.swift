@@ -15,7 +15,7 @@ struct ModeSwitchBar: View {
         .background(Color(uiColor: .secondarySystemGroupedBackground), in: Capsule())
         .overlay(Capsule().strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.8))
         // v3.0.1：胶囊选中高亮平滑过渡（点击瞬间移动渐变，非跳变）
-        .animation(.spring(duration: 0.3, bounce: 0.2), value: config.mode)
+        .animation(Motion.settle, value: config.mode)
         .padding(.horizontal, 24)
         .padding(.top, 12)
     }
@@ -92,7 +92,7 @@ struct LoginView: View {
                         .overlay(alignment: .trailing) {
                             if !auth.serverHistory.isEmpty {
                                 Button {
-                                    withAnimation(.spring(duration: 0.3, bounce: 0.2)) {
+                                    withAnimation(Motion.settle) {
                                         showHistory.toggle()
                                     }
                                 } label: {
@@ -110,7 +110,7 @@ struct LoginView: View {
                                 HStack {
                                     Button {
                                         server = addr
-                                        withAnimation(.spring(duration: 0.3, bounce: 0.2)) { showHistory = false }
+                                        withAnimation(Motion.settle) { showHistory = false }
                                     } label: {
                                         HStack(spacing: 8) {
                                             Image(systemName: "clock.arrow.circlepath")

@@ -330,7 +330,7 @@ struct ChatView: View {
             } else {
                 inputFocus = false
                 selectedMsgIDs.removeAll()
-                withAnimation(.easeOut(duration: 0.2)) { selectMode = true }
+                withAnimation(Motion.snap) { selectMode = true }
             }
         }
         // v2.0.43：上下文信息并入 dialog message（不再是空 action 按钮）
@@ -685,7 +685,7 @@ struct ChatView: View {
                     .zIndex(10)
             }
         }
-        .animation(.easeOut(duration: 0.15), value: showFullBurst)
+        .animation(Motion.tap, value: showFullBurst)
         // v3.4.x 存储自洁：长会话超阈值 → 顶部滑出提示条，点击手动归档导出
         .overlay(alignment: .top) {
             if showArchiveHint {
@@ -967,7 +967,7 @@ struct ChatView: View {
                 inputFocus = false
                 selectedMsgIDs.removeAll()
                 selectedMsgIDs.insert(msg.id)
-                withAnimation(.easeOut(duration: 0.2)) { selectMode = true }
+                withAnimation(Motion.snap) { selectMode = true }
             }
         }
     }
@@ -1039,7 +1039,7 @@ struct ChatView: View {
     /// 退出选择模式（ChatViewExport.mergeAndShare 跨文件调用，故 internal）
     func exitSelectMode() {
         inputFocus = false
-        withAnimation(.easeOut(duration: 0.2)) {
+        withAnimation(Motion.snap) {
             selectMode = false
             selectedMsgIDs.removeAll()
         }
@@ -1133,7 +1133,7 @@ struct ChatView: View {
                                         // v3.0.51 A2：顶部"加载更早"按钮（会话长于可见窗口时显示）
                                         if visibleStartIndex > 0 {
                                             Button {
-                                                withAnimation(.easeOut(duration: 0.25)) {
+                                                withAnimation(Motion.snap) {
                                                     displayLimit += Self.loadMoreStep
                                                 }
                                             } label: {
@@ -1219,12 +1219,12 @@ struct ChatView: View {
                       let idx = chat.indexOfMessage(role: t.role, contentPrefix: t.content) else { return }
                 let mid = chat.messages[idx].id
                 highlightMessageID = mid
-                withAnimation(.easeOut(duration: 0.3)) {
+                withAnimation(Motion.settle) {
                     proxy.scrollTo(mid, anchor: .center)
                 }
                 Task {
                     try? await Task.sleep(for: .seconds(2))
-                    withAnimation(.easeOut(duration: 0.3)) { highlightMessageID = nil }
+                    withAnimation(Motion.settle) { highlightMessageID = nil }
                 }
             }
             // 滚动消息区即收起键盘（微信式）
@@ -1445,7 +1445,7 @@ struct ChatView: View {
             }
         }
         if animated {
-            withAnimation(.easeOut(duration: 0.15)) { action() }
+            withAnimation(Motion.tap) { action() }
         } else {
             action()
         }
@@ -2214,7 +2214,7 @@ struct ChatView: View {
 
     /// ✅送达提示条（仅成功时显示，2.5s 后消失）
     func showSentOK() {
-        withAnimation(.easeOut(duration: 0.3)) { sentOK = true }
+        withAnimation(Motion.settle) { sentOK = true }
         Task {
             try? await Task.sleep(for: .seconds(2.5))
             withAnimation { sentOK = false }

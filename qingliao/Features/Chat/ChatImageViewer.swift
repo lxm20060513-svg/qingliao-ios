@@ -76,7 +76,7 @@ struct ImageViewerPage: View {
             .resizable()
             .scaledToFit()
             .scaleEffect(scale)
-            .animation(.spring(duration: 0.25), value: scale)
+            .animation(Motion.snap, value: scale)
             .gesture(MagnificationGesture()
                 .onChanged { scale = max(1, min($0, 4)) })
             .onTapGesture(count: 2) {

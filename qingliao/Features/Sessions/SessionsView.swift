@@ -39,6 +39,8 @@ struct SessionsView: View {
     @State private var tagTarget: ChatSession?
     @State private var showNewTag = false
     @State private var newTagName = ""
+    // v3.4.29：新建会话图标弹一下
+    @State private var plusBounceTick = 0
     var onOpenSession: (() -> Void)? = nil   // 切到聊天 tab
 
     private var isSearching: Bool { !searchText.trimmingCharacters(in: .whitespaces).isEmpty }
@@ -49,7 +51,7 @@ struct SessionsView: View {
             PageHeader(title: "会话", trailing: AnyView(HStack(spacing: 14) {
                 if !sessions.isEmpty {
                     Button {
-                        withAnimation(.easeOut(duration: 0.15)) {
+                        withAnimation(Motion.tap) {
                             editing.toggle()
                             if !editing { selectedIds.removeAll() }
                         }
@@ -279,6 +281,8 @@ struct SessionsView: View {
         Button {
             // v2.0.58：两步走新建——ChatView 观察到 pendingNewSession 后
             // 先卸载列表再清数据（v2.0.44 的切tab+延迟在过渡期仍崩）
+            Haptics.tap()          // v3.4.29：触感补齐
+            plusBounceTick += 1
             onOpenSession?()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                 chat.requestNewSession()
@@ -287,6 +291,7 @@ struct SessionsView: View {
             Image(systemName: "plus")
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundStyle(Color.accentColor)
+                .symbolEffect(.bounce, value: plusBounceTick)   // v3.4.29：新建图标弹动
         }
         .buttonStyle(.plain)
     }
@@ -326,6 +331,7 @@ struct SessionsView: View {
                 toggleSelect(s.id)
             } else {
                 chat.load(s)
+                Haptics.tap()   // v3.4.29：进入会话触感
                 onOpenSession?()
             }
         }
@@ -576,6 +582,7 @@ struct SessionsView: View {
                 let ok = (j["ok"] as? Bool) == true
                 let deletedCount = (j["deleted"] as? Int) ?? -1
                 if ok && deletedCount >= 0 {
+                    await MainActor.run { Haptics.success() }   // v3.4.29：删除结果触感
                     await load()
                     if chat.sessionId == deletingId {
                         // v2.0.58：两步走新建（切 tab + requestNewSession，ChatView 先卸载列表再清数据）

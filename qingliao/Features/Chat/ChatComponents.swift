@@ -285,7 +285,7 @@ private struct CodeCopyButtonStyle: ButtonStyle {
         configuration.label
             .opacity(configuration.isPressed ? 1.0 : 0.55)
             .scaleEffect(configuration.isPressed ? 0.88 : 1.0)
-            .animation(.easeInOut(duration: 0.12), value: configuration.isPressed)
+            .animation(Motion.tap, value: configuration.isPressed)
     }
 }
 
@@ -315,6 +315,7 @@ private struct CodeCopyButton: View {
         } label: {
             Image(systemName: copied ? "checkmark" : "doc.on.doc")
                 .font(.system(size: 12, weight: .medium))
+                .symbolEffect(.bounce, value: copied)   // v3.4.29：复制成功图标弹一下
                 .foregroundStyle(copied ? Color.green : Color.secondary)
                 .padding(4)
                 .contentShape(Rectangle())
@@ -322,7 +323,7 @@ private struct CodeCopyButton: View {
         .buttonStyle(CodeCopyButtonStyle())
         // v3.4.25：hover（iPad 指针/悬停）反馈——半透明 → 完全不透明
         .opacity(hovered ? 1.0 : 0.55)
-        .animation(.easeInOut(duration: 0.15), value: hovered)
+        .animation(Motion.tap, value: hovered)
         .onHover { hovered = $0 }
         .accessibilityLabel(copied ? "已复制" : "复制代码")
     }

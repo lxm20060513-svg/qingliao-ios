@@ -37,7 +37,9 @@ struct DockTabView: View {
         // 自带按压放大/流动折射/边缘高光（即用户要的控制中心那种原生效果）。
         // 弃自定义 DockBar / DockVisibility / 手势（系统 tab bar 原生支持这些，无需自研）。
         ZStack {
-            Color(uiColor: .systemBackground).ignoresSafeArea()
+            // v3.4.29：移除铺底纯色（原 Color(uiColor: .systemBackground).ignoresSafeArea()）——
+            // 纯色铺在 TabView 下层会掐死系统 tab bar 的滚动边缘玻璃折射（"玻璃发灰"根因）。
+            // 各页自带背景，tab bar 玻璃改为采样真实滚动内容。
 
             TabView(selection: $selected) {
                 if hSize == .regular {
@@ -74,6 +76,10 @@ struct DockTabView: View {
                         .tabTransition(for: .settings, selected: $selected)
                 }
             }
+            // v3.4.29：滚动时 tab bar 自动缩到角落（iOS 26 原生 API，iPhone 有效），内容区更开阔
+            .tabBarMinimizeBehavior(.onScrollDown)
+            // v3.4.29：切 tab 触感——挂在一处（TabView），别挂进每个 tab 的 modifier（会响 4 次）
+            .onChange(of: selected) { _, _ in Haptics.tap() }
             // v3.0.60 回顾：系统 tab bar 自行处理滚动边缘玻璃；此处不再加纯色背景掐死折射
             // v3.4.26：切页暂停/恢复看板轮询已改参数直传（DashboardView(isActive:)），通知已移除
             // v3.4.24：任务中心悬浮入口已移除——迁入聊天页 header（三个点旁常驻小图标），
@@ -155,12 +161,12 @@ private struct TabTransitionModifier: ViewModifier {
             .tag(tab)
             .tabItem { Label(tab.title, systemImage: tab.icon) }
             .scaleEffect(appeared ? 1 : 0.97, anchor: .center)
-            .animation(.easeInOut(duration: 0.2), value: appeared)
+            .animation(Motion.snap, value: appeared)
             .onAppear {
                 Task { try? await Task.sleep(for: .seconds(0.01)); appeared = true }
             }
             .onChange(of: selected) { _, newVal in
-                withAnimation(.easeInOut(duration: 0.2)) {
+                withAnimation(Motion.snap) {
                     appeared = (newVal == tab)
                 }
             }

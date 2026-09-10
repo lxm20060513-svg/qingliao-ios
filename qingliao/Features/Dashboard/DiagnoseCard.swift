@@ -89,7 +89,7 @@ struct DiagnoseCard: View {
             } else {
                 // 已完成：等级行
                 Button {
-                    withAnimation(.easeOut(duration: 0.2)) { expanded.toggle() }
+                    withAnimation(Motion.snap) { expanded.toggle() }
                 } label: {
                     HStack(spacing: 10) {
                         Image(systemName: iconName)

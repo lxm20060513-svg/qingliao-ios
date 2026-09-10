@@ -343,7 +343,7 @@ struct AppearanceSheet: View {
                         }
                     } else {
                         Button("设置城市") {
-                            withAnimation(.easeOut(duration: 0.2)) { showWeatherCityField = true }
+                            withAnimation(Motion.snap) { showWeatherCityField = true }
                         }
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(Color.accentColor)

@@ -73,7 +73,7 @@ struct RouterPanel: View {
                     .frame(width: 7, height: 7)
                     // v2.0.65：在线时呼吸（2s 循环透明度）
                     .opacity(router.ok ? (breathe ? 1.0 : 0.35) : 1.0)
-                    .animation(router.ok ? .easeInOut(duration: 1.0).repeatForever(autoreverses: true) : .default,
+                    .animation(router.ok ? .easeInOut(duration: 1.0).repeatForever(autoreverses: true) : Motion.flow,
                                value: breathe)
                     .onAppear { breathe = true }
                 Spacer()

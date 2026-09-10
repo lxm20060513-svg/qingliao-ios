@@ -206,7 +206,7 @@ extension SettingsView {
                 .onTapGesture { showAgentModelSheet = true }
             Divider().padding(.leading, 52)
             SettingRow(icon: "questionmark.circle.fill", iconColor: .gray, title: "使用说明", chevron: false)
-                .onTapGesture { withAnimation(.easeOut(duration: 0.2)) { showAgentHelp.toggle() } }
+                .onTapGesture { withAnimation(Motion.snap) { showAgentHelp.toggle() } }
             if showAgentHelp {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Agent 回复恒走 Hermes 智能体：查磁盘/内存、控制设备等自动调用工具")
@@ -234,7 +234,7 @@ extension SettingsView {
         SectionHeader("外观与显示")
         VStack(spacing: 0) {
             SettingRow(icon: "circle.lefthalf.filled", iconColor: .purple, title: "外观", value: appearanceName, chevron: true)
-                .onTapGesture { withAnimation(.easeOut(duration: 0.2)) { showAppearance = true } }
+                .onTapGesture { withAnimation(Motion.snap) { showAppearance = true } }
             // v3.x review fix：showAppearanceOptions 死代码块（深浅色 chips/输入框流光/Siri 发光滑条/
             // AI 输出行高/智能球）永不显示（唯一写点恒置 false）——已删除，统一由 AppearanceSheet 管理
         }

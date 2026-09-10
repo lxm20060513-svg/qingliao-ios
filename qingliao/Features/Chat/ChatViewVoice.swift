@@ -8,7 +8,7 @@ extension ChatView {
     /// v3.0.19：语音指令模式退出 → 停止录音 → 转写 → 自动发送（uploadAndTranscribe 内分支）
     func exitVoiceMode() {
         guard voiceMode else { return }
-        withAnimation(.easeOut(duration: 0.2)) { voiceMode = false }
+        withAnimation(Motion.snap) { voiceMode = false }
         uploadAndTranscribe()   // v3.0.77 整段录音：uploadAndTranscribe 内统一 stop() 取完整音频
     }
 
@@ -113,7 +113,7 @@ extension ChatView {
                                                         to: nil, from: nil, for: nil)
                     }
                 }
-                withAnimation(.easeOut(duration: 0.2)) { voiceMode = true }
+                withAnimation(Motion.snap) { voiceMode = true }
             } else {
                 // v3.0.19 review fix #2：麦克风失败 → 重置语音指令标志（防残留劫持下次转文字）
                 voiceAuthFailed = true   // 麦克风权限被拒

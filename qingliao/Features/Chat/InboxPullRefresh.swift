@@ -45,8 +45,8 @@ struct InboxPullLayer: View {
         }
         .frame(maxWidth: .infinity)
         .allowsHitTesting(false)
-        .animation(.easeOut(duration: 0.2), value: state.refreshing)
-        .animation(.easeOut(duration: 0.25), value: state.toast)
+        .animation(Motion.snap, value: state.refreshing)
+        .animation(Motion.snap, value: state.toast)
     }
 
     @ViewBuilder
@@ -140,7 +140,7 @@ extension ChatView {
             let gen = st.toastGen
             try? await Task.sleep(for: .seconds(2.2))
             if st.toastGen == gen {
-                withAnimation(.easeOut(duration: 0.3)) { st.toast = nil }
+                withAnimation(Motion.settle) { st.toast = nil }
             }
         }
     }
