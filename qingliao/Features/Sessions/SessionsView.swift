@@ -285,7 +285,8 @@ struct SessionsView: View {
             plusBounceTick += 1
             onOpenSession?()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                chat.requestNewSession()
+                // v3.4.29：加号 = 等同 /new——本地新建后补发 /new，让 gateway 上下文一起重置
+                chat.requestNewSession(sendReset: true)
             }
         } label: {
             Image(systemName: "plus")

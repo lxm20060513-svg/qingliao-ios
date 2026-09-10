@@ -204,8 +204,13 @@ final class ChatStore {
     /// 清空仍崩（用户实测 v2.0.57 新建/删除都闪退）；两步走是清空按钮验证过的稳定模式
     var pendingNewSession = false
 
-    func requestNewSession() {
+    /// v3.4.29：新建会话时是否补发 /new（加号入口 = 等同 /new，触发 gateway 侧上下文一并重置）。
+    /// 只换本地 sessionId 不会动 gateway 的会话上下文——这正是「新建会话后 AI 还记得上文」的根因
+    var pendingNewSessionReset = false
+
+    func requestNewSession(sendReset: Bool = false) {
         pendingNewSession = true
+        pendingNewSessionReset = sendReset
     }
 
     /// 追加本地消息（发送/流式开始）

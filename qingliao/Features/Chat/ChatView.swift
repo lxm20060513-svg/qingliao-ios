@@ -1361,6 +1361,12 @@ struct ChatView: View {
                 withAnimation(nil) { chat.newSession() }
                 chat.pendingNewSession = false
                 clearing = false
+                // v3.4.29：加号 = 等同 /new——本地新建完成后补发 /new，触发 gateway 侧上下文重置。
+                // sessionId 已换成新值，与 sendCore 的 60s 幂等签名（含 sessionId）不冲突
+                if chat.pendingNewSessionReset {
+                    chat.pendingNewSessionReset = false
+                    sendCore(text: "/new", imageData: nil)
+                }
             }
         }
         .task {
