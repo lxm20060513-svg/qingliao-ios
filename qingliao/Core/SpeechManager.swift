@@ -16,6 +16,9 @@ final class SpeechManager: NSObject, ObservableObject, AVSpeechSynthesizerDelega
                            AVAudioPlayerDelegate {
     static let shared = SpeechManager()
     @Published var speakingID: String?
+    /// v3.5.x：本次朗读是否降级到系统语音（云端 TTS 不可用——如额度用尽 429）。
+    /// 用于气泡上显示「系统」小字，避免用户以为「朗读没反应/没声音」。
+    @Published private(set) var cloudDegraded = false
 
     private let synth = AVSpeechSynthesizer()
     private var player: AVAudioPlayer?
@@ -46,6 +49,7 @@ final class SpeechManager: NSObject, ObservableObject, AVSpeechSynthesizerDelega
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !clean.isEmpty else { return }
         speakingID = id
+        cloudDegraded = false
         if CloudConfig.ttsEnabled {
             let gen = ttsGeneration
             Task { await speakViaCloud(clean, id: id, gen: gen) }
@@ -64,15 +68,42 @@ final class SpeechManager: NSObject, ObservableObject, AVSpeechSynthesizerDelega
         }
         player = nil
         speakingID = nil
+        cloudDegraded = false
+    }
+
+    // MARK: - v3.5.x 朗读音频会话（系统 / 云端两套引擎共用）
+
+    /// 朗读前统一激活 .playback 会话。
+    /// v3.5.x bug fix：云端 TTS 不可用时会回退系统 AVSpeechSynthesizer，而系统语音若沿用默认
+    /// 会话类别（soloAmbient）在「静音拨片打开」或锁屏状态下**完全无声**——用户看到气泡上音柱在跳
+    /// （speakingID 已置位）却听不到任何声音，即线上报的「TTS 播放无声音」。.playback 类别无视静音
+    /// 拨片，两套引擎都先走这里，回退路径也一定出声。
+    private func activatePlaybackSession() {
+        let session = AVAudioSession.sharedInstance()
+        try? session.setCategory(.playback, mode: .default)
+        try? session.setActive(true)
     }
 
     // MARK: - 系统引擎（原逻辑）
 
     private func speakViaSystem(_ clean: String, id: String) {
+        // v3.5.x：系统语音同样要显式激活 .playback —— 否则静音拨片/锁屏下无声（回退路径的无声根因）
+        activatePlaybackSession()
         let ut = AVSpeechUtterance(string: clean)
-        ut.voice = AVSpeechSynthesisVoice(language: "zh-CN")
+        ut.voice = Self.bestChineseVoice()
         ut.rate = 0.48
         synth.speak(ut)
+    }
+
+    /// v3.5.x：系统语音优先挑最高音质的中文音色（premium > enhanced > 默认）——
+    /// 云端 TTS 不可用而降级时，听感尽量接近原云端神经语音。
+    private static func bestChineseVoice() -> AVSpeechSynthesisVoice? {
+        if #available(iOS 16.0, *) {
+            let zh = AVSpeechSynthesisVoice.speechVoices().filter { $0.language.hasPrefix("zh-CN") }
+            if let premium = zh.first(where: { $0.quality == .premium }) { return premium }
+            if let enhanced = zh.first(where: { $0.quality == .enhanced }) { return enhanced }
+        }
+        return AVSpeechSynthesisVoice(language: "zh-CN")
     }
 
     // MARK: - 云端神经 TTS（小米 mimo-v2.5-tts，走后端 /api/tts）
@@ -117,6 +148,9 @@ final class SpeechManager: NSObject, ObservableObject, AVSpeechSynthesizerDelega
         } catch {
             // 代次过期不回退（用户已切走）；否则回退系统语音（不静默，保底可听）
             guard gen == ttsGeneration else { return }
+            // v3.5.x：回退时置降级标记 + 记录原因（气泡上显示「系统」小字，便于定位云端不可用）
+            cloudDegraded = true
+            NSLog("[TTS] 云端 TTS 失败，回退系统语音: \(error)")
             // 保留 speakingID（=id）：回退语音播放期间球仍呈"说话"态，且重触同条会停而非重播；
             // 播毕由 speechSynthesizer didFinish 代理清除 speakingID。
             self.speakViaSystem(clean, id: id)
@@ -124,9 +158,7 @@ final class SpeechManager: NSObject, ObservableObject, AVSpeechSynthesizerDelega
     }
 
     private func playAudio(_ audioData: Data) throws {
-        let session = AVAudioSession.sharedInstance()
-        try? session.setCategory(.playback, mode: .default)
-        try? session.setActive(true)
+        activatePlaybackSession()
         let p = try AVAudioPlayer(data: audioData)
         p.delegate = self
         p.prepareToPlay()
@@ -192,6 +224,9 @@ final class SpeechManager: NSObject, ObservableObject, AVSpeechSynthesizerDelega
                 // 如果云端 player 已为 nil（已被 audioPlayerDidFinish 清除或本来就没用云端），直接清除
                 if self.player == nil {
                     self.speakingID = nil
+                    self.cloudDegraded = false
+                    // v3.5.x：系统语音播毕也回收播放会话（与云端播毕路径对齐，不长期占用音频焦点）
+                    try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
                 }
             }
         }

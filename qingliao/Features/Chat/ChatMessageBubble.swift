@@ -333,6 +333,9 @@ struct MessageBubble: View {
                             SpeechManager.shared.toggle(message.content, id: message.id)
                         } label: {
                             if speech.speakingID == message.id {
+                                // v3.5.x：云端 TTS 不可用（额度/网络）自动降级系统语音时显示来源小标，
+                                // 避免用户以为是「朗读没反应/没声音」
+                                HStack(spacing: 3) {
                                 // 播放中：3 根音柱跳动（10fps，低耗不卡渲染）
                                 TimelineView(.periodic(from: .now, by: 0.1)) { ctx in
                                     let t = ctx.date.timeIntervalSinceReferenceDate
@@ -345,6 +348,12 @@ struct MessageBubble: View {
                                         }
                                     }
                                     .frame(height: 12)   // 固定高度防行高抖动
+                                }
+                                if speech.cloudDegraded {
+                                    Text("系统")
+                                        .font(.system(size: 9))
+                                        .foregroundStyle(.tertiary)
+                                }
                                 }
                                 .padding(.top, 1)
                             } else {
