@@ -108,18 +108,28 @@ enum CrashReporter {
     private static let sigs: [Int32] = [SIGABRT, SIGSEGV, SIGBUS, SIGILL, SIGFPE, SIGTRAP]
 
     /// App 启动时安装（必须在 main 早期调用）
+    /// v3.6.0：一并启动主线程卡顿看门狗（RunLoop observer，空闲零开销）
     static func install() {
         NSSetUncaughtExceptionHandler(qlCrashExceptionHandler)
         for s in sigs {
             signal(s, qlCrashSignalHandler)
         }
+        HangWatchdog.shared.refreshSettings()
     }
 
     /// 启动时若有未上报崩溃 → 异步 POST，成功删除本地文件
     /// v3.1.8 fix: 恢复 @MainActor（async 函数不会阻塞启动线程），
     /// 解决 [String:Any] 跨 actor Sendable 不兼容问题
+    /// v3.6.0：统一走新诊断口 POST /api/diag/report（src/diag_api.py）；
+    ///         崩溃事件进诊断离线队列 → 失败保留本地文件 + 队列，下次启动补传；
+    ///         新口不可用时回退旧口 /api/logs/crash（老后端兜底，不出现「升级后崩溃上报全丢」）。
     @MainActor
     static func flushPending(auth: AuthStore) async {
+        DiagnosticsUploader.attach(auth: auth)
+        DiagnosticsEnv.refresh()
+        // v3.6.0：先把上一轮遗留的离线队列（崩溃/卡顿）补传
+        _ = await DiagnosticsUploader.flushPending()
+
         let path = qlCrashFilePath()
         guard FileManager.default.fileExists(atPath: path) else { return }
         // v2.0.102：崩溃文件含数字 ts 字段，原 [String: String] 强转失败导致 NSException 上报永远丢失
@@ -147,26 +157,42 @@ enum CrashReporter {
         if !stack.isEmpty {
             body["stack"] = String(stack.prefix(8000))
         }
-        let ok = (try? await auth.json("/api/logs/crash", method: "POST", body: body))?["ok"] as? Bool ?? false
-        if ok {
-            try? FileManager.default.removeItem(atPath: path)
-            if FileManager.default.fileExists(atPath: stackPath) {
-                try? FileManager.default.removeItem(atPath: stackPath)
-            }
+
+        // v3.6.0：入诊断队列（kind=crash，白名单字段）→ 走新口
+        let crashType = (obj["type"] as? String) ?? "Unknown"
+        let crashDetail = (obj["detail"] as? String) ?? ""
+        let crashTs = (obj["ts"] as? Double) ?? Date().timeIntervalSince1970
+        let event = DiagnosticsStore.recordCrash(type: crashType, detail: crashDetail,
+                                                 stack: stack, ts: crashTs)
+        let first = await DiagnosticsUploader.flushPending()
+        if first.ok && first.sent > 0 {
+            removeLocalCrashFiles(path: path, stackPath: stackPath)
+            return
+        }
+        // 新口失败：2s 后重试一次（网络抖动），仍失败则保留下次启动补传
+        NSLog("[CRASH] 诊断口上报失败，2s 后重试一次；本地上报文件与队列均保留。")
+        try? await Task.sleep(for: .seconds(2))
+        let retry = await DiagnosticsUploader.flushPending()
+        if retry.ok && retry.sent > 0 {
+            removeLocalCrashFiles(path: path, stackPath: stackPath)
+            return
+        }
+        // v3.6.0 兜底：旧口 /api/logs/crash（老后端仍在线时至少落一份）
+        let legacy = (try? await auth.json("/api/logs/crash", method: "POST", body: body))?["ok"] as? Bool ?? false
+        if legacy {
+            DiagnosticsStore.removePending(ids: [event.id])   // 防下次补传重复
+            removeLocalCrashFiles(path: path, stackPath: stackPath)
+            NSLog("[CRASH] 已回退旧口 /api/logs/crash 上报成功。")
         } else {
-            // v3.4.x 加固：上报失败（网络抖动/后端瞬时不可达）→ 保留本地文件，等 2s 后再试一次；
-            // 仍失败则保留到下次启动（当前实现已如此），并打日志便于诊断。绝不丢栈。
-            NSLog("[CRASH] 崩溃上报失败，2s 后重试一次；本地上报文件保留。")
-            try? await Task.sleep(for: .seconds(2))
-            let okRetry = (try? await auth.json("/api/logs/crash", method: "POST", body: body))?["ok"] as? Bool ?? false
-            if okRetry {
-                try? FileManager.default.removeItem(atPath: path)
-                if FileManager.default.fileExists(atPath: stackPath) {
-                    try? FileManager.default.removeItem(atPath: stackPath)
-                }
-            } else {
-                NSLog("[CRASH] 二次上报仍失败，文件保留待下次启动重试（不丢栈）。")
-            }
+            NSLog("[CRASH] 新旧口均失败，文件与队列保留待下次启动重试（不丢栈）。")
+        }
+    }
+
+    /// v3.6.0：上报成功 → 清本地崩溃文件（下次启动不再提示）
+    private static func removeLocalCrashFiles(path: String, stackPath: String) {
+        try? FileManager.default.removeItem(atPath: path)
+        if FileManager.default.fileExists(atPath: stackPath) {
+            try? FileManager.default.removeItem(atPath: stackPath)
         }
     }
 }

@@ -21,5 +21,13 @@ $SWIFT/swiftc -o /tmp/test_parse scripts/test_parse.swift 2>&1 | head -3
 
 echo "=== 3. relay 编解码单元测试 ==="
 $SWIFT/swiftc -o /tmp/test_relay scripts/test_relay.swift 2>&1 | head -3
-/tmp/test_relay
+/tmp/test_relay || exit 1
+
+echo "=== 4. 诊断上报组装 + 离线队列单元测试（v3.6.0）==="
+# 多文件编译时只有 main.swift 允许顶层代码 → 复制一份到临时目录做 main.swift
+rm -rf /tmp/ql_diag_main && mkdir -p /tmp/ql_diag_main
+cp scripts/test_diag.swift /tmp/ql_diag_main/main.swift
+$SWIFT/swiftc -swift-version 6 -o /tmp/test_diag /tmp/ql_diag_main/main.swift \
+    qingliao/Core/DiagnosticsPayload.swift qingliao/Core/DiagnosticsStore.swift 2>&1 | head -10
+/tmp/test_diag
 exit $?
