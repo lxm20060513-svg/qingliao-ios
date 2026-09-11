@@ -487,8 +487,6 @@ struct ChatView: View {
                     onLongPressInput: { keyboardWasUp in toggleVoiceMode(keyboardWasUp: keyboardWasUp) },
                     // v3.9.3：设备端识别，不依赖后端 —— 云端模式同样开放语音入口（v3.0.4 的屏蔽已撤）
                     voiceEnabled: true,
-                    // v3.9.3：录音中的实时文本（声明序上排在 voiceEnabled 之后，实参必须同序——本仓踩过参数序坑）
-                    recordingText: voiceMode ? liveSpeech.liveText : "",
                     // v3.4.25：上下文使用率传入——超 80% 发送键变橙轻提醒
                     contextUsage: chat.contextUsage(maxTokens: 4000))
                     // v2.0.129：球态输入框 —— 绑定会话 id，切会话重建复位（展开态在切会话后回球态）
