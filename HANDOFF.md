@@ -2,7 +2,7 @@
 
 > 最后更新：2026-09-11
 > 最新版本：v3.8.0 (445) —— 灵动岛/锁屏实时活动（项目首个 widget extension）
-> 本版：**v3.8.0/445（2026-09-11 已发版，tag `v3.8.0`，CI run 34600606983 success）灵动岛/锁屏实时活动 + 设置开关**：① 新增 `QingliaoWidget` app-extension target（`com.qingliao.app2.widget`、`NSExtensionPointIdentifier=com.apple.widgetkit-extension`），主 App embed 依赖 → `.appex` 编进 `Qingliao.app/PlugIns/`；主 App Info.plist 开 `NSSupportsLiveActivities`。② 挂件 UI：灵动岛紧凑态（图标 + 计时）／展开态（会话名 +「AI 正在回复 · 模型名」+ 计时）／minimal ／锁屏横幅，计时用 `Text(_:style:.timer)` 交系统自走（侧载免费签名无推送更新，App 被挂起后只有系统计时钟照走）。③ `LiveActivityManager`：本地 `request/update/end`；**不持有 `Activity` 本体**——`Activity` 非 Sendable 且 `update/end` 是 nonisolated async，存进 `@MainActor` 存储会报 `sending 'activity' risks causing data races`（CI 首轮 34599892145 实测），改为只存 Sendable 状态、每次从 `Activity.activities` 现取；不做 APNs（免费签名拿不到 Push 能力）。④ 设置开关「灵动岛实时活动」（默认开；`AppearanceSheet`「交互」区，本地/云端共用同一组件与 key）：关掉立即收起 + 启动收敛清上一进程遗留活动。⑤ 版本号 project.yml **8 处**同步（主 App Info.plist/settings + 挂件 Info.plist/settings）；CI Verify 步骤新增 `.appex` 精确路径 + 扩展点 + `NSSupportsLiveActivities` 校验。IPA 已校验 **3.8.0/445**，md5 `3542b0748723c730aa970c6dd8412176`，已转存 NAS `轻聊app/qingliao-3.8.0-unsigned.ipa`。⚠️ 侧载安装前须先在 SideStore 设置 → Advanced → User Customizations 打开 **Customize App Extensions**（否则新挂件会被当"多余扩展"静默删除），或卸载后全新安装。
+> 本版：**v3.8.0/445（2026-09-11 已发版，tag `v3.8.0`，CI run 34600606983 success）灵动岛/锁屏实时活动 + 设置开关**：① 新增 `QingliaoWidget` app-extension target（`com.qingliao.app2.widget`、`NSExtensionPointIdentifier=com.apple.widgetkit-extension`），主 App embed 依赖 → `.appex` 编进 `Qingliao.app/PlugIns/`；主 App Info.plist 开 `NSSupportsLiveActivities`。② 挂件 UI：灵动岛紧凑态（图标 + 计时）／展开态（会话名 +「AI 正在回复 · 模型名」+ 计时）／minimal ／锁屏横幅，计时用 `Text(_:style:.timer)` 交系统自走（侧载免费签名无推送更新，App 被挂起后只有系统计时钟照走）。③ `LiveActivityManager`：本地 `request/update/end`；**不持有 `Activity` 本体**——`Activity` 非 Sendable 且 `update/end` 是 nonisolated async，存进 `@MainActor` 存储会报 `sending 'activity' risks causing data races`（CI 首轮 34599892145 实测），改为只存 Sendable 状态、每次从 `Activity.activities` 现取；不做 APNs（免费签名拿不到 Push 能力）。④ 设置开关「灵动岛实时活动」（默认开；`AppearanceSheet`「交互」区，本地/云端共用同一组件与 key）：关掉立即收起 + 启动收敛清上一进程遗留活动。⑤ 版本号 project.yml **8 处**同步（主 App Info.plist/settings + 挂件 Info.plist/settings）；CI Verify 步骤新增 `.appex` 精确路径 + 扩展点 + `NSSupportsLiveActivities` 校验。IPA 已校验 **3.8.0/445**，md5 `3542b0748723c730aa970c6dd8412176`，已转存 NAS `轻聊app/qingliao-3.8.0-unsigned.ipa`。⚠️ 侧载安装前须先在 SideStore 设置 → Advanced → User Customizations 打开 **Customize App Extensions**（否则新挂件会被当"多余扩展"静默删除），或卸载后全新安装。**✅ 用户 2026-09-11 真机实测通过**（SideStore 0.6.4，弹窗选 `Keep App Extensions (Use Main Profile)` 安装；AI 回复时灵动岛亮起 + 计时正常，设置里关开关立即收回）——侧载链路唯一需要真机验证的一环已确认。
 > 上一版：**v3.7.1/444（2026-09-11 已发版，tag `v3.7.1`，CI run 34591881447 success）**：v3.7.0 生活页备忘录（含气泡存备忘录·整条/选中）+ 资讯长按复制/大爆炸 + 剪贴板地图入口 + AI 回复进度行下线；v3.7.1 修复 3.7.0 打开即闪退（剪贴板探测的 completion 闭包在后台线程执行 `@MainActor` 隔离体 → SIGTRAP）
 > 上一版：**v3.5.2/436（2026-09-11 已发版，tag `v3.5.2`，CI run#460 success）复读根治 + 「AI 正在输入」不再丢失**：①**复读根治（双端）**：后端 `/api/stream/recover` 内存分支按 `createdAt` 取最新（原按 dict 插入序取到**最旧**任务，2026-09-10 实测复现：20 分钟前的旧答案被当本轮回复落库）、磁盘兜底按 `createdAt`/mtime 取最新；App 侧 `StreamClient.tryRecover` 收紧采纳闸门——**只采纳「本机这条任务」或「另一条仍在途的任务」**（在途任务的内容必属本轮），异任务且已完成一律不采纳（404 路径也不例外，改为报错收尾让用户重发）；候选被忽略时**归还**那次 recover 机会（原实现把忽略当已接管消费掉，弱网白丢续流机会）；换任务时 content/offset **整体重置**（不再新旧混拼/半截回复）。②**「AI 正在输入」不再静默消失**：探针 `probeRemoteBusy` 改为**服务器是唯一真相**——不再以本机持久化标记为前提，无标记也主动问服务器（无标记时 12s 降频省电），服务器说在途而本机没在收就**直接接回**（新 `adoptRemote`：整体重置内容 + 重落标记）；探针失败收起阈值 3→5 次（弱网抖动不再瞬间熄灭）。根因：本机标记在弱网 15 连败收尾/`finish()` 时被清 → 探针前提不成立 → 连问都不问服务器 → 前台彻底无提示、答案也回不来。③**跨会话串扰收口**：`restoreIfNeeded` 校验收持久化的 sessionId 属当前会话（防别的会话旧内容落进当前会话）；`sendFile`/`regenerate` 落库回调补「已切会话就丢弃」守卫（与 `startStream` 一致）。IPA 已校验 **3.5.2/436**，md5 `12a38af27499aec699641df638a6cf90`，已转存 NAS `轻聊app/qingliao-3.5.2-unsigned.ipa`
 > 上一版：**v3.5.1/435（2026-09-10 已发版，tag `v3.5.1`，CI run 34495464274 success）「AI 正在输入」体验 + 空回复不再静默 + 长任务不再被截断**：①**聊天页 header 新增「AI 正在输入…」**（`PageHeader` 加 `busy` 参数 + 新 `BusyDots` 三点呼吸，只用 opacity 动画守 v3.2.3 渲染红线；`ChatView` 加 `remoteBusy` + 6s 探针走 `GET /api/stream/recover` 做服务器侧兜底=App 杀后台重开/切页回来仍显示；探针带会话守卫（标记属别的会话不显示也不误用本会话查询）、网络连续失败 3 次收起（防幽灵）、`aiBusy` 按会话收窄（A 会话在跑不污染 B 的 header））②**空回复不再静默**（本地流 success 但内容为空 → 发送/自动重试/重新生成/杀后台恢复/发文件 5 条路径落 27 字提示气泡「⚠️ 本轮空回复：点上方「重新生成」（长任务易被截断）」，`⚠️` 前缀命中 `isErrorPlaceholder` → 气泡自带一键「重新生成」；⚠️ 刻意**不 markFailed**（`failed` 全仓库无复位点，会让已送达消息永久挂红叹号、点击还删消息重发），文案必须 **≤30 字**（`upsertAssistant` 对 >30 字做全历史精确查重，超长会在第二次空回复时被静默吞掉））③**Hermes `agent.max_turns` 40 → 120**（NAS root 改 `/opt/data/config.yaml`，网关每轮热读无需重启）。**根因**：长任务被 40 步截断后 Hermes 流式接口未回吐最终文本 → 后端收到空内容落库 done → App 侧流结束 `isStreaming=false` → 停止按钮消失/灵动岛发光停止/用户看不到任何回复。IPA 已校验 **3.5.1/435**，md5 `8f36513d50d3bc77dffa49445e5af2c1`，已转存 NAS `轻聊app/qingliao-3.5.1-unsigned.ipa`
@@ -669,8 +669,9 @@ cd /opt/data/qingliao_ios
 # 2. check_swift 语法检查（全量 parse + 单测）
 bash check_swift.sh
 
-# 3. 改版本号（project.yml 4 处同步：MARKETING_VERSION / CURRENT_PROJECT_VERSION / CFBundleShortVersionString / CFBundleVersion）
+# 3. 改版本号（project.yml **8 处**同步：主 App + 挂件 target 各 4 处 —— CFBundleShortVersionString / CFBundleVersion / MARKETING_VERSION / CURRENT_PROJECT_VERSION）
 #    ⚠️ SideStore 同名覆盖不生效——版本号必须递增
+#    ⚠️ 新增任何 target（如 widget/extension）都要给它写 Info.plist 版本号，否则 XcodeGen 默认 1.0/1
 
 # 4. commit + 推 svg(origin)（token 内嵌 origin remote URL，直接 push 即可）
 git add -A && git commit -m "fix: ... (vX.Y.Z)"
@@ -826,13 +827,13 @@ curl -sSL -o artifact.zip -H "Authorization: Bearer $TOKEN" -H "Accept: applicat
 
 | 优先级 | 功能 | 难度 | 说明 |
 |---|---|---|---|
-| 中 | 桌面小组件 | 中 | WidgetKit 主屏幕小组件 |
+| 中 | 桌面小组件（主屏幕） | 低 | WidgetKit 主屏幕小组件——v3.8.0 已把挂件 target / `.appex` 打包 / 侧载安装链路打通，只需在 `QingliaoWidget` 里加一个 `StaticConfiguration` widget（同一个 .appex 可同时承载实时活动与主屏小组件） |
 | 中 | 会话文件夹 | 中 | 新增 Category 模型（文件夹） |
 | 中 | LaTeX 公式 | 中 | 检测 `$...$`，内嵌 WKWebView + KaTeX |
 | 中 | @ 引用历史消息 | 中 | 输入框检测 @ + 弹列表 |
 | 低 | 用量图表 | 中 | 已有 providers-usage 数值卡，可加图表 |
 
-**已实现（从待办剔除）**：图片持久化上传（v3.0.37）、长文目录（v3.0.27）、长文折叠（v3.0.50）、会话标签（v3.0.51）、语音对讲（v3.0.68-69，v3.0.73 移除）、钉一钉（v3.0.74）、后台流式恢复（v3.0.74）。
+**已实现（从待办剔除）**：图片持久化上传（v3.0.37）、长文目录（v3.0.27）、长文折叠（v3.0.50）、会话标签（v3.0.51）、语音对讲（v3.0.68-69，v3.0.73 移除）、钉一钉（v3.0.74）、后台流式恢复（v3.0.74）、**灵动岛/锁屏实时活动 + 设置开关（v3.8.0，项目首个 widget extension）**。
 
 ---
 

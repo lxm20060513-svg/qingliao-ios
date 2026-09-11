@@ -24,8 +24,10 @@
 CI 只在 **`v3.0.x` tag 推送**时触发（分支 push 不触发），产出 unsigned IPA artifact。
 
 ```bash
-# 1) 版本号：project.yml 4 处必须一致（CFBundleShortVersionString / CFBundleVersion / MARKETING_VERSION / CURRENT_PROJECT_VERSION）
+# 1) 版本号：project.yml **8 处**必须一致——主 App 与挂件 target（QingliaoWidget）各 4 处
+#    （CFBundleShortVersionString / CFBundleVersion / MARKETING_VERSION / CURRENT_PROJECT_VERSION）
 #    grep -n '"3.0.x"' project.yml 确认全部为最新版本，否则崩溃日志版本误导定位（v2.0.53 教训）
+#    新增 target（widget/extension）必须写它自己的 Info.plist 版本号，否则 XcodeGen 默认落 1.0/1（v3.8.0 教训）
 # 2) 自查（见下）+ ./check_swift.sh + commit
 git push origin native-3.0
 git tag v3.0.x && git push origin v3.0.x     # 触发 CI（约 15-20 分钟）
@@ -50,6 +52,7 @@ git tag v3.0.x && git push origin v3.0.x     # 触发 CI（约 15-20 分钟）
    - 全局可变缓存/单例（NSCache 等）→ `@MainActor` 隔离（v2.0.87f）
    - 系统 delegate 协议（CLLocation/UNUserNotification）配 @MainActor 类 → conformance 交叉报错，改 `@unchecked Sendable` 非隔离类（v2.0.87w2）
    - `.foregroundStyle` 三元两个分支必须是同一具体类型（.tertiary 与 Color 混用必编译错，v2.0.78）
+8. **新增 target / App 扩展（widget、extension）→ 三件事必做**：① 给它写 `info.properties` 的 `CFBundleShortVersionString`/`CFBundleVersion`（不写 XcodeGen 落 1.0/1）；② 主 App 要声明 `dependencies: [{target: X, embed: true}]`，`.appex` 才会编进 `Payload/*.app/PlugIns/`；③ CI 的 Verify 步骤会校验 `.appex` 精确路径 + `NSExtensionPointIdentifier` + 主 App `NSSupportsLiveActivities`（v3.8.0 建立）
 
 ## 🏗 架构地图
 
@@ -64,7 +67,9 @@ Core/
 ├── KeychainHelper.swift Face ID 登录凭据（Keychain）
 ├── Models.swift         ChatMessage（含 queued 排队标记）/ ChatSession / HAEntity
 ├── CrashReporter.swift  signal-safe 崩溃上报（handler 内只用 POSIX + C 字面量）
-└── ImageCache.swift     dataURL → UIImage（@MainActor NSCache）
+├── ImageCache.swift     dataURL → UIImage（@MainActor NSCache）
+├── LiveActivityManager.swift    灵动岛/锁屏实时活动（本地 request/update/end；不持有 Activity 本体——Swift 6 sending 限制）
+└── LiveActivityAttributes.swift 实时活动共享属性（主 App 与挂件同编一份，改一处等于改两侧）
 Features/
 ├── Chat/ChatView.swift  聊天页（发送/排队/分享/引用/图片查看/搜索定位）
 ├── Chat/ChatComponents.swift  气泡/输入栏/组件
@@ -73,6 +78,7 @@ Features/
 ├── Settings/            设置（连接/模型/外观/密码管理/知识库/AI 记忆/HA）
 └── Auth/LoginView.swift 登录页（Face ID 快捷登录）
 Theme/LiquidGlass.swift  玻璃主题 + SiriGlowOverlay（参数化发光）
+QingliaoWidget/          挂件 Extension target（.appex）：灵动岛/锁屏实时活动 UI（ActivityConfiguration）
 ```
 
 ### 关键设计决策（改动前必读）
@@ -85,6 +91,14 @@ Theme/LiquidGlass.swift  玻璃主题 + SiriGlowOverlay（参数化发光）
 - **Siri 发光（v2.0.87bb→bn 定稿 + v2.0.91 参数化）**：RootView ZStack 顶层 zIndex(20)，只 `ignoresSafeArea(.top)`（全边会破坏底部 safe area 致 dock 偏位，v2.0.87bl 教训），GeometryReader 容器 + 顶部补偿；4 参数 @AppStorage：`qingliao_siri_glow_brightness`(1.0)/`_freq`(2.2)/`_amp`(0.18)/`_width`(22.0)，设置页滑条实时生效
 - **崩溃上报**：signal handler 只允许 POSIX open/write/close/getenv/strcpy + C 字符串字面量直写（任何 Swift String 构造都非 signal-safe）；完整栈走 NSException handler；崩溃信息下次启动 flush 上传
 - **列表崩溃三连排查**：①从有到无同帧 → VStack+分帧两步走；②TabView 隐藏页清空 → 换掉 .scrollPosition（PreferenceKey 方案）；③数组就地 removeAll + ForEach diff → 后端驱动 + load() 整体替换
+- **灵动岛 / 实时活动（v3.8.0）**：只做本地驱动（侧载免费签名拿不到 Push 能力，不做 APNs/push-to-start）；`LiveActivityManager` **不持有 `Activity` 本体**——存进 `@MainActor` 存储再 `await update/end` 会报 Swift 6 `sending 'activity' risks causing data races`，改为只存 Sendable 状态、每次从 `Activity.activities` 现取（且该列表最终一致，收尾空列表时等 600ms 再收一次）；计时用 `Text(_:style:.timer)` 交系统走（App 被挂起后文案不再刷新，这是设计内降级）；挂件与主 App 共用 `qingliao/Core/LiveActivityAttributes.swift`（同编一份，改一处等于改两侧）；开关 key `qingliao_live_activity`（默认开）
+
+## 🆕 近期变更（v3.8.0，2026-09-11）
+
+- **灵动岛 / 锁屏实时活动**：AI 回复中在灵动岛显示（紧凑态图标 + 计时；展开态会话名 +「AI 正在回复 · 模型名」+ 计时），结束自动收起。新增 `QingliaoWidget` app-extension target（**项目首个 widget extension**）+ `LiveActivityManager`（本地驱动，不依赖 APNs）
+- **设置开关**：设置 → 外观 → 交互 →「灵动岛实时活动」（默认开）。关掉立即收回正在显示的活动；启动时会清理上一进程遗留的活动（防"锁屏一直挂着、计时还在跑"）
+- **侧载安装提示**：装这版前先在 SideStore → Advanced → User Customizations 打开 **Customize App Extensions**（否则新挂件会被当"多余扩展"静默删除），弹窗选 **Keep App Extensions (Use Main Profile)**（不额外注册 App ID，不占 10 个/7 天额度）
+- **发版链路加强**：CI Verify 新增 `.appex` 精确路径 + `NSExtensionPointIdentifier` + `NSSupportsLiveActivities` 校验；版本号从 4 处变 **8 处**
 
 ## 🆕 近期变更（v3.0.27，2026-08-21）
 
