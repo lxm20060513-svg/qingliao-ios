@@ -284,6 +284,12 @@ struct ChatView: View {
         (stream.isStreaming && auth.currentStreamSessionId == chat.sessionId)
             || CloudBackend.shared.isStreaming || remoteBusy
     }
+    /// v3.8.0：实时活动（灵动岛/锁屏）展开态展示的模型名——本地模式取 App 设置，云端模式取云端配置
+    private var liveActivityModelName: String {
+        CloudBackend.shared.isStreaming
+            ? (CloudConfig.shared.activeConfig?.model ?? modelName)
+            : modelName
+    }
     /// 头部状态文案/颜色（独立计算属性，避免 body 内嵌套三元）
     private var headerSubtitle: String {
         serverOnline == nil ? "检测中" : (serverOnline == true ? "在线" : "离线")
@@ -1519,6 +1525,13 @@ struct ChatView: View {
         // v3.7.0：回前台时重探一次（用户刚在地图里「拷贝」→ 切回轻聊即出现胶囊）
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { Task { await checkMapClipboard() } }
+        }
+        // v3.8.0：灵动岛 / 锁屏实时活动——AI 开始时亮起、结束时收起（本地驱动，侧载免费签名可用）
+        .onChange(of: aiBusy) { _, busy in
+            LiveActivityManager.shared.sync(isBusy: busy,
+                                            sessionId: chat.sessionId,
+                                            sessionTitle: chat.title,
+                                            modelName: liveActivityModelName)
         }
         // v2.0.59：上下文过长提示（60+ 条建议压缩）
         .alert("上下文较长", isPresented: $showLongContextAlert) {

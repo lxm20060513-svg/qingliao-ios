@@ -33,5 +33,14 @@ $SWIFT/swiftc -swift-version 6 -o /tmp/test_diag /tmp/ql_diag_main/main.swift \
 
 echo "=== 5. Agent 结果卡片解析单元测试 ==="
 $SWIFT/swiftc -swift-version 6 -o /tmp/test_agent_card qingliao/Core/AgentCardParser.swift scripts/test_agent_card.swift 2>&1 | head -10
-/tmp/test_agent_card
+/tmp/test_agent_card || exit 1
+
+echo "=== 6. 挂件 Extension 语法检查（v3.8.0 实时活动）==="
+$SWIFT/swiftc -parse qingliaoWidget/*.swift 2>&1 | grep -v "^$" | head -10
+if [ ${PIPESTATUS[0]} -eq 0 ]; then
+    echo "✅ 挂件语法通过"
+else
+    echo "❌ 挂件语法错误（如上）"
+    exit 1
+fi
 exit $?

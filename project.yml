@@ -21,6 +21,10 @@ targets:
     platform: iOS
     sources:
       - qingliao
+    dependencies:
+      # v3.8.0：灵动岛/锁屏实时活动挂件（embed: true → 编进 Qingliao.app/PlugIns/）
+      - target: QingliaoWidget
+        embed: true
     info:
       path: qingliao/Info.plist
       properties:
@@ -33,6 +37,8 @@ targets:
         CFBundleVersion: "444"
         NSLocationWhenInUseUsageDescription: 用于获取当前定位显示天气信息
         UILaunchScreen: {}
+        # v3.8.0：实时活动（灵动岛/锁屏「AI 正在回复」）——挂件代码在 QingliaoWidget target
+        NSSupportsLiveActivities: true
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft
@@ -88,3 +94,39 @@ targets:
         CURRENT_PROJECT_VERSION: "444"
         ENABLE_PREVIEWS: YES
         CODE_SIGNING_ALLOWED: "NO"
+
+  # v3.8.0：实时活动挂件（灵动岛 + 锁屏）——只有实时活动一个 Widget，无主屏幕小组件
+  QingliaoWidget:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "26.0"
+    sources:
+      - qingliaoWidget
+      # 实时活动属性类型：主 App 与挂件必须编同一份源码
+      - qingliao/Core/LiveActivityAttributes.swift
+    info:
+      path: qingliaoWidget/Info.plist
+      properties:
+        CFBundleDisplayName: 轻聊
+        CFBundlePackageType: XPC!
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.qingliao.app2.widget
+        MARKETING_VERSION: "3.7.1"
+        CURRENT_PROJECT_VERSION: "444"
+        CODE_SIGNING_ALLOWED: "NO"
+        CODE_SIGNING_REQUIRED: "NO"
+        SKIP_INSTALL: YES
+
+schemes:
+  Qingliao:
+    build:
+      targets:
+        Qingliao: all
+        QingliaoWidget: all
+    run:
+      config: Debug
+    archive:
+      config: Release
