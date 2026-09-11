@@ -191,9 +191,9 @@ struct DockOrbOverlay: View {
     var slotIndex: Int = 2
     /// dock 槽位总数（本地 5；云端 4）
     var slotCount: Int = 5
-    /// 外框（含光晕）边长；球体 ≈ size × 0.783 —— 44 时球体 ≈ 34pt
-    /// v3.6.3：36 → 44（装机反馈「球太小」，且原 36 的球体比 dock 图标还小）
-    var ballSize: CGFloat = 44
+    /// 外框（含光晕）边长；球体 ≈ size × 0.783 —— 50 时球体 ≈ 39pt
+    /// v3.6.3：36 → 44（装机反馈「球太小」）；v3.6.4：44 → 50（仍偏小）
+    var ballSize: CGFloat = 50
     /// 装机微调预留：正值下移
     var verticalNudge: CGFloat = 0
     /// AI 正在流式回答 → 球切 orbits（点点旋转）；空闲 → ring（缓慢脉动）
@@ -258,9 +258,12 @@ struct DockOrbOverlay: View {
         // 数量必须与槽位数一致才敢用，否则宁可回退（避免误取别的槽位）
         guard found.count == count, index >= 0, index < found.count else { return nil }
         let b = found.sorted { $0.frame.minX < $1.frame.minX }[index]
-        let r = b.convert(b.bounds, to: nil)      // to: nil = window 坐标
-        guard r.width > 1, r.height > 1 else { return nil }
-        return CGPoint(x: r.midX, y: r.midY)
+        let br = b.convert(b.bounds, to: nil)     // to: nil = window 坐标
+        let tr = tabBar.convert(tabBar.bounds, to: nil)
+        guard br.width > 1, tr.height > 1 else { return nil }
+        // v3.6.4：x 用按钮中心（对齐槽位）；**y 用 tab bar 自身的垂直中心**——用户要求球上下居中于
+        // dock 内。按钮 bounds 中心含「图标 + 文字」两行，比 dock 中心偏上，直接用它会偏高。
+        return CGPoint(x: br.midX, y: tr.midY)
     }
 
     /// 递归收集 tab 按钮：iOS 26 玻璃 tab bar 可能把按钮放进中间容器，只扫直接子视图会漏掉（改进空转）

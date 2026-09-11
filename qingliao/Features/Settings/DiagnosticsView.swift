@@ -20,6 +20,8 @@ struct DiagnosticsView: View {
     @State private var showExporter = false
     @State private var exportText = ""
     @State private var showCrashSheet = false
+    /// v3.6.4：清除本机诊断记录（崩溃 / 卡顿）二次确认
+    @State private var showClearAlert = false
     @State private var uploading = false
     @State private var uploadText = ""
     @State private var uploadOK = false
@@ -84,6 +86,12 @@ struct DiagnosticsView: View {
             .sheet(isPresented: $showCrashSheet) {
                 CrashAlertSheet(logText: CrashReporter.latestLogText(), allowDismiss: false)
                     .presentationDetents([.medium, .large])
+            }
+            .alert("清除全部诊断记录？", isPresented: $showClearAlert) {
+                Button("取消", role: .cancel) { }
+                Button("清除", role: .destructive) { clearRecords() }
+            } message: {
+                Text("将清空本机保存的崩溃 / 卡顿记录，以及待上报队列（\(pendingCount) 条待上报也会一并清除）。已上报到服务器的记录不受影响。")
             }
         }
     }
@@ -238,9 +246,31 @@ struct DiagnosticsView: View {
                         Divider().padding(.leading, 52)
                     }
                 }
+                Divider().padding(.leading, 14)
+                clearAllButton
             }
         }
         .glassListCard()
+    }
+
+    /// v3.6.4：清除全部记录（本机）——危险操作，走二次确认
+    private var clearAllButton: some View {
+        Button {
+            showClearAlert = true
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "trash")
+                    .font(.system(size: 12, weight: .semibold))
+                Text("清除全部记录")
+                    .font(.system(size: 13, weight: .semibold))
+            }
+            .foregroundStyle(Color.red)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(PressStyle())
+        .accessibilityLabel("清除全部诊断记录")
     }
 
     @ViewBuilder private func recordRow(_ e: DiagEvent) -> some View {
@@ -331,6 +361,17 @@ struct DiagnosticsView: View {
     }
 
     // MARK: 数据加载与动作
+
+    /// v3.6.4：清除本机诊断记录 —— history（列表显示的历史）+ pending（待上报队列）。
+    /// 只清本机：已上报到服务器的记录由服务端保留。
+    private func clearRecords() {
+        DiagnosticsStore.removePending(ids: DiagnosticsStore.pendingEvents().map { $0.id })
+        DiagnosticsStore.clearHistory()
+        expanded = []
+        events = []
+        pendingCount = 0
+        Task { await reload() }
+    }
 
     private func reload() async {
         DiagnosticsEnv.refresh()
