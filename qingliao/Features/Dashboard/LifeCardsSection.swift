@@ -383,6 +383,7 @@ struct LifeStockCard: View {
                 Image(systemName: "chart.line.uptrend.xyaxis")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(.secondary)
+                    .symbolEffect(.bounce, value: stock.detailText)   // v3.9.0：行情刷新弹一下
                 Text(stock.name)
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)

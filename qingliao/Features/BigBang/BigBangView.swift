@@ -164,7 +164,7 @@ struct BigBangView: View {
     private func wordChip(_ w: BigBangWord) -> some View {
         let isOn = selected.contains(w.id)
         return Button {
-            withAnimation(.spring(duration: 0.25, bounce: 0.3)) {
+            withAnimation(Motion.snap) {   // v3.9.0：动效令牌收口（原 spring 0.25/0.3）
                 if isOn { selected.remove(w.id) } else { selected.insert(w.id) }
             }
         } label: {

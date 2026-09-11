@@ -456,7 +456,7 @@ struct ChatView: View {
                          stream.stop(auth: auth)
                      },
                      onPickAttachment: {
-                         withAnimation(.spring(duration: 0.3, bounce: 0.2)) {
+                         withAnimation(Motion.settle) {   // v3.9.0：动效令牌收口（原 spring 0.3/0.2）
                              showAttachmentMenu.toggle()
                          }
                      },
@@ -760,7 +760,7 @@ struct ChatView: View {
         }
         .onChange(of: chat.messages.count) { _, newCount in
             // 超阈值（300 条）显示归档提示；回到阈值下自动隐藏
-            withAnimation(.spring(duration: 0.3, bounce: 0.1)) {
+            withAnimation(Motion.settle) {   // v3.9.0：动效令牌收口（原 spring 0.3/0.1）
                 showArchiveHint = newCount >= Self.archiveThreshold && !chat.messages.isEmpty
             }
         }
@@ -1913,7 +1913,7 @@ struct ChatView: View {
                         var m = ChatMessage.local(role: "user", content: c, imageDataURL: nil)
                         m.quotedText = quotedText
                         m.queued = true
-                        withAnimation(.spring(duration: 0.25, bounce: 0.15)) {
+                        withAnimation(Motion.settle) {   // v3.9.0：动效令牌收口（原 spring 0.25/0.15）
                             chat.append(m)
                         }
                         pendingQueue.append(PendingSend(text: c, imageData: nil))
@@ -1929,7 +1929,7 @@ struct ChatView: View {
             var msg = ChatMessage.local(role: "user", content: text, imageDataURL: imageData)
             msg.quotedText = quotedText
             msg.queued = true
-            withAnimation(.spring(duration: 0.25, bounce: 0.15)) {
+            withAnimation(Motion.settle) {   // v3.9.0：动效令牌收口（原 spring 0.25/0.15）
                 chat.append(msg)
             }
             pendingQueue.append(PendingSend(text: text, imageData: imageData))
@@ -1945,7 +1945,7 @@ struct ChatView: View {
         var msg = ChatMessage.local(role: "user", content: text, imageDataURL: imageData)
         msg.quotedText = quotedText
         // v2.0.59：单条插入动效（批量移除才崩，插入安全）
-        withAnimation(.spring(duration: 0.25, bounce: 0.15)) {
+        withAnimation(Motion.settle) {   // v3.9.0：动效令牌收口（原 spring 0.25/0.15）
             chat.append(msg)
         }
         // v3.3.0 fix：消息落盘必须在 append 后立即执行（不能依赖流式回答后才 saveToServer）。
@@ -2616,7 +2616,7 @@ struct ChatView: View {
                             action: @escaping () -> Void) -> some View {
         DealAttachmentButton(icon: icon, name: name, color: color, idx: idx,
                              onPick: {
-                                 withAnimation(.spring(duration: 0.3, bounce: 0.2)) { showAttachmentMenu = false }
+                                 withAnimation(Motion.settle) { showAttachmentMenu = false }   // v3.9.0：令牌收口
                                  action()
                              })
     }

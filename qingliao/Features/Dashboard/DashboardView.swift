@@ -1675,6 +1675,7 @@ struct DeviceCard: View {
                 Image(systemName: icon)
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(status == .on ? Color.accentColor : Color.secondary)
+                    .symbolEffect(.bounce, value: status)   // v3.9.0：设备开关状态变化弹一下
                 Text(name)
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
@@ -1768,6 +1769,7 @@ struct ServiceCard: View {
                 Image(systemName: icon)
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(running ? Color.green : Color.red)
+                    .symbolEffect(.bounce, value: running)   // v3.9.0：服务启停弹一下
                 Text(name).font(.system(size: 12)).foregroundStyle(.secondary)
                 Spacer()
                 Circle().fill(running ? Color.green : Color.red).frame(width: 8, height: 8)

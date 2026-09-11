@@ -60,6 +60,7 @@ struct DiagnosticsView: View {
                         } label: {
                             Image(systemName: copied ? "checkmark" : "doc.on.doc")
                                 .foregroundStyle(Color.accentColor)
+                                .symbolEffect(.bounce, value: copied)   // v3.9.0：复制成功弹一下
                         }
                         Button {
                             exportText = bundleText()
