@@ -180,7 +180,8 @@ final class LiveSpeechTranscriber: ObservableObject {
             return false
         default:
             return await withCheckedContinuation { continuation in
-                AVAudioApplication.requestRecordPermission { granted in
+                // 同 v3.9.4 铁律：系统回调闭包一律显式 @Sendable（TCC 回调队列不保证是主线程）
+                AVAudioApplication.requestRecordPermission { @Sendable granted in
                     continuation.resume(returning: granted)
                 }
             }
@@ -313,7 +314,13 @@ final class LiveSpeechTranscriber: ObservableObject {
                 input.removeTap(onBus: 0)
                 tapInstalled = false
             }
-            input.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { [feeder] buffer, _ in
+            // 🚨 v3.9.4 关键：闭包**必须显式 @Sendable**。
+            // 它写在 @MainActor 的 start() 里 —— 不加 @Sendable 的闭包字面量会**继承 MainActor 隔离**，
+            // 而 AVAudioEngine 在**音频线程**回调它 ⇒ 进闭包即做隔离检查 → 失败 SIGTRAP（v3.9.3 真机
+            // 「长按语音转文字立刻闪退」的根因，dSYM 符号化证实崩溃帧就是这个闭包）。
+            // 编译期不报错、check_swift(-parse) 查不出（与 v3.7.0 剪贴板 completion 同类）。
+            // @Sendable 后闭包成为非隔离闭包；闭包体只碰 @unchecked Sendable 的 feeder，安全。
+            input.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { @Sendable [feeder] buffer, _ in
                 feeder.feed(buffer)
             }
             tapInstalled = true
