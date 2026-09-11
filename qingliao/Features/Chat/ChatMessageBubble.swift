@@ -127,32 +127,17 @@ struct MessageBubble: View {
         }
     }
 
-    /// v3.0.15：AI 头像——流式输出中 = 粒子球（渐变底 + orbits 粒子流动），否则脑形标
+    /// v3.9.2：AI 头像 = siri 液态玻璃球（开源项目 lersent001/orb 的 Metal 渲染器，见 LiquidOrbAvatar.swift）
+    ///   · 思考中（streamingAvatar）→ thinking 态，30fps 连续动画
+    ///   · 其余 → idle 态静态帧（播完回落过渡即冻结，长列表里不产生连续 GPU 开销）
     /// 拆独立计算属性：防止 body 巨型表达式 type-check 超时（v3.0.15 CI 实测）
-    /// v3.0.16：头像粒子用定制大参数（默认参数按 300pt 基准缩放，30pt 下仅 ~0.2pt 不可见）
     @ViewBuilder
     private var aiAvatar: some View {
         ZStack {
+            // 玻璃球体外是透明的（着色器 finalAlpha = max(球体遮罩, 自发光)），渐变圆仍是头像底色
             Circle()
                 .fill(LinearGradient(colors: [.blue, .indigo], startPoint: .topLeading, endPoint: .bottomTrailing))
-            if streamingAvatar {
-                // v3.0.17：彩色粒子（亮蓝/紫/粉/白，深浅色模式都醒目），大参数保证 30pt 可见
-                OrbCanvasView(mode: .orbits, size: 30,
-                              opts: OrbOpts(orbitN: 8, ghostN: 26, ghostR: 2.8, ghostA: 0.9,
-                                            particles: 4, partR: 3.4, partRDepth: 2.6,
-                                            rsPow: 0.6, rMin: 0.9),
-                              dotColors: [
-                                Color(red: 0.55, green: 0.72, blue: 1.0),
-                                Color(red: 0.65, green: 0.55, blue: 1.0),
-                                Color(red: 1.0, green: 0.60, blue: 0.85),
-                                .white
-                              ])
-                    .allowsHitTesting(false)
-            } else {
-                Image(systemName: "brain.head.profile")
-                    .font(.system(size: Typography.subhead, weight: .medium))
-                    .foregroundStyle(.white)
-            }
+            LiquidOrbAvatar(size: 30, thinking: streamingAvatar)
         }
         .frame(width: 30, height: 30)
     }

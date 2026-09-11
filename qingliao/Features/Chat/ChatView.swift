@@ -934,13 +934,13 @@ struct ChatView: View {
             Spacer(minLength: 56).frame(maxHeight: 120)
 
             ZStack {
-                // v3.4.25：粒子球版 logo（复用 OrbEngine，与流式头像同语言）替代静态渐变圆
+                // v3.4.25：粒子球版 logo 替代静态渐变圆；v3.9.2 改为 siri 液态玻璃球静态帧
                 Circle()
                     .fill(LinearGradient(colors: [.blue.opacity(0.10), .indigo.opacity(0.06)],
                                          startPoint: .topLeading, endPoint: .bottomTrailing))
                     .frame(width: 96, height: 96)
-                OrbCanvasView(mode: .orbits, size: 96)
-                    .allowsHitTesting(false)
+                // v3.9.2：欢迎页 logo 也换成 siri 液态玻璃球（静态帧，不占 GPU）
+                LiquidOrbAvatar(size: 96, thinking: false)
                 Image(systemName: "bubble.left.and.bubble.right.fill")
                     .font(.system(size: Typography.display))
                     .foregroundStyle(.white)
@@ -1390,16 +1390,8 @@ struct ChatView: View {
                                     ZStack {
                                         Circle()
                                             .fill(LinearGradient(colors: [.blue, .indigo], startPoint: .topLeading, endPoint: .bottomTrailing))
-                                        OrbCanvasView(mode: .orbits, size: 38,
-                                                      opts: OrbOpts(orbitN: 8, ghostN: 26, ghostR: 2.8, ghostA: 0.9,
-                                                                    particles: 4, partR: 3.4, partRDepth: 2.6,
-                                                                    rsPow: 0.6, rMin: 0.9),
-                                                      dotColors: [
-                                                        Color(red: 0.55, green: 0.72, blue: 1.0),
-                                                        Color(red: 0.65, green: 0.55, blue: 1.0),
-                                                        Color(red: 1.0, green: 0.60, blue: 0.85),
-                                                        .white
-                                                      ])
+                                        // v3.9.2：思考中占位头像 = siri 液态玻璃球（恒 thinking 态）
+                                        LiquidOrbAvatar(size: 38, thinking: true)
                                             .allowsHitTesting(false)
                                     }
                                     .frame(width: 38, height: 38)
