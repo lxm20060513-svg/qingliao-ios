@@ -237,7 +237,9 @@ struct MessageBubble: View {
                                                     // v3.0.51：AI 长回复多气泡段落流式——按空行拆段，每段独立气泡，
                                                     // 完成段落稳定可读、末尾段落持续流式（用户感知持续在动）
                                                     // v4.0 fix：流式中跳过拆分（缓存全 miss → 白算 O(n)）
-                                                    let paras = Self.splitParagraphs(message.content, streaming: streamingText)
+                                                    // v3.6.5：流式中按「换行」拆行级小气泡（💭心跳/🔧工具行各自独立蹦出）——
+                                                    // splitParagraphs 新增 lineMode：流式中按单换行拆，代价 O(n) 但流式内容短（<10KB）
+                                                    let paras = Self.splitParagraphs(message.content, streaming: streamingText, lineMode: streamingText)
                                                     if paras.count > 1 {
                                                         // 多气泡：每个段落一个独立气泡（贴左，头像在本气泡外右下角）
                                                         VStack(alignment: .leading, spacing: 6) {
@@ -464,8 +466,16 @@ struct MessageBubble: View {
     /// 供多气泡段落流式输出使用（v3.0.51）
     /// v3.0.x：加缓存——同一文本不重复拆分
     /// v4.0 fix：streaming 参数——流式中每帧文本不同，缓存全 miss → O(n) 白算；直接返回单段跳过
-    private static func splitParagraphs(_ text: String, streaming: Bool = false) -> [String] {
-        if streaming { return [text] }   // 流式中不做拆分（省 O(n) 全量扫描 + 缓存 miss）
+    private static func splitParagraphs(_ text: String, streaming: Bool = false, lineMode: Bool = false) -> [String] {
+        if streaming && !lineMode { return [text] }   // 流式中不做拆分（省 O(n) 全量扫描 + 缓存 miss）
+        // v3.6.5 lineMode：流式中按单换行拆行级小气泡（💭/🔧行各自独立蹦出）。
+        // 只在尾部保留未完成的最后一行持续增长；已完成的行 = 独立小气泡即时呈现。
+        if lineMode {
+            var lines = text.components(separatedBy: "\n")
+            // 过滤空行与未完成行（最后一行可能正在写入，仍保留——它是"正在输出"的气泡）
+            lines = lines.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+            return lines.isEmpty ? [text] : lines
+        }
         if let cached = _paraCache[text] { return cached }
         let lines = text.components(separatedBy: "\n")
         var paras: [String] = []
@@ -614,7 +624,7 @@ struct MessageBubble: View {
     /// v4.0 fix：流式中跳过拆分（splitParagraphs streaming 参数）
     private var isMultiBubbleAI: Bool {
         !message.isUser && message.imageDataURL == nil
-            && Self.splitParagraphs(message.content, streaming: streamingText).count > 1
+            && Self.splitParagraphs(message.content, streaming: streamingText, lineMode: streamingText).count > 1
     }
 
     /// v3.0.51：多气泡的单个段落气泡——每段独立圆角底 + maxWidth 366（贴左）
