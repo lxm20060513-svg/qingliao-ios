@@ -409,7 +409,10 @@ final class AuthStore {
             "provider": provider,
             "messages": messages,
             "pushEnabled": false,
-            "agentEnabled": true
+            "agentEnabled": true,
+            // v3.6.5：模型思考档位（聊天页 header 胶囊可选 关闭/低/中/高，默认 low）
+            // 后端译成 Hermes 按次思考配置 model_options.reasoning，只影响轻聊请求
+            "reasoning": ReasoningLevel.current.payload
         ]
         let bodyData = try JSONSerialization.data(withJSONObject: payload)
         // v2.0.116 fix：流式请求必须带 X-Auth-Token（鉴权收紧后无 token 恒 401；

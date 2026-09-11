@@ -268,6 +268,9 @@ struct ChatView: View {
     // 设置页切换模型后聊天页头部不刷新（模型实际生效但显示旧名）
     @AppStorage("qingliao_model") private var modelName = "deepseek-v4-flash"
     @AppStorage("qingliao_provider") private var provider = "opencode"
+    /// v3.6.5：模型思考档位（header 胶囊，仅本地模式）——随流式请求下发给后端
+    @AppStorage(ReasoningLevel.storageKey) private var reasoningLevelRaw = ReasoningLevel.low.rawValue
+    @State private var showReasoningPicker = false
 
     /// v3.5.1：是否有 AI 在处理本会话——本地流 / 云端流 / 服务器兜底探测（三合一）。
     /// 本地流按会话收窄：stream 是全局单例，会话 A 在跑时切到 B 不该显示"AI 正在输入"。
@@ -288,9 +291,57 @@ struct ChatView: View {
     /// 抽成独立计算属性给 type-checker 更小的表达式单元。
     /// v3.4.24：任务中心入口迁入 header（三个点旁）——原 DockTabView 全局 overlay 悬浮片
     /// 改为常驻小图标（不再依赖"有未完成任务"才出现），与三个点同尺寸同色对齐。
+    private var reasoningLevel: ReasoningLevel {
+        ReasoningLevel(rawValue: reasoningLevelRaw) ?? .low
+    }
+
+    /// v3.6.5：仅本地模式包一层（独立属性，避免 headerTrailingItems 表达式过复杂
+    /// 触发 Xcode 26「unable to type-check in reasonable time」——v3.3.0 已因此抽离过一次）
+    @ViewBuilder
+    private var localReasoningPill: some View {
+        if !CloudConfig.shared.isCloudMode {
+            reasoningPill
+        }
+    }
+
+    /// v3.6.5：模型思考档位胶囊（放在任务中心左侧）。点击弹出档位选择。
+    /// 仅本地模式显示——云端由服务商决定思考策略（且云端侧暂不做改动）。
+    private var reasoningPill: some View {
+        Button {
+            showReasoningPicker = true
+        } label: {
+            HStack(spacing: 3) {
+                Image(systemName: reasoningLevel.symbol)
+                    .font(.system(size: 10, weight: .semibold))
+                Text(reasoningLevel.title)
+                    .font(.system(size: 11, weight: .semibold))
+            }
+            .foregroundStyle(Color.accentColor)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 6)          // v3.6.5：触摸区抬到 ~46×24（贴近 HIG 44pt 下限）
+            .background(Color.accentColor.opacity(0.12), in: Capsule())
+            .contentShape(Capsule())
+        }
+        .buttonStyle(PressStyle())
+        .accessibilityLabel("模型思考档位，当前\(reasoningLevel.title)")
+    }
+
+    /// 档位选择内容抽离（避免 Xcode type-check 超时，与 chatActionDialogContent 同理）
+    @ViewBuilder
+    private var reasoningPickerContent: some View {
+        ForEach(ReasoningLevel.allCases) { level in
+            // v3.6.5：当前档位加 ✓ 前缀（弹窗里看不出哪个在生效）
+            Button("\(level == reasoningLevel ? "✓ " : "")\(level.title) · \(level.detail)") {
+                reasoningLevelRaw = level.rawValue
+            }
+        }
+        Button("取消", role: .cancel) {}
+    }
+
     @ViewBuilder
     private var headerTrailingItems: some View {
         HStack(spacing: 12) {
+            localReasoningPill
             Button {
                 showTaskCenter = true
             } label: {
@@ -518,6 +569,9 @@ struct ChatView: View {
                        showStatus: true,
                        statusColor: headerColor,
                        busy: aiBusy)
+            .confirmationDialog("模型思考档位", isPresented: $showReasoningPicker, titleVisibility: .visible) {
+                reasoningPickerContent
+            }
             .confirmationDialog("聊天操作", isPresented: $showMoreMenu, titleVisibility: .visible) {
                 chatActionDialogContent
             } message: {
@@ -2185,6 +2239,7 @@ struct ChatView: View {
         n += 2                            // ]
         n += utf8Len("pushEnabled") + 16  // "pushEnabled":false,
         n += utf8Len("agentEnabled") + 15 // "agentEnabled":true
+        n += utf8Len("reasoning") + 16    // v3.6.5 "reasoning":"medium",
         return n
     }
 

@@ -12,7 +12,7 @@ import UIKit
 struct FullScreenBurst: View {
     @State private var spawn = Date()
     /// v3.6.2：粒子发射原点距屏幕底部距离——原写死 136 = 聊天页输入栏智能球位置；
-    /// 智能球迁到 dock 槽位后由 DockOrbOverlay.ballCenterFromBottom 传入
+    /// 智能球迁到 dock 槽位后由 DockOrbOverlay 的几何定位给出（见 body 内 geoCenterY）
     var originFromBottom: CGFloat = 136
 
     var body: some View {
@@ -191,9 +191,9 @@ struct DockOrbOverlay: View {
     var slotIndex: Int = 2
     /// dock 槽位总数（本地 5；云端 4）
     var slotCount: Int = 5
-    /// 外框（含光晕）边长；球体 ≈ size × 0.783 —— 50 时球体 ≈ 39pt
-    /// v3.6.3：36 → 44（装机反馈「球太小」）；v3.6.4：44 → 50（仍偏小）
-    var ballSize: CGFloat = 50
+    /// 外框（含光晕）边长；球体 ≈ size × 0.783 —— 52 时球体 ≈ 41pt
+    /// v3.6.3：36 → 44；v3.6.4：44 → 50；v3.6.5：50 → 52（用户指定）
+    var ballSize: CGFloat = 52
     /// 装机微调预留：正值下移
     var verticalNudge: CGFloat = 0
     /// AI 正在流式回答 → 球切 orbits（点点旋转）；空闲 → ring（缓慢脉动）
@@ -207,21 +207,29 @@ struct DockOrbOverlay: View {
     /// iOS 26 原生 tab bar 高度（不含底部安全区）
     static let dockBarHeight: CGFloat = 49
 
+    /// v3.6.5 实测：dock 内容（图标 + 文字整块）中心比 UITabBar 几何中心低约 6.3pt。
+    /// 装机截图 @3x（1179×2556 = 393×852pt）像素测量：球心 793.5pt（= tab bar 几何中心）
+    /// vs 槽位内容中心 799.8pt → 球比内容偏上 6.3pt，用户报「没在 dock 上下居中」。
+    /// 即 iOS 26 玻璃 tab bar 的 bounds 中心高于其内容中心（内容在 tab bar 内并非垂直居中）。
+    static let dockContentCenterDrop: CGFloat = 6.3
+
     var body: some View {
         GeometryReader { geo in
             let g = geo.frame(in: .global)          // 本叠加层在 window 中的位置
-            // 回退路径：球心 = 叠加层底（窗口中线上方一个安全区处）再往上 tab bar 半高
-            // v3.6.3 修：原实现 cy = h - centerFromBottom 忽略了「叠加层被 tab bar 吃掉底部安全区」，
-            //            等于把安全区算了两遍 → 球比图标高约 34pt（装机截图证实球悬浮在 tab bar 上方）
-            let fallbackGlobalY = DockOrbOverlay.keyWindowHeight - DockOrbOverlay.keyWindowSafeBottom
-                                  - DockOrbOverlay.ballCenterFromBottom
-            let fallback = CGPoint(x: geo.size.width * (CGFloat(slotIndex) + 0.5) / CGFloat(slotCount),
-                                   y: fallbackGlobalY - g.minY)
+            // v3.6.5：球心 y 用「几何定位」——屏幕底(去安全区)上溯半个 tab bar 高，再按实测差值
+            //        dockContentCenterDrop 下移到内容中心。**不再取 UITabBar / UITabBarButton 的
+            //        bounds 中心**：装机截图实测（@3x）球心落在 tab bar 几何中心时比槽位内容中心偏上
+            //        6.3pt；而按钮 bounds 是否撑满 tab bar 高度无法在本地证实（若撑满则 br.midY ==
+            //        tr.midY，改基准等于没改，且读写两条路径还会差 6.3pt 造成跳变）。几何定位有
+            //        截图实测锚点（852 - 34 - 24.5 + 6.3 = 799.8pt = 实测内容中心），一次到位。
+            // v3.6.3 教训：原实现 cy = h - centerFromBottom 把底部安全区算了两遍 → 球高约 34pt。
+            let geoCenterY = DockOrbOverlay.keyWindowHeight - DockOrbOverlay.keyWindowSafeBottom
+                             - DockOrbOverlay.dockBarHeight / 2 + DockOrbOverlay.dockContentCenterDrop
+            let fallbackX = geo.size.width * (CGFloat(slotIndex) + 0.5) / CGFloat(slotCount)
             // ⚠️ ViewBuilder 内只能用表达式：`let x: T` + if/else 赋值会被当作条件视图
             //（CI 报 "type '()' cannot conform to 'View'"）→ 用 map/?? 表达式写
-            let target: CGPoint = liveCenter.map {
-                CGPoint(x: $0.x - g.minX, y: $0.y - g.minY + verticalNudge)
-            } ?? CGPoint(x: fallback.x, y: fallback.y + verticalNudge)
+            let target: CGPoint = CGPoint(x: liveCenter.map { $0.x - g.minX } ?? fallbackX,
+                                          y: geoCenterY - g.minY + verticalNudge)
             // 空闲呼吸 15fps / 思考旋转 30fps —— dock 常驻视图按状态降帧
             SiriBallView(thinking: thinking, size: ballSize, fps: thinking ? 30 : 15)
                 .frame(width: ballSize, height: ballSize)
@@ -259,11 +267,10 @@ struct DockOrbOverlay: View {
         guard found.count == count, index >= 0, index < found.count else { return nil }
         let b = found.sorted { $0.frame.minX < $1.frame.minX }[index]
         let br = b.convert(b.bounds, to: nil)     // to: nil = window 坐标
-        let tr = tabBar.convert(tabBar.bounds, to: nil)
-        guard br.width > 1, tr.height > 1 else { return nil }
-        // v3.6.4：x 用按钮中心（对齐槽位）；**y 用 tab bar 自身的垂直中心**——用户要求球上下居中于
-        // dock 内。按钮 bounds 中心含「图标 + 文字」两行，比 dock 中心偏上，直接用它会偏高。
-        return CGPoint(x: br.midX, y: tr.midY)
+        guard br.width > 1, br.height > 1 else { return nil }
+        // v3.6.5：本函数只取 **x** 用于水平对准槽位；y 已改由 DockOrbOverlay 的几何定位给出
+        //（不取按钮/tab bar 的 bounds 中心——两者中心是否相等无法在本地证实，见 body 注释）。
+        return CGPoint(x: br.midX, y: br.midY)
     }
 
     /// 递归收集 tab 按钮：iOS 26 玻璃 tab bar 可能把按钮放进中间容器，只扫直接子视图会漏掉（改进空转）
@@ -305,12 +312,6 @@ struct DockOrbOverlay: View {
     /// 球心到**叠加层底部**的距离（与 BurstCanvas 的 `h - originFromBottom` 同一坐标系；h = 叠加层高）
     /// ⚠️ 叠加层底 ≠ 窗口底（差一个底部安全区），故真实坐标要减掉安全区，否则烟花原点会偏离球心
     @MainActor
-    static var ballCenterFromBottom: CGFloat {
-        if let c = slotCenterGlobal(index: 2, count: 5) {
-            return (keyWindowHeight - keyWindowSafeBottom) - c.y
-        }
-        return dockBarHeight / 2
-    }
 
     /// 读 key window 底部安全区（不依赖叠加层自身的 safeAreaInsets——叠加层会被 tab bar 吃掉安全区）
     @MainActor
