@@ -45,6 +45,8 @@ struct BigBangView: View {
     @State private var words: [BigBangWord] = []
     @State private var selected = Set<Int>()
     @State private var copied = false
+    // v3.7.0：存备忘录反馈
+    @State private var memoSaved = false
 
     /// v2.0.86q：前景色跟随主题（亮玻璃用深字，深玻璃用白字）
     private var fg: Color { scheme == .dark ? .white : Color.black.opacity(0.8) }
@@ -117,6 +119,21 @@ struct BigBangView: View {
                         }
                         .buttonStyle(.plain)
                         Spacer()
+                        // v3.7.0：选中词块 → 存为一条备忘录（生活页「备忘录」栏目）
+                        Button {
+                            memoSelected()
+                        } label: {
+                            // v3.7.0：纯图标（底部条已有「全选/清除/复制(N)」，再加文字按钮在 SE 等窄屏会挤爆）
+                            Image(systemName: memoSaved ? "checkmark" : "note.text")
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundStyle(fg)
+                                .padding(.horizontal, 14).padding(.vertical, 9)
+                                .background((scheme == .dark ? Color.white : Color.black).opacity(0.15), in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(selected.isEmpty)
+                        .opacity(selected.isEmpty ? 0.5 : 1)
+                        .accessibilityLabel("存备忘录")
                         Button {
                             copySelected()
                         } label: {
@@ -166,6 +183,17 @@ struct BigBangView: View {
                 )
         }
         .buttonStyle(.plain)
+    }
+
+    /// v3.7.0：把选中的词块拼成一条备忘录（生活页「备忘录」栏目）
+    private func memoSelected() {
+        let sorted = words.filter { selected.contains($0.id) }.sorted { $0.id < $1.id }
+        let joined = sorted.map { $0.text }.joined()
+        guard !joined.isEmpty else { return }
+        if MemoStore.shared.add(content: joined, source: "bigbang") {
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            withAnimation { memoSaved = true }
+        }
     }
 
     private func copySelected() {

@@ -45,6 +45,8 @@ struct MessageBlockView: View {
     var onWithdraw: (() -> Void)? = nil
     // v3.0.74：钉一钉（长按菜单钉到看板）——传当前段落/选中文字
     var onPin: ((String) -> Void)? = nil
+    // v3.7.0：加入备忘录（长按菜单）——传当前段落/选中文字
+    var onMemo: ((String) -> Void)? = nil
     // v2.0.128：AI 图片点击打开大图（传图片 URL/data URL）
     var onImageTap: (String) -> Void = { _ in }
     // v3.3.0：多选合并转发入口（AI 消息段落长按菜单）
@@ -89,6 +91,17 @@ struct MessageBlockView: View {
         return cachedAttrStr ?? AttributedString(text)
     }
 
+    /// v3.7.0：段落纯文本（大爆炸/钉一钉/存备忘录共用，避免多处 switch 漂移）
+    private var blockPlainText: String {
+        switch block.kind {
+        case .markdown(let s): return s
+        case .code(let s, _): return s
+        case .table(let rows): return rows.map { $0.joined(separator: " | ") }.joined(separator: "\n")
+        case .image(let url): return url
+        case .agentCard(let card): return card.plainText   // v3.5.0：卡片降级为纯文本
+        }
+    }
+
     /// 代码块/表格共用的 SwiftUI 长按菜单（与原气泡级菜单项一致）
     @ViewBuilder
     private var bubbleMenu: some View {
@@ -114,15 +127,7 @@ struct MessageBlockView: View {
             Label("多选", systemImage: "checkmark.circle")
         }
         Button {
-            let text: String
-            switch block.kind {
-            case .markdown(let s): text = s
-            case .code(let s, _): text = s
-            case .table(let rows): text = rows.map { $0.joined(separator: " | ") }.joined(separator: "\n")
-            case .image(let url): text = url
-            case .agentCard(let card): text = card.plainText   // v3.5.0：卡片降级为纯文本（复制/大爆炸/钉一钉）
-            }
-            onBigBang(text)
+            onBigBang(blockPlainText)
         } label: {
             Label("大爆炸", systemImage: "burst.fill")
         }
@@ -143,17 +148,17 @@ struct MessageBlockView: View {
         // v3.0.74：钉一钉（钉到看板）——传当前段落文字
         if let onPin {
             Button {
-                let text: String
-                switch block.kind {
-                case .markdown(let s): text = s
-                case .code(let s, _): text = s
-                case .table(let rows): text = rows.map { $0.joined(separator: " | ") }.joined(separator: "\n")
-                case .image(let url): text = url
-                case .agentCard(let card): text = card.plainText   // v3.5.0：卡片降级为纯文本
-                }
-                onPin(text)
+                onPin(blockPlainText)
             } label: {
                 Label("钉一钉", systemImage: "pin.fill")
+            }
+        }
+        // v3.7.0：加入备忘录——传当前段落文字
+        if let onMemo {
+            Button {
+                onMemo(blockPlainText)
+            } label: {
+                Label("存备忘录", systemImage: "note.text")
             }
         }
         Button(role: .destructive) {
@@ -228,7 +233,8 @@ struct MessageBlockView: View {
                     onDelete: onDelete,
                     onRegenerate: onRegenerate,
                     onWithdraw: onWithdraw,
-                    onMultiSelect: onMultiSelect
+                    onMultiSelect: onMultiSelect,
+                    onMemo: onMemo
                 )
                 .frame(maxWidth: .infinity, alignment: .leading)
             }

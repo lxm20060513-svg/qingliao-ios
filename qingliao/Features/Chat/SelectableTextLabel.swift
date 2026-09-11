@@ -43,6 +43,8 @@ struct SelectableTextLabel: UIViewRepresentable {
     var onWithdraw: (() -> Void)? = nil
     // v3.3.0：多选合并转发入口（文字长按菜单）
     var onMultiSelect: () -> Void = {}
+    // v3.7.0：加入备忘录——有选区存选中片段，无选区存整段；nil = 菜单不显示该项
+    var onMemo: ((String) -> Void)? = nil
 
     // v3.0.13：布局跟踪——SwiftUI 只在 observed 属性变化时调 updateUIView，气泡在展开/折叠动画
     // 期间宽度渐进变化时 updateUIView 可能不重进，导致 UITextView 的 NSTextContainer 锁在动画起始的
@@ -267,6 +269,19 @@ struct SelectableTextLabel: UIViewRepresentable {
                     self.parent.onBigBang(textView.text ?? self.parent.attributedText.string)
                 }
             })
+
+            // v3.7.0：加入备忘录——有选区存选中片段，无选区存整段（与「复制」同款选区判定）
+            if let onMemo = parent.onMemo {
+                children.append(UIAction(title: hasSelection ? "存备忘录（选中）" : "存备忘录",
+                                         image: UIImage(systemName: "note.text")) { _ in
+                    if hasSelection, let sel = textView.selectedTextRange,
+                       let t = textView.text(in: sel), !t.isEmpty {
+                        onMemo(t)
+                    } else {
+                        onMemo(textView.text ?? self.parent.attributedText.string)
+                    }
+                })
+            }
 
             // v3.0.8：移除「选择文本」——已有「复制选中」（长按选区直接复制），该入口冗余
             // （原 v2.0.127 选中手柄功能：系统原生长按已有文本选择手柄，无需重复入口）

@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 // MARK: - v3.5.x 看板「生活数据」卡片区（股票行情 + RSS/博客更新）
 //
@@ -23,6 +24,8 @@ struct LifeCardsSection: View {
     /// v3.6.2：当前展开的条目 id（单一真源——只渲染这一条的正文，收起时置 nil 即真正收起；
     /// articleStates 仅作内容缓存，不再决定是否渲染）
     var expandedArticleID: String? = nil
+    // v3.7.0：资讯正文长按菜单（复制整段 / 大爆炸）——由 LifeView 提供大爆炸承载页
+    var onBigBang: (String) -> Void = { _ in }
 
     @AppStorage("dashboard_life_expanded") private var expanded = true
 
@@ -209,6 +212,28 @@ struct LifeCardsSection: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(PressStyle())
+        // v3.7.0：长按弹出菜单（复制整段 / 大爆炸）——正文已加载则作用于正文，否则退化为标题
+        .contextMenu {
+            Button {
+                UIPasteboard.general.string = articleMenuText(e)
+                Haptics.success()
+            } label: {
+                Label("复制整段", systemImage: "doc.on.doc")
+            }
+            Button {
+                onBigBang(articleMenuText(e))
+            } label: {
+                Label("大爆炸", systemImage: "burst.fill")
+            }
+        }
+    }
+
+    /// v3.7.0：长按菜单取用的文本——已展开且正文到位用正文，否则用标题（避免菜单点到空内容）
+    private func articleMenuText(_ e: LifeRssEntry) -> String {
+        if case .some(.loaded(let a)) = articleStates[e.id], !a.content.isEmpty {
+            return a.content
+        }
+        return e.title
     }
 
     /// 展开区：加载中 / AI 正文 / 失败提示（三态）

@@ -24,12 +24,16 @@ struct LifeView: View {
     @State private var expandedEntryID: String?
     @State private var articles: [String: LifeArticleState] = [:]
     @State private var feedsRefreshing = false
+    // v3.7.0：资讯正文长按「大爆炸」全屏炸开载荷
+    @State private var bigBangPayload: BigBangPayload?
 
     var body: some View {
         VStack(spacing: 0) {
             PageHeader(title: "生活", subtitle: "行情 · 资讯 · 快递 · 价格")
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 10) {
+                    // v3.7.0：备忘录栏目（排在「生活数据」之前）
+                    MemoSection()
                     LifeCardsSection(data: life,
                                      loading: lifeLoading,
                                      error: lifeError,
@@ -40,7 +44,8 @@ struct LifeView: View {
                                      onRefreshFeeds: { Task { await refreshFeeds() } },
                                      articleStates: articles,
                                      onOpenArticle: { e in openArticle(e) },
-                                     expandedArticleID: expandedEntryID)
+                                     expandedArticleID: expandedEntryID,
+                                     onBigBang: { text in bigBangPayload = BigBangPayload(text: text) })
                 }
                 .padding(.horizontal, 14)
                 .padding(.bottom, 100)
@@ -53,6 +58,10 @@ struct LifeView: View {
         .sheet(isPresented: $showLifeSettings) {
             LifeCardsSettingsView()
                 .presentationDetents([.medium, .large])
+        }
+        // v3.7.0：资讯正文长按「大爆炸」→ 全屏炸开选词
+        .fullScreenCover(item: $bigBangPayload) { payload in
+            BigBangView(text: payload.text)
         }
         // v3.4.26 同款生命周期：选中即首刷 + 30s 轮询；离开 = task 取消即停
         .task(id: isActive) {

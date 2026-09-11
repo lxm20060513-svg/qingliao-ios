@@ -154,6 +154,12 @@ struct ChatView: View {
     @Environment(InboxStore.self) var inbox   // v3.4.0：底部上拉手动拉取收件箱
     @Environment(KeyboardObserver.self) var kb
     @State var pinStore = PinStore.shared   // v3.0.74：钉一钉
+    // v3.7.0：剪贴板地图链接兜底入口（地图分享面板里没有轻聊 → 「拷贝」后在聊天页一键发送）
+    @State var showClipboardBanner = false
+    // 已处理过的剪贴板版本号（UIPasteboard.changeCount）：同一份内容只提示一次，
+    // 用户「忽略」或「已发送」后不再复现；拷贝了新内容才会再提示
+    @State var clipboardChangeCount = -1
+    @Environment(\.scenePhase) var scenePhase
 
     @State var inputText = ""
     @FocusState var inputFocus: Bool
@@ -594,6 +600,10 @@ struct ChatView: View {
                 .padding(.vertical, 4)
                 .transition(.opacity)
             }
+            // v3.7.0：剪贴板地图链接提示条（in-flow，不遮挡 header、不拦截消息区滚动）
+            if showClipboardBanner {
+                mapClipboardBanner()
+            }
             // v3.4.26：续聊芯片条——有消息且非流式时显示在消息区上方（话题延续入口）
             continueChipsBar
             messageList
@@ -769,6 +779,78 @@ struct ChatView: View {
                 }
             }
         }
+    }
+
+    // MARK: - v3.7.0 剪贴板地图链接（地图分享兜底）
+    /// 探测剪贴板是否有 URL → 顶部胶囊提示（detectPatterns 不读内容，无隐私弹窗）
+    private func checkMapClipboard() async {
+        guard !showClipboardBanner else { return }
+        guard UIPasteboard.general.changeCount != clipboardChangeCount else { return }   // 同一份剪贴板内容不重复打扰
+        guard await MapClipboardDetector.hasURL() else { return }
+        withAnimation(Motion.settle) { showClipboardBanner = true }   // 只提示；真正内容等点按再读
+    }
+
+    /// 顶部胶囊：检测到剪贴板里有链接（多为地图分享的「拷贝」）
+    @ViewBuilder
+    private func mapClipboardBanner() -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "mappin.and.ellipse")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Color.accentColor)
+            Text("检测到剪贴板里的位置/链接")
+                .font(.system(size: 13))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+            Spacer(minLength: 0)
+            Button {
+                sendClipboardLink()
+            } label: {
+                Text("发给 AI")
+                    .font(.system(size: 13, weight: .semibold))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(Color.accentColor.opacity(0.14), in: Capsule())
+            }
+            .buttonStyle(PressStyle())
+            .foregroundStyle(Color.accentColor)
+            Button {
+                withAnimation(Motion.snap) {
+                    clipboardChangeCount = UIPasteboard.general.changeCount   // 记住这一版，勿再打扰
+                    showClipboardBanner = false
+                }
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .padding(4)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("忽略")
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(.ultraThinMaterial, in: Capsule())
+        .overlay(Capsule().strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.8))
+        .padding(.horizontal, 14)
+        .padding(.top, 2)
+        .padding(.bottom, 2)
+        .transition(.move(edge: .top).combined(with: .opacity))
+    }
+
+    /// 真正读取剪贴板（此刻才可能弹系统「允许粘贴」）→ 地图链接拼定位消息，其他链接原样发送
+    private func sendClipboardLink() {
+        clipboardChangeCount = UIPasteboard.general.changeCount
+        withAnimation(Motion.snap) { showClipboardBanner = false }
+        guard let raw = MapClipboardDetector.readText() else { return }
+        if let url = URL(string: raw), let loc = MapLocationParser.parse(url) {
+            let cl = CLLocation(latitude: loc.coord.latitude, longitude: loc.coord.longitude)
+            if cl.coordinate.isValid {
+                sendCore(text: Self.locationMessage(cl, placeName: loc.place, originLink: raw), imageData: nil)
+                return
+            }
+        }
+        sendCore(text: raw, imageData: nil)
     }
 
     // MARK: - v3.4.14 系统分享收件
@@ -1051,6 +1133,11 @@ struct ChatView: View {
         } onPin: { text in
             pinStore.add(content: text, sourceSessionId: chat.sessionId, sourceRole: msg.role)
             UINotificationFeedbackGenerator().notificationOccurred(.success)
+        } onMemo: { text in
+            // v3.7.0：加入备忘录（整条气泡 / 选中片段）→ 生活页「备忘录」栏目
+            if MemoStore.shared.add(content: text, source: "chat") {
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+            }
         } onAIImageTap: { url in
             openAIImage(url, sourceID: msg.id)   // v3.4.29：带转场源
         } onMultiSelect: {
@@ -1418,6 +1505,8 @@ struct ChatView: View {
             if let cached = UserDefaults.standard.object(forKey: "qingliao_server_online_cache") as? Bool {
                 serverOnline = cached
             }
+            // v3.7.0：进聊天页探一次剪贴板（地图分享「拷贝」后切回来即可见胶囊）
+            await checkMapClipboard()
             // 服务器连接状态检测（真实绿点）
             let r = await auth.testConnection(server: auth.serverURL)
             let ok = r.hasPrefix("✅")
@@ -1426,6 +1515,10 @@ struct ChatView: View {
         }
         .fullScreenCover(item: $bigBangPayload) { payload in
             BigBangView(text: payload.text)
+        }
+        // v3.7.0：回前台时重探一次（用户刚在地图里「拷贝」→ 切回轻聊即出现胶囊）
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { Task { await checkMapClipboard() } }
         }
         // v2.0.59：上下文过长提示（60+ 条建议压缩）
         .alert("上下文较长", isPresented: $showLongContextAlert) {

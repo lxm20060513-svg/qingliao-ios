@@ -18,6 +18,8 @@ struct MessageBubble: View {
     var onWithdraw: () -> Void = {}   // v2.0.92 消息撤回（10 秒内）
     // v3.0.74：钉一钉（长按菜单钉到看板）——传当前段落/选中文字
     var onPin: ((String) -> Void)? = nil
+    // v3.7.0：加入备忘录（长按菜单 / 气泡菜单）——传当前段落/整条内容
+    var onMemo: ((String) -> Void)? = nil
     // v2.0.128：AI 消息内图片点击（传 URL/data URL，打开大图）
     var onAIImageTap: (String) -> Void = { _ in }
     // v3.3.0：多选合并转发——长按菜单「多选」入口（进入多选模式并预选本条）
@@ -61,14 +63,14 @@ struct MessageBubble: View {
     @ViewBuilder
     private var cardMenu: some View {
         Button {
-            UIPasteboard.general.string = message.content
+            UIPasteboard.general.string = displayContent   // v3.7.0：与渲染一致（老消息不再复制到进度行）
             Haptics.success()   // v3.4.25：复制成功触感
         } label: {
             Label("复制", systemImage: "doc.on.doc")
         }
         // v3.4.25：AI 回复中的地点一键开地图——从消息文本提取地址/地名，跳苹果地图（通用）；
         // 装了高德则优先高德（国内 POI 更准）。提取不到地址（无中文地名特征）时不显示此项
-        if let addr = Self.extractAddress(from: message.content) {
+        if let addr = Self.extractAddress(from: displayContent) {
             Button {
                 Self.openInMaps(address: addr)
             } label: {
@@ -92,9 +94,17 @@ struct MessageBubble: View {
             Label("多选", systemImage: "checkmark.circle")
         }
         Button {
-            onBigBang(message.content)
+            onBigBang(displayContent)
         } label: {
             Label("大爆炸", systemImage: "burst.fill")
+        }
+        // v3.7.0：加入备忘录（整条气泡内容）
+        if let onMemo {
+            Button {
+                onMemo(displayContent)
+            } label: {
+                Label("存备忘录", systemImage: "note.text")
+            }
         }
         if !message.isUser {
             Button {
@@ -207,7 +217,7 @@ struct MessageBubble: View {
                                 .contextMenu { cardMenu }
                         }
                     }
-                    if !message.content.isEmpty {
+                    if !displayContent.isEmpty {
                         if message.isUser {
                             // v2.0.87q：文件消息微信风格卡片（图标+文件名+状态）
                             if let file = parseFileMessage(message.content) {
@@ -230,7 +240,8 @@ struct MessageBubble: View {
                                     onDelete: onDelete,
                                     onRegenerate: nil,
                                     onWithdraw: canWithdraw ? onWithdraw : nil,
-                                    onMultiSelect: onMultiSelect
+                                    onMultiSelect: onMultiSelect,
+                                    onMemo: onMemo
                                 )
                             }
                         } else {
@@ -239,7 +250,7 @@ struct MessageBubble: View {
                                                     // v4.0 fix：流式中跳过拆分（缓存全 miss → 白算 O(n)）
                                                     // v3.6.5：流式中按「换行」拆行级小气泡（💭心跳/🔧工具行各自独立蹦出）——
                                                     // splitParagraphs 新增 lineMode：流式中按单换行拆，代价 O(n) 但流式内容短（<10KB）
-                                                    let paras = Self.splitParagraphs(message.content, streaming: streamingText, lineMode: streamingText)
+                                                    let paras = Self.splitParagraphs(displayContent, streaming: streamingText, lineMode: streamingText)
                                                     if paras.count > 1 {
                                                         // 多气泡：每个段落一个独立气泡（贴左，头像在本气泡外右下角）
                                                         VStack(alignment: .leading, spacing: 6) {
@@ -255,7 +266,7 @@ struct MessageBubble: View {
                                                         VStack(alignment: .leading, spacing: 6) {
                                                                 ForEach(0..<contentBlocks.count, id: \.self) { i in
                                                                     MessageBlockView(block: contentBlocks[i],
-                                                                                    onCopy: { UIPasteboard.general.string = message.content },
+                                                                                    onCopy: { UIPasteboard.general.string = displayContent },
                                                                                     onQuote: onQuote,
                                                                                     onShare: onShare,
                                                                                     onBigBang: onBigBang,
@@ -263,6 +274,7 @@ struct MessageBubble: View {
                                                                                     onRegenerate: onRegenerate,
                                                                                     onWithdraw: nil,
                                                                                     onPin: onPin,
+                                                                                    onMemo: onMemo,
                                                                                     onImageTap: { url in onAIImageTap(url) },   // v2.0.128：AI 图片点击打开大图
                                                                                     onMultiSelect: onMultiSelect,   // v3.3.0：多选合并转发
                                                                                     useSwiftUIText: true,
@@ -332,7 +344,7 @@ struct MessageBubble: View {
                     // v3.4.x：播放中显示声波跳动动画（3 音柱 TimelineView 驱动），播完自动复原
                     if !message.isUser && !message.content.isEmpty {
                         Button {
-                            SpeechManager.shared.toggle(message.content, id: message.id)
+                            SpeechManager.shared.toggle(displayContent, id: message.id)
                         } label: {
                             if speech.speakingID == message.id {
                                 // v3.5.x：云端 TTS 不可用（额度/网络）自动降级系统语音时显示来源小标，
@@ -458,8 +470,39 @@ struct MessageBubble: View {
     /// 消息内容分段：``` 代码块 → 等宽深色块；其余 → markdown
     /// v3.0.41 性能：流式输出中跳过分段（split/图片展开都是 O(n) 全量扫描），直接单块渲染
     /// v3.0.x：加 LRU 缓存——同一 content+serverURL+streaming 组合不重复解析
+    /// v3.7.0：实际渲染用文本——AI 的**已落库消息**先剥掉历史遗留的「进度行」。
+    /// 流式中不过滤：一是后端 stream_api v3.7.0 起已不再注入进度行，二是流式每帧求值（省一次 O(n) 扫描）。
+    private var displayContent: String {
+        if message.isUser || streamingText { return message.content }
+        return Self.strippingProgressLines(message.content)
+    }
+
+    /// v3.7.0：剥掉后端 v3.6.1/v3.6.4 注入的进度行（「🔧 工具名…」完成时补「 ✅」「💭 处理中 Ns」）。
+    /// 后端已下线注入；这里只对**已落库的旧消息**兜底，避免老会话里仍冒出工具/心跳进度行。
+    /// 只认**进度行形状**（见 isProgressLine），正文里正常出现的 🔧/💭 行不动；全文被剥光时保留原文防空气泡。
+    static func strippingProgressLines(_ text: String) -> String {
+        guard text.contains("🔧") || text.contains("💭") else { return text }   // 廉价门控：绝大多数消息直接返回
+        let kept = text.components(separatedBy: "\n").filter { !isProgressLine($0) }
+        let out = kept.joined(separator: "\n")
+        return out.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? text : out
+    }
+
+    /// v3.7.0：进度行形状判定——`🔧 工具名…` / `🔧 工具名… ✅` / `💭 处理中 12s`。
+    /// ⚠️ 不要放宽成「以 🔧/💭 开头就删」：正文里可能出现带这两个 emoji 的正常行。
+    private static func isProgressLine(_ line: String) -> Bool {
+        let t = line.trimmingCharacters(in: .whitespaces)
+        guard !t.isEmpty else { return false }
+        if t.hasPrefix("🔧") {
+            return t.hasSuffix("…") || t.hasSuffix("✅") || t.contains("… ✅")
+        }
+        if t.hasPrefix("💭") {
+            return t.contains("处理中")
+        }
+        return false
+    }
+
     private var contentBlocks: [MessageContentBlock] {
-        Self.blocksCached(for: message.content, serverURL: serverURL, streaming: streamingText)
+        Self.blocksCached(for: displayContent, serverURL: serverURL, streaming: streamingText)
     }
 
     /// 按段落(空行 \n\n)拆分——跳过 ``` 代码块内部空行，代码块整体不拆
@@ -624,7 +667,8 @@ struct MessageBubble: View {
     /// v4.0 fix：流式中跳过拆分（splitParagraphs streaming 参数）
     private var isMultiBubbleAI: Bool {
         !message.isUser && message.imageDataURL == nil
-            && Self.splitParagraphs(message.content, streaming: streamingText, lineMode: streamingText).count > 1
+            // v3.7.0：与渲染同源（displayContent）——否则含历史进度行的消息会"按多气泡留白、却渲单气泡"
+            && Self.splitParagraphs(displayContent, streaming: streamingText, lineMode: streamingText).count > 1
     }
 
     /// v3.0.51：多气泡的单个段落气泡——每段独立圆角底 + maxWidth 366（贴左）
@@ -643,6 +687,7 @@ struct MessageBubble: View {
                                 onRegenerate: onRegenerate,
                                 onWithdraw: nil,
                                 onPin: onPin,
+                                onMemo: onMemo,
                                 onImageTap: { url in onAIImageTap(url) },
                                 onMultiSelect: onMultiSelect,   // v3.3.0：多选合并转发
                                 useSwiftUIText: true,
