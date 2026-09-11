@@ -33,8 +33,8 @@ targets:
         CFBundleDevelopmentRegion: zh_CN
         CFBundleLocalizations:
           - zh-Hans
-        CFBundleShortVersionString: "3.8.0"
-        CFBundleVersion: "445"
+        CFBundleShortVersionString: "3.9.1"
+        CFBundleVersion: "446"
         UILaunchScreen: {}
         # v3.8.0：实时活动（灵动岛/锁屏「AI 正在回复」）——挂件代码在 QingliaoWidget target
         NSSupportsLiveActivities: true
@@ -89,8 +89,8 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.qingliao.app2
         INFOPLIST_KEY_CFBundleDisplayName: 轻聊
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-        MARKETING_VERSION: "3.8.0"
-        CURRENT_PROJECT_VERSION: "445"
+        MARKETING_VERSION: "3.9.1"
+        CURRENT_PROJECT_VERSION: "446"
         ENABLE_PREVIEWS: YES
         CODE_SIGNING_ALLOWED: "NO"
 
@@ -109,15 +109,15 @@ targets:
         CFBundleDisplayName: 轻聊
         CFBundlePackageType: XPC!
         # 扩展与宿主版本号必须一致（XcodeGen 对未声明的键默认写 1.0/1，会让 .appex 自报 1.0(1)）
-        CFBundleShortVersionString: "3.8.0"
-        CFBundleVersion: "445"
+        CFBundleShortVersionString: "3.9.1"
+        CFBundleVersion: "446"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.qingliao.app2.widget
-        MARKETING_VERSION: "3.8.0"
-        CURRENT_PROJECT_VERSION: "445"
+        MARKETING_VERSION: "3.9.1"
+        CURRENT_PROJECT_VERSION: "446"
         CODE_SIGNING_ALLOWED: "NO"
         CODE_SIGNING_REQUIRED: "NO"
         SKIP_INSTALL: YES
