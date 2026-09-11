@@ -1852,7 +1852,9 @@ fragment ribbon_fs_mainOutput ribbon_fs_main(
     constant Uniforms& u [[buffer(0)]]
 ) {
     float distanceSquared = metal::dot(in.local, in.local);
-    if (distanceSquared > 1.0) discard_fragment();
+    // v3.9.2 轻聊修正：上游导出文件里唯一一处漏写命名空间（全文其余都是 metal:: 前缀，无 using namespace metal）
+    // —— CI run 34611137379 报 "use of undeclared identifier 'discard_fragment'; did you mean 'metal::discard_fragment'?"
+    if (distanceSquared > 1.0) metal::discard_fragment();
     float core = metal::exp(-distanceSquared * 4.8);
     float halo = metal::exp(-distanceSquared * 1.35);
     float bloom = metal::clamp(u.particleBloom, 0.0, 2.0);
