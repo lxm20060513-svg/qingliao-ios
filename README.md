@@ -93,6 +93,14 @@ QingliaoWidget/          挂件 Extension target（.appex）：灵动岛/锁屏�
 - **列表崩溃三连排查**：①从有到无同帧 → VStack+分帧两步走；②TabView 隐藏页清空 → 换掉 .scrollPosition（PreferenceKey 方案）；③数组就地 removeAll + ForEach diff → 后端驱动 + load() 整体替换
 - **灵动岛 / 实时活动（v3.8.0）**：只做本地驱动（侧载免费签名拿不到 Push 能力，不做 APNs/push-to-start）；`LiveActivityManager` **不持有 `Activity` 本体**——存进 `@MainActor` 存储再 `await update/end` 会报 Swift 6 `sending 'activity' risks causing data races`，改为只存 Sendable 状态、每次从 `Activity.activities` 现取（且该列表最终一致，收尾空列表时等 600ms 再收一次）；计时用 `Text(_:style:.timer)` 交系统走（App 被挂起后文案不再刷新，这是设计内降级）；挂件与主 App 共用 `qingliao/Core/LiveActivityAttributes.swift`（同编一份，改一处等于改两侧）；开关 key `qingliao_live_activity`（默认开）
 
+## 🆕 近期变更（v3.9.3，2026-09-11）
+
+- **语音转文字改 iOS 设备端实时转写**（用户拍板「不需要后端了，只用苹果系统自身」）：iOS 26 `SpeechAnalyzer` + `SpeechTranscriber`，**边说边出字**（`.volatileResults`）、音频不出设备、可离线、无时长上限；新增 `Core/LiveSpeechTranscriber.swift`；语音模型走 `AssetInventory` 按需下载（不占 App 体积，**首次使用要等下载数十秒**）
+- **删掉旧链路**：`Core/VoiceRecorder.swift`（录音 m4a）+ `AuthStore.asrTranscribe`（上传后端 `/api/asr/transcribe`）整条下线，App 启动时一次性清理历史遗留 `voice_asr_*.m4a`；**云端模式放开语音入口**（v3.0.4 的屏蔽撤销，本地/云端共用同一条路径）
+- **权限**：`project.yml` 补 `NSMicrophoneUsageDescription` + `NSSpeechRecognitionUsageDescription`（此前一个都没有）；Speech 框架**不需要任何 entitlement**，历史「侧载无语音 entitlement 必闪退」系权限串缺失的误判；CI Verify 加断言「两个权限串必须真进包」
+- **接入要点（真机首次必撞的坑，均已处理）**：`SpeechTranscriber` 有硬件要求 → 先查 `isAvailable`/`supportedLocales` 是否为空（不支持要明确提示，别拿 en-US 兜底去初始化）；准备期（下模型/权限弹窗）**不可重入**（一个 bus 只能挂一个 tap，二次 `installTap` 抛异常）、点 × 必须真取消（原来 cancel 在准备期是空操作）；**录音态必须显示实时文本**（原来整块被「红点+松开上屏」替换，边说边出字用户一个字都看不见）；结果流中断要自愈且 `CancellationError` 不误报「转写中断」；`Analyzer` 不做音频转换（converter 为 nil 且格式不符时必须丢弃 buffer）
+- 与 v3.9.1/v3.9.2 攒的改动一起出包：AI 头像换 siri 液态玻璃球（思考中动 / 不思考静态）、UI 打磨 5 批（动效令牌/zoom 转场/滚动层次/字号 8 档/骨架屏）、性能省电 4 项、剪贴板误报修复
+
 ## 🆕 近期变更（v3.8.0，2026-09-11）
 
 - **灵动岛 / 锁屏实时活动**：AI 回复中在灵动岛显示（紧凑态图标 + 计时；展开态会话名 +「AI 正在回复 · 模型名」+ 计时），结束自动收起。新增 `QingliaoWidget` app-extension target（**项目首个 widget extension**）+ `LiveActivityManager`（本地驱动，不依赖 APNs）
