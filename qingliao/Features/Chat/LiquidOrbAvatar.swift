@@ -430,7 +430,12 @@ private final class LiquidOrbRenderer: NSObject, MTKViewDelegate {
 @MainActor
 private final class LiquidOrbCoordinator {
     private var renderer: LiquidOrbRenderer?
-    private var foregroundObserver: NSObjectProtocol?
+    /// v3.9.2 摘通知用的观察者 token。
+    /// `nonisolated(unsafe)`：Swift 6 里 **deinit 恒为 nonisolated**，而 `any NSObjectProtocol` 非 Sendable，
+    /// 普通 @MainActor 存储属性在 deinit 里访问会报
+    /// "cannot access property 'foregroundObserver' with a non-Sendable type ... from nonisolated deinit"（CI 实证）。
+    /// token 只在「注册（主 actor）」与「deinit 摘除」两处访问、自身无共享可变状态，故 unsafe 是安全的。
+    nonisolated(unsafe) private var foregroundObserver: NSObjectProtocol?
 
     /// v3.9.2：MTKView 冻结后图层内容是"最后一帧"，进后台可能被系统回收 —— 回前台补画一帧，
     /// 免得静止头像变空白（没有这步只能等用户滚动/切页才恢复）
