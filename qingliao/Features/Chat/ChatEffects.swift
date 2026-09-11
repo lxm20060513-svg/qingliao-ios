@@ -309,9 +309,15 @@ struct DockOrbOverlay: View {
             .first?.coordinateSpace.bounds.height ?? 0
     }
 
-    /// 球心到**叠加层底部**的距离（与 BurstCanvas 的 `h - originFromBottom` 同一坐标系；h = 叠加层高）
-    /// ⚠️ 叠加层底 ≠ 窗口底（差一个底部安全区），故真实坐标要减掉安全区，否则烟花原点会偏离球心
+    /// 球心到**叠加层底部**的距离（DockTabView 的烟花原点用；与 BurstCanvas 的 `h - originFromBottom`
+    /// 同一坐标系，h = 叠加层高）。⚠️ 叠加层底 ≠ 窗口底（差一个底部安全区）。
+    /// v3.6.5：改为与球实际位置同源的几何口径 —— (屏高−安全区−tabBar高/2+6.3) 距叠加层底
+    ///         = tabBar高/2 − 6.3 = 18.2pt（v3.6.4 用 tab bar 几何中心时是 24.5pt，差 6.3pt）。
+    /// 删除本属性会连带 DockTabView 编译失败（v3.6.5 首发 CI #468 实录）→ 改口径时务必全仓 grep。
     @MainActor
+    static var ballCenterFromBottom: CGFloat {
+        dockBarHeight / 2 - dockContentCenterDrop
+    }
 
     /// 读 key window 底部安全区（不依赖叠加层自身的 safeAreaInsets——叠加层会被 tab bar 吃掉安全区）
     @MainActor
