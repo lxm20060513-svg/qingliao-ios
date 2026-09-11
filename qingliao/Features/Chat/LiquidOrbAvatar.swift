@@ -56,6 +56,13 @@ private let orbThinkingUniformSeed: [Float] = [
     0.43529412150382996, 0.6196078658103943, 0.9098039269447327, 1, 0.43529412150382996, 0.6196078658103943, 0.9098039269447327, 1,
 ]
 
+/// v3.9.4：球体半径（= uniforms[4]，上游导出默认 0.72）。
+/// 球径 = 该值 × 头像格边长：0.72 时球只占头像格的 72%。原先外面套的蓝色渐变底圆是 100%，
+/// 用户去掉底圆后球显得变小 → 按用户要求放大到 0.98，让球径≈头像格（观感与原来的底圆尺寸对齐）。
+/// 说明：放大只是「缩放」——球内所有内容都按 p = uv / contourRad 归一化，内部观感不变；
+/// 边缘光晕（edgeSoftness=0.005 / edgeGlow=0）留 2% 余量，不会被裁。
+private let orbBallRadius: Float = 0.98
+
 private let orbActivationDuration: CFTimeInterval = 0.22
 private let orbSettleDuration: CFTimeInterval = 0.65
 private let orbRibbonStyleIndex: Float = 24
@@ -67,10 +74,15 @@ public enum LiquidOrbState: Sendable {
 }
 
 private func orbUniformSeed(for state: LiquidOrbState) -> [Float] {
+    var seed: [Float]
     switch state {
-    case .idle: orbIdleUniformSeed
-    case .thinking: orbThinkingUniformSeed
+    case .idle: seed = orbIdleUniformSeed
+    case .thinking: seed = orbThinkingUniformSeed
     }
+    // v3.9.4：球体半径改为统一常量（去底圆后按用户要求放大，见 orbBallRadius 说明）。
+    // 上游导出里 idle/thinking 两套 seed 的 [4] 都是 0.72，这里统一覆写，方便日后一处调参。
+    if seed.count > 4 { seed[4] = orbBallRadius }
+    return seed
 }
 
 private func orbSrgbToLinear(_ value: Float) -> Float {
