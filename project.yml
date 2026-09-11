@@ -35,7 +35,6 @@ targets:
           - zh-Hans
         CFBundleShortVersionString: "3.8.0"
         CFBundleVersion: "445"
-        NSLocationWhenInUseUsageDescription: 用于获取当前定位显示天气信息
         UILaunchScreen: {}
         # v3.8.0：实时活动（灵动岛/锁屏「AI 正在回复」）——挂件代码在 QingliaoWidget target
         NSSupportsLiveActivities: true

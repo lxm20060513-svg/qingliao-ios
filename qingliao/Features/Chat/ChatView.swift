@@ -2082,7 +2082,12 @@ struct ChatView: View {
         probing = true
         defer { probing = false }
         while !Task.isCancelled {
-            await probeRemoteBusy()
+            // v3.9.1：App 进后台时跳过本轮探针——`.task` 只在视图销毁时取消（后台不销毁视图），
+            //          此前后台仍每 6s 发一次请求：既耗电，又是一次大概率超时的无效调用。
+            //          回前台后自动恢复（scenePhase 变 active，循环下一轮继续探测）。
+            if scenePhase == .active {
+                await probeRemoteBusy()
+            }
             try? await Task.sleep(for: .seconds(6))
         }
     }

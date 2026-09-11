@@ -198,7 +198,11 @@ struct SiriGlowOverlay: View {
     @AppStorage("qingliao_siri_glow_width") private var glowWidth = 22.0
 
     var body: some View {
-        TimelineView(.animation) { context in
+        // v3.9.1：锁 30fps（原 .animation = 系统全帧率，ProMotion 最高 120fps）。
+        //          呼吸是 0.55s 慢正弦，30fps 肉眼无差；全屏渐变 + mask + blur 是全 App 最贵的画面，
+        //          减半帧率就是直接省电（与 ChatEffects 粒子「锁 30fps」同一约定）
+        let schedule: AnimationTimelineSchedule = .animation(minimumInterval: 1.0 / 30.0)
+        TimelineView(schedule) { context in
             let t = context.date.timeIntervalSinceReferenceDate
             // v2.0.87bl：GeometryReader 取容器尺寸 + 顶部补偿状态栏；只 ignoresSafeArea(.top)
             //（底部 dock 的 safe area 保持不动 → 根治 dock 偏位）
@@ -247,7 +251,11 @@ struct IslandGlowOverlay: View {
     private let islandH: CGFloat = 40
 
     var body: some View {
-        TimelineView(.animation) { context in
+        // v3.9.1：锁 30fps（原 .animation = 系统全帧率，ProMotion 最高 120fps）。
+        //          呼吸是 0.55s 慢正弦，30fps 肉眼无差；全屏渐变 + mask + blur 是全 App 最贵的画面，
+        //          减半帧率就是直接省电（与 ChatEffects 粒子「锁 30fps」同一约定）
+        let schedule: AnimationTimelineSchedule = .animation(minimumInterval: 1.0 / 30.0)
+        TimelineView(schedule) { context in
             let t = context.date.timeIntervalSinceReferenceDate
             // 呼吸（与 Siri 发光同公式，参数联动）；灵动岛版底值 0.30→0.46：整体更亮（0.46~0.64）
             let breathe = (0.46 + glowAmp * (sin(t * glowFreq) + 1) / 2) * glowBrightness

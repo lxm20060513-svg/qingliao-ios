@@ -2,8 +2,19 @@
 
 > 触发：用户「针对性能优化，省电，死代码，瘦身这些都看一下有没有优化空间」（2026-09-11）
 > 方式：全仓量化取证（103 个 Swift 文件 / 31,820 行）+ IPA 实测体积；**本报告只出结论，代码尚未改动**
-> 结论一句话：**App 已经很省**——真正值得动的只有 3 件事（1 个省电大项 + 1 个省电小项 + 1 批死配置清理），
+> 结论一句话：**App 已经很省**——真正值得动的只有 3 件事（1 个省电大项 + 1 个省电小项 + 2 处真死配置），
 > **瘦身没有任何值得做的空间**。
+>
+> ## ⚠️ 报告已更正（同日）
+> 初版把 `qingliao_local_model` / `qingliao_push_weixin` 判为「真死设置」，**这是误报**。根因：脚本只统计了
+> **属性在自己文件内**的引用次数，而 `SettingsViewSections.swift` / `SettingsViewHelpers.swift` 是
+> `extension SettingsView {}` —— **跨文件扩展用法被漏掉**。全仓复验结果：
+> - `localModelOn` 活（8 处 / 3 文件，Toggle + POST `/api/local/toggle`，后端 `local_api.py` 在线）
+> - `pushWeixin` 活（6 处 / 3 文件，Toggle + POST `/api/push/settings`，后端 `push_api.py` → relay → Hermes 微信网关在线）
+> - 其余 6 个「冗余声明」同样全部是活的（跨文件扩展）
+> - **真死的只有 2 个**：`mainProvider`（AgentModelSheet 内声明、全仓 0 引用）与
+>   `NSLocationWhenInUseUsageDescription`（无任何 `CLLocationManager`）
+> 教训已写进 `codebase-audit` 技能：**属性/类型引用必须全仓统计，先确认目标类型不是跨文件 `extension`**。
 
 ## 一、体积实测（瘦身维度）
 
@@ -43,22 +54,26 @@
 
 ## 三、死代码 / 死配置
 
-| # | 级别 | 位置 | 取证 | 说明 |
+| # | 级别 | 位置 | 取证（全仓） | 状态 |
 |---|---|---|---|---|
-| D1 | 低 | `Features/Settings/SettingsView.swift` `@AppStorage("qingliao_local_model") var localModelOn` | 属性在本文件被引用 **0** 次；key 全仓出现 **1** 次（仅声明） | **真死设置**。⚠️ 需用户判定：这可能是"本该有但没接上"的功能，而不是纯垃圾 |
-| D2 | 低 | `Features/Settings/SettingsView.swift` `@AppStorage("qingliao_push_weixin") var pushWeixin` | 同上（属性 0 引用 / key 仅声明） | **真死设置**，同样需用户判定删 or 接 |
-| D3 | 低 | `project.yml:38` `NSLocationWhenInUseUsageDescription` | 全仓 **无** `CLLocationManager` / `startUpdatingLocation`（定位已改人工城市） | 死权限串：声明与实现不符，建议删（隐私表述要真实） |
-| D4 | 低 | 7 处「属性声明但本文件从不使用」：`mainProvider`、`appearance`、`contextAutoCompress`、`contextThreshold`、`faceIDLogin`、`appLockOn`、`aiLineSpacing` | 属性在本文件引用 0 次，但**同名 key 在别处仍被读写**（2–7 次） | 冗余声明，删掉零风险；留着会误导"这里才是真源" |
-| D5 | — | 全仓类型扫描 | `struct/class/enum/actor` 声明共 N 个，**0 个**是"仅声明无引用"（含缩进声明复扫） | ✅ 无死类型；`ChatEffects.swift`（327 行）曾疑似残留，实测 `DockOrbOverlay` 有 12 处引用 → **是活代码** |
-| D6 | — | private func 扫描 | **0 个**从未调用的 private func | ✅ 干净 |
-| D7 | — | 注释掉的代码 | 仅 3 处（AgentResultCard / LifeCardsSection / LifeConfig 各 1） | ✅ 基本无残留 |
+| D1 | ✅ 无需处理 | `SettingsView.swift` `@AppStorage("qingliao_local_model") localModelOn` | 活：SettingsViewSections 里就是「本地模型」开关本体（Toggle + 失败回滚 + POST `/api/local/toggle`） | **初版误报**，功能一直是通的 |
+| D2 | ✅ 无需处理 | `SettingsView.swift` `@AppStorage("qingliao_push_weixin") pushWeixin` | 活：SettingsViewSections:156 `Toggle("微信推送")` + POST `/api/push/settings`；后端 `push_api.py` → hermes relay → 微信网关 | **初版误报** |
+| D3 | 低 → **已修** | `project.yml` `NSLocationWhenInUseUsageDescription` | 全仓无 `CLLocationManager` / `startUpdatingLocation`（定位已改人工城市） | 死权限串，已删除 |
+| D4 | 低 → **已修** | `Features/Settings/SettingsModelSheets.swift` `@AppStorage("qingliao_provider") mainProvider` | 声明于 `AgentModelSheet`，全仓引用 **0** 次（同文件用的是 `agentProvider` / `mainModel`） | 真死属性，已删除 |
+| D5 | — | 类型级扫描（含缩进声明复扫） | **0 个**死类型 | ✅ |
+| D6 | — | private func 扫描 | **0 个**从未调用 | ✅ |
+| D7 | — | 注释掉的代码 | 仅 3 处 | ✅ |
 
-## 四、建议的执行顺序（等你点头，攒进 v3.9.x）
+> 结论：**死代码基本没有**。唯一真死的两处都是配置级（一个权限串 + 一个冗余 @AppStorage），已在本轮清掉。
 
-1. **P1 发光特效 30fps**（1 处文件、2 行改动，省电收益最大、视觉几乎无感）
-2. **P2 后台停探针**（1 处、约 3 行，省电 + 少发无效请求）
-3. **D3 + D4 清理**（死权限串 + 7 处冗余声明，零风险）
-4. **D1/D2**：等你判定「删」还是「接上功能」
+## 四、执行状态（本轮已全部落地，攒进 v3.9.1）
+
+1. ✅ **P1 发光特效 30fps**：`LiquidGlass.swift` SiriGlowOverlay / IslandGlowOverlay 两处
+   `TimelineView(.animation)` → `.animation(minimumInterval: 1/30)`（与粒子「锁 30fps」同约定）
+2. ✅ **P2 后台停探针**：`ChatView.busyProbeLoop()` 加 `scenePhase == .active` 门控
+3. ✅ **D3 死权限串**删除（project.yml `NSLocationWhenInUseUsageDescription`）
+4. ✅ **D4 真死属性**删除（`mainProvider`）
+5. ⛔ **D1/D2 无需处理**：用户答「接上功能」，但复验发现**功能本来就是通的**（初版误报）→ 不做改动
 
 ## 五、本报告未覆盖的范围（诚实声明）
 

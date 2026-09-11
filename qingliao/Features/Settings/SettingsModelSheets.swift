@@ -1329,7 +1329,6 @@ struct AgentModelSheet: View {
     @AppStorage(UserDefaultsKey.agentModel) private var agentModel = ""
     @AppStorage(UserDefaultsKey.agentProvider) private var agentProvider = ""
     @AppStorage("qingliao_model") private var mainModel = "deepseek-v4-flash"
-    @AppStorage("qingliao_provider") private var mainProvider = "opencode"
 
     @State private var selected = ""
     @State private var selectedProvider = ""
