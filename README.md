@@ -93,6 +93,15 @@ QingliaoWidget/          挂件 Extension target（.appex）：灵动岛/锁屏�
 - **列表崩溃三连排查**：①从有到无同帧 → VStack+分帧两步走；②TabView 隐藏页清空 → 换掉 .scrollPosition（PreferenceKey 方案）；③数组就地 removeAll + ForEach diff → 后端驱动 + load() 整体替换
 - **灵动岛 / 实时活动（v3.8.0）**：只做本地驱动（侧载免费签名拿不到 Push 能力，不做 APNs/push-to-start）；`LiveActivityManager` **不持有 `Activity` 本体**——存进 `@MainActor` 存储再 `await update/end` 会报 Swift 6 `sending 'activity' risks causing data races`，改为只存 Sendable 状态、每次从 `Activity.activities` 现取（且该列表最终一致，收尾空列表时等 600ms 再收一次）；计时用 `Text(_:style:.timer)` 交系统走（App 被挂起后文案不再刷新，这是设计内降级）；挂件与主 App 共用 `qingliao/Core/LiveActivityAttributes.swift`（同编一份，改一处等于改两侧）；开关 key `qingliao_live_activity`（默认开）
 
+## 🆕 近期变更（v3.9.4，2026-09-11）
+
+- **修「一按语音转文字就闪退」**（v3.9.3 引入的回归，用户报 `Signal(5)`）：设备端转写的 `LiveSpeechTranscriber.start()` 是 `@MainActor`，其中 `installTap` 的闭包字面量**继承 MainActor 隔离**，而麦克风 tap 在**音频线程**回调 ⇒ 进闭包即 Swift 6 隔离断言 SIGTRAP。用 v3.9.3 的 dSYM 符号化定案（崩溃帧就是这个闭包），修复=闭包显式 `@Sendable`；`requestRecordPermission` 回调一并补 `@Sendable`
+- **这类错编译器零告警、`check_swift.sh`(-parse) 查不出**（同族首例 = v3.7.0 剪贴板闪退）：判据是「查 Apple 文档 JSON 该形参有没有 @Sendable」，没有就必须显式 `@Sendable` 或改官方 async 桥接；`@preconcurrency` conformance ≠ 安全（只是把断言推迟到运行时）
+- **按钮统一「文字 + 胶囊」去图标**：刷新 15 处（看板生活数据/资讯/空态、Docker 容器与镜像、路由器面板、诊断、日志、云端设置、本地模型、视觉模型、执行历史、模型管理导航栏）、重新生成 2 处、添加/添加股票 5 处；长按菜单项与纯「+」图标入口保持原样
+- **AI 头像**：去掉蓝色渐变底圆；玻璃球半径 `uniforms[4]` 由上游默认 `0.72` 提到 `0.98`（球径≈头像格，与原来底圆尺寸对齐），30pt 消息头像 / 38pt 思考头像 / 96pt 欢迎页 logo 同步生效
+- **通知 delegate 加固**：`UNUserNotificationCenterDelegate` 协议非 @MainActor 且无线程承诺，原 `@preconcurrency` 只是把隔离断言推迟到运行时 → witness 标 `nonisolated`（方法体只碰 UserDefaults，行为零变化）
+- 只读并发隔离审计扫全仓 102 个 .swift（逐条比对 Apple 文档 JSON）：除上述外无第二处必崩代码
+
 ## 🆕 近期变更（v3.9.3，2026-09-11）
 
 - **语音转文字改 iOS 设备端实时转写**（用户拍板「不需要后端了，只用苹果系统自身」）：iOS 26 `SpeechAnalyzer` + `SpeechTranscriber`，**边说边出字**（`.volatileResults`）、音频不出设备、可离线、无时长上限；新增 `Core/LiveSpeechTranscriber.swift`；语音模型走 `AssetInventory` 按需下载（不占 App 体积，**首次使用要等下载数十秒**）
