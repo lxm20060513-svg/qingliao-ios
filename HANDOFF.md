@@ -1,7 +1,7 @@
 # 轻聊 App 项目交接文档
 
 > 最后更新：2026-09-11
-> 最新版本：v3.6.1 (438)
+> 最新版本：v3.6.2 (439)
 > 上一版：**v3.5.2/436（2026-09-11 已发版，tag `v3.5.2`，CI run#460 success）复读根治 + 「AI 正在输入」不再丢失**：①**复读根治（双端）**：后端 `/api/stream/recover` 内存分支按 `createdAt` 取最新（原按 dict 插入序取到**最旧**任务，2026-09-10 实测复现：20 分钟前的旧答案被当本轮回复落库）、磁盘兜底按 `createdAt`/mtime 取最新；App 侧 `StreamClient.tryRecover` 收紧采纳闸门——**只采纳「本机这条任务」或「另一条仍在途的任务」**（在途任务的内容必属本轮），异任务且已完成一律不采纳（404 路径也不例外，改为报错收尾让用户重发）；候选被忽略时**归还**那次 recover 机会（原实现把忽略当已接管消费掉，弱网白丢续流机会）；换任务时 content/offset **整体重置**（不再新旧混拼/半截回复）。②**「AI 正在输入」不再静默消失**：探针 `probeRemoteBusy` 改为**服务器是唯一真相**——不再以本机持久化标记为前提，无标记也主动问服务器（无标记时 12s 降频省电），服务器说在途而本机没在收就**直接接回**（新 `adoptRemote`：整体重置内容 + 重落标记）；探针失败收起阈值 3→5 次（弱网抖动不再瞬间熄灭）。根因：本机标记在弱网 15 连败收尾/`finish()` 时被清 → 探针前提不成立 → 连问都不问服务器 → 前台彻底无提示、答案也回不来。③**跨会话串扰收口**：`restoreIfNeeded` 校验收持久化的 sessionId 属当前会话（防别的会话旧内容落进当前会话）；`sendFile`/`regenerate` 落库回调补「已切会话就丢弃」守卫（与 `startStream` 一致）。IPA 已校验 **3.5.2/436**，md5 `12a38af27499aec699641df638a6cf90`，已转存 NAS `轻聊app/qingliao-3.5.2-unsigned.ipa`
 > 上一版：**v3.5.1/435（2026-09-10 已发版，tag `v3.5.1`，CI run 34495464274 success）「AI 正在输入」体验 + 空回复不再静默 + 长任务不再被截断**：①**聊天页 header 新增「AI 正在输入…」**（`PageHeader` 加 `busy` 参数 + 新 `BusyDots` 三点呼吸，只用 opacity 动画守 v3.2.3 渲染红线；`ChatView` 加 `remoteBusy` + 6s 探针走 `GET /api/stream/recover` 做服务器侧兜底=App 杀后台重开/切页回来仍显示；探针带会话守卫（标记属别的会话不显示也不误用本会话查询）、网络连续失败 3 次收起（防幽灵）、`aiBusy` 按会话收窄（A 会话在跑不污染 B 的 header））②**空回复不再静默**（本地流 success 但内容为空 → 发送/自动重试/重新生成/杀后台恢复/发文件 5 条路径落 27 字提示气泡「⚠️ 本轮空回复：点上方「重新生成」（长任务易被截断）」，`⚠️` 前缀命中 `isErrorPlaceholder` → 气泡自带一键「重新生成」；⚠️ 刻意**不 markFailed**（`failed` 全仓库无复位点，会让已送达消息永久挂红叹号、点击还删消息重发），文案必须 **≤30 字**（`upsertAssistant` 对 >30 字做全历史精确查重，超长会在第二次空回复时被静默吞掉））③**Hermes `agent.max_turns` 40 → 120**（NAS root 改 `/opt/data/config.yaml`，网关每轮热读无需重启）。**根因**：长任务被 40 步截断后 Hermes 流式接口未回吐最终文本 → 后端收到空内容落库 done → App 侧流结束 `isStreaming=false` → 停止按钮消失/灵动岛发光停止/用户看不到任何回复。IPA 已校验 **3.5.1/435**，md5 `8f36513d50d3bc77dffa49445e5af2c1`，已转存 NAS `轻聊app/qingliao-3.5.1-unsigned.ipa`
 > 上一版：**v3.5.0/434（2026-09-10 已发版，tag `v3.5.0`，CI run 34492680289 success）四项能力**：Agent 结果卡片化（```ql-card 围栏协议 + 卡片渲染，零回归/流式安全）+ 看板「生活数据」卡片区（股票行情 + RSS/博客更新）+ 崩溃/卡顿自上报 + App 内诊断页 + 设置新增「阶跃 StepAudio」TTS（stepaudio-2.5-tts + 4 预置音色）+ 朗读无声根治（系统语音也显式激活 `.playback` 会话）+ tab bar 改常驻（`.never`）+ 预检脚本依赖源文件恢复；IPA 已校验 3.5.0/434，md5 `32f272388907a7e9253a087516f7e5ae`，已转存 NAS `轻聊app/qingliao-3.5.0-unsigned.ipa`
@@ -75,6 +75,21 @@
 ---
 
 ## 二、版本历史
+
+### v3.6.2（dock 智能球 + 生活 tab + 资讯 AI 全文，2026-09-11 已发版，tag `v3.6.2`，CI run#464 success）
+| 改动 | 文件 | 说明 |
+|---|---|---|
+| dock 顺序重排 | DockTabView.swift | 会话 → 看板 → 聊天 → 生活 → 设置；新增 `DockTab.life`（图标 sparkles） |
+| 聊天槽位改动态智能球 | DockTabView.swift / ChatEffects.swift | iOS 26 原生 TabView 的 tab item 只吃系统图标（无自定义视图 API）→ 该槽位 `.tabItem { Text("").accessibilityLabel("聊天") }` + `DockOrbOverlay` 叠加自绘球（**`allowsHitTesting(false)`** 触摸穿透给系统 item，点球=系统切页）；空闲 15fps 呼吸 / 流式思考 30fps orbits；切到聊天页放全屏烟花（分享、深链等程序化切页跳过） |
+| 新增「生活」页 | Features/Life/LifeView.swift（新） | 原看板「生活数据」（股票行情 / 博客资讯 / 快递 / 价格监控）整体迁入独立 tab，`isActive` 驱动 30s 轮询；看板删除相关 state/section/sheet/loadLife/deleteStock 共 -68 行 |
+| 移除聊天页智能球 | ChatInputBar.swift / ChatView.swift / CloudSettingsView.swift | 球态分支、`qingliao_ball_input`、键盘收起回收球 onChange、外观页「智能球输入」开关全删；`SiriBallView` 尺寸/帧率参数化（基准 92，dock 传 36） |
+| 资讯点击展开 AI 全文（不再跳浏览器） | LifeCardsSection.swift / Core/LifeCards.swift / LifeView.swift + 后端 life_api.py | 后端新增 `POST /api/life/article`：抓 HTML → 清洗正文 → 模型整理 → **按 URL 缓存 6h**（失败仅缓存 10min 便于重试），模型不可用降级返回清洗原文（`source=raw`）；App 侧就地展开三态（读取中 / 正文 / 失败可点重试），展开态由单一 `expandedArticleID` 控制（同时只展开一条） |
+| 资讯刷新真正生效 | LifeCardsSection.swift / LifeView.swift | 资讯卡片标题行加专用刷新按钮；整块刷新与资讯刷新都带 **`?fresh=1`** 强制绕后端缓存（原实现不带 fresh，受 RSS 900s 缓存限制——点了 15 分钟内不出新内容，这是「刷新没反应」的根因） |
+| 请求层可选超时 | Core/AuthStore.swift | `request/json/jsonOrLog` 加可选 `timeout`（默认行为完全不变）；资讯正文请求用 45s（后端抓取+模型整理实测 6.7s，蜂窝直连默认 10s 会误报失败） |
+| 版本号 | project.yml | 3.6.1(438) → 3.6.2(439)，四处一致 |
+
+**发版通道**：github.com:443 不通（git push 连续 GnuTLS/Auth 失败）→ 走 **Git Data API 快进**（远端 commit `4ee74895`，分支与 tag 同步；顺带把仓库默认分支从 `native-3.0` 修正回 `feature/handoff-301`）。IPA 已校验 **3.6.2/439**、MinOS 26.0，md5 `4076c8e625967d8d0046a2e10f0f5b8b`，已转存 NAS `轻聊app/qingliao-3.6.2-unsigned.ipa`。
+**两轮独立 code review 的修复**：①资讯展开收不起来（渲染只看缓存字典不看展开态）→ 单一展开 id 控制；②dock 球在 5 个 tab 全程 30fps → 空闲降 15fps；③蜂窝默认 10s 超时 < AI 整理耗时 → 请求层可选超时；④分享/深链切聊天页误放烟花 → 程序化切页跳过；⑤资讯刷新成功后旧错误行残留 → 同步清掉。
 
 ### v3.6.1（流式行级小气泡，2026-09-11 已发版）
 | 改动 | 文件 | 说明 |
