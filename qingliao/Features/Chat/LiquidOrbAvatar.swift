@@ -99,7 +99,9 @@ private enum LiquidOrbError: Error {
 
 /// v3.9.2：进程级共享资源——device / commandQueue / 三条管线只建一次。
 /// 原模板每个 renderer 各建一套：聊天列表里每条 AI 消息的头像都会重复建 3 个 pipeline state。
-private final class LiquidOrbShared {
+/// v3.9.2：Swift 6 严格并发下，非 Sendable 类型的 static let 会报错；
+/// 内部状态由 NSLock 保护（同上仓 HangWatchdog / ImageCache 的写法）。
+private final class LiquidOrbShared: @unchecked Sendable {
     struct Resources {
         let device: MTLDevice
         let queue: MTLCommandQueue
@@ -121,7 +123,7 @@ private final class LiquidOrbShared {
         guard let device = MTLCreateSystemDefaultDevice() else {
             throw LiquidOrbError.metalUnavailable
         }
-        // 编译期 Metal：effect.metal 随 App 编译进 default.metallib。
+        // 编译期 Metal：LiquidOrbEffect.metal 随 App 编译进 default.metallib。
         // 原模板用 device.makeLibrary(source:) 运行时编译 —— 那样 MSL 写错只有真机才炸，
         // 编译期版本让 CI 的 Archive 就能提前报错。
         guard let library = device.makeDefaultLibrary() else {
@@ -195,6 +197,10 @@ private final class LiquidOrbShared {
     static let pixelFormat: MTLPixelFormat = .bgra8Unorm
 }
 
+/// v3.9.2：@MainActor —— MTKView 是 UIKit 子类（主 actor 隔离），
+/// 原模板在非隔离上下文里直接写 view.device/isPaused，Swift 6 下编译不过。
+/// MTKView 的 delegate 回调本来就在主线程（CADisplayLink）。
+@MainActor
 private final class LiquidOrbRenderer: NSObject, MTKViewDelegate {
     private let commandQueue: MTLCommandQueue
     private let pipeline: MTLRenderPipelineState
@@ -213,7 +219,9 @@ private final class LiquidOrbRenderer: NSObject, MTKViewDelegate {
     private var activeTransitionDuration: CFTimeInterval = 0
     /// v3.9.2：用于静止态「播完过渡就冻结」
     private weak var view: MTKView?
-    private var pendingPause: DispatchWorkItem?
+    private var pauseTask: Task<Void, Never>?
+    private var pacingState: LiquidOrbState?
+    private var hasDrawnFrame = false
 
     init(view: MTKView, state: LiquidOrbState) throws {
         let initialUniforms = orbUniformSeed(for: state)
@@ -255,8 +263,12 @@ private final class LiquidOrbRenderer: NSObject, MTKViewDelegate {
     /// 然后 isPaused + 按需重绘冻成一张静态图 —— 列表里几十个静止头像不产生任何连续 GPU 开销。
     func updatePacing(for state: LiquidOrbState, animated: Bool) {
         guard let view else { return }
-        pendingPause?.cancel()
-        pendingPause = nil
+        // v3.9.2：状态没变就直接返回 —— SwiftUI 每次 body 重算都会调 updateUIView（流式 token 约 100ms 一次），
+        // 无条件重置会把刚冻结的静止头像重新唤醒跑 30fps，正好抵消掉"静止态零 GPU 开销"的省电设计。
+        guard pacingState != state else { return }
+        pacingState = state
+        pauseTask?.cancel()
+        pauseTask = nil
         view.isPaused = false
         view.enableSetNeedsDisplay = false
         view.preferredFramesPerSecond = 30
@@ -264,14 +276,20 @@ private final class LiquidOrbRenderer: NSObject, MTKViewDelegate {
         // animated=false 时用最短延迟：等 SwiftUI 布局把 drawableSize 落定后再冻结，
         // 否则首帧被 drawableSize == 0 挡掉、冻结后永远不再重绘 → 头像空白
         let delay = animated ? orbSettleDuration + 0.12 : 0.18
-        let item = DispatchWorkItem { [weak view] in
-            guard let view else { return }
+        pauseTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled, let self, let view = self.view else { return }
+            // v3.9.2：首帧真画出来之前不许冻结（冷启动/首屏繁忙时 drawableSize 可能还没落定），最多补等 ~0.8s
+            var waited = 0
+            while !self.hasDrawnFrame && waited < 8 {
+                try? await Task.sleep(for: .seconds(0.1))
+                if Task.isCancelled { return }
+                waited += 1
+            }
             view.isPaused = true
             view.enableSetNeedsDisplay = true
             view.setNeedsDisplay()
         }
-        pendingPause = item
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: item)
     }
 
     /// v3.9.2：静止态补一帧（回前台/图层内容被系统回收后调用）
@@ -281,7 +299,7 @@ private final class LiquidOrbRenderer: NSObject, MTKViewDelegate {
     }
 
     func setState(_ state: LiquidOrbState) {
-        stateLock.lock()
+        let now = CACurrentMediaTime()
         stateLock.lock()
         defer { stateLock.unlock() }
         guard state != currentState else { return }
@@ -402,9 +420,14 @@ private final class LiquidOrbRenderer: NSObject, MTKViewDelegate {
         encoder.endEncoding()
         commandBuffer.present(drawable)
         commandBuffer.commit()
+        hasDrawnFrame = true   // v3.9.2：给静止态冻结任务一个"至少画过一帧"的判据
+        // 注：ribbon 通道（ribbonPipeline / ribbonCompositePipeline / ensureRibbonTexture）
+        // 只在 style == particleRibbon(24) 时走；本头像用的 siri 流向索引 = 9，恒不触发。
+        // 保留是刻意与上游导出保持逐行同构（将来换样式即可用），不是遗漏。
     }
 }
 
+@MainActor
 private final class LiquidOrbCoordinator {
     private var renderer: LiquidOrbRenderer?
     private var foregroundObserver: NSObjectProtocol?
@@ -449,6 +472,14 @@ private final class LiquidOrbCoordinator {
     func refreshIfPaused() {
         renderer?.refreshIfPaused()
     }
+
+    deinit {
+        // v3.9.2：NotificationCenter 会永久持有 block —— 不摘除的话每个回收的头像都留一个僵尸观察者，
+        // 长列表滚动后每次进前台会触发 N 次空调用。
+        if let foregroundObserver {
+            NotificationCenter.default.removeObserver(foregroundObserver)
+        }
+    }
 }
 
 #if os(iOS)
@@ -469,6 +500,22 @@ private struct LiquidOrbSurface: NSViewRepresentable {
 }
 #endif
 
+/// v3.9.2：头像渲染器可用性（Metal 设备/着色器函数缺失时降级）。
+/// 判据只算一次（首次访问时建管线，约几毫秒）；进程内所有头像共用。
+enum LiquidOrbAvailability {
+    private static let cached: Bool = {
+        do {
+            _ = try LiquidOrbShared.shared.resources()
+            return true
+        } catch {
+            NSLog("[轻聊] LiquidOrb 不可用，AI 头像降级为图标: \(error)")
+            return false
+        }
+    }()
+
+    static var isAvailable: Bool { cached }
+}
+
 /// 轻聊 AI 头像：用 lersent001/orb 的 siri 液态玻璃球（MIT）。
 /// - 思考中 → thinking 态，30fps 连续动画
 /// - 不思考 → idle 态静态帧（播完回落过渡后冻结，不产生连续 GPU 开销）
@@ -477,10 +524,19 @@ struct LiquidOrbAvatar: View {
     var thinking: Bool = false
 
     var body: some View {
-        LiquidOrbView(state: thinking ? .thinking : .idle)
-            .frame(width: size, height: size)
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
+        if LiquidOrbAvailability.isAvailable {
+            LiquidOrbView(state: thinking ? .thinking : .idle)
+                .frame(width: size, height: size)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        } else {
+            // v3.9.2 兜底：渲染器不可用（极少见）时退回脑形标，别让头像只剩一个渐变圆
+            Image(systemName: "brain.head.profile")
+                .font(.system(size: size * 0.5, weight: .medium))
+                .foregroundStyle(.white)
+                .frame(width: size, height: size)
+                .accessibilityHidden(true)
+        }
     }
 }
 

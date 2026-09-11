@@ -30,6 +30,13 @@ jobs:
       - name: Generate Xcode project
         run: xcodegen generate
 
+      - name: Install Metal toolchain (Xcode 26 起 Metal 编译器不再随 Xcode 捆绑)
+        # v3.9.2：本仓首次引入 .metal（AI 头像着色器）。缺这一步 Archive 会报
+        # "cannot execute tool 'metal' due to missing Metal Toolchain"（actions/runner-images#13014 仍 open）。
+        # 已捆绑该组件的 Xcode 上此命令会直接返回，故允许失败；
+        # 真正的兜底是下面 Verify 步骤里的 default.metallib 断言（编译没成功就一定拦得住）。
+        run: xcodebuild -downloadComponent MetalToolchain || true
+
       - name: Archive (unsigned)
         run: |
           xcodebuild -project 轻聊.xcodeproj \
@@ -78,6 +85,12 @@ jobs:
               sys.exit(1)
           if appex_plist.get('CFBundleShortVersionString') != app_plist.get('CFBundleShortVersionString'):
               print('⚠️ 挂件版本与主 App 不一致（侧载可装，但请核对 project.yml 版本号）')
+          if 'Payload/Qingliao.app/default.metallib' not in names:
+              print('❌ 包内缺 default.metallib —— AI 头像的 Metal 着色器没编进去')
+              print('   metal 相关条目：', sorted(n for n in names if 'metal' in n.lower())[:10])
+              print('   多为 Xcode 26 未安装 Metal Toolchain：xcodebuild -downloadComponent MetalToolchain')
+              sys.exit(1)
+          print('✅ default.metallib 就位（AI 头像着色器已编入）')
           print('✅ 挂件 .appex 就位且配置正确（NSExtensionPointIdentifier=%s）' % ext)
           PYEOF
 
