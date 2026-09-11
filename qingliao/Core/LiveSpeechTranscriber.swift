@@ -131,6 +131,21 @@ final class LiveSpeechTranscriber: ObservableObject {
     /// 本次 stop 识别到的内容（不含基线）——UI 用它区分「没识别到」与「识别到但与基线相同」
     @Published private(set) var lastRecognizedText = ""
 
+    // MARK: v3.9.6 临时诊断（实时出字排查用，确认稳定后整块删除）
+    /// 本次录音收到的实时（volatile）中间结果条数
+    @Published private(set) var volatileCount = 0
+    /// 本次录音收到的定稿（final）结果条数
+    @Published private(set) var finalCount = 0
+    /// 首条结果延迟（毫秒；-1 = 本次还没有任何结果）
+    @Published private(set) var firstResultMs = -1
+    private var startedAt: Date?
+
+    /// 诊断串（输入栏录音态临时显示）
+    var resultStats: String { "V" + String(volatileCount) + "/F" + String(finalCount) }
+    /// 录音 3s 后仍无任何结果（实时出字未生效）——仅在异常时为 true，UI 平时不显示诊断
+    @Published private(set) var liveStalled = false
+    private var stallTask: Task<Void, Never>?
+
     /// 文本变化回调（ChatView 用它把实时文本回填输入框）
     var onTextChange: (@MainActor (String) -> Void)?
     /// 运行期错误回调（结果流中断等，UI 弹窗提示用）
@@ -251,6 +266,10 @@ final class LiveSpeechTranscriber: ObservableObject {
         finalizedText = ""
         volatileText = ""
         lastRecognizedText = ""
+        volatileCount = 0
+        finalCount = 0
+        firstResultMs = -1
+        startedAt = Date()
         liveText = baseline
         lastError = nil
         needsPermission = false
@@ -333,10 +352,15 @@ final class LiveSpeechTranscriber: ObservableObject {
                     for try await result in transcriber.results {
                         guard let self else { return }
                         let piece = String(result.text.characters)
+                        if self.firstResultMs < 0, let t0 = self.startedAt {
+                            self.firstResultMs = Int(Date().timeIntervalSince(t0) * 1000)
+                        }
                         if result.isFinal {
+                            self.finalCount += 1
                             self.finalizedText += piece
                             self.volatileText = ""
                         } else {
+                            self.volatileCount += 1
                             self.volatileText = piece
                         }
                         self.publish()
@@ -356,6 +380,14 @@ final class LiveSpeechTranscriber: ObservableObject {
 
             try await analyzer.start(inputSequence: stream)
             isRunning = true
+            liveStalled = false
+            stallTask?.cancel()
+            stallTask = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(3))
+                guard let self, self.isRunning, self.volatileCount == 0, self.finalCount == 0 else { return }
+                self.liveStalled = true
+                NSLog("[VOICE] 录音 3s 仍无任何识别结果（实时出字未生效 → UI 会显示诊断串）")
+            }
             diagnostics = "locale=\(locale.identifier(.bcp47)) fmt=\(analyzerFormat.sampleRate)Hz/"
                 + "\(analyzerFormat.channelCount)ch(输入 \(inputFormat.sampleRate)Hz)"
             NSLog("[VOICE] 设备端转写启动 \(diagnostics)")
@@ -409,6 +441,7 @@ final class LiveSpeechTranscriber: ObservableObject {
         liveText = text
         onTextChange?(text)
         NSLog("[VOICE] 定稿 len=\(text.count) canceled=\(cancelRequested) finished=\(resultsFinished)")
+        diagnostics = diagnostics + " " + resultStats + " first" + String(firstResultMs) + "ms"
         return text
     }
 
@@ -432,6 +465,8 @@ final class LiveSpeechTranscriber: ObservableObject {
 
     /// 停引擎 / 摘 tap / 释放 analyzer / 恢复音频会话（不恢复 .playback 会导致 TTS 无声——旧 VoiceRecorder 的教训）
     private func teardown() {
+        stallTask?.cancel()
+        stallTask = nil
         resultsTask?.cancel()
         resultsTask = nil
         if tapInstalled {

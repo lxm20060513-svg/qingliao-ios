@@ -487,6 +487,10 @@ struct ChatView: View {
                     onLongPressInput: { keyboardWasUp in toggleVoiceMode(keyboardWasUp: keyboardWasUp) },
                     // v3.9.3：设备端识别，不依赖后端 —— 云端模式同样开放语音入口（v3.0.4 的屏蔽已撤）
                     voiceEnabled: true,
+                    // v3.9.6：录音态实时文本 + 诊断串（声明序在 voiceEnabled 之后，实参必须同序）
+                    recordingText: voiceMode ? liveSpeech.liveText : "",
+                    // 仅当「录音 3s 无任何结果」这类异常才显示诊断（正常时界面不留杂物）
+                    recordingDiag: liveSpeech.liveStalled ? liveSpeech.resultStats : "",
                     // v3.4.25：上下文使用率传入——超 80% 发送键变橙轻提醒
                     contextUsage: chat.contextUsage(maxTokens: 4000))
                     // v2.0.129：球态输入框 —— 绑定会话 id，切会话重建复位（展开态在切会话后回球态）
@@ -628,6 +632,7 @@ struct ChatView: View {
             messageList
                 .overlay {
                     // v3.0.79：点按空白处停止录音（exitVoiceMode 注释原本就写"按钮/空白点击共用"，此处补上空白点击）
+                    // v3.9.6：整个消息区（含底部空白）都是停止面；输入栏区域不拦（不是"空白处"）
                     if voiceMode && liveSpeech.isRunning {
                         Color.clear
                             .contentShape(Rectangle())
@@ -716,6 +721,12 @@ struct ChatView: View {
             await resumePersistedStream()
             // v3.5.1：AI 正在输入 探针（仅当有遗留任务标记时才发请求；服务器说没了就清标记收起状态）
             await busyProbeLoop()
+        }
+        // v3.9.6：实时转写同步进输入框 —— 不依赖「启动时存下来的闭包写 @State」，
+        // 改用 SwiftUI 原生更新周期里写（liveSpeech.liveText 变化 → 必然走这里），松手定稿后框内即最终文本
+        .onChange(of: liveSpeech.liveText) { _, newValue in
+            guard voiceMode else { return }
+            inputText = newValue
         }
         .photosPicker(isPresented: $showPhotoPicker, selection: $photoItem, matching: .images)
         // v2.0.38：拍照输入（拍完进图片预览条，确认后发送）

@@ -26,6 +26,10 @@ struct ChatInputBar: View {
     var onLongPressInput: (Bool) -> Void = { _ in }
     // 语音功能启用开关（v3.9.3：设备端识别不依赖后端，本地/云端恒为 true；参数保留以便将来按需关闭）
     var voiceEnabled: Bool = true
+    /// v3.9.6：录音中的实时文本（直接来自 @Published liveText，录音态由它在输入栏上屏）
+    var recordingText: String = ""
+    /// v3.9.6 临时诊断：实时结果计数（V=volatile 中间结果 / F=final 定稿），确认后删除
+    var recordingDiag: String = ""
     @Environment(KeyboardObserver.self) private var kbEnv
     // v3.4.28：横屏限宽
     @Environment(\.horizontalSizeClass) private var hSizeInput
@@ -93,64 +97,79 @@ struct ChatInputBar: View {
             }
             .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
 
-            // v3.9.5：录音中**不再**用「正在聆听…」胶囊顶掉输入框——实时转写要能直接看见，
-            // 输入框照常显示（liveSpeech 的 volatile 结果经 onTextChange 实时写进 inputText），
-            // 只在左侧留一颗小红点表示「正在听」；录音中禁点输入框，避免误触弹键盘打断语音模式。
             if isRecording {
-                Circle()
-                    .fill(Color.red)
-                    .frame(width: 7, height: 7)
-                    .allowsHitTesting(false)
-            }
-
-            TextField("", text: $text, axis: .vertical)
-                .font(.system(size: Typography.body))
-                .lineLimit(1...6)   // v2.0.35：1行起（原来2...6最小2行高→单行光标/文字偏上不居中）
-                .padding(.vertical, 12)   // v2.0.93f：9→12 输入框加高（用户反馈太窄）
+                // v3.9.6：录音中**直接上屏** —— 在输入框同一行位置实时渲染识别文本。
+                // 文本源取 liveSpeech.liveText（@Published），不再依赖 onTextChange 写 @State
+                // 或 TextField 的 binding 刷新（v3.9.5 实测：录音中框里始终只有「输入消息…」占位、
+                // 松手才一次性出字 = 实时链路没上屏）。红点=正在听；无字时保持空白。
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(Color.red)
+                        .frame(width: 7, height: 7)
+                        .allowsHitTesting(false)
+                    Text(recordingText)
+                        .font(.system(size: Typography.body))
+                        .foregroundStyle(Color.primary)
+                        .lineLimit(1...6)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .allowsHitTesting(false)
+                    // v3.9.6 临时诊断：V=实时中间结果数 / F=定稿数（确认实时出字稳定后下一版删除）
+                    Text(recordingDiag)
+                        .font(.system(size: 9))
+                        .foregroundStyle(.secondary)
+                        .allowsHitTesting(false)
+                }
+                .padding(.vertical, 12)
                 .padding(.horizontal, 2)
-                .fixedSize(horizontal: false, vertical: true)   // 文字超宽自动增高输入框，旧文字始终可见
-                .allowsHitTesting(!isRecording)   // v3.9.5：录音中不响应点击（防弹键盘）
-                .focused($focused)
-                // v2.0.106：长按输入框 = 进入语音转文字（与长按发送键同效；收键盘由 ChatView 处理）
-                // v2.0.106b：onLongPressGesture 被 UITextField 内置长按(放大镜/选择)拦截不触发
-                //           → 改 simultaneousGesture 与系统手势共存触发
-                // v2.0.109b：onChanged（down 瞬间）记录键盘可见状态——键盘开=true 保持，关=false 收回
-                // v3.9.3：语音恒可用（设备端）——voiceEnabled 现恒为 true，保留判断以便按需关闭
-                //           （用 .simultaneousGesture 里 if/else 各自挂同类型 LongPressGesture，规避泛型不一致）
-                .simultaneousGesture(
-                    LongPressGesture(minimumDuration: voiceEnabled ? 0.4 : 3600)
-                        .onChanged { _ in
-                            pressKeyboardUp = kbEnv.isVisible
-                        }
-                        .onEnded { _ in
-                            guard voiceEnabled else { return }
-                            onLongPressInput(pressKeyboardUp)
-                        }
-                )
-                .overlay {
-                    if text.isEmpty {
-                        if transcribing {
-                            // v2.0.100：转写中动画（waveform 图标 + 文字脉冲）
-                            HStack(spacing: 6) {
-                                Image(systemName: "waveform")
-                                    .font(.system(size: Typography.subhead))
-                                    .symbolEffect(.pulse)
-                                Text("语音转换中…")
-                                    .font(.system(size: Typography.body))
+            } else {
+                TextField("", text: $text, axis: .vertical)
+                    .font(.system(size: Typography.body))
+                    .lineLimit(1...6)   // v2.0.35：1行起（原来2...6最小2行高→单行光标/文字偏上不居中）
+                    .padding(.vertical, 12)   // v2.0.93f：9→12 输入框加高（用户反馈太窄）
+                    .padding(.horizontal, 2)
+                    .fixedSize(horizontal: false, vertical: true)   // 文字超宽自动增高输入框，旧文字始终可见
+                    .focused($focused)
+                    // v2.0.106：长按输入框 = 进入语音转文字（与长按发送键同效；收键盘由 ChatView 处理）
+                    // v2.0.106b：onLongPressGesture 被 UITextField 内置长按(放大镜/选择)拦截不触发
+                    //           → 改 simultaneousGesture 与系统手势共存触发
+                    // v2.0.109b：onChanged（down 瞬间）记录键盘可见状态——键盘开=true 保持，关=false 收回
+                    // v3.9.3：语音恒可用（设备端）——voiceEnabled 现恒为 true，保留判断以便按需关闭
+                    //           （用 .simultaneousGesture 里 if/else 各自挂同类型 LongPressGesture，规避泛型不一致）
+                    .simultaneousGesture(
+                        LongPressGesture(minimumDuration: voiceEnabled ? 0.4 : 3600)
+                            .onChanged { _ in
+                                pressKeyboardUp = kbEnv.isVisible
                             }
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .allowsHitTesting(false)
-                        } else {
-                            Text("输入消息...")
-                                .font(.system(size: Typography.body))
+                            .onEnded { _ in
+                                guard voiceEnabled else { return }
+                                onLongPressInput(pressKeyboardUp)
+                            }
+                    )
+                    .overlay {
+                        if text.isEmpty {
+                            if transcribing {
+                                // v2.0.100：转写中动画（waveform 图标 + 文字脉冲）
+                                HStack(spacing: 6) {
+                                    Image(systemName: "waveform")
+                                        .font(.system(size: Typography.subhead))
+                                        .symbolEffect(.pulse)
+                                    Text("语音转换中…")
+                                        .font(.system(size: Typography.body))
+                                }
                                 .foregroundStyle(.secondary)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .allowsHitTesting(false)
+                            } else {
+                                Text("输入消息...")
+                                    .font(.system(size: Typography.body))
+                                    .foregroundStyle(.secondary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .allowsHitTesting(false)
+                            }
                         }
                     }
-                }
-
+            }
             // v2.0.88：AI 回答中也可继续发送（消息排队，答完自动逐条回）；
             // 停止按钮独立保留（取消当前回答 + 清空队列）
             if streaming {
