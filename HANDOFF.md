@@ -1,7 +1,7 @@
 # 轻聊 App 项目交接文档
 
 > 最后更新：2026-09-11
-> 最新版本：v3.6.3 (440)
+> 最新版本：v3.6.4 (441)
 > 上一版：**v3.5.2/436（2026-09-11 已发版，tag `v3.5.2`，CI run#460 success）复读根治 + 「AI 正在输入」不再丢失**：①**复读根治（双端）**：后端 `/api/stream/recover` 内存分支按 `createdAt` 取最新（原按 dict 插入序取到**最旧**任务，2026-09-10 实测复现：20 分钟前的旧答案被当本轮回复落库）、磁盘兜底按 `createdAt`/mtime 取最新；App 侧 `StreamClient.tryRecover` 收紧采纳闸门——**只采纳「本机这条任务」或「另一条仍在途的任务」**（在途任务的内容必属本轮），异任务且已完成一律不采纳（404 路径也不例外，改为报错收尾让用户重发）；候选被忽略时**归还**那次 recover 机会（原实现把忽略当已接管消费掉，弱网白丢续流机会）；换任务时 content/offset **整体重置**（不再新旧混拼/半截回复）。②**「AI 正在输入」不再静默消失**：探针 `probeRemoteBusy` 改为**服务器是唯一真相**——不再以本机持久化标记为前提，无标记也主动问服务器（无标记时 12s 降频省电），服务器说在途而本机没在收就**直接接回**（新 `adoptRemote`：整体重置内容 + 重落标记）；探针失败收起阈值 3→5 次（弱网抖动不再瞬间熄灭）。根因：本机标记在弱网 15 连败收尾/`finish()` 时被清 → 探针前提不成立 → 连问都不问服务器 → 前台彻底无提示、答案也回不来。③**跨会话串扰收口**：`restoreIfNeeded` 校验收持久化的 sessionId 属当前会话（防别的会话旧内容落进当前会话）；`sendFile`/`regenerate` 落库回调补「已切会话就丢弃」守卫（与 `startStream` 一致）。IPA 已校验 **3.5.2/436**，md5 `12a38af27499aec699641df638a6cf90`，已转存 NAS `轻聊app/qingliao-3.5.2-unsigned.ipa`
 > 上一版：**v3.5.1/435（2026-09-10 已发版，tag `v3.5.1`，CI run 34495464274 success）「AI 正在输入」体验 + 空回复不再静默 + 长任务不再被截断**：①**聊天页 header 新增「AI 正在输入…」**（`PageHeader` 加 `busy` 参数 + 新 `BusyDots` 三点呼吸，只用 opacity 动画守 v3.2.3 渲染红线；`ChatView` 加 `remoteBusy` + 6s 探针走 `GET /api/stream/recover` 做服务器侧兜底=App 杀后台重开/切页回来仍显示；探针带会话守卫（标记属别的会话不显示也不误用本会话查询）、网络连续失败 3 次收起（防幽灵）、`aiBusy` 按会话收窄（A 会话在跑不污染 B 的 header））②**空回复不再静默**（本地流 success 但内容为空 → 发送/自动重试/重新生成/杀后台恢复/发文件 5 条路径落 27 字提示气泡「⚠️ 本轮空回复：点上方「重新生成」（长任务易被截断）」，`⚠️` 前缀命中 `isErrorPlaceholder` → 气泡自带一键「重新生成」；⚠️ 刻意**不 markFailed**（`failed` 全仓库无复位点，会让已送达消息永久挂红叹号、点击还删消息重发），文案必须 **≤30 字**（`upsertAssistant` 对 >30 字做全历史精确查重，超长会在第二次空回复时被静默吞掉））③**Hermes `agent.max_turns` 40 → 120**（NAS root 改 `/opt/data/config.yaml`，网关每轮热读无需重启）。**根因**：长任务被 40 步截断后 Hermes 流式接口未回吐最终文本 → 后端收到空内容落库 done → App 侧流结束 `isStreaming=false` → 停止按钮消失/灵动岛发光停止/用户看不到任何回复。IPA 已校验 **3.5.1/435**，md5 `8f36513d50d3bc77dffa49445e5af2c1`，已转存 NAS `轻聊app/qingliao-3.5.1-unsigned.ipa`
 > 上一版：**v3.5.0/434（2026-09-10 已发版，tag `v3.5.0`，CI run 34492680289 success）四项能力**：Agent 结果卡片化（```ql-card 围栏协议 + 卡片渲染，零回归/流式安全）+ 看板「生活数据」卡片区（股票行情 + RSS/博客更新）+ 崩溃/卡顿自上报 + App 内诊断页 + 设置新增「阶跃 StepAudio」TTS（stepaudio-2.5-tts + 4 预置音色）+ 朗读无声根治（系统语音也显式激活 `.playback` 会话）+ tab bar 改常驻（`.never`）+ 预检脚本依赖源文件恢复；IPA 已校验 3.5.0/434，md5 `32f272388907a7e9253a087516f7e5ae`，已转存 NAS `轻聊app/qingliao-3.5.0-unsigned.ipa`
@@ -75,6 +75,23 @@
 ---
 
 ## 二、版本历史
+
+### v3.6.4（dock 球上下居中+加大 / 诊断记录清除 / 首 token 提速，2026-09-11 已发版，tag `v3.6.4`，CI run#467 success）
+| 改动 | 文件 | 说明 |
+|---|---|---|
+| dock 智能球上下居中 | ChatEffects.swift | 装机反馈"球不居中"：原球心取的是**槽位按钮中心**，而按钮 bounds 含「图标 + 文字」两行、中心比 dock 中心偏上。改为 x 用按钮中心（水平对准槽位）、**y 用 `UITabBar` 自身的垂直中心**（`tabBar.convert(bounds, to: nil).midY`）→ 球真正居中于 dock 内 |
+| 球尺寸 | ChatEffects.swift | 44 → **50**（球体 ≈34pt → ≈39pt）；dock 高 49pt，上下各留约 5pt |
+| 诊断记录清除 | DiagnosticsView.swift | 「最近记录（崩溃 / 卡顿）」卡片底部新增 **「清除全部记录」**（红色，有记录时才显示）+ 二次确认，清本机 `historyEvents` 与 `pendingEvents`（待上报队列一并清）；**已上报服务器的记录不受影响** |
+| 版本号 | project.yml | 3.6.3(440) → 3.6.4(441) |
+
+**后端（已单独上线，无需等 App 包）**
+1. **价格监控「点了添加立刻回退」根治** `life_api.py`：App 添加 = 追加空卡片再落库，后端 `_norm_price` 把 url 非 http 的项直接丢弃 → 回读覆盖本地 → 卡片消失（只有该入口无前端校验）。改为"未完成项（url 未填）原样保留，填了才校验/去重"，抓取侧给「未填写商品 URL」友好占位。容器内实测 PASS 并还原原配置一致。
+2. **首 token 提速** `stream_api.py`：Hermes 全局 `agent.reasoning_effort=medium` 导致模型每轮先吐几百字思考再出正文，而轻聊后端**完全丢弃** reasoning（等于用户白等）。实测同问题（9123 打 2 轮）：medium 正文首字 3.4~3.8s → **low 1.6~2.2s** → enabled=false 0.9~1.7s。改为**按次传** `model_options={"reasoning":{"enabled":true,"effort":"low"}}`（只影响轻聊，不动 Hermes 全局），env `QL_REASONING=off` 可切完全禁思考。
+   ⚠️ 结论留存：**"把思考显示给用户"在当前架构下做不到** —— Hermes 的 OpenAI 兼容层（9123 `api_server_openai_routes.py`）只发 `output_text.delta/done` 与 `output_item` 事件，**没有任何 reasoning 事件构造**（两轮实测 reasoning 字符=0）；`display.show_reasoning` 是 CLI/Web UI 层能力，不影响该端点。
+
+**IPA 校验**：**3.6.4/441**、MinOS 26.0，md5 `5f29663ddb08ba1e4a1f6aebc34aeb06`，已转存 NAS `轻聊app/qingliao-3.6.4-unsigned.ipa`。
+**发版通道**：github.com:443 仍不通，继续走 **Git Data API**（远端 commit `6738acb`）。
+**待装机确认**：球是否上下居中于 dock、大小是否合适（仍有偏差可用 `ballSize`/`verticalNudge` 微调）；诊断页清除后列表应立刻变空。
 
 ### v3.6.3（dock 球定位根治 + 资讯字号 + 价格监控添加修复，2026-09-11 已发版，tag `v3.6.3`，CI run#466 success）
 | 改动 | 文件 | 说明 |
