@@ -246,6 +246,8 @@ struct AppearanceSheet: View {
     @AppStorage("qingliao_siri_glow") private var siriGlow = false
     // v3.0.36：灵动岛发光（独立开关，复用 Siri 发光 4 参数）
     @AppStorage("qingliao_island_glow") private var islandGlow = false
+    // v3.8.0：灵动岛/锁屏实时活动（AI 回复中显示进度）——与 LiveActivityManager 共用同一 key（默认开）
+    @AppStorage(LiveActivityManager.enabledKey) private var liveActivityOn = true
     @AppStorage("qingliao_siri_glow_brightness") private var glowBrightness = 1.0
     @AppStorage("qingliao_siri_glow_freq") private var glowFreq = 2.2
     @AppStorage("qingliao_siri_glow_amp") private var glowAmp = 0.18
@@ -270,6 +272,11 @@ struct AppearanceSheet: View {
                 // 交互
                 Section("交互") {
                     Toggle("输入框流光光效", isOn: $glowOn)   // v3.0.4：补全本地独有项
+                    // v3.8.0：灵动岛/锁屏实时活动——AI 回复中亮起、结束收起；关掉立即收起正在显示的活动
+                    Toggle("灵动岛实时活动", isOn: $liveActivityOn)
+                        .onChange(of: liveActivityOn) { _, on in
+                            if !on { Task { @MainActor in await LiveActivityManager.shared.end() } }
+                        }
                 }
                 // AI 回答发光（对齐本地 Siri 发光 4 参数）
                 Section("AI 回答发光") {

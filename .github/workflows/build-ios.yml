@@ -53,15 +53,32 @@ jobs:
           file build/qingliao-2.0-unsigned.ipa
           unzip -l build/qingliao-2.0-unsigned.ipa | head -8
           python3 - <<'PYEOF'
-          import sys, zipfile
-          with zipfile.ZipFile('build/qingliao-2.0-unsigned.ipa') as z:
-              names = z.namelist()
-          appex = sorted({n.split('.appex/')[0] + '.appex/' for n in names if '.appex/' in n})
-          print('appex:', appex)
-          if not appex:
-              print('❌ 包里没有 .appex —— 挂件未被 embed，实时活动/灵动岛不会出现')
+          import plistlib, sys, zipfile
+          ipa = 'build/qingliao-2.0-unsigned.ipa'
+          appex_dir = 'Payload/Qingliao.app/PlugIns/QingliaoWidget.appex/'
+          need = [appex_dir + 'QingliaoWidget', appex_dir + 'Info.plist',
+                  'Payload/Qingliao.app/Info.plist']
+          with zipfile.ZipFile(ipa) as z:
+              names = set(z.namelist())
+              missing = [p for p in need if p not in names]
+              if missing:
+                  print('❌ 挂件未打进 Payload/Qingliao.app/PlugIns/：缺', missing)
+                  print('  包内 appex 相关条目：', sorted(n for n in names if '.appex' in n)[:10])
+                  sys.exit(1)
+              app_plist = plistlib.loads(z.read('Payload/Qingliao.app/Info.plist'))
+              appex_plist = plistlib.loads(z.read(appex_dir + 'Info.plist'))
+          print('主 App 版本：%s(%s)' % (app_plist.get('CFBundleShortVersionString'), app_plist.get('CFBundleVersion')))
+          print('挂件版本：%s(%s)' % (appex_plist.get('CFBundleShortVersionString'), appex_plist.get('CFBundleVersion')))
+          if app_plist.get('NSSupportsLiveActivities') is not True:
+              print('❌ 主 App Info.plist 缺 NSSupportsLiveActivities —— 实时活动不会生效')
               sys.exit(1)
-          print('✅ 挂件已打进 Payload/*.app/PlugIns/')
+          ext = (appex_plist.get('NSExtension') or {}).get('NSExtensionPointIdentifier')
+          if ext != 'com.apple.widgetkit-extension':
+              print('❌ appex 的 NSExtensionPointIdentifier 不是 widgetkit-extension：', ext)
+              sys.exit(1)
+          if appex_plist.get('CFBundleShortVersionString') != app_plist.get('CFBundleShortVersionString'):
+              print('⚠️ 挂件版本与主 App 不一致（侧载可装，但请核对 project.yml 版本号）')
+          print('✅ 挂件 .appex 就位且配置正确（NSExtensionPointIdentifier=%s）' % ext)
           PYEOF
 
       - name: Upload dSYM artifact (崩溃符号化留底, v3.4.2)

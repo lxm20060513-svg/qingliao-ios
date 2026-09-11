@@ -284,11 +284,12 @@ struct ChatView: View {
         (stream.isStreaming && auth.currentStreamSessionId == chat.sessionId)
             || CloudBackend.shared.isStreaming || remoteBusy
     }
-    /// v3.8.0：实时活动（灵动岛/锁屏）展开态展示的模型名——本地模式取 App 设置，云端模式取云端配置
+    /// v3.8.0：实时活动（灵动岛/锁屏）展开态展示的模型名——**复用发送路径同一套选型**（免费/视觉/Agent/主模型），
+    /// 云端口径对齐 SessionsView.displayModel；否则会出现「灵动岛写着主模型、实际回的是免费/Agent 模型」的错报
     private var liveActivityModelName: String {
-        CloudBackend.shared.isStreaming
+        CloudConfig.shared.isCloudMode
             ? (CloudConfig.shared.activeConfig?.model ?? modelName)
-            : modelName
+            : resolveModel(hasImage: false).0
     }
     /// 头部状态文案/颜色（独立计算属性，避免 body 内嵌套三元）
     private var headerSubtitle: String {
@@ -1527,11 +1528,18 @@ struct ChatView: View {
             if phase == .active { Task { await checkMapClipboard() } }
         }
         // v3.8.0：灵动岛 / 锁屏实时活动——AI 开始时亮起、结束时收起（本地驱动，侧载免费签名可用）
-        .onChange(of: aiBusy) { _, busy in
-            LiveActivityManager.shared.sync(isBusy: busy,
-                                            sessionId: chat.sessionId,
-                                            sessionTitle: chat.title,
-                                            modelName: liveActivityModelName)
+        // initial: true：冷启动时先结算一次（服务端还在回复的场景由 remoteBusy 探针随后触发 true）
+        // 先取成本地 Sendable 值再进 Task（Task 闭包是 @Sendable，不能捕获 View/Store）
+        .onChange(of: aiBusy, initial: true) { _, busy in
+            let sessionId = chat.sessionId
+            let title = chat.title
+            let model = liveActivityModelName
+            Task { @MainActor in
+                await LiveActivityManager.shared.sync(isBusy: busy,
+                                                      sessionId: sessionId,
+                                                      sessionTitle: title,
+                                                      modelName: model)
+            }
         }
         // v2.0.59：上下文过长提示（60+ 条建议压缩）
         .alert("上下文较长", isPresented: $showLongContextAlert) {

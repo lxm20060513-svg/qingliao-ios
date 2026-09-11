@@ -36,7 +36,7 @@ $SWIFT/swiftc -swift-version 6 -o /tmp/test_agent_card qingliao/Core/AgentCardPa
 /tmp/test_agent_card || exit 1
 
 echo "=== 6. 挂件 Extension 语法检查（v3.8.0 实时活动）==="
-$SWIFT/swiftc -parse qingliaoWidget/*.swift 2>&1 | grep -v "^$" | head -10
+$SWIFT/swiftc -parse qingliaoWidget/*.swift qingliao/Core/LiveActivityAttributes.swift 2>&1 | grep -v "^$" | head -10
 if [ ${PIPESTATUS[0]} -eq 0 ]; then
     echo "✅ 挂件语法通过"
 else
