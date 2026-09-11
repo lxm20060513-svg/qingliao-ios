@@ -52,6 +52,17 @@ jobs:
         run: |
           file build/qingliao-2.0-unsigned.ipa
           unzip -l build/qingliao-2.0-unsigned.ipa | head -8
+          python3 - <<'PYEOF'
+          import sys, zipfile
+          with zipfile.ZipFile('build/qingliao-2.0-unsigned.ipa') as z:
+              names = z.namelist()
+          appex = sorted({n.split('.appex/')[0] + '.appex/' for n in names if '.appex/' in n})
+          print('appex:', appex)
+          if not appex:
+              print('❌ 包里没有 .appex —— 挂件未被 embed，实时活动/灵动岛不会出现')
+              sys.exit(1)
+          print('✅ 挂件已打进 Payload/*.app/PlugIns/')
+          PYEOF
 
       - name: Upload dSYM artifact (崩溃符号化留底, v3.4.2)
         uses: actions/upload-artifact@v4
