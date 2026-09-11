@@ -156,7 +156,7 @@ struct LifeCardsSection: View {
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(Color.accentColor)
                 Text("博客/资讯")
-                    .font(.system(size: 12))
+                    .font(.system(size: 13))
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 0)
                 // v3.6.2：资讯专用刷新——后端 ?fresh=1 强制绕缓存（原整块刷新受 RSS 15 分钟缓存限制，
@@ -168,7 +168,7 @@ struct LifeCardsSection: View {
                     onRefreshFeeds()
                 } label: {
                     Label("刷新", systemImage: "arrow.clockwise")
-                        .font(.system(size: 10))
+                        .font(.system(size: 11))
                         .padding(.horizontal, 10)
                         .padding(.vertical, 4)
                         .background(Color.accentColor.opacity(0.12), in: Capsule())
@@ -179,7 +179,7 @@ struct LifeCardsSection: View {
                 .accessibilityLabel("刷新资讯")
                 if !data.updatedText.isEmpty {
                     Text(data.updatedText)
-                        .font(.system(size: 10))
+                        .font(.system(size: 11))
                         .foregroundStyle(.tertiary)
                 }
             }
@@ -220,14 +220,14 @@ struct LifeCardsSection: View {
             HStack(spacing: 6) {
                 ProgressView().controlSize(.small)
                 Text("AI 正在读取这篇资讯…")
-                    .font(.system(size: 11))
+                    .font(.system(size: 13))
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 0)
             }
         case .loaded(let a):
             VStack(alignment: .leading, spacing: 6) {
                 Text(a.content)
-                    .font(.system(size: 13))
+                    .font(.system(size: 15))
                     .lineSpacing(4)
                     .foregroundStyle(.primary)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -243,19 +243,19 @@ struct LifeCardsSection: View {
                     }
                     Spacer(minLength: 0)
                     Text("点击收起")
-                        .font(.system(size: 9))
+                        .font(.system(size: 10))
                         .foregroundStyle(.tertiary)
                 }
             }
         case .failed(let msg):
             HStack(spacing: 6) {
                 Image(systemName: "exclamationmark.triangle")
-                    .font(.system(size: 10))
-                Text(msg)
                     .font(.system(size: 11))
+                Text(msg)
+                    .font(.system(size: 12))
                 Spacer(minLength: 0)
                 Text("点击重试")
-                    .font(.system(size: 9))
+                    .font(.system(size: 10))
                     .foregroundStyle(.tertiary)
             }
             .foregroundStyle(.tertiary)
@@ -264,7 +264,7 @@ struct LifeCardsSection: View {
 
     private func articleTag(_ t: String) -> some View {
         Text(t)
-            .font(.system(size: 9))
+            .font(.system(size: 10))
             .padding(.horizontal, 6)
             .padding(.vertical, 1)
             .background(Color.accentColor.opacity(0.1), in: Capsule())
@@ -275,7 +275,7 @@ struct LifeCardsSection: View {
         HStack(alignment: .top, spacing: 8) {
             VStack(alignment: .leading, spacing: 3) {
                 Text(e.title)
-                    .font(.system(size: 12))
+                    .font(.system(size: 15))
                     .foregroundStyle(.primary)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
@@ -283,7 +283,7 @@ struct LifeCardsSection: View {
                 HStack(spacing: 6) {
                     if !e.source.isEmpty {
                         Text(e.source)
-                            .font(.system(size: 9))
+                            .font(.system(size: 11))
                             .padding(.horizontal, 6)
                             .padding(.vertical, 1)
                             .background(Color.accentColor.opacity(0.1), in: Capsule())
@@ -291,13 +291,13 @@ struct LifeCardsSection: View {
                     }
                     if !e.timeText.isEmpty {
                         Text(e.timeText)
-                            .font(.system(size: 9))
+                            .font(.system(size: 11))
                             .foregroundStyle(.tertiary)
                     }
                 }
             }
             Image(systemName: "chevron.right")
-                .font(.system(size: 9, weight: .semibold))
+                .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(.tertiary)
                 .padding(.top, 3)
         }

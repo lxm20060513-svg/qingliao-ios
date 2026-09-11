@@ -201,6 +201,8 @@ struct DockOrbOverlay: View {
 
     /// v3.6.3：系统 tab bar 真实槽位中心（window 坐标）。读得到就用它，读不到回退等分估算
     @State private var liveCenter: CGPoint?
+    /// v3.6.3：回前台/转屏后 frame 会变 → 重读真实槽位
+    @Environment(\.scenePhase) private var scenePhase
 
     /// iOS 26 原生 tab bar 高度（不含底部安全区）
     static let dockBarHeight: CGFloat = 49
@@ -208,20 +210,18 @@ struct DockOrbOverlay: View {
     var body: some View {
         GeometryReader { geo in
             let g = geo.frame(in: .global)          // 本叠加层在 window 中的位置
-            let w = geo.size.width
-            let h = geo.size.height
-            // 回退路径：球心 = 安全区 + tab bar 半高（换算到本叠加层局部坐标）
+            // 回退路径：球心 = 叠加层底（窗口中线上方一个安全区处）再往上 tab bar 半高
             // v3.6.3 修：原实现 cy = h - centerFromBottom 忽略了「叠加层被 tab bar 吃掉底部安全区」，
             //            等于把安全区算了两遍 → 球比图标高约 34pt（装机截图证实球悬浮在 tab bar 上方）
-            let fallbackGlobalY = DockOrbOverlay.keyWindowHeight - DockOrbOverlay.ballCenterFromBottom
-            let fallback = CGPoint(x: w * (CGFloat(slotIndex) + 0.5) / CGFloat(slotCount),
+            let fallbackGlobalY = DockOrbOverlay.keyWindowHeight - DockOrbOverlay.keyWindowSafeBottom
+                                  - DockOrbOverlay.ballCenterFromBottom
+            let fallback = CGPoint(x: geo.size.width * (CGFloat(slotIndex) + 0.5) / CGFloat(slotCount),
                                    y: fallbackGlobalY - g.minY)
-            let target: CGPoint
-            if let c = liveCenter {
-                target = CGPoint(x: c.x - g.minX, y: c.y - g.minY + verticalNudge)
-            } else {
-                target = CGPoint(x: fallback.x, y: fallback.y + verticalNudge)
-            }
+            // ⚠️ ViewBuilder 内只能用表达式：`let x: T` + if/else 赋值会被当作条件视图
+            //（CI 报 "type '()' cannot conform to 'View'"）→ 用 map/?? 表达式写
+            let target: CGPoint = liveCenter.map {
+                CGPoint(x: $0.x - g.minX, y: $0.y - g.minY + verticalNudge)
+            } ?? CGPoint(x: fallback.x, y: fallback.y + verticalNudge)
             // 空闲呼吸 15fps / 思考旋转 30fps —— dock 常驻视图按状态降帧
             SiriBallView(thinking: thinking, size: ballSize, fps: thinking ? 30 : 15)
                 .frame(width: ballSize, height: ballSize)
@@ -231,32 +231,48 @@ struct DockOrbOverlay: View {
         .onReceive(NotificationCenter.default.publisher(for: UIDevice.orientationDidChangeNotification)) { _ in
             Task { await refreshLiveCenter() }
         }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { Task { await refreshLiveCenter() } }
+        }
     }
 
-    /// 依次重试读取真实槽位（tab bar 首帧尚未布局完时读不到）；拿到即停
+    /// 读系统真实槽位：首帧布局未落定、转屏/后台恢复后会读到旧值，
+    /// 故连读 3 次、每次覆盖，取最后一次有效值（不再「首成功即定」而锁死旧 frame）
     @MainActor
     private func refreshLiveCenter() async {
+        var latest: CGPoint?
         for delay in [0.15, 0.6, 1.6] {
             try? await Task.sleep(for: .seconds(delay))
-            if let c = DockOrbOverlay.slotCenterGlobal(index: slotIndex, count: slotCount) {
-                liveCenter = c
-                return
-            }
+            if Task.isCancelled { return }        // 视图已消失 → 别再写 @State
+            if let c = DockOrbOverlay.slotCenterGlobal(index: slotIndex, count: slotCount) { latest = c }
         }
+        if let latest, latest != liveCenter { liveCenter = latest }
     }
 
     /// 系统 tab bar 第 index 个按钮的中心（window 坐标）。读不到 / 数量对不上 → nil（调用方回退）
     @MainActor
     static func slotCenterGlobal(index: Int, count: Int) -> CGPoint? {
         guard let window = keyWindow, let tabBar = findTabBar(in: window) else { return nil }
-        let buttons = tabBar.subviews
-            .filter { String(describing: type(of: $0)).contains("Button") }   // UITabBarButton（iOS 26 玻璃 tab bar 仍为此类）
-            .sorted { $0.frame.minX < $1.frame.minX }
-        guard buttons.count == count, index >= 0, index < buttons.count else { return nil }
-        let b = buttons[index]
+        var found: [UIView] = []
+        collectTabButtons(in: tabBar, into: &found)
+        // 数量必须与槽位数一致才敢用，否则宁可回退（避免误取别的槽位）
+        guard found.count == count, index >= 0, index < found.count else { return nil }
+        let b = found.sorted { $0.frame.minX < $1.frame.minX }[index]
         let r = b.convert(b.bounds, to: nil)      // to: nil = window 坐标
         guard r.width > 1, r.height > 1 else { return nil }
         return CGPoint(x: r.midX, y: r.midY)
+    }
+
+    /// 递归收集 tab 按钮：iOS 26 玻璃 tab bar 可能把按钮放进中间容器，只扫直接子视图会漏掉（改进空转）
+    @MainActor
+    private static func collectTabButtons(in view: UIView, into out: inout [UIView]) {
+        for sub in view.subviews {
+            if String(describing: type(of: sub)).contains("TabBarButton") {
+                out.append(sub)
+            } else if !sub.subviews.isEmpty {
+                collectTabButtons(in: sub, into: &out)
+            }
+        }
     }
 
     @MainActor
@@ -275,19 +291,22 @@ struct DockOrbOverlay: View {
         return scene?.windows.first(where: { $0.isKeyWindow }) ?? scene?.windows.first
     }
 
-    /// window 高度（= 屏幕高度，坐标换算用）
+    /// window 高度（坐标换算用）—— 不用 UIScreen.main（iOS 26 已弃用）
     @MainActor
     static var keyWindowHeight: CGFloat {
-        keyWindow?.bounds.height ?? UIScreen.main.bounds.height
+        if let h = keyWindow?.bounds.height, h > 0 { return h }
+        return UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            .first?.coordinateSpace.bounds.height ?? 0
     }
 
-    /// 球心距屏幕底部距离 —— 优先真实布局，回退 安全区 + tab bar 半高。烟花原点复用同一值
+    /// 球心到**叠加层底部**的距离（与 BurstCanvas 的 `h - originFromBottom` 同一坐标系；h = 叠加层高）
+    /// ⚠️ 叠加层底 ≠ 窗口底（差一个底部安全区），故真实坐标要减掉安全区，否则烟花原点会偏离球心
     @MainActor
     static var ballCenterFromBottom: CGFloat {
-        if let window = keyWindow, let c = slotCenterGlobal(index: 2, count: 5), window.bounds.height > 0 {
-            return window.bounds.height - c.y
+        if let c = slotCenterGlobal(index: 2, count: 5) {
+            return (keyWindowHeight - keyWindowSafeBottom) - c.y
         }
-        return keyWindowSafeBottom + dockBarHeight / 2
+        return dockBarHeight / 2
     }
 
     /// 读 key window 底部安全区（不依赖叠加层自身的 safeAreaInsets——叠加层会被 tab bar 吃掉安全区）
