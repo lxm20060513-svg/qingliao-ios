@@ -628,10 +628,8 @@ struct LifeCardsSettingsView: View {
 
     private func addCapsule(_ title: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            HStack(spacing: 5) {
-                Image(systemName: "plus").font(.system(size: Typography.caption, weight: .semibold))
-                Text(title).font(.system(size: Typography.subhead, weight: .semibold))
-            }
+            // v3.9.4：添加类胶囊只留文字（去图标）
+            Text(title).font(.system(size: Typography.subhead, weight: .semibold))
             .foregroundStyle(.white)
             .padding(.horizontal, 14)
             .padding(.vertical, 7)
@@ -640,10 +638,10 @@ struct LifeCardsSettingsView: View {
         .buttonStyle(PressStyle())
     }
 
+    // v3.9.4：按用户要求「添加」类按钮一律只留文字 + 胶囊（去图标）；icon 参数保留仅为调用点兼容，不再绘制
     private func footerButton(_ title: String, icon: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 6) {
-                Image(systemName: icon).font(.system(size: Typography.subhead, weight: .semibold))
                 Text(title).font(.system(size: Typography.subhead, weight: .semibold))
             }
             .foregroundStyle(Color.accentColor)
@@ -1015,7 +1013,8 @@ struct LifeHeaderEditor: View {
                 Button {
                     headers.append(LifeHeaderPair())
                 } label: {
-                    Label("添加", systemImage: "plus")
+                    // v3.9.4：只留文字 + 胶囊（去图标）
+                    Text("添加")
                         .font(.system(size: Typography.caption, weight: .semibold))
                         .foregroundStyle(Color.accentColor)
                         .padding(.horizontal, 10)

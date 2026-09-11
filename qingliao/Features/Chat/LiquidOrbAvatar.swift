@@ -535,12 +535,17 @@ struct LiquidOrbAvatar: View {
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
         } else {
-            // v3.9.2 兜底：渲染器不可用（极少见）时退回脑形标，别让头像只剩一个渐变圆
-            Image(systemName: "brain.head.profile")
-                .font(.system(size: size * 0.5, weight: .medium))
-                .foregroundStyle(.white)
-                .frame(width: size, height: size)
-                .accessibilityHidden(true)
+            // v3.9.2 兜底：渲染器不可用（极少见）时退回脑形标
+            // v3.9.4：调用方已不再画蓝色底圆（用户要求去掉），这里自带底圆保证白脑标可见
+            ZStack {
+                Circle()
+                    .fill(LinearGradient(colors: [.blue, .indigo], startPoint: .topLeading, endPoint: .bottomTrailing))
+                Image(systemName: "brain.head.profile")
+                    .font(.system(size: size * 0.5, weight: .medium))
+                    .foregroundStyle(.white)
+            }
+            .frame(width: size, height: size)
+            .accessibilityHidden(true)
         }
     }
 }

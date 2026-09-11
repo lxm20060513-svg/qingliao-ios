@@ -412,8 +412,13 @@ struct ModelSheet: View {
             }
             ToolbarItem(placement: .primaryAction) {
                 Button { syncList() } label: {
-                    Image(systemName: "arrow.clockwise")
+                    // v3.9.4：刷新统一为「文字 + 胶囊」（去图标）
+                    Text("刷新")
+                        .font(.system(size: Typography.tiny))
                         .foregroundStyle(Color.accentColor)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(Color.accentColor.opacity(0.12), in: Capsule())
                 }
             }
         }
@@ -722,9 +727,13 @@ struct ModelSheet: View {
                 Button {
                     showAddCustomProvider = true
                 } label: {
-                    Label("添加", systemImage: "plus")
+                    // v3.9.4：只留文字 + 胶囊（去图标）
+                    Text("添加")
                         .font(.system(size: Typography.caption, weight: .medium))
                         .foregroundStyle(Color.accentColor)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(Color.accentColor.opacity(0.12), in: Capsule())
                 }
                 .buttonStyle(.plain)
             }
@@ -1200,8 +1209,13 @@ struct WechatChannelSheet: View {
             // v3.0.35：手动刷新（缓存过期/刷新失败后重拉）
             ToolbarItem(placement: .primaryAction) {
                 Button { Task { await load() } } label: {
-                    Image(systemName: "arrow.clockwise")
+                    // v3.9.4：刷新统一为「文字 + 胶囊」（去图标）
+                    Text("刷新")
+                        .font(.system(size: Typography.tiny))
                         .foregroundStyle(Color.accentColor)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(Color.accentColor.opacity(0.12), in: Capsule())
                 }
             }
         }
@@ -1494,8 +1508,13 @@ struct AgentModelSheet: View {
                 }
                 ToolbarItem(placement: .primaryAction) {
                     Button { Task { await syncList() } } label: {
-                        Image(systemName: "arrow.clockwise")
+                        // v3.9.4：刷新统一为「文字 + 胶囊」（去图标）
+                        Text("刷新")
+                            .font(.system(size: Typography.tiny))
                             .foregroundStyle(Color.accentColor)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 4)
+                            .background(Color.accentColor.opacity(0.12), in: Capsule())
                     }
                 }
             }

@@ -55,7 +55,8 @@ struct LifeCardsSection: View {
             Button {
                 onAddStock()
             } label: {
-                Label("添加股票", systemImage: "plus")
+                // v3.9.4：按用户要求去掉图标，只留「文字 + 胶囊」
+                Text("添加股票")
                     .font(.system(size: Typography.tiny))
                     .padding(.horizontal, 10)
                     .padding(.vertical, 4)
@@ -67,7 +68,8 @@ struct LifeCardsSection: View {
             Button {
                 onRefresh()
             } label: {
-                Label("刷新", systemImage: "arrow.clockwise")
+                // v3.9.4：刷新统一为「文字 + 胶囊」（去图标）
+                Text("刷新")
                     .font(.system(size: Typography.tiny))
                     .padding(.horizontal, 10)
                     .padding(.vertical, 4)
@@ -197,7 +199,8 @@ struct LifeCardsSection: View {
                 Button {
                     onRefreshFeeds()
                 } label: {
-                    Label("刷新", systemImage: "arrow.clockwise")
+                    // v3.9.4：刷新统一为「文字 + 胶囊」（去图标）
+                    Text("刷新")
                         .font(.system(size: Typography.caption))
                         .padding(.horizontal, 10)
                         .padding(.vertical, 4)

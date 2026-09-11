@@ -413,9 +413,13 @@ struct CloudModelsSheet: View {
                     Button {
                         Task { await load() }
                     } label: {
-                        Label("刷新", systemImage: "arrow.clockwise")
+                        // v3.9.4：刷新统一为「文字 + 胶囊」（去图标）
+                        Text("刷新")
                             .font(.system(size: Typography.caption))
                             .foregroundStyle(Color.accentColor)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 3)
+                            .background(Color.accentColor.opacity(0.12), in: Capsule())
                     }
                     .buttonStyle(.plain)
                 }

@@ -1406,14 +1406,11 @@ struct ChatView: View {
                                 // v3.0.15：恢复 v3.0.12 之前的原始三点动画（思考球 orbits 粒子已移除，改由输出头像承担粒子球）
                                 // v3.0.18：思考期头像也改为粒子球（38pt，用户要求全程粒子球头像）
                                 HStack(alignment: .top, spacing: 10) {
-                                    ZStack {
-                                        Circle()
-                                            .fill(LinearGradient(colors: [.blue, .indigo], startPoint: .topLeading, endPoint: .bottomTrailing))
-                                        // v3.9.2：思考中占位头像 = siri 液态玻璃球（恒 thinking 态）
-                                        LiquidOrbAvatar(size: 38, thinking: true)
-                                            .allowsHitTesting(false)
-                                    }
-                                    .frame(width: 38, height: 38)
+                                    // v3.9.2：思考中占位头像 = siri 液态玻璃球（恒 thinking 态）
+                                    // v3.9.4：去掉蓝色底圆（用户要求）
+                                    LiquidOrbAvatar(size: 38, thinking: true)
+                                        .allowsHitTesting(false)
+                                        .frame(width: 38, height: 38)
                                     // v2.0.35：去掉"思考中"文字（用户要求），保留三点跳动动画
                                     TypingIndicator()
                                         .padding(.horizontal, 16)

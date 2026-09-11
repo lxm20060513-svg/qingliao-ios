@@ -80,9 +80,13 @@ struct RouterPanel: View {
                 Button {
                     onRefresh?()
                 } label: {
-                    Image(systemName: "arrow.clockwise")
-                        .font(.system(size: Typography.subhead, weight: .semibold))
+                    // v3.9.4：刷新统一为「文字 + 胶囊」（去图标）
+                    Text("刷新")
+                        .font(.system(size: Typography.tiny, weight: .semibold))
                         .foregroundStyle(Color.accentColor)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(Color.accentColor.opacity(0.12), in: Capsule())
                 }
                 .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
                 .disabled(router.busy)

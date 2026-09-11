@@ -133,13 +133,9 @@ struct MessageBubble: View {
     /// 拆独立计算属性：防止 body 巨型表达式 type-check 超时（v3.0.15 CI 实测）
     @ViewBuilder
     private var aiAvatar: some View {
-        ZStack {
-            // 玻璃球体外是透明的（着色器 finalAlpha = max(球体遮罩, 自发光)），渐变圆仍是头像底色
-            Circle()
-                .fill(LinearGradient(colors: [.blue, .indigo], startPoint: .topLeading, endPoint: .bottomTrailing))
-            LiquidOrbAvatar(size: 30, thinking: streamingAvatar)
-        }
-        .frame(width: 30, height: 30)
+        // v3.9.4：去掉蓝色底圆（用户要求）——液态玻璃球自身带球体遮罩 + 自发光，外圈本来就是透明的
+        LiquidOrbAvatar(size: 30, thinking: streamingAvatar)
+            .frame(width: 30, height: 30)
     }
 
     var body: some View {
@@ -295,13 +291,10 @@ struct MessageBubble: View {
                         Button {
                             onRegenerate()
                         } label: {
-                            HStack(spacing: 5) {
-                                Image(systemName: "arrow.clockwise")
-                                    .font(.system(size: Typography.tiny, weight: .semibold))
-                                Text("重新生成")
-                                    .font(.system(size: Typography.caption, weight: .medium))
-                            }
-                            .foregroundStyle(.red.opacity(0.85))
+                            // v3.9.4：只留文字（去图标）
+                            Text("重新生成")
+                                .font(.system(size: Typography.caption, weight: .medium))
+                                .foregroundStyle(.red.opacity(0.85))
                         }
                         .buttonStyle(.plain)
                         .padding(.top, 2)

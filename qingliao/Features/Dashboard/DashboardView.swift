@@ -88,7 +88,8 @@ struct DashboardView: View {
                                 Button {
                                     Task { await loadSmartSuggestion() }
                                 } label: {
-                                    Label("重新生成", systemImage: "arrow.clockwise")
+                                    // v3.9.4：只留文字 + 胶囊（去图标）
+                                    Text("重新生成")
                                         .font(.system(size: Typography.tiny))
                                         .padding(.horizontal, 10)
                                         .padding(.vertical, 4)
@@ -156,9 +157,18 @@ struct DashboardView: View {
                                 .font(.system(size: Typography.subhead))
                                 .foregroundStyle(.tertiary)
                             Spacer()
-                            Button("刷新") { Task { await refresh() } }
-                                .font(.system(size: Typography.caption, weight: .medium))
-                                .foregroundStyle(Color.accentColor)
+                            Button {
+                                Task { await refresh() }
+                            } label: {
+                                // v3.9.4：刷新统一为「文字 + 胶囊」（去图标）
+                                Text("刷新")
+                                    .font(.system(size: Typography.caption, weight: .medium))
+                                    .foregroundStyle(Color.accentColor)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 4)
+                                    .background(Color.accentColor.opacity(0.12), in: Capsule())
+                            }
+                            .buttonStyle(PressStyle())
                         }
                         .padding(.horizontal, 12)
                         .padding(.vertical, 8)
@@ -194,9 +204,18 @@ struct DashboardView: View {
                                 .font(.system(size: Typography.subhead))
                                 .foregroundStyle(.tertiary)
                             Spacer()
-                            Button("刷新") { Task { await refresh() } }
-                                .font(.system(size: Typography.caption, weight: .medium))
-                                .foregroundStyle(Color.accentColor)
+                            Button {
+                                Task { await refresh() }
+                            } label: {
+                                // v3.9.4：刷新统一为「文字 + 胶囊」（去图标）
+                                Text("刷新")
+                                    .font(.system(size: Typography.caption, weight: .medium))
+                                    .foregroundStyle(Color.accentColor)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 4)
+                                    .background(Color.accentColor.opacity(0.12), in: Capsule())
+                            }
+                            .buttonStyle(PressStyle())
                         }
                         .padding(.horizontal, 12)
                         .padding(.vertical, 8)

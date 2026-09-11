@@ -82,7 +82,8 @@ struct MemoSection: View {
                 draft = ""
                 showAdd = true
             } label: {
-                Label("添加", systemImage: "plus")
+                // v3.9.4：只留文字 + 胶囊（去图标）
+                Text("添加")
                     .font(.system(size: Typography.caption))
                     .padding(.horizontal, 10)
                     .padding(.vertical, 4)

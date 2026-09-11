@@ -371,13 +371,9 @@ private struct ContainerSection: View {
                 Button {
                     Task { await onRefresh() }
                 } label: {
-                    // v2.0.92：刷新按钮胶囊化（图标+文字，点击区域大、不易误触）
-                    HStack(spacing: 3) {
-                        Image(systemName: "arrow.clockwise")
-                            .font(.system(size: Typography.caption, weight: .semibold))
-                        Text("刷新")
-                            .font(.system(size: Typography.subhead, weight: .medium))
-                    }
+                    // v2.0.92：刷新按钮胶囊化（点击区域大、不易误触）；v3.9.4：按用户要求去图标，只留「刷新」文字 + 胶囊
+                    Text("刷新")
+                        .font(.system(size: Typography.subhead, weight: .medium))
                     .foregroundStyle(Color.accentColor)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
@@ -453,13 +449,9 @@ private struct ImageSection: View {
                 Button {
                     Task { await onRefresh() }
                 } label: {
-                    // v2.0.92：刷新按钮胶囊化（图标+文字，点击区域大、不易误触）
-                    HStack(spacing: 3) {
-                        Image(systemName: "arrow.clockwise")
-                            .font(.system(size: Typography.caption, weight: .semibold))
-                        Text("刷新")
-                            .font(.system(size: Typography.subhead, weight: .medium))
-                    }
+                    // v2.0.92：刷新按钮胶囊化（点击区域大、不易误触）；v3.9.4：按用户要求去图标，只留「刷新」文字 + 胶囊
+                    Text("刷新")
+                        .font(.system(size: Typography.subhead, weight: .medium))
                     .foregroundStyle(Color.indigo)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
