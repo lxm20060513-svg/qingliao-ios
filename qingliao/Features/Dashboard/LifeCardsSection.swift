@@ -15,6 +15,14 @@ struct LifeCardsSection: View {
     var onDeleteStock: (LifeStock) -> Void = { _ in }
     var onAddStock: () -> Void = {}
     var onRefresh: () -> Void = {}
+    // v3.6.2：资讯卡片专用刷新（只刷资讯、局部转圈）+ 点击展开正文（后端 AI 拉取，不跳浏览器）
+    var feedsRefreshing: Bool = false
+    var onRefreshFeeds: () -> Void = {}
+    var articleStates: [String: LifeArticleState] = [:]
+    var onOpenArticle: (LifeRssEntry) -> Void = { _ in }
+    /// v3.6.2：当前展开的条目 id（单一真源——只渲染这一条的正文，收起时置 nil 即真正收起；
+    /// articleStates 仅作内容缓存，不再决定是否渲染）
+    var expandedArticleID: String? = nil
 
     @AppStorage("dashboard_life_expanded") private var expanded = true
 
@@ -151,6 +159,24 @@ struct LifeCardsSection: View {
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 0)
+                // v3.6.2：资讯专用刷新——后端 ?fresh=1 强制绕缓存（原整块刷新受 RSS 15 分钟缓存限制，
+                // 点了 15 分钟内不出新内容）
+                if feedsRefreshing {
+                    ProgressView().controlSize(.small)
+                }
+                Button {
+                    onRefreshFeeds()
+                } label: {
+                    Label("刷新", systemImage: "arrow.clockwise")
+                        .font(.system(size: 10))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(Color.accentColor.opacity(0.12), in: Capsule())
+                }
+                .buttonStyle(PressStyle())
+                .foregroundStyle(Color.accentColor)
+                .disabled(feedsRefreshing)
+                .accessibilityLabel("刷新资讯")
                 if !data.updatedText.isEmpty {
                     Text(data.updatedText)
                         .font(.system(size: 10))
@@ -169,14 +195,80 @@ struct LifeCardsSection: View {
         .dashboardCard(cornerRadius: 10)
     }
 
+    /// v3.6.2：点击该条 → 就地展开正文（后端 AI 抓取+整理），不再跳转浏览器；再点一次收起。
+    /// 失败态再点一次 = 重试（失败不长期锁定）。
     @ViewBuilder
     private func rssRow(_ e: LifeRssEntry) -> some View {
-        if let url = URL(string: e.link), !e.link.isEmpty {
-            Link(destination: url) { rssRowBody(e) }
-                .buttonStyle(PressStyle())
-        } else {
-            rssRowBody(e)
+        Button {
+            onOpenArticle(e)
+        } label: {
+            VStack(alignment: .leading, spacing: 8) {
+                rssRowBody(e)
+                if e.id == expandedArticleID, let st = articleStates[e.id] { articleBody(st) }
+            }
+            .contentShape(Rectangle())
         }
+        .buttonStyle(PressStyle())
+    }
+
+    /// 展开区：加载中 / AI 正文 / 失败提示（三态）
+    @ViewBuilder
+    private func articleBody(_ st: LifeArticleState) -> some View {
+        Divider().opacity(0.4)
+        switch st {
+        case .loading:
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.small)
+                Text("AI 正在读取这篇资讯…")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+            }
+        case .loaded(let a):
+            VStack(alignment: .leading, spacing: 6) {
+                Text(a.content)
+                    .font(.system(size: 13))
+                    .lineSpacing(4)
+                    .foregroundStyle(.primary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                HStack(spacing: 8) {
+                    if a.source != "ai" {
+                        articleTag("原文未整理")
+                    }
+                    if a.cached {
+                        articleTag("缓存")
+                    }
+                    if a.truncated {
+                        articleTag("已截断")
+                    }
+                    Spacer(minLength: 0)
+                    Text("点击收起")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.tertiary)
+                }
+            }
+        case .failed(let msg):
+            HStack(spacing: 6) {
+                Image(systemName: "exclamationmark.triangle")
+                    .font(.system(size: 10))
+                Text(msg)
+                    .font(.system(size: 11))
+                Spacer(minLength: 0)
+                Text("点击重试")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.tertiary)
+            }
+            .foregroundStyle(.tertiary)
+        }
+    }
+
+    private func articleTag(_ t: String) -> some View {
+        Text(t)
+            .font(.system(size: 9))
+            .padding(.horizontal, 6)
+            .padding(.vertical, 1)
+            .background(Color.accentColor.opacity(0.1), in: Capsule())
+            .foregroundStyle(Color.accentColor)
     }
 
     private func rssRowBody(_ e: LifeRssEntry) -> some View {

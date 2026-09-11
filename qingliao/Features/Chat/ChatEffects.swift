@@ -1,5 +1,6 @@
 // MARK: - 全屏爆发特效 + 智能球（从 ChatComponents.swift 拆出）
 import SwiftUI
+import UIKit
 
 // MARK: - v2.0.132 全屏爆发特效（点击智能球：满屏粒子散开）
 
@@ -10,6 +11,9 @@ import SwiftUI
 /// v2.0.138 决定直接移除波纹层（修不好宁可整体移除，用户确认），只保留粒子特效。
 struct FullScreenBurst: View {
     @State private var spawn = Date()
+    /// v3.6.2：粒子发射原点距屏幕底部距离——原写死 136 = 聊天页输入栏智能球位置；
+    /// 智能球迁到 dock 槽位后由 DockOrbOverlay.ballCenterFromBottom 传入
+    var originFromBottom: CGFloat = 136
 
     var body: some View {
         // 锁 60fps（v2.0.133d：ProMotion 120Hz 下每帧全屏 Canvas 重绘开销大，60fps 肉眼已顺滑）
@@ -19,7 +23,7 @@ struct FullScreenBurst: View {
             // 粒子层：160 颗飞散粒子（v2.0.138：波纹层已移除，仅粒子）
             let schedule: AnimationTimelineSchedule = .animation(minimumInterval: 1.0 / 30.0)
             TimelineView(schedule) { context in
-                BurstCanvas(date: context.date, spawn: spawn)
+                BurstCanvas(date: context.date, spawn: spawn, originFromBottom: originFromBottom)
             }
         }
         .allowsHitTesting(false)
@@ -32,6 +36,8 @@ struct FullScreenBurst: View {
 struct BurstCanvas: View {
     let date: Date
     let spawn: Date
+    /// v3.6.2：发射原点距屏幕底部（默认 136 = 原输入栏球位置）
+    var originFromBottom: CGFloat = 136
 
     /// 确定性伪随机（0-1），粒子参数稳定不闪烁
     private func hash(_ i: Int, _ salt: Int) -> Double {
@@ -46,7 +52,7 @@ struct BurstCanvas: View {
             // v2.0.135：扩散波纹移出 Canvas（改隐式动画），v2.0.138：波纹层整体移除（仍卡顿），
             // 仅保留粒子绘制——160 颗小圆，绘制面积小
             // 发射原点：底部中央（智能球位置，Dock 上方；v2.0.137 随球下沉同步 h-164；v2.0.140 球再下移同步 h-136）
-            let origin = CGPoint(x: w / 2, y: h - 136)
+            let origin = CGPoint(x: w / 2, y: h - originFromBottom)
             // 粒子群：160 颗。v2.0.133 放烟花参数：
             //    速度调慢（250-650）且减速加大（0.25→0.55）= 先快后慢的爆开感；
             //    生命周期拉长（0.7-1.2s）平滑淡出（v2.0.133c：去掉末段 sin 闪烁，用户觉得闪烁多余）
@@ -106,9 +112,37 @@ struct SiriBallView: View {
     // v3.1.4+：长按语音转文字（与发送按钮长按功能一致）
     var onLongPress: () -> Void = {}
     var voiceEnabled: Bool = true
+    // v3.6.2：尺寸参数化——92 = 原聊天页输入栏球外框（基准），dock 槽位传 36
+    // （球体 ≈28pt，与 dock 其它图标等高）；内部所有尺寸按 k 等比缩放
+    var size: CGFloat = 92
+    /// 动画帧率（默认 30；dock 槽位空闲态传 15 —— 常驻视图省电，思考态仍用 30）
+    var fps: Double = 30
+
+    private var k: CGFloat { size / 92 }
+
+    /// v3.6.2：内层 orb 参数——大尺寸（原输入栏 92）用默认；小尺寸（dock 槽位 36 → canvas 23.5pt）
+    /// 必须换成放大参数：点半径经 radiusScale(size, 0.6) 缩放后默认值只剩 ≈0.5pt 近乎不可见
+    /// （项目内 30/38pt 头像球同样显式传大参数，见 ChatMessageBubble / ChatView 思考球）
+    private var orbOpts: OrbOpts {
+        guard k < 0.7 else { return OrbOpts() }
+        return thinking ? Self.dockOrbitOpts : Self.dockRingOpts
+    }
+
+    /// dock 小尺寸 orbits（点点旋转）：对齐项目 30pt 头像球参数并再放宽一点
+    private static let dockOrbitOpts = OrbOpts(orbitN: 10, ghostN: 34, ghostR: 1.7, ghostA: 0.85,
+                                               particles: 4, partR: 2.6, partRDepth: 3.2,
+                                               rsPow: 0.6, rMin: 0.9)
+    /// dock 小尺寸 ring（空闲呼吸）：环点数与 ring64 一致，半径按 ≈1.8 倍放大保证可见
+    private static let dockRingOpts = OrbOpts(ghostN: 150, ghostR: 1.7, ghostA: 0.5,
+                                              lanes: 5, segs: 88, faceOn: 1,
+                                              rBase: 2.0, rDepth: 3.2,
+                                              wobMul: 0.368, bandMul: 3.627, spin: 0,
+                                              rsPow: 0.6, rMin: 0.9)
 
     var body: some View {
-        let schedule: AnimationTimelineSchedule = .animation(minimumInterval: 1.0 / 30.0)
+        // v3.6.2：帧率可调——dock 槽位常驻显示（5 个 tab 全程可见），空闲呼吸降 15fps 省电，
+        // 流式思考中保留 30fps 让 orbits 旋转顺滑（原写死 30fps）
+        let schedule: AnimationTimelineSchedule = .animation(minimumInterval: 1.0 / fps)
         TimelineView(schedule) { context in
             let t = context.date.timeIntervalSinceReferenceDate
             let breathe = 0.35 + 0.30 * (sin(t * 2.2) + 1) / 2
@@ -123,18 +157,18 @@ struct SiriBallView: View {
             ZStack {
                 Circle()
                     .fill(AngularGradient(colors: glowColors, center: .center))
-                    .blur(radius: 6)
-                    .frame(width: 84, height: 84)
+                    .blur(radius: 6 * k)
+                    .frame(width: 84 * k, height: 84 * k)
                 Circle()
                     .fill(AngularGradient(colors: bodyColors, center: .center))
-                    .frame(width: 72, height: 72)
-                    .overlay(Circle().strokeBorder(.white.opacity(0.22), lineWidth: 1.2))
-                    .shadow(color: Color.indigo.opacity(0.45 * breathe), radius: 14)
-                OrbCanvasView(mode: thinking ? .orbits : .ring, size: 60)
+                    .frame(width: 72 * k, height: 72 * k)
+                    .overlay(Circle().strokeBorder(.white.opacity(0.22), lineWidth: max(0.8, 1.2 * k)))
+                    .shadow(color: Color.indigo.opacity(0.45 * breathe), radius: 14 * k)
+                OrbCanvasView(mode: thinking ? .orbits : .ring, size: 60 * k, opts: orbOpts)
                     .allowsHitTesting(false)
             }
         }
-        .frame(width: 92, height: 92)
+        .frame(width: size, height: size)
         .contentShape(Circle())
         // v3.1.4+：长按语音转文字 / 单击展开（ExclusiveGesture 互斥，防长按同时触发单击）
         .gesture(
@@ -143,7 +177,59 @@ struct SiriBallView: View {
                 TapGesture().onEnded { _ in onTap() }
             )
         )
-        .padding(.horizontal, 14)
-        .padding(.vertical, 6)
+    }
+}
+
+
+// MARK: - v3.6.2 dock 槽位智能球（系统 tab item 的自定义替身）
+//
+// 背景：iOS 26 原生 TabView 的 tab item 只接受系统图标 + 文字（官方未提供自定义视图 API）。
+// 因此聊天槽位的 item 置为不可见（Text("")，无图标无文字），整颗球由本层自绘并居中于该槽位。
+// 本层必须 .allowsHitTesting(false)：触摸要穿透给下层的系统 tab item（点球 = 系统切页，行为不变）。
+struct DockOrbOverlay: View {
+    /// 目标槽位序号（本地：会话0 / 看板1 / 聊天2 / 生活3 / 设置4）
+    var slotIndex: Int = 2
+    /// dock 槽位总数（本地 5；云端 4）
+    var slotCount: Int = 5
+    /// 外框（含光晕）边长；球体 ≈ size × 0.783 —— 36 时球体 ≈ 28pt，与 dock 其它图标等高
+    var ballSize: CGFloat = 36
+    /// 装机微调预留：正值下移
+    var verticalNudge: CGFloat = 0
+    /// AI 正在流式回答 → 球切 orbits（点点旋转）；空闲 → ring（缓慢脉动）
+    var thinking: Bool = false
+
+    /// iOS 26 原生 tab bar 高度（不含底部安全区）
+    static let dockBarHeight: CGFloat = 49
+
+    var body: some View {
+        // 安全区在 body 顶层取（MainActor 上下文），闭包内只消费值
+        let centerFromBottom = DockOrbOverlay.ballCenterFromBottom
+        GeometryReader { geo in
+            let w = geo.size.width
+            let h = geo.size.height
+            // 槽位等分：球心 = 槽位水平中心；纵向 = tab bar 半高（无文字，整颗球在槽位内居中）
+            let cx = w * (CGFloat(slotIndex) + 0.5) / CGFloat(slotCount)
+            let cy = h - centerFromBottom + verticalNudge
+            // 空闲呼吸 15fps / 思考旋转 30fps —— dock 常驻视图按状态降帧
+            SiriBallView(thinking: thinking, size: ballSize, fps: thinking ? 30 : 15)
+                .frame(width: ballSize, height: ballSize)
+                .position(x: cx, y: cy)
+        }
+    }
+
+    /// 球心距屏幕底部距离（底部安全区 + tab bar 半高）——烟花原点复用同一值
+    @MainActor
+    static var ballCenterFromBottom: CGFloat {
+        keyWindowSafeBottom + dockBarHeight / 2
+    }
+
+    /// 读 key window 底部安全区（不依赖叠加层自身的 safeAreaInsets——叠加层会被 tab bar 吃掉安全区）。
+    /// 优先取前台活跃 UIWindowScene 的 key window（多 scene / 首帧窗口未就位时仍能拿到有效值）
+    @MainActor
+    static var keyWindowSafeBottom: CGFloat {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        let scene = scenes.first(where: { $0.activationState == .foregroundActive }) ?? scenes.first
+        let window = scene?.windows.first(where: { $0.isKeyWindow }) ?? scene?.windows.first
+        return window?.safeAreaInsets.bottom ?? 0
     }
 }

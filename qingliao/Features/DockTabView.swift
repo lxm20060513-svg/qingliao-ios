@@ -3,24 +3,28 @@ import CoreLocation
 import UIKit
 
 enum DockTab: String, CaseIterable, Identifiable {
-    case chat, sessions, dashboard, settings
+    // v3.6.2：dock 顺序重排 = 会话 → 看板 → 聊天 → 生活 → 设置
+    // （enum 声明序与 TabView 内声明序一致，便于对照；TabView 顺序由视图插入序决定）
+    case sessions, dashboard, chat, life, settings
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
-        case .chat: "聊天"
         case .sessions: "会话"
         case .dashboard: "看板"
+        case .chat: "聊天"
+        case .life: "生活"
         case .settings: "设置"
         }
     }
 
     var icon: String {
         switch self {
-        case .chat: "message.fill"
         case .sessions: "clock"
         case .dashboard: "square.grid.2x2.fill"
+        case .chat: "message.fill"
+        case .life: "sparkles"
         case .settings: "gearshape.fill"
         }
     }
@@ -28,10 +32,21 @@ enum DockTab: String, CaseIterable, Identifiable {
 
 struct DockTabView: View {
     @State private var selected: DockTab = .chat
+    // v3.6.2：dock 智能球点击 → 全屏粒子爆发（原由聊天页智能球展开触发，球迁到 dock 后跟随迁移）
+    @State private var showDockBurst = false
+    /// v3.6.2：分享/深链等「程序化切到聊天页」跳过烟花（烟花的语义是「点了 dock 智能球」）
+    @State private var skipNextBurst = false
     @Environment(AuthStore.self) private var auth
     @Environment(ChatStore.self) private var chat
     @Environment(StreamClient.self) private var stream
     @Environment(\.horizontalSizeClass) private var hSize
+
+    private var isCloud: Bool { CloudConfig.shared.isCloudMode }
+    /// v3.6.2：聊天槽位用智能球替身——仅本地模式 + iPhone（云端模式与 iPad 保持系统图标原样）
+    private var orbInDock: Bool { !isCloud && hSize != .regular }
+    /// dock 槽位数（本地 5：会话/看板/聊天/生活/设置；云端 4，不加生活页）
+    private var dockSlotCount: Int { isCloud ? 4 : 5 }
+
     var body: some View {
         // v3.0.64：改用 iOS 26 系统原生 TabView tab bar —— 系统自动渲染液态玻璃 tab bar，
         // 自带按压放大/流动折射/边缘高光（即用户要的控制中心那种原生效果）。
@@ -42,24 +57,9 @@ struct DockTabView: View {
             // 各页自带背景，tab bar 玻璃改为采样真实滚动内容。
 
             TabView(selection: $selected) {
-                if hSize == .regular {
-                    HStack(spacing: 0) {
-                        SessionsView(onOpenSession: nil)
-                            .frame(width: 320)
-                            .background(Color(uiColor: .systemBackground))
-                        Divider().opacity(0.3)
-                        ChatView()
-                    }
-                    .tag(DockTab.chat)
-                    .tabItem { Label(DockTab.chat.title, systemImage: DockTab.chat.icon) }
-                } else {
-                    ChatView()
-                        .tag(DockTab.chat)
-                        .tabItem { Label(DockTab.chat.title, systemImage: DockTab.chat.icon) }
-                }
                 SessionsView(onOpenSession: { selected = .chat })
                     .tabTransition(for: .sessions, selected: $selected)
-                if CloudConfig.shared.isCloudMode {
+                if isCloud {
                     CloudDashboardView()
                         .tabTransition(for: .dashboard, selected: $selected)
                 } else {
@@ -68,7 +68,13 @@ struct DockTabView: View {
                     DashboardView(isActive: selected == .dashboard)
                         .tabTransition(for: .dashboard, selected: $selected)
                 }
-                if CloudConfig.shared.isCloudMode {
+                chatTab
+                // v3.6.2：生活页（原看板「生活数据」栏目迁入）——仅本地模式；云端模式不做改动
+                if !isCloud {
+                    LifeView(isActive: selected == .life)
+                        .tabTransition(for: .life, selected: $selected)
+                }
+                if isCloud {
                     CloudSettingsView()
                         .tabTransition(for: .settings, selected: $selected)
                 } else {
@@ -80,11 +86,41 @@ struct DockTabView: View {
             // （v3.4.29 曾设为 .onScrollDown：向下滚动缩到角落只剩图标，用户不需要）
             .tabBarMinimizeBehavior(.never)
             // v3.4.29：切 tab 触感——挂在一处（TabView），别挂进每个 tab 的 modifier（会响 4 次）
-            .onChange(of: selected) { _, _ in Haptics.tap() }
+            .onChange(of: selected) { _, newVal in
+                Haptics.tap()
+                // v3.6.2：点 dock 智能球（= 切到聊天页）→ 放烟花，保留原智能球的点击特效
+                if orbInDock, newVal == .chat {
+                    if skipNextBurst { skipNextBurst = false } else { fireDockBurst() }
+                }
+            }
+            // v3.6.2：dock 聊天槽位智能球——系统 tab item 只能放系统图标（iOS 26 无自定义视图 API），
+            // 故该槽位 item 置为空（无图标无文字），球由本叠加层自绘并居中于槽位；
+            // allowsHitTesting(false) 让触摸穿透给下层系统 tab item（点球 = 系统切页）。
+            .overlay {
+                if orbInDock {
+                    // 聊天槽位序号 = 2（会话0 / 看板1 / 聊天2 / 生活3 / 设置4）
+                    // thinking: AI 流式回答中球切 orbits 旋转——原聊天页智能球的行为在 dock 槽位保留
+                    DockOrbOverlay(slotIndex: 2,
+                                   slotCount: dockSlotCount,
+                                   thinking: stream.isStreaming)
+                        .allowsHitTesting(false)
+                }
+            }
             // v3.0.60 回顾：系统 tab bar 自行处理滚动边缘玻璃；此处不再加纯色背景掐死折射
             // v3.4.26：切页暂停/恢复看板轮询已改参数直传（DashboardView(isActive:)），通知已移除
             // v3.4.24：任务中心悬浮入口已移除——迁入聊天页 header（三个点旁常驻小图标），
             // 见 ChatView.headerTrailingItems。此处不再挂全局 overlay（避免遮挡各页右上角按钮）。
+            // v3.6.2：全屏粒子爆发（点 dock 智能球触发；纯视觉，不挡交互）
+            .overlay {
+                if showDockBurst {
+                    FullScreenBurst(originFromBottom: DockOrbOverlay.ballCenterFromBottom)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .allowsHitTesting(false)
+                        .transition(.opacity)
+                        .zIndex(30)
+                }
+            }
+            .animation(Motion.tap, value: showDockBurst)
             .task {
                 guard let sid = UserDefaults.standard.string(forKey: "qingliao_open_session") else { return }
                 UserDefaults.standard.removeObject(forKey: "qingliao_open_session")
@@ -95,12 +131,14 @@ struct DockTabView: View {
                     store.load()
                     if let s = store.sessions.first(where: { $0.id == sid }) {
                         chat.load(s)
+                        skipBurstOnce()
                         selected = .chat
                     }
                 } else if let arr = try? await auth.jsonArray("/api/sessions/list") {
                     let sessions = arr.compactMap { ChatSession.parse($0 as? [String: Any] ?? [:]) }
                     if let s = sessions.first(where: { $0.id == sid }) {
                         chat.load(s)
+                        skipBurstOnce()
                         selected = .chat
                     }
                 }
@@ -110,6 +148,48 @@ struct DockTabView: View {
                 handleShareURL(url)
             }
         }
+    }
+
+    // MARK: - v3.6.2 聊天 tab（三态）
+
+    /// 聊天槽位：
+    ///   · iPad 宽屏：会话 + 聊天双栏，系统 message 图标（原样保留）
+    ///   · 本地 iPhone：item 置空、无文字，整颗智能球由 DockOrbOverlay 居中绘制
+    ///   · 云端模式：保持原样（系统 message 图标 + 「聊天」文字，不做改动）
+    @ViewBuilder
+    private var chatTab: some View {
+        if hSize == .regular {
+            HStack(spacing: 0) {
+                SessionsView(onOpenSession: nil)
+                    .frame(width: 320)
+                    .background(Color(uiColor: .systemBackground))
+                Divider().opacity(0.3)
+                ChatView()
+            }
+            .tag(DockTab.chat)
+            .tabItem { Label(DockTab.chat.title, systemImage: DockTab.chat.icon) }
+        } else if orbInDock {
+            ChatView()
+                .tag(DockTab.chat)
+                // 槽位视觉为空（球由 DockOrbOverlay 绘制）→ 补无障碍标签，VoiceOver 仍读得出「聊天」
+                .tabItem { Text("").accessibilityLabel("聊天") }
+        } else {
+            ChatView()
+                .tag(DockTab.chat)
+                .tabItem { Label(DockTab.chat.title, systemImage: DockTab.chat.icon) }
+        }
+    }
+
+    /// 程序化切页前调用：本次切到聊天页不放烟花（0.6s 内未消费则自动复位，避免标志残留吞掉下一次真点击）
+    private func skipBurstOnce() {
+        skipNextBurst = true
+        Task { try? await Task.sleep(for: .seconds(0.6)); skipNextBurst = false }
+    }
+
+    /// 点 dock 智能球 → 烟花（约 1.55s 后移除特效层，与原型一致）
+    private func fireDockBurst() {
+        showDockBurst = true
+        Task { try? await Task.sleep(for: .seconds(1.55)); showDockBurst = false }
     }
 
     // MARK: - v3.4.14 系统分享接入口
@@ -146,6 +226,7 @@ struct DockTabView: View {
         }
         guard let payload else { return }
         ShareRouter.shared.enqueue(payload)
+        skipBurstOnce()
         selected = .chat
         NotificationCenter.default.post(name: .qingliaoShareIncoming, object: nil)
     }

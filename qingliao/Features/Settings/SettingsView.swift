@@ -78,7 +78,7 @@ struct SettingsView: View {
     @AppStorage("qingliao_app_lock") var appLockOn = false
     @State var appLockAuthFailed = false
     // v2.0.128：AI 输出行高（0-6 步进 0.5，默认 1.0 = 紧凑；滑条控制）已随死代码外观块删除——
-    // 行高/流光/Siri 发光/智能球全部统一由 AppearanceSheet 管理（与云端同一组件）
+    // 行高/流光/Siri 发光全部统一由 AppearanceSheet 管理（与云端同一组件）
     // v2.0.102：切回设置页刷新计数（密码管理/记忆增删后行尾数字即时更新，原只有 .task 首刷）
     var body: some View {
         VStack(spacing: 0) {

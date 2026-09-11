@@ -215,8 +215,6 @@ struct ChatView: View {
     @State var voiceDiag = ""   // v3.0.78 诊断：录音链路诊断信息
     // v2.0.88：AI 回答中发送的消息队列（回答结束后自动逐条发送）
     @State var pendingQueue: [PendingSend] = []
-    // v2.0.132：智能球点击全屏粒子爆发（满屏散开特效层）
-    @State var showFullBurst = false
     // v3.0.18：云端工具调用——执行卡片 + 写操作确认弹窗（gate 类持有，超时闭包只捕获它）
     // v3.0.18 fix：toolCards/lastStreamFlush 提取到 CloudStreamUIState（@Observable 引用类型，
     // 闭包捕获引用而非 struct 值拷贝，避免 Task 内 self 旧副本 → 状态更新丢失）
@@ -413,11 +411,6 @@ struct ChatView: View {
                     onLongPressInput: { keyboardWasUp in toggleVoiceMode(keyboardWasUp: keyboardWasUp) },
                     // v3.0.4：云端模式无后端 ASR → 关闭全部语音入口
                     voiceEnabled: !CloudConfig.shared.isCloudMode,
-                    // v2.0.132：点击智能球 → 全屏粒子爆发（声明序在 contextUsage 前，调用序须一致）
-                    onFullBurst: {
-                        showFullBurst = true
-                        Task { try? await Task.sleep(for: .seconds(1.55)); showFullBurst = false }
-                    },
                     // v3.4.25：上下文使用率传入——超 80% 发送键变橙轻提醒
                     contextUsage: chat.contextUsage(maxTokens: 4000))
                     // v2.0.129：球态输入框 —— 绑定会话 id，切会话重建复位（展开态在切会话后回球态）
@@ -683,16 +676,6 @@ struct ChatView: View {
                 photoItem = nil
             }
         }
-        // v2.0.132：智能球点击 → 全屏粒子爆发（满屏散开，纯视觉不挡交互）
-        .overlay {
-            if showFullBurst {
-                FullScreenBurst()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .transition(.opacity)
-                    .zIndex(10)
-            }
-        }
-        .animation(Motion.tap, value: showFullBurst)
         // v3.4.x 存储自洁：长会话超阈值 → 顶部滑出提示条，点击手动归档导出
         .overlay(alignment: .top) {
             if showArchiveHint {

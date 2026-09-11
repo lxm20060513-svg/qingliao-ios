@@ -17,7 +17,6 @@ struct CloudSettingsView: View {
     // v-review fix（维度3）：外观摘要与消费方同源 @AppStorage 读取（勿用 UserDefaults 直读——
     // 直读缺省 false 与消费方默认 true 相悖，全新安装摘要与实际开关状态矛盾）
     @AppStorage("qingliao_siri_glow") private var siriGlowOn = false
-    @AppStorage("qingliao_ball_input") private var ballInputOn = true
 
     var body: some View {
         VStack(spacing: 0) {
@@ -226,9 +225,7 @@ struct CloudSettingsView: View {
 
     /// 外观摘要（对齐本地 SettingRow 的 value 显示）
     private var appearanceSummary: String {
-        let siri = siriGlowOn ? "发光开" : "发光关"
-        let ball = ballInputOn ? "智能球" : "输入框"
-        return "\(siri) · \(ball)"
+        siriGlowOn ? "发光开" : "发光关"
     }
 
     private func shortURL(_ s: String) -> String {
@@ -238,7 +235,7 @@ struct CloudSettingsView: View {
     }
 }
 
-// MARK: - 云端模式外观设置（v3.0.2 完全对齐本地 AI 外观：主题/字体大小/行高/Siri发光/Dock/智能球）
+// MARK: - 云端模式外观设置（v3.0.2 完全对齐本地 AI 外观：主题/字体大小/行高/Siri发光/Dock）
 
 struct AppearanceSheet: View {
     @Environment(\.dismiss) private var dismiss
@@ -249,7 +246,6 @@ struct AppearanceSheet: View {
     @AppStorage("qingliao_siri_glow") private var siriGlow = false
     // v3.0.36：灵动岛发光（独立开关，复用 Siri 发光 4 参数）
     @AppStorage("qingliao_island_glow") private var islandGlow = false
-    @AppStorage("qingliao_ball_input") private var ballInput = true
     @AppStorage("qingliao_siri_glow_brightness") private var glowBrightness = 1.0
     @AppStorage("qingliao_siri_glow_freq") private var glowFreq = 2.2
     @AppStorage("qingliao_siri_glow_amp") private var glowAmp = 0.18
@@ -273,7 +269,6 @@ struct AppearanceSheet: View {
                 }
                 // 交互
                 Section("交互") {
-                    Toggle("智能球输入", isOn: $ballInput)
                     Toggle("输入框流光光效", isOn: $glowOn)   // v3.0.4：补全本地独有项
                 }
                 // AI 回答发光（对齐本地 Siri 发光 4 参数）

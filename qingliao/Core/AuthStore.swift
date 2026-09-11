@@ -186,7 +186,10 @@ final class AuthStore {
     /// - Wi-Fi/其他：URLSession 直连（免 relay 弹窗）
     /// - 蜂窝：CFStream 直连优先（纯 socket 绕 iOS 27 管控），失败降级 Safari relay
     /// 返回 (data, HTTPURLResponse)
-    func request(_ path: String, method: String = "GET", body: [String: Any]? = nil) async throws -> (Data, HTTPURLResponse) {
+    /// - Parameter timeout: 可选超时覆盖（秒）。nil = 沿用各路径默认值（蜂窝直连 10 / relay 30 / Wi‑Fi 30）。
+    ///   v3.6.2：给「后端要抓网页 + 调模型」的长耗时接口（如 /api/life/article）放宽用。
+    func request(_ path: String, method: String = "GET", body: [String: Any]? = nil,
+                 timeout: TimeInterval? = nil) async throws -> (Data, HTTPURLResponse) {
         let bodyData: Data?
         var headers: [String: String] = [:]
         if let body {
@@ -210,15 +213,17 @@ final class AuthStore {
         if NetworkMonitor.shared.isCellular {
             do {
                 (data, code) = try await relay.directRequest(method: method, path: path,
-                                                             headers: headers, body: bodyData, timeout: 10)
+                                                             headers: headers, body: bodyData,
+                                                             timeout: timeout ?? 10)
             } catch {
                 (data, code) = try await relay.relay(method: method, path: path,
                                                      headers: headers, body: bodyData,
-                                                     timeout: 30)
+                                                     timeout: timeout ?? 30)
             }
         } else {
             // Wi-Fi/其他：URLSession 直连（免 relay 弹窗）
-            (data, code) = try await directHTTP(method: method, path: path, headers: headers, body: bodyData)
+            (data, code) = try await directHTTP(method: method, path: path, headers: headers,
+                                                body: bodyData, timeout: timeout ?? 30)
         }
 
         // v3.1.8 fix: 登录接口401正常抛错（触发重新登录），其余接口401静默转200
@@ -261,11 +266,12 @@ final class AuthStore {
     }
 
     /// Wi-Fi 直连：URLSession（ephemeral，瞬断重试 3 次）——蜂窝外免 relay 弹窗
-    private func directHTTP(method: String, path: String, headers: [String: String], body: Data?) async throws -> (Data, Int) {
+    private func directHTTP(method: String, path: String, headers: [String: String], body: Data?,
+                            timeout: TimeInterval = 30) async throws -> (Data, Int) {
         guard let url = URL(string: serverURL + path) else { throw APIError.badURL }
         var req = URLRequest(url: url)
         req.httpMethod = method
-        req.timeoutInterval = 30
+        req.timeoutInterval = timeout
         for (k, v) in headers { req.setValue(v, forHTTPHeaderField: k) }
         if let body { req.httpBody = body }
         var lastErr: Error?
@@ -301,8 +307,9 @@ final class AuthStore {
     }
 
     /// 便捷：JSON 请求 → 字典
-    func json(_ path: String, method: String = "GET", body: [String: Any]? = nil) async throws -> [String: Any] {
-        let (data, _) = try await request(path, method: method, body: body)
+    func json(_ path: String, method: String = "GET", body: [String: Any]? = nil,
+              timeout: TimeInterval? = nil) async throws -> [String: Any] {
+        let (data, _) = try await request(path, method: method, body: body, timeout: timeout)
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw APIError.badJSON
         }
@@ -320,9 +327,10 @@ final class AuthStore {
 
     /// v3.0.x：便捷：JSON 请求 → 字典，失败静默返回 nil 并打日志（替代 `try? await auth.json(...)` 模式）
     /// 用途：Dashboard/Settings 等非关键加载路径，失败不弹错只 log，避免 `try?` 吞掉错误信息
-    func jsonOrLog(_ path: String, method: String = "GET", body: [String: Any]? = nil) async -> [String: Any]? {
+    func jsonOrLog(_ path: String, method: String = "GET", body: [String: Any]? = nil,
+                   timeout: TimeInterval? = nil) async -> [String: Any]? {
         do {
-            return try await json(path, method: method, body: body)
+            return try await json(path, method: method, body: body, timeout: timeout)
         } catch {
             print("[jsonOrLog] \(method) \(path) failed: \(error)")
             return nil

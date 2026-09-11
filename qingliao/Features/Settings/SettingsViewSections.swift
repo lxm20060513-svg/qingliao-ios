@@ -242,7 +242,7 @@ extension SettingsView {
             SettingRow(icon: "circle.lefthalf.filled", iconColor: .purple, title: "外观", value: appearanceName, chevron: true)
                 .onTapGesture { withAnimation(Motion.snap) { showAppearance = true } }
             // v3.x review fix：showAppearanceOptions 死代码块（深浅色 chips/输入框流光/Siri 发光滑条/
-            // AI 输出行高/智能球）永不显示（唯一写点恒置 false）——已删除，统一由 AppearanceSheet 管理
+            // AI 输出行高）永不显示（唯一写点恒置 false）——已删除，统一由 AppearanceSheet 管理
         }
         .glassListCard()
     }

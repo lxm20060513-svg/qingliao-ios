@@ -186,3 +186,34 @@ struct LifeCardsData {
         return df.string(from: d)
     }
 }
+
+
+// MARK: - v3.6.2 资讯正文（后端 POST /api/life/article：抓 HTML → 清洗 → 模型整理，按 URL 缓存 6h）
+
+/// 单条资讯的正文
+struct LifeArticle {
+    let ok: Bool
+    let title: String
+    let content: String
+    let source: String      // "ai" = 模型整理；"raw" = 模型不可用时的降级原文
+    let error: String
+    let cached: Bool
+    let truncated: Bool
+
+    static func parse(_ j: [String: Any]) -> LifeArticle {
+        LifeArticle(ok: (j["ok"] as? Bool) ?? false,
+                    title: j["title"] as? String ?? "",
+                    content: j["content"] as? String ?? "",
+                    source: j["source"] as? String ?? "",
+                    error: j["error"] as? String ?? "",
+                    cached: (j["cached"] as? Bool) ?? false,
+                    truncated: (j["truncated"] as? Bool) ?? false)
+    }
+}
+
+/// 资讯正文在界面上的状态（由 LifeView 持有，卡片只读渲染）
+enum LifeArticleState {
+    case loading
+    case loaded(LifeArticle)
+    case failed(String)
+}
