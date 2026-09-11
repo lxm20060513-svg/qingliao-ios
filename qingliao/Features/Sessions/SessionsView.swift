@@ -93,9 +93,12 @@ struct SessionsView: View {
             .padding(.horizontal, 14)
             .padding(.bottom, 8)
             if isLoading && sessions.isEmpty {
-                Spacer()
-                ProgressView()
-                    .tint(.secondary)
+                // v3.9.0：首屏加载改骨架屏（比转圈更能预示"内容马上出现在这里"，且不白屏）
+                VStack(spacing: 14) {
+                    ForEach(0..<3, id: \.self) { _ in SkeletonRow() }
+                }
+                .padding(.horizontal, 14)
+                .padding(.top, 6)
                 Spacer()
             } else if let err = errorText, sessions.isEmpty {
                 Spacer()

@@ -384,7 +384,13 @@ private struct ContainerSection: View {
                 .buttonStyle(.plain)
             }
 
-            if containers.isEmpty {
+            if containers.isEmpty && busy {
+                // v3.9.0：拉取中先给骨架（避免"暂无容器"与正在加载混淆）
+                VStack(spacing: 10) {
+                    ForEach(0..<2, id: \.self) { _ in SkeletonRow() }
+                }
+                .padding(.vertical, 4)
+            } else if containers.isEmpty {
                 VStack(spacing: 6) {
                     Image(systemName: "shippingbox")
                         .font(.system(size: Typography.titleXL))

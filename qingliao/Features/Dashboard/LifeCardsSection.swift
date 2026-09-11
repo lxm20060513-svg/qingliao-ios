@@ -95,8 +95,30 @@ struct LifeCardsSection: View {
     @ViewBuilder
     private var content: some View {
         if !data.loaded {
-            noteCard(icon: "chart.line.uptrend.xyaxis",
-                     text: loading ? "加载中…" : "暂无生活数据 · 点刷新")
+            if loading {
+                // v3.9.0：首屏加载骨架（行情 2 格 + 资讯长卡形状，与真实卡片同圆角同栅格）
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(spacing: 10) {
+                        SkeletonCard {
+                            SkeletonBlock(width: 52, height: 10)
+                            SkeletonBlock(width: 74, height: 20)
+                            SkeletonBlock(width: 44, height: 9)
+                        }
+                        SkeletonCard {
+                            SkeletonBlock(width: 52, height: 10)
+                            SkeletonBlock(width: 74, height: 20)
+                            SkeletonBlock(width: 44, height: 9)
+                        }
+                    }
+                    SkeletonCard {
+                        SkeletonBlock(width: 140, height: 11)
+                        SkeletonBlock(height: 10)
+                        SkeletonBlock(width: 200, height: 10)
+                    }
+                }
+            } else {
+                noteCard(icon: "chart.line.uptrend.xyaxis", text: "暂无生活数据 · 点刷新")
+            }
         } else if !data.hasContent {
             VStack(alignment: .leading, spacing: 6) {
                 noteRow(icon: "exclamationmark.triangle", text: degradeText)
