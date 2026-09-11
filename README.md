@@ -93,6 +93,12 @@ QingliaoWidget/          挂件 Extension target（.appex）：灵动岛/锁屏�
 - **列表崩溃三连排查**：①从有到无同帧 → VStack+分帧两步走；②TabView 隐藏页清空 → 换掉 .scrollPosition（PreferenceKey 方案）；③数组就地 removeAll + ForEach diff → 后端驱动 + load() 整体替换
 - **灵动岛 / 实时活动（v3.8.0）**：只做本地驱动（侧载免费签名拿不到 Push 能力，不做 APNs/push-to-start）；`LiveActivityManager` **不持有 `Activity` 本体**——存进 `@MainActor` 存储再 `await update/end` 会报 Swift 6 `sending 'activity' risks causing data races`，改为只存 Sendable 状态、每次从 `Activity.activities` 现取（且该列表最终一致，收尾空列表时等 600ms 再收一次）；计时用 `Text(_:style:.timer)` 交系统走（App 被挂起后文案不再刷新，这是设计内降级）；挂件与主 App 共用 `qingliao/Core/LiveActivityAttributes.swift`（同编一份，改一处等于改两侧）；开关 key `qingliao_live_activity`（默认开）
 
+## 🆕 近期变更（v3.9.5，2026-09-12）
+
+- **语音录音态 UI 修正（用户实测反馈）**：录音中不再用红色「正在聆听…」胶囊**整块顶掉输入框**——那样既看不见输入框、也看不见转写全文（长句还被单行截断）→ 改为**输入框全程常显**，设备端识别结果（`liveSpeech.onTextChange`）实时落进框里，边说边看
+- 仅保留左侧 **7pt 红点**作「正在听」标识；录音中给输入框加 `.allowsHitTesting(false)`，防误触弹键盘打断语音模式
+- 清理已无用的 `recordingText` 参数与 `ChatView` 传参（实时文本改由 `inputText` 直接承载）
+
 ## 🆕 近期变更（v3.9.4，2026-09-11）
 
 - **修「一按语音转文字就闪退」**（v3.9.3 引入的回归，用户报 `Signal(5)`）：设备端转写的 `LiveSpeechTranscriber.start()` 是 `@MainActor`，其中 `installTap` 的闭包字面量**继承 MainActor 隔离**，而麦克风 tap 在**音频线程**回调 ⇒ 进闭包即 Swift 6 隔离断言 SIGTRAP。用 v3.9.3 的 dSYM 符号化定案（崩溃帧就是这个闭包），修复=闭包显式 `@Sendable`；`requestRecordPermission` 回调一并补 `@Sendable`
