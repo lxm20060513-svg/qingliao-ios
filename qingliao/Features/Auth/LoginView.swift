@@ -28,9 +28,9 @@ struct ModeSwitchBar: View {
         } label: {
             HStack(spacing: 5) {
                 Image(systemName: icon)
-                    .font(.system(size: 11))
+                    .font(.system(size: Typography.caption))
                 Text(title)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: Typography.subhead, weight: .semibold))
             }
             .foregroundStyle(config.mode == mode ? Color.white : Color.secondary)
             .frame(maxWidth: .infinity)
@@ -79,9 +79,9 @@ struct LoginView: View {
                         .font(.system(size: 52))
                         .foregroundStyle(LinearGradient(colors: [.blue, .indigo], startPoint: .topLeading, endPoint: .bottomTrailing))
                     Text("轻聊")
-                        .font(.system(size: 28, weight: .bold))
+                        .font(.system(size: Typography.display, weight: .bold))
                     Text("家庭 NAS 上的 AI 助手")
-                        .font(.system(size: 13))
+                        .font(.system(size: Typography.subhead))
                         .foregroundStyle(.secondary)
                 }
 
@@ -97,7 +97,7 @@ struct LoginView: View {
                                     }
                                 } label: {
                                     Image(systemName: showHistory ? "chevron.up" : "chevron.down")
-                                        .font(.system(size: 12, weight: .semibold))
+                                        .font(.system(size: Typography.subhead, weight: .semibold))
                                         .foregroundStyle(Color.secondary)
                                         .padding(.trailing, 14)
                                 }
@@ -114,10 +114,10 @@ struct LoginView: View {
                                     } label: {
                                         HStack(spacing: 8) {
                                             Image(systemName: "clock.arrow.circlepath")
-                                                .font(.system(size: 11))
+                                                .font(.system(size: Typography.caption))
                                                 .foregroundStyle(.tertiary)
                                             Text(addr)
-                                                .font(.system(size: 13))
+                                                .font(.system(size: Typography.subhead))
                                                 .foregroundStyle(.primary)
                                                 .lineLimit(1)
                                             Spacer()
@@ -128,7 +128,7 @@ struct LoginView: View {
                                         auth.removeServer(addr)
                                     } label: {
                                         Image(systemName: "xmark.circle.fill")
-                                            .font(.system(size: 13))
+                                            .font(.system(size: Typography.subhead))
                                             .foregroundStyle(.tertiary)
                                     }
                                     .buttonStyle(.plain)
@@ -150,7 +150,7 @@ struct LoginView: View {
                 // 记住登录
                 Toggle(isOn: $remember) {
                     Text("记住登录（7 天免登录）")
-                        .font(.system(size: 13))
+                        .font(.system(size: Typography.subhead))
                         .foregroundStyle(.secondary)
                 }
                 .tint(.blue)
@@ -158,7 +158,7 @@ struct LoginView: View {
 
                 if let err = auth.errorMessage {
                     Text(err)
-                        .font(.system(size: 12))
+                        .font(.system(size: Typography.subhead))
                         .foregroundStyle(.red)
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 32)
@@ -176,7 +176,7 @@ struct LoginView: View {
                     }
                 } label: {
                     Text(auth.isLoading ? "登录中..." : "登 录")
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(.system(size: Typography.title, weight: .semibold))
                         .foregroundStyle(.white)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 13)
@@ -219,9 +219,9 @@ struct LoginView: View {
                     } label: {
                         HStack(spacing: 6) {
                             Image(systemName: "faceid")
-                                .font(.system(size: 15))
+                                .font(.system(size: Typography.body))
                             Text(auth.isLoading ? "登录中..." : "Face ID 登录")
-                                .font(.system(size: 14, weight: .medium))
+                                .font(.system(size: Typography.body, weight: .medium))
                         }
                         .foregroundStyle(Color.accentColor)
                         .frame(maxWidth: .infinity)
@@ -256,9 +256,9 @@ struct LoginView: View {
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: testing ? "arrow.trianglehead.2.clockwise.rotate.90" : "network")
-                            .font(.system(size: 13))
+                            .font(.system(size: Typography.subhead))
                         Text(testing ? "测试中..." : "测试连接")
-                            .font(.system(size: 14, weight: .medium))
+                            .font(.system(size: Typography.body, weight: .medium))
                     }
                     .foregroundStyle(Color.accentColor)
                     .frame(maxWidth: .infinity)
@@ -272,7 +272,7 @@ struct LoginView: View {
 
                 if let tr = testResult {
                     Text(tr)
-                        .font(.system(size: 12))
+                        .font(.system(size: Typography.subhead))
                         .foregroundStyle(tr.hasPrefix("✅") ? Color.green : (tr.hasPrefix("⚠️") ? Color.orange : Color.red))
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 32)
@@ -331,7 +331,7 @@ struct GlassField: View {
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: icon)
-                .font(.system(size: 15))
+                .font(.system(size: Typography.body))
                 .foregroundStyle(.secondary)
                 .frame(width: 22)
             Group {
@@ -343,7 +343,7 @@ struct GlassField: View {
                         .autocorrectionDisabled()
                 }
             }
-            .font(.system(size: 15))
+            .font(.system(size: Typography.body))
             .foregroundStyle(.primary)
         }
         .padding(.horizontal, 14)

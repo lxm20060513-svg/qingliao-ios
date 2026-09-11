@@ -231,26 +231,26 @@ struct CrashAlertSheet: View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 8) {
                 Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.system(size: 17))
+                    .font(.system(size: Typography.title))
                     .foregroundStyle(.orange)
                 Text("上次异常退出")
-                    .font(.system(size: 17, weight: .bold))
+                    .font(.system(size: Typography.title, weight: .bold))
                 Spacer()
                 Button { dismiss() } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 22)).foregroundStyle(.tertiary)
+                        .font(.system(size: Typography.titleXL)).foregroundStyle(.tertiary)
                 }
                 .buttonStyle(.plain)
             }
             Text(allowDismiss
                  ? "检测到上次使用时 App 异常退出，已记录崩溃日志。可导出日志帮助定位问题。"
                  : "最近一次崩溃日志（上报成功后仍保留本地快照供回查）。")
-                .font(.system(size: 13))
+                .font(.system(size: Typography.subhead))
                 .foregroundStyle(.secondary)
             // 日志预览（最多展示前 12 行，完整内容走导出/复制）
             ScrollView {
                 Text(String(logText.split(separator: "\n").prefix(12).joined(separator: "\n")))
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(.system(size: Typography.caption, design: .monospaced))
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -270,7 +270,7 @@ struct CrashAlertSheet: View {
                     }
                     .padding(.vertical, 10)
                     .background(Color.secondary.opacity(0.15), in: Capsule())
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.system(size: Typography.body, weight: .semibold))
                 }
                 .buttonStyle(.plain)
                 Button {
@@ -284,7 +284,7 @@ struct CrashAlertSheet: View {
                     .padding(.vertical, 10)
                     .background(Color.accentColor, in: Capsule())
                     .foregroundStyle(.white)
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.system(size: Typography.body, weight: .semibold))
                 }
                 .buttonStyle(.plain)
                 if allowDismiss {
@@ -299,7 +299,7 @@ struct CrashAlertSheet: View {
                         }
                         .padding(.vertical, 10)
                         .background(Color.secondary.opacity(0.15), in: Capsule())
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(.system(size: Typography.body, weight: .semibold))
                     }
                     .buttonStyle(.plain)
                 }

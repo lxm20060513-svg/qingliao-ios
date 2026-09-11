@@ -16,9 +16,9 @@ struct AppLockView: View {
                     .font(.system(size: 52))
                     .foregroundStyle(LinearGradient(colors: [.blue, .indigo], startPoint: .topLeading, endPoint: .bottomTrailing))
                 Text("轻聊已锁定")
-                    .font(.system(size: 20, weight: .bold))
+                    .font(.system(size: Typography.headline, weight: .bold))
                 Text("验证 Face ID 后进入")
-                    .font(.system(size: 13))
+                    .font(.system(size: Typography.subhead))
                     .foregroundStyle(.secondary)
 
                 Button {
@@ -26,9 +26,9 @@ struct AppLockView: View {
                 } label: {
                     HStack(spacing: 8) {
                         Image(systemName: "faceid")
-                            .font(.system(size: 16))
+                            .font(.system(size: Typography.title))
                         Text(verifying ? "验证中..." : "Face ID 解锁")
-                            .font(.system(size: 15, weight: .semibold))
+                            .font(.system(size: Typography.body, weight: .semibold))
                     }
                     .foregroundStyle(.white)
                     .frame(maxWidth: 220)
@@ -43,7 +43,7 @@ struct AppLockView: View {
 
                 if failed {
                     Text("验证失败，请重试")
-                        .font(.system(size: 12))
+                        .font(.system(size: Typography.subhead))
                         .foregroundStyle(.red)
                 }
             }

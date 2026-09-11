@@ -61,19 +61,19 @@ struct BigBangView: View {
                 // 头部
                 HStack(spacing: 10) {
                     Text("💥")
-                        .font(.system(size: 20))
+                        .font(.system(size: Typography.headline))
                     Text("大爆炸")
-                        .font(.system(size: 17, weight: .bold))
+                        .font(.system(size: Typography.title, weight: .bold))
                         .foregroundStyle(fg)
                     Text("\(words.count) 个词块")
-                        .font(.system(size: 12))
+                        .font(.system(size: Typography.subhead))
                         .foregroundStyle(fgDim)
                     Spacer()
                     Button {
                         dismiss()
                     } label: {
                         Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 22))
+                            .font(.system(size: Typography.titleXL))
                             .foregroundStyle(fgDim)
                     }
                     .buttonStyle(.plain)
@@ -102,7 +102,7 @@ struct BigBangView: View {
                             selected = Set(words.map(\.id))
                         } label: {
                             Text("全选")
-                                .font(.system(size: 14, weight: .semibold))
+                                .font(.system(size: Typography.body, weight: .semibold))
                                 .foregroundStyle(fg)
                                 .padding(.horizontal, 18).padding(.vertical, 9)
                                 .background((scheme == .dark ? Color.white : Color.black).opacity(0.15), in: Capsule())
@@ -112,7 +112,7 @@ struct BigBangView: View {
                             selected.removeAll()
                         } label: {
                             Text("清除")
-                                .font(.system(size: 14, weight: .semibold))
+                                .font(.system(size: Typography.body, weight: .semibold))
                                 .foregroundStyle(fg.opacity(0.7))
                                 .padding(.horizontal, 18).padding(.vertical, 9)
                                 .background((scheme == .dark ? Color.white : Color.black).opacity(0.1), in: Capsule())
@@ -125,7 +125,7 @@ struct BigBangView: View {
                         } label: {
                             // v3.7.0：纯图标（底部条已有「全选/清除/复制(N)」，再加文字按钮在 SE 等窄屏会挤爆）
                             Image(systemName: memoSaved ? "checkmark" : "note.text")
-                                .font(.system(size: 15, weight: .semibold))
+                                .font(.system(size: Typography.body, weight: .semibold))
                                 .foregroundStyle(fg)
                                 .padding(.horizontal, 14).padding(.vertical, 9)
                                 .background((scheme == .dark ? Color.white : Color.black).opacity(0.15), in: Capsule())
@@ -141,7 +141,7 @@ struct BigBangView: View {
                                 Image(systemName: copied ? "checkmark" : "doc.on.doc")
                                 Text(copied ? "已复制" : "复制 (\(selected.count))")
                             }
-                            .font(.system(size: 14, weight: .semibold))
+                            .font(.system(size: Typography.body, weight: .semibold))
                             .foregroundStyle(fg)
                             .padding(.horizontal, 20).padding(.vertical, 9)
                             .background(Color.accentColor, in: Capsule())
@@ -169,7 +169,7 @@ struct BigBangView: View {
             }
         } label: {
             Text(w.text)
-                .font(.system(size: 15, weight: isOn ? .semibold : .regular))
+                .font(.system(size: Typography.body, weight: isOn ? .semibold : .regular))
                 .foregroundStyle(isOn ? .white : fg)
                 .padding(.horizontal, 11)
                 .padding(.vertical, 7)

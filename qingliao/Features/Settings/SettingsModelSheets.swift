@@ -165,12 +165,12 @@ struct ModelSheet: View {
                 // v3.0.57：免费模型开关（keyless opencode-free）——开关在模型管理页顶部，ChatView 据此路由
                 VStack(alignment: .leading, spacing: 6) {
                     Toggle("免费模型（免 Key）", isOn: $freeModelOn)
-                        .font(.system(size: 15, weight: .medium))
+                        .font(.system(size: Typography.body, weight: .medium))
                     Text(freeModelOn
                          ? "当前免费模型：\(freeModelName)（keyless，免任何 Key）"
                          : "关闭——聊天使用你自选的付费/主模型"
                          + "。开启后可随时切换免费档。")
-                        .font(.system(size: 10.5)).foregroundStyle(.secondary)
+                        .font(.system(size: Typography.tiny)).foregroundStyle(.secondary)
                 }
                 .padding(11)
                 .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
@@ -187,17 +187,17 @@ struct ModelSheet: View {
                 HStack(spacing: 5) {
                 Circle().fill(syncing ? Color.orange : Color.green).frame(width: 7, height: 7)
                 Text(syncing ? "同步中..." : "模型服务在线")
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                    .font(.system(size: Typography.caption)).foregroundStyle(.secondary)
             }
             if let syncResult {
                 Text(syncResult)
-                    .font(.system(size: 11))
+                    .font(.system(size: Typography.caption))
                     .foregroundStyle(syncResult.hasPrefix("✅") ? Color.green : Color.orange)
             }
             // v3.0.82：内置 provider 删除结果提示
             if let deleteResultMsg {
                 Text(deleteResultMsg)
-                    .font(.system(size: 11))
+                    .font(.system(size: Typography.caption))
                     .foregroundStyle(deleteResultMsg.hasPrefix("✅") ? Color.green : Color.orange)
             }
             // v3.0.33：Agent 模型覆盖提示——配置了 agent 模型时，
@@ -205,13 +205,13 @@ struct ModelSheet: View {
             if !agentModel.isEmpty {
                 HStack(spacing: 10) {
                     Image(systemName: "sparkles")
-                        .font(.system(size: 12))
+                        .font(.system(size: Typography.subhead))
                         .foregroundStyle(.orange)
                     VStack(alignment: .leading, spacing: 2) {
                         Text("聊天实际使用 Agent 模型：\(agentModel)")
-                            .font(.system(size: 13, weight: .medium))
+                            .font(.system(size: Typography.subhead, weight: .medium))
                         Text("配置了 Agent 模型时优先使用，这里设置主模型不生效；可在设置页「Agent 模型」改为跟随主模型")
-                            .font(.system(size: 10.5)).foregroundStyle(.tertiary)
+                            .font(.system(size: Typography.tiny)).foregroundStyle(.tertiary)
                     }
                     Spacer()
                 }
@@ -273,7 +273,7 @@ struct ModelSheet: View {
                             UserDefaults.standard.set(Array(hiddenProviders), forKey: "qingliao_hidden_providers")
                         } label: {
                             Text("恢复全部隐藏的模型组")
-                                .font(.system(size: 12, weight: .medium))
+                                .font(.system(size: Typography.subhead, weight: .medium))
                                 .foregroundStyle(Color.accentColor)
                         }
                         .buttonStyle(.plain)
@@ -288,22 +288,22 @@ struct ModelSheet: View {
                         .padding(.vertical, 4)
                     VStack(alignment: .leading, spacing: 6) {
                         Text("视觉模型")
-                            .font(.system(size: 11, weight: .semibold))
+                            .font(.system(size: Typography.caption, weight: .semibold))
                             .foregroundStyle(.secondary)
                             .padding(.leading, 4)
                         HStack(spacing: 10) {
                             Image(systemName: "eye.fill")
-                                .font(.system(size: 12))
+                                .font(.system(size: Typography.subhead))
                                 .foregroundStyle(.purple)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(visionModelDisplay)
-                                    .font(.system(size: 13, weight: .medium))
+                                    .font(.system(size: Typography.subhead, weight: .medium))
                                 Text("主模型不支持视觉时自动切换")
-                                    .font(.system(size: 10.5)).foregroundStyle(.tertiary)
+                                    .font(.system(size: Typography.tiny)).foregroundStyle(.tertiary)
                             }
                             Spacer()
                             Image(systemName: "chevron.right")
-                                .font(.system(size: 11, weight: .semibold))
+                                .font(.system(size: Typography.caption, weight: .semibold))
                                 .foregroundStyle(.tertiary)
                         }
                         .padding(11)
@@ -321,19 +321,19 @@ struct ModelSheet: View {
                         .padding(.vertical, 4)
                     VStack(alignment: .leading, spacing: 6) {
                         Text("语音引擎 · TTS")
-                            .font(.system(size: 11, weight: .semibold))
+                            .font(.system(size: Typography.caption, weight: .semibold))
                             .foregroundStyle(.secondary)
                             .padding(.leading, 4)
                         VStack(alignment: .leading, spacing: 8) {
                             HStack(spacing: 10) {
                                 Image(systemName: "waveform")
-                                    .font(.system(size: 12))
+                                    .font(.system(size: Typography.subhead))
                                     .foregroundStyle(.indigo)
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text("AI 语音朗读")
-                                        .font(.system(size: 13, weight: .medium))
+                                        .font(.system(size: Typography.subhead, weight: .medium))
                                     Text(ttsStatusText)
-                                        .font(.system(size: 10.5)).foregroundStyle(.tertiary)
+                                        .font(.system(size: Typography.tiny)).foregroundStyle(.tertiary)
                                 }
                                 Spacer()
                                 Toggle("", isOn: $ttsOn).labelsHidden().scaleEffect(0.8).tint(.green)
@@ -345,7 +345,7 @@ struct ModelSheet: View {
                                 // 模型下拉（从用户模型列表筛支持 TTS 的）
                                 HStack(spacing: 8) {
                                     Text("模型")
-                                        .font(.system(size: 12))
+                                        .font(.system(size: Typography.subhead))
                                         .foregroundStyle(.secondary)
                                     Spacer()
                                     Picker("", selection: Binding(
@@ -373,7 +373,7 @@ struct ModelSheet: View {
                                 // 音色下拉（随模型联动）
                                 HStack(spacing: 8) {
                                     Text("音色")
-                                        .font(.system(size: 12))
+                                        .font(.system(size: Typography.subhead))
                                         .foregroundStyle(.secondary)
                                     Spacer()
                                     Picker("", selection: $ttsVoice) {
@@ -388,7 +388,7 @@ struct ModelSheet: View {
                                     }
                                 }
                                 Text("开启后 AI 回复、语音指令将对讲朗读使用所选模型的神经语音；关闭则用系统语音。")
-                                    .font(.system(size: 10.5)).foregroundStyle(.tertiary)
+                                    .font(.system(size: Typography.tiny)).foregroundStyle(.tertiary)
                             }
                         }
                         .padding(11)
@@ -512,7 +512,7 @@ struct ModelSheet: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text(group)
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: Typography.caption, weight: .semibold))
                     .foregroundStyle(.secondary)
                 Spacer()
                 if let onHideProvider {
@@ -520,7 +520,7 @@ struct ModelSheet: View {
                         onHideProvider()
                     } label: {
                         Image(systemName: "eye.slash")
-                            .font(.system(size: 10))
+                            .font(.system(size: Typography.tiny))
                             .foregroundStyle(.tertiary)
                     }
                     .buttonStyle(.plain)
@@ -530,7 +530,7 @@ struct ModelSheet: View {
                         onDeleteProvider()
                     } label: {
                         Image(systemName: "trash")
-                            .font(.system(size: 10))
+                            .font(.system(size: Typography.tiny))
                             .foregroundStyle(.red.opacity(0.8))
                     }
                     .buttonStyle(.plain)
@@ -578,17 +578,17 @@ struct ModelSheet: View {
         return HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(id)
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.system(size: Typography.subhead, weight: .medium))
                     .foregroundStyle(isCur ? Color.accentColor : Color.primary)
                 Text(name)
-                    .font(.system(size: 10.5))
+                    .font(.system(size: Typography.tiny))
                     .foregroundStyle(.secondary)
             }
             Spacer()
             if isCur {
                 HStack(spacing: 4) {
-                    Image(systemName: "checkmark.circle.fill").font(.system(size: 14))
-                    Text("当前").font(.system(size: 11, weight: .semibold))
+                    Image(systemName: "checkmark.circle.fill").font(.system(size: Typography.body))
+                    Text("当前").font(.system(size: Typography.caption, weight: .semibold))
                 }
                 .foregroundStyle(Color.accentColor)
             } else {
@@ -596,7 +596,7 @@ struct ModelSheet: View {
                     setModel(id, provider: provider)
                 } label: {
                     Text("设为当前")
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.system(size: Typography.caption, weight: .medium))
                         .foregroundStyle(Color.accentColor)
                         .padding(.horizontal, 10).padding(.vertical, 5)
                         .background(Color.accentColor.opacity(0.12), in: Capsule())
@@ -716,14 +716,14 @@ struct ModelSheet: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text("自定义模型")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: Typography.caption, weight: .semibold))
                     .foregroundStyle(.secondary)
                 Spacer()
                 Button {
                     showAddCustomProvider = true
                 } label: {
                     Label("添加", systemImage: "plus")
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.system(size: Typography.caption, weight: .medium))
                         .foregroundStyle(Color.accentColor)
                 }
                 .buttonStyle(.plain)
@@ -731,7 +731,7 @@ struct ModelSheet: View {
             .padding(.leading, 4)
             if customProviders.isEmpty {
                 Text("添加你自己的模型组（Base URL + API Key），自定义厂商/模型免更新 App 即用")
-                    .font(.system(size: 10.5))
+                    .font(.system(size: Typography.tiny))
                     .foregroundStyle(.tertiary)
                     .padding(.leading, 4)
             } else {
@@ -805,7 +805,7 @@ struct CustomProviderEditSheet: View {
                     .disabled(baseURL.isEmpty || apiKey.isEmpty || fetching)
                     if let fetchMsg {
                         Text(fetchMsg)
-                            .font(.system(size: 11))
+                            .font(.system(size: Typography.caption))
                             .foregroundStyle(fetchMsg.hasPrefix("✅") ? Color.green : Color.orange)
                     }
                 }
@@ -814,7 +814,7 @@ struct CustomProviderEditSheet: View {
                     Section {
                         HStack {
                             Text("勾选要启用的模型（\(selectedModels.count)/\(fetchedModels.count)）")
-                                .font(.system(size: 12, weight: .medium))
+                                .font(.system(size: Typography.subhead, weight: .medium))
                             Spacer()
                             Button(selectedModels.count == fetchedModels.count ? "清空" : "全选") {
                                 if selectedModels.count == fetchedModels.count {
@@ -823,7 +823,7 @@ struct CustomProviderEditSheet: View {
                                     selectedModels = Set(fetchedModels)
                                 }
                             }
-                            .font(.system(size: 12))
+                            .font(.system(size: Typography.subhead))
                             .buttonStyle(.borderless)
                         }
                         ForEach(fetchedModels, id: \.self) { m in
@@ -832,12 +832,12 @@ struct CustomProviderEditSheet: View {
                             } label: {
                                 HStack {
                                     Text(m)
-                                        .font(.system(size: 13))
+                                        .font(.system(size: Typography.subhead))
                                         .foregroundColor(.primary)
                                     Spacer()
                                     if selectedModels.contains(m) {
                                         Image(systemName: "checkmark")
-                                            .font(.system(size: 12, weight: .semibold))
+                                            .font(.system(size: Typography.subhead, weight: .semibold))
                                             .foregroundStyle(Color.accentColor)
                                     }
                                 }
@@ -853,7 +853,7 @@ struct CustomProviderEditSheet: View {
                         .overlay(alignment: .topLeading) {
                             if modelsText.isEmpty && fetchedModels.isEmpty {
                                 Text("deepseek-v4-flash\nglm-5.2\n…\n\n（或点上方「拉取模型列表」自动填充）")
-                                    .font(.system(size: 13))
+                                    .font(.system(size: Typography.subhead))
                                     .foregroundStyle(.tertiary)
                                     .padding(.top, 8)
                                     .padding(.leading, 5)
@@ -863,7 +863,7 @@ struct CustomProviderEditSheet: View {
                 }
                 if let errMsg {
                     Text(errMsg)
-                        .font(.system(size: 11))
+                        .font(.system(size: Typography.caption))
                         .foregroundStyle(.red)
                 }
                 Section {
@@ -963,9 +963,9 @@ struct AboutView: View {
                 .shadow(color: .black.opacity(0.15), radius: 6, y: 3)
 
             Text("轻聊")
-                .font(.system(size: 22, weight: .bold))
+                .font(.system(size: Typography.titleXL, weight: .bold))
             Text("Version \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "3.0")")
-                .font(.system(size: 12))
+                .font(.system(size: Typography.subhead))
                 .foregroundStyle(.secondary)
 
             Divider().padding(.horizontal, 30)
@@ -989,21 +989,21 @@ struct AboutView: View {
                 if !isCloud {
                     HStack(alignment: .top) {
                         Text("Hermes Agent")
-                            .font(.system(size: 13, weight: .medium))
+                            .font(.system(size: Typography.subhead, weight: .medium))
                             .foregroundStyle(.primary)
                             .frame(width: 68, alignment: .leading)
                         Text(hermesVersion)
-                            .font(.system(size: 13))
+                            .font(.system(size: Typography.subhead))
                             .foregroundStyle(.secondary)
                     }
                 }
             }
-            .font(.system(size: 13))
+            .font(.system(size: Typography.subhead))
             .padding(.horizontal, 24)
 
             Spacer()
             Text("Nous Research · Hermes Agent")
-                .font(.system(size: 11))
+                .font(.system(size: Typography.caption))
                 .foregroundStyle(.tertiary)
                 .padding(.bottom, 12)
         }
@@ -1034,11 +1034,11 @@ struct AboutView: View {
     private func aboutRow(_ title: String, _ content: String) -> some View {
         HStack(alignment: .top, spacing: 10) {
             Text(title)
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(size: Typography.subhead, weight: .semibold))
                 .foregroundStyle(.secondary)
                 .frame(width: 44, alignment: .leading)
             Text(content)
-                .font(.system(size: 13))
+                .font(.system(size: Typography.subhead))
                 .foregroundStyle(.primary)
         }
     }
@@ -1069,12 +1069,12 @@ struct WechatChannelSheet: View {
                     HStack(spacing: 6) {
                         Circle().fill(loaded ? Color.green : Color.orange).frame(width: 7, height: 7)
                         Text("当前微信通道模型")
-                            .font(.system(size: 11)).foregroundStyle(.secondary)
+                            .font(.system(size: Typography.caption)).foregroundStyle(.secondary)
                     }
                     Text(currentModel)
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.system(size: Typography.body, weight: .semibold))
                     Text("设置后重启 Hermes 生效（约 10-30 秒），只影响微信通道，其他通道不受影响。")
-                        .font(.system(size: 10.5))
+                        .font(.system(size: Typography.tiny))
                         .foregroundStyle(.tertiary)
                 }
                 .padding(10)
@@ -1084,7 +1084,7 @@ struct WechatChannelSheet: View {
 
             if let saveResult {
                 Text(saveResult)
-                    .font(.system(size: 11))
+                    .font(.system(size: Typography.caption))
                     .foregroundStyle(saveResult.hasPrefix("✅") ? Color.green : Color.orange)
             }
 
@@ -1097,18 +1097,18 @@ struct WechatChannelSheet: View {
                             // v3.0.35：加载失败态 + 重试（不再无限转圈）
                             VStack(spacing: 10) {
                                 Image(systemName: "exclamationmark.triangle")
-                                    .font(.system(size: 28))
+                                    .font(.system(size: Typography.display))
                                     .foregroundStyle(.orange)
                                 Text("模型列表加载失败")
-                                    .font(.system(size: 13, weight: .medium))
+                                    .font(.system(size: Typography.subhead, weight: .medium))
                                 Text("请检查网络或后端服务后重试")
-                                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                                    .font(.system(size: Typography.caption)).foregroundStyle(.secondary)
                                 Button {
                                     loadFailed = false
                                     Task { await loadProviders() }
                                 } label: {
                                     Text("重试")
-                                        .font(.system(size: 12, weight: .medium))
+                                        .font(.system(size: Typography.subhead, weight: .medium))
                                         .padding(.horizontal, 18).padding(.vertical, 6)
                                         .background(Color.accentColor.opacity(0.12), in: Capsule())
                                         .foregroundStyle(Color.accentColor)
@@ -1120,16 +1120,16 @@ struct WechatChannelSheet: View {
                             ProgressView()
                                 .padding(.top, 30)
                             Text("正在加载模型列表…")
-                                .font(.system(size: 12)).foregroundStyle(.secondary)
+                                .font(.system(size: Typography.subhead)).foregroundStyle(.secondary)
                         }
                     } else {
                         // v3.0.35：缓存数据展示提示（后台刷新成功后自动消失）
                         if usingCache {
                             HStack(spacing: 4) {
                                 Image(systemName: "clock.arrow.circlepath")
-                                    .font(.system(size: 9))
+                                    .font(.system(size: Typography.tiny))
                                 Text("显示上次加载的列表，正在刷新…")
-                                    .font(.system(size: 10.5))
+                                    .font(.system(size: Typography.tiny))
                             }
                             .foregroundStyle(.tertiary)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -1140,10 +1140,10 @@ struct WechatChannelSheet: View {
                         if !hasAnyModel {
                             VStack(spacing: 8) {
                                 Image(systemName: "tray")
-                                    .font(.system(size: 30))
+                                    .font(.system(size: Typography.display))
                                     .foregroundStyle(.tertiary)
                                 Text("暂无可用模型\n（后端未配置 provider key，请到「模型管理」检查）")
-                                    .font(.system(size: 12))
+                                    .font(.system(size: Typography.subhead))
                                     .foregroundStyle(.secondary)
                                     .multilineTextAlignment(.center)
                             }
@@ -1153,7 +1153,7 @@ struct WechatChannelSheet: View {
                             if !p.models.isEmpty {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(providerName(p.id))
-                                        .font(.system(size: 12, weight: .semibold))
+                                        .font(.system(size: Typography.subhead, weight: .semibold))
                                         .foregroundStyle(.secondary)
                                         .padding(.horizontal, 4)
                                     ForEach(p.models, id: \.self) { m in
@@ -1162,17 +1162,17 @@ struct WechatChannelSheet: View {
                                         } label: {
                                             HStack {
                                                 Text(m)
-                                                    .font(.system(size: 13))
+                                                    .font(.system(size: Typography.subhead))
                                                     .foregroundStyle(.primary)
                                                 Spacer()
                                                 // 当前选中标记（model+provider 都匹配）
                                                 if m == currentModel && p.id == currentProvider {
                                                     Image(systemName: "checkmark.circle.fill")
-                                                        .font(.system(size: 13))
+                                                        .font(.system(size: Typography.subhead))
                                                         .foregroundStyle(Color.accentColor)
                                                 } else {
                                                     Image(systemName: "chevron.right")
-                                                        .font(.system(size: 10))
+                                                        .font(.system(size: Typography.tiny))
                                                         .foregroundStyle(.tertiary)
                                                 }
                                             }
@@ -1305,13 +1305,13 @@ struct ProviderKeyIssueRow: View {
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 12))
+                .font(.system(size: Typography.subhead))
                 .foregroundStyle(.orange)
             VStack(alignment: .leading, spacing: 2) {
                 Text(name)
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.system(size: Typography.subhead, weight: .medium))
                 Text("API Key 无效或未配置，未拉取到模型（请到模型管理顶部点「同步模型」或检查 key）")
-                    .font(.system(size: 10.5))
+                    .font(.system(size: Typography.tiny))
                     .foregroundStyle(.secondary)
             }
             Spacer()
@@ -1384,11 +1384,11 @@ struct AgentModelSheet: View {
                 HStack(spacing: 5) {
                     Circle().fill(syncing ? Color.orange : Color.green).frame(width: 7, height: 7)
                     Text(syncing ? "同步中..." : "Agent 模型设置")
-                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                        .font(.system(size: Typography.caption)).foregroundStyle(.secondary)
                 }
                 if let syncResult {
                     Text(syncResult)
-                        .font(.system(size: 11))
+                        .font(.system(size: Typography.caption))
                         .foregroundStyle(syncResult.hasPrefix("✅") ? Color.green : Color.orange)
                 }
 
@@ -1396,19 +1396,19 @@ struct AgentModelSheet: View {
                 VStack(spacing: 0) {
                     HStack(spacing: 10) {
                         Image(systemName: "arrow.triangle.merge")
-                            .font(.system(size: 13))
+                            .font(.system(size: Typography.subhead))
                             .foregroundStyle(.blue)
                         VStack(alignment: .leading, spacing: 2) {
                             Text("跟随主模型")
-                                .font(.system(size: 13, weight: .medium))
+                                .font(.system(size: Typography.subhead, weight: .medium))
                             Text("当前主模型：\(mainModel)")
-                                .font(.system(size: 10.5))
+                                .font(.system(size: Typography.tiny))
                                 .foregroundStyle(.tertiary)
                         }
                         Spacer()
                         if selected.isEmpty {
                             Image(systemName: "checkmark.circle.fill")
-                                .font(.system(size: 14))
+                                .font(.system(size: Typography.body))
                                 .foregroundStyle(Color.accentColor)
                         }
                     }
@@ -1436,18 +1436,18 @@ struct AgentModelSheet: View {
                                 // v3.0.35：加载失败态 + 重试（不再无限转圈）
                                 VStack(spacing: 10) {
                                     Image(systemName: "exclamationmark.triangle")
-                                        .font(.system(size: 28))
+                                        .font(.system(size: Typography.display))
                                         .foregroundStyle(.orange)
                                     Text("模型列表加载失败")
-                                        .font(.system(size: 13, weight: .medium))
+                                        .font(.system(size: Typography.subhead, weight: .medium))
                                     Text("请检查网络或后端服务后重试")
-                                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                                        .font(.system(size: Typography.caption)).foregroundStyle(.secondary)
                                     Button {
                                         loadFailed = false
                                         Task { await loadAllProviders() }
                                     } label: {
                                         Text("重试")
-                                            .font(.system(size: 12, weight: .medium))
+                                            .font(.system(size: Typography.subhead, weight: .medium))
                                             .padding(.horizontal, 18).padding(.vertical, 6)
                                             .background(Color.accentColor.opacity(0.12), in: Capsule())
                                             .foregroundStyle(Color.accentColor)
@@ -1459,7 +1459,7 @@ struct AgentModelSheet: View {
                                 ProgressView()
                                     .padding(.top, 30)
                                 Text("正在加载模型列表…")
-                                    .font(.system(size: 12)).foregroundStyle(.secondary)
+                                    .font(.system(size: Typography.subhead)).foregroundStyle(.secondary)
                             }
                         } else {
                             // 按 provider 分组显示（v3.0.29 fix：移除 hardcoded 过滤，所有 provider 均展示）
@@ -1516,7 +1516,7 @@ struct AgentModelSheet: View {
     private func agentGroupSection(_ group: String, models: [(String, String, String)]) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(group)
-                .font(.system(size: 11, weight: .semibold))
+                .font(.system(size: Typography.caption, weight: .semibold))
                 .foregroundStyle(.secondary)
                 .padding(.leading, 4)
             ForEach(models, id: \.0) { m in
@@ -1530,17 +1530,17 @@ struct AgentModelSheet: View {
         return HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(id)
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.system(size: Typography.subhead, weight: .medium))
                     .foregroundStyle(isCur ? Color.accentColor : Color.primary)
                 Text(name)
-                    .font(.system(size: 10.5))
+                    .font(.system(size: Typography.tiny))
                     .foregroundStyle(.secondary)
             }
             Spacer()
             if isCur {
                 HStack(spacing: 4) {
-                    Image(systemName: "checkmark.circle.fill").font(.system(size: 14))
-                    Text("当前").font(.system(size: 11, weight: .semibold))
+                    Image(systemName: "checkmark.circle.fill").font(.system(size: Typography.body))
+                    Text("当前").font(.system(size: Typography.caption, weight: .semibold))
                 }
                 .foregroundStyle(Color.accentColor)
             } else {
@@ -1549,7 +1549,7 @@ struct AgentModelSheet: View {
                     selectedProvider = provider
                 } label: {
                     Text("选用")
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.system(size: Typography.caption, weight: .medium))
                         .foregroundStyle(Color.accentColor)
                         .padding(.horizontal, 10).padding(.vertical, 5)
                         .background(Color.accentColor.opacity(0.12), in: Capsule())

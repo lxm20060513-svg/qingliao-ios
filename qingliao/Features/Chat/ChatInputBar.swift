@@ -73,7 +73,7 @@ struct ChatInputBar: View {
         HStack(spacing: 8) {
             Button(action: onPickAttachment) {
                 Image(systemName: "paperclip")
-                    .font(.system(size: 15, weight: .medium))
+                    .font(.system(size: Typography.body, weight: .medium))
                     .foregroundStyle(.secondary)
                     .frame(width: 32, height: 30)
                     // v3.4.26：附件/相机纳入胶囊语义——低透明外圈（次级操作，弱于实底发送钮）
@@ -85,7 +85,7 @@ struct ChatInputBar: View {
             // v2.0.38：拍照输入
             Button(action: onCamera) {
                 Image(systemName: "camera")
-                    .font(.system(size: 14, weight: .medium))
+                    .font(.system(size: Typography.body, weight: .medium))
                     .foregroundStyle(.secondary)
                     .frame(width: 32, height: 30)
                     .background(Color.primary.opacity(0.05), in: Capsule())
@@ -100,7 +100,7 @@ struct ChatInputBar: View {
                 HStack(spacing: 5) {
                     Circle().fill(Color.red).frame(width: 7, height: 7)
                     Text("松开上屏")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.system(size: Typography.subhead, weight: .medium))
                         .foregroundStyle(Color.red)
                 }
                 .padding(.vertical, 7)
@@ -111,7 +111,7 @@ struct ChatInputBar: View {
                 // v2.0.34：placeholder 用 overlay 自定义（vertical axis 的 TextField 自带
                 // placeholder 在 lineLimit(2...6) 多行高下顶部对齐，视觉不居中）
                 TextField("", text: $text, axis: .vertical)
-                    .font(.system(size: 15))
+                    .font(.system(size: Typography.body))
                     .lineLimit(1...6)   // v2.0.35：1行起（原来2...6最小2行高→单行光标/文字偏上不居中）
                     .padding(.vertical, 12)   // v2.0.93f：9→12 输入框加高（用户反馈太窄）
                     .padding(.horizontal, 2)
@@ -139,17 +139,17 @@ struct ChatInputBar: View {
                                 // v2.0.100：转写中动画（waveform 图标 + 文字脉冲）
                                 HStack(spacing: 6) {
                                     Image(systemName: "waveform")
-                                        .font(.system(size: 12))
+                                        .font(.system(size: Typography.subhead))
                                         .symbolEffect(.pulse)
                                     Text("语音转换中…")
-                                        .font(.system(size: 15))
+                                        .font(.system(size: Typography.body))
                                 }
                                 .foregroundStyle(.secondary)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .allowsHitTesting(false)
                             } else {
                                 Text("输入消息...")
-                                    .font(.system(size: 15))
+                                    .font(.system(size: Typography.body))
                                     .foregroundStyle(.secondary)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                     .allowsHitTesting(false)
@@ -163,7 +163,7 @@ struct ChatInputBar: View {
             if streaming {
                 Button(action: onStop) {
                     Image(systemName: "stop.fill")
-                        .font(.system(size: 13, weight: .bold))
+                        .font(.system(size: Typography.subhead, weight: .bold))
                         .foregroundStyle(.white)
                         .frame(width: 32, height: 32)
                         // v3.4.21：停止按钮 Circle → 红胶囊（与发送按钮 Capsule 同族，二元控件形态统一）
@@ -187,7 +187,7 @@ struct ChatInputBar: View {
                             .frame(width: 32, height: 32)
                         Button(action: onCancelTranscribe) {
                             Image(systemName: "xmark")
-                                .font(.system(size: 11, weight: .bold))
+                                .font(.system(size: Typography.caption, weight: .bold))
                                 .foregroundStyle(.white)
                                 .frame(width: 26, height: 26)
                                 // v3.4.21：红胶囊（与停止/发送按钮同族）

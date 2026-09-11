@@ -28,11 +28,11 @@ struct EmptyStateView: View {
             }
             VStack(spacing: 5) {
                 Text(title)
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.system(size: Typography.body, weight: .semibold))
                     .foregroundStyle(.primary)
                 if let subtitle, !subtitle.isEmpty {
                     Text(subtitle)
-                        .font(.system(size: 12))
+                        .font(.system(size: Typography.subhead))
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
                 }

@@ -41,14 +41,14 @@ struct VisionModelSheet: View {
                 Section {
                     HStack(spacing: 12) {
                         Image(systemName: "eye.fill")
-                            .font(.system(size: 13, weight: .semibold))
+                            .font(.system(size: Typography.subhead, weight: .semibold))
                             .foregroundStyle(.white)
                             .frame(width: 28, height: 28)
                             .background(Color.purple, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
                         VStack(alignment: .leading, spacing: 1) {
-                            Text("视觉模型自动切换").font(.system(size: 14, weight: .medium))
+                            Text("视觉模型自动切换").font(.system(size: Typography.body, weight: .medium))
                             Text(statusText)
-                                .font(.system(size: 11)).foregroundStyle(.tertiary).lineLimit(1)
+                                .font(.system(size: Typography.caption)).foregroundStyle(.tertiary).lineLimit(1)
                         }
                         Spacer()
                         Toggle("", isOn: $enabled).labelsHidden().scaleEffect(0.8).tint(.green)
@@ -66,11 +66,11 @@ struct VisionModelSheet: View {
                                 .foregroundStyle(mainModelSupportsVision ? .green : .orange)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("主模型：\(mainModel)")
-                                    .font(.system(size: 13, weight: .medium))
+                                    .font(.system(size: Typography.subhead, weight: .medium))
                                 Text(mainModelSupportsVision
                                      ? "已支持视觉，无需配置备用模型"
                                      : "不支持视觉，发送图片时将使用下方点选的共享视觉模型")
-                                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                                    .font(.system(size: Typography.caption)).foregroundStyle(.secondary)
                             }
                         }
                     }
@@ -81,24 +81,24 @@ struct VisionModelSheet: View {
                     VStack(alignment: .leading, spacing: 6) {
                         HStack(spacing: 8) {
                             Image(systemName: "checkmark.seal.fill")
-                                .font(.system(size: 12))
+                                .font(.system(size: Typography.subhead))
                                 .foregroundStyle(.purple)
                             Text("共享视觉模型（App + 微信通道）")
-                                .font(.system(size: 13, weight: .medium))
+                                .font(.system(size: Typography.subhead, weight: .medium))
                             Spacer()
                             if syncing {
                                 ProgressView().controlSize(.mini)
                             }
                         }
                         Text(sharedVisionDisplay)
-                            .font(.system(size: 12))
+                            .font(.system(size: Typography.subhead))
                             .foregroundStyle(.secondary)
                         Text("点选下方任一模型即设置：App 内发图 与 微信通道收图 共用的视觉模型（写入 wechat-profile，改完自动重启 gateway）。")
-                            .font(.system(size: 10.5))
+                            .font(.system(size: Typography.tiny))
                             .foregroundStyle(.tertiary)
                         if let syncResult {
                             Text(syncResult)
-                                .font(.system(size: 11))
+                                .font(.system(size: Typography.caption))
                                 .foregroundStyle(syncResult.hasPrefix("✅") ? Color.green : Color.orange)
                         }
                         if !selectedModel.isEmpty {
@@ -106,7 +106,7 @@ struct VisionModelSheet: View {
                                 Button("清除配置") {
                                     clearSharedVision()
                                 }
-                                .font(.system(size: 11, weight: .medium))
+                                .font(.system(size: Typography.caption, weight: .medium))
                                 .foregroundStyle(.red)
                                 .padding(.horizontal, 10).padding(.vertical, 5)
                                 .background(Color.red.opacity(0.1), in: Capsule())
@@ -123,7 +123,7 @@ struct VisionModelSheet: View {
                     if deepseekModels.isEmpty && localInstalled.isEmpty && allProviders.isEmpty
                         && opencodeAppleModels.isEmpty && stepfunModels.isEmpty && sensenovaModels.isEmpty {
                         Text("暂无可用模型\n请先在「模型管理」中同步模型列表")
-                            .font(.system(size: 12)).foregroundStyle(.secondary)
+                            .font(.system(size: Typography.subhead)).foregroundStyle(.secondary)
                     } else {
                         // opencode（apple）模型
                         if !opencodeAppleModels.isEmpty {
@@ -171,7 +171,7 @@ struct VisionModelSheet: View {
     private func modelGroup(_ group: String, provider: String, models: [String]) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(group)
-                .font(.system(size: 11, weight: .semibold))
+                .font(.system(size: Typography.caption, weight: .semibold))
                 .foregroundStyle(.secondary)
                 .padding(.leading, 4)
                 .padding(.vertical, 4)
@@ -181,18 +181,18 @@ struct VisionModelSheet: View {
                 HStack(spacing: 10) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(name)
-                            .font(.system(size: 13, weight: .medium))
+                            .font(.system(size: Typography.subhead, weight: .medium))
                             .foregroundStyle(isSelected ? Color.accentColor : Color.primary)
                         if model != name {
                             Text(model)
-                                .font(.system(size: 10.5))
+                                .font(.system(size: Typography.tiny))
                                 .foregroundStyle(.secondary)
                         }
                     }
                     Spacer()
                     // 点选打勾：选中显示实心对勾，未选显示空心圈
                     Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                        .font(.system(size: 20))
+                        .font(.system(size: Typography.headline))
                         .foregroundStyle(isSelected ? Color.accentColor : Color.secondary.opacity(0.35))
                 }
                 .padding(.vertical, 8)

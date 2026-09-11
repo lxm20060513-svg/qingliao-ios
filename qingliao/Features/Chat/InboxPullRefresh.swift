@@ -69,7 +69,7 @@ struct InboxPullLayer: View {
             let ready = state.progress >= 1
             pullCapsule {
                 Image(systemName: ready ? "arrow.up.circle.fill" : "arrow.up")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: Typography.subhead, weight: .semibold))
                     .foregroundStyle(ready ? Color.accentColor : Color.secondary)
                 Text(ready ? "松手拉取推送" : "上拉拉取推送")
                     .foregroundStyle(ready ? Color.accentColor : Color.secondary)
@@ -82,7 +82,7 @@ struct InboxPullLayer: View {
 
     private func pullCapsule<C: View>(@ViewBuilder _ c: () -> C) -> some View {
         c()
-            .font(.system(size: 12.5, weight: .medium))
+            .font(.system(size: Typography.subhead, weight: .medium))
             .padding(.horizontal, 15)
             .padding(.vertical, 8.5)
             .background(.ultraThinMaterial, in: Capsule())

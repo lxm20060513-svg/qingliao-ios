@@ -22,10 +22,10 @@ struct HistorySheet: View {
                             .font(.system(size: 40))
                             .foregroundStyle(Color.accentColor.opacity(0.7))
                         Text(loaded ? "暂无执行记录" : "加载中…")
-                            .font(.system(size: 16, weight: .semibold))
+                            .font(.system(size: Typography.title, weight: .semibold))
                         if loaded {
                             Text("自动化或场景执行后会在这里留痕")
-                                .font(.system(size: 13))
+                                .font(.system(size: Typography.subhead))
                                 .foregroundStyle(.secondary)
                         }
                     }
@@ -35,28 +35,28 @@ struct HistorySheet: View {
                         ForEach(items) { h in
                             HStack(spacing: 12) {
                                 Image(systemName: h.type == "自动化" ? "timer" : "sparkles")
-                                    .font(.system(size: 13, weight: .semibold))
+                                    .font(.system(size: Typography.subhead, weight: .semibold))
                                     .foregroundStyle(.white)
                                     .frame(width: 28, height: 28)
                                     .background(h.type == "自动化" ? Color.orange : Color.purple,
                                                 in: RoundedRectangle(cornerRadius: 7, style: .continuous))
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text("\(h.type)「\(h.name)」")
-                                        .font(.system(size: 14, weight: .medium))
+                                        .font(.system(size: Typography.body, weight: .medium))
                                         .lineLimit(1)
                                     if !h.detail.isEmpty {
                                         Text(h.detail)
-                                            .font(.system(size: 11))
+                                            .font(.system(size: Typography.caption))
                                             .foregroundStyle(.tertiary)
                                             .lineLimit(1)
                                     }
                                     Text(h.ts)
-                                        .font(.system(size: 10))
+                                        .font(.system(size: Typography.tiny))
                                         .foregroundStyle(.quaternary)
                                 }
                                 Spacer()
                                 Image(systemName: h.ok ? "checkmark.circle.fill" : "xmark.circle.fill")
-                                    .font(.system(size: 15))
+                                    .font(.system(size: Typography.body))
                                     .foregroundStyle(h.ok ? .green : .red)
                             }
                             .padding(.vertical, 2)

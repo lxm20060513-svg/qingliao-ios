@@ -43,7 +43,7 @@ struct ConnSettingsView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("服务器")
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.system(size: Typography.subhead, weight: .semibold))
                         .foregroundStyle(.secondary)
                         .padding(.leading, 4)
                     VStack(spacing: 0) {
@@ -57,7 +57,7 @@ struct ConnSettingsView: View {
                             .onTapGesture { testConnection() }
                         if let r = testResult {
                             Text(r)
-                                .font(.system(size: 11))
+                                .font(.system(size: Typography.caption))
                                 .foregroundStyle(r.hasPrefix("✅") ? Color.green : Color.red)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(.horizontal, 14)
@@ -68,7 +68,7 @@ struct ConnSettingsView: View {
                     .glassListCard()
 
                     Text("存储")
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.system(size: Typography.subhead, weight: .semibold))
                         .foregroundStyle(.secondary)
                         .padding(.leading, 4)
                         .padding(.top, 6)
@@ -84,7 +84,7 @@ struct ConnSettingsView: View {
                     }
                     .glassListCard()
                     Text("会话记录保存在 NAS 指定目录，Web 与 App 共用同一份")
-                        .font(.system(size: 10.5))
+                        .font(.system(size: Typography.tiny))
                         .foregroundStyle(.tertiary)
                         .padding(.leading, 4)
                 }
@@ -157,16 +157,16 @@ private struct UploadDirSheet: View {
     var body: some View {
         VStack(spacing: 14) {
             Text("文件上传位置")
-                .font(.system(size: 17, weight: .bold))
+                .font(.system(size: Typography.title, weight: .bold))
                 .padding(.top, 20)
             Text("App 发送的附件（PDF/文档等）将整份保存到该 NAS 目录")
-                .font(.system(size: 11))
+                .font(.system(size: Typography.caption))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 30)
 
             TextField("NAS 绝对路径", text: $path)
-                .font(.system(size: 14))
+                .font(.system(size: Typography.body))
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .padding(12)
@@ -176,7 +176,7 @@ private struct UploadDirSheet: View {
 
             if let r = result {
                 Text(r.text)
-                    .font(.system(size: 12))
+                    .font(.system(size: Typography.subhead))
                     .foregroundStyle(r.ok ? Color.green : Color.red)
                     .padding(.horizontal, 20)
             }
@@ -185,7 +185,7 @@ private struct UploadDirSheet: View {
                 save()
             } label: {
                 Text(saving ? "保存中..." : "保存")
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.system(size: Typography.body, weight: .semibold))
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 12)
@@ -196,7 +196,7 @@ private struct UploadDirSheet: View {
             .padding(.horizontal, 20)
 
             Button("取消") { dismiss() }
-                .font(.system(size: 14))
+                .font(.system(size: Typography.body))
                 .foregroundStyle(.secondary)
 
             Spacer()

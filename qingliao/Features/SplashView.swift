@@ -45,7 +45,7 @@ struct SplashView: View {
                         .font(.system(size: 34, weight: .bold))
                         .foregroundStyle(.primary)
                     Text("QINGLIAO · AI Agent")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.system(size: Typography.subhead, weight: .medium))
                         .foregroundStyle(.secondary)
                         .tracking(3)
                 }

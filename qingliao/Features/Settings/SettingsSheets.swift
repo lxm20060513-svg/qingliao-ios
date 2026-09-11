@@ -49,14 +49,14 @@ struct ServerSheet: View {
         NavigationStack {
             VStack(spacing: 0) {
                 Text("修改后需重新登录")
-                    .font(.system(size: 11))
+                    .font(.system(size: Typography.caption))
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 18)
                     .padding(.top, 4)
 
                 TextField("server.example.com:8080", text: $server)
-                    .font(.system(size: 14))
+                    .font(.system(size: Typography.body))
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .keyboardType(.URL)
@@ -69,7 +69,7 @@ struct ServerSheet: View {
 
                 if let err = validationError {
                     Text(err)
-                        .font(.system(size: 12))
+                        .font(.system(size: Typography.subhead))
                         .foregroundStyle(.red)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 22)
@@ -89,7 +89,7 @@ struct ServerSheet: View {
                     Task { try? await Task.sleep(for: .seconds(0.8)); auth.logout() }
                 } label: {
                     Text("保存并重新登录")
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.system(size: Typography.body, weight: .semibold))
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 12)
@@ -101,7 +101,7 @@ struct ServerSheet: View {
 
             if saved {
                 Text("已保存，正在返回登录...")
-                    .font(.system(size: 12))
+                    .font(.system(size: Typography.subhead))
                     .foregroundStyle(.green)
                     .padding(.top, 8)
             }
@@ -135,7 +135,7 @@ struct PinPathSheet: View {
         NavigationStack {
             VStack(spacing: 0) {
                 TextField("默认: /volume1/.../轻聊app", text: $path)
-                    .font(.system(size: 14))
+                    .font(.system(size: Typography.body))
                     .padding(12)
                     .background(Color(uiColor: .secondarySystemGroupedBackground))
                     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
@@ -143,7 +143,7 @@ struct PinPathSheet: View {
                     .padding(.top, 14)
 
                 Text("NAS 上的存储目录路径，pins.json 保存在此目录下")
-                    .font(.system(size: 12))
+                    .font(.system(size: Typography.subhead))
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 20)
@@ -154,7 +154,7 @@ struct PinPathSheet: View {
                     dismiss()
                 } label: {
                     Text("确定")
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.system(size: Typography.body, weight: .semibold))
                         .foregroundStyle(.white)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)
@@ -169,7 +169,7 @@ struct PinPathSheet: View {
                     dismiss()
                 } label: {
                     Text("恢复默认")
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.system(size: Typography.body, weight: .semibold))
                         .foregroundStyle(.red)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)
@@ -210,7 +210,7 @@ struct PasswordSheet: View {
         NavigationStack {
             VStack(spacing: 0) {
                 SecureField("当前密码", text: $oldPassword)
-                .font(.system(size: 14))
+                .font(.system(size: Typography.body))
                 .padding(12)
                 .background(Color(uiColor: .secondarySystemGroupedBackground))
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
@@ -218,7 +218,7 @@ struct PasswordSheet: View {
                 .padding(.top, 14)
 
             SecureField("新密码", text: $newPassword)
-                .font(.system(size: 14))
+                .font(.system(size: Typography.body))
                 .padding(12)
                 .background(Color(uiColor: .secondarySystemGroupedBackground))
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
@@ -227,7 +227,7 @@ struct PasswordSheet: View {
 
             // v2.0.83c：新密码二次确认（两次一致才可提交）
             SecureField("确认新密码", text: $confirmPassword)
-                .font(.system(size: 14))
+                .font(.system(size: Typography.body))
                 .padding(12)
                 .background(Color(uiColor: .secondarySystemGroupedBackground))
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
@@ -235,7 +235,7 @@ struct PasswordSheet: View {
                 .padding(.top, 10)
             if !confirmPassword.isEmpty && confirmPassword != newPassword {
                 Text("两次输入的密码不一致")
-                    .font(.system(size: 11))
+                    .font(.system(size: Typography.caption))
                     .foregroundStyle(.red)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 20)
@@ -246,7 +246,7 @@ struct PasswordSheet: View {
                 changePassword()
             } label: {
                 Text(busy ? "提交中..." : "确认修改")
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.system(size: Typography.body, weight: .semibold))
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 12)
@@ -258,7 +258,7 @@ struct PasswordSheet: View {
 
             if let r = result {
                 Text(r)
-                    .font(.system(size: 12))
+                    .font(.system(size: Typography.subhead))
                     .foregroundStyle(r.contains("成功") ? Color.green : Color.red)
                     .padding(.top, 8)
             }
@@ -308,7 +308,7 @@ struct SectionHeader: View {
     init(_ title: String) { self.title = title }
     var body: some View {
         Text(title)
-            .font(.system(size: 12, weight: .semibold))
+            .font(.system(size: Typography.subhead, weight: .semibold))
             .foregroundStyle(.tertiary)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 18)
@@ -329,22 +329,22 @@ struct SettingRow: View {
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: icon)
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(size: Typography.subhead, weight: .semibold))
                 .foregroundStyle(.white)
                 .frame(width: 28, height: 28)
                 .background(iconColor, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
             Text(title)
-                .font(.system(size: 15))
+                .font(.system(size: Typography.body))
                 .foregroundStyle(.primary)
             Spacer()
             if let value {
                 Text(value)
-                    .font(.system(size: 13))
+                    .font(.system(size: Typography.subhead))
                     .foregroundStyle(.secondary)
             }
             if chevron {
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: Typography.subhead, weight: .semibold))
                     .foregroundStyle(.tertiary)
             }
             // v2.0.87az：行尾开关
@@ -376,10 +376,10 @@ struct SessionLocSheet: View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 14) {
                 Text("设置 NAS 上存储会话记录的目录（需为服务器可写路径）")
-                .font(.system(size: 12))
+                .font(.system(size: Typography.subhead))
                 .foregroundStyle(.secondary)
             TextField("如 /volume1/docker/轻聊数据/sessions", text: $path)
-                .font(.system(size: 14, design: .monospaced))
+                .font(.system(size: Typography.body, design: .monospaced))
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .padding(12)
@@ -387,7 +387,7 @@ struct SessionLocSheet: View {
                             in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             if let result {
                 Text(result)
-                    .font(.system(size: 12))
+                    .font(.system(size: Typography.subhead))
                     .foregroundStyle(result.hasPrefix("✅") ? Color.green : Color.red)
             }
             Button {
@@ -401,7 +401,7 @@ struct SessionLocSheet: View {
                 .padding(.vertical, 12)
                 .background(Color.accentColor, in: Capsule())
                 .foregroundStyle(.white)
-                .font(.system(size: 15, weight: .semibold))
+                .font(.system(size: Typography.body, weight: .semibold))
             }
             .buttonStyle(.plain)
             .disabled(saving)

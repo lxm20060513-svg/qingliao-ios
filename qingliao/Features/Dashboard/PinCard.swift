@@ -10,11 +10,11 @@ struct PinCard: View {
             // 标题行：时间 + 来源标签 + 删除按钮
             HStack {
                 Text(pin.timeText)
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.system(size: Typography.caption, weight: .medium))
                     .foregroundStyle(.secondary)
                 if !pin.sourceLabel.isEmpty {
                     Text(pin.sourceLabel)
-                        .font(.system(size: 10))
+                        .font(.system(size: Typography.tiny))
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
                         .background(Color.accentColor.opacity(0.1), in: Capsule())
@@ -26,7 +26,7 @@ struct PinCard: View {
                         onDelete()
                     } label: {
                         Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 14))
+                            .font(.system(size: Typography.body))
                             .foregroundStyle(.tertiary)
                     }
                     .buttonStyle(.plain)
@@ -35,7 +35,7 @@ struct PinCard: View {
 
             // 内容
             Text(pin.preview)
-                .font(.system(size: 13))
+                .font(.system(size: Typography.subhead))
                 .lineSpacing(2)
                 .lineLimit(5)
                 .frame(maxWidth: .infinity, alignment: .leading)

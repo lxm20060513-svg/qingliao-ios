@@ -250,7 +250,7 @@ struct MessageBlockView: View {
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
                     Text(lang.map { $0.uppercased() } ?? "代码")
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(.system(size: Typography.tiny, weight: .semibold))
                         .foregroundStyle(.tertiary)
                     Spacer()
                     // v3.4.25：代码块复制按钮重做——低调半透明 doc.on.doc 图标（无文字），点击复制
@@ -329,7 +329,7 @@ private struct CodeCopyButton: View {
             }
         } label: {
             Image(systemName: copied ? "checkmark" : "doc.on.doc")
-                .font(.system(size: 12, weight: .medium))
+                .font(.system(size: Typography.subhead, weight: .medium))
                 .symbolEffect(.bounce, value: copied)   // v3.4.29：复制成功图标弹一下
                 .foregroundStyle(copied ? Color.green : Color.secondary)
                 .padding(4)
@@ -573,7 +573,7 @@ private struct MarkdownTableView: View {
                         showShare = csvURL != nil
                     } label: {
                         Image(systemName: "square.and.arrow.up")
-                            .font(.system(size: 12, weight: .medium))
+                            .font(.system(size: Typography.subhead, weight: .medium))
                             .foregroundStyle(Color.secondary)
                             .padding(4)
                             .contentShape(Rectangle())
@@ -603,7 +603,7 @@ private struct MarkdownTableView: View {
                 HStack(spacing: 0) {
                     ForEach(rows[r].indices, id: \.self) { c in
                         Text(rows[r][c])
-                            .font(.system(size: 12, weight: r == 0 ? .semibold : .regular))
+                            .font(.system(size: Typography.subhead, weight: r == 0 ? .semibold : .regular))
                             .foregroundStyle(r == 0 ? Color.primary : Color.secondary)
                             .padding(.horizontal, 10)
                             .padding(.vertical, 6)
@@ -711,28 +711,28 @@ struct FileMessageCard: View {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(color.opacity(0.22))
                 Image(systemName: icon)
-                    .font(.system(size: 16))
+                    .font(.system(size: Typography.title))
                     .foregroundStyle(color)
             }
             .frame(width: 38, height: 38)
             VStack(alignment: .leading, spacing: 3) {
                 Text(file.name)
-                    .font(.system(size: 12.5, weight: .semibold))
+                    .font(.system(size: Typography.subhead, weight: .semibold))
                     .foregroundStyle(.white)
                     .lineLimit(1)
                 HStack(spacing: 4) {
                     if file.failed {
                         Image(systemName: "exclamationmark.circle.fill")
-                            .font(.system(size: 9))
+                            .font(.system(size: Typography.tiny))
                     }
                     Text(file.status)
-                        .font(.system(size: 10))
+                        .font(.system(size: Typography.tiny))
                         .foregroundStyle(file.failed ? Color.red.opacity(0.9) : Color.white.opacity(0.75))
                 }
             }
             Spacer(minLength: 4)
             Image(systemName: file.failed ? "arrow.clockwise" : "checkmark.circle.fill")
-                .font(.system(size: 14))
+                .font(.system(size: Typography.body))
                 .foregroundStyle(file.failed ? Color.red.opacity(0.8) : Color.white.opacity(0.55))
         }
         .padding(10)
@@ -751,13 +751,13 @@ struct SessionCardView: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 8) {
                 Image(systemName: "bubble.left.and.bubble.right.fill")
-                    .font(.system(size: 17))
+                    .font(.system(size: Typography.title))
                     .foregroundStyle(LinearGradient(colors: [.blue, .indigo], startPoint: .topLeading, endPoint: .bottomTrailing))
                 Text(title)
-                    .font(.system(size: 17, weight: .bold))
+                    .font(.system(size: Typography.title, weight: .bold))
             }
             Text(formattedDate)
-                .font(.system(size: 11))
+                .font(.system(size: Typography.caption))
                 .foregroundStyle(.secondary)
                 .padding(.top, 3)
             Divider()
@@ -765,13 +765,13 @@ struct SessionCardView: View {
             ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
                 HStack(alignment: .top, spacing: 8) {
                     Text(row.role == "user" ? "我" : "AI")
-                        .font(.system(size: 10, weight: .bold))
+                        .font(.system(size: Typography.tiny, weight: .bold))
                         .foregroundStyle(.white)
                         .padding(.horizontal, 7)
                         .padding(.vertical, 3)
                         .background(row.role == "user" ? Color.blue : Color.indigo, in: Capsule())
                     Text(row.text)
-                        .font(.system(size: 13))
+                        .font(.system(size: Typography.subhead))
                         .lineSpacing(3)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .foregroundStyle(.primary)

@@ -29,9 +29,9 @@ struct CloudLoginView: View {
                         .font(.system(size: 52))
                         .foregroundStyle(LinearGradient(colors: [.blue, .cyan], startPoint: .topLeading, endPoint: .bottomTrailing))
                     Text("轻聊 · 云端")
-                        .font(.system(size: 28, weight: .bold))
+                        .font(.system(size: Typography.display, weight: .bold))
                     Text("直连大模型 API，无需本地服务器")
-                        .font(.system(size: 13))
+                        .font(.system(size: Typography.subhead))
                         .foregroundStyle(.secondary)
                 }
 
@@ -44,20 +44,20 @@ struct CloudLoginView: View {
                         } label: {
                             HStack(spacing: 12) {
                                 Image(systemName: "cube.fill")
-                                    .font(.system(size: 14))
+                                    .font(.system(size: Typography.body))
                                     .foregroundStyle(config.activeProviderID == p.providerID ? Color.accentColor : Color.secondary)
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(p.name)
-                                        .font(.system(size: 15, weight: .medium))
+                                        .font(.system(size: Typography.body, weight: .medium))
                                         .foregroundStyle(.primary)
                                     Text("\(p.model) · \(displayURL(p.baseURL))")
-                                        .font(.system(size: 11))
+                                        .font(.system(size: Typography.caption))
                                         .foregroundStyle(.secondary)
                                 }
                                 Spacer()
                                 if config.activeProviderID == p.providerID {
                                     Image(systemName: "checkmark.circle.fill")
-                                        .font(.system(size: 14))
+                                        .font(.system(size: Typography.body))
                                         .foregroundStyle(Color.accentColor)
                                 }
                             }
@@ -85,9 +85,9 @@ struct CloudLoginView: View {
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: "plus.circle.fill")
-                            .font(.system(size: 14))
+                            .font(.system(size: Typography.body))
                         Text("添加模型厂商")
-                            .font(.system(size: 14, weight: .medium))
+                            .font(.system(size: Typography.body, weight: .medium))
                     }
                     .foregroundStyle(Color.accentColor)
                     .frame(maxWidth: .infinity)
@@ -111,9 +111,9 @@ struct CloudLoginView: View {
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: testing ? "arrow.trianglehead.2.clockwise.rotate.90" : "network")
-                            .font(.system(size: 13))
+                            .font(.system(size: Typography.subhead))
                         Text(testing ? "测试中..." : "测试连接")
-                            .font(.system(size: 14, weight: .medium))
+                            .font(.system(size: Typography.body, weight: .medium))
                     }
                     .foregroundStyle(Color.accentColor)
                     .frame(maxWidth: .infinity)
@@ -127,7 +127,7 @@ struct CloudLoginView: View {
 
                 if let tr = testResult {
                     Text(tr)
-                        .font(.system(size: 12))
+                        .font(.system(size: Typography.subhead))
                         .foregroundStyle(tr.hasPrefix("✅") ? Color.green : (tr.hasPrefix("⚠️") ? Color.orange : Color.red))
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 32)
@@ -142,7 +142,7 @@ struct CloudLoginView: View {
                     }
                 } label: {
                     Text(config.isConfigured ? "开始使用" : "请先配置 API Key")
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(.system(size: Typography.title, weight: .semibold))
                         .foregroundStyle(.white)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 13)
@@ -164,9 +164,9 @@ struct CloudLoginView: View {
                     } label: {
                         HStack(spacing: 6) {
                             Image(systemName: "faceid")
-                                .font(.system(size: 15))
+                                .font(.system(size: Typography.body))
                             Text("Face ID 登录")
-                                .font(.system(size: 14, weight: .medium))
+                                .font(.system(size: Typography.body, weight: .medium))
                         }
                         .foregroundStyle(Color.accentColor)
                         .frame(maxWidth: .infinity)

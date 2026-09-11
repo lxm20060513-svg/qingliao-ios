@@ -40,14 +40,14 @@ struct KBView: View {
                         }
                     }
                     Text("聊天时输入「@知识库 你的问题」，AI 会自动检索这些文档回答")
-                        .font(.system(size: 11))
+                        .font(.system(size: Typography.caption))
                         .foregroundStyle(.secondary)
                 }
 
                 Section("文档（\(docs.count) 个）") {
                     if docs.isEmpty {
                         Text("暂无文档")
-                            .font(.system(size: 12))
+                            .font(.system(size: Typography.subhead))
                             .foregroundStyle(.tertiary)
                     }
                     ForEach(docs) { doc in
@@ -61,7 +61,7 @@ struct KBView: View {
                 if let m = message {
                     Section {
                         Text(m.text)
-                            .font(.system(size: 12))
+                            .font(.system(size: Typography.subhead))
                             .foregroundStyle(m.ok ? .green : .red)
                     }
                 }
@@ -202,13 +202,13 @@ private struct KBRow: View {
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: "doc.text.fill")
-                .font(.system(size: 18))
+                .font(.system(size: Typography.headline))
                 .foregroundStyle(Color.accentColor)
             VStack(alignment: .leading, spacing: 2) {
                 Text(name)
-                    .font(.system(size: 14, weight: .medium))
+                    .font(.system(size: Typography.body, weight: .medium))
                 Text("\(chunks) 个片段 · \(size) 字节")
-                    .font(.system(size: 11))
+                    .font(.system(size: Typography.caption))
                     .foregroundStyle(.secondary)
             }
             Spacer()
@@ -216,7 +216,7 @@ private struct KBRow: View {
                 onDelete(name)
             } label: {
                 Image(systemName: "trash")
-                    .font(.system(size: 14))
+                    .font(.system(size: Typography.body))
                     .foregroundStyle(.red)
             }
             .buttonStyle(.plain)
@@ -250,7 +250,7 @@ private struct PasteKBSheet: View {
                 Section("内容（粘贴文本）") {
                     TextEditor(text: $content)
                         .frame(minHeight: 180)
-                        .font(.system(size: 13))
+                        .font(.system(size: Typography.subhead))
                 }
             }
             .navigationTitle("粘贴文本上传")

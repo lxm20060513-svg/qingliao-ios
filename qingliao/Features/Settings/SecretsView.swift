@@ -41,20 +41,20 @@ struct SecretsView: View {
                             .foregroundStyle(Color.accentColor)
                     }
                     Text("密码管理已锁定")
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.system(size: Typography.body, weight: .semibold))
                     Text("使用 Face ID / 面容验证解锁")
-                        .font(.system(size: 12))
+                        .font(.system(size: Typography.subhead))
                         .foregroundStyle(.secondary)
                     if authFailed {
                         Text("验证失败，请重试")
-                            .font(.system(size: 12))
+                            .font(.system(size: Typography.subhead))
                             .foregroundStyle(.red)
                     }
                     Button {
                         authenticate()
                     } label: {
                         Text("解锁")
-                            .font(.system(size: 15, weight: .semibold))
+                            .font(.system(size: Typography.body, weight: .semibold))
                             .foregroundStyle(.white)
                             .padding(.horizontal, 44).padding(.vertical, 11)
                             .background(Color.accentColor, in: Capsule())
@@ -84,10 +84,10 @@ struct SecretsView: View {
                 Spacer()
                 VStack(spacing: 8) {
                     Text("暂无凭据")
-                        .font(.system(size: 13))
+                        .font(.system(size: Typography.subhead))
                         .foregroundStyle(.tertiary)
                     Text("点击右上角 + 添加 NAS SSH / 路由器密码")
-                        .font(.system(size: 11))
+                        .font(.system(size: Typography.caption))
                         .foregroundStyle(.tertiary)
                 }
                 Spacer()
@@ -114,7 +114,7 @@ struct SecretsView: View {
         .overlay(alignment: .bottom) {
             if !toast.isEmpty {
                 Text(toast)
-                    .font(.system(size: 12))
+                    .font(.system(size: Typography.subhead))
                     .padding(.horizontal, 16).padding(.vertical, 8)
                     .background(Color(uiColor: .secondarySystemGroupedBackground), in: Capsule())
                     .padding(.bottom, 20)
@@ -259,11 +259,11 @@ struct SecretRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
-                Text(typeIcon).font(.system(size: 16))
+                Text(typeIcon).font(.system(size: Typography.title))
                 Text(entry.name)
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.system(size: Typography.body, weight: .semibold))
                 Text(typeName)
-                    .font(.system(size: 10))
+                    .font(.system(size: Typography.tiny))
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 7).padding(.vertical, 2)
                     .background(Color.secondary.opacity(0.12), in: Capsule())
@@ -273,42 +273,42 @@ struct SecretRow: View {
                     UIPasteboard.general.string = "\(entry.username)@\(entry.address)"
                 } label: {
                     Image(systemName: "doc.on.doc")
-                        .font(.system(size: 13))
+                        .font(.system(size: Typography.subhead))
                         .foregroundStyle(Color.accentColor)
                 }
                 .buttonStyle(.plain)
                 Button { onEdit() } label: {
                     Image(systemName: "pencil")
-                        .font(.system(size: 13))
+                        .font(.system(size: Typography.subhead))
                         .foregroundStyle(Color.accentColor)
                 }
                 .buttonStyle(.plain)
                 Button { onDelete() } label: {
                     Image(systemName: "trash")
-                        .font(.system(size: 13))
+                        .font(.system(size: Typography.subhead))
                         .foregroundStyle(.red)
                 }
                 .buttonStyle(.plain)
             }
             HStack(spacing: 10) {
                 Text("地址：\(entry.address)")
-                    .font(.system(size: 11.5))
+                    .font(.system(size: Typography.caption))
                     .foregroundStyle(.secondary)
                 Text("用户：\(entry.username)")
-                    .font(.system(size: 11.5))
+                    .font(.system(size: Typography.caption))
                     .foregroundStyle(.secondary)
             }
             // 密码：默认掩码，点击眼睛显示明文
             HStack(spacing: 8) {
                 Text(entry.password.isEmpty ? "密码：••••••••" : "密码：\(entry.password)")
-                    .font(.system(size: 11.5, design: .monospaced))
+                    .font(.system(size: Typography.caption, design: .monospaced))
                     .foregroundStyle(entry.password.isEmpty ? .secondary : .primary)
                 if entry.password.isEmpty {
                     Button {
                         onReveal()
                     } label: {
                         Image(systemName: "eye")
-                            .font(.system(size: 12))
+                            .font(.system(size: Typography.subhead))
                             .foregroundStyle(Color.accentColor)
                     }
                     .buttonStyle(.plain)
@@ -317,7 +317,7 @@ struct SecretRow: View {
                         UIPasteboard.general.string = entry.password
                     } label: {
                         Image(systemName: "doc.on.doc")
-                            .font(.system(size: 12))
+                            .font(.system(size: Typography.subhead))
                             .foregroundStyle(Color.accentColor)
                     }
                     .buttonStyle(.plain)
@@ -349,11 +349,11 @@ struct SecretEditSheet: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Text(entry?.id.isEmpty == false ? "编辑凭据" : "新增凭据")
-                    .font(.system(size: 17, weight: .bold))
+                    .font(.system(size: Typography.title, weight: .bold))
                 Spacer()
                 Button { dismiss() } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 22)).foregroundStyle(.tertiary)
+                        .font(.system(size: Typography.titleXL)).foregroundStyle(.tertiary)
                 }
                 .buttonStyle(.plain)
             }
@@ -388,7 +388,7 @@ struct SecretEditSheet: View {
                 .padding(.vertical, 11)
                 .background(Color.accentColor, in: Capsule())
                 .foregroundStyle(.white)
-                .font(.system(size: 15, weight: .semibold))
+                .font(.system(size: Typography.body, weight: .semibold))
             }
             .buttonStyle(.plain)
             .disabled(name.isEmpty || address.isEmpty || username.isEmpty)

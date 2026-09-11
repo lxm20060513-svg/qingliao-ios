@@ -8,17 +8,17 @@ extension SettingsView {
     func toggleRow(icon: String, iconColor: Color, title: String, subtitle: String? = nil, isOn: Binding<Bool>) -> some View {
         HStack(spacing: 12) {
             Image(systemName: icon)
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(size: Typography.subhead, weight: .semibold))
                 .foregroundStyle(.white)
                 .frame(width: 28, height: 28)
                 .background(iconColor, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
             if let subtitle {
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(title).font(.system(size: 14, weight: .medium))
-                    Text(subtitle).font(.system(size: 11)).foregroundStyle(.tertiary)
+                    Text(title).font(.system(size: Typography.body, weight: .medium))
+                    Text(subtitle).font(.system(size: Typography.caption)).foregroundStyle(.tertiary)
                 }
             } else {
-                Text(title).font(.system(size: 15)).foregroundStyle(.primary)
+                Text(title).font(.system(size: Typography.body)).foregroundStyle(.primary)
             }
             Spacer()
             Toggle("", isOn: isOn).labelsHidden().scaleEffect(0.8).tint(.green)

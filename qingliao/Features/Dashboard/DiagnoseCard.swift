@@ -46,7 +46,7 @@ struct DiagnoseCard: View {
                     ProgressView()
                         .tint(Color.accentColor)
                     Text("体检中…")
-                        .font(.system(size: 14, weight: .medium))
+                        .font(.system(size: Typography.body, weight: .medium))
                         .foregroundStyle(.secondary)
                     Spacer()
                 }
@@ -56,7 +56,7 @@ struct DiagnoseCard: View {
                     Image(systemName: "xmark.octagon.fill")
                         .foregroundStyle(.red)
                     Text(error)
-                        .font(.system(size: 14))
+                        .font(.system(size: Typography.body))
                         .foregroundStyle(.secondary)
                     Spacer()
                 }
@@ -67,20 +67,20 @@ struct DiagnoseCard: View {
                 } label: {
                     HStack(spacing: 10) {
                         Image(systemName: "stethoscope.circle.fill")
-                            .font(.system(size: 26))
+                            .font(.system(size: Typography.display))
                             .foregroundStyle(LinearGradient(colors: [.blue, .indigo, .pink],
                                                             startPoint: .topLeading, endPoint: .bottomTrailing))
                         VStack(alignment: .leading, spacing: 2) {
                             Text("一键体检")
-                                .font(.system(size: 15, weight: .semibold))
+                                .font(.system(size: Typography.body, weight: .semibold))
                                 .foregroundStyle(.primary)
                             Text("检查服务 / 磁盘 / 容器 / 负载 / 内存 / 温度")
-                                .font(.system(size: 12))
+                                .font(.system(size: Typography.subhead))
                                 .foregroundStyle(.secondary)
                         }
                         Spacer()
                         Image(systemName: "chevron.right")
-                            .font(.system(size: 12, weight: .semibold))
+                            .font(.system(size: Typography.subhead, weight: .semibold))
                             .foregroundStyle(.tertiary)
                     }
                     .padding(.vertical, 4)
@@ -93,19 +93,19 @@ struct DiagnoseCard: View {
                 } label: {
                     HStack(spacing: 10) {
                         Image(systemName: iconName)
-                            .font(.system(size: 22))
+                            .font(.system(size: Typography.titleXL))
                             .foregroundStyle(tint)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(level == "ok" ? "设备状态良好" : (level == "warn" ? "有需要留意的项" : "有异常需要处理"))
-                                .font(.system(size: 14, weight: .semibold))
+                                .font(.system(size: Typography.body, weight: .semibold))
                                 .foregroundStyle(.primary)
                             Text(summary)
-                                .font(.system(size: 11))
+                                .font(.system(size: Typography.caption))
                                 .foregroundStyle(.secondary)
                         }
                         Spacer()
                         Image(systemName: expanded ? "chevron.up" : "chevron.down")
-                            .font(.system(size: 12, weight: .semibold))
+                            .font(.system(size: Typography.subhead, weight: .semibold))
                             .foregroundStyle(.tertiary)
                     }
                     .padding(.vertical, 2)
@@ -122,7 +122,7 @@ struct DiagnoseCard: View {
                     onRun()
                 } label: {
                     Label("重新体检", systemImage: "arrow.clockwise")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.system(size: Typography.subhead, weight: .medium))
                         .foregroundStyle(Color.accentColor)
                 }
                 .buttonStyle(.plain)
@@ -158,18 +158,18 @@ struct DiagnoseRow: View {
                     .fill(tint)
                     .frame(width: 8, height: 8)
                 Text(item.name)
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.system(size: Typography.subhead, weight: .medium))
                     .foregroundStyle(.primary)
                 Spacer()
                 Text(item.detail)
-                    .font(.system(size: 12))
+                    .font(.system(size: Typography.subhead))
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
                     .multilineTextAlignment(.trailing)
             }
             if item.status != "ok" && !item.advice.isEmpty {
                 Text("💡 " + item.advice)
-                    .font(.system(size: 11.5))
+                    .font(.system(size: Typography.caption))
                     .foregroundStyle(.secondary)
                     .padding(.leading, 16)
             }

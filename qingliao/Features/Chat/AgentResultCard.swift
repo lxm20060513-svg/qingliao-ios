@@ -21,7 +21,7 @@ struct AgentResultCard: View {
             if let table = card.table { AgentCardTable(rows: tableRows(table)) }
             if let footer = card.footer, !footer.isEmpty {
                 Text(footer)
-                    .font(.system(size: 10.5))
+                    .font(.system(size: Typography.tiny))
                     .foregroundStyle(.tertiary)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -43,7 +43,7 @@ struct AgentResultCard: View {
         if !title.isEmpty || !subtitle.isEmpty || card.status != nil {
             HStack(alignment: .top, spacing: 8) {
                 Image(systemName: headerIcon)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: Typography.subhead, weight: .semibold))
                     .symbolEffect(.bounce, value: card.status?.text ?? "")   // v3.9.0：结果状态更新弹一下
                     .foregroundStyle(toneColor(card.status?.tone))
                     .frame(width: 22, height: 22)
@@ -51,13 +51,13 @@ struct AgentResultCard: View {
                 VStack(alignment: .leading, spacing: 2) {
                     if !title.isEmpty {
                         Text(title)
-                            .font(.system(size: 14, weight: .semibold))
+                            .font(.system(size: Typography.body, weight: .semibold))
                             .foregroundStyle(.primary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     if !subtitle.isEmpty {
                         Text(subtitle)
-                            .font(.system(size: 10.5))
+                            .font(.system(size: Typography.tiny))
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -87,7 +87,7 @@ struct AgentResultCard: View {
                 .fill(toneColor(tone))
                 .frame(width: 6, height: 6)
             Text(text)
-                .font(.system(size: 10.5, weight: .medium))
+                .font(.system(size: Typography.tiny, weight: .medium))
                 .foregroundStyle(toneColor(tone))
         }
         .padding(.horizontal, 8)
@@ -103,20 +103,20 @@ struct AgentResultCard: View {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(alignment: .lastTextBaseline, spacing: 2) {
                         Text(m.value)
-                            .font(.system(size: 17, weight: .semibold, design: .rounded))
+                            .font(.system(size: Typography.title, weight: .semibold, design: .rounded))
                             .foregroundStyle(toneColor(m.tone))
                             .contentTransition(.numericText())   // 数值滚动而非硬跳
                             .lineLimit(1)
                             .minimumScaleFactor(0.7)
                         if let unit = m.unit, !unit.isEmpty {
                             Text(unit)
-                                .font(.system(size: 10))
+                                .font(.system(size: Typography.tiny))
                                 .foregroundStyle(.secondary)
                         }
                     }
                     if !m.label.isEmpty {
                         Text(m.label)
-                            .font(.system(size: 10))
+                            .font(.system(size: Typography.tiny))
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                     }
@@ -133,11 +133,11 @@ struct AgentResultCard: View {
             ForEach(Array(card.fields.enumerated()), id: \.offset) { _, f in
                 HStack(alignment: .top, spacing: 8) {
                     Text(f.key)
-                        .font(.system(size: 11.5))
+                        .font(.system(size: Typography.caption))
                         .foregroundStyle(.secondary)
                         .frame(width: 64, alignment: .leading)
                     Text(f.value)
-                        .font(.system(size: 11.5, weight: f.tone == nil ? .regular : .medium))
+                        .font(.system(size: Typography.caption, weight: f.tone == nil ? .regular : .medium))
                         .foregroundStyle(f.tone == nil ? Color.primary : toneColor(f.tone))
                         .fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 0)
@@ -158,12 +158,12 @@ struct AgentResultCard: View {
                         .padding(.top, 5)
                     VStack(alignment: .leading, spacing: 1) {
                         Text(item.title)
-                            .font(.system(size: 12))
+                            .font(.system(size: Typography.subhead))
                             .foregroundStyle(.primary)
                             .fixedSize(horizontal: false, vertical: true)
                         if let sub = item.subtitle, !sub.isEmpty {
                             Text(sub)
-                                .font(.system(size: 10.5))
+                                .font(.system(size: Typography.tiny))
                                 .foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
@@ -171,7 +171,7 @@ struct AgentResultCard: View {
                     Spacer(minLength: 6)
                     if let st = item.status, !st.isEmpty {
                         Text(st)
-                            .font(.system(size: 10, weight: .medium))
+                            .font(.system(size: Typography.tiny, weight: .medium))
                             .foregroundStyle(toneColor(item.tone))
                             .padding(.horizontal, 7)
                             .padding(.vertical, 2)
@@ -218,7 +218,7 @@ private struct AgentCardTable: View {
                     HStack(spacing: 0) {
                         ForEach(rows[r].indices, id: \.self) { c in
                             Text(rows[r][c])
-                                .font(.system(size: 11, weight: r == 0 ? .semibold : .regular))
+                                .font(.system(size: Typography.caption, weight: r == 0 ? .semibold : .regular))
                                 .foregroundStyle(r == 0 ? Color.primary : Color.secondary)
                                 .lineLimit(2)
                                 .padding(.horizontal, 8)

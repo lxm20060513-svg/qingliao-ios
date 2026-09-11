@@ -54,7 +54,7 @@ struct ImageViewer: View {
                 HStack {
                     if images.count > 1 {
                         Text("\(index + 1) / \(images.count)")
-                            .font(.system(size: 13, weight: .medium))
+                            .font(.system(size: Typography.subhead, weight: .medium))
                             .foregroundStyle(.white.opacity(0.9))
                             .padding(.horizontal, 12)
                             .padding(.vertical, 5)
@@ -66,7 +66,7 @@ struct ImageViewer: View {
                         dismiss()
                     } label: {
                         Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 28))
+                            .font(.system(size: Typography.display))
                             .foregroundStyle(.white.opacity(0.9))
                             .shadow(radius: 4)
                     }
@@ -78,7 +78,7 @@ struct ImageViewer: View {
                     UIImageWriteToSavedPhotosAlbum(images[index], nil, nil, nil)
                 } label: {
                     Label("保存到相册", systemImage: "square.and.arrow.down")
-                        .font(.system(size: 14, weight: .medium))
+                        .font(.system(size: Typography.body, weight: .medium))
                         .foregroundStyle(.white)
                         .padding(.horizontal, 18)
                         .padding(.vertical, 9)

@@ -36,7 +36,7 @@ struct AgentKeywordsSheet: View {
                 Section("自定义关键词") {
                     if (custom[activeList] ?? []).isEmpty {
                         Text("暂无自定义——在下方添加")
-                            .font(.system(size: 12))
+                            .font(.system(size: Typography.subhead))
                             .foregroundStyle(.tertiary)
                     } else {
                         ForEach(custom[activeList] ?? [], id: \.self) { w in
@@ -67,7 +67,7 @@ struct AgentKeywordsSheet: View {
                     }
                     if let m = msg {
                         Text(m.text)
-                            .font(.system(size: 12))
+                            .font(.system(size: Typography.subhead))
                             .foregroundStyle(m.ok ? .green : .red)
                     }
                 } header: {
@@ -131,7 +131,7 @@ private struct FlowText: View {
                 HStack(spacing: 6) {
                     ForEach(row, id: \.self) { w in
                         Text(w)
-                            .font(.system(size: 12))
+                            .font(.system(size: Typography.subhead))
                             .padding(.horizontal, 8)
                             .padding(.vertical, 3)
                             .background(Color(uiColor: .secondarySystemGroupedBackground),

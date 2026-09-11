@@ -68,12 +68,12 @@ struct ChatExportSheet: View {
     private func overviewItem(icon: String, color: Color, value: String, label: String) -> some View {
         HStack(spacing: 6) {
             Image(systemName: icon)
-                .font(.system(size: 15))
+                .font(.system(size: Typography.body))
                 .foregroundStyle(color)
             Text(value)
-                .font(.system(size: 15, weight: .semibold).monospacedDigit())
+                .font(.system(size: Typography.body, weight: .semibold).monospacedDigit())
             Text(label)
-                .font(.system(size: 12))
+                .font(.system(size: Typography.subhead))
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
@@ -87,17 +87,17 @@ struct ChatExportSheet: View {
         } label: {
             HStack(spacing: 12) {
                 Image(systemName: icon)
-                    .font(.system(size: 18))
+                    .font(.system(size: Typography.headline))
                     .foregroundStyle(tint)
                     .frame(width: 28)
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
                         Text(name)
-                            .font(.system(size: 15, weight: .medium))
+                            .font(.system(size: Typography.body, weight: .medium))
                             .foregroundStyle(.primary)
                         if let badge {
                             Text(badge)
-                                .font(.system(size: 10, weight: .semibold))
+                                .font(.system(size: Typography.tiny, weight: .semibold))
                                 .foregroundStyle(.green)
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
@@ -105,12 +105,12 @@ struct ChatExportSheet: View {
                         }
                     }
                     Text(desc)
-                        .font(.system(size: 12))
+                        .font(.system(size: Typography.subhead))
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: Typography.subhead, weight: .semibold))
                     .foregroundStyle(.tertiary)
             }
             .padding(.vertical, 2)

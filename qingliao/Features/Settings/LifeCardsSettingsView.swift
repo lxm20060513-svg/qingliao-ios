@@ -82,7 +82,7 @@ struct LifeCardsSettingsView: View {
 
     private var noteRow: some View {
         Text("改动立即生效，看板下一轮刷新即生效")
-            .font(.system(size: 11))
+            .font(.system(size: Typography.caption))
             .foregroundStyle(.tertiary)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 4)
@@ -93,14 +93,14 @@ struct LifeCardsSettingsView: View {
     private var statusRow: some View {
         if !error.isEmpty {
             Text(error)
-                .font(.system(size: 11))
+                .font(.system(size: Typography.caption))
                 .foregroundStyle(.red)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 4)
                 .padding(.top, 6)
         } else if !toast.isEmpty {
             Text(toast)
-                .font(.system(size: 11))
+                .font(.system(size: Typography.caption))
                 .foregroundStyle(Color.green)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 4)
@@ -132,11 +132,11 @@ struct LifeCardsSettingsView: View {
             iconBadge("chart.line.uptrend.xyaxis", color: .green)
             VStack(alignment: .leading, spacing: 1) {
                 Text(presets.stockName(config.stocks[i]))
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: Typography.subhead, weight: .semibold))
                     .foregroundStyle(.primary)
                     .lineLimit(1)
                 Text(presets.marketName(config.stocks[i].market) + " · " + config.stocks[i].code)
-                    .font(.system(size: 11))
+                    .font(.system(size: Typography.caption))
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
             }
@@ -181,11 +181,11 @@ struct LifeCardsSettingsView: View {
             iconBadge("dot.radiowaves.left.and.right", color: .indigo)
             VStack(alignment: .leading, spacing: 1) {
                 Text(config.rss[i].name)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: Typography.subhead, weight: .semibold))
                     .foregroundStyle(.primary)
                     .lineLimit(1)
                 Text(config.rss[i].domain)
-                    .font(.system(size: 11))
+                    .font(.system(size: Typography.caption))
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
             }
@@ -217,7 +217,7 @@ struct LifeCardsSettingsView: View {
             labeledField("URL", placeholder: "https://example.com/feed", text: $newRssURL)
             if !rssError.isEmpty {
                 Text(rssError)
-                    .font(.system(size: 11))
+                    .font(.system(size: Typography.caption))
                     .foregroundStyle(.red)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -234,12 +234,12 @@ struct LifeCardsSettingsView: View {
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 5) {
                     Text(p.name)
-                        .font(.system(size: 12.5, weight: .medium))
+                        .font(.system(size: Typography.subhead, weight: .medium))
                         .foregroundStyle(.primary)
                         .lineLimit(1)
                     if p.builtin {
                         Text("内置")
-                            .font(.system(size: 9))
+                            .font(.system(size: Typography.tiny))
                             .padding(.horizontal, 6)
                             .padding(.vertical, 1)
                             .background(Color.accentColor.opacity(0.12), in: Capsule())
@@ -247,7 +247,7 @@ struct LifeCardsSettingsView: View {
                     }
                 }
                 Text(p.domain)
-                    .font(.system(size: 10.5))
+                    .font(.system(size: Typography.tiny))
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
             }
@@ -256,7 +256,7 @@ struct LifeCardsSettingsView: View {
                 addPresetRss(p)
             } label: {
                 Image(systemName: added ? "checkmark.circle.fill" : "plus.circle")
-                    .font(.system(size: 17))
+                    .font(.system(size: Typography.title))
                     .foregroundStyle(added ? Color.green : Color.accentColor)
             }
             .buttonStyle(PressStyle())
@@ -302,11 +302,11 @@ struct LifeCardsSettingsView: View {
             iconBadge("shippingbox.fill", color: .orange)
             VStack(alignment: .leading, spacing: 1) {
                 Text(config.express.packages[i].no)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: Typography.subhead, weight: .semibold))
                     .foregroundStyle(.primary)
                     .lineLimit(1)
                 Text(presets.carrierName(config.express.packages[i].carrier))
-                    .font(.system(size: 11))
+                    .font(.system(size: Typography.caption))
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
             }
@@ -336,7 +336,7 @@ struct LifeCardsSettingsView: View {
             }
             .pickerStyle(.menu)
             .labelsHidden()
-            .font(.system(size: 11))
+            .font(.system(size: Typography.caption))
         }
     }
 
@@ -347,7 +347,7 @@ struct LifeCardsSettingsView: View {
             if !presets.carriers.isEmpty {
                 HStack(spacing: 8) {
                     Text("快递公司")
-                        .font(.system(size: 12))
+                        .font(.system(size: Typography.subhead))
                         .foregroundStyle(.secondary)
                     carrierPicker($newPackageCarrier)
                     Spacer(minLength: 0)
@@ -363,7 +363,7 @@ struct LifeCardsSettingsView: View {
     private var typePicker: some View {
         HStack(spacing: 8) {
             Text("数据源")
-                .font(.system(size: 12))
+                .font(.system(size: Typography.subhead))
                 .foregroundStyle(.secondary)
             capsuleToggle("免费接口", on: !config.express.source.isCustom) {
                 setExpressType("free")
@@ -383,7 +383,7 @@ struct LifeCardsSettingsView: View {
                          placeholder: "https://api.example.com/track?no={no}",
                          text: $config.express.source.urlTemplate)
             Text("支持占位符 {no} 单号 / {carrier} 快递公司编码 / {key} 密钥 / {phone} 手机号后四位")
-                .font(.system(size: 10))
+                .font(.system(size: Typography.tiny))
                 .foregroundStyle(.tertiary)
                 .frame(maxWidth: .infinity, alignment: .leading)
             labeledField("密钥 key", placeholder: "接口密钥（可选）", text: $config.express.source.key)
@@ -427,7 +427,7 @@ struct LifeCardsSettingsView: View {
     private var priceTimeoutRow: some View {
         HStack(spacing: 8) {
             Text("请求超时")
-                .font(.system(size: 12))
+                .font(.system(size: Typography.subhead))
                 .foregroundStyle(.secondary)
             Stepper("", value: $config.price.source.timeout, in: 3...20)
                 .labelsHidden()
@@ -435,7 +435,7 @@ struct LifeCardsSettingsView: View {
                     Task { await persist() }
                 }
             Text("\(config.price.source.timeout) 秒")
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: Typography.subhead, weight: .semibold))
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 14)
@@ -446,7 +446,7 @@ struct LifeCardsSettingsView: View {
             HStack(spacing: 8) {
                 iconBadge("tag.fill", color: .pink)
                 Text(config.price.items[i].name.isEmpty ? "未命名价格项" : config.price.items[i].name)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: Typography.subhead, weight: .semibold))
                     .foregroundStyle(.primary)
                     .lineLimit(1)
                 Spacer(minLength: 0)
@@ -467,7 +467,7 @@ struct LifeCardsSettingsView: View {
             }
             if let r = priceResults[config.price.items[i].uid] {
                 Text(r)
-                    .font(.system(size: 10.5))
+                    .font(.system(size: Typography.tiny))
                     .foregroundStyle(r.hasPrefix("✅") ? Color.green : Color.red)
                     .lineLimit(3)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -489,7 +489,7 @@ struct LifeCardsSettingsView: View {
     private func extractPicker(_ i: Int) -> some View {
         HStack(spacing: 8) {
             Text("提取方式")
-                .font(.system(size: 11, weight: .semibold))
+                .font(.system(size: Typography.caption, weight: .semibold))
                 .foregroundStyle(.secondary)
             capsuleToggle("正则 regex", on: config.price.items[i].extract == "regex") {
                 setExtract(i, "regex")
@@ -504,7 +504,7 @@ struct LifeCardsSettingsView: View {
     private func groupStepper(_ i: Int) -> some View {
         HStack(spacing: 8) {
             Text("正则分组")
-                .font(.system(size: 11, weight: .semibold))
+                .font(.system(size: Typography.caption, weight: .semibold))
                 .foregroundStyle(.secondary)
             Stepper("", value: $config.price.items[i].group, in: 0...30)
                 .labelsHidden()
@@ -512,7 +512,7 @@ struct LifeCardsSettingsView: View {
                     Task { await persist() }
                 }
             Text("第 \(config.price.items[i].group) 组")
-                .font(.system(size: 11))
+                .font(.system(size: Typography.caption))
                 .foregroundStyle(.tertiary)
         }
     }
@@ -520,10 +520,10 @@ struct LifeCardsSettingsView: View {
     private func targetField(_ i: Int) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("目标价（可选）")
-                .font(.system(size: 11, weight: .semibold))
+                .font(.system(size: Typography.caption, weight: .semibold))
                 .foregroundStyle(.secondary)
             TextField("留空不提醒", text: targetBinding(i))
-                .font(.system(size: 12))
+                .font(.system(size: Typography.subhead))
                 .keyboardType(.decimalPad)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 7)
@@ -550,9 +550,9 @@ struct LifeCardsSettingsView: View {
                 if priceTesting.contains(config.price.items[i].uid) {
                     ProgressView().controlSize(.mini)
                 } else {
-                    Image(systemName: "bolt.fill").font(.system(size: 10, weight: .semibold))
+                    Image(systemName: "bolt.fill").font(.system(size: Typography.tiny, weight: .semibold))
                 }
-                Text("试抓").font(.system(size: 11, weight: .semibold))
+                Text("试抓").font(.system(size: Typography.caption, weight: .semibold))
             }
             .foregroundStyle(Color.accentColor)
             .padding(.horizontal, 10)
@@ -570,7 +570,7 @@ struct LifeCardsSettingsView: View {
 
     private func iconBadge(_ icon: String, color: Color) -> some View {
         Image(systemName: icon)
-            .font(.system(size: 12, weight: .semibold))
+            .font(.system(size: Typography.subhead, weight: .semibold))
             .foregroundStyle(.white)
             .frame(width: 26, height: 26)
             .background(color, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
@@ -578,7 +578,7 @@ struct LifeCardsSettingsView: View {
 
     private func emptyRow(_ text: String) -> some View {
         Text(text)
-            .font(.system(size: 12))
+            .font(.system(size: Typography.subhead))
             .foregroundStyle(.tertiary)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 14)
@@ -587,7 +587,7 @@ struct LifeCardsSettingsView: View {
 
     private func subLabel(_ text: String) -> some View {
         Text(text)
-            .font(.system(size: 11, weight: .semibold))
+            .font(.system(size: Typography.caption, weight: .semibold))
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.top, 8)
@@ -596,7 +596,7 @@ struct LifeCardsSettingsView: View {
 
     private func smallField(_ placeholder: String, text: Binding<String>) -> some View {
         TextField(placeholder, text: text)
-            .font(.system(size: 12))
+            .font(.system(size: Typography.subhead))
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled()
             .padding(.horizontal, 10)
@@ -608,7 +608,7 @@ struct LifeCardsSettingsView: View {
     private func labeledField(_ label: String, placeholder: String, text: Binding<String>) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(label)
-                .font(.system(size: 11, weight: .semibold))
+                .font(.system(size: Typography.caption, weight: .semibold))
                 .foregroundStyle(.secondary)
             smallField(placeholder, text: text)
         }
@@ -618,7 +618,7 @@ struct LifeCardsSettingsView: View {
     private func deleteCircle(_ action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: "trash")
-                .font(.system(size: 11, weight: .semibold))
+                .font(.system(size: Typography.caption, weight: .semibold))
                 .foregroundStyle(Color.red)
                 .frame(width: 26, height: 26)
                 .background(Color.red.opacity(0.12), in: Circle())
@@ -629,8 +629,8 @@ struct LifeCardsSettingsView: View {
     private func addCapsule(_ title: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 5) {
-                Image(systemName: "plus").font(.system(size: 11, weight: .semibold))
-                Text(title).font(.system(size: 12.5, weight: .semibold))
+                Image(systemName: "plus").font(.system(size: Typography.caption, weight: .semibold))
+                Text(title).font(.system(size: Typography.subhead, weight: .semibold))
             }
             .foregroundStyle(.white)
             .padding(.horizontal, 14)
@@ -643,8 +643,8 @@ struct LifeCardsSettingsView: View {
     private func footerButton(_ title: String, icon: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 6) {
-                Image(systemName: icon).font(.system(size: 12, weight: .semibold))
-                Text(title).font(.system(size: 12.5, weight: .semibold))
+                Image(systemName: icon).font(.system(size: Typography.subhead, weight: .semibold))
+                Text(title).font(.system(size: Typography.subhead, weight: .semibold))
             }
             .foregroundStyle(Color.accentColor)
             .padding(.horizontal, 14)
@@ -660,7 +660,7 @@ struct LifeCardsSettingsView: View {
     private func capsuleToggle(_ title: String, on: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: Typography.subhead, weight: .semibold))
                 .foregroundStyle(on ? Color.white : Color.primary)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
@@ -879,7 +879,7 @@ struct StockSearchSheet: View {
                 searchField
                 if !error.isEmpty {
                     Text(error)
-                        .font(.system(size: 11))
+                        .font(.system(size: Typography.caption))
                         .foregroundStyle(.red)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 20)
@@ -904,7 +904,7 @@ struct StockSearchSheet: View {
 
     private var searchField: some View {
         TextField("输入代码或名称，如 601138 / 工业富联", text: $query)
-            .font(.system(size: 13))
+            .font(.system(size: Typography.subhead))
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled()
             .padding(.horizontal, 12)
@@ -919,7 +919,7 @@ struct StockSearchSheet: View {
     private var resultsArea: some View {
         if results.isEmpty {
             Text(query.isEmpty ? "输入关键词搜索股票" : "没有匹配结果")
-                .font(.system(size: 12))
+                .font(.system(size: Typography.subhead))
                 .foregroundStyle(.tertiary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity)
@@ -948,17 +948,17 @@ struct StockSearchSheet: View {
             HStack(spacing: 10) {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(item.name.isEmpty ? item.code : item.name)
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.system(size: Typography.subhead, weight: .semibold))
                         .foregroundStyle(.primary)
                         .lineLimit(1)
                     Text(presets.marketName(item.market) + " · " + item.code)
-                        .font(.system(size: 11))
+                        .font(.system(size: Typography.caption))
                         .foregroundStyle(.tertiary)
                         .lineLimit(1)
                 }
                 Spacer(minLength: 0)
                 Image(systemName: added ? "checkmark.circle.fill" : "plus.circle")
-                    .font(.system(size: 17))
+                    .font(.system(size: Typography.title))
                     .foregroundStyle(added ? Color.green : Color.accentColor)
             }
             .padding(.horizontal, 14)
@@ -1009,14 +1009,14 @@ struct LifeHeaderEditor: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
                 Text(title)
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: Typography.caption, weight: .semibold))
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 0)
                 Button {
                     headers.append(LifeHeaderPair())
                 } label: {
                     Label("添加", systemImage: "plus")
-                        .font(.system(size: 11, weight: .semibold))
+                        .font(.system(size: Typography.caption, weight: .semibold))
                         .foregroundStyle(Color.accentColor)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 4)
@@ -1026,7 +1026,7 @@ struct LifeHeaderEditor: View {
             }
             if headers.isEmpty {
                 Text("无自定义请求头")
-                    .font(.system(size: 11))
+                    .font(.system(size: Typography.caption))
                     .foregroundStyle(.tertiary)
             }
             ForEach(headers.indices, id: \.self) { i in
@@ -1037,7 +1037,7 @@ struct LifeHeaderEditor: View {
                         headers.remove(at: i)
                     } label: {
                         Image(systemName: "minus.circle.fill")
-                            .font(.system(size: 15))
+                            .font(.system(size: Typography.body))
                             .foregroundStyle(Color.red.opacity(0.85))
                     }
                     .buttonStyle(.plain)
@@ -1048,7 +1048,7 @@ struct LifeHeaderEditor: View {
 
     private func headerField(_ placeholder: String, text: Binding<String>) -> some View {
         TextField(placeholder, text: text)
-            .font(.system(size: 12))
+            .font(.system(size: Typography.subhead))
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled()
             .padding(.horizontal, 9)

@@ -16,9 +16,9 @@ struct AgentMemorySheet: View {
                             .font(.system(size: 40))
                             .foregroundStyle(Color.accentColor.opacity(0.7))
                         Text("暂无 Agent 记忆")
-                            .font(.system(size: 16, weight: .semibold))
+                            .font(.system(size: Typography.title, weight: .semibold))
                         Text("聊天时说「以后查内存都用agent」\n会自动记住，同类请求直接走 Agent 处理")
-                            .font(.system(size: 13))
+                            .font(.system(size: Typography.subhead))
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
                     }
@@ -29,13 +29,13 @@ struct AgentMemorySheet: View {
                             ForEach(rules) { r in
                                 HStack(spacing: 10) {
                                     Image(systemName: "brain.head.profile")
-                                        .font(.system(size: 14))
+                                        .font(.system(size: Typography.body))
                                         .foregroundStyle(Color.accentColor)
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text("以后「\(r.pattern)」都用 Agent")
-                                            .font(.system(size: 14, weight: .medium))
+                                            .font(.system(size: Typography.body, weight: .medium))
                                         Text("记住于 \(r.created)")
-                                            .font(.system(size: 11))
+                                            .font(.system(size: Typography.caption))
                                             .foregroundStyle(.tertiary)
                                     }
                                     Spacer()
@@ -43,7 +43,7 @@ struct AgentMemorySheet: View {
                                         Task { await remove(r) }
                                     } label: {
                                         Image(systemName: "xmark.circle.fill")
-                                            .font(.system(size: 16))
+                                            .font(.system(size: Typography.title))
                                             .foregroundStyle(.red.opacity(0.8))
                                     }
                                     .buttonStyle(.plain)

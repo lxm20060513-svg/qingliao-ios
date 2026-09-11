@@ -43,10 +43,10 @@ struct HermesShortcutSheet: View {
                     } label: {
                         HStack(spacing: 10) {
                             Text(item.cmd)
-                                .font(.system(size: 13, weight: .medium, design: .monospaced))
+                                .font(.system(size: Typography.subhead, weight: .medium, design: .monospaced))
                                 .foregroundStyle(Color.accentColor)
                             Text(item.desc)
-                                .font(.system(size: 12))
+                                .font(.system(size: Typography.subhead))
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
                             Spacer()
@@ -98,11 +98,11 @@ struct QuickPromptSheet: View {
         VStack(spacing: 0) {
             HStack {
                 Text("快捷指令")
-                    .font(.system(size: 17, weight: .bold))
+                    .font(.system(size: Typography.title, weight: .bold))
                 Spacer()
                 Button { dismiss() } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 22))
+                        .font(.system(size: Typography.titleXL))
                         .foregroundStyle(.tertiary)
                 }
                 .buttonStyle(.plain)
@@ -120,10 +120,10 @@ struct QuickPromptSheet: View {
                         } label: {
                             VStack(spacing: 6) {
                                 Image(systemName: p.icon)
-                                    .font(.system(size: 18))
+                                    .font(.system(size: Typography.headline))
                                     .foregroundStyle(Color.accentColor)
                                 Text(p.name)
-                                    .font(.system(size: 13, weight: .medium))
+                                    .font(.system(size: Typography.subhead, weight: .medium))
                                     .foregroundStyle(.primary)
                             }
                             .frame(maxWidth: .infinity)

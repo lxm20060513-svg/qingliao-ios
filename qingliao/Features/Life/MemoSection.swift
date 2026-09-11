@@ -64,14 +64,14 @@ struct MemoSection: View {
     private var header: some View {
         HStack(spacing: 6) {
             Image(systemName: "note.text")
-                .font(.system(size: 11, weight: .semibold))
+                .font(.system(size: Typography.caption, weight: .semibold))
                 .foregroundStyle(Color.accentColor)
             Text("备忘录")
-                .font(.system(size: 13))
+                .font(.system(size: Typography.subhead))
                 .foregroundStyle(.secondary)
             if !store.memos.isEmpty {
                 Text("\(store.memos.count)")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: Typography.caption, weight: .semibold))
                     .foregroundStyle(Color.accentColor)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 1)
@@ -83,7 +83,7 @@ struct MemoSection: View {
                 showAdd = true
             } label: {
                 Label("添加", systemImage: "plus")
-                    .font(.system(size: 11))
+                    .font(.system(size: Typography.caption))
                     .padding(.horizontal, 10)
                     .padding(.vertical, 4)
                     .background(Color.accentColor.opacity(0.12), in: Capsule())
@@ -97,9 +97,9 @@ struct MemoSection: View {
     private var emptyRow: some View {
         HStack(spacing: 6) {
             Image(systemName: "square.and.pencil")
-                .font(.system(size: 11))
+                .font(.system(size: Typography.caption))
             Text("点右上角「添加」写一条备忘")
-                .font(.system(size: 12))
+                .font(.system(size: Typography.subhead))
             Spacer(minLength: 0)
         }
         .foregroundStyle(.tertiary)
@@ -115,18 +115,18 @@ struct MemoSection: View {
         } label: {
             VStack(alignment: .leading, spacing: 4) {
                 Text(m.content)
-                    .font(.system(size: 15))
+                    .font(.system(size: Typography.body))
                     .foregroundStyle(.primary)
                     .lineLimit(3)
                     .multilineTextAlignment(.leading)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 HStack(spacing: 6) {
                     Text(m.subtitle)
-                        .font(.system(size: 11))
+                        .font(.system(size: Typography.caption))
                         .foregroundStyle(.tertiary)
                     Spacer(minLength: 0)
                     Image(systemName: "arrow.up.left.and.arrow.down.right")
-                        .font(.system(size: 9))
+                        .font(.system(size: Typography.tiny))
                         .foregroundStyle(.quaternary)
                 }
             }
@@ -155,7 +155,7 @@ struct MemoSection: View {
         NavigationStack {
             VStack(spacing: 0) {
                 TextEditor(text: $draft)
-                    .font(.system(size: 16))
+                    .font(.system(size: Typography.title))
                     .scrollContentBackground(.hidden)
                     .padding(12)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -164,7 +164,7 @@ struct MemoSection: View {
                     .overlay(alignment: .topLeading) {
                         if draft.isEmpty {
                             Text("写点什么…")
-                                .font(.system(size: 16))
+                                .font(.system(size: Typography.title))
                                 .foregroundStyle(.tertiary)
                                 .padding(.horizontal, 17)
                                 .padding(.vertical, 20)
@@ -210,13 +210,13 @@ private struct MemoDetailSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     Text(item.content)
-                        .font(.system(size: 19))
+                        .font(.system(size: Typography.headline))
                         .lineSpacing(6)
                         .foregroundStyle(.primary)
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     Text(item.subtitle)
-                        .font(.system(size: 12))
+                        .font(.system(size: Typography.subhead))
                         .foregroundStyle(.tertiary)
                 }
                 .padding(18)
@@ -244,7 +244,7 @@ private struct MemoDetailSheet: View {
                     onDelete(item)
                 } label: {
                     Label("删除这条备忘", systemImage: "trash")
-                        .font(.system(size: 15))
+                        .font(.system(size: Typography.body))
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)
                         .background(Color.red.opacity(0.12), in: Capsule())

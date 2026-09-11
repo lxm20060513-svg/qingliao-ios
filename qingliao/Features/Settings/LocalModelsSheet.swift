@@ -23,26 +23,26 @@ struct LocalModelsSheet: View {
                 Section("已安装模型（点选使用）") {
                     if models.isEmpty {
                         Text("暂无模型——下方输入模型名拉取，如 qwen3:1.7b")
-                            .font(.system(size: 13))
+                            .font(.system(size: Typography.subhead))
                             .foregroundStyle(.secondary)
                     } else {
                         ForEach(models) { m in
                             HStack {
                                 Image(systemName: "cpu")
-                                    .font(.system(size: 12))
+                                    .font(.system(size: Typography.subhead))
                                     .foregroundStyle(Color.indigo)
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(m.name)
-                                        .font(.system(size: 14, weight: .medium))
+                                        .font(.system(size: Typography.body, weight: .medium))
                                     Text("\(m.size) · \(m.modified)")
-                                        .font(.system(size: 11))
+                                        .font(.system(size: Typography.caption))
                                         .foregroundStyle(.tertiary)
                                 }
                                 Spacer()
                                 // v2.0.118：当前选用的本地模型显示勾选
                                 if currentLocal == m.name {
                                     Image(systemName: "checkmark.circle.fill")
-                                        .font(.system(size: 15))
+                                        .font(.system(size: Typography.body))
                                         .foregroundStyle(Color.green)
                                 }
                             }
@@ -67,7 +67,7 @@ struct LocalModelsSheet: View {
                 Section("拉取新模型（断网兜底自主扩充）") {
                     HStack(spacing: 8) {
                         TextField("如 qwen3:1.7b / qwen2.5:0.5b", text: $pullName)
-                            .font(.system(size: 13))
+                            .font(.system(size: Typography.subhead))
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
                         Button {
@@ -77,7 +77,7 @@ struct LocalModelsSheet: View {
                                 ProgressView().controlSize(.small)
                             } else {
                                 Text("拉取")
-                                    .font(.system(size: 13, weight: .semibold))
+                                    .font(.system(size: Typography.subhead, weight: .semibold))
                                     .foregroundStyle(Color.accentColor)
                             }
                         }
@@ -86,11 +86,11 @@ struct LocalModelsSheet: View {
                     }
                     if !pullResult.isEmpty {
                         Text(pullResult)
-                            .font(.system(size: 12))
+                            .font(.system(size: Typography.subhead))
                             .foregroundStyle(pullResult.hasPrefix("✅") ? Color.green : Color.orange)
                     }
                     Text("模型名格式：<名称>:<版本>，Ollama 库里的都行（qwen3 / qwen2.5 / llama3.2 等）")
-                        .font(.system(size: 11))
+                        .font(.system(size: Typography.caption))
                         .foregroundStyle(.tertiary)
                 }
             }

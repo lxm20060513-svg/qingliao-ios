@@ -130,15 +130,15 @@ struct DiagnosticsView: View {
             } label: {
                 HStack(spacing: 12) {
                     Image(systemName: "antenna.radiowaves.left.and.right")
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.system(size: Typography.subhead, weight: .semibold))
                         .foregroundStyle(.white)
                         .frame(width: 28, height: 28)
                         .background(Color.orange, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
                     VStack(alignment: .leading, spacing: 1) {
-                        Text("后端连通性").font(.system(size: 15))
+                        Text("后端连通性").font(.system(size: Typography.body))
                         if !pingText.isEmpty {
                             Text(pingText)
-                                .font(.system(size: 11))
+                                .font(.system(size: Typography.caption))
                                 .foregroundStyle(pingOK ? Color.green : Color.orange)
                         }
                     }
@@ -166,15 +166,15 @@ struct DiagnosticsView: View {
             } label: {
                 HStack(spacing: 12) {
                     Image(systemName: "paperplane.fill")
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.system(size: Typography.subhead, weight: .semibold))
                         .foregroundStyle(.white)
                         .frame(width: 28, height: 28)
                         .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
                     VStack(alignment: .leading, spacing: 1) {
-                        Text("立即上报").font(.system(size: 15))
+                        Text("立即上报").font(.system(size: Typography.body))
                         if !uploadText.isEmpty {
                             Text(uploadText)
-                                .font(.system(size: 11))
+                                .font(.system(size: Typography.caption))
                                 .foregroundStyle(uploadOK ? Color.green : Color.orange)
                         }
                     }
@@ -193,10 +193,10 @@ struct DiagnosticsView: View {
             if hangEnabled {
                 Divider().padding(.leading, 52)
                 HStack(spacing: 10) {
-                    Text("卡顿阈值").font(.system(size: 15))
+                    Text("卡顿阈值").font(.system(size: Typography.body))
                     Spacer()
                     Text("\(hangThreshold) ms")
-                        .font(.system(size: 14)).foregroundStyle(.secondary)
+                        .font(.system(size: Typography.body)).foregroundStyle(.secondary)
                     Stepper("", value: $hangThreshold, in: 200...3000, step: 100)
                         .labelsHidden()
                 }
@@ -208,14 +208,14 @@ struct DiagnosticsView: View {
             } label: {
                 HStack(spacing: 12) {
                     Image(systemName: "ladybug.fill")
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.system(size: Typography.subhead, weight: .semibold))
                         .foregroundStyle(.white)
                         .frame(width: 28, height: 28)
                         .background(Color.pink, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
                     VStack(alignment: .leading, spacing: 1) {
-                        Text("写入一条测试记录").font(.system(size: 15))
+                        Text("写入一条测试记录").font(.system(size: Typography.body))
                         Text("仅本地记录，用于验证上报链路")
-                            .font(.system(size: 11)).foregroundStyle(.tertiary)
+                            .font(.system(size: Typography.caption)).foregroundStyle(.tertiary)
                     }
                     Spacer()
                 }
@@ -235,7 +235,7 @@ struct DiagnosticsView: View {
             if events.isEmpty {
                 HStack {
                     Text("暂无记录")
-                        .font(.system(size: 13))
+                        .font(.system(size: Typography.subhead))
                         .foregroundStyle(.tertiary)
                     Spacer()
                 }
@@ -261,9 +261,9 @@ struct DiagnosticsView: View {
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: "trash")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: Typography.subhead, weight: .semibold))
                 Text("清除全部记录")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: Typography.subhead, weight: .semibold))
             }
             .foregroundStyle(Color.red)
             .frame(maxWidth: .infinity)
@@ -279,23 +279,23 @@ struct DiagnosticsView: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 12) {
                 Image(systemName: e.kind == "crash" ? "exclamationmark.triangle.fill" : "hourglass")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: Typography.subhead, weight: .semibold))
                     .foregroundStyle(.white)
                     .frame(width: 28, height: 28)
                     .background(e.kind == "crash" ? Color.red : Color.orange,
                                 in: RoundedRectangle(cornerRadius: 7, style: .continuous))
                 VStack(alignment: .leading, spacing: 2) {
                     Text(DiagnosticsPayload.kindLabel(e.kind) + " · " + e.summary)
-                        .font(.system(size: 14))
+                        .font(.system(size: Typography.body))
                         .lineLimit(isOpen ? 3 : 1)
                         .foregroundStyle(.primary)
                     Text(DiagnosticsPayload.timeText(e.ts))
-                        .font(.system(size: 11))
+                        .font(.system(size: Typography.caption))
                         .foregroundStyle(.tertiary)
                 }
                 Spacer()
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: Typography.caption, weight: .semibold))
                     .foregroundStyle(.tertiary)
                     .rotationEffect(.degrees(isOpen ? 90 : 0))
             }
@@ -309,7 +309,7 @@ struct DiagnosticsView: View {
             if isOpen {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(DiagnosticsPayload.detailText(e))
-                        .font(.system(size: 11, design: .monospaced))
+                        .font(.system(size: Typography.caption, design: .monospaced))
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .textSelection(.enabled)
@@ -317,7 +317,7 @@ struct DiagnosticsView: View {
                         UIPasteboard.general.string = DiagnosticsPayload.detailText(e)
                     } label: {
                         Text("复制这条")
-                            .font(.system(size: 12, weight: .semibold))
+                            .font(.system(size: Typography.subhead, weight: .semibold))
                             .padding(.horizontal, 14).padding(.vertical, 6)
                             .background(Color.secondary.opacity(0.15), in: Capsule())
                     }
@@ -354,7 +354,7 @@ struct DiagnosticsView: View {
             Text("不采集也不上传：聊天内容、图片、密码/令牌等任何凭据，以及任何设备唯一标识。")
             Text("上报失败时事件缓存在本机（最多 \(DiagnosticsPayload.maxPendingEvents) 条），下次启动自动补传。")
         }
-        .font(.system(size: 12))
+        .font(.system(size: Typography.subhead))
         .foregroundStyle(.secondary)
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 16).padding(.vertical, 14)

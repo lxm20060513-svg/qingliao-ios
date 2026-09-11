@@ -150,7 +150,7 @@ struct MessageBubble: View {
                     .allowsHitTesting(false)
             } else {
                 Image(systemName: "brain.head.profile")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: Typography.subhead, weight: .medium))
                     .foregroundStyle(.white)
             }
         }
@@ -172,10 +172,10 @@ struct MessageBubble: View {
                     if let q = message.quotedText, !q.isEmpty {
                         HStack(spacing: 6) {
                             Image(systemName: "quote.opening")
-                                .font(.system(size: 10))
+                                .font(.system(size: Typography.tiny))
                                 .foregroundStyle(Color.accentColor)
                             Text(q)
-                                .font(.system(size: 11))
+                                .font(.system(size: Typography.caption))
                                 .foregroundStyle(.secondary)
                                 .lineLimit(2)
                                 .multilineTextAlignment(message.isUser ? .trailing : .leading)
@@ -189,7 +189,7 @@ struct MessageBubble: View {
                     // v2.0.92：撤回消息 → 灰色"已撤回"占位（内容不再显示）
                     if message.withdrawn {
                         Text("已撤回")
-                            .font(.system(size: 13))
+                            .font(.system(size: Typography.subhead))
                             .foregroundStyle(.secondary)
                             .padding(.horizontal, 2)
                     } else if let img = message.imageDataURL {
@@ -292,13 +292,13 @@ struct MessageBubble: View {
                         } label: {
                             HStack(spacing: 5) {
                                 Image(systemName: "exclamationmark.circle.fill")
-                                    .font(.system(size: 13))
+                                    .font(.system(size: Typography.subhead))
                                     .foregroundStyle(.red)
                                 Text("消息未发出")
-                                    .font(.system(size: 11))
+                                    .font(.system(size: Typography.caption))
                                     .foregroundStyle(.secondary)
                                 Text("点击重试")
-                                    .font(.system(size: 11, weight: .medium))
+                                    .font(.system(size: Typography.caption, weight: .medium))
                                     .foregroundStyle(Color.accentColor)
                             }
                         }
@@ -312,9 +312,9 @@ struct MessageBubble: View {
                         } label: {
                             HStack(spacing: 5) {
                                 Image(systemName: "arrow.clockwise")
-                                    .font(.system(size: 10, weight: .semibold))
+                                    .font(.system(size: Typography.tiny, weight: .semibold))
                                 Text("重新生成")
-                                    .font(.system(size: 11, weight: .medium))
+                                    .font(.system(size: Typography.caption, weight: .medium))
                             }
                             .foregroundStyle(.red.opacity(0.85))
                         }
@@ -329,13 +329,13 @@ struct MessageBubble: View {
                             // v3.0.19：语音指令触发的消息带 🎤 小标记
                             if message.voiceCommand {
                                 Image(systemName: "mic.fill")
-                                    .font(.system(size: 7.5))
+                                    .font(.system(size: Typography.tiny))
                                     .foregroundStyle(.tertiary)
                             }
                             Image(systemName: message.queued ? "hourglass" : "checkmark")
-                                .font(.system(size: 7.5, weight: .bold))
+                                .font(.system(size: Typography.tiny, weight: .bold))
                             Text(message.queued ? "排队中" : "已送达")
-                                .font(.system(size: 9.5))
+                                .font(.system(size: Typography.tiny))
                         }
                         .foregroundStyle(.tertiary)
                         .padding(.top, 1)
@@ -365,14 +365,14 @@ struct MessageBubble: View {
                                 }
                                 if speech.cloudDegraded {
                                     Text("系统")
-                                        .font(.system(size: 9))
+                                        .font(.system(size: Typography.tiny))
                                         .foregroundStyle(.tertiary)
                                 }
                                 }
                                 .padding(.top, 1)
                             } else {
                                 Image(systemName: "speaker.wave.2")
-                                    .font(.system(size: 11))
+                                    .font(.system(size: Typography.caption))
                                     .foregroundStyle(.secondary)
                                     .padding(.top, 1)
                             }
@@ -384,7 +384,7 @@ struct MessageBubble: View {
                     // v3.0.82：Hermes 主动推送标签（收件箱注入，蓝色系）
                     if message.isPush {
                         Text("🔔 推送")
-                            .font(.system(size: 9, weight: .semibold))
+                            .font(.system(size: Typography.tiny, weight: .semibold))
                             .foregroundStyle(Color.blue)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
@@ -399,9 +399,9 @@ struct MessageBubble: View {
                         } label: {
                             HStack(spacing: 4) {
                                 Image(systemName: "exclamationmark.triangle.fill")
-                                    .font(.system(size: 9, weight: .semibold))
+                                    .font(.system(size: Typography.tiny, weight: .semibold))
                                 Text("疑似重复回复，点此重新生成")
-                                    .font(.system(size: 10, weight: .medium))
+                                    .font(.system(size: Typography.tiny, weight: .medium))
                             }
                             .foregroundStyle(Color.orange)
                             .padding(.horizontal, 7)
@@ -451,7 +451,7 @@ struct MessageBubble: View {
                     Circle()
                         .fill(LinearGradient(colors: [.teal, .blue], startPoint: .topLeading, endPoint: .bottomTrailing))
                     Text("Q")
-                        .font(.system(size: 12, weight: .bold))
+                        .font(.system(size: Typography.subhead, weight: .bold))
                         .foregroundStyle(.white)
                 }
                 .frame(width: 30, height: 30)
@@ -930,10 +930,10 @@ struct AIImageView: View {
     private var placeholder: some View {
         VStack(spacing: 4) {
             Image(systemName: "photo")
-                .font(.system(size: 22))
+                .font(.system(size: Typography.titleXL))
                 .foregroundStyle(.secondary)
             Text("图片加载失败")
-                .font(.system(size: 11))
+                .font(.system(size: Typography.caption))
                 .foregroundStyle(.tertiary)
         }
         .frame(width: 200, height: 100)

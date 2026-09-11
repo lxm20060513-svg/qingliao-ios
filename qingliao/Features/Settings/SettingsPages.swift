@@ -39,22 +39,22 @@ struct TasksView: View {
                 Spacer()
                 VStack(spacing: 10) {
                     Text("暂无定时任务")
-                        .font(.system(size: 13))
+                        .font(.system(size: Typography.subhead))
                         .foregroundStyle(.tertiary)
                     if let loadError {
                         Text(loadError)
-                            .font(.system(size: 11))
+                            .font(.system(size: Typography.caption))
                             .foregroundStyle(.red)
                             .multilineTextAlignment(.center)
                             .padding(.horizontal, 30)
                         Button("重试") {
                             Task { await load() }
                         }
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.system(size: Typography.subhead, weight: .semibold))
                         .foregroundStyle(Color.accentColor)
                     } else {
                         Text("下拉可刷新")
-                            .font(.system(size: 11))
+                            .font(.system(size: Typography.caption))
                             .foregroundStyle(.tertiary)
                     }
                 }
@@ -68,24 +68,24 @@ struct TasksView: View {
                                     RoundedRectangle(cornerRadius: 10, style: .continuous)
                                         .fill(Color.indigo.opacity(0.15))
                                     Image(systemName: "clock.badge.fill")
-                                        .font(.system(size: 14))
+                                        .font(.system(size: Typography.body))
                                         .foregroundStyle(Color.indigo)
                                 }
                                 .frame(width: 36, height: 36)
                                 VStack(alignment: .leading, spacing: 3) {
                                     Text(t.name)
-                                        .font(.system(size: 13, weight: .semibold))
+                                        .font(.system(size: Typography.subhead, weight: .semibold))
                                         .lineLimit(1)
                                     Text(t.cron)
-                                        .font(.system(size: 10.5, design: .monospaced))
+                                        .font(.system(size: Typography.tiny, design: .monospaced))
                                         .foregroundStyle(.secondary)
                                     if t.enabled {
                                         Text("运行中 · \(t.nextRunText)")
-                                            .font(.system(size: 10))
+                                            .font(.system(size: Typography.tiny))
                                             .foregroundStyle(Color.green)
                                     } else {
                                         Text("已停用")
-                                            .font(.system(size: 10))
+                                            .font(.system(size: Typography.tiny))
                                             .foregroundStyle(Color.secondary)
                                     }
                                 }
@@ -95,7 +95,7 @@ struct TasksView: View {
                                     toggleTask(t)
                                 } label: {
                                     Image(systemName: t.enabled ? "pause.circle.fill" : "play.circle.fill")
-                                        .font(.system(size: 20))
+                                        .font(.system(size: Typography.headline))
                                         .foregroundStyle(t.enabled ? Color.orange : Color.green)
                                 }
                                 .buttonStyle(.plain)
@@ -104,7 +104,7 @@ struct TasksView: View {
                                     runTask(t)
                                 } label: {
                                     Image(systemName: "bolt.circle.fill")
-                                        .font(.system(size: 20))
+                                        .font(.system(size: Typography.headline))
                                         .foregroundStyle(Color.accentColor)
                                 }
                                 .buttonStyle(.plain)
@@ -225,7 +225,7 @@ struct LogsView: View {
             } else if logs.isEmpty {
                 Spacer()
                 Text("暂无日志")
-                    .font(.system(size: 13))
+                    .font(.system(size: Typography.subhead))
                     .foregroundStyle(.tertiary)
                 Spacer()
             } else {
@@ -233,7 +233,7 @@ struct LogsView: View {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         ForEach(Array(logs.enumerated()), id: \.offset) { _, line in
                             Text(line)
-                                .font(.system(size: 11, design: .monospaced))
+                                .font(.system(size: Typography.caption, design: .monospaced))
                                 .foregroundStyle(.secondary)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(.horizontal, 12)
@@ -330,23 +330,23 @@ struct NewTaskSheet: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Text("新建定时任务")
-                    .font(.system(size: 17, weight: .bold))
+                    .font(.system(size: Typography.title, weight: .bold))
                 Spacer()
                 Button { dismiss() } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 22)).foregroundStyle(.tertiary)
+                        .font(.system(size: Typography.titleXL)).foregroundStyle(.tertiary)
                 }
                 .buttonStyle(.plain)
             }
 
             TextField("任务名称（如：每日早报）", text: $name)
-                .font(.system(size: 14))
+                .font(.system(size: Typography.body))
                 .textFieldStyle(.roundedBorder)
             TextField("Cron 表达式（如 0 9 * * *）", text: $cron)
-                .font(.system(size: 13, design: .monospaced))
+                .font(.system(size: Typography.subhead, design: .monospaced))
                 .textFieldStyle(.roundedBorder)
             TextEditor(text: $prompt)
-                .font(.system(size: 13))
+                .font(.system(size: Typography.subhead))
                 .frame(height: 110)
                 .overlay(
                     RoundedRectangle(cornerRadius: 8)
@@ -355,13 +355,13 @@ struct NewTaskSheet: View {
                 .overlay(alignment: .topLeading) {
                     if prompt.isEmpty {
                         Text("任务提示词（发给 AI 的执行指令）")
-                            .font(.system(size: 13))
+                            .font(.system(size: Typography.subhead))
                             .foregroundStyle(.tertiary)
                             .padding(8)
                     }
                 }
             if let errorText {
-                Text(errorText).font(.system(size: 12)).foregroundStyle(.red)
+                Text(errorText).font(.system(size: Typography.subhead)).foregroundStyle(.red)
             }
             Button {
                 save()
@@ -374,7 +374,7 @@ struct NewTaskSheet: View {
                 .padding(.vertical, 11)
                 .background(Color.accentColor, in: Capsule())
                 .foregroundStyle(.white)
-                .font(.system(size: 15, weight: .semibold))
+                .font(.system(size: Typography.body, weight: .semibold))
             }
             .buttonStyle(.plain)
             .disabled(saving || name.isEmpty || cron.isEmpty || prompt.isEmpty)

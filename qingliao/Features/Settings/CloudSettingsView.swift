@@ -36,13 +36,13 @@ struct CloudSettingsView: View {
                     SectionHeader("免费模型")
                     VStack(spacing: 0) {
                         Toggle("使用免费模型（免 Key）", isOn: $freeModelOn)
-                            .font(.system(size: 15, weight: .medium))
+                            .font(.system(size: Typography.body, weight: .medium))
                             .tint(.green)
                             .padding(.horizontal, 14).padding(.vertical, 10)
                         Text(freeModelOn
                              ? "开启中——用 Hermes 内置免费模型（keyless，免任何 Key）"
                              : "开启后可一键切到免费档；关闭回到你自选的付费模型")
-                            .font(.system(size: 10.5)).foregroundStyle(.secondary)
+                            .font(.system(size: Typography.tiny)).foregroundStyle(.secondary)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.horizontal, 14).padding(.bottom, 8)
                     }
@@ -57,29 +57,29 @@ struct CloudSettingsView: View {
                         ForEach(config.providers) { p in
                             HStack(spacing: 12) {
                                 Image(systemName: "cube.fill")
-                                    .font(.system(size: 13, weight: .semibold))
+                                    .font(.system(size: Typography.subhead, weight: .semibold))
                                     .foregroundStyle(.white)
                                     .frame(width: 28, height: 28)
                                     .background(Color.blue, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
                                 VStack(alignment: .leading, spacing: 1) {
                                     Text(p.name)
-                                        .font(.system(size: 14, weight: .medium))
+                                        .font(.system(size: Typography.body, weight: .medium))
                                     Text("\(p.model) · \(shortURL(p.baseURL))")
-                                        .font(.system(size: 10.5))
+                                        .font(.system(size: Typography.tiny))
                                         .foregroundStyle(.tertiary)
                                         .lineLimit(1)
                                 }
                                 Spacer()
                                 if config.activeProviderID == p.providerID {
                                     Image(systemName: "checkmark.circle.fill")
-                                        .font(.system(size: 14))
+                                        .font(.system(size: Typography.body))
                                         .foregroundStyle(Color.accentColor)
                                 } else {
                                     Button {
                                         config.activeProviderID = p.providerID
                                     } label: {
                                         Text("选用")
-                                            .font(.system(size: 11, weight: .medium))
+                                            .font(.system(size: Typography.caption, weight: .medium))
                                             .foregroundStyle(Color.accentColor)
                                             .padding(.horizontal, 10).padding(.vertical, 4)
                                             .background(Color.accentColor.opacity(0.12), in: Capsule())
@@ -90,7 +90,7 @@ struct CloudSettingsView: View {
                                         pendingDeleteID = p.providerID
                                     } label: {
                                         Image(systemName: "trash.fill")
-                                            .font(.system(size: 11, weight: .medium))
+                                            .font(.system(size: Typography.caption, weight: .medium))
                                             .foregroundStyle(.red)
                                             .padding(.horizontal, 10).padding(.vertical, 4)
                                             .background(Color.red.opacity(0.12), in: Capsule())
@@ -136,10 +136,10 @@ struct CloudSettingsView: View {
                         )) {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("云端 AI 使用本地工具")
-                                    .font(.system(size: 14, weight: .medium))
+                                    .font(.system(size: Typography.body, weight: .medium))
                                     .foregroundStyle(.primary)
                                 Text("日历 / 提醒 / 计时器 / 天气 / 剪贴板 / 计算器 / 通知")
-                                    .font(.system(size: 10.5))
+                                    .font(.system(size: Typography.tiny))
                                     .foregroundStyle(.tertiary)
                             }
                         }
@@ -172,9 +172,9 @@ struct CloudSettingsView: View {
                     } label: {
                         HStack(spacing: 6) {
                             Image(systemName: "rectangle.portrait.and.arrow.right")
-                                .font(.system(size: 14, weight: .semibold))
+                                .font(.system(size: Typography.body, weight: .semibold))
                             Text("退出登录")
-                                .font(.system(size: 15, weight: .semibold))
+                                .font(.system(size: Typography.body, weight: .semibold))
                         }
                         .foregroundStyle(.red)
                         .padding(.horizontal, 40).padding(.vertical, 13)
@@ -294,41 +294,41 @@ struct AppearanceSheet: View {
                 Section("文本") {
                     HStack {
                         Text("聊天字体大小")
-                            .font(.system(size: 15))
+                            .font(.system(size: Typography.body))
                         Spacer()
                         Text("\(Int(fontSize))")
-                            .font(.system(size: 13))
+                            .font(.system(size: Typography.subhead))
                             .foregroundStyle(.secondary)
                     }
                     HStack(spacing: 10) {
-                        Text("小").font(.system(size: 12)).foregroundStyle(.secondary)
+                        Text("小").font(.system(size: Typography.subhead)).foregroundStyle(.secondary)
                         Slider(value: $fontSize, in: 12...20, step: 1)
                             .tint(Color.accentColor)
-                        Text("大").font(.system(size: 16)).foregroundStyle(.secondary)
+                        Text("大").font(.system(size: Typography.title)).foregroundStyle(.secondary)
                     }
                     HStack {
                         Text("AI 输出行高")
-                            .font(.system(size: 15))
+                            .font(.system(size: Typography.body))
                         Spacer()
                         Text(String(format: "%.1f", aiLineSpacing))
-                            .font(.system(size: 13))
+                            .font(.system(size: Typography.subhead))
                             .foregroundStyle(.secondary)
                     }
                     HStack(spacing: 10) {
-                        Text("紧凑").font(.system(size: 12)).foregroundStyle(.secondary)
+                        Text("紧凑").font(.system(size: Typography.subhead)).foregroundStyle(.secondary)
                         Slider(value: $aiLineSpacing, in: 0...6, step: 0.5)
                             .tint(Color.accentColor)
-                        Text("宽松").font(.system(size: 16)).foregroundStyle(.secondary)
+                        Text("宽松").font(.system(size: Typography.title)).foregroundStyle(.secondary)
                     }
                 }
                 // 天气（v3.0.4：补全本地外观独有项）
                 Section("天气") {
                     HStack {
                         Text("天气城市")
-                            .font(.system(size: 15))
+                            .font(.system(size: Typography.body))
                         Spacer()
                         Text(weatherCity.isEmpty ? "未设置" : weatherCity)
-                            .font(.system(size: 13))
+                            .font(.system(size: Typography.subhead))
                             .foregroundStyle(.secondary)
                     }
                     if showWeatherCityField {
@@ -340,14 +340,14 @@ struct AppearanceSheet: View {
                                 UserDefaults.standard.set(weatherCity.trimmingCharacters(in: .whitespaces), forKey: "qingliao_weather_city")
                                 showWeatherCityField = false
                             }
-                            .font(.system(size: 13, weight: .semibold))
+                            .font(.system(size: Typography.subhead, weight: .semibold))
                             .foregroundStyle(Color.accentColor)
                         }
                     } else {
                         Button("设置城市") {
                             withAnimation(Motion.snap) { showWeatherCityField = true }
                         }
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.system(size: Typography.subhead, weight: .semibold))
                         .foregroundStyle(Color.accentColor)
                     }
                 }
@@ -368,7 +368,7 @@ struct AppearanceSheet: View {
             appearance = value
         } label: {
             Text(name)
-                .font(.system(size: 13, weight: .medium))
+                .font(.system(size: Typography.subhead, weight: .medium))
                 .foregroundStyle(appearance == value ? Color.white : Color.primary)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 9)
@@ -383,9 +383,9 @@ struct AppearanceSheet: View {
     private func sliderRow(_ title: String, value: Binding<Double>, range: ClosedRange<Double>,
                            suffix: @escaping (Double) -> String) -> some View {
         HStack(spacing: 10) {
-            Text(title).font(.system(size: 13)).foregroundStyle(.secondary).frame(width: 64, alignment: .leading)
+            Text(title).font(.system(size: Typography.subhead)).foregroundStyle(.secondary).frame(width: 64, alignment: .leading)
             Slider(value: value, in: range).tint(Color.accentColor)
-            Text(suffix(value.wrappedValue)).font(.system(size: 12)).foregroundStyle(.secondary).frame(width: 46, alignment: .trailing)
+            Text(suffix(value.wrappedValue)).font(.system(size: Typography.subhead)).foregroundStyle(.secondary).frame(width: 46, alignment: .trailing)
         }
         .padding(.vertical, 2)
     }
@@ -408,13 +408,13 @@ struct CloudModelsSheet: View {
                 HStack(spacing: 5) {
                     Circle().fill(loading ? Color.orange : Color.green).frame(width: 7, height: 7)
                     Text(loading ? "加载中..." : "\(config.activeConfig?.name ?? "云端") 在线")
-                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                        .font(.system(size: Typography.caption)).foregroundStyle(.secondary)
                     Spacer()
                     Button {
                         Task { await load() }
                     } label: {
                         Label("刷新", systemImage: "arrow.clockwise")
-                            .font(.system(size: 11))
+                            .font(.system(size: Typography.caption))
                             .foregroundStyle(Color.accentColor)
                     }
                     .buttonStyle(.plain)
@@ -428,18 +428,18 @@ struct CloudModelsSheet: View {
                     VStack(spacing: 8) {
                         ProgressView().controlSize(.small)
                         Text("获取模型列表…")
-                            .font(.system(size: 12)).foregroundStyle(.secondary)
+                            .font(.system(size: Typography.subhead)).foregroundStyle(.secondary)
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.top, 60)
                 } else if let e = errorText {
                     VStack(spacing: 10) {
                         Text("⚠️ \(e)")
-                            .font(.system(size: 13))
+                            .font(.system(size: Typography.subhead))
                             .foregroundStyle(.orange)
                             .multilineTextAlignment(.center)
                         Button("重试") { Task { await load() } }
-                            .font(.system(size: 13, weight: .medium))
+                            .font(.system(size: Typography.subhead, weight: .medium))
                             .foregroundStyle(Color.accentColor)
                     }
                     .padding(.horizontal, 32)
@@ -452,16 +452,16 @@ struct CloudModelsSheet: View {
                                 HStack(spacing: 10) {
                                     VStack(alignment: .leading, spacing: 1) {
                                         Text(m)
-                                            .font(.system(size: 14, weight: .medium))
+                                            .font(.system(size: Typography.body, weight: .medium))
                                             .foregroundStyle(selectedModel == m ? Color.accentColor : Color.primary)
                                         Text(m == config.activeConfig?.model ? "当前模型" : "可用")
-                                            .font(.system(size: 10))
+                                            .font(.system(size: Typography.tiny))
                                             .foregroundStyle(.tertiary)
                                     }
                                     Spacer()
                                     if selectedModel == m {
                                         Image(systemName: "checkmark.circle.fill")
-                                            .font(.system(size: 14))
+                                            .font(.system(size: Typography.body))
                                             .foregroundStyle(Color.accentColor)
                                     }
                                 }

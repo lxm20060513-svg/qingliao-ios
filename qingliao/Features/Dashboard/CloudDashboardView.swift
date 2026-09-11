@@ -41,7 +41,7 @@ struct CloudDashboardView: View {
         .sheet(isPresented: $showCitySheet) {
             VStack(spacing: 16) {
                 Text("设置天气城市")
-                    .font(.system(size: 17, weight: .bold))
+                    .font(.system(size: Typography.title, weight: .bold))
                     .padding(.top, 24)
                 TextField("城市名（如：北京）", text: $cityInput)
                     .textFieldStyle(.roundedBorder)
@@ -55,7 +55,7 @@ struct CloudDashboardView: View {
                     }
                     showCitySheet = false
                 }
-                .font(.system(size: 15, weight: .semibold))
+                .font(.system(size: Typography.body, weight: .semibold))
                 .foregroundStyle(Color.accentColor)
                 .padding(.bottom, 24)
                 Spacer()
@@ -124,7 +124,7 @@ struct UsageStatsCard: View {
                 Image(systemName: "chart.bar.fill")
                     .foregroundStyle(.blue)
                 Text("用量统计")
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.system(size: Typography.body, weight: .semibold))
                 Spacer()
             }
 
@@ -162,13 +162,13 @@ private struct StatCell: View {
     var body: some View {
         VStack(spacing: 6) {
             Image(systemName: icon)
-                .font(.system(size: 16))
+                .font(.system(size: Typography.title))
                 .foregroundStyle(.secondary)
             Text(value)
-                .font(.system(size: 17, weight: .bold, design: .rounded))
+                .font(.system(size: Typography.title, weight: .bold, design: .rounded))
                 .foregroundStyle(.primary)
             Text(title)
-                .font(.system(size: 11))
+                .font(.system(size: Typography.caption))
                 .foregroundStyle(.tertiary)
         }
         .frame(maxWidth: .infinity)

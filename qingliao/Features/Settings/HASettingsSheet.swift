@@ -16,12 +16,12 @@ struct HASettingsSheet: View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 14) {
                 Text("Home Assistant 连接配置，保存后看板「智能家居」卡片自动使用新配置")
-                .font(.system(size: 11))
+                .font(.system(size: Typography.caption))
                 .foregroundStyle(.secondary)
 
             VStack(alignment: .leading, spacing: 6) {
                 Text("HA 地址")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: Typography.subhead, weight: .semibold))
                 TextField("如 http://ha.example.com:8123", text: $address)
                     .textFieldStyle(.roundedBorder)
                     .autocapitalization(.none)
@@ -30,12 +30,12 @@ struct HASettingsSheet: View {
 
             VStack(alignment: .leading, spacing: 6) {
                 Text("长期访问 Token")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: Typography.subhead, weight: .semibold))
                 SecureField(hasToken ? "已配置（输入新值可替换）" : "粘贴 HA 长期访问令牌", text: $token)
                     .textFieldStyle(.roundedBorder)
                 if hasToken && token.isEmpty {
                     Text("当前已有 Token，留空保持不变")
-                        .font(.system(size: 10))
+                        .font(.system(size: Typography.tiny))
                         .foregroundStyle(.secondary)
                 }
             }
@@ -52,14 +52,14 @@ struct HASettingsSheet: View {
                 .padding(.vertical, 11)
                 .background(Color.accentColor, in: Capsule())
                 .foregroundStyle(.white)
-                .font(.system(size: 15, weight: .semibold))
+                .font(.system(size: Typography.body, weight: .semibold))
             }
             .buttonStyle(.plain)
             .disabled(saving || address.isEmpty)
 
             if !toast.isEmpty {
                 Text(toast)
-                    .font(.system(size: 12))
+                    .font(.system(size: Typography.subhead))
                     .foregroundStyle(toast.hasPrefix("✅") ? .green : .red)
             }
 

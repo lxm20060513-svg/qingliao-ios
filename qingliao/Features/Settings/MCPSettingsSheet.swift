@@ -45,7 +45,7 @@ struct MCPSettingsSheet: View {
                     Section { HStack { Spacer(); ProgressView(); Spacer() } }
                 } else if let errMsg {
                     Section {
-                        Text("⚠️ \(errMsg)").font(.system(size: 13)).foregroundStyle(.orange)
+                        Text("⚠️ \(errMsg)").font(.system(size: Typography.subhead)).foregroundStyle(.orange)
                     }
                 } else {
                     serverListSection
@@ -91,20 +91,20 @@ struct MCPSettingsSheet: View {
         Section("已启用（\(servers.count)）") {
             if servers.isEmpty {
                 Text("暂无——点右上角 + 添加，如高德地图（天气/路线/导航）")
-                    .font(.system(size: 12))
+                    .font(.system(size: Typography.subhead))
                     .foregroundStyle(.tertiary)
             }
             ForEach(servers) { s in
                 HStack(spacing: 10) {
                     Image(systemName: "puzzlepiece.extension.fill")
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.system(size: Typography.subhead, weight: .semibold))
                         .foregroundStyle(.white)
                         .frame(width: 28, height: 28)
                         .background(Color.teal, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(s.id).font(.system(size: 14, weight: .medium))
+                        Text(s.id).font(.system(size: Typography.body, weight: .medium))
                         Text(s.enabled ? "已启用" : "已停用")
-                            .font(.system(size: 11))
+                            .font(.system(size: Typography.caption))
                             .foregroundStyle(s.enabled ? Color.green : Color.secondary)
                     }
                     Spacer()
@@ -134,7 +134,7 @@ struct MCPSettingsSheet: View {
     @ViewBuilder private var hintSection: some View {
         Section {
             Text("保存后 Hermes 自动重启（约 30 秒），之后在「聊天」里直接说\"帮我查明天天气\"即可触发工具。删除同理。")
-                .font(.system(size: 11))
+                .font(.system(size: Typography.caption))
                 .foregroundStyle(.tertiary)
         }
     }
@@ -232,8 +232,8 @@ struct MCPAddSheet: View {
                         } label: {
                             HStack {
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text(t.name).font(.system(size: 14, weight: .medium)).foregroundColor(.primary)
-                                    Text(t.desc).font(.system(size: 11)).foregroundStyle(.secondary)
+                                    Text(t.name).font(.system(size: Typography.body, weight: .medium)).foregroundColor(.primary)
+                                    Text(t.desc).font(.system(size: Typography.caption)).foregroundStyle(.secondary)
                                 }
                                 Spacer()
                                 if picked?.id == t.id {
@@ -247,7 +247,7 @@ struct MCPAddSheet: View {
                         picked = nil
                     } label: {
                         HStack {
-                            Text("自定义 URL（高级）").font(.system(size: 14)).foregroundColor(.primary)
+                            Text("自定义 URL（高级）").font(.system(size: Typography.body)).foregroundColor(.primary)
                             Spacer()
                             if picked == nil && !customURL.isEmpty {
                                 Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
@@ -259,7 +259,7 @@ struct MCPAddSheet: View {
                             .keyboardType(.URL)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
-                            .font(.system(size: 12))
+                            .font(.system(size: Typography.subhead))
                     }
                 }
                 if let t = picked {

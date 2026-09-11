@@ -217,7 +217,7 @@ struct DockerContainerCard: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
                 Text(container.name)
-                    .font(.system(size: 12))
+                    .font(.system(size: Typography.subhead))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                 Spacer()
@@ -227,13 +227,13 @@ struct DockerContainerCard: View {
                     .shadow(color: color.opacity(0.6), radius: 4)
             }
             Text(running ? "运行中" : "已停止")
-                .font(.system(size: 13.5, weight: .semibold))   // v2.0.86o：大字状态改小
+                .font(.system(size: Typography.subhead, weight: .semibold))   // v2.0.86o：大字状态改小
                 .foregroundStyle(.primary)
                 .padding(.top, 6)
             // v2.0.87p：有更新才显示向上箭头（v2.0.87ao：网络由用户路由器解决，恢复箭头方案）
             HStack(spacing: 6) {
                 Text(portSuffix)
-                    .font(.system(size: 10))
+                    .font(.system(size: Typography.tiny))
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
                 if container.isComposeProject && hasUpdate {
@@ -247,7 +247,7 @@ struct DockerContainerCard: View {
                             Circle()
                                 .fill(Color.accentColor.opacity(0.14))
                             Image(systemName: "arrow.up")
-                                .font(.system(size: 11, weight: .bold))
+                                .font(.system(size: Typography.caption, weight: .bold))
                                 .foregroundStyle(Color.accentColor)
                         }
                         .frame(width: 26, height: 26)
@@ -315,7 +315,7 @@ private struct DockerImageCard: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
                 Text(image.name)
-                    .font(.system(size: 12))
+                    .font(.system(size: Typography.subhead))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                 Spacer()
@@ -326,11 +326,11 @@ private struct DockerImageCard: View {
                     .shadow(color: color.opacity(0.6), radius: 4)
             }
             Text(inUse ? "使用中" : "未使用")
-                .font(.system(size: 13.5, weight: .semibold))   // v2.0.86o：大字状态改小
+                .font(.system(size: Typography.subhead, weight: .semibold))   // v2.0.86o：大字状态改小
                 .foregroundStyle(.primary)
                 .padding(.top, 6)
             Text("\(image.id) · \(image.size) · 长按删除")
-                .font(.system(size: 10))
+                .font(.system(size: Typography.tiny))
                 .foregroundStyle(.tertiary)
                 .lineLimit(1)
                 .padding(.top, 4)
@@ -360,11 +360,11 @@ private struct ContainerSection: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Label("已部署容器", systemImage: "shippingbox.fill")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: Typography.subhead, weight: .semibold))
                     .foregroundStyle(Color.accentColor)
                 Spacer()
                 Text("\(containers.count) 个")
-                    .font(.system(size: 11))
+                    .font(.system(size: Typography.caption))
                     .foregroundStyle(.secondary)
                 Button {
                     Task { await onRefresh() }
@@ -372,9 +372,9 @@ private struct ContainerSection: View {
                     // v2.0.92：刷新按钮胶囊化（图标+文字，点击区域大、不易误触）
                     HStack(spacing: 3) {
                         Image(systemName: "arrow.clockwise")
-                            .font(.system(size: 11, weight: .semibold))
+                            .font(.system(size: Typography.caption, weight: .semibold))
                         Text("刷新")
-                            .font(.system(size: 12, weight: .medium))
+                            .font(.system(size: Typography.subhead, weight: .medium))
                     }
                     .foregroundStyle(Color.accentColor)
                     .padding(.horizontal, 10)
@@ -387,10 +387,10 @@ private struct ContainerSection: View {
             if containers.isEmpty {
                 VStack(spacing: 6) {
                     Image(systemName: "shippingbox")
-                        .font(.system(size: 22))
+                        .font(.system(size: Typography.titleXL))
                         .foregroundStyle(.tertiary)
                     Text("暂无容器，输入 YAML 点击部署")
-                        .font(.system(size: 12))
+                        .font(.system(size: Typography.subhead))
                         .foregroundStyle(.tertiary)
                 }
                 .frame(maxWidth: .infinity)
@@ -436,11 +436,11 @@ private struct ImageSection: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Label("镜像管理", systemImage: "photo.stack")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: Typography.subhead, weight: .semibold))
                     .foregroundStyle(Color.indigo)
                 Spacer()
                 Text("\(images.count) 个")
-                    .font(.system(size: 11))
+                    .font(.system(size: Typography.caption))
                     .foregroundStyle(.secondary)
                 Button {
                     Task { await onRefresh() }
@@ -448,9 +448,9 @@ private struct ImageSection: View {
                     // v2.0.92：刷新按钮胶囊化（图标+文字，点击区域大、不易误触）
                     HStack(spacing: 3) {
                         Image(systemName: "arrow.clockwise")
-                            .font(.system(size: 11, weight: .semibold))
+                            .font(.system(size: Typography.caption, weight: .semibold))
                         Text("刷新")
-                            .font(.system(size: 12, weight: .medium))
+                            .font(.system(size: Typography.subhead, weight: .medium))
                     }
                     .foregroundStyle(Color.indigo)
                     .padding(.horizontal, 10)
@@ -461,7 +461,7 @@ private struct ImageSection: View {
             }
             if images.isEmpty {
                 Text("暂无镜像")
-                    .font(.system(size: 12))
+                    .font(.system(size: Typography.subhead))
                     .foregroundStyle(.tertiary)
                     .padding(.vertical, 4)
             } else {
@@ -504,11 +504,11 @@ private struct DeploySection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Label("新建部署", systemImage: "plus.circle.fill")
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(size: Typography.subhead, weight: .semibold))
                 .foregroundStyle(Color.accentColor)
 
             TextField("项目名（如 myapp）", text: $name)
-                .font(.system(size: 14))
+                .font(.system(size: Typography.body))
                 .focused($focused)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 10)
@@ -519,7 +519,7 @@ private struct DeploySection: View {
                 )
             if !name.isEmpty {
                 Text("目录：/volume1/docker/\(name)/")
-                    .font(.system(size: 10.5))
+                    .font(.system(size: Typography.tiny))
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
             }
@@ -527,7 +527,7 @@ private struct DeploySection: View {
             // YAML 编辑器
             ZStack(alignment: .topTrailing) {
                 TextEditor(text: $yaml)
-                    .font(.system(size: 12, design: .monospaced))
+                    .font(.system(size: Typography.subhead, design: .monospaced))
                     .focused($focused)
                     .frame(minHeight: 180)
                     .padding(8)
@@ -540,7 +540,7 @@ private struct DeploySection: View {
                     .overlay(alignment: .topLeading) {
                         if yaml.isEmpty {
                             Text(DockerSheet.yamlHint)
-                                .font(.system(size: 12, design: .monospaced))
+                                .font(.system(size: Typography.subhead, design: .monospaced))
                                 .foregroundStyle(.tertiary.opacity(0.6))
                                 .padding(.horizontal, 14)
                                 .padding(.vertical, 16)
@@ -552,7 +552,7 @@ private struct DeploySection: View {
                         yaml = DockerSheet.nginxTemplate
                     } label: {
                         Label("模板", systemImage: "text.badge.plus")
-                            .font(.system(size: 11, weight: .medium))
+                            .font(.system(size: Typography.caption, weight: .medium))
                             .padding(.horizontal, 8)
                             .padding(.vertical, 4)
                             .background(.ultraThinMaterial, in: Capsule())
@@ -573,7 +573,7 @@ private struct DeploySection: View {
                         ProgressView().tint(.white)
                     }
                     Text(busy ? "部署中…" : "部署")
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.system(size: Typography.body, weight: .semibold))
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 12)
@@ -602,10 +602,10 @@ private struct DeploySection: View {
         if let m = message {
             HStack(alignment: .top, spacing: 8) {
                 Image(systemName: m.ok ? "checkmark.circle.fill" : "xmark.octagon.fill")
-                    .font(.system(size: 14))
+                    .font(.system(size: Typography.body))
                     .foregroundStyle(m.ok ? .green : .red)
                 Text(m.text)
-                    .font(.system(size: 12))
+                    .font(.system(size: Typography.subhead))
                     .foregroundStyle(m.ok ? Color.primary : Color.red)   // v2.0.86k：显式 Color（.primary 是 HierarchicalShapeStyle，三元类型冲突）
                     .textSelection(.enabled)
             }

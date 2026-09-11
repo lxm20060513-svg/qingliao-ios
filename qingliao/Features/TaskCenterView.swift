@@ -174,7 +174,7 @@ private struct ActiveTaskRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: "arrow.triangle.2.circlepath")
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: Typography.body, weight: .semibold))
                 .foregroundStyle(.green)
                 .frame(width: 30, height: 30)
                 .background(Circle().fill(Color.green.opacity(0.14)))
@@ -217,7 +217,7 @@ private struct TaskRow: View {
         HStack(alignment: .top, spacing: 10) {
             // v3.4.23：图标玻璃小圆片（类型色 tint + 极淡底色），对齐全站卡片规范
             Image(systemName: iconName)
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: Typography.body, weight: .semibold))
                 .foregroundStyle(item.completed ? Color.secondary : iconColor)
                 .frame(width: 30, height: 30)
                 .background(

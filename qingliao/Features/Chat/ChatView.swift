@@ -128,10 +128,10 @@ struct ToolCardView: View {
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: item.ok ? "checkmark.circle.fill" : "xmark.circle.fill")
-                .font(.system(size: 14))
+                .font(.system(size: Typography.body))
                 .foregroundStyle(item.ok ? .green : .red)
             Text(item.title)
-                .font(.system(size: 12.5))
+                .font(.system(size: Typography.subhead))
                 .foregroundStyle(.primary)
                 .lineLimit(2)
             Spacer(minLength: 0)
@@ -328,9 +328,9 @@ struct ChatView: View {
         } label: {
             HStack(spacing: 3) {
                 Image(systemName: reasoningLevel.symbol)
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.system(size: Typography.tiny, weight: .semibold))
                 Text(reasoningLevel.title)
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: Typography.caption, weight: .semibold))
             }
             .foregroundStyle(Color.accentColor)
             .padding(.horizontal, 9)
@@ -363,7 +363,7 @@ struct ChatView: View {
             } label: {
                 ZStack(alignment: .topTrailing) {
                     Image(systemName: "checklist")
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.system(size: Typography.body, weight: .semibold))
                         .foregroundStyle(Color.accentColor)
                         .frame(width: 20, height: 20)
                     if taskStore.uncompleted > 0 {
@@ -382,7 +382,7 @@ struct ChatView: View {
                 showMoreMenu = true
             } label: {
                 Image(systemName: "ellipsis.circle")
-                    .font(.system(size: 17, weight: .semibold))
+                    .font(.system(size: Typography.title, weight: .semibold))
                     .foregroundStyle(Color.accentColor)
             }
             .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
@@ -501,7 +501,7 @@ struct ChatView: View {
                     .frame(width: 42, height: 42)
                     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 Text("图片已选择，发送后 AI 可识别")
-                    .font(.system(size: 12))
+                    .font(.system(size: Typography.subhead))
                     .foregroundStyle(.secondary)
                 Spacer()
                 Button {
@@ -509,7 +509,7 @@ struct ChatView: View {
                     pendingImageData = nil
                 } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 18))
+                        .font(.system(size: Typography.headline))
                         .foregroundStyle(.tertiary)
                 }
                 .buttonStyle(.plain)
@@ -550,10 +550,10 @@ struct ChatView: View {
         if let q = quotedMessage {
             HStack(spacing: 8) {
                 Image(systemName: "quote.opening")
-                    .font(.system(size: 12))
+                    .font(.system(size: Typography.subhead))
                     .foregroundStyle(Color.accentColor)
                 Text(String(q.content.prefix(60)))
-                    .font(.system(size: 12))
+                    .font(.system(size: Typography.subhead))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                 Spacer()
@@ -561,7 +561,7 @@ struct ChatView: View {
                     quotedMessage = nil
                 } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 15))
+                        .font(.system(size: Typography.body))
                         .foregroundStyle(.tertiary)
                 }
                 .buttonStyle(.plain)
@@ -600,10 +600,10 @@ struct ChatView: View {
             if sentOK {
                 HStack(spacing: 5) {
                     Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 12))
+                        .font(.system(size: Typography.subhead))
                         .foregroundStyle(.green)
                     Text("已送达 · 消息已发出")
-                        .font(.system(size: 11))
+                        .font(.system(size: Typography.caption))
                         .foregroundStyle(.green)
                 }
                 .frame(maxWidth: .infinity)
@@ -819,10 +819,10 @@ struct ChatView: View {
     private func mapClipboardBanner() -> some View {
         HStack(spacing: 8) {
             Image(systemName: "mappin.and.ellipse")
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(size: Typography.subhead, weight: .semibold))
                 .foregroundStyle(Color.accentColor)
             Text("检测到剪贴板里的位置/链接")
-                .font(.system(size: 13))
+                .font(.system(size: Typography.subhead))
                 .foregroundStyle(.primary)
                 .lineLimit(1)
             Spacer(minLength: 0)
@@ -830,7 +830,7 @@ struct ChatView: View {
                 sendClipboardLink()
             } label: {
                 Text("发给 AI")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: Typography.subhead, weight: .semibold))
                     .padding(.horizontal, 10)
                     .padding(.vertical, 4)
                     .background(Color.accentColor.opacity(0.14), in: Capsule())
@@ -842,7 +842,7 @@ struct ChatView: View {
                 withAnimation(Motion.snap) { showClipboardBanner = false }
             } label: {
                 Image(systemName: "xmark")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: Typography.caption, weight: .semibold))
                     .foregroundStyle(.secondary)
                     .padding(4)
                     .contentShape(Rectangle())
@@ -936,7 +936,7 @@ struct ChatView: View {
                 OrbCanvasView(mode: .orbits, size: 96)
                     .allowsHitTesting(false)
                 Image(systemName: "bubble.left.and.bubble.right.fill")
-                    .font(.system(size: 28))
+                    .font(.system(size: Typography.display))
                     .foregroundStyle(.white)
                     .shadow(color: .indigo.opacity(0.35), radius: 6, y: 2)
             }
@@ -946,13 +946,13 @@ struct ChatView: View {
             VStack(spacing: 6) {
                 // v3.4.25：问候语随时段变化
                 Text(welcomeGreeting)
-                    .font(.system(size: 17, weight: .bold))
+                    .font(.system(size: Typography.title, weight: .bold))
                     .foregroundStyle(
                         LinearGradient(colors: [.blue, .purple],
                                        startPoint: .topLeading, endPoint: .bottomTrailing)
                     )
                 Text(welcomeSubtitle)
-                    .font(.system(size: 13))
+                    .font(.system(size: Typography.subhead))
                     .foregroundStyle(.secondary)
             }
             .padding(.top, 18)
@@ -975,9 +975,9 @@ struct ChatView: View {
                         } label: {
                             HStack(spacing: 5) {
                                 Image(systemName: s.icon)
-                                    .font(.system(size: 11, weight: .medium))
+                                    .font(.system(size: Typography.caption, weight: .medium))
                                 Text(s.title)
-                                    .font(.system(size: 12, weight: .medium))
+                                    .font(.system(size: Typography.subhead, weight: .medium))
                             }
                             .foregroundStyle(.secondary)
                             .padding(.horizontal, 12)
@@ -1001,20 +1001,20 @@ struct ChatView: View {
                 } label: {
                     HStack(spacing: 9) {
                         Image(systemName: "arrow.uturn.backward.circle")
-                            .font(.system(size: 14, weight: .medium))
+                            .font(.system(size: Typography.body, weight: .medium))
                             .foregroundStyle(.secondary)
                         VStack(alignment: .leading, spacing: 2) {
                             Text("继续上次")
-                                .font(.system(size: 11, weight: .medium))
+                                .font(.system(size: Typography.caption, weight: .medium))
                                 .foregroundStyle(.secondary)
                             Text(last.title.isEmpty ? "未命名会话" : last.title)
-                                .font(.system(size: 13, weight: .semibold))
+                                .font(.system(size: Typography.subhead, weight: .semibold))
                                 .foregroundStyle(.primary)
                                 .lineLimit(1)
                         }
                         Spacer(minLength: 8)
                         Image(systemName: "chevron.right")
-                            .font(.system(size: 11, weight: .semibold))
+                            .font(.system(size: Typography.caption, weight: .semibold))
                             .foregroundStyle(.tertiary)
                     }
                     .padding(.horizontal, 14)
@@ -1081,7 +1081,7 @@ struct ChatView: View {
                             sendCore(text: s.prompt, imageData: nil)
                         } label: {
                             Text(s.title)
-                                .font(.system(size: 12, weight: .medium))
+                                .font(.system(size: Typography.subhead, weight: .medium))
                                 .foregroundStyle(.secondary)
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 7)
@@ -1194,10 +1194,10 @@ struct ChatView: View {
                         .fill(levelColor)
                         .frame(width: 6, height: 6)
                     Text("\(percent)%")
-                        .font(.system(size: 11))
+                        .font(.system(size: Typography.caption))
                         .foregroundStyle(.secondary)
                     Text("\(chat.contextInfo.tokens) tokens")
-                        .font(.system(size: 11))
+                        .font(.system(size: Typography.caption))
                         .foregroundStyle(.tertiary)
                 }
                 .padding(.horizontal, 18)
@@ -1217,7 +1217,7 @@ struct ChatView: View {
                 .contentShape(Rectangle())
                 .onTapGesture { toggleSelect(msg) }
             Image(systemName: sel ? "checkmark.circle.fill" : "circle")
-                .font(.system(size: 20, weight: .semibold))
+                .font(.system(size: Typography.headline, weight: .semibold))
                 .foregroundStyle(sel ? Color.blue : Color.secondary.opacity(0.55))
                 .background(Circle().fill(Color(uiColor: .systemBackground)).padding(-1.5))
                 .padding(.trailing, 6)
@@ -1261,19 +1261,19 @@ struct ChatView: View {
                 toggleSelectAll()
             } label: {
                 Text(selectedMsgIDs.count >= chat.messages.count && !chat.messages.isEmpty ? "取消全选" : "全选")
-                    .font(.system(size: 14, weight: .medium))
+                    .font(.system(size: Typography.body, weight: .medium))
                     .foregroundStyle(Color.accentColor)
             }
             .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
             Text("已选 \(selectedMsgIDs.count) 条")
-                .font(.system(size: 13, weight: .medium))
+                .font(.system(size: Typography.subhead, weight: .medium))
                 .foregroundStyle(.secondary)
             Spacer(minLength: 4)
             Button {
                 exitSelectMode()
             } label: {
                 Text("取消")
-                    .font(.system(size: 14, weight: .medium))
+                    .font(.system(size: Typography.body, weight: .medium))
                     .foregroundStyle(.secondary)
             }
             .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
@@ -1281,7 +1281,7 @@ struct ChatView: View {
                 mergeAndShare()
             } label: {
                 Text("合并发送")
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.system(size: Typography.body, weight: .semibold))
                     .foregroundStyle(.white)
                     .padding(.horizontal, 18)
                     .padding(.vertical, 9)
@@ -1347,9 +1347,9 @@ struct ChatView: View {
                                             } label: {
                                                 HStack(spacing: 5) {
                                                     Image(systemName: "chevron.up")
-                                                        .font(.system(size: 10, weight: .semibold))
+                                                        .font(.system(size: Typography.tiny, weight: .semibold))
                                                     Text("加载更早 \(min(visibleStartIndex, Self.loadMoreStep)) 条")
-                                                        .font(.system(size: 12, weight: .medium))
+                                                        .font(.system(size: Typography.subhead, weight: .medium))
                                                 }
                                                 .foregroundStyle(.secondary)
                                                 .padding(.vertical, 8)
@@ -1659,7 +1659,7 @@ struct ChatView: View {
             text = d.formatted(date: .abbreviated, time: .shortened)
         }
         return Text(text)
-            .font(.system(size: 11))
+            .font(.system(size: Typography.caption))
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 6)
@@ -1677,7 +1677,7 @@ struct ChatView: View {
             text = d.formatted(date: .abbreviated, time: .omitted)
         }
         return Text(text)
-            .font(.system(size: 11, weight: .medium))
+            .font(.system(size: Typography.caption, weight: .medium))
             .foregroundStyle(.secondary)
             .padding(.horizontal, 10)
             .padding(.vertical, 3)
@@ -1818,18 +1818,18 @@ struct ChatView: View {
     private var archiveBanner: some View {
         HStack(spacing: 10) {
             Image(systemName: "doc.richtext")
-                .font(.system(size: 15))
+                .font(.system(size: Typography.body))
                 .foregroundStyle(.orange)
             VStack(alignment: .leading, spacing: 1) {
                 Text("会话内容较多")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: Typography.subhead, weight: .semibold))
                 Text("\(chat.messages.count) 条消息 · 建议归档导出以省存储")
-                    .font(.system(size: 11))
+                    .font(.system(size: Typography.caption))
                     .foregroundStyle(.secondary)
             }
             Spacer()
             Button("归档") { showExportSheet = true }
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(size: Typography.subhead, weight: .semibold))
                 .foregroundStyle(.white)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
@@ -1839,7 +1839,7 @@ struct ChatView: View {
                 withAnimation { showArchiveHint = false }
             } label: {
                 Image(systemName: "xmark")
-                    .font(.system(size: 11, weight: .bold))
+                    .font(.system(size: Typography.caption, weight: .bold))
                     .foregroundStyle(.secondary)
             }
         }
@@ -2696,12 +2696,12 @@ struct DealAttachmentButton: View {
         Button(action: onPick) {
             VStack(spacing: 5) {
                 Image(systemName: icon)
-                    .font(.system(size: 19))
+                    .font(.system(size: Typography.headline))
                     .foregroundStyle(.white)
                     .frame(width: 46, height: 46)
                     .background(color.gradient, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
                 Text(name)
-                    .font(.system(size: 11))
+                    .font(.system(size: Typography.caption))
                     .foregroundStyle(.secondary)
             }
         }
@@ -2759,7 +2759,7 @@ struct TOCSheet: View {
                         Spacer()
                         if onNavigate != nil {
                             Image(systemName: "arrow.up.right")
-                                .font(.system(size: 11, weight: .semibold))
+                                .font(.system(size: Typography.caption, weight: .semibold))
                                 .foregroundStyle(.tertiary)
                         }
                     }

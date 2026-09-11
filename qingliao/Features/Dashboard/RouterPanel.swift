@@ -64,9 +64,9 @@ struct RouterPanel: View {
             // 标题行：路由器 + 在线设备数（v2.0.37 替代 hostname）+ 状态点
             HStack(spacing: 6) {
                 Text("📡 路由器")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: Typography.subhead, weight: .semibold))
                 Text("\(router.onlineDevices) 台在线")
-                    .font(.system(size: 11))
+                    .font(.system(size: Typography.caption))
                     .foregroundStyle(.secondary)
                 Circle()
                     .fill(router.ok ? Color.green : Color.red)
@@ -81,7 +81,7 @@ struct RouterPanel: View {
                     onRefresh?()
                 } label: {
                     Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.system(size: Typography.subhead, weight: .semibold))
                         .foregroundStyle(Color.accentColor)
                 }
                 .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
@@ -103,7 +103,7 @@ struct RouterPanel: View {
             // v2.0.92：Clash 操作失败原因（后端以"服务已启动"输出为准，失败会带原因）
             if !router.error.isEmpty {
                 Text(router.error)
-                    .font(.system(size: 11))
+                    .font(.system(size: Typography.caption))
                     .foregroundStyle(.red)
                     .lineLimit(2)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -127,19 +127,19 @@ struct ClashSheet: View {
         VStack(spacing: 14) {
             HStack {
                 Text("⚡ Clash 管理")
-                    .font(.system(size: 16, weight: .bold))
+                    .font(.system(size: Typography.title, weight: .bold))
                 Spacer()
                 Circle()
                     .fill(router.clashRunning ? Color.green : Color.gray)
                     .frame(width: 8, height: 8)
                 Text(router.clashRunning ? "运行中" : "已停止")
-                    .font(.system(size: 12))
+                    .font(.system(size: Typography.subhead))
                     .foregroundStyle(.secondary)
                 Button {
                     dismiss()
                 } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 20))
+                        .font(.system(size: Typography.headline))
                         .foregroundStyle(.tertiary)
                 }
                 .buttonStyle(.plain)
@@ -153,13 +153,13 @@ struct ClashSheet: View {
                 } label: {
                     VStack(spacing: 8) {
                         Image(systemName: "play.fill")
-                            .font(.system(size: 22))
+                            .font(.system(size: Typography.titleXL))
                             .foregroundStyle(.white)
                         Text("打开 Clash")
-                            .font(.system(size: 14, weight: .semibold))
+                            .font(.system(size: Typography.body, weight: .semibold))
                             .foregroundStyle(.white)
                         Text("开启代理加速")
-                            .font(.system(size: 10))
+                            .font(.system(size: Typography.tiny))
                             .foregroundStyle(.white.opacity(0.7))
                     }
                     .frame(maxWidth: .infinity)
@@ -176,13 +176,13 @@ struct ClashSheet: View {
                 } label: {
                     VStack(spacing: 8) {
                         Image(systemName: "stop.fill")
-                            .font(.system(size: 22))
+                            .font(.system(size: Typography.titleXL))
                             .foregroundStyle(.white)
                         Text("关闭 Clash")
-                            .font(.system(size: 14, weight: .semibold))
+                            .font(.system(size: Typography.body, weight: .semibold))
                             .foregroundStyle(.white)
                         Text("恢复直连")
-                            .font(.system(size: 10))
+                            .font(.system(size: Typography.tiny))
                             .foregroundStyle(.white.opacity(0.7))
                     }
                     .frame(maxWidth: .infinity)

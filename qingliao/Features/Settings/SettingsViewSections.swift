@@ -63,13 +63,13 @@ extension SettingsView {
     @ViewBuilder var localModelToggle: some View {
         HStack(spacing: 12) {
             Image(systemName: "cpu")
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(size: Typography.subhead, weight: .semibold))
                 .foregroundStyle(.white)
                 .frame(width: 28, height: 28)
                 .background(Color.indigo, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
             VStack(alignment: .leading, spacing: 1) {
-                Text("本地模型").font(.system(size: 14, weight: .medium))
-                Text(localStatusText).font(.system(size: 11)).foregroundStyle(.tertiary).lineLimit(1)
+                Text("本地模型").font(.system(size: Typography.body, weight: .medium))
+                Text(localStatusText).font(.system(size: Typography.caption)).foregroundStyle(.tertiary).lineLimit(1)
             }
             Spacer()
             Toggle("", isOn: $localModelOn).labelsHidden().scaleEffect(0.8).tint(.green)
@@ -101,13 +101,13 @@ extension SettingsView {
             Button { Task { await checkLocalUpdate() } } label: {
                 HStack(spacing: 12) {
                     Image(systemName: "arrow.triangle.2.circlepath")
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.system(size: Typography.subhead, weight: .semibold))
                         .foregroundStyle(.white)
                         .frame(width: 28, height: 28)
                         .background(Color.teal, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
                     VStack(alignment: .leading, spacing: 1) {
-                        Text("检查模型更新").font(.system(size: 14, weight: .medium))
-                        Text(localUpdateText).font(.system(size: 11)).foregroundStyle(.tertiary)
+                        Text("检查模型更新").font(.system(size: Typography.body, weight: .medium))
+                        Text(localUpdateText).font(.system(size: Typography.caption)).foregroundStyle(.tertiary)
                     }
                     Spacer()
                     if localChecking { ProgressView().controlSize(.small) }
@@ -137,10 +137,10 @@ extension SettingsView {
                 Divider().padding(.leading, 52)
                 HStack {
                     Text("压缩阈值")
-                        .font(.system(size: 15))
+                        .font(.system(size: Typography.body))
                     Spacer()
                     Text("\(contextThreshold) tokens")
-                        .font(.system(size: 14))
+                        .font(.system(size: Typography.body))
                         .foregroundStyle(.secondary)
                     Stepper("", value: $contextThreshold, in: 1000...16000, step: 500)
                         .labelsHidden()
@@ -221,7 +221,7 @@ extension SettingsView {
                     Text("▸ 复杂任务（联网搜索/写脚本/操作文件）自动转交 Hermes 执行")
                     Text("▸ 普通聊天走 Hermes（带 AI 记忆）；Agent 只参考轻聊记忆与规则")
                 }
-                .font(.system(size: 12)).foregroundStyle(.secondary)
+                .font(.system(size: Typography.subhead)).foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 14).padding(.bottom, 12)
             }
@@ -263,9 +263,9 @@ extension SettingsView {
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: "rectangle.portrait.and.arrow.right")
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.system(size: Typography.body, weight: .semibold))
                 Text("退出登录")
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.system(size: Typography.body, weight: .semibold))
             }
             .foregroundStyle(.red)
             .padding(.horizontal, 40).padding(.vertical, 13)
