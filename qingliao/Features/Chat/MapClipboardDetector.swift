@@ -47,7 +47,9 @@ enum MapClipboardDetector {
         guard pasteboard.hasStrings || pasteboard.hasURLs else { return false }
         do {
             let values = try await pasteboard.detectedValues(for: [\.probableWebURL])
-            guard let url = values.probableWebURL else { return false }
+            // CI 实证（run 34608290649）：DetectedValues.probableWebURL 是 **String?**，不是 URL?
+            //（原来直接当 URL 用 → "cannot convert value of type 'String' to expected argument type 'URL'"）
+            guard let text = values.probableWebURL, let url = URL(string: text) else { return false }
             return MapLocationParser.parse(url) != nil
         } catch {
             return nil   // v3.9.1：探测出错 ≠ "不是位置链接"，不能被记账固化
