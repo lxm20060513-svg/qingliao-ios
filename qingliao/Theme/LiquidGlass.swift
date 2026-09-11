@@ -68,10 +68,10 @@ struct BubbleTheme {
 // 背景 + 0.8pt 描边 + 圆角裁剪，一处定义三处复用
 //
 // ⚠️ 圆角约定（v3.8.1 起，防回归）：
-//   · 承载真实数据的卡片（看板 DeviceCard/MeterCard/ServiceCard、生活股票格/资讯长卡/备忘录卡）
-//     → dashboardCard() 默认 **16**，看板与生活两侧必须同值
-//   · 单行提示/空态/占位条（"暂无场景""暂无自动化"、noteCard、placeholder 块）
-//     → dashboardCard(cornerRadius: 10)，两边同类元素也是同值
+//   · 卡片一律 **16**（dashboardCard() 默认值）：看板 DeviceCard/MeterCard/ServiceCard、智能建议卡、
+//     空态/提示条，生活股票格/资讯长卡/备忘录卡、提示条，云端看板统计卡 —— 用户要求"都要一致"
+//   · 唯一例外：看板空调高亮卡（渐变 + 投影 + 1pt 描边）刻意用 22，属 hero 卡，未拉平
+//   · 图标底板 / 分段控件等非卡片元素不受此约定（8/10/12/14 各自合适即可）
 //   改一侧就要同步另一侧，别让生活页看着比看板"方"（用户 2026-09-11 反馈）
 
 struct DashboardCardStyle: ViewModifier {

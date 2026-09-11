@@ -140,7 +140,7 @@ struct UsageStatsCard: View {
         }
         .padding(14)
         .background(.ultraThinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))   // v3.8.1：云端看板统计卡圆角 14 → 16，与本地看板一致
         .task {
             await loadStats()
         }
@@ -174,6 +174,6 @@ private struct StatCell: View {
         .frame(maxWidth: .infinity)
         .padding(.vertical, 8)
         .background(.ultraThinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))   // v3.8.1：10 → 16，与看板卡片统一
     }
 }

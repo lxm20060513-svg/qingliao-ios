@@ -125,12 +125,8 @@ struct DashboardView: View {
                     }
                     .padding(12)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color(uiColor: .secondarySystemGroupedBackground),
-                                in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.8)
-                    )
+                    // v3.8.1：本来手写 background+描边、圆角 12 → 改用统一卡片样式（16），与看板/生活其它卡片对齐
+                    .dashboardCard()
 
                     sectionTitle("智能家居")
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
@@ -163,7 +159,7 @@ struct DashboardView: View {
                         }
                         .padding(.horizontal, 12)
                         .padding(.vertical, 8)
-                        .dashboardCard(cornerRadius: 10)
+                        .dashboardCard()   // v3.8.1：空态提示条统一 16
                     } else {
                         LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
                             ForEach(scenes) { s in
@@ -201,7 +197,7 @@ struct DashboardView: View {
                         }
                         .padding(.horizontal, 12)
                         .padding(.vertical, 8)
-                        .dashboardCard(cornerRadius: 10)
+                        .dashboardCard()   // v3.8.1：空态提示条统一 16
                     } else {
                         LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
                             ForEach(automations) { a in
@@ -779,7 +775,7 @@ struct DashboardView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .dashboardCard(cornerRadius: 10)
+        .dashboardCard()   // v3.8.1：空态提示条统一 16
         .contentShape(Rectangle())
         .onTapGesture { showUsageRestore = true }
         .confirmationDialog("恢复已隐藏的模型服务", isPresented: $showUsageRestore, titleVisibility: .visible) {

@@ -6,9 +6,8 @@ import UIKit
 // 与 DeviceCard / MeterCard / ServiceCard / PinCard 同一套卡片语言：
 //   .dashboardCard()（默认 圆角 16）+ Capsule 胶囊 + 0.8pt 描边（由 dashboardCard 提供）
 //   ⚠️ 圆角约定（v3.8.1 用户要求「生活栏目卡片圆角跟看板一致」）：
-//      · 承载真实数据的卡片 → .dashboardCard()（16），看板与生活**必须同值**
-//      · 单行提示/空态/占位条（noteCard、placeholder 块）→ .dashboardCard(cornerRadius: 10)
-//        看板同类提示条也是 10，两边一起变才叫一致；不要单独改一侧
+//      本文件所有卡片一律 .dashboardCard()（16）——真实卡片与空态/占位/提示条**都**是 16，
+//      看板同类元素也已同步为 16；不要再传 cornerRadius（除非是有意的高亮 hero 卡）
 //   数值用 contentTransition(.numericText())，动效用 Motion 令牌，按压用 PressStyle()
 // 可折叠（@AppStorage 持久化）+ 手动刷新；数据源不可用时显示小字，不空白、不转圈卡住。
 
@@ -103,7 +102,7 @@ struct LifeCardsSection: View {
             }
             .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .dashboardCard(cornerRadius: 10)
+            .dashboardCard()   // v3.8.1：空态/占位块也统一 16（用户：都要一致）
         } else {
             // 行情：2 列网格（与 NAS 面板/模型使用量的栅格一致）
             if data.stocks.isEmpty {
@@ -123,7 +122,7 @@ struct LifeCardsSection: View {
                 }
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .dashboardCard(cornerRadius: 10)
+                .dashboardCard()   // v3.8.1：空态/占位块也统一 16（用户：都要一致）
             }
             if !data.rssErrorText.isEmpty {
                 noteRow(icon: "wifi.exclamationmark", text: data.rssErrorText)
@@ -357,7 +356,7 @@ struct LifeCardsSection: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .dashboardCard(cornerRadius: 10)
+        .dashboardCard()   // v3.8.1：单行提示条也统一 16（用户：都要一致）
     }
 
     private func noteRow(icon: String, text: String) -> some View {
