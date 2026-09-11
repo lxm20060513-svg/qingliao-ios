@@ -4,7 +4,11 @@ import UIKit
 // MARK: - v3.5.x 看板「生活数据」卡片区（股票行情 + RSS/博客更新）
 //
 // 与 DeviceCard / MeterCard / ServiceCard / PinCard 同一套卡片语言：
-//   .dashboardCard(cornerRadius: 10) + Capsule 胶囊 + 0.8pt 描边（由 dashboardCard 提供）
+//   .dashboardCard()（默认 圆角 16）+ Capsule 胶囊 + 0.8pt 描边（由 dashboardCard 提供）
+//   ⚠️ 圆角约定（v3.8.1 用户要求「生活栏目卡片圆角跟看板一致」）：
+//      · 承载真实数据的卡片 → .dashboardCard()（16），看板与生活**必须同值**
+//      · 单行提示/空态/占位条（noteCard、placeholder 块）→ .dashboardCard(cornerRadius: 10)
+//        看板同类提示条也是 10，两边一起变才叫一致；不要单独改一侧
 //   数值用 contentTransition(.numericText())，动效用 Motion 令牌，按压用 PressStyle()
 // 可折叠（@AppStorage 持久化）+ 手动刷新；数据源不可用时显示小字，不空白、不转圈卡住。
 
@@ -195,7 +199,7 @@ struct LifeCardsSection: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .dashboardCard(cornerRadius: 10)
+        .dashboardCard()   // v3.8.1：真实卡片圆角与看板 DeviceCard/MeterCard/ServiceCard 统一（默认 16）
     }
 
     /// v3.6.2：点击该条 → 就地展开正文（后端 AI 抓取+整理），不再跳转浏览器；再点一次收起。
@@ -405,7 +409,7 @@ struct LifeStockCard: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .dashboardCard(cornerRadius: 10)
+        .dashboardCard()   // v3.8.1：真实卡片圆角与看板统一（默认 16）
     }
 
     /// A 股惯例：红涨绿跌（数据不可用 → 灰点 / 次色文字）

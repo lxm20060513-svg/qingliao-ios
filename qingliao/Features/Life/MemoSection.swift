@@ -30,7 +30,7 @@ struct MemoSection: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .dashboardCard(cornerRadius: 10)
+        .dashboardCard()   // v3.8.1：圆角与看板卡片统一（默认 16；原来这里是 10，生活页看着更"方"）
         // v3.7.0：进入生活页即拉 NAS 上的备忘（本地已有则远端为空时不清本地）
         .task { await store.loadFromServer() }
         .sheet(isPresented: $showAdd) { addSheet }
