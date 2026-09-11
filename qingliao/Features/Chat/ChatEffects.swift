@@ -191,45 +191,108 @@ struct DockOrbOverlay: View {
     var slotIndex: Int = 2
     /// dock 槽位总数（本地 5；云端 4）
     var slotCount: Int = 5
-    /// 外框（含光晕）边长；球体 ≈ size × 0.783 —— 36 时球体 ≈ 28pt，与 dock 其它图标等高
-    var ballSize: CGFloat = 36
+    /// 外框（含光晕）边长；球体 ≈ size × 0.783 —— 44 时球体 ≈ 34pt
+    /// v3.6.3：36 → 44（装机反馈「球太小」，且原 36 的球体比 dock 图标还小）
+    var ballSize: CGFloat = 44
     /// 装机微调预留：正值下移
     var verticalNudge: CGFloat = 0
     /// AI 正在流式回答 → 球切 orbits（点点旋转）；空闲 → ring（缓慢脉动）
     var thinking: Bool = false
 
+    /// v3.6.3：系统 tab bar 真实槽位中心（window 坐标）。读得到就用它，读不到回退等分估算
+    @State private var liveCenter: CGPoint?
+
     /// iOS 26 原生 tab bar 高度（不含底部安全区）
     static let dockBarHeight: CGFloat = 49
 
     var body: some View {
-        // 安全区在 body 顶层取（MainActor 上下文），闭包内只消费值
-        let centerFromBottom = DockOrbOverlay.ballCenterFromBottom
         GeometryReader { geo in
+            let g = geo.frame(in: .global)          // 本叠加层在 window 中的位置
             let w = geo.size.width
             let h = geo.size.height
-            // 槽位等分：球心 = 槽位水平中心；纵向 = tab bar 半高（无文字，整颗球在槽位内居中）
-            let cx = w * (CGFloat(slotIndex) + 0.5) / CGFloat(slotCount)
-            let cy = h - centerFromBottom + verticalNudge
+            // 回退路径：球心 = 安全区 + tab bar 半高（换算到本叠加层局部坐标）
+            // v3.6.3 修：原实现 cy = h - centerFromBottom 忽略了「叠加层被 tab bar 吃掉底部安全区」，
+            //            等于把安全区算了两遍 → 球比图标高约 34pt（装机截图证实球悬浮在 tab bar 上方）
+            let fallbackGlobalY = DockOrbOverlay.keyWindowHeight - DockOrbOverlay.ballCenterFromBottom
+            let fallback = CGPoint(x: w * (CGFloat(slotIndex) + 0.5) / CGFloat(slotCount),
+                                   y: fallbackGlobalY - g.minY)
+            let target: CGPoint
+            if let c = liveCenter {
+                target = CGPoint(x: c.x - g.minX, y: c.y - g.minY + verticalNudge)
+            } else {
+                target = CGPoint(x: fallback.x, y: fallback.y + verticalNudge)
+            }
             // 空闲呼吸 15fps / 思考旋转 30fps —— dock 常驻视图按状态降帧
             SiriBallView(thinking: thinking, size: ballSize, fps: thinking ? 30 : 15)
                 .frame(width: ballSize, height: ballSize)
-                .position(x: cx, y: cy)
+                .position(x: target.x, y: target.y)
+        }
+        .task { await refreshLiveCenter() }
+        .onReceive(NotificationCenter.default.publisher(for: UIDevice.orientationDidChangeNotification)) { _ in
+            Task { await refreshLiveCenter() }
         }
     }
 
-    /// 球心距屏幕底部距离（底部安全区 + tab bar 半高）——烟花原点复用同一值
+    /// 依次重试读取真实槽位（tab bar 首帧尚未布局完时读不到）；拿到即停
     @MainActor
-    static var ballCenterFromBottom: CGFloat {
-        keyWindowSafeBottom + dockBarHeight / 2
+    private func refreshLiveCenter() async {
+        for delay in [0.15, 0.6, 1.6] {
+            try? await Task.sleep(for: .seconds(delay))
+            if let c = DockOrbOverlay.slotCenterGlobal(index: slotIndex, count: slotCount) {
+                liveCenter = c
+                return
+            }
+        }
     }
 
-    /// 读 key window 底部安全区（不依赖叠加层自身的 safeAreaInsets——叠加层会被 tab bar 吃掉安全区）。
-    /// 优先取前台活跃 UIWindowScene 的 key window（多 scene / 首帧窗口未就位时仍能拿到有效值）
+    /// 系统 tab bar 第 index 个按钮的中心（window 坐标）。读不到 / 数量对不上 → nil（调用方回退）
     @MainActor
-    static var keyWindowSafeBottom: CGFloat {
+    static func slotCenterGlobal(index: Int, count: Int) -> CGPoint? {
+        guard let window = keyWindow, let tabBar = findTabBar(in: window) else { return nil }
+        let buttons = tabBar.subviews
+            .filter { String(describing: type(of: $0)).contains("Button") }   // UITabBarButton（iOS 26 玻璃 tab bar 仍为此类）
+            .sorted { $0.frame.minX < $1.frame.minX }
+        guard buttons.count == count, index >= 0, index < buttons.count else { return nil }
+        let b = buttons[index]
+        let r = b.convert(b.bounds, to: nil)      // to: nil = window 坐标
+        guard r.width > 1, r.height > 1 else { return nil }
+        return CGPoint(x: r.midX, y: r.midY)
+    }
+
+    @MainActor
+    private static func findTabBar(in view: UIView) -> UITabBar? {
+        if let t = view as? UITabBar { return t }
+        for sub in view.subviews {
+            if let f = findTabBar(in: sub) { return f }
+        }
+        return nil
+    }
+
+    @MainActor
+    static var keyWindow: UIWindow? {
         let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
         let scene = scenes.first(where: { $0.activationState == .foregroundActive }) ?? scenes.first
-        let window = scene?.windows.first(where: { $0.isKeyWindow }) ?? scene?.windows.first
-        return window?.safeAreaInsets.bottom ?? 0
+        return scene?.windows.first(where: { $0.isKeyWindow }) ?? scene?.windows.first
+    }
+
+    /// window 高度（= 屏幕高度，坐标换算用）
+    @MainActor
+    static var keyWindowHeight: CGFloat {
+        keyWindow?.bounds.height ?? UIScreen.main.bounds.height
+    }
+
+    /// 球心距屏幕底部距离 —— 优先真实布局，回退 安全区 + tab bar 半高。烟花原点复用同一值
+    @MainActor
+    static var ballCenterFromBottom: CGFloat {
+        if let window = keyWindow, let c = slotCenterGlobal(index: 2, count: 5), window.bounds.height > 0 {
+            return window.bounds.height - c.y
+        }
+        return keyWindowSafeBottom + dockBarHeight / 2
+    }
+
+    /// 读 key window 底部安全区（不依赖叠加层自身的 safeAreaInsets——叠加层会被 tab bar 吃掉安全区）
+    @MainActor
+    static var keyWindowSafeBottom: CGFloat {
+        keyWindow?.safeAreaInsets.bottom ?? 0
     }
 }
