@@ -74,9 +74,15 @@ final class QingliaoAppDelegate: NSObject, UIApplicationDelegate,
     }
 
     // v2.0.63：用 completionHandler 版（async 版在 Swift 6 下 non-Sendable 参数报错）
-    func userNotificationCenter(_ center: UNUserNotificationCenter,
-                                didReceive response: UNNotificationResponse,
-                                withCompletionHandler completionHandler: @escaping () -> Void) {
+    // v3.9.4 加固：本类因 `UIApplicationDelegate`（SDK 里是 @MainActor 协议）被推断为 MainActor 隔离，
+    // 而 `UNUserNotificationCenterDelegate` **不是** @MainActor（Apple 文档声明仅 NSObjectProtocol，
+    // 对回调线程无任何承诺）⇒ 上面的 @preconcurrency 只是把隔离检查**推迟到运行时**：
+    // 一旦系统在后台线程回调「点通知」，进方法体即触发隔离断言 = SIGTRAP（与 v3.9.3 语音那次同源）。
+    // 方法体只读写 UserDefaults（线程安全、非隔离）并转调 completionHandler，本就不需要主 actor
+    // ⇒ 标 nonisolated 即消除该断言，行为零变化（当前线上恰好都在主线程，故一直没暴露）。
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
+                                            didReceive response: UNNotificationResponse,
+                                            withCompletionHandler completionHandler: @escaping () -> Void) {
         if let sid = response.notification.request.content.userInfo["qingliao_session"] as? String {
             UserDefaults.standard.set(sid, forKey: "qingliao_open_session")
         }
