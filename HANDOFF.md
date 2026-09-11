@@ -1,7 +1,7 @@
 # 轻聊 App 项目交接文档
 
 > 最后更新：2026-09-11
-> 最新版本：v3.6.4 (441)
+> 最新版本：v3.6.5 (442)
 > 上一版：**v3.5.2/436（2026-09-11 已发版，tag `v3.5.2`，CI run#460 success）复读根治 + 「AI 正在输入」不再丢失**：①**复读根治（双端）**：后端 `/api/stream/recover` 内存分支按 `createdAt` 取最新（原按 dict 插入序取到**最旧**任务，2026-09-10 实测复现：20 分钟前的旧答案被当本轮回复落库）、磁盘兜底按 `createdAt`/mtime 取最新；App 侧 `StreamClient.tryRecover` 收紧采纳闸门——**只采纳「本机这条任务」或「另一条仍在途的任务」**（在途任务的内容必属本轮），异任务且已完成一律不采纳（404 路径也不例外，改为报错收尾让用户重发）；候选被忽略时**归还**那次 recover 机会（原实现把忽略当已接管消费掉，弱网白丢续流机会）；换任务时 content/offset **整体重置**（不再新旧混拼/半截回复）。②**「AI 正在输入」不再静默消失**：探针 `probeRemoteBusy` 改为**服务器是唯一真相**——不再以本机持久化标记为前提，无标记也主动问服务器（无标记时 12s 降频省电），服务器说在途而本机没在收就**直接接回**（新 `adoptRemote`：整体重置内容 + 重落标记）；探针失败收起阈值 3→5 次（弱网抖动不再瞬间熄灭）。根因：本机标记在弱网 15 连败收尾/`finish()` 时被清 → 探针前提不成立 → 连问都不问服务器 → 前台彻底无提示、答案也回不来。③**跨会话串扰收口**：`restoreIfNeeded` 校验收持久化的 sessionId 属当前会话（防别的会话旧内容落进当前会话）；`sendFile`/`regenerate` 落库回调补「已切会话就丢弃」守卫（与 `startStream` 一致）。IPA 已校验 **3.5.2/436**，md5 `12a38af27499aec699641df638a6cf90`，已转存 NAS `轻聊app/qingliao-3.5.2-unsigned.ipa`
 > 上一版：**v3.5.1/435（2026-09-10 已发版，tag `v3.5.1`，CI run 34495464274 success）「AI 正在输入」体验 + 空回复不再静默 + 长任务不再被截断**：①**聊天页 header 新增「AI 正在输入…」**（`PageHeader` 加 `busy` 参数 + 新 `BusyDots` 三点呼吸，只用 opacity 动画守 v3.2.3 渲染红线；`ChatView` 加 `remoteBusy` + 6s 探针走 `GET /api/stream/recover` 做服务器侧兜底=App 杀后台重开/切页回来仍显示；探针带会话守卫（标记属别的会话不显示也不误用本会话查询）、网络连续失败 3 次收起（防幽灵）、`aiBusy` 按会话收窄（A 会话在跑不污染 B 的 header））②**空回复不再静默**（本地流 success 但内容为空 → 发送/自动重试/重新生成/杀后台恢复/发文件 5 条路径落 27 字提示气泡「⚠️ 本轮空回复：点上方「重新生成」（长任务易被截断）」，`⚠️` 前缀命中 `isErrorPlaceholder` → 气泡自带一键「重新生成」；⚠️ 刻意**不 markFailed**（`failed` 全仓库无复位点，会让已送达消息永久挂红叹号、点击还删消息重发），文案必须 **≤30 字**（`upsertAssistant` 对 >30 字做全历史精确查重，超长会在第二次空回复时被静默吞掉））③**Hermes `agent.max_turns` 40 → 120**（NAS root 改 `/opt/data/config.yaml`，网关每轮热读无需重启）。**根因**：长任务被 40 步截断后 Hermes 流式接口未回吐最终文本 → 后端收到空内容落库 done → App 侧流结束 `isStreaming=false` → 停止按钮消失/灵动岛发光停止/用户看不到任何回复。IPA 已校验 **3.5.1/435**，md5 `8f36513d50d3bc77dffa49445e5af2c1`，已转存 NAS `轻聊app/qingliao-3.5.1-unsigned.ipa`
 > 上一版：**v3.5.0/434（2026-09-10 已发版，tag `v3.5.0`，CI run 34492680289 success）四项能力**：Agent 结果卡片化（```ql-card 围栏协议 + 卡片渲染，零回归/流式安全）+ 看板「生活数据」卡片区（股票行情 + RSS/博客更新）+ 崩溃/卡顿自上报 + App 内诊断页 + 设置新增「阶跃 StepAudio」TTS（stepaudio-2.5-tts + 4 预置音色）+ 朗读无声根治（系统语音也显式激活 `.playback` 会话）+ tab bar 改常驻（`.never`）+ 预检脚本依赖源文件恢复；IPA 已校验 3.5.0/434，md5 `32f272388907a7e9253a087516f7e5ae`，已转存 NAS `轻聊app/qingliao-3.5.0-unsigned.ipa`
@@ -75,6 +75,28 @@
 ---
 
 ## 二、版本历史
+
+### v3.6.5（模型思考胶囊 + dock 球几何居中/加大，2026-09-11 已发版，tag `v3.6.5`，CI run#469 success）
+| 改动 | 文件 | 说明 |
+|---|---|---|
+| **模型思考胶囊（新功能）** | ChatView / ReasoningLevel.swift（新）/ AuthStore | 聊天页 header「任务中心」左侧新增档位胶囊（**不思考 / 低 / 中 / 高**），点开选择、当前档位带 ✓；选择存 UserDefaults（`qingliao_reasoning_level`，默认 low）并随 `streamStart` 以 `reasoning` 字段下发。后端译成 Hermes **按次** 思考配置 `model_options.reasoning`，只作用于轻聊请求、不动 Hermes 全局。**仅本地模式显示**（云端由服务商决定思考策略，且云端侧按约定暂不改动） |
+| dock 球几何居中 | ChatEffects | 球心 y 改**几何定位**：屏高 − 底部安全区 − tabBar高/2 + 6.3pt（= 799.8pt，与截图实测内容中心一致）。不再取 `UITabBar`/`UITabBarButton` 的 bounds 中心——按钮 bounds 是否撑满 tab bar 无法本地证实，若撑满则 `br.midY == tr.midY` 改基准等于没改，且两条路径差 6.3pt 会跳变 |
+| 球尺寸 | ChatEffects | 50 → **52**（可见球体 ≈41pt）|
+| 自查加固（review 采纳）| ChatView / ChatEffects | 胶囊抽独立属性降 type-check 压力；触摸区 ~46×24pt；「关闭」改名「不思考」（避与弹窗「取消」混淆）；`estimateBodyBytes` 补 reasoning 字段开销（蜂窝分段判定防线）|
+| 版本号 | project.yml | 3.6.4(441) → 3.6.5(442) |
+
+**后端（已单独上线，无需等 App 包）**
+- 思考档位链路：`/api/stream/start` 读 `reasoning`（none/low/medium/high）存 task.state → 两处请求体构造 `_reasoning_options(st.get("reasoning"))`。容器内端到端验证 **PASS**：`none → reasoning.enabled=false`、`low/medium/high → effort 透传`、未传 → 默认 low。
+
+**⚠️ CI #468 失败实录（首发），两处都是工具层自查漏项：**
+1. `ChatEffects.swift:318: error: declaration can not have multiple global actor attributes ('MainActor' and 'MainActor')` —— 用脚本删除 `ballCenterFromBottom` 时**只删了函数体**，其文档注释与 `@MainActor` 残留，与新邻居的 `@MainActor` 相邻。
+2. `DockTabView.swift:116: error: type 'DockOrbOverlay' has no member 'ballCenterFromBottom'` —— 删**公有成员**前只 grep 了 ChatEffects，漏了 DockTabView 的烟花原点调用。
+   处置：清残留注释；按几何口径恢复该属性（`dockBarHeight/2 − dockContentCenterDrop` = 18.2pt，与新球位同源）并在源码内加警示注释。
+   **规则沉淀：删除/改名任何成员前必须全仓 grep（`grep -rn <名字> qingliao/`）；脚本删函数要连带其紧邻的文档注释与修饰符一并删。**
+
+**IPA 校验**：**3.6.5/442**、MinOS 26.0，md5 `ac3dc89a844c7764fca001ff98640fe5`，已转存 NAS `轻聊app/qingliao-3.6.5-unsigned.ipa`。
+**发版通道**：github.com:443 仍不通（GnuTLS -110），继续走 **Git Data API**（远端 commit `4266444`）；期间 API 也出现过 SSL EOF 抖动 → 盯包脚本需带重试。
+**待装机确认**：①思考胶囊位置/交互（点开四档、✓ 标记、选择是否生效——选「不思考」后回复应明显更快）；②球是否在 dock 内上下居中（若仍偏差，用 `verticalNudge` 微调 1~2pt）；③胶囊与「任务中心/更多」两个图标在窄屏是否挤压标题。
 
 ### v3.6.4（dock 球上下居中+加大 / 诊断记录清除 / 首 token 提速，2026-09-11 已发版，tag `v3.6.4`，CI run#467 success）
 | 改动 | 文件 | 说明 |
