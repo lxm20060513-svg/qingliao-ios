@@ -33,6 +33,7 @@ struct QingliaoApp: App {
                     // 均为同步赋值类轻操作，会话加载是重 IO）；轻操作打包一组、重 IO 一组，组内并行，缩短启动耗时
                     NotificationHelper.requestAuth()
                     initImageCacheLimit()
+                    LiveSpeechTranscriber.cleanupLegacyRecordings()   // v3.9.3：清旧「录音上传」留下的 .m4a（新流程不落盘音频）
                     // v3.8.0：启动收敛——清掉上一进程遗留的实时活动（App 被杀/闪退后活动仍由系统保留数小时）
                     await LiveActivityManager.shared.convergeOnLaunch()
                     LocalToolRunner.authStore = auth

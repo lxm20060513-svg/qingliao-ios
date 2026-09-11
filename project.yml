@@ -33,11 +33,17 @@ targets:
         CFBundleDevelopmentRegion: zh_CN
         CFBundleLocalizations:
           - zh-Hans
-        CFBundleShortVersionString: "3.9.2"
-        CFBundleVersion: "447"
+        CFBundleShortVersionString: "3.9.3"
+        CFBundleVersion: "448"
         UILaunchScreen: {}
         # v3.8.0：实时活动（灵动岛/锁屏「AI 正在回复」）——挂件代码在 QingliaoWidget target
         NSSupportsLiveActivities: true
+        # v3.9.3：语音转文字改设备端识别（iOS 26 SpeechAnalyzer/SpeechTranscriber）
+        # ⚠️ 麦克风权限串是必须的——本仓此前一个权限串都没声明（连麦克风都没有），
+        #    而当年「侧载语音识别必闪退」的误判很可能就源于此
+        NSMicrophoneUsageDescription: 用于语音转文字（设备端识别，录音不会上传）
+        # 保险：Apple 文档对「SpeechAnalyzer 是否也校验这条」说法不一，一并声明（零成本）
+        NSSpeechRecognitionUsageDescription: 用于语音转文字（设备端识别，录音不会上传）
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft
@@ -89,8 +95,8 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.qingliao.app2
         INFOPLIST_KEY_CFBundleDisplayName: 轻聊
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-        MARKETING_VERSION: "3.9.2"
-        CURRENT_PROJECT_VERSION: "447"
+        MARKETING_VERSION: "3.9.3"
+        CURRENT_PROJECT_VERSION: "448"
         ENABLE_PREVIEWS: YES
         CODE_SIGNING_ALLOWED: "NO"
 
@@ -109,15 +115,15 @@ targets:
         CFBundleDisplayName: 轻聊
         CFBundlePackageType: XPC!
         # 扩展与宿主版本号必须一致（XcodeGen 对未声明的键默认写 1.0/1，会让 .appex 自报 1.0(1)）
-        CFBundleShortVersionString: "3.9.2"
-        CFBundleVersion: "447"
+        CFBundleShortVersionString: "3.9.3"
+        CFBundleVersion: "448"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.qingliao.app2.widget
-        MARKETING_VERSION: "3.9.2"
-        CURRENT_PROJECT_VERSION: "447"
+        MARKETING_VERSION: "3.9.3"
+        CURRENT_PROJECT_VERSION: "448"
         CODE_SIGNING_ALLOWED: "NO"
         CODE_SIGNING_REQUIRED: "NO"
         SKIP_INSTALL: YES

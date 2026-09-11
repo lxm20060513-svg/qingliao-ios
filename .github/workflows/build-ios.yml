@@ -91,6 +91,12 @@ jobs:
               print('   多为 Xcode 26 未安装 Metal Toolchain：xcodebuild -downloadComponent MetalToolchain')
               sys.exit(1)
           print('✅ default.metallib 就位（AI 头像着色器已编入）')
+          # v3.9.3：语音转文字改设备端识别，权限串必须在包里——缺了会在首次使用时崩（缺权限串访问麦克风）
+          for key in ('NSMicrophoneUsageDescription', 'NSSpeechRecognitionUsageDescription'):
+              if not app_plist.get(key):
+                  print('❌ 主 App Info.plist 缺 %s —— 语音转文字首次使用会崩' % key)
+                  sys.exit(1)
+          print('✅ 语音权限串就位（麦克风 + 语音识别）')
           print('✅ 挂件 .appex 就位且配置正确（NSExtensionPointIdentifier=%s）' % ext)
           PYEOF
 

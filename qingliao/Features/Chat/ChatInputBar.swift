@@ -24,8 +24,10 @@ struct ChatInputBar: View {
     // v2.0.106：长按输入框触发语音转文字（效果与长按发送键一致，不弹键盘）
     // v2.0.109b：onChanged 记录按下瞬间键盘可见状态（down 时键盘未弹/已弹，比时间戳推断可靠）
     var onLongPressInput: (Bool) -> Void = { _ in }
-    // v3.0.4：语音功能启用开关——云端模式无后端 ASR，关闭全部语音入口（长按/按钮）
+    // 语音功能启用开关（v3.9.3：设备端识别不依赖后端，本地/云端恒为 true；参数保留以便将来按需关闭）
     var voiceEnabled: Bool = true
+    /// v3.9.3：录音中的实时文本（设备端识别边说边出字）——录音态输入栏直接显示它
+    var recordingText: String = ""
     @Environment(KeyboardObserver.self) private var kbEnv
     // v3.4.28：横屏限宽
     @Environment(\.horizontalSizeClass) private var hSizeInput
@@ -94,16 +96,19 @@ struct ChatInputBar: View {
             .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
 
             if isRecording {
-                // v3.2.4：录音中 UI 回归最原始静态样式（v3.0.85 前基线）——红点 + 松开上屏，
-                // 无 1Hz 红点闪烁 / 无 0.1s TimelineView 计时器（v3.0.85 加的"录音计时器"）。
-                // 触发语音时输入栏零动态视图，杜绝任何每帧重绘/动画叠加。
-                HStack(spacing: 5) {
+                // v3.9.3：录音态显示**实时识别文本**（设备端边说边出字，本功能的核心观感）。
+                // 仍是零每帧动画（无红点闪烁/无计时器）——文本只在识别结果到达时变化，不是逐帧重绘。
+                HStack(spacing: 6) {
                     Circle().fill(Color.red).frame(width: 7, height: 7)
-                    Text("松开上屏")
-                        .font(.system(size: Typography.subhead, weight: .medium))
-                        .foregroundStyle(Color.red)
+                    Text(recordingText.isEmpty ? "正在聆听…" : recordingText)
+                        .font(.system(size: Typography.body))
+                        .foregroundStyle(recordingText.isEmpty ? Color.red : Color.primary)
+                        .lineLimit(1)
+                        .truncationMode(.head)   // 新词在后面：超长从头部截断，保证看得见刚说的
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .padding(.vertical, 7)
+                .padding(.horizontal, 12)
                 .frame(maxWidth: .infinity)
                 .background(Color.red.opacity(0.08), in: Capsule())
             } else {
@@ -121,7 +126,7 @@ struct ChatInputBar: View {
                     // v2.0.106b：onLongPressGesture 被 UITextField 内置长按(放大镜/选择)拦截不触发
                     //           → 改 simultaneousGesture 与系统手势共存触发
                     // v2.0.109b：onChanged（down 瞬间）记录键盘可见状态——键盘开=true 保持，关=false 收回
-                    // v3.0.4 fix：云端无语音 → 输入框长按不触发语音转文字（保留系统默认长按）
+                    // v3.9.3：语音恒可用（设备端）——voiceEnabled 现恒为 true，保留判断以便按需关闭
                     //           （用 .simultaneousGesture 里 if/else 各自挂同类型 LongPressGesture，规避泛型不一致）
                     .simultaneousGesture(
                         LongPressGesture(minimumDuration: voiceEnabled ? 0.4 : 3600)

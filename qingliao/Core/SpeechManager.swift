@@ -3,7 +3,10 @@ import CryptoKit   // v3.4.x：TTS 缓存 key 用 SHA256 摘要（避免原文�
 import Foundation
 
 // MARK: - v2.0.81 AI 回复朗读 SpeechManager（全局单例，多消息共用；朗读中再点停止）
-// v2.0.96c：语音输入已改服务器 ASR（VoiceRecorder 录音上传），SFSpeechRecognizer 类移除（SideStore 闪退）。
+// v2.0.96c：语音输入曾改服务器 ASR（VoiceRecorder 录音上传），SFSpeechRecognizer 类移除。
+// v3.9.3 纠正：当年「SideStore 闪退 = 侧载无语音识别 entitlement」是**误判**——iOS 上 Speech 框架
+// 不需要任何 entitlement，真正缺的是权限串（本仓 Info.plist 当时一个都没声明）+ 可能强解包了 nil 识别器。
+// 现语音输入已改回设备端（Core/LiveSpeechTranscriber.swift，iOS 26 SpeechAnalyzer），不再走服务器 ASR。
 // v3.4.x code review fix（低）：文件名与内容对齐——原文件名为 SpeechRecognizer.swift，但内容实为
 // 朗读/TTS 管理器 SpeechManager（AVSpeechSynthesizer + 云端神经 TTS），语音识别代码早已移除，
 // 检索"语音识别"会误入此文件；已 git mv 为 SpeechManager.swift（类型名 SpeechManager 全仓引用不受影响）。

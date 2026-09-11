@@ -210,12 +210,15 @@ struct ChatView: View {
     @State var photoItem: PhotosPickerItem?
     @State var pendingImage: UIImage?
     @State var pendingImageData: String?
-    // v2.0.96：语音转文字（长按发送按钮；v2.0.96c 改服务器 ASR——录音上传转写，侧载全兼容）
-    @StateObject var voiceRecorder = VoiceRecorder()
+    // v3.9.3：语音转文字改**设备端实时转写**（SpeechAnalyzer/SpeechTranscriber）——
+    // 边说边出字、音频不上传、本地/云端双模式都能用；后端 ASR 与 VoiceRecorder 整条链路已移除
+    @StateObject var liveSpeech = LiveSpeechTranscriber()
     @State var voiceMode = false
-    @State var transcribing = false   // v2.0.100：语音转文字转换中（动画）
-    @State var transcribeToken = 0   // v2.0.101：转写代次（停止/新转写递增，旧 Task 结果作废）
+    @State var transcribing = false   // v2.0.100：转写动画（v3.9.3 语义扩为「准备模型 / 定稿中」）
     @State var voiceAuthFailed = false
+    @State var voiceError = ""        // v3.9.3：非权限类的启动/识别失败原因
+    @State var voiceStartToken = 0    // v3.9.3：语音启动代次——首次可能要下载模型（数秒~数十秒），
+                                      // 期间用户若已取消，start() 返回后必须作废，否则会卡在语音模式
     @State var sendingLock = false   // v2.0.102：发送锁（防双击双流竞态）
     @State var autoRetryCount = 0    // v3.4.x：消息失败自动重试计数（网络类错误最多自动重试 2 次，防死循环）
     @State private var lastSentSignature: (sessionId: String, text: String, image: String?, ts: TimeInterval)?  // 同内容 60s 幂等（v3.4.27 fix：签名含图片指纹——纯图 text 恒空，无图指纹会把 60s 内第二张纯图误判重复丢弃）
@@ -469,15 +472,17 @@ struct ChatView: View {
                             showPhotoPicker = true
                         }
                     },
-                     isRecording: voiceRecorder.isRecording,
+                     isRecording: liveSpeech.isRunning,
                     // v2.0.96：语音转文字（长按发送按钮）
                     voiceMode: voiceMode,
                     onVoiceModeToggle: { toggleVoiceMode(keyboardWasUp: kb.isVisible) },
-                    transcribing: transcribing,
-                    onCancelTranscribe: { stopTranscribe() },
+                    transcribing: transcribing || liveSpeech.isPreparing,
+                    onCancelTranscribe: { cancelTranscribe() },
                     onLongPressInput: { keyboardWasUp in toggleVoiceMode(keyboardWasUp: keyboardWasUp) },
-                    // v3.0.4：云端模式无后端 ASR → 关闭全部语音入口
-                    voiceEnabled: !CloudConfig.shared.isCloudMode,
+                    // v3.9.3：设备端识别，不依赖后端 —— 云端模式同样开放语音入口（v3.0.4 的屏蔽已撤）
+                    voiceEnabled: true,
+                    // v3.9.3：录音中的实时文本（声明序上排在 voiceEnabled 之后，实参必须同序——本仓踩过参数序坑）
+                    recordingText: voiceMode ? liveSpeech.liveText : "",
                     // v3.4.25：上下文使用率传入——超 80% 发送键变橙轻提醒
                     contextUsage: chat.contextUsage(maxTokens: 4000))
                     // v2.0.129：球态输入框 —— 绑定会话 id，切会话重建复位（展开态在切会话后回球态）
@@ -619,7 +624,7 @@ struct ChatView: View {
             messageList
                 .overlay {
                     // v3.0.79：点按空白处停止录音（exitVoiceMode 注释原本就写"按钮/空白点击共用"，此处补上空白点击）
-                    if voiceMode && voiceRecorder.isRecording {
+                    if voiceMode && liveSpeech.isRunning {
                         Color.clear
                             .contentShape(Rectangle())
                             .onTapGesture { exitVoiceMode() }
@@ -648,17 +653,31 @@ struct ChatView: View {
             .padding(.bottom, 10)   // v3.0.67：输入框与 dock / 键盘均留 10pt 呼吸——收起贴 dock、弹键盘也留隙（Round-1「贴键盘 0」已被用户改主意为也要留隙）
         }
         .animation(.easeOut(duration: kb.animationDuration), value: kb.height)
-        // v2.0.96：语音授权/转写失败提示（服务器 ASR：麦克风权限或转写无结果）
+        // v2.0.96：语音授权/转写失败提示（v3.9.3：设备端识别——麦克风权限 / 机型不支持 / 识别中断）
         .alert("语音转文字不可用", isPresented: $voiceAuthFailed) {
+            Button("去设置") {
+                if let url = URL(string: UIApplication.openSettingsURLString) {
+                    UIApplication.shared.open(url)
+                }
+            }
             Button("好的", role: .cancel) {}
         } message: {
-            Text("请检查麦克风权限（设置 → 轻聊 → 麦克风），或稍后重试。")
+            Text("需要麦克风权限才能语音转文字（设备端识别，录音不会上传）。\n请在「设置 → 轻聊 → 麦克风」里允许。")
+        }
+        // v3.9.3：非权限类的失败（语音模型下载失败 / 系统未给可用格式 / 识别中断）
+        .alert("语音识别启动失败", isPresented: Binding(
+            get: { !voiceError.isEmpty },
+            set: { if !$0 { voiceError = "" } }
+        )) {
+            Button("好的", role: .cancel) { voiceError = "" }
+        } message: {
+            Text("\(voiceError)\n[诊断] \(voiceDiag)")
         }
         // v2.0.102：录音太短提示
-        .alert("录音太短", isPresented: $voiceTooShort) {
+        .alert("没有识别到内容", isPresented: $voiceTooShort) {
             Button("好的", role: .cancel) {}
         } message: {
-            Text("说话时间太短，请按住说话至少 1 秒再松手。\n[诊断 v3.0.78] \(voiceDiag)")
+            Text("没有识别到内容，请靠近麦克风、按住说完一整句再松手。\n[诊断] \(voiceDiag)")
         }
         // v2.0.102：AI 回答中发文件提示
         .alert("AI 回答中", isPresented: $fileSendBlocked) {

@@ -51,7 +51,7 @@
 | 网络层 | 注入式 HttpClient 协议，测试可 mock |
 | 流式输出 | SSEStreamDecoder（SSE 逐 token 推送） |
 | 数据层 | @Observable ViewModel + FileManager JSON 持久化 |
-| 语音 | AVAudioRecorder 本地录音 + 后端 ASR 转写（输入栏长按触发） |
+| 语音 | **iOS 26 设备端实时转写**（SpeechAnalyzer/SpeechTranscriber，输入栏/发送键长按触发；v3.9.3 起不用后端 ASR） |
 | 云端工具 | CloudToolLoop + LocalToolRunner（日历/提醒/计时器/天气/剪贴板/计算器/通知） |
 
 ### 关键源文件
@@ -64,7 +64,7 @@
 | `ChatComponents.swift` | MessageBubble / ChatInputBar / SiriBallView / BubbleTheme / MarkdownTableView |
 | `ChatStore.swift` | 聊天数据持久化 + 导出功能（txt/Markdown/PDF） |
 | `ChatView.swift` | 聊天页面 + 消息列表 + 语音转文字 + 导出菜单 + 钉一钉回调 |
-| `VoiceRecorder.swift` | AVAudioRecorder 录音 + 分段管理 |
+| `LiveSpeechTranscriber.swift` | 设备端实时语音转写（SpeechAnalyzer + SpeechTranscriber；v3.9.3 起，替代 VoiceRecorder + 后端 ASR） |
 | `StreamClient.swift` | SSE 流式轮询 + restartPolling 后台恢复 |
 | `PinStore.swift` | 钉一钉数据层（CRUD + NAS JSON 持久化 + UserDefaults 兜底） |
 | `PinCard.swift` | 钉一钉卡片组件（长按复制/删除） |
