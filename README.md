@@ -93,6 +93,12 @@ QingliaoWidget/          挂件 Extension target（.appex）：灵动岛/锁屏�
 - **列表崩溃三连排查**：①从有到无同帧 → VStack+分帧两步走；②TabView 隐藏页清空 → 换掉 .scrollPosition（PreferenceKey 方案）；③数组就地 removeAll + ForEach diff → 后端驱动 + load() 整体替换
 - **灵动岛 / 实时活动（v3.8.0）**：只做本地驱动（侧载免费签名拿不到 Push 能力，不做 APNs/push-to-start）；`LiveActivityManager` **不持有 `Activity` 本体**——存进 `@MainActor` 存储再 `await update/end` 会报 Swift 6 `sending 'activity' risks causing data races`，改为只存 Sendable 状态、每次从 `Activity.activities` 现取（且该列表最终一致，收尾空列表时等 600ms 再收一次）；计时用 `Text(_:style:.timer)` 交系统走（App 被挂起后文案不再刷新，这是设计内降级）；挂件与主 App 共用 `qingliao/Core/LiveActivityAttributes.swift`（同编一份，改一处等于改两侧）；开关 key `qingliao_live_activity`（默认开）
 
+## 🆕 近期变更（v3.9.6，2026-09-12）
+
+- **语音录音「实时上屏」根治**：v3.9.5 只把红色胶囊去掉、让输入框常显，实测录音全程仍只有「输入消息…」占位、松手才一次性出字 → v3.9.6 录音态**直接渲染 `liveSpeech.liveText`**（`@Published` 驱动，必然刷新）在输入栏同一行位置，并加 `.onChange(of: liveSpeech.liveText)` 同步进 `inputText`（不再依赖「闭包捕获的 @State 写入 + TextField 外部刷新」这两条不可靠路径）
+- **诊断自证**：`LiveSpeechTranscriber` 统计 `volatileCount/finalCount/firstResultMs`，录音 3s 仍零结果才置 `liveStalled` → 输入栏仅在此时显示 `V0/F0` 小字（正常时零杂物，异常时一眼看出「实时结果没到」）
+- **后端 ASR 整体下线**：`asr_api.py` + `unified_router` 的 `/api/asr`、`/r/asr` + `stream_api._proxy_asr`/relay 白名单 + nginx 三份 conf 的 `location /api/asr` + compose/.env 的 `QL_ASR_*` + 引擎（whisper_venv 431M、whisper_models 142M、asr_server.py、scripts/asr）全部清除；App/PWA 已 grep 确认零引用
+
 ## 🆕 近期变更（v3.9.5，2026-09-12）
 
 - **语音录音态 UI 修正（用户实测反馈）**：录音中不再用红色「正在聆听…」胶囊**整块顶掉输入框**——那样既看不见输入框、也看不见转写全文（长句还被单行截断）→ 改为**输入框全程常显**，设备端识别结果（`liveSpeech.onTextChange`）实时落进框里，边说边看
