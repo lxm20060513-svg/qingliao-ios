@@ -1132,6 +1132,8 @@ struct ChatView: View {
                     ? .opacity.combined(with: .offset(y: 14))
                     : .opacity.combined(with: .scale(scale: 0.96)),
                 removal: .opacity))
+            // v3.9.0：长按「大爆炸」时从这条气泡原生 zoom 生长（与非闭包实参 zoomNS 配对）
+            .matchedTransitionSource(id: entry.msg.id, in: zoomNS)
     }
 
     /// v3.0.51：单条消息气泡构造——拆独立方法（防消息列表 ForEach 内 type-check 超时）
@@ -1142,7 +1144,7 @@ struct ChatView: View {
                       zoomNS: zoomNS) {   // v3.4.29：zoom 转场（非闭包实参须在 trailing closure 之前）
             regenerate(at: msg.id)
         } onBigBang: { text in
-            bigBangPayload = BigBangPayload(text: text)
+            bigBangPayload = BigBangPayload(text: text, sourceID: msg.id)   // v3.9.0：带上源 id 做 zoom
         } onQuote: {
             quotedMessage = msg
             inputFocus = true
@@ -1540,7 +1542,13 @@ struct ChatView: View {
             UserDefaults.standard.set(ok, forKey: "qingliao_server_online_cache")   // v3.4.29：写缓存供下次首屏
         }
         .fullScreenCover(item: $bigBangPayload) { payload in
-            BigBangView(text: payload.text)
+            // v3.9.0：zoom 转场——从被长按的气泡"生长"出来（与图片查看器同一机制）
+            if payload.sourceID.isEmpty {
+                BigBangView(text: payload.text)
+            } else {
+                BigBangView(text: payload.text)
+                    .navigationTransition(.zoom(sourceID: payload.sourceID, in: zoomNS))
+            }
         }
         // v3.7.0：回前台时重探一次（用户刚在地图里「拷贝」→ 切回轻聊即出现胶囊）
         .onChange(of: scenePhase) { _, phase in

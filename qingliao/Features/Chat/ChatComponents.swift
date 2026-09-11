@@ -10,6 +10,8 @@ import AVFoundation
 struct BigBangPayload: Identifiable {
     let id = UUID()
     let text: String
+    /// v3.9.0：zoom 转场源 id（被长按的气泡 / 资讯行 id）——空串表示不做转场，退化为普通全屏
+    var sourceID: String = ""
 }
 
 /// AI 消息内容分段（代码块 / markdown 段）

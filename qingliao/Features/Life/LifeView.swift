@@ -26,6 +26,7 @@ struct LifeView: View {
     @State private var feedsRefreshing = false
     // v3.7.0：资讯正文长按「大爆炸」全屏炸开载荷
     @State private var bigBangPayload: BigBangPayload?
+    @Namespace private var zoomNS   // v3.9.0：资讯行 → 大爆炸 的 zoom 转场
 
     var body: some View {
         VStack(spacing: 0) {
@@ -37,6 +38,7 @@ struct LifeView: View {
                     LifeCardsSection(data: life,
                                      loading: lifeLoading,
                                      error: lifeError,
+                                     zoomNS: zoomNS,   // v3.9.0：非闭包实参必须在闭包实参之前（实参序红线）
                                      onDeleteStock: { st in Task { await deleteStock(st) } },
                                      onAddStock: { showLifeSettings = true },
                                      onRefresh: { Task { await loadLife(fresh: true) } },
@@ -45,7 +47,9 @@ struct LifeView: View {
                                      articleStates: articles,
                                      onOpenArticle: { e in openArticle(e) },
                                      expandedArticleID: expandedEntryID,
-                                     onBigBang: { text in bigBangPayload = BigBangPayload(text: text) })
+                                     onBigBang: { text, sourceID in
+                                         bigBangPayload = BigBangPayload(text: text, sourceID: sourceID)
+                                     })
                 }
                 .padding(.horizontal, 14)
                 .padding(.bottom, 100)
@@ -61,7 +65,13 @@ struct LifeView: View {
         }
         // v3.7.0：资讯正文长按「大爆炸」→ 全屏炸开选词
         .fullScreenCover(item: $bigBangPayload) { payload in
-            BigBangView(text: payload.text)
+            // v3.9.0：zoom 转场——从被长按的资讯行"生长"出来
+            if payload.sourceID.isEmpty {
+                BigBangView(text: payload.text)
+            } else {
+                BigBangView(text: payload.text)
+                    .navigationTransition(.zoom(sourceID: payload.sourceID, in: zoomNS))
+            }
         }
         // v3.4.26 同款生命周期：选中即首刷 + 30s 轮询；离开 = task 取消即停
         .task(id: isActive) {

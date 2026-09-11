@@ -15,6 +15,8 @@ struct LifeCardsSection: View {
     let data: LifeCardsData
     let loading: Bool
     var error: String = ""          // 传输层错误（网络/未接线）
+    /// v3.9.0：zoom 转场命名空间（非闭包实参必须声明在闭包型属性**之前**，否则调用点实参序不合法）
+    var zoomNS: Namespace.ID
     // v3.5.x：股票卡片长按增删（删除 → POST /api/life/config 去掉该股票；添加 → 打开设置页）
     var onDeleteStock: (LifeStock) -> Void = { _ in }
     var onAddStock: () -> Void = {}
@@ -28,7 +30,7 @@ struct LifeCardsSection: View {
     /// articleStates 仅作内容缓存，不再决定是否渲染）
     var expandedArticleID: String? = nil
     // v3.7.0：资讯正文长按菜单（复制整段 / 大爆炸）——由 LifeView 提供大爆炸承载页
-    var onBigBang: (String) -> Void = { _ in }
+    var onBigBang: (String, String) -> Void = { _, _ in }   // v3.9.0：(正文, 源行 id) —— 源 id 供 zoom 用
 
     @AppStorage("dashboard_life_expanded") private var expanded = true
 
@@ -215,6 +217,7 @@ struct LifeCardsSection: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(PressStyle())
+        .matchedTransitionSource(id: e.id, in: zoomNS)   // v3.9.0：长按大爆炸时从这一行 zoom 展开
         // v3.7.0：长按弹出菜单（复制整段 / 大爆炸）——正文已加载则作用于正文，否则退化为标题
         .contextMenu {
             Button {
@@ -224,7 +227,7 @@ struct LifeCardsSection: View {
                 Label("复制整段", systemImage: "doc.on.doc")
             }
             Button {
-                onBigBang(articleMenuText(e))
+                onBigBang(articleMenuText(e), e.id)   // v3.9.0：带上资讯行 id
             } label: {
                 Label("大爆炸", systemImage: "burst.fill")
             }

@@ -42,6 +42,7 @@ struct DashboardView: View {
     @State private var scrollPos = ScrollPosition()
 
     @State private var activeSheet: DashboardSheet?
+    @Namespace private var sheetZoomNS   // v3.9.0：看板卡片 → 详情弹窗 的 zoom 转场
     // v2.0.72：Docker 容器数量（看板卡片状态）
     @State private var dockerContainerCount = 0
     @State private var sceneRunning = false   // v2.0.102：场景执行防抖
@@ -132,8 +133,10 @@ struct DashboardView: View {
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
                         DeviceCard(name: "开关", icon: "lightbulb.fill", value: haLights, sub: "\(lightsOn) 盏开启 · 点击控制", status: lightsOn > 0 ? .on : .off)
                             .onTapGesture { activeSheet = .lights }
+                            .matchedTransitionSource(id: DashboardSheet.lights.id, in: sheetZoomNS)   // v3.9.0：卡片→详情 zoom
                         DeviceCard(name: "空调", icon: "air.conditioner.horizontal", value: haClimate, sub: "\(climateOn) 台运行中 · 点击控制", status: climateOn > 0 ? .on : .off)
                             .onTapGesture { activeSheet = .climate }
+                            .matchedTransitionSource(id: DashboardSheet.climate.id, in: sheetZoomNS)   // v3.9.0：卡片→详情 zoom
                         DeviceCard(name: "门锁", icon: "lock.fill", value: haLockBattery, sub: "智能门锁", status: .on)
                         DeviceCard(name: "猫眼", icon: "video.fill", value: haDoorbellBattery, sub: haDoorbellOnline ? "在线" : "离线", status: haDoorbellOnline ? .on : .off)
                         DeviceCard(name: "安防", icon: "shield.fill", value: haAlarm, sub: haAlarmArmed ? "已布防" : "未布防", status: haAlarmArmed ? .on : .warn)
@@ -230,18 +233,22 @@ struct DashboardView: View {
                         MeterCard(name: "内存", icon: "memorychip.fill", value: nas.memUsedText, sub: "/ \(nas.memTotalText)", ratio: nas.memPct, color: .green)
                         ServiceCard(name: "轻聊后端", icon: "server.rack", running: nas.qingliaoAlive, detail: "Docker 内存 \(nas.qingliaoDockerMemText)")
                             .onTapGesture { activeSheet = .service }
+                            .matchedTransitionSource(id: DashboardSheet.service.id, in: sheetZoomNS)   // v3.9.0：卡片→详情 zoom
                         ServiceCard(name: "Hermes 网关", icon: "sparkles", running: nas.hermesAlive, detail: nas.hermesMemText)
                             .onTapGesture { activeSheet = .serviceHermes }
+                            .matchedTransitionSource(id: DashboardSheet.serviceHermes.id, in: sheetZoomNS)   // v3.9.0：卡片→详情 zoom
                         // v2.0.72：Docker 管理卡片（点击弹部署弹窗）
                         ServiceCard(name: "Docker", icon: "shippingbox.fill", running: dockerContainerCount > 0,
                                     detail: dockerContainerCount > 0 ? "\(dockerContainerCount) 个容器 · 点击管理" : "暂无容器 · 点击部署")
                             .onTapGesture { activeSheet = .docker }
+                            .matchedTransitionSource(id: DashboardSheet.docker.id, in: sheetZoomNS)   // v3.9.0：卡片→详情 zoom
                         ServiceCard(name: "运行时间", icon: "clock.fill", running: true, detail: nas.uptime)
                         // v2.0.86：硬件温度（CPU / NVMe）
                         ServiceCard(name: "温度", icon: "thermometer", running: true, detail: hwDetail)
                         // v3.4.13：磁盘汇总卡并入 NAS 面板网格（与温度卡等尺寸）；看板移除「系统盘」分区卡片栏目（分区已收进磁盘弹窗分组展示）
                         MeterCard(name: "磁盘", icon: "internaldrive.fill", value: nas.maxDiskPctText, sub: "\(nas.disks.filter { $0.isSystem }.count) 系统盘 · \(nas.disks.filter { !$0.isSystem }.count) 数据卷 · 点击查看", ratio: nas.maxDiskPct / 100.0, color: .orange)
                             .onTapGesture { activeSheet = .disks }
+                            .matchedTransitionSource(id: DashboardSheet.disks.id, in: sheetZoomNS)   // v3.9.0：卡片→详情 zoom
                     }
 
                     // v3.0.36：模型使用量（DeepSeek/StepFun 官方余额；无接口 provider 降级显示）
@@ -336,21 +343,27 @@ struct DashboardView: View {
                 case .lights:
                     HADeviceSheet(title: "客厅灯", domain: "light")
                         .presentationDetents([.medium, .large])
+                        .navigationTransition(.zoom(sourceID: DashboardSheet.lights.id, in: sheetZoomNS))   // v3.9.0
                 case .climate:
                     HADeviceSheet(title: "空调", domain: "climate")
                         .presentationDetents([.medium, .large])
+                        .navigationTransition(.zoom(sourceID: DashboardSheet.climate.id, in: sheetZoomNS))   // v3.9.0
                 case .service:
                     ServiceControlSheet(service: .qingliao)
                         .presentationDetents([.medium])
+                        .navigationTransition(.zoom(sourceID: DashboardSheet.service.id, in: sheetZoomNS))   // v3.9.0
                 case .serviceHermes:
                     ServiceControlSheet(service: .hermes)
                         .presentationDetents([.medium])
+                        .navigationTransition(.zoom(sourceID: DashboardSheet.serviceHermes.id, in: sheetZoomNS))   // v3.9.0
                 case .disks:
                     DisksSheet(disks: nas.disks)
                         .presentationDetents([.medium, .large])
+                        .navigationTransition(.zoom(sourceID: DashboardSheet.disks.id, in: sheetZoomNS))   // v3.9.0
                 case .docker:
                     DockerSheet()
                         .presentationDetents([.medium, .large])
+                        .navigationTransition(.zoom(sourceID: DashboardSheet.docker.id, in: sheetZoomNS))   // v3.9.0
                 }
             }
             // v2.0.96：场景执行结果提示
