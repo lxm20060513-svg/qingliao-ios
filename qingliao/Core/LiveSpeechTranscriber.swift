@@ -75,19 +75,39 @@ private final class AudioTapFeeder: @unchecked Sendable {
               let output = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: capacity) else {
             return nil
         }
-        var consumed = false
+        let feed = ConverterFeed(buffer)
         var error: NSError?
         let status = converter.convert(to: output, error: &error) { _, outStatus in
-            if consumed {
+            guard let next = feed.take() else {
                 outStatus.pointee = .noDataNow
                 return nil
             }
-            consumed = true
             outStatus.pointee = .haveData
-            return buffer
+            return next
         }
         guard status != .error, error == nil else { return nil }
         return output
+    }
+
+    /// `AVAudioConverter.convert` 的输入 block 是 `@Sendable`，但它由 AVAudioConverter **同步回调**
+    /// （就在调用线程上）。直接捕获可变 `var consumed` / 非 Sendable 的 `AVAudioPCMBuffer`，Swift 6
+    /// 并发检查会报「mutation of captured var in concurrently-executing code」等告警（CI 实证 4 条）。
+    /// 用一个 @unchecked Sendable 盒子把「一帧只投喂一次」的判断包起来，语义不变、告警消失。
+    private final class ConverterFeed: @unchecked Sendable {
+        private let buffer: AVAudioPCMBuffer
+        private var consumed = false
+        private let lock = NSLock()
+
+        init(_ buffer: AVAudioPCMBuffer) { self.buffer = buffer }
+
+        /// 首次调用给出这一帧，之后返回 nil（转换器会拿到 `.noDataNow`）
+        func take() -> AVAudioPCMBuffer? {
+            lock.lock()
+            defer { lock.unlock() }
+            if consumed { return nil }
+            consumed = true
+            return buffer
+        }
     }
 }
 
