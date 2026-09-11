@@ -48,7 +48,8 @@ struct DockerSheet: View {
                                      onAction: handleContainerAction,
                                      onDelete: { confirmTarget = $0 },
                                      onUpgrade: { confirmUpgrade = $0 },
-                                     updates: updates)
+                                     updates: updates,
+                                     busy: busy)
                     // ===== v2.0.86 镜像管理（v2.0.86i：拆子视图）=====
                     ImageSection(images: images,
                                  onRefresh: { await loadImages() },
@@ -355,6 +356,7 @@ private struct ContainerSection: View {
     var onDelete: (DockerContainer) -> Void
     var onUpgrade: (DockerContainer) -> Void   // v2.0.87 升级
     var updates: [String: Bool] = [:]   // v2.0.87p：容器名 → 有更新
+    var busy: Bool = false              // v3.9.1：拉取中（骨架屏判据——原写 if containers.isEmpty && busy 时本结构体内没有 busy，编译不过）
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {

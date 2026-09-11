@@ -164,7 +164,7 @@ struct SiriBallView: View {
                     .frame(width: 72 * k, height: 72 * k)
                     .overlay(Circle().strokeBorder(.white.opacity(0.22), lineWidth: max(0.8, 1.2 * k)))
                     .shadow(color: Color.indigo.opacity(0.45 * breathe), radius: 14 * k)
-                OrbCanvasView(mode: thinking ? .orbits : .ring, size: 60 * k, opts: orbOpts)
+                OrbCanvasView(mode: thinking ? .orbits : .ring, size: 60 * k, opts: orbOpts, fps: fps)   // v3.9.1：透传帧率
                     .allowsHitTesting(false)
             }
         }

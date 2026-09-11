@@ -197,7 +197,7 @@ struct ChatInputBar: View {
                     }
                 } else {
                     Image(systemName: voiceMode ? "waveform" : "arrow.up")
-                        .font(.system(size: voiceMode ? 15 : 14, weight: .bold))
+                        .font(.system(size: Typography.body, weight: .bold))   // v3.9.1：三元里的裸字号漏网（14/15 同档）
                         .foregroundStyle(.white)
                         .symbolEffect(.bounce, value: sendBounceTick)   // v3.4.29：发送图标弹动
                         .frame(width: 32, height: 32)

@@ -51,6 +51,7 @@ struct QingliaoApp: App {
                 .onChange(of: scenePhase) { _, phase in
                     if phase == .background {
                         stream.persistState(sessionId: chat.sessionId)
+                        InboxStore.shared.stopPolling()   // v3.9.1：进后台停收件箱轮询（此前 stopPolling 全仓无人调用，后台全靠系统挂起兜底）
                     }
                     // v2.0.87t：前台恢复自动重连（蜂窝 IPv6 会话后台过期 → 重建，免手动飞行模式）
                     // v3.0.81：串行恢复——先刷新网络会话，再恢复流式（原并发导致 restartPolling 用旧连接）

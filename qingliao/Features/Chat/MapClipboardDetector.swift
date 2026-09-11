@@ -41,7 +41,8 @@ enum MapClipboardDetector {
     ///   现在三道闸：① `hasStrings/hasURLs` 类型门控（主线程同步、零并发风险）
     ///   ② `detectedValues` 取**检测出的链接值**（detection API 不触发系统「允许粘贴」）
     ///   ③ 交给 `MapLocationParser` 判定"这是不是位置信息"——只认地图/带经纬度的链接
-    static func hasLocationLink() async -> Bool {
+    /// - Returns: `true` 是位置链接 / `false` 明确不是 / **`nil` 探测失败**（调用方应保持"未处理"，下次再探）
+    static func hasLocationLink() async -> Bool? {
         let pasteboard = UIPasteboard.general
         guard pasteboard.hasStrings || pasteboard.hasURLs else { return false }
         do {
@@ -49,7 +50,7 @@ enum MapClipboardDetector {
             guard let url = values.probableWebURL else { return false }
             return MapLocationParser.parse(url) != nil
         } catch {
-            return false
+            return nil   // v3.9.1：探测出错 ≠ "不是位置链接"，不能被记账固化
         }
     }
 

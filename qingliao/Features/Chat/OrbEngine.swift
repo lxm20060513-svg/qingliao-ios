@@ -202,10 +202,12 @@ struct OrbCanvasView: View {
     var opts: OrbOpts = OrbOpts()
     // v3.0.17：可传彩色粒子（按 dot 索引循环取色、保留深度 alpha；nil = 默认灰白按深浅色适配）
     var dotColors: [Color]? = nil
+    /// v3.9.1：帧率可调——原来写死 30fps，导致 dock 空闲传 fps:15 只省了外层光晕，最贵的 Canvas 层仍 30fps
+    var fps: Double = 30
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        let schedule: AnimationTimelineSchedule = .animation(minimumInterval: 1.0 / 30.0)
+        let schedule: AnimationTimelineSchedule = .animation(minimumInterval: 1.0 / fps)
         TimelineView(schedule) { context in
             let t = context.date.timeIntervalSinceReferenceDate
             let speed: CGFloat = mode == .orbits ? 1.885 : 3.24

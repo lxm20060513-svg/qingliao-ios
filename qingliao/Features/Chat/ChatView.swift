@@ -797,20 +797,24 @@ struct ChatView: View {
     ///             ② 已处理版本号跨启动保留，同一份内容不再每次进 App 都提示。
     private func checkMapClipboard() async {
         guard !showClipboardBanner else { return }
-        let handled = ClipboardPromptGate.isHandled(changeCount: UIPasteboard.general.changeCount,
+        // v3.9.1：先取本版号——探测是 await（有窗口期），期间用户换了剪贴板内容时不能把"新内容"记成已处理
+        let cc = UIPasteboard.general.changeCount
+        let handled = ClipboardPromptGate.isHandled(changeCount: cc,
                                                     lastHandledChange: handledClipChange,
                                                     lastHandledUptime: handledClipUptime,
                                                     currentUptime: ProcessInfo.processInfo.systemUptime)
         guard !handled else { return }   // 这份内容已经处理过（含上次启动处理的），别再打扰
-        let isLocation = await MapClipboardDetector.hasLocationLink()
-        markClipboardHandled()           // 认没认出来都记账：同一份内容不再重复探测/提示
+        // v3.9.1：nil = 探测失败（与"不是位置链接"区分开）——失败不记账，留给下次进前台再探
+        guard let isLocation = await MapClipboardDetector.hasLocationLink() else { return }
+        markClipboardHandled(cc)         // 认没认出来都记账：同一份内容不再重复探测/提示
         guard isLocation else { return }
         withAnimation(Motion.settle) { showClipboardBanner = true }   // 只提示；真正内容等点按再读
     }
 
     /// 记账：这份剪贴板内容已评估过（已发送 / 用户忽略 / 不是位置链接）
-    private func markClipboardHandled() {
-        handledClipChange = UIPasteboard.general.changeCount
+    /// - Parameter changeCount: 显式传入"当时探测的那一版"；省略则取当前值
+    private func markClipboardHandled(_ changeCount: Int? = nil) {
+        handledClipChange = changeCount ?? UIPasteboard.general.changeCount
         handledClipUptime = ProcessInfo.processInfo.systemUptime
     }
 
@@ -872,10 +876,12 @@ struct ChatView: View {
                 return
             }
         }
-        // 兜底只发链接：探测与读取之间内容可能被换掉（或读到纯文本），非 http(s) 链接一律不发，
+        // 兜底只发链接：探测与读取之间内容可能被换掉（或读到纯文本），非链接一律不发，
         // 免得"随便一段文字"被静默当成消息发给 AI（v3.8.1）
-        guard let url = URL(string: raw), let scheme = url.scheme?.lowercased(),
-              scheme == "http" || scheme == "https" else { return }
+        // v3.9.1：位置链接也算合法（geo: 不带 http(s)，原来的守卫会把地图拷贝的 geo 链接静默丢掉）
+        guard let url = URL(string: raw) else { return }
+        let scheme = url.scheme?.lowercased() ?? ""
+        guard MapLocationParser.parse(url) != nil || scheme == "http" || scheme == "https" else { return }
         sendCore(text: raw, imageData: nil)
     }
 
@@ -1133,7 +1139,7 @@ struct ChatView: View {
                     : .opacity.combined(with: .scale(scale: 0.96)),
                 removal: .opacity))
             // v3.9.0：长按「大爆炸」时从这条气泡原生 zoom 生长（与非闭包实参 zoomNS 配对）
-            .matchedTransitionSource(id: entry.msg.id, in: zoomNS)
+            .matchedTransitionSource(id: "bb-" + entry.msg.id, in: zoomNS)   // v3.9.1：独立 id 空间——气泡内图片用的是 msg.id，同 id 会让 zoom 取源不确定
     }
 
     /// v3.0.51：单条消息气泡构造——拆独立方法（防消息列表 ForEach 内 type-check 超时）
@@ -1144,7 +1150,7 @@ struct ChatView: View {
                       zoomNS: zoomNS) {   // v3.4.29：zoom 转场（非闭包实参须在 trailing closure 之前）
             regenerate(at: msg.id)
         } onBigBang: { text in
-            bigBangPayload = BigBangPayload(text: text, sourceID: msg.id)   // v3.9.0：带上源 id 做 zoom
+            bigBangPayload = BigBangPayload(text: text, sourceID: "bb-" + msg.id)   // v3.9.1：与上面的转场源 id 成对
         } onQuote: {
             quotedMessage = msg
             inputFocus = true
