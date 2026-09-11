@@ -17,7 +17,7 @@ import UIKit
 //   `detectPatterns` 的 completionHandler **不是 @Sendable 参数**（UIKit 在**后台队列**回调它），
 //   而写在 @MainActor 方法体里的闭包字面量**继承 MainActor 隔离** → 后台线程一进入该闭包就触发
 //   Swift 6 并发隔离断言（libswift_Concurrency → dispatch_assert_queue_not）→ SIGTRAP。
-//   **崩溃栈铁证（dSYM 符号化）**：崩溃帧 = `MapClipboardDetector.hasURL() 的 completion closure`，
+//   **崩溃栈铁证（dSYM 符号化）**：崩溃帧 = `MapClipboardDetector.hasURL() 的 completion closure`（该方法 v3.8.1 已改名 `hasLocationLink()`），
 //   且运行在 dispatch worker 线程（栈底 pthread_wqthread），上一层是 UIKitCore。
 //   因为 ChatView 一进 App 就调 checkMapClipboard()，所以表现为**冷启动必崩、根本进不去**。
 //
@@ -34,13 +34,20 @@ import UIKit
 @MainActor
 enum MapClipboardDetector {
 
-    /// 剪贴板里是否有 URL（不读内容、不弹「允许粘贴」）
-    /// - 先 `hasStrings` 门控（主线程同步、零并发风险），再走 async 桥接做精确探测
-    static func hasURL() async -> Bool {
-        guard UIPasteboard.general.hasStrings else { return false }
+    /// 剪贴板里是否有**位置/地图链接**（不读内容、不弹「允许粘贴」）
+    /// - v3.8.1 修复「剪贴板里放什么都提示」：原来只问 `detectedPatterns(for: [\.probableWebURL])` 就下结论，
+    ///   而 `.probableWebURL` 只是**宽松分类**（官方原文：lightweight classification，不是语义保证）——
+    ///   普通文本/任意链接都可能命中，于是"剪贴板有内容就提示"。
+    ///   现在三道闸：① `hasStrings/hasURLs` 类型门控（主线程同步、零并发风险）
+    ///   ② `detectedValues` 取**检测出的链接值**（detection API 不触发系统「允许粘贴」）
+    ///   ③ 交给 `MapLocationParser` 判定"这是不是位置信息"——只认地图/带经纬度的链接
+    static func hasLocationLink() async -> Bool {
+        let pasteboard = UIPasteboard.general
+        guard pasteboard.hasStrings || pasteboard.hasURLs else { return false }
         do {
-            let patterns = try await UIPasteboard.general.detectedPatterns(for: [\.probableWebURL])
-            return patterns.contains(\.probableWebURL)
+            let values = try await pasteboard.detectedValues(for: [\.probableWebURL])
+            guard let url = values.probableWebURL else { return false }
+            return MapLocationParser.parse(url) != nil
         } catch {
             return false
         }

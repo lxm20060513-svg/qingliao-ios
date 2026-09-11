@@ -157,8 +157,11 @@ struct ChatView: View {
     // v3.7.0：剪贴板地图链接兜底入口（地图分享面板里没有轻聊 → 「拷贝」后在聊天页一键发送）
     @State var showClipboardBanner = false
     // 已处理过的剪贴板版本号（UIPasteboard.changeCount）：同一份内容只提示一次，
-    // 用户「忽略」或「已发送」后不再复现；拷贝了新内容才会再提示
-    @State var clipboardChangeCount = -1
+    // 用户「忽略」或「已发送」后不再复现；拷贝了新内容才会再提示。
+    // v3.8.1：从 @State 改成 @AppStorage **跨启动保留**——原来每次冷启动都归零，
+    // 导致同一份剪贴板内容每次进 App 都重复提示（用户反馈）。uptime 一起存，用于作废重启前的记录。
+    @AppStorage("qingliao_clip_handled_change") var handledClipChange = -1
+    @AppStorage("qingliao_clip_handled_uptime") var handledClipUptime = 0.0
     @Environment(\.scenePhase) var scenePhase
 
     @State var inputText = ""
@@ -789,12 +792,26 @@ struct ChatView: View {
     }
 
     // MARK: - v3.7.0 剪贴板地图链接（地图分享兜底）
-    /// 探测剪贴板是否有 URL → 顶部胶囊提示（detectPatterns 不读内容，无隐私弹窗）
+    /// 探测剪贴板是否有**位置链接** → 顶部胶囊提示（detection API 不读内容、无系统粘贴弹窗）
+    /// v3.8.1 修复：① 只认「能被 MapLocationParser 认成位置」的链接，不再"有内容就提示"；
+    ///             ② 已处理版本号跨启动保留，同一份内容不再每次进 App 都提示。
     private func checkMapClipboard() async {
         guard !showClipboardBanner else { return }
-        guard UIPasteboard.general.changeCount != clipboardChangeCount else { return }   // 同一份剪贴板内容不重复打扰
-        guard await MapClipboardDetector.hasURL() else { return }
+        let handled = ClipboardPromptGate.isHandled(changeCount: UIPasteboard.general.changeCount,
+                                                    lastHandledChange: handledClipChange,
+                                                    lastHandledUptime: handledClipUptime,
+                                                    currentUptime: ProcessInfo.processInfo.systemUptime)
+        guard !handled else { return }   // 这份内容已经处理过（含上次启动处理的），别再打扰
+        let isLocation = await MapClipboardDetector.hasLocationLink()
+        markClipboardHandled()           // 认没认出来都记账：同一份内容不再重复探测/提示
+        guard isLocation else { return }
         withAnimation(Motion.settle) { showClipboardBanner = true }   // 只提示；真正内容等点按再读
+    }
+
+    /// 记账：这份剪贴板内容已评估过（已发送 / 用户忽略 / 不是位置链接）
+    private func markClipboardHandled() {
+        handledClipChange = UIPasteboard.general.changeCount
+        handledClipUptime = ProcessInfo.processInfo.systemUptime
     }
 
     /// 顶部胶囊：检测到剪贴板里有链接（多为地图分享的「拷贝」）
@@ -821,10 +838,8 @@ struct ChatView: View {
             .buttonStyle(PressStyle())
             .foregroundStyle(Color.accentColor)
             Button {
-                withAnimation(Motion.snap) {
-                    clipboardChangeCount = UIPasteboard.general.changeCount   // 记住这一版，勿再打扰
-                    showClipboardBanner = false
-                }
+                markClipboardHandled()   // 记住这一版（跨启动持久化），勿再打扰
+                withAnimation(Motion.snap) { showClipboardBanner = false }
             } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 11, weight: .semibold))
@@ -847,7 +862,7 @@ struct ChatView: View {
 
     /// 真正读取剪贴板（此刻才可能弹系统「允许粘贴」）→ 地图链接拼定位消息，其他链接原样发送
     private func sendClipboardLink() {
-        clipboardChangeCount = UIPasteboard.general.changeCount
+        markClipboardHandled()
         withAnimation(Motion.snap) { showClipboardBanner = false }
         guard let raw = MapClipboardDetector.readText() else { return }
         if let url = URL(string: raw), let loc = MapLocationParser.parse(url) {
@@ -857,6 +872,10 @@ struct ChatView: View {
                 return
             }
         }
+        // 兜底只发链接：探测与读取之间内容可能被换掉（或读到纯文本），非 http(s) 链接一律不发，
+        // 免得"随便一段文字"被静默当成消息发给 AI（v3.8.1）
+        guard let url = URL(string: raw), let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https" else { return }
         sendCore(text: raw, imageData: nil)
     }
 

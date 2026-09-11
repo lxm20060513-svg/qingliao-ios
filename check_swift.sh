@@ -43,4 +43,10 @@ else
     echo "❌ 挂件语法错误（如上）"
     exit 1
 fi
+echo "=== 7. 剪贴板提示去重真值表（v3.8.1）==="
+# 多文件编译时只有 main.swift 允许顶层代码 → 复制一份到临时目录做 main.swift
+rm -rf /tmp/ql_clip_main && mkdir -p /tmp/ql_clip_main
+cp scripts/test_clipboard_gate.swift /tmp/ql_clip_main/main.swift
+$SWIFT/swiftc -o /tmp/test_clip_gate /tmp/ql_clip_main/main.swift qingliao/Core/ClipboardPromptGate.swift 2>&1 | head -10
+/tmp/test_clip_gate || exit 1
 exit $?
