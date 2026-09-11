@@ -7,7 +7,7 @@ export LD_LIBRARY_PATH=/opt/data/swift-libs
 SWIFT=/opt/data/swift-toolchain/swift-6.0.3-RELEASE-ubuntu24.04/usr/bin
 
 echo "=== 1. 语法检查（全部 .swift） ==="
-$SWIFT/swiftc -parse qingliao/QingliaoApp.swift qingliao/Core/*.swift qingliao/Features/*/*.swift 2>&1 | grep -v "^$" | head -10
+$SWIFT/swiftc -parse qingliao/QingliaoApp.swift qingliao/Core/*.swift qingliao/Theme/*.swift qingliao/Features/*/*.swift 2>&1 | grep -v "^$" | head -10
 if [ ${PIPESTATUS[0]} -eq 0 ]; then
     echo "✅ 语法通过"
 else

@@ -88,7 +88,24 @@ struct DashboardCardStyle: ViewModifier {
     }
 }
 
+// MARK: - 滚动层次感（v3.9.0 批3）
+// 卡片进出视口时轻微缩放 + 淡出。**必须挂在 Lazy 容器内的元素上**（挂在外层 ScrollView 上无效）。
+// 数值收在这一处：原来只有会话列表手写 0.965/0.75，现在看板/生活卡片复用同一档。
+
+struct ScrollDepth: ViewModifier {
+    func body(content: Content) -> some View {
+        content.scrollTransition(.interactive, axis: .vertical) { view, phase in
+            view
+                .scaleEffect(phase.isIdentity ? 1 : 0.965)
+                .opacity(phase.isIdentity ? 1 : 0.75)
+        }
+    }
+}
+
 extension View {
+    /// 滚动层次感（卡片/列表行用；Lazy 容器内才生效）
+    func scrollDepth() -> some View { modifier(ScrollDepth()) }
+
     func glassCard(cornerRadius: CGFloat = 18) -> some View {
         modifier(GlassCard(cornerRadius: cornerRadius))
     }
@@ -127,7 +144,7 @@ struct PageHeader: View {
         VStack(alignment: .leading, spacing: 2) {
             HStack {
                 Text(title)
-                    .font(.system(size: 22, weight: .bold))
+                    .font(.system(size: Typography.titleXL, weight: .bold))
                 Spacer()
                 if let trailing { trailing }
             }
@@ -140,7 +157,7 @@ struct PageHeader: View {
                         Circle().fill(statusColor).frame(width: 6, height: 6)
                     }
                     Text(busy ? "AI 正在输入…" : subtitle)
-                        .font(.system(size: 11))
+                        .font(.system(size: Typography.caption))
                         .foregroundStyle(busy ? Color.accentColor : Color.secondary)
                 }
             }

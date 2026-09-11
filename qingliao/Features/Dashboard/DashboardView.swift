@@ -81,7 +81,7 @@ struct DashboardView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
                             Text("今日建议")
-                                .font(.system(size: 13, weight: .semibold))
+                                .font(.system(size: Typography.subhead, weight: .semibold))
                                 .foregroundStyle(.secondary)
                             Spacer()
                             if !smartSuggestion.isEmpty {
@@ -89,7 +89,7 @@ struct DashboardView: View {
                                     Task { await loadSmartSuggestion() }
                                 } label: {
                                     Label("重新生成", systemImage: "arrow.clockwise")
-                                        .font(.system(size: 10))
+                                        .font(.system(size: Typography.tiny))
                                         .padding(.horizontal, 10)
                                         .padding(.vertical, 4)
                                         .background(Color.accentColor.opacity(0.12), in: Capsule())
@@ -102,12 +102,12 @@ struct DashboardView: View {
                             HStack(spacing: 6) {
                                 ProgressView().controlSize(.small)
                                 Text("正在分析家庭状态…")
-                                    .font(.system(size: 12))
+                                    .font(.system(size: Typography.subhead))
                                     .foregroundStyle(.secondary)
                             }
                         } else if !smartSuggestion.isEmpty {
                             Text(smartSuggestion)
-                                .font(.system(size: 13))
+                                .font(.system(size: Typography.subhead))
                                 .lineSpacing(3)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         } else {
@@ -115,7 +115,7 @@ struct DashboardView: View {
                                 Task { await loadSmartSuggestion() }
                             } label: {
                                 Text("生成智能建议")
-                                    .font(.system(size: 12, weight: .medium))
+                                    .font(.system(size: Typography.subhead, weight: .medium))
                                     .padding(.horizontal, 14)
                                     .padding(.vertical, 6)
                                     .background(Color.accentColor.opacity(0.12), in: Capsule())
@@ -150,14 +150,14 @@ struct DashboardView: View {
                     if scenes.isEmpty {
                         HStack(spacing: 6) {
                             Image(systemName: "bolt.fill")
-                                .font(.system(size: 11))
+                                .font(.system(size: Typography.caption))
                                 .foregroundStyle(.tertiary)
                             Text("暂无场景")
-                                .font(.system(size: 12))
+                                .font(.system(size: Typography.subhead))
                                 .foregroundStyle(.tertiary)
                             Spacer()
                             Button("刷新") { Task { await refresh() } }
-                                .font(.system(size: 11, weight: .medium))
+                                .font(.system(size: Typography.caption, weight: .medium))
                                 .foregroundStyle(Color.accentColor)
                         }
                         .padding(.horizontal, 12)
@@ -188,14 +188,14 @@ struct DashboardView: View {
                     if automations.isEmpty {
                         HStack(spacing: 6) {
                             Image(systemName: "timer")
-                                .font(.system(size: 11))
+                                .font(.system(size: Typography.caption))
                                 .foregroundStyle(.tertiary)
                             Text("暂无自动化")
-                                .font(.system(size: 12))
+                                .font(.system(size: Typography.subhead))
                                 .foregroundStyle(.tertiary)
                             Spacer()
                             Button("刷新") { Task { await refresh() } }
-                                .font(.system(size: 11, weight: .medium))
+                                .font(.system(size: Typography.caption, weight: .medium))
                                 .foregroundStyle(Color.accentColor)
                         }
                         .padding(.horizontal, 12)
@@ -257,19 +257,19 @@ struct DashboardView: View {
                     sectionTitle("模型使用量")
                     if usageError.isEmpty && providerUsages.isEmpty {
                         Text("加载中…")
-                            .font(.system(size: 12))
+                            .font(.system(size: Typography.subhead))
                             .foregroundStyle(.secondary)
                             .padding(.vertical, 6)
                     } else if !usageError.isEmpty {
                         Text(usageError)
-                            .font(.system(size: 12))
+                            .font(.system(size: Typography.subhead))
                             .foregroundStyle(.secondary)
                             .padding(.vertical, 6)
                     } else {
                         let visible = providerUsages.filter { !hiddenUsageProviders.contains($0.id) }
                         if visible.isEmpty {
                             Text("已全部隐藏 · 点下方恢复")
-                                .font(.system(size: 12))
+                                .font(.system(size: Typography.subhead))
                                 .foregroundStyle(.tertiary)
                                 .padding(.vertical, 6)
                         } else {
@@ -309,7 +309,7 @@ struct DashboardView: View {
                     sectionTitle("钉一钉")
                     if pinStore.pins.isEmpty {
                         Text("长按聊天消息 → 钉一钉")
-                            .font(.system(size: 12))
+                            .font(.system(size: Typography.subhead))
                             .foregroundStyle(.tertiary)
                             .padding(.vertical, 8)
                     } else {
@@ -770,7 +770,7 @@ struct DashboardView: View {
 
     private func sectionTitle(_ s: String) -> some View {
         Text(s)
-            .font(.system(size: 15, weight: .bold))
+            .font(.system(size: Typography.body, weight: .bold))
             .padding(.top, 6)
     }
 
@@ -779,10 +779,10 @@ struct DashboardView: View {
     private func usageRestoreRow() -> some View {
         HStack(spacing: 6) {
             Image(systemName: "eye.slash")
-                .font(.system(size: 11))
+                .font(.system(size: Typography.caption))
                 .foregroundStyle(.tertiary)
             Text("已隐藏 \(hiddenUsageProviders.count) 个模型服务 · 点击恢复")
-                .font(.system(size: 12))
+                .font(.system(size: Typography.subhead))
                 .foregroundStyle(.tertiary)
             Spacer()
         }
@@ -851,13 +851,13 @@ struct ServiceControlSheet: View {
         VStack(spacing: 0) {
             HStack {
                 Text(service.title)
-                    .font(.system(size: 17, weight: .bold))
+                    .font(.system(size: Typography.title, weight: .bold))
                 Spacer()
                 Button {
                     dismiss()
                 } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 22))
+                        .font(.system(size: Typography.titleXL))
                         .foregroundStyle(.tertiary)
                 }
                 .buttonStyle(.plain)
@@ -872,16 +872,16 @@ struct ServiceControlSheet: View {
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
                         .fill(Color.blue.opacity(0.15))
                     Image(systemName: service.icon)
-                        .font(.system(size: 18, weight: .medium))
+                        .font(.system(size: Typography.headline, weight: .medium))
                         .foregroundStyle(Color.accentColor)
                 }
                 .frame(width: 42, height: 42)
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text(service.subtitle)
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(.system(size: Typography.body, weight: .semibold))
                     Text(info)
-                        .font(.system(size: 11))
+                        .font(.system(size: Typography.caption))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
@@ -891,7 +891,7 @@ struct ServiceControlSheet: View {
                         .fill(running == true ? Color.green : (running == false ? Color.red : Color.gray))
                         .frame(width: 7, height: 7)
                     Text(running == true ? "运行中" : (running == false ? "已停止" : "检测中"))
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(.system(size: Typography.tiny, weight: .semibold))
                         .foregroundStyle(running == true ? Color.green : (running == false ? Color.red : Color.secondary))
                 }
             }
@@ -918,22 +918,22 @@ struct ServiceControlSheet: View {
                             ProgressView().tint(.white).scaleEffect(0.7)
                         } else {
                             Image(systemName: "arrow.clockwise")
-                                .font(.system(size: 14, weight: .semibold))
+                                .font(.system(size: Typography.body, weight: .semibold))
                                 .foregroundStyle(.white)
                         }
                     }
                     .frame(width: 36, height: 36)
                     VStack(alignment: .leading, spacing: 2) {
                         Text("重试服务")
-                            .font(.system(size: 14, weight: .semibold))
+                            .font(.system(size: Typography.body, weight: .semibold))
                             .foregroundStyle(.primary)
                         Text(service == .qingliao ? "重启轻聊后端进程" : "重启 Hermes 网关进程")
-                            .font(.system(size: 11))
+                            .font(.system(size: Typography.caption))
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
                     Image(systemName: "chevron.right")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.system(size: Typography.subhead, weight: .semibold))
                         .foregroundStyle(.tertiary)
                 }
                 .padding(14)
@@ -953,21 +953,21 @@ struct ServiceControlSheet: View {
                     ZStack {
                         Circle().fill(Color.red.opacity(0.15))
                         Image(systemName: "stop.fill")
-                            .font(.system(size: 13, weight: .semibold))
+                            .font(.system(size: Typography.subhead, weight: .semibold))
                             .foregroundStyle(.red)
                     }
                     .frame(width: 36, height: 36)
                     VStack(alignment: .leading, spacing: 2) {
                         Text("停止服务")
-                            .font(.system(size: 14, weight: .semibold))
+                            .font(.system(size: Typography.body, weight: .semibold))
                             .foregroundStyle(.red)
                         Text("停止后轻聊将不可用")
-                            .font(.system(size: 11))
+                            .font(.system(size: Typography.caption))
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
                     Image(systemName: "chevron.right")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.system(size: Typography.subhead, weight: .semibold))
                         .foregroundStyle(.tertiary)
                 }
                 .padding(14)
@@ -1051,13 +1051,13 @@ struct HADeviceSheet: View {
         VStack(spacing: 0) {
             HStack {
                 Text(title)
-                    .font(.system(size: 17, weight: .bold))
+                    .font(.system(size: Typography.title, weight: .bold))
                 Spacer()
                 Button {
                     dismiss()
                 } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 22))
+                        .font(.system(size: Typography.titleXL))
                         .foregroundStyle(.tertiary)
                 }
                 .buttonStyle(.plain)
@@ -1073,7 +1073,7 @@ struct HADeviceSheet: View {
             } else if entities.isEmpty {
                 Spacer()
                 Text("暂无可用设备")
-                    .font(.system(size: 13))
+                    .font(.system(size: Typography.subhead))
                     .foregroundStyle(.tertiary)
                 Spacer()
             } else if domain == "light" {
@@ -1123,7 +1123,7 @@ struct HADeviceSheet: View {
                         RoundedRectangle(cornerRadius: 14, style: .continuous)
                             .fill(iconBG)
                         Image(systemName: "sun.max.fill")
-                            .font(.system(size: 24, weight: .medium))
+                            .font(.system(size: Typography.titleXL, weight: .medium))
                             .foregroundStyle(isOn ? Color.yellow : Color.gray.opacity(0.5))
                             .shadow(color: isOn ? Color.yellow.opacity(0.8) : .clear, radius: 8)
                     }
@@ -1137,7 +1137,7 @@ struct HADeviceSheet: View {
                             ProgressView().tint(.white).scaleEffect(0.65)
                         } else {
                             Image(systemName: "power")
-                                .font(.system(size: 10, weight: .bold))
+                                .font(.system(size: Typography.tiny, weight: .bold))
                                 .foregroundStyle(isOn ? .white : Color.secondary)
                         }
                     }
@@ -1145,11 +1145,11 @@ struct HADeviceSheet: View {
                     .shadow(color: isOn ? Color.accentColor.opacity(0.45) : .clear, radius: 4)
                 }
                 Text(displayName(e))
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: Typography.subhead, weight: .medium))
                     .foregroundStyle(.primary)
                     .lineLimit(2)
                 Text(isOn ? "已开启" : "已关闭")
-                    .font(.system(size: 10.5))
+                    .font(.system(size: Typography.tiny))
                     .fontWeight(isOn ? .semibold : .regular)
                     .foregroundStyle(isOn ? Color.accentColor : Color.secondary)
             }
@@ -1185,14 +1185,14 @@ struct HADeviceSheet: View {
             // 顶部：图标 + 名称/状态 + 电源（关闭按钮统一在最右）
             HStack(spacing: 10) {
                 Image(systemName: "snowflake")
-                    .font(.system(size: 24))
+                    .font(.system(size: Typography.titleXL))
                     .foregroundStyle(isOn ? Color.accentColor : Color.secondary)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(displayName(e))
-                        .font(.system(size: 13, weight: .medium))
+                        .font(.system(size: Typography.subhead, weight: .medium))
                         .lineLimit(1)
                     Text(isOn ? modeName(e.state) : "已关闭")
-                        .font(.system(size: 11, weight: .semibold))
+                        .font(.system(size: Typography.caption, weight: .semibold))
                         .foregroundStyle(isOn ? Color.accentColor : Color.secondary)
                 }
                 Spacer()
@@ -1204,7 +1204,7 @@ struct HADeviceSheet: View {
                         Circle()
                             .fill(isOn ? Color.accentColor : Color(uiColor: .systemGray5))
                         Image(systemName: "power")
-                            .font(.system(size: 12, weight: .bold))
+                            .font(.system(size: Typography.subhead, weight: .bold))
                             .foregroundStyle(isOn ? .white : Color.secondary)
                     }
                     .frame(width: 32, height: 32)
@@ -1221,18 +1221,18 @@ struct HADeviceSheet: View {
                         .contentTransition(.numericText(value: target))   // v3.4.29：调温数字滚动
                         .animation(Motion.snap, value: target)
                     Text("°")
-                        .font(.system(size: 15))
+                        .font(.system(size: Typography.body))
                         .foregroundStyle(.secondary)
                 }
                 Text("室温 \(String(format: "%.0f", cur))°")
-                    .font(.system(size: 11))
+                    .font(.system(size: Typography.caption))
                     .foregroundStyle(.secondary)
                 Spacer()
                 Button {
                     setTemp(e, value: target - step)
                 } label: {
                     Image(systemName: "minus")
-                        .font(.system(size: 12, weight: .bold))
+                        .font(.system(size: Typography.subhead, weight: .bold))
                         .frame(width: 30, height: 30)
                         .background(Color(uiColor: .systemGray5), in: Circle())
                 }
@@ -1241,7 +1241,7 @@ struct HADeviceSheet: View {
                     setTemp(e, value: target + step)
                 } label: {
                     Image(systemName: "plus")
-                        .font(.system(size: 12, weight: .bold))
+                        .font(.system(size: Typography.subhead, weight: .bold))
                         .frame(width: 30, height: 30)
                         .background(Color(uiColor: .systemGray5), in: Circle())
                 }
@@ -1257,7 +1257,7 @@ struct HADeviceSheet: View {
                         // v2.0.87k：判定 lowercased（HA 部分实体返回 "Off" 大写导致选中态不匹配）
                         let active = e.state.lowercased() == m
                         Text(modeName(m))
-                            .font(.system(size: 11, weight: active ? .bold : .medium))
+                            .font(.system(size: Typography.caption, weight: active ? .bold : .medium))
                             .foregroundStyle(active ? Color.white : Color.primary)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 7)
@@ -1286,7 +1286,7 @@ struct HADeviceSheet: View {
                             } label: {
                                 let active = curFan.lowercased() == f.lowercased()
                                 Text(fanModeName(f))
-                                    .font(.system(size: 11, weight: active ? .bold : .medium))
+                                    .font(.system(size: Typography.caption, weight: active ? .bold : .medium))
                                     .foregroundStyle(active ? Color.white : Color.primary)
                                     .frame(maxWidth: .infinity)
                                     .padding(.vertical, 7)
@@ -1435,16 +1435,16 @@ struct DisksSheet: View {
         VStack(spacing: 0) {
             HStack {
                 Text("全部磁盘")
-                    .font(.system(size: 17, weight: .bold))
+                    .font(.system(size: Typography.title, weight: .bold))
                 Spacer()
                 Text("\(disks.count) 个分区")
-                    .font(.system(size: 12))
+                    .font(.system(size: Typography.subhead))
                     .foregroundStyle(.secondary)
                 Button {
                     dismiss()
                 } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 22))
+                        .font(.system(size: Typography.titleXL))
                         .foregroundStyle(.tertiary)
                 }
                 .buttonStyle(.plain)
@@ -1460,7 +1460,7 @@ struct DisksSheet: View {
                 VStack(alignment: .leading, spacing: 14) {
                     if !system.isEmpty {
                         Text("系统盘分区")
-                            .font(.system(size: 13, weight: .semibold))
+                            .font(.system(size: Typography.subhead, weight: .semibold))
                             .foregroundStyle(.secondary)
                             .padding(.horizontal, 16)
                         LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
@@ -1472,7 +1472,7 @@ struct DisksSheet: View {
                     }
                     if !data.isEmpty {
                         Text("数据卷")
-                            .font(.system(size: 13, weight: .semibold))
+                            .font(.system(size: Typography.subhead, weight: .semibold))
                             .foregroundStyle(.secondary)
                             .padding(.horizontal, 16)
                         LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
@@ -1528,16 +1528,16 @@ struct DiskTile: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
                 Text(shortName)
-                    .font(.system(size: 12))
+                    .font(.system(size: Typography.subhead))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                 Spacer()
                 Text(disk.pctText)
-                    .font(.system(size: 12, weight: .bold))
+                    .font(.system(size: Typography.subhead, weight: .bold))
                     .foregroundStyle(disk.pct > 90 ? .red : (disk.pct > 75 ? .orange : .primary))
             }
             Text(disk.pctText)
-                .font(.system(size: 18, weight: .bold))
+                .font(.system(size: Typography.headline, weight: .bold))
                 .padding(.top, 6)
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
@@ -1550,7 +1550,7 @@ struct DiskTile: View {
             .frame(height: 4)
             .padding(.top, 7)
             Text("\(disk.usedText) / \(disk.totalText)")
-                .font(.system(size: 10))
+                .font(.system(size: Typography.tiny))
                 .foregroundStyle(.tertiary)
                 .padding(.top, 3)
         }
@@ -1621,12 +1621,12 @@ struct UsageCard: View {
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .fill(statusColor.opacity(0.15))
                     Image(systemName: icon)
-                        .font(.system(size: 13, weight: .medium))
+                        .font(.system(size: Typography.subhead, weight: .medium))
                         .foregroundStyle(statusColor)
                 }
                 .frame(width: 28, height: 28)
                 Text(usage.name)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: Typography.subhead, weight: .semibold))
                     .foregroundStyle(.primary)
                     .lineLimit(1)
                 Spacer()
@@ -1635,7 +1635,7 @@ struct UsageCard: View {
                     .frame(width: 6, height: 6)
             }
             Text(usage.balanceText)
-                .font(.system(size: 16, weight: .bold))
+                .font(.system(size: Typography.title, weight: .bold))
                 .foregroundStyle(usage.unsupported ? Color.secondary : statusColor)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
@@ -1664,7 +1664,7 @@ struct UsageCard: View {
                 .frame(height: 4)
             }
             Text(usage.detailText)
-                .font(.system(size: 10))
+                .font(.system(size: Typography.tiny))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
         }
@@ -1686,11 +1686,11 @@ struct DeviceCard: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
                 Image(systemName: icon)
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: Typography.caption, weight: .semibold))
                     .foregroundStyle(status == .on ? Color.accentColor : Color.secondary)
                     .symbolEffect(.bounce, value: status)   // v3.9.0：设备开关状态变化弹一下
                 Text(name)
-                    .font(.system(size: 12))
+                    .font(.system(size: Typography.subhead))
                     .foregroundStyle(.secondary)
                 Spacer()
                 Circle()
@@ -1699,15 +1699,16 @@ struct DeviceCard: View {
                     .shadow(color: color.opacity(0.6), radius: 4)
             }
             Text(value)
-                .font(.system(size: 18, weight: .bold))
+                .font(.system(size: Typography.headline, weight: .bold))
                 .padding(.top, 6)
             Text(sub)
-                .font(.system(size: 10))
+                .font(.system(size: Typography.tiny))
                 .foregroundStyle(.tertiary)
                 .padding(.top, 2)
         }
         .padding(12)
         .dashboardCard()
+        .scrollDepth()   // v3.9.0：滚动层次感
     }
 
     private var color: Color {
@@ -1731,9 +1732,9 @@ struct MeterCard: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
                 Image(systemName: icon)
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: Typography.caption, weight: .semibold))
                     .foregroundStyle(color)
-                Text(name).font(.system(size: 12)).foregroundStyle(.secondary)
+                Text(name).font(.system(size: Typography.subhead)).foregroundStyle(.secondary)
                 Spacer()
                 // 真实状态点：按使用率阈值（<75% 绿 / 75-90% 橙 / >90% 红）
                 Circle()
@@ -1741,13 +1742,13 @@ struct MeterCard: View {
                     .frame(width: 8, height: 8)
             }
             Text(value)
-                .font(.system(size: 18, weight: .bold))
+                .font(.system(size: Typography.headline, weight: .bold))
                 .contentTransition(.numericText())            // v3.4.29：数值滚动而非硬跳
                 .animation(Motion.snap, value: value)
                 .padding(.top, 6)
             if let sub {
                 Text(sub)
-                    .font(.system(size: 10))
+                    .font(.system(size: Typography.tiny))
                     .foregroundStyle(.tertiary)
                     .padding(.top, 1)
                     .lineLimit(1)
@@ -1767,6 +1768,7 @@ struct MeterCard: View {
         // v2.0.86b：卡片统一再矮一点
         .frame(height: 88, alignment: .top)
         .dashboardCard()
+        .scrollDepth()   // v3.9.0：滚动层次感
     }
 }
 
@@ -1780,23 +1782,24 @@ struct ServiceCard: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
                 Image(systemName: icon)
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: Typography.caption, weight: .semibold))
                     .foregroundStyle(running ? Color.green : Color.red)
                     .symbolEffect(.bounce, value: running)   // v3.9.0：服务启停弹一下
-                Text(name).font(.system(size: 12)).foregroundStyle(.secondary)
+                Text(name).font(.system(size: Typography.subhead)).foregroundStyle(.secondary)
                 Spacer()
                 Circle().fill(running ? Color.green : Color.red).frame(width: 8, height: 8)
             }
             Text(running ? "运行中" : "已停止")
-                .font(.system(size: 14, weight: .bold))
+                .font(.system(size: Typography.body, weight: .bold))
                 .padding(.top, 6)
-            Text(detail).font(.system(size: 10)).foregroundStyle(.tertiary).padding(.top, 1)
+            Text(detail).font(.system(size: Typography.tiny)).foregroundStyle(.tertiary).padding(.top, 1)
         }
         .padding(12)
         // v2.0.83：NAS 面板卡片等高（与 MeterCard 同高）
         // v2.0.86b：卡片统一再矮一点
         .frame(height: 88, alignment: .top)
         .dashboardCard()
+        .scrollDepth()   // v3.9.0：滚动层次感
     }
 }
 
@@ -1843,15 +1846,15 @@ struct WeatherBadge: View {
         VStack(spacing: 2) {
             HStack(spacing: 4) {
                 Image(systemName: icon)
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: Typography.subhead, weight: .medium))
                     .foregroundStyle(iconColor)
                 if let t = temp {
                     Text(String(format: "%.0f°", t))
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.system(size: Typography.subhead, weight: .semibold))
                         .foregroundStyle(.primary)
                 } else {
                     Text("--°")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.system(size: Typography.subhead, weight: .semibold))
                         .foregroundStyle(.tertiary)
                 }
             }
@@ -1862,7 +1865,7 @@ struct WeatherBadge: View {
             // v2.0.87aj：只显示城市名（去掉"当前定位"前缀）
             if !city.isEmpty {
                 Text(city)
-                    .font(.system(size: 8.5, weight: .medium))
+                    .font(.system(size: Typography.tiny, weight: .medium))
                     .foregroundStyle(.secondary)
             }
         }

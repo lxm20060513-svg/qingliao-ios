@@ -57,7 +57,7 @@ struct SessionsView: View {
                         }
                     } label: {
                         Image(systemName: editing ? "checkmark.circle.fill" : "checkmark.circle")
-                            .font(.system(size: 18, weight: .medium))
+                            .font(.system(size: Typography.headline, weight: .medium))
                             .foregroundStyle(editing ? Color.accentColor : Color.secondary)
                     }
                     .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
@@ -67,10 +67,10 @@ struct SessionsView: View {
             // v3.4.25：会话搜索框（毛玻璃风格 glassListCard 与 App 列表卡一致；输入即本地过滤）
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass")
-                    .font(.system(size: 13))
+                    .font(.system(size: Typography.subhead))
                     .foregroundStyle(Color(uiColor: .tertiaryLabel))
                 TextField("搜索会话与消息", text: $searchText)
-                    .font(.system(size: 14))
+                    .font(.system(size: Typography.body))
                     .autocorrectionDisabled()
                     .submitLabel(.search)
                     .focused($focused)
@@ -81,7 +81,7 @@ struct SessionsView: View {
                         focused = false   // 清空同时收键盘
                     } label: {
                         Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 14))
+                            .font(.system(size: Typography.body))
                             .foregroundStyle(.tertiary)
                     }
                     .buttonStyle(.plain)
@@ -100,10 +100,10 @@ struct SessionsView: View {
             } else if let err = errorText, sessions.isEmpty {
                 Spacer()
                 Text(err)
-                    .font(.system(size: 13))
+                    .font(.system(size: Typography.subhead))
                     .foregroundStyle(.secondary)
                 Button("重试") { Task { await load() } }
-                    .font(.system(size: 14, weight: .medium))
+                    .font(.system(size: Typography.body, weight: .medium))
                     .foregroundStyle(Color.accentColor)
                     .padding(.top, 8)
                 Spacer()
@@ -137,14 +137,14 @@ struct SessionsView: View {
                                                                  startPoint: .topLeading, endPoint: .bottomTrailing))
                                             .frame(width: 64, height: 64)
                                         Image(systemName: "bubble.left.and.bubble.right")
-                                            .font(.system(size: 24))
+                                            .font(.system(size: Typography.titleXL))
                                             .foregroundStyle(Color.blue.opacity(0.7))
                                     }
                                     Text("暂无会话记录")
-                                        .font(.system(size: 13))
+                                        .font(.system(size: Typography.subhead))
                                         .foregroundStyle(.secondary)
                                     Text("点击右上角 + 开始和 AI 对话")
-                                        .font(.system(size: 11))
+                                        .font(.system(size: Typography.caption))
                                         .foregroundStyle(.tertiary)
                                 }
                                 .padding(.top, 20)
@@ -208,19 +208,19 @@ struct SessionsView: View {
                         }
                     } label: {
                         Text(selectedIds.count == sessions.count ? "取消全选" : "全选")
-                            .font(.system(size: 13, weight: .medium))
+                            .font(.system(size: Typography.subhead, weight: .medium))
                             .foregroundStyle(Color.accentColor)
                     }
                     .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
                     Spacer()
                     Text("\(selectedIds.count) 条")
-                        .font(.system(size: 13))
+                        .font(.system(size: Typography.subhead))
                         .foregroundStyle(.secondary)
                     Button {
                         deleteSelected()
                     } label: {
                         Label("删除", systemImage: "trash")
-                            .font(.system(size: 13, weight: .semibold))
+                            .font(.system(size: Typography.subhead, weight: .semibold))
                             .foregroundStyle(.white)
                             .padding(.horizontal, 18)
                             .padding(.vertical, 9)
@@ -290,7 +290,7 @@ struct SessionsView: View {
             }
         } label: {
             Image(systemName: "plus")
-                .font(.system(size: 16, weight: .semibold))
+                .font(.system(size: Typography.title, weight: .semibold))
                 .foregroundStyle(Color.accentColor)
                 .symbolEffect(.bounce, value: plusBounceTick)   // v3.4.29：新建图标弹动
         }
@@ -337,11 +337,8 @@ struct SessionsView: View {
             }
         }
         // v3.4.29：滚动层次感——行进出视口时轻微缩放 + 淡出（须在 LazyVStack 内）
-        .scrollTransition(.interactive, axis: .vertical) { content, phase in
-            content
-                .scaleEffect(phase.isIdentity ? 1 : 0.965)
-                .opacity(phase.isIdentity ? 1 : 0.75)
-        }
+        // v3.9.0：改为统一修饰器 .scrollDepth()（数值与看板/生活卡片同源）
+        .scrollDepth()
         .contextMenu {
             Button {
                 togglePin(s)
@@ -643,18 +640,18 @@ struct BotCard: View {
                 Circle()
                     .fill(LinearGradient(colors: [.blue, .indigo], startPoint: .topLeading, endPoint: .bottomTrailing))
                 Image(systemName: "brain.head.profile")
-                    .font(.system(size: 17, weight: .medium))
+                    .font(.system(size: Typography.title, weight: .medium))
                     .foregroundStyle(.white)
             }
             .frame(width: 40, height: 40)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text("轻聊 agent")
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.system(size: Typography.body, weight: .semibold))
                 // v2.0.50：模型名动态显示（之前硬编码，设置切模型不刷新）
                 // v3.0.2：云端模式显示 CloudConfig 选中模型
                 Text(displayModel)
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(.system(size: Typography.caption, design: .monospaced))
                     .foregroundStyle(.secondary)
             }
             Spacer()
@@ -663,7 +660,7 @@ struct BotCard: View {
                     .fill(online == true ? Color.green : (online == false ? Color.red : Color.gray))
                     .frame(width: 6, height: 6)
                 Text(online == true ? "在线" : (online == false ? "离线" : "检测中"))
-                    .font(.system(size: 10))
+                    .font(.system(size: Typography.tiny))
                     .foregroundStyle(online == true ? Color.green : (online == false ? Color.red : Color.secondary))
             }
         }
@@ -730,7 +727,7 @@ struct SessionRow: View {
                     .fill(LinearGradient(colors: avatarColors,
                                          startPoint: .topLeading, endPoint: .bottomTrailing))
                 Image(systemName: avatarIcon)
-                    .font(.system(size: 15, weight: .medium))
+                    .font(.system(size: Typography.body, weight: .medium))
                     .foregroundStyle(.white.opacity(0.92))
             }
             .frame(width: 38, height: 38)
@@ -739,17 +736,17 @@ struct SessionRow: View {
                 HStack(spacing: 5) {
                     if pinned {
                         Image(systemName: "pin.fill")
-                            .font(.system(size: 9))
+                            .font(.system(size: Typography.tiny))
                             .foregroundStyle(Color.orange)
                     }
                     // v2.0.60：收藏星标
                     if faved {
                         Image(systemName: "star.fill")
-                            .font(.system(size: 9))
+                            .font(.system(size: Typography.tiny))
                             .foregroundStyle(Color.yellow)
                     }
                     Text(session.title.isEmpty ? "新对话" : session.title)
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(.system(size: Typography.body, weight: .semibold))
                         .foregroundStyle(.primary)
                         .lineLimit(1)
                 }
@@ -759,7 +756,7 @@ struct SessionRow: View {
                                         .padding(.top, 1)
                                 }
                                 Text(session.lastMessageText)
-                    .font(.system(size: 12))
+                    .font(.system(size: Typography.subhead))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
@@ -767,16 +764,16 @@ struct SessionRow: View {
 
             VStack(alignment: .trailing, spacing: 4) {
                 Text(session.relativeTime)
-                    .font(.system(size: 11))
+                    .font(.system(size: Typography.caption))
                     .foregroundStyle(.tertiary)
                 // v2.0.87ad：多选勾选圈（编辑模式替代 chevron）
                 if showCheck {
                     Image(systemName: checked ? "checkmark.circle.fill" : "circle")
-                        .font(.system(size: 19))
+                        .font(.system(size: Typography.headline))
                         .foregroundStyle(checked ? Color.accentColor : Color.secondary.opacity(0.4))
                 } else {
                     Image(systemName: "chevron.right")
-                        .font(.system(size: 11, weight: .semibold))
+                        .font(.system(size: Typography.caption, weight: .semibold))
                         .foregroundStyle(.tertiary)
                 }
             }
@@ -804,7 +801,7 @@ private struct SessionTagCapsules: View {
         HStack(spacing: 4) {
             ForEach(tags, id: \.self) { t in
                 Text(t)
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(.system(size: Typography.tiny, weight: .semibold))
                     .foregroundStyle(tagColor(t))
                     .lineLimit(1)
                     .padding(.horizontal, 6)
