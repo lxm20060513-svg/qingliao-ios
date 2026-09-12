@@ -32,25 +32,27 @@ struct QingliaoLiveActivityWidget: Widget {
         } dynamicIsland: { context in
             DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
-                    // v3.9.10：34 → 36（用户要求球大一点）。**不要再往上加**：展开态顶行就是传感器区，
+                    // 尺寸沿革：34 → 36（v3.9.11「球大一点」）。**不要再往上加**：展开态顶行就是传感器区，
                     // 高度约 36.67pt，38 会顶到灵动岛圆角遮罩被切上下边（本机无 iOS SDK，这类几何只能真机定论）。
                     OrbView(size: 36, phase: context.state.phase)
                         .padding(.leading, 1)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
-                    // 环与同形态的球**同尺寸**（用户要求：环要跟球一样大）——展开态左右各 36
-                    self.phaseRing(state: context.state, size: 36)
+                    // v3.9.12：用户看过之后要求**环缩小**——定成球的约 78%（36 → 28）。
+                    // 别再放大回 36：环有描边 + 柔光，同尺寸时观感比球重，看着“压”过左侧的球。
+                    self.phaseRing(state: context.state, size: 28)
                         .padding(.trailing, 1)
                 }
                 DynamicIslandExpandedRegion(.bottom) {
                     self.expandedBottom(state: context.state)
                 }
             } compactLeading: {
-                OrbView(size: 25, phase: context.state.phase)
+                // v3.9.12：25 → 27（真机反馈「球反而小了」——球再加大一档，环同时收小，主次才分明）
+                OrbView(size: 27, phase: context.state.phase)
             } compactTrailing: {
                 self.compactTrailing(state: context.state)
             } minimal: {
-                OrbView(size: 22, phase: context.state.phase)
+                OrbView(size: 24, phase: context.state.phase)
             }
             .keylineTint(OrbPalette.accent)
             // v3.9.7：点岛回聊天页
@@ -64,10 +66,10 @@ struct QingliaoLiveActivityWidget: Widget {
     // MARK: - 各形态内容
 
     /// 紧凑态右侧：渐变进度环（v3.9.9 起不再显示计时数字；v3.9.10 起不用系统气泡图标）
-    /// v3.9.10：尺寸与紧凑态左侧的球一致（25）——左右等大才对称，原 13 明显偏小。
+    /// 尺寸沿革：13（v3.9.10 前，偏小）→ 25（与球等大，用户看过觉得偏大）→ **20**（v3.9.12，球的约 7 成，主次分明）。
     @ViewBuilder
     private func compactTrailing(state: QingliaoActivityAttributes.ContentState) -> some View {
-        self.phaseRing(state: state, size: 25)
+        self.phaseRing(state: state, size: 20)
     }
 
     /// 展开态底部：会话标题 + 状态行（+ 进行中显示「停止生成」按钮）
@@ -171,7 +173,7 @@ struct QingliaoLiveActivityWidget: Widget {
     /// 锁屏横幅（与展开态同风格，避免两套观感割裂——轻聊本地/云端 UI 统一是既定红线）
     private func lockScreenBanner(state: QingliaoActivityAttributes.ContentState) -> some View {
         HStack(spacing: 12) {
-            OrbView(size: 42, phase: state.phase)
+            OrbView(size: 46, phase: state.phase)
             VStack(alignment: .leading, spacing: 3) {
                 Text(state.sessionTitle.isEmpty ? "轻聊" : state.sessionTitle)
                     .font(.system(size: 15, weight: .semibold))
@@ -182,7 +184,7 @@ struct QingliaoLiveActivityWidget: Widget {
                     .lineLimit(1)
             }
             Spacer(minLength: 8)
-            phaseRing(state: state, size: 42)   // 与锁屏横幅的球同尺寸（42）
+            phaseRing(state: state, size: 33)   // v3.9.12：环收小（42 → 33），球同时加大到 46，主次分明
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
