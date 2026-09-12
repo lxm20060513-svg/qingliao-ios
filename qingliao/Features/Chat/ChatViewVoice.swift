@@ -26,7 +26,9 @@ extension ChatView {
             // 正常会话（有中间结果）不上报，避免污染诊断流。
             if liveSpeech.volatileCount == 0 {
                 let env = DiagnosticsStore.env()
-                let ev = DiagEvent.makeEvent(kind: "voice", env: env,
+                // 宿主类型是 DiagnosticsPayload（DiagEvent 是同文件里的另一个类型——
+                // 又一次"文件名叫 A、类型叫 B"：声明在 `enum DiagnosticsPayload` 上，别照直觉写 DiagEvent）
+                let ev = DiagnosticsPayload.makeEvent(kind: "voice", env: env,
                                              summary: "语音实时出字为 0：\(liveSpeech.resultStats) \(liveSpeech.pipeStats)",
                                              stack: liveSpeech.diagnostics + "\n文字长度=\(text.count)")
                 _ = DiagnosticsStore.enqueue(ev)
