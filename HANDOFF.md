@@ -1,7 +1,8 @@
 # 轻聊 App 项目交接文档
 
 > 最后更新：2026-09-12
-> 最新版本：v3.9.6 (451) —— 语音录音中**实时文本直接上屏**（v3.9.5 只把胶囊去掉不够：录音全程框里只剩「输入消息…」占位，松手才一次性出字）
+> 最新版本：**v3.9.7/452（2026-09-12 已出包，tag `v3.9.7`，CI run 484 success 一次过，commit `781d472`）灵动岛实时活动美化 A+B + 收件箱「进行中进度」气泡 + 语音态输入框去流光**：①**灵动岛/锁屏实时活动美化（攒着的方案 A+B，本批首次进 CI，一轮即过）**——A 视觉：轻聊球贯穿全部形态（`Canvas` + `TimelineView(.animation, minimumInterval: 1/20)` 呼吸；侧载无 APNs，唯一帧源是本地驱动，App 挂起即静止）；B 信息与交互：思考脉冲环 → 输出**不确定态旋转弧**（不画假百分比）→ 完成绿对勾保持 2s，展开态状态行 + 「停止生成」按钮 + 点岛回会话。三处 API 决策：**`LiveActivityIntent`**（在主 App 进程执行、不打开 App，故能真停掉 App 里的流；`openAppWhenRun` 已废弃且在 extension 里置 true 直接编译报错）、**`.widgetURL(qingliao://chat)`** 回会话（官方推荐、零新 API 风险；`DockTabView` 加 host 分支）、`LiveActivityManager` **只在 phase 变化时 update**（不跟每个 token 刷）+ 代际令牌 + 会话归属校验（防跨会话误收/进程被杀留残留）；脉冲环半径上限 `r×1.15`（防灵动岛遮罩切半圆）；`orbGradient` 由 `static let` 改计算属性（Swift 6 严格并发下静态存储要求 Sendable）。②**收件箱「进行中进度」气泡**（配合后端 v3.7.1，后端已上线并验证）：`task_type="progress"` → 会话 🔔 进度气泡（`isPush=true` 故**不进模型上下文**、不弹通知、不进任务中心）；`pollOnce` 的「流式进行中跳过整轮」改为**只跳过 reply 类**，回前台立刻看到过程留痕。③**语音转文字态输入框移除流光特效层**，只保留「发送键变收音图标」（撤销 v3.2.4 语音流光决定；语音期间输入栏已无每帧重绘视图）。IPA 已校验 **3.9.7/452**（主 App 与挂件 `.appex` 版本逐字一致 + `NSSupportsLiveActivities` + `default.metallib` 齐），md5 `570f341026666698338843409c98a1e2`（2,873,578 bytes），已转存 NAS `轻聊app/qingliao-3.9.7-unsigned.ipa`（NAS 侧 md5 回读一致）。⚠️ 真机复测重点：AI 回复时灵动岛球是否呼吸/三态是否对、展开态「停止生成」是否真能停、点灵动岛是否回聊天页；长任务中途退后台再回来，会话里是否出现 🔔 进度气泡（配后端「静默 30s 且有新增」规则）；语音态输入框不再有蓝紫流光。
+> 上一版：**v3.9.6/451（2026-09-12 已出包，tag `v3.9.6`，CI run 34622070926 success，commit `f76d09b`） —— 语音录音中**实时文本直接上屏**（v3.9.5 只把胶囊去掉不够：录音全程框里只剩「输入消息…」占位，松手才一次性出字）
 > 本版：**v3.9.6/451（2026-09-12 已出包，tag `v3.9.6`，CI run 34622070926 success，commit `f76d09b`）录音实时上屏根治**：v3.9.5 以为「输入框常显 + `onTextChange` 写 `inputText`」就能实时出字，**实测无效**（录音全程只有占位，松手才一次性出字 ⇒ 要么实时结果没到、要么「存下来的闭包写 @State / TextField 外部刷新」不可靠）。v3.9.6 不再赌这两条路：①录音态在输入栏**同一行位置直接用 `Text` 渲染 `liveSpeech.liveText`**（`@Published` 驱动，即旧胶囊那条已验证会刷新的路径），TextField 只在非录音态出现（观感仍是同一个输入框，不再是红色胶囊）②加 `.onChange(of: liveSpeech.liveText)` 把实时文本同步进 `inputText`（SwiftUI 原生更新周期写 @State，比存闭包写可靠），松手定稿后框内即最终文本 ③**诊断自证**：`LiveSpeechTranscriber` 新增 `volatileCount/finalCount/firstResultMs` 计数与 `liveStalled`（录音 3s 仍零结果才置位），输入栏**仅在 `liveStalled` 时**显示 `V0/F0` 小字——正常时界面零杂物，异常时一眼判定「实时结果根本没到」（该诊断是临时的，确认稳定后删）④点按消息区空白 = 停止语音输入（保留，注释写明）。IPA 已校验 **3.9.6/451**，md5 `f24aa4758e9a239b6bc2cbfcc8041cb8`（2,845,896 bytes），已转存 NAS `轻聊app/qingliao-3.9.6-unsigned.ipa`（NAS 侧 md5 回读一致）。⚠️ 真机复测重点：长按进语音后**说话即逐字上屏**；若框里仍不出字，右**侧会出现 `V0/F0` 小字**（把这一屏发我 = 直接定位是「实时结果没到」而不是 UI 问题）。**另：后端 `/api/asr` 语音转文字链路（asr_api + nginx location + relay + whisper_venv 431M/whisper_models 142M）已随本次整体下线**（App/PWA 均无引用），详见本文件「已移除」说明。
 > 上一版：**v3.9.5/450（2026-09-12 已出包，tag `v3.9.5`，CI run 34619075064 success，commit `6f3ce3e`）语音录音态 UI 修正****v3.9.5/450（2026-09-12 已出包，tag `v3.9.5`，CI run 34619075064 success，commit `6f3ce3e`）语音录音态 UI 修正**：v3.9.3/v3.9.4 把录音中的输入区**整块换成红色「正在聆听…／实时文本」胶囊**，用户反馈「看不到输入框、也看不到转写全文」→ 改为**输入框全程常显**（设备端 volatile 结果本就经 `liveSpeech.onTextChange` 实时写进 `inputText`，落框即所见），仅保留左侧 7pt 红点作「正在听」标识；录音中给输入框加 `.allowsHitTesting(false)`（防误点弹键盘打断语音模式）；顺手清掉已无用的 `recordingText` 参数与 `ChatView` 传参。IPA 已校验 **3.9.5/450**，md5 `7f6e0c0b80a627c5a0b5ed606e3da07e`（2,838,637 bytes），已转存 NAS `轻聊app/qingliao-3.9.5-unsigned.ipa`（NAS 侧 md5 回读一致）。⚠️ 真机复测重点：长按进语音后输入框里是否**逐字上屏**；长句超过框高（6 行）后输入框是否跟到最新词（若跟不动，下一页再加自动滚尾）。
 > 上一版：**v3.9.4/449（2026-09-11 已出包，tag `v3.9.4`，CI run 34617595239 success，commit `3ce8d1c`）语音转文字闪退根治 + 全站按钮统一「文字+胶囊」去图标 + AI 头像去底圆放大****v3.9.4/449（2026-09-11 已出包，tag `v3.9.4`，CI run 34617595239 success，commit `3ce8d1c`）语音转文字闪退根治 + 全站按钮统一「文字+胶囊」去图标 + AI 头像去底圆放大**：①**「一触发语音转文字就闪退」（用户报 Signal(5)）根治**——v3.9.3 新的设备端转写里 `LiveSpeechTranscriber.start()` 是 `@MainActor`，其中 `input.installTap(...) { [feeder] buffer, _ in … }` 的闭包字面量**继承 MainActor 隔离**，而麦克风 tap 在**音频线程**回调 ⇒ 进闭包即 Swift 6 隔离断言 SIGTRAP。用 v3.9.3 的 dSYM 符号化定案（`Qingliao + 偏移` 换算成 `0x100000000+偏移`，命中 `closure #1 (AVAudioPCMBuffer, AVAudioTime) -> () in LiveSpeechTranscriber.start(baseline:)`）。修法=闭包显式 `@Sendable`（闭包体只碰 @unchecked Sendable 的 feeder，安全）；同文件 `AVAudioApplication.requestRecordPermission` 回调一并补 `@Sendable`。**编译器零告警、`check_swift.sh` 查不出**——同族第二例（首例 v3.7.0 剪贴板），判据/符号化手法/本地等价实验已固化进技能 `references/v370-crash-clipboard-isolation.md`。②**全站按钮统一「文字 + 胶囊」、去图标**（用户逐条要求）：刷新 15 处（看板生活数据/资讯 header、看板空态、Docker 容器与镜像、路由器面板、诊断、日志、云端设置、本地模型、视觉模型、执行历史、模型管理 3 处导航栏图标刷新）、重新生成 2 处（看板智能建议胶囊、AI 错误占位气泡下的红色重试行）、添加/添加股票 5 处（看板「添加股票」、生活卡片设置页 footer×3、自定义模型「添加」、备忘录「添加」）；长按菜单项与纯「+」图标入口按「与同类保持一致」未动。③**AI 头像**：删掉 blue→indigo 蓝色底圆；上游导出的球半径 `uniforms[4]=0.72`（球径仅占头像格 72%）按用户要求提到 **0.98**（球径≈头像格，与原来底圆尺寸对齐；只是缩放，球内观感不变，边缘留 2% 不裁光晕），30pt 消息头像 / 38pt 思考头像 / 96pt 欢迎页 logo 同步生效；渲染器不可用时的兜底脑形标自带底圆（否则白图标看不见）。④**通知 delegate 加固**（并发审查发现）：`QingliaoAppDelegate` 因 `UIApplicationDelegate`（@MainActor 协议）被推断为 MainActor 隔离，而 `UNUserNotificationCenterDelegate` 非 @MainActor（Apple 文档仅 NSObjectProtocol、无线程承诺），原 `@preconcurrency` 只是把隔离断言**推迟到运行时** → witness 标 `nonisolated`（方法体只碰 UserDefaults，行为零变化）。⑤只读并发隔离审计（子代理，102 个 .swift 逐条比对 Apple 文档 JSON）：除上述外**无第二处必崩代码**；疑似 2 处（`SafariRelay` 的 ASWebAuthenticationSession 完成闭包、诊断模块非隔离读 UIDevice/UIApplication）按「无线程证据 + 属在跑主路径 / 仅编译告警」理由未动。IPA 已校验 **3.9.4/449**，md5 `51ebfee039a6cf9473e721b85017d910`（2,841,672 bytes），已转存 NAS `轻聊app/qingliao-3.9.4-unsigned.ipa`（NAS 侧 md5 回读一致）。⚠️ 真机复测重点：语音转文字长按（权限弹窗 + 首次模型下载、边说边出字、松手定稿回填、离线可用）、各处刷新/重新生成/添加按钮观感、AI 头像大小与透明度。
@@ -828,21 +829,9 @@ curl -sSL -o artifact.zip -H "Authorization: Bearer $TOKEN" -H "Accept: applicat
 
 ---
 
-## 六、下一步计划（待实现）
-
-| 优先级 | 功能 | 难度 | 说明 |
-|---|---|---|---|
-| 中 | 桌面小组件（主屏幕） | 低 | WidgetKit 主屏幕小组件——v3.8.0 已把挂件 target / `.appex` 打包 / 侧载安装链路打通，只需在 `QingliaoWidget` 里加一个 `StaticConfiguration` widget（同一个 .appex 可同时承载实时活动与主屏小组件） |
-| 中 | 会话文件夹 | 中 | 新增 Category 模型（文件夹） |
-| 中 | LaTeX 公式 | 中 | 检测 `$...$`，内嵌 WKWebView + KaTeX |
-| 中 | @ 引用历史消息 | 中 | 输入框检测 @ + 弹列表 |
-| 低 | 用量图表 | 中 | 已有 providers-usage 数值卡，可加图表 |
-
-**已实现（从待办剔除）**：图片持久化上传（v3.0.37）、长文目录（v3.0.27）、长文折叠（v3.0.50）、会话标签（v3.0.51）、语音对讲（v3.0.68-69，v3.0.73 移除）、钉一钉（v3.0.74）、后台流式恢复（v3.0.74）、**灵动岛/锁屏实时活动 + 设置开关（v3.8.0，项目首个 widget extension）**。
-
 ---
 
-## 七、快速定位信息（接手者先读）
+## 六、快速定位信息（接手者先读）
 
 > 围绕「轻聊」三大定位：源码在哪、推送/微信/token 相关文件名、想了解什么。所有路径为脱敏版（不含密码/token）。
 
@@ -893,12 +882,12 @@ curl -sSL -o artifact.zip -H "Authorization: Bearer $TOKEN" -H "Accept: applicat
 
 - **🅰️ 整体架构**（消息怎么进出、怎么推到 App）：读「一、核心架构」+「★ 2026-08-22 推送延迟优化」+ `app-active-push-inbox.md`（skill reference）。核心：App 是「App 主动请求→服务端响应」，无服务端主动塞消息通道；服务端主动推 = inbox 收件箱 + App 15s 轮询。
 - **🅱️ 某个 bug 排查**：读「五、踩坑经验」+ 各版本历史对应条目；定位后按 skill `qingliao-webui` 的排查链走（先区分通道死 vs agent 慢、先日志定位再改）。
-- **🅲️ 待做的"文件自动归档"**：见 `wechat-file-organize`（收到微信文件按扩展名分类存储）——轻聊侧对接在 `files_api`/`media_convert`，具体在「六、下一步计划」之外，按需另开启。
+- **🅲️ "文件自动归档"**：见 `wechat-file-organize`（收到微信文件按扩展名分类存储）——轻聊侧对接在 `files_api`/`media_convert`，按需另开启。
 - **🅳️ 鉴权/安全机制**：App 端 `X-Auth-Token`（auth_api.check_auth，login 签发）；Hermes 侧 `X-Inbox-Token`/`X-Push-Token`（服务间 token，compose 注入）；详见 `v2116-backend-security-review` + `app-active-push-inbox.md`。
 
 ---
 
-## 八、Hermes 容器运维踩坑（非轻聊，接手者注意）
+## 七、Hermes 容器运维踩坑（非轻聊，接手者注意）
 
 ### Hermes 容器 `gateway-default` 重生风暴 → CPU 100%（2026-08-31 实测修复）
 - **现象**：`hermes-hermes-1` 容器 CPU 持续占满一核（`ps` 见 103% 进程）。日志 `/opt/data/logs/errors.log`：`Gateway (re)started 6-7 times in 120s — backing off`、`Previous gateway life ... exited UNCLEANLY (SIGKILL)`，pid 每 18-20s 递增。

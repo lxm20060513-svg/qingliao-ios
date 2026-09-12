@@ -93,6 +93,12 @@ QingliaoWidget/          挂件 Extension target（.appex）：灵动岛/锁屏�
 - **列表崩溃三连排查**：①从有到无同帧 → VStack+分帧两步走；②TabView 隐藏页清空 → 换掉 .scrollPosition（PreferenceKey 方案）；③数组就地 removeAll + ForEach diff → 后端驱动 + load() 整体替换
 - **灵动岛 / 实时活动（v3.8.0）**：只做本地驱动（侧载免费签名拿不到 Push 能力，不做 APNs/push-to-start）；`LiveActivityManager` **不持有 `Activity` 本体**——存进 `@MainActor` 存储再 `await update/end` 会报 Swift 6 `sending 'activity' risks causing data races`，改为只存 Sendable 状态、每次从 `Activity.activities` 现取（且该列表最终一致，收尾空列表时等 600ms 再收一次）；计时用 `Text(_:style:.timer)` 交系统走（App 被挂起后文案不再刷新，这是设计内降级）；挂件与主 App 共用 `qingliao/Core/LiveActivityAttributes.swift`（同编一份，改一处等于改两侧）；开关 key `qingliao_live_activity`（默认开）
 
+## 🆕 近期变更（v3.9.7，2026-09-12）
+
+- **灵动岛 / 锁屏实时活动美化（方案 A+B 合并）**：A 视觉——轻聊球贯穿全部形态（`Canvas` + `TimelineView(.animation, minimumInterval: 1/20)` 呼吸；侧载免费签名无 APNs，唯一帧源是本地驱动）；B 信息与交互——思考脉冲环 → 输出**不确定态旋转弧**（不画假百分比）→ 完成绿对勾保持 2s 三态、展开态状态文案 + 「停止生成」按钮（`StopGenerationIntent` 用 `LiveActivityIntent`：在**主 App 进程**执行且**不打开 App**，才能真停掉 App 里的流；`openAppWhenRun` 已废弃且在 extension 里置 true 直接编译报错），点灵动岛 `.widgetURL(qingliao://chat)` 回聊天页（官方推荐方式，零新 API 风险）；`LiveActivityManager` 只在 phase 变化时 update（不跟 token 刷）+ 代际令牌 + 会话归属校验；脉冲环半径上限 `r×1.15` 防灵动岛遮罩切半圆
+- **收件箱「进行中进度」气泡**（配合后端 v3.7.1，后端已上线）：`task_type="progress"` → 会话 🔔 进度气泡（`isPush=true` 故**不进模型上下文**、不弹本地通知、不进任务中心）；`pollOnce` 的「流式进行中跳过整轮」改为**只跳过 reply 类**——回前台立刻看到过程留痕，不再压到流结束才一起涌出
+- **语音转文字态输入框去掉流光特效层**：只保留「发送键变收音图标」（撤销 v3.2.4「语音模式保留流光」的决定；顺带语音期间输入栏已无每帧重绘视图）
+
 ## 🆕 近期变更（v3.9.6，2026-09-12）
 
 - **语音录音「实时上屏」根治**：v3.9.5 只把红色胶囊去掉、让输入框常显，实测录音全程仍只有「输入消息…」占位、松手才一次性出字 → v3.9.6 录音态**直接渲染 `liveSpeech.liveText`**（`@Published` 驱动，必然刷新）在输入栏同一行位置，并加 `.onChange(of: liveSpeech.liveText)` 同步进 `inputText`（不再依赖「闭包捕获的 @State 写入 + TextField 外部刷新」这两条不可靠路径）
