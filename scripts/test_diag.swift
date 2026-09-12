@@ -146,10 +146,64 @@ DiagnosticsStore.enqueue(dup)
 DiagnosticsStore.enqueue(dup)
 check("同 id 幂等不重复入队", DiagnosticsStore.pendingEvents().filter { $0.id == "dup1" }.count == 1)
 
+// MARK: 4b. v3.9.10 上报统计（诊断页「上报统计」行：待上报长期 0 时用来自证链路通）
+
+check("初始统计为空", DiagnosticsStore.stats() == DiagnosticsStore.UploadStats())
+DiagnosticsStore.recordUploadResult(ok: true, sent: 3, message: "已上报 3 条（120ms）")
+var st = DiagnosticsStore.stats()
+check("统计累计成功条数", st.totalUploaded == 3 && st.lastOK && st.lastAt > 0)
+DiagnosticsStore.recordUploadResult(ok: false, sent: 2, message: "已上报 2/5 条，余下已缓存")
+st = DiagnosticsStore.stats()
+check("统计累计到 5 且上次为失败", st.totalUploaded == 5 && !st.lastOK)
+check("统计文件已落盘", FileManager.default.fileExists(atPath: DiagnosticsStore.statsPath()))
+check("统计可重读（落盘往返一致）", DiagnosticsStore.stats().lastMessage == "已上报 2/5 条，余下已缓存")
+check("短时间：无记录显示「从未」", DiagnosticsPayload.shortTimeText(0) == "从未")
+check("短时间：有值可格式化", DiagnosticsPayload.shortTimeText(1789222570).contains(":"))
+
+// MARK: 4c. v3.9.10 修复项（确定性 id / 队列满不丢新事件 / 坏文件隔离 / 自测独立 kind）
+
+let c1 = DiagnosticsPayload.makeCrashEvent(type: "Signal(11)", detail: "SIGSEGV", stack: "s", env: env, ts: 1770000200)
+let c2 = DiagnosticsPayload.makeCrashEvent(type: "Signal(11)", detail: "SIGSEGV", stack: "s", env: env, ts: 1770000200)
+check("同一崩溃跨启动 id 相同（enqueue 去重才生效）", c1.id == c2.id)
+check("不同崩溃 id 不同",
+      DiagnosticsPayload.makeCrashEvent(type: "Signal(6)", detail: "", stack: "s", env: env,
+                                        ts: 1770000200).id != c1.id)
+
+check("自测记录用独立 kind", DiagnosticsStore.recordSelfTest(durationMs: 500, stack: "x").kind == "selftest")
+check("kindLabel 认识 selftest", DiagnosticsPayload.kindLabel("selftest") == "自测")
+
+// 队列满时，刚入队的「更旧 ts」事件（崩溃 ts 可能比一堆卡顿都早）不能被当场裁掉
+DiagnosticsStore.removePending(ids: DiagnosticsStore.pendingEvents().map { $0.id })
+DiagnosticsStore.clearHistory()
+for i in 0..<DiagnosticsPayload.maxPendingEvents {
+    DiagnosticsStore.enqueue(DiagnosticsPayload.makeEvent(kind: "hang", env: env, summary: "填\(i)",
+                                                          ts: 5000 + Double(i), id: "fill\(i)"))
+}
+let oldCrash = DiagnosticsPayload.makeCrashEvent(type: "Signal(11)", detail: "x", stack: "s", env: env, ts: 1)
+DiagnosticsStore.enqueue(oldCrash)
+check("队列满时新入队的更旧 ts 事件仍保留", DiagnosticsStore.pendingEvents().contains { $0.id == oldCrash.id })
+
+// 坏队列文件：不当成空队列，隔离留证后再继续
+DiagnosticsStore.removePending(ids: DiagnosticsStore.pendingEvents().map { $0.id })
+try? Data("not json at all".utf8).write(to: URL(fileURLWithPath: DiagnosticsStore.pendingPath()))
+DiagnosticsStore.enqueue(DiagnosticsPayload.makeEvent(kind: "hang", env: env, summary: "坏文件之后入队"))
+let quarantined = ((try? FileManager.default.contentsOfDirectory(atPath: tmp)) ?? [])
+    .contains { $0.contains("diag_pending.json.corrupt-") }
+check("坏队列文件被隔离为 .corrupt-* 留证", quarantined)
+check("坏文件不影响后续入队", DiagnosticsStore.pendingCount() == 1)
+
+// 本节清过历史/队列，给下一节（展示文本）重新铺一条卡顿 + 一条崩溃
+DiagnosticsStore.recordHang(durationMs: 812, stack: "0 qingliao\n1 UIKitCore")
+DiagnosticsStore.recordCrash(type: "Signal(11)", detail: "SIGSEGV", stack: "0 qingliao", ts: 1770000300)
+
 // MARK: 5. 展示文本（一键复制 / 导出）
 
+// v3.9.10：uploadStats 不再有默认值（漏传会静默导出「统计全空」的报告）——这里传非空统计再断言
 let bundle = DiagnosticsPayload.bundleText(env: env, events: DiagnosticsStore.historyEvents(),
-                                           backend: "正常（42ms）", pendingCount: DiagnosticsStore.pendingCount())
+                                           backend: "正常（42ms）", pendingCount: DiagnosticsStore.pendingCount(),
+                                           uploadStats: DiagnosticsStore.UploadStats(
+                                               totalUploaded: 7, lastOK: true,
+                                               lastMessage: "已上报 2 条", lastAt: 1770000400))
 check("诊断包含版本/构建号", bundle.contains("3.4.29") && bundle.contains("433"))
 check("诊断包含设备与系统", bundle.contains("iPhone17,2") && bundle.contains("26.0"))
 check("诊断包含网络与后端延迟", bundle.contains("wifi") && bundle.contains("42ms"))
@@ -157,6 +211,12 @@ check("诊断包含隐私声明", bundle.contains("不含聊天内容与凭据")
 check("诊断包列出记录", bundle.contains("卡顿") && bundle.contains("崩溃"))
 check("单条详情含调用栈", DiagnosticsPayload.detailText(ev).contains("UIKitCore"))
 check("单条详情含时长", DiagnosticsPayload.detailText(ev).contains("812ms"))
+check("诊断包含上报统计行", bundle.contains("上报统计") && bundle.contains("累计 7 条"))
+check("统计为空时也给出可读文案", DiagnosticsPayload.uploadStatsText(.init()) == "暂无上报记录")
+check("待上报 0 且有上报记录 → 标注已全部上报",
+      DiagnosticsPayload.pendingText(0, stats: .init(totalUploaded: 3, lastOK: true, lastMessage: "", lastAt: 0))
+        == "0 条（已全部上报）")
+check("待上报 >0 时直接给条数", DiagnosticsPayload.pendingText(4, stats: .init()) == "4 条")
 
 // 网络类型映射
 check("离线 → offline", DiagnosticsPayload.networkLabel(isCellular: false, isSatisfied: false) == "offline")

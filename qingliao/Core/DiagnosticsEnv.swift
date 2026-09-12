@@ -16,15 +16,31 @@ enum DiagnosticsEnv {
             version = (info["CFBundleShortVersionString"] as? String) ?? ""
             build = (info["CFBundleVersion"] as? String) ?? ""
         }
+        // v3.9.10：先按当前网络路径即时刷新一次，避免上报里带着上一跳的网络类型
+        NetworkMonitor.shared.refreshFromCurrentPath()
         return DiagEnv(
             version: version,
             build: build,
-            device: UIDevice.current.model,
+            device: Self.hardwareModel(),
             os: UIDevice.current.systemVersion,
             network: DiagnosticsPayload.networkLabel(
                 isCellular: NetworkMonitor.shared.isCellular,
                 isSatisfied: NetworkMonitor.shared.isSatisfied)
         )
+    }
+
+    /// v3.9.10 fix：硬件标识（"iPhone17,2"这种）。原来用 `UIDevice.current.model`，
+    /// 它只是设备族名（恒为 "iPhone"/"iPad"）→ 服务端无法按机型聚合卡顿/崩溃，
+    /// 而异构机型差异恰恰是 iOS 26 卡顿类问题的关键变量。仍不含任何用户可识别信息。
+    static func hardwareModel() -> String {
+        var info = utsname()
+        guard uname(&info) == 0 else { return UIDevice.current.model }
+        let mirror = Mirror(reflecting: info.machine)
+        let id = mirror.children.reduce(into: "") { acc, el in
+            guard let v = el.value as? Int8, v != 0 else { return }
+            acc.append(Character(UnicodeScalar(UInt8(bitPattern: v))))
+        }
+        return id.isEmpty ? UIDevice.current.model : id
     }
 
     /// 刷新并写入 Store（诊断页 / 上报前 / 启动时调用）

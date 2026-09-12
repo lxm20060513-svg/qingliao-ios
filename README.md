@@ -66,7 +66,7 @@ Core/
 ├── SafariRelay.swift    蜂窝兜底（iOS 27 管控）
 ├── KeychainHelper.swift Face ID 登录凭据（Keychain）
 ├── Models.swift         ChatMessage（含 queued 排队标记）/ ChatSession / HAEntity
-├── CrashReporter.swift  signal-safe 崩溃上报（handler 内只用 POSIX + C 字面量）
+├── CrashReporter.swift  signal-safe 崩溃上报（handler 内只用 POSIX + C 字面量；NSException→crash_pending.json，信号→crash_pending_sig.json + crash_stack.txt）
 ├── ImageCache.swift     dataURL → UIImage（@MainActor NSCache）
 ├── LiveActivityManager.swift    灵动岛/锁屏实时活动（本地 request/update/end；不持有 Activity 本体——Swift 6 sending 限制）
 └── LiveActivityAttributes.swift 实时活动共享属性（主 App 与挂件同编一份，改一处等于改两侧）

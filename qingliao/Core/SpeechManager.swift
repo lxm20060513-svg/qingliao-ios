@@ -14,6 +14,20 @@ import Foundation
 // v3.0.x：双引擎朗读 —— 系统 AVSpeechSynthesizer（默认） / 云端神经 TTS（小米 mimo-v2.5-tts）
 //   - 由 CloudConfig.ttsEnabled 总开关控制：关 = 系统语音（现状不变）；开 = 调后端 /api/tts 拿音频用 AVAudioPlayer 播
 
+/// v3.9.10：系统音色目录项（**纯 String**，Sendable；故意放**文件作用域**而不是嵌在
+/// `@MainActor` 类里——嵌套类型容易带上类的隔离推断，非隔离的后台构造函数返回它会在
+/// Swift 6 严格并发下报隔离错误）。
+struct SpeechVoiceOption: Sendable, Identifiable {
+    let id: String      // AVSpeechSynthesisVoice.identifier
+    let label: String   // "丁丁 · 优质"
+}
+
+/// 音色目录快照（只在 SpeechManager.swift 内部用）
+private struct SpeechVoiceCatalog: Sendable {
+    let options: [SpeechVoiceOption]
+    let hasHigh: Bool
+}
+
 @MainActor
 final class SpeechManager: NSObject, ObservableObject, AVSpeechSynthesizerDelegate,
                            AVAudioPlayerDelegate {
@@ -104,17 +118,30 @@ final class SpeechManager: NSObject, ObservableObject, AVSpeechSynthesizerDelega
         // v3.5.x：系统语音同样要显式激活 .playback —— 否则静音拨片/锁屏下无声（回退路径的无声根因）
         activatePlaybackSession()
         let ut = AVSpeechUtterance(string: clean)
-        // v3.9.9：改用"用户选定音色（没选/选没了就自动挑最优）"+ 可调语速
+        // v3.9.9：跟随用户选定音色（没选 = 目录里排名第一的）+ 可调语速
+        // v3.9.10 hotfix：这里**只读缓存**，绝不在主线程枚举音色（原因见下方音色目录注释）
         ut.voice = Self.resolvedSystemVoice()
         ut.rate = Self.systemRate
         synth.speak(ut)
     }
 
+    // MARK: - v3.9.9 / v3.9.10 系统音色可调（音色目录必须**离主线程**）
+    //
+    // ⚠️ v3.9.10 hotfix —— 3.9.9 真机 7 条 3.2~6.7 秒主线程卡顿（界面"点不动"），dSYM 符号化铁证：
+    //   卡顿栈 = AXCoreUtilities.axUnsafeForcedSync ← TextToSpeech(BufferAllocator::instance /
+    //   CAStreamBasicDescription::FromText) ← SpeechManager.systemVoiceChoices() ← ModelSheet.body.getter
+    // 即 `AVSpeechSynthesisVoice.speechVoices()` 会进 TextToSpeech，并被无障碍层**串行化同步等待**；
+    // 把它当 SwiftUI body 的计算属性来调 = 每次渲染卡 3~7 秒。所以本版改为：
+    //   ① 枚举只在**后台任务**里做一次（阻塞后台线程，不阻塞主线程）；
+    //   ② 主线程只读已算好的**字符串快照**（VoiceOption 全为 String，Sendable，跨线程安全）；
+    //   ③ 真正要用的 AVSpeechSynthesisVoice 对象按 id 缓存，每个音色只在主线程构造一次；
+    //   ④ 设置页只把快照取回填 @State，body 里不再有任何 AVFoundation 调用。
+
     // MARK: - v3.9.9 系统语音可调（用户反馈「TTS 语音太生硬」）
     //
     // 生硬的根因是**音质档**：系统语音默认给的是 compact 音质（机械感主要来自它）。
-    // 用户在 iOS 设置里下载「增强 / 优质」中文语音包后，`systemVoiceOptions()` 里就会出现
-    // 带「增强 / 优质」标记的音色，自动挑选逻辑（bestChineseVoice）也会优先命中它们。
+    // 用户在 iOS 设置里下载「增强 / 优质」中文语音包后，音色目录里就会出现带
+    // 「增强 / 优质」标记的音色，自动挑选逻辑也会优先命中它们。
     // App 不能代用户下载音色包，所以只能在设置页把可选音色列出来 + 提示下载路径。
     private static let systemVoiceKey = "qingliao_system_voice_id"
     private static let systemRateKey = "qingliao_system_rate_index"
@@ -145,27 +172,46 @@ final class SpeechManager: NSObject, ObservableObject, AVSpeechSynthesizerDelega
         }
     }
 
-    /// 中文系统音色，按音质高→低排（给设置页列表用；tuple 形式避免设置页 import AVFoundation）
-    static func systemVoiceChoices() -> [(id: String, label: String)] {
+    @MainActor private(set) static var voiceOptions: [SpeechVoiceOption] = []
+    @MainActor private(set) static var hasHighQualityVoice = false
+    @MainActor private(set) static var voiceCatalogLoaded = false
+    @MainActor private static var voiceCatalogTask: Task<Void, Never>?
+    /// 已构造过的音色对象（按 id）——每个音色只在主线程构造一次，避免朗读时反复进 TextToSpeech
+    @MainActor private static var voiceObjectCache: [String: AVSpeechSynthesisVoice] = [:]
+
+    /// 取音色目录：幂等 + **只枚举一次**，且枚举跑在后台线程。
+    /// 设置页 onAppear 与 App 启动预热都调它；不要在 SwiftUI body 里调（body 会被反复求值）。
+    static func voiceCatalog() async -> [SpeechVoiceOption] {
+        if voiceCatalogLoaded { return voiceOptions }
+        if let running = voiceCatalogTask {
+            await running.value
+            return voiceOptions
+        }
+        let task = Task { @MainActor in
+            let built = await Task.detached(priority: .utility) { Self.buildVoiceCatalog() }.value
+            voiceOptions = built.options
+            hasHighQualityVoice = built.hasHigh
+            voiceCatalogLoaded = true
+            voiceCatalogTask = nil
+        }
+        voiceCatalogTask = task
+        await task.value
+        return voiceOptions
+    }
+
+    /// ⚠️ 只允许在**后台线程**调用：`speechVoices()` 会进 TextToSpeech 并被无障碍层串行化同步等待。
+    nonisolated private static func buildVoiceCatalog() -> SpeechVoiceCatalog {
         let zh = AVSpeechSynthesisVoice.speechVoices().filter { $0.language.hasPrefix("zh") }
         let ranked = zh.sorted { a, b in
             let ra = qualityRank(a), rb = qualityRank(b)
             if ra != rb { return ra < rb }
             return a.name < b.name
         }
-        return ranked.map { ($0.identifier, "\($0.name) · \(qualityTag($0))") }
+        let options = ranked.map { SpeechVoiceOption(id: $0.identifier, label: "\($0.name) · \(qualityTag($0))") }
+        return SpeechVoiceCatalog(options: options, hasHigh: zh.contains { $0.quality != .default })
     }
 
-    /// 设置页提示：装了高音质包 vs 还没装
-    static var systemVoiceHint: String {
-        let hasHigh = AVSpeechSynthesisVoice.speechVoices()
-            .contains { $0.language.hasPrefix("zh") && $0.quality != .default }
-        return hasHigh
-            ? "优先选带「优质 / 增强」标记的音色，听感明显比「标准」自然。"
-            : "想更自然：iOS 设置 → 辅助功能 → 朗读内容 → 声音 → 中文，下载「增强」或「优质」音色（App 不能代你下载），回到这里即可选中。"
-    }
-
-    private static func qualityRank(_ v: AVSpeechSynthesisVoice) -> Int {
+    nonisolated private static func qualityRank(_ v: AVSpeechSynthesisVoice) -> Int {
         switch v.quality {
         case .premium: return 0
         case .enhanced: return 1
@@ -173,7 +219,7 @@ final class SpeechManager: NSObject, ObservableObject, AVSpeechSynthesizerDelega
         }
     }
 
-    private static func qualityTag(_ v: AVSpeechSynthesisVoice) -> String {
+    nonisolated private static func qualityTag(_ v: AVSpeechSynthesisVoice) -> String {
         switch v.quality {
         case .premium: return "优质"
         case .enhanced: return "增强"
@@ -181,24 +227,43 @@ final class SpeechManager: NSObject, ObservableObject, AVSpeechSynthesizerDelega
         }
     }
 
-    /// 实际使用的系统音色：优先用户所选（仍存在时），否则自动挑最优
-    static func resolvedSystemVoice() -> AVSpeechSynthesisVoice? {
-        let id = systemVoiceID
-        if !id.isEmpty,
-           let picked = AVSpeechSynthesisVoice.speechVoices().first(where: { $0.identifier == id }) {
-            return picked
+    /// 设置页提示（只读缓存状态，零 AVFoundation 调用）
+    static var systemVoiceHint: String {
+        guard voiceCatalogLoaded else {
+            return "正在后台读取系统音色，稍等片刻；列表暂时为空不代表没装语音包。"
         }
-        return bestChineseVoice()
+        return hasHighQualityVoice
+            ? "优先选带「优质 / 增强」标记的音色，听感明显比「标准」自然。"
+            : "想更自然：iOS 设置 → 辅助功能 → 朗读内容 → 声音 → 中文，下载「增强」或「优质」音色（App 不能代你下载），回到这里即可选中。"
     }
 
-    /// v3.5.x：系统语音优先挑最高音质的中文音色（premium > enhanced > 默认）——
-    /// 云端 TTS 不可用而降级时，听感尽量接近原云端神经语音。
-    private static func bestChineseVoice() -> AVSpeechSynthesisVoice? {
-        if #available(iOS 16.0, *) {
-            let zh = AVSpeechSynthesisVoice.speechVoices().filter { $0.language.hasPrefix("zh-CN") }
-            if let premium = zh.first(where: { $0.quality == .premium }) { return premium }
-            if let enhanced = zh.first(where: { $0.quality == .enhanced }) { return enhanced }
+    /// 实际使用的系统音色：**只读缓存**。
+    /// 缓存还没就绪时返回 nil（= 用系统默认音色先念），绝不为了取音色在主线程枚举。
+    /// 已查过但系统里不存在的音色 id（负结果缓存）：命中后不再进 AVFoundation，
+    /// 否则用户存过的音色被卸载后，**每一句朗读**都会在主线程重跑一次解析。
+    private static var voiceMisses: Set<String> = []
+
+    static func resolvedSystemVoice() -> AVSpeechSynthesisVoice? {
+        // ① 目录已就绪时先剔掉「已被系统卸载」的存量选择：否则 UI 一直显示一个不存在的音色
+        if voiceCatalogLoaded, !systemVoiceID.isEmpty,
+           !voiceOptions.contains(where: { $0.id == systemVoiceID }) {
+            voiceMisses.insert(systemVoiceID)
+            setSystemVoiceID("")   // 只读计算属性，写入必须走 setter
         }
+        // ② 目标音色：用户选的（已知失效则跳过）→ 「自动」= 目录排名第一（premium > enhanced > 标准）
+        var target = systemVoiceID
+        if target.isEmpty || voiceMisses.contains(target) { target = voiceOptions.first?.id ?? "" }
+        if !target.isEmpty, !voiceMisses.contains(target) {
+            if let cached = voiceObjectCache[target] { return cached }
+            if let voice = AVSpeechSynthesisVoice(identifier: target) {
+                voiceObjectCache[target] = voice
+                return voice
+            }
+            voiceMisses.insert(target)
+        }
+        // ③ v3.9.10 fix（审查抓到）：兜底不能用「设备默认」——中文机器上默认常是 en-US，
+        // 中文文本会被英文音素念出来（正是用户说的「生硬」）。目录还没预热好（启动预热要几秒）
+        // 或目标失效时，回到与旧实现一致的语言兜底。
         return AVSpeechSynthesisVoice(language: "zh-CN")
     }
 

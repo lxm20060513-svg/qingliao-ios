@@ -63,6 +63,20 @@ enum DiagnosticsPayload {
 
     // MARK: 组装
 
+    /// v3.9.10：**确定性** id（FNV-1a 64）。崩溃事件用它，保证「同一份 crash_pending.json」
+    /// 每次启动算出同一个 id —— 原实现用随机 UUID，崩溃上报失败后每次启动都会以新 id 再入队一次，
+    /// enqueue 的 id 去重完全失效：同一条崩溃在服务端出现多份，还会把队列塞满。
+    static func stableId(_ parts: String...) -> String {
+        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
+        for p in parts {
+            for b in p.utf8 {
+                hash ^= UInt64(b)
+                hash = hash &* 0x0000_0100_0000_01b3
+            }
+        }
+        return String(hash, radix: 16)
+    }
+
     static func newId() -> String {
         UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased().prefix(16).description
     }
@@ -99,8 +113,10 @@ enum DiagnosticsPayload {
         let summary = clamp(head.split(separator: "\n").first.map(String.init) ?? type,
                             maxSummaryChars)
         let full = stack.isEmpty ? detail : (detail.isEmpty ? stack : detail + "\n" + stack)
+        // v3.9.10：崩溃事件用确定性 id（同一份崩溃文件跨启动复用同一 id → 队列 id 去重生效）
         return makeEvent(kind: "crash", env: env, summary: summary,
-                         stack: full, durationMs: 0, ts: ts)
+                         stack: full, durationMs: 0, ts: ts,
+                         id: stableId("crash", type, String(Int(ts))))
     }
 
     /// 卡顿事件
@@ -171,6 +187,12 @@ enum DiagnosticsPayload {
         (try? JSONDecoder().decode([DiagEvent].self, from: data)) ?? []
     }
 
+    /// v3.9.10：严格解码 —— 失败返回 nil（调用方要能区分「文件为空」与「文件坏了」，
+    /// 后者当成空数组会让下一次写入把积压原子覆盖掉）
+    static func decodeStrict(_ data: Data) -> [DiagEvent]? {
+        try? JSONDecoder().decode([DiagEvent].self, from: data)
+    }
+
     /// 只保留最新的 limit 条（按 ts 升序返回，便于顺时针追加）
     static func capEvents(_ events: [DiagEvent], limit: Int) -> [DiagEvent] {
         let sorted = events.sorted { $0.ts < $1.ts }
@@ -193,6 +215,7 @@ enum DiagnosticsPayload {
         switch kind {
         case "crash": return "崩溃"
         case "hang": return "卡顿"
+        case "selftest": return "自测"
         default: return kind
         }
     }
@@ -201,6 +224,14 @@ enum DiagnosticsPayload {
         guard ts > 0 else { return "未知时间" }
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        return f.string(from: Date(timeIntervalSince1970: ts))
+    }
+
+    /// v3.9.10：短时间（HH:mm:ss）——诊断页「上次上报」用，完整日期太长
+    static func shortTimeText(_ ts: Double) -> String {
+        guard ts > 0 else { return "从未" }
+        let f = DateFormatter()
+        f.dateFormat = "MM-dd HH:mm:ss"
         return f.string(from: Date(timeIntervalSince1970: ts))
     }
 
@@ -221,9 +252,29 @@ enum DiagnosticsPayload {
         return lines.joined(separator: "\n")
     }
 
+    /// 「待上报」文案（**单一来源**：诊断页与导出文本共用，避免两处各写一份后漂移）
+    static func pendingText(_ pendingCount: Int, stats: DiagnosticsStore.UploadStats) -> String {
+        if pendingCount > 0 { return "\(pendingCount) 条" }
+        return stats.totalUploaded > 0 ? "0 条（已全部上报）" : "0 条"
+    }
+
+    /// 「上报统计」文案（**单一来源**）
+    static func uploadStatsText(_ s: DiagnosticsStore.UploadStats) -> String {
+        guard s.lastAt > 0 || s.totalUploaded > 0 else { return "暂无上报记录" }
+        var out = "累计 \(s.totalUploaded) 条"
+        if s.lastAt > 0 {
+            out += " · 上次 \(shortTimeText(s.lastAt))"
+            out += s.lastOK ? " 成功" : " 失败"
+        }
+        return out
+    }
+
     /// 整包诊断文本（一键复制 / 导出）
+    /// v3.9.10：`uploadStats` **不给默认值**——原来带 `.init()` 默认值，任何调用点漏传就会静默
+    /// 导出一份「统计全空」的报告（测试也是靠默认值空统计蒙混过的）。
     static func bundleText(env: DiagEnv, events: [DiagEvent],
-                           backend: String, pendingCount: Int) -> String {
+                           backend: String, pendingCount: Int,
+                           uploadStats: DiagnosticsStore.UploadStats) -> String {
         var out = [
             "轻聊诊断报告",
             "生成时间: \(timeText(Date().timeIntervalSince1970))",
@@ -232,7 +283,8 @@ enum DiagnosticsPayload {
             "系统: \(env.os)",
             "网络: \(env.network)",
             "后端连通性: \(backend)",
-            "待上报: \(pendingCount) 条",
+            "待上报: \(pendingText(pendingCount, stats: uploadStats))",
+            "上报统计: \(uploadStatsText(uploadStats))",
             "记录数: \(events.count) 条",
             String(repeating: "-", count: 30),
         ]

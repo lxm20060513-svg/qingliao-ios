@@ -531,7 +531,11 @@ final class LiveSpeechTranscriber: ObservableObject {
         liveText = text
         onTextChange?(text)
         NSLog("[VOICE] 定稿 len=\(text.count) canceled=\(cancelRequested) finished=\(resultsFinished)")
-        diagnostics = diagnostics + " " + resultStats + " first" + String(firstResultMs) + "ms"
+        // v3.9.10 fix（审查抓到）：firstResultMs == -1 是「本次一个中间结果都没出」的哨兵，
+        // 直接拼成 "first-1ms" 会被当成假耗时上报到服务端 —— 而这恰恰是要排查的那个故障
+        // （volatileCount == 0）必然踩到的分支，等于在诊断数据里造假。
+        let firstText = firstResultMs >= 0 ? "first\(firstResultMs)ms" : "first=无结果"
+        diagnostics = diagnostics + " " + resultStats + " " + firstText
         return text
     }
 

@@ -71,6 +71,14 @@ final class HangWatchdog: @unchecked Sendable {
     private var sampledThisBurst = false
     private var sampling = false
     private var samples: [String] = []
+    /// v3.9.10：采样归属代次。监控线程采完 ~300ms 才写回，而主线程可能在写回前就结束了这一段
+    /// （甚至进入下一条卡顿）→ 旧样本会挂到新的卡顿上。样本带上采样时的代次，只认同一代。
+    private var burstId: UInt64 = 0
+    private var samplesBurstId: UInt64 = 0
+    /// v3.9.10：完全死锁兜底是否已上报（一段繁忙只报一次；繁忙段结束时复位）
+    private var deadlockReported = false
+    /// v3.9.10：连续繁忙超过该时长仍未恢复 → 判定「主线程不会回来了」，由监控线程直接入队
+    private static let hardStallNs: UInt64 = 2_000_000_000
     private var breadcrumbs: [String] = []
 
     /// 主线程 mach port 与栈区间（采样合法性校验用）
@@ -167,19 +175,41 @@ final class HangWatchdog: @unchecked Sendable {
             busySinceNs = now
             sampledThisBurst = false
             samples = []
+            burstId &+= 1          // 新一段开始（旧样本即便后到也不会被认领）
+            deadlockReported = false
             lock.unlock()
         case .beforeWaiting:
+            // v3.9.10：影子状态自愈——inForeground 靠 4 个通知维护，一旦错过一次
+            // didBecomeActive/willEnterForeground（例如注册时机不当），它会永久停在「非前台」，
+            // 之后 tick 永不采样、checkStall 永不执行，而 UI 开关仍显示「已开启」→ 静默漏报。
+            // applicationState 只能在主线程读（本回调即在主线程），用它兜底校正一次。
+            if UIApplication.shared.applicationState == .active {
+                lock.lock()
+                inForeground = true
+                lock.unlock()
+            }
             // 主线程要睡了 → 本段工作时长 = now - 醒来时刻；只有前台活跃才记账
             lock.lock()
-            let busy = now &- busySinceNs
+            // v3.9.10 fix（真机假阳性根因）：busySinceNs == 0 是「当前没有繁忙段」的**哨兵**，
+            // 不是时间戳。前台状态通知回调（见 watchForegroundState）会把它清 0，若那一拍紧接着
+            // 走到 beforeWaiting，`now &- 0` 会算出「开机至今」→ 上报一条时长以小时计的假卡顿
+            //（历史上 118685ms / 51136ms 就是这一类）。所以必须先判哨兵。
+            let hasBurst = (busySinceNs != 0)
+            let busy = hasBurst ? (now &- busySinceNs) : 0
             let fg = inForeground
             let thr = thresholdMs
             busySinceNs = 0
             sampledThisBurst = false
+            // v3.9.10 fix：先把「这段是否已由死锁兜底上报过」取出来再清零。
+            // 否则主流路径会在恢复后又补一条（真死锁常十几秒，早过了 5s 冷却）→ 同源卡顿两条。
+            let wasReportedByDeadlock = deadlockReported
+            deadlockReported = false
             lock.unlock()
             // applicationState 必须主线程读（observer 回调即在主线程）
             let active = fg && (UIApplication.shared.applicationState == .active)
-            if active { checkStall(busy, threshold: thr, now: now) }
+            if active && hasBurst && !wasReportedByDeadlock {
+                checkStall(busy, threshold: thr, now: now)
+            }
         default:
             lock.lock()
             if busySinceNs == 0 { busySinceNs = now }
@@ -190,11 +220,18 @@ final class HangWatchdog: @unchecked Sendable {
     private func checkStall(_ busyNs: UInt64, threshold: Int, now: UInt64) {
         let ms = Int(busyNs / 1_000_000)
         guard ms >= threshold else { return }
-        guard now &- lastReportNs > Self.reportCooldownNs else { return }
-        lastReportNs = now
+        // v3.9.10：冷却判定与写入一并放进锁（监控线程的兜底路径也会写 lastReportNs，
+        // 锁外读写在 TSan 下是 race，且可能读到旧值导致多报/漏报一条）
+        lock.lock()
+        let cooldownPassed = (now &- lastReportNs) > Self.reportCooldownNs
+        if cooldownPassed { lastReportNs = now }
+        lock.unlock()
+        guard cooldownPassed else { return }
 
         lock.lock()
-        let got = samples
+        // v3.9.10：只认「本段」的样本（代次匹配）。监控线程采完写回时这段可能已结束，
+        // 那些样本属于上一段（往往已是空闲 mach_msg_trap），挂到本条卡顿上就是假栈。
+        let got = (samplesBurstId == burstId) ? samples : []
         let crumbs = breadcrumbs
         samples = []
         lock.unlock()
@@ -231,18 +268,61 @@ final class HangWatchdog: @unchecked Sendable {
             sampling = true
             sampledThisBurst = true
         }
+        let sampledBurst = burstId
+        // v3.9.10 fix（审查抓到的自伤）：死锁兜底**不能挂在 due 后面**——due 要求
+        // !sampledThisBurst，而 sampledThisBurst 只在主线程的 afterWaiting/beforeWaiting 复位；
+        // 「完全死锁」的定义就是主线程再也不回 RunLoop → 一轮采样后 sampledThisBurst 恒为 true，
+        // 兜底分支永远到不了（等于没修）。这里改成独立门控：只要「繁忙够久 + 还没报过」就判定。
+        let stuckDue = (busy != 0 && inForeground && !sampling && !deadlockReported
+                        && (now &- busy) >= Self.hardStallNs)
         lock.unlock()
-        guard due else { return }
+        guard due || stuckDue else { return }
 
         var out: [String] = []
-        for i in 0..<Self.sampleRounds {
-            out.append(sampleMainThread())
-            if i < Self.sampleRounds - 1 { usleep(UInt32(Self.sampleGapMs) * 1000) }
+        if due {
+            for i in 0..<Self.sampleRounds {
+                out.append(sampleMainThread())
+                if i < Self.sampleRounds - 1 { usleep(UInt32(Self.sampleGapMs) * 1000) }
+            }
         }
         lock.lock()
-        if samples.isEmpty { samples = out } else { samples.append(contentsOf: out) }
+        // v3.9.10：写回前必须仍是「同一段且仍然繁忙」——采样耗时 ~300ms，这期间主线程可能已经
+        // 结束这一段（甚至进入下一段）。旧样本（往往已是空闲 mach_msg_trap）挂到新卡顿上就是假栈。
+        let sameBurst = (busySinceNs != 0 && burstId == sampledBurst)
+        if sameBurst && !out.isEmpty {
+            if samples.isEmpty { samples = out } else { samples.append(contentsOf: out) }
+            samplesBurstId = sampledBurst
+        }
         sampling = false
         lock.unlock()
+        // due 路径要求同一段仍繁忙；stuckDue 路径（主线程已不回来）自然允许段未结束
+        guard sameBurst || (stuckDue && busy != 0) else { return }
+
+        // v3.9.10：**完全死锁兜底**。主线程若永不回到 RunLoop，observer 的 beforeWaiting 永不触发，
+        // checkStall 也就永远不会执行（即 v3.6.x 的「完全死锁无法上报」）。可此刻监控线程手里已经
+        // 握着「持续了多久 + 真实栈」，于是由它**自己**把证据落进离线队列（DiagnosticsStore 走 ioQueue
+        // 串行队列，不依赖主线程），下次启动 flushPending 补传。只入队不联网——主线程卡着也发不出去。
+        let now2 = nowNs()
+        lock.lock()
+        let busyStart = busySinceNs
+        let stuck = busyStart != 0 && !deadlockReported && (now2 &- busyStart) >= Self.hardStallNs
+        var got: [String] = []
+        var crumbs: [String] = []
+        if stuck {
+            deadlockReported = true
+            // 与主线程路径共用冷却，避免主线程恢复后 checkStall 再补一条重复的
+            lastReportNs = now2
+            got = samples
+            crumbs = breadcrumbs
+            samples = []
+        }
+        lock.unlock()
+        guard stuck else { return }
+
+        let ms = Int((now2 &- busyStart) / 1_000_000)
+        let stack = renderReport(durationMs: ms, samples: got, crumbs: crumbs)
+        DiagnosticsStore.recordHang(durationMs: ms, stack: stack)
+        NSLog("[DIAG] 主线程疑似完全死锁 \(ms)ms（采样 \(got.count) 条）已入离线队列，下次启动补传")
     }
 
     /// 抓一次主线程栈：suspend → thread_get_state → 手工 FP 链 → resume
@@ -360,8 +440,10 @@ final class HangWatchdog: @unchecked Sendable {
 
     private func appendBreadcrumb(_ text: String) {
         lock.lock()
-        let sec = Int((nowNs() &- startedNs) / 1_000_000_000)
-        breadcrumbs.append("\(sec)s \(text.prefix(60))")
+        // v3.9.10：startedNs == 0 是「看门狗未启动」的哨兵，不能当时间戳算
+        // （否则面包屑会显示「开机至今」如 12345s —— 与已修的 busySinceNs 同型错误）
+        let sec = startedNs == 0 ? -1 : Int((nowNs() &- startedNs) / 1_000_000_000)
+        breadcrumbs.append(sec < 0 ? "-- \(text.prefix(60))" : "\(sec)s \(text.prefix(60))")
         if breadcrumbs.count > Self.maxBreadcrumbs {
             breadcrumbs.removeFirst(breadcrumbs.count - Self.maxBreadcrumbs)
         }
@@ -371,8 +453,12 @@ final class HangWatchdog: @unchecked Sendable {
     // MARK: 上报文本
 
     private func renderReport(durationMs: Int, samples: [String], crumbs: [String]) -> String {
+        // v3.9.10 fix：samples 为空时下面会退化成 Thread.callStackSymbols（= observer→handle→checkStall
+        // 这条**上报链自己**的栈），标成 mainThreadSample 会把行号噪声当卡顿点（v3.6.0 曾因此误读整批日志）
         var lines: [String] = [
-            "stackSource=mainThreadSample rounds=\(samples.count)",
+            samples.isEmpty
+                ? "stackSource=runloopRecovery rounds=0（兜底：这是恢复点栈，不是卡死帧，不能用于定位卡顿点）"
+                : "stackSource=mainThreadSample rounds=\(samples.count)",
             "state=active threshold=\(thresholdMs)ms duration=\(durationMs)ms",
         ]
         if !crumbs.isEmpty {

@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 
 // MARK: - v3.6.0 设置 → 诊断（App 自身诊断页）
@@ -15,6 +16,10 @@ struct DiagnosticsView: View {
     @State private var env: DiagEnv = .unknown
     @State private var events: [DiagEvent] = []
     @State private var pendingCount = 0
+    /// v3.9.10：上报统计（累计条数 / 上次结果）——「待上报」长期为 0 时用它自证链路是通的
+    @State private var uploadStats = DiagnosticsStore.UploadStats()
+    /// v3.9.10：队列变化通知的合并闸（防一次上报的多条通知各刷一遍全量读盘）
+    @State private var refreshScheduled = false
     @State private var expanded: Set<String> = []
     @State private var copied = false
     @State private var showExporter = false
@@ -84,6 +89,21 @@ struct DiagnosticsView: View {
                 }
             }
             .task { await reload() }
+            // v3.9.10：队列/上报统计变化即刷新（看门狗在后台记录并上报时，页面上数字要跟着动）
+            .onReceive(NotificationCenter.default.publisher(
+                for: DiagnosticsStore.queueChangedNotification)) { _ in
+                // v3.9.10 fix（审查抓到）：一次兜底 flush 最多 10 批 → 出队/记账各自发通知，
+                // 每次都同步三读（pending/stats/history，最多 50+30 条 × 4000 字栈 + JSON 解码）。
+                // 这会让诊断页自己在主线程忙起来——正好叠在刚恢复的主线程上，可能被看门狗
+                // 记成一条「真卡顿」（自证式假阳性）。合并 300ms 内的连续通知，只刷一次。
+                if refreshScheduled { return }
+                refreshScheduled = true
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(300))
+                    refreshScheduled = false
+                    await reload()
+                }
+            }
             .onChange(of: hangEnabled) { _, _ in HangWatchdog.shared.refreshSettings() }
             .onChange(of: hangThreshold) { _, _ in HangWatchdog.shared.refreshSettings() }
             .sheet(isPresented: $showExporter) {
@@ -164,7 +184,12 @@ struct DiagnosticsView: View {
         SectionHeader("上报")
         VStack(spacing: 0) {
             SettingRow(icon: "tray.full.fill", iconColor: .purple, title: "待上报记录",
-                       value: "\(pendingCount) 条")
+                       value: pendingText)
+            Divider().padding(.leading, 52)
+            SettingRow(icon: "checkmark.seal.fill",
+                       iconColor: uploadStats.lastOK ? .green : .orange,
+                       title: "上报统计",
+                       value: uploadStatsText)
             Divider().padding(.leading, 52)
             Button {
                 Task { await manualUpload() }
@@ -230,6 +255,17 @@ struct DiagnosticsView: View {
             .buttonStyle(.plain)
         }
         .glassListCard()
+    }
+
+    // MARK: 上报计数文案（v3.9.10）
+
+    /// 「待上报」/「上报统计」—— 实现统一在 DiagnosticsPayload（导出文本与页面共用同一份文案）
+    private var pendingText: String {
+        DiagnosticsPayload.pendingText(pendingCount, stats: uploadStats)
+    }
+
+    private var uploadStatsText: String {
+        DiagnosticsPayload.uploadStatsText(uploadStats)
     }
 
     // MARK: 最近记录
@@ -384,6 +420,7 @@ struct DiagnosticsView: View {
         env = DiagnosticsStore.env()
         events = DiagnosticsStore.historyEvents()
         pendingCount = DiagnosticsStore.pendingCount()
+        uploadStats = DiagnosticsStore.stats()
         DiagnosticsUploader.attach(auth: auth)
         await checkPing()
     }
@@ -411,6 +448,7 @@ struct DiagnosticsView: View {
         uploadText = r.message
         withAnimation(Motion.snap) {
             pendingCount = DiagnosticsStore.pendingCount()
+            uploadStats = DiagnosticsStore.stats()
             events = DiagnosticsStore.historyEvents()
         }
     }
@@ -418,10 +456,12 @@ struct DiagnosticsView: View {
     /// 写入一条测试记录（仅本地 + 队列），用于在真机上验证「记录 → 上报」链路
     private func simulateHang() {
         DiagnosticsEnv.refresh()
-        DiagnosticsStore.recordHang(durationMs: hangThreshold + 37,
-                                    stack: "(自测记录 · 非真实卡顿)")
+        // v3.9.10：用独立 kind=selftest，服务端统计卡顿时可据此剔除
+        DiagnosticsStore.recordSelfTest(durationMs: hangThreshold + 37,
+                                        stack: "(自测记录 · 非真实卡顿)")
         withAnimation(Motion.snap) {
             pendingCount = DiagnosticsStore.pendingCount()
+            uploadStats = DiagnosticsStore.stats()
             events = DiagnosticsStore.historyEvents()
         }
         uploadText = "已写入一条测试记录（\(pendingCount) 条待上报）"
@@ -430,7 +470,8 @@ struct DiagnosticsView: View {
 
     private func bundleText() -> String {
         DiagnosticsPayload.bundleText(env: env, events: events,
-                                      backend: pingText, pendingCount: pendingCount)
+                                      backend: pingText, pendingCount: pendingCount,
+                                      uploadStats: uploadStats)
     }
 
     private func copyAll() {

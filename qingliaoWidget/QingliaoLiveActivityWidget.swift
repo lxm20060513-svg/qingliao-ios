@@ -7,7 +7,7 @@ import WidgetKit
 ///
 /// 四条设计约束（都是硬约束，别绕）：
 /// 1. ~~计时用 `Text(_:style: .timer)` 交给系统自走~~ **v3.9.9 已移除计时文字**（用户要求），
-///    右侧改为阶段图标（phaseBadge）。原注释保留一句为什么当初用它——侧载免费签名没有推送更新，App 被挂起后
+///    右侧改为阶段指示（v3.9.10 起是渐变进度环 phaseRing）。原注释保留一句为什么当初用它——侧载免费签名没有推送更新，App 被挂起后
 ///    文本不会再刷新，只有系统计时钟照走，所以「已用时」必须靠它。
 /// 2. **动效的唯一可靠来源是「数据更新」**（Apple《Animating data updates in widgets and Live
 ///    Activities》原文：动画随数据更新发生，**最长 2 秒**；常亮屏下系统不播动画；iOS 16 及更早会
@@ -35,7 +35,7 @@ struct QingliaoLiveActivityWidget: Widget {
                         .padding(.leading, 2)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
-                    self.phaseBadge(state: context.state, size: 15)
+                    self.phaseRing(state: context.state, size: 16)
                         .padding(.trailing, 2)
                 }
                 DynamicIslandExpandedRegion(.bottom) {
@@ -59,10 +59,10 @@ struct QingliaoLiveActivityWidget: Widget {
 
     // MARK: - 各形态内容
 
-    /// 紧凑态右侧：阶段图标（v3.9.9 起不再显示计时数字；完成态由 phaseBadge 给对勾）
+    /// 紧凑态右侧：渐变进度环（v3.9.9 起不再显示计时数字；v3.9.10 起不用系统气泡图标）
     @ViewBuilder
     private func compactTrailing(state: QingliaoActivityAttributes.ContentState) -> some View {
-        self.phaseBadge(state: state, size: 12)
+        self.phaseRing(state: state, size: 13)
     }
 
     /// 展开态底部：会话标题 + 状态行（+ 进行中显示「停止生成」按钮）
@@ -103,29 +103,45 @@ struct QingliaoLiveActivityWidget: Widget {
         .buttonStyle(.plain)
     }
 
-    /// v3.9.9（用户要求）：**取消计时文字**。
+    /// v3.9.10：右侧阶段指示改为**渐变进度环**。
     ///
-    /// 原来这里是 `Text(state.startedAt, style: .timer)`——每秒跳一次，观感生硬，
-    /// 而且侧载无推送时这个秒数并不代表真实进度（它只反映"已经过去多久"）。
-    /// 改成**阶段指示**：思考 / 生成 / 完成三态各一个图标，阶段变化时由系统播一次过渡
-    /// （`.contentTransition(.symbolEffect(.replace))`）。
+    /// 上一版用的是 SF Symbol（`ellipsis.bubble.fill` / `text.bubble.fill`）——用户反馈"信息气泡图标太丑"。
+    /// 改成环，而不是再挑一个系统图标，理由是：
+    ///   ① 观感能对齐 App 内既定语汇（OrbPalette 淡雅蓝紫 + 圆头描边 + 一点柔光），不是"系统默认感"；
+    ///   ② 三阶段可以用**环的填充比例**表达（思考 26% / 生成 72% / 完成 100%），比换图标信息量更大；
+    ///   ③ 环天然会"长"，阶段变化时由系统播一次过渡，比 symbolEffect 更含蓄。
     ///
-    /// 注意这就是实时活动里唯一可靠的"动"：Apple 明确动画**只随数据更新发生、最长 2s、
-    /// 常亮屏(AOD)下不播**，所以这里不做连续自走动画（做了真机也停在第一帧）。
-    private func phaseBadge(state: QingliaoActivityAttributes.ContentState, size: CGFloat) -> some View {
-        let symbol: String
-        if !state.isAnswering {
-            symbol = "checkmark.circle.fill"
-        } else if state.phase == QingliaoActivityAttributes.Phase.streaming.rawValue {
-            symbol = "text.bubble.fill"
-        } else {
-            symbol = "ellipsis.bubble.fill"
+    /// 仍守住 Apple 的边界：动画**只随数据更新发生、最长 2s、常亮屏(AOD)不播**，不做连续自走动画。
+    private func phaseRing(state: QingliaoActivityAttributes.ContentState, size: CGFloat) -> some View {
+        let streaming = state.phase == QingliaoActivityAttributes.Phase.streaming.rawValue
+        let progress: Double = !state.isAnswering ? 1.0 : (streaming ? 0.72 : 0.26)
+        let tint: Color = !state.isAnswering ? OrbPalette.success : (streaming ? OrbPalette.tail : OrbPalette.accent)
+        let line = max(1.8, size * 0.13)
+        return ZStack {
+            // 底环：极淡，保证小尺寸下也有环的形状（灵动岛背景本身是黑的，太透明会看不见）
+            Circle()
+                .stroke(Color.white.opacity(0.16), lineWidth: line)
+            // 进度弧：淡蓝 → 蓝 → 紫（或完成态全绿），圆头 + 一点柔光
+            Circle()
+                .trim(from: 0, to: progress)
+                .stroke(AngularGradient(gradient: Gradient(colors: [OrbPalette.highlight, OrbPalette.mid, tint]),
+                                        center: .center,
+                                        startAngle: .degrees(-90),
+                                        endAngle: .degrees(270)),
+                        style: StrokeStyle(lineWidth: line, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+                .shadow(color: tint.opacity(0.5), radius: size * 0.18)
+            if !state.isAnswering {
+                Image(systemName: "checkmark")
+                    .font(.system(size: size * 0.46, weight: .bold))
+                    .foregroundStyle(OrbPalette.success)
+                    .transition(.opacity)
+            }
         }
-        return Image(systemName: symbol)
-            .font(.system(size: size, weight: .semibold))
-            .foregroundStyle(state.isAnswering ? OrbPalette.accent : OrbPalette.success)
-            .contentTransition(.symbolEffect(.replace))
-            .frame(maxWidth: 44)
+        .frame(width: size, height: size)
+        // 只在 progress 变化（= 阶段推进）时播一次缓出过渡
+        .animation(.easeOut(duration: 0.35), value: progress)
+        .frame(maxWidth: 44)   // 与上一版一致：给灵动岛右侧固定占位，避免旁边的文字回跳
     }
 
     /// 状态行文案：阶段 + 模型名（模型名取自发送路径同一套选型，见 ChatView.liveActivityModelName）
@@ -156,7 +172,7 @@ struct QingliaoLiveActivityWidget: Widget {
                     .lineLimit(1)
             }
             Spacer(minLength: 8)
-            phaseBadge(state: state, size: 15)
+            phaseRing(state: state, size: 16)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)

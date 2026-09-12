@@ -124,10 +124,11 @@ struct ModelSheet: View {
     private var ttsVoiceOptions: [(name: String, id: String)] {
         CloudConfig.ttsVoicesFor(provider: ttsProvider, model: ttsModel)
     }
-    /// v3.9.9：系统（离线）中文音色列表——带「优质/增强/标准」标记，让用户一眼看出装没装高音质包
-    private var systemVoiceChoices: [(id: String, label: String)] {
-        SpeechManager.systemVoiceChoices()
-    }
+    /// v3.9.10 hotfix：系统音色列表改为 **@State 快照**，body 里绝不再枚举音色。
+    /// v3.9.9 把它写成计算属性 → 每次 body 求值都调 `AVSpeechSynthesisVoice.speechVoices()`，
+    /// 真机卡 3~7 秒（dSYM 符号化已确证到本文件）。现在只在 onAppear 里异步取一次。
+    @State private var voiceOptions: [SpeechVoiceOption] = []
+    @State private var voiceHintText = ""
 
     /// v2.0.131：opencode 同步模型显示名映射（无映射的用 id 本身）
     private let opencodeNames: [String: String] = [
@@ -407,8 +408,7 @@ struct ModelSheet: View {
                                     Spacer()
                                     Picker("", selection: $sysVoiceID) {
                                         Text("自动（最自然可用）").tag("")
-                                        ForEach(systemVoiceChoices.indices, id: \.self) { idx in
-                                            let opt = systemVoiceChoices[idx]
+                                        ForEach(voiceOptions) { opt in
                                             Text(opt.label).tag(opt.id)
                                         }
                                     }
@@ -434,7 +434,7 @@ struct ModelSheet: View {
                                         SpeechManager.setSystemRateIndex(new)
                                     }
                                 }
-                                Text(SpeechManager.systemVoiceHint)
+                                Text(voiceHintText.isEmpty ? SpeechManager.systemVoiceHint : voiceHintText)
                                     .font(.system(size: Typography.tiny)).foregroundStyle(.tertiary)
                             }
                         }
@@ -471,6 +471,11 @@ struct ModelSheet: View {
         }
         .onAppear {
             selected = current
+            // v3.9.10：音色目录异步取一次（枚举在后台线程；body 里不再有任何 AVFoundation 调用）
+            Task {
+                voiceOptions = await SpeechManager.voiceCatalog()
+                voiceHintText = SpeechManager.systemVoiceHint
+            }
             // v2.0.118：动态拉取本地已装模型（自主选择）
             Task {
                 if let j = try? await auth.json("/api/local/models") {

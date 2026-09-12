@@ -33,11 +33,16 @@ struct QingliaoApp: App {
                     // 均为同步赋值类轻操作，会话加载是重 IO）；轻操作打包一组、重 IO 一组，组内并行，缩短启动耗时
                     NotificationHelper.requestAuth()
                     initImageCacheLimit()
+                    // v3.9.10：启动就采集一次环境快照（此前完全不采集 → 未登录启动后
+                    // currentEnv 长期是 .unknown，语音零结果这类上报的环境字段全空、无法归因）
+                    DiagnosticsEnv.refresh()
                     LiveSpeechTranscriber.cleanupLegacyRecordings()   // v3.9.3：清旧「录音上传」留下的 .m4a（新流程不落盘音频）
                     // v3.8.0：启动收敛——清掉上一进程遗留的实时活动（App 被杀/闪退后活动仍由系统保留数小时）
                     await LiveActivityManager.shared.convergeOnLaunch()
                     LocalToolRunner.authStore = auth
                     SpeechManager.shared.attach(auth: auth)
+                    // v3.9.10：预热系统音色目录（后台枚举一次，避免首次朗读/设置页在主线程枚举音色卡 3~7 秒）
+                    Task { _ = await SpeechManager.voiceCatalog() }
                     PinStore.shared.attach(auth: auth)
                     MemoStore.shared.attach(auth: auth)   // v3.7.0：备忘录（NAS 双写）
                     InboxStore.shared.attach(auth: auth, chat: chat, stream: stream)

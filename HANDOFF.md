@@ -257,7 +257,7 @@
 - **决定性证据**：用户 iPhone 系统 `.ips` watchdog 日志（bug_type 309 / 0x8BADF00D / FRONTBOARD kill 5s）主线程栈：`ShapeLayerShadowHelper.updateShadow → Path.cgPath → RB::Path::Mapper::add_rounded_rect → CG::stroker::path_stroke_round_cube_offset` 自我递归（SIGKILL 捕不到，App 崩溃上报拿不到此栈，只能让用户从「设置→隐私→分析与改进→分析数据」导 qingliao 开头 .ips）
 - **根因**：voiceMode 激活输入栏流光 overlay（TimelineView 30fps 每帧重建圆角 Capsule 渐变）+ 流光自带 `.shadow(6)` + 外层整栏 `.shadow(14)` 双叠 → 每帧逼 iOS 27 stroker 重算圆角阴影路径 → 病态递归 100% CPU 主线程冻结。Circle 阴影走不同 mapper 不触发（球态 30fps 呼吸不卡的原因）
 - **修复（仅 ChatInputBar.swift）三件套**：① 流光层去 `.shadow` ② 30fps→15fps ③ 外层 `.shadow(radius 14)` modifier 移到 `.overlay{流光}` 之前（`.background → .shadow → .overlay(动态层)` 顺序 = 阴影只覆盖静态层）
-- **类级教训**：「每帧变化的视图 + .shadow」是 iOS 27 主线程卡死高危组合；排查"整 App 无响应"先分崩溃 vs 卡死（卡死=系统 .ips bug_type 309，崩溃=crash_pending.json Signal 条目），主线程栈只能靠导 .ips
+- **类级教训**：「每帧变化的视图 + .shadow」是 iOS 27 主线程卡死高危组合；排查"整 App 无响应"先分崩溃 vs 卡死（卡死=系统 .ips bug_type 309；崩溃看 Documents 下 **crash_pending_sig.json**（信号/abort 类，v3.9.10 起从 crash_pending.json 分出来，配套 crash_stack.txt）+ **crash_pending.json**（NSException 类）；解析失败的文件会被隔离成 `*.bad` / `*.corrupt-*` 留证不删），主线程栈只能靠导 .ips
 
 ### v3.2.2（2026-09-03 已发版 397：回复+推送重复根治——用户拍板"在看也推 + App端去重"）
 

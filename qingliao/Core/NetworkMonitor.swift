@@ -64,4 +64,17 @@ final class NetworkMonitor: @unchecked Sendable {
         }
         monitor.start(queue: queue)
     }
+
+    /// v3.9.10：用 NWPathMonitor 的**当前路径**即时刷新一次。
+    /// 为什么需要：pathUpdateHandler 的值是经 `DispatchQueue.main.async` 投递到主线程的，
+    /// 主线程繁忙时（正是在诊断卡顿的时候）会滞后 —— 切 Wi-Fi/蜂窝后的第一条诊断事件
+    /// 往往还报着上一跳的网络类型，于是「蜂窝下卡还是 Wi-Fi 下卡」这个关键区分当场失效。
+    /// `NWPathMonitor.currentPath` 可在任意线程安全读取；判定规则与 init / pathUpdateHandler 保持一致
+    ///（有 WiFi/有线接口时绝不判蜂窝）。
+    func refreshFromCurrentPath() {
+        let p = monitor.currentPath
+        let hasLAN = p.availableInterfaces.contains { $0.type == .wifi || $0.type == .wiredEthernet }
+        isCellular = !hasLAN && (p.isExpensive || p.availableInterfaces.contains { $0.type == .cellular })
+        isSatisfied = (p.status == .satisfied)
+    }
 }
