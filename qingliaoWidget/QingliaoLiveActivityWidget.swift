@@ -112,7 +112,7 @@ struct QingliaoLiveActivityWidget: Widget {
     ///
     /// 注意这就是实时活动里唯一可靠的"动"：Apple 明确动画**只随数据更新发生、最长 2s、
     /// 常亮屏(AOD)下不播**，所以这里不做连续自走动画（做了真机也停在第一帧）。
-    private func phaseBadge(_ state: QingliaoActivityAttributes.ContentState, size: CGFloat) -> some View {
+    private func phaseBadge(state: QingliaoActivityAttributes.ContentState, size: CGFloat) -> some View {
         let symbol: String
         if !state.isAnswering {
             symbol = "checkmark.circle.fill"
