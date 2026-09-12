@@ -61,7 +61,11 @@ final class LiveActivityManager {
         guard currentSessionId == nil else { return }
         clearState()
         generation += 1
-        for activity in Self.activeActivities {
+        // ⚠️ 必须**直接用 `Activity.activities`**（Apple 那个 getter 是「非隔离来源」，
+        // 值才能被送进 nonisolated async 的 `activity.end`）。包一层静态计算属性就会把它变成
+        // @MainActor 隔离值 → `sending 'activity' risks causing data races`（v3.9.9 CI 实踩）。
+        for activity in Activity<QingliaoActivityAttributes>.activities
+        where activity.activityState == .active {
             await activity.end(nil, dismissalPolicy: .immediate)
         }
     }
@@ -86,17 +90,19 @@ final class LiveActivityManager {
         // （状态早就变成 `.dismissed`），按它判断就会走 `update` 分支去更新一条**已经结束**的活动，
         // 于是新活动永远建不出来 —— 表现出来正是"灵动岛只在开关切换那一次生效、之后同一会话
         // 再对话就不亮"。
-        var existing = Self.activeActivities
-        if existing.isEmpty, justRequestedRecently {
+        // 只看「是否真有在显示的活动」（Bool，Sendable）——**不能缓存 Activity 数组**，
+        // 那会把非隔离来源的值变成 MainActor 隔离值，送进 nonisolated 的 update/end 就报并发错。
+        var hasActive = Self.hasActiveActivity
+        if !hasActive, justRequestedRecently {
             // 刚 request 的活动可能还没进列表（最终一致）→ 等一拍再确认，绝不重复建第二条
             try? await Task.sleep(for: .milliseconds(600))
-            existing = Self.activeActivities
-            if existing.isEmpty { return }
+            hasActive = Self.hasActiveActivity
+            if !hasActive { return }
         }
 
-        // 内容没变（同会话、同标题/模型/阶段/状态行/可停标记**且确实有一条活跃活动**）→ 不做无谓 update。
-        // 少了 `!existing.isEmpty` 这个条件，就会在活动已被系统收掉后继续静默跳过 → 再也不新建。
-        if !newSession, !pendingDismissal, !existing.isEmpty,
+        // 内容没变（同会话、同标题/模型/阶段/状态行/可停标记**且确实有一条在显示的活动**）→ 不做无谓 update。
+        // 少了 `hasActive` 这个条件，就会在活动已被系统收掉后继续静默跳过 → 再也不新建。
+        if !newSession, !pendingDismissal, hasActive,
            title == lastTitle, model == lastModel,
            phase == lastPhase, actionText == lastAction, canStop == lastCanStop {
             return
@@ -107,10 +113,10 @@ final class LiveActivityManager {
         if newSession || pendingDismissal {
             await end()   // 换会话 / 上一轮刚收尾：先清干净再重建
             // end() 之后列表未必立刻刷新（最终一致）→ 再确认一次，否则又会在已结束的活动上 update
-            existing = Self.activeActivities
-            if !existing.isEmpty {
+            hasActive = Self.hasActiveActivity
+            if hasActive {
                 try? await Task.sleep(for: .milliseconds(600))
-                existing = Self.activeActivities
+                hasActive = Self.hasActiveActivity
             }
         }
 
@@ -135,7 +141,7 @@ final class LiveActivityManager {
                                                            canStop: canStop)
         let content = ActivityContent(state: state, staleDate: Self.staleDate())
 
-        if existing.isEmpty {
+        if !hasActive {
             do {
                 _ = try Activity.request(attributes: QingliaoActivityAttributes(sessionId: sessionId),
                                          content: content,
@@ -146,7 +152,8 @@ final class LiveActivityManager {
                 clearState()
             }
         } else {
-            for activity in existing {
+            for activity in Activity<QingliaoActivityAttributes>.activities
+            where activity.activityState == .active {
                 await activity.update(content)
             }
         }
@@ -163,17 +170,17 @@ final class LiveActivityManager {
         guard Self.isEnabled, let active = currentSessionId, sessionId == active else { return }
         let token = generation
 
-        var existing = Self.activeActivities
-        if existing.isEmpty, justRequestedRecently {
+        var hasActive = Self.hasActiveActivity
+        if !hasActive, justRequestedRecently {
             try? await Task.sleep(for: .milliseconds(600))
-            existing = Self.activeActivities
-            if existing.isEmpty { clearState(); return }   // 列表滞后：等一拍仍无活跃活动 → 清本地状态
+            hasActive = Self.hasActiveActivity
+            if !hasActive { clearState(); return }   // 列表滞后：等一拍仍无在显示的活动 → 清本地状态
         }
         // review 修复：代际校验必须在 clearState 之前——那 600ms 等待窗口里用户可能已经开始了新一轮，
         // 此时清状态会把新一轮刚建立的 currentSessionId/startedAt 抹掉，下一次 sync 当成新会话
         // （先 end 再 request，灵动岛闪断 + 计时重启）。
         guard token == generation else { return }
-        guard !existing.isEmpty else {
+        guard hasActive else {
             clearState()   // 列表里确实没有活动（用户关了实时活动/被系统清掉）→ 清本地状态即可
             return
         }
@@ -190,7 +197,8 @@ final class LiveActivityManager {
         // 这期间又开始了新一轮 → 新活动不能被这一轮收尾碰到
         guard token == generation else { return }
 
-        for activity in existing {
+        for activity in Activity<QingliaoActivityAttributes>.activities
+        where activity.activityState == .active {
             await activity.end(content, dismissalPolicy: .after(Date().addingTimeInterval(2)))
         }
         lastPhase = state.phase
@@ -203,14 +211,15 @@ final class LiveActivityManager {
     func end() async {
         let hadSession = currentSessionId != nil
         clearState()
-        var pending = Self.activeActivities
-        if pending.isEmpty, hadSession {
+        var hasActive = Self.hasActiveActivity
+        if !hasActive, hadSession {
             // Activity.activities 是「最终一致」的：刚 request 出来的活动可能还没出现在列表里，
             // 等一拍再收一次，免得留下收不掉的残留（Apple 侧行为，Pocket Casts 亦有同样注释）
             try? await Task.sleep(for: .milliseconds(600))
-            pending = Self.activeActivities
+            hasActive = Self.hasActiveActivity
         }
-        for activity in pending {
+        for activity in Activity<QingliaoActivityAttributes>.activities
+        where activity.activityState == .active {
             await activity.end(nil, dismissalPolicy: .immediate)
         }
     }
@@ -243,8 +252,13 @@ final class LiveActivityManager {
     /// `Activity.activities` 在 `end()` 之后的一小段时间里**仍可能列出那条活动**（`.dismissed` 状态，
     /// 列表最终一致）。不按 `activityState` 过滤就会把已结束的活动当成在显示的，
     /// 于是新活动永远建不出来 —— 症状是「灵动岛只在开关切换那次生效，之后同一会话再聊就不亮」。
-    private static var activeActivities: [Activity<QingliaoActivityAttributes>] {
-        Activity<QingliaoActivityAttributes>.activities.filter { $0.activityState == .active }
+    /// 返回 **Bool**而不是 `[Activity]`：`Activity` 非 Sendable，从 @MainActor 隔离的静态上下文
+    /// 传出数组 → 值变成隔离的 → 送进 nonisolated async 的 `activity.update/end` 就是
+    /// `sending 'activity' risks causing data races`（v3.9.9 CI 实踩，4 处一起报）。
+    /// 真正要用 Activity 本体时，必须在**使用点直接** `Activity.activities` 取值 + `where` 过滤，
+    /// 保持「非隔离来源」这个身份（Apple 的 `activities` getter 是 nonisolated 的）。
+    private static var hasActiveActivity: Bool {
+        Activity<QingliaoActivityAttributes>.activities.contains { $0.activityState == .active }
     }
 
     /// 过期时间：进程意外消失后（强杀/闪退）系统能把活动标记为过期，而不是无限计时
