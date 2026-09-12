@@ -104,7 +104,9 @@ final class InboxStore {
             // reply 类仍按 v3.0.90 的落库竞态修复跳过（去重依赖 chat.messages 已 upsert）。
             let streaming = (stream?.isStreaming ?? false)
             for it in items {
-                if streaming, it.taskType == "reply" { continue }
+                // review 收口：只放行 progress，cron/system 仍按老规矩等流结束再消费
+                // （它们的消费会弹通知 + 进任务中心，流式期间插进来是计划外副作用）
+                if streaming, it.taskType != "progress" { continue }
                 await consumeOne(id: it.id, text: it.text, sourceTaskId: it.sourceTaskId,
                                  taskType: it.taskType, auth: auth, chat: chat)
             }

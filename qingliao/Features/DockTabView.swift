@@ -252,11 +252,15 @@ struct DockTabView: View {
 
     /// 灵动岛「停止生成」——两条入口（App 活着时的进程内通知 / 进程刚被拉起的兜底 flag）
     /// 汇到同一处，走的是聊天页「停止」按钮同一个 `StreamClient.stop`。
+    /// v3.9.7 review 修复：输入栏停止其实是**两件事**（`clearPendingQueue()` + `stream.stop()`），
+    /// 这里少了清队列会出现「点了停止，排在后面的消息又自己发出去」（v2.0.88：回答收尾自动发队列下一条）。
+    /// `pendingQueue` 是 `ChatView` 的 `@State`，Dock 摸不到 → 用进程内通知请聊天页清。
     private func handleLiveActivityStop() {
         _ = LiveActivityActionBridge.consume()   // 清掉兜底 flag（两条路径都到这儿，幂等）
         guard stream.isStreaming else { return }
         skipBurstOnce()
         selected = .chat
+        NotificationCenter.default.post(name: LiveActivityActionBridge.clearPendingQueueNotification, object: nil)
         stream.stop(auth: auth)
     }
 }

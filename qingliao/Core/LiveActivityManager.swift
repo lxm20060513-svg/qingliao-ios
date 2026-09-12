@@ -116,9 +116,13 @@ final class LiveActivityManager {
 
         var existing = Activity<QingliaoActivityAttributes>.activities
         if existing.isEmpty, justRequestedRecently {
-            // 刚建的活动还没出现在列表里（最终一致）→ 等一拍再查，别重复建第二条
+            // 刚建的活动还没出现在列表里（`Activity.activities` 最终一致）→ 等一拍再查，别重复建第二条
             try? await Task.sleep(for: .milliseconds(600))
             existing = Activity<QingliaoActivityAttributes>.activities
+            // review 收口：等一拍仍看不到（列表滞后可能超过 600ms）→ **本轮直接放弃**，
+            // 绝不能因为"没看到"就当没有而 request 第二条（那会在灵动岛挂两条活动，
+            // 其中一条收不掉）。下一拍 sync（phase 变化/下轮对话）就能看到并走 update。
+            if existing.isEmpty { return }
         }
 
         if existing.isEmpty {
@@ -153,7 +157,12 @@ final class LiveActivityManager {
         if existing.isEmpty, justRequestedRecently {
             try? await Task.sleep(for: .milliseconds(600))
             existing = Activity<QingliaoActivityAttributes>.activities
+            if existing.isEmpty { return }   // 同上：活动大概率存在只是列表滞后，别清状态
         }
+        // review 修复：代际校验必须在 clearState 之前——那 600ms 等待窗口里用户可能已经开始了新一轮，
+        // 此时清状态会把新一轮刚建立的 currentSessionId/startedAt 抹掉，下一次 sync 当成新会话
+        // （先 end 再 request，灵动岛闪断 + 计时重启）。
+        guard token == generation else { return }
         guard !existing.isEmpty else {
             clearState()   // 列表里确实没有活动（用户关了实时活动/被系统清掉）→ 清本地状态即可
             return

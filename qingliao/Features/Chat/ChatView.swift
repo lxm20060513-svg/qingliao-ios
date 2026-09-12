@@ -288,6 +288,10 @@ struct ChatView: View {
     @AppStorage("qingliao_provider") private var provider = "opencode"
     /// v3.6.5：模型思考档位（header 胶囊，仅本地模式）——随流式请求下发给后端
     @AppStorage(ReasoningLevel.storageKey) private var reasoningLevelRaw = ReasoningLevel.low.rawValue
+    // v3.9.8：AI 回复自动朗读（header 胶囊开关）。默认关（不被动出声）。
+    // 免费/离线优先：走 SpeechManager 现成的双引擎——系统 AVSpeechSynthesizer（默认，离线免费）；
+    // 用户在设置里开了「大模型 TTS」时才走后端神经音色（CloudConfig.ttsEnabled）。
+    @AppStorage("qingliao_auto_read_reply") private var autoReadReply = false
     @State private var showReasoningPicker = false
 
     /// v3.5.1：是否有 AI 在处理本会话——本地流 / 云端流 / 服务器兜底探测（三合一）。
@@ -408,6 +412,44 @@ struct ChatView: View {
         .accessibilityLabel("模型思考档位，当前\(reasoningLevel.title)")
     }
 
+    /// v3.9.8：header「朗读」胶囊开关（放思考档位胶囊右侧、任务中心左侧）。
+    /// 开 = AI 每轮回复结束自动念一遍；关 = 不自动念（气泡上的朗读按钮仍可手动念，互不影响）。
+    /// 样式与思考档位胶囊同族：Capsule + 同色系底 + 关态补 0.8pt 描边（二元控件统一胶囊语义）。
+    private var autoReadPill: some View {
+        Button {
+            autoReadReply.toggle()
+            if !autoReadReply { SpeechManager.shared.stop() }   // 关掉立刻闭嘴，不留半句
+            Haptics.tap()
+        } label: {
+            HStack(spacing: 3) {
+                Image(systemName: autoReadReply ? "speaker.wave.2.fill" : "speaker.slash")
+                    .font(.system(size: Typography.tiny, weight: .semibold))
+                Text("朗读")
+                    .font(.system(size: Typography.caption, weight: .semibold))
+            }
+            .foregroundStyle(autoReadReply ? Color.accentColor : Color.secondary)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 6)          // 与思考档位胶囊同高（触摸区 ~46×24）
+            .background(autoReadReply ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.06), in: Capsule())
+            .overlay(Capsule().strokeBorder(Color.primary.opacity(autoReadReply ? 0 : 0.10), lineWidth: 0.8))
+            .contentShape(Capsule())
+        }
+        .buttonStyle(PressStyle())
+        .accessibilityLabel(autoReadReply ? "自动朗读已开启" : "自动朗读已关闭")
+    }
+
+    /// v3.9.8：自动朗读最新一条 AI 回复。
+    /// 只念真正的「AI 回答」——跳过推送气泡（🔔 收件箱/进度，isPush）与错误占位（isErrorPlaceholder），
+    /// 那些念出来只会莫名其妙。
+    private func autoReadLatestReply() {
+        guard autoReadReply else { return }
+        guard let msg = chat.messages.last(where: {
+            !$0.isUser && !$0.isPush && !$0.isErrorPlaceholder
+                && !$0.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }) else { return }
+        SpeechManager.shared.toggle(msg.content, id: msg.id)
+    }
+
     /// 档位选择内容抽离（避免 Xcode type-check 超时，与 chatActionDialogContent 同理）
     @ViewBuilder
     private var reasoningPickerContent: some View {
@@ -424,6 +466,7 @@ struct ChatView: View {
     private var headerTrailingItems: some View {
         HStack(spacing: 12) {
             localReasoningPill
+            autoReadPill
             Button {
                 showTaskCenter = true
             } label: {
@@ -858,6 +901,11 @@ struct ChatView: View {
         // v3.4.14 系统分享收件消费：广播或 onAppear 兜底时，把 ShareRouter 里待处理的内容逐条发送
         .onReceive(NotificationCenter.default.publisher(for: .qingliaoShareIncoming)) { _ in
             drainShareInbox()
+        }
+        // v3.9.7 review 修复：灵动岛「停止生成」时，聊天页负责与输入栏停止**同一套**的清队列动作
+        // （pendingQueue 是本视图的 @State，DockTabView 摸不到 → 由它发通知、这里清）
+        .onReceive(NotificationCenter.default.publisher(for: LiveActivityActionBridge.clearPendingQueueNotification)) { _ in
+            clearPendingQueue()
         }
         // v3.4.x 任务中心：点击任务「发送到当前会话」→ 把任务文本作为用户消息发送
         .onReceive(NotificationCenter.default.publisher(for: .qingliaoTaskSend)) { note in
@@ -1643,8 +1691,15 @@ struct ChatView: View {
         // v3.8.0：灵动岛 / 锁屏实时活动——AI 开始时亮起、结束时收起（本地驱动，侧载免费签名可用）
         // initial: true：冷启动时先结算一次（服务端还在回复的场景由 remoteBusy 探针随后触发 true）
         // v3.9.7：busy=false 走「完成态 → 2s 后收起」，让「已完成」看得见
-        .onChange(of: aiBusy, initial: true) { _, busy in
+        .onChange(of: aiBusy, initial: true) { wasBusy, busy in
             pushLiveActivity(busy: busy)
+            // v3.9.8：新一轮开始 → 先停掉上一轮朗读（别念着旧的开始想新的）；
+            //           本轮结束（true→false，初值那次不算）且开了自动朗读 → 念最新一条 AI 回复
+            if busy {
+                SpeechManager.shared.stop()
+            } else if wasBusy {
+                autoReadLatestReply()
+            }
         }
         // v3.9.7：阶段变化（思考中 → 输出中）也要推一次，否则灵动岛会一直停在「思考中」
         // （内容没变的重复调用会被管理器挡掉，不会造成 update 风暴）

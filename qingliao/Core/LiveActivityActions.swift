@@ -21,6 +21,13 @@ enum LiveActivityActionBridge {
     /// 主 App 侧监听这条通知（进程内即时生效）
     static let notification = Notification.Name("qingliao.liveActivityAction")
 
+    /// v3.9.7 review 修复：灵动岛「停止生成」需要聊天页配合的那一半。
+    /// 输入栏的停止是**两件事**（`clearPendingQueue()` + `stream.stop()`——v2.0.88：回答收尾会自动
+    /// 发送队列里的下一条），而 `pendingQueue` 是 `ChatView` 的 `@State`，`DockTabView` 摸不到 →
+    /// 原实现只 `stream.stop` 会漏掉清队列，出现"点了停止，排在后面的消息又自己发出去了"。
+    /// 补这条进程内通知让聊天页清队列，两条停止入口口径就完全一致（也便于日后收敛成一处实现）。
+    static let clearPendingQueueNotification = Notification.Name("qingliao.liveActivityClearQueue")
+
     /// 兜底存储 key：App 冷启动时读一次（进程刚起来时观察者还没注册，通知会丢）
     static let defaultsKey = "qingliao_live_activity_action"
 
@@ -62,6 +69,11 @@ struct StopGenerationIntent: LiveActivityIntent {
 
     static var title: LocalizedStringResource { "停止生成" }
 
+    // v3.9.7 review 修复：`perform()` 必须 `@MainActor` —— `deliver()` 内部走
+    // `NotificationCenter.default.post`（**同步投递**），App 侧 `.onReceive` 的闭包会在投递线程上
+    // 直接改 SwiftUI 状态（切 tab / 停流 / 清队列）。AppIntents 不保证在主线程执行 `perform`，
+    // 不标隔离等于"可能从后台线程改 @State"。
+    @MainActor
     func perform() async throws -> some IntentResult {
         LiveActivityActionBridge.deliver(LiveActivityAction.stopGeneration)
         return .result()
