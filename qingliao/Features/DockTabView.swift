@@ -261,6 +261,10 @@ struct DockTabView: View {
         skipBurstOnce()
         selected = .chat
         NotificationCenter.default.post(name: LiveActivityActionBridge.clearPendingQueueNotification, object: nil)
+        // v3.9.8 review 收口：ChatView 不在视图层级时（聊天 tab 从未打开 / 正在重建）上面这条通知会被丢弃，
+        // 而排队消息是**持久化**的（下次进聊天页 restorePendingQueue 会恢复并自动发出）→ 这里补一次兜底清理，
+        // 杜绝「点了停止，排队消息照样自己发出去」。
+        UserDefaults.standard.removeObject(forKey: "qingliao_pending_queue")
         stream.stop(auth: auth)
     }
 }

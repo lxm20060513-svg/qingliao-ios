@@ -44,6 +44,17 @@ final class SpeechManager: NSObject, ObservableObject, AVSpeechSynthesizerDelega
             stop()
             return
         }
+        start(raw, id: id, preferSystem: false)
+    }
+
+    /// v3.9.8：语义是「念」而不是「切换」——已经在念同一条也从头念（自动朗读用；
+    /// 用 toggle 会因为同 id 被当成「再点一次」而把正在念的掐断）。
+    /// preferSystem：跳过云端神经 TTS，固定系统语音（免费、离线、不上传全文）。
+    func speak(_ raw: String, id: String, preferSystem: Bool = false) {
+        start(raw, id: id, preferSystem: preferSystem)
+    }
+
+    private func start(_ raw: String, id: String, preferSystem: Bool) {
         stop()
         // 去掉 markdown 符号 + 换行变句号
         let clean = raw
@@ -53,7 +64,7 @@ final class SpeechManager: NSObject, ObservableObject, AVSpeechSynthesizerDelega
         guard !clean.isEmpty else { return }
         speakingID = id
         cloudDegraded = false
-        if CloudConfig.ttsEnabled {
+        if !preferSystem, CloudConfig.ttsEnabled {
             let gen = ttsGeneration
             Task { await speakViaCloud(clean, id: id, gen: gen) }
         } else {
