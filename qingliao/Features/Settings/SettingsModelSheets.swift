@@ -108,6 +108,9 @@ struct ModelSheet: View {
     @State private var ttsProvider = CloudConfig.ttsProvider
     @State private var ttsModel = CloudConfig.ttsModel
     @State private var ttsVoice = CloudConfig.ttsVoice
+    // v3.9.9（用户反馈「TTS 语音太生硬」）：系统语音（关掉神经 TTS 时用）的音色 + 语速开放可调
+    @State private var sysVoiceID = SpeechManager.systemVoiceID
+    @State private var sysRateIndex = SpeechManager.systemRateIndex
 
     /// TTS 状态文案
     private var ttsStatusText: String {
@@ -120,6 +123,10 @@ struct ModelSheet: View {
     /// 当前模型音色列表
     private var ttsVoiceOptions: [(name: String, id: String)] {
         CloudConfig.ttsVoicesFor(provider: ttsProvider, model: ttsModel)
+    }
+    /// v3.9.9：系统（离线）中文音色列表——带「优质/增强/标准」标记，让用户一眼看出装没装高音质包
+    private var systemVoiceChoices: [(id: String, label: String)] {
+        SpeechManager.systemVoiceChoices()
     }
 
     /// v2.0.131：opencode 同步模型显示名映射（无映射的用 id 本身）
@@ -388,6 +395,46 @@ struct ModelSheet: View {
                                     }
                                 }
                                 Text("开启后 AI 回复、语音指令将对讲朗读使用所选模型的神经语音；关闭则用系统语音。")
+                                    .font(.system(size: Typography.tiny)).foregroundStyle(.tertiary)
+                            } else {
+                                // v3.9.9（用户反馈「TTS 语音太生硬」）：关掉神经语音时走系统语音，
+                                // 这里把**音色 + 语速**开放出来，并说清"系统语音怎么才能更自然"——
+                                // 「增强 / 优质」语音包只能在 iOS 设置里下载，App 不能代下。
+                                HStack(spacing: 8) {
+                                    Text("系统音色")
+                                        .font(.system(size: Typography.subhead))
+                                        .foregroundStyle(.secondary)
+                                    Spacer()
+                                    Picker("", selection: $sysVoiceID) {
+                                        Text("自动（最自然可用）").tag("")
+                                        ForEach(systemVoiceChoices.indices, id: \.self) { idx in
+                                            let opt = systemVoiceChoices[idx]
+                                            Text(opt.label).tag(opt.id)
+                                        }
+                                    }
+                                    .pickerStyle(.menu)
+                                    .tint(.indigo)
+                                    .onChange(of: sysVoiceID) { _, new in
+                                        SpeechManager.setSystemVoiceID(new)
+                                    }
+                                }
+                                HStack(spacing: 8) {
+                                    Text("语速")
+                                        .font(.system(size: Typography.subhead))
+                                        .foregroundStyle(.secondary)
+                                    Spacer()
+                                    Picker("", selection: $sysRateIndex) {
+                                        Text("慢").tag(0)
+                                        Text("标准").tag(1)
+                                        Text("快").tag(2)
+                                    }
+                                    .pickerStyle(.segmented)
+                                    .frame(width: 150)
+                                    .onChange(of: sysRateIndex) { _, new in
+                                        SpeechManager.setSystemRateIndex(new)
+                                    }
+                                }
+                                Text(SpeechManager.systemVoiceHint)
                                     .font(.system(size: Typography.tiny)).foregroundStyle(.tertiary)
                             }
                         }

@@ -104,9 +104,91 @@ final class SpeechManager: NSObject, ObservableObject, AVSpeechSynthesizerDelega
         // v3.5.x：系统语音同样要显式激活 .playback —— 否则静音拨片/锁屏下无声（回退路径的无声根因）
         activatePlaybackSession()
         let ut = AVSpeechUtterance(string: clean)
-        ut.voice = Self.bestChineseVoice()
-        ut.rate = 0.48
+        // v3.9.9：改用"用户选定音色（没选/选没了就自动挑最优）"+ 可调语速
+        ut.voice = Self.resolvedSystemVoice()
+        ut.rate = Self.systemRate
         synth.speak(ut)
+    }
+
+    // MARK: - v3.9.9 系统语音可调（用户反馈「TTS 语音太生硬」）
+    //
+    // 生硬的根因是**音质档**：系统语音默认给的是 compact 音质（机械感主要来自它）。
+    // 用户在 iOS 设置里下载「增强 / 优质」中文语音包后，`systemVoiceOptions()` 里就会出现
+    // 带「增强 / 优质」标记的音色，自动挑选逻辑（bestChineseVoice）也会优先命中它们。
+    // App 不能代用户下载音色包，所以只能在设置页把可选音色列出来 + 提示下载路径。
+    private static let systemVoiceKey = "qingliao_system_voice_id"
+    private static let systemRateKey = "qingliao_system_rate_index"
+
+    /// 用户在设置里选定的系统音色 id（空 = 自动挑最优）
+    static var systemVoiceID: String {
+        UserDefaults.standard.string(forKey: systemVoiceKey) ?? ""
+    }
+
+    static func setSystemVoiceID(_ id: String) {
+        UserDefaults.standard.set(id, forKey: systemVoiceKey)
+    }
+
+    /// 语速三档：0 慢 / 1 标准 / 2 快
+    static var systemRateIndex: Int {
+        UserDefaults.standard.object(forKey: systemRateKey) as? Int ?? 1
+    }
+
+    static func setSystemRateIndex(_ idx: Int) {
+        UserDefaults.standard.set(idx, forKey: systemRateKey)
+    }
+
+    static var systemRate: Float {
+        switch systemRateIndex {
+        case 0: return 0.42
+        case 2: return 0.55
+        default: return 0.48
+        }
+    }
+
+    /// 中文系统音色，按音质高→低排（给设置页列表用；tuple 形式避免设置页 import AVFoundation）
+    static func systemVoiceChoices() -> [(id: String, label: String)] {
+        let zh = AVSpeechSynthesisVoice.speechVoices().filter { $0.language.hasPrefix("zh") }
+        let ranked = zh.sorted { a, b in
+            let ra = qualityRank(a), rb = qualityRank(b)
+            if ra != rb { return ra < rb }
+            return a.name < b.name
+        }
+        return ranked.map { ($0.identifier, "\($0.name) · \(qualityTag($0))") }
+    }
+
+    /// 设置页提示：装了高音质包 vs 还没装
+    static var systemVoiceHint: String {
+        let hasHigh = AVSpeechSynthesisVoice.speechVoices()
+            .contains { $0.language.hasPrefix("zh") && $0.quality != .default }
+        return hasHigh
+            ? "优先选带「优质 / 增强」标记的音色，听感明显比「标准」自然。"
+            : "想更自然：iOS 设置 → 辅助功能 → 朗读内容 → 声音 → 中文，下载「增强」或「优质」音色（App 不能代你下载），回到这里即可选中。"
+    }
+
+    private static func qualityRank(_ v: AVSpeechSynthesisVoice) -> Int {
+        switch v.quality {
+        case .premium: return 0
+        case .enhanced: return 1
+        default: return 2
+        }
+    }
+
+    private static func qualityTag(_ v: AVSpeechSynthesisVoice) -> String {
+        switch v.quality {
+        case .premium: return "优质"
+        case .enhanced: return "增强"
+        default: return "标准"
+        }
+    }
+
+    /// 实际使用的系统音色：优先用户所选（仍存在时），否则自动挑最优
+    static func resolvedSystemVoice() -> AVSpeechSynthesisVoice? {
+        let id = systemVoiceID
+        if !id.isEmpty,
+           let picked = AVSpeechSynthesisVoice.speechVoices().first(where: { $0.identifier == id }) {
+            return picked
+        }
+        return bestChineseVoice()
     }
 
     /// v3.5.x：系统语音优先挑最高音质的中文音色（premium > enhanced > 默认）——

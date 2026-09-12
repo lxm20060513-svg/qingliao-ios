@@ -61,7 +61,7 @@ final class LiveActivityManager {
         guard currentSessionId == nil else { return }
         clearState()
         generation += 1
-        for activity in Activity<QingliaoActivityAttributes>.activities {
+        for activity in Self.activeActivities {
             await activity.end(nil, dismissalPolicy: .immediate)
         }
     }
@@ -81,8 +81,22 @@ final class LiveActivityManager {
         let model = modelName.isEmpty ? "AI" : modelName
         let newSession = (currentSessionId != sessionId)
 
-        // 内容没变（同会话、同标题/模型/阶段/状态行/可停标记）→ 不做无谓 update
-        if !newSession, !pendingDismissal,
+        // v3.9.9（真机反馈修复）：先把"系统里真正在显示的活动"取出来。
+        // **不能**用 `Activity.activities` 原样判断：`end()` 之后那条活动还会在列表里闪现一会儿
+        // （状态早就变成 `.dismissed`），按它判断就会走 `update` 分支去更新一条**已经结束**的活动，
+        // 于是新活动永远建不出来 —— 表现出来正是"灵动岛只在开关切换那一次生效、之后同一会话
+        // 再对话就不亮"。
+        var existing = Self.activeActivities
+        if existing.isEmpty, justRequestedRecently {
+            // 刚 request 的活动可能还没进列表（最终一致）→ 等一拍再确认，绝不重复建第二条
+            try? await Task.sleep(for: .milliseconds(600))
+            existing = Self.activeActivities
+            if existing.isEmpty { return }
+        }
+
+        // 内容没变（同会话、同标题/模型/阶段/状态行/可停标记**且确实有一条活跃活动**）→ 不做无谓 update。
+        // 少了 `!existing.isEmpty` 这个条件，就会在活动已被系统收掉后继续静默跳过 → 再也不新建。
+        if !newSession, !pendingDismissal, !existing.isEmpty,
            title == lastTitle, model == lastModel,
            phase == lastPhase, actionText == lastAction, canStop == lastCanStop {
             return
@@ -92,10 +106,17 @@ final class LiveActivityManager {
 
         if newSession || pendingDismissal {
             await end()   // 换会话 / 上一轮刚收尾：先清干净再重建
+            // end() 之后列表未必立刻刷新（最终一致）→ 再确认一次，否则又会在已结束的活动上 update
+            existing = Self.activeActivities
+            if !existing.isEmpty {
+                try? await Task.sleep(for: .milliseconds(600))
+                existing = Self.activeActivities
+            }
         }
 
         let now = Date()
-        // 同一会话继续回复 → 保留原起始时间（计时不重启）；换会话则从零开始
+        // 同一会话继续回复 → 保留原起始时间；换会话则从零开始。
+        // （v3.9.9：挂件已按用户要求**不再显示计时文字**，此字段保留——锁屏/后续形态仍可复用）
         let start = newSession ? now : (startedAt ?? now)
         currentSessionId = sessionId
         startedAt = start
@@ -113,17 +134,6 @@ final class LiveActivityManager {
                                                            actionText: actionText,
                                                            canStop: canStop)
         let content = ActivityContent(state: state, staleDate: Self.staleDate())
-
-        var existing = Activity<QingliaoActivityAttributes>.activities
-        if existing.isEmpty, justRequestedRecently {
-            // 刚建的活动还没出现在列表里（`Activity.activities` 最终一致）→ 等一拍再查，别重复建第二条
-            try? await Task.sleep(for: .milliseconds(600))
-            existing = Activity<QingliaoActivityAttributes>.activities
-            // review 收口：等一拍仍看不到（列表滞后可能超过 600ms）→ **本轮直接放弃**，
-            // 绝不能因为"没看到"就当没有而 request 第二条（那会在灵动岛挂两条活动，
-            // 其中一条收不掉）。下一拍 sync（phase 变化/下轮对话）就能看到并走 update。
-            if existing.isEmpty { return }
-        }
 
         if existing.isEmpty {
             do {
@@ -153,11 +163,11 @@ final class LiveActivityManager {
         guard Self.isEnabled, let active = currentSessionId, sessionId == active else { return }
         let token = generation
 
-        var existing = Activity<QingliaoActivityAttributes>.activities
+        var existing = Self.activeActivities
         if existing.isEmpty, justRequestedRecently {
             try? await Task.sleep(for: .milliseconds(600))
-            existing = Activity<QingliaoActivityAttributes>.activities
-            if existing.isEmpty { return }   // 同上：活动大概率存在只是列表滞后，别清状态
+            existing = Self.activeActivities
+            if existing.isEmpty { clearState(); return }   // 列表滞后：等一拍仍无活跃活动 → 清本地状态
         }
         // review 修复：代际校验必须在 clearState 之前——那 600ms 等待窗口里用户可能已经开始了新一轮，
         // 此时清状态会把新一轮刚建立的 currentSessionId/startedAt 抹掉，下一次 sync 当成新会话
@@ -193,12 +203,12 @@ final class LiveActivityManager {
     func end() async {
         let hadSession = currentSessionId != nil
         clearState()
-        var pending = Activity<QingliaoActivityAttributes>.activities
+        var pending = Self.activeActivities
         if pending.isEmpty, hadSession {
             // Activity.activities 是「最终一致」的：刚 request 出来的活动可能还没出现在列表里，
             // 等一拍再收一次，免得留下收不掉的残留（Apple 侧行为，Pocket Casts 亦有同样注释）
             try? await Task.sleep(for: .milliseconds(600))
-            pending = Activity<QingliaoActivityAttributes>.activities
+            pending = Self.activeActivities
         }
         for activity in pending {
             await activity.end(nil, dismissalPolicy: .immediate)
@@ -217,11 +227,24 @@ final class LiveActivityManager {
     private func clearState() {
         currentSessionId = nil
         startedAt = nil
+        // v3.9.9：标题/模型也要一并清 —— 原来只清阶段类字段，残留的 lastTitle/lastModel
+        // 会让下一轮的「内容没变」判定误命中（同一会话的第二轮回复与上一轮签名完全相同）
+        lastTitle = ""
+        lastModel = ""
         lastPhase = ""
         lastAction = ""
         lastCanStop = false
         justRequestedAt = nil
         pendingDismissal = false
+    }
+
+    /// 只有「系统里真正在显示」的活动才算数（v3.9.9 真机反馈修复的核心）。
+    ///
+    /// `Activity.activities` 在 `end()` 之后的一小段时间里**仍可能列出那条活动**（`.dismissed` 状态，
+    /// 列表最终一致）。不按 `activityState` 过滤就会把已结束的活动当成在显示的，
+    /// 于是新活动永远建不出来 —— 症状是「灵动岛只在开关切换那次生效，之后同一会话再聊就不亮」。
+    private static var activeActivities: [Activity<QingliaoActivityAttributes>] {
+        Activity<QingliaoActivityAttributes>.activities.filter { $0.activityState == .active }
     }
 
     /// 过期时间：进程意外消失后（强杀/闪退）系统能把活动标记为过期，而不是无限计时

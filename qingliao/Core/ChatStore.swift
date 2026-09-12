@@ -12,6 +12,29 @@ final class ChatStore {
     /// v3.4.29：最近一次从会话列表加载进来的会话——供欢迎页「继续上次」入口一键回归（内存态，无需持久化）
     private(set) var lastLoadedSession: ChatSession?
 
+    // MARK: - v3.9.9：AI 回复「真正落库」信号（自动朗读触发器）
+    //
+    // 自动朗读原来监听 `messages.last?.id`，这个信号不干净（两位只读审查都抓到）：
+    //   ① 切会话 / 冷启动加载（`load` 整组替换 messages）**也会**让它变 → 会把刚打开那个会话的
+    //      历史旧答案念出来（正是本版声称要修掉的「切会话念旧内容」，实际没修掉）；
+    //   ② AI 回答中用户又发一条（排队）时，本轮回复 `insert` 到数组中段、末条仍是排队 user 消息
+    //      → 信号不变，这一轮**永远不朗读**。
+    // 改成在**真正 append/insert 了一条 assistant 回复**时自增 token 并记下这条消息：
+    // 触发面精确到"这一条回复落库"，与会话加载 / 删除消息 / regenerate 截断全部无关。
+    private(set) var assistantLandedToken = 0
+    private(set) var lastLandedAssistantUID: String?
+
+    /// 按 uid 取消息——自动朗读要念"刚落库的那条"，不能用 `messages.last`（排队场景下末条是 user 消息）
+    func message(withUID uid: String?) -> ChatMessage? {
+        guard let uid, !uid.isEmpty else { return nil }
+        return messages.first { $0.uid == uid }
+    }
+
+    private func noteAssistantLanded(_ m: ChatMessage) {
+        lastLandedAssistantUID = m.uid
+        assistantLandedToken &+= 1
+    }
+
     // 缓存的 DateFormatter，避免循环内重复创建（~1ms/次）
     private static let exportDateFormatter: DateFormatter = {
         let f = DateFormatter(); f.dateFormat = "MM-dd HH:mm"; return f
@@ -269,6 +292,7 @@ final class ChatStore {
             // v3.4.x 复读兜底：vs 锚点之前的历史旧 assistant（跨轮复述旧模板）
             markSuspectedRepeat(m, history: messages[..<anchorIdx])
             messages.insert(m, at: regionEnd)
+            noteAssistantLanded(m)   // v3.9.9：本轮回答真正落库 → 触发自动朗读（哪怕它插在数组中段）
             return
         }
         // —— 无锚点：原末尾语义（兼容无发起消息的调用方）——
@@ -295,6 +319,7 @@ final class ChatStore {
         // v3.4.x 复读兜底：vs 末尾之前的历史旧 assistant
         markSuspectedRepeat(m, history: messages.prefix(max(0, messages.count - 1)))
         messages.append(m)
+        noteAssistantLanded(m)   // v3.9.9：同上
     }
 
     /// v2.0.59：按 id 标记消息发送失败（显示重试按钮）

@@ -32,6 +32,32 @@ private final class AudioTapFeeder: @unchecked Sendable {
     private var targetFormat: AVAudioFormat?
     private var builder: AsyncStream<AnalyzerInput>.Continuation?
 
+    // v3.9.9：音频三级计数——排查"录音期间一个结果都不出（V0/F0）"这类静默失败时，
+    // 光看 UI 是看不出断在哪一级的（官方文档也要求按阶段测量）。三段含义：
+    //   T = 麦克风 tap 回调次数（有没有音频进来）
+    //   D = 被丢弃的 buffer 数（转换失败/空输出/拷贝失败）
+    //   Y = 真正投递给 analyzer 的 buffer 数
+    private var tapCount = 0
+    private var dropCount = 0
+    private var yieldCount = 0
+    private var lastDropNote = ""
+
+    var stats: String {
+        lock.lock(); defer { lock.unlock() }
+        return "T\(tapCount)/D\(dropCount)/Y\(yieldCount)\(lastDropNote.isEmpty ? "" : " " + lastDropNote)"
+    }
+
+    func resetStats() {
+        lock.lock(); defer { lock.unlock() }
+        tapCount = 0; dropCount = 0; yieldCount = 0; lastDropNote = ""
+    }
+
+    private func noteDrop(_ why: String) {
+        lock.lock(); defer { lock.unlock() }
+        dropCount += 1
+        if lastDropNote.isEmpty { lastDropNote = why }
+    }
+
     func prepare(converter: AVAudioConverter?, targetFormat: AVAudioFormat,
                  builder: AsyncStream<AnalyzerInput>.Continuation) {
         lock.lock(); defer { lock.unlock() }
@@ -47,9 +73,41 @@ private final class AudioTapFeeder: @unchecked Sendable {
         builder = nil
     }
 
+    /// v3.9.9 关键修复：**自持一份 PCM 拷贝**。
+    ///
+    /// tap 回调交给我们的 buffer 只在回调期间有效，回调返回后音频引擎会复用那块内存；
+    /// 而我们是「入队 AsyncStream → analyzer 稍后异步消费」，中间隔着一段时间差 ——
+    /// 直接把回调 buffer 投进去，analyzer 读到的往往是被后续音频覆盖过的内存，
+    /// 表现就是官方文档点名的 **"缓冲有、UI 正常、却永远没有文字"**。
+    /// 两个方式（格式相同走拷贝 / 格式不同走转换输出）都必须给 analyzer 独立内存。
+    private static func ownedCopy(_ buffer: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
+        guard buffer.frameLength > 0,
+              let out = AVAudioPCMBuffer(pcmFormat: buffer.format, frameCapacity: buffer.frameLength) else {
+            return nil
+        }
+        out.frameLength = buffer.frameLength
+        let frames = Int(buffer.frameLength)
+        let channels = max(1, Int(buffer.format.channelCount))
+        let interleaved = buffer.format.isInterleaved
+        let buffersToCopy = interleaved ? 1 : channels
+        let framesPerBuffer = interleaved ? frames * channels : frames
+
+        if let src = buffer.floatChannelData, let dst = out.floatChannelData {
+            for i in 0..<buffersToCopy { memcpy(dst[i], src[i], framesPerBuffer * MemoryLayout<Float>.size) }
+        } else if let src = buffer.int16ChannelData, let dst = out.int16ChannelData {
+            for i in 0..<buffersToCopy { memcpy(dst[i], src[i], framesPerBuffer * MemoryLayout<Int16>.size) }
+        } else if let src = buffer.int32ChannelData, let dst = out.int32ChannelData {
+            for i in 0..<buffersToCopy { memcpy(dst[i], src[i], framesPerBuffer * MemoryLayout<Int32>.size) }
+        } else {
+            return nil
+        }
+        return out
+    }
+
     /// 音频线程调用：必要时重采样 → 投喂 Analyzer
     func feed(_ buffer: AVAudioPCMBuffer) {
         lock.lock()
+        tapCount += 1
         let converter = self.converter
         let target = self.targetFormat
         let builder = self.builder
@@ -59,11 +117,23 @@ private final class AudioTapFeeder: @unchecked Sendable {
         if let target, buffer.format != target {
             // 格式与 Analyzer 要求不一致：必须有转换器（Apple 文档：Analyzer 不做音频转换）
             guard let converter, let converted = Self.convert(buffer, using: converter, to: target) else {
+                noteDrop("convFail")   // 文档警告：静默丢缓冲 = UI 看着健康却永远没文字，必须记数
                 return
             }
+            guard converted.frameLength > 0 else {
+                noteDrop("convEmpty")  // 转换器吐了空输出（输入太短/转换状态未就绪）→ 同样不投递
+                return
+            }
+            lock.lock(); yieldCount += 1; lock.unlock()
             builder.yield(AnalyzerInput(buffer: converted))
         } else {
-            builder.yield(AnalyzerInput(buffer: buffer))
+            // 格式已匹配也不能直接投回调 buffer（会被音频引擎复用）→ 自持拷贝
+            guard let owned = Self.ownedCopy(buffer) else {
+                noteDrop("copyFail")
+                return
+            }
+            lock.lock(); yieldCount += 1; lock.unlock()
+            builder.yield(AnalyzerInput(buffer: owned))
         }
     }
 
@@ -144,6 +214,10 @@ final class LiveSpeechTranscriber: ObservableObject {
     var resultStats: String { "V" + String(volatileCount) + "/F" + String(finalCount) }
     /// 录音 3s 后仍无任何结果（实时出字未生效）——仅在异常时为 true，UI 平时不显示诊断
     @Published private(set) var liveStalled = false
+    /// v3.9.9：音频三级计数（T=麦克风 tap 回调 / D=丢弃 / Y=实际投递 analyzer），每秒刷新。
+    /// 录音期间**必须**能看见它——否则"没出字"到底断在采集、转换还是识别只能靠猜。
+    @Published private(set) var pipeStats = ""
+    private var statsTask: Task<Void, Never>?
     private var stallTask: Task<Void, Never>?
 
     /// 文本变化回调（ChatView 用它把实时文本回填输入框）
@@ -269,6 +343,17 @@ final class LiveSpeechTranscriber: ObservableObject {
         volatileCount = 0
         finalCount = 0
         firstResultMs = -1
+        // v3.9.9：采集三级计数归零 + 每秒刷到 UI（结果为零时尤其要看它）
+        feeder.resetStats()
+        pipeStats = ""
+        statsTask?.cancel()
+        statsTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                guard let self, self.isRunning || self.isPreparing else { return }
+                self.pipeStats = self.feeder.stats
+            }
+        }
         startedAt = Date()
         liveText = baseline
         lastError = nil
@@ -328,24 +413,6 @@ final class LiveSpeechTranscriber: ObservableObject {
             let analyzer = SpeechAnalyzer(modules: [transcriber])
             self.analyzer = analyzer
 
-            // 防御：极端情况下（上次异常退出）残留 tap 会让 installTap 抛异常
-            if tapInstalled {
-                input.removeTap(onBus: 0)
-                tapInstalled = false
-            }
-            // 🚨 v3.9.4 关键：闭包**必须显式 @Sendable**。
-            // 它写在 @MainActor 的 start() 里 —— 不加 @Sendable 的闭包字面量会**继承 MainActor 隔离**，
-            // 而 AVAudioEngine 在**音频线程**回调它 ⇒ 进闭包即做隔离检查 → 失败 SIGTRAP（v3.9.3 真机
-            // 「长按语音转文字立刻闪退」的根因，dSYM 符号化证实崩溃帧就是这个闭包）。
-            // 编译期不报错、check_swift(-parse) 查不出（与 v3.7.0 剪贴板 completion 同类）。
-            // @Sendable 后闭包成为非隔离闭包；闭包体只碰 @unchecked Sendable 的 feeder，安全。
-            input.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { @Sendable [feeder] buffer, _ in
-                feeder.feed(buffer)
-            }
-            tapInstalled = true
-            engine.prepare()
-            try engine.start()
-
             resultsFinished = false
             resultsTask = Task { [weak self] in
                 do {
@@ -378,7 +445,30 @@ final class LiveSpeechTranscriber: ObservableObject {
                 self?.resultsFinished = true
             }
 
+            // ⚠️ 这行是"开始分析"的全部——官方语义是 **立即返回**（后台自主消费输入序列），
+            // 所以它必须在装 tap 之前调用（先让分析器就绪，再灌音频）。
             try await analyzer.start(inputSequence: stream)
+
+            // v3.9.9：**先让 analyzer 起来、再开麦克风**（对齐 Apple 官方示例顺序）。
+            // 原来是反过来：tap 先开始灌音频、analyzer 后启动，音频先堆在 AsyncStream 里。
+            // 官方示例是 "try await analyzer.start(inputSequence:) → startMic()"，照它来少一个变数。
+            // 防御：极端情况下（上次异常退出）残留 tap 会让 installTap 抛异常
+            if tapInstalled {
+                input.removeTap(onBus: 0)
+                tapInstalled = false
+            }
+            // 🚨 v3.9.4 关键：闭包**必须显式 @Sendable**。
+            // 它写在 @MainActor 的 start() 里 —— 不加 @Sendable 的闭包字面量会**继承 MainActor 隔离**，
+            // 而 AVAudioEngine 在**音频线程**回调它 ⇒ 进闭包即做隔离检查 → 失败 SIGTRAP（v3.9.3 真机
+            // 「长按语音转文字立刻闪退」的根因，dSYM 符号化证实崩溃帧就是这个闭包）。
+            // 编译期不报错、check_swift(-parse) 查不出（与 v3.7.0 剪贴板 completion 同类）。
+            // @Sendable 后闭包成为非隔离闭包；闭包体只碰 @unchecked Sendable 的 feeder，安全。
+            input.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { @Sendable [feeder] buffer, _ in
+                feeder.feed(buffer)
+            }
+            tapInstalled = true
+            engine.prepare()
+            try engine.start()
             isRunning = true
             liveStalled = false
             stallTask?.cancel()
@@ -459,12 +549,17 @@ final class LiveSpeechTranscriber: ObservableObject {
     }
 
     private func publish() {
+        // v3.9.9：一旦有结果就不再是"卡住"状态（原来 liveStalled 一旦置位永不复位，
+        // 界面会一直挂着 V0/F0 诊断串，反而误导排查）
+        if liveStalled, volatileCount + finalCount > 0 { liveStalled = false }
         liveText = baseline + finalizedText + volatileText
         onTextChange?(liveText)
     }
 
     /// 停引擎 / 摘 tap / 释放 analyzer / 恢复音频会话（不恢复 .playback 会导致 TTS 无声——旧 VoiceRecorder 的教训）
     private func teardown() {
+        statsTask?.cancel()
+        statsTask = nil
         stallTask?.cancel()
         stallTask = nil
         resultsTask?.cancel()

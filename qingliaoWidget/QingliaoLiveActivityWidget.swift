@@ -6,7 +6,8 @@ import WidgetKit
 /// 灵动岛 / 锁屏实时活动：轻聊球 + 阶段 + 计时 +（可选）停止生成。
 ///
 /// 四条设计约束（都是硬约束，别绕）：
-/// 1. **计时用 `Text(_:style: .timer)` 交给系统自走**——侧载免费签名没有推送更新，App 被挂起后
+/// 1. ~~计时用 `Text(_:style: .timer)` 交给系统自走~~ **v3.9.9 已移除计时文字**（用户要求），
+///    右侧改为阶段图标（phaseBadge）。原注释保留一句为什么当初用它——侧载免费签名没有推送更新，App 被挂起后
 ///    文本不会再刷新，只有系统计时钟照走，所以「已用时」必须靠它。
 /// 2. **动效的唯一可靠来源是「数据更新」**（Apple《Animating data updates in widgets and Live
 ///    Activities》原文：动画随数据更新发生，**最长 2 秒**；常亮屏下系统不播动画；iOS 16 及更早会
@@ -34,7 +35,7 @@ struct QingliaoLiveActivityWidget: Widget {
                         .padding(.leading, 2)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
-                    self.elapsedLabel(state: context.state, size: 15)
+                    self.phaseBadge(state: context.state, size: 15)
                         .padding(.trailing, 2)
                 }
                 DynamicIslandExpandedRegion(.bottom) {
@@ -58,18 +59,10 @@ struct QingliaoLiveActivityWidget: Widget {
 
     // MARK: - 各形态内容
 
-    /// 紧凑态右侧：已完成给对勾，其余给系统自走计时
+    /// 紧凑态右侧：阶段图标（v3.9.9 起不再显示计时数字；完成态由 phaseBadge 给对勾）
     @ViewBuilder
     private func compactTrailing(state: QingliaoActivityAttributes.ContentState) -> some View {
-        if state.phase == QingliaoActivityAttributes.Phase.done.rawValue {
-            Image(systemName: "checkmark")
-                .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(OrbPalette.success)
-                .frame(maxWidth: 44)
-        } else {
-            self.elapsedLabel(state: state, size: 12)
-                .frame(maxWidth: 44)
-        }
+        self.phaseBadge(state: state, size: 12)
     }
 
     /// 展开态底部：会话标题 + 状态行（+ 进行中显示「停止生成」按钮）
@@ -110,12 +103,29 @@ struct QingliaoLiveActivityWidget: Widget {
         .buttonStyle(.plain)
     }
 
-    /// 已用时（系统自走）
-    private func elapsedLabel(state: QingliaoActivityAttributes.ContentState, size: CGFloat) -> some View {
-        Text(state.startedAt, style: .timer)
-            .font(.system(size: size, weight: .semibold, design: .rounded))
-            .monospacedDigit()
-            .foregroundStyle(.secondary)
+    /// v3.9.9（用户要求）：**取消计时文字**。
+    ///
+    /// 原来这里是 `Text(state.startedAt, style: .timer)`——每秒跳一次，观感生硬，
+    /// 而且侧载无推送时这个秒数并不代表真实进度（它只反映"已经过去多久"）。
+    /// 改成**阶段指示**：思考 / 生成 / 完成三态各一个图标，阶段变化时由系统播一次过渡
+    /// （`.contentTransition(.symbolEffect(.replace))`）。
+    ///
+    /// 注意这就是实时活动里唯一可靠的"动"：Apple 明确动画**只随数据更新发生、最长 2s、
+    /// 常亮屏(AOD)下不播**，所以这里不做连续自走动画（做了真机也停在第一帧）。
+    private func phaseBadge(_ state: QingliaoActivityAttributes.ContentState, size: CGFloat) -> some View {
+        let symbol: String
+        if !state.isAnswering {
+            symbol = "checkmark.circle.fill"
+        } else if state.phase == QingliaoActivityAttributes.Phase.streaming.rawValue {
+            symbol = "text.bubble.fill"
+        } else {
+            symbol = "ellipsis.bubble.fill"
+        }
+        return Image(systemName: symbol)
+            .font(.system(size: size, weight: .semibold))
+            .foregroundStyle(state.isAnswering ? OrbPalette.accent : OrbPalette.success)
+            .contentTransition(.symbolEffect(.replace))
+            .frame(maxWidth: 44)
     }
 
     /// 状态行文案：阶段 + 模型名（模型名取自发送路径同一套选型，见 ChatView.liveActivityModelName）
@@ -146,7 +156,7 @@ struct QingliaoLiveActivityWidget: Widget {
                     .lineLimit(1)
             }
             Spacer(minLength: 8)
-            elapsedLabel(state: state, size: 15)
+            phaseBadge(state: state, size: 15)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)

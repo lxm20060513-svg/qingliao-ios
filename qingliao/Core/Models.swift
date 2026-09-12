@@ -11,6 +11,9 @@ enum UserDefaultsKey {
     static let agentProvider = "qingliao_agent_provider"
     static let freeModel     = "qingliao_free_model"
     static let freeModelName = "qingliao_free_model_name"
+    /// v3.9.9：待发队列 key 提升到这里做唯一常量——原来 ChatView 里是 private static 常量、
+    /// DockTabView 兜底清理处是**硬编码字面量**，只改一边就会静默失效（清不掉队列）。只读审查指出。
+    static let pendingQueue = "qingliao_pending_queue"
 }
 
 // MARK: - 聊天消息（content 可能是纯文本或数组，手动解析最稳）

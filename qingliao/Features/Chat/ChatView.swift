@@ -289,14 +289,16 @@ struct ChatView: View {
     /// v3.6.5：模型思考档位（header 胶囊，仅本地模式）——随流式请求下发给后端
     @AppStorage(ReasoningLevel.storageKey) private var reasoningLevelRaw = ReasoningLevel.low.rawValue
     // v3.9.8：AI 回复自动朗读（header 胶囊开关）。默认关（不被动出声）。
-    // 免费/离线优先：自动朗读固定走系统 AVSpeechSynthesizer（preferSystem），
+    // v3.9.9 起：自动朗读**跟随设置里的「AI 语音朗读」开关**（开着=神经音色，关=系统语音），
     // 不把每轮回复全文 POST 到后端神经 TTS；想要神经音色就手动点气泡上的朗读。
     // 注意区别：设置页的「AI 语音朗读」管的是**引擎**（CloudConfig.ttsEnabled 默认 true → 手动朗读默认走后端
     // 神经音色），这里的胶囊管的是**要不要自动念**，两者各管一段、互不覆盖。
     @AppStorage("qingliao_auto_read_reply") private var autoReadReply = false
-    /// v3.9.8 review 收口：自动朗读去重（同一条只自动念一次，手动点气泡不受限）
-    @State private var lastAutoReadMessageID: String?
-    /// v3.9.8 review 收口：用户主动「停止生成」（输入栏 / 灵动岛）→ 本轮不自动朗读（别把残句念一遍）
+    /// v3.9.9 收口：自动朗读去重（同一条只自动念一次，手动点气泡不受限）
+    /// v3.9.9：去重键**非可选**（`msg.uid ?? msg.id`）——uid 对老数据是 nil，
+    /// 可选比较会遇到 nil == nil 伪去重：第一次朗读被吞掉、之后带 nil uid 的回答永远不念
+    @State private var lastAutoReadKey = ""
+    /// v3.9.9 收口：用户主动「停止生成」（输入栏 / 灵动岛）→ 本轮不自动朗读（别把残句念一遍）
     @State private var suppressAutoReadOnce = false
     @State private var showReasoningPicker = false
 
@@ -427,15 +429,13 @@ struct ChatView: View {
             if !autoReadReply { SpeechManager.shared.stop() }   // 关掉立刻闭嘴，不留半句
             Haptics.tap()
         } label: {
-            HStack(spacing: 3) {
-                Image(systemName: autoReadReply ? "speaker.wave.2.fill" : "speaker.slash")
-                    .font(.system(size: Typography.tiny, weight: .semibold))
-                Text("朗读")
-                    .font(.system(size: Typography.caption, weight: .semibold))
-            }
-            .foregroundStyle(autoReadReply ? Color.accentColor : Color.secondary)
-            .padding(.horizontal, 9)
-            .padding(.vertical, 6)          // 与思考档位胶囊同高（触摸区 ~46×24）
+            // v3.9.9（用户要求）：**只留图标、不要文字**——header 上多一个"朗读"两字太占宽
+            // （与思考档位胶囊同处一行，窄屏会把标题挤掉）。语义靠图标 + accessibilityLabel 表达。
+            Image(systemName: autoReadReply ? "speaker.wave.2.fill" : "speaker.slash")
+                .font(.system(size: Typography.caption, weight: .semibold))
+                .foregroundStyle(autoReadReply ? Color.accentColor : Color.secondary)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 7)          // 触摸区 ~34×24（贴近 HIG 44pt 下限，与左侧胶囊同高）
             .background(autoReadReply ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.06), in: Capsule())
             .overlay {
                 // 只有关态画描边（开态靠主色底区分，与思考档位胶囊同族）；开态不画全透明描边
@@ -451,20 +451,34 @@ struct ChatView: View {
     /// 只念真正的「AI 回答」——跳过推送气泡（🔔 收件箱/进度，isPush）与错误占位（isErrorPlaceholder），
     /// 那些念出来只会莫名其妙。
     private func autoReadLatestReply() {
-        let suppressed = suppressAutoReadOnce
-        suppressAutoReadOnce = false          // 一次性标记：无论下面走哪条分支都清掉
-        guard autoReadReply, !suppressed else { return }
-        // 只看最后一条，**不用 last(where:) 回溯**——回溯会在最后一条是推送/错误占位时
-        // 退回去念几轮前的旧答案，用户听到的跟刚发生的事毫无关系。
-        guard let msg = chat.messages.last else { return }
+        // 抑制标记**只在真正要念时才消费**：原来无条件清掉，生成期来一个 🔔 进度气泡（isPush）
+        // 就把标记吃掉，用户停止后落库的残句又会被念出来（只读审查抓到的回归）。
+        guard autoReadReply, !suppressAutoReadOnce else { return }
+        // v3.9.9：念**刚落库的那条**，不用 `chat.messages.last`——AI 回答中用户又发消息时
+        // 本轮回复 insert 在数组中段，末条是排队 user 消息（见 ChatStore.lastLandedAssistantUID）
+        guard let landedUID = chat.lastLandedAssistantUID,
+              let msg = chat.message(withUID: landedUID) else { return }
         guard !msg.isUser, !msg.isPush, !msg.isErrorPlaceholder else { return }
+        // 注：不再需要 last(where:) 这类回溯——触发源已精确到"哪一条回复落库"，不会念到旧答案
         // 与气泡朗读同口径：剥掉后端注入的 🔧/💭 进度行再念
-        let text = ChatMessageBubble.strippingProgressLines(msg.content)
+        // （类型名是 MessageBubble —— 文件名虽叫 ChatMessageBubble.swift，里面声明的却是 MessageBubble）
+        let text = MessageBubble.strippingProgressLines(msg.content)
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, msg.id != lastAutoReadMessageID else { return }
-        lastAutoReadMessageID = msg.id
-        // 免费 / 离线优先：固定用系统语音，不把整段回复上传到后端 TTS
-        SpeechManager.shared.speak(text, id: msg.id, preferSystem: true)
+        guard !text.isEmpty else { return }
+        // 去重键取**非可选**值 `uid ?? id`：uid 对老数据是 nil，可选比较会遇到 nil == nil 伪去重
+        // （第一次朗读被吞掉、之后带 nil uid 的回答永远不念）。msg.id 本身已含 timestamp + uid，
+        // 拿它兜底不会与"连续两条相同回答"误撞。
+        let key = msg.uid ?? msg.id
+        guard key != lastAutoReadKey else { return }
+        lastAutoReadKey = key
+        suppressAutoReadOnce = false          // 走到这里才消费抑制标记（本轮确实要念了）
+        // v3.9.9（用户反馈「TTS 语音太生硬」）：**不再固定系统语音**，改为跟随设置里的
+        // 「AI 语音朗读」开关 —— 开着就用所选模型的神经音色（设置里可选音色：磁性男声/温柔男声/
+        // 气质温婉/活力轻快…），关掉才用系统语音（免费离线、不上传全文）。
+        // 原来这里硬写 preferSystem: true，把神经音色整个跳过了；而系统默认是 compact 音质
+        // （没装"增强/优质"语音包时格外机械）→ 听感生硬。
+        // id 传 msg.id：与气泡朗读按钮同一标识，否则自动朗读时气泡上的音柱不亮
+        SpeechManager.shared.speak(text, id: msg.id)
     }
 
     /// 档位选择内容抽离（避免 Xcode type-check 超时，与 chatActionDialogContent 同理）
@@ -579,7 +593,7 @@ struct ChatView: View {
                      onStop: {
                          // v2.0.88：点停止 = 取消当前回答 + 清空排队消息（不再自动发）
                          clearPendingQueue()
-                         suppressAutoReadOnce = true   // v3.9.8 review：主动停止 → 残句不念
+                         suppressAutoReadOnce = true   // v3.9.9 收口：主动停止 → 残句不念
                          stream.stop(auth: auth)
                      },
                      onPickAttachment: {
@@ -606,9 +620,15 @@ struct ChatView: View {
                     // v3.9.3：设备端识别，不依赖后端 —— 云端模式同样开放语音入口（v3.0.4 的屏蔽已撤）
                     voiceEnabled: true,
                     // v3.9.6：录音态实时文本 + 诊断串（声明序在 voiceEnabled 之后，实参必须同序）
-                    recordingText: voiceMode ? liveSpeech.liveText : "",
-                    // 仅当「录音 3s 无任何结果」这类异常才显示诊断（正常时界面不留杂物）
-                    recordingDiag: liveSpeech.liveStalled ? liveSpeech.resultStats : "",
+                    // v3.9.9：文本源不再只看 voiceMode —— 只要识别器在跑就上屏
+                    // （voiceMode 是"进入语音模式"的 UI 旗标，与"是否正在收音"是两件事，耦合在一起
+                    //   会出现"红点在、却没文字"这种自相矛盾的中间态）
+                    recordingText: (voiceMode || liveSpeech.isRunning) ? liveSpeech.liveText : "",
+                    // v3.9.9：诊断串改为录音期间**始终**显示——V/F 是识别计数，T/D/Y 是音频三级计数
+                    // （T=麦克风回调/D=丢弃/Y=投递 analyzer）。原来只在"3s 无结果"时才显示，
+                    // 恰好把"有回调但一个都没投出去"这类静默失败藏了起来。
+                    recordingDiag: liveSpeech.pipeStats.isEmpty ? ""
+                        : liveSpeech.resultStats + " " + liveSpeech.pipeStats,
                     // v3.4.25：上下文使用率传入——超 80% 发送键变橙轻提醒
                     contextUsage: chat.contextUsage(maxTokens: 4000))
                     // v2.0.129：球态输入框 —— 绑定会话 id，切会话重建复位（展开态在切会话后回球态）
@@ -843,7 +863,9 @@ struct ChatView: View {
         // v3.9.6：实时转写同步进输入框 —— 不依赖「启动时存下来的闭包写 @State」，
         // 改用 SwiftUI 原生更新周期里写（liveSpeech.liveText 变化 → 必然走这里），松手定稿后框内即最终文本
         .onChange(of: liveSpeech.liveText) { _, newValue in
-            guard voiceMode else { return }
+            // v3.9.9：守卫与录音行同口径（voiceMode 或识别器在跑），否则会出现
+            // "红点行有字、输入框里没字"的分裂状态
+            guard voiceMode || liveSpeech.isRunning else { return }
             inputText = newValue
         }
         .photosPicker(isPresented: $showPhotoPicker, selection: $photoItem, matching: .images)
@@ -924,7 +946,7 @@ struct ChatView: View {
         // （pendingQueue 是本视图的 @State，DockTabView 摸不到 → 由它发通知、这里清）
         .onReceive(NotificationCenter.default.publisher(for: LiveActivityActionBridge.clearPendingQueueNotification)) { _ in
             clearPendingQueue()
-            // v3.9.8 review：这条通知只由灵动岛「停止生成」发出 → 本轮残句不要自动朗读
+            // v3.9.9 收口：这条通知只由灵动岛「停止生成」发出 → 本轮残句不要自动朗读
             suppressAutoReadOnce = true
         }
         // v3.4.x 任务中心：点击任务「发送到当前会话」→ 把任务文本作为用户消息发送
@@ -1713,13 +1735,21 @@ struct ChatView: View {
         // v3.9.7：busy=false 走「完成态 → 2s 后收起」，让「已完成」看得见
         .onChange(of: aiBusy, initial: true) { _, busy in
             pushLiveActivity(busy: busy)
+            // v3.9.9 fix：抑制标记在「新一轮开始」就复位——若只在 autoReadLatestReply 里清，
+            // 用户停止后那一轮若没有消息落库（例如流被取消、内容为空），标记会一直挂着，
+            // 把**下一轮正常回答**也一起吞掉。
+            if busy { suppressAutoReadOnce = false }
         }
-        // v3.9.8 review 收口：自动朗读的触发信号从「aiBusy 变 false」换成「会话最后一条消息的 id 变了」。
-        // aiBusy = (本机流 && 会话匹配) || 云端流 || 服务器探针 的并集，切会话 / 探针抖动 /
-        // 失败自动重试的空窗 / 用户点停止都会产生 true→false —— 据此朗读会念到上一条旧答案、
-        // 半截答案，甚至切过去那个会话的内容。而流式中的内容活在 streamingBubble（不落 chat.messages），
-        // 只有本轮回答真正落库时最后一条的 id 才会变 —— 这才是「本轮回答结束」的可靠信号。
-        .onChange(of: chat.messages.last?.id) { _, _ in
+        // v3.9.9 收口（两位只读审查都指出上一版信号不干净）：触发改为 `chat.assistantLandedToken`——
+        // ChatStore 在**真正 append/insert 了一条 assistant 回复**时自增。原来监听「末条消息 id 变化」：
+        //   ① 切会话 / 冷启动加载（load 整组替换 messages）也会变 → 念出刚打开会话的历史旧答案；
+        //   ② AI 回答中用户又发一条（排队）时，本轮回复 insert 在中段、末条仍是 user 消息 → 信号不变，
+        //      这一轮永远不朗读。
+        // 为什么不用 `aiBusy`（历史教训，别改回去）：aiBusy = (本机流 && 会话匹配) || 云端流 ||
+        // 服务器探针 的并集，切会话 / 探针抖动 / 失败自动重试的空窗 / 用户点停止都会 true→false，
+        // 据此朗读会念到上一条旧答案、半截答案，甚至切过去那个会话的内容；
+        // 流式中的内容活在 streamingBubble（不落 chat.messages），所以"落库事件"才是本轮结束的可靠信号。
+        .onChange(of: chat.assistantLandedToken) { _, _ in
             autoReadLatestReply()
         }
         // v3.9.7：阶段变化（思考中 → 输出中）也要推一次，否则灵动岛会一直停在「思考中」
@@ -1906,6 +1936,10 @@ struct ChatView: View {
     }
 
     func send() {
+        // v3.9.9 收口：新的一轮开始 → 先停掉上一轮朗读（v3.9.8 原有行为，上一版被我删掉了）。
+        // 注意**不能**挂到 `aiBusy` 变 true 上无脑停：aiBusy = 本机流 ‖ 云端流 ‖ 服务器探针，
+        // 切会话/探针抖动都会跳变，会把用户手动点的朗读掐断；挂在"用户真的发起新一轮"这个点最准。
+        SpeechManager.shared.stop()
         var text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         let img = pendingImageData
         // v2.0.88f：去掉 isStreaming 拦截——AI 回答中发送走 sendCore 排队路径
@@ -2611,7 +2645,7 @@ struct ChatView: View {
     }
 
     /// v3.4.x 发送可靠性：队列落盘持久化 + 启动恢复补发（杀 App/断网重启不丢排队消息）
-    private static let pendingQueueKey = "qingliao_pending_queue"
+    private static let pendingQueueKey = UserDefaultsKey.pendingQueue
 
     func persistPendingQueue() {
         if let d = try? JSONEncoder().encode(pendingQueue) {

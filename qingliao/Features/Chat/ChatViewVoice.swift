@@ -20,6 +20,19 @@ extension ChatView {
             let text = await liveSpeech.stop()
             transcribing = false
             voiceDiag = liveSpeech.diagnostics
+            // v3.9.9：录音期间一个中间结果都没出（= 实时出字没生效）→ 自动上报一条诊断到后端
+            // （data/diag/reports.jsonl），含 V/F 结果计数 + T/D/Y 音频三级计数 + 首结果耗时，
+            // 这样"为什么不出字"不用再靠用户复述，直接读后端即可定位断在哪一级。
+            // 正常会话（有中间结果）不上报，避免污染诊断流。
+            if liveSpeech.volatileCount == 0 {
+                let env = DiagnosticsStore.env()
+                let ev = DiagEvent.makeEvent(kind: "voice", env: env,
+                                             summary: "语音实时出字为 0：\(liveSpeech.resultStats) \(liveSpeech.pipeStats)",
+                                             stack: liveSpeech.diagnostics + "\n文字长度=\(text.count)")
+                _ = DiagnosticsStore.enqueue(ev)
+                Task { _ = await DiagnosticsUploader.flushPending() }
+                NSLog("[VOICE] 零中间结果，已上报诊断：\(liveSpeech.resultStats) \(liveSpeech.pipeStats)")
+            }
             if liveSpeech.lastRecognizedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 // 一句话都没识别出来（说话太短 / 没靠近麦克风 / 环境太吵）
                 voiceTooShort = true
