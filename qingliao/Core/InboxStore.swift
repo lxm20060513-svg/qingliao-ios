@@ -99,8 +99,12 @@ final class InboxStore {
             // 轮询抢在落库前拉到推送，shouldSkipDuplicate 遍历不到这条回复 → 误判不重复 →
             // 重复注入（AI 回答气泡 + 🔔推送气泡同内容）。流式中跳过本轮（不 markDone），
             // 流结束 15s 后下一轮再比对，此时回复已落库，去重必然命中。
-            if let s = stream, s.isStreaming { return }
+            // v3.9.7：进度类（task_type="progress"）不受此闸门限制——用户回到 App 时要立刻看到
+            // "跑到哪了"，否则这批进度会被压到流结束才一起涌出来（老观感：长任务中途像失联）。
+            // reply 类仍按 v3.0.90 的落库竞态修复跳过（去重依赖 chat.messages 已 upsert）。
+            let streaming = (stream?.isStreaming ?? false)
             for it in items {
+                if streaming, it.taskType == "reply" { continue }
                 await consumeOne(id: it.id, text: it.text, sourceTaskId: it.sourceTaskId,
                                  taskType: it.taskType, auth: auth, chat: chat)
             }
@@ -120,6 +124,20 @@ final class InboxStore {
             return
         }
         consume(id)
+        // v3.9.7：进行中进度推送（后端在静默期推来的「已生成 N 字 + 最近片段」）→ 注入会话 🔔 进度气泡。
+        // 三处刻意的不同：① 不走 reply 去重（带字数的快照天然唯一，也绝不能和最终回复互判重复）；
+        // ② 不弹本地通知（进度是"回到 App 时看"的信息，弹横幅只会在回前台那一瞬轰炸）；
+        // ③ 不进任务中心（进度留痕在会话里，任务中心另有「进行中」卡片实时刷新进度）。
+        // isPush=true 保证它留在会话展示但**不进模型上下文**（historyPayload 会滤掉 isPush）。
+        if taskType == "progress" {
+            var pmsg = ChatMessage(role: "assistant", content: text,
+                                   timestamp: Date().timeIntervalSince1970 * 1000)
+            pmsg.isPush = true
+            chat.append(pmsg)
+            lastInjectedCount += 1
+            await markDone(id, auth: auth)
+            return
+        }
         // 非 reply（定时/后台/系统事件）不注入会话气泡，进任务中心列表
         if taskType != "reply" {
             TaskCenterStore.shared.add(TaskCenterItem(

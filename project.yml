@@ -33,8 +33,8 @@ targets:
         CFBundleDevelopmentRegion: zh_CN
         CFBundleLocalizations:
           - zh-Hans
-        CFBundleShortVersionString: "3.9.6"
-        CFBundleVersion: "451"
+        CFBundleShortVersionString: "3.9.7"
+        CFBundleVersion: "452"
         UILaunchScreen: {}
         # v3.8.0：实时活动（灵动岛/锁屏「AI 正在回复」）——挂件代码在 QingliaoWidget target
         NSSupportsLiveActivities: true
@@ -95,8 +95,8 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.qingliao.app2
         INFOPLIST_KEY_CFBundleDisplayName: 轻聊
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-        MARKETING_VERSION: "3.9.6"
-        CURRENT_PROJECT_VERSION: "451"
+        MARKETING_VERSION: "3.9.7"
+        CURRENT_PROJECT_VERSION: "452"
         ENABLE_PREVIEWS: YES
         CODE_SIGNING_ALLOWED: "NO"
 
@@ -109,21 +109,24 @@ targets:
       - qingliaoWidget
       # 实时活动属性类型：主 App 与挂件必须编同一份源码
       - qingliao/Core/LiveActivityAttributes.swift
+      # v3.9.7：灵动岛按钮的 AppIntent——必须在主 App 与挂件**两个** target 里都存在，
+      # 系统才会优先在 App 进程执行（只放挂件里会固定在挂件进程跑，触不到 App 的流）
+      - qingliao/Core/LiveActivityActions.swift
     info:
       path: qingliaoWidget/Info.plist
       properties:
         CFBundleDisplayName: 轻聊
         CFBundlePackageType: XPC!
         # 扩展与宿主版本号必须一致（XcodeGen 对未声明的键默认写 1.0/1，会让 .appex 自报 1.0(1)）
-        CFBundleShortVersionString: "3.9.6"
-        CFBundleVersion: "451"
+        CFBundleShortVersionString: "3.9.7"
+        CFBundleVersion: "452"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.qingliao.app2.widget
-        MARKETING_VERSION: "3.9.6"
-        CURRENT_PROJECT_VERSION: "451"
+        MARKETING_VERSION: "3.9.7"
+        CURRENT_PROJECT_VERSION: "452"
         CODE_SIGNING_ALLOWED: "NO"
         CODE_SIGNING_REQUIRED: "NO"
         SKIP_INSTALL: YES

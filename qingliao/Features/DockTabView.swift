@@ -147,6 +147,17 @@ struct DockTabView: View {
             .onOpenURL { url in
                 handleShareURL(url)
             }
+            // v3.9.7：灵动岛「停止生成」按钮——`LiveActivityIntent` 在**主 App 进程**执行，
+            // 所以进程内通知能直达这里（挂件进程触不到 App 的流）
+            .onReceive(NotificationCenter.default.publisher(for: LiveActivityActionBridge.notification)) { note in
+                guard (note.userInfo?["action"] as? String) == LiveActivityAction.stopGeneration else { return }
+                handleLiveActivityStop()
+            }
+            // 兜底：App 进程是刚被按钮拉起的（观察者还没注册、通知会丢）→ 启动时读一次待处理动作
+            .task {
+                guard LiveActivityActionBridge.consume() == LiveActivityAction.stopGeneration else { return }
+                handleLiveActivityStop()
+            }
         }
     }
 
@@ -196,6 +207,12 @@ struct DockTabView: View {
     /// 解析系统分享的 URL（文件/图片/文本/链接）→ 生成 SharedPayload 入 ShareRouter，切到聊天页并广播。
     /// v3.4.24：地图 App 分享的定位链接 → 解析经纬度入 SharedPayload.location（AI 推荐周边）。
     private func handleShareURL(_ url: URL) {
+        // v3.9.7：实时活动（灵动岛 / 锁屏横幅）点按深链——`widgetURL` 传进来的「回到会话」
+        if url.scheme?.lowercased() == "qingliao", url.host?.lowercased() == "chat" {
+            skipBurstOnce()
+            selected = .chat
+            return
+        }
         var payload: SharedPayload?
         if url.isFileURL {
             let accessing = url.startAccessingSecurityScopedResource()
@@ -229,6 +246,18 @@ struct DockTabView: View {
         skipBurstOnce()
         selected = .chat
         NotificationCenter.default.post(name: .qingliaoShareIncoming, object: nil)
+    }
+
+    // MARK: - v3.9.7 灵动岛按钮动作
+
+    /// 灵动岛「停止生成」——两条入口（App 活着时的进程内通知 / 进程刚被拉起的兜底 flag）
+    /// 汇到同一处，走的是聊天页「停止」按钮同一个 `StreamClient.stop`。
+    private func handleLiveActivityStop() {
+        _ = LiveActivityActionBridge.consume()   // 清掉兜底 flag（两条路径都到这儿，幂等）
+        guard stream.isStreaming else { return }
+        skipBurstOnce()
+        selected = .chat
+        stream.stop(auth: auth)
     }
 }
 

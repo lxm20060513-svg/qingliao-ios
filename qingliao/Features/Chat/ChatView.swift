@@ -303,6 +303,63 @@ struct ChatView: View {
             ? (CloudConfig.shared.activeConfig?.model ?? modelName)
             : resolveModel(hasImage: false).0
     }
+
+    /// v3.9.7：实时活动阶段——驱动灵动岛三态（思考中 / 输出中 / 已完成）。
+    ///
+    /// 本地流可精确到「输出中」：`stream.content` 在本轮开始时被清空（StreamClient.start 里 `content = ""`），
+    /// 有内容即说明首 token 已到。注意**不能**用 `stream.status == "streaming"` 判断——那个值只在
+    /// `adoptRemote`（后台 recover 接管服务端在途任务）时被置上，正常发送路径全程是空串。
+    /// 云端流 / 服务器兜底探针只有「忙 / 闲」两态 → 一律按「思考中」展示，不假装精确。
+    private var liveActivityPhase: String {
+        guard aiBusy else { return QingliaoActivityAttributes.Phase.done.rawValue }
+        let localStreaming = stream.isStreaming && !stream.content.isEmpty
+        return localStreaming ? QingliaoActivityAttributes.Phase.streaming.rawValue
+                              : QingliaoActivityAttributes.Phase.thinking.rawValue
+    }
+
+    /// v3.9.7：灵动岛状态行文案。只说能确证的阶段，**不虚构「联网搜索 / 写代码」这类没有数据源的措辞**
+    private var liveActivityActionText: String {
+        switch liveActivityPhase {
+        case QingliaoActivityAttributes.Phase.streaming.rawValue:
+            return "正在生成回答"
+        case QingliaoActivityAttributes.Phase.thinking.rawValue:
+            return "正在理解你的问题"
+        default:
+            return ""
+        }
+    }
+
+    /// v3.9.7：灵动岛「停止生成」是否可用——**只有本地流能被停**（云端流没有停止接口，
+    /// 与聊天页输入栏「停止」按钮同口径：那个按钮也只在 `stream.isStreaming` 时出现）。
+    /// 不可停就干脆不显示按钮，别放一个点了没反应的入口。
+    private var liveActivityCanStop: Bool {
+        stream.isStreaming && auth.currentStreamSessionId == chat.sessionId
+    }
+
+    /// v3.9.7：把当前状态推给实时活动管理器。busy=false 走「先落完成态、系统 2s 后收起」。
+    /// 先取成本地 Sendable 值再进 Task（Task 闭包是 @Sendable，不能捕获 View/Store）
+    private func pushLiveActivity(busy: Bool) {
+        let sessionId = chat.sessionId
+        let title = chat.title
+        let model = liveActivityModelName
+        let phase = liveActivityPhase
+        let action = liveActivityActionText
+        let canStop = liveActivityCanStop
+        Task { @MainActor in
+            if busy {
+                await LiveActivityManager.shared.sync(isBusy: true,
+                                                      sessionId: sessionId,
+                                                      sessionTitle: title,
+                                                      modelName: model,
+                                                      phase: phase,
+                                                      actionText: action,
+                                                      canStop: canStop)
+            } else {
+                // 带会话 id：切到别的会话时 aiBusy 也会变 false，不能据此收掉仍在跑的那条活动
+                await LiveActivityManager.shared.finish(sessionId: sessionId)
+            }
+        }
+    }
     /// 头部状态文案/颜色（独立计算属性，避免 body 内嵌套三元）
     private var headerSubtitle: String {
         serverOnline == nil ? "检测中" : (serverOnline == true ? "在线" : "离线")
@@ -1585,17 +1642,15 @@ struct ChatView: View {
         }
         // v3.8.0：灵动岛 / 锁屏实时活动——AI 开始时亮起、结束时收起（本地驱动，侧载免费签名可用）
         // initial: true：冷启动时先结算一次（服务端还在回复的场景由 remoteBusy 探针随后触发 true）
-        // 先取成本地 Sendable 值再进 Task（Task 闭包是 @Sendable，不能捕获 View/Store）
+        // v3.9.7：busy=false 走「完成态 → 2s 后收起」，让「已完成」看得见
         .onChange(of: aiBusy, initial: true) { _, busy in
-            let sessionId = chat.sessionId
-            let title = chat.title
-            let model = liveActivityModelName
-            Task { @MainActor in
-                await LiveActivityManager.shared.sync(isBusy: busy,
-                                                      sessionId: sessionId,
-                                                      sessionTitle: title,
-                                                      modelName: model)
-            }
+            pushLiveActivity(busy: busy)
+        }
+        // v3.9.7：阶段变化（思考中 → 输出中）也要推一次，否则灵动岛会一直停在「思考中」
+        // （内容没变的重复调用会被管理器挡掉，不会造成 update 风暴）
+        .onChange(of: liveActivityPhase) { _, _ in
+            guard aiBusy else { return }
+            pushLiveActivity(busy: true)
         }
         // v2.0.59：上下文过长提示（60+ 条建议压缩）
         .alert("上下文较长", isPresented: $showLongContextAlert) {

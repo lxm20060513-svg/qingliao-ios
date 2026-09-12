@@ -14,7 +14,8 @@ struct ChatInputBar: View {
     var isRecording: Bool = false
     var onVoiceStart: () -> Void = {}
     var onVoiceEnd: () -> Void = {}
-    // v2.0.96：语音转文字模式（长按发送按钮进入；Siri 彩色图标 + 输入框流光）
+    // v2.0.96：语音转文字模式（长按发送按钮进入；Siri 彩色图标）
+    // v3.9.7：语音态**不再**给输入框加流光特效——只保留「发送键变收音图标」这一个视觉提示
     var voiceMode: Bool = false
     var onVoiceModeToggle: () -> Void = {}
     // v2.0.100：转写中动画（输入框「语音转换中…」+ 按钮转圈）
@@ -264,12 +265,15 @@ struct ChatInputBar: View {
         // ShapeLayerShadowHelper.updateShadow → Path.cgPath → RenderBox CG::stroker 病态递归卡死）
         .shadow(color: .black.opacity(0.3), radius: 14, y: 5)
         // v2.0.87s：等待回复特效（v2.0.87ay：改回 87 版效果——内部旋转流光，Siri 淡雅）
-        // v2.0.96：语音转文字模式同样开启 Siri 流光
+        // v2.0.96：语音转文字模式同样开启 Siri 流光 —— v3.9.7 已撤销（见下，语音态不再有流光）
         .overlay {
-            // v3.2.4：流光在 streaming / voiceMode 均启用（用户拍板：语音模式保留流光视觉）。
+            // v3.2.4：流光在 streaming / voiceMode 均启用（当时用户拍板：语音模式保留流光视觉）。
+            // v3.9.7 改主意：语音转文字过程中输入框**移除这层特效**，保持普通输入框形态——
+            //         语音态唯一的视觉提示是「发送键变收音图标」（v3.9.7 用户要求，观感更干净）。
+            //         于是流光只在 streaming（等待回复）态出现。
             // 卡死防护靠 v3.2.3 三件套（流光无 shadow + 15fps + 外层阴影静态化在 overlay 前），
-            // voiceMode 期间唯一动态视图即此流光，无 shadow 不触发 stroker 病态路径。
-            if (streaming || voiceMode) && inputGlowOn {
+            // voiceMode 期间已无任何动态视图，风险只降不升。
+            if streaming && inputGlowOn {
                 // v2.0.139 性能：流光 60→30fps（旋转渐变肉眼无差，重绘开销减半）
                 // v3.2.3：30→15fps + **去掉 .shadow**——每帧变化的渐变+阴影=每帧送 stroker 算圆角
                 // 阴影路径（iOS 27 RenderBox 卡死源）。旋转渐变无锐边，15fps 肉眼无差，观感不变。
