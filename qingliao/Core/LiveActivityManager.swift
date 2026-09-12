@@ -49,6 +49,11 @@ final class LiveActivityManager {
     private var pendingDismissal = false
     /// v3.9.7：代际令牌——用于作废「上一轮遗留的收尾动作」
     private var generation = 0
+    /// v3.9.10：本轮推进度（见 `ContentState.progress`）与它的推手
+    private var lastProgress: Double = 0.18
+    private var progressTicker: Task<Void, Never>?
+    /// 推手句柄归属的代际（用于「任务自我退出时清句柄」——见 startProgressTicker）
+    private var tickerToken = 0
 
     private init() {}
 
@@ -102,9 +107,24 @@ final class LiveActivityManager {
 
         // 内容没变（同会话、同标题/模型/阶段/状态行/可停标记**且确实有一条在显示的活动**）→ 不做无谓 update。
         // 少了 `hasActive` 这个条件，就会在活动已被系统收掉后继续静默跳过 → 再也不新建。
-        if !newSession, !pendingDismissal, hasActive,
+        // v3.9.10：本轮推进度——思考 0.18 起步，进入生成 0.35，之后由 ticker 逐步逼近 0.86，
+        // 只有真结束才落 1.0（**不假装知道总长**，见 ContentState.progress 注释）。
+        //
+        // ⚠️ 基线必须按「新一轮」重置（v3.9.10 审查抓到的 BLOCKER）：同会话第二轮时
+        // lastProgress 还留着上一轮 finish() 落的 1.0。原写法只看 newSession，于是第二轮
+        // newProgress 直接算成 1.0 → 环一上来就满格，且 ticker 的 next 恒 ≤0.86 < 1.0 永远推不动
+        // （用户看到「第二轮起环满格且完全不动」）。且 141 行的写回发生在 end()→clearState()
+        // 复位之后，会把 1.0 再度写回，复位等于白做。
+        // 「新一轮」= 换会话 / 上一轮刚收尾(pendingDismissal) / 阶段从 done|streaming 回到 thinking。
+        let newRound = phase == QingliaoActivityAttributes.Phase.thinking.rawValue
+            && (lastPhase == QingliaoActivityAttributes.Phase.done.rawValue
+                || lastPhase == QingliaoActivityAttributes.Phase.streaming.rawValue)
+        let freshRound = newSession || pendingDismissal || newRound
+        let newProgress = Self.baseProgress(phase: phase, previous: freshRound ? 0 : lastProgress)
+        if !freshRound, hasActive,
            title == lastTitle, model == lastModel,
-           phase == lastPhase, actionText == lastAction, canStop == lastCanStop {
+           phase == lastPhase, actionText == lastAction, canStop == lastCanStop,
+           newProgress == lastProgress {
             return
         }
         // 新的一轮回复 → 作废可能还挂着的上一轮收尾
@@ -121,9 +141,10 @@ final class LiveActivityManager {
         }
 
         let now = Date()
-        // 同一会话继续回复 → 保留原起始时间；换会话则从零开始。
-        // （v3.9.9：挂件已按用户要求**不再显示计时文字**，此字段保留——锁屏/后续形态仍可复用）
-        let start = newSession ? now : (startedAt ?? now)
+        // 同一轮内继续回复 → 保留原起始时间；**新一轮**（换会话 / 上一轮收尾后 / 阶段回到思考）
+        // 从零开始——否则 startedAt 会跨轮累计，字段语义（“本轮开始时间”）就不成立了。
+        // （v3.9.9：挂件已按用户要求**不显示计时**，此字段保留给完成态与后续形态。）
+        let start = freshRound ? now : (startedAt ?? now)
         currentSessionId = sessionId
         startedAt = start
         lastTitle = title
@@ -131,6 +152,7 @@ final class LiveActivityManager {
         lastPhase = phase
         lastAction = actionText
         lastCanStop = canStop
+        lastProgress = newProgress
 
         let state = QingliaoActivityAttributes.ContentState(sessionTitle: title,
                                                            modelName: model,
@@ -138,7 +160,8 @@ final class LiveActivityManager {
                                                            isAnswering: true,
                                                            phase: phase,
                                                            actionText: actionText,
-                                                           canStop: canStop)
+                                                           canStop: canStop,
+                                                           progress: newProgress)
         let content = ActivityContent(state: state, staleDate: Self.staleDate())
 
         if !hasActive {
@@ -157,6 +180,12 @@ final class LiveActivityManager {
                 await activity.update(content)
             }
         }
+        // v3.9.10：生成阶段开始按节奏推进环（离开生成阶段就停）
+        if phase == QingliaoActivityAttributes.Phase.streaming.rawValue {
+            startProgressTicker()
+        } else {
+            stopProgressTicker()
+        }
     }
 
     /// 回复结束（v3.9.7）：先落「已完成」态，并让**系统** 2s 后自行收起。
@@ -167,7 +196,13 @@ final class LiveActivityManager {
     /// - **只收当前活动对应的会话**：`aiBusy` 是按会话收窄的，用户切到别的会话时也会变 false，
     ///   不能因此把仍在跑的那条活动标成完成并收掉。
     func finish(sessionId: String) async {
-        guard Self.isEnabled, let active = currentSessionId, sessionId == active else { return }
+        guard Self.isEnabled, let active = currentSessionId, sessionId == active else {
+            // v3.9.10：切到别的会话时也会落到这里（`aiBusy` 按会话收窄 → 传进来的是**新**会话 id）。
+            // 活动本体按原设计留给仍在跑的那一轮，但**进度推手必须停**，否则它会一路空转到饱和、
+            // 每 4s 醒一次（审查抓到的新泄漏面：v3.9.9 之前这里只挂一条静止活动，没有推手）。
+            stopProgressTicker()
+            return
+        }
         let token = generation
 
         var hasActive = Self.hasActiveActivity
@@ -179,7 +214,12 @@ final class LiveActivityManager {
         // review 修复：代际校验必须在 clearState 之前——那 600ms 等待窗口里用户可能已经开始了新一轮，
         // 此时清状态会把新一轮刚建立的 currentSessionId/startedAt 抹掉，下一次 sync 当成新会话
         // （先 end 再 request，灵动岛闪断 + 计时重启）。
+        // ⚠️ 停表与写 lastProgress 必须在代际校验**之后**（审查抓到的 HIGH）：那 600ms 等待窗口里
+        // 用户可能已经开始新一轮，先改状态就会把新一轮的进度基线写坏（且 pendingDismissal 还没置位，
+        // sync 的 end()/彻底重置路径兜不住）。
         guard token == generation else { return }
+        stopProgressTicker()
+        lastProgress = 1.0
         guard hasActive else {
             clearState()   // 列表里确实没有活动（用户关了实时活动/被系统清掉）→ 清本地状态即可
             return
@@ -191,7 +231,8 @@ final class LiveActivityManager {
                                                            isAnswering: false,
                                                            phase: QingliaoActivityAttributes.Phase.done.rawValue,
                                                            actionText: "",
-                                                           canStop: false)
+                                                           canStop: false,
+                                                           progress: 1.0)
         let content = ActivityContent(state: state, staleDate: Date().addingTimeInterval(60))
 
         // 这期间又开始了新一轮 → 新活动不能被这一轮收尾碰到
@@ -224,6 +265,78 @@ final class LiveActivityManager {
         }
     }
 
+    // MARK: - 本轮推进度（v3.9.10）
+
+    /// 阶段对应的起步进度。`previous` 保证**单调不倒退**（同一轮里只会往前长）。
+    private static func baseProgress(phase: String, previous: Double) -> Double {
+        // 天花 0.86：ticker 的收敛目标就是它，1.0 只允许出现在 finish() 那份内容里。
+        // 万一有残留值漏进来（例如未来新增了别的收尾路径忘了重置），也不会让新的一轮一上来就满格。
+        if phase == QingliaoActivityAttributes.Phase.streaming.rawValue {
+            return min(0.86, max(previous, 0.35))
+        }
+        // 思考态下限 0.18：新一轮时 previous 传 0，没有这条下限会让环一开始就空着（观感像没在做事）
+        return min(0.86, max(previous, 0.18))
+    }
+
+    /// 生成阶段按节奏推进进度环。
+    ///
+    /// 为什么放在管理器里而不是每来一个 token 就 update：
+    ///   ① 实时活动的视图**只在 update 时重绘**（Apple 明文），所以「环一直在长」必须靠持续 update；
+    ///   ② 但每次 token 都 update 就是 update 风暴（系统会限流、也白耗电）→ 固定 1.5s 一拍；
+    ///   ③ 长回答（>30s）后放慢到 4s 一拍，避免长时间对话里的无意义唤醒；
+    ///   ④ 曲线是**指数逼近 0.86**（先快后慢），永远不假装 100% —— 真完成由 `finish()` 落 1.0。
+    private func startProgressTicker() {
+        guard progressTicker == nil else { return }
+        let token = generation
+        tickerToken = token
+        progressTicker = Task { @MainActor [weak self] in
+            // 退出时清句柄（审查抓到）：原来三条自我退出路径都是裸 return，句柄仍非 nil →
+            // 本轮之后再调 startProgressTicker 会被 `guard progressTicker == nil` 永久挡下，
+            // 环停在起始值一动不动且无日志可查。用 token 比对避免误杀新一轮刚起的推手。
+            defer {
+                if let s = self, s.tickerToken == token { s.progressTicker = nil }
+            }
+            var ticks = 0
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(ticks < 20 ? 1.5 : 4))
+                guard !Task.isCancelled, let self, self.generation == token else { return }
+                guard self.currentSessionId != nil, Self.hasActiveActivity else { return }
+                if !Self.isEnabled { return }
+                // 到顶就收工（不再每 4s 空转），下一轮由 sync 重启
+                if self.lastProgress >= 0.86 { return }
+                let next = min(0.86, self.lastProgress + max(0.006, (0.86 - self.lastProgress) * 0.05))
+                ticks += 1
+                // 推不动就退出，而不是 continue —— 原来的 continue 在 next 恒 ≤ 0.86 < lastProgress 时
+                // 会让循环永不退出（活死循环，每 1.5s/4s 醒一次主线程）。审查抓到。
+                guard next > self.lastProgress else { return }
+                self.lastProgress = next
+                let content = ActivityContent(state: self.currentState(progress: next),
+                                              staleDate: Self.staleDate())
+                for activity in Activity<QingliaoActivityAttributes>.activities
+                where activity.activityState == .active {
+                    await activity.update(content)
+                }
+            }
+        }
+    }
+
+    private func stopProgressTicker() {
+        progressTicker?.cancel()
+        progressTicker = nil
+    }
+
+    /// 用最近一次广播的字段拼一份新的动态数据（只换 progress）——ticker 用
+    private func currentState(progress: Double) -> QingliaoActivityAttributes.ContentState {
+        QingliaoActivityAttributes.ContentState(sessionTitle: lastTitle,
+                                               modelName: lastModel,
+                                               startedAt: startedAt ?? Date(),
+                                               isAnswering: true,
+                                               phase: lastPhase,
+                                               actionText: lastAction,
+                                               canStop: lastCanStop,
+                                               progress: progress)
+    }
+
     // MARK: - 私有
 
     /// 是否刚调过 request（1s 内）——用于识破 `Activity.activities` 的最终一致窗口
@@ -245,6 +358,8 @@ final class LiveActivityManager {
         lastCanStop = false
         justRequestedAt = nil
         pendingDismissal = false
+        stopProgressTicker()
+        lastProgress = 0.18
     }
 
     /// 只有「系统里真正在显示」的活动才算数（v3.9.9 真机反馈修复的核心）。

@@ -243,6 +243,9 @@ final class SpeechManager: NSObject, ObservableObject, AVSpeechSynthesizerDelega
     /// 否则用户存过的音色被卸载后，**每一句朗读**都会在主线程重跑一次解析。
     private static var voiceMisses: Set<String> = []
 
+    /// 语言兜底音色在缓存里的伪 id（不是真实 identifier，仅作缓存键）
+    private static let languageFallbackID = "__zh-CN__"
+
     static func resolvedSystemVoice() -> AVSpeechSynthesisVoice? {
         // ① 目录已就绪时先剔掉「已被系统卸载」的存量选择：否则 UI 一直显示一个不存在的音色
         if voiceCatalogLoaded, !systemVoiceID.isEmpty,
@@ -264,7 +267,12 @@ final class SpeechManager: NSObject, ObservableObject, AVSpeechSynthesizerDelega
         // ③ v3.9.10 fix（审查抓到）：兜底不能用「设备默认」——中文机器上默认常是 en-US，
         // 中文文本会被英文音素念出来（正是用户说的「生硬」）。目录还没预热好（启动预热要几秒）
         // 或目标失效时，回到与旧实现一致的语言兜底。
-        return AVSpeechSynthesisVoice(language: "zh-CN")
+        // 兜底对象也进缓存（审查抓到）：否则目录未就绪期间**每一句朗读**都会在主线程现构造一次
+        // AVFoundation 音色——与本次刚从 dSYM 定位修掉的那条主线程路径同族。
+        if let cached = voiceObjectCache[Self.languageFallbackID] { return cached }
+        guard let voice = AVSpeechSynthesisVoice(language: "zh-CN") else { return nil }
+        voiceObjectCache[Self.languageFallbackID] = voice
+        return voice
     }
 
     // MARK: - 云端神经 TTS（小米 mimo-v2.5-tts，走后端 /api/tts）

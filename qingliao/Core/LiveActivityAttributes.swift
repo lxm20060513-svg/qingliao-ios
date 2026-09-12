@@ -23,8 +23,8 @@ struct QingliaoActivityAttributes: ActivityAttributes {
         var sessionTitle: String
         /// 当前模型名（展示用）
         var modelName: String
-        /// 本轮开始时间——展开态用 `Text(_:style: .timer)` 让**系统**自走计时，
-        /// App 被挂起也照走（免费签名没有推送更新，这是唯一能保证进度不僵死的办法）
+        /// 本轮开始时间。v3.9.9 起用户要求**不显示计时**，展开态/锁屏都不再走秒；
+        /// 字段保留：完成态/后续形态与「同会话续更不重启」的判定仍要用它。
         var startedAt: Date
         /// 是否仍在回复中（false = 已完成，用于收起前的最终态）
         var isAnswering: Bool
@@ -36,10 +36,15 @@ struct QingliaoActivityAttributes: ActivityAttributes {
         /// 与聊天页输入栏「停止」按钮同口径：`stream.isStreaming` 才出现停止）。
         /// 挂件据此决定要不要显示「停止生成」：不可停就别显示，避免出现一个点了没反应的按钮。
         var canStop: Bool
+        /// v3.9.10：**本轮推进度**（0…1），不是「总进度承诺」——流式回答没有真实总长。
+        /// 由 `LiveActivityManager` 按节奏推进（思考 0.18 → 开始生成 0.35 → 逐步逼近 0.86，
+        /// 只有真结束才落 1.0）。挂件的环据此持续往前长，用户看到「在动」。
+        var progress: Double
 
         init(sessionTitle: String, modelName: String, startedAt: Date, isAnswering: Bool,
              phase: String = QingliaoActivityAttributes.Phase.thinking.rawValue,
-             actionText: String = "", canStop: Bool = false) {
+             actionText: String = "", canStop: Bool = false,
+             progress: Double = 0.18) {
             self.sessionTitle = sessionTitle
             self.modelName = modelName
             self.startedAt = startedAt
@@ -47,10 +52,11 @@ struct QingliaoActivityAttributes: ActivityAttributes {
             self.phase = phase
             self.actionText = actionText
             self.canStop = canStop
+            self.progress = progress
         }
 
         private enum CodingKeys: String, CodingKey {
-            case sessionTitle, modelName, startedAt, isAnswering, phase, actionText, canStop
+            case sessionTitle, modelName, startedAt, isAnswering, phase, actionText, canStop, progress
         }
 
         /// v3.9.7：手写解码。
@@ -67,6 +73,8 @@ struct QingliaoActivityAttributes: ActivityAttributes {
                 ?? QingliaoActivityAttributes.Phase.thinking.rawValue
             actionText = try c.decodeIfPresent(String.self, forKey: .actionText) ?? ""
             canStop = try c.decodeIfPresent(Bool.self, forKey: .canStop) ?? false
+            // 旧活动没有这个键 → 按「思考中」的初始值渲染，而不是 0（0 会让环看上去空掉）
+            progress = try c.decodeIfPresent(Double.self, forKey: .progress) ?? 0.18
         }
     }
 

@@ -400,9 +400,16 @@ final class LiveSpeechTranscriber: ObservableObject {
             guard inputFormat.channelCount > 0, inputFormat.sampleRate > 0 else {
                 lastError = "麦克风输入不可用"
                 diagnostics = "inputFormat=\(inputFormat.channelCount)ch/\(inputFormat.sampleRate)Hz"
+                // v3.9.10 fix（审查抓到）：上面已经 setActive(true) 了，这里直接 return 会把音频会话
+                // 永久留在 .record 激活态——麦克风不释放（橙点/占着音频焦点），而且因为没恢复 .playback，
+                // 之后的 TTS 朗读会踩到本仓自己记过的老坑（「不恢复 .playback 会导致 TTS 无声」）。
+                teardown()
                 return false
             }
-            if cancelRequested { return false }
+            if cancelRequested {
+                teardown()
+                return false
+            }
 
             let (stream, inputBuilder) = AsyncStream<AnalyzerInput>.makeStream()
             builder = inputBuilder
