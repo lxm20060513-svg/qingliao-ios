@@ -153,6 +153,45 @@ struct ToolCardView: View {
     }
 }
 
+/// v3.9.17：AI 后端（Hermes）路径的工具进度一行。
+/// 数据来自 /api/stream/{taskId} 的 toolNames（后端已翻中文，App 不维护第二份映射表）；
+/// 流未结束时最后一行视为「正在执行」，其余打勾——长任务里用户不必等结果才知道在干什么。
+struct ToolStepRow: View {
+    let title: String
+    let running: Bool
+    /// v3.9.17：流被中止/报错时这些工具并没有确认跑完 → 用「未确认」图标而不是绿勾
+    /// （否则用户点了停止，卡里每个工具都显示已完成，语义不实）
+    var unresolved: Bool = false
+    var body: some View {
+        HStack(spacing: 8) {
+            if running {
+                ProgressView().controlSize(.mini)
+            } else if unresolved {
+                Image(systemName: "circle.dashed")
+                    .font(.system(size: Typography.body))
+                    .foregroundStyle(.secondary)
+            } else {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: Typography.body))
+                    .foregroundStyle(.green)
+            }
+            Text(running ? "正在\(title)…" : title)
+                .font(.system(size: Typography.subhead))
+                .foregroundStyle(.primary)
+                .lineLimit(2)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Color(uiColor: .secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.8)
+        )
+    }
+}
+
 struct ChatView: View {
     @Environment(AuthStore.self) var auth
     @Environment(ChatStore.self) var chat
@@ -724,6 +763,29 @@ struct ChatView: View {
             .transition(.move(edge: .bottom).combined(with: .opacity))
         }
     }
+    /// v3.9.17：AI 后端（Hermes）路径的工具进度卡（工具名由后端下发中文，App 不维护第二份映射表）。
+    ///
+    /// 为什么抽成独立 @ViewBuilder：messageList 那个 ViewBuilder 已经很深（ForEach + 滚动 + 长 if 链），
+    /// 直接往里塞一个 ForEach 正是 v3.0.51 反复踩的「Unable to type-check this expression in
+    /// reasonable time」形态 —— 本机 -parse 查不出，只在 CI Archive 报，一轮 ≈20 分钟。
+    ///
+    /// 会话门控：StreamClient 是 App 级单例（QingliaoApp 里 .environment(stream)），会话 A 在跑时
+    /// 切到 B 不该显示 A 的工具卡 —— 与本仓本地流「按 currentStreamSessionId 收窄」的既定口径一致。
+    @ViewBuilder
+    private var toolStepCards: some View {
+        if !stream.toolNames.isEmpty, auth.currentStreamSessionId == chat.sessionId {
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(Array(stream.toolNames.enumerated()), id: \.offset) { idx, name in
+                    ToolStepRow(title: name,
+                                running: stream.isStreaming && idx == stream.toolNames.count - 1,
+                                unresolved: !stream.isStreaming && !stream.errorMessage.isEmpty)
+                }
+            }
+            .padding(.horizontal, 44)   // 左侧留出 AI 头像位
+            .transition(.opacity)
+        }
+    }
+
 
     var body: some View {
         // v2.0.140：禁用系统键盘避让——ChatInputBar 已手动按 kb.topY 精确计算 bottom padding，
@@ -976,6 +1038,8 @@ struct ChatView: View {
     /// 探测剪贴板是否有**位置链接** → 顶部胶囊提示（detection API 不读内容、无系统粘贴弹窗）
     /// v3.8.1 修复：① 只认「能被 MapLocationParser 认成位置」的链接，不再"有内容就提示"；
     ///             ② 已处理版本号跨启动保留，同一份内容不再每次进 App 都提示。
+
+
     private func checkMapClipboard() async {
         guard !showClipboardBanner else { return }
         // v3.9.1：先取本版号——探测是 await（有窗口期），期间用户换了剪贴板内容时不能把"新内容"记成已处理
@@ -1562,6 +1626,7 @@ struct ChatView: View {
                             .padding(.horizontal, 44)   // 左侧留出 AI 头像位
                             .transition(.opacity)
                         }
+                        toolStepCards
                         if stream.isStreaming {
                             if stream.content.isEmpty {
                                 // 思考中动画（三点跳动，气泡加大版）
@@ -1671,6 +1736,7 @@ struct ChatView: View {
             clearPendingQueue()
             refreshVisibleMessages()
             cloudStreamUI.toolCards = []   // v3.0.18 fix：工具卡片跨会话残留清理（通过 @Observable 引用类型）
+            stream.toolNames = []          // v3.9.17：工具进度卡同样会跨会话残留 → 一并清（否则 B 会话底部显示 A 跑过的工具）
             // v3.0.51 A1：会话加载后重传残留 base64 图片（重启续传/失败重传）
             Task { await chat.retryPendingImageUploads(auth: auth) }
         }
@@ -2431,6 +2497,7 @@ struct ChatView: View {
         stream.content = ""
         stream.isAgent = false
         cloudStreamUI.toolCards = []  // v3.0.18 fix：通过 @Observable 引用类型重置
+        stream.toolNames = []         // v3.9.17：云端路径不产工具进度，清掉 AI 后端路径的残留
         stream.startSmoothPublic()   // v3.4.20：云端流式同样启用打字机平滑释放
         CloudBackend.shared.isStreaming = true   // v3.0.2：标记云端流式进行中（驱动 Siri 发光）
         // v3.0.18 fix：Task 显式捕获引用对象（chat/stream @Environment 类引用），

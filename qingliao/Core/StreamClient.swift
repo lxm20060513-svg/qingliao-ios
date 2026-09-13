@@ -19,6 +19,9 @@ final class StreamClient {
     var status = ""
     var errorMessage = ""
     var isAgent = false        // v2.0.96b：Agent 回复标记（工具调用）
+    // v3.9.17：AI 后端路径的工具进度（中文名，后端下发）。流结束后**保留**——让用户能看到
+    // 刚才跑了哪些工具；只有 start() 开新流时才清空。
+    var toolNames: [String] = []
 
     var taskId = ""
     private var offset = 0
@@ -87,6 +90,7 @@ final class StreamClient {
         stopPolling()
         generation += 1   // v3.0.50：废除在途旧轮询代
         content = ""
+        toolNames = []    // v3.9.17：新流的工具进度从零开始（防上一轮残留）
         offset = 0
         failCount = 0
         idleStreak = 0
@@ -170,8 +174,12 @@ final class StreamClient {
             return   // 网络恢复 → 本轮直接返回，下一轮按正常间隔续流
         }
         do {
-            let (c, done, st, err, agent, piggyback) = try await auth.streamPoll(taskId: taskId, offset: offset)
+            let (c, done, st, err, agent, piggyback, toolsIn) = try await auth.streamPoll(taskId: taskId, offset: offset)
             guard generation == self.generation else { return }   // v3.0.50：旧代轮询丢弃
+            // v3.9.17：工具进度——只在变化时写入，避免每 0.15s 轮询都触发视图重建。
+            // 位置必须在旧代 guard **之后**：否则切会话/起新流后，上一代在途 poll 返回时
+            // 会把旧任务的工具名写进新流（同函数内 agent/failCount/piggyback 全在 guard 之后）
+            if toolsIn != toolNames { toolNames = toolsIn }
             if agent { isAgent = true }   // v2.0.96b：Agent 回复标记
             failCount = 0
             // v3.4.23：搭载投递消费——poll 响应里捎带的收件箱消息立即注入任务中心/会话，

@@ -495,7 +495,7 @@ final class AuthStore {
         }
     }
 
-    func streamPoll(taskId: String, offset: Int) async throws -> (String, Bool, String, String, Bool, [[String: Any]]) {
+    func streamPoll(taskId: String, offset: Int) async throws -> (String, Bool, String, String, Bool, [[String: Any]], [String]) {
         let (data, code): (Data, Int)
         // v2.0.116 fix：轮询也带 X-Auth-Token（后端 do_GET 统一鉴权）
         if NetworkMonitor.shared.isCellular {
@@ -520,7 +520,10 @@ final class AuthStore {
         let agent = j["agent"] as? Bool ?? false   // v2.0.96b：Agent 回复标记
         // v3.4.23：搭载的收件箱待推消息（后端 piggyback，老后端无此键=空数组）
         let inbox = j["inbox"] as? [[String: Any]] ?? []
-        return (content, done, status, error, agent, inbox)
+        // v3.9.17：AI 后端（Hermes 路径）的工具进度——后端已把工具名翻成中文下发，
+        // App 不维护第二份映射表（一处真相在后端 _TOOL_NAME_ZH）。老后端无此键=空数组。
+        let toolNames = j["toolNames"] as? [String] ?? []
+        return (content, done, status, error, agent, inbox, toolNames)
     }
 
     /// v3.0.31：流式任务恢复——qingliao 服务重启后内存任务丢失（poll 404），
