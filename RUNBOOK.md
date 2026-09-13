@@ -94,6 +94,9 @@ python3 ql.py scripts                                           # 脚本目录�
 | 三元表达式两边类型不同 | 拆 `if/else`（`symbolEffect`、`foregroundStyle` 都踩过） |
 | 语音「松手才出字」 | 实时出字需要 `reportingOptions: [.volatileResults, .fastResults]`（缺 `fastResults` 就攒到 finalize 才吐） |
 | `nas_run.py` 用法 | `nas_run.py sh "<cmd>"`（多命令用 `;;` 分隔）；`put <local> <chroot视角目录>` |
+| NAS 上 root 600 的文件（如 `backend/diag_api.py`）挂载读不了 | `ql nas read` 已自动回退 SSH；仍不行用 `scripts/ql_progress_push/fetch_b64.py` |
+| 经 PTY 的 `cat` 有输出上限（11KB 文件只回来 428 字节） | `ql nas read` 已改 sed 分段读（>2KB 自动分段） |
+| CI 报错一屏看不懂 | `ql diag ci [run]` 回显 error 行**并自动归因**（原因 + 最小修法） |
 
 ## 5. 文件地图
 

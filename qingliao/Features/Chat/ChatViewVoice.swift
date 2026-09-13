@@ -13,7 +13,10 @@ extension ChatView {
     /// v3.9.3：停止识别 → 定稿 → 文本留在输入框（不再上传音频）
     func exitVoiceMode() {
         voiceStartToken += 1   // v3.9.3：作废任何"正在准备中"的启动（模型下载期间用户已点取消）
-        guard voiceMode else { return }
+        // v3.9.14：原来只看 voiceMode —— 但它是「已进入语音模式的 UI 旗标」，与「识别器是否在跑」是两件事
+        // （v3.9.9 就文本源踩过同一个坑）。若识别器还在跑却直接 return，会漏掉：定稿上屏、
+        // 「零结果自动上报」诊断、以及音频会话释放（麦克风一直占着）。
+        guard voiceMode || liveSpeech.isRunning else { return }
         withAnimation(Motion.snap) { voiceMode = false }
         transcribing = true
         Task {
