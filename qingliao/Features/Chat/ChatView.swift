@@ -1,4 +1,5 @@
 import SwiftUI
+import QuickLook
 import CoreLocation
 import PhotosUI
 import PDFKit
@@ -223,6 +224,8 @@ struct ChatView: View {
     @Namespace private var zoomNS
     @State var quotedMessage: ChatMessage?
     @State var viewerPayload: ImageViewPayload?
+    // v3.9.17：AI 生成物 QuickLook 预览的本地文件（下载落临时目录后交给 QuickLook）
+    @State var quickLookURL: URL?
     @State var showMoreMenu = false
     // v3.4.24：任务中心全屏页（header 常驻小图标入口，原 DockTabView 全局 overlay 已移除）
     @State var showTaskCenter = false
@@ -1419,6 +1422,8 @@ struct ChatView: View {
             }
         } onAIImageTap: { url in
             openAIImage(url, sourceID: msg.id)   // v3.4.29：带转场源
+        } onFileTap: { url, name in
+            openAIFile(url, name)   // v3.9.17：AI 生成物 → QuickLook
         } onMultiSelect: {
             // v3.3.0：长按菜单「多选」——进入多选模式并预选本条
             if stream.isStreaming {
@@ -1567,6 +1572,7 @@ struct ChatView: View {
             // v3.4.20：读 displayContent（打字机平滑层）——本地/云端流式观感从"整段跳变"变"逐字流"
             message: ChatMessage(role: "assistant", content: stream.displayContent, timestamp: nil, agent: stream.isAgent),
             onAIImageTap: { url in openAIImage(url) },   // v2.0.128：流式中 AI 图片可点（参数须在 streamingAvatar 前）
+            onFileTap: { url, name in openAIFile(url, name) },   // v3.9.17：流式中 AI 生成物可点
             streamingAvatar: true,   // v3.0.15：AI 输出中头像 = 粒子球
             streamingText: true   // v3.0.17：流式长文用 SwiftUI Text 渲染（根治 UITextView 锁窄缩小）
         )
@@ -1848,6 +1854,7 @@ struct ChatView: View {
             Text("AI 正在总结历史消息，请稍候...")
         }
         // v2.0.36：图片大图查看器（v2.0.62 相册翻页）
+        .quickLookPreview($quickLookURL)   // v3.9.17：AI 生成物（PDF/表格/文本）预览
         .fullScreenCover(item: $viewerPayload) { p in
             // v3.4.29：zoom 转场——全屏大图从被点的小图"生长"出来（iOS 18+ 原生，支持 fullScreenCover）
             if p.sourceID.isEmpty {
@@ -2753,6 +2760,41 @@ struct ChatView: View {
 
     /// v2.0.128：AI 消息内图片点击 → 打开大图查看器（单张）
     /// data URL 直接解码进查看器；http(s) URL 双通道下载（URLSession → 自签证书降级 CFStream）
+    /// v3.9.17：AI 生成物预览 —— QuickLook 只吃本地文件，所以先下载到临时目录再打开。
+    /// 复用 downloadImage 的双通道（URLSession → 失败降级 StreamHTTPClient 忽略自签证书）。
+    func openAIFile(_ url: String, _ name: String) {
+        guard let u = URL(string: url), url.hasPrefix("http") else { return }
+        Task {
+            var data: Data? = try? await URLSession.shared.data(from: u).0
+            if data == nil { data = await Self.downloadRawData(u: u) }
+            guard let d = data, !d.isEmpty else { return }
+            // 显示名来自后端下发的文件名——防它带路径分隔符/冒号写到别处
+            let safe = name.replacingOccurrences(of: "/", with: "_")
+                           .replacingOccurrences(of: ":", with: "_")
+                           .trimmingCharacters(in: .whitespaces)
+            let dst = FileManager.default.temporaryDirectory
+                .appendingPathComponent(safe.isEmpty ? "qingliao_preview.dat" : safe)
+            try? FileManager.default.removeItem(at: dst)   // 覆盖同名旧临时文件，避免临时目录堆积
+            do { try d.write(to: dst) } catch { return }
+            await MainActor.run { quickLookURL = dst }
+        }
+    }
+
+    /// 自签证书通道取原始字节（与 downloadImage 的降级通道同型）
+    @MainActor
+    private static func downloadRawData(u: URL) async -> Data? {
+        guard let host = u.host, let scheme = u.scheme else { return nil }
+        let port = UInt16(u.port ?? (scheme == "https" ? 443 : 80))
+        let path = u.path + (u.query.map { "?" + $0 } ?? "")
+        let client = StreamHTTPClient()
+        let result = await Task.detached(priority: .userInitiated) {
+            try? client.request(host: host, port: port, isTLS: scheme == "https",
+                                method: "GET", path: path, headers: [:], body: nil, timeout: 20)
+        }.value
+        if let (data, code) = result, (200..<300).contains(code) { return data }
+        return nil
+    }
+
     func openAIImage(_ url: String, sourceID: String = "") {
         if url.hasPrefix("data:image/") {
             if let img = dataURLImage(url) {

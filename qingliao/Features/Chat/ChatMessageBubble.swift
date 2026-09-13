@@ -22,6 +22,8 @@ struct MessageBubble: View {
     var onMemo: ((String) -> Void)? = nil
     // v2.0.128：AI 消息内图片点击（传 URL/data URL，打开大图）
     var onAIImageTap: (String) -> Void = { _ in }
+    // v3.9.17：AI 生成物点击（传 URL + 显示名 → QuickLook 预览）
+    var onFileTap: (String, String) -> Void = { _, _ in }
     // v3.3.0：多选合并转发——长按菜单「多选」入口（进入多选模式并预选本条）
     var onMultiSelect: () -> Void = {}
     // v3.0.15：AI 流式输出中——头像显示粒子球（orbits 流动），替代静态脑形标
@@ -257,6 +259,7 @@ struct MessageBubble: View {
                                                                                     onPin: onPin,
                                                                                     onMemo: onMemo,
                                                                                     onImageTap: { url in onAIImageTap(url) },   // v2.0.128：AI 图片点击打开大图
+                                                                                    onFileTap: { url, name in onFileTap(url, name) },   // v3.9.17：AI 生成物预览
                                                                                     onMultiSelect: onMultiSelect,   // v3.3.0：多选合并转发
                                                                                     useSwiftUIText: true,
                                                                                     streaming: streamingText)   // v3.0.41 性能：流式中纯 Text 渲染（跳过 markdown 解析）
@@ -667,6 +670,7 @@ struct MessageBubble: View {
                                 onPin: onPin,
                                 onMemo: onMemo,
                                 onImageTap: { url in onAIImageTap(url) },
+                                onFileTap: { url, name in onFileTap(url, name) },   // v3.9.17：AI 生成物预览
                                 onMultiSelect: onMultiSelect,   // v3.3.0：多选合并转发
                                 useSwiftUIText: true,
                                 streaming: false)
@@ -698,7 +702,15 @@ struct MessageBubble: View {
                 .replacingOccurrences(of: "+", with: "-")
                 .replacingOccurrences(of: "/", with: "_")
                 .replacingOccurrences(of: "=", with: "")
-            let imgMarkdown = "![图片](\(serverURL)/api/stream/media?p=\(b64))"
+            // v3.9.17：按扩展名分流 —— 图片仍走图片块；文档/文本走「文件卡片」
+            // （后端 /api/stream/media 已放开 pdf/md/csv/txt/json/log 且带 Content-Disposition，
+            //  但塞进 <img> 只会渲染成一张空白）
+            let ext = (rawPath as NSString).pathExtension.lowercased()
+            let rawName = (rawPath as NSString).lastPathComponent.replacingOccurrences(of: "]", with: "")
+            let isImage = ["jpg", "jpeg", "png", "gif", "webp", "bmp", "heic"].contains(ext)
+            let imgMarkdown = isImage
+                ? "![图片](\(serverURL)/api/stream/media?p=\(b64))"
+                : "![文件:\(rawName.isEmpty ? "附件" : rawName)](\(serverURL)/api/stream/media?p=\(b64))"
             let fullRange = NSRange(location: m.range.location + offset, length: m.range.length)
             result = (result as NSString).replacingCharacters(in: fullRange, with: imgMarkdown)
             offset += imgMarkdown.count - m.range.length
@@ -737,7 +749,8 @@ struct MessageBubble: View {
 
     /// v2.0.128：行内拆出 markdown 图片语法 ![alt](url) → 图片块（URL 或 data URL），其余保持 markdown
     private static func splitMarkdownImages(_ line: String) -> [MessageContentBlock.Kind] {
-        guard let re = try? NSRegularExpression(pattern: #"!\[[^\]]*\]\(([^)\s]+)\)"#) else {
+        // v3.9.17：多捕一个 alt —— 用它区分「图片块」与「文件卡片」（alt 前缀 "文件:"）
+        guard let re = try? NSRegularExpression(pattern: #"!\[([^\]]*)\]\(([^)\s]+)\)"#) else {
             return [.markdown(line)]
         }
         let ns = line as NSString
@@ -752,8 +765,13 @@ struct MessageBubble: View {
                     result.append(.markdown(pre))
                 }
             }
-            let url = ns.substring(with: m.range(at: 1)).trimmingCharacters(in: .whitespaces)
-            result.append(.image(url))
+            let alt = ns.substring(with: m.range(at: 1))
+            let url = ns.substring(with: m.range(at: 2)).trimmingCharacters(in: .whitespaces)
+            if alt.hasPrefix("文件:") {
+                result.append(.file(url, String(alt.dropFirst("文件:".count))))
+            } else {
+                result.append(.image(url))
+            }
             pos = m.range.location + m.range.length
         }
         if pos < ns.length {

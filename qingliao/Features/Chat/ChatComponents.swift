@@ -23,6 +23,7 @@ struct MessageContentBlock: Identifiable {
         case code(String, String?)     // v3.4.x：代码块带语言标记（```lang → lang，用于语法高亮）
         case table([[String]])   // v2.0.87d：markdown 表格（表头+数据行）
         case image(String)       // v2.0.128：AI 回复中的图片（URL 或 data URL）
+        case file(String, String)   // v3.9.17：AI 生成物（URL, 显示名）——点击 QuickLook 预览
         case agentCard(AgentCard)   // v3.5.0：Agent 结果卡片（```ql-card 围栏 → 结构化卡片）
     }
     let kind: Kind
@@ -51,6 +52,8 @@ struct MessageBlockView: View {
     var onMemo: ((String) -> Void)? = nil
     // v2.0.128：AI 图片点击打开大图（传图片 URL/data URL）
     var onImageTap: (String) -> Void = { _ in }
+    // v3.9.17：AI 生成物点击预览（传 文件 URL, 显示名）
+    var onFileTap: (String, String) -> Void = { _, _ in }
     // v3.3.0：多选合并转发入口（AI 消息段落长按菜单）
     var onMultiSelect: () -> Void = {}
     // v3.0.17：流式输出中用 SwiftUI Text 渲染（UITextView 在流式高频更新下有锁旧窄布局/字体缩放 bug 家族，
@@ -244,6 +247,11 @@ struct MessageBlockView: View {
             // v2.0.128：AI 直接发图 —— URL 用 AsyncImage，data URL 本地解码；点击打开大图
             AIImageView(url: url)
                 .onTapGesture { onImageTap(url) }
+                .contextMenu { bubbleMenu }
+        case .file(let url, let name):
+            // v3.9.17：AI 生成物（后端 /api/stream/media 已放开 pdf/md/csv/txt/json/log）
+            // 拆成独立小 View —— 这个 switch 所在的 ViewBuilder 已很深，内联塞卡片易触发 type-check 超时
+            AIFileCard(name: name) { onFileTap(url, name) }
                 .contextMenu { bubbleMenu }
         case .code(let text, let lang):
             // v2.0.36：代码块加复制按钮（右上角）；v3.4.x 语法高亮（已知语言按 token 着色）
@@ -681,6 +689,69 @@ extension MessageBubble {
 }
 
 /// 微信风格文件卡片（用户气泡内：图标块 + 文件名 + 状态）
+/// v3.9.17：AI 回复里的生成物卡片（MEDIA: 指向 pdf/md/csv/txt/json/log）——点击走 QuickLook 预览。
+/// 形态沿用用户侧的 FileMessageCard（图标色块 + 文件名 + 副行），但配色换成适配灰气泡的：
+/// FileMessageCard 是白字 + 白描边，只适合深蓝的用户气泡，直接拿来在 AI 气泡里会看不清。
+struct AIFileCard: View {
+    let name: String
+    var onTap: () -> Void = {}
+
+    private var ext: String { (name as NSString).pathExtension.lowercased() }
+
+    private var icon: String {
+        switch ext {
+        case "pdf": return "doc.richtext.fill"
+        case "csv", "xlsx": return "tablecells.fill"
+        case "md", "txt", "log": return "doc.plaintext.fill"
+        case "json": return "curlybraces"
+        default: return "doc.fill"
+        }
+    }
+
+    private var color: Color {
+        switch ext {
+        case "pdf": return .red
+        case "csv", "xlsx": return .green
+        case "md", "txt", "log": return .gray
+        case "json": return .orange
+        default: return .blue
+        }
+    }
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack(spacing: 10) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(color.opacity(0.18))
+                    Image(systemName: icon)
+                        .font(.system(size: Typography.title))
+                        .foregroundStyle(color)
+                }
+                .frame(width: 38, height: 38)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(name)
+                        .font(.system(size: Typography.subhead, weight: .semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                    Text("点击预览")
+                        .font(.system(size: Typography.tiny))
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 4)
+                Image(systemName: "eye")
+                    .font(.system(size: Typography.body))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(10)
+            .frame(maxWidth: 260)
+            .background(Color.secondary.opacity(0.12),
+                        in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
+}
+
 struct FileMessageCard: View {
     let file: FileMessageInfo
 
