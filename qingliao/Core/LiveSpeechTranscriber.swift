@@ -375,9 +375,18 @@ final class LiveSpeechTranscriber: ObservableObject {
                 return false
             }
             if cancelRequested { return false }   // 准备期间用户已取消
+            // v3.9.14 关键修复（「松手才出字、边说边不出」的根因）：
+            // 原来只传 reportingOptions: [.volatileResults] —— 缺 .fastResults。
+            // Apple 官方 Preset 表（SpeechTranscriber.Preset）写明：
+            //   progressiveTranscription = volatileResults + fastResults（官方描述
+            //   "Configuration for immediate transcription of live audio"），
+            //   transcription / transcriptionWithAlternatives 两者都是 No。
+            // 也就是说「允许替换的中间结果」和「更快地吐结果」是**两个独立开关**：
+            // 只开 volatileResults 时识别器仍按默认节奏攒上下文，往往直到收尾（finalize）
+            // 才一次性给出结果 —— 症状与 v3.9.5 实测记录完全一致（录音中 V0/F0、松手才上屏）。
             let transcriber = SpeechTranscriber(locale: locale,
                                                 transcriptionOptions: [],
-                                                reportingOptions: [.volatileResults],
+                                                reportingOptions: [.volatileResults, .fastResults],
                                                 attributeOptions: [])
             try await Self.ensureAssets(for: transcriber, locale: locale)
             if cancelRequested { return false }   // 模型下载期间用户已取消 → 不再启动
