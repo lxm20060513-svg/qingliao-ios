@@ -40,9 +40,9 @@ struct QingliaoLiveActivityWidget: Widget {
                         .padding(.leading, 1)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
-                    // v3.9.12：用户看过之后要求**环缩小**——定成球的约 78%（36 → 28）。
-                    // 别再放大回 36：环有描边 + 柔光，同尺寸时观感比球重，看着“压”过左侧的球。
-                    self.phaseRing(state: context.state, size: 28)
+                    // 尺寸沿革：36（与球等大，压过球）→ 28（v3.9.12，球的 78%）→ **24**（v3.9.13，
+                    // 真机反馈环碰到中段摄像头区，与紧凑态同步收一档，维持「环≈球的 2/3」的主次关系）。
+                    self.phaseRing(state: context.state, size: 24)
                         .padding(.trailing, 1)
                 }
                 DynamicIslandExpandedRegion(.bottom) {
@@ -68,10 +68,14 @@ struct QingliaoLiveActivityWidget: Widget {
     // MARK: - 各形态内容
 
     /// 紧凑态右侧：渐变进度环（v3.9.9 起不再显示计时数字；v3.9.10 起不用系统气泡图标）
-    /// 尺寸沿革：13（v3.9.10 前，偏小）→ 25（与球等大，用户看过觉得偏大）→ **20**（v3.9.12，球的约 7 成，主次分明）。
+    /// 尺寸沿革：13（v3.9.10 前，偏小）→ 25（与球等大，用户看过觉得偏大）→ 20（v3.9.12，球的 7 成）
+    /// → **16**（v3.9.13，真机反馈「环再小一点，左边碰到摄像头了」）。
+    /// 为什么是 16 而不是随手收一点：紧凑态布局是「球(leading) | 传感器/摄像头(中段) | 环(trailing)」，
+    /// 环越大，它的**左边缘**越往中段顶。环的视觉宽度不止 size——还有描边（size*0.13）与柔光外扩
+    /// （size*0.10，v3.9.13 从 0.18 收窄），三者相加才是肉眼看到的边界。
     @ViewBuilder
     private func compactTrailing(state: QingliaoActivityAttributes.ContentState) -> some View {
-        self.phaseRing(state: state, size: 20)
+        self.phaseRing(state: state, size: 16)
     }
 
     /// 展开态底部：会话标题 + 状态行（+ 进行中显示「停止生成」按钮）
@@ -146,7 +150,7 @@ struct QingliaoLiveActivityWidget: Widget {
                                         endAngle: .degrees(270)),
                         style: StrokeStyle(lineWidth: line, lineCap: .round))
                 .rotationEffect(.degrees(-90))
-                .shadow(color: tint.opacity(0.5), radius: size * 0.18)
+                .shadow(color: tint.opacity(0.5), radius: size * 0.10)   // v3.9.13：0.18→0.10，柔光少外扩，环不往摄像头区顶
             // v3.9.13：环上还有一道**跑动短弧**（由 `spin` 每拍转 45°）。
             // 为什么需要它：`progress` 会在 0.86 封顶（不能假装知道答案总长），
             // 封顶后光看进度弧就完全静止了 —— 用户报的「动几下就不动了」正是这个。
@@ -173,7 +177,7 @@ struct QingliaoLiveActivityWidget: Widget {
         // 只在 progress 变化（= 阶段推进）时播一次缓出过渡。
         // 跑动短弧的过渡挂在短弧自身（见上），避免同拍双变量时互相干扰。
         .animation(.easeOut(duration: 0.35), value: progress)
-        .frame(maxWidth: size + 6)   // 固定占位（按环尺寸加大）：避免旁边的文字随环大小回跳
+        .frame(maxWidth: size + 4)   // 固定占位（v3.9.13：+6→+4，随环一起收）：避免旁边的文字随环大小回跳
     }
 
     /// 状态行文案：阶段 + 模型名（模型名取自发送路径同一套选型，见 ChatView.liveActivityModelName）
