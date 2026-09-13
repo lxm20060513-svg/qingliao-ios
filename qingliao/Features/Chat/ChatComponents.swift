@@ -103,6 +103,7 @@ struct MessageBlockView: View {
         case .code(let s, _): return s
         case .table(let rows): return rows.map { $0.joined(separator: " | ") }.joined(separator: "\n")
         case .image(let url): return url
+        case .file(let url, _): return url   // v3.9.14：文件卡降级为它的 URL（大爆炸/钉一钉/存备忘录共用此处）
         case .agentCard(let card): return card.plainText   // v3.5.0：卡片降级为纯文本
         }
     }
