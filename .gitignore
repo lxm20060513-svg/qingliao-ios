@@ -11,3 +11,10 @@ qingliao-3.1.5.zip
 # Code review files
 qingliao/CORE_CODE_REVIEW.md
 qingliao/CORE_REVIEW_VERIFICATION.json
+
+# 内部交接 / 工作文档：不进公开仓（真源在本机 /opt/data/scripts/qingliao_docs/）
+HANDOFF.md
+HANDOFF-archive.md
+RUNBOOK.md
+docs/PERF_AUDIT.md
+docs/UI_POLISH_PLAN.md

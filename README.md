@@ -5,6 +5,8 @@
 > 🔗 **后端开源**：本 App 配套的后端服务（统一 API，Docker 部署）已开源至 [`github.com/lxm20060513-svg/qingliao-backend`](https://github.com/lxm20060513-svg/qingliao-backend)（MIT），含 `docker-compose` + `.env.example` + 完整部署文档，部署/升级请参照该仓库。
 
 > 本文档面向**接手开发/发版的 AI 代理**：读完可独立完成「改功能 → 自查 → 发版 → 交付」全流程。
+>
+> 注：内部交接与运维文档（发版沿革、运维手册、内部体检记录）**不入本公开仓**，只保留在部署环境中。
 
 ---
 
