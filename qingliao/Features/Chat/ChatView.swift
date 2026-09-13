@@ -712,6 +712,8 @@ struct ChatView: View {
                     // 恰好把"有回调但一个都没投出去"这类静默失败藏了起来。
                     recordingDiag: liveSpeech.pipeStats.isEmpty ? ""
                         : liveSpeech.resultStats + " " + liveSpeech.pipeStats,
+                    // v3.9.14：3s 无结果才把诊断串显示出来（正常录音时输入框只显示识别文本）
+                    recordingStalled: liveSpeech.liveStalled,
                     // v3.4.25：上下文使用率传入——超 80% 发送键变橙轻提醒
                     contextUsage: chat.contextUsage(maxTokens: 4000))
                     // v2.0.129：球态输入框 —— 绑定会话 id，切会话重建复位（展开态在切会话后回球态）

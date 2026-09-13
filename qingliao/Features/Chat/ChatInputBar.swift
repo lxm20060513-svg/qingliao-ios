@@ -29,8 +29,12 @@ struct ChatInputBar: View {
     var voiceEnabled: Bool = true
     /// v3.9.6：录音中的实时文本（直接来自 @Published liveText，录音态由它在输入栏上屏）
     var recordingText: String = ""
-    /// v3.9.6 临时诊断：实时结果计数（V=volatile 中间结果 / F=final 定稿），确认后删除
+    /// v3.9.6 临时诊断：实时结果计数（V=volatile 中间结果 / F=final 定稿）
     var recordingDiag: String = ""
+    /// v3.9.14：录音满 3s 仍无任何识别结果（LiveSpeechTranscriber.liveStalled）。
+    /// 用户反馈「录音时输入框被一串诊断码占住、看不到文字上屏」——诊断码收窄成**只在这种异常态**显示，
+    /// 正常录音时输入框保持干净（识别文本 + 脉动红点）。
+    var recordingStalled: Bool = false
     @Environment(KeyboardObserver.self) private var kbEnv
     // v3.4.28：横屏限宽
     @Environment(\.horizontalSizeClass) private var hSizeInput
@@ -103,23 +107,28 @@ struct ChatInputBar: View {
                 // 文本源取 liveSpeech.liveText（@Published），不再依赖 onTextChange 写 @State
                 // 或 TextField 的 binding 刷新（v3.9.5 实测：录音中框里始终只有「输入消息…」占位、
                 // 松手才一次性出字 = 实时链路没上屏）。红点=正在听；无字时保持空白。
-                HStack(spacing: 6) {
-                    Circle()
-                        .fill(Color.red)
-                        .frame(width: 7, height: 7)
-                        .allowsHitTesting(false)
-                    Text(recordingText)
-                        .font(.system(size: Typography.body))
-                        .foregroundStyle(Color.primary)
-                        .lineLimit(1...6)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .allowsHitTesting(false)
-                    // v3.9.6 临时诊断：V=实时中间结果数 / F=定稿数（确认实时出字稳定后下一版删除）
-                    Text(recordingDiag)
-                        .font(.system(size: 9))
-                        .foregroundStyle(.secondary)
-                        .allowsHitTesting(false)
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 6) {
+                        // v3.9.14：红点改脉动（用户反馈「录音图标是静态的，不会动」）
+                        PulsingRecordDot()
+                        Text(recordingText.isEmpty
+                             ? (recordingStalled ? "没听清，靠近麦克风再说一次" : "正在听…")
+                             : recordingText)
+                            .font(.system(size: Typography.body))
+                            .foregroundStyle(recordingText.isEmpty ? Color.secondary : Color.primary)
+                            .lineLimit(1...6)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .allowsHitTesting(false)
+                    }
+                    // v3.9.14：诊断串只在「录了 3 秒一个结果都没有」时贴着显示——
+                    // 排查价值保留（V/F 识别计数、T/D/Y 音频三级计数），但不再挤占正常录音时的文本区
+                    if recordingStalled, !recordingDiag.isEmpty {
+                        Text(recordingDiag)
+                            .font(.system(size: 9))
+                            .foregroundStyle(.tertiary)
+                            .allowsHitTesting(false)
+                    }
                 }
                 .padding(.vertical, 12)
                 .padding(.horizontal, 2)
@@ -209,11 +218,20 @@ struct ChatInputBar: View {
                         .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
                     }
                 } else {
-                    Image(systemName: voiceMode ? "waveform" : "arrow.up")
-                        .font(.system(size: Typography.body, weight: .bold))   // v3.9.1：三元里的裸字号漏网（14/15 同档）
-                        .foregroundStyle(.white)
-                        .symbolEffect(.bounce, value: sendBounceTick)   // v3.4.29：发送图标弹动
-                        .frame(width: 32, height: 32)
+                    // v3.9.14：录音态 waveform 图标持续波动（用户反馈「录音图标静态不动」）。
+                    // 拆 if/else 而非三元 —— 两个 symbolEffect 类型不同，三元会触发类型推断冲突（本仓踩过）。
+                    Group {
+                        if voiceMode {
+                            Image(systemName: "waveform")
+                                .symbolEffect(.variableColor.iterative, options: .repeating)
+                        } else {
+                            Image(systemName: "arrow.up")
+                                .symbolEffect(.bounce, value: sendBounceTick)   // v3.4.29：发送图标弹动
+                        }
+                    }
+                    .font(.system(size: Typography.body, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 32, height: 32)
                         .contentShape(Circle())
                         // v3.4.19：发送回弹缩放（仅轻点发送路径，长按转文字不缩放）
                         .scaleEffect(sendScale)
@@ -299,3 +317,23 @@ struct ChatInputBar: View {
     }
 }
 
+
+/// v3.9.14：录音中的脉动红点。
+///
+/// 用户反馈「录音图标是静态的，不会动」—— 原来就是一个静止的 7pt 红点。
+/// 只对这个小圆做 scale/opacity 的 repeatForever 动画：**无 shadow、无每帧渐变重绘**，
+/// 不触碰 v3.2.3 那条渲染卡死红线（红线触发条件是「每帧变化的渐变 + 阴影路径重算」）。
+private struct PulsingRecordDot: View {
+    @State private var pulsing = false
+
+    var body: some View {
+        Circle()
+            .fill(Color.red)
+            .frame(width: 7, height: 7)
+            .scaleEffect(pulsing ? 1.45 : 0.85)
+            .opacity(pulsing ? 1.0 : 0.5)
+            .animation(.easeInOut(duration: 0.65).repeatForever(autoreverses: true), value: pulsing)
+            .onAppear { pulsing = true }
+            .allowsHitTesting(false)
+    }
+}
