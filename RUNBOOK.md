@@ -31,6 +31,8 @@ python3 ql.py ios release 3.9.15 [460]                          # bump 8 处 →
 python3 ql.py diag ci [run号]                                   # CI 失败：失败步骤 + error 行
 python3 ql.py diag voice                                        # 读语音诊断上报
 python3 ql.py scripts                                           # 脚本目录现状（现役 vs 归档）
+python3 ql.py test [--with-ios]                                 # 跑全部真值表（166 项）+ iOS 仓 check_swift.sh
+python3 ql.py doctor                                            # 环境体检（凭据/容器/后端/仓库/cron/磁盘），6 秒出结论
 ```
 
 ## 2. 三条主流程
@@ -97,13 +99,17 @@ python3 ql.py scripts                                           # 脚本目录�
 | NAS 上 root 600 的文件（如 `backend/diag_api.py`）挂载读不了 | `ql nas read` 已自动回退 SSH；仍不行用 `scripts/ql_progress_push/fetch_b64.py` |
 | 经 PTY 的 `cat` 有输出上限（11KB 文件只回来 428 字节） | `ql nas read` 已改 sed 分段读（>2KB 自动分段） |
 | CI 报错一屏看不懂 | `ql diag ci [run]` 回显 error 行**并自动归因**（原因 + 最小修法） |
+| PTY 里命令没输出 / 卡几百秒 | **哨兵必须双引号**（`echo "X$?"`）：单引号不展开 `$?` → 哨兵行变成字面值、正则永不匹配 → drain 白等 600 秒。命令**内部**的引号反过来用单引号 |
+| 命令跑了却读不到结果 | `curl -w` 这类不带换行的输出会和 shell 提示符粘在同一行，被提示符过滤整行吞掉 → 格式串末尾加 `\n` |
+| NAS 连不上时先证伪网络 | `ql_nas_diag/nas_conn_probe.py` 分段计时（TCP → banner → 认证 → exec）；**用户名是 `lxm20060513`，不是 `lxm`** |
 
 ## 5. 文件地图
 
 | 位置 | 内容 |
 |---|---|
 | `/opt/data/scripts/ql.py` | **统一入口**（本文件描述的所有命令） |
-| `/opt/data/scripts/_archive/` | 历史一次性脚本（113 个文件，需要时 `cp` 取回） |
+| `/opt/data/scripts/_archive/` | 历史一次性脚本（107 个文件 / 15 个目录，见 `_archive/INDEX.md` 用途索引） |
+| `/opt/data/scripts/ql_nas_diag/nas_conn_probe.py` | NAS 连不上时的分段探针（TCP/banner/认证/exec 逐步计时） |
 | `/opt/data/scripts/ql_release/` | `watch_ci.py`（盯包）、`ci_logs.py`（CI 失败日志） |
 | `/opt/data/scripts/ql_backend_hardening/` | 后端补丁与端到端验证脚本（含运行源快照） |
 | `/opt/data/scripts/ql_repeat_diag/nas_run.py` | NAS 执行底层（PTY sudo），`ql.py` 复用 |
