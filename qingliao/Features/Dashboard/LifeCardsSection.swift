@@ -33,6 +33,8 @@ struct LifeCardsSection: View {
     var onBigBang: (String, String) -> Void = { _, _ in }   // v3.9.0：(正文, 源行 id) —— 源 id 供 zoom 用
 
     @AppStorage("dashboard_life_expanded") private var expanded = true
+    /// v3.9.17：资讯卡独立折叠——标题行搬到卡片外后，它和「生活数据」一样有自己的收起箭头
+    @AppStorage("dashboard_rss_expanded") private var rssExpanded = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -88,6 +90,7 @@ struct LifeCardsSection: View {
                     .frame(width: 26, height: 22)
             }
             .buttonStyle(PressStyle(scale: 0.9))
+            .accessibilityLabel(expanded ? "收起生活数据" : "展开生活数据")
         }
         .padding(.top, 6)
     }
@@ -139,8 +142,8 @@ struct LifeCardsSection: View {
                     ForEach(data.stocks) { s in stockCell(s) }
                 }
             }
-            // 博客/资讯：整宽卡（对齐 PinCard 的长卡形态）
-            if !data.entries.isEmpty { rssCard }
+            // 博客/资讯：v3.9.17 标题行搬到卡片外（页级标题），卡片里只放条目
+            if !data.entries.isEmpty { rssSection }
             // 未接入的占位项（快递/价格监控）
             if !data.placeholders.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
@@ -181,41 +184,62 @@ struct LifeCardsSection: View {
         return loading ? "加载中…" : "数据源未配置"
     }
 
+    // MARK: v3.9.17 博客/资讯（标题行搬到卡片外，与「生活数据」同款页级标题）
+
+    private var rssSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            rssHeader
+            if rssExpanded { rssCard }
+        }
+    }
+
+    /// 与 header（「生活数据」）同款：粗体 15pt 标题 + Spacer + 淡色胶囊 + 折叠箭头
+    private var rssHeader: some View {
+        HStack(spacing: 8) {
+            Text("博客/资讯")
+                .font(.system(size: Typography.body, weight: .bold))
+            Spacer(minLength: 0)
+            // v3.6.2：资讯专用刷新——后端 ?fresh=1 强制绕缓存（原整块刷新受 RSS 15 分钟缓存限制，
+            // 点了 15 分钟内不出新内容）
+            if feedsRefreshing {
+                ProgressView().controlSize(.small)
+            }
+            Button {
+                onRefreshFeeds()
+            } label: {
+                // v3.9.4：刷新统一为「文字 + 胶囊」（去图标）
+                Text("刷新")
+                    .font(.system(size: Typography.tiny))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(Color.accentColor.opacity(0.12), in: Capsule())
+            }
+            .buttonStyle(PressStyle())
+            .foregroundStyle(Color.accentColor)
+            .disabled(feedsRefreshing)
+            .accessibilityLabel("刷新资讯")
+            if !data.updatedText.isEmpty {
+                Text(data.updatedText)
+                    .font(.system(size: Typography.caption))
+                    .foregroundStyle(.tertiary)
+            }
+            Button {
+                withAnimation(Motion.snap) { rssExpanded.toggle() }
+            } label: {
+                Image(systemName: rssExpanded ? "chevron.up" : "chevron.down")
+                    .font(.system(size: Typography.caption, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 26, height: 22)
+            }
+            .buttonStyle(PressStyle(scale: 0.9))
+            .accessibilityLabel(rssExpanded ? "收起资讯" : "展开资讯")
+        }
+        .padding(.top, 6)
+    }
+
+    /// 卡片里只放条目（v3.9.17：原来卡内那行「广播图标 + 博客/资讯 + 刷新 + 时间」整行已搬出去）
     private var rssCard: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 6) {
-                Image(systemName: "dot.radiowaves.left.and.right")
-                    .font(.system(size: Typography.caption, weight: .semibold))
-                    .foregroundStyle(Color.accentColor)
-                Text("博客/资讯")
-                    .font(.system(size: Typography.subhead))
-                    .foregroundStyle(.secondary)
-                Spacer(minLength: 0)
-                // v3.6.2：资讯专用刷新——后端 ?fresh=1 强制绕缓存（原整块刷新受 RSS 15 分钟缓存限制，
-                // 点了 15 分钟内不出新内容）
-                if feedsRefreshing {
-                    ProgressView().controlSize(.small)
-                }
-                Button {
-                    onRefreshFeeds()
-                } label: {
-                    // v3.9.4：刷新统一为「文字 + 胶囊」（去图标）
-                    Text("刷新")
-                        .font(.system(size: Typography.caption))
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 4)
-                        .background(Color.accentColor.opacity(0.12), in: Capsule())
-                }
-                .buttonStyle(PressStyle())
-                .foregroundStyle(Color.accentColor)
-                .disabled(feedsRefreshing)
-                .accessibilityLabel("刷新资讯")
-                if !data.updatedText.isEmpty {
-                    Text(data.updatedText)
-                        .font(.system(size: Typography.caption))
-                        .foregroundStyle(.tertiary)
-                }
-            }
             ForEach(data.entries) { e in
                 rssRow(e)
                 if e.id != data.entries.last?.id {
