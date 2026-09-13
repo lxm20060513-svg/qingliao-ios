@@ -63,7 +63,7 @@ enum AgentCardTestMain {
      "fields":[{"key":"路由器","value":"小米 RM1800"}],
      "list":[{"title":"重启路由器","subtitle":"耗时 2 分钟","status":"完成","tone":"ok"},
              {"title":"刷新 DNS 缓存","status":"跳过","tone":"warn"}],
-     "table":{"columns":["设备","IP"],"rows":[["NAS","192.168.31.40"]]},
+     "table":{"columns":["设备","IP"],"rows":[["NAS","192.168.x.x"]]},
      "footer":"共 2 项操作"}
     """
     let cardText = "已经修好路由器，结果如下：\n\n```ql-card\n\(fullJSON)\n```\n\n还要我做什么吗？"
@@ -87,7 +87,7 @@ enum AgentCardTestMain {
     check("list 2 条", c1?.items.count == 2)
     check("list 项 subtitle/status", c1?.items.first?.subtitle == "耗时 2 分钟" && c1?.items.first?.status == "完成")
     check("list 项 tone=warn", c1?.items.last?.tone == .warn)
-    check("table 列/行", c1?.table?.columns == ["设备", "IP"] && c1?.table?.rows == [["NAS", "192.168.31.40"]])
+    check("table 列/行", c1?.table?.columns == ["设备", "IP"] && c1?.table?.rows == [["NAS", "192.168.x.x"]])
     check("footer", c1?.footer == "共 2 项操作")
     check("前段文本保留", textOf(segs, 0) == "已经修好路由器，结果如下：\n")
     check("后段文本保留", textOf(segs, 2) == "\n还要我做什么吗？")
@@ -98,7 +98,7 @@ enum AgentCardTestMain {
     check("plainText 含标题", pt.contains("家庭网络体检"))
     check("plainText 含指标", pt.contains("下载：94.2Mbps"))
     check("plainText 含清单", pt.contains("· 重启路由器（耗时 2 分钟）[完成]"))
-    check("plainText 含表格", pt.contains("设备 | IP") && pt.contains("NAS | 192.168.31.40"))
+    check("plainText 含表格", pt.contains("设备 | IP") && pt.contains("NAS | 192.168.x.x"))
     check("plainText 含页脚", pt.contains("共 2 项操作"))
 
     // MARK: - 3. 流式安全：围栏未闭合 → 全部按文本（绝不半截卡片）

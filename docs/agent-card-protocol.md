@@ -17,7 +17,7 @@
 //  "fields":[{"key":"路由器","value":"小米 RM1800"}],
 //  "list":[{"title":"重启路由器","subtitle":"耗时 2 分钟","status":"完成","tone":"ok"},
 //          {"title":"刷新 DNS 缓存","status":"跳过","tone":"warn"}],
-//  "table":{"columns":["设备","IP"],"rows":[["NAS","192.168.31.40"]]},
+//  "table":{"columns":["设备","IP"],"rows":[["NAS","192.168.x.x"]]},
 //  "footer":"共 2 项操作"}
 // ```
 //

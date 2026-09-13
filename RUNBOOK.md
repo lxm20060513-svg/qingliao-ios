@@ -7,7 +7,7 @@
 
 | 项 | 值 |
 |---|---|
-| 工作机 | 本容器 `/opt/data`（Linux），住着 Hermes；NAS 是 `192.168.31.40`（SSH 用户 `lxm20060513`，密码在 `/opt/data/.nas_cred`） |
+| 工作机 | 本容器 `/opt/data`（Linux），住着 Hermes；NAS 在局域网（**IP / SSH 用户名 / 密码不在本文件**，见本机 `/opt/data/scripts/LOCAL-CONTEXT.md`，该文件不入库） |
 | NAS 共享目录 | NAS 侧 `/volume1/docker/hermes/…` ↔ **本地挂载 `/opt/hermes_host/…`**（读写优先走挂载，不必 SSH） |
 | 轻聊后端 | NAS 上的 docker 容器 **`qingliao`**，bind mount 源码；**改文件后 `docker restart qingliao` 即生效** |
 | iOS 仓库 | `/opt/data/qingliao_ios`，分支 **`feature/handoff-301`**，CI 由 **tag** 触发 |
@@ -101,7 +101,7 @@ python3 ql.py doctor                                            # 环境体检�
 | CI 报错一屏看不懂 | `ql diag ci [run]` 回显 error 行**并自动归因**（原因 + 最小修法） |
 | PTY 里命令没输出 / 卡几百秒 | **哨兵必须双引号**（`echo "X$?"`）：单引号不展开 `$?` → 哨兵行变成字面值、正则永不匹配 → drain 白等 600 秒。命令**内部**的引号反过来用单引号 |
 | 命令跑了却读不到结果 | `curl -w` 这类不带换行的输出会和 shell 提示符粘在同一行，被提示符过滤整行吞掉 → 格式串末尾加 `\n` |
-| NAS 连不上时先证伪网络 | `ql_nas_diag/nas_conn_probe.py` 分段计时（TCP → banner → 认证 → exec）；**用户名是 `lxm20060513`，不是 `lxm`** |
+| NAS 连不上时先证伪网络 | `ql_nas_diag/nas_conn_probe.py` 分段计时（TCP → banner → 认证 → exec）；**用户名见 `LOCAL-CONTEXT.md`（注意不是 `lxm`）** |
 
 ## 5. 文件地图
 

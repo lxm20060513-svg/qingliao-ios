@@ -152,7 +152,7 @@
 - **验证**（容器内实测）：`_is_status_verbose("内存：共19.4GB，已用5.6GB，可用13.8GB（28%）")`=True；`_is_status_verbose("你好呀，今天天气不错")`=False；含播报句的 assistant 被压缩为占位 ✓
 - 部署：备份 `.bak325`，md5=`8b0cf62f`，`docker stop/start` 重启，容器 `CONT_SYNTAX_OK`
 - ⚠️ 误伤权衡：状态播报句本就不承载可持续对话信息（每轮可重新生成），压掉仅防复读，不影响正常对话
-- **iOS v3.2.4 发版通道（2026-09-03 转 svg 成功，⚠️ 修正 v3.2.1 前旧认知）**：`apple` remote 原写权限 token（`ghp_uT...LinnE`，属 lxm20060513-apple）**已失效**（push 403 / ls-remote Auth failed）；`.gh_cred` 的 token 属 **lxm20060513-svg**（读 apple 仓库 OK 但无写，push 报 `denied to lxm20060513-svg`）。**结论：svg 仓库(origin) 也是可用的发版通道**——svg 是 `public`（无 private 额度限制）、CI 至今健康（v3.1.8 2026-09-03 02:02 还在 svg 成功）、workflow unsigned 不嵌签名 secret、svg token 有写权限。**本次 v3.2.4 即走 svg 发版成功**（tag 推 `origin`，run 33776506689 success，IPA 校验 3.2.4/399 通过，md5 `cc1ca046` 转存 NAS）。下次发版优先 svg（origin）；仅当 svg 出问题时才需 apple 新 PAT。
+- **iOS v3.2.4 发版通道（2026-09-03 转 svg 成功，⚠️ 修正 v3.2.1 前旧认知）**：`apple` remote 原写权限 token（**值不记录**；该 token 已失效需换新 PAT）**已失效**（push 403 / ls-remote Auth failed）；`.gh_cred` 的 token 属 **lxm20060513-svg**（读 apple 仓库 OK 但无写，push 报 `denied to lxm20060513-svg`）。**结论：svg 仓库(origin) 也是可用的发版通道**——svg 是 `public`（无 private 额度限制）、CI 至今健康（v3.1.8 2026-09-03 02:02 还在 svg 成功）、workflow unsigned 不嵌签名 secret、svg token 有写权限。**本次 v3.2.4 即走 svg 发版成功**（tag 推 `origin`，run 33776506689 success，IPA 校验 3.2.4/399 通过，md5 `cc1ca046` 转存 NAS）。下次发版优先 svg（origin）；仅当 svg 出问题时才需 apple 新 PAT。
 
 ### v3.2.4（2026-09-03 已发版 svg：语音转文字回归最原始基线）
 
