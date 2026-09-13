@@ -195,6 +195,43 @@ struct ToolStepRow: View {
     }
 }
 
+/// v3.9.14：工具进度卡**答完后收起**成的那一行（用户反馈：这些别答完还一直摊在对话里）。
+/// 生成中仍然逐条展开（能看到 AI 正在干什么），答完折叠成「N 步工具调用」，点开可看明细。
+/// 抽成独立 struct 而不是塞进 toolStepCards —— 本仓 CI 反复踩过 body 过大导致的
+/// 「Unable to type-check this expression in reasonable time」。
+struct ToolStepsSummaryRow: View {
+    let count: Int
+    let expanded: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: "gearshape.2")
+                    .font(.system(size: Typography.subhead))
+                    .foregroundStyle(.secondary)
+                Text("\(count) 步工具调用")
+                    .font(.system(size: Typography.subhead))
+                    .foregroundStyle(.secondary)
+                Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                    .font(.system(size: Typography.caption))
+                    .foregroundStyle(.tertiary)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(Color(uiColor: .secondarySystemGroupedBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.8)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(PressStyle())
+    }
+}
+
 struct ChatView: View {
     @Environment(AuthStore.self) var auth
     @Environment(ChatStore.self) var chat
@@ -229,6 +266,8 @@ struct ChatView: View {
     // v3.9.17：AI 生成物 QuickLook 预览的本地文件（下载落临时目录后交给 QuickLook）
     @State var quickLookURL: URL?
     @State var showMoreMenu = false
+    // v3.9.14：工具进度卡展开状态——生成中强制展开，答完默认收起（用户反馈这几行别一直摊着）
+    @State var toolStepsExpanded = false
     // v3.4.24：任务中心全屏页（header 常驻小图标入口，原 DockTabView 全局 overlay 已移除）
     @State var showTaskCenter = false
     @State private var taskStore = TaskCenterStore.shared
@@ -780,10 +819,26 @@ struct ChatView: View {
     private var toolStepCards: some View {
         if !stream.toolNames.isEmpty, auth.currentStreamSessionId == chat.sessionId {
             VStack(alignment: .leading, spacing: 6) {
-                ForEach(Array(stream.toolNames.enumerated()), id: \.offset) { idx, name in
-                    ToolStepRow(title: name,
-                                running: stream.isStreaming && idx == stream.toolNames.count - 1,
-                                unresolved: !stream.isStreaming && !stream.errorMessage.isEmpty)
+                if stream.isStreaming {
+                    // 生成中：逐条展开 —— 长任务里用户不必等结果就知道 AI 在干什么
+                    ForEach(Array(stream.toolNames.enumerated()), id: \.offset) { idx, name in
+                        ToolStepRow(title: name,
+                                    running: idx == stream.toolNames.count - 1,
+                                    unresolved: false)
+                    }
+                } else {
+                    // v3.9.14：答完收起成一行（点开可看明细，明细里中止/报错的步骤仍用「未确认」图标）
+                    ToolStepsSummaryRow(count: stream.toolNames.count,
+                                        expanded: toolStepsExpanded) {
+                        withAnimation(.easeOut(duration: 0.18)) { toolStepsExpanded.toggle() }
+                    }
+                    if toolStepsExpanded {
+                        ForEach(Array(stream.toolNames.enumerated()), id: \.offset) { _, name in
+                            ToolStepRow(title: name,
+                                        running: false,
+                                        unresolved: !stream.errorMessage.isEmpty)
+                        }
+                    }
                 }
             }
             .padding(.horizontal, 44)   // 左侧留出 AI 头像位
@@ -1023,6 +1078,10 @@ struct ChatView: View {
             }
         }
         // v3.9.14：生活页备忘录「发给 AI」→ 同样作为用户消息发出（备忘立刻能变成行动）
+        // v3.9.14：新一轮开始 → 工具卡回到默认收起态（否则上一轮手动展开会带到下一轮）
+        .onChange(of: stream.isStreaming) { _, streaming in
+            if streaming { toolStepsExpanded = false }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .qingliaoMemoSend)) { note in
             if let text = note.object as? String, !text.isEmpty {
                 // 与输入栏 send() 同口径：用户真的发起新一轮 → 先掐掉上一轮朗读，
