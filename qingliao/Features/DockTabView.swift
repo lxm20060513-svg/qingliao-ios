@@ -149,6 +149,9 @@ struct DockTabView: View {
             }
             // v3.9.14：备忘录「发给 AI」——备忘录在生活页，不切回聊天页就看不到发出去的消息
             .onReceive(NotificationCenter.default.publisher(for: .qingliaoMemoSend)) { _ in
+                // 程序化切页必须先跳过一次烟花（与深链/分享/灵动岛同款）——
+                // 否则点「发给 AI」会误放全屏粒子（v3.6.2 修过的回归）
+                skipBurstOnce()
                 selected = .chat
             }
             // v3.9.7：灵动岛「停止生成」按钮——`LiveActivityIntent` 在**主 App 进程**执行，

@@ -45,6 +45,11 @@ struct MemoItem: Identifiable, Codable, Equatable, Sendable {
         updatedAt = try c.decodeIfPresent(Date.self, forKey: .updatedAt) ?? createdAt
     }
 
+    /// 显式声明：解码是手写的、编码走合成，写出来避免歧义
+    private enum CodingKeys: String, CodingKey {
+        case id, content, createdAt, source, pinned, updatedAt
+    }
+
     /// 排序与合并用的时间基准
     var sortDate: Date { updatedAt }
 
@@ -200,8 +205,14 @@ final class MemoStore {
     }
 
     private func loadLocal() {
+        // v3.9.14 fix：解码策略必须与 save() 对齐（.iso8601）。原来这里用默认的
+        // `.deferredToDate`（期望 Double 时间戳）去解 save() 写出的 .iso8601 字符串日期
+        // → 永远 typeMismatch → 被 try? 吞掉 → 每次冷启动本地缓存都是空。
+        // 危害不止"离线看不到"：此时若新增一条，save() 会把只含新条目的数组写回 NAS 覆盖其余备忘。
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
         if let data = UserDefaults.standard.data(forKey: defaultsKey),
-           let decoded = try? JSONDecoder().decode([MemoItem].self, from: data) {
+           let decoded = try? decoder.decode([MemoItem].self, from: data) {
             memos = decoded
         }
     }

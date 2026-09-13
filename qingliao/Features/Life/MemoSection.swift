@@ -320,7 +320,8 @@ private struct MemoDetailSheet: View {
                         }
                         Image(systemName: current.sourceIcon)
                             .font(.system(size: Typography.tiny))
-                        Text("\(current.sourceLabel) · \(current.subtitle)")
+                        // subtitle 本身已含来源（"手记 · 刚刚"），别再叠一次 sourceLabel
+                        Text(current.subtitle)
                             .font(.system(size: Typography.subhead))
                     }
                     .foregroundStyle(.tertiary)
@@ -362,6 +363,8 @@ private struct MemoDetailSheet: View {
                     }
                 }
             }
+            // 编辑态禁止下滑关闭：不然手一滑草稿就没了，且没有任何提示
+            .interactiveDismissDisabled(editing)
             // 编辑态下藏底部操作条，免得"删除"和"保存"挨着误触
             .safeAreaInset(edge: .bottom) {
                 if !editing {
@@ -419,8 +422,12 @@ private struct MemoDetailSheet: View {
         let text = editText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         store.update(current, content: text)
-        current.content = text
-        current.updatedAt = Date()
+        // 只有内容真变了才动本地副本的时间：store.update 在内容未变时什么都不做，
+        // 这里若无条件改，详情页会显示"刚刚"而存储里没变（两处时间分叉）
+        if current.content != text {
+            current.content = text
+            current.updatedAt = Date()
+        }
         editing = false
         Haptics.success()
     }

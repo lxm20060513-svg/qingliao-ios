@@ -1025,6 +1025,9 @@ struct ChatView: View {
         // v3.9.14：生活页备忘录「发给 AI」→ 同样作为用户消息发出（备忘立刻能变成行动）
         .onReceive(NotificationCenter.default.publisher(for: .qingliaoMemoSend)) { note in
             if let text = note.object as? String, !text.isEmpty {
+                // 与输入栏 send() 同口径：用户真的发起新一轮 → 先掐掉上一轮朗读，
+                // 否则 AI 正念上一条时点「发给 AI」，旧朗读会一直念到新答案出完
+                SpeechManager.shared.stop()
                 sendCore(text: text, imageData: nil)
             }
         }

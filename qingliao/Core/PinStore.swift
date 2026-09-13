@@ -82,8 +82,12 @@ final class PinStore {
 
     private func loadLocal() {
         // 先从本地 UserDefaults 加载
+        // v3.9.14 fix：与 save() 的 .iso8601 对齐（同 MemoStore 的问题：默认策略解字符串日期必失败，
+        // 本地兜底等于没有）——这处是从 MemoStore 复制过去的同款 bug，一并修
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
         if let data = UserDefaults.standard.data(forKey: "qingliao_pins_data"),
-           let decoded = try? JSONDecoder().decode([PinItem].self, from: data) {
+           let decoded = try? decoder.decode([PinItem].self, from: data) {
             pins = decoded
         }
     }
