@@ -14,26 +14,91 @@ struct MemoItem: Identifiable, Codable, Equatable, Sendable {
     var createdAt: Date
     /// 来源标签：chat（聊天气泡）/ bigbang（大爆炸选词）/ manual（生活页手写）
     var source: String
+    /// v3.9.14：置顶（置顶的固定在列表最上，带图钉标）
+    var pinned: Bool
+    /// v3.9.14：最后修改时间——编辑与置顶都要更新它。
+    /// 为什么非有它不可：`loadFromServer` 按时间取"较新的一条"做合并，原先只有 createdAt，
+    /// 于是「内容改了但 createdAt 没变」的本地条目会被远端旧内容覆盖回去（编辑等于白改）。
+    var updatedAt: Date
 
     init(id: String = UUID().uuidString, content: String,
-         createdAt: Date = Date(), source: String = "manual") {
+         createdAt: Date = Date(), source: String = "manual",
+         pinned: Bool = false, updatedAt: Date? = nil) {
         self.id = id
         self.content = content
         self.createdAt = createdAt
         self.source = source
+        self.pinned = pinned
+        self.updatedAt = updatedAt ?? createdAt
     }
 
-    /// 卡片副标题：来源 + 时间
-    var subtitle: String {
-        let tag: String
+    /// v3.9.14：**手写解码，不要删**。旧数据里没有 pinned/updatedAt 两个键，
+    /// 用合成的 Codable 会因缺键直接抛错 → 解码失败 → 用户已有备忘全部消失。
+    /// 规矩：以后新增任何字段都必须走 decodeIfPresent + 默认值。
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        content = try c.decode(String.self, forKey: .content)
+        createdAt = try c.decode(Date.self, forKey: .createdAt)
+        source = try c.decodeIfPresent(String.self, forKey: .source) ?? "manual"
+        pinned = try c.decodeIfPresent(Bool.self, forKey: .pinned) ?? false
+        updatedAt = try c.decodeIfPresent(Date.self, forKey: .updatedAt) ?? createdAt
+    }
+
+    /// 排序与合并用的时间基准
+    var sortDate: Date { updatedAt }
+
+    /// 来源中文名
+    var sourceLabel: String {
         switch source {
-        case "chat": tag = "聊天"
-        case "bigbang": tag = "选词"
-        default: tag = "手记"
+        case "chat": return "聊天"
+        case "bigbang": return "选词"
+        default: return "手记"
         }
-        let df = DateFormatter()
-        df.dateFormat = "MM-dd HH:mm"
-        return "\(tag) · \(df.string(from: createdAt))"
+    }
+
+    /// 来源图标（v3.9.14：列表里用图标代替文字，省一行宽度）
+    var sourceIcon: String {
+        switch source {
+        case "chat": return "bubble.left.fill"
+        case "bigbang": return "wand.and.stars"
+        default: return "square.and.pencil"
+        }
+    }
+
+    /// 卡片副标题：来源 + 相对时间
+    var subtitle: String { "\(sourceLabel) · \(timeText)" }
+
+    /// 相对时间文案（v3.9.14）：刚刚 / 12 分钟前 / 今天 14:30 / 昨天 09:05 / 3月8日 / 2025年12月3日
+    var timeText: String { MemoItem.relativeTime(updatedAt) }
+
+    // formatter 建一次就够（原来每渲染一行就 new 一个 DateFormatter，滚动时是白开销）
+    nonisolated(unsafe) private static let dayTimeFormatter: DateFormatter = {
+        let df = DateFormatter(); df.dateFormat = "HH:mm"; return df
+    }()
+    nonisolated(unsafe) private static let monthDayFormatter: DateFormatter = {
+        let df = DateFormatter(); df.dateFormat = "M月d日"; return df
+    }()
+    nonisolated(unsafe) private static let fullDateFormatter: DateFormatter = {
+        let df = DateFormatter(); df.dateFormat = "yyyy年M月d日"; return df
+    }()
+
+    /// 纯函数，便于真值表验证（本机无 iOS SDK 也能跑）
+    static func relativeTime(_ date: Date, now: Date = Date(), calendar: Calendar = .current) -> String {
+        if calendar.isDate(date, inSameDayAs: now) {
+            let mins = Int(now.timeIntervalSince(date) / 60)
+            if mins < 1 { return "刚刚" }
+            if mins < 60 { return "\(mins) 分钟前" }
+            return "今天 \(dayTimeFormatter.string(from: date))"
+        }
+        if let yesterday = calendar.date(byAdding: .day, value: -1, to: now),
+           calendar.isDate(date, inSameDayAs: yesterday) {
+            return "昨天 \(dayTimeFormatter.string(from: date))"
+        }
+        if calendar.component(.year, from: date) == calendar.component(.year, from: now) {
+            return monthDayFormatter.string(from: date)
+        }
+        return fullDateFormatter.string(from: date)
     }
 }
 
@@ -82,7 +147,7 @@ final class MemoStore {
            Date().timeIntervalSince(first.createdAt) < 300 {
             return true
         }
-        memos.insert(MemoItem(content: text, source: source), at: 0)
+        memos.insert(MemoItem(content: text, source: source, updatedAt: Date()), at: 0)
         save()
         return true
     }
@@ -95,8 +160,28 @@ final class MemoStore {
     func update(_ item: MemoItem, content: String) {
         let text = content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, let idx = memos.firstIndex(where: { $0.id == item.id }) else { return }
+        // v3.9.14：内容没变就别动 updatedAt（否则每次打开编辑页保存都会把这条顶到最前）
+        guard memos[idx].content != text else { return }
         memos[idx].content = text
+        memos[idx].updatedAt = Date()
         save()
+    }
+
+    /// v3.9.14：置顶/取消置顶（也更新 updatedAt → 与远端合并时以本地为准）
+    func togglePin(_ item: MemoItem) {
+        guard let idx = memos.firstIndex(where: { $0.id == item.id }) else { return }
+        memos[idx].pinned.toggle()
+        memos[idx].updatedAt = Date()
+        save()
+    }
+
+    /// v3.9.14：列表顺序 = 置顶优先，其次按最后修改时间倒序。
+    /// 视图一律读这个而不是 `memos`（`memos` 的顺序只是插入序）。
+    var sorted: [MemoItem] {
+        memos.sorted { a, b in
+            if a.pinned != b.pinned { return a.pinned }
+            return a.sortDate > b.sortDate
+        }
     }
 
     // MARK: - 持久化
@@ -104,6 +189,7 @@ final class MemoStore {
     private func save() {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
+        // 注：编码走合成的 encode(to:)（含 pinned/updatedAt）——只有解码是手写的（见 MemoItem）
         guard let data = try? encoder.encode(memos) else { return }
         UserDefaults.standard.set(data, forKey: defaultsKey)
 
@@ -133,17 +219,19 @@ final class MemoStore {
         decoder.dateDecodingStrategy = .iso8601
         guard let remote = try? decoder.decode([MemoItem].self, from: data) else { return }
 
-        // 按 id 并集：同 id 取 createdAt 较新的一条；本地独有（远端还没收到）保留
+        // 按 id 并集：同 id 取**最后修改**较新的一条；本地独有（远端还没收到）保留
+        // v3.9.14：比较基准从 createdAt 改为 updatedAt —— 否则编辑/置顶过的条目
+        // 会被远端那份旧内容覆盖回来（编辑白改、置顶白点）
         var byID: [String: MemoItem] = [:]
         for m in remote { byID[m.id] = m }
         for m in memos {
             if let r = byID[m.id] {
-                byID[m.id] = r.createdAt >= m.createdAt ? r : m
+                byID[m.id] = r.sortDate >= m.sortDate ? r : m
             } else {
                 byID[m.id] = m
             }
         }
-        let merged = byID.values.sorted { $0.createdAt > $1.createdAt }
+        let merged = byID.values.sorted { $0.sortDate > $1.sortDate }
         let changed = merged.count != remote.count
         memos = merged
         if changed { save() }   // 本地有远端没有 → 回写一次补齐 NAS

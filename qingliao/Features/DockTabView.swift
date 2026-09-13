@@ -147,6 +147,10 @@ struct DockTabView: View {
             .onOpenURL { url in
                 handleShareURL(url)
             }
+            // v3.9.14：备忘录「发给 AI」——备忘录在生活页，不切回聊天页就看不到发出去的消息
+            .onReceive(NotificationCenter.default.publisher(for: .qingliaoMemoSend)) { _ in
+                selected = .chat
+            }
             // v3.9.7：灵动岛「停止生成」按钮——`LiveActivityIntent` 在**主 App 进程**执行，
             // 所以进程内通知能直达这里（挂件进程触不到 App 的流）
             .onReceive(NotificationCenter.default.publisher(for: LiveActivityActionBridge.notification)) { note in

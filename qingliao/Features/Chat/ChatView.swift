@@ -19,6 +19,8 @@ extension Notification.Name {
     static let qingliaoShareIncoming = Notification.Name("qingliao_share_incoming")
     // v3.4.x：任务中心「发送到当前会话」通知（TaskCenterView 广播，ChatView 消费发送）
     static let qingliaoTaskSend = Notification.Name("qingliao_task_send")
+    // v3.9.14：备忘录「发给 AI」——生活页发通知，这里发送 + DockTabView 切回聊天页
+    static let qingliaoMemoSend = Notification.Name("qingliao_memo_send")
 }
 
 // MARK: - v2.0.60 通知点击直达会话（AppDelegate 捕获通知点击 → 存 sessionId）
@@ -1016,6 +1018,12 @@ struct ChatView: View {
         }
         // v3.4.x 任务中心：点击任务「发送到当前会话」→ 把任务文本作为用户消息发送
         .onReceive(NotificationCenter.default.publisher(for: .qingliaoTaskSend)) { note in
+            if let text = note.object as? String, !text.isEmpty {
+                sendCore(text: text, imageData: nil)
+            }
+        }
+        // v3.9.14：生活页备忘录「发给 AI」→ 同样作为用户消息发出（备忘立刻能变成行动）
+        .onReceive(NotificationCenter.default.publisher(for: .qingliaoMemoSend)) { note in
             if let text = note.object as? String, !text.isEmpty {
                 sendCore(text: text, imageData: nil)
             }
