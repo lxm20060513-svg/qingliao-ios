@@ -14,31 +14,22 @@ struct MemoSection: View {
     private let collapsedCount = 3
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            // v3.9.16：标题从卡片里搬出来做页级大标题——卡片内只剩条目，更像一张纸
-            bigHeader
+        VStack(alignment: .leading, spacing: 8) {
+            header
             if store.memos.isEmpty {
                 emptyTap
             } else {
-                VStack(spacing: 0) {
-                    ForEach(visibleMemos) { m in
-                        memoRow(m)
-                    }
-                    if store.sorted.count > collapsedCount {
-                        expandToggle
-                    }
+                ForEach(visibleMemos) { m in
+                    memoRow(m)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                // v3.9.16：横线笔记本底（暖白纸 + 27pt 横线 + 左侧红边线）
-                .background(MemoPaper())
-                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.8))
-                // v3.9.16：不给卡片加阴影——全站 dashboardCard 一律平（LiquidGlass.swift:77-89），
-                // 只有 GlassCard 有阴影；单卡浮起来会和相邻卡片不是一套层次
+                if store.sorted.count > collapsedCount {
+                    expandToggle
+                }
             }
         }
+        .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .dashboardCard()   // v3.8.1：圆角与看板卡片统一（默认 16）
         // v3.7.0：进入生活页即拉 NAS 上的备忘（本地已有则远端为空时不清本地）
         .task { await store.loadFromServer() }
         .sheet(isPresented: $showAdd) { addSheet }
@@ -73,38 +64,41 @@ struct MemoSection: View {
         return expanded ? all : Array(all.prefix(collapsedCount))
     }
 
-    // MARK: 页级大标题（v3.9.16：从卡片里搬出来，做成页级标题）
+    // MARK: 头部
 
-    private var bigHeader: some View {
-        HStack(alignment: .center, spacing: 0) {
-            HStack(alignment: .firstTextBaseline, spacing: 7) {
-                Text("备忘录")
-                    .font(.system(size: Typography.titleXL, weight: .bold))
-                if !store.memos.isEmpty {
-                    Text("\(store.memos.count) 条")
-                        .font(.system(size: Typography.subhead))
-                        .foregroundStyle(.secondary)
-                }
+    private var header: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "note.text")
+                .font(.system(size: Typography.caption, weight: .semibold))
+                .foregroundStyle(Color.accentColor)
+            Text("备忘录")
+                .font(.system(size: Typography.subhead))
+                .foregroundStyle(.secondary)
+            if !store.memos.isEmpty {
+                Text("\(store.memos.count)")
+                    .font(.system(size: Typography.caption, weight: .semibold))
+                    .foregroundStyle(Color.accentColor)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 1)
+                    .background(Color.accentColor.opacity(0.1), in: Capsule())
             }
-            Spacer(minLength: 8)
+            Spacer(minLength: 0)
             Button {
                 draft = ""
                 showAdd = true
             } label: {
-                // v3.9.16：实色胶囊（原来是 accentColor.opacity(0.12)，压在卡片上几乎看不清）
+                // v3.9.4：只留文字 + 胶囊（去图标）
                 Text("添加")
-                    .font(.system(size: Typography.subhead, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 13)
-                    .frame(height: 30)
-                    .background(Color.accentColor, in: Capsule())
+                    .font(.system(size: Typography.caption))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(Color.accentColor.opacity(0.12), in: Capsule())
             }
             .buttonStyle(PressStyle())
+            .foregroundStyle(Color.accentColor)
             .accessibilityLabel("添加备忘录")
         }
     }
-
-
 
     /// v3.9.14：空态改成"可点的引导卡"——原来那句话是说明书腔，现在点了就能写
     private var emptyTap: some View {
@@ -127,16 +121,11 @@ struct MemoSection: View {
                 }
                 Spacer(minLength: 0)
             }
-            // v3.9.16：空态也排在纸的版心内——原来左右各 10，文字横跨左侧红边线（审查发现）
-            .padding(.leading, 46)
-            .padding(.trailing, 14)
+            .padding(.horizontal, 10)
             .padding(.vertical, 9)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(MemoPaper())
-            // v3.9.16：圆角跟列表纸卡一致（12 是全站唯一的第二档卡片圆角）
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.8))
+            .background(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.secondary.opacity(0.06)))
             .contentShape(Rectangle())
         }
         .buttonStyle(PressStyle())
@@ -149,48 +138,37 @@ struct MemoSection: View {
         Button {
             detail = m
         } label: {
-            HStack(spacing: 0) {
-                // v3.9.16：置顶 = 左侧蓝书签条（贴在红边线内侧）
-                if m.pinned {
-                    RoundedRectangle(cornerRadius: 2, style: .continuous)
-                        .fill(Color.accentColor)
-                        .frame(width: 3)
-                        .padding(.vertical, 11)
-                }
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(m.content)
-                        .font(.system(size: Typography.body))
-                        // v3.9.16：行距凑成纸的 27pt 网格（字号 15 行高≈18 + 9 ≈ 27），
-                        // 这样同一条备忘内的多行文字落在横线上；条与条之间因行高不是网格整数倍仍有累积错位
-                        .lineSpacing(9)
-                        .foregroundStyle(.primary)
-                        .lineLimit(3)
-                        .multilineTextAlignment(.leading)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    HStack(spacing: 5) {
-                        if m.pinned {
-                            Image(systemName: "pin.fill")
-                                .font(.system(size: Typography.tiny))
-                                .foregroundStyle(Color.accentColor)
-                        }
-                        // v3.9.14：来源用图标代替文字（省一行宽度，一眼看出从哪来的）
-                        Image(systemName: m.sourceIcon)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(m.content)
+                    .font(.system(size: Typography.body))
+                    .foregroundStyle(.primary)
+                    .lineLimit(3)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                HStack(spacing: 5) {
+                    if m.pinned {
+                        Image(systemName: "pin.fill")
                             .font(.system(size: Typography.tiny))
-                        Text(m.timeText)
-                            .font(.system(size: Typography.caption))
-                        Spacer(minLength: 0)
+                            .foregroundStyle(Color.accentColor)
                     }
-                    .foregroundStyle(.tertiary)
+                    // v3.9.14：来源用图标代替文字（省一行宽度，一眼看出从哪来的）
+                    Image(systemName: m.sourceIcon)
+                        .font(.system(size: Typography.tiny))
+                    Text(m.timeText)
+                        .font(.system(size: Typography.caption))
+                    Spacer(minLength: 0)
                 }
-                .padding(.leading, m.pinned ? 9 : 12)
-                .padding(.trailing, 14)
-                .padding(.vertical, 12)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .foregroundStyle(.tertiary)
             }
-            // v3.9.16：整行让出左侧红边线（43pt），文字就像写在横线本上
-            // v3.9.14 的独立白/灰小卡片底已去掉——现在卡片本身就是纸，条目之间靠纸的横线分隔
-            .padding(.leading, 46)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 9)
             .frame(maxWidth: .infinity, alignment: .leading)
+            // v3.9.14：便签化——圆角底 + 0.8pt 描边（与全站卡片口径一致），置顶的用主题色淡底区分
+            .background(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(m.pinned ? Color.accentColor.opacity(0.10) : Color.secondary.opacity(0.07)))
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(m.pinned ? Color.accentColor.opacity(0.28) : Color.secondary.opacity(0.16),
+                        lineWidth: 0.8))
             .contentShape(Rectangle())
         }
         .buttonStyle(PressStyle())
@@ -228,10 +206,10 @@ struct MemoSection: View {
                 Text(expanded ? "收起" : "全部 \(store.sorted.count) 条")
                 Image(systemName: expanded ? "chevron.up" : "chevron.down")
             }
-            .font(.system(size: Typography.subhead, weight: .semibold))
+            .font(.system(size: Typography.caption))
             .foregroundStyle(Color.accentColor)
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 9)
+            .padding(.vertical, 5)
             .contentShape(Rectangle())
         }
         .buttonStyle(PressStyle())
@@ -324,11 +302,8 @@ private struct MemoDetailSheet: View {
                             .scrollContentBackground(.hidden)
                             .frame(minHeight: 220, alignment: .topLeading)
                             .padding(10)
-                            // v3.9.16：编辑框在纸上用半透明白 + 细描边（原来是不透明灰底，压在纸上像贴了块补丁）
-                            .background(Color.primary.opacity(0.06),   // 自适应：浅色=淡黑、深色=淡白
+                            .background(Color(uiColor: .secondarySystemGroupedBackground),
                                         in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.8))
                     } else {
                         Text(current.content)
                             .font(.system(size: Typography.headline))
@@ -351,12 +326,9 @@ private struct MemoDetailSheet: View {
                     }
                     .foregroundStyle(.tertiary)
                 }
-                // v3.9.16：让出左侧红边线，内容排在纸上
-                .padding(.leading, 46)
-                .padding(.trailing, 20)
-                .padding(.vertical, 18)
+                .padding(18)
             }
-            .background(MemoPaper())
+            .background(Color(uiColor: .systemGroupedBackground))
             .navigationTitle(editing ? "编辑备忘" : "备忘录")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -405,16 +377,13 @@ private struct MemoDetailSheet: View {
                             } label: {
                                 Label(current.pinned ? "取消置顶" : "置顶",
                                       systemImage: current.pinned ? "pin.slash" : "pin")
-                                    .font(.system(size: Typography.subhead, weight: .semibold))
+                                    .font(.system(size: Typography.body))
                                     .frame(maxWidth: .infinity)
-                                    .frame(height: 34)
-                                    // v3.9.16：已置顶时「取消置顶」是次要动作 → 灰底；未置顶时「置顶」是主操作 → 实色
-                                    .background(current.pinned ? AnyShapeStyle(Color.secondary.opacity(0.14))
-                                                               : AnyShapeStyle(Color.accentColor),
-                                                in: Capsule())
-                                    .foregroundStyle(current.pinned ? Color.secondary : Color.white)
+                                    .padding(.vertical, 12)
+                                    .background(Color.accentColor.opacity(0.12), in: Capsule())
                             }
                             .buttonStyle(PressStyle())
+                            .foregroundStyle(Color.accentColor)
 
                             Button {
                                 NotificationCenter.default.post(name: .qingliaoMemoSend, object: current.content)
@@ -422,31 +391,28 @@ private struct MemoDetailSheet: View {
                                 dismiss()
                             } label: {
                                 Label("发给 AI", systemImage: "paperplane")
-                                    .font(.system(size: Typography.subhead, weight: .semibold))
+                                    .font(.system(size: Typography.body))
                                     .frame(maxWidth: .infinity)
-                                    .frame(height: 34)
-                                    .background(Color.accentColor, in: Capsule())
-                                    .foregroundStyle(Color.white)
+                                    .padding(.vertical, 12)
+                                    .background(Color.accentColor.opacity(0.12), in: Capsule())
                             }
                             .buttonStyle(PressStyle())
+                            .foregroundStyle(Color.accentColor)
                         }
                         Button(role: .destructive) {
                             onDelete(current)
                         } label: {
                             Label("删除这条备忘", systemImage: "trash")
-                                .font(.system(size: Typography.subhead, weight: .semibold))
+                                .font(.system(size: Typography.body))
                                 .frame(maxWidth: .infinity)
-                                .frame(height: 34)
-                                // v3.9.16：实心红底白字（用户指定；半透明红看不清内容，描边又不醒目）
-                                .background(Color.red, in: Capsule())
-                                .foregroundStyle(Color.white)
+                                .padding(.vertical, 12)
+                                .background(Color.red.opacity(0.12), in: Capsule())
                         }
                         .buttonStyle(PressStyle())
+                        .foregroundStyle(.red)
                     }
                     .padding(.horizontal, 18)
                     .padding(.bottom, 10)
-                    // v3.9.16：条子也要有纸底——否则底部露出一条无纹理、红边线断开的系统底（审查发现）
-                    .background(MemoPaper())
                 }
             }
         }
@@ -464,47 +430,5 @@ private struct MemoDetailSheet: View {
         }
         editing = false
         Haptics.success()
-    }
-}
-
-/// v3.9.16：横线笔记本纸 = 暖白 #FDFCF8 + 27pt 横线 + 左侧红边线
-/// 抽成文件级 View 让列表卡片和详情页共用同一张纸（原来挂在 MemoSection 里，详情页那个 struct 够不着）。
-/// 用 Canvas 画线而不是叠图片：随高度自适应、深浅模式都不用换图。
-private struct MemoPaper: View {
-    /// v3.9.16：网格步长 / 起始相位留成参数——横线与文字的对齐要在真机上微调，从这里改不影响纸的实现
-    var lineStep: CGFloat = 27
-    var phase: CGFloat = 0
-    /// v3.9.16：必须跟着深浅色走——App 有深色模式，写死暖白会在深色下刺眼
-    @Environment(\.colorScheme) private var scheme
-
-    var body: some View {
-        // 颜色先在闭包外取成局部常量：Canvas 的 renderer 不碰 self，避开 Swift 6 并发检查
-        let paper = scheme == .dark
-            ? Color(red: 0.109, green: 0.105, blue: 0.102)   // 深色：暖调近黑
-            : Color(red: 0.992, green: 0.988, blue: 0.973)   // 浅色：#FDFCF8 暖白
-        let rule = scheme == .dark
-            ? Color(red: 0.243, green: 0.267, blue: 0.310)
-            : Color(red: 0.863, green: 0.902, blue: 0.949)
-        let marginRule = scheme == .dark
-            ? Color(red: 0.439, green: 0.267, blue: 0.267)
-            : Color(red: 0.937, green: 0.706, blue: 0.706)
-
-        ZStack(alignment: .topLeading) {
-            paper
-            Canvas { ctx, size in
-                var lines = Path()
-                var y: CGFloat = phase
-                while y < size.height + lineStep {
-                    lines.move(to: CGPoint(x: 0, y: y))
-                    lines.addLine(to: CGPoint(x: size.width, y: y))
-                    y += lineStep
-                }
-                ctx.stroke(lines, with: .color(rule), lineWidth: 1)
-                var margin = Path()
-                margin.move(to: CGPoint(x: 43, y: 0))
-                margin.addLine(to: CGPoint(x: 43, y: size.height))
-                ctx.stroke(margin, with: .color(marginRule), lineWidth: 1)
-            }
-        }
     }
 }
