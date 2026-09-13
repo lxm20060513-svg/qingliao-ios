@@ -1,7 +1,13 @@
 # 轻聊 App 项目交接文档
 
-> 最后更新：2026-09-12
-> 最新版本：**v3.9.7/452（2026-09-12 已出包，tag `v3.9.7`，CI run 484 success 一次过，commit `781d472`）灵动岛实时活动美化 A+B + 收件箱「进行中进度」气泡 + 语音态输入框去流光**：①**灵动岛/锁屏实时活动美化（攒着的方案 A+B，本批首次进 CI，一轮即过）**——A 视觉：轻聊球贯穿全部形态（`Canvas` + `TimelineView(.animation, minimumInterval: 1/20)` 呼吸；侧载无 APNs，唯一帧源是本地驱动，App 挂起即静止）；B 信息与交互：思考脉冲环 → 输出**不确定态旋转弧**（不画假百分比）→ 完成绿对勾保持 2s，展开态状态行 + 「停止生成」按钮 + 点岛回会话。三处 API 决策：**`LiveActivityIntent`**（在主 App 进程执行、不打开 App，故能真停掉 App 里的流；`openAppWhenRun` 已废弃且在 extension 里置 true 直接编译报错）、**`.widgetURL(qingliao://chat)`** 回会话（官方推荐、零新 API 风险；`DockTabView` 加 host 分支）、`LiveActivityManager` **只在 phase 变化时 update**（不跟每个 token 刷）+ 代际令牌 + 会话归属校验（防跨会话误收/进程被杀留残留）；脉冲环半径上限 `r×1.15`（防灵动岛遮罩切半圆）；`orbGradient` 由 `static let` 改计算属性（Swift 6 严格并发下静态存储要求 Sendable）。②**收件箱「进行中进度」气泡**（配合后端 v3.7.1，后端已上线并验证）：`task_type="progress"` → 会话 🔔 进度气泡（`isPush=true` 故**不进模型上下文**、不弹通知、不进任务中心）；`pollOnce` 的「流式进行中跳过整轮」改为**只跳过 reply 类**，回前台立刻看到过程留痕。③**语音转文字态输入框移除流光特效层**，只保留「发送键变收音图标」（撤销 v3.2.4 语音流光决定；语音期间输入栏已无每帧重绘视图）。IPA 已校验 **3.9.7/452**（主 App 与挂件 `.appex` 版本逐字一致 + `NSSupportsLiveActivities` + `default.metallib` 齐），md5 `570f341026666698338843409c98a1e2`（2,873,578 bytes），已转存 NAS `轻聊app/qingliao-3.9.7-unsigned.ipa`（NAS 侧 md5 回读一致）。⚠️ 真机复测重点：AI 回复时灵动岛球是否呼吸/三态是否对、展开态「停止生成」是否真能停、点灵动岛是否回聊天页；长任务中途退后台再回来，会话里是否出现 🔔 进度气泡（配后端「静默 30s 且有新增」规则）；语音态输入框不再有蓝紫流光。
+> 最后更新：2026-09-13
+> 最新版本：**v3.9.12/457（2026-09-12 已出包，tag `v3.9.12`，CI run 34704360596 success，commit `21cf473`）灵动岛尺寸定稿（球加大、环收小，主次分明）**：真机反馈「环太大了」+「球反而小了」——v3.9.11 曾把环做成与球等大，但环带描边 + 柔光，同尺寸时观感比球更重，像环压过球。按形态分别定档（单位 pt，直径）——**球**：紧凑 22→25→**27**、极简 20→22→**24**、展开 34→36→**36**、锁屏 38→42→**46**；**环**：紧凑 13→25→**20**、展开 16→36→**28**、锁屏 16→42→**33**（极简态无环）。规则：**展开态的球保持 36 不动**（那一行即灵动岛传感器区，可用高度约 36.67pt，再大会被圆角遮罩切上下边）；环统一收成球的约 **7–8 成**（球为主：品牌 + 阶段色；环为辅：本轮推进度）——带描边 + 柔光的环在同直径下视觉重量大于实心球，用户说「环要跟球一样大」时按 7 成落地并说明理由，别机械等大。本版只改尺寸常量与对应注释、无逻辑改动，`./check_swift.sh` 全绿（153 项 / exit 0）。IPA 已校验 **3.9.12/457**，md5 `8890138fc33730d18e606e7bf66598bc`（2,929,235 bytes），已转存 NAS `轻聊app/qingliao-3.9.12-unsigned.ipa` 并已发微信。
+> ⏳ 待发版（**已就绪、尚未推送**）：**v3.9.13/458（本地 commit `d1af343`）灵动岛球/环动效根治**：用户报「灵动岛智能球动几下就不动了」→ 查出四条叠加原因——①`baseProgress` 指数收敛 + 保底步长 0.006，在 20pt 环（周长 62.8pt）上只有 **0.38pt/拍**，头几拍后肉眼看不见；②progress 到 0.86 封顶即 `return` 收工 → 此后不再 update = 画面彻底静止；③`thinking` 阶段（首 token 前 10–20s）根本没起推手；④挂件把球 + 脉冲环 + 旋转弧全放在 `TimelineView(.animation)` 包的 `Canvas` 里指望 20fps 自走 —— **实时活动没有连续帧源**（Apple：动画只随数据更新发生、≤2s、AOD 不播），真机等于不跑。修法：线性可见步长（思考 0.03/拍封顶 0.35、生成 0.02/拍封顶 0.86，均 ≥1.2pt/拍）+ 新增 `ContentState.spin` **累计相位（不回绕）**驱动脉冲环/旋转弧/环上跑动短弧 + `thinking||streaming` 全程推手 + `Canvas` 只留静态球体（删除 `TimelineView`）。**三轮只读静态审查各抓到真缺陷并已修**：必现①思考期推手仍在跑时首 token 到达 → 新推手被 `guard progressTicker == nil` 挡下、旧推手又因代际不符自退 → **场上再无推手**（画面从首 token 起彻底静止，与用户症状逐字吻合）；②切到别的会话再切回（`finish()` 不匹配分支已停表，切回时字段全同命中「内容未变」早返回）→ 推手不再武装 = **永久冻住**（早返回前补一次幂等起表）；③`spin` 取模回绕 → 弧角度从 315° 倒插回 0°，每 9.6s 反向急扫一次（改累计不回绕）；④脉冲相位耦合错导致节奏从 1.8s 被拉慢到 9.6s/圈（`spin * 5` 调回 ≈1.9s；注意**不能**按「每拍整圈」写 ×8，取余后每拍值相同 → 系统判定未变、不重绘）。验证：决策真值表 **52 条全绿**（含「旧实现必现静止」的事故证据链 + 推手生命周期镜像：点火/复用/退场/令牌归属/早返回重武装）、`./check_swift.sh` 全绿、挂件语法检查通过。⚠️ **硬限制（务必向用户说清）**：侧载免签无 APNs，App 被系统挂起后无法再 update → 锁屏/切走久了画面停在最后一帧（框架边界，不是 bug）。**待办：用户点头后 push + tag `v3.9.13` 出包**（3.9.12 及以前可直接装机，3.9.13 未发）。
+> 上一版：**v3.9.11/456（2026-09-12 已出包，tag `v3.9.11`，CI run 34703271024 success，commit `26a9b15`）灵动岛进度环持续推进 + 环/球同尺寸 + 设置页卡顿与诊断修复收口**：①**灵动岛「更活」（用户拍板：不要加计时，靠进度环推进）**——`ContentState` 新增 `progress`（语义=**本轮推进度**，不是总进度承诺）：思考 0.18 → 进入生成 0.35 → `LiveActivityManager.progressTicker` 每 1.5s 往前挪（>20 拍后 4s，指数逼近 0.86）→ 真结束才 1.0；推手生命周期线程安全（生成阶段启动，`finish`/`end`/换会话/关开关都停；代际 token 防「自我退出不清句柄 → 再也起不来」）；环与同形态的球**同尺寸**（紧凑 25/25、展开 36/36、锁屏 42/42）；思考脉冲外扩 1.15→1.08（按 r=size/2×0.86 算，1.08 时最大外径≈0.98×size，落在自身 frame 内；38 会顶到展开态顶行约 36.67pt 的传感器区被遮罩切边，故定 36）；计时维持「不显示」（v3.9.9 用户要求）。②**发版前双审查（diff + 全仓同类）**抓到并修掉：BLOCKER 同会话第二轮起进度环恒满格且推手空转（新一轮判定漏了「上一轮刚收尾 pendingDismissal」与「阶段 done|streaming→thinking」两条路径，`lastProgress` 还留着上一轮 `finish()` 落的 1.0，且新值在 `end()/clearState()` 复位之前算出、随后又被写回，复位等于白做 → 引入 `freshRound` + `baseProgress` 天花 0.86/思考下限 0.18 + 写回时机修正）；HIGH `finish()` 在代际校验之前改共享状态（600ms 等待窗口里新一轮会被写坏）；MEDIUM 切到别的会话时 `finish()` 提前 return → 该轮推手没有任何取消路径、一路空转到饱和；MEDIUM 推手自我退出不清句柄；LOW 到顶后 `continue` 造成活死循环；顺带修 `LiveSpeechTranscriber` 在「麦克风不可用/取消」早退时不 teardown（音频会话留在 `.record` 激活态 → 麦克风不释放、之后 TTS 无声，本仓记过的老坑）与 `SpeechManager` 的 zh-CN 兜底音色未进缓存。③验证：`./check_swift.sh` 全绿（153 项）+ 决策真值表 26 条（`/opt/data/scripts/qingliao_island/truth_table_progress.swift`，含「同会话第二轮不得满格」回归用例，本机可跑不依赖 Xcode）。IPA 已校验 **3.9.11/456**，md5 `a68cd2f927c39319ad4c5e88e6119c6d`（2,929,226 bytes），已转存 NAS `轻聊app/qingliao-3.9.11-unsigned.ipa`。
+> 上一版：**v3.9.10/455（2026-09-12 已出包，tag `v3.9.10`，CI run 34701059842 success〔重发；首次 34700865462 failure〕，commit `4d0b921`）修 3.9.9 设置页主线程卡顿 + 诊断模块 17 条缺陷 + 灵动岛进度环**：①**卡顿根治**（用户真机报 7 条 3.2~6.7 秒卡顿，用 CI run 34697305974 的 dSYM 符号化钉死）——根因是 v3.9.9 把「系统音色列表」写成 SwiftUI 计算属性 → 每次 body 求值都调 `AVSpeechSynthesisVoice.speechVoices()`，该调用进 TextToSpeech 并被无障碍层 `axUnsafeForcedSync` 串行化同步等待 → 主线程卡 3~7 秒、界面「点不动」；修法：`SpeechManager` 音色目录改**后台线程枚举一次 + 缓存**（`SpeechVoiceOption` 纯 String 快照，文件作用域声明以避开 Swift 6 嵌套类型隔离推断）、`resolvedSystemVoice()` 只读缓存、音色对象按 id 缓存、新增 `voiceCatalog() async` 幂等入口；`SettingsModelSheets.voiceOptions` 改 `@State` + `onAppear` 异步取（body 里零 AVFoundation 调用）；`QingliaoApp` 启动预热一次 + 启动采集环境快照（此前不采集 → env 长期 `.unknown`）。②**诊断模块**：用户报「待上报数量都是 0」——查明不是采集坏了（记录后即时上报成功即出队，服务端 receivedAt 与事件同秒），顺带修 17 条缺陷。IPA 已校验 **3.9.10/455**，md5 `c15afd7a17124c15174e89450acc1cf3`（2,924,647 bytes），已转存 NAS `轻聊app/qingliao-3.9.10-unsigned.ipa`。
+> 上一版：**v3.9.9/454（2026-09-12 已出包，tag `v3.9.9` 重发 3 次〔34696431368 failure / 34697104360 failure / **34697305974 success**〕，末次 commit `edb8e48`）语音转文字实时上屏根治 + 自动朗读触发源重做 + TTS 音色/语速 + 灵动岛亮起修复**：①**语音转文字「说话时不出字、点空白才一次性出字」根治**——音频 tap 回调的 buffer 改为**自持拷贝**再投 analyzer（回调返回后音频引擎会复用那块内存，analyzer 异步消费读到的是被覆盖的音频——Apple 文档点名的「缓冲有、UI 正常、却永远没有文字」）；采集顺序对齐官方示例（先 `analyzer.start(inputSequence:)` 再装 tap/起引擎）；转换失败/空输出/拷贝失败各自计数 + 首个原因，不再静默丢弃；新增三级计数 T/D/Y 每秒刷新（录音期间常显）+ `liveStalled` 有结果即复位；零中间结果的会话自动上报后端诊断便于事后取证。②**自动朗读**：触发源从「末条消息 id 变化」改为 `ChatStore` 落库 token（`assistantLandedToken` + `lastLandedAssistantUID`），只在**真正 append/insert 一条 assistant 回复**时自增——修 BLOCKER「切会话/冷启动会念刚打开会话的历史旧答案」、修「AI 回答中用户再发消息时本轮回复插在数组中段 → 原信号不变 → 永不朗读」、删消息/重新生成截断不再误触发；朗读对象改为「刚落库的那条」（按 uid 取）；抑制标记只在真正要念时消费（原来被生成期进度气泡吃掉 → 停止后的残句仍被念出来）；去重键改非可选 `uid ?? id`。③**TTS 音色**：自动朗读跟随设置「AI 语音朗读」开关；系统语音新增可调音色（优先 premium > enhanced > 默认，列表带「优质/增强/标准」标记）+ 语速三档；设置页在关闭神经 TTS 时显示「系统音色/语速」并引导下载增强/优质语音包。④**灵动岛「只在开关切换那次生效、第二次不亮」修复**：活动判断改为只看 `activityState == .active`（`end()` 之后已结束的活动仍在列表里闪现 → 按它判断就会去 update 一条已结束的活动 → 新活动永远建不出来）；`end()` 之后再确认一拍；`clearState()` 补清 `lastTitle/lastModel`（残留会让「内容没变」误命中）。⑤**灵动岛取消计时文字**（用户要求）→ 改阶段图标（思考/生成/完成）+ `contentTransition` 过渡。⑥其他：header 朗读胶囊只留图标、待发队列 key 提升为 `UserDefaultsKey.pendingQueue`、注释与实现对齐。**CI 三轮顺序揭示**：`sending 'activity' risks causing data races` 4 处（为「只认在显示的活动」加的静态计算属性返回 `[Activity]`，属 `@MainActor` 隔离上下文 → Apple nonisolated 的 `Activity.activities` 取出的值被「过一手」变成隔离值 → 送进 nonisolated async 的 `update/end` 即违规）→ 改 `hasActiveActivity` 返回 `Bool` + 真正要操作 `Activity` 本体的地方在使用点**直接**取；另两次 CI 失败分别是 `DiagnosticsPayload.makeEvent` 上报路径与 `phaseBadge` 参数标签。IPA 已校验 **3.9.9/454**，md5 `8163d2dd8d37c144e5f68c18079183d7`（2,897,362 bytes），已转存 NAS `轻聊app/qingliao-3.9.9-unsigned.ipa`。
+> 上一版：**v3.9.8/453（2026-09-12 已出包，tag `v3.9.8`，CI run 34693812959 success，commit `8d7d4a8`）朗读胶囊开关 + 灵动岛停止入口收口 + 进度推送闸门收窄**：①`Header` 新增**「朗读」胶囊开关**（`@AppStorage qingliao_auto_read_reply`，默认关）：开 = AI 每轮回复结束自动朗读、关 = 不自动念（气泡上朗读按钮仍可手动）；走 `SpeechManager` 现成双引擎（系统 `AVSpeechSynthesizer` 默认，设置里开了大模型 TTS 才走后端神经音色）；新一轮开始先停上一轮朗读；**跳过推送气泡（isPush）与错误占位，只念真正的 AI 回答**。②**灵动岛「停止生成」补齐清队列那一半**（`LiveActivityActionBridge` 进程内通知）：原来只调 `stream.stop()`，漏掉 `clearPendingQueue()` → 点了停止，排队消息还会自己发出去；`StopGenerationIntent.perform()` 加 `@MainActor`（NotificationCenter 同步投递，防后台线程改 SwiftUI 状态）。③`InboxStore` 闸门收窄成**只放行 progress**（cron/system 仍等流结束再消费，避免流式期间被顺带消费 + 弹通知）。④`LiveActivityManager.finish()` 代际校验前置、活动列表空则放弃本轮（防重复建第二条活动）；挂件动画断言改正（实时活动无连续自走帧源，改为静态帧设计 + 依赖 update 过渡）。IPA 已校验 **3.9.8/453**，md5 `fbe11720fd8d961050d35f3b22bf4cb4`（2,878,362 bytes），已转存 NAS `轻聊app/qingliao-3.9.8-unsigned.ipa`。
+> 上一版：**v3.9.7/452（2026-09-12 已出包，tag `v3.9.7`，CI run 484 success 一次过，commit `781d472`）灵动岛实时活动美化 A+B + 收件箱「进行中进度」气泡 + 语音态输入框去流光**：①**灵动岛/锁屏实时活动美化（攒着的方案 A+B，本批首次进 CI，一轮即过）**——A 视觉：轻聊球贯穿全部形态（`Canvas` + `TimelineView(.animation, minimumInterval: 1/20)` 呼吸；侧载无 APNs，唯一帧源是本地驱动，App 挂起即静止）；B 信息与交互：思考脉冲环 → 输出**不确定态旋转弧**（不画假百分比）→ 完成绿对勾保持 2s，展开态状态行 + 「停止生成」按钮 + 点岛回会话。三处 API 决策：**`LiveActivityIntent`**（在主 App 进程执行、不打开 App，故能真停掉 App 里的流；`openAppWhenRun` 已废弃且在 extension 里置 true 直接编译报错）、**`.widgetURL(qingliao://chat)`** 回会话（官方推荐、零新 API 风险；`DockTabView` 加 host 分支）、`LiveActivityManager` **只在 phase 变化时 update**（不跟每个 token 刷）+ 代际令牌 + 会话归属校验（防跨会话误收/进程被杀留残留）；脉冲环半径上限 `r×1.15`（防灵动岛遮罩切半圆）；`orbGradient` 由 `static let` 改计算属性（Swift 6 严格并发下静态存储要求 Sendable）。②**收件箱「进行中进度」气泡**（配合后端 v3.7.1，后端已上线并验证）：`task_type="progress"` → 会话 🔔 进度气泡（`isPush=true` 故**不进模型上下文**、不弹通知、不进任务中心）；`pollOnce` 的「流式进行中跳过整轮」改为**只跳过 reply 类**，回前台立刻看到过程留痕。③**语音转文字态输入框移除流光特效层**，只保留「发送键变收音图标」（撤销 v3.2.4 语音流光决定；语音期间输入栏已无每帧重绘视图）。IPA 已校验 **3.9.7/452**（主 App 与挂件 `.appex` 版本逐字一致 + `NSSupportsLiveActivities` + `default.metallib` 齐），md5 `570f341026666698338843409c98a1e2`（2,873,578 bytes），已转存 NAS `轻聊app/qingliao-3.9.7-unsigned.ipa`（NAS 侧 md5 回读一致）。⚠️ 真机复测重点：AI 回复时灵动岛球是否呼吸/三态是否对、展开态「停止生成」是否真能停、点灵动岛是否回聊天页；长任务中途退后台再回来，会话里是否出现 🔔 进度气泡（配后端「静默 30s 且有新增」规则）；语音态输入框不再有蓝紫流光。
 > 上一版：**v3.9.6/451（2026-09-12 已出包，tag `v3.9.6`，CI run 34622070926 success，commit `f76d09b`） —— 语音录音中**实时文本直接上屏**（v3.9.5 只把胶囊去掉不够：录音全程框里只剩「输入消息…」占位，松手才一次性出字）
 > 本版：**v3.9.6/451（2026-09-12 已出包，tag `v3.9.6`，CI run 34622070926 success，commit `f76d09b`）录音实时上屏根治**：v3.9.5 以为「输入框常显 + `onTextChange` 写 `inputText`」就能实时出字，**实测无效**（录音全程只有占位，松手才一次性出字 ⇒ 要么实时结果没到、要么「存下来的闭包写 @State / TextField 外部刷新」不可靠）。v3.9.6 不再赌这两条路：①录音态在输入栏**同一行位置直接用 `Text` 渲染 `liveSpeech.liveText`**（`@Published` 驱动，即旧胶囊那条已验证会刷新的路径），TextField 只在非录音态出现（观感仍是同一个输入框，不再是红色胶囊）②加 `.onChange(of: liveSpeech.liveText)` 把实时文本同步进 `inputText`（SwiftUI 原生更新周期写 @State，比存闭包写可靠），松手定稿后框内即最终文本 ③**诊断自证**：`LiveSpeechTranscriber` 新增 `volatileCount/finalCount/firstResultMs` 计数与 `liveStalled`（录音 3s 仍零结果才置位），输入栏**仅在 `liveStalled` 时**显示 `V0/F0` 小字——正常时界面零杂物，异常时一眼判定「实时结果根本没到」（该诊断是临时的，确认稳定后删）④点按消息区空白 = 停止语音输入（保留，注释写明）。IPA 已校验 **3.9.6/451**，md5 `f24aa4758e9a239b6bc2cbfcc8041cb8`（2,845,896 bytes），已转存 NAS `轻聊app/qingliao-3.9.6-unsigned.ipa`（NAS 侧 md5 回读一致）。⚠️ 真机复测重点：长按进语音后**说话即逐字上屏**；若框里仍不出字，右**侧会出现 `V0/F0` 小字**（把这一屏发我 = 直接定位是「实时结果没到」而不是 UI 问题）。**另：后端 `/api/asr` 语音转文字链路（asr_api + nginx location + relay + whisper_venv 431M/whisper_models 142M）已随本次整体下线**（App/PWA 均无引用），详见本文件「已移除」说明。
 > 上一版：**v3.9.5/450（2026-09-12 已出包，tag `v3.9.5`，CI run 34619075064 success，commit `6f3ce3e`）语音录音态 UI 修正****v3.9.5/450（2026-09-12 已出包，tag `v3.9.5`，CI run 34619075064 success，commit `6f3ce3e`）语音录音态 UI 修正**：v3.9.3/v3.9.4 把录音中的输入区**整块换成红色「正在聆听…／实时文本」胶囊**，用户反馈「看不到输入框、也看不到转写全文」→ 改为**输入框全程常显**（设备端 volatile 结果本就经 `liveSpeech.onTextChange` 实时写进 `inputText`，落框即所见），仅保留左侧 7pt 红点作「正在听」标识；录音中给输入框加 `.allowsHitTesting(false)`（防误点弹键盘打断语音模式）；顺手清掉已无用的 `recordingText` 参数与 `ChatView` 传参。IPA 已校验 **3.9.5/450**，md5 `7f6e0c0b80a627c5a0b5ed606e3da07e`（2,838,637 bytes），已转存 NAS `轻聊app/qingliao-3.9.5-unsigned.ipa`（NAS 侧 md5 回读一致）。⚠️ 真机复测重点：长按进语音后输入框里是否**逐字上屏**；长句超过框高（6 行）后输入框是否跟到最新词（若跟不动，下一页再加自动滚尾）。
@@ -42,7 +48,7 @@
 
 **轻聊** 是一个 iOS 原生 AI 聊天 App，Swift 6 + SwiftUI 开发，支持本地 AI 和云端 AI 双模式。
 
-- **仓库**：双 remote——`origin` = `https://github.com/lxm20060513-svg/qingliao-ios`（**当前发版主通道**，tag/CI 在此触发，v3.4.x~v3.5.x 全打这）；`apple` = `https://github.com/lxm20060513-apple/qingliao-ios`（**备用通道**，origin runner 卡住/额度耗尽时把 tag 推这里触发 CI）。两账号都须把 `default_branch` 设为 `feature/handoff-301`（否则仓库默认分支指错，v3.4.30 前后踩过）
+- **仓库**：双 remote——`origin` = `https://github.com/lxm20060513-svg/qingliao-ios`（**当前发版主通道**，tag/CI 在此触发，v3.4.x~v3.9.x 全打这）；`apple` = `https://github.com/lxm20060513-apple/qingliao-ios`（**备用通道**，origin runner 卡住/额度耗尽时把 tag 推这里触发 CI）。两账号都须把 `default_branch` 设为 `feature/handoff-301`（否则仓库默认分支指错，v3.4.30 前后踩过）
 - **主分支**：`native-3.0`（v3.x 开发线，停在 v3.0.34 旧 commit，发版不走它）
 - **开发分支**：`feature/handoff-301`（当前活跃，发版 commit 都打这）
 - **旧分支**：`native-2.0`（v2.0.140 已冻结，带 tag `v2.0.140`）
@@ -696,14 +702,15 @@ curl -sSL -o artifact.zip -H "Authorization: Bearer $TOKEN" -H "Accept: applicat
 
 ### 关键点
 
-- **project.yml 版本号 4 处**：MARKETING_VERSION / CURRENT_PROJECT_VERSION / CFBundleShortVersionString / CFBundleVersion
-- **发版走 apple remote**（tag 推 `apple` = lxm20060513-apple/qingliao-ios）；`origin`(svg) 是旧通道不发版
+- **project.yml 版本号 8 处**（**主 App + 挂件扩展各 4 处**，v3.8.0 起加挂件后翻倍）：MARKETING_VERSION / CURRENT_PROJECT_VERSION / CFBundleShortVersionString / CFBundleVersion；**两套必须逐字一致**，漏改挂件那套 → CI Verify 的版本一致性断言失败
+- **发版主通道 = `origin`(svg)**：tag 推 `origin`（v3.4.x~v3.9.12 全走这条成功）；`apple` = lxm20060513-apple/qingliao-ios 是**备用通道**（origin runner 卡住/额度耗尽时才换）。⚠️ 2026-09-13 核对：本条此前写成「发版走 apple」是**旧认知已过时**，与同文件 51/55 行矛盾，以本行为准
 - **NAS SFTP chroot**：根目录是 `/volume1/`，SFTP 用相对路径 `docker/hermes/...`（写绝对路径会双写前缀 `/volume1/volume1/` → ENOENT）
 - **NAS 上传**：SFTP put 到 `docker/hermes/_upload.ipa` → sudo cp（用 `/bin/cp` 或 `\cp` 绕 `cp -i` 别名，防 overwrite 交互卡死）到目标 → chmod 644
 - **NAS 凭据**：`/opt/data/.nas_cred`（单行纯密码，含 @ 勿截断）
-- **GitHub 凭据**：token 内嵌 apple remote URL（`git config --get remote.apple.url` 取冒号后 40 位）；`/opt/data/.gh_cred` 可能过期优先用前者
+- **GitHub 凭据**：两个 remote URL 都内嵌 token（`git remote get-url origin` / `git config --get remote.apple.url`，取冒号后 40 位；**勿写入任何文档**）；`/opt/data/.gh_cred` 可能过期，优先用 remote URL 里的
 - **git push 重试**：`for i in $(seq 1 8); do git -c http.version=HTTP/1.1 ... && break; sleep 10; done`
 - **盯 CI cron**：构建成功后删 cron，勿空转复读
+- **现役「盯 CI + 下载 + 校验 + 转存」一条龙脚本**（2026-09-13 核实）：`python3 /opt/data/scripts/ql_release/watch_ci.py <tag> <ver> <build>`（加 `--check` 只查一次状态；输出末尾固定 `RESULT=...` 便于外部判定）。⚠️ 技能里提到的 `watch_ci_352.py` 是旧名，现已通用化，别再找那个文件名
 - **Swift 预检**：`export HOME=/opt/data/home LD_LIBRARY_PATH=/opt/data/swift-libs && /opt/data/swift-toolchain/swift-6.0.3-RELEASE-ubuntu24.04/usr/bin/swiftc -parse <files>`（或 bash check_swift.sh）
 
 ---
@@ -723,7 +730,7 @@ curl -sSL -o artifact.zip -H "Authorization: Bearer $TOKEN" -H "Accept: applicat
 ## 五、踩坑经验
 
 ### 1. project.yml 版本号
-- 4 处必须同步（MARKETING_VERSION / CURRENT_PROJECT_VERSION / CFBundleShortVersionString / CFBundleVersion）
+- **8 处**必须同步（主 App + 挂件扩展各 4 处：MARKETING_VERSION / CURRENT_PROJECT_VERSION / CFBundleShortVersionString / CFBundleVersion；两套逐字一致，CI Verify 会断言）
 - `info.properties` 的 CFBundleVersion 会覆盖 settings 的 CURRENT_PROJECT_VERSION
 - **发版前 grep 两处都对齐**，并解包产物核对 Info.plist
 
@@ -742,7 +749,7 @@ curl -sSL -o artifact.zip -H "Authorization: Bearer $TOKEN" -H "Accept: applicat
 - 重试循环最多 8 次，间隔 10s
 
 ### 5. CI 失败重发
-- 删 tag 重建 + 重推（**apple** remote）：`git push apple :refs/tags/vX` + 本地 `git tag -d` + `git tag vX` + `git push apple feature/handoff-301 vX`
+- 删 tag 重建 + 重推（**主通道 `origin`**；origin 卡住时把 `origin` 换成 `apple`）：`git push origin :refs/tags/vX` + 本地 `git tag -d vX` + `git tag vX` + `git push origin feature/handoff-301 vX`
 
 ### 6. 智能球语音功能（v3.0.73 已移除，⚠️ v3.1.7 起球长按语音转文字回归，勿照本操作）
 - v3.0.70-72 三次尝试修复语音松手上屏 bug 均失败
@@ -827,6 +834,20 @@ curl -sSL -o artifact.zip -H "Authorization: Bearer $TOKEN" -H "Accept: applicat
 - **验证**：`docker exec qingliao md5sum /app/backend/stream_api.py` == 宿主 md5；`grep -c _break_repeat_seed` ≥3；容器内 `_agent_endpoint(None,None)` 返回 deepseek。
 - **类级**：**改后端代码 ≠ 重启容器，必须重建镜像**（除非 bind mount 生效；本 compose bind mount 的是 `/volume1/...` 只读挂载整个 web 目录、不是 `/app/backend`）。镜像内 `COPY backend/` 固化旧代码，compose `image:` 不会自动 rebuild。验证必须看容器实际加载路径（`/proc/1/cwd` + `/app/backend` md5），不能只看宿主 grep——**之前多轮改宿主 backend 却容器跑镜像副本，是"始终没生效"的总根源**。
 
+### 17. 灵动岛/实时活动「球动几下就不动了」（v3.9.13 定案，用户真机报，类级）
+- **四条叠加根因**：①推进步长是「指数收敛 + 保底 0.006」，在 20pt 环（周长 62.8pt）上只有 **0.38pt/拍** → 头几拍后肉眼看不见（判定阈值：**一拍弧长 ≥1pt 才算可见**，`周长 = π × 直径` 换算自查）；②`progress` 到封顶（0.86）就 `return` 收工 → 此后不再 update = **画面彻底静止**（只要是真「进度」，必然有封顶；**封顶后必须另有「不确定态相位」在变**）；③`thinking` 阶段根本没起推进器（首 token 前 10–20s 全静止）；④动画画在 `TimelineView(.animation)` 包的 `Canvas` 里 —— **实时活动没有连续帧源**（Apple：动画只随数据更新发生、≤2s、AOD 不播），真机等于不跑（`Canvas` 内容也不参与 SwiftUI 插值）。
+- **推手（节拍 Task）三个反模式，每个都让画面永久冻住**（真机必现、CI 完全查不出 → 只能把状态机镜像成真值表测）：①起表用 `guard handle == nil`：旧表被代际作废但还挂在 `Task.sleep` 上（尚未执行 defer 清句柄）时新表被挡下、旧表醒来又自退 → **场上再无推手**（症状：思考期动几拍，首 token 一到就静止）。改用「**活着的直接复用**」。②改成「代际变了就重建」：sync 每次走到 update 路径都会 `generation += 1`，于是每次 sync 都 cancel + 重起 → 推手永远跑不满一拍、等于不动。③**sync 内容去重的早返回里不重新武装推手**：任何一次外部停表（切会话触发 `finish()` 不匹配分支、安全阀到期、活动被系统清掉）之后，只要字段与上次全同（已进入 streaming 的一轮不会再变）就永远不重起 = **永久冻住**；修法：早返回前补一次**幂等起表**。配套：句柄用**单调递增令牌**记归属，`defer` 只在令牌仍归自己时清（否则退场中的旧表会误清新表句柄）。
+- **相位（`spin`）必须累计、不回绕**：取模回绕会让弧角度从 315° 倒插回 0°（每轮约 9.6s **反向急扫一圈**）；需要 0…1 的地方在挂件自己取余，**且圈速倍数不能是整数圈**（×8 取余后每拍值相同 → 系统判定值未变、不重绘，反而彻底不动；本项目用 `spin * 5` ≈1.9s/圈）。
+- **硬限制**：侧载免签无 APNs，**App 被系统挂起后无法再 update** → 锁屏/切走久了停在最后一帧（框架边界，别当 bug 修；想挂起期也动只能后台保活，耗电且系统仍会掐，须用户点头）。
+- 判据/修法已固化进技能 `ios-widget-live-activity`（「球/环到底该怎么动」节）与 `qingliao-ios-native`（灵动岛条目）；真值表 `/opt/data/scripts/qingliao_island/truth_table_progress.swift`（**52 条**，含「旧实现必现静止」的事故证据链）本机可复跑，不依赖 Xcode。
+
+### 18. SwiftUI 计算属性里调 AVFoundation → 主线程卡 3~7 秒（v3.9.9 引入 / v3.9.10 修复，类级）
+- **症状**：设置页「点不动」，用户真机抓到 7 条 3.2~6.7 秒卡顿。
+- **根因**：把「系统音色列表」写成 SwiftUI 计算属性 → **每次 `body` 求值都调** `AVSpeechSynthesisVoice.speechVoices()`，该调用进 TextToSpeech 并被无障碍层 `axUnsafeForcedSync` 串行化同步等待 → 主线程卡死。
+- **修法**：后台线程枚举一次 + 缓存（纯值快照类型，文件作用域声明以避开 Swift 6 嵌套类型隔离推断）；UI 侧改 `@State` + `onAppear` 异步取，`body` 里零 AVFoundation 调用。
+- **类级**：**`body` / SwiftUI 计算属性里绝不能调昂贵或会同步阻塞的系统 API**（AVFoundation/TTS、磁盘遍历、`Process`、网络）。判定靠 **dSYM 符号化**（CI run 的 dSYM）而不是猜。
+
+
 ---
 
 ---
@@ -839,7 +860,7 @@ curl -sSL -o artifact.zip -H "Authorization: Bearer $TOKEN" -H "Accept: applicat
 
 | 环节 | 路径 |
 |---|---|
-| **git 仓库** | 双 remote：`origin`=svg（旧通道）/ `apple`=lxm20060513-apple（**发版通道**，token 内嵌 URL 不带在文档里） |
+| **git 仓库** | 双 remote：`origin`=`lxm20060513-svg`（**发版主通道**，tag/CI 在这触发）/ `apple`=`lxm20060513-apple`（**备用**，origin runner 卡住时换）。token 内嵌在 remote URL 里（勿写进文档），两账号都把 `default_branch` 设为 `feature/handoff-301` |
 | **App 本地仓库** | `/opt/data/qingliao_ios/`（**主开发+发版副本**，分支 `feature/handoff-301`；发版 commit/tag 都打这，**勿放 /tmp 会被重启清空**；旧副本 ql_ipa2 已删） |
 | **NAS 后端（线上运行）** | `/volume1/docker/hermes/微信文件/轻聊web/backend/`（容器 `qingliao` 挂载，**非** `/opt/data/ql_backend` 历史副本） |
 | **NAS 前端** | `/volume1/docker/hermes/微信文件/轻聊web/frontend/` |
@@ -857,7 +878,7 @@ curl -sSL -o artifact.zip -H "Authorization: Bearer $TOKEN" -H "Accept: applicat
 | `ql_push_relay.py` | Hermes `scripts/` | 微信投递 relay（监听 9460），`POST /send` + `X-Push-Token` 鉴权，内部调 `send_weixin_direct` |
 | `ql_push_send.py` | Hermes `scripts/` | 微信直发辅助 |
 | `ql_push_poller.sh` | Hermes `scripts/`（两份） | cron 兜底投递（push_queue → 微信，relay 挂了才用） |
-| `ql_push_app.sh` | Hermes `profiles/wechat-profile/scripts/` | **Hermes→App 主动推送**（v3.0.83）：`ql_push_app.sh "消息"` 或 stdin → inbox_api.push |
+| ~~`ql_push_app.sh`~~ | — | ⚠️ **2026-09-13 核实：该脚本已不存在**（`find /opt/data -name ql_push_app.sh` 无结果；`wechat-profile` 也已删，微信通道由 default profile 服务）。需要 Hermes→App 主动推送时，直接 POST NAS `inbox_api` 的 push 端点，token 取 `/opt/data/.inbox_token` |
 | `hermes_watchdog.py/.sh` | Hermes `scripts/` | relay 保活（每 2 分钟查 9460/health，挂了拉起） |
 
 **微信接入模块**
