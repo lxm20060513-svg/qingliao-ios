@@ -40,11 +40,20 @@ struct QingliaoActivityAttributes: ActivityAttributes {
         /// 由 `LiveActivityManager` 按节奏推进（思考 0.18 → 开始生成 0.35 → 逐步逼近 0.86，
         /// 只有真结束才落 1.0）。挂件的环据此持续往前长，用户看到「在动」。
         var progress: Double
+        /// v3.9.13：**累计不确定态相位**（每拍 +0.125，**不回绕**）。
+        /// 为什么需要它：实时活动**没有连续自走的帧源**（Apple 明文：视图只在数据更新时重绘），
+        /// 所以「球上旋转弧 / 环上脉冲」一直在动只能靠 App 侧每拍 `update` 推进一个相位量。
+        /// progress 会在 0.86 封顶（不能假装总长），此时若只靠它，画面就彻底静止了——
+        /// 用户报的「动几下就不动了」正是这个；spin 到顶后仍每拍前进，弧因此持续转。
+        /// **必须是累计值而非 0…1 循环值**（子代理静态审查抓到）：取模回绕会让弧角度
+        /// 从 315° 插值回 0°，每轮（约 9.6s）倒着急扫一圈，与「一直在转」相反。
+        /// 挂件要 0…1 的地方自己取余（如脉冲相位）。
+        var spin: Double
 
         init(sessionTitle: String, modelName: String, startedAt: Date, isAnswering: Bool,
              phase: String = QingliaoActivityAttributes.Phase.thinking.rawValue,
              actionText: String = "", canStop: Bool = false,
-             progress: Double = 0.18) {
+             progress: Double = 0.18, spin: Double = 0) {
             self.sessionTitle = sessionTitle
             self.modelName = modelName
             self.startedAt = startedAt
@@ -53,10 +62,11 @@ struct QingliaoActivityAttributes: ActivityAttributes {
             self.actionText = actionText
             self.canStop = canStop
             self.progress = progress
+            self.spin = spin
         }
 
         private enum CodingKeys: String, CodingKey {
-            case sessionTitle, modelName, startedAt, isAnswering, phase, actionText, canStop, progress
+            case sessionTitle, modelName, startedAt, isAnswering, phase, actionText, canStop, progress, spin
         }
 
         /// v3.9.7：手写解码。
@@ -75,6 +85,9 @@ struct QingliaoActivityAttributes: ActivityAttributes {
             canStop = try c.decodeIfPresent(Bool.self, forKey: .canStop) ?? false
             // 旧活动没有这个键 → 按「思考中」的初始值渲染，而不是 0（0 会让环看上去空掉）
             progress = try c.decodeIfPresent(Double.self, forKey: .progress) ?? 0.18
+            // v3.9.13：新增字段同样必须 decodeIfPresent——系统里留着的旧版活动缺这个键，
+            // 合成解码会抛 keyNotFound 导致灵动岛整块空白（v3.9.7 加 phase 时踩过同一个坑）
+            spin = try c.decodeIfPresent(Double.self, forKey: .spin) ?? 0
         }
     }
 

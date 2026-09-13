@@ -11,10 +11,12 @@ import WidgetKit
 ///    文本不会再刷新，只有系统计时钟照走，所以「已用时」必须靠它。
 /// 2. **动效的唯一可靠来源是「数据更新」**（Apple《Animating data updates in widgets and Live
 ///    Activities》原文：动画随数据更新发生，**最长 2 秒**；常亮屏下系统不播动画；iOS 16 及更早会
-///    直接忽略动画修饰符）。所以**连续自走动画在实时活动里没有帧源**——本文件仍用
-///    `TimelineView(.animation)` 包着 `Canvas`，但只当「万一系统给帧」的加分项：
-///    `t=0` 那一帧本身就是完整的球 + 环（静态帧就好看），不动只是少一层装饰，观感不会塌。
-///    真正的变化感来自 `LiveActivityManager` 在 thinking→streaming→done 的 update（系统会播过渡）。
+///    直接忽略动画修饰符），**实时活动没有连续自走的帧源**（`TimelineView(.animation)` 在这里不成立）。
+///    v3.9.13 据此重做（用户报「动几下就不动了」）：球体本体仍是 `Canvas` 静态帧（已删掉徒劳的
+///    `TimelineView`），而脉冲环 / 旋转弧 / 环上跑动短弧全部改由 `ContentState.spin` 驱动 +
+///    `.animation(_, value: spin)` 过渡——过渡时长（1.1s）与 App 侧拍间隔（1.2s）对齐，
+///    两拍之间几乎接得上。⚠️ 该对齐**只在前 30 拍（约 36s）成立**：之后 App 侧降频到 2.5s 一拍，
+///    过渡仍 1.1s → 每拍会有约 1.4s 完全静止（长回答里的顿挫是这个原因，属既定省电取舍，不是 bug）。
 /// 3. **不画假的总进度**：流式回答没有真实总长，所以环显示的是 `progress` = **本轮推进度**
 ///    （思考 0.18 → 开始生成 0.35 → 逐步逼近 0.86，真结束才 1.0），语义是「在推进」而不是
 ///    「已完成 72% 的答案」。字段名与注释都按这个语义写，别把它当成真实百分比展示给用户。
@@ -34,7 +36,7 @@ struct QingliaoLiveActivityWidget: Widget {
                 DynamicIslandExpandedRegion(.leading) {
                     // 尺寸沿革：34 → 36（v3.9.11「球大一点」）。**不要再往上加**：展开态顶行就是传感器区，
                     // 高度约 36.67pt，38 会顶到灵动岛圆角遮罩被切上下边（本机无 iOS SDK，这类几何只能真机定论）。
-                    OrbView(size: 36, phase: context.state.phase)
+                    OrbView(size: 36, phase: context.state.phase, spin: context.state.spin)
                         .padding(.leading, 1)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
@@ -48,11 +50,11 @@ struct QingliaoLiveActivityWidget: Widget {
                 }
             } compactLeading: {
                 // v3.9.12：25 → 27（真机反馈「球反而小了」——球再加大一档，环同时收小，主次才分明）
-                OrbView(size: 27, phase: context.state.phase)
+                OrbView(size: 27, phase: context.state.phase, spin: context.state.spin)
             } compactTrailing: {
                 self.compactTrailing(state: context.state)
             } minimal: {
-                OrbView(size: 24, phase: context.state.phase)
+                OrbView(size: 24, phase: context.state.phase, spin: context.state.spin)
             }
             .keylineTint(OrbPalette.accent)
             // v3.9.7：点岛回聊天页
@@ -117,12 +119,14 @@ struct QingliaoLiveActivityWidget: Widget {
     /// 上一版用的是 SF Symbol（`ellipsis.bubble.fill` / `text.bubble.fill`）——用户反馈"信息气泡图标太丑"。
     /// 改成环，而不是再挑一个系统图标，理由是：
     ///   ① 观感能对齐 App 内既定语汇（OrbPalette 淡雅蓝紫 + 圆头描边 + 一点柔光），不是"系统默认感"；
-    ///   ② 三阶段可以用**环的填充比例**表达（思考 26% / 生成 72% / 完成 100%），比换图标信息量更大；
+    ///   ② 三阶段可以用**环的填充比例**表达（思考 18% / 生成 35%→86% / 完成 100%），比换图标信息量更大；
     ///   ③ 环天然会"长"，阶段变化时由系统播一次过渡，比 symbolEffect 更含蓄。
     ///
     /// 仍守住 Apple 的边界：动画**只随数据更新发生**（AOD 常亮屏不播），不做连续自走动画——
-    /// 但 v3.9.10 起 `LiveActivityManager` 每 1.5s 推一次 progress，所以环会**一跳一跳持续往前长**，
-    /// 观感上就是「在动」，而不是只换三次阶段。
+    /// 但 v3.9.10 起 `LiveActivityManager` 按节拍推 progress（v3.9.13 起 1.2s 一拍、思考期也在推），
+    /// 所以环会**一跳一跳持续往前长**，观感上就是「在动」，而不是只换三次阶段。
+    /// 注意：云端流只在「思考」档（`ChatView.liveActivityPhase` 要求本地 `stream.isStreaming` 才算生成），
+    /// 所以云模式的进度环会停在 35% 不再前进，只有环上跑动短弧在转——这是预期，别当 bug 修。
     private func phaseRing(state: QingliaoActivityAttributes.ContentState, size: CGFloat) -> some View {
         let streaming = state.phase == QingliaoActivityAttributes.Phase.streaming.rawValue
         // 夹在 0.06…1.0：0 会让环看上去像没在做事，>1 会画过头
@@ -143,6 +147,21 @@ struct QingliaoLiveActivityWidget: Widget {
                         style: StrokeStyle(lineWidth: line, lineCap: .round))
                 .rotationEffect(.degrees(-90))
                 .shadow(color: tint.opacity(0.5), radius: size * 0.18)
+            // v3.9.13：环上还有一道**跑动短弧**（由 `spin` 每拍转 45°）。
+            // 为什么需要它：`progress` 会在 0.86 封顶（不能假装知道答案总长），
+            // 封顶后光看进度弧就完全静止了 —— 用户报的「动几下就不动了」正是这个。
+            // 短弧只表「在跑」，不表达进度，所以封顶后它继续转，环始终有变化。
+            if state.isAnswering {
+                Circle()
+                    .trim(from: 0, to: 0.22)
+                    .stroke(Color.white.opacity(0.85),
+                            style: StrokeStyle(lineWidth: line * 0.9, lineCap: .round))
+                    .rotationEffect(.degrees(-90 + state.spin * 360))
+                    // 过渡挂在**短弧自己**身上（而不是外层 ZStack）：同拍里 progress 与 spin 会同时变，
+                    // 挂同一棵子树上取哪个过渡由修饰符嵌套顺序决定，进度弧可能被拖成线性——
+                    // 拆开各管各的：进度弧走下面 ZStack 的 easeOut，短弧走这里的 linear。
+                    .animation(.linear(duration: 1.1), value: state.spin)
+            }
             if !state.isAnswering {
                 Image(systemName: "checkmark")
                     .font(.system(size: size * 0.46, weight: .bold))
@@ -151,7 +170,8 @@ struct QingliaoLiveActivityWidget: Widget {
             }
         }
         .frame(width: size, height: size)
-        // 只在 progress 变化（= 阶段推进）时播一次缓出过渡
+        // 只在 progress 变化（= 阶段推进）时播一次缓出过渡。
+        // 跑动短弧的过渡挂在短弧自身（见上），避免同拍双变量时互相干扰。
         .animation(.easeOut(duration: 0.35), value: progress)
         .frame(maxWidth: size + 6)   // 固定占位（按环尺寸加大）：避免旁边的文字随环大小回跳
     }
@@ -173,7 +193,7 @@ struct QingliaoLiveActivityWidget: Widget {
     /// 锁屏横幅（与展开态同风格，避免两套观感割裂——轻聊本地/云端 UI 统一是既定红线）
     private func lockScreenBanner(state: QingliaoActivityAttributes.ContentState) -> some View {
         HStack(spacing: 12) {
-            OrbView(size: 46, phase: state.phase)
+            OrbView(size: 46, phase: state.phase, spin: state.spin)
             VStack(alignment: .leading, spacing: 3) {
                 Text(state.sessionTitle.isEmpty ? "轻聊" : state.sessionTitle)
                     .font(.system(size: 15, weight: .semibold))
@@ -207,62 +227,92 @@ enum OrbPalette {
 /// · streaming → 球外一圈不确定态旋转弧
 /// · done      → 绿球 + 白对勾
 ///
-/// 动画由 `TimelineView(.animation)`（≤20fps）在挂件进程本地自走；t=0 那一帧本身就是一颗完整的球，
-/// 所以万一系统在实时活动里不跑 TimelineView，降级后只是「不动」，观感不会塌。
+/// **v3.9.13 重做（用户报「动几下就不动了」）**：原来球体 + 脉冲/旋转弧全在
+/// `TimelineView(.animation)` 包的 `Canvas` 里，指望挂件进程 20fps 自走。
+/// 但实时活动**没有连续帧源**（Apple：视图只在数据更新时重绘），所以那套帧源在真机上基本不跑——
+/// 观感就是「动几下（几次 update 各跳一下）然后彻底静止」。
+///
+/// 现在拆开：
+/// - **Canvas 只画球体本体**（径向渐变 + 完成对勾 + 描边）= 纯静态帧，`t=0` 就是完整画面，
+///   且不再需要 `TimelineView`（少一整套 20fps 重绘尝试，省电也少一层不确定性）。
+/// - **脉冲环 / 旋转弧改用 SwiftUI 的 `Circle().stroke()` + `rotationEffect` / `frame` 表达，
+///   由 `spin` 驱动**（App 侧每拍 update 推进 0.125）+ `.animation(…, value: spin)` 挂过渡：
+///   动画是「随数据更新发生」的（Apple 文档明确支持，最长 2s），所以每拍系统会平滑播一段，
+///   1.1s 的过渡 ≈ 拍与拍之间几乎接得上（仅前 30 拍；之后拍间隔降为 2.5s，见文件头 ⚠️），观感上就是连续在转。
 struct OrbView: View {
 
     var size: CGFloat
     var phase: String
+    /// - spin：不确定态的**累计相位**（不回绕，首帧默认 0；由 `LiveActivityManager` 每拍 +0.125 推进）。
+    ///   需要 0…1 循环量的地方自己取余并乘上想要的圈速（见 `pulseRings`）。
+    /// 默认 0 → 首帧（没有任何 update 时）也画出完整的球 + 一段弧，不会空白。
+    var spin: Double = 0
+
+    /// 拍与拍之间的过渡时长（App 侧 1.2s 一拍 → 取 1.1s 让弧几乎不停顿）。
+    /// 写成计算属性而非 `static let`：Swift 6 严格并发下静态存储要求类型 Sendable，
+    /// `Animation` 的 Sendable 性不在本机可验证范围（Linux 无 SwiftUI）——计算属性零风险。
+    private static var stepAnimation: Animation { .linear(duration: 1.1) }
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 20.0)) { ctx in
+        ZStack {
+            // 球体本体（静态帧；实时活动里没有帧源，所以不依赖 TimelineView）
             Canvas { gc, canvasSize in
-                draw(gc, size: canvasSize, t: ctx.date.timeIntervalSinceReferenceDate)
+                draw(gc, size: canvasSize)
+            }
+            if phase == QingliaoActivityAttributes.Phase.thinking.rawValue {
+                pulseRings
+            }
+            if phase == QingliaoActivityAttributes.Phase.streaming.rawValue {
+                spinningArc
             }
         }
         .frame(width: size, height: size)
         .accessibilityHidden(true)
     }
 
-    private func draw(_ gc: GraphicsContext, size canvasSize: CGSize, t: Double) {
+    /// 思考中：两圈错相位脉冲环（呼吸感），相位由 `spin` 推进
+    private var pulseRings: some View {
+        // 外扩上限 1.08（v3.9.10：从 1.15 收到 1.08，为球放大让路）。按 r = size/2 × 0.86 计算，
+        // 1.08 时最大外径 ≈ 0.93 × size + 描边 ≈ 0.98 × size，**完全落在自身 frame 内**，
+        // 所以「会不会被遮罩切」取决于 frame（紧凑 27 / 极简 24 / 展开 36 / 锁屏 46）本身不超出区域尺寸。
+        ForEach(0..<2, id: \.self) { i in
+            // 相位：`spin` 每拍 +0.125，乘 5 后每拍走 0.625 圈 → 相位速率约 1.92s 一圈（对齐 v3.9.9 之前
+            // Canvas 版的 1.8s；那时删掉 Canvas 后这里一度是 9.6s 一圈，思考期球看起来像静图——
+            // 第二轮静态审查抓到的观感回归）。
+            // 口径（第三轮审查确认）：0.625 圈/拍是非整数，取余后采样序列是「两圈反相、交替胀缩」的
+            // 呼吸（8 拍覆盖 8 个离散尺寸，约 2.4s 一轮），**不是**单调外扩的一圈；d 与 opacity 恒反相，
+            // 所以每拍都是「外扩+淡出」或「回缩+显影」，方向不矛盾。
+            // ⚠️ 不要照「每拍整圈」写成 ×8：取余后每拍 p 完全相同 → SwiftUI 判定值未变、不重绘，反而彻底不动。
+            let p = (spin * 5 + Double(i) * 0.5).truncatingRemainder(dividingBy: 1)
+            // 显式 CGFloat：`size * 0.86 * (1.0 + 0.08 * p)` 会因 SE-0307 隐式转换让 d 变成 Double
+            // （能编译但语义混浊），写明类型省掉这层推断
+            let d: CGFloat = size * 0.86 * (1.0 + 0.08 * CGFloat(p))
+            Circle()
+                .stroke(OrbPalette.accent.opacity(0.45 * (1 - p)), lineWidth: max(1, size * 0.05))
+                .frame(width: d, height: d)
+                .animation(Self.stepAnimation, value: spin)
+        }
+    }
+
+    /// 输出中：不确定态旋转弧（不是进度，只是「在跑」）。
+    /// 弧长 0.30 圈，起点随 `spin` 每拍转 45°；1.1s 线性过渡接住两拍之间的空隙。
+    private var spinningArc: some View {
+        let d = size * 0.86 * 1.03
+        return Circle()
+            .trim(from: 0, to: 0.30)
+            .stroke(OrbPalette.accent.opacity(0.9),
+                    style: StrokeStyle(lineWidth: max(1.5, size * 0.07), lineCap: .round))
+            .frame(width: d, height: d)
+            .rotationEffect(.degrees(spin * 360))
+            .animation(Self.stepAnimation, value: spin)
+    }
+
+    private func draw(_ gc: GraphicsContext, size canvasSize: CGSize) {
         let full = min(canvasSize.width, canvasSize.height)
         let center = CGPoint(x: canvasSize.width / 2, y: canvasSize.height / 2)
         let r = full / 2 * 0.86
         let rect = CGRect(x: center.x - r, y: center.y - r, width: r * 2, height: r * 2)
-        let isThinking = (phase == QingliaoActivityAttributes.Phase.thinking.rawValue)
-        let isStreaming = (phase == QingliaoActivityAttributes.Phase.streaming.rawValue)
         let isDone = (phase == QingliaoActivityAttributes.Phase.done.rawValue)
-
-        // 思考中：两圈错相位脉冲环（呼吸感）
-        // 外扩上限 1.08（v3.9.10：从 1.15 收到 1.08，为球放大让路）。按 r = size/2 × 0.86 计算，
-        // 1.08 时最大外径 ≈ 0.93 × size + 描边 ≈ 0.98 × size，**完全落在自身 frame 内**，
-        // 所以“会不会被遮罩切”取决于 frame（紧凑 25 / 极简 22 / 展开 36 / 锁屏 42）本身不超出区域尺寸。
-        if isThinking {
-            for i in 0..<2 {
-                let p = (t / 1.8 + Double(i) * 0.5).truncatingRemainder(dividingBy: 1)
-                // v3.9.10：球整体放大后，脉冲外扩从 1.15 收到 1.08——紧凑区只有 22pt，
-                // 外扩过多会被灵动岛遮罩切掉半边（看起来像破了一个口）
-                let ringR = r * (1.0 + 0.08 * p)
-                let ringRect = CGRect(x: center.x - ringR, y: center.y - ringR,
-                                      width: ringR * 2, height: ringR * 2)
-                gc.stroke(Path(ellipseIn: ringRect),
-                          with: .color(OrbPalette.accent.opacity(0.45 * (1 - p))),
-                          lineWidth: max(1, full * 0.05))
-            }
-        }
-
-        // 输出中：不确定态旋转弧（不是进度，只是「在跑」）
-        if isStreaming {
-            let arcR = r * 1.03
-            let start = (t / 1.4).truncatingRemainder(dividingBy: 1)
-            var arc = Path()
-            arc.addArc(center: center, radius: arcR,
-                       startAngle: .radians(start * 2 * .pi),
-                       endAngle: .radians((start + 0.30) * 2 * .pi),
-                       clockwise: false)
-            gc.stroke(arc, with: .color(OrbPalette.accent.opacity(0.9)),
-                      style: StrokeStyle(lineWidth: max(1.5, full * 0.07), lineCap: .round))
-        }
 
         // 球体本体（径向渐变：左上高光 → 主色 → 尾部紫）
         gc.fill(Path(ellipseIn: rect),

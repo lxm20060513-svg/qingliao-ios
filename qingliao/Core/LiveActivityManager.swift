@@ -11,8 +11,12 @@ import Foundation
 ///   再 `await activity.update(...)`，编译器报 `sending 'activity' risks causing data races`（三处）。
 ///   改为：只存 Sendable 状态（sessionId/时间/标题/模型/阶段），每次从 `Activity.activities`
 ///   现取新鲜值再用，这样送进 nonisolated async 方法的是「新值/无隔离归属的值」。
-/// - **状态推进只由主 App 进程驱动**：灵动岛里的球体/旋转弧动画由挂件自己用 `TimelineView` 自走，
-///   不依赖 update；App 被系统挂起后状态行停在最后一次广播，只有系统计时钟继续走。
+/// - **状态推进只由主 App 进程驱动**（v3.9.13 更新口径）：实时活动**没有连续帧源**，所以
+///   球上/环上的「在动」全部靠这里按节拍 `update`（1.2s 一拍，长任务 2.5s），挂件侧只用
+///   `ContentState.spin` 驱动旋转/脉冲 + 一个与拍间隔对齐的过渡动画。**不要再往挂件里塞
+///   `TimelineView(.animation)` 这类自走帧源**——它在实时活动里不成立。
+///   App 被系统挂起后拍不动（免费签名无 APNs，无法远程续推），画面会停在最后一拍，
+///   这是框架边界，不是缺陷；真机复测请在 App 前台观察。
 @MainActor
 final class LiveActivityManager {
 
@@ -52,7 +56,13 @@ final class LiveActivityManager {
     /// v3.9.10：本轮推进度（见 `ContentState.progress`）与它的推手
     private var lastProgress: Double = 0.18
     private var progressTicker: Task<Void, Never>?
-    /// 推手句柄归属的代际（用于「任务自我退出时清句柄」——见 startProgressTicker）
+    /// v3.9.13：不确定态相位（见 `ContentState.spin`）——每拍 +0.125 **累计不回绕**，
+    /// 与 progress 同时推进。progress 到 0.86 封顶后靠它继续给画面「在动」的变化。
+    /// 不回绕的原因（子代理静态审查抓到的观感缺陷）：若取模回绕，弧角度会从 315° 插值回 0°
+    /// ＝每轮循环（约 9.6s）倒着急扫一圈，与「一直在转」完全相反。累计值 ≤ 10 分钟 ≈ 500 拍
+    /// ＝ 22500°，Double 精度与 SwiftUI 角度插值都毫无压力。
+    private var lastSpin: Double = 0
+    /// 推手句柄归属令牌（单调递增）：只用于回答「谁有权清句柄」——见 startProgressTicker
     private var tickerToken = 0
 
     private init() {}
@@ -125,6 +135,16 @@ final class LiveActivityManager {
            title == lastTitle, model == lastModel,
            phase == lastPhase, actionText == lastAction, canStop == lastCanStop,
            newProgress == lastProgress {
+            // ⚠️ v3.9.13（第二轮静态审查抓到）：早返回前**必须补一次幂等起表**。
+            // 场景：会话 A 流式中切到 B → `finish(B)` 走「会话不匹配」分支 `stopProgressTicker()`；
+            // 用户切回 A → `sync(A)` 被调用，但 title/phase/action/newProgress 与上次全同 →
+            // 命中原样早返回 → 推手再也不会被起起来，画面永久冻在切走那一刻，直到本轮结束才跳一下。
+            // 同根因还有：推手因 10 分钟安全阀 / 活动被系统清掉而自我退出后，只要下一次 sync 内容未变也永远不重起。
+            // 起表本身幂等（`startProgressTicker` 内部「活着就复用」），所以这里无副作用。
+            if phase == QingliaoActivityAttributes.Phase.thinking.rawValue
+                || phase == QingliaoActivityAttributes.Phase.streaming.rawValue {
+                startProgressTicker()
+            }
             return
         }
         // 新的一轮回复 → 作废可能还挂着的上一轮收尾
@@ -161,7 +181,8 @@ final class LiveActivityManager {
                                                            phase: phase,
                                                            actionText: actionText,
                                                            canStop: canStop,
-                                                           progress: newProgress)
+                                                           progress: newProgress,
+                                                           spin: lastSpin)
         let content = ActivityContent(state: state, staleDate: Self.staleDate())
 
         if !hasActive {
@@ -180,8 +201,11 @@ final class LiveActivityManager {
                 await activity.update(content)
             }
         }
-        // v3.9.10：生成阶段开始按节奏推进环（离开生成阶段就停）
-        if phase == QingliaoActivityAttributes.Phase.streaming.rawValue {
+        // v3.9.10 / v3.9.13：**思考与生成两个阶段都跑推手**。
+        // 原来只在生成阶段跑，于是思考期（首 token 前常 10-20s）环停在 0.18、球上的弧一动不动——
+        // 用户看到的「动几下就不动了」有一半来自这里。收尾态（done）才停。
+        if phase == QingliaoActivityAttributes.Phase.streaming.rawValue
+            || phase == QingliaoActivityAttributes.Phase.thinking.rawValue {
             startProgressTicker()
         } else {
             stopProgressTicker()
@@ -278,39 +302,69 @@ final class LiveActivityManager {
         return min(0.86, max(previous, 0.18))
     }
 
-    /// 生成阶段按节奏推进进度环。
+    /// 各阶段的**推进上限**与**每拍步长**（v3.9.13）。
+    ///
+    /// 步长必须让眼睛看得见：环直径 20pt（紧凑态）周长约 63pt，原来 `max(0.006, …)` 的保底步长
+    /// 只有 ≈0.4pt/拍，指数收敛后肉眼完全看不出在动——这就是「动几下就不动了」的直接原因。
+    /// 现在改成**线性 + 可见步长**：思考 0.03/拍（≈1.9pt），生成 0.02/拍（≈1.3pt）。
+    private static func tickStep(phase: String) -> (cap: Double, step: Double) {
+        if phase == QingliaoActivityAttributes.Phase.streaming.rawValue {
+            return (0.86, 0.02)
+        }
+        // 思考档不越过 0.35：进入生成阶段时还有明显的前进空间
+        return (0.35, 0.03)
+    }
+
+    /// 生成阶段按节奏推进进度环 + 不确定态相位。
     ///
     /// 为什么放在管理器里而不是每来一个 token 就 update：
-    ///   ① 实时活动的视图**只在 update 时重绘**（Apple 明文），所以「环一直在长」必须靠持续 update；
-    ///   ② 但每次 token 都 update 就是 update 风暴（系统会限流、也白耗电）→ 固定 1.5s 一拍；
-    ///   ③ 长回答（>30s）后放慢到 4s 一拍，避免长时间对话里的无意义唤醒；
-    ///   ④ 曲线是**指数逼近 0.86**（先快后慢），永远不假装 100% —— 真完成由 `finish()` 落 1.0。
+    ///   ① 实时活动的视图**只在 update 时重绘**（Apple 明文），所以「一直在动」必须靠持续 update；
+    ///   ② 但每次 token 都 update 就是 update 风暴（系统会限流、也白耗电）→ 1.2s 一拍；
+    ///   ③ 长回答（>36s）后放慢到 2.5s 一拍，避免长时间对话里的无意义唤醒；
+    ///   ④ progress 到顶（0.86）后**不再收工**——每拍仍推进 `spin`，球/环上的弧继续转。
+    ///      旧版到顶就 return，画面彻底静止（这是用户报的「动几下就不动了」的第二半原因）。
     private func startProgressTicker() {
-        guard progressTicker == nil else { return }
-        let token = generation
-        tickerToken = token
+        // v3.9.13：**活着的推手直接复用，不按代际重建**。两个坑都要绕开：
+        // ① 旧写法 `guard progressTicker == nil else { return }`：sync 每次走到 update 路径都会
+        //    `generation += 1`，而思考期的推手此刻多半正挂在 `Task.sleep` 上（还没执行 defer 清句柄）→
+        //    新推手被挡下、旧推手醒来又因代际不符自我退出 → **场上再无推手**，画面从首 token 起彻底静止。
+        //    （子代理静态审查抓到的必现缺陷，症状与用户投诉「动几下就不动了」逐字相同。）
+        // ② 若改成「代际变了就重建」，则流式期间每次 sync 都会 cancel + 重起——sync 一密，
+        //    推手就永远跑不满一拍，等于不动（修一个坑引入另一个坑）。
+        // 结论：循环体每拍读的都是**最新**的 `lastPhase`/`lastProgress`，本来就不需要换代；
+        // 「本轮结束 / 新一轮 / 切会话」一律由 sync 的 done 分支、`finish()`、`clearState()` 显式 stop。
+        if let t = progressTicker, !t.isCancelled { return }
+        progressTicker = nil          // 清掉「已取消但还没走 defer」的旧句柄
+        // 句柄令牌单调递增：只用于回答「谁有权清句柄」，避免退场中的旧推手误清新推手
+        tickerToken += 1
+        let handleToken = tickerToken
         progressTicker = Task { @MainActor [weak self] in
-            // 退出时清句柄（审查抓到）：原来三条自我退出路径都是裸 return，句柄仍非 nil →
-            // 本轮之后再调 startProgressTicker 会被 `guard progressTicker == nil` 永久挡下，
-            // 环停在起始值一动不动且无日志可查。用 token 比对避免误杀新一轮刚起的推手。
             defer {
-                if let s = self, s.tickerToken == token { s.progressTicker = nil }
+                if let s = self, s.tickerToken == handleToken { s.progressTicker = nil }
             }
             var ticks = 0
+            let startedTicking = Date()
             while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(ticks < 20 ? 1.5 : 4))
-                guard !Task.isCancelled, let self, self.generation == token else { return }
+                try? await Task.sleep(for: .seconds(ticks < 30 ? 1.2 : 2.5))
+                guard !Task.isCancelled, let self else { return }
                 guard self.currentSessionId != nil, Self.hasActiveActivity else { return }
                 if !Self.isEnabled { return }
-                // 到顶就收工（不再每 4s 空转），下一轮由 sync 重启
-                if self.lastProgress >= 0.86 { return }
-                let next = min(0.86, self.lastProgress + max(0.006, (0.86 - self.lastProgress) * 0.05))
+                // 兜底（正常路径由上面几处显式 stop 收）：阶段已不在忙碌就自行退出
+                let livePhase = self.lastPhase
+                guard livePhase == QingliaoActivityAttributes.Phase.thinking.rawValue
+                    || livePhase == QingliaoActivityAttributes.Phase.streaming.rawValue else { return }
+                // 安全阀：任何漏停场景（例如 App 长期不结束这一轮）最多推 10 分钟
+                if Date().timeIntervalSince(startedTicking) > 10 * 60 { return }
+                let cfg = Self.tickStep(phase: self.lastPhase)
+                let nextProgress = min(cfg.cap, self.lastProgress + cfg.step)
+                // 累计相位，**不回绕**（回绕会让弧角度从 315° 倒插回 0°，每 9.6s 反向急扫一次）
+                let nextSpin = self.lastSpin + 0.125
                 ticks += 1
-                // 推不动就退出，而不是 continue —— 原来的 continue 在 next 恒 ≤ 0.86 < lastProgress 时
-                // 会让循环永不退出（活死循环，每 1.5s/4s 醒一次主线程）。审查抓到。
-                guard next > self.lastProgress else { return }
-                self.lastProgress = next
-                let content = ActivityContent(state: self.currentState(progress: next),
+                // 单调不倒退；到顶后 progress 不变，靠 spin 产生可见变化（所以这里不再 return）
+                self.lastProgress = max(self.lastProgress, nextProgress)
+                self.lastSpin = nextSpin
+                let content = ActivityContent(state: self.currentState(progress: self.lastProgress,
+                                                                      spin: nextSpin),
                                               staleDate: Self.staleDate())
                 for activity in Activity<QingliaoActivityAttributes>.activities
                 where activity.activityState == .active {
@@ -325,8 +379,8 @@ final class LiveActivityManager {
         progressTicker = nil
     }
 
-    /// 用最近一次广播的字段拼一份新的动态数据（只换 progress）——ticker 用
-    private func currentState(progress: Double) -> QingliaoActivityAttributes.ContentState {
+    /// 用最近一次广播的字段拼一份新的动态数据（只换 progress / spin）——ticker 用
+    private func currentState(progress: Double, spin: Double) -> QingliaoActivityAttributes.ContentState {
         QingliaoActivityAttributes.ContentState(sessionTitle: lastTitle,
                                                modelName: lastModel,
                                                startedAt: startedAt ?? Date(),
@@ -334,7 +388,8 @@ final class LiveActivityManager {
                                                phase: lastPhase,
                                                actionText: lastAction,
                                                canStop: lastCanStop,
-                                               progress: progress)
+                                               progress: progress,
+                                               spin: spin)
     }
 
     // MARK: - 私有
@@ -360,6 +415,8 @@ final class LiveActivityManager {
         pendingDismissal = false
         stopProgressTicker()
         lastProgress = 0.18
+        // v3.9.13：spin 是**累计相位**，不清就会把上一轮/上一次的相位带进新一轮（首帧弧位置随机）
+        lastSpin = 0
     }
 
     /// 只有「系统里真正在显示」的活动才算数（v3.9.9 真机反馈修复的核心）。
