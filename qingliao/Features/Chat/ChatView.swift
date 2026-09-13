@@ -2314,11 +2314,11 @@ struct ChatView: View {
         // 后端 _build_hermes_messages 对完整历史再做 _sanitize_history/_compress_long_assistants/
         // _break_repeat_seed，并去掉 X-Hermes-Session-Id（不再让 Hermes 用 state.db 重建未净化会话）。
         // 上下文=净化历史 → 不复读；且保留 app 按会话选模型 + 图片 + 流式。
-        let history: [[String: Any]] = chat.historyPayload()
-        let startSid = chat.sessionId
-
         // v3.0.81：统一模型优先级链（免费 > 视觉 > Agent > 主模型）
         let (useModel, useProvider) = resolveModel(hasImage: msg.imageDataURL != nil)
+        // v3.9.15：把真实请求模型交给历史净化——断种子占位的闸门必须与实际请求同源
+        let history: [[String: Any]] = chat.historyPayload(model: useModel, provider: useProvider)
+        let startSid = chat.sessionId
 
         Task {
             stream.pendingUserMsgId = msg.id   // v3.3.3：记录发起 user 消息，恢复/延迟回调落库锚点
@@ -2522,9 +2522,10 @@ struct ChatView: View {
             return
         }
         autoRetryCount += 1
-        let history = chat.historyPayload()
-        let startSid = chat.sessionId
         let (useModel, useProvider) = resolveModel(hasImage: msg.imageDataURL != nil)
+        // v3.9.15：闸门与实际请求同源
+        let history = chat.historyPayload(model: useModel, provider: useProvider)
+        let startSid = chat.sessionId
         let delay = autoRetryCount == 1 ? 1.0 : 2.0
         Task {
             try? await Task.sleep(for: .seconds(delay))
@@ -2940,10 +2941,11 @@ struct ChatView: View {
             startCloudStream(for: m)
             return
         }
-        let history = chat.historyPayload()
         let lastUserHasImage = chat.messages.last(where: { $0.isUser })?.imageDataURL != nil
         // v3.0.81：统一模型优先级链（免费 > 视觉 > Agent > 主模型）
         let (useModel, useProvider) = resolveModel(hasImage: lastUserHasImage)
+        // v3.9.15：闸门与实际请求同源
+        let history = chat.historyPayload(model: useModel, provider: useProvider)
         Task {
             stream.pendingUserMsgId = anchorUserID   // v3.3.3：regenerate 锚点（杀后台恢复也用）
             let startSid = chat.sessionId   // v3.5.2：会话切换后本次结果丢弃（与 startStream 一致）

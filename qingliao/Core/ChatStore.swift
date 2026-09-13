@@ -331,7 +331,13 @@ final class ChatStore {
 
     /// 发送请求用的历史消息（payload 形态）
     /// 只保留最后一条带图消息的 imageDataURL（前面已发过的图片不进 payload，防 base64 全量重复膨胀）
-    func historyPayload() -> [[String: Any]] {
+    /// - Parameters:
+    ///   - model: 本次请求**实际要用的**模型名（来自 ChatView.resolveModel()，优先级链 免费>视觉>Agent>主）。
+    ///            传 nil 时回落到云端 activeConfig / 本地 UserDefaults（默认值与 ChatView 的 @AppStorage 一致）。
+    ///            为什么要传：闸门必须和真正发出去的模型同源。若只用主模型键兜底，就会丢掉
+    ///            resolveModel 的三档覆盖（免费模型 / 视觉模型 / Agent 模型），两侧判定不一致即会误压或漏压。
+    ///   - provider: 同上，与 model 成对传入。
+    func historyPayload(model: String? = nil, provider: String? = nil) -> [[String: Any]] {
         // v3.0.10：图片保留条件（不降级为文本）
         // 云端模式：当前厂商 supportsVision
         // 本地模式：主模型支持视觉 OR 配置了视觉模型自动切换
@@ -354,7 +360,22 @@ final class ChatStore {
         // v3.4.9 防复读：在滤脏占位后，再做历史净化（去连续重复 assistant / 保证以 user 结尾 /
         //              断掉"紧贴最新 user 的 assistant 续写种子" msgs[-2]）——镜像后端 _sanitize_history
         //              + _break_repeat_seed 的 App 侧防御，确保喂给 Hermes 的上下文不再含"可续写素材"。
-        let ctxMessages = Self.sanitizeForContext(messages.filter { !$0.isPush && !$0.isErrorPlaceholder })
+        // v3.9.15：断种子这步按模型分流（弱模型才压），判定用**本次真实请求的模型**。
+        // v3.9.15：强模型不做「断种子」占位（与后端 _is_strong_model 同规则）——App 此前无条件压占位，
+        // 强模型看不到自己上一条回答，用户的短追问（「不用」「为什么」）失去指代对象 → 重跑上一轮任务
+        // （2026-09-13 实证：一句「不用」被回三份 NAS 内存诊断）。
+        let (curProvider, curModel): (String, String) = {
+            if let m = model, !m.isEmpty { return (provider ?? "", m) }
+            if CloudConfig.shared.isCloudMode, let c = CloudConfig.shared.activeConfig {
+                return (c.providerID, c.model)
+            }
+            // 兜底默认值必须与 ChatView 的 @AppStorage 默认值一致（未设置时 @AppStorage 也返回它们）
+            return (UserDefaults.standard.string(forKey: "qingliao_provider") ?? "opencode",
+                    UserDefaults.standard.string(forKey: "qingliao_model") ?? "deepseek-v4-flash")
+        }()
+        let breakRepeatSeed = !CloudConfig.isStrongModel(provider: curProvider, model: curModel)
+        let ctxMessages = Self.sanitizeForContext(messages.filter { !$0.isPush && !$0.isErrorPlaceholder },
+                                                  breakRepeatSeed: breakRepeatSeed)
         // v3.4.x code review fix：落实注释原语义——只保留"最后一条带图消息"的 imageDataURL
         //（前面已发过的图片不进 payload，防 base64 全量重复膨胀）；其余带图消息降级为 [图片] 占位文本
         let lastImageIdx = ctxMessages.lastIndex { $0.imageDataURL != nil }
@@ -380,8 +401,14 @@ final class ChatStore {
     ///   ② 去连续重复 assistant/user——连续相同 assistant 或 user 只留最后一条（复读产物）。
     ///   ③ 保证以 user 结尾——剥离末尾孤立 assistant/system，防模型续写旧回复；
     ///      并把"紧贴最新 user 的 assistant（msgs[-2]）"压缩为不可续写占位，断掉可续写素材。
-    /// 只压缩成占位、绝不删除内容；对过期历史同样生效——喂进上下文的复读种子被抽掉，任何模型都不复读。
-    private static func sanitizeForContext(_ msgs: [ChatMessage]) -> [ChatMessage] {
+    /// 只压缩成占位、绝不删除内容；对过期历史同样生效——喂进上下文的复读种子被抽掉，弱模型不再复读。
+    /// ⚠️ 第③步**只对弱模型**生效（`breakRepeatSeed=false` 时跳过）：强模型被压会失忆，
+    /// 用户的短追问（「不用」「为什么」）失去指代对象 → 重跑上一轮任务。规则同后端 `_is_strong_model`。
+    ///
+    /// v3.9.15：第③步（断种子占位）改成**按模型开关**（`breakRepeatSeed`）。强模型被压会失忆 →
+    /// 用户的短追问失去指代对象 → 重跑上一轮任务；规则与后端 `_is_strong_model` 一致。
+    private static func sanitizeForContext(_ msgs: [ChatMessage],
+                                           breakRepeatSeed: Bool) -> [ChatMessage] {
         var out: [ChatMessage] = []
         // 🚨 v3.4.22 复读根治第二层：全历史 assistant 去重（不要求连续）。
         // 存量损坏会话里同一条旧回答可能已重复 N 次（非连续分布），原"连续相同"过滤拦不住；
@@ -412,7 +439,10 @@ final class ChatStore {
             out.removeLast()
         }
         // ③ 断掉"紧贴最新 user 的 assistant 续写种子"（msgs[-2]）：压缩为不可续写占位
-        if out.count >= 2, out[out.count - 1].role == "user", out[out.count - 2].role == "assistant" {
+        // ⚠️ v3.9.15：只对弱模型做（breakRepeatSeed=false 时跳过）——强模型需要看得到自己上一条回答，
+        // 否则短追问（「不用」「为什么」）无指代对象，模型会重跑上一轮任务。
+        if breakRepeatSeed,
+           out.count >= 2, out[out.count - 1].role == "user", out[out.count - 2].role == "assistant" {
             let prev = out[out.count - 2]
             let placeholder = ChatMessage(role: prev.role,
                                           content: "（上一轮回复已省略，请直接回答最新用户消息，不要续写或复述此条内容）",

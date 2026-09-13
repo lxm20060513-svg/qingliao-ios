@@ -137,6 +137,21 @@ final class CloudConfig {
         activeProviderID = p.id
     }
 
+    /// v3.9.15 防复读闸门：强模型豁免「断种子」占位。
+    ///
+    /// **必须与后端 `stream_api._is_strong_model` 完全一致**——两侧规则不一致就是事故：
+    /// 弱模型（如 mimo-v2.5）看到历史里的完整长回复会整段照抄，需要占位断掉续写种子；
+    /// 强模型（deepseek/step-*/gpt-5/claude/glm-5）需要完整语义上下文才能把用户的**短追问**
+    /// （「不用」「为什么回答两次」）对号入座，压掉它上一条回答＝失忆 → 重跑上一轮任务。
+    /// 实证 2026-09-13：App 无条件压占位，用户一句「不用」被回了三份 NAS 内存诊断。
+    static func isStrongModel(provider: String, model: String) -> Bool {
+        let p = provider.lowercased()
+        let m = model.lowercased()
+        if p == "deepseek" || p == "stepfun" { return true }
+        for pre in ["deepseek", "step", "gpt-5", "claude", "glm-5"] where m.hasPrefix(pre) { return true }
+        return false
+    }
+
     /// 当前生效的云端配置（含 Keychain key）
     var activeConfig: CloudProviderConfig? {
         guard let idx = providers.firstIndex(where: { $0.providerID == activeProviderID }) else { return nil }
