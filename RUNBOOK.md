@@ -7,7 +7,7 @@
 
 | 项 | 值 |
 |---|---|
-| 工作机 | 本容器 `/opt/data`（Linux），住着 Hermes；NAS 是 `192.168.31.40`（SSH 用户 `lxm20060513`，密码在 `/opt/data/.nas_cred`） |
+| 工作机 | 本容器 `/opt/data`（Linux），住着 Hermes；NAS 是 `192.168.x.x`（SSH 用户 `<SSH 用户>`，密码在 `/opt/data/.nas_cred`） |
 | NAS 共享目录 | NAS 侧 `/volume1/docker/hermes/…` ↔ **本地挂载 `/opt/hermes_host/…`**（读写优先走挂载，不必 SSH） |
 | 轻聊后端 | NAS 上的 docker 容器 **`qingliao`**，bind mount 源码；**改文件后 `docker restart qingliao` 即生效** |
 | iOS 仓库 | `/opt/data/qingliao_ios`，分支 **`feature/handoff-301`**，CI 由 **tag** 触发 |
@@ -85,7 +85,8 @@ python3 ql.py doctor                                            # 环境体检�
 14. **公开仓文档一律脱敏**（`qingliao-ios` 是 **public**，默认分支即推上去的分支）：
     · 文档里只写占位符 —— `192.168.x.x`、`<NAS-IP>`、`<SSH 用户>`；
     · 真实 IP / 用户名 / 密码 / token 放本机 `/opt/data/scripts/LOCAL-CONTEXT.md`（**不在仓库内**，git 不跟踪）；
-    · 推送前扫一遍：`grep -rnP '192\.168\.|ghp_|sk-|用户名的真实值' . --exclude-dir=.git`，命中就先去敏再提交；
+    · **本机 `scripts/RUNBOOK.md` 是真源**（可含真实值），公开仓那份由工具脱敏生成 —— **别再手工 copy**（实测踩过：copy 会把脱敏版覆盖回真实值）：`python3 scripts/ql_release/sync_public_docs.py`；
+    · 推送前一条命令自检：`python3 /opt/data/scripts/ql_release/sync_public_docs.py --check`（非 0 退出=有没脱敏的）；
     · NAS 密码永远不进仓库（只在 `/opt/data/.nas_cred`）。
 
 ## 4. 高频坑（都是踩过的）
@@ -106,7 +107,7 @@ python3 ql.py doctor                                            # 环境体检�
 | CI 报错一屏看不懂 | `ql diag ci [run]` 回显 error 行**并自动归因**（原因 + 最小修法） |
 | PTY 里命令没输出 / 卡几百秒 | **哨兵必须双引号**（`echo "X$?"`）：单引号不展开 `$?` → 哨兵行变成字面值、正则永不匹配 → drain 白等 600 秒。命令**内部**的引号反过来用单引号 |
 | 命令跑了却读不到结果 | `curl -w` 这类不带换行的输出会和 shell 提示符粘在同一行，被提示符过滤整行吞掉 → 格式串末尾加 `\n` |
-| NAS 连不上时先证伪网络 | `ql_nas_diag/nas_conn_probe.py` 分段计时（TCP → banner → 认证 → exec）；**用户名是 `lxm20060513`，不是 `lxm`** |
+| NAS 连不上时先证伪网络 | `ql_nas_diag/nas_conn_probe.py` 分段计时（TCP → banner → 认证 → exec）；**用户名是 `<SSH 用户>`，不是 `lxm`** |
 
 ## 5. 文件地图
 
