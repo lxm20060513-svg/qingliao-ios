@@ -11,6 +11,8 @@ struct MemoSection: View {
     @State private var store = MemoStore.shared
     @State private var showAdd = false
     @State private var showAll = false
+    /// v3.9.20：卡片 → 「全部备忘」列表的原生 zoom 转场（同看板卡片 / 资讯→大爆炸那套）
+    @Namespace private var memoZoomNS
     @State private var draft = ""
     @State private var detail: MemoItem?
     @State private var pendingDelete: MemoItem?
@@ -148,6 +150,8 @@ struct MemoSection: View {
             .contextMenu { memoMenuItems(top, onDelete: { pendingDelete = $0 }) }
             // v3.9.17：层挂在主卡的 background 上——与主卡同尺寸再内缩 + 下移，主卡多高它就多高
             .background(alignment: .top) { stackedLayers }
+            // v3.9.20：卡片即 zoom 源（挂在留白之前，源矩形取主卡本体）
+            .matchedTransitionSource(id: "memo-all", in: memoZoomNS)
             // 给露出的卡边留位置（offset 不改变布局尺寸，不留就会被下一块内容压住）
             .padding(.bottom, stackBottomSpace)
             .animation(Motion.snap, value: stackLayerCount)
@@ -228,6 +232,7 @@ struct MemoSection: View {
             .toolbar(.hidden, for: .navigationBar)
         }
         .presentationDetents([.medium, .large])
+        .navigationTransition(.zoom(sourceID: "memo-all", in: memoZoomNS))   // v3.9.20：从备忘录卡片放大展开
     }
 
     /// v3.9.17：先收掉「全部备忘」列表，等它 dismiss 完再执行动作
