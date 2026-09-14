@@ -187,7 +187,21 @@ struct MemoSection: View {
 
     private var allSheet: some View {
         NavigationStack {
-            ScrollView {
+            VStack(spacing: 0) {
+                // v3.9.18：顶栏同样自绘（系统那版「完成」胶囊偏大）
+                HStack(spacing: 8) {
+                    Text("全部备忘")
+                        .font(.system(size: Typography.subhead, weight: .semibold))
+                    Text("\(store.sorted.count) 条")
+                        .font(.system(size: Typography.caption))
+                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 0)
+                    MiniCapsule(title: "完成", accent: true) { showAll = false }
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 12)
+                .padding(.bottom, 8)
+                ScrollView {
                 VStack(spacing: 8) {
                     ForEach(store.sorted) { m in
                         Button {
@@ -213,13 +227,9 @@ struct MemoSection: View {
                 .padding(16)
             }
             .background(Color(uiColor: .systemGroupedBackground))
-            .navigationTitle("全部备忘")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("完成") { showAll = false }
-                }
             }
+            .background(Color(uiColor: .systemGroupedBackground))
+            .toolbar(.hidden, for: .navigationBar)
         }
         .presentationDetents([.medium, .large])
     }
@@ -326,6 +336,30 @@ struct MemoSection: View {
     }
 }
 
+// MARK: - v3.9.18 自绘顶栏用的小胶囊
+// 为什么不用系统 toolbar：iOS 26 会把导航栏按钮渲染成玻璃胶囊，尺寸由系统定（字号/controlSize 都压不小），
+// 用户反馈「关闭/编辑/复制胶囊太大」→ 自绘顶栏 + `.toolbar(.hidden, for: .navigationBar)`，尺寸完全可控。
+// 口径：tiny 字号 + h10/v5（比页级标题行的 h10/v4 略高一点，因为它是顶部主操作区）。
+
+private struct MiniCapsule: View {
+    let title: String
+    var accent: Bool = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: Typography.tiny))
+                .foregroundStyle(accent ? Color.white : Color.primary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(accent ? Color.accentColor : Color.secondary.opacity(0.12), in: Capsule())
+                .contentShape(Capsule())
+        }
+        .buttonStyle(PressStyle())
+    }
+}
+
 // MARK: - 便签卡视觉（v3.9.17：抽成独立 struct——卡片 / 全部列表两处共用；
 // 底色改「不透明底 + 淡色调」，原来纯半透明底会透出后面的堆叠层，看着发脏）
 //
@@ -405,7 +439,11 @@ private struct MemoDetailSheet: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
+            VStack(spacing: 0) {
+                // v3.9.18：顶栏自绘——iOS 26 系统导航栏渲染的玻璃胶囊偏大（用户反馈「关闭/编辑/复制
+                // 胶囊太大，小一点更协调」），改成与全站一致的小胶囊（tiny 字号 + h10/v5），尺寸可控
+                topBar
+                ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     if editing {
                         // v3.9.14：补上编辑（MemoStore.update 早就写好了，一直没入口）
@@ -441,94 +479,113 @@ private struct MemoDetailSheet: View {
                 }
                 .padding(18)
             }
-            .background(Color(uiColor: .systemGroupedBackground))
-            .navigationTitle(editing ? "编辑备忘" : "备忘录")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                if editing {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("取消") { editing = false }
-                    }
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("保存") { saveEdit() }
-                            .disabled(editText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    }
-                } else {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("关闭") { dismiss() }
-                    }
-                    ToolbarItemGroup(placement: .confirmationAction) {
-                        Button {
-                            editText = current.content
-                            editing = true
-                        } label: {
-                            Image(systemName: "square.and.pencil")
-                        }
-                        .accessibilityLabel("编辑")
-                        Button {
-                            UIPasteboard.general.string = current.content
-                            Haptics.success()
-                            copied = true
-                        } label: {
-                            Image(systemName: copied ? "checkmark" : "doc.on.doc")
-                        }
-                        .accessibilityLabel("复制内容")
-                    }
-                }
             }
+            .background(Color(uiColor: .systemGroupedBackground))
+            // v3.9.18：系统导航栏已由自绘 topBar 取代（iOS 26 的玻璃胶囊偏大）
+            .toolbar(.hidden, for: .navigationBar)
             // 编辑态禁止下滑关闭：不然手一滑草稿就没了，且没有任何提示
             .interactiveDismissDisabled(editing)
             // 编辑态下藏底部操作条，免得"删除"和"保存"挨着误触
-            .safeAreaInset(edge: .bottom) {
-                if !editing {
-                    VStack(spacing: 8) {
-                        HStack(spacing: 8) {
-                            Button {
-                                store.togglePin(current)
-                                current.pinned.toggle()
-                                Haptics.success()
-                            } label: {
-                                Label(current.pinned ? "取消置顶" : "置顶",
-                                      systemImage: current.pinned ? "pin.slash" : "pin")
-                                    .font(.system(size: Typography.body))
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 12)
-                                    .background(Color.accentColor.opacity(0.12), in: Capsule())
-                            }
-                            .buttonStyle(PressStyle())
-                            .foregroundStyle(Color.accentColor)
+            .safeAreaInset(edge: .bottom) { bottomBar }
+        }
+    }
 
-                            Button {
-                                NotificationCenter.default.post(name: .qingliaoMemoSend, object: current.content)
-                                Haptics.success()
-                                dismiss()
-                            } label: {
-                                Label("发给 AI", systemImage: "paperplane")
-                                    .font(.system(size: Typography.body))
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 12)
-                                    .background(Color.accentColor.opacity(0.12), in: Capsule())
-                            }
-                            .buttonStyle(PressStyle())
-                            .foregroundStyle(Color.accentColor)
-                        }
-                        Button(role: .destructive) {
-                            onDelete(current)
-                        } label: {
-                            Label("删除这条备忘", systemImage: "trash")
-                                .font(.system(size: Typography.body))
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 12)
-                                .background(Color.red.opacity(0.12), in: Capsule())
-                        }
-                        .buttonStyle(PressStyle())
-                        .foregroundStyle(.red)
-                    }
-                    .padding(.horizontal, 18)
-                    .padding(.bottom, 10)
+    // MARK: v3.9.18 顶栏（自绘，替掉 iOS 26 系统导航栏那套偏大的玻璃胶囊）
+
+    private var topBar: some View {
+        HStack(spacing: 8) {
+            if editing {
+                MiniCapsule(title: "取消") { editing = false }
+                Spacer(minLength: 0)
+                MiniCapsule(title: "保存", accent: true) { saveEdit() }
+                    .disabled(editText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            } else {
+                MiniCapsule(title: "关闭") { dismiss() }
+                Spacer(minLength: 0)
+                MiniCapsule(title: "编辑") {
+                    editText = current.content
+                    editing = true
+                }
+                MiniCapsule(title: copied ? "已复制" : "复制") {
+                    UIPasteboard.general.string = current.content
+                    Haptics.success()
+                    copied = true
                 }
             }
         }
+        .padding(.horizontal, 16)
+        .padding(.top, 12)
+        .padding(.bottom, 6)
+        .overlay {
+            if !editing {
+                Text("备忘录")
+                    .font(.system(size: Typography.subhead, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .allowsHitTesting(false)
+            }
+        }
+    }
+
+    // MARK: v3.9.18 底部操作条
+    // 用户反馈「胶囊是半透明的，字体在胶囊下面看得见，很乱」——根因是 ① 操作条本身没有底、
+    // ② 胶囊用 accentColor/red 的 12% 半透明填充，滚动的正文从按钮下面透出来。
+    // 改法：操作条铺不透明底 + 顶边 0.8pt 分割线；胶囊改实色（主操作=主题色实底白字，危险=实心红底白字）
+
+    @ViewBuilder
+    private var bottomBar: some View {
+        if !editing {
+            VStack(spacing: 8) {
+                HStack(spacing: 8) {
+                    Button {
+                        store.togglePin(current)
+                        current.pinned.toggle()
+                        Haptics.success()
+                    } label: {
+                        actionLabel(current.pinned ? "取消置顶" : "置顶",
+                                    systemImage: current.pinned ? "pin.slash" : "pin",
+                                    tone: Color.accentColor)
+                    }
+                    .buttonStyle(PressStyle())
+
+                    Button {
+                        NotificationCenter.default.post(name: .qingliaoMemoSend, object: current.content)
+                        Haptics.success()
+                        dismiss()
+                    } label: {
+                        actionLabel("发给 AI", systemImage: "paperplane", tone: Color.accentColor)
+                    }
+                    .buttonStyle(PressStyle())
+                }
+                Button(role: .destructive) {
+                    onDelete(current)
+                } label: {
+                    actionLabel("删除这条备忘", systemImage: "trash", tone: Color.red)
+                }
+                .buttonStyle(PressStyle())
+            }
+            .padding(.horizontal, 18)
+            .padding(.top, 10)
+            .padding(.bottom, 10)
+            .frame(maxWidth: .infinity)
+            .background(Color(uiColor: .systemGroupedBackground))
+            .overlay(alignment: .top) {
+                Rectangle()
+                    .fill(Color.primary.opacity(0.08))
+                    .frame(height: 0.8)
+            }
+        }
+    }
+
+    /// 淡色胶囊动作按钮（用户指定：胶囊保持淡色底，靠**操作条的不透明底**挡住正文，
+    /// 不要改成实色——v3.9.18 曾试实色被否）
+    private func actionLabel(_ title: String, systemImage: String, tone: Color) -> some View {
+        Label(title, systemImage: systemImage)
+            .font(.system(size: Typography.body))
+            .foregroundStyle(tone)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+            .background(tone.opacity(0.12), in: Capsule())
+            .contentShape(Capsule())
     }
 
     private func saveEdit() {
