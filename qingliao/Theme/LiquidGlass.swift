@@ -21,7 +21,7 @@ struct GlassCard: ViewModifier {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .strokeBorder(Color.white.opacity(scheme == .dark ? 0.22 : 0.12), lineWidth: 0.8)
             )
-            .shadow(color: Color.black.opacity(0.12), radius: 14, y: 5)
+            .shadow(color: Color.black.opacity(Tint.subtle), radius: 14, y: 5)
     }
 }
 
@@ -83,7 +83,7 @@ struct DashboardCardStyle: ViewModifier {
             .background(Color(uiColor: .secondarySystemGroupedBackground))
             .overlay(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.8)
+                    .strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8)
             )
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
     }

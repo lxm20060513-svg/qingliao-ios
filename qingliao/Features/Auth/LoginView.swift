@@ -13,7 +13,7 @@ struct ModeSwitchBar: View {
         }
         .padding(4)
         .background(Color(uiColor: .secondarySystemGroupedBackground), in: Capsule())
-        .overlay(Capsule().strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.8))
+        .overlay(Capsule().strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8))
         // v3.0.1：胶囊选中高亮平滑过渡（点击瞬间移动渐变，非跳变）
         .animation(Motion.settle, value: config.mode)
         .padding(.horizontal, 24)
@@ -227,7 +227,7 @@ struct LoginView: View {
                         .foregroundStyle(Color.accentColor)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 11)
-                        .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                        .background(Color.accentColor.opacity(Tint.subtle), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
                     }
                     .buttonStyle(.plain)
                     .padding(.horizontal, 28)
@@ -264,7 +264,7 @@ struct LoginView: View {
                     .foregroundStyle(Color.accentColor)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 11)
-                    .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                    .background(Color.accentColor.opacity(Tint.subtle), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
                 }
                 .buttonStyle(.plain)
                 .padding(.horizontal, 28)
@@ -352,7 +352,7 @@ struct GlassField: View {
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(.white.opacity(0.12), lineWidth: 0.8)
+                .strokeBorder(.white.opacity(Tint.subtle), lineWidth: 0.8)
         )
     }
 }

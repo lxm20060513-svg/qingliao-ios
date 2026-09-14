@@ -110,7 +110,7 @@ struct LocalModelsSheet: View {
                             .foregroundStyle(Color.accentColor)
                             .padding(.horizontal, 10)
                             .padding(.vertical, 4)
-                            .background(Color.accentColor.opacity(0.12), in: Capsule())
+                            .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
                     }
                 }
             }

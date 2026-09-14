@@ -34,7 +34,7 @@ struct SecretsView: View {
                     Spacer()
                     ZStack {
                         Circle()
-                            .fill(Color.accentColor.opacity(0.12))
+                            .fill(Color.accentColor.opacity(Tint.subtle))
                             .frame(width: 76, height: 76)
                         Image(systemName: "faceid")
                             .font(.system(size: 34))
@@ -266,7 +266,7 @@ struct SecretRow: View {
                     .font(.system(size: Typography.tiny))
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 7).padding(.vertical, 2)
-                    .background(Color.secondary.opacity(0.12), in: Capsule())
+                    .background(Color.secondary.opacity(Tint.subtle), in: Capsule())
                 Spacer()
                 // 复制完整连接串
                 Button {

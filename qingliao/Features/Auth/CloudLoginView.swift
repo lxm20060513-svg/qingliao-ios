@@ -92,7 +92,7 @@ struct CloudLoginView: View {
                     .foregroundStyle(Color.accentColor)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 11)
-                    .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                    .background(Color.accentColor.opacity(Tint.subtle), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
                 }
                 .buttonStyle(.plain)
                 .padding(.horizontal, 28)
@@ -118,7 +118,7 @@ struct CloudLoginView: View {
                     .foregroundStyle(Color.accentColor)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 11)
-                    .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                    .background(Color.accentColor.opacity(Tint.subtle), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
                 }
                 .buttonStyle(.plain)
                 .padding(.horizontal, 28)
@@ -171,7 +171,7 @@ struct CloudLoginView: View {
                         .foregroundStyle(Color.accentColor)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 11)
-                        .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                        .background(Color.accentColor.opacity(Tint.subtle), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
                     }
                     .buttonStyle(.plain)
                     .padding(.horizontal, 28)

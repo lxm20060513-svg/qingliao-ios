@@ -565,7 +565,7 @@ private struct MemoDetailSheet: View {
             .background(Color(uiColor: .systemGroupedBackground))
             .overlay(alignment: .top) {
                 Rectangle()
-                    .fill(Color.primary.opacity(0.08))
+                    .fill(Color.primary.opacity(Tint.faint))
                     .frame(height: 0.8)
             }
         }

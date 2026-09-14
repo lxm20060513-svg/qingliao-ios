@@ -242,7 +242,7 @@ struct LifeCardsSettingsView: View {
                             .font(.system(size: Typography.tiny))
                             .padding(.horizontal, 6)
                             .padding(.vertical, 1)
-                            .background(Color.accentColor.opacity(0.12), in: Capsule())
+                            .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
                             .foregroundStyle(Color.accentColor)
                     }
                 }
@@ -557,7 +557,7 @@ struct LifeCardsSettingsView: View {
             .foregroundStyle(Color.accentColor)
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
-            .background(Color.accentColor.opacity(0.12), in: Capsule())
+            .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
         }
         .buttonStyle(PressStyle())
     }
@@ -621,7 +621,7 @@ struct LifeCardsSettingsView: View {
                 .font(.system(size: Typography.caption, weight: .semibold))
                 .foregroundStyle(Color.red)
                 .frame(width: 26, height: 26)
-                .background(Color.red.opacity(0.12), in: Circle())
+                .background(Color.red.opacity(Tint.subtle), in: Circle())
         }
         .buttonStyle(PressStyle())
     }
@@ -647,7 +647,7 @@ struct LifeCardsSettingsView: View {
             .foregroundStyle(Color.accentColor)
             .padding(.horizontal, 14)
             .padding(.vertical, 6)
-            .background(Color.accentColor.opacity(0.12), in: Capsule())
+            .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
         }
         .buttonStyle(PressStyle())
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -662,7 +662,7 @@ struct LifeCardsSettingsView: View {
                 .foregroundStyle(on ? Color.white : Color.primary)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
-                .background(on ? Color.accentColor : Color.primary.opacity(0.08), in: Capsule())
+                .background(on ? Color.accentColor : Color.primary.opacity(Tint.faint), in: Capsule())
         }
         .buttonStyle(PressStyle())
     }
@@ -1019,7 +1019,7 @@ struct LifeHeaderEditor: View {
                         .foregroundStyle(Color.accentColor)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 4)
-                        .background(Color.accentColor.opacity(0.12), in: Capsule())
+                        .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
                 }
                 .buttonStyle(PressStyle())
             }

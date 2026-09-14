@@ -179,7 +179,7 @@ struct BigBangView: View {
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .strokeBorder(isOn ? Color.white.opacity(0.4) : (scheme == .dark ? Color.white : Color.black).opacity(0.08), lineWidth: 0.8)
+                        .strokeBorder(isOn ? Color.white.opacity(0.4) : (scheme == .dark ? Color.white : Color.black).opacity(Tint.faint), lineWidth: 0.8)
                 )
         }
         .buttonStyle(.plain)

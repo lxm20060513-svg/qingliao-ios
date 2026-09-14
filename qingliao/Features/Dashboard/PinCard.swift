@@ -46,7 +46,7 @@ struct PinCard: View {
                      in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.8)
+                .strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8)
         )
         .contextMenu {
             Button {

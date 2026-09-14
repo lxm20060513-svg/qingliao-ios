@@ -101,7 +101,7 @@ struct ChatExportSheet: View {
                                 .foregroundStyle(.green)
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
-                                .background(Capsule().fill(Color.green.opacity(0.12)))
+                                .background(Capsule().fill(Color.green.opacity(Tint.subtle)))
                         }
                     }
                     Text(desc)

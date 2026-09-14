@@ -184,7 +184,7 @@ struct ModelSheet: View {
                 .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: 13, style: .continuous)
-                        .strokeBorder(freeModelOn ? Color.green.opacity(0.4) : Color.primary.opacity(0.08), lineWidth: 0.8)
+                        .strokeBorder(freeModelOn ? Color.green.opacity(0.4) : Color.primary.opacity(Tint.faint), lineWidth: 0.8)
                 )
                 // v3.0.57 review fix：ModelSheet 开关补齐与云端设置卡一致的完整逻辑
                 // （原 ON 不写 prev / OFF 不恢复 → 关闭免费档后 activeProviderID 仍停在 opencode-free，请求仍走免费档）
@@ -443,7 +443,7 @@ struct ModelSheet: View {
                                     in: RoundedRectangle(cornerRadius: 13, style: .continuous))
                         .overlay(
                             RoundedRectangle(cornerRadius: 13, style: .continuous)
-                                .strokeBorder(ttsOn ? Color.indigo.opacity(0.35) : Color.primary.opacity(0.08), lineWidth: 0.8)
+                                .strokeBorder(ttsOn ? Color.indigo.opacity(0.35) : Color.primary.opacity(Tint.faint), lineWidth: 0.8)
                         )
                     }
                 }
@@ -465,7 +465,7 @@ struct ModelSheet: View {
                         .foregroundStyle(Color.accentColor)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 4)
-                        .background(Color.accentColor.opacity(0.12), in: Capsule())
+                        .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
                 }
             }
         }
@@ -656,7 +656,7 @@ struct ModelSheet: View {
                         .font(.system(size: Typography.caption, weight: .medium))
                         .foregroundStyle(Color.accentColor)
                         .padding(.horizontal, 10).padding(.vertical, 5)
-                        .background(Color.accentColor.opacity(0.12), in: Capsule())
+                        .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
                 }
                 .buttonStyle(.plain)
             }
@@ -666,7 +666,7 @@ struct ModelSheet: View {
                     in: RoundedRectangle(cornerRadius: 13, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 13, style: .continuous)
-                .strokeBorder(selected == id ? Color.accentColor.opacity(0.5) : Color.primary.opacity(0.08),
+                .strokeBorder(selected == id ? Color.accentColor.opacity(0.5) : Color.primary.opacity(Tint.faint),
                               lineWidth: 0.8)
         )
     }
@@ -785,7 +785,7 @@ struct ModelSheet: View {
                         .foregroundStyle(Color.accentColor)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 4)
-                        .background(Color.accentColor.opacity(0.12), in: Capsule())
+                        .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
                 }
                 .buttonStyle(.plain)
             }
@@ -1171,7 +1171,7 @@ struct WechatChannelSheet: View {
                                     Text("重试")
                                         .font(.system(size: Typography.subhead, weight: .medium))
                                         .padding(.horizontal, 18).padding(.vertical, 6)
-                                        .background(Color.accentColor.opacity(0.12), in: Capsule())
+                                        .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
                                         .foregroundStyle(Color.accentColor)
                                 }
                                 .buttonStyle(.plain)
@@ -1267,7 +1267,7 @@ struct WechatChannelSheet: View {
                         .foregroundStyle(Color.accentColor)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 4)
-                        .background(Color.accentColor.opacity(0.12), in: Capsule())
+                        .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
                 }
             }
         }
@@ -1383,7 +1383,7 @@ struct ProviderKeyIssueRow: View {
             Spacer()
         }
         .padding(11)
-        .background(Color.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+        .background(Color.orange.opacity(Tint.faint), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
     }
 }
 
@@ -1482,7 +1482,7 @@ struct AgentModelSheet: View {
                                 in: RoundedRectangle(cornerRadius: 13, style: .continuous))
                     .overlay(
                         RoundedRectangle(cornerRadius: 13, style: .continuous)
-                            .strokeBorder(selected.isEmpty ? Color.accentColor.opacity(0.5) : Color.primary.opacity(0.08),
+                            .strokeBorder(selected.isEmpty ? Color.accentColor.opacity(0.5) : Color.primary.opacity(Tint.faint),
                                           lineWidth: 0.8)
                     )
                     .contentShape(Rectangle())
@@ -1514,7 +1514,7 @@ struct AgentModelSheet: View {
                                         Text("重试")
                                             .font(.system(size: Typography.subhead, weight: .medium))
                                             .padding(.horizontal, 18).padding(.vertical, 6)
-                                            .background(Color.accentColor.opacity(0.12), in: Capsule())
+                                            .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
                                             .foregroundStyle(Color.accentColor)
                                     }
                                     .buttonStyle(.plain)
@@ -1566,7 +1566,7 @@ struct AgentModelSheet: View {
                             .foregroundStyle(Color.accentColor)
                             .padding(.horizontal, 10)
                             .padding(.vertical, 4)
-                            .background(Color.accentColor.opacity(0.12), in: Capsule())
+                            .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
                     }
                 }
             }
@@ -1622,7 +1622,7 @@ struct AgentModelSheet: View {
                         .font(.system(size: Typography.caption, weight: .medium))
                         .foregroundStyle(Color.accentColor)
                         .padding(.horizontal, 10).padding(.vertical, 5)
-                        .background(Color.accentColor.opacity(0.12), in: Capsule())
+                        .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
                 }
                 .buttonStyle(.plain)
             }
@@ -1632,7 +1632,7 @@ struct AgentModelSheet: View {
                     in: RoundedRectangle(cornerRadius: 13, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 13, style: .continuous)
-                .strokeBorder(isCur ? Color.accentColor.opacity(0.5) : Color.primary.opacity(0.08),
+                .strokeBorder(isCur ? Color.accentColor.opacity(0.5) : Color.primary.opacity(Tint.faint),
                               lineWidth: 0.8)
         )
     }

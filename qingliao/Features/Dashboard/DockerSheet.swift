@@ -377,7 +377,7 @@ private struct ContainerSection: View {
                     .foregroundStyle(Color.accentColor)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
-                    .background(Color.accentColor.opacity(0.12), in: Capsule())
+                    .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
                 }
                 .buttonStyle(.plain)
             }
@@ -426,7 +426,7 @@ private struct ContainerSection: View {
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
         .overlay(
             RoundedRectangle(cornerRadius: 16)
-                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.8)
+                .strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8)
         )
     }
 }
@@ -455,7 +455,7 @@ private struct ImageSection: View {
                     .foregroundStyle(Color.indigo)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
-                    .background(Color.indigo.opacity(0.12), in: Capsule())
+                    .background(Color.indigo.opacity(Tint.subtle), in: Capsule())
                 }
                 .buttonStyle(.plain)
             }
@@ -486,7 +486,7 @@ private struct ImageSection: View {
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
         .overlay(
             RoundedRectangle(cornerRadius: 16)
-                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.8)
+                .strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8)
         )
     }
 }
@@ -515,7 +515,7 @@ private struct DeploySection: View {
                 .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
                 .overlay(
                     RoundedRectangle(cornerRadius: 10)
-                        .strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.8)
+                        .strokeBorder(Color.primary.opacity(Tint.subtle), lineWidth: 0.8)
                 )
             if !name.isEmpty {
                 Text("目录：/volume1/docker/\(name)/")
@@ -535,7 +535,7 @@ private struct DeploySection: View {
                     .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 10))
                     .overlay(
                         RoundedRectangle(cornerRadius: 10)
-                            .strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.8)
+                            .strokeBorder(Color.primary.opacity(Tint.subtle), lineWidth: 0.8)
                     )
                     .overlay(alignment: .topLeading) {
                         if yaml.isEmpty {
@@ -595,7 +595,7 @@ private struct DeploySection: View {
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
         .overlay(
             RoundedRectangle(cornerRadius: 16)
-                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.8)
+                .strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8)
         )
 
         // 结果提示

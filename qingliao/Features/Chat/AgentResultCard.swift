@@ -92,7 +92,7 @@ struct AgentResultCard: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 3)
-        .background(toneColor(tone).opacity(0.12), in: Capsule())
+        .background(toneColor(tone).opacity(Tint.subtle), in: Capsule())
     }
 
     // MARK: 指标（大号数值 + 单位）
@@ -175,7 +175,7 @@ struct AgentResultCard: View {
                             .foregroundStyle(toneColor(item.tone))
                             .padding(.horizontal, 7)
                             .padding(.vertical, 2)
-                            .background(toneColor(item.tone).opacity(0.12), in: Capsule())
+                            .background(toneColor(item.tone).opacity(Tint.subtle), in: Capsule())
                     }
                 }
             }
@@ -225,7 +225,7 @@ private struct AgentCardTable: View {
                                 .padding(.vertical, 5)
                                 .frame(width: colWidths.indices.contains(c) ? colWidths[c] : 72, alignment: .leading)
                                 .background(r == 0
-                                            ? Color.accentColor.opacity(0.08)
+                                            ? Color.accentColor.opacity(Tint.faint)
                                             : (r % 2 == 0 ? Color.primary.opacity(0.03) : Color.clear))
                         }
                     }
@@ -239,7 +239,7 @@ private struct AgentCardTable: View {
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.8)
+                .strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8)
         )
     }
 }

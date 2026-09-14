@@ -618,7 +618,7 @@ private struct MarkdownTableView: View {
                             .padding(.vertical, 6)
                             .frame(width: colWidths.indices.contains(c) ? colWidths[c] : 80, alignment: .leading)
                             .background(r == 0
-                                        ? Color.accentColor.opacity(0.08)
+                                        ? Color.accentColor.opacity(Tint.faint)
                                         : (r % 2 == 0 ? Color.primary.opacity(0.03) : Color.clear))
                     }
                 }
@@ -746,7 +746,7 @@ struct AIFileCard: View {
             }
             .padding(10)
             .frame(maxWidth: 260)
-            .background(Color.secondary.opacity(0.12),
+            .background(Color.secondary.opacity(Tint.subtle),
                         in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
         .buttonStyle(.plain)
@@ -857,7 +857,7 @@ struct SessionCardView: View {
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .strokeBorder(Color.black.opacity(0.08))
+                .strokeBorder(Color.black.opacity(Tint.faint))
         )
     }
 

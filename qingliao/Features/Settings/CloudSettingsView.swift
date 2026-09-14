@@ -82,7 +82,7 @@ struct CloudSettingsView: View {
                                             .font(.system(size: Typography.caption, weight: .medium))
                                             .foregroundStyle(Color.accentColor)
                                             .padding(.horizontal, 10).padding(.vertical, 4)
-                                            .background(Color.accentColor.opacity(0.12), in: Capsule())
+                                            .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
                                     }
                                     .buttonStyle(.plain)
                                     // v3.0.57：删除厂商（清掉无法使用的模型厂商）
@@ -93,7 +93,7 @@ struct CloudSettingsView: View {
                                             .font(.system(size: Typography.caption, weight: .medium))
                                             .foregroundStyle(.red)
                                             .padding(.horizontal, 10).padding(.vertical, 4)
-                                            .background(Color.red.opacity(0.12), in: Capsule())
+                                            .background(Color.red.opacity(Tint.subtle), in: Capsule())
                                     }
                                     .buttonStyle(.plain)
                                 }
@@ -419,7 +419,7 @@ struct CloudModelsSheet: View {
                             .foregroundStyle(Color.accentColor)
                             .padding(.horizontal, 10)
                             .padding(.vertical, 3)
-                            .background(Color.accentColor.opacity(0.12), in: Capsule())
+                            .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
                     }
                     .buttonStyle(.plain)
                 }

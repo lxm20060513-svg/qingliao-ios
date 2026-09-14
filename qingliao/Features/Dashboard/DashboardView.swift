@@ -93,7 +93,7 @@ struct DashboardView: View {
                                         .font(.system(size: Typography.tiny))
                                         .padding(.horizontal, 10)
                                         .padding(.vertical, 4)
-                                        .background(Color.accentColor.opacity(0.12), in: Capsule())
+                                        .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
                                 }
                                 .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
                                 .foregroundStyle(Color.accentColor)
@@ -119,7 +119,7 @@ struct DashboardView: View {
                                     .font(.system(size: Typography.subhead, weight: .medium))
                                     .padding(.horizontal, 14)
                                     .padding(.vertical, 6)
-                                    .background(Color.accentColor.opacity(0.12), in: Capsule())
+                                    .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
                             }
                             .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
                             .foregroundStyle(Color.accentColor)
@@ -166,7 +166,7 @@ struct DashboardView: View {
                                     .foregroundStyle(Color.accentColor)
                                     .padding(.horizontal, 10)
                                     .padding(.vertical, 4)
-                                    .background(Color.accentColor.opacity(0.12), in: Capsule())
+                                    .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
                             }
                             .buttonStyle(PressStyle())
                         }
@@ -213,7 +213,7 @@ struct DashboardView: View {
                                     .foregroundStyle(Color.accentColor)
                                     .padding(.horizontal, 10)
                                     .padding(.vertical, 4)
-                                    .background(Color.accentColor.opacity(0.12), in: Capsule())
+                                    .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
                             }
                             .buttonStyle(PressStyle())
                         }
@@ -1186,7 +1186,7 @@ struct HADeviceSheet: View {
             // v3.0.6 fix：卡片补描边（用户要求每个开关卡都描框）
             .background(
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(isOn ? Color.accentColor.opacity(0.12) : Color(uiColor: .secondarySystemGroupedBackground))
+                    .fill(isOn ? Color.accentColor.opacity(Tint.subtle) : Color(uiColor: .secondarySystemGroupedBackground))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -1331,13 +1331,13 @@ struct HADeviceSheet: View {
         .padding(14)
         .background(
             // v2.0.87j：弹窗玻璃下扁平化（渐变末端白底 → 轻透明）
-            LinearGradient(colors: [isOn ? Color.blue.opacity(0.20) : Color.blue.opacity(0.08), Color(uiColor: .secondarySystemGroupedBackground)],
+            LinearGradient(colors: [isOn ? Color.blue.opacity(0.20) : Color.blue.opacity(Tint.faint), Color(uiColor: .secondarySystemGroupedBackground)],
                            startPoint: .topLeading, endPoint: .bottomTrailing)
         )
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .strokeBorder(isOn ? Color.accentColor.opacity(0.35) : Color.white.opacity(0.08), lineWidth: 1)
+                .strokeBorder(isOn ? Color.accentColor.opacity(0.35) : Color.white.opacity(Tint.faint), lineWidth: 1)
         )
         .shadow(color: isOn ? Color.accentColor.opacity(0.15) : .clear, radius: 10, y: 3)
     }

@@ -387,7 +387,7 @@ struct MessageBubble: View {
                             .foregroundStyle(Color.orange)
                             .padding(.horizontal, 7)
                             .padding(.vertical, 3)
-                            .background(Color.orange.opacity(0.12), in: Capsule())
+                            .background(Color.orange.opacity(Tint.subtle), in: Capsule())
                         }
                         .buttonStyle(.plain)
                         .padding(.top, 3)

@@ -89,7 +89,7 @@ struct InboxPullLayer: View {
             .overlay(
                 Capsule().strokeBorder(Color.primary.opacity(0.14), lineWidth: 0.8)
             )
-            .shadow(color: .black.opacity(0.08), radius: 10, y: 3)
+            .shadow(color: .black.opacity(Tint.faint), radius: 10, y: 3)
             .padding(.bottom, 10)
     }
 }

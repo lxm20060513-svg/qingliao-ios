@@ -55,9 +55,9 @@ enum PillTone {
 
     var bg: Color {
         switch self {
-        case .accent: return Color.accentColor.opacity(0.12)
-        case .danger: return Color.red.opacity(0.12)
-        case .neutral: return Color.secondary.opacity(0.12)
+        case .accent: return Color.accentColor.opacity(Tint.subtle)
+        case .danger: return Color.red.opacity(Tint.subtle)
+        case .neutral: return Color.secondary.opacity(Tint.subtle)
         }
     }
 

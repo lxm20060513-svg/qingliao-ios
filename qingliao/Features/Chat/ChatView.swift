@@ -151,7 +151,7 @@ struct ToolCardView: View {
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.8)
+                .strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8)
         )
     }
 }
@@ -190,7 +190,7 @@ struct ToolStepRow: View {
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.8)
+                .strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8)
         )
     }
 }
@@ -224,7 +224,7 @@ struct ToolStepsSummaryRow: View {
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.8)
+                    .strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8)
             )
             .contentShape(Rectangle())
         }
@@ -496,7 +496,7 @@ struct ChatView: View {
             .foregroundStyle(Color.accentColor)
             .padding(.horizontal, 9)
             .padding(.vertical, 6)          // v3.6.5：触摸区抬到 ~46×24（贴近 HIG 44pt 下限）
-            .background(Color.accentColor.opacity(0.12), in: Capsule())
+            .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
             .contentShape(Capsule())
         }
         .buttonStyle(PressStyle())
@@ -519,7 +519,7 @@ struct ChatView: View {
                 .foregroundStyle(autoReadReply ? Color.accentColor : Color.secondary)
                 .padding(.horizontal, 9)
                 .padding(.vertical, 7)          // 触摸区 ~34×24（贴近 HIG 44pt 下限，与左侧胶囊同高）
-            .background(autoReadReply ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.06), in: Capsule())
+            .background(autoReadReply ? Color.accentColor.opacity(Tint.subtle) : Color.primary.opacity(0.06), in: Capsule())
             .overlay {
                 // 只有关态画描边（开态靠主色底区分，与思考档位胶囊同族）；开态不画全透明描边
                 if !autoReadReply { Capsule().strokeBorder(Color.primary.opacity(0.10), lineWidth: 0.8) }
@@ -774,7 +774,7 @@ struct ChatView: View {
             .padding(.vertical, 12)
             .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.12), lineWidth: 0.8))
+                .strokeBorder(Color.white.opacity(Tint.subtle), lineWidth: 0.8))
             .padding(.horizontal, 12)
             .transition(.move(edge: .bottom).combined(with: .opacity))
         }
@@ -804,7 +804,7 @@ struct ChatView: View {
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 7)
-            .background(Color.accentColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .background(Color.accentColor.opacity(Tint.faint), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             .padding(.horizontal, 12)
             .transition(.move(edge: .bottom).combined(with: .opacity))
         }
@@ -1177,7 +1177,7 @@ struct ChatView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(.ultraThinMaterial, in: Capsule())
-        .overlay(Capsule().strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.8))
+        .overlay(Capsule().strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8))
         .padding(.horizontal, 14)
         .padding(.top, 2)
         .padding(.bottom, 2)
@@ -1309,7 +1309,7 @@ struct ChatView: View {
                             .padding(.horizontal, 12)
                             .padding(.vertical, 7)
                             .background(.ultraThinMaterial, in: Capsule())
-                            .overlay(Capsule().strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.8))
+                            .overlay(Capsule().strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8))
                         }
                         .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
                     }
@@ -1347,7 +1347,7 @@ struct ChatView: View {
                     .padding(.vertical, 10)
                     .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.8))
+                        .strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8))
                 }
                 .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
                 .padding(.horizontal, 16)
@@ -1412,7 +1412,7 @@ struct ChatView: View {
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 7)
                                 .background(.ultraThinMaterial, in: Capsule())
-                                .overlay(Capsule().strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.8))
+                                .overlay(Capsule().strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8))
                         }
                         .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
                     }
@@ -1630,7 +1630,7 @@ struct ChatView: View {
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.8)
+                .strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8)
         )
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
@@ -1683,7 +1683,7 @@ struct ChatView: View {
                                                 .foregroundStyle(.secondary)
                                                 .padding(.vertical, 8)
                                                 .padding(.horizontal, 14)
-                                                .background(Color.secondary.opacity(0.08), in: Capsule())
+                                                .background(Color.secondary.opacity(Tint.faint), in: Capsule())
                                             }
                                             .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
                                             .padding(.bottom, 2)
@@ -2189,7 +2189,7 @@ struct ChatView: View {
         .background(.ultraThinMaterial)
         .overlay(RoundedRectangle(cornerRadius: 0).stroke(Color.orange.opacity(0.3), lineWidth: 0.8))
         .clipShape(RoundedRectangle(cornerRadius: 16))
-        .shadow(color: .black.opacity(0.08), radius: 8, y: 3)
+        .shadow(color: .black.opacity(Tint.faint), radius: 8, y: 3)
         .padding(.horizontal, 12)
         .padding(.top, 8)
     }
