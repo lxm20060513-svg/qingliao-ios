@@ -36,7 +36,7 @@ struct PinCard: View {
             // 内容
             Text(pin.preview)
                 .font(.system(size: Typography.subhead))
-                .lineSpacing(2)
+                .lineSpacing(LineSpacing.compact)
                 .lineLimit(5)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }

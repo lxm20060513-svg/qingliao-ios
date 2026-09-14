@@ -844,7 +844,7 @@ struct SessionCardView: View {
                         .background(row.role == "user" ? Color.blue : Color.indigo, in: Capsule())
                     Text(row.text)
                         .font(.system(size: Typography.subhead))
-                        .lineSpacing(3)
+                        .lineSpacing(LineSpacing.compact)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .foregroundStyle(.primary)
                 }

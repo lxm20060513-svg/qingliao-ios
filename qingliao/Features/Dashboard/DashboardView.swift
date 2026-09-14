@@ -109,7 +109,7 @@ struct DashboardView: View {
                         } else if !smartSuggestion.isEmpty {
                             Text(smartSuggestion)
                                 .font(.system(size: Typography.subhead))
-                                .lineSpacing(3)
+                                .lineSpacing(LineSpacing.compact)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         } else {
                             Button {

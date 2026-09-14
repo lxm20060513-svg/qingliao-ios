@@ -26,7 +26,7 @@ struct SelectableTextLabel: UIViewRepresentable {
     let attributedText: NSAttributedString
     let fallbackColor: UIColor          // 无颜色属性的文本用此色（用户消息白字 / AI 消息 label）
     // v2.0.125：行距可配（AI 回复行距缩小；用户消息保持原行距）
-    var lineSpacing: CGFloat = 3
+    var lineSpacing: CGFloat = LineSpacing.compact
     // v2.0.130：AI 消息行距从设置实时读（UserDefaults 直读，不依赖 SwiftUI 参数传递时机——修复"调了没生效"）
     var lineSpacingFromSettings: Bool = false
     // v3.0.11 fix：AI 消息统一满容器宽（流式宽度恒定，消除"字变小/排版每帧跳变"）

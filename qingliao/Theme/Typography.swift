@@ -42,3 +42,18 @@ enum Typography {
     /// 空态插画 / 大标题
     static let display: CGFloat = 28
 }
+
+// MARK: - v3.9.19 全站行距令牌（LineSpacing）
+//
+// 背景：改造前 `.lineSpacing(…)` 的静态值散落 2 / 3 / 4 / 6 四种，同为「AI 生成长正文」却有三种手感
+// （资讯正文 4、备忘录详情 6、会话导出 6）——同类文本不一致，长文阅读的松紧随场景漂移。
+//
+// ⚠️ **聊天会话的 AI 消息不在此体系内**：那里的行距是用户设置项 `qingliao_ai_line_spacing`
+//（设置 →「AI 输出行高」滑块，紧凑↔宽松 0…6、step 0.5、默认 1.0，见 CloudSettingsView）。
+// **用户设置优先，不要换成令牌**；令牌只服务「没有设置项兜底」的静态文本。
+enum LineSpacing {
+    /// 长文正文（≥15pt 的连续阅读文本：资讯 AI 正文、备忘录详情 / 编辑、会话导出）
+    static let long: CGFloat = 6
+    /// 紧凑说明（卡片副文本、会话列表行、用户消息默认、pin 预览）
+    static let compact: CGFloat = 3
+}

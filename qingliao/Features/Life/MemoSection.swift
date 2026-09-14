@@ -450,7 +450,7 @@ private struct MemoDetailSheet: View {
                         // v3.9.14：补上编辑（MemoStore.update 早就写好了，一直没入口）
                         TextEditor(text: $editText)
                             .font(.system(size: Typography.body))
-                            .lineSpacing(6)
+                            .lineSpacing(LineSpacing.long)
                             .scrollContentBackground(.hidden)
                             .frame(minHeight: 220, alignment: .topLeading)
                             .padding(10)
@@ -459,7 +459,7 @@ private struct MemoDetailSheet: View {
                     } else {
                         Text(current.content)
                             .font(.system(size: Typography.headline))
-                            .lineSpacing(6)
+                            .lineSpacing(LineSpacing.long)
                             .foregroundStyle(.primary)
                             .textSelection(.enabled)
                             .frame(maxWidth: .infinity, alignment: .leading)

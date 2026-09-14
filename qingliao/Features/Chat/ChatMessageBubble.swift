@@ -215,7 +215,7 @@ struct MessageBubble: View {
                                         .foregroundColor: UIColor.white
                                     ]),
                                     fallbackColor: .white,
-                                    lineSpacing: 3,
+                                    lineSpacing: LineSpacing.compact,
                                     onCopy: { UIPasteboard.general.string = message.content },
                                     onQuote: onQuote,
                                     onShare: onShare,

@@ -308,7 +308,7 @@ struct LifeCardsSection: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text(a.content)
                     .font(.system(size: Typography.body))
-                    .lineSpacing(4)
+                    .lineSpacing(LineSpacing.long)
                     .foregroundStyle(.primary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 HStack(spacing: 8) {

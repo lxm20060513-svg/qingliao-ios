@@ -122,7 +122,7 @@ extension ChatView {
         let vPad: CGFloat = 24
         let font = UIFont.systemFont(ofSize: 16)
         let para = NSMutableParagraphStyle()
-        para.lineSpacing = 6
+        para.lineSpacing = LineSpacing.long
         let attrs: [NSAttributedString.Key: Any] = [
             .font: font,
             .foregroundColor: UIColor(white: 0.13, alpha: 1),
