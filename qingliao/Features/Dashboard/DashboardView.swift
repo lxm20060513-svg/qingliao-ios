@@ -140,7 +140,7 @@ struct DashboardView: View {
                             .matchedTransitionSource(id: DashboardSheet.climate.id, in: sheetZoomNS)   // v3.9.0：卡片→详情 zoom
                         DeviceCard(name: "门锁", icon: "lock.fill", value: haLockBattery, sub: "智能门锁", status: .on)
                         DeviceCard(name: "猫眼", icon: "video.fill", value: haDoorbellBattery, sub: haDoorbellOnline ? "在线" : "离线", status: haDoorbellOnline ? .on : .off)
-                        DeviceCard(name: "安防", icon: "shield.fill", value: haAlarm, sub: haAlarmArmed ? "已布防" : "未布防", status: haAlarmArmed ? .on : .warn)
+                        DeviceCard(name: "安防", icon: "shield.fill", value: haAlarm, sub: "网关警戒模式", status: haAlarmArmed ? .on : .warn)
                         DeviceCard(name: "温度", icon: "thermometer", value: haTemp, sub: "室内温度", status: .on)
                     }
 
@@ -765,13 +765,21 @@ struct DashboardView: View {
         !(doorbellBattery?.state.contains("unavailable") ?? true)
     }
 
+    // v3.9.19：安防数据源改为 Aqara 网关「警戒模式」开关
+    // （用户已移除萤石插件，原 sensor.she_xiang_tou_alarmstatus 不复存在；
+    //   后端 ha_proxy._keep_entity 已同步放行 guard_mode，否则 App 收不到这个实体）
     private var alarm: HAEntity? {
-        haEntities.first { $0.entityID.contains("alarmstatus") }
+        haEntities.first { $0.entityID.contains("guard_mode") }
     }
-    private var haAlarm: String { alarm?.state ?? "--" }
     private var haAlarmArmed: Bool {
         guard let st = alarm?.state else { return false }
-        return ["布防", "armed", "armed_home", "armed_away", "on"].contains(st)
+        return ["on", "布防", "armed", "armed_home", "armed_away"].contains(st)
+    }
+    /// 开关的 on/off 映射成中文（原 alarmstatus 的 state 本身就是中文，可直接显示）
+    private var haAlarm: String {
+        guard let st = alarm?.state else { return "--" }
+        if st.isEmpty || st.contains("unavailable") { return "离线" }
+        return haAlarmArmed ? "布防" : "撤防"
     }
 
     private var tempSensor: HAEntity? {

@@ -190,8 +190,9 @@ struct MemoSection: View {
             VStack(spacing: 0) {
                 // v3.9.18：顶栏同样自绘（系统那版「完成」胶囊偏大）
                 HStack(spacing: 8) {
+                    // v3.9.19：与详情页标题同档 17pt（原来 13pt 偏小）
                     Text("全部备忘")
-                        .font(.system(size: Typography.subhead, weight: .semibold))
+                        .font(.system(size: Typography.title, weight: .semibold))
                     Text("\(store.sorted.count) 条")
                         .font(.system(size: Typography.caption))
                         .foregroundStyle(.secondary)
@@ -518,9 +519,11 @@ private struct MemoDetailSheet: View {
         .padding(.bottom, 6)
         .overlay {
             if !editing {
+                // v3.9.19：标题字号回到 17pt（= 系统导航栏 inline 标题档 Typography.title）。
+                // v3.9.18 自绘顶栏时误用了 subhead(13) 当「次要标题」，用户反馈「太小了」
                 Text("备忘录")
-                    .font(.system(size: Typography.subhead, weight: .semibold))
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: Typography.title, weight: .semibold))
+                    .foregroundStyle(.primary)
                     .allowsHitTesting(false)
             }
         }
