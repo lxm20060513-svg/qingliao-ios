@@ -201,21 +201,17 @@ struct CloudSettingsView: View {
                 config.activeProviderID = newConfig.providerID
             }
             .scrollContentBackground(.hidden)
-            .glassSheetBackground()
         }
         .sheet(isPresented: $showAppearance) {
             AppearanceSheet()
                 .presentationDetents([.medium, .large])
                 .scrollContentBackground(.hidden)
-                .glassSheetBackground()
         }
         .sheet(isPresented: $showCloudModels) {
             CloudModelsSheet()
-                .glassSheetBackground()
         }
         .sheet(isPresented: $showAbout) {
             AboutView(isCloud: true)   // v3.0.1：云端文案
-                .glassSheetBackground()
         }
     }
 

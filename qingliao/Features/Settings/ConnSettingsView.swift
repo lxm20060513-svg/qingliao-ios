@@ -101,12 +101,10 @@ struct ConnSettingsView: View {
             .sheet(isPresented: $showServerSheet) {
                 ServerSheet()
                     .presentationDetents([.medium])
-                    .glassSheetBackground()
             }
             .sheet(isPresented: $showSessionLocSheet) {
                 SessionLocSheet(currentPath: sessionLoc)
                     .presentationDetents([.medium])
-                    .glassSheetBackground()
             }
             // v2.0.85：文件上传位置修改
             .sheet(isPresented: $showUploadDirSheet) {
@@ -115,7 +113,6 @@ struct ConnSettingsView: View {
                     uploadDir = newDir
                 }
                 .presentationDetents([.medium])
-                .glassSheetBackground()
             }
             .task {
                 // 拉取服务器端会话存储位置 + 文件上传位置

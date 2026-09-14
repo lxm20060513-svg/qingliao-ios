@@ -62,7 +62,6 @@ struct LifeView: View {
         .sheet(isPresented: $showLifeSettings) {
             LifeCardsSettingsView()
                 .presentationDetents([.medium, .large])
-                .glassSheetBackground()
         }
         // v3.7.0：资讯正文长按「大爆炸」→ 全屏炸开选词
         .fullScreenCover(item: $bigBangPayload) { payload in

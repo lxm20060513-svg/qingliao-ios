@@ -72,7 +72,6 @@ struct MCPSettingsSheet: View {
                     Task { await save(template: template, key: k, url: url) }
                 }
                 .scrollContentBackground(.hidden)
-                .glassSheetBackground()
             }
             .confirmationDialog("删除 \(pendingDelete?.id ?? "")？将触发 Hermes 重启（约 30 秒）",
                                 isPresented: Binding(get: { pendingDelete != nil },

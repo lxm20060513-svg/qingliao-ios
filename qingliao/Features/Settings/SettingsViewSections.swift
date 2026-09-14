@@ -197,7 +197,6 @@ extension SettingsView {
         .sheet(isPresented: $showPinPath) {
             PinPathSheet()
                 .presentationDetents([.medium, .large])
-                .glassSheetBackground()
         }
     }
 

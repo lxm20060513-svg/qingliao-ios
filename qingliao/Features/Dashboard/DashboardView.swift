@@ -386,32 +386,26 @@ struct DashboardView: View {
                     HADeviceSheet(title: "客厅灯", domain: "light")
                         .presentationDetents([.medium, .large])
                         .navigationTransition(.zoom(sourceID: DashboardSheet.lights.id, in: sheetZoomNS))   // v3.9.0
-                        .glassSheetBackground()   // v3.9.22：弹窗统一毛玻璃
                 case .climate:
                     HADeviceSheet(title: "空调", domain: "climate")
                         .presentationDetents([.medium, .large])
                         .navigationTransition(.zoom(sourceID: DashboardSheet.climate.id, in: sheetZoomNS))   // v3.9.0
-                        .glassSheetBackground()   // v3.9.22：弹窗统一毛玻璃
                 case .service:
                     ServiceControlSheet(service: .qingliao)
                         .presentationDetents([.medium])
                         .navigationTransition(.zoom(sourceID: DashboardSheet.service.id, in: sheetZoomNS))   // v3.9.0
-                        .glassSheetBackground()   // v3.9.22：弹窗统一毛玻璃
                 case .serviceHermes:
                     ServiceControlSheet(service: .hermes)
                         .presentationDetents([.medium])
                         .navigationTransition(.zoom(sourceID: DashboardSheet.serviceHermes.id, in: sheetZoomNS))   // v3.9.0
-                        .glassSheetBackground()   // v3.9.22：弹窗统一毛玻璃
                 case .disks:
                     DisksSheet(disks: nas.disks)
                         .presentationDetents([.medium, .large])
                         .navigationTransition(.zoom(sourceID: DashboardSheet.disks.id, in: sheetZoomNS))   // v3.9.0
-                        .glassSheetBackground()   // v3.9.22：弹窗统一毛玻璃
                 case .docker:
                     DockerSheet()
                         .presentationDetents([.medium, .large])
                         .navigationTransition(.zoom(sourceID: DashboardSheet.docker.id, in: sheetZoomNS))   // v3.9.0
-                        .glassSheetBackground()   // v3.9.22：弹窗统一毛玻璃
                 }
             }
             // v3.9.21：删除规则确认

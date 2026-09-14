@@ -215,13 +215,11 @@ struct RootView: View {
         .sheet(isPresented: $showCrashAlert) {
             CrashAlertSheet(logText: crashAlertText)
                 .presentationDetents([.medium])
-                .glassSheetBackground()
         }
         // v3.4.25：设置页「崩溃日志」入口复用同一查看/导出弹窗（隐藏忽略按钮，防误删日志）
         .sheet(isPresented: $showCrashLogSheet) {
             CrashAlertSheet(logText: CrashReporter.latestLogText(), allowDismiss: false)
                 .presentationDetents([.medium, .large])
-                .glassSheetBackground()
         }
     }
 }
@@ -319,7 +317,6 @@ struct CrashAlertSheet: View {
         // v3.4.25：iOS 16+ 系统 UIActivityViewController 封装（AirDrop/备忘录/文件等全分享面板）
         .sheet(isPresented: $showExporter) {
             ActivityShareSheet(items: [logText])
-                .glassSheetBackground()
         }
     }
 }

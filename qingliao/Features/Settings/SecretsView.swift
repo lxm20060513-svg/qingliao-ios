@@ -110,7 +110,6 @@ struct SecretsView: View {
                 Task { await save(newEntry) }
             })
             .presentationDetents([.medium])
-            .glassSheetBackground()
         }
         .overlay(alignment: .bottom) {
             if !toast.isEmpty {

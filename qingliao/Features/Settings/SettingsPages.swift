@@ -149,7 +149,6 @@ struct TasksView: View {
         .sheet(isPresented: $showNewTask) {
             NewTaskSheet()
                 .presentationDetents([.medium])
-                .glassSheetBackground()
         }
         }
     }

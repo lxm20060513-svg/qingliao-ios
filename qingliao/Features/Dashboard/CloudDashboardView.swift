@@ -61,7 +61,6 @@ struct CloudDashboardView: View {
                 Spacer()
             }
             .presentationDetents([.height(220)])
-            .glassSheetBackground()
         }
     }
 

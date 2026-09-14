@@ -189,7 +189,6 @@ struct CloudLoginView: View {
                 selectedID = newConfig.providerID
             }
             .scrollContentBackground(.hidden)
-            .glassSheetBackground()
         }
         .onAppear {
             selectedID = config.activeProviderID

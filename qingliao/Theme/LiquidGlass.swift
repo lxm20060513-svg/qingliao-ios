@@ -298,20 +298,15 @@ struct IslandGlowOverlay: View {
     }
 }
 
-// MARK: - v3.9.22 弹窗统一毛玻璃底（用户要求：所有弹窗背景统一）
+// MARK: - 弹窗背景：不做材质覆盖（v3.9.23 决策记录，勿再尝试）
 //
-// 背景：此前全仓一个 `.presentationBackground` 都没有，弹窗都用系统默认底；用户参照「关于轻聊」
-// 的观感要求统一换成毛玻璃（`.ultraThinMaterial`，半透明 + 模糊后方内容）。
+// 一轮试错（v3.9.22）：曾给全仓 59 个 `.sheet` 挂 `.presentationBackground(.ultraThinMaterial)`
+// 想"统一毛玻璃"，真机反馈**观感回退** —— 因为 iOS 26 系统给弹窗的默认底本身就是玻璃材质，
+// 用 `ultraThinMaterial` 盖上去等于拿旧材质覆盖系统那层，反而显得又旧又灰。
 //
-// 用法：挂在 `.sheet { ... }` 的**内容视图**上：`SomeSheet().glassSheetBackground()`
-//
-// ⚠️ 两个坑（都会让"看起来没变"）：
-//   1. 内容若是 `List` / `Form` / `ScrollView`，必须同时 `.scrollContentBackground(.hidden)`，
-//      否则控件自带底会把毛玻璃盖住（本仓已有 5 处该用法，可参照）；
-//   2. `.fullScreenCover` 不支持 `presentationBackground` —— 那 4 处保持原样或自绘背景。
-extension View {
-    /// 弹窗统一毛玻璃底（半透明，透出后方 App 内容并模糊）
-    func glassSheetBackground() -> some View {
-        presentationBackground(.ultraThinMaterial)
-    }
-}
+// 结论（用户所说的"设置里关于轻聊那种" = 系统默认）：
+//   · **弹窗背景一律不覆盖**，让系统默认生效，这就是"统一"；
+//   · 真正让弹窗看起来不统一的是**内容视图自带的不透明底**
+//     （`.background(Color(uiColor: .systemBackground))` / `.systemGroupedBackground`）→ 已清理 11 处；
+//   · 内容为 `List` / `Form` 时自带底同样会盖住系统材质 → 用 `.scrollContentBackground(.hidden)`（全仓 23 处）；
+//   · `.fullScreenCover` 本就不支持 `presentationBackground`；系统分享面板背景由系统控制。

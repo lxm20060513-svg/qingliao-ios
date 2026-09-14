@@ -36,9 +36,9 @@ struct MemoSection: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         // v3.7.0：进入生活页即拉 NAS 上的备忘（本地已有则远端为空时不清本地）
         .task { await store.loadFromServer() }
-        .sheet(isPresented: $showAdd) { addSheet.glassSheetBackground() }
+        .sheet(isPresented: $showAdd) { addSheet }
         // v3.9.17：点卡片 → 全部备忘列表
-        .sheet(isPresented: $showAll) { allSheet.glassSheetBackground() }
+        .sheet(isPresented: $showAll) { allSheet }
         // v3.9.17：onDismiss 复位——若某次 present 被别的 sheet 挡掉，detail 会一直非 nil，
         // 之后「换一条」就不再触发 .sheet(item:)，详情再也打不开
         .sheet(item: $detail, onDismiss: { detail = nil }) { m in
@@ -51,7 +51,6 @@ struct MemoSection: View {
                 }
             })
             .presentationDetents([.medium, .large])
-            .glassSheetBackground()
         }
         .alert("删除这条备忘？", isPresented: Binding(
             get: { pendingDelete != nil },

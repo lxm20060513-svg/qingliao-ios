@@ -119,7 +119,6 @@ struct RouterPanel: View {
         .sheet(isPresented: $showClashSheet) {
             ClashSheet(router: router, onStart: { onStart?() }, onStop: { onStop?() })
                 .presentationDetents([.height(240)])
-                .glassSheetBackground()
         }
     }
 }

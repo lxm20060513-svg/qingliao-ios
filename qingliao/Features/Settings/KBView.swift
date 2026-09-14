@@ -96,7 +96,6 @@ struct KBView: View {
                 }
                 .presentationDetents([.medium, .large])
                 .scrollContentBackground(.hidden)
-                .glassSheetBackground()
             }
             .fileImporter(isPresented: $showImporter,
                           allowedContentTypes: [.plainText, .pdf,

@@ -74,7 +74,6 @@ struct LifeCardsSettingsView: View {
                 addStock(pick)
             }
             .presentationDetents([.medium, .large])
-            .glassSheetBackground()
         }
     }
 

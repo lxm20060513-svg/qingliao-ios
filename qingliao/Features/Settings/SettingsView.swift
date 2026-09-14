@@ -105,117 +105,97 @@ struct SettingsView: View {
         .sheet(isPresented: $showPasswordSheet) {
             PasswordSheet()
                 .presentationDetents([.medium])
-                .glassSheetBackground()
         }
         .sheet(isPresented: $showAppearance) {
             // v3.0.4：外观弹窗（与云端共用同一组件，样式统一）
             AppearanceSheet()
                 .presentationDetents([.medium, .large])
                 .scrollContentBackground(.hidden)
-                .glassSheetBackground()
         }
         .sheet(isPresented: $showTasks) {
             TasksView()
                 .presentationDetents([.medium, .large])
-                .glassSheetBackground()
         }
         .sheet(isPresented: $showLogs) {
             LogsView()
                 .presentationDetents([.medium, .large])
-                .glassSheetBackground()
         }
         .sheet(isPresented: $showConnSettings) {
             ConnSettingsView()
                 .presentationDetents([.medium, .large])
-                .glassSheetBackground()
         }
         .sheet(isPresented: $showModelSheet) {
             ModelSheet(current: currentModel)
                 .presentationDetents([.medium, .large])
-                .glassSheetBackground()
         }
         .sheet(isPresented: $showWechatChannel) {
             WechatChannelSheet()
                 .presentationDetents([.medium, .large])
-                .glassSheetBackground()
         }
         .sheet(isPresented: $showAbout) {
             AboutView()
                 .presentationDetents([.medium])
-                .glassSheetBackground()
         }
         .sheet(isPresented: $showSecrets) {
             SecretsView()
                 .presentationDetents([.medium, .large])
-                .glassSheetBackground()
         }
         // v2.0.81：知识库
         .sheet(isPresented: $showKB) {
             KBView()
                 .presentationDetents([.medium, .large])
                 .scrollContentBackground(.hidden)
-                .glassSheetBackground()
         }
         // v2.0.87：AI 记忆
         .sheet(isPresented: $showMemory) {
             MemoryView()
                 .presentationDetents([.medium, .large])
-                .glassSheetBackground()
         }
         .sheet(isPresented: $showHASettings) {
             HASettingsSheet()
                 .presentationDetents([.medium])
-                .glassSheetBackground()
         }
         // v3.5.0：MCP 工具服务管理
         .sheet(isPresented: $showMCPSettings) {
             MCPSettingsSheet()
                 .presentationDetents([.medium, .large])
                 .scrollContentBackground(.hidden)
-                .glassSheetBackground()
         }
         // v3.5.x：生活卡片设置页（股票 / 资讯 / 快递 / 价格监控）
         .sheet(isPresented: $showLifeCards) {
             LifeCardsSettingsView()
                 .presentationDetents([.medium, .large])
-                .glassSheetBackground()
         }
         // v2.0.105：Agent 关键词管理
         .sheet(isPresented: $showAgentKeywords) {
             AgentKeywordsSheet()
                 .scrollContentBackground(.hidden)
-                .glassSheetBackground()
         }
         // v2.0.113：Agent 记忆弹窗（同 AI 记忆样式）
         .sheet(isPresented: $showAgentMemory) {
             AgentMemorySheet()
                 .scrollContentBackground(.hidden)
-                .glassSheetBackground()
         }
         // v3.0.20：Agent 模型选择弹窗
         .sheet(isPresented: $showAgentModelSheet) {
             AgentModelSheet()
                 .presentationDetents([.medium, .large])
-                .glassSheetBackground()
         }
         // v2.0.116：执行历史弹窗
         .sheet(isPresented: $showHistory) {
             HistorySheet()
                 .scrollContentBackground(.hidden)
-                .glassSheetBackground()
         }
         // v3.6.0：原「崩溃日志」行整合为「诊断」页（App 自身诊断：版本/设备/网络/后端连通性/
         // 崩溃与卡顿记录/一键复制导出/手动上报），崩溃日志查看导出在该页内，入口不再重复。
         .sheet(isPresented: $showDiagnostics) {
             DiagnosticsView()
                 .presentationDetents([.medium, .large])
-                .glassSheetBackground()
         }
         // v2.0.118：本地模型管理弹窗
         .sheet(isPresented: $showLocalModels) {
             LocalModelsSheet()
                 .scrollContentBackground(.hidden)
-                .glassSheetBackground()
         }
         // v2.0.102：切回设置页刷新计数（密码管理/记忆增删后行尾数字即时更新，原只有 .task 首刷）
         .onAppear { Task { await loadCounts() } }
