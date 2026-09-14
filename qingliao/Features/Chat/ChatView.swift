@@ -832,7 +832,7 @@ struct ChatView: View {
                     // v3.9.14：答完收起成一行（点开可看明细，明细里中止/报错的步骤仍用「未确认」图标）
                     ToolStepsSummaryRow(count: stream.toolNames.count,
                                         expanded: toolStepsExpanded) {
-                        withAnimation(.easeOut(duration: 0.18)) { toolStepsExpanded.toggle() }
+                        withAnimation(Motion.snap) { toolStepsExpanded.toggle() }   // v3.9.19：裸动画收口到令牌（原 .easeOut(0.18)）
                     }
                     if toolStepsExpanded {
                         ForEach(Array(stream.toolNames.enumerated()), id: \.offset) { _, name in
