@@ -1064,7 +1064,6 @@ struct ServiceControlSheet: View {
 
             Spacer()
         }
-        .background(Color(uiColor: .systemBackground))
     }
 
     private func restart() {
@@ -1172,8 +1171,8 @@ struct HADeviceSheet: View {
                 }
             }
         }
-        // v2.0.87l：弹窗玻璃罩效果不佳（用户反馈）→ 全部回退普通背景
-        .background(Color(uiColor: .systemBackground))
+        // v3.9.24：此处原有 systemBackground 实底 → 会盖住弹窗的系统材质（用户要求所有弹窗与「关于轻聊」一致 = 系统默认）→ 已删。
+        // 注：v2.0.87l 那句"弹窗玻璃罩效果不佳"说的是当年的**自绘**玻璃，与 iOS 26 系统材质不是一回事，别据此回退
         .task { await load() }
     }
 
@@ -1560,7 +1559,6 @@ struct DisksSheet: View {
                 .padding(.bottom, 20)
             }
         }
-        .background(Color(uiColor: .systemBackground))
     }
 }
 

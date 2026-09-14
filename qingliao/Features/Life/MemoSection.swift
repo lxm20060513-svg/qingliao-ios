@@ -227,9 +227,7 @@ struct MemoSection: View {
                 }
                 .padding(16)
             }
-            .background(Color(uiColor: .systemGroupedBackground))
             }
-            .background(Color(uiColor: .systemGroupedBackground))
             .toolbar(.hidden, for: .navigationBar)
         }
         .presentationDetents([.medium, .large])
@@ -324,7 +322,6 @@ struct MemoSection: View {
                     .padding(.horizontal, 16)
                     .padding(.top, 8)
             }
-            .background(Color(uiColor: .systemGroupedBackground))
             .navigationTitle("新建备忘")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -488,7 +485,6 @@ private struct MemoDetailSheet: View {
                 .padding(18)
             }
             }
-            .background(Color(uiColor: .systemGroupedBackground))
             // v3.9.18：系统导航栏已由自绘 topBar 取代（iOS 26 的玻璃胶囊偏大）
             .toolbar(.hidden, for: .navigationBar)
             // 编辑态禁止下滑关闭：不然手一滑草稿就没了，且没有任何提示
