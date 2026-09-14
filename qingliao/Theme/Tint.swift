@@ -25,8 +25,9 @@ enum Tint {
     /// 深色模式加粗描边
     static let strong: CGFloat = 0.22
 
-    /// 卡片描边色（浅色 faint / 深色 strong），配合既有 0.8pt 线宽
+    /// 卡片描边色（浅色 faint 0.08 / 深色 soft 0.16），配合既有 0.8pt 线宽
+    /// —— 深色取 soft 而非 strong：全库实现里深色描边常用 0.14~0.16（strong 0.22 是白色高光描边的档）
     static func line(_ scheme: ColorScheme) -> Color {
-        Color.primary.opacity(scheme == .dark ? strong : faint)
+        Color.primary.opacity(scheme == .dark ? soft : faint)
     }
 }

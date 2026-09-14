@@ -82,7 +82,7 @@ struct BigBangView: View {
                 .padding(.top, 16)
                 .padding(.bottom, 12)
 
-                Divider().overlay((scheme == .dark ? Color.white : Color.black).opacity(0.15))
+                Divider().overlay((scheme == .dark ? Color.white : Color.black).opacity(Tint.soft))
 
                 // 词块区域（滚动）
                 ScrollView {
@@ -96,7 +96,7 @@ struct BigBangView: View {
 
                 // 底部操作栏
                 VStack(spacing: 8) {
-                    Divider().overlay((scheme == .dark ? Color.white : Color.black).opacity(0.15))
+                    Divider().overlay((scheme == .dark ? Color.white : Color.black).opacity(Tint.soft))
                     HStack(spacing: 12) {
                         Button {
                             selected = Set(words.map(\.id))
@@ -105,7 +105,7 @@ struct BigBangView: View {
                                 .font(.system(size: Typography.body, weight: .semibold))
                                 .foregroundStyle(fg)
                                 .padding(.horizontal, 18).padding(.vertical, 9)
-                                .background((scheme == .dark ? Color.white : Color.black).opacity(0.15), in: Capsule())
+                                .background((scheme == .dark ? Color.white : Color.black).opacity(Tint.soft), in: Capsule())
                         }
                         .buttonStyle(.plain)
                         Button {
@@ -115,7 +115,7 @@ struct BigBangView: View {
                                 .font(.system(size: Typography.body, weight: .semibold))
                                 .foregroundStyle(fg.opacity(0.7))
                                 .padding(.horizontal, 18).padding(.vertical, 9)
-                                .background((scheme == .dark ? Color.white : Color.black).opacity(0.1), in: Capsule())
+                                .background((scheme == .dark ? Color.white : Color.black).opacity(Tint.faint), in: Capsule())
                         }
                         .buttonStyle(.plain)
                         Spacer()
@@ -128,7 +128,7 @@ struct BigBangView: View {
                                 .font(.system(size: Typography.body, weight: .semibold))
                                 .foregroundStyle(fg)
                                 .padding(.horizontal, 14).padding(.vertical, 9)
-                                .background((scheme == .dark ? Color.white : Color.black).opacity(0.15), in: Capsule())
+                                .background((scheme == .dark ? Color.white : Color.black).opacity(Tint.soft), in: Capsule())
                         }
                         .buttonStyle(.plain)
                         .disabled(selected.isEmpty)
@@ -175,7 +175,7 @@ struct BigBangView: View {
                 .padding(.vertical, 7)
                 .background(
                     RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .fill(isOn ? Color.accentColor : (scheme == .dark ? Color.white : Color.black).opacity(0.13))
+                        .fill(isOn ? Color.accentColor : (scheme == .dark ? Color.white : Color.black).opacity(Tint.subtle))
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 9, style: .continuous)

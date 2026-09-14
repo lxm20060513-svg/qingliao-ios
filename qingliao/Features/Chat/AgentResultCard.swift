@@ -103,7 +103,8 @@ struct AgentResultCard: View {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(alignment: .lastTextBaseline, spacing: 2) {
                         Text(m.value)
-                            .font(.system(size: Typography.title, weight: .semibold, design: .rounded))
+                            // v3.9.19：等宽数字——数值滚动时宽度不抖
+                            .font(.system(size: Typography.title, weight: .semibold, design: .rounded).monospacedDigit())
                             .foregroundStyle(toneColor(m.tone))
                             .contentTransition(.numericText())   // 数值滚动而非硬跳
                             .lineLimit(1)

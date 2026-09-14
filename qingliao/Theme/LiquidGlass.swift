@@ -41,7 +41,7 @@ struct GlassListCard: ViewModifier {
             // v3.4.21：分组容器 0.8pt 浅描边（追平门锁卡/PinCard/SessionRow 全站卡片规范）
             .overlay(
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .strokeBorder(Color.primary.opacity(scheme == .dark ? 0.14 : 0.08), lineWidth: 0.8)
+                    .strokeBorder(Tint.line(scheme), lineWidth: 0.8)   // v3.9.19：深浅描边统一走 Tint.line
             )
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }

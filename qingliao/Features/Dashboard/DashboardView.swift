@@ -1769,7 +1769,7 @@ struct MeterCard: View {
                     .frame(width: 8, height: 8)
             }
             Text(value)
-                .font(.system(size: Typography.headline, weight: .bold))
+                .font(.system(size: Typography.headline, weight: .bold).monospacedDigit())   // v3.9.19：等宽数字
                 .contentTransition(.numericText())            // v3.4.29：数值滚动而非硬跳
                 .animation(Motion.snap, value: value)
                 .padding(.top, 6)
