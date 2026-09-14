@@ -515,12 +515,16 @@ struct ModelSheet: View {
         // v3.0.10：视觉模型配置弹窗（模型管理内导航）
         .sheet(isPresented: $showVisionModelSheet) {
             VisionModelSheet()
+                .scrollContentBackground(.hidden)
+                .glassSheetBackground()
         }
         // v3.0.74：添加自定义模型组表单弹窗（保存成功后刷新自定义区块）
         .sheet(isPresented: $showAddCustomProvider) {
             CustomProviderEditSheet {
                 Task { await loadCustomProviders() }
             }
+            .scrollContentBackground(.hidden)
+            .glassSheetBackground()
         }
         // v3.0.82：内置 provider 删除确认弹窗（真删 Hermes config.yaml providers 段，被引用时后端拒绝）
         .alert("删除模型组", isPresented: Binding(

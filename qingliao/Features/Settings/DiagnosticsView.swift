@@ -51,7 +51,6 @@ struct DiagnosticsView: View {
                 .padding(.horizontal, 14)
                 .padding(.bottom, 30)
             }
-            .background(Color(uiColor: .systemBackground))
             .navigationTitle("诊断")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -108,10 +107,12 @@ struct DiagnosticsView: View {
             .onChange(of: hangThreshold) { _, _ in HangWatchdog.shared.refreshSettings() }
             .sheet(isPresented: $showExporter) {
                 ActivityShareSheet(items: [exportText])
+                    .glassSheetBackground()
             }
             .sheet(isPresented: $showCrashSheet) {
                 CrashAlertSheet(logText: CrashReporter.latestLogText(), allowDismiss: false)
                     .presentationDetents([.medium, .large])
+                    .glassSheetBackground()
             }
             .alert("清除全部诊断记录？", isPresented: $showClearAlert) {
                 Button("取消", role: .cancel) { }

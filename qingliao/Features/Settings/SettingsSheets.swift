@@ -108,7 +108,6 @@ struct ServerSheet: View {
 
             Spacer()
         }
-        .background(Color(uiColor: .systemBackground))
         .navigationTitle("服务器地址")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -181,7 +180,6 @@ struct PinPathSheet: View {
 
                 Spacer()
             }
-            .background(Color(uiColor: .systemBackground))
             .navigationTitle("钉一钉存储路径")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -265,7 +263,6 @@ struct PasswordSheet: View {
 
             Spacer()
         }
-        .background(Color(uiColor: .systemBackground))
         .navigationTitle("修改密码")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {

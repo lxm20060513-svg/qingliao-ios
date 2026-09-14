@@ -130,7 +130,6 @@ struct TasksView: View {
                 .refreshable { await load() }
             }
         }
-        .background(Color(uiColor: .systemBackground))
         .navigationTitle("定时任务")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -150,6 +149,7 @@ struct TasksView: View {
         .sheet(isPresented: $showNewTask) {
             NewTaskSheet()
                 .presentationDetents([.medium])
+                .glassSheetBackground()
         }
         }
     }
@@ -247,7 +247,6 @@ struct LogsView: View {
                 }
             }
         }
-        .background(Color(uiColor: .systemBackground))
         .navigationTitle("日志")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {

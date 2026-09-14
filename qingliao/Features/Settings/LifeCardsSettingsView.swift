@@ -56,7 +56,6 @@ struct LifeCardsSettingsView: View {
                 .padding(.horizontal, 14)
                 .padding(.bottom, 60)
             }
-            .background(Color(uiColor: .systemBackground))
             .navigationTitle("生活卡片")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -75,6 +74,7 @@ struct LifeCardsSettingsView: View {
                 addStock(pick)
             }
             .presentationDetents([.medium, .large])
+            .glassSheetBackground()
         }
     }
 
@@ -888,7 +888,6 @@ struct StockSearchSheet: View {
                 }
                 ScrollView { resultsArea }
             }
-            .background(Color(uiColor: .systemBackground))
             .navigationTitle("添加股票")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

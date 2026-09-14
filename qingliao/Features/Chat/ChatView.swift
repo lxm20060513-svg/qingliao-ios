@@ -999,6 +999,7 @@ struct ChatView: View {
                 pendingImage = img
                 pendingImageData = compressImage(img)
             }
+            .glassSheetBackground()
         }
         // v2.0.43：快捷指令面板（点击填充输入框）
         .sheet(isPresented: $showQuickPrompts) {
@@ -1007,6 +1008,7 @@ struct ChatView: View {
                 showAttachmentMenu = false
             }, includeKB: !CloudConfig.shared.isCloudMode)   // v3.0.6：知识库仅本地
             .presentationDetents([.medium, .large])
+            .glassSheetBackground()
         }
         // v2.0.96：Hermes 捷径面板（官方斜杠命令，点击填充输入框）
         .sheet(isPresented: $showHermesShortcut) {
@@ -1015,6 +1017,8 @@ struct ChatView: View {
                 showAttachmentMenu = false
             }
             .presentationDetents([.medium, .large])
+            .scrollContentBackground(.hidden)
+            .glassSheetBackground()
         }
         // v3.0.27：章节列表（纯静态展示——TOCItem 行号关联具体消息的滚动实现不可靠，不做点击导航）
         .sheet(isPresented: $showTOCSheet) {
@@ -1030,6 +1034,8 @@ struct ChatView: View {
                 }
             })
             .presentationDetents([.medium])
+            .scrollContentBackground(.hidden)
+            .glassSheetBackground()
         }
         .fileImporter(isPresented: $showFileImporter,
                       allowedContentTypes: [.data]) { result in
@@ -1954,6 +1960,8 @@ struct ChatView: View {
             ChatExportSheet(title: chat.title, messages: chat.messages) { format in
                 handleExport(format)
             }
+            .scrollContentBackground(.hidden)
+            .glassSheetBackground()
         }
         .fileExporter(isPresented: $showHTMLExporter,
                       document: ChatHTMLDocument(html: exportHTML),

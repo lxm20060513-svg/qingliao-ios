@@ -95,6 +95,8 @@ struct KBView: View {
                     Task { await uploadContent(name, content) }
                 }
                 .presentationDetents([.medium, .large])
+                .scrollContentBackground(.hidden)
+                .glassSheetBackground()
             }
             .fileImporter(isPresented: $showImporter,
                           allowedContentTypes: [.plainText, .pdf,
