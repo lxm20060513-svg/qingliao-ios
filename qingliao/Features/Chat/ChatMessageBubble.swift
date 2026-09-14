@@ -166,7 +166,7 @@ struct MessageBubble: View {
                         }
                         .padding(.horizontal, 6)
                         .padding(.vertical, 5)
-                        .background(Color.accentColor.opacity(0.10), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .background(Color.accentColor.opacity(Tint.faint), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                         .frame(maxWidth: .infinity, alignment: message.isUser ? .trailing : .leading)
                     }
                     // v2.0.92：撤回消息 → 灰色"已撤回"占位（内容不再显示）
@@ -369,7 +369,7 @@ struct MessageBubble: View {
                             .foregroundStyle(Color.blue)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
-                            .background(Color.blue.opacity(0.10), in: Capsule())
+                            .background(Color.blue.opacity(Tint.faint), in: Capsule())
                             .padding(.top, 1)
                     }
                     // v3.4.x 复读兜底：AI 回复与旧回复高度相似（换表述复述旧模板，去重/净化拦不住）

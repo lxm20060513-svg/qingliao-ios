@@ -11,11 +11,11 @@ struct SplashView: View {
 
             // 环境光晕（与 Dock 同款：蓝/靛/青底部光）
             ZStack {
-                Circle().fill(Color.blue.opacity(0.16)).frame(width: 300, height: 300).blur(radius: 70)
+                Circle().fill(Color.blue.opacity(Tint.soft)).frame(width: 300, height: 300).blur(radius: 70)
                     .offset(y: 260)
-                Circle().fill(Color.indigo.opacity(0.10)).frame(width: 240, height: 240).blur(radius: 60)
+                Circle().fill(Color.indigo.opacity(Tint.faint)).frame(width: 240, height: 240).blur(radius: 60)
                     .offset(x: 150, y: 220)
-                Circle().fill(Color.cyan.opacity(0.07)).frame(width: 220, height: 220).blur(radius: 55)
+                Circle().fill(Color.cyan.opacity(Tint.faint)).frame(width: 220, height: 220).blur(radius: 55)
                     .offset(x: -150, y: 230)
             }
 

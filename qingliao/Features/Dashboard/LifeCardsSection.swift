@@ -329,7 +329,7 @@ struct LifeCardsSection: View {
             .font(.system(size: Typography.tiny))
             .padding(.horizontal, 6)
             .padding(.vertical, 1)
-            .background(Color.accentColor.opacity(0.1), in: Capsule())
+            .background(Color.accentColor.opacity(Tint.faint), in: Capsule())
             .foregroundStyle(Color.accentColor)
     }
 
@@ -348,7 +348,7 @@ struct LifeCardsSection: View {
                             .font(.system(size: Typography.caption))
                             .padding(.horizontal, 6)
                             .padding(.vertical, 1)
-                            .background(Color.accentColor.opacity(0.1), in: Capsule())
+                            .background(Color.accentColor.opacity(Tint.faint), in: Capsule())
                             .foregroundStyle(Color.accentColor)
                     }
                     if !e.timeText.isEmpty {

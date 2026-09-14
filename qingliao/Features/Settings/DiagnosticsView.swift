@@ -360,7 +360,7 @@ struct DiagnosticsView: View {
                         Text("复制这条")
                             .font(.system(size: Typography.subhead, weight: .semibold))
                             .padding(.horizontal, 14).padding(.vertical, 6)
-                            .background(Color.secondary.opacity(0.15), in: Capsule())
+                            .background(Color.secondary.opacity(Tint.soft), in: Capsule())
                     }
                     .buttonStyle(.plain)
                 }

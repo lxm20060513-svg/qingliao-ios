@@ -109,7 +109,7 @@ struct VisionModelSheet: View {
                                 .font(.system(size: Typography.caption, weight: .medium))
                                 .foregroundStyle(.red)
                                 .padding(.horizontal, 10).padding(.vertical, 5)
-                                .background(Color.red.opacity(0.1), in: Capsule())
+                                .background(Color.red.opacity(Tint.faint), in: Capsule())
                             }
                         }
                     }

@@ -60,7 +60,7 @@ struct BubbleTheme {
     /// AI 气泡灰色（深色 systemGray5 / 浅色 systemGray6）
     static func aiBubble(scheme: ColorScheme, highlighted: Bool = false) -> Color {
         highlighted
-            ? Color.accentColor.opacity(0.14)
+            ? Color.accentColor.opacity(Tint.subtle)
             : (scheme == .dark ? Color(uiColor: .systemGray5) : Color(uiColor: .systemGray6))
     }
 }

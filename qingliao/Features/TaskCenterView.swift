@@ -177,7 +177,7 @@ private struct ActiveTaskRow: View {
                 .font(.system(size: Typography.body, weight: .semibold))
                 .foregroundStyle(.green)
                 .frame(width: 30, height: 30)
-                .background(Circle().fill(Color.green.opacity(0.14)))
+                .background(Circle().fill(Color.green.opacity(Tint.subtle)))
                 .overlay(Circle().strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8))
             VStack(alignment: .leading, spacing: 3) {
                 Text(task.title.isEmpty ? "正在处理" : task.title)

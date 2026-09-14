@@ -17,7 +17,7 @@ struct PinCard: View {
                         .font(.system(size: Typography.tiny))
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
-                        .background(Color.accentColor.opacity(0.1), in: Capsule())
+                        .background(Color.accentColor.opacity(Tint.faint), in: Capsule())
                         .foregroundStyle(Color.accentColor)
                 }
                 Spacer()

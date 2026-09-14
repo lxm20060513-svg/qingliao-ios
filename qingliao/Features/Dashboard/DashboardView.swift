@@ -897,7 +897,7 @@ struct ServiceControlSheet: View {
             HStack(spacing: 12) {
                 ZStack {
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(Color.blue.opacity(0.15))
+                        .fill(Color.blue.opacity(Tint.soft))
                     Image(systemName: service.icon)
                         .font(.system(size: Typography.headline, weight: .medium))
                         .foregroundStyle(Color.accentColor)
@@ -978,7 +978,7 @@ struct ServiceControlSheet: View {
                 } label: {
                 HStack(spacing: 12) {
                     ZStack {
-                        Circle().fill(Color.red.opacity(0.15))
+                        Circle().fill(Color.red.opacity(Tint.soft))
                         Image(systemName: "stop.fill")
                             .font(.system(size: Typography.subhead, weight: .semibold))
                             .foregroundStyle(.red)
@@ -998,11 +998,11 @@ struct ServiceControlSheet: View {
                         .foregroundStyle(.tertiary)
                 }
                 .padding(14)
-                .background(Color.red.opacity(0.07))
+                .background(Color.red.opacity(Tint.faint))
                 .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .strokeBorder(Color.red.opacity(0.25), lineWidth: 1)
+                        .strokeBorder(Color.red.opacity(Tint.strong), lineWidth: 1)
                 )
             }
             .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
@@ -1137,7 +1137,7 @@ struct HADeviceSheet: View {
         let isOn = e.state == "on"
         // 拆成 AnyShapeStyle 单一类型（三元 LinearGradient vs Color 会让编译器类型检查超时）
         let iconBG: AnyShapeStyle = isOn
-            ? AnyShapeStyle(LinearGradient(colors: [Color.yellow.opacity(0.30), Color.orange.opacity(0.18)],
+            ? AnyShapeStyle(LinearGradient(colors: [Color.yellow.opacity(Tint.strong), Color.orange.opacity(Tint.soft)],
                                            startPoint: .top, endPoint: .bottom))
             : AnyShapeStyle(Color(uiColor: .systemGray6))
         return Button {
@@ -1331,7 +1331,7 @@ struct HADeviceSheet: View {
         .padding(14)
         .background(
             // v2.0.87j：弹窗玻璃下扁平化（渐变末端白底 → 轻透明）
-            LinearGradient(colors: [isOn ? Color.blue.opacity(0.20) : Color.blue.opacity(Tint.faint), Color(uiColor: .secondarySystemGroupedBackground)],
+            LinearGradient(colors: [isOn ? Color.blue.opacity(Tint.soft) : Color.blue.opacity(Tint.faint), Color(uiColor: .secondarySystemGroupedBackground)],
                            startPoint: .topLeading, endPoint: .bottomTrailing)
         )
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
@@ -1339,7 +1339,7 @@ struct HADeviceSheet: View {
             RoundedRectangle(cornerRadius: 22, style: .continuous)
                 .strokeBorder(isOn ? Color.accentColor.opacity(0.35) : Color.white.opacity(Tint.faint), lineWidth: 1)
         )
-        .shadow(color: isOn ? Color.accentColor.opacity(0.15) : .clear, radius: 10, y: 3)
+        .shadow(color: isOn ? Color.accentColor.opacity(Tint.soft) : .clear, radius: 10, y: 3)
     }
 
     /// 模式显示名

@@ -276,7 +276,7 @@ struct CrashAlertSheet: View {
                         Spacer()
                     }
                     .padding(.vertical, 10)
-                    .background(Color.secondary.opacity(0.15), in: Capsule())
+                    .background(Color.secondary.opacity(Tint.soft), in: Capsule())
                     .font(.system(size: Typography.body, weight: .semibold))
                 }
                 .buttonStyle(.plain)
@@ -305,7 +305,7 @@ struct CrashAlertSheet: View {
                             Spacer()
                         }
                         .padding(.vertical, 10)
-                        .background(Color.secondary.opacity(0.15), in: Capsule())
+                        .background(Color.secondary.opacity(Tint.soft), in: Capsule())
                         .font(.system(size: Typography.body, weight: .semibold))
                     }
                     .buttonStyle(.plain)

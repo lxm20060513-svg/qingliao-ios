@@ -114,7 +114,7 @@ struct MemoSection: View {
             .padding(.vertical, 9)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.secondary.opacity(0.06)))
+                .fill(Color.secondary.opacity(Tint.faint)))
             .contentShape(Rectangle())
         }
         .buttonStyle(PressStyle())
@@ -173,7 +173,7 @@ struct MemoSection: View {
             .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(Color.secondary.opacity(tone)))
             .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Color.secondary.opacity(0.16), lineWidth: 0.8))
+                .stroke(Color.secondary.opacity(Tint.soft), lineWidth: 0.8))
             .padding(.horizontal, inset)
             .offset(y: drop)
     }
@@ -378,7 +378,7 @@ private struct MemoNoteCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(noteBackground)
         .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
-            .stroke(item.pinned ? Color.accentColor.opacity(0.28) : Color.secondary.opacity(0.16),
+            .stroke(item.pinned ? Color.accentColor.opacity(Tint.strong) : Color.secondary.opacity(Tint.soft),
                     lineWidth: 0.8))
         .contentShape(Rectangle())
     }
@@ -388,7 +388,7 @@ private struct MemoNoteCard: View {
         RoundedRectangle(cornerRadius: 12, style: .continuous)
             .fill(Color(uiColor: .secondarySystemGroupedBackground))
             .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(item.pinned ? Color.accentColor.opacity(0.10) : Color.secondary.opacity(0.05)))
+                .fill(item.pinned ? Color.accentColor.opacity(Tint.faint) : Color.secondary.opacity(Tint.faint)))
     }
 
     private var metaRow: some View {

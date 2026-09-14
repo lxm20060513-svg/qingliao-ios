@@ -137,7 +137,7 @@ struct SessionsView: View {
                                 VStack(spacing: 10) {
                                     ZStack {
                                         Circle()
-                                            .fill(LinearGradient(colors: [Color.blue.opacity(0.25), Color.indigo.opacity(0.15)],
+                                            .fill(LinearGradient(colors: [Color.blue.opacity(Tint.strong), Color.indigo.opacity(Tint.soft)],
                                                                  startPoint: .topLeading, endPoint: .bottomTrailing))
                                             .frame(width: 64, height: 64)
                                         Image(systemName: "bubble.left.and.bubble.right")
@@ -670,13 +670,13 @@ struct BotCard: View {
         }
         .padding(13)
         .background(
-            LinearGradient(colors: [Color.blue.opacity(0.14), Color.indigo.opacity(0.10)],
+            LinearGradient(colors: [Color.blue.opacity(Tint.subtle), Color.indigo.opacity(Tint.faint)],
                            startPoint: .topLeading, endPoint: .bottomTrailing),
             in: RoundedRectangle(cornerRadius: 16, style: .continuous)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(Color.blue.opacity(0.25), lineWidth: 0.8)
+                .strokeBorder(Color.blue.opacity(Tint.strong), lineWidth: 0.8)
         )
         .task {
             // 真实连接状态
@@ -788,7 +788,7 @@ struct SessionRow: View {
         // 会话条目边框（深浅色通用细描边）
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.09), lineWidth: 0.8)
+                .strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8)
         )
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .contentShape(Rectangle())

@@ -519,10 +519,10 @@ struct ChatView: View {
                 .foregroundStyle(autoReadReply ? Color.accentColor : Color.secondary)
                 .padding(.horizontal, 9)
                 .padding(.vertical, 7)          // 触摸区 ~34×24（贴近 HIG 44pt 下限，与左侧胶囊同高）
-            .background(autoReadReply ? Color.accentColor.opacity(Tint.subtle) : Color.primary.opacity(0.06), in: Capsule())
+            .background(autoReadReply ? Color.accentColor.opacity(Tint.subtle) : Color.primary.opacity(Tint.faint), in: Capsule())
             .overlay {
                 // 只有关态画描边（开态靠主色底区分，与思考档位胶囊同族）；开态不画全透明描边
-                if !autoReadReply { Capsule().strokeBorder(Color.primary.opacity(0.10), lineWidth: 0.8) }
+                if !autoReadReply { Capsule().strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8) }
             }
             .contentShape(Capsule())
         }
@@ -1157,7 +1157,7 @@ struct ChatView: View {
                     .font(.system(size: Typography.subhead, weight: .semibold))
                     .padding(.horizontal, 10)
                     .padding(.vertical, 4)
-                    .background(Color.accentColor.opacity(0.14), in: Capsule())
+                    .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
             }
             .buttonStyle(PressStyle())
             .foregroundStyle(Color.accentColor)
@@ -2018,7 +2018,7 @@ struct ChatView: View {
             .foregroundStyle(.secondary)
             .padding(.horizontal, 10)
             .padding(.vertical, 3)
-            .background(Color.primary.opacity(0.06), in: Capsule())
+            .background(Color.primary.opacity(Tint.faint), in: Capsule())
             .frame(maxWidth: .infinity)
             .padding(.vertical, 4)
     }
@@ -2187,7 +2187,7 @@ struct ChatView: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .background(.ultraThinMaterial)
-        .overlay(RoundedRectangle(cornerRadius: 0).stroke(Color.orange.opacity(0.3), lineWidth: 0.8))
+        .overlay(RoundedRectangle(cornerRadius: 0).stroke(Color.orange.opacity(Tint.strong), lineWidth: 0.8))
         .clipShape(RoundedRectangle(cornerRadius: 16))
         .shadow(color: .black.opacity(Tint.faint), radius: 8, y: 3)
         .padding(.horizontal, 12)
@@ -3099,6 +3099,8 @@ struct DealAttachmentButton: View {
             //          → 改 Task.sleep 真延迟逐张弹出
             Task {
                 try? await Task.sleep(for: .seconds(Double(idx) * 0.07))
+                // v3.9.19：**有意不入 Motion 令牌**——发牌要明显回弹（bounce 0.35 强于 emerge 的 0.08），
+                // 映射过去会削掉发牌手感（用户 2026-09-14 确认保留原值，勿按统一口径回改）
                 withAnimation(.spring(duration: 0.45, bounce: 0.35)) {
                     appeared = true
                 }

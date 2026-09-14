@@ -319,7 +319,7 @@ struct ModelSheet: View {
                                     in: RoundedRectangle(cornerRadius: 13, style: .continuous))
                         .overlay(
                             RoundedRectangle(cornerRadius: 13, style: .continuous)
-                                .strokeBorder(Color.purple.opacity(0.3), lineWidth: 0.8)
+                                .strokeBorder(Color.purple.opacity(Tint.strong), lineWidth: 0.8)
                         )
                         .contentShape(Rectangle())
                         .onTapGesture { showVisionModelSheet = true }

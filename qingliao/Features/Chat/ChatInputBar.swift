@@ -86,8 +86,8 @@ struct ChatInputBar: View {
                     .foregroundStyle(.secondary)
                     .frame(width: 32, height: 30)
                     // v3.4.26：附件/相机纳入胶囊语义——低透明外圈（次级操作，弱于实底发送钮）
-                    .background(Color.primary.opacity(0.05), in: Capsule())
-                    .overlay(Capsule().strokeBorder(Color.primary.opacity(0.10), lineWidth: 0.8))
+                    .background(Color.primary.opacity(Tint.faint), in: Capsule())
+                    .overlay(Capsule().strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8))
             }
             .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
 
@@ -97,8 +97,8 @@ struct ChatInputBar: View {
                     .font(.system(size: Typography.body, weight: .medium))
                     .foregroundStyle(.secondary)
                     .frame(width: 32, height: 30)
-                    .background(Color.primary.opacity(0.05), in: Capsule())
-                    .overlay(Capsule().strokeBorder(Color.primary.opacity(0.10), lineWidth: 0.8))
+                    .background(Color.primary.opacity(Tint.faint), in: Capsule())
+                    .overlay(Capsule().strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8))
             }
             .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
 

@@ -66,7 +66,7 @@ struct TasksView: View {
                             HStack(spacing: 12) {
                                 ZStack {
                                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                        .fill(Color.indigo.opacity(0.15))
+                                        .fill(Color.indigo.opacity(Tint.soft))
                                     Image(systemName: "clock.badge.fill")
                                         .font(.system(size: Typography.body))
                                         .foregroundStyle(Color.indigo)
@@ -356,7 +356,7 @@ struct NewTaskSheet: View {
                 .frame(height: 110)
                 .overlay(
                     RoundedRectangle(cornerRadius: 8)
-                        .strokeBorder(Color.secondary.opacity(0.3), lineWidth: 1)
+                        .strokeBorder(Color.secondary.opacity(Tint.strong), lineWidth: 1)
                 )
                 .overlay(alignment: .topLeading) {
                     if prompt.isEmpty {

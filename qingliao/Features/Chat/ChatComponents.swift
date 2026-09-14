@@ -619,10 +619,10 @@ private struct MarkdownTableView: View {
                             .frame(width: colWidths.indices.contains(c) ? colWidths[c] : 80, alignment: .leading)
                             .background(r == 0
                                         ? Color.accentColor.opacity(Tint.faint)
-                                        : (r % 2 == 0 ? Color.primary.opacity(0.03) : Color.clear))
+                                        : (r % 2 == 0 ? Color.primary.opacity(Tint.faint) : Color.clear))
                     }
                 }
-                Divider().overlay(Color.primary.opacity(0.07))
+                Divider().overlay(Color.primary.opacity(Tint.faint))
             }
         }
     }

@@ -246,7 +246,7 @@ struct DockerContainerCard: View {
                         // v2.0.87ap：圆形升级按钮（圆底浅色 + 箭头）
                         ZStack {
                             Circle()
-                                .fill(Color.accentColor.opacity(0.14))
+                                .fill(Color.accentColor.opacity(Tint.subtle))
                             Image(systemName: "arrow.up")
                                 .font(.system(size: Typography.caption, weight: .bold))
                                 .foregroundStyle(Color.accentColor)
@@ -263,7 +263,7 @@ struct DockerContainerCard: View {
         .background(Color(uiColor: .secondarySystemGroupedBackground))
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.09), lineWidth: 0.8)
+                .strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8)
         )
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         // 单击停止 / 长按删除 提示
@@ -341,7 +341,7 @@ private struct DockerImageCard: View {
         .background(Color(uiColor: .secondarySystemGroupedBackground))
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.09), lineWidth: 0.8)
+                .strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8)
         )
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }

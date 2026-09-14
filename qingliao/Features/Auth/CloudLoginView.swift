@@ -65,13 +65,13 @@ struct CloudLoginView: View {
                             .padding(.vertical, 12)
                             .background(
                                 config.activeProviderID == p.providerID
-                                    ? Color.accentColor.opacity(0.10)
+                                    ? Color.accentColor.opacity(Tint.faint)
                                     : Color(uiColor: .secondarySystemGroupedBackground),
                                 in: RoundedRectangle(cornerRadius: 14, style: .continuous)
                             )
                             .overlay(
                                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                    .strokeBorder(config.activeProviderID == p.providerID ? Color.accentColor.opacity(0.4) : Color.primary.opacity(0.06), lineWidth: 0.8)
+                                    .strokeBorder(config.activeProviderID == p.providerID ? Color.accentColor.opacity(0.4) : Color.primary.opacity(Tint.faint), lineWidth: 0.8)
                             )
                         }
                         .buttonStyle(.plain)
