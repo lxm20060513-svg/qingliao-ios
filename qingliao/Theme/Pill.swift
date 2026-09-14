@@ -7,7 +7,7 @@ import SwiftUI
 // 收敛为**三种口径**（用户 2026-09-14 拍板）：
 //
 //   page     页级栏目头 —— tiny + h10/v4（「生活数据」右侧 添加股票 / 刷新）
-//   topBar   顶栏 / 工具条 —— subhead + h12/v5（备忘录详情的 关闭 / 编辑 / 复制、「全部备忘」的 完成）
+//   topBar   顶栏 / 工具条 —— subhead + h14/v7（备忘录详情的 关闭 / 编辑 / 复制、「全部备忘」的 完成）
 //            v3.9.22：原 tiny + h10 文字被反馈太小 → 提字号至 subhead、横向放宽到 12（高度不变，仍是小按钮）
 //   primary  主操作 —— body + h14/v12（备忘录详情底部的 置顶 / 发给 AI / 删除这条备忘）
 //
@@ -35,7 +35,7 @@ enum PillSize {
     var hPad: CGFloat {
         switch self {
         case .page: return 10
-        case .topBar: return 12          // v3.9.22：随字号一起放宽，避免 13pt 文字挤在 10pt 边距里
+        case .topBar: return 14          // v3.9.22：随字号放宽（10→12），用户又说"胶囊也要大一点"→ 12→14
         case .primary: return 14
         }
     }
@@ -43,7 +43,9 @@ enum PillSize {
     var vPad: CGFloat {
         switch self {
         case .page: return 4
-        case .topBar: return 5
+        // v3.9.22：5 → 7。用户先反馈"文字小"、后反馈"胶囊也要大一点"——这两件事分开调：
+        // 字号 10→13（文字），高度 5→7（按钮本体），合起来仍明显小于 primary 主操作胶囊
+        case .topBar: return 7
         case .primary: return 12
         }
     }

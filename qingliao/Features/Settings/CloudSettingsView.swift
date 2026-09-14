@@ -210,6 +210,7 @@ struct CloudSettingsView: View {
         }
         .sheet(isPresented: $showAbout) {
             AboutView(isCloud: true)   // v3.0.1：云端文案
+                .glassSheetBackground()
         }
     }
 

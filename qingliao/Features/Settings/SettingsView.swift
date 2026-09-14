@@ -134,6 +134,7 @@ struct SettingsView: View {
         .sheet(isPresented: $showAbout) {
             AboutView()
                 .presentationDetents([.medium])
+                .glassSheetBackground()
         }
         .sheet(isPresented: $showSecrets) {
             SecretsView()

@@ -297,3 +297,21 @@ struct IslandGlowOverlay: View {
         .ignoresSafeArea(edges: .top)
     }
 }
+
+// MARK: - v3.9.22 弹窗统一毛玻璃底（用户要求：所有弹窗背景统一）
+//
+// 背景：此前全仓一个 `.presentationBackground` 都没有，弹窗都用系统默认底；用户参照「关于轻聊」
+// 的观感要求统一换成毛玻璃（`.ultraThinMaterial`，半透明 + 模糊后方内容）。
+//
+// 用法：挂在 `.sheet { ... }` 的**内容视图**上：`SomeSheet().glassSheetBackground()`
+//
+// ⚠️ 两个坑（都会让"看起来没变"）：
+//   1. 内容若是 `List` / `Form` / `ScrollView`，必须同时 `.scrollContentBackground(.hidden)`，
+//      否则控件自带底会把毛玻璃盖住（本仓已有 5 处该用法，可参照）；
+//   2. `.fullScreenCover` 不支持 `presentationBackground` —— 那 4 处保持原样或自绘背景。
+extension View {
+    /// 弹窗统一毛玻璃底（半透明，透出后方 App 内容并模糊）
+    func glassSheetBackground() -> some View {
+        presentationBackground(.ultraThinMaterial)
+    }
+}
