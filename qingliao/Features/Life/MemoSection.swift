@@ -359,6 +359,7 @@ private struct MiniCapsule: View {
     var body: some View {
         Button(action: action) {
             // v3.9.19：走 .pill(.topBar) 口径；原 accent 分支是实色底，改为口径内的淡底（与全站一致）
+            // v3.9.22：.topBar 档字号 tiny(10) → subhead(13)，用户反馈这些小胶囊文字偏小
             Text(title)
                 .pill(.topBar, tone: accent ? .accent : .neutral)
                 .contentShape(Capsule())
