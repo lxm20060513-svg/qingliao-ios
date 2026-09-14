@@ -51,7 +51,6 @@ struct MemoSection: View {
                 }
             })
             .presentationDetents([.medium, .large])
-            .navigationTransition(.zoom(sourceID: "memo-item-" + m.id, in: memoZoomNS))   // v3.9.20：从列表该行放大
         }
         .alert("删除这条备忘？", isPresented: Binding(
             get: { pendingDelete != nil },
@@ -211,8 +210,6 @@ struct MemoSection: View {
                             MemoNoteCard(item: m)
                         }
                         .buttonStyle(PressStyle())
-                        // v3.9.20：这一行即 zoom 源，点开后从该行放大成详情
-                        .matchedTransitionSource(id: "memo-item-" + m.id, in: memoZoomNS)
                         .contextMenu {
                             memoMenuItems(m,
                                           onDelete: { item in afterAllDismissed { pendingDelete = item } },
@@ -249,16 +246,17 @@ struct MemoSection: View {
         }
     }
 
-    /// 从列表点一条 → 直接在列表之上叠详情（v3.9.20 起不再先收列表）
+    /// 从列表点一条 → **先收列表，再开详情**（v3.9.21 真机回归后确认必须这样，勿再改）
     ///
-    /// 原因：详情侧挂了 zoom 转场（`.navigationTransition(.zoom(sourceID: "memo-item-"+id))`），
-    /// 而 zoom 要求**源行在详情呈现时仍在屏上**——原来的「先收列表等 500ms 再开详情」会让源行消失，
-    /// 转场退化成普通弹出（等于白加）。
-    /// 安全性：这里只 present 一层、且不与 `showAll = false` 同帧，故不触发 `afterAllDismissed`
-    /// 注释里记的那类「同帧 dismiss+present 丢弹窗」问题；关闭详情后回到列表（更符合预期）。
-    /// ⚠️ 若真机发现异常，回退本行为 `afterAllDismissed { detail = m }` 即可（zoom 随之失效，行为回到 v3.9.19）。
+    /// 🚨 真正原因（比原注释说的"同帧 present 丢弹窗"更根本）：MemoSection 上**链式挂了三个 `.sheet`**
+    /// （showAdd / showAll / detail），它们共用同一个宿主视图；两个同时为真时 **只有一个会生效**，
+    /// 于是"列表还开着就 present 详情"= 详情被吞掉 → 真机表现为**点一条打不开详情**。
+    /// v3.9.20 曾为了保留"列表行→详情"的 zoom 转场（zoom 要求源行在呈现时仍在屏上）把这里改成直接
+    /// `detail = m`，真机回归即挂 —— zoom 再好看也不能拿功能换。
+    /// 若日后仍想要那个转场，正确做法是把 detail 这个 sheet **挂到 allSheet 的内容视图内部**（分层宿主），
+    /// 而不是让两个 sheet 共用一个宿主。
     private func openDetailFromAll(_ m: MemoItem) {
-        detail = m
+        afterAllDismissed { detail = m }
     }
 
     // MARK: 长按菜单（卡片 / 列表两处共用）
