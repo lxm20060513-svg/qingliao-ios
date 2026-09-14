@@ -80,15 +80,10 @@ struct MemoSection: View {
                 draft = ""
                 showAdd = true
             } label: {
-                // v3.9.4：只留文字 + 胶囊（去图标）；v3.9.17 字号/内距与「添加股票」统一
-                Text("添加")
-                    .font(.system(size: Typography.tiny))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 4)
-                    .background(Color.accentColor.opacity(0.12), in: Capsule())
+                // v3.9.4：只留文字 + 胶囊（去图标）；v3.9.19：尺寸走 .pill(.page) 口径
+                Text("添加").pill(.page)
             }
             .buttonStyle(PressStyle())
-            .foregroundStyle(Color.accentColor)
             .accessibilityLabel("添加备忘录")
         }
         .padding(.top, 6)
@@ -349,12 +344,9 @@ private struct MiniCapsule: View {
 
     var body: some View {
         Button(action: action) {
+            // v3.9.19：走 .pill(.topBar) 口径；原 accent 分支是实色底，改为口径内的淡底（与全站一致）
             Text(title)
-                .font(.system(size: Typography.tiny))
-                .foregroundStyle(accent ? Color.white : Color.primary)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(accent ? Color.accentColor : Color.secondary.opacity(0.12), in: Capsule())
+                .pill(.topBar, tone: accent ? .accent : .neutral)
                 .contentShape(Capsule())
         }
         .buttonStyle(PressStyle())
@@ -546,7 +538,7 @@ private struct MemoDetailSheet: View {
                     } label: {
                         actionLabel(current.pinned ? "取消置顶" : "置顶",
                                     systemImage: current.pinned ? "pin.slash" : "pin",
-                                    tone: Color.accentColor)
+                                    tone: .accent)
                     }
                     .buttonStyle(PressStyle())
 
@@ -555,14 +547,14 @@ private struct MemoDetailSheet: View {
                         Haptics.success()
                         dismiss()
                     } label: {
-                        actionLabel("发给 AI", systemImage: "paperplane", tone: Color.accentColor)
+                        actionLabel("发给 AI", systemImage: "paperplane", tone: .accent)
                     }
                     .buttonStyle(PressStyle())
                 }
                 Button(role: .destructive) {
                     onDelete(current)
                 } label: {
-                    actionLabel("删除这条备忘", systemImage: "trash", tone: Color.red)
+                    actionLabel("删除这条备忘", systemImage: "trash", tone: .danger)
                 }
                 .buttonStyle(PressStyle())
             }
@@ -581,13 +573,10 @@ private struct MemoDetailSheet: View {
 
     /// 淡色胶囊动作按钮（用户指定：胶囊保持淡色底，靠**操作条的不透明底**挡住正文，
     /// 不要改成实色——v3.9.18 曾试实色被否）
-    private func actionLabel(_ title: String, systemImage: String, tone: Color) -> some View {
+    private func actionLabel(_ title: String, systemImage: String, tone: PillTone) -> some View {
         Label(title, systemImage: systemImage)
-            .font(.system(size: Typography.body))
-            .foregroundStyle(tone)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 12)
-            .background(tone.opacity(0.12), in: Capsule())
+            .frame(maxWidth: .infinity)          // 先撑满，再上胶囊底（背景才不会只包住文字）
+            .pill(.primary, tone: tone)          // v3.9.19：主操作口径 body + h14/v12
             .contentShape(Capsule())
     }
 

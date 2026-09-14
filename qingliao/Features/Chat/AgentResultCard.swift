@@ -28,7 +28,7 @@ struct AgentResultCard: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .glassCard(cornerRadius: 14)
+        .glassCard()   // v3.9.19：圆角统一 16（原显式传 14）
         // 流式闭合后由文本替换为卡片：轻微浮现，不抢打字机节奏
         .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .topLeading)))
         .animation(Motion.settle, value: card)

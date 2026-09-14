@@ -5,7 +5,8 @@ import SwiftUI
 // 替换旧的 material+描边模拟（用户反馈不是真液态玻璃）
 
 struct GlassCard: ViewModifier {
-    var cornerRadius: CGFloat = 18
+    // v3.9.19：卡片圆角全站统一 16（原 18，与 .dashboardCard() 不一致）
+    var cornerRadius: CGFloat = 16
     @Environment(\.colorScheme) private var scheme   // v3.4.25：深色描边对比度需要感知深浅色
 
     func body(content: Content) -> some View {
@@ -35,14 +36,14 @@ struct GlassListCard: ViewModifier {
                 scheme == .dark
                     ? AnyShapeStyle(.ultraThinMaterial)
                     : AnyShapeStyle(Color.white.opacity(0.85)),
-                in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+                in: RoundedRectangle(cornerRadius: 16, style: .continuous)   // v3.9.19：卡片圆角统一 16（原 14）
             )
             // v3.4.21：分组容器 0.8pt 浅描边（追平门锁卡/PinCard/SessionRow 全站卡片规范）
             .overlay(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .strokeBorder(Color.primary.opacity(scheme == .dark ? 0.14 : 0.08), lineWidth: 0.8)
             )
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 }
 
@@ -106,7 +107,7 @@ extension View {
     /// 滚动层次感（卡片/列表行用；Lazy 容器内才生效）
     func scrollDepth() -> some View { modifier(ScrollDepth()) }
 
-    func glassCard(cornerRadius: CGFloat = 18) -> some View {
+    func glassCard(cornerRadius: CGFloat = 16) -> some View {
         modifier(GlassCard(cornerRadius: cornerRadius))
     }
     func glassListCard() -> some View {

@@ -57,28 +57,16 @@ struct LifeCardsSection: View {
             Button {
                 onAddStock()
             } label: {
-                // v3.9.4：按用户要求去掉图标，只留「文字 + 胶囊」
-                Text("添加股票")
-                    .font(.system(size: Typography.tiny))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 4)
-                    .background(Color.accentColor.opacity(0.12), in: Capsule())
+                Text("添加股票").pill(.page)   // v3.9.19：页级胶囊口径
             }
             .buttonStyle(PressStyle())
-            .foregroundStyle(Color.accentColor)
             .accessibilityLabel("添加股票卡片")
             Button {
                 onRefresh()
             } label: {
-                // v3.9.4：刷新统一为「文字 + 胶囊」（去图标）
-                Text("刷新")
-                    .font(.system(size: Typography.tiny))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 4)
-                    .background(Color.accentColor.opacity(0.12), in: Capsule())
+                Text("刷新").pill(.page)   // v3.9.19：页级胶囊口径
             }
             .buttonStyle(PressStyle())
-            .foregroundStyle(Color.accentColor)
             .disabled(loading)
 
             Button {
@@ -207,15 +195,9 @@ struct LifeCardsSection: View {
             Button {
                 onRefreshFeeds()
             } label: {
-                // v3.9.4：刷新统一为「文字 + 胶囊」（去图标）
-                Text("刷新")
-                    .font(.system(size: Typography.tiny))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 4)
-                    .background(Color.accentColor.opacity(0.12), in: Capsule())
+                Text("刷新").pill(.page)   // v3.9.19：页级胶囊口径
             }
             .buttonStyle(PressStyle())
-            .foregroundStyle(Color.accentColor)
             .disabled(feedsRefreshing)
             .accessibilityLabel("刷新资讯")
             if !data.updatedText.isEmpty {
