@@ -337,6 +337,27 @@ final class AuthStore {
         }
     }
 
+    // MARK: - v3.9.21 条件自动化规则（后端 rules_engine；延时型仍走 /api/automations/list）
+
+    /// 规则列表（条件触发型）
+    func loadRules() async -> [RuleItem] {
+        guard let d = await jsonOrLog("/api/automations/rules"),
+              let arr = d["rules"] as? [[String: Any]] else { return [] }
+        return arr.map { RuleItem($0) }
+    }
+
+    /// 启停：后端会顺带清掉边沿状态，避免"启用瞬间补一刀"
+    func toggleRule(id: String, enabled: Bool) async -> Bool {
+        guard let d = await jsonOrLog("/api/automations/rule", method: "POST",
+                                      body: ["id": id, "enabled": enabled]) else { return false }
+        return (d["ok"] as? Bool) ?? false
+    }
+
+    func deleteRule(id: String) async -> Bool {
+        guard let d = await jsonOrLog("/api/automations/rule/\(id)", method: "DELETE") else { return false }
+        return (d["ok"] as? Bool) ?? false
+    }
+
     /// v3.0.x：便捷：JSON 数组请求 → 数组，失败静默返回 nil 并打日志
     func jsonArrayOrLog(_ path: String, method: String = "GET", body: [String: Any]? = nil) async -> [Any]? {
         do {

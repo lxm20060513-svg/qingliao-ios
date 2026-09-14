@@ -50,6 +50,9 @@ struct DashboardView: View {
     @State private var scenes: [SceneItem] = []
     // v2.0.104：定时自动化（AI 生成"X分钟后执行Y"，到点自动执行后消失）
     @State private var automations: [AutomationItem] = []
+    // v3.9.21：自动规则（条件触发；规则本体在后端 rules_engine 求值）
+    @State private var rules: [RuleItem] = []
+    @State private var pendingRuleDelete: RuleItem?
     // v2.0.113：场景执行确认（含危险动作时弹窗防误触）
     @State private var confirmSceneRun: SceneItem?
     @State private var sceneResult = ""
@@ -246,6 +249,26 @@ struct DashboardView: View {
                         }
                     }
 
+                    // v3.9.21：自动规则（条件触发）——规则本体在后端 rules_engine：时间窗/HA 实体/上报事件
+                    // 命中且过冷却才执行；App 只负责列出、开关、删除（新建走对话/快捷指令，不在 App 里堆表单）
+                    if !rules.isEmpty {
+                        sectionTitle("自动规则")
+                        VStack(spacing: 10) {
+                            ForEach(rules) { r in
+                                RuleRow(item: r,
+                                        onToggle: { on in
+                                            Task {
+                                                _ = await auth.toggleRule(id: r.id, enabled: on)
+                                                await loadRules()   // 无论成败都回读，避免开关显示与后端不一致
+                                            }
+                                        },
+                                        onDelete: { pendingRuleDelete = r })
+                            }
+                        }
+                        .padding(12)
+                        .dashboardCard()
+                    }
+
                     sectionTitle("NAS 面板")
                     LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
                         MeterCard(name: "CPU", icon: "cpu.fill", value: nas.cpuText, sub: nil, ratio: nas.cpu / 100.0, color: .blue)
@@ -384,6 +407,19 @@ struct DashboardView: View {
                         .presentationDetents([.medium, .large])
                         .navigationTransition(.zoom(sourceID: DashboardSheet.docker.id, in: sheetZoomNS))   // v3.9.0
                 }
+            }
+            // v3.9.21：删除规则确认
+            .alert("删除这条规则？", isPresented: Binding(
+                get: { pendingRuleDelete != nil },
+                set: { if !$0 { pendingRuleDelete = nil } }
+            )) {
+                Button("删除", role: .destructive) {
+                    if let r = pendingRuleDelete { Task { await removeRule(r) } }
+                    pendingRuleDelete = nil
+                }
+                Button("取消", role: .cancel) { pendingRuleDelete = nil }
+            } message: {
+                Text(pendingRuleDelete?.name ?? "")
             }
             // v2.0.96：场景执行结果提示
             .alert("场景执行结果", isPresented: $showSceneResult) {
@@ -559,6 +595,15 @@ struct DashboardView: View {
         }
     }
 
+    /// v3.9.21：自动规则（条件触发型；与上面"自动化"的延时型是两套）
+    private func loadRules() async {
+        rules = await auth.loadRules()
+    }
+
+    private func removeRule(_ r: RuleItem) async {
+        if await auth.deleteRule(id: r.id) { await loadRules() }
+    }
+
     private func refresh() async {
         // v3.0.x：并行请求——7 个独立 API 并发（原串行，每个等前一个完成才发下一个）
         // v3.0.81c：不用 TaskGroup+addTask{@MainActor}——Xcode 26.6 Swift 6 区域隔离检查器对
@@ -571,7 +616,8 @@ struct DashboardView: View {
         async let sugTask: Void = loadSuggestionIfNeeded()
         async let routerTask: Void = loadRouter()
         async let usageTask: Void = loadProviderUsage()
-        _ = await (nasTask, haTask, scenesTask, autosTask, sugTask, routerTask, usageTask)
+        async let rulesTask: Void = loadRules()
+        _ = await (nasTask, haTask, scenesTask, autosTask, sugTask, routerTask, usageTask, rulesTask)
     }
 
     /// NAS 状态
@@ -1532,6 +1578,53 @@ struct SceneItem: Identifiable {
 }
 
 // MARK: - v2.0.104 定时自动化（倒计时卡片）
+
+/// v3.9.21：自动规则一行（名称 + 条件摘要 + 开关；长按删除）
+private struct RuleRow: View {
+    let item: RuleItem
+    var onToggle: (Bool) -> Void
+    var onDelete: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: item.enabled ? "bolt.badge.clock.fill" : "bolt.slash")
+                .font(.system(size: Typography.subhead))
+                .foregroundStyle(item.enabled ? Color.orange : Color.secondary)
+                .frame(width: 20)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.name)
+                    .font(.system(size: Typography.subhead, weight: .medium))
+                Text(subtitle)
+                    .font(.system(size: Typography.caption))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+            Spacer(minLength: 6)
+            Toggle("", isOn: Binding(get: { item.enabled }, set: { onToggle($0) }))
+                .labelsHidden()
+                .tint(.orange)
+        }
+        .padding(.vertical, 2)
+        .contentShape(Rectangle())
+        .contextMenu {
+            Button(role: .destructive) { onDelete() } label: { Label("删除规则", systemImage: "trash") }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(item.name)，\(item.enabled ? "已启用" : "已停用")，条件 \(item.summary)")
+    }
+
+    private var subtitle: String {
+        var s = item.summary
+        if let lr = item.lastRun {
+            let f = DateFormatter()
+            f.dateFormat = "MM-dd HH:mm"
+            s += " · 上次 " + f.string(from: lr)
+        } else if item.runCount == 0 {
+            s += " · 未触发过"
+        }
+        return s
+    }
+}
 
 struct AutomationItem: Identifiable {
     let id: String
