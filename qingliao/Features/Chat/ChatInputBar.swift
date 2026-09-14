@@ -324,6 +324,8 @@ struct ChatInputBar: View {
 /// 只对这个小圆做 scale/opacity 的 repeatForever 动画：**无 shadow、无每帧渐变重绘**，
 /// 不触碰 v3.2.3 那条渲染卡死红线（红线触发条件是「每帧变化的渐变 + 阴影路径重算」）。
 private struct PulsingRecordDot: View {
+    // v3.9.19：无障碍——「降低动态效果」时不做循环脉冲
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var pulsing = false
 
     var body: some View {
@@ -332,7 +334,7 @@ private struct PulsingRecordDot: View {
             .frame(width: 7, height: 7)
             .scaleEffect(pulsing ? 1.45 : 0.85)
             .opacity(pulsing ? 1.0 : 0.5)
-            .animation(.easeInOut(duration: 0.65).repeatForever(autoreverses: true), value: pulsing)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.65).repeatForever(autoreverses: true), value: pulsing)
             .onAppear { pulsing = true }
             .allowsHitTesting(false)
     }

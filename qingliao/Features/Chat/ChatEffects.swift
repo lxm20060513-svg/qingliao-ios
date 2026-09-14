@@ -10,6 +10,8 @@ import UIKit
 /// Core Animation 隐式动画（GPU 合成）——但 60fps 下 3 层全屏大圆持续放大插值仍卡顿，
 /// v2.0.138 决定直接移除波纹层（修不好宁可整体移除，用户确认），只保留粒子特效。
 struct FullScreenBurst: View {
+    /// v3.9.19：无障碍——「降低动态效果」时跳过全屏粒子爆发（一次性特效，功能无损）
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var spawn = Date()
     /// v3.6.2：粒子发射原点距屏幕底部距离——原写死 136 = 聊天页输入栏智能球位置；
     /// 智能球迁到 dock 槽位后由 DockOrbOverlay 的几何定位给出（见 body 内 geoCenterY）
@@ -22,8 +24,12 @@ struct FullScreenBurst: View {
         GeometryReader { geo in
             // 粒子层：160 颗飞散粒子（v2.0.138：波纹层已移除，仅粒子）
             let schedule: AnimationTimelineSchedule = .animation(minimumInterval: 1.0 / 30.0)
-            TimelineView(schedule) { context in
-                BurstCanvas(date: context.date, spawn: spawn, originFromBottom: originFromBottom)
+            if reduceMotion {
+                Color.clear          // 降低动态效果：不播粒子
+            } else {
+                TimelineView(schedule) { context in
+                    BurstCanvas(date: context.date, spawn: spawn, originFromBottom: originFromBottom)
+                }
             }
         }
         .allowsHitTesting(false)
@@ -117,6 +123,8 @@ struct SiriBallView: View {
     var size: CGFloat = 92
     /// 动画帧率（默认 30；dock 槽位空闲态传 15 —— 常驻视图省电，思考态仍用 30）
     var fps: Double = 30
+    /// v3.9.19：无障碍——「降低动态效果」时球静止（慢速刷新代替每帧重绘，同时省电）
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var k: CGFloat { size / 92 }
 
@@ -142,7 +150,9 @@ struct SiriBallView: View {
     var body: some View {
         // v3.6.2：帧率可调——dock 槽位常驻显示（5 个 tab 全程可见），空闲呼吸降 15fps 省电，
         // 流式思考中保留 30fps 让 orbits 旋转顺滑（原写死 30fps）
-        let schedule: AnimationTimelineSchedule = .animation(minimumInterval: 1.0 / fps)
+        let schedule: AnimationTimelineSchedule = reduceMotion
+            ? .periodic(from: .now, by: 600)
+            : .animation(minimumInterval: 1.0 / fps)
         TimelineView(schedule) { context in
             let t = context.date.timeIntervalSinceReferenceDate
             let breathe = 0.35 + 0.30 * (sin(t * 2.2) + 1) / 2

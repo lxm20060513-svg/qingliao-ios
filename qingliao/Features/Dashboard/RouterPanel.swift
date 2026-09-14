@@ -57,6 +57,8 @@ struct RouterPanel: View {
 
     @State private var showClashSheet = false
     // v2.0.65：状态点呼吸动画（在线时呼吸）
+    // v3.9.19：无障碍——「降低动态效果」时在线点不呼吸
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var breathe = false
 
     var body: some View {
@@ -73,7 +75,8 @@ struct RouterPanel: View {
                     .frame(width: 7, height: 7)
                     // v2.0.65：在线时呼吸（2s 循环透明度）
                     .opacity(router.ok ? (breathe ? 1.0 : 0.35) : 1.0)
-                    .animation(router.ok ? .easeInOut(duration: 1.0).repeatForever(autoreverses: true) : Motion.flow,
+                    .animation(router.ok && !reduceMotion
+                               ? .easeInOut(duration: 1.0).repeatForever(autoreverses: true) : Motion.flow,
                                value: breathe)
                     .onAppear { breathe = true }
                 Spacer()

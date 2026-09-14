@@ -131,6 +131,7 @@ struct LoginView: View {
                                             .font(.system(size: Typography.subhead))
                                             .foregroundStyle(.tertiary)
                                     }
+                                    .accessibilityLabel("删除该服务器")
                                     .buttonStyle(.plain)
                                 }
                                 .padding(.horizontal, 14)

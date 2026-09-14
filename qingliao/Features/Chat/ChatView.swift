@@ -1964,6 +1964,8 @@ struct ChatView: View {
 
     /// 思考中动画（三点跳动）
     struct TypingIndicator: View {
+        // v3.9.19：无障碍——「降低动态效果」时不做循环脉冲
+        @Environment(\.accessibilityReduceMotion) private var reduceMotion
         @State var animating = false
         var body: some View {
             HStack(spacing: 5) {
@@ -1975,7 +1977,7 @@ struct ChatView: View {
                         .frame(width: 8, height: 8)
                         .scaleEffect(animating ? 1.0 : 0.55)
                         .opacity(animating ? 1.0 : 0.45)
-                        .animation(.easeInOut(duration: 0.6).repeatForever(autoreverses: true).delay(Double(i) * 0.18), value: animating)
+                        .animation(reduceMotion ? nil : .easeInOut(duration: 0.6).repeatForever(autoreverses: true).delay(Double(i) * 0.18), value: animating)
                 }
             }
             .onAppear { animating = true }

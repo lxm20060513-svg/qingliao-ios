@@ -342,6 +342,7 @@ struct NewTaskSheet: View {
                         .font(.system(size: Typography.titleXL)).foregroundStyle(.tertiary)
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("关闭")
             }
 
             TextField("任务名称（如：每日早报）", text: $name)

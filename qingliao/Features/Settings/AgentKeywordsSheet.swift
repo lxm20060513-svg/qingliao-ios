@@ -50,6 +50,7 @@ struct AgentKeywordsSheet: View {
                                         .foregroundStyle(.red.opacity(0.8))
                                 }
                                 .buttonStyle(.plain)
+                                .accessibilityLabel("删除关键词 \(w)")
                             }
                         }
                     }

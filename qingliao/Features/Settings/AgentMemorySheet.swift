@@ -46,6 +46,7 @@ struct AgentMemorySheet: View {
                                             .font(.system(size: Typography.title))
                                             .foregroundStyle(.red.opacity(0.8))
                                     }
+                                    .accessibilityLabel("删除这条记忆")
                                     .buttonStyle(.plain)
                                 }
                                 .padding(.vertical, 2)

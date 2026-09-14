@@ -356,6 +356,7 @@ struct SecretEditSheet: View {
                         .font(.system(size: Typography.titleXL)).foregroundStyle(.tertiary)
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("关闭")
             }
             Picker("类型", selection: $type) {
                 Text("NAS").tag("nas")

@@ -146,6 +146,7 @@ struct PageHeader: View {
             HStack {
                 Text(title)
                     .font(.system(size: Typography.titleXL, weight: .bold))
+                    .accessibilityAddTraits(.isHeader)   // v3.9.19：VoiceOver 转子按标题跳转
                 Spacer()
                 if let trailing { trailing }
             }
@@ -172,6 +173,8 @@ struct PageHeader: View {
 /// v3.5.1：header 小三点（AI 正在输入）——3 个 3.5pt 圆点依次呼吸。
 /// 只用 opacity 动画、无 shadow/blur，守住 v3.2.3 渲染卡死红线。
 struct BusyDots: View {
+    // v3.9.19：无障碍——系统「降低动态效果」开启时不做循环呼吸（照抄 Skeleton.swift 先例）
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var on = false
     var body: some View {
         HStack(spacing: 2.5) {
@@ -180,7 +183,7 @@ struct BusyDots: View {
                     .fill(Color.accentColor)
                     .frame(width: 3.5, height: 3.5)
                     .opacity(on ? 1.0 : 0.28)
-                    .animation(.easeInOut(duration: 0.55).repeatForever(autoreverses: true)
+                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.55).repeatForever(autoreverses: true)
                         .delay(Double(i) * 0.16), value: on)
             }
         }

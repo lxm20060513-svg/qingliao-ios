@@ -84,6 +84,7 @@ struct SessionsView: View {
                             .font(.system(size: Typography.body))
                             .foregroundStyle(.tertiary)
                     }
+                    .accessibilityLabel("清空搜索")
                     .buttonStyle(.plain)
                 }
             }
