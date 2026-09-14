@@ -150,9 +150,10 @@ struct SiriBallView: View {
     var body: some View {
         // v3.6.2：帧率可调——dock 槽位常驻显示（5 个 tab 全程可见），空闲呼吸降 15fps 省电，
         // 流式思考中保留 30fps 让 orbits 旋转顺滑（原写死 30fps）
-        let schedule: AnimationTimelineSchedule = reduceMotion
-            ? .periodic(from: .now, by: 600)
-            : .animation(minimumInterval: 1.0 / fps)
+        // v3.9.19：降低动态效果时近乎不刷新（视觉静止，同时省电）。
+        // ⚠️ 必须用 AnimationTimelineSchedule 自身构造：`.periodic(from:by:)` 返回的是
+        // PeriodicTimelineSchedule，与这里期望的类型不同 —— CI #502 就是栽在这一行
+        let schedule = AnimationTimelineSchedule(minimumInterval: reduceMotion ? 600 : 1.0 / fps)
         TimelineView(schedule) { context in
             let t = context.date.timeIntervalSinceReferenceDate
             let breathe = 0.35 + 0.30 * (sin(t * 2.2) + 1) / 2
