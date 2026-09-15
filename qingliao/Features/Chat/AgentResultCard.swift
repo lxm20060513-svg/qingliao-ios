@@ -28,7 +28,9 @@ struct AgentResultCard: View {
         }
         .padding(Spacing.xl)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .glassCard()   // v3.9.19：圆角统一 16（原显式传 14）
+        // v3.9.28：拿掉 glassCard（glassEffect 默认 Capsule 形状 = 大弧度圆角玻璃蒙版罩在卡上）
+        // 改用全站卡片统一底：纯色底 + 0.8pt 描边 + 16pt 圆角，与看板卡同款
+        .dashboardCard()
         // 流式闭合后由文本替换为卡片：轻微浮现，不抢打字机节奏
         .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .topLeading)))
         .animation(Motion.settle, value: card)
