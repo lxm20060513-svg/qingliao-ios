@@ -230,7 +230,7 @@ struct DockerContainerCard: View {
             Text(running ? "运行中" : "已停止")
                 .font(.system(size: Typography.subhead, weight: .semibold))   // v2.0.86o：大字状态改小
                 .foregroundStyle(.primary)
-                .padding(.top, 6)
+                .padding(.top, Spacing.sm)
             // v2.0.87p：有更新才显示向上箭头（v2.0.87ao：网络由用户路由器解决，恢复箭头方案）
             HStack(spacing: 6) {
                 Text(portSuffix)
@@ -256,18 +256,18 @@ struct DockerContainerCard: View {
                     .buttonStyle(.plain)
                 }
             }
-            .padding(.top, 4)
+            .padding(.top, Spacing.xs)
         }
-        .padding(12)
+        .padding(Spacing.xl)
         .frame(height: 96, alignment: .top)   // v2.0.81：固定高度 → 所有卡片等高统一
         .background(Color(uiColor: .secondarySystemGroupedBackground))
         .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
                 .strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8)
         )
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
         // 单击停止 / 长按删除 提示
-        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
     }
 }
 
@@ -329,21 +329,21 @@ private struct DockerImageCard: View {
             Text(inUse ? "使用中" : "未使用")
                 .font(.system(size: Typography.subhead, weight: .semibold))   // v2.0.86o：大字状态改小
                 .foregroundStyle(.primary)
-                .padding(.top, 6)
+                .padding(.top, Spacing.sm)
             Text("\(image.id) · \(image.size) · 长按删除")
                 .font(.system(size: Typography.tiny))
                 .foregroundStyle(.tertiary)
                 .lineLimit(1)
-                .padding(.top, 4)
+                .padding(.top, Spacing.xs)
         }
-        .padding(12)
+        .padding(Spacing.xl)
         .frame(height: 96, alignment: .top)   // 与容器卡等高
         .background(Color(uiColor: .secondarySystemGroupedBackground))
         .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
                 .strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8)
         )
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
     }
 }
 
@@ -375,8 +375,8 @@ private struct ContainerSection: View {
                     Text("刷新")
                         .font(.system(size: Typography.subhead, weight: .medium))
                     .foregroundStyle(Color.accentColor)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
+                    .padding(.horizontal, Spacing.lg)
+                    .padding(.vertical, Spacing.sm)
                     .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
                 }
                 .buttonStyle(.plain)
@@ -387,7 +387,7 @@ private struct ContainerSection: View {
                 VStack(spacing: 10) {
                     ForEach(0..<2, id: \.self) { _ in SkeletonRow() }
                 }
-                .padding(.vertical, 4)
+                .padding(.vertical, Spacing.xs)
             } else if containers.isEmpty {
                 VStack(spacing: 6) {
                     Image(systemName: "shippingbox")
@@ -422,10 +422,10 @@ private struct ContainerSection: View {
                 }
             }
         }
-        .padding(14)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
+        .padding(Spacing.xxl)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: Radius.card))
         .overlay(
-            RoundedRectangle(cornerRadius: 16)
+            RoundedRectangle(cornerRadius: Radius.card)
                 .strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8)
         )
     }
@@ -453,8 +453,8 @@ private struct ImageSection: View {
                     Text("刷新")
                         .font(.system(size: Typography.subhead, weight: .medium))
                     .foregroundStyle(Color.indigo)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
+                    .padding(.horizontal, Spacing.lg)
+                    .padding(.vertical, Spacing.sm)
                     .background(Color.indigo.opacity(Tint.subtle), in: Capsule())
                 }
                 .buttonStyle(.plain)
@@ -463,7 +463,7 @@ private struct ImageSection: View {
                 Text("暂无镜像")
                     .font(.system(size: Typography.subhead))
                     .foregroundStyle(.tertiary)
-                    .padding(.vertical, 4)
+                    .padding(.vertical, Spacing.xs)
             } else {
                 // v2.0.86n：2 列网格（同容器卡风格）+ 长按删除
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: 10),
@@ -482,10 +482,10 @@ private struct ImageSection: View {
                 }
             }
         }
-        .padding(14)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
+        .padding(Spacing.xxl)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: Radius.card))
         .overlay(
-            RoundedRectangle(cornerRadius: 16)
+            RoundedRectangle(cornerRadius: Radius.card)
                 .strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8)
         )
     }
@@ -510,11 +510,11 @@ private struct DeploySection: View {
             TextField("项目名（如 myapp）", text: $name)
                 .font(.system(size: Typography.body))
                 .focused($focused)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
+                .padding(.horizontal, Spacing.xl)
+                .padding(.vertical, Spacing.lg)
+                .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: Radius.chip))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 10)
+                    RoundedRectangle(cornerRadius: Radius.chip)
                         .strokeBorder(Color.primary.opacity(Tint.subtle), lineWidth: 0.8)
                 )
             if !name.isEmpty {
@@ -530,11 +530,11 @@ private struct DeploySection: View {
                     .font(.system(size: Typography.subhead, design: .monospaced))
                     .focused($focused)
                     .frame(minHeight: 180)
-                    .padding(8)
+                    .padding(Spacing.md)
                     .scrollContentBackground(.hidden)
-                    .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 10))
+                    .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: Radius.chip))
                     .overlay(
-                        RoundedRectangle(cornerRadius: 10)
+                        RoundedRectangle(cornerRadius: Radius.chip)
                             .strokeBorder(Color.primary.opacity(Tint.subtle), lineWidth: 0.8)
                     )
                     .overlay(alignment: .topLeading) {
@@ -542,8 +542,8 @@ private struct DeploySection: View {
                             Text(DockerSheet.yamlHint)
                                 .font(.system(size: Typography.subhead, design: .monospaced))
                                 .foregroundStyle(.tertiary.opacity(0.6))
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 16)
+                                .padding(.horizontal, Spacing.xxl)
+                                .padding(.vertical, Spacing.section)
                                 .allowsHitTesting(false)
                         }
                     }
@@ -553,13 +553,13 @@ private struct DeploySection: View {
                     } label: {
                         Label("模板", systemImage: "text.badge.plus")
                             .font(.system(size: Typography.caption, weight: .medium))
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
+                            .padding(.horizontal, Spacing.md)
+                            .padding(.vertical, Spacing.xs)
                             .background(.ultraThinMaterial, in: Capsule())
                             .foregroundStyle(Color.accentColor)
                     }
                     .buttonStyle(.plain)
-                    .padding(8)
+                    .padding(Spacing.md)
                 }
             }
 
@@ -576,11 +576,11 @@ private struct DeploySection: View {
                         .font(.system(size: Typography.body, weight: .semibold))
                 }
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
+                .padding(.vertical, Spacing.xl)
                 .background(
                     LinearGradient(colors: [.blue, .indigo],
                                    startPoint: .leading, endPoint: .trailing),
-                    in: RoundedRectangle(cornerRadius: 12)
+                    in: RoundedRectangle(cornerRadius: Radius.inset)
                 )
                 .foregroundStyle(.white)
                 .shadow(color: .blue.opacity(0.35), radius: 8, y: 3)
@@ -591,10 +591,10 @@ private struct DeploySection: View {
             .opacity(busy || name.trimmingCharacters(in: .whitespaces).isEmpty
                        || yaml.trimmingCharacters(in: .whitespaces).isEmpty ? 0.5 : 1)
         }
-        .padding(14)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
+        .padding(Spacing.xxl)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: Radius.card))
         .overlay(
-            RoundedRectangle(cornerRadius: 16)
+            RoundedRectangle(cornerRadius: Radius.card)
                 .strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8)
         )
 
@@ -609,10 +609,10 @@ private struct DeploySection: View {
                     .foregroundStyle(m.ok ? Color.primary : Color.red)   // v2.0.86k：显式 Color（.primary 是 HierarchicalShapeStyle，三元类型冲突）
                     .textSelection(.enabled)
             }
-            .padding(10)
+            .padding(Spacing.lg)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background((m.ok ? Color.green : Color.red).opacity(0.1),
-                        in: RoundedRectangle(cornerRadius: 10))
+                        in: RoundedRectangle(cornerRadius: Radius.chip))
         }
     }
 }

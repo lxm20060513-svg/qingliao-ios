@@ -56,7 +56,7 @@ struct SecretsView: View {
                         Text("解锁")
                             .font(.system(size: Typography.body, weight: .semibold))
                             .foregroundStyle(.white)
-                            .padding(.horizontal, 44).padding(.vertical, 11)
+                            .padding(.horizontal, 44).padding(.vertical, Spacing.lg)
                             .background(Color.accentColor, in: Capsule())
                     }
                     .buttonStyle(.plain)
@@ -98,8 +98,8 @@ struct SecretsView: View {
                             SecretRow(entry: e, onReveal: { reveal(e) }, onEdit: { edit(e) }, onDelete: { delete(e) })
                         }
                     }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
+                    .padding(.horizontal, Spacing.xxl)
+                    .padding(.vertical, Spacing.lg)
                 }
             }
         }
@@ -115,7 +115,7 @@ struct SecretsView: View {
             if !toast.isEmpty {
                 Text(toast)
                     .font(.system(size: Typography.subhead))
-                    .padding(.horizontal, 16).padding(.vertical, 8)
+                    .padding(.horizontal, Spacing.section).padding(.vertical, Spacing.md)
                     .background(Color(uiColor: .secondarySystemGroupedBackground), in: Capsule())
                     .padding(.bottom, 20)
                     .transition(.opacity)
@@ -265,7 +265,7 @@ struct SecretRow: View {
                 Text(typeName)
                     .font(.system(size: Typography.tiny))
                     .foregroundStyle(.secondary)
-                    .padding(.horizontal, 7).padding(.vertical, 2)
+                    .padding(.horizontal, Spacing.md).padding(.vertical, Spacing.xxs)
                     .background(Color.secondary.opacity(Tint.subtle), in: Capsule())
                 Spacer()
                 // 复制完整连接串
@@ -324,10 +324,10 @@ struct SecretRow: View {
                 }
             }
         }
-        .padding(12)
+        .padding(Spacing.xl)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(uiColor: .secondarySystemGroupedBackground),
-                    in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+                    in: RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
     }
 }
 
@@ -386,7 +386,7 @@ struct SecretEditSheet: View {
                     Text("保存")
                     Spacer()
                 }
-                .padding(.vertical, 11)
+                .padding(.vertical, Spacing.lg)
                 .background(Color.accentColor, in: Capsule())
                 .foregroundStyle(.white)
                 .font(.system(size: Typography.body, weight: .semibold))

@@ -32,7 +32,7 @@ struct TaskCenterView: View {
                 }
                 .pickerStyle(.segmented)
                 .padding(.horizontal)
-                .padding(.top, 8)
+                .padding(.top, Spacing.md)
 
                 // v3.4.23：显示条件 = 进行中任务非空 或 未完成任务非空
                 if activeTasks.isEmpty && activeOnlyTasks.isEmpty {
@@ -198,7 +198,7 @@ private struct ActiveTaskRow: View {
             ProgressView()
                 .controlSize(.small)
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, Spacing.xs)
     }
 
     private var elapsed: String {
@@ -235,8 +235,8 @@ private struct TaskRow: View {
                 HStack(spacing: 6) {
                     Text(typeLabel)
                         .font(.caption2.weight(.medium))
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 2.5)
+                        .padding(.horizontal, Spacing.md)
+                        .padding(.vertical, Spacing.xxs)
                         .background(Capsule().fill(typeColor.opacity(0.13)))
                         .overlay(Capsule().strokeBorder(typeColor.opacity(0.22), lineWidth: 0.7))
                         .foregroundStyle(typeColor)
@@ -255,7 +255,7 @@ private struct TaskRow: View {
                     .frame(width: 18, height: 18)
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, Spacing.xs)
     }
 
     private var iconName: String {

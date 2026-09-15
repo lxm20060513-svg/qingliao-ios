@@ -130,14 +130,14 @@ struct ChatInputBar: View {
                             .allowsHitTesting(false)
                     }
                 }
-                .padding(.vertical, 12)
-                .padding(.horizontal, 2)
+                .padding(.vertical, Spacing.xl)
+                .padding(.horizontal, Spacing.xxs)
             } else {
                 TextField("", text: $text, axis: .vertical)
                     .font(.system(size: Typography.body))
                     .lineLimit(1...6)   // v2.0.35：1行起（原来2...6最小2行高→单行光标/文字偏上不居中）
-                    .padding(.vertical, 12)   // v2.0.93f：9→12 输入框加高（用户反馈太窄）
-                    .padding(.horizontal, 2)
+                    .padding(.vertical, Spacing.xl)   // v2.0.93f：9→12 输入框加高（用户反馈太窄）
+                    .padding(.horizontal, Spacing.xxs)
                     .fixedSize(horizontal: false, vertical: true)   // 文字超宽自动增高输入框，旧文字始终可见
                     .focused($focused)
                     // v2.0.106：长按输入框 = 进入语音转文字（与长按发送键同效；收键盘由 ChatView 处理）
@@ -267,8 +267,8 @@ struct ChatInputBar: View {
             )
             .animation(Motion.snap, value: sendColors)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
+        .padding(.horizontal, Spacing.lg)
+        .padding(.vertical, Spacing.md)
         // v2.0.87e：原生液态玻璃输入栏（iOS 26+）
         .background { Capsule().glassEffect() }
         // v3.4.20：聚焦态光晕——输入框获得焦点时边缘亮起淡蓝细描边（0.8pt 与全站描边同参），失焦淡出。

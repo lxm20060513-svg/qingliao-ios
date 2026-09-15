@@ -88,18 +88,18 @@ struct SessionsView: View {
                     .buttonStyle(.plain)
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .padding(.horizontal, Spacing.xl)
+            .padding(.vertical, Spacing.md)
             .glassListCard()   // v3.4.25：毛玻璃风格（Theme/LiquidGlass.swift GlassListCard）
-            .padding(.horizontal, 14)
-            .padding(.bottom, 8)
+            .padding(.horizontal, Spacing.xxl)
+            .padding(.bottom, Spacing.md)
             if isLoading && sessions.isEmpty {
                 // v3.9.0：首屏加载改骨架屏（比转圈更能预示"内容马上出现在这里"，且不白屏）
                 VStack(spacing: 14) {
                     ForEach(0..<3, id: \.self) { _ in SkeletonRow() }
                 }
-                .padding(.horizontal, 14)
-                .padding(.top, 6)
+                .padding(.horizontal, Spacing.xxl)
+                .padding(.top, Spacing.sm)
                 Spacer()
             } else if let err = errorText, sessions.isEmpty {
                 Spacer()
@@ -109,7 +109,7 @@ struct SessionsView: View {
                 Button("重试") { Task { await load() } }
                     .font(.system(size: Typography.body, weight: .medium))
                     .foregroundStyle(Color.accentColor)
-                    .padding(.top, 8)
+                    .padding(.top, Spacing.md)
                 Spacer()
             } else {
                 ScrollView {
@@ -166,7 +166,7 @@ struct SessionsView: View {
                             }
                         }
                     }
-                    .padding(.horizontal, 14)
+                    .padding(.horizontal, Spacing.xxl)
                     .padding(.bottom, 90)
                 }
                 .scrollPosition($scrollPos)
@@ -227,15 +227,15 @@ struct SessionsView: View {
                             .font(.system(size: Typography.subhead, weight: .semibold))
                             .foregroundStyle(.white)
                             .padding(.horizontal, 18)
-                            .padding(.vertical, 9)
+                            .padding(.vertical, Spacing.md)
                             .background(selectedIds.isEmpty ? Color.red.opacity(0.4) : Color.red,
-                                        in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                        in: RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
                     }
                     .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
                     .disabled(selectedIds.isEmpty)
                 }
                 .padding(.horizontal, 18)
-                .padding(.vertical, 10)
+                .padding(.vertical, Spacing.lg)
                 .padding(.bottom, 78)   // v2.0.87af：避开 Dock 栏高度
                 .background(.ultraThinMaterial)
             }
@@ -668,14 +668,14 @@ struct BotCard: View {
                     .foregroundStyle(online == true ? Color.green : (online == false ? Color.red : Color.secondary))
             }
         }
-        .padding(13)
+        .padding(Spacing.xl)
         .background(
             LinearGradient(colors: [Color.blue.opacity(Tint.subtle), Color.indigo.opacity(Tint.faint)],
                            startPoint: .topLeading, endPoint: .bottomTrailing),
-            in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+            in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
                 .strokeBorder(Color.blue.opacity(Tint.strong), lineWidth: 0.8)
         )
         .task {
@@ -727,7 +727,7 @@ struct SessionRow: View {
             // v3.4.25：会话头像个性化——按会话 id hash 稳定映射到 8 色系 × 6 图标组合，
             // 不同类型会话一眼可辨（微信式视觉锚点）；hash 稳定 = 同一会话永远同一头像
             ZStack {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                RoundedRectangle(cornerRadius: Radius.inset, style: .continuous)
                     .fill(LinearGradient(colors: avatarColors,
                                          startPoint: .topLeading, endPoint: .bottomTrailing))
                 Image(systemName: avatarIcon)
@@ -757,7 +757,7 @@ struct SessionRow: View {
                 // v3.0.51 B7：会话标签小胶囊（彩色，最多 3 个）
                                 if !tags.isEmpty {
                                     SessionTagCapsules(tags: tags)
-                                        .padding(.top, 1)
+                                        .padding(.top, Spacing.xxs)
                                 }
                                 Text(session.lastMessageText)
                     .font(.system(size: Typography.subhead))
@@ -782,15 +782,15 @@ struct SessionRow: View {
                 }
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 11)
+        .padding(.horizontal, Spacing.xxl)
+        .padding(.vertical, Spacing.lg)
         .background(Color(uiColor: .secondarySystemGroupedBackground))
         // 会话条目边框（深浅色通用细描边）
         .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
                 .strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8)
         )
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
         .contentShape(Rectangle())
         // 用 tap 手势而非 Button 包裹（Button 会与 swipeActions 滑动手势冲突，导致滑动删除失效）
         .onTapGesture { action() }
@@ -808,8 +808,8 @@ private struct SessionTagCapsules: View {
                     .font(.system(size: Typography.tiny, weight: .semibold))
                     .foregroundStyle(tagColor(t))
                     .lineLimit(1)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 1.5)
+                    .padding(.horizontal, Spacing.sm)
+                    .padding(.vertical, Spacing.xxs)
                     .background(tagColor(t).opacity(0.14), in: Capsule())
             }
         }

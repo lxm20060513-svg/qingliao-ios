@@ -56,10 +56,10 @@ struct ImageViewer: View {
                         Text("\(index + 1) / \(images.count)")
                             .font(.system(size: Typography.subhead, weight: .medium))
                             .foregroundStyle(.white.opacity(0.9))
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 5)
+                            .padding(.horizontal, Spacing.xl)
+                            .padding(.vertical, Spacing.xs)
                             .background(.ultraThinMaterial, in: Capsule())
-                            .padding(.leading, 16)
+                            .padding(.leading, Spacing.section)
                     }
                     Spacer()
                     Button {
@@ -71,7 +71,7 @@ struct ImageViewer: View {
                             .shadow(radius: 4)
                     }
                     .buttonStyle(.plain)
-                    .padding(16)
+                    .padding(Spacing.section)
                 }
                 Spacer()
                 Button {
@@ -81,7 +81,7 @@ struct ImageViewer: View {
                         .font(.system(size: Typography.body, weight: .medium))
                         .foregroundStyle(.white)
                         .padding(.horizontal, 18)
-                        .padding(.vertical, 9)
+                        .padding(.vertical, Spacing.md)
                         .background(.ultraThinMaterial, in: Capsule())
                 }
                 .buttonStyle(.plain)

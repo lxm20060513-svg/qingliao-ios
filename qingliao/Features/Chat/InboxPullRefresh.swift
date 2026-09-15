@@ -83,14 +83,14 @@ struct InboxPullLayer: View {
     private func pullCapsule<C: View>(@ViewBuilder _ c: () -> C) -> some View {
         c()
             .font(.system(size: Typography.subhead, weight: .medium))
-            .padding(.horizontal, 15)
-            .padding(.vertical, 8.5)
+            .padding(.horizontal, Spacing.xxl)
+            .padding(.vertical, Spacing.md)
             .background(.ultraThinMaterial, in: Capsule())
             .overlay(
                 Capsule().strokeBorder(Color.primary.opacity(Tint.subtle), lineWidth: 0.8)
             )
             .shadow(color: .black.opacity(Tint.faint), radius: 10, y: 3)
-            .padding(.bottom, 10)
+            .padding(.bottom, Spacing.lg)
     }
 }
 

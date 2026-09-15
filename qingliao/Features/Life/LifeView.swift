@@ -51,7 +51,7 @@ struct LifeView: View {
                                          bigBangPayload = BigBangPayload(text: text, sourceID: sourceID)
                                      })
                 }
-                .padding(.horizontal, 14)
+                .padding(.horizontal, Spacing.xxl)
                 .padding(.bottom, 100)
                 .frame(maxWidth: .infinity)
                 .frame(maxWidth: AdaptiveLayout.contentMaxWidth(hSize))

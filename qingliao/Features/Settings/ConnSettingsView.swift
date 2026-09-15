@@ -45,7 +45,7 @@ struct ConnSettingsView: View {
                     Text("服务器")
                         .font(.system(size: Typography.subhead, weight: .semibold))
                         .foregroundStyle(.secondary)
-                        .padding(.leading, 4)
+                        .padding(.leading, Spacing.xs)
                     VStack(spacing: 0) {
                         SettingRow(icon: "globe.asia.australia.fill", iconColor: .green,
                                    title: "服务器地址", value: shortServer, chevron: true)
@@ -60,9 +60,9 @@ struct ConnSettingsView: View {
                                 .font(.system(size: Typography.caption))
                                 .foregroundStyle(r.hasPrefix("✅") ? Color.green : Color.red)
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.horizontal, 14)
-                                .padding(.bottom, 8)
-                                .padding(.top, 2)
+                                .padding(.horizontal, Spacing.xxl)
+                                .padding(.bottom, Spacing.md)
+                                .padding(.top, Spacing.xxs)
                         }
                     }
                     .glassListCard()
@@ -70,8 +70,8 @@ struct ConnSettingsView: View {
                     Text("存储")
                         .font(.system(size: Typography.subhead, weight: .semibold))
                         .foregroundStyle(.secondary)
-                        .padding(.leading, 4)
-                        .padding(.top, 6)
+                        .padding(.leading, Spacing.xs)
+                        .padding(.top, Spacing.sm)
                     VStack(spacing: 0) {
                         SettingRow(icon: "tray.full.fill", iconColor: .teal,
                                    title: "会话存储位置", value: sessionLocShort, chevron: true)
@@ -86,9 +86,9 @@ struct ConnSettingsView: View {
                     Text("会话记录保存在 NAS 指定目录，Web 与 App 共用同一份")
                         .font(.system(size: Typography.tiny))
                         .foregroundStyle(.tertiary)
-                        .padding(.leading, 4)
+                        .padding(.leading, Spacing.xs)
                 }
-                .padding(14)
+                .padding(Spacing.xxl)
             }
             .scrollContentBackground(.hidden)
             .navigationTitle("连接设置")
@@ -168,9 +168,9 @@ private struct UploadDirSheet: View {
                 .font(.system(size: Typography.body))
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
-                .padding(12)
+                .padding(Spacing.xl)
                 .background(Color(uiColor: .secondarySystemGroupedBackground))
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
                 .padding(.horizontal, 20)
 
             if let r = result {
@@ -187,7 +187,7 @@ private struct UploadDirSheet: View {
                     .font(.system(size: Typography.body, weight: .semibold))
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
+                    .padding(.vertical, Spacing.xl)
                     .background(Color.accentColor, in: Capsule())
             }
             .buttonStyle(.plain)

@@ -37,7 +37,7 @@ struct SkeletonCard<Content: View>: View {
         VStack(alignment: .leading, spacing: 8) {
             content
         }
-        .padding(12)
+        .padding(Spacing.xl)
         .frame(maxWidth: .infinity, alignment: .leading)
         .dashboardCard()
     }
@@ -47,7 +47,7 @@ struct SkeletonCard<Content: View>: View {
 struct SkeletonRow: View {
     var body: some View {
         HStack(spacing: 10) {
-            SkeletonBlock(width: 30, height: 30, cornerRadius: 8)
+            SkeletonBlock(width: 30, height: 30, cornerRadius: Radius.icon)
             VStack(alignment: .leading, spacing: 6) {
                 SkeletonBlock(width: 116, height: 11)
                 SkeletonBlock(width: 188, height: 10)

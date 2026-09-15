@@ -26,7 +26,7 @@ struct AgentResultCard: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .padding(12)
+        .padding(Spacing.xl)
         .frame(maxWidth: .infinity, alignment: .leading)
         .glassCard()   // v3.9.19：圆角统一 16（原显式传 14）
         // 流式闭合后由文本替换为卡片：轻微浮现，不抢打字机节奏
@@ -90,8 +90,8 @@ struct AgentResultCard: View {
                 .font(.system(size: Typography.tiny, weight: .medium))
                 .foregroundStyle(toneColor(tone))
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 3)
+        .padding(.horizontal, Spacing.md)
+        .padding(.vertical, Spacing.xs)
         .background(toneColor(tone).opacity(Tint.subtle), in: Capsule())
     }
 
@@ -156,7 +156,7 @@ struct AgentResultCard: View {
                     Circle()
                         .fill(toneColor(item.tone))
                         .frame(width: 6, height: 6)
-                        .padding(.top, 5)
+                        .padding(.top, Spacing.xs)
                     VStack(alignment: .leading, spacing: 1) {
                         Text(item.title)
                             .font(.system(size: Typography.subhead))
@@ -174,8 +174,8 @@ struct AgentResultCard: View {
                         Text(st)
                             .font(.system(size: Typography.tiny, weight: .medium))
                             .foregroundStyle(toneColor(item.tone))
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 2)
+                            .padding(.horizontal, Spacing.md)
+                            .padding(.vertical, Spacing.xxs)
                             .background(toneColor(item.tone).opacity(Tint.subtle), in: Capsule())
                     }
                 }
@@ -222,8 +222,8 @@ private struct AgentCardTable: View {
                                 .font(.system(size: Typography.caption, weight: r == 0 ? .semibold : .regular))
                                 .foregroundStyle(r == 0 ? Color.primary : Color.secondary)
                                 .lineLimit(2)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 5)
+                                .padding(.horizontal, Spacing.md)
+                                .padding(.vertical, Spacing.xs)
                                 .frame(width: colWidths.indices.contains(c) ? colWidths[c] : 72, alignment: .leading)
                                 .background(r == 0
                                             ? Color.accentColor.opacity(Tint.faint)
@@ -237,9 +237,9 @@ private struct AgentCardTable: View {
             }
         }
         .textSelection(.enabled)
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.icon, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
+            RoundedRectangle(cornerRadius: Radius.icon, style: .continuous)
                 .strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8)
         )
     }

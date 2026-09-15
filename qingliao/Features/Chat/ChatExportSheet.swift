@@ -25,7 +25,7 @@ struct ChatExportSheet: View {
                         overviewItem(icon: "doc.text",
                                      color: .orange, value: "\(textMsgCount)", label: "文字")
                     }
-                    .padding(.vertical, 4)
+                    .padding(.vertical, Spacing.xs)
                 }
 
                 Section("选择导出格式") {
@@ -99,8 +99,8 @@ struct ChatExportSheet: View {
                             Text(badge)
                                 .font(.system(size: Typography.tiny, weight: .semibold))
                                 .foregroundStyle(.green)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
+                                .padding(.horizontal, Spacing.sm)
+                                .padding(.vertical, Spacing.xxs)
                                 .background(Capsule().fill(Color.green.opacity(Tint.subtle)))
                         }
                     }
@@ -113,7 +113,7 @@ struct ChatExportSheet: View {
                     .font(.system(size: Typography.subhead, weight: .semibold))
                     .foregroundStyle(.tertiary)
             }
-            .padding(.vertical, 2)
+            .padding(.vertical, Spacing.xxs)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

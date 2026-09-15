@@ -262,9 +262,9 @@ struct CrashAlertSheet: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(maxHeight: 140)
-            .padding(10)
+            .padding(Spacing.lg)
             .background(Color(uiColor: .secondarySystemGroupedBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
             HStack(spacing: 10) {
                 Button {
                     UIPasteboard.general.string = logText
@@ -275,7 +275,7 @@ struct CrashAlertSheet: View {
                         Text(copied ? "已复制" : "复制")
                         Spacer()
                     }
-                    .padding(.vertical, 10)
+                    .padding(.vertical, Spacing.lg)
                     .background(Color.secondary.opacity(Tint.soft), in: Capsule())
                     .font(.system(size: Typography.body, weight: .semibold))
                 }
@@ -288,7 +288,7 @@ struct CrashAlertSheet: View {
                         Label("导出日志", systemImage: "square.and.arrow.up")
                         Spacer()
                     }
-                    .padding(.vertical, 10)
+                    .padding(.vertical, Spacing.lg)
                     .background(Color.accentColor, in: Capsule())
                     .foregroundStyle(.white)
                     .font(.system(size: Typography.body, weight: .semibold))
@@ -304,7 +304,7 @@ struct CrashAlertSheet: View {
                             Text("忽略")
                             Spacer()
                         }
-                        .padding(.vertical, 10)
+                        .padding(.vertical, Spacing.lg)
                         .background(Color.secondary.opacity(Tint.soft), in: Capsule())
                         .font(.system(size: Typography.body, weight: .semibold))
                     }

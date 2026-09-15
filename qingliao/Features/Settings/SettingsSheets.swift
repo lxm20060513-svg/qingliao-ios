@@ -53,18 +53,18 @@ struct ServerSheet: View {
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 18)
-                    .padding(.top, 4)
+                    .padding(.top, Spacing.xs)
 
                 TextField("server.example.com:8080", text: $server)
                     .font(.system(size: Typography.body))
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .keyboardType(.URL)
-                    .padding(12)
+                    .padding(Spacing.xl)
                     .background(Color(uiColor: .secondarySystemGroupedBackground))
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
                     .padding(.horizontal, 18)
-                    .padding(.top, 14)
+                    .padding(.top, Spacing.xxl)
                     .onChange(of: server) { _, _ in validationError = nil }
 
                 if let err = validationError {
@@ -73,7 +73,7 @@ struct ServerSheet: View {
                         .foregroundStyle(.red)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 22)
-                        .padding(.top, 4)
+                        .padding(.top, Spacing.xs)
                 }
 
                 Button {
@@ -92,18 +92,18 @@ struct ServerSheet: View {
                     .font(.system(size: Typography.body, weight: .semibold))
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
+                    .padding(.vertical, Spacing.xl)
                     .background(Color.accentColor, in: Capsule())
             }
             .buttonStyle(.plain)
             .padding(.horizontal, 18)
-            .padding(.top, 12)
+            .padding(.top, Spacing.xl)
 
             if saved {
                 Text("已保存，正在返回登录...")
                     .font(.system(size: Typography.subhead))
                     .foregroundStyle(.green)
-                    .padding(.top, 8)
+                    .padding(.top, Spacing.md)
             }
 
             Spacer()
@@ -135,18 +135,18 @@ struct PinPathSheet: View {
             VStack(spacing: 0) {
                 TextField("默认: /volume1/.../轻聊app", text: $path)
                     .font(.system(size: Typography.body))
-                    .padding(12)
+                    .padding(Spacing.xl)
                     .background(Color(uiColor: .secondarySystemGroupedBackground))
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
                     .padding(.horizontal, 18)
-                    .padding(.top, 14)
+                    .padding(.top, Spacing.xxl)
 
                 Text("NAS 上的存储目录路径，pins.json 保存在此目录下")
                     .font(.system(size: Typography.subhead))
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 20)
-                    .padding(.top, 10)
+                    .padding(.top, Spacing.lg)
 
                 Button {
                     PinStore.shared.storagePath = path.trimmingCharacters(in: .whitespaces)
@@ -156,12 +156,12 @@ struct PinPathSheet: View {
                         .font(.system(size: Typography.body, weight: .semibold))
                         .foregroundStyle(.white)
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
+                        .padding(.vertical, Spacing.xl)
                         .background(Color.accentColor, in: Capsule())
                 }
                 .buttonStyle(.plain)
                 .padding(.horizontal, 18)
-                .padding(.top, 12)
+                .padding(.top, Spacing.xl)
 
                 Button {
                     PinStore.shared.storagePath = ""
@@ -171,12 +171,12 @@ struct PinPathSheet: View {
                         .font(.system(size: Typography.body, weight: .semibold))
                         .foregroundStyle(.red)
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .padding(.vertical, Spacing.xl)
+                        .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
                 }
                 .buttonStyle(.plain)
                 .padding(.horizontal, 18)
-                .padding(.top, 10)
+                .padding(.top, Spacing.lg)
 
                 Spacer()
             }
@@ -209,35 +209,35 @@ struct PasswordSheet: View {
             VStack(spacing: 0) {
                 SecureField("当前密码", text: $oldPassword)
                 .font(.system(size: Typography.body))
-                .padding(12)
+                .padding(Spacing.xl)
                 .background(Color(uiColor: .secondarySystemGroupedBackground))
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
                 .padding(.horizontal, 18)
-                .padding(.top, 14)
+                .padding(.top, Spacing.xxl)
 
             SecureField("新密码", text: $newPassword)
                 .font(.system(size: Typography.body))
-                .padding(12)
+                .padding(Spacing.xl)
                 .background(Color(uiColor: .secondarySystemGroupedBackground))
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
                 .padding(.horizontal, 18)
-                .padding(.top, 10)
+                .padding(.top, Spacing.lg)
 
             // v2.0.83c：新密码二次确认（两次一致才可提交）
             SecureField("确认新密码", text: $confirmPassword)
                 .font(.system(size: Typography.body))
-                .padding(12)
+                .padding(Spacing.xl)
                 .background(Color(uiColor: .secondarySystemGroupedBackground))
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
                 .padding(.horizontal, 18)
-                .padding(.top, 10)
+                .padding(.top, Spacing.lg)
             if !confirmPassword.isEmpty && confirmPassword != newPassword {
                 Text("两次输入的密码不一致")
                     .font(.system(size: Typography.caption))
                     .foregroundStyle(.red)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 20)
-                    .padding(.top, 5)
+                    .padding(.top, Spacing.xs)
             }
 
             Button {
@@ -247,18 +247,18 @@ struct PasswordSheet: View {
                     .font(.system(size: Typography.body, weight: .semibold))
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
+                    .padding(.vertical, Spacing.xl)
                     .background(Color.accentColor, in: Capsule())
             }
             .buttonStyle(.plain)
             .padding(.horizontal, 18)
-            .padding(.top, 12)
+            .padding(.top, Spacing.xl)
 
             if let r = result {
                 Text(r)
                     .font(.system(size: Typography.subhead))
                     .foregroundStyle(r.contains("成功") ? Color.green : Color.red)
-                    .padding(.top, 8)
+                    .padding(.top, Spacing.md)
             }
 
             Spacer()
@@ -309,8 +309,8 @@ struct SectionHeader: View {
             .foregroundStyle(.tertiary)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 18)
-            .padding(.top, 14)
-            .padding(.bottom, 5)
+            .padding(.top, Spacing.xxl)
+            .padding(.bottom, Spacing.xs)
     }
 }
 
@@ -329,7 +329,7 @@ struct SettingRow: View {
                 .font(.system(size: Typography.subhead, weight: .semibold))
                 .foregroundStyle(.white)
                 .frame(width: 28, height: 28)
-                .background(iconColor, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                .background(iconColor, in: RoundedRectangle(cornerRadius: Radius.icon, style: .continuous))
             Text(title)
                 .font(.system(size: Typography.body))
                 .foregroundStyle(.primary)
@@ -352,8 +352,8 @@ struct SettingRow: View {
                     .tint(.green)
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 11)
+        .padding(.horizontal, Spacing.xxl)
+        .padding(.vertical, Spacing.lg)
         .background(Color(uiColor: .secondarySystemGroupedBackground))
         .contentShape(Rectangle())
     }
@@ -379,9 +379,9 @@ struct SessionLocSheet: View {
                 .font(.system(size: Typography.body, design: .monospaced))
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
-                .padding(12)
+                .padding(Spacing.xl)
                 .background(Color(uiColor: .secondarySystemGroupedBackground),
-                            in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            in: RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
             if let result {
                 Text(result)
                     .font(.system(size: Typography.subhead))
@@ -395,7 +395,7 @@ struct SessionLocSheet: View {
                     if saving { ProgressView().tint(.white) } else { Text("保存") }
                     Spacer()
                 }
-                .padding(.vertical, 12)
+                .padding(.vertical, Spacing.xl)
                 .background(Color.accentColor, in: Capsule())
                 .foregroundStyle(.white)
                 .font(.system(size: Typography.body, weight: .semibold))

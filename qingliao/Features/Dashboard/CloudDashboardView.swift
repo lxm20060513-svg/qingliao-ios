@@ -33,8 +33,8 @@ struct CloudDashboardView: View {
                     // v3.0.27：用量统计卡片
                     UsageStatsCard(chat: chat)
                 }
-                .padding(.horizontal, 12)
-                .padding(.top, 8)
+                .padding(.horizontal, Spacing.xl)
+                .padding(.top, Spacing.md)
             }
         }
         .task { await loadWeather() }
@@ -48,7 +48,7 @@ struct CloudDashboardView: View {
             Task { await loadWeather() }
         }) {
             WeatherSheet(mode: .cloud)
-                .presentationDetents([.height(585)])
+                .presentationDetents([.medium, .large])   // 默认半屏；.large 作小屏逃生口（第 2 页无 ScrollView）
                 .presentationDragIndicator(.visible)
         }
     }
@@ -96,9 +96,9 @@ struct UsageStatsCard: View {
                 StatCell(title: "历史会话", value: "\(sessionCount)", icon: "folder.fill")
             }
         }
-        .padding(14)
+        .padding(Spacing.xxl)
         .background(.ultraThinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))   // v3.8.1：云端看板统计卡圆角 14 → 16，与本地看板一致
+        .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))   // v3.8.1：云端看板统计卡圆角 14 → 16，与本地看板一致
         .task {
             await loadStats()
         }
@@ -130,8 +130,8 @@ private struct StatCell: View {
                 .foregroundStyle(.tertiary)
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 8)
+        .padding(.vertical, Spacing.md)
         .background(.ultraThinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))   // v3.8.1：10 → 16，与看板卡片统一
+        .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))   // v3.8.1：10 → 16，与看板卡片统一
     }
 }

@@ -88,7 +88,7 @@ struct MemoSection: View {
             .buttonStyle(PressStyle())
             .accessibilityLabel("添加备忘录")
         }
-        .padding(.top, 6)
+        .padding(.top, Spacing.sm)
     }
 
     /// v3.9.14：空态改成"可点的引导卡"——原来那句话是说明书腔，现在点了就能写
@@ -112,10 +112,10 @@ struct MemoSection: View {
                 }
                 Spacer(minLength: 0)
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 9)
+            .padding(.horizontal, Spacing.lg)
+            .padding(.vertical, Spacing.md)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .background(RoundedRectangle(cornerRadius: Radius.inset, style: .continuous)
                 .fill(Color.secondary.opacity(Tint.faint)))
             .contentShape(Rectangle())
         }
@@ -172,11 +172,11 @@ struct MemoSection: View {
 
     /// 单层卡边：不透明底（半透明会透出下面那张，看着发脏）+ 0.8pt 描边（与全站口径一致）
     private func stackedLayerShape(inset: CGFloat, drop: CGFloat, tone: Double) -> some View {
-        RoundedRectangle(cornerRadius: 12, style: .continuous)
+        RoundedRectangle(cornerRadius: Radius.inset, style: .continuous)
             .fill(Color(uiColor: .secondarySystemGroupedBackground))
-            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .overlay(RoundedRectangle(cornerRadius: Radius.inset, style: .continuous)
                 .fill(Color.secondary.opacity(tone)))
-            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .overlay(RoundedRectangle(cornerRadius: Radius.inset, style: .continuous)
                 .stroke(Color.secondary.opacity(Tint.soft), lineWidth: 0.8))
             .padding(.horizontal, inset)
             .offset(y: drop)
@@ -199,9 +199,9 @@ struct MemoSection: View {
                     Spacer(minLength: 0)
                     MiniCapsule(title: "完成", accent: true) { showAll = false }
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 12)
-                .padding(.bottom, 8)
+                .padding(.horizontal, Spacing.section)
+                .padding(.top, Spacing.xl)
+                .padding(.bottom, Spacing.md)
                 ScrollView {
                 VStack(spacing: 8) {
                     ForEach(store.sorted) { m in
@@ -225,7 +225,7 @@ struct MemoSection: View {
                             .padding(.vertical, 20)
                     }
                 }
-                .padding(16)
+                .padding(Spacing.section)
             }
             }
             .toolbar(.hidden, for: .navigationBar)
@@ -305,22 +305,22 @@ struct MemoSection: View {
                 TextEditor(text: $draft)
                     .font(.system(size: Typography.title))
                     .scrollContentBackground(.hidden)
-                    .padding(12)
+                    .padding(Spacing.xl)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                     .background(Color(uiColor: .secondarySystemGroupedBackground),
-                                in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                in: RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
                     .overlay(alignment: .topLeading) {
                         if draft.isEmpty {
                             Text("写点什么…")
                                 .font(.system(size: Typography.title))
                                 .foregroundStyle(.tertiary)
-                                .padding(.horizontal, 17)
+                                .padding(.horizontal, Spacing.section)
                                 .padding(.vertical, 20)
                                 .allowsHitTesting(false)
                         }
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 8)
+                    .padding(.horizontal, Spacing.section)
+                    .padding(.top, Spacing.md)
             }
             .navigationTitle("新建备忘")
             .navigationBarTitleDisplayMode(.inline)
@@ -385,11 +385,11 @@ private struct MemoNoteCard: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             metaRow
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 9)
+        .padding(.horizontal, Spacing.lg)
+        .padding(.vertical, Spacing.md)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(noteBackground)
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+        .overlay(RoundedRectangle(cornerRadius: Radius.inset, style: .continuous)
             .stroke(item.pinned ? Color.accentColor.opacity(Tint.strong) : Color.secondary.opacity(Tint.soft),
                     lineWidth: 0.8))
         .contentShape(Rectangle())
@@ -397,9 +397,9 @@ private struct MemoNoteCard: View {
 
     /// 与全站卡片同底（secondarySystemGroupedBackground）再叠一层淡色调 → 完全不透明
     private var noteBackground: some View {
-        RoundedRectangle(cornerRadius: 12, style: .continuous)
+        RoundedRectangle(cornerRadius: Radius.inset, style: .continuous)
             .fill(Color(uiColor: .secondarySystemGroupedBackground))
-            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .overlay(RoundedRectangle(cornerRadius: Radius.inset, style: .continuous)
                 .fill(item.pinned ? Color.accentColor.opacity(Tint.faint) : Color.secondary.opacity(Tint.faint)))
     }
 
@@ -457,9 +457,9 @@ private struct MemoDetailSheet: View {
                             .lineSpacing(LineSpacing.long)
                             .scrollContentBackground(.hidden)
                             .frame(minHeight: 220, alignment: .topLeading)
-                            .padding(10)
+                            .padding(Spacing.lg)
                             .background(Color(uiColor: .secondarySystemGroupedBackground),
-                                        in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                        in: RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
                     } else {
                         Text(current.content)
                             .font(.system(size: Typography.headline))
@@ -517,9 +517,9 @@ private struct MemoDetailSheet: View {
                 }
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 12)
-        .padding(.bottom, 6)
+        .padding(.horizontal, Spacing.section)
+        .padding(.top, Spacing.xl)
+        .padding(.bottom, Spacing.sm)
         .overlay {
             if !editing {
                 // v3.9.22：17pt → 20pt（Typography.headline）。用户两次反馈"太小"：
@@ -571,8 +571,8 @@ private struct MemoDetailSheet: View {
                 .buttonStyle(PressStyle())
             }
             .padding(.horizontal, 18)
-            .padding(.top, 10)
-            .padding(.bottom, 10)
+            .padding(.top, Spacing.lg)
+            .padding(.bottom, Spacing.lg)
             .frame(maxWidth: .infinity)
             .background(Color(uiColor: .systemGroupedBackground))
             .overlay(alignment: .top) {

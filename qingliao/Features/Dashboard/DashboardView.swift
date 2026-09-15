@@ -107,8 +107,8 @@ struct DashboardView: View {
                                     // v3.9.4：只留文字 + 胶囊（去图标）
                                     Text("重新生成")
                                         .font(.system(size: Typography.tiny))
-                                        .padding(.horizontal, 10)
-                                        .padding(.vertical, 4)
+                                        .padding(.horizontal, Spacing.lg)
+                                        .padding(.vertical, Spacing.xs)
                                         .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
                                 }
                                 .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
@@ -133,15 +133,15 @@ struct DashboardView: View {
                             } label: {
                                 Text("生成智能建议")
                                     .font(.system(size: Typography.subhead, weight: .medium))
-                                    .padding(.horizontal, 14)
-                                    .padding(.vertical, 6)
+                                    .padding(.horizontal, Spacing.xxl)
+                                    .padding(.vertical, Spacing.sm)
                                     .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
                             }
                             .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
                             .foregroundStyle(Color.accentColor)
                         }
                     }
-                    .padding(12)
+                    .padding(Spacing.xl)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     // v3.8.1：本来手写 background+描边、圆角 12 → 改用统一卡片样式（16），与看板/生活其它卡片对齐
                     .dashboardCard()
@@ -180,14 +180,14 @@ struct DashboardView: View {
                                 Text("刷新")
                                     .font(.system(size: Typography.caption, weight: .medium))
                                     .foregroundStyle(Color.accentColor)
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 4)
+                                    .padding(.horizontal, Spacing.lg)
+                                    .padding(.vertical, Spacing.xs)
                                     .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
                             }
                             .buttonStyle(PressStyle())
                         }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
+                        .padding(.horizontal, Spacing.xl)
+                        .padding(.vertical, Spacing.md)
                         .dashboardCard()   // v3.8.1：空态提示条统一 16
                     } else {
                         LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
@@ -227,14 +227,14 @@ struct DashboardView: View {
                                 Text("刷新")
                                     .font(.system(size: Typography.caption, weight: .medium))
                                     .foregroundStyle(Color.accentColor)
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 4)
+                                    .padding(.horizontal, Spacing.lg)
+                                    .padding(.vertical, Spacing.xs)
                                     .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
                             }
                             .buttonStyle(PressStyle())
                         }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
+                        .padding(.horizontal, Spacing.xl)
+                        .padding(.vertical, Spacing.md)
                         .dashboardCard()   // v3.8.1：空态提示条统一 16
                     } else {
                         LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
@@ -278,7 +278,7 @@ struct DashboardView: View {
                                         onDelete: { pendingRuleDelete = r })
                             }
                         }
-                        .padding(12)
+                        .padding(Spacing.xl)
                         .dashboardCard()
                     }
 
@@ -314,19 +314,19 @@ struct DashboardView: View {
                         Text("加载中…")
                             .font(.system(size: Typography.subhead))
                             .foregroundStyle(.secondary)
-                            .padding(.vertical, 6)
+                            .padding(.vertical, Spacing.sm)
                     } else if !usageError.isEmpty {
                         Text(usageError)
                             .font(.system(size: Typography.subhead))
                             .foregroundStyle(.secondary)
-                            .padding(.vertical, 6)
+                            .padding(.vertical, Spacing.sm)
                     } else {
                         let visible = providerUsages.filter { !hiddenUsageProviders.contains($0.id) }
                         if visible.isEmpty {
                             Text("已全部隐藏 · 点下方恢复")
                                 .font(.system(size: Typography.subhead))
                                 .foregroundStyle(.tertiary)
-                                .padding(.vertical, 6)
+                                .padding(.vertical, Spacing.sm)
                         } else {
                             LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
                                 ForEach(visible) { u in
@@ -366,7 +366,7 @@ struct DashboardView: View {
                         Text("长按聊天消息 → 钉一钉")
                             .font(.system(size: Typography.subhead))
                             .foregroundStyle(.tertiary)
-                            .padding(.vertical, 8)
+                            .padding(.vertical, Spacing.md)
                     } else {
                         ForEach(pinStore.pins) { pin in
                             PinCard(pin: pin) {
@@ -382,7 +382,7 @@ struct DashboardView: View {
                         }
                     }
                 }
-                .padding(.horizontal, 14)
+                .padding(.horizontal, Spacing.xxl)
                 .padding(.bottom, 100)
                 // v3.4.28：横屏限宽居中
                 .frame(maxWidth: .infinity)
@@ -428,9 +428,10 @@ struct DashboardView: View {
                         .presentationDetents([.medium, .large])
                         .navigationTransition(.zoom(sourceID: DashboardSheet.docker.id, in: sheetZoomNS))   // v3.9.0
                 case .weather:
-                    // v3.9.25：两页天气弹窗（今天 / 未来 5 天）。高度 585pt 由用户定稿
+                    // v3.9.25：两页天气弹窗（今天 / 未来 5 天）。默认半屏 medium（用户定稿）；
+                    // 保留 .large 作逃生口：第 2 页是纯 VStack（无 ScrollView），小屏若超出一行会被静默裁切。
                     WeatherSheet(mode: .local)
-                        .presentationDetents([.height(585)])
+                        .presentationDetents([.medium, .large])
                         .presentationDragIndicator(.visible)
                         .onAppear { weatherSheetShown = true }
                         .navigationTransition(.zoom(sourceID: DashboardSheet.weather.id, in: sheetZoomNS))
@@ -869,7 +870,7 @@ struct DashboardView: View {
     private func sectionTitle(_ s: String) -> some View {
         Text(s)
             .font(.system(size: Typography.body, weight: .bold))
-            .padding(.top, 6)
+            .padding(.top, Spacing.sm)
     }
 
     /// v3.4.2b：已隐藏用量卡恢复行（点击弹菜单逐张恢复/全部恢复）——独立方法
@@ -884,8 +885,8 @@ struct DashboardView: View {
                 .foregroundStyle(.tertiary)
             Spacer()
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.horizontal, Spacing.xl)
+        .padding(.vertical, Spacing.md)
         .dashboardCard()   // v3.8.1：空态提示条统一 16
         .contentShape(Rectangle())
         .onTapGesture { showUsageRestore = true }
@@ -962,12 +963,12 @@ struct ServiceControlSheet: View {
             }
             .padding(.horizontal, 18)
             .padding(.top, 18)
-            .padding(.bottom, 12)
+            .padding(.bottom, Spacing.xl)
 
             // 服务信息卡
             HStack(spacing: 12) {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    RoundedRectangle(cornerRadius: Radius.inset, style: .continuous)
                         .fill(Color.blue.opacity(Tint.soft))
                     Image(systemName: service.icon)
                         .font(.system(size: Typography.headline, weight: .medium))
@@ -993,10 +994,10 @@ struct ServiceControlSheet: View {
                         .foregroundStyle(running == true ? Color.green : (running == false ? Color.red : Color.secondary))
                 }
             }
-            .padding(14)
+            .padding(Spacing.xxl)
             .background(Color(uiColor: .secondarySystemGroupedBackground))  // v2.0.87h：弹窗玻璃下扁平化
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .padding(.horizontal, 16)
+            .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+            .padding(.horizontal, Spacing.section)
             .task {
                 // 真实运行状态
                 if let n = await auth.jsonOrLog("/api/nas/status") {
@@ -1034,13 +1035,13 @@ struct ServiceControlSheet: View {
                         .font(.system(size: Typography.subhead, weight: .semibold))
                         .foregroundStyle(.tertiary)
                 }
-                .padding(14)
+                .padding(Spacing.xxl)
                 .background(Color(uiColor: .secondarySystemGroupedBackground))  // v2.0.87h：弹窗玻璃下扁平化
-                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
             }
             .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
-            .padding(.horizontal, 16)
-            .padding(.top, 10)
+            .padding(.horizontal, Spacing.section)
+            .padding(.top, Spacing.lg)
 
             // 停止卡（Hermes 网关不支持停止，隐藏）
             if service == .qingliao {
@@ -1068,17 +1069,17 @@ struct ServiceControlSheet: View {
                         .font(.system(size: Typography.subhead, weight: .semibold))
                         .foregroundStyle(.tertiary)
                 }
-                .padding(14)
+                .padding(Spacing.xxl)
                 .background(Color.red.opacity(Tint.faint))
-                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
                         .strokeBorder(Color.red.opacity(Tint.strong), lineWidth: 1)
                 )
             }
             .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
-            .padding(.horizontal, 16)
-            .padding(.top, 10)
+            .padding(.horizontal, Spacing.section)
+            .padding(.top, Spacing.lg)
             .confirmationDialog("停止后轻聊将完全不可用，需在 NAS 上手动启动", isPresented: $showStopConfirm, titleVisibility: .visible) {
                 Button("停止服务", role: .destructive) {
                     stopService()
@@ -1161,7 +1162,7 @@ struct HADeviceSheet: View {
             }
             .padding(.horizontal, 18)
             .padding(.top, 18)
-            .padding(.bottom, 8)
+            .padding(.bottom, Spacing.md)
 
             if loading {
                 Spacer()
@@ -1180,7 +1181,7 @@ struct HADeviceSheet: View {
                             lightCard(e)
                         }
                     }
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, Spacing.section)
                     .padding(.bottom, 20)
                 }
             } else {
@@ -1191,7 +1192,7 @@ struct HADeviceSheet: View {
                             climateCard(e)
                         }
                     }
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, Spacing.section)
                     .padding(.bottom, 20)
                 }
             }
@@ -1217,7 +1218,7 @@ struct HADeviceSheet: View {
                 HStack {
                     // 图标容器：点亮=黄色渐变光晕 / 熄灭=灰底
                     ZStack {
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        RoundedRectangle(cornerRadius: Radius.field, style: .continuous)
                             .fill(iconBG)
                         Image(systemName: "sun.max.fill")
                             .font(.system(size: Typography.titleXL, weight: .medium))
@@ -1250,16 +1251,16 @@ struct HADeviceSheet: View {
                     .fontWeight(isOn ? .semibold : .regular)
                     .foregroundStyle(isOn ? Color.accentColor : Color.secondary)
             }
-            .padding(12)
+            .padding(Spacing.xl)
             .frame(minHeight: 92)
             // v2.0.87h：弹窗液态玻璃下卡片扁平化（去白圆角底，仅极轻底区分）
             // v3.0.6 fix：卡片补描边（用户要求每个开关卡都描框）
             .background(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
                     .fill(isOn ? Color.accentColor.opacity(Tint.subtle) : Color(uiColor: .secondarySystemGroupedBackground))
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
                     .strokeBorder(Color.primary.opacity(isOn ? 0.28 : 0.10), lineWidth: 0.8)
             )
         }
@@ -1357,13 +1358,13 @@ struct HADeviceSheet: View {
                             .font(.system(size: Typography.caption, weight: active ? .bold : .medium))
                             .foregroundStyle(active ? Color.white : Color.primary)
                             .frame(maxWidth: .infinity)
-                            .padding(.vertical, 7)
+                            .padding(.vertical, Spacing.md)
                             .background(
-                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                RoundedRectangle(cornerRadius: Radius.chip, style: .continuous)
                                     .fill(active ? Color.accentColor : Color(uiColor: .systemGray5))
                             )
                             .overlay(
-                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                RoundedRectangle(cornerRadius: Radius.chip, style: .continuous)
                                     .strokeBorder(active ? Color.accentColor.opacity(0.5) : Color.clear, lineWidth: 1.2)
                             )
                     }
@@ -1386,9 +1387,9 @@ struct HADeviceSheet: View {
                                     .font(.system(size: Typography.caption, weight: active ? .bold : .medium))
                                     .foregroundStyle(active ? Color.white : Color.primary)
                                     .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 7)
+                                    .padding(.vertical, Spacing.md)
                                     .background(
-                                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                        RoundedRectangle(cornerRadius: Radius.chip, style: .continuous)
                                             .fill(active ? Color.indigo : Color(uiColor: .systemGray5))
                                     )
                             }
@@ -1398,15 +1399,15 @@ struct HADeviceSheet: View {
                 }
             }
         }
-        .padding(14)
+        .padding(Spacing.xxl)
         .background(
             // v2.0.87j：弹窗玻璃下扁平化（渐变末端白底 → 轻透明）
             LinearGradient(colors: [isOn ? Color.blue.opacity(Tint.soft) : Color.blue.opacity(Tint.faint), Color(uiColor: .secondarySystemGroupedBackground)],
                            startPoint: .topLeading, endPoint: .bottomTrailing)
         )
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.hero, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
+            RoundedRectangle(cornerRadius: Radius.hero, style: .continuous)
                 .strokeBorder(isOn ? Color.accentColor.opacity(0.35) : Color.white.opacity(Tint.faint), lineWidth: 1)
         )
         .shadow(color: isOn ? Color.accentColor.opacity(Tint.soft) : .clear, radius: 10, y: 3)
@@ -1548,7 +1549,7 @@ struct DisksSheet: View {
             }
             .padding(.horizontal, 18)
             .padding(.top, 18)
-            .padding(.bottom, 10)
+            .padding(.bottom, Spacing.lg)
 
             ScrollView {
                 // v3.0.36：按 kind 分组显示（系统盘分区 / 数据卷）
@@ -1559,28 +1560,28 @@ struct DisksSheet: View {
                         Text("系统盘分区")
                             .font(.system(size: Typography.subhead, weight: .semibold))
                             .foregroundStyle(.secondary)
-                            .padding(.horizontal, 16)
+                            .padding(.horizontal, Spacing.section)
                         LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
                             ForEach(system) { d in
                                 DiskTile(disk: d)
                             }
                         }
-                        .padding(.horizontal, 16)
+                        .padding(.horizontal, Spacing.section)
                     }
                     if !data.isEmpty {
                         Text("数据卷")
                             .font(.system(size: Typography.subhead, weight: .semibold))
                             .foregroundStyle(.secondary)
-                            .padding(.horizontal, 16)
+                            .padding(.horizontal, Spacing.section)
                         LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
                             ForEach(data) { d in
                                 DiskTile(disk: d)
                             }
                         }
-                        .padding(.horizontal, 16)
+                        .padding(.horizontal, Spacing.section)
                     }
                 }
-                .padding(.top, 8)
+                .padding(.top, Spacing.md)
                 .padding(.bottom, 20)
             }
         }
@@ -1627,7 +1628,7 @@ private struct RuleRow: View {
                 .labelsHidden()
                 .tint(.orange)
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, Spacing.xxs)
         .contentShape(Rectangle())
         .contextMenu {
             Button(role: .destructive) { onDelete() } label: { Label("删除规则", systemImage: "trash") }
@@ -1681,7 +1682,7 @@ struct DiskTile: View {
             }
             Text(disk.pctText)
                 .font(.system(size: Typography.headline, weight: .bold))
-                .padding(.top, 6)
+                .padding(.top, Spacing.sm)
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
                     Capsule().fill(Color(uiColor: .systemGray5))
@@ -1691,13 +1692,13 @@ struct DiskTile: View {
                 }
             }
             .frame(height: 4)
-            .padding(.top, 7)
+            .padding(.top, Spacing.md)
             Text("\(disk.usedText) / \(disk.totalText)")
                 .font(.system(size: Typography.tiny))
                 .foregroundStyle(.tertiary)
-                .padding(.top, 3)
+                .padding(.top, Spacing.xs)
         }
-        .padding(12)
+        .padding(Spacing.xl)
         .dashboardCard()
     }
 
@@ -1761,7 +1762,7 @@ struct UsageCard: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    RoundedRectangle(cornerRadius: Radius.icon, style: .continuous)
                         .fill(statusColor.opacity(0.15))
                     Image(systemName: icon)
                         .font(.system(size: Typography.subhead, weight: .medium))
@@ -1811,7 +1812,7 @@ struct UsageCard: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
         }
-        .padding(12)
+        .padding(Spacing.xl)
         .dashboardCard()
     }
 }
@@ -1843,13 +1844,13 @@ struct DeviceCard: View {
             }
             Text(value)
                 .font(.system(size: Typography.headline, weight: .bold))
-                .padding(.top, 6)
+                .padding(.top, Spacing.sm)
             Text(sub)
                 .font(.system(size: Typography.tiny))
                 .foregroundStyle(.tertiary)
-                .padding(.top, 2)
+                .padding(.top, Spacing.xxs)
         }
-        .padding(12)
+        .padding(Spacing.xl)
         .dashboardCard()
         .scrollDepth()   // v3.9.0：滚动层次感
     }
@@ -1888,12 +1889,12 @@ struct MeterCard: View {
                 .font(.system(size: Typography.headline, weight: .bold).monospacedDigit())   // v3.9.19：等宽数字
                 .contentTransition(.numericText())            // v3.4.29：数值滚动而非硬跳
                 .animation(Motion.snap, value: value)
-                .padding(.top, 6)
+                .padding(.top, Spacing.sm)
             if let sub {
                 Text(sub)
                     .font(.system(size: Typography.tiny))
                     .foregroundStyle(.tertiary)
-                    .padding(.top, 1)
+                    .padding(.top, Spacing.xxs)
                     .lineLimit(1)
                     .minimumScaleFactor(0.6)
             }
@@ -1904,9 +1905,9 @@ struct MeterCard: View {
                 }
             }
             .frame(height: 4)
-            .padding(.top, 7)
+            .padding(.top, Spacing.md)
         }
-        .padding(12)
+        .padding(Spacing.xl)
         // v2.0.83：NAS 面板卡片等高（与 ServiceCard 同高，进度条自适应剩余空间）
         // v2.0.86b：卡片统一再矮一点
         .frame(height: 88, alignment: .top)
@@ -1934,10 +1935,10 @@ struct ServiceCard: View {
             }
             Text(running ? "运行中" : "已停止")
                 .font(.system(size: Typography.body, weight: .bold))
-                .padding(.top, 6)
-            Text(detail).font(.system(size: Typography.tiny)).foregroundStyle(.tertiary).padding(.top, 1)
+                .padding(.top, Spacing.sm)
+            Text(detail).font(.system(size: Typography.tiny)).foregroundStyle(.tertiary).padding(.top, Spacing.xxs)
         }
-        .padding(12)
+        .padding(Spacing.xl)
         // v2.0.83：NAS 面板卡片等高（与 MeterCard 同高）
         // v2.0.86b：卡片统一再矮一点
         .frame(height: 88, alignment: .top)
@@ -1976,8 +1977,8 @@ struct WeatherBadge: View {
                         .foregroundStyle(.tertiary)
                 }
             }
-            .padding(.horizontal, 9)
-            .padding(.vertical, 4)
+            .padding(.horizontal, Spacing.md)
+            .padding(.vertical, Spacing.xs)
             .background(.ultraThinMaterial, in: Capsule())
             .overlay(Capsule().strokeBorder(.white.opacity(0.1), lineWidth: 0.6))
             // v2.0.87aj：只显示城市名（去掉"当前定位"前缀）

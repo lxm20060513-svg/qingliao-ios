@@ -49,7 +49,7 @@ struct AgentMemorySheet: View {
                                     .accessibilityLabel("删除这条记忆")
                                     .buttonStyle(.plain)
                                 }
-                                .padding(.vertical, 2)
+                                .padding(.vertical, Spacing.xxs)
                             }
                         } header: {
                             Text("命中规则的请求将强制走 Agent 智能回复（工具调用）")

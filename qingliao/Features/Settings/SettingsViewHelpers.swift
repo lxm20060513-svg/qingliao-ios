@@ -11,7 +11,7 @@ extension SettingsView {
                 .font(.system(size: Typography.subhead, weight: .semibold))
                 .foregroundStyle(.white)
                 .frame(width: 28, height: 28)
-                .background(iconColor, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                .background(iconColor, in: RoundedRectangle(cornerRadius: Radius.icon, style: .continuous))
             if let subtitle {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(title).font(.system(size: Typography.body, weight: .medium))
@@ -23,7 +23,7 @@ extension SettingsView {
             Spacer()
             Toggle("", isOn: isOn).labelsHidden().scaleEffect(0.8).tint(.green)
         }
-        .padding(.horizontal, 14).padding(.vertical, 10)
+        .padding(.horizontal, Spacing.xxl).padding(.vertical, Spacing.lg)
     }
 }
 

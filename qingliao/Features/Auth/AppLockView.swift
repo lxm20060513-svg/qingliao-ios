@@ -32,10 +32,10 @@ struct AppLockView: View {
                     }
                     .foregroundStyle(.white)
                     .frame(maxWidth: 220)
-                    .padding(.vertical, 12)
+                    .padding(.vertical, Spacing.xl)
                     .background(
                         LinearGradient(colors: [.blue, .indigo], startPoint: .topLeading, endPoint: .bottomTrailing),
-                        in: RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        in: RoundedRectangle(cornerRadius: Radius.hero, style: .continuous)
                     )
                 }
                 .buttonStyle(.plain)

@@ -80,7 +80,7 @@ struct LifeCardsSection: View {
             .buttonStyle(PressStyle(scale: 0.9))
             .accessibilityLabel(expanded ? "收起生活数据" : "展开生活数据")
         }
-        .padding(.top, 6)
+        .padding(.top, Spacing.sm)
     }
 
     // MARK: 内容
@@ -117,7 +117,7 @@ struct LifeCardsSection: View {
                 noteRow(icon: "exclamationmark.triangle", text: degradeText)
                 ForEach(data.placeholders) { p in placeholderRow(p) }
             }
-            .padding(12)
+            .padding(Spacing.xl)
             .frame(maxWidth: .infinity, alignment: .leading)
             .dashboardCard()   // v3.8.1：空态/占位块也统一 16（用户：都要一致）
         } else {
@@ -137,17 +137,17 @@ struct LifeCardsSection: View {
                 VStack(alignment: .leading, spacing: 6) {
                     ForEach(data.placeholders) { p in placeholderRow(p) }
                 }
-                .padding(12)
+                .padding(Spacing.xl)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .dashboardCard()   // v3.8.1：空态/占位块也统一 16（用户：都要一致）
             }
             if !data.rssErrorText.isEmpty {
                 noteRow(icon: "wifi.exclamationmark", text: data.rssErrorText)
-                    .padding(.horizontal, 4)
+                    .padding(.horizontal, Spacing.xs)
             }
             if !error.isEmpty {
                 noteRow(icon: "exclamationmark.triangle", text: error)
-                    .padding(.horizontal, 4)
+                    .padding(.horizontal, Spacing.xs)
             }
         }
     }
@@ -216,7 +216,7 @@ struct LifeCardsSection: View {
             .buttonStyle(PressStyle(scale: 0.9))
             .accessibilityLabel(rssExpanded ? "收起资讯" : "展开资讯")
         }
-        .padding(.top, 6)
+        .padding(.top, Spacing.sm)
     }
 
     /// 卡片里只放条目（v3.9.17：原来卡内那行「广播图标 + 博客/资讯 + 刷新 + 时间」整行已搬出去）
@@ -229,7 +229,7 @@ struct LifeCardsSection: View {
                 }
             }
         }
-        .padding(12)
+        .padding(Spacing.xl)
         .frame(maxWidth: .infinity, alignment: .leading)
         .dashboardCard()   // v3.8.1：真实卡片圆角与看板 DeviceCard/MeterCard/ServiceCard 统一（默认 16）
     }
@@ -327,8 +327,8 @@ struct LifeCardsSection: View {
     private func articleTag(_ t: String) -> some View {
         Text(t)
             .font(.system(size: Typography.tiny))
-            .padding(.horizontal, 6)
-            .padding(.vertical, 1)
+            .padding(.horizontal, Spacing.sm)
+            .padding(.vertical, Spacing.xxs)
             .background(Color.accentColor.opacity(Tint.faint), in: Capsule())
             .foregroundStyle(Color.accentColor)
     }
@@ -346,8 +346,8 @@ struct LifeCardsSection: View {
                     if !e.source.isEmpty {
                         Text(e.source)
                             .font(.system(size: Typography.caption))
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 1)
+                            .padding(.horizontal, Spacing.sm)
+                            .padding(.vertical, Spacing.xxs)
                             .background(Color.accentColor.opacity(Tint.faint), in: Capsule())
                             .foregroundStyle(Color.accentColor)
                     }
@@ -361,7 +361,7 @@ struct LifeCardsSection: View {
             Image(systemName: "chevron.right")
                 .font(.system(size: Typography.tiny, weight: .semibold))
                 .foregroundStyle(.tertiary)
-                .padding(.top, 3)
+                .padding(.top, Spacing.xs)
         }
         .contentShape(Rectangle())
     }
@@ -387,8 +387,8 @@ struct LifeCardsSection: View {
             noteRow(icon: icon, text: text)
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.horizontal, Spacing.xl)
+        .padding(.vertical, Spacing.md)
         .frame(maxWidth: .infinity, alignment: .leading)
         .dashboardCard()   // v3.8.1：单行提示条也统一 16（用户：都要一致）
     }
@@ -433,15 +433,15 @@ struct LifeStockCard: View {
                 .animation(Motion.snap, value: stock.priceText)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
-                .padding(.top, 6)
+                .padding(.top, Spacing.sm)
             Text(stock.detailText)
                 .font(.system(size: Typography.tiny, weight: .medium))
                 .foregroundStyle(changeColor)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
-                .padding(.top, 2)
+                .padding(.top, Spacing.xxs)
         }
-        .padding(12)
+        .padding(Spacing.xl)
         .frame(maxWidth: .infinity, alignment: .leading)
         .dashboardCard()   // v3.8.1：真实卡片圆角与看板统一（默认 16）
         .scrollDepth()     // v3.9.0：滚动层次感

@@ -145,12 +145,12 @@ struct ToolCardView: View {
                 .lineLimit(2)
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.horizontal, Spacing.xl)
+        .padding(.vertical, Spacing.md)
         .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
+            RoundedRectangle(cornerRadius: Radius.inset, style: .continuous)
                 .strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8)
         )
     }
@@ -184,12 +184,12 @@ struct ToolStepRow: View {
                 .lineLimit(2)
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.horizontal, Spacing.xl)
+        .padding(.vertical, Spacing.md)
         .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
+            RoundedRectangle(cornerRadius: Radius.inset, style: .continuous)
                 .strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8)
         )
     }
@@ -218,12 +218,12 @@ struct ToolStepsSummaryRow: View {
                     .foregroundStyle(.tertiary)
                 Spacer(minLength: 0)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .padding(.horizontal, Spacing.xl)
+            .padding(.vertical, Spacing.md)
             .background(Color(uiColor: .secondarySystemGroupedBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                RoundedRectangle(cornerRadius: Radius.inset, style: .continuous)
                     .strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8)
             )
             .contentShape(Rectangle())
@@ -494,8 +494,8 @@ struct ChatView: View {
                     .font(.system(size: Typography.caption, weight: .semibold))
             }
             .foregroundStyle(Color.accentColor)
-            .padding(.horizontal, 9)
-            .padding(.vertical, 6)          // v3.6.5：触摸区抬到 ~46×24（贴近 HIG 44pt 下限）
+            .padding(.horizontal, Spacing.md)
+            .padding(.vertical, Spacing.sm)          // v3.6.5：触摸区抬到 ~46×24（贴近 HIG 44pt 下限）
             .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
             .contentShape(Capsule())
         }
@@ -517,8 +517,8 @@ struct ChatView: View {
             Image(systemName: autoReadReply ? "speaker.wave.2.fill" : "speaker.slash")
                 .font(.system(size: Typography.caption, weight: .semibold))
                 .foregroundStyle(autoReadReply ? Color.accentColor : Color.secondary)
-                .padding(.horizontal, 9)
-                .padding(.vertical, 7)          // 触摸区 ~34×24（贴近 HIG 44pt 下限，与左侧胶囊同高）
+                .padding(.horizontal, Spacing.md)
+                .padding(.vertical, Spacing.md)          // 触摸区约 29×28（图标 11pt + 上下各 8）；左侧思考胶囊是 sm 档，本处刻意略大
             .background(autoReadReply ? Color.accentColor.opacity(Tint.subtle) : Color.primary.opacity(Tint.faint), in: Capsule())
             .overlay {
                 // 只有关态画描边（开态靠主色底区分，与思考档位胶囊同族）；开态不画全透明描边
@@ -735,7 +735,7 @@ struct ChatView: View {
                     .resizable()
                     .scaledToFill()
                     .frame(width: 42, height: 42)
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: Radius.icon, style: .continuous))
                 Text("图片已选择，发送后 AI 可识别")
                     .font(.system(size: Typography.subhead))
                     .foregroundStyle(.secondary)
@@ -751,7 +751,7 @@ struct ChatView: View {
                 .buttonStyle(.plain)
             }
             .padding(.horizontal, 18)
-            .padding(.vertical, 6)
+            .padding(.vertical, Spacing.sm)
         }
     }
 
@@ -771,11 +771,11 @@ struct ChatView: View {
                 }
             }
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 12)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
+            .padding(.vertical, Spacing.xl)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
                 .strokeBorder(Color.white.opacity(Tint.subtle), lineWidth: 0.8))
-            .padding(.horizontal, 12)
+            .padding(.horizontal, Spacing.xl)
             .transition(.move(edge: .bottom).combined(with: .opacity))
         }
     }
@@ -802,10 +802,10 @@ struct ChatView: View {
                 }
                 .buttonStyle(.plain)
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 7)
-            .background(Color.accentColor.opacity(Tint.faint), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .padding(.horizontal, 12)
+            .padding(.horizontal, Spacing.xxl)
+            .padding(.vertical, Spacing.md)
+            .background(Color.accentColor.opacity(Tint.faint), in: RoundedRectangle(cornerRadius: Radius.chip, style: .continuous))
+            .padding(.horizontal, Spacing.xl)
             .transition(.move(edge: .bottom).combined(with: .opacity))
         }
     }
@@ -882,7 +882,7 @@ struct ChatView: View {
                         .foregroundStyle(.green)
                 }
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 4)
+                .padding(.vertical, Spacing.xs)
                 .transition(.opacity)
             }
             // v3.7.0：剪贴板地图链接提示条（in-flow，不遮挡 header、不拦截消息区滚动）
@@ -921,7 +921,7 @@ struct ChatView: View {
             // v3.0.64：改用 iOS 26 系统原生 TabView tab bar 后，键盘避让交由系统安全区 + 原生键盘避让。
             // 旧手动 offset（kb 高度 / 76）是为自定义 DockBar（内容铺到屏幕底再叠 dock）设计，原生 tab bar 下会双重叠加冒高，故移除。
             // v3.0.67：输入框与 dock / 键盘均留 10pt 呼吸（Round-1「贴键盘 0」已改主意为也要留隙）。
-            .padding(.bottom, 10)   // v3.0.67：输入框与 dock / 键盘均留 10pt 呼吸——收起贴 dock、弹键盘也留隙（Round-1「贴键盘 0」已被用户改主意为也要留隙）
+            .padding(.bottom, Spacing.lg)   // v3.0.67：输入框与 dock / 键盘均留 10pt 呼吸——收起贴 dock、弹键盘也留隙（Round-1「贴键盘 0」已被用户改主意为也要留隙）
         }
         .animation(.easeOut(duration: kb.animationDuration), value: kb.height)
         // v2.0.96：语音授权/转写失败提示（v3.9.3：设备端识别——麦克风权限 / 机型不支持 / 识别中断）
@@ -1157,8 +1157,8 @@ struct ChatView: View {
             } label: {
                 Text("发给 AI")
                     .font(.system(size: Typography.subhead, weight: .semibold))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 4)
+                    .padding(.horizontal, Spacing.lg)
+                    .padding(.vertical, Spacing.xs)
                     .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
             }
             .buttonStyle(PressStyle())
@@ -1170,19 +1170,19 @@ struct ChatView: View {
                 Image(systemName: "xmark")
                     .font(.system(size: Typography.caption, weight: .semibold))
                     .foregroundStyle(.secondary)
-                    .padding(4)
+                    .padding(Spacing.xs)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel("忽略")
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.horizontal, Spacing.xl)
+        .padding(.vertical, Spacing.md)
         .background(.ultraThinMaterial, in: Capsule())
         .overlay(Capsule().strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8))
-        .padding(.horizontal, 14)
-        .padding(.top, 2)
-        .padding(.bottom, 2)
+        .padding(.horizontal, Spacing.xxl)
+        .padding(.top, Spacing.xxs)
+        .padding(.bottom, Spacing.xxs)
         .transition(.move(edge: .top).combined(with: .opacity))
     }
 
@@ -1308,15 +1308,15 @@ struct ChatView: View {
                                     .font(.system(size: Typography.subhead, weight: .medium))
                             }
                             .foregroundStyle(.secondary)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 7)
+                            .padding(.horizontal, Spacing.xl)
+                            .padding(.vertical, Spacing.md)
                             .background(.ultraThinMaterial, in: Capsule())
                             .overlay(Capsule().strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8))
                         }
                         .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
                     }
                 }
-                .padding(.horizontal, 16)
+                .padding(.horizontal, Spacing.section)
             }
             .padding(.top, 18)
 
@@ -1345,15 +1345,15 @@ struct ChatView: View {
                             .font(.system(size: Typography.caption, weight: .semibold))
                             .foregroundStyle(.tertiary)
                     }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .padding(.horizontal, Spacing.xxl)
+                    .padding(.vertical, Spacing.lg)
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: Radius.field, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: Radius.field, style: .continuous)
                         .strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8))
                 }
                 .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
-                .padding(.horizontal, 16)
-                .padding(.top, 16)
+                .padding(.horizontal, Spacing.section)
+                .padding(.top, Spacing.section)
             }
         }
     }
@@ -1411,17 +1411,17 @@ struct ChatView: View {
                             Text(s.title)
                                 .font(.system(size: Typography.subhead, weight: .medium))
                                 .foregroundStyle(.secondary)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 7)
+                                .padding(.horizontal, Spacing.xl)
+                                .padding(.vertical, Spacing.md)
                                 .background(.ultraThinMaterial, in: Capsule())
                                 .overlay(Capsule().strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8))
                         }
                         .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
                     }
                 }
-                .padding(.horizontal, 14)
+                .padding(.horizontal, Spacing.xxl)
             }
-            .padding(.vertical, 6)
+            .padding(.vertical, Spacing.sm)
         }
     }
 
@@ -1531,7 +1531,7 @@ struct ChatView: View {
                         .foregroundStyle(.tertiary)
                 }
                 .padding(.horizontal, 18)
-                .padding(.bottom, 2)
+                .padding(.bottom, Spacing.xxs)
             }
         }
     }
@@ -1550,8 +1550,8 @@ struct ChatView: View {
                 .font(.system(size: Typography.headline, weight: .semibold))
                 .foregroundStyle(sel ? Color.blue : Color.secondary.opacity(0.55))
                 .background(Circle().fill(Color(uiColor: .systemBackground)).padding(-1.5))
-                .padding(.trailing, 6)
-                .padding(.top, 2)
+                .padding(.trailing, Spacing.sm)
+                .padding(.top, Spacing.xxs)
                 .allowsHitTesting(false)
         }
     }
@@ -1614,7 +1614,7 @@ struct ChatView: View {
                     .font(.system(size: Typography.body, weight: .semibold))
                     .foregroundStyle(.white)
                     .padding(.horizontal, 18)
-                    .padding(.vertical, 9)
+                    .padding(.vertical, Spacing.md)
                     .background(
                         selectedMsgIDs.isEmpty
                             ? AnyShapeStyle(Color.secondary.opacity(0.35))
@@ -1626,16 +1626,16 @@ struct ChatView: View {
             .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
             .disabled(selectedMsgIDs.isEmpty)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
+        .padding(.horizontal, Spacing.xxl)
+        .padding(.vertical, Spacing.md)
         .frame(maxWidth: .infinity)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
+            RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
                 .strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8)
         )
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.horizontal, Spacing.xl)
+        .padding(.vertical, Spacing.md)
         .transition(.move(edge: .bottom).combined(with: .opacity))
     }
 
@@ -1683,12 +1683,12 @@ struct ChatView: View {
                                                         .font(.system(size: Typography.subhead, weight: .medium))
                                                 }
                                                 .foregroundStyle(.secondary)
-                                                .padding(.vertical, 8)
-                                                .padding(.horizontal, 14)
+                                                .padding(.vertical, Spacing.md)
+                                                .padding(.horizontal, Spacing.xxl)
                                                 .background(Color.secondary.opacity(Tint.faint), in: Capsule())
                                             }
                                             .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
-                                            .padding(.bottom, 2)
+                                            .padding(.bottom, Spacing.xxs)
                                         }
                                         ForEach(visibleMessagesCache) { entry in
                                                                     // v3.0.51：整行（日期分隔 + 时间分隔 + 气泡）拆辅助函数，ForEach 内只留薄调用
@@ -1720,10 +1720,10 @@ struct ChatView: View {
                                         .frame(width: 38, height: 38)
                                     // v2.0.35：去掉"思考中"文字（用户要求），保留三点跳动动画
                                     TypingIndicator()
-                                        .padding(.horizontal, 16)
-                                        .padding(.vertical, 15)
+                                        .padding(.horizontal, Spacing.section)
+                                        .padding(.vertical, Spacing.xxl)
                                         .background(Color(uiColor: .systemGray5))
-                                        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                                        .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
                                         .frame(minHeight: 44)
                                     Spacer(minLength: 48)
                                 }
@@ -1734,9 +1734,9 @@ struct ChatView: View {
                             }
                         }
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.top, 8)
-                    .padding(.bottom, 8)
+                    .padding(.horizontal, Spacing.xl)
+                    .padding(.top, Spacing.md)
+                    .padding(.bottom, Spacing.md)
                     .id("messages")   // v2.0.39：与欢迎页分支区分身份
                 }
             // v2.0.111：消息区背景透明（ScrollView 默认白底遮住上方 logo/内容）
@@ -2002,7 +2002,7 @@ struct ChatView: View {
             .font(.system(size: Typography.caption))
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 6)
+            .padding(.vertical, Spacing.sm)
     }
 
     /// v2.0.60：跨天日期分隔线（灰色胶囊，微信式）
@@ -2019,11 +2019,11 @@ struct ChatView: View {
         return Text(text)
             .font(.system(size: Typography.caption, weight: .medium))
             .foregroundStyle(.secondary)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 3)
+            .padding(.horizontal, Spacing.lg)
+            .padding(.vertical, Spacing.xs)
             .background(Color.primary.opacity(Tint.faint), in: Capsule())
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 4)
+            .padding(.vertical, Spacing.xs)
     }
 
     /// v3.0.86 fix：滚底可关内层动画——流式高频 delta 下 withAnimation 每帧重启互相打断，
@@ -2175,8 +2175,8 @@ struct ChatView: View {
             Button("归档") { showExportSheet = true }
                 .font(.system(size: Typography.subhead, weight: .semibold))
                 .foregroundStyle(.white)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
+                .padding(.horizontal, Spacing.xl)
+                .padding(.vertical, Spacing.sm)
                 .background(Color.orange)
                 .clipShape(Capsule())
             Button {
@@ -2187,14 +2187,14 @@ struct ChatView: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
+        .padding(.horizontal, Spacing.xxl)
+        .padding(.vertical, Spacing.lg)
         .background(.ultraThinMaterial)
         .overlay(RoundedRectangle(cornerRadius: 0).stroke(Color.orange.opacity(Tint.strong), lineWidth: 0.8))
-        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.card))
         .shadow(color: .black.opacity(Tint.faint), radius: 8, y: 3)
-        .padding(.horizontal, 12)
-        .padding(.top, 8)
+        .padding(.horizontal, Spacing.xl)
+        .padding(.top, Spacing.md)
     }
 
     /// v3.4.28：导出格式分发（导出面板/归档条共用）——按所选格式准备内容并弹对应 fileExporter
@@ -3086,7 +3086,7 @@ struct DealAttachmentButton: View {
                     .font(.system(size: Typography.headline))
                     .foregroundStyle(.white)
                     .frame(width: 46, height: 46)
-                    .background(color.gradient, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+                    .background(color.gradient, in: RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
                 Text(name)
                     .font(.system(size: Typography.caption))
                     .foregroundStyle(.secondary)

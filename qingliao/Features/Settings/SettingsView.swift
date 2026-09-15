@@ -65,6 +65,7 @@ struct SettingsView: View {
     @State var localChecking = false
     // v2.0.118：本地模型管理弹窗
     @State var showLocalModels = false
+    @State var showCardGallery = false   // v3.9.26：能力示例（卡片画廊）
     // v3.0.10：视觉模型配置弹窗（已移至模型管理弹窗内）
     // v2.0.113：微信推送开关（同步后端 push_settings.json）
     @AppStorage("qingliao_push_weixin") var pushWeixin = true
@@ -94,7 +95,7 @@ struct SettingsView: View {
                     aboutSection
                     logoutButton
                 }
-                .padding(.horizontal, 14)
+                .padding(.horizontal, Spacing.xxl)
                 .padding(.bottom, 100)
                 // v3.4.28：横屏限宽居中
                 .frame(maxWidth: .infinity)
@@ -196,6 +197,11 @@ struct SettingsView: View {
         .sheet(isPresented: $showLocalModels) {
             LocalModelsSheet()
                 .scrollContentBackground(.hidden)
+        }
+        // v3.9.26：能力示例（5 种卡片形态展示，零后端、纯 App 内样例数据）
+        .sheet(isPresented: $showCardGallery) {
+            CardGallerySheet()
+                .presentationDetents([.medium, .large])
         }
         // v2.0.102：切回设置页刷新计数（密码管理/记忆增删后行尾数字即时更新，原只有 .task 首刷）
         .onAppear { Task { await loadCounts() } }

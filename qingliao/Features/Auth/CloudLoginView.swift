@@ -61,16 +61,16 @@ struct CloudLoginView: View {
                                         .foregroundStyle(Color.accentColor)
                                 }
                             }
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 12)
+                            .padding(.horizontal, Spacing.section)
+                            .padding(.vertical, Spacing.xl)
                             .background(
                                 config.activeProviderID == p.providerID
                                     ? Color.accentColor.opacity(Tint.faint)
                                     : Color(uiColor: .secondarySystemGroupedBackground),
-                                in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                in: RoundedRectangle(cornerRadius: Radius.field, style: .continuous)
                             )
                             .overlay(
-                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                RoundedRectangle(cornerRadius: Radius.field, style: .continuous)
                                     .strokeBorder(config.activeProviderID == p.providerID ? Color.accentColor.opacity(0.4) : Color.primary.opacity(Tint.faint), lineWidth: 0.8)
                             )
                         }
@@ -91,12 +91,12 @@ struct CloudLoginView: View {
                     }
                     .foregroundStyle(Color.accentColor)
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 11)
-                    .background(Color.accentColor.opacity(Tint.subtle), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                    .padding(.vertical, Spacing.lg)
+                    .background(Color.accentColor.opacity(Tint.subtle), in: RoundedRectangle(cornerRadius: Radius.hero, style: .continuous))
                 }
                 .buttonStyle(.plain)
                 .padding(.horizontal, 28)
-                .padding(.top, 4)
+                .padding(.top, Spacing.xs)
 
                 // 测试连接
                 Button {
@@ -117,12 +117,12 @@ struct CloudLoginView: View {
                     }
                     .foregroundStyle(Color.accentColor)
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 11)
-                    .background(Color.accentColor.opacity(Tint.subtle), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                    .padding(.vertical, Spacing.lg)
+                    .background(Color.accentColor.opacity(Tint.subtle), in: RoundedRectangle(cornerRadius: Radius.hero, style: .continuous))
                 }
                 .buttonStyle(.plain)
                 .padding(.horizontal, 28)
-                .padding(.top, 6)
+                .padding(.top, Spacing.sm)
                 .disabled(testing || config.activeConfig == nil)
 
                 if let tr = testResult {
@@ -131,7 +131,7 @@ struct CloudLoginView: View {
                         .foregroundStyle(tr.hasPrefix("✅") ? Color.green : (tr.hasPrefix("⚠️") ? Color.orange : Color.red))
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 32)
-                        .padding(.top, 4)
+                        .padding(.top, Spacing.xs)
                 }
 
                 // 进入
@@ -145,16 +145,16 @@ struct CloudLoginView: View {
                         .font(.system(size: Typography.title, weight: .semibold))
                         .foregroundStyle(.white)
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 13)
+                        .padding(.vertical, Spacing.xl)
                         .background(
                             LinearGradient(colors: config.isConfigured ? [.blue, .indigo] : [.gray, .gray],
                                            startPoint: .topLeading, endPoint: .bottomTrailing),
-                            in: RoundedRectangle(cornerRadius: 24, style: .continuous)
+                            in: RoundedRectangle(cornerRadius: Radius.hero, style: .continuous)
                         )
                 }
                 .buttonStyle(.plain)
                 .padding(.horizontal, 28)
-                .padding(.top, 8)
+                .padding(.top, Spacing.md)
                 .disabled(!config.isConfigured)
 
                 // v3.0.2：Face ID 一键登录（配置已在手机本地 → 验证通过直接进入）
@@ -170,12 +170,12 @@ struct CloudLoginView: View {
                         }
                         .foregroundStyle(Color.accentColor)
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 11)
-                        .background(Color.accentColor.opacity(Tint.subtle), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                        .padding(.vertical, Spacing.lg)
+                        .background(Color.accentColor.opacity(Tint.subtle), in: RoundedRectangle(cornerRadius: Radius.hero, style: .continuous))
                     }
                     .buttonStyle(.plain)
                     .padding(.horizontal, 28)
-                    .padding(.top, 10)
+                    .padding(.top, Spacing.lg)
                 }
 
                 Spacer()
@@ -269,11 +269,17 @@ struct CloudProviderSheet: View {
                 Section {
                     Button("保存") {
                         let id = custom ? "custom-\(UUID().uuidString.prefix(6))" : presetID
-                        // v3.0.4：从预设继承视觉支持（OpenAI 默认模型支持视觉，其余 false）
+                        // v3.9.26：视觉能力 = 「模型名 + provider」实算 **OR** 预设的显式声明。
+                        //   为什么要 OR：名表不可能收全（gpt-4.1 / -turbo / 第三方 VL 模型都不在表内），
+                        //   只按名表判会把「本来能看图的模型」静默降级成「[图片]」（图是真丢，用户可感），
+                        //   比多带一次 base64（模型侧忽略）更糟。预设声明是这类模型唯一的逃生口。
+                        //   同时：provider 反例表在**发送闸门里优先于**本标记，故「商汤 + deepseek-v4-flash」
+                        //   这类同名不同能力仍能修到 —— OR 不会把它救回来。
                         let presetVision = CloudProviderPreset.presets.first(where: { $0.id == presetID })?.supportsVision ?? false
+                        let supportsVision = CloudConfig.modelSupportsVision(model, provider: id) || presetVision
                         onSave(CloudProviderConfig(providerID: id, name: name.isEmpty ? "自定义" : name,
                                                    baseURL: baseURL, apiKey: apiKey, model: model,
-                                                   supportsVision: presetVision))
+                                                   supportsVision: supportsVision))
                         dismiss()
                     }
                     .disabled(name.isEmpty || baseURL.isEmpty || model.isEmpty || apiKey.isEmpty)

@@ -38,13 +38,13 @@ struct CloudSettingsView: View {
                         Toggle("使用免费模型（免 Key）", isOn: $freeModelOn)
                             .font(.system(size: Typography.body, weight: .medium))
                             .tint(.green)
-                            .padding(.horizontal, 14).padding(.vertical, 10)
+                            .padding(.horizontal, Spacing.xxl).padding(.vertical, Spacing.lg)
                         Text(freeModelOn
                              ? "开启中——用 Hermes 内置免费模型（keyless，免任何 Key）"
                              : "开启后可一键切到免费档；关闭回到你自选的付费模型")
                             .font(.system(size: Typography.tiny)).foregroundStyle(.secondary)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, 14).padding(.bottom, 8)
+                            .padding(.horizontal, Spacing.xxl).padding(.bottom, Spacing.md)
                     }
                     .glassListCard()
                     .onChange(of: freeModelOn) { _, on in
@@ -60,7 +60,7 @@ struct CloudSettingsView: View {
                                     .font(.system(size: Typography.subhead, weight: .semibold))
                                     .foregroundStyle(.white)
                                     .frame(width: 28, height: 28)
-                                    .background(Color.blue, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                                    .background(Color.blue, in: RoundedRectangle(cornerRadius: Radius.icon, style: .continuous))
                                 VStack(alignment: .leading, spacing: 1) {
                                     Text(p.name)
                                         .font(.system(size: Typography.body, weight: .medium))
@@ -81,7 +81,7 @@ struct CloudSettingsView: View {
                                         Text("选用")
                                             .font(.system(size: Typography.caption, weight: .medium))
                                             .foregroundStyle(Color.accentColor)
-                                            .padding(.horizontal, 10).padding(.vertical, 4)
+                                            .padding(.horizontal, Spacing.lg).padding(.vertical, Spacing.xs)
                                             .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
                                     }
                                     .buttonStyle(.plain)
@@ -92,14 +92,14 @@ struct CloudSettingsView: View {
                                         Image(systemName: "trash.fill")
                                             .font(.system(size: Typography.caption, weight: .medium))
                                             .foregroundStyle(.red)
-                                            .padding(.horizontal, 10).padding(.vertical, 4)
+                                            .padding(.horizontal, Spacing.lg).padding(.vertical, Spacing.xs)
                                             .background(Color.red.opacity(Tint.subtle), in: Capsule())
                                     }
                                     .buttonStyle(.plain)
                                 }
                             }
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 8)
+                            .padding(.horizontal, Spacing.xxl)
+                            .padding(.vertical, Spacing.md)
                             if p.providerID != config.providers.last?.providerID {
                                 Divider().padding(.leading, 52)
                             }
@@ -143,8 +143,8 @@ struct CloudSettingsView: View {
                                     .foregroundStyle(.tertiary)
                             }
                         }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
+                        .padding(.horizontal, Spacing.xxl)
+                        .padding(.vertical, Spacing.lg)
                     }
                     .glassListCard()
 
@@ -177,7 +177,7 @@ struct CloudSettingsView: View {
                                 .font(.system(size: Typography.body, weight: .semibold))
                         }
                         .foregroundStyle(.red)
-                        .padding(.horizontal, 40).padding(.vertical, 13)
+                        .padding(.horizontal, 40).padding(.vertical, Spacing.xl)
                         .background(Color.red.opacity(0.35), in: Capsule())
                     }
                     .buttonStyle(.plain)
@@ -190,8 +190,8 @@ struct CloudSettingsView: View {
                         Text("退出后回到登录页，可切换本地 AI / 云端 AI 模式。云端配置（API Key）仍保留在手机本地。")
                     }
                 }
-                .padding(.horizontal, 12)
-                .padding(.top, 8)
+                .padding(.horizontal, Spacing.xl)
+                .padding(.top, Spacing.md)
                 .padding(.bottom, 100)   // v3.0.44：底部避让 Dock（对齐本地设置页 100pt），否则退出登录按钮被 Dock 挡住
             }
         }
@@ -269,7 +269,7 @@ struct AppearanceSheet: View {
                         appearanceOption("深色", value: "dark")
                         appearanceOption("跟随系统", value: "system")
                     }
-                    .padding(.vertical, 4)
+                    .padding(.vertical, Spacing.xs)
                 }
                 // 交互
                 Section("交互") {
@@ -373,9 +373,9 @@ struct AppearanceSheet: View {
                 .font(.system(size: Typography.subhead, weight: .medium))
                 .foregroundStyle(appearance == value ? Color.white : Color.primary)
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 9)
+                .padding(.vertical, Spacing.md)
                 .background(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    RoundedRectangle(cornerRadius: Radius.chip, style: .continuous)
                         .fill(appearance == value ? Color.accentColor : Color(uiColor: .systemGray5))
                 )
         }
@@ -389,7 +389,7 @@ struct AppearanceSheet: View {
             Slider(value: value, in: range).tint(Color.accentColor)
             Text(suffix(value.wrappedValue)).font(.system(size: Typography.subhead)).foregroundStyle(.secondary).frame(width: 46, alignment: .trailing)
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, Spacing.xxs)
     }
 }
 
@@ -419,16 +419,16 @@ struct CloudModelsSheet: View {
                         Text("刷新")
                             .font(.system(size: Typography.caption))
                             .foregroundStyle(Color.accentColor)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 3)
+                            .padding(.horizontal, Spacing.lg)
+                            .padding(.vertical, Spacing.xs)
                             .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
                     }
                     .buttonStyle(.plain)
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 12)
+                .padding(.horizontal, Spacing.section)
+                .padding(.top, Spacing.xl)
 
-                Divider().padding(.vertical, 8)
+                Divider().padding(.vertical, Spacing.md)
 
                 if loading {
                     VStack(spacing: 8) {
@@ -471,18 +471,18 @@ struct CloudModelsSheet: View {
                                             .foregroundStyle(Color.accentColor)
                                     }
                                 }
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 9)
+                                .padding(.horizontal, Spacing.section)
+                                .padding(.vertical, Spacing.md)
                                 .contentShape(Rectangle())
                                 .onTapGesture {
                                     selectedModel = m
                                 }
                                 if m != models.last {
-                                    Divider().padding(.leading, 16)
+                                    Divider().padding(.leading, Spacing.section)
                                 }
                             }
                         }
-                        .padding(.bottom, 12)
+                        .padding(.bottom, Spacing.xl)
                     }
                 }
             }
@@ -498,7 +498,8 @@ struct CloudModelsSheet: View {
                         if !selectedModel.isEmpty, var c = config.activeConfig {
                             c.model = selectedModel
                             // v3.0.5 review fix：按所选模型实时判断视觉能力（预设默认模型可能被切走）
-                            c.supportsVision = CloudConfig.modelSupportsVision(selectedModel)
+                            // v3.9.26：带 provider —— 同名模型在不同 provider 下能力不同
+                            c.supportsVision = CloudConfig.modelSupportsVision(selectedModel, provider: c.providerID)
                             config.saveProvider(c)
                         }
                         dismiss()

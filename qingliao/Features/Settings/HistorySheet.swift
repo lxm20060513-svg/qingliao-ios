@@ -39,7 +39,7 @@ struct HistorySheet: View {
                                     .foregroundStyle(.white)
                                     .frame(width: 28, height: 28)
                                     .background(h.type == "自动化" ? Color.orange : Color.purple,
-                                                in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                                                in: RoundedRectangle(cornerRadius: Radius.icon, style: .continuous))
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text("\(h.type)「\(h.name)」")
                                         .font(.system(size: Typography.body, weight: .medium))
@@ -59,7 +59,7 @@ struct HistorySheet: View {
                                     .font(.system(size: Typography.body))
                                     .foregroundStyle(h.ok ? .green : .red)
                             }
-                            .padding(.vertical, 2)
+                            .padding(.vertical, Spacing.xxs)
                         }
                         // 编辑模式下不显示滑动删除（避免手势冲突）；非编辑模式每行左滑删除
                         .onDelete { offsets in
@@ -115,8 +115,8 @@ struct HistorySheet: View {
                             Text("刷新")
                                 .font(.system(size: Typography.tiny))
                                 .foregroundStyle(Color.accentColor)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 4)
+                                .padding(.horizontal, Spacing.lg)
+                                .padding(.vertical, Spacing.xs)
                                 .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
                         }
                     }

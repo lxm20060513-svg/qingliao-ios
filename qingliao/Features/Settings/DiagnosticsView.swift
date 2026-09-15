@@ -48,7 +48,7 @@ struct DiagnosticsView: View {
                     crashLogSection
                     privacySection
                 }
-                .padding(.horizontal, 14)
+                .padding(.horizontal, Spacing.xxl)
                 .padding(.bottom, 30)
             }
             .navigationTitle("诊断")
@@ -80,8 +80,8 @@ struct DiagnosticsView: View {
                             Text("刷新")
                                 .font(.system(size: Typography.tiny))
                                 .foregroundStyle(Color.accentColor)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 4)
+                                .padding(.horizontal, Spacing.lg)
+                                .padding(.vertical, Spacing.xs)
                                 .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
                         }
                     }
@@ -157,7 +157,7 @@ struct DiagnosticsView: View {
                         .font(.system(size: Typography.subhead, weight: .semibold))
                         .foregroundStyle(.white)
                         .frame(width: 28, height: 28)
-                        .background(Color.orange, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                        .background(Color.orange, in: RoundedRectangle(cornerRadius: Radius.icon, style: .continuous))
                     VStack(alignment: .leading, spacing: 1) {
                         Text("后端连通性").font(.system(size: Typography.body))
                         if !pingText.isEmpty {
@@ -169,7 +169,7 @@ struct DiagnosticsView: View {
                     Spacer()
                     if pinging { ProgressView().controlSize(.small) }
                 }
-                .padding(.horizontal, 14).padding(.vertical, 11)
+                .padding(.horizontal, Spacing.xxl).padding(.vertical, Spacing.lg)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -198,7 +198,7 @@ struct DiagnosticsView: View {
                         .font(.system(size: Typography.subhead, weight: .semibold))
                         .foregroundStyle(.white)
                         .frame(width: 28, height: 28)
-                        .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                        .background(Color.accentColor, in: RoundedRectangle(cornerRadius: Radius.icon, style: .continuous))
                     VStack(alignment: .leading, spacing: 1) {
                         Text("立即上报").font(.system(size: Typography.body))
                         if !uploadText.isEmpty {
@@ -210,7 +210,7 @@ struct DiagnosticsView: View {
                     Spacer()
                     if uploading { ProgressView().controlSize(.small) }
                 }
-                .padding(.horizontal, 14).padding(.vertical, 11)
+                .padding(.horizontal, Spacing.xxl).padding(.vertical, Spacing.lg)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -229,7 +229,7 @@ struct DiagnosticsView: View {
                     Stepper("", value: $hangThreshold, in: 200...3000, step: 100)
                         .labelsHidden()
                 }
-                .padding(.horizontal, 16).padding(.vertical, 10)
+                .padding(.horizontal, Spacing.section).padding(.vertical, Spacing.lg)
             }
             Divider().padding(.leading, 52)
             Button {
@@ -240,7 +240,7 @@ struct DiagnosticsView: View {
                         .font(.system(size: Typography.subhead, weight: .semibold))
                         .foregroundStyle(.white)
                         .frame(width: 28, height: 28)
-                        .background(Color.pink, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                        .background(Color.pink, in: RoundedRectangle(cornerRadius: Radius.icon, style: .continuous))
                     VStack(alignment: .leading, spacing: 1) {
                         Text("写入一条测试记录").font(.system(size: Typography.body))
                         Text("仅本地记录，用于验证上报链路")
@@ -248,7 +248,7 @@ struct DiagnosticsView: View {
                     }
                     Spacer()
                 }
-                .padding(.horizontal, 14).padding(.vertical, 11)
+                .padding(.horizontal, Spacing.xxl).padding(.vertical, Spacing.lg)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -279,7 +279,7 @@ struct DiagnosticsView: View {
                         .foregroundStyle(.tertiary)
                     Spacer()
                 }
-                .padding(.horizontal, 14).padding(.vertical, 14)
+                .padding(.horizontal, Spacing.xxl).padding(.vertical, Spacing.xxl)
             } else {
                 ForEach(events) { e in
                     recordRow(e)
@@ -287,7 +287,7 @@ struct DiagnosticsView: View {
                         Divider().padding(.leading, 52)
                     }
                 }
-                Divider().padding(.leading, 14)
+                Divider().padding(.leading, Spacing.xxl)
                 clearAllButton
             }
         }
@@ -307,7 +307,7 @@ struct DiagnosticsView: View {
             }
             .foregroundStyle(Color.red)
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 12)
+            .padding(.vertical, Spacing.xl)
             .contentShape(Rectangle())
         }
         .buttonStyle(PressStyle())
@@ -323,7 +323,7 @@ struct DiagnosticsView: View {
                     .foregroundStyle(.white)
                     .frame(width: 28, height: 28)
                     .background(e.kind == "crash" ? Color.red : Color.orange,
-                                in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                                in: RoundedRectangle(cornerRadius: Radius.icon, style: .continuous))
                 VStack(alignment: .leading, spacing: 2) {
                     Text(DiagnosticsPayload.kindLabel(e.kind) + " · " + e.summary)
                         .font(.system(size: Typography.body))
@@ -339,7 +339,7 @@ struct DiagnosticsView: View {
                     .foregroundStyle(.tertiary)
                     .rotationEffect(.degrees(isOpen ? 90 : 0))
             }
-            .padding(.horizontal, 14).padding(.vertical, 11)
+            .padding(.horizontal, Spacing.xxl).padding(.vertical, Spacing.lg)
             .contentShape(Rectangle())
             .onTapGesture {
                 withAnimation(Motion.snap) {
@@ -358,12 +358,12 @@ struct DiagnosticsView: View {
                     } label: {
                         Text("复制这条")
                             .font(.system(size: Typography.subhead, weight: .semibold))
-                            .padding(.horizontal, 14).padding(.vertical, 6)
+                            .padding(.horizontal, Spacing.xxl).padding(.vertical, Spacing.sm)
                             .background(Color.secondary.opacity(Tint.soft), in: Capsule())
                     }
                     .buttonStyle(.plain)
                 }
-                .padding(.horizontal, 14).padding(.bottom, 12)
+                .padding(.horizontal, Spacing.xxl).padding(.bottom, Spacing.xl)
                 .transition(.opacity)
             }
         }
@@ -397,7 +397,7 @@ struct DiagnosticsView: View {
         .font(.system(size: Typography.subhead))
         .foregroundStyle(.secondary)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 16).padding(.vertical, 14)
+        .padding(.horizontal, Spacing.section).padding(.vertical, Spacing.xxl)
         .glassListCard()
     }
 

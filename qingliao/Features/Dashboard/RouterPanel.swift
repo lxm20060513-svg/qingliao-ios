@@ -87,8 +87,8 @@ struct RouterPanel: View {
                     Text("刷新")
                         .font(.system(size: Typography.tiny, weight: .semibold))
                         .foregroundStyle(Color.accentColor)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 4)
+                        .padding(.horizontal, Spacing.lg)
+                        .padding(.vertical, Spacing.xs)
                         .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
                 }
                 .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
@@ -171,7 +171,7 @@ struct ClashSheet: View {
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 18)
-                    .background(Color.green.gradient, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+                    .background(Color.green.gradient, in: RoundedRectangle(cornerRadius: Radius.field, style: .continuous))
                 }
                 .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
                 .disabled(router.busy)
@@ -194,7 +194,7 @@ struct ClashSheet: View {
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 18)
-                    .background(Color.red.gradient, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+                    .background(Color.red.gradient, in: RoundedRectangle(cornerRadius: Radius.field, style: .continuous))
                 }
                 .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
                 .disabled(router.busy)
@@ -202,7 +202,7 @@ struct ClashSheet: View {
             Spacer()
         }
         .padding(18)
-        .padding(.top, 6)
+        .padding(.top, Spacing.sm)
 
     }
 }

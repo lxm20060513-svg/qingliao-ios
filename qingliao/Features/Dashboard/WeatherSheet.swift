@@ -64,8 +64,8 @@ struct WeatherSheet: View {
             } label: {
                 Text("换城市")
                     .font(.system(size: Typography.tiny))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
+                    .padding(.horizontal, Spacing.lg)
+                    .padding(.vertical, Spacing.xs)
                     .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
                     .foregroundStyle(Color.accentColor)
             }
@@ -74,7 +74,7 @@ struct WeatherSheet: View {
         }
         .padding(.horizontal, 20)
         .padding(.top, 18)
-        .padding(.bottom, 4)
+        .padding(.bottom, Spacing.xs)
     }
 
     private var displayCity: String {
@@ -117,8 +117,8 @@ struct WeatherSheet: View {
                 } label: {
                     Text("重试")
                         .font(.system(size: Typography.subhead, weight: .medium))
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 6)
+                        .padding(.horizontal, Spacing.xxl)
+                        .padding(.vertical, Spacing.sm)
                         .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
                         .foregroundStyle(Color.accentColor)
                 }
@@ -198,7 +198,7 @@ struct WeatherSheet: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 20)
-        .padding(.top, 8)
+        .padding(.top, Spacing.md)
         .padding(.bottom, 30)
     }
 

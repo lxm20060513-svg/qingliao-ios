@@ -46,7 +46,7 @@ struct LocalModelsSheet: View {
                                         .foregroundStyle(Color.green)
                                 }
                             }
-                            .padding(.vertical, 2)
+                            .padding(.vertical, Spacing.xxs)
                             .contentShape(Rectangle())
                             .onTapGesture {
                                 // 选为当前模型（provider=local）
@@ -108,8 +108,8 @@ struct LocalModelsSheet: View {
                         Text("刷新")
                             .font(.system(size: Typography.tiny))
                             .foregroundStyle(Color.accentColor)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 4)
+                            .padding(.horizontal, Spacing.lg)
+                            .padding(.vertical, Spacing.xs)
                             .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
                     }
                 }

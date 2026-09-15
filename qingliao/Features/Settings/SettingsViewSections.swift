@@ -66,7 +66,7 @@ extension SettingsView {
                 .font(.system(size: Typography.subhead, weight: .semibold))
                 .foregroundStyle(.white)
                 .frame(width: 28, height: 28)
-                .background(Color.indigo, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                .background(Color.indigo, in: RoundedRectangle(cornerRadius: Radius.icon, style: .continuous))
             VStack(alignment: .leading, spacing: 1) {
                 Text("本地模型").font(.system(size: Typography.body, weight: .medium))
                 Text(localStatusText).font(.system(size: Typography.caption)).foregroundStyle(.tertiary).lineLimit(1)
@@ -91,7 +91,7 @@ extension SettingsView {
                     }
                 }
         }
-        .padding(.horizontal, 14).padding(.vertical, 6)
+        .padding(.horizontal, Spacing.xxl).padding(.vertical, Spacing.sm)
         if localModelOn {
             Divider().padding(.leading, 52)
             SettingRow(icon: "shippingbox.fill", iconColor: .indigo, title: "管理模型",
@@ -104,7 +104,7 @@ extension SettingsView {
                         .font(.system(size: Typography.subhead, weight: .semibold))
                         .foregroundStyle(.white)
                         .frame(width: 28, height: 28)
-                        .background(Color.teal, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                        .background(Color.teal, in: RoundedRectangle(cornerRadius: Radius.icon, style: .continuous))
                     VStack(alignment: .leading, spacing: 1) {
                         Text("检查模型更新").font(.system(size: Typography.body, weight: .medium))
                         Text(localUpdateText).font(.system(size: Typography.caption)).foregroundStyle(.tertiary)
@@ -114,7 +114,7 @@ extension SettingsView {
                 }
             }
             .buttonStyle(.plain)
-            .padding(.horizontal, 14).padding(.vertical, 6)
+            .padding(.horizontal, Spacing.xxl).padding(.vertical, Spacing.sm)
         }
     }
 
@@ -126,6 +126,10 @@ extension SettingsView {
             Divider().padding(.leading, 52)
             SettingRow(icon: "brain.head.profile", iconColor: .pink, title: "AI 记忆", value: "\(memoryCount) 条", chevron: true)
                 .onTapGesture { showMemory = true }
+            Divider().padding(.leading, 52)
+            // v3.9.26：能力示例（卡片画廊）——让「AI 能出什么卡」可见，不用靠碰运气触发
+            SettingRow(icon: "rectangle.grid.2x2.fill", iconColor: .indigo, title: "能力示例", value: "5 种卡片形态", chevron: true)
+                .onTapGesture { showCardGallery = true }
             Divider().padding(.leading, 52)
             // v3.0.81：上下文自动管理
             toggleRow(icon: "arrow.down.circle.fill", iconColor: .purple,
@@ -145,8 +149,8 @@ extension SettingsView {
                     Stepper("", value: $contextThreshold, in: 1000...16000, step: 500)
                         .labelsHidden()
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
+                .padding(.horizontal, Spacing.section)
+                .padding(.vertical, Spacing.lg)
                 .onChange(of: contextThreshold) { _, new in
                     UserDefaults.standard.set(new, forKey: "qingliao_context_threshold")
                 }
@@ -223,7 +227,7 @@ extension SettingsView {
                 }
                 .font(.system(size: Typography.subhead)).foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 14).padding(.bottom, 12)
+                .padding(.horizontal, Spacing.xxl).padding(.bottom, Spacing.xl)
             }
             Divider().padding(.leading, 52)
             SettingRow(icon: "text.badge.plus", iconColor: .orange, title: "Agent 关键词", value: "分流匹配词管理", chevron: true)
@@ -268,7 +272,7 @@ extension SettingsView {
                     .font(.system(size: Typography.body, weight: .semibold))
             }
             .foregroundStyle(.red)
-            .padding(.horizontal, 40).padding(.vertical, 13)
+            .padding(.horizontal, 40).padding(.vertical, Spacing.xl)
             .background(Color.red.opacity(0.35), in: Capsule())
         }
         .buttonStyle(.plain)
@@ -278,6 +282,6 @@ extension SettingsView {
         } message: {
             Text("退出后回到登录页，可切换本地 AI / 云端 AI 模式。云端配置（API Key）仍保留在手机本地。")
         }
-        .padding(.top, 2)
+        .padding(.top, Spacing.xxs)
     }
 }

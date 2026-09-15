@@ -342,15 +342,32 @@ final class ChatStore {
         // 云端模式：当前厂商 supportsVision
         // 本地模式：主模型支持视觉 OR 配置了视觉模型自动切换
         let visionOK: Bool = {
+            // v3.9.26 fix：取源优先级 —— 入参是本次**真正要发出去的**模型（ChatView.resolveModel() 的
+            // 免费 / 视觉 / Agent / 主 四档覆盖）。此前闸门只读 mainModelAndProvider，等于拿「主模型」
+            // 去判断「实际请求的模型」：主模型有视觉而实际发给无视觉的免费模型时仍带 base64（静默丢图），
+            // 反向则白降级。未传参才回落到统一取源。
+            let (curModelName, curProviderName): (model: String, provider: String) = {
+                if let m = model, !m.isEmpty { return (m, provider ?? "") }
+                return CloudConfig.mainModelAndProvider
+            }()
+            // ① provider 反例优先于任何持久化标记：
+            //    存量配置里的 supportsVision 是旧逻辑（只看模型名）写下并落盘的，
+            //    若先被它短路，「商汤 + deepseek-v4-flash」这类同名不同能力的反例永远修不到。
+            if CloudConfig.providerDeniesVision(model: curModelName, provider: curProviderName) {
+                return false
+            }
             if CloudConfig.shared.isCloudMode {
-                if CloudConfig.shared.activeConfig?.supportsVision ?? false { return true }
-                let modelName = CloudConfig.shared.activeConfig?.model ?? ""
-                if !modelName.isEmpty, CloudConfig.modelSupportsVision(modelName) { return true }
+                // ② 持久化的 supportsVision 只在「本次就是该厂商配置里的主模型」时可采信 ——
+                //    它按整个厂商配置存一份，本次发的是别的模型（免费 / 视觉 / Agent）时不能用它下结论。
+                if let c = CloudConfig.shared.activeConfig,
+                   c.model == curModelName, c.supportsVision { return true }
+                if !curModelName.isEmpty,
+                   CloudConfig.modelSupportsVision(curModelName, provider: curProviderName) { return true }
                 return false
             }
             // 本地模式：主模型支持视觉 → 直接 OK
-            let mainModel = UserDefaults.standard.string(forKey: "qingliao_model") ?? ""
-            if CloudConfig.modelSupportsVision(mainModel) { return true }
+            if !curModelName.isEmpty,
+               CloudConfig.modelSupportsVision(curModelName, provider: curProviderName) { return true }
             // 主模型不支持 → 开关开 + 有视觉模型配置才保留图片，否则降级文本
             return CloudConfig.visionFallbackEnabled && CloudConfig.localVisionModel != nil
         }()

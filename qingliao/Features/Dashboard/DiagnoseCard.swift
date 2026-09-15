@@ -50,7 +50,7 @@ struct DiagnoseCard: View {
                         .foregroundStyle(.secondary)
                     Spacer()
                 }
-                .padding(.vertical, 6)
+                .padding(.vertical, Spacing.sm)
             } else if !error.isEmpty {
                 HStack(spacing: 10) {
                     Image(systemName: "xmark.octagon.fill")
@@ -60,7 +60,7 @@ struct DiagnoseCard: View {
                         .foregroundStyle(.secondary)
                     Spacer()
                 }
-                .padding(.vertical, 6)
+                .padding(.vertical, Spacing.sm)
             } else if items.isEmpty {
                 Button {
                     onRun()
@@ -83,7 +83,7 @@ struct DiagnoseCard: View {
                             .font(.system(size: Typography.subhead, weight: .semibold))
                             .foregroundStyle(.tertiary)
                     }
-                    .padding(.vertical, 4)
+                    .padding(.vertical, Spacing.xs)
                 }
                 .buttonStyle(.plain)
             } else {
@@ -108,7 +108,7 @@ struct DiagnoseCard: View {
                             .font(.system(size: Typography.subhead, weight: .semibold))
                             .foregroundStyle(.tertiary)
                     }
-                    .padding(.vertical, 2)
+                    .padding(.vertical, Spacing.xxs)
                 }
                 .buttonStyle(.plain)
 
@@ -128,12 +128,12 @@ struct DiagnoseCard: View {
                 .buttonStyle(.plain)
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
+        .padding(.horizontal, Spacing.xxl)
+        .padding(.vertical, Spacing.xl)
         .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
                 .strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8)
         )
     }
@@ -171,9 +171,9 @@ struct DiagnoseRow: View {
                 Text("💡 " + item.advice)
                     .font(.system(size: Typography.caption))
                     .foregroundStyle(.secondary)
-                    .padding(.leading, 16)
+                    .padding(.leading, Spacing.section)
             }
         }
-        .padding(.vertical, 3)
+        .padding(.vertical, Spacing.xs)
     }
 }

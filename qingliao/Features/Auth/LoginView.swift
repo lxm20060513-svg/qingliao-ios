@@ -11,13 +11,13 @@ struct ModeSwitchBar: View {
             modeButton("本地 AI", mode: .local, icon: "server.rack")
             modeButton("云端 AI", mode: .cloud, icon: "cloud.fill")
         }
-        .padding(4)
+        .padding(Spacing.xs)
         .background(Color(uiColor: .secondarySystemGroupedBackground), in: Capsule())
         .overlay(Capsule().strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8))
         // v3.0.1：胶囊选中高亮平滑过渡（点击瞬间移动渐变，非跳变）
         .animation(Motion.settle, value: config.mode)
         .padding(.horizontal, 24)
-        .padding(.top, 12)
+        .padding(.top, Spacing.xl)
     }
 
     private func modeButton(_ title: String, mode: QingliaoMode, icon: String) -> some View {
@@ -34,7 +34,7 @@ struct ModeSwitchBar: View {
             }
             .foregroundStyle(config.mode == mode ? Color.white : Color.secondary)
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 8)
+            .padding(.vertical, Spacing.md)
             .background(
                 config.mode == mode
                     ? AnyShapeStyle(LinearGradient(colors: [.blue, .indigo], startPoint: .leading, endPoint: .trailing))
@@ -99,7 +99,7 @@ struct LoginView: View {
                                     Image(systemName: showHistory ? "chevron.up" : "chevron.down")
                                         .font(.system(size: Typography.subhead, weight: .semibold))
                                         .foregroundStyle(Color.secondary)
-                                        .padding(.trailing, 14)
+                                        .padding(.trailing, Spacing.xxl)
                                 }
                                 .buttonStyle(.plain)
                             }
@@ -134,13 +134,13 @@ struct LoginView: View {
                                     .accessibilityLabel("删除该服务器")
                                     .buttonStyle(.plain)
                                 }
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 9)
-                                Divider().padding(.leading, 14)
+                                .padding(.horizontal, Spacing.xxl)
+                                .padding(.vertical, Spacing.md)
+                                Divider().padding(.leading, Spacing.xxl)
                             }
                         }
                         .background(Color(uiColor: .secondarySystemBackground))
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                        .clipShape(RoundedRectangle(cornerRadius: Radius.chip))
                         .transition(.opacity.combined(with: .move(edge: .top)))
                     }
                     GlassField(icon: "person", placeholder: "用户名", text: $username)
@@ -180,10 +180,10 @@ struct LoginView: View {
                         .font(.system(size: Typography.title, weight: .semibold))
                         .foregroundStyle(.white)
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 13)
+                        .padding(.vertical, Spacing.xl)
                         .background(
                             LinearGradient(colors: [.blue, .indigo], startPoint: .topLeading, endPoint: .bottomTrailing),
-                            in: RoundedRectangle(cornerRadius: 24, style: .continuous)
+                            in: RoundedRectangle(cornerRadius: Radius.hero, style: .continuous)
                         )
                 }
                 .buttonStyle(.plain)
@@ -226,12 +226,12 @@ struct LoginView: View {
                         }
                         .foregroundStyle(Color.accentColor)
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 11)
-                        .background(Color.accentColor.opacity(Tint.subtle), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                        .padding(.vertical, Spacing.lg)
+                        .background(Color.accentColor.opacity(Tint.subtle), in: RoundedRectangle(cornerRadius: Radius.hero, style: .continuous))
                     }
                     .buttonStyle(.plain)
                     .padding(.horizontal, 28)
-                    .padding(.top, 10)
+                    .padding(.top, Spacing.lg)
                     .disabled(auth.isLoading)
                     .alert("尚未保存登录凭据", isPresented: $showFaceIDHint) {
                         Button("好的", role: .cancel) {}
@@ -263,12 +263,12 @@ struct LoginView: View {
                     }
                     .foregroundStyle(Color.accentColor)
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 11)
-                    .background(Color.accentColor.opacity(Tint.subtle), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                    .padding(.vertical, Spacing.lg)
+                    .background(Color.accentColor.opacity(Tint.subtle), in: RoundedRectangle(cornerRadius: Radius.hero, style: .continuous))
                 }
                 .buttonStyle(.plain)
                 .padding(.horizontal, 28)
-                .padding(.top, 10)
+                .padding(.top, Spacing.lg)
                 .disabled(testing || auth.isLoading)
 
                 if let tr = testResult {
@@ -277,7 +277,7 @@ struct LoginView: View {
                         .foregroundStyle(tr.hasPrefix("✅") ? Color.green : (tr.hasPrefix("⚠️") ? Color.orange : Color.red))
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 32)
-                        .padding(.top, 6)
+                        .padding(.top, Spacing.sm)
                 }
 
                 Spacer()
@@ -347,11 +347,11 @@ struct GlassField: View {
             .font(.system(size: Typography.body))
             .foregroundStyle(.primary)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .padding(.horizontal, Spacing.xxl)
+        .padding(.vertical, Spacing.xl)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
                 .strokeBorder(.white.opacity(Tint.subtle), lineWidth: 0.8)
         )
     }

@@ -28,10 +28,12 @@ struct VisionModelSheet: View {
     @State private var sensenovaModels: [String] = []
     @State private var localInstalled: [String] = []
 
-    // 当前主模型（判断是否支持视觉）
-    @AppStorage("qingliao_model") private var mainModel = "deepseek-v4-flash"
+    // 主模型（显示 + 视觉判定；v3.9.26：统一走 CloudConfig.mainModelAndProvider ——
+    // 云端模式下真源是 activeConfig（@Observable，切模型即时刷新），不是本地键 qingliao_model/provider）
+    private var mainModel: String { CloudConfig.mainModelAndProvider.model }
     private var mainModelSupportsVision: Bool {
-        CloudConfig.modelSupportsVision(mainModel)
+        let main = CloudConfig.mainModelAndProvider
+        return CloudConfig.modelSupportsVision(main.model, provider: main.provider)
     }
 
     var body: some View {
@@ -44,7 +46,7 @@ struct VisionModelSheet: View {
                             .font(.system(size: Typography.subhead, weight: .semibold))
                             .foregroundStyle(.white)
                             .frame(width: 28, height: 28)
-                            .background(Color.purple, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                            .background(Color.purple, in: RoundedRectangle(cornerRadius: Radius.icon, style: .continuous))
                         VStack(alignment: .leading, spacing: 1) {
                             Text("视觉模型自动切换").font(.system(size: Typography.body, weight: .medium))
                             Text(statusText)
@@ -108,12 +110,12 @@ struct VisionModelSheet: View {
                                 }
                                 .font(.system(size: Typography.caption, weight: .medium))
                                 .foregroundStyle(.red)
-                                .padding(.horizontal, 10).padding(.vertical, 5)
+                                .padding(.horizontal, Spacing.lg).padding(.vertical, Spacing.xs)
                                 .background(Color.red.opacity(Tint.faint), in: Capsule())
                             }
                         }
                     }
-                    .padding(.vertical, 2)
+                    .padding(.vertical, Spacing.xxs)
                 } header: {
                     Text("共享配置")
                 }
@@ -161,8 +163,8 @@ struct VisionModelSheet: View {
                         Text("刷新")
                             .font(.system(size: Typography.tiny))
                             .foregroundStyle(Color.accentColor)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 4)
+                            .padding(.horizontal, Spacing.lg)
+                            .padding(.vertical, Spacing.xs)
                             .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
                     }
                 }
@@ -179,8 +181,8 @@ struct VisionModelSheet: View {
             Text(group)
                 .font(.system(size: Typography.caption, weight: .semibold))
                 .foregroundStyle(.secondary)
-                .padding(.leading, 4)
-                .padding(.vertical, 4)
+                .padding(.leading, Spacing.xs)
+                .padding(.vertical, Spacing.xs)
             ForEach(models, id: \.self) { model in
                 let isSelected = selectedModel == model && selectedProvider == provider
                 let name = modelDisplayName(provider: provider, model: model)
@@ -201,8 +203,8 @@ struct VisionModelSheet: View {
                         .font(.system(size: Typography.headline))
                         .foregroundStyle(isSelected ? Color.accentColor : Color.secondary.opacity(0.35))
                 }
-                .padding(.vertical, 8)
-                .padding(.horizontal, 4)
+                .padding(.vertical, Spacing.md)
+                .padding(.horizontal, Spacing.xs)
                 .contentShape(Rectangle())
                 .onTapGesture {
                     selectSharedVision(provider: provider, model: model)

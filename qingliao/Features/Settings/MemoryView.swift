@@ -18,32 +18,32 @@ struct MemoryView: View {
                 HStack(spacing: 8) {
                     TextField("如：我经常用 5G 网络 / 回答要简洁", text: $newText)
                         .font(.system(size: Typography.subhead))
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 9)
+                        .padding(.horizontal, Spacing.xl)
+                        .padding(.vertical, Spacing.md)
                         .background(Color(uiColor: .secondarySystemGroupedBackground),
-                                    in: RoundedRectangle(cornerRadius: 10))
+                                    in: RoundedRectangle(cornerRadius: Radius.chip))
                     Button {
                         add()
                     } label: {
                         Text("记住")
                             .font(.system(size: Typography.subhead, weight: .semibold))
                             .foregroundStyle(.white)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 9)
+                            .padding(.horizontal, Spacing.section)
+                            .padding(.vertical, Spacing.md)
                             .background(Color.accentColor,
-                                        in: RoundedRectangle(cornerRadius: 10))
+                                        in: RoundedRectangle(cornerRadius: Radius.chip))
                     }
                     .buttonStyle(.plain)
                     .disabled(newText.trimmingCharacters(in: .whitespaces).isEmpty || busy)
                 }
-                .padding(12)
+                .padding(Spacing.xl)
 
                 if let m = message {
                     Text(m.text)
                         .font(.system(size: Typography.caption))
                         .foregroundStyle(m.ok ? Color.green : Color.red)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 14)
+                        .padding(.horizontal, Spacing.xxl)
                 }
 
                 // 列表
@@ -81,15 +81,15 @@ struct MemoryView: View {
                                     }
                                     .buttonStyle(.plain)
                                 }
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 10)
+                                .padding(.horizontal, Spacing.xl)
+                                .padding(.vertical, Spacing.lg)
                                 .background(Color(uiColor: .secondarySystemGroupedBackground),
-                                            in: RoundedRectangle(cornerRadius: 12))
+                                            in: RoundedRectangle(cornerRadius: Radius.inset))
                             }
                         }
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.top, 4)
+                    .padding(.horizontal, Spacing.xl)
+                    .padding(.top, Spacing.xs)
                 }
             }
             .navigationTitle("AI 记忆")

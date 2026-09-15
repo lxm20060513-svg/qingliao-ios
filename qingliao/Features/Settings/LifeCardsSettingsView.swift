@@ -53,7 +53,7 @@ struct LifeCardsSettingsView: View {
                     expressSection
                     priceSection
                 }
-                .padding(.horizontal, 14)
+                .padding(.horizontal, Spacing.xxl)
                 .padding(.bottom, 60)
             }
             .navigationTitle("生活卡片")
@@ -84,8 +84,8 @@ struct LifeCardsSettingsView: View {
             .font(.system(size: Typography.caption))
             .foregroundStyle(.tertiary)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 4)
-            .padding(.top, 10)
+            .padding(.horizontal, Spacing.xs)
+            .padding(.top, Spacing.lg)
     }
 
     @ViewBuilder
@@ -95,15 +95,15 @@ struct LifeCardsSettingsView: View {
                 .font(.system(size: Typography.caption))
                 .foregroundStyle(.red)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 4)
-                .padding(.top, 6)
+                .padding(.horizontal, Spacing.xs)
+                .padding(.top, Spacing.sm)
         } else if !toast.isEmpty {
             Text(toast)
                 .font(.system(size: Typography.caption))
                 .foregroundStyle(Color.green)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 4)
-                .padding(.top, 6)
+                .padding(.horizontal, Spacing.xs)
+                .padding(.top, Spacing.sm)
         }
     }
 
@@ -142,8 +142,8 @@ struct LifeCardsSettingsView: View {
             Spacer(minLength: 0)
             deleteCircle { removeStock(i) }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 9)
+        .padding(.horizontal, Spacing.xxl)
+        .padding(.vertical, Spacing.md)
         .contentShape(Rectangle())
         .contextMenu {
             Button(role: .destructive) { removeStock(i) } label: {
@@ -191,8 +191,8 @@ struct LifeCardsSettingsView: View {
             Spacer(minLength: 0)
             deleteCircle { removeRss(i) }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 9)
+        .padding(.horizontal, Spacing.xxl)
+        .padding(.vertical, Spacing.md)
         .contentShape(Rectangle())
         .contextMenu {
             Button(role: .destructive) { removeRss(i) } label: {
@@ -204,7 +204,7 @@ struct LifeCardsSettingsView: View {
     @ViewBuilder
     private var rssAddArea: some View {
         if !presets.rss.isEmpty {
-            subLabel("内置资讯源目录").padding(.horizontal, 14)
+            subLabel("内置资讯源目录").padding(.horizontal, Spacing.xxl)
             ForEach(presets.rss.indices, id: \.self) { i in
                 rssCatalogRow(presets.rss[i])
                 if i < presets.rss.count - 1 { rowDivider }
@@ -222,9 +222,9 @@ struct LifeCardsSettingsView: View {
             }
             addCapsule("添加资讯源") { addCustomRss() }
         }
-        .padding(.horizontal, 14)
-        .padding(.top, 2)
-        .padding(.bottom, 12)
+        .padding(.horizontal, Spacing.xxl)
+        .padding(.top, Spacing.xxs)
+        .padding(.bottom, Spacing.xl)
     }
 
     private func rssCatalogRow(_ p: LifeRssPreset) -> some View {
@@ -239,8 +239,8 @@ struct LifeCardsSettingsView: View {
                     if p.builtin {
                         Text("内置")
                             .font(.system(size: Typography.tiny))
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 1)
+                            .padding(.horizontal, Spacing.sm)
+                            .padding(.vertical, Spacing.xxs)
                             .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
                             .foregroundStyle(Color.accentColor)
                     }
@@ -261,8 +261,8 @@ struct LifeCardsSettingsView: View {
             .buttonStyle(PressStyle())
             .disabled(added)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 9)
+        .padding(.horizontal, Spacing.xxl)
+        .padding(.vertical, Spacing.md)
         .contentShape(Rectangle())
     }
 
@@ -289,9 +289,9 @@ struct LifeCardsSettingsView: View {
             typePicker
             if config.express.source.isCustom { expressCustomFields }
             LifeHeaderEditor(title: "自定义请求头", headers: $config.express.source.headers)
-                .padding(.horizontal, 14)
+                .padding(.horizontal, Spacing.xxl)
         }
-        .padding(.vertical, 12)
+        .padding(.vertical, Spacing.xl)
         .frame(maxWidth: .infinity, alignment: .leading)
         .glassListCard()
     }
@@ -313,8 +313,8 @@ struct LifeCardsSettingsView: View {
             carrierPicker($config.express.packages[i].carrier)
             deleteCircle { removePackage(i) }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 9)
+        .padding(.horizontal, Spacing.xxl)
+        .padding(.vertical, Spacing.md)
         .contentShape(Rectangle())
         .contextMenu {
             Button(role: .destructive) { removePackage(i) } label: {
@@ -354,9 +354,9 @@ struct LifeCardsSettingsView: View {
             }
             addCapsule("添加单号") { addPackage() }
         }
-        .padding(.horizontal, 14)
-        .padding(.top, 2)
-        .padding(.bottom, 12)
+        .padding(.horizontal, Spacing.xxl)
+        .padding(.top, Spacing.xxs)
+        .padding(.bottom, Spacing.xl)
     }
 
     private var typePicker: some View {
@@ -372,7 +372,7 @@ struct LifeCardsSettingsView: View {
             }
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 14)
+        .padding(.horizontal, Spacing.xxl)
     }
 
     @ViewBuilder
@@ -391,7 +391,7 @@ struct LifeCardsSettingsView: View {
             labeledField("上下文字段 context_key", placeholder: "context", text: $config.express.source.contextKey)
             labeledField("状态字段 state_path", placeholder: "state", text: $config.express.source.statePath)
         }
-        .padding(.horizontal, 14)
+        .padding(.horizontal, Spacing.xxl)
     }
 
     // MARK: ④ 价格监控
@@ -416,9 +416,9 @@ struct LifeCardsSettingsView: View {
         VStack(alignment: .leading, spacing: 10) {
             priceTimeoutRow
             LifeHeaderEditor(title: "自定义请求头", headers: $config.price.source.headers)
-                .padding(.horizontal, 14)
+                .padding(.horizontal, Spacing.xxl)
         }
-        .padding(.vertical, 12)
+        .padding(.vertical, Spacing.xl)
         .frame(maxWidth: .infinity, alignment: .leading)
         .glassListCard()
     }
@@ -437,7 +437,7 @@ struct LifeCardsSettingsView: View {
                 .font(.system(size: Typography.subhead, weight: .semibold))
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 14)
+        .padding(.horizontal, Spacing.xxl)
     }
 
     private func priceItemCard(_ i: Int) -> some View {
@@ -472,8 +472,8 @@ struct LifeCardsSettingsView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
+        .padding(.horizontal, Spacing.xxl)
+        .padding(.vertical, Spacing.lg)
     }
 
     @ViewBuilder
@@ -524,10 +524,10 @@ struct LifeCardsSettingsView: View {
             TextField("留空不提醒", text: targetBinding(i))
                 .font(.system(size: Typography.subhead))
                 .keyboardType(.decimalPad)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 7)
+                .padding(.horizontal, Spacing.lg)
+                .padding(.vertical, Spacing.md)
                 .background(Color(uiColor: .secondarySystemGroupedBackground),
-                            in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                            in: RoundedRectangle(cornerRadius: Radius.icon, style: .continuous))
         }
     }
 
@@ -554,8 +554,8 @@ struct LifeCardsSettingsView: View {
                 Text("试抓").font(.system(size: Typography.caption, weight: .semibold))
             }
             .foregroundStyle(Color.accentColor)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
+            .padding(.horizontal, Spacing.lg)
+            .padding(.vertical, Spacing.xs)
             .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
         }
         .buttonStyle(PressStyle())
@@ -564,7 +564,7 @@ struct LifeCardsSettingsView: View {
     // MARK: 通用小组件
 
     private var rowDivider: some View {
-        Divider().padding(.leading, 14)
+        Divider().padding(.leading, Spacing.xxl)
     }
 
     private func iconBadge(_ icon: String, color: Color) -> some View {
@@ -572,7 +572,7 @@ struct LifeCardsSettingsView: View {
             .font(.system(size: Typography.subhead, weight: .semibold))
             .foregroundStyle(.white)
             .frame(width: 26, height: 26)
-            .background(color, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+            .background(color, in: RoundedRectangle(cornerRadius: Radius.icon, style: .continuous))
     }
 
     private func emptyRow(_ text: String) -> some View {
@@ -580,8 +580,8 @@ struct LifeCardsSettingsView: View {
             .font(.system(size: Typography.subhead))
             .foregroundStyle(.tertiary)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
+            .padding(.horizontal, Spacing.xxl)
+            .padding(.vertical, Spacing.xl)
     }
 
     private func subLabel(_ text: String) -> some View {
@@ -589,8 +589,8 @@ struct LifeCardsSettingsView: View {
             .font(.system(size: Typography.caption, weight: .semibold))
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.top, 8)
-            .padding(.bottom, 4)
+            .padding(.top, Spacing.md)
+            .padding(.bottom, Spacing.xs)
     }
 
     private func smallField(_ placeholder: String, text: Binding<String>) -> some View {
@@ -598,10 +598,10 @@ struct LifeCardsSettingsView: View {
             .font(.system(size: Typography.subhead))
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled()
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
+            .padding(.horizontal, Spacing.lg)
+            .padding(.vertical, Spacing.md)
             .background(Color(uiColor: .secondarySystemGroupedBackground),
-                        in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                        in: RoundedRectangle(cornerRadius: Radius.icon, style: .continuous))
     }
 
     private func labeledField(_ label: String, placeholder: String, text: Binding<String>) -> some View {
@@ -630,8 +630,8 @@ struct LifeCardsSettingsView: View {
             // v3.9.4：添加类胶囊只留文字（去图标）
             Text(title).font(.system(size: Typography.subhead, weight: .semibold))
             .foregroundStyle(.white)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 7)
+            .padding(.horizontal, Spacing.xxl)
+            .padding(.vertical, Spacing.md)
             .background(Color.accentColor, in: Capsule())
         }
         .buttonStyle(PressStyle())
@@ -644,14 +644,14 @@ struct LifeCardsSettingsView: View {
                 Text(title).font(.system(size: Typography.subhead, weight: .semibold))
             }
             .foregroundStyle(Color.accentColor)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 6)
+            .padding(.horizontal, Spacing.xxl)
+            .padding(.vertical, Spacing.sm)
             .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
         }
         .buttonStyle(PressStyle())
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
+        .padding(.horizontal, Spacing.xxl)
+        .padding(.vertical, Spacing.lg)
     }
 
     private func capsuleToggle(_ title: String, on: Bool, action: @escaping () -> Void) -> some View {
@@ -659,8 +659,8 @@ struct LifeCardsSettingsView: View {
             Text(title)
                 .font(.system(size: Typography.subhead, weight: .semibold))
                 .foregroundStyle(on ? Color.white : Color.primary)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
+                .padding(.horizontal, Spacing.xl)
+                .padding(.vertical, Spacing.sm)
                 .background(on ? Color.accentColor : Color.primary.opacity(Tint.faint), in: Capsule())
         }
         .buttonStyle(PressStyle())
@@ -880,10 +880,10 @@ struct StockSearchSheet: View {
                         .foregroundStyle(.red)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 20)
-                        .padding(.top, 6)
+                        .padding(.top, Spacing.sm)
                 }
                 if searching {
-                    ProgressView().controlSize(.small).padding(.top, 12)
+                    ProgressView().controlSize(.small).padding(.top, Spacing.xl)
                 }
                 ScrollView { resultsArea }
             }
@@ -903,12 +903,12 @@ struct StockSearchSheet: View {
             .font(.system(size: Typography.subhead))
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled()
-            .padding(.horizontal, 12)
-            .padding(.vertical, 9)
+            .padding(.horizontal, Spacing.xl)
+            .padding(.vertical, Spacing.md)
             .background(Color(uiColor: .secondarySystemGroupedBackground),
-                        in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .padding(.horizontal, 16)
-            .padding(.top, 10)
+                        in: RoundedRectangle(cornerRadius: Radius.chip, style: .continuous))
+            .padding(.horizontal, Spacing.section)
+            .padding(.top, Spacing.lg)
     }
 
     @ViewBuilder
@@ -925,13 +925,13 @@ struct StockSearchSheet: View {
                 ForEach(results.indices, id: \.self) { i in
                     resultRow(results[i])
                     if i < results.count - 1 {
-                        Divider().padding(.leading, 14)
+                        Divider().padding(.leading, Spacing.xxl)
                     }
                 }
             }
             .glassListCard()
-            .padding(.horizontal, 16)
-            .padding(.top, 12)
+            .padding(.horizontal, Spacing.section)
+            .padding(.top, Spacing.xl)
         }
     }
 
@@ -957,8 +957,8 @@ struct StockSearchSheet: View {
                     .font(.system(size: Typography.title))
                     .foregroundStyle(added ? Color.green : Color.accentColor)
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
+            .padding(.horizontal, Spacing.xxl)
+            .padding(.vertical, Spacing.lg)
             .contentShape(Rectangle())
         }
         .buttonStyle(PressStyle())
@@ -1015,8 +1015,8 @@ struct LifeHeaderEditor: View {
                     Text("添加")
                         .font(.system(size: Typography.caption, weight: .semibold))
                         .foregroundStyle(Color.accentColor)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 4)
+                        .padding(.horizontal, Spacing.lg)
+                        .padding(.vertical, Spacing.xs)
                         .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
                 }
                 .buttonStyle(PressStyle())
@@ -1048,9 +1048,9 @@ struct LifeHeaderEditor: View {
             .font(.system(size: Typography.subhead))
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled()
-            .padding(.horizontal, 9)
-            .padding(.vertical, 6)
+            .padding(.horizontal, Spacing.md)
+            .padding(.vertical, Spacing.sm)
             .background(Color(uiColor: .secondarySystemGroupedBackground),
-                        in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        in: RoundedRectangle(cornerRadius: Radius.icon, style: .continuous))
     }
 }

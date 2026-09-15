@@ -279,10 +279,63 @@ final class CloudConfig {
     ///   实测：deepseek-flash / deepseek-v4-flash 均正确识图（64x64 上红下蓝素图 → 答"上半红、下半蓝"）。
     ///   同族 pro 系未实测，不列入。
     ///   刻意用**精确等值**而非 contains：避免连带命中未验证的变体（如 opencode 的 deepseek-v4-flash-free）。
-    ///   ⚠️ 已知边界：本判定只看模型名、不看 provider。商汤(sensenova) 代理的同名 deepseek-v4-flash
-    ///   实测无视觉能力（带图返回空 content / finish=length）——若用户在商汤下选该名会被误判。
-    ///   要根治此边界需把 provider 一并纳入判定（改动面大，另行排期）。
-    static func modelSupportsVision(_ model: String) -> Bool {
+    /// v3.9.26：provider 已纳入判定 —— 通用表只认模型名，同名模型在不同 provider 下能力可能不同，
+    ///   反例收敛在 `visionDeniedPairs`（见下方 modelSupportsVision(_:provider:)）。
+    static func modelSupportsVision(_ model: String, provider: String? = nil) -> Bool {
+        let m = model.lowercased()
+        // provider 级反例优先：同名不同能力（实测该 provider 下无视觉）→ 强制 false，不再看通用表
+        if let p = provider?.lowercased(), !p.isEmpty, visionDeniedPairs.contains("\(p)/\(m)") {
+            return false
+        }
+        return modelSupportsVisionByName(m)
+    }
+
+    /// v3.9.26 新增：已知「同名但该 provider 下无视觉」的精确反例表。
+    ///
+    /// 依据 = 2026-09-15 逐个 provider 实测（带 64x64 上红下蓝素图，直连该 provider 的 base_url）：
+    ///   · sensenova/deepseek-v4-flash → 带图 HTTP 200 但 content 为空（finish=length），**图被静默丢弃**
+    ///   · sensenova/glm-5.2           → 模型回「您未提供图片」，**静默丢图**
+    ///   · sensenova/sensenova-6.8-flash-lite → 识图正确 ✅（故不列入）
+    ///   · deepseek/deepseek-flash、deepseek/deepseek-v4-flash → 识图正确 ✅（官方通路，不列入）
+    ///
+    /// 命中即判「无视觉」→ 图降级为 [图片] 文本（保持既有行为，不会静默丢图）。
+    /// 新增条目必须**实测过**该 provider 下的同名模型，别照官方文档推断。
+    private static let visionDeniedPairs: Set<String> = [
+        "sensenova/deepseek-v4-flash",
+        "sensenova/glm-5.2",
+    ]
+
+    /// v3.9.26：provider 反例命中即判「无视觉」。
+    ///
+    /// 单独暴露的原因：发送闸门**必须先查它、再读持久化的 `supportsVision`**。
+    /// 存量配置里的 `supportsVision` 是旧逻辑（只看模型名）写下并落盘的，若先被它短路，
+    /// 「商汤 + deepseek-v4-flash」这类同名不同能力的反例永远修不到（要用户手动重选一次模型才重算）。
+    static func providerDeniesVision(model: String, provider: String?) -> Bool {
+        guard let p = provider?.lowercased(), !p.isEmpty else { return false }
+        return visionDeniedPairs.contains("\(p)/\(model.lowercased())")
+    }
+
+    /// v3.9.26：主模型 + provider 的**统一取源**（云端走 activeConfig，本地走 UserDefaults）。
+    ///
+    /// 视觉的判定与展示都必须从这里取 —— 云端切厂商只写 `qingliao_cloud_provider`，
+    /// **从不写** `qingliao_provider`（那是本地模型管理的键）。两处各自读 UserDefaults 会各说各话：
+    /// 云端下 UI 显示「主模型支持视觉」而发送闸门按反例把图降级，或反之。
+    static var mainModelAndProvider: (model: String, provider: String) {
+        if CloudConfig.shared.isCloudMode, let c = CloudConfig.shared.activeConfig {
+            return (c.model, c.providerID)
+        }
+        let d = UserDefaults.standard
+        // v3.9.26 fix：默认值必须与 ChatView 的 @AppStorage("qingliao_model") 一致（"deepseek-v4-flash"）。
+        // 原来这里兜底成空串 → 从没在模型管理里挑过模型的本地用户，视觉闸门按 "" 判「无视觉」，
+        // 把图降级成「[图片]」；而真正发出去的模型是 deepseek-v4-flash（有视觉）—— 与 v3.9.25 修的事故同形。
+        return (d.string(forKey: "qingliao_model") ?? "deepseek-v4-flash",
+                d.string(forKey: "qingliao_provider") ?? "opencode")
+    }
+
+    /// 纯模型名判定（v3.9.25 及之前的 modelSupportsVision 原实现）。
+    /// ⚠️ 新代码请优先用 `modelSupportsVision(_:provider:)` —— 只看模型名会漏掉同名不同能力的 provider。
+    /// 保留为独立函数是为了让真值表能分别验证「通用表」与「provider 反例」两层。
+    static func modelSupportsVisionByName(_ model: String) -> Bool {
         let m = model.lowercased()
         if m.contains("gpt-4o") || m.contains("gpt-5") || m.contains("vision")
             || m.contains("-omni") || m.contains("omni") || m.contains("multimodal")
@@ -354,8 +407,9 @@ final class CloudConfig {
         guard visionFallbackEnabled else { return nil }
         guard let visionModel = localVisionModel, !visionModel.isEmpty else { return nil }
         // 如果主模型已支持视觉，无需切换
-        let mainModel = UserDefaults.standard.string(forKey: "qingliao_model") ?? ""
-        if modelSupportsVision(mainModel) { return nil }
+        // v3.9.26：主模型 + provider 统一取源（云端走 activeConfig，本地走 UserDefaults）
+        let main = mainModelAndProvider
+        if modelSupportsVision(main.model, provider: main.provider) { return nil }
         return (visionModel, localVisionProvider)
     }
 

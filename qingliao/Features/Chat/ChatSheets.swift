@@ -51,7 +51,7 @@ struct HermesShortcutSheet: View {
                                 .lineLimit(1)
                             Spacer()
                         }
-                        .padding(.vertical, 3)
+                        .padding(.vertical, Spacing.xs)
                     }
                 }
             }
@@ -109,7 +109,7 @@ struct QuickPromptSheet: View {
             }
             .padding(.horizontal, 18)
             .padding(.top, 18)
-            .padding(.bottom, 10)
+            .padding(.bottom, Spacing.lg)
 
             ScrollView {
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
@@ -127,18 +127,18 @@ struct QuickPromptSheet: View {
                                     .foregroundStyle(.primary)
                             }
                             .frame(maxWidth: .infinity)
-                            .padding(.vertical, 16)
+                            .padding(.vertical, Spacing.section)
                             .background(Color(uiColor: .secondarySystemGroupedBackground))
-                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            .clipShape(RoundedRectangle(cornerRadius: Radius.field, style: .continuous))
                             .overlay(
-                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                RoundedRectangle(cornerRadius: Radius.field, style: .continuous)
                                     .strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8)
                             )
                         }
                         .buttonStyle(.plain)
                     }
                 }
-                .padding(.horizontal, 14)
+                .padding(.horizontal, Spacing.xxl)
                 .padding(.bottom, 20)
             }
         }

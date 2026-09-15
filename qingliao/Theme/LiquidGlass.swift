@@ -36,14 +36,14 @@ struct GlassListCard: ViewModifier {
                 scheme == .dark
                     ? AnyShapeStyle(.ultraThinMaterial)
                     : AnyShapeStyle(Color.white.opacity(0.85)),
-                in: RoundedRectangle(cornerRadius: 16, style: .continuous)   // v3.9.19：卡片圆角统一 16（原 14）
+                in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous)   // v3.9.19：卡片圆角统一 16（原 14）
             )
             // v3.4.21：分组容器 0.8pt 浅描边（追平门锁卡/PinCard/SessionRow 全站卡片规范）
             .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
                     .strokeBorder(Tint.line(scheme), lineWidth: 0.8)   // v3.9.19：深浅描边统一走 Tint.line
             )
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
     }
 }
 
@@ -165,8 +165,8 @@ struct PageHeader: View {
             }
         }
         .padding(.horizontal, 18)
-        .padding(.top, 6)
-        .padding(.bottom, 8)
+        .padding(.top, Spacing.sm)
+        .padding(.bottom, Spacing.md)
     }
 }
 

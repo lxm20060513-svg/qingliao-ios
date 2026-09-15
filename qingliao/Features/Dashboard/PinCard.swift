@@ -15,8 +15,8 @@ struct PinCard: View {
                 if !pin.sourceLabel.isEmpty {
                     Text(pin.sourceLabel)
                         .font(.system(size: Typography.tiny))
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
+                        .padding(.horizontal, Spacing.sm)
+                        .padding(.vertical, Spacing.xxs)
                         .background(Color.accentColor.opacity(Tint.faint), in: Capsule())
                         .foregroundStyle(Color.accentColor)
                 }
@@ -40,12 +40,12 @@ struct PinCard: View {
                 .lineLimit(5)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(12)
+        .padding(Spacing.xl)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(uiColor: .secondarySystemGroupedBackground),
-                     in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                     in: RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
+            RoundedRectangle(cornerRadius: Radius.inset, style: .continuous)
                 .strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8)
         )
         .contextMenu {

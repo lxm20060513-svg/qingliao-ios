@@ -133,8 +133,8 @@ private struct FlowText: View {
                     ForEach(row, id: \.self) { w in
                         Text(w)
                             .font(.system(size: Typography.subhead))
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 3)
+                            .padding(.horizontal, Spacing.md)
+                            .padding(.vertical, Spacing.xs)
                             .background(Color(uiColor: .secondarySystemGroupedBackground),
                                         in: Capsule())
                     }
@@ -142,7 +142,7 @@ private struct FlowText: View {
                 }
             }
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, Spacing.xxs)
     }
 
     private func chunked(_ arr: [String], maxPerRow: Int) -> [[String]] {

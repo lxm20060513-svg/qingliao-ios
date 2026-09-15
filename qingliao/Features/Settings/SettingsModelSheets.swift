@@ -180,10 +180,10 @@ struct ModelSheet: View {
                          + "。开启后可随时切换免费档。")
                         .font(.system(size: Typography.tiny)).foregroundStyle(.secondary)
                 }
-                .padding(11)
-                .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+                .padding(Spacing.lg)
+                .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 13, style: .continuous)
+                    RoundedRectangle(cornerRadius: Radius.inset, style: .continuous)
                         .strokeBorder(freeModelOn ? Color.green.opacity(0.4) : Color.primary.opacity(Tint.faint), lineWidth: 0.8)
                 )
                 // v3.0.57 review fix：ModelSheet 开关补齐与云端设置卡一致的完整逻辑
@@ -223,11 +223,11 @@ struct ModelSheet: View {
                     }
                     Spacer()
                 }
-                .padding(11)
+                .padding(Spacing.lg)
                 .background(Color(uiColor: .secondarySystemGroupedBackground),
-                            in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+                            in: RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 13, style: .continuous)
+                    RoundedRectangle(cornerRadius: Radius.inset, style: .continuous)
                         .strokeBorder(Color.orange.opacity(0.35), lineWidth: 0.8)
                 )
             }
@@ -264,7 +264,7 @@ struct ModelSheet: View {
                             if p.models.isEmpty {
                                 // v3.4.x：key 健康自检——空 models 的 provider 主动提示 key 无效/未配置，而非静默消失
                                 ProviderKeyIssueRow(name: providerDisplayName(p.id))
-                                    .padding(.bottom, 4)
+                                    .padding(.bottom, Spacing.xs)
                             } else {
                                 groupSection(providerDisplayName(p.id),
                                              models: p.models.filter { !hiddenModels.contains("\(p.id):\($0)") }.map {
@@ -285,20 +285,20 @@ struct ModelSheet: View {
                                 .foregroundStyle(Color.accentColor)
                         }
                         .buttonStyle(.plain)
-                        .padding(.top, 4)
+                        .padding(.top, Spacing.xs)
                     }
                     // v3.0.74：自定义模型组（用户自主添加 BASE_URL/API Key 模型组，存后端，免更新 App）
                     Divider()
-                        .padding(.vertical, 4)
+                        .padding(.vertical, Spacing.xs)
                     customProvidersSection
                     // v3.0.10：视觉模型配置（模型管理内导航）
                     Divider()
-                        .padding(.vertical, 4)
+                        .padding(.vertical, Spacing.xs)
                     VStack(alignment: .leading, spacing: 6) {
                         Text("视觉模型")
                             .font(.system(size: Typography.caption, weight: .semibold))
                             .foregroundStyle(.secondary)
-                            .padding(.leading, 4)
+                            .padding(.leading, Spacing.xs)
                         HStack(spacing: 10) {
                             Image(systemName: "eye.fill")
                                 .font(.system(size: Typography.subhead))
@@ -314,11 +314,11 @@ struct ModelSheet: View {
                                 .font(.system(size: Typography.caption, weight: .semibold))
                                 .foregroundStyle(.tertiary)
                         }
-                        .padding(11)
+                        .padding(Spacing.lg)
                         .background(Color(uiColor: .secondarySystemGroupedBackground),
-                                    in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+                                    in: RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
                         .overlay(
-                            RoundedRectangle(cornerRadius: 13, style: .continuous)
+                            RoundedRectangle(cornerRadius: Radius.inset, style: .continuous)
                                 .strokeBorder(Color.purple.opacity(Tint.strong), lineWidth: 0.8)
                         )
                         .contentShape(Rectangle())
@@ -326,12 +326,12 @@ struct ModelSheet: View {
                     }
                     // v3.0.x：语音引擎（TTS）—— 总开关 + 音色下拉
                     Divider()
-                        .padding(.vertical, 4)
+                        .padding(.vertical, Spacing.xs)
                     VStack(alignment: .leading, spacing: 6) {
                         Text("语音引擎 · TTS")
                             .font(.system(size: Typography.caption, weight: .semibold))
                             .foregroundStyle(.secondary)
-                            .padding(.leading, 4)
+                            .padding(.leading, Spacing.xs)
                         VStack(alignment: .leading, spacing: 8) {
                             HStack(spacing: 10) {
                                 Image(systemName: "waveform")
@@ -438,16 +438,16 @@ struct ModelSheet: View {
                                     .font(.system(size: Typography.tiny)).foregroundStyle(.tertiary)
                             }
                         }
-                        .padding(11)
+                        .padding(Spacing.lg)
                         .background(Color(uiColor: .secondarySystemGroupedBackground),
-                                    in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+                                    in: RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
                         .overlay(
-                            RoundedRectangle(cornerRadius: 13, style: .continuous)
+                            RoundedRectangle(cornerRadius: Radius.inset, style: .continuous)
                                 .strokeBorder(ttsOn ? Color.indigo.opacity(0.35) : Color.primary.opacity(Tint.faint), lineWidth: 0.8)
                         )
                     }
                 }
-                .padding(.bottom, 8)
+                .padding(.bottom, Spacing.md)
             }
         }
         .padding(18)
@@ -463,8 +463,8 @@ struct ModelSheet: View {
                     Text("刷新")
                         .font(.system(size: Typography.tiny))
                         .foregroundStyle(Color.accentColor)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 4)
+                        .padding(.horizontal, Spacing.lg)
+                        .padding(.vertical, Spacing.xs)
                         .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
                 }
             }
@@ -595,7 +595,7 @@ struct ModelSheet: View {
                     .buttonStyle(.plain)
                 }
             }
-            .padding(.leading, 4)
+            .padding(.leading, Spacing.xs)
             ForEach(models, id: \.0) { m in
                 modelRow(id: m.0, name: m.1, provider: m.2)
             }
@@ -657,17 +657,17 @@ struct ModelSheet: View {
                     Text("设为当前")
                         .font(.system(size: Typography.caption, weight: .medium))
                         .foregroundStyle(Color.accentColor)
-                        .padding(.horizontal, 10).padding(.vertical, 5)
+                        .padding(.horizontal, Spacing.lg).padding(.vertical, Spacing.xs)
                         .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
                 }
                 .buttonStyle(.plain)
             }
         }
-        .padding(11)
+        .padding(Spacing.lg)
         .background(Color(uiColor: .secondarySystemGroupedBackground),
-                    in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+                    in: RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 13, style: .continuous)
+            RoundedRectangle(cornerRadius: Radius.inset, style: .continuous)
                 .strokeBorder(selected == id ? Color.accentColor.opacity(0.5) : Color.primary.opacity(Tint.faint),
                               lineWidth: 0.8)
         )
@@ -785,18 +785,18 @@ struct ModelSheet: View {
                     Text("添加")
                         .font(.system(size: Typography.caption, weight: .medium))
                         .foregroundStyle(Color.accentColor)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 4)
+                        .padding(.horizontal, Spacing.lg)
+                        .padding(.vertical, Spacing.xs)
                         .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
                 }
                 .buttonStyle(.plain)
             }
-            .padding(.leading, 4)
+            .padding(.leading, Spacing.xs)
             if customProviders.isEmpty {
                 Text("添加你自己的模型组（Base URL + API Key），自定义厂商/模型免更新 App 即用")
                     .font(.system(size: Typography.tiny))
                     .foregroundStyle(.tertiary)
-                    .padding(.leading, 4)
+                    .padding(.leading, Spacing.xs)
             } else {
                 ForEach(customProviders) { cp in
                     customProviderGroup(cp)
@@ -814,9 +814,10 @@ struct ModelSheet: View {
 
     /// v3.0.10：视觉模型显示文案（模型管理内导航行）
     private var visionModelDisplay: String {
-        let mainModel = UserDefaults.standard.string(forKey: "qingliao_model") ?? "deepseek-v4-flash"
+        // v3.9.26：主模型 + provider 统一取源（云端走 activeConfig，本地走 UserDefaults）
+        let main = CloudConfig.mainModelAndProvider
         guard CloudConfig.visionFallbackEnabled else { return "视觉模型 · 已关闭" }
-        if CloudConfig.modelSupportsVision(mainModel) { return "视觉模型 · 主模型支持" }
+        if CloudConfig.modelSupportsVision(main.model, provider: main.provider) { return "视觉模型 · 主模型支持" }
         guard let vm = CloudConfig.localVisionModel, !vm.isEmpty else { return "视觉模型 · 未配置" }
         return "视觉模型 · \(vm)"
     }
@@ -918,8 +919,8 @@ struct CustomProviderEditSheet: View {
                                 Text("deepseek-v4-flash\nglm-5.2\n…\n\n（或点上方「拉取模型列表」自动填充）")
                                     .font(.system(size: Typography.subhead))
                                     .foregroundStyle(.tertiary)
-                                    .padding(.top, 8)
-                                    .padding(.leading, 5)
+                                    .padding(.top, Spacing.md)
+                                    .padding(.leading, Spacing.xs)
                                     .allowsHitTesting(false)
                             }
                         }
@@ -1068,7 +1069,7 @@ struct AboutView: View {
             Text("Nous Research · Hermes Agent")
                 .font(.system(size: Typography.caption))
                 .foregroundStyle(.tertiary)
-                .padding(.bottom, 12)
+                .padding(.bottom, Spacing.xl)
         }
         .padding(.top, 22)
         // v3.0.8：本地模式拉取 Hermes 版本
@@ -1140,10 +1141,10 @@ struct WechatChannelSheet: View {
                         .font(.system(size: Typography.tiny))
                         .foregroundStyle(.tertiary)
                 }
-                .padding(10)
+                .padding(Spacing.lg)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(Color(uiColor: .secondarySystemGroupedBackground))
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
 
             if let saveResult {
                 Text(saveResult)
@@ -1172,7 +1173,7 @@ struct WechatChannelSheet: View {
                                 } label: {
                                     Text("重试")
                                         .font(.system(size: Typography.subhead, weight: .medium))
-                                        .padding(.horizontal, 18).padding(.vertical, 6)
+                                        .padding(.horizontal, 18).padding(.vertical, Spacing.sm)
                                         .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
                                         .foregroundStyle(Color.accentColor)
                                 }
@@ -1196,7 +1197,7 @@ struct WechatChannelSheet: View {
                             }
                             .foregroundStyle(.tertiary)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, 4)
+                            .padding(.horizontal, Spacing.xs)
                         }
                         // v3.0.19 review：全部 provider 模型为空 → 空态提示（防白屏）
                         let hasAnyModel = allProviders.contains { !$0.models.isEmpty }
@@ -1218,7 +1219,7 @@ struct WechatChannelSheet: View {
                                     Text(providerName(p.id))
                                         .font(.system(size: Typography.subhead, weight: .semibold))
                                         .foregroundStyle(.secondary)
-                                        .padding(.horizontal, 4)
+                                        .padding(.horizontal, Spacing.xs)
                                     ForEach(p.models, id: \.self) { m in
                                         Button {
                                             saveModel(provider: p.id, model: m)
@@ -1239,10 +1240,10 @@ struct WechatChannelSheet: View {
                                                         .foregroundStyle(.tertiary)
                                                 }
                                             }
-                                            .padding(.horizontal, 12)
-                                            .padding(.vertical, 7)
+                                            .padding(.horizontal, Spacing.xl)
+                                            .padding(.vertical, Spacing.md)
                                             .background(Color(uiColor: .secondarySystemGroupedBackground))
-                                            .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                                            .clipShape(RoundedRectangle(cornerRadius: Radius.icon, style: .continuous))
                                         }
                                         .buttonStyle(.plain)
                                     }
@@ -1253,7 +1254,7 @@ struct WechatChannelSheet: View {
                 }
             }
         }
-        .padding(14)
+        .padding(Spacing.xxl)
         .navigationTitle("微信通道模型")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -1267,8 +1268,8 @@ struct WechatChannelSheet: View {
                     Text("刷新")
                         .font(.system(size: Typography.tiny))
                         .foregroundStyle(Color.accentColor)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 4)
+                        .padding(.horizontal, Spacing.lg)
+                        .padding(.vertical, Spacing.xs)
                         .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
                 }
             }
@@ -1384,8 +1385,8 @@ struct ProviderKeyIssueRow: View {
             }
             Spacer()
         }
-        .padding(11)
-        .background(Color.orange.opacity(Tint.faint), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+        .padding(Spacing.lg)
+        .background(Color.orange.opacity(Tint.faint), in: RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
     }
 }
 
@@ -1479,11 +1480,11 @@ struct AgentModelSheet: View {
                                 .foregroundStyle(Color.accentColor)
                         }
                     }
-                    .padding(11)
+                    .padding(Spacing.lg)
                     .background(Color(uiColor: .secondarySystemGroupedBackground),
-                                in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+                                in: RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
                     .overlay(
-                        RoundedRectangle(cornerRadius: 13, style: .continuous)
+                        RoundedRectangle(cornerRadius: Radius.inset, style: .continuous)
                             .strokeBorder(selected.isEmpty ? Color.accentColor.opacity(0.5) : Color.primary.opacity(Tint.faint),
                                           lineWidth: 0.8)
                     )
@@ -1515,7 +1516,7 @@ struct AgentModelSheet: View {
                                     } label: {
                                         Text("重试")
                                             .font(.system(size: Typography.subhead, weight: .medium))
-                                            .padding(.horizontal, 18).padding(.vertical, 6)
+                                            .padding(.horizontal, 18).padding(.vertical, Spacing.sm)
                                             .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
                                             .foregroundStyle(Color.accentColor)
                                     }
@@ -1543,7 +1544,7 @@ struct AgentModelSheet: View {
                             }
                         }
                     }
-                    .padding(.bottom, 8)
+                    .padding(.bottom, Spacing.md)
                 }
             }
             .padding(18)
@@ -1566,8 +1567,8 @@ struct AgentModelSheet: View {
                         Text("刷新")
                             .font(.system(size: Typography.tiny))
                             .foregroundStyle(Color.accentColor)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 4)
+                            .padding(.horizontal, Spacing.lg)
+                            .padding(.vertical, Spacing.xs)
                             .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
                     }
                 }
@@ -1590,7 +1591,7 @@ struct AgentModelSheet: View {
             Text(group)
                 .font(.system(size: Typography.caption, weight: .semibold))
                 .foregroundStyle(.secondary)
-                .padding(.leading, 4)
+                .padding(.leading, Spacing.xs)
             ForEach(models, id: \.0) { m in
                 agentModelRow(id: m.0, name: m.1, provider: m.2)
             }
@@ -1623,17 +1624,17 @@ struct AgentModelSheet: View {
                     Text("选用")
                         .font(.system(size: Typography.caption, weight: .medium))
                         .foregroundStyle(Color.accentColor)
-                        .padding(.horizontal, 10).padding(.vertical, 5)
+                        .padding(.horizontal, Spacing.lg).padding(.vertical, Spacing.xs)
                         .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
                 }
                 .buttonStyle(.plain)
             }
         }
-        .padding(11)
+        .padding(Spacing.lg)
         .background(Color(uiColor: .secondarySystemGroupedBackground),
-                    in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+                    in: RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 13, style: .continuous)
+            RoundedRectangle(cornerRadius: Radius.inset, style: .continuous)
                 .strokeBorder(isCur ? Color.accentColor.opacity(0.5) : Color.primary.opacity(Tint.faint),
                               lineWidth: 0.8)
         )

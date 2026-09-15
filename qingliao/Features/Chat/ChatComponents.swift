@@ -274,19 +274,19 @@ struct MessageBlockView: View {
                         Text(AttributedString(SyntaxHighlighter.highlight(text, language: lang,
                                                                          baseSize: max(12, CGFloat(fontSize)))))
                             .textSelection(.enabled)
-                            .padding(.bottom, 4)
+                            .padding(.bottom, Spacing.xs)
                     } else {
                         Text(text)
                             .font(.system(size: max(12, CGFloat(fontSize)), design: .monospaced))
                             .textSelection(.enabled)
-                            .padding(.bottom, 4)
+                            .padding(.bottom, Spacing.xs)
                     }
                 }
             }
-            .padding(10)
+            .padding(Spacing.lg)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Color.black.opacity(0.06))
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: Radius.icon, style: .continuous))
             .contextMenu { bubbleMenu }
         case .table(let rows):
             // v2.0.87d：markdown 表格渲染（表头加粗 + 斑马纹 + 横向滚动）
@@ -341,7 +341,7 @@ private struct CodeCopyButton: View {
                 .font(.system(size: Typography.subhead, weight: .medium))
                 .symbolEffect(.bounce, value: copied)   // v3.4.29：复制成功图标弹一下
                 .foregroundStyle(copied ? Color.green : Color.secondary)
-                .padding(4)
+                .padding(Spacing.xs)
                 .contentShape(Rectangle())
         }
         .buttonStyle(CodeCopyButtonStyle())
@@ -584,7 +584,7 @@ private struct MarkdownTableView: View {
                         Image(systemName: "square.and.arrow.up")
                             .font(.system(size: Typography.subhead, weight: .medium))
                             .foregroundStyle(Color.secondary)
-                            .padding(4)
+                            .padding(Spacing.xs)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(CodeCopyButtonStyle())
@@ -592,10 +592,10 @@ private struct MarkdownTableView: View {
                     tableGrid
                 }
             }
-            .padding(8)
+            .padding(Spacing.md)
             .background(Color(uiColor: .secondarySystemGroupedBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .padding(.vertical, 2)
+            .clipShape(RoundedRectangle(cornerRadius: Radius.chip, style: .continuous))
+            .padding(.vertical, Spacing.xxs)
         }
         .textSelection(.enabled)
         .sheet(isPresented: $showShare) {
@@ -614,8 +614,8 @@ private struct MarkdownTableView: View {
                         Text(rows[r][c])
                             .font(.system(size: Typography.subhead, weight: r == 0 ? .semibold : .regular))
                             .foregroundStyle(r == 0 ? Color.primary : Color.secondary)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
+                            .padding(.horizontal, Spacing.lg)
+                            .padding(.vertical, Spacing.sm)
                             .frame(width: colWidths.indices.contains(c) ? colWidths[c] : 80, alignment: .leading)
                             .background(r == 0
                                         ? Color.accentColor.opacity(Tint.faint)
@@ -723,7 +723,7 @@ struct AIFileCard: View {
         Button(action: onTap) {
             HStack(spacing: 10) {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    RoundedRectangle(cornerRadius: Radius.icon, style: .continuous)
                         .fill(color.opacity(0.18))
                     Image(systemName: icon)
                         .font(.system(size: Typography.title))
@@ -744,10 +744,10 @@ struct AIFileCard: View {
                     .font(.system(size: Typography.body))
                     .foregroundStyle(.tertiary)
             }
-            .padding(10)
+            .padding(Spacing.lg)
             .frame(maxWidth: 260)
             .background(Color.secondary.opacity(Tint.subtle),
-                        in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        in: RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
         }
         .buttonStyle(.plain)
     }
@@ -780,7 +780,7 @@ struct FileMessageCard: View {
     var body: some View {
         HStack(spacing: 10) {
             ZStack {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                RoundedRectangle(cornerRadius: Radius.icon, style: .continuous)
                     .fill(color.opacity(0.22))
                 Image(systemName: icon)
                     .font(.system(size: Typography.title))
@@ -807,9 +807,9 @@ struct FileMessageCard: View {
                 .font(.system(size: Typography.body))
                 .foregroundStyle(file.failed ? Color.red.opacity(0.8) : Color.white.opacity(0.55))
         }
-        .padding(10)
+        .padding(Spacing.lg)
         .frame(maxWidth: 240)
-        .background(.white.opacity(0.13), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(.white.opacity(0.13), in: RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
     }
 }
 
@@ -831,16 +831,16 @@ struct SessionCardView: View {
             Text(formattedDate)
                 .font(.system(size: Typography.caption))
                 .foregroundStyle(.secondary)
-                .padding(.top, 3)
+                .padding(.top, Spacing.xs)
             Divider()
-                .padding(.vertical, 10)
+                .padding(.vertical, Spacing.lg)
             ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
                 HStack(alignment: .top, spacing: 8) {
                     Text(row.role == "user" ? "我" : "AI")
                         .font(.system(size: Typography.tiny, weight: .bold))
                         .foregroundStyle(.white)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3)
+                        .padding(.horizontal, Spacing.md)
+                        .padding(.vertical, Spacing.xs)
                         .background(row.role == "user" ? Color.blue : Color.indigo, in: Capsule())
                     Text(row.text)
                         .font(.system(size: Typography.subhead))
@@ -848,15 +848,15 @@ struct SessionCardView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .foregroundStyle(.primary)
                 }
-                .padding(.vertical, 4)
+                .padding(.vertical, Spacing.xs)
             }
         }
         .padding(18)
         .frame(width: 340)
         .background(Color(uiColor: .systemBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
+            RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
                 .strokeBorder(Color.black.opacity(Tint.faint))
         )
     }

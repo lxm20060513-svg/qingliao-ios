@@ -79,8 +79,8 @@ struct BigBangView: View {
                     .buttonStyle(.plain)
                 }
                 .padding(.horizontal, 18)
-                .padding(.top, 16)
-                .padding(.bottom, 12)
+                .padding(.top, Spacing.section)
+                .padding(.bottom, Spacing.xl)
 
                 Divider().overlay((scheme == .dark ? Color.white : Color.black).opacity(Tint.soft))
 
@@ -91,7 +91,7 @@ struct BigBangView: View {
                             wordChip(w)
                         }
                     }
-                    .padding(16)
+                    .padding(Spacing.section)
                 }
 
                 // 底部操作栏
@@ -104,7 +104,7 @@ struct BigBangView: View {
                             Text("全选")
                                 .font(.system(size: Typography.body, weight: .semibold))
                                 .foregroundStyle(fg)
-                                .padding(.horizontal, 18).padding(.vertical, 9)
+                                .padding(.horizontal, 18).padding(.vertical, Spacing.md)
                                 .background((scheme == .dark ? Color.white : Color.black).opacity(Tint.soft), in: Capsule())
                         }
                         .buttonStyle(.plain)
@@ -114,7 +114,7 @@ struct BigBangView: View {
                             Text("清除")
                                 .font(.system(size: Typography.body, weight: .semibold))
                                 .foregroundStyle(fg.opacity(0.7))
-                                .padding(.horizontal, 18).padding(.vertical, 9)
+                                .padding(.horizontal, 18).padding(.vertical, Spacing.md)
                                 .background((scheme == .dark ? Color.white : Color.black).opacity(Tint.faint), in: Capsule())
                         }
                         .buttonStyle(.plain)
@@ -127,7 +127,7 @@ struct BigBangView: View {
                             Image(systemName: memoSaved ? "checkmark" : "note.text")
                                 .font(.system(size: Typography.body, weight: .semibold))
                                 .foregroundStyle(fg)
-                                .padding(.horizontal, 14).padding(.vertical, 9)
+                                .padding(.horizontal, Spacing.xxl).padding(.vertical, Spacing.md)
                                 .background((scheme == .dark ? Color.white : Color.black).opacity(Tint.soft), in: Capsule())
                         }
                         .buttonStyle(.plain)
@@ -143,7 +143,7 @@ struct BigBangView: View {
                             }
                             .font(.system(size: Typography.body, weight: .semibold))
                             .foregroundStyle(fg)
-                            .padding(.horizontal, 20).padding(.vertical, 9)
+                            .padding(.horizontal, 20).padding(.vertical, Spacing.md)
                             .background(Color.accentColor, in: Capsule())
                         }
                         .buttonStyle(.plain)
@@ -151,7 +151,7 @@ struct BigBangView: View {
                         .opacity(selected.isEmpty ? 0.5 : 1)
                     }
                     .padding(.horizontal, 18)
-                    .padding(.vertical, 10)
+                    .padding(.vertical, Spacing.lg)
                 }
             }
         }
@@ -171,14 +171,14 @@ struct BigBangView: View {
             Text(w.text)
                 .font(.system(size: Typography.body, weight: isOn ? .semibold : .regular))
                 .foregroundStyle(isOn ? .white : fg)
-                .padding(.horizontal, 11)
-                .padding(.vertical, 7)
+                .padding(.horizontal, Spacing.lg)
+                .padding(.vertical, Spacing.md)
                 .background(
-                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    RoundedRectangle(cornerRadius: Radius.icon, style: .continuous)
                         .fill(isOn ? Color.accentColor : (scheme == .dark ? Color.white : Color.black).opacity(Tint.subtle))
                 )
                 .overlay(
-                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    RoundedRectangle(cornerRadius: Radius.icon, style: .continuous)
                         .strokeBorder(isOn ? Color.white.opacity(0.4) : (scheme == .dark ? Color.white : Color.black).opacity(Tint.faint), lineWidth: 0.8)
                 )
         }

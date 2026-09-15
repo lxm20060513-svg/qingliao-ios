@@ -164,9 +164,9 @@ struct MessageBubble: View {
                                 .multilineTextAlignment(message.isUser ? .trailing : .leading)
                             Spacer(minLength: 0)
                         }
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 5)
-                        .background(Color.accentColor.opacity(Tint.faint), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .padding(.horizontal, Spacing.sm)
+                        .padding(.vertical, Spacing.xs)
+                        .background(Color.accentColor.opacity(Tint.faint), in: RoundedRectangle(cornerRadius: Radius.icon, style: .continuous))
                         .frame(maxWidth: .infinity, alignment: message.isUser ? .trailing : .leading)
                     }
                     // v2.0.92：撤回消息 → 灰色"已撤回"占位（内容不再显示）
@@ -174,7 +174,7 @@ struct MessageBubble: View {
                         Text("已撤回")
                             .font(.system(size: Typography.subhead))
                             .foregroundStyle(.secondary)
-                            .padding(.horizontal, 2)
+                            .padding(.horizontal, Spacing.xxs)
                     } else if let img = message.imageDataURL {
                         if img.hasPrefix("http") {
                             // v3.0.37：图片持久化 —— URL 图片（已上传 NAS）用 AsyncImage 加载
@@ -182,7 +182,7 @@ struct MessageBubble: View {
                             // v3.4.28：横屏放宽到 280
                             AIImageView(url: img, displayWidthPT: AdaptiveLayout.chatImageMax(hSize))
                                 .frame(maxWidth: AdaptiveLayout.chatImageMax(hSize), maxHeight: AdaptiveLayout.chatImageMax(hSize))
-                                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                .clipShape(RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
                                 .zoomSource(id: message.id, ns: zoomNS)   // v3.4.29：zoom 转场源
                                 .onTapGesture { onImageTap() }
                                 .contextMenu { cardMenu }
@@ -192,7 +192,7 @@ struct MessageBubble: View {
                                 .resizable()
                                 .scaledToFill()
                                 .frame(maxWidth: AdaptiveLayout.chatImageMax(hSize), maxHeight: AdaptiveLayout.chatImageMax(hSize))
-                                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                .clipShape(RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
                                 .zoomSource(id: message.id, ns: zoomNS)   // v3.4.29：zoom 转场源
                                 // v2.0.36：点击查看大图
                                 .onTapGesture { onImageTap() }
@@ -287,7 +287,7 @@ struct MessageBubble: View {
                             }
                         }
                         .buttonStyle(.plain)
-                        .padding(.top, 2)
+                        .padding(.top, Spacing.xxs)
                     }
                     // v3.4.25：AI 错误占位 → 快捷重试行（红描边气泡下「重新生成」，免翻长按菜单）
                     if !message.isUser && message.isErrorPlaceholder {
@@ -300,7 +300,7 @@ struct MessageBubble: View {
                                 .foregroundStyle(.red.opacity(0.85))
                         }
                         .buttonStyle(.plain)
-                        .padding(.top, 2)
+                        .padding(.top, Spacing.xxs)
                     }
                     // v2.0.65：已送达小字（用户消息、非失败、非语音、未撤回）
                     // v2.0.87q：加 ✓ 图标（微信式送达状态）
@@ -319,7 +319,7 @@ struct MessageBubble: View {
                                 .font(.system(size: Typography.tiny))
                         }
                         .foregroundStyle(.tertiary)
-                        .padding(.top, 1)
+                        .padding(.top, Spacing.xxs)
                     }
                     // v2.0.81：AI 消息朗读（点击播放/停止，中文 TTS）
                     // v3.4.x：播放中显示声波跳动动画（3 音柱 TimelineView 驱动），播完自动复原
@@ -350,12 +350,12 @@ struct MessageBubble: View {
                                         .foregroundStyle(.tertiary)
                                 }
                                 }
-                                .padding(.top, 1)
+                                .padding(.top, Spacing.xxs)
                             } else {
                                 Image(systemName: "speaker.wave.2")
                                     .font(.system(size: Typography.caption))
                                     .foregroundStyle(.secondary)
-                                    .padding(.top, 1)
+                                    .padding(.top, Spacing.xxs)
                             }
                         }
                         .buttonStyle(.plain)
@@ -367,10 +367,10 @@ struct MessageBubble: View {
                         Text("🔔 推送")
                             .font(.system(size: Typography.tiny, weight: .semibold))
                             .foregroundStyle(Color.blue)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
+                            .padding(.horizontal, Spacing.sm)
+                            .padding(.vertical, Spacing.xxs)
                             .background(Color.blue.opacity(Tint.faint), in: Capsule())
-                            .padding(.top, 1)
+                            .padding(.top, Spacing.xxs)
                     }
                     // v3.4.x 复读兜底：AI 回复与旧回复高度相似（换表述复述旧模板，去重/净化拦不住）
                     // → 显示可点提示，让用户一键重新生成换角度；不删内容不误伤语义。
@@ -385,12 +385,12 @@ struct MessageBubble: View {
                                     .font(.system(size: Typography.tiny, weight: .medium))
                             }
                             .foregroundStyle(Color.orange)
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 3)
+                            .padding(.horizontal, Spacing.md)
+                            .padding(.vertical, Spacing.xs)
                             .background(Color.orange.opacity(Tint.subtle), in: Capsule())
                         }
                         .buttonStyle(.plain)
-                        .padding(.top, 3)
+                        .padding(.top, Spacing.xs)
                     }
                 }
                 .padding(.horizontal, isMultiBubbleAI ? 2 : 13)
@@ -401,7 +401,7 @@ struct MessageBubble: View {
                         if isMultiBubbleAI {
                             Color.clear
                         } else {
-                            RoundedRectangle(cornerRadius: 15, style: .continuous)
+                            RoundedRectangle(cornerRadius: Radius.field, style: .continuous)
                                 .fill(message.withdrawn ? aiBubbleColor : (message.isUser ? userBubbleColor : aiBubbleColor))   // v2.0.92：撤回统一灰
                         }
                     }
@@ -413,10 +413,10 @@ struct MessageBubble: View {
                         if isMultiBubbleAI {
                             Color.clear
                         } else if message.isErrorPlaceholder {
-                            RoundedRectangle(cornerRadius: 15, style: .continuous)
+                            RoundedRectangle(cornerRadius: Radius.field, style: .continuous)
                                 .strokeBorder(Color.red.opacity(0.55), lineWidth: 1.2)
                         } else {
-                            RoundedRectangle(cornerRadius: 15, style: .continuous)
+                            RoundedRectangle(cornerRadius: Radius.field, style: .continuous)
                                 .strokeBorder(isHighlighted ? Color.accentColor : .clear, lineWidth: 2)
                         }
                     }
@@ -676,10 +676,10 @@ struct MessageBubble: View {
                                 streaming: false)
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 9)
+        .padding(.horizontal, Spacing.xl)
+        .padding(.vertical, Spacing.md)
         .background(
-            RoundedRectangle(cornerRadius: 15, style: .continuous)
+            RoundedRectangle(cornerRadius: Radius.field, style: .continuous)
                 .fill(aiBubbleColor)
         )
         .frame(maxWidth: AdaptiveLayout.bubbleMaxWidth(hSize), alignment: .leading)
@@ -866,7 +866,7 @@ struct AIImageView: View {
                     .resizable()
                     .scaledToFill()
                     .frame(maxWidth: 240, maxHeight: 240)
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
             } else {
                 placeholder
             }
@@ -875,7 +875,7 @@ struct AIImageView: View {
                 .resizable()
                 .scaledToFill()
                 .frame(maxWidth: 240, maxHeight: 240)
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
         } else if failed {
             placeholder
         } else {
@@ -933,7 +933,7 @@ struct AIImageView: View {
                 .foregroundStyle(.tertiary)
         }
         .frame(width: 200, height: 100)
-        .background(Color.black.opacity(0.04), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(Color.black.opacity(0.04), in: RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
     }
 }
 

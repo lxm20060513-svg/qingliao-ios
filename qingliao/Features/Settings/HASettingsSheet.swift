@@ -49,7 +49,7 @@ struct HASettingsSheet: View {
                     else { Text("保存") }
                     Spacer()
                 }
-                .padding(.vertical, 11)
+                .padding(.vertical, Spacing.lg)
                 .background(Color.accentColor, in: Capsule())
                 .foregroundStyle(.white)
                 .font(.system(size: Typography.body, weight: .semibold))

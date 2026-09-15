@@ -65,7 +65,7 @@ struct TasksView: View {
                         ForEach(tasks) { t in
                             HStack(spacing: 12) {
                                 ZStack {
-                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    RoundedRectangle(cornerRadius: Radius.chip, style: .continuous)
                                         .fill(Color.indigo.opacity(Tint.soft))
                                     Image(systemName: "clock.badge.fill")
                                         .font(.system(size: Typography.body))
@@ -109,8 +109,8 @@ struct TasksView: View {
                                 }
                                 .buttonStyle(.plain)
                             }
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 10)
+                            .padding(.horizontal, Spacing.xxl)
+                            .padding(.vertical, Spacing.lg)
                             // 长按删除
                             .contextMenu {
                                 Button(role: .destructive) {
@@ -123,8 +123,8 @@ struct TasksView: View {
                         }
                     }
                     .background(Color(uiColor: .secondarySystemGroupedBackground))
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    .padding(.horizontal, 14)
+                    .clipShape(RoundedRectangle(cornerRadius: Radius.field, style: .continuous))
+                    .padding(.horizontal, Spacing.xxl)
                     .padding(.bottom, 20)
                 }
                 .refreshable { await load() }
@@ -235,13 +235,13 @@ struct LogsView: View {
                                 .font(.system(size: Typography.caption, design: .monospaced))
                                 .foregroundStyle(.secondary)
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 4)
+                                .padding(.horizontal, Spacing.xl)
+                                .padding(.vertical, Spacing.xs)
                         }
                     }
                     .background(Color(uiColor: .secondarySystemGroupedBackground))
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    .padding(.horizontal, 14)
+                    .clipShape(RoundedRectangle(cornerRadius: Radius.field, style: .continuous))
+                    .padding(.horizontal, Spacing.xxl)
                     .padding(.bottom, 20)
                 }
             }
@@ -274,8 +274,8 @@ struct LogsView: View {
                         Text("刷新")
                             .font(.system(size: Typography.tiny))
                             .foregroundStyle(Color.accentColor)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 4)
+                            .padding(.horizontal, Spacing.lg)
+                            .padding(.vertical, Spacing.xs)
                             .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
                     }
                 }
@@ -353,7 +353,7 @@ struct NewTaskSheet: View {
                 .font(.system(size: Typography.subhead))
                 .frame(height: 110)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 8)
+                    RoundedRectangle(cornerRadius: Radius.icon)
                         .strokeBorder(Color.secondary.opacity(Tint.strong), lineWidth: 1)
                 )
                 .overlay(alignment: .topLeading) {
@@ -361,7 +361,7 @@ struct NewTaskSheet: View {
                         Text("任务提示词（发给 AI 的执行指令）")
                             .font(.system(size: Typography.subhead))
                             .foregroundStyle(.tertiary)
-                            .padding(8)
+                            .padding(Spacing.md)
                     }
                 }
             if let errorText {
@@ -375,7 +375,7 @@ struct NewTaskSheet: View {
                     if saving { ProgressView().tint(.white) } else { Text("保存任务") }
                     Spacer()
                 }
-                .padding(.vertical, 11)
+                .padding(.vertical, Spacing.lg)
                 .background(Color.accentColor, in: Capsule())
                 .foregroundStyle(.white)
                 .font(.system(size: Typography.body, weight: .semibold))
