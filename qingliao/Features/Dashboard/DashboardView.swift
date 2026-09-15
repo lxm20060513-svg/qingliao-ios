@@ -2,8 +2,9 @@ import SwiftUI
 
 // MARK: - 看板页（智能家居 2x3 可控制 + NAS 2x3 + 磁盘弹出式）
 
+// v3.9.25：新增 weather（天气弹窗）——注意 switch 穷尽性由 ql.py ios check 把关
 enum DashboardSheet: String, Identifiable {
-    case lights, climate, service, serviceHermes, disks, docker
+    case lights, climate, service, serviceHermes, disks, docker, weather
     var id: String { rawValue }
 }
 
@@ -42,6 +43,8 @@ struct DashboardView: View {
     @State private var scrollPos = ScrollPosition()
 
     @State private var activeSheet: DashboardSheet?
+    // v3.9.25：天气弹窗是否真的开过 —— 关灯/空调/磁盘/docker 弹窗时不该顺带重取天气
+    @State private var weatherSheetShown = false
     @Namespace private var sheetZoomNS   // v3.9.0：看板卡片 → 详情弹窗 的 zoom 转场
     // v2.0.72：Docker 容器数量（看板卡片状态）
     @State private var dockerContainerCount = 0
@@ -72,8 +75,18 @@ struct DashboardView: View {
     var body: some View {
         VStack(spacing: 0) {
             // v2.0.87u：右上角天气（小图标 + 温度）
+            // v3.9.25：本地模式此前点徽章**完全没反应**（纯展示），本次补入口 → 天气弹窗
             PageHeader(title: "看板", subtitle: "智能家居 · NAS 状态",
-                       trailing: AnyView(WeatherBadge(temp: weatherTemp, code: weatherCode, city: weatherCity)))
+                       trailing: AnyView(
+                        Button {
+                            activeSheet = .weather
+                        } label: {
+                            WeatherBadge(temp: weatherTemp, code: weatherCode, city: weatherCity)
+                        }
+                        .buttonStyle(PressStyle(scale: 0.94))
+                        .matchedTransitionSource(id: DashboardSheet.weather.id, in: sheetZoomNS)   // v3.9.25：徽章 → 天气弹窗 zoom
+                        .accessibilityLabel("查看天气")
+                       ))
             ScrollView {
                 // v2.0.133f：VStack → LazyVStack——TabView 切页动画期间看板全量卡片一次性布局是切页卡顿主因，
                 // 懒加载后只渲染可见卡片（与 v2.0.132 ChatView 消息列表同款方案；看板无批量移除路径，安全）
@@ -380,7 +393,15 @@ struct DashboardView: View {
             .refreshable {
                 await refresh()
             }
-            .sheet(item: $activeSheet) { s in
+            .sheet(item: $activeSheet, onDismiss: {
+                // v3.9.25：只在**天气弹窗**关闭后刷新徽章（弹窗内换城市写 UserDefaults，此处重读）。
+                // 早先无条件刷新 → 关灯/空调/磁盘/docker 弹窗也各多打一次 /api/weather，
+                // 且 weatherCity 会先被重置回 UserDefaults 原值，城市名会闪一下。
+                if weatherSheetShown {
+                    weatherSheetShown = false
+                    Task { await loadWeatherWithCity() }
+                }
+            }) { s in
                 switch s {
                 case .lights:
                     HADeviceSheet(title: "客厅灯", domain: "light")
@@ -406,6 +427,13 @@ struct DashboardView: View {
                     DockerSheet()
                         .presentationDetents([.medium, .large])
                         .navigationTransition(.zoom(sourceID: DashboardSheet.docker.id, in: sheetZoomNS))   // v3.9.0
+                case .weather:
+                    // v3.9.25：两页天气弹窗（今天 / 未来 5 天）。高度 585pt 由用户定稿
+                    WeatherSheet(mode: .local)
+                        .presentationDetents([.height(585)])
+                        .presentationDragIndicator(.visible)
+                        .onAppear { weatherSheetShown = true }
+                        .navigationTransition(.zoom(sourceID: DashboardSheet.weather.id, in: sheetZoomNS))
                 }
             }
             // v3.9.21：删除规则确认
@@ -494,14 +522,8 @@ struct DashboardView: View {
 
     // v2.0.87u：天气加载（后端缓存 30 分钟）
     // v2.0.118 fix：带城市参数（原无 city 走 IP 定位——NAS 出口无公网 IP 定位失败 → temp null 不显示温度）
-    private func loadWeather() async {
-        let city = weatherCity.trimmingCharacters(in: .whitespaces)
-        let q = city.isEmpty ? "" : "?city=" + (city.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")
-        if let j = await auth.jsonOrLog("/api/weather\(q)") {
-            weatherTemp = j["temp"] as? Double
-            weatherCode = j["code"] as? Int
-        }
-    }
+    // v3.9.25：删掉原无参 loadWeather()——零调用点（死代码），且它是仓内第 3 份手写
+    //   /api/weather 解析；解析统一走 WeatherService.parseBackend（见下方 loadWeatherWithCity）
 
     // v2.0.87am：手动城市名 → 天气（未设置城市不显示徽章）
     private func loadWeatherWithCity() async {
@@ -513,9 +535,12 @@ struct DashboardView: View {
         }
         let enc = weatherCity.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? weatherCity
         if let j = await auth.jsonOrLog("/api/weather?city=\(enc)") {
-            weatherTemp = j["temp"] as? Double
-            weatherCode = j["code"] as? Int
-            if let c = j["city"] as? String, !c.isEmpty { weatherCity = c }
+            // v3.9.25：改走 WeatherService.parseBackend —— 消除仓内第 3 份手写解析，
+            // 并顺带拿到 num/int 的 NaN/超范围护栏（字段语义与旧写法一致）
+            let s = WeatherService.parseBackend(j)
+            weatherTemp = s.temp
+            weatherCode = s.code
+            if !s.city.isEmpty { weatherCity = s.city }
         }
     }
 
@@ -1928,36 +1953,11 @@ struct WeatherBadge: View {
     let code: Int?
     var city = ""   // v2.0.87ag：具体地点
 
-    /// WMO 天气码 → SF Symbol 图标
-    private var icon: String {
-        guard let c = code else { return "cloud.fill" }
-        switch c {
-        case 0: return "sun.max.fill"
-        case 1: return "sun.min.fill"
-        case 2: return "cloud.sun.fill"
-        case 3: return "cloud.fill"
-        case 45, 48: return "cloud.fog.fill"
-        case 51...67: return "cloud.rain.fill"
-        case 71...77: return "cloud.snow.fill"
-        case 80...82: return "cloud.heavyrain.fill"
-        case 95...99: return "cloud.bolt.rain.fill"
-        default: return "cloud.fill"
-        }
-    }
-
-    private var iconColor: Color {
-        guard let c = code else { return .secondary }
-        switch c {
-        case 0, 1: return .orange
-        case 2: return .yellow
-        case 3: return .secondary
-        case 45, 48: return .gray
-        case 51...82: return .blue
-        case 71...77: return .cyan
-        case 95...99: return .purple
-        default: return .secondary
-        }
-    }
+    // v3.9.25：WMO 映射统一到 WeatherService（原先图标/颜色只写在这里，中文描述写在
+    // LocalToolRunner，规则两份）。除 85/86 阵雪由 default 的 cloud.fill 修正为
+    // cloud.snow.fill（与「阵雪」描述对齐）外逐字照搬，颜色未动。
+    private var icon: String { WeatherCode.symbol(code) }
+    private var iconColor: Color { WeatherCode.color(code) }
 
     var body: some View {
         // v2.0.87x：胶囊下方标注"当前定位"（v2.0.87ab：去掉胶囊内定位图标，更简洁）

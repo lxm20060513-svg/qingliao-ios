@@ -9,24 +9,24 @@ struct CloudDashboardView: View {
     @State private var city = UserDefaults.standard.string(forKey: "qingliao_weather_city") ?? ""
     @State private var loading = true
     @State private var errorText: String?
-    @State private var showCitySheet = false
-    @State private var cityInput = ""
-
-    private let weatherURL = "https://api.open-meteo.com/v1/forecast"
-    private let geocodeURL = "https://geocoding-api.open-meteo.com/v1/search"
+    // v3.9.25：徽章点击 → 天气弹窗（原来弹的是 220pt 换城市小弹窗；换城市入口已挪进弹窗右上角）
+    @State private var showWeatherSheet = false
+    // v3.9.25：weatherURL / geocodeURL 常量随取数一起搬进 WeatherService（此处不再需要）
 
     var body: some View {
         VStack(spacing: 0) {
-            // v3.0.1：天气与本地 AI 同位置——右上角 WeatherBadge（小图标+温度+城市），点击换城市
+            // v3.0.1：天气与本地 AI 同位置——右上角 WeatherBadge（小图标+温度+城市）
+            // v3.9.25：点击改为打开天气弹窗（与本地模式一致），换城市入口在弹窗内
             PageHeader(title: "看板",
                        subtitle: "云端模式",
                        trailing: AnyView(
                            Button {
-                               showCitySheet = true
+                               showWeatherSheet = true
                            } label: {
                                WeatherBadge(temp: temp, code: code, city: city)
                            }
-                           .buttonStyle(.plain)
+                           .buttonStyle(PressStyle(scale: 0.94))
+                           .accessibilityLabel("查看天气")
                        ))
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 10) {
@@ -38,77 +38,35 @@ struct CloudDashboardView: View {
             }
         }
         .task { await loadWeather() }
-        .sheet(isPresented: $showCitySheet) {
-            VStack(spacing: 16) {
-                Text("设置天气城市")
-                    .font(.system(size: Typography.title, weight: .bold))
-                    .padding(.top, 24)
-                TextField("城市名（如：北京）", text: $cityInput)
-                    .textFieldStyle(.roundedBorder)
-                    .padding(.horizontal, 24)
-                Button("保存") {
-                    let c = cityInput.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !c.isEmpty {
-                        city = c
-                        UserDefaults.standard.set(c, forKey: "qingliao_weather_city")
-                        Task { await loadWeather() }
-                    }
-                    showCitySheet = false
-                }
-                .font(.system(size: Typography.body, weight: .semibold))
-                .foregroundStyle(Color.accentColor)
-                .padding(.bottom, 24)
-                Spacer()
-            }
-            .presentationDetents([.height(220)])
+        // v3.9.25：天气弹窗（两页：今天 / 未来 5 天），与本地模式同一组件；换城市在弹窗右上角。
+        // 原 220pt「设置天气城市」小弹窗已删除。注：设置页「天气」分组仍可改城市（既有入口，
+        // 本次未动；改后本页不自动刷新，属既有缺口，另行排期）
+        .sheet(isPresented: $showWeatherSheet, onDismiss: {
+            // v3.9.25：重读城市（含**清空**场景 —— 原写法 `if !c.isEmpty` 会吞掉清空，
+            // 用户清掉城市后徽章仍显示旧城市天气）；空城市由 fetchCloud 回提示文案
+            city = UserDefaults.standard.string(forKey: "qingliao_weather_city") ?? ""
+            Task { await loadWeather() }
+        }) {
+            WeatherSheet(mode: .cloud)
+                .presentationDetents([.height(585)])
+                .presentationDragIndicator(.visible)
         }
     }
 
-    /// 直连 Open-Meteo：城市 → 地理编码 → 当前天气
+    /// 直连 Open-Meteo（geocode → current + daily）。
+    /// v3.9.25：取数与解析搬到 WeatherService（徽章与弹窗共用一份）；旧版用的是
+    /// `current_weather=true`，既不返回 daily 也拿不到新字段 —— 5 天预报必需新参数。
     private func loadWeather() async {
         loading = true
         errorText = nil
-        let c = city.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !c.isEmpty else {
-            loading = false
-            errorText = "请在右上角设置天气城市"
-            return
-        }
-        do {
-            // 1) 地理编码
-            let enc = c.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? c
-            guard let gURL = URL(string: "\(geocodeURL)?name=\(enc)&count=1&language=zh") else {
-                loading = false; errorText = "城市名无效"; return
-            }
-            let (gData, _) = try await URLSession.shared.data(from: gURL)
-            guard let gObj = try? JSONSerialization.jsonObject(with: gData) as? [String: Any],
-                  let results = gObj["results"] as? [[String: Any]],
-                  let first = results.first,
-                  let lat = first["latitude"] as? Double,
-                  let lon = first["longitude"] as? Double else {
-                loading = false; errorText = "未找到城市「\(c)」"; return
-            }
-            // 2) 当前天气
-            guard let wURL = URL(string: "\(weatherURL)?latitude=\(lat)&longitude=\(lon)&current_weather=true") else {
-                loading = false; errorText = "天气服务地址无效"; return
-            }
-            let (wData, _) = try await URLSession.shared.data(from: wURL)
-            guard let wObj = try? JSONSerialization.jsonObject(with: wData) as? [String: Any],
-                  let cur = wObj["current_weather"] as? [String: Any] else {
-                loading = false; errorText = "天气数据解析失败"; return
-            }
-            temp = cur["temperature"] as? Double
-            code = cur["weathercode"] as? Int
-            // 城市名用地理解析结果（中文名更友好）
-            if let name = first["name"] as? String {
-                let adm = (first["admin1"] as? String) ?? ""
-                city = adm.isEmpty ? name : "\(name) · \(adm)"
-            }
-            loading = false
-        } catch {
-            loading = false
-            errorText = "无法连接天气服务"
-        }
+        let (snap, err) = await WeatherService.fetchCloud(city: city)
+        // v3.9.25：失败/清空城市时必须显式清 nil —— 只在成功赋值会让徽章挂着上一座城市的温度，
+        // 而城市名已经清空，看起来就是「一个没有城市的旧温度」
+        temp = snap?.temp
+        code = snap?.code
+        if let c = snap?.city, !c.isEmpty { city = c }
+        errorText = err.isEmpty ? nil : err
+        loading = false
     }
 }
 

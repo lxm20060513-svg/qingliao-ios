@@ -274,6 +274,14 @@ final class CloudConfig {
     /// v3.0.32 fix：minimax-m3 / glm-5.x 误判为不支持视觉 → 发图被视觉模型顶替
     /// （用户主模型选 M3/GLM-5 却生效视觉模型）——判定补全：minimax 全系 + glm-5 全系
     /// 命中特征：gpt-4o / gpt-5 / -vision / -o（omni）/ 多模态 / minimax（M 系列全系）/ glm-4v / glm-5.x / u1 / flash-lite(部分)
+    /// v3.9.25 fix：DeepSeek flash 系漏判 → 带图消息被降级成纯文本 "[图片]"，AI 根本看不到图
+    ///   （用户连发两张图，AI 回"[图片] 占位"）。依据 = 2026-09-15 直连 api.deepseek.com 带 image_url
+    ///   实测：deepseek-flash / deepseek-v4-flash 均正确识图（64x64 上红下蓝素图 → 答"上半红、下半蓝"）。
+    ///   同族 pro 系未实测，不列入。
+    ///   刻意用**精确等值**而非 contains：避免连带命中未验证的变体（如 opencode 的 deepseek-v4-flash-free）。
+    ///   ⚠️ 已知边界：本判定只看模型名、不看 provider。商汤(sensenova) 代理的同名 deepseek-v4-flash
+    ///   实测无视觉能力（带图返回空 content / finish=length）——若用户在商汤下选该名会被误判。
+    ///   要根治此边界需把 provider 一并纳入判定（改动面大，另行排期）。
     static func modelSupportsVision(_ model: String) -> Bool {
         let m = model.lowercased()
         if m.contains("gpt-4o") || m.contains("gpt-5") || m.contains("vision")
@@ -292,6 +300,10 @@ final class CloudConfig {
         }
         // MiMo-V2.5 原生多模态（支持文本/图片/视频/音频）
         if m.contains("mimo") {
+            return true
+        }
+        // DeepSeek flash 系（官方 api.deepseek.com 实测支持 image_url，依据见上方 v3.9.25 注释）
+        if m == "deepseek-flash" || m == "deepseek-v4-flash" {
             return true
         }
         return false

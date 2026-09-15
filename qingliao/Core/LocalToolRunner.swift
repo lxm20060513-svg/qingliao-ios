@@ -779,22 +779,9 @@ enum LocalToolRunner {
         return nil
     }
 
-    /// WMO 天气码 → 中文描述
+    /// WMO 天气码 → 中文描述（v3.9.25：映射搬到 WeatherService.WeatherCode，此处保留原签名转调）
     static func weatherText(_ code: Int) -> String {
-        switch code {
-        case 0: return "晴"
-        case 1, 2: return "多云"
-        case 3: return "阴"
-        case 45, 48: return "雾"
-        case 51, 53, 55, 56, 57: return "毛毛雨"
-        case 61, 63, 65, 66, 67: return "雨"
-        case 71, 73, 75, 77: return "雪"
-        case 80, 81, 82: return "阵雨"
-        case 85, 86: return "阵雪"
-        case 95: return "雷暴"
-        case 96, 99: return "雷暴+冰雹"
-        default: return ""
-        }
+        WeatherCode.text(code)
     }
 
     // MARK: - v3.0.98 NAS 桥接工具执行
