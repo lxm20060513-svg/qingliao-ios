@@ -91,22 +91,92 @@ struct ImageViewer: View {
     }
 }
 
-// 单图页：双击/捏合缩放
+// 单图页：v3.9.27 双击/捏合缩放 + **放大后可随意拖动**（用户反馈：放大后不能拖动看边角）。
+// 拖动只在 scale > 1 时生效；松手按边界夹紧回弹，拖不动时整体回中。
+// 独立小 struct（本仓类级坑：深嵌套大 body 里塞手势易触发 CI type-check 超时）。
 struct ImageViewerPage: View {
     let image: UIImage
     @State private var scale: CGFloat = 1
+    // 拖动偏移（pt 值）
+    @State private var offset: CGSize = .zero
+    // 拖动起点时的 offset 快照（手势 onChanged 里 translation + startOffset = 新位置；
+    // 不冻结快照就会以「当前 offset」为基底逐帧累加 = 位移翻倍飞出）
+    @State private var dragStartOffset: CGSize = .zero
+    // 手势进行中标记（首帧冻结 dragStartOffset 用）
+    @State private var dragging = false
+    // 捏合进行中的基准值：MagnificationGesture 是增量值（从 1 开始），必须乘上当前 scale
+    @State private var gestureBase: CGFloat = 1
+
+    /// 当前缩放下允许的最大拖动距离：放大 N 倍时可视窗口外多出 (N-1)/2 倍宽/高
+    private func maxOffset(size: CGSize, scale: CGFloat) -> CGSize {
+        guard scale > 1 else { return .zero }
+        // 显示尺寸按 scaledToFit 近似：图片以短边贴容器；用宽高各半的富余量夹紧
+        let w = (UIScreen.main.bounds.width * (scale - 1)) / 2
+        let h = (UIScreen.main.bounds.height * (scale - 1)) / 2
+        return CGSize(width: max(0, w), height: max(0, h))
+    }
 
     var body: some View {
-        Image(uiImage: image)
-            .resizable()
-            .scaledToFit()
-            .scaleEffect(scale)
-            .animation(Motion.snap, value: scale)
-            .gesture(MagnificationGesture()
-                .onChanged { scale = max(1, min($0, 4)) })
-            .onTapGesture(count: 2) {
-                scale = scale == 1 ? 2.2 : 1
-            }
+        GeometryReader { geo in
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFit()
+                .scaleEffect(scale)
+                .offset(offset)
+                .animation(Motion.snap, value: scale)
+                .animation(Motion.snap, value: offset)
+                .gesture(MagnificationGesture()
+                    .onChanged { value in
+                        // 捏合起点以当前 scale 为基准（否则每次捏合都从 1 重算，先拖后捏会跳变）
+                        if gestureBase == 1 { gestureBase = scale }
+                        scale = max(1, min(gestureBase * value, 6))
+                    }
+                    .onEnded { _ in
+                        gestureBase = 1
+                        if scale <= 1.02 {   // 回缩到 ≈1 时一并归位（吸附）
+                            scale = 1
+                            offset = .zero
+                        } else {
+                            clampOffset(container: geo.size)
+                        }
+                    })
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: 8)
+                        .onChanged { value in
+                            guard scale > 1 else { return }
+                            if !dragging { dragging = true; dragStartOffset = offset }
+                            // 跟手拖动：超出边界给 0.35 的阻尼（微信式橡皮筋）
+                            let m = maxOffset(size: geo.size, scale: scale)
+                            offset = CGSize(width: damped(value.translation.width + dragStartOffset.width, max: m.width),
+                                            height: damped(value.translation.height + dragStartOffset.height, max: m.height))
+                        }
+                        .onEnded { _ in
+                            dragging = false
+                            clampOffset(container: geo.size)
+                        })
+                .onTapGesture(count: 2) {
+                    if scale > 1 {
+                        scale = 1
+                        offset = .zero
+                    } else {
+                        scale = 2.2
+                    }
+                }
+                .contentShape(Rectangle())
+        }
+    }
+
+    private func damped(_ v: CGFloat, max m: CGFloat) -> CGFloat {
+        if v > m { return m + (v - m) * 0.35 }
+        if v < -m { return -m + (v + m) * 0.35 }
+        return v
+    }
+
+    /// 松手后把 offset 夹回允许范围（越界部分回弹）
+    private func clampOffset(container: CGSize) {
+        let m = maxOffset(size: container, scale: scale)
+        offset = CGSize(width: max(-m.width, min(m.width, offset.width)),
+                        height: max(-m.height, min(m.height, offset.height)))
     }
 }
 

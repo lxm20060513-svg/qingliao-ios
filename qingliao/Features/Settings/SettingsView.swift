@@ -199,9 +199,12 @@ struct SettingsView: View {
                 .scrollContentBackground(.hidden)
         }
         // v3.9.26：能力示例（5 种卡片形态展示，零后端、纯 App 内样例数据）
+        // v3.9.27：补 .scrollContentBackground(.hidden)——ScrollView 自带底会盖住系统玻璃弹窗底
+        //（与 v3.9.23「清遮挡层、不覆盖材质」定稿同规则，用户报的「能力示例弹窗圆角背景不对」即此）
         .sheet(isPresented: $showCardGallery) {
             CardGallerySheet()
                 .presentationDetents([.medium, .large])
+                .scrollContentBackground(.hidden)
         }
         // v2.0.102：切回设置页刷新计数（密码管理/记忆增删后行尾数字即时更新，原只有 .task 首刷）
         .onAppear { Task { await loadCounts() } }

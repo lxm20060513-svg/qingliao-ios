@@ -64,6 +64,8 @@ final class LiveActivityManager {
     private var lastSpin: Double = 0
     /// 推手句柄归属令牌（单调递增）：只用于回答「谁有权清句柄」——见 startProgressTicker
     private var tickerToken = 0
+    /// v3.9.27：活动列表滞后的连续拍数（见 ticker 内宽限窗逻辑；≥3 拍仍无活动才退出）
+    private var missingActivityTicks = 0
 
     private init() {}
 
@@ -343,18 +345,41 @@ final class LiveActivityManager {
                 if let s = self, s.tickerToken == handleToken { s.progressTicker = nil }
             }
             var ticks = 0
-            let startedTicking = Date()
+            var startedTicking = Date()
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(ticks < 30 ? 1.2 : 2.5))
                 guard !Task.isCancelled, let self else { return }
-                guard self.currentSessionId != nil, Self.hasActiveActivity else { return }
+                guard self.currentSessionId != nil else { return }
                 if !Self.isEnabled { return }
                 // 兜底（正常路径由上面几处显式 stop 收）：阶段已不在忙碌就自行退出
                 let livePhase = self.lastPhase
                 guard livePhase == QingliaoActivityAttributes.Phase.thinking.rawValue
                     || livePhase == QingliaoActivityAttributes.Phase.streaming.rawValue else { return }
+                // v3.9.27：系统列表滞后的宽限窗——`Activity.activities` 是最终一致的，刚 request 的活动
+                // 可能还没进列表；旧写法 `guard hasActiveActivity else { return }` 会在这一窗里把推手
+                // 静默杀掉，之后只能靠「内容变化触发 sync」的幂等起表救回（长任务中内容常不变 →
+                // 环/球停在某拍不动 = 用户报的「动一段时间就不动了」）。现在：没有可见活动时先等 3 拍
+                // 再放弃，等出期间只跳过 update，不退出循环。
+                if !Self.hasActiveActivity {
+                    self.missingActivityTicks += 1
+                    if self.missingActivityTicks <= 3 { continue }
+                    return
+                }
+                self.missingActivityTicks = 0
                 // 安全阀：任何漏停场景（例如 App 长期不结束这一轮）最多推 10 分钟
-                if Date().timeIntervalSince(startedTicking) > 10 * 60 { return }
+                // v3.9.27：安全阀触发时**主动调一次 sync 幂等起表**，并重置计时——旧写法直接 return，
+                // 10 分钟后长任务里的灵动岛就永久冻住（用户报的停摆另一来源）。
+                if Date().timeIntervalSince(startedTicking) > 10 * 60 {
+                    await self.sync(isBusy: true,
+                                    sessionId: self.currentSessionId ?? "",
+                                    sessionTitle: self.lastTitle,
+                                    modelName: self.lastModel,
+                                    phase: livePhase,
+                                    actionText: self.lastAction,
+                                    canStop: self.lastCanStop)
+                    startedTicking = Date()
+                    continue
+                }
                 let cfg = Self.tickStep(phase: self.lastPhase)
                 let nextProgress = min(cfg.cap, self.lastProgress + cfg.step)
                 // 累计相位，**不回绕**（回绕会让弧角度从 315° 倒插回 0°，每 9.6s 反向急扫一次）
@@ -404,6 +429,8 @@ final class LiveActivityManager {
     private func clearState() {
         currentSessionId = nil
         startedAt = nil
+        // v3.9.27：滞后计数一并归零
+        missingActivityTicks = 0
         // v3.9.9：标题/模型也要一并清 —— 原来只清阶段类字段，残留的 lastTitle/lastModel
         // 会让下一轮的「内容没变」判定误命中（同一会话的第二轮回复与上一轮签名完全相同）
         lastTitle = ""

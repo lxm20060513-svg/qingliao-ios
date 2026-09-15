@@ -144,7 +144,8 @@ struct MessageBubble: View {
         HStack(alignment: .top, spacing: 8) {
             if message.isUser {
                 // v2.0.41：左侧留白 48→24，用户气泡更宽（右缘贴边）
-                Spacer(minLength: 24)
+                // v3.9.27：气泡变长（366→369 近满宽）——Spacer 同步收窄，别让硬约束把 maxWidth 压回去
+                Spacer(minLength: 12)
             } else {
                 aiAvatar
             }
@@ -438,7 +439,8 @@ struct MessageBubble: View {
                 .frame(width: 30, height: 30)
             } else {
                 // v2.0.41：AI 气泡右侧留白 48→10，气泡右缘贴红线（约距屏幕右 22pt）
-                Spacer(minLength: 10)
+                // v3.9.27：气泡变长（366→369）——Spacer 再收窄到 4，避免压缩 maxWidth
+                Spacer(minLength: 4)
             }
         }
         .frame(maxWidth: .infinity, alignment: message.isUser ? .trailing : .leading)

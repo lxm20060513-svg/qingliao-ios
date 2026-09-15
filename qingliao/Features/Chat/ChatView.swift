@@ -821,25 +821,17 @@ struct ChatView: View {
     private var toolStepCards: some View {
         if !stream.toolNames.isEmpty, auth.currentStreamSessionId == chat.sessionId {
             VStack(alignment: .leading, spacing: 6) {
-                if stream.isStreaming {
-                    // 生成中：逐条展开 —— 长任务里用户不必等结果就知道 AI 在干什么
+                // v3.9.27：生成中也可随时收起（用户反馈「不必等输出完才能收」）——
+                // 统一走「摘要行 + expanded 控制明细」，不再按 isStreaming 强制展开。
+                ToolStepsSummaryRow(count: stream.toolNames.count,
+                                    expanded: toolStepsExpanded) {
+                    withAnimation(Motion.snap) { toolStepsExpanded.toggle() }   // v3.9.19：裸动画收口到令牌（原 .easeOut(0.18)）
+                }
+                if toolStepsExpanded {
                     ForEach(Array(stream.toolNames.enumerated()), id: \.offset) { idx, name in
                         ToolStepRow(title: name,
-                                    running: idx == stream.toolNames.count - 1,
-                                    unresolved: false)
-                    }
-                } else {
-                    // v3.9.14：答完收起成一行（点开可看明细，明细里中止/报错的步骤仍用「未确认」图标）
-                    ToolStepsSummaryRow(count: stream.toolNames.count,
-                                        expanded: toolStepsExpanded) {
-                        withAnimation(Motion.snap) { toolStepsExpanded.toggle() }   // v3.9.19：裸动画收口到令牌（原 .easeOut(0.18)）
-                    }
-                    if toolStepsExpanded {
-                        ForEach(Array(stream.toolNames.enumerated()), id: \.offset) { _, name in
-                            ToolStepRow(title: name,
-                                        running: false,
-                                        unresolved: !stream.errorMessage.isEmpty)
-                        }
+                                    running: stream.isStreaming && idx == stream.toolNames.count - 1,
+                                    unresolved: !stream.isStreaming && !stream.errorMessage.isEmpty)
                     }
                 }
             }
@@ -1734,7 +1726,8 @@ struct ChatView: View {
                             }
                         }
                     }
-                    .padding(.horizontal, Spacing.xl)
+                    // v3.9.27：气泡变长——消息区左右 padding 12→6（气泡 maxWidth 369 联动）
+                    .padding(.horizontal, 6)
                     .padding(.top, Spacing.md)
                     .padding(.bottom, Spacing.md)
                     .id("messages")   // v2.0.39：与欢迎页分支区分身份

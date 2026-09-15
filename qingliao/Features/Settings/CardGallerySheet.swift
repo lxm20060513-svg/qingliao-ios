@@ -21,6 +21,7 @@ struct CardGallerySheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     intro
+                    protocolGuide
                     ForEach(Self.samples) { sample in
                         VStack(alignment: .leading, spacing: 6) {
                             caption(sample)
@@ -28,10 +29,13 @@ struct CardGallerySheet: View {
                             AgentResultCard(card: sample.card)
                         }
                     }
+                    // v3.9.27：协议速览（卡片怎么触发的，一眼明白）
+                    footerNote
                 }
                 .padding(.horizontal, 18)
                 .padding(.vertical, Spacing.section)
             }
+            .scrollContentBackground(.hidden)   // v3.9.27：同款规则——列表自带底别盖系统玻璃
             .navigationTitle("能力示例")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -40,6 +44,62 @@ struct CardGallerySheet: View {
                 }
             }
         }
+    }
+
+    // MARK: 协议速览（v3.9.27：结果类回复自动出卡 + 示例可复制）
+
+    @State private var exampleCopied = false
+
+    /// 卡片 JSON 示例（与后端 system prompt 注入的示例同款，可直接复制到聊天里试渲染）
+    private static let exampleJSON =
+        """
+        ```ql-card
+        {"type":"result","title":"NAS 体检","status":{"text":"全部正常","tone":"ok"},
+         "fields":[{"key":"存储池","value":"健康","tone":"ok"},
+                   {"key":"内存","value":"62%","tone":"info"}],
+         "metrics":[{"label":"CPU","value":"12","unit":"%"}],
+         "footer":"检查时间 今天 09:20"}
+        ```
+        """
+
+    @ViewBuilder
+    private var protocolGuide: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("卡片是怎么出现的？")
+                .font(.system(size: Typography.subhead, weight: .semibold))
+            Text("AI 回复检查、诊断、清单、对比这类结果时，会自动把关键信息整理成卡片附在文字后面——不用你开口要。闲聊和普通问答不会出卡片。")
+                .font(.system(size: Typography.tiny))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Button {
+                UIPasteboard.general.string = Self.exampleJSON
+                exampleCopied = true
+                UISelectionFeedbackGenerator().selectionChanged()
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 1_500_000_000)
+                    exampleCopied = false
+                }
+            } label: {
+                Label(exampleCopied ? "已复制，去聊天里粘贴发送试试" : "复制示例，去聊天里试试",
+                      systemImage: exampleCopied ? "checkmark.circle.fill" : "doc.on.doc")
+                    .font(.system(size: Typography.caption, weight: .medium))
+                    .padding(.horizontal, Spacing.lg)
+                    .padding(.vertical, Spacing.sm)
+                    .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
+            }
+            .buttonStyle(PressStyle())
+        }
+        .padding(Spacing.lg)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.accentColor.opacity(Tint.faint), in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+    }
+
+    @ViewBuilder
+    private var footerNote: some View {
+        Text("卡片完全离线解析，失败时自动退回普通文字显示，不会丢内容。")
+            .font(.system(size: Typography.tiny))
+            .foregroundStyle(.tertiary)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: 顶部说明（三段式：图标 + 标题 + 一句人话）

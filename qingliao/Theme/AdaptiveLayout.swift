@@ -5,9 +5,11 @@
 import SwiftUI
 
 enum AdaptiveLayout {
-    /// 气泡最大宽度：竖屏保持 366（v2.0.41 定稿红线），横屏/宽屏 ~60% 屏宽、上限 560
+    /// 气泡最大宽度：v3.9.27 用户要求「气泡变长显示更多文字」——竖屏 366 → 369（近满宽：
+    /// 393 屏 − 消息区左右各 12 padding − AI 头像列余量， Spacer minLength 已同步放宽），
+    /// 横屏/宽屏 ~60% 屏宽、上限 560 不变
     static func bubbleMaxWidth(_ hSize: UserInterfaceSizeClass?) -> CGFloat {
-        hSize == .regular ? 560 : 366
+        hSize == .regular ? 560 : 369
     }
 
     /// 输入栏/设置页等内容限宽：横屏下限宽居中，避免一行拉满 800pt
