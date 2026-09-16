@@ -44,6 +44,11 @@ targets:
         NSMicrophoneUsageDescription: 用于语音转文字（设备端识别，录音不会上传）
         # 保险：Apple 文档对「SpeechAnalyzer 是否也校验这条」说法不一，一并声明（零成本）
         NSSpeechRecognitionUsageDescription: 用于语音转文字（设备端识别，录音不会上传）
+        # 🚨 必须有：LAContext.evaluatePolicy(.deviceOwnerAuthentication*) 触发 Face ID 时
+        # TCC 查这条权限串，缺失 = SIGABRT 闪退（v3.1.1 整块误删后漏补，2026-09-16 crash 实锤）
+        NSFaceIDUsageDescription: 使用 Face ID 解锁密码管理与 App 锁
+        # 同批误删漏补：拍照输入(CameraPicker)用相机
+        NSCameraUsageDescription: 拍照发送给 AI 识别需要使用相机
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft
