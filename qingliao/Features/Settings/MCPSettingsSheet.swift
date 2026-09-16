@@ -102,7 +102,7 @@ struct MCPSettingsSheet: View {
                         .foregroundStyle(.white)
                         .frame(width: 28, height: 28)
                         .background(Color.teal, in: RoundedRectangle(cornerRadius: Radius.icon, style: .continuous))
-                    VStack(alignment: .leading, spacing: 1) {
+                    VStack(alignment: .leading, spacing: Spacing.xxs) {
                         Text(s.id).font(.system(size: Typography.body, weight: .medium))
                         Text(s.enabled ? "已启用" : "已停用")
                             .font(.system(size: Typography.caption))

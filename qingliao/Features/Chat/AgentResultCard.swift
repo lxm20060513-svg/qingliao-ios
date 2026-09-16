@@ -132,7 +132,7 @@ struct AgentResultCard: View {
     // MARK: 键值行
 
     private var fieldsSection: some View {
-        VStack(alignment: .leading, spacing: 5) {
+        VStack(alignment: .leading, spacing: Spacing.xs) {
             ForEach(Array(card.fields.enumerated()), id: \.offset) { _, f in
                 HStack(alignment: .top, spacing: 8) {
                     Text(f.key)
@@ -159,7 +159,7 @@ struct AgentResultCard: View {
                         .fill(toneColor(item.tone))
                         .frame(width: 6, height: 6)
                         .padding(.top, Spacing.xs)
-                    VStack(alignment: .leading, spacing: 1) {
+                    VStack(alignment: .leading, spacing: Spacing.xxs) {
                         Text(item.title)
                             .font(.system(size: Typography.subhead))
                             .foregroundStyle(.primary)

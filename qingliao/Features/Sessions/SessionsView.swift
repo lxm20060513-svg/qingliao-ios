@@ -699,7 +699,7 @@ struct SessionRow: View {
             .frame(width: 38, height: 38)
 
             VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 5) {
+                HStack(spacing: Spacing.xs) {
                     if pinned {
                         Image(systemName: "pin.fill")
                             .font(.system(size: Typography.tiny))

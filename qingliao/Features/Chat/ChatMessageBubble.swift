@@ -275,7 +275,7 @@ struct MessageBubble: View {
                         Button {
                             onRetry()
                         } label: {
-                            HStack(spacing: 5) {
+                            HStack(spacing: Spacing.xs) {
                                 Image(systemName: "exclamationmark.circle.fill")
                                     .font(.system(size: Typography.subhead))
                                     .foregroundStyle(.red)

@@ -26,7 +26,7 @@ struct EmptyStateView: View {
                                        startPoint: .topLeading, endPoint: .bottomTrailing)
                     )
             }
-            VStack(spacing: 5) {
+            VStack(spacing: Spacing.xs) {
                 Text(title)
                     .font(.system(size: Typography.body, weight: .semibold))
                     .foregroundStyle(.primary)

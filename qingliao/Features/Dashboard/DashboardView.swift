@@ -973,7 +973,7 @@ struct ServiceControlSheet: View {
                         .lineLimit(1)
                 }
                 Spacer()
-                HStack(spacing: 5) {
+                HStack(spacing: Spacing.xs) {
                     Circle()
                         .fill(running == true ? Color.green : (running == false ? Color.red : Color.gray))
                         .frame(width: 7, height: 7)

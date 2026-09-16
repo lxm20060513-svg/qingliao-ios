@@ -158,7 +158,7 @@ struct DiagnosticsView: View {
                         .foregroundStyle(.white)
                         .frame(width: 28, height: 28)
                         .background(Color.orange, in: RoundedRectangle(cornerRadius: Radius.icon, style: .continuous))
-                    VStack(alignment: .leading, spacing: 1) {
+                    VStack(alignment: .leading, spacing: Spacing.xxs) {
                         Text("后端连通性").font(.system(size: Typography.body))
                         if !pingText.isEmpty {
                             Text(pingText)
@@ -199,7 +199,7 @@ struct DiagnosticsView: View {
                         .foregroundStyle(.white)
                         .frame(width: 28, height: 28)
                         .background(Color.accentColor, in: RoundedRectangle(cornerRadius: Radius.icon, style: .continuous))
-                    VStack(alignment: .leading, spacing: 1) {
+                    VStack(alignment: .leading, spacing: Spacing.xxs) {
                         Text("立即上报").font(.system(size: Typography.body))
                         if !uploadText.isEmpty {
                             Text(uploadText)
@@ -241,7 +241,7 @@ struct DiagnosticsView: View {
                         .foregroundStyle(.white)
                         .frame(width: 28, height: 28)
                         .background(Color.pink, in: RoundedRectangle(cornerRadius: Radius.icon, style: .continuous))
-                    VStack(alignment: .leading, spacing: 1) {
+                    VStack(alignment: .leading, spacing: Spacing.xxs) {
                         Text("写入一条测试记录").font(.system(size: Typography.body))
                         Text("仅本地记录，用于验证上报链路")
                             .font(.system(size: Typography.caption)).foregroundStyle(.tertiary)

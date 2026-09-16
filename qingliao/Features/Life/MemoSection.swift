@@ -97,7 +97,7 @@ struct MemoSection: View {
             draft = ""
             showAdd = true
         } label: {
-            HStack(spacing: 9) {
+            HStack(spacing: Spacing.md) {
                 Image(systemName: "square.and.pencil")
                     .font(.system(size: Typography.body))
                     .foregroundStyle(Color.accentColor.opacity(0.9))
@@ -404,7 +404,7 @@ private struct MemoNoteCard: View {
     }
 
     private var metaRow: some View {
-        HStack(spacing: 5) {
+        HStack(spacing: Spacing.xs) {
             if item.pinned {
                 Image(systemName: "pin.fill")
                     .font(.system(size: Typography.tiny))

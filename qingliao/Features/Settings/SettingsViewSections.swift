@@ -67,7 +67,7 @@ extension SettingsView {
                 .foregroundStyle(.white)
                 .frame(width: 28, height: 28)
                 .background(Color.indigo, in: RoundedRectangle(cornerRadius: Radius.icon, style: .continuous))
-            VStack(alignment: .leading, spacing: 1) {
+            VStack(alignment: .leading, spacing: Spacing.xxs) {
                 Text("本地模型").font(.system(size: Typography.body, weight: .medium))
                 Text(localStatusText).font(.system(size: Typography.caption)).foregroundStyle(.tertiary).lineLimit(1)
             }
@@ -105,7 +105,7 @@ extension SettingsView {
                         .foregroundStyle(.white)
                         .frame(width: 28, height: 28)
                         .background(Color.teal, in: RoundedRectangle(cornerRadius: Radius.icon, style: .continuous))
-                    VStack(alignment: .leading, spacing: 1) {
+                    VStack(alignment: .leading, spacing: Spacing.xxs) {
                         Text("检查模型更新").font(.system(size: Typography.body, weight: .medium))
                         Text(localUpdateText).font(.system(size: Typography.caption)).foregroundStyle(.tertiary)
                     }

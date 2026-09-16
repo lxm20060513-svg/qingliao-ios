@@ -798,7 +798,7 @@ struct ChatView: View {
                 TaskCenterView()
             }
             if sentOK {
-                HStack(spacing: 5) {
+                HStack(spacing: Spacing.xs) {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.system(size: Typography.subhead))
                         .foregroundStyle(.green)
@@ -1216,7 +1216,7 @@ struct ChatView: View {
                                 sendCore(text: s.prompt, imageData: nil)
                             }
                         } label: {
-                            HStack(spacing: 5) {
+                            HStack(spacing: Spacing.xs) {
                                 Image(systemName: s.icon)
                                     .font(.system(size: Typography.caption, weight: .medium))
                                 Text(s.title)
@@ -1242,7 +1242,7 @@ struct ChatView: View {
                     Haptics.tap()
                     chat.load(last)
                 } label: {
-                    HStack(spacing: 9) {
+                    HStack(spacing: Spacing.md) {
                         Image(systemName: "arrow.uturn.backward.circle")
                             .font(.system(size: Typography.body, weight: .medium))
                             .foregroundStyle(.secondary)
@@ -1591,7 +1591,7 @@ struct ChatView: View {
                                                     displayLimit += Self.loadMoreStep
                                                 }
                                             } label: {
-                                                HStack(spacing: 5) {
+                                                HStack(spacing: Spacing.xs) {
                                                     Image(systemName: "chevron.up")
                                                         .font(.system(size: Typography.tiny, weight: .semibold))
                                                     Text("加载更早 \(min(visibleStartIndex, Self.loadMoreStep)) 条")
@@ -1875,7 +1875,7 @@ struct ChatView: View {
         @Environment(\.accessibilityReduceMotion) private var reduceMotion
         @State var animating = false
         var body: some View {
-            HStack(spacing: 5) {
+            HStack(spacing: Spacing.xs) {
                 ForEach(0..<3, id: \.self) { i in
                     // v3.4.20：三点跳动 → 蓝紫渐变脉冲圆（与发送按钮/Siri 流光同语言，"AI 活着"统一视觉）
                     Circle()
@@ -2068,7 +2068,7 @@ struct ChatView: View {
             Image(systemName: "doc.richtext")
                 .font(.system(size: Typography.body))
                 .foregroundStyle(.orange)
-            VStack(alignment: .leading, spacing: 1) {
+            VStack(alignment: .leading, spacing: Spacing.xxs) {
                 Text("会话内容较多")
                     .font(.system(size: Typography.subhead, weight: .semibold))
                 Text("\(chat.messages.count) 条消息 · 建议归档导出以省存储")
@@ -2844,7 +2844,7 @@ struct DealAttachmentButton: View {
 
     var body: some View {
         Button(action: onPick) {
-            VStack(spacing: 5) {
+            VStack(spacing: Spacing.xs) {
                 Image(systemName: icon)
                     .font(.system(size: Typography.headline))
                     .foregroundStyle(.white)

@@ -129,7 +129,7 @@ struct LifeCardsSettingsView: View {
     private func stockRow(_ i: Int) -> some View {
         HStack(spacing: 10) {
             iconBadge("chart.line.uptrend.xyaxis", color: .green)
-            VStack(alignment: .leading, spacing: 1) {
+            VStack(alignment: .leading, spacing: Spacing.xxs) {
                 Text(presets.stockName(config.stocks[i]))
                     .font(.system(size: Typography.subhead, weight: .semibold))
                     .foregroundStyle(.primary)
@@ -178,7 +178,7 @@ struct LifeCardsSettingsView: View {
     private func rssRow(_ i: Int) -> some View {
         HStack(spacing: 10) {
             iconBadge("dot.radiowaves.left.and.right", color: .indigo)
-            VStack(alignment: .leading, spacing: 1) {
+            VStack(alignment: .leading, spacing: Spacing.xxs) {
                 Text(config.rss[i].name)
                     .font(.system(size: Typography.subhead, weight: .semibold))
                     .foregroundStyle(.primary)
@@ -230,8 +230,8 @@ struct LifeCardsSettingsView: View {
     private func rssCatalogRow(_ p: LifeRssPreset) -> some View {
         let added = config.rss.contains(where: { $0.url == p.url || $0.name == p.name })
         return HStack(spacing: 8) {
-            VStack(alignment: .leading, spacing: 1) {
-                HStack(spacing: 5) {
+            VStack(alignment: .leading, spacing: Spacing.xxs) {
+                HStack(spacing: Spacing.xs) {
                     Text(p.name)
                         .font(.system(size: Typography.subhead, weight: .medium))
                         .foregroundStyle(.primary)
@@ -299,7 +299,7 @@ struct LifeCardsSettingsView: View {
     private func packageRow(_ i: Int) -> some View {
         HStack(spacing: 10) {
             iconBadge("shippingbox.fill", color: .orange)
-            VStack(alignment: .leading, spacing: 1) {
+            VStack(alignment: .leading, spacing: Spacing.xxs) {
                 Text(config.express.packages[i].no)
                     .font(.system(size: Typography.subhead, weight: .semibold))
                     .foregroundStyle(.primary)
@@ -568,10 +568,11 @@ struct LifeCardsSettingsView: View {
     }
 
     private func iconBadge(_ icon: String, color: Color) -> some View {
+        // v3.9.28：26→28 与全站列表行图标底统一（SettingRow/toggleRow 均为 28）
         Image(systemName: icon)
             .font(.system(size: Typography.subhead, weight: .semibold))
             .foregroundStyle(.white)
-            .frame(width: 26, height: 26)
+            .frame(width: 28, height: 28)
             .background(color, in: RoundedRectangle(cornerRadius: Radius.icon, style: .continuous))
     }
 
@@ -942,7 +943,7 @@ struct StockSearchSheet: View {
             onPick(item)
         } label: {
             HStack(spacing: 10) {
-                VStack(alignment: .leading, spacing: 1) {
+                VStack(alignment: .leading, spacing: Spacing.xxs) {
                     Text(item.name.isEmpty ? item.code : item.name)
                         .font(.system(size: Typography.subhead, weight: .semibold))
                         .foregroundStyle(.primary)

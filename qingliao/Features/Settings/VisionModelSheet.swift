@@ -47,7 +47,7 @@ struct VisionModelSheet: View {
                             .foregroundStyle(.white)
                             .frame(width: 28, height: 28)
                             .background(Color.purple, in: RoundedRectangle(cornerRadius: Radius.icon, style: .continuous))
-                        VStack(alignment: .leading, spacing: 1) {
+                        VStack(alignment: .leading, spacing: Spacing.xxs) {
                             Text("视觉模型自动切换").font(.system(size: Typography.body, weight: .medium))
                             Text(statusText)
                                 .font(.system(size: Typography.caption)).foregroundStyle(.tertiary).lineLimit(1)

@@ -13,7 +13,7 @@ extension SettingsView {
                 .frame(width: 28, height: 28)
                 .background(iconColor, in: RoundedRectangle(cornerRadius: Radius.icon, style: .continuous))
             if let subtitle {
-                VStack(alignment: .leading, spacing: 1) {
+                VStack(alignment: .leading, spacing: Spacing.xxs) {
                     Text(title).font(.system(size: Typography.body, weight: .medium))
                     Text(subtitle).font(.system(size: Typography.caption)).foregroundStyle(.tertiary)
                 }

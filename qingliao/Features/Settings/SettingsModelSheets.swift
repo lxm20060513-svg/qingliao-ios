@@ -164,7 +164,7 @@ struct ModelSheet: View {
                         .strokeBorder(freeModelOn ? Color.green.opacity(0.4) : Color.primary.opacity(Tint.faint), lineWidth: 0.8)
                 )
                 // 在线状态 + 同步结果
-                HStack(spacing: 5) {
+                HStack(spacing: Spacing.xs) {
                 Circle().fill(syncing ? Color.orange : Color.green).frame(width: 7, height: 7)
                 Text(syncing ? "同步中..." : "模型服务在线")
                     .font(.system(size: Typography.caption)).foregroundStyle(.secondary)
@@ -1421,7 +1421,7 @@ struct AgentModelSheet: View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 10) {
                 // 当前状态
-                HStack(spacing: 5) {
+                HStack(spacing: Spacing.xs) {
                     Circle().fill(syncing ? Color.orange : Color.green).frame(width: 7, height: 7)
                     Text(syncing ? "同步中..." : "Agent 模型设置")
                         .font(.system(size: Typography.caption)).foregroundStyle(.secondary)
