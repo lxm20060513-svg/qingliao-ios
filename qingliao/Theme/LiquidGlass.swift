@@ -158,7 +158,7 @@ struct PageHeader: View {
                     } else if showStatus {
                         Circle().fill(statusColor).frame(width: 6, height: 6)
                     }
-                    Text(busy ? "AI 正在输入…" : subtitle)
+                    Text(busy ? "AI 正在思考中" : subtitle)
                         .font(.system(size: Typography.caption))
                         .foregroundStyle(busy ? Color.accentColor : Color.secondary)
                 }
