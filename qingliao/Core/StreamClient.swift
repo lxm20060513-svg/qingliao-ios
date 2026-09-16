@@ -78,11 +78,6 @@ final class StreamClient {
         smoothedContent = content
     }
 
-    /// v3.4.20：云端流式路径（startCloudStream 不经过 start()）的平滑层启动入口
-    func startSmoothPublic() { startSmooth() }
-    /// v3.4.20：云端流式路径的平滑层收尾入口
-    func stopSmoothPublic() { stopSmooth() }
-
     /// 启动流式请求
     func start(auth: AuthStore, sessionId: String, model: String, provider: String,
                messages: [[String: Any]],

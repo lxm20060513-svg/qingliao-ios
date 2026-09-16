@@ -1,286 +1,23 @@
 import Foundation
-import Security
 
-// MARK: - v3.0 云端模式配置（无本地服务器用户）
+// MARK: - 模型能力配置（v3.9.28：云端模式已整体移除，本文件只留本地模式依赖的四块）
+//
+// 历史：这里曾是 v3.0 云端模式（直连大模型 API）的配置中心（QingliaoMode/厂商预设/Keychain）。
+// 云端移除后保留的都是**本地模式仍在用**的功能：
+//   1) 视觉能力判定（modelSupportsVision / providerDeniesVision / effectiveVisionModel）
+//   2) 视觉模型自动切换配置（qingliao_vision_* 键）
+//   3) TTS 引擎配置（走 NAS 后端 /api/tts，非云端直连）
+//   4) 防复读强模型表（isStrongModel，与后端 _is_strong_model 同规则）
+//
+// 保留 `CloudConfig` 命名（enum 静态命名空间），让 40+ 处调用方（视觉闸门/设置页/SpeechManager）
+// 零改动——只删实现，不动接口。
 
-/// 模式：本地 AI（走自家 NAS 后端）/ 云端 AI（直连大模型 API）
-enum QingliaoMode: String {
-    case local = "local"     // 2.0 现有模式：连 NAS 后端
-    case cloud = "cloud"     // 3.0 新模式：直连 OpenAI 兼容端点
-}
+enum CloudConfig {
+    // MARK: - 视觉能力判定
 
-/// 云端模型厂商预设（OpenAI 兼容端点）
-struct CloudProviderPreset: Identifiable {
-    let id: String           // 内部 id（也作 UserDefaults key 后缀）
-    let name: String         // 显示名
-    let baseURL: String      // 默认 base_url
-    let defaultModel: String // 默认模型
-    let apiKeyHint: String   // key 格式提示
-    var supportsVision: Bool = false   // v3.0.4：默认模型是否支持视觉
-    var keyless: Bool = false           // v3.0.57：keyless 免费档（无需 apiKey）
-
-    /// 预置厂商列表（可扩展：插件/未来版本可追加自定义 preset）
-    static let presets: [CloudProviderPreset] = [
-        CloudProviderPreset(id: "deepseek", name: "DeepSeek",
-                            baseURL: "https://api.deepseek.com/v1",
-                            defaultModel: "deepseek-chat",
-                            apiKeyHint: "sk-..."),
-        CloudProviderPreset(id: "kimi", name: "Kimi (Moonshot)",
-                            baseURL: "https://api.moonshot.cn/v1",
-                            defaultModel: "moonshot-v1-8k",
-                            apiKeyHint: "sk-..."),
-        CloudProviderPreset(id: "glm", name: "智谱 GLM",
-                            baseURL: "https://open.bigmodel.cn/api/paas/v4",
-                            defaultModel: "glm-4-flash",
-                            apiKeyHint: "从智谱开放平台获取"),
-        CloudProviderPreset(id: "minimax", name: "MiniMax",
-                            baseURL: "https://api.minimax.chat/v1",
-                            defaultModel: "MiniMax-Text-01",
-                            apiKeyHint: "从 MiniMax 开放平台获取"),
-        CloudProviderPreset(id: "openai", name: "OpenAI",
-                            baseURL: "https://api.openai.com/v1",
-                            defaultModel: "gpt-4o-mini",
-                            apiKeyHint: "sk-...",
-                            supportsVision: true),   // v3.0.4：gpt-4o 系列支持视觉
-        // v3.0.4：商汤日日新 SenseNova（Token Plan 免费，OpenAI 兼容）
-        // 模型列表（fetchModels 动态拉）：sensenova-6.7-flash-lite / deepseek-v4-flash /
-        // glm-5.2 / sensenova-u1-fast / sensenova-6.8-flash-lite
-        CloudProviderPreset(id: "sensenova", name: "SenseNova(商汤)",
-                            baseURL: "https://token.sensenova.cn/v1",
-                            defaultModel: "deepseek-v4-flash",
-                            apiKeyHint: "sensenova.cn 控制台获取"),
-        // v3.0.44：小米 MiMo Token 计划（token-plan-cn.xiaomimimo.com）
-        // ⚠️ 模型名必须是网关支持的（mimo-v2.5 系）；填 MiMo-7B-RL 这类会 401/400（已实踩）
-        CloudProviderPreset(id: "mimo", name: "小米 MiMo",
-                            baseURL: "https://token-plan-cn.xiaomimimo.com/v1",
-                            defaultModel: "mimo-v2.5",
-                            apiKeyHint: "米家/小米开放平台 Token 计划获取 (tp-...)"),
-        // v3.0.57：OpenCode 免费档（keyless，免任何 Key）——Hermes 内置 opencode-free
-        CloudProviderPreset(id: "opencode-free", name: "OpenCode 免费(免Key)",
-                            baseURL: "https://opencode.ai/zen/v1", defaultModel: "nemotron-3.5-lightning-free",
-                            apiKeyHint: "免 Key（Hermes keyless 免费档）", keyless: true),
-        CloudProviderPreset(id: "custom", name: "自定义 (OpenAI 兼容)",
-                            baseURL: "",
-                            defaultModel: "",
-                            apiKeyHint: "任意 OpenAI 兼容服务"),
-    ]
-}
-
-/// 云端配置（单个厂商连接信息）
-struct CloudProviderConfig: Codable, Identifiable {
-    var providerID: String      // 对应 preset id 或 "custom"
-    var name: String
-    var baseURL: String
-    var apiKey: String
-    var model: String
-    var supportsVision: Bool = false   // v3.0.4：是否支持视觉（图片降级判断）
-    var keyless: Bool = false           // v3.0.57：keyless 免费档（无需 apiKey）
-
-    var id: String { providerID }   // v3.0: ForEach 需要 Identifiable
-}
-
-/// 云端配置存储（UserDefaults + Keychain）
-/// - 配置列表存 UserDefaults（不含 key）
-/// - api_key 存 Keychain（勿落 UserDefaults，防明文泄露）
-@MainActor
-@Observable
-final class CloudConfig {
-    static let shared = CloudConfig()
-
-    /// 当前模式（本地 AI / 云端 AI）
-    var mode: QingliaoMode {
-        didSet { UserDefaults.standard.set(mode.rawValue, forKey: "qingliao_mode") }
-    }
-
-    /// 已保存的厂商配置（不含 key，key 在 Keychain）
-    private(set) var providers: [CloudProviderConfig] = []
-
-    /// 当前选中的厂商 id
-    var activeProviderID: String {
-        didSet { UserDefaults.standard.set(activeProviderID, forKey: "qingliao_cloud_provider") }
-    }
-
-    private let defaults = UserDefaults.standard
-    private let providersKey = "qingliao_cloud_providers"
-    private let keychainPrefix = "qingliao_cloud_key_"
-
-    init() {
-        mode = QingliaoMode(rawValue: UserDefaults.standard.string(forKey: "qingliao_mode") ?? "") ?? .local
-        activeProviderID = UserDefaults.standard.string(forKey: "qingliao_cloud_provider") ?? ""
-        loadProviders()
-        // v3.4.x code review fix（低）：本地模式不再强制 seed DeepSeek 空配置——此前本地用户
-        // 的 activeConfig 恒指向云端厂商（api.deepseek.com），与 uploadImage 等误用叠加放大误导，
-        // 且无云配置的本地用户 isConfigured/activeConfig 语义失真。仅云端模式（或切到云端时）seed。
-        if mode == .cloud {
-            seedDefaultProviderIfNeeded()
-        }
-    }
-
-    var isCloudMode: Bool { mode == .cloud }
-
-    /// 切换模式（云端→本地 或反之）
-    func setMode(_ m: QingliaoMode) {
-        mode = m
-        // v3.4.x code review fix：切到云端且尚无任何厂商配置 → 补预置（首次进云端可配置）
-        if m == .cloud {
-            seedDefaultProviderIfNeeded()
-        }
-    }
-
-    /// 无厂商时预置一个 DeepSeek 空配置，方便首次进入（仅云端模式/进入云端配置时调用）
-    private func seedDefaultProviderIfNeeded() {
-        guard providers.isEmpty else { return }
-        let p = CloudProviderPreset.presets[0]
-        providers.append(CloudProviderConfig(providerID: p.id, name: p.name,
-                                             baseURL: p.baseURL, apiKey: "", model: p.defaultModel))
-        saveProviders()
-        activeProviderID = p.id
-    }
-
-    /// v3.9.15 防复读闸门：强模型豁免「断种子」占位。
-    ///
-    /// **必须与后端 `stream_api._is_strong_model` 完全一致**——两侧规则不一致就是事故：
-    /// 弱模型（如 mimo-v2.5）看到历史里的完整长回复会整段照抄，需要占位断掉续写种子；
-    /// 强模型（deepseek/step-*/gpt-5/claude/glm-5）需要完整语义上下文才能把用户的**短追问**
-    /// （「不用」「为什么回答两次」）对号入座，压掉它上一条回答＝失忆 → 重跑上一轮任务。
-    /// 实证 2026-09-13：App 无条件压占位，用户一句「不用」被回了三份 NAS 内存诊断。
-    static func isStrongModel(provider: String, model: String) -> Bool {
-        let p = provider.lowercased()
-        let m = model.lowercased()
-        if p == "deepseek" || p == "stepfun" { return true }
-        for pre in ["deepseek", "step", "gpt-5", "claude", "glm-5"] where m.hasPrefix(pre) { return true }
-        return false
-    }
-
-    /// 当前生效的云端配置（含 Keychain key）
-    var activeConfig: CloudProviderConfig? {
-        guard let idx = providers.firstIndex(where: { $0.providerID == activeProviderID }) else { return nil }
-        var c = providers[idx]
-        c.apiKey = keychainRead(keychainPrefix + c.providerID)
-        return c
-    }
-
-    // MARK: - 厂商配置 CRUD
-
-    func saveProvider(_ c: CloudProviderConfig) {
-        if let idx = providers.firstIndex(where: { $0.providerID == c.providerID }) {
-            providers[idx] = c
-        } else {
-            providers.append(c)
-        }
-        if !c.apiKey.isEmpty {
-            keychainWrite(keychainPrefix + c.providerID, c.apiKey)
-        }
-        saveProviders()
-    }
-
-    func removeProvider(id: String) {
-        providers.removeAll { $0.providerID == id }
-        keychainDelete(keychainPrefix + id)
-        saveProviders()
-        if activeProviderID == id {
-            activeProviderID = providers.first?.providerID ?? ""
-        }
-    }
-    /// v3.0.57：确保 opencode-free keyless 免费档已在 providers 并置为 active（无则从 preset 添加）
-    @discardableResult
-    func activateFreeProvider() -> CloudProviderConfig? {
-        guard let pre = CloudProviderPreset.presets.first(where: { $0.keyless }) else { return nil }
-        var cfg = providers.first(where: { $0.providerID == pre.id })
-        if cfg == nil {
-            cfg = CloudProviderConfig(providerID: pre.id, name: pre.name,
-                                      baseURL: pre.baseURL, apiKey: "", model: pre.defaultModel,
-                                      supportsVision: pre.supportsVision, keyless: true)
-            providers.append(cfg!)
-            saveProviders()
-        }
-        activeProviderID = pre.id
-        return cfg
-    }
-
-
-    /// 校验云端配置是否可用（登录/聊天前）
-    var isConfigured: Bool {
-        guard let c = activeConfig, !c.baseURL.isEmpty, !c.model.isEmpty else { return false }
-        // v3.0.57：keyless 免费档（opencode-free）无需 apiKey
-        if c.keyless { return true }
-        guard !c.apiKey.isEmpty else { return false }
-        return true
-    }
-
-    // MARK: - 私有
-
-    private func loadProviders() {
-        if let data = defaults.data(forKey: providersKey),
-           let list = try? JSONDecoder().decode([CloudProviderConfig].self, from: data) {
-            // v3.0.5 review fix：从 UserDefaults 取出一律视为无 key（key 只在 Keychain），
-            providers = list.map { var c = $0; c.apiKey = ""; return c }
-        }
-    }
-
-    private func saveProviders() {
-        // v3.0.5 review fix（安全）：落盘前清空 apiKey——key 只存 Keychain，UserDefaults 绝不落明文
-        let sanitized = providers.map { var c = $0; c.apiKey = ""; return c }
-        if let data = try? JSONEncoder().encode(sanitized) {
-            defaults.set(data, forKey: providersKey)
-        }
-    }
-
-    private func keychainWrite(_ key: String, _ value: String) {
-        guard !value.isEmpty else { return }
-        let data = Data(value.utf8)
-        let base: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: "com.qingliao.app.cloud",
-            kSecAttrAccount as String: key,
-        ]
-        let update: [String: Any] = [
-            kSecValueData as String: data,
-            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
-        ]
-        let status = SecItemUpdate(base as CFDictionary, update as CFDictionary)
-        if status == errSecItemNotFound {
-            var add = base
-            add[kSecValueData as String] = data
-            add[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
-            SecItemAdd(add as CFDictionary, nil)
-        }
-    }
-
-    private func keychainRead(_ key: String) -> String {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: "com.qingliao.app.cloud",
-            kSecAttrAccount as String: key,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-        ]
-        var item: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess,
-              let data = item as? Data else { return "" }
-        return String(data: data, encoding: .utf8) ?? ""
-    }
-
-    private func keychainDelete(_ key: String) {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: "com.qingliao.app.cloud",
-            kSecAttrAccount as String: key,
-        ]
-        SecItemDelete(query as CFDictionary)
-    }
-
-    /// v3.0.5 review fix：按模型名判断是否视觉模型（切模型后实时更新，避免预设默认模型脱钩）
-    /// v3.0.32 fix：minimax-m3 / glm-5.x 误判为不支持视觉 → 发图被视觉模型顶替
-    /// （用户主模型选 M3/GLM-5 却生效视觉模型）——判定补全：minimax 全系 + glm-5 全系
-    /// 命中特征：gpt-4o / gpt-5 / -vision / -o（omni）/ 多模态 / minimax（M 系列全系）/ glm-4v / glm-5.x / u1 / flash-lite(部分)
-    /// v3.9.25 fix：DeepSeek flash 系漏判 → 带图消息被降级成纯文本 "[图片]"，AI 根本看不到图
-    ///   （用户连发两张图，AI 回"[图片] 占位"）。依据 = 2026-09-15 直连 api.deepseek.com 带 image_url
-    ///   实测：deepseek-flash / deepseek-v4-flash 均正确识图（64x64 上红下蓝素图 → 答"上半红、下半蓝"）。
-    ///   同族 pro 系未实测，不列入。
-    ///   刻意用**精确等值**而非 contains：避免连带命中未验证的变体（如 opencode 的 deepseek-v4-flash-free）。
+    /// 按模型名 + provider 判断是否视觉模型。
     /// v3.9.26：provider 已纳入判定 —— 通用表只认模型名，同名模型在不同 provider 下能力可能不同，
-    ///   反例收敛在 `visionDeniedPairs`（见下方 modelSupportsVision(_:provider:)）。
+    ///   反例收敛在 `visionDeniedPairs`。
     static func modelSupportsVision(_ model: String, provider: String? = nil) -> Bool {
         let m = model.lowercased()
         // provider 级反例优先：同名不同能力（实测该 provider 下无视觉）→ 强制 false，不再看通用表
@@ -290,7 +27,7 @@ final class CloudConfig {
         return modelSupportsVisionByName(m)
     }
 
-    /// v3.9.26 新增：已知「同名但该 provider 下无视觉」的精确反例表。
+    /// 已知「同名但该 provider 下无视觉」的精确反例表。
     ///
     /// 依据 = 2026-09-15 逐个 provider 实测（带 64x64 上红下蓝素图，直连该 provider 的 base_url）：
     ///   · sensenova/deepseek-v4-flash → 带图 HTTP 200 但 content 为空（finish=length），**图被静默丢弃**
@@ -305,36 +42,31 @@ final class CloudConfig {
         "sensenova/glm-5.2",
     ]
 
-    /// v3.9.26：provider 反例命中即判「无视觉」。
+    /// provider 反例命中即判「无视觉」。
     ///
-    /// 单独暴露的原因：发送闸门**必须先查它、再读持久化的 `supportsVision`**。
-    /// 存量配置里的 `supportsVision` 是旧逻辑（只看模型名）写下并落盘的，若先被它短路，
-    /// 「商汤 + deepseek-v4-flash」这类同名不同能力的反例永远修不到（要用户手动重选一次模型才重算）。
+    /// 单独暴露的原因：发送闸门**必须先查它、再读其他持久化判据**。
+    /// 存量落盘的判据可能是旧逻辑写下的错误值，若先被它短路，反例永远修不到。
     static func providerDeniesVision(model: String, provider: String?) -> Bool {
         guard let p = provider?.lowercased(), !p.isEmpty else { return false }
         return visionDeniedPairs.contains("\(p)/\(model.lowercased())")
     }
 
-    /// v3.9.26：主模型 + provider 的**统一取源**（云端走 activeConfig，本地走 UserDefaults）。
+    /// 主模型 + provider 的**统一取源**。
     ///
-    /// 视觉的判定与展示都必须从这里取 —— 云端切厂商只写 `qingliao_cloud_provider`，
-    /// **从不写** `qingliao_provider`（那是本地模型管理的键）。两处各自读 UserDefaults 会各说各话：
-    /// 云端下 UI 显示「主模型支持视觉」而发送闸门按反例把图降级，或反之。
+    /// 视觉的判定与展示都必须从这里取，禁止各处自己读 UserDefaults（会各说各话）。
+    /// 默认值必须与 ChatView 的 @AppStorage("qingliao_model") 一致（"deepseek-v4-flash"）：
+    /// 从没在模型管理里挑过模型的用户也按真实默认模型判视觉（v3.9.26 fix）。
     static var mainModelAndProvider: (model: String, provider: String) {
-        if CloudConfig.shared.isCloudMode, let c = CloudConfig.shared.activeConfig {
-            return (c.model, c.providerID)
-        }
         let d = UserDefaults.standard
-        // v3.9.26 fix：默认值必须与 ChatView 的 @AppStorage("qingliao_model") 一致（"deepseek-v4-flash"）。
-        // 原来这里兜底成空串 → 从没在模型管理里挑过模型的本地用户，视觉闸门按 "" 判「无视觉」，
-        // 把图降级成「[图片]」；而真正发出去的模型是 deepseek-v4-flash（有视觉）—— 与 v3.9.25 修的事故同形。
         return (d.string(forKey: "qingliao_model") ?? "deepseek-v4-flash",
                 d.string(forKey: "qingliao_provider") ?? "opencode")
     }
 
-    /// 纯模型名判定（v3.9.25 及之前的 modelSupportsVision 原实现）。
+    /// 纯模型名判定（通用表）。
     /// ⚠️ 新代码请优先用 `modelSupportsVision(_:provider:)` —— 只看模型名会漏掉同名不同能力的 provider。
     /// 保留为独立函数是为了让真值表能分别验证「通用表」与「provider 反例」两层。
+    /// 命中特征：gpt-4o / gpt-5 / -vision / omni / multimodal / minimax 全系 / glm-4v / glm-5 全系 /
+    /// mimo 全系（V2.5 原生多模态）/ u1 / flash-lite(部分) / step 系 / DeepSeek flash 系。
     static func modelSupportsVisionByName(_ model: String) -> Bool {
         let m = model.lowercased()
         if m.contains("gpt-4o") || m.contains("gpt-5") || m.contains("vision")
@@ -355,16 +87,15 @@ final class CloudConfig {
         if m.contains("mimo") {
             return true
         }
-        // DeepSeek flash 系（官方 api.deepseek.com 实测支持 image_url，依据见上方 v3.9.25 注释）
+        // DeepSeek flash 系（官方 api.deepseek.com 实测支持 image_url）
         if m == "deepseek-flash" || m == "deepseek-v4-flash" {
             return true
         }
         return false
     }
 
-    // MARK: - v3.0.10 本地视觉模型配置
+    // MARK: - 视觉模型自动切换配置
 
-    /// 本地模式视觉模型 UserDefaults key
     private static let visionModelKey = "qingliao_vision_model"
     private static let visionProviderKey = "qingliao_vision_provider"
     private static let visionEnabledKey = "qingliao_vision_fallback"
@@ -399,7 +130,7 @@ final class CloudConfig {
         UserDefaults.standard.set(enabled, forKey: visionEnabledKey)
     }
 
-    /// v3.0.10：判断发送图片时应使用哪个模型
+    /// 判断发送图片时应使用哪个模型
     /// - 如果主模型支持视觉 → 返回 nil（用主模型）
     /// - 如果主模型不支持视觉且配置了视觉模型 → 返回视觉模型
     /// - 否则 → 返回 nil（降级为文本，保持现有行为）
@@ -407,13 +138,13 @@ final class CloudConfig {
         guard visionFallbackEnabled else { return nil }
         guard let visionModel = localVisionModel, !visionModel.isEmpty else { return nil }
         // 如果主模型已支持视觉，无需切换
-        // v3.9.26：主模型 + provider 统一取源（云端走 activeConfig，本地走 UserDefaults）
         let main = mainModelAndProvider
         if modelSupportsVision(main.model, provider: main.provider) { return nil }
         return (visionModel, localVisionProvider)
     }
 
     // MARK: - v3.0.68 语音引擎（TTS）配置 —— 总开关 + 模型 + 音色
+    // 走 NAS 后端 /api/tts，与已移除的云端直连无关；本地模式核心功能，保留。
 
     private static let ttsEnabledKey = "qingliao_tts_enabled"
     private static let ttsProviderKey = "qingliao_tts_provider"
@@ -424,7 +155,7 @@ final class CloudConfig {
     private static let ttsDefaultModel = "mimo-v2.5-tts"
     private static let ttsDefaultVoice = "mimo_default"
 
-    /// TTS 总开关（默认关 = 用系统 AVSpeechSynthesizer；开 = 用云端神经 TTS）
+    /// TTS 总开关（默认开 = 用后端神经 TTS；关 = 用系统 AVSpeechSynthesizer）
     static var ttsEnabled: Bool {
         UserDefaults.standard.object(forKey: ttsEnabledKey) as? Bool ?? true   // v3.0.78：默认开启大模型 TTS
     }
@@ -450,7 +181,7 @@ final class CloudConfig {
         UserDefaults.standard.set(voice, forKey: ttsVoiceKey)
     }
 
-    /// v3.0.68：支持 TTS 的模型列表（可扩展，新增 TTS 模型只需追加此数组）
+    /// 支持 TTS 的模型列表（可扩展，新增 TTS 模型只需追加此数组）
     private static let _ttsSupported: [(provider: String, model: String, label: String)] = [
         ("xiaomi", "mimo-v2.5-tts", "小米 MiMo"),
         ("zai", "glm-tts", "智谱 GLM"),
@@ -491,5 +222,20 @@ final class CloudConfig {
         return ttsSupported.filter { opt in
             configured.contains { $0.id == opt.provider && $0.models.contains(opt.model) }
         }
+    }
+
+    // MARK: - v3.9.15 防复读闸门：强模型豁免「断种子」占位
+
+    /// **必须与后端 `stream_api._is_strong_model` 完全一致**——两侧规则不一致就是事故：
+    /// 弱模型（如 mimo-v2.5）看到历史里的完整长回复会整段照抄，需要占位断掉续写种子；
+    /// 强模型（deepseek/step-*/gpt-5/claude/glm-5）需要完整语义上下文才能把用户的**短追问**
+    /// （「不用」「为什么回答两次」）对号入座，压掉它上一条回答＝失忆 → 重跑上一轮任务。
+    /// 实证 2026-09-13：App 无条件压占位，用户一句「不用」被回了三份 NAS 内存诊断。
+    static func isStrongModel(provider: String, model: String) -> Bool {
+        let p = provider.lowercased()
+        let m = model.lowercased()
+        if p == "deepseek" || p == "stepfun" { return true }
+        for pre in ["deepseek", "step", "gpt-5", "claude", "glm-5"] where m.hasPrefix(pre) { return true }
+        return false
     }
 }

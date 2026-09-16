@@ -552,25 +552,13 @@ struct DashboardView: View {
     }
 
     /// v3.0.36：模型使用量（DeepSeek/StepFun 余额 + unsupported 降级）
-    /// v3.1.1 fix：合并 App 云端模式本地新增的 provider——新增 API 自动生成用量卡片
     private func loadProviderUsage() async {
         guard let j = await auth.jsonOrLog("/api/nas/providers-usage") else {
             usageError = "用量查询失败"
             return
         }
         if let ps = j["providers"] as? [[String: Any]] {
-            var list = ps
-            // v3.1.1：云端模式（App 本地 UserDefaults/Keychain）新增的 provider 后端无记录
-            // → 补 unsupported 卡片（显示「控制台查看」），保证新增 API 必出卡片
-            let backendIDs = Set(list.compactMap { $0["provider"] as? String })
-            for p in CloudConfig.shared.providers where !backendIDs.contains(p.providerID) {
-                list.append(["provider": p.providerID,
-                             "name": p.name.isEmpty ? p.providerID : p.name,
-                             "mode": "payg",
-                             "available": false,
-                             "unsupported": true,
-                             "error": "官方无公开用量接口"])
-            }
+            let list = ps
             providerUsages = list.map { ProviderUsage.parse($0) }
             usageError = ""
         } else if let e = j["error"] as? String {
@@ -1955,7 +1943,7 @@ struct WeatherBadge: View {
     var city = ""   // v2.0.87ag：具体地点
 
     // v3.9.25：WMO 映射统一到 WeatherService（原先图标/颜色只写在这里，中文描述写在
-    // LocalToolRunner，规则两份）。除 85/86 阵雪由 default 的 cloud.fill 修正为
+    // 原云端工具器，已移除）。除 85/86 阵雪由 default 的 cloud.fill 修正为
     // cloud.snow.fill（与「阵雪」描述对齐）外逐字照搬，颜色未动。
     private var icon: String { WeatherCode.symbol(code) }
     private var iconColor: Color { WeatherCode.color(code) }

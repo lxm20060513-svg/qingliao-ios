@@ -124,15 +124,11 @@ final class ChatStore {
     }
     // v3.0.7 修复：debounce 保存任务——快速切换会话/连续操作时只保存最后一次
     private var saveTask: Task<Void, Never>?
-    // v3.0.1 fix：云端/本地会话 id 用不同 key 隔离（原共用一个 key → 切模式串 sessionId）
-    // 注意：init 里不能访问 self.sessionKey（sessionId 未初始化会报 'self' used before init），
-    // 因此 init 内直接判断 CloudConfig.shared（静态单例，不依赖 self）
-    private var sessionKey: String {
-        CloudConfig.shared.isCloudMode ? "qingliao_current_session_cloud" : "qingliao_current_session"
-    }
+    // v3.0.1 fix：会话 id 用固定 key（v3.9.28：云端/本地双 key 已随云端模式移除）
+    private var sessionKey: String { "qingliao_current_session" }
 
     init() {
-        let key = CloudConfig.shared.isCloudMode ? "qingliao_current_session_cloud" : "qingliao_current_session"
+        let key = "qingliao_current_session"
         if let saved = defaults.string(forKey: key), !saved.isEmpty {
             sessionId = saved
         } else {
@@ -153,41 +149,16 @@ final class ChatStore {
     // MARK: - v3.1.5 启动自动加载上次会话（解决"App 忘记上下文"）
     /// App 重启后自动从后端/本地存储加载当前 sessionId 对应的会话消息，
     /// 让 historyPayload() 有上下文可发，不再每条消息都"从零开始"。
-    /// 云端模式从 CloudSessionStore（init 已加载）直接取；本地模式拉 /api/sessions/list。
     func loadLastSession(auth: AuthStore) async {
         guard messages.isEmpty else { return }   // 已有消息不覆盖（用户已手动加载）
         let sid = sessionId
-        if CloudConfig.shared.isCloudMode {
-            // 云端模式：CloudSessionStore.init() 已 load()，直接查
-            if let match = CloudSessionStore.shared.sessions.first(where: { $0.id == sid }) {
-                await MainActor.run { self.load(match) }
-            }
-            return
-        }
-        // 本地模式：从后端拉会话列表
+        // 从后端拉会话列表
         guard let j = try? await auth.json("/api/sessions/list"),
               let raw = j["sessions"] as? [Any] else { return }
         let sessions = raw.compactMap { ChatSession.parse($0 as? [String: Any] ?? [:]) }
         if let match = sessions.first(where: { $0.id == sid }) {
             await MainActor.run { self.load(match) }
         }
-    }
-
-    /// v3.0.2 fix（会话串位根治）：模式切换时调用——清空当前模式的内存数据，
-    /// 并按**新模式的 key** 重新读取当前会话 id。原实现：ChatStore 是全局单例，
-    /// 切模式不复位 → 云端聊天时内存里还带本地 messages → 界面串位。
-    /// v3.3.0：不再解析 bot 前缀（bot 模式已移除）
-    func switchToMode() {
-        let key = CloudConfig.shared.isCloudMode ? "qingliao_current_session_cloud" : "qingliao_current_session"
-        if let saved = defaults.string(forKey: key), !saved.isEmpty {
-            sessionId = saved
-        } else {
-            sessionId = UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(13).description
-            defaults.set(sessionId, forKey: key)
-        }
-        title = ""
-        messages = []
-        highlightTarget = nil
     }
 
     /// 新会话（v3.3.0：bot 模式已移除，仅生成普通新会话 id）
@@ -333,14 +304,13 @@ final class ChatStore {
     /// 只保留最后一条带图消息的 imageDataURL（前面已发过的图片不进 payload，防 base64 全量重复膨胀）
     /// - Parameters:
     ///   - model: 本次请求**实际要用的**模型名（来自 ChatView.resolveModel()，优先级链 免费>视觉>Agent>主）。
-    ///            传 nil 时回落到云端 activeConfig / 本地 UserDefaults（默认值与 ChatView 的 @AppStorage 一致）。
+    ///            传 nil 时回落到本地 UserDefaults（默认值与 ChatView 的 @AppStorage 一致）。
     ///            为什么要传：闸门必须和真正发出去的模型同源。若只用主模型键兜底，就会丢掉
     ///            resolveModel 的三档覆盖（免费模型 / 视觉模型 / Agent 模型），两侧判定不一致即会误压或漏压。
     ///   - provider: 同上，与 model 成对传入。
     func historyPayload(model: String? = nil, provider: String? = nil) -> [[String: Any]] {
         // v3.0.10：图片保留条件（不降级为文本）
-        // 云端模式：当前厂商 supportsVision
-        // 本地模式：主模型支持视觉 OR 配置了视觉模型自动切换
+        // 主模型支持视觉 OR 配置了视觉模型自动切换
         let visionOK: Bool = {
             // v3.9.26 fix：取源优先级 —— 入参是本次**真正要发出去的**模型（ChatView.resolveModel() 的
             // 免费 / 视觉 / Agent / 主 四档覆盖）。此前闸门只读 mainModelAndProvider，等于拿「主模型」
@@ -356,16 +326,7 @@ final class ChatStore {
             if CloudConfig.providerDeniesVision(model: curModelName, provider: curProviderName) {
                 return false
             }
-            if CloudConfig.shared.isCloudMode {
-                // ② 持久化的 supportsVision 只在「本次就是该厂商配置里的主模型」时可采信 ——
-                //    它按整个厂商配置存一份，本次发的是别的模型（免费 / 视觉 / Agent）时不能用它下结论。
-                if let c = CloudConfig.shared.activeConfig,
-                   c.model == curModelName, c.supportsVision { return true }
-                if !curModelName.isEmpty,
-                   CloudConfig.modelSupportsVision(curModelName, provider: curProviderName) { return true }
-                return false
-            }
-            // 本地模式：主模型支持视觉 → 直接 OK
+            // ② 主模型支持视觉 → 直接 OK
             if !curModelName.isEmpty,
                CloudConfig.modelSupportsVision(curModelName, provider: curProviderName) { return true }
             // 主模型不支持 → 开关开 + 有视觉模型配置才保留图片，否则降级文本
@@ -383,9 +344,6 @@ final class ChatStore {
         // （2026-09-13 实证：一句「不用」被回三份 NAS 内存诊断）。
         let (curProvider, curModel): (String, String) = {
             if let m = model, !m.isEmpty { return (provider ?? "", m) }
-            if CloudConfig.shared.isCloudMode, let c = CloudConfig.shared.activeConfig {
-                return (c.providerID, c.model)
-            }
             // 兜底默认值必须与 ChatView 的 @AppStorage 默认值一致（未设置时 @AppStorage 也返回它们）
             return (UserDefaults.standard.string(forKey: "qingliao_provider") ?? "opencode",
                     UserDefaults.standard.string(forKey: "qingliao_model") ?? "deepseek-v4-flash")
@@ -473,7 +431,7 @@ final class ChatStore {
         return out
     }
 
-    /// 保存会话（v3.0.1：按模式分流——云端写本地 CloudSessionStore 文件，本地走后端）
+    /// 保存会话（走后端 /api/sessions/merge）
     /// 本地模式：POST /api/sessions/merge（2.0 原逻辑）
     /// 云端模式：写 App 本地文档（防云端会话串进本地 AI 后端 sessions）
     /// 图片消息降级为文本（不带 base64 data URL，防 sessions.json 膨胀；历史重放本就不渲染图片）
@@ -511,10 +469,6 @@ final class ChatStore {
     /// 实际写库（原 saveToServer 参数版逻辑，移入此名；由串行链调用）
     private func writeSessionSnapshot(auth: AuthStore, sessionId sid: String, messages msgs: [ChatMessage], title t: String) async {
         guard !msgs.isEmpty else { return }
-        if CloudConfig.shared.isCloudMode {
-            CloudSessionStore.shared.saveChat(sessionId: sid, messages: msgs, title: t)
-            return
-        }
         let msgsPayload: [[String: Any]] = msgs.map { m in
             var p: [String: Any] = ["role": m.role, "content": m.content]
             if let ts = m.timestamp { p["timestamp"] = ts }
@@ -715,7 +669,6 @@ final class ChatStore {
     /// 队列天然派生自消息数组（重启后内存 messages 重新加载，残留 base64 的就是待传的），无需单独持久化。
     /// 触发点：会话加载后 / 前台回到 App / 发送路径降级后。
     func retryPendingImageUploads(auth: AuthStore, maxRetries: Int = 3) async {
-        guard !CloudConfig.shared.isCloudMode else { return }   // 云端本地上传链路不同，跳过
         let indices = messages.indices.filter { idx in
             let m = messages[idx]
             return m.isUser && (m.imageDataURL?.hasPrefix("data:image/") ?? false)
@@ -756,10 +709,8 @@ final class ChatStore {
             return await uploadImageChunked(imageData, auth: auth)
         }
         // v3.4.x code review fix（高）：上传目标必须是自家 NAS（auth.serverURL），此前误用
-        // CloudConfig.shared.activeConfig.baseURL（云端大模型厂商，如 api.deepseek.com/v1）拼 NAS 专属
         // 端点 /api/files/upload → WiFi 图片持久化恒打错主机静默失败，且把 NAS 的 X-Auth-Token
         // 发给了第三方云厂商（token 泄露面）。现统一拼 NAS：X-Auth-Token 只发自家服务器；
-        // cloud 模式图片持久化另走图床链路（上传前已有 isCloudMode 分流，此处只服务本地/后端上传）。
         guard let base = Self.nasBaseURL(auth: auth) else { return nil }
         guard let url = URL(string: base + "/api/files/upload") else { return nil }
 
@@ -794,7 +745,7 @@ final class ChatStore {
     /// 片大小自适应：从 16KB 起，某一片失败 → 整体减半重试（换新 uploadId），直到摸出蜂窝能通过的临界值。
     private func uploadImageChunked(_ imageData: Data, auth: AuthStore) async -> String? {
         // v3.4.x code review fix（高）：与 WiFi 路径同源——目标主机取 NAS（auth.serverURL），
-        // 不再用 CloudConfig.activeConfig.baseURL（云厂商）；相对路径回填同样拼 NAS。
+        // 相对路径回填拼 NAS 专属地址（v3.9.28：云端厂商 baseURL 分支已随云端模式移除）。
         guard let base = Self.nasBaseURL(auth: auth) else { return nil }
 
         var slice = min(imageData.count, 16 * 1024)

@@ -468,14 +468,6 @@ struct SessionsView: View {
         // 秒显不白屏；联网成功后再刷新覆盖。UI 已有 `isLoading && sessions.isEmpty` 判空才转圈，
         // 因此先填缓存（sessions 非空）不会触发 loading 占位，直接展示列表。
         loadFromSessionCache()
-        // v3.0 云端模式：会话历史存 App 本地（CloudSessionStore），不走后端
-        if CloudConfig.shared.isCloudMode {
-            CloudSessionStore.shared.load()
-            sessions = CloudSessionStore.shared.sessions
-            chat.syncUnread(from: sessions, currentId: chat.sessionId)
-            isLoading = false
-            return
-        }
         do {
             let j = try await auth.json("/api/sessions/list")
             let raw = (j["sessions"] as? [Any] ?? [])
@@ -496,11 +488,10 @@ struct SessionsView: View {
 
     private static let sessionCacheKey = "qingliao_sessions_cache"
 
-    /// 读本地缓存（仅本地模式）：从上次成功拉取的原始 JSON 还原会话列表。
-    /// 失败/无缓存/云端模式一律静默返回，不影响正常联网加载。
+    /// 读本地缓存：从上次成功拉取的原始 JSON 还原会话列表。
+    /// 失败/无缓存一律静默返回，不影响正常联网加载。（v3.9.28：云端模式已移除）
     private func loadFromSessionCache() {
-        guard !CloudConfig.shared.isCloudMode,
-              let data = UserDefaults.standard.data(forKey: Self.sessionCacheKey),
+        guard let data = UserDefaults.standard.data(forKey: Self.sessionCacheKey),
               let raw = try? JSONSerialization.jsonObject(with: data) as? [Any] else { return }
         sessions = raw.compactMap { ChatSession.parse($0 as? [String: Any] ?? [:]) }
             .sorted { ($0.lastTime ?? 0) > ($1.lastTime ?? 0) }
@@ -509,7 +500,6 @@ struct SessionsView: View {
 
     /// 写缓存：限制最近 100 个会话、每个会话消息截断最近 50 条，控制 UserDefaults 体积。
     private func saveToSessionCache(_ raw: [Any]) {
-        guard !CloudConfig.shared.isCloudMode else { return }
         let limited: [Any] = Array(raw.prefix(100)).map { s -> Any in
             guard var d = s as? [String: Any] else { return s }
             if var msgs = d["messages"] as? [Any], msgs.count > 50 {
@@ -534,14 +524,6 @@ struct SessionsView: View {
         selectedIds.removeAll()
         editing = false
         Task {
-            // v3.0 云端模式：本地删除
-            if CloudConfig.shared.isCloudMode {
-                for id in idsCopy {
-                    CloudSessionStore.shared.delete(id: id)
-                }
-                await load()
-                return
-            }
             do {
                 let j = try await auth.json("/api/sessions/merge", method: "POST", body: [
                     "sessions": [] as [Any], "deleted": idsCopy
@@ -570,18 +552,6 @@ struct SessionsView: View {
         //    不再隐藏页清空（v2.0.54/56 的延迟只是推迟崩溃，隐藏页清空才是 SIGTRAP 根因）
         let deletingId = s.id
         Task {
-            // v3.0 云端模式：本地删除
-            if CloudConfig.shared.isCloudMode {
-                CloudSessionStore.shared.delete(id: s.id)
-                await load()
-                if chat.sessionId == deletingId {
-                    onOpenSession?()
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                        chat.requestNewSession()
-                    }
-                }
-                return
-            }
             do {
                 let j = try await auth.json("/api/sessions/merge", method: "POST", body: [
                     "sessions": [] as [Any],
@@ -620,16 +590,9 @@ struct BotCard: View {
     // v2.0.50：模型/提供商动态读取（设置切换后实时刷新）
     @AppStorage("qingliao_model") private var modelName = "deepseek-v4-flash"
     @AppStorage("qingliao_provider") private var provider = "opencode"
-    // v3.0.2 fix：云端 AI 会话头像模型应显示「设置→模型管理」选的模型（存 CloudConfig，非 qingliao_model）
-    @State private var cloudConfig = CloudConfig.shared
-
-    // 按模式取当前模型：云端读 CloudConfig.activeConfig，本地读 qingliao_model
+    // 当前模型显示
     // v3.0.20：Agent 模型自定义——配置了独立模型时显示 agent 模型（v3.4.12：开关已移除，恒开启）
     private var displayModel: String {
-        if CloudConfig.shared.isCloudMode {
-            let c = CloudConfig.shared.activeConfig
-            return "\(c?.name ?? "云端")/\(c?.model ?? "未选")"
-        }
         // v3.4.12：Agent 开关已移除（后端恒走 Hermes agent），配置了独立模型即显示
         let agentModel = UserDefaults.standard.string(forKey: UserDefaultsKey.agentModel) ?? ""
         if !agentModel.isEmpty {
@@ -653,7 +616,6 @@ struct BotCard: View {
                 Text("轻聊 agent")
                     .font(.system(size: Typography.body, weight: .semibold))
                 // v2.0.50：模型名动态显示（之前硬编码，设置切模型不刷新）
-                // v3.0.2：云端模式显示 CloudConfig 选中模型
                 Text(displayModel)
                     .font(.system(size: Typography.caption, design: .monospaced))
                     .foregroundStyle(.secondary)

@@ -1,51 +1,6 @@
 import SwiftUI
 import LocalAuthentication
 
-// MARK: - v3.0 登录模式切换器（本地 AI / 云端 AI 共用，置于登录页顶部）
-
-struct ModeSwitchBar: View {
-    @State private var config = CloudConfig.shared
-
-    var body: some View {
-        HStack(spacing: 0) {
-            modeButton("本地 AI", mode: .local, icon: "server.rack")
-            modeButton("云端 AI", mode: .cloud, icon: "cloud.fill")
-        }
-        .padding(Spacing.xs)
-        .background(Color(uiColor: .secondarySystemGroupedBackground), in: Capsule())
-        .overlay(Capsule().strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8))
-        // v3.0.1：胶囊选中高亮平滑过渡（点击瞬间移动渐变，非跳变）
-        .animation(Motion.settle, value: config.mode)
-        .padding(.horizontal, 24)
-        .padding(.top, Spacing.xl)
-    }
-
-    private func modeButton(_ title: String, mode: QingliaoMode, icon: String) -> some View {
-        Button {
-            // v3.0.1：动画由 RootView .animation(value: config.mode) 统一驱动，
-            // 这里不再包 withAnimation（避免与上层动画叠加）
-            config.setMode(mode)
-        } label: {
-            HStack(spacing: 5) {
-                Image(systemName: icon)
-                    .font(.system(size: Typography.caption))
-                Text(title)
-                    .font(.system(size: Typography.subhead, weight: .semibold))
-            }
-            .foregroundStyle(config.mode == mode ? Color.white : Color.secondary)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, Spacing.md)
-            .background(
-                config.mode == mode
-                    ? AnyShapeStyle(LinearGradient(colors: [.blue, .indigo], startPoint: .leading, endPoint: .trailing))
-                    : AnyShapeStyle(Color.clear),
-                in: Capsule()
-            )
-        }
-        .buttonStyle(.plain)
-    }
-}
-
 // MARK: - 登录页（服务器地址 + 账号密码 + 记住登录 + Face ID 快捷登录）
 
 struct LoginView: View {
@@ -69,8 +24,6 @@ struct LoginView: View {
             Color(uiColor: .systemBackground).ignoresSafeArea()
 
             VStack(spacing: 24) {
-                // v3.0：模式切换器（本地 AI / 云端 AI）
-                ModeSwitchBar()
                 Spacer()
 
                 // Logo

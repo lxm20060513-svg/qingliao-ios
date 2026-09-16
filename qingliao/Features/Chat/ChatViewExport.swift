@@ -222,40 +222,33 @@ extension ChatView {
                     content = "[文件: \(name)]（上传失败：连接异常，请重试）"
                 }
             }
-            // v3.0.84fix：云端模式文件消息走 startCloudStream（原 stream.start 打本地 NAS，云端 sendFile 链路报废）
-            if CloudConfig.shared.isCloudMode {
-                let m = ChatMessage.local(role: "user", content: content)
-                chat.append(m)
-                startCloudStream(for: m)
-            } else {
-                // v3.3.3：接住 m 作为落库锚点（防延迟回调把文件回复贴到新消息后）
-                let m = ChatMessage.local(role: "user", content: content)
-                chat.append(m)
-                // v3.0.81：统一模型优先级链（免费 > 视觉 > Agent > 主模型）
-                let (useModel, useProvider) = resolveModel()
-                // v3.9.15：闸门与实际请求同源
-                let history = chat.historyPayload(model: useModel, provider: useProvider)
-                stream.pendingUserMsgId = m.id   // v3.3.3：文件消息流锚点
-                let startSid = chat.sessionId   // v3.5.2：会话切换后本次结果丢弃（与 startStream 一致）
-                await stream.start(auth: auth, sessionId: chat.sessionId, model: useModel,
-                                   provider: useProvider, messages: history) { success, error in
-                    guard chat.sessionId == startSid else { return }   // 已切换会话 → 本次结果丢弃
-                    if !success {
-                        chat.upsertAssistant(stream.content.isEmpty ? "⚠️ \(error)" : stream.content + "\n\n⚠️ \(error)", agent: stream.isAgent, afterUserID: m.id)
-                    } else if stream.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        // v3.5.1：空回复 → 明确提示（不用 markFailed，见 handleEmptyReply 注释）
-                        chat.upsertAssistant(Self.emptyReplyNote, agent: true, afterUserID: m.id)
-                    } else {
-                        chat.upsertAssistant(stream.content, agent: stream.isAgent, afterUserID: m.id)
-                        showSentOK()
-                        // v2.0.36：App 退后台时 AI 回复完成发本地通知
-                        if UIApplication.shared.applicationState != .active {
-                            NotificationHelper.notify(title: "轻聊", body: "AI 回复完成，点击查看",
-                                                      sessionId: chat.sessionId)
-                        }
+            // v3.3.3：接住 m 作为落库锚点（防延迟回调把文件回复贴到新消息后）
+            let m = ChatMessage.local(role: "user", content: content)
+            chat.append(m)
+            // v3.0.81：统一模型优先级链（免费 > 视觉 > Agent > 主模型）
+            let (useModel, useProvider) = resolveModel()
+            // v3.9.15：闸门与实际请求同源
+            let history = chat.historyPayload(model: useModel, provider: useProvider)
+            stream.pendingUserMsgId = m.id   // v3.3.3：文件消息流锚点
+            let startSid = chat.sessionId   // v3.5.2：会话切换后本次结果丢弃（与 startStream 一致）
+            await stream.start(auth: auth, sessionId: chat.sessionId, model: useModel,
+                               provider: useProvider, messages: history) { success, error in
+                guard chat.sessionId == startSid else { return }   // 已切换会话 → 本次结果丢弃
+                if !success {
+                    chat.upsertAssistant(stream.content.isEmpty ? "⚠️ \(error)" : stream.content + "\n\n⚠️ \(error)", agent: stream.isAgent, afterUserID: m.id)
+                } else if stream.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    // v3.5.1：空回复 → 明确提示（不用 markFailed，见 handleEmptyReply 注释）
+                    chat.upsertAssistant(Self.emptyReplyNote, agent: true, afterUserID: m.id)
+                } else {
+                    chat.upsertAssistant(stream.content, agent: stream.isAgent, afterUserID: m.id)
+                    showSentOK()
+                    // v2.0.36：App 退后台时 AI 回复完成发本地通知
+                    if UIApplication.shared.applicationState != .active {
+                        NotificationHelper.notify(title: "轻聊", body: "AI 回复完成，点击查看",
+                                                  sessionId: chat.sessionId)
                     }
-                    Task { await chat.saveToServer(auth: auth) }
                 }
+                Task { await chat.saveToServer(auth: auth) }
             }
         }
     }

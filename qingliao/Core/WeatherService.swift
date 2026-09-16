@@ -3,11 +3,11 @@ import SwiftUI
 // MARK: - v3.9.25 天气数据服务（WMO 映射单一真源 + 两通路取数）
 //
 // 背景：天气码 → 图标/颜色的映射原先只写在 WeatherBadge 里（private var），中文描述只写在
-// LocalToolRunner.weatherText 里 —— 同一套 WMO 规则散在两处，天气弹窗若再抄一遍就是第三份。
+// 原 LocalToolRunner.weatherText 里 —— 同一套 WMO 规则散在两处，天气弹窗若再抄一遍就是第三份。
 // 这里收敛为单一真源：
 //   · WeatherBadge 改为转调本文件（逐字照搬，**唯一有意变更**：85/86 阵雪由原 default 的
 //     cloud.fill 改为 cloud.snow.fill，与 WeatherCode.text 的「阵雪」对齐；颜色未动）
-//   · LocalToolRunner.weatherText 改为转调本文件（纯照搬，行为一致）
+//   · 原 LocalToolRunner.weatherText 改为转调本文件（纯照搬，行为一致；该工具已随云端模式移除）
 //   · 新增的 WeatherSheet 直接用
 //
 // 取数两通路（用户 2026-09-15 定稿：只扩后端 + 云端沿用直连）：
@@ -77,7 +77,7 @@ enum WeatherCode {
         }
     }
 
-    /// WMO 码 → 中文描述（照搬 LocalToolRunner.weatherText 原映射）
+    /// WMO 码 → 中文描述（照搬原 LocalToolRunner.weatherText 映射）
     static func text(_ code: Int?) -> String {
         switch code ?? -1 {
         case 0: return "晴"

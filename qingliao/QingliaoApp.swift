@@ -39,7 +39,6 @@ struct QingliaoApp: App {
                     LiveSpeechTranscriber.cleanupLegacyRecordings()   // v3.9.3：清旧「录音上传」留下的 .m4a（新流程不落盘音频）
                     // v3.8.0：启动收敛——清掉上一进程遗留的实时活动（App 被杀/闪退后活动仍由系统保留数小时）
                     await LiveActivityManager.shared.convergeOnLaunch()
-                    LocalToolRunner.authStore = auth
                     SpeechManager.shared.attach(auth: auth)
                     // v3.9.10：预热系统音色目录（后台枚举一次，避免首次朗读/设置页在主线程枚举音色卡 3~7 秒）
                     Task { _ = await SpeechManager.voiceCatalog() }
@@ -96,22 +95,12 @@ struct QingliaoApp: App {
 struct RootView: View {
     @Environment(AuthStore.self) private var auth
     @Environment(StreamClient.self) private var stream   // v2.0.87bd：Siri 发光读取流式状态
-    @Environment(ChatStore.self) private var chat   // v3.0.2：模式切换时要复位会话语境
-    // v3.0：@Observable 单例必须 @State 持有，body 才能观察 mode 变化（否则分支切换不响应）
-    @State private var config = CloudConfig.shared
-    // v3.0.2：登录页 TabView 页码（0=本地AI 1=云端AI），与 config.mode 双向同步
-    @State private var loginPage: Int = 0
+    @Environment(ChatStore.self) private var chat
     // v3.4.25：上次异常退出提示弹窗（检测到未读崩溃日志时弹出，一次性）
     @State private var showCrashAlert = false
     @State private var crashAlertText = ""
     // v3.4.25：崩溃日志查看/导出弹窗（AlertSheet 内含 UIActivityViewController）
     @State private var showCrashLogSheet = false
-    private var modeIndex: Binding<Int> {
-        Binding(
-            get: { config.isCloudMode ? 1 : 0 },
-            set: { loginPage = $0 }
-        )
-    }
     @State private var showSplash = true
     // v2.0.92：App 锁（启动 Face ID 验证；与 Face ID 登录相互独立）
     @AppStorage("qingliao_app_lock") private var appLockOn = false
@@ -119,23 +108,11 @@ struct RootView: View {
 
     var body: some View {
         ZStack {
-            // v3.0.2 登录门禁：TabView paging——左右滑动切换本地/云端 AI 登录页
+            // 登录门禁（v3.9.28：云端模式已移除，仅剩本地 AI 登录页）
             if auth.isLoggedIn {
                 DockTabView()
             } else {
-                TabView(selection: $loginPage) {
-                    LoginView()
-                        .tag(0)
-                    CloudLoginView()
-                        .tag(1)
-                }
-                .tabViewStyle(.page(indexDisplayMode: .never))
-                .ignoresSafeArea()
-                // 滑动到哪页 → 同步模式（loginPage 是真页码，滑动即改）
-                .onChange(of: loginPage) { _, new in
-                    if new == 0 && config.isCloudMode { config.setMode(.local) }
-                    else if new == 1 && !config.isCloudMode { config.setMode(.cloud) }
-                }
+                LoginView()
             }
 
             // v2.0.92：App 锁遮罩（已登录 + 开关开 + 未解锁时覆盖，splash 之下）
@@ -155,8 +132,7 @@ struct RootView: View {
             }
 
             // v2.0.87bh：AI 回答时 Siri 边框发光（回退顶层 zIndex——下层方案被 DockTabView 背景盖住）
-            // v3.0.2：云端模式也会触发（CloudBackend.isStreaming）；原只看 stream.isStreaming（云端永不 true → 发光失效）
-            let streaming = stream.isStreaming || CloudBackend.shared.isStreaming
+            let streaming = stream.isStreaming
             if streaming && UserDefaults.standard.bool(forKey: "qingliao_siri_glow") {
                 SiriGlowOverlay()
                     .zIndex(20)
@@ -167,21 +143,8 @@ struct RootView: View {
                     .zIndex(21)
             }
         }
-        // v3.0.1：模式切换驱动登录页过渡动画（ModeSwitchBar 点击 → mode 变化 → 平滑滑动淡入）
-        .animation(Motion.emerge, value: config.mode)
-        // v3.0.3 fix：ModeSwitchBar 点「本地/云端」改 mode 后，同步登录 TabView 页码 + 复位会话语境
-        // （原挂在 if/else 上导致 onChange 无法解析 → 移到 View 链末尾）
-        .onChange(of: config.mode) { _, new in
-            if !auth.isLoggedIn {
-                loginPage = (new == .cloud) ? 1 : 0   // 同步登录 TabView 当前页
-            }
-            chat.switchToMode()   // 会话串位根治：切模式清空内存，从新模式 key 重读
-        }
-        // v3.0.5 review fix：冷启动/登出后 loginPage 与持久化 mode 同步（原恒为 0 → 云端模式登出后错位）
+        // v3.9.28：模式切换已随云端模式移除，这里只剩崩溃日志快照
         .onAppear {
-            if !auth.isLoggedIn {
-                loginPage = config.isCloudMode ? 1 : 0
-            }
             // v3.4.25：启动时留存最近一次崩溃日志快照（flushPending 上报成功会删原文件，
             // 快照保证设置页「崩溃日志」入口始终可回查），并检测未读崩溃 → 弹低调提示
             if CrashReporter.hasPendingLog() {
@@ -192,12 +155,6 @@ struct RootView: View {
                 }
                 crashAlertText = text
                 showCrashAlert = true
-            }
-        }
-        .onChange(of: auth.isLoggedIn) { _, loggedIn in
-            if !loggedIn {
-                // 登出回门禁 → 登录页跟随当前模式（云端=1 本地=0）
-                loginPage = config.isCloudMode ? 1 : 0
             }
         }
         .task {

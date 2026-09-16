@@ -100,62 +100,6 @@ struct PendingSend: Codable, Equatable {
     let imageData: String?
 }
 
-// MARK: - v3.0.18 云端工具调用 UI 数据
-
-/// v3.0.18：工具循环 escaping 闭包内的文本累积器（Swift 6 并发：闭包不能改捕获的局部 var）
-@MainActor
-final class CloudTextAccumulator {
-    var text = ""
-}
-
-/// v3.0.18：工具确认弹窗状态门（@Observable @MainActor——pending 变化驱动 confirmationDialog 出现；60s 超时 @Sendable 闭包只捕获它）
-@MainActor
-@Observable
-final class ToolConfirmGate {
-    var pending: PendingToolConfirm?
-    var onConfirm: ((Bool) -> Void)?
-}
-
-/// v3.0.18 fix：云端流式 UI 状态——提取为 @Observable 引用类型，
-/// 闭包捕获此对象而非 ChatView struct（struct 值捕获 → Task 内 self 旧副本 → 后续更新丢失）
-@Observable @MainActor
-final class CloudStreamUIState {
-    var toolCards: [ToolCardItem] = []
-    var lastStreamFlush: Date? = nil
-}
-
-/// 工具执行结果卡片（显示在消息区，AI 气泡上方）
-struct ToolCardItem: Identifiable {
-    let id = UUID()
-    let title: String
-    let ok: Bool
-}
-
-/// 工具卡片视图（绿勾/红叉 + 标题）
-struct ToolCardView: View {
-    let item: ToolCardItem
-    var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: item.ok ? "checkmark.circle.fill" : "xmark.circle.fill")
-                .font(.system(size: Typography.body))
-                .foregroundStyle(item.ok ? .green : .red)
-            Text(item.title)
-                .font(.system(size: Typography.subhead))
-                .foregroundStyle(.primary)
-                .lineLimit(2)
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, Spacing.xl)
-        .padding(.vertical, Spacing.md)
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: Radius.inset, style: .continuous)
-                .strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8)
-        )
-    }
-}
-
 /// v3.9.17：AI 后端（Hermes）路径的工具进度一行。
 /// 数据来自 /api/stream/{taskId} 的 toolNames（后端已翻中文，App 不维护第二份映射表）；
 /// 流未结束时最后一行视为「正在执行」，其余打勾——长任务里用户不必等结果才知道在干什么。
@@ -316,11 +260,6 @@ struct ChatView: View {
     @State var voiceDiag = ""   // v3.0.78 诊断：录音链路诊断信息
     // v2.0.88：AI 回答中发送的消息队列（回答结束后自动逐条发送）
     @State var pendingQueue: [PendingSend] = []
-    // v3.0.18：云端工具调用——执行卡片 + 写操作确认弹窗（gate 类持有，超时闭包只捕获它）
-    // v3.0.18 fix：toolCards/lastStreamFlush 提取到 CloudStreamUIState（@Observable 引用类型，
-    // 闭包捕获引用而非 struct 值拷贝，避免 Task 内 self 旧副本 → 状态更新丢失）
-    @State var toolGate = ToolConfirmGate()
-    @State var cloudStreamUI = CloudStreamUIState()
     // v3.4.0：底部上拉拉取收件箱状态（@Observable 引用——拖动高频写不重建 ChatView body）
     @State var inboxPull = InboxPullState()
     // v3.4.x 存储自洁：长会话超阈值提示手动归档（消息数超限显示提示条，点击导出）
@@ -385,18 +324,15 @@ struct ChatView: View {
     @State private var suppressAutoReadOnce = false
     @State private var showReasoningPicker = false
 
-    /// v3.5.1：是否有 AI 在处理本会话——本地流 / 云端流 / 服务器兜底探测（三合一）。
+    /// v3.5.1：是否有 AI 在处理本会话——本地流 / 服务器兜底探测（v3.9.28：云端流已移除）。
     /// 本地流按会话收窄：stream 是全局单例，会话 A 在跑时切到 B 不该显示"AI 正在输入"。
     private var aiBusy: Bool {
-        (stream.isStreaming && auth.currentStreamSessionId == chat.sessionId)
-            || CloudBackend.shared.isStreaming || remoteBusy
+        (stream.isStreaming && auth.currentStreamSessionId == chat.sessionId) || remoteBusy
     }
     /// v3.8.0：实时活动（灵动岛/锁屏）展开态展示的模型名——**复用发送路径同一套选型**（免费/视觉/Agent/主模型），
-    /// 云端口径对齐 SessionsView.displayModel；否则会出现「灵动岛写着主模型、实际回的是免费/Agent 模型」的错报
+    /// 口径对齐 SessionsView.displayModel；否则会出现「灵动岛写着主模型、实际回的是免费/Agent 模型」的错报
     private var liveActivityModelName: String {
-        CloudConfig.shared.isCloudMode
-            ? (CloudConfig.shared.activeConfig?.model ?? modelName)
-            : resolveModel(hasImage: false).0
+        resolveModel(hasImage: false).0
     }
 
     /// v3.9.7：实时活动阶段——驱动灵动岛三态（思考中 / 输出中 / 已完成）。
@@ -474,11 +410,10 @@ struct ChatView: View {
 
     /// v3.6.5：仅本地模式包一层（独立属性，避免 headerTrailingItems 表达式过复杂
     /// 触发 Xcode 26「unable to type-check in reasonable time」——v3.3.0 已因此抽离过一次）
+    /// v3.9.28：云端模式移除后恒显示，保留独立属性防 type-check 超时的初衷不变
     @ViewBuilder
     private var localReasoningPill: some View {
-        if !CloudConfig.shared.isCloudMode {
-            reasoningPill
-        }
+        reasoningPill
     }
 
     /// v3.6.5：模型思考档位胶囊（放在任务中心左侧）。点击弹出档位选择。
@@ -765,10 +700,8 @@ struct ChatView: View {
                 menuButton("doc.fill", "文件", Color.indigo, idx: 1) { showFileImporter = true }
                 // v2.0.43：快捷指令（常用 prompt 模板）
                 menuButton("bolt.fill", "指令", Color.orange, idx: 2) { showQuickPrompts = true }
-                // v3.0.6 fix：Hermes 捷径仅本地 AI 显示（云端无，遵循「本地有/云端无」）
-                if !CloudConfig.shared.isCloudMode {
-                    menuButton("sparkles", "Hermes 捷径", Color.purple, idx: 3) { showHermesShortcut = true }
-                }
+                // v3.9.28：云端模式移除，Hermes 捷径恒显示（v3.0.6 的按模式隐藏随之作废）
+                menuButton("sparkles", "Hermes 捷径", Color.purple, idx: 3) { showHermesShortcut = true }
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, Spacing.xl)
@@ -960,16 +893,6 @@ struct ChatView: View {
         } message: {
             Text("最多合并 \(Self.maxMergeCount) 条，请减少勾选后再合并。")
         }
-        // v3.0.18：云端工具写操作确认（日历/提醒/计时器）
-        .confirmationDialog("确认执行？", isPresented: Binding(
-            get: { toolGate.pending != nil },
-            set: { if !$0 { toolGate.onConfirm?(false) } }
-        ), titleVisibility: .visible) {
-            Button("执行") { toolGate.onConfirm?(true) }
-            Button("取消", role: .cancel) { toolGate.onConfirm?(false) }
-        } message: {
-            Text(toolGate.pending?.summary ?? "")
-        }
         // v2.0.61：杀后台流式恢复（幂等——无持久化任务时静默返回）
         .task {
             await resumePersistedStream()
@@ -997,7 +920,7 @@ struct ChatView: View {
             QuickPromptSheet(onPick: { prompt in
                 inputText = prompt
                 showAttachmentMenu = false
-            }, includeKB: !CloudConfig.shared.isCloudMode)   // v3.0.6：知识库仅本地
+            }, includeKB: true)   // v3.9.28：知识库恒显示（原按云端/本地分流，云端已移除）
             .presentationDetents([.medium, .large])
         }
         // v2.0.96：Hermes 捷径面板（官方斜杠命令，点击填充输入框）
@@ -1687,17 +1610,6 @@ struct ChatView: View {
                                                                     // v3.4.2：吃 entry 快照（含 prevMsg），渲染不触碰可变 chat.messages
                                                                     messageRow(entry: entry)
                                                                 }
-                        // v3.0.18：云端工具执行卡片（显示在流式气泡上方）
-                        // v3.0.18 fix：改用 @Observable cloudStreamUI.toolCards（引用类型，闭包安全）
-                        if !cloudStreamUI.toolCards.isEmpty {
-                            VStack(alignment: .leading, spacing: 6) {
-                                ForEach(cloudStreamUI.toolCards) { card in
-                                    ToolCardView(item: card)
-                                }
-                            }
-                            .padding(.horizontal, 44)   // 左侧留出 AI 头像位
-                            .transition(.opacity)
-                        }
                         toolStepCards
                         if stream.isStreaming {
                             if stream.content.isEmpty {
@@ -1808,7 +1720,6 @@ struct ChatView: View {
         .onChange(of: chat.sessionId) {
             clearPendingQueue()
             refreshVisibleMessages()
-            cloudStreamUI.toolCards = []   // v3.0.18 fix：工具卡片跨会话残留清理（通过 @Observable 引用类型）
             stream.toolNames = []          // v3.9.17：工具进度卡同样会跨会话残留 → 一并清（否则 B 会话底部显示 A 跑过的工具）
             // v3.0.51 A1：会话加载后重传残留 base64 图片（重启续传/失败重传）
             Task { await chat.retryPendingImageUploads(auth: auth) }
@@ -2217,8 +2128,6 @@ struct ChatView: View {
     /// 只向后端投一条 /new 触发 gateway 侧会话重置——不落本地消息、不接流式、不显示气泡，
     /// 用户看到的仍是干净的新会话 + 欢迎页（区别于手动发 /new：那条走 sendCore 是可见的普通消息）
     private func silentGatewayReset() {
-        // 云端模式直连大模型 API，没有 gateway 会话上下文概念 → 无需重置
-        guard !CloudConfig.shared.isCloudMode else { return }
         let (useModel, useProvider) = resolveModel(hasImage: false)
         let sid = chat.sessionId   // 已是新建后的新 sessionId
         // 只投单条 /new（不带历史）：gateway 收到命令即重置，带历史只是白传一遍上下文
@@ -2301,13 +2210,7 @@ struct ChatView: View {
 
     /// v2.0.88：启动流式回答（消息已在列表；失败标记/回复完成/队列联动统一在这里）
     /// v2.0.102：记录发起会话——回答期间切换会话则丢弃结果（防跨会话污染）；完成回调释放 sendingLock
-    /// v3.0：云端模式走 CloudBackend 直连 SSE（不经过 NAS 后端）
     func startStream(for msg: ChatMessage) {
-        // v3.0 云端模式：直连大模型 API
-        if CloudConfig.shared.isCloudMode {
-            startCloudStream(for: msg)
-            return
-        }
         // v3.4.10 X方案：发「断种子净化完整历史」给后端（不再只传当前消息）。
         // 后端 _build_hermes_messages 对完整历史再做 _sanitize_history/_compress_long_assistants/
         // _break_repeat_seed，并去掉 X-Hermes-Session-Id（不再让 Hermes 用 state.db 重建未净化会话）。
@@ -2436,7 +2339,6 @@ struct ChatView: View {
     /// 用户以为 AI 停了、答案也回不来（2026-09-11 实报）。现在无条件问服务器，再按结论决定接回。
     private func probeRemoteBusy() async {
         if stream.isStreaming { remoteBusy = false; return }
-        if CloudConfig.shared.isCloudMode { remoteBusy = CloudBackend.shared.isStreaming; return }
         let sid = chat.sessionId
         guard !sid.isEmpty, auth.isLoggedIn else { remoteBusy = false; return }
         let pending = UserDefaults.standard.dictionary(forKey: "qingliao_stream_pending")
@@ -2558,130 +2460,6 @@ struct ChatView: View {
                 }
                 Task { await chat.saveToServer(auth: auth) }
             }
-        }
-    }
-
-    /// v3.0 云端流式直连（SSE 增量拼接，UI 与本地模式一致）
-
-    /// 云端模式回答：直连 OpenAI 兼容端点，逐段追加 assistant 内容
-    /// v3.0.18：改用 stream.content 驱动 streamingBubble（粒子头像 + SwiftUI Text 渲染），结束落库；
-    ///         接入 CloudToolLoop 本地工具调用（function calling：日历/提醒/计时器/天气/剪贴板/计算器/通知）
-    /// v3.0.84fix：private→internal（让 ChatViewExport 的 sendFile 云端分支也能调用）
-    func startCloudStream(for msg: ChatMessage) {
-        let startSid = chat.sessionId
-        // v3.0.18：启用流式气泡（三点 / 粒子头像 / Text 渲染）
-        stream.isStreaming = true
-        stream.isDone = false
-        stream.content = ""
-        stream.isAgent = false
-        cloudStreamUI.toolCards = []  // v3.0.18 fix：通过 @Observable 引用类型重置
-        stream.toolNames = []         // v3.9.17：云端路径不产工具进度，清掉 AI 后端路径的残留
-        stream.startSmoothPublic()   // v3.4.20：云端流式同样启用打字机平滑释放
-        CloudBackend.shared.isStreaming = true   // v3.0.2：标记云端流式进行中（驱动 Siri 发光）
-        // v3.0.18 fix：Task 显式捕获引用对象（chat/stream @Environment 类引用），
-        // 避免隐式捕获 struct 值副本导致 Task 内 self 旧副本 → 后续更新丢失
-        Task { [chat = self.chat, stream = self.stream] in
-            defer {
-                sendingLock = false
-                stream.isStreaming = false
-                stream.isDone = true
-                stream.stopSmoothPublic()   // v3.4.20：云端路径平滑层收尾
-                CloudBackend.shared.isStreaming = false
-            }
-            do {
-                let history = chat.historyPayload()
-                // v3.0.18：工具循环内 escaping 闭包修改局部 var 触发 Swift 6 并发错误 → 用 @MainActor 容器
-                let acc = CloudTextAccumulator()
-                // v3.0.18 fix：闭包不再捕获 [self]（struct 值拷贝 → Task 内 self 旧副本 → 更新丢失），
-                // 改为捕获具体引用对象：chat/stream 是 @Environment 类引用，cloudStreamUI 是 @Observable 类引用
-                let finalText = await CloudToolLoop.shared.run(
-                    messages: history,
-                    confirmHandler: { [chat = self.chat, toolGate = self.toolGate] pending in
-                        // v3.0.18 review：确认弹窗期间切了会话 → 拒绝执行（防日历/提醒建到别的会话场景）
-                        guard chat.sessionId == startSid else { return false }
-                        return await self.confirmToolRun(pending, toolGate: toolGate)
-                    },
-                    events: { [chat = self.chat, stream = self.stream, ui = self.cloudStreamUI, acc] event in
-                        guard chat.sessionId == startSid else { return }
-                        switch event {
-                        case .text(let delta):
-                            acc.text += delta
-                            // v3.0.41 性能：流式节流——每 delta 更新 stream.content 触发全树重建，
-                            // 超长文本高频重建=卡死主因；限 50ms 合并一次（视觉仍连贯）
-                            let now = Date()
-                            if ui.lastStreamFlush == nil || now.timeIntervalSince(ui.lastStreamFlush!) >= 0.05 {
-                                ui.lastStreamFlush = now
-                                stream.content = acc.text
-                            }
-                        case .toolCard(let title, let ok):
-                            ui.toolCards.append(ToolCardItem(title: title, ok: ok))
-                        case .done(let full):
-                            acc.text = full
-                            stream.content = full
-                        case .error(let err):
-                            // v3.0.18 review fix #3：错误同时拼入 acc——run 返回 nil 后落库走 acc.text 路径，真实错误不丢失
-                            // v3.0.19：限流错误友好提示（与本地模式一致）
-                            let friendly = Self.friendlyStreamError(err)
-                            let errText = acc.text.isEmpty ? "⚠️ " + friendly : acc.text + "\n\n⚠️ " + friendly
-                            acc.text = errText
-                            stream.content = errText
-                        }
-                    }
-                )
-                guard chat.sessionId == startSid else { return }
-                if let finalText, !finalText.isEmpty {
-                    // 落库 assistant 消息（替换掉 streamingBubble）
-                    chat.upsertAssistant(finalText, afterUserID: msg.id)
-                    showSentOK()
-                    // v3.0.19：语音指令回复完成 → TTS 播报摘要
-
-                    if UIApplication.shared.applicationState != .active {
-                        NotificationHelper.notifyReply(finalText, sessionId: chat.sessionId)
-                    }
-                } else if acc.text.isEmpty {
-                    chat.markFailed(id: msg.id)
-                    chat.upsertAssistant("⚠️ 云端未返回内容", afterUserID: msg.id)
-                } else {
-                    chat.upsertAssistant(acc.text, afterUserID: msg.id)
-                }
-                CloudSessionStore.shared.saveChat(store: chat)
-                finishCloudQueue()
-            } catch {
-                guard chat.sessionId == startSid else { return }
-                chat.markFailed(id: msg.id)
-                chat.upsertAssistant("⚠️ \(error.localizedDescription)", afterUserID: msg.id)
-                CloudSessionStore.shared.saveChat(store: chat)
-                finishCloudQueue()
-            }
-        }
-    }
-
-    /// v3.0.18：工具写操作确认弹窗（await 用户点确认/取消；60s 无响应自动取消防挂死）
-    /// v3.0.18 fix：toolGate 改为参数传入（不捕获 self struct），闭包仅操作 @Observable 类引用
-    private func confirmToolRun(_ pending: PendingToolConfirm, toolGate: ToolConfirmGate) async -> Bool {
-        await withCheckedContinuation { cont in
-            toolGate.pending = pending
-            toolGate.onConfirm = { ok in
-                cont.resume(returning: ok)
-                toolGate.pending = nil
-                toolGate.onConfirm = nil
-            }
-            // 兜底：60s 用户无操作 → 自动取消（防 continuation 永不 resume 挂死工具循环）
-            let gate = toolGate
-            Task {
-                try? await Task.sleep(for: .seconds(60))
-                guard gate.onConfirm != nil else { return }
-                gate.onConfirm?(false)
-            }
-        }
-    }
-
-    /// 云端模式回答完成 → 自动发送队列下一条
-    private func finishCloudQueue() {
-        if !pendingQueue.isEmpty {
-            let next = pendingQueue.removeFirst()
-            persistPendingQueue()
-            sendQueued(next)
         }
     }
 
@@ -2931,14 +2709,6 @@ struct ChatView: View {
         chat.messages.removeSubrange(idx...)
         // v3.3.3：截断后的最后 user = 本轮回话锚点（回答必须落在其后，防错位复读）
         let anchorUserID = chat.messages.last(where: { $0.isUser })?.id
-        // v3.0.84fix：云端模式走 startCloudStream（原直接 stream.start 打本地 NAS，云端 regenerate 全废）
-        if CloudConfig.shared.isCloudMode {
-            let lastUser = chat.messages.last(where: { $0.isUser })?.content ?? ""
-            var m = ChatMessage.local(role: "user", content: lastUser)
-            chat.append(m)
-            startCloudStream(for: m)
-            return
-        }
         let lastUserHasImage = chat.messages.last(where: { $0.isUser })?.imageDataURL != nil
         // v3.0.81：统一模型优先级链（免费 > 视觉 > Agent > 主模型）
         let (useModel, useProvider) = resolveModel(hasImage: lastUserHasImage)

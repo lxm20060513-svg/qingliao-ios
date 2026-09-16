@@ -41,11 +41,10 @@ struct DockTabView: View {
     @Environment(StreamClient.self) private var stream
     @Environment(\.horizontalSizeClass) private var hSize
 
-    private var isCloud: Bool { CloudConfig.shared.isCloudMode }
-    /// v3.6.2：聊天槽位用智能球替身——仅本地模式 + iPhone（云端模式与 iPad 保持系统图标原样）
-    private var orbInDock: Bool { !isCloud && hSize != .regular }
-    /// dock 槽位数（本地 5：会话/看板/聊天/生活/设置；云端 4，不加生活页）
-    private var dockSlotCount: Int { isCloud ? 4 : 5 }
+    /// v3.6.2：聊天槽位用智能球替身——仅 iPhone（iPad 保持系统图标原样）
+    private var orbInDock: Bool { hSize != .regular }
+    /// dock 槽位数（5：会话/看板/聊天/生活/设置）
+    private var dockSlotCount: Int { 5 }
 
     var body: some View {
         // v3.0.64：改用 iOS 26 系统原生 TabView tab bar —— 系统自动渲染液态玻璃 tab bar，
@@ -59,28 +58,16 @@ struct DockTabView: View {
             TabView(selection: $selected) {
                 SessionsView(onOpenSession: { selected = .chat })
                     .tabTransition(for: .sessions, selected: $selected)
-                if isCloud {
-                    CloudDashboardView()
-                        .tabTransition(for: .dashboard, selected: $selected)
-                } else {
-                    // v3.4.26：isActive 参数直传（selected==.dashboard），替代 qingliaoDashboardLeave/Refresh 通知——
-                    // 轮询暂停/恢复收进 DashboardView 自身生命周期，去隐式耦合
-                    DashboardView(isActive: selected == .dashboard)
-                        .tabTransition(for: .dashboard, selected: $selected)
-                }
+                // v3.4.26：isActive 参数直传（selected==.dashboard），替代 qingliaoDashboardLeave/Refresh 通知——
+                // 轮询暂停/恢复收进 DashboardView 自身生命周期，去隐式耦合
+                DashboardView(isActive: selected == .dashboard)
+                    .tabTransition(for: .dashboard, selected: $selected)
                 chatTab
-                // v3.6.2：生活页（原看板「生活数据」栏目迁入）——仅本地模式；云端模式不做改动
-                if !isCloud {
-                    LifeView(isActive: selected == .life)
-                        .tabTransition(for: .life, selected: $selected)
-                }
-                if isCloud {
-                    CloudSettingsView()
-                        .tabTransition(for: .settings, selected: $selected)
-                } else {
-                    SettingsView()
-                        .tabTransition(for: .settings, selected: $selected)
-                }
+                // v3.6.2：生活页（原看板「生活数据」栏目迁入）
+                LifeView(isActive: selected == .life)
+                    .tabTransition(for: .life, selected: $selected)
+                SettingsView()
+                    .tabTransition(for: .settings, selected: $selected)
             }
             // v3.4.30：装机实测后按用户要求关闭自动收缩——tab bar 常驻不缩，滚动时不再变窄
             // （v3.4.29 曾设为 .onScrollDown：向下滚动缩到角落只剩图标，用户不需要）
@@ -124,17 +111,7 @@ struct DockTabView: View {
             .task {
                 guard let sid = UserDefaults.standard.string(forKey: "qingliao_open_session") else { return }
                 UserDefaults.standard.removeObject(forKey: "qingliao_open_session")
-                if CloudConfig.shared.isCloudMode {
-                    // v-review fix：云端会话存本地 CloudSessionStore——不再向 NAS /api/sessions/list 发无谓请求，
-                    // 否则 sid 必然找不到、通知深链无法直达会话
-                    let store = CloudSessionStore.shared
-                    store.load()
-                    if let s = store.sessions.first(where: { $0.id == sid }) {
-                        chat.load(s)
-                        skipBurstOnce()
-                        selected = .chat
-                    }
-                } else if let arr = try? await auth.jsonArray("/api/sessions/list") {
+                if let arr = try? await auth.jsonArray("/api/sessions/list") {
                     let sessions = arr.compactMap { ChatSession.parse($0 as? [String: Any] ?? [:]) }
                     if let s = sessions.first(where: { $0.id == sid }) {
                         chat.load(s)

@@ -33,7 +33,7 @@ final class AuthStore {
         serverURL = defaults.string(forKey: serverKey) ?? "https://example.com:16666"
         isLoggedIn = defaults.bool(forKey: loggedKey)   // 先读登录布尔，供下方 token 兜底判断
         // v3.0.84fix：NAS token 迁 Keychain（原明文存 UserDefaults plist，可被备份/越狱读取）。
-        // UserDefaults 只保留用户名/服务器/登录布尔，token 走 Keychain（复用 CloudConfig 的 genericPassword 模式）。
+        // UserDefaults 只保留用户名/服务器/登录布尔，token 走 Keychain（genericPassword 模式）。
         // v3.0.86 fix：迁移兜底——v3.0.84 只从 Keychain 读，遗漏"升级用户"（token 仅存 UserDefaults 明文、
         // Keychain 为空，但登录布尔为 true）→ 升级后 token="" 假登录 → 业务接口（stream start 等）全 401。
         // 改为：Keychain 优先；空则回退 UserDefaults 旧 token 迁入 Keychain 并清明文残留；仍无则强制登出。
