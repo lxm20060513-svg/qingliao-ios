@@ -77,8 +77,14 @@ struct TaskCenterView: View {
                     Button("关闭") { dismiss() }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    if store.tasks.contains(where: { $0.completed }) {
-                        Button("清理已完成") { store.clearCompleted() }
+                    HStack(spacing: Spacing.md) {
+                        // v3.9.30：全部已读——未完成任务一次全标完成（此前只能逐条点）
+                        if store.uncompleted > 0 {
+                            Button("全部已读") { store.markAllCompleted() }
+                        }
+                        if store.tasks.contains(where: { $0.completed }) {
+                            Button("清理已完成") { store.clearCompleted() }
+                        }
                     }
                 }
             }

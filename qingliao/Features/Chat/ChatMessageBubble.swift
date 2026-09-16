@@ -217,7 +217,7 @@ struct MessageBubble: View {
                                     ]),
                                     fallbackColor: .white,
                                     lineSpacing: LineSpacing.compact,
-                                    onCopy: { UIPasteboard.general.string = message.content },
+                                    onCopy: { UIPasteboard.general.string = message.content; Haptics.success() },   // v3.9.30：复制触感
                                     onQuote: onQuote,
                                     onShare: onShare,
                                     onBigBang: onBigBang,
@@ -250,7 +250,7 @@ struct MessageBubble: View {
                                                         VStack(alignment: .leading, spacing: 6) {
                                                                 ForEach(0..<contentBlocks.count, id: \.self) { i in
                                                                     MessageBlockView(block: contentBlocks[i],
-                                                                                    onCopy: { UIPasteboard.general.string = displayContent },
+                                                                                    onCopy: { UIPasteboard.general.string = displayContent; Haptics.success() },   // v3.9.30：复制触感
                                                                                     onQuote: onQuote,
                                                                                     onShare: onShare,
                                                                                     onBigBang: onBigBang,
@@ -662,7 +662,7 @@ struct MessageBubble: View {
             let pb = Self.blocks(for: para, serverURL: serverURL, streaming: false)
             ForEach(0..<pb.count, id: \.self) { i in
                 MessageBlockView(block: pb[i],
-                                onCopy: { UIPasteboard.general.string = para },
+                                onCopy: { UIPasteboard.general.string = para; Haptics.success() },   // v3.9.30：复制触感
                                 onQuote: onQuote,
                                 onShare: onShare,
                                 onBigBang: { onBigBang($0) },

@@ -106,6 +106,7 @@ extension ChatView {
         let clamped = min(1, max(0, overscroll / InboxPullState.threshold))
         st.progress = clamped
         if clamped >= 1 {
+            if !st.armed { Haptics.success() }   // v3.9.30：拉到位给一次"可松手"触感（armed 边沿触发，不连震）
             st.armed = true
         } else if st.armed, overscroll < InboxPullState.threshold * 0.5 {
             // 曾拉满、现明显回弹（松手/回推）→ 触发拉取一次

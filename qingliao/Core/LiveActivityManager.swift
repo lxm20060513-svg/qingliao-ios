@@ -130,7 +130,8 @@ final class LiveActivityManager {
         // 「新一轮」= 换会话 / 上一轮刚收尾(pendingDismissal) / 阶段从 done|streaming 回到 thinking。
         let newRound = phase == QingliaoActivityAttributes.Phase.thinking.rawValue
             && (lastPhase == QingliaoActivityAttributes.Phase.done.rawValue
-                || lastPhase == QingliaoActivityAttributes.Phase.streaming.rawValue)
+                || lastPhase == QingliaoActivityAttributes.Phase.streaming.rawValue
+                || lastPhase == QingliaoActivityAttributes.Phase.failed.rawValue)   // v3.9.30：失败收尾后新一轮也要重置基线
         let freshRound = newSession || pendingDismissal || newRound
         let newProgress = Self.baseProgress(phase: phase, previous: freshRound ? 0 : lastProgress)
         if !freshRound, hasActive,
@@ -221,7 +222,7 @@ final class LiveActivityManager {
     ///   （先 update 再 `Task.sleep(2s)` 再 end 的写法在 App 被杀/闪退时会留下一条收不掉的残留。）
     /// - **只收当前活动对应的会话**：`aiBusy` 是按会话收窄的，用户切到别的会话时也会变 false，
     ///   不能因此把仍在跑的那条活动标成完成并收掉。
-    func finish(sessionId: String) async {
+    func finish(sessionId: String, failed: Bool = false) async {
         guard Self.isEnabled, let active = currentSessionId, sessionId == active else {
             // v3.9.10：切到别的会话时也会落到这里（`aiBusy` 按会话收窄 → 传进来的是**新**会话 id）。
             // 活动本体按原设计留给仍在跑的那一轮，但**进度推手必须停**，否则它会一路空转到饱和、
@@ -251,11 +252,14 @@ final class LiveActivityManager {
             return
         }
 
+        // v3.9.30：失败走红球+「生成失败」，同样 2s 后收起（此前失败时岛上无感知）
+        let endPhase = failed ? QingliaoActivityAttributes.Phase.failed.rawValue
+                              : QingliaoActivityAttributes.Phase.done.rawValue
         let state = QingliaoActivityAttributes.ContentState(sessionTitle: lastTitle,
                                                            modelName: lastModel,
                                                            startedAt: startedAt ?? Date(),
                                                            isAnswering: false,
-                                                           phase: QingliaoActivityAttributes.Phase.done.rawValue,
+                                                           phase: endPhase,
                                                            actionText: "",
                                                            canStop: false,
                                                            progress: 1.0)

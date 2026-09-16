@@ -133,9 +133,12 @@ struct QingliaoLiveActivityWidget: Widget {
     /// 所以云模式的进度环会停在 35% 不再前进，只有环上跑动短弧在转——这是预期，别当 bug 修。
     private func phaseRing(state: QingliaoActivityAttributes.ContentState, size: CGFloat) -> some View {
         let streaming = state.phase == QingliaoActivityAttributes.Phase.streaming.rawValue
+        let failed = state.phase == QingliaoActivityAttributes.Phase.failed.rawValue   // v3.9.30
         // 夹在 0.06…1.0：0 会让环看上去像没在做事，>1 会画过头
         let progress: Double = !state.isAnswering ? 1.0 : min(1.0, max(0.06, state.progress))
-        let tint: Color = !state.isAnswering ? OrbPalette.success : (streaming ? OrbPalette.tail : OrbPalette.accent)
+        // v3.9.30：failed → 红环；done → 绿环；streaming → 紫；thinking → 蓝
+        let tint: Color = failed ? OrbPalette.fail
+            : (!state.isAnswering ? OrbPalette.success : (streaming ? OrbPalette.tail : OrbPalette.accent))
         let line = max(1.8, size * 0.13)
         return ZStack {
             // 底环：极淡，保证小尺寸下也有环的形状（灵动岛背景本身是黑的，太透明会看不见）
@@ -167,10 +170,18 @@ struct QingliaoLiveActivityWidget: Widget {
                     .animation(.linear(duration: 1.1), value: state.spin)
             }
             if !state.isAnswering {
-                Image(systemName: "checkmark")
-                    .font(.system(size: size * 0.46, weight: .bold))
-                    .foregroundStyle(OrbPalette.success)
-                    .transition(.opacity)
+                if failed {
+                    // v3.9.30：失败态环心——红叹号（与球体白叹号同语言）
+                    Image(systemName: "exclamationmark")
+                        .font(.system(size: size * 0.46, weight: .bold))
+                        .foregroundStyle(OrbPalette.fail)
+                        .transition(.opacity)
+                } else {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: size * 0.46, weight: .bold))
+                        .foregroundStyle(OrbPalette.success)
+                        .transition(.opacity)
+                }
             }
         }
         .frame(width: size, height: size)
@@ -182,6 +193,7 @@ struct QingliaoLiveActivityWidget: Widget {
 
     /// 状态行文案：阶段 + 模型名（模型名取自发送路径同一套选型，见 ChatView.liveActivityModelName）
     private func statusText(_ state: QingliaoActivityAttributes.ContentState) -> String {
+        if state.phase == QingliaoActivityAttributes.Phase.failed.rawValue { return "生成失败" }   // v3.9.30
         if !state.isAnswering { return "已完成" }
         let phaseText: String
         if !state.actionText.isEmpty {
@@ -224,12 +236,14 @@ enum OrbPalette {
     static let accent = Color(red: 0.04, green: 0.52, blue: 1.00)      // #0A84FF（App 主色）
     static let tail = Color(red: 0.36, green: 0.23, blue: 1.00)        // #5B3BFF
     static let success = Color(red: 0.19, green: 0.82, blue: 0.35)     // #30D158
+    static let fail = Color(red: 1.00, green: 0.27, blue: 0.23)        // #FF453A（v3.9.30 失败态）
 }
 
 /// 品牌球体：三态共用同一颗球。
 /// · thinking  → 外圈呼吸光晕（脉冲）
 /// · streaming → 球外一圈不确定态旋转弧
 /// · done      → 绿球 + 白对勾
+/// · failed    → 红球 + 白叹号（v3.9.30：失败态，此前失败时岛上无感知）
 ///
 /// **v3.9.13 重做（用户报「动几下就不动了」）**：原来球体 + 脉冲/旋转弧全在
 /// `TimelineView(.animation)` 包的 `Canvas` 里，指望挂件进程 20fps 自走。
@@ -317,10 +331,12 @@ struct OrbView: View {
         let r = full / 2 * 0.86
         let rect = CGRect(x: center.x - r, y: center.y - r, width: r * 2, height: r * 2)
         let isDone = (phase == QingliaoActivityAttributes.Phase.done.rawValue)
+        let isFailed = (phase == QingliaoActivityAttributes.Phase.failed.rawValue)   // v3.9.30
 
-        // 球体本体（径向渐变：左上高光 → 主色 → 尾部紫）
+        // 球体本体（径向渐变：左上高光 → 主色 → 尾部紫；failed = 红球）
         gc.fill(Path(ellipseIn: rect),
-                with: .radialGradient(isDone ? Self.doneGradient : Self.orbGradient,
+                with: .radialGradient(isFailed ? Self.failedGradient
+                                      : (isDone ? Self.doneGradient : Self.orbGradient),
                                       center: CGPoint(x: center.x - r * 0.34, y: center.y - r * 0.44),
                                       startRadius: 0,
                                       endRadius: r * 1.25))
@@ -334,6 +350,19 @@ struct OrbView: View {
             }
             gc.stroke(mark, with: .color(.white),
                       style: StrokeStyle(lineWidth: max(1.5, r * 0.24), lineCap: .round, lineJoin: .round))
+        }
+
+        // v3.9.30：失败——白叹号（竖条 + 点，与系统 error 观感一致）
+        if isFailed {
+            let bar = Path { p in
+                p.move(to: CGPoint(x: center.x, y: center.y - r * 0.46))
+                p.addLine(to: CGPoint(x: center.x, y: center.y + r * 0.14))
+            }
+            gc.stroke(bar, with: .color(.white),
+                      style: StrokeStyle(lineWidth: max(1.5, r * 0.24), lineCap: .round))
+            let dot = CGRect(x: center.x - r * 0.11, y: center.y + r * 0.32,
+                             width: r * 0.22, height: r * 0.22)
+            gc.fill(Path(ellipseIn: dot), with: .color(.white))
         }
 
         // 边缘细描边（与 App 卡片 0.8pt 描边规范同一语气）
@@ -356,6 +385,15 @@ struct OrbView: View {
             .init(color: Color(red: 0.68, green: 0.98, blue: 0.78), location: 0.00),
             .init(color: OrbPalette.success, location: 0.55),
             .init(color: Color(red: 0.05, green: 0.55, blue: 0.28), location: 1.00),
+        ])
+    }
+
+    /// v3.9.30：失败态红球（与系统红 error 观感一致）
+    private static var failedGradient: Gradient {
+        Gradient(stops: [
+            .init(color: Color(red: 1.00, green: 0.76, blue: 0.76, opacity: 1), location: 0.00),
+            .init(color: Color(red: 1.00, green: 0.27, blue: 0.23, opacity: 1), location: 0.55),
+            .init(color: Color(red: 0.62, green: 0.09, blue: 0.07, opacity: 1), location: 1.00),
         ])
     }
 }

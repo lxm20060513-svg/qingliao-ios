@@ -15,6 +15,9 @@ struct QingliaoActivityAttributes: ActivityAttributes {
         case streaming
         /// 已结束（保留 2s 展示「已完成」，再收起）
         case done
+        /// v3.9.30：失败（保留 2s 展示红球+「生成失败」，再收起——此前失败时岛上无感知，
+        /// 用户以为还在跑，回 App 才发现早已报错）
+        case failed
     }
 
     /// 动态数据：可随 `Activity.update` 变化

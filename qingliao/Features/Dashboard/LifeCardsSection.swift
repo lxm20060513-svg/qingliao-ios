@@ -249,7 +249,7 @@ struct LifeCardsSection: View {
         }
         .buttonStyle(PressStyle())
         .matchedTransitionSource(id: e.id, in: zoomNS)   // v3.9.0：长按大爆炸时从这一行 zoom 展开
-        // v3.7.0：长按弹出菜单（复制整段 / 大爆炸）——正文已加载则作用于正文，否则退化为标题
+        // v3.7.0：长按弹出菜单（复制整段 / 大爆炸 / 发给 AI）——正文已加载则作用于正文，否则退化为标题
         .contextMenu {
             Button {
                 UIPasteboard.general.string = articleMenuText(e)
@@ -261,6 +261,15 @@ struct LifeCardsSection: View {
                 onBigBang(articleMenuText(e), e.id)   // v3.9.0：带上资讯行 id
             } label: {
                 Label("大爆炸", systemImage: "burst.fill")
+            }
+            // v3.9.30：对齐备忘录「发给 AI」体验——资讯内容直接作为用户消息发给 AI 并切回聊天页。
+            // 复用 qingliaoMemoSend 通知链（DockTabView 切页 + ChatView sendCore 已就绪）；
+            // 资讯行在生活页主体（非 sheet 之内）→ 无需 afterAllDismissed。
+            Button {
+                Haptics.success()
+                NotificationCenter.default.post(name: .qingliaoMemoSend, object: articleMenuText(e))
+            } label: {
+                Label("发给 AI", systemImage: "paperplane")
             }
         }
     }

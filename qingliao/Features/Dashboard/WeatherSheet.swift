@@ -30,6 +30,8 @@ struct WeatherSheet: View {
     @State private var showCityEdit = false
     @State private var cityInput = ""
     @State private var reloadToken = 0
+    // v3.9.30：第 1 页「展开更多」折叠区展开态
+    @State private var extrasExpanded = false
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -87,11 +89,18 @@ struct WeatherSheet: View {
     @ViewBuilder
     private var content: some View {
         if loading {
-            VStack(spacing: 10) {
-                ProgressView()
-                Text("正在获取天气…")
-                    .font(.system(size: Typography.subhead))
-                    .foregroundStyle(.secondary)
+            // v3.9.30：加载态转圈 → 骨架屏（与 Sessions/Docker 同语言，预示"内容马上出现"）
+            VStack(spacing: Spacing.lg) {
+                SkeletonCard {
+                    SkeletonBlock(width: 120, height: 14, cornerRadius: 7)
+                    SkeletonBlock(width: 200, height: 40, cornerRadius: 10)
+                    HStack(spacing: Spacing.md) {
+                        ForEach(0..<5, id: \.self) { _ in
+                            SkeletonBlock(width: 52, height: 64, cornerRadius: Radius.inset)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding(.bottom, 30)
@@ -158,10 +167,101 @@ struct WeatherSheet: View {
                     .font(.system(size: Typography.subhead))
                     .foregroundStyle(.secondary)
             }
+            // v3.9.30：「展开更多」折叠区——体感/湿度/风速三格 + 未来 12 小时逐时。
+            // 半屏口径不变：折叠区收起时只多一枚小胶囊；数据全缺（旧后端/缺字段）→ 入口整个不显示。
+            if s.hasExtras {
+                extrasCollapse(s)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(.horizontal, 20)
         .padding(.bottom, 30)   // 给页码点留位
+    }
+
+    /// v3.9.30：折叠区展开态（三格 + 逐时横滑）。extrasExpanded 挂在 struct 顶层（@State）。
+    private func extrasCollapse(_ s: WeatherSnapshot) -> some View {
+        VStack(spacing: 10) {
+            Button {
+                withAnimation(Motion.settle) { extrasExpanded.toggle() }
+                UISelectionFeedbackGenerator().selectionChanged()
+            } label: {
+                HStack(spacing: 5) {
+                    Text(extrasExpanded ? "收起" : "展开更多")
+                        .font(.system(size: Typography.caption))
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 9, weight: .semibold))
+                        .rotationEffect(.degrees(extrasExpanded ? 180 : 0))
+                }
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, Spacing.lg)
+                .padding(.vertical, Spacing.xs)
+                .background(Color.primary.opacity(Tint.faint), in: Capsule())
+            }
+            .buttonStyle(PressStyle(scale: 0.94))
+
+            if extrasExpanded {
+                VStack(spacing: 12) {
+                    // 三格：体感 / 湿度 / 风速（有哪个显示哪个）
+                    HStack(spacing: 8) {
+                        if let a = WeatherService.degInt(s.apparent) {
+                            extraCell(icon: "thermometer.medium", label: "体感", value: "\(a)°")
+                        }
+                        if let h = WeatherService.degInt(s.humidity) {
+                            extraCell(icon: "humidity", label: "湿度", value: "\(h)%")
+                        }
+                        if let w = s.wind {
+                            extraCell(icon: "wind", label: "风速", value: "\(Int(w.rounded()))km/h")
+                        }
+                    }
+                    // 逐时横滑（未来 12 小时）
+                    if !s.hourly.isEmpty {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 14) {
+                                ForEach(s.hourly) { h in
+                                    VStack(spacing: 4) {
+                                        Text(h.hourText)
+                                            .font(.system(size: Typography.caption))
+                                            .foregroundStyle(.secondary)
+                                        Image(systemName: WeatherCode.symbol(h.code))
+                                            .font(.system(size: 14, weight: .medium))
+                                            .foregroundStyle(WeatherCode.color(h.code))
+                                        Text(WeatherService.degInt(h.temp).map { "\($0)°" } ?? "--")
+                                            .font(.system(size: Typography.caption, weight: .semibold))
+                                        if let p = h.pop, p > 0 {
+                                            Text("\(p)%")
+                                                .font(.system(size: 9))
+                                                .foregroundStyle(.blue)
+                                        }
+                                    }
+                                }
+                            }
+                            .padding(.horizontal, 2)
+                        }
+                    }
+                }
+                .padding(.vertical, Spacing.md)
+                .padding(.horizontal, Spacing.lg)
+                .frame(maxWidth: .infinity)
+                .background(Color.primary.opacity(Tint.faint),
+                            in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+    }
+
+    /// v3.9.30：折叠区三格中的一格
+    private func extraCell(icon: String, label: String, value: String) -> some View {
+        VStack(spacing: 3) {
+            Image(systemName: icon)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.system(size: Typography.subhead, weight: .semibold))
+            Text(label)
+                .font(.system(size: 10))
+                .foregroundStyle(.tertiary)
+        }
+        .frame(maxWidth: .infinity)
     }
 
     private func tempText(_ t: Double?) -> String {

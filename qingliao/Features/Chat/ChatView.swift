@@ -376,6 +376,10 @@ struct ChatView: View {
         let phase = liveActivityPhase
         let action = liveActivityActionText
         let canStop = liveActivityCanStop
+        // v3.9.30：失败感知——本地流已以 error 收尾（且不是自动重试中）→ 灵动岛落「生成失败」红态。
+        // 提前取本地值再进 Task（Task 闭包 @Sendable 不能捕获 View/Store）
+        let streamFailed = stream.status == "error" && !stream.errorMessage.isEmpty
+                          && !isRetryableStreamError(stream.errorMessage)
         Task { @MainActor in
             if busy {
                 await LiveActivityManager.shared.sync(isBusy: true,
@@ -387,7 +391,7 @@ struct ChatView: View {
                                                       canStop: canStop)
             } else {
                 // 带会话 id：切到别的会话时 aiBusy 也会变 false，不能据此收掉仍在跑的那条活动
-                await LiveActivityManager.shared.finish(sessionId: sessionId)
+                await LiveActivityManager.shared.finish(sessionId: sessionId, failed: streamFailed)
             }
         }
     }
@@ -615,8 +619,11 @@ struct ChatView: View {
                          stream.stop(auth: auth)
                      },
                      onPickAttachment: {
-                         withAnimation(Motion.settle) {   // v3.9.0：动效令牌收口（原 spring 0.3/0.2）
-                             showAttachmentMenu.toggle()
+                         // v3.9.30：面板=大块浮现 → 展开走 emerge（带轻微回弹）；收起保持 settle 不带回弹
+                         if showAttachmentMenu {
+                             withAnimation(Motion.settle) { showAttachmentMenu = false }
+                         } else {
+                             withAnimation(Motion.emerge) { showAttachmentMenu = true }
                          }
                      },
                      onCamera: {
@@ -1566,15 +1573,19 @@ struct ChatView: View {
             streamingText: true   // v3.0.17：流式长文用 SwiftUI Text 渲染（根治 UITextView 锁窄缩小）
         )
         .id("streaming")
+        // v3.9.30：流式增量落进同一气泡 → 高度/排版变化走 settle 平滑生长（原瞬跳）
+        .animation(Motion.settle, value: stream.displayContent)
     }
 
     private var messageList: some View {
         ZStack {
             // v2.0.40：clearing 期间直接显示欢迎页（列表已卸载，数据稍后清空）
+            // v3.9.30：容器挂 settle —— 驱动 welcome/列表 if 切换的浮现过渡（transition 需同帧动画）
             if (chat.messages.isEmpty || clearing) && !stream.isStreaming {
                 welcomeView
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                     .id("welcome")   // v3.4.29：原 padding(.top,120) 已移入 welcomeView 顶部弹性留白（小屏不再挤）
+                    .transition(.opacity.combined(with: .scale(scale: 0.97)))   // v3.9.30：欢迎页浮现过渡
             } else {
             ScrollViewReader { proxy in
             ScrollView {
@@ -1644,6 +1655,7 @@ struct ChatView: View {
                     .padding(.bottom, Spacing.md)
                     .id("messages")   // v2.0.39：与欢迎页分支区分身份
                 }
+                .animation(Motion.settle, value: chat.messages.isEmpty)   // v3.9.30：驱动欢迎页/列表切换过渡
             // v2.0.111：消息区背景透明（ScrollView 默认白底遮住上方 logo/内容）
             .scrollContentBackground(.hidden)
             // v2.0.86h：Dock 滑动隐藏已删除（从未生效，手动开关替代）

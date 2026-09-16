@@ -304,6 +304,20 @@ final class TaskCenterStore {
         NotificationHelper.setBadge(uncompleted)
     }
 
+    /// v3.9.30：全部已读——未完成任务一次全标完成（角标同步清零）。
+    /// 与「清理已完成」分工：这是逐条标记太繁琐的批量化；清理是删除，这是标记。
+    func markAllCompleted() {
+        var changed = false
+        for i in tasks.indices where !tasks[i].completed {
+            tasks[i].completed = true
+            changed = true
+        }
+        if changed {
+            save()
+            NotificationHelper.setBadge(uncompleted)
+        }
+    }
+
     var uncompleted: Int { tasks.count { !$0.completed } }
 }
 

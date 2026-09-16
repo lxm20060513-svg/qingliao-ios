@@ -34,12 +34,41 @@ struct WeatherSnapshot {
     var temp: Double?
     var code: Int?
     var city: String = ""
+    /// v3.9.30：「展开更多」折叠区三格（体感/湿度/风速），可全缺 → 折叠区不显示
+    var apparent: Double?
+    var humidity: Double?
+    var wind: Double?
+    /// 未来 12 小时逐时（后端已裁好；缺 → 折叠区逐时行不显示）
+    var hourly: [WeatherHour] = []
     /// 含今天（后端 forecast_days=6 → 今天 + 未来 5 天）
     var days: [WeatherDay] = []
     /// 未来 N 天（不含今天）—— 弹窗第 2 页
     var future: [WeatherDay] { Array(days.dropFirst()) }
     /// 今天（弹窗第 1 页的最高/最低）
     var today: WeatherDay? { days.first }
+    /// 折叠区是否有内容可显示（三格与逐时全缺 = 不显示入口，避免空折叠区）
+    var hasExtras: Bool {
+        apparent != nil || humidity != nil || wind != nil || !hourly.isEmpty
+    }
+}
+
+/// v3.9.30：逐时一行（折叠区用）
+struct WeatherHour: Identifiable, Equatable {
+    let time: String   // ISO "2026-09-17T09:00"
+    let temp: Double?
+    let code: Int?
+    let pop: Int?      // 降水概率 %
+    var id: String { time }
+    /// "9时" / "15时"
+    var hourText: String {
+        // ISO 字符串直接切，不走 DateFormatter（Swift 6 静态 DateFormatter 不可 Sendable）
+        let parts = time.split(separator: "T")
+        guard parts.count == 2 else { return "" }
+        let h = parts[1].prefix(2)
+        let hi = Int(h) ?? -1
+        guard hi >= 0, hi <= 23 else { return "" }
+        return "\(hi)时"
+    }
 }
 
 // MARK: - WMO 天气码映射（单一真源）
@@ -124,9 +153,11 @@ enum WeatherService {
             }
             // 2) 当前 + 逐日（v3.9.25：current 参数替掉旧版 current_weather=，
             //    旧版不返回 weather_code 之外的字段，daily 也拿不到 → 5 天预报必需）
+            // v3.9.30：current 加 apparent/humidity/wind + hourly（折叠区数据；直连多列无害）
             let wstr = "https://api.open-meteo.com/v1/forecast?latitude=\(lat)&longitude=\(lon)"
-                + "&current=temperature_2m,weather_code"
+                + "&current=temperature_2m,weather_code,apparent_temperature,relative_humidity_2m,wind_speed_10m"
                 + "&daily=weather_code,temperature_2m_max,temperature_2m_min"
+                + "&hourly=temperature_2m,weather_code,precipitation_probability"
                 + "&timezone=Asia%2FShanghai&forecast_days=6"
             guard let wURL = URL(string: wstr) else { return (nil, "天气服务地址无效") }
             let (wData, _) = try await URLSession.shared.data(from: wURL)
@@ -153,6 +184,11 @@ enum WeatherService {
         s.code = int(j["code"])
         s.city = (j["city"] as? String) ?? ""
         s.days = parseDaily(j["daily"])
+        // v3.9.30：折叠区字段（全缺安全降级 → hasExtras=false 不显示入口）
+        s.apparent = num(j["apparent"])
+        s.humidity = num(j["humidity"])
+        s.wind = num(j["wind"])
+        s.hourly = parseHourly(j["hourly"])
         return s
     }
 
@@ -163,8 +199,28 @@ enum WeatherService {
         let cur = obj["current"] as? [String: Any]
         s.temp = num(cur?["temperature_2m"])
         s.code = int(cur?["weather_code"])
+        // v3.9.30：云端直连同款折叠区字段（Open-Meteo current 直出）
+        s.apparent = num(cur?["apparent_temperature"])
+        s.humidity = num(cur?["relative_humidity_2m"])
+        s.wind = num(cur?["wind_speed_10m"])
         s.days = parseDaily(obj["daily"])
+        s.hourly = parseHourly(obj["hourly"])
         return s
+    }
+
+    /// v3.9.30：hourly 列形态 → [WeatherHour]（后端已裁 12 条；直连形态同构，安全降级）
+    static func parseHourly(_ any: Any?) -> [WeatherHour] {
+        guard let d = any as? [String: Any] else { return [] }
+        let times = (d["time"] as? [String]) ?? []
+        let temps = (d["temp"] as? [Any]) ?? (d["temperature_2m"] as? [Any]) ?? []
+        let codes = (d["code"] as? [Any]) ?? (d["weather_code"] as? [Any]) ?? []
+        let pops = (d["pop"] as? [Any]) ?? (d["precipitation_probability"] as? [Any]) ?? []
+        return times.enumerated().map { (i, t) in
+            WeatherHour(time: t,
+                        temp: i < temps.count ? num(temps[i]) : nil,
+                        code: i < codes.count ? int(codes[i]) : nil,
+                        pop: i < pops.count ? int(pops[i]) : nil)
+        }
     }
 
     /// daily → [WeatherDay]。**两种形态都要吃**（缺列/长度不齐/脏数据都安全降级）：

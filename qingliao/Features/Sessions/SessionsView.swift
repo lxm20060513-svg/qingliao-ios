@@ -123,6 +123,7 @@ struct SessionsView: View {
                                                subtitle: "换个关键词试试，可搜索标题与消息内容",
                                                iconColors: [.teal, .blue])
                                     .padding(.top, 20)
+                                    .transition(.opacity.combined(with: .scale(scale: 0.96)))   // v3.9.30：空态浮现过渡（配 Motion.emerge）
                             } else {
                                 LazyVStack(spacing: 8) {
                                     ForEach(filteredSessions) { s in
@@ -163,11 +164,15 @@ struct SessionsView: View {
                                         sessionCell(s)
                                     }
                                 }
+                                // v3.9.30：删除/刷新后列表项淡出与位置移动过渡（数组替换不再生硬跳变）
+                                .animation(Motion.settle, value: sortedSessions.map(\.id))
                             }
                         }
                     }
                     .padding(.horizontal, Spacing.xxl)
                     .padding(.bottom, 90)
+                    // v3.9.30：空态/列表切换过渡动画（emerge 浮现；reduceMotion 时系统自动忽略带动画的过渡）
+                    .animation(Motion.emerge, value: filteredSessions.isEmpty)
                 }
                 .scrollPosition($scrollPos)
                 // v2.0.86h：Dock 滑动隐藏已删除（从未生效，手动开关替代）

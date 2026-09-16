@@ -327,6 +327,7 @@ private struct CodeCopyButton: View {
     var body: some View {
         Button {
             UIPasteboard.general.string = codeText
+            Haptics.success()   // v3.9.30：复制触感（与图标 bounce 同步）
             // UISelectionFeedbackGenerator：轻触感反馈（低成本，点击有实感）
             UISelectionFeedbackGenerator().selectionChanged()
             copied = true
