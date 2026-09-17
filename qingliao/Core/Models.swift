@@ -9,8 +9,9 @@ enum UserDefaultsKey {
     // （AuthStore.streamStart 恒发 agentEnabled=true 走字面量，不再读 UserDefaults）
     static let agentModel   = "qingliao_agent_model"
     static let agentProvider = "qingliao_agent_provider"
-    static let freeModel     = "qingliao_free_model"
-    static let freeModelName = "qingliao_free_model_name"
+    // v3.10.x：「免费模型（免 Key）」开关已整条移除——实测 opencode zen 免费档对非 OpenCode 客户端
+    // 恒返 403（FreeTierError: free tier can only be used from within OpenCode），开关一开每次回复都是错误文案。
+    // 旧的 UserDefaults 键 qingliao_free_model / qingliao_free_model_name 已无任何读写方（残留值无害）。
     /// v3.9.9：待发队列 key 提升到这里做唯一常量——原来 ChatView 里是 private static 常量、
     /// DockTabView 兜底清理处是**硬编码字面量**，只改一边就会静默失效（清不掉队列）。只读审查指出。
     static let pendingQueue = "qingliao_pending_queue"
