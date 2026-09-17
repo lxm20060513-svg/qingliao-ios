@@ -6,6 +6,9 @@ import Security
 @Observable
 final class AuthStore {
     var isLoggedIn = false          // 登录状态（UserDefaults 持久化）
+    /// v3.9.33：登录已过期信号（非登录接口 401 → markSessionExpired() 置位；
+    /// UI 侧 SessionExpiredBanner 观察它给「去登录」入口，流式层据此停止退避重试）
+    var sessionExpired = false
     var username = ""
     var serverURL = ""
     private(set) var token = ""
@@ -155,6 +158,7 @@ final class AuthStore {
                 defaults.removeObject(forKey: tokenKey)   // 清掉历史明文残留
                 isLoggedIn = true
                 defaults.set(true, forKey: loggedKey)
+                sessionExpired = false   // v3.9.33：重新登录成功 = 过期信号收敛（横幅消失）
                 // v2.0.88：Face ID 登录开关开启（默认开）时保存凭据到 Keychain
                 // v3.4.12fix：remember=false（用户关「记住我」）时不落凭据，并清掉历史凭据——密码存储不得违背用户意图
                 let faceIDOn = defaults.object(forKey: "qingliao_faceid_login") as? Bool ?? true
@@ -174,10 +178,31 @@ final class AuthStore {
     func logout() {
         token = ""
         isLoggedIn = false
+        sessionExpired = false   // v3.9.33：登出即进登录页，横幅没必要再挂（用户已在登录页）
         defaults.set(false, forKey: loggedKey)
         // v3.0.84fix：token 迁 Keychain，登出清 Keychain + 清 UserDefaults 残留
         keychainDeleteToken()
         defaults.removeObject(forKey: tokenKey)
+    }
+
+    // MARK: - v3.9.33：401 统一收敛点（全局唯一入口，别再让各调用点自己 catch）
+    ///
+    /// 背景：token 过期/被吊销后，非登录接口 401 只会抛 `APIError.unauthorized`，
+    /// 而全仓此前**没有任何 catch** —— 流式层把它当普通失败指数退避重试 15 次，
+    /// 最后只显示「连接中断，请重试」，用户永远等不到「重新登录」。
+    ///
+    /// 现在：凡从非登录接口判定 401 的地方（`request` / `streamStart` / `streamPoll`）
+    /// 都先调用这里置位，再抛 `APIError.unauthorized`；UI 由 SessionExpiredBanner 统一提示，
+    /// 流式层（StreamClient）见 `APIError.unauthorized` 直接收尾、不再退避。
+    ///
+    /// 只清**内存** token：存盘 token（Keychain/UserDefaults）的唯一清理实现是 `logout()`，
+    /// 用户点「去登录」时走它统一清——避免反代偶发丢 `X-Auth-Token` 造成的假 401
+    /// 把有效凭据彻底销毁（那会逼用户重输密码）。置位是幂等的，重复 401 不重复处理。
+    func markSessionExpired() {
+        guard !sessionExpired else { return }
+        sessionExpired = true
+        token = ""
+        print("[AuthStore] 非登录接口 401 → 标记登录已过期（已清内存 token，存盘 token 交由 logout() 清理）")
     }
 
     // MARK: - 统一请求入口（新路由层）
@@ -241,7 +266,11 @@ final class AuthStore {
         }
         guard (200..<300).contains(code) else {
             // 登录接口 401 保持 server(401)（旧语义：错误提示归 login 的 catch）；其余 401 → 重新登录
-            if code == 401 && !path.contains("/api/auth/login") { throw APIError.unauthorized }
+            // v3.9.33：置位统一收敛点后再抛（此前只抛不置位 → 无人 catch → 用户永远等不到重新登录）
+            if code == 401 && !path.contains("/api/auth/login") {
+                markSessionExpired()
+                throw APIError.unauthorized
+            }
             throw APIError.server(code)
         }
         guard let url = URL(string: serverURL + path) else { throw APIError.badURL }
@@ -471,6 +500,12 @@ final class AuthStore {
         guard (200..<300).contains(code),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let tid = json["taskId"] as? String else {
+            // v3.9.33：流式启动 401 = token 过期/被吊销 → 统一收敛点置位 + 抛 unauthorized，
+            // 让 StreamClient 直接以「登录已过期，请重新登录」收尾（此前被当普通启动失败）
+            if code == 401 {
+                markSessionExpired()
+                throw APIError.unauthorized
+            }
             // v3.0.52：暴露后端真实 400 原因（如 bad json / messages required），勿再只报通用码
             var errDetail = ""
             if let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -531,6 +566,13 @@ final class AuthStore {
         }
         guard (200..<300).contains(code),
               let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            // v3.9.33：轮询 401 单独成信号——此前一律抛 server(401)，被 StreamClient 当普通失败
+            // 指数退避重试 15 次（≈2 分钟）后才报「连接中断，请重试」，token 过期用户永远等不到重新登录。
+            // 现在置位统一收敛点 + 抛 unauthorized，StreamClient 立即停止退避并如实收尾。
+            if code == 401 {
+                markSessionExpired()
+                throw APIError.unauthorized
+            }
             // v3.0.31：404 = 任务不存在（qingliao 重启/回收）→ 抛带码错误，StreamClient 据此走 recover
             throw APIError.server(code)
         }
