@@ -15,6 +15,13 @@ struct SessionsView: View {
     @State private var deleteError: String?
     // v2.0.36：搜索 + 置顶
     @State private var searchText = ""
+    // v3.9.33：远端全史搜索——冷启动缓存只有最近 100 会话 × 每会话 50 条消息，
+    // 两个月前的会话本地搜不到，本地零命中时补一次 POST /api/sessions/search
+    @State private var remoteHits: [SessionSearchHit] = []
+    @State private var remoteSearching = false
+    @State private var remoteFailed = false
+    @State private var remoteNotice: String?
+    @State private var remoteSearchTask: Task<Void, Never>?
     // v2.0.78：搜索框焦点（键盘收回）
     @FocusState private var focused: Bool
     // v3.4.25：本地实时搜索——直接过滤内存 sessions（标题+消息内容），不再走后端接口
@@ -116,22 +123,8 @@ struct SessionsView: View {
                 ScrollView {
                     VStack(spacing: 10) {
                         if isSearching {
-                            // v3.4.25：本地过滤结果（标题 + 消息内容，实时无防抖）
-                            if filteredSessions.isEmpty {
-                                // v3.4.25：无匹配空态 → 统一 EmptyStateView 场景插画
-                                EmptyStateView(icon: "magnifyingglass",
-                                               title: "未找到相关会话",
-                                               subtitle: "换个关键词试试，可搜索标题与消息内容",
-                                               iconColors: [.teal, .blue])
-                                    .padding(.top, 20)
-                                    .transition(.opacity.combined(with: .scale(scale: 0.96)))   // v3.9.30：空态浮现过渡（配 Motion.emerge）
-                            } else {
-                                LazyVStack(spacing: 8) {
-                                    ForEach(filteredSessions) { s in
-                                        sessionCell(s)
-                                    }
-                                }
-                            }
+                            // v3.9.33：搜索结果区（本地优先，本地零命中再补远端全史搜索）
+                            searchResultsArea
                         } else {
                             BotCard()
                             if sessions.isEmpty {
@@ -186,6 +179,10 @@ struct SessionsView: View {
         // v2.0.102：切回会话列表立即刷新（聊天里新建/重命名后列表即时更新，原只有 .task 首刷）
         .onAppear {
             Task { await load() }
+        }
+        // v3.9.33：关键词变化 → 本地过滤即刻生效（无网络），远端全史搜索走 450ms 防抖
+        .onChange(of: searchText) { _, newValue in
+            scheduleRemoteSearch(newValue)
         }
         // v2.0.78：搜索键盘完成按钮
         .toolbar {
@@ -341,6 +338,139 @@ struct SessionsView: View {
         }
     }
 
+    // MARK: - v3.9.33 搜索结果区（本地优先 + 远端全史兜底）
+
+    /// 搜索结果区：本地命中（实时、无网络）优先；本地一条都没有时才用远端全史搜索兜底，
+    /// 把冷启动缓存（最近 100 会话 × 每会话 50 条消息）之外的旧会话也捞出来。
+    @ViewBuilder
+    private var searchResultsArea: some View {
+        if !filteredSessions.isEmpty {
+            LazyVStack(spacing: 8) {
+                ForEach(filteredSessions) { s in
+                    sessionCell(s)
+                }
+            }
+        } else {
+            if remoteSearching {
+                HStack(spacing: Spacing.md) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("正在搜索全部历史消息…")
+                        .font(.system(size: Typography.caption))
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.top, 20)
+            } else if !remoteHits.isEmpty {
+                remoteHitsList
+            } else {
+                // v3.4.25：无匹配空态 → 统一 EmptyStateView 场景插画
+                EmptyStateView(icon: "magnifyingglass",
+                               title: "未找到相关会话",
+                               subtitle: "标题与全部历史消息都已搜索",
+                               iconColors: [.teal, .blue])
+                    .padding(.top, 20)
+                    .transition(.opacity.combined(with: .scale(scale: 0.96)))   // v3.9.30：空态浮现过渡（配 Motion.emerge）
+            }
+            // 失败不静默（本仓刚因静默 return 被用户报「功能坏了」）：远端搜索/打开失败留一行小字
+            if let note = remoteNoticeText {
+                Text(note)
+                    .font(.system(size: Typography.caption))
+                    .foregroundStyle(.tertiary)
+                    .padding(.top, Spacing.sm)
+            }
+        }
+    }
+
+    /// 远端命中列表：会话仍能对上本地列表 → 走普通会话行（同本地搜索结果）；
+    /// 只在服务器上的旧会话 → 轻量命中行（标题 + 命中片段），点击后先拉全量列表再进会话。
+    private var remoteHitsList: some View {
+        VStack(alignment: .leading, spacing: Spacing.md) {
+            Text("全部历史")
+                .font(.system(size: Typography.caption, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, Spacing.xs)
+            LazyVStack(spacing: 8) {
+                ForEach(remoteHits) { hit in
+                    if let s = localSession(id: hit.id) {
+                        sessionCell(s)
+                    } else {
+                        RemoteHitRow(hit: hit) { openRemote(id: hit.id) }
+                    }
+                }
+            }
+        }
+    }
+
+    /// 提示文案：远端搜索失败优先（那是本轮结果不完整的原因）
+    private var remoteNoticeText: String? {
+        if remoteFailed { return "远端搜索失败，请检查网络（以上仅本地结果）" }
+        return remoteNotice
+    }
+
+    private func localSession(id: String) -> ChatSession? {
+        sessions.first { $0.id == id }
+    }
+
+    /// v3.9.33：关键词变化 → 450ms 防抖后请求 `POST /api/sessions/search {q}`
+    /// （后端匹配标题 + 全部消息内容）。本地已有命中就不打扰网络（本地优先）；
+    /// 防抖写法沿用仓内 StockSearchSheet：`searchTask?.cancel()` + `Task.sleep` + perform。
+    private func scheduleRemoteSearch(_ raw: String) {
+        remoteSearchTask?.cancel()
+        remoteHits = []
+        remoteFailed = false
+        remoteNotice = nil
+        remoteSearching = false
+        let q = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard q.count >= 2, filteredSessions.isEmpty else { return }
+        remoteSearchTask = Task {
+            try? await Task.sleep(for: .milliseconds(450))   // 防抖：连续输入只发最后一次
+            if Task.isCancelled { return }
+            await performRemoteSearch(q)
+        }
+    }
+
+    private func performRemoteSearch(_ q: String) async {
+        remoteSearching = true
+        defer { remoteSearching = false }
+        do {
+            let j = try await auth.json("/api/sessions/search", method: "POST", body: ["q": q])
+            if Task.isCancelled { return }
+            remoteHits = (j["results"] as? [[String: Any]] ?? []).compactMap { SessionSearchHit($0) }
+            remoteFailed = false
+        } catch {
+            if Task.isCancelled { return }
+            remoteHits = []
+            remoteFailed = true   // 失败不静默：空态下方一行小字说明
+            print("[sessions] 远端搜索失败：\(error)")
+        }
+    }
+
+    /// 打开远端命中的会话：本地列表里没有（冷启动缓存只留最近 100 会话）→
+    /// 先无节流拉一次全量会话列表，拿到后再进（找不到则如实提示，不装作没事）。
+    private func openRemote(id: String) {
+        remoteNotice = nil
+        if let s = localSession(id: id) {
+            open(s)
+            return
+        }
+        Task {
+            await load(force: true)
+            if let s = localSession(id: id) {
+                open(s)
+            } else {
+                remoteNotice = "该会话已不在服务器（可能已删除）"
+            }
+        }
+    }
+
+    /// 进会话（本地搜索结果行与远端命中行共用同一入口——markRead 只在这里调）
+    private func open(_ s: ChatSession) {
+        chat.load(s)
+        chat.markRead(s.id)   // v3.9.32：打开会话即已读（此前 markRead 全仓零调用，红点会永久挂着）
+        Haptics.tap()         // v3.4.29：进入会话触感
+        onOpenSession?()
+    }
+
     /// v3.0.51：会话 cell（SessionRow + 长按菜单）——拆辅助函数，防嵌套 ForEach type-check 超时
     @ViewBuilder
     private func sessionCell(_ s: ChatSession) -> some View {
@@ -355,10 +485,7 @@ struct SessionsView: View {
             if editing {
                 toggleSelect(s.id)
             } else {
-                chat.load(s)
-                chat.markRead(s.id)   // v3.9.32：打开会话即已读（此前 markRead 全仓零调用，红点会永久挂着）
-                Haptics.tap()   // v3.4.29：进入会话触感
-                onOpenSession?()
+                open(s)   // v3.9.33：进会话统一入口（含 v3.9.32 markRead）——远端命中行复用同一路径
             }
         }
         // v3.4.29：滚动层次感——行进出视口时轻微缩放 + 淡出（须在 LazyVStack 内）
@@ -509,9 +636,10 @@ struct SessionsView: View {
 
     // MARK: - 数据
 
-    private func load() async {
+    /// - Parameter force: true = 跳过 3 秒节流（v3.9.33：远端命中要打开缓存外的旧会话时用）
+    private func load(force: Bool = false) async {
         // 3 秒内不重复加载（快速滑动切 Tab 时避免 isLoading 翻转蹭卡）
-        if let last = lastLoadAt, Date().timeIntervalSince(last) < 3 { return }
+        if !force, let last = lastLoadAt, Date().timeIntervalSince(last) < 3 { return }
         isLoading = true
         errorText = nil
         lastLoadAt = Date()
@@ -845,5 +973,124 @@ private struct SessionTagCapsules: View {
                     .background(tagColor(t).opacity(0.14), in: Capsule())
             }
         }
+    }
+}
+
+// MARK: - v3.9.33 远端全史搜索（POST /api/sessions/search）
+//
+// 后端契约（NAS sessions_api.py，2026-09-17 只读核实；需鉴权 → 401 走 AuthStore 统一收敛点）：
+//   POST /api/sessions/search {"q":"…"}
+//     → {"ok":true,"results":[{"id","title","lastTime",
+//          "hits":[{"role","snippet","content"}],"hitCount"}],"total":N}
+//   后端匹配「标题 + 每条消息 content」；hits 最多 3 条，snippet 已截好上下文并带省略号。
+// 拆成独立 struct（不在 SessionsView 里内联）：命中行与解析各一处，减轻 ViewBuilder 类型推断负担。
+
+private struct SessionSearchHit: Identifiable {
+    let id: String
+    let title: String
+    let role: String?
+    let snippet: String?
+    let hitCount: Int
+    let lastTime: TimeInterval?
+
+    init?(_ d: [String: Any]) {
+        guard let id = d["id"] as? String, !id.isEmpty else { return nil }
+        self.id = id
+        self.title = d["title"] as? String ?? ""
+        let hits = d["hits"] as? [[String: Any]] ?? []
+        var role: String?
+        var snippet: String?
+        if let h0 = hits.first {
+            role = h0["role"] as? String
+            let s = h0["snippet"] as? String ?? ""
+            if !s.isEmpty { snippet = s }
+        }
+        self.role = role
+        self.snippet = snippet
+        self.hitCount = d["hitCount"] as? Int ?? hits.count
+        self.lastTime = d["lastTime"] as? TimeInterval
+    }
+
+    /// 命中来源前缀（让用户一眼看出命中的是提问还是回答）
+    var snippetText: String {
+        guard let snippet, !snippet.isEmpty else { return "" }
+        return "\(role == "user" ? "我" : "AI")：\(snippet)"
+    }
+
+    /// 命中时间（后端 lastTime 与会话同源：毫秒时间戳；兼容秒，避免旧数据算成 1970 年）
+    var relativeText: String {
+        guard let ts = lastTime, ts > 0 else { return "" }
+        let secs = ts > 100_000_000_000 ? ts / 1000 : ts
+        let diff = Date().timeIntervalSince1970 - secs
+        if diff < 60 { return "刚刚" }
+        if diff < 3600 { return "\(Int(diff / 60)) 分钟前" }
+        if diff < 86400 { return "\(Int(diff / 3600)) 小时前" }
+        if diff < 86400 * 30 { return "\(Int(diff / 86400)) 天前" }
+        return "\(max(1, Int(diff / (86400 * 30)))) 个月前"
+    }
+}
+
+/// 远端命中但本地列表里没有的会话行（冷启动缓存只留最近 100 会话）。
+/// 点击 → 先拉全量列表再进会话；样式与 SessionRow 同一套令牌/描边，避免两张皮。
+private struct RemoteHitRow: View {
+    let hit: SessionSearchHit
+    var onTap: () -> Void
+
+    var body: some View {
+        HStack(spacing: Spacing.xl) {
+            ZStack {
+                RoundedRectangle(cornerRadius: Radius.inset, style: .continuous)
+                    .fill(Color.accentColor.opacity(Tint.soft))
+                Image(systemName: "clock.arrow.circlepath")
+                    .font(.system(size: Typography.subhead, weight: .medium))
+                    .foregroundStyle(Color.accentColor)
+            }
+            .frame(width: 38, height: 38)
+
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: Spacing.xs) {
+                    Text(hit.title.isEmpty ? "新对话" : hit.title)
+                        .font(.system(size: Typography.body, weight: .semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                    // 命中多处时给个胶囊（与 SessionRow 的分类胶囊同一套令牌）
+                    if hit.hitCount > 1 {
+                        Text("\(hit.hitCount) 处命中")
+                            .font(.system(size: Typography.tiny))
+                            .foregroundStyle(Color.accentColor)
+                            .padding(.horizontal, Spacing.sm)
+                            .padding(.vertical, Spacing.xxs)
+                            .background(Color.accentColor.opacity(Tint.soft), in: Capsule())
+                            .lineLimit(1)
+                    }
+                }
+                if !hit.snippetText.isEmpty {
+                    Text(hit.snippetText)
+                        .font(.system(size: Typography.caption))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+            }
+            Spacer(minLength: Spacing.md)
+            VStack(alignment: .trailing, spacing: 4) {
+                Text(hit.relativeText)
+                    .font(.system(size: Typography.caption))
+                    .foregroundStyle(.tertiary)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: Typography.caption, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .padding(.horizontal, Spacing.xxl)
+        .padding(.vertical, Spacing.lg)
+        .background(Color(uiColor: .secondarySystemGroupedBackground))
+        .overlay(
+            RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
+                .strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+        .contentShape(Rectangle())
+        // 与 SessionRow 一致用 tap 手势（Button 会与 swipeActions 冲突）
+        .onTapGesture { onTap() }
     }
 }

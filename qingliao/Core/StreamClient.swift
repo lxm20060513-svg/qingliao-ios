@@ -112,6 +112,11 @@ final class StreamClient {
             beginBgTask()
         } catch APIError.relayCancelled {
             finish(success: false, error: "已取消")
+        } catch APIError.unauthorized {
+            // v3.9.33：token 过期/被吊销（streamStart 401）→ 不再报「启动失败：…」这类无处可去的文案，
+            // 统一收敛点已在 AuthStore 置位，这里立刻收尾并如实告知需要重新登录
+            auth.markSessionExpired()
+            finish(success: false, error: APIError.unauthorized.localizedDescription)
         } catch {
             finish(success: false, error: "启动失败：\(error.localizedDescription)")
         }
@@ -214,6 +219,14 @@ final class StreamClient {
             if failCount >= 10 {
                 finish(success: false, error: "连接中断，请重试")
             }
+        } catch APIError.unauthorized {
+            guard generation == self.generation else { return }
+            // v3.9.33：401（token 过期/被吊销）**绝不进退避重试**——此前落进下面的通用分支，
+            // 走 recover + 指数退避到 15 次（≈2 分钟）才报「连接中断，请重试」，把「该重新登录」
+            // 误导成「网络问题」，用户于是永远等不到重新登录。这里立即收尾（置位是幂等的）。
+            auth.markSessionExpired()
+            finish(success: false, error: APIError.unauthorized.localizedDescription)
+            return
         } catch {
             guard generation == self.generation else { return }
             failCount += 1
@@ -281,6 +294,12 @@ final class StreamClient {
             }
             // 服务器明确无此任务 → 立即收尾报错，不必等 10 次连败
             finish(success: false, error: "连接中断，请重试")
+            return true
+        } catch APIError.unauthorized {
+            // v3.9.33：恢复请求本身 401（token 过期/被吊销）→ 不能返回 false 让上游继续退避，
+            // 直接置位 + 收尾（true = 已接管，调用方不再计 failCount）
+            auth.markSessionExpired()
+            finish(success: false, error: APIError.unauthorized.localizedDescription)
             return true
         } catch {
             return false
