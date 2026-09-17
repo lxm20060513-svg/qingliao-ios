@@ -51,4 +51,14 @@ rm -f /tmp/test_clip_gate   # v3.9.1：先删旧产物，否则编译失败时�
 $SWIFT/swiftc -o /tmp/test_clip_gate /tmp/ql_clip_main/main.swift qingliao/Core/ClipboardPromptGate.swift 2>&1 | head -10
 [ ${PIPESTATUS[0]} -eq 0 ] || { echo "❌ 剪贴板去重真值表编译失败"; exit 1; }
 /tmp/test_clip_gate || exit 1
+echo "=== 8. 一句话定时提醒解析真值表（v3.9.32）==="
+# 纯 Foundation 解析器（不依赖 iOS SDK）→ 本机就能把「时间算错」这类必错项钉死
+# 多文件编译时只有 main.swift 允许顶层代码 → 复制一份到临时目录做 main.swift
+rm -rf /tmp/ql_reminder_main && mkdir -p /tmp/ql_reminder_main
+cp scripts/test_quick_reminder.swift /tmp/ql_reminder_main/main.swift
+rm -f /tmp/test_quick_reminder   # 先删旧产物，否则编译失败时会跑到上一轮残留二进制 → 假绿
+$SWIFT/swiftc -swift-version 6 -o /tmp/test_quick_reminder /tmp/ql_reminder_main/main.swift \
+    qingliao/Core/QuickReminder.swift 2>&1 | head -10
+[ ${PIPESTATUS[0]} -eq 0 ] || { echo "❌ 定时提醒真值表编译失败"; exit 1; }
+/tmp/test_quick_reminder || exit 1
 exit $?
