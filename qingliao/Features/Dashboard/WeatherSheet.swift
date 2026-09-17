@@ -65,11 +65,7 @@ struct WeatherSheet: View {
                 showCityEdit = true
             } label: {
                 Text("换城市")
-                    .font(.system(size: Typography.tiny))
-                    .padding(.horizontal, Spacing.lg)
-                    .padding(.vertical, Spacing.xs)
-                    .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
-                    .foregroundStyle(Color.accentColor)
+                    .pill(.page)   // 尺寸走 Pill 令牌（page：tiny + h10/v4，与原手写等价；原尾随 foregroundStyle 同值，已并入）
             }
             .buttonStyle(PressStyle(scale: 0.94))
             .accessibilityLabel("切换天气城市")
