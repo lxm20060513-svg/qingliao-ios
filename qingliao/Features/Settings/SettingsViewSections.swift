@@ -10,7 +10,7 @@ extension SettingsView {
             SettingRow(icon: "person.crop.circle.fill", iconColor: .blue, title: auth.username, value: "已登录")
             Divider().padding(.leading, 52)
             SettingRow(icon: "key.horizontal.fill", iconColor: .gray, title: "修改密码", chevron: true)
-                .onTapGesture { showPasswordSheet = true }
+                .tapButton { showPasswordSheet = true }
             Divider().padding(.leading, 52)
             toggleRow(icon: "faceid", iconColor: .blue, title: "Face ID 登录", isOn: $faceIDLogin)
                 .onChange(of: faceIDLogin) { _, on in
@@ -39,21 +39,21 @@ extension SettingsView {
         SectionHeader("连接与模型")
         VStack(spacing: 0) {
             SettingRow(icon: "globe.asia.australia.fill", iconColor: .green, title: "连接设置", chevron: true)
-                .onTapGesture { showConnSettings = true }
+                .tapButton { showConnSettings = true }
             Divider().padding(.leading, 52)
             SettingRow(icon: "cpu.fill", iconColor: .orange, title: "模型管理", value: currentModel, chevron: true)
-                .onTapGesture { showModelSheet = true }
+                .tapButton { showModelSheet = true }
             Divider().padding(.leading, 52)
             SettingRow(icon: "bubble.left.and.bubble.right.fill", iconColor: .blue,
                        title: "微信通道模型", value: wechatChannelModel, chevron: true)
-                .onTapGesture { showWechatChannel = true }
+                .tapButton { showWechatChannel = true }
             Divider().padding(.leading, 52)
             SettingRow(icon: "house.fill", iconColor: .purple, title: "HA 设置", chevron: true)
-                .onTapGesture { showHASettings = true }
+                .tapButton { showHASettings = true }
             Divider().padding(.leading, 52)
             // v3.5.0：MCP 工具服务（App 配 key → Hermes 原生 MCP 工具）
             SettingRow(icon: "puzzlepiece.extension.fill", iconColor: .teal, title: "MCP 工具服务", chevron: true)
-                .onTapGesture { showMCPSettings = true }
+                .tapButton { showMCPSettings = true }
             Divider().padding(.leading, 52)
             localModelToggle
         }
@@ -96,7 +96,7 @@ extension SettingsView {
             Divider().padding(.leading, 52)
             SettingRow(icon: "shippingbox.fill", iconColor: .indigo, title: "管理模型",
                        value: "已装列表 / 拉取新模型", chevron: true)
-                .onTapGesture { showLocalModels = true }
+                .tapButton { showLocalModels = true }
             Divider().padding(.leading, 52)
             Button { Task { await checkLocalUpdate() } } label: {
                 HStack(spacing: 12) {
@@ -122,14 +122,14 @@ extension SettingsView {
         SectionHeader("AI 智能")
         VStack(spacing: 0) {
             SettingRow(icon: "books.vertical.fill", iconColor: .green, title: "知识库", value: "文档检索问答", chevron: true)
-                .onTapGesture { showKB = true }
+                .tapButton { showKB = true }
             Divider().padding(.leading, 52)
             SettingRow(icon: "brain.head.profile", iconColor: .pink, title: "AI 记忆", value: "\(memoryCount) 条", chevron: true)
-                .onTapGesture { showMemory = true }
+                .tapButton { showMemory = true }
             Divider().padding(.leading, 52)
             // v3.9.26：能力示例（卡片画廊）——让「AI 能出什么卡」可见，不用靠碰运气触发
             SettingRow(icon: "rectangle.grid.2x2.fill", iconColor: .indigo, title: "能力示例", value: "5 种卡片形态", chevron: true)
-                .onTapGesture { showCardGallery = true }
+                .tapButton { showCardGallery = true }
             Divider().padding(.leading, 52)
             // v3.0.81：上下文自动管理
             toggleRow(icon: "arrow.down.circle.fill", iconColor: .purple,
@@ -169,43 +169,43 @@ extension SettingsView {
         SectionHeader("数据与自动化")
         VStack(spacing: 0) {
             SettingRow(icon: "key.fill", iconColor: .teal, title: "密码管理", value: "\(secretCount) 条凭据", chevron: true)
-                .onTapGesture { showSecrets = true }
+                .tapButton { showSecrets = true }
             Divider().padding(.leading, 52)
             SettingRow(icon: "clock.badge.fill", iconColor: .red, title: "定时任务", chevron: true)
-                .onTapGesture { showTasks = true }
+                .tapButton { showTasks = true }
             Divider().padding(.leading, 52)
             SettingRow(icon: "clock.arrow.circlepath", iconColor: .orange, title: "执行历史",
                        value: "自动化/场景执行记录", chevron: true)
-                .onTapGesture { showHistory = true }
+                .tapButton { showHistory = true }
             Divider().padding(.leading, 52)
             SettingRow(icon: "doc.text.fill", iconColor: .orange, title: "日志", chevron: true)
-                .onTapGesture { showLogs = true }
+                .tapButton { showLogs = true }
             // v3.6.0：崩溃日志入口整合为「诊断」页（App 自身诊断 + 崩溃/卡顿自上报）
             Divider().padding(.leading, 52)
             SettingRow(icon: "stethoscope", iconColor: .red, title: "诊断",
                        value: CrashReporter.hasPendingLog() ? "有待查看" : "设备/网络/崩溃记录",
                        chevron: true)
-                .onTapGesture { showDiagnostics = true }
+                .tapButton { showDiagnostics = true }
             // v3.0.74：钉一钉存储路径
             Divider().padding(.leading, 52)
             SettingRow(icon: "pin.fill", iconColor: .indigo, title: "钉一钉存储",
                        value: pinPathDisplay, chevron: true)
-                .onTapGesture { showPinPath = true }
+                .tapButton { showPinPath = true }
             // v3.5.x：生活卡片设置（股票 / 资讯 / 快递 / 价格监控）
             Divider().padding(.leading, 52)
             SettingRow(icon: "rectangle.grid.2x2", iconColor: .green, title: "生活卡片",
                        value: "股票 / 资讯 / 快递 / 价格监控", chevron: true)
-                .onTapGesture { showLifeCards = true }
+                .tapButton { showLifeCards = true }
             Divider().padding(.leading, 52)
             // v3.9.32：一句话本地定时提醒（与上面「定时任务」不同：纯本地系统通知，App 不在也响）
             SettingRow(icon: "bell.badge.fill", iconColor: .pink, title: "定时提醒",
                        value: "一句话定时间", chevron: true)
-                .onTapGesture { showQuickReminder = true }
+                .tapButton { showQuickReminder = true }
             Divider().padding(.leading, 52)
             // v3.9.32：文件管理（上传目录浏览：预览 / 分享 / 重命名 / 删除）
             SettingRow(icon: "folder.fill", iconColor: .indigo, title: "文件管理",
                        value: "上传目录里的文件", chevron: true)
-                .onTapGesture { showFilesManager = true }
+                .tapButton { showFilesManager = true }
         }
         .glassListCard()
         .sheet(isPresented: $showPinPath) {
@@ -223,10 +223,10 @@ extension SettingsView {
             // v3.0.20：Agent 模型自定义（可单独指定 Agent 使用的模型，不依赖主模型）
             SettingRow(icon: "cpu.fill", iconColor: .indigo, title: "Agent 模型",
                        value: agentModel.isEmpty ? "跟随主模型" : agentModel, chevron: true)
-                .onTapGesture { showAgentModelSheet = true }
+                .tapButton { showAgentModelSheet = true }
             Divider().padding(.leading, 52)
             SettingRow(icon: "questionmark.circle.fill", iconColor: .gray, title: "使用说明", chevron: false)
-                .onTapGesture { withAnimation(Motion.snap) { showAgentHelp.toggle() } }
+                .tapButton { withAnimation(Motion.snap) { showAgentHelp.toggle() } }
             if showAgentHelp {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Agent 回复恒走 Hermes 智能体：查磁盘/内存、控制设备等自动调用工具")
@@ -241,11 +241,11 @@ extension SettingsView {
             }
             Divider().padding(.leading, 52)
             SettingRow(icon: "text.badge.plus", iconColor: .orange, title: "Agent 关键词", value: "分流匹配词管理", chevron: true)
-                .onTapGesture { showAgentKeywords = true }
+                .tapButton { showAgentKeywords = true }
             Divider().padding(.leading, 52)
             SettingRow(icon: "brain.head.profile", iconColor: .purple, title: "Agent 记忆",
                        value: agentRuleCount > 0 ? "\(agentRuleCount) 条规则" : "暂无", chevron: true)
-                .onTapGesture { showAgentMemory = true }
+                .tapButton { showAgentMemory = true }
         }
         .glassListCard()
     }
@@ -254,7 +254,7 @@ extension SettingsView {
         SectionHeader("外观与显示")
         VStack(spacing: 0) {
             SettingRow(icon: "circle.lefthalf.filled", iconColor: .purple, title: "外观", value: appearanceName, chevron: true)
-                .onTapGesture { withAnimation(Motion.snap) { showAppearance = true } }
+                .tapButton { withAnimation(Motion.snap) { showAppearance = true } }
             // v3.x review fix：showAppearanceOptions 死代码块（深浅色 chips/输入框流光/Siri 发光滑条/
             // AI 输出行高）永不显示（唯一写点恒置 false）——已删除，统一由 AppearanceSheet 管理
         }
@@ -265,7 +265,7 @@ extension SettingsView {
         SectionHeader("关于")
         VStack(spacing: 0) {
             SettingRow(icon: "info.circle.fill", iconColor: .gray, title: "关于轻聊", chevron: true)
-                .onTapGesture { showAbout = true }
+                .tapButton { showAbout = true }
         }
         .glassListCard()
     }

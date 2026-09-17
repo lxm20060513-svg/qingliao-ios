@@ -443,6 +443,8 @@ struct ChatView: View {
             .contentShape(Capsule())
         }
         .buttonStyle(PressStyle())
+        // v3.9.34：胶囊视觉 46×24 → 命中区 46×44（只纵向外扩，横向本就 >44）
+        .hitArea44(h: 0, v: 10)
         .accessibilityLabel("模型思考档位，当前\(reasoningLevel.title)")
     }
 
@@ -470,6 +472,8 @@ struct ChatView: View {
             .contentShape(Capsule())
         }
         .buttonStyle(PressStyle())
+        // v3.9.34：胶囊视觉 29×28 → 命中区 45×44（外扩 8，小于同行 12pt 间距，不越界抢点）
+        .hitArea44(h: 8, v: 8)
         .accessibilityLabel(autoReadReply ? "自动朗读已开启" : "自动朗读已关闭")
     }
 
@@ -542,6 +546,8 @@ struct ChatView: View {
                 }
             }
             .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
+            // v3.9.34：命中区撑到 44×44（图标仍 20pt、间距零变化 —— 见 hitArea44 负 padding 说明）
+            .hitArea44()
             .accessibilityLabel("任务中心")
 
             Button {
@@ -552,6 +558,8 @@ struct ChatView: View {
                     .foregroundStyle(Color.accentColor)
             }
             .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
+            // v3.9.34：命中区撑到 44×44（图标仍 24pt、间距零变化）
+            .hitArea44()
         }
     }
 

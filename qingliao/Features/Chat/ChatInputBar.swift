@@ -90,6 +90,8 @@ struct ChatInputBar: View {
                     .overlay(Capsule().strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8))
             }
             .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
+            // v3.9.34：命中区 44×44（附件钮视觉 32×30、间距零变化）
+            .hitArea44(h: 6, v: 7)
 
             // v2.0.38：拍照输入
             Button(action: onCamera) {
@@ -101,6 +103,8 @@ struct ChatInputBar: View {
                     .overlay(Capsule().strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8))
             }
             .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
+            // v3.9.34：命中区 44×44（相机钮视觉 32×30、间距零变化）
+            .hitArea44(h: 6, v: 7)
 
             if isRecording {
                 // v3.9.6：录音中**直接上屏** —— 在输入框同一行位置实时渲染识别文本。
@@ -192,6 +196,8 @@ struct ChatInputBar: View {
                         .background(Color.red.opacity(0.8), in: Capsule())
                 }
                 .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
+                // v3.9.34：命中区 44×44（停止红胶囊视觉 32×32、间距零变化）
+                .hitArea44(h: 6, v: 6)
             }
 
             // v2.0.96：发送按钮——普通发送；语音模式下点击=退出；长按=进入语音转文字（Siri 彩色图标）
@@ -216,6 +222,8 @@ struct ChatInputBar: View {
                                 .background(Color.red.opacity(0.85), in: Capsule())
                         }
                         .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
+                        // v3.9.34：命中区 44×44（xmark 视觉 26×26、间距零变化）
+                        .hitArea44(h: 9, v: 9)
                     }
                 } else {
                     // v3.9.14：录音态 waveform 图标持续波动（用户反馈「录音图标静态不动」）。
@@ -233,6 +241,8 @@ struct ChatInputBar: View {
                     .foregroundStyle(.white)
                     .frame(width: 32, height: 32)
                         .contentShape(Circle())
+                        // v3.9.34：命中区 44×44（发送键视觉 32×32、间距零变化）
+                        .hitArea44(h: 6, v: 6)
                         // v3.4.19：发送回弹缩放（仅轻点发送路径，长按转文字不缩放）
                         .scaleEffect(sendScale)
                         .gesture(

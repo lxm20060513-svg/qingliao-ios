@@ -149,10 +149,10 @@ struct DashboardView: View {
                     sectionTitle("智能家居")
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
                         DeviceCard(name: "开关", icon: "lightbulb.fill", value: haLights, sub: "\(lightsOn) 盏开启 · 点击控制", status: lightsOn > 0 ? .on : .off)
-                            .onTapGesture { activeSheet = .lights }
+                            .tapButton { activeSheet = .lights }
                             .matchedTransitionSource(id: DashboardSheet.lights.id, in: sheetZoomNS)   // v3.9.0：卡片→详情 zoom
                         DeviceCard(name: "空调", icon: "air.conditioner.horizontal", value: haClimate, sub: "\(climateOn) 台运行中 · 点击控制", status: climateOn > 0 ? .on : .off)
-                            .onTapGesture { activeSheet = .climate }
+                            .tapButton { activeSheet = .climate }
                             .matchedTransitionSource(id: DashboardSheet.climate.id, in: sheetZoomNS)   // v3.9.0：卡片→详情 zoom
                         DeviceCard(name: "门锁", icon: "lock.fill", value: haLockBattery, sub: "智能门锁", status: .on)
                         DeviceCard(name: "猫眼", icon: "video.fill", value: haDoorbellBattery, sub: haDoorbellOnline ? "在线" : "离线", status: haDoorbellOnline ? .on : .off)
@@ -197,7 +197,7 @@ struct DashboardView: View {
                                            value: "\(s.actionCount) 个动作",
                                            sub: "点击执行 · 长按删除",
                                            status: .on)
-                                    .onTapGesture { runScene(s) }
+                                    .tapButton { runScene(s) }
                                     .contextMenu {
                                         Button(role: .destructive) {
                                             deleteScene(s)
@@ -287,22 +287,22 @@ struct DashboardView: View {
                         MeterCard(name: "CPU", icon: "cpu.fill", value: nas.cpuText, sub: nil, ratio: nas.cpu / 100.0, color: .blue)
                         MeterCard(name: "内存", icon: "memorychip.fill", value: nas.memUsedText, sub: "/ \(nas.memTotalText)", ratio: nas.memPct, color: .green)
                         ServiceCard(name: "轻聊后端", icon: "server.rack", running: nas.qingliaoAlive, detail: "Docker 内存 \(nas.qingliaoDockerMemText)")
-                            .onTapGesture { activeSheet = .service }
+                            .tapButton { activeSheet = .service }
                             .matchedTransitionSource(id: DashboardSheet.service.id, in: sheetZoomNS)   // v3.9.0：卡片→详情 zoom
                         ServiceCard(name: "Hermes 网关", icon: "sparkles", running: nas.hermesAlive, detail: nas.hermesMemText)
-                            .onTapGesture { activeSheet = .serviceHermes }
+                            .tapButton { activeSheet = .serviceHermes }
                             .matchedTransitionSource(id: DashboardSheet.serviceHermes.id, in: sheetZoomNS)   // v3.9.0：卡片→详情 zoom
                         // v2.0.72：Docker 管理卡片（点击弹部署弹窗）
                         ServiceCard(name: "Docker", icon: "shippingbox.fill", running: dockerContainerCount > 0,
                                     detail: dockerContainerCount > 0 ? "\(dockerContainerCount) 个容器 · 点击管理" : "暂无容器 · 点击部署")
-                            .onTapGesture { activeSheet = .docker }
+                            .tapButton { activeSheet = .docker }
                             .matchedTransitionSource(id: DashboardSheet.docker.id, in: sheetZoomNS)   // v3.9.0：卡片→详情 zoom
                         ServiceCard(name: "运行时间", icon: "clock.fill", running: true, detail: nas.uptime)
                         // v2.0.86：硬件温度（CPU / NVMe）
                         ServiceCard(name: "温度", icon: "thermometer", running: true, detail: hwDetail)
                         // v3.4.13：磁盘汇总卡并入 NAS 面板网格（与温度卡等尺寸）；看板移除「系统盘」分区卡片栏目（分区已收进磁盘弹窗分组展示）
                         MeterCard(name: "磁盘", icon: "internaldrive.fill", value: nas.maxDiskPctText, sub: "\(nas.disks.filter { $0.isSystem }.count) 系统盘 · \(nas.disks.filter { !$0.isSystem }.count) 数据卷 · 点击查看", ratio: nas.maxDiskPct / 100.0, color: .orange)
-                            .onTapGesture { activeSheet = .disks }
+                            .tapButton { activeSheet = .disks }
                             .matchedTransitionSource(id: DashboardSheet.disks.id, in: sheetZoomNS)   // v3.9.0：卡片→详情 zoom
                     }
 
@@ -877,7 +877,7 @@ struct DashboardView: View {
         .padding(.vertical, Spacing.md)
         .dashboardCard()   // v3.8.1：空态提示条统一 16
         .contentShape(Rectangle())
-        .onTapGesture { showUsageRestore = true }
+        .tapButton { showUsageRestore = true }
         .confirmationDialog("恢复已隐藏的模型服务", isPresented: $showUsageRestore, titleVisibility: .visible) {
             ForEach(Array(hiddenUsageProviders).sorted(), id: \.self) { p in
                 Button(p) { unhideUsageProvider(p) }
