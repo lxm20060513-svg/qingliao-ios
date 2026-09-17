@@ -124,6 +124,10 @@ struct RootView: View {
                 .transition(.opacity)
             }
 
+            // v3.9.32：登录过期横幅（401 统一收敛点 AuthStore.sessionExpired 置位后显示）
+            SessionExpiredBanner()
+                .zIndex(6)
+
             // 启动动画：一次淡入后淡出
             if showSplash {
                 SplashView()

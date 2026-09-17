@@ -2444,6 +2444,8 @@ struct ChatView: View {
         let low = error.lowercased()
         // 用户主动动作：停止/取消 → 不重试
         if low.contains("已停止") || low.contains("已取消") { return false }
+        // v3.9.32：登录过期 → 不是「可重试」的网络抖动，重试只会白跑（且会拖慢正确文案出现）
+        if low.contains("登录已过期") { return false }
         // 业务失败：权限/4xx/5xx 服务端明确拒绝 → 不重试
         if low.contains("401") || low.contains("400") || low.contains("403")
             || low.contains("404") || low.contains("429") || low.contains("500")
