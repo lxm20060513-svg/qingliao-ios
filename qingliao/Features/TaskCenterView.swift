@@ -107,10 +107,6 @@ struct TaskCenterView: View {
                         sendToCurrentSession(item)
                         actionItem = nil
                     }
-                    Button("查看详情", role: .destructive) {}
-                    Button("取消", role: .cancel) { actionItem = nil }
-                }
-            }
                     // v3.9.32：查看详情——原为空实现且带破坏性红色样式（点了什么都不发生）。
                     // 先收 confirmationDialog 再开 alert（同帧 present 会被吞，与删除会话同一手法）。
                     Button("查看详情") {
