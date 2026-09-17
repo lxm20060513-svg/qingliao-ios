@@ -152,258 +152,19 @@ struct MessageBubble: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
-            if message.isUser {
-                // v2.0.41：左侧留白 48→24，用户气泡更宽（右缘贴边）
-                // v3.9.27：气泡变长（366→369 近满宽）——Spacer 同步收窄，别让硬约束把 maxWidth 压回去
-                Spacer(minLength: 12)
-            } else {
-                aiAvatar
-            }
+            bubbleLeadingAccessory
 
             // v2.0.66：气泡主体（单 Shape 背景带尾巴，不再用 ZStack overlay）
             VStack(alignment: message.isUser ? .trailing : .leading, spacing: 6) {
-                    // v3.4.x：气泡内可视化引用块——长按「引用」后，用户气泡顶部显示被引用原文（微信式）
-                    if let q = message.quotedText, !q.isEmpty {
-                        HStack(spacing: 6) {
-                            Image(systemName: "quote.opening")
-                                .font(.system(size: Typography.tiny))
-                                .foregroundStyle(Color.accentColor)
-                            Text(q)
-                                .font(.system(size: Typography.caption))
-                                .foregroundStyle(.secondary)
-                                .lineLimit(2)
-                                .multilineTextAlignment(message.isUser ? .trailing : .leading)
-                            Spacer(minLength: 0)
-                        }
-                        .padding(.horizontal, Spacing.sm)
-                        .padding(.vertical, Spacing.xs)
-                        .background(Color.accentColor.opacity(Tint.faint), in: RoundedRectangle(cornerRadius: Radius.icon, style: .continuous))
-                        .frame(maxWidth: .infinity, alignment: message.isUser ? .trailing : .leading)
-                    }
-                    // v2.0.92：撤回消息 → 灰色"已撤回"占位（内容不再显示）
-                    if message.withdrawn {
-                        Text("已撤回")
-                            .font(.system(size: Typography.subhead))
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, Spacing.xxs)
-                    } else if let img = message.imageDataURL {
-                        if img.hasPrefix("http") {
-                            // v3.0.37：图片持久化 —— URL 图片（已上传 NAS）用 AsyncImage 加载
-                            // v3.4.25：data URL 图片按气泡显示宽度下采样解码（≥100KB 大图省内存）
-                            // v3.4.28：横屏放宽到 280
-                            AIImageView(url: img, displayWidthPT: AdaptiveLayout.chatImageMax(hSize))
-                                .frame(maxWidth: AdaptiveLayout.chatImageMax(hSize), maxHeight: AdaptiveLayout.chatImageMax(hSize))
-                                .clipShape(RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
-                                .zoomSource(id: message.id, ns: zoomNS)   // v3.4.29：zoom 转场源
-                                .onTapGesture { onImageTap() }
-                                .contextMenu { cardMenu }
-                        } else if let uiImg = dataURLImage(img, displayWidthPT: AdaptiveLayout.chatImageMax(hSize)) {
-                            // v3.4.25：传气泡显示宽度 → ≥100KB 大图按 512/1024 档位下采样解码（内存不随原图像素放大）
-                            Image(uiImage: uiImg)
-                                .resizable()
-                                .scaledToFill()
-                                .frame(maxWidth: AdaptiveLayout.chatImageMax(hSize), maxHeight: AdaptiveLayout.chatImageMax(hSize))
-                                .clipShape(RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
-                                .zoomSource(id: message.id, ns: zoomNS)   // v3.4.29：zoom 转场源
-                                // v2.0.36：点击查看大图
-                                .onTapGesture { onImageTap() }
-                                // v2.0.125：图片长按菜单（原气泡级菜单移到这里，不抢占文字长按）
-                                .contextMenu { cardMenu }
-                        }
-                    }
-                    if !displayContent.isEmpty {
-                        if message.isUser {
-                            // v2.0.87q：文件消息微信风格卡片（图标+文件名+状态）
-                            if let file = parseFileMessage(message.content) {
-                                FileMessageCard(file: file)
-                                    // v2.0.125：文件卡片长按菜单（原气泡级菜单移到这里）
-                                    .contextMenu { cardMenu }
-                            } else {
-                                // v2.0.125：UITextView 渲染 —— 长按弹菜单（复制/引用/分享/大爆炸/选择文本/撤回/删除）
-                                SelectableTextLabel(
-                                    attributedText: NSAttributedString(string: message.content, attributes: [
-                                        .font: UIFont.systemFont(ofSize: CGFloat(fontSize)),
-                                        .foregroundColor: UIColor.white
-                                    ]),
-                                    fallbackColor: .white,
-                                    lineSpacing: LineSpacing.compact,
-                                    onCopy: { UIPasteboard.general.string = message.content; Haptics.success() },   // v3.9.30：复制触感
-                                    onQuote: onQuote,
-                                    onShare: onShare,
-                                    onBigBang: onBigBang,
-                                    onDelete: onDelete,
-                                    onRegenerate: nil,
-                                    onWithdraw: canWithdraw ? onWithdraw : nil,
-                                    onMultiSelect: onMultiSelect,
-                                    onMemo: onMemo
-                                )
-                            }
-                        } else {
-                                                    // v3.0.51：AI 长回复多气泡段落流式——按空行拆段，每段独立气泡，
-                                                    // 完成段落稳定可读、末尾段落持续流式（用户感知持续在动）
-                                                    // v4.0 fix：流式中跳过拆分（缓存全 miss → 白算 O(n)）
-                                                    // v3.6.5：流式中按「换行」拆行级小气泡（💭心跳/🔧工具行各自独立蹦出）——
-                                                    // splitParagraphs 新增 lineMode：流式中按单换行拆，代价 O(n) 但流式内容短（<10KB）
-                                                    let paras = Self.splitParagraphs(displayContent, streaming: streamingText, lineMode: streamingText)
-                                                    if paras.count > 1 {
-                                                        // 多气泡：每个段落一个独立气泡（贴左，头像在本气泡外右下角）
-                                                        VStack(alignment: .leading, spacing: 6) {
-                                                            ForEach(Array(paras.enumerated()), id: \.offset) { idx, para in
-                                                                aiParagraphBubble(para,
-                                                                                  isLast: idx == paras.count - 1,
-                                                                                  streaming: streamingText)
-                                                                    .transition(.opacity)
-                                                            }
-                                                        }
-                                                    } else {
-                                                        // 单段落 → 完整渲染（v3.1.1：去除超长回复折叠/省略号，全文可见）
-                                                        VStack(alignment: .leading, spacing: 6) {
-                                                                ForEach(0..<contentBlocks.count, id: \.self) { i in
-                                                                    MessageBlockView(block: contentBlocks[i],
-                                                                                    onCopy: { UIPasteboard.general.string = displayContent; Haptics.success() },   // v3.9.30：复制触感
-                                                                                    onQuote: onQuote,
-                                                                                    onShare: onShare,
-                                                                                    onBigBang: onBigBang,
-                                                                                    onDelete: onDelete,
-                                                                                    onRegenerate: onRegenerate,
-                                                                                    onWithdraw: nil,
-                                                                                    onPin: onPin,
-                                                                                    onMemo: onMemo,
-                                                                                    onRemind: onRemind,
-                                                                                    onImageTap: { url in onAIImageTap(url) },   // v2.0.128：AI 图片点击打开大图
-                                                                                    onFileTap: { url, name in onFileTap(url, name) },   // v3.9.17：AI 生成物预览
-                                                                                    onMultiSelect: onMultiSelect,   // v3.3.0：多选合并转发
-                                                                                    useSwiftUIText: true,
-                                                                                    streaming: streamingText)   // v3.0.41 性能：流式中纯 Text 渲染（跳过 markdown 解析）
-                                                                }
-                                                            }
-                                                    }
-                                                }
-                    }
-                    // v2.0.59：发送失败 → 重试入口
-                    // v3.4.25：微信式失败态——红色感叹号圆标 + 「消息未发出」+「点击重试」，整行可点
-                    if message.isUser && message.failed {
-                        Button {
-                            onRetry()
-                        } label: {
-                            HStack(spacing: Spacing.xs) {
-                                Image(systemName: "exclamationmark.circle.fill")
-                                    .font(.system(size: Typography.subhead))
-                                    .foregroundStyle(.red)
-                                Text("消息未发出")
-                                    .font(.system(size: Typography.caption))
-                                    .foregroundStyle(.secondary)
-                                Text("点击重试")
-                                    .font(.system(size: Typography.caption, weight: .medium))
-                                    .foregroundStyle(Color.accentColor)
-                            }
-                        }
-                        .buttonStyle(.plain)
-                        .padding(.top, Spacing.xxs)
-                    }
-                    // v3.4.25：AI 错误占位 → 快捷重试行（红描边气泡下「重新生成」，免翻长按菜单）
-                    if !message.isUser && message.isErrorPlaceholder {
-                        Button {
-                            onRegenerate()
-                        } label: {
-                            // v3.9.4：只留文字（去图标）
-                            Text("重新生成")
-                                .font(.system(size: Typography.caption, weight: .medium))
-                                .foregroundStyle(.red.opacity(0.85))
-                        }
-                        .buttonStyle(.plain)
-                        .padding(.top, Spacing.xxs)
-                    }
-                    // v2.0.65：已送达小字（用户消息、非失败、非语音、未撤回）
-                    // v2.0.87q：加 ✓ 图标（微信式送达状态）
-                    // v2.0.88：排队中的消息显示 ⏳ 排队中（AI 回答完自动发送）
-                    if message.isUser && !message.failed && !message.withdrawn {
-                        HStack(spacing: 2.5) {
-                            // v3.0.19：语音指令触发的消息带 🎤 小标记
-                            if message.voiceCommand {
-                                Image(systemName: "mic.fill")
-                                    .font(.system(size: Typography.tiny))
-                                    .foregroundStyle(.tertiary)
-                            }
-                            Image(systemName: message.queued ? "hourglass" : "checkmark")
-                                .font(.system(size: Typography.tiny, weight: .bold))
-                            Text(message.queued ? "排队中" : "已送达")
-                                .font(.system(size: Typography.tiny))
-                        }
-                        .foregroundStyle(.tertiary)
-                        .padding(.top, Spacing.xxs)
-                    }
-                    // v2.0.81：AI 消息朗读（点击播放/停止，中文 TTS）
-                    // v3.4.x：播放中显示声波跳动动画（3 音柱 TimelineView 驱动），播完自动复原
-                    if !message.isUser && !message.content.isEmpty {
-                        Button {
-                            SpeechManager.shared.toggle(displayContent, id: message.id)
-                        } label: {
-                            if speech.speakingID == message.id {
-                                // v3.5.x：云端 TTS 不可用（额度/网络）自动降级系统语音时显示来源小标，
-                                // 避免用户以为是「朗读没反应/没声音」
-                                HStack(spacing: 3) {
-                                // 播放中：3 根音柱跳动（10fps，低耗不卡渲染）
-                                TimelineView(.periodic(from: .now, by: 0.1)) { ctx in
-                                    let t = ctx.date.timeIntervalSinceReferenceDate
-                                    HStack(spacing: 1.5) {
-                                        ForEach(0..<3, id: \.self) { i in
-                                            // 三根音柱相位错开，正弦起伏 3..11pt
-                                            Capsule()
-                                                .fill(Color.accentColor)
-                                                .frame(width: 2, height: max(3, 7 + 4 * sin(t * 6 + Double(i) * 1.3)))
-                                        }
-                                    }
-                                    .frame(height: 12)   // 固定高度防行高抖动
-                                }
-                                if speech.cloudDegraded {
-                                    Text("系统")
-                                        .font(.system(size: Typography.tiny))
-                                        .foregroundStyle(.tertiary)
-                                }
-                                }
-                                .padding(.top, Spacing.xxs)
-                            } else {
-                                Image(systemName: "speaker.wave.2")
-                                    .font(.system(size: Typography.caption))
-                                    .foregroundStyle(.secondary)
-                                    .padding(.top, Spacing.xxs)
-                            }
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    // v3.4.x：移除「Agent 回复」标签——v3.4.8 起所有回复恒走 Hermes agent，
-                    // 标注已无信息量（用户确认移除）。agent 字段链路保留（落库/推送兼容不动）。
-                    // v3.0.82：Hermes 主动推送标签（收件箱注入，蓝色系）
-                    if message.isPush {
-                        Text("🔔 推送")
-                            .font(.system(size: Typography.tiny, weight: .semibold))
-                            .foregroundStyle(Color.blue)
-                            .padding(.horizontal, Spacing.sm)
-                            .padding(.vertical, Spacing.xxs)
-                            .background(Color.blue.opacity(Tint.faint), in: Capsule())
-                            .padding(.top, Spacing.xxs)
-                    }
-                    // v3.4.x 复读兜底：AI 回复与旧回复高度相似（换表述复述旧模板，去重/净化拦不住）
-                    // → 显示可点提示，让用户一键重新生成换角度；不删内容不误伤语义。
-                    if message.suspectedRepeat && !streamingText {
-                        Button {
-                            onRegenerate()
-                        } label: {
-                            HStack(spacing: 4) {
-                                Image(systemName: "exclamationmark.triangle.fill")
-                                    .font(.system(size: Typography.tiny, weight: .semibold))
-                                Text("疑似重复回复，点此重新生成")
-                                    .font(.system(size: Typography.tiny, weight: .medium))
-                            }
-                            .foregroundStyle(Color.orange)
-                            .padding(.horizontal, Spacing.md)
-                            .padding(.vertical, Spacing.xs)
-                            .background(Color.orange.opacity(Tint.subtle), in: Capsule())
-                        }
-                        .buttonStyle(.plain)
-                        .padding(.top, Spacing.xs)
-                    }
+                    bubbleQuotedBlock
+                    bubbleMediaBlock
+                    bubbleContentBody
+                    bubbleRetryRow
+                    bubbleRegenerateRow
+                    bubbleDeliveryRow
+                    bubbleSpeakButton
+                    bubblePushTag
+                    bubbleRepeatHint
                 }
                 .padding(.horizontal, isMultiBubbleAI ? 2 : 13)
                 .padding(.vertical, isMultiBubbleAI ? 2 : 9)
@@ -438,27 +199,351 @@ struct MessageBubble: View {
             .transition(.scale(scale: 0.94, anchor: message.isUser ? .trailing : .leading)
                 .combined(with: .opacity))
 
-            if message.isUser {
-                // v2.0.65：用户头像（渐变圆 + 首字母，与 AI 头像对称）
-                ZStack {
-                    Circle()
-                        .fill(LinearGradient(colors: [.teal, .blue], startPoint: .topLeading, endPoint: .bottomTrailing))
-                    Text("Q")
-                        .font(.system(size: Typography.subhead, weight: .bold))
-                        .foregroundStyle(.white)
-                }
-                .frame(width: 30, height: 30)
-            } else {
-                // v2.0.41：AI 气泡右侧留白 48→10，气泡右缘贴红线（约距屏幕右 22pt）
-                // v3.9.27：气泡变长（366→369）——Spacer 再收窄到 4，避免压缩 maxWidth
-                Spacer(minLength: 4)
-            }
+            bubbleTrailingAccessory
         }
         .frame(maxWidth: .infinity, alignment: message.isUser ? .trailing : .leading)
         // v2.0.125：长按菜单按区域分发 —— 文字区由 SelectableTextLabel 的 UITextView 编辑菜单接管
         //（复制/引用/分享/大爆炸/选择文本/重新生成/撤回/删除）；图片/文件卡片挂 cardMenu；
         // 代码块/表格走 MessageBlockView 内部 SwiftUI 菜单。
         // ⚠️ 气泡级 contextMenu 会抢占 UITextView 长按手势（v2.0.122 实测 bug），必须移除。
+    }
+
+    // MARK: - 巨型 body 拆分（纯搬运）
+    //
+    // 由头：此 body 单块 310 行，是本仓已踩过两次的「Unable to type-check this
+    // expression in reasonable time」高危形态（一次漏检 = 20 分钟 CI 循环）。
+    // 这里按原注释分段把视图块原样搬成独立 @ViewBuilder 属性 —— **纯搬运**：视图顺序、
+    // 层级、条件分支、闭包、修饰符逐字未变，渲染结果与拆分前一致，只为把类型检查表达式打小。
+
+    /// 用户气泡左侧留白 / AI 头像
+    @ViewBuilder
+    private var bubbleLeadingAccessory: some View {
+        if message.isUser {
+            // v2.0.41：左侧留白 48→24，用户气泡更宽（右缘贴边）
+            // v3.9.27：气泡变长（366→369 近满宽）——Spacer 同步收窄，别让硬约束把 maxWidth 压回去
+            Spacer(minLength: 12)
+        } else {
+            aiAvatar
+        }
+    }
+
+    /// 气泡内可视化引用块
+    @ViewBuilder
+    private var bubbleQuotedBlock: some View {
+        // v3.4.x：气泡内可视化引用块——长按「引用」后，用户气泡顶部显示被引用原文（微信式）
+        if let q = message.quotedText, !q.isEmpty {
+            HStack(spacing: 6) {
+                Image(systemName: "quote.opening")
+                    .font(.system(size: Typography.tiny))
+                    .foregroundStyle(Color.accentColor)
+                Text(q)
+                    .font(.system(size: Typography.caption))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(message.isUser ? .trailing : .leading)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, Spacing.sm)
+            .padding(.vertical, Spacing.xs)
+            .background(Color.accentColor.opacity(Tint.faint), in: RoundedRectangle(cornerRadius: Radius.icon, style: .continuous))
+            .frame(maxWidth: .infinity, alignment: message.isUser ? .trailing : .leading)
+        }
+    }
+
+    /// 撤回占位 / 图片（URL 与 data URL 两条渲染路径）
+    @ViewBuilder
+    private var bubbleMediaBlock: some View {
+        // v2.0.92：撤回消息 → 灰色"已撤回"占位（内容不再显示）
+        if message.withdrawn {
+            Text("已撤回")
+                .font(.system(size: Typography.subhead))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, Spacing.xxs)
+        } else if let img = message.imageDataURL {
+            if img.hasPrefix("http") {
+                // v3.0.37：图片持久化 —— URL 图片（已上传 NAS）用 AsyncImage 加载
+                // v3.4.25：data URL 图片按气泡显示宽度下采样解码（≥100KB 大图省内存）
+                // v3.4.28：横屏放宽到 280
+                AIImageView(url: img, displayWidthPT: AdaptiveLayout.chatImageMax(hSize))
+                    .frame(maxWidth: AdaptiveLayout.chatImageMax(hSize), maxHeight: AdaptiveLayout.chatImageMax(hSize))
+                    .clipShape(RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
+                    .zoomSource(id: message.id, ns: zoomNS)   // v3.4.29：zoom 转场源
+                    .onTapGesture { onImageTap() }
+                    .contextMenu { cardMenu }
+            } else if let uiImg = dataURLImage(img, displayWidthPT: AdaptiveLayout.chatImageMax(hSize)) {
+                // v3.4.25：传气泡显示宽度 → ≥100KB 大图按 512/1024 档位下采样解码（内存不随原图像素放大）
+                Image(uiImage: uiImg)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(maxWidth: AdaptiveLayout.chatImageMax(hSize), maxHeight: AdaptiveLayout.chatImageMax(hSize))
+                    .clipShape(RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
+                    .zoomSource(id: message.id, ns: zoomNS)   // v3.4.29：zoom 转场源
+                    // v2.0.36：点击查看大图
+                    .onTapGesture { onImageTap() }
+                    // v2.0.125：图片长按菜单（原气泡级菜单移到这里，不抢占文字长按）
+                    .contextMenu { cardMenu }
+            }
+        }
+    }
+
+    /// 正文（文件卡片 / 可选文本 / 段落流式）
+    @ViewBuilder
+    private var bubbleContentBody: some View {
+        if !displayContent.isEmpty {
+            if message.isUser {
+                bubbleUserTextBody
+            } else {
+                bubbleAITextBody
+                                    }
+        }
+    }
+
+    /// 用户消息正文（文件卡片 or 可选文本）
+    @ViewBuilder
+    private var bubbleUserTextBody: some View {
+        // v2.0.87q：文件消息微信风格卡片（图标+文件名+状态）
+        if let file = parseFileMessage(message.content) {
+            FileMessageCard(file: file)
+                // v2.0.125：文件卡片长按菜单（原气泡级菜单移到这里）
+                .contextMenu { cardMenu }
+        } else {
+            // v2.0.125：UITextView 渲染 —— 长按弹菜单（复制/引用/分享/大爆炸/选择文本/撤回/删除）
+            SelectableTextLabel(
+                attributedText: NSAttributedString(string: message.content, attributes: [
+                    .font: UIFont.systemFont(ofSize: CGFloat(fontSize)),
+                    .foregroundColor: UIColor.white
+                ]),
+                fallbackColor: .white,
+                lineSpacing: LineSpacing.compact,
+                onCopy: { UIPasteboard.general.string = message.content; Haptics.success() },   // v3.9.30：复制触感
+                onQuote: onQuote,
+                onShare: onShare,
+                onBigBang: onBigBang,
+                onDelete: onDelete,
+                onRegenerate: nil,
+                onWithdraw: canWithdraw ? onWithdraw : nil,
+                onMultiSelect: onMultiSelect,
+                onMemo: onMemo
+            )
+        }
+    }
+
+    /// AI 消息正文（多气泡段落 / 整块渲染）
+    @ViewBuilder
+    private var bubbleAITextBody: some View {
+        // v3.0.51：AI 长回复多气泡段落流式——按空行拆段，每段独立气泡，
+        // 完成段落稳定可读、末尾段落持续流式（用户感知持续在动）
+        // v4.0 fix：流式中跳过拆分（缓存全 miss → 白算 O(n)）
+        // v3.6.5：流式中按「换行」拆行级小气泡（💭心跳/🔧工具行各自独立蹦出）——
+        // splitParagraphs 新增 lineMode：流式中按单换行拆，代价 O(n) 但流式内容短（<10KB）
+        let paras = Self.splitParagraphs(displayContent, streaming: streamingText, lineMode: streamingText)
+        if paras.count > 1 {
+            // 多气泡：每个段落一个独立气泡（贴左，头像在本气泡外右下角）
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(Array(paras.enumerated()), id: \.offset) { idx, para in
+                    aiParagraphBubble(para,
+                                      isLast: idx == paras.count - 1,
+                                      streaming: streamingText)
+                        .transition(.opacity)
+                }
+            }
+        } else {
+            // 单段落 → 完整渲染（v3.1.1：去除超长回复折叠/省略号，全文可见）
+            VStack(alignment: .leading, spacing: 6) {
+                    ForEach(0..<contentBlocks.count, id: \.self) { i in
+                        MessageBlockView(block: contentBlocks[i],
+                                        onCopy: { UIPasteboard.general.string = displayContent; Haptics.success() },   // v3.9.30：复制触感
+                                        onQuote: onQuote,
+                                        onShare: onShare,
+                                        onBigBang: onBigBang,
+                                        onDelete: onDelete,
+                                        onRegenerate: onRegenerate,
+                                        onWithdraw: nil,
+                                        onPin: onPin,
+                                        onMemo: onMemo,
+                                        onRemind: onRemind,
+                                        onImageTap: { url in onAIImageTap(url) },   // v2.0.128：AI 图片点击打开大图
+                                        onFileTap: { url, name in onFileTap(url, name) },   // v3.9.17：AI 生成物预览
+                                        onMultiSelect: onMultiSelect,   // v3.3.0：多选合并转发
+                                        useSwiftUIText: true,
+                                        streaming: streamingText)   // v3.0.41 性能：流式中纯 Text 渲染（跳过 markdown 解析）
+                    }
+                }
+        }
+    }
+
+    /// 发送失败 → 重试入口
+    @ViewBuilder
+    private var bubbleRetryRow: some View {
+        // v2.0.59：发送失败 → 重试入口
+        // v3.4.25：微信式失败态——红色感叹号圆标 + 「消息未发出」+「点击重试」，整行可点
+        if message.isUser && message.failed {
+            Button {
+                onRetry()
+            } label: {
+                HStack(spacing: Spacing.xs) {
+                    Image(systemName: "exclamationmark.circle.fill")
+                        .font(.system(size: Typography.subhead))
+                        .foregroundStyle(.red)
+                    Text("消息未发出")
+                        .font(.system(size: Typography.caption))
+                        .foregroundStyle(.secondary)
+                    Text("点击重试")
+                        .font(.system(size: Typography.caption, weight: .medium))
+                        .foregroundStyle(Color.accentColor)
+                }
+            }
+            .buttonStyle(.plain)
+            .padding(.top, Spacing.xxs)
+        }
+    }
+
+    /// AI 错误占位 → 快捷重生成
+    @ViewBuilder
+    private var bubbleRegenerateRow: some View {
+        // v3.4.25：AI 错误占位 → 快捷重试行（红描边气泡下「重新生成」，免翻长按菜单）
+        if !message.isUser && message.isErrorPlaceholder {
+            Button {
+                onRegenerate()
+            } label: {
+                // v3.9.4：只留文字（去图标）
+                Text("重新生成")
+                    .font(.system(size: Typography.caption, weight: .medium))
+                    .foregroundStyle(.red.opacity(0.85))
+            }
+            .buttonStyle(.plain)
+            .padding(.top, Spacing.xxs)
+        }
+    }
+
+    /// 已送达 / 排队中状态
+    @ViewBuilder
+    private var bubbleDeliveryRow: some View {
+        // v2.0.65：已送达小字（用户消息、非失败、非语音、未撤回）
+        // v2.0.87q：加 ✓ 图标（微信式送达状态）
+        // v2.0.88：排队中的消息显示 ⏳ 排队中（AI 回答完自动发送）
+        if message.isUser && !message.failed && !message.withdrawn {
+            HStack(spacing: 2.5) {
+                // v3.0.19：语音指令触发的消息带 🎤 小标记
+                if message.voiceCommand {
+                    Image(systemName: "mic.fill")
+                        .font(.system(size: Typography.tiny))
+                        .foregroundStyle(.tertiary)
+                }
+                Image(systemName: message.queued ? "hourglass" : "checkmark")
+                    .font(.system(size: Typography.tiny, weight: .bold))
+                Text(message.queued ? "排队中" : "已送达")
+                    .font(.system(size: Typography.tiny))
+            }
+            .foregroundStyle(.tertiary)
+            .padding(.top, Spacing.xxs)
+        }
+    }
+
+    /// AI 朗读按钮（音柱跳动动画）
+    @ViewBuilder
+    private var bubbleSpeakButton: some View {
+        // v2.0.81：AI 消息朗读（点击播放/停止，中文 TTS）
+        // v3.4.x：播放中显示声波跳动动画（3 音柱 TimelineView 驱动），播完自动复原
+        if !message.isUser && !message.content.isEmpty {
+            Button {
+                SpeechManager.shared.toggle(displayContent, id: message.id)
+            } label: {
+                if speech.speakingID == message.id {
+                    // v3.5.x：云端 TTS 不可用（额度/网络）自动降级系统语音时显示来源小标，
+                    // 避免用户以为是「朗读没反应/没声音」
+                    HStack(spacing: 3) {
+                    // 播放中：3 根音柱跳动（10fps，低耗不卡渲染）
+                    TimelineView(.periodic(from: .now, by: 0.1)) { ctx in
+                        let t = ctx.date.timeIntervalSinceReferenceDate
+                        HStack(spacing: 1.5) {
+                            ForEach(0..<3, id: \.self) { i in
+                                // 三根音柱相位错开，正弦起伏 3..11pt
+                                Capsule()
+                                    .fill(Color.accentColor)
+                                    .frame(width: 2, height: max(3, 7 + 4 * sin(t * 6 + Double(i) * 1.3)))
+                            }
+                        }
+                        .frame(height: 12)   // 固定高度防行高抖动
+                    }
+                    if speech.cloudDegraded {
+                        Text("系统")
+                            .font(.system(size: Typography.tiny))
+                            .foregroundStyle(.tertiary)
+                    }
+                    }
+                    .padding(.top, Spacing.xxs)
+                } else {
+                    Image(systemName: "speaker.wave.2")
+                        .font(.system(size: Typography.caption))
+                        .foregroundStyle(.secondary)
+                        .padding(.top, Spacing.xxs)
+                }
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    /// Hermes 主动推送标签
+    @ViewBuilder
+    private var bubblePushTag: some View {
+        // v3.4.x：移除「Agent 回复」标签——v3.4.8 起所有回复恒走 Hermes agent，
+        // 标注已无信息量（用户确认移除）。agent 字段链路保留（落库/推送兼容不动）。
+        // v3.0.82：Hermes 主动推送标签（收件箱注入，蓝色系）
+        if message.isPush {
+            Text("🔔 推送")
+                .font(.system(size: Typography.tiny, weight: .semibold))
+                .foregroundStyle(Color.blue)
+                .padding(.horizontal, Spacing.sm)
+                .padding(.vertical, Spacing.xxs)
+                .background(Color.blue.opacity(Tint.faint), in: Capsule())
+                .padding(.top, Spacing.xxs)
+        }
+    }
+
+    /// 疑似重复回复提示
+    @ViewBuilder
+    private var bubbleRepeatHint: some View {
+        // v3.4.x 复读兜底：AI 回复与旧回复高度相似（换表述复述旧模板，去重/净化拦不住）
+        // → 显示可点提示，让用户一键重新生成换角度；不删内容不误伤语义。
+        if message.suspectedRepeat && !streamingText {
+            Button {
+                onRegenerate()
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: Typography.tiny, weight: .semibold))
+                    Text("疑似重复回复，点此重新生成")
+                        .font(.system(size: Typography.tiny, weight: .medium))
+                }
+                .foregroundStyle(Color.orange)
+                .padding(.horizontal, Spacing.md)
+                .padding(.vertical, Spacing.xs)
+                .background(Color.orange.opacity(Tint.subtle), in: Capsule())
+            }
+            .buttonStyle(.plain)
+            .padding(.top, Spacing.xs)
+        }
+    }
+
+    /// 用户头像 / AI 气泡右侧留白
+    @ViewBuilder
+    private var bubbleTrailingAccessory: some View {
+        if message.isUser {
+            // v2.0.65：用户头像（渐变圆 + 首字母，与 AI 头像对称）
+            ZStack {
+                Circle()
+                    .fill(LinearGradient(colors: [.teal, .blue], startPoint: .topLeading, endPoint: .bottomTrailing))
+                Text("Q")
+                    .font(.system(size: Typography.subhead, weight: .bold))
+                    .foregroundStyle(.white)
+            }
+            .frame(width: 30, height: 30)
+        } else {
+            // v2.0.41：AI 气泡右侧留白 48→10，气泡右缘贴红线（约距屏幕右 22pt）
+            // v3.9.27：气泡变长（366→369）——Spacer 再收窄到 4，避免压缩 maxWidth
+            Spacer(minLength: 4)
+        }
     }
 
     /// 消息内容分段：``` 代码块 → 等宽深色块；其余 → markdown
