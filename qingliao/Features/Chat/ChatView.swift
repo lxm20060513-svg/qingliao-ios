@@ -333,8 +333,8 @@ struct ChatView: View {
     private var aiBusy: Bool {
         (stream.isStreaming && auth.currentStreamSessionId == chat.sessionId) || remoteBusy
     }
-    /// v3.8.0：实时活动（灵动岛/锁屏）展开态展示的模型名——**复用发送路径同一套选型**（免费/视觉/Agent/主模型），
-    /// 口径对齐 SessionsView.displayModel；否则会出现「灵动岛写着主模型、实际回的是免费/Agent 模型」的错报
+    /// v3.8.0：实时活动（灵动岛/锁屏）展开态展示的模型名——**复用发送路径同一套选型**（视觉/Agent/主模型），
+    /// 口径对齐 SessionsView.displayModel；否则会出现「灵动岛写着主模型、实际回的是 Agent/视觉模型」的错报
     private var liveActivityModelName: String {
         resolveModel(hasImage: false).0
     }
@@ -2254,7 +2254,7 @@ struct ChatView: View {
         // 后端 _build_hermes_messages 对完整历史再做 _sanitize_history/_compress_long_assistants/
         // _break_repeat_seed，并去掉 X-Hermes-Session-Id（不再让 Hermes 用 state.db 重建未净化会话）。
         // 上下文=净化历史 → 不复读；且保留 app 按会话选模型 + 图片 + 流式。
-        // v3.0.81：统一模型优先级链（免费 > 视觉 > Agent > 主模型）
+        // v3.0.81：统一模型优先级链（视觉 > Agent > 主模型）
         let (useModel, useProvider) = resolveModel(hasImage: msg.imageDataURL != nil)
         // v3.9.15：把真实请求模型交给历史净化——断种子占位的闸门必须与实际请求同源
         let history: [[String: Any]] = chat.historyPayload(model: useModel, provider: useProvider)
@@ -2758,7 +2758,7 @@ struct ChatView: View {
         // v3.3.3：截断后的最后 user = 本轮回话锚点（回答必须落在其后，防错位复读）
         let anchorUserID = chat.messages.last(where: { $0.isUser })?.id
         let lastUserHasImage = chat.messages.last(where: { $0.isUser })?.imageDataURL != nil
-        // v3.0.81：统一模型优先级链（免费 > 视觉 > Agent > 主模型）
+        // v3.0.81：统一模型优先级链（视觉 > Agent > 主模型）
         let (useModel, useProvider) = resolveModel(hasImage: lastUserHasImage)
         // v3.9.15：闸门与实际请求同源
         let history = chat.historyPayload(model: useModel, provider: useProvider)
@@ -2786,14 +2786,11 @@ struct ChatView: View {
 
     // MARK: - v3.0.81 模型优先级链（统一供 startStream / regenerate / sendFile 使用）
 
-    /// 模型优先级：免费模型 > 视觉模型 > Agent 模型 > 主模型
+    /// 模型优先级：视觉模型 > Agent 模型 > 主模型
     /// - Parameter hasImage: 当前消息是否包含图片（触发视觉模型优先）
+    /// - v3.10.x：「免费模型（免 Key）」档已移除——实测 opencode zen 免费档对非 OpenCode 客户端恒 403
+    ///   （FreeTierError: free tier can only be used from within OpenCode），开启即每次回复都是错误文案。
     func resolveModel(hasImage: Bool = false) -> (String, String) {
-        // v3.0.57：免费模型开关——优先级最高
-        if UserDefaults.standard.bool(forKey: UserDefaultsKey.freeModel) {
-            let freeName = UserDefaults.standard.string(forKey: UserDefaultsKey.freeModelName) ?? "nemotron-3.5-lightning-free"
-            return (freeName, "opencode-free")
-        }
         // 视觉模型：含图片消息时优先
         if hasImage, let vision = CloudConfig.effectiveVisionModel() {
             return (vision.model, vision.provider)
