@@ -91,296 +91,25 @@ struct DashboardView: View {
                 // v2.0.133f：VStack → LazyVStack——TabView 切页动画期间看板全量卡片一次性布局是切页卡顿主因，
                 // 懒加载后只渲染可见卡片（与 v2.0.132 ChatView 消息列表同款方案；看板无批量移除路径，安全）
                 LazyVStack(alignment: .leading, spacing: 10) {
-                    // v2.0.116：智能建议（基于天气/NAS/设备状态，Agent 生成）
-                    // v2.0.118：门锁卡同风格（普通圆角卡背景）+ 标题左上 + 内容靠左 + 重新生成右上
-                    sectionTitle("智能建议")
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Text("今日建议")
-                                .font(.system(size: Typography.subhead, weight: .semibold))
-                                .foregroundStyle(.secondary)
-                            Spacer()
-                            if !smartSuggestion.isEmpty {
-                                Button {
-                                    Task { await loadSmartSuggestion() }
-                                } label: {
-                                    // v3.9.4：只留文字 + 胶囊（去图标）
-                                    Text("重新生成")
-                                        .font(.system(size: Typography.tiny))
-                                        .padding(.horizontal, Spacing.lg)
-                                        .padding(.vertical, Spacing.xs)
-                                        .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
-                                }
-                                .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
-                                .foregroundStyle(Color.accentColor)
-                            }
-                        }
-                        if smartLoading {
-                            HStack(spacing: 6) {
-                                ProgressView().controlSize(.small)
-                                Text("正在分析家庭状态…")
-                                    .font(.system(size: Typography.subhead))
-                                    .foregroundStyle(.secondary)
-                            }
-                        } else if !smartSuggestion.isEmpty {
-                            Text(smartSuggestion)
-                                .font(.system(size: Typography.subhead))
-                                .lineSpacing(LineSpacing.compact)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        } else {
-                            Button {
-                                Task { await loadSmartSuggestion() }
-                            } label: {
-                                Text("生成智能建议")
-                                    .font(.system(size: Typography.subhead, weight: .medium))
-                                    .padding(.horizontal, Spacing.xxl)
-                                    .padding(.vertical, Spacing.sm)
-                                    .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
-                            }
-                            .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
-                            .foregroundStyle(Color.accentColor)
-                        }
-                    }
-                    .padding(Spacing.xl)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    // v3.8.1：本来手写 background+描边、圆角 12 → 改用统一卡片样式（16），与看板/生活其它卡片对齐
-                    .dashboardCard()
+                    smartSuggestionBlock
 
-                    sectionTitle("智能家居")
-                LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
-                        DeviceCard(name: "开关", icon: "lightbulb.fill", value: haLights, sub: "\(lightsOn) 盏开启 · 点击控制", status: lightsOn > 0 ? .on : .off)
-                            .tapButton { activeSheet = .lights }
-                            .matchedTransitionSource(id: DashboardSheet.lights.id, in: sheetZoomNS)   // v3.9.0：卡片→详情 zoom
-                        DeviceCard(name: "空调", icon: "air.conditioner.horizontal", value: haClimate, sub: "\(climateOn) 台运行中 · 点击控制", status: climateOn > 0 ? .on : .off)
-                            .tapButton { activeSheet = .climate }
-                            .matchedTransitionSource(id: DashboardSheet.climate.id, in: sheetZoomNS)   // v3.9.0：卡片→详情 zoom
-                        DeviceCard(name: "门锁", icon: "lock.fill", value: haLockBattery, sub: "智能门锁", status: .on)
-                        DeviceCard(name: "猫眼", icon: "video.fill", value: haDoorbellBattery, sub: haDoorbellOnline ? "在线" : "离线", status: haDoorbellOnline ? .on : .off)
-                        DeviceCard(name: "安防", icon: "shield.fill", value: haAlarm, sub: "网关警戒模式", status: haAlarmArmed ? .on : .warn)
-                        DeviceCard(name: "温度", icon: "thermometer", value: haTemp, sub: "室内温度", status: .on)
-                    }
+                    homeDevicesBlock
 
-                    // v2.0.96：场景（AI 对话生成动作组，点一下逐条执行）
-                    // v2.0.96b：改「智慧场景」标题 + HomeKit 卡片风格（对齐 DeviceCard）
-                    // v2.0.96c：空态可点击刷新（TabView 切 tab 不触发 onAppear 的 iOS 版本差异兜底）
-                    sectionTitle("智慧场景")
-                    if scenes.isEmpty {
-                        HStack(spacing: 6) {
-                            Image(systemName: "bolt.fill")
-                                .font(.system(size: Typography.caption))
-                                .foregroundStyle(.tertiary)
-                            Text("暂无场景")
-                                .font(.system(size: Typography.subhead))
-                                .foregroundStyle(.tertiary)
-                            Spacer()
-                            Button {
-                                Task { await refresh() }
-                            } label: {
-                                // v3.9.4：刷新统一为「文字 + 胶囊」（去图标）
-                                Text("刷新")
-                                    .font(.system(size: Typography.caption, weight: .medium))
-                                    .foregroundStyle(Color.accentColor)
-                                    .padding(.horizontal, Spacing.lg)
-                                    .padding(.vertical, Spacing.xs)
-                                    .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
-                            }
-                            .buttonStyle(PressStyle())
-                        }
-                        .padding(.horizontal, Spacing.xl)
-                        .padding(.vertical, Spacing.md)
-                        .dashboardCard()   // v3.8.1：空态提示条统一 16
-                    } else {
-                        LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
-                            ForEach(scenes) { s in
-                                DeviceCard(name: s.name,
-                                           icon: "bolt.fill",
-                                           value: "\(s.actionCount) 个动作",
-                                           sub: "点击执行 · 长按删除",
-                                           status: .on)
-                                    .tapButton { runScene(s) }
-                                    .contextMenu {
-                                        Button(role: .destructive) {
-                                            deleteScene(s)
-                                        } label: {
-                                            Label("删除场景", systemImage: "trash")
-                                        }
-                                    }
-                            }
-                        }
-                    }
+                    scenesBlock
 
-                    // v2.0.104：自动化（AI 生成"X分钟后执行Y"，倒计时到点自动执行后消失）
-                    sectionTitle("自动化")
-                    if automations.isEmpty {
-                        HStack(spacing: 6) {
-                            Image(systemName: "timer")
-                                .font(.system(size: Typography.caption))
-                                .foregroundStyle(.tertiary)
-                            Text("暂无自动化")
-                                .font(.system(size: Typography.subhead))
-                                .foregroundStyle(.tertiary)
-                            Spacer()
-                            Button {
-                                Task { await refresh() }
-                            } label: {
-                                // v3.9.4：刷新统一为「文字 + 胶囊」（去图标）
-                                Text("刷新")
-                                    .font(.system(size: Typography.caption, weight: .medium))
-                                    .foregroundStyle(Color.accentColor)
-                                    .padding(.horizontal, Spacing.lg)
-                                    .padding(.vertical, Spacing.xs)
-                                    .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
-                            }
-                            .buttonStyle(PressStyle())
-                        }
-                        .padding(.horizontal, Spacing.xl)
-                        .padding(.vertical, Spacing.md)
-                        .dashboardCard()   // v3.8.1：空态提示条统一 16
-                    } else {
-                        LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
-                            ForEach(automations) { a in
-                                // TimelineView 每秒驱动倒计时刷新
-                                TimelineView(.periodic(from: .now, by: 1)) { ctx in
-                                    // v2.0.104b：runAt 在未来，timeIntervalSince(a.runAt) 是负值——
-                                    // 修正为 runAt.timeIntervalSince(now) 得剩余正秒数（原实现倒计时反向递增）
-                                    let remain = max(Int(a.runAt.timeIntervalSince(ctx.date)), 0)
-                                    DeviceCard(name: a.name,
-                                               icon: "timer",
-                                               value: remainText(remain),
-                                               sub: "到点自动执行 · 长按取消",
-                                               status: .on)
-                                        .opacity(remain <= 0 ? 0.35 : 1)
-                                }
-                                .contextMenu {
-                                    Button(role: .destructive) {
-                                        cancelAutomation(a)
-                                    } label: {
-                                        Label("取消自动化", systemImage: "xmark.circle")
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    automationsBlock
 
-                    // v3.9.21：自动规则（条件触发）——规则本体在后端 rules_engine：时间窗/HA 实体/上报事件
-                    // 命中且过冷却才执行；App 只负责列出、开关、删除（新建走对话/快捷指令，不在 App 里堆表单）
-                    if !rules.isEmpty {
-                        sectionTitle("自动规则")
-                        VStack(spacing: 10) {
-                            ForEach(rules) { r in
-                                RuleRow(item: r,
-                                        onToggle: { on in
-                                            Task {
-                                                _ = await auth.toggleRule(id: r.id, enabled: on)
-                                                await loadRules()   // 无论成败都回读，避免开关显示与后端不一致
-                                            }
-                                        },
-                                        onDelete: { pendingRuleDelete = r })
-                            }
-                        }
-                        .padding(Spacing.xl)
-                        .dashboardCard()
-                    }
+                    rulesBlock
 
-                    sectionTitle("NAS 面板")
-                    LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
-                        MeterCard(name: "CPU", icon: "cpu.fill", value: nas.cpuText, sub: nil, ratio: nas.cpu / 100.0, color: .blue)
-                        MeterCard(name: "内存", icon: "memorychip.fill", value: nas.memUsedText, sub: "/ \(nas.memTotalText)", ratio: nas.memPct, color: .green)
-                        ServiceCard(name: "轻聊后端", icon: "server.rack", running: nas.qingliaoAlive, detail: "Docker 内存 \(nas.qingliaoDockerMemText)")
-                            .tapButton { activeSheet = .service }
-                            .matchedTransitionSource(id: DashboardSheet.service.id, in: sheetZoomNS)   // v3.9.0：卡片→详情 zoom
-                        ServiceCard(name: "Hermes 网关", icon: "sparkles", running: nas.hermesAlive, detail: nas.hermesMemText)
-                            .tapButton { activeSheet = .serviceHermes }
-                            .matchedTransitionSource(id: DashboardSheet.serviceHermes.id, in: sheetZoomNS)   // v3.9.0：卡片→详情 zoom
-                        // v2.0.72：Docker 管理卡片（点击弹部署弹窗）
-                        ServiceCard(name: "Docker", icon: "shippingbox.fill", running: dockerContainerCount > 0,
-                                    detail: dockerContainerCount > 0 ? "\(dockerContainerCount) 个容器 · 点击管理" : "暂无容器 · 点击部署")
-                            .tapButton { activeSheet = .docker }
-                            .matchedTransitionSource(id: DashboardSheet.docker.id, in: sheetZoomNS)   // v3.9.0：卡片→详情 zoom
-                        ServiceCard(name: "运行时间", icon: "clock.fill", running: true, detail: nas.uptime)
-                        // v2.0.86：硬件温度（CPU / NVMe）
-                        ServiceCard(name: "温度", icon: "thermometer", running: true, detail: hwDetail)
-                        // v3.4.13：磁盘汇总卡并入 NAS 面板网格（与温度卡等尺寸）；看板移除「系统盘」分区卡片栏目（分区已收进磁盘弹窗分组展示）
-                        MeterCard(name: "磁盘", icon: "internaldrive.fill", value: nas.maxDiskPctText, sub: "\(nas.disks.filter { $0.isSystem }.count) 系统盘 · \(nas.disks.filter { !$0.isSystem }.count) 数据卷 · 点击查看", ratio: nas.maxDiskPct / 100.0, color: .orange)
-                            .tapButton { activeSheet = .disks }
-                            .matchedTransitionSource(id: DashboardSheet.disks.id, in: sheetZoomNS)   // v3.9.0：卡片→详情 zoom
-                    }
+                    nasPanelBlock
 
-                    // v3.0.36：模型使用量（DeepSeek/StepFun 官方余额；无接口 provider 降级显示）
-                    // v3.4.2b：长按任意用量卡 → 只隐藏该 provider 卡（持久化）；
-                    // 节底部显示"已隐藏 N 个 · 点击恢复"（弹菜单逐张恢复/全部恢复）
-                    sectionTitle("模型使用量")
-                    if usageError.isEmpty && providerUsages.isEmpty {
-                        Text("加载中…")
-                            .font(.system(size: Typography.subhead))
-                            .foregroundStyle(.secondary)
-                            .padding(.vertical, Spacing.sm)
-                    } else if !usageError.isEmpty {
-                        Text(usageError)
-                            .font(.system(size: Typography.subhead))
-                            .foregroundStyle(.secondary)
-                            .padding(.vertical, Spacing.sm)
-                    } else {
-                        let visible = providerUsages.filter { !hiddenUsageProviders.contains($0.id) }
-                        if visible.isEmpty {
-                            Text("已全部隐藏 · 点下方恢复")
-                                .font(.system(size: Typography.subhead))
-                                .foregroundStyle(.tertiary)
-                                .padding(.vertical, Spacing.sm)
-                        } else {
-                            LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
-                                ForEach(visible) { u in
-                                    UsageCard(usage: u)
-                                        .contextMenu {
-                                            Button(role: .destructive) {
-                                                hideUsageProvider(u.id)
-                                            } label: {
-                                                Label("隐藏此卡片", systemImage: "eye.slash")
-                                            }
-                                        }
-                                }
-                            }
-                        }
-                    }
-                    if !hiddenUsageProviders.isEmpty {
-                        usageRestoreRow()
-                    }
+                    usageBlock
 
-                    // v3.0.18：设备一键体检（六维诊断：服务/磁盘/容器/负载/内存/温度）
-                    sectionTitle("设备体检")
-                    DiagnoseCard(items: diagnoseItems, level: diagnoseLevel, summary: diagnoseSummary,
-                                 error: diagnoseError, diagnosing: diagnosing) {
-                        Task { await runDiagnose() }
-                    }
+                    diagnoseBlock
 
-                    sectionTitle("路由器")
-                    RouterPanel(router: router,
-                                onStart: { clashAction("start") },
-                                onStop: { clashAction("stop") },
-                                onRefresh: { Task { await loadRouter() } })
-                        .onAppear { Task { await loadRouter() } }
+                    routerBlock
 
-                    // v3.0.74：钉一钉（聊天消息钉到看板）——始终显示
-                    sectionTitle("钉一钉")
-                    if pinStore.pins.isEmpty {
-                        Text("长按聊天消息 → 钉一钉")
-                            .font(.system(size: Typography.subhead))
-                            .foregroundStyle(.tertiary)
-                            .padding(.vertical, Spacing.md)
-                    } else {
-                        ForEach(pinStore.pins) { pin in
-                            PinCard(pin: pin) {
-                                pinStore.delete(pin)
-                            }
-                            .swipeActions(edge: .trailing) {
-                                Button(role: .destructive) {
-                                    pinStore.delete(pin)
-                                } label: {
-                                    Label("删除", systemImage: "trash")
-                                }
-                            }
-                        }
-                    }
+                    pinBlock
                 }
                 .padding(.horizontal, Spacing.xxl)
                 .padding(.bottom, 100)
@@ -493,6 +222,344 @@ struct DashboardView: View {
                 try? await Task.sleep(for: .seconds(30))
                 await refresh()
                 await loadHw()
+            }
+        }
+    }
+
+    // MARK: - v3.10.x 看板分区（巨型 body 拆分）
+    //
+    // 由头：此 body 单块 424 行，是本仓已踩过两次的「Unable to type-check this
+    // expression in reasonable time」高危形态（一次漏检 = 20 分钟 CI 循环）。
+    // 这里把每个栏目原样搬成独立 @ViewBuilder 属性 —— **纯搬运**：视图顺序、层级、
+    // 条件分支、闭包、修饰符逐字未变，渲染结果与拆分前一致，只为把类型检查表达式打小。
+
+    /// 智能建议
+    @ViewBuilder
+    private var smartSuggestionBlock: some View {
+        // v2.0.116：智能建议（基于天气/NAS/设备状态，Agent 生成）
+        // v2.0.118：门锁卡同风格（普通圆角卡背景）+ 标题左上 + 内容靠左 + 重新生成右上
+        sectionTitle("智能建议")
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("今日建议")
+                    .font(.system(size: Typography.subhead, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                if !smartSuggestion.isEmpty {
+                    Button {
+                        Task { await loadSmartSuggestion() }
+                    } label: {
+                        // v3.9.4：只留文字 + 胶囊（去图标）
+                        Text("重新生成")
+                            .font(.system(size: Typography.tiny))
+                            .padding(.horizontal, Spacing.lg)
+                            .padding(.vertical, Spacing.xs)
+                            .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
+                    }
+                    .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
+                    .foregroundStyle(Color.accentColor)
+                }
+            }
+            if smartLoading {
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.small)
+                    Text("正在分析家庭状态…")
+                        .font(.system(size: Typography.subhead))
+                        .foregroundStyle(.secondary)
+                }
+            } else if !smartSuggestion.isEmpty {
+                Text(smartSuggestion)
+                    .font(.system(size: Typography.subhead))
+                    .lineSpacing(LineSpacing.compact)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                Button {
+                    Task { await loadSmartSuggestion() }
+                } label: {
+                    Text("生成智能建议")
+                        .font(.system(size: Typography.subhead, weight: .medium))
+                        .padding(.horizontal, Spacing.xxl)
+                        .padding(.vertical, Spacing.sm)
+                        .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
+                }
+                .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
+                .foregroundStyle(Color.accentColor)
+            }
+        }
+        .padding(Spacing.xl)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        // v3.8.1：本来手写 background+描边、圆角 12 → 改用统一卡片样式（16），与看板/生活其它卡片对齐
+        .dashboardCard()
+    }
+
+    /// 智能家居设备栅格
+    @ViewBuilder
+    private var homeDevicesBlock: some View {
+        sectionTitle("智能家居")
+    LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
+            DeviceCard(name: "开关", icon: "lightbulb.fill", value: haLights, sub: "\(lightsOn) 盏开启 · 点击控制", status: lightsOn > 0 ? .on : .off)
+                .tapButton { activeSheet = .lights }
+                .matchedTransitionSource(id: DashboardSheet.lights.id, in: sheetZoomNS)   // v3.9.0：卡片→详情 zoom
+            DeviceCard(name: "空调", icon: "air.conditioner.horizontal", value: haClimate, sub: "\(climateOn) 台运行中 · 点击控制", status: climateOn > 0 ? .on : .off)
+                .tapButton { activeSheet = .climate }
+                .matchedTransitionSource(id: DashboardSheet.climate.id, in: sheetZoomNS)   // v3.9.0：卡片→详情 zoom
+            DeviceCard(name: "门锁", icon: "lock.fill", value: haLockBattery, sub: "智能门锁", status: .on)
+            DeviceCard(name: "猫眼", icon: "video.fill", value: haDoorbellBattery, sub: haDoorbellOnline ? "在线" : "离线", status: haDoorbellOnline ? .on : .off)
+            DeviceCard(name: "安防", icon: "shield.fill", value: haAlarm, sub: "网关警戒模式", status: haAlarmArmed ? .on : .warn)
+            DeviceCard(name: "温度", icon: "thermometer", value: haTemp, sub: "室内温度", status: .on)
+        }
+    }
+
+    /// 智慧场景
+    @ViewBuilder
+    private var scenesBlock: some View {
+        // v2.0.96：场景（AI 对话生成动作组，点一下逐条执行）
+        // v2.0.96b：改「智慧场景」标题 + HomeKit 卡片风格（对齐 DeviceCard）
+        // v2.0.96c：空态可点击刷新（TabView 切 tab 不触发 onAppear 的 iOS 版本差异兜底）
+        sectionTitle("智慧场景")
+        if scenes.isEmpty {
+            HStack(spacing: 6) {
+                Image(systemName: "bolt.fill")
+                    .font(.system(size: Typography.caption))
+                    .foregroundStyle(.tertiary)
+                Text("暂无场景")
+                    .font(.system(size: Typography.subhead))
+                    .foregroundStyle(.tertiary)
+                Spacer()
+                Button {
+                    Task { await refresh() }
+                } label: {
+                    // v3.9.4：刷新统一为「文字 + 胶囊」（去图标）
+                    Text("刷新")
+                        .font(.system(size: Typography.caption, weight: .medium))
+                        .foregroundStyle(Color.accentColor)
+                        .padding(.horizontal, Spacing.lg)
+                        .padding(.vertical, Spacing.xs)
+                        .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
+                }
+                .buttonStyle(PressStyle())
+            }
+            .padding(.horizontal, Spacing.xl)
+            .padding(.vertical, Spacing.md)
+            .dashboardCard()   // v3.8.1：空态提示条统一 16
+        } else {
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
+                ForEach(scenes) { s in
+                    DeviceCard(name: s.name,
+                               icon: "bolt.fill",
+                               value: "\(s.actionCount) 个动作",
+                               sub: "点击执行 · 长按删除",
+                               status: .on)
+                        .tapButton { runScene(s) }
+                        .contextMenu {
+                            Button(role: .destructive) {
+                                deleteScene(s)
+                            } label: {
+                                Label("删除场景", systemImage: "trash")
+                            }
+                        }
+                }
+            }
+        }
+    }
+
+    /// 自动化
+    @ViewBuilder
+    private var automationsBlock: some View {
+        // v2.0.104：自动化（AI 生成"X分钟后执行Y"，倒计时到点自动执行后消失）
+        sectionTitle("自动化")
+        if automations.isEmpty {
+            HStack(spacing: 6) {
+                Image(systemName: "timer")
+                    .font(.system(size: Typography.caption))
+                    .foregroundStyle(.tertiary)
+                Text("暂无自动化")
+                    .font(.system(size: Typography.subhead))
+                    .foregroundStyle(.tertiary)
+                Spacer()
+                Button {
+                    Task { await refresh() }
+                } label: {
+                    // v3.9.4：刷新统一为「文字 + 胶囊」（去图标）
+                    Text("刷新")
+                        .font(.system(size: Typography.caption, weight: .medium))
+                        .foregroundStyle(Color.accentColor)
+                        .padding(.horizontal, Spacing.lg)
+                        .padding(.vertical, Spacing.xs)
+                        .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
+                }
+                .buttonStyle(PressStyle())
+            }
+            .padding(.horizontal, Spacing.xl)
+            .padding(.vertical, Spacing.md)
+            .dashboardCard()   // v3.8.1：空态提示条统一 16
+        } else {
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
+                ForEach(automations) { a in
+                    // TimelineView 每秒驱动倒计时刷新
+                    TimelineView(.periodic(from: .now, by: 1)) { ctx in
+                        // v2.0.104b：runAt 在未来，timeIntervalSince(a.runAt) 是负值——
+                        // 修正为 runAt.timeIntervalSince(now) 得剩余正秒数（原实现倒计时反向递增）
+                        let remain = max(Int(a.runAt.timeIntervalSince(ctx.date)), 0)
+                        DeviceCard(name: a.name,
+                                   icon: "timer",
+                                   value: remainText(remain),
+                                   sub: "到点自动执行 · 长按取消",
+                                   status: .on)
+                            .opacity(remain <= 0 ? 0.35 : 1)
+                    }
+                    .contextMenu {
+                        Button(role: .destructive) {
+                            cancelAutomation(a)
+                        } label: {
+                            Label("取消自动化", systemImage: "xmark.circle")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// 自动规则
+    @ViewBuilder
+    private var rulesBlock: some View {
+        // v3.9.21：自动规则（条件触发）——规则本体在后端 rules_engine：时间窗/HA 实体/上报事件
+        // 命中且过冷却才执行；App 只负责列出、开关、删除（新建走对话/快捷指令，不在 App 里堆表单）
+        if !rules.isEmpty {
+            sectionTitle("自动规则")
+            VStack(spacing: 10) {
+                ForEach(rules) { r in
+                    RuleRow(item: r,
+                            onToggle: { on in
+                                Task {
+                                    _ = await auth.toggleRule(id: r.id, enabled: on)
+                                    await loadRules()   // 无论成败都回读，避免开关显示与后端不一致
+                                }
+                            },
+                            onDelete: { pendingRuleDelete = r })
+                }
+            }
+            .padding(Spacing.xl)
+            .dashboardCard()
+        }
+    }
+
+    /// NAS 面板
+    @ViewBuilder
+    private var nasPanelBlock: some View {
+        sectionTitle("NAS 面板")
+        LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
+            MeterCard(name: "CPU", icon: "cpu.fill", value: nas.cpuText, sub: nil, ratio: nas.cpu / 100.0, color: .blue)
+            MeterCard(name: "内存", icon: "memorychip.fill", value: nas.memUsedText, sub: "/ \(nas.memTotalText)", ratio: nas.memPct, color: .green)
+            ServiceCard(name: "轻聊后端", icon: "server.rack", running: nas.qingliaoAlive, detail: "Docker 内存 \(nas.qingliaoDockerMemText)")
+                .tapButton { activeSheet = .service }
+                .matchedTransitionSource(id: DashboardSheet.service.id, in: sheetZoomNS)   // v3.9.0：卡片→详情 zoom
+            ServiceCard(name: "Hermes 网关", icon: "sparkles", running: nas.hermesAlive, detail: nas.hermesMemText)
+                .tapButton { activeSheet = .serviceHermes }
+                .matchedTransitionSource(id: DashboardSheet.serviceHermes.id, in: sheetZoomNS)   // v3.9.0：卡片→详情 zoom
+            // v2.0.72：Docker 管理卡片（点击弹部署弹窗）
+            ServiceCard(name: "Docker", icon: "shippingbox.fill", running: dockerContainerCount > 0,
+                        detail: dockerContainerCount > 0 ? "\(dockerContainerCount) 个容器 · 点击管理" : "暂无容器 · 点击部署")
+                .tapButton { activeSheet = .docker }
+                .matchedTransitionSource(id: DashboardSheet.docker.id, in: sheetZoomNS)   // v3.9.0：卡片→详情 zoom
+            ServiceCard(name: "运行时间", icon: "clock.fill", running: true, detail: nas.uptime)
+            // v2.0.86：硬件温度（CPU / NVMe）
+            ServiceCard(name: "温度", icon: "thermometer", running: true, detail: hwDetail)
+            // v3.4.13：磁盘汇总卡并入 NAS 面板网格（与温度卡等尺寸）；看板移除「系统盘」分区卡片栏目（分区已收进磁盘弹窗分组展示）
+            MeterCard(name: "磁盘", icon: "internaldrive.fill", value: nas.maxDiskPctText, sub: "\(nas.disks.filter { $0.isSystem }.count) 系统盘 · \(nas.disks.filter { !$0.isSystem }.count) 数据卷 · 点击查看", ratio: nas.maxDiskPct / 100.0, color: .orange)
+                .tapButton { activeSheet = .disks }
+                .matchedTransitionSource(id: DashboardSheet.disks.id, in: sheetZoomNS)   // v3.9.0：卡片→详情 zoom
+        }
+    }
+
+    /// 模型使用量
+    @ViewBuilder
+    private var usageBlock: some View {
+        // v3.0.36：模型使用量（DeepSeek/StepFun 官方余额；无接口 provider 降级显示）
+        // v3.4.2b：长按任意用量卡 → 只隐藏该 provider 卡（持久化）；
+        // 节底部显示"已隐藏 N 个 · 点击恢复"（弹菜单逐张恢复/全部恢复）
+        sectionTitle("模型使用量")
+        if usageError.isEmpty && providerUsages.isEmpty {
+            Text("加载中…")
+                .font(.system(size: Typography.subhead))
+                .foregroundStyle(.secondary)
+                .padding(.vertical, Spacing.sm)
+        } else if !usageError.isEmpty {
+            Text(usageError)
+                .font(.system(size: Typography.subhead))
+                .foregroundStyle(.secondary)
+                .padding(.vertical, Spacing.sm)
+        } else {
+            let visible = providerUsages.filter { !hiddenUsageProviders.contains($0.id) }
+            if visible.isEmpty {
+                Text("已全部隐藏 · 点下方恢复")
+                    .font(.system(size: Typography.subhead))
+                    .foregroundStyle(.tertiary)
+                    .padding(.vertical, Spacing.sm)
+            } else {
+                LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
+                    ForEach(visible) { u in
+                        UsageCard(usage: u)
+                            .contextMenu {
+                                Button(role: .destructive) {
+                                    hideUsageProvider(u.id)
+                                } label: {
+                                    Label("隐藏此卡片", systemImage: "eye.slash")
+                                }
+                            }
+                    }
+                }
+            }
+        }
+        if !hiddenUsageProviders.isEmpty {
+            usageRestoreRow()
+        }
+    }
+
+    /// 设备体检
+    @ViewBuilder
+    private var diagnoseBlock: some View {
+        // v3.0.18：设备一键体检（六维诊断：服务/磁盘/容器/负载/内存/温度）
+        sectionTitle("设备体检")
+        DiagnoseCard(items: diagnoseItems, level: diagnoseLevel, summary: diagnoseSummary,
+                     error: diagnoseError, diagnosing: diagnosing) {
+            Task { await runDiagnose() }
+        }
+    }
+
+    /// 路由器
+    @ViewBuilder
+    private var routerBlock: some View {
+        sectionTitle("路由器")
+        RouterPanel(router: router,
+                    onStart: { clashAction("start") },
+                    onStop: { clashAction("stop") },
+                    onRefresh: { Task { await loadRouter() } })
+            .onAppear { Task { await loadRouter() } }
+    }
+
+    /// 钉一钉
+    @ViewBuilder
+    private var pinBlock: some View {
+        // v3.0.74：钉一钉（聊天消息钉到看板）——始终显示
+        sectionTitle("钉一钉")
+        if pinStore.pins.isEmpty {
+            Text("长按聊天消息 → 钉一钉")
+                .font(.system(size: Typography.subhead))
+                .foregroundStyle(.tertiary)
+                .padding(.vertical, Spacing.md)
+        } else {
+            ForEach(pinStore.pins) { pin in
+                PinCard(pin: pin) {
+                    pinStore.delete(pin)
+                }
+                .swipeActions(edge: .trailing) {
+                    Button(role: .destructive) {
+                        pinStore.delete(pin)
+                    } label: {
+                        Label("删除", systemImage: "trash")
+                    }
+                }
             }
         }
     }
