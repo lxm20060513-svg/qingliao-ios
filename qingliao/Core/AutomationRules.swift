@@ -135,6 +135,13 @@ struct ReportEventIntent: AppIntent {
         IntentDescription("把系统事件（到达某地、开始充电、连上车载蓝牙…）交给轻聊的自动规则")
     }
 
+    /// v3.9.32：快捷指令里这条动作的摘要行 —— 把事件名填进摘要，比系统默认的标题信息量大。
+    /// 为什么必须显式写：不带参数的 intent 可以用默认摘要，带参数的默认摘要只列参数名，
+    /// 用户想「看一眼这条动作在干什么」时看不出语义。
+    static var parameterSummary: some ParameterSummary {
+        Summary("把事件 \(\.$event) 交给轻聊")
+    }
+
     @Parameter(title: "事件名", description: "如 geofence.enter / geofence.exit / device.charging")
     var event: String
 
