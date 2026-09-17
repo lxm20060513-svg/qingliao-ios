@@ -77,13 +77,17 @@ struct BubbleTheme {
 
 struct DashboardCardStyle: ViewModifier {
     var cornerRadius: CGFloat = 16
+    // v3.9.34：描边跟随深浅色。原先写死 Tint.faint（0.08）——深色下卡片边界几乎消失，
+    // 且与设置页 GlassListCard 的 Tint.line（浅 0.08 / 深 0.16）不是一路。
+    // 现统一走 Tint.line，档位/线宽（0.8pt）与 GlassListCard 完全同参，未新增档位。
+    @Environment(\.colorScheme) private var scheme
 
     func body(content: Content) -> some View {
         content
             .background(Color(uiColor: .secondarySystemGroupedBackground))
             .overlay(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8)
+                    .strokeBorder(Tint.line(scheme), lineWidth: 0.8)
             )
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
     }

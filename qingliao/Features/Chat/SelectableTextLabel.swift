@@ -147,10 +147,15 @@ struct SelectableTextLabel: UIViewRepresentable {
 
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: UITextView, context: Context) -> CGSize? {
         _ = Self.heightCacheInit   // 触发 countLimit 初始化
-        let maxWidth = UIScreen.main.bounds.width - 60
-        // v3.0.5 review fix：优先用容器提案宽（iPad 分栏等窄容器），无提案才用屏幕宽
-        let available = (proposal.width.map { $0.isFinite ? $0 : nil } ?? nil) ?? maxWidth
-        let upperBound = min(available, maxWidth)
+        // v3.9.34：宽度上限改由**容器宽**决定。原先写死 `UIScreen.main.bounds.width - 60`：
+        //   · 393pt 机型把上限钳到 333，而气泡容器可用宽 345 —— 白少 12pt（「气泡变长」没完全生效）；
+        //   · `UIScreen.main` 在 iOS 26 已弃用（全仓只剩这一处仍在用）。
+        // 容器提案宽就是外层气泡（已由 AdaptiveLayout.bubbleMaxWidth 限宽）能给到的宽度，直接当上限。
+        // 尺寸探测阶段拿不到有限提案时，退回宿主窗口宽 - 60（同样避开 UIScreen.main）；再兜底 400。
+        let containerWidth = proposal.width.flatMap { $0.isFinite && $0 > 1 ? $0 : nil }
+        let windowWidth = uiView.window?.bounds.width ?? 0
+        // v3.0.5 review fix：优先用容器提案宽（iPad 分栏等窄容器），无提案才用窗口宽
+        let upperBound = containerWidth ?? (windowWidth > 0 ? windowWidth - 60 : 400)
         let text = attributedText.string
         // v3.0.44 fix：命中/写入前校验 tv 实际内容 == 目标文本，否则跳过缓存
         //（防先于 updateUIView 用空/旧 tv 测出错误高度污染真实 key）

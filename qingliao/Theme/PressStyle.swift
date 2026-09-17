@@ -24,3 +24,42 @@ struct PressStyle: ButtonStyle {
             .animation(Motion.tap, value: configuration.isPressed)
     }
 }
+
+
+// MARK: - v3.9.34 命中区 / 可点封装（手感补齐两件套）
+
+extension View {
+    /// 命中区外扩到 ≥44pt（Apple HIG 最小可点尺寸），**布局占位零变化**：
+    /// 先按 h/v 外扩并 contentShape 撑开命中框，再用等量负 padding 抵消 ——
+    /// 控件视觉尺寸、相邻间距、所在行高全部不变（SwiftUI 命中测试不裁剪子视图越界区域）。
+    /// - Parameters:
+    ///   - h: 水平外扩量（20pt 宽图标用 12 → 44；32pt 用 6 → 44）
+    ///   - v: 垂直外扩量（同上；32×30 的控件用 7 → 44）
+    /// ⚠️ 这两个数是「44 减去控件视觉边长」反推的几何值，不属 Spacing 审美档，故不套令牌。
+    /// ⚠️ 真机待验证：负 padding 恢复的是**布局**尺寸，外扩那圈是否真能接住点击取决于父容器
+    ///    不裁剪越界子视图（SwiftUI 默认不裁）。若真机某处外扩区不响应，该处退路是直接写
+    ///    `.frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())`（命中区准，但会撑开间距）。
+    func hitArea44(h: CGFloat = 12, v: CGFloat = 12) -> some View {
+        padding(.horizontal, h)
+            .padding(.vertical, v)
+            .contentShape(Rectangle())
+            .padding(.horizontal, -h)
+            .padding(.vertical, -v)
+    }
+
+    /// 把一行/一张卡变成可点控件：Button + PressStyle + 轻触感（与全站既有写法一致）。
+    /// 保留 `.onTapGesture { … }` 的行式调用形态，只补齐「按下去有高亮 + 松手有震动」。
+    /// 触感放 action 而不进 PressStyle.makeBody —— 与 PressStyle 头注 ①②同一理由。
+    /// 显式 @MainActor：Haptics 是 @MainActor 类型，标注后本方法调用它的隔离性与
+    /// 仓内既有写法（View 内 `Button { Haptics.tap() … }`）完全同形，不留 Swift 6 并发隐患。
+    @MainActor
+    func tapButton(_ action: @escaping () -> Void) -> some View {
+        Button {
+            Haptics.tap()
+            action()
+        } label: {
+            self.contentShape(Rectangle())
+        }
+        .buttonStyle(PressStyle())
+    }
+}
