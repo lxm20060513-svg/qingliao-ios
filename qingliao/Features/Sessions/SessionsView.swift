@@ -55,124 +55,13 @@ struct SessionsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // v2.0.87ad：多选编辑入口（非空会话时显示）
-            PageHeader(title: "会话", trailing: AnyView(HStack(spacing: 14) {
-                if !sessions.isEmpty {
-                    Button {
-                        withAnimation(Motion.tap) {
-                            editing.toggle()
-                            if !editing { selectedIds.removeAll() }
-                        }
-                    } label: {
-                        Image(systemName: editing ? "checkmark.circle.fill" : "checkmark.circle")
-                            .font(.system(size: Typography.headline, weight: .medium))
-                            .foregroundStyle(editing ? Color.accentColor : Color.secondary)
-                    }
-                    .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
-                }
-                addButton
-            }))
-            // v3.4.25：会话搜索框（毛玻璃风格 glassListCard 与 App 列表卡一致；输入即本地过滤）
-            HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: Typography.subhead))
-                    .foregroundStyle(Color(uiColor: .tertiaryLabel))
-                TextField("搜索会话与消息", text: $searchText)
-                    .font(.system(size: Typography.body))
-                    .autocorrectionDisabled()
-                    .submitLabel(.search)
-                    .focused($focused)
-                    .onSubmit { focused = false }   // 键盘「搜索」= 收起
-                if isSearching {
-                    Button {
-                        searchText = ""   // v3.4.25：清空搜索即恢复全量列表
-                        focused = false   // 清空同时收键盘
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: Typography.body))
-                            .foregroundStyle(.tertiary)
-                    }
-                    .accessibilityLabel("清空搜索")
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.horizontal, Spacing.xl)
-            .padding(.vertical, Spacing.md)
-            .glassListCard()   // v3.4.25：毛玻璃风格（Theme/LiquidGlass.swift GlassListCard）
-            .padding(.horizontal, Spacing.xxl)
-            .padding(.bottom, Spacing.md)
+            sessionsHeaderBar
             if isLoading && sessions.isEmpty {
-                // v3.9.0：首屏加载改骨架屏（比转圈更能预示"内容马上出现在这里"，且不白屏）
-                VStack(spacing: 14) {
-                    ForEach(0..<3, id: \.self) { _ in SkeletonRow() }
-                }
-                .padding(.horizontal, Spacing.xxl)
-                .padding(.top, Spacing.sm)
-                Spacer()
+                sessionsLoadingSkeleton
             } else if let err = errorText, sessions.isEmpty {
-                Spacer()
-                Text(err)
-                    .font(.system(size: Typography.subhead))
-                    .foregroundStyle(.secondary)
-                Button("重试") { Task { await load() } }
-                    .font(.system(size: Typography.body, weight: .medium))
-                    .foregroundStyle(Color.accentColor)
-                    .padding(.top, Spacing.md)
-                Spacer()
+                sessionsErrorState
             } else {
-                ScrollView {
-                    VStack(spacing: 10) {
-                        if isSearching {
-                            // v3.9.33：搜索结果区（本地优先，本地零命中再补远端全史搜索）
-                            searchResultsArea
-                        } else {
-                            BotCard()
-                            if sessions.isEmpty {
-                                // v2.0.65：空状态插画
-                                VStack(spacing: 10) {
-                                    ZStack {
-                                        Circle()
-                                            .fill(LinearGradient(colors: [Color.blue.opacity(Tint.strong), Color.indigo.opacity(Tint.soft)],
-                                                                 startPoint: .topLeading, endPoint: .bottomTrailing))
-                                            .frame(width: 64, height: 64)
-                                        Image(systemName: "bubble.left.and.bubble.right")
-                                            .font(.system(size: Typography.titleXL))
-                                            .foregroundStyle(Color.blue.opacity(0.7))
-                                    }
-                                    Text("暂无会话记录")
-                                        .font(.system(size: Typography.subhead))
-                                        .foregroundStyle(.secondary)
-                                    Text("点击右上角 + 开始和 AI 对话")
-                                        .font(.system(size: Typography.caption))
-                                        .foregroundStyle(.tertiary)
-                                }
-                                .padding(.top, 20)
-                            } else {
-                                // 每条会话独立卡片 + 间隔（会话条目间距）
-                                // v2.0.133g：VStack → LazyVStack——会话多时全量渲染拖慢 TabView 切页；
-                                // 删除已改后端驱动+load() 整体刷新（v2.0.56 根治），无就地 diff 崩溃路径，安全
-                                LazyVStack(spacing: 8) {
-                                    // v3.3.0：bot 模式已移除，会话列表不再按 bot 分组，直接平铺
-                                    ForEach(sortedSessions) { s in
-                                        // v3.0.51：会话 cell（SessionRow+长按菜单）拆辅助函数，避免嵌套 ForEach type-check 超时
-                                        sessionCell(s)
-                                    }
-                                }
-                                // v3.9.30：删除/刷新后列表项淡出与位置移动过渡（数组替换不再生硬跳变）
-                                .animation(Motion.settle, value: sortedSessions.map(\.id))
-                            }
-                        }
-                    }
-                    .padding(.horizontal, Spacing.xxl)
-                    .padding(.bottom, 90)
-                    // v3.9.30：空态/列表切换过渡动画（emerge 浮现；reduceMotion 时系统自动忽略带动画的过渡）
-                    .animation(Motion.emerge, value: filteredSessions.isEmpty)
-                }
-                .scrollPosition($scrollPos)
-                // v2.0.86h：Dock 滑动隐藏已删除（从未生效，手动开关替代）
-                .refreshable {
-                    if !isSearching { await load() }
-                }
+                sessionsListBody
             }
         }
         .task { await load() }
@@ -294,6 +183,160 @@ struct SessionsView: View {
             }
             Button("取消", role: .cancel) {}
         }
+    }
+
+    // MARK: - 巨型 body 拆分（纯搬运）
+    //
+    // 由头：此 body 单块 242 行，是本仓已踩过两次的「Unable to type-check this
+    // expression in reasonable time」高危形态（一次漏检 = 20 分钟 CI 循环）。
+    // 这里按原注释分段把视图块原样搬成独立 @ViewBuilder 属性 —— **纯搬运**：视图顺序、
+    // 层级、条件分支、闭包、修饰符逐字未变，渲染结果与拆分前一致，只为把类型检查表达式打小。
+
+    /// 页头（多选入口 + 新建）+ 会话搜索框
+    @ViewBuilder
+    private var sessionsHeaderBar: some View {
+        // v2.0.87ad：多选编辑入口（非空会话时显示）
+        PageHeader(title: "会话", trailing: AnyView(HStack(spacing: 14) {
+            if !sessions.isEmpty {
+                Button {
+                    withAnimation(Motion.tap) {
+                        editing.toggle()
+                        if !editing { selectedIds.removeAll() }
+                    }
+                } label: {
+                    Image(systemName: editing ? "checkmark.circle.fill" : "checkmark.circle")
+                        .font(.system(size: Typography.headline, weight: .medium))
+                        .foregroundStyle(editing ? Color.accentColor : Color.secondary)
+                }
+                .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
+            }
+            addButton
+        }))
+        // v3.4.25：会话搜索框（毛玻璃风格 glassListCard 与 App 列表卡一致；输入即本地过滤）
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: Typography.subhead))
+                .foregroundStyle(Color(uiColor: .tertiaryLabel))
+            TextField("搜索会话与消息", text: $searchText)
+                .font(.system(size: Typography.body))
+                .autocorrectionDisabled()
+                .submitLabel(.search)
+                .focused($focused)
+                .onSubmit { focused = false }   // 键盘「搜索」= 收起
+            if isSearching {
+                Button {
+                    searchText = ""   // v3.4.25：清空搜索即恢复全量列表
+                    focused = false   // 清空同时收键盘
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: Typography.body))
+                        .foregroundStyle(.tertiary)
+                }
+                .accessibilityLabel("清空搜索")
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, Spacing.xl)
+        .padding(.vertical, Spacing.md)
+        .glassListCard()   // v3.4.25：毛玻璃风格（Theme/LiquidGlass.swift GlassListCard）
+        .padding(.horizontal, Spacing.xxl)
+        .padding(.bottom, Spacing.md)
+    }
+
+    /// 首屏骨架屏
+    @ViewBuilder
+    private var sessionsLoadingSkeleton: some View {
+        // v3.9.0：首屏加载改骨架屏（比转圈更能预示"内容马上出现在这里"，且不白屏）
+        VStack(spacing: 14) {
+            ForEach(0..<3, id: \.self) { _ in SkeletonRow() }
+        }
+        .padding(.horizontal, Spacing.xxl)
+        .padding(.top, Spacing.sm)
+        Spacer()
+    }
+
+    /// 加载失败 + 重试
+    @ViewBuilder
+    private var sessionsErrorState: some View {
+        Spacer()
+        Text(err)
+            .font(.system(size: Typography.subhead))
+            .foregroundStyle(.secondary)
+        Button("重试") { Task { await load() } }
+            .font(.system(size: Typography.body, weight: .medium))
+            .foregroundStyle(Color.accentColor)
+            .padding(.top, Spacing.md)
+        Spacer()
+    }
+
+    /// 会话列表（搜索区 / 空态 / 卡片列表）
+    @ViewBuilder
+    private var sessionsListBody: some View {
+        ScrollView {
+            VStack(spacing: 10) {
+                if isSearching {
+                    // v3.9.33：搜索结果区（本地优先，本地零命中再补远端全史搜索）
+                    searchResultsArea
+                } else {
+                    BotCard()
+                    if sessions.isEmpty {
+                        sessionsEmptyState
+                    } else {
+                        sessionsListStack
+                    }
+                }
+            }
+            .padding(.horizontal, Spacing.xxl)
+            .padding(.bottom, 90)
+            // v3.9.30：空态/列表切换过渡动画（emerge 浮现；reduceMotion 时系统自动忽略带动画的过渡）
+            .animation(Motion.emerge, value: filteredSessions.isEmpty)
+        }
+        .scrollPosition($scrollPos)
+        // v2.0.86h：Dock 滑动隐藏已删除（从未生效，手动开关替代）
+        .refreshable {
+            if !isSearching { await load() }
+        }
+    }
+
+    /// 空态插画
+    @ViewBuilder
+    private var sessionsEmptyState: some View {
+        // v2.0.65：空状态插画
+        VStack(spacing: 10) {
+            ZStack {
+                Circle()
+                    .fill(LinearGradient(colors: [Color.blue.opacity(Tint.strong), Color.indigo.opacity(Tint.soft)],
+                                         startPoint: .topLeading, endPoint: .bottomTrailing))
+                    .frame(width: 64, height: 64)
+                Image(systemName: "bubble.left.and.bubble.right")
+                    .font(.system(size: Typography.titleXL))
+                    .foregroundStyle(Color.blue.opacity(0.7))
+            }
+            Text("暂无会话记录")
+                .font(.system(size: Typography.subhead))
+                .foregroundStyle(.secondary)
+            Text("点击右上角 + 开始和 AI 对话")
+                .font(.system(size: Typography.caption))
+                .foregroundStyle(.tertiary)
+        }
+        .padding(.top, 20)
+    }
+
+    /// 会话卡片列表（LazyVStack）
+    @ViewBuilder
+    private var sessionsListStack: some View {
+        // 每条会话独立卡片 + 间隔（会话条目间距）
+        // v2.0.133g：VStack → LazyVStack——会话多时全量渲染拖慢 TabView 切页；
+        // 删除已改后端驱动+load() 整体刷新（v2.0.56 根治），无就地 diff 崩溃路径，安全
+        LazyVStack(spacing: 8) {
+            // v3.3.0：bot 模式已移除，会话列表不再按 bot 分组，直接平铺
+            ForEach(sortedSessions) { s in
+                // v3.0.51：会话 cell（SessionRow+长按菜单）拆辅助函数，避免嵌套 ForEach type-check 超时
+                sessionCell(s)
+            }
+        }
+        // v3.9.30：删除/刷新后列表项淡出与位置移动过渡（数组替换不再生硬跳变）
+        .animation(Motion.settle, value: sortedSessions.map(\.id))
     }
 
     private var addButton: some View {

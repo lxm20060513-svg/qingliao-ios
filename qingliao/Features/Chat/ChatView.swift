@@ -798,74 +798,10 @@ struct ChatView: View {
         // 系统默认避让叠加会双重上抬 → 输入框与键盘间留空隙（用户红线标注）。
         // 只保留手动控制，输入框精确贴键盘。
         VStack(spacing: 0) {
-            PageHeader(title: "聊天",
-                       subtitle: headerSubtitle,
-                       trailing: AnyView(headerTrailingItems),
-                       showStatus: true,
-                       statusColor: headerColor,
-                       busy: aiBusy)
-            .confirmationDialog("模型思考档位", isPresented: $showReasoningPicker, titleVisibility: .visible) {
-                reasoningPickerContent
-            }
-            .confirmationDialog("聊天操作", isPresented: $showMoreMenu, titleVisibility: .visible) {
-                chatActionDialogContent
-            } message: {
-                Text("上下文：约 \(chat.contextInfo.tokens) tokens · \(chat.contextInfo.count) 条")
-            }
-            // v3.4.24：任务中心全屏页（header 三个点旁的常驻入口）
-            .fullScreenCover(isPresented: $showTaskCenter) {
-                TaskCenterView()
-            }
-            if sentOK {
-                HStack(spacing: Spacing.xs) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: Typography.subhead))
-                        .foregroundStyle(.green)
-                    Text("已送达 · 消息已发出")
-                        .font(.system(size: Typography.caption))
-                        .foregroundStyle(.green)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, Spacing.xs)
-                .transition(.opacity)
-            }
-            // v3.7.0：剪贴板地图链接提示条（in-flow，不遮挡 header、不拦截消息区滚动）
-            if showClipboardBanner {
-                mapClipboardBanner()
-            }
-            // v3.4.26：续聊芯片条——有消息且非流式时显示在消息区上方（话题延续入口）
-            continueChipsBar
-            messageList
-                .overlay {
-                    // v3.0.79：点按空白处停止录音（exitVoiceMode 注释原本就写"按钮/空白点击共用"，此处补上空白点击）
-                    // v3.9.6：整个消息区（含底部空白）都是停止面；输入栏区域不拦（不是"空白处"）
-                    if voiceMode && liveSpeech.isRunning {
-                        Color.clear
-                            .contentShape(Rectangle())
-                            .onTapGesture { exitVoiceMode() }
-                    }
-                }
-                .overlay(alignment: .bottom) {
-                    // v3.4.0：底部上拉拉取收件箱——拖动指示器 / 拉取中 spinner / 结果 toast
-                    InboxPullLayer(state: inboxPull)
-                }
-            // v3.0.77：移除 v3.0.36 分段流式（边说边出字实时显示）——改回整段录音一次转写
-            // 图片预览条（选图后显示）
-            pendingImageBar
-            // 内联附件面板（类微信 + 面板：点击回形针展开）
-            // v2.0.96b：发牌弹出效果（每个按钮依次从底部弹出 + 回弹）
-            attachmentMenuBar
-            // v2.0.36：引用回复条（发送后自动清除）
-            quotedReplyBar
-            // v3.0.7 beautify：Bot 选择器已移到 header（本地模式），此处不再单独占一行
-            // v3.0.81：上下文使用率指示器
-            contextUsageBar
-            // v3.3.0：多选合并模式 → 输入栏替换为合并操作条（全选/计数/合并发送/取消）
-            inputArea
-            // v3.0.64：改用 iOS 26 系统原生 TabView tab bar 后，键盘避让交由系统安全区 + 原生键盘避让。
-            // 旧手动 offset（kb 高度 / 76）是为自定义 DockBar（内容铺到屏幕底再叠 dock）设计，原生 tab bar 下会双重叠加冒高，故移除。
-            // v3.0.67：输入框与 dock / 键盘均留 10pt 呼吸（Round-1「贴键盘 0」已改主意为也要留隙）。
-            .padding(.bottom, Spacing.lg)   // v3.0.67：输入框与 dock / 键盘均留 10pt 呼吸——收起贴 dock、弹键盘也留隙（Round-1「贴键盘 0」已被用户改主意为也要留隙）
+            chatHeaderBar
+            chatStatusBannerStrip
+            chatTranscriptArea
+            chatComposerArea
         }
         .animation(.easeOut(duration: kb.animationDuration), value: kb.height)
         // v2.0.96：语音授权/转写失败提示（v3.9.3：设备端识别——麦克风权限 / 机型不支持 / 识别中断）
@@ -1055,6 +991,101 @@ struct ChatView: View {
                 }
             }
         }
+    }
+
+    // MARK: - 巨型 body 拆分（纯搬运）
+    //
+    // 由头：此 body 单块 263 行（主体是 188 行链式修饰符，按约束 2 保留在 body），是本仓已踩过两次的「Unable to type-check this
+    // expression in reasonable time」高危形态（一次漏检 = 20 分钟 CI 循环）。
+    // 这里按原注释分段把视图块原样搬成独立 @ViewBuilder 属性 —— **纯搬运**：视图顺序、
+    // 层级、条件分支、闭包、修饰符逐字未变，渲染结果与拆分前一致，只为把类型检查表达式打小。
+
+    /// 页头 + 思考档位/聊天操作弹窗 + 任务中心全屏页
+    @ViewBuilder
+    private var chatHeaderBar: some View {
+        PageHeader(title: "聊天",
+                   subtitle: headerSubtitle,
+                   trailing: AnyView(headerTrailingItems),
+                   showStatus: true,
+                   statusColor: headerColor,
+                   busy: aiBusy)
+        .confirmationDialog("模型思考档位", isPresented: $showReasoningPicker, titleVisibility: .visible) {
+            reasoningPickerContent
+        }
+        .confirmationDialog("聊天操作", isPresented: $showMoreMenu, titleVisibility: .visible) {
+            chatActionDialogContent
+        } message: {
+            Text("上下文：约 \(chat.contextInfo.tokens) tokens · \(chat.contextInfo.count) 条")
+        }
+        // v3.4.24：任务中心全屏页（header 三个点旁的常驻入口）
+        .fullScreenCover(isPresented: $showTaskCenter) {
+            TaskCenterView()
+        }
+    }
+
+    /// 已送达提示 + 剪贴板地图提示条
+    @ViewBuilder
+    private var chatStatusBannerStrip: some View {
+        if sentOK {
+            HStack(spacing: Spacing.xs) {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: Typography.subhead))
+                    .foregroundStyle(.green)
+                Text("已送达 · 消息已发出")
+                    .font(.system(size: Typography.caption))
+                    .foregroundStyle(.green)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, Spacing.xs)
+            .transition(.opacity)
+        }
+        // v3.7.0：剪贴板地图链接提示条（in-flow，不遮挡 header、不拦截消息区滚动）
+        if showClipboardBanner {
+            mapClipboardBanner()
+        }
+    }
+
+    /// 续聊芯片条 + 消息区（含停止录音/收件箱覆盖层）
+    @ViewBuilder
+    private var chatTranscriptArea: some View {
+        // v3.4.26：续聊芯片条——有消息且非流式时显示在消息区上方（话题延续入口）
+        continueChipsBar
+        messageList
+            .overlay {
+                // v3.0.79：点按空白处停止录音（exitVoiceMode 注释原本就写"按钮/空白点击共用"，此处补上空白点击）
+                // v3.9.6：整个消息区（含底部空白）都是停止面；输入栏区域不拦（不是"空白处"）
+                if voiceMode && liveSpeech.isRunning {
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .onTapGesture { exitVoiceMode() }
+                }
+            }
+            .overlay(alignment: .bottom) {
+                // v3.4.0：底部上拉拉取收件箱——拖动指示器 / 拉取中 spinner / 结果 toast
+                InboxPullLayer(state: inboxPull)
+            }
+    }
+
+    /// 图片预览条/附件面板/引用条/上下文条 + 输入区
+    @ViewBuilder
+    private var chatComposerArea: some View {
+        // v3.0.77：移除 v3.0.36 分段流式（边说边出字实时显示）——改回整段录音一次转写
+        // 图片预览条（选图后显示）
+        pendingImageBar
+        // 内联附件面板（类微信 + 面板：点击回形针展开）
+        // v2.0.96b：发牌弹出效果（每个按钮依次从底部弹出 + 回弹）
+        attachmentMenuBar
+        // v2.0.36：引用回复条（发送后自动清除）
+        quotedReplyBar
+        // v3.0.7 beautify：Bot 选择器已移到 header（本地模式），此处不再单独占一行
+        // v3.0.81：上下文使用率指示器
+        contextUsageBar
+        // v3.3.0：多选合并模式 → 输入栏替换为合并操作条（全选/计数/合并发送/取消）
+        inputArea
+        // v3.0.64：改用 iOS 26 系统原生 TabView tab bar 后，键盘避让交由系统安全区 + 原生键盘避让。
+        // 旧手动 offset（kb 高度 / 76）是为自定义 DockBar（内容铺到屏幕底再叠 dock）设计，原生 tab bar 下会双重叠加冒高，故移除。
+        // v3.0.67：输入框与 dock / 键盘均留 10pt 呼吸（Round-1「贴键盘 0」已改主意为也要留隙）。
+        .padding(.bottom, Spacing.lg)   // v3.0.67：输入框与 dock / 键盘均留 10pt 呼吸——收起贴 dock、弹键盘也留隙（Round-1「贴键盘 0」已被用户改主意为也要留隙）
     }
 
     // MARK: - v3.7.0 剪贴板地图链接（地图分享兜底）
