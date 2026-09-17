@@ -78,11 +78,7 @@ struct DiagnosticsView: View {
                         } label: {
                             // v3.9.4：刷新统一为「文字 + 胶囊」（去图标）
                             Text("刷新")
-                                .font(.system(size: Typography.tiny))
-                                .foregroundStyle(Color.accentColor)
-                                .padding(.horizontal, Spacing.lg)
-                                .padding(.vertical, Spacing.xs)
-                                .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
+                                .pill(.page)   // 尺寸走 Pill 令牌（page：tiny + h10/v4，与原手写等价）
                         }
                     }
                 }
