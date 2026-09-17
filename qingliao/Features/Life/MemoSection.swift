@@ -3,9 +3,33 @@
 // v3.9.17：按用户选定的方案 A 改版——
 //   ① 「备忘录」+「添加」胶囊搬到卡片外，做页级标题行（与 LifeCardsSection 的「生活数据」同款：
 //      粗体 15pt 标题 + Spacer + 淡色胶囊，卡片里只装内容）
-//   ② 卡片只显示 1 条（置顶优先、其次最后修改时间倒序），后面压 2 层错位卡片边
+//   ② 卡片只显示 1 条（置顶优先、其次最后修改时间倒序）
 //   ③ 点整块 → 弹「全部备忘」列表（半屏，可拖到全屏）；原卡片内的「全部 N 条」折叠行随之删除
+// v3.9.33：单卡形态定稿（用户定稿：「不做堆叠卡片，就一张卡片，卡片复制生活数据卡片的圆角及高度，
+//   卡片长度铺满手机」）——
+//   · **堆叠取消**：原「主卡 + 2 层错位卡边」（layerInset/Drop 四个常量、stackedLayers、
+//     stackedLayerShape、stackBottomSpace）整块删除，页面上只有一张卡
+//   · **圆角/高度对齐「生活数据」各卡**：`.dashboardCard()`（Radius.card = 16 + 0.8pt 描边）
+//     + 卡高走 MemoCardMetrics.minHeight（与行情卡同口径），不再用便签形态的 Radius.inset(12)
+//   · 宽度：`.frame(maxWidth: .infinity)` 铺满内容区（左右各 14pt 页边距与其它卡齐平）
+//   · 只有 1 条时点卡片直接进详情（列表页是多余的一跳）；≥2 条才走「全部备忘」列表
 import SwiftUI
+
+// MARK: - v3.9.33 页级单卡几何（对齐「生活数据」卡片，真机微调只改这一处）
+
+/// 用户定稿：「卡片复制生活数据卡片的圆角及高度，卡片长度铺满手机」
+/// 圆角由 `.dashboardCard()` 给（Radius.card = 16，与生活数据各卡同参）。
+/// 高度用 **minHeight** 兜住而不是写死 height —— 两张卡内容结构不同，写死会在字号放大时裁切：
+///   行情卡 LifeStockCard 实测算式：
+///     上内边距 12 + 标题行 ≈15.5（subhead 13）+ 6 + 价格 ≈23.9（headline 20）+ 2 + 明细 ≈11.9（tiny 10）+ 下内边距 12 ≈ 83
+///   备忘卡 2 行正文（15pt，每行 ≈17.9）+ 6 + 元信息行 ≈13.1 + 上下内边距 24 ≈ 78.9 < 83
+/// → 1 行或 2 行备忘都是 83pt，卡片恒等高、与旁边卡片对齐；超长正文限 2 行，点开看全部
+private enum MemoCardMetrics {
+    /// 与「生活数据」行情卡同高（≈83pt）
+    static let minHeight: CGFloat = 83
+    /// 页级单卡正文行数上限
+    static let lineLimit = 2
+}
 
 struct MemoSection: View {
     @State private var store = MemoStore.shared
@@ -17,12 +41,6 @@ struct MemoSection: View {
     @State private var detail: MemoItem?
     @State private var pendingDelete: MemoItem?
 
-    /// v3.9.17：堆叠几何——两层卡边的水平内缩 / 下移量（真机微调只改这四个数）
-    private let layerInset1: CGFloat = 12
-    private let layerInset2: CGFloat = 24
-    private let layerDrop1: CGFloat = 6
-    private let layerDrop2: CGFloat = 12
-
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             // v3.9.17：标题行在卡片外（原来是卡片内的图标 + 灰字 + 计数胶囊）
@@ -30,7 +48,7 @@ struct MemoSection: View {
             if store.memos.isEmpty {
                 emptyTap
             } else {
-                memoStack
+                memoCard
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -112,74 +130,44 @@ struct MemoSection: View {
                 }
                 Spacer(minLength: 0)
             }
-            .padding(.horizontal, Spacing.lg)
-            .padding(.vertical, Spacing.md)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: Radius.inset, style: .continuous)
-                .fill(Color.secondary.opacity(Tint.faint)))
+            .padding(Spacing.xl)
+            // v3.9.33：与单卡同几何（16 圆角 + 同高），空态 ↔ 有内容不跳变
+            .frame(maxWidth: .infinity, minHeight: MemoCardMetrics.minHeight, alignment: .leading)
+            .dashboardCard()
             .contentShape(Rectangle())
         }
         .buttonStyle(PressStyle())
     }
 
-    // MARK: 堆叠卡（v3.9.17：主卡 1 条 + 后面 2 层错位卡边，点整块弹全部）
-
-    /// 后面露几层：1 条 = 不露；2 条 = 露 1 层；≥3 条 = 露 2 层
-    private var stackLayerCount: Int {
-        min(2, max(0, store.sorted.count - 1))
-    }
-
-    private var stackBottomSpace: CGFloat {
-        switch stackLayerCount {
-        // v3.9.17：比 offset 多留 3pt——两者相等时零余量，圆角/高度一调就会被下一块内容压住
-        case 0: return 0
-        case 1: return layerDrop1 + 3
-        default: return layerDrop2 + 3
-        }
-    }
+    // MARK: 单卡（v3.9.33：页面上只有这一张卡——原 2 层错位卡边整块删除）
 
     @ViewBuilder
-    private var memoStack: some View {
+    private var memoCard: some View {
         if let top = store.sorted.first {
             Button {
-                showAll = true
+                openCard()
             } label: {
-                MemoNoteCard(item: top)
+                MemoNoteCard(item: top, compact: true)
             }
             .buttonStyle(PressStyle())
             .contextMenu { memoMenuItems(top, onDelete: { pendingDelete = $0 }) }
-            // v3.9.17：层挂在主卡的 background 上——与主卡同尺寸再内缩 + 下移，主卡多高它就多高
-            .background(alignment: .top) { stackedLayers }
-            // v3.9.20：卡片即 zoom 源（挂在留白之前，源矩形取主卡本体）
+            // v3.9.20：卡片即 zoom 源（≥2 条点开「全部备忘」时从这张卡放大展开）
             .matchedTransitionSource(id: "memo-all", in: memoZoomNS)
-            // 给露出的卡边留位置（offset 不改变布局尺寸，不留就会被下一块内容压住）
-            .padding(.bottom, stackBottomSpace)
-            .animation(Motion.snap, value: stackLayerCount)
-            .accessibilityLabel("备忘录，共 \(store.sorted.count) 条，点开查看全部")
+            .accessibilityLabel(store.sorted.count == 1
+                                ? "备忘录，1 条，点开查看"
+                                : "备忘录，共 \(store.sorted.count) 条，点开查看全部")
         }
     }
 
-    private var stackedLayers: some View {
-        ZStack {
-            if stackLayerCount >= 2 {
-                stackedLayerShape(inset: layerInset2, drop: layerDrop2, tone: 0.12)
-            }
-            if stackLayerCount >= 1 {
-                stackedLayerShape(inset: layerInset1, drop: layerDrop1, tone: 0.09)
-            }
+    /// 点卡片：只有 1 条时「全部备忘」列表是多余的一跳 → 直接进详情。
+    /// ⚠️ 新增 / 全部列表 / 详情三个 sheet 共用 MemoSection 这一个宿主，同时只能 present 一个
+    ///（原因见 openDetailFromAll 的长注释），所以这里必须二选一，绝不能两个都置真。
+    private func openCard() {
+        if store.sorted.count == 1, let only = store.sorted.first {
+            detail = only
+        } else {
+            showAll = true
         }
-    }
-
-    /// 单层卡边：不透明底（半透明会透出下面那张，看着发脏）+ 0.8pt 描边（与全站口径一致）
-    private func stackedLayerShape(inset: CGFloat, drop: CGFloat, tone: Double) -> some View {
-        RoundedRectangle(cornerRadius: Radius.inset, style: .continuous)
-            .fill(Color(uiColor: .secondarySystemGroupedBackground))
-            .overlay(RoundedRectangle(cornerRadius: Radius.inset, style: .continuous)
-                .fill(Color.secondary.opacity(tone)))
-            .overlay(RoundedRectangle(cornerRadius: Radius.inset, style: .continuous)
-                .stroke(Color.secondary.opacity(Tint.soft), lineWidth: 0.8))
-            .padding(.horizontal, inset)
-            .offset(y: drop)
     }
 
     // MARK: 全部备忘列表（v3.9.17，半屏 sheet）
@@ -365,42 +353,56 @@ private struct MiniCapsule: View {
     }
 }
 
-// MARK: - 便签卡视觉（v3.9.17：抽成独立 struct——卡片 / 全部列表两处共用；
-// 底色改「不透明底 + 淡色调」，原来纯半透明底会透出后面的堆叠层，看着发脏）
+// MARK: - 备忘卡视觉（v3.9.17：抽成独立 struct——页级单卡 / 全部列表两处共用）
 //
-// ⚠️ 圆角登记：本卡与两层卡边**有意**用 12（v3.9.14 起便签形态 + 用户选定的堆叠方案稿），
-//    与全站卡片 16 的约定（LiquidGlass.swift 圆角约定注释）并存——别按约定回改，
-//    改回 16 之后「主卡 + 露出的卡边」层次会糊在一起
+// v3.9.33：圆角与卡片底改走全站口径 `.dashboardCard()`（Radius.card 16 + Tint.line 0.8pt 描边），
+//   原「便签形态 12 圆角 + 自绘不透明底」随堆叠卡边一起废弃（用户定稿：与生活数据卡一致）。
+//   置顶态仍有独立标记：主题色描边 + 一层淡色罩（只在这张卡上叠，不改 dashboardCard 本身）。
+//   ⚠️ 这层罩用 `.overlay`（叠在内容之上）而不是 `.background`：dashboardCard 的卡底是**不透明**的，
+//   放到它下面会被整块遮住（等于没有）。不透明度很低（Tint.faint），对正文/元信息的观感影响可忽略，
+//   换来置顶卡一眼可辨——这是刻意选择，不是漏改。
+//
+// 两处形态只差三件事（其余完全同一套视觉）：
+//   compact = true   页级单卡：正文 2 行 + 卡高兜底到「生活数据」行情卡同高（MemoCardMetrics）
+//   compact = false  全部备忘列表行：正文 3 行 + 自然高度（列表要能一眼扫到更多字）
 
 private struct MemoNoteCard: View {
     let item: MemoItem
+    /// v3.9.33：页级单卡形态（限 2 行 + 与生活数据卡等高）；列表行用默认 false
+    var compact: Bool = false
 
     var body: some View {
+        // 栈间距按全仓口径写字面值（Spacing.swift 第 4 条：栈间距与内边距混在同一个令牌名下有歧义）
         VStack(alignment: .leading, spacing: 6) {
             Text(item.content)
                 .font(.system(size: Typography.body))
                 .foregroundStyle(.primary)
-                .lineLimit(3)
+                .lineLimit(compact ? MemoCardMetrics.lineLimit : 3)
                 .multilineTextAlignment(.leading)
                 .frame(maxWidth: .infinity, alignment: .leading)
+            // 单卡形态把元信息行压到卡底：与行情卡「数值在上、明细在下」同一读法；
+            // 1 行备忘时卡片不塌（高度由 minHeight 兜住）
+            if compact { Spacer(minLength: 0) }
             metaRow
         }
-        .padding(.horizontal, Spacing.lg)
-        .padding(.vertical, Spacing.md)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(noteBackground)
-        .overlay(RoundedRectangle(cornerRadius: Radius.inset, style: .continuous)
-            .stroke(item.pinned ? Color.accentColor.opacity(Tint.strong) : Color.secondary.opacity(Tint.soft),
-                    lineWidth: 0.8))
+        .padding(Spacing.xl)
+        .frame(maxWidth: .infinity,
+               minHeight: compact ? MemoCardMetrics.minHeight : 0,
+               alignment: .topLeading)
+        .dashboardCard()
+        // 置顶态罩层（见本 struct 上方注释：为什么不放 background）
+        .overlay {
+            if item.pinned {
+                ZStack {
+                    RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
+                        .fill(Color.accentColor.opacity(Tint.faint))
+                    RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
+                        .strokeBorder(Color.accentColor.opacity(Tint.strong), lineWidth: 0.8)
+                }
+                .allowsHitTesting(false)
+            }
+        }
         .contentShape(Rectangle())
-    }
-
-    /// 与全站卡片同底（secondarySystemGroupedBackground）再叠一层淡色调 → 完全不透明
-    private var noteBackground: some View {
-        RoundedRectangle(cornerRadius: Radius.inset, style: .continuous)
-            .fill(Color(uiColor: .secondarySystemGroupedBackground))
-            .overlay(RoundedRectangle(cornerRadius: Radius.inset, style: .continuous)
-                .fill(item.pinned ? Color.accentColor.opacity(Tint.faint) : Color.secondary.opacity(Tint.faint)))
     }
 
     private var metaRow: some View {

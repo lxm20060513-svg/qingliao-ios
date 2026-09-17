@@ -123,6 +123,10 @@ struct SiriBallView: View {
     var size: CGFloat = 92
     /// 动画帧率（默认 30；dock 槽位空闲态传 15 —— 常驻视图省电，思考态仍用 30）
     var fps: Double = 30
+    /// v3.9.33：第三态「刚答完未查看」——球右上亮点（让球成为唯一的状态指示器）
+    var unseen: Bool = false
+    /// v3.9.33：错误态——上一次请求失败时压暗（一眼看出「那一次没成」）
+    var failed: Bool = false
     /// v3.9.19：无障碍——「降低动态效果」时球静止（慢速刷新代替每帧重绘，同时省电）
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -178,6 +182,15 @@ struct SiriBallView: View {
                 OrbCanvasView(mode: thinking ? .orbits : .ring, size: 60 * k, opts: orbOpts, fps: fps)   // v3.9.1：透传帧率
                     .allowsHitTesting(false)
             }
+            // v3.9.33：错误态压暗（去饱和 + 降不透明度）——「那一次没成」的持续可见信号
+            .opacity(failed ? 0.5 : 1)
+            .saturation(failed ? 0.3 : 1)
+            // v3.9.33：第三态「刚答完未查看」——球右上小亮点（轻微呼吸；进聊天页即清）
+            .overlay(alignment: .topTrailing) {
+                if unseen {
+                    OrbNoticeDot(size: size, pulse: 0.7 + 0.3 * (sin(t * 3.0) + 1) / 2)
+                }
+            }
         }
         .frame(width: size, height: size)
         .contentShape(Circle())
@@ -191,6 +204,27 @@ struct SiriBallView: View {
     }
 }
 
+/// v3.9.33：智能球的「刚答完未查看」亮点（第三态指示器）。
+/// 独立小 struct：SiriBallView 的 TimelineView 闭包已经很长，内联塞条件视图易触发 CI 的 type-check 超时。
+private struct OrbNoticeDot: View {
+    /// 球外框边长（与 SiriBallView 的 size 同口径）
+    let size: CGFloat
+    /// 呼吸透明度（TimelineView 每帧给值——纯静态点用户容易忽略，轻闪一下才叫「有新回复」）
+    let pulse: Double
+
+    var body: some View {
+        // 小尺寸球（dock 槽位 52）按比例算只有 6pt → 设 7pt 下限，保证一眼可见
+        let d = Swift.max(7, size * 0.115)
+        Circle()
+            .fill(Color.orange)
+            .frame(width: d, height: d)
+            .overlay(Circle().strokeBorder(.white.opacity(0.92), lineWidth: 1.2))
+            .shadow(color: Color.orange.opacity(0.55), radius: 3)
+            .padding(2)
+            .opacity(pulse)
+    }
+}
+
 
 // MARK: - v3.6.2 dock 槽位智能球（系统 tab item 的自定义替身）
 //
@@ -200,7 +234,7 @@ struct SiriBallView: View {
 struct DockOrbOverlay: View {
     /// 目标槽位序号（本地：会话0 / 看板1 / 聊天2 / 生活3 / 设置4）
     var slotIndex: Int = 2
-    /// dock 槽位总数（本地 5；云端 4）
+    /// dock 槽位总数（当前 5：会话/看板/聊天/生活/设置）
     var slotCount: Int = 5
     /// 外框（含光晕）边长；球体 ≈ size × 0.783 —— 52 时球体 ≈ 41pt
     /// v3.6.3：36 → 44；v3.6.4：44 → 50；v3.6.5：50 → 52（用户指定）
@@ -209,14 +243,22 @@ struct DockOrbOverlay: View {
     var verticalNudge: CGFloat = 0
     /// AI 正在流式回答 → 球切 orbits（点点旋转）；空闲 → ring（缓慢脉动）
     var thinking: Bool = false
+    /// v3.9.33：刚答完未查看 → 球右上亮点（第三态）
+    var unseen: Bool = false
+    /// v3.9.33：上一次请求失败 → 球压暗
+    var failed: Bool = false
+    /// v3.9.33：实测系统 tab bar 高度回写给宿主（烟花原点与球心同源；读不到时保持 fallbackBarHeight）
+    @Binding var measuredBarHeight: CGFloat
 
     /// v3.6.3：系统 tab bar 真实槽位中心（window 坐标）。读得到就用它，读不到回退等分估算
     @State private var liveCenter: CGPoint?
     /// v3.6.3：回前台/转屏后 frame 会变 → 重读真实槽位
     @Environment(\.scenePhase) private var scenePhase
 
-    /// iOS 26 原生 tab bar 高度（不含底部安全区）
-    static let dockBarHeight: CGFloat = 49
+    /// iOS 26 原生 tab bar 高度**兜底值**（不含底部安全区）。
+    /// v3.9.33：不再是唯一来源——系统「放大字体」等辅助功能会把玻璃 tab bar 顶高，写死 49 会让球
+    ///          纵向跑偏；改为优先读真实 UITabBar 高度（`slotBarHeight()`），本值只在读不到时兜底。
+    static let fallbackBarHeight: CGFloat = 49
 
     /// v3.6.5 实测：dock 内容（图标 + 文字整块）中心比 UITabBar 几何中心低约 6.3pt。
     /// 装机截图 @3x（1179×2556 = 393×852pt）像素测量：球心 793.5pt（= tab bar 几何中心）
@@ -234,15 +276,19 @@ struct DockOrbOverlay: View {
             //        tr.midY，改基准等于没改，且读写两条路径还会差 6.3pt 造成跳变）。几何定位有
             //        截图实测锚点（852 - 34 - 24.5 + 6.3 = 799.8pt = 实测内容中心），一次到位。
             // v3.6.3 教训：原实现 cy = h - centerFromBottom 把底部安全区算了两遍 → 球高约 34pt。
+            // v3.9.33：bar 高改用实测值（放大字体下会变高）；实测与兜底走**同一条公式**，
+            //          两条路径坐标系一致（窗口底 − 安全区 − bar高/2 + 实测差值）→ 读不到也不会跳变
+            let barH = measuredBarHeight > 1 ? measuredBarHeight : DockOrbOverlay.fallbackBarHeight
             let geoCenterY = DockOrbOverlay.keyWindowHeight - DockOrbOverlay.keyWindowSafeBottom
-                             - DockOrbOverlay.dockBarHeight / 2 + DockOrbOverlay.dockContentCenterDrop
+                             - barH / 2 + DockOrbOverlay.dockContentCenterDrop
             let fallbackX = geo.size.width * (CGFloat(slotIndex) + 0.5) / CGFloat(slotCount)
             // ⚠️ ViewBuilder 内只能用表达式：`let x: T` + if/else 赋值会被当作条件视图
             //（CI 报 "type '()' cannot conform to 'View'"）→ 用 map/?? 表达式写
             let target: CGPoint = CGPoint(x: liveCenter.map { $0.x - g.minX } ?? fallbackX,
                                           y: geoCenterY - g.minY + verticalNudge)
             // 空闲呼吸 15fps / 思考旋转 30fps —— dock 常驻视图按状态降帧
-            SiriBallView(thinking: thinking, size: ballSize, fps: thinking ? 30 : 15)
+            SiriBallView(thinking: thinking, size: ballSize, fps: thinking ? 30 : 15,
+                         unseen: unseen, failed: failed)
                 .frame(width: ballSize, height: ballSize)
                 .position(x: target.x, y: target.y)
         }
@@ -260,12 +306,16 @@ struct DockOrbOverlay: View {
     @MainActor
     private func refreshLiveCenter() async {
         var latest: CGPoint?
+        // v3.9.33：同一轮里一并取真实 bar 高（放大字体/转屏/回前台后都会变；读不到就保持兜底值）
+        var latestBarH: CGFloat = 0
         for delay in [0.15, 0.6, 1.6] {
             try? await Task.sleep(for: .seconds(delay))
             if Task.isCancelled { return }        // 视图已消失 → 别再写 @State
             if let c = DockOrbOverlay.slotCenterGlobal(index: slotIndex, count: slotCount) { latest = c }
+            if let h = DockOrbOverlay.slotBarHeight() { latestBarH = h }
         }
         if let latest, latest != liveCenter { liveCenter = latest }
+        if latestBarH > 1, abs(latestBarH - measuredBarHeight) > 0.5 { measuredBarHeight = latestBarH }
     }
 
     /// 系统 tab bar 第 index 个按钮的中心（window 坐标）。读不到 / 数量对不上 → nil（调用方回退）
@@ -282,6 +332,23 @@ struct DockOrbOverlay: View {
         // v3.6.5：本函数只取 **x** 用于水平对准槽位；y 已改由 DockOrbOverlay 的几何定位给出
         //（不取按钮/tab bar 的 bounds 中心——两者中心是否相等无法在本地证实，见 body 注释）。
         return CGPoint(x: br.midX, y: br.midY)
+    }
+
+    /// v3.9.33：系统 tab bar 的**实际高度**（不含底部安全区）。放大字体下玻璃 tab bar 会变高，
+    /// `fallbackBarHeight`(49) 就不再成立 → 球纵向跑偏。读不到 / 值离谱 → nil（调用方用兜底值）。
+    ///
+    /// 用「bar 顶边 → 内容底边」求高，而不是直接取 `bounds.height`：UITabBar 的 frame 是否把底部
+    /// 安全区算进去各版本不一（算进去时 height ≈ 49 + 安全区）→ 直接取会多算一遍安全区。
+    /// 收敛到内容底边（窗口底 − 安全区）后，两种形态都得到 49 这类真实内容高。
+    @MainActor
+    static func slotBarHeight() -> CGFloat? {
+        guard let window = keyWindow, let tabBar = findTabBar(in: window) else { return nil }
+        let r = tabBar.convert(tabBar.bounds, to: nil)          // to: nil = window 坐标
+        let contentBottom = window.bounds.height - window.safeAreaInsets.bottom
+        let effectiveBottom = Swift.min(r.maxY, contentBottom)  // bar 覆盖了安全区时按内容底收敛
+        let h = effectiveBottom - r.minY
+        guard h > 20, h < 120 else { return nil }               // 离谱值宁可回退（防误取别的视图）
+        return h
     }
 
     /// 递归收集 tab 按钮：iOS 26 玻璃 tab bar 可能把按钮放进中间容器，只扫直接子视图会漏掉（改进空转）
@@ -324,10 +391,12 @@ struct DockOrbOverlay: View {
     /// 同一坐标系，h = 叠加层高）。⚠️ 叠加层底 ≠ 窗口底（差一个底部安全区）。
     /// v3.6.5：改为与球实际位置同源的几何口径 —— (屏高−安全区−tabBar高/2+6.3) 距叠加层底
     ///         = tabBar高/2 − 6.3 = 18.2pt（v3.6.4 用 tab bar 几何中心时是 24.5pt，差 6.3pt）。
-    /// 删除本属性会连带 DockTabView 编译失败（v3.6.5 首发 CI #468 实录）→ 改口径时务必全仓 grep。
+    /// v3.9.33：bar 高不再是常量——宿主把实测值传进来（放大字体下 tab bar 变高，原点要跟着球动）；
+    ///          默认参数 = 兜底 bar 高（读不到实测值时与原行为逐字一致）。
+    /// 删除本函数会连带 DockTabView 编译失败（v3.6.5 首发 CI #468 实录）→ 改口径时务必全仓 grep。
     @MainActor
-    static var ballCenterFromBottom: CGFloat {
-        dockBarHeight / 2 - dockContentCenterDrop
+    static func ballCenterFromBottom(barHeight: CGFloat = fallbackBarHeight) -> CGFloat {
+        barHeight / 2 - dockContentCenterDrop
     }
 
     /// 读 key window 底部安全区（不依赖叠加层自身的 safeAreaInsets——叠加层会被 tab bar 吃掉安全区）

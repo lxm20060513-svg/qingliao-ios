@@ -18,6 +18,16 @@ final class StreamClient {
     var isDone = false
     var status = ""
     var errorMessage = ""
+    /// v3.9.33：上一次收尾是否为**真失败**（用户主动停止/取消不算）——dock 智能球的错误态用它。
+    /// 别拿 `status == "error"` 判断：stop() 收尾也写 error，会把「我自己按的停止」显示成失败。
+    var lastFailed = false
+    /// v3.9.33：收尾事件序号（只增不减）+ 本次收尾是否真失败。
+    /// 为什么不让 UI 观察 `isStreaming` 的变化来判定收尾：finish() 里 isStreaming=false 之后**同步**回调
+    /// onFinished，排队续发（sendQueued → start()）会在同一帧把它设回 true → SwiftUI 的 onChange 看到的
+    /// old/new 都是 true，整轮收尾被静默跳过（失败不压暗、「未查看」也不亮）。序号只增，收尾必被观察到一次。
+    private(set) var finishSeq = 0
+    /// 本次收尾是否真失败（与 finishSeq 成对写入，只在该序号变化时读它才有意义）
+    private(set) var lastFinishFailed = false
     var isAgent = false        // v2.0.96b：Agent 回复标记（工具调用）
     // v3.9.17：AI 后端路径的工具进度（中文名，后端下发）。流结束后**保留**——让用户能看到
     // 刚才跑了哪些工具；只有 start() 开新流时才清空。
@@ -97,6 +107,7 @@ final class StreamClient {
         isDone = false
         status = ""
         errorMessage = ""
+        lastFailed = false   // v3.9.33：新流清掉上一轮的失败标记（否则新问题一开始球就是暗的）
         isAgent = false
         self.onFinished = onFinished
 
@@ -111,7 +122,7 @@ final class StreamClient {
             // v3.0.81：注册后台任务，延长 iOS 挂起前的存活时间（最多 ~30s）
             beginBgTask()
         } catch APIError.relayCancelled {
-            finish(success: false, error: "已取消")
+            finish(success: false, error: "已取消", userInitiated: true)   // v3.9.33：relay 授权被取消 = 用户行为
         } catch APIError.unauthorized {
             // v3.9.33：token 过期/被吊销（streamStart 401）→ 不再报「启动失败：…」这类无处可去的文案，
             // 统一收敛点已在 AuthStore 置位，这里立刻收尾并如实告知需要重新登录
@@ -130,7 +141,7 @@ final class StreamClient {
             Task { await auth.streamStop(taskId: taskId) }
         }
         if isStreaming, !isDone {
-            finish(success: false, error: "已停止")
+            finish(success: false, error: "已停止", userInitiated: true)   // v3.9.33：我按的停止 ≠ 失败
         }
     }
 
@@ -306,12 +317,16 @@ final class StreamClient {
         }
     }
 
-    private func finish(success: Bool, error: String) {
+    /// - Parameter userInitiated: 由**用户**主动停止/取消触发的收尾（true）——不算失败，dock 球不该为它压暗
+    private func finish(success: Bool, error: String, userInitiated: Bool = false) {
         guard !isDone else { return }   // v3.1.2：防重入——poll done + recover done 竞态导致 onFinished 重复触发队列发送
         isStreaming = false
         isDone = true
         status = success ? "done" : "error"
         errorMessage = error
+        lastFailed = !success && !userInitiated   // v3.9.33：真失败才置位
+        lastFinishFailed = lastFailed
+        finishSeq += 1   // v3.9.33：收尾快照序号（dock 据此观察收尾，别观察 isStreaming）
         stopPolling()
         stopSmooth()   // v3.4.20：平滑层收尾（剩余内容一次性补齐）
         clearPersisted()
@@ -432,6 +447,7 @@ final class StreamClient {
         }
         isStreaming = true
         isDone = false
+        lastFailed = false   // v3.9.33：接回在途任务 = 重新开跑（与 start()/adoptRemote 同口径）
         self.onFinished = onFinished
         startPolling(auth: auth)
     }
@@ -463,6 +479,7 @@ final class StreamClient {
         isDone = false
         status = "streaming"
         errorMessage = ""
+        lastFailed = false   // v3.9.33：接回在途任务 = 重新开跑，不是失败
         self.onFinished = onFinished
         auth.currentStreamSessionId = sessionId
         persistState(sessionId: sessionId)   // 重新落标记：切页/杀 App/再回前台也能续上
