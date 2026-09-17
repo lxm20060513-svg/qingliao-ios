@@ -315,18 +315,18 @@ final class ChatStore {
     /// 发送请求用的历史消息（payload 形态）
     /// 只保留最后一条带图消息的 imageDataURL（前面已发过的图片不进 payload，防 base64 全量重复膨胀）
     /// - Parameters:
-    ///   - model: 本次请求**实际要用的**模型名（来自 ChatView.resolveModel()，优先级链 免费>视觉>Agent>主）。
+    ///   - model: 本次请求**实际要用的**模型名（来自 ChatView.resolveModel()，优先级链 视觉>Agent>主）。
     ///            传 nil 时回落到本地 UserDefaults（默认值与 ChatView 的 @AppStorage 一致）。
     ///            为什么要传：闸门必须和真正发出去的模型同源。若只用主模型键兜底，就会丢掉
-    ///            resolveModel 的三档覆盖（免费模型 / 视觉模型 / Agent 模型），两侧判定不一致即会误压或漏压。
+    ///            resolveModel 的覆盖（视觉模型 / Agent 模型），两侧判定不一致即会误压或漏压。
     ///   - provider: 同上，与 model 成对传入。
     func historyPayload(model: String? = nil, provider: String? = nil) -> [[String: Any]] {
         // v3.0.10：图片保留条件（不降级为文本）
         // 主模型支持视觉 OR 配置了视觉模型自动切换
         let visionOK: Bool = {
             // v3.9.26 fix：取源优先级 —— 入参是本次**真正要发出去的**模型（ChatView.resolveModel() 的
-            // 免费 / 视觉 / Agent / 主 四档覆盖）。此前闸门只读 mainModelAndProvider，等于拿「主模型」
-            // 去判断「实际请求的模型」：主模型有视觉而实际发给无视觉的免费模型时仍带 base64（静默丢图），
+            // 视觉 / Agent / 主 三档覆盖）。此前闸门只读 mainModelAndProvider，等于拿「主模型」
+            // 去判断「实际请求的模型」：主模型有视觉而实际路由到无视觉的模型时仍带 base64（静默丢图），
             // 反向则白降级。未传参才回落到统一取源。
             let (curModelName, curProviderName): (model: String, provider: String) = {
                 if let m = model, !m.isEmpty { return (m, provider ?? "") }

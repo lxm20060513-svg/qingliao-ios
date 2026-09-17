@@ -225,7 +225,7 @@ extension ChatView {
             // v3.3.3：接住 m 作为落库锚点（防延迟回调把文件回复贴到新消息后）
             let m = ChatMessage.local(role: "user", content: content)
             chat.append(m)
-            // v3.0.81：统一模型优先级链（免费 > 视觉 > Agent > 主模型）
+            // v3.0.81：统一模型优先级链（视觉 > Agent > 主模型）
             let (useModel, useProvider) = resolveModel()
             // v3.9.15：闸门与实际请求同源
             let history = chat.historyPayload(model: useModel, provider: useProvider)
