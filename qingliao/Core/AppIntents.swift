@@ -304,7 +304,6 @@ struct OpenLifeIntent: AppIntent {
 struct QingliaoAppShortcuts: AppShortcutsProvider {
 
     static var appShortcuts: [AppShortcut] {
-        [
             AppShortcut(
                 intent: AskQingliaoIntent(),
                 phrases: [
@@ -314,7 +313,7 @@ struct QingliaoAppShortcuts: AppShortcutsProvider {
                 ],
                 shortTitle: "问轻聊",
                 systemImageName: "bubble.left.and.bubble.right"
-            ),
+            )
             AppShortcut(
                 intent: AddMemoIntent(),
                 phrases: [
@@ -323,7 +322,7 @@ struct QingliaoAppShortcuts: AppShortcutsProvider {
                 ],
                 shortTitle: "记到备忘录",
                 systemImageName: "square.and.pencil"
-            ),
+            )
             AppShortcut(
                 intent: CheckInboxIntent(),
                 phrases: [
@@ -332,7 +331,7 @@ struct QingliaoAppShortcuts: AppShortcutsProvider {
                 ],
                 shortTitle: "检查收件箱",
                 systemImageName: "tray.full"
-            ),
+            )
             AppShortcut(
                 intent: ReportEventIntent(),
                 phrases: [
@@ -340,7 +339,7 @@ struct QingliaoAppShortcuts: AppShortcutsProvider {
                 ],
                 shortTitle: "发送事件",
                 systemImageName: "bell.badge"
-            ),
+            )
             AppShortcut(
                 intent: OpenChatIntent(),
                 phrases: [
@@ -349,7 +348,7 @@ struct QingliaoAppShortcuts: AppShortcutsProvider {
                 ],
                 shortTitle: "打开聊天",
                 systemImageName: "message"
-            ),
+            )
             AppShortcut(
                 intent: OpenSessionsIntent(),
                 phrases: [
@@ -358,7 +357,7 @@ struct QingliaoAppShortcuts: AppShortcutsProvider {
                 ],
                 shortTitle: "会话列表",
                 systemImageName: "clock"
-            ),
+            )
             AppShortcut(
                 intent: OpenDashboardIntent(),
                 phrases: [
@@ -367,7 +366,7 @@ struct QingliaoAppShortcuts: AppShortcutsProvider {
                 ],
                 shortTitle: "打开看板",
                 systemImageName: "square.grid.2x2"
-            ),
+            )
             AppShortcut(
                 intent: OpenLifeIntent(),
                 phrases: [
@@ -376,7 +375,6 @@ struct QingliaoAppShortcuts: AppShortcutsProvider {
                 ],
                 shortTitle: "生活页",
                 systemImageName: "sparkles"
-            ),
-        ]
+            )
     }
 }

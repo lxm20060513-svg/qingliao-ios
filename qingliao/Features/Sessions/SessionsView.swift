@@ -259,7 +259,9 @@ struct SessionsView: View {
     @ViewBuilder
     private var sessionsErrorState: some View {
         Spacer()
-        Text(err)
+        // v3.9.32：原为 body 内 `if let err = errorText` 的局部绑定，拆成独立属性后绑定丢失，
+        // 裸 `err` 会被解析成 Darwin 的 err() 函数（cannot conform to StringProtocol）→ 直接用 errorText。
+        Text(errorText ?? "加载失败")
             .font(.system(size: Typography.subhead))
             .foregroundStyle(.secondary)
         Button("重试") { Task { await load() } }

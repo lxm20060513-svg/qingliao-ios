@@ -56,7 +56,7 @@ struct LifeExpressCardView: View {
 
 /// 单件快递：公司名 + 单号后 4 位 / 最新轨迹 / 状态 + 相对时间
 struct LifeExpressRow: View {
-    let pkg: LifeExpressPackage
+    let pkg: LifeExpressParcel   // ⚠️ 是渲染侧 Parcel（LifeCards.swift），不是配置侧 Package（LifeConfig.swift）
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {

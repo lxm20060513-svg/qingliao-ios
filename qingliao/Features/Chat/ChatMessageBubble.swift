@@ -767,9 +767,6 @@ struct MessageBubble: View {
                                 onWithdraw: nil,
                                 onPin: onPin,
                                 onMemo: onMemo,
-                                onWithdraw: nil,
-                                onPin: onPin,
-                                onMemo: onMemo,
                                 onRemind: onRemind,
                                 onImageTap: { url in onAIImageTap(url) },
                                 onFileTap: { url, name in onFileTap(url, name) },   // v3.9.17：AI 生成物预览
