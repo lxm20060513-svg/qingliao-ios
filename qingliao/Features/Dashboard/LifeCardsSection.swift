@@ -1,7 +1,11 @@
 import SwiftUI
 import UIKit
 
-// MARK: - v3.5.x 看板「生活数据」卡片区（股票行情 + RSS/博客更新）
+// MARK: - v3.5.x 看板「生活数据」卡片区（行情 + 资讯 + 快递 + 价格监控）
+//
+// v3.9.32：快递 / 价格监控从「占位小字」升级为真卡片（LifeExpressCardView / LifePriceCardView，
+//          同目录 LifeExpressPriceCards.swift）；后端 packages / items 为空时仍走占位小字，
+//          **不渲染空卡**。
 //
 // 与 DeviceCard / MeterCard / ServiceCard / PinCard 同一套卡片语言：
 //   .dashboardCard()（默认 圆角 16）+ Capsule 胶囊 + 0.8pt 描边（由 dashboardCard 提供）
@@ -113,13 +117,22 @@ struct LifeCardsSection: View {
                 noteCard(icon: "chart.line.uptrend.xyaxis", text: "暂无生活数据 · 点刷新")
             }
         } else if !data.hasContent {
-            VStack(alignment: .leading, spacing: 6) {
-                noteRow(icon: "exclamationmark.triangle", text: degradeText)
-                ForEach(data.placeholders) { p in placeholderRow(p) }
+            // v3.9.32：一条行情/资讯都没有时——快递/价格有真数据就先渲染真卡（不空白），
+            // 只有「连快递/价格都没配」才保留原来的「未配置」提示卡
+            if data.hasLifeCards {
+                VStack(alignment: .leading, spacing: 10) {
+                    expressPriceBlock
+                    placeholderCard
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 6) {
+                    noteRow(icon: "exclamationmark.triangle", text: degradeText)
+                    ForEach(data.placeholders) { p in placeholderRow(p) }
+                }
+                .padding(Spacing.xl)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .dashboardCard()   // v3.8.1：空态/占位块也统一 16（用户：都要一致）
             }
-            .padding(Spacing.xl)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .dashboardCard()   // v3.8.1：空态/占位块也统一 16（用户：都要一致）
         } else {
             // 行情：2 列网格（与 NAS 面板/模型使用量的栅格一致）
             if data.stocks.isEmpty {
@@ -132,15 +145,9 @@ struct LifeCardsSection: View {
             }
             // 博客/资讯：v3.9.17 标题行搬到卡片外（页级标题），卡片里只放条目
             if !data.entries.isEmpty { rssSection }
-            // 未接入的占位项（快递/价格监控）
-            if !data.placeholders.isEmpty {
-                VStack(alignment: .leading, spacing: 6) {
-                    ForEach(data.placeholders) { p in placeholderRow(p) }
-                }
-                .padding(Spacing.xl)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .dashboardCard()   // v3.8.1：空态/占位块也统一 16（用户：都要一致）
-            }
+            // 快递 / 价格监控：v3.9.32 起渲染真卡片（后端已真采集）；未配置的类型走占位小字
+            expressPriceBlock
+            placeholderCard
             if !data.rssErrorText.isEmpty {
                 noteRow(icon: "wifi.exclamationmark", text: data.rssErrorText)
                     .padding(.horizontal, Spacing.xs)
@@ -170,6 +177,29 @@ struct LifeCardsSection: View {
         if !error.isEmpty { return error }
         if !data.error.isEmpty { return data.error }
         return loading ? "加载中…" : "数据源未配置"
+    }
+
+    // MARK: v3.9.32 快递 / 价格监控（真卡片；空数据不渲染，避免空卡）
+
+    /// 快递 / 价格监控真卡片——后端 packages / items 为空时 parse 不建卡（见 LifeCardsData.parse），
+    /// 所以这里只渲染「有数据」的类型
+    @ViewBuilder
+    private var expressPriceBlock: some View {
+        if let ex = data.express { LifeExpressCardView(card: ex) }
+        if let pr = data.price { LifePriceCardView(card: pr) }
+    }
+
+    /// 未配置类型的占位小字（后端在 packages / items 为空时下发 error + hint）
+    @ViewBuilder
+    private var placeholderCard: some View {
+        if !data.placeholders.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(data.placeholders) { p in placeholderRow(p) }
+            }
+            .padding(Spacing.xl)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .dashboardCard()   // v3.8.1：空态/占位块也统一 16（用户：都要一致）
+        }
     }
 
     // MARK: v3.9.17 博客/资讯（标题行搬到卡片外，与「生活数据」同款页级标题）
