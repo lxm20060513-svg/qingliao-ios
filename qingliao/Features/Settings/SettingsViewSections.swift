@@ -196,6 +196,16 @@ extension SettingsView {
             SettingRow(icon: "rectangle.grid.2x2", iconColor: .green, title: "生活卡片",
                        value: "股票 / 资讯 / 快递 / 价格监控", chevron: true)
                 .onTapGesture { showLifeCards = true }
+            Divider().padding(.leading, 52)
+            // v3.9.32：一句话本地定时提醒（与上面「定时任务」不同：纯本地系统通知，App 不在也响）
+            SettingRow(icon: "bell.badge.fill", iconColor: .pink, title: "定时提醒",
+                       value: "一句话定时间", chevron: true)
+                .onTapGesture { showQuickReminder = true }
+            Divider().padding(.leading, 52)
+            // v3.9.32：文件管理（上传目录浏览：预览 / 分享 / 重命名 / 删除）
+            SettingRow(icon: "folder.fill", iconColor: .indigo, title: "文件管理",
+                       value: "上传目录里的文件", chevron: true)
+                .onTapGesture { showFilesManager = true }
         }
         .glassListCard()
         .sheet(isPresented: $showPinPath) {

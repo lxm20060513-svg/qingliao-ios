@@ -192,9 +192,12 @@ struct DockTabView: View {
     /// v3.4.24：地图 App 分享的定位链接 → 解析经纬度入 SharedPayload.location（AI 推荐周边）。
     private func handleShareURL(_ url: URL) {
         // v3.9.7：实时活动（灵动岛 / 锁屏横幅）点按深链——`widgetURL` 传进来的「回到会话」
-        if url.scheme?.lowercased() == "qingliao", url.host?.lowercased() == "chat" {
+        // v3.9.32：泛化为快捷指令 / Siri 的页面深链（qingliao://chat|sessions|dashboard|life|settings）。
+        // Route.rawValue 与 DockTab.rawValue 一一对应；其余 URL 原样落到下面的分享分支。
+        // （原「只认 host == chat」的窄分支已由这里覆盖——chat 也是 Route 的一个 case，别再写第二份判断。）
+        if let route = QingliaoDeepLink.route(for: url), let tab = DockTab(rawValue: route.rawValue) {
             skipBurstOnce()
-            selected = .chat
+            selected = tab
             return
         }
         var payload: SharedPayload?

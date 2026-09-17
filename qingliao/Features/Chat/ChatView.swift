@@ -276,6 +276,9 @@ struct ChatView: View {
     @State var fileGoneAlert = false      // v3.9.31：文件预览下载失败 → 文件已失效提示
     @State var mergeTooMany = false       // 合并超过 99 条 → 提示
     static let maxMergeCount = 99
+    // v3.9.32：一句话定时提醒（气泡长按「提醒我」）
+    @State var showQuickReminder = false
+    @State var reminderSeedText = ""
     // v3.0.51 A2 fix：缓存可见消息数组——仅在消息数量/显示上限变化时重建，
     // 避免每帧 stream.delta 触发 body 重建 O(visible) 数组
     @State private var visibleMessagesCache: [MessageRowItem] = []
@@ -962,6 +965,12 @@ struct ChatView: View {
             .presentationDetents([.medium])
             .scrollContentBackground(.hidden)
         }
+        // v3.9.32：定时提醒面板（长按气泡「提醒我」/ 设置页入口共用）
+        .sheet(isPresented: $showQuickReminder) {
+            QuickReminderSheet(presetText: reminderSeedText)
+                .presentationDetents([.medium, .large])
+                .scrollContentBackground(.hidden)
+        }
         .fileImporter(isPresented: $showFileImporter,
                       allowedContentTypes: [.data]) { result in
             if case .success(let url) = result {
@@ -1422,6 +1431,10 @@ struct ChatView: View {
             if MemoStore.shared.add(content: text, source: "chat") {
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
             }
+        } onRemind: { text in
+            // v3.9.32：长按「提醒我」——默认文案取该条消息内容
+            reminderSeedText = text
+            showQuickReminder = true
         } onAIImageTap: { url in
             openAIImage(url, sourceID: msg.id)   // v3.4.29：带转场源
         } onFileTap: { url, name in

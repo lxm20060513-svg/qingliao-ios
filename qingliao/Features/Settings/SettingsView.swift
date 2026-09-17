@@ -38,6 +38,9 @@ struct SettingsView: View {
     @State var showMCPSettings = false
     // v3.5.x：生活卡片设置（股票 / 资讯 / 快递 / 价格监控）
     @State var showLifeCards = false
+    // v3.9.32：一句话本地定时提醒 / 文件管理
+    @State var showQuickReminder = false
+    @State var showFilesManager = false
     // v3.0.17：聊天字体大小从一级菜单移除（外观二级菜单持有），fontSize 声明一并清理
     // v3.0.9：外观下天气城市已移除（天气城市设定在看板 WeatherBadge 点按处），相关状态一并清理
     // v2.0.101：Agent 使用说明内联展开
@@ -166,6 +169,18 @@ struct SettingsView: View {
         .sheet(isPresented: $showLifeCards) {
             LifeCardsSettingsView()
                 .presentationDetents([.medium, .large])
+        }
+        // v3.9.32：定时提醒（纯本地 UNCalendarNotificationTrigger，无后端依赖）
+        .sheet(isPresented: $showQuickReminder) {
+            QuickReminderSheet()
+                .presentationDetents([.medium, .large])
+                .scrollContentBackground(.hidden)
+        }
+        // v3.9.32：文件管理（上传目录浏览：预览 / 分享 / 重命名 / 删除）
+        .sheet(isPresented: $showFilesManager) {
+            FilesManagerSheet()
+                .presentationDetents([.medium, .large])
+                .scrollContentBackground(.hidden)
         }
         // v2.0.105：Agent 关键词管理
         .sheet(isPresented: $showAgentKeywords) {

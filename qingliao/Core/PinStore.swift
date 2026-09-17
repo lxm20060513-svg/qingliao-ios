@@ -93,13 +93,22 @@ final class PinStore {
     }
 
     /// 从 NAS 文件加载（App 启动时调用）
+    /// v3.9.32 fix：读回后**并集合并**，不再整体替换。
+    /// 此前 save() 是 Task.detached 异步写，刚钉完立刻切看板（或蜂窝下写慢）时，
+    /// loadFromServer 读到的还是旧文件 → `pins = decoded` 把新条目抹掉，
+    /// 之后任意一次 save 又把「丢了条目的版本」写回 NAS，本地兜底一并被覆盖。
+    /// （MemoStore 修过同款，PinStore 漏了。）
     func loadFromServer() async {
         guard let data = await readFromFile() else { return }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        if let decoded = try? decoder.decode([PinItem].self, from: data) {
-            pins = decoded
-        }
+        guard let decoded = try? decoder.decode([PinItem].self, from: data) else { return }
+        let remoteIDs = Set(decoded.map { $0.id })
+        // 同 id 以远端内容为准（远端是权威副本）；本地独有条目一律保留（= 还没写成功的那些）
+        let localOnly = pins.filter { !remoteIDs.contains($0.id) }
+        var merged = decoded + localOnly
+        merged.sort { $0.createdAt > $1.createdAt }
+        pins = merged
     }
 
     // MARK: - 注入 AuthStore（由 App 启动时注入）

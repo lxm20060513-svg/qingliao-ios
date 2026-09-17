@@ -33,6 +33,7 @@ struct SessionsView: View {
     @State private var lastLoadAt: Date?
     // v3.0.27：会话分类
     @State private var showAddCategory = false
+    @State private var deleteCategoryTarget: SessionCategory?   // v3.9.32：删除分类确认
     @State private var addCategoryForSession: String?
     @State private var newCategoryName = ""
     // v3.0.51 B7：会话标签
@@ -271,6 +272,18 @@ struct SessionsView: View {
             }
             Button("取消", role: .cancel) {}
         }
+        // v3.9.32：删除分类确认（连带解除该分类下所有会话的归属）
+        .alert("删除分类", isPresented: Binding(get: { deleteCategoryTarget != nil }, set: { if !$0 { deleteCategoryTarget = nil } })) {
+            Button("删除", role: .destructive) {
+                if let cat = deleteCategoryTarget {
+                    categoryStore.removeCategory(cat.id)
+                }
+                deleteCategoryTarget = nil
+            }
+            Button("取消", role: .cancel) { deleteCategoryTarget = nil }
+        } message: {
+            Text("将删除分类「\(deleteCategoryTarget?.name ?? "")」，其中的会话会回到「无分类」（会话本身不会删）")
+        }
         // v3.0.51 B7：新建标签
         .alert("新建标签", isPresented: $showNewTag) {
             TextField("标签名称（≤6字）", text: $newTagName)
@@ -336,11 +349,14 @@ struct SessionsView: View {
                    faved: favIDs.contains(s.id),
                    tags: tagStore.tags(for: s.id),
                    showCheck: editing,
-                   checked: selectedIds.contains(s.id)) {
+                   checked: selectedIds.contains(s.id),
+                   unread: chat.unread[s.id] ?? false,
+                   categoryName: categoryStore.categoryForSession(s.id)?.name) {
             if editing {
                 toggleSelect(s.id)
             } else {
                 chat.load(s)
+                chat.markRead(s.id)   // v3.9.32：打开会话即已读（此前 markRead 全仓零调用，红点会永久挂着）
                 Haptics.tap()   // v3.4.29：进入会话触感
                 onOpenSession?()
             }
@@ -381,6 +397,18 @@ struct SessionsView: View {
                     addCategoryForSession = s.id
                     newCategoryName = ""
                     showAddCategory = true
+                }
+                // v3.9.32：能建也得能删（此前 removeCategory 零调用 = 分类只进不出）
+                if !categoryStore.categories.isEmpty {
+                    Menu("删除分类") {
+                        ForEach(categoryStore.categories) { cat in
+                            Button(role: .destructive) {
+                                deleteCategoryTarget = cat
+                            } label: {
+                                Label(cat.name, systemImage: "trash")
+                            }
+                        }
+                    }
                 }
             }
             Menu("标签") {
@@ -454,6 +482,24 @@ struct SessionsView: View {
                     if let ts = m.timestamp { p["timestamp"] = ts }
                     if m.isPush { p["isPush"] = true }    // v3.0.83fix：rename 同步补 isPush（防改名后推送标记丢失）
                     if m.agent { p["agent"] = true }
+                    return p
+                }]],
+                "deleted": [] as [Any]
+            ])
+            _ = try? await auth.request("/api/sessions/merge", method: "POST", body: [
+                "sessions": [[ "id": t.id, "title": newName, "messages": t.messages.map { m -> [String: Any] in
+                    // v3.9.32 fix：改名必须带全字段——此前只带 role/content/timestamp/isPush/agent，
+                    // 而后端 merge 对同 id 消息是**整条覆盖**，于是给含图会话改个名，
+                    // 图片气泡当场退化成 [图片]、引用原文与跨重启 uid 锚点一并丢失（不可逆）。
+                    // 口径与 ChatStore.writeSessionSnapshot 保持一致，别再各写一份。
+                    var p: [String: Any] = ["role": m.role, "content": m.content]
+                    if let ts = m.timestamp { p["timestamp"] = ts }
+                    if let img = m.imageDataURL, !img.isEmpty { p["imageDataURL"] = img }
+                    if let u = m.uid, !u.isEmpty { p["uid"] = u }
+                    if m.isPush { p["isPush"] = true }    // v3.0.83fix：rename 同步补 isPush（防改名后推送标记丢失）
+                    if m.agent { p["agent"] = true }
+                    if m.suspectedRepeat { p["suspectedRepeat"] = true }
+                    if let q = m.quotedText, !q.isEmpty { p["quotedText"] = q }
                     return p
                 }]],
                 "deleted": [] as [Any]
@@ -662,6 +708,8 @@ struct SessionRow: View {
     var tags: [String] = []   // v3.0.51 B7：会话标签
     var showCheck = false   // v2.0.87ad：多选模式
     var checked = false
+    var unread = false      // v3.9.32：未读红点（列表外产生的新消息）
+    var categoryName: String? = nil   // v3.9.32：所属分类（长按「移动到…」设过才显示）
     var action: () -> Void = {}
 
     // MARK: - v3.4.25 会话头像个性化（id hash → 稳定的色系×图标组合）
@@ -720,6 +768,16 @@ struct SessionRow: View {
                         .font(.system(size: Typography.body, weight: .semibold))
                         .foregroundStyle(.primary)
                         .lineLimit(1)
+                    // v3.9.32：分类小胶囊（此前分类只在长按菜单里能设，设完看不见）
+                    if let cat = categoryName, !cat.isEmpty {
+                        Text(cat)
+                            .font(.system(size: Typography.tiny))
+                            .foregroundStyle(Color.accentColor)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.accentColor.opacity(Tint.soft), in: Capsule())
+                            .lineLimit(1)
+                    }
                 }
                 // v3.0.51 B7：会话标签小胶囊（彩色，最多 3 个）
                                 if !tags.isEmpty {
@@ -737,6 +795,13 @@ struct SessionRow: View {
                 Text(session.relativeTime)
                     .font(.system(size: Typography.caption))
                     .foregroundStyle(.tertiary)
+                // v3.9.32：未读红点——此前 unread/markRead 只有存储层、全仓零渲染
+                if unread && !showCheck {
+                    Circle()
+                        .fill(Color.red)
+                        .frame(width: 8, height: 8)
+                        .accessibilityLabel("有未读消息")
+                }
                 // v2.0.87ad：多选勾选圈（编辑模式替代 chevron）
                 if showCheck {
                     Image(systemName: checked ? "checkmark.circle.fill" : "circle")

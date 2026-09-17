@@ -20,6 +20,8 @@ struct MessageBubble: View {
     var onPin: ((String) -> Void)? = nil
     // v3.7.0：加入备忘录（长按菜单 / 气泡菜单）——传当前段落/整条内容
     var onMemo: ((String) -> Void)? = nil
+    // v3.9.32：定时提醒（长按菜单「提醒我」）——传当前段落/整条内容
+    var onRemind: ((String) -> Void)? = nil
     // v2.0.128：AI 消息内图片点击（传 URL/data URL，打开大图）
     var onAIImageTap: (String) -> Void = { _ in }
     // v3.9.17：AI 生成物点击（传 URL + 显示名 → QuickLook 预览）
@@ -106,6 +108,14 @@ struct MessageBubble: View {
                 onMemo(displayContent)
             } label: {
                 Label("存备忘录", systemImage: "note.text")
+            }
+        }
+        // v3.9.32：提醒我（整条气泡内容 → 本地定时提醒面板）
+        if let onRemind {
+            Button {
+                onRemind(displayContent)
+            } label: {
+                Label("提醒我", systemImage: "bell.badge.fill")
             }
         }
         if !message.isUser {
@@ -259,6 +269,7 @@ struct MessageBubble: View {
                                                                                     onWithdraw: nil,
                                                                                     onPin: onPin,
                                                                                     onMemo: onMemo,
+                                                                                    onRemind: onRemind,
                                                                                     onImageTap: { url in onAIImageTap(url) },   // v2.0.128：AI 图片点击打开大图
                                                                                     onFileTap: { url, name in onFileTap(url, name) },   // v3.9.17：AI 生成物预览
                                                                                     onMultiSelect: onMultiSelect,   // v3.3.0：多选合并转发
@@ -671,6 +682,10 @@ struct MessageBubble: View {
                                 onWithdraw: nil,
                                 onPin: onPin,
                                 onMemo: onMemo,
+                                onWithdraw: nil,
+                                onPin: onPin,
+                                onMemo: onMemo,
+                                onRemind: onRemind,
                                 onImageTap: { url in onAIImageTap(url) },
                                 onFileTap: { url, name in onFileTap(url, name) },   // v3.9.17：AI 生成物预览
                                 onMultiSelect: onMultiSelect,   // v3.3.0：多选合并转发

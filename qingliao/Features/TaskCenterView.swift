@@ -11,6 +11,7 @@ struct TaskCenterView: View {
     @State private var store = TaskCenterStore.shared
     @State private var filter: TaskFilter = .all
     @State private var actionItem: TaskCenterItem?
+    @State private var detailItem: TaskCenterItem?   // v3.9.32：任务详情（原「查看详情」是个空按钮）
     @State private var sending = false
     // v3.4.23：进行中任务（后端 /api/agent/tasks/active——AI 干活中的流式任务 + 后台作业；v3.4.25 改别名路径过 lucky 反代）
     @State private var activeTasks: [AuthStore.ActiveTask] = []
@@ -110,7 +111,45 @@ struct TaskCenterView: View {
                     Button("取消", role: .cancel) { actionItem = nil }
                 }
             }
+                    // v3.9.32：查看详情——原为空实现且带破坏性红色样式（点了什么都不发生）。
+                    // 先收 confirmationDialog 再开 alert（同帧 present 会被吞，与删除会话同一手法）。
+                    Button("查看详情") {
+                        let it = item
+                        actionItem = nil
+                        Task {
+                            try? await Task.sleep(for: .seconds(0.3))
+                            detailItem = it
+                        }
+                    }
+                    Button("取消", role: .cancel) { actionItem = nil }
+                }
+            }
+            // v3.9.32：任务详情
+            .alert("任务详情", isPresented: Binding(get: { detailItem != nil }, set: { if !$0 { detailItem = nil } })) {
+                Button("复制内容") {
+                    UIPasteboard.general.string = detailItem?.text
+                    detailItem = nil
+                }
+                Button("好", role: .cancel) { detailItem = nil }
+            } message: {
+                if let it = detailItem {
+                    Text(taskDetailText(it))
+                }
+            }
         }
+    }
+
+    /// v3.9.32：任务详情文案（类型 / 状态 / 时间 / 来源 / 内容）
+    private func taskDetailText(_ it: TaskCenterItem) -> String {
+        let df = DateFormatter()
+        df.dateFormat = "yyyy-MM-dd HH:mm"
+        let when = df.string(from: Date(timeIntervalSince1970: it.createdAt))
+        let kind = it.taskType == "cron" ? "定时任务" : "系统通知"
+        var lines = ["类型：\(kind)", "状态：\(it.completed ? "已完成" : "未完成")", "时间：\(when)"]
+        if let src = it.sourceTaskId, !src.isEmpty { lines.append("来源：\(src)") }
+        lines.append("")
+        lines.append(it.text)
+        return lines.joined(separator: "\n")
     }
 
     private var filteredTasks: [TaskCenterItem] {
