@@ -15,6 +15,11 @@ enum NotificationHelper {
             if let error { NSLog("[NOTIFY] auth error: \(error)") }
             if !granted { NSLog("[NOTIFY] ⚠️ 通知权限被拒绝，AI 回复完成提醒将不可用") }
         }
+        // v3.9.32：启动顺带对账一次「一句话定时提醒」（幂等）——过期的一次性提醒标 fired、
+        // 未过期的按稳定 identifier 重注册、系统里的孤儿请求清掉。挂在这里而不是 QingliaoApp.swift：
+        // 本方法就是 App 启动的唯一通知子系统入口（全仓仅 QingliaoApp.swift:34 调用）。
+        // 若后续想在 QingliaoApp 里显式写这一行，把下面这行挪过去即可——两处都调也安全（reconcile 幂等）。
+        Task { @MainActor in await QuickReminderStore.shared.reconcile() }
     }
 
     /// 发送一条本地通知（App 退后台时用）；v2.0.60 支持携带会话 id（点击直达）

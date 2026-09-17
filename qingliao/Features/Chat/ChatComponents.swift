@@ -50,6 +50,9 @@ struct MessageBlockView: View {
     var onPin: ((String) -> Void)? = nil
     // v3.7.0：加入备忘录（长按菜单）——传当前段落/选中文字
     var onMemo: ((String) -> Void)? = nil
+    // v3.9.32：定时提醒（长按菜单）——传当前段落文字作为提醒内容
+    // 主代理接线后（ChatView 传 onRemind）走调用方；未接线时本视图自己弹 QuickReminderSheet（兜底，见 requestRemind）
+    var onRemind: ((String) -> Void)? = nil
     // v2.0.128：AI 图片点击打开大图（传图片 URL/data URL）
     var onImageTap: (String) -> Void = { _ in }
     // v3.9.17：AI 生成物点击预览（传 文件 URL, 显示名）
@@ -167,6 +170,12 @@ struct MessageBlockView: View {
                 Label("存备忘录", systemImage: "note.text")
             }
         }
+        // v3.9.32：提醒我——一句话定时提醒（本地 UNCalendarNotificationTrigger，App 关了也响）
+        Button {
+            requestRemind()
+        } label: {
+            Label("提醒我", systemImage: "bell.badge.fill")
+        }
         Button(role: .destructive) {
             onDelete()
         } label: {
@@ -174,7 +183,35 @@ struct MessageBlockView: View {
         }
     }
 
+    // v3.9.32：提醒我（长按菜单）——兜底 sheet 状态
+    @State private var showReminderSheet = false
+    @State private var reminderSeed = ""
+
     var body: some View {
+        blockContent
+            .sheet(isPresented: $showReminderSheet) {
+                QuickReminderSheet(presetText: reminderSeed)
+                    .presentationDetents([.medium, .large])
+            }
+    }
+
+    /// 长按菜单「提醒我」：优先交给调用方（ChatView 接线后走屏幕级 sheet，更稳）；
+    /// 未接线时本视图自己弹一张（兜底——功能不因少一行接线而失效）。
+    private func requestRemind() {
+        if let onRemind {
+            onRemind(blockPlainText)
+            return
+        }
+        // 上下文菜单收起需要一点时间：立刻置 true 会和菜单退场动画打架被吞掉（实测现象＝点了没反应）
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(350))
+            reminderSeed = QuickReminderParser.seedText(from: blockPlainText)
+            showReminderSheet = true
+        }
+    }
+
+    @ViewBuilder
+    private var blockContent: some View {
         switch block.kind {
         case .markdown(let text):
             if streaming {
