@@ -2,8 +2,8 @@ import SwiftUI
 
 // MARK: - 生活页（v3.6.2：原看板「生活数据」栏目整体迁入独立 tab）
 //
-// 内容 = 股票行情 + 博客/资讯 + 快递/价格监控占位，全部来自 LifeCardsSection
-// （后端 /api/life/cards，配置页 LifeCardsSettingsView）。看板不再承载这部分。
+// 内容 = 股票行情 + 博客/资讯 + 快递 / 价格监控真卡片（v3.9.32；未配置时退化为引导小字），
+// 全部来自 LifeCardsSection（后端 /api/life/cards，配置页 LifeCardsSettingsView）。看板不再承载这部分。
 //
 // 数据加载照看板同款约定：
 //   · 独立异步 + 8s UI 兜底 + 失败降级为卡片内小字（不空白、不转圈卡住）

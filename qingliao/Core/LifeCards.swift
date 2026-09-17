@@ -5,6 +5,11 @@ import Foundation
 // 后端返回统一结构 {"ok":bool,"ts":Int,"cards":[{kind:"stock"|"rss"|"express"|"price",…}]}，
 // 这里只做纯解析（无网络、无 AuthStore 依赖）——请求走 DashboardView 的 auth.jsonOrLog，
 // 避免在 Core 层引入 @MainActor 隔离/并发上的额外风险。
+//
+// 覆盖范围：stock（LifeStock）/ rss（LifeRssEntry + LifeRssSource）/
+//          express（LifeExpressCard + LifeExpressParcel）/ price（LifePriceCard + LifePriceWatchItem）
+//          —— v3.9.32 起快递 / 价格监控已从占位小字升级为真卡片；
+//          packages / items 为空时仍落 LifePlaceholderItem（引导文案，不建空卡）。
 
 /// 股票行情卡（parse 后端 "kind":"stock"）
 struct LifeStock: Identifiable {
@@ -60,6 +65,13 @@ struct LifeStock: Identifiable {
         if let s = v as? String { return Double(s) }
         return nil
     }
+
+    /// JSONSerialization 字符串容错（String / NSNumber）——后端状态码偶发数字型
+    static func str(_ v: Any?) -> String {
+        if let s = v as? String { return s }
+        if let n = v as? NSNumber { return n.stringValue }
+        return ""
+    }
 }
 
 /// RSS / 博客条目（后端 "kind":"rss" 的 entries[]）
@@ -100,7 +112,235 @@ struct LifeRssSource: Identifiable {
     }
 }
 
-/// 未接入的占位卡（快递 / 价格监控）——后端给 kind + error 文案，UI 只显示小字，不空白
+// MARK: - v3.9.32 快递卡（后端 GET /api/life/cards "kind":"express"）
+//
+// 字段以 NAS 后端源码 life_api.py（_fetch_package / _collect_express）为准（2026-09-17 核对）：
+//   卡级 {"kind":"express","id":"express","title":"快递","ok":bool,"packages":[…],"error":str[, "hint":str]}
+//     未添加快递单号时 packages=[] + error="未添加快递单号" + hint="设置 → 生活卡片 → 快递"
+//   条目 {"no":"YT…","carrier":"yuantong","carrierName":"圆通速递","name":"我的快递",
+//         "ok":bool,"error":str,"state":"3","stateText":"已签收",
+//         "latest":{"time":"2026-09-17 13:28:46","context":"…"} | null}
+//   ⚠️ 单号查无结果时 ok=false 但仍带 latest（context="查无结果"）与 error 文案；
+//      stateText 只在查出状态时非空（后端 STATE_TEXT 映射）——UI 必须给兜底文案，不能渲染空行。
+//   ⚠️ 类型名刻意用「Parcel」而非「Package」：Core/LifeConfig.swift 已有配置侧 LifeExpressPackage，
+//      同模块重名 = 编译失败（而 check_swift.sh 只做语法解析，查不出重名）。
+
+/// 单件快递（后端 packages[]）
+struct LifeExpressParcel: Identifiable {
+    let id: String          // 列表 id：运单号（后端按 no 去重）；异常数据无单号时回退「名称#序号」
+    let no: String
+    let carrier: String     // 编码（yuantong / shunfeng / 自定义源原值）
+    let carrierName: String // 展示名（后端映射；自定义源可能回落成编码）
+    let name: String        // 用户备注（后端默认填单号）
+    let state: String       // 快递100 状态码（"3" = 已签收）
+    let stateText: String   // 状态文案（"已揽收" / "已签收"…，未查到为空）
+    let traceTime: String   // 最新轨迹时间（上游本地时间串，如 "2026-09-17 13:28:46"）
+    let trace: String       // 最新轨迹上下文
+    let ok: Bool
+    let error: String
+
+    /// 快递公司展示名：carrierName 为空才回落编码（自定义源可能两者都空）
+    var carrierLabel: String { carrierName.isEmpty ? carrier : carrierName }
+
+    /// 标题：用户备注优先；未起名时用单号（后端两者都可能为空 → 兜底「快递」）
+    var title: String {
+        if !name.isEmpty, name != no { return name }
+        return no.isEmpty ? "快递" : no
+    }
+
+    /// 运单号只露后 4 位（截图/转述场景不暴露完整单号）
+    var maskedNo: String {
+        no.count > 4 ? "尾号 " + String(no.suffix(4)) : no
+    }
+
+    /// 状态胶囊文案：后端 stateText 为空时按 ok 兜底（后端默认「已查询」）
+    var statusText: String {
+        guard ok else { return "" }
+        return stateText.isEmpty ? "已查询" : stateText
+    }
+
+    /// 已签收（后端 STATE_TEXT["3"]）——已签收的行弱化显示
+    var isDelivered: Bool { state == "3" }
+
+    /// 主体文案：成功给最新轨迹，失败给后端 error（两边都有内容，不留空行）
+    var detailText: String {
+        if ok { return trace.isEmpty ? "暂无轨迹详情" : trace }
+        return error.isEmpty ? "查询失败" : error
+    }
+
+    /// 相对时间：后端给的是北京时间串，解析不出就原样显示（不显示空白）
+    var timeText: String { LifeCardsData.relativeTimeText(traceTime) }
+
+    static func parse(_ j: [String: Any], index: Int) -> LifeExpressParcel? {
+        let no = LifeStock.str(j["no"])
+        let name = LifeStock.str(j["name"])
+        guard !no.isEmpty || !name.isEmpty else { return nil }
+        let latest = j["latest"] as? [String: Any] ?? [:]
+        return LifeExpressParcel(id: no.isEmpty ? "\(name)#\(index)" : no,
+                                 no: no,
+                                 carrier: LifeStock.str(j["carrier"]),
+                                 carrierName: LifeStock.str(j["carrierName"]),
+                                 name: name,
+                                 state: LifeStock.str(j["state"]),
+                                 stateText: LifeStock.str(j["stateText"]),
+                                 traceTime: LifeStock.str(latest["time"]),
+                                 trace: LifeStock.str(latest["context"]),
+                                 ok: (j["ok"] as? Bool) ?? false,
+                                 error: LifeStock.str(j["error"]))
+    }
+}
+
+/// 快递卡（后端 "kind":"express" 整张卡）
+struct LifeExpressCard: Identifiable {
+    let id: String
+    let title: String
+    let ok: Bool
+    let error: String
+    let hint: String        // 未配置时的引导（"设置 → 生活卡片 → 快递"）
+    let packages: [LifeExpressParcel]
+
+    var hasPackages: Bool { !packages.isEmpty }
+    var countText: String { "\(packages.count) 件" }
+
+    /// 已签收件数（卡头弱化提示 + 行弱化用）
+    var deliveredCount: Int { packages.filter { $0.isDelivered }.count }
+
+    static func parse(_ j: [String: Any]) -> LifeExpressCard? {
+        guard LifeStock.str(j["kind"]) == "express" else { return nil }
+        // 用 as? [Any] 再逐个取字典：数组里混进一个非字典元素时，不会把整张卡的件数清零
+        let raw = (j["packages"] as? [Any] ?? []).compactMap { $0 as? [String: Any] }
+        var pkgs: [LifeExpressParcel] = []
+        for (i, r) in raw.enumerated() {
+            if let p = LifeExpressParcel.parse(r, index: i) { pkgs.append(p) }
+        }
+        let cid = LifeStock.str(j["id"])
+        let ctitle = LifeStock.str(j["title"])
+        return LifeExpressCard(id: cid.isEmpty ? "express" : cid,
+                               title: ctitle.isEmpty ? "快递" : ctitle,
+                               ok: (j["ok"] as? Bool) ?? false,
+                               error: LifeStock.str(j["error"]),
+                               hint: LifeStock.str(j["hint"]),
+                               packages: pkgs)
+    }
+}
+
+// MARK: - v3.9.32 价格监控卡（后端 "kind":"price"）
+//
+// 字段以后端源码 life_api.py（_fetch_price / _collect_price）为准（2026-09-17 核对）：
+//   卡级 {"kind":"price","id":"price","title":"价格监控","ok":bool,"items":[…],"error":str[, "hint":str]}
+//     未添加监控商品时 items=[] + error="未添加监控商品" + hint="设置 → 生活卡片 → 价格监控"
+//   条目 {"name":"…","url":"…","price":129.0|null,"currency":"CNY","target":100.0|null,
+//         "hit":bool,"ok":bool,"error":str}
+//   ⚠️ hit 只在「设了目标价且现价 ≤ 目标价」时为 true（后端仅 target 非空时才写 hit）
+//      → 到价判定必须是 hit && target != nil，单看 hit 无法区分「未设目标价」。
+//   ⚠️ 类型名用 LifePriceWatchItem：Core/LifeConfig.swift 已有配置侧 LifePriceItem（同模块不能重名）。
+
+/// 单个监控商品（后端 items[]）
+struct LifePriceWatchItem: Identifiable {
+    let id: String
+    let name: String
+    let url: String
+    let price: Double?
+    let currency: String    // CNY / HKD / USD …（后端默认 CNY）
+    let target: Double?     // 目标价（未设 = null）
+    let hit: Bool           // 后端到价标记（仅设了目标价时可能为 true）
+    let ok: Bool
+    let error: String       // 失败原因（"未填写商品 URL" / "抓取失败: …" / "未配置提取规则"…）
+
+    /// 商品名：后端已兜底成域名；两者都空时回落 URL / 占位文案
+    var displayName: String {
+        if !name.isEmpty { return name }
+        if !host.isEmpty { return host }
+        return url.isEmpty ? "未命名商品" : url
+    }
+
+    /// URL 主机名（未命名商品的兜底显示）
+    var host: String { URL(string: url)?.host ?? "" }
+
+    /// 货币符号（与 Models.swift 的币种显示口径一致，未知币种退化为编码前缀）
+    var symbol: String { LifePriceWatchItem.currencySymbol(currency) }
+
+    /// 现价：¥129.00（未取到 = "--"，与行情卡的数值口径一致）
+    var priceText: String {
+        guard ok, let p = price else { return "--" }
+        return symbol + String(format: "%.2f", p)
+    }
+
+    /// 目标价：目标 ¥100.00（未设目标价 = 空串，UI 不渲染这一段）
+    var targetText: String {
+        guard let t = target else { return "" }
+        return "目标 " + symbol + String(format: "%.2f", t)
+    }
+
+    /// 到价（现价 ≤ 目标价）：后端 hit 未设目标价时恒为 false，必须带 target 一起判定
+    var isReached: Bool { ok && hit && target != nil }
+
+    /// 失败说明（无法取价时展示，不留空行）
+    var failureText: String { error.isEmpty ? "未取到价格" : error }
+
+    static func currencySymbol(_ c: String) -> String {
+        switch c.uppercased() {
+        case "", "CNY", "RMB": return "¥"
+        case "USD": return "$"
+        case "HKD": return "HK$"
+        case "JPY": return "¥"
+        case "EUR": return "€"
+        default: return c.uppercased() + " "
+        }
+    }
+
+    static func parse(_ j: [String: Any], index: Int) -> LifePriceWatchItem? {
+        let url = LifeStock.str(j["url"])
+        let name = LifeStock.str(j["name"])
+        guard !url.isEmpty || !name.isEmpty else { return nil }
+        return LifePriceWatchItem(id: url.isEmpty ? "\(name)#\(index)" : url,
+                             name: name,
+                             url: url,
+                             price: LifeStock.number(j["price"]),
+                             currency: LifeStock.str(j["currency"]),
+                             target: LifeStock.number(j["target"]),
+                             hit: (j["hit"] as? Bool) ?? false,
+                             ok: (j["ok"] as? Bool) ?? false,
+                             error: LifeStock.str(j["error"]))
+    }
+}
+
+/// 价格监控卡（后端 "kind":"price" 整张卡）
+struct LifePriceCard: Identifiable {
+    let id: String
+    let title: String
+    let ok: Bool
+    let error: String
+    let hint: String        // 未配置时的引导（"设置 → 生活卡片 → 价格监控"）
+    let items: [LifePriceWatchItem]
+
+    var hasItems: Bool { !items.isEmpty }
+    var countText: String { "\(items.count) 项" }
+
+    /// 到价项数（卡头高亮提示用）
+    var reachedCount: Int { items.filter { $0.isReached }.count }
+
+    static func parse(_ j: [String: Any]) -> LifePriceCard? {
+        guard LifeStock.str(j["kind"]) == "price" else { return nil }
+        // 同快递卡：逐元素取字典，单条脏数据不影响其余商品
+        let raw = (j["items"] as? [Any] ?? []).compactMap { $0 as? [String: Any] }
+        var list: [LifePriceWatchItem] = []
+        for (i, r) in raw.enumerated() {
+            if let it = LifePriceWatchItem.parse(r, index: i) { list.append(it) }
+        }
+        let cid = LifeStock.str(j["id"])
+        let ctitle = LifeStock.str(j["title"])
+        return LifePriceCard(id: cid.isEmpty ? "price" : cid,
+                             title: ctitle.isEmpty ? "价格监控" : ctitle,
+                             ok: (j["ok"] as? Bool) ?? false,
+                             error: LifeStock.str(j["error"]),
+                             hint: LifeStock.str(j["hint"]),
+                             items: list)
+    }
+}
+
+/// 「未配置」占位小字（快递 / 价格监控在 packages / items 为空时落到这里）
+/// ——后端给 kind + error（+ hint）文案，UI 只显示小字，不空白、也不显示空卡
 struct LifePlaceholderItem: Identifiable {
     let id: String
     let title: String
@@ -122,6 +362,10 @@ struct LifeCardsData {
     var entries: [LifeRssEntry] = []
     var rssSources: [LifeRssSource] = []
     var placeholders: [LifePlaceholderItem] = []
+    /// v3.9.32：快递卡（后端 packages 非空才存在；未配置单号时不建卡，避免空卡）
+    var express: LifeExpressCard?
+    /// v3.9.32：价格监控卡（后端 items 非空才存在）
+    var price: LifePriceCard?
     var updated: Date?
     var error: String = ""       // 后端整体错误（全源失败时非空）
     var loaded = false           // 是否已成功解析过一次响应
@@ -143,9 +387,14 @@ struct LifeCardsData {
         return ""
     }
 
-    /// 是否有可展示内容（都没有时显示降级小字）
+    /// 是否有行情 / 资讯内容（这两类为空时页面走「未配置」提示；快递/价格另判 hasLifeCards）
     var hasContent: Bool {
         !stocks.isEmpty || !entries.isEmpty
+    }
+
+    /// v3.9.32：是否有快递 / 价格监控真卡片（用于「一条生活卡片都没配」的判定）
+    var hasLifeCards: Bool {
+        (express?.hasPackages ?? false) || (price?.hasItems ?? false)
     }
 
     static func parse(_ j: [String: Any]) -> LifeCardsData {
@@ -159,8 +408,19 @@ struct LifeCardsData {
                 d.entries = (c["entries"] as? [[String: Any]] ?? []).compactMap { LifeRssEntry.parse($0) }
                 d.rssSources = (c["sources"] as? [[String: Any]] ?? []).compactMap { LifeRssSource.parse($0) }
                 if let e = c["error"] as? String, !e.isEmpty, d.entries.isEmpty { d.error = e }
-            case "express", "price":
-                if let p = LifePlaceholderItem.parse(c) { d.placeholders.append(p) }
+            case "express":
+                // v3.9.32：有单号 = 真卡片；无单号（后端 packages:[] + hint）= 保留占位小字，不建空卡
+                if let card = LifeExpressCard.parse(c), card.hasPackages {
+                    d.express = card
+                } else if let p = LifePlaceholderItem.parse(c) {
+                    d.placeholders.append(p)
+                }
+            case "price":
+                if let card = LifePriceCard.parse(c), card.hasItems {
+                    d.price = card
+                } else if let p = LifePlaceholderItem.parse(c) {
+                    d.placeholders.append(p)
+                }
             default:
                 break
             }
@@ -176,6 +436,20 @@ struct LifeCardsData {
         let isoFmt = ISO8601DateFormatter()
         isoFmt.formatOptions = [.withInternetDateTime]
         guard let d = isoFmt.date(from: iso) else { return "" }
+        return relativeFrom(d)
+    }
+
+    /// v3.9.32：上游时间串 → 相对时间；**解析不出时原样返回**（宁可显示原始时间，也不留空白）
+    /// 快递 100 等上游给的是北京时间串（"2026-09-17 13:28:46"，无时区标记），按东八区解释。
+    static func relativeTimeText(_ raw: String) -> String {
+        let s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !s.isEmpty else { return "" }
+        guard let d = parseUpstreamTime(s) else { return s }
+        return relativeFrom(d)
+    }
+
+    /// 相对时间正文（绝对值差 → 中文措辞；未来时间按「刚刚」处理）
+    private static func relativeFrom(_ d: Date) -> String {
         let secs = Int(Date().timeIntervalSince(d))
         if secs < 60 { return "刚刚" }
         if secs < 3600 { return "\(secs / 60) 分钟前" }
@@ -184,6 +458,37 @@ struct LifeCardsData {
         let df = DateFormatter()
         df.dateFormat = "MM-dd"
         return df.string(from: d)
+    }
+
+    /// 上游时间串容错解析：ISO8601（含毫秒）→ 东八区常见格式 → 无年份的「MM-dd HH:mm」
+    private static func parseUpstreamTime(_ s: String) -> Date? {
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let d = iso.date(from: s) { return d }
+        iso.formatOptions = [.withInternetDateTime]
+        if let d = iso.date(from: s) { return d }
+        let cst = TimeZone(identifier: "Asia/Shanghai") ?? .current
+        let formats = ["yyyy-MM-dd HH:mm:ss", "yyyy/MM/dd HH:mm:ss", "yyyy-MM-dd HH:mm",
+                       "yyyy-MM-dd'T'HH:mm:ss", "yyyy-MM-dd"]
+        for f in formats {
+            let df = DateFormatter()
+            df.locale = Locale(identifier: "en_US_POSIX")
+            df.timeZone = cst
+            df.dateFormat = f
+            if let d = df.date(from: s) { return d }
+        }
+        // 无年份（自定义源可能给 "09-17 13:28"）→ 按当年补全
+        for f in ["MM-dd HH:mm:ss", "MM-dd HH:mm"] {
+            let df = DateFormatter()
+            df.locale = Locale(identifier: "en_US_POSIX")
+            df.timeZone = cst
+            df.dateFormat = f
+            guard let d = df.date(from: s) else { continue }
+            var cal = Calendar(identifier: .gregorian)
+            cal.timeZone = cst
+            return cal.date(bySetting: .year, value: cal.component(.year, from: Date()), of: d) ?? d
+        }
+        return nil
     }
 }
 
