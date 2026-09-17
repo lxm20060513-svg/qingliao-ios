@@ -144,261 +144,18 @@ struct ModelSheet: View {
     var body: some View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 10) {
-                // 在线状态 + 同步结果
-                HStack(spacing: Spacing.xs) {
-                Circle().fill(syncing ? Color.orange : Color.green).frame(width: 7, height: 7)
-                Text(syncing ? "同步中..." : "模型服务在线")
-                    .font(.system(size: Typography.caption)).foregroundStyle(.secondary)
-            }
-            if let syncResult {
-                Text(syncResult)
-                    .font(.system(size: Typography.caption))
-                    .foregroundStyle(syncResult.hasPrefix("✅") ? Color.green : Color.orange)
-            }
-            // v3.0.82：内置 provider 删除结果提示
-            if let deleteResultMsg {
-                Text(deleteResultMsg)
-                    .font(.system(size: Typography.caption))
-                    .foregroundStyle(deleteResultMsg.hasPrefix("✅") ? Color.green : Color.orange)
-            }
-            // v3.0.33：Agent 模型覆盖提示——配置了 agent 模型时，
-            // 聊天实际走 agent 模型（视觉模型 > Agent 模型 > 主模型），此处选主模型不会生效
-            if !agentModel.isEmpty {
-                HStack(spacing: 10) {
-                    Image(systemName: "sparkles")
-                        .font(.system(size: Typography.subhead))
-                        .foregroundStyle(.orange)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("聊天实际使用 Agent 模型：\(agentModel)")
-                            .font(.system(size: Typography.subhead, weight: .medium))
-                        Text("配置了 Agent 模型时优先使用，这里设置主模型不生效；可在设置页「Agent 模型」改为跟随主模型")
-                            .font(.system(size: Typography.tiny)).foregroundStyle(.tertiary)
-                    }
-                    Spacer()
-                }
-                .padding(Spacing.lg)
-                .background(Color(uiColor: .secondarySystemGroupedBackground),
-                            in: RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: Radius.inset, style: .continuous)
-                        .strokeBorder(Color.orange.opacity(0.35), lineWidth: 0.8)
-                )
-            }
+            modelsStatusStrip
+            agentModelNotice
             Divider()
 
             ScrollView {
                 VStack(spacing: 12) {
-                    if !opencodeAppleModels.isEmpty {
-                        // v2.0.140：第二组 opencode 订阅（apple），同名模型按 provider 区分勾选
-                        groupSection("opencode（apple）", models: opencodeAppleModels.map { ($0, opencodeNames[$0] ?? $0, "opencode-apple") })
-                    }
-                    if !deepseekModels.isEmpty {
-                        // v2.0.83：官方 API 分组标注（与 opencode 的 deepseek 区分）
-                        groupSection("deepseek（官方）", models: deepseekModels.map { ($0, $0, "deepseek") })
-                    }
-                    if !stepfunModels.isEmpty {
-                        groupSection("stepfun", models: stepfunModels.map { ($0, $0, "stepfun") })
-                    }
-                    // v3.0.4：SenseNova（商汤）订阅模型分组
-                    if !sensenovaModels.isEmpty {
-                        groupSection("sensenova（商汤）", models: sensenovaModels.map { ($0, sensenovaNames[$0] ?? $0, "sensenova") })
-                    }
-                    // v2.0.118：本地模型（动态显示 Ollama 已安装模型——自主选择）
-                    if !localInstalled.isEmpty {
-                        groupSection("本地模型（断网兜底）", models: localInstalled.map { ($0, $0 + " · 本地", "local") })
-                    }
-                    // v3.0.4：通用 provider 分组（后端聚合——新增 provider 免改版，自动出现）
-                    // 跳过已在上面硬编码渲染的 provider（避免重复），只渲染新增/未知的（如 xiaomi）
-                    ForEach(allProviders, id: \.id) { p in
-                        let hardcoded = ["opencode", "opencode-apple", "deepseek", "stepfun", "sensenova", "local"]
-                        // v3.0.74：自定义 provider 单独渲染（见 customProvidersSection），此处跳过避免重复
-                        let customIDs = Set(customProviders.map { $0.id })
-                        if !hardcoded.contains(p.id) && !customIDs.contains(p.id) && !hiddenProviders.contains(p.id) {
-                            if p.models.isEmpty {
-                                // v3.4.x：key 健康自检——空 models 的 provider 主动提示 key 无效/未配置，而非静默消失
-                                ProviderKeyIssueRow(name: providerDisplayName(p.id))
-                                    .padding(.bottom, Spacing.xs)
-                            } else {
-                                groupSection(providerDisplayName(p.id),
-                                             models: p.models.filter { !hiddenModels.contains("\(p.id):\($0)") }.map {
-                                             ($0, providerModelDisplayName(p.id, $0), p.id) },
-                                             onHideProvider: { toggleHideProvider(p.id) },
-                                             onDeleteProvider: { confirmDeleteProvider = p.id })
-                            }
-                        }
-                    }
-                    // 管理隐藏的 provider（恢复入口）
-                    if !hiddenProviders.isEmpty {
-                        Button {
-                            hiddenProviders.removeAll()
-                            UserDefaults.standard.set(Array(hiddenProviders), forKey: "qingliao_hidden_providers")
-                        } label: {
-                            Text("恢复全部隐藏的模型组")
-                                .font(.system(size: Typography.subhead, weight: .medium))
-                                .foregroundStyle(Color.accentColor)
-                        }
-                        .buttonStyle(.plain)
-                        .padding(.top, Spacing.xs)
-                    }
-                    // v3.0.74：自定义模型组（用户自主添加 BASE_URL/API Key 模型组，存后端，免更新 App）
-                    Divider()
-                        .padding(.vertical, Spacing.xs)
-                    customProvidersSection
-                    // v3.0.10：视觉模型配置（模型管理内导航）
-                    Divider()
-                        .padding(.vertical, Spacing.xs)
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("视觉模型")
-                            .font(.system(size: Typography.caption, weight: .semibold))
-                            .foregroundStyle(.secondary)
-                            .padding(.leading, Spacing.xs)
-                        HStack(spacing: 10) {
-                            Image(systemName: "eye.fill")
-                                .font(.system(size: Typography.subhead))
-                                .foregroundStyle(.purple)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(visionModelDisplay)
-                                    .font(.system(size: Typography.subhead, weight: .medium))
-                                Text("主模型不支持视觉时自动切换")
-                                    .font(.system(size: Typography.tiny)).foregroundStyle(.tertiary)
-                            }
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: Typography.caption, weight: .semibold))
-                                .foregroundStyle(.tertiary)
-                        }
-                        .padding(Spacing.lg)
-                        .background(Color(uiColor: .secondarySystemGroupedBackground),
-                                    in: RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: Radius.inset, style: .continuous)
-                                .strokeBorder(Color.purple.opacity(Tint.strong), lineWidth: 0.8)
-                        )
-                        .contentShape(Rectangle())
-                        .onTapGesture { showVisionModelSheet = true }
-                    }
-                    // v3.0.x：语音引擎（TTS）—— 总开关 + 音色下拉
-                    Divider()
-                        .padding(.vertical, Spacing.xs)
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("语音引擎 · TTS")
-                            .font(.system(size: Typography.caption, weight: .semibold))
-                            .foregroundStyle(.secondary)
-                            .padding(.leading, Spacing.xs)
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack(spacing: 10) {
-                                Image(systemName: "waveform")
-                                    .font(.system(size: Typography.subhead))
-                                    .foregroundStyle(.indigo)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text("AI 语音朗读")
-                                        .font(.system(size: Typography.subhead, weight: .medium))
-                                    Text(ttsStatusText)
-                                        .font(.system(size: Typography.tiny)).foregroundStyle(.tertiary)
-                                }
-                                Spacer()
-                                Toggle("", isOn: $ttsOn).labelsHidden().scaleEffect(0.8).tint(.green)
-                                    .onChange(of: ttsOn) { _, new in
-                                        CloudConfig.setTTsEnabled(new)
-                                    }
-                            }
-                            if ttsOn {
-                                // 模型下拉（从用户模型列表筛支持 TTS 的）
-                                HStack(spacing: 8) {
-                                    Text("模型")
-                                        .font(.system(size: Typography.subhead))
-                                        .foregroundStyle(.secondary)
-                                    Spacer()
-                                    Picker("", selection: Binding(
-                                        get: { "\(ttsProvider)|\(ttsModel)" },
-                                        set: { raw in
-                                            let parts = raw.split(separator: "|", maxSplits: 1).map(String.init)
-                                            let pp = parts.count > 0 ? parts[0] : ttsProvider
-                                            let mm = parts.count > 1 ? parts[1] : ttsModel
-                                            ttsProvider = pp; ttsModel = mm
-                                            CloudConfig.setTTs(provider: pp, model: mm)
-                                            // 切模型 → 重置为该模型默认音色
-                                            let def = CloudConfig.ttsVoicesFor(provider: pp, model: mm).first?.id ?? ""
-                                            ttsVoice = def
-                                            CloudConfig.setTTsVoice(def)
-                                        }
-                                    )) {
-                                        ForEach(ttsModelOptions.indices, id: \.self) { idx in
-                                            let opt = ttsModelOptions[idx]
-                                            Text(opt.label).tag("\(opt.provider)|\(opt.model)")
-                                        }
-                                    }
-                                    .pickerStyle(.menu)
-                                    .tint(.indigo)
-                                }
-                                // 音色下拉（随模型联动）
-                                HStack(spacing: 8) {
-                                    Text("音色")
-                                        .font(.system(size: Typography.subhead))
-                                        .foregroundStyle(.secondary)
-                                    Spacer()
-                                    Picker("", selection: $ttsVoice) {
-                                        ForEach(ttsVoiceOptions, id: \.id) { v in
-                                            Text(v.name).tag(v.id)
-                                        }
-                                    }
-                                    .pickerStyle(.menu)
-                                    .tint(.indigo)
-                                    .onChange(of: ttsVoice) { _, new in
-                                        CloudConfig.setTTsVoice(new)
-                                    }
-                                }
-                                Text("开启后 AI 回复、语音指令将对讲朗读使用所选模型的神经语音；关闭则用系统语音。")
-                                    .font(.system(size: Typography.tiny)).foregroundStyle(.tertiary)
-                            } else {
-                                // v3.9.9（用户反馈「TTS 语音太生硬」）：关掉神经语音时走系统语音，
-                                // 这里把**音色 + 语速**开放出来，并说清"系统语音怎么才能更自然"——
-                                // 「增强 / 优质」语音包只能在 iOS 设置里下载，App 不能代下。
-                                HStack(spacing: 8) {
-                                    Text("系统音色")
-                                        .font(.system(size: Typography.subhead))
-                                        .foregroundStyle(.secondary)
-                                    Spacer()
-                                    Picker("", selection: $sysVoiceID) {
-                                        Text("自动（最自然可用）").tag("")
-                                        ForEach(voiceOptions) { opt in
-                                            Text(opt.label).tag(opt.id)
-                                        }
-                                    }
-                                    .pickerStyle(.menu)
-                                    .tint(.indigo)
-                                    .onChange(of: sysVoiceID) { _, new in
-                                        SpeechManager.setSystemVoiceID(new)
-                                    }
-                                }
-                                HStack(spacing: 8) {
-                                    Text("语速")
-                                        .font(.system(size: Typography.subhead))
-                                        .foregroundStyle(.secondary)
-                                    Spacer()
-                                    Picker("", selection: $sysRateIndex) {
-                                        Text("慢").tag(0)
-                                        Text("标准").tag(1)
-                                        Text("快").tag(2)
-                                    }
-                                    .pickerStyle(.segmented)
-                                    .frame(width: 150)
-                                    .onChange(of: sysRateIndex) { _, new in
-                                        SpeechManager.setSystemRateIndex(new)
-                                    }
-                                }
-                                Text(voiceHintText.isEmpty ? SpeechManager.systemVoiceHint : voiceHintText)
-                                    .font(.system(size: Typography.tiny)).foregroundStyle(.tertiary)
-                            }
-                        }
-                        .padding(Spacing.lg)
-                        .background(Color(uiColor: .secondarySystemGroupedBackground),
-                                    in: RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: Radius.inset, style: .continuous)
-                                .strokeBorder(ttsOn ? Color.indigo.opacity(0.35) : Color.primary.opacity(Tint.faint), lineWidth: 0.8)
-                        )
-                    }
+                    builtinProviderGroups
+                    dynamicProviderGroups
+                    hiddenProviderRestore
+                    customProviderEntry
+                    visionModelSection
+                    ttsSection
                 }
                 .padding(.bottom, Spacing.md)
             }
@@ -491,6 +248,322 @@ struct ModelSheet: View {
             Text("将从服务器配置中彻底删除「\(providerDisplayName(confirmDeleteProvider ?? ""))」及其全部模型。\n\n若该 provider 正被主模型/微信通道/Agent 引用，删除会被拒绝。\n用量看板对应卡片将同步消失，此操作不可撤销。")
         }
         }
+    }
+
+    // MARK: - 巨型 body 拆分（纯搬运）
+    //
+    // 由头：此 body 单块 351 行，是本仓已踩过两次的「Unable to type-check this
+    // expression in reasonable time」高危形态（一次漏检 = 20 分钟 CI 循环）。
+    // 这里按原注释分段把视图块原样搬成独立 @ViewBuilder 属性 —— **纯搬运**：视图顺序、
+    // 层级、条件分支、闭包、修饰符逐字未变，渲染结果与拆分前一致，只为把类型检查表达式打小。
+
+    /// 在线状态 + 同步结果 + 删除结果提示
+    @ViewBuilder
+    private var modelsStatusStrip: some View {
+            // 在线状态 + 同步结果
+            HStack(spacing: Spacing.xs) {
+            Circle().fill(syncing ? Color.orange : Color.green).frame(width: 7, height: 7)
+            Text(syncing ? "同步中..." : "模型服务在线")
+                .font(.system(size: Typography.caption)).foregroundStyle(.secondary)
+        }
+        if let syncResult {
+            Text(syncResult)
+                .font(.system(size: Typography.caption))
+                .foregroundStyle(syncResult.hasPrefix("✅") ? Color.green : Color.orange)
+        }
+        // v3.0.82：内置 provider 删除结果提示
+        if let deleteResultMsg {
+            Text(deleteResultMsg)
+                .font(.system(size: Typography.caption))
+                .foregroundStyle(deleteResultMsg.hasPrefix("✅") ? Color.green : Color.orange)
+        }
+    }
+
+    /// Agent 模型覆盖提示
+    @ViewBuilder
+    private var agentModelNotice: some View {
+        // v3.0.33：Agent 模型覆盖提示——配置了 agent 模型时，
+        // 聊天实际走 agent 模型（视觉模型 > Agent 模型 > 主模型），此处选主模型不会生效
+        if !agentModel.isEmpty {
+            HStack(spacing: 10) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: Typography.subhead))
+                    .foregroundStyle(.orange)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("聊天实际使用 Agent 模型：\(agentModel)")
+                        .font(.system(size: Typography.subhead, weight: .medium))
+                    Text("配置了 Agent 模型时优先使用，这里设置主模型不生效；可在设置页「Agent 模型」改为跟随主模型")
+                        .font(.system(size: Typography.tiny)).foregroundStyle(.tertiary)
+                }
+                Spacer()
+            }
+            .padding(Spacing.lg)
+            .background(Color(uiColor: .secondarySystemGroupedBackground),
+                        in: RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: Radius.inset, style: .continuous)
+                    .strokeBorder(Color.orange.opacity(0.35), lineWidth: 0.8)
+            )
+        }
+    }
+
+    /// 内置 provider 分组（opencode / deepseek / stepfun / sensenova / 本地）
+    @ViewBuilder
+    private var builtinProviderGroups: some View {
+        if !opencodeAppleModels.isEmpty {
+            // v2.0.140：第二组 opencode 订阅（apple），同名模型按 provider 区分勾选
+            groupSection("opencode（apple）", models: opencodeAppleModels.map { ($0, opencodeNames[$0] ?? $0, "opencode-apple") })
+        }
+        if !deepseekModels.isEmpty {
+            // v2.0.83：官方 API 分组标注（与 opencode 的 deepseek 区分）
+            groupSection("deepseek（官方）", models: deepseekModels.map { ($0, $0, "deepseek") })
+        }
+        if !stepfunModels.isEmpty {
+            groupSection("stepfun", models: stepfunModels.map { ($0, $0, "stepfun") })
+        }
+        // v3.0.4：SenseNova（商汤）订阅模型分组
+        if !sensenovaModels.isEmpty {
+            groupSection("sensenova（商汤）", models: sensenovaModels.map { ($0, sensenovaNames[$0] ?? $0, "sensenova") })
+        }
+        // v2.0.118：本地模型（动态显示 Ollama 已安装模型——自主选择）
+        if !localInstalled.isEmpty {
+            groupSection("本地模型（断网兜底）", models: localInstalled.map { ($0, $0 + " · 本地", "local") })
+        }
+    }
+
+    /// 通用 provider 分组（后端聚合，新增 provider 免改版）
+    @ViewBuilder
+    private var dynamicProviderGroups: some View {
+        // v3.0.4：通用 provider 分组（后端聚合——新增 provider 免改版，自动出现）
+        // 跳过已在上面硬编码渲染的 provider（避免重复），只渲染新增/未知的（如 xiaomi）
+        ForEach(allProviders, id: \.id) { p in
+            let hardcoded = ["opencode", "opencode-apple", "deepseek", "stepfun", "sensenova", "local"]
+            // v3.0.74：自定义 provider 单独渲染（见 customProvidersSection），此处跳过避免重复
+            let customIDs = Set(customProviders.map { $0.id })
+            if !hardcoded.contains(p.id) && !customIDs.contains(p.id) && !hiddenProviders.contains(p.id) {
+                if p.models.isEmpty {
+                    // v3.4.x：key 健康自检——空 models 的 provider 主动提示 key 无效/未配置，而非静默消失
+                    ProviderKeyIssueRow(name: providerDisplayName(p.id))
+                        .padding(.bottom, Spacing.xs)
+                } else {
+                    groupSection(providerDisplayName(p.id),
+                                 models: p.models.filter { !hiddenModels.contains("\(p.id):\($0)") }.map {
+                                 ($0, providerModelDisplayName(p.id, $0), p.id) },
+                                 onHideProvider: { toggleHideProvider(p.id) },
+                                 onDeleteProvider: { confirmDeleteProvider = p.id })
+                }
+            }
+        }
+    }
+
+    /// 隐藏 provider 恢复入口
+    @ViewBuilder
+    private var hiddenProviderRestore: some View {
+        // 管理隐藏的 provider（恢复入口）
+        if !hiddenProviders.isEmpty {
+            Button {
+                hiddenProviders.removeAll()
+                UserDefaults.standard.set(Array(hiddenProviders), forKey: "qingliao_hidden_providers")
+            } label: {
+                Text("恢复全部隐藏的模型组")
+                    .font(.system(size: Typography.subhead, weight: .medium))
+                    .foregroundStyle(Color.accentColor)
+            }
+            .buttonStyle(.plain)
+            .padding(.top, Spacing.xs)
+        }
+    }
+
+    /// 自定义模型组入口（分隔线 + customProvidersSection）
+    @ViewBuilder
+    private var customProviderEntry: some View {
+        // v3.0.74：自定义模型组（用户自主添加 BASE_URL/API Key 模型组，存后端，免更新 App）
+        Divider()
+            .padding(.vertical, Spacing.xs)
+        customProvidersSection
+    }
+
+    /// 视觉模型配置入口
+    @ViewBuilder
+    private var visionModelSection: some View {
+        // v3.0.10：视觉模型配置（模型管理内导航）
+        Divider()
+            .padding(.vertical, Spacing.xs)
+        VStack(alignment: .leading, spacing: 6) {
+            Text("视觉模型")
+                .font(.system(size: Typography.caption, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .padding(.leading, Spacing.xs)
+            HStack(spacing: 10) {
+                Image(systemName: "eye.fill")
+                    .font(.system(size: Typography.subhead))
+                    .foregroundStyle(.purple)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(visionModelDisplay)
+                        .font(.system(size: Typography.subhead, weight: .medium))
+                    Text("主模型不支持视觉时自动切换")
+                        .font(.system(size: Typography.tiny)).foregroundStyle(.tertiary)
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.system(size: Typography.caption, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(Spacing.lg)
+            .background(Color(uiColor: .secondarySystemGroupedBackground),
+                        in: RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: Radius.inset, style: .continuous)
+                    .strokeBorder(Color.purple.opacity(Tint.strong), lineWidth: 0.8)
+            )
+            .contentShape(Rectangle())
+            .onTapGesture { showVisionModelSheet = true }
+        }
+    }
+
+    /// 语音引擎 · TTS（总开关 + 音色下拉）
+    @ViewBuilder
+    private var ttsSection: some View {
+        // v3.0.x：语音引擎（TTS）—— 总开关 + 音色下拉
+        Divider()
+            .padding(.vertical, Spacing.xs)
+        VStack(alignment: .leading, spacing: 6) {
+            Text("语音引擎 · TTS")
+                .font(.system(size: Typography.caption, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .padding(.leading, Spacing.xs)
+            VStack(alignment: .leading, spacing: 8) {
+                ttsVoiceHeaderRow
+                if ttsOn {
+                    ttsNeuralVoiceControls
+                } else {
+                    ttsSystemVoiceControls
+                }
+            }
+            .padding(Spacing.lg)
+            .background(Color(uiColor: .secondarySystemGroupedBackground),
+                        in: RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: Radius.inset, style: .continuous)
+                    .strokeBorder(ttsOn ? Color.indigo.opacity(0.35) : Color.primary.opacity(Tint.faint), lineWidth: 0.8)
+            )
+        }
+    }
+
+    /// TTS 总开关行
+    @ViewBuilder
+    private var ttsVoiceHeaderRow: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "waveform")
+                .font(.system(size: Typography.subhead))
+                .foregroundStyle(.indigo)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("AI 语音朗读")
+                    .font(.system(size: Typography.subhead, weight: .medium))
+                Text(ttsStatusText)
+                    .font(.system(size: Typography.tiny)).foregroundStyle(.tertiary)
+            }
+            Spacer()
+            Toggle("", isOn: $ttsOn).labelsHidden().scaleEffect(0.8).tint(.green)
+                .onChange(of: ttsOn) { _, new in
+                    CloudConfig.setTTsEnabled(new)
+                }
+        }
+    }
+
+    /// 神经语音：模型下拉 + 音色下拉 + 说明
+    @ViewBuilder
+    private var ttsNeuralVoiceControls: some View {
+        // 模型下拉（从用户模型列表筛支持 TTS 的）
+        HStack(spacing: 8) {
+            Text("模型")
+                .font(.system(size: Typography.subhead))
+                .foregroundStyle(.secondary)
+            Spacer()
+            Picker("", selection: Binding(
+                get: { "\(ttsProvider)|\(ttsModel)" },
+                set: { raw in
+                    let parts = raw.split(separator: "|", maxSplits: 1).map(String.init)
+                    let pp = parts.count > 0 ? parts[0] : ttsProvider
+                    let mm = parts.count > 1 ? parts[1] : ttsModel
+                    ttsProvider = pp; ttsModel = mm
+                    CloudConfig.setTTs(provider: pp, model: mm)
+                    // 切模型 → 重置为该模型默认音色
+                    let def = CloudConfig.ttsVoicesFor(provider: pp, model: mm).first?.id ?? ""
+                    ttsVoice = def
+                    CloudConfig.setTTsVoice(def)
+                }
+            )) {
+                ForEach(ttsModelOptions.indices, id: \.self) { idx in
+                    let opt = ttsModelOptions[idx]
+                    Text(opt.label).tag("\(opt.provider)|\(opt.model)")
+                }
+            }
+            .pickerStyle(.menu)
+            .tint(.indigo)
+        }
+        // 音色下拉（随模型联动）
+        HStack(spacing: 8) {
+            Text("音色")
+                .font(.system(size: Typography.subhead))
+                .foregroundStyle(.secondary)
+            Spacer()
+            Picker("", selection: $ttsVoice) {
+                ForEach(ttsVoiceOptions, id: \.id) { v in
+                    Text(v.name).tag(v.id)
+                }
+            }
+            .pickerStyle(.menu)
+            .tint(.indigo)
+            .onChange(of: ttsVoice) { _, new in
+                CloudConfig.setTTsVoice(new)
+            }
+        }
+        Text("开启后 AI 回复、语音指令将对讲朗读使用所选模型的神经语音；关闭则用系统语音。")
+            .font(.system(size: Typography.tiny)).foregroundStyle(.tertiary)
+    }
+
+    /// 系统语音：音色 + 语速 + 说明
+    @ViewBuilder
+    private var ttsSystemVoiceControls: some View {
+        // v3.9.9（用户反馈「TTS 语音太生硬」）：关掉神经语音时走系统语音，
+        // 这里把**音色 + 语速**开放出来，并说清"系统语音怎么才能更自然"——
+        // 「增强 / 优质」语音包只能在 iOS 设置里下载，App 不能代下。
+        HStack(spacing: 8) {
+            Text("系统音色")
+                .font(.system(size: Typography.subhead))
+                .foregroundStyle(.secondary)
+            Spacer()
+            Picker("", selection: $sysVoiceID) {
+                Text("自动（最自然可用）").tag("")
+                ForEach(voiceOptions) { opt in
+                    Text(opt.label).tag(opt.id)
+                }
+            }
+            .pickerStyle(.menu)
+            .tint(.indigo)
+            .onChange(of: sysVoiceID) { _, new in
+                SpeechManager.setSystemVoiceID(new)
+            }
+        }
+        HStack(spacing: 8) {
+            Text("语速")
+                .font(.system(size: Typography.subhead))
+                .foregroundStyle(.secondary)
+            Spacer()
+            Picker("", selection: $sysRateIndex) {
+                Text("慢").tag(0)
+                Text("标准").tag(1)
+                Text("快").tag(2)
+            }
+            .pickerStyle(.segmented)
+            .frame(width: 150)
+            .onChange(of: sysRateIndex) { _, new in
+                SpeechManager.setSystemRateIndex(new)
+            }
+        }
+        Text(voiceHintText.isEmpty ? SpeechManager.systemVoiceHint : voiceHintText)
+            .font(.system(size: Typography.tiny)).foregroundStyle(.tertiary)
     }
 
     /// v3.0.82：真删内置 provider（后端删 config.yaml providers 段；被引用时返回 error 提示）
