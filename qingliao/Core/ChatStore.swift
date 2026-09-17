@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import SwiftUI
 
 // MARK: - 聊天会话状态：当前会话 id + 消息列表（UserDefaults 持久化当前会话）
 
@@ -209,7 +210,12 @@ final class ChatStore {
 
     /// 追加本地消息（发送/流式开始）
     func append(_ m: ChatMessage) {
-        messages.append(m)
+        // v3.9.31：插入带上滑入位动画事务（Motion.enter）——此前只有 ChatView 发送路径
+        // 包 withAnimation，恢复/重试/收件箱等 append 无动画上下文 → 气泡凭空出现。
+        // 切会话/清空走 load/clearMessages 的数组替换，不经过这里，不会误播动画。
+        withAnimation(Motion.enter) {
+            messages.append(m)
+        }
         if title.isEmpty, m.isUser, !m.content.isEmpty {
             title = String(m.content.prefix(30))
         }
@@ -262,7 +268,10 @@ final class ChatStore {
             m.agent = agent   // v2.0.96b：Agent 回复标记
             // v3.4.x 复读兜底：vs 锚点之前的历史旧 assistant（跨轮复述旧模板）
             markSuspectedRepeat(m, history: messages[..<anchorIdx])
-            messages.insert(m, at: regionEnd)
+            // v3.9.31：插入带上滑入位动画（append 同款；完成回调多为裸调用无动画上下文）
+            withAnimation(Motion.enter) {
+                messages.insert(m, at: regionEnd)
+            }
             noteAssistantLanded(m)   // v3.9.9：本轮回答真正落库 → 触发自动朗读（哪怕它插在数组中段）
             return
         }
@@ -289,7 +298,10 @@ final class ChatStore {
         m.agent = agent   // v2.0.96b：Agent 回复标记
         // v3.4.x 复读兜底：vs 末尾之前的历史旧 assistant
         markSuspectedRepeat(m, history: messages.prefix(max(0, messages.count - 1)))
-        messages.append(m)
+        // v3.9.31：插入带上滑入位动画（append 同款）
+        withAnimation(Motion.enter) {
+            messages.append(m)
+        }
         noteAssistantLanded(m)   // v3.9.9：同上
     }
 

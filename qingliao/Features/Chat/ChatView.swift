@@ -273,6 +273,7 @@ struct ChatView: View {
     @State var selectMode = false
     @State var selectedMsgIDs: Set<String> = []
     @State var selectBlocked = false      // 流式中尝试进入多选 → 提示
+    @State var fileGoneAlert = false      // v3.9.31：文件预览下载失败 → 文件已失效提示
     @State var mergeTooMany = false       // 合并超过 99 条 → 提示
     static let maxMergeCount = 99
     // v3.0.51 A2 fix：缓存可见消息数组——仅在消息数量/显示上限变化时重建，
@@ -894,6 +895,12 @@ struct ChatView: View {
         } message: {
             Text("AI 正在回答，回答完成后再多选合并。")
         }
+        // v3.9.31：文件预览下载失败提示——MEDIA: 指向的生成物多已被服务器清理，点卡片要有反馈
+        .alert("文件已失效", isPresented: $fileGoneAlert) {
+            Button("好的", role: .cancel) {}
+        } message: {
+            Text("该文件已不存在或无法下载（生成物可能已被服务器清理）。")
+        }
         // v3.3.0：合并条数超限提示
         .alert("合并条数超限", isPresented: $mergeTooMany) {
             Button("好的", role: .cancel) {}
@@ -1373,14 +1380,13 @@ struct ChatView: View {
                     selectOverlay(for: msg)
                 }
             }
-            // 气泡出现动效（v3.4.20 分级）：用户消息从底部轻滑入（微信式方向感），
-            // AI 消息淡入+微缩放；移除仍为纯淡入淡出。
-            // v2.0.38：去掉 .animation(value: messages.count)——
-            // 批量清空（清空会话/新建会话）时全 cell 同时移除的 spring 动画曾导致闪退
+            // 气泡出现动效（v3.9.31）：统一「上滑入位」y:8→0 + opacity 0→1（微信式方向感），
+            // 动画事务由 ChatStore.append/upsertAssistant 的 withAnimation(Motion.enter) 驱动。
+            // 移除仍为纯淡出。
+            // v2.0.38：批量清空/切会话走 load/clearMessages 数组替换（不经过 append/insert），
+            // 不会在此触发 spring 动画，避开当年全 cell 移除闪退
             .transition(.asymmetric(
-                insertion: msg.role == "user"
-                    ? .opacity.combined(with: .offset(y: 14))
-                    : .opacity.combined(with: .scale(scale: 0.96)),
+                insertion: .opacity.combined(with: .offset(y: 8)),
                 removal: .opacity))
             // v3.9.0：长按「大爆炸」时从这条气泡原生 zoom 生长（与非闭包实参 zoomNS 配对）
             .matchedTransitionSource(id: "bb-" + entry.msg.id, in: zoomNS)   // v3.9.1：独立 id 空间——气泡内图片用的是 msg.id，同 id 会让 zoom 取源不确定
@@ -2623,12 +2629,16 @@ struct ChatView: View {
     /// data URL 直接解码进查看器；http(s) URL 双通道下载（URLSession → 自签证书降级 CFStream）
     /// v3.9.17：AI 生成物预览 —— QuickLook 只吃本地文件，所以先下载到临时目录再打开。
     /// 复用 downloadImage 的双通道（URLSession → 失败降级 StreamHTTPClient 忽略自签证书）。
+    /// v3.9.31：下载失败不再静默 return（用户点文件卡毫无反馈＝「功能坏了」）→ 弹「文件已失效」提示。
     func openAIFile(_ url: String, _ name: String) {
         guard let u = URL(string: url), url.hasPrefix("http") else { return }
         Task {
             var data: Data? = try? await URLSession.shared.data(from: u).0
             if data == nil { data = await Self.downloadRawData(u: u) }
-            guard let d = data, !d.isEmpty else { return }
+            guard let d = data, !d.isEmpty else {
+                await MainActor.run { fileGoneAlert = true }   // v3.9.31：文件失效提示（多为生成物已被服务器清理）
+                return
+            }
             // 显示名来自后端下发的文件名——防它带路径分隔符/冒号写到别处
             let safe = name.replacingOccurrences(of: "/", with: "_")
                            .replacingOccurrences(of: ":", with: "_")
@@ -2636,7 +2646,10 @@ struct ChatView: View {
             let dst = FileManager.default.temporaryDirectory
                 .appendingPathComponent(safe.isEmpty ? "qingliao_preview.dat" : safe)
             try? FileManager.default.removeItem(at: dst)   // 覆盖同名旧临时文件，避免临时目录堆积
-            do { try d.write(to: dst) } catch { return }
+            do { try d.write(to: dst) } catch {
+                await MainActor.run { fileGoneAlert = true }   // v3.9.31：写盘失败也明确提示
+                return
+            }
             await MainActor.run { quickLookURL = dst }
         }
     }

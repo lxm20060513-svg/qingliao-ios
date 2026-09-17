@@ -34,4 +34,8 @@ enum Motion {
 
     /// 持续型（呼吸 / 流光收尾），不加回弹
     static var flow: Animation { .smooth(duration: 0.28) }
+
+    /// 新消息气泡上滑入位（y:8→0 + opacity 0→1，v3.9.31）——dampingRatio 0.8 无过冲，
+    /// 只让新插入行有过渡、不放大既有位移
+    static var enter: Animation { .spring(response: 0.18, dampingFraction: 0.8) }
 }
