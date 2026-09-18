@@ -16,6 +16,8 @@ struct TodoSection: View {
     @State private var detail: TodoItem?
     @State private var pendingDelete: TodoItem?
     @State private var editDraft = ""
+    /// v3.9.35b：详情页编辑态标志（查看=待办风格大卡；编辑=TextEditor）
+    @State private var detailEditing = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -122,6 +124,7 @@ struct TodoSection: View {
     private func openCard() {
         if store.sorted.count == 1, let only = store.sorted.first {
             editDraft = only.content
+            detailEditing = false
             detail = only
         } else {
             showAll = true
@@ -149,6 +152,7 @@ struct TodoSection: View {
                     ForEach(store.sorted) { t in
                         Button {
                             editDraft = t.content
+                            detailEditing = false
                             showAll = false
                             Task { @MainActor in
                                 try? await Task.sleep(for: .milliseconds(500))
@@ -174,26 +178,31 @@ struct TodoSection: View {
         .presentationDetents([.medium, .large])
     }
 
-    // MARK: 详情 / 编辑（弹窗内，复用备忘录详情的「自绘顶栏」口径）
+    // MARK: 详情 / 编辑
+    // v3.9.35b：详情用「待办」的 UI 风格（系统提醒事项式）——大勾选圆 + 完成态划线压灰 + 来源/时间
+    // 元信息行；编辑态才切 TextEditor。顶栏沿用备忘录详情的自绘小胶囊口径。
 
     private func detailSheet(_ t: TodoItem) -> some View {
         NavigationStack {
             VStack(spacing: 0) {
                 HStack(spacing: 8) {
-                    MiniCapsule(title: "关闭") { detail = nil }
-                    Spacer(minLength: 0)
-                    Button {
-                        store.toggleDone(t)
-                        Haptics.success()
-                    } label: {
-                        MiniCapsule(title: t.done ? "标为待办" : "完成", accent: !t.done)
-                    }
-                    .buttonStyle(PressStyle())
-                    MiniCapsule(title: "保存", accent: true) {
-                        store.update(t, content: editDraft)
+                    MiniCapsule(title: "关闭") {
+                        detailEditing = false
                         detail = nil
                     }
-                    .disabled(editDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    Spacer(minLength: 0)
+                    if detailEditing {
+                        MiniCapsule(title: "保存", accent: true) {
+                            store.update(t, content: editDraft)
+                            detailEditing = false
+                        }
+                        .disabled(editDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    } else {
+                        MiniCapsule(title: "编辑") {
+                            editDraft = t.content
+                            detailEditing = true
+                        }
+                    }
                 }
                 .padding(.horizontal, Spacing.section)
                 .padding(.top, Spacing.xl)
@@ -205,27 +214,78 @@ struct TodoSection: View {
                         .allowsHitTesting(false)
                 }
 
-                TextEditor(text: $editDraft)
-                    .font(.system(size: Typography.title))
-                    .scrollContentBackground(.hidden)
-                    .padding(Spacing.xl)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                    .background(Color(uiColor: .secondarySystemGroupedBackground),
-                                in: RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
-                    .overlay(alignment: .topLeading) {
-                        if editDraft.isEmpty {
-                            Text("待办内容…")
-                                .font(.system(size: Typography.title))
-                                .foregroundStyle(.tertiary)
-                                .padding(.horizontal, Spacing.section)
-                                .padding(.vertical, 20)
-                                .allowsHitTesting(false)
+                if detailEditing {
+                    TextEditor(text: $editDraft)
+                        .font(.system(size: Typography.title))
+                        .scrollContentBackground(.hidden)
+                        .padding(Spacing.xl)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                        .background(Color(uiColor: .secondarySystemGroupedBackground),
+                                    in: RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
+                        .overlay(alignment: .topLeading) {
+                            if editDraft.isEmpty {
+                                Text("待办内容…")
+                                    .font(.system(size: Typography.title))
+                                    .foregroundStyle(.tertiary)
+                                    .padding(.horizontal, Spacing.section)
+                                    .padding(.vertical, 20)
+                                    .allowsHitTesting(false)
+                            }
                         }
+                        .padding(.horizontal, Spacing.section)
+                        .padding(.top, Spacing.md)
+                } else {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 14) {
+                            // 大勾选圆 + 内容：整卡可点切换完成态（待办的核心交互前置到详情）
+                            Button {
+                                store.toggleDone(t)
+                                Haptics.success()
+                            } label: {
+                                HStack(alignment: .top, spacing: 12) {
+                                    Image(systemName: t.done ? "checkmark.circle.fill" : "circle")
+                                        .font(.system(size: 26, weight: .medium))
+                                        .foregroundStyle(t.done ? Color.green : Color.secondary.opacity(0.4))
+                                    VStack(alignment: .leading, spacing: 10) {
+                                        Text(t.content)
+                                            .font(.system(size: Typography.headline))
+                                            .lineSpacing(LineSpacing.long)
+                                            .strikethrough(t.done, color: .secondary)
+                                            .foregroundStyle(t.done ? Color.secondary : Color.primary)
+                                            .multilineTextAlignment(.leading)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                        HStack(spacing: Spacing.xs) {
+                                            Image(systemName: t.sourceIcon)
+                                                .font(.system(size: Typography.tiny))
+                                            Text(t.sourceLabel)
+                                                .font(.system(size: Typography.tiny))
+                                            Text("·")
+                                            Text(t.timeText)
+                                                .font(.system(size: Typography.tiny))
+                                        }
+                                        .foregroundStyle(.tertiary)
+                                    }
+                                }
+                                .padding(Spacing.xl)
+                                .frame(maxWidth: .infinity, alignment: .topLeading)
+                                .dashboardCard()
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(PressStyle())
+                            // 完成态底部一句轻提示（未完成时占住同位置不显示）
+                            if t.done {
+                                Text("已完成 · 从列表长按或点这里可改回待办")
+                                    .font(.system(size: Typography.caption))
+                                    .foregroundStyle(.tertiary)
+                            }
+                        }
+                        .padding(18)
                     }
-                    .padding(.horizontal, Spacing.section)
-                    .padding(.top, Spacing.md)
+                }
             }
             .toolbar(.hidden, for: .navigationBar)
+            // 编辑态禁止下滑关闭：不然手一滑草稿就没了（对齐备忘录详情同款护栏）
+            .interactiveDismissDisabled(detailEditing)
         }
         .presentationDetents([.medium, .large])
     }
