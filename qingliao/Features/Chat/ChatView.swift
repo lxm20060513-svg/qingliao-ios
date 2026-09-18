@@ -1687,7 +1687,12 @@ struct ChatView: View {
                                                                     messageRow(entry: entry)
                                                                 }
                         toolStepCards
-                        if stream.isStreaming {
+                        // v3.9.39 A1：按会话收窄——stream 是 App 级单例，本仓另四处
+                        // （aiBusy:334 / liveActivityCanStop:371 / toolStepCards:776 / DockTabView:57）
+                        // 都带 `currentStreamSessionId == chat.sessionId`，只这一处漏了 →
+                        // 切到 B 会话后 A 的回答在 B 底下逐字长出来（串话实报的第一现场）。
+                        // 轮询不受影响：切回 A 时条件重新成立，气泡与打字机原样接回。
+                        if stream.isStreaming, auth.currentStreamSessionId == chat.sessionId {
                             if stream.content.isEmpty {
                                 // 思考中动画（三点跳动，气泡加大版）
                                 // v3.0.15：恢复 v3.0.12 之前的原始三点动画（思考球 orbits 粒子已移除，改由输出头像承担粒子球）
@@ -2297,6 +2302,11 @@ struct ChatView: View {
         // v3.9.15：把真实请求模型交给历史净化——断种子占位的闸门必须与实际请求同源
         let history: [[String: Any]] = chat.historyPayload(model: useModel, provider: useProvider)
         let startSid = chat.sessionId
+        // v3.9.39 A1：发起时的会话快照。用户在回答期间切走时，chat.messages 已是别的会话的，
+        // 收尾的答案既不能 upsert 进当前会话（串会话），也不该直接丢弃（「答案消失」）——
+        // 拿这份快照落回**它自己的**会话。
+        let startMsgs = chat.messages
+        let startTitle = chat.title
 
         Task {
             stream.pendingUserMsgId = msg.id   // v3.3.3：记录发起 user 消息，恢复/延迟回调落库锚点
@@ -2308,7 +2318,24 @@ struct ChatView: View {
                 messages: history
             ) { success, error in
                 sendingLock = false   // 无论结果，先释放发送锁
-                guard chat.sessionId == startSid else { return }   // 已切换会话 → 本次结果丢弃
+                // v3.9.39 A1：原 `guard chat.sessionId == startSid else { return }` 一刀切丢弃，
+                // 切走期间完成的答案两头不落（A 里没有、B 里不该有）＝「答案消失」实报。
+                // 改成落回发起时的会话：不碰 chat.messages（那是别人的会话），走参数化串行写链。
+                // 刻意不做：不自动重试（要不要重来由用户回到该会话自己决定）、不动 pendingQueue
+                //（切走时 onChange 已清）、不 bump assistantLandedToken（朗读只念当前会话刚落库的回复）。
+                if chat.sessionId != startSid {
+                    let body = stream.content.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if success {
+                        guard !body.isEmpty else { return }   // 空回复不落（提示语要落在眼前才有效）
+                        landAwayReply(body, agent: stream.isAgent,
+                                      snapshot: startMsgs, sid: startSid, title: startTitle)
+                    } else {
+                        let note = "⚠️ " + Self.friendlyStreamError(error)
+                        landAwayReply(body.isEmpty ? note : body + "\n\n" + note, agent: stream.isAgent,
+                                      snapshot: startMsgs, sid: startSid, title: startTitle)
+                    }
+                    return
+                }
                 if !success {
                     // v3.4.x：网络类错误自动重试（连接中断/超时/无法连接），限流/用户停止/业务失败不重试
                     if self.isRetryableStreamError(error) {
@@ -2352,6 +2379,23 @@ struct ChatView: View {
                 }
             }
         }
+    }
+
+    /// v3.9.39 A1：把迟到的回复落回**发起时**的会话（用户已切走，chat.messages 是别的会话的）。
+    /// 快照末条就是这轮的 user 消息（sendCore 先 append 再 startStream），追加一条 assistant
+    /// 等价于 upsertAssistant 的「插到该轮回复区末尾」。写库经 ChatStore 的 FIFO 串行链，
+    /// 一定排在切走前那次快照写之后 → 不会被旧数组盖掉。
+    /// 失败态（failed）不落库：`writeSessionSnapshot` 本就不持久化 failed，重进会话时也会从服务器
+    /// 重取，标了也只是切回去那一瞬可见，反而误导「重试按钮在别处能用」。
+    private func landAwayReply(_ text: String, agent: Bool, snapshot: [ChatMessage],
+                               sid: String, title: String) {
+        var msgs = snapshot
+        var m = ChatMessage(role: "assistant", content: text,
+                            timestamp: Date().timeIntervalSince1970 * 1000)
+        m.agent = agent
+        msgs.append(m)
+        chat.noteAwayLandedReply(sessionId: sid, text: text)
+        Task { await chat.saveToServer(auth: auth, sessionId: sid, messages: msgs, title: title) }
     }
 
     // MARK: - v3.5.1 AI 正在输入 状态（header 小字）

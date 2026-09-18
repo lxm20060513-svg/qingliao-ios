@@ -142,9 +142,29 @@ final class ChatStore {
     func load(_ s: ChatSession) {
         sessionId = s.id
         title = s.title
-        messages = s.messages
+        messages = patchAwayLanded(s.id, s.messages)
         lastLoadedSession = s   // v3.4.29：欢迎页「继续上次」用
         defaults.set(sessionId, forKey: sessionKey)
+    }
+
+    /// v3.9.39 A1：「迟到的回复」——用户在回答期间切走了会话，答案按发起时的快照落回**原会话**
+    /// （见 ChatView.startStream 收尾的 away 分支）。但会话列表可能是那次落库**之前**拉的
+    /// （SessionsView.load 有 3 秒节流 + 冷启动缓存先显），拿旧数组 load 进来后任何一次写库
+    /// 都会把这条回复盖掉（后端 merge 是整会话覆盖）。所以落库时记一笔，进该会话时补回内存，补一次即清。
+    private var awayLandedReplies: [String: String] = [:]
+
+    func noteAwayLandedReply(sessionId sid: String, text: String) {
+        awayLandedReplies[sid] = text
+    }
+
+    /// 快照里缺这条迟到回复就补到末尾（已有则只清记录，不重复插）
+    private func patchAwayLanded(_ sid: String, _ msgs: [ChatMessage]) -> [ChatMessage] {
+        guard let pending = awayLandedReplies.removeValue(forKey: sid) else { return msgs }
+        if msgs.contains(where: { $0.role == "assistant" && $0.content == pending }) { return msgs }
+        var patched = msgs
+        patched.append(ChatMessage(role: "assistant", content: pending,
+                                   timestamp: Date().timeIntervalSince1970 * 1000))
+        return patched
     }
 
     // MARK: - v3.1.5 启动自动加载上次会话（解决"App 忘记上下文"）
@@ -484,10 +504,12 @@ final class ChatStore {
         await saveWriteChain.value
     }
 
-    /// 实际写库（原 saveToServer 参数版逻辑，移入此名；由串行链调用）
-    private func writeSessionSnapshot(auth: AuthStore, sessionId sid: String, messages msgs: [ChatMessage], title t: String) async {
-        guard !msgs.isEmpty else { return }
-        let msgsPayload: [[String: Any]] = msgs.map { m in
+    /// v3.9.39：消息序列化的**唯一**口径。后端 merge 对同 id 会话是整体覆盖
+    /// （sessions_api.merge_sessions：App 不发 updatedAt，恒 `0 >= 0` → incoming 全量替换），
+    /// 因此少写一个字段就等于把该字段在线上抹掉。任何要写整会话的路径（含会话列表改名）
+    /// 都必须走这里，不要再各自复制一份 map——历史上复制出的两份都已漂移（都漏了 audioPath → [语音]）。
+    static func messagesPayload(_ msgs: [ChatMessage]) -> [[String: Any]] {
+        msgs.map { m in
             var p: [String: Any] = ["role": m.role, "content": m.content]
             if let ts = m.timestamp { p["timestamp"] = ts }
             if let img = m.imageDataURL, !img.isEmpty {
@@ -505,6 +527,12 @@ final class ChatStore {
             if let q = m.quotedText, !q.isEmpty { p["quotedText"] = q }
             return p
         }
+    }
+
+    /// 实际写库（原 saveToServer 参数版逻辑，移入此名；由串行链调用）
+    private func writeSessionSnapshot(auth: AuthStore, sessionId sid: String, messages msgs: [ChatMessage], title t: String) async {
+        guard !msgs.isEmpty else { return }
+        let msgsPayload = Self.messagesPayload(msgs)
         let firstUserText = msgs.first(where: { $0.isUser })?.content.prefix(30).description ?? ""
         let payload: [String: Any] = [
             "id": sid,

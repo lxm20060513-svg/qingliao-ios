@@ -31,6 +31,11 @@ struct SessionsView: View {
     // v2.0.43：会话重命名
     @State private var renameTarget: ChatSession?
     @State private var renameText = ""
+    // v3.9.39：改名同步失败提示（镜像 deleteError；errorText 只在列表为空时才会渲染，承载不了）
+    @State private var renameError: String?
+    // v3.9.39：列表当前是否反映**网络**拉取结果（而非冷启动缓存）。
+    // 缓存每会话截断到最近 50 条，而后端 merge 是整会话覆盖——用缓存快照去改名会永久截断历史。
+    @State private var sessionsFromNetwork = false
     // v2.0.57：删除确认（contextMenu 关闭瞬间不改数据）
     @State private var confirmDelete: ChatSession?
     // v2.0.87ad：多选删除
@@ -84,6 +89,12 @@ struct SessionsView: View {
             Button("好", role: .cancel) { deleteError = nil }
         } message: {
             Text(deleteError ?? "")
+        }
+        // v3.9.39：改名同步失败/被拦（本地标题已回滚）
+        .alert("改名未保存", isPresented: Binding(get: { renameError != nil }, set: { if !$0 { renameError = nil } })) {
+            Button("好", role: .cancel) { renameError = nil }
+        } message: {
+            Text(renameError ?? "")
         }
         // v2.0.43：会话重命名
         .alert("重命名会话", isPresented: Binding(get: { renameTarget != nil }, set: { if !$0 { renameTarget = nil } })) {
@@ -634,48 +645,60 @@ struct SessionsView: View {
     }
 
     /// v2.0.43：重命名会话（本地列表 + 当前打开会话 + 后端 merge 同步）
+    ///
+    /// v3.9.39 数据损毁修复：
+    /// ① 删掉重复的第一次 merge。v3.9.32 补字段时是**追加**了新请求而没有替换旧的，
+    ///    于是改名会连发两次整会话覆盖写；而后端 merge 对同 id 会话是整体覆盖
+    ///    （App 不发 updatedAt → 恒 `0 >= 0` → incoming 全量替换），
+    ///    第一次那请求只带 role/content/timestamp/isPush/agent，图片/uid/引用原文当场被抹掉。
+    /// ② 序列化统一走 ChatStore.messagesPayload（原先三份互相漂移的副本都漏了 audioPath → [语音]）。
+    /// ③ 只同步**完整**的消息集：优先当前打开会话的内存 messages（列表项是上一次 /list 的快照，可能已少几条）；
+    ///    列表仍来自冷启动缓存时不同步——缓存每会话截断 50 条，覆盖上去等于永久截断真实历史。
+    /// ④ 失败回滚本地标题并提示。原 `try?` 静默吞失败：界面显示已改名，下次拉取又跳回旧名。
     private func rename() {
         guard let t = renameTarget else { return }
         let newName = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !newName.isEmpty else { return }
-        if let idx = sessions.firstIndex(where: { $0.id == t.id }) {
+        renameTarget = nil
+        let oldTitle = t.title
+        applyTitle(newName, to: t.id)
+
+        // 待同步的消息集：当前打开会话以内存为准，其余用列表项
+        let usingLiveChat = chat.sessionId == t.id && !chat.messages.isEmpty
+        let msgs = usingLiveChat ? chat.messages : t.messages
+        guard !msgs.isEmpty else { return }
+        guard usingLiveChat || sessionsFromNetwork else {
+            renameError = "会话列表还没从服务器加载到完整内容（本机缓存每会话只留最近 50 条），已暂停同步改名以免截断历史。请联网刷新列表后重新改名。"
+            return
+        }
+        // 序列化在 Task 内做，但只往闭包里带 Sendable 值（t / msgs），字典不进捕获列表
+        Task {
+            do {
+                let j = try await auth.json("/api/sessions/merge", method: "POST", body: [
+                    "sessions": [["id": t.id, "title": newName,
+                                  "messages": ChatStore.messagesPayload(msgs)] as [String: Any]],
+                    "deleted": [] as [Any]
+                ])
+                if (j["ok"] as? Bool) != true {
+                    applyTitle(oldTitle, to: t.id)
+                    renameError = "改名未同步到服务器（服务器返回异常），请检查网络后重试"
+                }
+            } catch {
+                applyTitle(oldTitle, to: t.id)
+                renameError = "改名未同步到服务器：\(error.localizedDescription)"
+            }
+        }
+    }
+
+    /// 改名落地：列表项 + 当前打开会话的标题同步（回滚也走同一处，口径一致）
+    private func applyTitle(_ title: String, to id: String) {
+        if let idx = sessions.firstIndex(where: { $0.id == id }) {
             var updated = sessions[idx]
-            updated.title = newName
+            updated.title = title
             sessions[idx] = updated
         }
-        if chat.sessionId == t.id {
-            chat.title = newName
-        }
-        renameTarget = nil
-        Task {
-            _ = try? await auth.request("/api/sessions/merge", method: "POST", body: [
-                "sessions": [[ "id": t.id, "title": newName, "messages": t.messages.map { m -> [String: Any] in
-                    var p: [String: Any] = ["role": m.role, "content": m.content]
-                    if let ts = m.timestamp { p["timestamp"] = ts }
-                    if m.isPush { p["isPush"] = true }    // v3.0.83fix：rename 同步补 isPush（防改名后推送标记丢失）
-                    if m.agent { p["agent"] = true }
-                    return p
-                }]],
-                "deleted": [] as [Any]
-            ])
-            _ = try? await auth.request("/api/sessions/merge", method: "POST", body: [
-                "sessions": [[ "id": t.id, "title": newName, "messages": t.messages.map { m -> [String: Any] in
-                    // v3.9.32 fix：改名必须带全字段——此前只带 role/content/timestamp/isPush/agent，
-                    // 而后端 merge 对同 id 消息是**整条覆盖**，于是给含图会话改个名，
-                    // 图片气泡当场退化成 [图片]、引用原文与跨重启 uid 锚点一并丢失（不可逆）。
-                    // 口径与 ChatStore.writeSessionSnapshot 保持一致，别再各写一份。
-                    var p: [String: Any] = ["role": m.role, "content": m.content]
-                    if let ts = m.timestamp { p["timestamp"] = ts }
-                    if let img = m.imageDataURL, !img.isEmpty { p["imageDataURL"] = img }
-                    if let u = m.uid, !u.isEmpty { p["uid"] = u }
-                    if m.isPush { p["isPush"] = true }    // v3.0.83fix：rename 同步补 isPush（防改名后推送标记丢失）
-                    if m.agent { p["agent"] = true }
-                    if m.suspectedRepeat { p["suspectedRepeat"] = true }
-                    if let q = m.quotedText, !q.isEmpty { p["quotedText"] = q }
-                    return p
-                }]],
-                "deleted": [] as [Any]
-            ])
+        if chat.sessionId == id {
+            chat.title = title
         }
     }
 
@@ -698,6 +721,7 @@ struct SessionsView: View {
             // 最新 → 最旧
             sessions = raw.compactMap { ChatSession.parse($0 as? [String: Any] ?? [:]) }
                 .sorted { ($0.lastTime ?? 0) > ($1.lastTime ?? 0) }
+            sessionsFromNetwork = true
             // v3.4.x：联网成功写缓存（下次冷启动秒显）
             saveToSessionCache(raw)
             // v2.0.65：同步未读红点
@@ -719,6 +743,9 @@ struct SessionsView: View {
               let raw = try? JSONSerialization.jsonObject(with: data) as? [Any] else { return }
         sessions = raw.compactMap { ChatSession.parse($0 as? [String: Any] ?? [:]) }
             .sorted { ($0.lastTime ?? 0) > ($1.lastTime ?? 0) }
+        // v3.9.39：缓存每会话只留最近 50 条，而 merge 是整会话覆盖 → 标记列表非完整远端数据，
+        // 改名等写路径据此暂不上传（无缓存时不走到这里，保留上一次网络结果的 true）。
+        sessionsFromNetwork = false
         chat.syncUnread(from: sessions, currentId: chat.sessionId)
     }
 

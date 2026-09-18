@@ -56,7 +56,12 @@ struct QingliaoApp: App {
                 // v2.0.61：App 进后台时持久化流式状态（杀后台可恢复）
                 .onChange(of: scenePhase) { _, phase in
                     if phase == .background {
-                        stream.persistState(sessionId: chat.sessionId)
+                        // v3.9.39 A1：标记必须写**流归属**的会话，不是当前显示的会话。
+                        // 切会话不停流（既定设计：切回原会话时接回），所以「在 B 页把 App 划掉」时
+                        // chat.sessionId=B 而 taskId 属于 A —— 旧写法把标记标成 B，
+                        // restoreIfNeeded 的 v3.5.2 归属校验（标记 sid != 当前 sid 就不接）被这一步骗过，
+                        // A 的回复永久长进 B 的历史并进入 B 的模型上下文。
+                        stream.persistState(sessionId: auth.currentStreamSessionId)
                         InboxStore.shared.stopPolling()   // v3.9.1：进后台停收件箱轮询（此前 stopPolling 全仓无人调用，后台全靠系统挂起兜底）
                     }
                     // v2.0.87t：前台恢复自动重连（蜂窝 IPv6 会话后台过期 → 重建，免手动飞行模式）
