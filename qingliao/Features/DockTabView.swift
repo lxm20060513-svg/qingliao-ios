@@ -147,14 +147,25 @@ struct DockTabView: View {
             .task {
                 guard let sid = UserDefaults.standard.string(forKey: "qingliao_open_session") else { return }
                 UserDefaults.standard.removeObject(forKey: "qingliao_open_session")
-                if let arr = try? await auth.jsonArray("/api/sessions/list") {
-                    let sessions = arr.compactMap { ChatSession.parse($0 as? [String: Any] ?? [:]) }
-                    if let s = sessions.first(where: { $0.id == sid }) {
-                        chat.load(s)
-                        skipBurstOnce()
-                        selected = .chat
-                    }
+                // v3.9.39 A7：深链此前**从未生效过**。这里用 `jsonArray` 解 /api/sessions/list，
+                // 而该接口返回的是对象 {ok, sessions, total}——`as? [Any]` 对字典恒 nil ⇒ 必抛
+                // badJSON，又被外层 `try?` 吞成 nil ⇒ 整条 if 静默跳过：点通知、灵动岛长按选会话
+                // 全部停在空白新会话。改成与同仓 ChatStore.loadLastSession / SessionsView.load
+                // 同一口径（json + ["sessions"]）；失败也不再无痕迹，留一行日志说明是哪个会话。
+                guard let j = try? await auth.json("/api/sessions/list"),
+                      let raw = j["sessions"] as? [Any] else {
+                    print("[deepLink] 会话列表拉取失败，无法打开会话 \(sid)")
+                    return
                 }
+                let sessions = raw.compactMap { ChatSession.parse($0 as? [String: Any] ?? [:]) }
+                guard let s = sessions.first(where: { $0.id == sid }) else {
+                    print("[deepLink] 会话 \(sid) 不在服务器列表（可能已删除）")
+                    return
+                }
+                chat.load(s)
+                chat.markRead(s.id)   // v3.9.39：深链也算「打开会话」，与 SessionsView.open 同口径，否则红点永久挂着
+                skipBurstOnce()
+                selected = .chat
             }
             // v3.4.14 系统分享接入口：捕获从其他 App 分享进来的内容 → 入 ShareRouter + 通知 ChatView
             .onOpenURL { url in
