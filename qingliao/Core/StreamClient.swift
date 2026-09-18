@@ -61,6 +61,31 @@ final class StreamClient {
     /// 否则（云端路径/已收尾）=content 全文。兜底永不为空，落库/恢复零影响。
     var displayContent: String { smoothTask != nil ? smoothedContent : content }
 
+    /// v3.9.39（C）：按 **Unicode 码点**计长度，和后端切片单位对齐。
+    ///
+    /// 后端 poll 直接把 offset 当 Python 下标用（`new = content[offset:]`），单位是**码点**；
+    /// Swift 的 `String.count` 是**字素簇**——`👨‍👩‍👧` 算 1 个字素却占 5 个码点，`e`+组合重音同理。
+    /// 增量里只要有这类字符，App 上报的 offset 就恒小于后端真实位置，于是每轮都把已收的尾部
+    /// 再要一遍；误差单调累积不收敛（不是抖动），拼出的重复答案还会经 upsertAssistant 落库。
+    ///
+    /// 不用 `String.unicodeScalars.count`：其代理对合并语义无法从官方文档核实（astral 字符
+    /// 有可能仍按 2 计），故显式走 UTF-16 并自行合并代理对——码点的定义自证，逐位等于 `len()`。
+    static func codePointCount(_ s: String) -> Int {
+        let units = Array(s.utf16)
+        var n = 0, i = 0
+        while i < units.count {
+            let u = units[i]
+            if u >= 0xD800, u <= 0xDBFF, i + 1 < units.count,
+               units[i + 1] >= 0xDC00, units[i + 1] <= 0xDFFF {
+                i += 2   // 合法代理对 = 1 个码点
+            } else {
+                i += 1
+            }
+            n += 1
+        }
+        return n
+    }
+
     private func startSmooth() {
         smoothTask?.cancel()
         smoothedContent = ""
@@ -200,7 +225,9 @@ final class StreamClient {
                 InboxStore.shared.ingestPiggyback(piggyback)
             }
             if !c.isEmpty {
-                offset += c.count
+                // v3.9.39（C）：增量长度按码点累加——后端把 offset 当 Python 下标切内容，
+                // 用 `c.count`（字素簇）会让 offset 恒落后，重复尾部随流累积（见 codePointCount）
+                offset += Self.codePointCount(c)
                 content += c
                 idleStreak = 0
                 if interval != 0.15 { interval = 0.15 }   // 有内容时 0.15s 高频轮询（接近逐字）
@@ -290,14 +317,15 @@ final class StreamClient {
                 taskId = tid
                 if isSameTask {
                     // 同一任务：磁盘兜底内容可能比本地多最后一段（节流写盘延迟），取较长者续上
-                    if rContent.count > content.count {
+                    // v3.9.39（C）：比较也用码点，守住不变式 `offset == codePointCount(content)`
+                    if Self.codePointCount(rContent) > offset {
                         content = rContent
-                        offset = rContent.count
+                        offset = Self.codePointCount(rContent)
                     }
                 } else {
                     // 换成了另一条在途任务：内容整体属于新任务，必须整体替换（防止新旧前缀混拼）
                     content = rContent
-                    offset = rContent.count
+                    offset = Self.codePointCount(rContent)
                 }
                 if done {
                     finish(success: st != "error", error: err)
@@ -405,7 +433,9 @@ final class StreamClient {
         // 4096 截断内容，恢复时用截断内容 + 真实 offset 续轮询，>4096 字长回复的中段（4096..offset）
         // 永久缺失（除非后续 recover 成功覆盖）。截断后持久化 offset = min(offset, 内容长度)，
         // 恢复后从截断点续拉，前缀 + 后续轮询内容拼回完整回复。
-        let persistedOffset = min(offset, persistedContent.count)
+        // v3.9.39（C）：内容长度用码点（offset 的单位就是码点）。4096 那道闸门仍是字素计数——
+        // 它只管「UserDefaults 存不存得下」，砍多少字符不影响下方 min 的正确性（截断结果是前缀）。
+        let persistedOffset = min(offset, Self.codePointCount(persistedContent))
         let d: [String: Any] = [
             "taskId": taskId, "sessionId": sessionId,
             "offset": persistedOffset, "content": persistedContent,
@@ -475,7 +505,8 @@ final class StreamClient {
         pendingUserMsgId = nil
         taskId = tid
         content = initial
-        offset = initial.count
+        // v3.9.39（C）：初值同样按码点，否则第一条增量就会把 initial 的尾巴重复拉一遍
+        offset = Self.codePointCount(initial)
         recoverTried = false
         recoverFailTried = false
         failCount = 0
