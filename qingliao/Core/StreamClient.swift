@@ -101,6 +101,7 @@ final class StreamClient {
         idleStreak = 0
         backoff = 0.5   // v3.4.x：新流重置退避
         recoverTried = false
+        recoverFailTried = false   // 新流必须清：否则上一轮的 3 连败会永久关掉 v3.0.80 的兜底
         startSmooth()   // v3.4.20：打字机平滑释放启动
         interval = 0.25
         isStreaming = true
@@ -394,6 +395,8 @@ final class StreamClient {
         beginBgTask()
     }
 
+    /// v3.9.39 A1：`sessionId` 必须是**这条流归属**的会话（`auth.currentStreamSessionId`），
+    /// 不是当前显示的会话——恢复时靠它做归属校验，写错就等于把 A 的回复接到 B 头上。
     func persistState(sessionId: String) {
         guard isStreaming, !taskId.isEmpty else { return }
         // 截断过长内容，避免超 UserDefaults 4MB 限制导致崩溃
@@ -439,6 +442,9 @@ final class StreamClient {
         offset = (d["offset"] as? Int) ?? 0
         content = (d["content"] as? String) ?? ""
         recoverTried = false
+        recoverFailTried = false   // 与 start()/adoptRemote 同口径：接回的任务重新享有兜底
+        status = ""               // 否则上一轮的 error 残留会把接回来的正常流标成红态（灵动岛/ChatView:385）
+        errorMessage = ""
         if let uid = d["userMsgId"] as? String, !uid.isEmpty {
             pendingUserMsgId = uid   // v3.3.3：恢复旧任务 → 落库锚定回原 user 消息
         }
@@ -450,6 +456,7 @@ final class StreamClient {
         lastFailed = false   // v3.9.33：接回在途任务 = 重新开跑（与 start()/adoptRemote 同口径）
         self.onFinished = onFinished
         startPolling(auth: auth)
+        beginBgTask()   // 与 start()/restartPolling/adoptRemote 同口径：恢复出来的流也要 30s 后台宽限
     }
 
     /// v3.5.2：接回「服务器侧仍在途、但本机没有可用标记」的任务。
