@@ -49,6 +49,8 @@ struct ModelSheet: View {
     @State private var selected = ""
     @State private var syncing = false
     @State private var syncResult: String?
+    // v3.9.35：每个 key（provider 分组）单独「重新拉取模型列表」——进行中集合（防重复点）
+    @State private var refreshingProviders: Set<String> = []
     // 服务器同步的模型（分组展示）
     @State private var stepfunModels: [String] = []
     @State private var deepseekModels: [String] = []
@@ -312,18 +314,26 @@ struct ModelSheet: View {
     private var builtinProviderGroups: some View {
         if !opencodeAppleModels.isEmpty {
             // v2.0.140：第二组 opencode 订阅（apple），同名模型按 provider 区分勾选
-            groupSection("opencode（apple）", models: opencodeAppleModels.map { ($0, opencodeNames[$0] ?? $0, "opencode-apple") })
+            groupSection("opencode（apple）", models: opencodeAppleModels.map { ($0, opencodeNames[$0] ?? $0, "opencode-apple") },
+                         onRefresh: { refreshSingleProvider("opencode-apple") },
+                         refreshing: refreshingProviders.contains("opencode-apple"))
         }
         if !deepseekModels.isEmpty {
             // v2.0.83：官方 API 分组标注（与 opencode 的 deepseek 区分）
-            groupSection("deepseek（官方）", models: deepseekModels.map { ($0, $0, "deepseek") })
+            groupSection("deepseek（官方）", models: deepseekModels.map { ($0, $0, "deepseek") },
+                         onRefresh: { refreshSingleProvider("deepseek") },
+                         refreshing: refreshingProviders.contains("deepseek"))
         }
         if !stepfunModels.isEmpty {
-            groupSection("stepfun", models: stepfunModels.map { ($0, $0, "stepfun") })
+            groupSection("stepfun", models: stepfunModels.map { ($0, $0, "stepfun") },
+                         onRefresh: { refreshSingleProvider("stepfun") },
+                         refreshing: refreshingProviders.contains("stepfun"))
         }
         // v3.0.4：SenseNova（商汤）订阅模型分组
         if !sensenovaModels.isEmpty {
-            groupSection("sensenova（商汤）", models: sensenovaModels.map { ($0, sensenovaNames[$0] ?? $0, "sensenova") })
+            groupSection("sensenova（商汤）", models: sensenovaModels.map { ($0, sensenovaNames[$0] ?? $0, "sensenova") },
+                         onRefresh: { refreshSingleProvider("sensenova") },
+                         refreshing: refreshingProviders.contains("sensenova"))
         }
         // v2.0.118：本地模型（动态显示 Ollama 已安装模型——自主选择）
         if !localInstalled.isEmpty {
@@ -343,12 +353,16 @@ struct ModelSheet: View {
             if !hardcoded.contains(p.id) && !customIDs.contains(p.id) && !hiddenProviders.contains(p.id) {
                 if p.models.isEmpty {
                     // v3.4.x：key 健康自检——空 models 的 provider 主动提示 key 无效/未配置，而非静默消失
-                    ProviderKeyIssueRow(name: providerDisplayName(p.id))
+                    ProviderKeyIssueRow(name: providerDisplayName(p.id),
+                                        onRetry: { refreshSingleProvider(p.id) },
+                                        retrying: refreshingProviders.contains(p.id))
                         .padding(.bottom, Spacing.xs)
                 } else {
                     groupSection(providerDisplayName(p.id),
                                  models: p.models.filter { !hiddenModels.contains("\(p.id):\($0)") }.map {
                                  ($0, providerModelDisplayName(p.id, $0), p.id) },
+                                 onRefresh: { refreshSingleProvider(p.id) },
+                                 refreshing: refreshingProviders.contains(p.id),
                                  onHideProvider: { toggleHideProvider(p.id) },
                                  onDeleteProvider: { confirmDeleteProvider = p.id })
                 }
@@ -592,6 +606,8 @@ struct ModelSheet: View {
 
     /// 分组标题 + 模型行（v3.0.4：可选 onHideProvider 显示分组隐藏按钮）
     private func groupSection(_ group: String, models: [(String, String, String)],
+                              onRefresh: (() -> Void)? = nil,
+                              refreshing: Bool = false,
                               onHideProvider: (() -> Void)? = nil,
                               onDeleteProvider: (() -> Void)? = nil) -> some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -599,6 +615,21 @@ struct ModelSheet: View {
                 Text(group)
                     .font(.system(size: Typography.caption, weight: .semibold))
                     .foregroundStyle(.secondary)
+                // v3.9.35：按 key 重新拉取该组模型列表
+                if let onRefresh {
+                    Button {
+                        onRefresh()
+                    } label: {
+                        if refreshing {
+                            ProgressView().scaleEffect(0.6).frame(width: 14, height: 14)
+                        } else {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.system(size: Typography.tiny))
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
                 Spacer()
                 if let onHideProvider {
                     Button {
@@ -743,6 +774,62 @@ struct ModelSheet: View {
         }
     }
 
+    /// v3.9.35：按 key（单个 provider）重新拉取模型列表——内置组写回对应 @State + UserDefaults，聚合组写回 allProviders
+    private func refreshSingleProvider(_ pid: String) {
+        guard !refreshingProviders.contains(pid) else { return }
+        refreshingProviders.insert(pid)
+        Task {
+            defer { refreshingProviders.remove(pid) }
+            guard let j = try? await auth.json("/api/stream/sync-models?provider=\(pid)"),
+                  (j["ok"] as? Bool) == true,
+                  let list = j["models"] as? [String] else {
+                syncResult = "⚠️ \(providerDisplayName(pid))：拉取失败（key 无效或网络异常）"
+                return
+            }
+            switch pid {
+            case "opencode-apple":
+                opencodeAppleModels = list
+                UserDefaults.standard.set(list, forKey: "qingliao_models_opencode_apple")
+            case "deepseek":
+                deepseekModels = list
+                UserDefaults.standard.set(list, forKey: "qingliao_models_deepseek")
+            case "stepfun":
+                stepfunModels = list
+                UserDefaults.standard.set(list, forKey: "qingliao_models_stepfun")
+            case "sensenova":
+                sensenovaModels = list
+                UserDefaults.standard.set(list, forKey: "qingliao_models_sensenova")
+            default:
+                // 聚合 provider（xiaomi 等）：更新 allProviders 对应项
+                if let idx = allProviders.firstIndex(where: { $0.id == pid }) {
+                    allProviders[idx] = (id: pid, models: list)
+                } else {
+                    allProviders.append((id: pid, models: list))
+                }
+                ModelProvidersCache.save(allProviders)
+            }
+            syncResult = "✅ \(providerDisplayName(pid))：已拉取 \(list.count) 个模型"
+        }
+    }
+
+    /// v3.9.35：自定义模型组按 key 重新拉取（后端 refresh 动作：用存好的 base_url+api_key 调 /models 并写回）
+    private func refreshCustomProvider(_ id: String) {
+        guard !refreshingProviders.contains(id) else { return }
+        refreshingProviders.insert(id)
+        Task {
+            defer { refreshingProviders.remove(id) }
+            guard let j = try? await auth.json("/api/stream/custom-providers", method: "POST",
+                                               body: ["action": "refresh", "id": id]),
+                  (j["ok"] as? Bool) == true else {
+                syncResult = "⚠️ 自定义模型组：拉取失败（key 无效或网络异常）"
+                return
+            }
+            await loadCustomProviders()
+            syncResult = "✅ 自定义模型组：已重新拉取"
+        }
+    }
+
+
     private func fetchModels(_ provider: String) async -> [String]? {
         guard let j = try? await auth.json("/api/stream/sync-models?provider=\(provider)"),
               (j["ok"] as? Bool) == true,
@@ -835,6 +922,8 @@ struct ModelSheet: View {
     private func customProviderGroup(_ cp: CustomProviderItem) -> some View {
         groupSection(cp.name.isEmpty ? cp.id : cp.name,
                      models: cp.models.map { ($0, $0, cp.id) },
+                     onRefresh: { refreshCustomProvider(cp.id) },
+                     refreshing: refreshingProviders.contains(cp.id),
                      onDeleteProvider: { deleteCustomProvider(cp.id) })
     }
 
@@ -1397,6 +1486,9 @@ struct WechatChannelSheet: View {
 
 struct ProviderKeyIssueRow: View {
     let name: String
+    // v3.9.35：按 key 重新拉取该组模型列表（重试入口）
+    var onRetry: (() -> Void)? = nil
+    var retrying: Bool = false
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: "exclamationmark.triangle.fill")
@@ -1405,11 +1497,25 @@ struct ProviderKeyIssueRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(name)
                     .font(.system(size: Typography.subhead, weight: .medium))
-                Text("API Key 无效或未配置，未拉取到模型（请到模型管理顶部点「同步模型」或检查 key）")
+                Text("API Key 无效或未配置，未拉取到模型（可点右侧重试，或检查 key）")
                     .font(.system(size: Typography.tiny))
                     .foregroundStyle(.secondary)
             }
             Spacer()
+            if let onRetry {
+                Button {
+                    onRetry()
+                } label: {
+                    if retrying {
+                        ProgressView().scaleEffect(0.6).frame(width: 14, height: 14)
+                    } else {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: Typography.tiny))
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+                .buttonStyle(.plain)
+            }
         }
         .padding(Spacing.lg)
         .background(Color.orange.opacity(Tint.faint), in: RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
