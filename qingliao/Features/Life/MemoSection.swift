@@ -501,8 +501,6 @@ private struct MemoDetailSheet: View {
             .toolbar(.hidden, for: .navigationBar)
             // 编辑态禁止下滑关闭：不然手一滑草稿就没了，且没有任何提示
             .interactiveDismissDisabled(editing)
-            // 编辑态下藏底部操作条，免得"删除"和"保存"挨着误触
-            .safeAreaInset(edge: .bottom) { bottomBar }
         }
     }
 
@@ -543,65 +541,6 @@ private struct MemoDetailSheet: View {
                     .allowsHitTesting(false)
             }
         }
-    }
-
-    // MARK: v3.9.18 底部操作条
-    // 用户反馈「胶囊是半透明的，字体在胶囊下面看得见，很乱」——根因是 ① 操作条本身没有底、
-    // ② 胶囊用 accentColor/red 的 12% 半透明填充，滚动的正文从按钮下面透出来。
-    // 改法：操作条铺不透明底 + 顶边 0.8pt 分割线；胶囊改实色（主操作=主题色实底白字，危险=实心红底白字）
-
-    @ViewBuilder
-    private var bottomBar: some View {
-        if !editing {
-            VStack(spacing: 8) {
-                HStack(spacing: 8) {
-                    Button {
-                        store.togglePin(current)
-                        current.pinned.toggle()
-                        Haptics.success()
-                    } label: {
-                        actionLabel(current.pinned ? "取消置顶" : "置顶",
-                                    systemImage: current.pinned ? "pin.slash" : "pin",
-                                    tone: .accent)
-                    }
-                    .buttonStyle(PressStyle())
-
-                    Button {
-                        NotificationCenter.default.post(name: .qingliaoMemoSend, object: current.content)
-                        Haptics.success()
-                        dismiss()
-                    } label: {
-                        actionLabel("发给 AI", systemImage: "paperplane", tone: .accent)
-                    }
-                    .buttonStyle(PressStyle())
-                }
-                Button(role: .destructive) {
-                    onDelete(current)
-                } label: {
-                    actionLabel("删除这条备忘", systemImage: "trash", tone: .danger)
-                }
-                .buttonStyle(PressStyle())
-            }
-            .padding(.horizontal, 18)
-            .padding(.top, Spacing.lg)
-            .padding(.bottom, Spacing.lg)
-            .frame(maxWidth: .infinity)
-            .background(Color(uiColor: .systemGroupedBackground))
-            .overlay(alignment: .top) {
-                Rectangle()
-                    .fill(Color.primary.opacity(Tint.faint))
-                    .frame(height: 0.8)
-            }
-        }
-    }
-
-    /// 淡色胶囊动作按钮（用户指定：胶囊保持淡色底，靠**操作条的不透明底**挡住正文，
-    /// 不要改成实色——v3.9.18 曾试实色被否）
-    private func actionLabel(_ title: String, systemImage: String, tone: PillTone) -> some View {
-        Label(title, systemImage: systemImage)
-            .frame(maxWidth: .infinity)          // 先撑满，再上胶囊底（背景才不会只包住文字）
-            .pill(.primary, tone: tone)          // v3.9.19：主操作口径 body + h14/v12
-            .contentShape(Capsule())
     }
 
     private func saveEdit() {
