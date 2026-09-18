@@ -66,6 +66,20 @@ final class LiveActivityManager {
     private var tickerToken = 0
     /// v3.9.27：活动列表滞后的连续拍数（见 ticker 内宽限窗逻辑；≥3 拍仍无活动才退出）
     private var missingActivityTicks = 0
+    /// v3.9.37：**当前拍间隔**——随每次 update 一并下发（见 `ContentState.beatSeconds`）。
+    /// 挂件的过渡时长要「略短于拍间隔」，两侧必须用同一个数；只在推手换档（30 拍后）时变。
+    private var lastBeat: Double = LiveActivityManager.fastBeat
+
+    /// v3.9.37：推手节奏与挂件过渡的唯一真源。
+    /// - `fastBeat`：起步节奏，挂件过渡 ≈1.1s，两拍之间只留 0.1s 缝（观感连续）。
+    /// - `slowBeat`：长回答（>30 拍 ≈36s）后放慢省电。**原为 2.5s，现改 2.0s**：
+    ///   挂件过渡上限受 Apple 「≤2s」约束（取 1.95s），拍间隔 2.5s 时每拍必然留 0.55s
+    ///   静止段——这正是用户报的「动画还是会断」。2.0s 拍 + 1.95s 过渡只留 0.05s 缝，
+    ///   代价是长回答里每次唤醒早 0.5s（相对 10 分钟安全阀级别可忽略）。
+    static let fastBeat: Double = 1.2
+    static let slowBeat: Double = 2.0
+    /// 用多少拍走快速档（30 × 1.2s ≈ 36s，与旧实现的换档点一致，别顺手改）
+    static let fastBeatCount = 30
 
     private init() {}
 
@@ -185,7 +199,8 @@ final class LiveActivityManager {
                                                            actionText: actionText,
                                                            canStop: canStop,
                                                            progress: newProgress,
-                                                           spin: lastSpin)
+                                                           spin: lastSpin,
+                                                           beatSeconds: lastBeat)
         let content = ActivityContent(state: state, staleDate: Self.staleDate())
 
         if !hasActive {
@@ -326,7 +341,8 @@ final class LiveActivityManager {
     /// 为什么放在管理器里而不是每来一个 token 就 update：
     ///   ① 实时活动的视图**只在 update 时重绘**（Apple 明文），所以「一直在动」必须靠持续 update；
     ///   ② 但每次 token 都 update 就是 update 风暴（系统会限流、也白耗电）→ 1.2s 一拍；
-    ///   ③ 长回答（>36s）后放慢到 2.5s 一拍，避免长时间对话里的无意义唤醒；
+    ///   ③ 长回答（>36s）后放慢到 **2.0s** 一拍（v3.9.37：原 2.5s 与挂件 1.95s 的过渡上限对不上，
+    ///      每拍会留 0.55s 静止段＝用户报的「动画还是会断」），避免长时间对话里的无意义唤醒；
     ///   ④ progress 到顶（0.86）后**不再收工**——每拍仍推进 `spin`，球/环上的弧继续转。
     ///      旧版到顶就 return，画面彻底静止（这是用户报的「动几下就不动了」的第二半原因）。
     private func startProgressTicker() {
@@ -351,8 +367,12 @@ final class LiveActivityManager {
             var ticks = 0
             var startedTicking = Date()
             while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(ticks < 30 ? 1.2 : 2.5))
+                // v3.9.37：拍间隔是**这一拍**的节奏，要和下面一起下发（挂件按它算过渡时长）；
+                // 换档只发生在 30 拍那一次，两拍之间不会跳变。
+                let beat = ticks < Self.fastBeatCount ? Self.fastBeat : Self.slowBeat
+                try? await Task.sleep(for: .seconds(beat))
                 guard !Task.isCancelled, let self else { return }
+                self.lastBeat = beat
                 guard self.currentSessionId != nil else { return }
                 if !Self.isEnabled { return }
                 // 兜底（正常路径由上面几处显式 stop 收）：阶段已不在忙碌就自行退出
@@ -418,7 +438,8 @@ final class LiveActivityManager {
                                                actionText: lastAction,
                                                canStop: lastCanStop,
                                                progress: progress,
-                                               spin: spin)
+                                               spin: spin,
+                                               beatSeconds: lastBeat)
     }
 
     // MARK: - 私有
@@ -446,6 +467,8 @@ final class LiveActivityManager {
         pendingDismissal = false
         stopProgressTicker()
         lastProgress = 0.18
+        // v3.9.37：拍间隔也复位（不清的话上一轮长回答的 2.0s 慢档会被下一轮首帧继承）
+        lastBeat = Self.fastBeat
         // v3.9.13：spin 是**累计相位**，不清就会把上一轮/上一次的相位带进新一轮（首帧弧位置随机）
         lastSpin = 0
     }

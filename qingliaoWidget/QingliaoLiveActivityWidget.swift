@@ -14,9 +14,12 @@ import WidgetKit
 ///    直接忽略动画修饰符），**实时活动没有连续自走的帧源**（`TimelineView(.animation)` 在这里不成立）。
 ///    v3.9.13 据此重做（用户报「动几下就不动了」）：球体本体仍是 `Canvas` 静态帧（已删掉徒劳的
 ///    `TimelineView`），而脉冲环 / 旋转弧 / 环上跑动短弧全部改由 `ContentState.spin` 驱动 +
-///    `.animation(_, value: spin)` 过渡——过渡时长（1.1s）与 App 侧拍间隔（1.2s）对齐，
-///    两拍之间几乎接得上。⚠️ 该对齐**只在前 30 拍（约 36s）成立**：之后 App 侧降频到 2.5s 一拍，
-///    过渡仍 1.1s → 每拍会有约 1.4s 完全静止（长回答里的顿挫是这个原因，属既定省电取舍，不是 bug）。
+///    `.animation(_, value: spin)` 过渡——过渡时长**由 `state.beatSeconds` 现算**
+///    （`min(1.95, 拍 - 0.08)`），与 App 侧真实拍间隔对齐，两拍之间只留不到 0.1s 的缝。
+///    **v3.9.37 修「动画还是会断」**：旧实现把过渡写死 1.1s（只匹配 1.2s 快档），
+///    而长回答（>36s）后 App 侧降频到 2.5s 一拍 → 每拍尾部有约 1.4s 完全静止（顿挫）。
+///    根因是「节奏只在 App 侧、挂件不知道」→ 现在节奏随数据下发，且慢档收到 2.0s
+///    （Apple 侧过渡 >2s 不保证播完，取 1.95s 为上限），两侧永远同一口径。
 /// 3. **不画假的总进度**：流式回答没有真实总长，所以环显示的是 `progress` = **本轮推进度**
 ///    （思考 0.18 → 开始生成 0.35 → 逐步逼近 0.86，真结束才 1.0），语义是「在推进」而不是
 ///    「已完成 72% 的答案」。字段名与注释都按这个语义写，别把它当成真实百分比展示给用户。
@@ -36,7 +39,8 @@ struct QingliaoLiveActivityWidget: Widget {
                 DynamicIslandExpandedRegion(.leading) {
                     // 尺寸沿革：34 → 36（v3.9.11「球大一点」）。**不要再往上加**：展开态顶行就是传感器区，
                     // 高度约 36.67pt，38 会顶到灵动岛圆角遮罩被切上下边（本机无 iOS SDK，这类几何只能真机定论）。
-                    OrbView(size: 36, phase: context.state.phase, spin: context.state.spin)
+                    OrbView(size: 36, phase: context.state.phase, spin: context.state.spin,
+                            beat: context.state.beatSeconds)
                         .padding(.leading, 1)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
@@ -50,11 +54,13 @@ struct QingliaoLiveActivityWidget: Widget {
                 }
             } compactLeading: {
                 // v3.9.12：25 → 27（真机反馈「球反而小了」——球再加大一档，环同时收小，主次才分明）
-                OrbView(size: 27, phase: context.state.phase, spin: context.state.spin)
+                OrbView(size: 27, phase: context.state.phase, spin: context.state.spin,
+                        beat: context.state.beatSeconds)
             } compactTrailing: {
                 self.compactTrailing(state: context.state)
             } minimal: {
-                OrbView(size: 24, phase: context.state.phase, spin: context.state.spin)
+                OrbView(size: 24, phase: context.state.phase, spin: context.state.spin,
+                        beat: context.state.beatSeconds)
             }
             .keylineTint(OrbPalette.accent)
             // v3.9.7：点岛回聊天页
@@ -167,7 +173,9 @@ struct QingliaoLiveActivityWidget: Widget {
                     // 过渡挂在**短弧自己**身上（而不是外层 ZStack）：同拍里 progress 与 spin 会同时变，
                     // 挂同一棵子树上取哪个过渡由修饰符嵌套顺序决定，进度弧可能被拖成线性——
                     // 拆开各管各的：进度弧走下面 ZStack 的 easeOut，短弧走这里的 linear。
-                    .animation(.linear(duration: 1.1), value: state.spin)
+                    // v3.9.37：时长不再写死 1.1s，改按本拍的真实间隔算（见 OrbBeat）——
+                    // 长回答降频到 2.0s 一拍的阶段，写死 1.1s 会留出静止段（用户报的「还是会断」）。
+                    .animation(OrbBeat.animation(state.beatSeconds), value: state.spin)
             }
             if !state.isAnswering {
                 if failed {
@@ -209,7 +217,7 @@ struct QingliaoLiveActivityWidget: Widget {
     /// 锁屏横幅（与展开态同风格，避免两套观感割裂——轻聊本地/云端 UI 统一是既定红线）
     private func lockScreenBanner(state: QingliaoActivityAttributes.ContentState) -> some View {
         HStack(spacing: 12) {
-            OrbView(size: 46, phase: state.phase, spin: state.spin)
+            OrbView(size: 46, phase: state.phase, spin: state.spin, beat: state.beatSeconds)
             VStack(alignment: .leading, spacing: 3) {
                 Text(state.sessionTitle.isEmpty ? "轻聊" : state.sessionTitle)
                     .font(.system(size: 15, weight: .semibold))
@@ -239,6 +247,19 @@ enum OrbPalette {
     static let fail = Color(red: 1.00, green: 0.27, blue: 0.23)        // #FF453A（v3.9.30 失败态）
 }
 
+/// 拍间隔（App 侧推手节奏）→ 挂件过渡时长的**唯一换算**（挂件内多处共用，别各写一份）。
+///
+/// 规则：过渡 = 拍间隔 − 0.08s，下限 0.45s、**上限 1.95s**。
+/// 上限来自 Apple 口径：实时活动里的动画最长 2 秒，超了不保证播完；
+/// 下限防拍间隔被写成异常小值时过渡退化成瞬跳。
+/// 写成 `enum` 静态命名空间而非 `static let`：Swift 6 严格并发下静态存储要求类型 Sendable，
+/// `Animation` 的 Sendable 性不在本机可验证范围（Linux 无 SwiftUI）——函数零风险。
+enum OrbBeat {
+    static func animation(_ beat: Double) -> Animation {
+        .linear(duration: min(1.95, max(0.45, beat - 0.08)))
+    }
+}
+
 /// 品牌球体：三态共用同一颗球。
 /// · thinking  → 外圈呼吸光晕（脉冲）
 /// · streaming → 球外一圈不确定态旋转弧
@@ -265,11 +286,10 @@ struct OrbView: View {
     ///   需要 0…1 循环量的地方自己取余并乘上想要的圈速（见 `pulseRings`）。
     /// 默认 0 → 首帧（没有任何 update 时）也画出完整的球 + 一段弧，不会空白。
     var spin: Double = 0
-
-    /// 拍与拍之间的过渡时长（App 侧 1.2s 一拍 → 取 1.1s 让弧几乎不停顿）。
-    /// 写成计算属性而非 `static let`：Swift 6 严格并发下静态存储要求类型 Sendable，
-    /// `Animation` 的 Sendable 性不在本机可验证范围（Linux 无 SwiftUI）——计算属性零风险。
-    private static var stepAnimation: Animation { .linear(duration: 1.1) }
+    /// v3.9.37：**当前拍间隔（秒）**——由 `ContentState.beatSeconds` 透传进来。
+    /// 过渡时长按它现算（略短于拍间隔）：旧实现写死 1.1s，长回答时 App 侧降频到 2.5s 一拍，
+    /// 每拍尾部就多出 1.4s 静止段（用户报的「动画还是会断」）。默认 1.2 = 起步节奏。
+    var beat: Double = 1.2
 
     var body: some View {
         ZStack {
@@ -308,7 +328,7 @@ struct OrbView: View {
             Circle()
                 .stroke(OrbPalette.accent.opacity(0.45 * (1 - p)), lineWidth: max(1, size * 0.05))
                 .frame(width: d, height: d)
-                .animation(Self.stepAnimation, value: spin)
+                .animation(OrbBeat.animation(beat), value: spin)
         }
     }
 
@@ -322,7 +342,7 @@ struct OrbView: View {
                     style: StrokeStyle(lineWidth: max(1.5, size * 0.07), lineCap: .round))
             .frame(width: d, height: d)
             .rotationEffect(.degrees(spin * 360))
-            .animation(Self.stepAnimation, value: spin)
+            .animation(OrbBeat.animation(beat), value: spin)
     }
 
     private func draw(_ gc: GraphicsContext, size canvasSize: CGSize) {

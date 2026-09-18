@@ -52,11 +52,17 @@ struct QingliaoActivityAttributes: ActivityAttributes {
         /// 从 315° 插值回 0°，每轮（约 9.6s）倒着急扫一圈，与「一直在转」相反。
         /// 挂件要 0…1 的地方自己取余（如脉冲相位）。
         var spin: Double
+        /// v3.9.37：**当前拍间隔（秒）**——App 侧推手的节奏（前 30 拍 1.2s，之后 2.0s）。
+        /// 为什么必须下发给挂件：挂件的过渡时长要「略短于拍间隔」才不会在两拍之间留静止段。
+        /// 原来挂件写死 1.1s，而长回答（>36s）后 App 侧放慢到 2.5s 一拍 → 每拍有约 1.4s
+        /// 完全静止（用户报的「灵动岛动画还是会断」＝这个顿挫）。
+        /// 现在两侧共用同一个数：过渡 = `min(1.95, 拍 - 0.08)`（>2s 的过渡 Apple 侧不保证播完）。
+        var beatSeconds: Double
 
         init(sessionTitle: String, modelName: String, startedAt: Date, isAnswering: Bool,
              phase: String = QingliaoActivityAttributes.Phase.thinking.rawValue,
              actionText: String = "", canStop: Bool = false,
-             progress: Double = 0.18, spin: Double = 0) {
+             progress: Double = 0.18, spin: Double = 0, beatSeconds: Double = 1.2) {
             self.sessionTitle = sessionTitle
             self.modelName = modelName
             self.startedAt = startedAt
@@ -66,10 +72,12 @@ struct QingliaoActivityAttributes: ActivityAttributes {
             self.canStop = canStop
             self.progress = progress
             self.spin = spin
+            self.beatSeconds = beatSeconds
         }
 
         private enum CodingKeys: String, CodingKey {
-            case sessionTitle, modelName, startedAt, isAnswering, phase, actionText, canStop, progress, spin
+            case sessionTitle, modelName, startedAt, isAnswering, phase, actionText, canStop,
+                 progress, spin, beatSeconds
         }
 
         /// v3.9.7：手写解码。
@@ -91,6 +99,8 @@ struct QingliaoActivityAttributes: ActivityAttributes {
             // v3.9.13：新增字段同样必须 decodeIfPresent——系统里留着的旧版活动缺这个键，
             // 合成解码会抛 keyNotFound 导致灵动岛整块空白（v3.9.7 加 phase 时踩过同一个坑）
             spin = try c.decodeIfPresent(Double.self, forKey: .spin) ?? 0
+            // v3.9.37：旧活动缺这个键 → 按 1.2s 一拍渲染（= 与新推手起步节奏一致，不会跳变）
+            beatSeconds = try c.decodeIfPresent(Double.self, forKey: .beatSeconds) ?? 1.2
         }
     }
 
