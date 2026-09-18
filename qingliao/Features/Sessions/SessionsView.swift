@@ -41,6 +41,10 @@ struct SessionsView: View {
     // v2.0.87ad：多选删除
     @State private var editing = false
     @State private var selectedIds = Set<String>()
+    // v3.9.39：批量删除确认（镜像 confirmDelete：先确认再动数据）。条数单独存一份，
+    // 不用可空值同时当弹窗驱动——那样弹窗退场时计数已被清成 nil，文案会跳成「0 个会话」
+    @State private var confirmBatchDelete = false
+    @State private var batchDeleteCount = 0
     // v3.0.7：会话列表加载节流（3s 内不重复拉，防快速滑动切 Tab 重复触发 isLoading 翻转）
     @State private var lastLoadAt: Date?
     // v3.0.27：会话分类
@@ -108,13 +112,15 @@ struct SessionsView: View {
             if editing {
                 HStack(spacing: 14) {
                     Button {
-                        if selectedIds.count == sessions.count {
-                            selectedIds.removeAll()
+                        // v3.9.39：全选只覆盖**当前可见**的会话。搜索态列表渲染的是 filteredSessions，
+                        // 原来取 sortedSessions 的全部 id → 搜到 3 行、全选、删除 = 对全部会话发 merge。
+                        if allVisibleSelected {
+                            selectedIds.subtract(visibleSessionIDs)
                         } else {
-                            selectedIds = Set(sortedSessions.map(\.id))
+                            selectedIds.formUnion(visibleSessionIDs)
                         }
                     } label: {
-                        Text(selectedIds.count == sessions.count ? "取消全选" : "全选")
+                        Text(allVisibleSelected ? "取消全选" : "全选")
                             .font(.system(size: Typography.subhead, weight: .medium))
                             .foregroundStyle(Color.accentColor)
                     }
@@ -124,7 +130,9 @@ struct SessionsView: View {
                         .font(.system(size: Typography.subhead))
                         .foregroundStyle(.secondary)
                     Button {
-                        deleteSelected()
+                        // v3.9.39：批量删除先确认（此前一点就直接对服务器发 merge）
+                        batchDeleteCount = selectedIds.count
+                        confirmBatchDelete = true
                     } label: {
                         Label("删除", systemImage: "trash")
                             .font(.system(size: Typography.subhead, weight: .semibold))
@@ -153,6 +161,16 @@ struct SessionsView: View {
             Button("取消", role: .cancel) {}
         } message: {
             Text("将删除「\(confirmDelete?.title ?? "")」及其全部消息，此操作不可恢复")
+        }
+        // v3.9.39：批量删除确认（此前底部红按钮一点就直接对服务器发 merge，零确认；单条删除一直有框）
+        .alert("批量删除会话", isPresented: $confirmBatchDelete) {
+            Button("删除", role: .destructive) {
+                // 弹窗完全关闭再动数据（v2.0.57 同源经验：删除会撤掉整个多选栏，动画期改状态易炸）
+                Task { try? await Task.sleep(for: .seconds(0.3)); deleteSelected() }
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("将删除 \(batchDeleteCount) 个会话及其全部消息，此操作不可恢复")
         }
         // v3.0.27：新建分类
         .alert("新建分类", isPresented: $showAddCategory) {
@@ -392,6 +410,23 @@ struct SessionsView: View {
             if s.title.localizedCaseInsensitiveContains(q) { return true }
             return s.messages.contains { $0.content.localizedCaseInsensitiveContains(q) }
         }
+    }
+
+    /// v3.9.39：**屏幕上真正渲染出来、能被勾选**的会话——与 sessionsListBody 的分支严格同源
+    /// （非搜索态 = sortedSessions；搜索态本地命中 = filteredSessions；本地零命中时的远端命中
+    /// 只有能对回本地列表的那批会画成 sessionCell，RemoteHitRow 没有勾选框）。
+    /// 多选栏的全选/取消全选必须走这里，不能用 sortedSessions。
+    private var visibleSessions: [ChatSession] {
+        guard isSearching else { return sortedSessions }
+        if !filteredSessions.isEmpty { return filteredSessions }
+        return remoteHits.compactMap { localSession(id: $0.id) }
+    }
+
+    private var visibleSessionIDs: Set<String> { Set(visibleSessions.map(\.id)) }
+
+    private var allVisibleSelected: Bool {
+        let ids = visibleSessionIDs
+        return !ids.isEmpty && selectedIds.isSuperset(of: ids)
     }
 
     // MARK: - v3.9.33 搜索结果区（本地优先 + 远端全史兜底）
@@ -781,17 +816,28 @@ struct SessionsView: View {
                 ])
                 if (j["ok"] as? Bool) == true {
                     await load()
+                    // v3.9.39：删掉的这批里含**当前正打开**的会话 → 走单条删除同一套两步新建。
+                    // 少这一步 = chat 内存里仍留着该会话和全部消息，下一次 saveToServer 把它整体
+                    // merge 回服务器，用户看到「删了又活着回来」。
+                    if idsCopy.contains(chat.sessionId) {
+                        onOpenSession?()
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                            chat.requestNewSession()
+                        }
+                    }
                 } else {
                     // v2.0.102：失败恢复选择与编辑态（原清空后失败无恢复）
                     selectedIds = Set(idsCopy)
                     editing = true
-                    errorText = "删除失败，请重试"
+                    // v3.9.39：原来写 errorText，而它只在 sessions 为空时才渲染（删除后列表必然非空）
+                    // → 失败完全静默。改走 deleteError，与单条删除同一口径。
+                    deleteError = "删除未同步到服务器（服务器返回异常），请检查网络后重试"
                 }
             } catch {
                 // v2.0.102：失败恢复选择与编辑态
                 selectedIds = Set(idsCopy)
                 editing = true
-                errorText = "删除失败，请重试"
+                deleteError = "删除未同步到服务器：\(error.localizedDescription)"
             }
         }
     }
