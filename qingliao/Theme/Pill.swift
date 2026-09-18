@@ -63,7 +63,7 @@ enum PillTone {
     var bg: Color {
         switch self {
         case .accent:
-            // v3.9.36：accent 底已改原生玻璃（见 PillBackground），此分支仅保 switch 穷尽
+            // v3.9.36：accent 底已改原生玻璃（见下方 pill(_:) 的 glassEffect 分支），bg 仅保 switch 穷尽
             return Color.accentColor.opacity(Tint.subtle)
         case .danger: return Color.red.opacity(Tint.subtle)
         case .neutral: return Color.secondary.opacity(Tint.subtle)
