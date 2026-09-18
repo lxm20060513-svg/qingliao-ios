@@ -12,6 +12,8 @@ struct TodoSection: View {
     @State private var store = TodoStore.shared
     @State private var showAdd = false
     @State private var showAll = false
+    /// v3.9.37：卡片 → 「全部待办」列表的原生 zoom 转场（与备忘录卡片同款弹窗动画）
+    @Namespace private var todoZoomNS
     @State private var draft = ""
     @State private var detail: TodoItem?
     @State private var pendingDelete: TodoItem?
@@ -115,6 +117,8 @@ struct TodoSection: View {
             }
             .buttonStyle(PressStyle())
             .contextMenu { todoMenuItems(top, onDelete: { pendingDelete = $0 }) }
+            // v3.9.37：卡片即 zoom 源（≥2 项点开「全部待办」时从这张卡放大展开，对齐备忘录卡片）
+            .matchedTransitionSource(id: "todo-all", in: todoZoomNS)
             .accessibilityLabel(store.sorted.count == 1
                                 ? "待办清单，1 项，点开查看"
                                 : "待办清单，共 \(store.sorted.count) 项，点开查看全部")
@@ -176,6 +180,7 @@ struct TodoSection: View {
             .toolbar(.hidden, for: .navigationBar)
         }
         .presentationDetents([.medium, .large])
+        .navigationTransition(.zoom(sourceID: "todo-all", in: todoZoomNS))   // v3.9.37：从待办卡片放大展开（对齐备忘录）
     }
 
     // MARK: 详情 / 编辑
