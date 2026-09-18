@@ -24,7 +24,7 @@ import SwiftUI
 ///     上内边距 12 + 标题行 ≈15.5（subhead 13）+ 6 + 价格 ≈23.9（headline 20）+ 2 + 明细 ≈11.9（tiny 10）+ 下内边距 12 ≈ 83
 ///   备忘卡 2 行正文（15pt，每行 ≈17.9）+ 6 + 元信息行 ≈13.1 + 上下内边距 24 ≈ 78.9 < 83
 /// → 1 行或 2 行备忘都是 83pt，卡片恒等高、与旁边卡片对齐；超长正文限 2 行，点开看全部
-private enum MemoCardMetrics {
+enum MemoCardMetrics {   // v3.9.35：private 去掉——TodoSection 复用同高常量
     /// 与「生活数据」行情卡同高（≈83pt）
     static let minHeight: CGFloat = 83
     /// 页级单卡正文行数上限
