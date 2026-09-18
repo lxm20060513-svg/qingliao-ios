@@ -195,14 +195,17 @@ final class AuthStore {
     /// 都先调用这里置位，再抛 `APIError.unauthorized`；UI 由 SessionExpiredBanner 统一提示，
     /// 流式层（StreamClient）见 `APIError.unauthorized` 直接收尾、不再退避。
     ///
-    /// 只清**内存** token：存盘 token（Keychain/UserDefaults）的唯一清理实现是 `logout()`，
-    /// 用户点「去登录」时走它统一清——避免反代偶发丢 `X-Auth-Token` 造成的假 401
-    /// 把有效凭据彻底销毁（那会逼用户重输密码）。置位是幂等的，重复 401 不重复处理。
+    /// **不清任何 token**（内存 / 存盘都不清）：清理的唯一实现是 `logout()`，用户点
+    /// 「去登录」时走它。此前这里清内存 token 是纯有害的——`isLoggedIn` 是独立存储的布尔，
+    /// 清 token 既不会把人送回登录页，又让 `request()` 的 `if !token.isEmpty` 从此不再带头：
+    /// 反代偶发丢一次 `X-Auth-Token` 造成的假 401，会被放大成此后所有请求恒 401，
+    /// 且全仓没有任何路径在 init 之后回读 Keychain 里的存盘 token，唯一出路只剩重输密码。
+    /// 保留 token 才是自愈的：真过期会继续 401（横幅一直在，语义不变），假 401 下一轮自动恢复。
+    /// 置位是幂等的，重复 401 不重复处理。
     func markSessionExpired() {
         guard !sessionExpired else { return }
         sessionExpired = true
-        token = ""
-        print("[AuthStore] 非登录接口 401 → 标记登录已过期（已清内存 token，存盘 token 交由 logout() 清理）")
+        print("[AuthStore] 非登录接口 401 → 标记登录已过期（token 保留，交由 logout() 清理）")
     }
 
     // MARK: - 统一请求入口（新路由层）
