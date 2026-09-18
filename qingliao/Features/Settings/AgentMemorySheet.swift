@@ -6,6 +6,9 @@ struct AgentMemorySheet: View {
     @Environment(AuthStore.self) private var auth
     @Environment(\.dismiss) private var dismiss
     @State private var rules: [AgentRuleItem] = []
+    // v3.9.40（#19）：editing 非空即编辑弹窗打开（存的是被改的那条，用于比对与回传 id）
+    @State private var editing: AgentRuleItem?
+    @State private var editText = ""
 
     var body: some View {
         NavigationStack {
@@ -39,6 +42,17 @@ struct AgentMemorySheet: View {
                                             .foregroundStyle(.tertiary)
                                     }
                                     Spacer()
+                                    // v3.9.40（#19）：就地编辑规则关键词（原只能删了重说）
+                                    Button {
+                                        editText = r.pattern
+                                        editing = r
+                                    } label: {
+                                        Image(systemName: "pencil")
+                                            .font(.system(size: Typography.body))
+                                            .foregroundStyle(Color.accentColor)
+                                    }
+                                    .accessibilityLabel("编辑这条记忆")
+                                    .buttonStyle(.plain)
                                     Button {
                                         Task { await remove(r) }
                                     } label: {
@@ -65,6 +79,18 @@ struct AgentMemorySheet: View {
                 }
             }
             .task { await load() }
+            // v3.9.40（#19）：就地编辑关键词
+            .alert("编辑这条 Agent 记忆", isPresented: Binding(get: { editing != nil },
+                                                              set: { if !$0 { editing = nil } })) {
+                TextField("关键词（2-40 字）", text: $editText)
+                Button("保存") {
+                    if let r = editing { Task { await update(r) } }
+                    editing = nil
+                }
+                Button("取消", role: .cancel) { editing = nil }
+            } message: {
+                Text("命中「\(editText)」的请求将强制走 Agent 处理")
+            }
         }
         .presentationDetents([.medium, .large])
     }
@@ -77,8 +103,21 @@ struct AgentMemorySheet: View {
 
     private func remove(_ r: AgentRuleItem) async {
         let enc = r.id.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? r.id
-        if let j = try? await auth.json("/api/agent/rules?id=\(enc)", method: "DELETE", body: nil) {
-            rules = (j["rules"] as? [[String: Any]] ?? []).map { AgentRuleItem($0) }
+        if let j = try? await auth.json("/api/agent/rules?id=\(enc)", method: "DELETE", body: nil),
+           let arr = j["rules"] as? [[String: Any]] {
+            // 只在响应真带 rules 时覆盖：出错响应（404/401 只有 error 键）会让列表假性清空
+            rules = arr.map { AgentRuleItem($0) }
+        }
+    }
+
+    /// v3.9.40（#19）：改关键词——POST 带 id 即更新（见 agent_api.py 同一分支）
+    private func update(_ r: AgentRuleItem) async {
+        let t = editText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard t.count >= 2, t != r.pattern else { return }
+        if let j = try? await auth.json("/api/agent/rules", method: "POST",
+                                        body: ["id": r.id, "pattern": t]),
+           let arr = j["rules"] as? [[String: Any]] {
+            rules = arr.map { AgentRuleItem($0) }
         }
     }
 }

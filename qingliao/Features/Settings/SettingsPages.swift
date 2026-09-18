@@ -111,8 +111,15 @@ struct TasksView: View {
                             }
                             .padding(.horizontal, Spacing.xxl)
                             .padding(.vertical, Spacing.lg)
-                            // 长按删除
+                            // 长按：编辑 / 删除
                             .contextMenu {
+                                // v3.9.40（#17）：编辑任务名/Cron/提示词（PATCH 依赖 unified_router
+                                // 补上的 do_PATCH，之前 501）
+                                Button {
+                                    editingTask = t
+                                } label: {
+                                    Label("编辑任务", systemImage: "square.and.pencil")
+                                }
                                 Button(role: .destructive) {
                                     deleteTask(t)
                                 } label: {
@@ -146,14 +153,21 @@ struct TasksView: View {
             }
         }
         .task { await load() }
-        .sheet(isPresented: $showNewTask) {
+        // 关闭后重载：新建/编辑原先都要手动下拉刷新才看得到结果
+        .sheet(isPresented: $showNewTask, onDismiss: { Task { await load() } }) {
             NewTaskSheet()
+                .presentationDetents([.medium])
+        }
+        // v3.9.40（#17）：编辑既有任务
+        .sheet(item: $editingTask, onDismiss: { Task { await load() } }) { t in
+            NewTaskSheet(editing: t)
                 .presentationDetents([.medium])
         }
         }
     }
 
     @State private var showNewTask = false
+    @State private var editingTask: CronTask?   // v3.9.40（#17）：非空即打开编辑弹窗
     @State private var loadError: String?
 
     private func load() async {
@@ -309,21 +323,31 @@ struct LogsView: View {
     }
 }
 
-// MARK: - 新建定时任务
+// MARK: - 新建 / 编辑定时任务
 
 struct NewTaskSheet: View {
     @Environment(AuthStore.self) private var auth
     @Environment(\.dismiss) private var dismiss
+    /// v3.9.40（#17）：nil = 新建（POST），非 nil = 编辑（PATCH 该任务）
+    let editing: CronTask?
     @State private var name = ""
     @State private var cron = "0 9 * * *"
     @State private var prompt = ""
     @State private var saving = false
     @State private var errorText: String?
 
+    init(editing: CronTask? = nil) {
+        self.editing = editing
+        let c = editing?.cron ?? ""
+        _name = State(initialValue: editing?.name ?? "")
+        _cron = State(initialValue: c.isEmpty ? "0 9 * * *" : c)
+        _prompt = State(initialValue: editing?.prompt ?? "")
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("新建定时任务")
+                Text(editing == nil ? "新建定时任务" : "编辑定时任务")
                     .font(.system(size: Typography.title, weight: .bold))
                 Spacer()
                 Button { dismiss() } label: {
@@ -383,13 +407,24 @@ struct NewTaskSheet: View {
         Task {
             defer { saving = false }
             do {
-                let j = try await auth.json("/api/cron/tasks", method: "POST", body: [
-                    "name": name, "cron": cron, "prompt": prompt
-                ])
-                if (j["ok"] as? Bool) == true {
-                    dismiss()
+                if let t = editing {
+                    // PATCH 由 cron_api 原样转发 Hermes 的响应，没有统一 ok 字段 → 不带 error 即成功
+                    let j = try await auth.json("/api/cron/tasks/\(t.id)", method: "PATCH",
+                                                body: ["name": name, "cron": cron, "prompt": prompt])
+                    if let err = j["error"] as? String {
+                        errorText = err
+                    } else {
+                        dismiss()
+                    }
                 } else {
-                    errorText = (j["error"] as? String) ?? "保存失败"
+                    let j = try await auth.json("/api/cron/tasks", method: "POST", body: [
+                        "name": name, "cron": cron, "prompt": prompt
+                    ])
+                    if (j["ok"] as? Bool) == true {
+                        dismiss()
+                    } else {
+                        errorText = (j["error"] as? String) ?? "保存失败"
+                    }
                 }
             } catch {
                 errorText = "请求失败：\(error.localizedDescription)"

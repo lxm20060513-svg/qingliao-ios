@@ -3,6 +3,31 @@ import SwiftUI
 
 // MARK: - 聊天页（微信风格：AI 灰气泡左侧 / 用户深蓝气泡右侧，头像在气泡外）
 
+// MARK: - 流式气泡（v3.9.40 #3：从 ChatView 的计算属性拆出）
+//
+// 为什么必须独立成 View：@Observable 的依赖是按「哪个 body 读了哪个属性」记录的。
+// 原来 `stream.displayContent` 写在 ChatView 的计算属性里，这笔读记到了 **ChatView.body** 上，
+// 而平滑层每 48ms 就写一次 smoothedContent（StreamClient.startSmooth）→ 整个 LazyVStack 消息列表
+// 跟着重画 20 次/秒。读收到本子 View 后，每 tick 的失效范围只剩这一条气泡。
+struct StreamingBubbleView: View {
+    @Environment(StreamClient.self) private var stream
+    var onAIImageTap: (String) -> Void = { _ in }
+    var onFileTap: (String, String) -> Void = { _, _ in }
+
+    var body: some View {
+        MessageBubble(
+            // v3.4.20：读 displayContent（打字机平滑层）——本地/云端流式观感从"整段跳变"变"逐字流"
+            message: ChatMessage(role: "assistant", content: stream.displayContent, timestamp: nil, agent: stream.isAgent),
+            onAIImageTap: onAIImageTap,   // v2.0.128：流式中 AI 图片可点
+            onFileTap: onFileTap,         // v3.9.17：流式中 AI 生成物可点
+            streamingAvatar: true,   // v3.0.15：AI 输出中头像 = 粒子球
+            streamingText: true   // v3.0.17：流式长文用 SwiftUI Text 渲染（根治 UITextView 锁窄缩小）
+        )
+        // v3.9.30：流式增量落进同一气泡 → 高度/排版变化走 settle 平滑生长（原瞬跳）
+        .animation(Motion.settle, value: stream.displayContent)
+    }
+}
+
 struct MessageBubble: View {
     let message: ChatMessage
     var isHighlighted: Bool = false   // v2.0.43 搜索定位高亮
@@ -174,7 +199,6 @@ struct MessageBubble: View {
                     bubbleDeliveryRow
                     bubbleSpeakButton
                     bubblePushTag
-                    bubbleRepeatHint
                 }
                 .padding(.horizontal, isMultiBubbleAI ? 2 : 13)
                 .padding(.vertical, isMultiBubbleAI ? 2 : 9)
@@ -509,31 +533,6 @@ struct MessageBubble: View {
                 .padding(.vertical, Spacing.xxs)
                 .background(Color.blue.opacity(Tint.faint), in: Capsule())
                 .padding(.top, Spacing.xxs)
-        }
-    }
-
-    /// 疑似重复回复提示
-    @ViewBuilder
-    private var bubbleRepeatHint: some View {
-        // v3.4.x 复读兜底：AI 回复与旧回复高度相似（换表述复述旧模板，去重/净化拦不住）
-        // → 显示可点提示，让用户一键重新生成换角度；不删内容不误伤语义。
-        if message.suspectedRepeat && !streamingText {
-            Button {
-                onRegenerate()
-            } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.system(size: Typography.tiny, weight: .semibold))
-                    Text("疑似重复回复，点此重新生成")
-                        .font(.system(size: Typography.tiny, weight: .medium))
-                }
-                .foregroundStyle(Color.orange)
-                .padding(.horizontal, Spacing.md)
-                .padding(.vertical, Spacing.xs)
-                .background(Color.orange.opacity(Tint.subtle), in: Capsule())
-            }
-            .buttonStyle(.plain)
-            .padding(.top, Spacing.xs)
         }
     }
 

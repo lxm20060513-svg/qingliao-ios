@@ -38,6 +38,23 @@ struct DashboardView: View {
         s.remove(id)
         hiddenUsageRaw = s.sorted().joined(separator: ",")
     }
+    // v3.9.40（#15）：看板栏目卡片自定义——顺序与显隐各自持久化（逗号分隔 BoardCard.rawValue）
+    @AppStorage("dashboard_card_order") private var cardOrderRaw = ""
+    @AppStorage("dashboard_hidden_cards") private var hiddenCardsRaw = ""
+    @State private var showCardEditor = false
+
+    /// 已存顺序在前；串里没出现的（首次使用 / 之后新增的栏目 / 未知键）按默认顺序补在后面
+    private var orderedCards: [BoardCard] {
+        let saved = cardOrderRaw.split(separator: ",").compactMap { BoardCard(rawValue: String($0)) }
+        return saved + BoardCard.allCases.filter { !saved.contains($0) }
+    }
+    private var hiddenCards: Set<BoardCard> {
+        Set(hiddenCardsRaw.split(separator: ",").compactMap { BoardCard(rawValue: String($0)) })
+    }
+    private var visibleCards: [BoardCard] {
+        let h = hiddenCards
+        return orderedCards.filter { !h.contains($0) }
+    }
     @State private var haEntities: [HAEntity] = []
     @State private var router = RouterStatus()
     @State private var scrollPos = ScrollPosition()
@@ -91,25 +108,11 @@ struct DashboardView: View {
                 // v2.0.133f：VStack → LazyVStack——TabView 切页动画期间看板全量卡片一次性布局是切页卡顿主因，
                 // 懒加载后只渲染可见卡片（与 v2.0.132 ChatView 消息列表同款方案；看板无批量移除路径，安全）
                 LazyVStack(alignment: .leading, spacing: 10) {
-                    smartSuggestionBlock
-
-                    homeDevicesBlock
-
-                    scenesBlock
-
-                    automationsBlock
-
-                    rulesBlock
-
-                    nasPanelBlock
-
-                    usageBlock
-
-                    diagnoseBlock
-
-                    routerBlock
-
-                    pinBlock
+                    // v3.9.40（#15）：10 个栏目由写死顺序改为按用户自定义顺序渲染（可隐藏）
+                    ForEach(visibleCards) { card in
+                        boardBlock(card)
+                    }
+                    cardEditorEntry
                 }
                 .padding(.horizontal, Spacing.xxl)
                 .padding(.bottom, 100)
@@ -165,6 +168,11 @@ struct DashboardView: View {
                         .onAppear { weatherSheetShown = true }
                         .navigationTransition(.zoom(sourceID: DashboardSheet.weather.id, in: sheetZoomNS))
                 }
+            }
+            // v3.9.40（#15）：卡片编辑器（排序 / 隐藏）
+            .sheet(isPresented: $showCardEditor) {
+                BoardCardEditorSheet(all: orderedCards,
+                                     hidden: orderedCards.filter { hiddenCards.contains($0) })
             }
             // v3.9.21：删除规则确认
             .alert("删除这条规则？", isPresented: Binding(
@@ -952,6 +960,156 @@ struct DashboardView: View {
             Button("恢复全部") { hiddenUsageRaw = "" }
             Button("取消", role: .cancel) {}
         }
+    }
+
+    /// v3.9.40（#15）：栏目 → 视图。
+    /// ⚠️ 刻意返回 AnyView：10 个各异的 opaque 类型挤进同一个 @ViewBuilder switch，
+    /// 表达式类型推导会超时（本仓 ChatView / ChatMessageBubble 的 body 拆分注释都是这条坑）。
+    private func boardBlock(_ card: BoardCard) -> AnyView {
+        switch card {
+        case .suggestion:  return AnyView(smartSuggestionBlock)
+        case .home:        return AnyView(homeDevicesBlock)
+        case .scenes:      return AnyView(scenesBlock)
+        case .automations: return AnyView(automationsBlock)
+        case .rules:       return AnyView(rulesBlock)
+        case .nas:         return AnyView(nasPanelBlock)
+        case .usage:       return AnyView(usageBlock)
+        case .diagnose:    return AnyView(diagnoseBlock)
+        case .router:      return AnyView(routerBlock)
+        case .pin:         return AnyView(pinBlock)
+        }
+    }
+
+    /// v3.9.40（#15）：底部「自定义卡片」入口（与用量恢复行同款低调样式）
+    private var cardEditorEntry: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "square.and.pencil")
+                .font(.system(size: Typography.caption))
+                .foregroundStyle(.tertiary)
+            Text(hiddenCards.isEmpty ? "自定义卡片（排序 / 隐藏）"
+                                     : "自定义卡片 · 已隐藏 \(hiddenCards.count) 个栏目")
+                .font(.system(size: Typography.subhead))
+                .foregroundStyle(.tertiary)
+            Spacer()
+        }
+        .padding(.horizontal, Spacing.xl)
+        .padding(.vertical, Spacing.md)
+        .dashboardCard()
+        .contentShape(Rectangle())
+        .tapButton { showCardEditor = true }
+    }
+}
+
+// MARK: - v3.9.40（#15）看板栏目卡片身份 + 编辑器
+
+/// rawValue 会写进 UserDefaults 的顺序串，**改名即让老用户的自定义顺序失效**——只增不改不删。
+enum BoardCard: String, CaseIterable, Identifiable {
+    case suggestion, home, scenes, automations, rules, nas, usage, diagnose, router, pin
+
+    var id: String { rawValue }
+
+    /// 与各 block 的 sectionTitle 保持一致
+    var title: String {
+        switch self {
+        case .suggestion: return "智能建议"
+        case .home: return "智能家居"
+        case .scenes: return "智慧场景"
+        case .automations: return "自动化"
+        case .rules: return "自动规则"
+        case .nas: return "NAS 面板"
+        case .usage: return "模型使用量"
+        case .diagnose: return "设备体检"
+        case .router: return "路由器"
+        case .pin: return "钉一钉"
+        }
+    }
+}
+
+/// ⚠️ 排序用「上移/下移」按钮而不是 List 拖动手柄：拖动要常驻 editMode，
+/// 而 editMode 激活时行内按钮的点击由系统接管，这行为没法在没真机构建前验证，宁可用最朴素的按钮。
+struct BoardCardEditorSheet: View {
+    @AppStorage("dashboard_card_order") private var orderRaw = ""
+    @AppStorage("dashboard_hidden_cards") private var hiddenRaw = ""
+    @Environment(\.dismiss) private var dismiss
+    @State private var shown: [BoardCard] = []
+    @State private var hiddenList: [BoardCard] = []
+
+    init(all: [BoardCard], hidden: [BoardCard]) {
+        _shown = State(initialValue: all)
+        _hiddenList = State(initialValue: hidden)
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section("显示中（↑↓ 调整顺序）") {
+                    ForEach(Array(shown.enumerated()), id: \.element) { idx, card in
+                        shownRow(card: card, idx: idx)
+                    }
+                }
+                if !hiddenList.isEmpty {
+                    Section("已隐藏") {
+                        ForEach(hiddenList) { card in
+                            HStack {
+                                Text(card.title).foregroundStyle(.secondary)
+                                Spacer()
+                                Button("显示") { restore(card) }
+                                    .accessibilityLabel("显示 \(card.title)")
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("自定义卡片")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    @ViewBuilder
+    private func shownRow(card: BoardCard, idx: Int) -> some View {
+        HStack {
+            Text(card.title)
+            Spacer()
+            Button { move(idx, by: -1) } label: { Image(systemName: "arrow.up") }
+                .disabled(idx == 0)
+                .accessibilityLabel("上移 \(card.title)")
+            Button { move(idx, by: 1) } label: { Image(systemName: "arrow.down") }
+                .disabled(idx == shown.count - 1)
+                .accessibilityLabel("下移 \(card.title)")
+            Button { hide(card, at: idx) } label: { Image(systemName: "eye.slash") }
+                .accessibilityLabel("隐藏 \(card.title)")
+        }
+        .buttonStyle(.borderless)   // List 内按钮默认会被染色并抢走整行点击
+    }
+
+    private func move(_ idx: Int, by delta: Int) {
+        let j = idx + delta
+        guard shown.indices.contains(j) else { return }
+        shown.swapAt(idx, j)
+        persist()
+    }
+
+    private func hide(_ card: BoardCard, at idx: Int) {
+        guard shown.indices.contains(idx) else { return }
+        shown.remove(at: idx)
+        hiddenList.append(card)
+        persist()
+    }
+
+    private func restore(_ card: BoardCard) {
+        hiddenList.removeAll { $0 == card }
+        shown.append(card)
+        persist()
+    }
+
+    private func persist() {
+        // 隐藏项也留在顺序串里：否则恢复时它会被 orderedCards 补到末尾，丢掉用户原本排的位置
+        orderRaw = (shown + hiddenList).map(\.rawValue).joined(separator: ",")
+        hiddenRaw = hiddenList.map(\.rawValue).joined(separator: ",")
     }
 }
 

@@ -10,6 +10,9 @@ struct MemoryView: View {
     @State private var message: (ok: Bool, text: String)?
     @State private var busy = false
     @State private var confirmDelete: String?   // v2.0.102：删除确认（记忆不可恢复）
+    // v3.9.40（#19）：就地编辑——editing 存**原条目**（非空即弹窗打开），editText 是输入框内容
+    @State private var editing: String?
+    @State private var editText = ""
 
     var body: some View {
         NavigationStack {
@@ -72,6 +75,17 @@ struct MemoryView: View {
                                         .font(.system(size: Typography.subhead))
                                         .textSelection(.enabled)
                                     Spacer()
+                                    // v3.9.40（#19）：就地编辑（原只能删了再加，会掉到列表末尾）
+                                    Button {
+                                        editText = e
+                                        editing = e
+                                    } label: {
+                                        Image(systemName: "pencil")
+                                            .font(.system(size: Typography.subhead))
+                                            .foregroundStyle(Color.accentColor)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .accessibilityLabel("编辑这条记忆")
                                     Button {
                                         confirmDelete = e   // v2.0.102：先确认再删（记忆不可恢复）
                                     } label: {
@@ -80,6 +94,7 @@ struct MemoryView: View {
                                             .foregroundStyle(.red)
                                     }
                                     .buttonStyle(.plain)
+                                    .accessibilityLabel("删除这条记忆")
                                 }
                                 .padding(.horizontal, Spacing.xl)
                                 .padding(.vertical, Spacing.lg)
@@ -107,6 +122,16 @@ struct MemoryView: View {
                 Button("取消", role: .cancel) { confirmDelete = nil }
             } message: {
                 Text("将删除「\(confirmDelete ?? "")」，此操作不可恢复")
+            }
+            // v3.9.40（#19）：就地编辑记忆
+            .alert("编辑这条记忆", isPresented: Binding(get: { editing != nil },
+                                                        set: { if !$0 { editing = nil } })) {
+                TextField("记忆内容", text: $editText)
+                Button("保存") {
+                    if let o = editing { Task { await update(old: o) } }
+                    editing = nil
+                }
+                Button("取消", role: .cancel) { editing = nil }
             }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -143,6 +168,26 @@ struct MemoryView: View {
     private func remove(_ text: String) async {
         if let j = try? await auth.json("/api/memory/delete", method: "POST", body: ["text": text]) {
             entries = j["entries"] as? [String] ?? entries
+        }
+    }
+
+    /// v3.9.40（#19）：就地编辑一条记忆（后端 /api/memory/update 保位置改写）
+    private func update(old: String) async {
+        let t = editText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard t.count >= 2 else {
+            message = (false, "内容至少 2 个字")
+            return
+        }
+        guard t != old else { return }   // 没改动就不打接口
+        busy = true
+        defer { busy = false }
+        if let j = try? await auth.json("/api/memory/update", method: "POST",
+                                        body: ["old": old, "text": t]) {
+            let ok = (j["ok"] as? Bool) ?? false
+            message = (ok, j["message"] as? String ?? (ok ? "已更新" : "更新失败"))
+            entries = j["entries"] as? [String] ?? entries
+        } else {
+            message = (false, "请求失败")
         }
     }
 }

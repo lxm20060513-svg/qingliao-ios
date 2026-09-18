@@ -1642,19 +1642,15 @@ struct ChatView: View {
     }
 
     /// v3.0.15：流式输出气泡——拆独立计算属性（防 messageList 巨型 body type-check 超时）
+    /// v3.9.40（#3）：真正渲染交给 StreamingBubbleView——displayContent 每 48ms 的写入只失效那条气泡，
+    /// 不再让 ChatView.body（连同整份 LazyVStack 消息列表）跟着逐 tick 重画。
     @ViewBuilder
     private var streamingBubble: some View {
-        MessageBubble(
-            // v3.4.20：读 displayContent（打字机平滑层）——本地/云端流式观感从"整段跳变"变"逐字流"
-            message: ChatMessage(role: "assistant", content: stream.displayContent, timestamp: nil, agent: stream.isAgent),
+        StreamingBubbleView(
             onAIImageTap: { url in openAIImage(url) },   // v2.0.128：流式中 AI 图片可点（参数须在 streamingAvatar 前）
-            onFileTap: { url, name in openAIFile(url, name) },   // v3.9.17：流式中 AI 生成物可点
-            streamingAvatar: true,   // v3.0.15：AI 输出中头像 = 粒子球
-            streamingText: true   // v3.0.17：流式长文用 SwiftUI Text 渲染（根治 UITextView 锁窄缩小）
+            onFileTap: { url, name in openAIFile(url, name) }   // v3.9.17：流式中 AI 生成物可点
         )
         .id("streaming")
-        // v3.9.30：流式增量落进同一气泡 → 高度/排版变化走 settle 平滑生长（原瞬跳）
-        .animation(Motion.settle, value: stream.displayContent)
     }
 
     private var messageList: some View {
