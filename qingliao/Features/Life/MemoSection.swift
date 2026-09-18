@@ -409,23 +409,27 @@ private struct MemoNoteCard: View {
         // v3.9.35：方案 A「卡内第二层」——元信息收进淡色小底（对比稿 rgba(120,120,128,.06) 圆角 12），
         // 与行情卡「数值在上、明细收小底在下」同一读法；小底属卡内 chip，走 Radius.chip 档
         //（护栏约定：共用卡组件内不出现 inset/field/hero 卡片级圆角，卡角唯一 = dashboardCard 16）
-        HStack(spacing: Spacing.xs) {
-            if item.pinned {
-                Image(systemName: "pin.fill")
+        // v3.9.35：Spacer 挪到背景外——原来 Spacer 在 HStack 里、background 挂整个 HStack，
+        // 胶囊被撑满卡宽；现在背景只包住内容，胶囊随文字自适应，Spacer 只负责靠左
+        HStack(spacing: 0) {
+            HStack(spacing: Spacing.xs) {
+                if item.pinned {
+                    Image(systemName: "pin.fill")
+                        .font(.system(size: Typography.tiny))
+                        .foregroundStyle(Color.accentColor)
+                }
+                // v3.9.14：来源用图标代替文字（省一行宽度，一眼看出从哪来的）
+                Image(systemName: item.sourceIcon)
                     .font(.system(size: Typography.tiny))
-                    .foregroundStyle(Color.accentColor)
+                Text(item.timeText)
+                    .font(.system(size: Typography.caption))
             }
-            // v3.9.14：来源用图标代替文字（省一行宽度，一眼看出从哪来的）
-            Image(systemName: item.sourceIcon)
-                .font(.system(size: Typography.tiny))
-            Text(item.timeText)
-                .font(.system(size: Typography.caption))
+            .foregroundStyle(.tertiary)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(Color.primary.opacity(Tint.faint), in: RoundedRectangle(cornerRadius: Radius.chip, style: .continuous))
             Spacer(minLength: 0)
         }
-        .foregroundStyle(.tertiary)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 3)
-        .background(Color.primary.opacity(Tint.faint), in: RoundedRectangle(cornerRadius: Radius.chip, style: .continuous))
     }
 }
 

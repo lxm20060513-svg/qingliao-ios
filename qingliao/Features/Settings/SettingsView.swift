@@ -197,9 +197,11 @@ struct SettingsView: View {
             AgentModelSheet()
                 .presentationDetents([.medium, .large])
         }
-        // v2.0.116：执行历史弹窗
+        // v2.0.116：执行历史弹窗（v3.9.35：补 presentationDetents——漏挂导致默认全屏，
+        // 与全站弹窗「默认半屏 medium、可上拉 large」不一致）
         .sheet(isPresented: $showHistory) {
             HistorySheet()
+                .presentationDetents([.medium, .large])
         }
         // v3.6.0：原「崩溃日志」行整合为「诊断」页（App 自身诊断：版本/设备/网络/后端连通性/
         // 崩溃与卡顿记录/一键复制导出/手动上报），崩溃日志查看导出在该页内，入口不再重复。
