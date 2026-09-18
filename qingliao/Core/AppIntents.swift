@@ -282,7 +282,7 @@ struct OpenDashboardIntent: AppIntent {
 
 struct OpenLifeIntent: AppIntent {
     static var title: LocalizedStringResource { "打开轻聊生活页" }
-    static var description: IntentDescription { IntentDescription("打开轻聊并切到生活页（天气 / 备忘 / 生活数据）") }
+    static var description: IntentDescription { IntentDescription("打开轻聊并切到生活页（备忘 / 待办 / 股票 · 资讯 / 快递）") }
 
     func perform() async throws -> some IntentResult & OpensIntent {
         .result(opensIntent: OpenURLIntent(try QingliaoDeepLink.openURL(.life)))

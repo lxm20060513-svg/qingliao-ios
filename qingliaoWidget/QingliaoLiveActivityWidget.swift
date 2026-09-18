@@ -15,7 +15,8 @@ import WidgetKit
 ///    v3.9.13 据此重做（用户报「动几下就不动了」）：球体本体仍是 `Canvas` 静态帧（已删掉徒劳的
 ///    `TimelineView`），而脉冲环 / 旋转弧 / 环上跑动短弧全部改由 `ContentState.spin` 驱动 +
 ///    `.animation(_, value: spin)` 过渡——过渡时长**由 `state.beatSeconds` 现算**
-///    （`min(1.95, 拍 - 0.08)`），与 App 侧真实拍间隔对齐，两拍之间只留不到 0.1s 的缝。
+///    （`OrbBeat.duration`，= `min(cap, max(floor, 拍 − leadIn))`），与 App 侧真实拍间隔对齐，
+///    两拍之间只留不到 0.1s 的缝。
 ///    **v3.9.37 修「动画还是会断」**：旧实现把过渡写死 1.1s（只匹配 1.2s 快档），
 ///    而长回答（>36s）后 App 侧降频到 2.5s 一拍 → 每拍尾部有约 1.4s 完全静止（顿挫）。
 ///    根因是「节奏只在 App 侧、挂件不知道」→ 现在节奏随数据下发，且慢档收到 2.0s
@@ -247,16 +248,15 @@ enum OrbPalette {
     static let fail = Color(red: 1.00, green: 0.27, blue: 0.23)        // #FF453A（v3.9.30 失败态）
 }
 
-/// 拍间隔（App 侧推手节奏）→ 挂件过渡时长的**唯一换算**（挂件内多处共用，别各写一份）。
+/// 拍间隔 → 挂件过渡时长的换算（**数值真源在共享的 `LiveActivityAttributes.swift` 里**，
+/// 主 App 的推手节奏也取同一份，别再往这里写数字）。
 ///
-/// 规则：过渡 = 拍间隔 − 0.08s，下限 0.45s、**上限 1.95s**。
-/// 上限来自 Apple 口径：实时活动里的动画最长 2 秒，超了不保证播完；
-/// 下限防拍间隔被写成异常小值时过渡退化成瞬跳。
-/// 写成 `enum` 静态命名空间而非 `static let`：Swift 6 严格并发下静态存储要求类型 Sendable，
+/// 这里只做 SwiftUI 包装：属性文件不 import SwiftUI，`Animation` 只在挂件侧需要。
+/// 写成 `enum` 静态命名空间而非 `static let Animation`：Swift 6 严格并发下静态存储要求类型 Sendable，
 /// `Animation` 的 Sendable 性不在本机可验证范围（Linux 无 SwiftUI）——函数零风险。
-enum OrbBeat {
+extension OrbBeat {
     static func animation(_ beat: Double) -> Animation {
-        .linear(duration: min(1.95, max(0.45, beat - 0.08)))
+        .linear(duration: duration(beat))
     }
 }
 
@@ -277,7 +277,7 @@ enum OrbBeat {
 /// - **脉冲环 / 旋转弧改用 SwiftUI 的 `Circle().stroke()` + `rotationEffect` / `frame` 表达，
 ///   由 `spin` 驱动**（App 侧每拍 update 推进 0.125）+ `.animation(…, value: spin)` 挂过渡：
 ///   动画是「随数据更新发生」的（Apple 文档明确支持，最长 2s），所以每拍系统会平滑播一段，
-///   1.1s 的过渡 ≈ 拍与拍之间几乎接得上（仅前 30 拍；之后拍间隔降为 2.5s，见文件头 ⚠️），观感上就是连续在转。
+///   过渡时长 ≈ 拍间隔（`OrbBeat.animation`），拍与拍之间几乎接得上 → 观感上就是连续在转。
 struct OrbView: View {
 
     var size: CGFloat
@@ -286,10 +286,12 @@ struct OrbView: View {
     ///   需要 0…1 循环量的地方自己取余并乘上想要的圈速（见 `pulseRings`）。
     /// 默认 0 → 首帧（没有任何 update 时）也画出完整的球 + 一段弧，不会空白。
     var spin: Double = 0
-    /// v3.9.37：**当前拍间隔（秒）**——由 `ContentState.beatSeconds` 透传进来。
-    /// 过渡时长按它现算（略短于拍间隔）：旧实现写死 1.1s，长回答时 App 侧降频到 2.5s 一拍，
-    /// 每拍尾部就多出 1.4s 静止段（用户报的「动画还是会断」）。默认 1.2 = 起步节奏。
-    var beat: Double = 1.2
+    /// v3.9.37：**当前拍间隔（秒）**——由 `ContentState.beatSeconds` 透传进来，过渡时长按它现算
+    /// （见 `OrbBeat.animation`）。旧实现写死 1.1s，长回答时 App 侧降频到慢档，每拍尾部就多出
+    /// 静止段（用户报的「动画还是会断」）。
+    /// ⚠️ **刻意不给默认值**：漏传就必须编译不过 —— 有默认值时会静默按起步节奏渲染，
+    /// 慢档下原地复现这次事故（4 处调用点全部显式透传）。
+    var beat: Double
 
     var body: some View {
         ZStack {
@@ -314,11 +316,12 @@ struct OrbView: View {
         // 1.08 时最大外径 ≈ 0.93 × size + 描边 ≈ 0.98 × size，**完全落在自身 frame 内**，
         // 所以「会不会被遮罩切」取决于 frame（紧凑 27 / 极简 24 / 展开 36 / 锁屏 46）本身不超出区域尺寸。
         ForEach(0..<2, id: \.self) { i in
-            // 相位：`spin` 每拍 +0.125，乘 5 后每拍走 0.625 圈 → 相位速率约 1.92s 一圈（对齐 v3.9.9 之前
+            // 相位：`spin` 每拍 +0.125，乘 5 后每拍走 0.625 圈 → 每拍 0.625 圈（秒数随档位变，
+            // 别再往注释里写死秒数：起点档 ≈1.9s 一圈、慢档 ≈3.2s 一圈。对齐 v3.9.9 之前
             // Canvas 版的 1.8s；那时删掉 Canvas 后这里一度是 9.6s 一圈，思考期球看起来像静图——
             // 第二轮静态审查抓到的观感回归）。
             // 口径（第三轮审查确认）：0.625 圈/拍是非整数，取余后采样序列是「两圈反相、交替胀缩」的
-            // 呼吸（8 拍覆盖 8 个离散尺寸，约 2.4s 一轮），**不是**单调外扩的一圈；d 与 opacity 恒反相，
+            // 呼吸（8 拍覆盖 8 个离散尺寸），**不是**单调外扩的一圈；d 与 opacity 恒反相，
             // 所以每拍都是「外扩+淡出」或「回缩+显影」，方向不矛盾。
             // ⚠️ 不要照「每拍整圈」写成 ×8：取余后每拍 p 完全相同 → SwiftUI 判定值未变、不重绘，反而彻底不动。
             let p = (spin * 5 + Double(i) * 0.5).truncatingRemainder(dividingBy: 1)
@@ -333,7 +336,8 @@ struct OrbView: View {
     }
 
     /// 输出中：不确定态旋转弧（不是进度，只是「在跑」）。
-    /// 弧长 0.30 圈，起点随 `spin` 每拍转 45°；1.1s 线性过渡接住两拍之间的空隙。
+    /// 弧长 0.30 圈，起点随 `spin` 每拍转 45°；线性过渡按本拍真实间隔算（`OrbBeat.animation`），
+    /// 接住两拍之间的空隙。
     private var spinningArc: some View {
         let d = size * 0.86 * 1.03
         return Circle()

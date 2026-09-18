@@ -52,17 +52,17 @@ struct QingliaoActivityAttributes: ActivityAttributes {
         /// 从 315° 插值回 0°，每轮（约 9.6s）倒着急扫一圈，与「一直在转」相反。
         /// 挂件要 0…1 的地方自己取余（如脉冲相位）。
         var spin: Double
-        /// v3.9.37：**当前拍间隔（秒）**——App 侧推手的节奏（前 30 拍 1.2s，之后 2.0s）。
+        /// v3.9.37：**当前拍间隔（秒）**——App 侧推手的节奏（起步 `OrbBeat.fast`，长回答后 `OrbBeat.slow`）。
         /// 为什么必须下发给挂件：挂件的过渡时长要「略短于拍间隔」才不会在两拍之间留静止段。
         /// 原来挂件写死 1.1s，而长回答（>36s）后 App 侧放慢到 2.5s 一拍 → 每拍有约 1.4s
         /// 完全静止（用户报的「灵动岛动画还是会断」＝这个顿挫）。
-        /// 现在两侧共用同一个数：过渡 = `min(1.95, 拍 - 0.08)`（>2s 的过渡 Apple 侧不保证播完）。
+        /// 现在两侧共用同一个数：过渡 = `OrbBeat.duration(拍)`（>2s 的过渡 Apple 侧不保证播完）。
         var beatSeconds: Double
 
         init(sessionTitle: String, modelName: String, startedAt: Date, isAnswering: Bool,
              phase: String = QingliaoActivityAttributes.Phase.thinking.rawValue,
              actionText: String = "", canStop: Bool = false,
-             progress: Double = 0.18, spin: Double = 0, beatSeconds: Double = 1.2) {
+             progress: Double = 0.18, spin: Double = 0, beatSeconds: Double = OrbBeat.fast) {
             self.sessionTitle = sessionTitle
             self.modelName = modelName
             self.startedAt = startedAt
@@ -100,10 +100,41 @@ struct QingliaoActivityAttributes: ActivityAttributes {
             // 合成解码会抛 keyNotFound 导致灵动岛整块空白（v3.9.7 加 phase 时踩过同一个坑）
             spin = try c.decodeIfPresent(Double.self, forKey: .spin) ?? 0
             // v3.9.37：旧活动缺这个键 → 按 1.2s 一拍渲染（= 与新推手起步节奏一致，不会跳变）
-            beatSeconds = try c.decodeIfPresent(Double.self, forKey: .beatSeconds) ?? 1.2
+            beatSeconds = try c.decodeIfPresent(Double.self, forKey: .beatSeconds) ?? OrbBeat.fast
         }
     }
 
     /// 静态数据：创建后不变
     var sessionId: String
+}
+
+
+/// 实时活动「拍间隔（App 侧推手节奏）→ 挂件过渡时长」的**唯一真源**。
+///
+/// 为什么放在这个文件：主 App 与挂件**共编同一份源码**（project.yml 的 widget sources），
+/// 而节奏这个数两侧都必须用同一个——过渡略短于拍间隔，两拍之间才不会留静止段
+/// （留静止段就是用户报的「灵动岛动画还是会断」）。这套数字以前散在 4 处
+/// （App 侧 fastBeat/slowBeat、ContentState init 默认值、解码兜底、挂件 OrbView 默认值），
+/// 改一处别处不知道 → 静默回归。现在只有这里一份，其余全部引用它。
+///
+/// ⚠️ **不变量：`slow - leadIn ≤ cap`**（慢档的过渡也必须落在 Apple 的 2s 上限内兜得住）。
+/// 真值表 `scripts/qingliao_island/truth_table_progress.swift` 钉住了这条与「换档那一拍」的口径。
+enum OrbBeat {
+    /// 起步节奏：前 30 拍（约 36s）一拍。= 挂件过渡 1.12s，两拍之间只留 0.08s 缝。
+    static let fast: Double = 1.2
+    /// 长回答后的省电档。**别再回 2.5**：今天的过渡上限是 `cap` = 1.95s（随本档一起引入），
+    /// 2.5 − 1.95 = 0.55s 静止段会每拍出现一次。（本次事故的真实根因是更早那版
+    /// 「拍 2.5s + 挂件写死过渡 1.1s = 每拍静止 1.4s」。）
+    static let slow: Double = 2.0
+    /// 过渡比拍间隔早收尾这么多（给相邻两段动画留缝，避免首尾相压）。
+    static let leadIn: Double = 0.08
+    /// Apple 口径：实时活动里的动画最长 2s，超了不保证播完 → 上限取 1.95s。
+    static let cap: Double = 1.95
+    /// 下限：拍间隔被写成异常小值时，别让过渡退化成瞬跳。
+    static let floor: Double = 0.45
+
+    /// 数值换算（本文件刻意不 import SwiftUI；挂件的 `animation(_:)` 只是它外面包一层）。
+    static func duration(_ beat: Double) -> Double {
+        min(cap, max(floor, beat - leadIn))
+    }
 }

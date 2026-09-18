@@ -12,8 +12,8 @@ import Foundation
 ///   改为：只存 Sendable 状态（sessionId/时间/标题/模型/阶段），每次从 `Activity.activities`
 ///   现取新鲜值再用，这样送进 nonisolated async 方法的是「新值/无隔离归属的值」。
 /// - **状态推进只由主 App 进程驱动**（v3.9.13 更新口径）：实时活动**没有连续帧源**，所以
-///   球上/环上的「在动」全部靠这里按节拍 `update`（1.2s 一拍，长任务 2.5s），挂件侧只用
-///   `ContentState.spin` 驱动旋转/脉冲 + 一个与拍间隔对齐的过渡动画。**不要再往挂件里塞
+///   球上/环上的「在动」全部靠这里按节拍 `update`（起步档 / 慢档见 `OrbBeat.fast` / `OrbBeat.slow`，
+///   同一份数也下发给挂件），挂件侧只用 `ContentState.spin` 驱动旋转/脉冲 + 按本拍间隔算的过渡动画。**不要再往挂件里塞
 ///   `TimelineView(.animation)` 这类自走帧源**——它在实时活动里不成立。
 ///   App 被系统挂起后拍不动（免费签名无 APNs，无法远程续推），画面会停在最后一拍，
 ///   这是框架边界，不是缺陷；真机复测请在 App 前台观察。
@@ -70,14 +70,13 @@ final class LiveActivityManager {
     /// 挂件的过渡时长要「略短于拍间隔」，两侧必须用同一个数；只在推手换档（30 拍后）时变。
     private var lastBeat: Double = LiveActivityManager.fastBeat
 
-    /// v3.9.37：推手节奏与挂件过渡的唯一真源。
-    /// - `fastBeat`：起步节奏，挂件过渡 ≈1.1s，两拍之间只留 0.1s 缝（观感连续）。
-    /// - `slowBeat`：长回答（>30 拍 ≈36s）后放慢省电。**原为 2.5s，现改 2.0s**：
-    ///   挂件过渡上限受 Apple 「≤2s」约束（取 1.95s），拍间隔 2.5s 时每拍必然留 0.55s
-    ///   静止段——这正是用户报的「动画还是会断」。2.0s 拍 + 1.95s 过渡只留 0.05s 缝，
-    ///   代价是长回答里每次唤醒早 0.5s（相对 10 分钟安全阀级别可忽略）。
-    static let fastBeat: Double = 1.2
-    static let slowBeat: Double = 2.0
+    /// v3.9.37：推手节奏——**数值真源在共享的 `OrbBeat`**（`LiveActivityAttributes.swift`，
+    /// 挂件也编同一份文件），这里只是给它起推手侧的名字，别再往本文件写数字。
+    /// - `fastBeat`：起步节奏（`OrbBeat.fast`，挂件过渡 1.12s，两拍之间只留 0.08s 缝）。
+    /// - `slowBeat`：长回答（>30 拍 ≈36s）后放慢省电（`OrbBeat.slow` = 2.0s。别再回 2.5s：
+    ///   2.5 超出挂件过渡上限 1.95s → 每拍必然留 0.55s 静止段）。
+    static let fastBeat: Double = OrbBeat.fast
+    static let slowBeat: Double = OrbBeat.slow
     /// 用多少拍走快速档（30 × 1.2s ≈ 36s，与旧实现的换档点一致，别顺手改）
     static let fastBeatCount = 30
 
@@ -277,7 +276,12 @@ final class LiveActivityManager {
                                                            phase: endPhase,
                                                            actionText: "",
                                                            canStop: false,
-                                                           progress: 1.0)
+                                                           progress: 1.0,
+                                                           // v3.9.37b：收尾帧也按真实节奏下发——
+                                                           // 不传就落 init 默认（起步档），慢档轮次收尾时
+                                                           // 与「两侧永远同一口径」相悖（当前完成态无 beat 消费者，
+                                                           // 属口径/健壮性收口）
+                                                           beatSeconds: lastBeat)
         let content = ActivityContent(state: state, staleDate: Date().addingTimeInterval(60))
 
         // 这期间又开始了新一轮 → 新活动不能被这一轮收尾碰到
@@ -367,12 +371,18 @@ final class LiveActivityManager {
             var ticks = 0
             var startedTicking = Date()
             while !Task.isCancelled {
-                // v3.9.37：拍间隔是**这一拍**的节奏，要和下面一起下发（挂件按它算过渡时长）；
-                // 换档只发生在 30 拍那一次，两拍之间不会跳变。
+                // v3.9.37：睡眠节奏与**下发给挂件**的节奏是两个数，别混：
+                //   · `beat`：本拍睡多久（换档恒在 30 拍那一次，与旧实现逐字一致）。
+                //   · `nextBeat`：这一拍 update 之后、下一次 update 到来之前的间隔 ——
+                //     挂件的过渡要撑到下一次 update 为止，所以必须下发**它**。
+                // v3.9.37b（发版前审查抓到）：原来下发 `beat`（刚睡过的那一拍）→ 第 30 拍
+                //   （ticks=29）下发 1.2 而实际间隔已是 2.0 → 每轮约 36s 处仍静止 0.88s，
+                //   「动画还是会断」残留一次。真值表钉住：ticks=29 必须下发慢档。
                 let beat = ticks < Self.fastBeatCount ? Self.fastBeat : Self.slowBeat
+                let nextBeat = (ticks + 1) < Self.fastBeatCount ? Self.fastBeat : Self.slowBeat
                 try? await Task.sleep(for: .seconds(beat))
                 guard !Task.isCancelled, let self else { return }
-                self.lastBeat = beat
+                self.lastBeat = nextBeat
                 guard self.currentSessionId != nil else { return }
                 if !Self.isEnabled { return }
                 // 兜底（正常路径由上面几处显式 stop 收）：阶段已不在忙碌就自行退出
