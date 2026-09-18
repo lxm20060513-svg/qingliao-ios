@@ -42,12 +42,7 @@ struct PinCard: View {
         }
         .padding(Spacing.xl)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(uiColor: .secondarySystemGroupedBackground),
-                     in: RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: Radius.inset, style: .continuous)
-                .strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8)
-        )
+        .dashboardCard()   // v3.9.34 收口：原手搓 inset(12) 卡底并入全站卡口径（16 + Tint.line + 柔影）
         .contextMenu {
             Button {
                 UIPasteboard.general.string = pin.content

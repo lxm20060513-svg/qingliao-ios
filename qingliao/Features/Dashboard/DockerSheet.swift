@@ -260,12 +260,8 @@ struct DockerContainerCard: View {
         }
         .padding(Spacing.xl)
         .frame(height: 96, alignment: .top)   // v2.0.81：固定高度 → 所有卡片等高统一
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .overlay(
-            RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
-                .strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+        .dashboardCard()
+        // v3.9.34 收口：手搓卡底并入 .dashboardCard()（v3.9.35 起自带柔影+Tint.line 描边）
         // 单击停止 / 长按删除 提示
         .contentShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
     }
@@ -338,12 +334,7 @@ private struct DockerImageCard: View {
         }
         .padding(Spacing.xl)
         .frame(height: 96, alignment: .top)   // 与容器卡等高
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .overlay(
-            RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
-                .strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+        .dashboardCard()
     }
 }
 
@@ -423,11 +414,7 @@ private struct ContainerSection: View {
             }
         }
         .padding(Spacing.xxl)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: Radius.card))
-        .overlay(
-            RoundedRectangle(cornerRadius: Radius.card)
-                .strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8)
-        )
+        .dashboardCard()
     }
 }
 
@@ -483,11 +470,7 @@ private struct ImageSection: View {
             }
         }
         .padding(Spacing.xxl)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: Radius.card))
-        .overlay(
-            RoundedRectangle(cornerRadius: Radius.card)
-                .strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8)
-        )
+        .dashboardCard()
     }
 }
 
@@ -592,11 +575,7 @@ private struct DeploySection: View {
                        || yaml.trimmingCharacters(in: .whitespaces).isEmpty ? 0.5 : 1)
         }
         .padding(Spacing.xxl)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: Radius.card))
-        .overlay(
-            RoundedRectangle(cornerRadius: Radius.card)
-                .strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8)
-        )
+        .dashboardCard()
 
         // 结果提示
         if let m = message {
