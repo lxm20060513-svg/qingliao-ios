@@ -67,6 +67,9 @@ struct HistorySheet: View {
                         }
                     }
                     .environment(\.editMode, $editMode)
+                    // v3.9.35：清掉 List 自带白底，透出系统玻璃弹窗底（v3.9.22 只挂在 sheet
+                    // 外壳上，对 NavigationStack 内的 List 不生效 → 全站就这弹窗白底）
+                    .scrollContentBackground(.hidden)
                 }
             }
             .navigationTitle("执行历史")
