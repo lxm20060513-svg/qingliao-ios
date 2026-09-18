@@ -31,6 +31,9 @@ struct FilesManagerSheet: View {
 
     @State private var entries: [RemoteFileEntry] = []
     @State private var cwd = ""                                   // 相对上传目录（"" = 根）
+    /// v3.9.38：加载代际。下拉刷新 / 首载 / 返回上级 / 删除后回读会各自发起 load()，
+    /// 用序号保证「只有最后一次的结论算数」——否则晚到的失败会把已到手的成功结果顶掉（用户看到假的「加载失败」）
+    @State private var loadSeq = 0
     @State private var uploadDir = ""
     @State private var countText = ""
     @State private var loading = true                             // 首屏/重试加载态（列表空时才占据内容区）
@@ -164,13 +167,44 @@ struct FilesManagerSheet: View {
     private var content: some View {
         if loading && entries.isEmpty {
             loadingView
-        } else if let err = errorText {
+        } else if entries.isEmpty, let err = errorText {
+            // 没有任何内容可显示 → 整块错误态（带重试）
             errorView(err)
         } else if entries.isEmpty {
             emptyView
         } else {
+            // v3.9.38：列表已有内容时，刷新失败**不覆盖列表**（原来整块被错误态顶掉，
+            // 用户看到的就是「一下拉刷新就提示加载失败」），只在列表上方挂一条可重试的提示
+            if let err = errorText { refreshFailedNotice(err) }
             entryList
         }
+    }
+
+    /// v3.9.38：刷新失败的轻提示（列表已有内容时的降级形态，不吞掉已加载的列表）
+    private func refreshFailedNotice(_ message: String) -> some View {
+        HStack(spacing: Spacing.md) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: Typography.subhead))
+                .foregroundStyle(.orange)
+            VStack(alignment: .leading, spacing: Spacing.xxs) {
+                Text("刷新失败").font(.system(size: Typography.subhead, weight: .semibold))
+                Text(message)
+                    .font(.system(size: Typography.caption))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+            Spacer(minLength: Spacing.xs)
+            Button {
+                Haptics.tap()
+                Task { await load() }
+            } label: {
+                Text("重试").pill(.primary, tone: .accent)
+            }
+            .buttonStyle(PressStyle(scale: 0.96))
+        }
+        .padding(.horizontal, Spacing.xxl)
+        .padding(.vertical, Spacing.lg)
+        .glassListCard()
     }
 
     private var loadingView: some View {
@@ -266,6 +300,10 @@ struct FilesManagerSheet: View {
 
     @MainActor
     private func load() async {
+        // v3.9.38：代际护栏（见 loadSeq 注释）。SwiftUI 在弹窗 dismiss / 回收刷新控件时会取消
+        // 刷新那次 Task —— 取消不是加载失败，绝不能据此画「加载失败」错误态。
+        loadSeq &+= 1
+        let seq = loadSeq
         loading = true
         errorText = nil
         // 上传目录只在首次/路径为空时读（失败不影响列表，header 显示"读取中…"）
@@ -277,6 +315,7 @@ struct FilesManagerSheet: View {
             : "/api/files/list?path=" + RemoteFiles.queryEncoded(cwd)
         do {
             let j = try await auth.json(q)
+            guard seq == loadSeq else { return }      // 已有更新的一轮在跑/跑完 → 丢弃本次结果
             // 响应必须是 {"entries":[…]}; 形状不对按失败提示（不静默退化成"空目录"）
             // 用 `as?` 绑定数组（`obj["entries"]` 是 Any?，条件绑定直接拿到底层 [[String: Any]]）
             guard let rawEntries = j["entries"] as? [[String: Any]] else {
@@ -289,11 +328,21 @@ struct FilesManagerSheet: View {
                 dir: RemoteFiles.intValue(j["dir_count"]),
                 file: RemoteFiles.intValue(j["file_count"])
             )
+            errorText = nil          // 成功即清账（原实现只在开头清 → 一次失败会一直盖着后来的成功结果）
             loading = false
         } catch {
-            errorText = filesFailureReason(error)
+            guard seq == loadSeq else { return }
             loading = false
+            if Self.isCancellation(error) { return }   // 被取消（关弹窗/回收刷新控件）不是失败
+            errorText = filesFailureReason(error)
         }
+    }
+
+    /// 取消类错误判定：`CancellationError`（SwiftUI 取消 Task）与 `URLError.cancelled`(-999)
+    private static func isCancellation(_ error: Error) -> Bool {
+        if error is CancellationError { return true }
+        if let u = error as? URLError, u.code == .cancelled { return true }
+        return false
     }
 
     // MARK: 打开 / 预览
