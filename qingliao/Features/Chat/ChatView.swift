@@ -459,7 +459,9 @@ struct ChatView: View {
         } label: {
             // v3.9.9（用户要求）：**只留图标、不要文字**——header 上多一个"朗读"两字太占宽
             // （与思考档位胶囊同处一行，窄屏会把标题挤掉）。语义靠图标 + accessibilityLabel 表达。
-            Image(systemName: autoReadReply ? "speaker.wave.2.fill" : "speaker.slash")
+            // v3.9.37（用户要求）：两态共用同一枚喇叭图标，只靠颜色区分——启用蓝(accent) / 禁用灰(secondary)；
+            // 原禁用态用的是 speaker.slash（带斜杠），用户要求改成「灰色喇叭」即可
+            Image(systemName: "speaker.wave.2.fill")
                 .font(.system(size: Typography.caption, weight: .semibold))
                 .foregroundStyle(autoReadReply ? Color.accentColor : Color.secondary)
                 .padding(.horizontal, Spacing.md)

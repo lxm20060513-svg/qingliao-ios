@@ -411,6 +411,11 @@ private struct MemoNoteCard: View {
         //（护栏约定：共用卡组件内不出现 inset/field/hero 卡片级圆角，卡角唯一 = dashboardCard 16）
         // v3.9.35：Spacer 挪到背景外——原来 Spacer 在 HStack 里、background 挂整个 HStack，
         // 胶囊被撑满卡宽；现在背景只包住内容，胶囊随文字自适应，Spacer 只负责靠左
+        //
+        // v3.9.37（用户要求）：**时间胶囊拿掉、不再要胶囊点缀** —— Radius.chip 小底整层删除，
+        // 元信息回到纯文字（时间、来源图标都是裸文本 + 间距）。
+        // 另：**页级单卡（compact）连时间也不显示**（用户原话「在卡片首页连时间也不要显示，弹窗页显示即可」）
+        // —— 时间只在弹窗页出现：「全部备忘」列表行（compact=false）与详情页（item.subtitle）。
         HStack(spacing: 0) {
             HStack(spacing: Spacing.xs) {
                 if item.pinned {
@@ -421,13 +426,12 @@ private struct MemoNoteCard: View {
                 // v3.9.14：来源用图标代替文字（省一行宽度，一眼看出从哪来的）
                 Image(systemName: item.sourceIcon)
                     .font(.system(size: Typography.tiny))
-                Text(item.timeText)
-                    .font(.system(size: Typography.caption))
+                if !compact {
+                    Text(item.timeText)
+                        .font(.system(size: Typography.caption))
+                }
             }
             .foregroundStyle(.tertiary)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .background(Color.primary.opacity(Tint.faint), in: RoundedRectangle(cornerRadius: Radius.chip, style: .continuous))
             Spacer(minLength: 0)
         }
     }

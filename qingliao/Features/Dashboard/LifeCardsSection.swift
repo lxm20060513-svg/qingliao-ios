@@ -3,6 +3,10 @@ import UIKit
 
 // MARK: - v3.5.x 看板「生活数据」卡片区（行情 + 资讯 + 快递 + 价格监控）
 //
+// v3.9.37（用户要求）：**栏目标题「生活数据」改名为「股票」**——这一栏标题行下面紧跟的就是行情卡网格
+//          （资讯有自己的页级标题行，快递/价格卡自带卡面说明），旧名与内容对不上，故按用户口径更名；
+//          同步改：空态文案去「生活数据」字样、折叠箭头无障碍标签。
+//
 // v3.9.32：快递 / 价格监控从「占位小字」升级为真卡片（LifeExpressCardView / LifePriceCardView，
 //          同目录 LifeExpressPriceCards.swift）；后端 packages / items 为空时仍走占位小字，
 //          **不渲染空卡**。
@@ -51,7 +55,8 @@ struct LifeCardsSection: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            Text("生活数据")
+            // v3.9.37：栏目标题「生活数据」→「股票」（用户要求；本标题行下面紧跟的是行情卡网格）
+            Text("股票")
                 .font(.system(size: Typography.body, weight: .bold))
             Spacer(minLength: 0)
             if loading {
@@ -82,7 +87,7 @@ struct LifeCardsSection: View {
                     .frame(width: 26, height: 22)
             }
             .buttonStyle(PressStyle(scale: 0.9))
-            .accessibilityLabel(expanded ? "收起生活数据" : "展开生活数据")
+            .accessibilityLabel(expanded ? "收起股票" : "展开股票")
         }
         .padding(.top, Spacing.sm)
     }
@@ -114,7 +119,7 @@ struct LifeCardsSection: View {
                     }
                 }
             } else {
-                noteCard(icon: "chart.line.uptrend.xyaxis", text: "暂无生活数据 · 点刷新")
+                noteCard(icon: "chart.line.uptrend.xyaxis", text: "暂无数据 · 点刷新")
             }
         } else if !data.hasContent {
             // v3.9.32：一条行情/资讯都没有时——快递/价格有真数据就先渲染真卡（不空白），
@@ -202,7 +207,7 @@ struct LifeCardsSection: View {
         }
     }
 
-    // MARK: v3.9.17 博客/资讯（标题行搬到卡片外，与「生活数据」同款页级标题）
+    // MARK: v3.9.17 博客/资讯（标题行搬到卡片外，与「股票」同款页级标题）
 
     private var rssSection: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -211,7 +216,7 @@ struct LifeCardsSection: View {
         }
     }
 
-    /// 与 header（「生活数据」）同款：粗体 15pt 标题 + Spacer + 淡色胶囊 + 折叠箭头
+    /// 与 header（「股票」）同款：粗体 15pt 标题 + Spacer + 淡色胶囊 + 折叠箭头
     private var rssHeader: some View {
         HStack(spacing: 8) {
             Text("博客/资讯")
