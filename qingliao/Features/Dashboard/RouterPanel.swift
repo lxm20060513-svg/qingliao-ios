@@ -89,7 +89,7 @@ struct RouterPanel: View {
                         .foregroundStyle(Color.accentColor)
                         .padding(.horizontal, Spacing.lg)
                         .padding(.vertical, Spacing.xs)
-                        .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
+                        .glassPillStroke()
                 }
                 .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
                 .disabled(router.busy)

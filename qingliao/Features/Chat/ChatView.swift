@@ -439,7 +439,7 @@ struct ChatView: View {
             .foregroundStyle(Color.accentColor)
             .padding(.horizontal, Spacing.md)
             .padding(.vertical, Spacing.sm)          // v3.6.5：触摸区抬到 ~46×24（贴近 HIG 44pt 下限）
-            .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
+            .glassPillStroke()
             .contentShape(Capsule())
         }
         .buttonStyle(PressStyle())
@@ -1136,7 +1136,7 @@ struct ChatView: View {
                     .font(.system(size: Typography.subhead, weight: .semibold))
                     .padding(.horizontal, Spacing.lg)
                     .padding(.vertical, Spacing.xs)
-                    .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
+                    .glassPillStroke()
             }
             .buttonStyle(PressStyle())
             .foregroundStyle(Color.accentColor)

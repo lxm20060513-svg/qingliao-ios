@@ -62,7 +62,9 @@ enum PillTone {
 
     var bg: Color {
         switch self {
-        case .accent: return Color.accentColor.opacity(Tint.subtle)
+        case .accent:
+            // v3.9.36：accent 底已改原生玻璃（见 PillBackground），此分支仅保 switch 穷尽
+            return Color.accentColor.opacity(Tint.subtle)
         case .danger: return Color.red.opacity(Tint.subtle)
         case .neutral: return Color.secondary.opacity(Tint.subtle)
         }
@@ -91,13 +93,38 @@ enum PillTone {
 
 extension View {
     /// 操作胶囊统一入口（尺寸 + 色调一处定义，改口径只改这里）
+    ///
+    /// v3.9.36 用户拍板（方案稿 2026-09-18）：**accent（蓝色系）底改原生液态玻璃**
+    /// `glassEffect(.regular.interactive())`——照 dock 实战定版写法：玻璃挂在交互控件
+    /// 的 padding 后内容上（background 装饰层上 interactive() 无效）；
+    /// danger / neutral 保持淡底不动（用户：红/灰危险色不上玻璃）。
+    /// 注：glassEffect 默认形状即 Capsule，与原 `in: Capsule()` 一致。
+    @ViewBuilder
     func pill(_ size: PillSize, tone: PillTone = .accent) -> some View {
+        if tone == .accent {
+            self
+                .font(.system(size: size.fontSize))
+                .foregroundStyle(tone.fg)
+                .padding(.horizontal, size.hPad)
+                .padding(.vertical, size.vPad)
+                .glassEffect(.regular.interactive())
+                .overlay(Capsule().strokeBorder(tone.stroke, lineWidth: 0.8))
+        } else {
+            self
+                .font(.system(size: size.fontSize))
+                .foregroundStyle(tone.fg)
+                .padding(.horizontal, size.hPad)
+                .padding(.vertical, size.vPad)
+                .background(tone.bg, in: Capsule())
+                .overlay(Capsule().strokeBorder(tone.stroke, lineWidth: 0.8))
+        }
+    }
+
+    /// v3.9.36：散装操作胶囊的玻璃底出口（19 处）——尺寸/字号沿用各处现状只换底，
+    /// 描边与 pill(.accent) 同参（accent 0.28 / 0.8pt）。徽标/标签类禁用（见 Pill.swift 头注释）。
+    func glassPillStroke() -> some View {
         self
-            .font(.system(size: size.fontSize))
-            .foregroundStyle(tone.fg)
-            .padding(.horizontal, size.hPad)
-            .padding(.vertical, size.vPad)
-            .background(tone.bg, in: Capsule())
-            .overlay(Capsule().strokeBorder(tone.stroke, lineWidth: 0.8))
+            .glassEffect(.regular.interactive())
+            .overlay(Capsule().strokeBorder(Color.accentColor.opacity(0.28), lineWidth: 0.8))
     }
 }

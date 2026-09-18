@@ -368,7 +368,7 @@ private struct ContainerSection: View {
                     .foregroundStyle(Color.accentColor)
                     .padding(.horizontal, Spacing.lg)
                     .padding(.vertical, Spacing.sm)
-                    .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
+                    .glassPillStroke()
                 }
                 .buttonStyle(.plain)
             }

@@ -85,7 +85,7 @@ struct CardGallerySheet: View {
                     .font(.system(size: Typography.caption, weight: .medium))
                     .padding(.horizontal, Spacing.lg)
                     .padding(.vertical, Spacing.sm)
-                    .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
+                    .glassPillStroke()
             }
             .buttonStyle(PressStyle())
         }

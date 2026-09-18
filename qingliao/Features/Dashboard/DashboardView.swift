@@ -254,7 +254,7 @@ struct DashboardView: View {
                             .font(.system(size: Typography.tiny))
                             .padding(.horizontal, Spacing.lg)
                             .padding(.vertical, Spacing.xs)
-                            .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
+                            .glassPillStroke()
                     }
                     .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
                     .foregroundStyle(Color.accentColor)
@@ -280,7 +280,7 @@ struct DashboardView: View {
                         .font(.system(size: Typography.subhead, weight: .medium))
                         .padding(.horizontal, Spacing.xxl)
                         .padding(.vertical, Spacing.sm)
-                        .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
+                        .glassPillStroke()
                 }
                 .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
                 .foregroundStyle(Color.accentColor)
@@ -335,7 +335,7 @@ struct DashboardView: View {
                         .foregroundStyle(Color.accentColor)
                         .padding(.horizontal, Spacing.lg)
                         .padding(.vertical, Spacing.xs)
-                        .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
+                        .glassPillStroke()
                 }
                 .buttonStyle(PressStyle())
             }
@@ -386,7 +386,7 @@ struct DashboardView: View {
                         .foregroundStyle(Color.accentColor)
                         .padding(.horizontal, Spacing.lg)
                         .padding(.vertical, Spacing.xs)
-                        .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
+                        .glassPillStroke()
                 }
                 .buttonStyle(PressStyle())
             }

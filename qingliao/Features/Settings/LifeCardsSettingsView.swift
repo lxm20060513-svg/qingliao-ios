@@ -556,7 +556,7 @@ struct LifeCardsSettingsView: View {
             .foregroundStyle(Color.accentColor)
             .padding(.horizontal, Spacing.lg)
             .padding(.vertical, Spacing.xs)
-            .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
+            .glassPillStroke()
         }
         .buttonStyle(PressStyle())
     }
@@ -645,7 +645,7 @@ struct LifeCardsSettingsView: View {
             .foregroundStyle(Color.accentColor)
             .padding(.horizontal, Spacing.xxl)
             .padding(.vertical, Spacing.sm)
-            .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
+            .glassPillStroke()
         }
         .buttonStyle(PressStyle())
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1016,7 +1016,7 @@ struct LifeHeaderEditor: View {
                         .foregroundStyle(Color.accentColor)
                         .padding(.horizontal, Spacing.lg)
                         .padding(.vertical, Spacing.xs)
-                        .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
+                        .glassPillStroke()
                 }
                 .buttonStyle(PressStyle())
             }

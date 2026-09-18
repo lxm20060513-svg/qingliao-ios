@@ -708,7 +708,7 @@ struct ModelSheet: View {
                         .font(.system(size: Typography.caption, weight: .medium))
                         .foregroundStyle(Color.accentColor)
                         .padding(.horizontal, Spacing.lg).padding(.vertical, Spacing.xs)
-                        .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
+                        .glassPillStroke()
                 }
                 .buttonStyle(.plain)
             }
@@ -893,7 +893,7 @@ struct ModelSheet: View {
                         .foregroundStyle(Color.accentColor)
                         .padding(.horizontal, Spacing.lg)
                         .padding(.vertical, Spacing.xs)
-                        .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
+                        .glassPillStroke()
                 }
                 .buttonStyle(.plain)
             }
@@ -1282,7 +1282,7 @@ struct WechatChannelSheet: View {
                                     Text("重试")
                                         .font(.system(size: Typography.subhead, weight: .medium))
                                         .padding(.horizontal, 18).padding(.vertical, Spacing.sm)
-                                        .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
+                                        .glassPillStroke()
                                         .foregroundStyle(Color.accentColor)
                                 }
                                 .buttonStyle(.plain)
@@ -1635,7 +1635,7 @@ struct AgentModelSheet: View {
                                         Text("重试")
                                             .font(.system(size: Typography.subhead, weight: .medium))
                                             .padding(.horizontal, 18).padding(.vertical, Spacing.sm)
-                                            .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
+                                            .glassPillStroke()
                                             .foregroundStyle(Color.accentColor)
                                     }
                                     .buttonStyle(.plain)
@@ -1736,7 +1736,7 @@ struct AgentModelSheet: View {
                         .font(.system(size: Typography.caption, weight: .medium))
                         .foregroundStyle(Color.accentColor)
                         .padding(.horizontal, Spacing.lg).padding(.vertical, Spacing.xs)
-                        .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
+                        .glassPillStroke()
                 }
                 .buttonStyle(.plain)
             }

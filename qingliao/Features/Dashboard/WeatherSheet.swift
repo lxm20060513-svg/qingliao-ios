@@ -124,7 +124,7 @@ struct WeatherSheet: View {
                         .font(.system(size: Typography.subhead, weight: .medium))
                         .padding(.horizontal, Spacing.xxl)
                         .padding(.vertical, Spacing.sm)
-                        .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
+                        .glassPillStroke()
                         .foregroundStyle(Color.accentColor)
                 }
                 .buttonStyle(PressStyle(scale: 0.94))
