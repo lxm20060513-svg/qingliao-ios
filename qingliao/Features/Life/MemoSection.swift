@@ -414,8 +414,9 @@ private struct MemoNoteCard: View {
         //
         // v3.9.37（用户要求）：**时间胶囊拿掉、不再要胶囊点缀** —— Radius.chip 小底整层删除，
         // 元信息回到纯文字（时间、来源图标都是裸文本 + 间距）。
-        // 另：**页级单卡（compact）连时间也不显示**（用户原话「在卡片首页连时间也不要显示，弹窗页显示即可」）
-        // —— 时间只在弹窗页出现：「全部备忘」列表行（compact=false）与详情页（item.subtitle）。
+        // 另：**页级单卡（compact）元信息一样都不显示**（用户原话「在卡片首页连时间也不要显示，弹窗页显示即可」+
+        // 「（来源图标）连图标也不要」）—— 时间与来源都只在弹窗页出现：
+        // 「全部备忘」列表行（compact=false）与详情页（item.subtitle）。置顶仍靠主题色描边识别（见上方罩层）。
         HStack(spacing: 0) {
             HStack(spacing: Spacing.xs) {
                 if item.pinned {
@@ -424,8 +425,11 @@ private struct MemoNoteCard: View {
                         .foregroundStyle(Color.accentColor)
                 }
                 // v3.9.14：来源用图标代替文字（省一行宽度，一眼看出从哪来的）
-                Image(systemName: item.sourceIcon)
-                    .font(.system(size: Typography.tiny))
+                // v3.9.37：页级单卡不再显示来源图标（用户「连图标也不要」），与时间同口径
+                if !compact {
+                    Image(systemName: item.sourceIcon)
+                        .font(.system(size: Typography.tiny))
+                }
                 if !compact {
                     Text(item.timeText)
                         .font(.system(size: Typography.caption))
