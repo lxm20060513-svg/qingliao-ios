@@ -142,9 +142,8 @@ struct BigBangView: View {
                                 Text(copied ? "已复制" : "复制 (\(selected.count))")
                             }
                             .font(.system(size: Typography.body, weight: .semibold))
-                            .foregroundStyle(fg)
-                            .padding(.horizontal, 20).padding(.vertical, Spacing.md)
-                            .background(Color.accentColor, in: Capsule())
+                            .frame(minWidth: 120)
+                            .pill(.primary)
                         }
                         .buttonStyle(.plain)
                         .disabled(selected.isEmpty)

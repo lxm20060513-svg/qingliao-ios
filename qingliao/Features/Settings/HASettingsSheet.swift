@@ -45,14 +45,13 @@ struct HASettingsSheet: View {
             } label: {
                 HStack {
                     Spacer()
-                    if saving { ProgressView().tint(.white) }
+                    if saving { ProgressView() }
                     else { Text("保存") }
                     Spacer()
                 }
-                .padding(.vertical, Spacing.lg)
-                .background(Color.accentColor, in: Capsule())
-                .foregroundStyle(.white)
                 .font(.system(size: Typography.body, weight: .semibold))
+                .frame(maxWidth: .infinity)
+                .pill(.primary)
             }
             .buttonStyle(.plain)
             .disabled(saving || address.isEmpty)

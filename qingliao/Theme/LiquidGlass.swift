@@ -80,6 +80,10 @@ struct DashboardCardStyle: ViewModifier {
     // v3.9.34：描边跟随深浅色。原先写死 Tint.faint（0.08）——深色下卡片边界几乎消失，
     // 且与设置页 GlassListCard 的 Tint.line（浅 0.08 / 深 0.16）不是一路。
     // 现统一走 Tint.line，档位/线宽（0.8pt）与 GlassListCard 完全同参，未新增档位。
+    // v3.9.35：方案 A「柔影精修」（用户从对比稿拍板）——层次不再只靠一条描边硬撑：
+    //   两层柔影（近层收边界 1px/6%、远层撑浮起 16px/5%），对应对比稿
+    //   box-shadow: 0 1px 2px rgba(0,0,0,.06), 0 6px 16px rgba(0,0,0,.05)。
+    //   深色下柔影物理不可见（纯黑底），层次仍由 Tint.line 描边承担——与对比稿结论一致。
     @Environment(\.colorScheme) private var scheme
 
     func body(content: Content) -> some View {
@@ -90,6 +94,8 @@ struct DashboardCardStyle: ViewModifier {
                     .strokeBorder(Tint.line(scheme), lineWidth: 0.8)
             )
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .shadow(color: .black.opacity(0.06), radius: 1, y: 1)
+            .shadow(color: .black.opacity(0.05), radius: 8, y: 3)
     }
 }
 

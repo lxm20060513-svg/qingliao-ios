@@ -368,13 +368,12 @@ struct NewTaskSheet: View {
             } label: {
                 HStack {
                     Spacer()
-                    if saving { ProgressView().tint(.white) } else { Text("保存任务") }
+                    if saving { ProgressView() } else { Text("保存任务") }
                     Spacer()
                 }
-                .padding(.vertical, Spacing.lg)
-                .background(Color.accentColor, in: Capsule())
-                .foregroundStyle(.white)
                 .font(.system(size: Typography.body, weight: .semibold))
+                .frame(maxWidth: .infinity)
+                .pill(.primary)
             }
             .buttonStyle(.plain)
             .disabled(saving || name.isEmpty || cron.isEmpty || prompt.isEmpty)

@@ -406,6 +406,9 @@ private struct MemoNoteCard: View {
     }
 
     private var metaRow: some View {
+        // v3.9.35：方案 A「卡内第二层」——元信息收进淡色小底（对比稿 rgba(120,120,128,.06) 圆角 12），
+        // 与行情卡「数值在上、明细收小底在下」同一读法；小底属卡内 chip，走 Radius.chip 档
+        //（护栏约定：共用卡组件内不出现 inset/field/hero 卡片级圆角，卡角唯一 = dashboardCard 16）
         HStack(spacing: Spacing.xs) {
             if item.pinned {
                 Image(systemName: "pin.fill")
@@ -420,6 +423,9 @@ private struct MemoNoteCard: View {
             Spacer(minLength: 0)
         }
         .foregroundStyle(.tertiary)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 3)
+        .background(Color.primary.opacity(Tint.faint), in: RoundedRectangle(cornerRadius: Radius.chip, style: .continuous))
     }
 }
 

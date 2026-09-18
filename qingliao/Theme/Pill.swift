@@ -75,6 +75,18 @@ enum PillTone {
         case .neutral: return Color.primary
         }
     }
+
+    // v3.9.35：同色细描边（方案 A「胶囊统一」落地）——淡底 + 同色文字 + 同色细描边三件套，
+    // 对应对比稿 border: .8px solid（accent 0.28 / neutral 0.22 / danger 0.28）。
+    // 白底下淡底胶囊易「化」在卡面上，细描边把边界收住；透明度仍走既有 Tint 档之外的字面值
+    //（描边浓淡与底浓淡不同参，不新增 Tint 档）。
+    var stroke: Color {
+        switch self {
+        case .accent: return Color.accentColor.opacity(0.28)
+        case .danger: return Color.red.opacity(0.28)
+        case .neutral: return Color.secondary.opacity(0.22)
+        }
+    }
 }
 
 extension View {
@@ -86,5 +98,6 @@ extension View {
             .padding(.horizontal, size.hPad)
             .padding(.vertical, size.vPad)
             .background(tone.bg, in: Capsule())
+            .overlay(Capsule().strokeBorder(tone.stroke, lineWidth: 0.8))
     }
 }

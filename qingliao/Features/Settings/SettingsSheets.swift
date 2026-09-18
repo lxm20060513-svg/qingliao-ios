@@ -90,10 +90,8 @@ struct ServerSheet: View {
                 } label: {
                     Text("保存并重新登录")
                     .font(.system(size: Typography.body, weight: .semibold))
-                    .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, Spacing.xl)
-                    .background(Color.accentColor, in: Capsule())
+                    .pill(.primary)
             }
             .buttonStyle(.plain)
             .padding(.horizontal, 18)
@@ -154,10 +152,8 @@ struct PinPathSheet: View {
                 } label: {
                     Text("确定")
                         .font(.system(size: Typography.body, weight: .semibold))
-                        .foregroundStyle(.white)
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, Spacing.xl)
-                        .background(Color.accentColor, in: Capsule())
+                        .pill(.primary)
                 }
                 .buttonStyle(.plain)
                 .padding(.horizontal, 18)
@@ -245,10 +241,8 @@ struct PasswordSheet: View {
             } label: {
                 Text(busy ? "提交中..." : "确认修改")
                     .font(.system(size: Typography.body, weight: .semibold))
-                    .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, Spacing.xl)
-                    .background(Color.accentColor, in: Capsule())
+                    .pill(.primary)
             }
             .buttonStyle(.plain)
             .padding(.horizontal, 18)
@@ -392,13 +386,12 @@ struct SessionLocSheet: View {
             } label: {
                 HStack {
                     Spacer()
-                    if saving { ProgressView().tint(.white) } else { Text("保存") }
+                    if saving { ProgressView() } else { Text("保存") }
                     Spacer()
                 }
-                .padding(.vertical, Spacing.xl)
-                .background(Color.accentColor, in: Capsule())
-                .foregroundStyle(.white)
                 .font(.system(size: Typography.body, weight: .semibold))
+                .frame(maxWidth: .infinity)
+                .pill(.primary)
             }
             .buttonStyle(.plain)
             .disabled(saving)

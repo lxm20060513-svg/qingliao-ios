@@ -249,10 +249,9 @@ struct CrashAlertSheet: View {
                         Label("导出日志", systemImage: "square.and.arrow.up")
                         Spacer()
                     }
-                    .padding(.vertical, Spacing.lg)
-                    .background(Color.accentColor, in: Capsule())
-                    .foregroundStyle(.white)
                     .font(.system(size: Typography.body, weight: .semibold))
+                    .frame(maxWidth: .infinity)
+                    .pill(.primary)
                 }
                 .buttonStyle(.plain)
                 if allowDismiss {

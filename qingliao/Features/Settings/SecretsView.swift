@@ -55,9 +55,8 @@ struct SecretsView: View {
                     } label: {
                         Text("解锁")
                             .font(.system(size: Typography.body, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 44).padding(.vertical, Spacing.lg)
-                            .background(Color.accentColor, in: Capsule())
+                            .frame(minWidth: 120)
+                            .pill(.primary)
                     }
                     .buttonStyle(.plain)
                     Spacer()
@@ -386,10 +385,9 @@ struct SecretEditSheet: View {
                     Text("保存")
                     Spacer()
                 }
-                .padding(.vertical, Spacing.lg)
-                .background(Color.accentColor, in: Capsule())
-                .foregroundStyle(.white)
                 .font(.system(size: Typography.body, weight: .semibold))
+                .frame(maxWidth: .infinity)
+                .pill(.primary)
             }
             .buttonStyle(.plain)
             .disabled(name.isEmpty || address.isEmpty || username.isEmpty)

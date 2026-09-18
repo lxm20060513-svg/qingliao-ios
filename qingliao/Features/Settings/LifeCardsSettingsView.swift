@@ -629,11 +629,9 @@ struct LifeCardsSettingsView: View {
     private func addCapsule(_ title: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             // v3.9.4：添加类胶囊只留文字（去图标）
-            Text(title).font(.system(size: Typography.subhead, weight: .semibold))
-            .foregroundStyle(.white)
-            .padding(.horizontal, Spacing.xxl)
-            .padding(.vertical, Spacing.md)
-            .background(Color.accentColor, in: Capsule())
+            // v3.9.35：实色底并入全站胶囊口径 topBar（淡底+同色细描边，用户拍板方案 A）
+            Text(title)
+            .pill(.topBar)
         }
         .buttonStyle(PressStyle())
     }

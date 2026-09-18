@@ -610,10 +610,8 @@ private struct FileRenameSheet: View {
             } label: {
                 Text(saving ? "保存中…" : "保存")
                     .font(.system(size: Typography.body, weight: .semibold))
-                    .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, Spacing.xl)
-                    .background(Color.accentColor, in: Capsule())
+                    .pill(.primary)
             }
             .buttonStyle(.plain)
             .disabled(saving || trimmed.isEmpty || unchanged || duplicated)
