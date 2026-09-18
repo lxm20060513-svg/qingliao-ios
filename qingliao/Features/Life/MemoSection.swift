@@ -40,6 +40,8 @@ struct MemoSection: View {
     @State private var draft = ""
     @State private var detail: MemoItem?
     @State private var pendingDelete: MemoItem?
+    /// v3.9.38：列表内左滑删除的二次确认（确认框挂在弹窗内部——宿主那个会在 sheet 之上被盖住）
+    @State private var pendingDeleteInList: MemoItem?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -190,8 +192,10 @@ struct MemoSection: View {
                 .padding(.horizontal, Spacing.section)
                 .padding(.top, Spacing.xl)
                 .padding(.bottom, Spacing.md)
-                ScrollView {
-                VStack(spacing: 8) {
+                // v3.9.38：容器由 ScrollView + VStack 换成 List（与「全部待办」同一套行容器）——
+                // ① zoom 转场放大落点＝卡片几何（行内边距/隐藏分隔线/透明行底，看上去仍是卡片）
+                // ② 左滑删除走系统手势（原来只能在长按菜单里删）
+                List {
                     ForEach(store.sorted) { m in
                         Button {
                             openDetailFromAll(m)
@@ -204,6 +208,16 @@ struct MemoSection: View {
                                           onDelete: { item in afterAllDismissed { pendingDelete = item } },
                                           onSend: { item in afterAllDismissed { sendToAI(item) } })
                         }
+                        .listRowInsets(EdgeInsets(top: 0, leading: Spacing.section,
+                                                  bottom: 8, trailing: Spacing.section))
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
+                    }
+                    // v3.9.38：左滑删除。确认框挂在弹窗内部（宿主那个被 sheet 盖住），
+                    // 确认后原地删掉——不收起弹窗（与长按菜单走 afterAllDismissed 的老路径不同）
+                    .onDelete { offsets in
+                        guard let first = offsets.first, store.sorted.indices.contains(first) else { return }
+                        pendingDeleteInList = store.sorted[first]
                     }
                     // v3.9.17：列表打开期间备忘被删空（远端合并等）不会只剩一个空面板
                     if store.sorted.isEmpty {
@@ -211,12 +225,28 @@ struct MemoSection: View {
                             .font(.system(size: Typography.subhead))
                             .foregroundStyle(.tertiary)
                             .padding(.vertical, 20)
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.clear)
                     }
                 }
-                .padding(Spacing.section)
-            }
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
             }
             .toolbar(.hidden, for: .navigationBar)
+            // v3.9.38：弹窗内的删除确认（与宿主那个同口径：说清删的是哪条、删后不可恢复）。
+            // 挂在弹窗内部是因为宿主那个 alert 在 sheet 之上会被盖住。
+            .alert("删除这条备忘？", isPresented: Binding(
+                get: { pendingDeleteInList != nil },
+                set: { if !$0 { pendingDeleteInList = nil } }
+            )) {
+                Button("删除", role: .destructive) {
+                    if let item = pendingDeleteInList { store.delete(item) }
+                    pendingDeleteInList = nil
+                }
+                Button("取消", role: .cancel) { pendingDeleteInList = nil }
+            } message: {
+                Text(pendingDeleteInList?.content.prefix(40).description ?? "")
+            }
         }
         .presentationDetents([.medium, .large])
         .navigationTransition(.zoom(sourceID: "memo-all", in: memoZoomNS))   // v3.9.20：从备忘录卡片放大展开

@@ -168,10 +168,25 @@ struct TodoSection: View {
                         }
                         .buttonStyle(PressStyle())
                         .contextMenu { todoMenuItems(t, onDelete: { pendingDelete = $0 }) }
+                        // v3.9.38：行容器口径与「全部备忘」逐项一致（卡片几何 + 无分隔线 + 透明行底）——
+                        // zoom 转场是「从卡片放大」，落点行必须与源卡片同宽同位，否则观感与备忘录弹窗不同
+                        .listRowInsets(EdgeInsets(top: 0, leading: Spacing.section,
+                                                  bottom: 8, trailing: Spacing.section))
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
                     }
                     .onDelete { offsets in
                         let targets = offsets.map { store.sorted[$0] }
                         for t in targets { store.delete(t) }
+                    }
+                    // v3.9.38：与「全部备忘」同款空态占位（列表打开期间被删空不剩空白面板）
+                    if store.sorted.isEmpty {
+                        Text("还没有待办")
+                            .font(.system(size: Typography.subhead))
+                            .foregroundStyle(.tertiary)
+                            .padding(.vertical, 20)
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.clear)
                     }
                 }
                 .listStyle(.plain)
