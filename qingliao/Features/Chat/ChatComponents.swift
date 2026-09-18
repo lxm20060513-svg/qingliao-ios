@@ -50,6 +50,8 @@ struct MessageBlockView: View {
     var onPin: ((String) -> Void)? = nil
     // v3.7.0：加入备忘录（长按菜单）——传当前段落/选中文字
     var onMemo: ((String) -> Void)? = nil
+    // v3.9.35：加入待办（长按菜单）——传当前段落/选中文字
+    var onTodo: ((String) -> Void)? = nil
     // v3.9.32：定时提醒（长按菜单）——传当前段落文字作为提醒内容
     // 主代理接线后（ChatView 传 onRemind）走调用方；未接线时本视图自己弹 QuickReminderSheet（兜底，见 requestRemind）
     var onRemind: ((String) -> Void)? = nil
@@ -168,6 +170,14 @@ struct MessageBlockView: View {
                 onMemo(blockPlainText)
             } label: {
                 Label("存备忘录", systemImage: "note.text")
+            }
+        }
+        // v3.9.35：加入待办——传当前段落文字
+        if let onTodo {
+            Button {
+                onTodo(blockPlainText)
+            } label: {
+                Label("加入待办", systemImage: "checklist")
             }
         }
         // v3.9.32：提醒我——一句话定时提醒（本地 UNCalendarNotificationTrigger，App 关了也响）

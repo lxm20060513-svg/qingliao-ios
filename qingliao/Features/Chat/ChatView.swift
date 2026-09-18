@@ -1470,6 +1470,11 @@ struct ChatView: View {
             if MemoStore.shared.add(content: text, source: "chat") {
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
             }
+        } onTodo: { text in
+            // v3.9.35：加入待办（整条气泡 / 选中片段）→ 生活页「待办清单」栏目
+            if TodoStore.shared.add(content: text, source: "chat") {
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+            }
         } onRemind: { text in
             // v3.9.32：长按「提醒我」——默认文案取该条消息内容
             reminderSeedText = text

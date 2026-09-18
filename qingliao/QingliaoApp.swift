@@ -44,6 +44,7 @@ struct QingliaoApp: App {
                     Task { _ = await SpeechManager.voiceCatalog() }
                     PinStore.shared.attach(auth: auth)
                     MemoStore.shared.attach(auth: auth)   // v3.7.0：备忘录（NAS 双写）
+                    TodoStore.shared.attach(auth: auth)   // v3.9.35：待办清单（NAS 双写）
                     InboxStore.shared.attach(auth: auth, chat: chat, stream: stream)
                     InboxStore.shared.startPolling()
                     // v3.1.5：启动自动加载上次会话消息（解决 App 重启后"忘记上下文"）

@@ -233,6 +233,12 @@ final class ChatStore {
     ///          回复区（锚点后、下一个 user 前）去重与插入，杜绝跨轮污染。
     func upsertAssistant(_ text: String, agent: Bool = false, afterUserID: String? = nil) {
         let ts = Date().timeIntervalSince1970 * 1000
+        // v3.9.35：AI 回复落库时自动提取待办（勾选框行 → 待办清单）。
+        // 挂在唯一落库口：正常完成/重试/恢复收尾全覆盖；addAuto 内部按内容去重，
+        // 同一条待办多轮重复产出不会重复收录。错误占位（⚠️ 前缀）不含勾选框，天然不触发。
+        if text.count >= 8, !text.hasPrefix("⚠️") {
+            TodoStore.shared.addAuto(from: text)
+        }
         // 🚨 v3.4.22 复读根治第一层：全历史精确查重（在所有分支之前）。
         // 实证（2026-09-08 晚 stream dump）：恢复链路 anchor 失配/重试路径会把同一条旧回答
         // 重复落库 3 次（msg1==msg3==msg7，1284 字完全相同）——原去重只查锚点同轮区域/末尾

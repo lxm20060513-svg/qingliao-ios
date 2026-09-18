@@ -33,8 +33,9 @@ struct LifeView: View {
             PageHeader(title: "生活", subtitle: "行情 · 资讯 · 快递 · 价格")
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 10) {
-                    // v3.7.0：备忘录栏目（排在「生活数据」之前）
+                    // v3.7.0：备忘录栏目（排在「生活数据」之前）；v3.9.35：待办清单紧随其后
                     MemoSection()
+                    TodoSection()
                     LifeCardsSection(data: life,
                                      loading: lifeLoading,
                                      error: lifeError,
