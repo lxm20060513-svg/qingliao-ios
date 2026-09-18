@@ -91,6 +91,21 @@ final class QingliaoAppDelegate: NSObject, UIApplicationDelegate,
         }
         completionHandler()
     }
+
+    /// v3.9.39 A6：**前台到点不响**的根治。Apple 的规则是「设了 delegate 但没实现 willPresent
+    /// ⇒ 前台来的通知不弹横幅、不出声、也不进通知中心（直接丢弃）」。本类自 v2.0.60 起就是全仓
+    /// 唯一的 UNUserNotificationCenterDelegate（:33 赋值），所以所有本地通知在 App 前台时被静默吃掉：
+    /// · 一句话定时提醒（典型用法就是「聊天里长按消息 → 5 分钟后提醒」，用户 100% 停在 App 里）
+    ///   ——到点无声，下次冷启动 `markExpiredLocally()` 还把它标成「已提醒」，等于凭空消失；
+    /// · 收件箱推送 / AI 回复完成通知——InboxStore 注释里写的「App 前台也弹」一直没成立过。
+    /// 不给 `.badge`：图标角标由 `NotificationHelper.setBadge` 按任务中心未读数**整体对账**设置
+    /// （v3.4.23），再让系统 +1 会变成双重计数、且没有清零路径。
+    /// 与 `didReceive` 同样标 `nonisolated`：理由见上面那段 v3.9.4 说明（后台线程回调进 MainActor 体 = SIGTRAP）。
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
+                                            willPresent notification: UNNotification,
+                                            withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        completionHandler([.banner, .sound])
+    }
 }
 
 /// v2.0.88：排队待发消息（AI 回答中发送，当前回答结束后自动逐条发送）
