@@ -170,15 +170,8 @@ struct ModelSheet: View {
                 Button("完成") { dismiss() }
             }
             ToolbarItem(placement: .primaryAction) {
-                Button { syncList() } label: {
-                    // v3.9.4：刷新统一为「文字 + 胶囊」（去图标）
-                    Text("刷新")
-                        .font(.system(size: Typography.tiny))
-                        .foregroundStyle(Color.accentColor)
-                        .padding(.horizontal, Spacing.lg)
-                        .padding(.vertical, Spacing.xs)
-                        .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
-                }
+                // v3.9.35：刷新改回系统裸按钮——与「完成」同款系统玻璃胶囊
+                Button("刷新") { syncList() }
             }
         }
         .onAppear {
@@ -1378,15 +1371,8 @@ struct WechatChannelSheet: View {
             }
             // v3.0.35：手动刷新（缓存过期/刷新失败后重拉）
             ToolbarItem(placement: .primaryAction) {
-                Button { Task { await load() } } label: {
-                    // v3.9.4：刷新统一为「文字 + 胶囊」（去图标）
-                    Text("刷新")
-                        .font(.system(size: Typography.tiny))
-                        .foregroundStyle(Color.accentColor)
-                        .padding(.horizontal, Spacing.lg)
-                        .padding(.vertical, Spacing.xs)
-                        .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
-                }
+                // v3.9.35：刷新改回系统裸按钮——与「完成」同款系统玻璃胶囊
+                Button("刷新") { Task { await load() } }
             }
         }
         .task { await load() }
@@ -1694,15 +1680,8 @@ struct AgentModelSheet: View {
                     }
                 }
                 ToolbarItem(placement: .primaryAction) {
-                    Button { Task { await syncList() } } label: {
-                        // v3.9.4：刷新统一为「文字 + 胶囊」（去图标）
-                        Text("刷新")
-                            .font(.system(size: Typography.tiny))
-                            .foregroundStyle(Color.accentColor)
-                            .padding(.horizontal, Spacing.lg)
-                            .padding(.vertical, Spacing.xs)
-                            .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
-                    }
+                    // v3.9.35：刷新改回系统裸按钮——与「完成」同款系统玻璃胶囊
+                    Button("刷新") { Task { await syncList() } }
                 }
             }
             .onAppear {

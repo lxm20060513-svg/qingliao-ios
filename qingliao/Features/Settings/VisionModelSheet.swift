@@ -158,11 +158,8 @@ struct VisionModelSheet: View {
                     Button("完成") { dismiss() }
                 }
                 ToolbarItem(placement: .primaryAction) {
-                    Button { Task { await syncModels() } } label: {
-                        // v3.9.4：刷新统一为「文字 + 胶囊」（去图标）
-                        Text("刷新")
-                            .pill(.page)   // 尺寸走 Pill 令牌（page：tiny + h10/v4，与原手写等价）
-                    }
+                    // v3.9.35：刷新改回系统裸按钮——与「完成」同款系统玻璃胶囊
+                    Button("刷新") { Task { await syncModels() } }
                 }
             }
             .task { await loadCachedModels() }
