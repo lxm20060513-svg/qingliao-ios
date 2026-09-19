@@ -6,6 +6,20 @@ export HOME=/opt/data/home
 export LD_LIBRARY_PATH=/opt/data/swift-libs
 SWIFT=/opt/data/swift-toolchain/swift-6.0.3-RELEASE-ubuntu24.04/usr/bin
 
+# 编译并运行一个单元测试可执行文件：run_unit <产物路径> <swiftc 参数...>
+# 🚨 v3.9.41：2–5 步原先直接是「swiftc ... | head -N」+「跑二进制」两行，两个洞叠在一起必假绿：
+#   (a) 管道让 swiftc 的退出码变成 head 的，编译失败也照样往下走；
+#   (b) 编译失败时 /tmp 里若还留着上一轮编好的二进制，就又被跑一遍 → 用旧结果报绿。
+#   （本机 swift 工具链不随仓走，编不过时产物正是这种残留。）
+# 7、8 两步（v3.9.1）已各自用 `rm -f 产物` + `PIPESTATUS` 堵过，这里把同一口径收敛成一个函数。
+run_unit() {
+    local out="$1"; shift
+    rm -f "$out"
+    $SWIFT/swiftc -o "$out" "$@" 2>&1 | head -10
+    [ ${PIPESTATUS[0]} -eq 0 ] || { echo "❌ 编译失败：$out"; exit 1; }
+    "$out" || exit 1
+}
+
 echo "=== 1. 语法检查（全部 .swift） ==="
 # 🚨 2026-09-17 实踩：原 glob 是 `qingliao/Features/*/*.swift`（只扫子目录），
 # 而 Features 根目录下也有文件（TaskCenterView.swift 等）→ 它们**从未被本地预检覆盖**，
@@ -19,24 +33,21 @@ else
 fi
 
 echo "=== 2. parseResponse 单元测试 ==="
-$SWIFT/swiftc -o /tmp/test_parse scripts/test_parse.swift 2>&1 | head -3
-/tmp/test_parse || exit 1
+run_unit /tmp/test_parse scripts/test_parse.swift
 
 echo "=== 3. relay 编解码单元测试 ==="
-$SWIFT/swiftc -o /tmp/test_relay scripts/test_relay.swift 2>&1 | head -3
-/tmp/test_relay || exit 1
+run_unit /tmp/test_relay scripts/test_relay.swift
 
 echo "=== 4. 诊断上报组装 + 离线队列单元测试（v3.6.0）==="
 # 多文件编译时只有 main.swift 允许顶层代码 → 复制一份到临时目录做 main.swift
 rm -rf /tmp/ql_diag_main && mkdir -p /tmp/ql_diag_main
 cp scripts/test_diag.swift /tmp/ql_diag_main/main.swift
-$SWIFT/swiftc -swift-version 6 -o /tmp/test_diag /tmp/ql_diag_main/main.swift \
-    qingliao/Core/DiagnosticsPayload.swift qingliao/Core/DiagnosticsStore.swift 2>&1 | head -10
-/tmp/test_diag || exit 1
+run_unit /tmp/test_diag -swift-version 6 /tmp/ql_diag_main/main.swift \
+    qingliao/Core/DiagnosticsPayload.swift qingliao/Core/DiagnosticsStore.swift
 
 echo "=== 5. Agent 结果卡片解析单元测试 ==="
-$SWIFT/swiftc -swift-version 6 -o /tmp/test_agent_card qingliao/Core/AgentCardParser.swift scripts/test_agent_card.swift 2>&1 | head -10
-/tmp/test_agent_card || exit 1
+run_unit /tmp/test_agent_card -swift-version 6 \
+    qingliao/Core/AgentCardParser.swift scripts/test_agent_card.swift
 
 echo "=== 6. 挂件 Extension 语法检查（v3.8.0 实时活动）==="
 $SWIFT/swiftc -parse qingliaoWidget/*.swift qingliao/Core/LiveActivityAttributes.swift qingliao/Core/LiveActivityActions.swift 2>&1 | grep -v "^$" | head -10
