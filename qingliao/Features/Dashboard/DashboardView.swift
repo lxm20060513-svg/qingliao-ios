@@ -1357,6 +1357,8 @@ struct HADeviceSheet: View {
     @State private var entities: [HAEntity] = []
     @State private var loading = true
     @State private var busyID: String?
+    /// v3.9.41：设备控制失败提示（此前 catch 是空的，失败只剩「转圈→开关弹回」）
+    @State private var controlError = ""
 
     var body: some View {
         VStack(spacing: 0) {
@@ -1413,6 +1415,15 @@ struct HADeviceSheet: View {
         // v3.9.24：此处原有 systemBackground 实底 → 会盖住弹窗的系统材质（用户要求所有弹窗与「关于轻聊」一致 = 系统默认）→ 已删。
         // 注：v2.0.87l 那句"弹窗玻璃罩效果不佳"说的是当年的**自绘**玻璃，与 iOS 26 系统材质不是一回事，别据此回退
         .task { await load() }
+        // v3.9.41：控制失败要有反馈（对齐场景卡的「场景执行结果」提示口径）
+        .alert("设备控制失败", isPresented: Binding(
+            get: { !controlError.isEmpty },
+            set: { if !$0 { controlError = "" } }
+        )) {
+            Button("好的", role: .cancel) { controlError = "" }
+        } message: {
+            Text(controlError)
+        }
     }
 
     // MARK: - 灯卡（PWA HomeKit 复刻：渐变图标容器 + 圆形小开关）
@@ -1694,7 +1705,11 @@ struct HADeviceSheet: View {
             do {
                 _ = try await auth.request(path, method: "POST", body: body)
             } catch {
-                // 控制失败静默
+                // v3.9.41：原来这里是空的 `catch {}` —— ha_proxy 是原样透传 Home Assistant 的
+                // 状态码（`_proxy` 里 `send_response(status)`），而 `AuthStore.request` 对非 2xx
+                // 一定抛错，所以失败其实拿得到，只是被吞了：用户只看得到转圈→开关弹回，
+                // 分不清是「HA 拒绝」还是「网断了」。下面紧接的 load() 会把状态纠正回真值（保留）。
+                controlError = "「\(id)」控制失败：\(error.localizedDescription)"
             }
             await load()
         }

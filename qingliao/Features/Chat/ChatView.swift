@@ -359,6 +359,22 @@ struct ChatView: View {
         stream.isStreaming && auth.currentStreamSessionId == chat.sessionId
     }
 
+    /// v3.9.41：章节列表数据源——**逐条** assistant 正文各抽各的标题，并把所属消息下标打进 TOCItem。
+    /// 旧写法是把全部正文 join 成一整篇再抽，`lineIndex` 是那次拼接文本的行号，跟 `chat.messages`
+    /// （全角色数组）的下标毫无对应关系，拿去索引必然跳错（行号 ≥ 消息数时干脆点了没反应）。
+    /// 跳转只需要到**消息**粒度（滚动与高亮本来就以 message.id 为单位），消息内的行号是多余信息。
+    private func tocHeaders() -> [MarkdownRenderer.TOCItem] {
+        var out: [MarkdownRenderer.TOCItem] = []
+        for (i, m) in chat.messages.enumerated() where m.role == "assistant" {
+            for h in MarkdownRenderer.extractHeaders(m.content) {
+                var tagged = h
+                tagged.msgIndex = i
+                out.append(tagged)
+            }
+        }
+        return out
+    }
+
     /// v3.5.1：是否有 AI 在处理本会话——本地流 / 服务器兜底探测（v3.9.28：云端流已移除）。
     /// 本地流按会话收窄：stream 是全局单例，会话 A 在跑时切到 B 不该显示"AI 正在输入"。
     private var aiBusy: Bool {
@@ -926,18 +942,15 @@ struct ChatView: View {
             .presentationDetents([.medium, .large])
             .scrollContentBackground(.hidden)
         }
-        // v3.0.27：章节列表（纯静态展示——TOCItem 行号关联具体消息的滚动实现不可靠，不做点击导航）
+        // v3.0.27：章节列表
         .sheet(isPresented: $showTOCSheet) {
-            TOCSheet(headers: MarkdownRenderer.extractHeaders(
-                chat.messages.filter { $0.role == "assistant" }.map(\.content).joined(separator: "\n")
-            ), onNavigate: { item in
-                // v3.4.25：章节真导航——复用会话搜索的 highlightTarget 定位机制滚动+高亮
-                let msgs = chat.messages
-                if item.lineIndex < msgs.count {
-                    let target = msgs[item.lineIndex]
-                    chat.highlightTarget = (role: target.role, content: target.content)
-                    showTOCSheet = false
-                }
+            TOCSheet(headers: tocHeaders(), onNavigate: { item in
+                // v3.9.41：按 TOCItem.msgIndex 定位（数据源已逐条抽取并打标，见 tocHeaders()）
+                // —— 复用会话搜索的 highlightTarget 机制滚动 + 高亮
+                guard item.msgIndex >= 0, item.msgIndex < chat.messages.count else { return }
+                let target = chat.messages[item.msgIndex]
+                chat.highlightTarget = (role: target.role, content: target.content)
+                showTOCSheet = false
             })
             .presentationDetents([.medium])
             .scrollContentBackground(.hidden)
@@ -2883,6 +2896,11 @@ struct ChatView: View {
         if let idx = chat.messages.firstIndex(where: { $0.id == msg.id }) {
             chat.messages.remove(at: idx)
         }
+        // v3.9.41：手动重试必须绕过 sendCore 的 60s 同内容幂等闸门。
+        // 这条消息的签名正是它刚才那次**失败**的发送写下的，不清的话失败后 60 秒内
+        // 点「重试」= 气泡已被移除、sendCore 直接 return = 消息凭空消失且什么都没发。
+        // （`autoRetryStream` 从一开始就不走 sendCore，也就没踩到这个坑。）
+        lastSentSignature = nil
         sendCore(text: msg.content, imageData: msg.imageDataURL)
     }
 

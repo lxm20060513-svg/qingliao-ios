@@ -223,7 +223,11 @@ enum MarkdownRenderer {
         let id = UUID()
         let level: Int       // 1 = #, 2 = ##, 3 = ###
         let title: String
-        let lineIndex: Int   // 在原文中的行号（0-based）
+        let lineIndex: Int   // 在该段 Markdown 原文中的行号（0-based）
+        // v3.9.41：所属消息在 `chat.messages`（**全角色**）里的下标，供章节列表点击导航用。
+        // 必须由调用方逐条消息抽取时打上：`lineIndex` 只是文本内行号，跟消息下标没有对应关系
+        // （此前就是拿它直接索引 messages 导致跳错）。`var` + 默认值才能留在成员初始化器里。
+        var msgIndex: Int = -1
     }
 
     /// 从 Markdown 文本中提取标题列表（# / ## / ###）
