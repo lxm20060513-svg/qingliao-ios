@@ -101,8 +101,10 @@ extension ChatView {
     /// （>0 = 已滚到底并继续上拉/回弹中；内容不足一屏时底边界按 0 计）
     func inboxPullHandleScroll(overscroll: CGFloat) {
         let st = inboxPull
-        // 刷新中 / AI 流式中（自动滚底，会误触） / 多选模式 → 不响应
-        guard !st.refreshing, !stream.isStreaming, !selectMode else { return }
+        // 刷新中 / 本会话 AI 流式中（自动滚底，会误触） / 多选模式 → 不响应
+        // v3.9.41：判定换成 thisSessionStreaming——原来 A 会话在跑流会让 B 会话的上拉刷新手势整个失效
+        // （要拦的是「本会话正在自动滚底」，别的会话的流不会滚这里的底）。
+        guard !st.refreshing, !thisSessionStreaming, !selectMode else { return }
         let clamped = min(1, max(0, overscroll / InboxPullState.threshold))
         st.progress = clamped
         if clamped >= 1 {

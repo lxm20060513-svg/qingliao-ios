@@ -181,6 +181,9 @@ extension ChatView {
 
     func sendFile(_ url: URL) {
         // v2.0.102：流式中发文件不再静默丢弃——明确提示
+        // ⚠️ v3.9.41 核对后**保持全局**判定（不换 thisSessionStreaming）：这条路径不走 sendCore，
+        // 上传完成后在下方直接 `stream.start(...)` 抢单例 → A 正在收流时放行的话会静默掐断 A、
+        // 把 A 的答案弄丢（且没有排队可兜）。聊天页那条「排队」护栏救不到这里。
         guard !stream.isStreaming else {
             fileSendBlocked = true
             return

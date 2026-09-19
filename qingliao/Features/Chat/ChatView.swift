@@ -343,10 +343,26 @@ struct ChatView: View {
     @State private var suppressAutoReadOnce = false
     @State private var showReasoningPicker = false
 
+    /// v3.9.41（A1 遗留收口）：本机这条流**是不是正在给当前会话干活**——`stream` 是 App 级单例，
+    /// 会话 A 在跑时 `stream.isStreaming` 在 B 会话里同样是 true，于是 B 的输入栏长出「停止」按钮
+    /// （点了会掐掉 A 的回答）、欢迎页/续聊芯片/多选/上拉刷新全被 A 挡住。
+    /// 口径与 v3.9.39 A1 已收窄的那几处完全一致（`aiBusy` / `liveActivityCanStop` / `toolStepCards` / 流式气泡）。
+    ///
+    /// ⚠️ 反过来，凡是「**单例是否被占用**」的护栏必须继续用全局 `stream.isStreaming`，绝不能换成这里：
+    /// `sendCore` 的排队分支、`sendQueued`、`retryMessage`、`regenerate`、`adoptRemoteStream`、
+    /// `probeRemoteBusy` 里的接回判定、`ChatViewExport.sendFile`，以及「新建会话先停旧流」。
+    /// 其中 `regenerate` / `sendFile` / `adoptRemote` 直接 `stream.start(...)`，不经排队；
+    /// `StreamClient.start()` 内部又无任何
+    /// 「已在跑就拒绝」的守卫（它直接 stopPolling + 复位状态 + 覆盖 `auth.currentStreamSessionId`），
+    /// 一旦在别的会话里放行就会静默掐断正在跑的流、并把答案落错会话。
+    var thisSessionStreaming: Bool {
+        stream.isStreaming && auth.currentStreamSessionId == chat.sessionId
+    }
+
     /// v3.5.1：是否有 AI 在处理本会话——本地流 / 服务器兜底探测（v3.9.28：云端流已移除）。
     /// 本地流按会话收窄：stream 是全局单例，会话 A 在跑时切到 B 不该显示"AI 正在输入"。
     private var aiBusy: Bool {
-        (stream.isStreaming && auth.currentStreamSessionId == chat.sessionId) || remoteBusy
+        thisSessionStreaming || remoteBusy
     }
     /// v3.8.0：实时活动（灵动岛/锁屏）展开态展示的模型名——**复用发送路径同一套选型**（视觉/Agent/主模型），
     /// 口径对齐 SessionsView.displayModel；否则会出现「灵动岛写着主模型、实际回的是 Agent/视觉模型」的错报
@@ -362,7 +378,7 @@ struct ChatView: View {
     /// 云端流 / 服务器兜底探针只有「忙 / 闲」两态 → 一律按「思考中」展示，不假装精确。
     private var liveActivityPhase: String {
         guard aiBusy else { return QingliaoActivityAttributes.Phase.done.rawValue }
-        let localStreaming = stream.isStreaming && !stream.content.isEmpty
+        let localStreaming = thisSessionStreaming && !stream.content.isEmpty
         return localStreaming ? QingliaoActivityAttributes.Phase.streaming.rawValue
                               : QingliaoActivityAttributes.Phase.thinking.rawValue
     }
@@ -380,10 +396,10 @@ struct ChatView: View {
     }
 
     /// v3.9.7：灵动岛「停止生成」是否可用——**只有本地流能被停**（云端流没有停止接口，
-    /// 与聊天页输入栏「停止」按钮同口径：那个按钮也只在 `stream.isStreaming` 时出现）。
+    /// 与聊天页输入栏「停止」按钮同口径：那个按钮也只在**本会话**有本地流时才出现）。
     /// 不可停就干脆不显示按钮，别放一个点了没反应的入口。
     private var liveActivityCanStop: Bool {
-        stream.isStreaming && auth.currentStreamSessionId == chat.sessionId
+        thisSessionStreaming
     }
 
     /// v3.9.7：把当前状态推给实时活动管理器。busy=false 走「先落完成态、系统 2s 后收起」。
@@ -594,7 +610,7 @@ struct ChatView: View {
         }
         // v3.3.0：多选合并发送（勾选多条 → 合并成一张卡片图片 → 系统分享/微信）
         Button("多选合并发送") {
-            if stream.isStreaming {
+            if thisSessionStreaming {   // v3.9.41：本会话在收流才拦（A 在跑不该让 B 不能多选）
                 selectBlocked = true
             } else {
                 inputFocus = false
@@ -639,7 +655,7 @@ struct ChatView: View {
         } else {
             ChatInputBar(text: $inputText,
                      focused: $inputFocus,
-                     streaming: stream.isStreaming,
+                     streaming: thisSessionStreaming,   // v3.9.41：按会话收窄（原来 B 会话会因 A 在跑而长出红色「停止」，一点就掐掉 A 的回答）
                      onSend: { send() },
                      onStop: {
                          // v2.0.88：点停止 = 取消当前回答 + 清空排队消息（不再自动发）
@@ -983,7 +999,8 @@ struct ChatView: View {
         // v3.9.14：生活页备忘录「发给 AI」→ 同样作为用户消息发出（备忘立刻能变成行动）
         // v3.9.14：新一轮开始 → 工具卡回到默认收起态（否则上一轮手动展开会带到下一轮）
         .onChange(of: stream.isStreaming) { _, streaming in
-            if streaming { toolStepsExpanded = false }
+            // v3.9.41：加会话归属判定——A 起流不该把 B 里手动展开的工具卡收起来（该卡本来就按会话显示）
+            if streaming, thisSessionStreaming { toolStepsExpanded = false }
         }
         .onReceive(NotificationCenter.default.publisher(for: .qingliaoMemoSend)) { note in
             if let text = note.object as? String, !text.isEmpty {
@@ -1394,7 +1411,7 @@ struct ChatView: View {
     /// 与全站胶囊/玻璃卡片观感统一。
     @ViewBuilder
     private var continueChipsBar: some View {
-        if !chat.messages.isEmpty && !stream.isStreaming {
+        if !chat.messages.isEmpty && !thisSessionStreaming {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     ForEach(welcomeSuggestions) { s in
@@ -1502,7 +1519,8 @@ struct ChatView: View {
             openAIFile(url, name)   // v3.9.17：AI 生成物 → QuickLook
         } onMultiSelect: {
             // v3.3.0：长按菜单「多选」——进入多选模式并预选本条
-            if stream.isStreaming {
+            // v3.9.41：判定按会话收窄（原来 A 会话在跑流时，B 里长按只能弹出「流式中不可多选」）
+            if thisSessionStreaming {
                 selectBlocked = true
             } else {
                 inputFocus = false
@@ -1657,7 +1675,7 @@ struct ChatView: View {
         ZStack {
             // v2.0.40：clearing 期间直接显示欢迎页（列表已卸载，数据稍后清空）
             // v3.9.30：容器挂 settle —— 驱动 welcome/列表 if 切换的浮现过渡（transition 需同帧动画）
-            if (chat.messages.isEmpty || clearing) && !stream.isStreaming {
+            if (chat.messages.isEmpty || clearing) && !thisSessionStreaming {
                 welcomeView
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                     .id("welcome")   // v3.4.29：原 padding(.top,120) 已移入 welcomeView 顶部弹性留白（小屏不再挤）
@@ -1699,11 +1717,12 @@ struct ChatView: View {
                                                                 }
                         toolStepCards
                         // v3.9.39 A1：按会话收窄——stream 是 App 级单例，本仓另四处
-                        // （aiBusy:334 / liveActivityCanStop:371 / toolStepCards:776 / DockTabView:57）
+                        // （aiBusy / liveActivityCanStop / toolStepCards / DockTabView:chatVisible）
                         // 都带 `currentStreamSessionId == chat.sessionId`，只这一处漏了 →
                         // 切到 B 会话后 A 的回答在 B 底下逐字长出来（串话实报的第一现场）。
+                        // v3.9.41：这四处统一走 `thisSessionStreaming`（此处判定与之完全等价）。
                         // 轮询不受影响：切回 A 时条件重新成立，气泡与打字机原样接回。
-                        if stream.isStreaming, auth.currentStreamSessionId == chat.sessionId {
+                        if thisSessionStreaming {
                             if stream.content.isEmpty {
                                 // 思考中动画（三点跳动，气泡加大版）
                                 // v3.0.15：恢复 v3.0.12 之前的原始三点动画（思考球 orbits 粒子已移除，改由输出头像承担粒子球）
@@ -2027,7 +2046,9 @@ struct ChatView: View {
     /// 流式路径用 animated: false（贴底滚动瞬时完成）；消息 append（用户发送）保留轻动画
     private func scrollBottom(_ proxy: ScrollViewProxy, animated: Bool = true) {
         let action = {
-            if stream.isStreaming {
+            // v3.9.41：`.id("streaming")` 那条气泡只在**本会话**有流时才存在（messageList 已按会话收窄）→
+            // 判定必须同源，否则 A 在跑时 B 里滚底会 scrollTo 一个不存在的 id（停在半空、不落最后一条）。
+            if thisSessionStreaming {
                 proxy.scrollTo("streaming", anchor: .bottom)
             } else if let last = chat.messages.last {
                 proxy.scrollTo(last.id, anchor: .bottom)
@@ -2045,7 +2066,9 @@ struct ChatView: View {
     /// v2.0.116：AI 总结会话（菜单按钮 → 自动发总结请求走正常流式）
     func summarizeSession() {
         guard !chat.messages.isEmpty else { return }
-        guard !stream.isStreaming else { return }
+        // v3.9.41：改为只被**本会话**自己的流挡住。原来 A 在跑时这里静默 return，
+        // B 里点「AI 总结会话」毫无反应（连排队都不排）；收窄后走 sendCore，单例被占用时正常入队。
+        guard !thisSessionStreaming else { return }
         sendCore(text: "请用简洁的要点总结我们这次对话（分点列出，突出结论和待办）", imageData: nil)
     }
 
@@ -2272,6 +2295,9 @@ struct ChatView: View {
             }
         }
         if stream.isStreaming {
+            // ⚠️ 刻意用**全局**判定（不是 thisSessionStreaming）：单例只有一条流，别的会话在跑时
+            // 在这里起流会静默掐断它（StreamClient.start 无「已在跑就拒绝」的守卫）。
+            // 排队消息由 `pumpPendingQueue()` 在**任意一条**流收尾时接走，包括收尾时用户已在别的会话。
             // 排队路径：消息立即显示（标记排队中），回答结束后自动发送
             var msg = ChatMessage.local(role: "user", content: text, imageDataURL: imageData)
             msg.quotedText = quotedText
@@ -2332,9 +2358,17 @@ struct ChatView: View {
                 // v3.9.39 A1：原 `guard chat.sessionId == startSid else { return }` 一刀切丢弃，
                 // 切走期间完成的答案两头不落（A 里没有、B 里不该有）＝「答案消失」实报。
                 // 改成落回发起时的会话：不碰 chat.messages（那是别人的会话），走参数化串行写链。
-                // 刻意不做：不自动重试（要不要重来由用户回到该会话自己决定）、不动 pendingQueue
-                //（切走时 onChange 已清）、不 bump assistantLandedToken（朗读只念当前会话刚落库的回复）。
+                // 刻意不做：不自动重试（要不要重来由用户回到该会话自己决定）、不 bump
+                // assistantLandedToken（朗读只念当前会话刚落库的回复）。
                 if chat.sessionId != startSid {
+                    // v3.9.41（A1 遗留 · 「切到 B 就发不出消息」的根因）：队列在这条分支里也必须排空。
+                    // pendingQueue 每次切会话都会被 clearPendingQueue 清掉 → 此处非空的那几条必然属于
+                    // 用户**当前所在**的会话 B；而单例刚被 A 占着，B 的消息当时只能进队列。
+                    // 原来这个 return 跳过了下面唯一的排空点 → B 的消息顶着「排队中」一直挂着，
+                    // 要等退出再进聊天页（onAppear 那条）才会发出去。
+                    // 放在收尾这一帧同步做，不观察 isStreaming：DockTabView 有明文教训——续发会在
+                    // 同一帧把它设回 true，onChange 看到 true→true 会整轮跳过。
+                    defer { pumpPendingQueue() }
                     let body = stream.content.trimmingCharacters(in: .whitespacesAndNewlines)
                     if success {
                         guard !body.isEmpty else { return }   // 空回复不落（提示语要落在眼前才有效）
@@ -2383,11 +2417,7 @@ struct ChatView: View {
                 let saveTitle = chat.title
                 Task { await chat.saveToServer(auth: auth, sessionId: saveSid, messages: saveMsgs, title: saveTitle) }
                 // v2.0.88：回答完成（成功/失败/停止）→ 自动发送队列中的下一条
-                if !pendingQueue.isEmpty {
-                    let next = pendingQueue.removeFirst()
-                    persistPendingQueue()
-                    sendQueued(next)
-                }
+                pumpPendingQueue()
             }
         }
     }
@@ -2470,7 +2500,10 @@ struct ChatView: View {
     /// 但 finish()（弱网连败 / 收尾）会清掉标记，而服务器侧任务仍在跑 → 前台一点提示都没有，
     /// 用户以为 AI 停了、答案也回不来（2026-09-11 实报）。现在无条件问服务器，再按结论决定接回。
     private func probeRemoteBusy() async {
-        if stream.isStreaming { remoteBusy = false; return }
+        // v3.9.41：只有**本会话**在收本地流时才不必问服务器（并把 remoteBusy 强归 false）。
+        // 原来是全局判定 → A 在跑时 B 的探针整个被短路，B 若在别的设备上还有在途任务，
+        // 「AI 正在输入」提示和答案接回全都不会发生。
+        if thisSessionStreaming { remoteBusy = false; return }
         let sid = chat.sessionId
         guard !sid.isEmpty, auth.isLoggedIn else { remoteBusy = false; return }
         let pending = UserDefaults.standard.dictionary(forKey: "qingliao_stream_pending")
@@ -2492,6 +2525,8 @@ struct ChatView: View {
             let alive = (tid?.isEmpty == false) && !done && status == "streaming"
             remoteBusy = alive
             remoteBusyFails = 0
+            // ⚠️ 这里**保持**全局 `stream.isStreaming`：接回要把单例 `stream` 整个占走，
+            // A 正在收流时接回 B 的远端任务 = 直接掐死 A（v3.9.41 的收窄只针对 UI 判定）。
             guard alive, !stream.isStreaming, let tid, !tid.isEmpty else { return }
             // 服务器侧确有在途任务而本机没在收 → 接回
             if pendingFresh, ((pending?["taskId"] as? String) ?? "") == tid {
@@ -2686,9 +2721,20 @@ struct ChatView: View {
         return chunks
     }
 
+    /// v3.9.41：回答收尾 → 自动发出队列里的下一条（从 startStream 的收尾回调里抽出来复用）。
+    /// 两个调用点：①本会话自己的流收尾；②**别的会话**的流收尾（用户已切走那条分支）——
+    /// 那条原先直接 return，把队列留在原地，见那里的注释。
+    /// 幂等由 `sendQueued` 里的全局 `stream.isStreaming` 护栏保证：单例仍被占用就保持排队、不硬发。
+    func pumpPendingQueue() {
+        guard !pendingQueue.isEmpty else { return }
+        let next = pendingQueue.removeFirst()
+        persistPendingQueue()
+        sendQueued(next)
+    }
+
     /// v2.0.88：发送排队消息（消息已上屏——去掉排队标记复用该消息启动流式，不重复插入）
     func sendQueued(_ item: PendingSend) {
-        guard !stream.isStreaming else { return }
+        guard !stream.isStreaming else { return }   // ⚠️ 必须全局：这里要抢的是单例，别的会话在跑就不能抢
         // firstIndex = FIFO：先入队的先发（内容相同也会按入队顺序）
         if let idx = chat.messages.firstIndex(where: {
             $0.queued && $0.content == item.text && $0.imageDataURL == item.imageData
