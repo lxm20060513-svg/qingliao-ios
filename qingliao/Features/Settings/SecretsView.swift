@@ -94,10 +94,9 @@ struct SecretsView: View {
         NavigationStack {
             VStack(spacing: 0) {
                 if loading {
-                Spacer()
-                ProgressView().tint(.secondary)
-                Spacer()
-            } else if entries.isEmpty {
+                    // v3.9.42：首屏骨架（左右留白与下方真列表同为 Spacing.xxl）
+                    LoadingStateView(shape: .rows(3))
+                } else if entries.isEmpty {
                 Spacer()
                 VStack(spacing: 8) {
                     Text("暂无凭据")

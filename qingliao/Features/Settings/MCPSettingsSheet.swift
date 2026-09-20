@@ -51,7 +51,8 @@ struct MCPSettingsSheet: View {
                     }
                 }
                 if loading {
-                    Section { HStack { Spacer(); ProgressView(); Spacer() } }
+                    // v3.9.42：首屏骨架；Form 已自带缩进，horizontalPadding 传 0 免得二次内缩
+                    Section { LoadingStateView(shape: .rows(2), horizontalPadding: 0) }
                 } else if let errMsg {
                     Section {
                         Text("⚠️ \(errMsg)").font(.system(size: Typography.subhead)).foregroundStyle(.orange)

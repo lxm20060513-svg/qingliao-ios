@@ -217,25 +217,10 @@ struct FilesManagerSheet: View {
     }
 
     private func errorView(_ message: String) -> some View {
-        VStack(spacing: Spacing.md) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: Typography.headline))
-                .foregroundStyle(.orange)
-            Text("加载失败").font(.system(size: Typography.body, weight: .semibold))
-            Text(message)
-                .font(.system(size: Typography.caption))
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-            Button {
-                Haptics.tap()
-                Task { await load() }
-            } label: {
-                Text("重试").pill(.primary, tone: .accent)
-            }
-            .buttonStyle(PressStyle(scale: 0.96))
+        // v3.9.42：收口到 ErrorStateView（本函数即其原型，参数一字未改，只把卡片外壳留在调用侧）
+        ErrorStateView(title: "加载失败", detail: message) {
+            Task { await load() }
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 30)
         .padding(.horizontal, Spacing.xxl)
         .glassListCard()
     }

@@ -280,11 +280,8 @@ struct SessionsView: View {
     @ViewBuilder
     private var sessionsLoadingSkeleton: some View {
         // v3.9.0：首屏加载改骨架屏（比转圈更能预示"内容马上出现在这里"，且不白屏）
-        VStack(spacing: 14) {
-            ForEach(0..<3, id: \.self) { _ in SkeletonRow() }
-        }
-        .padding(.horizontal, Spacing.xxl)
-        .padding(.top, Spacing.sm)
+        // v3.9.42：参数收口进 LoadingStateView.rows（行距/左右留白与本处原值一致，观感不变）
+        LoadingStateView(shape: .rows(3))
         Spacer()
     }
 
@@ -292,15 +289,11 @@ struct SessionsView: View {
     @ViewBuilder
     private var sessionsErrorState: some View {
         Spacer()
-        // v3.9.32：原为 body 内 `if let err = errorText` 的局部绑定，拆成独立属性后绑定丢失，
-        // 裸 `err` 会被解析成 Darwin 的 err() 函数（cannot conform to StringProtocol）→ 直接用 errorText。
-        Text(errorText ?? "加载失败")
-            .font(.system(size: Typography.subhead))
-            .foregroundStyle(.secondary)
-        Button("重试") { Task { await load() } }
-            .font(.system(size: Typography.body, weight: .medium))
-            .foregroundStyle(Color.accentColor)
-            .padding(.top, Spacing.md)
+        // v3.9.42：收口到 ErrorStateView。注意 title 是固定「加载失败」，后端返回的原文放 detail
+        //（v3.9.32 的教训仍成立：这里必须走 errorText，裸 err 会被解析成 Darwin 的 err() 函数）
+        ErrorStateView(title: "加载失败", detail: errorText) {
+            Task { await load() }
+        }
         Spacer()
     }
 

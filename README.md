@@ -82,6 +82,7 @@ Features/
 ├── Settings/            设置（连接/模型/外观/密码管理/知识库/AI 记忆/HA）
 └── Auth/LoginView.swift 登录页（Face ID 快捷登录）
 Theme/LiquidGlass.swift  玻璃主题 + SiriGlowOverlay（参数化发光）
+Theme/StateView.swift    首屏三态组件：LoadingStateView（骨架/转圈两档）+ ErrorStateView（空态仍用 EmptyStateView）
 QingliaoWidget/          挂件 Extension target（.appex）：灵动岛/锁屏实时活动 UI（ActivityConfiguration）
 ```
 
@@ -96,6 +97,8 @@ QingliaoWidget/          挂件 Extension target（.appex）：灵动岛/锁屏�
 - **崩溃上报**：signal handler 只允许 POSIX open/write/close/getenv/strcpy + C 字符串字面量直写（任何 Swift String 构造都非 signal-safe）；完整栈走 NSException handler；崩溃信息下次启动 flush 上传
 - **列表崩溃三连排查**：①从有到无同帧 → VStack+分帧两步走；②TabView 隐藏页清空 → 换掉 .scrollPosition（PreferenceKey 方案）；③数组就地 removeAll + ForEach diff → 后端驱动 + load() 整体替换
 - **灵动岛 / 实时活动（v3.8.0）**：只做本地驱动（侧载免费签名拿不到 Push 能力，不做 APNs/push-to-start）；`LiveActivityManager` **不持有 `Activity` 本体**——存进 `@MainActor` 存储再 `await update/end` 会报 Swift 6 `sending 'activity' risks causing data races`，改为只存 Sendable 状态、每次从 `Activity.activities` 现取（且该列表最终一致，收尾空列表时等 600ms 再收一次）；计时用 `Text(_:style:.timer)` 交系统走（App 被挂起后文案不再刷新，这是设计内降级）；挂件与主 App 共用 `qingliao/Core/LiveActivityAttributes.swift`（同编一份，改一处等于改两侧）；开关 key `qingliao_live_activity`（默认开）
+- **首屏三态（v3.9.42）**：新增页面的"这一屏还没内容"一律用 `Theme/StateView.swift` 的 `LoadingStateView`（列表结构可预测→`.rows(n)` 骨架；网格/分组→`.spinner(text:)`，别硬编假骨架）与 `ErrorStateView`（图标+标题+详情+重试），空态用既有 `EmptyStateView`。**不要**再手抄 `ProgressView()` 或"加载失败+重试"那 20 行。**行内"操作进行中"的小转圈（保存按钮、ping、刷新）不在此列**——那类要原地 14pt，换骨架会撑跑布局
+- **减弱动态效果（accessibilityReduceMotion）**：任何循环/帧源动画必须有静态档——`repeatForever` 走 `reduceMotion ? nil : …`，`TimelineView` 呼吸层（Siri 边框光 / 灵动岛光）走"不建帧源、按正弦中值定稿一帧"，Metal 头像（`LiquidOrbAvatar`）走 `freezesMotion`（播完状态过渡即 `isPaused` 冻成静态图）。关键帧反馈（发送键 `sendPulse`）用 `trigger: reduceMotion ? 0 : tick` 关掉
 
 ## 🆕 近期变更（v3.9.7，2026-09-12）
 

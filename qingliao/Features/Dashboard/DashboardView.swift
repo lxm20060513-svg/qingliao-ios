@@ -1448,8 +1448,10 @@ struct HADeviceSheet: View {
             .padding(.bottom, Spacing.md)
 
             if loading {
+                // v3.9.42：设备是双列网格，行骨架不贴结构 → 收口转圈；
+                // 保留原 Spacer（sheet 高度由它撑，去掉会让 sheet 在加载瞬间塌一截）
                 Spacer()
-                ProgressView().tint(.secondary)
+                LoadingStateView(shape: .spinner(text: "正在加载设备…"))
                 Spacer()
             } else if entities.isEmpty {
                 Spacer()

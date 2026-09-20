@@ -1282,32 +1282,15 @@ struct WechatChannelSheet: View {
                     if allProviders.isEmpty {
                         if loadFailed {
                             // v3.0.35：加载失败态 + 重试（不再无限转圈）
-                            VStack(spacing: 10) {
-                                Image(systemName: "exclamationmark.triangle")
-                                    .font(.system(size: Typography.display))
-                                    .foregroundStyle(.orange)
-                                Text("模型列表加载失败")
-                                    .font(.system(size: Typography.subhead, weight: .medium))
-                                Text("请检查网络或后端服务后重试")
-                                    .font(.system(size: Typography.caption)).foregroundStyle(.secondary)
-                                Button {
-                                    loadFailed = false
-                                    Task { await loadProviders() }
-                                } label: {
-                                    Text("重试")
-                                        .font(.system(size: Typography.subhead, weight: .medium))
-                                        .padding(.horizontal, 18).padding(.vertical, Spacing.sm)
-                                        .glassPillStroke()
-                                        .foregroundStyle(Color.accentColor)
-                                }
-                                .buttonStyle(.plain)
+                            // v3.9.42：错误态收口到 ErrorStateView（此处原为手抄版，另一处 1640 行同一段）
+                            ErrorStateView(title: "模型列表加载失败",
+                                           detail: "请检查网络或后端服务后重试") {
+                                loadFailed = false
+                                Task { await loadProviders() }
                             }
-                            .padding(.top, 30)
                         } else {
-                            ProgressView()
-                                .padding(.top, 30)
-                            Text("正在加载模型列表…")
-                                .font(.system(size: Typography.subhead)).foregroundStyle(.secondary)
+                            // v3.9.42：模型列表按 provider 分组、行数不可预测 → 转圈不出假骨架
+                            LoadingStateView(shape: .spinner(text: "正在加载模型列表…"))
                         }
                     } else {
                         // v3.0.35：缓存数据展示提示（后台刷新成功后自动消失）
@@ -1635,32 +1618,15 @@ struct AgentModelSheet: View {
                         if allProviders.isEmpty && localInstalled.isEmpty {
                             if loadFailed {
                                 // v3.0.35：加载失败态 + 重试（不再无限转圈）
-                                VStack(spacing: 10) {
-                                    Image(systemName: "exclamationmark.triangle")
-                                        .font(.system(size: Typography.display))
-                                        .foregroundStyle(.orange)
-                                    Text("模型列表加载失败")
-                                        .font(.system(size: Typography.subhead, weight: .medium))
-                                    Text("请检查网络或后端服务后重试")
-                                        .font(.system(size: Typography.caption)).foregroundStyle(.secondary)
-                                    Button {
-                                        loadFailed = false
-                                        Task { await loadAllProviders() }
-                                    } label: {
-                                        Text("重试")
-                                            .font(.system(size: Typography.subhead, weight: .medium))
-                                            .padding(.horizontal, 18).padding(.vertical, Spacing.sm)
-                                            .glassPillStroke()
-                                            .foregroundStyle(Color.accentColor)
-                                    }
-                                    .buttonStyle(.plain)
+                                // v3.9.42：错误态收口到 ErrorStateView
+                                ErrorStateView(title: "模型列表加载失败",
+                                               detail: "请检查网络或后端服务后重试") {
+                                    loadFailed = false
+                                    Task { await loadAllProviders() }
                                 }
-                                .padding(.top, 30)
                             } else {
-                                ProgressView()
-                                    .padding(.top, 30)
-                                Text("正在加载模型列表…")
-                                    .font(.system(size: Typography.subhead)).foregroundStyle(.secondary)
+                                // v3.9.42：分组列表行数不可预测 → 转圈不出假骨架
+                                LoadingStateView(shape: .spinner(text: "正在加载模型列表…"))
                             }
                         } else {
                             // 按 provider 分组显示（v3.0.29 fix：移除 hardcoded 过滤，所有 provider 均展示）

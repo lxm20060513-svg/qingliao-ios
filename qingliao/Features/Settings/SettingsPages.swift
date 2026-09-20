@@ -32,10 +32,9 @@ struct TasksView: View {
         NavigationStack {
             VStack(spacing: 0) {
                 if loading {
-                Spacer()
-                ProgressView().tint(.secondary)
-                Spacer()
-            } else if tasks.isEmpty {
+                    // v3.9.42：首屏改骨架（列表结构可预测，行式与下方真列表同形）
+                    LoadingStateView(shape: .rows(4))
+                } else if tasks.isEmpty {
                 Spacer()
                 VStack(spacing: 10) {
                     Text("暂无定时任务")
@@ -232,10 +231,9 @@ struct LogsView: View {
         NavigationStack {
             VStack(spacing: 0) {
                 if loading {
-                Spacer()
-                ProgressView().tint(.secondary)
-                Spacer()
-            } else if logs.isEmpty {
+                    // v3.9.42：日志是整宽纯文本行，用头像骨架会骗人 → 收口转圈
+                    LoadingStateView(shape: .spinner(text: "正在读取日志…"))
+                } else if logs.isEmpty {
                 Spacer()
                 Text("暂无日志")
                     .font(.system(size: Typography.subhead))
