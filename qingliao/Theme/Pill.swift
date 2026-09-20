@@ -127,4 +127,19 @@ extension View {
             .glassEffect(.regular.interactive())
             .overlay(Capsule().strokeBorder(Color.accentColor.opacity(0.28), lineWidth: 0.8))
     }
+
+    /// v3.9.46：聊天页头部那一排胶囊的统一档（思考档位 + 朗读）。
+    /// 病根：两枚各自手写「padding + glassPillStroke」，字号 10 vs 11、且一枚内容是「图标+文字」
+    /// 另一枚是"光图标"——SF Symbol 的固有行高与文字行高不同，于是并排差 1~2pt，一眼不齐。
+    /// 这里把内容**框死成同一高度**（15pt），字号/内边距/玻璃一处定义，再加同排胶囊只会齐。
+    /// ⚠️ 只给聊天页头部用：它不属于 PillSize 三档口径（那三档是"操作胶囊"）。
+    func chatHeaderPill() -> some View {
+        self
+            .font(.system(size: Typography.caption, weight: .semibold))
+            .frame(height: 15)
+            .padding(.horizontal, Spacing.md)
+            .padding(.vertical, Spacing.sm)
+            .glassPillStroke()
+            .contentShape(Capsule())
+    }
 }

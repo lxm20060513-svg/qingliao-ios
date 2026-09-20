@@ -30,6 +30,8 @@ struct WeatherSheet: View {
     @State private var showCityEdit = false
     @State private var cityInput = ""
     @State private var reloadToken = 0
+    // v3.9.46：「重试」= 绕过天气缓存（其余路径命中缓存直接上屏）
+    @State private var reloadForce = false
     // v3.9.30：第 1 页「展开更多」折叠区展开态
     @State private var extrasExpanded = false
 
@@ -118,6 +120,7 @@ struct WeatherSheet: View {
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 30)
                 Button {
+                    reloadForce = true
                     reloadToken += 1
                 } label: {
                     Text("重试")
@@ -371,19 +374,32 @@ struct WeatherSheet: View {
     // MARK: 取数
 
     private func loadWeather() async {
-        loading = true
         errorText = ""
         let city = savedCity.trimmingCharacters(in: .whitespaces)
+        // v3.9.46：命中缓存直接上屏（弹窗秒开，不再每次转骨架屏）。
+        // 「重试」按钮显式作废这一城的缓存再走网络（reloadForce 用完即清，防止后续 task 重启被带跑）。
+        if reloadForce {
+            WeatherCache.invalidate(city: city)
+            reloadForce = false
+        } else if let hit = WeatherCache.value(city: city) {
+            snap = hit
+            loading = false
+            return
+        }
+        loading = true
         if mode == .cloud {
             let (s, err) = await WeatherService.fetchCloud(city: city)
             snap = s
             errorText = err
+            if let s, err.isEmpty { WeatherCache.put(city: city, snap: s) }
             loading = false
             return
         }
         let q = city.isEmpty ? "" : "?city=" + (city.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")
         if let j = await auth.jsonOrLog("/api/weather\(q)") {
-            snap = WeatherService.parseBackend(j)
+            let s = WeatherService.parseBackend(j)
+            snap = s
+            WeatherCache.put(city: city, snap: s)
         } else {
             snap = nil
             errorText = "天气查询失败（后端未连接）"
@@ -393,7 +409,10 @@ struct WeatherSheet: View {
 
     private func saveCity() {
         let c = cityInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        // v3.9.46：改了城市设置就是要看新城市的当前天气 ⇒ 作废该城缓存强制重取
+        // （其他城市的条目不动，切回去 10 分钟内仍秒开）
         savedCity = c
+        WeatherCache.invalidate(city: c.trimmingCharacters(in: .whitespaces))
         reloadToken += 1
     }
 }

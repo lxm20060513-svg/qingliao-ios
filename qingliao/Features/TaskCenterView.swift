@@ -77,15 +77,19 @@ struct TaskCenterView: View {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("关闭") { dismiss() }
                 }
-                ToolbarItem(placement: .topBarTrailing) {
-                    HStack(spacing: Spacing.md) {
+                // v3.9.46：修「没有任务时右上角一枚空玻璃胶囊」。
+                // 原来两个按钮写在同一个 ToolbarItem 的空 HStack 里 —— 两个 if 都不成立时
+                // ToolbarItem 仍然挂着，iOS 26 会给它套一层液态玻璃底，于是出现零文字的空胶囊。
+                // 口径：条件判定提到 ToolbarItem 外层，没有按钮就根本不产生 toolbar item。
+                if store.uncompleted > 0 {
+                    ToolbarItem(placement: .topBarTrailing) {
                         // v3.9.30：全部已读——未完成任务一次全标完成（此前只能逐条点）
-                        if store.uncompleted > 0 {
-                            Button("全部已读") { store.markAllCompleted() }
-                        }
-                        if store.tasks.contains(where: { $0.completed }) {
-                            Button("清理已完成") { store.clearCompleted() }
-                        }
+                        Button("全部已读") { store.markAllCompleted() }
+                    }
+                }
+                if store.tasks.contains(where: { $0.completed }) {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("清理已完成") { store.clearCompleted() }
                     }
                 }
             }

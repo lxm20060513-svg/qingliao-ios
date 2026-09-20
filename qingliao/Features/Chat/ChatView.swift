@@ -491,21 +491,17 @@ struct ChatView: View {
 
     /// v3.6.5：模型思考档位胶囊（放在任务中心左侧）。点击弹出档位选择。
     /// 仅本地模式显示——云端由服务商决定思考策略（且云端侧暂不做改动）。
+    /// v3.9.46：尺寸统一走 `chatHeaderPill()`（与右侧朗读胶囊同一档，不再各自手写 padding）
     private var reasoningPill: some View {
         Button {
             showReasoningPicker = true
         } label: {
             HStack(spacing: 3) {
                 Image(systemName: reasoningLevel.symbol)
-                    .font(.system(size: Typography.tiny, weight: .semibold))
                 Text(reasoningLevel.title)
-                    .font(.system(size: Typography.caption, weight: .semibold))
             }
             .foregroundStyle(Color.accentColor)
-            .padding(.horizontal, Spacing.md)
-            .padding(.vertical, Spacing.sm)          // v3.6.5：触摸区抬到 ~46×24（贴近 HIG 44pt 下限）
-            .glassPillStroke()
-            .contentShape(Capsule())
+            .chatHeaderPill()
         }
         .buttonStyle(PressStyle())
         // v3.9.34：胶囊视觉 46×24 → 命中区 46×44（只纵向外扩，横向本就 >44）
@@ -531,12 +527,8 @@ struct ChatView: View {
             // v3.9.37（用户要求）：两态共用同一枚喇叭图标，只靠颜色区分——启用蓝(accent) / 禁用灰(secondary)；
             // 原禁用态用的是 speaker.slash（带斜杠），用户要求改成「灰色喇叭」即可
             Image(systemName: "speaker.wave.2.fill")
-                .font(.system(size: Typography.caption, weight: .semibold))
                 .foregroundStyle(autoReadReply ? Color.accentColor : Color.secondary)
-                .padding(.horizontal, Spacing.md)
-                .padding(.vertical, Spacing.sm)          // v3.9.43：md→sm，与思考胶囊同档（视觉高度对齐）
-                .glassPillStroke()
-                .contentShape(Capsule())
+                .chatHeaderPill()
         }
         .buttonStyle(PressStyle())
         // v3.9.34：命中区抬到 ≥44（外扩 8 小于同行 12pt 间距，不越界抢点）；

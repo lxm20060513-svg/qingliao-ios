@@ -125,6 +125,33 @@ enum WeatherCode {
     }
 }
 
+// MARK: - v3.9.46 天气进程内缓存（用户反馈：每次点天气图标都重新加载一遍）
+//
+// 原先客户端零缓存，同一个 /api/weather 有三条重复路径：看板切回首刷一次（DashboardView
+// .task）、弹窗每次打开取一次（WeatherSheet.task）、弹窗关闭再为同步城市名取一次
+// （onDismiss → loadWeatherWithCity）。后端自己已缓存 30 分钟，客户端这三趟纯属白跑。
+// TTL 取 600s < 后端 30min，因此不会读到比后端更旧的数据；换城市与「重试」显式作废。
+@MainActor
+enum WeatherCache {
+    private struct Entry { let snap: WeatherSnapshot; let at: Date }
+    private static var store: [String: Entry] = [:]
+    static let ttl: TimeInterval = 600
+
+    /// 命中且未过期 → 快照；否则 nil（过期条目顺手清掉，避免长期驻留）
+    static func value(city: String, now: Date = Date()) -> WeatherSnapshot? {
+        guard let e = store[city] else { return nil }
+        guard now.timeIntervalSince(e.at) < ttl else { store[city] = nil; return nil }
+        return e.snap
+    }
+
+    static func put(city: String, snap: WeatherSnapshot, now: Date = Date()) {
+        guard !city.isEmpty else { return }
+        store[city] = Entry(snap: snap, at: now)
+    }
+
+    static func invalidate(city: String) { store[city] = nil }
+}
+
 // MARK: - 取数 + 解析 + 日期工具
 
 enum WeatherService {
