@@ -38,7 +38,10 @@ struct QingliaoApp: App {
                     DiagnosticsEnv.refresh()
                     LiveSpeechTranscriber.cleanupLegacyRecordings()   // v3.9.3：清旧「录音上传」留下的 .m4a（新流程不落盘音频）
                     // v3.8.0：启动收敛——清掉上一进程遗留的实时活动（App 被杀/闪退后活动仍由系统保留数小时）
-                    await LiveActivityManager.shared.convergeOnLaunch()
+                    // v3.9.42：改名 convergeOrphanActivities，并且**每次回前台都再扫一次**（见 RootView 的
+                    // onChange(scenePhase)）——强杀时不会执行任何代码，只在冷启动扫一次的口径下，
+                    // 「不重开 App 就一直挂着」和「重开后那条已转 .stale 所以照样漏」两条都还在。
+                    await LiveActivityManager.shared.convergeOrphanActivities()
                     SpeechManager.shared.attach(auth: auth)
                     // v3.9.10：预热系统音色目录（后台枚举一次，避免首次朗读/设置页在主线程枚举音色卡 3~7 秒）
                     Task { _ = await SpeechManager.voiceCatalog() }
@@ -168,6 +171,29 @@ struct RootView: View {
             if phase == .background, appLockOn {
                 appUnlocked = false
             }
+            // v3.9.42：回前台收敛孤儿实时活动。实时活动**没有连续帧源**、本进程活着才推得动，
+            // 而「在别的会话里跑完 / App 被挂起时跑完 / 直接强杀」这几条路径都没有任何人去调 `finish()`，
+            // 于是灵动岛停在「AI 正在回复」上不出。这里靠不变量兜住：本进程没在跟任何一轮
+            // （`currentSessionId == nil`）而系统里还挂着一条 ⇒ 它一定是孤儿 ⇒ 立即收掉。
+            // 流式途中回前台：管理器认得这一轮 → 方法内部第一行就 return，不会误杀正在显示的活动。
+            if phase == .active {
+                Task { await LiveActivityManager.shared.convergeOrphanActivities() }
+            }
+        }
+        // v3.9.42：本机流收尾的**跨会话兜底**（修「任务完成后灵动岛一直不退出」的主路径）。
+        // `finish()` 原来只由 `ChatView.onChange(of: aiBusy)` 驱动，而 v3.9.41 把 aiBusy 按会话收窄后，
+        // 用户切走/离开聊天页 → 那个 ChatView 连同 `.task` 一起没了，A 轮的完成信号没有任何接收者。
+        // RootView 常驻不销毁，且这里拿的是**全局**流状态（不收窄），正好补这一刀。
+        // ⚠️ 观察 `finishSeq` 而不是 `isStreaming`：口径同 DockTabView v3.9.33 那段注释——
+        // finish() 里 isStreaming=false 后同步回调 onFinished，排队续发会在同一帧把它设回 true，
+        // 观察 isStreaming 会 old/new 都是 true、整轮收尾被静默跳过。
+        .onChange(of: stream.finishSeq) { _, _ in
+            let sid = auth.currentStreamSessionId
+            let running = stream.isStreaming
+            let failed = stream.lastFinishFailed
+            Task { await LiveActivityManager.shared.finishOrphanedRound(streamSessionId: sid,
+                                                                       streamIsRunning: running,
+                                                                       failed: failed) }
         }
         // v3.9.41（SR21）：设置页把锁打开后，当前这次会话也要立即生效（否则只挡下次冷启动）
         .onChange(of: appLockOn) { _, on in

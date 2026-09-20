@@ -82,12 +82,18 @@ final class LiveActivityManager {
 
     private init() {}
 
-    /// 启动收敛：清掉上一进程遗留的活动。
+    /// 收敛**孤儿活动**：清掉本进程不认的活动。启动时调一次，**每次回前台再调一次**（v3.9.42）。
     /// 新进程里我们不认任何活动，而实时活动在 App 被杀/闪退后由系统保留数小时 →
     /// 不收敛就会留下「锁屏一直挂着 AI 正在回复、计时还在跑」的僵尸活动。
     /// 开关关着也走这里：清完不会再新建，新建由 `sync` 的 isEnabled 闸门把关。
-    func convergeOnLaunch() async {
-        // 本进程已在跟活动 → 说明不是冷启动（防 .task 意外重跑误杀正在显示的实时活动）
+    ///
+    /// v3.9.42 为什么要改成「回前台也扫」：原来只在冷启动 `.task` 里跑一次，而**强杀 App 时没有任何
+    /// 代码会执行**，用户不重开就永远不收；重开后如果那条已经转 `.stale`（>15 分钟没更新），
+    /// 旧的 `== .active` 过滤同样放过它 → 表现即用户报的「杀掉 App 也不退出」。
+    /// 判定依据是不变量「`currentSessionId == nil` ⇒ 本进程没有在跟任何一轮」⇒ 系统里那条一定是孤儿。
+    /// 流式途中回前台时 `currentSessionId` 有值 → 直接返回，不会误杀正在显示的活动。
+    func convergeOrphanActivities() async {
+        // 本进程已在跟活动 → 不是孤儿场景（防 .task / scenePhase 重跑误杀正在显示的实时活动）
         guard currentSessionId == nil else { return }
         clearState()
         generation += 1
@@ -95,7 +101,7 @@ final class LiveActivityManager {
         // 值才能被送进 nonisolated async 的 `activity.end`）。包一层静态计算属性就会把它变成
         // @MainActor 隔离值 → `sending 'activity' risks causing data races`（v3.9.9 CI 实踩）。
         for activity in Activity<QingliaoActivityAttributes>.activities
-        where activity.activityState == .active {
+        where Self.isCollectible(activity.activityState) {
             await activity.end(nil, dismissalPolicy: .immediate)
         }
     }
@@ -122,11 +128,11 @@ final class LiveActivityManager {
         // 再对话就不亮"。
         // 只看「是否真有在显示的活动」（Bool，Sendable）——**不能缓存 Activity 数组**，
         // 那会把非隔离来源的值变成 MainActor 隔离值，送进 nonisolated 的 update/end 就报并发错。
-        var hasActive = Self.hasActiveActivity
+        var hasActive = Self.hasLiveActivity
         if !hasActive, justRequestedRecently {
             // 刚 request 的活动可能还没进列表（最终一致）→ 等一拍再确认，绝不重复建第二条
             try? await Task.sleep(for: .milliseconds(600))
-            hasActive = Self.hasActiveActivity
+            hasActive = Self.hasLiveActivity
             if !hasActive { return }
         }
 
@@ -169,10 +175,10 @@ final class LiveActivityManager {
         if newSession || pendingDismissal {
             await end()   // 换会话 / 上一轮刚收尾：先清干净再重建
             // end() 之后列表未必立刻刷新（最终一致）→ 再确认一次，否则又会在已结束的活动上 update
-            hasActive = Self.hasActiveActivity
+            hasActive = Self.hasLiveActivity
             if hasActive {
                 try? await Task.sleep(for: .milliseconds(600))
-                hasActive = Self.hasActiveActivity
+                hasActive = Self.hasLiveActivity
             }
         }
 
@@ -214,7 +220,7 @@ final class LiveActivityManager {
             }
         } else {
             for activity in Activity<QingliaoActivityAttributes>.activities
-            where activity.activityState == .active {
+            where Self.isCollectible(activity.activityState) {
                 await activity.update(content)
             }
         }
@@ -246,10 +252,10 @@ final class LiveActivityManager {
         }
         let token = generation
 
-        var hasActive = Self.hasActiveActivity
+        var hasActive = Self.hasLiveActivity
         if !hasActive, justRequestedRecently {
             try? await Task.sleep(for: .milliseconds(600))
-            hasActive = Self.hasActiveActivity
+            hasActive = Self.hasLiveActivity
             if !hasActive { clearState(); return }   // 列表滞后：等一拍仍无在显示的活动 → 清本地状态
         }
         // review 修复：代际校验必须在 clearState 之前——那 600ms 等待窗口里用户可能已经开始了新一轮，
@@ -288,7 +294,7 @@ final class LiveActivityManager {
         guard token == generation else { return }
 
         for activity in Activity<QingliaoActivityAttributes>.activities
-        where activity.activityState == .active {
+        where Self.isCollectible(activity.activityState) {
             await activity.end(content, dismissalPolicy: .after(Date().addingTimeInterval(2)))
         }
         lastPhase = state.phase
@@ -297,19 +303,39 @@ final class LiveActivityManager {
         pendingDismissal = true
     }
 
+    /// v3.9.42 **兜底收尾**（用户实报「任务完成后灵动岛一直不退出」的主因）：
+    /// 本机流已经为**我们还在跟的那一轮**收尾了，但没人把 busy=false 送过来 → 由这里补上这一刀。
+    ///
+    /// 为什么原来会漏：`finish()` 唯一的驱动是 `ChatView.onChange(of: aiBusy)`，而 v3.9.41 把
+    /// `aiBusy` 按会话收窄（`thisSessionStreaming`）之后，**离开那个会话的 ChatView 就再也看不到它的
+    /// 完成信号**——切到会话 B（A 的 ChatView 被换掉、`.task` 一并取消）时只有 B 的 `finish(B)` 会跑，
+    /// 而它因 `sessionId != currentSessionId` 直接返回；A 那条活动于是永远停在「AI 正在回复」，
+    /// 15 分钟后转 `.stale`，重开 App 也收不掉（配合本次一并修的 `isCollectible` 口径）。
+    /// 挂 `RootView` 是因为它常驻不销毁，且 `stream` / `auth` 都在环境里。
+    ///
+    /// - Parameter streamSessionId: `auth.currentStreamSessionId`（这条本机流归属的会话，
+    ///   口径同 v3.9.39 A1 的 `persistState`），`streamIsRunning`: `stream.isStreaming`（全局占用，不收窄）。
+    ///   只处理「管理器跟的这一轮 == 本机流刚结束的这一轮」：跟的是别的会话（例如靠服务器探针在跑的
+    ///   远端任务）时不插手，那一条仍由它自己的 ChatView 负责。
+    func finishOrphanedRound(streamSessionId: String, streamIsRunning: Bool, failed: Bool) async {
+        guard let tracked = currentSessionId, !streamIsRunning,
+              tracked == streamSessionId, !streamSessionId.isEmpty else { return }
+        await finish(sessionId: tracked, failed: failed)
+    }
+
     /// 结束当前活动（用户离开会话 / 开关关闭）。幂等：没有活动时是空操作。
     func end() async {
         let hadSession = currentSessionId != nil
         clearState()
-        var hasActive = Self.hasActiveActivity
+        var hasActive = Self.hasLiveActivity
         if !hasActive, hadSession {
             // Activity.activities 是「最终一致」的：刚 request 出来的活动可能还没出现在列表里，
             // 等一拍再收一次，免得留下收不掉的残留（Apple 侧行为，Pocket Casts 亦有同样注释）
             try? await Task.sleep(for: .milliseconds(600))
-            hasActive = Self.hasActiveActivity
+            hasActive = Self.hasLiveActivity
         }
         for activity in Activity<QingliaoActivityAttributes>.activities
-        where activity.activityState == .active {
+        where Self.isCollectible(activity.activityState) {
             await activity.end(nil, dismissalPolicy: .immediate)
         }
     }
@@ -390,11 +416,11 @@ final class LiveActivityManager {
                 guard livePhase == QingliaoActivityAttributes.Phase.thinking.rawValue
                     || livePhase == QingliaoActivityAttributes.Phase.streaming.rawValue else { return }
                 // v3.9.27：系统列表滞后的宽限窗——`Activity.activities` 是最终一致的，刚 request 的活动
-                // 可能还没进列表；旧写法 `guard hasActiveActivity else { return }` 会在这一窗里把推手
+                // 可能还没进列表；旧写法 `guard hasLiveActivity else { return }` 会在这一窗里把推手
                 // 静默杀掉，之后只能靠「内容变化触发 sync」的幂等起表救回（长任务中内容常不变 →
                 // 环/球停在某拍不动 = 用户报的「动一段时间就不动了」）。现在：没有可见活动时先等 3 拍
                 // 再放弃，等出期间只跳过 update，不退出循环。
-                if !Self.hasActiveActivity {
+                if !Self.hasLiveActivity {
                     self.missingActivityTicks += 1
                     if self.missingActivityTicks <= 3 { continue }
                     return
@@ -426,7 +452,7 @@ final class LiveActivityManager {
                                                                       spin: nextSpin),
                                               staleDate: Self.staleDate())
                 for activity in Activity<QingliaoActivityAttributes>.activities
-                where activity.activityState == .active {
+                where Self.isCollectible(activity.activityState) {
                     await activity.update(content)
                 }
             }
@@ -483,7 +509,33 @@ final class LiveActivityManager {
         lastSpin = 0
     }
 
-    /// 只有「系统里真正在显示」的活动才算数（v3.9.9 真机反馈修复的核心）。
+    // MARK: - 活动状态口径（v3.9.42 收口）
+
+    /// **「还没消失、还能被收尾/更新」的状态集合**。原来五处判定全写死 `== .active`，是
+    /// v3.9.42 用户实报「任务完成后灵动岛一直不退出、杀掉 App 重开也不退出」的直接成因之一。
+    ///
+    /// `ActivityState` 一共五档（Apple 文档核过，**没有** `.inactive`）：
+    /// `pending` / `active` / `stale` / `ended` / `dismissed`。只认 `.active` 会漏掉两档**画面还在屏上**的：
+    /// - `.stale`：本仓 `staleDate` 是 +15 分钟。App 被挂起/强杀期间推手停摆，超过 15 分钟这一条就转
+    ///   `.stale`——锁屏那行、灵动球**都还显示着**，只是系统标了「内容过期」。旧的 `.active` 过滤对它是盲的：
+    ///   `finish()` 收不到它、启动收敛也收不到它，于是僵尸活动**永久留在屏上**（每次判定都跳过它）。
+    ///   且 `hasLiveActivity` 也认不出它 → `sync()` 会再 `request` 一条 → 锁屏同时挂两行。
+    ///   `.stale` 恰恰是「需要一次 update」的状态，所以它同时进 update 与 end 两个集合。
+    /// - `.pending`：预约启动（`startActivity`）才会有，本仓不用；列进来纯属不再另立一套口径。
+    /// `.ended` / `.dismissed` 才是真「已经没了」，必须继续排除：
+    /// `.ended` 是已 end、正按 `dismissalPolicy` 等着消失，再 end 一次会把既定的收起时机打断
+    /// （完成态那 2s 就白给了）；`.dismissed` 是 `Activity.activities` 最终一致窗口里的闪现残留
+    /// （v3.9.9 就是为它加的过滤，别把它一起放进来）。
+    ///
+    /// 声明成 `nonisolated`：它不碰任何隔离状态，而调用点全在「从 `Activity.activities` 现取的值」上，
+    /// 少一层 @MainActor 隔离就少一处 Swift 6 并发推断的意外（v3.9.9 CI 实踩那一类）。
+    private nonisolated static func isCollectible(_ state: ActivityState) -> Bool {
+        state == .active || state == .stale || state == .pending
+    }
+
+    /// 屏上还有「没消失」的活动吗——决定 `sync()` 走 update 还是 request、推手要不要继续拍。
+    ///
+    /// 只有「系统里真正还在显示」的活动才算数（v3.9.9 真机反馈修复的核心；v3.9.42 把口径换成 `isCollectible`）。
     ///
     /// `Activity.activities` 在 `end()` 之后的一小段时间里**仍可能列出那条活动**（`.dismissed` 状态，
     /// 列表最终一致）。不按 `activityState` 过滤就会把已结束的活动当成在显示的，
@@ -493,8 +545,8 @@ final class LiveActivityManager {
     /// `sending 'activity' risks causing data races`（v3.9.9 CI 实踩，4 处一起报）。
     /// 真正要用 Activity 本体时，必须在**使用点直接** `Activity.activities` 取值 + `where` 过滤，
     /// 保持「非隔离来源」这个身份（Apple 的 `activities` getter 是 nonisolated 的）。
-    private static var hasActiveActivity: Bool {
-        Activity<QingliaoActivityAttributes>.activities.contains { $0.activityState == .active }
+    private static var hasLiveActivity: Bool {
+        Activity<QingliaoActivityAttributes>.activities.contains { isCollectible($0.activityState) }
     }
 
     /// 过期时间：进程意外消失后（强杀/闪退）系统能把活动标记为过期，而不是无限计时
