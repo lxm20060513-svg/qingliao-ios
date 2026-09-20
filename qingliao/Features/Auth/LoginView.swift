@@ -30,9 +30,14 @@ struct LoginView: View {
     /// 登录成功后整页上浮淡出的「交接演出」——RootView 让本页在顶层多留一会儿（见 loginHandoff）
     private var handingOff: Bool { auth.isLoggedIn }
 
+    /// 表单左右留白（v3.9.46：原先 5 个视图块各写一遍 28，收敛成一个口径）
+    private static let formH: CGFloat = 28
+
     var body: some View {
         ZStack {
             Color(uiColor: .systemBackground).ignoresSafeArea()
+
+            loginAmbientGlow
 
             VStack(spacing: 24) {
                 Spacer()
@@ -104,19 +109,47 @@ struct LoginView: View {
     // 这里按原注释分段把视图块原样搬成独立 @ViewBuilder 属性 —— **纯搬运**：视图顺序、
     // 层级、条件分支、闭包、修饰符逐字未变，渲染结果与拆分前一致，只为把类型检查表达式打小。
 
+    /// v3.9.46：环境光斑（与 SplashView 同一口径：蓝/靛/青三团模糊圆）
+    /// 静态不放动——避免多一处需要 reduceMotion 静态档的动画源；纯装饰，关掉命中与无障碍
+    @ViewBuilder
+    private var loginAmbientGlow: some View {
+        ZStack {
+            Circle().fill(Color.blue.opacity(Tint.soft)).frame(width: 300, height: 300)
+                .blur(radius: 70).offset(y: -190)
+            Circle().fill(Color.indigo.opacity(Tint.faint)).frame(width: 240, height: 240)
+                .blur(radius: 60).offset(x: 150, y: 180)
+            Circle().fill(Color.cyan.opacity(Tint.faint)).frame(width: 220, height: 220)
+                .blur(radius: 55).offset(x: -150, y: 210)
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+        .ignoresSafeArea()
+    }
+
     /// Logo + 应用名 + 副标题
+    /// v3.9.46：照 SplashView 的 hero 配方升级——图标背后加一层主色光晕、图标本体带蓝色投影，
+    /// 原来是一个 52pt 无底无影的扁平符号，白底下显得小且「浮不住」
     @ViewBuilder
     private var loginLogoBlock: some View {
-        // Logo
         VStack(spacing: 10) {
-            Image(systemName: "bubble.left.and.bubble.right.fill")
-                .font(.system(size: 52))
-                .foregroundStyle(LinearGradient(colors: [.blue, .indigo], startPoint: .topLeading, endPoint: .bottomTrailing))
-            Text("轻聊")
-                .font(.system(size: Typography.display, weight: .bold))
-            Text("家庭 NAS 上的 AI 助手")
-                .font(.system(size: Typography.subhead))
-                .foregroundStyle(.secondary)
+            ZStack {
+                Circle()
+                    .fill(Color.blue.opacity(Tint.subtle))
+                    .frame(width: 128, height: 128)
+                    .blur(radius: 26)
+                Image(systemName: "bubble.left.and.bubble.right.fill")
+                    .font(.system(size: 64))
+                    .foregroundStyle(LinearGradient(colors: [.blue, .indigo], startPoint: .topLeading, endPoint: .bottomTrailing))
+                    .shadow(color: Color.blue.opacity(0.45), radius: 18, y: 6)
+            }
+            VStack(spacing: 6) {
+                Text("轻聊")
+                    .font(.system(size: Typography.display, weight: .bold))
+                Text("家庭 NAS 上的 AI 助手")
+                    .font(.system(size: Typography.subhead))
+                    .foregroundStyle(.secondary)
+                    .tracking(1.2)
+            }
         }
     }
 
@@ -130,19 +163,21 @@ struct LoginView: View {
                 loginServerHistoryDropdown
             }
             GlassField(icon: "person", placeholder: "用户名", text: $username,
-                       field: .user, focus: $focusField)
+                       field: .user, focus: $focusField, onSubmitAction: { focusField = .pass })
             GlassField(icon: "lock", placeholder: "密码", text: $password, isSecure: true,
-                       field: .pass, focus: $focusField)
+                       field: .pass, focus: $focusField, submitLabel: .go,
+                       onSubmitAction: { submitLogin() })
         }
-        .padding(.horizontal, 28)
+        .padding(.horizontal, Self.formH)
     }
 
     /// 服务器地址输入框 + 历史下拉按钮
     @ViewBuilder
     private var loginServerField: some View {
         // v2.0.72：服务器地址输入框 + 抽屉式历史记录（点击展开）
+        // v3.9.46：键盘「下一项」串到用户名（三框 + 登录按钮一条链，见 GlassField.onSubmitAction）
         GlassField(icon: "globe", placeholder: "服务器地址", text: $server,
-                   field: .server, focus: $focusField)
+                   field: .server, focus: $focusField, onSubmitAction: { focusField = .user })
             .overlay(alignment: .trailing) {
                 if !auth.serverHistory.isEmpty {
                     Button {
@@ -197,8 +232,12 @@ struct LoginView: View {
                 Divider().padding(.leading, Spacing.xxl)
             }
         }
-        .background(Color(uiColor: .secondarySystemBackground))
-        .clipShape(RoundedRectangle(cornerRadius: Radius.chip))
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: Radius.field, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: Radius.field, style: .continuous)
+                .strokeBorder(.white.opacity(Tint.subtle), lineWidth: 0.8)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: Radius.field, style: .continuous))
         .transition(.opacity.combined(with: .move(edge: .top)))
     }
 
@@ -212,34 +251,25 @@ struct LoginView: View {
                 .foregroundStyle(.secondary)
         }
         .tint(.blue)
-        .padding(.horizontal, 28)
+        .padding(.horizontal, Self.formH)
     }
 
-    /// 登录错误提示
+    /// 登录错误提示（v3.9.46：裸红字 → 淡底同色描边的状态横幅，见 LoginNotice）
     @ViewBuilder
     private var loginErrorText: some View {
         if let err = auth.errorMessage {
-            Text(err)
-                .font(.system(size: Typography.subhead))
-                .foregroundStyle(.red)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 32)
+            LoginNotice(tone: .danger, text: err)
+                .padding(.horizontal, Self.formH)
         }
     }
 
     /// 登录按钮（v3.9.45：三态直出——空闲文案 / 登录中环形进度 / 成功绿勾，原来只有「登录中...」换字）
+    /// v3.9.46：补主色投影（原来全站唯一的主操作按钮是「贴」在背景上的，没有离地感）
     @ViewBuilder
     private var loginSubmitButton: some View {
         // 登录按钮
         Button {
-            // 先提交服务器地址（登录页可修改），再登录
-            // v2.0.55：必须持久化到 UserDefaults——只改内存的话 App 重启/ASWAS
-            // 流程读默认值 example.com 导致登录弹窗异常（用户实测）
-            let s = server.trimmingCharacters(in: .whitespacesAndNewlines)
-            auth.saveServer(s)
-            Task {
-                await auth.login(username: username, password: password, remember: remember)
-            }
+            submitLogin()
         } label: {
             ZStack {
                 if auth.isLoggedIn {
@@ -265,14 +295,28 @@ struct LoginView: View {
                                startPoint: .topLeading, endPoint: .bottomTrailing),
                 in: RoundedRectangle(cornerRadius: Radius.hero, style: .continuous)
             )
+            // 成功态不投影（绿色那一下已经由 scaleEffect + Haptics 表态）
+            .shadow(color: Color.blue.opacity(auth.isLoggedIn ? 0 : 0.32), radius: 14, y: 7)
             // 绿勾那一下轻微顶起来（和 Haptics.success 同一拍）
             .scaleEffect(auth.isLoggedIn ? 1.03 : 1)
         }
-        .buttonStyle(.plain)
-        .padding(.horizontal, 28)
+        .buttonStyle(PressStyle())   // v3.9.46：主操作也要有"按下去"的手感
+        .padding(.horizontal, Self.formH)
         .disabled(auth.isLoading)
         .animation(reduceMotion ? nil : Motion.snap, value: auth.isLoading)
         .animation(reduceMotion ? nil : Motion.emerge, value: auth.isLoggedIn)
+    }
+
+    /// v3.9.46：登录提交口（按钮点击与密码框键盘「前往」共用一条路径）
+    /// 先提交服务器地址（登录页可修改），再登录
+    /// v2.0.55：必须持久化到 UserDefaults——只改内存的话 App 重启/ASWAS
+    /// 流程读默认值 example.com 导致登录弹窗异常（用户实测）
+    private func submitLogin() {
+        focusField = nil
+        auth.saveServer(server.trimmingCharacters(in: .whitespacesAndNewlines))
+        Task {
+            await auth.login(username: username, password: password, remember: remember)
+        }
     }
 
     /// Face ID 快捷登录（含两个提示弹窗）
@@ -316,9 +360,13 @@ struct LoginView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, Spacing.lg)
                 .background(Color.accentColor.opacity(Tint.subtle), in: RoundedRectangle(cornerRadius: Radius.hero, style: .continuous))
+                // v3.9.46：细描边收边（和 Pill.swift 的 accent 描边同参），
+                // 让"次级按钮"在淡底之上仍有明确边界，不再和背景糊成一片
+                .overlay(RoundedRectangle(cornerRadius: Radius.hero, style: .continuous)
+                    .strokeBorder(Color.accentColor.opacity(0.22), lineWidth: 0.8))
             }
-            .buttonStyle(.plain)
-            .padding(.horizontal, 28)
+            .buttonStyle(PressStyle())   // v3.9.46：.plain 无任何按压反馈，补上（见 PressStyle.swift）
+            .padding(.horizontal, Self.formH)
             .padding(.top, Spacing.lg)
             .disabled(auth.isLoading)
             .alert("尚未保存登录凭据", isPresented: $showFaceIDHint) {
@@ -335,9 +383,10 @@ struct LoginView: View {
     }
 
     /// 测试连接按钮
+    /// v3.9.46：降为三级动作——原来是和 Face ID 一模一样的淡底大胶囊，两个按钮抢视线；
+    /// 它只是"登录前的一次性诊断"，改成纯文字小按钮后层级立刻清楚
     @ViewBuilder
     private var loginTestButton: some View {
-        // 测试连接按钮
         Button {
             testing = true
             testResult = nil
@@ -347,33 +396,28 @@ struct LoginView: View {
                 testing = false
             }
         } label: {
-            HStack(spacing: 6) {
+            HStack(spacing: 5) {
                 Image(systemName: testing ? "arrow.trianglehead.2.clockwise.rotate.90" : "network")
-                    .font(.system(size: Typography.subhead))
+                    .font(.system(size: Typography.caption))
                 Text(testing ? "测试中..." : "测试连接")
-                    .font(.system(size: Typography.body, weight: .medium))
+                    .font(.system(size: Typography.caption, weight: .medium))
             }
-            .foregroundStyle(Color.accentColor)
+            .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity)
             .padding(.vertical, Spacing.lg)
-            .background(Color.accentColor.opacity(Tint.subtle), in: RoundedRectangle(cornerRadius: Radius.hero, style: .continuous))
+            .contentShape(Rectangle())
+            .hitArea44(v: 5)
         }
-        .buttonStyle(.plain)
-        .padding(.horizontal, 28)
-        .padding(.top, Spacing.lg)
+        .buttonStyle(PressStyle())
         .disabled(testing || auth.isLoading)
     }
 
-    /// 测试连接结果
+    /// 测试连接结果（v3.9.46：裸变色文字 → 状态横幅；结果串自带的 emoji 前缀剥掉，由横幅图标表态）
     @ViewBuilder
     private var loginTestResultText: some View {
         if let tr = testResult {
-            Text(tr)
-                .font(.system(size: Typography.subhead))
-                .foregroundStyle(tr.hasPrefix("✅") ? Color.green : (tr.hasPrefix("⚠️") ? Color.orange : Color.red))
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 32)
-                .padding(.top, Spacing.sm)
+            LoginNotice(tone: LoginNotice.Tone.forResult(tr), text: LoginNotice.stripEmoji(tr))
+                .padding(.horizontal, Self.formH)
         }
     }
 
@@ -398,6 +442,71 @@ enum LoginField: Hashable {
     case server, user, pass
 }
 
+/// v3.9.46：登录页状态横幅（登录错误 / 测试结果共用一套）
+///
+/// 原来是两坨裸 Text：没有边界、颜色各自写死、宽度靠 `padding(.horizontal, 32)` 硬撑。
+/// 现在走仓内既有的「淡底 + 同色文字 + 同色细描边」口径（见 Pill.swift 的 PillTone，
+/// 但**不是操作按钮**，所以手写作而不套 `.pill()`——Pill.swift 头注明令操作类口径不要硬套标签/状态）。
+private struct LoginNotice: View {
+    enum Tone {
+        case danger, warning, success
+
+        var color: Color {
+            switch self {
+            case .danger: return .red
+            case .warning: return .orange
+            case .success: return .green
+            }
+        }
+
+        var symbol: String {
+            switch self {
+            case .danger: return "xmark.octagon.fill"
+            case .warning: return "exclamationmark.triangle.fill"
+            case .success: return "checkmark.circle.fill"
+            }
+        }
+
+        /// AuthStore.testConnection 的返回串以 emoji 前缀分档（✅ / ⚠️ / ❌）
+        static func forResult(_ s: String) -> Tone {
+            if s.hasPrefix("✅") { return .success }
+            if s.hasPrefix("⚠️") { return .warning }
+            return .danger
+        }
+    }
+
+    /// 剥掉 emoji 前缀：改由横幅图标表态，文字不再重复记号
+    static func stripEmoji(_ s: String) -> String {
+        guard let first = s.first, "✅⚠️❌".contains(first) else { return s }
+        return String(s.dropFirst(2))   // emoji + 一个空格
+    }
+
+    let tone: Tone
+    let text: String
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: Spacing.md) {
+            Image(systemName: tone.symbol)
+                .font(.system(size: Typography.caption, weight: .semibold))
+            Text(text)
+                .font(.system(size: Typography.caption))
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+        .foregroundStyle(tone.color)
+        .padding(.horizontal, Spacing.xl)
+        .padding(.vertical, Spacing.md)
+        .background(tone.color.opacity(Tint.subtle),
+                    in: RoundedRectangle(cornerRadius: Radius.field, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: Radius.field, style: .continuous)
+                .strokeBorder(tone.color.opacity(0.22), lineWidth: 0.8)
+        )
+        .transition(.opacity)
+    }
+}
+
 struct GlassField: View {
     let icon: String
     let placeholder: String
@@ -407,8 +516,17 @@ struct GlassField: View {
     // 眼睛跟不上光标在哪）
     let field: LoginField
     var focus: FocusState<LoginField?>.Binding
+    // v3.9.46：键盘 return 键串联（服务器→用户名→密码→登录）。
+    // ⚠️ 必须声明在 focus 之后：现有调用点用的是成员初始化器且按位传参，插在前面会错位。
+    var submitLabel: SubmitLabel = .next
+    var onSubmitAction: (() -> Void)? = nil
+
+    /// 密码明文切换（本页内状态，不外抛）
+    @State private var revealPassword = false
 
     private var focused: Bool { focus.wrappedValue == field }
+    /// 明文态：只有密码框、且用户点了眼睛才成立
+    private var showPlain: Bool { isSecure && revealPassword }
 
     var body: some View {
         HStack(spacing: 10) {
@@ -417,7 +535,11 @@ struct GlassField: View {
                 .foregroundStyle(focused ? Color.accentColor : Color.secondary)
                 .frame(width: 22)
             Group {
-                if isSecure {
+                if showPlain {
+                    TextField(placeholder, text: $text)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                } else if isSecure {
                     SecureField(placeholder, text: $text)
                 } else {
                     TextField(placeholder, text: $text)
@@ -428,6 +550,25 @@ struct GlassField: View {
             .font(.system(size: Typography.body))
             .foregroundStyle(.primary)
             .focused(focus, equals: field)
+            .submitLabel(submitLabel)
+            .onSubmit { onSubmitAction?() }
+            // v3.9.46：密码可见性切换（原来密码全程盲打，输错只能靠登录失败的抖动反推）
+            if isSecure {
+                Button {
+                    revealPassword.toggle()
+                    // SecureField ↔ TextField 是两个视图，切换会掉焦点：把焦点抢回来，
+                    // 让用户能接着打完剩下的字符
+                    focus.wrappedValue = field
+                } label: {
+                    Image(systemName: revealPassword ? "eye.slash.fill" : "eye.fill")
+                        .font(.system(size: Typography.subhead))
+                        .foregroundStyle(.tertiary)
+                        .frame(width: 26, height: 26)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(revealPassword ? "隐藏密码" : "显示密码")
+            }
         }
         .padding(.horizontal, Spacing.xxl)
         .padding(.vertical, Spacing.xl)
