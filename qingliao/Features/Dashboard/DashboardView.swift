@@ -3,8 +3,11 @@ import SwiftUI
 // MARK: - 看板页（智能家居 2x3 可控制 + NAS 2x3 + 磁盘弹出式）
 
 // v3.9.25：新增 weather（天气弹窗）——注意 switch 穷尽性由 ql.py ios check 把关
+// v3.9.46：新增 lock/temps/doorbell/cpu/memory 五张详情弹窗（用户点名"卡片点击要看细节"）
+//         + alarmArmAsk（布防/撤防确认）走 confirmationDialog，不占 sheet 通道
 enum DashboardSheet: String, Identifiable {
     case lights, climate, service, serviceHermes, disks, docker, weather
+    case lock, temps, doorbell, cpu, memory
     var id: String { rawValue }
 }
 
@@ -100,6 +103,11 @@ struct DashboardView: View {
     @State private var diagnosing = false
     // v3.0.74：钉一钉
     @State private var pinStore = PinStore.shared
+    // v3.9.46：安防卡点击布防/撤防。confirmArmTarget 走 confirmationDialog（危险动作既有方言，
+    // 同「执行场景」「停止服务」）；alarmBusy 是下发在途闸门；alarmError 是失败回执。
+    @State private var confirmArmTarget: Bool?
+    @State private var alarmBusy = false
+    @State private var alarmError = ""
 
     var body: some View {
         VStack(spacing: 0) {
@@ -171,6 +179,40 @@ struct DashboardView: View {
                     DockerSheet()
                         .presentationDetents([.medium, .large])
                         .navigationTransition(.zoom(sourceID: DashboardSheet.docker.id, in: sheetZoomNS))   // v3.9.0
+                // v3.9.46：三张设备详情弹窗 + CPU/内存弹窗（统一 BoardSheetHeader 头部、
+                // 统一 medium/large detents、统一 zoom 转场 —— 用户要求"弹窗样式统一"）
+                case .lock:
+                    HADeviceDetailSheet(title: "门锁",
+                                        detail: "\(lockEntities.count) 个实体",
+                                        entities: lockEntities,
+                                        emptySubtitle: "门锁实体来自 /api/ha/states（看板 30s 轮询）；"
+                                            + "若刚换过电池或重新配网，下拉看板重取一次")
+                        .presentationDetents([.medium, .large])
+                        .navigationTransition(.zoom(sourceID: DashboardSheet.lock.id, in: sheetZoomNS))
+                case .temps:
+                    HADeviceDetailSheet(title: "各房间温度",
+                                        detail: "\(roomTempEntities.count) 个温度计",
+                                        entities: roomTempEntities,
+                                        emptyTitle: "没有读到温度传感器",
+                                        emptySubtitle: "看板卡片只取一个室内温度，这里列全所有 temperature 实体")
+                        .presentationDetents([.medium, .large])
+                        .navigationTransition(.zoom(sourceID: DashboardSheet.temps.id, in: sheetZoomNS))
+                case .doorbell:
+                    HADeviceDetailSheet(title: "猫眼 / 门铃",
+                                        detail: "\(doorbellEntities.count) 个实体",
+                                        entities: doorbellEntities,
+                                        emptySubtitle: "门铃摄像头实体来自 /api/ha/states；"
+                                            + "画面快照后端未透出，这里只有电量与在线状态")
+                        .presentationDetents([.medium, .large])
+                        .navigationTransition(.zoom(sourceID: DashboardSheet.doorbell.id, in: sheetZoomNS))
+                case .cpu:
+                    NASMetricSheet(kind: .cpu, nas: nas, hwCpu: hwCpu, hwSsd: hwSsd)
+                        .presentationDetents([.medium])
+                        .navigationTransition(.zoom(sourceID: DashboardSheet.cpu.id, in: sheetZoomNS))
+                case .memory:
+                    NASMetricSheet(kind: .memory, nas: nas, hwCpu: hwCpu, hwSsd: hwSsd)
+                        .presentationDetents([.medium])
+                        .navigationTransition(.zoom(sourceID: DashboardSheet.memory.id, in: sheetZoomNS))
                 case .weather:
                     // v3.9.25：两页天气弹窗（今天 / 未来 5 天）。默认半屏 medium（用户定稿）；
                     // 保留 .large 作逃生口：第 2 页是纯 VStack（无 ScrollView），小屏若超出一行会被静默裁切。
@@ -224,6 +266,22 @@ struct DashboardView: View {
                 Button("取消", role: .cancel) { confirmSceneRun = nil }
             } message: {
                 Text("场景「\(confirmSceneRun?.name ?? "")」包含安全相关动作（布防/离家/断电），执行后可能改变家庭安防状态。")
+            }
+            // v3.9.46：安防卡点击布防/撤防的确认（同一套危险动作方言：confirmationDialog + 明示后果）
+            .confirmationDialog("确认变更安防状态？",
+                                isPresented: Binding(get: { confirmArmTarget != nil },
+                                                     set: { if !$0 { confirmArmTarget = nil } }),
+                                titleVisibility: .visible) {
+                armDialogButtons
+            } message: {
+                Text(armDialogMessage)
+            }
+            // v3.9.46：布防/撤防的失败回执（原来这类写操作失败只会被 catch 吞掉）
+            .alert("安防操作", isPresented: Binding(get: { !alarmError.isEmpty },
+                                                    set: { if !$0 { alarmError = "" } })) {
+                Button("知道了", role: .cancel) { alarmError = "" }
+            } message: {
+                Text(alarmError)
             }
         }
         // v2.0.96b：切回看板立即刷新（对话里生成场景后看板即时联动）
@@ -328,10 +386,24 @@ struct DashboardView: View {
             DeviceCard(name: "空调", icon: "air.conditioner.horizontal", value: haClimate, sub: "\(climateOn) 台运行中 · 点击控制", status: climateOn > 0 ? .on : .off)
                 .tapButton { activeSheet = .climate }
                 .matchedTransitionSource(id: DashboardSheet.climate.id, in: sheetZoomNS)   // v3.9.0：卡片→详情 zoom
-            DeviceCard(name: "门锁", icon: "lock.fill", value: haLockBattery, sub: "智能门锁", status: .on)
-            DeviceCard(name: "猫眼", icon: "video.fill", value: haDoorbellBattery, sub: haDoorbellOnline ? "在线" : "离线", status: haDoorbellOnline ? .on : .off)
-            DeviceCard(name: "安防", icon: "shield.fill", value: haAlarm, sub: "网关警戒模式", status: haAlarmArmed ? .on : .warn)
-            DeviceCard(name: "温度", icon: "thermometer", value: haTemp, sub: "室内温度", status: .on)
+            // v3.9.46：门锁/猫眼/温度三张只读卡接上详情弹窗；安防卡接上布防/撤防
+            // （sub 文案同时当"可点"的提示，样式与既有 灯/空调 卡一致：tapButton + zoom 转场）
+            DeviceCard(name: "门锁", icon: "lock.fill", value: haLockBattery,
+                       sub: "点击看锁体状态", status: .on)
+                .tapButton { activeSheet = .lock }
+                .matchedTransitionSource(id: DashboardSheet.lock.id, in: sheetZoomNS)
+            DeviceCard(name: "猫眼", icon: "video.fill", value: haDoorbellBattery,
+                       sub: (haDoorbellOnline ? "在线" : "离线") + " · 点击详情",
+                       status: haDoorbellOnline ? .on : .off)
+                .tapButton { activeSheet = .doorbell }
+                .matchedTransitionSource(id: DashboardSheet.doorbell.id, in: sheetZoomNS)
+            DeviceCard(name: "安防", icon: "shield.fill", value: haAlarm,
+                       sub: alarmSub, status: haAlarmArmed ? .on : .warn)
+                .tapButton { requestArm(!haAlarmArmed) }
+            DeviceCard(name: "温度", icon: "thermometer", value: haTemp,
+                       sub: "室内温度 · 点击看各房间", status: .on)
+                .tapButton { activeSheet = .temps }
+                .matchedTransitionSource(id: DashboardSheet.temps.id, in: sheetZoomNS)
         }
     }
 
@@ -482,8 +554,15 @@ struct DashboardView: View {
     private var nasPanelBlock: some View {
         sectionTitle("NAS 面板")
         LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
-            MeterCard(name: "CPU", icon: "cpu.fill", value: nas.cpuText, sub: nil, ratio: nas.cpu / 100.0, color: .blue)
-            MeterCard(name: "内存", icon: "memorychip.fill", value: nas.memUsedText, sub: "/ \(nas.memTotalText)", ratio: nas.memPct, color: .green)
+            // v3.9.46：CPU / 内存卡点击看详情（原先只能看一个百分数，两个容器各吃多少内存看不见）
+            MeterCard(name: "CPU", icon: "cpu.fill", value: nas.cpuText,
+                      sub: "点击查看", ratio: nas.cpu / 100.0, color: .blue)
+                .tapButton { activeSheet = .cpu }
+                .matchedTransitionSource(id: DashboardSheet.cpu.id, in: sheetZoomNS)
+            MeterCard(name: "内存", icon: "memorychip.fill", value: nas.memUsedText,
+                      sub: "/ \(nas.memTotalText) · 点击查看", ratio: nas.memPct, color: .green)
+                .tapButton { activeSheet = .memory }
+                .matchedTransitionSource(id: DashboardSheet.memory.id, in: sheetZoomNS)
             ServiceCard(name: "轻聊后端", icon: "server.rack", running: nas.qingliaoAlive, detail: "Docker 内存 \(nas.qingliaoDockerMemText)")
                 .tapButton { activeSheet = .service }
                 .matchedTransitionSource(id: DashboardSheet.service.id, in: sheetZoomNS)   // v3.9.0：卡片→详情 zoom
@@ -628,6 +707,7 @@ struct DashboardView: View {
     //   /api/weather 解析；解析统一走 WeatherService.parseBackend（见下方 loadWeatherWithCity）
 
     // v2.0.87am：手动城市名 → 天气（未设置城市不显示徽章）
+    // v3.9.46：先查进程内天气缓存——看板每次切回、弹窗每次关闭都不再重打 /api/weather
     private func loadWeatherWithCity() async {
         weatherCity = UserDefaults.standard.string(forKey: "qingliao_weather_city") ?? ""
         guard !weatherCity.isEmpty else {
@@ -635,11 +715,19 @@ struct DashboardView: View {
             weatherCode = nil
             return
         }
+        let key = weatherCity          // 缓存键固定用用户存的城市原名（下面会把 weatherCity 换成后端回的名字）
+        if let hit = WeatherCache.value(city: key) {
+            weatherTemp = hit.temp
+            weatherCode = hit.code
+            if !hit.city.isEmpty { weatherCity = hit.city }
+            return
+        }
         let enc = weatherCity.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? weatherCity
         if let j = await auth.jsonOrLog("/api/weather?city=\(enc)") {
             // v3.9.25：改走 WeatherService.parseBackend —— 消除仓内第 3 份手写解析，
             // 并顺带拿到 num/int 的 NaN/超范围护栏（字段语义与旧写法一致）
             let s = WeatherService.parseBackend(j)
+            WeatherCache.put(city: key, snap: s)
             weatherTemp = s.temp
             weatherCode = s.code
             if !s.city.isEmpty { weatherCity = s.city }
@@ -766,6 +854,58 @@ struct DashboardView: View {
         if let h = await auth.jsonArrayOrLog("/api/ha/states") {
             haEntities = h.compactMap { HAEntity.parse($0 as? [String: Any] ?? [:]) }
         }
+    }
+
+    // MARK: v3.9.46 安防布防 / 撤防
+
+    /// 点击安防卡：先确认再下发（布防/撤防是会改变家庭安防状态的动作，误触代价高）
+    private func requestArm(_ armed: Bool) {
+        guard alarm != nil else {
+            alarmError = "没找到网关警戒开关（guard_mode），无法布防/撤防"
+            Haptics.error()
+            return
+        }
+        guard !alarmBusy else { return }        // 在途连点直接吞（同 clashAction 的防抖口径）
+        confirmArmTarget = armed
+    }
+
+    /// 真正下发：Aqara 网关警戒模式是个 switch 实体 ⇒ 走 HA 通用服务口
+    /// POST /api/ha/services/switch/turn_on|turn_off（与 HADeviceSheet 控制灯/空调同一条通道）。
+    /// 失败一定要出声（v3.9.41 在 HADeviceSheet 修过一次同样的"静默吞错"），
+    /// 成功后立刻回读 /api/ha/states 让卡片显示真值，不做乐观更新。
+    private func applyArm(_ armed: Bool) {
+        guard let e = alarm else { return }
+        alarmBusy = true
+        let path = armed ? "/api/ha/services/switch/turn_on" : "/api/ha/services/switch/turn_off"
+        Task {
+            defer { alarmBusy = false }
+            do {
+                _ = try await auth.request(path, method: "POST", body: ["entity_id": e.entityID])
+                Haptics.success()
+            } catch {
+                alarmError = "\(armed ? "布防" : "撤防")失败：\(error.localizedDescription)"
+                Haptics.error()
+            }
+            await loadHA()
+        }
+    }
+
+    /// confirmationDialog 的按钮单独抽出来：动态按钮塞进 body 大表达式里撞过类型检查超时
+    /// （见 usageRestoreRow / ChatView.chatActionDialogContent 的同款处理）
+    @ViewBuilder
+    private var armDialogButtons: some View {
+        Button(confirmArmTarget == true ? "确认布防" : "确认撤防",
+               role: confirmArmTarget == true ? nil : .destructive) {
+            if let t = confirmArmTarget { applyArm(t) }
+            confirmArmTarget = nil
+        }
+        Button("取消", role: .cancel) { confirmArmTarget = nil }
+    }
+
+    private var armDialogMessage: String {
+        confirmArmTarget == true
+            ? "网关进入警戒模式后，门窗被打开会立即告警。"
+            : "撤防后家中不再告警，请确认不是误触。"
     }
 
     /// 场景列表
@@ -988,6 +1128,45 @@ struct DashboardView: View {
     private var haTemp: String {
         guard let e = tempSensor, let v = Double(e.state) else { return "--" }
         return String(format: "%.1f°", v)
+    }
+
+    // MARK: v3.9.46 卡片详情弹窗的数据切片（都在已轮询的 haEntities 里挑，零新接口）
+
+    /// 门锁相关实体：门锁本体（bacn01）+ lock 域 + 门磁一类含 door 的实体。
+    /// 卡片只取了电量一个数，弹窗把整套状态摊开（锁体/门开合/电量/属性）。
+    private var lockEntities: [HAEntity] {
+        haEntities.filter {
+            $0.entityID.contains("bacn01")
+                || $0.entityID.hasPrefix("lock.")
+                || $0.entityID.contains("door_lock")
+        }
+        .sorted { $0.entityID < $1.entityID }
+    }
+
+    /// 猫眼 / 门铃：创米（chuangmi）与含 doorbell 的实体
+    private var doorbellEntities: [HAEntity] {
+        haEntities.filter {
+            $0.entityID.contains("chuangmi") || $0.entityID.contains("doorbell")
+        }
+        .sorted { $0.entityID < $1.entityID }
+    }
+
+    /// 全部可用的温度计（卡片只显室内那一个，弹窗列各房间）
+    private var roomTempEntities: [HAEntity] {
+        haEntities.filter {
+            $0.entityID.hasPrefix("sensor.")
+                && $0.entityID.contains("temperature")
+                && !$0.state.contains("unavailable")
+                && Double($0.state) != nil
+        }
+        .sorted { $0.friendlyName < $1.friendlyName }
+    }
+
+    /// 安防卡副标题：没有 guard_mode 实体时要说实话，别写"点击布防"骗人
+    private var alarmSub: String {
+        if alarm == nil { return "未找到网关警戒开关" }
+        if alarmBusy { return "正在下发…" }
+        return haAlarmArmed ? "布防中 · 点击撤防" : "已撤防 · 点击布防"
     }
 
     private func sectionTitle(_ s: String) -> some View {
