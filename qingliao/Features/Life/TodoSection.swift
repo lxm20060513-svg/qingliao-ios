@@ -16,28 +16,47 @@ struct TodoSection: View {
     @Namespace private var todoZoomNS
     @State private var draft = ""
     @State private var detail: TodoItem?
+    /// v3.9.41（SR34）：详情页**实际渲染**用的副本；`detail` 只负责驱动呈现（一旦被 sheet 取用，
+    /// 传进闭包的就是那一刻的快照，之后 store 改了它也不会跟着变 → 大勾选圆点了没反应）。
+    /// 每次写库后由 `refreshDetail()` 回灌这一份，呈现期间不再动 `detail`（换值可能触发重呈现）。
+    @State private var detailCurrent: TodoItem?
     @State private var pendingDelete: TodoItem?
     @State private var editDraft = ""
     /// v3.9.35b：详情页编辑态标志（查看=待办风格大卡；编辑=TextEditor）
     @State private var detailEditing = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            pageHeader
-            if store.todos.isEmpty {
-                emptyTap
-            } else {
-                topCard
+        root
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .task { await store.loadFromServer() }
+            .sheet(isPresented: $showAdd) { addSheet }
+            // SR35：「全部待办」弹窗里长按/左滑的删除确认，必须挂在弹窗自己这棵树上
+            .sheet(isPresented: $showAll) { deleteConfirm(on: allSheet) }
+            .sheet(item: $detail, onDismiss: { detail = nil; detailCurrent = nil }) { t in
+                detailSheet(detailCurrent ?? t)
             }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .task { await store.loadFromServer() }
-        .sheet(isPresented: $showAdd) { addSheet }
-        .sheet(isPresented: $showAll) { allSheet }
-        .sheet(item: $detail, onDismiss: { detail = nil }) { t in
-            detailSheet(t)
-        }
-        .alert("删除这条待办？", isPresented: Binding(
+    }
+
+    /// 页面主体：确认框挂在这——页卡（无弹窗在前）长按删除时生效的就是这一份
+    private var root: some View {
+        deleteConfirm(on:
+            VStack(alignment: .leading, spacing: 8) {
+                pageHeader
+                if store.todos.isEmpty {
+                    emptyTap
+                } else {
+                    topCard
+                }
+            }
+        )
+    }
+
+    /// v3.9.41（SR35）：删除确认框本体，宿主与「全部待办」弹窗各挂一次。
+    /// 原先只有宿主那一份（旧 :40），而弹窗盖在宿主之上时宿主级 alert 呈现不出来 →
+    /// 列表里长按「删除」= 点了没反应。备忘录的 MemoSection 早已把确认框搬进弹窗内，待办漏抄。
+    @ViewBuilder
+    private func deleteConfirm<V: View>(on view: V) -> some View {
+        view.alert("删除这条待办？", isPresented: Binding(
             get: { pendingDelete != nil },
             set: { if !$0 { pendingDelete = nil } }
         )) {
@@ -129,6 +148,7 @@ struct TodoSection: View {
         if store.sorted.count == 1, let only = store.sorted.first {
             editDraft = only.content
             detailEditing = false
+            detailCurrent = only
             detail = only
         } else {
             showAll = true
@@ -161,6 +181,8 @@ struct TodoSection: View {
                             Task { @MainActor in
                                 try? await Task.sleep(for: .milliseconds(500))
                                 guard !showAll else { return }
+                                // SR34：以 store 里的当前那条为准（这 500ms 内可能刚刷过一遍）
+                                detailCurrent = store.todos.first { $0.id == t.id } ?? t
                                 detail = t
                             }
                         } label: {
@@ -176,8 +198,15 @@ struct TodoSection: View {
                         .listRowBackground(Color.clear)
                     }
                     .onDelete { offsets in
-                        let targets = offsets.map { store.sorted[$0] }
-                        for t in targets { store.delete(t) }
+                        // v3.9.41（SR35）：左滑原先零确认直接删 + 整档回写 NAS（长按那条路有确认，
+                        // 左滑漏了）。单行走同一个确认框；一次多行（批量手势，极少见）逐条弹框
+                        // 不现实，保持直接删。
+                        guard offsets.count == 1, let idx = offsets.first else {
+                            let targets = offsets.map { store.sorted[$0] }
+                            for t in targets { store.delete(t) }
+                            return
+                        }
+                        pendingDelete = store.sorted[idx]
                     }
                     // v3.9.38：与「全部备忘」同款空态占位（列表打开期间被删空不剩空白面板）
                     if store.sorted.isEmpty {
@@ -202,6 +231,13 @@ struct TodoSection: View {
     // v3.9.35b：详情用「待办」的 UI 风格（系统提醒事项式）——大勾选圆 + 完成态划线压灰 + 来源/时间
     // 元信息行；编辑态才切 TextEditor。顶栏沿用备忘录详情的自绘小胶囊口径。
 
+    /// v3.9.41（SR34）：把 store 里最新的那条回灌给详情页副本（见 `detailCurrent`）。
+    private func refreshDetail() {
+        guard let cur = detailCurrent ?? detail,
+              let idx = store.todos.firstIndex(where: { $0.id == cur.id }) else { return }
+        detailCurrent = store.todos[idx]
+    }
+
     private func detailSheet(_ t: TodoItem) -> some View {
         NavigationStack {
             VStack(spacing: 0) {
@@ -214,6 +250,7 @@ struct TodoSection: View {
                     if detailEditing {
                         MiniCapsule(title: "保存", accent: true) {
                             store.update(t, content: editDraft)
+                            refreshDetail()   // SR34：正文改了要让本页立刻显示
                             detailEditing = false
                         }
                         .disabled(editDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -260,6 +297,7 @@ struct TodoSection: View {
                             // 大勾选圆 + 内容：整卡可点切换完成态（待办的核心交互前置到详情）
                             Button {
                                 store.toggleDone(t)
+                                refreshDetail()   // SR34：勾选态必须立刻反映在本页
                                 Haptics.success()
                             } label: {
                                 HStack(alignment: .top, spacing: 12) {

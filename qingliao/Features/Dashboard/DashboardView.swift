@@ -45,8 +45,13 @@ struct DashboardView: View {
 
     /// 已存顺序在前；串里没出现的（首次使用 / 之后新增的栏目 / 未知键）按默认顺序补在后面
     private var orderedCards: [BoardCard] {
-        let saved = cardOrderRaw.split(separator: ",").compactMap { BoardCard(rawValue: String($0)) }
-        return saved + BoardCard.allCases.filter { !saved.contains($0) }
+        // SR13：去重——旧版本的编辑器把隐藏项重复写进了 dashboard_card_order，
+        // 这些脏值会一直流到这里（saved 不做去重）→ 看板同一张卡片渲染两遍。就地清掉，老数据自愈。
+        var seen = Set<BoardCard>()
+        let saved = cardOrderRaw.split(separator: ",")
+            .compactMap { BoardCard(rawValue: String($0)) }
+            .filter { seen.insert($0).inserted }
+        return saved + BoardCard.allCases.filter { !seen.contains($0) }
     }
     private var hiddenCards: Set<BoardCard> {
         Set(hiddenCardsRaw.split(separator: ",").compactMap { BoardCard(rawValue: String($0)) })
@@ -57,6 +62,11 @@ struct DashboardView: View {
     }
     @State private var haEntities: [HAEntity] = []
     @State private var router = RouterStatus()
+    /// v3.9.41（SR36）：Clash 起停的在途闸门。原先放在 `RouterStatus.busy` 里，
+    /// 而 loadRouter() 每轮整体替换 `router`（parse 出来的 busy 恒 false）→ 闸门被并发刷新解掉。
+    @State private var clashBusy = false
+    /// v3.9.41（SR39）：refresh() 的在途闸门（见该方法内注释）
+    @State private var refreshing = false
     @State private var scrollPos = ScrollPosition()
 
     @State private var activeSheet: DashboardSheet?
@@ -70,6 +80,8 @@ struct DashboardView: View {
     @State private var scenes: [SceneItem] = []
     // v2.0.104：定时自动化（AI 生成"X分钟后执行Y"，到点自动执行后消失）
     @State private var automations: [AutomationItem] = []
+    /// v3.9.41（SR38）：取消自动化的失败回执（原先 DELETE 返回值整个丢弃）
+    @State private var automationError = ""
     // v3.9.21：自动规则（条件触发；规则本体在后端 rules_engine 求值）
     @State private var rules: [RuleItem] = []
     @State private var pendingRuleDelete: RuleItem?
@@ -171,7 +183,12 @@ struct DashboardView: View {
             }
             // v3.9.40（#15）：卡片编辑器（排序 / 隐藏）
             .sheet(isPresented: $showCardEditor) {
-                BoardCardEditorSheet(all: orderedCards,
+                // SR13：`all` 必须传**可见**卡片。原来传 orderedCards（含隐藏项），
+                // 而 init 把 all 整个塞进 `shown` → 隐藏卡片同时出现在「显示中」和「已隐藏」两栏；
+                // 在「显示中」再点一次隐藏，hiddenList 就多一份重复，persist 写出的
+                // orderRaw = shown + hiddenList 也带重复键 → orderedCards 返回重复元素 →
+                // 看板同一张卡片渲染两遍，且 ForEach(id: \.element) 重复 id（SwiftUI 直接告警/错位）。
+                BoardCardEditorSheet(all: visibleCards,
                                      hidden: orderedCards.filter { hiddenCards.contains($0) })
             }
             // v3.9.21：删除规则确认
@@ -426,6 +443,14 @@ struct DashboardView: View {
                 }
             }
         }
+        // v3.9.41（SR38）：取消失败的可见回执
+        if !automationError.isEmpty {
+            Text("⚠️ \(automationError)")
+                .font(.system(size: Typography.caption))
+                .foregroundStyle(.orange)
+                .padding(.horizontal, Spacing.xl)
+                .padding(.top, Spacing.xs)
+        }
     }
 
     /// 自动规则
@@ -540,6 +565,7 @@ struct DashboardView: View {
     private var routerBlock: some View {
         sectionTitle("路由器")
         RouterPanel(router: router,
+                    busy: clashBusy,
                     onStart: { clashAction("start") },
                     onStop: { clashAction("stop") },
                     onRefresh: { Task { await loadRouter() } })
@@ -623,6 +649,10 @@ struct DashboardView: View {
     private func loadRouter() async {
         if let j = await auth.jsonOrLog("/api/router/status") {
             router = RouterStatus.parse(j)
+        } else {
+            // v3.9.41（SR36）：原先 nil 就什么都不写 → 路由器连不上时卡片静默挂着上一轮的旧数字，
+            // 用户以为还是实时值。失败要落到卡片下方那行红字上。
+            router.error = "路由器状态获取失败"
         }
     }
 
@@ -644,18 +674,27 @@ struct DashboardView: View {
     /// 快捷指令：启动/关闭 Clash
     private func clashAction(_ action: String) {
         // v2.0.102：防抖——操作中再点直接忽略（原两个并发 Task 各自 defer 释放 busy 互相覆盖）
-        guard !router.busy else { return }
-        router.busy = true
+        // SR36：闸门挪到 @State clashBusy。原先存 `router.busy`，而本方法结尾必然 `await loadRouter()`
+        // 整体替换 router（parse 出来的 busy 恒 false）、30s 轮询也会替换 → 闸门形同虚设，连点即并发下发。
+        guard !clashBusy else { return }
+        clashBusy = true
         Task {
-            defer { router.busy = false }
+            defer { clashBusy = false }
+            var reqFailed = false
             if let j = await auth.jsonOrLog("/api/router/clash/\(action)", method: "POST", body: nil) {
                 // v2.0.92：操作成功清空错误显示（失败原因由后端按"服务已启动"输出判断）
                 if (j["ok"] as? Bool) == true {
                     router.error = ""
                 }
                 router = RouterStatus.merge(router, with: j)
+            } else {
+                reqFailed = true
             }
             await loadRouter()
+            if reqFailed {
+                // SR36：请求整个失败（非 2xx/超时）原先连一行提示都不留 → 「点了没反应」
+                router.error = "Clash \(action == "start" ? "启动" : "关闭")请求失败"
+            }
         }
     }
 
@@ -694,6 +733,12 @@ struct DashboardView: View {
     }
 
     private func refresh() async {
+        // v3.9.41（SR39）：在途闸门。下拉刷新、30s 轮询、空态「刷新」按钮、执行场景后的补刷
+        // 都调这里，原先无闸门 → 多份「8 路并发」同时在飞：蜂窝下成倍流量，且晚到的旧响应会把
+        // 新值写回去（@State 逐个覆盖，没有序号判定）。重入直接返回——那一轮本来就会拿到新数据。
+        guard !refreshing else { return }
+        refreshing = true
+        defer { refreshing = false }
         // v3.0.x：并行请求——7 个独立 API 并发（原串行，每个等前一个完成才发下一个）
         // v3.0.81c：不用 TaskGroup+addTask{@MainActor}——Xcode 26.6 Swift 6 区域隔离检查器对
         // 「闭包捕获 self」的这种写法直接报编译错误（checker bug）。
@@ -798,10 +843,25 @@ struct DashboardView: View {
     }
 
     /// v2.0.104：取消自动化（长按卡片）
+    /// v3.9.41（SR38）：原先 `_ = await jsonOrLog(...)` 丢弃返回值就本地摘除——后端没删成时
+    /// 30s 轮询把它原样拉回，用户以为已取消、到点照样执行场景。现按响应走：成功用后端列表覆盖。
     private func cancelAutomation(_ a: AutomationItem) {
+        automationError = ""
         Task {
-            _ = await auth.jsonOrLog("/api/automations/\(a.id)", method: "DELETE", body: nil)
-            automations.removeAll { $0.id == a.id }
+            do {
+                let j = try await auth.json("/api/automations/\(a.id)", method: "DELETE", body: nil)
+                guard (j["ok"] as? Bool) ?? false else {
+                    automationError = "取消失败：\(j["message"] as? String ?? "服务器未删除")"
+                    return
+                }
+                if let list = j["automations"] as? [[String: Any]] {
+                    automations = list.map { AutomationItem($0) }
+                } else {
+                    automations.removeAll { $0.id == a.id }
+                }
+            } catch {
+                automationError = "取消失败：\(error.localizedDescription)"
+            }
         }
     }
 
@@ -1035,8 +1095,11 @@ struct BoardCardEditorSheet: View {
     @State private var hiddenList: [BoardCard] = []
 
     init(all: [BoardCard], hidden: [BoardCard]) {
-        _shown = State(initialValue: all)
-        _hiddenList = State(initialValue: hidden)
+        // SR13：防御性去重（调用方已改传可见卡片，这里再兜一层，避免任何路径把同一卡片
+        // 同时塞进两栏 → 重复 id / orderRaw 重复键）
+        var seen = Set<BoardCard>()
+        _shown = State(initialValue: all.filter { seen.insert($0).inserted })
+        _hiddenList = State(initialValue: hidden.filter { seen.insert($0).inserted })
     }
 
     var body: some View {
@@ -1096,20 +1159,25 @@ struct BoardCardEditorSheet: View {
     private func hide(_ card: BoardCard, at idx: Int) {
         guard shown.indices.contains(idx) else { return }
         shown.remove(at: idx)
-        hiddenList.append(card)
+        if !hiddenList.contains(card) { hiddenList.append(card) }   // SR13：防重复入隐藏栏
         persist()
     }
 
     private func restore(_ card: BoardCard) {
         hiddenList.removeAll { $0 == card }
-        shown.append(card)
+        if !shown.contains(card) { shown.append(card) }             // SR13：防重复入显示栏
         persist()
     }
 
     private func persist() {
         // 隐藏项也留在顺序串里：否则恢复时它会被 orderedCards 补到末尾，丢掉用户原本排的位置
-        orderRaw = (shown + hiddenList).map(\.rawValue).joined(separator: ",")
-        hiddenRaw = hiddenList.map(\.rawValue).joined(separator: ",")
+        // SR13：写串前去重——orderRaw 里的重复键会原样流回 orderedCards（saved 不做去重），
+        // 造成看板重复渲染同一张卡片。
+        var seen = Set<BoardCard>()
+        let uniq = (shown + hiddenList).filter { seen.insert($0).inserted }
+        orderRaw = uniq.map(\.rawValue).joined(separator: ",")
+        seen = []
+        hiddenRaw = hiddenList.filter { seen.insert($0).inserted }.map(\.rawValue).joined(separator: ",")
     }
 }
 

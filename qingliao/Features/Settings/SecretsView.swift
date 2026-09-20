@@ -13,6 +13,16 @@ struct SecretEntry: Identifiable {
     var password: String = ""   // 明文（仅 reveal 后填充）
 }
 
+/// v3.9.41（SR22）：复制出去的凭据 60 秒后自动从系统剪贴板失效
+/// （剪贴板会被其他 App 读到、iCloud 通用剪贴板还会上云，不能当保险箱）
+enum SecretClipboard {
+    static func copy(_ s: String) {
+        let pb = UIPasteboard.general
+        pb.string = s
+        pb.expirationDate = Date().addingTimeInterval(60)
+    }
+}
+
 struct SecretsView: View {
     @Environment(AuthStore.self) private var auth
     @Environment(\.dismiss) private var dismiss
@@ -25,6 +35,11 @@ struct SecretsView: View {
     // Face ID / 生物识别解锁
     @State private var locked = true
     @State private var authFailed = false
+    // v3.9.41（SR22）：明文只在有限时间内停留——每条已显形的密码挂一个自动掩码任务，
+    // 离开前台时也一并掩掉（此前 reveal 后直到重进页面都是明文，任务切换器快照也能拍到）
+    @State private var maskTasks: [String: Task<Void, Never>] = [:]
+    @Environment(\.scenePhase) private var scenePhase
+    private static let revealSeconds: TimeInterval = 30
 
     var body: some View {
         VStack(spacing: 0) {
@@ -104,6 +119,10 @@ struct SecretsView: View {
         }
         .background(Color(uiColor: .systemBackground))
         .task { await load() }
+        // v3.9.41（SR22）：一离开前台就把已显形的密码全部掩回（任务切换器/切走再回来不再留明文）
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active { maskAllPasswords() }
+        }
         .sheet(isPresented: $showEdit) {
             SecretEditSheet(entry: editing, onSave: { newEntry in
                 Task { await save(newEntry) }
@@ -189,9 +208,32 @@ struct SecretsView: View {
                 if let idx = entries.firstIndex(where: { $0.id == e.id }) {
                     entries[idx].password = pw
                 }
+                scheduleMask(e.id)
             } catch {
                 toast = "获取失败"
             }
+        }
+    }
+
+    /// v3.9.41（SR22）：显形倒计时（重复点击以最后一次为准）
+    private func scheduleMask(_ id: String) {
+        maskTasks[id]?.cancel()
+        maskTasks[id] = Task {
+            try? await Task.sleep(for: .seconds(SecretsView.revealSeconds))
+            guard !Task.isCancelled else { return }
+            maskTasks[id] = nil
+            if let idx = entries.firstIndex(where: { $0.id == id }) {
+                entries[idx].password = ""
+            }
+        }
+    }
+
+    /// 退后台/收起：全部掩掉，并撤掉未完成的倒计时
+    private func maskAllPasswords() {
+        for t in maskTasks.values { t.cancel() }
+        maskTasks.removeAll()
+        for idx in entries.indices where !entries[idx].password.isEmpty {
+            entries[idx].password = ""
         }
     }
 
@@ -269,7 +311,7 @@ struct SecretRow: View {
                 Spacer()
                 // 复制完整连接串
                 Button {
-                    UIPasteboard.general.string = "\(entry.username)@\(entry.address)"
+                    SecretClipboard.copy("\(entry.username)@\(entry.address)")
                 } label: {
                     Image(systemName: "doc.on.doc")
                         .font(.system(size: Typography.subhead))
@@ -313,7 +355,7 @@ struct SecretRow: View {
                     .buttonStyle(.plain)
                 } else {
                     Button {
-                        UIPasteboard.general.string = entry.password
+                        SecretClipboard.copy(entry.password)
                     } label: {
                         Image(systemName: "doc.on.doc")
                             .font(.system(size: Typography.subhead))

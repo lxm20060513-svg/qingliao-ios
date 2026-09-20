@@ -125,15 +125,26 @@ struct KBView: View {
         }
     }
 
+    /// v3.9.41（SR23）：单文件字节闸门——原先选到什么传什么，整篇内容一次进 JSON body
+    private static let maxUploadBytes = 8 * 1024 * 1024
+
     private func uploadFiles(_ urls: [URL]) async {
         busy = true
         defer { busy = false }
+        // v3.9.41（SR23）：逐文件刷 message 时只有最后一个文件看得见结果，多文件选完等于没反馈
+        var uploaded = 0
+        var failures: [String] = []
         for url in urls {
             let name = url.deletingPathExtension().lastPathComponent
             let ext = url.pathExtension.lowercased()
             var content = ""
             let access = url.startAccessingSecurityScopedResource()
             defer { if access { url.stopAccessingSecurityScopedResource() } }
+            let size: Int = ((try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? Int) ?? 0
+            guard size <= Self.maxUploadBytes else {
+                failures.append("\(name)：\(size / 1024 / 1024)MB 超过 8MB 上限")
+                continue
+            }
             if ext == "pdf" {
                 // PDF 用 PDFKit 提取文本（与发送 PDF 同款）
                 content = extractPDFText(from: url) ?? ""
@@ -141,24 +152,39 @@ struct KBView: View {
                 content = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
             }
             guard !content.isEmpty else {
-                message = (false, "\(name)：无法读取内容（扫描件 PDF 无文字层）")
+                failures.append("\(name)：无法读取内容（扫描件 PDF 无文字层）")
                 continue
             }
             if let j = try? await auth.json("/api/kb/upload", method: "POST",
                                             body: ["name": name, "content": content]) {
                 let ok = (j["ok"] as? Bool) ?? false
-                message = (ok, (j["message"] as? String) ?? (ok ? "已保存" : "上传失败"))
+                if ok {
+                    uploaded += 1
+                } else {
+                    failures.append("\(name)：\((j["message"] as? String) ?? "上传失败")")
+                }
             } else {
-                message = (false, "\(name)：请求失败")
+                failures.append("\(name)：请求失败")
             }
+        }
+        let done = "已上传 \(uploaded) 个文档"
+        if failures.isEmpty {
+            message = (true, done)
+        } else {
+            let f = failures.joined(separator: "；")
+            message = (uploaded == 0, uploaded == 0 ? f : "\(done)；失败：\(f)")
         }
         await load()
     }
 
     private func deleteDoc(_ name: String) async {
-        if let j = try? await auth.json("/api/kb/delete", method: "POST", body: ["name": name]) {
-            message = ((j["ok"] as? Bool) ?? false, j["message"] as? String ?? "")
+        // v3.9.41（SR24）：请求失败原先连 message 都不设，条目「看着删了」重开原样回来
+        guard let j = try? await auth.json("/api/kb/delete", method: "POST", body: ["name": name]) else {
+            message = (false, "\(name)：删除失败（请求未送达）")
+            return
         }
+        let ok = (j["ok"] as? Bool) ?? false
+        message = (ok, j["message"] as? String ?? (ok ? "已删除" : "\(name)：删除失败"))
         await load()
     }
 

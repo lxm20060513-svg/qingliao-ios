@@ -33,7 +33,8 @@ final class AuthStore {
         cfg.waitsForConnectivity = false   // 快速失败交给重试循环
         session = URLSession(configuration: cfg)
         username = defaults.string(forKey: userKey) ?? ""
-        serverURL = defaults.string(forKey: serverKey) ?? "https://example.com:16666"
+        // SR9：读侧也过一遍规范化——老版本可能把「裸 host:port」或带尾斜杠的串写进了 defaults
+        serverURL = Self.normalizedServerURL(defaults.string(forKey: serverKey) ?? "https://example.com:16666")
         isLoggedIn = defaults.bool(forKey: loggedKey)   // 先读登录布尔，供下方 token 兜底判断
         // v3.0.84fix：NAS token 迁 Keychain（原明文存 UserDefaults plist，可被备份/越狱读取）。
         // UserDefaults 只保留用户名/服务器/登录布尔，token 走 Keychain（genericPassword 模式）。
@@ -107,7 +108,8 @@ final class AuthStore {
 
     /// v2.0.55：保存服务器地址（内存 + UserDefaults 持久化）
     func saveServer(_ s: String) {
-        let clean = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        // SR9：唯一规范化口径（补 scheme + 去尾斜杠），写进 defaults 的串永远带协议
+        let clean = Self.normalizedServerURL(s)
         serverURL = clean.isEmpty ? serverURL : clean
         defaults.set(serverURL, forKey: serverKey)
         // v2.0.71：多地址记忆（去重置顶，上限 8 条）
@@ -116,6 +118,23 @@ final class AuthStore {
             list.insert(clean, at: 0)
             defaults.set(Array(list.prefix(8)), forKey: serversKey)
         }
+    }
+
+    /// SR9：服务器地址规范化。原来登录页/服务器设置页各自补 `http://`，
+    /// 而 SafariRelay / ChatStore 上传 / 后台刷新各自补 `https://` ——
+    /// 同一个「裸 host:port」在不同代码路径指向不同协议：TLS-only 部署下
+    /// 登录能用、图/后台通知静默失败（错误被归成"网络异常"）。
+    /// 统一口径：缺协议按 https 补（与内置默认值同源），并去掉尾部斜杠
+    /// （`base + "/api/..."` 拼接会产出 `//api/...`，后端 startswith 路由匹配不上）。
+    static func normalizedServerURL(_ raw: String) -> String {
+        var s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !s.isEmpty else { return s }
+        let lower = s.lowercased()
+        if !lower.hasPrefix("http://") && !lower.hasPrefix("https://") {
+            s = "https://" + s
+        }
+        while s.hasSuffix("/") { s.removeLast() }
+        return s
     }
 
     // MARK: - v2.0.71 多地址记忆（登录页快速切换）
@@ -280,6 +299,13 @@ final class AuthStore {
         guard let http = HTTPURLResponse(url: url, statusCode: code, httpVersion: nil, headerFields: nil) else {
             throw APIError.badResponse
         }
+        // v3.9.41（SR41）：带 token 的请求拿到 2xx = 服务器仍然认这个 token → 自愈收起过期横幅。
+        // 此前 sessionExpired 只在登录成功/登出两处复位，反代偶发丢头造成的假 401 会让横幅永久挂顶，
+        // 唯一出路是点「去登录」→ logout() 把本来可用的 Keychain token 清掉、被迫重输密码。
+        if sessionExpired, !token.isEmpty, !path.contains("/api/auth/") {
+            sessionExpired = false
+            print("[AuthStore] 带 token 的请求已恢复 2xx → 收起登录过期横幅（假 401 自愈）")
+        }
         return (data, http)
     }
 
@@ -401,6 +427,9 @@ final class AuthStore {
     }
 
     /// multipart 文件上传：Wi-Fi → URLSession 直传（无大小限制）；蜂窝 → relay 中转（限 2KB 小文件）
+    /// SR1：三条分支都必须带 X-Auth-Token。此前只发 Content-Type——同端点的传图路径
+    /// （ChatStore.uploadImage）一直是带头的，而后端 QL_AUTO_LOGIN 默认 0，
+    /// 于是「发文件」在鉴权收紧后恒 401（错误还被上层归成"网络失败"）。
     func uploadMultipart(_ path: String, fileName: String, data: Data) async throws -> [String: Any] {
         let boundary = "Boundary-\(UUID().uuidString)"
         var body = Data()
@@ -410,13 +439,16 @@ final class AuthStore {
         body.append(data)
         body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
 
+        let formHeaders = ["Content-Type": "multipart/form-data; boundary=\(boundary)",
+                           "X-Auth-Token": token]
+
         let (respData, code): (Data, Int)
         if NetworkMonitor.shared.isCellular {
             // 蜂窝：CFStream 直连上传（socket 层无 URL 4KB 限制，免弹窗），失败降级 relay（限 2KB 小文件）
             do {
                 (respData, code) = try await relay.directRequest(
                     method: "POST", path: path,
-                    headers: ["Content-Type": "multipart/form-data; boundary=\(boundary)"],
+                    headers: formHeaders,
                     body: body, timeout: 20
                 )
             } catch {
@@ -429,14 +461,14 @@ final class AuthStore {
                 }
                 (respData, code) = try await relay.relay(
                     method: "POST", path: path,
-                    headers: ["Content-Type": "multipart/form-data; boundary=\(boundary)"],
+                    headers: formHeaders,
                     body: body, timeout: 30
                 )
             }
         } else {
             (respData, code) = try await directHTTP(
                 method: "POST", path: path,
-                headers: ["Content-Type": "multipart/form-data; boundary=\(boundary)"],
+                headers: formHeaders,
                 body: body
             )
         }

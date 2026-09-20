@@ -81,8 +81,9 @@ struct ServerSheet: View {
                         validationError = err
                         return
                     }
-                    var s = server.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !s.hasPrefix("http") { s = "http://" + s }
+                    // SR9：统一走 AuthStore 的规范化口径（原来这里补 http://，
+                    // 而 SafariRelay/上传/后台刷新补 https://，同一裸地址两种协议）
+                    let s = AuthStore.normalizedServerURL(server)
                     auth.serverURL = s
                     UserDefaults.standard.set(s, forKey: "qingliao_server")
                     saved = true

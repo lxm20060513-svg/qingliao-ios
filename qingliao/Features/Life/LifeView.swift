@@ -97,8 +97,10 @@ struct LifeView: View {
         lifeLoading = true
         let guardTask = Task {
             try? await Task.sleep(for: .seconds(8))
-            if lifeLoading {
-                lifeLoading = false
+            // v3.9.41（SR39）：兜底只做「显示超时」，**不能**顺手把 lifeLoading 置回 false——
+            // 那等于在请求还在飞的时候自己解掉了在途闸门：下一轮 30s 轮询立刻与之并发，
+            // 两份响应先后覆盖 life / lifeError（晚回来的旧那份反而赢）。闸门只由下面的 defer 释放。
+            if !Task.isCancelled {
                 lifeError = "获取超时"
             }
         }

@@ -49,6 +49,17 @@ targets:
         NSFaceIDUsageDescription: 使用 Face ID 解锁密码管理与 App 锁
         # 同批误删漏补：拍照输入(CameraPicker)用相机
         NSCameraUsageDescription: 拍照发送给 AI 识别需要使用相机
+        # SR7：图片查看器「保存到相册」直接调 UIImageWriteToSavedPhotosAlbum。
+        # 缺这条权限串时 TCC 不是弹窗而是 **SIGABRT 闪退**（和上面 Face ID 那条同一类坑），
+        # 且只在用户真点一次保存时才复现——声明先补上。
+        NSPhotoLibraryAddUsageDescription: 把 AI 生成/聊天里的图片保存到你的相册
+        # SR8：后台刷新的 delegate 方法 application(_:performFetchWithCompletionHandler:)
+        # （ChatView.swift 里那份「唤醒后查流式任务是否完成 → 本地通知」）**必须**声明
+        # UIBackgroundModes: fetch 才会被系统调用；否则整条后台通知链路是死代码。
+        # audio：TTS 朗读（SpeechManager/AVAudioSession）退到后台即被掐断，补上后可锁屏继续念。
+        UIBackgroundModes:
+          - fetch
+          - audio
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft

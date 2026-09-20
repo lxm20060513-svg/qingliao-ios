@@ -575,6 +575,8 @@ struct ModelSheet: View {
 
     /// v3.0.82：真删内置 provider（后端删 config.yaml providers 段；被引用时返回 error 提示）
     private func deleteBuiltinProvider(_ pid: String) {
+        // v3.9.41（SR26）：deletingProvider 原先只写不读 → 闸门失效，连点会并发下发多次删除
+        guard !deletingProvider else { return }
         deletingProvider = true
         Task {
             defer { deletingProvider = false }
@@ -761,8 +763,21 @@ struct ModelSheet: View {
             }
             // v3.0.4：通用拉取全部 provider（含新增，免改版）
             await loadAllProviders()
-            // v3.0.4 fix：syncResult 放在所有赋值之后，计数才准确（原在 sn 赋值前显示=旧值0）
-            syncResult = "✅ 已同步（apple \(opencodeAppleModels.count) / stepfun \(stepfunModels.count) / deepseek \(deepseekModels.count) / sensenova \(sensenovaModels.count)）"
+            // v3.9.41（SR26）：原先四个 fetchModels 各自 `if let` 才覆盖，全失败时仍无条件拼
+            // 「✅ 已同步」——旧列表原样留着，用户以为 key 生效。现按真实成败分档回执。
+            let results: [(String, [String]?)] = [
+                ("stepfun", s), ("deepseek", d), ("apple", oa), ("sensenova", sn),
+            ]
+            let failed = results.compactMap { $0.1 == nil ? $0.0 : nil }
+            let counts = "apple \(opencodeAppleModels.count) / stepfun \(stepfunModels.count)"
+                + " / deepseek \(deepseekModels.count) / sensenova \(sensenovaModels.count)"
+            if failed.isEmpty {
+                syncResult = "✅ 已同步（\(counts)）"
+            } else if failed.count == results.count {
+                syncResult = "❌ 同步失败：四个 provider 都没返回模型列表（key 无效或网络异常）"
+            } else {
+                syncResult = "⚠️ 部分失败：\(failed.joined(separator: "、")) 未更新（其余已同步）"
+            }
             syncing = false
         }
     }

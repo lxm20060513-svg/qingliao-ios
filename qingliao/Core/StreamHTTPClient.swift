@@ -22,7 +22,15 @@ final class StreamHTTPClient: @unchecked Sendable {
             throw APIError.badResponse
         }
         defer {
+            // SR17：写流也必须 unschedule。两条流都注册了 C 回调，回调 context 用的是
+            // `Unmanaged.passUnretained(state)`（retain/release 传 nil）——state 随函数返回释放，
+            // 而残留在 runloop 上的写流之后任何一次事件（连接被 RST / 对端关闭）都会回调
+            // 去解引用那个**野指针** → 偶发崩溃（且这种后台线程 runloop 会被复用，不是每次都炸）。
+            // 同步在本线程 unschedule + close，之后不可能再有事件投递，才是干净的收尾顺序。
+            CFReadStreamSetClient(read, CFOptionFlags(0), nil, nil)
+            CFWriteStreamSetClient(write, CFOptionFlags(0), nil, nil)
             CFReadStreamUnscheduleFromRunLoop(read, CFRunLoopGetCurrent(), CFRunLoopMode.defaultMode)
+            CFWriteStreamUnscheduleFromRunLoop(write, CFRunLoopGetCurrent(), CFRunLoopMode.defaultMode)
             CFReadStreamClose(read)
             CFWriteStreamClose(write)
         }

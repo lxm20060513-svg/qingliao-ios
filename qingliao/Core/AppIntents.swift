@@ -205,10 +205,12 @@ struct AddMemoIntent: AppIntent {
         let text = content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return .result(dialog: "内容是空的，没记") }
 
-        // 临时 AuthStore 必须先被强引用住：`MemoStore.auth` 是 **weak**，
-        // 只有这个局部常量活到函数结束，下面那条"顺手写一份到 NAS"才真的发得出去。
+        // v3.9.41（SR33）：`MemoStore.auth` 已从 weak 改强引用——原注释说「局部常量活到函数结束
+        // 就够」并不成立：写 NAS 是 save() 里的 Task.detached，perform() 一返回就没有任何强引用
+        // 活着，detached 任务里的 `guard let auth` 会静默 return（Siri 已念「已记到」而 NAS 没落）。
+        // 现在每次都用最新的这个：改过服务器地址/token 后，旧的那份不该继续被单例用下去。
         let auth = try? QingliaoIntentClient.auth()
-        if let auth, MemoStore.shared.auth == nil {
+        if let auth {
             MemoStore.shared.attach(auth: auth)
         }
 

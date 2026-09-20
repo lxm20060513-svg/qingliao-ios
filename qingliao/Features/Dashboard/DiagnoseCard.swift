@@ -61,6 +61,16 @@ struct DiagnoseCard: View {
                     Spacer()
                 }
                 .padding(.vertical, Spacing.sm)
+                // SR14：错误态原来没有任何出口——onRun 只挂在「未体检」和「已完成」两个分支里，
+                // 一次失败（后端重启/超时）后卡片永久停在红叉上，只能退出看板重进。
+                Button {
+                    onRun()
+                } label: {
+                    Label("重试", systemImage: "arrow.clockwise")
+                        .font(.system(size: Typography.subhead, weight: .medium))
+                        .foregroundStyle(Color.accentColor)
+                }
+                .buttonStyle(.plain)
             } else if items.isEmpty {
                 Button {
                     onRun()

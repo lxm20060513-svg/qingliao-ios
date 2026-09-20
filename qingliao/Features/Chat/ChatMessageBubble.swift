@@ -765,7 +765,9 @@ struct MessageBubble: View {
     @ViewBuilder
     private func aiParagraphBubble(_ para: String, isLast: Bool, streaming: Bool) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            let pb = Self.blocks(for: para, serverURL: serverURL, streaming: false)
+            // v3.9.41（SR44）：走缓存版——同文件 634 行的 blocksCached 就是为此存在的，
+            // 这条段落级路径漏了它，于是每次 body 重建（流式 tick / 列表滚动回收）都对每段全文重跑分段。
+            let pb = Self.blocksCached(for: para, serverURL: serverURL, streaming: false)
             ForEach(0..<pb.count, id: \.self) { i in
                 MessageBlockView(block: pb[i],
                                 onCopy: { UIPasteboard.general.string = para; Haptics.success() },   // v3.9.30：复制触感
@@ -823,7 +825,10 @@ struct MessageBubble: View {
                 : "![文件:\(rawName.isEmpty ? "附件" : rawName)](\(serverURL)/api/stream/media?p=\(b64))"
             let fullRange = NSRange(location: m.range.location + offset, length: m.range.length)
             result = (result as NSString).replacingCharacters(in: fullRange, with: imgMarkdown)
-            offset += imgMarkdown.count - m.range.length
+            // v3.9.41（SR46）：偏移必须用 UTF-16 长度——NSString 的 range 是 UTF-16 计数，
+            // 而 imgMarkdown.count 是 Character 数；文件名含 emoji/CJK 代理对时两者不等，
+            // 后续 MEDIA: 的替换位置会逐条错位（坏链 + 原文残留）。
+            offset += (imgMarkdown as NSString).length - m.range.length
         }
         return result
     }
@@ -1010,7 +1015,7 @@ struct AIImageView: View {
         // 1) URLSession（外部公开图，Ats 允许 https）
         if let (data, _) = try? await URLSession.shared.data(from: u),
            let img = UIImage(data: data) {
-            setRemoteImageCache(url, img, cost: data.count)
+            setRemoteImageCache(url, img, cost: data.count, sourceData: data)
             image = img
             return
         }
@@ -1025,7 +1030,7 @@ struct AIImageView: View {
             }.value
             if let (data, code) = result, (200..<300).contains(code),
                let img = UIImage(data: data) {
-                setRemoteImageCache(url, img, cost: data.count)
+                setRemoteImageCache(url, img, cost: data.count, sourceData: data)
                 image = img
                 return
             }

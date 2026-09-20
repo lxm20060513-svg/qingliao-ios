@@ -108,11 +108,14 @@ struct ImageViewerPage: View {
     @State private var gestureBase: CGFloat = 1
 
     /// 当前缩放下允许的最大拖动距离：放大 N 倍时可视窗口外多出 (N-1)/2 倍宽/高
+    /// v3.9.41（SR57）：改用容器尺寸——调用方全是 GeometryReader 的 geo.size，
+    /// 原先写死 `UIScreen.main.bounds`：① iOS 26 已弃用该 API；② 屏幕 ≠ 本页容器，
+    /// 转屏/分屏/安全区下边界会算多，图片拖出可视框还回不来。参数本来就传了，之前没被用上。
     private func maxOffset(size: CGSize, scale: CGFloat) -> CGSize {
         guard scale > 1 else { return .zero }
         // 显示尺寸按 scaledToFit 近似：图片以短边贴容器；用宽高各半的富余量夹紧
-        let w = (UIScreen.main.bounds.width * (scale - 1)) / 2
-        let h = (UIScreen.main.bounds.height * (scale - 1)) / 2
+        let w = (size.width * (scale - 1)) / 2
+        let h = (size.height * (scale - 1)) / 2
         return CGSize(width: max(0, w), height: max(0, h))
     }
 

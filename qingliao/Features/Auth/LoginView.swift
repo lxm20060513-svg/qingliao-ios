@@ -330,16 +330,9 @@ struct LoginView: View {
     /// v-review fix：服务器地址归一化——补默认 scheme、转小写（host/port 不区分大小写）、去尾斜杠；
     /// 供 Face ID 凭据与当前输入比对使用（两端同规则）
     private func normalizeServerAddress(_ raw: String) -> String {
-        var s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !s.isEmpty else { return s }
-        if !s.hasPrefix("http://") && !s.hasPrefix("https://") {
-            s = "http://" + s
-        }
-        s = s.lowercased()
-        while s.hasSuffix("/") {
-            s.removeLast()
-        }
-        return s
+        // SR9：scheme 补全改用 AuthStore 的统一口径（原来这里补 http://、保存链路补 https://，
+        // 同一裸地址在两端算出不同串 → Face ID「服务器不一致」误报）。此处只多做一步转小写。
+        AuthStore.normalizedServerURL(raw).lowercased()
     }
 }
 

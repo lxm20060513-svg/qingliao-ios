@@ -94,6 +94,11 @@ struct SelectableTextLabel: UIViewRepresentable {
     }
 
     func updateUIView(_ tv: UITextView, context: Context) {
+        // v3.9.41（SR19）：Coordinator 的 parent 快照每帧都要换。Coordinator 只在首帧建，
+        // `parent` 原先是 let → 长按菜单在「开菜单那一刻」读的是首帧的 onWithdraw/onRegenerate/
+        // onMemo：条件后来变了（消息落库才可撤回、重生成按钮出现），菜单项却不跟着出现，
+        // 命中指纹 early-return 时更是连首帧闭包都一直用。必须放在下面的指纹 return **之前**。
+        context.coordinator.parent = self
         tv.textColor = fallbackColor
         // v3.0.7 fix：兜底字号跟随聊天字号设置（原硬编码 15，设置调大后无属性 run 仍是 15 → 大小不齐）
         let uiFontSize = UserDefaults.standard.double(forKey: "qingliao_font_size")
@@ -190,7 +195,8 @@ struct SelectableTextLabel: UIViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
 
     final class Coordinator: NSObject, UITextViewDelegate {
-        let parent: SelectableTextLabel
+        // v3.9.41（SR19）：改 var，由 updateUIView 每帧刷新（原 let 把菜单锁在首帧快照）
+        var parent: SelectableTextLabel
         // v2.0.132：上次渲染的内容指纹（文本长度|行距|颜色），未变则跳过重建
         var lastKey = ""
         init(parent: SelectableTextLabel) { self.parent = parent }

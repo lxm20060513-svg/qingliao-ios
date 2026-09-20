@@ -233,17 +233,30 @@ extension ChatView {
             // v3.9.15：闸门与实际请求同源
             let history = chat.historyPayload(model: useModel, provider: useProvider)
             stream.pendingUserMsgId = m.id   // v3.3.3：文件消息流锚点
-            let startSid = chat.sessionId   // v3.5.2：会话切换后本次结果丢弃（与 startStream 一致）
+            // SR12：与 startStream 同口径——原来切走会话只丢弃结果，用户那条文件消息已经
+            // append 进 A 的历史了，答案两头不落（A 里没有、B 里不该有）。
+            let startSid = chat.sessionId
+            let startMsgs = chat.messages
+            let startTitle = chat.title
             await stream.start(auth: auth, sessionId: chat.sessionId, model: useModel,
                                provider: useProvider, messages: history) { success, error in
-                guard chat.sessionId == startSid else { return }   // 已切换会话 → 本次结果丢弃
+                let body: String
                 if !success {
-                    chat.upsertAssistant(stream.content.isEmpty ? "⚠️ \(error)" : stream.content + "\n\n⚠️ \(error)", agent: stream.isAgent, afterUserID: m.id)
+                    body = stream.content.isEmpty ? "⚠️ \(error)" : stream.content + "\n\n⚠️ \(error)"
                 } else if stream.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     // v3.5.1：空回复 → 明确提示（不用 markFailed，见 handleEmptyReply 注释）
-                    chat.upsertAssistant(Self.emptyReplyNote, agent: true, afterUserID: m.id)
+                    body = Self.emptyReplyNote
                 } else {
-                    chat.upsertAssistant(stream.content, agent: stream.isAgent, afterUserID: m.id)
+                    body = stream.content
+                }
+                guard chat.sessionId == startSid else {
+                    landAwayReply(body, agent: stream.isAgent,
+                                  snapshot: startMsgs, sid: startSid, title: startTitle)
+                    return
+                }
+                chat.upsertAssistant(body, agent: stream.isAgent, afterUserID: m.id)
+                if success,
+                   !stream.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     showSentOK()
                     // v2.0.36：App 退后台时 AI 回复完成发本地通知
                     if UIApplication.shared.applicationState != .active {

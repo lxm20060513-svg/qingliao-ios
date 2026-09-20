@@ -70,6 +70,10 @@ struct SessionsView: View {
             } else if let err = errorText, sessions.isEmpty {
                 sessionsErrorState
             } else {
+                // v3.9.41（SR47）：拉取失败但列表已有数据时，原先整条错误信息都不渲染
+                // （错误态判据是 sessions.isEmpty）→ 冷启动缓存秒显后遇网络失败，
+                // 用户以为看到的是最新数据。补顶部横幅，列表仍可操作。
+                if errorText != nil { sessionsStaleBanner }
                 sessionsListBody
             }
         }
@@ -298,6 +302,28 @@ struct SessionsView: View {
             .foregroundStyle(Color.accentColor)
             .padding(.top, Spacing.md)
         Spacer()
+    }
+
+    /// v3.9.41（SR47）：拉取失败但已有缓存列表 —— 顶部提示「当前是上次成功的数据」+ 原地重试。
+    /// 与 sessionsErrorState 互斥（那条只在列表为空时整屏替换）。
+    @ViewBuilder
+    private var sessionsStaleBanner: some View {
+        HStack(spacing: Spacing.md) {
+            Image(systemName: "wifi.exclamationmark")
+                .font(.system(size: Typography.subhead))
+                .foregroundStyle(.secondary)
+            Text("\(errorText ?? "加载失败")，当前显示的是上次成功的数据")
+                .font(.system(size: Typography.subhead))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: Spacing.sm)
+            Button("重试") { Task { await load(force: true) } }
+                .font(.system(size: Typography.subhead, weight: .medium))
+                .foregroundStyle(Color.accentColor)
+        }
+        .padding(.horizontal, Spacing.xxl)
+        .padding(.vertical, Spacing.md)
+        .background(Color.primary.opacity(0.05))
     }
 
     /// 会话列表（搜索区 / 空态 / 卡片列表）

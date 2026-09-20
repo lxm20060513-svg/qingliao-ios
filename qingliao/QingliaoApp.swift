@@ -111,6 +111,9 @@ struct RootView: View {
     // v2.0.92：App 锁（启动 Face ID 验证；与 Face ID 登录相互独立）
     @AppStorage("qingliao_app_lock") private var appLockOn = false
     @State private var appUnlocked = false
+    // v3.9.41（SR21）：App 锁原先只挡冷启动——appUnlocked 置真后全仓无复位点，
+    // 切后台再回来直进（与开关名和用户预期不符，且放大 Secrets 页明文的暴露面）。
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         ZStack {
@@ -152,6 +155,23 @@ struct RootView: View {
                 IslandGlowOverlay()
                     .zIndex(21)
             }
+        }
+        // SR10：登出（logout() 的四个调用点：设置页/服务器地址改动/过期横幅「去登录」）
+        // 统一在这里收敛——AuthStore 看不到 ChatStore，而后者是 App 级 @State、跨登录态存活。
+        // 不清的话换账号登录后看到的仍是旧账号会话，且 loadLastSession 的 isEmpty 护栏让它不会被覆盖。
+        .onChange(of: auth.isLoggedIn) { _, logged in
+            if !logged { chat.resetForLogout() }
+        }
+        // v3.9.41（SR21）：每次退到后台都重新上锁（回前台即见锁屏，符合「App 锁」预期）。
+        // 注意不能挂进 :57 那个 QingliaoApp 里的 onChange(scenePhase)——RootView 看不到那个属性。
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .background, appLockOn {
+                appUnlocked = false
+            }
+        }
+        // v3.9.41（SR21）：设置页把锁打开后，当前这次会话也要立即生效（否则只挡下次冷启动）
+        .onChange(of: appLockOn) { _, on in
+            if on { appUnlocked = false }
         }
         // v3.9.28：模式切换已随云端模式移除，这里只剩崩溃日志快照
         .onAppear {

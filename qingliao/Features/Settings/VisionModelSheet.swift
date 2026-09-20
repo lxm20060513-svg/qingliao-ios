@@ -328,7 +328,9 @@ struct VisionModelSheet: View {
 
     /// 点选打勾 = 设置共享视觉模型（App 本地 + 微信通道）
     private func selectSharedVision(provider: String, model: String) {
+        // v3.9.41（SR27）：syncing 此前全仓无赋值点 → :91 的转圈永不显示、两道闸门恒开（连点并发下发）
         guard !syncing else { return }
+        syncing = true
         selectedModel = model
         selectedProvider = provider
         // 1) App 本地（立即生效）
@@ -336,6 +338,7 @@ struct VisionModelSheet: View {
         // 2) 微信通道（异步，自动重启 gateway）
         syncResult = "正在同步微信通道…"
         Task {
+            defer { syncing = false }
             let ok = await pushToBackendAsync(provider: provider, model: model)
             if ok {
                 syncResult = "✅ 已共享：\(model)（App + 微信通道，gateway 重启后生效，约 10-30 秒）"
@@ -347,12 +350,14 @@ struct VisionModelSheet: View {
 
     /// 清除共享视觉模型（App 本地 + 微信通道）
     private func clearSharedVision() {
-        guard !syncing else { return }
+        guard !syncing else { return }   // v3.9.41（SR27）：同上，赋值点补在两个入口
+        syncing = true
         selectedModel = ""
         selectedProvider = "opencode"
         CloudConfig.clearVisionModel()
         syncResult = "正在清除微信通道…"
         Task {
+            defer { syncing = false }
             let ok = await pushDeleteBackendAsync()
             if ok {
                 syncResult = "✅ 已清除共享视觉模型（gateway 重启后生效，约 10-30 秒）"

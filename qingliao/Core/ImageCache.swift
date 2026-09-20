@@ -241,22 +241,32 @@ func cachedRemoteImage(_ urlStr: String) -> UIImage? {
     }
     // v3.4.x：内存未命中 → 查磁盘，命中则解码回写内存（重启复用省流量）
     if let data = RemoteDiskCache.read(key), let img = UIImage(data: data) {
-        remoteImageCache.setObject(img, forKey: key, cost: data.count)
+        // v3.9.41（SR45）：cost 记**解码后位图**字节（原来记压缩数据大小 → 40MB 上限实际兜住几百 MB
+        // 位图，等于没有上限；同文件 dataURLImage 那条链早已用 decodedImageCost，这里漏了）
+        remoteImageCache.setObject(img, forKey: key, cost: decodedImageCost(img, fallback: data.count))
         return img
     }
     return nil
 }
 
+/// - Parameter sourceData: 下载到的原始 JPEG/PNG 字节。给了就直接落盘原字节，
+///   省掉一次整图 `jpegData` 重编码（v3.9.41 SR45：四个调用方手里都还有这份 data）。
 @MainActor
-func setRemoteImageCache(_ urlStr: String, _ img: UIImage, cost: Int) {
+func setRemoteImageCache(_ urlStr: String, _ img: UIImage, cost: Int, sourceData: Data? = nil) {
     let key = remoteCacheKey(urlStr)
     if remoteImageCache.totalCostLimit == 0 {
         remoteImageCache.totalCostLimit = 40 * 1024 * 1024   // 40MB
     }
-    remoteImageCache.setObject(img, forKey: key, cost: cost)
-    // v3.4.x：顺手写磁盘（远程图持久化，重启可复用）
-    if let data = img.jpegData(compressionQuality: 0.9) {
-        RemoteDiskCache.write(key, data)
+    // v3.9.41（SR45）：cost 语义改为位图实际占用（调用方传的 data.count 只作回退值）
+    remoteImageCache.setObject(img, forKey: key, cost: decodedImageCost(img, fallback: cost))
+    // v3.9.41（SR45）：v3.4.x 起「顺手写磁盘」全在主线程同步做——整图 jpegData 重编码 + 原子写文件
+    // + enforceLimit()（列目录后逐个 stat，图多了每次下载都扫一遍）。挪到既有的解码后台队列，
+    // 只把 Sendable 的 key/字节跨线程传（与 asyncDataURLImage 同一口径）。
+    let keyString = key as String
+    let bytes: Data? = sourceData ?? img.jpegData(compressionQuality: 0.9)
+    guard let bytes else { return }
+    _imageDecodeQueue.async {
+        RemoteDiskCache.write(keyString as NSString, bytes)
     }
 }
 

@@ -43,6 +43,8 @@ final class QuickReminderStore {
     private(set) var auth: QuickReminderAuth = .unknown
     /// 系统里当前登记的本功能通知条数（对账后刷新，UI 用来给「系统已登记 N 条」的实感）
     private(set) var pendingCount: Int = 0
+    /// 最近一次登记失败的原因（v3.9.41 SR30：iOS 只允许 64 条 pending，满了必须让用户知道）
+    private(set) var lastScheduleError: String?
 
     private let defaultsKey = "qingliao_quick_reminders"
     /// 已触发的历史最多留 20 条（防无限增长；用户可手动清）
@@ -139,18 +141,28 @@ final class QuickReminderStore {
     // MARK: - 增删
 
     /// 新建：`parse` 由 QuickReminderParser 给出（含 fireDate 与重复规则）。
-    /// 返回 false = 没排上（权限被拒），**不要**把它当成成功。
+    /// 返回 false = 没排上（权限被拒 / 系统登记失败），**不要**把它当成成功。
+    /// v3.9.41（SR30）：改成「系统登记成功才入库」——原先先 append+save、`add(request)` 失败只 NSLog，
+    /// 于是系统 64 条 pending 上限之后「列表里有、到点没响」。失败原因写 `lastScheduleError` 供 UI 显示。
     @discardableResult
     func add(text: String, parse: QuickReminderParse) async -> Bool {
-        guard await ensureAuth() else { return false }
+        guard await ensureAuth() else {
+            // 权限被拒走 UI 的「去系统设置」引导文案，这里不覆盖成登记错误
+            lastScheduleError = nil
+            return false
+        }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let body = trimmed.isEmpty ? parse.subjectHint : trimmed
         let item = QuickReminder(text: body.isEmpty ? "定时提醒" : body,
                                  fireDate: parse.fireDate,
                                  rule: parse.rule)
+        if let reason = await schedule(item) {
+            lastScheduleError = reason
+            return false
+        }
+        lastScheduleError = nil
         items.append(item)
         save()
-        await schedule(item)
         await refreshPendingCount()
         return true
     }
@@ -181,7 +193,10 @@ final class QuickReminderStore {
     /// 注册一条系统级定时通知。
     /// · 一次性 → 年月日时分；重复 → 每天/每周的分量（见 QuickReminder.triggerComponents）
     /// · identifier 稳定 → 重复注册是**替换**，不会堆叠
-    private func schedule(_ item: QuickReminder) async {
+    /// · 返回 nil = 成功；否则为可直接展示的失败原因（v3.9.41 SR30：失败必须能上屏，
+    ///   文案在回调里就地转成 String 再跨续体，仍只让 Sendable 值穿过）
+    @discardableResult
+    private func schedule(_ item: QuickReminder) async -> String? {
         let content = UNMutableNotificationContent()
         content.title = "轻聊提醒"
         content.body = item.notificationBody
@@ -193,14 +208,17 @@ final class QuickReminderStore {
         let request = UNNotificationRequest(identifier: item.notificationIdentifier,
                                             content: content, trigger: trigger)
         let identifier = item.notificationIdentifier
-        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+        let label = item.text          // 只把 String 带进回调（避免让整个 struct 跨隔离域）
+        return await withCheckedContinuation { (cont: CheckedContinuation<String?, Never>) in
             UNUserNotificationCenter.current().add(request) { error in
                 if let error {
                     NSLog("[REMIND] ❌ 登记失败 \(identifier)：\(error)")
+                    cont.resume(returning: "「\(label)」登记失败：\(error.localizedDescription)"
+                        + "（系统每个 App 最多挂 64 条通知，可先删掉不用的）")
                 } else {
                     NSLog("[REMIND] 已登记 \(identifier)")
+                    cont.resume(returning: nil)
                 }
-                cont.resume()
             }
         }
     }
@@ -219,9 +237,12 @@ final class QuickReminderStore {
             NSLog("[REMIND] 未授权，跳过重建（用户在提醒页创建时会再申请）")
             return
         }
+        // v3.9.41（SR30）：重建时的登记失败也要让用户看见（否则「列表里有、到点没响」照样发生）
+        var firstFailure: String?
         for item in items where !item.fired {
-            await schedule(item)
+            if let reason = await schedule(item), firstFailure == nil { firstFailure = reason }
         }
+        lastScheduleError = firstFailure
         let expiredIDs = items.filter { $0.fired }.map { $0.notificationIdentifier }
         let center = UNUserNotificationCenter.current()
         if !expiredIDs.isEmpty {

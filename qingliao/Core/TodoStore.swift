@@ -106,7 +106,9 @@ final class TodoStore {
     private let fileName = "todos.json"
     private let defaultsKey = "qingliao_todos_data"
 
-    weak var auth: AuthStore?
+    // v3.9.41（SR33，与 MemoStore 同源）：强引用——weak 时调用方一返回 auth 就没了，
+    // 下面 detached 的 NAS 回写会在 `guard let auth` 处静默 return。
+    var auth: AuthStore?
 
     func attach(auth: AuthStore) {
         self.auth = auth
@@ -200,8 +202,10 @@ final class TodoStore {
         UserDefaults.standard.set(data, forKey: defaultsKey)
 
         let path = filePath
-        Task.detached { [weak auth] in
-            await Self.writeToFile(auth: auth, path: path, data: data)
+        // SR33：强捕获（先绑局部），理由同 MemoStore
+        let authForWrite = auth
+        Task.detached {
+            await Self.writeToFile(auth: authForWrite, path: path, data: data)
         }
     }
 
@@ -236,7 +240,16 @@ final class TodoStore {
             }
         }
         let merged = byID.values.sorted { $0.sortDate > $1.sortDate }
-        let changed = merged.count != remote.count
+        // v3.9.41（SR40，与 MemoStore 同源）：只比条数 → 勾选完成/改内容这类 id 不变的变更
+        // 永不回写，NAS 那份对这台设备无限期失真。时间按整秒比，避免 .iso8601 丢小数秒造成
+        // 「同一份内容判成不同 → 每次拉取白写一次 NAS」。
+        var remoteByID: [String: TodoItem] = [:]
+        for t in remote { remoteByID[t.id] = t }
+        let changed = merged.count != remote.count || merged.contains { t in
+            guard let r = remoteByID[t.id] else { return true }
+            return t.content != r.content || t.done != r.done || t.source != r.source
+                || Int(t.updatedAt.timeIntervalSince1970) != Int(r.updatedAt.timeIntervalSince1970)
+        }
         todos = merged
         if changed { save() }
     }

@@ -34,13 +34,22 @@ struct MCPSettingsSheet: View {
     @State private var customURL = ""
     @State private var key = ""
     @State private var saving = false
-    @State private var saveMsg: String?
+    // v3.9.41（SR25）：saveMsg 全仓无渲染点 → 保存成功/失败用户都看不到回执。
+    // 改成列表顶部可见的 feedback 行（errMsg 会把整个列表换掉，不能拿来当回执）。
+    @State private var feedback: String?
     // v3.5.0 review：删除走二次确认（服务删除会触发 hermes 重启，防误触）
     @State private var pendingDelete: MCPServerItem?
 
     var body: some View {
         NavigationStack {
             Form {
+                // v3.9.41（SR25）：保存/删除回执（原来写进 saveMsg 却无人渲染）
+                if let f = feedback {
+                    Section {
+                        Text(f).font(.system(size: Typography.subhead))
+                            .foregroundStyle(f.hasPrefix("❌") ? Color.red : Color.green)
+                    }
+                }
                 if loading {
                     Section { HStack { Spacer(); ProgressView(); Spacer() } }
                 } else if let errMsg {
@@ -68,8 +77,9 @@ struct MCPSettingsSheet: View {
                 }
             }
             .sheet(isPresented: $showAdd) {
+                // v3.9.41（SR25）：保存改成「等结果再关」——失败时表单留在屏上，输入不丢
                 MCPAddSheet(templates: templates) { template, k, url in
-                    Task { await save(template: template, key: k, url: url) }
+                    await save(template: template, key: k, url: url)
                 }
                 .scrollContentBackground(.hidden)
             }
@@ -180,7 +190,8 @@ struct MCPSettingsSheet: View {
         }
     }
 
-    private func save(template: MCPTemplate?, key k: String, url: String) async {
+    /// v3.9.41（SR25）：返回是否保存成功，供添加表单决定「关窗」还是「留在屏上重试」
+    private func save(template: MCPTemplate?, key k: String, url: String) async -> Bool {
         saving = true
         defer { saving = false }
         do {
@@ -192,23 +203,31 @@ struct MCPSettingsSheet: View {
                 body["url"] = url
             }
             let d = try await auth.json("/api/mcp/save", method: "POST", body: body)
-            if let ok = d["ok"] as? Bool, ok {
-                saveMsg = "✅ 已保存，约 30 秒后生效"
-                await load()
-            } else {
-                saveMsg = "❌ \(d["error"] as? String ?? "保存失败")"
+            guard (d["ok"] as? Bool) ?? false else {
+                feedback = "❌ \(d["error"] as? String ?? "保存失败")"
+                return false
             }
+            feedback = "✅ 已保存，约 30 秒后生效"
+            await load()
+            return true
         } catch {
-            saveMsg = "❌ \(error.localizedDescription)"
+            feedback = "❌ \(error.localizedDescription)"
+            return false
         }
     }
 
+    // v3.9.41（SR24）：删除成功只刷新、不校验 ok:false（400/404 走 catch，但 200+ok:false 被当成功）
     private func delete(_ name: String) async {
         do {
-            _ = try await auth.json("/api/mcp/delete", method: "POST", body: ["name": name])
+            let d = try await auth.json("/api/mcp/delete", method: "POST", body: ["name": name])
+            guard (d["ok"] as? Bool) ?? false else {
+                feedback = "❌ 删除失败：\(d["error"] as? String ?? "服务器拒绝")"
+                return
+            }
+            feedback = "✅ 已删除 \(name)，约 30 秒后生效"
             await load()
         } catch {
-            errMsg = "删除失败：\(error.localizedDescription)"
+            feedback = "❌ 删除失败：\(error.localizedDescription)"
         }
     }
 }
@@ -216,12 +235,14 @@ struct MCPSettingsSheet: View {
 // MARK: - 新增 sheet（模板选择 + key）
 struct MCPAddSheet: View {
     let templates: [MCPTemplate]
-    let onSaved: (MCPTemplate?, String, String) -> Void
+    /// v3.9.41（SR25）：改为 async 并回传是否成功——失败时表单不关，Key/URL 不丢
+    let onSaved: (MCPTemplate?, String, String) async -> Bool
     @Environment(\.dismiss) private var dismiss
 
     @State private var picked: MCPTemplate?
     @State private var customURL = ""
     @State private var key = ""
+    @State private var saving = false
 
     var body: some View {
         NavigationStack {
@@ -278,11 +299,16 @@ struct MCPAddSheet: View {
                     Button("取消") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("保存") {
-                        onSaved(picked, key, customURL)
-                        dismiss()
+                    Button(saving ? "保存中…" : "保存") {
+                        guard !saving else { return }
+                        Task {
+                            saving = true
+                            let ok = await onSaved(picked, key, customURL)
+                            saving = false
+                            if ok { dismiss() }   // v3.9.41（SR25）：失败不关窗，父层列表已给回执
+                        }
                     }
-                    .disabled(!canSave)
+                    .disabled(!canSave || saving)
                 }
             }
         }

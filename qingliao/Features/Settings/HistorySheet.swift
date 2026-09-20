@@ -172,12 +172,23 @@ struct HistorySheet: View {
     }
 
     /// 编辑模式批量删除所选
+    /// v3.9.41（SR24）：原先 `try?` 整个吞错，本地立刻消失、服务器没删 → 重开原样回来；
+    /// 改成与 :157 `deleteRows` 同一套「快照 + 失败回滚 + 提示」。
     private func deleteSelected() {
         let ids = Array(selected)
+        let snapshot = items
         items.removeAll { ids.contains($0.id) }
         selected.removeAll()
         Task {
-            _ = try? await auth.json("/api/history?ids=\(ids.joined(separator: ","))", method: "DELETE")
+            do {
+                let j = try await auth.json("/api/history?ids=\(ids.joined(separator: ","))", method: "DELETE")
+                if let list = j["history"] as? [[String: Any]] {
+                    items = list.map { HistoryItem($0) }
+                }
+            } catch {
+                items = snapshot
+                deleteError = "删除失败，已恢复列表"
+            }
         }
         if items.isEmpty { editMode = .inactive }
     }

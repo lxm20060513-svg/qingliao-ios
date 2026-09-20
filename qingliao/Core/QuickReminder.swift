@@ -355,7 +355,15 @@ enum QuickReminderParser {
                 }
             }
         }
-        if crossMidnight { baseDay = addDays(1, to: baseDay, calendar: calendar) }
+        if crossMidnight {
+            baseDay = addDays(1, to: baseDay, calendar: calendar)
+            // v3.9.41（SR31）跨零点必须把 rule 的 weekday 一起挪：「每周日晚上 12 点」= 周一 00:00，
+            // 而 timeText/摘要显示的是 `rule.label`、系统 trigger 的星期反推自 fireDate。原先只挪
+            // baseDay → 列表写「每周日 00:00」读起来像周日凌晨（少一天），实际每周一 00:00 响。
+            if case .weekly = rule {
+                rule = .weekly(weekday: calendar.component(.weekday, from: baseDay))
+            }
+        }
 
         guard var fireDate = calendar.date(bySettingHour: hour, minute: minute, second: 0, of: baseDay) else {
             return .failure("这个时间算不出来，换个说法试试（如「明天 8 点」）")

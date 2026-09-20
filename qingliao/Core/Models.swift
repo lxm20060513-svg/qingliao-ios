@@ -111,6 +111,8 @@ struct ChatMessage: Identifiable, Equatable, Sendable {
         msg.agent = isAgent
         // v3.4.x：读回引用原文（重启/切会话后仍显示）
         msg.quotedText = d["quotedText"] as? String
+        // SR6：读回撤回标记（原来只写内存 → 重启后撤回失效，原文照旧显示并进上下文）
+        msg.withdrawn = d["withdrawn"] as? Bool ?? false
         // v3.4.x code review fix：读回持久化的 uid（保持跨重启 id 稳定）；无则置 nil 走确定性旧格式
         msg.uid = d["uid"] as? String
         return msg

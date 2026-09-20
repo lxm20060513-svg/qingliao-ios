@@ -67,16 +67,19 @@ enum MapLocationParser {
                         "map.qq.com", "url.cn", "surl.li", "dwz.cn", "v.dit.cn", "j.map.baidu.com"]
         let isMapHost = mapHosts.contains { host == $0 || host.hasSuffix("." + $0) }
 
-        // ③ 先试 query / path 里的参数
+        // SR16：坐标提取必须先过地图域名闸门。原来顺序反了——`coordsFromQueryOrPath` 对**任意**
+        // http 链接都试一把，而它的 path 兜底规则是"最后两段是数字就当经纬度"，
+        // 于是 https://shop.example.com/product/1688/2024 这类分享链接会被解析成
+        // 一个假定位（1688/2024 落在合法区间时被当成经纬度）→ 分享进聊天变成一张错误地图卡片。
+        guard isMapHost else { return nil }
+
+        // ③ query / path 里的参数
         if let c = coordsFromQueryOrPath(url) {
             let place = placeGuess(of: url)
             return (c, place)
         }
-        // ④ 短链/不认识但来自地图域名：交给 AI 端（消息里带原链）
-        if isMapHost {
-            return (CLLocationCoordinate2D(latitude: .nan, longitude: .nan), nil)
-        }
-        return nil
+        // ④ 短链/地图域名但没坐标：交给 AI 端（消息里带原链）
+        return (CLLocationCoordinate2D(latitude: .nan, longitude: .nan), nil)
     }
 
     /// 从 query 或 path 段里挖经纬度（高德 path 形态 /regeo?x=..&y=..；百度 query 形态 ?lat=..&lng=..）

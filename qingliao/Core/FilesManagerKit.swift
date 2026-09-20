@@ -192,6 +192,10 @@ enum RemoteFiles {
 
     /// 蜂窝网络下该体积能否下载
     static func cellularDownloadAllowed(bytes: Int) -> Bool {
-        bytes <= cellularSafeBytes
+        // SR11：名字里的"蜂窝"原来没实现——这里无条件按 `bytes <= 4MB` 判定，
+        // 于是 **WiFi 下超过 4MB 的文件也走这条闸门**，弹出的提示还是「请连接 WiFi 后重试」，
+        // 用户已在 WiFi、照做也永远解不开（预览/分享两条路径全被挡）。闸门只在真蜂窝时生效。
+        guard NetworkMonitor.shared.isCellular else { return true }
+        return bytes <= cellularSafeBytes
     }
 }

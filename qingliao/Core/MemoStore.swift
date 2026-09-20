@@ -117,7 +117,12 @@ final class MemoStore {
     private let fileName = "memos.json"
     private let defaultsKey = "qingliao_memos_data"
 
-    weak var auth: AuthStore?
+    // v3.9.41（SR33）：改为**强引用**。原先 weak → 快捷指令（AddMemoIntent）自己 new 的临时
+    // AuthStore 在 perform() 返回瞬间就没人持有，本单例的 auth 随即变 nil：
+    // save() 那条 detached 写 NAS 的任务在 `guard let auth` 处静默 return，
+    // 而 Siri 已经念过「已记到轻聊备忘录」→ 备忘只活在本地，NAS 上永远缺这一条。
+    // 本类是进程级单例、AuthStore 由 App/extension 长期持有，强引用不会造成泄漏或环。
+    var auth: AuthStore?
 
     func attach(auth: AuthStore) {
         self.auth = auth
@@ -199,8 +204,12 @@ final class MemoStore {
         UserDefaults.standard.set(data, forKey: defaultsKey)
 
         let path = filePath
-        Task.detached { [weak auth] in
-            await Self.writeToFile(auth: auth, path: path, data: data)
+        // SR33：这里必须**强**捕获 auth（先绑成局部常量再让闭包捕获它）。detached 任务真正跑起来
+        // 时调用方栈早已退出，弱引用可能在调度间隙被清空 → 整次 NAS 回写静默丢失
+        //（本地 UserDefaults 有、界面无异状，只在另一台设备上看得到缺条）。
+        let authForWrite = auth
+        Task.detached {
+            await Self.writeToFile(auth: authForWrite, path: path, data: data)
         }
     }
 
@@ -243,9 +252,19 @@ final class MemoStore {
             }
         }
         let merged = byID.values.sorted { $0.sortDate > $1.sortDate }
-        let changed = merged.count != remote.count
+        // v3.9.41（SR40）：原先只比**条数**——编辑内容时 id 集合不变 → 永不回写，
+        // NAS 那份对这台设备无限期失真，直到碰巧发生一次增/删才连带修复。改成逐条比对。
+        // 时间按整秒比：JSONEncoder 的 .iso8601 不保留小数秒，直接比 Date 会把同一份内容
+        // 判成「有差异」→ 每次拉取都白写一次 NAS。
+        var remoteByID: [String: MemoItem] = [:]
+        for r in remote { remoteByID[r.id] = r }
+        let changed = merged.count != remote.count || merged.contains { m in
+            guard let r = remoteByID[m.id] else { return true }   // 本地独有 → 回写补齐
+            return m.content != r.content || m.pinned != r.pinned || m.source != r.source
+                || Int(m.updatedAt.timeIntervalSince1970) != Int(r.updatedAt.timeIntervalSince1970)
+        }
         memos = merged
-        if changed { save() }   // 本地有远端没有 → 回写一次补齐 NAS
+        if changed { save() }   // 本地有远端没有/内容更新 → 回写一次补齐 NAS
     }
 
     private static func writeToFile(auth: AuthStore?, path: String, data: Data) async {

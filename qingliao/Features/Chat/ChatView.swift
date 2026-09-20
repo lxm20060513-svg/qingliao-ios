@@ -113,6 +113,24 @@ final class QingliaoAppDelegate: NSObject, UIApplicationDelegate,
 struct PendingSend: Codable, Equatable {
     let text: String
     let imageData: String?
+    /// v3.9.41（SR60）：入队时的会话。原队列是「无主」的，重启后恢复的第 2..n 条会等不到派发：
+    /// 派发点要么在无脑拿队首（拿错会话 → 上屏找不到排队行 → 静默丢弃），
+    /// 要么被切会话的 clearPendingQueue 一把清掉（盘上那份在恢复时已被删除）→ 消息永久消失。
+    /// 可选类型：老版本落盘的 JSON 没这个键，`decodeIfPresent` 解成 nil，按「当前会话」处理。
+    var sessionId: String? = nil
+    /// v3.9.41（SR60）：由启动恢复读上来的条目标记。派发时用它区分两种匹配口径：
+    /// 会话内新排队的条目一定能按 `queued` 行匹配上；恢复出来的条目不能（queued 不落盘），
+    /// 需要按内容回捞历史行。只有恢复条目允许回捞，才不至于把「用户已删除的那条」也复活。
+    var fromRestore: Bool = false
+
+    /// 是否属于某个会话（nil = 旧数据，无从判断，按当前会话对待）
+    func belongs(to sid: String?) -> Bool { sessionId == nil || sessionId == sid }
+
+    /// v3.9.41（SR60）：显式列出键——①老版本（无 sessionId）落盘的 JSON 缺键必须仍能解出，
+    /// 否则整份队列 `try?` 解失败 = 恢复直接归零；②fromRestore 只是本次运行内的标记，不参与持久化。
+    enum CodingKeys: String, CodingKey {
+        case text, imageData, sessionId
+    }
 }
 
 /// v3.9.17：AI 后端（Hermes）路径的工具进度一行。
@@ -652,11 +670,17 @@ struct ChatView: View {
             // v2.0.40：两步走清空——先切欢迎页分支（列表立即卸载，数据未动），
             // 下一帧再清数据。列表销毁与数据清空完全错开，杜绝同帧崩溃。
             clearing = true
+            // SR5：原实现在 clearMessages **之前**就 Task{saveToServer}，写的是清空前的全量快照
+            // （后端同 id 整会话覆盖 → 白写），而清空后的空数组又被 writeSessionSnapshot 的
+            // 「空即跳过」护栏挡掉 → NAS 上历史原封不动，重启/换设备后「清空的消息又复活」。
+            let sid = chat.sessionId
+            let ttl = chat.title
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
                 withAnimation(nil) { chat.clearMessages() }
                 clearing = false
+                Task { await chat.saveToServer(auth: auth, sessionId: sid, messages: [],
+                                               title: ttl, allowEmpty: true) }
             }
-            Task { await chat.saveToServer(auth: auth) }
         }
         Button("取消", role: .cancel) {}
     }
@@ -1026,17 +1050,12 @@ struct ChatView: View {
         .onAppear {
             drainShareInbox()
             // v3.4.x 发送可靠性：启动恢复上次未发出的排队消息（杀 App/断网重启不丢）→ 立即补发
+            // v3.9.41（SR60）：这段收进 restorePendingQueue() + pumpPendingQueue()。原实现三处都会吃消息：
+            // ①无脑拿队首——队首属于别的会话时，在当前会话里找不到那一行 → 静默丢；
+            // ②restore 读完立刻删盘上的键——第 2..n 条只剩内存一份，之后任何一次切会话都没了；
+            // ③匹配条件写死 `queued`，而 queued 从不落盘 → 重启后历史里没有任何 queued 行，永远匹配不上。
             restorePendingQueue()
-            if !pendingQueue.isEmpty, !stream.isStreaming {
-                let next = pendingQueue.removeFirst()
-                persistPendingQueue()
-                if let idx = chat.messages.firstIndex(where: { $0.queued && $0.content == next.text }) {
-                    let m = chat.messages[idx]
-                    startStream(for: m)
-                } else {
-                    sendQueued(next)
-                }
-            }
+            pumpPendingQueue()
         }
     }
 
@@ -1842,12 +1861,16 @@ struct ChatView: View {
         // v3.0.86 fix：以下 onChange 挂在 messageList 的 ZStack 层（不随欢迎页/清空态卸载的
         // ScrollView 走）——两步走清空/新建会话/整组替换消息（ChatStore.load 新旧条数相同）
         // 时可见缓存仍能重建，根治「空态后首条消息错显上一会话缓存行」
-        .onChange(of: chat.sessionId) {
-            clearPendingQueue()
+        .onChange(of: chat.sessionId) { prior, _ in
+            // v3.9.41（SR60）：切会话 ≠ 取消发送。原来这里走 clearPendingQueue()（内存 + 盘一起清），
+            // 于是「A 会话里排队、切去 B」= 无条件把 A 的待发吞掉，且盘上那份也一起没了。
+            // 现在只丢「刚离开的这个会话」的排队项；其余留在盘上，回到那个会话或下次启动再补发。
+            dropPendingQueue(dropping: prior)
             refreshVisibleMessages()
             stream.toolNames = []          // v3.9.17：工具进度卡同样会跨会话残留 → 一并清（否则 B 会话底部显示 A 跑过的工具）
             // v3.0.51 A1：会话加载后重传残留 base64 图片（重启续传/失败重传）
-            Task { await chat.retryPendingImageUploads(auth: auth) }
+            // SR4：走 ChatStore 的单飞入口——旧会话那条重传链会先被 cancel，不会跨会话争写 messages
+            chat.startImageRetryUploads(auth: auth)
         }
         // v3.4.25：改双重触发——count（增删）+ lastID（整组替换/清空重建时 count 不变，仅靠
         // sessionId 兜底会漏渲染；lastID 变化补上「同条数内容替换」场景，且流式 tick 不改 lastID，
@@ -1864,7 +1887,9 @@ struct ChatView: View {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
                 // v3.0.11 fix：新建会话前先清队列+停流——原实现旧流仍在跑，
                 // 回答内容会持续显示/落进新会话（同 bot 串话根因族）
-                clearPendingQueue()
+                // v3.9.41（SR60）：只清本会话的排队项（+ 下面紧接的停流），
+                // 别的目标会话的待发不该被「点了一下加号」顺带吞掉
+                dropPendingQueue(dropping: chat.sessionId)
                 if stream.isStreaming { stream.stop(auth: auth) }
                 withAnimation(nil) { chat.newSession() }
                 chat.pendingNewSession = false
@@ -1974,7 +1999,7 @@ struct ChatView: View {
                       defaultFilename: "轻聊会话") { _ in }
         .fileExporter(isPresented: $showMarkdownExporter,
                       document: ChatMarkdownDocument(text: exportMarkdown),
-                      contentType: .plainText,
+                      contentType: ChatMarkdownDocument.markdownType,
                       defaultFilename: "轻聊会话") { _ in }
         .fileExporter(isPresented: $showPDFExporter,
                       document: ChatPDFDocument(data: exportPDFData ?? Data()),
@@ -2151,6 +2176,7 @@ struct ChatView: View {
             // 自动压缩：先显示提示，后台执行 AI 摘要
             pendingSend = (text, img)
             showCompressingAlert = true
+            let sidAtCompress = chat.sessionId
             Task {
                 let success = await chat.compressContextWithAI(auth: auth)
                 showCompressingAlert = false
@@ -2159,7 +2185,13 @@ struct ChatView: View {
                 }
                 // 压缩完成后发送
                 if let p = pendingSend {
-                    sendPendingNow(p)
+                    // SR3：压缩期间用户可能已切到别的会话——不能把 A 的草稿发进 B。
+                    // 这条分支里 inputText 从未清空，撤回自动发送即可：草稿还在输入框，由用户重发。
+                    if chat.sessionId == sidAtCompress {
+                        sendPendingNow(p)
+                    } else {
+                        pendingSend = nil
+                    }
                 }
             }
             return
@@ -2299,7 +2331,7 @@ struct ChatView: View {
                         withAnimation(Motion.settle) {   // v3.9.0：动效令牌收口（原 spring 0.25/0.15）
                             chat.append(m)
                         }
-                        pendingQueue.append(PendingSend(text: c, imageData: nil))
+                        pendingQueue.append(PendingSend(text: c, imageData: nil, sessionId: chat.sessionId))
                         persistPendingQueue()
                     }
                     Task { await chat.saveToServer(auth: auth) }
@@ -2318,7 +2350,7 @@ struct ChatView: View {
             withAnimation(Motion.settle) {   // v3.9.0：动效令牌收口（原 spring 0.25/0.15）
                 chat.append(msg)
             }
-            pendingQueue.append(PendingSend(text: text, imageData: imageData))
+            pendingQueue.append(PendingSend(text: text, imageData: imageData, sessionId: chat.sessionId))
             persistPendingQueue()
             Task { await chat.saveToServer(auth: auth) }
             return
@@ -2343,6 +2375,10 @@ struct ChatView: View {
     /// v2.0.88：启动流式回答（消息已在列表；失败标记/回复完成/队列联动统一在这里）
     /// v2.0.102：记录发起会话——回答期间切换会话则丢弃结果（防跨会话污染）；完成回调释放 sendingLock
     func startStream(for msg: ChatMessage) {
+        // v3.9.41（SR58）：接上看门狗面包屑（原先 HangWatchdog.breadcrumb 零调用点 → 上报里
+        // 「卡顿前主线程干过什么」永远只有前后台切换两条）。只记动作名，不记内容/凭据。
+        // 选这里：下面 historyPayload 会在主线程同步跑完整历史的净化与压缩，长会话最容易卡。
+        HangWatchdog.breadcrumb("发起生成（历史 \(chat.messages.count) 条）")
         // v3.4.10 X方案：发「断种子净化完整历史」给后端（不再只传当前消息）。
         // 后端 _build_hermes_messages 对完整历史再做 _sanitize_history/_compress_long_assistants/
         // _break_repeat_seed，并去掉 X-Hermes-Session-Id（不再让 Hermes 用 state.db 重建未净化会话）。
@@ -2375,12 +2411,12 @@ struct ChatView: View {
                 // assistantLandedToken（朗读只念当前会话刚落库的回复）。
                 if chat.sessionId != startSid {
                     // v3.9.41（A1 遗留 · 「切到 B 就发不出消息」的根因）：队列在这条分支里也必须排空。
-                    // pendingQueue 每次切会话都会被 clearPendingQueue 清掉 → 此处非空的那几条必然属于
-                    // 用户**当前所在**的会话 B；而单例刚被 A 占着，B 的消息当时只能进队列。
-                    // 原来这个 return 跳过了下面唯一的排空点 → B 的消息顶着「排队中」一直挂着，
-                    // 要等退出再进聊天页（onAppear 那条）才会发出去。
+                    // 单例刚被 A 占着，B 的消息当时只能进队列；原来这个 return 跳过了下面唯一的排空点
+                    // → B 的消息顶着「排队中」一直挂着，要等退出再进聊天页（onAppear 那条）才会发出去。
                     // 放在收尾这一帧同步做，不观察 isStreaming：DockTabView 有明文教训——续发会在
                     // 同一帧把它设回 true，onChange 看到 true→true 会整轮跳过。
+                    // v3.9.41（SR60）附带修正：这里的排空现在按会话归属过滤（只发 B 的），
+                    // 不再依赖「切会话必然清空队列」这个旧前提——A 自己没发完的条目留在队列里等回到 A。
                     defer { pumpPendingQueue() }
                     let body = stream.content.trimmingCharacters(in: .whitespacesAndNewlines)
                     if success {
@@ -2397,7 +2433,7 @@ struct ChatView: View {
                 if !success {
                     // v3.4.x：网络类错误自动重试（连接中断/超时/无法连接），限流/用户停止/业务失败不重试
                     if self.isRetryableStreamError(error) {
-                        chat.markFailed(id: msg.id)   // 先标记（失败态显示），重试成功会覆盖
+                        chat.markFailed(id: msg.id)   // 先标记（失败态显示），SR20：重试成功后 clearFailed 撤掉
                         self.autoRetryStream(for: msg)
                     } else {
                         chat.markFailed(id: msg.id)   // v2.0.59 失败标记 → 重试按钮
@@ -2441,8 +2477,9 @@ struct ChatView: View {
     /// 一定排在切走前那次快照写之后 → 不会被旧数组盖掉。
     /// 失败态（failed）不落库：`writeSessionSnapshot` 本就不持久化 failed，重进会话时也会从服务器
     /// 重取，标了也只是切回去那一瞬可见，反而误导「重试按钮在别处能用」。
-    private func landAwayReply(_ text: String, agent: Bool, snapshot: [ChatMessage],
-                               sid: String, title: String) {
+    /// SR12：改 internal —— ChatViewExport.swift 的 regenerate/sendFile 同族路径也要用（extension 跨文件够不到 private）。
+    func landAwayReply(_ text: String, agent: Bool, snapshot: [ChatMessage],
+                       sid: String, title: String) {
         var msgs = snapshot
         var m = ChatMessage(role: "assistant", content: text,
                             timestamp: Date().timeIntervalSince1970 * 1000)
@@ -2462,20 +2499,30 @@ struct ChatView: View {
     /// v3.5.1：接回在途任务（杀后台/重启前的流）——抽成方法供 .task 与「AI 正在输入」探针共用，
     /// 保证两条路径落库回调一致（否则探针接回的回复没有 onFinished 收尾，答案会丢）。
     private func resumePersistedStream() async {
+        // SR2：接回路径也会「在 await 期间被切会话追上」。原来回调无条件写 chat.messages
+        // 并用无参 saveToServer（= 当下会话快照）→ A 的答案整会话覆盖掉 B 的历史。
+        // 与 startStream 的 A1 分支同口径：切走了就落回发起时的会话，绝不写进眼前的会话。
+        let startSid = chat.sessionId
+        let startMsgs = chat.messages
+        let startTitle = chat.title
         await stream.restoreIfNeeded(auth: auth, sessionId: chat.sessionId) { success, err in
             // v3.3.3：恢复的旧回答锚定回发起 user 消息，不 append 到用户新消息后
             let anchor = stream.pendingUserMsgId
+            let body: String
             if success {
                 // v3.5.1：恢复回来的任务内容为空 → 明确提示（原来静默落一条空消息）
-                if stream.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    chat.upsertAssistant(Self.emptyReplyNote, agent: true, afterUserID: anchor)
-                } else {
-                    chat.upsertAssistant(stream.content, agent: stream.isAgent, afterUserID: anchor)
-                }
+                body = stream.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    ? Self.emptyReplyNote : stream.content
             } else {
-                chat.upsertAssistant(stream.content.isEmpty ? "⚠️ \(err)" : stream.content + "\n\n⚠️ \(err)", agent: stream.isAgent, afterUserID: anchor)
+                body = stream.content.isEmpty ? "⚠️ \(err)" : stream.content + "\n\n⚠️ \(err)"
             }
-            Task { await chat.saveToServer(auth: auth) }
+            if chat.sessionId == startSid {
+                chat.upsertAssistant(body, agent: stream.isAgent, afterUserID: anchor)
+                Task { await chat.saveToServer(auth: auth) }
+            } else {
+                landAwayReply(body, agent: stream.isAgent,
+                              snapshot: startMsgs, sid: startSid, title: startTitle)
+            }
         }
     }
 
@@ -2561,19 +2608,26 @@ struct ChatView: View {
     /// 不会复活旧答案（复读事故护栏）。落库回调与 resumePersistedStream 对齐（答案不丢）。
     private func adoptRemoteStream(taskId tid: String, content: String) async {
         guard !stream.isStreaming else { return }
+        // SR2：同 resumePersistedStream——落库回调必须认会话。
+        let startSid = chat.sessionId
+        let startMsgs = chat.messages
+        let startTitle = chat.title
         let anchor = chat.messages.last(where: { $0.role == "user" })?.id
         stream.adoptRemote(taskId: tid, content: content, sessionId: chat.sessionId, auth: auth) { success, err in
+            let body: String
             if success {
-                if stream.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    chat.upsertAssistant(Self.emptyReplyNote, agent: true, afterUserID: anchor)
-                } else {
-                    chat.upsertAssistant(stream.content, agent: stream.isAgent, afterUserID: anchor)
-                }
+                body = stream.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    ? Self.emptyReplyNote : stream.content
             } else {
-                chat.upsertAssistant(stream.content.isEmpty ? "⚠️ " + err : stream.content + "\n\n⚠️ " + err,
-                                     agent: stream.isAgent, afterUserID: anchor)
+                body = stream.content.isEmpty ? "⚠️ " + err : stream.content + "\n\n⚠️ " + err
             }
-            Task { await chat.saveToServer(auth: auth) }
+            if chat.sessionId == startSid {
+                chat.upsertAssistant(body, agent: stream.isAgent, afterUserID: anchor)
+                Task { await chat.saveToServer(auth: auth) }
+            } else {
+                landAwayReply(body, agent: stream.isAgent,
+                              snapshot: startMsgs, sid: startSid, title: startTitle)
+            }
         }
     }
 
@@ -2618,11 +2672,25 @@ struct ChatView: View {
                 waited += 2
             }
             guard chat.sessionId == startSid, !stream.isStreaming else { return }
+            // SR12：回调写的必须还是**发起时**的那个会话
+            let startMsgs = chat.messages
+            let startTitle = chat.title
             stream.pendingUserMsgId = msg.id
             await stream.start(auth: auth, sessionId: chat.sessionId, model: useModel,
                                provider: useProvider, messages: history) { success, error in
                 sendingLock = false
-                guard chat.sessionId == startSid else { return }
+                // SR12：重试期间切走会话 → 眼前的会话不是发起会话，markFailed/upsert/再重试都会写错人
+                //（`history` 也是按发起会话算的，递归重试等于拿 A 的上下文去请求却落进 B）。
+                // 成功的回复落回 A；失败不再重试，回原会话由用户自己点重试。
+                if chat.sessionId != startSid {
+                    autoRetryCount = 0
+                    if success,
+                       !stream.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        landAwayReply(stream.content, agent: stream.isAgent,
+                                      snapshot: startMsgs, sid: startSid, title: startTitle)
+                    }
+                    return
+                }
                 if !success {
                     // 仍失败：继续重试或最终标记失败（不吞用户消息）
                     if self.isRetryableStreamError(error), self.autoRetryCount < 2 {
@@ -2634,8 +2702,12 @@ struct ChatView: View {
                     }
                 } else if stream.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     // v3.5.1：重试仍是空回复 → 明确提示
+                    chat.clearFailed(id: msg.id)   // SR20：请求已送达（只是答空）→ 撤 ❗
                     self.handleEmptyReply(for: msg)
                 } else {
+                    // SR20：自动重试复用同一条 user 消息（id 不变、不删除），成功时必须撤掉
+                    // 标记失败那一帧挂上的 ❗——否则已送达的消息永久挂着「重试」，再点就是重发一遍。
+                    chat.clearFailed(id: msg.id)
                     chat.upsertAssistant(stream.content, agent: stream.isAgent, afterUserID: msg.id)
                     showSentOK()
                     InboxStore.shared.triggerFastPoll()
@@ -2737,17 +2809,33 @@ struct ChatView: View {
     /// v3.9.41：回答收尾 → 自动发出队列里的下一条（从 startStream 的收尾回调里抽出来复用）。
     /// 两个调用点：①本会话自己的流收尾；②**别的会话**的流收尾（用户已切走那条分支）——
     /// 那条原先直接 return，把队列留在原地，见那里的注释。
-    /// 幂等由 `sendQueued` 里的全局 `stream.isStreaming` 护栏保证：单例仍被占用就保持排队、不硬发。
     func pumpPendingQueue() {
-        guard !pendingQueue.isEmpty else { return }
-        let next = pendingQueue.removeFirst()
-        persistPendingQueue()
-        sendQueued(next)
+        // ⚠️ 闸门必须在「取出」之前：单例被别的会话占着时，原先先 removeFirst 再进 sendQueued，
+        // sendQueued 的护栏只是 return（不重发）→ 这条已经从队列里没了 = 静默丢一条。
+        // v3.9.41（SR60）：只派发**属于当前会话**的条目（旧数据 sessionId==nil 按当前会话对待），
+        // 别的会话的留在队列/磁盘里，等用户回到那个会话或下次启动再补发。
+        guard !stream.isStreaming else { return }
+        guard let idx = pendingQueue.firstIndex(where: { $0.belongs(to: chat.sessionId) }) else { return }
+        let next = pendingQueue.remove(at: idx)
+        if sendQueued(next, resyncFromHistory: next.fromRestore) {
+            persistPendingQueue()
+        } else if next.fromRestore {
+            // 启动恢复：这一刻服务端历史可能还没回来 → 没派发成就放回原位、也不写盘，
+            // 留给下一个派发点（流收尾 / 重进聊天页）。会话内的老行为（找不到即丢）保持不变。
+            pendingQueue.insert(next, at: idx)
+        }
     }
 
     /// v2.0.88：发送排队消息（消息已上屏——去掉排队标记复用该消息启动流式，不重复插入）
-    func sendQueued(_ item: PendingSend) {
-        guard !stream.isStreaming else { return }   // ⚠️ 必须全局：这里要抢的是单例，别的会话在跑就不能抢
+    /// - Parameter resyncFromHistory: 启动恢复补发专用（SR60）。`queued` 是纯本地标记、
+    ///   从不落盘（Models.swift:29 / 服务端 payload 里没这个字段），所以重启后恢复出来的条目
+    ///   在历史里**永远匹配不到** queued 行 → 原实现一律走「找不到就丢弃」，
+    ///   等于「杀 App/断网重启不丢排队消息」这条承诺从来没生效过。
+    ///   打开后允许按内容+图片匹配一条**后面没有 assistant 回复**的 user 行（= 这条确实没被回答过），
+    ///   匹配不到仍按原样丢弃（避免把已回答/已删除的消息再发一遍）。
+    @discardableResult
+    func sendQueued(_ item: PendingSend, resyncFromHistory: Bool = false) -> Bool {
+        guard !stream.isStreaming else { return false }   // ⚠️ 必须全局：这里要抢的是单例，别的会话在跑就不能抢
         // firstIndex = FIFO：先入队的先发（内容相同也会按入队顺序）
         if let idx = chat.messages.firstIndex(where: {
             $0.queued && $0.content == item.text && $0.imageDataURL == item.imageData
@@ -2756,14 +2844,35 @@ struct ChatView: View {
             // v3.0.86 fix：就地改 queued（count 不变）→ 显式重建缓存，即时去掉「排队中」角标
             refreshVisibleMessages()
             startStream(for: chat.messages[idx])
+            return true
+        }
+        if resyncFromHistory,
+           let hit = chat.messages.enumerated().first(where: { i, m in
+               m.role == "user" && m.content == item.text && m.imageDataURL == item.imageData
+               && !hasAssistantReply(after: i)
+           }) {
+            startStream(for: chat.messages[hit.offset])
+            return true
         }
         // v2.0.102：排队消息已不在列表（被删除/清空/切换）→ 直接丢弃，不重发（修复"删除后复活"）
+        return false
+    }
+
+    /// v3.9.41（SR60）：第 i 条之后是否已有真正的 assistant 回复（错误占位不算，Models.swift 的 isErrorPlaceholder）
+    private func hasAssistantReply(after i: Int) -> Bool {
+        guard i + 1 < chat.messages.count else { return false }
+        return chat.messages[(i + 1)...].contains { $0.role == "assistant" && !$0.isErrorPlaceholder }
     }
 
     /// v3.4.x 发送可靠性：队列落盘持久化 + 启动恢复补发（杀 App/断网重启不丢排队消息）
     private static let pendingQueueKey = UserDefaultsKey.pendingQueue
 
     func persistPendingQueue() {
+        // v3.9.41（SR60）：空队列直接清键（原样写回 [] 也能工作，但启动时会白解一次）
+        guard !pendingQueue.isEmpty else {
+            UserDefaults.standard.removeObject(forKey: Self.pendingQueueKey)
+            return
+        }
         if let d = try? JSONEncoder().encode(pendingQueue) {
             UserDefaults.standard.set(d, forKey: Self.pendingQueueKey)
         }
@@ -2774,14 +2883,33 @@ struct ChatView: View {
               let d = UserDefaults.standard.data(forKey: Self.pendingQueueKey),
               let arr = try? JSONDecoder().decode([PendingSend].self, from: d),
               !arr.isEmpty else { return }
-        pendingQueue = arr
-        UserDefaults.standard.removeObject(forKey: Self.pendingQueueKey)
+        // v3.9.41（SR60）：打上「恢复来的」标记——派发时按内容回捞历史行（见 sendQueued 的说明）
+        pendingQueue = arr.map { var it = $0; it.fromRestore = true; return it }
+        // v3.9.41（SR60）：**不**在这里删盘上的键。原实现读上来就 removeObject，
+        // 而派发点一次只发一条 → 第 2..n 条只存在于内存，切一次会话（clearPendingQueue）
+        // 或被系统回收就永久没了，和「杀 App/断网重启不丢排队消息」的设计意图正好相反。
+        // 现在盘上那份由 persistPendingQueue 逐条收口（发一条擦一条、清空即删键）。
     }
 
-    /// v2.0.88：取消排队（停止按钮/切换会话）——清队列 + 消息恢复"已送达"状态
+    /// v2.0.88：取消排队（停止按钮/新建会话）——用户明确表达「不要了」→ 内存 + 盘一起清
     func clearPendingQueue() {
         pendingQueue.removeAll()
         UserDefaults.standard.removeObject(forKey: Self.pendingQueueKey)
+        resetQueuedRows()
+    }
+
+    /// v3.9.41（SR60）：切会话专用——只丢「刚离开的那个会话」的排队项，其余留在盘上等回那个会话再发。
+    /// 与 clearPendingQueue 的区别有两处：①切会话不是「取消发送」，原来一把清会把别的会话的待发吞掉；
+    /// ②刻意不去翻 messages 的 queued 标记——这一帧列表正处于「旧会话已换下/新会话可能还没加载完」，
+    /// 按当前内容复位很容易把**目标会话**自己的排队角标擦掉（sendQueued 就再也匹配不到那条行了）。
+    func dropPendingQueue(dropping sid: String) {
+        // 只按 sessionId 精确丢；nil 是老版本落盘的无主条目，交给派发点按当前会话对待
+        pendingQueue.removeAll { $0.sessionId == sid }
+        persistPendingQueue()
+    }
+
+    /// 上屏消息里的「排队中」标记复位（行还在列表里，只是不再排队）
+    private func resetQueuedRows() {
         for i in chat.messages.indices where chat.messages[i].queued {
             chat.messages[i].queued = false
         }
@@ -2792,7 +2920,16 @@ struct ChatView: View {
     /// v2.0.62：打开图片查看器（收集会话内全部图片消息 → 相册翻页）
     /// v2.0.102：索引钳制——解码失败导致 images 比 imgMsgs 短时防越界
     func openImageViewer(for msg: ChatMessage) {
+        // ⚠️ v3.9.41（SR45 · 刻意未改）：这里是「一次同步解出整个会话的全部图片」，且刻意不传
+        // displayWidthPT（dataURLImage 的注释写明：查看器/导出/分享要全分辨率，缩放看不糊）。
+        // 图多的会话点一下图片可能卡住主线程几百毫秒起。
+        // 不在这轮动它的原因：改成「只解当前页 + 左右各一屏、其余划到再解」要连带重做 ChatImageViewer
+        // 的数据源（ImageViewPayload 现在收的是 [UIImage]），属于需要真机验交互的重构；
+        // 而改成下采样解码（传 displayWidthPT）会把大图查看器直接变糊——是产品取舍，不是 bug 修复。
         let imgMsgs = chat.messages.enumerated().filter { $0.element.imageDataURL != nil }
+        // v3.9.41（SR58）：全量解码前留一条面包屑（下面这行是主线程同步解全会话的图，
+        // 图多的会话可能卡几百毫秒起——真卡住了，上报里就能看出是这里干的）
+        HangWatchdog.breadcrumb("打开大图查看器（\(imgMsgs.count) 张全量解码）")
         let images = imgMsgs.compactMap { dataURLImage($0.element.imageDataURL ?? "") }
         guard !images.isEmpty,
               let rawIdx = imgMsgs.firstIndex(where: { $0.element.id == msg.id }) else { return }
@@ -2867,7 +3004,7 @@ struct ChatView: View {
         if let cached = cachedRemoteImage(url) { return cached }
         if let (data, _) = try? await URLSession.shared.data(from: u),
            let img = UIImage(data: data) {
-            setRemoteImageCache(url, img, cost: data.count)
+            setRemoteImageCache(url, img, cost: data.count, sourceData: data)
             return img
         }
         if let host = u.host, let scheme = u.scheme {
@@ -2880,7 +3017,7 @@ struct ChatView: View {
             }.value
             if let (data, code) = result, (200..<300).contains(code),
                let img = UIImage(data: data) {
-                setRemoteImageCache(url, img, cost: data.count)
+                setRemoteImageCache(url, img, cost: data.count, sourceData: data)
                 return img
             }
         }
@@ -2919,24 +3056,38 @@ struct ChatView: View {
         let (useModel, useProvider) = resolveModel(hasImage: lastUserHasImage)
         // v3.9.15：闸门与实际请求同源
         let history = chat.historyPayload(model: useModel, provider: useProvider)
+        // SR12：原来切走会话只 `return`——A 会话已被 removeSubrange 截断（原文没了），
+        // 新答案又被丢掉 → A 这轮永久空白。与 startStream/SR2 同口径：落回发起时的会话。
+        // 快照必须在截断**之后**取（截断前的快照落回会把旧的那条回复也一起写回去）。
+        let startSid = chat.sessionId
+        let startMsgs = chat.messages
+        let startTitle = chat.title
         Task {
             stream.pendingUserMsgId = anchorUserID   // v3.3.3：regenerate 锚点（杀后台恢复也用）
-            let startSid = chat.sessionId   // v3.5.2：会话切换后本次结果丢弃（与 startStream 一致）
             await stream.start(auth: auth, sessionId: chat.sessionId, model: useModel,
                                provider: useProvider, messages: history) { success, error in
-                guard chat.sessionId == startSid else { return }   // 已切换会话 → 本次结果丢弃
+                let body: String
                 if !success {
-                    chat.upsertAssistant(stream.content.isEmpty ? "⚠️ \(error)" : stream.content + "\n\n⚠️ \(error)", agent: stream.isAgent, afterUserID: anchorUserID)
+                    body = stream.content.isEmpty ? "⚠️ \(error)" : stream.content + "\n\n⚠️ \(error)"
                 } else if stream.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     // v3.5.1：空回复 → 明确提示（不用 markFailed，见 handleEmptyReply 注释）
-                    chat.upsertAssistant(Self.emptyReplyNote, agent: true, afterUserID: anchorUserID)
+                    body = Self.emptyReplyNote
                 } else {
-                    chat.upsertAssistant(stream.content, agent: stream.isAgent, afterUserID: anchorUserID)
-                    showSentOK()
-                    // v3.1.9 fix：云端模式流式完成同样触发快拉（与本地模式一致）
-                    InboxStore.shared.triggerFastPoll()
+                    body = stream.content
                 }
-                Task { await chat.saveToServer(auth: auth) }
+                if chat.sessionId == startSid {
+                    chat.upsertAssistant(body, agent: stream.isAgent, afterUserID: anchorUserID)
+                    if success,
+                       !stream.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        showSentOK()
+                        // v3.1.9 fix：云端模式流式完成同样触发快拉（与本地模式一致）
+                        InboxStore.shared.triggerFastPoll()
+                    }
+                    Task { await chat.saveToServer(auth: auth) }
+                } else {
+                    landAwayReply(body, agent: stream.isAgent,
+                                  snapshot: startMsgs, sid: startSid, title: startTitle)
+                }
             }
         }
     }

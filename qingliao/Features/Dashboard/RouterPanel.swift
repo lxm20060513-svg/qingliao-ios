@@ -14,7 +14,10 @@ struct RouterStatus {
     var clashRunning = false
     var onlineDevices = 0   // v2.0.37：在线设备数（替代 hostname 显示）
     var error = ""
-    var busy = false
+    // v3.9.41（SR36）：busy 从本结构体**移出去**。它原先跟着 RouterStatus 存，而 loadRouter()
+    // 每轮 `router = RouterStatus.parse(j)` 都新建一个（parse 里 busy 恒 false）→ 30s 轮询/下拉
+    // 刷新会把「操作进行中」的闸门悄悄解开，连点就并发下发（后端是 root SSH 进路由器起停进程）。
+    // 现在由 DashboardView 用 @State 持有，作为 `busy` 传进来。
 
     var memUsedText: String {
         String(format: "%.1fG / %.1fG", memTotal - memFree, memTotal)
@@ -51,6 +54,8 @@ struct RouterStatus {
 /// 路由器板块：NAS 同款卡片风格（MeterCard/ServiceCard）+ Clash 弹窗操作
 struct RouterPanel: View {
     let router: RouterStatus
+    /// SR36：Clash 起停进行中的闸门（由宿主 DashboardView 的 @State 提供，见 RouterStatus 上方注释）
+    var busy: Bool = false
     var onStart: (() -> Void)? = nil
     var onStop: (() -> Void)? = nil
     var onRefresh: (() -> Void)? = nil
@@ -92,7 +97,7 @@ struct RouterPanel: View {
                         .glassPillStroke()
                 }
                 .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
-                .disabled(router.busy)
+                .disabled(busy)
             }
 
             // 2x2 指标卡（同 NAS 面板 MeterCard/ServiceCard 风格）
@@ -117,7 +122,8 @@ struct RouterPanel: View {
             }
         }
         .sheet(isPresented: $showClashSheet) {
-            ClashSheet(router: router, onStart: { onStart?() }, onStop: { onStop?() })
+            ClashSheet(router: router, busy: busy,
+                       onStart: { onStart?() }, onStop: { onStop?() })
                 .presentationDetents([.height(240)])
         }
     }
@@ -127,8 +133,12 @@ struct RouterPanel: View {
 struct ClashSheet: View {
     @Environment(\.dismiss) private var dismiss
     let router: RouterStatus
+    var busy: Bool = false
     let onStart: () -> Void
     let onStop: () -> Void
+    // v3.9.41（SR36）：关闭 Clash 是「root SSH 进路由器 kill 进程」级别的动作，原先一点即发
+    // （RouterPanel 全文一个 confirmationDialog 都没有）→ 手滑就把全家代理断了。改成先确认。
+    @State private var confirmStop = false
 
     var body: some View {
         VStack(spacing: 14) {
@@ -174,12 +184,11 @@ struct ClashSheet: View {
                     .background(Color.green.gradient, in: RoundedRectangle(cornerRadius: Radius.field, style: .continuous))
                 }
                 .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
-                .disabled(router.busy)
+                .disabled(busy)
 
                 // 关闭 Clash
                 Button {
-                    dismiss()
-                    Task { try? await Task.sleep(for: .seconds(0.3)); onStop() }
+                    confirmStop = true   // SR36：先确认再发（ destructive 动作）
                 } label: {
                     VStack(spacing: 8) {
                         Image(systemName: "stop.fill")
@@ -197,12 +206,21 @@ struct ClashSheet: View {
                     .background(Color.red.gradient, in: RoundedRectangle(cornerRadius: Radius.field, style: .continuous))
                 }
                 .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
-                .disabled(router.busy)
+                .disabled(busy)
             }
             Spacer()
         }
         .padding(18)
         .padding(.top, Spacing.sm)
-
+        // SR36：关闭 Clash 的二次确认（弹窗只有 240pt，动作面板浮在表面上不影响布局）
+        .confirmationDialog("关闭 Clash 代理？", isPresented: $confirmStop, titleVisibility: .visible) {
+            Button("关闭 Clash", role: .destructive) {
+                dismiss()
+                Task { try? await Task.sleep(for: .seconds(0.3)); onStop() }
+            }
+            Button("取消", role: .cancel) { }
+        } message: {
+            Text("后端会 SSH 进路由器停掉 Clash 进程，所有走代理的流量立刻回到直连。")
+        }
     }
 }

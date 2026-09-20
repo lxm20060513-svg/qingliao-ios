@@ -42,6 +42,31 @@ struct LifeCardsSettingsView: View {
     @State private var priceTesting: Set<String> = []
     @State private var priceResults: [String: String] = [:]
 
+    // SR15：文本类输入的防抖保存任务（每敲一个字就 POST 会把编辑过程整段推给后端）
+    @State private var persistTask: Task<Void, Never>?
+
+    /// SR15：包一层「写入即安排保存」。本页顶部约定写着「每次改动立即整体保存」，
+    /// 但只有胶囊/Stepper/增删按钮那几条路径真的调了 persist()；
+    /// 所有 `labeledField` 文本框（快递 URL 模板/密钥/字段名、价格名称/URL/JSON 路径、币种…）
+    /// 与自定义请求头改完都不落库，而「完成」只 dismiss → 用户白填一张表，重开页面全是空。
+    private func persisting<T>(_ binding: Binding<T>) -> Binding<T> {
+        Binding<T>(get: { binding.wrappedValue },
+                  set: { v in
+                      binding.wrappedValue = v
+                      schedulePersist()
+                  })
+    }
+
+    /// 防抖 0.6s 后整体保存（连续输入只发一次）
+    private func schedulePersist() {
+        persistTask?.cancel()
+        persistTask = Task {
+            try? await Task.sleep(for: .milliseconds(600))
+            guard !Task.isCancelled else { return }
+            await persist()
+        }
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -60,7 +85,15 @@ struct LifeCardsSettingsView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("完成") { dismiss() }
+                    // SR15：先冲掉防抖窗口里的最后一笔改动再关页（原来只 dismiss，
+                    // 关闭前 0.6s 内敲进去的内容会随任务一起消失）
+                    Button("完成") {
+                        persistTask?.cancel()
+                        Task {
+                            await persist()
+                            dismiss()
+                        }
+                    }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     if saving || loading { ProgressView().controlSize(.small) }
@@ -288,7 +321,7 @@ struct LifeCardsSettingsView: View {
         VStack(alignment: .leading, spacing: 10) {
             typePicker
             if config.express.source.isCustom { expressCustomFields }
-            LifeHeaderEditor(title: "自定义请求头", headers: $config.express.source.headers)
+            LifeHeaderEditor(title: "自定义请求头", headers: persisting($config.express.source.headers))
                 .padding(.horizontal, Spacing.xxl)
         }
         .padding(.vertical, Spacing.xl)
@@ -415,7 +448,7 @@ struct LifeCardsSettingsView: View {
         SectionHeader("价格数据源")
         VStack(alignment: .leading, spacing: 10) {
             priceTimeoutRow
-            LifeHeaderEditor(title: "自定义请求头", headers: $config.price.source.headers)
+            LifeHeaderEditor(title: "自定义请求头", headers: persisting($config.price.source.headers))
                 .padding(.horizontal, Spacing.xxl)
         }
         .padding(.vertical, Spacing.xl)
@@ -538,6 +571,7 @@ struct LifeCardsSettingsView: View {
             guard config.price.items.indices.contains(i) else { return }
             let t = v.trimmingCharacters(in: .whitespacesAndNewlines)
             config.price.items[i].target = t.isEmpty ? nil : Double(t)
+            schedulePersist()   // SR15：目标价同样是文本框，原来改完不保存
         })
     }
 
@@ -610,7 +644,7 @@ struct LifeCardsSettingsView: View {
             Text(label)
                 .font(.system(size: Typography.caption, weight: .semibold))
                 .foregroundStyle(.secondary)
-            smallField(placeholder, text: text)
+            smallField(placeholder, text: persisting(text))   // SR15：文本改动也要落库
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }

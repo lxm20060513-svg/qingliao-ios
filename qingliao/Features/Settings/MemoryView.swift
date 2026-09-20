@@ -165,10 +165,20 @@ struct MemoryView: View {
         }
     }
 
+    // v3.9.41（SR24）：删除失败必须可见——原先 try? 吞错、且不读 ok，条目「看着删了」，
+    // 重开原样回来。失败时保持列表不动（与服务器一致），只报错。
     private func remove(_ text: String) async {
-        if let j = try? await auth.json("/api/memory/delete", method: "POST", body: ["text": text]) {
-            entries = j["entries"] as? [String] ?? entries
+        guard let j = try? await auth.json("/api/memory/delete", method: "POST", body: ["text": text]) else {
+            message = (false, "删除失败：请求失败")
+            return
         }
+        let ok = (j["ok"] as? Bool) ?? false
+        guard ok else {
+            message = (false, j["message"] as? String ?? "删除失败")
+            return
+        }
+        message = (true, "已删除")
+        entries = j["entries"] as? [String] ?? entries
     }
 
     /// v3.9.40（#19）：就地编辑一条记忆（后端 /api/memory/update 保位置改写）

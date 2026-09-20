@@ -398,8 +398,11 @@ extension CrashReporter {
 
     /// v3.4.25：标记已读（用户点「忽略」或已导出）→ 删除本地崩溃文件，下次启动不再弹窗
     static func markAsRead() {
-        // v3.9.10：只清展示用文件。事件已由 persistCrashFiles 入离线队列（进程内即时、无网络），
-        // 所以「点忽略」不会再像以前那样把一条还没入队/上报的崩溃直接删掉丢失。
+        // v3.9.41（SR29）：删之前**先入离线诊断队列**。原注释声称「事件已由 persistCrashFiles 入队」
+        // 并不成立——persistCrashFiles 只在 flushPending 里跑，而 flushPending 只在已登录时调
+        // （QingliaoApp:179）。所以未登录时崩一次再点「忽略」= 本地文件与队列双失，这条崩溃永久丢失。
+        _ = persistCrashFiles()
+        // 只清展示用文件；队列里那份会在下次登录后的 flushPending 里补传
         for p in [qlCrashFilePath(), qlCrashSigFilePath(), qlCrashStackPath()] {
             try? FileManager.default.removeItem(atPath: p)
         }

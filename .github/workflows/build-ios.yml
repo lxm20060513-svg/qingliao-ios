@@ -14,6 +14,15 @@ on:
 permissions:
   contents: write
 
+# v3.9.41（SR51）：任何两次构建都不并行。原先无 concurrency 组，重跑 / 反复推 tag / 手动触发撞上
+# tag 触发时会同时跑两个 macos job：既各烧一份贵的 runner 分钟，又会往**同一个** release asset
+# （qingliao-ipa-2，名字写死）写包——后者 --clobber 静默覆盖前者，下载到的 IPA 属于哪次构建说不清。
+# 组名固定不区分 ref 正是为此：不同 ref 的并发同样会撞同一个 asset。
+# cancel-in-progress 故意设 false：已在跑的让它跑完，中途取消等于白烧额度、还留个半截 release。
+concurrency:
+  group: build-ipa
+  cancel-in-progress: false
+
 jobs:
   build-ipa:
     # v2.0.53：改回 macos-latest（Xcode 26，xcodegen 生成格式兼容）。
@@ -24,8 +33,50 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Check version literals
+        # v3.9.41（SR53）：版本号在 project.yml 里是 8 处字面量（主 App + 挂件各一份
+        # CFBundleShortVersionString/CFBundleVersion 与 MARKETING_VERSION/CURRENT_PROJECT_VERSION），
+        # 全靠手改。漏一处就打出「主 App 3.9.41 / 挂件 3.9.40」的包；改了版本却忘了改 tag（或反之）
+        # 会做出与 tag 名不同版的包，事后根本查不出来。跑在 Archive 前，几秒钟判掉。
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+        run: |
+          shorts=$(grep -E 'CFBundleShortVersionString:|MARKETING_VERSION:' project.yml \
+                   | sed -E 's/.*:[[:space:]]*"([^"]*)".*/\1/' | sort -u)
+          builds=$(grep -E '^ *CFBundleVersion:|CURRENT_PROJECT_VERSION:' project.yml \
+                   | sed -E 's/.*:[[:space:]]*"([^"]*)".*/\1/' | sort -u)
+          if [ -z "$shorts" ] || [ -z "$builds" ]; then
+            echo "::error::project.yml 里没匹配到版本号字面量（键名被改动？请先同步这一步的 grep）"; exit 1
+          fi
+          if [ "$(printf '%s\n' "$shorts" | wc -l)" != "1" ]; then
+            echo "::error::project.yml 短版本号不一致：$(printf '%s ' $shorts)"; exit 1
+          fi
+          if [ "$(printf '%s\n' "$builds" | wc -l)" != "1" ]; then
+            echo "::error::project.yml 构建号不一致：$(printf '%s ' $builds)"; exit 1
+          fi
+          ver=$shorts
+          if [ "$REF_TYPE" = "tag" ]; then
+            tag=${GITHUB_REF_NAME#v}
+            if [ "$tag" != "$ver" ]; then
+              echo "::error::tag=$GITHUB_REF_NAME 与 project.yml 版本 $ver 不符 —— 推 tag 前先改 project.yml"
+              exit 1
+            fi
+          fi
+          echo "版本一致：$ver (build $builds)"
+
       - name: Install XcodeGen
-        run: brew install xcodegen
+        # v3.9.41（SR51）：brew 装的是「当时的最新版」，公式一升级就可能换 .xcodeproj 生成格式
+        # （见上面 runs-on 的注释：Xcode 15.4 读不了 xcodegen 2.45 生成的项目）。brew 没有版本化
+        # 公式可锁，改成装完立刻校验：2.x 放行并记录具体版本，跨大版本直接红，别让错格式的
+        # 项目一路跑到 Archive 才报难懂的 "Unable to read project"。
+        run: |
+          brew install xcodegen
+          V=$(xcodegen --version | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1)
+          echo "xcodegen 版本：$V"
+          case "$V" in
+            2.*) echo "compatible-major (2.x)";;
+            *) echo "::error::未验证的 xcodegen 主版本 ${V:-未知}，本项目按 2.x 生成格式配置，请改 project.yml 后显式放行"; exit 1;;
+          esac
 
       - name: Generate Xcode project
         run: xcodegen generate
@@ -83,8 +134,14 @@ jobs:
           if ext != 'com.apple.widgetkit-extension':
               print('❌ appex 的 NSExtensionPointIdentifier 不是 widgetkit-extension：', ext)
               sys.exit(1)
-          if appex_plist.get('CFBundleShortVersionString') != app_plist.get('CFBundleShortVersionString'):
-              print('⚠️ 挂件版本与主 App 不一致（侧载可装，但请核对 project.yml 版本号）')
+          if appex_plist.get('CFBundleShortVersionString') != app_plist.get('CFBundleShortVersionString') \
+             or appex_plist.get('CFBundleVersion') != app_plist.get('CFBundleVersion'):
+              # v3.9.41（SR53）：原来只 ⚠️ 打印不拦——挂件与主 App 版本号不一致的包照样发到 release，
+              # 侧载能装但挂件更新/实时活动行为不可控，而且没人会去看那行日志。
+              print('❌ 挂件与主 App 版本不一致：app=%s(%s) appex=%s(%s) —— 核对 project.yml 的 8 处版本字面量'
+                    % (app_plist.get('CFBundleShortVersionString'), app_plist.get('CFBundleVersion'),
+                       appex_plist.get('CFBundleShortVersionString'), appex_plist.get('CFBundleVersion')))
+              sys.exit(1)
           if 'Payload/Qingliao.app/default.metallib' not in names:
               print('❌ 包内缺 default.metallib —— AI 头像的 Metal 着色器没编进去')
               print('   metal 相关条目：', sorted(n for n in names if 'metal' in n.lower())[:10])

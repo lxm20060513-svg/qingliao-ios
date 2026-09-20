@@ -9,6 +9,8 @@ struct AgentMemorySheet: View {
     // v3.9.40（#19）：editing 非空即编辑弹窗打开（存的是被改的那条，用于比对与回传 id）
     @State private var editing: AgentRuleItem?
     @State private var editText = ""
+    // v3.9.41（SR24）：整页原先没有任何错误出口——删除/编辑失败时列表不动，用户以为成功
+    @State private var errorMsg: String?
 
     var body: some View {
         NavigationStack {
@@ -93,6 +95,13 @@ struct AgentMemorySheet: View {
             }
         }
         .presentationDetents([.medium, .large])
+        // v3.9.41（SR24）：错误出口（挂在最外层，与 #19 的编辑 alert 不同层级不互斥）
+        .alert("操作失败", isPresented: Binding(get: { errorMsg != nil },
+                                                set: { if !$0 { errorMsg = nil } })) {
+            Button("好", role: .cancel) { errorMsg = nil }
+        } message: {
+            Text(errorMsg ?? "")
+        }
     }
 
     private func load() async {
@@ -103,9 +112,17 @@ struct AgentMemorySheet: View {
 
     private func remove(_ r: AgentRuleItem) async {
         let enc = r.id.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? r.id
-        if let j = try? await auth.json("/api/agent/rules?id=\(enc)", method: "DELETE", body: nil),
-           let arr = j["rules"] as? [[String: Any]] {
-            // 只在响应真带 rules 时覆盖：出错响应（404/401 只有 error 键）会让列表假性清空
+        guard let j = try? await auth.json("/api/agent/rules?id=\(enc)", method: "DELETE", body: nil) else {
+            errorMsg = "删除失败：网络异常或服务器报错"
+            return
+        }
+        let ok = (j["ok"] as? Bool) ?? false
+        guard ok else {
+            errorMsg = j["message"] as? String ?? j["error"] as? String ?? "删除失败"
+            return
+        }
+        // 只在响应真带 rules 时覆盖：出错响应（只有 error 键）会让列表假性清空
+        if let arr = j["rules"] as? [[String: Any]] {
             rules = arr.map { AgentRuleItem($0) }
         }
     }
@@ -114,9 +131,17 @@ struct AgentMemorySheet: View {
     private func update(_ r: AgentRuleItem) async {
         let t = editText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard t.count >= 2, t != r.pattern else { return }
-        if let j = try? await auth.json("/api/agent/rules", method: "POST",
-                                        body: ["id": r.id, "pattern": t]),
-           let arr = j["rules"] as? [[String: Any]] {
+        guard let j = try? await auth.json("/api/agent/rules", method: "POST",
+                                           body: ["id": r.id, "pattern": t]) else {
+            errorMsg = "保存失败：网络异常或服务器报错"
+            return
+        }
+        let ok = (j["ok"] as? Bool) ?? false
+        guard ok else {
+            errorMsg = j["message"] as? String ?? j["error"] as? String ?? "保存失败"
+            return
+        }
+        if let arr = j["rules"] as? [[String: Any]] {
             rules = arr.map { AgentRuleItem($0) }
         }
     }

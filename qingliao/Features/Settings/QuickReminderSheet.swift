@@ -310,7 +310,9 @@ struct QuickReminderSheet: View {
             phrase = ""
         } else {
             Haptics.error()
-            createError = "没能排上——通知权限没开，去系统设置打开后再试"
+            // v3.9.41（SR30）：登记失败的真实原因（如系统 64 条 pending 已满）原先只 NSLog
+            createError = store.lastScheduleError
+                ?? "没能排上——通知权限没开，去系统设置打开后再试"
         }
     }
 

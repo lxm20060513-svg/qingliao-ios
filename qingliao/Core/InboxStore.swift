@@ -353,7 +353,10 @@ enum InboxDedup {
             guard m.role == "assistant", !m.isPush else { continue }
             let cm = normalizeWhitespace(m.content)
             // 子串包含同样要 core ≥10 字：短推送（如"好的/收到"）是正常口语，被长历史包含会误判跳过
-            if core.count >= 10, cm.contains(core) || core.contains(cm) { return true }
+            if core.count >= 10, cm.contains(core) { return true }
+            // v3.9.41（SR42）反向包含（cm ⊂ core）还要约束历史本身 ≥10 字：会话里有一条「好的」级别的
+            // 短历史时，任何包含它的长推送都会被判重复 → 不注入不通知，但调用方照样 markDone → 推送永久丢失。
+            if core.count >= 10, cm.count >= 10, core.contains(cm) { return true }
             // ③ 截断前缀兜底：推送是完整回复的截断（前 N 字）摘要，且摘要足够长避免短文本误判
             if core.count >= 10, cm.hasPrefix(core) { return true }
         }

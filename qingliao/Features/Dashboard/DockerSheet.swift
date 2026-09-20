@@ -21,6 +21,19 @@ struct DockerSheet: View {
     // v2.0.86：镜像管理
     @State private var images: [DockerImage] = []
     @State private var confirmImage: DockerImage?
+    // v3.9.41（SR37）：容器/镜像操作单独置位（原只有 deploy 置 busy → stop/rm/升级期间卡片照常可点，
+    // 连点会并发发多次 POST）
+    @State private var opBusy = false
+    // v3.9.41（SR37）：容器列表「正在拉」的标记（原 loading 只由 deploy 的 busy 承担 → 首次进入时空列表
+    // 直接渲染成「暂无容器」，等接口回来才换成卡片，离线时更是永远停在空仓文案）
+    @State private var loading = false
+    // v3.9.41（SR37）：拉取失败要显式成态——原来 try? 静默失败后 containers 仍为空，
+    // 界面渲染成「暂无容器，输入 YAML 点击部署」，离线看像空仓库
+    @State private var loadError: String?
+    @State private var imagesError: String?
+
+    /// 任一类请求在飞：用于列表区整体降暗 + 禁点
+    private var anyBusy: Bool { busy || upgrading || opBusy || loading }
 
     /// YAML 常用模板（一键插入）
     static let nginxTemplate = """
@@ -40,6 +53,11 @@ struct DockerSheet: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 14) {
+                    // v3.9.41（SR37）：结果提示提到最上方。原先它挂在最底的「新建部署」卡里（`:581`），
+                    // medium 半屏下点「刷新/停止/删除」的回执完全在屏外 = 操作无回执。
+                    if let m = message {
+                        DockerResultBanner(message: m) { message = nil }
+                    }
                     // v2.0.87h：顺序调整——容器/镜像常用在前，新建部署移到最后
                     // ===== 已部署容器卡（v2.0.86i：拆子视图减类型检查负载）=====
                     ContainerSection(containers: containers,
@@ -49,13 +67,17 @@ struct DockerSheet: View {
                                      onDelete: { confirmTarget = $0 },
                                      onUpgrade: { confirmUpgrade = $0 },
                                      updates: updates,
-                                     busy: busy)
+                                     busy: anyBusy,
+                                     loadError: loadError)
                     // ===== v2.0.86 镜像管理（v2.0.86i：拆子视图）=====
                     ImageSection(images: images,
                                  onRefresh: { await loadImages() },
-                                 onDelete: { confirmImage = $0 })
+                                 onDelete: { confirmImage = $0 },
+                                 busy: anyBusy,
+                                 loadError: imagesError)
                     // ===== 新建部署（v2.0.86j：拆子视图；v2.0.87h：移到末尾）=====
-                    DeploySection(name: $name, yaml: $yaml, message: $message,
+                    // v3.9.41（SR37）：不再把 message 传进部署卡——结果统一渲染在页面顶部横幅
+                    DeploySection(name: $name, yaml: $yaml,
                                   busy: busy, onDeploy: { await deploy() })
         }
             }
@@ -136,16 +158,22 @@ struct DockerSheet: View {
     }
 
     private func load() async {
-        if let j = try? await auth.json("/api/docker/ps") {
-            let arr = j["containers"] as? [[String: Any]] ?? []
-            containers = arr.compactMap { d in
-                guard let n = d["name"] as? String else { return nil }
-                return DockerContainer(name: n,
-                                       status: d["status"] as? String ?? "",
-                                       ports: d["ports"] as? String ?? "",
-                                       isComposeProject: (d["is_compose"] as? Bool) ?? false)
-            }
+        loading = true
+        defer { loading = false }
+        guard let j = try? await auth.json("/api/docker/ps") else {
+            // v3.9.41（SR37）：失败成态（已有数据时保留旧列表，只在顶部提示，不清空成「暂无容器」）
+            loadError = "容器列表获取失败（网络或后端不可用）"
+            return
         }
+        let arr = j["containers"] as? [[String: Any]] ?? []
+        containers = arr.compactMap { d in
+            guard let n = d["name"] as? String else { return nil }
+            return DockerContainer(name: n,
+                                   status: d["status"] as? String ?? "",
+                                   ports: d["ports"] as? String ?? "",
+                                   isComposeProject: (d["is_compose"] as? Bool) ?? false)
+        }
+        loadError = nil
     }
 
     private func deploy() async {
@@ -167,9 +195,13 @@ struct DockerSheet: View {
     }
 
     private func action(_ n: String, _ act: String) async {
+        // v3.9.41（SR37）：操作期闸门（原完全不置位 → 连点多次并发 POST 同一容器）
+        guard !opBusy else { return }
+        opBusy = true
+        defer { opBusy = false }
         // v2.0.102：网络失败明确反馈（原 try? 失败时 message 不变，点了毫无反应）
         guard let j = try? await auth.json("/api/docker/\(act)", method: "POST", body: ["name": n]) else {
-            message = (false, "请求失败，请检查网络连接")
+            message = (false, "操作失败（\(n)）：请求未送达，请检查网络连接")
             await load()
             return
         }
@@ -279,22 +311,29 @@ struct DockerImage: Identifiable {
 
 extension DockerSheet {
     func loadImages() async {
-        if let j = try? await auth.json("/api/docker/images") {
-            let arr = j["images"] as? [[String: Any]] ?? []
-            images = arr.compactMap { d in
-                guard let n = d["name"] as? String, let i = d["id"] as? String else { return nil }
-                return DockerImage(name: n, id: i, size: d["size"] as? String ?? "",
-                                   inUse: (d["in_use"] as? Bool) ?? false)
-            }
+        guard let j = try? await auth.json("/api/docker/images") else {
+            imagesError = "镜像列表获取失败（网络或后端不可用）"
+            return
         }
+        let arr = j["images"] as? [[String: Any]] ?? []
+        images = arr.compactMap { d in
+            guard let n = d["name"] as? String, let i = d["id"] as? String else { return nil }
+            return DockerImage(name: n, id: i, size: d["size"] as? String ?? "",
+                               inUse: (d["in_use"] as? Bool) ?? false)
+        }
+        imagesError = nil
     }
 
     func rmImage(_ imageID: String) async {
+        // v3.9.41（SR37）：与容器操作共用闸门
+        guard !opBusy else { return }
+        opBusy = true
+        defer { opBusy = false }
         if let j = try? await auth.json("/api/docker/image/rm", method: "POST",
                                         body: ["id": imageID]) {
             message = ((j["ok"] as? Bool) ?? false, j["message"] as? String ?? "")
         } else {
-            message = (false, "请求失败")
+            message = (false, "删除镜像失败：请求未送达，请检查网络连接")
         }
         await loadImages()
     }
@@ -348,6 +387,10 @@ private struct ContainerSection: View {
     var onUpgrade: (DockerContainer) -> Void   // v2.0.87 升级
     var updates: [String: Bool] = [:]   // v2.0.87p：容器名 → 有更新
     var busy: Bool = false              // v3.9.1：拉取中（骨架屏判据——原写 if containers.isEmpty && busy 时本结构体内没有 busy，编译不过）
+    var loadError: String? = nil        // v3.9.41（SR37）：拉取失败态（区别于「真的没有容器」）
+
+    /// 请求在飞时禁点，避免连点并发 POST（失败态下仍允许操作：卡片是上次成功的数据，点了会有明确回执）
+    private var allowActions: Bool { !busy }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -360,6 +403,7 @@ private struct ContainerSection: View {
                     .font(.system(size: Typography.caption))
                     .foregroundStyle(.secondary)
                 Button {
+                    guard !busy else { return }
                     Task { await onRefresh() }
                 } label: {
                     // v2.0.92：刷新按钮胶囊化（点击区域大、不易误触）；v3.9.4：按用户要求去图标，只留「刷新」文字 + 胶囊
@@ -371,6 +415,7 @@ private struct ContainerSection: View {
                     .glassPillStroke()
                 }
                 .buttonStyle(.plain)
+                .opacity(busy ? 0.5 : 1)   // v3.9.41（SR37）
             }
 
             if containers.isEmpty && busy {
@@ -380,16 +425,22 @@ private struct ContainerSection: View {
                 }
                 .padding(.vertical, Spacing.xs)
             } else if containers.isEmpty {
-                VStack(spacing: 6) {
-                    Image(systemName: "shippingbox")
-                        .font(.system(size: Typography.titleXL))
-                        .foregroundStyle(.tertiary)
-                    Text("暂无容器，输入 YAML 点击部署")
-                        .font(.system(size: Typography.subhead))
-                        .foregroundStyle(.tertiary)
+                // v3.9.41（SR37）：拉取失败 ≠ 空仓库。原此处离线时渲染「暂无容器，输入 YAML 点击部署」，
+                // 旁边就是部署表单 → 看像空仓库，用户会去重复部署已在跑的栈。
+                if let err = loadError {
+                    DockerLoadErrorRow(text: err)
+                } else {
+                    VStack(spacing: 6) {
+                        Image(systemName: "shippingbox")
+                            .font(.system(size: Typography.titleXL))
+                            .foregroundStyle(.tertiary)
+                        Text("暂无容器，输入 YAML 点击部署")
+                            .font(.system(size: Typography.subhead))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 18)
                 }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 18)
             } else {
                 // 单击卡片 = 停止（运行中）或启动（已停止）；长按 = 删除确认
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: 10),
@@ -397,6 +448,7 @@ private struct ContainerSection: View {
                     ForEach(containers) { c in
                         DockerContainerCard(container: c, hasUpdate: updates[c.name] == true, onUpgrade: { onUpgrade(c) })
                             .onTapGesture {
+                                guard allowActions else { return }   // v3.9.41（SR37）
                                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                                 let act = c.status.contains("Up") ? "stop" : "start"
                                 Task { await onAction(c, act) }
@@ -412,9 +464,30 @@ private struct ContainerSection: View {
                     }
                 }
             }
+            // v3.9.41（SR37）：有数据但刷新失败 → 提示「可能是旧数据」，列表仍可操作
+            if !containers.isEmpty, let err = loadError {
+                DockerLoadErrorRow(text: "\(err)，以下为上次成功的数据")
+            }
         }
         .padding(Spacing.xxl)
         .dashboardCard()
+        .opacity(busy ? 0.6 : 1)   // v3.9.41（SR37）：请求在飞时整卡降暗，给出「正在处理」的视觉
+    }
+}
+
+/// v3.9.41（SR37）：列表拉取失败行（重试走卡头「刷新」）
+private struct DockerLoadErrorRow: View {
+    let text: String
+
+    var body: some View {
+        VStack(spacing: 8) {
+            Label(text, systemImage: "wifi.exclamationmark")
+                .font(.system(size: Typography.subhead))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 18)
     }
 }
 
@@ -422,6 +495,8 @@ private struct ImageSection: View {
     let images: [DockerImage]
     var onRefresh: () async -> Void
     var onDelete: (DockerImage) -> Void
+    var busy: Bool = false          // v3.9.41（SR37）
+    var loadError: String? = nil    // v3.9.41（SR37）
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -434,6 +509,7 @@ private struct ImageSection: View {
                     .font(.system(size: Typography.caption))
                     .foregroundStyle(.secondary)
                 Button {
+                    guard !busy else { return }
                     Task { await onRefresh() }
                 } label: {
                     // v2.0.92：刷新按钮胶囊化（点击区域大、不易误触）；v3.9.4：按用户要求去图标，只留「刷新」文字 + 胶囊
@@ -445,12 +521,18 @@ private struct ImageSection: View {
                     .background(Color.indigo.opacity(Tint.subtle), in: Capsule())
                 }
                 .buttonStyle(.plain)
+                .opacity(busy ? 0.5 : 1)   // v3.9.41（SR37）
             }
             if images.isEmpty {
-                Text("暂无镜像")
-                    .font(.system(size: Typography.subhead))
-                    .foregroundStyle(.tertiary)
-                    .padding(.vertical, Spacing.xs)
+                // v3.9.41（SR37）：拉取失败与「真没有镜像」分开显示
+                if let err = loadError {
+                    DockerLoadErrorRow(text: err)
+                } else {
+                    Text("暂无镜像")
+                        .font(.system(size: Typography.subhead))
+                        .foregroundStyle(.tertiary)
+                        .padding(.vertical, Spacing.xs)
+                }
             } else {
                 // v2.0.86n：2 列网格（同容器卡风格）+ 长按删除
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: 10),
@@ -479,7 +561,6 @@ private struct ImageSection: View {
 private struct DeploySection: View {
     @Binding var name: String
     @Binding var yaml: String
-    @Binding var message: (ok: Bool, text: String)?
     var busy: Bool
     var onDeploy: () async -> Void
     @FocusState private var focused: Bool
@@ -576,23 +657,37 @@ private struct DeploySection: View {
         }
         .padding(Spacing.xxl)
         .dashboardCard()
+    }
+}
 
-        // 结果提示
-        if let m = message {
-            HStack(alignment: .top, spacing: 8) {
-                Image(systemName: m.ok ? "checkmark.circle.fill" : "xmark.octagon.fill")
+/// v3.9.41（SR37）：结果提示条（从「新建部署」卡内提出，改放页面最上方 → 半屏也看得见）
+private struct DockerResultBanner: View {
+    let message: (ok: Bool, text: String)
+    var onClose: () -> Void = {}
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: message.ok ? "checkmark.circle.fill" : "xmark.octagon.fill")
+                .font(.system(size: Typography.body))
+                .foregroundStyle(message.ok ? .green : .red)
+            Text(message.text)
+                .font(.system(size: Typography.subhead))
+                // v2.0.86k：显式 Color（.primary 是 HierarchicalShapeStyle，三元类型冲突）
+                .foregroundStyle(message.ok ? Color.primary : Color.red)
+                .textSelection(.enabled)
+            Spacer(minLength: 4)
+            Button(action: onClose) {
+                Image(systemName: "xmark.circle.fill")
                     .font(.system(size: Typography.body))
-                    .foregroundStyle(m.ok ? .green : .red)
-                Text(m.text)
-                    .font(.system(size: Typography.subhead))
-                    .foregroundStyle(m.ok ? Color.primary : Color.red)   // v2.0.86k：显式 Color（.primary 是 HierarchicalShapeStyle，三元类型冲突）
-                    .textSelection(.enabled)
+                    .foregroundStyle(.tertiary)
             }
-            .padding(Spacing.lg)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background((m.ok ? Color.green : Color.red).opacity(0.1),
-                        in: RoundedRectangle(cornerRadius: Radius.chip))
+            .buttonStyle(.plain)
+            .accessibilityLabel("关闭提示")
         }
+        .padding(Spacing.lg)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background((message.ok ? Color.green : Color.red).opacity(0.1),
+                    in: RoundedRectangle(cornerRadius: Radius.chip))
     }
 }
 

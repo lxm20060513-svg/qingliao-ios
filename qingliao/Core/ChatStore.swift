@@ -79,6 +79,7 @@ final class ChatStore {
 
     /// 切换会话（从会话列表点入）
     func load(_ s: ChatSession) {
+        imageRetryTask?.cancel()   // SR4：旧会话的图还没传完就切走 → 停掉，避免与新会话的重传争写
         sessionId = s.id
         title = s.title
         messages = patchAwayLanded(s.id, s.messages)
@@ -128,6 +129,24 @@ final class ChatStore {
         messages = []
         highlightTarget = nil   // v2.0.44：新建会话清除残留定位目标
         defaults.set(sessionId, forKey: sessionKey)
+    }
+
+    /// SR10：登出时彻底丢弃上一个账号的状态。
+    /// `logout()` 只清 token/isLoggedIn，ChatStore 是 App 级 @State、跨登录态存活：
+    /// 换账号登录后 messages/未读仍属旧账号（`loadLastSession` 的 `messages.isEmpty` 护栏
+    /// 反而让它**不会**覆盖），旧会话内容继续可见、甚至继续往旧 sessionId 写库。
+    func resetForLogout() {
+        imageRetryTask?.cancel()
+        imageRetryTask = nil
+        saveTask?.cancel()
+        saveTask = nil
+        awayLandedReplies = [:]
+        unread = [:]
+        seenTimes = [:]
+        lastLoadedSession = nil
+        pendingNewSession = false
+        pendingNewSessionReset = false
+        newSession()          // 生成全新 id（不沿用上一个账号的 sessionId）
     }
 
     // MARK: - v2.0.58 两步走新建会话
@@ -273,6 +292,15 @@ final class ChatStore {
         }
     }
 
+    /// v3.9.41（SR20）：failed 的复位点。原先全仓只有置真、没有任何清零路径——
+    /// 自动重试（`autoRetryStream`）复用**同一条** user 消息（不删除、id 不变），
+    /// 重试成功后气泡上的 ❗/重试按钮仍在（ChatView:2414 的注释「重试成功会覆盖」是错的），
+    /// 用户再点一次就是「删掉这条已送达的消息重发」= 服务器多一轮重复问答。
+    func clearFailed(id: String) {
+        guard let idx = messages.firstIndex(where: { $0.id == id }), messages[idx].failed else { return }
+        messages[idx].failed = false
+    }
+
     /// 发送请求用的历史消息（payload 形态）
     /// 只保留最后一条带图消息的 imageDataURL（前面已发过的图片不进 payload，防 base64 全量重复膨胀）
     /// - Parameters:
@@ -322,7 +350,8 @@ final class ChatStore {
                     UserDefaults.standard.string(forKey: "qingliao_model") ?? "deepseek-v4-flash")
         }()
         let breakRepeatSeed = !CloudConfig.isStrongModel(provider: curProvider, model: curModel)
-        let ctxMessages = Self.sanitizeForContext(messages.filter { !$0.isPush && !$0.isErrorPlaceholder },
+        // SR6：撤回的消息同样不得进模型上下文（原来只滤推送与错误占位，撤回正文照发给 AI）
+        let ctxMessages = Self.sanitizeForContext(messages.filter { !$0.isPush && !$0.isErrorPlaceholder && !$0.withdrawn },
                                                   breakRepeatSeed: breakRepeatSeed)
         // v3.4.x code review fix：落实注释原语义——只保留"最后一条带图消息"的 imageDataURL
         //（前面已发过的图片不进 payload，防 base64 全量重复膨胀）；其余带图消息降级为 [图片] 占位文本
@@ -430,11 +459,15 @@ final class ChatStore {
 
     /// 参数化快照版：切换会话前调用——切换会清空 messages，异步保存若不捕获快照会读到空数组丢会话。
     /// v3.4.x fix：图片消息保留 imageDataURL，避免重启/切会话后只剩 [图片] 占位
-    func saveToServer(auth: AuthStore, sessionId sid: String, messages msgs: [ChatMessage], title t: String) async {
+    /// SR5：`allowEmpty` 只有「清空本会话」这一条显式路径传 true。默认 false 的护栏要留着——
+    /// 切会话/冷启动等很多地方读的是 messages 快照，一旦拿到空数组就写库会把线上整会话抹掉。
+    func saveToServer(auth: AuthStore, sessionId sid: String, messages msgs: [ChatMessage],
+                      title t: String, allowEmpty: Bool = false) async {
         let prev = saveWriteChain
         saveWriteChain = Task { [weak self] in
             await prev.value   // 等前一个写完成（FIFO）
-            await self?.writeSessionSnapshot(auth: auth, sessionId: sid, messages: msgs, title: t)
+            await self?.writeSessionSnapshot(auth: auth, sessionId: sid, messages: msgs,
+                                             title: t, allowEmpty: allowEmpty)
         }
         await saveWriteChain.value
     }
@@ -455,6 +488,14 @@ final class ChatStore {
             if m.audioPath != nil {
                 p["content"] = "[语音]"
             }
+            // SR6：撤回状态此前**只存在于内存**——payload 不写 withdrawn、parse 也不读，
+            // 于是「撤回」后任何一次重启/重进会话，原文就从 NAS 原样回来了（且仍照旧进模型上下文）。
+            // 现在写标记并**同时清空正文**：撤回的语义就是内容不再存在，别只靠客户端自觉隐藏。
+            if m.withdrawn {
+                p["withdrawn"] = true
+                p["content"] = ""
+                p["imageDataURL"] = nil
+            }
             if m.isPush { p["isPush"] = true }
             if m.agent { p["agent"] = true }
             // v3.4.x：持久化引用原文（重启/切会话后气泡仍渲染）
@@ -464,8 +505,8 @@ final class ChatStore {
     }
 
     /// 实际写库（原 saveToServer 参数版逻辑，移入此名；由串行链调用）
-    private func writeSessionSnapshot(auth: AuthStore, sessionId sid: String, messages msgs: [ChatMessage], title t: String) async {
-        guard !msgs.isEmpty else { return }
+    private func writeSessionSnapshot(auth: AuthStore, sessionId sid: String, messages msgs: [ChatMessage], title t: String, allowEmpty: Bool = false) async {
+        guard allowEmpty || !msgs.isEmpty else { return }
         let msgsPayload = Self.messagesPayload(msgs)
         let firstUserText = msgs.first(where: { $0.isUser })?.content.prefix(30).description ?? ""
         let payload: [String: Any] = [
@@ -567,6 +608,11 @@ final class ChatStore {
     @MainActor
     func compressContextWithAI(auth: AuthStore, keepLast: Int = 20) async -> Bool {
         guard messages.count > keepLast + 1 else { return false }
+        // SR3：「读旧消息 → await AI 摘要 → 整体覆写 messages」中间隔着一次网络 await。
+        // 期间切到别的会话（chat.load 换掉 messages/sessionId）后再覆写，会把 A 的摘要
+        // 压进 B 的消息列表，并以 B 的 sessionId 落库——后端同 id 是全量替换，直接毁掉 B 的历史。
+        let startSid = sessionId
+        let startCount = messages.count
         let oldMessages = Array(messages.prefix(messages.count - keepLast))
         let recentMessages = Array(messages.suffix(keepLast))
 
@@ -606,6 +652,7 @@ final class ChatStore {
             guard !summary.isEmpty else {
                 // 摘要失败，降级为本地压缩
                 print("[ContextCompress] AI摘要为空，降级本地压缩")
+                guard sessionId == startSid else { return false }   // 本地降级按当前消息重算，只需会话没变
                 return compressContext(keepLast: keepLast)
             }
 
@@ -613,6 +660,8 @@ final class ChatStore {
             let marker = ChatMessage(role: "system",
                                      content: "（AI 摘要：\(summary)）",
                                      timestamp: oldMessages.first?.timestamp)
+            // 覆写用的是 await 之前的快照：必须会话没变、且期间没插新消息
+            guard sameCompressTarget(sid: startSid, count: startCount) else { return false }
             messages = [marker] + recentMessages
             print("[ContextCompress] AI摘要压缩成功：\(oldMessages.count)条→摘要 + \(recentMessages.count)条")
             return true
@@ -620,8 +669,15 @@ final class ChatStore {
         } catch {
             // AI 调用失败，降级为本地压缩
             print("[ContextCompress] AI摘要失败(\(error.localizedDescription))，降级本地压缩")
+            guard sessionId == startSid else { return false }
             return compressContext(keepLast: keepLast)
         }
+    }
+
+    /// SR3：覆写前的会话归属校验——sid 未变（没切会话）且条数未变（await 期间没插新消息）。
+    /// 任一不满足就放弃这次压缩（下一条消息再触发），也不能拿旧快照去写 messages。
+    private func sameCompressTarget(sid: String, count: Int) -> Bool {
+        sessionId == sid && messages.count == count
     }
 
     /// 检查是否需要压缩（基于 token 阈值）
@@ -645,35 +701,65 @@ final class ChatStore {
 
     // MARK: - v3.0.51 A1 图片持久化增强（待传队列 + 失败重传 + 重启续传）
 
+    /// SR4：同一时刻只允许一条重传链（切会话/前台回 App 会反复触发，旧链不取消会并发写 messages）。
+    @ObservationIgnored private var imageRetryTask: Task<Void, Never>?
+
+    func startImageRetryUploads(auth: AuthStore) {
+        imageRetryTask?.cancel()
+        imageRetryTask = Task { [weak self] in
+            await self?.retryPendingImageUploads(auth: auth)
+        }
+    }
+
     /// 扫描 messages 里仍为 base64（data:image/）的用户图片消息，重传换 URL。
     /// 队列天然派生自消息数组（重启后内存 messages 重新加载，残留 base64 的就是待传的），无需单独持久化。
     /// 触发点：会话加载后 / 前台回到 App / 发送路径降级后。
+    /// 保持类级 MainActor 隔离（与改前一致）：链上的 `await uploadImage(...)` 全程是协作挂起，
+    /// 不占主线程；写成 nonisolated 反而会让每次读写 messages 都得显式 hop，收益为零。
     func retryPendingImageUploads(auth: AuthStore, maxRetries: Int = 3) async {
-        let indices = messages.indices.filter { idx in
-            let m = messages[idx]
-            return m.isUser && (m.imageDataURL?.hasPrefix("data:image/") ?? false)
+        // SR4：原实现预取了一组**下标**，中间夹多次 await（上传 + 指数退避 sleep），
+        // 回来只判 `indices.contains(idx)` 就写 messages[idx] —— 删除/切会话后下标仍合法，
+        // 会把 A 会话的图 URL 写到 B 会话的第 N 条消息上，并用**当时的** sessionId 落库（全量替换）。
+        // 现在：按 uid 定位、每轮校验会话没变、并响应任务取消（切会话/退出会 cancel 这个 Task）。
+        let sid = sessionId
+        let targets: [(uid: String?, content: String, timestamp: TimeInterval?, b64: Data)] = messages.compactMap { m in
+            guard m.isUser, let img = m.imageDataURL, img.hasPrefix("data:image/"),
+                  let comma = img.firstIndex(of: ",") else { return nil }
+            guard let data = Data(base64Encoded: String(img[img.index(after: comma)...]),
+                                  options: .ignoreUnknownCharacters) else { return nil }
+            return (m.uid, m.content, m.timestamp, data)
         }
-        guard !indices.isEmpty else { return }
-        for idx in indices {
-            guard let img = messages[idx].imageDataURL,
-                  img.hasPrefix("data:image/"),
-                  let comma = img.firstIndex(of: ",") else { continue }
-            let b64 = String(img[img.index(after: comma)...])
-            guard let data = Data(base64Encoded: b64, options: .ignoreUnknownCharacters) else { continue }
+        guard !targets.isEmpty else { return }
+        for target in targets {
+            guard sessionId == sid, !Task.isCancelled else { return }
+            // 无 uid 的历史消息（老数据）退化为「内容+时间戳」定位，命中不唯一时宁可不重传
+            func locate() -> Int? {
+                if let uid = target.uid, !uid.isEmpty {
+                    return messages.firstIndex { $0.uid == uid }
+                }
+                let hits = messages.indices.filter {
+                    messages[$0].isUser && messages[$0].content == target.content
+                        && messages[$0].timestamp == target.timestamp
+                        && (messages[$0].imageDataURL?.hasPrefix("data:image/") ?? false)
+                }
+                return hits.count == 1 ? hits[0] : nil
+            }
+            guard locate() != nil else { continue }   // 该消息已被删除/替换 → 跳过
             // 指数退避重试
             var ok: String? = nil
             for attempt in 0..<maxRetries {
                 if attempt > 0 {
                     try? await Task.sleep(nanoseconds: UInt64(pow(2.0, Double(attempt)) * 1_000_000_000))
                 }
-                ok = await uploadImage(data, auth: auth)
+                if Task.isCancelled || sessionId != sid { return }
+                ok = await uploadImage(target.b64, auth: auth)
                 if ok != nil { break }
             }
-            guard let url = ok else { continue }
-            if messages.indices.contains(idx) {   // 重试期间数组可能已变化（删除/切会话）
-                messages[idx].imageDataURL = url
-                await saveToServer(auth: auth, sessionId: sessionId, messages: messages, title: title)
-            }
+            guard let url = ok, sessionId == sid, !Task.isCancelled else { continue }
+            guard let idx = locate() else { continue }
+            messages[idx].imageDataURL = url
+            // 会话没变（上面已判）→ 用参数化重载显式落到 sid，防止读到已被换掉的 self.sessionId
+            await saveToServer(auth: auth, sessionId: sid, messages: messages, title: title)
         }
     }
 

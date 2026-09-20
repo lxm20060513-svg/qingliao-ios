@@ -418,7 +418,22 @@ struct ChatTextDocument: FileDocument {
 
 // 向后兼容别名（v3.0.81 合并 ChatLogDocument + ChatMarkdownDocument）
 typealias ChatLogDocument = ChatTextDocument
-typealias ChatMarkdownDocument = ChatTextDocument
+
+/// v3.9.41（SR18）：Markdown 导出改回独立类型。v3.0.81 把它并进 `ChatTextDocument` 后，
+/// 该类型只声明 `.plainText` → `fileExporter` 恒给「.txt」扩展名，内容明明是 markdown。
+/// `net.daringfiretown.markdown` 是系统登记的 md 类型（preferredFilenameExtension = "md"）。
+struct ChatMarkdownDocument: FileDocument {
+    static let markdownType = UTType(importedAs: "net.daringfiretown.markdown")
+    var text: String
+    static var readableContentTypes: [UTType] { [markdownType] }
+    init(text: String) { self.text = text }
+    init(configuration: ReadConfiguration) throws {
+        text = String(data: configuration.file.regularFileContents ?? Data(), encoding: .utf8) ?? ""
+    }
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
+        FileWrapper(regularFileWithContents: Data(text.utf8))
+    }
+}
 
 // MARK: - v3.0.22 会话导出文档（.pdf）
 
