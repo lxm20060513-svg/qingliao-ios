@@ -17,9 +17,12 @@ struct SecretEntry: Identifiable {
 /// （剪贴板会被其他 App 读到、iCloud 通用剪贴板还会上云，不能当保险箱）
 enum SecretClipboard {
     static func copy(_ s: String) {
-        let pb = UIPasteboard.general
-        pb.string = s
-        pb.expirationDate = Date().addingTimeInterval(60)
+        // UIPasteboard 没有 expirationDate 属性（iOS 26 SDK 里它只是 OptionsKey 的一个键），
+        // 过期只能走 setItems 的 options：系统级失效，App 被挂起后照样生效
+        UIPasteboard.general.setItems(
+            [["public.utf8-plain-text": s]],
+            options: [.expirationDate: Date().addingTimeInterval(60)]
+        )
     }
 }
 
