@@ -234,6 +234,9 @@ private final class LiquidOrbRenderer: NSObject, MTKViewDelegate {
     private var pauseTask: Task<Void, Never>?
     private var pacingState: LiquidOrbState?
     private var hasDrawnFrame = false
+    /// v3.9.42：系统「减弱动态效果」→ thinking 态也走冻结路径（画过过渡后停成静态图）。
+    /// 由 `LiquidOrbSurface` 在建视图时写入；运行中改辅助功能需重进页面才生效（渲染器不重建）。
+    var freezesMotion = false
 
     init(view: MTKView, state: LiquidOrbState) throws {
         let initialUniforms = orbUniformSeed(for: state)
@@ -284,10 +287,12 @@ private final class LiquidOrbRenderer: NSObject, MTKViewDelegate {
         view.isPaused = false
         view.enableSetNeedsDisplay = false
         view.preferredFramesPerSecond = 30
-        guard state == .idle else { return }
+        // v3.9.42：减弱动态效果时，thinking 也照 idle 走冻结路径（先播完状态过渡再停帧）
+        guard state == .idle || freezesMotion else { return }
         // animated=false 时用最短延迟：等 SwiftUI 布局把 drawableSize 落定后再冻结，
         // 否则首帧被 drawableSize == 0 挡掉、冻结后永远不再重绘 → 头像空白
-        let delay = animated ? orbSettleDuration + 0.12 : 0.18
+        let transitionDuration = state == .thinking ? orbActivationDuration : orbSettleDuration
+        let delay = animated ? transitionDuration + 0.12 : 0.18
         pauseTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(delay))
             guard !Task.isCancelled, let self, let view = self.view else { return }
@@ -464,10 +469,11 @@ private final class LiquidOrbCoordinator {
         #endif
     }
 
-    func makeView(state: LiquidOrbState) -> MTKView {
+    func makeView(state: LiquidOrbState, freezesMotion: Bool) -> MTKView {
         let view = MTKView(frame: .zero, device: nil)
         do {
             let renderer = try LiquidOrbRenderer(view: view, state: state)
+            renderer.freezesMotion = freezesMotion
             self.renderer = renderer
             view.delegate = renderer
             renderer.updatePacing(for: state, animated: false)
@@ -502,17 +508,20 @@ private final class LiquidOrbCoordinator {
 #if os(iOS)
 private struct LiquidOrbSurface: UIViewRepresentable {
     let state: LiquidOrbState
+    /// v3.9.42：「减弱动态效果」——由 LiquidOrbView 从环境读入后透传给渲染器
+    let freezesMotion: Bool
 
     func makeCoordinator() -> LiquidOrbCoordinator { LiquidOrbCoordinator() }
-    func makeUIView(context: Context) -> MTKView { context.coordinator.makeView(state: state) }
+    func makeUIView(context: Context) -> MTKView { context.coordinator.makeView(state: state, freezesMotion: freezesMotion) }
     func updateUIView(_ view: MTKView, context: Context) { context.coordinator.setState(state) }
 }
 #elseif os(macOS)
 private struct LiquidOrbSurface: NSViewRepresentable {
     let state: LiquidOrbState
+    let freezesMotion: Bool
 
     func makeCoordinator() -> LiquidOrbCoordinator { LiquidOrbCoordinator() }
-    func makeNSView(context: Context) -> MTKView { context.coordinator.makeView(state: state) }
+    func makeNSView(context: Context) -> MTKView { context.coordinator.makeView(state: state, freezesMotion: freezesMotion) }
     func updateNSView(_ view: MTKView, context: Context) { context.coordinator.setState(state) }
 }
 #endif
@@ -565,11 +574,14 @@ struct LiquidOrbAvatar: View {
 public struct LiquidOrbView: View {
     private let state: LiquidOrbState
 
+    /// v3.9.42：「减弱动态效果」→ thinking 态不再跑 30fps，播完过渡即冻成静态图
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     public init(state: LiquidOrbState = .thinking) {
         self.state = state
     }
 
     public var body: some View {
-        LiquidOrbSurface(state: state)
+        LiquidOrbSurface(state: state, freezesMotion: reduceMotion)
     }
 }

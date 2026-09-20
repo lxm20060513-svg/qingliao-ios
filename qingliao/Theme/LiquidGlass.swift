@@ -210,44 +210,57 @@ struct SiriGlowOverlay: View {
     @AppStorage("qingliao_siri_glow_freq") private var glowFreq = 2.2
     @AppStorage("qingliao_siri_glow_amp") private var glowAmp = 0.18
     @AppStorage("qingliao_siri_glow_width") private var glowWidth = 22.0
+    /// v3.9.42：「减弱动态效果」→ 不接帧源，定稿一帧（见 body 注释）
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         // v3.9.1：锁 30fps（原 .animation = 系统全帧率，ProMotion 最高 120fps）。
         //          呼吸是 0.55s 慢正弦，30fps 肉眼无差；全屏渐变 + mask + blur 是全 App 最贵的画面，
         //          减半帧率就是直接省电（与 ChatEffects 粒子「锁 30fps」同一约定）
-        let schedule: AnimationTimelineSchedule = .animation(minimumInterval: 1.0 / 30.0)
-        TimelineView(schedule) { context in
-            let t = context.date.timeIntervalSinceReferenceDate
-            // v2.0.87bl：GeometryReader 取容器尺寸 + 顶部补偿状态栏；只 ignoresSafeArea(.top)
-            //（底部 dock 的 safe area 保持不动 → 根治 dock 偏位）
-            GeometryReader { geo in
-                let w = geo.size.width
-                let h = geo.size.height + geo.safeAreaInsets.top
-                // v2.0.87bm：呼吸效果（透明度 sin 周期变化）；v2.0.90a：频率/幅度/亮度可调
-                let breathe = (0.30 + glowAmp * (sin(t * glowFreq) + 1) / 2) * glowBrightness
-                Rectangle()
-                    .fill(
-                        AngularGradient(
-                            colors: [.blue.opacity(0.42 * breathe), .indigo.opacity(0.38 * breathe),
-                                     .pink.opacity(0.38 * breathe), .red.opacity(0.28 * breathe), .blue.opacity(0.42 * breathe)],
-                            center: .center
-                        )
-                    )
-                    .mask(
-                        Path { p in
-                            // v2.0.90a：光带宽度可调（默认 22pt）
-                            let e = CGFloat(glowWidth)
-                            p.addRect(CGRect(x: 0, y: 0, width: w, height: h))
-                            p.addRect(CGRect(x: e, y: e, width: w - 2 * e, height: h - 2 * e))
-                        }
-                        .fill(style: FillStyle(eoFill: true))
-                    )
-                    .blur(radius: 8)
-                    .frame(width: w, height: h)
-                    .allowsHitTesting(false)
+        // v3.9.42：该辅助功能开启时连 30fps 都不给——TimelineView 整条不建，取正弦中值画静态一帧。
+        //          光晕本身是"AI 正在回答"的状态提示，静态照样传达，只是不呼吸。
+        Group {
+            if reduceMotion {
+                glow(breathe: (0.30 + glowAmp / 2) * glowBrightness)
+            } else {
+                let schedule: AnimationTimelineSchedule = .animation(minimumInterval: 1.0 / 30.0)
+                TimelineView(schedule) { context in
+                    let t = context.date.timeIntervalSinceReferenceDate
+                    glow(breathe: (0.30 + glowAmp * (sin(t * glowFreq) + 1) / 2) * glowBrightness)
+                }
             }
         }
         .ignoresSafeArea(edges: .top)
+    }
+
+    /// 一帧发光（breathe = 该帧的整体透明度系数）；拆函数同时给 body 与静态分支复用，也避开 CI 类型检查超时
+    private func glow(breathe: Double) -> some View {
+        // v2.0.87bl：GeometryReader 取容器尺寸 + 顶部补偿状态栏；只 ignoresSafeArea(.top)
+        //（底部 dock 的 safe area 保持不动 → 根治 dock 偏位）
+        GeometryReader { geo in
+            let w = geo.size.width
+            let h = geo.size.height + geo.safeAreaInsets.top
+            Rectangle()
+                .fill(
+                    AngularGradient(
+                        colors: [.blue.opacity(0.42 * breathe), .indigo.opacity(0.38 * breathe),
+                                 .pink.opacity(0.38 * breathe), .red.opacity(0.28 * breathe), .blue.opacity(0.42 * breathe)],
+                        center: .center
+                    )
+                )
+                .mask(
+                    Path { p in
+                        // v2.0.90a：光带宽度可调（默认 22pt）
+                        let e = CGFloat(glowWidth)
+                        p.addRect(CGRect(x: 0, y: 0, width: w, height: h))
+                        p.addRect(CGRect(x: e, y: e, width: w - 2 * e, height: h - 2 * e))
+                    }
+                    .fill(style: FillStyle(eoFill: true))
+                )
+                .blur(radius: 8)
+                .frame(width: w, height: h)
+                .allowsHitTesting(false)
+        }
     }
 }
 
@@ -259,6 +272,8 @@ struct IslandGlowOverlay: View {
     @AppStorage("qingliao_siri_glow_brightness") private var glowBrightness = 1.0
     @AppStorage("qingliao_siri_glow_freq") private var glowFreq = 2.2
     @AppStorage("qingliao_siri_glow_amp") private var glowAmp = 0.18
+    /// v3.9.42：「减弱动态效果」→ 不接帧源，定稿一帧（同 SiriGlowOverlay）
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     // 灵动岛胶囊近似尺寸（iPhone 14 Pro 系列 ~126×37，15 Pro 系列 ~121×37；取通用值光晕略大更醒目）
     private let islandW: CGFloat = 132
@@ -268,43 +283,53 @@ struct IslandGlowOverlay: View {
         // v3.9.1：锁 30fps（原 .animation = 系统全帧率，ProMotion 最高 120fps）。
         //          呼吸是 0.55s 慢正弦，30fps 肉眼无差；全屏渐变 + mask + blur 是全 App 最贵的画面，
         //          减半帧率就是直接省电（与 ChatEffects 粒子「锁 30fps」同一约定）
-        let schedule: AnimationTimelineSchedule = .animation(minimumInterval: 1.0 / 30.0)
-        TimelineView(schedule) { context in
-            let t = context.date.timeIntervalSinceReferenceDate
-            // 呼吸（与 Siri 发光同公式，参数联动）；灵动岛版底值 0.30→0.46：整体更亮（0.46~0.64）
-            let breathe = (0.46 + glowAmp * (sin(t * glowFreq) + 1) / 2) * glowBrightness
-            GeometryReader { geo in
-                let top = geo.safeAreaInsets.top
-                // 灵动岛中心 Y = 状态栏内（v3.0.37：下移 10pt 贴合真实灵动岛——原 -6 偏上；v3.0.44：再下移 1pt；v3.0.57：再下移 2pt；v3.0.58：再下移 1pt）
-                let cx = geo.size.width / 2
-                let cy = top + islandH / 2 + 8
-                ZStack {
-                    // 外圈光晕（胶囊描边 + 渐变呼吸）
-                    // v3.0.57：颜色调亮——透明度系数提高（0.65/0.55/0.5 → 0.9/0.8/0.75）；v3.0.58：再调亮调艳（→ 1.0/0.95/0.92 近满饱和）
-                    // 三度调亮调艳——呼吸底值 0.30→0.46、饱和度 ×1.5、光带 5→7pt、blur 5→4（色芯更聚更艳）
-                    RoundedRectangle(cornerRadius: islandH / 2, style: .continuous)
-                        .strokeBorder(
-                            AngularGradient(
-                                colors: [.blue.opacity(1.00 * breathe), .indigo.opacity(0.95 * breathe),
-                                         .pink.opacity(0.92 * breathe), .blue.opacity(1.00 * breathe)],
-                                center: .center
-                            ),
-                            lineWidth: 7
-                        )
-                        .frame(width: islandW + 8, height: islandH + 8)
-                        .blur(radius: 4)
-                        .saturation(1.5)
-                    // 内层实心发光（贴近胶囊边缘）
-                    RoundedRectangle(cornerRadius: islandH / 2, style: .continuous)
-                        .strokeBorder(.white.opacity(0.9 * breathe), lineWidth: 2)
-                        .frame(width: islandW, height: islandH)
-                        .blur(radius: 2)
+        Group {
+            if reduceMotion {
+                glow(breathe: (0.46 + glowAmp / 2) * glowBrightness)
+            } else {
+                let schedule: AnimationTimelineSchedule = .animation(minimumInterval: 1.0 / 30.0)
+                TimelineView(schedule) { context in
+                    let t = context.date.timeIntervalSinceReferenceDate
+                    // 呼吸（与 Siri 发光同公式，参数联动）；灵动岛版底值 0.30→0.46：整体更亮（0.46~0.64）
+                    glow(breathe: (0.46 + glowAmp * (sin(t * glowFreq) + 1) / 2) * glowBrightness)
                 }
-                .position(x: cx, y: cy)
-                .allowsHitTesting(false)
             }
         }
         .ignoresSafeArea(edges: .top)
+    }
+
+    /// 一帧发光（breathe = 该帧的整体透明度系数）
+    private func glow(breathe: Double) -> some View {
+        GeometryReader { geo in
+            let top = geo.safeAreaInsets.top
+            // 灵动岛中心 Y = 状态栏内（v3.0.37：下移 10pt 贴合真实灵动岛——原 -6 偏上；v3.0.44：再下移 1pt；v3.0.57：再下移 2pt；v3.0.58：再下移 1pt）
+            let cx = geo.size.width / 2
+            let cy = top + islandH / 2 + 8
+            ZStack {
+                // 外圈光晕（胶囊描边 + 渐变呼吸）
+                // v3.0.57：颜色调亮——透明度系数提高（0.65/0.55/0.5 → 0.9/0.8/0.75）；v3.0.58：再调亮调艳（→ 1.0/0.95/0.92 近满饱和）
+                // 三度调亮调艳——呼吸底值 0.30→0.46、饱和度 ×1.5、光带 5→7pt、blur 5→4（色芯更聚更艳）
+                RoundedRectangle(cornerRadius: islandH / 2, style: .continuous)
+                    .strokeBorder(
+                        AngularGradient(
+                            colors: [.blue.opacity(1.00 * breathe), .indigo.opacity(0.95 * breathe),
+                                     .pink.opacity(0.92 * breathe), .blue.opacity(1.00 * breathe)],
+                            center: .center
+                        ),
+                        lineWidth: 7
+                    )
+                    .frame(width: islandW + 8, height: islandH + 8)
+                    .blur(radius: 4)
+                    .saturation(1.5)
+                // 内层实心发光（贴近胶囊边缘）
+                RoundedRectangle(cornerRadius: islandH / 2, style: .continuous)
+                    .strokeBorder(.white.opacity(0.9 * breathe), lineWidth: 2)
+                    .frame(width: islandW, height: islandH)
+                    .blur(radius: 2)
+            }
+            .position(x: cx, y: cy)
+            .allowsHitTesting(false)
+        }
     }
 }
 
