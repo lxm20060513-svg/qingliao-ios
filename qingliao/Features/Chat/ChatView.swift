@@ -515,7 +515,11 @@ struct ChatView: View {
 
     /// v3.9.8：header「朗读」胶囊开关（放思考档位胶囊右侧、任务中心左侧）。
     /// 开 = AI 每轮回复结束自动念一遍；关 = 不自动念（气泡上的朗读按钮仍可手动念，互不影响）。
-    /// 样式与思考档位胶囊同族：Capsule + 同色系底 + 关态补 0.8pt 描边（二元控件统一胶囊语义）。
+    /// v3.9.43（用户要求）：样式与左侧思考档位胶囊**完全对齐**——同一枚原生液态玻璃
+    /// （`glassPillStroke()` = `glassEffect(.regular.interactive())` + accent 0.28 / 0.8pt 描边）
+    /// 与同一档内边距（h `Spacing.md` / v `Spacing.sm`），不再自绘「淡底 Capsule + 关态补描边」那套。
+    /// ⚠️ 玻璃底两态共用、不做区分 ⇒ 「开 / 关」只剩**图标着色**这一个信号（accent / secondary），
+    ///    别再指望远底色的深浅能读出状态；语义另有 accessibilityLabel 兜着。
     private var autoReadPill: some View {
         Button {
             autoReadReply.toggle()
@@ -530,17 +534,14 @@ struct ChatView: View {
                 .font(.system(size: Typography.caption, weight: .semibold))
                 .foregroundStyle(autoReadReply ? Color.accentColor : Color.secondary)
                 .padding(.horizontal, Spacing.md)
-                .padding(.vertical, Spacing.md)          // 触摸区约 29×28（图标 11pt + 上下各 8）；左侧思考胶囊是 sm 档，本处刻意略大
-            .background(autoReadReply ? Color.accentColor.opacity(Tint.subtle) : Color.primary.opacity(Tint.faint), in: Capsule())
-            .overlay {
-                // 只有关态画描边（开态靠主色底区分，与思考档位胶囊同族）；开态不画全透明描边
-                if !autoReadReply { Capsule().strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8) }
-            }
-            .contentShape(Capsule())
+                .padding(.vertical, Spacing.sm)          // v3.9.43：md→sm，与思考胶囊同档（视觉高度对齐）
+                .glassPillStroke()
+                .contentShape(Capsule())
         }
         .buttonStyle(PressStyle())
-        // v3.9.34：胶囊视觉 29×28 → 命中区 45×44（外扩 8，小于同行 12pt 间距，不越界抢点）
-        .hitArea44(h: 8, v: 8)
+        // v3.9.34：命中区抬到 ≥44（外扩 8 小于同行 12pt 间距，不越界抢点）；
+        // v3.9.43 视觉改薄一档（高 ~25）→ 纵向外扩跟着思考胶囊的 v:10
+        .hitArea44(h: 8, v: 10)
         .accessibilityLabel(autoReadReply ? "自动朗读已开启" : "自动朗读已关闭")
     }
 
