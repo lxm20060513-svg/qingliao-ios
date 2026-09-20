@@ -12,7 +12,7 @@
 
 ## 🚀 快速上手（开发环境）
 
-- 仓库默认分支：**`native-3.0`**（3.0 开发分支，也是远端默认分支——Actions 只认默认分支的 workflow）
+- 仓库默认分支：**`feature/handoff-301`**（当前的 3.x 开发与发版线，GitHub 上的 default branch）。`native-3.0` 是 3.0 早期主线，已落后本分支数百提交、不再是默认分支
 - **2.0 已收官**（v2.0.140 终版）：历史冻结在 `native-2.0` 分支 + tag `v2.0.140`，2.0 产物归档于 NAS `轻聊app/archive/2.0-final/`；3.0 从 2.0 HEAD 切出，git 历史完整
 - 工程由 **XcodeGen** 生成（`project.yml`），源文件目录 `qingliao/` 整体 glob，**新增 .swift 文件无需改 project.yml**
 - `check_swift.sh`：Linux 下的 **swiftc -parse 纯语法检查**（全工程）。**⚠️ 只查语法不查类型/作用域/并发**——类型错误、方法插错 struct、@MainActor 违规只有 CI 编译才暴露（v2.0.90 实踩：方法误入 PasswordSheet struct，语法全过、CI 报 cannot find in scope）
@@ -23,16 +23,18 @@
 
 ## 🔧 发版流程（唯一 CI 触发方式）
 
-CI 只在 **`v3.0.x` tag 推送**时触发（分支 push 不触发），产出 unsigned IPA artifact。
+CI 只在 **`v*` tag 推送**时触发（分支 push 不触发；版本线现为 `v3.9.x`），产出 unsigned IPA artifact，并覆盖上传到 release `qingliao-ipa-2`（NAS/Hermes 从这里取包）。
 
 ```bash
 # 1) 版本号：project.yml **8 处**必须一致——主 App 与挂件 target（QingliaoWidget）各 4 处
 #    （CFBundleShortVersionString / CFBundleVersion / MARKETING_VERSION / CURRENT_PROJECT_VERSION）
-#    grep -n '"3.0.x"' project.yml 确认全部为最新版本，否则崩溃日志版本误导定位（v2.0.53 教训）
+#    grep -nE 'CFBundleShortVersionString:|MARKETING_VERSION:|^ *CFBundleVersion:|CURRENT_PROJECT_VERSION:' project.yml
+#    —— 8 行必须全是最新版本，否则崩溃日志版本误导定位（v2.0.53 教训）；CI 的 Check version literals 步骤
+#    会在 Archive 前用同一口径再判一次，并把 tag 名与 project.yml 版本对比
 #    新增 target（widget/extension）必须写它自己的 Info.plist 版本号，否则 XcodeGen 默认落 1.0/1（v3.8.0 教训）
 # 2) 自查（见下）+ ./check_swift.sh + commit
-git push origin native-3.0
-git tag v3.0.x && git push origin v3.0.x     # 触发 CI（约 15-20 分钟）
+git push origin feature/handoff-301
+git tag v3.9.x && git push origin v3.9.x     # 触发 CI（约 15-20 分钟）
 ```
 
 - **⚠️ 同 tag force push 不触发 CI**（GitHub 只认新建 tag）——失败重试必须**删远端 tag 重建**（`git push origin :refs/tags/vX`）或升新版本号
@@ -246,8 +248,10 @@ QingliaoWidget/          挂件 Extension target（.appex）：灵动岛/锁屏�
 
 ## 🔀 分支与版本
 
-- `native-2.0`：唯一开发分支（默认分支）；旧 `master` 本地残留可忽略（勿 push）
-- 版本演进记录在提交信息（v2.0.87bn 起每提交带版本后缀）；发版 tag = `v2.0.x` 整数递增
+- `feature/handoff-301`：**当前默认分支**，3.9.x 的开发与发版线
+- `native-3.0`：3.0 早期主线，已停更（不再是默认分支，勿再作为发版基线）
+- `native-2.0`：2.0 历史冻结（终版 tag `v2.0.140`）；旧 `master` 本地残留可忽略（勿 push）
+- 版本演进记录在提交信息（v2.0.87bn 起每提交带版本后缀）；发版 tag = `v3.9.x` 递增，`project.yml` 的 build 号（`CFBundleVersion`/`CURRENT_PROJECT_VERSION`）同步 +1
 - 仓库为 public：**任何提交不得包含真实服务器域名/公网 IP/内网 IP/密码/token**（此前已做全历史脱敏，v2.0.52-54；新引入敏感信息即泄露）
 
 ## 📁 仓库外运维（宿主本机，不在 git）
