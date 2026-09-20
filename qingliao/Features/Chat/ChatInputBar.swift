@@ -44,9 +44,11 @@ struct ChatInputBar: View {
     @AppStorage("qingliao_input_glow") private var inputGlowOn = true
     // v3.4.25：上下文阈值预警——外部传入上下文使用率（0-1），超 0.8 发送键变橙轻提醒
     var contextUsage: Double = 0
-    @State private var sendScale: CGFloat = 1.0
     // v3.4.29：发送动作图标弹一下（symbolEffect 驱动，无自定义动画开销）
+    // v3.9.42：同一个 tick 兼作发送键关键帧的 trigger（原来另有一个 sendScale + 两段 withAnimation）
     @State private var sendBounceTick = 0
+    /// v3.9.42：「减弱动态效果」→ 不给关键帧喂新 trigger，发送反馈只剩图标 symbolEffect
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     // 发送按钮配色三态：语音模式=Siri 彩、空文本=淡灰、有字=蓝紫渐变
     // v3.4.25：+第四态——上下文使用率超 80% 时有字状态变橙（轻提醒，不阻断发送）
@@ -57,14 +59,9 @@ struct ChatInputBar: View {
         return [.blue, .indigo]
     }
 
-    // 发送触发：缩放回弹 + 原发送逻辑（长按转文字路径不受影响，不触发动画）
+    // 发送触发：一次 tick 同时驱动图标弹动与按钮关键帧（长按转文字路径不走这里，不弹反馈）
     private func fireSend() {
-        withAnimation(Motion.tap) { sendScale = 1.25 }
-        Task { @MainActor in
-            try? await Task.sleep(for: .seconds(0.12))
-            withAnimation(Motion.snap) { sendScale = 1.0 }
-        }
-        sendBounceTick += 1     // v3.4.29：图标弹一下（发送的可见反馈）
+        sendBounceTick += 1
         Haptics.tap()   // v3.4.25：统一触感——发送 = 轻点
         onSend()
     }
@@ -244,7 +241,8 @@ struct ChatInputBar: View {
                         // v3.9.34：命中区 44×44（发送键视觉 32×32、间距零变化）
                         .hitArea44(h: 6, v: 6)
                         // v3.4.19：发送回弹缩放（仅轻点发送路径，长按转文字不缩放）
-                        .scaleEffect(sendScale)
+                        // v3.9.42：两步 withAnimation + Task.sleep → 一条关键帧轨道（见 sendPulse 定义处）
+                        .sendPulse(trigger: reduceMotion ? 0 : sendBounceTick)
                         .gesture(
                             LongPressGesture(minimumDuration: 0.4)
                                 .exclusively(before: TapGesture())
@@ -347,5 +345,47 @@ private struct PulsingRecordDot: View {
             .animation(reduceMotion ? nil : .easeInOut(duration: 0.65).repeatForever(autoreverses: true), value: pulsing)
             .onAppear { pulsing = true }
             .allowsHitTesting(false)
+    }
+}
+
+
+// MARK: - v3.9.42 发送键合成反馈（keyframeAnimator 首次入场）
+//
+// 背景：原来"发送弹一下"是手写的两段动画 —— `withAnimation { scale = 1.25 }` +
+// `Task.sleep(0.12)` + `withAnimation { scale = 1.0 }`。两个问题：
+//   ① 节拍靠 sleep 对齐，主线程一卡（流式 token 正在刷）就会"弹了不收回"或连弹；
+//   ② 只有一维缩放，做不到"按下先压缩再冲高"这种带方向感的复合手感（要三段就得再叠 sleep）。
+// keyframeAnimator（iOS 17+）把多轨时间线交给系统排，一次 trigger 跑完，无需 @State 中间值。
+//
+// 拆成独立 View 扩展而非内联在 fullInputBar 里：本文件 body 已是全仓最长的之一，
+// keyframe 的多轨泛型推断塞进去容易撞 CI 类型检查超时（v3.9.x 踩过多次，见 ChatEffects 的拆法）。
+
+/// 关键帧取值：一轨缩放 + 一轨上抛。字段用 Double（SwiftUI 里 Double 是 Animatable/VectorArithmetic，
+/// 别用 CGFloat —— 泛型约束在 CI 端少一分不确定），用图时再转 CGFloat。
+private struct SendPulse {
+    var scale: Double = 1
+    var lift: Double = 0
+}
+
+extension View {
+    /// 发送键一次性合成反馈：压到 0.9 → 冲高 1.16 → 落定，同时整体上抛 3pt 再回落（"弹射出去"）。
+    /// `trigger` 变化即播一轮；调用方传 0 常量 = 关掉反馈（「减弱动态效果」走这条路）。
+    func sendPulse(trigger: Int) -> some View {
+        keyframeAnimator(initialValue: SendPulse(), trigger: trigger) { content, value in
+            content
+                .scaleEffect(CGFloat(value.scale))
+                .offset(y: CGFloat(value.lift))
+        } keyframes: { _ in
+            KeyframeTrack(\.scale) {
+                CubicKeyframe(0.9, duration: 0.07)
+                SpringKeyframe(1.16, duration: 0.19)
+                SpringKeyframe(1.0, duration: 0.22)
+            }
+            KeyframeTrack(\.lift) {
+                LinearKeyframe(0, duration: 0.07)
+                CubicKeyframe(-3, duration: 0.12)
+                SpringKeyframe(0, duration: 0.29)
+            }
+        }
     }
 }
