@@ -111,6 +111,11 @@ struct RootView: View {
     // v3.4.25：崩溃日志查看/导出弹窗（AlertSheet 内含 UIActivityViewController）
     @State private var showCrashLogSheet = false
     @State private var showSplash = true
+    // v3.9.45：登录成功后的「卡片飞成首页」交接（④）。原来 isLoggedIn 一翻真假，if/else
+    // 立刻把 LoginView 摘掉，登录卡片自己的退场演出还没起头就没了。这里让 LoginView 在多挂
+    // 0.95s（正好覆盖它 .delay(0.2)+0.45 的退场动画）里演完再撤。
+    @State private var loginHandoff = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     // v2.0.92：App 锁（启动 Face ID 验证；与 Face ID 登录相互独立）
     @AppStorage("qingliao_app_lock") private var appLockOn = false
     @State private var appUnlocked = false
@@ -121,10 +126,17 @@ struct RootView: View {
     var body: some View {
         ZStack {
             // 登录门禁（v3.9.28：云端模式已移除，仅剩本地 AI 登录页）
-            if auth.isLoggedIn {
+            // v3.9.45：登录成功后 LoginView 不立即撤，演完退场再撤（见 loginHandoff）。
+            // zIndex 2：压在 DockTabView 之上、AppLockView(5) 之下——登录页不能盖住锁屏。
+            // allowsHitTesting(false)：那 0.95s 里半透明的登录卡片不再吃点击，避免误触输入框弹键盘。
+            let loggedIn = auth.isLoggedIn
+            if loggedIn {
                 DockTabView()
-            } else {
-                LoginView()
+            }
+            if !loggedIn || loginHandoff {
+                LoginView(revealed: !showSplash)
+                    .zIndex(loggedIn ? 2 : 0)
+                    .allowsHitTesting(!loggedIn)
             }
 
             // v2.0.92：App 锁遮罩（已登录 + 开关开 + 未解锁时覆盖，splash 之下）
@@ -159,11 +171,24 @@ struct RootView: View {
                     .zIndex(21)
             }
         }
+        // v3.9.45：门禁切换时给 DockTabView 的下位一个淡入（原来是硬切）。
+        // 挂在 ZStack 上而不是各分支的 .transition 上：这里改的是 if 的成员资格。
+        .animation(reduceMotion ? nil : Motion.settle, value: auth.isLoggedIn)
         // SR10：登出（logout() 的四个调用点：设置页/服务器地址改动/过期横幅「去登录」）
         // 统一在这里收敛——AuthStore 看不到 ChatStore，而后者是 App 级 @State、跨登录态存活。
         // 不清的话换账号登录后看到的仍是旧账号会话，且 loadLastSession 的 isEmpty 护栏让它不会被覆盖。
         .onChange(of: auth.isLoggedIn) { _, logged in
             if !logged { chat.resetForLogout() }
+            // v3.9.45：登录成功 → 让登录卡片再挂 0.95s 演完「放大上抛淡出」，DockTabView
+            // 同时在它下面就位（首页已渲染），卡片像是"飞成了首页"。退场时长取自 LoginView
+            // 自己的 .delay(0.2) + 0.45s；到点直接撤（此时已 opacity 0，撤掉无感）。
+            // 「减弱动态效果」下不走这条路：卡片瞬间消失，与改动前行为一致。
+            loginHandoff = logged && !reduceMotion
+            if loginHandoff {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.95) {
+                    withAnimation(Motion.settle) { loginHandoff = false }
+                }
+            }
         }
         // v3.9.41（SR21）：每次退到后台都重新上锁（回前台即见锁屏，符合「App 锁」预期）。
         // 注意不能挂进 :57 那个 QingliaoApp 里的 onChange(scenePhase)——RootView 看不到那个属性。

@@ -5,6 +5,10 @@ import LocalAuthentication
 
 struct LoginView: View {
     @Environment(AuthStore.self) private var auth
+    // v3.9.45：进场递延由 Splash 淡出驱动（`revealed`）——本页在 SplashView 底下挂载，
+    // 若从 onAppear 起算，整段递延会被 0.6s 的 Splash 盖掉，用户一个字都没看见。
+    var revealed: Bool = true
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var username = "qingliao"
     @State private var password = ""   // 不预填默认密码（防泄漏默认值）
     // v2.0.55：预填已保存的服务器地址（之前每次登录都要重输）
@@ -18,6 +22,13 @@ struct LoginView: View {
     @State private var faceIDReady = false
     @State private var showFaceIDHint = false
     @State private var showServerMismatch = false   // v2.0.102：Face ID 凭据服务器与输入不一致提示
+    // v3.9.45：焦点态（三个输入框共用一个单选 FocusState，GlassField 靠它画高亮）
+    @FocusState private var focusField: LoginField?
+    // v3.9.45：登录失败抖动的触发计数（keyframeAnimator 的 trigger）
+    @State private var shakeTrigger = 0
+
+    /// 登录成功后整页上浮淡出的「交接演出」——RootView 让本页在顶层多留一会儿（见 loginHandoff）
+    private var handingOff: Bool { auth.isLoggedIn }
 
     var body: some View {
         ZStack {
@@ -27,25 +38,41 @@ struct LoginView: View {
                 Spacer()
 
                 loginLogoBlock
+                    .stagedIn(0, shown: revealed, frozen: reduceMotion)
 
                 loginFormCard
+                    .stagedIn(1, shown: revealed, frozen: reduceMotion)
 
                 loginRememberToggle
+                    .stagedIn(2, shown: revealed, frozen: reduceMotion)
 
                 loginErrorText
+                    .stagedIn(3, shown: revealed, frozen: reduceMotion)
 
                 loginSubmitButton
+                    .stagedIn(4, shown: revealed, frozen: reduceMotion)
 
                 loginFaceIDButton
+                    .stagedIn(5, shown: revealed, frozen: reduceMotion)
 
                 loginTestButton
+                    .stagedIn(6, shown: revealed, frozen: reduceMotion)
 
                 loginTestResultText
+                    .stagedIn(7, shown: revealed, frozen: reduceMotion)
 
                 Spacer()
                 Spacer()
             }
+            // v3.9.45：失败抖动一次（整列一起晃，背景色不动 = 不会有边缘漏白）
+            .shakeOnce(reduceMotion ? 0 : shakeTrigger)
         }
+        // v3.9.45：交接演出——绿勾先亮 0.2s，随后整页上浮淡出（0.45s）；
+        // 减弱动态效果时不演，由 RootView 立刻摘掉本页（见 RootView.loginHandoff）
+        .scaleEffect(handingOff ? 1.08 : 1)
+        .offset(y: handingOff ? -52 : 0)
+        .opacity(handingOff ? 0 : 1)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.45).delay(0.2), value: handingOff)
         .onAppear {
             if server.isEmpty {
                 server = auth.serverURL
@@ -58,7 +85,15 @@ struct LoginView: View {
         .onChange(of: auth.isLoggedIn) { _, loggedIn in
             if !loggedIn {
                 refreshFaceID()   // 登出回到登录页时刷新（可能凭据已更新）
+            } else {
+                Haptics.success()
             }
+        }
+        // v3.9.45：登录失败——震一下 + 触觉反馈（原来只有一行红字，静默到容易被忽略）
+        .onChange(of: auth.errorMessage) { _, err in
+            guard let err, !err.isEmpty else { return }
+            Haptics.error()
+            if !reduceMotion { shakeTrigger += 1 }
         }
     }
 
@@ -94,8 +129,10 @@ struct LoginView: View {
             if showHistory {
                 loginServerHistoryDropdown
             }
-            GlassField(icon: "person", placeholder: "用户名", text: $username)
-            GlassField(icon: "lock", placeholder: "密码", text: $password, isSecure: true)
+            GlassField(icon: "person", placeholder: "用户名", text: $username,
+                       field: .user, focus: $focusField)
+            GlassField(icon: "lock", placeholder: "密码", text: $password, isSecure: true,
+                       field: .pass, focus: $focusField)
         }
         .padding(.horizontal, 28)
     }
@@ -104,7 +141,8 @@ struct LoginView: View {
     @ViewBuilder
     private var loginServerField: some View {
         // v2.0.72：服务器地址输入框 + 抽屉式历史记录（点击展开）
-        GlassField(icon: "globe", placeholder: "服务器地址", text: $server)
+        GlassField(icon: "globe", placeholder: "服务器地址", text: $server,
+                   field: .server, focus: $focusField)
             .overlay(alignment: .trailing) {
                 if !auth.serverHistory.isEmpty {
                     Button {
@@ -189,7 +227,7 @@ struct LoginView: View {
         }
     }
 
-    /// 登录按钮
+    /// 登录按钮（v3.9.45：三态直出——空闲文案 / 登录中环形进度 / 成功绿勾，原来只有「登录中...」换字）
     @ViewBuilder
     private var loginSubmitButton: some View {
         // 登录按钮
@@ -203,19 +241,38 @@ struct LoginView: View {
                 await auth.login(username: username, password: password, remember: remember)
             }
         } label: {
-            Text(auth.isLoading ? "登录中..." : "登 录")
-                .font(.system(size: Typography.title, weight: .semibold))
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, Spacing.xl)
-                .background(
-                    LinearGradient(colors: [.blue, .indigo], startPoint: .topLeading, endPoint: .bottomTrailing),
-                    in: RoundedRectangle(cornerRadius: Radius.hero, style: .continuous)
-                )
+            ZStack {
+                if auth.isLoggedIn {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: Typography.title, weight: .semibold))
+                        .transition(.scale(scale: 0.55).combined(with: .opacity))
+                } else if auth.isLoading {
+                    ProgressView()
+                        .tint(.white)
+                        .transition(.opacity)
+                } else {
+                    Text("登 录")
+                        .transition(.opacity)
+                }
+            }
+            .font(.system(size: Typography.title, weight: .semibold))
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity)
+            .frame(height: 26)                 // 三态等高：换态时按钮不跳动
+            .padding(.vertical, Spacing.xl)
+            .background(
+                LinearGradient(colors: auth.isLoggedIn ? [.green, .teal] : [.blue, .indigo],
+                               startPoint: .topLeading, endPoint: .bottomTrailing),
+                in: RoundedRectangle(cornerRadius: Radius.hero, style: .continuous)
+            )
+            // 绿勾那一下轻微顶起来（和 Haptics.success 同一拍）
+            .scaleEffect(auth.isLoggedIn ? 1.03 : 1)
         }
         .buttonStyle(.plain)
         .padding(.horizontal, 28)
         .disabled(auth.isLoading)
+        .animation(reduceMotion ? nil : Motion.snap, value: auth.isLoading)
+        .animation(reduceMotion ? nil : Motion.emerge, value: auth.isLoggedIn)
     }
 
     /// Face ID 快捷登录（含两个提示弹窗）
@@ -336,17 +393,28 @@ struct LoginView: View {
     }
 }
 
+/// v3.9.45：登录页三个字段的焦点标识（GlassField 与 LoginView 共用）
+enum LoginField: Hashable {
+    case server, user, pass
+}
+
 struct GlassField: View {
     let icon: String
     let placeholder: String
     @Binding var text: String
     var isSecure: Bool = false
+    // v3.9.45：焦点形变——聚焦时描边走主色、图标点亮、底色加一层极淡主色（原来四个框长一个样，
+    // 眼睛跟不上光标在哪）
+    let field: LoginField
+    var focus: FocusState<LoginField?>.Binding
+
+    private var focused: Bool { focus.wrappedValue == field }
 
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: icon)
                 .font(.system(size: Typography.body))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(focused ? Color.accentColor : Color.secondary)
                 .frame(width: 22)
             Group {
                 if isSecure {
@@ -359,13 +427,65 @@ struct GlassField: View {
             }
             .font(.system(size: Typography.body))
             .foregroundStyle(.primary)
+            .focused(focus, equals: field)
         }
         .padding(.horizontal, Spacing.xxl)
         .padding(.vertical, Spacing.xl)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+        .background(Color.accentColor.opacity(focused ? Tint.faint : 0),
+                    in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
-                .strokeBorder(.white.opacity(Tint.subtle), lineWidth: 0.8)
+                .strokeBorder(focused ? Color.accentColor.opacity(0.8) : .white.opacity(Tint.subtle),
+                              lineWidth: focused ? 1.4 : 0.8)
         )
+        .scaleEffect(focused ? 1.012 : 1)
+        .animation(Motion.snap, value: focused)
+    }
+}
+
+// MARK: - v3.9.45 登录页动效辅助
+//
+// 与 ChatInputBar 的 sendPulse 同族口径：多轨/递延一律交给系统排（不靠 sleep 对齐节拍），
+// 并且**必须留静态档**——「减弱动态效果」下 stagedIn 直出满位、shakeOnce 传 0 常量关掉。
+// 拆成独立扩展而非内联进 body：本文件 body 曾以 233 行撞过两次 CI 类型检查超时。
+
+/// 进场递延：Splash 淡出（`shown` 翻真）后按 index 逐档错开 45ms 上浮入位
+private struct StagedIn: ViewModifier {
+    let index: Int
+    let shown: Bool
+    let frozen: Bool
+
+    func body(content: Content) -> some View {
+        let on = shown || frozen
+        content
+            .opacity(on ? 1 : 0)
+            .offset(y: on ? 0 : 14)
+            .animation(frozen ? nil : Motion.emerge.delay(Double(index) * 0.045), value: on)
+    }
+}
+
+private struct ShakeX {
+    var x: Double = 0
+}
+
+extension View {
+    func stagedIn(_ index: Int, shown: Bool, frozen: Bool) -> some View {
+        modifier(StagedIn(index: index, shown: shown, frozen: frozen))
+    }
+
+    /// 登录失败的一次性水平抖动；`trigger` 传 0 = 不播（静态档走这条路）
+    func shakeOnce(_ trigger: Int) -> some View {
+        keyframeAnimator(initialValue: ShakeX(), trigger: trigger) { content, v in
+            content.offset(x: CGFloat(v.x))
+        } keyframes: { _ in
+            KeyframeTrack(\.x) {
+                LinearKeyframe(-9, duration: 0.06)
+                LinearKeyframe(8, duration: 0.08)
+                LinearKeyframe(-6, duration: 0.08)
+                LinearKeyframe(3, duration: 0.07)
+                SpringKeyframe(0, duration: 0.18)
+            }
+        }
     }
 }

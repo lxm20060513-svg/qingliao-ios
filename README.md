@@ -102,6 +102,14 @@ QingliaoWidget/          挂件 Extension target（.appex）：灵动岛/锁屏�
 - **减弱动态效果（accessibilityReduceMotion）**：任何循环/帧源动画必须有静态档——`repeatForever` 走 `reduceMotion ? nil : …`，`TimelineView` 呼吸层（Siri 边框光 / 灵动岛光）走"不建帧源、按正弦中值定稿一帧"，Metal 头像（`LiquidOrbAvatar`）走 `freezesMotion`（播完状态过渡即 `isPaused` 冻成静态图）。关键帧反馈（发送键 `sendPulse`）用 `trigger: reduceMotion ? 0 : tick` 关掉
 - **聊天附件只发引用、不发全文（v3.9.44）**：`sendFile` 上传成功后消息正文只写 `[文件: 名字]（已上传 NAS：doc=<服务器 saved 名>）`，**不再**在客户端提取正文（原 txt/md 直读、PDF 走 PDFKit，各截 12000 字拼进消息）。根因：拼进正文的全文会随历史落库，之后**每一轮都重发给模型**（token 每轮重付 + 上下文被挤爆），而 docx/xlsx/pptx 客户端不提取、AI 反而读不到。现在正文由后端 `doc_ref.py` 在组装 prompt 时按需读原件（最新 user 轮全文、更早轮节选），App 端 `extractPDFText` 已删。⚠️ **上线顺序**：后端必须先于本 App 版本部署，否则 AI 只看得到文件名；`saved` 缺省（老后端不回该字段）时退回无 `doc=` 的旧标记
 
+- **登录成功「卡片飞成首页」的交接窗口（v3.9.45）**：`RootView` 的门禁**不能**写成 `if isLoggedIn { Dock } else { Login }` —— 登录页自己的退场演出（0.2s 延迟 + 0.45s 上浮淡出）会在 `isLoggedIn` 翻真的那一帧被整块摘掉，用户只看到硬切。现在是 `if loggedIn { Dock }` + `if !loggedIn || loginHandoff { LoginView(revealed: !showSplash) }`：登录成功后 `loginHandoff` 让本页**多挂 0.95s** 演完再撤，`zIndex(loggedIn ? 2 : 0)` 保证它压在 DockTabView 之上但**在 AppLockView(5) 之下**（登录页永远不许盖住锁屏），并 `.allowsHitTesting(!loggedIn)` 让半透明的旧卡片那 0.95s 不吃点击。三个坑：① 递延倒计时由 `revealed: !showSplash` 驱动而不是 `onAppear`，否则整段进场被 0.6s Splash 盖住；② `reduceMotion` 下 `loginHandoff` 恒 false，走改动前的瞬间切换；③ 登录页的失败抖动是 `keyframeAnimator(trigger:)`，`errorMessage` 变化才 +1，静态档传 0 常量
+
+## 🆕 近期变更（v3.9.45，2026-09-20）
+
+- **登录页动效四件套（需真机验收）**：① 进场递延——Splash 淡出后 8 段视图按 45ms 逐档上浮入位（`stagedIn`，原来整页同时硬现）；② 输入框焦点形变——`@FocusState<LoginField?>` 单选焦点，聚焦框描边走主色 + 图标点亮 + 一层极淡主色底 + 1.012 微放大（原来四个框长一个样，眼睛跟不上光标）；③ 发送键三态直出——空闲「登 录」/ 登录中环形进度 / 成功绿勾，`frame(height: 26)` 等高压掉换态跳动，成功时渐变转绿并轻微顶起，同时 `Haptics.success()`；④ 登录成功「卡片飞成首页」交接——整页上浮淡出 0.45s，DockTabView 在它下面就位（详见上方关键设计决策那条的挂载窗口）
+- **登录失败不再静默**：`errorMessage` 一变即 `Haptics.error()` + 整列水平抖动一次（`keyframeAnimator` 一条 x 轨串五个关键帧 -9/8/-6/3/回弹，靠 trigger 计数触发，不用 sleep 对节拍）。背景色块不参与抖动，所以不会出现边缘漏白
+- 四件套全部有静态档：`reduceMotion` 下递延直出满位、抖动 trigger 传 0、交接窗口不挂载（回到改动前的瞬间切换）
+
 ## 🆕 近期变更（v3.9.7，2026-09-12）
 
 - **灵动岛 / 锁屏实时活动美化（方案 A+B 合并）**：A 视觉——轻聊球贯穿全部形态（`Canvas` + `TimelineView(.animation, minimumInterval: 1/20)` 呼吸；侧载免费签名无 APNs，唯一帧源是本地驱动）；B 信息与交互——思考脉冲环 → 输出**不确定态旋转弧**（不画假百分比）→ 完成绿对勾保持 2s 三态、展开态状态文案 + 「停止生成」按钮（`StopGenerationIntent` 用 `LiveActivityIntent`：在**主 App 进程**执行且**不打开 App**，才能真停掉 App 里的流；`openAppWhenRun` 已废弃且在 extension 里置 true 直接编译报错），点灵动岛 `.widgetURL(qingliao://chat)` 回聊天页（官方推荐方式，零新 API 风险）；`LiveActivityManager` 只在 phase 变化时 update（不跟 token 刷）+ 代际令牌 + 会话归属校验；脉冲环半径上限 `r×1.15` 防灵动岛遮罩切半圆
