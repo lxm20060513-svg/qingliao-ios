@@ -38,7 +38,7 @@ git tag v3.9.x && git push origin v3.9.x     # 触发 CI（约 15-20 分钟）
 ```
 
 - **⚠️ 同 tag force push 不触发 CI**（GitHub 只认新建 tag）——失败重试必须**删远端 tag 重建**（`git push origin :refs/tags/vX`）或升新版本号
-- **⚠️ 发版前必须问用户**：private 仓库 Actions 额度 2000 分钟/月、macOS runner 按 10 倍扣费，约 10-13 次构建/月，**攒 2-3 个改动发一版**
+- **⚠️ 发版前必须问用户**：本仓库是 **public**，Actions 的 macOS 分钟不占账号额度（旧纪录里写的「private 2000 分钟/月、10 倍扣费」已不适用），但一次构建仍要 15-20 分钟 runner 时间 —— **攒 2-3 个改动发一版**，别一个改动一次 tag
 - CI 失败排查：`GET /actions/runs/{id}/jobs` → job_id → `GET /actions/jobs/{id}/logs` → `grep -n 'error:'`（编译错误全在日志里）。**0 steps 失败 = 额度耗尽/基础设施**，有具体 error: 行 = 真编译错误
 - 构建成功 → 下载 workflow **artifact**（release asset 会停旧版，v2.0.85 教训）→ **解包校验 Info.plist 的 CFBundleShortVersionString == tag 版本**（双保险 + md5）→ 转存交付目录
 - 版本号未随 tag 升 = 用户装了新版但崩溃日志显示旧版（v2.0.53 教训）
