@@ -48,10 +48,13 @@ jobs:
           if [ -z "$shorts" ] || [ -z "$builds" ]; then
             echo "::error::project.yml 里没匹配到版本号字面量（键名被改动？请先同步这一步的 grep）"; exit 1
           fi
-          if [ "$(printf '%s\n' "$shorts" | wc -l)" != "1" ]; then
+          # macOS runner 是 BSD wc：数字前补空格，字符串比较恒 != "1"（GNU/Linux 复现不出来）→ 先剥掉空白
+          n_shorts=$(printf '%s\n' "$shorts" | wc -l | tr -d '[:space:]')
+          n_builds=$(printf '%s\n' "$builds" | wc -l | tr -d '[:space:]')
+          if [ "$n_shorts" != "1" ]; then
             echo "::error::project.yml 短版本号不一致：$(printf '%s ' $shorts)"; exit 1
           fi
-          if [ "$(printf '%s\n' "$builds" | wc -l)" != "1" ]; then
+          if [ "$n_builds" != "1" ]; then
             echo "::error::project.yml 构建号不一致：$(printf '%s ' $builds)"; exit 1
           fi
           ver=$shorts
