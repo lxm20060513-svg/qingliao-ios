@@ -1,7 +1,6 @@
 // MARK: - ChatView 导出/分享/消息操作（从 ChatView.swift 拆出，v3.0.81）
 
 import SwiftUI
-import PDFKit
 
 extension ChatView {
     /// v2.0.96：消息撤回（标记 withdrawn → 显示"已撤回"占位 + 服务器同步）
@@ -158,11 +157,18 @@ extension ChatView {
         return t
     }
 
-    // MARK: - v2.0.84 文件整份上传（原件存 NAS，文本类/PDF 同时提取内容给 AI）
+    // MARK: - v2.0.84 文件整份上传（原件存 NAS）
+    //
+    // v3.9.44（方案 1+3）：不再把文件全文拼进消息。原来截 12000 字直接写进用户消息正文，
+    // 于是这份全文存进聊天历史、之后**每一轮都重复发给模型**（token 每轮重付、上下文被挤爆），
+    // 而 docx/xlsx/pptx 客户端压根不提取（AI 只见文件名）。
+    // 现在消息只留引用标记「（已上传 NAS：doc=<服务器保存名>）」，正文由后端 doc_ref.py 在
+    // 组装 prompt 时按需从原件读取：最新一轮给全文、更早的轮给节选。
+    // ⚠️ 需要后端带 doc_ref.py（>= 3.9.44 那次部署）；老后端读不到正文，AI 会回「看不到内容」。
 
     /// v2.0.86s：上传结果细分（区分服务器拒绝 / 蜂窝限制 / 连接失败，提示不误导）
     enum UploadResult {
-        case success
+        case success(String)      // v3.9.44：带回服务器保存名（doc_ref 按它在上传目录取原件；空=老后端没回）
         case rejected(String)       // 服务器返回错误（带信息）
         case networkFailed(String)  // 网络/连接失败（错误信息含蜂窝限制时提示 WiFi/Web）
     }
@@ -172,8 +178,10 @@ extension ChatView {
         guard let data = try? Data(contentsOf: url) else { return .rejected("文件读取失败") }
         do {
             let j = try await auth.uploadMultipart("/api/files/upload", fileName: name, data: data)
-            if (j["ok"] as? Bool) == true { return .success }
-            return .rejected(j["message"] as? String ?? j["error"] as? String ?? "上传失败")
+            guard (j["ok"] as? Bool) == true else {
+                return .rejected(j["message"] as? String ?? j["error"] as? String ?? "上传失败")
+            }
+            return .success(j["saved"] as? String ?? "")
         } catch {
             return .networkFailed("\(error)")
         }
@@ -197,23 +205,14 @@ extension ChatView {
             defer { if access { url.stopAccessingSecurityScopedResource() } }
             // 整份上传 NAS（原件服务器保留，可下载）
             let result = await uploadFile(url, name: name)
+            let label = ext == "pdf" ? "PDF" : "文件"
             var content: String
             switch result {
-            case .success:
-                if ["txt", "md", "log", "json", "csv"].contains(ext),
-                   let text = try? String(contentsOf: url, encoding: .utf8) {
-                    // 文本类：上传原件 + 提取前 12000 字给 AI 阅读
-                    content = "[文件: \(name)]（已上传 NAS）\n\(String(text.prefix(12000)))"
-                } else if ext == "pdf" {
-                    // PDF：上传原件 + PDFKit 提取文本给 AI
-                    let raw = extractPDFText(from: url) ?? ""
-                    content = raw.isEmpty
-                        ? "[PDF: \(name)]（已上传 NAS，扫描件无文字层）"
-                        : "[PDF: \(name)]（已上传 NAS）\n\(String(raw.prefix(12000)))"
-                } else {
-                    // Word/Excel 等：整份上传（本地不提取，文件在 NAS 可下载）
-                    content = "[文件: \(name)]（已上传 NAS）"
-                }
+            case .success(let saved):
+                // v3.9.44：只发引用，正文交给后端按需读取（本地一律不再提取/截断）
+                content = saved.isEmpty
+                    ? "[\(label): \(name)]（已上传 NAS）"
+                    : "[\(label): \(name)]（已上传 NAS：doc=\(saved)）"
             case .rejected(let msg):
                 // v2.0.86s：服务器拒绝（磁盘满/路径错误等）→ 显示具体原因
                 content = "[文件: \(name)]（上传失败：\(msg)）"
@@ -267,11 +266,5 @@ extension ChatView {
                 Task { await chat.saveToServer(auth: auth) }
             }
         }
-    }
-
-    /// PDFKit 提取文本（文本型 PDF 才有内容；扫描件无文字层返回空）
-    func extractPDFText(from url: URL) -> String? {
-        guard let doc = PDFDocument(url: url) else { return nil }
-        return doc.string
     }
 }
