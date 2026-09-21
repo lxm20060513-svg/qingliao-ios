@@ -145,3 +145,109 @@ struct QuickPromptSheet: View {
     }
 }
 
+// MARK: - v3.9.48 输入栏展开态的「模型快选」（右下角胶囊 → 点一下就切走）
+
+/// 和设置里的「模型管理」(`ModelSheet`) 分工：那张面板管**provider 增删 / 同步 / TTS / 视觉模型**，
+/// 这里只管"当场换一个模型接着聊"——选完即写即收起。
+/// 数据同源 `ModelProvidersCache`（模型管理每次同步成功都会落这份缓存），
+/// 所以本面板**零网络请求**、打开就是列表；从没同步过才只剩去设置那一条路。
+/// ⚠️ 写的是主模型两把 key（`qingliao_model` / `qingliao_provider`），与 `ModelSheet.setModel` 同一口径；
+///    配了 Agent 模型时它不生效（视觉 > Agent > 主），面板顶部照 `ModelSheet` 的话术把这件事说清楚，
+///    不静默骗人。
+struct ComposerModelSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    // 默认值必须与全站其余读点逐字一致（自查清单第 3 条）
+    @AppStorage("qingliao_model") private var modelName = "deepseek-v4-flash"
+    @AppStorage("qingliao_provider") private var provider = "opencode"
+    @AppStorage(UserDefaultsKey.agentModel) private var agentModel = ""
+
+    private let groups: [(id: String, models: [String])]
+
+    init() { groups = ModelProvidersCache.load() }
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if groups.isEmpty {
+                    VStack(spacing: 10) {
+                        Image(systemName: "cube.box")
+                            .font(.system(size: 30, weight: .light))
+                            .foregroundStyle(.tertiary)
+                        Text("还没有可选的模型")
+                            .font(.system(size: Typography.subhead))
+                            .foregroundStyle(.secondary)
+                        Text("先到 设置 › 模型管理 同步一次模型列表")
+                            .font(.system(size: Typography.tiny))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    List {
+                        if !agentModel.isEmpty {
+                            Section {
+                                HStack(spacing: 10) {
+                                    Image(systemName: "sparkles")
+                                        .font(.system(size: Typography.subhead))
+                                        .foregroundStyle(.orange)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text("聊天实际使用 Agent 模型：\(agentModel)")
+                                            .font(.system(size: Typography.subhead, weight: .medium))
+                                        Text("配置了 Agent 模型时优先使用，这里换主模型不生效；可在设置页「Agent 模型」改为跟随主模型")
+                                            .font(.system(size: Typography.tiny))
+                                            .foregroundStyle(.tertiary)
+                                    }
+                                }
+                            }
+                        }
+                        ForEach(groups, id: \.id) { g in
+                            Section(g.id) {
+                                ForEach(g.models, id: \.self) { m in
+                                    modelRow(m, in: g.id)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("切换模型")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { dismiss() } label: {
+                        Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary)
+                    }
+                }
+            }
+        }
+    }
+
+    private func modelRow(_ m: String, in p: String) -> some View {
+        Button {
+            modelName = m
+            provider = p
+            Haptics.success()
+            dismiss()
+        } label: {
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(m)
+                        .font(.system(size: Typography.subhead))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Text(p)
+                        .font(.system(size: Typography.tiny))
+                        .foregroundStyle(.tertiary)
+                }
+                Spacer()
+                if m == modelName && p == provider {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(Color.accentColor)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("切换到模型 \(m)（\(p)）")
+    }
+}
+

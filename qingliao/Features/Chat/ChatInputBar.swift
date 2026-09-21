@@ -44,6 +44,10 @@ struct ChatInputBar: View {
     @AppStorage("qingliao_input_glow") private var inputGlowOn = true
     // v3.4.25：上下文阈值预警——外部传入上下文使用率（0-1），超 0.8 发送键变橙轻提醒
     var contextUsage: Double = 0
+    /// v3.9.48：展开态右下角的模型快选——当前模型名（空串 = 整行不显示）+ 点击回调。
+    /// ⚠️ 追加在 `contextUsage` 之后：调用点走成员初始化器且按声明序传参，插在中间会错位
+    var modelLabel: String = ""
+    var onPickModel: () -> Void = {}
     // v3.4.29：发送动作图标弹一下（symbolEffect 驱动，无自定义动画开销）
     // v3.9.42：同一个 tick 兼作发送键关键帧的 trigger（原来另有一个 sendScale + 两段 withAnimation）
     @State private var sendBounceTick = 0
@@ -74,8 +78,79 @@ struct ChatInputBar: View {
             .frame(maxWidth: .infinity)
     }
 
-    /// 完整输入栏（原 ChatInputBar 内容）
+    /// v3.9.48（用户：「点击输入框时输入框变大，右下角可以选模型」）：展开式输入栏——
+    /// 聚焦时文字区抬到 2 行起 + 右下角浮出模型快选胶囊，容器从纯胶囊长成 22pt 圆角矩形。
+    ///
+    /// 展开只认「普通打字」这一态：录音 / 语音模式 / 转写各自把整条栏换成别的形态（那三态本来就不打字），
+    /// 再叠一层"变大"会和它们打架。收起态的视图树与装饰和 v3.9.47 逐字一致。
     private var fullInputBar: some View {
+        VStack(alignment: .leading, spacing: expanded ? Spacing.xs : 0) {
+            inputRow
+            if expanded, !modelLabel.isEmpty {
+                modelRow
+            }
+        }
+        .padding(.horizontal, Spacing.lg)
+        .padding(.vertical, Spacing.md)
+        // v2.0.87e：原生液态玻璃输入栏（iOS 26+）
+        .background { barShape.glassEffect() }
+        .overlay { focusRing }
+        .animation(Motion.snap, value: focused)
+        .animation(Motion.snap, value: expanded)
+        // v3.2.3 渲染卡死根治：外层阴影移到流光 overlay **之前**——阴影只对静态背景/内容生效，
+        // 不再因流光每帧变化触发阴影 CGPath 重算（.ips 8BADF00D 主线程栈铁证：
+        // ShapeLayerShadowHelper.updateShadow → Path.cgPath → RenderBox CG::stroker 病态递归卡死）
+        .shadow(color: .black.opacity(0.3), radius: 14, y: 5)
+        .overlay { glowOverlay }
+        .padding(.horizontal, 18)   // v2.0.87aw：输入框宽度收窄（12→18）
+    }
+
+    /// 展开态 = 聚焦且不在语音/录音/转写三态里（那三态各有自己的输入栏形态）
+    private var expanded: Bool {
+        focused && !isRecording && !voiceMode && !transcribing
+    }
+
+    /// 容器形状：收起时半径给到 999（被夹成半高 = 纯胶囊，和原来的 `Capsule()` 同形），
+    /// 展开时收成 `Radius.hero`(22) 才容得下第二行。
+    /// **单一形状类型 + 半径可插值** → 切换是"长开"而不是跳形，也不用 AnyShape 做类型擦除
+    private var barShape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: expanded ? Radius.hero : 999, style: .continuous)
+    }
+
+    /// v3.4.20：聚焦态光晕——输入框获得焦点时边缘亮起淡蓝细描边（0.8pt 与全站描边同参），失焦淡出。
+    /// 静态描边（非每帧重绘），无 shadow 叠加，不触碰 v3.2.3 渲染卡死红线。
+    private var focusRing: some View {
+        barShape.strokeBorder(Color.blue.opacity(focused ? 0.45 : 0), lineWidth: 0.8)
+            .allowsHitTesting(false)
+    }
+
+    /// 第二行：右下角的模型快选胶囊（左半边留空，避免和第一行的附件/相机抢视线）
+    private var modelRow: some View {
+        HStack(spacing: Spacing.sm) {
+            Spacer(minLength: 0)
+            Button(action: onPickModel) {
+                HStack(spacing: 3) {
+                    Image(systemName: "cube.box")
+                    Text(modelLabel)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .frame(maxWidth: 150, alignment: .trailing)   // 长模型名（provider/xxx-long-name）压住，不撑破栏宽
+                }
+                .foregroundStyle(Color.accentColor)
+                .chatHeaderPill()
+            }
+            .buttonStyle(PressStyle())
+            // v3.9.34 同款命中区口径：胶囊视觉高 24 → 外扩到 44（横向下限本就 >44）
+            .hitArea44(h: 0, v: 10)
+            .accessibilityLabel("模型快选，当前 \(modelLabel)")
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, Spacing.xxs)
+    }
+
+    /// 第一行（附件 / 相机 / 文本框 / 停止 / 发送）——v3.9.48 从 `fullInputBar` 原样搬出，
+    /// 容器装饰（玻璃底 / 描边 / 阴影 / 流光）上移到外层 VStack 统一套
+    private var inputRow: some View {
         HStack(spacing: 8) {
             Button(action: onPickAttachment) {
                 Image(systemName: "paperclip")
@@ -136,7 +211,9 @@ struct ChatInputBar: View {
             } else {
                 TextField("", text: $text, axis: .vertical)
                     .font(.system(size: Typography.body))
-                    .lineLimit(1...6)   // v2.0.35：1行起（原来2...6最小2行高→单行光标/文字偏上不居中）
+                    // v3.9.48：展开态起判行高抬到 2 行（用户点名"点输入框时输入框变大"）——
+                    // 未聚焦仍 1 行起，收起态逐字同 v3.9.47
+                    .lineLimit(expanded ? 2...6 : 1...6)   // v2.0.35：1行起（原来2...6最小2行高→单行光标/文字偏上不居中）
                     .padding(.vertical, Spacing.xl)   // v2.0.93f：9→12 输入框加高（用户反馈太窄）
                     .padding(.horizontal, Spacing.xxs)
                     .fixedSize(horizontal: false, vertical: true)   // 文字超宽自动增高输入框，旧文字始终可见
@@ -275,53 +352,38 @@ struct ChatInputBar: View {
             )
             .animation(Motion.snap, value: sendColors)
         }
-        .padding(.horizontal, Spacing.lg)
-        .padding(.vertical, Spacing.md)
-        // v2.0.87e：原生液态玻璃输入栏（iOS 26+）
-        .background { Capsule().glassEffect() }
-        // v3.4.20：聚焦态光晕——输入框获得焦点时边缘亮起淡蓝细描边（0.8pt 与全站描边同参），失焦淡出。
-        // 静态描边（非每帧重绘），无 shadow 叠加，不触碰 v3.2.3 渲染卡死红线。
-        .overlay {
-            Capsule().strokeBorder(Color.blue.opacity(focused ? 0.45 : 0), lineWidth: 0.8)
-                .allowsHitTesting(false)
-        }
-        .animation(Motion.snap, value: focused)
-        // v3.2.3 渲染卡死根治：外层阴影移到流光 overlay **之前**——阴影只对静态背景/内容生效，
-        // 不再因流光每帧变化触发阴影 CGPath 重算（.ips 8BADF00D 主线程栈铁证：
-        // ShapeLayerShadowHelper.updateShadow → Path.cgPath → RenderBox CG::stroker 病态递归卡死）
-        .shadow(color: .black.opacity(0.3), radius: 14, y: 5)
-        // v2.0.87s：等待回复特效（v2.0.87ay：改回 87 版效果——内部旋转流光，Siri 淡雅）
-        // v2.0.96：语音转文字模式同样开启 Siri 流光 —— v3.9.7 已撤销（见下，语音态不再有流光）
-        .overlay {
-            // v3.2.4：流光在 streaming / voiceMode 均启用（当时用户拍板：语音模式保留流光视觉）。
-            // v3.9.7 改主意：语音转文字过程中输入框**移除这层特效**，保持普通输入框形态——
-            //         语音态唯一的视觉提示是「发送键变收音图标」（v3.9.7 用户要求，观感更干净）。
-            //         于是流光只在 streaming（等待回复）态出现。
-            // 卡死防护靠 v3.2.3 三件套（流光无 shadow + 15fps + 外层阴影静态化在 overlay 前），
-            // voiceMode 期间已无任何动态视图，风险只降不升。
-            if streaming && inputGlowOn {
-                // v2.0.139 性能：流光 60→30fps（旋转渐变肉眼无差，重绘开销减半）
-                // v3.2.3：30→15fps + **去掉 .shadow**——每帧变化的渐变+阴影=每帧送 stroker 算圆角
-                // 阴影路径（iOS 27 RenderBox 卡死源）。旋转渐变无锐边，15fps 肉眼无差，观感不变。
-                let schedule: AnimationTimelineSchedule = .animation(minimumInterval: 1.0 / 15.0)
-                TimelineView(schedule) { context in
-                    let t = context.date.timeIntervalSinceReferenceDate
-                    let angle = (t * 70).truncatingRemainder(dividingBy: 360)
-                    // 内部流光：Siri 淡雅蓝紫粉红旋转（87 版效果）
-                    Capsule().fill(
-                        AngularGradient(
-                            colors: [.blue.opacity(0.22), .indigo.opacity(0.22),
-                                     .pink.opacity(0.22), .red.opacity(0.16), .blue.opacity(0.22)],
-                            center: .center, angle: .degrees(angle)
-                        )
+    }
+
+    /// 等待回复的旋转流光 / 常态细描边（v3.9.48：形状跟 `barShape`，展开时跟着长成圆角矩形）
+    @ViewBuilder
+    private var glowOverlay: some View {
+        // v3.2.4：流光在 streaming / voiceMode 均启用（当时用户拍板：语音模式保留流光视觉）。
+        // v3.9.7 改主意：语音转文字过程中输入框**移除这层特效**，保持普通输入框形态——
+        //         语音态唯一的视觉提示是「发送键变收音图标」（v3.9.7 用户要求，观感更干净）。
+        //         于是流光只在 streaming（等待回复）态出现。
+        // 卡死防护靠 v3.2.3 三件套（流光无 shadow + 15fps + 外层阴影静态化在 overlay 前），
+        // voiceMode 期间已无任何动态视图，风险只降不升。
+        if streaming && inputGlowOn {
+            // v2.0.139 性能：流光 60→30fps（旋转渐变肉眼无差，重绘开销减半）
+            // v3.2.3：30→15fps + **去掉 .shadow**——每帧变化的渐变+阴影=每帧送 stroker 算圆角
+            // 阴影路径（iOS 27 RenderBox 卡死源）。旋转渐变无锐边，15fps 肉眼无差，观感不变。
+            let schedule: AnimationTimelineSchedule = .animation(minimumInterval: 1.0 / 15.0)
+            TimelineView(schedule) { context in
+                let t = context.date.timeIntervalSinceReferenceDate
+                let angle = (t * 70).truncatingRemainder(dividingBy: 360)
+                // 内部流光：Siri 淡雅蓝紫粉红旋转（87 版效果）
+                barShape.fill(
+                    AngularGradient(
+                        colors: [.blue.opacity(0.22), .indigo.opacity(0.22),
+                                 .pink.opacity(0.22), .red.opacity(0.16), .blue.opacity(0.22)],
+                        center: .center, angle: .degrees(angle)
                     )
-                    .allowsHitTesting(false)   // v2.0.87al：不拦截点击（停止按钮可点）
-                }
-            } else {
-                Capsule().strokeBorder(.white.opacity(Tint.subtle), lineWidth: 0.8)
+                )
+                .allowsHitTesting(false)   // v2.0.87al：不拦截点击（停止按钮可点）
             }
+        } else {
+            barShape.strokeBorder(.white.opacity(Tint.subtle), lineWidth: 0.8)
         }
-        .padding(.horizontal, 18)   // v2.0.87aw：输入框宽度收窄（12→18）
     }
 }
 

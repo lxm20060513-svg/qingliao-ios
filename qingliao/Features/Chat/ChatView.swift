@@ -360,6 +360,8 @@ struct ChatView: View {
     /// v3.9.9 收口：用户主动「停止生成」（输入栏 / 灵动岛）→ 本轮不自动朗读（别把残句念一遍）
     @State private var suppressAutoReadOnce = false
     @State private var showReasoningPicker = false
+    /// v3.9.48：输入栏展开态右下角的模型快选面板
+    @State private var showComposerModel = false
 
     /// v3.9.41（A1 遗留收口）：本机这条流**是不是正在给当前会话干活**——`stream` 是 App 级单例，
     /// 会话 A 在跑时 `stream.isStreaming` 在 B 会话里同样是 true，于是 B 的输入栏长出「停止」按钮
@@ -402,6 +404,14 @@ struct ChatView: View {
     /// 口径对齐 SessionsView.displayModel；否则会出现「灵动岛写着主模型、实际回的是 Agent/视觉模型」的错报
     private var liveActivityModelName: String {
         resolveModel(hasImage: false).0
+    }
+
+    /// v3.9.48：输入栏展开态的模型胶囊显示名——**复用发送路径同一套选型**（视觉/Agent/主模型），
+    /// 与上面灵动岛同口径：只读 `qingliao_model` 会在 Agent/视觉模型生效时报错模型（v3.8.0 实踩）。
+    /// 串成 `provider/model` 与 `BotCard.displayModel` 一致；胶囊内单行中部截断，长名不撑破栏宽。
+    private var composerModelLabel: String {
+        let (m, p) = resolveModel(hasImage: false)
+        return p.isEmpty ? m : "\(p)/\(m)"
     }
 
     /// v3.9.7：实时活动阶段——驱动灵动岛三态（思考中 / 输出中 / 已完成）。
@@ -735,7 +745,10 @@ struct ChatView: View {
                     // v3.9.14：3s 无结果才把诊断串显示出来（正常录音时输入框只显示识别文本）
                     recordingStalled: liveSpeech.liveStalled,
                     // v3.4.25：上下文使用率传入——超 80% 发送键变橙轻提醒
-                    contextUsage: chat.contextUsage(maxTokens: 4000))
+                    contextUsage: chat.contextUsage(maxTokens: 4000),
+                    // v3.9.48：聚焦展开时右下角浮出的模型快选胶囊
+                    modelLabel: composerModelLabel,
+                    onPickModel: { showComposerModel = true })
                     // v2.0.129：球态输入框 —— 绑定会话 id，切会话重建复位（展开态在切会话后回球态）
                     .id(chat.sessionId)
                     // v2.0.135：消费输入栏区域的点击，防冒泡到消息区 ZStack 根手势误收键盘
@@ -975,6 +988,12 @@ struct ChatView: View {
         // v3.9.32：定时提醒面板（长按气泡「提醒我」/ 设置页入口共用）
         .sheet(isPresented: $showQuickReminder) {
             QuickReminderSheet(presetText: reminderSeedText)
+                .presentationDetents([.medium, .large])
+                .scrollContentBackground(.hidden)
+        }
+        // v3.9.48：输入栏展开态的模型快选（右下角胶囊）。detents 与 Hermes 捷径/章节列表同档
+        .sheet(isPresented: $showComposerModel) {
+            ComposerModelSheet()
                 .presentationDetents([.medium, .large])
                 .scrollContentBackground(.hidden)
         }
