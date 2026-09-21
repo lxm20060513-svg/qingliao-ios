@@ -1728,14 +1728,11 @@ struct HADeviceSheet: View {
             .frame(minHeight: 92)
             // v2.0.87h：弹窗液态玻璃下卡片扁平化（去白圆角底，仅极轻底区分）
             // v3.0.6 fix：卡片补描边（用户要求每个开关卡都描框）
-            .background(
-                RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
-                    .fill(isOn ? Color.accentColor.opacity(Tint.subtle) : Color(uiColor: .secondarySystemGroupedBackground))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
-                    .strokeBorder(Color.primary.opacity(isOn ? 0.28 : 0.10), lineWidth: 0.8)
-            )
+            // v3.9.47（用户：弹窗里的卡片一律不要白底）：卡底换成和五个新弹窗同款的半透明毛玻璃
+            // `frostedCard()`（16 圆角 + 0.8pt 描边 + 两层柔影），点亮态在毛玻璃上再叠一层强调色淡染。
+            // 本卡即「开关卡片的卡片形式」基准 → 改了它，弹窗内的卡形才谈得上对齐。
+            .background(isOn ? Color.accentColor.opacity(Tint.subtle) : Color.clear)
+            .frostedCard()
         }
         .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
     }

@@ -13,6 +13,10 @@ import SwiftUI
 //   ② 挂载一律走 DashboardView 的 `.sheet(item: $activeSheet)` + `.presentationDetents` +
 //      `matchedTransitionSource`/`navigationTransition(.zoom)`，与磁盘/Docker 弹窗同一条路。
 //
+// v3.9.47（用户 2026-09-21 定稿）：弹窗内的卡片一律 `.frostedCard()`（半透明毛玻璃 + 圆角 16），
+// 不再用 `.dashboardCard()` 的实色卡底——实色铺在弹窗材质上等于盖了块白板。
+// 卡形（内边距 Spacing.xl / 0.8pt 描边 / 两层柔影 / 16 圆角）与开关弹窗里那张灯卡同参。
+//
 // 数据侧零新增接口：三个设备弹窗吃看板已在轮询的 `/api/ha/states`（`haEntities`），
 // CPU/内存弹窗吃 `/api/nas/status`（`NASStatus`）+ `/api/hw/status`（hwCpu/hwSsd）。
 
@@ -55,7 +59,7 @@ struct BoardSheetHeader: View {
 
 // MARK: - 通用容器/行
 
-/// 弹窗内的分组卡（标题 + 若干行），卡面走全站 `dashboardCard()`
+/// 弹窗内的分组卡（标题 + 若干行），卡面走弹窗毛玻璃卡 `frostedCard()`（v3.9.47）
 private struct SheetSection<Content: View>: View {
     let title: String
     @ViewBuilder var content: Content
@@ -71,7 +75,7 @@ private struct SheetSection<Content: View>: View {
             content
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .dashboardCard()
+        .frostedCard()
     }
 }
 
@@ -261,7 +265,7 @@ struct HADeviceRow: View {
         }
         .padding(Spacing.xl)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .dashboardCard()
+        .frostedCard()
     }
 
     /// 设备名：friendly_name 优先；小米常见重复（"客厅灯 客厅灯 开关"）→ 取不重复的前两段
@@ -382,7 +386,7 @@ struct NASMetricSheet: View {
         }
         .padding(Spacing.xl)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .dashboardCard()
+        .frostedCard()
     }
 
     @ViewBuilder

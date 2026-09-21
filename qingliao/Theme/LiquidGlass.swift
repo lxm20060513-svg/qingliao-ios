@@ -99,6 +99,35 @@ struct DashboardCardStyle: ViewModifier {
     }
 }
 
+// MARK: - v3.9.47 弹窗内卡片（半透明毛玻璃底 · 圆角 16）
+//
+// 由头：v3.9.46 那五张看板详情弹窗的卡底走 `.dashboardCard()` = `secondarySystemGroupedBackground`
+// 实色灰白。铺在**弹窗**那层系统材质上等于盖了块白板，把弹窗材质完全遮死（用户 2026-09-21：
+// 「所有卡片不要用白色背景，用半透明毛玻璃背景，16 的圆角」）。
+// 这里只换背景那一层：卡形/描边/圆角/两层柔影与 `dashboardCard()` 逐字同参，
+// 材质取 `.ultraThinMaterial`（真半透明，透出弹窗底色），**不是** `GlassListCard` 浅色档那种
+// `Color.white.opacity(0.85)`（用户明确不要白底）。
+// ⚠️ 与 v3.9.23/v3.9.24 那条红线不冲突：那条说的是**弹窗自身**不要铺背景盖住系统材质；
+//    本修饰器只作用在弹窗内部的卡片上，弹窗根层依旧一个 background 都不加。
+
+struct SheetFrostCard: ViewModifier {
+    var cornerRadius: CGFloat = 16      // 全站卡片圆角口径 16（见上方 v3.8.1 圆角约定）
+    @Environment(\.colorScheme) private var scheme
+
+    func body(content: Content) -> some View {
+        content
+            .background(.ultraThinMaterial,
+                        in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .strokeBorder(Tint.line(scheme), lineWidth: 0.8)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .shadow(color: .black.opacity(0.06), radius: 1, y: 1)
+            .shadow(color: .black.opacity(0.05), radius: 8, y: 3)
+    }
+}
+
 // MARK: - 滚动层次感（v3.9.0 批3）
 // 卡片进出视口时轻微缩放 + 淡出。**必须挂在 Lazy 容器内的元素上**（挂在外层 ScrollView 上无效）。
 // 数值收在这一处：原来只有会话列表手写 0.965/0.75，现在看板/生活卡片复用同一档。
@@ -125,6 +154,10 @@ extension View {
     }
     func dashboardCard(cornerRadius: CGFloat = 16) -> some View {
         modifier(DashboardCardStyle(cornerRadius: cornerRadius))
+    }
+    /// 弹窗内的卡片：毛玻璃底 + 16 圆角（卡形与 `dashboardCard()` 同参，只把实色卡底换成半透明）
+    func frostedCard(cornerRadius: CGFloat = 16) -> some View {
+        modifier(SheetFrostCard(cornerRadius: cornerRadius))
     }
 }
 
