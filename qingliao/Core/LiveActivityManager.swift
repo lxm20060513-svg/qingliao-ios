@@ -88,7 +88,7 @@ final class LiveActivityManager {
     /// 开关关着也走这里：清完不会再新建，新建由 `sync` 的 isEnabled 闸门把关。
     ///
     /// v3.9.42 为什么要改成「回前台也扫」：原来只在冷启动 `.task` 里跑一次，而**强杀 App 时没有任何
-    /// 代码会执行**，用户不重开就永远不收；重开后如果那条已经转 `.stale`（>15 分钟没更新），
+    /// 代码会执行**，用户不重开就永远不收；重开后如果那条已经转 `.stale`（超过 `staleDate` 没更新），
     /// 旧的 `== .active` 过滤同样放过它 → 表现即用户报的「杀掉 App 也不退出」。
     /// 判定依据是不变量「`currentSessionId == nil` ⇒ 本进程没有在跟任何一轮」⇒ 系统里那条一定是孤儿。
     /// 流式途中回前台时 `currentSessionId` 有值 → 直接返回，不会误杀正在显示的活动。
@@ -195,6 +195,9 @@ final class LiveActivityManager {
         lastAction = actionText
         lastCanStop = canStop
         lastProgress = newProgress
+        // v3.9.54：把「这一轮显示什么」留一份磁盘快照——后台刷新被系统拉起时本进程状态是空的
+        // （见 `reconcileAfterBackgroundCheck`），没有它就只能用兜底文案渲染完成态。
+        Self.writeRoundSnapshot(sessionId: sessionId, title: title, model: model, startedAt: start)
 
         let state = QingliaoActivityAttributes.ContentState(sessionTitle: title,
                                                            modelName: model,
@@ -301,6 +304,8 @@ final class LiveActivityManager {
         lastAction = ""
         lastCanStop = false
         pendingDismissal = true
+        // v3.9.54：本轮已收尾 → 快照作废（不清则后台刷新会把上一轮又「完成」一次）
+        Self.clearRoundSnapshot()
     }
 
     /// v3.9.42 **兜底收尾**（用户实报「任务完成后灵动岛一直不退出」的主因）：
@@ -310,7 +315,7 @@ final class LiveActivityManager {
     /// `aiBusy` 按会话收窄（`thisSessionStreaming`）之后，**离开那个会话的 ChatView 就再也看不到它的
     /// 完成信号**——切到会话 B（A 的 ChatView 被换掉、`.task` 一并取消）时只有 B 的 `finish(B)` 会跑，
     /// 而它因 `sessionId != currentSessionId` 直接返回；A 那条活动于是永远停在「AI 正在回复」，
-    /// 15 分钟后转 `.stale`，重开 App 也收不掉（配合本次一并修的 `isCollectible` 口径）。
+    /// 到期后转 `.stale`，重开 App 也收不掉（配合本次一并修的 `isCollectible` 口径）。
     /// 挂 `RootView` 是因为它常驻不销毁，且 `stream` / `auth` 都在环境里。
     ///
     /// - Parameter streamSessionId: `auth.currentStreamSessionId`（这条本机流归属的会话，
@@ -321,6 +326,60 @@ final class LiveActivityManager {
         guard let tracked = currentSessionId, !streamIsRunning,
               tracked == streamSessionId, !streamSessionId.isEmpty else { return }
         await finish(sessionId: tracked, failed: failed)
+    }
+
+    /// v3.9.54：**后台刷新**查到任务已结束 → 补一次灵动岛收尾。
+    ///
+    /// 用户实报「App 在后台跑任务，跑完了灵动岛不提示完成，一直显示到点进 App 才跳出通知」。
+    /// 根因是收尾的**驱动源全在前台**：`finish()` 只有 `ChatView.onChange(of: aiBusy)` 与
+    /// `RootView.onChange(of: stream.finishSeq)` 两个入口，而这两条都要求本进程活着且在推流；
+    /// App 被挂起后轮询早就停了（`beginBackgroundTask` 只续 ~30s），服务器那侧的任务跑完时
+    /// **没有任何人在这个进程里**调 finish → 活动停在「AI 正在回复」，直到用户回前台。
+    ///
+    /// 全仓唯一已经在后台得知「任务完成了」的代码是 background-fetch 的回调
+    /// （`QingliaoAppDelegate.performFetchWithCompletionHandler`，它查到 done 会发本地通知但从不碰实时活动）
+    /// ⇒ 把 done/error 分支接进来即可，不新增唤醒时机。
+    ///
+    /// ⚠️ **能力边界（不是本函数能解决的，别改出「以为修好了」的错觉）**：
+    /// `Activity.request(pushType: nil)` —— 免费签名拿不到 APNs，系统不会远程替我们更新画面。
+    /// background-fetch 的唤醒时机**完全由系统决定**（可能几分钟、也可能一直不叫），
+    /// 所以这一改是「有机会就提前收起」，不是「保证收起」。兜底层仍是回前台的
+    /// `convergeOrphanActivities()` / `finishOrphanedRound()`。
+    ///
+    /// 三条分支：
+    /// 1. 本进程正跟着**这一轮**（暖进程，状态齐全）→ 走正常 `finish()`，用真标题/真模型。
+    /// 2. 本进程正跟着**别的会话**（例如切到 B 而 A 在后台跑完）→ 不插手，A/B 各有自己的驱动链。
+    /// 3. 本进程**冷**（被系统拉起，`currentSessionId == nil`，last* 全空）→ 用磁盘快照渲染完成态；
+    ///    快照归属会话与本次查到的不一致就不动（那是另一条活动的收尾，不该由这次唤醒代劳）。
+    func reconcileAfterBackgroundCheck(sessionId: String?, failed: Bool) async {
+        guard Self.isEnabled else { await end(); return }
+        if let sid = sessionId, sid == currentSessionId {
+            await finish(sessionId: sid, failed: failed)
+            return
+        }
+        guard currentSessionId == nil else { return }
+        guard let snap = Self.readRoundSnapshot(),
+              snap.sessionId == sessionId else { return }
+        stopProgressTicker()
+        let state = QingliaoActivityAttributes.ContentState(sessionTitle: snap.title,
+                                                           modelName: snap.model,
+                                                           startedAt: snap.startedAt,
+                                                           isAnswering: false,
+                                                           phase: (failed ? QingliaoActivityAttributes.Phase.failed
+                                                                         : QingliaoActivityAttributes.Phase.done).rawValue,
+                                                           actionText: "",
+                                                           canStop: false,
+                                                           progress: 1.0,
+                                                           spin: lastSpin,
+                                                           beatSeconds: lastBeat)
+        let content = ActivityContent(state: state, staleDate: Date().addingTimeInterval(60))
+        // 与 `finish()` 同口径：把完成态作为 end 的 content 传入，让**系统**按时收起
+        // （不依赖本进程继续存活——后台刷新的窗口只有几秒，睡 2s 再 end 会被再次挂起打断）。
+        for activity in Activity<QingliaoActivityAttributes>.activities
+        where Self.isCollectible(activity.activityState) {
+            await activity.end(content, dismissalPolicy: .after(Date().addingTimeInterval(2)))
+        }
+        clearState()
     }
 
     /// 结束当前活动（用户离开会话 / 开关关闭）。幂等：没有活动时是空操作。
@@ -486,6 +545,37 @@ final class LiveActivityManager {
         return Date().timeIntervalSince(at) < 1.0
     }
 
+    // MARK: - 本轮磁盘快照（v3.9.54）
+
+    /// 本轮活动的最小可展示信息（会话/标题/模型/开始时间）。
+    ///
+    /// 为什么落盘：`reconcileAfterBackgroundCheck` 可能在**被系统新拉起的进程**里执行，
+    /// 那时 `currentSessionId`/`lastTitle`/`lastModel` 全是空值 → 完成态只能渲染成「轻聊 / AI」。
+    /// 挂件读不到它（免费签名没有 app group，两侧不共享容器），这里纯粹是给**主 App 自己**留的
+    /// 跨进程记忆，所以不需要 `qingliao_stream_pending` 那样的多字段协议，够用即可。
+    private static let roundSnapshotKey = "qingliao_live_activity_round"
+
+    private static func writeRoundSnapshot(sessionId: String, title: String,
+                                           model: String, startedAt: Date) {
+        UserDefaults.standard.set(["sessionId": sessionId, "title": title, "model": model,
+                                   "startedAt": startedAt.timeIntervalSince1970],
+                                  forKey: roundSnapshotKey)
+    }
+
+    /// 读回快照；缺任一字段就当作没有（宁可不收尾，也不用错文案收起一条别人的活动）
+    private static func readRoundSnapshot() -> (sessionId: String, title: String, model: String, startedAt: Date)? {
+        guard let d = UserDefaults.standard.dictionary(forKey: roundSnapshotKey),
+              let sid = d["sessionId"] as? String, !sid.isEmpty,
+              let title = d["title"] as? String, !title.isEmpty,
+              let model = d["model"] as? String, !model.isEmpty,
+              let ts = d["startedAt"] as? Double else { return nil }
+        return (sid, title, model, Date(timeIntervalSince1970: ts))
+    }
+
+    private static func clearRoundSnapshot() {
+        UserDefaults.standard.removeObject(forKey: roundSnapshotKey)
+    }
+
     /// 清空本进程记录的活动状态（不动系统里的活动本体）
     private func clearState() {
         currentSessionId = nil
@@ -507,6 +597,8 @@ final class LiveActivityManager {
         lastBeat = Self.fastBeat
         // v3.9.13：spin 是**累计相位**，不清就会把上一轮/上一次的相位带进新一轮（首帧弧位置随机）
         lastSpin = 0
+        // v3.9.54：磁盘快照与本进程状态同生命周期（本进程不认这一轮了，快照也就没主了）
+        Self.clearRoundSnapshot()
     }
 
     // MARK: - 活动状态口径（v3.9.42 收口）
@@ -516,7 +608,8 @@ final class LiveActivityManager {
     ///
     /// `ActivityState` 一共五档（Apple 文档核过，**没有** `.inactive`）：
     /// `pending` / `active` / `stale` / `ended` / `dismissed`。只认 `.active` 会漏掉两档**画面还在屏上**的：
-    /// - `.stale`：本仓 `staleDate` 是 +15 分钟。App 被挂起/强杀期间推手停摆，超过 15 分钟这一条就转
+    /// - `.stale`：本仓 `staleDate` 见 `staleDate()`（v3.9.54 起为 +4 分钟）。App 被挂起/强杀期间推手停摆，
+    ///   超过这个时长这一条就转
     ///   `.stale`——锁屏那行、灵动球**都还显示着**，只是系统标了「内容过期」。旧的 `.active` 过滤对它是盲的：
     ///   `finish()` 收不到它、启动收敛也收不到它，于是僵尸活动**永久留在屏上**（每次判定都跳过它）。
     ///   且 `hasLiveActivity` 也认不出它 → `sync()` 会再 `request` 一条 → 锁屏同时挂两行。
@@ -549,8 +642,15 @@ final class LiveActivityManager {
         Activity<QingliaoActivityAttributes>.activities.contains { isCollectible($0.activityState) }
     }
 
-    /// 过期时间：进程意外消失后（强杀/闪退）系统能把活动标记为过期，而不是无限计时
+    /// 过期时间：进程意外消失后（强杀/闪退/挂起后不再被唤醒）系统能把活动标记为过期。
+    ///
+    /// v3.9.54：15 分钟 → **4 分钟**。这是「后台没有任何唤醒」时的兜底收口：
+    /// 免费签名无 APNs，进程冻结后再没人替我们 update，画面就停在最后一拍的「AI 正在回复」——
+    /// 旧值 15 分钟等于让这条**假进度**在屏上多挂 11 分钟（用户报的「一直显示」）。
+    /// 缩短是安全的：活着时推手每 1.2~2.0s 一拍，每拍都会用**新的** staleDate 重新 `update`，
+    /// 4 分钟是刷新间隔的 120 倍以上，正常显示期间根本到不了期；只有真的停摆才会转 `.stale`，
+    /// 而转 `.stale` 之后系统可以收起它，回前台时 `convergeOrphanActivities` 也照样认它（见 `isCollectible`）。
     private static func staleDate() -> Date {
-        Date().addingTimeInterval(15 * 60)
+        Date().addingTimeInterval(4 * 60)
     }
 }

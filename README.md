@@ -112,6 +112,25 @@ QingliaoWidget/          挂件 Extension target（.appex）：灵动岛/锁屏�
 - **多行 `TextField` 的最小行数只能是 1，别用 `lineLimit(2...6)` 撑"更大的输入框"**（v3.9.52 立，本仓踩过两次）：`axis: .vertical` 的字段里**占位符按整块高度居中、光标坐在第一行**，最小行数 > 1 就必然错开半行（真机原话「光标不居中了」）。v2.0.35 已为此把 `2...6` 改回 `1...6`，v3.9.48 为"点输入框时变大"又改回去，v3.9.52 再改回来。要输入框长高就走**内容驱动**（`1...N` + `fixedSize(horizontal: false, vertical: true)`），不要预留空行
 - **两态换布局容器（HStack ↔ VStack）会重建 `TextField` → 键盘"弹一下又收回"**（v3.9.50 立，v3.9.51 真机判死并回退）：SwiftUI 的视图身份按结构路径算，把 TextField 从 HStack 的第二个子挪到 VStack 的第一个子 = 换父级 = 重建，重建瞬间掉 first responder。**⚠️ 换门控救不了**：v3.9.50 把 `expanded` 从 `focused` 换成 `kbEnv.isVisible`（系统通知驱动，理论上没有反馈回路），真机 495 报障照旧——因为回路不在 `focused` 上，在**键盘自身**：视图重建 → 承载 TextField 的 UIKit 视图被换掉 → 键盘跟着收。**唯一有效的口径是容器不换**：两态共用同一个 `HStack`，展开态只改属性（高度随内容走）；要插条件子视图就插在 TextField **之后**（TupleView 里 TextField 的 index 不变，身份稳定）。同一族的历史坑：v2.0.98 发送键"两个手势叠着改视图树"实测 SIGTRAP
 - **聊天输入栏的定版样式 = v3.9.46 那条 Capsule 链**（v3.9.53 用户拍板：「输入框样式还是改回 3.9.46 版本的样式吧，现在的不行，在 3.9.46 基础上加上模型切换就行」）：`.padding(...) → .background { Capsule().glassEffect() } → .overlay { Capsule().strokeBorder(blue, focused ? 0.45 : 0) } → .animation(value: focused) → .shadow(0.3/14/5) → .overlay { 流光 / 常态白边 } → .padding(.horizontal, 18)`。**v3.9.48~52 那五轮全部作废、不要复活**：展开态换布局、`Radius.hero`(22) 方角 `barShape`、`rimLight` 内缘高光、`.clear` 玻璃档、合并成单圈描边。**上面三条 API/身份口径依然成立**（`in:` 参数、最小 1 行、不换容器），只是它们各自引出的**那版视觉**被否了——"两圈"的真因是方角 `barShape` 与系统默认胶囊玻璃**形状不一致**，回到全 Capsule 就没有第二圈，容器那圈 `.shadow` 也就可以留（v3.2.3 的"阴影必须在流光之前"仍照守）。**改输入栏只允许改属性，不许换形状/容器/图层拓扑**
+- **详情弹窗里的卡片一律用 `DiskTile` 那一族排布**（v3.9.54 用户三次点名"卡片形态抄磁盘分区卡片"）：`HStack { 名称(13 secondary) + Spacer + 右上类型(13 bold primary) } → 大数值(20 bold, minimumScaleFactor 0.7) → 4pt 进度条（只在数值本身是百分数时画）→ tiny(10) 说明一行 lineLimit(1) .middle`，外层 `.padding(Spacing.xl) + .frame(maxWidth: .infinity, alignment: .leading)`。**表面仍用 `.frostedCard()`**（v3.9.47 那条压过"抄形"的字面要求：圆角/描边/阴影与 `dashboardCard()` 同参，只差底色；要换成实色只改 `HADeviceTile` 这一处）。温度这类"有数值但没有天然分母"的量**不作假进度条**（不按 0–100℃ 硬算 ratio），改由颜色分档
+- **看板卡片点不弹窗是产品决定，不是遗漏**（v3.9.54：CPU / 内存卡取消弹窗）：整机资源这类"看一眼就够"的指标不做二级页，弹窗留给有明细可展开的对象（容器、服务、设备实体）。新增/删除二级页时 `DashboardSheet` 枚举与 `.sheet(item:)` 的 switch **两处必须一起改**，穷尽性由编译期兜住
+- **实时活动的 `staleDate` 不是"容忍度"，是"最长假进度时长"**（v3.9.54 立）：免费签名无 APNs ⇒ 进程冻结后没有任何人替我们 update，画面会停在最后一拍。所以「多久转 `.stale`（→ 系统可收起）」就是「僵尸活动最多还能骗用户多久」。活着时推手每 1.2~2.0s 一拍、每拍都带新 staleDate 重新 update，因此把它从 15 分钟压到 4 分钟对正常显示毫无影响，只砍掉挂机的 11 分钟
+
+## 🆕 近期变更（v3.9.54，2026-09-21）
+
+- **灵动岛：后台跑完任务也要收尾**（用户：「app在后台跑任务时，就算任务跑完灵动岛也不会提示完成，一直显示直到我点进app才会跳出通知」，**需真机验收**）：
+  - **根因**：收尾的驱动源**全在前台**——`finish()` 只有 `ChatView.onChange(of: aiBusy)` 与 `RootView.onChange(of: stream.finishSeq)` 两个入口，两者都要求本进程活着且在推流；App 挂起后轮询早已停（`beginBackgroundTask` 只续 ~30s），服务器那侧跑完时**这个进程里没有任何人**会调 finish → 活动停在「AI 正在回复」，直到回前台才被 `restartPolling → recover → finishSeq` 兜住（＝用户看到的"点进 app 才跳出通知"）。
+  - **接法**：全仓唯一已经在后台得知"任务结束"的代码是 background-fetch 回调（`QingliaoAppDelegate.performFetchWithCompletionHandler`，它查到 done 只发本地通知、**从不碰实时活动**）⇒ 新增 `LiveActivityManager.reconcileAfterBackgroundCheck(sessionId:failed:)`，把 done/error 分支接进来（闭包在任意线程回调，只能送 Sendable 的 sid/failed，故走 `Task { @MainActor in … }`）。**不新增唤醒时机**。
+  - **磁盘快照**（`qingliao_live_activity_round` = sessionId/title/model/startedAt）：`sync()` 每次广播时写、`finish()`/`clearState()` 清。因为这条路径可能在**被系统新拉起的进程**里跑，那时 `currentSessionId`/`lastTitle` 全空，没快照就只能用兜底文案渲染完成态。挂件读不到它（免费签名无 app group），它只是主 App 自己的跨进程记忆。
+  - **三分支口径**：跟的就是这一轮 → 正常 `finish()`（真标题/真模型 + 2s 收起）；跟的是**别的会话** → 不插手（它有自己的驱动链，否则就是替 B 收掉 A 的活动）；进程冷（`currentSessionId == nil`）→ 用快照渲染 done/failed 并 `end(content, .after(+2s))`，**快照归属会话与本次查到的不一致就不动**。
+  - **兜底收口**：`staleDate` 15 分钟 → **4 分钟**（见设计决策同名词条）——系统不唤醒我们时，僵尸活动最多再挂 4 分钟。
+  - ⚠️ **能力边界（别当已根治）**：`Activity.request(pushType: nil)`，免费签名拿不到 APNs ⇒ 系统不会远程替我们更新画面；background-fetch 的唤醒时机**完全由系统决定**（可能几分钟、也可能一直不叫）。本次改动是"**有机会就提前收起**"，不是"保证收起"。若真机复测仍只在回前台时才收起，那就是系统没唤醒，属框架边界。
+- **看板弹窗四连（用户 #2~#5，均**需真机验收**）**：
+  - `DeviceDetailSheets.swift`：`HADeviceDetailSheet` 改成两列 `LazyVGrid` + 新 `HADeviceTile`（排布抄 `DiskTile`，表面 `.frostedCard()`，见设计决策）；删除 `HADeviceRow`（连带"查看原始属性"展开器）、`NASMetricSheet`、`SheetSection`、`SheetKVRow`、`HAAttrRow`（后四个在本次改造后已无消费者，grep 确认后一并删）。`BoardSheetHeader` / `HAStateText` 原样保留。
+  - 数据切片收口在 `DashboardView`：新增 `isAvailable(_:)`（`state` 非空且不含 `unavailable`、不是 `offline`/`unknown`）→ 门锁/猫眼/温度三个切片**只留可用实体**；猫眼再排除创米**插座**（`isDoorbellPlug`：`switch.` 前缀 / `_m3_` / `on_p_2_` / `_plug`）——原来那颗插座就是混进猫眼弹窗的东西。
+  - `DashboardSheet` 枚举删 `.cpu`/`.memory`，`.sheet(item:)` 同步去掉两个分支；NAS 面板两张 `MeterCard` 去掉 `.tapButton` 与 `.matchedTransitionSource`，副标题改回静态文案（"整机占用" / "/ 总内存"）。
+  - ⚠️ **门锁弹窗内容受后端裁剪限制**：`backend/ha_proxy.py` 的 `_keep_entity` 只透 `light/climate`、两颗指定 switch、`(bacn01|chuangmi)` 电量、`alarmstatus|guard_mode`、`sensor.*temperature*` —— **`lock.*` 与 `camera.*` 从来到不了 App**。所以门锁弹窗通常只有一两颗电量/状态卡，猫眼也没有画面快照。要多显示必须改后端白名单（NAS 重建镜像），本次**没做**。
+  - 弹窗标题/空态文案随之改口径：门锁空态「门锁现在没有可用实体」、猫眼标题「猫眼」+ 空态说明"只列小白智能猫眼自己的实体（创米插座已排除）；画面快照后端未透出，离线实体也不列"。
 
 ## 🆕 近期变更（v3.9.53，2026-09-21）
 

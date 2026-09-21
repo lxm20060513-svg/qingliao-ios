@@ -5,9 +5,12 @@ import SwiftUI
 // v3.9.25：新增 weather（天气弹窗）——注意 switch 穷尽性由 ql.py ios check 把关
 // v3.9.46：新增 lock/temps/doorbell/cpu/memory 五张详情弹窗（用户点名"卡片点击要看细节"）
 //         + alarmArmAsk（布防/撤防确认）走 confirmationDialog，不占 sheet 通道
+// v3.9.54：CPU / 内存两张详情弹窗**删除**（用户：「去掉CPU和内存卡片的弹窗，只显示卡片，
+//         点击不再弹窗」）——enum 少两个 case，下面的 `.sheet(item:)` switch 同步少两个分支。
+//         ⚠️ 新增/删除 case 时两处一起改，穷尽性才会被 CI 那道检查抓住。
 enum DashboardSheet: String, Identifiable {
     case lights, climate, service, serviceHermes, disks, docker, weather
-    case lock, temps, doorbell, cpu, memory
+    case lock, temps, doorbell
     var id: String { rawValue }
 }
 
@@ -179,14 +182,18 @@ struct DashboardView: View {
                     DockerSheet()
                         .presentationDetents([.medium, .large])
                         .navigationTransition(.zoom(sourceID: DashboardSheet.docker.id, in: sheetZoomNS))   // v3.9.0
-                // v3.9.46：三张设备详情弹窗 + CPU/内存弹窗（统一 BoardSheetHeader 头部、
-                // 统一 medium/large detents、统一 zoom 转场 —— 用户要求"弹窗样式统一"）
+                // v3.9.46：三张设备详情弹窗（统一 BoardSheetHeader 头部、统一 medium/large detents、
+                // 统一 zoom 转场 —— 用户要求"弹窗样式统一"）
+                // v3.9.54：卡形换成抄磁盘分区卡（两列网格），**离线实体不再列进来**，
+                // 所以计数文案改成"可用"（口径见 DashboardView.isAvailable）
                 case .lock:
                     HADeviceDetailSheet(title: "门锁",
-                                        detail: "\(lockEntities.count) 个实体",
+                                        detail: "\(lockEntities.count) 个可用实体",
                                         entities: lockEntities,
-                                        emptySubtitle: "门锁实体来自 /api/ha/states（看板 30s 轮询）；"
-                                            + "若刚换过电池或重新配网，下拉看板重取一次")
+                                        emptyTitle: "门锁现在没有可用实体",
+                                        emptySubtitle: "离线实体不列（v3.9.54）；门锁电量来自 "
+                                            + "/api/ha/states（看板 30s 轮询），若刚换过电池或重新配网，"
+                                            + "下拉看板重取一次")
                         .presentationDetents([.medium, .large])
                         .navigationTransition(.zoom(sourceID: DashboardSheet.lock.id, in: sheetZoomNS))
                 case .temps:
@@ -198,21 +205,15 @@ struct DashboardView: View {
                         .presentationDetents([.medium, .large])
                         .navigationTransition(.zoom(sourceID: DashboardSheet.temps.id, in: sheetZoomNS))
                 case .doorbell:
-                    HADeviceDetailSheet(title: "猫眼 / 门铃",
-                                        detail: "\(doorbellEntities.count) 个实体",
+                    HADeviceDetailSheet(title: "猫眼",
+                                        detail: "\(doorbellEntities.count) 个可用实体",
                                         entities: doorbellEntities,
-                                        emptySubtitle: "门铃摄像头实体来自 /api/ha/states；"
-                                            + "画面快照后端未透出，这里只有电量与在线状态")
+                                        emptyTitle: "没有读到猫眼的实体",
+                                        emptySubtitle: "这里只列小白智能猫眼自己的实体（创米插座已排除）；"
+                                            + "画面快照后端未透出，离线实体也不列")
                         .presentationDetents([.medium, .large])
                         .navigationTransition(.zoom(sourceID: DashboardSheet.doorbell.id, in: sheetZoomNS))
-                case .cpu:
-                    NASMetricSheet(kind: .cpu, nas: nas, hwCpu: hwCpu, hwSsd: hwSsd)
-                        .presentationDetents([.medium])
-                        .navigationTransition(.zoom(sourceID: DashboardSheet.cpu.id, in: sheetZoomNS))
-                case .memory:
-                    NASMetricSheet(kind: .memory, nas: nas, hwCpu: hwCpu, hwSsd: hwSsd)
-                        .presentationDetents([.medium])
-                        .navigationTransition(.zoom(sourceID: DashboardSheet.memory.id, in: sheetZoomNS))
+                // v3.9.54：CPU / 内存弹窗已删（用户：只显示卡片，点击不再弹窗）
                 case .weather:
                     // v3.9.25：两页天气弹窗（今天 / 未来 5 天）。默认半屏 medium（用户定稿）；
                     // 保留 .large 作逃生口：第 2 页是纯 VStack（无 ScrollView），小屏若超出一行会被静默裁切。
@@ -554,15 +555,12 @@ struct DashboardView: View {
     private var nasPanelBlock: some View {
         sectionTitle("NAS 面板")
         LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
-            // v3.9.46：CPU / 内存卡点击看详情（原先只能看一个百分数，两个容器各吃多少内存看不见）
+            // v3.9.46：CPU / 内存卡曾接详情弹窗；**v3.9.54 用户判掉**：「去掉CPU和内存卡片的弹窗，
+            // 只显示卡片，点击不再弹窗」→ 摘掉 tapButton 与 zoom 源，sub 里那句"点击查看"一并改实话。
             MeterCard(name: "CPU", icon: "cpu.fill", value: nas.cpuText,
-                      sub: "点击查看", ratio: nas.cpu / 100.0, color: .blue)
-                .tapButton { activeSheet = .cpu }
-                .matchedTransitionSource(id: DashboardSheet.cpu.id, in: sheetZoomNS)
+                      sub: "整机占用", ratio: nas.cpu / 100.0, color: .blue)
             MeterCard(name: "内存", icon: "memorychip.fill", value: nas.memUsedText,
-                      sub: "/ \(nas.memTotalText) · 点击查看", ratio: nas.memPct, color: .green)
-                .tapButton { activeSheet = .memory }
-                .matchedTransitionSource(id: DashboardSheet.memory.id, in: sheetZoomNS)
+                      sub: "/ \(nas.memTotalText)", ratio: nas.memPct, color: .green)
             ServiceCard(name: "轻聊后端", icon: "server.rack", running: nas.qingliaoAlive, detail: "Docker 内存 \(nas.qingliaoDockerMemText)")
                 .tapButton { activeSheet = .service }
                 .matchedTransitionSource(id: DashboardSheet.service.id, in: sheetZoomNS)   // v3.9.0：卡片→详情 zoom
@@ -1132,23 +1130,50 @@ struct DashboardView: View {
 
     // MARK: v3.9.46 卡片详情弹窗的数据切片（都在已轮询的 haEntities 里挑，零新接口）
 
-    /// 门锁相关实体：门锁本体（bacn01）+ lock 域 + 门磁一类含 door 的实体。
-    /// 卡片只取了电量一个数，弹窗把整套状态摊开（锁体/门开合/电量/属性）。
+    /// 实体是否"可用"（v3.9.54 收口，用户：「只保留可用卡片，离线卡片不显示」）：
+    /// 三张设备弹窗（门锁/猫眼/温度）共用这一条判定。HA 的离线是**状态串**而不是独立标记，
+    /// 常见三种写法都要认（`unavailable` / `offline` / `unknown`），口径同既有 `climates` 过滤。
+    private func isAvailable(_ e: HAEntity) -> Bool {
+        let st = e.state
+        return !st.isEmpty && !st.contains("unavailable")
+            && !["offline", "unknown"].contains(st)
+    }
+
+    /// 门锁相关实体：门锁本体（bacn01）+ lock 域 + 门磁一类含 door_lock 的实体。
+    /// v3.9.54：再叠一层 `isAvailable` —— 离线的实体不进弹窗（用户点名）。
+    /// ⚠️ 实际能到这里的不多：后端 `ha_proxy._keep_entity` 只放行 `(bacn01|chuangmi) + battery_level`
+    ///    这类少数实体，`lock.*` 域根本没下发，所以这张弹窗目前基本只有"门锁电量"一枚卡。
+    ///    要弹窗里出现锁体开关量，得先放宽后端白名单（那是后端改动，不在本轮）。
     private var lockEntities: [HAEntity] {
         haEntities.filter {
-            $0.entityID.contains("bacn01")
+            ($0.entityID.contains("bacn01")
                 || $0.entityID.hasPrefix("lock.")
-                || $0.entityID.contains("door_lock")
+                || $0.entityID.contains("door_lock"))
+                && isAvailable($0)
         }
         .sorted { $0.entityID < $1.entityID }
     }
 
-    /// 猫眼 / 门铃：创米（chuangmi）与含 doorbell 的实体
+    /// 猫眼 / 门铃：**只保留「小白智能猫眼」这台设备自己的实体**（v3.9.54 用户点名）。
+    /// 原来写的是 `contains("chuangmi") || contains("doorbell")` —— 创米（chuangmi）是品牌名，
+    /// 家里那枚**创米小白智能插座** `switch.chuangmi_cn_237985068_m3_on_p_2_1`
+    /// 也是 chuangmi，于是被一起拽进弹窗，看着就是"猫眼弹窗里有个不相干的东西"。
+    /// 现在：品牌命中后还要过两道排除（开关域、插座型号 `_m3_` / `on_p_2_1` / `plug`），
+    /// 并滤掉离线实体。
     private var doorbellEntities: [HAEntity] {
         haEntities.filter {
-            $0.entityID.contains("chuangmi") || $0.entityID.contains("doorbell")
+            ($0.entityID.contains("chuangmi") || $0.entityID.contains("doorbell")
+                || $0.friendlyName.contains("猫眼"))
+                && !isDoorbellPlug($0.entityID)
+                && isAvailable($0)
         }
         .sorted { $0.entityID < $1.entityID }
+    }
+
+    /// 创米小白**插座**（不是猫眼）：开关域本体 + 它的子通道/电量传感器一律算插座。
+    /// 插座实体名里带 `_m3_`（型号 M3）或 `on_p_2_1`（miio 通道），据此识别。
+    private func isDoorbellPlug(_ id: String) -> Bool {
+        id.hasPrefix("switch.") || id.contains("_m3_") || id.contains("on_p_2_") || id.contains("_plug")
     }
 
     /// 全部可用的温度计（卡片只显室内那一个，弹窗列各房间）
@@ -1156,8 +1181,8 @@ struct DashboardView: View {
         haEntities.filter {
             $0.entityID.hasPrefix("sensor.")
                 && $0.entityID.contains("temperature")
-                && !$0.state.contains("unavailable")
                 && Double($0.state) != nil
+                && isAvailable($0)
         }
         .sorted { $0.friendlyName < $1.friendlyName }
     }

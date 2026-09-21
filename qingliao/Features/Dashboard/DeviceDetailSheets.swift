@@ -1,6 +1,6 @@
 import SwiftUI
 
-// MARK: - v3.9.46 看板卡片详情弹窗（门锁 / 温度 / 猫眼 / CPU / 内存）
+// MARK: - v3.9.46 看板卡片详情弹窗（门锁 / 温度 / 猫眼）
 //
 // 由来：用户 2026-09-20 点名「这些卡片点击要能弹窗看细节」，并要求
 // **「所有弹窗统一用目前的弹窗样式」**。样式口径逐字对齐 DisksSheet / HADeviceSheet /
@@ -17,8 +17,20 @@ import SwiftUI
 // 不再用 `.dashboardCard()` 的实色卡底——实色铺在弹窗材质上等于盖了块白板。
 // 卡形（内边距 Spacing.xl / 0.8pt 描边 / 两层柔影 / 16 圆角）与开关弹窗里那张灯卡同参。
 //
-// 数据侧零新增接口：三个设备弹窗吃看板已在轮询的 `/api/ha/states`（`haEntities`），
-// CPU/内存弹窗吃 `/api/nas/status`（`NASStatus`）+ `/api/hw/status`（hwCpu/hwSsd）。
+// v3.9.54（用户 2026-09-21 四条点名，本文件随之收口）：
+//   · **卡形抄磁盘分区卡**：`HADeviceRow`（一长条：名称 + 状态 + 展开属性）换成 `HADeviceTile`
+//     —— 结构与看板 `DiskTile`（DashboardView.swift 末尾）逐笔对齐：上行「名称 + 右上角短标签」、
+//     大字主值、4pt 细进度条、tiny 说明行，`Spacing.xl` 内边距；弹窗内容改两列 `LazyVGrid`
+//     （与 DisksSheet 同款排布）。**「原始属性」展开器整块删除**——它撑破卡形，
+//     而磁盘卡本来就没有可展开的东西（要看细节去 HA）。
+//     卡底仍走 `.frostedCard()` 而不是磁盘那枚 `.dashboardCard()`：两者圆角/描边/柔影逐字同参，
+//     只差底材，而"弹窗内不许铺实色白板"是 v3.9.47 用户自己定的更高优先级的口径。
+//   · **离线的卡片不再显示**（用户：「只保留可用卡片，离线卡片不显示」）——过滤在调用方
+//     （DashboardView 的 `lockEntities` / `doorbellEntities` / `roomTempEntities` 共用 `isAvailable`）。
+//   · **CPU / 内存详情弹窗删除**（用户：「去掉CPU和内存卡片的弹窗，只显示卡片，点击不再弹窗」）——
+//     原 `NASMetricSheet` / `NASMetricKind` / 只有它在用的 `SheetSection` 一并删除。
+//
+// 数据侧零新增接口：三个设备弹窗吃看板已在轮询的 `/api/ha/states`（`haEntities`）。
 
 // MARK: - 统一头部
 
@@ -54,50 +66,6 @@ struct BoardSheetHeader: View {
         .padding(.horizontal, 18)
         .padding(.top, 18)
         .padding(.bottom, Spacing.lg)
-    }
-}
-
-// MARK: - 通用容器/行
-
-/// 弹窗内的分组卡（标题 + 若干行），卡面走弹窗毛玻璃卡 `frostedCard()`（v3.9.47）
-private struct SheetSection<Content: View>: View {
-    let title: String
-    @ViewBuilder var content: Content
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text(title)
-                .font(.system(size: Typography.subhead, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, Spacing.xl)
-                .padding(.top, Spacing.lg)
-                .padding(.bottom, Spacing.xs)
-            content
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .frostedCard()
-    }
-}
-
-/// 左标签右值的一行
-struct SheetKVRow: View {
-    let label: String
-    let value: String
-    var valueColor: Color = .primary
-
-    var body: some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text(label)
-                .font(.system(size: Typography.subhead))
-                .foregroundStyle(.secondary)
-            Spacer(minLength: Spacing.md)
-            Text(value)
-                .font(.system(size: Typography.body, weight: .semibold))
-                .foregroundStyle(valueColor)
-                .multilineTextAlignment(.trailing)
-        }
-        .padding(.horizontal, Spacing.xl)
-        .padding(.vertical, Spacing.md)
     }
 }
 
@@ -174,8 +142,8 @@ enum HAStateText {
 
 // MARK: - 设备详情弹窗（门锁 / 猫眼 / 各房间温度 共用）
 
-/// 一组 HA 实体的详情弹窗。调用方负责把实体筛好（看板已有 `haEntities` 全量列表）。
-/// 每张卡 = 设备名 + 主状态 + 电量/信号摘要 + 可展开的原始属性。
+/// 一组 HA 实体的详情弹窗。调用方负责把实体筛好（看板已有 `haEntities` 全量列表，
+/// 并且已经把**离线的滤掉**——见 DashboardView 的 `isAvailable`）。
 struct HADeviceDetailSheet: View {
     let title: String
     let detail: String
@@ -191,9 +159,11 @@ struct HADeviceDetailSheet: View {
                     EmptyStateView(icon: "wifi.slash", title: emptyTitle, subtitle: emptySubtitle)
                         .padding(.top, Spacing.section)
                 } else {
-                    VStack(spacing: Spacing.md) {
+                    // v3.9.54：两列网格（与磁盘弹窗同排布），卡形抄 DiskTile
+                    LazyVGrid(columns: [GridItem(.flexible(), spacing: 10),
+                                        GridItem(.flexible(), spacing: 10)], spacing: 10) {
                         ForEach(entities) { e in
-                            HADeviceRow(entity: e)
+                            HADeviceTile(entity: e)
                         }
                     }
                     .padding(.horizontal, Spacing.section)
@@ -205,62 +175,49 @@ struct HADeviceDetailSheet: View {
     }
 }
 
-/// 属性表一行（元组不能当 ForEach 元素：Swift 不支持对元组成员取 KeyPath，故用 Identifiable 结构体）
-struct HAAttrRow: Identifiable {
-    let key: String
-    let value: String
-    var id: String { key }
-}
-
-/// 单个实体一行（属性折叠展开）
-struct HADeviceRow: View {
+/// 单个设备卡 —— **形态抄看板磁盘分区卡 `DiskTile`**（v3.9.54 用户点名）：
+/// 上行「名称 + 右上角短标签」→ 大字主值 → 4pt 细进度条（有百分比可画时才有）→ tiny 说明行。
+struct HADeviceTile: View {
     let entity: HAEntity
-    @State private var showAttrs = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .firstTextBaseline) {
+            HStack {
                 Text(displayName)
-                    .font(.system(size: Typography.body, weight: .medium))
+                    .font(.system(size: Typography.subhead))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                Spacer()
+                Text(kindLabel)
+                    .font(.system(size: Typography.subhead, weight: .bold))
                     .foregroundStyle(.primary)
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.85)
-                Spacer(minLength: Spacing.md)
-                Text(HAStateText.mapped(entity))
-                    .font(.system(size: Typography.headline, weight: .bold))
-                    .foregroundStyle(stateColor)
+                    .lineLimit(1)
             }
-            let summary = HAStateText.summary(entity)
-            if !summary.isEmpty {
-                Text(summary)
+            Text(HAStateText.mapped(entity))
+                .font(.system(size: Typography.headline, weight: .bold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .padding(.top, Spacing.sm)
+            if let ratio = barRatio {
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(Color(uiColor: .systemGray5))
+                        Capsule()
+                            .fill(barColor(ratio))
+                            .frame(width: geo.size.width * min(max(ratio, 0), 1))
+                    }
+                }
+                .frame(height: 4)
+                .padding(.top, Spacing.md)
+            }
+            let caption = captionText
+            if !caption.isEmpty {
+                Text(caption)
                     .font(.system(size: Typography.tiny))
                     .foregroundStyle(.tertiary)
-                    .padding(.top, Spacing.xs)
-            }
-            if !attrRows.isEmpty {
-                Button {
-                    withAnimation(Motion.snap) { showAttrs.toggle() }
-                } label: {
-                    HStack(spacing: 4) {
-                        Text(showAttrs ? "收起原始属性" : "查看原始属性")
-                            .font(.system(size: Typography.tiny))
-                        Image(systemName: showAttrs ? "chevron.up" : "chevron.down")
-                            .font(.system(size: Typography.tiny, weight: .semibold))
-                    }
-                    .foregroundStyle(Color.accentColor)
-                }
-                .buttonStyle(.plain)
-                .padding(.top, Spacing.md)
-                if showAttrs {
-                    VStack(spacing: Spacing.xs) {
-                        ForEach(attrRows) { row in
-                            SheetKVRow(label: row.key, value: row.value,
-                                       valueColor: Color.secondary)
-                                .font(.system(size: Typography.caption))
-                        }
-                    }
-                    .padding(.top, Spacing.sm)
-                }
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .padding(.top, barRatio == nil ? Spacing.md : Spacing.xs)
             }
         }
         .padding(Spacing.xl)
@@ -278,135 +235,55 @@ struct HADeviceRow: View {
         return raw
     }
 
-    private var stateColor: Color {
-        let st = entity.state
-        if st.isEmpty || st.contains("unavailable") || st == "unknown" { return .secondary }
-        return Color.accentColor
-    }
-
-    /// 原始属性表白名单优先（电量/型号/固件等），其余按 key 排序补齐，总数与单值长度都设上限，
-    /// 免得某个插件塞回一大坨数组把弹窗撑爆。
-    private var attrRows: [HAAttrRow] {
-        let skip: Set<String> = ["friendly_name", "entity_id"]
-        let preferred = ["battery_level", "device_class", "state_class", "unit_of_measurement",
-                         "model", "sw_version", "hw_version", "manufacturer",
-                         "signal_strength", "voltage", "icon"]
-        var out: [HAAttrRow] = []
-        var used = skip
-        for k in preferred where entity.attributes[k] != nil {
-            used.insert(k)
-            if let v = text(entity.attributes[k]) { out.append(HAAttrRow(key: k, value: v)) }
+    /// 右上角短标签：**说这张卡是什么量**，不重复大字里的值。
+    /// 数值型实体取 device_class（温度/电量/湿度…），开关量按域名给（锁体/开关/传感器）。
+    private var kindLabel: String {
+        let dc = (entity.attributes["device_class"] as? String) ?? ""
+        switch dc {
+        case "temperature": return "温度"
+        case "battery": return "电量"
+        case "humidity": return "湿度"
+        case "power": return "功率"
+        case "voltage": return "电压"
+        case "signal_strength": return "信号"
+        default: break
         }
-        for k in entity.attributes.keys.sorted() where !used.contains(k) {
-            if out.count >= 12 { break }
-            if let v = text(entity.attributes[k]) { out.append(HAAttrRow(key: k, value: v)) }
+        let id = entity.entityID
+        if id.contains("battery") { return "电量" }
+        if id.contains("temperature") { return "温度" }
+        if id.contains("humidity") { return "湿度" }
+        if id.hasPrefix("lock.") { return "锁体" }
+        if id.hasPrefix("switch.") { return "开关" }
+        if id.hasPrefix("camera.") || id.contains("doorbell") { return "摄像头" }
+        return "状态"
+    }
+
+    /// 进度条比例：只有**本身就是百分数**的实体才画（电量/湿度，或状态带 `%` 单位）。
+    /// 温度不画 —— 硬编一条 0~40° 的刻度尺就是假精度，宁可少一层。
+    private var barRatio: Double? {
+        guard let v = Double(entity.state) else { return nil }
+        let dc = (entity.attributes["device_class"] as? String) ?? ""
+        let unit = (entity.attributes["unit_of_measurement"] as? String) ?? ""
+        let isPercent = dc == "battery" || dc == "humidity" || unit == "%" || entity.entityID.contains("battery")
+        guard isPercent else { return nil }
+        return min(max(v / 100.0, 0), 1)
+    }
+
+    private func barColor(_ ratio: Double) -> Color {
+        let pct = ratio * 100
+        // 电量：越低越急；湿度/其它百分数：高一点不报警（与磁盘卡的 90/75 分档同源，但反向阈值另说）
+        if kindLabel == "电量" {
+            return pct <= 20 ? .red : (pct <= 45 ? .orange : .green)
         }
-        return out
+        return pct > 90 ? .red : (pct > 75 ? .orange : .green)
     }
 
-    private func text(_ any: Any?) -> String? {
-        guard let any else { return nil }
-        if let s = any as? String { return s.isEmpty ? nil : String(s.prefix(60)) }
-        if let n = any as? NSNumber { return n.stringValue }
-        if let arr = any as? [Any] { return arr.isEmpty ? nil : "\(arr.count) 项" }
-        if let dict = any as? [String: Any] { return dict.isEmpty ? nil : "\(dict.count) 项" }
-        return String(describing: any).prefix(60).description
-    }
-}
-
-// MARK: - NAS CPU / 内存详情弹窗
-
-enum NASMetricKind: String {
-    case cpu, memory
-
-    var sheetTitle: String { self == .cpu ? "CPU 详情" : "内存详情" }
-    var heroLabel: String { self == .cpu ? "当前使用率" : "已用 / 总量" }
-}
-
-/// CPU / 内存共用一张详情弹窗（同一套数据、只差关注点），入口是 NAS 面板那两张 MeterCard。
-/// ⚠️ 后端 `/api/nas/status` 目前**只有整机单值** cpu% 与 mem{total,used}：
-/// 没有每核占用、没有 load average、没有进程榜，所以这里不画假精度条，只把已有字段
-/// 讲清楚（含两个容器各自的内存），并注明粒度所限。
-struct NASMetricSheet: View {
-    let kind: NASMetricKind
-    let nas: NASStatus
-    var hwCpu: Double? = nil
-    var hwSsd: Double? = nil
-
-    var body: some View {
-        VStack(spacing: 0) {
-            BoardSheetHeader(title: kind.sheetTitle, detail: nas.hostname)
-            ScrollView {
-                VStack(spacing: Spacing.md) {
-                    heroBlock
-                    SheetSection(title: "占用来源") { sourceRows }
-                    SheetSection(title: "整机") { machineRows }
-                }
-                .padding(.horizontal, Spacing.section)
-                .padding(.top, Spacing.sm)
-                .padding(.bottom, 24)
-            }
-        }
-    }
-
-    private var ratio: Double {
-        kind == .cpu ? Swift.min(Swift.max(nas.cpu / 100.0, 0), 1) : Swift.min(Swift.max(nas.memPct, 0), 1)
-    }
-
-    private var heroBlock: some View {
-        VStack(alignment: .leading, spacing: Spacing.md) {
-            Text(kind.heroLabel)
-                .font(.system(size: Typography.subhead))
-                .foregroundStyle(.secondary)
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(kind == .cpu ? nas.cpuText
-                                  : "\(nas.memUsedText) / \(nas.memTotalText)")
-                    // hero 数字刻意不走字号令牌（全站上限 28），与天气弹窗大温度同口径
-                    .font(.system(size: 40, weight: .semibold))
-                    .foregroundStyle(.primary)
-                    .contentTransition(.numericText())
-                Spacer()
-                Text("\(Int((ratio * 100).rounded()))%")
-                    .font(.system(size: Typography.headline, weight: .semibold))
-                    .foregroundStyle(barColor)
-            }
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(Color(uiColor: .systemGray5))
-                    Capsule().fill(barColor)
-                        .frame(width: geo.size.width * CGFloat(ratio))
-                }
-            }
-            .frame(height: 6)
-            Text(kind == .cpu
-                 ? "整机单值（后端不区分每核占用，也没有负载均值/进程榜）"
-                 : "剩余 \(nas.memTotal > 0 ? (nas.memTotal - nas.memUsed).byteText : "--")（后端 mem.used 口径，不含缓存回收）")
-                .font(.system(size: Typography.tiny))
-                .foregroundStyle(.tertiary)
-        }
-        .padding(Spacing.xl)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .frostedCard()
-    }
-
-    @ViewBuilder
-    private var sourceRows: some View {
-        SheetKVRow(label: "轻聊后端 内存", value: nas.qingliaoMemText)
-        SheetKVRow(label: "轻聊容器 内存", value: nas.qingliaoDockerMemText)
-        SheetKVRow(label: "Hermes 网关 内存", value: nas.hermesMemText,
-                   valueColor: nas.hermesAlive ? .primary : .red)
-        SheetKVRow(label: "Hermes 版本", value: nas.hermesVersion.isEmpty ? "--" : nas.hermesVersion)
-    }
-
-    @ViewBuilder
-    private var machineRows: some View {
-        SheetKVRow(label: "CPU 温度", value: hwCpu.map { String(format: "%.0f°C", $0) } ?? "--")
-        SheetKVRow(label: "SSD 温度", value: hwSsd.map { String(format: "%.0f°C", $0) } ?? "--")
-        SheetKVRow(label: "运行时间", value: nas.uptime.isEmpty ? "--" : nas.uptime)
-        SheetKVRow(label: "主机名", value: nas.hostname.isEmpty ? "--" : nas.hostname)
-    }
-
-    private var barColor: Color {
-        ratio > 0.9 ? .red : (ratio > 0.75 ? .orange : (kind == .cpu ? .blue : .green))
+    /// 说明行：电量/信号/电压摘要打头；没有摘要时退到实体后缀（认得出这是哪一枚实体）
+    private var captionText: String {
+        let summary = HAStateText.summary(entity)
+        // 摘要里已经有"电量 xx%"时，别把同一个数再抄一遍到尾巴上
+        if !summary.isEmpty { return summary }
+        let tail = entity.entityID.split(separator: ".").dropFirst().joined(separator: ".")
+        return tail.isEmpty ? entity.entityID : String(tail)
     }
 }

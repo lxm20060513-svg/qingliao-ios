@@ -69,6 +69,17 @@ final class QingliaoAppDelegate: NSObject, UIApplicationDelegate,
                 // v3.4.26：正文取回复首句（后端 GET /api/stream/{taskId} 返回 content）
                 NotificationHelper.notifyReply((j["content"] as? String) ?? "", sessionId: sid)
                 UserDefaults.standard.removeObject(forKey: "qingliao_stream_pending")
+                // v3.9.54：修「后台跑完灵动岛不收尾」。上面这条通知说明**这个回调就是本进程
+                // 在后台唯一知道「任务已结束」的时刻**——但原来它从不碰实时活动，于是活动一直
+                // 停在「AI 正在回复」，直到用户回前台才被收敛/兜底收掉（用户报的现象逐字一致）。
+                // ⚠️ 本闭包由 URLSession 在任意线程回调，`LiveActivityManager` 是 @MainActor，
+                // 且这里只能送 Sendable 值（sid / failed），所以走 `Task { @MainActor in … }`。
+                // 口径同 v2.0.60 注释：唤醒时机由系统决定，非实时（见 reconcile 的能力边界说明）。
+                let failed = (status == "error")
+                Task { @MainActor in
+                    await LiveActivityManager.shared.reconcileAfterBackgroundCheck(sessionId: sid,
+                                                                                  failed: failed)
+                }
                 completionHandler(.newData)
             } else {
                 completionHandler(.noData)   // 未完成，等下次系统唤醒再查
