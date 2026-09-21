@@ -92,7 +92,8 @@ struct ChatInputBar: View {
     /// （顺带继续守住 v3.2.3「阴影不得跟在流光之后重算」）。
     ///
     /// ② **两行布局回退成单行**（见 `expanded` 注释）：容器不再随状态换，TextField 结构路径恒定，
-    /// 不再重建丢焦点。展开态的"变大"只靠文本区行高/内边距插值，模型名仍排在发送键左侧。
+    /// 不再重建丢焦点。v3.9.52 起 `expanded` 只管"模型名出不出现"，栏高完全由内容驱动
+    /// （`lineLimit(1...6)` + `fixedSize`）——原先"聚焦就预留两行"那档让光标偏上，见 `textArea`。
     private var fullInputBar: some View {
         HStack(spacing: 8) {
             attachButtons
@@ -267,9 +268,11 @@ struct ChatInputBar: View {
         } else {
             TextField("", text: $text, axis: .vertical)
                 .font(.system(size: Typography.body))
-                // v3.9.48：展开态起判行高抬到 2 行（用户点名"点输入框时输入框变大"）——
-                // 未聚焦仍 1 行起，收起态逐字同 v3.9.47
-                .lineLimit(expanded ? 2...6 : 1...6)   // v2.0.35：1行起（原来2...6最小2行高→单行光标/文字偏上不居中）
+                // v3.9.52：**恒 1 行起**。v3.9.48 让展开态 `2...6` 是为了"点一下就变大"，
+                // 真机 496 报「光标不居中了」——两行块里占位符整块居中、光标坐在第一行，两者错开。
+                // 这条坑本仓 v2.0.35 就踩过一次（当时的注释原话："2...6 最小2行高→单行光标/文字偏上不居中"），
+                // v3.9.48 又把它请回来了。行高改由内容驱动：打字/换行才长，`fixedSize` 负责撑。
+                .lineLimit(1...6)
                 // v2.0.93f：9→12 输入框加高（用户反馈太窄）。v3.9.51：容器回退单行后，
                 // 展开态那档 `Spacing.xs` 的理由（"行距由 VStack 给"）随之消失，两态都用 xl
                 .padding(.vertical, Spacing.xl)
