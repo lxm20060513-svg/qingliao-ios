@@ -88,4 +88,9 @@ $SWIFT/swiftc -swift-version 6 -o /tmp/test_typesafe_routing /tmp/ql_ts_main/mai
     qingliao/Core/TypesafeRouting.swift 2>&1 | head -10
 [ ${PIPESTATUS[0]} -eq 0 ] || { echo "❌ 智能路由真值表编译失败"; exit 1; }
 /tmp/test_typesafe_routing || exit 1
+
+echo "=== 11. 欢迎页特征智能球真值表（v3.9.57）==="
+# 单文件（读源文件做护栏 + 镜像冻结判定，不 import 项目代码）→ run_unit 直接编跑
+run_unit /tmp/test_orb scripts/ql_orb/truth_table_orb.swift
+
 exit $?

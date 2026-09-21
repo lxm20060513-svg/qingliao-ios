@@ -237,6 +237,9 @@ private final class LiquidOrbRenderer: NSObject, MTKViewDelegate {
     /// v3.9.42：系统「减弱动态效果」→ thinking 态也走冻结路径（画过过渡后停成静态图）。
     /// 由 `LiquidOrbSurface` 在建视图时写入；运行中改辅助功能需重进页面才生效（渲染器不重建）。
     var freezesMotion = false
+    /// v3.9.57：常驻流动（欢迎页特征球）——true 时 idle 态也不冻结，持续 30fps。
+    /// freezesMotion 优先于它：「减弱动态效果」打开时仍然冻结。
+    var live = false
 
     init(view: MTKView, state: LiquidOrbState) throws {
         let initialUniforms = orbUniformSeed(for: state)
@@ -288,7 +291,10 @@ private final class LiquidOrbRenderer: NSObject, MTKViewDelegate {
         view.enableSetNeedsDisplay = false
         view.preferredFramesPerSecond = 30
         // v3.9.42：减弱动态效果时，thinking 也照 idle 走冻结路径（先播完状态过渡再停帧）
-        guard state == .idle || freezesMotion else { return }
+        // v3.9.57：live=true（欢迎页特征球）时 idle 态也不冻结，保持常驻流动；
+        //          freezesMotion 优先于 live（减弱动态效果打开时仍冻成静态图）
+        let shouldFreeze = (state == .idle && !live) || freezesMotion
+        guard shouldFreeze else { return }
         // animated=false 时用最短延迟：等 SwiftUI 布局把 drawableSize 落定后再冻结，
         // 否则首帧被 drawableSize == 0 挡掉、冻结后永远不再重绘 → 头像空白
         let transitionDuration = state == .thinking ? orbActivationDuration : orbSettleDuration
@@ -469,11 +475,12 @@ private final class LiquidOrbCoordinator {
         #endif
     }
 
-    func makeView(state: LiquidOrbState, freezesMotion: Bool) -> MTKView {
+    func makeView(state: LiquidOrbState, freezesMotion: Bool, live: Bool = false) -> MTKView {
         let view = MTKView(frame: .zero, device: nil)
         do {
             let renderer = try LiquidOrbRenderer(view: view, state: state)
             renderer.freezesMotion = freezesMotion
+            renderer.live = live
             self.renderer = renderer
             view.delegate = renderer
             renderer.updatePacing(for: state, animated: false)
@@ -510,18 +517,21 @@ private struct LiquidOrbSurface: UIViewRepresentable {
     let state: LiquidOrbState
     /// v3.9.42：「减弱动态效果」——由 LiquidOrbView 从环境读入后透传给渲染器
     let freezesMotion: Bool
+    /// v3.9.57：常驻流动——由 LiquidOrbView 透传（欢迎页特征球 true，头像 false）
+    let live: Bool
 
     func makeCoordinator() -> LiquidOrbCoordinator { LiquidOrbCoordinator() }
-    func makeUIView(context: Context) -> MTKView { context.coordinator.makeView(state: state, freezesMotion: freezesMotion) }
+    func makeUIView(context: Context) -> MTKView { context.coordinator.makeView(state: state, freezesMotion: freezesMotion, live: live) }
     func updateUIView(_ view: MTKView, context: Context) { context.coordinator.setState(state) }
 }
 #elseif os(macOS)
 private struct LiquidOrbSurface: NSViewRepresentable {
     let state: LiquidOrbState
     let freezesMotion: Bool
+    let live: Bool
 
     func makeCoordinator() -> LiquidOrbCoordinator { LiquidOrbCoordinator() }
-    func makeNSView(context: Context) -> MTKView { context.coordinator.makeView(state: state, freezesMotion: freezesMotion) }
+    func makeNSView(context: Context) -> MTKView { context.coordinator.makeView(state: state, freezesMotion: freezesMotion, live: live) }
     func updateNSView(_ view: MTKView, context: Context) { context.coordinator.setState(state) }
 }
 #endif
@@ -542,16 +552,21 @@ enum LiquidOrbAvailability {
     static var isAvailable: Bool { cached }
 }
 
-/// 轻聊 AI 头像：用 lersent001/orb 的 siri 液态玻璃球（MIT）。
+/// 轻聊 AI 头像 / 特征智能球：用 lersent001/orb 的 siri 液态玻璃球（MIT）。
 /// - 思考中 → thinking 态，30fps 连续动画
-/// - 不思考 → idle 态静态帧（播完回落过渡后冻结，不产生连续 GPU 开销）
+/// - live=false（默认，头像场景）→ idle 态静态帧（播完回落过渡后冻结，不产生连续 GPU 开销）
+/// - live=true（v3.9.57 欢迎页特征球）→ idle 态也常驻 30fps 流动，球本身就是 logo
+///   （freezesMotion「减弱动态效果」优先于 live，仍会冻结）
 struct LiquidOrbAvatar: View {
     var size: CGFloat = 30
     var thinking: Bool = false
+    /// v3.9.57：常驻流动（欢迎页 96pt 特征智能球）——true 时 idle 态也不冻结，持续 30fps 渲染。
+    /// 默认 false：消息头像/思考头像保持 v3.9.2 起的「静止态零 GPU 开销」冻结设计。
+    var live: Bool = false
 
     var body: some View {
         if LiquidOrbAvailability.isAvailable {
-            LiquidOrbView(state: thinking ? .thinking : .idle)
+            LiquidOrbView(state: thinking ? .thinking : .idle, live: live)
                 .frame(width: size, height: size)
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
@@ -577,11 +592,15 @@ public struct LiquidOrbView: View {
     /// v3.9.42：「减弱动态效果」→ thinking 态不再跑 30fps，播完过渡即冻成静态图
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    public init(state: LiquidOrbState = .thinking) {
+    /// v3.9.57：常驻流动（见 LiquidOrbAvatar.live）——idle 态不冻结，持续渲染
+    private let live: Bool
+
+    public init(state: LiquidOrbState = .thinking, live: Bool = false) {
         self.state = state
+        self.live = live
     }
 
     public var body: some View {
-        LiquidOrbSurface(state: state, freezesMotion: reduceMotion)
+        LiquidOrbSurface(state: state, freezesMotion: reduceMotion, live: live)
     }
 }

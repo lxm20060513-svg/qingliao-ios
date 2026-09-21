@@ -1322,18 +1322,31 @@ struct ChatView: View {
             Spacer(minLength: 56).frame(maxHeight: 120)
 
             ZStack {
-                // v3.4.25：粒子球版 logo 替代静态渐变圆；v3.9.2 改为 siri 液态玻璃球静态帧
-                Circle()
-                    .fill(LinearGradient(colors: [.blue.opacity(0.10), .indigo.opacity(0.06)],
-                                         startPoint: .topLeading, endPoint: .bottomTrailing))
-                    .frame(width: 96, height: 96)
-                // v3.9.2：欢迎页 logo 也换成 siri 液态玻璃球（静态帧，不占 GPU）
-                LiquidOrbAvatar(size: 96, thinking: false)
-                Image(systemName: "bubble.left.and.bubble.right.fill")
-                    .font(.system(size: Typography.display))
-                    .foregroundStyle(.white)
-                    .shadow(color: .indigo.opacity(0.35), radius: 6, y: 2)
+                // v3.9.57：欢迎页特征智能球——液态球常驻流动（live: true，球本身即 logo）。
+                // 原来球上还压着一个白色气泡图标 + 渐变底圆，静态帧时靠图标认身份；
+                // 现在球自己就是会流动的 logo，图标与底圆一并移除（底圆被 0.98 半径的球完全盖住，本就看不出）。
+                LiquidOrbAvatar(size: 96, thinking: aiBusy, live: true)
             }
+            .frame(width: 96, height: 96)
+            .contentShape(Rectangle())   // 球自身 allowsHitTesting(false)，不补命中域整颗球点不到
+            .accessibilityLabel("轻聊智能体")
+            // v3.9.57：入口交互化——轻点聚焦输入框；长按进语音转文字（与输入框/发送键长按同一路径）。
+            // 用 ExclusiveGesture 而非分别挂 onTapGesture + onLongPressGesture：后者在长按触发后
+            // 抬手仍会补一次 tap → 把语音模式刚收回的键盘又聚焦起来（v2.0.107 的口径会被打破）。
+            .gesture(
+                ExclusiveGesture(
+                    LongPressGesture(minimumDuration: 0.45).onEnded { _ in
+                        Haptics.tap()
+                        // keyboardWasUp 与输入框长按同口径：kb.isVisible（键盘当前是否开着）
+                        // ——不是 inputFocus（触摸聚焦瞬间 inputFocus 已 true，用它会把键盘误收）
+                        toggleVoiceMode(keyboardWasUp: kb.isVisible)
+                    },
+                    TapGesture().onEnded {
+                        Haptics.tap()
+                        inputFocus = true
+                    }
+                )
+            )
 
             // v3.4.29：文案组与 logo 拉开距离（原整体 spacing 12 → 96pt 的球和文字贴在一起，头重脚轻）
             // 现改为分组：logo↔文案 18pt，问候↔副标题 6pt（同组紧、跨组松）
