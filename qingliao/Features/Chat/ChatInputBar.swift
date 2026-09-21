@@ -79,13 +79,17 @@ struct ChatInputBar: View {
     }
 
     /// v3.9.48（用户：「点击输入框时输入框变大，右下角可以选模型」）：展开式输入栏——
-    /// 聚焦时文字区抬到 2 行起 + 右下角浮出模型快选胶囊，容器从纯胶囊长成 22pt 圆角矩形。
+    /// 聚焦时文字区抬到 2 行起 + 右下角浮出模型快选胶囊。
     ///
     /// 展开只认「普通打字」这一态：录音 / 语音模式 / 转写各自把整条栏换成别的形态（那三态本来就不打字），
     /// 再叠一层"变大"会和它们打架。
     ///
-    /// v3.9.49（真机：「输入框有两层重叠在一起」）：容器**只留一圈边**——玻璃底 + 一条描边，
-    /// 原来那条聚焦蓝环和常态白环是叠在同一路径上的两层，且其中一层不参与展开动画。见 `edgeOverlay`。
+    /// v3.9.49 第二轮（真机：「还是内有大圆角、外有方形圆角」）：容器**只剩玻璃这一层**。
+    /// 第一轮的"并成一圈描边 + 动画挪到链末"没治好——病根不在描边层数，在 `glassEffect`：
+    /// 玻璃本体的可见边缘**不跟圆角动画**，聚焦展开后仍按收起时的胶囊画（内圈大圆角），
+    /// 而描边 overlay 老老实实画在 `barShape` 的展开形状上（外圈 22pt 方角）→ 两圈不同圆角的轮廓。
+    /// 于是两条一起收口：① 容器圆角**不再随状态变**（见 `barShape`，没有需要插值的半径了）；
+    /// ② 展开态**不画描边**（见 `edgeColor`），玻璃外面不再浮第二圈。
     private var fullInputBar: some View {
         VStack(alignment: .leading, spacing: expanded ? Spacing.xs : 0) {
             inputRow
@@ -103,10 +107,8 @@ struct ChatInputBar: View {
         .shadow(color: .black.opacity(0.3), radius: 14, y: 5)
         .overlay { edgeOverlay }
         .padding(.horizontal, 18)   // v2.0.87aw：输入框宽度收窄（12→18）
-        // v3.9.49（真机：「输入框有两层重叠在一起」）：动画修饰符从 focusRing 之后挪到整条链**末尾**。
-        // 原来它夹在描边 overlay 与阴影之间 → 阴影之后那层 glowOverlay 的 barShape 拿不到这个 transaction，
-        // 聚焦瞬间玻璃/蓝环在插值、白环已经跳到展开形状，两圈轮廓错开就是用户看到的那"两层"。
-        // 现在整条链一起插值，容器只剩一圈边。
+        // v3.9.49：动画修饰符必须在整条链**末尾**——原来它夹在描边 overlay 之前，
+        // 阴影之后那层描边拿不到 transaction，聚焦时一层插值一层瞬时跳，也是两圈轮廓的成因之一。
         .animation(Motion.snap, value: focused)
         .animation(Motion.snap, value: expanded)
     }
@@ -116,11 +118,12 @@ struct ChatInputBar: View {
         focused && !isRecording && !voiceMode && !transcribing
     }
 
-    /// 容器形状：收起时半径给到 999（被夹成半高 = 纯胶囊，和原来的 `Capsule()` 同形），
-    /// 展开时收成 `Radius.hero`(22) 才容得下第二行。
-    /// **单一形状类型 + 半径可插值** → 切换是"长开"而不是跳形，也不用 AnyShape 做类型擦除
+    /// 容器形状：**圆角恒定 `Radius.hero`(22)，不随展开/收起变**。
+    /// v3.9.48 让收起态用 999（夹成胶囊）、展开态收成 22，理由是"单一形状 + 半径可插值 = 长开不跳形"；
+    /// 真机结论是 `glassEffect` 不跟这个半径插值（玻璃停在胶囊、描边走到 22）→ 两层。
+    /// 代价：收起态从纯胶囊变成 22pt 圆角矩形（栏高约 62，胶囊半径 31 → 只差 9pt，轮廓接近）。
     private var barShape: RoundedRectangle {
-        RoundedRectangle(cornerRadius: expanded ? Radius.hero : 999, style: .continuous)
+        RoundedRectangle(cornerRadius: Radius.hero, style: .continuous)
     }
 
     /// v3.4.20 聚焦光晕 + v2.0.87s 等待流光——v3.9.49 **合并成容器唯一的描边层**。
@@ -161,8 +164,12 @@ struct ChatInputBar: View {
     }
 
     /// 常态白边 / 聚焦蓝边（v3.9.49 同一条边的两档配色）
+    /// v3.9.49 第二轮（真机：「还是内有大圆角、外有方形圆角」）：**展开态这条边不画**（`.clear`）。
+    /// 玻璃的可见边缘比 `barShape` 的布局边界再缩一圈，描边画在边界上就是浮在玻璃外的第二圈轮廓；
+    /// 收起态（含语音/录音/转写那三态）照 v3.4.20 原样保留。展开本身就是最强的聚焦提示，不缺这一圈。
     private var edgeColor: Color {
-        focused ? Color.blue.opacity(0.45) : Color.white.opacity(Tint.subtle)
+        if expanded { return .clear }
+        return focused ? Color.blue.opacity(0.45) : Color.white.opacity(Tint.subtle)
     }
 
     /// 第二行：右下角的模型快选胶囊（左半边留空，避免和第一行的附件/相机抢视线）
