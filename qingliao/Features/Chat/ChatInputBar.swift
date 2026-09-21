@@ -173,13 +173,14 @@ struct ChatInputBar: View {
         }
     }
 
-    /// 常态白边 / 聚焦蓝边（v3.9.49 同一条边的两档配色）
-    /// v3.9.49 第二轮（真机：「还是内有大圆角、外有方形圆角」）：**展开态这条边不画**（`.clear`）。
-    /// 玻璃的可见边缘比 `barShape` 的布局边界再缩一圈，描边画在边界上就是浮在玻璃外的第二圈轮廓；
-    /// 收起态（含语音/录音/转写那三态）照 v3.4.20 原样保留。展开本身就是最强的聚焦提示，不缺这一圈。
+    /// 常态白边 / 聚焦蓝边（v3.4.20 那两档配色，一条边两档切换）
+    /// v3.9.49 第二轮曾把展开态整条 `.clear`，理由是"描边浮在玻璃外=第二圈"；**v3.9.52 撤回这个止损**：
+    /// 真因是玻璃形状没走 `in:` 参数（见 `fullInputBar` 注释），v3.9.51 修好后描边与玻璃边界同参同圈，
+    /// 蓝环不再制造第二圈。用户 496 原话：「输入时，输入框外框的淡蓝光圈也没有了，加回来」。
+    /// 蓝档取 `focused || expanded`：键盘在 = 焦点在本框，避免 focus 与键盘通知之间那一帧的错帧让环闪。
     private var edgeColor: Color {
-        if expanded { return .clear }
-        return focused ? Color.blue.opacity(0.45) : Color.white.opacity(Tint.subtle)
+        if focused || expanded { return Color.blue.opacity(0.45) }
+        return Color.white.opacity(Tint.subtle)
     }
 
     /// 左侧两枚次级按钮（附件 / 相机）——v3.9.50 从 `inputRow` 里拆出来，两态共用一份
