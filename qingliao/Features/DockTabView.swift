@@ -83,6 +83,9 @@ struct DockTabView: View {
             // v3.4.30：装机实测后按用户要求关闭自动收缩——tab bar 常驻不缩，滚动时不再变窄
             // （v3.4.29 曾设为 .onScrollDown：向下滚动缩到角落只剩图标，用户不需要）
             .tabBarMinimizeBehavior(.never)
+            // v3.9.47：聊天页摘掉 tab bar 那层系统液态玻璃（方案 B，见 TabBarGlassClearer）——
+            // 只挂这一处，切页时 clear 翻转即装卸；探针视图零尺寸、透明，不参与布局
+            .background(TabBarGlassClearer(clear: selected == .chat))
             // v3.4.29：切 tab 触感——挂在一处（TabView），别挂进每个 tab 的 modifier（会响 4 次）
             .onChange(of: selected) { _, newVal in
                 Haptics.tap()
@@ -198,14 +201,10 @@ struct DockTabView: View {
     ///   · iPad 宽屏：会话 + 聊天双栏，系统 message 图标
     ///   · iPhone：item 置空、无文字，整颗智能球由 DockOrbOverlay 居中绘制
     ///
-    /// v3.9.46（方案 A，需真机验收）：聊天页要求 tab bar **不铺那层液态玻璃**，其他 tab 照旧。
-    /// 玻璃是 iOS 26 系统 tab bar 自绘的（v3.0.64 起无自绘 DockBar），App 侧唯一的公开出口是
-    /// `.toolbarBackground(.hidden, for: .tabBar)`，挂在**该页根内容**上 = 只在这一页生效。
-    /// ⚠️ 两个已知不确定：① iOS 26 的 liquid glass 可能只褪背景色、不褪玻璃层；
-    /// ② 褪掉后聊天内容滚到底会直接穿到 tab 图标底下。若真机判定不可接受，改走方案 B：
-    /// 用 ChatEffects 里现成的 `findTabBar(in:)` 拿真 UITabBar，在 onChange(of: selected) 里
-    /// 换 standardAppearance/scrollEdgeAppearance 的 backgroundEffect（v3.4.29 的教训仍然有效：
-    /// 别在 TabView 下层铺不透明色，那会掐死**所有**页的滚动边缘折射）。
+    /// v3.9.47：这一页要求 tab bar **不铺那层液态玻璃**，其他 tab 照旧。
+    /// 方案 A（SwiftUI `.toolbarBackground(.hidden, for: .tabBar)`）真机实测无效——iOS 26 只褪了
+    /// 背景色、玻璃层照旧，已回退。现在走方案 B：`TabBarGlassClearer`（UIKit 侧改 UITabBar 外观），
+    /// 挂在下面 body 的 TabView 上（只挂一处，切页时由 `selected == .chat` 驱动装卸）。
     @ViewBuilder
     private var chatTab: some View {
         if hSize == .regular {
@@ -216,12 +215,10 @@ struct DockTabView: View {
                 Divider().opacity(0.3)
                 ChatView()
             }
-            .toolbarBackground(.hidden, for: .tabBar)
             .tag(DockTab.chat)
             .tabItem { Label(DockTab.chat.title, systemImage: DockTab.chat.icon) }
         } else {
             ChatView()
-                .toolbarBackground(.hidden, for: .tabBar)
                 .tag(DockTab.chat)
                 // 槽位视觉为空（球由 DockOrbOverlay 绘制）→ 补无障碍标签，VoiceOver 仍读得出「聊天」
                 .tabItem { Text("").accessibilityLabel("聊天") }

@@ -363,8 +363,10 @@ struct DockOrbOverlay: View {
         }
     }
 
+    /// 从任意视图往下找系统 `UITabBar`。v3.9.47：解给 `TabBarGlassProbe`（Dock 玻璃方案 B）复用，
+    /// 别再各写一份递归。
     @MainActor
-    private static func findTabBar(in view: UIView) -> UITabBar? {
+    static func findTabBar(in view: UIView) -> UITabBar? {
         if let t = view as? UITabBar { return t }
         for sub in view.subviews {
             if let f = findTabBar(in: sub) { return f }
