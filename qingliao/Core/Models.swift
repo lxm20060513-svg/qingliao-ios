@@ -208,7 +208,10 @@ struct ProviderUsage: Identifiable {
 
     /// 主文本：余额（payg）或当前用量百分比（plan）
     var balanceText: String {
-        if unsupported { return "控制台查看" }
+        // v3.9.54：Step Plan 订阅制 → 主文本标「订阅制」（副文本已说明去哪看额度，
+        // 原来主文本「控制台查看」与副文本「额度见控制台」重复）；
+        // 其余 unsupported（如硅基流动余额接口已下线、无公开接口的自定义 key）仍标「控制台查看」
+        if unsupported { return provider == "stepfun" ? "订阅制" : "控制台查看" }
         if mode == "plan", let monthly = usagePercent["monthly"] {
             return String(format: "月用量 %.0f%%", monthly)
         }

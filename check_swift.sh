@@ -75,4 +75,7 @@ $SWIFT/swiftc -swift-version 6 -o /tmp/test_quick_reminder /tmp/ql_reminder_main
     qingliao/Core/QuickReminder.swift 2>&1 | head -10
 [ ${PIPESTATUS[0]} -eq 0 ] || { echo "❌ 定时提醒真值表编译失败"; exit 1; }
 /tmp/test_quick_reminder || exit 1
+echo "=== 9. 模型用量卡片文案真值表（v3.9.54）==="
+# 单文件（纯 Foundation，无项目依赖）→ run_unit 直接编跑
+run_unit /tmp/test_provider_usage scripts/test_provider_usage.swift
 exit $?
