@@ -106,6 +106,7 @@ QingliaoWidget/          挂件 Extension target（.appex）：灵动岛/锁屏�
 
 - **iOS 26 系统玻璃的三条口径（v3.9.46 立，v3.9.47 补）**：① **空的 `ToolbarItem` 照样会拿到一层玻璃底**——条件按钮必须把 `if` 写在 `ToolbarItem` **外面**（一个 ToolbarItem 包两个 `if` 的写法，两个条件都不成立时残留一枚无文字空胶囊，即任务中心那个 bug）；② tab bar 的玻璃是系统自绘的（v3.0.64 起无自绘 DockBar），**`.toolbarBackground(.hidden, for: .tabBar)` 真机实测无效**（v3.9.46 上的方案 A，用户 2026-09-21 判「玻璃还在」）——iOS 26 只褪背景色、玻璃层照旧，别再当开关用；③ 现在只剩 UIKit 一条路（v3.9.47 方案 B：`TabBarGlassProbe` 换真实 `UITabBar` 的 `standardAppearance/scrollEdgeAppearance` 为 `configureWithTransparentBackground()` 副本），**同样没有文档背书，无效就止步于此**。**两条红线不变**：不在 TabView 下层铺不透明色（掐死所有页的滚动边缘折射，v3.4.29）、弹窗背景不覆盖系统材质（v3.9.23）
 - **弹窗内的卡片不用实色底（v3.9.47）**：`.dashboardCard()` 的 `secondarySystemGroupedBackground` 铺在**弹窗**那层系统材质上等于盖白板 → 弹窗里一律 `.frostedCard()`（`ultraThinMaterial` + 16 圆角 + 0.8pt 描边 + 两层柔影，卡形与 `dashboardCard()` 同参）。**注意与 `GlassListCard` 的浅色档区分**：那是 `Color.white.opacity(0.85)`，用户明确不要白底。看板/生活页的**网格卡不受本条约束**，仍走 `dashboardCard()`
+- **滚动性能口径：`onScrollGeometryChange` 的投影必须"夹成常量"**（v3.9.48 立）：这条 API **只在投影值变化时**才调 `action`。所以投影表达式里凡是"正常滚动期间逐帧都在变"的量（典型：`contentOffset.y - bottomMax`，未过拉时是负数且每帧不同）**必须在投影里就夹成常量**（`<= 0 ? 0` 再取整），否则等于每帧回调 + 每帧写 `@Observable`——**Observation 不做等值比较，写同值一样标脏读它的视图**。聊天页那颗 `ultraThinMaterial` 上拉胶囊就这么被整场滚动期标脏过（v3.9.48 修）。判定用的 Bool 投影天然边沿触发，不受本条约束。**同一族的第二刀**：常驻视图（dock 智慧球 5 个 tab 全程可见）里"每帧变化的内容 + `.shadow`"= 每帧重算阴影，要么静态化要么别挂（v3.2.3 输入框那条的推广）
 
 ## 🆕 近期变更（v3.9.48，2026-09-21）
 
@@ -113,6 +114,11 @@ QingliaoWidget/          挂件 Extension target（.appex）：灵动岛/锁屏�
 - **`ComposerModelSheet`（`ChatSheets.swift`）= 短平快的切面板**：与设置里的 `ModelSheet` 分工——那边管 provider 增删/同步/TTS/视觉模型，这里只管"当场换一个接着聊"，选完即写 `qingliao_model`/`qingliao_provider`（与 `ModelSheet.setModel` 同一口径）+ `Haptics.success()` + 立即收起。**零网络**：列表直接读 `ModelProvidersCache.load()`（模型管理每次同步成功都落这份缓存），从没同步过才显示"去设置 › 模型管理 同步一次"。配了 Agent 模型时顶部挂 `ModelSheet.agentModelNotice` 同话术的提示（视觉 > Agent > 主模型，这里改主模型不生效）——**不静默骗人**。胶囊显示名走 `ChatView.composerModelLabel = resolveModel(hasImage: false)`（与灵动岛 `liveActivityModelName` 同口径），只读 `qingliao_model` 会在 Agent/视觉模型生效时报错模型（v3.8.0 实踩）
 - **天气弹窗右上角补「刷新」胶囊**：`Text("刷新").pill(.page)` 排在「换城市」左侧（口径照生活页「刷新」，含 `loading` 时前置的 `ProgressView().controlSize(.small)`）。点击 = `reloadForce = true; reloadToken += 1`，即**绕过 v3.9.46 的天气缓存**强制回源。病根：缓存上线后"想看此刻"的出口只剩加载失败那张空态里的「重试」，正常态没有入口
 - **登录页胶囊变窄**（用户："胶囊可以缩短"，追问确认为变窄不是变矮）：`LoginView.formH` 28 → 40，三枚输入框 / 登录 / Face ID / 两条状态横幅一并收进去，不再顶满屏宽（这个口径 v3.9.46 已收敛成一个常量，改一处即可）
+- **滑动流畅性三处减负（需真机验收）**（用户："优化 app 滑动流畅性"）：全仓滚动热区排查后落三刀，都在"每帧/整页白干活"这一类，不动任何观感设计。
+  ① **聊天页 `onScrollGeometryChange` 投影夹 0 + 取整**（`ChatView` 收件箱上拉那条）——这条回调**只在投影值变化时**才响，原先未过拉时返回逐帧变化的负 offset，等于**整个正常滚动过程每帧响一次、每帧写一次 `@Observable progress`**（`InboxPullState` 不做等值比较，写同值也标脏 `InboxPullLayer`，那层里还挂着一颗 `ultraThinMaterial` 胶囊）。改成 `overscroll <= 0 ? 0 : overscroll.rounded()`：正常滚动期投影恒 0 → 一次都不响；过拉本身只有 0~60pt 有意义，取整后拉满最多 60 次失效，指示器跟手位移看不出差别。`inboxPullHandleScroll` 另加一层"进度已归零且不在等回弹就早退"的兜底（`st.armed` 必须留在条件里，否则松手那一帧的触发动作被吃掉）
+  ② **dock 智慧球的投影静态化**（`ChatEffects.SiriBallView`）——`.shadow(color: .indigo.opacity(0.45 * breathe))` 挂在一颗"每帧换色的渐变球"上，而此球 **5 个 tab 常驻**（空闲 15fps / 思考 30fps），任何一页滑动都在与它抢帧。阴影色改写死中值 0.22，呼吸感仍由外圈 halo + 球体两颗渐变圆承担，差的只是"投影不再脉动"。这与 v3.2.3 输入框那条同源：**把每帧变化的阴影静态化**（仓内 `repeatForever`/`TimelineView` 帧源已逐一核过，全部有帧率锁与 reduceMotion 静态档，没有裸 `.animation` 全屏帧源）
+  ③ **会话列表外层 `VStack` → `LazyVStack(alignment: .center)`**——内层 v2.0.133g 就为"会话多时全量渲染拖慢切页"改成了 LazyVStack，但它套在非懒 VStack 里等于白做：外层为定自己的尺寸向惰性子栈索取理想高，一问就把全部行实例化出来。**`alignment: .center` 不能省**（VStack 默认 center、LazyVStack 默认 leading，省了空态插画和 BotCard 会跑左边）。安全性依据 v2.0.56 那条老账：会话删除早已是"后端驱动 + `load()` 整体替换"，无就地 `removeAll` 的 ForEach diff 崩溃路径
+- **本轮明确没动的**（都是"要用户拍板"的视觉账，不是代码账）：`dashboardCard()` 每卡两层柔影（v3.9.35 对比稿定稿）、设置页 `GlassListCard` 深色档逐行 `ultraThinMaterial`、Siri 边框光/灵动岛光 30fps（v3.9.1 拍板）、看板自动化卡 1Hz `TimelineView` 包整张 `DeviceCard`（1 秒一次，非帧级）。**要再压一档就得先接受观感回退**，说一声即可
 
 ## 🆕 近期变更（v3.9.47，2026-09-21）
 

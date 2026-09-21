@@ -1823,7 +1823,14 @@ struct ChatView: View {
             // overscroll = offset 超底部边界量；触底再上拉为正。详见 InboxPullRefresh.swift
             .onScrollGeometryChange(for: CGFloat.self) { geo in
                 let maxY = geo.contentSize.height - geo.containerSize.height
-                return geo.contentOffset.y - max(0, maxY)
+                // v3.9.48 性能：投影**先夹 0 再取整**。onScrollGeometryChange 只在投影值变化时
+                // 回调 action，原先未过拉时返回的是逐帧变化的负数 → 整个正常滚动过程每帧回调一次、
+                // 每帧写一次 @Observable progress（Observation 不做等值比较，写同值也标脏
+                // InboxPullLayer——那层里还挂着一颗 ultraThinMaterial 胶囊）。
+                // 夹 0 后正常滚动期投影恒为 0，一次回调都不发；过拉本身只有 0...60pt 有意义，
+                // 取整到 1pt 拉满过程最多 60 次失效，指示器跟手位移看不出差别。
+                let overscroll = geo.contentOffset.y - max(0, maxY)
+                return overscroll <= 0 ? 0 : overscroll.rounded()
             } action: { _, overscroll in
                 inboxPullHandleScroll(overscroll: overscroll)
             }

@@ -106,6 +106,11 @@ extension ChatView {
         // （要拦的是「本会话正在自动滚底」，别的会话的流不会滚这里的底）。
         guard !st.refreshing, !thisSessionStreaming, !selectMode else { return }
         let clamped = min(1, max(0, overscroll / InboxPullState.threshold))
+        // v3.9.48 性能兜底：进度已归零、也没在等待回弹时，什么都不写。
+        // （调用方已把投影夹到 0，正常滚动期这条回调根本不会响；这里防的是别处再以 0 调进来——
+        //  写 `st.progress = 0` 这种"同值写"一样会标脏读它的视图。）
+        // `st.armed` 必须在条件里：拉满后松手那一帧 clamped 已经是 0，靠 armed 才能走到下面的触发分支。
+        guard clamped > 0 || st.progress > 0 || st.armed else { return }
         st.progress = clamped
         if clamped >= 1 {
             if !st.armed { Haptics.success() }   // v3.9.30：拉到位给一次"可松手"触感（armed 边沿触发，不连震）

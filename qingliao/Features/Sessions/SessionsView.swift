@@ -323,7 +323,12 @@ struct SessionsView: View {
     @ViewBuilder
     private var sessionsListBody: some View {
         ScrollView {
-            VStack(spacing: 10) {
+            // v3.9.48 性能：外层 VStack → LazyVStack。内层会话列表 v2.0.133g 就已经是 LazyVStack
+            //（"会话多时全量渲染拖慢 TabView 切页"），但它套在**非懒**的 VStack 里等于白做——
+            // 外层 VStack 为了定自己的尺寸会向惰性子栈索取理想高，那一问就把所有行实例化出来了。
+            // `alignment: .center` 必须写：VStack 默认 .center，LazyVStack 默认 .leading，
+            // 不写会把空态插画/BotCard 这类没吃满宽度的块推到左边（观感回退）。
+            LazyVStack(alignment: .center, spacing: 10) {
                 if isSearching {
                     // v3.9.33：搜索结果区（本地优先，本地零命中再补远端全史搜索）
                     searchResultsArea

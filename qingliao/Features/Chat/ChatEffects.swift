@@ -178,7 +178,13 @@ struct SiriBallView: View {
                     .fill(AngularGradient(colors: bodyColors, center: .center))
                     .frame(width: 72 * k, height: 72 * k)
                     .overlay(Circle().strokeBorder(.white.opacity(0.22), lineWidth: max(0.8, 1.2 * k)))
-                    .shadow(color: Color.indigo.opacity(0.45 * breathe), radius: 14 * k)
+                    // v3.9.48 性能：阴影色**不再乘 breathe**，写死成原式的中值（0.45 × 0.5 ≈ 0.22）。
+                    // 这颗影子挂在一颗"每帧换色的渐变球"上 → 每帧都得重算一次阴影；而本球在
+                    // 5 个 tab 常驻（空闲 15fps / 思考 30fps），用户在任何一页滑动都在与它抢帧。
+                    // 参数恒定后这一层的阴影输入不再随帧变化，呼吸感仍由外圈 halo + 球体两颗
+                    // 渐变圆承担（它们才是主导观感的那层），观感差别仅"投影不再脉动"。
+                    // 与 v3.2.3 输入框那条同源：把每帧变化的阴影静态化。
+                    .shadow(color: Color.indigo.opacity(0.22), radius: 14 * k)
                 OrbCanvasView(mode: thinking ? .orbits : .ring, size: 60 * k, opts: orbOpts, fps: fps)   // v3.9.1：透传帧率
                     .allowsHitTesting(false)
             }
