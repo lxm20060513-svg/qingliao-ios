@@ -179,12 +179,16 @@ struct ChatInputBar: View {
             Button(action: onPickModel) {
                 HStack(spacing: 3) {
                     Image(systemName: "cube.box")
+                        .foregroundStyle(Color.accentColor)
+                    // v3.9.50（用户：「模型字体紧挨着模型图标」）：病根是原先那层
+                    // `frame(maxWidth: 120, alignment: .trailing)`——短名时文字被推到 120pt 框的右端，
+                    // 图标和名字之间凭空一道空隙。改回自然宽度：图标 `spacing: 3` 贴字。
+                    // 不超出输入框仍有保障：行首 `Spacer(minLength: 0)` 先被压掉，再长就中部截断。
                     Text(modelLabel)
                         .lineLimit(1)
                         .truncationMode(.middle)
-                        .frame(maxWidth: 120, alignment: .trailing)   // 长模型名压住，不撑破栏宽
+                        .foregroundStyle(.secondary)   // v3.9.50（用户：「模型用灰色字体」）
                 }
-                .foregroundStyle(Color.accentColor)
                 .modelPill()
             }
             .buttonStyle(PressStyle())
