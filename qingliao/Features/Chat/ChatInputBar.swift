@@ -78,23 +78,28 @@ struct ChatInputBar: View {
             .frame(maxWidth: .infinity)
     }
 
-    /// v3.9.48（用户：「点击输入框时输入框变大，右下角可以选模型」）：展开式输入栏——
-    /// 聚焦时文字区抬到 2 行起 + 右下角浮出模型快选胶囊。
+    /// v3.9.48（用户：「点击输入框时输入框变大，右下角可以选模型」）：展开式输入栏。
+    /// v3.9.50 #1（用户给参考图：「文字在上、工具行在下」）：展开态不再只是"第一行右下角浮个胶囊"，
+    /// 而是**换一套布局**——文本区独占上面一行（2 行起），附件/相机/模型名/停止/发送全在底下一行；
+    /// 收起态仍是 v3.9.47 那一行原样。两态共用 `attachButtons` / `textArea` / `trailingButtons` 三块。
     ///
     /// 展开只认「普通打字」这一态：录音 / 语音模式 / 转写各自把整条栏换成别的形态（那三态本来就不打字），
-    /// 再叠一层"变大"会和它们打架。
+    /// 再叠一层"变大"会和它们打架。门控取 `kbEnv.isVisible` 而非 `focused`，理由见 `expanded`。
     ///
     /// v3.9.49 第二轮（真机：「还是内有大圆角、外有方形圆角」）：容器**只剩玻璃这一层**。
     /// 第一轮的"并成一圈描边 + 动画挪到链末"没治好——病根不在描边层数，在 `glassEffect`：
-    /// 玻璃本体的可见边缘**不跟圆角动画**，聚焦展开后仍按收起时的胶囊画（内圈大圆角），
+    /// 玻璃本体的可见边缘**不跟圆角动画**，展开后仍按收起时的胶囊画（内圈大圆角），
     /// 而描边 overlay 老老实实画在 `barShape` 的展开形状上（外圈 22pt 方角）→ 两圈不同圆角的轮廓。
     /// 于是两条一起收口：① 容器圆角**不再随状态变**（见 `barShape`，没有需要插值的半径了）；
     /// ② 展开态**不画描边**（见 `edgeColor`），玻璃外面不再浮第二圈。
     private var fullInputBar: some View {
-        VStack(alignment: .leading, spacing: expanded ? Spacing.xs : 0) {
-            inputRow
-            if expanded, !modelLabel.isEmpty {
-                modelRow
+        // v3.9.50 #1（用户参考图：「文字在上、工具行在下」）：两态各一套布局——
+        // 收起态逐字沿用 v3.9.47 那一行；展开态把文本区抬到上面独占一行，工具全在底下一行。
+        Group {
+            if expanded {
+                expandedBar
+            } else {
+                collapsedBar
             }
         }
         .padding(.horizontal, Spacing.lg)
@@ -113,9 +118,36 @@ struct ChatInputBar: View {
         .animation(Motion.snap, value: expanded)
     }
 
-    /// 展开态 = 聚焦且不在语音/录音/转写三态里（那三态各有自己的输入栏形态）
+    /// 收起态一行：附件 / 相机 / 文本框 / 停止 / 发送（与 v3.9.47 逐字一致）
+    private var collapsedBar: some View {
+        HStack(spacing: 8) {
+            attachButtons
+            textArea
+            trailingButtons
+        }
+    }
+
+    /// 展开态两行：上面文本区独占整宽，下面一行「附件 相机 —— 模型名 —— 停止 发送」
+    private var expandedBar: some View {
+        VStack(alignment: .leading, spacing: Spacing.xs) {
+            textArea
+            HStack(spacing: 8) {
+                attachButtons
+                Spacer(minLength: Spacing.xs)
+                if !modelLabel.isEmpty {
+                    modelButton
+                }
+                trailingButtons
+            }
+        }
+    }
+
+    /// 展开态门控用**键盘可见**，不用 `focused`：v3.9.50 两态是两套容器（HStack ↔ VStack），
+    /// TextField 换父级会重建，重建瞬间可能掉 first responder → `focused` 变 false → 布局收回 →
+    /// 再聚焦再重建，形成反馈回路（本机无法验证，故走这条没有回路的口径：键盘可见性由系统通知驱动）。
+    /// 语音 / 录音 / 转写三态各有自己的输入栏形态，不参与"变大"。
     private var expanded: Bool {
-        focused && !isRecording && !voiceMode && !transcribing
+        kbEnv.isVisible && !isRecording && !voiceMode && !transcribing
     }
 
     /// 容器形状：**圆角恒定 `Radius.hero`(22)，不随展开/收起变**。
@@ -172,40 +204,8 @@ struct ChatInputBar: View {
         return focused ? Color.blue.opacity(0.45) : Color.white.opacity(Tint.subtle)
     }
 
-    /// 第二行：右下角的模型快选胶囊（左半边留空，避免和第一行的附件/相机抢视线）
-    private var modelRow: some View {
-        HStack(spacing: Spacing.sm) {
-            Spacer(minLength: 0)
-            Button(action: onPickModel) {
-                HStack(spacing: 3) {
-                    Image(systemName: "cube.box")
-                        .foregroundStyle(Color.accentColor)
-                    // v3.9.50（用户：「模型字体紧挨着模型图标」）：病根是原先那层
-                    // `frame(maxWidth: 120, alignment: .trailing)`——短名时文字被推到 120pt 框的右端，
-                    // 图标和名字之间凭空一道空隙。改回自然宽度：图标 `spacing: 3` 贴字。
-                    // 不超出输入框仍有保障：行首 `Spacer(minLength: 0)` 先被压掉，再长就中部截断。
-                    Text(modelLabel)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .foregroundStyle(.secondary)   // v3.9.50（用户：「模型用灰色字体」）
-                }
-                .modelPill()
-            }
-            .buttonStyle(PressStyle())
-            // v3.9.34 同款命中区口径：胶囊视觉高 24 → 外扩到 44（横向下限本就 >44）
-            .hitArea44(h: 0, v: 10)
-            .accessibilityLabel("模型快选，当前 \(modelLabel)")
-        }
-        .frame(maxWidth: .infinity)
-        // v3.9.49（真机：「不要超出输入框」）：容器横向内边距只有 `Spacing.lg`(10)，
-        // 而玻璃本体的可见边缘比布局边界再缩一圈 → 胶囊贴边画就等于压在线上。右侧再让 6pt。
-        .padding(.trailing, Spacing.sm)
-        .padding(.top, Spacing.xxs)
-    }
-
-    /// 第一行（附件 / 相机 / 文本框 / 停止 / 发送）——v3.9.48 从 `fullInputBar` 原样搬出，
-    /// 容器装饰（玻璃底 / 描边 / 阴影 / 流光）上移到外层 VStack 统一套
-    private var inputRow: some View {
+    /// 左侧两枚次级按钮（附件 / 相机）——v3.9.50 从 `inputRow` 里拆出来，两态共用一份
+    private var attachButtons: some View {
         HStack(spacing: 8) {
             Button(action: onPickAttachment) {
                 Image(systemName: "paperclip")
@@ -232,87 +232,120 @@ struct ChatInputBar: View {
             .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
             // v3.9.34：命中区 44×44（相机钮视觉 32×30、间距零变化）
             .hitArea44(h: 6, v: 7)
+        }
+    }
 
-            if isRecording {
-                // v3.9.6：录音中**直接上屏** —— 在输入框同一行位置实时渲染识别文本。
-                // 文本源取 liveSpeech.liveText（@Published），不再依赖 onTextChange 写 @State
-                // 或 TextField 的 binding 刷新（v3.9.5 实测：录音中框里始终只有「输入消息…」占位、
-                // 松手才一次性出字 = 实时链路没上屏）。红点=正在听；无字时保持空白。
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 6) {
-                        // v3.9.14：红点改脉动（用户反馈「录音图标是静态的，不会动」）
-                        PulsingRecordDot()
-                        Text(recordingText.isEmpty
-                             ? (recordingStalled ? "没听清，靠近麦克风再说一次" : "正在听…")
-                             : recordingText)
-                            .font(.system(size: Typography.body))
-                            .foregroundStyle(recordingText.isEmpty ? Color.secondary : Color.primary)
-                            .lineLimit(1...6)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .allowsHitTesting(false)
-                    }
-                    // v3.9.14：诊断串只在「录了 3 秒一个结果都没有」时贴着显示——
-                    // 排查价值保留（V/F 识别计数、T/D/Y 音频三级计数），但不再挤占正常录音时的文本区
-                    if recordingStalled, !recordingDiag.isEmpty {
-                        Text(recordingDiag)
-                            .font(.system(size: 9))
-                            .foregroundStyle(.tertiary)
-                            .allowsHitTesting(false)
-                    }
+    /// v3.9.50 #2（用户参考图）：模型名 = **纯灰文字**，不带图标、不带胶囊壳，
+    /// 排在工具行右半段（停止/发送左侧）。点按 → `ComposerModelSheet`。
+    /// v3.9.49 那版给它套过一枚非玻璃胶囊壳（`modelPill`），这轮连壳带图标一起撤掉——
+    /// 玻璃栏里再画一枚带底带边的壳，读起来还是"两层"。
+    private var modelButton: some View {
+        Button(action: onPickModel) {
+            Text(modelLabel)
+                .font(.system(size: Typography.subhead))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(PressStyle())
+        // 文字视觉高约 18 → 外扩到 44 高（横向给足，长名截断本身就贴着右半段）
+        .hitArea44(h: Spacing.lg, v: 13)
+        .accessibilityLabel("模型快选，当前 \(modelLabel)")
+    }
+
+    /// 文本区（录音态上屏文本 / TextField）——v3.9.48 从 `fullInputBar` 原样搬出，
+    /// v3.9.50 两态共用：收起态夹在左右两组按钮中间，展开态独占上面一行
+    @ViewBuilder
+    private var textArea: some View {
+        if isRecording {
+            // v3.9.6：录音中**直接上屏** —— 在输入框同一行位置实时渲染识别文本。
+            // 文本源取 liveSpeech.liveText（@Published），不再依赖 onTextChange 写 @State
+            // 或 TextField 的 binding 刷新（v3.9.5 实测：录音中框里始终只有「输入消息…」占位、
+            // 松手才一次性出字 = 实时链路没上屏）。红点=正在听；无字时保持空白。
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    // v3.9.14：红点改脉动（用户反馈「录音图标是静态的，不会动」）
+                    PulsingRecordDot()
+                    Text(recordingText.isEmpty
+                         ? (recordingStalled ? "没听清，靠近麦克风再说一次" : "正在听…")
+                         : recordingText)
+                        .font(.system(size: Typography.body))
+                        .foregroundStyle(recordingText.isEmpty ? Color.secondary : Color.primary)
+                        .lineLimit(1...6)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .allowsHitTesting(false)
                 }
-                .padding(.vertical, Spacing.xl)
+                // v3.9.14：诊断串只在「录了 3 秒一个结果都没有」时贴着显示——
+                // 排查价值保留（V/F 识别计数、T/D/Y 音频三级计数），但不再挤占正常录音时的文本区
+                if recordingStalled, !recordingDiag.isEmpty {
+                    Text(recordingDiag)
+                        .font(.system(size: 9))
+                        .foregroundStyle(.tertiary)
+                        .allowsHitTesting(false)
+                }
+            }
+            .padding(.vertical, Spacing.xl)
+            .padding(.horizontal, Spacing.xxs)
+        } else {
+            TextField("", text: $text, axis: .vertical)
+                .font(.system(size: Typography.body))
+                // v3.9.48：展开态起判行高抬到 2 行（用户点名"点输入框时输入框变大"）——
+                // 未聚焦仍 1 行起，收起态逐字同 v3.9.47
+                .lineLimit(expanded ? 2...6 : 1...6)   // v2.0.35：1行起（原来2...6最小2行高→单行光标/文字偏上不居中）
+                // v2.0.93f：9→12 输入框加高（用户反馈太窄）。v3.9.50 展开态改小：
+                // 文本区上面一行、工具行下面一行，行间距由 VStack 的 `Spacing.xs` 给，不再靠这 12pt 撑高度
+                .padding(.vertical, expanded ? Spacing.xs : Spacing.xl)
                 .padding(.horizontal, Spacing.xxs)
-            } else {
-                TextField("", text: $text, axis: .vertical)
-                    .font(.system(size: Typography.body))
-                    // v3.9.48：展开态起判行高抬到 2 行（用户点名"点输入框时输入框变大"）——
-                    // 未聚焦仍 1 行起，收起态逐字同 v3.9.47
-                    .lineLimit(expanded ? 2...6 : 1...6)   // v2.0.35：1行起（原来2...6最小2行高→单行光标/文字偏上不居中）
-                    .padding(.vertical, Spacing.xl)   // v2.0.93f：9→12 输入框加高（用户反馈太窄）
-                    .padding(.horizontal, Spacing.xxs)
-                    .fixedSize(horizontal: false, vertical: true)   // 文字超宽自动增高输入框，旧文字始终可见
-                    .focused($focused)
-                    // v2.0.106：长按输入框 = 进入语音转文字（与长按发送键同效；收键盘由 ChatView 处理）
-                    // v2.0.106b：onLongPressGesture 被 UITextField 内置长按(放大镜/选择)拦截不触发
-                    //           → 改 simultaneousGesture 与系统手势共存触发
-                    // v2.0.109b：onChanged（down 瞬间）记录键盘可见状态——键盘开=true 保持，关=false 收回
-                    // v3.9.3：语音恒可用（设备端）——voiceEnabled 现恒为 true，保留判断以便按需关闭
-                    //           （用 .simultaneousGesture 里 if/else 各自挂同类型 LongPressGesture，规避泛型不一致）
-                    .simultaneousGesture(
-                        LongPressGesture(minimumDuration: voiceEnabled ? 0.4 : 3600)
-                            .onChanged { _ in
-                                pressKeyboardUp = kbEnv.isVisible
+                .fixedSize(horizontal: false, vertical: true)   // 文字超宽自动增高输入框，旧文字始终可见
+                .focused($focused)
+                // v2.0.106：长按输入框 = 进入语音转文字（与长按发送键同效；收键盘由 ChatView 处理）
+                // v2.0.106b：onLongPressGesture 被 UITextField 内置长按(放大镜/选择)拦截不触发
+                //           → 改 simultaneousGesture 与系统手势共存触发
+                // v2.0.109b：onChanged（down 瞬间）记录键盘可见状态——键盘开=true 保持，关=false 收回
+                // v3.9.3：语音恒可用（设备端）——voiceEnabled 现恒为 true，保留判断以便按需关闭
+                //           （用 .simultaneousGesture 里 if/else 各自挂同类型 LongPressGesture，规避泛型不一致）
+                .simultaneousGesture(
+                    LongPressGesture(minimumDuration: voiceEnabled ? 0.4 : 3600)
+                        .onChanged { _ in
+                            pressKeyboardUp = kbEnv.isVisible
+                        }
+                        .onEnded { _ in
+                            guard voiceEnabled else { return }
+                            onLongPressInput(pressKeyboardUp)
+                        }
+                )
+                .overlay {
+                    if text.isEmpty {
+                        if transcribing {
+                            // v2.0.100：转写中动画（waveform 图标 + 文字脉冲）
+                            HStack(spacing: 6) {
+                                Image(systemName: "waveform")
+                                    .font(.system(size: Typography.subhead))
+                                    .symbolEffect(.pulse)
+                                Text("语音转换中…")
+                                    .font(.system(size: Typography.body))
                             }
-                            .onEnded { _ in
-                                guard voiceEnabled else { return }
-                                onLongPressInput(pressKeyboardUp)
-                            }
-                    )
-                    .overlay {
-                        if text.isEmpty {
-                            if transcribing {
-                                // v2.0.100：转写中动画（waveform 图标 + 文字脉冲）
-                                HStack(spacing: 6) {
-                                    Image(systemName: "waveform")
-                                        .font(.system(size: Typography.subhead))
-                                        .symbolEffect(.pulse)
-                                    Text("语音转换中…")
-                                        .font(.system(size: Typography.body))
-                                }
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .allowsHitTesting(false)
+                        } else {
+                            Text("输入消息...")
+                                .font(.system(size: Typography.body))
                                 .foregroundStyle(.secondary)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .allowsHitTesting(false)
-                            } else {
-                                Text("输入消息...")
-                                    .font(.system(size: Typography.body))
-                                    .foregroundStyle(.secondary)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .allowsHitTesting(false)
-                            }
                         }
                     }
-            }
+                }
+        }
+    }
+
+    /// 右侧那一族：停止（流式时）+ 发送/转写按钮——v3.9.50 从 `inputRow` 拆出，两态共用。
+    /// 内部 `HStack(spacing: 8)` 与外层行距同参 → 拆前拆后视觉零差异。
+    private var trailingButtons: some View {
+        HStack(spacing: 8) {
             // v2.0.88：AI 回答中也可继续发送（消息排队，答完自动逐条回）；
             // 停止按钮独立保留（取消当前回答 + 清空队列）
             if streaming {
@@ -407,24 +440,6 @@ struct ChatInputBar: View {
             )
             .animation(Motion.snap, value: sendColors)
         }
-    }
-}
-
-
-/// v3.9.49：模型快选胶囊的**非玻璃**档。
-/// 病根：整条输入栏本身是一层 `glassEffect`，胶囊再套一层 `.glassEffect(.regular.interactive())`
-/// = 玻璃里浮一块玻璃，两圈折射边叠在一起（真机：「输入框有两层重叠在一起」）。
-/// 这里只留"淡色填充 + 同色细边"，形状和内边距照抄 `chatHeaderPill`，保证和头部那排胶囊同高。
-extension View {
-    func modelPill() -> some View {
-        self
-            .font(.system(size: Typography.caption, weight: .semibold))
-            .frame(height: 15)
-            .padding(.horizontal, Spacing.md)
-            .padding(.vertical, Spacing.sm)
-            .background(Color.accentColor.opacity(Tint.faint), in: Capsule())
-            .overlay(Capsule().strokeBorder(Color.accentColor.opacity(Tint.soft), lineWidth: 0.8))
-            .contentShape(Capsule())
     }
 }
 
