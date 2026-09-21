@@ -156,6 +156,14 @@ extension SettingsView {
                 }
             }
             Divider().padding(.leading, 52)
+            // v3.9.56：智能路由（TypeSafe 判定开关）——用户 2026-09-21 拍板「开关 + 就地展开」方案。
+            // 后端为真源：开关/模式/阈值改动当场写后端（免重启即时生效），本地不存一份。
+            toggleRow(icon: "arrow.triangle.branch", iconColor: .purple,
+                      title: "智能路由", subtitle: tsRouting.subtitleText, isOn: tsEnabledBinding)
+            if tsRouting.enabled {
+                tsRoutingParams
+            }
+            Divider().padding(.leading, 52)
             toggleRow(icon: "message.badge.filled.fill", iconColor: .green,
                       title: "微信推送", subtitle: "自动化执行结果推送到微信", isOn: $pushWeixin)
                 .onChange(of: pushWeixin) { _, new in
@@ -163,6 +171,112 @@ extension SettingsView {
                 }
         }
         .glassListCard()
+    }
+
+    /// v3.9.56：智能路由「就地展开」参数区。
+    /// 沿用「上下文自动压缩 → 压缩阈值」的既有展开形态（Divider + 行），不新增 sheet / 文件。
+    @ViewBuilder var tsRoutingParams: some View {
+        Divider().padding(.leading, 52)
+
+        // 判定模式：两枚胶囊。没有「关闭」档 —— 关掉上面那个开关就是不判定
+        HStack(spacing: Spacing.md) {
+            Text("判定模式").font(.system(size: Typography.body))
+            Spacer(minLength: Spacing.md)
+            tsCapsule("智能分流", on: tsRouting.mode == "smart") {
+                Task { await saveTypesafeRouting(["mode": "smart"]) }
+            }
+            tsCapsule("强制 Agent", on: tsRouting.mode == "force_agent") {
+                Task { await saveTypesafeRouting(["mode": "force_agent"]) }
+            }
+        }
+        .padding(.horizontal, Spacing.section)
+        .padding(.vertical, Spacing.lg)
+
+        // 后端被 CLI 设成 mode=off 时如实说明（App 里设不出这一档，但读得到）
+        if tsRouting.mode == "off" {
+            tsParamNote(TypesafeRouting.modeOffHint, warn: true)
+        }
+
+        Divider().padding(.leading, 52)
+
+        // 判定阈值：概率 ≥ 该值 → 判「要干活」。后端允许 0~1，UI 收窄到有意义的区间
+        HStack(spacing: Spacing.md) {
+            Text("判定阈值").font(.system(size: Typography.body))
+            Spacer(minLength: Spacing.md)
+            Text(tsRouting.thresholdText)
+                .font(.system(size: Typography.body))
+                .foregroundStyle(.secondary)
+            Stepper("", value: tsThresholdBinding, in: 0.30...0.95, step: 0.05).labelsHidden()
+        }
+        .padding(.horizontal, Spacing.section)
+        .padding(.vertical, Spacing.lg)
+
+        Divider().padding(.leading, 52)
+
+        // 判定超时：超时即回退关键词规则（不让用户等判定）
+        HStack(spacing: Spacing.md) {
+            Text("判定超时").font(.system(size: Typography.body))
+            Spacer(minLength: Spacing.md)
+            Text(tsRouting.timeoutText)
+                .font(.system(size: Typography.body))
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, Spacing.section)
+        .padding(.vertical, Spacing.lg)
+
+        Divider().padding(.leading, 52)
+
+        // 熔断状态：key 失效/上游挂掉连续失败 → 判定自动停 X 秒，期间零上游调用（不再白等）
+        HStack(spacing: Spacing.sm) {
+            Circle()
+                .fill(tsBreaker.open ? Color.red : Color.secondary.opacity(Tint.soft))
+                .frame(width: 6, height: 6)
+            Text(tsBreaker.statusText(tsRouting))
+                .font(.system(size: Typography.caption))
+                .foregroundStyle(tsBreaker.open ? AnyShapeStyle(Color.red) : AnyShapeStyle(.secondary))
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, Spacing.section)
+        .padding(.vertical, Spacing.lg)
+        // 熔断期间每 5 秒跟一次后端：倒计时会走，后端半开重试成功后状态自己翻回来
+        .task(id: tsBreaker.open) {
+            guard tsBreaker.open else { return }
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(5))
+                if Task.isCancelled { break }
+                await loadTypesafeRouting()
+                if !tsBreaker.open { break }
+            }
+        }
+
+        HStack(spacing: Spacing.md) {
+            tsCapsule("立即复位熔断", on: false) {
+                Task { await saveTypesafeRouting(["reset_breaker": true]) }
+            }
+            if tsBusy { ProgressView().controlSize(.small) }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, Spacing.section)
+        .padding(.bottom, Spacing.lg)
+
+        if !tsError.isEmpty {
+            tsParamNote(tsError, warn: true)
+        }
+        tsParamNote(TypesafeRouting.footerText, warn: false)
+    }
+
+    /// v3.9.56：参数区小字说明（warn = 红字，否则 tertiary 灰字）
+    @ViewBuilder func tsParamNote(_ text: String, warn: Bool) -> some View {
+        HStack {
+            Text(text)
+                .font(.system(size: Typography.caption))
+                .foregroundStyle(warn ? AnyShapeStyle(Color.red) : AnyShapeStyle(.tertiary))
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, Spacing.section)
+        .padding(.bottom, Spacing.lg)
     }
 
     @ViewBuilder var dataSection: some View {

@@ -147,3 +147,92 @@ extension SettingsView {
         }
     }
 }
+
+// MARK: - v3.9.56 TypeSafe 智能路由（读回来显示 + 改完回写；后端是唯一真源）
+
+extension SettingsView {
+
+    /// 开关绑定。set 里先动 UI（开关手感不等网络），POST 失败再拉回后端现状
+    /// —— 防「开关显示 ON 但后端其实没开」这种脱钩（同 localModelToggle 的处置）。
+    var tsEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { tsRouting.enabled },
+            set: { new in
+                tsRouting.enabled = new
+                guard !tsSyncing else { return }   // 读回来造成的写入不回写（否则回声 POST 循环）
+                Task { await saveTypesafeRouting(["enabled": new]) }
+            }
+        )
+    }
+
+    /// 阈值绑定（每步一次 POST；后端改配置免重启，即时生效）
+    var tsThresholdBinding: Binding<Double> {
+        Binding(
+            get: { tsRouting.threshold },
+            set: { new in
+                tsRouting.threshold = new
+                guard !tsSyncing else { return }
+                Task { await saveTypesafeRouting(["threshold": new]) }
+            }
+        )
+    }
+
+    /// 读后端真实状态（进设置页 / 熔断轮询 / 保存失败回滚，都走这一处）
+    func loadTypesafeRouting() async {
+        guard let j = try? await auth.json("/api/agent/typesafe/routing") else {
+            tsError = "状态获取失败，请检查连接后重进本页"
+            return
+        }
+        applyTypesafeRouting(j)
+    }
+
+    /// 把后端响应整体写进影子状态；解析失败的那一段保留上一次的值（不拿兜底值冒充后端现状）
+    func applyTypesafeRouting(_ j: [String: Any]) {
+        tsSyncing = true
+        if let raw = j["routing"] as? [String: Any], let cfg = TypesafeRouting(json: raw) {
+            tsRouting = cfg
+        }
+        if let raw = j["breaker"] as? [String: Any] {
+            tsBreaker = TypesafeBreaker(json: raw) ?? .closed
+        }
+        tsSyncing = false
+        tsError = ""
+    }
+
+    /// 回写（部分字段补丁）：成功以响应为准刷新；失败拉回后端现状 + 红字，绝不留下假状态。
+    func saveTypesafeRouting(_ patch: [String: Any]) async {
+        guard !tsBusy else { return }
+        tsBusy = true
+        defer { tsBusy = false }
+        do {
+            let j = try await auth.json("/api/agent/typesafe/routing", method: "POST", body: patch)
+            if (j["ok"] as? Bool) == false {
+                tsError = (j["error"] as? String) ?? "保存失败"
+                await loadTypesafeRouting()
+            } else {
+                applyTypesafeRouting(j)
+            }
+        } catch {
+            tsError = "保存失败，请检查连接"
+            await loadTypesafeRouting()
+        }
+    }
+
+    /// 参数区小胶囊。选中 = 主题色淡底 + 同色文字 + 0.8pt 同色细描边；未选中 = 中性淡底
+    /// —— 走 v3.9.35「三件套」口径，不用实色胶囊（用户明确否决过实色）。
+    func tsCapsule(_ title: String, on: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: Typography.subhead, weight: .semibold))
+                .foregroundStyle(on ? Color.accentColor : Color.primary)
+                .padding(.horizontal, Spacing.xl)
+                .padding(.vertical, Spacing.sm)
+                .background(on ? Color.accentColor.opacity(Tint.subtle) : Color.primary.opacity(Tint.faint),
+                            in: Capsule())
+                .overlay(Capsule().strokeBorder(on ? Color.accentColor.opacity(0.28)
+                                                   : Color.secondary.opacity(0.22),
+                                                lineWidth: 0.8))
+        }
+        .buttonStyle(PressStyle())
+    }
+}

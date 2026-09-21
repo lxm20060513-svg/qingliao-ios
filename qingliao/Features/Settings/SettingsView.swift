@@ -75,6 +75,13 @@ struct SettingsView: View {
     // v3.0.81：上下文管理
     @AppStorage("qingliao_context_auto_compress") var contextAutoCompress = false
     @AppStorage("qingliao_context_threshold") var contextThreshold = 4000
+    // v3.9.56：TypeSafe 智能路由（设置页开关 + 就地展开）。后端是唯一真源，所以用 @State 影子状态
+    // 而不是 @AppStorage —— 本地也存一份的话，换设备/运维改了后端配置，UI 就会显示假状态。
+    @State var tsRouting = TypesafeRouting.fallback
+    @State var tsBreaker = TypesafeBreaker.closed
+    @State var tsSyncing = false   // 读回来时抑制回声 POST（同 localModelSyncing 口径）
+    @State var tsBusy = false
+    @State var tsError = ""
     // v2.0.88：Face ID 登录开关（关闭后删除 Keychain 凭据，登录页不再显示快捷按钮）
     @AppStorage("qingliao_faceid_login") var faceIDLogin = true
     @State var faceIDAuthFailed = false   // v2.0.89f：开关打开时系统授权失败提示
@@ -227,6 +234,7 @@ struct SettingsView: View {
         .task {
             await loadCounts()
             await loadLocalStatus()   // v-review fix：进入设置页即以后端 /api/local/status 校准本地模型开关
+            await loadTypesafeRouting()   // v3.9.56：进设置页即读后端真实路由开关/熔断状态
         }
     }
 }

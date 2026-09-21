@@ -78,4 +78,14 @@ $SWIFT/swiftc -swift-version 6 -o /tmp/test_quick_reminder /tmp/ql_reminder_main
 echo "=== 9. 模型用量卡片文案真值表（v3.9.54）==="
 # 单文件（纯 Foundation，无项目依赖）→ run_unit 直接编跑
 run_unit /tmp/test_provider_usage scripts/test_provider_usage.swift
+
+echo "=== 10. TypeSafe 智能路由真值表（v3.9.56）==="
+# 多文件编译时只有 main.swift 允许顶层代码 → 复制一份到临时目录做 main.swift
+rm -rf /tmp/ql_ts_main && mkdir -p /tmp/ql_ts_main
+cp scripts/test_typesafe_routing.swift /tmp/ql_ts_main/main.swift
+rm -f /tmp/test_typesafe_routing   # 先删旧产物，否则编译失败时会跑到上一轮残留二进制 → 假绿
+$SWIFT/swiftc -swift-version 6 -o /tmp/test_typesafe_routing /tmp/ql_ts_main/main.swift \
+    qingliao/Core/TypesafeRouting.swift 2>&1 | head -10
+[ ${PIPESTATUS[0]} -eq 0 ] || { echo "❌ 智能路由真值表编译失败"; exit 1; }
+/tmp/test_typesafe_routing || exit 1
 exit $?
