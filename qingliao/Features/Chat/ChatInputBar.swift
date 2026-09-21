@@ -44,7 +44,7 @@ struct ChatInputBar: View {
     @AppStorage("qingliao_input_glow") private var inputGlowOn = true
     // v3.4.25：上下文阈值预警——外部传入上下文使用率（0-1），超 0.8 发送键变橙轻提醒
     var contextUsage: Double = 0
-    /// v3.9.48：展开态右下角的模型快选——当前模型名（空串 = 整行不显示）+ 点击回调。
+    /// v3.9.48：模型快选——当前模型名（空串 = 整块不显示）+ 点击回调。
     /// ⚠️ 追加在 `contextUsage` 之后：调用点走成员初始化器且按声明序传参，插在中间会错位
     var modelLabel: String = ""
     var onPickModel: () -> Void = {}
@@ -78,29 +78,24 @@ struct ChatInputBar: View {
             .frame(maxWidth: .infinity)
     }
 
-    /// v3.9.51 第三轮（真机 495：「还是有两圈」+「点输入框弹一下又收回了」）——两条一起收口：
+    /// v3.9.53（真机 497 后用户拍板：「输入框样式还是改回 3.9.46 版本的样式吧，现在的不行，
+    /// 在 3.9.46 基础上加上模型切换就行」）——**样式整条回退到 v3.9.46**，只留模型切换：
     ///
-    /// ① **两圈的来源找到了，不在描边也不在半径动画**：`glassEffect` 的签名是
-    /// `glassEffect(_ glass: Glass = .regular, in shape: some Shape = DefaultGlassEffectShape())`
-    /// （Apple 文档实证），而 v2.0.87e 起这里写的是 `barShape.glassEffect()` —— 把修饰符挂在**形状视图**上，
-    /// 形状参数走默认值。玻璃本体因此按 `DefaultGlassEffectShape`（胶囊档）画，`barShape` 的 22pt
-    /// 只提供了 bounds、根本没进渲染；外面那圈则是容器 `.shadow`（radius 14）沿布局边界投出来的。
-    /// → 内圈胶囊 + 外圈方角，正是用户三次描述的那个形状差。
-    /// 改法：玻璃**直接挂在内容上**并把形状显式传进 `in:`（`.glassEffect(.regular, in: barShape)`），
-    /// 全仓可用先例即 `Pill.swift` 的 `.padding(...).glassEffect(.regular.interactive())`——
-    /// 那些胶囊从没出现过两圈。容器 `.shadow` 一并删掉：玻璃自带投影，留着它就是把第二圈画回去
-    /// （顺带继续守住 v3.2.3「阴影不得跟在流光之后重算」）。
+    /// 容器形状回到 `Capsule`（不是 `barShape` 的 22pt 方角）、玻璃回到 `.background { Capsule().glassEffect() }`、
+    /// 常态白边 + 聚焦蓝边回到 v3.4.20 那两层各画各的写法、外层 `.shadow(0.3 / 14 / 5)` 加回来（仍排在流光
+    /// overlay **之前**，v3.2.3 红线不动）、`rimLight` 内缘高光与 `.clear` 玻璃档整段删除。
     ///
-    /// ② **两行布局回退成单行**（见 `expanded` 注释）：容器不再随状态换，TextField 结构路径恒定，
-    /// 不再重建丢焦点。v3.9.52 起 `expanded` 只管"模型名出不出现"，栏高完全由内容驱动
-    /// （`lineLimit(1...6)` + `fixedSize`）——原先"聚焦就预留两行"那档让光标偏上，见 `textArea`。
+    /// v3.9.48~52 那五轮（展开态换布局、方角 barShape、内缘高光、`.clear`）全部判废，
+    /// 记账见 memory `project-ui-motion-workflow`。结构上仍保留 `attachButtons`/`textArea`/
+    /// `trailingButtons` 三个私有子视图（纯拆分、与 v3.9.46 的单行 HStack 视觉零差异），
+    /// 因为**任何让 TextField 换父级的写法都会重建它 → 键盘弹一下又收回**。
     private var fullInputBar: some View {
         HStack(spacing: 8) {
             attachButtons
             textArea
             // 条件块排在 textArea **之后**：TupleView 里 textArea 仍在 index 1，
-            // 展开/收起切换不改它的结构路径 → 不重建、不掉 first responder
-            if expanded, !modelLabel.isEmpty {
+            // 切换不改它的结构路径 → 不重建、不掉 first responder
+            if !modelLabel.isEmpty {
                 modelButton
             }
             trailingButtons
@@ -108,104 +103,47 @@ struct ChatInputBar: View {
         .padding(.horizontal, Spacing.lg)
         .padding(.vertical, Spacing.md)
         // v2.0.87e：原生液态玻璃输入栏（iOS 26+）
-        // v3.9.52（用户：「再加点玻璃质感」）：`.regular` → `.clear`。
-        // ⚠️ 别去找 `.thin`/`.heavy`——`Glass` 只有 `clear`/`regular`/`identity` 三档（Apple 文档实证），
-        // "更透"这一头就是 `.clear`：材质本体近乎不遮，折射与边缘受光还在，底下聊天内容能透上来。
-        // 代价：浅色页面上对比度比 `.regular` 低一档，靠下面那圈内缘高光（`rimLight`）撑边界。
-        // 真机若判"空得看不见输入框"，回退是一行：换回 `.regular`（或 `.regular.tint(.white.opacity(0.12))`）。
-        .glassEffect(.clear, in: barShape)
-        .overlay { edgeOverlay }
-        .padding(.horizontal, 18)   // v2.0.87aw：输入框宽度收窄（12→18）
-        // v3.9.49：动画修饰符必须在整条链**末尾**——原来它夹在描边 overlay 之前，
-        // 阴影之后那层描边拿不到 transaction，聚焦时一层插值一层瞬时跳。
-        .animation(Motion.snap, value: focused)
-        .animation(Motion.snap, value: expanded)
-    }
-
-
-    /// 展开态门控用**键盘可见**，不用 `focused`：v3.9.50 两态是两套容器（HStack ↔ VStack），
-    /// TextField 换父级会重建，重建瞬间掉 first responder → `focused` 变 false → 布局收回 →
-    /// 再聚焦再重建，形成反馈回路。真机 495 实测：即使门控已换成 `kbEnv.isVisible`，
-    /// 「点输入框键盘弹一下又收回」照样发生 —— 换布局这条路判死，v3.9.51 回退单行容器。
-    /// 语音 / 录音 / 转写三态各有自己的输入栏形态，不参与"变大"。
-    private var expanded: Bool {
-        kbEnv.isVisible && !isRecording && !voiceMode && !transcribing
-    }
-
-    /// 容器形状：**圆角恒定 `Radius.hero`(22)，不随展开/收起变**。
-    /// v3.9.51 起它同时是玻璃的形状（`glassEffect(_:in:)` 的第二参数）与描边的形状——
-    /// 一处传参，两圈不可能再错开。
-    private var barShape: RoundedRectangle {
-        RoundedRectangle(cornerRadius: Radius.hero, style: .continuous)
-    }
-
-    /// v3.4.20 聚焦光晕 + v2.0.87s 等待流光——v3.9.49 **合并成容器唯一的描边层**。
-    /// 原来「蓝细描边」和「白细描边」是两层各自独立的 overlay、画在同一条路径上，
-    /// 其中一层还拿不到展开动画的 transaction（见 `fullInputBar` 末尾注释）→ 两圈轮廓。
-    /// 现在这一层里：streaming 走流光；其余状态是「聚焦环（贴在玻璃边界上）+ 内缘受光高光（内缩 1.4pt）」，
-    /// 两条都从同一个 `barShape` 派生 → 同心、不重叠，读起来是一圈带高光的玻璃边而不是一堆线。
-    /// 仍是静态描边（非每帧重绘）、无 shadow 叠加，不触碰 v3.2.3 渲染卡死红线。
-    /// v3.9.51：容器**自己那圈 `.shadow` 已删**（玻璃自带投影，留着它就是浮出第二圈），
-    /// 所以这里"流光无 shadow"的口径不变，只是少了一层可重算的阴影。
-    @ViewBuilder
-    private var edgeOverlay: some View {
-        // v3.2.4：流光在 streaming / voiceMode 均启用（当时用户拍板：语音模式保留流光视觉）。
-        // v3.9.7 改主意：语音转文字过程中输入框**移除这层特效**，保持普通输入框形态——
-        //         语音态唯一的视觉提示是「发送键变收音图标」（v3.9.7 用户要求，观感更干净）。
-        //         于是流光只在 streaming（等待回复）态出现。
-        // 卡死防护靠 v3.2.3 两件套（流光无 shadow + 15fps）；外层容器阴影 v3.9.51 已整条删除。
-        // voiceMode 期间已无任何动态视图，风险只降不升。
-        if streaming && inputGlowOn {
-            // v2.0.139 性能：流光 60→30fps（旋转渐变肉眼无差，重绘开销减半）
-            // v3.2.3：30→15fps + **去掉 .shadow**——每帧变化的渐变+阴影=每帧送 stroker 算圆角
-            // 阴影路径（iOS 27 RenderBox 卡死源）。旋转渐变无锐边，15fps 肉眼无差，观感不变。
-            let schedule: AnimationTimelineSchedule = .animation(minimumInterval: 1.0 / 15.0)
-            TimelineView(schedule) { context in
-                let t = context.date.timeIntervalSinceReferenceDate
-                let angle = (t * 70).truncatingRemainder(dividingBy: 360)
-                // 内部流光：Siri 淡雅蓝紫粉红旋转（87 版效果）
-                barShape.fill(
-                    AngularGradient(
-                        colors: [.blue.opacity(0.22), .indigo.opacity(0.22),
-                                 .pink.opacity(0.22), .red.opacity(0.16), .blue.opacity(0.22)],
-                        center: .center, angle: .degrees(angle)
-                    )
-                )
-                .allowsHitTesting(false)   // v2.0.87al：不拦截点击（停止按钮可点）
-            }
-        } else {
-            ZStack {
-                // v3.9.52（用户：「再加点玻璃质感」）内缘高光：顶部受光亮、底部压暗，
-                // 真玻璃的观感全在边缘受光这一笔上。`inset(by: 1.4)`（`InsettableShape` API，
-                // 文档实证签名 `inset(by amount: CGFloat) -> Self.InsetShape`）+ `strokeBorder`
-                // 让它走在玻璃边界**内侧** 1.4~2.6pt 处——不越出玻璃、不与聚焦环抢同一条路径，
-                // 所以不会又变成第二圈（v3.9.49 那两轮"减描边层数"的教训：错开才是两圈，重合不是）。
-                barShape.inset(by: 1.4).strokeBorder(rimLight, lineWidth: 1.2)
-                barShape.strokeBorder(edgeColor, lineWidth: 0.8)
-            }
-            .allowsHitTesting(false)
+        .background { Capsule().glassEffect() }
+        // v3.4.20：聚焦态光晕——输入框获得焦点时边缘亮起淡蓝细描边（0.8pt 与全站描边同参），失焦淡出。
+        // 静态描边（非每帧重绘），无 shadow 叠加，不触碰 v3.2.3 渲染卡死红线。
+        .overlay {
+            Capsule().strokeBorder(Color.blue.opacity(focused ? 0.45 : 0), lineWidth: 0.8)
+                .allowsHitTesting(false)
         }
+        .animation(Motion.snap, value: focused)
+        // v3.2.3 渲染卡死根治：外层阴影移到流光 overlay **之前**——阴影只对静态背景/内容生效，
+        // 不再因流光每帧变化触发阴影 CGPath 重算（.ips 8BADF00D 主线程栈铁证：
+        // ShapeLayerShadowHelper.updateShadow → Path.cgPath → RenderBox CG::stroker 病态递归卡死）
+        .shadow(color: .black.opacity(0.3), radius: 14, y: 5)
+        // v2.0.87s：等待回复特效（v2.0.87ay：改回 87 版效果——内部旋转流光，Siri 淡雅）
+        .overlay {
+            // v3.9.7：语音转文字过程中输入框**不加这层特效**，保持普通输入框形态——
+            //         语音态唯一的视觉提示是「发送键变收音图标」。流光只在 streaming（等待回复）态出现。
+            // 卡死防护靠 v3.2.3 三件套（流光无 shadow + 15fps + 外层阴影静态化在 overlay 前）。
+            if streaming && inputGlowOn {
+                // v2.0.139 性能：流光 60→30fps；v3.2.3：30→15fps + **去掉 .shadow**
+                let schedule: AnimationTimelineSchedule = .animation(minimumInterval: 1.0 / 15.0)
+                TimelineView(schedule) { context in
+                    let t = context.date.timeIntervalSinceReferenceDate
+                    let angle = (t * 70).truncatingRemainder(dividingBy: 360)
+                    // 内部流光：Siri 淡雅蓝紫粉红旋转（87 版效果）
+                    Capsule().fill(
+                        AngularGradient(
+                            colors: [.blue.opacity(0.22), .indigo.opacity(0.22),
+                                     .pink.opacity(0.22), .red.opacity(0.16), .blue.opacity(0.22)],
+                            center: .center, angle: .degrees(angle)
+                        )
+                    )
+                    .allowsHitTesting(false)   // v2.0.87al：不拦截点击（停止按钮可点）
+                }
+            } else {
+                Capsule().strokeBorder(.white.opacity(Tint.subtle), lineWidth: 0.8)
+            }
+        }
+        .padding(.horizontal, 18)   // v2.0.87aw：输入框宽度收窄（12→18）
     }
 
-    /// 内缘受光渐变（顶亮底暗），只给 `edgeOverlay` 那圈高光用
-    private var rimLight: LinearGradient {
-        LinearGradient(
-            colors: [.white.opacity(0.35), .white.opacity(0.04), .black.opacity(0.10)],
-            startPoint: .top, endPoint: .bottom
-        )
-    }
-
-    /// 常态白边 / 聚焦蓝边（v3.4.20 那两档配色，一条边两档切换）
-    /// v3.9.49 第二轮曾把展开态整条 `.clear`，理由是"描边浮在玻璃外=第二圈"；**v3.9.52 撤回这个止损**：
-    /// 真因是玻璃形状没走 `in:` 参数（见 `fullInputBar` 注释），v3.9.51 修好后描边与玻璃边界同参同圈，
-    /// 蓝环不再制造第二圈。用户 496 原话：「输入时，输入框外框的淡蓝光圈也没有了，加回来」。
-    /// 蓝档取 `focused || expanded`：键盘在 = 焦点在本框，避免 focus 与键盘通知之间那一帧的错帧让环闪。
-    private var edgeColor: Color {
-        if focused || expanded { return Color.blue.opacity(0.45) }
-        return Color.white.opacity(Tint.subtle)
-    }
-
-    /// 左侧两枚次级按钮（附件 / 相机）——v3.9.50 从 `inputRow` 里拆出来，两态共用一份
+    /// 左侧两枚次级按钮（附件 / 相机）——纯拆分，与单行 HStack 里的写法视觉零差异
     private var attachButtons: some View {
         HStack(spacing: 8) {
             Button(action: onPickAttachment) {
@@ -238,7 +176,8 @@ struct ChatInputBar: View {
 
     /// v3.9.50 #2（用户参考图）：模型名 = **纯灰文字**，不带图标、不带胶囊壳——
     /// 玻璃栏里再画一枚带底带边的壳，读起来还是"两层"。点按 → `ComposerModelSheet`。
-    /// v3.9.51：容器回退单行后它排在发送键左侧，且只在展开态出现（`fullInputBar` 里的条件块）。
+    /// v3.9.53：样式回退 v3.9.46 后，它是**唯一保留**的新增件——恒挂在单行 HStack 里、
+    /// 排在 textArea 之后（不能排在前面：换 TextField 的 TupleView index 会重建它 → 丢键盘）。
     private var modelButton: some View {
         Button(action: onPickModel) {
             Text(modelLabel)
@@ -255,7 +194,7 @@ struct ChatInputBar: View {
     }
 
     /// 文本区（录音态上屏文本 / TextField）——v3.9.48 从 `fullInputBar` 原样搬出，
-    /// v3.9.50 两态共用：收起态夹在左右两组按钮中间，展开态独占上面一行
+    /// 内容与 v3.9.46 逐字一致（纯拆分，只为让 `fullInputBar` 的容器链那段好看清）
     @ViewBuilder
     private var textArea: some View {
         if isRecording {
@@ -296,8 +235,7 @@ struct ChatInputBar: View {
                 // 这条坑本仓 v2.0.35 就踩过一次（当时的注释原话："2...6 最小2行高→单行光标/文字偏上不居中"），
                 // v3.9.48 又把它请回来了。行高改由内容驱动：打字/换行才长，`fixedSize` 负责撑。
                 .lineLimit(1...6)
-                // v2.0.93f：9→12 输入框加高（用户反馈太窄）。v3.9.51：容器回退单行后，
-                // 展开态那档 `Spacing.xs` 的理由（"行距由 VStack 给"）随之消失，两态都用 xl
+                // v2.0.93f：9→12 输入框加高（用户反馈太窄）
                 .padding(.vertical, Spacing.xl)
                 .padding(.horizontal, Spacing.xxs)
                 .fixedSize(horizontal: false, vertical: true)   // 文字超宽自动增高输入框，旧文字始终可见
@@ -344,7 +282,7 @@ struct ChatInputBar: View {
         }
     }
 
-    /// 右侧那一族：停止（流式时）+ 发送/转写按钮——v3.9.50 从 `inputRow` 拆出，两态共用。
+    /// 右侧那一族：停止（流式时）+ 发送/转写按钮——v3.9.50 从 `fullInputBar` 拆出的纯拆分。
     /// 内部 `HStack(spacing: 8)` 与外层行距同参 → 拆前拆后视觉零差异。
     private var trailingButtons: some View {
         HStack(spacing: 8) {
