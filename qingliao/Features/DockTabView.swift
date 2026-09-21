@@ -83,9 +83,8 @@ struct DockTabView: View {
             // v3.4.30：装机实测后按用户要求关闭自动收缩——tab bar 常驻不缩，滚动时不再变窄
             // （v3.4.29 曾设为 .onScrollDown：向下滚动缩到角落只剩图标，用户不需要）
             .tabBarMinimizeBehavior(.never)
-            // v3.9.47：聊天页摘掉 tab bar 那层系统液态玻璃（方案 B，见 TabBarGlassClearer）——
-            // 只挂这一处，切页时 clear 翻转即装卸；探针视图零尺寸、透明，不参与布局
-            .background(TabBarGlassClearer(clear: selected == .chat))
+            // v3.9.47 方案 B（UIKit 侧改 UITabBar 外观）真机实测同样无效，已整块回退——
+            // 这里**不要再挂任何东西**，理由见下方 chatTab 的注释与 README「iOS 26 系统玻璃的三条口径」。
             // v3.4.29：切 tab 触感——挂在一处（TabView），别挂进每个 tab 的 modifier（会响 4 次）
             .onChange(of: selected) { _, newVal in
                 Haptics.tap()
@@ -201,10 +200,14 @@ struct DockTabView: View {
     ///   · iPad 宽屏：会话 + 聊天双栏，系统 message 图标
     ///   · iPhone：item 置空、无文字，整颗智能球由 DockOrbOverlay 居中绘制
     ///
-    /// v3.9.47：这一页要求 tab bar **不铺那层液态玻璃**，其他 tab 照旧。
-    /// 方案 A（SwiftUI `.toolbarBackground(.hidden, for: .tabBar)`）真机实测无效——iOS 26 只褪了
-    /// 背景色、玻璃层照旧，已回退。现在走方案 B：`TabBarGlassClearer`（UIKit 侧改 UITabBar 外观），
-    /// 挂在下面 body 的 TabView 上（只挂一处，切页时由 `selected == .chat` 驱动装卸）。
+    /// 聊天页要 tab bar **不铺那层液态玻璃**这件事，两条路都真机判过无效，**到此为止**：
+    ///   · 方案 A（v3.9.46，SwiftUI `.toolbarBackground(.hidden, for: .tabBar)`）——iOS 26 只褪了
+    ///     背景色、玻璃层照旧。
+    ///   · 方案 B（v3.9.47，UIKit：把真实 `UITabBar` 的 standard/scrollEdgeAppearance 换成
+    ///     `configureWithTransparentBackground()` 副本）——同样没褪掉，v3.9.48 用户判「回滚」，
+    ///     `TabBarGlass.swift` 探针已整块删除。
+    /// 第三条路也不要试（不再有公开出口的判断），更**不许**退回在 TabView 下层铺不透明色——
+    /// 那会掐死所有页的滚动边缘折射（v3.4.29 红线）。
     @ViewBuilder
     private var chatTab: some View {
         if hSize == .regular {
