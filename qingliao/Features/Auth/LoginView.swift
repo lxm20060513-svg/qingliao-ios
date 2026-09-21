@@ -31,7 +31,9 @@ struct LoginView: View {
     private var handingOff: Bool { auth.isLoggedIn }
 
     /// 表单左右留白（v3.9.46：原先 5 个视图块各写一遍 28，收敛成一个口径）
-    private static let formH: CGFloat = 28
+    /// v3.9.48（用户：「登录页的胶囊可以缩短」= 变窄）：28 → 40，
+    /// 三枚输入框 / 登录 / Face ID 一并收进去，不再顶满屏宽
+    private static let formH: CGFloat = 40
 
     var body: some View {
         ZStack {
