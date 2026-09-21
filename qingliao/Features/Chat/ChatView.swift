@@ -408,10 +408,10 @@ struct ChatView: View {
 
     /// v3.9.48：输入栏展开态的模型胶囊显示名——**复用发送路径同一套选型**（视觉/Agent/主模型），
     /// 与上面灵动岛同口径：只读 `qingliao_model` 会在 Agent/视觉模型生效时报错模型（v3.8.0 实踩）。
-    /// 串成 `provider/model` 与 `BotCard.displayModel` 一致；胶囊内单行中部截断，长名不撑破栏宽。
+    /// v3.9.49（真机：「不用显示 provider，只显示模型即可」）：去掉 `provider/` 前缀——
+    /// 胶囊本来就窄，加了前缀只装得下 `opencode/d…eek-v4-flash` 这种没法读的截断串。
     private var composerModelLabel: String {
-        let (m, p) = resolveModel(hasImage: false)
-        return p.isEmpty ? m : "\(p)/\(m)"
+        resolveModel(hasImage: false).0
     }
 
     /// v3.9.7：实时活动阶段——驱动灵动岛三态（思考中 / 输出中 / 已完成）。

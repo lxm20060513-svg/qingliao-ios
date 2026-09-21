@@ -82,7 +82,10 @@ struct ChatInputBar: View {
     /// 聚焦时文字区抬到 2 行起 + 右下角浮出模型快选胶囊，容器从纯胶囊长成 22pt 圆角矩形。
     ///
     /// 展开只认「普通打字」这一态：录音 / 语音模式 / 转写各自把整条栏换成别的形态（那三态本来就不打字），
-    /// 再叠一层"变大"会和它们打架。收起态的视图树与装饰和 v3.9.47 逐字一致。
+    /// 再叠一层"变大"会和它们打架。
+    ///
+    /// v3.9.49（真机：「输入框有两层重叠在一起」）：容器**只留一圈边**——玻璃底 + 一条描边，
+    /// 原来那条聚焦蓝环和常态白环是叠在同一路径上的两层，且其中一层不参与展开动画。见 `edgeOverlay`。
     private var fullInputBar: some View {
         VStack(alignment: .leading, spacing: expanded ? Spacing.xs : 0) {
             inputRow
@@ -94,15 +97,18 @@ struct ChatInputBar: View {
         .padding(.vertical, Spacing.md)
         // v2.0.87e：原生液态玻璃输入栏（iOS 26+）
         .background { barShape.glassEffect() }
-        .overlay { focusRing }
-        .animation(Motion.snap, value: focused)
-        .animation(Motion.snap, value: expanded)
         // v3.2.3 渲染卡死根治：外层阴影移到流光 overlay **之前**——阴影只对静态背景/内容生效，
         // 不再因流光每帧变化触发阴影 CGPath 重算（.ips 8BADF00D 主线程栈铁证：
         // ShapeLayerShadowHelper.updateShadow → Path.cgPath → RenderBox CG::stroker 病态递归卡死）
         .shadow(color: .black.opacity(0.3), radius: 14, y: 5)
-        .overlay { glowOverlay }
+        .overlay { edgeOverlay }
         .padding(.horizontal, 18)   // v2.0.87aw：输入框宽度收窄（12→18）
+        // v3.9.49（真机：「输入框有两层重叠在一起」）：动画修饰符从 focusRing 之后挪到整条链**末尾**。
+        // 原来它夹在描边 overlay 与阴影之间 → 阴影之后那层 glowOverlay 的 barShape 拿不到这个 transaction，
+        // 聚焦瞬间玻璃/蓝环在插值、白环已经跳到展开形状，两圈轮廓错开就是用户看到的那"两层"。
+        // 现在整条链一起插值，容器只剩一圈边。
+        .animation(Motion.snap, value: focused)
+        .animation(Motion.snap, value: expanded)
     }
 
     /// 展开态 = 聚焦且不在语音/录音/转写三态里（那三态各有自己的输入栏形态）
@@ -117,11 +123,46 @@ struct ChatInputBar: View {
         RoundedRectangle(cornerRadius: expanded ? Radius.hero : 999, style: .continuous)
     }
 
-    /// v3.4.20：聚焦态光晕——输入框获得焦点时边缘亮起淡蓝细描边（0.8pt 与全站描边同参），失焦淡出。
-    /// 静态描边（非每帧重绘），无 shadow 叠加，不触碰 v3.2.3 渲染卡死红线。
-    private var focusRing: some View {
-        barShape.strokeBorder(Color.blue.opacity(focused ? 0.45 : 0), lineWidth: 0.8)
-            .allowsHitTesting(false)
+    /// v3.4.20 聚焦光晕 + v2.0.87s 等待流光——v3.9.49 **合并成容器唯一的描边层**。
+    /// 原来「蓝细描边」和「白细描边」是两层各自独立的 overlay、画在同一条路径上，
+    /// 其中一层还拿不到展开动画的 transaction（见 `fullInputBar` 末尾注释）→ 两圈轮廓。
+    /// 现在同一路径只有一条 0.8pt 边：streaming 走流光，其余状态在「白（常态）↔ 蓝（聚焦）」之间插值。
+    /// 仍是静态描边（非每帧重绘）、无 shadow 叠加，不触碰 v3.2.3 渲染卡死红线。
+    @ViewBuilder
+    private var edgeOverlay: some View {
+        // v3.2.4：流光在 streaming / voiceMode 均启用（当时用户拍板：语音模式保留流光视觉）。
+        // v3.9.7 改主意：语音转文字过程中输入框**移除这层特效**，保持普通输入框形态——
+        //         语音态唯一的视觉提示是「发送键变收音图标」（v3.9.7 用户要求，观感更干净）。
+        //         于是流光只在 streaming（等待回复）态出现。
+        // 卡死防护靠 v3.2.3 三件套（流光无 shadow + 15fps + 外层阴影静态化在 overlay 前），
+        // voiceMode 期间已无任何动态视图，风险只降不升。
+        if streaming && inputGlowOn {
+            // v2.0.139 性能：流光 60→30fps（旋转渐变肉眼无差，重绘开销减半）
+            // v3.2.3：30→15fps + **去掉 .shadow**——每帧变化的渐变+阴影=每帧送 stroker 算圆角
+            // 阴影路径（iOS 27 RenderBox 卡死源）。旋转渐变无锐边，15fps 肉眼无差，观感不变。
+            let schedule: AnimationTimelineSchedule = .animation(minimumInterval: 1.0 / 15.0)
+            TimelineView(schedule) { context in
+                let t = context.date.timeIntervalSinceReferenceDate
+                let angle = (t * 70).truncatingRemainder(dividingBy: 360)
+                // 内部流光：Siri 淡雅蓝紫粉红旋转（87 版效果）
+                barShape.fill(
+                    AngularGradient(
+                        colors: [.blue.opacity(0.22), .indigo.opacity(0.22),
+                                 .pink.opacity(0.22), .red.opacity(0.16), .blue.opacity(0.22)],
+                        center: .center, angle: .degrees(angle)
+                    )
+                )
+                .allowsHitTesting(false)   // v2.0.87al：不拦截点击（停止按钮可点）
+            }
+        } else {
+            barShape.strokeBorder(edgeColor, lineWidth: 0.8)
+                .allowsHitTesting(false)
+        }
+    }
+
+    /// 常态白边 / 聚焦蓝边（v3.9.49 同一条边的两档配色）
+    private var edgeColor: Color {
+        focused ? Color.blue.opacity(0.45) : Color.white.opacity(Tint.subtle)
     }
 
     /// 第二行：右下角的模型快选胶囊（左半边留空，避免和第一行的附件/相机抢视线）
@@ -134,10 +175,10 @@ struct ChatInputBar: View {
                     Text(modelLabel)
                         .lineLimit(1)
                         .truncationMode(.middle)
-                        .frame(maxWidth: 150, alignment: .trailing)   // 长模型名（provider/xxx-long-name）压住，不撑破栏宽
+                        .frame(maxWidth: 120, alignment: .trailing)   // 长模型名压住，不撑破栏宽
                 }
                 .foregroundStyle(Color.accentColor)
-                .chatHeaderPill()
+                .modelPill()
             }
             .buttonStyle(PressStyle())
             // v3.9.34 同款命中区口径：胶囊视觉高 24 → 外扩到 44（横向下限本就 >44）
@@ -145,6 +186,9 @@ struct ChatInputBar: View {
             .accessibilityLabel("模型快选，当前 \(modelLabel)")
         }
         .frame(maxWidth: .infinity)
+        // v3.9.49（真机：「不要超出输入框」）：容器横向内边距只有 `Spacing.lg`(10)，
+        // 而玻璃本体的可见边缘比布局边界再缩一圈 → 胶囊贴边画就等于压在线上。右侧再让 6pt。
+        .padding(.trailing, Spacing.sm)
         .padding(.top, Spacing.xxs)
     }
 
@@ -353,37 +397,23 @@ struct ChatInputBar: View {
             .animation(Motion.snap, value: sendColors)
         }
     }
+}
 
-    /// 等待回复的旋转流光 / 常态细描边（v3.9.48：形状跟 `barShape`，展开时跟着长成圆角矩形）
-    @ViewBuilder
-    private var glowOverlay: some View {
-        // v3.2.4：流光在 streaming / voiceMode 均启用（当时用户拍板：语音模式保留流光视觉）。
-        // v3.9.7 改主意：语音转文字过程中输入框**移除这层特效**，保持普通输入框形态——
-        //         语音态唯一的视觉提示是「发送键变收音图标」（v3.9.7 用户要求，观感更干净）。
-        //         于是流光只在 streaming（等待回复）态出现。
-        // 卡死防护靠 v3.2.3 三件套（流光无 shadow + 15fps + 外层阴影静态化在 overlay 前），
-        // voiceMode 期间已无任何动态视图，风险只降不升。
-        if streaming && inputGlowOn {
-            // v2.0.139 性能：流光 60→30fps（旋转渐变肉眼无差，重绘开销减半）
-            // v3.2.3：30→15fps + **去掉 .shadow**——每帧变化的渐变+阴影=每帧送 stroker 算圆角
-            // 阴影路径（iOS 27 RenderBox 卡死源）。旋转渐变无锐边，15fps 肉眼无差，观感不变。
-            let schedule: AnimationTimelineSchedule = .animation(minimumInterval: 1.0 / 15.0)
-            TimelineView(schedule) { context in
-                let t = context.date.timeIntervalSinceReferenceDate
-                let angle = (t * 70).truncatingRemainder(dividingBy: 360)
-                // 内部流光：Siri 淡雅蓝紫粉红旋转（87 版效果）
-                barShape.fill(
-                    AngularGradient(
-                        colors: [.blue.opacity(0.22), .indigo.opacity(0.22),
-                                 .pink.opacity(0.22), .red.opacity(0.16), .blue.opacity(0.22)],
-                        center: .center, angle: .degrees(angle)
-                    )
-                )
-                .allowsHitTesting(false)   // v2.0.87al：不拦截点击（停止按钮可点）
-            }
-        } else {
-            barShape.strokeBorder(.white.opacity(Tint.subtle), lineWidth: 0.8)
-        }
+
+/// v3.9.49：模型快选胶囊的**非玻璃**档。
+/// 病根：整条输入栏本身是一层 `glassEffect`，胶囊再套一层 `.glassEffect(.regular.interactive())`
+/// = 玻璃里浮一块玻璃，两圈折射边叠在一起（真机：「输入框有两层重叠在一起」）。
+/// 这里只留"淡色填充 + 同色细边"，形状和内边距照抄 `chatHeaderPill`，保证和头部那排胶囊同高。
+extension View {
+    func modelPill() -> some View {
+        self
+            .font(.system(size: Typography.caption, weight: .semibold))
+            .frame(height: 15)
+            .padding(.horizontal, Spacing.md)
+            .padding(.vertical, Spacing.sm)
+            .background(Color.accentColor.opacity(Tint.faint), in: Capsule())
+            .overlay(Capsule().strokeBorder(Color.accentColor.opacity(Tint.soft), lineWidth: 0.8))
+            .contentShape(Capsule())
     }
 }
 
