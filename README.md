@@ -116,6 +116,20 @@ QingliaoWidget/          挂件 Extension target（.appex）：灵动岛/锁屏�
 - **看板卡片点不弹窗是产品决定，不是遗漏**（v3.9.54：CPU / 内存卡取消弹窗）：整机资源这类"看一眼就够"的指标不做二级页，弹窗留给有明细可展开的对象（容器、服务、设备实体）。新增/删除二级页时 `DashboardSheet` 枚举与 `.sheet(item:)` 的 switch **两处必须一起改**，穷尽性由编译期兜住
 - **实时活动的 `staleDate` 不是"容忍度"，是"最长假进度时长"**（v3.9.54 立）：免费签名无 APNs ⇒ 进程冻结后没有任何人替我们 update，画面会停在最后一拍。所以「多久转 `.stale`（→ 系统可收起）」就是「僵尸活动最多还能骗用户多久」。活着时推手每 1.2~2.0s 一拍、每拍都带新 staleDate 重新 update，因此把它从 15 分钟压到 4 分钟对正常显示毫无影响，只砍掉挂机的 11 分钟
 
+## 🆕 近期变更（v3.9.56，2026-09-21）
+
+> 本轮打包 NAS 侧提交 `a810dc6`（本机只做集成、发包、验收登记）。
+> ⚠️ **编号又错位一次**：该提交的说明与代码注释全写 `v3.9.57`，实际首发版本是 **3.9.56 / build 501**
+> （上一轮已把这条口径记在 v3.9.55 段：本仓版本号连续递增、不留空档）。看注释里的版本号时按这里为准。
+
+- **欢迎页大 logo 升级为「特征智能球」**（用户：「聊天页这个大 logo 做成炫酷的动态球 / app 本身一个特征智能体」，采纳方向 1 常驻流动 + 方向 3 入口交互化，**需真机验收**）：
+  - `LiquidOrbAvatar.swift`：渲染链五层（Avatar / View / Surface / Coordinator / Renderer）统一加 `live` 开关，**默认 false**。冻结判定从 `state == .idle || freezesMotion` 改为 `(state == .idle && !live) || freezesMotion`——**`freezesMotion`（系统「减弱动态效果」）优先于 `live`**，辅助功能开着时仍冻成静态图。`live = true` 时 idle 态也不冻结，Metal 视图按 `preferredFramesPerSecond = 30` 持续出帧。
+  - `ChatView.swift` 欢迎页：96pt 球改 `LiquidOrbAvatar(size: 96, thinking: aiBusy, live: true)`（AI 忙时自动切活跃态），**移除球上那枚白色气泡图标与渐变底圆**（球本身就是 logo），补 `contentShape` 命中域 + `accessibilityLabel`。交互：轻点聚焦输入框、长按 0.45s 进语音转写（复用 `toggleVoiceMode`，与输入框/发送键同一路径）。
+  - 两处关键取舍（改这块前必读）：① 点/长按必须挂在**同一个 `ExclusiveGesture`** 上——分挂两个手势时，长按触发后抬手仍会补一次 tap，把语音模式刚收回的键盘又聚焦起来（破 v2.0.107 口径）；② 长按里的 `keyboardWasUp` 取 `kb.isVisible`，**不能用 `inputFocus`**（触摸聚焦的瞬间 `inputFocus` 已经是 true）。
+  - `live` 默认 false 的原因：消息头像（30pt）与思考头像（38pt）要保持「静止态零 GPU 开销」的原设计——这一版只让欢迎页那一枚常驻流动。
+  - `check_swift.sh` 第 11 步 + `scripts/ql_orb/truth_table_orb.swift`（25 项，含源护栏）。
+  - ⚠️ 真机要顺带看的：欢迎页现在持续 30fps 出帧，**留意发热/掉电与页面滚动是否受影响**（v3.9.48 那颗智慧球阴影的教训是"性能刀别砍到观感资产上"，反过来这次是观感刀别把性能吃掉却没人报）。
+
 ## 🆕 近期变更（v3.9.55，2026-09-21）
 
 > 本轮**打包的是 NAS 侧（`qingliao-sync`）推来的两笔提交**，本机只做集成、发包与真机验收登记。
