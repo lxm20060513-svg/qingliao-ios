@@ -62,6 +62,21 @@ struct WeatherSheet: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
             Spacer(minLength: 8)
+            // v3.9.48：刷新胶囊（口径同生活页「刷新」= Text + .pill(.page)）——
+            // v3.9.46 上了天气缓存（TTL 600s）之后，弹窗每次打开都可能命中缓存，
+            // 想看"此刻"就得有个绕过缓存的出口；原先那个出口只藏在加载失败的「重试」里。
+            if loading { ProgressView().controlSize(.small) }
+            Button {
+                Haptics.tap()
+                reloadForce = true
+                reloadToken += 1
+            } label: {
+                Text("刷新")
+                    .pill(.page)
+            }
+            .buttonStyle(PressStyle(scale: 0.94))
+            .disabled(loading)
+            .accessibilityLabel("刷新天气（忽略缓存）")
             Button {
                 cityInput = savedCity
                 showCityEdit = true
