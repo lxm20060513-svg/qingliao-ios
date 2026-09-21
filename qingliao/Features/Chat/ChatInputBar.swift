@@ -108,7 +108,12 @@ struct ChatInputBar: View {
         .padding(.horizontal, Spacing.lg)
         .padding(.vertical, Spacing.md)
         // v2.0.87e：原生液态玻璃输入栏（iOS 26+）
-        .glassEffect(.regular, in: barShape)
+        // v3.9.52（用户：「再加点玻璃质感」）：`.regular` → `.clear`。
+        // ⚠️ 别去找 `.thin`/`.heavy`——`Glass` 只有 `clear`/`regular`/`identity` 三档（Apple 文档实证），
+        // "更透"这一头就是 `.clear`：材质本体近乎不遮，折射与边缘受光还在，底下聊天内容能透上来。
+        // 代价：浅色页面上对比度比 `.regular` 低一档，靠下面那圈内缘高光（`rimLight`）撑边界。
+        // 真机若判"空得看不见输入框"，回退是一行：换回 `.regular`（或 `.regular.tint(.white.opacity(0.12))`）。
+        .glassEffect(.clear, in: barShape)
         .overlay { edgeOverlay }
         .padding(.horizontal, 18)   // v2.0.87aw：输入框宽度收窄（12→18）
         // v3.9.49：动画修饰符必须在整条链**末尾**——原来它夹在描边 overlay 之前，
@@ -137,7 +142,8 @@ struct ChatInputBar: View {
     /// v3.4.20 聚焦光晕 + v2.0.87s 等待流光——v3.9.49 **合并成容器唯一的描边层**。
     /// 原来「蓝细描边」和「白细描边」是两层各自独立的 overlay、画在同一条路径上，
     /// 其中一层还拿不到展开动画的 transaction（见 `fullInputBar` 末尾注释）→ 两圈轮廓。
-    /// 现在同一路径只有一条 0.8pt 边：streaming 走流光，其余状态在「白（常态）↔ 蓝（聚焦）」之间插值。
+    /// 现在这一层里：streaming 走流光；其余状态是「聚焦环（贴在玻璃边界上）+ 内缘受光高光（内缩 1.4pt）」，
+    /// 两条都从同一个 `barShape` 派生 → 同心、不重叠，读起来是一圈带高光的玻璃边而不是一堆线。
     /// 仍是静态描边（非每帧重绘）、无 shadow 叠加，不触碰 v3.2.3 渲染卡死红线。
     /// v3.9.51：容器**自己那圈 `.shadow` 已删**（玻璃自带投影，留着它就是浮出第二圈），
     /// 所以这里"流光无 shadow"的口径不变，只是少了一层可重算的阴影。
@@ -168,9 +174,25 @@ struct ChatInputBar: View {
                 .allowsHitTesting(false)   // v2.0.87al：不拦截点击（停止按钮可点）
             }
         } else {
-            barShape.strokeBorder(edgeColor, lineWidth: 0.8)
-                .allowsHitTesting(false)
+            ZStack {
+                // v3.9.52（用户：「再加点玻璃质感」）内缘高光：顶部受光亮、底部压暗，
+                // 真玻璃的观感全在边缘受光这一笔上。`inset(by: 1.4)`（`InsettableShape` API，
+                // 文档实证签名 `inset(by amount: CGFloat) -> Self.InsetShape`）+ `strokeBorder`
+                // 让它走在玻璃边界**内侧** 1.4~2.6pt 处——不越出玻璃、不与聚焦环抢同一条路径，
+                // 所以不会又变成第二圈（v3.9.49 那两轮"减描边层数"的教训：错开才是两圈，重合不是）。
+                barShape.inset(by: 1.4).strokeBorder(rimLight, lineWidth: 1.2)
+                barShape.strokeBorder(edgeColor, lineWidth: 0.8)
+            }
+            .allowsHitTesting(false)
         }
+    }
+
+    /// 内缘受光渐变（顶亮底暗），只给 `edgeOverlay` 那圈高光用
+    private var rimLight: LinearGradient {
+        LinearGradient(
+            colors: [.white.opacity(0.35), .white.opacity(0.04), .black.opacity(0.10)],
+            startPoint: .top, endPoint: .bottom
+        )
     }
 
     /// 常态白边 / 聚焦蓝边（v3.4.20 那两档配色，一条边两档切换）

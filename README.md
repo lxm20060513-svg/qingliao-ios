@@ -115,13 +115,15 @@ QingliaoWidget/          挂件 Extension target（.appex）：灵动岛/锁屏�
 ## 🆕 近期变更（v3.9.52，2026-09-21）
 
 - **输入框光标回到垂直居中**（真机 496：「光标不居中了」，需真机验收）：v3.9.48 那档 `lineLimit(expanded ? 2...6 : 1...6)`（为了"点一下就变大"）是元凶——两行块里**占位符整块居中、光标坐在第一行**，两者错开半行。现改回**恒 `1...6`**，栏高由内容驱动（打字/换行 + `fixedSize` 撑）。**这条坑本仓踩过两次**：v2.0.35 的原话就是"2...6 最小2行高→单行光标/文字偏上不居中"，v3.9.48 又请回来了。副作用：`expanded` 现在只管"模型名出不出现"，聚焦本身不再改变栏高
-- 真机 496 回报：v3.9.51 那两条（两圈 / 键盘弹一下又收回）**没有再被提起**，本轮只报光标居中这一条
+- **玻璃再加质感：`.clear` 档 + 内缘受光高光**（用户：「输入框再加点玻璃质感可以吗」，选做 3+1，需真机验收）：① `.glassEffect(.regular, in:)` → **`.clear`** —— ⚠️ `Glass` 只有 `clear` / `regular` / `identity` 三档（Apple 文档实证），**没有 `.thin`/`.heavy`**，"更透"这一头就是 `.clear`（材质本体近乎不遮，折射与边缘受光仍在）。② `edgeOverlay` 的常态分支加一圈 `barShape.inset(by: 1.4).strokeBorder(rimLight, 1.2)`（顶 `white 0.35` → 中 `white 0.04` → 底 `black 0.10`）——真玻璃的观感在边缘受光，且它走的是**内缩 1.4pt 的同心路径**，与聚焦环不重叠、不越出玻璃边界，所以不会重演"两圈"。**回退口径**：`.clear` 若在浅色页上"空得看不见框"，一行换回 `.regular`（或 `.regular.tint(.white.opacity(0.12))`），高光那圈保留
+- **多行 `TextField` 的最小行数只能是 1**（v2.0.35 踩过、v3.9.48 复发、v3.9.52 定死）：见上方关键设计决策同名词条
+- 真机 496 回报：v3.9.51 那两条（两圈 / 键盘弹一下又收回）**没有再被提起**，本轮只新报了「光标不居中」与「蓝环没了」两条，都已在本节修
 - **聚焦淡蓝光圈加回来**（真机 496：「输入时，输入框外框的淡蓝光圈也没有了，加回来」，需真机验收）：`edgeColor` 里 v3.9.49 那档 `if expanded { return .clear }` 是当时的**误诊止损**（以为描边会浮在玻璃外成第二圈），v3.9.51 找到真因（玻璃形状没走 `in:`）后它已无必要——现在描边与玻璃同用 `barShape`，同一条边界。恢复 v3.4.20 的两档配色，蓝档条件放宽成 `focused || expanded`（键盘在 = 焦点在本框，避开 focus 与键盘通知之间那一帧错帧导致的环闪）。streaming 时仍让位给流光（`edgeOverlay` 的 if 分支不变）
 
 ## 🆕 近期变更（v3.9.51，2026-09-21）
 
 - **第三轮修"两圈"：病根是 `glassEffect` 的形状参数没传，不是圆角动画**（真机 495：「还是有两圈」，需真机验收）：Apple 文档实证签名为 `glassEffect(_ glass: Glass = .regular, in shape: some Shape = DefaultGlassEffectShape())`，而 v2.0.87e 起输入栏写的是 `.background { barShape.glassEffect() }` —— 形状走默认档，玻璃按 `DefaultGlassEffectShape` 画，`barShape` 的 22pt 只贡献 bounds；外面那圈是容器自身 `.shadow(radius: 14)` 沿布局边界投出来的。现在改成玻璃**直接挂内容 + 形状显式传参**：`.padding(...).glassEffect(.regular, in: barShape)`，并把那圈 `.shadow` 整条删除（玻璃自带投影）。描边 overlay 与流光复用同一个 `barShape`，与玻璃边界同参 → 结构上不可能再错开。v3.9.50 那条"glassEffect 不跟圆角插值"的结论已在设计决策里改写
-- **展开态布局回退单行**（真机 495：「点输入框弹一下又收回了」，需真机验收）：v3.9.50 的「文字在上、工具行在下」两行 = HStack ↔ VStack 换容器 = TextField 换父级重建，**换门控（`focused` → `kbEnv.isVisible`）没能切断它**，因为回路不在 `focused` 上而在键盘本身（承载视图被换掉 → 系统收键盘）。现在 `fullInputBar` 只有一套 `HStack { attachButtons; textArea; if expanded, !modelLabel.isEmpty { modelButton }; trailingButtons }`——条件块排在 textArea 之后，TextField 在 TupleView 里的 index 恒定不重建。展开态的"变大"只由 `lineLimit(2...6)` 与高度插值给出，文本区 `.padding(.vertical)` 两态都回到 `Spacing.xl`（v3.9.50 那档 `Spacing.xs` 的理由是"行距由 VStack 给"，VStack 没了它也就没了）。**代价：参考图那个"两行"结构做不了**，要它就得让 TextField 换父级
+- **展开态布局回退单行**（真机 495：「点输入框弹一下又收回了」，需真机验收）：v3.9.50 的「文字在上、工具行在下」两行 = HStack ↔ VStack 换容器 = TextField 换父级重建，**换门控（`focused` → `kbEnv.isVisible`）没能切断它**，因为回路不在 `focused` 上而在键盘本身（承载视图被换掉 → 系统收键盘）。现在 `fullInputBar` 只有一套 `HStack { attachButtons; textArea; if expanded, !modelLabel.isEmpty { modelButton }; trailingButtons }`——条件块排在 textArea 之后，TextField 在 TupleView 里的 index 恒定不重建。展开态的"变大"只由 `lineLimit(2...6)` 与高度插值给出，文本区 `.padding(.vertical)` 两态都回到 `Spacing.xl`（v3.9.50 那档 `Spacing.xs` 的理由是"行距由 VStack 给"，VStack 没了它也就没了）。**代价：参考图那个"两行"结构做不了**，要它就得让 TextField 换父级。**→ 其中"展开态 `lineLimit(2...6)`"已被 v3.9.52 撤掉（让光标偏上），栏高改由内容驱动**
 
 ## 🆕 近期变更（v3.9.50，2026-09-21）
 
