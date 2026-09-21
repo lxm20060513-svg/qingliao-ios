@@ -78,82 +78,57 @@ struct ChatInputBar: View {
             .frame(maxWidth: .infinity)
     }
 
-    /// v3.9.48（用户：「点击输入框时输入框变大，右下角可以选模型」）：展开式输入栏。
-    /// v3.9.50 #1（用户给参考图：「文字在上、工具行在下」）：展开态不再只是"第一行右下角浮个胶囊"，
-    /// 而是**换一套布局**——文本区独占上面一行（2 行起），附件/相机/模型名/停止/发送全在底下一行；
-    /// 收起态仍是 v3.9.47 那一行原样。两态共用 `attachButtons` / `textArea` / `trailingButtons` 三块。
+    /// v3.9.51 第三轮（真机 495：「还是有两圈」+「点输入框弹一下又收回了」）——两条一起收口：
     ///
-    /// 展开只认「普通打字」这一态：录音 / 语音模式 / 转写各自把整条栏换成别的形态（那三态本来就不打字），
-    /// 再叠一层"变大"会和它们打架。门控取 `kbEnv.isVisible` 而非 `focused`，理由见 `expanded`。
+    /// ① **两圈的来源找到了，不在描边也不在半径动画**：`glassEffect` 的签名是
+    /// `glassEffect(_ glass: Glass = .regular, in shape: some Shape = DefaultGlassEffectShape())`
+    /// （Apple 文档实证），而 v2.0.87e 起这里写的是 `barShape.glassEffect()` —— 把修饰符挂在**形状视图**上，
+    /// 形状参数走默认值。玻璃本体因此按 `DefaultGlassEffectShape`（胶囊档）画，`barShape` 的 22pt
+    /// 只提供了 bounds、根本没进渲染；外面那圈则是容器 `.shadow`（radius 14）沿布局边界投出来的。
+    /// → 内圈胶囊 + 外圈方角，正是用户三次描述的那个形状差。
+    /// 改法：玻璃**直接挂在内容上**并把形状显式传进 `in:`（`.glassEffect(.regular, in: barShape)`），
+    /// 全仓可用先例即 `Pill.swift` 的 `.padding(...).glassEffect(.regular.interactive())`——
+    /// 那些胶囊从没出现过两圈。容器 `.shadow` 一并删掉：玻璃自带投影，留着它就是把第二圈画回去
+    /// （顺带继续守住 v3.2.3「阴影不得跟在流光之后重算」）。
     ///
-    /// v3.9.49 第二轮（真机：「还是内有大圆角、外有方形圆角」）：容器**只剩玻璃这一层**。
-    /// 第一轮的"并成一圈描边 + 动画挪到链末"没治好——病根不在描边层数，在 `glassEffect`：
-    /// 玻璃本体的可见边缘**不跟圆角动画**，展开后仍按收起时的胶囊画（内圈大圆角），
-    /// 而描边 overlay 老老实实画在 `barShape` 的展开形状上（外圈 22pt 方角）→ 两圈不同圆角的轮廓。
-    /// 于是两条一起收口：① 容器圆角**不再随状态变**（见 `barShape`，没有需要插值的半径了）；
-    /// ② 展开态**不画描边**（见 `edgeColor`），玻璃外面不再浮第二圈。
+    /// ② **两行布局回退成单行**（见 `expanded` 注释）：容器不再随状态换，TextField 结构路径恒定，
+    /// 不再重建丢焦点。展开态的"变大"只靠文本区行高/内边距插值，模型名仍排在发送键左侧。
     private var fullInputBar: some View {
-        // v3.9.50 #1（用户参考图：「文字在上、工具行在下」）：两态各一套布局——
-        // 收起态逐字沿用 v3.9.47 那一行；展开态把文本区抬到上面独占一行，工具全在底下一行。
-        Group {
-            if expanded {
-                expandedBar
-            } else {
-                collapsedBar
+        HStack(spacing: 8) {
+            attachButtons
+            textArea
+            // 条件块排在 textArea **之后**：TupleView 里 textArea 仍在 index 1，
+            // 展开/收起切换不改它的结构路径 → 不重建、不掉 first responder
+            if expanded, !modelLabel.isEmpty {
+                modelButton
             }
+            trailingButtons
         }
         .padding(.horizontal, Spacing.lg)
         .padding(.vertical, Spacing.md)
         // v2.0.87e：原生液态玻璃输入栏（iOS 26+）
-        .background { barShape.glassEffect() }
-        // v3.2.3 渲染卡死根治：外层阴影移到流光 overlay **之前**——阴影只对静态背景/内容生效，
-        // 不再因流光每帧变化触发阴影 CGPath 重算（.ips 8BADF00D 主线程栈铁证：
-        // ShapeLayerShadowHelper.updateShadow → Path.cgPath → RenderBox CG::stroker 病态递归卡死）
-        .shadow(color: .black.opacity(0.3), radius: 14, y: 5)
+        .glassEffect(.regular, in: barShape)
         .overlay { edgeOverlay }
         .padding(.horizontal, 18)   // v2.0.87aw：输入框宽度收窄（12→18）
         // v3.9.49：动画修饰符必须在整条链**末尾**——原来它夹在描边 overlay 之前，
-        // 阴影之后那层描边拿不到 transaction，聚焦时一层插值一层瞬时跳，也是两圈轮廓的成因之一。
+        // 阴影之后那层描边拿不到 transaction，聚焦时一层插值一层瞬时跳。
         .animation(Motion.snap, value: focused)
         .animation(Motion.snap, value: expanded)
     }
 
-    /// 收起态一行：附件 / 相机 / 文本框 / 停止 / 发送（与 v3.9.47 逐字一致）
-    private var collapsedBar: some View {
-        HStack(spacing: 8) {
-            attachButtons
-            textArea
-            trailingButtons
-        }
-    }
-
-    /// 展开态两行：上面文本区独占整宽，下面一行「附件 相机 —— 模型名 —— 停止 发送」
-    private var expandedBar: some View {
-        VStack(alignment: .leading, spacing: Spacing.xs) {
-            textArea
-            HStack(spacing: 8) {
-                attachButtons
-                Spacer(minLength: Spacing.xs)
-                if !modelLabel.isEmpty {
-                    modelButton
-                }
-                trailingButtons
-            }
-        }
-    }
 
     /// 展开态门控用**键盘可见**，不用 `focused`：v3.9.50 两态是两套容器（HStack ↔ VStack），
-    /// TextField 换父级会重建，重建瞬间可能掉 first responder → `focused` 变 false → 布局收回 →
-    /// 再聚焦再重建，形成反馈回路（本机无法验证，故走这条没有回路的口径：键盘可见性由系统通知驱动）。
+    /// TextField 换父级会重建，重建瞬间掉 first responder → `focused` 变 false → 布局收回 →
+    /// 再聚焦再重建，形成反馈回路。真机 495 实测：即使门控已换成 `kbEnv.isVisible`，
+    /// 「点输入框键盘弹一下又收回」照样发生 —— 换布局这条路判死，v3.9.51 回退单行容器。
     /// 语音 / 录音 / 转写三态各有自己的输入栏形态，不参与"变大"。
     private var expanded: Bool {
         kbEnv.isVisible && !isRecording && !voiceMode && !transcribing
     }
 
     /// 容器形状：**圆角恒定 `Radius.hero`(22)，不随展开/收起变**。
-    /// v3.9.48 让收起态用 999（夹成胶囊）、展开态收成 22，理由是"单一形状 + 半径可插值 = 长开不跳形"；
-    /// 真机结论是 `glassEffect` 不跟这个半径插值（玻璃停在胶囊、描边走到 22）→ 两层。
-    /// 代价：收起态从纯胶囊变成 22pt 圆角矩形（栏高约 62，胶囊半径 31 → 只差 9pt，轮廓接近）。
+    /// v3.9.51 起它同时是玻璃的形状（`glassEffect(_:in:)` 的第二参数）与描边的形状——
+    /// 一处传参，两圈不可能再错开。
     private var barShape: RoundedRectangle {
         RoundedRectangle(cornerRadius: Radius.hero, style: .continuous)
     }
@@ -163,13 +138,15 @@ struct ChatInputBar: View {
     /// 其中一层还拿不到展开动画的 transaction（见 `fullInputBar` 末尾注释）→ 两圈轮廓。
     /// 现在同一路径只有一条 0.8pt 边：streaming 走流光，其余状态在「白（常态）↔ 蓝（聚焦）」之间插值。
     /// 仍是静态描边（非每帧重绘）、无 shadow 叠加，不触碰 v3.2.3 渲染卡死红线。
+    /// v3.9.51：容器**自己那圈 `.shadow` 已删**（玻璃自带投影，留着它就是浮出第二圈），
+    /// 所以这里"流光无 shadow"的口径不变，只是少了一层可重算的阴影。
     @ViewBuilder
     private var edgeOverlay: some View {
         // v3.2.4：流光在 streaming / voiceMode 均启用（当时用户拍板：语音模式保留流光视觉）。
         // v3.9.7 改主意：语音转文字过程中输入框**移除这层特效**，保持普通输入框形态——
         //         语音态唯一的视觉提示是「发送键变收音图标」（v3.9.7 用户要求，观感更干净）。
         //         于是流光只在 streaming（等待回复）态出现。
-        // 卡死防护靠 v3.2.3 三件套（流光无 shadow + 15fps + 外层阴影静态化在 overlay 前），
+        // 卡死防护靠 v3.2.3 两件套（流光无 shadow + 15fps）；外层容器阴影 v3.9.51 已整条删除。
         // voiceMode 期间已无任何动态视图，风险只降不升。
         if streaming && inputGlowOn {
             // v2.0.139 性能：流光 60→30fps（旋转渐变肉眼无差，重绘开销减半）
@@ -235,10 +212,9 @@ struct ChatInputBar: View {
         }
     }
 
-    /// v3.9.50 #2（用户参考图）：模型名 = **纯灰文字**，不带图标、不带胶囊壳，
-    /// 排在工具行右半段（停止/发送左侧）。点按 → `ComposerModelSheet`。
-    /// v3.9.49 那版给它套过一枚非玻璃胶囊壳（`modelPill`），这轮连壳带图标一起撤掉——
-    /// 玻璃栏里再画一枚带底带边的壳，读起来还是"两层"。
+    /// v3.9.50 #2（用户参考图）：模型名 = **纯灰文字**，不带图标、不带胶囊壳——
+    /// 玻璃栏里再画一枚带底带边的壳，读起来还是"两层"。点按 → `ComposerModelSheet`。
+    /// v3.9.51：容器回退单行后它排在发送键左侧，且只在展开态出现（`fullInputBar` 里的条件块）。
     private var modelButton: some View {
         Button(action: onPickModel) {
             Text(modelLabel)
@@ -294,9 +270,9 @@ struct ChatInputBar: View {
                 // v3.9.48：展开态起判行高抬到 2 行（用户点名"点输入框时输入框变大"）——
                 // 未聚焦仍 1 行起，收起态逐字同 v3.9.47
                 .lineLimit(expanded ? 2...6 : 1...6)   // v2.0.35：1行起（原来2...6最小2行高→单行光标/文字偏上不居中）
-                // v2.0.93f：9→12 输入框加高（用户反馈太窄）。v3.9.50 展开态改小：
-                // 文本区上面一行、工具行下面一行，行间距由 VStack 的 `Spacing.xs` 给，不再靠这 12pt 撑高度
-                .padding(.vertical, expanded ? Spacing.xs : Spacing.xl)
+                // v2.0.93f：9→12 输入框加高（用户反馈太窄）。v3.9.51：容器回退单行后，
+                // 展开态那档 `Spacing.xs` 的理由（"行距由 VStack 给"）随之消失，两态都用 xl
+                .padding(.vertical, Spacing.xl)
                 .padding(.horizontal, Spacing.xxs)
                 .fixedSize(horizontal: false, vertical: true)   // 文字超宽自动增高输入框，旧文字始终可见
                 .focused($focused)
