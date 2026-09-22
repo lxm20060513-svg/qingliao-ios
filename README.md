@@ -135,6 +135,19 @@ QingliaoWidget/          挂件 Extension target（.appex）：灵动岛/锁屏�
     （「隐藏页零轮询」那条红线没动，见 LifeView 文件头注释）。
   - **教训**：`extension 另一个类型的文件` 是 NAS 侧提交的第一类真编译错误（本机 `swiftc -parse` 只查语法、
     看不见作用域与访问级）。以后接手跨页取数的 UI 提交，先问一句「这个 `func` 读的 `@State` 在谁身上」。
+- **同批第二处 Archive 阻塞：`MessageBubble` 的闭包声明序**（读 `7afaa23` 时预判、未等 CI 报）：
+  `7afaa23` 把 `var onQuoteTap` 声明在 `onAIImageTap` 之后，而 `ChatView.chatMessageBubble` 的调用点按
+  `onQuote → onQuoteTap → onDelete …` 传参。**Swift 要求带标签的尾随闭包严格按声明序**，这一对错位就是
+  `closure 'onQuoteTap' must precede…` 级别的编译失败。修法：把声明挪到 `onQuote` 之后（2 行），调用点不动，
+  并在声明上方留一条「位置 = 调用点闭包序，别挪」的注释。另一处调用点 `StreamingBubbleView` 用普通带标签实参
+  （`onAIImageTap / onFileTap / streamingAvatar / streamingText`），相对次序不变，不受影响。
+- **本版顺带带上 NAS 侧 `7afaa23`（配套三）**：① 气泡内引用块可点 → `indexOfMessage(role:contentPrefix:)`
+  匹配原消息 + `scrollProxyRef?.scrollTo` 定位 + 高亮 2s（`ScrollViewReader` 的 proxy 在 `.onAppear` 一次性写回
+  `@State`，供非 `onChange` 路径滚动）；② 「上次任务没跑完（N 分钟前）」横幅——`StreamClient.persistedTaskInfo()`
+  只读标记（过期规则与 `restoreIfNeeded` 一致：>30 分钟顺手清），标记归属**别的**会话时才显示，
+  「继续」= `chat.loadById(sid, auth:)` 切会话让自动恢复接上，「放弃」= `discardPersistedTask()`。
+  ⚠️ 真机加看：点引用块能不能停在对准的那条上（列表长时 `scrollTo` 落在 LazyVStack 上会估算位置）、
+  横幅在冷启动后是否正确出现/消失、切会话后在途回复有没有接回。
 - 其余内容 = v3.9.57 段列的那些（工具步骤耗时、流式健康度三相位、工具失败「重试」、`type=plan` 计划卡、
   Markdown 引用竖线与嵌套缩进、生活页定时任务卡、股票 30 日 sparkline），**验收清单照 v3.9.57 段那五条走**。
 

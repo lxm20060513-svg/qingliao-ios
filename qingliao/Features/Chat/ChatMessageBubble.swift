@@ -36,6 +36,10 @@ struct MessageBubble: View {
     var onRegenerate: () -> Void = {}
     var onBigBang: (String) -> Void = { _ in }
     var onQuote: () -> Void = {}      // v2.0.36 引用回复
+    // v3.9.58c：点气泡内引用块 → 滚动定位到被引用的原消息并高亮（微信式）
+    // ⚠️ 声明位置 = ChatView 调用点的闭包序（紧跟 onQuote）；Swift 要求带标签的尾随闭包按声明序传，
+    //    挪到 onAIImageTap 之后会直接编译失败（本次 CI 首个真因之一）。
+    var onQuoteTap: () -> Void = {}
     var onDelete: () -> Void = {}     // v2.0.36 单条删除
     var onShare: () -> Void = {}      // v2.0.36 分享文本
     var onImageTap: () -> Void = {}   // v2.0.36 图片点击查看大图
@@ -51,8 +55,6 @@ struct MessageBubble: View {
     var onRemind: ((String) -> Void)? = nil
     // v2.0.128：AI 消息内图片点击（传 URL/data URL，打开大图）
     var onAIImageTap: (String) -> Void = { _ in }
-    // v3.9.58c：点气泡内引用块 → 滚动定位到被引用的原消息并高亮（微信式）
-    var onQuoteTap: () -> Void = {}
     // v3.9.17：AI 生成物点击（传 URL + 显示名 → QuickLook 预览）
     var onFileTap: (String, String) -> Void = { _, _ in }
     // v3.3.0：多选合并转发——长按菜单「多选」入口（进入多选模式并预选本条）
