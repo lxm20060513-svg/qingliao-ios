@@ -371,9 +371,9 @@ final class ChatStore {
         return ctxMessages.enumerated().map { (i, m) in
             // v3.9.60：图片串决策——`data:` 原样；落库 URL 只认本地缓存（上游下不到只有 IPv6 的自家地址，
             // 见 sendableImageURL 注释）。拿不到 base64 时**绝不**把 URL 发出去，走下面的文本降级。
-            // 蜂窝下再压一档：历史图过去走 URL（body 很小），现在走 base64，不压会撑爆 CFStream 直连
+            // 发送前按网络档位压一档：历史图过去走 URL（body 很小），现在走 base64，不压会撑爆上行
             let sendable = Self.sendableImageURL(m.imageDataURL, cache: localImageBase64)
-                .map { self.cellularSizedImage($0) }
+                .map { self.sizedForSend($0) }
             var p = m.asPayload(imageURLOverride: sendable ?? "")
             if m.imageDataURL == nil {
                 p["content"] = m.content
@@ -796,11 +796,18 @@ final class ChatStore {
     @ObservationIgnored private var localImageBase64: [String: String] = [:]
     /// 插入序（配合上面的 FIFO 淘汰；Dictionary 本身无序）
     @ObservationIgnored private var localImageOrder: [String] = []
-    /// 蜂窝下采样结果缓存（key = 原 base64 串），避免每次发送重压
-    @ObservationIgnored private var localImageCellular: [String: String] = [:]
+    /// 发送前的下采样结果缓存（key = 串的**哈希**，不是串本身——拿整条 base64 当 key 等于又常驻一份 MB）
+    @ObservationIgnored private var localImageSized: [String: String] = [:]
+    @ObservationIgnored private var localImageSizedOrder: [String] = []
     private static let localImageMaxEntries = 3
+    /// 字节预算：条数有上限还不够（预取单条可到 2MB → 3 条 ≈ 8MB 常驻），超预算从队首淘汰
+    private static let localImageMaxBytes = 6 * 1024 * 1024
+    /// 预取单条上限：别把 MB 级原图捞回内存（与蜂窝上行 4MB 闸门同口径，见 RemoteFiles.cellularSafeBytes）
+    private static let prefetchMaxBytes = 2 * 1024 * 1024
     /// 蜂窝下多大的串才值得压：小于它多半已是压缩过的小图（再压只会更糊 + 白耗 CPU）
     private static let cellularDownscaleThreshold = 300_000
+    /// WiFi 侧的体积闸门（v3.9.60 起 WiFi 的图也走 base64，不再有「几百字节 URL」这条退路）
+    private static let wifiDownscaleThreshold = 1_500_000
 
     /// 发送给模型时用的图片串（纯函数，真值表覆盖；**不许**在图块里出现自家 http URL）：
     ///   · `data:` 开头（本地 base64）→ 原样
@@ -819,26 +826,39 @@ final class ChatStore {
         return nil
     }
 
-    /// 蜂窝下把待发 base64 压到能过 CFStream 的档位并缓存（只压大串；压不动/非蜂窝 → 原样返回）。
-    /// 为什么要在这一层做：历史图现在也以 base64 进 body（过去是 URL，body 很小），
-    /// 「WiFi 下发图 → 出门用蜂窝追问」这条路上 body 会是全分辨率图 → CFStream/relay 载不动 → bad json 400。
-    private func cellularSizedImage(_ b64: String) -> String {
-        guard NetworkMonitor.shared.isCellular, b64.count > Self.cellularDownscaleThreshold else { return b64 }
-        if let hit = localImageCellular[b64] { return hit }
-        let out = ImageDownscale.dataURL(b64, maxSide: ImageDownscale.cellularMaxSide,
-                                         quality: ImageDownscale.cellularQuality) ?? b64
-        localImageCellular[b64] = out
+    /// 发送前把待发 base64 压到「该网络能载得动」的档位并缓存（只压大串；压不动 → 原样返回）。
+    /// 为什么要在这一层做：v3.9.60 起历史图也以 base64 进 body（过去是 URL，body 很小），
+    ///   · 蜂窝：CFStream 直连 / relay 载不动大 body（v3.0.52/53 实踩 bad json 400）→ 480px / 0.45
+    ///   · WiFi：没有 CFStream 限制，但 MB 级 body 只会给上游添堵 → 1024px / 0.6 兜底
+    private func sizedForSend(_ b64: String) -> String {
+        let cellular = NetworkMonitor.shared.isCellular
+        let threshold = cellular ? Self.cellularDownscaleThreshold : Self.wifiDownscaleThreshold
+        guard b64.count > threshold else { return b64 }
+        let key = String(b64.hashValue)
+        if let hit = localImageSized[key] { return hit }
+        let out = ImageDownscale.dataURL(
+            b64,
+            maxSide: cellular ? ImageDownscale.cellularMaxSide : ImageDownscale.wifiMaxSide,
+            quality: cellular ? ImageDownscale.cellularQuality : ImageDownscale.wifiQuality
+        ) ?? b64
+        localImageSized[key] = out
+        if let i = localImageSizedOrder.firstIndex(of: key) { localImageSizedOrder.remove(at: i) }
+        localImageSizedOrder.append(key)
+        while localImageSizedOrder.count > Self.localImageMaxEntries {
+            localImageSized[localImageSizedOrder.removeFirst()] = nil
+        }
         return out
     }
 
-    /// 上传成功（拿到可落库 URL）时把原始字节登进内存缓存，供本次发送的 payload 使用（FIFO 限 N 条）。
+    /// 上传成功（拿到可落库 URL）时把原始字节登进内存缓存，供本次发送的 payload 使用（FIFO + 字节预算）。
+    /// 魔数不认识（不是图 / mp4 / avif…）就**不登记**：宁可发送时降级成 [图片]，也别贴个 image/jpeg 骗上游。
     func rememberLocalImage(url: String, imageData: Data) {
-        guard !url.isEmpty else { return }
-        localImageBase64[url] = "data:" + (Self.imageMime(imageData) ?? "image/jpeg") + ";base64,"
-            + imageData.base64EncodedString()
+        guard !url.isEmpty, let mime = Self.imageMime(imageData) else { return }
+        localImageBase64[url] = "data:" + mime + ";base64," + imageData.base64EncodedString()
         if let i = localImageOrder.firstIndex(of: url) { localImageOrder.remove(at: i) }
         localImageOrder.append(url)
-        while localImageOrder.count > Self.localImageMaxEntries {
+        while localImageOrder.count > Self.localImageMaxEntries
+            || localImageBase64.values.reduce(0, { $0 + $1.count }) > Self.localImageMaxBytes {
             let old = localImageOrder.removeFirst()
             localImageBase64[old] = nil
         }
@@ -864,14 +884,29 @@ final class ChatStore {
         return nil
     }
 
+    /// 落库图片 URL → 自家下载端点路径（相对路径，走 auth.request 带 X-Auth-Token）。
+    /// 形态不对（不是自家端点 / 相对路径 / 带 fragment 变体）→ nil：预取宁可跳过，别拿错路径去要图。
+    /// 抽成纯函数是为了能进真值表——内联在 prefetch 里没法测（真值表只能测纯函数）。
+    static func downloadPath(from url: String) -> String? {
+        guard url.hasPrefix("http"), let q = url.firstIndex(of: "?"),
+              url[..<q].hasSuffix("/api/files/download") else { return nil }
+        let qs = String(url[q...])
+        guard !qs.contains("#") else { return nil }   // fragment 不会被发到服务器 → 拿回来的是 404 页
+        return "/api/files/download" + qs
+    }
+
     /// v3.9.60：把 messages 里最近的「已落库为 http URL」用户图片下载回 base64 填缓存。
-    /// 触发点：冷启动（QingliaoApp 的 .task）/ 切会话 / 前台回 App（与 startImageRetryUploads 同处）。
+    /// 触发点：冷启动（QingliaoApp 的 .task）/ 切会话（与 startImageRetryUploads 同处）。
     ///
     /// 为什么取「最近 N 条」而不是只取最后一条：payload 的判定基于**净化后**的 ctxMessages
     /// （会剔掉连续重复的纯图消息），只挑一条可能正好挑中会被剔掉的那条 → 缓存了却不命中。
-    /// 下载只认自家服务器（auth.request 走 serverURL，带 X-Auth-Token）；失败静默——
-    /// `sendableImageURL` 会退化成 [图片] 占位，绝不把上游下不到的 URL 交给模型。
+    ///
+    /// ⚠️ 蜂窝下一律不预取：`auth.request` 对带 query 的请求必然落 relay 分支，而 relay 每次都新建
+    /// ASWebAuthenticationSession（无授权缓存）→ 冷启动就弹系统 Safari 授权窗；relay 还是**串行**队列，
+    /// 会把用户紧接着的聊天请求排到后面；且 relay 响应体经 JSON 字符串 → utf8 重编码，二进制图必坏。
+    /// 即纯白跑还扰民。蜂窝下拿不到就拿不到，发送时按既定口径降级 [图片]。
     func prefetchStoredImagesForSend(auth: AuthStore) async {
+        guard !NetworkMonitor.shared.isCellular else { return }
         var targets: [String] = []
         for m in messages.reversed() where m.isUser {
             guard let u = m.imageDataURL, u.hasPrefix("http"),
@@ -881,12 +916,10 @@ final class ChatStore {
         }
         for url in targets {
             if Task.isCancelled { return }
-            // URL 形态 = serverURL + "/api/files/download?path=<名>" → 取 path 段走 auth.request（与原上传同源）
-            guard let q = url.firstIndex(of: "?"),
-                  url[..<q].hasSuffix("/api/files/download") else { continue }
-            let path = "/api/files/download" + String(url[q...])
+            guard let path = Self.downloadPath(from: url) else { continue }
             guard let (data, resp) = try? await auth.request(path), resp.statusCode == 200,
-                  !data.isEmpty, data.count <= 8 * 1024 * 1024, Self.imageMime(data) != nil else { continue }
+                  !data.isEmpty, data.count <= Self.prefetchMaxBytes,
+                  Self.imageMime(data) != nil else { continue }
             rememberLocalImage(url: url, imageData: data)
         }
     }

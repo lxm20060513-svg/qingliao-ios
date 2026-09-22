@@ -41,4 +41,9 @@ enum ImageDownscale {
     /// 蜂窝直连档位（与 v3.0.53 定稿一致：480px / 0.45 ≈ 20KB）——统一从这里取，别各写各的数
     static let cellularMaxSide: CGFloat = 480
     static let cellularQuality: CGFloat = 0.45
+
+    /// WiFi / 本地模式的兜底档位：1024px / 0.6 —— v3.9.60 起 WiFi 侧 payload 也从「几百字节的 URL」
+    /// 变成 base64（历史图不再发 URL），超大图会给上游一个 MB 级 body，留一道体积闸门
+    static let wifiMaxSide: CGFloat = 1024
+    static let wifiQuality: CGFloat = 0.6
 }

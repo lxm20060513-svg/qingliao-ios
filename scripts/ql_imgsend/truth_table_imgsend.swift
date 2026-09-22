@@ -120,17 +120,29 @@ check("ImageDownscale 是蜂窝压缩的单一实现（compressForCellular 不�
       && !chatViewSrc.contains("jpegData(compressionQuality: 0.45)"))
 check("ChatView.compressForCellular 复用 ImageDownscale",
       chatViewSrc.contains("ImageDownscale.dataURL(imageDataURL,"))
-check("ChatStore 的蜂窝压缩走同一档位（不再各写 480/0.45）",
-      storeSrc.contains("ImageDownscale.dataURL(b64, maxSide: ImageDownscale.cellularMaxSide,"))
-check("蜂窝只压大串（小图再压只会更糊）",
-      storeSrc.contains("b64.count > Self.cellularDownscaleThreshold"))
-check("historyPayload 的图串也要过蜂窝压缩（历史图过去走 URL，现在走 base64）",
-      storeSrc.contains(".map { self.cellularSizedImage($0) }"))
+check("ChatStore 的压缩走同一实现与档位（不再各写 480/0.45）",
+      storeSrc.contains("ImageDownscale.cellularMaxSide") && storeSrc.contains("ImageDownscale.wifiMaxSide")
+      && storeSrc.contains("ImageDownscale.cellularQuality") && storeSrc.contains("ImageDownscale.wifiQuality"))
+check("两档体积闸门分开（蜂窝 30 万字符 / WiFi 150 万字符；小图再压只会更糊）",
+      storeSrc.contains("private static let cellularDownscaleThreshold = 300_000")
+      && storeSrc.contains("private static let wifiDownscaleThreshold = 1_500_000")
+      && storeSrc.contains("b64.count > threshold"))
+check("historyPayload 的图串也要过档位压缩（历史图过去走 URL，现在走 base64）",
+      storeSrc.contains(".map { self.sizedForSend($0) }"))
+check("压缩结果缓存 key 用哈希（拿整条 base64 当 key = 又常驻一份 MB，且只写不删）",
+      storeSrc.contains("let key = String(b64.hashValue)"))
+check("压缩结果缓存同样有 FIFO 上限",
+      storeSrc.contains("localImageSized[localImageSizedOrder.removeFirst()] = nil"))
 
-// ④ 缓存上限
-check("本地缓存有 FIFO 上限", storeSrc.contains("private static let localImageMaxEntries = 3")
+// ④ 缓存上限（条数 + 字节双闸）
+check("本地缓存有 FIFO 条数上限", storeSrc.contains("private static let localImageMaxEntries = 3")
       && storeSrc.contains("while localImageOrder.count > Self.localImageMaxEntries")
       && storeSrc.contains("localImageBase64[old] = nil"))
+check("本地缓存还有字节预算（条数少也可能总量很大：预取单条 2MB × 3）",
+      storeSrc.contains("private static let localImageMaxBytes = 6 * 1024 * 1024")
+      && storeSrc.contains("> Self.localImageMaxBytes"))
+check("魔数不认识的字节不登记（宁可降级 [图片]，也别贴个 image/jpeg 骗上游）",
+      storeSrc.contains("guard !url.isEmpty, let mime = Self.imageMime(imageData) else { return }"))
 
 // ⑤ 预取 + 触发点可达性（本表最容易假绿的地方）
 check("重启兜底：把已落库 URL 的图预取回 base64",
@@ -141,10 +153,15 @@ check("预取取最近 N 条（payload 判定基于净化后的历史，只取�
 check("预取与补传拆成两条链（下载超时 30s 别顶住补传）",
       storeSrc.contains("imagePrefetchTask = Task { [weak self] in")
       && storeSrc.contains("await self?.prefetchStoredImagesForSend(auth: auth)"))
-check("预取只认自家下载端点（相对路径走 auth.request，带 token）",
-      storeSrc.contains("url[..<q].hasSuffix(\"/api/files/download\")"))
+check("预取走纯函数 downloadPath（可测），只认自家下载端点",
+      storeSrc.contains("guard let path = Self.downloadPath(from: url) else { continue }"))
 check("预取有大小与魔数护栏（别把 HTML 报错页当图缓存）",
-      storeSrc.contains("data.count <= 8 * 1024 * 1024") && storeSrc.contains("Self.imageMime(data) != nil"))
+      storeSrc.contains("data.count <= Self.prefetchMaxBytes") && storeSrc.contains("Self.imageMime(data) != nil"))
+// 🚨 蜂窝下不许预取：auth.request 对带 query 的请求必然落 relay，而 relay 每次新建 ASWAS（无授权缓存）
+//    → 冷启动就弹系统 Safari 授权窗；relay 还是串行队列，会把用户紧接着的聊天请求排到后面；
+//    且 relay 响应体过 JSON 字符串 → utf8 重编码，二进制图必坏（弹窗 + 占信道 + 必失败，纯白跑）
+check("蜂窝下一律不预取（不弹 Safari 授权窗、不占 relay 串行槽）",
+      storeSrc.contains("guard !NetworkMonitor.shared.isCellular else { return }"))
 // 🚨 冷启动触发点：onChange(of: sessionId) 在同值时**不会触发** → 必须额外补一次
 let coldStartOK: Bool = {
     guard let a = appSrc.range(of: "await chat.loadLastSession(auth: auth)"),
@@ -174,6 +191,72 @@ check("魔数探针不再写两份（mimeForImage / looksLikeImage 已合并成 
 check("imageMime 对非图返回 nil（别把 mp4/avif 当 heic）",
       storeSrc.contains("static func imageMime(_ d: Data) -> String?")
       && storeSrc.contains("default: return nil"))
+check("源码里 brand 偏移是 b[8..<12]（写成 b[4..<8] 会永远判不出 heic，而字符串护栏查不出）",
+      storeSrc.contains("String(bytes: b[8..<12], encoding: .ascii)"))
+
+// ── 5. 纯函数镜像：downloadPath（v3.9.60 从 prefetch 里抽出来，就是为了能在这里测） ──
+// 内联在 prefetch 里时，这段逻辑只有字符串 grep 护着：后端换了 URL 形态 → 预取静默全跳、
+// 所有历史图恒降级 [图片]，而表照样全绿。抽成纯函数后按行为断言。
+func downloadPath(from url: String) -> String? {
+    guard url.hasPrefix("http"), let q = url.firstIndex(of: "?"),
+          url[..<q].hasSuffix("/api/files/download") else { return nil }
+    let qs = String(url[q...])
+    guard !qs.contains("#") else { return nil }
+    return "/api/files/download" + qs
+}
+let okURL = "https://webui.example.com:16666/api/files/download?path=image.jpg"
+check("自家下载 URL → 相对路径（走 auth.request 带 token）",
+      downloadPath(from: okURL) == "/api/files/download?path=image.jpg")
+check("相对路径形态 → nil（不会拿它去要图）", downloadPath(from: "api/files/download?path=x") == nil)
+check("别的端点 → nil", downloadPath(from: "https://webui.example.com:16666/api/sessions?path=x") == nil)
+check("无 query → nil", downloadPath(from: "https://webui.example.com:16666/api/files/download") == nil)
+check("带 fragment → nil（fragment 不会被发到服务器，拿回来是 404 页）",
+      downloadPath(from: okURL + "#x") == nil)
+check("别的主机走同一相对路径（后端按 path 取图，与主机无关）",
+      downloadPath(from: "http://192.168.1.9:16666/api/files/download?path=a.png")
+      == "/api/files/download?path=a.png")
+
+// ── 6. 纯函数镜像：imageMime（喂真字节，别只用字符串 grep 钉住） ──
+// ⚠️ 上一版表只用 contains 钉「函数存在 + default: return nil」——brand 偏移写错、或把 avif 判成
+//    heic，都照样绿。这里按真字节断言（本机 swiftc 能跑纯 Foundation）。
+func imageMime(_ d: Data) -> String? {
+    let b = [UInt8](d.prefix(12))
+    if b.count >= 3, b[0] == 0xFF, b[1] == 0xD8, b[2] == 0xFF { return "image/jpeg" }
+    if b.count >= 8, b[0] == 0x89, b[1] == 0x50, b[2] == 0x4E, b[3] == 0x47,
+       b[4] == 0x0D, b[5] == 0x0A, b[6] == 0x1A, b[7] == 0x0A { return "image/png" }
+    if b.count >= 12, String(bytes: b[4..<8], encoding: .ascii) == "ftyp" {
+        switch String(bytes: b[8..<12], encoding: .ascii) ?? "" {
+        case "heic", "heix", "hevc", "heim", "heis", "mif1": return "image/heic"
+        default: return nil
+        }
+    }
+    if b.count >= 12, String(bytes: b[0..<4], encoding: .ascii) == "RIFF",
+       String(bytes: b[8..<12], encoding: .ascii) == "WEBP" { return "image/webp" }
+    if b.count >= 3, b[0] == 0x47, b[1] == 0x49, b[2] == 0x46 { return "image/gif" }
+    return nil
+}
+/// 构造 ISO BMFF 头：[box size 4B] + "ftyp" + [brand 4B] + [4B 填充]
+func ftypBytes(_ brand: String) -> Data {
+    var b: [UInt8] = [0x00, 0x00, 0x00, 0x18]
+    b += Array("ftyp".utf8)
+    b += Array(brand.utf8.prefix(4))
+    b += [0, 0, 0, 0]
+    return Data(b)
+}
+check("jpeg 魔数 → image/jpeg",
+      imageMime(Data([0xFF, 0xD8, 0xFF, 0xE0, 0, 0, 0, 0, 0, 0, 0, 0])) == "image/jpeg")
+check("png 魔数 → image/png",
+      imageMime(Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0])) == "image/png")
+check("heic 系 brand → image/heic（brand 必须读 b[8..<12]）",
+      ["heic", "heix", "hevc", "heim", "heis", "mif1"].allSatisfy { imageMime(ftypBytes($0)) == "image/heic" })
+check("mp4 / avif / m4a 的 ftyp → nil（一律当 heic 就会造出「MIME 说 heic、内容不是图」）",
+      ["isom", "mp42", "avif", "avis", "M4A "].allSatisfy { imageMime(ftypBytes($0)) == nil })
+check("webp → image/webp",
+      imageMime(Data(Array("RIFF".utf8) + [0, 0, 0, 0] + Array("WEBP".utf8))) == "image/webp")
+check("gif → image/gif", imageMime(Data(Array("GIF89a".utf8) + [0, 0, 0, 0, 0, 0])) == "image/gif")
+check("HTML 报错页 → nil（预取别把 404 页当图缓存）",
+      imageMime(Data(Array("<!DOCTYPE ht".utf8))) == nil)
+check("超短字节不越界（不足 8 字节 → nil，不是崩）", imageMime(Data([0x89, 0x50])) == nil)
 
 print("图片发送链真值表：" + String(passCount) + " 通过 / " + String(failCount) + " 失败")
 if failCount > 0 { exit(1) }
