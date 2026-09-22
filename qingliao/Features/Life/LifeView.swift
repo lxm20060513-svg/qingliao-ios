@@ -36,6 +36,8 @@ struct LifeView: View {
                     // v3.7.0：备忘录栏目（排在「生活数据」之前）；v3.9.35：待办清单紧随其后
                     MemoSection()
                     TodoSection()
+                    // v3.9.58：定时任务聚合卡（AI 建的提醒可视化可取消；空列表整卡隐藏）
+                    AutomationsSection()
                     LifeCardsSection(data: life,
                                      loading: lifeLoading,
                                      error: lifeError,
@@ -78,10 +80,12 @@ struct LifeView: View {
         .task(id: isActive) {
             guard isActive else { return }
             await loadLife()
+            await loadAutomations()
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(30))
                 if Task.isCancelled { return }   // 切走（task 取消）后不再多发一次请求
                 await loadLife()
+                await loadAutomations()   // v3.9.58：定时任务卡随生活页同节奏刷新（倒计时靠 runAt 本地算）
             }
         }
     }

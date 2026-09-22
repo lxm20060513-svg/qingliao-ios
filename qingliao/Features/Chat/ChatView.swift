@@ -149,6 +149,7 @@ struct PendingSend: Codable, Equatable {
 /// 流未结束时最后一行视为「正在执行」，其余打勾——长任务里用户不必等结果才知道在干什么。
 /// v3.9.58：行尾补耗时——completed 行显示「· Ns」（stream.stepDuration(at:)，nil 则不显示）；
 /// running 行显示「已等 Ns」（stream.runningElapsed()，nil/老后端不显示），长工具不再像卡死。
+/// v3.9.58b：流被中止/报错时（unresolved）行尾补「重试」按钮 → regenerate 最后一条回复。
 struct ToolStepRow: View {
     let title: String
     let running: Bool
@@ -159,6 +160,8 @@ struct ToolStepRow: View {
     var duration: Double? = nil
     /// v3.9.58：running 行的已等待秒数（nil=不显示；由调用方每秒刷新驱动）
     var elapsed: Int? = nil
+    /// v3.9.58b：重试回调（nil=不显示按钮；仅 unresolved 且是最后一步时传入）
+    var onRetry: (() -> Void)? = nil
     var body: some View {
         HStack(spacing: 8) {
             if running {
@@ -187,6 +190,18 @@ struct ToolStepRow: View {
                     .font(.system(size: Typography.caption))
                     .foregroundStyle(.tertiary)
                     .monospacedDigit()
+            }
+            if unresolved, let onRetry {
+                Button(action: onRetry) {
+                    Label("重试", systemImage: "arrow.clockwise")
+                        .font(.system(size: Typography.caption, weight: .medium))
+                        .foregroundStyle(Color.accentColor)
+                        .padding(.horizontal, Spacing.md)
+                        .padding(.vertical, Spacing.xxs)
+                        .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
+                }
+                .buttonStyle(PressStyle())
+                .accessibilityLabel("重试这步工具")
             }
         }
         .padding(.horizontal, Spacing.xl)
@@ -893,12 +908,16 @@ struct ChatView: View {
                     TimelineView(.periodic(from: .now, by: 1)) { _ in
                         VStack(alignment: .leading, spacing: 6) {
                             ForEach(Array(stream.toolNames.enumerated()), id: \.offset) { idx, name in
+                                let isLast = idx == stream.toolNames.count - 1
                                 ToolStepRow(title: name,
-                                            running: stream.isStreaming && idx == stream.toolNames.count - 1,
+                                            running: stream.isStreaming && isLast,
                                             unresolved: !stream.isStreaming && !stream.errorMessage.isEmpty,
                                             duration: stream.stepDuration(at: idx),
-                                            elapsed: (stream.isStreaming && idx == stream.toolNames.count - 1)
-                                                ? stream.runningElapsed() : nil)
+                                            elapsed: (stream.isStreaming && isLast)
+                                                ? stream.runningElapsed() : nil,
+                                            // v3.9.58b：失败收尾的最后一步 → 带「重试」（重新生成该回复）
+                                            onRetry: (!stream.isStreaming && isLast && !stream.errorMessage.isEmpty)
+                                                ? { retryLastGeneration() } : nil)
                             }
                         }
                     }
@@ -1158,6 +1177,22 @@ struct ChatView: View {
         // v3.7.0：剪贴板地图链接提示条（in-flow，不遮挡 header、不拦截消息区滚动）
         if showClipboardBanner {
             mapClipboardBanner()
+        }
+        // v3.9.58：流式健康度提示——弱网退避/断网等恢复不再静默（之前用户只觉得"卡住了"）。
+        // 只在本会话正在流式时显示；随相位出现/消失带透明过渡。
+        if stream.isStreaming, auth.currentStreamSessionId == chat.sessionId,
+           stream.phase != .normal {
+            HStack(spacing: Spacing.xs) {
+                Image(systemName: stream.phase == .waitingNetwork ? "wifi.slash" : "arrow.triangle.2.circlepath")
+                    .font(.system(size: Typography.caption))
+                    .foregroundStyle(.orange)
+                Text(stream.phase == .waitingNetwork ? "网络断开 · 恢复后继续" : "网络不稳 · 自动重试中")
+                    .font(.system(size: Typography.caption))
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, Spacing.xxs)
+            .transition(.opacity)
         }
     }
 
@@ -3111,6 +3146,16 @@ struct ChatView: View {
         // （`autoRetryStream` 从一开始就不走 sendCore，也就没踩到这个坑。）
         lastSentSignature = nil
         sendCore(text: msg.content, imageData: msg.imageDataURL)
+    }
+
+    /// v3.9.58b：工具卡「重试」入口——对最后一条 assistant 消息触发 regenerate。
+    /// 语义与长按「重新生成」完全一致（复用 regenerate 的截断+锚点+落库链路），
+    /// 只是入口从气泡菜单挪到工具卡，方便「工具跑一半挂了」的场景一键重来。
+    func retryLastGeneration() {
+        guard !stream.isStreaming,
+              let lastAssistant = chat.messages.last(where: { !$0.isUser }) else { return }
+        Haptics.tap()
+        regenerate(at: lastAssistant.id)
     }
 
     /// v2.0.96：退出语音转文字模式（按钮/空白点击共用）

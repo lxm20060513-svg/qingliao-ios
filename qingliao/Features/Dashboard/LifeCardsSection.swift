@@ -454,6 +454,9 @@ struct LifeCardsSection: View {
 
 struct LifeStockCard: View {
     let stock: LifeStock
+    @Environment(AuthStore.self) private var auth
+    // v3.9.58：30 日收盘价（sparkline）。进卡异步拉一次；失败/空=不画线（卡面照旧）
+    @State private var closes: [Double] = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -484,11 +487,23 @@ struct LifeStockCard: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
                 .padding(.top, Spacing.xxs)
+            if closes.count >= 2 {
+                StockSparkline(closes: closes, up: stock.isUp)
+                    .padding(.top, Spacing.sm)
+            }
         }
         .padding(Spacing.xl)
         .frame(maxWidth: .infinity, alignment: .leading)
         .dashboardCard()   // v3.8.1：真实卡片圆角与看板统一（默认 16）
         .scrollDepth()     // v3.9.0：滚动层次感
+        .task(id: stock.id) {
+            // v3.9.58：日K历史（30 日收盘）。失败静默——sparkline 是锦上添花，不占错误出口
+            let parts = stock.id.split(separator: ".")
+            guard parts.count == 2,
+                  let j = try? await auth.json("/api/life/stock/history?market=\(parts[0])&code=\(parts[1])&days=30"),
+                  let arr = j["closes"] as? [Double], arr.count >= 2 else { return }
+            closes = arr
+        }
     }
 
     /// A 股惯例：红涨绿跌（数据不可用 → 灰点 / 次色文字）
@@ -501,4 +516,33 @@ struct LifeStockCard: View {
         guard stock.ok, stock.changePct != nil else { return .gray }
         return stock.isUp ? .red : .green
     }
+}
+
+/// v3.9.58：迷你走势线（30 日收盘价，红涨绿跌与卡面同款口径）。
+/// 纯 Shape 画折线，无数据依赖；单点/空数组由调用方保证不进来（closes.count >= 2）。
+struct StockSparkline: View {
+    let closes: [Double]
+    let up: Bool
+
+    var body: some View {
+        Canvas { ctx, size in
+            let vals = closes
+            guard let lo = vals.min(), let hi = vals.max() else { return }
+            let span = max(hi - lo, 0.0001)   // 横盘时避免除 0
+            let w = size.width, h = size.height
+            let stepX = vals.count > 1 ? w / CGFloat(vals.count - 1) : w
+            var path = Path()
+            for (i, v) in vals.enumerated() {
+                let x = CGFloat(i) * stepX
+                let y = h - CGFloat((v - lo) / span) * h
+                if i == 0 { path.move(to: CGPoint(x: x, y: y)) }
+                else { path.addLine(to: CGPoint(x: x, y: y)) }
+            }
+            ctx.stroke(path, with: .color(lineColor), style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
+        }
+        .frame(height: 22)
+        .accessibilityLabel("近30日走势")
+    }
+
+    private var lineColor: Color { up ? .red : .green }
 }

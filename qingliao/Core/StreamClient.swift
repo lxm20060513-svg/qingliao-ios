@@ -29,6 +29,14 @@ final class StreamClient {
     /// 本次收尾是否真失败（与 finishSeq 成对写入，只在该序号变化时读它才有意义）
     private(set) var lastFinishFailed = false
     var isAgent = false        // v2.0.96b：Agent 回复标记（工具调用）
+    /// v3.9.58：流式健康度相位——弱网降频/退避重试对用户可见（不再静默"像卡死"）。
+    /// - normal：一切正常（空轮降频到 0.8s 属正常长思考，不算异常）
+    /// - retrying：连续网络失败退避中（failCount ≥ 2，正在指数退避重试）
+    /// - waitingNetwork：断网等网络恢复（系统路径 unsatisfied，最长等 120s）
+    enum Phase: Equatable, Sendable {
+        case normal, retrying, waitingNetwork
+    }
+    private(set) var phase: Phase = .normal
     // v3.9.17：AI 后端路径的工具进度（中文名，后端下发）。流结束后**保留**——让用户能看到
     // 刚才跑了哪些工具；只有 start() 开新流时才清空。
     var toolNames: [String] = []
@@ -159,6 +167,7 @@ final class StreamClient {
         isStreaming = true
         isDone = false
         status = ""
+        phase = .normal   // v3.9.58：新流健康度复位
         errorMessage = ""
         lastFailed = false   // v3.9.33：新流清掉上一轮的失败标记（否则新问题一开始球就是暗的）
         isAgent = false
@@ -225,6 +234,7 @@ final class StreamClient {
         if !NetworkMonitor.shared.isSatisfied {
             guard generation == self.generation else { return }
             status = "waiting_network"
+            if phase != .waitingNetwork { phase = .waitingNetwork }   // v3.9.58：断网等恢复 → 用户可见
             var waited = 0
             while waited < 120, !Task.isCancelled,
                   !NetworkMonitor.shared.isSatisfied,
@@ -234,6 +244,7 @@ final class StreamClient {
             }
             guard generation == self.generation, !self.isDone else { return }
             status = ""
+            if phase != .normal { phase = .normal }
             if waited >= 120 { finish(success: false, error: "网络长时间不可用，请检查网络后重试") }
             return   // 网络恢复 → 本轮直接返回，下一轮按正常间隔续流
         }
@@ -284,6 +295,7 @@ final class StreamClient {
             if done {
                 finish(success: st != "error", error: err)
             }
+            if phase != .normal { phase = .normal }   // v3.9.58：成功轮询 → 恢复正常相位
         } catch APIError.server(404) {
             guard generation == self.generation else { return }
             // v3.0.31：任务丢失（qingliao 重启/内存回收）→ 尝试 recover 续上，避免长任务白等
@@ -293,6 +305,7 @@ final class StreamClient {
                 if await tryRecover(auth: auth, localTaskGone: true) { return }
             }
             failCount += 1
+            if failCount >= 2 { phase = .retrying }   // v3.9.58：连续失败 → 重试相位
             if failCount >= 10 {
                 finish(success: false, error: "连接中断，请重试")
             }
@@ -319,13 +332,17 @@ final class StreamClient {
             if failCount >= 2 {
                 backoff = min(backoff * 2, 8)
                 interval = backoff
+                if phase != .retrying { phase = .retrying }   // v3.9.58：退避中 → 用户可见
             }
             if failCount >= 15 {
                 finish(success: false, error: "连接中断，请重试")
             }
         }
         // 成功响应后重置退避（放在函数尾部，成功路径 failCount=0 时执行）
-        if failCount == 0 { backoff = 0.5 }
+        if failCount == 0 {
+            backoff = 0.5
+            if phase == .retrying { phase = .normal }   // v3.9.58：重试成功 → 回正常
+        }
     }
 
     /// v3.0.31：poll 404 恢复——调 /api/stream/recover 找回任务（内存优先、磁盘 streams/*.json 兜底）。
@@ -390,6 +407,7 @@ final class StreamClient {
         isStreaming = false
         isDone = true
         status = success ? "done" : "error"
+        phase = .normal   // v3.9.58：收尾复位健康度（重试/等网相位只在流存活期间有意义）
         errorMessage = error
         lastFailed = !success && !userInitiated   // v3.9.33：真失败才置位
         lastFinishFailed = lastFailed
