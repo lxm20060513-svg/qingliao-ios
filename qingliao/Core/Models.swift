@@ -125,9 +125,15 @@ struct ChatMessage: Identifiable, Equatable, Sendable {
     }
 
     /// 请求体形态（发往 stream/start 的 messages）：带图时用 content 数组
-    func asPayload() -> [String: Any] {
+    /// - Parameter imageURLOverride: v3.9.60 —— 非 nil 时**强制**用该串作为 image_url.url；
+    ///   传空串 = 强制不带图（纯文本形态，content 由调用方写入）。默认 nil 保持原行为。
+    func asPayload(imageURLOverride: String? = nil) -> [String: Any] {
         var p: [String: Any] = ["role": role]
-        if let img = imageDataURL {
+        let image: String? = {
+            guard let o = imageURLOverride else { return imageDataURL }
+            return o.isEmpty ? nil : o
+        }()
+        if let img = image {
             var blocks: [[String: Any]] = []
             if !content.isEmpty {
                 blocks.append(["type": "text", "text": content])

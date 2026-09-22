@@ -55,6 +55,12 @@ struct QingliaoApp: App {
                     if auth.isLoggedIn {
                         await chat.loadLastSession(auth: auth)
                     }
+                    // v3.9.60：冷启动补一次图片链。原先只挂在 ChatView 的 .onChange(of: chat.sessionId) 上，
+                    // 而冷启动路径是 loadLastSession → load() 把 sessionId 赋成**同一个值**（初值本就取自
+                    // 同一个 UserDefaults key）→ onChange 看不到变化、整条链不跑：
+                    //   ① 「重启补传仍是 base64 的图」自 v3.0.51 起就静默失效（既有功能）；
+                    //   ② 「把已落库 URL 的图预取回 base64」是 v3.9.60 发送 payload 的前提（拿不到就降级 [图片]）。
+                    chat.startImageRetryUploads(auth: auth)
                 }
                 // v2.0.61：App 进后台时持久化流式状态（杀后台可恢复）
                 .onChange(of: scenePhase) { _, phase in

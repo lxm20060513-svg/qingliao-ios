@@ -69,7 +69,9 @@ check("菜单浮层挂在 DockTabView", dockSrc.contains("OrbQuickMenuOverlay(ba
 check("速记弹窗 sheet(item:) 挂载", dockSrc.contains(".sheet(item: $quickCapture,"))   // 后面还跟着 onDismiss 复位
 check("不做全屏磨砂（方案 C 只取光晕——轻纱 0.12 是黑色淡遮罩非 material）",
       orbMenuSrc.contains("Color.black.opacity(shown ? 0.12 : 0)") && !orbMenuSrc.contains(".ultraThinMaterial"))
-check("环形绽放 = 弧线错峰入场", orbMenuSrc.contains("private static let angles") && orbMenuSrc.contains(".delay(Double(index) * 0.05)"))
+check("绽放动效 = 从球心弹射（initial 位置 = 球心）+ 错峰入场",
+      orbMenuSrc.contains(".position(reduceMotion ? p : (shown ? p : ballCenter))")
+      && orbMenuSrc.contains(".delay(Double(index) * 0.05)"))
 check("球心光晕（C 元素）在位", orbMenuSrc.contains("RadialGradient"))
 check("减弱动态效果：读系统 accessibilityReduceMotion（全仓环境值口径，别自造开关）",
       orbMenuSrc.contains("@Environment(\\.accessibilityReduceMotion)"))
@@ -93,28 +95,81 @@ check("可见球层仍 allowsHitTesting(false)（球面触摸归命中层/系统
 check("命中层挂在可见球之后（同 overlay 内后挂者在上，才拿得到触摸）",
       orbOverlaySlice.contains("OrbHitLayer(barHeight: dockBarHeight"))
 
-// ── 5. 纯计算回归：弧线落点几何 ──────────────────────────────
-// 镜像 OrbQuickMenuLayer 的 pillOffset 计算（度→弧度、外侧半径放大）
-let angles: [Double] = [-57, -19, 19, 57]
-func offset(_ deg: Double) -> (x: Double, y: Double) {
+// ── 5. 纯计算回归：胶囊落点几何（v3.9.60 两排两列 —— 本次 bug 正题） ──
+// 镜像 OrbQuickMenuLayout（第 7 节 ③ 用源护栏钉住字面量，源改了这里必须同步改）
+let pillW = 101.0, pillH = 36.0            // 胶囊尺寸估值（令牌算式见 OrbQuickMenuLayout.pillSize 注释）
+let columnDX = 64.0, upperDY = 160.0, lowerDY = 104.0
+
+// 🔒 反向绑定：上面的「镜像常量」必须等于 OrbQuickMenuLayout 里的真值 —— 否则源改了表照样绿（假护栏）
+func parseCGSize(_ s: String, _ marker: String) -> (Double, Double)? {
+    guard let r = s.range(of: marker) else { return nil }
+    var rest = Substring(s[r.upperBound...])
+    guard let w = Double(rest.prefix { $0.isNumber || $0 == "." }),
+          let hR = rest.range(of: ", height: ") else { return nil }
+    rest = rest[hR.upperBound...]
+    guard let h = Double(rest.prefix { $0.isNumber || $0 == "." }) else { return nil }
+    return (w, h)
+}
+func parseNumber(_ s: String, _ marker: String) -> Double? {
+    guard let r = s.range(of: marker) else { return nil }
+    return Double(Substring(s[r.upperBound...]).prefix { $0.isNumber || $0 == "." })
+}
+let srcPill = parseCGSize(orbMenuSrc, "static let pillSize = CGSize(width: ")
+let srcBreath = parseNumber(orbMenuSrc, "static let minGapAboveBall: CGFloat = ")
+check("表内 pillW/pillH 与源码 pillSize 同源（源改了这里必红）",
+      srcPill?.0 == pillW && srcPill?.1 == pillH)
+check("表内呼吸间距与源码 minGapAboveBall 同源（74pt）", srcBreath == 74)
+let breathGap = srcBreath ?? 74
+func center(_ index: Int) -> (x: Double, y: Double) {
+    let i = ((index % 4) + 4) % 4
+    let isLeft = (i == 0 || i == 1)
+    let isUpper = (i == 1 || i == 2)
+    return (isLeft ? -columnDX : columnDX, -(isUpper ? upperDY : lowerDY))
+}
+let pts = (0..<4).map { center($0) }
+
+// ① 四颗落点互不相同（曾出现两颗重合 = 视觉上压在一起）
+check("四颗胶囊落点互不相同", Set(pts.map { String($0.x) + "," + String($0.y) }).count == 4)
+// ② 两两不重叠（AABB：横向或纵向任一方向分开即不重叠）
+func overlaps(_ a: (x: Double, y: Double), _ b: (x: Double, y: Double)) -> Bool {
+    abs(a.x - b.x) < pillW && abs(a.y - b.y) < pillH
+}
+var overlapPairs: [String] = []
+for i in 0..<4 {
+    for j in (i + 1)..<4 where overlaps(pts[i], pts[j]) {
+        overlapPairs.append(String(i) + "-" + String(j))
+    }
+}
+check("四颗胶囊两两不重叠（AABB）", overlapPairs.isEmpty)
+// ③ 最小间隙 ≥ 12pt（不重叠还不够——贴在一起观感仍是糊成一团）
+let hGap = 2 * columnDX - pillW            // 同排水平间隙
+let vGap = upperDY - lowerDY - pillH       // 两排纵向间隙
+check("同排水平间隙 ≥ 12pt", hGap >= 12)
+check("两排纵向间隙 ≥ 12pt", vGap >= 12)
+// ④ 屏内（最小 iPhone 宽度 375pt 兜底；球心 y = 屏底往上 安全区 + tab bar 一半）
+let screenW = 375.0, screenH = 667.0, safeBottom = 34.0, barH = 49.0
+let ball = (x: screenW / 2, y: screenH - safeBottom - barH / 2)
+let halfW = pillW / 2, halfH = pillH / 2
+for (i, p) in pts.enumerated() {
+    check("胶囊左右不越界（#" + String(i) + "）",
+          ball.x + p.x - halfW >= 8 && ball.x + p.x + halfW <= screenW - 8)
+    check("胶囊上缘不越界（#" + String(i) + "）", ball.y + p.y - halfH >= 8)
+}
+// ⑤ 不压球：下排胶囊底边到球心 ≥ 球半径(34) + 呼吸(40) = minGapAboveBall（与源码同源，见上）
+for (i, p) in pts.enumerated() {
+    check("胶囊在球上方留有呼吸（#" + String(i) + "）", -(p.y + halfH) >= breathGap)
+}
+// ⑥ 🚨 事故证据：旧「弧线散开」公式必须算出重叠 —— 否则第 ② 条只是空真（从没复现过原 bug）
+func oldOffset(_ deg: Double) -> (x: Double, y: Double) {
     let a = deg * Double.pi / 180
     let r = 106 + abs(deg) / 57 * 30
     return (sin(a) * r, -cos(a) * r)
 }
-// 中心两颗在球心上方且近似对称
-let l1 = offset(angles[1]), r1 = offset(angles[2])
-check("中间两颗左右对称", abs(l1.x + r1.x) < 0.001)
-check("胶囊都在球心上方", angles.allSatisfy { offset($0).y < 0 })
-// 外侧两颗半径更大 → 拱形弧线（y 比中间的高不了太多但 x 分得更开）
-let l0 = offset(angles[0]), r0 = offset(angles[3])
-check("外侧两颗比中间分得更开", abs(l0.x) > abs(l1.x) * 2.0)
-// 向上拱：中间两颗最高（y 最小 = 屏上最高），外侧两颗更低 → 拱顶在中间、两翼下垂。
-// ⚠️ 方向别写反：屏幕 y 向下增大，所以「拱顶」= y 更小。首版断言写成 l0.y < l1.y 是错的（假红）。
-check("弧线：拱顶在中间两颗（外侧 y 更大 = 更低）", l0.y > l1.y && r0.y > r1.y)
-check("弧线左右对称", abs(l0.y - r0.y) < 0.001 && abs(l0.x + r0.x) < 0.001)
-// 胶囊整体仍在球心上方（不能压到 dock / 屏幕外）
-check("四颗胶囊都在球心上方 40～130pt 区间", angles.allSatisfy { (40...130).contains(-offset($0).y) })
-// 错峰延迟单调（50ms 步进）——⚠️ 不能直接 == [0,0.05,0.10,0.15]：0.05*3 二进制不精确
+let oldInnerGap = abs(oldOffset(19).x - oldOffset(-19).x)
+let oldRowGap = abs(oldOffset(-19).y - oldOffset(-57).y)
+check("旧弧线内侧中心距 < 胶囊宽（横向重叠 = 事故证据）", oldInnerGap < pillW)
+check("旧弧线内外排纵向差 < 胶囊高（上下贴合 = 事故证据）", oldRowGap < pillH)
+// ⑦ 错峰延迟单调（50ms 步进）——⚠️ 不能直接 == [0,0.05,0.10,0.15]：0.05*3 二进制不精确
 // （= 0.15000000000000002）会假红，必须用单调 + 容差断言。
 let delays = (0..<4).map { Double($0) * 0.05 }
 check("错峰延迟单调递增（50ms 步进）",
@@ -139,10 +194,18 @@ check("命中圈补了 contentShape(Circle())", orbMenuSrc.contains(".contentSha
 check("轻纱补了 contentShape(Rectangle())（点空白收起靠它）", orbMenuSrc.contains("contentShape(Rectangle())"))
 // ② 可点玻璃胶囊走 .regular.interactive()（Pill.swift 定版；裸 glassEffect 是静态卡口径，无按压反馈）
 check("可点胶囊走 glassEffect(.regular.interactive())", orbMenuSrc.contains("glassEffect(.regular.interactive())"))
-// ③ 弧线几何与源码字面量绑定（第 5 节是镜像计算，源码改了必须同步改表）
-check("弧线角度表与源码绑定", orbMenuSrc.contains("[-57, -19, 19, 57]"))
-check("弧线半径公式与源码绑定", orbMenuSrc.contains("106 + abs(deg) / 57 * 30"))
-check("角度表取模防越界（加第 5 颗胶囊不崩）", orbMenuSrc.contains("Self.angles[index % Self.angles.count]"))
+// ③ 落点几何与源码字面量绑定（第 5 节是镜像计算，源码改了必须同步改表）
+check("落点常量与源码绑定（columnDX / upperDY / lowerDY）",
+      orbMenuSrc.contains("static let columnDX: CGFloat = 64")
+      && orbMenuSrc.contains("static let upperDY: CGFloat = 160")
+      && orbMenuSrc.contains("static let lowerDY: CGFloat = 104"))
+check("落点单一真源 = OrbQuickMenuLayout.center",
+      orbMenuSrc.contains("OrbQuickMenuLayout.center(index: index, ballCenter: ballCenter)"))
+check("取模防越界（加第 5 颗胶囊不崩）", orbMenuSrc.contains("let i = ((index % 4) + 4) % 4"))
+// ③′ 🚨 旧「角度散开」实现必须清零（四颗胶囊重叠的根因；断言带声明形态的串，别断言裸符号名）
+check("旧角度表已删除", !orbMenuSrc.contains("private static let angles: [Double]"))
+check("旧角度取模已删除", !orbMenuSrc.contains("Self.angles[index % Self.angles.count]"))
+check("旧半径公式已删除", !orbMenuSrc.contains("106 + abs(deg) / 57 * 30"))
 // ④ 速记弹窗：onDismiss 复位（present 被别的 sheet 挡掉后 detail 恒非 nil → 之后再也打不开）
 check("速记弹窗 onDismiss 复位", dockSrc.contains("onDismiss: { quickCapture = nil }"))
 check("速记弹窗与全站同档 detents", orbMenuSrc.contains(".presentationDetents([.medium, .large])"))

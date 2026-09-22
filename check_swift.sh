@@ -98,4 +98,9 @@ echo "=== 12. 智慧球长按快捷菜单真值表（v3.9.59 攒版）==="
 # 工作目录 = 仓根（真值表内用相对路径 "qingliao/Features/..." 读源）→ 必须从仓根跑。
 run_unit /tmp/test_orbmenu scripts/ql_orbmenu/truth_table_orbmenu.swift
 
+echo "=== 13. 图片发送串真值表（v3.9.60）==="
+# 单文件（读源文件做护栏 + 镜像 ChatStore.sendableImageURL 纯函数）→ run_unit 直接编跑。
+# 口径：payload 里只允许 base64，绝不许把自家（只有 IPv6 的）图片 URL 交给上游模型。
+run_unit /tmp/test_imgsend scripts/ql_imgsend/truth_table_imgsend.swift
+
 exit $?

@@ -1,8 +1,10 @@
 // MARK: - v3.9.59（攒版）智慧球长按快捷菜单
 //
 // 交互：长按 dock 智慧球（≥0.45s）→ 弹出 4 颗功能胶囊：新建会话 / AI 速记 / 语音输入 / 今日待办。
-// 动效 = 方案 A+C 混合（用户拍板）：A 环形绽放（胶囊沿弧线从球心弹簧散射、错峰入场）
+// 动效 = 方案 A+C 混合（用户拍板）：A 绽放（胶囊从球心弹簧弹射、错峰入场，落点几何见 OrbQuickMenuLayout）
 //        + C 的球心光晕扩散（常驻柔光 + 一圈扩散环），**不做**全屏磨砂。
+// v3.9.60：落点由「弧线散开」改为「两排两列」——弧线在 393pt 屏宽下四颗胶囊必然重叠（用户实测），
+//        几何根因与算式写在 OrbQuickMenuLayout 上方。
 //
 // 复用既有入口（不新造状态/后端）：
 //   新建会话 → ChatStore.requestNewSession()（ChatView 的 pendingNewSession 两步走清屏）
@@ -94,7 +96,43 @@ struct OrbQuickMenuOverlay: View {
     }
 }
 
-// MARK: - 菜单层（轻纱 + 光晕 + 弧线胶囊）
+// MARK: - v3.9.60 落点几何（纯函数，供真值表复用）
+//
+// 为什么改：v3.9.59 的「角度散开」在真机上四颗胶囊压在一起（用户实测报「弹出位置有重叠」）。
+// 根因是**几何不够用**，不是动画问题：
+//   · 内侧两颗 ±19°、r=116 → 中心距 = 2·sin19°·116 ≈ **75.5pt**，而单颗胶囊宽约 **101pt**
+//     （水平内边距 2×(Spacing.xl+2)=28 + 图标 13pt SF≈15 + HStack 间距 Spacing.sm=6 + 中文 4 字×13pt=52）
+//     → 中间两颗横向重叠约 **25pt**，右侧那颗直接盖在左侧那颗上；
+//   · 外侧 ±57° 与内侧 ±19° 的纵向差只有 cos19°·116 − cos57°·136 ≈ **35.7pt**，而胶囊高约 **36pt**
+//     （垂直内边距 2×Spacing.lg=20 + 13pt 行高≈15.5）→ 上下两颗贴合/微蹭。
+//   · 393pt 屏宽下放 4 颗 101pt 宽的胶囊，靠「同弧散开」永远排不下（要内侧间距 ≥127pt 得把半径推到
+//     ~195pt，外侧就会飞出屏幕）——所以落点改成**保持原「上下两排」观感、把间距拉开**，动画不动。
+//
+// 落点（以球心为原点，与 v3.9.59 截图里看到的排布一致）：
+//   index 0 下左 · 1 上左 · 2 上右 · 3 下右
+//   同排中心距 128pt（101 + 27 间隙）；两排纵向差 56pt（36 + 20 间隙）
+enum OrbQuickMenuLayout {
+    /// 胶囊尺寸估值（本机无 Xcode SDK 渲染不出，按令牌算式推；真机不齐只改这一处）
+    static let pillSize = CGSize(width: 101, height: 36)
+    /// 同排半间距（中心距 = 2×64 = 128）
+    static let columnDX: CGFloat = 64
+    /// 上排抬升（离球心更远）、下排抬升
+    static let upperDY: CGFloat = 160
+    static let lowerDY: CGFloat = 104
+    /// 胶囊底到球心的最小间距（球半径约 34pt + 呼吸 40pt）
+    static let minGapAboveBall: CGFloat = 74
+
+    /// 单颗胶囊的中心点。取模防越界（加第 5 颗胶囊不崩）。
+    static func center(index: Int, ballCenter: CGPoint) -> CGPoint {
+        let i = ((index % 4) + 4) % 4
+        let isLeft = (i == 0 || i == 1)
+        let isUpper = (i == 1 || i == 2)
+        return CGPoint(x: ballCenter.x + (isLeft ? -columnDX : columnDX),
+                       y: ballCenter.y - (isUpper ? upperDY : lowerDY))
+    }
+}
+
+// MARK: - 菜单层（轻纱 + 光晕 + 两排胶囊）
 
 struct OrbQuickMenuLayer: View {
     let ballCenter: CGPoint
@@ -106,10 +144,6 @@ struct OrbQuickMenuLayer: View {
     /// v3.9.59：减弱动态效果（系统辅助功能）——弹簧散射/位移会加重不适感，退化为「原地淡入」。
     /// 全仓口径一致：LoginView、LiquidOrbAvatar 都读同一环境值，本层别自己发明开关。
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    /// 四颗胶囊的方位角（相对球心、从竖直向上起算，单位度）+ 弧形半径：
-    /// 外侧两颗半径更大 → 胶囊带整体呈一条向上拱的弧线（方案 A 的「环形绽放」）
-    private static let angles: [Double] = [-57, -19, 19, 57]
 
     /// 单颗胶囊入场动画：正常运行按 index 错峰 50ms；减弱动态效果下退化为瞬时节奏（只留透明度过渡）
     private func pillAnimation(index: Int) -> Animation {
@@ -158,13 +192,9 @@ struct OrbQuickMenuLayer: View {
         .allowsHitTesting(false)
     }
 
-    /// 胶囊相对球心的落点（弧线）
+    /// 胶囊相对球心的落点（两排两列，几何见 OrbQuickMenuLayout）
     private func pillOffset(index: Int) -> CGPoint {
-        let deg = Self.angles[index % Self.angles.count]   // v3.9.59：取模防越界（加第 5 颗胶囊不崩）
-        let a = deg * Double.pi / 180
-        let r = 106 + abs(deg) / 57 * 30
-        return CGPoint(x: ballCenter.x + CGFloat(sin(a) * r),
-                       y: ballCenter.y - CGFloat(cos(a) * r))
+        OrbQuickMenuLayout.center(index: index, ballCenter: ballCenter)
     }
 
     private func orbPill(_ action: OrbQuickAction, index: Int) -> some View {
@@ -191,7 +221,8 @@ struct OrbQuickMenuLayer: View {
         .scaleEffect(reduceMotion ? 1 : (shown ? 1 : 0.3))
         .opacity(shown ? 1 : 0)
         .position(reduceMotion ? p : (shown ? p : ballCenter))
-        // 错峰绽放：由外到内每颗延迟 50ms（index 0 是最左外侧）；reduceMotion 下走 pillAnimation 的退化分支
+        // 错峰绽放：按 index 延迟 50ms（0 下左 → 1 上左 → 2 上右 → 3 下右，落点见 OrbQuickMenuLayout）；
+        // reduceMotion 下走 pillAnimation 的退化分支
         .animation(pillAnimation(index: index), value: shown)
         .onTapGesture {
             Haptics.tap()

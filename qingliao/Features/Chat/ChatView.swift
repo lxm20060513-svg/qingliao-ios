@@ -3365,29 +3365,12 @@ struct ChatView: View {
     /// v3.0.52：蜂窝下把 base64 图压到极小，使 stream/start 的 body 能通过 CFStream 直连传输
     /// （蜂窝下 uploadImage(URLSession) 大概率失败 → 图片退回 base64 大 body → 后端 bad json 400；压小后直连可过）
     /// v3.0.53：再压狠一点 (480px/0.45) → body ~20KB，提高 CFStream 蜂窝直连通过率
+    /// v3.9.60：实现抽到 `ImageDownscale`（历史图也会进 body，发送链每一环要用同一档位，别各写一份）
     func compressForCellular(_ imageDataURL: String?) -> String? {
-        guard let img = imageDataURL,
-              NetworkMonitor.shared.isCellular,
-              let comma = img.firstIndex(of: ","),
-              img[..<comma].hasPrefix("data:image/"),
-              let b64 = String(img[img.index(after: comma)...]).data(using: .ascii),
-              let data = Data(base64Encoded: b64),
-              let ui = UIImage(data: data)
-        else { return imageDataURL }
-        let maxSide: CGFloat = 480
-        var w = ui.size.width
-        var h = ui.size.height
-        if max(w, h) > maxSide {
-            let scale = maxSide / max(w, h)
-            w *= scale
-            h *= scale
-        }
-        let renderer = UIGraphicsImageRenderer(size: CGSize(width: w, height: h))
-        let resized = renderer.image { _ in
-            ui.draw(in: CGRect(x: 0, y: 0, width: w, height: h))
-        }
-        guard let d = resized.jpegData(compressionQuality: 0.45) else { return imageDataURL }
-        return "data:image/jpeg;base64," + d.base64EncodedString()
+        guard NetworkMonitor.shared.isCellular else { return imageDataURL }
+        return ImageDownscale.dataURL(imageDataURL,
+                                      maxSide: ImageDownscale.cellularMaxSide,
+                                      quality: ImageDownscale.cellularQuality) ?? imageDataURL
     }
 }   // v3.0.50：扫码球移除后 ChatView struct 闭合
 

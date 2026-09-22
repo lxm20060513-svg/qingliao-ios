@@ -369,10 +369,15 @@ final class ChatStore {
         //（前面已发过的图片不进 payload，防 base64 全量重复膨胀）；其余带图消息降级为 [图片] 占位文本
         let lastImageIdx = ctxMessages.lastIndex { $0.imageDataURL != nil }
         return ctxMessages.enumerated().map { (i, m) in
-            var p = m.asPayload()
+            // v3.9.60：图片串决策——`data:` 原样；落库 URL 只认本地缓存（上游下不到只有 IPv6 的自家地址，
+            // 见 sendableImageURL 注释）。拿不到 base64 时**绝不**把 URL 发出去，走下面的文本降级。
+            // 蜂窝下再压一档：历史图过去走 URL（body 很小），现在走 base64，不压会撑爆 CFStream 直连
+            let sendable = Self.sendableImageURL(m.imageDataURL, cache: localImageBase64)
+                .map { self.cellularSizedImage($0) }
+            var p = m.asPayload(imageURLOverride: sendable ?? "")
             if m.imageDataURL == nil {
                 p["content"] = m.content
-            } else if i != lastImageIdx || !visionOK {
+            } else if i != lastImageIdx || !visionOK || sendable == nil {
                 // 非最后一条带图消息：图片不再携带 base64，降级为文本（内容 + [图片] 标记）；
                 // 最后一条但当前不支持视觉 → 同样降级（原逻辑）
                 let t = m.content.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -715,8 +720,16 @@ final class ChatStore {
 
     /// SR4：同一时刻只允许一条重传链（切会话/前台回 App 会反复触发，旧链不取消会并发写 messages）。
     @ObservationIgnored private var imageRetryTask: Task<Void, Never>?
+    /// v3.9.60：图片 base64 预取链（独立于补传链，见下）
+    @ObservationIgnored private var imagePrefetchTask: Task<Void, Never>?
 
     func startImageRetryUploads(auth: AuthStore) {
+        // v3.9.60：预取（下载已落库的图换回 base64）与补传（上传仍是 base64 的图）拆成两条链——
+        // 预取走的是网络下载（Wi-Fi 直连超时 30s），串在补传前面会把「补传」这条原始职责一起顶住。
+        imagePrefetchTask?.cancel()
+        imagePrefetchTask = Task { [weak self] in
+            await self?.prefetchStoredImagesForSend(auth: auth)
+        }
         imageRetryTask?.cancel()
         imageRetryTask = Task { [weak self] in
             await self?.retryPendingImageUploads(auth: auth)
@@ -775,10 +788,120 @@ final class ChatStore {
         }
     }
 
+    // MARK: - v3.9.60 图片发送串决策（payload 用 base64，落库仍存 URL）
+
+    /// 落库 URL → 本地 base64（进程内内存，不持久化；重启后由 prefetchStoredImagesForSend 回填）。
+    /// 只留最近 `localImageMaxEntries` 条（FIFO）：payload 只用「最后一条带图消息」，留多了纯占内存
+    /// ——base64 是原字节 +33%，3MB 的图一条就 4MB 常驻。
+    @ObservationIgnored private var localImageBase64: [String: String] = [:]
+    /// 插入序（配合上面的 FIFO 淘汰；Dictionary 本身无序）
+    @ObservationIgnored private var localImageOrder: [String] = []
+    /// 蜂窝下采样结果缓存（key = 原 base64 串），避免每次发送重压
+    @ObservationIgnored private var localImageCellular: [String: String] = [:]
+    private static let localImageMaxEntries = 3
+    /// 蜂窝下多大的串才值得压：小于它多半已是压缩过的小图（再压只会更糊 + 白耗 CPU）
+    private static let cellularDownscaleThreshold = 300_000
+
+    /// 发送给模型时用的图片串（纯函数，真值表覆盖；**不许**在图块里出现自家 http URL）：
+    ///   · `data:` 开头（本地 base64）→ 原样
+    ///   · `http(s)` 开头（已落库为 URL）→ 只认本地缓存；未命中返回 nil（调用方降级 [图片]）
+    ///   · 其它/空 → nil
+    ///
+    /// 为什么不能把 http URL 交给模型：图片 URL 指向自家 `webui.<域名>`，该域**只有 AAAA（IPv6）、
+    /// 没有 A 记录**（2026-09-23 在 NAS 上 `nslookup -type=A` 实测 No answer），而上游厂商
+    /// （DeepSeek / StepFun / 智谱…）是 IPv4 云 → 必现
+    /// `HTTP 400 .messages[1].image[0]: Failed to download image from https://webui.<域名>:16666/...`。
+    /// 结论：图片必须以 base64 内嵌发送，URL 只用于 App 本地显示与落库。
+    static func sendableImageURL(_ stored: String?, cache: [String: String]) -> String? {
+        guard let s = stored, !s.isEmpty else { return nil }
+        if s.hasPrefix("data:") { return s }
+        if s.hasPrefix("http") { return cache[s] }
+        return nil
+    }
+
+    /// 蜂窝下把待发 base64 压到能过 CFStream 的档位并缓存（只压大串；压不动/非蜂窝 → 原样返回）。
+    /// 为什么要在这一层做：历史图现在也以 base64 进 body（过去是 URL，body 很小），
+    /// 「WiFi 下发图 → 出门用蜂窝追问」这条路上 body 会是全分辨率图 → CFStream/relay 载不动 → bad json 400。
+    private func cellularSizedImage(_ b64: String) -> String {
+        guard NetworkMonitor.shared.isCellular, b64.count > Self.cellularDownscaleThreshold else { return b64 }
+        if let hit = localImageCellular[b64] { return hit }
+        let out = ImageDownscale.dataURL(b64, maxSide: ImageDownscale.cellularMaxSide,
+                                         quality: ImageDownscale.cellularQuality) ?? b64
+        localImageCellular[b64] = out
+        return out
+    }
+
+    /// 上传成功（拿到可落库 URL）时把原始字节登进内存缓存，供本次发送的 payload 使用（FIFO 限 N 条）。
+    func rememberLocalImage(url: String, imageData: Data) {
+        guard !url.isEmpty else { return }
+        localImageBase64[url] = "data:" + (Self.imageMime(imageData) ?? "image/jpeg") + ";base64,"
+            + imageData.base64EncodedString()
+        if let i = localImageOrder.firstIndex(of: url) { localImageOrder.remove(at: i) }
+        localImageOrder.append(url)
+        while localImageOrder.count > Self.localImageMaxEntries {
+            let old = localImageOrder.removeFirst()
+            localImageBase64[old] = nil
+        }
+    }
+
+    /// 图片字节 → MIME；**不是图片返回 nil**（别把 mp4/avif 当 heic 塞进 payload —— 上游会拒，
+    /// 正是本次要修的那类 400）。原先 mimeForImage / looksLikeImage 是同一组探针写两遍，已合并。
+    static func imageMime(_ d: Data) -> String? {
+        let b = [UInt8](d.prefix(12))
+        if b.count >= 3, b[0] == 0xFF, b[1] == 0xD8, b[2] == 0xFF { return "image/jpeg" }
+        if b.count >= 8, b[0] == 0x89, b[1] == 0x50, b[2] == 0x4E, b[3] == 0x47,
+           b[4] == 0x0D, b[5] == 0x0A, b[6] == 0x1A, b[7] == 0x0A { return "image/png" }
+        if b.count >= 12, String(bytes: b[4..<8], encoding: .ascii) == "ftyp" {
+            // ftyp 是「ISO BMFF 家族」的共用头：mp4 / avif / m4a 也是它——必须核 brand，别一律当 heic
+            switch String(bytes: b[8..<12], encoding: .ascii) ?? "" {
+            case "heic", "heix", "hevc", "heim", "heis", "mif1": return "image/heic"
+            default: return nil
+            }
+        }
+        if b.count >= 12, String(bytes: b[0..<4], encoding: .ascii) == "RIFF",
+           String(bytes: b[8..<12], encoding: .ascii) == "WEBP" { return "image/webp" }
+        if b.count >= 3, b[0] == 0x47, b[1] == 0x49, b[2] == 0x46 { return "image/gif" }
+        return nil
+    }
+
+    /// v3.9.60：把 messages 里最近的「已落库为 http URL」用户图片下载回 base64 填缓存。
+    /// 触发点：冷启动（QingliaoApp 的 .task）/ 切会话 / 前台回 App（与 startImageRetryUploads 同处）。
+    ///
+    /// 为什么取「最近 N 条」而不是只取最后一条：payload 的判定基于**净化后**的 ctxMessages
+    /// （会剔掉连续重复的纯图消息），只挑一条可能正好挑中会被剔掉的那条 → 缓存了却不命中。
+    /// 下载只认自家服务器（auth.request 走 serverURL，带 X-Auth-Token）；失败静默——
+    /// `sendableImageURL` 会退化成 [图片] 占位，绝不把上游下不到的 URL 交给模型。
+    func prefetchStoredImagesForSend(auth: AuthStore) async {
+        var targets: [String] = []
+        for m in messages.reversed() where m.isUser {
+            guard let u = m.imageDataURL, u.hasPrefix("http"),
+                  localImageBase64[u] == nil, !targets.contains(u) else { continue }
+            targets.append(u)
+            if targets.count >= Self.localImageMaxEntries { break }
+        }
+        for url in targets {
+            if Task.isCancelled { return }
+            // URL 形态 = serverURL + "/api/files/download?path=<名>" → 取 path 段走 auth.request（与原上传同源）
+            guard let q = url.firstIndex(of: "?"),
+                  url[..<q].hasSuffix("/api/files/download") else { continue }
+            let path = "/api/files/download" + String(url[q...])
+            guard let (data, resp) = try? await auth.request(path), resp.statusCode == 200,
+                  !data.isEmpty, data.count <= 8 * 1024 * 1024, Self.imageMime(data) != nil else { continue }
+            rememberLocalImage(url: url, imageData: data)
+        }
+    }
+
     // MARK: - v3.0.27 图片持久化
 
-    /// 上传图片到服务器，返回可访问的 URL
+    /// 上传图片到服务器，返回可访问的 URL（落库用）；同时把原始字节登进本地缓存（发送 payload 用）。
     func uploadImage(_ imageData: Data, auth: AuthStore) async -> String? {
+        let url = await uploadImageInner(imageData, auth: auth)
+        if let url { rememberLocalImage(url: url, imageData: imageData) }
+        return url
+    }
+
+    /// 真正干活的上传实现（两个入口——WiFi multipart / 蜂窝分片——各自返回落库 URL）
+    private func uploadImageInner(_ imageData: Data, auth: AuthStore) async -> String? {
         // v3.0.54：蜂窝分片上传 —— URLSession multipart 在蜂窝 IPv6 POST 必挂（退回 base64 大 body
         // → CFStream/relay 载不动 → bad json 400）。蜂窝改走 auth.request（CFStream 直连+relay 兜底、
         // 自动带 X-Auth-Token，正是文字聊天走通的小 body 通路）把图切小片 JSON base64 上传、服务端重组。
