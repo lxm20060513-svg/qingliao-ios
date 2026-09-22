@@ -12,6 +12,9 @@ import SwiftUI
 //   · 倒计时文案每 30s 本地刷新（runAt 是绝对时刻，无需轮询后端）
 
 struct AutomationsSection: View {
+    /// 与 LifeView 同口径：`isActive` 直传，切走 tab = task 取消即停，隐藏页零轮询
+    var isActive: Bool = true
+
     @Environment(AuthStore.self) private var auth
     @State private var items: [LifeAutomationItem] = []
     @State private var loadError = ""
@@ -19,38 +22,58 @@ struct AutomationsSection: View {
 
     var body: some View {
         // 空列表 → 整卡隐藏（含加载失败且从未有过数据的情况：留一行小字引导重试）
-        if !items.isEmpty {
-            VStack(alignment: .leading, spacing: Spacing.sm) {
-                HStack(spacing: 6) {
-                    Image(systemName: "alarm")
-                        .font(.system(size: Typography.subhead, weight: .semibold))
-                        .foregroundStyle(Color.accentColor)
-                    Text("我帮你定的提醒 · \(items.count)")
-                        .font(.system(size: Typography.subhead, weight: .semibold))
-                        .foregroundStyle(.primary)
-                    Spacer()
-                }
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(items) { it in
-                        row(it)
-                        if it.id != items.last?.id {
-                            Divider().overlay(Color.primary.opacity(Tint.faint))
+        Group {
+            if !items.isEmpty {
+                VStack(alignment: .leading, spacing: Spacing.sm) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "alarm")
+                            .font(.system(size: Typography.subhead, weight: .semibold))
+                            .foregroundStyle(Color.accentColor)
+                        Text("我帮你定的提醒 · \(items.count)")
+                            .font(.system(size: Typography.subhead, weight: .semibold))
+                            .foregroundStyle(.primary)
+                        Spacer()
+                    }
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(items) { it in
+                            row(it)
+                            if it.id != items.last?.id {
+                                Divider().overlay(Color.primary.opacity(Tint.faint))
+                            }
                         }
                     }
+                    .background(Color(uiColor: .secondarySystemGroupedBackground))
+                    .clipShape(RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: Radius.inset, style: .continuous)
+                            .strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8)
+                    )
                 }
-                .background(Color(uiColor: .secondarySystemGroupedBackground))
-                .clipShape(RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: Radius.inset, style: .continuous)
-                        .strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8)
-                )
+            } else if !loadError.isEmpty {
+                Text("定时任务加载失败 · 下拉刷新重试")
+                    .font(.system(size: Typography.tiny))
+                    .foregroundStyle(.tertiary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, Spacing.xs)
             }
-        } else if !loadError.isEmpty {
-            Text("定时任务加载失败 · 下拉刷新重试")
-                .font(.system(size: Typography.tiny))
-                .foregroundStyle(.tertiary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, Spacing.xs)
+        }
+        .task(id: isActive) {
+            guard isActive else { return }
+            while !Task.isCancelled {
+                await load()
+                try? await Task.sleep(for: .seconds(30))
+                if Task.isCancelled { return }   // 切走（task 取消）后不再多发一次请求
+            }
+        }
+    }
+
+    /// 拉定时任务列表（空/失败都静默——空=不显示卡，失败=卡内小字）
+    private func load() async {
+        if let j = await auth.jsonOrLog("/api/automations/list") {
+            items = (j["automations"] as? [[String: Any]] ?? []).map(LifeAutomationItem.init)
+            loadError = ""
+        } else if items.isEmpty {
+            loadError = "load_failed"
         }
     }
 
@@ -125,20 +148,5 @@ struct LifeAutomationItem: Identifiable {
         if s < 3600 { return "\(s / 60) 分钟后" }
         if s < 86400 { return "\(s / 3600) 小时 \((s % 3600) / 60) 分后" }
         return "\(s / 86400) 天后"
-    }
-}
-
-// MARK: - 数据加载（挂 LifeView 生命周期；独立 extension 防止撑大 LifeView body）
-
-extension LifeView {
-    /// 拉定时任务列表（空/失败都静默——空=不显示卡，失败=卡内小字）
-    func loadAutomations() async {
-        if let j = await auth.jsonOrLog("/api/automations/list") {
-            let list = (j["automations"] as? [[String: Any]] ?? []).map(LifeAutomationItem.init)
-            items = list
-            loadError = ""
-        } else if items.isEmpty {
-            loadError = "load_failed"
-        }
     }
 }
