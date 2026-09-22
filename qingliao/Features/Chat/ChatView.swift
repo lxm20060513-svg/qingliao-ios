@@ -147,12 +147,18 @@ struct PendingSend: Codable, Equatable {
 /// v3.9.17：AI 后端（Hermes）路径的工具进度一行。
 /// 数据来自 /api/stream/{taskId} 的 toolNames（后端已翻中文，App 不维护第二份映射表）；
 /// 流未结束时最后一行视为「正在执行」，其余打勾——长任务里用户不必等结果才知道在干什么。
+/// v3.9.58：行尾补耗时——completed 行显示「· Ns」（stream.stepDuration(at:)，nil 则不显示）；
+/// running 行显示「已等 Ns」（stream.runningElapsed()，nil/老后端不显示），长工具不再像卡死。
 struct ToolStepRow: View {
     let title: String
     let running: Bool
     /// v3.9.17：流被中止/报错时这些工具并没有确认跑完 → 用「未确认」图标而不是绿勾
     /// （否则用户点了停止，卡里每个工具都显示已完成，语义不实）
     var unresolved: Bool = false
+    /// v3.9.58：completed 行的耗时秒数（nil=后端无数据/未收口，不显示）
+    var duration: Double? = nil
+    /// v3.9.58：running 行的已等待秒数（nil=不显示；由调用方每秒刷新驱动）
+    var elapsed: Int? = nil
     var body: some View {
         HStack(spacing: 8) {
             if running {
@@ -171,6 +177,17 @@ struct ToolStepRow: View {
                 .foregroundStyle(.primary)
                 .lineLimit(2)
             Spacer(minLength: 0)
+            if running, let e = elapsed {
+                Text("已等 \(e)s")
+                    .font(.system(size: Typography.caption))
+                    .foregroundStyle(.tertiary)
+                    .monospacedDigit()
+            } else if !running, let d = duration {
+                Text(d < 10 ? String(format: "%.1fs", d) : "\(Int(d.rounded()))s")
+                    .font(.system(size: Typography.caption))
+                    .foregroundStyle(.tertiary)
+                    .monospacedDigit()
+            }
         }
         .padding(.horizontal, Spacing.xl)
         .padding(.vertical, Spacing.md)
@@ -870,10 +887,20 @@ struct ChatView: View {
                     withAnimation(Motion.snap) { toolStepsExpanded.toggle() }   // v3.9.19：裸动画收口到令牌（原 .easeOut(0.18)）
                 }
                 if toolStepsExpanded {
-                    ForEach(Array(stream.toolNames.enumerated()), id: \.offset) { idx, name in
-                        ToolStepRow(title: name,
-                                    running: stream.isStreaming && idx == stream.toolNames.count - 1,
-                                    unresolved: !stream.isStreaming && !stream.errorMessage.isEmpty)
+                    // v3.9.58：TimelineView 每 1s 重算——running 行的「已等 Ns」需要走秒，
+                    // 轮询 tick（0.15-0.8s 不定）驱动会让秒数跳变；只在展开明细时包住这一小段，
+                    // collapsed 摘要行不受影响（零额外重建）。
+                    TimelineView(.periodic(from: .now, by: 1)) { _ in
+                        VStack(alignment: .leading, spacing: 6) {
+                            ForEach(Array(stream.toolNames.enumerated()), id: \.offset) { idx, name in
+                                ToolStepRow(title: name,
+                                            running: stream.isStreaming && idx == stream.toolNames.count - 1,
+                                            unresolved: !stream.isStreaming && !stream.errorMessage.isEmpty,
+                                            duration: stream.stepDuration(at: idx),
+                                            elapsed: (stream.isStreaming && idx == stream.toolNames.count - 1)
+                                                ? stream.runningElapsed() : nil)
+                            }
+                        }
                     }
                 }
             }
@@ -1911,6 +1938,8 @@ struct ChatView: View {
             dropPendingQueue(dropping: prior)
             refreshVisibleMessages()
             stream.toolNames = []          // v3.9.17：工具进度卡同样会跨会话残留 → 一并清（否则 B 会话底部显示 A 跑过的工具）
+            stream.toolSpans = []          // v3.9.58：耗时列表同清
+            stream.toolStartedAt = 0
             // v3.0.51 A1：会话加载后重传残留 base64 图片（重启续传/失败重传）
             // SR4：走 ChatStore 的单飞入口——旧会话那条重传链会先被 cancel，不会跨会话争写 messages
             chat.startImageRetryUploads(auth: auth)

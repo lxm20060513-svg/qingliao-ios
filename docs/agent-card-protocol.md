@@ -26,7 +26,9 @@
 // ─────────────────────────────────────────────
 // 2. 字段（全部可选，有什么写什么；没有内容的段客户端不画）
 // ─────────────────────────────────────────────
-// type      result | metrics | list | table | status  —— 只影响头部图标/强调色
+// type      result | metrics | list | table | status | plan  —— 只影响头部图标/强调色
+//           plan = v3.9.58 任务计划卡：多步任务收尾时用，list 段按执行顺序放各步骤
+//           （title=步骤名，status/tone=完成/ok、进行中/warn、跳过或待开始/info）。
 // title     卡片标题（一句话）
 // subtitle  次要说明（时间戳/来源）
 // status    "已完成" 或 {"text":"已完成","tone":"ok"}

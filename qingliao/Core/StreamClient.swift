@@ -32,6 +32,31 @@ final class StreamClient {
     // v3.9.17：AI 后端路径的工具进度（中文名，后端下发）。流结束后**保留**——让用户能看到
     // 刚才跑了哪些工具；只有 start() 开新流时才清空。
     var toolNames: [String] = []
+    /// v3.9.58：已完成工具步骤的耗时（后端 [{n:中文名, s:秒}] 的解包）。
+    /// 只增不改（后端保证追加序且 toolSpans.count ≤ toolNames.count），App 按下标取耗时：
+    /// `stepDuration(at: idx)`，取不到（老后端/该步未收口）返回 nil → 行尾不显示秒数。
+    var toolSpans: [ToolSpan] = []
+    /// v3.9.58：当前（最后一步）工具的开始时刻——进行中那行的「已等 Ns」由它算。
+    /// 老后端无 lastToolAt 键=0 → 不显示等待秒数（优雅退化）。
+    var toolStartedAt: TimeInterval = 0
+
+    struct ToolSpan {
+        let name: String
+        let seconds: Double
+    }
+
+    /// v3.9.58：第 idx 步的耗时（秒）；无数据返回 nil（UI 不显示）。
+    func stepDuration(at idx: Int) -> Double? {
+        guard idx < toolSpans.count else { return nil }
+        return toolSpans[idx].seconds
+    }
+
+    /// v3.9.58：进行中那行已等待的秒数（取整）。无开始时刻（老后端）返回 nil。
+    /// 只在 UI 明确要显示时调用——它含 `now` 时间依赖，不能放进 SwiftUI 状态比较路径。
+    func runningElapsed(now: TimeInterval = Date().timeIntervalSince1970) -> Int? {
+        guard toolStartedAt > 0 else { return nil }
+        return max(0, Int(now - toolStartedAt))
+    }
 
     var taskId = ""
     private var offset = 0
@@ -121,6 +146,8 @@ final class StreamClient {
         generation += 1   // v3.0.50：废除在途旧轮询代
         content = ""
         toolNames = []    // v3.9.17：新流的工具进度从零开始（防上一轮残留）
+        toolSpans = []    // v3.9.58：耗时列表同清
+        toolStartedAt = 0
         offset = 0
         failCount = 0
         idleStreak = 0
@@ -211,12 +238,23 @@ final class StreamClient {
             return   // 网络恢复 → 本轮直接返回，下一轮按正常间隔续流
         }
         do {
-            let (c, done, st, err, agent, piggyback, toolsIn) = try await auth.streamPoll(taskId: taskId, offset: offset)
+            let (c, done, st, err, agent, piggyback, toolsIn, spansIn, lastToolAtIn) = try await auth.streamPoll(taskId: taskId, offset: offset)
             guard generation == self.generation else { return }   // v3.0.50：旧代轮询丢弃
             // v3.9.17：工具进度——只在变化时写入，避免每 0.15s 轮询都触发视图重建。
             // 位置必须在旧代 guard **之后**：否则切会话/起新流后，上一代在途 poll 返回时
             // 会把旧任务的工具名写进新流（同函数内 agent/failCount/piggyback 全在 guard 之后）
             if toolsIn != toolNames { toolNames = toolsIn }
+            // v3.9.58：耗时列表同步——只在条数变化时写入（后端只追加且数量 ≤ 工具名数），
+            // 避免每轮轮询都触发视图重建；takenAt 随最后一步收口刷新（进行中秒数从它起算）。
+            if spansIn.count != toolSpans.count {
+                toolSpans = spansIn.compactMap { d in
+                    guard let n = d["n"] as? String else { return nil }
+                    let s = (d["s"] as? Double) ?? ((d["s"] as? Int).map(Double.init) ?? 0)
+                    return ToolSpan(name: n, seconds: s)
+                }
+            }
+            // lastToolAt 后端为浮点秒（epoch）；0=老后端无键 → UI 优雅退化不显示秒数
+            if lastToolAtIn > 0 { toolStartedAt = lastToolAtIn }
             if agent { isAgent = true }   // v2.0.96b：Agent 回复标记
             failCount = 0
             // v3.4.23：搭载投递消费——poll 响应里捎带的收件箱消息立即注入任务中心/会话，

@@ -181,6 +181,29 @@ enum AgentCardTestMain {
 
     let emojiCard = "```ql-card\n{\"title\":\"体检 ✅ 完成\",\"subtitle\":\"📶 5GHz\",\"status\":{\"text\":\"已通过\"}}\n```"
     check("中文 emoji 标题正常", cardOf(AgentCardParser.parse(emojiCard), 0)?.title == "体检 ✅ 完成")
+
+    // MARK: - 8. plan 类型（v3.9.58 任务计划卡）
+
+    // type=plan 解析为 .plan Kind（大小写/空白容错与其他 type 同口径）
+    let planCard = "```ql-card\n{\"type\":\"plan\",\"title\":\"备份照片\",\"status\":{\"text\":\"2/3 完成\",\"tone\":\"ok\"},"
+        + "\"list\":[{\"title\":\"扫描相册\",\"subtitle\":\"发现 128 张新照片\",\"status\":\"完成\",\"tone\":\"ok\"},"
+        + "{\"title\":\"上传到 NAS\",\"subtitle\":\"已传 86 张\",\"status\":\"进行中\",\"tone\":\"warn\"},"
+        + "{\"title\":\"生成缩略图\",\"status\":\"待开始\",\"tone\":\"info\"}]}\n```"
+    let planSegs = AgentCardParser.parse(planCard)
+    let plan = cardOf(planSegs, 0)
+    check("plan 类型解析为 .plan", plan?.kind == .plan)
+    check("plan 卡步骤数正确", plan?.items.count == 3)
+    check("plan 卡步骤带状态胶囊数据", plan?.items[1].status == "进行中" && plan?.items[1].tone == .warn)
+    check("plan 卡 subtitle 段保留", plan?.items[0].subtitle == "发现 128 张新照片")
+    // 大写 PLAN 容错
+    let planUpper = "```ql-card\n{\"type\":\"PLAN\",\"title\":\"大写容错\"}\n```"
+    check("PLAN 大写容错", cardOf(AgentCardParser.parse(planUpper), 0)?.kind == .plan)
+    // plainText 降级不丢步骤
+    let planPlain = plan?.plainText ?? ""
+    check("plan plainText 含全部步骤", planPlain.contains("扫描相册") && planPlain.contains("上传到 NAS") && planPlain.contains("生成缩略图"))
+    // 未知 type 仍回退 .result（原有容错不被 plan 破坏）
+    let unknownType = "```ql-card\n{\"type\":\"whatever\",\"title\":\"未知类型\"}\n```"
+    check("未知 type 回退 .result", cardOf(AgentCardParser.parse(unknownType), 0)?.kind == .result)
     }
 
     static func main() {

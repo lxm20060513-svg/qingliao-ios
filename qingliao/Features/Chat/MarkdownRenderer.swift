@@ -69,15 +69,20 @@ enum MarkdownRenderer {
                                     .systemFont(ofSize: size, weight: .bold), .label)
             }
         }
-        // 引用：>
+        // 引用：> —— v3.9.58 加竖线标识（原为纯斜体灰字，与正文难区分）；
+        // 连续引用行逐行各带竖线，视觉上连成引用块
         if trimmed.hasPrefix(">") {
-            return renderInline(String(trimmed.dropFirst(1)),
-                                .italicSystemFont(ofSize: baseSize), .secondaryLabel)
+            let body = String(trimmed.dropFirst(1)).trimmingCharacters(in: .whitespaces)
+            return styled("▎ ", .systemFont(ofSize: baseSize, weight: .semibold), .tertiaryLabel)
+                 + renderInline(body, .italicSystemFont(ofSize: baseSize), .secondaryLabel)
         }
-        // 无序列表：- / *
+        // 无序列表：- / * —— v3.9.58 补嵌套缩进（原 trimmed 掉前导空格，二级列表与一级同层级；
+        // 原始行每 2 个前导空格算一层，一层缩 3 个空格宽）
         if trimmed.hasPrefix("- ") || trimmed.hasPrefix("* ") {
+            let lead = line.count - line.drop(while: { $0 == " " }).count
+            let indent = String(repeating: "   ", count: lead / 2)
             let body = String(trimmed.dropFirst(2))
-            return styled("•  ", .systemFont(ofSize: baseSize, weight: .bold), .secondaryLabel)
+            return styled(indent + "•  ", .systemFont(ofSize: baseSize, weight: .bold), .secondaryLabel)
                  + renderInline(body, .systemFont(ofSize: baseSize), .label)
         }
         // 有序列表：1. / 1、（使用预编译正则避免每行创建 NSRegularExpression）

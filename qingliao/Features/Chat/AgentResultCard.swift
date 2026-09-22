@@ -77,6 +77,7 @@ struct AgentResultCard: View {
         case .result:  return "sparkles"
         case .metrics: return "chart.bar.fill"
         case .list:    return "checklist"
+        case .plan:    return "list.clipboard.fill"   // v3.9.58：任务计划卡（步骤完成度语义）
         case .table:   return "tablecells"
         case .status:  return "dot.radiowaves.left.and.right"
         }

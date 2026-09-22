@@ -221,6 +221,22 @@ struct CardGallerySheet: View {
             )
         ),
         Sample(
+            id: "plan", icon: "list.clipboard.fill",
+            name: "任务计划卡",
+            desc: "多步任务收尾时按执行顺序汇报各步完成度",
+            card: AgentCard(
+                kind: .plan, title: "备份照片到 NAS", subtitle: "3 步任务",
+                status: AgentCard.Status(text: "2/3 完成", tone: .ok),
+                fields: [], metrics: [],
+                items: [
+                    .init(title: "扫描相册", subtitle: "发现 128 张新照片", status: "完成", tone: .ok),
+                    .init(title: "上传到 NAS", subtitle: "已传 86 张", status: "进行中", tone: .warn),
+                    .init(title: "生成缩略图", subtitle: nil, status: "待开始", tone: .info),
+                ],
+                table: nil, footer: nil
+            )
+        ),
+        Sample(
             id: "status", icon: "waveform.path.ecg",
             name: "状态卡",
             desc: "多服务/多设备巡检，异常项一眼看见",

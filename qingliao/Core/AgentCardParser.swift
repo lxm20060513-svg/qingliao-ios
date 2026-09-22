@@ -21,6 +21,9 @@ struct AgentCard: Equatable, Sendable {
     /// 卡片语义（只影响头部图标/强调色，不改变段渲染 —— 有什么段画什么段）
     enum Kind: String, Equatable, Sendable {
         case result, metrics, list, table, status
+        /// v3.9.58：多步任务计划卡 —— 语义上强调「步骤有先后、状态是完成度」；
+        /// 渲染复用 items 段（标题+副标题+状态胶囊），只是头部图标换 checklist 高亮款。
+        case plan
 
         static func parse(_ raw: String?) -> Kind {
             guard let raw, let k = Kind(rawValue: raw.trimmingCharacters(in: .whitespaces).lowercased()) else {
