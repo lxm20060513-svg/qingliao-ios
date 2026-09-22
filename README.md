@@ -117,6 +117,27 @@ QingliaoWidget/          挂件 Extension target（.appex）：灵动岛/锁屏�
 - **实时活动的 `staleDate` 不是"容忍度"，是"最长假进度时长"**（v3.9.54 立）：免费签名无 APNs ⇒ 进程冻结后没有任何人替我们 update，画面会停在最后一拍。所以「多久转 `.stale`（→ 系统可收起）」就是「僵尸活动最多还能骗用户多久」。活着时推手每 1.2~2.0s 一拍、每拍都带新 staleDate 重新 update，因此把它从 15 分钟压到 4 分钟对正常显示毫无影响，只砍掉挂机的 11 分钟
 - **流式协议加字段一律"可选 + 缺省退化"，不 bump 版本**（v3.9.57 立，NAS 侧 `1c8fbaf` 的实现口径）：`AuthStore.streamPoll` 的返回元组直接扩参（`+toolSpans +lastToolAt`），后端没这两个字段时前端退化成"显示已等 Ns、不显示实测耗时"，而不是报错或空屏。iOS 与后端**分开发版**（NAS 镜像重建有先后），这条是两侧唯一的安全垫；新增字段照此办理，别引入要求"后端必须先于 App"的硬依赖
 
+## 🆕 近期变更（v3.9.58，2026-09-22）
+
+> **这一版才是 v3.9.57 那两笔 NAS 提交（`1c8fbaf` + `343dac4`）真正落到手机上的版本。**
+> `v3.9.57` 的 tag 推上去后 CI 在第 7 步 **Archive (unsigned)** 失败（14:20:57Z → 14:23:26Z），
+> **没有产出任何 IPA、也没覆盖 release 资产** —— 所以 `qingliao-ipa-2` 上挂着的仍是 3.9.56 / 501 的包。
+> 本机没有 Actions 日志读取权限（匿名 API 拿不到 log，仓库无 token），失败点靠读这两笔 diff 定位。
+> ⚠️ 编号口径：NAS 侧注释自标 `v3.9.58`，这一版**恰好对上**（3.9.57 那个号被一次没出包的构建占掉，不再回收）。
+
+- **修掉 Archive 编译失败：定时任务卡的数据加载回到卡片自身**（`10e42f4`）：
+  - **成因**：`343dac4` 把 `loadAutomations()` 写成 `extension LifeView`，但函数体读的是 `AutomationsSection` 的
+    `@State items / loadError`（LifeView 上没有这两个属性），而且 `LifeView` 的 `auth` 是 `private`——
+    **`private` 只对同一文件内的 extension 可见**，跨文件这段必然 `cannot find in scope`。
+  - **改法（保持原设计意图，最小改动）**：卡片自己持有加载逻辑与状态，`body` 外层套 `Group` 后挂
+    `.task(id: isActive)`；`isActive` 由 `LifeView` 直传（`AutomationsSection(isActive: isActive)`），
+    `LifeView.task` 里那两行 `await loadAutomations()` 删掉。**刷新节奏仍 30s、切走 tab 仍立刻停轮询**
+    （「隐藏页零轮询」那条红线没动，见 LifeView 文件头注释）。
+  - **教训**：`extension 另一个类型的文件` 是 NAS 侧提交的第一类真编译错误（本机 `swiftc -parse` 只查语法、
+    看不见作用域与访问级）。以后接手跨页取数的 UI 提交，先问一句「这个 `func` 读的 `@State` 在谁身上」。
+- 其余内容 = v3.9.57 段列的那些（工具步骤耗时、流式健康度三相位、工具失败「重试」、`type=plan` 计划卡、
+  Markdown 引用竖线与嵌套缩进、生活页定时任务卡、股票 30 日 sparkline），**验收清单照 v3.9.57 段那五条走**。
+
 ## 🆕 近期变更（v3.9.57，2026-09-22）
 
 > 本轮打包 NAS 侧（`qingliao-sync`）两笔提交 `1c8fbaf`（配套一）+ `343dac4`（配套二），本机只做集成、发包与验收登记。
