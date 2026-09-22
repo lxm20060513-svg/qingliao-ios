@@ -42,6 +42,10 @@ struct DockTabView: View {
     @State private var orbFailed = false
     /// v3.9.33：实测 dock bar 高度（DockOrbOverlay 回写）——烟花原点与球心同源，别各算一套
     @State private var dockBarHeight: CGFloat = DockOrbOverlay.fallbackBarHeight
+    /// v3.9.59（攒版）：长按智慧球 → 快捷菜单（新建会话 / AI 速记 / 语音输入 / 今日待办）
+    @State private var showOrbMenu = false
+    /// v3.9.59：速记弹窗（AI 速记 → 备忘录；今日待办 → 待办清单）
+    @State private var quickCapture: QuickCaptureMode?
     @Environment(AuthStore.self) private var auth
     @Environment(ChatStore.self) private var chat
     @Environment(StreamClient.self) private var stream
@@ -88,6 +92,9 @@ struct DockTabView: View {
             // v3.4.29：切 tab 触感——挂在一处（TabView），别挂进每个 tab 的 modifier（会响 4 次）
             .onChange(of: selected) { _, newVal in
                 Haptics.tap()
+                // v3.9.59：切页即收起长按菜单——手动切 tab 与程序化切页（深链 / 分享 / 备忘录「发给 AI」/
+                // 灵动岛）都走这里；不收的话菜单会浮在新页面上（此时命中层已被 if !showOrbMenu 摘掉）。
+                if showOrbMenu { showOrbMenu = false }
                 // v3.9.33：切到聊天页 = 回复已在眼前 → 清掉球上的「未查看 / 失败」提示
                 if newVal == .chat { clearOrbNotice() }
                 // v3.6.2：点 dock 智能球（= 切到聊天页）→ 放烟花，保留原智能球的点击特效
@@ -129,7 +136,44 @@ struct DockTabView: View {
                                    failed: orbFailed,
                                    measuredBarHeight: $dockBarHeight)
                         .allowsHitTesting(false)
+                    // v3.9.59：球命中层——只盖住球体一小块（68pt 圆）：
+                    //   轻点 = 手动切聊天页（onChange 的触感/清提示/烟花照旧走一遍），
+                    //   长按 = 弹快捷菜单。菜单开着时本层不显示（菜单层自己接管全部交互）。
+                    if !showOrbMenu {
+                        OrbHitLayer(barHeight: dockBarHeight,
+                                    slotIndex: 2,
+                                    slotCount: dockSlotCount,
+                                    // v3.9.59：轻点复用「点系统 tab item」的语义——已在聊天页时 selected 不变、
+                                    // onChange 不触发，触感与清提示会整体丢失（原先这层是系统 tab item 的按压反馈）。
+                                    onTap: {
+                                        if selected == .chat { Haptics.tap(); clearOrbNotice() }
+                                        else { selected = .chat }
+                                    },
+                                    onLongPress: {
+                                        Haptics.press()
+                                        showOrbMenu = true
+                                    })
+                    }
                 }
+            }
+            // v3.9.59：长按球快捷菜单浮层（最顶层，模态——轻纱吃掉空白点击收起）
+            .overlay {
+                if showOrbMenu {
+                    OrbQuickMenuOverlay(barHeight: dockBarHeight,
+                                        slotIndex: 2,
+                                        slotCount: dockSlotCount,
+                                        onAction: { handleOrbAction($0) },
+                                        onClose: { showOrbMenu = false })
+                        .transition(.opacity)
+                        .zIndex(40)
+                }
+            }
+            .animation(Motion.snap, value: showOrbMenu)
+            // v3.9.59：速记弹窗（AI 速记 / 今日待办共用一个输入弹窗）
+            // v3.9.59：onDismiss 复位——若某次 present 被别的 sheet 挡掉，quickCapture 会一直非 nil，
+            // 之后「AI 速记 / 今日待办」再也弹不出来（MemoSection v3.9.17 / TodoSection 同款坑，本仓踩过）。
+            .sheet(item: $quickCapture, onDismiss: { quickCapture = nil }) { mode in
+                QuickCaptureSheet(mode: mode)
             }
             // v3.0.60 回顾：系统 tab bar 自行处理滚动边缘玻璃；此处不再加纯色背景掐死折射
             // v3.4.26：切页暂停/恢复看板轮询已改参数直传（DashboardView(isActive:)），通知已移除
@@ -244,6 +288,34 @@ struct DockTabView: View {
     private func fireDockBurst() {
         showDockBurst = true
         Task { try? await Task.sleep(for: .seconds(1.55)); showDockBurst = false }
+    }
+
+    // MARK: - v3.9.59 长按智慧球快捷菜单
+
+    /// 四个胶囊动作分发——全部复用既有入口，不新造状态：
+    ///   新建会话 → requestNewSession（ChatView 的 pendingNewSession 两步走清屏，勿直接清数据）
+    ///   AI 速记  → 速记弹窗 → MemoStore（source "orb"）
+    ///   语音输入 → 切聊天页 + 进程内通知（ChatView.toggleVoiceMode，与输入框长按同一条路径；
+    ///              DockTabView 摸不到 ChatView 的 @State，通知是本仓既有的跨页触发模式）
+    ///   今日待办 → 速记弹窗 → TodoStore（source "orb"）
+    private func handleOrbAction(_ action: OrbQuickAction) {
+        switch action.id {
+        case 0:   // 新建会话
+            // v3.9.59：已在聊天页 = selected 不变、不会放烟花，白置标志会吞掉紧接着的一次真点击烟花
+            if selected != .chat { skipBurstOnce() }
+            selected = .chat
+            chat.requestNewSession()
+        case 1:   // AI 速记
+            quickCapture = .memo
+        case 2:   // 语音输入
+            if selected != .chat { skipBurstOnce() }
+            selected = .chat
+            NotificationCenter.default.post(name: .qingliaoOrbVoiceInput, object: nil)
+        case 3:   // 今日待办
+            quickCapture = .todo
+        default:
+            break
+        }
     }
 
     // MARK: - v3.4.14 系统分享接入口

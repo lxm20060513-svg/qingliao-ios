@@ -58,6 +58,7 @@ struct MemoItem: Identifiable, Codable, Equatable, Sendable {
         switch source {
         case "chat": return "聊天"
         case "bigbang": return "选词"
+        case "orb": return "智能球"   // v3.9.59：dock 智慧球长按 → AI 速记
         default: return "手记"
         }
     }
@@ -67,6 +68,7 @@ struct MemoItem: Identifiable, Codable, Equatable, Sendable {
         switch source {
         case "chat": return "bubble.left.fill"
         case "bigbang": return "wand.and.stars"
+        case "orb": return "circle.dashed"   // v3.9.59：智能球来源
         default: return "square.and.pencil"
         }
     }

@@ -21,6 +21,8 @@ extension Notification.Name {
     static let qingliaoTaskSend = Notification.Name("qingliao_task_send")
     // v3.9.14：备忘录「发给 AI」——生活页发通知，这里发送 + DockTabView 切回聊天页
     static let qingliaoMemoSend = Notification.Name("qingliao_memo_send")
+    // v3.9.59：长按 dock 智慧球 →「语音输入」胶囊——DockTabView 切聊天页后广播，ChatView 消费进语音模式
+    static let qingliaoOrbVoiceInput = Notification.Name("qingliao_orb_voice_input")
 }
 
 // MARK: - v2.0.60 通知点击直达会话（AppDelegate 捕获通知点击 → 存 sessionId）
@@ -1123,6 +1125,16 @@ struct ChatView: View {
                 // 否则 AI 正念上一条时点「发给 AI」，旧朗读会一直念到新答案出完
                 SpeechManager.shared.stop()
                 sendCore(text: text, imageData: nil)
+            }
+        }
+        // v3.9.59：长按 dock 智慧球「语音输入」——切页动画落定后进语音转文字（与输入框长按同一条
+        // toggleVoiceMode 路径）。已在语音模式 → 视为再按一次 = 退出（toggle 自带该语义）；
+        // 键盘多半没开 → keyboardWasUp: false 走「收键盘」分支，语义正确。
+        // 延迟 0.35s：切页转场（Motion.snap 0.2s + 系统动画）还在跑时切 voiceMode，语音 UI 会被转场打断。
+        .onReceive(NotificationCenter.default.publisher(for: .qingliaoOrbVoiceInput)) { _ in
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(0.35))
+                toggleVoiceMode(keyboardWasUp: kb.isVisible)
             }
         }
         .onAppear {

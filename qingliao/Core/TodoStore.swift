@@ -51,6 +51,7 @@ struct TodoItem: Identifiable, Codable, Equatable, Sendable {
         switch source {
         case "chat": return "聊天"
         case "ai": return "AI"
+        case "orb": return "智能球"   // v3.9.59：dock 智慧球长按 → 今日待办
         default: return "手动"
         }
     }
@@ -59,6 +60,7 @@ struct TodoItem: Identifiable, Codable, Equatable, Sendable {
         switch source {
         case "chat": return "bubble.left.fill"
         case "ai": return "sparkles"
+        case "orb": return "circle.dashed"   // v3.9.59：智能球来源
         default: return "square.and.pencil"
         }
     }

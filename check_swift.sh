@@ -93,4 +93,9 @@ echo "=== 11. 欢迎页特征智能球真值表（v3.9.57）==="
 # 单文件（读源文件做护栏 + 镜像冻结判定，不 import 项目代码）→ run_unit 直接编跑
 run_unit /tmp/test_orb scripts/ql_orb/truth_table_orb.swift
 
+echo "=== 12. 智慧球长按快捷菜单真值表（v3.9.59 攒版）==="
+# 单文件（读源文件做护栏 + 弧线几何纯计算镜像，不 import 项目代码）→ run_unit 直接编跑。
+# 工作目录 = 仓根（真值表内用相对路径 "qingliao/Features/..." 读源）→ 必须从仓根跑。
+run_unit /tmp/test_orbmenu scripts/ql_orbmenu/truth_table_orbmenu.swift
+
 exit $?

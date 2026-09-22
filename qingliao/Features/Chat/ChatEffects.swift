@@ -404,4 +404,28 @@ struct DockOrbOverlay: View {
     static var keyWindowSafeBottom: CGFloat {
         keyWindow?.safeAreaInsets.bottom ?? 0
     }
+
+    /// v3.9.59：window 宽度（等分回退估算用）——同上口径，不用已弃用的 UIScreen.main
+    @MainActor
+    static var keyWindowWidth: CGFloat {
+        if let w = keyWindow?.bounds.width, w > 0 { return w }
+        return UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            .first?.coordinateSpace.bounds.width ?? 0
+    }
+
+    /// v3.9.59：智能球的**全局球心**（window 坐标）——球命中层 / 长按菜单浮层与本层共用同一套几何，
+    /// 禁止各自算一份（命中圈与可见球错位是这类浮层最隐蔽的 bug：球看着在那儿，手指按上去没反应）。
+    ///
+    /// 与 body 的 target 完全同源：
+    ///   x → 优先真实槽位按钮中心（`slotCenterGlobal`，读不到才回退等分估算）；
+    ///   y → 几何定位（窗口底 − 底部安全区 − bar高/2 + 实测 6.3pt 差值）。
+    /// ⚠️ 不要把 y 改成「按钮 bounds 中心」：那条路已在 v3.6.5 装机实测里被否掉（球会偏上 6.3pt）。
+    @MainActor
+    static func orbCenterGlobal(slotIndex: Int = 2, slotCount: Int = 5, barHeight: CGFloat) -> CGPoint {
+        let barH = barHeight > 1 ? barHeight : fallbackBarHeight
+        let y = keyWindowHeight - keyWindowSafeBottom - barH / 2 + dockContentCenterDrop
+        let x = slotCenterGlobal(index: slotIndex, count: slotCount)?.x
+                ?? keyWindowWidth * (CGFloat(slotIndex) + 0.5) / CGFloat(slotCount)
+        return CGPoint(x: x, y: y)
+    }
 }
