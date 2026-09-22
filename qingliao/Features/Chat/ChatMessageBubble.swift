@@ -51,6 +51,8 @@ struct MessageBubble: View {
     var onRemind: ((String) -> Void)? = nil
     // v2.0.128：AI 消息内图片点击（传 URL/data URL，打开大图）
     var onAIImageTap: (String) -> Void = { _ in }
+    // v3.9.58c：点气泡内引用块 → 滚动定位到被引用的原消息并高亮（微信式）
+    var onQuoteTap: () -> Void = {}
     // v3.9.17：AI 生成物点击（传 URL + 显示名 → QuickLook 预览）
     var onFileTap: (String, String) -> Void = { _, _ in }
     // v3.3.0：多选合并转发——长按菜单「多选」入口（进入多选模式并预选本条）
@@ -281,6 +283,9 @@ struct MessageBubble: View {
             .padding(.vertical, Spacing.xs)
             .background(Color.accentColor.opacity(Tint.faint), in: RoundedRectangle(cornerRadius: Radius.icon, style: .continuous))
             .frame(maxWidth: .infinity, alignment: message.isUser ? .trailing : .leading)
+            // v3.9.58c：整块可点 → 跳转原消息（回调为空时保持纯展示，向后兼容）
+            .contentShape(Rectangle())
+            .onTapGesture { onQuoteTap() }
         }
     }
 

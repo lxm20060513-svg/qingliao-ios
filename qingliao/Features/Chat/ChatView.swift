@@ -305,7 +305,11 @@ struct ChatView: View {
     // v2.0.43：快捷指令 / 搜索定位高亮
     @State var showQuickPrompts = false
     @State var highlightMessageID: String?
+    /// v3.9.58c：ScrollViewReader proxy 引用（构造时写回，供引用块跳转等非 onChange 路径滚动定位）
+    @State var scrollProxyRef: ScrollViewProxy?
     @State var showLongContextAlert = false
+    // v3.9.58c：「上次任务未完」横幅——标记存在但不在当前会话（自动恢复被归属校验跳过）时显示
+    @State var pendingResumeInfo: (sessionId: String, taskId: String, ageMinutes: Int)?
     @State var showCompressingAlert = false  // v3.0.81：AI 摘要压缩中
     @State var pendingSend: (text: String, imageData: String?)?
     @State var showAttachmentMenu = false
@@ -993,6 +997,11 @@ struct ChatView: View {
         // v2.0.61：杀后台流式恢复（幂等——无持久化任务时静默返回）
         .task {
             await resumePersistedStream()
+            // v3.9.58c：探测未完任务标记——标记归属**其他**会话时显示「继续上次任务」横幅
+            // （归属当前会话的情形 resumePersistedStream 已直接自动接回，无需横幅）
+            if !stream.isStreaming, pendingResumeInfo == nil {
+                pendingResumeInfo = StreamClient.persistedTaskInfo()
+            }
             // v3.5.1：AI 正在输入 探针（仅当有遗留任务标记时才发请求；服务器说没了就清标记收起状态）
             await busyProbeLoop()
         }
@@ -1191,6 +1200,52 @@ struct ChatView: View {
                     .foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity)
+            .padding(.vertical, Spacing.xxs)
+            .transition(.opacity)
+        }
+        // v3.9.58c：「继续上次任务」横幅——有未完任务标记但归属别的会话（自动恢复跳过）时出现。
+        // 点「切换过去」跳到那个会话（切会话后自动恢复链路自然会接上）；点「放弃」清标记。
+        if let info = pendingResumeInfo, info.sessionId != chat.sessionId, !stream.isStreaming {
+            HStack(spacing: Spacing.sm) {
+                Image(systemName: "clock.arrow.circlepath")
+                    .font(.system(size: Typography.subhead))
+                    .foregroundStyle(.orange)
+                Text("上次有任务没跑完（\(info.ageMinutes) 分钟前）")
+                    .font(.system(size: Typography.caption))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                Spacer(minLength: 4)
+                Button {
+                    // v3.9.58c：按 id 拉会话并切换；切过去后恢复链路自动接上在途任务
+                    let sid = info.sessionId
+                    pendingResumeInfo = nil
+                    Task {
+                        let ok = await chat.loadById(sid, auth: auth)
+                        if !ok {
+                            // 会话已删/拉不到 → 标记已无意义，清掉并提示
+                            StreamClient.discardPersistedTask()
+                            Haptics.error()
+                        }
+                    }
+                } label: {
+                    Text("继续")
+                        .font(.system(size: Typography.caption, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, Spacing.md)
+                        .padding(.vertical, Spacing.xxs)
+                        .background(Color.accentColor, in: Capsule())
+                }
+                .buttonStyle(PressStyle())
+                Button {
+                    StreamClient.discardPersistedTask()
+                    pendingResumeInfo = nil
+                } label: {
+                    Text("放弃")
+                        .font(.system(size: Typography.caption))
+                        .foregroundStyle(.tertiary)
+                }
+                .buttonStyle(.plain)
+            }
             .padding(.vertical, Spacing.xxs)
             .transition(.opacity)
         }
@@ -1616,6 +1671,24 @@ struct ChatView: View {
         } onQuote: {
             quotedMessage = msg
             inputFocus = true
+        } onQuoteTap: {
+            // v3.9.58c：点引用块 → 定位到被引用原消息（quotedText 存原文，按 role+前缀匹配）。
+            // 被引用的一定是 user/assistant 消息原文（v3.4.25 注入的是 q.content 原文），用
+            // indexOfMessage(role:contentPrefix:) 同款匹配（与会话搜索定位一条链路）。
+            let targetRole = msg.isUser ? "assistant" : "user"
+            let prefix = (msg.quotedText ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !prefix.isEmpty,
+                  let idx = chat.indexOfMessage(role: targetRole, contentPrefix: prefix) else { return }
+            let mid = chat.messages[idx].id
+            Haptics.tap()
+            highlightMessageID = mid
+            withAnimation(Motion.settle) {
+                scrollProxyRef?.scrollTo(mid, anchor: .center)
+            }
+            Task {
+                try? await Task.sleep(for: .seconds(2))
+                withAnimation(Motion.settle) { highlightMessageID = nil }
+            }
         } onDelete: {
             deleteMessage(msg)
         } onShare: {
@@ -1812,7 +1885,9 @@ struct ChatView: View {
                     .transition(.opacity.combined(with: .scale(scale: 0.97)))   // v3.9.30：欢迎页浮现过渡
             } else {
             ScrollViewReader { proxy in
-            ScrollView {
+                // v3.9.58c：把 proxy 挂到 @State，供引用块跳转等非 onChange 路径滚动定位。
+                // onAppear 一次性写回（body 重算不重复触发写 State 循环——赋同一值无副作用）。
+                ScrollView {
                 // v2.0.40：LazyVStack → VStack（懒加载在批量移除时有复用状态残留，
                 // 普通 VStack 全量渲染，移除只是简单数组变化，彻底绕开崩溃）
                 // v2.0.132：VStack → LazyVStack——清空/新建已走两步走（先切欢迎页卸载
@@ -1890,6 +1965,8 @@ struct ChatView: View {
             .scrollContentBackground(.hidden)
             // v2.0.86h：Dock 滑动隐藏已删除（从未生效，手动开关替代）
             // v2.0.43：搜索定位——滚动到命中消息并高亮 2 秒
+            // v3.9.58c：proxy 写回 @State（引用块跳转用）；onAppear 只跑一次，不参与 body 重算
+            .onAppear { scrollProxyRef = proxy }
             .onChange(of: chat.highlightTarget?.content) { _, _ in
                 guard let t = chat.highlightTarget,
                       let idx = chat.indexOfMessage(role: t.role, contentPrefix: t.content) else { return }

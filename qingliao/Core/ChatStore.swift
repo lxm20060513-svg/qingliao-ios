@@ -131,6 +131,18 @@ final class ChatStore {
         defaults.set(sessionId, forKey: sessionKey)
     }
 
+    /// v3.9.58c：「继续上次任务」横幅用——按 id 从后端拉会话并切换（含消息加载）。
+    /// 返回 false = 会话不存在/已删除（调用方据此提示放弃）。
+    @discardableResult
+    func loadById(_ sid: String, auth: AuthStore) async -> Bool {
+        guard let j = try? await auth.json("/api/sessions/list"),
+              let raw = j["sessions"] as? [Any] else { return false }
+        let sessions = raw.compactMap { ChatSession.parse($0 as? [String: Any] ?? [:]) }
+        guard let match = sessions.first(where: { $0.id == sid }) else { return false }
+        load(match)
+        return true
+    }
+
     /// SR10：登出时彻底丢弃上一个账号的状态。
     /// `logout()` 只清 token/isLoggedIn，ChatStore 是 App 级 @State、跨登录态存活：
     /// 换账号登录后 messages/未读仍属旧账号（`loadLastSession` 的 `messages.isEmpty` 护栏

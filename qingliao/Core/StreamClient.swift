@@ -501,6 +501,26 @@ final class StreamClient {
         UserDefaults.standard.set(d, forKey: "qingliao_stream_pending")
     }
 
+    /// v3.9.58c：查询持久化的未完任务标记（不恢复、不动标记）——供「继续上次任务」横幅展示。
+    /// 返回 nil = 无标记 / 已过期；过期时顺带清标记（与 restoreIfNeeded 同规则）。
+    static func persistedTaskInfo() -> (sessionId: String, taskId: String, ageMinutes: Int)? {
+        guard let d = UserDefaults.standard.dictionary(forKey: "qingliao_stream_pending"),
+              let tid = d["taskId"] as? String, !tid.isEmpty,
+              let sid = d["sessionId"] as? String, !sid.isEmpty else { return nil }
+        guard let ts = d["ts"] as? TimeInterval else { return nil }
+        let age = Date().timeIntervalSince1970 - ts
+        if age > 1800 {
+            UserDefaults.standard.removeObject(forKey: "qingliao_stream_pending")
+            return nil
+        }
+        return (sid, tid, Int(age / 60))
+    }
+
+    /// v3.9.58c：丢弃持久化标记（用户明确放弃续接时调用）
+    static func discardPersistedTask() {
+        UserDefaults.standard.removeObject(forKey: "qingliao_stream_pending")
+    }
+
     /// App 重开后恢复：有未完成任务 → 回填内容并继续轮询（无任务时静默返回）
     /// v2.0.102：先停旧轮询再恢复——防 .task 重复触发/恢复与手动 start 重叠导致双轮询
     /// v3.5.2：新增 sessionId 校验——标记只允许在它所属的会话里被恢复，
