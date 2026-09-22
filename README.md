@@ -115,6 +115,24 @@ QingliaoWidget/          挂件 Extension target（.appex）：灵动岛/锁屏�
 - **详情弹窗里的卡片一律用 `DiskTile` 那一族排布**（v3.9.54 用户三次点名"卡片形态抄磁盘分区卡片"）：`HStack { 名称(13 secondary) + Spacer + 右上类型(13 bold primary) } → 大数值(20 bold, minimumScaleFactor 0.7) → 4pt 进度条（只在数值本身是百分数时画）→ tiny(10) 说明一行 lineLimit(1) .middle`，外层 `.padding(Spacing.xl) + .frame(maxWidth: .infinity, alignment: .leading)`。**表面仍用 `.frostedCard()`**（v3.9.47 那条压过"抄形"的字面要求：圆角/描边/阴影与 `dashboardCard()` 同参，只差底色；要换成实色只改 `HADeviceTile` 这一处）。温度这类"有数值但没有天然分母"的量**不作假进度条**（不按 0–100℃ 硬算 ratio），改由颜色分档
 - **看板卡片点不弹窗是产品决定，不是遗漏**（v3.9.54：CPU / 内存卡取消弹窗）：整机资源这类"看一眼就够"的指标不做二级页，弹窗留给有明细可展开的对象（容器、服务、设备实体）。新增/删除二级页时 `DashboardSheet` 枚举与 `.sheet(item:)` 的 switch **两处必须一起改**，穷尽性由编译期兜住
 - **实时活动的 `staleDate` 不是"容忍度"，是"最长假进度时长"**（v3.9.54 立）：免费签名无 APNs ⇒ 进程冻结后没有任何人替我们 update，画面会停在最后一拍。所以「多久转 `.stale`（→ 系统可收起）」就是「僵尸活动最多还能骗用户多久」。活着时推手每 1.2~2.0s 一拍、每拍都带新 staleDate 重新 update，因此把它从 15 分钟压到 4 分钟对正常显示毫无影响，只砍掉挂机的 11 分钟
+- **流式协议加字段一律"可选 + 缺省退化"，不 bump 版本**（v3.9.57 立，NAS 侧 `1c8fbaf` 的实现口径）：`AuthStore.streamPoll` 的返回元组直接扩参（`+toolSpans +lastToolAt`），后端没这两个字段时前端退化成"显示已等 Ns、不显示实测耗时"，而不是报错或空屏。iOS 与后端**分开发版**（NAS 镜像重建有先后），这条是两侧唯一的安全垫；新增字段照此办理，别引入要求"后端必须先于 App"的硬依赖
+
+## 🆕 近期变更（v3.9.57，2026-09-22）
+
+> 本轮打包 NAS 侧（`qingliao-sync`）两笔提交 `1c8fbaf`（配套一）+ `343dac4`（配套二），本机只做集成、发包与验收登记。
+> ⚠️ **编号第三次错位**：两笔的说明与代码注释全写 `v3.9.58` / `v3.9.58b`，实际首发是 **3.9.57 / build 502**
+> （口径同 v3.9.55、v3.9.56 两段：本仓版本号连续递增、不留空档，看注释里的版本号以 README 为准）。
+> **功能要配后端 `62ecc25` + `5f1f24d`**（NAS 镜像未重建时：工具耗时走前端"已等 Ns"估算、股票 sparkline 拿不到日 K）。
+
+- **工具步骤卡行尾补耗时**（`1c8fbaf`）：completed 行「✓ xx · 1.2s」（`stream.stepDuration(at:)`），进行中行「已等 Ns」每秒走秒（`stream.runningElapsed()`）。`StreamClient` 新增 `toolSpans/toolStartedAt`；**`TimelineView(.periodic 1s)` 只包展开明细那一段**，不套整条消息列表（v3.9.48 性能口径：常驻视图里每秒变化的内容 + 阴影 = 每帧重算）。
+- **流式健康度相位 `StreamClient.Phase`**（`343dac4`）：`normal` / `retrying`（连续网络失败 `failCount ≥ 2`，指数退避封顶 8s、15 次判死）/ `waitingNetwork`（系统路径 unsatisfied，最长等 120s）。弱网退避与断网等恢复不再静默得像卡死，聊天页 banner 显式提示「网络不稳·自动重试中」「网络断开·恢复后继续」。**相位只在流存活期间有意义**：`start()` 与 `finish()` 都复位为 `.normal`，成功轮询也会从 `.retrying` 拉回。
+- **工具失败行加「重试」按钮**：仅 `unresolved && isLast && !errorMessage.isEmpty` 时传入 `onRetry` → `retryLastGeneration()`，复用 regenerate 的"截断 + 锚点 + 落库"整条链路（不新起一条发送路径）。
+- **`ql-card` 协议扩 `type=plan`（任务计划卡）**：`AgentCardParser` 的 `Kind` 加 `.plan` + 专用图标，渲染复用 `items` 段；卡片画廊加样例；`scripts/test_agent_card.swift` 真值表 +7 项 plan 用例。协议文档同步在 `docs/agent-card-protocol.md`。
+- **MarkdownRenderer 两处排版**：引用块行首加「▎」竖线；无序列表补嵌套缩进（2 空格 = 1 层）。
+- **生活页新增 `AutomationsSection`**：聚合 AI 建的定时提醒（列表 + 倒计时 + 取消），**空列表整卡隐藏**，随生活页 30s 节奏刷新。
+- **`LifeCardsSection` 股票卡加 30 日收盘 sparkline**：Canvas 折线、红涨绿跌，数据来自后端新接口 `/api/life/stock/history`。
+- `check_swift.sh` 相应补真值表步骤；本机 `swiftc -parse` 全量过（类型检查只能等 CI Archive，这两笔第一次过真编译）。
+- ⚠️ **需真机验收**：① banner 在三相位的文案与出现/消失时机（尤其恢复网络后是否立刻撤掉）；② 「重试」按钮按下后的行为是否等同整条回复重新生成（工具步骤卡是消息内的，别让人误以为只重跑那一步）；③ 每秒走秒的行在长列表里滚动是否掉帧；④ 生活页定时任务卡与 sparkline 的实际数据；⑤ 引用块竖线与嵌套列表缩进观感。
 
 ## 🆕 近期变更（v3.9.56，2026-09-21）
 
