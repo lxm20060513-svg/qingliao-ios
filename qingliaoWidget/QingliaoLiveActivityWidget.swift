@@ -31,7 +31,9 @@ struct QingliaoLiveActivityWidget: Widget {
         ActivityConfiguration(for: QingliaoActivityAttributes.self) { context in
             // 锁屏 / 不支持灵动岛设备的横幅
             self.lockScreenBanner(state: context.state)
-                .activityBackgroundTint(Color.black.opacity(0.35))
+                // v3.9.61：0.35 → 0.18。tint 是「铺满整个横幅卡片的纯色蒙版」（官方只有这一个接口），
+                // 调低才能透出锁屏壁纸——玻璃感的前提是底下有真实内容可折射。
+                .activityBackgroundTint(Color.black.opacity(0.18))
                 .activitySystemActionForegroundColor(.white)
                 // v3.9.7：点横幅回聊天页（主 App 已注册 qingliao:// scheme）
                 .widgetURL(QingliaoLiveActivityWidget.chatURL)
@@ -119,7 +121,10 @@ struct QingliaoLiveActivityWidget: Widget {
                 .font(.system(size: 12, weight: .semibold))
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
-                .background(OrbPalette.accent.opacity(0.22), in: Capsule())
+                // v3.9.61：accent 0.22 淡底 → 真玻璃。与 pill(.primary, tone:.accent) 同口径
+                // （glassEffect(.regular.interactive()) + accent 0.28 / 0.8pt 描边，见 Pill.swift）
+                .glassEffect(.regular.interactive())
+                .overlay(Capsule().strokeBorder(OrbPalette.accent.opacity(0.28), lineWidth: 0.8))
                 .foregroundStyle(OrbPalette.accent)
         }
         .buttonStyle(.plain)
@@ -216,6 +221,17 @@ struct QingliaoLiveActivityWidget: Widget {
     }
 
     /// 锁屏横幅（与展开态同风格，避免两套观感割裂——轻聊本地/云端 UI 统一是既定红线）
+    ///
+    /// v3.9.61「液态玻璃观感」（用户：灵动岛/锁屏横幅没有玻璃质感）：
+    /// ActivityKit **只给 tint（纯色+透明度）**，没有材质/glass 接口，所以玻璃层只能自绘。
+    /// 三层伪玻璃 + 一个内容底衬（都是锁屏横幅专用，不影响灵动岛三态）：
+    ///   ① `bannerGlass`：铺满整卡 —— 顶部亮边高光（上缘 14pt 白色 0.07 渐隐 + 左右各一道同款）
+    ///      + 内侧上下缘柔光（5pt，白 0.05/0.04）+ 白色 0.15 / 0.8pt 描边（iOS 26 玻璃的通透感
+    ///      来自「边缘一圈细亮线」，与全站玻璃卡 0.8pt 描边同一口径）。
+    ///   ② `.shadow`：内容投到玻璃上的层影（玻璃有厚度才有影）。
+    ///   ③ `.activityBackgroundTint` 同步降到 0.18（见调用处）——玻璃要能透出壁纸，底下不能是死黑。
+    /// ⚠️ 灵动岛**不套**这些：Apple 官方明说岛内背景不可改，而且挂件里 TimelineView 不渲染，
+    ///    自绘层在岛上只会添一层多余蒙版。这里只改锁屏横幅。
     private func lockScreenBanner(state: QingliaoActivityAttributes.ContentState) -> some View {
         HStack(spacing: 12) {
             OrbView(size: 46, phase: state.phase, spin: state.spin, beat: state.beatSeconds)
@@ -233,6 +249,43 @@ struct QingliaoLiveActivityWidget: Widget {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
+        // 内容投在玻璃上的层影（玻璃有厚度）
+        .shadow(color: .black.opacity(0.22), radius: 6, y: 2)
+        .background(alignment: .top) { self.bannerGlass }
+    }
+
+    /// 横幅玻璃层：顶部亮边高光 + 1pt 白色细描边 + 内侧柔光。
+    /// 观感参照 iOS 26 玻璃卡（顶部微亮、边缘一圈细亮线、内侧透光），不是 Android 式高光带。
+    private var bannerGlass: some View {
+        GeometryReader { geo in
+            ZStack {
+                // 顶部亮边：上缘一条渐隐高光（玻璃接受环境光的亮边）
+                LinearGradient(colors: [Color.white.opacity(0.07), Color.clear],
+                               startPoint: .top, endPoint: .bottom)
+                    .frame(height: 14)
+                    .frame(maxHeight: .infinity, alignment: .top)
+                // 整体亮线：垂直于上缘方向 = 左右各一道渐隐（玻璃卡边缘的亮边是两侧都有）
+                LinearGradient(colors: [Color.white.opacity(0.05), Color.clear],
+                               startPoint: .top, endPoint: .bottom)
+                    .rotationEffect(.degrees(90))
+                    .frame(height: 14)
+                // 内侧柔光：上下内缘压一层极淡的白，制造「光在玻璃里漫射」
+                VStack(spacing: 0) {
+                    LinearGradient(colors: [Color.white.opacity(0.05), Color.clear],
+                                   startPoint: .top, endPoint: .bottom)
+                        .frame(height: 5)
+                    Spacer(minLength: 0)
+                    LinearGradient(colors: [Color.clear, Color.white.opacity(0.04)],
+                                   startPoint: .top, endPoint: .bottom)
+                        .frame(height: 5)
+                }
+                // 全程 0.8pt 白描边（口令与全站玻璃卡一致，见 Pill.swift / dashboardCard）
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.15), lineWidth: 0.8)
+            }
+            .frame(width: geo.size.width, height: geo.size.height)
+        }
+        .allowsHitTesting(false)
     }
 }
 

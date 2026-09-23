@@ -270,6 +270,11 @@ struct QuickCaptureSheet: View {
                 .padding(Spacing.xl)
                 .background(.quaternary,
                             in: RoundedRectangle(cornerRadius: Radius.field, style: .continuous))
+            // 用户反馈「输入框上移让观感更协调」：原来整个内容块在 detent 里垂直居中，
+            // 输入框悬在卡片正中、与标题脱节（标题上方留白按算式约 175pt，见下）。
+            // 改为全站输入弹窗同口径——输入区贴顶、操作区沉底（MemoSection addSheet /
+            // QuickReminderSheet 都是内容撑满 detent），输入框紧跟标题，按钮留在卡片底部。
+            Spacer()
             HStack(spacing: Spacing.lg) {
                 Spacer()
                 Button("取消") { dismiss() }
@@ -282,6 +287,12 @@ struct QuickCaptureSheet: View {
                 .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
+        // 输入框上移的几何算式（393pt 宽 / medium detent）：
+        //   旧：内容高 ≈ 标题 30 + 间距 10 + 输入框 66 + 10 + 按钮 34 = 150pt，
+        //       detent 可用 ≈ 524pt → 垂直居中后输入框中心落在距卡顶 ≈ 235pt（卡片正中）；
+        //   新：输入框中心 = padding 16 + 标题 30 + 间距 10 + 33 ≈ 距卡顶 89pt（上移约 146pt）。
+        // 大 detent 下同样成立（内容撑满即可，Spacer 自动压缩到 0 不会溢出）。
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .padding(Spacing.section)
         // v3.9.59：与全站输入弹窗同档（MemoSection / TodoSection / QuickReminderSheet 都是 medium + large）
         .presentationDetents([.medium, .large])

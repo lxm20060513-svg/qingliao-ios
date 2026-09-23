@@ -20,6 +20,7 @@ func src(_ path: String) -> String {
     return s
 }
 
+let widgetSrc = src("../qingliaoWidget/QingliaoLiveActivityWidget.swift")
 let orbMenuSrc = src("Features/OrbQuickMenu.swift")
 let dockSrc = src("Features/DockTabView.swift")
 let chatViewSrc = src("Features/Chat/ChatView.swift")
@@ -182,7 +183,17 @@ check("弹窗背景不覆盖（系统默认玻璃底，全站口径）",
 check("空内容不可保存", orbMenuSrc.contains(".disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)"))
 check("保存成功有触感", orbMenuSrc.contains("Haptics.success()"))
 
-// ── 7. 发版前双审查修复的护栏（v3.9.59） ─────────────────────
+// ── 7. 输入框上移：速记弹窗内容沉底改贴顶（用户反馈「观感不协调」）────
+// 形态护栏：断言「贴顶 + 按钮前有 Spacer」这个新布局特征，防止回退成垂直居中。
+// 注：sheet 内容默认居中，靠 frame(alignment: .top) 贴顶；Spacer 在按钮前把操作区压到底。
+check("速记弹窗内容贴顶（frame maxHeight + .top）",
+      orbMenuSrc.contains(".frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)"))
+check("内容分隔 Spacer 紧跟按钮组 HStack（贴顶+操作区沉底的形态证据）",
+      orbMenuSrc.contains("            Spacer()\n            HStack(spacing: Spacing.lg) {"))
+check("Spacer 总数 = 2（内容分隔 + 按钮组左推）",
+      orbMenuSrc.components(separatedBy: "Spacer()").count - 1 == 2)
+
+// ── 8. 发版前双审查修复的护栏（v3.9.59） ─────────────────────
 // 本节每条都绑定源码字面量：改一侧不改另一侧就红。都是「旧护栏拦不住、但真出过或极易出」的回归点。
 let memoSrc = src("Core/MemoStore.swift")
 let todoSrc = src("Core/TodoStore.swift")
@@ -223,6 +234,62 @@ check("备忘录来源标注认 orb", memoSrc.contains("case \"orb\": return \"�
 check("待办来源标注认 orb", todoSrc.contains("case \"orb\": return \"智能球\""))
 check("来源图标认 orb", memoSrc.contains("case \"orb\": return \"circle.dashed\"")
       && todoSrc.contains("case \"orb\": return \"circle.dashed\""))
+
+// MARK: - v3.9.61 锁屏横幅「液态玻璃」观感 · 源护栏
+//
+// 硬约束（Apple 官方口径，已核实）：
+//   灵动岛三态背景不可自定义；锁屏横幅只有 activityBackgroundTint（纯色+透明度）。
+//   所以玻璃层是自绘的「伪玻璃」，且只能加在锁屏横幅，不能加到岛上。
+// 本例事故证据 = 改动前的死黑平涂 tint 0.35（不透壁纸 = 没有玻璃可能）。
+
+check("横幅源码可读", !widgetSrc.isEmpty)
+
+// ① tint 必须降到透得出壁纸的档位（玻璃的前提）
+check("横幅 tint 0.35 → 0.18（透出锁屏壁纸，玻璃的前提）",
+      widgetSrc.contains(".activityBackgroundTint(Color.black.opacity(0.18))"))
+check("旧死黑 tint 0.35 已清零", !widgetSrc.contains("opacity(0.35))"))
+
+// ② 玻璃层三件套在横幅上（亮边高光 / 0.8pt 白描边 / 内侧柔光）
+check("横幅挂了自绘玻璃层", widgetSrc.contains(".background(alignment: .top) { self.bannerGlass }"))
+check("玻璃层 = 独立计算属性（不给灵动岛用）", widgetSrc.contains("private var bannerGlass: some View"))
+check("边缘细亮线 0.8pt 白描边（全站玻璃卡同口径）",
+      widgetSrc.contains("RoundedRectangle(cornerRadius: 10, style: .continuous)")
+      && widgetSrc.contains(".strokeBorder(Color.white.opacity(0.15), lineWidth: 0.8)"))
+check("顶部亮边高光（环境光在玻璃上缘的亮带）",
+      widgetSrc.contains("Color.white.opacity(0.07), Color.clear"))
+check("内侧柔光在（上下内缘漫射）",
+      widgetSrc.contains("Color.white.opacity(0.05), Color.clear")
+      && widgetSrc.contains("Color.clear, Color.white.opacity(0.04)"))
+check("玻璃层不抢触摸（横幅本身可点，见 widgetURL）",
+      widgetSrc.contains(".allowsHitTesting(false)"))
+
+// ③ 内容投在玻璃上的层影（玻璃有厚度；缺了它就是一张贴纸）
+check("横幅内容有层影", widgetSrc.contains(".shadow(color: .black.opacity(0.22), radius: 6, y: 2)"))
+
+// ④ 灵动岛不能被这套自绘层污染（官方：岛内背景不可改；且挂件无连续帧源）
+//    切片必须止于「锁屏横幅」之前——岛的代码在横幅上面，直接切到文件尾会把横幅的
+//    bannerGlass/shadow 一起圈进来（本轮就这样假红过一轮），所以闭合处对齐下一段标记。
+let islandSlice: String
+if let start = widgetSrc.range(of: "dynamicIsland: { context in"),
+   let end = widgetSrc.range(of: "private func lockScreenBanner(") {
+    islandSlice = String(widgetSrc[start.lowerBound..<end.lowerBound])
+} else {
+    islandSlice = ""
+}
+check("dynamicIsland 段可切出（切片空了本条就是空真）", !islandSlice.isEmpty)
+// 排除式断言要排除「调用/声明形态」，不能排除裸符号名——否则会被文档注释与同名柔光绊倒
+// （本轮教训：bannerGlass 命中在横幅自己的文档注释上、.shadow( 命中 phaseRing 的固有柔光）。
+check("岛内三态未挂 bannerGlass（玻璃只做锁屏横幅）",
+      !islandSlice.contains("self.bannerGlass") && !islandSlice.contains("var bannerGlass"))
+check("岛内三态未挂投影层（phaseRing 的柔光 .shadow(color: tint...) 是固有项，不属投影）",
+      !islandSlice.contains(".shadow(color: .black"))
+
+// ⑤ 展开态停止按钮改真玻璃（小元素上 glassEffect 在挂件里可渲染，装机确认）
+check("停止按钮走 glassEffect(.regular.interactive())",
+      widgetSrc.contains("glassEffect(.regular.interactive())"))
+check("停止按钮旧淡底已清零", !widgetSrc.contains("background(OrbPalette.accent.opacity(0.22), in: Capsule())"))
+check("停止按钮描边与 pill(.accent) 同参（accent 0.28 / 0.8pt）",
+      widgetSrc.contains("Capsule().strokeBorder(OrbPalette.accent.opacity(0.28), lineWidth: 0.8)"))
 
 print("智慧球长按菜单真值表：\(passCount) 通过 / \(failCount) 失败")
 if failCount > 0 { exit(1) }

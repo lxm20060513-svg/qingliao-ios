@@ -2,6 +2,28 @@
 import SwiftUI
 
 
+// MARK: - v3.9.61 两层输入栏 · 几何常量（单一真源）
+//
+// 用户原话：「输入框在键盘弹出状态做两层处理，第一层作为消息输入层，无文字输入时显示输入消息，
+// 光标也走这一层；第二层走工具，附件、相机图标自己模型选择放第二层」。
+//
+// 本机渲染不出文字宽度，这些数按**令牌算式**推出（Spacing/Typography 的实际档位）：
+//   · 第一层 minHeight = textArea 单行高：`padding(.vertical, Spacing.xl)` 12×2
+//     + 正文 15pt 行高 ≈17.9 ≈ **42**（v3.9.52 起 lineLimit 1...6 恒 1 行起）；
+//   · 第二层 minHeight = **42**：附件/相机视觉 30 + 上下各 6（视觉 30 与行高 42 的对齐余量；
+//     命中区走 hitArea44 的负 padding 外扩，**不占布局**，所以 42 = 视觉占位不是命中区）。
+// 两层同高（42+8+42=92）→ 胶囊容器是稳定的对称比例；长文本态第一层长高、第二层仍保持 42。
+enum ChatInputBarLayout {
+    /// 第一层（消息输入层）最小高度
+    static let messageRowMinHeight: CGFloat = 42
+    /// 第二层（工具层）最小高度
+    static let toolRowMinHeight: CGFloat = 42
+    /// 两层间距（与原单行 HStack 的 spacing 同参，视觉零差异）
+    static let rowGap: CGFloat = Spacing.md
+    /// 容器最小总高 = 42 + 8 + 42（读这个数的地方：注释算式、真值表镜像）
+    static let containerMinHeight: CGFloat = 92
+}
+
 struct ChatInputBar: View {
     @Binding var text: String
     @FocusState.Binding var focused: Bool
@@ -80,25 +102,24 @@ struct ChatInputBar: View {
 
     /// v3.9.53（真机 497 后用户拍板：「输入框样式还是改回 3.9.46 版本的样式吧，现在的不行，
     /// 在 3.9.46 基础上加上模型切换就行」）——**样式整条回退到 v3.9.46**，只留模型切换：
+    /// 玻璃回到 `.background { Capsule().glassEffect() }`、常态白边 + 聚焦蓝边回到 v3.4.20 两层写法、
+    /// 外层 `.shadow(0.3 / 14 / 5)` 加回来（仍排在流光 overlay **之前**，v3.2.3 红线不动）。
     ///
-    /// 容器形状回到 `Capsule`（不是 `barShape` 的 22pt 方角）、玻璃回到 `.background { Capsule().glassEffect() }`、
-    /// 常态白边 + 聚焦蓝边回到 v3.4.20 那两层各画各的写法、外层 `.shadow(0.3 / 14 / 5)` 加回来（仍排在流光
-    /// overlay **之前**，v3.2.3 红线不动）、`rimLight` 内缘高光与 `.clear` 玻璃档整段删除。
+    /// v3.9.61：由 v3.9.46 的单行 HStack 改为**恒定两层 VStack**。
+    ///   第一层 `messageRow` = 消息输入层：textArea（占位符「输入消息…」/ 光标都走这一层）
+    ///                          + trailingButtons（停止 / 发送，与输入同行）；
+    ///   第二层 `toolRow`    = 工具层：附件 + 相机 + 模型快选。
+    /// 收益（令牌算式）：输入框可用宽 169pt → ≈297pt（屏宽 393 − 左右 28 − 发送键 32 − 间距 8），
+    /// 原来它被附件/相机/模型名三面夹击，只剩约四成宽。
     ///
-    /// v3.9.48~52 那五轮（展开态换布局、方角 barShape、内缘高光、`.clear`）全部判废，
-    /// 记账见 memory `project-ui-motion-workflow`。结构上仍保留 `attachButtons`/`textArea`/
-    /// `trailingButtons` 三个私有子视图（纯拆分、与 v3.9.46 的单行 HStack 视觉零差异），
-    /// 因为**任何让 TextField 换父级的写法都会重建它 → 键盘弹一下又收回**。
+    /// ⚠️ **两层恒渲染、不用 `if focused` 切结构**：任何让 TextField 父级类型/兄弟集合变化的
+    /// 写法都会重建它 → 键盘弹一下又收回（v3.9.53 同款坑）。恒定结构下聚焦/失焦/录音态切换
+    /// 只改布局不改父级；若日后要「只在键盘弹出时显示第二层」，只能动**不改变类型**的属性
+    /// （透明度 / offset 之类）——真值表 `ql_inputbar` 钉住这条。
     private var fullInputBar: some View {
-        HStack(spacing: 8) {
-            attachButtons
-            textArea
-            // 条件块排在 textArea **之后**：TupleView 里 textArea 仍在 index 1，
-            // 切换不改它的结构路径 → 不重建、不掉 first responder
-            if !modelLabel.isEmpty {
-                modelButton
-            }
-            trailingButtons
+        VStack(spacing: ChatInputBarLayout.rowGap) {
+            messageRow
+            toolRow
         }
         .padding(.horizontal, Spacing.lg)
         .padding(.vertical, Spacing.md)
@@ -141,6 +162,39 @@ struct ChatInputBar: View {
             }
         }
         .padding(.horizontal, 18)   // v2.0.87aw：输入框宽度收窄（12→18）
+    }
+
+    /// 第一层（消息输入层）：输入框 + 停止/发送键。
+    ///
+    /// v3.9.61：从原来的单行 HStack 里拆出——附件/相机/模型名挪去 `toolRow` 后，
+    /// 输入框可用宽由 ≈169pt 扩到 ≈297pt（屏宽 393 − 左右 padding 28 − 发送键 32 − 间距 8）。
+    /// 顺序刻意保持「输入框在左、发送在右」（与微信/主流 IM 一致）：用户原话只要求把
+    /// 工具/附件/相机/模型放第二层，没说要把发送键也搬下去。
+    /// ⚠️ textArea 在这层里**恒存在**（不是 if 分支里的成员）→ 聚焦/失焦不改这层类型。
+    /// `minHeight` 用常量不写死数字（用户放大系统字号时 42 不够会由内容顶上，不会裁字）。
+    private var messageRow: some View {
+        HStack(spacing: 8) {
+            textArea
+            trailingButtons
+        }
+        .frame(minHeight: ChatInputBarLayout.messageRowMinHeight)
+    }
+
+    /// 第二层（工具层）：附件 + 相机 + 模型快选（模型名右对齐）。
+    ///
+    /// v3.9.61：`modelButton` 保留 displayIf 条件（`modelLabel` 为空时整块不渲染）。
+    /// 这对输入框**零风险**：textArea 在第一层 `messageRow` 里、且不是条件分支的成员，
+    /// 第二层的兄弟集合怎么变都碰不到它的父级链 → 不会重建 TextField / 不掉 first responder。
+    /// （反面教材是 v3.9.53 单行时的约束：那时 textArea 与 modelButton 是同一 HStack 的兄弟。）
+    private var toolRow: some View {
+        HStack(spacing: 8) {
+            attachButtons
+            Spacer(minLength: 0)
+            if !modelLabel.isEmpty {
+                modelButton
+            }
+        }
+        .frame(minHeight: ChatInputBarLayout.toolRowMinHeight)
     }
 
     /// 左侧两枚次级按钮（附件 / 相机）——纯拆分，与单行 HStack 里的写法视觉零差异
@@ -211,6 +265,8 @@ struct ChatInputBar: View {
                          : recordingText)
                         .font(.system(size: Typography.body))
                         .foregroundStyle(recordingText.isEmpty ? Color.secondary : Color.primary)
+                        // v3.9.62：与 TextField 的 `.multilineTextAlignment(.leading)` 同侧
+                        .multilineTextAlignment(.leading)
                         .lineLimit(1...6)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .fixedSize(horizontal: false, vertical: true)
@@ -235,6 +291,11 @@ struct ChatInputBar: View {
                 // 这条坑本仓 v2.0.35 就踩过一次（当时的注释原话："2...6 最小2行高→单行光标/文字偏上不居中"），
                 // v3.9.48 又把它请回来了。行高改由内容驱动：打字/换行才长，`fixedSize` 负责撑。
                 .lineLimit(1...6)
+                // v3.9.62：**显式靠左**。SwiftUI 对空 label + axis .vertical 的 TextField
+                //   默认对齐不保证（真机曾观感居中/光标与文字错位），这里把「输入的消息文本」
+                //   钉成 leading，与同层占位符 overlay 的 `.leading` 严格同侧——用户原话：
+                //   「第一层的输入消息有没有靠左？我想，按照靠左而不是居中」。
+                .multilineTextAlignment(.leading)
                 // v2.0.93f：9→12 输入框加高（用户反馈太窄）
                 .padding(.vertical, Spacing.xl)
                 .padding(.horizontal, Spacing.xxs)
