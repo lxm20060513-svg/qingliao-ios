@@ -93,6 +93,8 @@ check("收起态判据在位：toolLayerExpanded = focused || kbEnv.isVisible",
       && inputBarSrc.contains("focused || kbEnv.isVisible"))
 check("第二层高度随判据收放：展开 toolRowMinHeight / 收起 0（不写 nil，nil 会回退固有高度 34）",
       inputBarSrc.contains(".frame(minHeight: toolLayerExpanded ? ChatInputBarLayout.toolRowMinHeight : 0)"))
+check("第二层收起态是硬钳 height:0（v3.9.68 fix：minHeight:0 不压内容固有高 22，容器会变 72）",
+      inputBarSrc.contains(".frame(height: toolLayerExpanded ? nil : 0)"))
 check("第二层透明度随判据收放（收起 0 / 展开 1）",
       inputBarSrc.contains(".opacity(toolLayerExpanded ? 1 : 0)"))
 check("第二层命中区随判据同步关（收起态空白不吞输入框点击）",
@@ -348,6 +350,9 @@ enum ChatInputBarLayoutMirror {
 let rowGapMirror: Double = 8
 let messageRowMirror: Double = 12 * 2 + 17.9   // ≈41.9 → 收 42
 let toolRowMirror: Double = 22 + 6 * 2          // 34（v3.9.65：视觉 30 → 22）
+/// v3.9.68 fix：第二层图标**视觉面** 22（不含命中区外扩——hitArea44 的净外扩为 0）。
+/// 事故证据用它：旧 bug 收起态容器 = 42 + 22 + 4×2 = 72。
+let toolRowVisualMirror: Double = 22
 let containerMirror = messageRowMirror + rowGapMirror + toolRowMirror   // 84（展开态内容）
 /// v3.9.67：容器垂直 padding = Spacing.xs(4)（v3.9.66 是 Spacing.md 12；用户「收起态高度改为 50」）
 let containerVPaddingMirror: Double = 4
@@ -357,6 +362,13 @@ let expandedContainerMirror = containerMirror
 /// （v3.9.66 = 42 + 12×2 = 66，真机观感仍高 → 用户改 50；比展开态 92 矮 42pt。
 ///  真值表旧文案「58」与源注释旧「66」都是拿错 padding 算的，已按真值修正。）
 let collapsedContainerMirror = messageRowMirror + containerVPaddingMirror * 2             // = 42 + 8 = 50
+/// 🚨 v3.9.68 fix 事故证据（用户真机报「输入框怎么被你改这么大」的算式铁证）：
+/// 收起态第二层只写 `.frame(minHeight: 0)` —— minHeight 是**下限**不是钳制，第二层内容
+/// （附件/相机视觉 22 + hitArea44 净外扩 0）固有高 22pt 照常占位 → 收起态容器 =
+/// 42 + 22 + 4×2 = **72**（比用户明确值 50 高 22pt）。opacity 归 0 只让它不可见，
+/// 占位仍在 → 那 22pt 是玻璃框内的空白，视觉上「输入框变大」且发送键/占位文字偏下。
+/// 修法 = 补 `.frame(height: 0)` 硬钳。本镜像断言旧形态算式 ≠ 50，作为勿回退的证据钉住。
+let brokenCollapsedMirror = messageRowMirror + toolRowVisualMirror + containerVPaddingMirror * 2   // 72（旧 bug）
 /// v3.9.67：圆角 20 下的两个平坦段 —— 收起态 50 − 20×2 = **10pt**（收窄但 > 0）；
 /// 展开态 92 − 20×2 = **52pt**（原 44 是拿 84 当容器高算的，实际容器含 padding）
 let flatTopMirror = containerMirror + containerVPaddingMirror * 2 - 2 * 20              // 52（展开态）
@@ -368,6 +380,8 @@ check("算式：展开态内容最小总高 ≈84（42+8+34，containerMinHeight
 check("算式：展开态容器高 = 92（84 内容 + 垂直 padding 4×2，v3.9.67）", abs(flatTopMirror + 2 * 20 - 92) < 0.2)
 check("算式：展开态圆角 20 的上缘平坦段 = 52pt（92 − 20×2）", abs(flatTopMirror - 52) < 0.2)
 check("算式：收起态容器高 = 50（42 + 4×2，v3.9.67 用户明确值）", abs(collapsedContainerMirror - 50) < 0.2)
+check("事故证据：旧 minHeight:0 形态算出的收起态容器 = 72 ≠ 50（v3.9.68「输入框被改这么大」根因，勿回退）",
+      abs(brokenCollapsedMirror - 72) < 0.2 && abs(brokenCollapsedMirror - 50) > 20)
 check("算式：收起态比展开态矮 42pt（92 − 50，v3.9.66 时只矮 18）",
       abs(expandedContainerMirror + containerVPaddingMirror * 2 - collapsedContainerMirror - 42) < 0.2)
 check("算式：收起态高度 > 第一层内容高（50 > 42，文字不被裁）",

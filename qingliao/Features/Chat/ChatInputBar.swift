@@ -311,8 +311,12 @@ struct ChatInputBar: View {
     /// 三个纪律：
     ///   ① `opacity` 与 `frame(height:)` 都不改变视图类型 —— 收起只是「量」变，VStack 的
     ///      子节点集合（messageRow + toolRow）恒为两个，TextField 父级链零变化；
-    ///   ② 高度给 0 而**不给 nil**：`nil` 会让 frame 回退到内容固有高度（34），收起态容器
-    ///      就会残留 34pt 空白；给 0 才是真的收到底；
+    ///   ② 高度**必须给显式 0（`frame(height: 0)`），不能给 `minHeight: 0`** ——
+    ///      `minHeight` 只设下限不设上限，第二层内容（附件/相机视觉 22 + hitArea 净 0）
+    ///      的固有高度 22pt 照常占位 → 收起态容器 = 42 + 22 + 4×2 = **72**，比目标 50 高 22pt，
+    ///      且这 22pt 是**空白**（opacity 已归 0 但占位还在）= 用户看到的「输入框被改这么大」
+    ///      + 占位文字/发送键偏下（v3.9.68 第 1 条 feedback 的真相）。`frame(height: 0)`
+    ///      是硬钳制，内容压到 0；`nil` 则会回退固有高度 34，同样不对。
     ///   ③ `allowsHitTesting(false)` 同步切：收起态那一层虽然看不见，命中区若还在，
     ///      输入框底部一片空白会把点击吞掉（用户会以为「点输入框没反应」）。
     private var toolRow: some View {
@@ -323,6 +327,9 @@ struct ChatInputBar: View {
                 modelButton
             }
         }
+        // v3.9.68 fix：minHeight:0 → height:0（硬钳）。收起态容器高 = 42 + 0 + 4×2 = **50**
+        //（改前 72 = 42 + 22 固有 + 8，那 22pt 是不可见空白，正是「输入框变大」的根因）。
+        .frame(height: toolLayerExpanded ? nil : 0)
         .frame(minHeight: toolLayerExpanded ? ChatInputBarLayout.toolRowMinHeight : 0)
         .opacity(toolLayerExpanded ? 1 : 0)
         .allowsHitTesting(toolLayerExpanded)
