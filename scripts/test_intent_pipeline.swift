@@ -221,6 +221,32 @@ let legacyDecoded = try? legacyDecoder.decode([RecordItem].self, from: legacyJSO
 check("旧 JSON 缺字段不崩（decodeIfPresent）", legacyDecoded?.count == 1)
 check("旧条目缺 amount 时 amountText 不崩", legacyDecoded?.first.map { $0.amountText.isEmpty == false } ?? false)
 
+// MARK: - 8. 动作表完整性（源码级护栏：加了新动作不许漏文案 / 图标 / 执行分支）
+//
+// 为什么要有：动作表是"三处必须同步"的典型（IntentAction case / 动作条文案图标 / 执行器分支）。
+// 漏一处不会编译失败——用户看到的是"点了一个没文字的按钮"或"点了没反应"，只能靠人肉发现。
+// 本段直接读仓库源码断言，改路径这里会红（故意让它红）。
+
+print("── 8. 动作表完整性 ──")
+let allActions: [IntentAction] = [.storeRecord, .addTodo, .addReminder, .saveMemo,
+                                 .saveToKB, .openMap, .call, .mailto, .copy, .askAI]
+let barSrc = (try? String(contentsOfFile: "qingliao/Features/Chat/IntentActionBar.swift",
+                          encoding: .utf8)) ?? ""
+let runnerSrc = (try? String(contentsOfFile: "qingliao/Core/IntentActionRunner.swift",
+                             encoding: .utf8)) ?? ""
+check("读得到动作条源码（路径没被挪）", !barSrc.isEmpty)
+check("读得到执行器源码（路径没被挪）", !runnerSrc.isEmpty)
+for a in allActions {
+    check("动作 \(a.rawValue)：动作条有文案+图标", barSrc.components(separatedBy: "case .\(a.rawValue): return").count >= 3)
+    check("动作 \(a.rawValue)：执行器有分支", runnerSrc.contains("case .\(a.rawValue):"))
+}
+// 动作条不得出现二次确认（用户明确不喜欢整天审批）
+check("动作条没有 alert/二次确认", !barSrc.contains(".alert(") && !barSrc.contains("confirmationDialog"))
+// 失败必须出声
+check("执行器失败路径要求出声（动作条有 Haptics.error）", barSrc.contains("Haptics.error()"))
+// 低置信门槛必须存在（0.5）：改小了等于让兜底内容也能写入
+check("写入类动作门槛 0.5 还在", barSrc.contains("writeGate = 0.5"))
+
 print("\n———————————————")
 print(failures == 0 ? "✅ 全部通过 \(total)/\(total)" : "❌ 失败 \(failures)/\(total)")
 exit(failures == 0 ? 0 : 1)

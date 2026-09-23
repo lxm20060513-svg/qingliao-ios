@@ -263,6 +263,9 @@ struct ChatView: View {
     @State var pinStore = PinStore.shared   // v3.0.74：钉一钉
     // v3.7.0：剪贴板地图链接兜底入口（地图分享面板里没有轻聊 → 「拷贝」后在聊天页一键发送）
     @State var showClipboardBanner = false
+    // v3.9.71：输入收口——识别结果（动作条数据源）+ 剪贴板链接的「识别」提示
+    @State var intentResult: RecognizedIntent?
+    @State var showIntentClipboardBanner = false
     // 已处理过的剪贴板版本号（UIPasteboard.changeCount）：同一份内容只提示一次，
     // 用户「忽略」或「已发送」后不再复现；拷贝了新内容才会再提示。
     // v3.8.1：从 @State 改成 @AppStorage **跨启动保留**——原来每次冷启动都归零，
@@ -818,10 +821,27 @@ struct ChatView: View {
                     .scaledToFill()
                     .frame(width: 42, height: 42)
                     .clipShape(RoundedRectangle(cornerRadius: Radius.icon, style: .continuous))
-                Text("图片已选择，发送后 AI 可识别")
+                Text("图片已选：点识别直接处理，或发送给 AI")
                     .font(.system(size: Typography.subhead))
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
                 Spacer()
+                // v3.9.71 图片入口：本机 OCR 认内容 → 直接给可执行动作（不用先发出去）
+                Button {
+                    Task { intentResult = await IntentExtractor.extract(image: img, auth: auth) }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "sparkles")
+                        Text("识别")
+                    }
+                    .font(.system(size: Typography.subhead, weight: .semibold))
+                    .foregroundStyle(Color.accentColor)
+                    .padding(.horizontal, Spacing.lg)
+                    .padding(.vertical, Spacing.xs)
+                    .glassPillStroke()
+                }
+                .buttonStyle(PressStyle())
+                .accessibilityLabel("识别图片内容")
                 Button {
                     pendingImage = nil
                     pendingImageData = nil
@@ -1199,6 +1219,10 @@ struct ChatView: View {
         if showClipboardBanner {
             mapClipboardBanner()
         }
+        // v3.9.71：剪贴板里的普通链接 → 「识别」提示（点按才读内容，避免系统「允许粘贴」打扰）
+        if showIntentClipboardBanner {
+            intentClipboardBanner()
+        }
         // v3.9.58：流式健康度提示——弱网退避/断网等恢复不再静默（之前用户只觉得"卡住了"）。
         // 只在本会话正在流式时显示；随相位出现/消失带透明过渡。
         if stream.isStreaming, auth.currentStreamSessionId == chat.sessionId,
@@ -1290,6 +1314,8 @@ struct ChatView: View {
         // v3.0.77：移除 v3.0.36 分段流式（边说边出字实时显示）——改回整段录音一次转写
         // 图片预览条（选图后显示）
         pendingImageBar
+        // v3.9.71：识别结果动作条（挂在输入栏**之外**，输入栏那套两层结构一律不碰）
+        intentActionBarSlot
         // 内联附件面板（类微信 + 面板：点击回形针展开）
         // v2.0.96b：发牌弹出效果（每个按钮依次从底部弹出 + 回弹）
         attachmentMenuBar
@@ -1327,8 +1353,14 @@ struct ChatView: View {
         // v3.9.1：nil = 探测失败（与"不是位置链接"区分开）——失败不记账，留给下次进前台再探
         guard let isLocation = await MapClipboardDetector.hasLocationLink() else { return }
         markClipboardHandled(cc)         // 认没认出来都记账：同一份内容不再重复探测/提示
-        guard isLocation else { return }
-        withAnimation(Motion.settle) { showClipboardBanner = true }   // 只提示；真正内容等点按再读
+        if isLocation {
+            withAnimation(Motion.settle) { showClipboardBanner = true }   // 只提示；真正内容等点按再读
+            return
+        }
+        // v3.9.71 输入收口：不是位置链接 → 再看是不是普通链接（同款 detection API，不读内容、不弹窗）
+        // 只认链接：数字类 pattern 误报率太高（验证码/工号/金额），主动弹条打扰不划算
+        guard await ClipboardIntentDetector.hasWebLink() == true else { return }
+        withAnimation(Motion.settle) { showIntentClipboardBanner = true }
     }
 
     /// 记账：这份剪贴板内容已评估过（已发送 / 用户忽略 / 不是位置链接）
@@ -1382,6 +1414,77 @@ struct ChatView: View {
         .padding(.top, Spacing.xxs)
         .padding(.bottom, Spacing.xxs)
         .transition(.move(edge: .top).combined(with: .opacity))
+    }
+
+    /// v3.9.71：剪贴板里有链接 → 一键识别（几何口径与 mapClipboardBanner 逐项一致）
+    @ViewBuilder
+    private func intentClipboardBanner() -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "sparkles")
+                .font(.system(size: Typography.subhead, weight: .semibold))
+                .foregroundStyle(Color.accentColor)
+            Text("检测到剪贴板里的链接")
+                .font(.system(size: Typography.subhead))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+            Spacer(minLength: 0)
+            Button {
+                runIntentFromClipboard()
+            } label: {
+                Text("识别")
+                    .font(.system(size: Typography.subhead, weight: .semibold))
+                    .padding(.horizontal, Spacing.lg)
+                    .padding(.vertical, Spacing.xs)
+                    .glassPillStroke()
+            }
+            .buttonStyle(PressStyle())
+            .foregroundStyle(Color.accentColor)
+            Button {
+                markClipboardHandled()   // 记住这一版，勿再打扰
+                withAnimation(Motion.snap) { showIntentClipboardBanner = false }
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: Typography.caption, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .padding(Spacing.xs)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("忽略")
+        }
+        .padding(.horizontal, Spacing.xl)
+        .padding(.vertical, Spacing.md)
+        .background(.ultraThinMaterial, in: Capsule())
+        .overlay(Capsule().strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8))
+        .padding(.horizontal, Spacing.xxl)
+        .padding(.top, Spacing.xxs)
+        .padding(.bottom, Spacing.xxs)
+        .transition(.move(edge: .top).combined(with: .opacity))
+    }
+
+    /// v3.9.71：识别结果动作条槽位（无结果时整块不占位）
+    @ViewBuilder
+    private var intentActionBarSlot: some View {
+        if let result = intentResult {
+            IntentActionBar(intent: result,
+                            onAskAI: { text in
+                                intentResult = nil
+                                sendCore(text: text, imageData: nil)
+                            },
+                            onClose: { intentResult = nil })
+                .padding(.horizontal, Spacing.xs)
+                .padding(.bottom, Spacing.xs)
+        }
+    }
+
+    /// v3.9.71：点「识别」→ 此刻才读剪贴板（可能弹系统允许粘贴）→ 走意图管道
+    private func runIntentFromClipboard() {
+        markClipboardHandled()
+        withAnimation(Motion.snap) { showIntentClipboardBanner = false }
+        guard let raw = MapClipboardDetector.readText() else { return }
+        Task {
+            intentResult = await IntentExtractor.extract(text: raw, auth: auth)
+        }
     }
 
     /// 真正读取剪贴板（此刻才可能弹系统「允许粘贴」）→ 地图链接拼定位消息，其他链接原样发送
@@ -2119,9 +2222,9 @@ struct ChatView: View {
         .fullScreenCover(item: $bigBangPayload) { payload in
             // v3.9.0：zoom 转场——从被长按的气泡"生长"出来（与图片查看器同一机制）
             if payload.sourceID.isEmpty {
-                BigBangView(text: payload.text)
+                BigBangView(text: payload.text, onAskAI: { t in sendCore(text: t, imageData: nil) })
             } else {
-                BigBangView(text: payload.text)
+                BigBangView(text: payload.text, onAskAI: { t in sendCore(text: t, imageData: nil) })
                     .navigationTransition(.zoom(sourceID: payload.sourceID, in: zoomNS))
             }
         }

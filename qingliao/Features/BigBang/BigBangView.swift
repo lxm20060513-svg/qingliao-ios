@@ -41,12 +41,19 @@ struct FlowLayout: Layout {
 struct BigBangView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var scheme   // v2.0.86q：主题磨砂玻璃背景
+    @Environment(AuthStore.self) private var auth
     let text: String
+    // v3.9.71 输入收口：识别结果里「问 AI」的出口。
+    // 聊天页承载时传真实发送回调；生活页没有聊天上下文，不传 → 退化为「复制 + 提示去聊天页粘贴」。
+    var onAskAI: ((String) -> Void)? = nil
     @State private var words: [BigBangWord] = []
     @State private var selected = Set<Int>()
     @State private var copied = false
     // v3.7.0：存备忘录反馈
     @State private var memoSaved = false
+    // v3.9.71：识别结果（动作条数据源）+ 无聊天上下文时的兜底提示
+    @State private var intent: RecognizedIntent?
+    @State private var askAIFallbackHint = false
 
     /// v2.0.86q：前景色跟随主题（亮玻璃用深字，深玻璃用白字）
     private var fg: Color { scheme == .dark ? .white : Color.black.opacity(0.8) }
@@ -96,6 +103,28 @@ struct BigBangView: View {
 
                 // 底部操作栏
                 VStack(spacing: 8) {
+                    // v3.9.71：识别结果动作条（有结果才占位）
+                    if let result = intent {
+                        IntentActionBar(intent: result,
+                                        onAskAI: { t in
+                                            if let onAskAI {
+                                                onAskAI(t)
+                                                dismiss()
+                                            } else {
+                                                // 生活页没有聊天上下文：复制 + 明说下一步去哪
+                                                UIPasteboard.general.string = t
+                                                withAnimation { askAIFallbackHint = true }
+                                            }
+                                        },
+                                        onClose: { withAnimation { intent = nil } })
+                            .padding(.horizontal, 12)
+                    }
+                    if askAIFallbackHint {
+                        Text("已复制，回聊天页粘贴即可提问")
+                            .font(.system(size: Typography.subhead))
+                            .foregroundStyle(fgDim)
+                            .padding(.top, Spacing.xs)
+                    }
                     Divider().overlay((scheme == .dark ? Color.white : Color.black).opacity(Tint.soft))
                     HStack(spacing: 12) {
                         Button {
@@ -119,6 +148,20 @@ struct BigBangView: View {
                         }
                         .buttonStyle(.plain)
                         Spacer()
+                        // v3.9.71：选中词块 → 识别类型 → 一键执行（记一笔/加待办/建提醒/存知识库…）
+                        Button {
+                            recognizeSelected()
+                        } label: {
+                            Image(systemName: intent == nil ? "sparkles" : "sparkles.rectangle.stack")
+                                .font(.system(size: Typography.body, weight: .semibold))
+                                .foregroundStyle(fg)
+                                .padding(.horizontal, Spacing.xxl).padding(.vertical, Spacing.md)
+                                .background((scheme == .dark ? Color.white : Color.black).opacity(Tint.soft), in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(selected.isEmpty)
+                        .opacity(selected.isEmpty ? 0.5 : 1)
+                        .accessibilityLabel("识别选中内容")
                         // v3.7.0：选中词块 → 存为一条备忘录（生活页「备忘录」栏目）
                         Button {
                             memoSelected()
@@ -182,6 +225,18 @@ struct BigBangView: View {
                 )
         }
         .buttonStyle(.plain)
+    }
+
+    /// v3.9.71：选中的词块拼回文本（与复制/存备忘录同口径：按词块顺序拼）
+    private var selectedText: String {
+        words.filter { selected.contains($0.id) }.sorted { $0.id < $1.id }.map(\.text).joined()
+    }
+
+    /// v3.9.71：选中内容 → 意图管道（本机规则优先，再端侧/云端）→ 动作条
+    private func recognizeSelected() {
+        let t = selectedText
+        guard !t.isEmpty else { return }
+        Task { withAnimation { intent = await IntentExtractor.extract(text: t, auth: auth) } }
     }
 
     /// v3.7.0：把选中的词块拼成一条备忘录（生活页「备忘录」栏目）
