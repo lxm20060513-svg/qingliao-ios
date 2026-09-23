@@ -213,7 +213,7 @@ check("无 query → nil", downloadPath(from: "https://webui.example.com:16666/a
 check("带 fragment → nil（fragment 不会被发到服务器，拿回来是 404 页）",
       downloadPath(from: okURL + "#x") == nil)
 check("别的主机走同一相对路径（后端按 path 取图，与主机无关）",
-      downloadPath(from: "http://192.168.1.9:16666/api/files/download?path=a.png")
+      downloadPath(from: "http://other.example.com:16666/api/files/download?path=a.png")
       == "/api/files/download?path=a.png")
 
 // ── 6. 纯函数镜像：imageMime（喂真字节，别只用字符串 grep 钉住） ──
