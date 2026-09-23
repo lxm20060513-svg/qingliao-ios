@@ -130,14 +130,16 @@ struct ChatInputBar: View {
         .padding(.vertical, Spacing.md)
         // v2.0.87e：原生液态玻璃输入栏（iOS 26+）
         // v3.9.62：玻璃形状 Capsule → `RoundedRectangle(cornerRadius: Radius.field)`（14，输入框档）。
-        // `View.glassEffect()` **不传 shape 参数时默认按 Capsule 渲染**——要圆角矩形必须把玻璃
-        // 挂在带形状的 Shape 上（`.background { <Shape>.glassEffect() }`，玻璃容器的既定写法）。
+        // v3.9.63：v3.9.62 的写法 `.background { RoundedRectangle(...).glassEffect() }` **不成立**——
+        //   Apple 官方明确 glassEffect 的默认形状是 Capsule（`DefaultGlassEffectShape`；原文「applies
+        //   the given effect within a Capsule shape behind the view's content」），宿主 Shape 是圆角矩形
+        //   也拦不住：玻璃本体仍按胶囊渲染（两端半径 = 容器高/2 ≈54），衬在圆角矩形白边**里面**——
+        //   用户看到的就是「方形圆角框里还套一层椭圆玻璃」。正确做法 = 官方 `in:` 参数把玻璃钉进
+        //   RoundedRectangle：`.glassEffect(.regular, in: RoundedRectangle(...))`，玻璃与描边同形，
+        //   整个容器只剩一个形状。
         // 半径走 Radius 令牌不写魔法数：全站输入类控件统一 14（Radius.field），与 Radius.inset(12)/
-        // Radius.card(16) 拉开语义层级。外层玻璃容器其余件（白边/聚焦蓝边/阴影/流光）全部不动。
-        .background {
-            RoundedRectangle(cornerRadius: Radius.field, style: .continuous)
-                .glassEffect()
-        }
+        // Radius.card(16) 拉开语义层级。外层玻璃容器其余件（白边/聚焦蓝边/流光）全部换成同一个形状。
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: Radius.field, style: .continuous))
         // v3.4.20：聚焦态光晕——输入框获得焦点时边缘亮起淡蓝细描边（0.8pt 与全站描边同参），失焦淡出。
         // 静态描边（非每帧重绘），无 shadow 叠加，不触碰 v3.2.3 渲染卡死红线。
         .overlay {

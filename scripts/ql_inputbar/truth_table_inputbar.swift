@@ -111,14 +111,20 @@ check("两层高度都不是写死数字（写死会在放大字号时裁字）"
       !inputBarSrc.contains(".frame(minHeight: 42)")
       && !inputBarSrc.contains(".frame(minHeight: 44)"))
 
-// ── 3c. 外层玻璃容器圆角（用户：「输入框圆角太大了，很不协调，改成常规圆角」）──
-// v3.9.53 定稿时容器是胶囊；v3.9.62 按用户要求改为 Radius.field(14) 圆角矩形。
-// `View.glassEffect()` 不传参时默认按 Capsule 渲染 → 圆角矩形必须把玻璃挂在 Shape 上
-// （`.background { <Shape>.glassEffect() }`），不能给裸 glassEffect() 补 shape 参数。
-// 同一形状必须在三处同时成立：玻璃底 / 聚焦蓝边 / 常态白边——只改玻璃底会让描边仍是弧顶。
+// ── 3c. 外层玻璃容器形状（用户：「内部的椭圆玻璃层就不要了，只留底部方形圆角框」）──
+// v3.9.62 第一版走 `.background { RoundedRectangle(...).glassEffect() }`——**宿主形状拦不住玻璃本体**：
+// Apple 官方明确 glassEffect 默认形状是 Capsule（`DefaultGlassEffectShape`；文档原文「applies the
+// given effect within a Capsule shape behind the view's content」），Drop 到宿主是圆角矩形时玻璃仍按
+// 胶囊渲染（两端半径 = 容器高/2 ≈54），衬在圆角矩形白边**里面**→ 用户看到「方框里套椭圆玻璃」。
+// 正确做法 = 官方 `in:` 参数把玻璃钉进 RoundedRectangle，玻璃与描边同形、容器只剩一个形状。
+// 同一形状必须在三处同时成立：玻璃底（in: 参数）/ 聚焦蓝边 / 常态白边。
 check("外层玻璃容器走 Radius.field(14) 圆角矩形（不再全圆角胶囊）",
-      inputBarSrc.contains("RoundedRectangle(cornerRadius: Radius.field, style: .continuous)\n                .glassEffect()"))
-check("容器圆角走 Radius 令牌，不是魔法数", inputBarSrc.contains("cornerRadius: Radius.field"))
+      inputBarSrc.contains(".glassEffect(.regular, in: RoundedRectangle(cornerRadius: Radius.field, style: .continuous))"))
+check("容器圆角走 Radius 令牌，不是魔法数",
+      inputBarSrc.contains("in: RoundedRectangle(cornerRadius: Radius.field, style: .continuous)"))
+// 旧写法清零：玻璃不再挂在 background{Shape} 宿主上（宿主 Shape 拦不住默认胶囊形态）
+check("旧写法清零：玻璃不挂 background{ Shape } 宿主（v3.9.62 椭圆玻璃病根）",
+      !inputBarSrc.contains(".background {\n            RoundedRectangle(cornerRadius: Radius.field, style: .continuous)\n                .glassEffect()\n        }"))
 check("玻璃容器不再是 Capsule（旧胶囊形态清零）",
       !inputBarSrc.contains(".background { Capsule().glassEffect() }"))
 check("聚焦蓝边描边同圆角矩形（与玻璃底同形）",
