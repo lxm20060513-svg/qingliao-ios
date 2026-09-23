@@ -119,9 +119,10 @@ check("常量未被顺手改：toolRowMinHeight 仍 34、messageRowMinHeight 仍
       && inputBarSrc.contains("static let messageRowMinHeight: CGFloat = 42")
       && inputBarSrc.contains("static let rowGap: CGFloat = Spacing.md"))
 // 收起态高度算式：padding(.vertical) Spacing.md 12×2 + 第一层 42 = 58（原两层态 84）。
-// 注意：镜像常量（collapsedContainerMirror / expandedContainerMirror）在下方第 5 节统一声明，
-// 顶层代码顺序执行，前面的 check 若直接引用会「use of local variable before its declaration」，
-// 所以这两条算式断言放在第 5 节里执行（与 flatTop 两条同批）。
+// ⚠️ v3.9.67 修正：此处「58/26」与源注释里的「66」两版文案都拿错了 padding——v3.9.66 当轮
+//   真实值是 12×2+42 = 66；v3.9.67 用户「收起态高度改为 50」后垂直 padding 降为 Spacing.xs(4)，
+//   真实值是 4×2+42 = 50。算式断言统一在第 5 节执行（镜像常量在那里声明），
+//   顶层代码顺序执行，这里直接引用会「use of local variable before its declaration」。
 // 第一层控件仍在第一层（收起态可发消息/可停止，不会因第二层消失而丢功能入口）
 check("发送键仍在第一层 trailingButtons（收起态无第二层也能发）",
       messageRowSlice.contains("trailingButtons"))
@@ -136,6 +137,30 @@ check("四处同形仍全部引用 containerCornerRadius（玻璃/蓝边/白边/
       inputBarSrc.components(separatedBy: "cornerRadius: ChatInputBarLayout.containerCornerRadius").count - 1 == 4)
 // 平坦段断言与算式镜像统一放在第 5 节（flatTopCollapsedMirror / flatTopMirror）——
 // 顶层代码顺序执行，此处引用后面的 let 会「cannot find ... in scope」。
+
+// ── 2d. 收起态高度 66 → 50（v3.9.67，用户：「收起态高度改为 50」）────────────────
+// 只动容器**垂直 padding** 一个数：Spacing.md(12) → Spacing.xs(4)。
+// 算式：收起态容器高 = 第一层 42 + padding 4×2 = **50**；
+//       展开态容器高 = 内容 84 + 4×2 = **92**；
+//       平坦段 = 收起 50 − 20×2 = 10pt / 展开 92 − 20×2 = 52pt（均 > 0，弧顶不咬文字）。
+// 水平 padding（Spacing.lg 18×2）**不动**——用户原话只说高度，横向宽度与输入框可用宽
+// （≈297pt 的口径）都不属于这次改动面。
+check("垂直 padding 走 Spacing.xs(4)（收起态高 50 的唯一来源，不打魔法数）",
+      inputBarSrc.contains(".padding(.vertical, Spacing.xs)"))
+check("旧垂直 padding 清零：不再有 .padding(.vertical, Spacing.md)（66 的来源）",
+      !inputBarSrc.contains(".padding(.vertical, Spacing.md)"))
+check("水平 padding 未动：仍是 Spacing.lg(18)（本轮只调高度，宽度口径不变）",
+      inputBarSrc.contains(".padding(.horizontal, Spacing.lg)"))
+check("容器级垂直 padding 只出现一次（第一层内两处 Spacing.xl 属内容侧，不混算）",
+      {
+          let containerLevel = inputBarSrc.components(separatedBy: ".padding(.vertical, Spacing.xs)").count - 1
+          let contentLevel = inputBarSrc.components(separatedBy: ".padding(.vertical, Spacing.xl)").count - 1
+          return containerLevel == 1 && contentLevel == 2
+      }())
+check("第二层行高常量未动（toolRowMinHeight 仍 34，本轮只收容器 padding）",
+      inputBarSrc.contains("static let toolRowMinHeight: CGFloat = 34"))
+check("containerMinHeight 仍 84（语义=内容最小总高，容器高度由 padding 另行给）",
+      inputBarSrc.contains("static let containerMinHeight: CGFloat = 84"))
 
 // ── 3. 恒定结构铁律：不得用条件切换结构 ──────────────────────
 // 反例（都不允许出现在容器/两层声明上）：
@@ -194,6 +219,13 @@ check("两层高度都不是写死数字（写死会在放大字号时裁字）"
 //          card 16 与 hero 22 之间，且比 18 更靠近 hero，为它单独开档破坏更大）；只把单一真源常量
 //          从 18 改 20，四处同形引用不变。平坦段随「第二层可收起」重算成两个数：
 //          收起态 58 − 20×2 = 18pt / 展开态 84 − 20×2 = 44pt（见下方 2b/2c 节算式镜像）。
+// v3.9.67：用户原话「收起态高度改为 50」——容器**垂直 padding** 由 Spacing.md(12×2) 降到
+//          Spacing.xs(4×2)（水平 padding Spacing.lg 18×2 不动，用户只说高度）。由此：
+//          收起态容器高 = 第一层 42 + 4×2 = **50**（v3.9.66 写 66 是 42+12×2，真机观感偏高；
+//          真值表旧文案「58」同样是拿错的 padding 算的，本轮按真值一并修正）；
+//          展开态容器高 = 84 + 4×2 = **92**（containerMinHeight 84 语义=内容最小总高，不变）。
+//          平坦段重算：收起态 **50 − 20×2 = 10pt** / 展开态 **92 − 20×2 = 52pt**。
+//          仍走令牌不打魔法数（xs=4 是 8 档里最小档，「紧贴元素」语义与收起态吻合）。
 let containerShape = "RoundedRectangle(cornerRadius: ChatInputBarLayout.containerCornerRadius, style: .continuous)"
 check("外层玻璃容器走 containerCornerRadius(20) 圆角矩形（不再全圆角胶囊）",
       inputBarSrc.contains(".glassEffect(.regular, in: \(containerShape))"))
@@ -306,34 +338,41 @@ enum ChatInputBarLayoutMirror {
     /// 仍是明确数值规格、仍不套令牌档（Radius 6 档 8/10/12/14/16/22，20 落在 card 16 与
     /// hero 22 之间且比 18 更靠近 hero，为它单独开档破坏更大）——镜像钉住改档必同步。
     static let containerCornerRadius: Double = 20
+    /// v3.9.67：容器垂直 padding = **4（Spacing.xs）**（v3.9.66 是 Spacing.md=12）。
+    /// 用户原话「收起态高度改为 50」→ 只动这一个数（水平 padding Spacing.lg=18 不动）。
+    /// 镜像存在意义：源里改档 ≠ 镜像同步 → 第 5 节算式立刻红。
+    static let containerVPadding: Double = 4
 }
 
 let rowGapMirror: Double = 8
 let messageRowMirror: Double = 12 * 2 + 17.9   // ≈41.9 → 收 42
 let toolRowMirror: Double = 22 + 6 * 2          // 34（v3.9.65：视觉 30 → 22）
-let containerMirror = messageRowMirror + rowGapMirror + toolRowMirror   // 84（展开态）
+let containerMirror = messageRowMirror + rowGapMirror + toolRowMirror   // 84（展开态内容）
+/// v3.9.67：容器垂直 padding = Spacing.xs(4)（v3.9.66 是 Spacing.md 12；用户「收起态高度改为 50」）
+let containerVPaddingMirror: Double = 4
 /// v3.9.66：展开态容器高别名（与收起态对比用，名不同值同源，避免两处手写 84 漂移）
 let expandedContainerMirror = containerMirror
-/// v3.9.66：收起态（键盘未弹）容器高 = padding(.vertical) Spacing.md 12×2 + 第一层 42 ≈ **66**
-/// （第二层高归 0、两层间距归 0；展开态 84 − 收起态 66 = 矮 18pt。此前文案误写 58/26，
-///  58 是拿「16×2」当 padding 算的，实际 Spacing.md=12 → 24，66 才对——算式已按真值修正。）
-let collapsedContainerMirror = 12 * 2 + messageRowMirror
-/// v3.9.66：圆角 20 下的两个平坦段 —— 展开态 84 − 20×2 = 44pt；
-/// 收起态 66 − 20×2 ≈ **26pt**（收窄但 > 0，弧顶不咬第一层文字接触区）
-let flatTopMirror = containerMirror - 2 * 20
-let flatTopCollapsedMirror = collapsedContainerMirror - 2 * 20
+/// v3.9.67：收起态（键盘未弹）容器高 = 第一层 42 + 垂直 padding 4×2 = **50**
+/// （v3.9.66 = 42 + 12×2 = 66，真机观感仍高 → 用户改 50；比展开态 92 矮 42pt。
+///  真值表旧文案「58」与源注释旧「66」都是拿错 padding 算的，已按真值修正。）
+let collapsedContainerMirror = messageRowMirror + containerVPaddingMirror * 2             // = 42 + 8 = 50
+/// v3.9.67：圆角 20 下的两个平坦段 —— 收起态 50 − 20×2 = **10pt**（收窄但 > 0）；
+/// 展开态 92 − 20×2 = **52pt**（原 44 是拿 84 当容器高算的，实际容器含 padding）
+let flatTopMirror = containerMirror + containerVPaddingMirror * 2 - 2 * 20              // 52（展开态）
+let flatTopCollapsedMirror = collapsedContainerMirror - 2 * 20                          // 10（收起态）
 
 check("算式：第一层高 ≈42（12×2 + 17.9）", abs(messageRowMirror - 42) < 0.2)
 check("算式：第二层高 = 34（22 + 6×2，v3.9.65 变小后）", abs(toolRowMirror - 34) < 0.001)
-check("算式：展开态容器最小总高 ≈84（42+8+34）", abs(containerMirror - 84) < 0.2)
-check("算式：展开态圆角 20 的上缘平坦段 = 44pt（84 − 20×2，仍大于内容高）", abs(flatTopMirror - 44) < 0.2)
-check("算式：收起态容器高 ≈66（12×2 + 42，第二层高归 0 后比展开态矮 18pt）",
-      abs(collapsedContainerMirror - 66) < 0.2
-      && abs(expandedContainerMirror - collapsedContainerMirror - 18) < 0.2)
-check("算式：收起态高度 > 第一层内容高（66 > 42，文字不被裁）",
+check("算式：展开态内容最小总高 ≈84（42+8+34，containerMinHeight 语义）", abs(containerMirror - 84) < 0.2)
+check("算式：展开态容器高 = 92（84 内容 + 垂直 padding 4×2，v3.9.67）", abs(flatTopMirror + 2 * 20 - 92) < 0.2)
+check("算式：展开态圆角 20 的上缘平坦段 = 52pt（92 − 20×2）", abs(flatTopMirror - 52) < 0.2)
+check("算式：收起态容器高 = 50（42 + 4×2，v3.9.67 用户明确值）", abs(collapsedContainerMirror - 50) < 0.2)
+check("算式：收起态比展开态矮 42pt（92 − 50，v3.9.66 时只矮 18）",
+      abs(expandedContainerMirror + containerVPaddingMirror * 2 - collapsedContainerMirror - 42) < 0.2)
+check("算式：收起态高度 > 第一层内容高（50 > 42，文字不被裁）",
       collapsedContainerMirror > messageRowMirror)
-check("算式：收起态圆角 20 的上缘平坦段 ≈26pt（66 − 20×2，仍 > 0）",
-      abs(flatTopCollapsedMirror - 26) < 0.2)
+check("算式：收起态圆角 20 的上缘平坦段 = 10pt（50 − 20×2，仍 > 0 弧顶不咬文字）",
+      abs(flatTopCollapsedMirror - 10) < 0.2)
 check("常量与算式一致：rowGap == 8",
       abs(Double(ChatInputBarLayoutMirror.rowGap) - rowGapMirror) < 0.001)
 check("常量与算式一致：messageRowMinHeight == 42",
@@ -348,6 +387,10 @@ check("常量与算式一致：containerMinHeight == 84（不手改，改了算�
 check("常量与算术一致：containerCornerRadius == 20（v3.9.66，18 → 20）且两个平坦段均 > 0",
       abs(Double(ChatInputBarLayoutMirror.containerCornerRadius) - 20) < 0.001
       && flatTopCollapsedMirror > 0 && flatTopMirror > 0)
+// v3.9.67：容器垂直 padding 与源串对齐的硬护栏（镜像数 4 = Spacing.xs）——
+// 源里若被改成别的档（如回 Spacing.md），收起态就不是 50，本表前面几条算式全红。
+check("常量与算式一致：容器垂直 padding 4（Spacing.xs，v3.9.67「收起态高度改为 50」）",
+      abs(containerVPaddingMirror - Double(ChatInputBarLayoutMirror.containerVPadding)) < 0.001)
 
 print("输入栏两层化真值表：\(passCount) 通过 / \(failCount) 失败")
 if failCount > 0 { exit(1) }

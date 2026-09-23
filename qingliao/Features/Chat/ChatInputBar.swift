@@ -157,7 +157,15 @@ struct ChatInputBar: View {
     /// 收起态副作用（即用户要的行为）：附件/相机/模型快选不可见——发图、切模型要先点输入框
     /// 唤起键盘；长按输入框录音时键盘会收，那期间同样只剩第一层（语音走第一层 Text 上屏，
     /// 发送键在第一层，随时可发）。
-    //
+    ///
+    /// v3.9.67（用户：真机观感后「收起态高度改为 50」）：容器垂直 padding 从 Spacing.md(12)
+    /// 降到 **Spacing.xs(4)** —— 收起态 42 + 4×2 = **50**（v3.9.66 的 66 仍偏高，用户原话
+    /// 「58 我觉得还是高了点」）。展开态容差不受影响：84 + 4×2 = **92**（42+8+34 内容
+    /// + 垂直 padding 24 → 之前 84 已含 12×2，现为 92；`containerMinHeight` 语义不变——
+    /// 它描述**内容**最小总高，padding 由下方 modifier 单独给）。发送键居中空间：
+    /// 第一层内 texting 上下 5×2 + 容器 4×2 = 18pt，视觉键 32pt 居中不贴边。
+    /// ⚠️ 只动垂直 padding 一个数：水平 padding（Spacing.lg 18×2）不动——用户只说高度。
+    ///
     /// v3.9.66（用户：「做 1」）：v3.9.61 起两层恒定 VStack —— 展开态 spacing 走 Layout.rowGap(8)，
     /// 收起态（键盘未弹）spacing 归 **0**；这与第二层 height/opacity 同属一组动画，
     /// 三者分开动画会残留一道 8pt 缝隙（层高已 0 但间距还在）。
@@ -172,7 +180,12 @@ struct ChatInputBar: View {
         }
         .animation(Motion.snap, value: toolLayerExpanded)
         .padding(.horizontal, Spacing.lg)
-        .padding(.vertical, Spacing.md)
+        // v3.9.67（用户：「收起态高度改为 50」）：垂直 padding 由 Spacing.md(12) 降到
+        // **Spacing.xs(4)** —— 收起态容器高 = 第一层 42 + 4×2 = **50**（原 66 是 42+12×2，
+        // 用户原话「58 我觉得还是高了点」→ 真机观感 66 后进一步收紧；第二层高归 0 后
+        // 比展开态 84 矮 34pt）。发送键上下居中空间 = 第一层内 5pt + 容器 4pt。
+        // 仍走令牌不写魔法数（xs 是 8 档里的最小档之一，「紧贴元素」语义与本态吻合）。
+        .padding(.vertical, Spacing.xs)
         // v2.0.87e：原生液态玻璃输入栏（iOS 26+）
         // v3.9.62：玻璃形状 Capsule → 14pt 档圆角矩形（Radius.field，输入框档）。
         // v3.9.63：v3.9.62 的写法 `.background { RoundedRectangle(...).glassEffect() }` **不成立**——
