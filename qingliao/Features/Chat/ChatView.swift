@@ -1303,7 +1303,10 @@ struct ChatView: View {
         // v3.0.64：改用 iOS 26 系统原生 TabView tab bar 后，键盘避让交由系统安全区 + 原生键盘避让。
         // 旧手动 offset（kb 高度 / 76）是为自定义 DockBar（内容铺到屏幕底再叠 dock）设计，原生 tab bar 下会双重叠加冒高，故移除。
         // v3.0.67：输入框与 dock / 键盘均留 10pt 呼吸（Round-1「贴键盘 0」已改主意为也要留隙）。
-        .padding(.bottom, Spacing.lg)   // v3.0.67：输入框与 dock / 键盘均留 10pt 呼吸——收起贴 dock、弹键盘也留隙（Round-1「贴键盘 0」已被用户改主意为也要留隙）
+        // v3.9.68：用户原话「发送键上下到输入框都等高，所以底部要再往上收一点」——底部呼吸
+        // 由 Spacing.lg(10) 收到 **Spacing.xs(4)**（收起贴 dock / 弹键盘都收紧 6pt）。
+        // ⚠️ 只动这一个数：输入栏自身高度（v3.9.67 起 50）、水平 padding 都不动。
+        .padding(.bottom, Spacing.xs)   // v3.0.67 起留隙口径不变，仅收紧数值；见上一行 v3.9.68 记录
     }
 
     // MARK: - v3.7.0 剪贴板地图链接（地图分享兜底）

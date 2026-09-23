@@ -166,6 +166,11 @@ struct ChatInputBar: View {
     /// 第一层内 texting 上下 5×2 + 容器 4×2 = 18pt，视觉键 32pt 居中不贴边。
     /// ⚠️ 只动垂直 padding 一个数：水平 padding（Spacing.lg 18×2）不动——用户只说高度。
     ///
+    /// v3.9.68（用户原话：「发送键上下到输入框都等高，所以底部要再往上收一点」）：
+    /// 底部留隙改在 **ChatView.chatComposerArea** 上收（10→4pt），本容器垂直 padding
+    /// 仍保持 Spacing.xs(4) 不动——两处叠加才是「输入栏整体离屏底的距离」，
+    /// 单改本容器会把发送键压到贴近玻璃下缘，反而破坏 v3.9.67 的居中口径。
+    ///
     /// v3.9.66（用户：「做 1」）：v3.9.61 起两层恒定 VStack —— 展开态 spacing 走 Layout.rowGap(8)，
     /// 收起态（键盘未弹）spacing 归 **0**；这与第二层 height/opacity 同属一组动画，
     /// 三者分开动画会残留一道 8pt 缝隙（层高已 0 但间距还在）。
@@ -255,9 +260,27 @@ struct ChatInputBar: View {
     private var messageRow: some View {
         HStack(spacing: 8) {
             textArea
+            // v3.9.68（用户：「输入框可以优化的精致一点视觉上更美观一点」）：
+            // 文字区与发送键之间补一条 **0.8pt 淡分隔线**（Tint.faint 同全站描边口径）——
+            // 单行时代发送键与文字同层贴得太近，分层后两侧各有 5pt 空隙仍显「一坨」；
+            // 一条细线把「输入区」与「操作键」分成两个视觉组，是「精致」的最低成本做法
+            // （全站卡片/分组均以 0.8pt 描边分区，口径一致）。
+            // 命中区零影响：allowsHitTesting(false) + HStack spacing 不变（线占 0 宽）。
+            divider
             trailingButtons
         }
         .frame(minHeight: ChatInputBarLayout.messageRowMinHeight)
+    }
+
+    /// v3.9.68：输入区 / 发送键之间的竖向细分隔线（视觉 0.8pt，命中区让渡）。
+    /// 高度刻意不写死：跟第一层内容同节奏（42 → 内容增高时同步长），不裁高字号文本。
+    private var divider: some View {
+        Rectangle()
+            .fill(Color.primary.opacity(Tint.faint))
+            .frame(width: 0.8)
+            .frame(maxHeight: .infinity)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
 
     /// v3.9.66（用户：「做 1」）——**第二层可见性判据**（单一真源，VStack spacing / toolRow

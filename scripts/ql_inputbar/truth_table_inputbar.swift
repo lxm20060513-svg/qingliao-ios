@@ -25,6 +25,7 @@ func src(_ path: String) -> String {
 }
 
 let inputBarSrc = src("Features/Chat/ChatInputBar.swift")
+let chatViewSrc = src("Features/Chat/ChatView.swift")
 
 // ── 源护栏：非空 ─────────────────────────────────────────────
 check("ChatInputBar.swift 源可读", !inputBarSrc.isEmpty)
@@ -391,6 +392,35 @@ check("常量与算术一致：containerCornerRadius == 20（v3.9.66，18 → 20
 // 源里若被改成别的档（如回 Spacing.md），收起态就不是 50，本表前面几条算式全红。
 check("常量与算式一致：容器垂直 padding 4（Spacing.xs，v3.9.67「收起态高度改为 50」）",
       abs(containerVPaddingMirror - Double(ChatInputBarLayoutMirror.containerVPadding)) < 0.001)
+
+// ── 3e. 输入区/发送键细分隔线 + 底部留隙收紧（v3.9.68）──────────────────────────
+// 用户原话两条：
+//   ①「想让发送键上下到输入框都等高，所以底部要再往上收一点」
+//      —— 底部呼吸改在 ChatView.chatComposerArea 收（Spacing.lg 10 → Spacing.xs 4），
+//         本容器垂直 padding 保持 4 不动（两处叠加才是输入栏离屏底的距离，单改本容器
+//         会把发送键压到贴玻璃下缘，破坏 v3.9.67 的居中口径）。
+//   ②「输入框可以优化的精致一点视觉上更美观一点」
+//      —— 文字区与发送键之间补 0.8pt 淡分隔线（Tint.faint，全站描边口径），
+//         把「输入区」与「操作键」分成两个视觉组；命中区零影响（spacing 不变）。
+// 算式：收起态容器底到屏底 = ChatView 底部呼吸 4 + 容器自身总高 50（含自身 padding 4×2）
+//        = **54**（v3.9.67 口径是 10 + 50 = 60，本轮收紧 6pt）。
+let composerBottomMirror: Double = 4
+check("ChatView 底部呼吸收到 Spacing.xs(4)（v3.9.68 第 1 条：底部再往上收）",
+      chatViewSrc.contains(".padding(.bottom, Spacing.xs)   // v3.0.67 起留隙口径不变"))
+check("ChatView 旧底部呼吸 Spacing.lg(10) 清零（只此一处，别处留隙不混算）",
+      !chatViewSrc.contains(".padding(.bottom, Spacing.lg)"))
+check("分隔线在位：第一层文字区与发送键之间（vh: 0.8，全站描边口径）",
+      inputBarSrc.contains("            divider\n            trailingButtons"))
+check("分隔线命中区让渡（allowsHitTesting(false)，不抢发送键点击）",
+      inputBarSrc.contains(".frame(width: 0.8)\n            .frame(maxHeight: .infinity)\n            .allowsHitTesting(false)"))
+check("分隔线走 Tint.faint（与全站 0.8pt 描边同色，不自创色）",
+      inputBarSrc.contains(".fill(Color.primary.opacity(Tint.faint))"))
+check("分隔线是独立计算属性（不内联，避免 ViewBuilder 深层推断）",
+      inputBarSrc.contains("private var divider: some View"))
+check("第一层 HStack spacing 未动（仍 8：分隔线占 0 宽，间距口径不变）",
+      messageRowSlice.contains("HStack(spacing: 8)"))
+check("算式：收起态容器底到屏底 = 4 + 50 = 54pt（v3.9.67 是 10 + 50 = 60）",
+      abs(composerBottomMirror + collapsedContainerMirror - 54) < 0.2)
 
 print("输入栏两层化真值表：\(passCount) 通过 / \(failCount) 失败")
 if failCount > 0 { exit(1) }
