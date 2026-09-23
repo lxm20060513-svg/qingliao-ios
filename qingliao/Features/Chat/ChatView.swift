@@ -1280,12 +1280,15 @@ struct ChatView: View {
                         }
                     }
                 } label: {
+                    // v3.9.58 引入的回归：唯独这里还是实色 accent 胶囊，而 v3.9.36 已把全站 accent 操作胶囊
+                    // 统一成玻璃底 + accent 0.28/0.8pt 描边（`glassPillStroke()`）→ 本行随 v3.9.73 补回口径。
+                    // （审查提示：别把它标成 v3.9.72 —— 那一版当时已出包，这条改动是 3.9.73 才发出去的。）
                     Text("继续")
                         .font(.system(size: Typography.caption, weight: .semibold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(Color.accentColor)
                         .padding(.horizontal, Spacing.md)
                         .padding(.vertical, Spacing.xxs)
-                        .background(Color.accentColor, in: Capsule())
+                        .glassPillStroke()
                 }
                 .buttonStyle(PressStyle())
                 Button {
