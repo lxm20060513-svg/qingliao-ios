@@ -33,8 +33,8 @@ targets:
         CFBundleDevelopmentRegion: zh_CN
         CFBundleLocalizations:
           - zh-Hans
-        CFBundleShortVersionString: "3.9.60"
-        CFBundleVersion: "505"
+        CFBundleShortVersionString: "3.9.61"
+        CFBundleVersion: "506"
         UILaunchScreen: {}
         # v3.8.0：实时活动（灵动岛/锁屏「AI 正在回复」）——挂件代码在 QingliaoWidget target
         NSSupportsLiveActivities: true
@@ -134,8 +134,8 @@ targets:
         CFBundleDisplayName: 轻聊
         CFBundlePackageType: XPC!
         # 扩展与宿主版本号必须一致（XcodeGen 对未声明的键默认写 1.0/1，会让 .appex 自报 1.0(1)）
-        CFBundleShortVersionString: "3.9.60"
-        CFBundleVersion: "505"
+        CFBundleShortVersionString: "3.9.61"
+        CFBundleVersion: "506"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
     settings:
