@@ -120,4 +120,36 @@ $SWIFT/swiftc -swift-version 6 -o /tmp/test_intent_pipeline /tmp/ql_intent_main/
 [ ${PIPESTATUS[0]} -eq 0 ] || { echo "❌ 意图管道真值表编译失败"; exit 1; }
 /tmp/test_intent_pipeline || exit 1
 
+echo "=== 16. 跨文件复用私有类型护栏（v3.9.71）==="
+# 背景（真实事故，不是洁癖）：MiniCapsule 在 MemoSection.swift / TodoSection.swift 里各有一份
+# `private struct`（文件级私有 = 跨文件不可见），第三个使用者 RecordSection.swift 直接引用它 →
+# 第 1 步的 `swiftc -parse` 全绿（纯语法解析、不做名字解析），只有 CI Archive 才报
+# `cannot find 'MiniCapsule' in scope`。这类错误本地任何一步都抓不到，所以单列一步。
+#
+# 判据：文件级 `private struct/class/enum X` 的 X，若在**别的** .swift 文件里被"当类型用"
+# （出现 X( / X{ / X< / : X 这种形态，且不是在注释行里），就是跨文件私有引用 → 报红。
+# 注意排除注释里的同名提及（本仓确实有几处注释提到 MiniCapsule，那不算）。
+type_conflicts=0
+while IFS= read -r f; do
+  while IFS= read -r name; do
+    [ -z "$name" ] && continue
+    hits=$(grep -rlE "(^|[^A-Za-z0-9_/])${name}[[:space:]]*[(<{]" qingliao --include=*.swift 2>/dev/null \
+           | grep -v "^$f$" | while IFS= read -r other; do
+                 if grep -nE "(^|[^A-Za-z0-9_/])${name}[[:space:]]*[(<{]" "$other" 2>/dev/null \
+                    | grep -vE "^[0-9]+:[[:space:]]*//" | grep -q .; then echo "$other"; fi
+               done)
+    if [ -n "$hits" ]; then
+      echo "❌ $f 里的私有类型 $name 被别的文件引用：$(echo "$hits" | tr '\n' ' ')"
+      echo "   → 要么把该类型抽成非 private 的共享组件，要么在使用方补一份同名声明（CI 才会真正报错）"
+      type_conflicts=1
+    fi
+  done < <(grep -oE "^private (struct|class|enum) [A-Za-z_][A-Za-z0-9_]*" "$f" | awk '{print $3}' | sort -u)
+done < <(grep -rlE "^private (struct|class|enum) " qingliao --include=*.swift 2>/dev/null)
+if [ $type_conflicts -eq 0 ]; then
+  echo "✅ 未发现跨文件复用文件级私有类型"
+else
+  echo "❌ 存在跨文件私有类型引用（本地预检本来查不出，CI Archive 必挂）"
+  exit 1
+fi
+
 exit $?

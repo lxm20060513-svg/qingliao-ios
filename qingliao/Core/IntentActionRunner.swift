@@ -44,12 +44,22 @@ enum IntentActionRunner {
 
     private static func storeRecord(_ intent: RecognizedIntent) -> Outcome {
         let amount = intent.fields["value"].flatMap { Double($0) }
-        let unit = amount == nil ? "" : (intent.fields["unit"] ?? "元")
+        // 单位必须先归一再判 kind：端侧/云端给的是自由文本，"块钱""人民币"不归一就会被当读数，
+        // 金额永远进不了本月合计（RecordKit.monthTotal 只算 unit == "元"）
+        let unit = amount == nil ? "" : RecordKit.normalizeUnit(intent.fields["unit"] ?? "元")
         let kind = amount == nil ? "note" : (unit == "元" ? "amount" : "meter")
-        guard let item = RecordStore.shared.add(kind: kind, title: displayTitle(intent),
-                                                amount: amount, unit: unit,
-                                                note: intent.raw, source: "intent") else {
+        // note 只留 200 字：记录与备忘/待办共用同一条 ≤3.5KB 的 relay 通道，
+        // 整段原文会把 payload 顶爆（蜂窝下 relay 直接失败 = NAS 长期缺条）
+        guard let added = RecordStore.shared.addDetailed(kind: kind, title: displayTitle(intent),
+                                                        amount: amount, unit: unit,
+                                                        note: String(intent.raw.prefix(200)),
+                                                        source: "intent") else {
             return .failed("没记下来（内容为空）")
+        }
+        let item = added.item
+        // 去重命中 = 没有新建条目 → 绝不能给撤销（一按就删掉先前那笔）
+        guard added.inserted else {
+            return .done(message: "刚记过同一笔，没重复记账", undo: nil)
         }
         return .done(message: amount == nil ? "已记一笔" : "已记录 \(item.amountText)",
                      undo: { RecordStore.shared.delete(item) })
@@ -114,11 +124,22 @@ enum IntentActionRunner {
 
     private static func openMap(_ intent: RecognizedIntent) -> Outcome {
         let q = intent.fields["text"] ?? intent.raw
-        guard let encoded = q.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-              let url = URL(string: "http://maps.apple.com/?q=\(encoded)") else {
+        guard let encoded = q.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
             return .failed("这个地址打不开地图")
         }
-        return open(url.absoluteString)
+        // 与聊天气泡同一套口径（v3.4.25 定的）：装了高德走高德（国内 POI 更准），否则退苹果地图。
+        // 苹果地图用 **https**（原写法是 http，部分系统版本会拦；且 canOpenURL 对 http 不保证放行）。
+        // 注：ChatMessageBubble.openInMaps 有一份等价实现，后续批次应抽成一个共享工具，本批不碰稳定路径。
+        if let amap = URL(string: "iosamap://path?dname=\(encoded)&mode=route&src=qingliao"),
+           UIApplication.shared.canOpenURL(amap) {
+            UIApplication.shared.open(amap)
+            return .handedOff
+        }
+        guard let url = URL(string: "https://maps.apple.com/?q=\(encoded)") else {
+            return .failed("这个地址打不开地图")
+        }
+        UIApplication.shared.open(url)
+        return .handedOff
     }
 
     private static func open(_ urlString: String) -> Outcome {

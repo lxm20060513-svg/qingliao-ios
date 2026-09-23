@@ -64,6 +64,7 @@ let positives: [(String, IntentKind)] = [
     // address
     ("上海市浦东新区张江路 100 号", .address),
     ("广东省深圳市南山区科技园南区 8 栋", .address),
+    ("幸福路 12 号 3 单元", .address),          // v3.9.71：门牌数字是地址的硬证据，必须仍认得出
 ]
 
 print("── 1. 正例：类型判定 ──")
@@ -81,6 +82,9 @@ let negatives: [String] = [
     "2026",                          // 年份，不是金额也不是快递号
     "abcdefg",                       // 无意义串
     "他说他下午可能来",              // 模糊时间，不该弹加提醒
+    // v3.9.71 审查打回的两条日程假阳性（原来被判成 0.9 日程并给出「建提醒」）
+    "充电要 5 小时",                 // 有数字+时钟字，但没有提醒意图 → 不该判日程
+    "分了三期",                      // "分"是时钟字，但这里不是时间
     "￥",                            // 只有符号没有数字
 ]
 
@@ -146,7 +150,9 @@ for (text, _) in positives {
 
 print("── 5. 置信度 / 来源 ──")
 // 不变式的真正意义：**写入类动作只在置信 >0.5 时出现**。
-// 所以这里守两条：① 强格式 ≥0.9（地址弱命中 ≥0.75）② 兜底 text 必须 <0.5（第 2 节已断言）。
+// 所以这里守两条：① 强格式 ≥0.9 ② 兜底 text 必须 <0.5（第 2 节已断言）。
+// v3.9.71 审查补第三条：**弱命中的地址必须低于 0.5 动作门槛**——原来弱命中给 0.75，
+// 高于门槛就会在动作条上出现"存备忘录"这种写入类动作，等于拿单字凑数当地址用。
 let strongKinds: Set<IntentKind> = [.express, .amount, .datetime, .link, .contact]
 for (text, kind) in positives {
     let c = run(text).confidence
@@ -155,6 +161,29 @@ for (text, kind) in positives {
     check("[\(kind.rawValue)] 来源 = rule：\(text)", run(text).provenance == .rule)
 }
 check("全部正例都高于 0.5 动作门槛", positives.allSatisfy { run($0.0).confidence > 0.5 })
+// 弱命中（单字凑数的地址）必须落在写入门槛之下——**门槛在动作条里（writeGate = 0.5）**，
+// 所以这里按"动作条真正会显示出来的动作"断言，而不是动作表原始列表：
+//   「今天市区路况一般」有 市/区/路 三个字凑数，但没有门牌 → kind 仍是 address，
+//   置信 0.4 < 0.5 → 动作条只显示问 AI / 复制（不会出现"打开地图/存备忘录"）
+for weak in ["今天市区路况一般", "小区路口有家便利店"] {
+    let r = run(weak)
+    check("弱命中「\(weak)」置信 <0.5（实得 \(r.confidence)）", r.confidence < 0.5)
+    let shown = r.confidence >= 0.5 ? r.actions : r.actions.filter { $0 == .askAI || $0 == .copy }
+    check("弱命中「\(weak)」动作条只显示 askAI/copy（实得 \(shown)）",
+          shown.map { $0.rawValue }.sorted() == ["askAI", "copy"])
+}
+// 反面对照：真门牌地址必须过门槛（否则"别收过头"——把正经地址也挡在门外）
+let realAddr = run("幸福路 12 号 3 单元")
+check("真门牌地址置信 ≥0.9（实得 \(realAddr.confidence)）", realAddr.confidence >= 0.9)
+check("真门牌地址给出打开地图", realAddr.actions.contains(.openMap))
+// 单位归一（RecordKit.normalizeUnit）：不归一的话"块钱"会被当成读数，金额永远进不了本月合计
+check("单位归一 块钱 → 元", RecordKit.normalizeUnit("块钱") == "元")
+check("单位归一 人民币 → 元", RecordKit.normalizeUnit("人民币") == "元")
+check("单位归一 ￥ → 元", RecordKit.normalizeUnit("￥") == "元")
+check("单位归一 度电 → 度", RecordKit.normalizeUnit("度电") == "度")
+check("单位归一 kwh → kWh", RecordKit.normalizeUnit("kwh") == "kWh")
+check("单位归一 千瓦时 → kWh", RecordKit.normalizeUnit("千瓦时") == "kWh")
+check("单位归一 空 → 空", RecordKit.normalizeUnit(nil) == "" && RecordKit.normalizeUnit("  ") == "")
 check("title 非空", positives.allSatisfy { !run($0.0).title.isEmpty })
 
 // MARK: - 6. 边界：空串 / 超长 / 换行

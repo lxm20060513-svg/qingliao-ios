@@ -8,42 +8,42 @@ import Vision
 // 为什么不用云端 OCR：拍照即执行要"点完就有结果"，走网络必然是 1~3 秒的空窗；
 // 而且照片常含单号/金额/地址这类隐私内容，能不出设备就不出（端侧识别不出来才降级上云）。
 //
-// 坑（真机实踩）：
-//   · perform() 是同步阻塞的，**绝不能放主线程**——大图会在主线程卡住界面（与语音那次同源）。
-//   · 返回值只 resume 一次：perform 抛错和 completion 回调都可能触发，用锁保证只 resume 一次，
-//     否则 crash（CheckedContinuation resumed twice）。
-//   · 方向必须显式映射：不传 orientation 时横拍/倒拍的照片会识别失败或串行。
+// 坑（真机实踩 + v3.9.71 审查打回）：
+//   · perform() 是同步阻塞的，**绝不能放主线程**——大图会卡住界面（与语音那次同源）。
+//     本文件因此刻意**只提供同步 API**，由调用方（IntentExtractor.scanImage）统一放到后台执行器上跑。
+//   · 原来这里自己 `DispatchQueue.global().async { handler.perform(...) }`：那个闭包是 @Sendable，
+//     而 VNImageRequestHandler / VNRecognizeTextRequest 都不是 Sendable → Swift 6 下捕获即报错
+//     （本机 `swiftc -parse` 查不出，只有 CI Archive 会挂）。perform 本来就是同步的、回调也是同步触发，
+//     包一层 async 除了多一个"双 resume 会 crash"的风险外没有任何收益，所以直接删掉。
+//   · 方向必须显式映射：不传 orientation 时横拍/倒拍的照片会识别失败。
 
 enum IntentOCRExtractor {
 
-    /// 从图片里取文字。取不到（模糊/纯风景/失败）返回 nil，调用方静默降级。
-    static func recognizeText(in image: UIImage) async -> String? {
+    /// 同步取字。取不到（模糊/纯风景/失败）返回 nil，调用方静默降级。
+    /// - Important: 调用方负责放到后台（本函数会阻塞当前线程，主线程调用 = 卡界面）
+    static func recognizeText(in image: UIImage) -> String? {
         guard let cg = image.cgImage else { return nil }
-        let orientation = cgOrientation(image.imageOrientation)
 
-        return await withCheckedContinuation { (cont: CheckedContinuation<String?, Never>) in
-            let once = ResumeOnce(cont)
-            let request = VNRecognizeTextRequest { req, _ in
-                let text = (req.results as? [VNRecognizedTextObservation])?
-                    .compactMap { $0.topCandidates(1).first?.string }
-                    .joined(separator: "\n")
-                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                once.resume(text.isEmpty ? nil : text)
-            }
-            request.recognitionLevel = .accurate
-            request.usesLanguageCorrection = true
-            // 中文场景优先；中英混排（快递单号、型号）都能认
-            request.recognitionLanguages = ["zh-Hans", "en-US"]
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        request.usesLanguageCorrection = true
+        // 中文场景优先；中英混排（快递单号、型号）都能认
+        request.recognitionLanguages = ["zh-Hans", "en-US"]
 
-            let handler = VNImageRequestHandler(cgImage: cg, orientation: orientation, options: [:])
-            DispatchQueue.global(qos: .userInitiated).async {
-                do {
-                    try handler.perform([request])
-                } catch {
-                    once.resume(nil)   // 抛错时 completion 不会被调用，这里兜底
-                }
-            }
+        let handler = VNImageRequestHandler(cgImage: cg,
+                                           orientation: cgOrientation(image.imageOrientation),
+                                           options: [:])
+        do {
+            try handler.perform([request])
+        } catch {
+            return nil   // 识别失败：别抛给用户，静默降级到云端兜底
         }
+
+        let text = (request.results ?? [])
+            .compactMap { $0.topCandidates(1).first?.string }
+            .joined(separator: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.isEmpty ? nil : text
     }
 
     /// UIImage.Orientation → CGImagePropertyOrientation（不映射 = 横拍照片识别不出）
@@ -58,23 +58,6 @@ enum IntentOCRExtractor {
         case .leftMirrored: return .leftMirrored
         case .rightMirrored: return .rightMirrored
         @unknown default: return .up
-        }
-    }
-
-    /// 只 resume 一次（双 resume = crash）
-    private final class ResumeOnce: @unchecked Sendable {
-        private let lock = NSLock()
-        private var done = false
-        private let cont: CheckedContinuation<String?, Never>
-
-        init(_ cont: CheckedContinuation<String?, Never>) { self.cont = cont }
-
-        func resume(_ value: String?) {
-            lock.lock()
-            let first = !done
-            done = true
-            lock.unlock()
-            if first { cont.resume(returning: value) }
         }
     }
 }

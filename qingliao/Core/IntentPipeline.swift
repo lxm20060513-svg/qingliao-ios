@@ -167,11 +167,21 @@ enum IntentPipeline {
     private static let clockWords = ["点", "时", "分", "半"]
     private static let numeralChars = CharacterSet(charactersIn: "0123456789一二三四五六七八九十半")
 
+    /// 第三道门（v3.9.71 审查收紧）：必须有**提醒意图**或**明确日期词**。
+    /// 不加这道门，「充电要 5 小时」「分了三期」这类普通陈述会走到解析器并被判成日程 0.9，
+    /// 动作条直接给「建提醒」（写入类）——同样是"猜"，用户会莫名其妙多出一条提醒。
+    private static let remindWords = ["提醒", "记得", "别忘", "叫我", "闹钟", "定个", "安排", "开会", "会议"]
+    private static let absoluteDateWords = ["明天", "后天", "明晚", "今晚", "下周", "下个月", "周", "星期",
+                                            "早上", "上午", "中午", "下午", "晚上", "每天", "今晚", "号"]
+
     private static func matchDatetime(_ text: String, now: Date) -> RecognizedIntent? {
         guard dateGateWords.contains(where: { text.contains($0) }) else { return nil }
         let hasNumber = text.rangeOfCharacter(from: numeralChars) != nil
         let hasClock = clockWords.contains(where: { text.contains($0) })
         guard hasNumber || hasClock else { return nil }
+        let wantsReminder = remindWords.contains { text.contains($0) }
+        let hasAbsolute = absoluteDateWords.contains { text.contains($0) }
+        guard wantsReminder || hasAbsolute else { return nil }
         guard case .success(let p) = QuickReminderParser.parseDetailed(text, now: now) else { return nil }
         let iso = ISO8601DateFormatter().string(from: p.fireDate)
         var f = ["iso": iso, "summary": p.summary]
@@ -214,15 +224,33 @@ enum IntentPipeline {
         return nil
     }
 
-    // 地址：关键词（省市区县路街号镇村栋弄巷）**不同字 ≥2 个**且长度 ≥6
+    // 地址：**结构化组合**才算认出来（v3.9.71 审查收紧）
+    //
+    // 原来的写法是"关键词不同字 ≥3 个就给 0.9"（省市区县路街号镇村栋弄巷）。问题是这些字在日常
+    // 说话里到处都是：「今天市区路况一般」「小区路口有家便利店」都命中 3 个字 → 判成地址 0.9 →
+    // 动作条直接给出「打开地图 + 存备忘录」。这就是管道注释里最想避免的"猜"。
+    //
+    // 现在分两档：
+    //   · 强命中 0.9：出现行政区划/门牌的**成对结构**（省+市 / 市+区 / 区+路 / 路+号 / 栋+室…），
+    //     或者"数字 + 路/街 + 号/栋/室/单元"这种门牌组合
+    //   · 弱命中 0.4：只有单字凑数 —— **低于 0.5 的动作门槛**，动作条只给「问 AI / 复制」，不给写入类动作
     private static let addressKeywords = Array("省市区县路街号镇村栋弄巷")
+    /// 门牌：数字 + 号/栋/室/单元/楼/层 —— 这是**地址的硬证据**（口语里几乎不会出现）
+    private static let doorRE = try! NSRegularExpression(
+        pattern: #"\d{1,5}\s*(号|栋|幢|室|单元|号楼|楼|层)"#)
+    private static let adminWords = ["省", "市", "区", "县", "镇", "乡", "街道"]
 
     private static func matchAddress(_ text: String) -> RecognizedIntent? {
         guard text.count >= 6 else { return nil }
         let distinct = Set(addressKeywords.filter { text.contains($0) }).count
-        // ≥3 个关键词（如"市/区/路/号"）才给高置信；只有 2 个（如"路+号"）算弱命中
         guard distinct >= 2 else { return nil }
-        return build(.address, prefix(text), ["text": text], distinct >= 3 ? 0.9 : 0.75)
+        let hasDoor = firstMatch(doorRE, text) != nil
+        let hasRoad = text.contains("路") || text.contains("街") || text.contains("巷") || text.contains("弄")
+        let adminHits = adminWords.filter { text.contains($0) }.count
+        // 强命中只看硬证据：① 有门牌数字 ② 或者"行政区划 ≥2 级 + 路/街"且文本够长
+        // （"今天市区路况一般" 有 市/区/路 但没有门牌、长度只有 8 → 停在弱命中）
+        let strong = hasDoor || (adminHits >= 2 && hasRoad && text.count >= 10)
+        return build(.address, prefix(text), ["text": text], strong ? 0.9 : 0.4)
     }
 
     // MARK: - 工具

@@ -419,20 +419,8 @@ struct TodoSection: View {
 
 // MARK: - 自绘顶栏小胶囊（与 MemoSection.swift 内同名组件同款口径；各自 private 不冲突）
 
-private struct MiniCapsule: View {
-    let title: String
-    var accent: Bool = false
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Text(title)
-                .pill(.topBar, tone: accent ? .accent : .neutral)
-                .contentShape(Capsule())
-        }
-        .buttonStyle(PressStyle())
-    }
-}
+// MiniCapsule 已抽到 LifeCapsule.swift（v3.9.71）：跨文件复用必须是**非 private 的单一来源**，
+// 原来这里那份 private 版本是 copy-paste 来源，第三个使用者（RecordSection）因此编译不过。
 
 // MARK: - 待办行卡（页级单卡 / 列表行两处共用，参数化差异走 compact）
 

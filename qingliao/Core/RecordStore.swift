@@ -51,22 +51,34 @@ final class RecordStore {
 
     // MARK: - CRUD
 
-    /// 新增。返回落库的条目（动作条的「撤销」要拿它的 id 回删）
+    /// 新增（带"这条到底有没有新建"的标志）。
+    ///
+    /// 为什么非要这个标志（v3.9.71 审查）：5 分钟同内容去重命中时，返回的是**已存在**那条，
+    /// 而动作条拿到 id 就当"新建成功"给「撤销」→ 用户一按撤销会删掉几分钟前自己手动记的那笔。
+    /// 记账场景里"同额两笔"是正常业务（同店同价、同额两笔），所以去重只能护连点，不能吞掉第二笔。
     @discardableResult
-    func add(kind: String, title: String, amount: Double?, unit: String,
-             note: String = "", source: String = "manual") -> RecordItem? {
+    func addDetailed(kind: String, title: String, amount: Double?, unit: String,
+                     note: String = "", source: String = "manual") -> (item: RecordItem, inserted: Bool)? {
         let text = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return nil }
-        // 同内容 5 分钟内连点去重（与 TodoStore 同口径：一次误触不该留两条）
+        // 只防"2 秒内连点"这一种情况（原来是 5 分钟，会吞掉正当的第二笔）
         if let first = records.first, first.title == text, first.amount == amount,
-           Date().timeIntervalSince(first.createdAt) < 300 {
-            return first
+           Date().timeIntervalSince(first.createdAt) < 2 {
+            return (first, false)
         }
         let item = RecordItem(kind: kind, title: text, amount: amount, unit: unit,
                               note: note, source: source)
         records.insert(item, at: 0)
         save()
-        return item
+        return (item, true)
+    }
+
+    /// 新增（旧签名：生活页手写入口用；动作条走 addDetailed 拿 inserted）
+    @discardableResult
+    func add(kind: String, title: String, amount: Double?, unit: String,
+             note: String = "", source: String = "manual") -> RecordItem? {
+        addDetailed(kind: kind, title: title, amount: amount, unit: unit,
+                    note: note, source: source)?.item
     }
 
     func delete(_ item: RecordItem) {
@@ -142,7 +154,7 @@ final class RecordStore {
         let changed = merged.count != remote.count || merged.contains { r in
             guard let s = remoteByID[r.id] else { return true }
             return r.title != s.title || r.amount != s.amount || r.unit != s.unit
-                || r.note != s.note || r.kind != s.kind
+                || r.note != s.note || r.kind != s.kind || r.source != s.source
                 || Int(r.updatedAt.timeIntervalSince1970) != Int(s.updatedAt.timeIntervalSince1970)
         }
         records = merged

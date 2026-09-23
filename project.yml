@@ -77,6 +77,10 @@ targets:
         # v3.4.25：AI 回复地点一键开地图——查询高德是否安装（canOpenURL 必须先声明白名单）
         LSApplicationQueriesSchemes:
           - iosamap
+          # v3.9.71：动作条的「拨打 / 写邮件」用 canOpenURL 预检，不在白名单会被判 false
+          # → 误报"没有能打开它的 App"（仓内已有为高德补白名单的先例）
+          - tel
+          - mailto
         CFBundleDocumentTypes:
           - CFBundleTypeName: 图片
             LSHandlerRank: Default

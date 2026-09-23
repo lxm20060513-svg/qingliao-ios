@@ -50,7 +50,16 @@ struct RecordItem: Identifiable, Codable, Equatable, Sendable {
     /// 否则旧数据解不出来 → 整份记录在用户眼里"凭空消失"。
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        id = try c.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
+        // 坑（v3.9.71 审查）：这里原来给缺 id 的条目兜底 `UUID().uuidString` → 同一条远端数据
+        // 每次解码都换一个 id → 本地/远端合并后条数只增不减，且每次都回写 NAS（滚动膨胀）。
+        // 改成**确定性**兜底（title + createdAt 派生），同一条数据每次都算出同一个 id。
+        if let raw = try c.decodeIfPresent(String.self, forKey: .id), !raw.isEmpty {
+            id = raw
+        } else {
+            let t = try c.decodeIfPresent(String.self, forKey: .title) ?? ""
+            let d = try c.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
+            id = "legacy-\(Int(d.timeIntervalSince1970))-\(String(t.prefix(12)))"
+        }
         kind = try c.decodeIfPresent(String.self, forKey: .kind) ?? "note"
         title = try c.decodeIfPresent(String.self, forKey: .title) ?? ""
         amount = try c.decodeIfPresent(Double.self, forKey: .amount)
@@ -106,6 +115,20 @@ enum RecordKit {
     /// 最新在前
     static func sorted(_ items: [RecordItem]) -> [RecordItem] {
         items.sorted { $0.sortDate > $1.sortDate }
+    }
+
+    /// 单位归一（真值表守护）：端侧/云端回来的单位是**自由文本**（"块钱""人民币""kwh""度电"…），
+    /// 不归一就会被当成"读数"——金额永远进不了本月合计，还会把奇怪的单位显示给用户。
+    /// 规则层（matchAmount）已经归一过一次，但那是三个入口之一；这里是**写入前的最后一道闸**：
+    /// 不管内容来自规则、端侧还是云端，落库前统一过它。
+    static func normalizeUnit(_ raw: String?) -> String {
+        let u = (raw ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if u.isEmpty { return "" }
+        if ["元", "块", "块钱", "元钱", "元整", "人民币", "¥", "￥", "RMB", "rmb", "CNY", "cny"].contains(u) { return "元" }
+        if u.contains("元") || u.contains("人民币") { return "元" }
+        if ["度", "度电"].contains(u) { return "度" }
+        if ["kWh", "kwh", "KWH", "千瓦时", "千瓦·时", "千瓦"].contains(u) { return "kWh" }
+        return u   // 白名单外：原样返回（调用方按"读数"处理，不影响金额合计口径）
     }
 
     /// 金额文案：元固定两位小数（钱要有分）；读数去掉无意义的尾零（1234 度，不是 1234.00 度）

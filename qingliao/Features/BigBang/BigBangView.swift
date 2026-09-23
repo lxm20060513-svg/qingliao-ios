@@ -236,7 +236,11 @@ struct BigBangView: View {
     private func recognizeSelected() {
         let t = selectedText
         guard !t.isEmpty else { return }
-        Task { withAnimation { intent = await IntentExtractor.extract(text: t, auth: auth) } }
+        Task {
+            // 先把结果 await 出来，再进 withAnimation（同步闭包，里面不能有 await——Swift 6 编译错误）
+            let r = await IntentExtractor.extract(text: t, auth: auth)
+            withAnimation(Motion.settle) { intent = r }
+        }
     }
 
     /// v3.7.0：把选中的词块拼成一条备忘录（生活页「备忘录」栏目）

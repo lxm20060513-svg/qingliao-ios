@@ -366,22 +366,8 @@ struct MemoSection: View {
 // 用户反馈「关闭/编辑/复制胶囊太大」→ 自绘顶栏 + `.toolbar(.hidden, for: .navigationBar)`，尺寸完全可控。
 // 口径：tiny 字号 + h10/v5（比页级标题行的 h10/v4 略高一点，因为它是顶部主操作区）。
 
-private struct MiniCapsule: View {
-    let title: String
-    var accent: Bool = false
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            // v3.9.19：走 .pill(.topBar) 口径；原 accent 分支是实色底，改为口径内的淡底（与全站一致）
-            // v3.9.22：.topBar 档字号 tiny(10) → subhead(13)，用户反馈这些小胶囊文字偏小
-            Text(title)
-                .pill(.topBar, tone: accent ? .accent : .neutral)
-                .contentShape(Capsule())
-        }
-        .buttonStyle(PressStyle())
-    }
-}
+// MiniCapsule 已抽到 LifeCapsule.swift（v3.9.71）：跨文件复用必须是**非 private 的单一来源**，
+// 原来这里那份 private 版本是 copy-paste 来源，第三个使用者（RecordSection）因此编译不过。
 
 // MARK: - 备忘卡视觉（v3.9.17：抽成独立 struct——页级单卡 / 全部列表两处共用）
 //

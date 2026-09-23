@@ -266,6 +266,8 @@ struct ChatView: View {
     // v3.9.71：输入收口——识别结果（动作条数据源）+ 剪贴板链接的「识别」提示
     @State var intentResult: RecognizedIntent?
     @State var showIntentClipboardBanner = false
+    @State var recognizingImage = false        // 图片「识别」进行中（挡连点：连点会并发跑多次 OCR）
+    @State var intentNoContentHint = false     // 图里没认出内容：给一次可见反馈（静默什么都不发生 = 像按钮坏了）
     // 已处理过的剪贴板版本号（UIPasteboard.changeCount）：同一份内容只提示一次，
     // 用户「忽略」或「已发送」后不再复现；拷贝了新内容才会再提示。
     // v3.8.1：从 @State 改成 @AppStorage **跨启动保留**——原来每次冷启动都归零，
@@ -828,11 +830,15 @@ struct ChatView: View {
                 Spacer()
                 // v3.9.71 图片入口：本机 OCR 认内容 → 直接给可执行动作（不用先发出去）
                 Button {
-                    Task { intentResult = await IntentExtractor.extract(image: img, auth: auth) }
+                    recognizePendingImage(img)
                 } label: {
                     HStack(spacing: 4) {
-                        Image(systemName: "sparkles")
-                        Text("识别")
+                        if recognizingImage {
+                            ProgressView().controlSize(.mini)
+                        } else {
+                            Image(systemName: "sparkles")
+                        }
+                        Text(recognizingImage ? "识别中" : "识别")
                     }
                     .font(.system(size: Typography.subhead, weight: .semibold))
                     .foregroundStyle(Color.accentColor)
@@ -841,6 +847,7 @@ struct ChatView: View {
                     .glassPillStroke()
                 }
                 .buttonStyle(PressStyle())
+                .disabled(recognizingImage)
                 .accessibilityLabel("识别图片内容")
                 Button {
                     pendingImage = nil
@@ -1352,14 +1359,19 @@ struct ChatView: View {
         guard !handled else { return }   // 这份内容已经处理过（含上次启动处理的），别再打扰
         // v3.9.1：nil = 探测失败（与"不是位置链接"区分开）——失败不记账，留给下次进前台再探
         guard let isLocation = await MapClipboardDetector.hasLocationLink() else { return }
-        markClipboardHandled(cc)         // 认没认出来都记账：同一份内容不再重复探测/提示
         if isLocation {
+            markClipboardHandled(cc)      // 认出来了才记账
             withAnimation(Motion.settle) { showClipboardBanner = true }   // 只提示；真正内容等点按再读
             return
         }
         // v3.9.71 输入收口：不是位置链接 → 再看是不是普通链接（同款 detection API，不读内容、不弹窗）
         // 只认链接：数字类 pattern 误报率太高（验证码/工号/金额），主动弹条打扰不划算
-        guard await ClipboardIntentDetector.hasWebLink() == true else { return }
+        // v3.9.71 审查修正：探测是**三态**（true / false / nil=失败）。原来把 markClipboardHandled(cc)
+        // 放在探测之前、又用 `== true` 判，等于把 nil 和 false 一起吞掉 → 一次探测失败就把这份剪贴板
+        // 永久标记成"已处理"，用户再也看不到链接提示（和地图分支"失败不记账"的口径正好相反）。
+        guard let hasLink = await ClipboardIntentDetector.hasWebLink() else { return }   // 失败不记账
+        markClipboardHandled(cc)
+        guard hasLink else { return }
         withAnimation(Motion.settle) { showIntentClipboardBanner = true }
     }
 
@@ -1474,6 +1486,41 @@ struct ChatView: View {
                             onClose: { intentResult = nil })
                 .padding(.horizontal, Spacing.xs)
                 .padding(.bottom, Spacing.xs)
+        } else if intentNoContentHint {
+            // 图里没认出内容：必须出声（本批自己定的口径「失败必出声」，静默=用户以为按钮坏了）
+            HStack(spacing: 6) {
+                Image(systemName: "exclamationmark.circle")
+                    .font(.system(size: Typography.subhead))
+                Text("图里没认出内容，可以直接发给 AI")
+                    .font(.system(size: Typography.subhead))
+            }
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, Spacing.xs)
+            .transition(.opacity)
+        }
+    }
+
+    /// v3.9.71 图片「识别」统一入口（按钮只负责触发，逻辑收在这里）
+    /// - 挡连点：识别要跑 OCR + 可能上传云端，连点会并发跑多次
+    /// - 认不出时出声：Haptics + 一条 2.4 秒的提示（不弹窗、不打断输入）
+    /// - 期间用户换图/删图：结果作废（比对 pendingImageData 快照）
+    private func recognizePendingImage(_ img: UIImage) {
+        guard !recognizingImage else { return }
+        recognizingImage = true
+        let snapshot = pendingImageData
+        Task {
+            let result = await IntentExtractor.extract(image: img, auth: auth)
+            recognizingImage = false
+            guard pendingImageData == snapshot else { return }   // 期间换了图：丢弃，别覆盖新图结果
+            if let result {
+                withAnimation(Motion.settle) { intentResult = result }
+                return
+            }
+            Haptics.error()
+            withAnimation(Motion.settle) { intentNoContentHint = true }
+            try? await Task.sleep(nanoseconds: 2_400_000_000)
+            withAnimation(Motion.settle) { intentNoContentHint = false }
         }
     }
 
