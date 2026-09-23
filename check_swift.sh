@@ -108,4 +108,16 @@ echo "=== 14. 输入栏两层化真值表（v3.9.61）==="
 # 口径：两层恒定结构（messageRow/toolRow）、归属正确、旧单行形态清零。
 run_unit /tmp/test_inputbar scripts/ql_inputbar/truth_table_inputbar.swift
 
+echo "=== 15. 意图管道真值表（v3.9.71）==="
+# 多文件编译时只有 main.swift 允许顶层代码 → 复制一份到临时目录做 main.swift。
+# 口径：强格式判定（含反例占 1/3）+ 动作表映射 + 字段抽取 + 置信度门槛（兜底必须 <0.5）。
+# datetime 判定复用生产代码 QuickReminderParser，所以 QuickReminder.swift 必须一起编进来。
+rm -rf /tmp/ql_intent_main && mkdir -p /tmp/ql_intent_main
+cp scripts/test_intent_pipeline.swift /tmp/ql_intent_main/main.swift
+rm -f /tmp/test_intent_pipeline
+$SWIFT/swiftc -swift-version 6 -o /tmp/test_intent_pipeline /tmp/ql_intent_main/main.swift \
+    qingliao/Core/IntentPipeline.swift qingliao/Core/QuickReminder.swift 2>&1 | head -10
+[ ${PIPESTATUS[0]} -eq 0 ] || { echo "❌ 意图管道真值表编译失败"; exit 1; }
+/tmp/test_intent_pipeline || exit 1
+
 exit $?
