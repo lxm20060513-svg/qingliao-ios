@@ -17,41 +17,22 @@ func check(_ name: String, _ expect: Bool, _ actual: Bool) {
     }
 }
 
-// ① 冷启动首次见到新内容：没处理过 → 应提示
-check("首次启动·剪贴板有新内容 → 提示",
-      false,
-      ClipboardPromptGate.isHandled(changeCount: 5, lastHandledChange: -1,
-                                    lastHandledUptime: 0, currentUptime: 120))
-
-// ② 同一份内容、同一次开机内再次进 App：处理过 → 不再提示
-check("同一次开机·同一份内容再进 App → 不提示",
-      true,
-      ClipboardPromptGate.isHandled(changeCount: 5, lastHandledChange: 5,
-                                    lastHandledUptime: 100, currentUptime: 300))
-
-// ③ 用户又拷贝了新内容：changeCount 变了 → 应提示（回归用例：别把去重做成一刀切）
-check("拷贝了新内容（changeCount 变化）→ 提示",
-      false,
-      ClipboardPromptGate.isHandled(changeCount: 6, lastHandledChange: 5,
-                                    lastHandledUptime: 100, currentUptime: 130))
-
-// ④ 设备重启过：uptime 变小、changeCount 从头计数 → 旧记录作废，应提示
-check("设备重启后·changeCount 回退 → 记录作废、提示",
-      false,
-      ClipboardPromptGate.isHandled(changeCount: 2, lastHandledChange: 12,
-                                    lastHandledUptime: 90000, currentUptime: 40))
-
-// ⑤ 边界：uptime 相等（同一瞬间重复调用）仍按 changeCount 比较
-check("边界·uptime 相等且 changeCount 相同 → 不提示",
-      true,
-      ClipboardPromptGate.isHandled(changeCount: 9, lastHandledChange: 9,
-                                    lastHandledUptime: 500, currentUptime: 500))
-
-// ⑥ 边界：uptime 相等但 changeCount 不同 → 提示
-check("边界·uptime 相等但 changeCount 不同 → 提示",
-      false,
-      ClipboardPromptGate.isHandled(changeCount: 10, lastHandledChange: 9,
-                                    lastHandledUptime: 500, currentUptime: 500))
+// ── v3.9.72：旧门（比"上次处理过的那一版"）已**下线** ──────────────────────
+// v3.8.1 的 `isHandled` + `handledClipChange` / `handledClipUptime` 两个 @AppStorage 在 v3.9.72
+// 换门后只写不读（真值表曾有 6 条断言在替它背书 = 假信心），已随生产代码一并删除。
+// 这里改成**反向断言**：旧门不得复活（去注释后判，注释里提到历史符号名不算违规）。
+func stripCommentLines(_ s: String) -> String {
+    s.split(separator: "\n", omittingEmptySubsequences: false).map { line -> String in
+        guard let r = line.range(of: "//") else { return String(line) }
+        return String(line[line.startIndex..<r.lowerBound])
+    }.joined(separator: "\n")
+}
+let chatCode = stripCommentLines((try? String(contentsOfFile: "qingliao/Features/Chat/ChatView.swift", encoding: .utf8)) ?? "")
+check("能读到 ChatView 源码（路径别改）", true, !chatCode.isEmpty)
+check("v3.9.72·旧门 isHandled 不得复活", true, !chatCode.contains("ClipboardPromptGate.isHandled"))
+check("v3.9.72·旧记账 markClipboardHandled 不得复活（单一真值源）", true, !chatCode.contains("markClipboardHandled"))
+check("v3.9.72·旧 @AppStorage 键不得复活", true,
+      !chatCode.contains("qingliao_clip_handled_change") && !chatCode.contains("qingliao_clip_handled_uptime"))
 
 // ── v3.9.72：探测门（用户报「剪切板有内容不要每次进 App 都提示」）──
 // 新门口径：比"上次进 App 时看到的那一版"，内容没变就静默；不再比"上次处理过的那一版"
@@ -77,17 +58,17 @@ check("v3.9.72·自动收起时长在合理区间（0 = 永不收起、过大 = 
       ClipboardBanner.autoHideSeconds > 3 && ClipboardBanner.autoHideSeconds <= 30)
 
 // 源码级护栏：UI 层必须真的用新门 + 挂自动收起（别被改回旧门 / 悄悄拆掉定时）
-let chatSrc = (try? String(contentsOfFile: "qingliao/Features/Chat/ChatView.swift", encoding: .utf8)) ?? ""
-check("v3.9.72·ChatView 用 decide 门", true, chatSrc.contains("ClipboardPromptGate.decide("))
+
+check("v3.9.72·ChatView 用 decide 门", true, chatCode.contains("ClipboardPromptGate.decide("))
 // 计数式：定义 1 处 + 两个弹条分支各 1 处 = 3；只拆掉其中一处也必须报红
 // （首版只写 contains → 实测「拆掉定位分支那次调用」仍绿，等于半个护栏）
 func occurrences(_ needle: String, in hay: String) -> Int {
     hay.components(separatedBy: needle).count - 1
 }
 check("v3.9.72·自动收起接线完整（定义+两个弹条分支 = 3）",
-      true, occurrences("scheduleClipboardAutoHide()", in: chatSrc) >= 3)
+      true, occurrences("scheduleClipboardAutoHide()", in: chatCode) >= 3)
 check("v3.9.72·交互取销接线完整（定义 + 四处按钮 = 5）",
-      true, occurrences("cancelClipboardAutoHide()", in: chatSrc) >= 5)
+      true, occurrences("cancelClipboardAutoHide()", in: chatCode) >= 5)
 
 print(failures == 0 ? "🎉 剪贴板去重真值表全部通过（\(total) 条）" : "❌ 剪贴板去重真值表失败 \(failures)/\(total)")
 exit(failures == 0 ? 0 : 1)

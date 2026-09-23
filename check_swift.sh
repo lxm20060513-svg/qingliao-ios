@@ -2,9 +2,12 @@
 # 轻聊 2.0 本地 Swift 预检（无 Xcode 环境的替代验证）
 # 用法: ./check_swift.sh   （在 ql_ipa2 目录下）
 # HOME 固定为原路径：不同会话 HOME 变化会导致 clang 模块缓存路径错位（PCH path mismatch / missing SwiftShims）
+# v3.9.72：钉死工作目录。各真值表都用**相对路径**读源码（qingliao/… / ../qingliaoWidget/…），
+# 从非仓根 cwd 调用会读不到源码——哨兵会红（不会静默假绿），但一样是"环境抖动伪装成回归"。
+cd "$(dirname "$0")" || exit 1
 export HOME=/opt/data/home
 export LD_LIBRARY_PATH=/opt/data/swift-libs
-# v3.9.71：固定时区。第 8 步（定时提醒真值表）里有几条断言经 Calendar.current 取分量，
+# v3.9.72：固定时区。第 8 步（定时提醒真值表）里有几条断言经 Calendar.current 取分量，
 # 而 Swift 测试的 triggerComponents 用的是系统时区——调用方环境里没有 TZ 时会按 GMT 算，
 # 于是"每周一 → weekday 2 / 每天 → 只有时分 / 一次性 → 年月日"三条**会随跑的人而红**
 # （2026-09-24 实测：终端里（有 TZ）全绿、从 Python subprocess 里（无 TZ）红 3 条）。

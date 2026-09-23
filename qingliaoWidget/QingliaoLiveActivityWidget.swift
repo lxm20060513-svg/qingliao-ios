@@ -116,22 +116,24 @@ struct QingliaoLiveActivityWidget: Widget {
     }
 
     /// v3.9.72：展开态底部区域的玻璃底衬（**自绘**）。
-    /// 三层静态图层堆出玻璃观感，参数与锁屏横幅 `bannerGlass` 同口径（同一挂件内不搞两套）：
-    ///   ① 顶部亮边高光（上缘 10pt 白 0.10 渐隐）——玻璃接受环境光的亮边
-    ///   ② 内侧上缘柔光（白 0.05，向下渐隐）——光在玻璃里漫射
-    ///   ③ 0.8pt 白 0.16 描边——iOS 26 玻璃的通透感来自边缘一圈细亮线（与全站玻璃卡 0.8pt 同参）
-    /// 圆角 10 = 横幅 bannerGlass 同值；岛内底色纯黑，所以"玻璃感"主要落在亮边与描边上，
-    /// **不要**为了更"透"去加 Material/glassEffect（见停止按钮那次真机事故）。
+    /// 两层静态图层堆出玻璃观感：
+    ///   ① 上缘亮边高光（顶部 10pt 白 0.12 渐隐）——玻璃接受环境光的亮边
+    ///   ② 内侧柔光（白 0.05 向下渐隐）——光在玻璃里漫射
+    /// 🚨 **刻意不画描边**（v3.9.72 审查修正）：横幅 bannerGlass 能用 `RoundedRectangle(radius: 10)`
+    /// 是因为它铺满锁屏横幅**整张卡**（卡面圆角就是 10）；岛内 `.bottom` 只是岛的一块**区域**，
+    /// 外面还有系统自己的大圆角遮罩——在这里画 radius 10 的小圆角描边，真机上更可能看到
+    /// 「岛里又套了一个小方框 + 一条横线」，而不是底衬。岛内没有等价卡面可用，所以只做上缘高光 +
+    /// 内侧柔光；要不要补边线**等真机看过再定**，别在没装机的前提下照横幅参数硬套。
+    /// 岛内底色纯黑，玻璃感主要靠亮边；**不要**为了更"透"去加 Material/glassEffect
+    /// （挂件进程拿不到背景采样，会整块不渲染 —— 见停止按钮那次真机事故）。
     private var expandedGlass: some View {
         ZStack {
-            LinearGradient(colors: [Color.white.opacity(0.10), Color.clear],
+            LinearGradient(colors: [Color.white.opacity(0.12), Color.clear],
                            startPoint: .top, endPoint: .bottom)
                 .frame(height: 10)
                 .frame(maxHeight: .infinity, alignment: .top)
             LinearGradient(colors: [Color.white.opacity(0.05), Color.clear],
                            startPoint: .top, endPoint: .bottom)
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.16), lineWidth: 0.8)
         }
         .allowsHitTesting(false)
     }

@@ -126,66 +126,25 @@ struct BigBangView: View {
                             .padding(.top, Spacing.xs)
                     }
                     Divider().overlay((scheme == .dark ? Color.white : Color.black).opacity(Tint.soft))
-                    // 🚨 v3.9.71 修复（用户截图报「左下角胶囊显示不对」）：
-                    //   原来每个按钮手写 `.padding(.horizontal, Spacing.xxl)`（28+28），复制还写死 `minWidth: 120`
-                    //   → 这一行合计约 470pt，而设备可用宽度只有 393pt（实测截图 1179px ÷ 3 = 393pt）。
-                    //   SwiftUI 在空间不够时优先压缩**最可压缩的 Text**：「全选」「清除」被压成 0 宽、
-                    //   只剩内边距，屏幕上就是两个**没有字的灰色空胶囊**（截图与代码逐条对上）。
-                    //   修法（三件套，缺一就可能复发）：
-                    //     ① 全部改回 `.pill()` 口径（集中定义尺寸，别再手写 padding）
-                    //     ② 文字标签一律 `.fixedSize()`：任何情况下文字不许被压没（宁可挤别的元素）
-                    //     ③ 去掉 `Spacing.xxl` / `minWidth: 120` 这类硬宽度
-                    HStack(spacing: 10) {
-                        Button {
-                            selected = Set(words.map(\.id))
-                        } label: {
-                            Text("全选").pill(.topBar, tone: .neutral).fixedSize()
-                        }
-                        .buttonStyle(.plain)
-                        Button {
-                            selected.removeAll()
-                        } label: {
-                            Text("清除").pill(.topBar, tone: .neutral).fixedSize()
-                        }
-                        .buttonStyle(.plain)
-                        Spacer(minLength: 0)
-                        // v3.9.71：选中词块 → 识别类型 → 一键执行（记一笔/加待办/建提醒/存知识库…）
-                        Button {
-                            recognizeSelected()
-                        } label: {
-                            Image(systemName: intent == nil ? "sparkles" : "sparkles.rectangle.stack")
-                                .pill(.topBar, tone: .neutral)
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(selected.isEmpty)
-                        .opacity(selected.isEmpty ? 0.5 : 1)
-                        .accessibilityLabel("识别选中内容")
-                        // v3.7.0：选中词块 → 存为一条备忘录（生活页「备忘录」栏目）
-                        Button {
-                            memoSelected()
-                        } label: {
-                            // 纯图标（底部条已有「全选/清除/复制(N)」，再加文字按钮在 SE 等窄屏会挤爆）
-                            Image(systemName: memoSaved ? "checkmark" : "note.text")
-                                .pill(.topBar, tone: .neutral)
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(selected.isEmpty)
-                        .opacity(selected.isEmpty ? 0.5 : 1)
-                        .accessibilityLabel("存备忘录")
-                        Button {
-                            copySelected()
-                        } label: {
-                            HStack(spacing: 6) {
-                                Image(systemName: copied ? "checkmark" : "doc.on.doc")
-                                Text(copied ? "已复制" : "复制 (\(selected.count))").fixedSize()
-                            }
-                            .pill(.primary)
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(selected.isEmpty)
-                        .opacity(selected.isEmpty ? 0.5 : 1)
+                    // 🚨 v3.9.72 修复（用户截图报「左下角胶囊显示不对」）：
+                    //   根因不是某个数写错，而是**每个按钮各写一套内边距**：图标胶囊各 `.padding(.horizontal, Spacing.xxl)`
+                    //   （`Spacing.xxl` = 14 ⇒ 左右各 14）、「全选/清除」各 18、「复制」还写死 `minWidth: 120`
+                    //   → 整行约 456pt，而可用宽度只有 393pt（截图 1179px ÷ 3 = 393pt；减去两侧行内边距 ≈361pt）。
+                    //   SwiftUI 空间不够时优先压缩**最可压缩的 Text**：「全选」「清除」被压成 0 宽、只剩内边距，
+                    //   屏幕上就是两个**没有字的灰色空胶囊**（截图与代码逐条对上）。
+                    //   修法（四件套，缺一就可能复发）：
+                    //     ① 全部改回 `.pill()` 口径（内边距集中定义，别再手写 padding / 硬宽度）
+                    //     ② 文字标签 `.fixedSize()`：文字不许被压没
+                    //     ③ 行间距 12 → 8、行内边距 18 → 12；「复制」的计数只在有选中时显示
+                    //     ④ **`ViewThatFits` 兜底**（下面的两稿）：② 挂的是整颗胶囊 = 压缩兜底被关掉，
+                    //        行宽真超了就不再压文字，而是整行溢出、两端被裁（审查提醒）。把「够不够宽」
+                    //        交给系统测：完整版放不下就自动换「图标版」，375pt 机型（SE3 / 13 mini，
+                    //        可用宽 ≈343pt）也不会溢出。
+                    ViewThatFits(in: .horizontal) {
+                        bottomBar(showCopyCount: true)
+                        bottomBar(showCopyCount: false)
                     }
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, 12)
                     .padding(.vertical, Spacing.lg)
                 }
             }
@@ -196,6 +155,69 @@ struct BigBangView: View {
     }
 
     /// 词块：点选切换选中（蓝色高亮 + 缩放动效）
+    /// v3.9.72：底部操作条两态（完整版带「复制 N」计数 / 窄屏图标版不带计数）。
+    /// 抽成函数是给 `ViewThatFits` 备两稿：系统测出完整版放不下就自动换图标版，任何机型都不溢出。
+    /// 计数只在有选中时显示（未选中时「复制 0」既是噪音、也白占约 30pt 宽度）。
+    @ViewBuilder
+    private func bottomBar(showCopyCount: Bool) -> some View {
+        HStack(spacing: 8) {
+            Button {
+                selected = Set(words.map(\.id))
+            } label: {
+                Text("全选").pill(.topBar, tone: .neutral).fixedSize()
+            }
+            .buttonStyle(.plain)
+            Button {
+                selected.removeAll()
+            } label: {
+                Text("清除").pill(.topBar, tone: .neutral).fixedSize()
+            }
+            .buttonStyle(.plain)
+            Spacer(minLength: 0)
+            // v3.9.71：选中词块 → 识别类型 → 一键执行（记一笔/加待办/建提醒/存知识库…）
+            Button {
+                recognizeSelected()
+            } label: {
+                Image(systemName: intent == nil ? "sparkles" : "sparkles.rectangle.stack")
+                    .pill(.topBar, tone: .neutral)
+            }
+            .buttonStyle(.plain)
+            .disabled(selected.isEmpty)
+            .opacity(selected.isEmpty ? 0.5 : 1)
+            .accessibilityLabel("识别选中内容")
+            // v3.7.0：选中词块 → 存为一条备忘录（生活页「备忘录」栏目）
+            Button {
+                memoSelected()
+            } label: {
+                // 纯图标（底部条已有「全选/清除/复制」，再加文字按钮在 SE 等窄屏会挤爆）
+                Image(systemName: memoSaved ? "checkmark" : "note.text")
+                    .pill(.topBar, tone: .neutral)
+            }
+            .buttonStyle(.plain)
+            .disabled(selected.isEmpty)
+            .opacity(selected.isEmpty ? 0.5 : 1)
+            .accessibilityLabel("存备忘录")
+            Button {
+                copySelected()
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                    if copied {
+                        Text("已复制").fixedSize()
+                    } else if showCopyCount && !selected.isEmpty {
+                        Text("复制 \(selected.count)").fixedSize()
+                    }
+                    // showCopyCount = false（窄屏兜底稿）或未选中时：只留图标，标签走 accessibilityLabel
+                }
+                .pill(.primary)
+            }
+            .buttonStyle(.plain)
+            .disabled(selected.isEmpty)
+            .opacity(selected.isEmpty ? 0.5 : 1)
+            .accessibilityLabel(copied ? "已复制" : "复制选中词块")
+        }
+    }
+
     private func wordChip(_ w: BigBangWord) -> some View {
         let isOn = selected.contains(w.id)
         return Button {

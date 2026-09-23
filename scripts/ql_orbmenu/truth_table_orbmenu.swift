@@ -260,8 +260,16 @@ check("顶部亮边高光（环境光在玻璃上缘的亮带）",
 check("内侧柔光在（上下内缘漫射）",
       widgetSrc.contains("Color.white.opacity(0.05), Color.clear")
       && widgetSrc.contains("Color.clear, Color.white.opacity(0.04)"))
-check("玻璃层不抢触摸（横幅本身可点，见 widgetURL）",
-      widgetSrc.contains(".allowsHitTesting(false)"))
+// 🚨 v3.9.72：改成**切片式**——原来断的是整文件「存在 .allowsHitTesting(false)」，
+// 而岛内新增的 expandedGlass 也带它 → 从"唯一提供者"变成"两处之一"= 假绿：
+// 把横幅那一处删掉（横幅会重新抢触摸、widgetURL 点不动）断言照样绿。
+let glassSlice: String = {
+    guard let a = widgetSrc.range(of: "private var bannerGlass"),
+          let b = widgetSrc.range(of: "// MARK: - 轻聊球") else { return "" }
+    return String(widgetSrc[a.lowerBound..<b.lowerBound])
+}()
+check("横幅玻璃层切片可切出（空了就是空真）", !glassSlice.isEmpty)
+check("玻璃层不抢触摸（横幅本身可点，见 widgetURL）", glassSlice.contains(".allowsHitTesting(false)"))
 
 // ③ 内容投在玻璃上的层影（玻璃有厚度；缺了它就是一张贴纸）
 check("横幅内容有层影", widgetSrc.contains(".shadow(color: .black.opacity(0.22), radius: 6, y: 2)"))
@@ -309,8 +317,32 @@ check("停止按钮描边与 pill(.accent) 同参（accent 0.28 / 0.8pt）",
 // ⑥ v3.9.72 展开态底部玻璃底衬（自绘：activityBackgroundTint 官方只管锁屏横幅，岛内无材质接口）
 check("展开态底部有自绘玻璃底衬定义", widgetSrc.contains("private var expandedGlass"))
 check("底衬挂在 expandedBottom 上", widgetSrc.contains(".background(alignment: .top) { self.expandedGlass }"))
-check("底衬含 0.8pt 白描边（与全站玻璃卡同参）",
-      widgetSrc.contains("strokeBorder(Color.white.opacity(0.16), lineWidth: 0.8)"))
+// 🚨 v3.9.72 审查修正：底衬**刻意不画描边**。横幅 bannerGlass 能用 `RoundedRectangle(radius: 10)`
+// 是因为它铺满锁屏横幅**整张卡**（卡面圆角就是 10）；岛内 `.bottom` 只是岛的一块区域，外面还有系统
+// 自己的大圆角遮罩 —— 在岛内画 radius 10 的小圆角描边，真机上更可能看到「岛里又套了个小方框 + 一条横线」
+// 而不是底衬。所以只做上缘高光 + 内侧柔光，要不要补边线等真机看过再定。
+let expandedGlassSlice: String = {
+    // ⚠️ 终点取「下一个声明」而不是 lockScreenBanner：落到横幅会把 stopButton 的 accent 描边
+    // （合法，与底衬无关）一起切进来 → 断言假红（实测踩到）。
+    guard let a = widgetSrc.range(of: "private var expandedGlass"),
+          let b = widgetSrc.range(of: "private var stopButton") else { return "" }
+    return String(widgetSrc[a.lowerBound..<b.lowerBound])
+}()
+check("底衬切片可切出（空了就是空真）", !expandedGlassSlice.isEmpty)
+check("底衬只做上缘高光（白 0.12 渐隐）", expandedGlassSlice.contains("Color.white.opacity(0.12), Color.clear"))
+check("底衬不画小圆角描边（审查：与系统大圆角错位）",
+      !stripCommentLines(expandedGlassSlice).contains("strokeBorder")
+      && !stripCommentLines(expandedGlassSlice).contains("RoundedRectangle"))
+
+// ⑦ v3.9.72：**整个挂件文件**都不许出现 glassEffect / Material（规则级护栏）
+// 真机结论：挂件 / Live Activity 进程拿不到背景采样 → 这类层整块不渲染，只剩描边（= 空胶囊）。
+// 之前这条规则只被 ⑤ 的 stopButton 切片守着，别处（横幅/新形态/未来 widget）加玻璃没人拦。
+// ⚠️ 必须先剥注释行：本文件注释里为说明事故会出现 "glassEffect" / "Material" 字样，直接 contains 会假红。
+check("挂件代码里没有 glassEffect（岛内一律自绘）", !stripCommentLines(widgetSrc).contains("glassEffect"))
+check("挂件代码里没有 Material（同上）", !stripCommentLines(widgetSrc).contains("Material"))
+check("横幅玻璃层不抢触摸（独立切片断言，见 ②）", glassSlice.contains(".allowsHitTesting(false)"))
+check("展开态玻璃底衬自绘（无描边版）", widgetSrc.contains("private var expandedGlass")
+      && !widgetSrc.contains("cornerRadius: 10, style: .continuous)\n                .strokeBorder(Color.white.opacity(0.16)"))
 
 print("智慧球长按菜单真值表：\(passCount) 通过 / \(failCount) 失败")
 if failCount > 0 { exit(1) }

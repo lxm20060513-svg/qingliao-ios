@@ -357,6 +357,26 @@ enum CrashReporter {
 // MARK: - v3.4.25 本地崩溃日志：下次启动提示 + 设置页查看/导出
 
 extension CrashReporter {
+    /// v3.9.72：**待提示崩溃的指纹**（"这份崩溃提示过没有"的判据）。
+    /// 为什么需要它：`hasPendingLog()` 判的是「本地还有没有崩溃文件」，而删文件只有两条路
+    /// （用户点「忽略」= markAsRead，或启动时**已登录**且上报成功）——未登录 / 离线 / 上报失败时，
+    /// 用户把 sheet 下滑或点 ✕ 关掉都不删文件 → **同一份崩溃每次冷启动都重弹**
+    /// （与用户报的「剪切板有内容不要每次进 App 都提示」同一副骨架）。
+    /// 指纹 = 三个崩溃文件的「路径 + 大小 + 修改时间」拼串后做 FNV-1a（十六进制）。
+    /// ⚠️ 不能用 `String.hashValue`：Swift 的哈希每次进程随机加盐，跨启动不稳定。
+    static func pendingFingerprint() -> String {
+        var acc: UInt64 = 0xcbf2_9ce4_8422_2325
+        for p in [qlCrashFilePath(), qlCrashSigFilePath(), qlCrashStackPath()] {
+            let attrs = try? FileManager.default.attributesOfItem(atPath: p)
+            let size = (attrs?[.size] as? NSNumber)?.uint64Value ?? 0
+            let mtime = Int((attrs?[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0)
+            for byte in Array("\(p)|\(size)|\(mtime)".utf8) {
+                acc = (acc ^ UInt64(byte)) &* 0x100_0000_01b3
+            }
+        }
+        return String(acc, radix: 16)
+    }
+
     /// v3.4.25：本地是否留有未读崩溃日志（三个文件任一存在）
     /// v3.9.10：补上信号 handler 写的 crash_pending_sig.json（否则信号类崩溃在读侧不可见）
     static func hasPendingLog() -> Bool {

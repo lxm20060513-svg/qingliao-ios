@@ -114,6 +114,10 @@ struct RootView: View {
     @Environment(ChatStore.self) private var chat
     // v3.4.25：上次异常退出提示弹窗（检测到未读崩溃日志时弹出，一次性）
     @State private var showCrashAlert = false
+    // v3.9.72（用户：不要每次进 App 都提示）：**已提示过的崩溃指纹**——同一份崩溃只弹一次。
+    // 旧判据 hasPendingLog()（文件还在吗）在「未登录 / 离线 / 上报失败 + 用户滑掉 sheet」组合下
+    // 每次冷启动都重弹；崩溃日志仍留在设置页「崩溃日志」可查可导出，不丢数据。
+    @AppStorage("qingliao_crash_prompted_fp") private var crashPromptedFingerprint = ""
     @State private var crashAlertText = ""
     // v3.4.25：崩溃日志查看/导出弹窗（AlertSheet 内含 UIActivityViewController）
     @State private var showCrashLogSheet = false
@@ -241,8 +245,14 @@ struct RootView: View {
                     UserDefaults.standard.set(String(text.prefix(8000)),
                                               forKey: "qingliao_last_crash_log")
                 }
-                crashAlertText = text
-                showCrashAlert = true
+                // v3.9.72：只提示**没见过的那一份**（比指纹）。任何关闭方式（忽略 / ✕ / 下滑 /
+                // 导出）之后都不会再为同一份崩溃弹第二次——用户明确要求「不要每次进 App 都提示」。
+                let fingerprint = CrashReporter.pendingFingerprint()
+                if fingerprint != crashPromptedFingerprint {
+                    crashPromptedFingerprint = fingerprint
+                    crashAlertText = text
+                    showCrashAlert = true
+                }
             }
         }
         .task {

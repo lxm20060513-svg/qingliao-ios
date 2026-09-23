@@ -277,42 +277,74 @@ check("执行器失败路径要求出声（动作条有 Haptics.error）", barSr
 check("写入类动作门槛 0.5 还在", barSrc.contains("writeGate = 0.5"))
 
 
-// MARK: - 9. 大爆炸底部条口径护栏（v3.9.71：用户截图报「左下角胶囊没字」）
+// MARK: - 9. 大爆炸底部条口径护栏（v3.9.72：用户截图报「左下角胶囊没字」）
 //
-// 事故经过：底部条每个按钮手写 `.padding(.horizontal, Spacing.xxl)`（28+28）+ 复制写死 `minWidth: 120`
-// → 一行约 470pt，设备可用宽度 393pt（截图 1179px ÷ 3）→ SwiftUI 优先压缩 Text，「全选」「清除」
-// 被压成 0 宽只剩内边距 = 两个没有字的灰空胶囊。修完必须锁住，否则下次谁再加一颗胶囊就复发。
+// 事故经过：底部条每个按钮**各写一套内边距**（图标胶囊各 `Spacing.xxl`=14、全选/清除各 18、复制写死
+// `minWidth: 120`）→ 整行约 456pt，可用宽度 393pt（截图 1179px ÷ 3）→ SwiftUI 优先压缩 Text，
+// 「全选」「清除」被压成 0 宽只剩内边距 = 两个没有字的灰空胶囊。修完必须锁住，否则谁再加一颗就复发。
+// 🚨 v3.9.72 审查修正：断言改成**切片式**。整文件级断言双向失真——别处合理用一次 Spacing.xxl 会假红，
+// 换个字面量（frame(minWidth: 140) / Spacing.section 内边距）当硬宽度又会假绿，事故边界是「底部条那一行」。
 
 print("── 9. 大爆炸底部条口径 ──")
-let bbSrcRaw = (try? String(contentsOfFile: "qingliao/Features/BigBang/BigBangView.swift", encoding: .utf8)) ?? ""
-check("能读到 BigBangView 源码（路径别改）", !bbSrcRaw.isEmpty)
-// 去掉注释行后再判"有没有硬宽度"（注释里会提到这些字面量，不能算违规）
-let bbSrc = bbSrcRaw.split(separator: "\n", omittingEmptySubsequences: false)
-    .map { String($0) }
-    .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
-    .joined(separator: "\n")
+// 去注释后再判（注释里会提到这些字面量，不算违规）
+func stripComments(_ s: String) -> String {
+    s.split(separator: "\n", omittingEmptySubsequences: false).map { line -> String in
+        guard let r = line.range(of: "//") else { return String(line) }
+        return String(line[line.startIndex..<r.lowerBound])
+    }.joined(separator: "\n")
+}
+let bbRaw = (try? String(contentsOfFile: "qingliao/Features/BigBang/BigBangView.swift", encoding: .utf8)) ?? ""
+check("能读到 BigBangView 源码（路径别改）", !bbRaw.isEmpty)
+let bbSrc = stripComments(bbRaw)
+// 切片：只切底部条那个函数体（锚点都是代码行）
+let barSlice: String = {
+    guard let a = bbSrc.range(of: "private func bottomBar(showCopyCount:"),
+          let b = bbSrc.range(of: "private func wordChip(") else { return "" }
+    return String(bbSrc[a.lowerBound..<b.lowerBound])
+}()
+check("底部条切片可切出（空了后面全是空真）", !barSlice.isEmpty)
+check("底部条胶囊走 .pill 口径（topBar ×4）", barSlice.components(separatedBy: ".pill(.topBar").count - 1 >= 4)
+check("主操作胶囊走 .pill(.primary)", barSlice.contains(".pill(.primary)"))
+check("文字标签防压缩（fixedSize ≥3）", barSlice.components(separatedBy: ".fixedSize()").count - 1 >= 3)
+check("底部条不再手写水平内边距（根因）", !barSlice.contains(".padding(.horizontal"))
+check("底部条不再有硬宽度 minWidth", !barSlice.contains("minWidth"))
+check("行间距收到 8", barSlice.contains("HStack(spacing: 8)"))
+check("全选/清除保持文字胶囊", barSlice.contains("Text(\"全选\").pill(") && barSlice.contains("Text(\"清除\").pill("))
+check("复制计数只在有选中时显示（不再恒显 复制 (0)）", barSlice.contains("showCopyCount && !selected.isEmpty"))
+// 排除式：带括号的旧写法更宽（约 +8pt），别改回去（用原始字符串避免转义地狱）
+check("复制标签不再写成带括号的 复制 (N)（宽度口径）", !barSlice.contains(#"复制 (\(selected.count))"#))
+// 行宽兜底：ViewThatFits 两稿（完整版放不下 → 图标版），否则 fixedSize 关掉压缩兜底会整行溢出被裁
+check("ViewThatFits 两稿兜底在位",
+      bbSrc.contains("ViewThatFits(in: .horizontal)")
+      && bbSrc.contains("bottomBar(showCopyCount: true)")
+      && bbSrc.contains("bottomBar(showCopyCount: false)"))
+check("行内边距收到 12", bbSrc.contains(".padding(.horizontal, 12)"))
 
-check("底部条胶囊走 .pill 口径（topBar ×4）", bbSrc.components(separatedBy: ".pill(.topBar").count - 1 >= 4)
-check("主操作胶囊走 .pill(.primary)", bbSrc.contains(".pill(.primary)"))
-check("文字标签防压缩（fixedSize ≥3）", bbSrc.components(separatedBy: ".fixedSize()").count - 1 >= 3)
-check("底部条不再有硬宽度 minWidth: 120", !bbSrc.contains("minWidth: 120"))
-check("底部条不再有 Spacing.xxl 内边距", !bbSrc.contains("Spacing.xxl"))
-check("全选/清除保持文字胶囊", bbSrc.contains("Text(\"全选\").pill(") && bbSrc.contains("Text(\"清除\").pill("))
-
-
-// MARK: - 10. 空态输入框可见性护栏（v3.9.71：用户截图报「输入法会遮住输入框」）
+// MARK: - 10. 空态输入框可见性护栏（v3.9.72：用户截图报「输入法会遮住输入框」）
 //
 // 事故：空态欢迎页是不可滚动的定高内容（留白 56 + 球 96 + 文案 + 4 芯片 + 续聊卡 ≈ 380pt），
 // 九宫格键盘 + 候选栏 ≈ 340pt，可用高度只剩 ≈344pt → VStack 压不动欢迎页，就把输入栏挤到键盘后面。
 // 修法=输入栏 layoutPriority(1) + 欢迎页键盘弹起时收缩。这里锁住两处，免得改 UI 时退回原样。
 
 print("── 10. 空态输入框可见性 ──")
-let cvSrc = (try? String(contentsOfFile: "qingliao/Features/Chat/ChatView.swift", encoding: .utf8)) ?? ""
-check("能读到 ChatView 源码（路径别改）", !cvSrc.isEmpty)
-check("输入栏在布局上争抢优先权（layoutPriority(1)）", cvSrc.contains(".layoutPriority(1)"))
+let cvRaw = (try? String(contentsOfFile: "qingliao/Features/Chat/ChatView.swift", encoding: .utf8)) ?? ""
+check("能读到 ChatView 源码（路径别改）", !cvRaw.isEmpty)
+let cvSrc = stripComments(cvRaw)
+// 🚨 优先权必须挂在**输入栏那一层**（inputArea），不能挂整个 chatComposerArea：整组还含选图条 /
+// 动作条 / 附件面板 / 引用条（各自定高，合计 ≈380pt），键盘与它们同开时输入栏本身仍会被顶出可见区。
+let composerSlice: String = {
+    guard let a = cvRaw.range(of: "private var chatComposerArea"),
+          let b = cvRaw.range(of: "// MARK: - v3.7.0 剪贴板地图链接") else { return "" }
+    return String(cvRaw[a.lowerBound..<b.lowerBound])
+}()
+check("composer 切片可切出（空了后面全是空真）", !composerSlice.isEmpty)
+check("优先权落在输入栏那一层（切片里 inputArea + layoutPriority 同在）",
+      composerSlice.contains("inputArea") && composerSlice.contains(".layoutPriority(1)"))
+check("优先权不再挂整个 chatComposerArea", !cvSrc.contains("chatComposerArea\n                .layoutPriority(1)"))
+check("输入栏优先权全文件只出现 1 次", cvSrc.components(separatedBy: ".layoutPriority(1)").count - 1 == 1)
 check("欢迎页顶部留白随键盘收起", cvSrc.contains("Spacer(minLength: kb.isVisible ? 0 : 56)"))
 check("欢迎页智能球保持既有口径（不因布局改小）", cvSrc.contains("LiquidOrbAvatar(size: 96, thinking: aiBusy, live: true)"))
-check("建议芯片随键盘收起", cvSrc.contains("if !kb.isVisible {") && cvSrc.contains("// if !kb.isVisible（建议芯片）"))
+check("建议芯片随键盘收起", cvSrc.contains("if !kb.isVisible {") && cvRaw.contains("// if !kb.isVisible（建议芯片）"))
 check("续聊卡随键盘收起", cvSrc.contains("!clearing, !kb.isVisible {"))
 
 print("\n———————————————")
