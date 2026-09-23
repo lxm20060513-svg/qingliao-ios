@@ -111,6 +111,32 @@ check("两层高度都不是写死数字（写死会在放大字号时裁字）"
       !inputBarSrc.contains(".frame(minHeight: 42)")
       && !inputBarSrc.contains(".frame(minHeight: 44)"))
 
+// ── 3c. 外层玻璃容器圆角（用户：「输入框圆角太大了，很不协调，改成常规圆角」）──
+// v3.9.53 定稿时容器是胶囊；v3.9.62 按用户要求改为 Radius.field(14) 圆角矩形。
+// `View.glassEffect()` 不传参时默认按 Capsule 渲染 → 圆角矩形必须把玻璃挂在 Shape 上
+// （`.background { <Shape>.glassEffect() }`），不能给裸 glassEffect() 补 shape 参数。
+// 同一形状必须在三处同时成立：玻璃底 / 聚焦蓝边 / 常态白边——只改玻璃底会让描边仍是弧顶。
+check("外层玻璃容器走 Radius.field(14) 圆角矩形（不再全圆角胶囊）",
+      inputBarSrc.contains("RoundedRectangle(cornerRadius: Radius.field, style: .continuous)\n                .glassEffect()"))
+check("容器圆角走 Radius 令牌，不是魔法数", inputBarSrc.contains("cornerRadius: Radius.field"))
+check("玻璃容器不再是 Capsule（旧胶囊形态清零）",
+      !inputBarSrc.contains(".background { Capsule().glassEffect() }"))
+check("聚焦蓝边描边同圆角矩形（与玻璃底同形）",
+      inputBarSrc.contains("overlay {\n            RoundedRectangle(cornerRadius: Radius.field, style: .continuous)\n                .strokeBorder(Color.blue.opacity(focused ? 0.45 : 0), lineWidth: 0.8)"))
+check("常态白边描边同圆角矩形（与玻璃底同形）",
+      inputBarSrc.contains("RoundedRectangle(cornerRadius: Radius.field, style: .continuous)\n                    .strokeBorder(.white.opacity(Tint.subtle), lineWidth: 0.8)"))
+// 排除式：fullInputBar 体内（到 fullInputBar 函数体闭合为止）不得再出现容器级 Capsule。
+// ⚠️ 只排除「容器形态」串：发送/停止/附件钮的 `in: Capsule()` 是按钮级胶囊，属既定口径不动。
+check("fullInputBar 体内没有容器级 Capsule 描边/玻璃（按钮级 in: Capsule() 不在此列）",
+      {
+          guard let a = inputBarSrc.range(of: "private var fullInputBar: some View") else { return false }
+          let body = String(inputBarSrc[a.lowerBound..<inputBarSrc.endIndex])
+          guard let end = body.range(of: "\n    }\n") else { return false }
+          let slice = String(body[body.startIndex..<end.upperBound])
+          return !slice.contains("Capsule().glassEffect()")
+              && !slice.contains("Capsule().strokeBorder")
+      }())
+
 // ── 4. 旧单行形态清零（带声明/调用形态的串，别写裸符号名） ──
 // 旧形态 = fullInputBar 里一行 HStack 同时挂 attachButtons + textArea + trailingButtons。
 check("旧单行 HStack 已清零（fullInputBar 体内不再有 attachButtons）",

@@ -102,8 +102,13 @@ struct ChatInputBar: View {
 
     /// v3.9.53（真机 497 后用户拍板：「输入框样式还是改回 3.9.46 版本的样式吧，现在的不行，
     /// 在 3.9.46 基础上加上模型切换就行」）——**样式整条回退到 v3.9.46**，只留模型切换：
-    /// 玻璃回到 `.background { Capsule().glassEffect() }`、常态白边 + 聚焦蓝边回到 v3.4.20 两层写法、
+    /// 玻璃回到液态玻璃底、常态白边 + 聚焦蓝边回到 v3.4.20 两层写法、
     /// 外层 `.shadow(0.3 / 14 / 5)` 加回来（仍排在流光 overlay **之前**，v3.2.3 红线不动）。
+    ///
+    /// v3.9.62：外层玻璃容器由 **Capsule 改 RoundedRectangle(cornerRadius: Radius.field 14)**——
+    /// 用户原话「输入框圆角太大了，很不协调，改成常规圆角」。42 高的两层内容配全圆角胶囊，
+    /// 弧顶几乎咬到内容上下缘；改 14pt（Radius.field 输入框档）后上缘出现 28pt 平坦段，
+    /// 输入文字与工具图标不再贴着弧线，与全站输入类控件（附件卡/内嵌面板）同一圆角口径。
     ///
     /// v3.9.61：由 v3.9.46 的单行 HStack 改为**恒定两层 VStack**。
     ///   第一层 `messageRow` = 消息输入层：textArea（占位符「输入消息…」/ 光标都走这一层）
@@ -124,11 +129,20 @@ struct ChatInputBar: View {
         .padding(.horizontal, Spacing.lg)
         .padding(.vertical, Spacing.md)
         // v2.0.87e：原生液态玻璃输入栏（iOS 26+）
-        .background { Capsule().glassEffect() }
+        // v3.9.62：玻璃形状 Capsule → `RoundedRectangle(cornerRadius: Radius.field)`（14，输入框档）。
+        // `View.glassEffect()` **不传 shape 参数时默认按 Capsule 渲染**——要圆角矩形必须把玻璃
+        // 挂在带形状的 Shape 上（`.background { <Shape>.glassEffect() }`，玻璃容器的既定写法）。
+        // 半径走 Radius 令牌不写魔法数：全站输入类控件统一 14（Radius.field），与 Radius.inset(12)/
+        // Radius.card(16) 拉开语义层级。外层玻璃容器其余件（白边/聚焦蓝边/阴影/流光）全部不动。
+        .background {
+            RoundedRectangle(cornerRadius: Radius.field, style: .continuous)
+                .glassEffect()
+        }
         // v3.4.20：聚焦态光晕——输入框获得焦点时边缘亮起淡蓝细描边（0.8pt 与全站描边同参），失焦淡出。
         // 静态描边（非每帧重绘），无 shadow 叠加，不触碰 v3.2.3 渲染卡死红线。
         .overlay {
-            Capsule().strokeBorder(Color.blue.opacity(focused ? 0.45 : 0), lineWidth: 0.8)
+            RoundedRectangle(cornerRadius: Radius.field, style: .continuous)
+                .strokeBorder(Color.blue.opacity(focused ? 0.45 : 0), lineWidth: 0.8)
                 .allowsHitTesting(false)
         }
         .animation(Motion.snap, value: focused)
@@ -158,7 +172,8 @@ struct ChatInputBar: View {
                     .allowsHitTesting(false)   // v2.0.87al：不拦截点击（停止按钮可点）
                 }
             } else {
-                Capsule().strokeBorder(.white.opacity(Tint.subtle), lineWidth: 0.8)
+                RoundedRectangle(cornerRadius: Radius.field, style: .continuous)
+                    .strokeBorder(.white.opacity(Tint.subtle), lineWidth: 0.8)
             }
         }
         .padding(.horizontal, 18)   // v2.0.87aw：输入框宽度收窄（12→18）
