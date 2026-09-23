@@ -126,37 +126,35 @@ struct BigBangView: View {
                             .padding(.top, Spacing.xs)
                     }
                     Divider().overlay((scheme == .dark ? Color.white : Color.black).opacity(Tint.soft))
-                    HStack(spacing: 12) {
+                    // 🚨 v3.9.71 修复（用户截图报「左下角胶囊显示不对」）：
+                    //   原来每个按钮手写 `.padding(.horizontal, Spacing.xxl)`（28+28），复制还写死 `minWidth: 120`
+                    //   → 这一行合计约 470pt，而设备可用宽度只有 393pt（实测截图 1179px ÷ 3 = 393pt）。
+                    //   SwiftUI 在空间不够时优先压缩**最可压缩的 Text**：「全选」「清除」被压成 0 宽、
+                    //   只剩内边距，屏幕上就是两个**没有字的灰色空胶囊**（截图与代码逐条对上）。
+                    //   修法（三件套，缺一就可能复发）：
+                    //     ① 全部改回 `.pill()` 口径（集中定义尺寸，别再手写 padding）
+                    //     ② 文字标签一律 `.fixedSize()`：任何情况下文字不许被压没（宁可挤别的元素）
+                    //     ③ 去掉 `Spacing.xxl` / `minWidth: 120` 这类硬宽度
+                    HStack(spacing: 10) {
                         Button {
                             selected = Set(words.map(\.id))
                         } label: {
-                            Text("全选")
-                                .font(.system(size: Typography.body, weight: .semibold))
-                                .foregroundStyle(fg)
-                                .padding(.horizontal, 18).padding(.vertical, Spacing.md)
-                                .background((scheme == .dark ? Color.white : Color.black).opacity(Tint.soft), in: Capsule())
+                            Text("全选").pill(.topBar, tone: .neutral).fixedSize()
                         }
                         .buttonStyle(.plain)
                         Button {
                             selected.removeAll()
                         } label: {
-                            Text("清除")
-                                .font(.system(size: Typography.body, weight: .semibold))
-                                .foregroundStyle(fg.opacity(0.7))
-                                .padding(.horizontal, 18).padding(.vertical, Spacing.md)
-                                .background((scheme == .dark ? Color.white : Color.black).opacity(Tint.faint), in: Capsule())
+                            Text("清除").pill(.topBar, tone: .neutral).fixedSize()
                         }
                         .buttonStyle(.plain)
-                        Spacer()
+                        Spacer(minLength: 0)
                         // v3.9.71：选中词块 → 识别类型 → 一键执行（记一笔/加待办/建提醒/存知识库…）
                         Button {
                             recognizeSelected()
                         } label: {
                             Image(systemName: intent == nil ? "sparkles" : "sparkles.rectangle.stack")
-                                .font(.system(size: Typography.body, weight: .semibold))
-                                .foregroundStyle(fg)
-                                .padding(.horizontal, Spacing.xxl).padding(.vertical, Spacing.md)
-                                .background((scheme == .dark ? Color.white : Color.black).opacity(Tint.soft), in: Capsule())
+                                .pill(.topBar, tone: .neutral)
                         }
                         .buttonStyle(.plain)
                         .disabled(selected.isEmpty)
@@ -166,12 +164,9 @@ struct BigBangView: View {
                         Button {
                             memoSelected()
                         } label: {
-                            // v3.7.0：纯图标（底部条已有「全选/清除/复制(N)」，再加文字按钮在 SE 等窄屏会挤爆）
+                            // 纯图标（底部条已有「全选/清除/复制(N)」，再加文字按钮在 SE 等窄屏会挤爆）
                             Image(systemName: memoSaved ? "checkmark" : "note.text")
-                                .font(.system(size: Typography.body, weight: .semibold))
-                                .foregroundStyle(fg)
-                                .padding(.horizontal, Spacing.xxl).padding(.vertical, Spacing.md)
-                                .background((scheme == .dark ? Color.white : Color.black).opacity(Tint.soft), in: Capsule())
+                                .pill(.topBar, tone: .neutral)
                         }
                         .buttonStyle(.plain)
                         .disabled(selected.isEmpty)
@@ -182,17 +177,15 @@ struct BigBangView: View {
                         } label: {
                             HStack(spacing: 6) {
                                 Image(systemName: copied ? "checkmark" : "doc.on.doc")
-                                Text(copied ? "已复制" : "复制 (\(selected.count))")
+                                Text(copied ? "已复制" : "复制 (\(selected.count))").fixedSize()
                             }
-                            .font(.system(size: Typography.body, weight: .semibold))
-                            .frame(minWidth: 120)
                             .pill(.primary)
                         }
                         .buttonStyle(.plain)
                         .disabled(selected.isEmpty)
                         .opacity(selected.isEmpty ? 0.5 : 1)
                     }
-                    .padding(.horizontal, 18)
+                    .padding(.horizontal, 16)
                     .padding(.vertical, Spacing.lg)
                 }
             }

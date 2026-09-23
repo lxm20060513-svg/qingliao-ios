@@ -276,6 +276,29 @@ check("执行器失败路径要求出声（动作条有 Haptics.error）", barSr
 // 低置信门槛必须存在（0.5）：改小了等于让兜底内容也能写入
 check("写入类动作门槛 0.5 还在", barSrc.contains("writeGate = 0.5"))
 
+
+// MARK: - 9. 大爆炸底部条口径护栏（v3.9.71：用户截图报「左下角胶囊没字」）
+//
+// 事故经过：底部条每个按钮手写 `.padding(.horizontal, Spacing.xxl)`（28+28）+ 复制写死 `minWidth: 120`
+// → 一行约 470pt，设备可用宽度 393pt（截图 1179px ÷ 3）→ SwiftUI 优先压缩 Text，「全选」「清除」
+// 被压成 0 宽只剩内边距 = 两个没有字的灰空胶囊。修完必须锁住，否则下次谁再加一颗胶囊就复发。
+
+print("── 9. 大爆炸底部条口径 ──")
+let bbSrcRaw = (try? String(contentsOfFile: "qingliao/Features/BigBang/BigBangView.swift", encoding: .utf8)) ?? ""
+check("能读到 BigBangView 源码（路径别改）", !bbSrcRaw.isEmpty)
+// 去掉注释行后再判"有没有硬宽度"（注释里会提到这些字面量，不能算违规）
+let bbSrc = bbSrcRaw.split(separator: "\n", omittingEmptySubsequences: false)
+    .map { String($0) }
+    .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+    .joined(separator: "\n")
+
+check("底部条胶囊走 .pill 口径（topBar ×4）", bbSrc.components(separatedBy: ".pill(.topBar").count - 1 >= 4)
+check("主操作胶囊走 .pill(.primary)", bbSrc.contains(".pill(.primary)"))
+check("文字标签防压缩（fixedSize ≥3）", bbSrc.components(separatedBy: ".fixedSize()").count - 1 >= 3)
+check("底部条不再有硬宽度 minWidth: 120", !bbSrc.contains("minWidth: 120"))
+check("底部条不再有 Spacing.xxl 内边距", !bbSrc.contains("Spacing.xxl"))
+check("全选/清除保持文字胶囊", bbSrc.contains("Text(\"全选\").pill(") && bbSrc.contains("Text(\"清除\").pill("))
+
 print("\n———————————————")
 print(failures == 0 ? "✅ 全部通过 \(total)/\(total)" : "❌ 失败 \(failures)/\(total)")
 exit(failures == 0 ? 0 : 1)

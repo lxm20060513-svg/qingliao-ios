@@ -4,6 +4,12 @@
 # HOME 固定为原路径：不同会话 HOME 变化会导致 clang 模块缓存路径错位（PCH path mismatch / missing SwiftShims）
 export HOME=/opt/data/home
 export LD_LIBRARY_PATH=/opt/data/swift-libs
+# v3.9.71：固定时区。第 8 步（定时提醒真值表）里有几条断言经 Calendar.current 取分量，
+# 而 Swift 测试的 triggerComponents 用的是系统时区——调用方环境里没有 TZ 时会按 GMT 算，
+# 于是"每周一 → weekday 2 / 每天 → 只有时分 / 一次性 → 年月日"三条**会随跑的人而红**
+# （2026-09-24 实测：终端里（有 TZ）全绿、从 Python subprocess 里（无 TZ）红 3 条）。
+# 这类"看起来像回归的环境抖动"最耗人，所以在脚本里钉死，不依赖调用方。
+export TZ=Asia/Shanghai
 SWIFT=/opt/data/swift-toolchain/swift-6.0.3-RELEASE-ubuntu24.04/usr/bin
 
 # 编译并运行一个单元测试可执行文件：run_unit <产物路径> <swiftc 参数...>
