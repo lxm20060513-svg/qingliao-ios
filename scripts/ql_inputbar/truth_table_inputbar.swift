@@ -31,13 +31,13 @@ check("ChatInputBar.swift 源可读", !inputBarSrc.isEmpty)
 
 // ── 0. 两层结构在位 ─────────────────────────────────────────
 check("容器是两层 VStack（单行 HStack 已退场）",
-      inputBarSrc.contains("VStack(spacing: ChatInputBarLayout.rowGap) {"))
+      inputBarSrc.contains("VStack(spacing: toolLayerExpanded ? ChatInputBarLayout.rowGap : 0) {"))
 check("第一层 messageRow 在容器里", inputBarSrc.contains("            messageRow\n"))
 check("第二层 toolRow 在容器里", inputBarSrc.contains("            toolRow\n"))
 check("messageRow 是独立计算属性", inputBarSrc.contains("private var messageRow: some View"))
 check("toolRow 是独立计算属性", inputBarSrc.contains("private var toolRow: some View"))
-check("两层间距走 Layout 常量（不写魔法数）",
-      inputBarSrc.contains("static let rowGap: CGFloat = Spacing.md"))
+check("两层间距恒引用 Layout 常量（展开态 rowGap；收起态 0 是同一三元的另一支，不算魔法数）",
+      inputBarSrc.contains("ChatInputBarLayout.rowGap"))
 
 // ── 1. 归属正确（用户点名的两层各放什么） ────────────────────
 // 第一层 = 消息输入层：输入框（含占位符「输入消息…」与光标）+ 停止/发送
@@ -77,6 +77,66 @@ check("附件按钮（paperclip）仍在", inputBarSrc.contains("Image(systemNam
 check("相机按钮仍在", inputBarSrc.contains("Image(systemName: \"camera\")"))
 check("发送按钮仍在", inputBarSrc.contains("Image(systemName: \"arrow.up\")"))
 
+// ── 2b. 收起态只显第一层（v3.9.66，用户做上一轮评估里的方案 1）────────────────────
+// 用户原话（评估后拍板）：「做 1，另外输入框圆角加到 20」——「做 1」=「未弹出键盘时候输入框
+// 只显示第一层的输入信息这一层，在点击输入框弹出键盘后输入框的第一第二层都显示」。
+// 实现纪律（v3.9.53 键盘弹一下又收回的坑）：
+//   · 两层**恒渲染** —— 不许 `if kbEnv.isVisible { toolRow }` / `if toolLayerExpanded { toolRow }`；
+//   · 只改不改变类型的量：toolRow 的 frame(height) 0↔toolRowMinHeight、opacity 0↔1、
+//     allowsHitTesting 同步切；VStack spacing 展开 rowGap / 收起 0；
+//   · 判据 = `focused || kbEnv.isVisible`（iPad 蓝牙键盘软键盘不弹，只判键盘高度会永远收起）；
+//   · 三处（spacing / height / opacity）必须同读一个判定属性，否则高度动画与淡入不同步。
+// 反向自证：把 toolRow 的 frame 改回常量高度 → 收起态三条护栏立刻全红。
+check("收起态判据在位：toolLayerExpanded = focused || kbEnv.isVisible",
+      inputBarSrc.contains("private var toolLayerExpanded: Bool {")
+      && inputBarSrc.contains("focused || kbEnv.isVisible"))
+check("第二层高度随判据收放：展开 toolRowMinHeight / 收起 0（不写 nil，nil 会回退固有高度 34）",
+      inputBarSrc.contains(".frame(minHeight: toolLayerExpanded ? ChatInputBarLayout.toolRowMinHeight : 0)"))
+check("第二层透明度随判据收放（收起 0 / 展开 1）",
+      inputBarSrc.contains(".opacity(toolLayerExpanded ? 1 : 0)"))
+check("第二层命中区随判据同步关（收起态空白不吞输入框点击）",
+      inputBarSrc.contains(".allowsHitTesting(toolLayerExpanded)"))
+check("容器间距随判据收放（展开 rowGap / 收起 0，防层高已 0 仍留 8pt 缝）",
+      inputBarSrc.contains("VStack(spacing: toolLayerExpanded ? ChatInputBarLayout.rowGap : 0)"))
+check("高度/淡入动画与聚焦蓝边同一条 Motion.snap",
+      inputBarSrc.contains(".animation(Motion.snap, value: toolLayerExpanded)"))
+check("恒两层铁律：不得用 if 包裹 toolRow（VStack 子节点集合恒为两个）",
+      !inputBarSrc.contains("if toolLayerExpanded {\n            toolRow")
+      && !inputBarSrc.contains("if focused {\n            toolRow")
+      && !inputBarSrc.contains("if kbEnv.isVisible {\n            toolRow")
+      && !inputBarSrc.contains("if !toolLayerExpanded {\n            toolRow"))
+check("收起态不喂 if 切结构：toolRow 声明仍是 HStack 起始（无 if 前缀成员）",
+      {
+          guard let a = inputBarSrc.range(of: "private var toolRow: some View") else { return false }
+          let body = String(inputBarSrc[a.lowerBound..<inputBarSrc.endIndex])
+          guard let end = body.range(of: "HStack(spacing: 8) {") else { return false }
+          let head = String(body[body.startIndex..<end.lowerBound])
+          // 声明行与文档注释之间不得插入条件分支
+          return !head.contains("\n        if ")
+      }())
+check("常量未被顺手改：toolRowMinHeight 仍 34、messageRowMinHeight 仍 42、rowGap 仍 Spacing.md（本轮只加收放不改量）",
+      inputBarSrc.contains("static let toolRowMinHeight: CGFloat = 34")
+      && inputBarSrc.contains("static let messageRowMinHeight: CGFloat = 42")
+      && inputBarSrc.contains("static let rowGap: CGFloat = Spacing.md"))
+// 收起态高度算式：padding(.vertical) Spacing.md 12×2 + 第一层 42 = 58（原两层态 84）。
+// 注意：镜像常量（collapsedContainerMirror / expandedContainerMirror）在下方第 5 节统一声明，
+// 顶层代码顺序执行，前面的 check 若直接引用会「use of local variable before its declaration」，
+// 所以这两条算式断言放在第 5 节里执行（与 flatTop 两条同批）。
+// 第一层控件仍在第一层（收起态可发消息/可停止，不会因第二层消失而丢功能入口）
+check("发送键仍在第一层 trailingButtons（收起态无第二层也能发）",
+      messageRowSlice.contains("trailingButtons"))
+
+// ── 2c. 容器圆角 18 → 20（v3.9.66，用户：「另外输入框圆角加到 20」）──────────────
+// 明确数值规格，不新开 Radius 令牌档（Radius 6 档 8/10/12/14/16/22，20 落在 card 与 hero 之间，
+// 为它新开中间档会破坏语义层级）——仍走 ChatInputBarLayout.containerCornerRadius 单一真源。
+// 圆角变大后平坦段同步收窄：收起态 58 − 20×2 = 18pt / 展开态 84 − 20×2 = 44pt。
+check("圆角常量 18 → 20（明确数值规格，不套令牌档）",
+      inputBarSrc.contains("static let containerCornerRadius: CGFloat = 20"))
+check("四处同形仍全部引用 containerCornerRadius（玻璃/蓝边/白边/流光）",
+      inputBarSrc.components(separatedBy: "cornerRadius: ChatInputBarLayout.containerCornerRadius").count - 1 == 4)
+// 平坦段断言与算式镜像统一放在第 5 节（flatTopCollapsedMirror / flatTopMirror）——
+// 顶层代码顺序执行，此处引用后面的 let 会「cannot find ... in scope」。
+
 // ── 3. 恒定结构铁律：不得用条件切换结构 ──────────────────────
 // 反例（都不允许出现在容器/两层声明上）：
 //   · if focused / if kbEnv.isVisible 包住某一层 → 层时隐时现
@@ -104,9 +164,11 @@ check("第一层没有残留 .center 对齐（非 leading 的居中口径清零�
           guard let end = body.range(of: "\n    }\n") else { return false }
           return !String(body[body.startIndex..<end.upperBound]).contains(".center")
       }())
+// v3.9.66 起：第二层高度改为「展开常量 / 收起 0」三元，常量引用仍在（不写魔法数），
+// 收起支的 0 是显式规格不是散落数字（给 nil 会回退内容固有高度 34 → 收起态残留空白）。
 check("两层高度走 Layout 常量 messageRowMinHeight / toolRowMinHeight",
       inputBarSrc.contains(".frame(minHeight: ChatInputBarLayout.messageRowMinHeight)")
-      && inputBarSrc.contains(".frame(minHeight: ChatInputBarLayout.toolRowMinHeight)"))
+      && inputBarSrc.contains("ChatInputBarLayout.toolRowMinHeight"))
 check("两层高度都不是写死数字（写死会在放大字号时裁字）",
       !inputBarSrc.contains(".frame(minHeight: 42)")
       && !inputBarSrc.contains(".frame(minHeight: 44)"))
@@ -125,16 +187,20 @@ check("两层高度都不是写死数字（写死会在放大字号时裁字）"
 //          两端大弧的条状；同形矩形后铺满四边与四角，含 16pt 圆角处）。
 // v3.9.65：用户原话「输入框圆角加到 18」——**明确数值规格**。18 落在 Radius 的 card(16) 与 hero(22)
 //          之间，为它新开令牌档会破坏 6 档语义层级 → 收进 `ChatInputBarLayout.containerCornerRadius`
-//          单一真源常量（=18），四处（玻璃 in: / 聚焦蓝边 / 常态白边 / 流光）全部引用它。
+//          单一真源常量，四处（玻璃 in: / 聚焦蓝边 / 常态白边 / 流光）全部引用它。
 // v3.9.65 同轮：用户原话「第二层的附件和相机图标变小降低第二层高度」——附件/相机视觉面 32×30 → 22×22、
 //          第二层行高 42 → 34、容器最小总高 92 → 84；命中区仍走 hitArea44 外扩到 44×44。
+// v3.9.66：用户原话「输入框圆角加到 20」——仍是**明确数值规格**，仍不新开令牌档（20 同样落在
+//          card 16 与 hero 22 之间，且比 18 更靠近 hero，为它单独开档破坏更大）；只把单一真源常量
+//          从 18 改 20，四处同形引用不变。平坦段随「第二层可收起」重算成两个数：
+//          收起态 58 − 20×2 = 18pt / 展开态 84 − 20×2 = 44pt（见下方 2b/2c 节算式镜像）。
 let containerShape = "RoundedRectangle(cornerRadius: ChatInputBarLayout.containerCornerRadius, style: .continuous)"
-check("外层玻璃容器走 containerCornerRadius(18) 圆角矩形（不再全圆角胶囊）",
+check("外层玻璃容器走 containerCornerRadius(20) 圆角矩形（不再全圆角胶囊）",
       inputBarSrc.contains(".glassEffect(.regular, in: \(containerShape))"))
 check("容器圆角走 Layout 单一真源常量，不是魔法数",
       inputBarSrc.contains("in: \(containerShape)"))
-check("圆角常量声明在位：containerCornerRadius: CGFloat = 18",
-      inputBarSrc.contains("static let containerCornerRadius: CGFloat = 18"))
+check("圆角常量声明在位：containerCornerRadius: CGFloat = 20（v3.9.65 的 18 → v3.9.66 的 20）",
+      inputBarSrc.contains("static let containerCornerRadius: CGFloat = 20"))
 // 旧写法清零：玻璃不再挂在 background{Shape} 宿主上（宿主 Shape 拦不住默认胶囊形态）
 check("旧写法清零：玻璃不挂 background{ Shape } 宿主（v3.9.62 椭圆玻璃病根）",
       !inputBarSrc.contains(".background {\n            RoundedRectangle(cornerRadius: Radius.field, style: .continuous)\n                .glassEffect()\n        }"))
@@ -236,21 +302,38 @@ enum ChatInputBarLayoutMirror {
     static let toolRowMinHeight: Double = 34
     static let rowGap: Double = 8
     static let containerMinHeight: Double = 84
-    /// v3.9.65：圆角 18 是用户明确数值规格（落在 Radius 6 档之间，不新开令牌档）——镜像钉住改档必同步
-    static let containerCornerRadius: Double = 18
+    /// v3.9.65 圆角 18（用户明确数值规格）→ **v3.9.66 圆角 20**（用户「输入框圆角加到 20」）。
+    /// 仍是明确数值规格、仍不套令牌档（Radius 6 档 8/10/12/14/16/22，20 落在 card 16 与
+    /// hero 22 之间且比 18 更靠近 hero，为它单独开档破坏更大）——镜像钉住改档必同步。
+    static let containerCornerRadius: Double = 20
 }
 
 let rowGapMirror: Double = 8
 let messageRowMirror: Double = 12 * 2 + 17.9   // ≈41.9 → 收 42
 let toolRowMirror: Double = 22 + 6 * 2          // 34（v3.9.65：视觉 30 → 22）
-let containerMirror = messageRowMirror + rowGapMirror + toolRowMirror
-/// v3.9.65：圆角 18 下的上缘平坦段 = 容器最小总高 84 − 圆角 18×2（仍远大于两层内容高 76）
-let flatTopMirror = containerMirror - 2 * 18
+let containerMirror = messageRowMirror + rowGapMirror + toolRowMirror   // 84（展开态）
+/// v3.9.66：展开态容器高别名（与收起态对比用，名不同值同源，避免两处手写 84 漂移）
+let expandedContainerMirror = containerMirror
+/// v3.9.66：收起态（键盘未弹）容器高 = padding(.vertical) Spacing.md 12×2 + 第一层 42 ≈ **66**
+/// （第二层高归 0、两层间距归 0；展开态 84 − 收起态 66 = 矮 18pt。此前文案误写 58/26，
+///  58 是拿「16×2」当 padding 算的，实际 Spacing.md=12 → 24，66 才对——算式已按真值修正。）
+let collapsedContainerMirror = 12 * 2 + messageRowMirror
+/// v3.9.66：圆角 20 下的两个平坦段 —— 展开态 84 − 20×2 = 44pt；
+/// 收起态 66 − 20×2 ≈ **26pt**（收窄但 > 0，弧顶不咬第一层文字接触区）
+let flatTopMirror = containerMirror - 2 * 20
+let flatTopCollapsedMirror = collapsedContainerMirror - 2 * 20
 
 check("算式：第一层高 ≈42（12×2 + 17.9）", abs(messageRowMirror - 42) < 0.2)
 check("算式：第二层高 = 34（22 + 6×2，v3.9.65 变小后）", abs(toolRowMirror - 34) < 0.001)
-check("算式：容器最小总高 ≈84（42+8+34）", abs(containerMirror - 84) < 0.2)
-check("算式：圆角 18 的上缘平坦段 = 48pt（84 − 18×2，仍大于内容高）", abs(flatTopMirror - 48) < 0.2)
+check("算式：展开态容器最小总高 ≈84（42+8+34）", abs(containerMirror - 84) < 0.2)
+check("算式：展开态圆角 20 的上缘平坦段 = 44pt（84 − 20×2，仍大于内容高）", abs(flatTopMirror - 44) < 0.2)
+check("算式：收起态容器高 ≈66（12×2 + 42，第二层高归 0 后比展开态矮 18pt）",
+      abs(collapsedContainerMirror - 66) < 0.2
+      && abs(expandedContainerMirror - collapsedContainerMirror - 18) < 0.2)
+check("算式：收起态高度 > 第一层内容高（66 > 42，文字不被裁）",
+      collapsedContainerMirror > messageRowMirror)
+check("算式：收起态圆角 20 的上缘平坦段 ≈26pt（66 − 20×2，仍 > 0）",
+      abs(flatTopCollapsedMirror - 26) < 0.2)
 check("常量与算式一致：rowGap == 8",
       abs(Double(ChatInputBarLayoutMirror.rowGap) - rowGapMirror) < 0.001)
 check("常量与算式一致：messageRowMinHeight == 42",
@@ -262,8 +345,9 @@ check("常量与算式一致：containerMinHeight == 84（不手改，改了算�
           - (ChatInputBarLayoutMirror.messageRowMinHeight
              + ChatInputBarLayoutMirror.rowGap
              + ChatInputBarLayoutMirror.toolRowMinHeight)) < 0.001)
-check("常量与算术一致：containerCornerRadius == 18 且平坦段 48 > 0",
-      abs(Double(ChatInputBarLayoutMirror.containerCornerRadius) - 18) < 0.001)
+check("常量与算术一致：containerCornerRadius == 20（v3.9.66，18 → 20）且两个平坦段均 > 0",
+      abs(Double(ChatInputBarLayoutMirror.containerCornerRadius) - 20) < 0.001
+      && flatTopCollapsedMirror > 0 && flatTopMirror > 0)
 
 print("输入栏两层化真值表：\(passCount) 通过 / \(failCount) 失败")
 if failCount > 0 { exit(1) }

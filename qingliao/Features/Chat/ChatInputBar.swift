@@ -16,13 +16,15 @@ import SwiftUI
 // 两层同高时代（42+8+42=92）容器是稳定对称比例；v3.9.65 起第二层矮 8pt（42+8+34=**84**），
 // 长文本态第一层长高、第二层仍保持 34。
 enum ChatInputBarLayout {
-    /// v3.9.65：外层玻璃容器圆角。用户原话「输入框圆角加到 18」——**明确数值规格**，
-    /// 不是「稍微再加一点」那种模糊诉求，故不套令牌档位梯度（Radius 6 档：8/10/12/14/16/22，
-    /// 18 落在 card 16 与 hero 22 之间，为 18 新开中间档会破坏语义层级体系）。
+    /// v3.9.65 起用户明确「加到 18」→ v3.9.66 再明确「圆角加到 20」：**明确数值规格**，
+    /// 不套令牌档位梯度（Radius 6 档：8/10/12/14/16/22，20 落在 card 16 与 hero 22 之间，
+    /// 为它新开中间档会破坏语义层级体系）。
     /// 落地形态 = 收进本 enum 做单一真源，四处（玻璃 in: / 聚焦蓝边 / 常态白边 / 流光）
     /// 全部引用它，仍是「不散落魔法数」；将来若要回 16 档只改这一处。
-    /// 平坦段算式：容器高 84（92−8，第二层变矮后）− 18×2 = 48pt，远大于两层内容高。
-    static let containerCornerRadius: CGFloat = 18
+    /// 平坦段算式（Spacing.md = 12 → 容器上下 padding 24）：
+    ///   展开态 84（42+8+34+24）− 20×2 = **44pt**，平坦段充裕；
+    ///   收起态 66（42+24，第二层高与间距归 0）− 20×2 = **26pt**，弧顶仍不咬第一层文字。
+    static let containerCornerRadius: CGFloat = 20
     /// 第一层（消息输入层）最小高度
     static let messageRowMinHeight: CGFloat = 42
     /// 第二层（工具层）最小高度
@@ -140,15 +142,35 @@ struct ChatInputBar: View {
     /// 收益（令牌算式）：输入框可用宽 169pt → ≈297pt（屏宽 393 − 左右 28 − 发送键 32 − 间距 8），
     /// 原来它被附件/相机/模型名三面夹击，只剩约四成宽。
     ///
+    /// v3.9.66（用户：「做 1，另外输入框圆角加到 20」——「做 1」= 上一轮评估里的方案 1：
+    /// **未弹键盘只显示第一层，点输入框弹键盘后两层都显示**）：
+    /// 收起态容器高 = padding(.vertical) Spacing.md 12×2 + 第一层 42 ≈ **66**（原两层态 84，
+    /// 矮约 18pt；第二层高度与两层间距同步归 0）。
+    /// 实现纪律（v3.9.53 键盘弹一下又收回的坑 + 真值表 `ql_inputbar` 钉住）：
+    ///   · 两层**恒渲染**，绝不用 `if kbEnv.isVisible { toolRow }` 切结构 —— VStack 子节点
+    ///     从两层变一层就是类型变化 → TextField 换父级 → 重建 → 键盘刚弹出就收回；
+    ///   · 只动**不改变类型**的属性：第二层 `opacity` 与 `frame(height:)`（收起 0/0，展开 nil/34），
+    ///     VStack spacing 收起归 0（间距与层同属一组，一并动画才不残留一道缝）；
+    ///   · 判据 `focused || kbEnv.isVisible`：iPad 接蓝牙键盘时软键盘不弹，只用键盘高度判
+    ///     会让第二层永远不出现；focused 已在用（聚焦蓝边），带上它更稳；
+    ///   · 动画走 `Motion.snap`（与聚焦蓝边同一条），键盘联动期间高度变化与键盘同节奏。
+    /// 收起态副作用（即用户要的行为）：附件/相机/模型快选不可见——发图、切模型要先点输入框
+    /// 唤起键盘；长按输入框录音时键盘会收，那期间同样只剩第一层（语音走第一层 Text 上屏，
+    /// 发送键在第一层，随时可发）。
+    //
+    /// v3.9.66（用户：「做 1」）：v3.9.61 起两层恒定 VStack —— 展开态 spacing 走 Layout.rowGap(8)，
+    /// 收起态（键盘未弹）spacing 归 **0**；这与第二层 height/opacity 同属一组动画，
+    /// 三者分开动画会残留一道 8pt 缝隙（层高已 0 但间距还在）。
+    ///
     /// ⚠️ **两层恒渲染、不用 `if focused` 切结构**：任何让 TextField 父级类型/兄弟集合变化的
     /// 写法都会重建它 → 键盘弹一下又收回（v3.9.53 同款坑）。恒定结构下聚焦/失焦/录音态切换
-    /// 只改布局不改父级；若日后要「只在键盘弹出时显示第二层」，只能动**不改变类型**的属性
-    /// （透明度 / offset 之类）——真值表 `ql_inputbar` 钉住这条。
+    /// 只改布局不改父级；真值表 `ql_inputbar` 钉住这条（禁 if focused 包层、禁改类型）。
     private var fullInputBar: some View {
-        VStack(spacing: ChatInputBarLayout.rowGap) {
+        VStack(spacing: toolLayerExpanded ? ChatInputBarLayout.rowGap : 0) {
             messageRow
             toolRow
         }
+        .animation(Motion.snap, value: toolLayerExpanded)
         .padding(.horizontal, Spacing.lg)
         .padding(.vertical, Spacing.md)
         // v2.0.87e：原生液态玻璃输入栏（iOS 26+）
@@ -225,12 +247,38 @@ struct ChatInputBar: View {
         .frame(minHeight: ChatInputBarLayout.messageRowMinHeight)
     }
 
+    /// v3.9.66（用户：「做 1」）——**第二层可见性判据**（单一真源，VStack spacing / toolRow
+    /// 的 height+opacity 三处都读它，三者必须同源否则高度动画与内容淡入不同步）。
+    ///
+    /// `focused || kbEnv.isVisible` 两个条件的理由：
+    ///   · `kbEnv.isVisible`：主路径——点输入框弹起软键盘 → 第二层现身；
+    ///   · `focused`：兜底路径——iPad 外接蓝牙键盘时**软键盘不弹**（isVisible 恒 false），
+    ///     只用键盘高度判会让第二层永远不出现；focused 也覆盖「键盘已开但系统还没发
+    ///     WillShow 通知」的那一帧，不会出现两层空档在键盘升起前才闪一下。
+    /// 收键盘路径同理：失焦 + 键盘收起 → 只剩第一层。
+    ///
+    /// ⚠️ 本判定只驱动**不改变类型**的属性（height/opacity/spacing），绝不可拿去 if 包裹
+    /// toolRow 本身 —— 那会改变 VStack 子节点集合 → TextField 换父级 → 键盘弹一下又收回
+    /// （v3.9.53 同款坑，真值表 `ql_inputbar` 钉住）。
+    private var toolLayerExpanded: Bool {
+        focused || kbEnv.isVisible
+    }
+
     /// 第二层（工具层）：附件 + 相机 + 模型快选（模型名右对齐）。
     ///
     /// v3.9.61：`modelButton` 保留 displayIf 条件（`modelLabel` 为空时整块不渲染）。
     /// 这对输入框**零风险**：textArea 在第一层 `messageRow` 里、且不是条件分支的成员，
     /// 第二层的兄弟集合怎么变都碰不到它的父级链 → 不会重建 TextField / 不掉 first responder。
     /// （反面教材是 v3.9.53 单行时的约束：那时 textArea 与 modelButton 是同一 HStack 的兄弟。）
+    ///
+    /// v3.9.66（用户：「做 1」）：收起态（键盘未弹）**高度归 0 + 透明**，展开态回常量高度。
+    /// 三个纪律：
+    ///   ① `opacity` 与 `frame(height:)` 都不改变视图类型 —— 收起只是「量」变，VStack 的
+    ///      子节点集合（messageRow + toolRow）恒为两个，TextField 父级链零变化；
+    ///   ② 高度给 0 而**不给 nil**：`nil` 会让 frame 回退到内容固有高度（34），收起态容器
+    ///      就会残留 34pt 空白；给 0 才是真的收到底；
+    ///   ③ `allowsHitTesting(false)` 同步切：收起态那一层虽然看不见，命中区若还在，
+    ///      输入框底部一片空白会把点击吞掉（用户会以为「点输入框没反应」）。
     private var toolRow: some View {
         HStack(spacing: 8) {
             attachButtons
@@ -239,7 +287,9 @@ struct ChatInputBar: View {
                 modelButton
             }
         }
-        .frame(minHeight: ChatInputBarLayout.toolRowMinHeight)
+        .frame(minHeight: toolLayerExpanded ? ChatInputBarLayout.toolRowMinHeight : 0)
+        .opacity(toolLayerExpanded ? 1 : 0)
+        .allowsHitTesting(toolLayerExpanded)
     }
 
     /// 左侧两枚次级按钮（附件 / 相机）——纯拆分，与单行 HStack 里的写法视觉零差异
