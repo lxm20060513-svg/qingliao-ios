@@ -426,7 +426,12 @@ check("ChatView 旧底部呼吸 Spacing.lg(10) 清零（只此一处，别处留
 check("分隔线在位：第一层文字区与发送键之间（vh: 0.8，全站描边口径）",
       inputBarSrc.contains("            divider\n            trailingButtons"))
 check("分隔线命中区让渡（allowsHitTesting(false)，不抢发送键点击）",
-      inputBarSrc.contains(".frame(width: 0.8)\n            .frame(maxHeight: .infinity)\n            .allowsHitTesting(false)"))
+      inputBarSrc.contains(".frame(width: 0.8)\n            .frame(maxHeight: ChatInputBarLayout.messageRowMinHeight)\n            .allowsHitTesting(false)"))
+// v3.9.70：把「maxHeight: .infinity 分隔线撑爆第一层」的事故钉死——旧形态串必须清零。
+// 事故复盘（真机 v3.9.69 截图像素取证）：maxHeight 无穷让第一层成为弹性子项，
+// 被根布局塞进全部富余空间 → 分隔线实测 ≈285pt、容器 ≈293pt（应 50）。
+check("分隔线高度钳制在位：旧 maxHeight:.infinity 已清零（v3.9.70 事故护栏）",
+      !inputBarSrc.contains(".frame(maxHeight: .infinity)"))
 check("分隔线走 Tint.faint（与全站 0.8pt 描边同色，不自创色）",
       inputBarSrc.contains(".fill(Color.primary.opacity(Tint.faint))"))
 check("分隔线是独立计算属性（不内联，避免 ViewBuilder 深层推断）",

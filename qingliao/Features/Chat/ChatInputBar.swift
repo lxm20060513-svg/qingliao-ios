@@ -273,12 +273,18 @@ struct ChatInputBar: View {
     }
 
     /// v3.9.68：输入区 / 发送键之间的竖向细分隔线（视觉 0.8pt，命中区让渡）。
-    /// 高度刻意不写死：跟第一层内容同节奏（42 → 内容增高时同步长），不裁高字号文本。
+    /// v3.9.70（真机 v3.9.69 仍「输入框很大」的**真根因**，用户截图像素取证）：
+    /// 原 `.frame(maxHeight 无穷)` 让本线最大高度不设限 → 第一层 HStack 成为
+    /// 外层 VStack 里最灵活的子项，根布局把富余空间全塞给它——实测分隔线被撑到
+    /// ≈285pt、容器 ≈293pt（正常 50），即 v3.9.68 起「输入框怎么这么大」的本体；
+    /// v3.9.69 修的 22pt 工具层残留只是零头。现钳到 messageRowMinHeight(42)：
+    /// 行恢复定高（textArea 本就 fixedSize 定理想高，按钮 32 定帧），不再吸收多余空间；
+    /// 多行输入时行由 TextField 顶高，分隔线保持 42 由 HStack 垂直居中，观感正常。
     private var divider: some View {
         Rectangle()
             .fill(Color.primary.opacity(Tint.faint))
             .frame(width: 0.8)
-            .frame(maxHeight: .infinity)
+            .frame(maxHeight: ChatInputBarLayout.messageRowMinHeight)
             .allowsHitTesting(false)
             .accessibilityHidden(true)
     }
