@@ -123,39 +123,48 @@ check("两层高度都不是写死数字（写死会在放大字号时裁字）"
 // v3.9.64 同轮：用户原话「把输入框流光填满外部的方形框」——流光本体由 **Capsule 改为同形
 //          RoundedRectangle(cornerRadius: Radius.card)**（Capsule 两端半径 = 容器高/2，流光被压成
 //          两端大弧的条状；同形矩形后铺满四边与四角，含 16pt 圆角处）。
-let containerShape = "RoundedRectangle(cornerRadius: Radius.card, style: .continuous)"
-check("外层玻璃容器走 Radius.card(16) 圆角矩形（不再全圆角胶囊）",
+// v3.9.65：用户原话「输入框圆角加到 18」——**明确数值规格**。18 落在 Radius 的 card(16) 与 hero(22)
+//          之间，为它新开令牌档会破坏 6 档语义层级 → 收进 `ChatInputBarLayout.containerCornerRadius`
+//          单一真源常量（=18），四处（玻璃 in: / 聚焦蓝边 / 常态白边 / 流光）全部引用它。
+// v3.9.65 同轮：用户原话「第二层的附件和相机图标变小降低第二层高度」——附件/相机视觉面 32×30 → 22×22、
+//          第二层行高 42 → 34、容器最小总高 92 → 84；命中区仍走 hitArea44 外扩到 44×44。
+let containerShape = "RoundedRectangle(cornerRadius: ChatInputBarLayout.containerCornerRadius, style: .continuous)"
+check("外层玻璃容器走 containerCornerRadius(18) 圆角矩形（不再全圆角胶囊）",
       inputBarSrc.contains(".glassEffect(.regular, in: \(containerShape))"))
-check("容器圆角走 Radius 令牌，不是魔法数",
+check("容器圆角走 Layout 单一真源常量，不是魔法数",
       inputBarSrc.contains("in: \(containerShape)"))
+check("圆角常量声明在位：containerCornerRadius: CGFloat = 18",
+      inputBarSrc.contains("static let containerCornerRadius: CGFloat = 18"))
 // 旧写法清零：玻璃不再挂在 background{Shape} 宿主上（宿主 Shape 拦不住默认胶囊形态）
 check("旧写法清零：玻璃不挂 background{ Shape } 宿主（v3.9.62 椭圆玻璃病根）",
       !inputBarSrc.contains(".background {\n            RoundedRectangle(cornerRadius: Radius.field, style: .continuous)\n                .glassEffect()\n        }"))
 check("玻璃容器不再是 Capsule（旧胶囊形态清零）",
       !inputBarSrc.contains(".background { Capsule().glassEffect() }"))
+// fullInputBar 体内四处不得再引用 Radius 令牌做容器圆角（18 已改走 Layout 常量）——
+// 排除范围只切 fullInputBar 函数体，注释里提到的历史档名不算回退。
+check("四处同形：fullInputBar 函数体内容器圆角全部走 containerCornerRadius（不再引用 Radius 档）",
+      {
+          guard let a = inputBarSrc.range(of: "private var fullInputBar: some View") else { return false }
+          let body = String(inputBarSrc[a.lowerBound..<inputBarSrc.endIndex])
+          guard let end = body.range(of: "\n    }\n") else { return false }
+          return !String(body[body.startIndex..<end.upperBound]).contains("cornerRadius: Radius.")
+      }())
 check("聚焦蓝边描边同圆角矩形（与玻璃底同形）",
       inputBarSrc.contains("overlay {\n            \(containerShape)\n                .strokeBorder(Color.blue.opacity(focused ? 0.45 : 0), lineWidth: 0.8)"))
 check("常态白边描边同圆角矩形（与玻璃底同形）",
       inputBarSrc.contains("\(containerShape)\n                    .strokeBorder(.white.opacity(Tint.subtle), lineWidth: 0.8)"))
 // 流光层同形（v3.9.64 新增）：等回复流光必须铺满方框，不得退回 Capsule。
-// 命中点 = `RoundedRectangle(cornerRadius: Radius.card, style: .continuous).fill(`（Capsule 版无此前缀）。
+// 命中点 = `RoundedRectangle(cornerRadius: …).fill(`（Capsule 版无此前缀）。
 check("流光层是同形圆角矩形（填满方形框，不再两端大弧的 Capsule）",
       inputBarSrc.contains("\(containerShape).fill(\n                        AngularGradient("))
 // 旧形态清零：流光本体不再是 Capsule（只认带声明/调用形态的串，注释里提到 Capsule 不算）
 check("流光旧形态清零：流光本体不用 Capsule().fill(",
       !inputBarSrc.contains("Capsule().fill("))
-// 四处同盘互证：玻璃/聚焦蓝边/常态白边/流光使用同一个半径令牌，四处计数都 > 0
-check("四处同形：容器圆弧全部走 Radius.card（玻璃/蓝边/白边/流光）",
-      inputBarSrc.components(separatedBy: "cornerRadius: Radius.card").count - 1 == 4)
-// 14 档清零只切 fullInputBar 函数体（注释里提到旧档名不算回退——整文件 grep 会被历史叙述绊倒）
-check("四处同形：fullInputBar 函数体内不再残留 14 档圆角",
-      {
-          guard let a = inputBarSrc.range(of: "private var fullInputBar: some View") else { return false }
-          let body = String(inputBarSrc[a.lowerBound..<inputBarSrc.endIndex])
-          guard let end = body.range(of: "\n    }\n") else { return false }
-          return !String(body[body.startIndex..<end.upperBound]).contains("cornerRadius: Radius.field")
-      }())
-// 排除式：fullInputBar 体内（到 fullInputBar 函数体闭合为止）不得再出现容器级 Capsule。
+// 四处同盘互证：玻璃/聚焦蓝边/常态白边/流光使用同一个圆角常量，四处计数都 > 0
+// v3.9.65：四处引用从 Radius.card 换成 containerCornerRadius，计数口径同步换串。
+check("四处同形：容器圆弧全部引用 containerCornerRadius（玻璃/蓝边/白边/流光）",
+      inputBarSrc.components(separatedBy: "cornerRadius: ChatInputBarLayout.containerCornerRadius").count - 1 == 4)
+// 排除式：fullInputBar 体内不得再出现容器级 Capsule。
 // ⚠️ 只排除「容器形态」串：发送/停止/附件钮的 `in: Capsule()` 是按钮级胶囊，属既定口径不动。
 check("fullInputBar 体内没有容器级 Capsule 描边/玻璃（按钮级 in: Capsule() 不在此列）",
       {
@@ -165,6 +174,43 @@ check("fullInputBar 体内没有容器级 Capsule 描边/玻璃（按钮级 in: 
           let slice = String(body[body.startIndex..<end.upperBound])
           return !slice.contains("Capsule().glassEffect()")
               && !slice.contains("Capsule().strokeBorder")
+      }())
+
+// ── 3d. 第二层附件/相机变小 + 行高降低（v3.9.65，用户：「第二层的附件和相机图标变小降低第二层高度」）──
+// 视觉面 32×30 → 22×22，第二层 minHeight 42 → 34，容器最小总高 92 → 84。
+// 命中区不缩：hitArea44(h:11, v:11) 仍把可点区外扩到 44×44（HIG 最小可点尺寸）。
+// 第一层 42、发送键 32×32、两层间距 8 三项**未动**（用户只点了第二层）。
+check("附件钮视觉面 22×22（原 32×30）",
+      inputBarSrc.contains("Image(systemName: \"paperclip\")\n                    .font(.system(size: Typography.subhead, weight: .medium))\n                    .foregroundStyle(.secondary)\n                    .frame(width: 22, height: 22)"))
+check("相机钮视觉面 22×22（原 32×30）",
+      inputBarSrc.contains("Image(systemName: \"camera\")\n                    .font(.system(size: Typography.subhead, weight: .medium))\n                    .foregroundStyle(.secondary)\n                    .frame(width: 22, height: 22)"))
+check("附件/相机视觉面各只有一处 22×22（两处 = 一对按钮，防漏改/防多改）",
+      inputBarSrc.components(separatedBy: ".frame(width: 22, height: 22)").count - 1 == 2)
+check("旧视觉面 32×30 清零（attachButtons 里的旧尺寸不回潮）",
+      !inputBarSrc.contains(".frame(width: 32, height: 30)"))
+check("命中区仍 44×44：附件外扩 11（22+11×2=44，HIG 最小可点尺寸不变）",
+      inputBarSrc.contains(".hitArea44(h: 11, v: 11)"))
+check("附件/相机命中区外扩各一处 11（计数互证：两处按钮都扩到 44）",
+      inputBarSrc.components(separatedBy: ".hitArea44(h: 11, v: 11)").count - 1 == 2)
+check("附件/相机按钮级胶囊形态保留（变小不动二元控件口径 in: Capsule()）",
+      inputBarSrc.contains("Image(systemName: \"paperclip\")\n                    .font(.system(size: Typography.subhead, weight: .medium))\n                    .foregroundStyle(.secondary)\n                    .frame(width: 22, height: 22)\n                    // v3.4.26：附件/相机纳入胶囊语义——低透明外圈（次级操作，弱于实底发送钮）\n                    .background(Color.primary.opacity(Tint.faint), in: Capsule())"))
+check("第二层行高常量降到 34（toolRowMinHeight）",
+      inputBarSrc.contains("static let toolRowMinHeight: CGFloat = 34"))
+check("容器最小总高常量降到 84（containerMinHeight）",
+      inputBarSrc.contains("static let containerMinHeight: CGFloat = 84"))
+check("第一层行高仍 42、两层间距仍走 Spacing.md（本轮未动第一层与间距）",
+      inputBarSrc.contains("static let messageRowMinHeight: CGFloat = 42")
+      && inputBarSrc.contains("static let rowGap: CGFloat = Spacing.md"))
+check("发送键视觉面未动（32×32 仍在，未顺手改第一层控件）",
+      inputBarSrc.contains(".frame(width: 32, height: 32)"))
+// 排除式：第二层内不得残留旧视觉面 32×30 与旧外扩量（attachButtons 段内断言，避免误伤别处）
+check("attachButtons 段内无旧尺寸/旧外扩量残留",
+      {
+          guard let a = inputBarSrc.range(of: "private var attachButtons: some View") else { return false }
+          let body = String(inputBarSrc[a.lowerBound..<inputBarSrc.endIndex])
+          guard let end = body.range(of: "\n    }\n") else { return false }
+          let slice = String(body[body.startIndex..<end.upperBound])
+          return !slice.contains("width: 32, height: 30") && !slice.contains("hitArea44(h: 6, v: 7)")
       }())
 
 // ── 4. 旧单行形态清零（带声明/调用形态的串，别写裸符号名） ──
@@ -181,36 +227,43 @@ check("旧单行 HStack 已清零（fullInputBar 体内不再有 attachButtons�
 // ── 5. 高度算式镜像（改常量必须同步改这里） ──────────────────
 // 令牌算式（Spacing/Typography 实际档位）：
 //   第一层 42 = padding(.vertical, Spacing.xl) 12×2 + 正文 15pt 行高 ≈17.9
-//   第二层 42 = 附件/相机视觉 30 + 上下各 6（与 30 → 42 的对齐余量）
+//   第二层 34 = 附件/相机视觉 22 + 上下各 6（v3.9.65 起；v3.9.61~64 是 30 + 6×2 = 42）
 //   间距    8 = Spacing.md
-//   容器最小总高 = 42 + 8 + 42 = 92
+//   容器最小总高 = 42 + 8 + 34 = 84
 // 本机 import 不到 SwiftUI → 常量在这里镜像一份；源里改了数、这里不同步 → 表立刻红。
 enum ChatInputBarLayoutMirror {
     static let messageRowMinHeight: Double = 42
-    static let toolRowMinHeight: Double = 42
+    static let toolRowMinHeight: Double = 34
     static let rowGap: Double = 8
-    static let containerMinHeight: Double = 92
+    static let containerMinHeight: Double = 84
+    /// v3.9.65：圆角 18 是用户明确数值规格（落在 Radius 6 档之间，不新开令牌档）——镜像钉住改档必同步
+    static let containerCornerRadius: Double = 18
 }
 
 let rowGapMirror: Double = 8
 let messageRowMirror: Double = 12 * 2 + 17.9   // ≈41.9 → 收 42
-let toolRowMirror: Double = 30 + 6 * 2          // 42
+let toolRowMirror: Double = 22 + 6 * 2          // 34（v3.9.65：视觉 30 → 22）
 let containerMirror = messageRowMirror + rowGapMirror + toolRowMirror
+/// v3.9.65：圆角 18 下的上缘平坦段 = 容器最小总高 84 − 圆角 18×2（仍远大于两层内容高 76）
+let flatTopMirror = containerMirror - 2 * 18
 
 check("算式：第一层高 ≈42（12×2 + 17.9）", abs(messageRowMirror - 42) < 0.2)
-check("算式：第二层高 = 42（30 + 6×2）", abs(toolRowMirror - 42) < 0.001)
-check("算式：容器最小总高 ≈92（42+8+42）", abs(containerMirror - 92) < 0.2)
+check("算式：第二层高 = 34（22 + 6×2，v3.9.65 变小后）", abs(toolRowMirror - 34) < 0.001)
+check("算式：容器最小总高 ≈84（42+8+34）", abs(containerMirror - 84) < 0.2)
+check("算式：圆角 18 的上缘平坦段 = 48pt（84 − 18×2，仍大于内容高）", abs(flatTopMirror - 48) < 0.2)
 check("常量与算式一致：rowGap == 8",
       abs(Double(ChatInputBarLayoutMirror.rowGap) - rowGapMirror) < 0.001)
 check("常量与算式一致：messageRowMinHeight == 42",
       abs(Double(ChatInputBarLayoutMirror.messageRowMinHeight) - 42) < 0.001)
-check("常量与算式一致：toolRowMinHeight == 42",
-      abs(Double(ChatInputBarLayoutMirror.toolRowMinHeight) - 42) < 0.001)
-check("常量与算式一致：containerMinHeight == 92（不手改，改了算式就对不上）",
+check("常量与算式一致：toolRowMinHeight == 34（v3.9.65）",
+      abs(Double(ChatInputBarLayoutMirror.toolRowMinHeight) - 34) < 0.001)
+check("常量与算式一致：containerMinHeight == 84（不手改，改了算式就对不上）",
       abs(Double(ChatInputBarLayoutMirror.containerMinHeight)
           - (ChatInputBarLayoutMirror.messageRowMinHeight
              + ChatInputBarLayoutMirror.rowGap
              + ChatInputBarLayoutMirror.toolRowMinHeight)) < 0.001)
+check("常量与算术一致：containerCornerRadius == 18 且平坦段 48 > 0",
+      abs(Double(ChatInputBarLayoutMirror.containerCornerRadius) - 18) < 0.001)
 
 print("输入栏两层化真值表：\(passCount) 通过 / \(failCount) 失败")
 if failCount > 0 { exit(1) }

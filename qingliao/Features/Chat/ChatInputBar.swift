@@ -10,18 +10,32 @@ import SwiftUI
 // 本机渲染不出文字宽度，这些数按**令牌算式**推出（Spacing/Typography 的实际档位）：
 //   · 第一层 minHeight = textArea 单行高：`padding(.vertical, Spacing.xl)` 12×2
 //     + 正文 15pt 行高 ≈17.9 ≈ **42**（v3.9.52 起 lineLimit 1...6 恒 1 行起）；
-//   · 第二层 minHeight = **42**：附件/相机视觉 30 + 上下各 6（视觉 30 与行高 42 的对齐余量；
-//     命中区走 hitArea44 的负 padding 外扩，**不占布局**，所以 42 = 视觉占位不是命中区）。
-// 两层同高（42+8+42=92）→ 胶囊容器是稳定的对称比例；长文本态第一层长高、第二层仍保持 42。
+//   · 第二层 minHeight = **34**（v3.9.65 起）：附件/相机视觉 22 + 上下各 6
+//     （v3.9.61~64 是 42 = 视觉 30 + 上下各 6；命中区走 hitArea44 的负 padding 外扩，
+//     **不占布局**，所以行高 = 视觉占位不是命中区）。
+// 两层同高时代（42+8+42=92）容器是稳定对称比例；v3.9.65 起第二层矮 8pt（42+8+34=**84**），
+// 长文本态第一层长高、第二层仍保持 34。
 enum ChatInputBarLayout {
+    /// v3.9.65：外层玻璃容器圆角。用户原话「输入框圆角加到 18」——**明确数值规格**，
+    /// 不是「稍微再加一点」那种模糊诉求，故不套令牌档位梯度（Radius 6 档：8/10/12/14/16/22，
+    /// 18 落在 card 16 与 hero 22 之间，为 18 新开中间档会破坏语义层级体系）。
+    /// 落地形态 = 收进本 enum 做单一真源，四处（玻璃 in: / 聚焦蓝边 / 常态白边 / 流光）
+    /// 全部引用它，仍是「不散落魔法数」；将来若要回 16 档只改这一处。
+    /// 平坦段算式：容器高 84（92−8，第二层变矮后）− 18×2 = 48pt，远大于两层内容高。
+    static let containerCornerRadius: CGFloat = 18
     /// 第一层（消息输入层）最小高度
     static let messageRowMinHeight: CGFloat = 42
     /// 第二层（工具层）最小高度
-    static let toolRowMinHeight: CGFloat = 42
+    /// v3.9.65：附件/相机图标变小 + 第二层变矮（用户「第二层的附件和相机图标变小降低第二层高度」）：
+    /// 图标视觉面 32×30 → **22×22**，行高由图标视觉面 + 上下余量定 → 42 降到 **34**（22 + 6×2）。
+    /// 命中区仍走 `hitArea44` 的负 padding 外扩（22+11×2=44，视觉占位零变化），「变小」减的是
+    /// 视觉尺寸不是可点区域——Apple HIG 最小 44pt 命中区口径不变。
+    /// 第一层仍保持 42 不动：这轮用户只点了第二层，输入框行高不属同一次改动面。
+    static let toolRowMinHeight: CGFloat = 34
     /// 两层间距（与原单行 HStack 的 spacing 同参，视觉零差异）
     static let rowGap: CGFloat = Spacing.md
-    /// 容器最小总高 = 42 + 8 + 42（读这个数的地方：注释算式、真值表镜像）
-    static let containerMinHeight: CGFloat = 92
+    /// 容器最小总高 = 42 + 8 + 34 = 84（读这个数的地方：注释算式、真值表镜像）
+    static let containerMinHeight: CGFloat = 84
 }
 
 struct ChatInputBar: View {
@@ -115,6 +129,10 @@ struct ChatInputBar: View {
     /// 玻璃底 / 聚焦蓝边 / 常态白边 / 流光四处同步换档，平坦段 64pt → 60pt（仍远大于内容高）。
     /// 同轮用户原话「把输入框流光填满外部的方形框」——流光本体由 Capsule 改为同形圆角矩形。
     ///
+    /// v3.9.65：用户原话「输入框圆角加到 18」——**明确数值规格**，18 落在 Radius 的 card(16) 与
+    /// hero(22) 之间，为它新开令牌档会破坏 6 档语义层级；改为 `ChatInputBarLayout.containerCornerRadius`
+    /// 单一真源常量（=18），四处同形引用它。平坦段随第二层变矮重算：84 − 18×2 = 48pt。
+    ///
     /// v3.9.61：由 v3.9.46 的单行 HStack 改为**恒定两层 VStack**。
     ///   第一层 `messageRow` = 消息输入层：textArea（占位符「输入消息…」/ 光标都走这一层）
     ///                          + trailingButtons（停止 / 发送，与输入同行）；
@@ -142,15 +160,14 @@ struct ChatInputBar: View {
         //   用户看到的就是「方形圆角框里还套一层椭圆玻璃」。正确做法 = 官方 `in:` 参数把玻璃钉进
         //   RoundedRectangle：`.glassEffect(.regular, in: RoundedRectangle(...))`，玻璃与描边同形，
         //   整个容器只剩一个形状。
-        // 半径走 Radius 令牌不写魔法数：全站输入类控件统一 14（Radius.field），与 Radius.inset(12)/
-        // Radius.card(16) 拉开语义层级。外层玻璃容器其余件（白边/聚焦蓝边/流光）全部换成同一个形状。
-        // v3.9.64：用户原话「外部方形框圆角稍微再加一点」——四处圆角由 14 档整体进到 16 档
-        //   （令牌体系里 14 的下一档即 16，步进 2pt 符合「稍微」；不新开中间档，6 档语义层级不动）。
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+        // 半径历史：v3.9.62 用 Radius.field(14) → v3.9.64 用 Radius.card(16) →
+        //   v3.9.65 起用户明确「加到 18」→ ChatInputBarLayout.containerCornerRadius（单一真源，见 enum 定义）。
+        // 外层玻璃容器其余件（白边/聚焦蓝边/流光）全部换成同一个形状（四处同形真值表钉住）。
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: ChatInputBarLayout.containerCornerRadius, style: .continuous))
         // v3.4.20：聚焦态光晕——输入框获得焦点时边缘亮起淡蓝细描边（0.8pt 与全站描边同参），失焦淡出。
         // 静态描边（非每帧重绘），无 shadow 叠加，不触碰 v3.2.3 渲染卡死红线。
         .overlay {
-            RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
+            RoundedRectangle(cornerRadius: ChatInputBarLayout.containerCornerRadius, style: .continuous)
                 .strokeBorder(Color.blue.opacity(focused ? 0.45 : 0), lineWidth: 0.8)
                 .allowsHitTesting(false)
         }
@@ -171,10 +188,11 @@ struct ChatInputBar: View {
                     let t = context.date.timeIntervalSinceReferenceDate
                     let angle = (t * 70).truncatingRemainder(dividingBy: 360)
                     // v3.9.64：用户原话「把输入框流光填满外部的方形框」——流光本体由 **Capsule 改为
-                    //   与容器同形的 16pt 档圆角矩形**。Capsule 版两端半径 = 容器高/2，流光被压成
+                    //   与容器同形的圆角矩形**。Capsule 版两端半径 = 容器高/2，流光被压成
                     //   「两端大弧」的条状；同形矩形后流光铺满整个方形圆角框的四边与四角
-                    //   （含 16pt 圆角处）——玻璃/白边/聚焦蓝边/流光四处同一个形状（v3.9.63 定稿口径）。
-                    RoundedRectangle(cornerRadius: Radius.card, style: .continuous).fill(
+                    //   （含圆角处）——玻璃/白边/聚焦蓝边/流光四处同一个形状（v3.9.63 定稿口径）。
+                    // v3.9.65：容器圆角随「加到 18」走同一常量 containerCornerRadius，流光仍是同形。
+                    RoundedRectangle(cornerRadius: ChatInputBarLayout.containerCornerRadius, style: .continuous).fill(
                         AngularGradient(
                             colors: [.blue.opacity(0.22), .indigo.opacity(0.22),
                                      .pink.opacity(0.22), .red.opacity(0.16), .blue.opacity(0.22)],
@@ -184,7 +202,7 @@ struct ChatInputBar: View {
                     .allowsHitTesting(false)   // v2.0.87al：不拦截点击（停止按钮可点）
                 }
             } else {
-                RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
+                RoundedRectangle(cornerRadius: ChatInputBarLayout.containerCornerRadius, style: .continuous)
                     .strokeBorder(.white.opacity(Tint.subtle), lineWidth: 0.8)
             }
         }
@@ -225,33 +243,35 @@ struct ChatInputBar: View {
     }
 
     /// 左侧两枚次级按钮（附件 / 相机）——纯拆分，与单行 HStack 里的写法视觉零差异
+    /// v3.9.65：用户原话「第二层的附件和相机图标变小降低第二层高度」——图标视觉面 32×30 → 22×22，
+    /// 命中区外扩量随之改为 11（22+11×2 = 44，HIG 最小可点尺寸仍成立、间距零变化）。
     private var attachButtons: some View {
         HStack(spacing: 8) {
             Button(action: onPickAttachment) {
                 Image(systemName: "paperclip")
-                    .font(.system(size: Typography.body, weight: .medium))
+                    .font(.system(size: Typography.subhead, weight: .medium))
                     .foregroundStyle(.secondary)
-                    .frame(width: 32, height: 30)
+                    .frame(width: 22, height: 22)
                     // v3.4.26：附件/相机纳入胶囊语义——低透明外圈（次级操作，弱于实底发送钮）
                     .background(Color.primary.opacity(Tint.faint), in: Capsule())
                     .overlay(Capsule().strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8))
             }
             .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
-            // v3.9.34：命中区 44×44（附件钮视觉 32×30、间距零变化）
-            .hitArea44(h: 6, v: 7)
+            // v3.9.65：命中区 44×44（视觉 22×22 → 外扩 11；原来是 32×30 视觉 + 外扩 6/7）
+            .hitArea44(h: 11, v: 11)
 
             // v2.0.38：拍照输入
             Button(action: onCamera) {
                 Image(systemName: "camera")
-                    .font(.system(size: Typography.body, weight: .medium))
+                    .font(.system(size: Typography.subhead, weight: .medium))
                     .foregroundStyle(.secondary)
-                    .frame(width: 32, height: 30)
+                    .frame(width: 22, height: 22)
                     .background(Color.primary.opacity(Tint.faint), in: Capsule())
                     .overlay(Capsule().strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8))
             }
             .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
-            // v3.9.34：命中区 44×44（相机钮视觉 32×30、间距零变化）
-            .hitArea44(h: 6, v: 7)
+            // v3.9.65：命中区 44×44（视觉 22×22 → 外扩 11；原来是 32×30 视觉 + 外扩 6/7）
+            .hitArea44(h: 11, v: 11)
         }
     }
 
