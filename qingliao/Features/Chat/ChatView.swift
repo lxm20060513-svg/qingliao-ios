@@ -274,6 +274,12 @@ struct ChatView: View {
     // 导致同一份剪贴板内容每次进 App 都重复提示（用户反馈）。uptime 一起存，用于作废重启前的记录。
     @AppStorage("qingliao_clip_handled_change") var handledClipChange = -1
     @AppStorage("qingliao_clip_handled_uptime") var handledClipUptime = 0.0
+    // v3.9.72（用户：剪切板有内容不要每次进 App 都提示）：**上次进 App 时看到过的那一版**。
+    // 与 handledClipChange（"处理过"）分开存：进门只看"变没变"，不再看"用户处没处理"——
+    // 从没点过忽略、或中途设备重启，都不该让同一份内容每次进 App 重弹（见 ClipboardPromptGate.decide）。
+    @AppStorage("qingliao_clip_last_seen_change") var lastSeenClipChange = -1
+    /// 提示条自动收起任务（用户要求「一段时间没操作就自动隐藏」）
+    @State var clipboardAutoHide: Task<Void, Never>?
     @Environment(\.scenePhase) var scenePhase
 
     @State var inputText = ""
@@ -1356,19 +1362,23 @@ struct ChatView: View {
 
 
     private func checkMapClipboard() async {
-        guard !showClipboardBanner else { return }
+        guard !showClipboardBanner, !showIntentClipboardBanner else { return }
         // v3.9.1：先取本版号——探测是 await（有窗口期），期间用户换了剪贴板内容时不能把"新内容"记成已处理
         let cc = UIPasteboard.general.changeCount
-        let handled = ClipboardPromptGate.isHandled(changeCount: cc,
-                                                    lastHandledChange: handledClipChange,
-                                                    lastHandledUptime: handledClipUptime,
-                                                    currentUptime: ProcessInfo.processInfo.systemUptime)
-        guard !handled else { return }   // 这份内容已经处理过（含上次启动处理的），别再打扰
+        // 🚨 v3.9.72 修复（用户：剪切板有内容不要每次进 App 都提示）：门换成 `decide`——比的是
+        // "和上次进 App 时看到的那一版"，不是"和上次处理过的那一版"。旧门有两个漏斗：
+        //   ① 用户从没点过「忽略/发给 AI」→ 没有处理记录 → 每次进 App 都重弹；
+        //   ② 中途设备重启 → isHandled 的 uptime 校验作废记录 → 同一份内容又弹一遍。
+        // 现在：内容没变 → 直接静默返回，一次都不打扰；内容真变了（在别的 App 拷了东西再切回来，
+        // 也就是地图分享兜底那套流程）→ 才往下探。
+        guard ClipboardPromptGate.decide(changeCount: cc, lastSeenChange: lastSeenClipChange) == .probe else { return }
         // v3.9.1：nil = 探测失败（与"不是位置链接"区分开）——失败不记账，留给下次进前台再探
         guard let isLocation = await MapClipboardDetector.hasLocationLink() else { return }
         if isLocation {
             markClipboardHandled(cc)      // 认出来了才记账
+            lastSeenClipChange = cc       // v3.9.72：这一版"看过了"
             withAnimation(Motion.settle) { showClipboardBanner = true }   // 只提示；真正内容等点按再读
+            scheduleClipboardAutoHide()   // v3.9.72：一段时间没操作自动收起
             return
         }
         // v3.9.71 输入收口：不是位置链接 → 再看是不是普通链接（同款 detection API，不读内容、不弹窗）
@@ -1378,9 +1388,29 @@ struct ChatView: View {
         // 永久标记成"已处理"，用户再也看不到链接提示（和地图分支"失败不记账"的口径正好相反）。
         guard let hasLink = await ClipboardIntentDetector.hasWebLink() else { return }   // 失败不记账
         markClipboardHandled(cc)
+        // v3.9.72：不管认没认出链接，这一版都记成"看过了"——纯文本剪贴板不再每次进 App 重探
+        lastSeenClipChange = cc
         guard hasLink else { return }
         withAnimation(Motion.settle) { showIntentClipboardBanner = true }
+        scheduleClipboardAutoHide()   // v3.9.72：一段时间没操作自动收起
     }
+
+    /// v3.9.72（用户：提示一段时间没操作就自动隐藏）：弹出后挂一个定时，到点自动收起。
+    /// 任何交互（点识别 / 点忽略）都会 cancel 它 —— 用户接管后就不该再由定时器抢着关。
+    private func scheduleClipboardAutoHide() {
+        clipboardAutoHide?.cancel()
+        clipboardAutoHide = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: UInt64(ClipboardBanner.autoHideSeconds * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            withAnimation(Motion.snap) {
+                showClipboardBanner = false
+                showIntentClipboardBanner = false
+            }
+        }
+    }
+
+    /// 用户有交互 → 取销自动收起（提示条归用户控制）
+    private func cancelClipboardAutoHide() { clipboardAutoHide?.cancel() }
 
     /// 记账：这份剪贴板内容已评估过（已发送 / 用户忽略 / 不是位置链接）
     /// - Parameter changeCount: 显式传入"当时探测的那一版"；省略则取当前值
@@ -1402,6 +1432,7 @@ struct ChatView: View {
                 .lineLimit(1)
             Spacer(minLength: 0)
             Button {
+                cancelClipboardAutoHide()
                 sendClipboardLink()
             } label: {
                 Text("发给 AI")
@@ -1413,6 +1444,7 @@ struct ChatView: View {
             .buttonStyle(PressStyle())
             .foregroundStyle(Color.accentColor)
             Button {
+                cancelClipboardAutoHide()
                 markClipboardHandled()   // 记住这一版（跨启动持久化），勿再打扰
                 withAnimation(Motion.snap) { showClipboardBanner = false }
             } label: {
@@ -1448,6 +1480,7 @@ struct ChatView: View {
                 .lineLimit(1)
             Spacer(minLength: 0)
             Button {
+                cancelClipboardAutoHide()
                 runIntentFromClipboard()
             } label: {
                 Text("识别")
@@ -1459,6 +1492,7 @@ struct ChatView: View {
             .buttonStyle(PressStyle())
             .foregroundStyle(Color.accentColor)
             Button {
+                cancelClipboardAutoHide()
                 markClipboardHandled()   // 记住这一版，勿再打扰
                 withAnimation(Motion.snap) { showIntentClipboardBanner = false }
             } label: {
