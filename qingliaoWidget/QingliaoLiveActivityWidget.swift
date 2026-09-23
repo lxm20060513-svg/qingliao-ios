@@ -109,6 +109,31 @@ struct QingliaoLiveActivityWidget: Widget {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 4)
         .padding(.top, 2)
+        // v3.9.72（用户：展开态能不能改玻璃背景）：岛内背景归系统黑底，Apple 的
+        // `activityBackgroundTint` 官方口径只管「Lock Screen 上的实时活动」；材质/glassEffect 又要采样
+        // 背景（挂件进程拿不到）。所以玻璃观感只能在岛内**自绘**——见 expandedGlass。
+        .background(alignment: .top) { self.expandedGlass }
+    }
+
+    /// v3.9.72：展开态底部区域的玻璃底衬（**自绘**）。
+    /// 三层静态图层堆出玻璃观感，参数与锁屏横幅 `bannerGlass` 同口径（同一挂件内不搞两套）：
+    ///   ① 顶部亮边高光（上缘 10pt 白 0.10 渐隐）——玻璃接受环境光的亮边
+    ///   ② 内侧上缘柔光（白 0.05，向下渐隐）——光在玻璃里漫射
+    ///   ③ 0.8pt 白 0.16 描边——iOS 26 玻璃的通透感来自边缘一圈细亮线（与全站玻璃卡 0.8pt 同参）
+    /// 圆角 10 = 横幅 bannerGlass 同值；岛内底色纯黑，所以"玻璃感"主要落在亮边与描边上，
+    /// **不要**为了更"透"去加 Material/glassEffect（见停止按钮那次真机事故）。
+    private var expandedGlass: some View {
+        ZStack {
+            LinearGradient(colors: [Color.white.opacity(0.10), Color.clear],
+                           startPoint: .top, endPoint: .bottom)
+                .frame(height: 10)
+                .frame(maxHeight: .infinity, alignment: .top)
+            LinearGradient(colors: [Color.white.opacity(0.05), Color.clear],
+                           startPoint: .top, endPoint: .bottom)
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.16), lineWidth: 0.8)
+        }
+        .allowsHitTesting(false)
     }
 
     /// 灵动岛内唯一的可点操作（v3.9.7）。
@@ -121,9 +146,24 @@ struct QingliaoLiveActivityWidget: Widget {
                 .font(.system(size: 12, weight: .semibold))
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
-                // v3.9.61：accent 0.22 淡底 → 真玻璃。与 pill(.primary, tone:.accent) 同口径
-                // （glassEffect(.regular.interactive()) + accent 0.28 / 0.8pt 描边，见 Pill.swift）
-                .glassEffect(.regular.interactive())
+                // 🚨 v3.9.72 回退（用户真机报「灵动岛展开态胶囊不显示内容」）：v3.9.61 把这里的
+                // accent 淡底换成了 `glassEffect(.regular.interactive())`，当时记录的是「小元素上的
+                // 玻璃在挂件里可渲染（装机确认）」。**真机实证推翻**：岛上只剩一圈描边、里面连字都没有 ——
+                // 这正是「按钮本体整块没渲染，而 `.overlay(Capsule().strokeBorder(…))` 是独立图层照旧画」
+                // 的形状。原因：glassEffect 要采样背景（走 App 进程的渲染服务），挂件 / Live Activity
+                // 进程拿不到。**结论：岛内不碰 glassEffect**，玻璃感靠静态图层自绘。
+                .background {
+                    ZStack {
+                        Capsule().fill(OrbPalette.accent.opacity(0.22))
+                        // 顶部亮边：上缘渐隐高光（玻璃接受环境光的亮边，与锁屏横幅 bannerGlass 同口径）
+                        Capsule()
+                            .fill(LinearGradient(stops: [
+                                .init(color: Color.white.opacity(0.20), location: 0.00),
+                                .init(color: Color.white.opacity(0.05), location: 0.45),
+                                .init(color: Color.clear, location: 1.00),
+                            ], startPoint: .top, endPoint: .bottom))
+                    }
+                }
                 .overlay(Capsule().strokeBorder(OrbPalette.accent.opacity(0.28), lineWidth: 0.8))
                 .foregroundStyle(OrbPalette.accent)
         }

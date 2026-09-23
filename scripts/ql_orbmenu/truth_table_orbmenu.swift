@@ -284,12 +284,33 @@ check("岛内三态未挂 bannerGlass（玻璃只做锁屏横幅）",
 check("岛内三态未挂投影层（phaseRing 的柔光 .shadow(color: tint...) 是固有项，不属投影）",
       !islandSlice.contains(".shadow(color: .black"))
 
-// ⑤ 展开态停止按钮改真玻璃（小元素上 glassEffect 在挂件里可渲染，装机确认）
-check("停止按钮走 glassEffect(.regular.interactive())",
-      widgetSrc.contains("glassEffect(.regular.interactive())"))
-check("停止按钮旧淡底已清零", !widgetSrc.contains("background(OrbPalette.accent.opacity(0.22), in: Capsule())"))
+// ⑤ 展开态停止按钮：v3.9.72 从 glassEffect **回退**成自绘胶囊（用户真机报「展开态胶囊不显示内容」）
+// 老护栏（v3.9.61）写的是「小元素上 glassEffect 在挂件里可渲染（装机确认）」——已被真机截图推翻：
+// 岛上只剩一圈描边、连字都没有 = 按钮本体整块没渲染，而 .overlay 的描边是独立图层照旧画。
+// ⚠️ 别再照老护栏把这里改回 glassEffect：岛内玻璃感只能靠静态图层自绘。
+let stopBtnSlice: String = {
+    guard let a = widgetSrc.range(of: "private var stopButton"),
+          let b = widgetSrc.range(of: "/// v3.9.10：右侧阶段指示改为") else { return "" }
+    return String(widgetSrc[a.lowerBound..<b.lowerBound])
+}()
+// 排除式断言先去注释：本仓已两次被「注释里写着旧写法」绊成假红/假绿
+func stripCommentLines(_ s: String) -> String {
+    s.split(separator: "\n", omittingEmptySubsequences: false)
+        .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+        .joined(separator: "\n")
+}
+check("停止按钮切片可切出（切片空了本条就是空真）", !stopBtnSlice.isEmpty)
+check("停止按钮不再调用 glassEffect（岛内不渲染）", !stripCommentLines(stopBtnSlice).contains("glassEffect"))
+check("停止按钮走自绘淡底（accent 0.22）", stopBtnSlice.contains("OrbPalette.accent.opacity(0.22)"))
+check("停止按钮带顶部亮边高光", stopBtnSlice.contains("LinearGradient(stops:"))
 check("停止按钮描边与 pill(.accent) 同参（accent 0.28 / 0.8pt）",
-      widgetSrc.contains("Capsule().strokeBorder(OrbPalette.accent.opacity(0.28), lineWidth: 0.8)"))
+      stopBtnSlice.contains("Capsule().strokeBorder(OrbPalette.accent.opacity(0.28), lineWidth: 0.8)"))
+
+// ⑥ v3.9.72 展开态底部玻璃底衬（自绘：activityBackgroundTint 官方只管锁屏横幅，岛内无材质接口）
+check("展开态底部有自绘玻璃底衬定义", widgetSrc.contains("private var expandedGlass"))
+check("底衬挂在 expandedBottom 上", widgetSrc.contains(".background(alignment: .top) { self.expandedGlass }"))
+check("底衬含 0.8pt 白描边（与全站玻璃卡同参）",
+      widgetSrc.contains("strokeBorder(Color.white.opacity(0.16), lineWidth: 0.8)"))
 
 print("智慧球长按菜单真值表：\(passCount) 通过 / \(failCount) 失败")
 if failCount > 0 { exit(1) }
