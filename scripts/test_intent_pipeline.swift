@@ -299,6 +299,22 @@ check("底部条不再有硬宽度 minWidth: 120", !bbSrc.contains("minWidth: 12
 check("底部条不再有 Spacing.xxl 内边距", !bbSrc.contains("Spacing.xxl"))
 check("全选/清除保持文字胶囊", bbSrc.contains("Text(\"全选\").pill(") && bbSrc.contains("Text(\"清除\").pill("))
 
+
+// MARK: - 10. 空态输入框可见性护栏（v3.9.71：用户截图报「输入法会遮住输入框」）
+//
+// 事故：空态欢迎页是不可滚动的定高内容（留白 56 + 球 96 + 文案 + 4 芯片 + 续聊卡 ≈ 380pt），
+// 九宫格键盘 + 候选栏 ≈ 340pt，可用高度只剩 ≈344pt → VStack 压不动欢迎页，就把输入栏挤到键盘后面。
+// 修法=输入栏 layoutPriority(1) + 欢迎页键盘弹起时收缩。这里锁住两处，免得改 UI 时退回原样。
+
+print("── 10. 空态输入框可见性 ──")
+let cvSrc = (try? String(contentsOfFile: "qingliao/Features/Chat/ChatView.swift", encoding: .utf8)) ?? ""
+check("能读到 ChatView 源码（路径别改）", !cvSrc.isEmpty)
+check("输入栏在布局上争抢优先权（layoutPriority(1)）", cvSrc.contains(".layoutPriority(1)"))
+check("欢迎页顶部留白随键盘收起", cvSrc.contains("Spacer(minLength: kb.isVisible ? 0 : 56)"))
+check("欢迎页智能球保持既有口径（不因布局改小）", cvSrc.contains("LiquidOrbAvatar(size: 96, thinking: aiBusy, live: true)"))
+check("建议芯片随键盘收起", cvSrc.contains("if !kb.isVisible {") && cvSrc.contains("// if !kb.isVisible（建议芯片）"))
+check("续聊卡随键盘收起", cvSrc.contains("!clearing, !kb.isVisible {"))
+
 print("\n———————————————")
 print(failures == 0 ? "✅ 全部通过 \(total)/\(total)" : "❌ 失败 \(failures)/\(total)")
 exit(failures == 0 ? 0 : 1)

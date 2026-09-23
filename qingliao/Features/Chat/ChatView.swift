@@ -970,7 +970,14 @@ struct ChatView: View {
             chatHeaderBar
             chatStatusBannerStrip
             chatTranscriptArea
+            // 🚨 v3.9.71 修复（用户截图报「输入法会遮住输入框」）：空态（欢迎页）在键盘弹起时把输入栏挤没了。
+            //   算法：欢迎页是不可滚动的定高内容（顶部留白 56 + 智能球 96 + 文案 + 4 芯片 + 继续上次卡 ≈ 380pt），
+            //   九宫格键盘 + 候选栏 ≈ 340pt，屏幕 852 − 键盘 340 − 头部 110 − 输入栏 58 ≈ **只剩 344pt**。
+            //   344 < 380 → VStack 压不动欢迎页，就只能把**输入栏挤到键盘后面**（截图即此）。
+            //   layoutPriority(1)：空间不足时**先挤上面的内容区**，输入栏必须完整可见。
+            //   配套：welcomeView 自己在键盘弹起时收缩（见那里的注释），否则会看到被截断的欢迎页。
             chatComposerArea
+                .layoutPriority(1)
         }
         .animation(.easeOut(duration: kb.animationDuration), value: kb.height)
         // v2.0.96：语音授权/转写失败提示（v3.9.3：设备端识别——麦克风权限 / 机型不支持 / 识别中断）
@@ -1601,12 +1608,16 @@ struct ChatView: View {
     private var welcomeView: some View {
         VStack(spacing: 0) {
             // v3.4.29：顶部弹性留白（原写死在容器上的 padding(.top,120)）——小屏不再被挤压，大屏自然下移，最多 120pt
-            Spacer(minLength: 56).frame(maxHeight: 120)
+            // v3.9.71：键盘弹起时这段留白归零（56→0 / 120→12）——空态遮住输入框的头号占地户
+            Spacer(minLength: kb.isVisible ? 0 : 56).frame(maxHeight: kb.isVisible ? 12 : 120)
 
             ZStack {
                 // v3.9.57：欢迎页特征智能球——液态球常驻流动（live: true，球本身即 logo）。
                 // 原来球上还压着一个白色气泡图标 + 渐变底圆，静态帧时靠图标认身份；
                 // 现在球自己就是会流动的 logo，图标与底圆一并移除（底圆被 0.98 半径的球完全盖住，本就看不出）。
+                // v3.9.71：曾试过"键盘弹起把球缩到 64"腾空间 → 撤回：球的尺寸/常驻流动是既有口径
+                // （有真值表护栏守着 size/live/aiBusy 三件套，属于欢迎页身份，不因布局改动而变）。
+                // 空间由留白归零 + 芯片/续聊卡收起三处腾出（≈200pt），远大于实际缺的 40~70pt。
                 LiquidOrbAvatar(size: 96, thinking: aiBusy, live: true)
             }
             .frame(width: 96, height: 96)
@@ -1649,6 +1660,8 @@ struct ChatView: View {
             // v3.4.25：上下文感知建议芯片——新会话给开场模板，续聊会话给话题延续入口
             // v3.4.29：统一为全站玻璃淡雅风（原 accentColor 实色底+同色文字，与顶部续聊芯片条是两套观感；
             // 且高饱和蓝抢了问候语的视觉主角位）；水平内边距 24 → 16 与消息区/续聊条对齐
+            // v3.9.71：键盘弹起时整排芯片收起——用户此刻在打字，芯片既不必要又占 ~46pt
+            if !kb.isVisible {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     ForEach(welcomeSuggestions) { s in
@@ -1680,10 +1693,12 @@ struct ChatView: View {
                 .padding(.horizontal, Spacing.section)
             }
             .padding(.top, 18)
+            }   // if !kb.isVisible（建议芯片）
 
             // v3.4.29：继续上次会话——用户手动新建/清空会话后一键回到上一个会话，免切「会话」tab 再找
             // （启动自动 loadLastSession 只覆盖 App 重启场景，新建会话后原先没有任何回归路径）
-            if let last = chat.lastLoadedSession, last.id != chat.sessionId, !clearing {
+            // v3.9.71：键盘弹起时这张卡也收起（约 64pt）——它不是"打字中"需要的东西
+            if let last = chat.lastLoadedSession, last.id != chat.sessionId, !clearing, !kb.isVisible {
                 Button {
                     Haptics.tap()
                     chat.load(last)
