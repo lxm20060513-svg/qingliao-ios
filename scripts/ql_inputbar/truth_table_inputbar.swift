@@ -117,20 +117,44 @@ check("两层高度都不是写死数字（写死会在放大字号时裁字）"
 // given effect within a Capsule shape behind the view's content」），Drop 到宿主是圆角矩形时玻璃仍按
 // 胶囊渲染（两端半径 = 容器高/2 ≈54），衬在圆角矩形白边**里面**→ 用户看到「方框里套椭圆玻璃」。
 // 正确做法 = 官方 `in:` 参数把玻璃钉进 RoundedRectangle，玻璃与描边同形、容器只剩一个形状。
-// 同一形状必须在三处同时成立：玻璃底（in: 参数）/ 聚焦蓝边 / 常态白边。
-check("外层玻璃容器走 Radius.field(14) 圆角矩形（不再全圆角胶囊）",
-      inputBarSrc.contains(".glassEffect(.regular, in: RoundedRectangle(cornerRadius: Radius.field, style: .continuous))"))
+// 同一形状必须在四处同时成立：玻璃底（in: 参数）/ 聚焦蓝边 / 常态白边 / 流光层。
+// v3.9.64：用户原话「外部方形框圆角稍微再加一点」——四处半径 14（Radius.field）→ **16（Radius.card）**；
+//          令牌体系里 14 的下一档就是 16，步进 2pt 符合「稍微」，不新开中间档（6 档语义层级）。
+// v3.9.64 同轮：用户原话「把输入框流光填满外部的方形框」——流光本体由 **Capsule 改为同形
+//          RoundedRectangle(cornerRadius: Radius.card)**（Capsule 两端半径 = 容器高/2，流光被压成
+//          两端大弧的条状；同形矩形后铺满四边与四角，含 16pt 圆角处）。
+let containerShape = "RoundedRectangle(cornerRadius: Radius.card, style: .continuous)"
+check("外层玻璃容器走 Radius.card(16) 圆角矩形（不再全圆角胶囊）",
+      inputBarSrc.contains(".glassEffect(.regular, in: \(containerShape))"))
 check("容器圆角走 Radius 令牌，不是魔法数",
-      inputBarSrc.contains("in: RoundedRectangle(cornerRadius: Radius.field, style: .continuous)"))
+      inputBarSrc.contains("in: \(containerShape)"))
 // 旧写法清零：玻璃不再挂在 background{Shape} 宿主上（宿主 Shape 拦不住默认胶囊形态）
 check("旧写法清零：玻璃不挂 background{ Shape } 宿主（v3.9.62 椭圆玻璃病根）",
       !inputBarSrc.contains(".background {\n            RoundedRectangle(cornerRadius: Radius.field, style: .continuous)\n                .glassEffect()\n        }"))
 check("玻璃容器不再是 Capsule（旧胶囊形态清零）",
       !inputBarSrc.contains(".background { Capsule().glassEffect() }"))
 check("聚焦蓝边描边同圆角矩形（与玻璃底同形）",
-      inputBarSrc.contains("overlay {\n            RoundedRectangle(cornerRadius: Radius.field, style: .continuous)\n                .strokeBorder(Color.blue.opacity(focused ? 0.45 : 0), lineWidth: 0.8)"))
+      inputBarSrc.contains("overlay {\n            \(containerShape)\n                .strokeBorder(Color.blue.opacity(focused ? 0.45 : 0), lineWidth: 0.8)"))
 check("常态白边描边同圆角矩形（与玻璃底同形）",
-      inputBarSrc.contains("RoundedRectangle(cornerRadius: Radius.field, style: .continuous)\n                    .strokeBorder(.white.opacity(Tint.subtle), lineWidth: 0.8)"))
+      inputBarSrc.contains("\(containerShape)\n                    .strokeBorder(.white.opacity(Tint.subtle), lineWidth: 0.8)"))
+// 流光层同形（v3.9.64 新增）：等回复流光必须铺满方框，不得退回 Capsule。
+// 命中点 = `RoundedRectangle(cornerRadius: Radius.card, style: .continuous).fill(`（Capsule 版无此前缀）。
+check("流光层是同形圆角矩形（填满方形框，不再两端大弧的 Capsule）",
+      inputBarSrc.contains("\(containerShape).fill(\n                        AngularGradient("))
+// 旧形态清零：流光本体不再是 Capsule（只认带声明/调用形态的串，注释里提到 Capsule 不算）
+check("流光旧形态清零：流光本体不用 Capsule().fill(",
+      !inputBarSrc.contains("Capsule().fill("))
+// 四处同盘互证：玻璃/聚焦蓝边/常态白边/流光使用同一个半径令牌，四处计数都 > 0
+check("四处同形：容器圆弧全部走 Radius.card（玻璃/蓝边/白边/流光）",
+      inputBarSrc.components(separatedBy: "cornerRadius: Radius.card").count - 1 == 4)
+// 14 档清零只切 fullInputBar 函数体（注释里提到旧档名不算回退——整文件 grep 会被历史叙述绊倒）
+check("四处同形：fullInputBar 函数体内不再残留 14 档圆角",
+      {
+          guard let a = inputBarSrc.range(of: "private var fullInputBar: some View") else { return false }
+          let body = String(inputBarSrc[a.lowerBound..<inputBarSrc.endIndex])
+          guard let end = body.range(of: "\n    }\n") else { return false }
+          return !String(body[body.startIndex..<end.upperBound]).contains("cornerRadius: Radius.field")
+      }())
 // 排除式：fullInputBar 体内（到 fullInputBar 函数体闭合为止）不得再出现容器级 Capsule。
 // ⚠️ 只排除「容器形态」串：发送/停止/附件钮的 `in: Capsule()` 是按钮级胶囊，属既定口径不动。
 check("fullInputBar 体内没有容器级 Capsule 描边/玻璃（按钮级 in: Capsule() 不在此列）",

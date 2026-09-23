@@ -110,6 +110,11 @@ struct ChatInputBar: View {
     /// 弧顶几乎咬到内容上下缘；改 14pt（Radius.field 输入框档）后上缘出现 28pt 平坦段，
     /// 输入文字与工具图标不再贴着弧线，与全站输入类控件（附件卡/内嵌面板）同一圆角口径。
     ///
+    /// v3.9.64：用户原话「外部方形框圆角稍微再加一点」——14 档整体进到 **16 档（Radius.card）**：
+    /// 令牌体系里 14 的下一档就是 16，步进 2pt 即「稍微」；不新开中间档（Radius 是 6 档语义层级）。
+    /// 玻璃底 / 聚焦蓝边 / 常态白边 / 流光四处同步换档，平坦段 64pt → 60pt（仍远大于内容高）。
+    /// 同轮用户原话「把输入框流光填满外部的方形框」——流光本体由 Capsule 改为同形圆角矩形。
+    ///
     /// v3.9.61：由 v3.9.46 的单行 HStack 改为**恒定两层 VStack**。
     ///   第一层 `messageRow` = 消息输入层：textArea（占位符「输入消息…」/ 光标都走这一层）
     ///                          + trailingButtons（停止 / 发送，与输入同行）；
@@ -129,7 +134,7 @@ struct ChatInputBar: View {
         .padding(.horizontal, Spacing.lg)
         .padding(.vertical, Spacing.md)
         // v2.0.87e：原生液态玻璃输入栏（iOS 26+）
-        // v3.9.62：玻璃形状 Capsule → `RoundedRectangle(cornerRadius: Radius.field)`（14，输入框档）。
+        // v3.9.62：玻璃形状 Capsule → 14pt 档圆角矩形（Radius.field，输入框档）。
         // v3.9.63：v3.9.62 的写法 `.background { RoundedRectangle(...).glassEffect() }` **不成立**——
         //   Apple 官方明确 glassEffect 的默认形状是 Capsule（`DefaultGlassEffectShape`；原文「applies
         //   the given effect within a Capsule shape behind the view's content」），宿主 Shape 是圆角矩形
@@ -139,11 +144,13 @@ struct ChatInputBar: View {
         //   整个容器只剩一个形状。
         // 半径走 Radius 令牌不写魔法数：全站输入类控件统一 14（Radius.field），与 Radius.inset(12)/
         // Radius.card(16) 拉开语义层级。外层玻璃容器其余件（白边/聚焦蓝边/流光）全部换成同一个形状。
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: Radius.field, style: .continuous))
+        // v3.9.64：用户原话「外部方形框圆角稍微再加一点」——四处圆角由 14 档整体进到 16 档
+        //   （令牌体系里 14 的下一档即 16，步进 2pt 符合「稍微」；不新开中间档，6 档语义层级不动）。
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
         // v3.4.20：聚焦态光晕——输入框获得焦点时边缘亮起淡蓝细描边（0.8pt 与全站描边同参），失焦淡出。
         // 静态描边（非每帧重绘），无 shadow 叠加，不触碰 v3.2.3 渲染卡死红线。
         .overlay {
-            RoundedRectangle(cornerRadius: Radius.field, style: .continuous)
+            RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
                 .strokeBorder(Color.blue.opacity(focused ? 0.45 : 0), lineWidth: 0.8)
                 .allowsHitTesting(false)
         }
@@ -163,8 +170,11 @@ struct ChatInputBar: View {
                 TimelineView(schedule) { context in
                     let t = context.date.timeIntervalSinceReferenceDate
                     let angle = (t * 70).truncatingRemainder(dividingBy: 360)
-                    // 内部流光：Siri 淡雅蓝紫粉红旋转（87 版效果）
-                    Capsule().fill(
+                    // v3.9.64：用户原话「把输入框流光填满外部的方形框」——流光本体由 **Capsule 改为
+                    //   与容器同形的 16pt 档圆角矩形**。Capsule 版两端半径 = 容器高/2，流光被压成
+                    //   「两端大弧」的条状；同形矩形后流光铺满整个方形圆角框的四边与四角
+                    //   （含 16pt 圆角处）——玻璃/白边/聚焦蓝边/流光四处同一个形状（v3.9.63 定稿口径）。
+                    RoundedRectangle(cornerRadius: Radius.card, style: .continuous).fill(
                         AngularGradient(
                             colors: [.blue.opacity(0.22), .indigo.opacity(0.22),
                                      .pink.opacity(0.22), .red.opacity(0.16), .blue.opacity(0.22)],
@@ -174,7 +184,7 @@ struct ChatInputBar: View {
                     .allowsHitTesting(false)   // v2.0.87al：不拦截点击（停止按钮可点）
                 }
             } else {
-                RoundedRectangle(cornerRadius: Radius.field, style: .continuous)
+                RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
                     .strokeBorder(.white.opacity(Tint.subtle), lineWidth: 0.8)
             }
         }
