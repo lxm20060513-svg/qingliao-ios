@@ -55,7 +55,7 @@ let positives: [(String, IntentKind)] = [
     ("每天早上 7 点半提醒我吃药", .datetime),
     // link
     ("https://example.com/a/b?x=1", .link),
-    ("http://192.168.31.40:8080/api/diag/ping", .link),
+    ("https://example.com/diag/ping", .link),   // 用例里的地址一律用 example.com：本仓是公开仓，真实内网 IP 不能入库
     ("www.baidu.com/s?wd=轻聊", .link),
     // contact
     ("13812345678", .contact),
