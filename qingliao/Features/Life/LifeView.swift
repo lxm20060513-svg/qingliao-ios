@@ -36,6 +36,8 @@ struct LifeView: View {
                     // v3.7.0：备忘录栏目（排在「生活数据」之前）；v3.9.35：待办清单紧随其后
                     MemoSection()
                     TodoSection()
+                    // v3.9.71：记录分区（意图管道里金额/读数的落点，也接手动记账）
+                    RecordSection()
                     // v3.9.58：定时任务聚合卡（AI 建的提醒可视化可取消；空列表整卡隐藏）
                     // isActive 直传：卡内自持 .task，切走 tab 即停轮询
                     AutomationsSection(isActive: isActive)

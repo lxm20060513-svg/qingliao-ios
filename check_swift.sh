@@ -116,7 +116,7 @@ rm -rf /tmp/ql_intent_main && mkdir -p /tmp/ql_intent_main
 cp scripts/test_intent_pipeline.swift /tmp/ql_intent_main/main.swift
 rm -f /tmp/test_intent_pipeline
 $SWIFT/swiftc -swift-version 6 -o /tmp/test_intent_pipeline /tmp/ql_intent_main/main.swift \
-    qingliao/Core/IntentPipeline.swift qingliao/Core/QuickReminder.swift 2>&1 | head -10
+    qingliao/Core/IntentPipeline.swift qingliao/Core/QuickReminder.swift qingliao/Core/RecordKit.swift 2>&1 | head -10
 [ ${PIPESTATUS[0]} -eq 0 ] || { echo "❌ 意图管道真值表编译失败"; exit 1; }
 /tmp/test_intent_pipeline || exit 1
 

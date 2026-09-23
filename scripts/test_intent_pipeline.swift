@@ -168,6 +168,59 @@ check("超长文本不崩且 → text", run(longText).kind == .text)
 let multiline = "https://example.com/x\n13812345678"
 check("多行不崩（取首个强格式即可）", [IntentKind.link, .contact].contains(run(multiline).kind))
 
+// MARK: - 7. 记录容器纯逻辑（RecordKit，生活页「本月合计」的真相）
+//
+// 为什么单独有一节：合计算错/文案串单位，用户在生活页看到的就是假数字。
+// 分层：模型 + 合计放 RecordKit.swift（纯 Foundation，本表可编）；状态读写放 RecordStore.swift（SwiftUI，只能真机）。
+
+print("── 7. 记录容器 ──")
+let cal: Calendar = {
+    var c = Calendar(identifier: .gregorian)
+    c.timeZone = TimeZone(secondsFromGMT: 8 * 3600)!
+    return c
+}()
+func day(_ y: Int, _ m: Int, _ d: Int, _ h: Int = 12) -> Date {
+    cal.date(from: DateComponents(year: y, month: m, day: d, hour: h))!
+}
+let recs: [RecordItem] = [
+    RecordItem(kind: "amount", title: "超市", amount: 128.5, unit: "元", note: "", source: "intent", createdAt: day(2026, 9, 2)),
+    RecordItem(kind: "amount", title: "打车", amount: 31.5, unit: "元", note: "", source: "intent", createdAt: day(2026, 9, 10)),
+    RecordItem(kind: "meter", title: "电表", amount: 1234, unit: "度", note: "", source: "intent", createdAt: day(2026, 9, 23)),
+    RecordItem(kind: "amount", title: "上月餐费", amount: 500, unit: "元", note: "", source: "manual", createdAt: day(2026, 8, 31)),
+]
+let sep = RecordKit.monthTotal(recs, now: day(2026, 9, 23), calendar: cal)
+check("本月合计只算本月、只算「元」（实得 \(sep.amount) 元 / \(sep.count) 条）",
+      sep.count == 2 && abs(sep.amount - 160.0) < 0.001)
+let aug = RecordKit.monthTotal(recs, now: day(2026, 8, 31), calendar: cal)
+check("切到上月：只有 1 条 500 元", aug.count == 1 && abs(aug.amount - 500) < 0.001)
+check("读数不混进金额合计（度≠元）", sep.amount != 1234 + 160)
+check("最近读数 = 电表（实得 \(RecordKit.latestMeter(recs)?.title ?? "nil")）",
+      RecordKit.latestMeter(recs)?.title == "电表")
+
+// 撤销 = 按 id 回删后合计应立刻变小（动作条"撤销"走的就是这条路径）
+let afterDelete = recs.filter { $0.id != recs[0].id }
+let sep2 = RecordKit.monthTotal(afterDelete, now: day(2026, 9, 23), calendar: cal)
+check("删掉 128.5 那条后合计降到 31.5", sep2.count == 1 && abs(sep2.amount - 31.5) < 0.001)
+
+check("monthKey 跨年不串（2025-12 / 2026-01）",
+      RecordKit.monthKey(day(2025, 12, 31), calendar: cal) == "2025-12" &&
+      RecordKit.monthKey(day(2026, 1, 1), calendar: cal) == "2026-01")
+
+check("金额文案 128.5 元 → 128.50 元", RecordKit.amountText(128.5, unit: "元") == "128.50 元")
+check("读数文案 1234 度 → 1234 度", RecordKit.amountText(1234, unit: "度") == "1234 度")
+check("小数读数 56.8 kWh → 56.8 kWh", RecordKit.amountText(56.8, unit: "kWh") == "56.8 kWh")
+
+check("排序最新在前（实得 \(RecordKit.sorted(recs).first?.title ?? "nil")）",
+      RecordKit.sorted(recs).first?.title == "电表")
+
+// 旧数据兼容：缺 amount/unit/note 键也必须能解（TodoStore 的坑 1，照抄）
+let legacyJSON = #"[{"id":"a","kind":"note","title":"旧条目","source":"manual","createdAt":"2026-09-01T10:00:00Z","updatedAt":"2026-09-01T10:00:00Z"}]"#
+let legacyDecoder = JSONDecoder()
+legacyDecoder.dateDecodingStrategy = .iso8601
+let legacyDecoded = try? legacyDecoder.decode([RecordItem].self, from: legacyJSON.data(using: .utf8)!)
+check("旧 JSON 缺字段不崩（decodeIfPresent）", legacyDecoded?.count == 1)
+check("旧条目缺 amount 时 amountText 不崩", legacyDecoded?.first.map { $0.amountText.isEmpty == false } ?? false)
+
 print("\n———————————————")
 print(failures == 0 ? "✅ 全部通过 \(total)/\(total)" : "❌ 失败 \(failures)/\(total)")
 exit(failures == 0 ? 0 : 1)
