@@ -8,7 +8,9 @@ import Foundation
 // 存储口径：按卡片稳定指纹（标题+全部步骤标题的 djb2）存「已完成步骤下标集合」——
 // 卡片内容不变则指纹稳定，跨重启可恢复；AI 重新生成内容变化的卡 = 新进度，旧记录自然废弃。
 
-struct PlanProgressStore {
+// v3.9.74c（CI 修复）：无可变状态 + UserDefaults 本身线程安全 → @unchecked Sendable，
+// 让 static let shared 过 Swift 6 严格并发检查（Archive 实测报 static property not concurrency-safe）
+struct PlanProgressStore: @unchecked Sendable {
     static let shared = PlanProgressStore()
     private let defaults: UserDefaults
     private let keyPrefix = "qingliao_plan_progress_"
