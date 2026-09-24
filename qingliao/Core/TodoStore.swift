@@ -69,6 +69,37 @@ struct TodoItem: Identifiable, Codable, Equatable, Sendable {
 
     var timeText: String { MemoItem.relativeTime(updatedAt) }
 
+    /// v3.9.75：AI 输出的 ql-card 卡片条目 → 候选待办行。
+    /// 只认两类卡：`plan`（提示词定义 = 多步骤任务的步骤，天然就是待办）；
+    /// `list` 需卡片标题带待办语义词（待办/任务/todo/计划/安排/清单）才收 ——
+    /// 无门控时「磁盘分区列表」「容器列表」这类结果清单会成批灌进待办，和上面那条
+    /// 「普通编号列表是叙述不是待办」的口径一致。
+    static func extractCardItems(from text: String) -> [(String, Bool)] {
+        guard AgentCardParser.containsCardMarker(text) else { return [] }
+        let signals = ["待办", "任务", "todo", "计划", "安排", "清单"]
+        var out: [(String, Bool)] = []
+        for seg in AgentCardParser.parse(text) {
+            guard case .card(let card) = seg else { continue }
+            switch card.kind {
+            case .plan:
+                break
+            case .list:
+                let head = ((card.title ?? "") + (card.subtitle ?? "")).lowercased()
+                guard signals.contains(where: { head.contains($0) }) else { continue }
+            default:
+                continue
+            }
+            for item in card.items {
+                let title = item.title.trimmingCharacters(in: .whitespaces)
+                guard !title.isEmpty else { continue }
+                // tone=ok 或 status 含「完成」→ 收进来就是勾上的
+                let done = item.tone == .ok || (item.status.map { $0.contains("完成") } ?? false)
+                out.append((title, done))
+            }
+        }
+        return out
+    }
+
     /// 纯函数：从 AI 回复文本提取待办行（真值表 /opt/data/scripts/ql_todo/truth_table_todo.swift 守护）。
     /// 识别：markdown 勾选框（- [ ] / * [ ] / - [x]）与 ☐ □ ☑ ☒ 行；其余行不收
     ///（普通编号列表是叙述不是待办，收进来会淹没真实待办——刻意只认勾选框语义）。
@@ -151,14 +182,18 @@ final class TodoStore {
         return true
     }
 
-    /// AI 回复结束自动提取（对勾选框行全历史去重——AI 每轮可能重复产出同一条待办）
+    /// AI 回复结束自动提取（勾选框行 + 计划/待办卡片条目，全历史按内容去重
+    ///——AI 每轮可能重复产出同一条待办，且落库口 upsertAssistant 会被多次命中）
     @discardableResult
     func addAuto(from text: String) -> Int {
-        let items = TodoItem.extractChecklist(from: text)
+        var items = TodoItem.extractChecklist(from: text)
+        items += TodoItem.extractCardItems(from: text)
         guard !items.isEmpty else { return 0 }
         let existing = Set(todos.map { $0.content })
+        var seen = Set<String>()
         var added = 0
-        for (content, done) in items where !existing.contains(content) {
+        for (content, done) in items where !existing.contains(content) && !seen.contains(content) {
+            seen.insert(content)
             todos.append(TodoItem(content: content, done: done, source: "ai", updatedAt: Date()))
             added += 1
         }

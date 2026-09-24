@@ -58,6 +58,8 @@ struct SessionsView: View {
     @State private var newTagName = ""
     // v3.4.29：新建会话图标弹一下
     @State private var plusBounceTick = 0
+    /// v3.9.75：投递通道会话改开任务中心（见 open(_:)）
+    @State private var showTaskCenter = false
     var onOpenSession: (() -> Void)? = nil   // 切到聊天 tab
 
     private var isSearching: Bool { !searchText.trimmingCharacters(in: .whitespaces).isEmpty }
@@ -78,6 +80,10 @@ struct SessionsView: View {
             }
         }
         .task { await load() }
+        // v3.9.75：投递通道会话 → 任务中心（与聊天页 header 入口同一个页面）
+        .fullScreenCover(isPresented: $showTaskCenter) {
+            TaskCenterView()
+        }
         // v2.0.102：切回会话列表立即刷新（聊天里新建/重命名后列表即时更新，原只有 .task 首刷）
         .onAppear {
             Task { await load() }
@@ -580,10 +586,25 @@ struct SessionsView: View {
 
     /// 进会话（本地搜索结果行与远端命中行共用同一入口——markRead 只在这里调）
     private func open(_ s: ChatSession) {
-        chat.load(s)
+        // v3.9.75：「轻聊投递」是网关/网页侧建的投递通道会话（本仓不建它，服务端也没有
+        // channel 之类的结构化标记），原来它和普通会话走同一条 chat.load → 点它就等于
+        // 跳进 AI 聊天去看推送气泡。收件箱在这套设计里的归宿是任务中心
+        // （InboxStore：非 reply 推送进任务中心列表），所以这一行改为直接开任务中心。
         chat.markRead(s.id)   // v3.9.32：打开会话即已读（此前 markRead 全仓零调用，红点会永久挂着）
+        if Self.isDeliverySession(s) {
+            showTaskCenter = true
+            Haptics.tap()
+            return
+        }
+        chat.load(s)
         Haptics.tap()         // v3.4.29：进入会话触感
         onOpenSession?()
+    }
+
+    /// 投递通道会话判据：标题含「投递」——标题是这条会话在客户端唯一的可依据信息。
+    /// 若服务器侧那端改了名，这里会漏（表现 = 又跳回 AI 聊天），需要同步改这个串。
+    static func isDeliverySession(_ s: ChatSession) -> Bool {
+        s.title.contains("投递")
     }
 
     /// v3.0.51：会话 cell（SessionRow + 长按菜单）——拆辅助函数，防嵌套 ForEach type-check 超时

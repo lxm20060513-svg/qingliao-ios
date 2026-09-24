@@ -165,21 +165,52 @@ final class ChatStore {
     // MARK: - v2.0.65 未读红点（本地概念：会话有新消息且未打开）
 
     var unread: [String: Bool] = [:]              // sessionId -> 有未读
-    private var seenTimes: [String: TimeInterval] = [:]   // 各会话上次查看时间
+    /// v3.9.75：上次查看时间**必须落盘**。原来是纯内存字典，进程一死就清空，
+    /// 于是冷启动后 `lastTime > (seenTimes ?? 0)` 对每个会话都成立 → 重开 App 满屏红点（用户报）。
+    private let seenTimesKey = "qingliao_seen_times"
+    private var seenTimes: [String: TimeInterval] = [:]
+    private var seenTimesLoaded = false
+    /// 这台设备是否已有过基线。没有时不能算未读：见 syncUnread 的首次落基线分支。
+    private var hasSeenBaseline = false
+
+    private func loadSeenTimesIfNeeded() {
+        guard !seenTimesLoaded else { return }
+        seenTimesLoaded = true
+        if let stored = UserDefaults.standard.dictionary(forKey: seenTimesKey) as? [String: Double] {
+            seenTimes = stored
+            hasSeenBaseline = true
+        }
+    }
 
     /// 列表加载后同步未读（有 lastTime 且晚于上次查看 → 标未读）
     func syncUnread(from sessions: [ChatSession], currentId: String) {
+        loadSeenTimesIfNeeded()
+        // 首次（本机从未记录过查看时间）：把现存会话的 lastTime 一律落成基线、整体视为已读。
+        // 少了这一步，升级/新装后的第一次加载就会给所有历史会话点亮红点。
+        if !hasSeenBaseline {
+            for s in sessions where s.id != currentId {
+                if let lt = s.lastTime { seenTimes[s.id] = lt }
+            }
+            unread = [:]
+            hasSeenBaseline = true
+            UserDefaults.standard.set(seenTimes, forKey: seenTimesKey)
+            return
+        }
         for s in sessions {
             guard s.id != currentId, let lt = s.lastTime else { continue }
             if lt > (seenTimes[s.id] ?? 0) + 1000 {
                 unread[s.id] = true
+            } else {
+                unread[s.id] = nil   // 新消息读过后红点要能自己灭（原来只靠 markRead，跨设备/网页端读不掉）
             }
         }
     }
 
     func markRead(_ id: String) {
         unread[id] = nil
+        loadSeenTimesIfNeeded()   // 必须在写入前：先落盘旧内容再改，否则未加载时这次的标记会被空字典覆盖掉
         seenTimes[id] = Date().timeIntervalSince1970 * 1000
+        UserDefaults.standard.set(seenTimes, forKey: seenTimesKey)
     }
 
     var totalUnread: Int { unread.count }
@@ -224,6 +255,7 @@ final class ChatStore {
     func upsertAssistant(_ text: String, agent: Bool = false, afterUserID: String? = nil) {
         let ts = Date().timeIntervalSince1970 * 1000
         // v3.9.35：AI 回复落库时自动提取待办（勾选框行 → 待办清单）。
+        // v3.9.75：同时收 ql-card 的 plan 卡 / 带待标语的 list 卡条目（此前 AI 用卡片列的待办永远进不了清单）。
         // 挂在唯一落库口：正常完成/重试/恢复收尾全覆盖；addAuto 内部按内容去重，
         // 同一条待办多轮重复产出不会重复收录。错误占位（⚠️ 前缀）不含勾选框，天然不触发。
         if text.count >= 8, !text.hasPrefix("⚠️") {

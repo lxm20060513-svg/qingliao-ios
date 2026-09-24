@@ -10,34 +10,35 @@ import SwiftUI
 // 本机渲染不出文字宽度，这些数按**令牌算式**推出（Spacing/Typography 的实际档位）：
 //   · 第一层 minHeight = textArea 单行高：`padding(.vertical, Spacing.xl)` 12×2
 //     + 正文 15pt 行高 ≈17.9 ≈ **42**（v3.9.52 起 lineLimit 1...6 恒 1 行起）；
-//   · 第二层 minHeight = **34**（v3.9.65 起）：附件/相机视觉 22 + 上下各 6
-//     （v3.9.61~64 是 42 = 视觉 30 + 上下各 6；命中区走 hitArea44 的负 padding 外扩，
-//     **不占布局**，所以行高 = 视觉占位不是命中区）。
-// 两层同高时代（42+8+42=92）容器是稳定对称比例；v3.9.65 起第二层矮 8pt（42+8+34=**84**），
-// 长文本态第一层长高、第二层仍保持 34。
+//   · 第二层 minHeight = **38**（v3.9.75 起）：附件/相机视觉 26 + 上下各 6
+//     （v3.9.61~64 是 42 = 视觉 30 + 上下各 6；v3.9.65~74 是 34 = 视觉 22；
+//     命中区走 hitArea44 的负 padding 外扩，**不占布局**，所以行高 = 视觉占位不是命中区）。
+// 两层同高时代（42+8+42=92）容器是稳定对称比例；v3.9.65 起第二层矮一档（42+8+38=**88**），
+// 长文本态第一层长高、第二层仍保持 38。
 enum ChatInputBarLayout {
     /// v3.9.65 起用户明确「加到 18」→ v3.9.66 再明确「圆角加到 20」：**明确数值规格**，
     /// 不套令牌档位梯度（Radius 6 档：8/10/12/14/16/22，20 落在 card 16 与 hero 22 之间，
     /// 为它新开中间档会破坏语义层级体系）。
     /// 落地形态 = 收进本 enum 做单一真源，四处（玻璃 in: / 聚焦蓝边 / 常态白边 / 流光）
     /// 全部引用它，仍是「不散落魔法数」；将来若要回 16 档只改这一处。
-    /// 平坦段算式（Spacing.md = 12 → 容器上下 padding 24）：
-    ///   展开态 84（42+8+34+24）− 20×2 = **44pt**，平坦段充裕；
+    /// 平坦段算式（容器最小总高 − 圆角×2）：
+    ///   展开态 88（42+8+38）− 20×2 = **48pt**，平坦段充裕；
     ///   收起态 66（42+24，第二层高与间距归 0）− 20×2 = **26pt**，弧顶仍不咬第一层文字。
     static let containerCornerRadius: CGFloat = 20
     /// 第一层（消息输入层）最小高度
     static let messageRowMinHeight: CGFloat = 42
     /// 第二层（工具层）最小高度
     /// v3.9.65：附件/相机图标变小 + 第二层变矮（用户「第二层的附件和相机图标变小降低第二层高度」）：
-    /// 图标视觉面 32×30 → **22×22**，行高由图标视觉面 + 上下余量定 → 42 降到 **34**（22 + 6×2）。
-    /// 命中区仍走 `hitArea44` 的负 padding 外扩（22+11×2=44，视觉占位零变化），「变小」减的是
+    /// 图标视觉面 32×30 → 22×22，行高由图标视觉面 + 上下余量定 → 42 降到 **34**（22 + 6×2）。
+    /// v3.9.75：用户回说「展开态的附件和相机图标加大一点」→ 视觉面 22 → **26**，
+    /// 行高 34 → **38**（26 + 6×2）。仍低于 v3.9.64 的 42：这轮只要图标大一点，不要回到两层同高。
+    /// 命中区仍走 `hitArea44` 的负 padding 外扩（26+9×2=44，视觉占位零变化），「加大」动的也是
     /// 视觉尺寸不是可点区域——Apple HIG 最小 44pt 命中区口径不变。
-    /// 第一层仍保持 42 不动：这轮用户只点了第二层，输入框行高不属同一次改动面。
-    static let toolRowMinHeight: CGFloat = 34
+    static let toolRowMinHeight: CGFloat = 38
     /// 两层间距（与原单行 HStack 的 spacing 同参，视觉零差异）
     static let rowGap: CGFloat = Spacing.md
-    /// 容器最小总高 = 42 + 8 + 34 = 84（读这个数的地方：注释算式、真值表镜像）
-    static let containerMinHeight: CGFloat = 84
+    /// 容器最小总高 = 42 + 8 + 38 = 88（读这个数的地方：注释算式、真值表镜像）
+    static let containerMinHeight: CGFloat = 88
 }
 
 struct ChatInputBar: View {
@@ -342,35 +343,36 @@ struct ChatInputBar: View {
     }
 
     /// 左侧两枚次级按钮（附件 / 相机）——纯拆分，与单行 HStack 里的写法视觉零差异
-    /// v3.9.65：用户原话「第二层的附件和相机图标变小降低第二层高度」——图标视觉面 32×30 → 22×22，
-    /// 命中区外扩量随之改为 11（22+11×2 = 44，HIG 最小可点尺寸仍成立、间距零变化）。
+    /// v3.9.65：用户原话「第二层的附件和相机图标变小降低第二层高度」——图标视觉面 32×30 → 22×22。
+    /// v3.9.75：用户「展开态的附件和相机图标加大一点」→ 视觉面 22×22 → **26×26**、字形 13 → 15，
+    /// 命中区外扩量随之 11 → 9（26+9×2 = 44，HIG 最小可点尺寸仍成立、间距零变化）。
     private var attachButtons: some View {
         HStack(spacing: 8) {
             Button(action: onPickAttachment) {
                 Image(systemName: "paperclip")
-                    .font(.system(size: Typography.subhead, weight: .medium))
+                    .font(.system(size: Typography.body, weight: .medium))
                     .foregroundStyle(.secondary)
-                    .frame(width: 22, height: 22)
+                    .frame(width: 26, height: 26)
                     // v3.4.26：附件/相机纳入胶囊语义——低透明外圈（次级操作，弱于实底发送钮）
                     .background(Color.primary.opacity(Tint.faint), in: Capsule())
                     .overlay(Capsule().strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8))
             }
             .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
-            // v3.9.65：命中区 44×44（视觉 22×22 → 外扩 11；原来是 32×30 视觉 + 外扩 6/7）
-            .hitArea44(h: 11, v: 11)
+            // v3.9.75：命中区 44×44（视觉 26×26 → 外扩 9）
+            .hitArea44(h: 9, v: 9)
 
             // v2.0.38：拍照输入
             Button(action: onCamera) {
                 Image(systemName: "camera")
-                    .font(.system(size: Typography.subhead, weight: .medium))
+                    .font(.system(size: Typography.body, weight: .medium))
                     .foregroundStyle(.secondary)
-                    .frame(width: 22, height: 22)
+                    .frame(width: 26, height: 26)
                     .background(Color.primary.opacity(Tint.faint), in: Capsule())
                     .overlay(Capsule().strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8))
             }
             .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
-            // v3.9.65：命中区 44×44（视觉 22×22 → 外扩 11；原来是 32×30 视觉 + 外扩 6/7）
-            .hitArea44(h: 11, v: 11)
+            // v3.9.75：命中区 44×44（视觉 26×26 → 外扩 9）
+            .hitArea44(h: 9, v: 9)
         }
     }
 

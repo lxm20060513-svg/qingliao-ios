@@ -1053,7 +1053,10 @@ struct ChatView: View {
         }
         .photosPicker(isPresented: $showPhotoPicker, selection: $photoItem, matching: .images)
         // v2.0.38：拍照输入（拍完进图片预览条，确认后发送）
-        .sheet(isPresented: $showCameraPicker) {
+        // v3.9.75：.sheet → .fullScreenCover。UIImagePickerController 的取景界面按「全屏」画自己的
+        // safe-area，落在 page-sheet 容器里顶部就露出一条黑底（用户报的"拍照界面顶部黑边"）。
+        // CameraPicker 的 Coordinator 自己 dismiss，换呈现方式不需要改回调。
+        .fullScreenCover(isPresented: $showCameraPicker) {
             CameraPicker { img in
                 pendingImage = img
                 pendingImageData = compressImage(img)

@@ -117,8 +117,8 @@ check("收起态不喂 if 切结构：toolRow 声明仍是 HStack 起始（无 i
           // 声明行与文档注释之间不得插入条件分支
           return !head.contains("\n        if ")
       }())
-check("常量未被顺手改：toolRowMinHeight 仍 34、messageRowMinHeight 仍 42、rowGap 仍 Spacing.md（本轮只加收放不改量）",
-      inputBarSrc.contains("static let toolRowMinHeight: CGFloat = 34")
+check("常量未被顺手改：toolRowMinHeight 仍 38、messageRowMinHeight 仍 42、rowGap 仍 Spacing.md（本轮只加收放不改量）",
+      inputBarSrc.contains("static let toolRowMinHeight: CGFloat = 38")
       && inputBarSrc.contains("static let messageRowMinHeight: CGFloat = 42")
       && inputBarSrc.contains("static let rowGap: CGFloat = Spacing.md"))
 // 收起态高度算式：padding(.vertical) Spacing.md 12×2 + 第一层 42 = 58（原两层态 84）。
@@ -160,10 +160,10 @@ check("容器级垂直 padding 只出现一次（第一层内两处 Spacing.xl �
           let contentLevel = inputBarSrc.components(separatedBy: ".padding(.vertical, Spacing.xl)").count - 1
           return containerLevel == 1 && contentLevel == 2
       }())
-check("第二层行高常量未动（toolRowMinHeight 仍 34，本轮只收容器 padding）",
-      inputBarSrc.contains("static let toolRowMinHeight: CGFloat = 34"))
-check("containerMinHeight 仍 84（语义=内容最小总高，容器高度由 padding 另行给）",
-      inputBarSrc.contains("static let containerMinHeight: CGFloat = 84"))
+check("第二层行高常量未动（toolRowMinHeight 仍 38，v3.9.67 那轮只收容器 padding；数值本身 v3.9.75 才变）",
+      inputBarSrc.contains("static let toolRowMinHeight: CGFloat = 38"))
+check("containerMinHeight 仍 88（语义=内容最小总高，容器高度由 padding 另行给）",
+      inputBarSrc.contains("static let containerMinHeight: CGFloat = 88"))
 
 // ── 3. 恒定结构铁律：不得用条件切换结构 ──────────────────────
 // 反例（都不允许出现在容器/两层声明上）：
@@ -277,28 +277,49 @@ check("fullInputBar 体内没有容器级 Capsule 描边/玻璃（按钮级 in: 
               && !slice.contains("Capsule().strokeBorder")
       }())
 
-// ── 3d. 第二层附件/相机变小 + 行高降低（v3.9.65，用户：「第二层的附件和相机图标变小降低第二层高度」）──
-// 视觉面 32×30 → 22×22，第二层 minHeight 42 → 34，容器最小总高 92 → 84。
-// 命中区不缩：hitArea44(h:11, v:11) 仍把可点区外扩到 44×44（HIG 最小可点尺寸）。
+// ── 3d. 第二层附件/相机尺寸（v3.9.65 变小 → v3.9.75 按用户要求加大一点）────────────
+// v3.9.65：视觉面 32×30 → 22×22，第二层 minHeight 42 → 34，容器最小总高 92 → 84。
+// v3.9.75：用户「展开态的附件和相机图标加大一点」→ 视觉面 22 → 26、字形 subhead(13) → body(15)，
+//          minHeight 34 → **38**，containerMinHeight 84 → **88**（仍不回 42：只大一点，不回两层同高）。
+// 命中区不受影响：外扩量 11 → 9，26+9×2 = 44 仍是 HIG 最小可点尺寸。
 // 第一层 42、发送键 32×32、两层间距 8 三项**未动**（用户只点了第二层）。
-check("附件钮视觉面 22×22（原 32×30）",
-      inputBarSrc.contains("Image(systemName: \"paperclip\")\n                    .font(.system(size: Typography.subhead, weight: .medium))\n                    .foregroundStyle(.secondary)\n                    .frame(width: 22, height: 22)"))
-check("相机钮视觉面 22×22（原 32×30）",
-      inputBarSrc.contains("Image(systemName: \"camera\")\n                    .font(.system(size: Typography.subhead, weight: .medium))\n                    .foregroundStyle(.secondary)\n                    .frame(width: 22, height: 22)"))
-check("附件/相机视觉面各只有一处 22×22（两处 = 一对按钮，防漏改/防多改）",
-      inputBarSrc.components(separatedBy: ".frame(width: 22, height: 22)").count - 1 == 2)
-check("旧视觉面 32×30 清零（attachButtons 里的旧尺寸不回潮）",
-      !inputBarSrc.contains(".frame(width: 32, height: 30)"))
-check("命中区仍 44×44：附件外扩 11（22+11×2=44，HIG 最小可点尺寸不变）",
-      inputBarSrc.contains(".hitArea44(h: 11, v: 11)"))
-check("附件/相机命中区外扩各一处 11（计数互证：两处按钮都扩到 44）",
-      inputBarSrc.components(separatedBy: ".hitArea44(h: 11, v: 11)").count - 1 == 2)
-check("附件/相机按钮级胶囊形态保留（变小不动二元控件口径 in: Capsule()）",
-      inputBarSrc.contains("Image(systemName: \"paperclip\")\n                    .font(.system(size: Typography.subhead, weight: .medium))\n                    .foregroundStyle(.secondary)\n                    .frame(width: 22, height: 22)\n                    // v3.4.26：附件/相机纳入胶囊语义——低透明外圈（次级操作，弱于实底发送钮）\n                    .background(Color.primary.opacity(Tint.faint), in: Capsule())"))
-check("第二层行高常量降到 34（toolRowMinHeight）",
-      inputBarSrc.contains("static let toolRowMinHeight: CGFloat = 34"))
-check("容器最小总高常量降到 84（containerMinHeight）",
-      inputBarSrc.contains("static let containerMinHeight: CGFloat = 84"))
+check("附件钮视觉面 26×26（v3.9.75：22 → 26）",
+      inputBarSrc.contains("Image(systemName: \"paperclip\")\n                    .font(.system(size: Typography.body, weight: .medium))\n                    .foregroundStyle(.secondary)\n                    .frame(width: 26, height: 26)"))
+check("相机钮视觉面 26×26（v3.9.75：22 → 26）",
+      inputBarSrc.contains("Image(systemName: \"camera\")\n                    .font(.system(size: Typography.body, weight: .medium))\n                    .foregroundStyle(.secondary)\n                    .frame(width: 26, height: 26)"))
+// 计数必须限定在 attachButtons 段内：别处（转写取消 xmark）本来就是 26×26 + 外扩 9，全文件计数会误报。
+check("附件/相机视觉面在 attachButtons 段内各一处 26×26（两处 = 一对按钮，防漏改/防多改）",
+      {
+          guard let a = inputBarSrc.range(of: "private var attachButtons: some View") else { return false }
+          let body = String(inputBarSrc[a.lowerBound..<inputBarSrc.endIndex])
+          guard let end = body.range(of: "\n    }\n") else { return false }
+          let slice = String(body[body.startIndex..<end.upperBound])
+          return slice.components(separatedBy: ".frame(width: 26, height: 26)").count - 1 == 2
+      }())
+check("旧视觉面 32×30 与 22×22 清零（attachButtons 里两代旧尺寸都不回潮）",
+      !inputBarSrc.contains(".frame(width: 32, height: 30)")
+      && {
+          guard let a = inputBarSrc.range(of: "private var attachButtons: some View") else { return false }
+          let body = String(inputBarSrc[a.lowerBound..<inputBarSrc.endIndex])
+          guard let end = body.range(of: "\n    }\n") else { return false }
+          return !String(body[body.startIndex..<end.upperBound]).contains(".frame(width: 22, height: 22)")
+      }())
+check("命中区仍 44×44：附件外扩 9（26+9×2=44，HIG 最小可点尺寸不变）",
+      inputBarSrc.contains(".hitArea44(h: 9, v: 9)"))
+check("附件/相机按钮级胶囊形态保留（改尺寸不动二元控件口径 in: Capsule()）",
+      inputBarSrc.contains("Image(systemName: \"paperclip\")\n                    .font(.system(size: Typography.body, weight: .medium))\n                    .foregroundStyle(.secondary)\n                    .frame(width: 26, height: 26)\n                    // v3.4.26：附件/相机纳入胶囊语义——低透明外圈（次级操作，弱于实底发送钮）\n                    .background(Color.primary.opacity(Tint.faint), in: Capsule())"))
+check("附件/相机命中区外扩各一处 9（段内计数互证：两处按钮都扩到 44）",
+      {
+          guard let a = inputBarSrc.range(of: "private var attachButtons: some View") else { return false }
+          let body = String(inputBarSrc[a.lowerBound..<inputBarSrc.endIndex])
+          guard let end = body.range(of: "\n    }\n") else { return false }
+          return String(body[body.startIndex..<end.upperBound])
+              .components(separatedBy: ".hitArea44(h: 9, v: 9)").count - 1 == 2
+      }())
+check("第二层行高常量升到 38（toolRowMinHeight，v3.9.75）",
+      inputBarSrc.contains("static let toolRowMinHeight: CGFloat = 38"))
+check("容器最小总高常量升到 88（containerMinHeight，v3.9.75）",
+      inputBarSrc.contains("static let containerMinHeight: CGFloat = 88"))
 check("第一层行高仍 42、两层间距仍走 Spacing.md（本轮未动第一层与间距）",
       inputBarSrc.contains("static let messageRowMinHeight: CGFloat = 42")
       && inputBarSrc.contains("static let rowGap: CGFloat = Spacing.md"))
@@ -328,15 +349,15 @@ check("旧单行 HStack 已清零（fullInputBar 体内不再有 attachButtons�
 // ── 5. 高度算式镜像（改常量必须同步改这里） ──────────────────
 // 令牌算式（Spacing/Typography 实际档位）：
 //   第一层 42 = padding(.vertical, Spacing.xl) 12×2 + 正文 15pt 行高 ≈17.9
-//   第二层 34 = 附件/相机视觉 22 + 上下各 6（v3.9.65 起；v3.9.61~64 是 30 + 6×2 = 42）
+//   第二层 38 = 附件/相机视觉 26 + 上下各 6（v3.9.75 起；v3.9.65~74 是 22 → 34；v3.9.61~64 是 30 → 42）
 //   间距    8 = Spacing.md
-//   容器最小总高 = 42 + 8 + 34 = 84
+//   容器最小总高 = 42 + 8 + 38 = 88
 // 本机 import 不到 SwiftUI → 常量在这里镜像一份；源里改了数、这里不同步 → 表立刻红。
 enum ChatInputBarLayoutMirror {
     static let messageRowMinHeight: Double = 42
-    static let toolRowMinHeight: Double = 34
+    static let toolRowMinHeight: Double = 38
     static let rowGap: Double = 8
-    static let containerMinHeight: Double = 84
+    static let containerMinHeight: Double = 88
     /// v3.9.65 圆角 18（用户明确数值规格）→ **v3.9.66 圆角 20**（用户「输入框圆角加到 20」）。
     /// 仍是明确数值规格、仍不套令牌档（Radius 6 档 8/10/12/14/16/22，20 落在 card 16 与
     /// hero 22 之间且比 18 更靠近 hero，为它单独开档破坏更大）——镜像钉住改档必同步。
@@ -349,17 +370,17 @@ enum ChatInputBarLayoutMirror {
 
 let rowGapMirror: Double = 8
 let messageRowMirror: Double = 12 * 2 + 17.9   // ≈41.9 → 收 42
-let toolRowMirror: Double = 22 + 6 * 2          // 34（v3.9.65：视觉 30 → 22）
+let toolRowMirror: Double = 26 + 6 * 2          // 38（v3.9.75：视觉 22 → 26）
 /// v3.9.68 fix：第二层图标**视觉面** 22（不含命中区外扩——hitArea44 的净外扩为 0）。
 /// 事故证据用它：旧 bug 收起态容器 = 42 + 22 + 4×2 = 72。
 let toolRowVisualMirror: Double = 22
-let containerMirror = messageRowMirror + rowGapMirror + toolRowMirror   // 84（展开态内容）
+let containerMirror = messageRowMirror + rowGapMirror + toolRowMirror   // 88（展开态内容）
 /// v3.9.67：容器垂直 padding = Spacing.xs(4)（v3.9.66 是 Spacing.md 12；用户「收起态高度改为 50」）
 let containerVPaddingMirror: Double = 4
 /// v3.9.66：展开态容器高别名（与收起态对比用，名不同值同源，避免两处手写 84 漂移）
 let expandedContainerMirror = containerMirror
 /// v3.9.67：收起态（键盘未弹）容器高 = 第一层 42 + 垂直 padding 4×2 = **50**
-/// （v3.9.66 = 42 + 12×2 = 66，真机观感仍高 → 用户改 50；比展开态 92 矮 42pt。
+/// （v3.9.66 = 42 + 12×2 = 66，真机观感仍高 → 用户改 50；v3.9.75 后比展开态 96 矮 46pt。
 ///  真值表旧文案「58」与源注释旧「66」都是拿错 padding 算的，已按真值修正。）
 let collapsedContainerMirror = messageRowMirror + containerVPaddingMirror * 2             // = 42 + 8 = 50
 /// 🚨 v3.9.68 fix 事故证据（用户真机报「输入框怎么被你改这么大」的算式铁证）：
@@ -375,15 +396,15 @@ let flatTopMirror = containerMirror + containerVPaddingMirror * 2 - 2 * 20      
 let flatTopCollapsedMirror = collapsedContainerMirror - 2 * 20                          // 10（收起态）
 
 check("算式：第一层高 ≈42（12×2 + 17.9）", abs(messageRowMirror - 42) < 0.2)
-check("算式：第二层高 = 34（22 + 6×2，v3.9.65 变小后）", abs(toolRowMirror - 34) < 0.001)
-check("算式：展开态内容最小总高 ≈84（42+8+34，containerMinHeight 语义）", abs(containerMirror - 84) < 0.2)
-check("算式：展开态容器高 = 92（84 内容 + 垂直 padding 4×2，v3.9.67）", abs(flatTopMirror + 2 * 20 - 92) < 0.2)
-check("算式：展开态圆角 20 的上缘平坦段 = 52pt（92 − 20×2）", abs(flatTopMirror - 52) < 0.2)
+check("算式：第二层高 = 38（26 + 6×2，v3.9.75 图标加大后）", abs(toolRowMirror - 38) < 0.001)
+check("算式：展开态内容最小总高 ≈88（42+8+38，containerMinHeight 语义）", abs(containerMirror - 88) < 0.2)
+check("算式：展开态容器高 = 96（88 内容 + 垂直 padding 4×2，v3.9.67 起 padding 不变）", abs(flatTopMirror + 2 * 20 - 96) < 0.2)
+check("算式：展开态圆角 20 的上缘平坦段 = 56pt（96 − 20×2）", abs(flatTopMirror - 56) < 0.2)
 check("算式：收起态容器高 = 50（42 + 4×2，v3.9.67 用户明确值）", abs(collapsedContainerMirror - 50) < 0.2)
 check("事故证据：旧 minHeight:0 形态算出的收起态容器 = 72 ≠ 50（v3.9.68「输入框被改这么大」根因，勿回退）",
       abs(brokenCollapsedMirror - 72) < 0.2 && abs(brokenCollapsedMirror - 50) > 20)
-check("算式：收起态比展开态矮 42pt（92 − 50，v3.9.66 时只矮 18）",
-      abs(expandedContainerMirror + containerVPaddingMirror * 2 - collapsedContainerMirror - 42) < 0.2)
+check("算式：收起态比展开态矮 46pt（96 − 50）",
+      abs(expandedContainerMirror + containerVPaddingMirror * 2 - collapsedContainerMirror - 46) < 0.2)
 check("算式：收起态高度 > 第一层内容高（50 > 42，文字不被裁）",
       collapsedContainerMirror > messageRowMirror)
 check("算式：收起态圆角 20 的上缘平坦段 = 10pt（50 − 20×2，仍 > 0 弧顶不咬文字）",
@@ -392,9 +413,9 @@ check("常量与算式一致：rowGap == 8",
       abs(Double(ChatInputBarLayoutMirror.rowGap) - rowGapMirror) < 0.001)
 check("常量与算式一致：messageRowMinHeight == 42",
       abs(Double(ChatInputBarLayoutMirror.messageRowMinHeight) - 42) < 0.001)
-check("常量与算式一致：toolRowMinHeight == 34（v3.9.65）",
-      abs(Double(ChatInputBarLayoutMirror.toolRowMinHeight) - 34) < 0.001)
-check("常量与算式一致：containerMinHeight == 84（不手改，改了算式就对不上）",
+check("常量与算式一致：toolRowMinHeight == 38（v3.9.75）",
+      abs(Double(ChatInputBarLayoutMirror.toolRowMinHeight) - 38) < 0.001)
+check("常量与算式一致：containerMinHeight == 88（不手改，改了算式就对不上）",
       abs(Double(ChatInputBarLayoutMirror.containerMinHeight)
           - (ChatInputBarLayoutMirror.messageRowMinHeight
              + ChatInputBarLayoutMirror.rowGap
