@@ -61,6 +61,8 @@ struct MessageBlockView: View {
     var onFileTap: (String, String) -> Void = { _, _ in }
     // v3.3.0：多选合并转发入口（AI 消息段落长按菜单）
     var onMultiSelect: () -> Void = {}
+    // v3.9.74 P2.6：plan 卡「继续下一步」——把下一未完成步骤发回聊天（nil = 只读）
+    var onContinueStep: ((String) -> Void)? = nil
     // v3.0.17：流式输出中用 SwiftUI Text 渲染（UITextView 在流式高频更新下有锁旧窄布局/字体缩放 bug 家族，
     // 见 references/ui-textview-layout-shrink.md；流式中无需长按菜单，落库后恢复 SelectableTextLabel）
     var useSwiftUIText = false
@@ -341,7 +343,7 @@ struct MessageBlockView: View {
                 .contextMenu { bubbleMenu }
         case .agentCard(let card):
             // v3.5.0：Agent 结果卡片（```ql-card 围栏）——单卡玻璃 + 0.8pt 描边，长按菜单同其他段
-            AgentResultCard(card: card)
+            AgentResultCard(card: card, onContinueStep: onContinueStep)
                 .contextMenu { bubbleMenu }
         }
     }

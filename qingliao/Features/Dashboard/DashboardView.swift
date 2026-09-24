@@ -9,7 +9,7 @@ import SwiftUI
 //         点击不再弹窗」）——enum 少两个 case，下面的 `.sheet(item:)` switch 同步少两个分支。
 //         ⚠️ 新增/删除 case 时两处一起改，穷尽性才会被 CI 那道检查抓住。
 enum DashboardSheet: String, Identifiable {
-    case lights, climate, service, serviceHermes, disks, docker, weather
+    case lights, climate, service, serviceHermes, disks, docker, weather, connectorPanel
     case lock, temps, doorbell
     var id: String { rawValue }
 }
@@ -156,6 +156,12 @@ struct DashboardView: View {
                     weatherSheetShown = false
                     Task { await loadWeatherWithCity() }
                 }
+                // v3.9.74c P1.5：连接器面板关闭（dismiss 已完成）后再弹 MCP/生活卡设置页。
+                // 回调只关面板+记意图；这里消费意图，async 一帧错开 dismiss 收尾，防 present 请求被静默吞。
+                if let p = pendingSheetAfterPanel {
+                    pendingSheetAfterPanel = nil
+                    DispatchQueue.main.async { presentedAfterPanel = p }
+                }
             }) { s in
                 switch s {
                 case .lights:
@@ -222,6 +228,18 @@ struct DashboardView: View {
                         .presentationDragIndicator(.visible)
                         .onAppear { weatherSheetShown = true }
                         .navigationTransition(.zoom(sourceID: DashboardSheet.weather.id, in: sheetZoomNS))
+                case .connectorPanel:
+                    // v3.9.74 P1.5 连接器面板：MCP + 智能家居 + 生活卡 收拢总览（Muse 借鉴）。
+                    // 面板内跳转走本页已有 sheet 机制；MCP/生活卡设置弹窗在面板 dismiss 后弹出（防 sheet 叠 sheet）。
+                    ConnectorPanelSheet(
+                        onOpenMCP: { activeSheet = nil; pendingSheetAfterPanel = .mcp },
+                        onOpenLifeCards: { activeSheet = nil; pendingSheetAfterPanel = .lifeCards },
+                        haCount: haAvailableCount,
+                        sceneCount: scenes.count,
+                        automationCount: automations.count,
+                        ruleCount: rules.count)
+                        .presentationDetents([.medium, .large])
+                        .navigationTransition(.zoom(sourceID: DashboardSheet.connectorPanel.id, in: sheetZoomNS))
                 }
             }
             // v3.9.40（#15）：卡片编辑器（排序 / 隐藏）
@@ -233,6 +251,18 @@ struct DashboardView: View {
                 // 看板同一张卡片渲染两遍，且 ForEach(id: \.element) 重复 id（SwiftUI 直接告警/错位）。
                 BoardCardEditorSheet(all: visibleCards,
                                      hidden: orderedCards.filter { hiddenCards.contains($0) })
+            }
+            // v3.9.74 P1.5：连接器面板里点「MCP 工具服务」「生活卡片」→ 面板关闭后再弹对应设置页
+            // （呈现由上面 onDismiss 消费 pendingSheetAfterPanel 驱动；sheet(item:) 随置 nil 关闭）
+            .sheet(item: $presentedAfterPanel) { target in
+                switch target {
+                case .mcp:
+                    MCPSettingsSheet()
+                        .presentationDetents([.medium, .large])
+                case .lifeCards:
+                    LifeCardsSettingsView()
+                        .presentationDetents([.medium, .large])
+                }
             }
             // v3.9.21：删除规则确认
             .alert("删除这条规则？", isPresented: Binding(
@@ -1139,6 +1169,51 @@ struct DashboardView: View {
             && !["offline", "unknown"].contains(st)
     }
 
+    /// v3.9.74 P1.5 连接器面板：可用实体总数（与 isAvailable 同口径，只读已轮询数据零新请求）
+    private var haAvailableCount: Int {
+        haEntities.filter(isAvailable).count
+    }
+
+    /// v3.9.74 P1.5：连接器面板关闭后要接着弹的设置页（防 sheet 叠 sheet，dismiss 后再弹）
+    @State private var pendingSheetAfterPanel: AfterPanelSheet?
+    // v3.9.74c：面板关闭后真正呈现在弹的设置页（与 pending 意图分开，防 dismiss/present 同帧抖动）
+    @State private var presentedAfterPanel: AfterPanelSheet?
+    enum AfterPanelSheet: String, Identifiable {
+        case mcp, lifeCards
+        var id: String { rawValue }
+    }
+
+    /// v3.9.74 P1.5 连接器面板（Muse 借鉴）：MCP 工具 + 智能家居 + 生活卡片 收拢总览。
+    /// 不重复实现功能，状态总览 + 直达入口：点卡片 → 面板关闭 → 再弹对应设置页。
+    @ViewBuilder
+    private var connectorsBlock: some View {
+        sectionTitle("连接器")
+        // 与钉一钉同款「始终显示 + 低调提示」形态
+        Button {
+            activeSheet = .connectorPanel
+        } label: {
+            HStack(spacing: Spacing.md) {
+                Image(systemName: "rectangle.connected.to.line.2")
+                    .font(.system(size: Typography.title))
+                    .foregroundStyle(.teal)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("MCP 工具 · 智能家居 · 生活卡片")
+                        .font(.system(size: Typography.body, weight: .semibold))
+                        .foregroundStyle(.primary)
+                    Text("AI 已接入的数字生活总览与入口")
+                        .font(.system(size: Typography.caption))
+                        .foregroundStyle(.tertiary)
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.system(size: Typography.caption))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.vertical, Spacing.md)
+        }
+        .buttonStyle(.plain)
+    }
+
     /// 门锁相关实体：门锁本体（bacn01）+ lock 域 + 门磁一类含 door_lock 的实体。
     /// v3.9.54：再叠一层 `isAvailable` —— 离线的实体不进弹窗（用户点名）。
     /// ⚠️ 实际能到这里的不多：后端 `ha_proxy._keep_entity` 只放行 `(bacn01|chuangmi) + battery_level`
@@ -1241,6 +1316,7 @@ struct DashboardView: View {
         case .diagnose:    return AnyView(diagnoseBlock)
         case .router:      return AnyView(routerBlock)
         case .pin:         return AnyView(pinBlock)
+        case .connectors:  return AnyView(connectorsBlock)
         }
     }
 
@@ -1268,7 +1344,7 @@ struct DashboardView: View {
 
 /// rawValue 会写进 UserDefaults 的顺序串，**改名即让老用户的自定义顺序失效**——只增不改不删。
 enum BoardCard: String, CaseIterable, Identifiable {
-    case suggestion, home, scenes, automations, rules, nas, usage, diagnose, router, pin
+    case suggestion, home, scenes, automations, rules, nas, usage, diagnose, router, pin, connectors
 
     var id: String { rawValue }
 
@@ -1285,6 +1361,7 @@ enum BoardCard: String, CaseIterable, Identifiable {
         case .diagnose: return "设备体检"
         case .router: return "路由器"
         case .pin: return "钉一钉"
+        case .connectors: return "连接器"
         }
     }
 }

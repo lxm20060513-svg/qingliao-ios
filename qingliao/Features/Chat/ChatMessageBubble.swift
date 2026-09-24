@@ -59,6 +59,8 @@ struct MessageBubble: View {
     var onFileTap: (String, String) -> Void = { _, _ in }
     // v3.3.0：多选合并转发——长按菜单「多选」入口（进入多选模式并预选本条）
     var onMultiSelect: () -> Void = {}
+    // v3.9.74 P2.6：plan 卡「继续下一步」——下一未完成步骤作为用户消息发回（nil = 只读）
+    var onContinueStep: ((String) -> Void)? = nil
     // v3.0.15：AI 流式输出中——头像显示粒子球（orbits 流动），替代静态脑形标
     var streamingAvatar: Bool = false
     // v3.0.17：流式输出中 markdown 段用 SwiftUI Text 渲染（绕开 UITextView 流式锁窄布局 bug 家族）
@@ -407,6 +409,7 @@ struct MessageBubble: View {
                                         onImageTap: { url in onAIImageTap(url) },   // v2.0.128：AI 图片点击打开大图
                                         onFileTap: { url, name in onFileTap(url, name) },   // v3.9.17：AI 生成物预览
                                         onMultiSelect: onMultiSelect,   // v3.3.0：多选合并转发
+                                        onContinueStep: onContinueStep,   // v3.9.74 P2.6：plan 卡继续下一步
                                         useSwiftUIText: true,
                                         streaming: streamingText)   // v3.0.41 性能：流式中纯 Text 渲染（跳过 markdown 解析）
                     }
@@ -791,6 +794,7 @@ struct MessageBubble: View {
                                 onImageTap: { url in onAIImageTap(url) },
                                 onFileTap: { url, name in onFileTap(url, name) },   // v3.9.17：AI 生成物预览
                                 onMultiSelect: onMultiSelect,   // v3.3.0：多选合并转发
+                                onContinueStep: onContinueStep,   // v3.9.74 P2.6：plan 卡继续下一步
                                 useSwiftUIText: true,
                                 streaming: false)
             }

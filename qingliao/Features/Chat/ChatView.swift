@@ -1280,9 +1280,9 @@ struct ChatView: View {
                         }
                     }
                 } label: {
-                    // v3.9.58 引入的回归：唯独这里还是实色 accent 胶囊，而 v3.9.36 已把全站 accent 操作胶囊
-                    // 统一成玻璃底 + accent 0.28/0.8pt 描边（`glassPillStroke()`）→ 本行随 v3.9.73 补回口径。
-                    // （审查提示：别把它标成 v3.9.72 —— 那一版当时已出包，这条改动是 3.9.73 才发出去的。）
+                    // v3.9.73：补回全站口径——本行是 v3.9.58 新加时漏走口径的回归（唯独这里还是实色 accent 胶囊，
+                    // 而 v3.9.36 已把全站 accent 操作胶囊统一成玻璃底 + accent 0.28/0.8pt 描边 `glassPillStroke()`）。
+                    // ⚠️ 别把它标成 v3.9.72：那一版当时已出包（源里已有同号包，重发同号用户端收不到更新）。
                     Text("继续")
                         .font(.system(size: Typography.caption, weight: .semibold))
                         .foregroundStyle(Color.accentColor)
@@ -1940,6 +1940,9 @@ struct ChatView: View {
                 selectedMsgIDs.insert(msg.id)
                 withAnimation(Motion.snap) { selectMode = true }
             }
+        } onContinueStep: { step in
+            // v3.9.74 P2.6：plan 卡「继续下一步」——下一未完成步骤原样发回（走 sendCore 全链路：落库/排队/流式互斥全复用）
+            sendCore(text: step, imageData: nil)
         }
     }
 

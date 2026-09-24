@@ -18,6 +18,7 @@ struct AgentResultCard: View {
             if !card.metrics.isEmpty { metricsSection }
             if !card.fields.isEmpty { fieldsSection }
             if !card.items.isEmpty { listSection }
+            if planInteractive { planFooter }
             if let table = card.table { AgentCardTable(rows: tableRows(table)) }
             if let footer = card.footer, !footer.isEmpty {
                 Text(footer)
@@ -34,6 +35,7 @@ struct AgentResultCard: View {
         // 流式闭合后由文本替换为卡片：轻微浮现，不抢打字机节奏
         .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .topLeading)))
         .animation(Motion.settle, value: card)
+        .onAppear(perform: syncProgressOnAppear)
     }
 
     // MARK: 头部（图标 + 标题/副标题 + 状态胶囊）
@@ -150,40 +152,131 @@ struct AgentResultCard: View {
         }
     }
 
-    // MARK: 清单（状态点 + 标题 + 副标题）
+    // v3.9.74 P2.6：plan 卡步骤可勾选——点行切换完成态，进度本地持久化（PlanProgressStore）。
+    // 勾选是纯本地行为（不回传 AI）；只有「继续下一步」按钮会作为用户消息发回聊天。
+    // 非 plan 卡 / 未接回调（卡片画廊预览）保持只读展示，零回归。
+
+    /// v3.9.74 P2.6：「继续下一步」回调——把下一个未完成步骤作为用户消息发回聊天。nil = 只读（画廊预览）
+    var onContinueStep: ((String) -> Void)? = nil
+
+    /// 本卡步骤勾选进度（进度持久化按卡片指纹隔离；勾选本身不回传 AI）
+    @State private var completedSteps: Set<Int> = []
+    @State private var progressFP: UInt64 = 0
+
+    /// plan 卡且已接「继续下一步」回调 → 步骤可交互；否则维持 v3.9.58 起的只读展示
+    private var planInteractive: Bool { card.kind == .plan && onContinueStep != nil }
+
+    private var planFingerprint: UInt64 {
+        PlanProgressStore.fingerprint(title: card.title ?? "", stepTitles: card.items.map(\.title))
+    }
 
     private var listSection: some View {
         VStack(alignment: .leading, spacing: 6) {
-            ForEach(Array(card.items.enumerated()), id: \.offset) { _, item in
-                HStack(alignment: .top, spacing: 7) {
-                    Circle()
-                        .fill(toneColor(item.tone))
-                        .frame(width: 6, height: 6)
-                        .padding(.top, Spacing.xs)
-                    VStack(alignment: .leading, spacing: Spacing.xxs) {
-                        Text(item.title)
-                            .font(.system(size: Typography.subhead))
-                            .foregroundStyle(.primary)
-                            .fixedSize(horizontal: false, vertical: true)
-                        if let sub = item.subtitle, !sub.isEmpty {
-                            Text(sub)
-                                .font(.system(size: Typography.tiny))
-                                .foregroundStyle(.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
+            ForEach(Array(card.items.enumerated()), id: \.offset) { idx, item in
+                stepRow(idx: idx, item: item)
+            }
+        }
+    }
+
+    /// v3.9.74 P2.6：单行步骤——plan 交互卡渲染勾选圈（点行切换），其余维持状态点
+    @ViewBuilder
+    private func stepRow(idx: Int, item: AgentCard.Item) -> some View {
+        let done = planInteractive && completedSteps.contains(idx)
+        let row = HStack(alignment: .top, spacing: 7) {
+            if planInteractive {
+                Image(systemName: done ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: Typography.subhead))
+                    .foregroundStyle(done ? Color.green : Color.secondary.opacity(0.6))
+                    .frame(width: 18, alignment: .leading)
+                    .padding(.top, 1)
+            } else {
+                Circle()
+                    .fill(toneColor(item.tone))
+                    .frame(width: 6, height: 6)
+                    .padding(.top, Spacing.xs)
+            }
+            VStack(alignment: .leading, spacing: Spacing.xxs) {
+                Text(item.title)
+                    .font(.system(size: Typography.subhead))
+                    .foregroundStyle(done ? Color.secondary : Color.primary)
+                    .strikethrough(done, color: .secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let sub = item.subtitle, !sub.isEmpty {
+                    Text(sub)
+                        .font(.system(size: Typography.tiny))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Spacer(minLength: 6)
+            if let st = item.status, !st.isEmpty {
+                Text(st)
+                    .font(.system(size: Typography.tiny, weight: .medium))
+                    .foregroundStyle(toneColor(item.tone))
+                    .padding(.horizontal, Spacing.md)
+                    .padding(.vertical, Spacing.xxs)
+                    .background(toneColor(item.tone).opacity(Tint.subtle), in: Capsule())
+            }
+        }
+        if planInteractive {
+            Button {
+                toggleStep(idx)
+            } label: {
+                row
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        } else {
+            row
+        }
+    }
+
+    private func toggleStep(_ idx: Int) {
+        guard planInteractive else { return }
+        if progressFP != planFingerprint {   // 卡片内容被 AI 重发覆盖 → 以磁盘进度为准重挂
+            progressFP = planFingerprint
+            completedSteps = PlanProgressStore.shared.completedIndexes(for: planFingerprint)
+        }
+        if completedSteps.contains(idx) {
+            completedSteps.remove(idx)
+        } else {
+            completedSteps.insert(idx)
+            Haptics.tap()   // 勾选完成给轻触感；取消勾选不打扰
+        }
+        PlanProgressStore.shared.setCompleted(completedSteps, for: planFingerprint)
+    }
+
+    /// v3.9.74 P2.6：plan 交互卡底部——进度文字 +「继续下一步」玻璃胶囊（沿用 v3.9.36 accent 玻璃口径）
+    @ViewBuilder
+    private var planFooter: some View {
+        if planInteractive, !card.items.isEmpty {
+            let doneCount = completedSteps.count
+            // v3.9.74c：单一数据源用 @State completedSteps 推导 nextIdx——同指纹多卡实例时
+            // 其它卡的勾选只写 Store 不刷新本卡 @State，直接读 Store 会出现按钮已切、勾选圈没动的不同步
+            let nextIdx = card.items.indices.first { !completedSteps.contains($0) }
+            HStack(spacing: Spacing.md) {
+                Text(PlanProgressStore.progressText(done: doneCount, total: card.items.count))
+                    .font(.system(size: Typography.tiny))
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 6)
+                if let next = nextIdx {
+                    Button {
+                        Haptics.tap()
+                        onContinueStep?(card.items[next].title)
+                    } label: {
+                        Text("继续：\(card.items[next].title)")
+                            .font(.system(size: Typography.tiny, weight: .semibold))
+                            .lineLimit(1)
                     }
-                    Spacer(minLength: 6)
-                    if let st = item.status, !st.isEmpty {
-                        Text(st)
-                            .font(.system(size: Typography.tiny, weight: .medium))
-                            .foregroundStyle(toneColor(item.tone))
-                            .padding(.horizontal, Spacing.md)
-                            .padding(.vertical, Spacing.xxs)
-                            .background(toneColor(item.tone).opacity(Tint.subtle), in: Capsule())
-                    }
+                    .glassPillStroke()
                 }
             }
         }
+    }
+
+    private func syncProgressOnAppear() {
+        progressFP = planFingerprint
+        completedSteps = PlanProgressStore.shared.completedIndexes(for: planFingerprint)
     }
 
     // MARK: 表格（与 MarkdownTableView 同族观感：表头加重 + 斑马纹 + 横向滚动）
