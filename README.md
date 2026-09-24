@@ -117,6 +117,41 @@ QingliaoWidget/          挂件 Extension target（.appex）：灵动岛/锁屏�
 - **实时活动的 `staleDate` 不是"容忍度"，是"最长假进度时长"**（v3.9.54 立）：免费签名无 APNs ⇒ 进程冻结后没有任何人替我们 update，画面会停在最后一拍。所以「多久转 `.stale`（→ 系统可收起）」就是「僵尸活动最多还能骗用户多久」。活着时推手每 1.2~2.0s 一拍、每拍都带新 staleDate 重新 update，因此把它从 15 分钟压到 4 分钟对正常显示毫无影响，只砍掉挂机的 11 分钟
 - **流式协议加字段一律"可选 + 缺省退化"，不 bump 版本**（v3.9.57 立，NAS 侧 `1c8fbaf` 的实现口径）：`AuthStore.streamPoll` 的返回元组直接扩参（`+toolSpans +lastToolAt`），后端没这两个字段时前端退化成"显示已等 Ns、不显示实测耗时"，而不是报错或空屏。iOS 与后端**分开发版**（NAS 镜像重建有先后），这条是两侧唯一的安全垫；新增字段照此办理，别引入要求"后端必须先于 App"的硬依赖
 
+## 🆕 近期变更（v3.9.75，2026-09-25）
+
+> 用户一轮报的五个 App 问题，一次修完发版。⚠️ 编号口径：v3.9.59~v3.9.74 由 NAS 侧自行发出，**本仓 README 没有对应变更段**，
+> 本段是 v3.9.58 / 503 之后的第一段。基线 = `ca6a181`（3.9.74 / 519）。
+
+- **会话列表红点不再"每次重开 App 全亮"**（`ChatStore.syncUnread`）：原实现把"已读时间"存在内存里（`seenTimes` 是普通字典，冷启动即空），
+  于是冷启动第一轮 `syncUnread` 拿 `lastTime > (seenTimes[id] ?? 0)` 比对，**所有会话都判未读**。修法：
+  ① `seenTimes` 落 `UserDefaults`（键 `qingliao_seen_times`），`loadSeenTimesIfNeeded()` 惰性读一次；
+  ② **首轮只建基线不点灯**——`hasSeenBaseline` 为假时把现有会话的 `lastTime` 直接写进 `seenTimes` 并清 `unread` 后返回，
+  红点只在"基线之后真的来了更新的会话"时才亮；③ `markRead` 里 `loadSeenTimesIfNeeded()` **必须在写入 `seenTimes[id]` 之前**
+  调用，否则会用空字典覆盖掉刚写入的那条（实现时踩过一次，已纠正并留注释）。
+- **输入框展开态附件/相机图标 22 → 26**（`ChatInputBar.attachButtons`）：字号走 `Typography.body`、视觉面 `frame(width: 26, height: 26)`、
+  外扩仍 `.hitArea44(h: 9, v: 9)`（26+9×2=44，HIG 最小可点尺寸不变）。容器配套常量：第二层 `toolRowMinHeight` 38（=26+6×2）、
+  展开态 `containerMinHeight` 88（42+8+38）。第一层（发送键 32×32、行高 42、间距 `Spacing.md`）**未动**。
+  `scripts/ql_inputbar/truth_table_inputbar.swift` 已按新几何重写；⚠️ 两处"计数型"断言改为**只在 `attachButtons` 段内计数**——
+  转写取消那颗 xmark 早就是 26×26 + `hitArea44(h: 9, v: 9)`，全文件计数会误判。`toolRowVisualMirror = 22` 与
+  `brokenCollapsedMirror = 72` 两条**故意冻结**，是 v3.9.68 事故的证据，不要"顺手对齐"。
+- **AI 聊天里的待办自动进生活页清单**（`TodoItem.extractCardItems` + `TodoStore.addAuto`）：原 `extractChecklist` 只认
+  Markdown 的 `- [ ]` / `- [x]` 文本，而 AI 的结构化结果自 v3.9.31 起走 ` ```ql-card ` 围栏（后端 `QCARD_PROMPT` 明确
+  "多步骤任务收尾用 `type=plan`"），于是卡片里的步骤一条都进不去。新增 `extractCardItems(from:)`：`kind == .plan` 直接取全部
+  `Item`，`kind == .list` 要求 title+subtitle 命中"待办/任务/todo/计划/安排/清单"才收（防把设备列表当待办），
+  done 判定 = `tone == .ok` 或 status 含"完成"。`addAuto` 把两路结果合起来按 content 去重（既有条目 + 本轮内部都去重）。
+  `extractChecklist` **原样不动**（NAS 侧有真值表守着它）。
+- **拍照界面顶部黑边 → 改全屏呈现**（`ChatView.swift:1056`）：`CameraPicker` 的 `.sheet` 换 `.fullScreenCover`。
+  UIKit `UIImagePickerController` 放在 sheet 卡里时顶部留出一条不属于它的容器间隙；`CameraPicker.swift` 的
+  Coordinator 自己 dismiss，故只改呈现容器，回调逻辑不动。
+- **点"轻聊投递"会话不再跳进 AI 聊天的推送消息**（`SessionsView.open(_:)`）：该会话是推送投递的落地壳，`chat.load(s)` 后
+  进 `ChatView` 会把 `InboxStore` 的 push 混在对话里。改为标题命中时 `showTaskCenter = true`（`.fullScreenCover` 呈现 `TaskCenterView`），
+  并照常 `markRead` + `Haptics.tap()`。⚠️ **命中口径是 `s.title.contains("投递")`**：三仓里不存在"轻聊投递"字面量，后端会话条目也没有
+  channel/source 字段（只有 `id/title/messages/updatedAt`），所以只能按标题路由——**服务端改名会失配**，届时改这一处判定即可。
+- **⚠️ 需真机验收**：2（展开态图标观感与第一层是否被挤）、4（相机是否真全屏）、5（投递会话点击落点）。
+  1 与 3 有逻辑口径可自查，但红点基线依赖"升级后第一次冷启动"这一次性动作，**删 App 重装才算干净验证**。
+  本机无 Xcode：全工程 `swiftc -parse` 通过（150 个源文件），真值表**本机跑不了**（脚本要 NAS 的 `/opt/data` 环境，
+  本机 scoop swiftc 编译 Foundation 脚本必然 `stdlib.h not found`），需 NAS 侧执行。
+
 ## 🆕 近期变更（v3.9.58，2026-09-22）
 
 > **这一版才是 v3.9.57 那两笔 NAS 提交（`1c8fbaf` + `343dac4`）真正落到手机上的版本。**
