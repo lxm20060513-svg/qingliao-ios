@@ -236,9 +236,12 @@ struct DockOrbOverlay: View {
     var slotIndex: Int = 2
     /// dock 槽位总数（当前 5：会话/看板/聊天/生活/设置）
     var slotCount: Int = 5
+    /// v3.9.78：球体外框边长**单一真源** —— dock 常驻球与长按菜单里重画的「锚点球」必须同尺寸；
+    /// 改尺寸只动这一处（菜单层引用本常量，别再各写一个 52）。
+    static let defaultBallSize: CGFloat = 52
     /// 外框（含光晕）边长；球体 ≈ size × 0.783 —— 52 时球体 ≈ 41pt
     /// v3.6.3：36 → 44；v3.6.4：44 → 50；v3.6.5：50 → 52（用户指定）
-    var ballSize: CGFloat = 52
+    var ballSize: CGFloat = DockOrbOverlay.defaultBallSize
     /// 装机微调预留：正值下移
     var verticalNudge: CGFloat = 0
     /// AI 正在流式回答 → 球切 orbits（点点旋转）；空闲 → ring（缓慢脉动）

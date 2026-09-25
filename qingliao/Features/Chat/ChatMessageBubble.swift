@@ -180,14 +180,15 @@ struct MessageBubble: View {
         }
     }
 
-    /// v3.9.2：AI 头像 = siri 液态玻璃球（开源项目 lersent001/orb 的 Metal 渲染器，见 LiquidOrbAvatar.swift）
+    /// v3.9.2：AI 头像 = siri 液态玻璃球（当时用开源项目 lersent001/orb 的 Metal 渲染器）
     ///   · 思考中（streamingAvatar）→ thinking 态，30fps 连续动画
     ///   · 其余 → idle 态静态帧（播完回落过渡即冻结，长列表里不产生连续 GPU 开销）
+    /// v3.9.78：球退役，改画用户选的卡通宠物（**30pt 走简化形态**：只画头 + 眼 + 嘴，见 PetAvatar.simplify）；
+    ///   待机时同样不逐帧渲染（只在呼吸/眨眼时动），长列表开销不升反降。
     /// 拆独立计算属性：防止 body 巨型表达式 type-check 超时（v3.0.15 CI 实测）
     @ViewBuilder
     private var aiAvatar: some View {
-        // v3.9.4：去掉蓝色底圆（用户要求）——液态玻璃球自身带球体遮罩 + 自发光，外圈本来就是透明的
-        LiquidOrbAvatar(size: 30, thinking: streamingAvatar)
+        PetAvatar(size: 30, state: streamingAvatar ? .thinking : .idle)
             .frame(width: 30, height: 30)
     }
 

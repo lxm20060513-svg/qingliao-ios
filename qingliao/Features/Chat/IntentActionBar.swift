@@ -50,11 +50,15 @@ struct IntentActionBar: View {
         }
         .padding(Spacing.xl)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: Radius.inset, style: .continuous)
-                .stroke(Color.primary.opacity(0.06), lineWidth: 1)
-        )
+        // v3.9.78（用户定稿：**方案 C**）：「弹窗卡片圆角加大，背景改成模糊半透明」
+        //   · 圆角 Radius.inset(12) → **Radius.hero(22)**（hero 卡 / 大面板档；用户从 12/16/22 三档里选了 22）；
+        //   · 材质 `.regularMaterial` → **`.ultraThinMaterial`**：同族最薄、最透，背后对话内容明显透出来
+        //     （原来的 regular 在浅色底上偏白、看着像实心卡）；
+        //   · 描边 → 白 0.8pt 亮边（浅 0.12 / 深 0.22），原来是 `Color.primary.opacity(0.06)` 暗发丝线。
+        // 三件事收在一处口径 = `Theme/LiquidGlass.swift` 的 `OverlayGlassCard`（`.overlayGlassCard()`）：
+        // 识别浮层卡 / 速记待办输入卡也走它（用户「同口径推到其它弹窗」）。阴影仍留在调用点（各浮层投影不同）。
+        // ⚠️ 圆角与描边必须同一个角值，漏一处就是「方框套圆框」——已由意图管道真值表第 9 节钉住。
+        .overlayGlassCard()
         .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
         .padding(.horizontal, Spacing.section)
         .transition(.move(edge: .bottom).combined(with: .opacity))

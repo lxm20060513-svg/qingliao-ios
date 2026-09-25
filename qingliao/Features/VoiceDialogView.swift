@@ -103,21 +103,28 @@ struct VoiceDialogView: View {
 
     // MARK: 顶栏（退出 / 标题 / 模式）
 
+    // v3.9.78（用户 2026-09-25 装机报）：「语音对话四个字居中，退出胶囊同步改成右边胶囊样式」
+    //   · 居中的真因：原来是 HStack[退出, Spacer, 标题, Spacer, 自动发送] —— 双 Spacer 只在**两侧等宽**时
+    //     才把标题顶到屏幕中线，而「退出」比「自动发送 · 开」窄一大截 → 标题实际偏左。
+    //     改法 = ZStack：标题自己吃屏宽居中，两个胶囊叠在上层各贴一边（互不干扰、都可点）。
+    //   · 退出胶囊原来走 `.neutral`（灰底黑字），与右侧不一致 → 同步成 `.accent`（蓝字 + 蓝描边，与右侧同款）。
     private var header: some View {
-        HStack {
-            Button { close() } label: {
-                Text("退出").pill(.topBar, tone: .neutral)
-            }
-            Spacer(minLength: 0)
+        ZStack {
             Text("语音对话")
                 .font(.system(size: Typography.headline, weight: .semibold))
                 .foregroundStyle(.primary)
-            Spacer(minLength: 0)
-            Button { toggleMode() } label: {
-                Text(engine.mode == .auto ? "自动发送 · 开" : "自动发送 · 关")
-                    .pill(.topBar, tone: engine.mode == .auto ? .accent : .neutral)
+                .frame(maxWidth: .infinity)          // 吃满屏宽 → 标题恒在屏幕中线（不随两侧胶囊宽窄漂移）
+            HStack {
+                Button { close() } label: {
+                    Text("退出").pill(.topBar, tone: .accent)
+                }
+                Spacer(minLength: 0)
+                Button { toggleMode() } label: {
+                    Text(engine.mode == .auto ? "自动发送 · 开" : "自动发送 · 关")
+                        .pill(.topBar, tone: engine.mode == .auto ? .accent : .neutral)
+                }
+                .accessibilityLabel(engine.mode == .auto ? "自动发送已开启，停顿两秒自动发出" : "自动发送已关闭，说完点发送")
             }
-            .accessibilityLabel(engine.mode == .auto ? "自动发送已开启，停顿两秒自动发出" : "自动发送已关闭，说完点发送")
         }
         .padding(.top, Spacing.lg)
     }
@@ -160,13 +167,7 @@ struct VoiceDialogView: View {
                 Text(phaseLabel)
                     .font(.system(size: Typography.caption))
                     .foregroundStyle(.secondary)
-                Text(displayText)
-                    .font(.system(size: Typography.title, weight: .medium))
-                    .foregroundStyle(.primary)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(4)
-                    .frame(maxWidth: .infinity)
-                    .animation(Motion.snap, value: displayText)
+                replyText
                 if let voiceError {
                     Text(voiceError)
                         .font(.system(size: Typography.caption))
@@ -291,6 +292,43 @@ struct VoiceDialogView: View {
         }
     }
 
+    /// v3.9.78：回复正文改**可滚动 + 自动跟读**（用户：「这个模式后面的文字显示不出来」）
+    ///
+    /// 真因：原来这里是 `.lineLimit(4)`（17pt 正文、宽 ≈361pt ≈ 每行 21 字）——
+    /// 4 行不到 90 字就被裁成「…」（装机截图实测：正文**正好 4 行**、末行断在句中 + 省略号）。
+    /// 而朗读态的文字是**逐字**增长的（v3.9.77 口径）：念到第 5 行以后，新吐出来的字全部落在
+    /// 被裁掉的那一段里 → 屏幕上永远看不到，观感就是「后面的文字显示不出来」。
+    /// 现在 = `ScrollView`（不再限行）+ 定高上限 `replyMaxHeight`（≈8 行；长文不会把底栏挤走，
+    /// 小屏上由 ScrollView 自己收缩）+ 逐字文本变化时**自动贴底** → 新念出来的字始终在眼前，
+    /// 想回看前文直接手滑即可。
+    /// ⚠️ 别再退回 `lineLimit`：那等于把「后面的文字」重新关掉（真值表有护栏钉住）。
+    private var replyText: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.vertical, showsIndicators: false) {
+                Text(displayText)
+                    .font(.system(size: Typography.title, weight: .medium))
+                    .foregroundStyle(.primary)
+                    .multilineTextAlignment(.center)
+                    // 长文阅读走全站行距令牌（v3.9.19 口径：≥15pt 连续阅读文本用 LineSpacing.long）
+                    .lineSpacing(LineSpacing.long)
+                    .frame(maxWidth: .infinity)
+                    .id(Self.replyBottomAnchor)
+                    .animation(Motion.snap, value: displayText)
+            }
+            .frame(maxHeight: Self.replyMaxHeight)
+            .onChange(of: displayText) { _, _ in
+                // 逐字增长（≈12.5Hz）：**不做动画**直接贴底 —— 带动画会一顿一顿
+                proxy.scrollTo(Self.replyBottomAnchor, anchor: .bottom)
+            }
+        }
+    }
+
+    /// 正文区高度上限（≈8 行 @17pt + 行距 6）：852 屏上 260 波形 + 顶栏 + 底栏之后仍有富余；
+    /// 更小的屏幕上 ScrollView 会自己收缩，不挤走底栏。
+    private static let replyMaxHeight: CGFloat = 220
+    /// 自动贴底用的锚点 id（正文整块一个 id：内容在末尾增长，锚到它的底边即「最新一行」）
+    private static let replyBottomAnchor = "voice_reply_bottom"
+
     /// 最后一条真正的 AI 回答（剥掉进度行，跳过推送与错误占位——与自动朗读同一口径）
     private var latestReplyExcerpt: String? {
         guard let msg = chat.messages.last(where: { !$0.isUser && !$0.isPush && !$0.isErrorPlaceholder })
@@ -298,7 +336,10 @@ struct VoiceDialogView: View {
         let text = MessageBubble.strippingProgressLines(msg.content)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return nil }
-        return text.count > 120 ? String(text.prefix(120)) + "…" : text
+        // v3.9.78：不再截 120 字。截断的理由是「正文区撑不下」（旧 .lineLimit(4)），
+        // 现在正文区是定高 ScrollView（replyText），正文本身可以完整交给它 ——
+        // 否则朗读结束后切回这一段时，长回答又只剩开头 120 字（用户报的同一个症状）。
+        return text
     }
 
     // MARK: 动作执行（引擎给什么就做什么）

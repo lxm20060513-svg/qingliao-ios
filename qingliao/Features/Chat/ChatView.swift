@@ -378,6 +378,31 @@ struct ChatView: View {
     @State private var visibleMessagesCache: [MessageRowItem] = []
     // v3.0.86 fix：是否贴底（onScrollGeometryChange 实时维护）——流式自动滚底仅贴底时生效
     @State private var isScrollPinned = true
+    /// v3.9.78：欢迎页宠物的「抚摸」反应触发器（轻点自增 → PetAvatar 播一次 ≤1.2s 反应）
+    @State private var petPat = 0
+    /// v3.9.78：宠物在屏幕上的真实中心（长按弹菜单时当锚点用，胶囊从宠物身上绽放）
+    @State private var petGlobalCenter: CGPoint = .zero
+
+    /// v3.9.78：欢迎页宠物的状态——**只接既有信号，不新增状态源**。
+    ///   · alert（耷拉）：后端离线（`serverOnline == false`，欢迎页本来就该有失败的冗余通道）
+    ///     或本条生成失败（`generationFailed`，与灵动岛「生成失败」红态同一判定）
+    ///   · thinking：AI 正在回（aiBusy）
+    ///   · idle / patting 其余
+    ///
+    /// ⚠️ 为什么**不接**「新消息（unseen）」：`orbUnseen` 只在本页**不可见**时才为真
+    ///   （DockTabView 用 `!chatVisible` 置位），而欢迎页只在 `chat.messages.isEmpty` 时渲染
+    ///   —— 两者时间上互斥，接上去就是死代码（调研结论：不做只动画表达状态的假接线）。
+    ///   要让它有意义，得先把宠物放到「有消息时也在场」的位置（那是 30/38pt 头像那一层）。
+    private var petState: PetState {
+        if serverOnline == false || generationFailed { return .alert }
+        return aiBusy ? .thinking : .idle
+    }
+
+    /// v3.9.78：生成失败判定提成**单一真源**（原来只写在 pushLiveActivity 里）——宠物与灵动岛共用。
+    private var generationFailed: Bool {
+        stream.status == "error" && !stream.errorMessage.isEmpty
+            && !isRetryableStreamError(stream.errorMessage)
+    }
     private var visibleMessageCount: Int { min(chat.messages.count, displayLimit) }
     /// 可见窗口起始绝对索引（用于日期分隔线的 prevTs 取真实前一条）
     private var visibleStartIndex: Int { chat.messages.count - visibleMessageCount }
@@ -518,8 +543,8 @@ struct ChatView: View {
         let canStop = liveActivityCanStop
         // v3.9.30：失败感知——本地流已以 error 收尾（且不是自动重试中）→ 灵动岛落「生成失败」红态。
         // 提前取本地值再进 Task（Task 闭包 @Sendable 不能捕获 View/Store）
-        let streamFailed = stream.status == "error" && !stream.errorMessage.isEmpty
-                          && !isRetryableStreamError(stream.errorMessage)
+        // v3.9.78：判定提成 `generationFailed`（单真源），与欢迎页宠物的 alert 态共用
+        let streamFailed = generationFailed
         Task { @MainActor in
             if busy {
                 await LiveActivityManager.shared.sync(isBusy: true,
@@ -1684,30 +1709,41 @@ struct ChatView: View {
             Spacer(minLength: kb.isVisible ? 0 : 56).frame(maxHeight: kb.isVisible ? 12 : 120)
 
             ZStack {
-                // v3.9.57：欢迎页特征智能球——液态球常驻流动（live: true，球本身即 logo）。
-                // 原来球上还压着一个白色气泡图标 + 渐变底圆，静态帧时靠图标认身份；
-                // 现在球自己就是会流动的 logo，图标与底圆一并移除（底圆被 0.98 半径的球完全盖住，本就看不出）。
-                // v3.9.71：曾试过"键盘弹起把球缩到 64"腾空间 → 撤回：球的尺寸/常驻流动是既有口径
-                // （有真值表护栏守着 size/live/aiBusy 三件套，属于欢迎页身份，不因布局改动而变）。
-                // 空间由留白归零 + 芯片/续聊卡收起三处腾出（≈200pt），远大于实际缺的 40~70pt。
-                LiquidOrbAvatar(size: 96, thinking: aiBusy, live: true)
+                // v3.9.78：欢迎页形象 = 用户拍板的**卡通宠物**（三选一，见 PetAvatar / PetPainter）。
+                // 原口径（v3.9.57~v3.9.77）= 96pt 液态球（Metal 着色器）+ live: true 常驻 30fps；
+                // 现在换成原生矢量宠物：零 SPM 依赖、包体积增量 0，且**不再常驻逐帧渲染**
+                // （只有呼吸/眨眼/状态切换时才动，后台/键盘无关场景自动停 —— 比原来省电）。
+                // 尺寸仍锁 96pt（欢迎页身份，不因布局改动而变）；三态：思考中（AI 正在回）/ 抚摸（轻点）/ 待机。
+                PetAvatar(size: 96,
+                          state: petState,
+                          patTrigger: petPat)
             }
             .frame(width: 96, height: 96)
-            .contentShape(Rectangle())   // 球自身 allowsHitTesting(false)，不补命中域整颗球点不到
+            .contentShape(Rectangle())   // 形象自身 allowsHitTesting(false)，不补命中域整块点不到
             .accessibilityLabel("轻聊智能体")
-            // v3.9.57：入口交互化——轻点聚焦输入框；长按进语音转文字（与输入框/发送键长按同一路径）。
+            // v3.9.78：量宠物在屏幕上的真实中心（菜单从这里绽放；键盘/滚动导致的位移会同步刷新）
+            .onGeometryChange(for: CGPoint.self) { proxy in
+                let r = proxy.frame(in: .global)
+                return CGPoint(x: r.midX, y: r.midY)
+            } action: { petGlobalCenter = $0 }
+            // v3.9.57：入口交互化——轻点聚焦输入框（v3.9.78 起同时触发「抚摸」反应）。
+            // v3.9.78：**长按口径改成与长按智慧球完全一致**（用户：「长按宠物改成和长按智慧球一样的效果」）
+            //   —— 不再直连语音转文字，而是弹同一套六颗快捷胶囊（语音输入/语音对话都在菜单里，语音入口没丢；
+            //      动作分发仍走 DockTabView.handleOrbAction，单一真源，不在聊天页复制第二套）。
             // 用 ExclusiveGesture 而非分别挂 onTapGesture + onLongPressGesture：后者在长按触发后
-            // 抬手仍会补一次 tap → 把语音模式刚收回的键盘又聚焦起来（v2.0.107 的口径会被打破）。
+            // 抬手仍会补一次 tap → 键盘又被聚焦起来（v2.0.107 的口径会被打破）。
             .gesture(
                 ExclusiveGesture(
                     LongPressGesture(minimumDuration: 0.45).onEnded { _ in
-                        Haptics.tap()
-                        // keyboardWasUp 与输入框长按同口径：kb.isVisible（键盘当前是否开着）
-                        // ——不是 inputFocus（触摸聚焦瞬间 inputFocus 已 true，用它会把键盘误收）
-                        toggleVoiceMode(keyboardWasUp: kb.isVisible)
+                        Haptics.press()       // 与长按智慧球同一触感（不是 .tap）
+                        NotificationCenter.default.post(
+                            name: .qingliaoOrbMenuFromPet,
+                            object: nil,
+                            userInfo: OrbPetAnchor(center: petGlobalCenter, size: 96).userInfo)
                     },
                     TapGesture().onEnded {
                         Haptics.tap()
+                        petPat += 1        // 抚摸：一次触感 + ≤1.2s 一次性反应（不进任何功能页）
                         inputFocus = true
                     }
                 )
@@ -2188,10 +2224,8 @@ struct ChatView: View {
                                 // v3.0.15：恢复 v3.0.12 之前的原始三点动画（思考球 orbits 粒子已移除，改由输出头像承担粒子球）
                                 // v3.0.18：思考期头像也改为粒子球（38pt，用户要求全程粒子球头像）
                                 HStack(alignment: .top, spacing: 10) {
-                                    // v3.9.2：思考中占位头像 = siri 液态玻璃球（恒 thinking 态）
-                                    // v3.9.4：去掉蓝色底圆（用户要求）
-                                    LiquidOrbAvatar(size: 38, thinking: true)
-                                        .allowsHitTesting(false)
+                                    // v3.9.2：思考中占位头像 = 液态玻璃球；v3.9.78：换成用户选的卡通宠物（思考态，简化形态）
+                                    PetAvatar(size: 38, state: .thinking)
                                         .frame(width: 38, height: 38)
                                     // v2.0.35：去掉"思考中"文字（用户要求），保留三点跳动动画
                                     TypingIndicator()

@@ -44,6 +44,9 @@ struct DockTabView: View {
     @State private var dockBarHeight: CGFloat = DockOrbOverlay.fallbackBarHeight
     /// v3.9.59（攒版）：长按智慧球 → 快捷菜单（新建会话 / AI 速记 / 语音输入 / 今日待办）
     @State private var showOrbMenu = false
+    /// v3.9.78：本次菜单的锚点来自聊天页宠物（全局中心 + 尺寸）；nil = dock 智慧球。
+    /// 菜单收起时清零（见 onChange），免得下次长按球时菜单锚在宠物位置。
+    @State private var orbMenuPetAnchor: OrbPetAnchor?
     /// v3.9.76：智慧球「AI 识别」浮层（球上悬浮结果卡 + 扫描环 + 背景虚化）
     @State private var showIdentify = false
     /// v3.9.76：智慧球「语音对话」全屏页（说 → 自动发 → 自动念 → 自动续听）
@@ -170,6 +173,11 @@ struct DockTabView: View {
                     OrbQuickMenuOverlay(barHeight: dockBarHeight,
                                         slotIndex: 2,
                                         slotCount: dockSlotCount,
+                                        // v3.9.78：锚点球与 dock 那颗同状态（菜单开着时球仍在原位可见）
+                                        thinking: stream.isStreaming,
+                                        unseen: orbUnseen,
+                                        failed: orbFailed,
+                                        petAnchor: orbMenuPetAnchor,
                                         onAction: { handleOrbAction($0) },
                                         onClose: { showOrbMenu = false })
                         .transition(.opacity)
@@ -177,6 +185,20 @@ struct DockTabView: View {
                 }
             }
             .animation(Motion.snap, value: showOrbMenu)
+            // v3.9.78：菜单收起时把锚点清掉（否则下一次长按球的菜单会锚在上次的宠物位置）
+            .onChange(of: showOrbMenu) { _, shown in
+                if !shown { orbMenuPetAnchor = nil }
+            }
+            // v3.9.78：聊天页宠物长按 = 长按智慧球**同一套**菜单（用户：「长按宠物改成和长按智慧球一样的效果」）。
+            // 只把锚点换成宠物，动作分发仍走 handleOrbAction（单一真源——不在聊天页复制一份，
+            // 否则新建会话/速记/待办/识别/语音这六条入口迟早两套口径）。
+            // 互斥口径与 dock 命中层一致：识别浮层/语音页开着时不弹。
+            .onReceive(NotificationCenter.default.publisher(for: .qingliaoOrbMenuFromPet)) { note in
+                guard !showOrbMenu, !showIdentify, !showVoiceDialog else { return }
+                guard let anchor = OrbPetAnchor(userInfo: note.userInfo) else { return }
+                orbMenuPetAnchor = anchor
+                showOrbMenu = true
+            }
             // v3.9.76：智慧球「AI 识别」浮层（球上悬浮卡 + 扫描环 + 背景虚化）。
             // 与长按菜单互斥（菜单先收起才进这里）。「问 AI」复用既有 .qingliaoTaskSend 通道
             // —— 与任务中心、备忘录「发给 AI」完全同一条路，不新造通道。

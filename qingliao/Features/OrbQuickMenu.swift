@@ -44,6 +44,45 @@ struct OrbQuickAction: Identifiable {
     ]
 }
 
+// MARK: - v3.9.78 菜单锚点：dock 智慧球 / 聊天页宠物
+//
+// 用户：「长按宠物改成和长按智慧球一样的效果」→ 唯一正解是**同一套菜单层**换个锚点，
+// 而不是在聊天页再搭一套（动作分发 handleOrbAction 全在 DockTabView，复制一份必然漂移）。
+// 菜单层本来就吃 `ballCenter`（胶囊从它绽放、轻纱之上重画它），所以这里只把「锚点是什么」
+// 变成参数：dock 分支口径**一字未改**（仍是 SiriBallView + DockOrbOverlay.defaultBallSize）。
+
+/// 从聊天页宠物发起长按时的锚点（**全局坐标** + 尺寸；由 ChatView 量好传来）
+struct OrbPetAnchor: Equatable {
+    var center: CGPoint
+    var size: CGFloat
+
+    /// 跨视图信号本仓统一走 NotificationCenter（与 .qingliaoOrbVoiceInput / .qingliaoTaskSend 同风格），
+    /// 不为这一次点击新造共享状态。NSValue 负责打包 CGPoint。
+    var userInfo: [String: Any] { ["center": NSValue(cgPoint: center), "size": size] }
+
+    init(center: CGPoint, size: CGFloat) {
+        self.center = center
+        self.size = size
+    }
+
+    init?(userInfo: [AnyHashable: Any]?) {
+        guard let v = userInfo?["center"] as? NSValue, let s = userInfo?["size"] as? CGFloat else { return nil }
+        center = v.cgPointValue
+        size = s
+    }
+}
+
+extension Notification.Name {
+    /// 聊天页宠物长按 → 请求 dock 层弹出「长按快捷菜单」（与长按智慧球同一套菜单与动作分发）
+    static let qingliaoOrbMenuFromPet = Notification.Name("qingliaoOrbMenuFromPet")
+}
+
+/// 菜单锚点画什么：dock 智慧球（默认）/ 聊天页宠物
+enum OrbQuickMenuAnchor: Equatable {
+    case dockOrb
+    case pet(size: CGFloat)
+}
+
 // MARK: - 球命中层（轻点切聊天页 + 长按弹菜单）
 //
 // DockOrbOverlay 整层 allowsHitTesting(false)（触摸穿透给系统 tab item）；本层只盖住球体
@@ -87,6 +126,14 @@ struct OrbQuickMenuOverlay: View {
     var barHeight: CGFloat
     var slotIndex: Int = 2
     var slotCount: Int = 5
+    /// v3.9.78：菜单层要在材质模糊**之上**重画一颗「锚点球」，状态与 dock 那颗同源
+    ///（流式转动 / 未读亮点 / 失败压暗）—— 不传就永远是一颗「空闲」球，与背后真实状态打架。
+    var thinking: Bool = false
+    var unseen: Bool = false
+    var failed: Bool = false
+    /// v3.9.78：「长按宠物 = 长按智慧球同一套菜单」→ 宠物发起时传它的**全局中心与尺寸**；
+    /// nil = dock 智慧球（原口径一字未改，dock 那条路仍走 DockOrbOverlay.orbCenterGlobal）。
+    var petAnchor: OrbPetAnchor? = nil
     var onAction: (OrbQuickAction) -> Void
     var onClose: () -> Void
 
@@ -95,10 +142,14 @@ struct OrbQuickMenuOverlay: View {
             let g = geo.frame(in: .global)
             let barH = barHeight > 1 ? barHeight : DockOrbOverlay.fallbackBarHeight
             // 同 OrbHitLayer：球心走 DockOrbOverlay.orbCenterGlobal，与可见球严格同源
-            let c = DockOrbOverlay.orbCenterGlobal(slotIndex: slotIndex,
-                                                   slotCount: slotCount,
-                                                   barHeight: barH)
+            let c = petAnchor?.center ?? DockOrbOverlay.orbCenterGlobal(slotIndex: slotIndex,
+                                                                      slotCount: slotCount,
+                                                                      barHeight: barH)
             OrbQuickMenuLayer(ballCenter: CGPoint(x: c.x - g.minX, y: c.y - g.minY),
+                              anchor: petAnchor.map { OrbQuickMenuAnchor.pet(size: $0.size) } ?? .dockOrb,
+                              thinking: thinking,
+                              unseen: unseen,
+                              failed: failed,
                               onAction: onAction, onClose: onClose)
         }
     }
@@ -154,6 +205,13 @@ enum OrbQuickMenuLayout {
 
 struct OrbQuickMenuLayer: View {
     let ballCenter: CGPoint
+    /// v3.9.78：锚点画什么（dock 智慧球 / 聊天页宠物）—— 只换「轻纱之上重画的那个东西」，
+    /// 轻纱/光晕/胶囊落点与动画全部共用（几何仍以 ballCenter 为原点，与用户看到的锚点在同一点）
+    var anchor: OrbQuickMenuAnchor = .dockOrb
+    /// v3.9.78：锚点球的状态（与 dock 那颗同源传进来）
+    var thinking: Bool = false
+    var unseen: Bool = false
+    var failed: Bool = false
     var onAction: (OrbQuickAction) -> Void
     var onClose: () -> Void
 
@@ -164,7 +222,7 @@ struct OrbQuickMenuLayer: View {
     @State private var activated = false
     @Environment(\.colorScheme) private var scheme
     /// v3.9.59：减弱动态效果（系统辅助功能）——弹簧散射/位移会加重不适感，退化为「原地淡入」。
-    /// 全仓口径一致：LoginView、LiquidOrbAvatar 都读同一环境值，本层别自己发明开关。
+    /// 全仓口径一致：LoginView、欢迎页宠物（PetAvatar）都读同一环境值，本层别自己发明开关。
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// 单颗胶囊入场动画：正常运行按 index 错峰 50ms；减弱动态效果下退化为瞬时节奏（只留透明度过渡）
@@ -192,6 +250,8 @@ struct OrbQuickMenuLayer: View {
             .onTapGesture(perform: dismissAnimated)
 
             halo
+
+            anchorObject
 
             ForEach(Array(OrbQuickAction.all.enumerated()), id: \.element.id) { idx, action in
                 orbPill(action, index: idx)
@@ -221,6 +281,45 @@ struct OrbQuickMenuLayer: View {
             }
         }
         .position(ballCenter)
+        .allowsHitTesting(false)
+    }
+
+    /// 锚点球（v3.9.78 用户：「这个界面需要把底部的智慧球显示出来」）
+    ///
+    /// 为什么要在菜单层重画一颗：遮罩改成整屏 `.ultraThinMaterial` 后，dock 那颗球被压在
+    /// **磨砂层下面**（整条 dock 一起糊掉，球只剩一团浅蓝光斑）。而六颗胶囊恰恰是**从球心
+    /// 弹射**出来的——锚点看不见，绽放就没了起点，观感上像凭空冒出来的。
+    ///
+    /// 与 dock 那颗**严格同源**（不是另画一颗像的）：
+    ///   · 中心 → `ballCenter`（= `DockOrbOverlay.orbCenterGlobal`，菜单/命中层/可见球共用）；
+    ///   · 尺寸 → `DockOrbOverlay.defaultBallSize`（单一真源，改尺寸与 dock 一起变）；
+    ///   · 状态 → thinking/unseen/failed 直传（流式转动、未读亮点、失败压暗与 dock 一致）。
+    /// 它盖在材质**之上**，所以背后那颗糊掉的只是同一位置的重影，不会看出两颗球。
+    ///
+    /// ⚠️ 不吃事件：`allowsHitTesting(false)` 后点球 = 点空白 = 收起菜单（与轻纱同语义），
+    ///    别给它挂手势 —— 菜单层是模态的，多一个命中面就多一处抢触摸的雷。
+    @ViewBuilder
+    private var anchorObject: some View {
+        Group {
+            switch anchor {
+            case .dockOrb:
+                // 原口径（未改）：与 dock 那颗球严格同源
+                SiriBallView(thinking: thinking,
+                             size: DockOrbOverlay.defaultBallSize,
+                             fps: thinking ? 30 : 15,
+                             unseen: unseen,
+                             failed: failed)
+                    .frame(width: DockOrbOverlay.defaultBallSize,
+                           height: DockOrbOverlay.defaultBallSize)
+            case .pet(let size):
+                // v3.9.78：锚点是聊天页宠物时，重画的也必须是**宠物**（用户选的形态 + 同一尺寸）。
+                // 画球就变成「长按宠物弹出一颗球」——观感与动画起点都对不上。
+                PetAvatar(size: size, state: thinking ? .thinking : .idle)
+                    .frame(width: size, height: size)
+            }
+        }
+        .position(ballCenter)
+        .opacity(shown ? 1 : 0)          // 与轻纱同节奏淡入（onAppear 的 withAnimation 一并驱动）
         .allowsHitTesting(false)
     }
 
@@ -343,8 +442,11 @@ struct QuickCaptureSheet: View {
             TextField(mode.placeholder, text: $text, axis: .vertical)
                 .lineLimit(1...4)
                 .padding(Spacing.xl)
-                .background(.quaternary,
-                            in: RoundedRectangle(cornerRadius: Radius.field, style: .continuous))
+                // v3.9.78（用户「同口径也推到其它弹窗」）：输入卡也走浮层玻璃口径 —— 原来是 `.quaternary`
+                // 实灰底 + `Radius.field`(14)，在系统毛玻璃弹窗底上是一块「实心灰板」。
+                // 圆角取 `Radius.card`(16) 而不是卡片那档 `Radius.hero`(22)：这是高约 66pt 的多行输入框，
+                // 22 会接近胶囊形；要跟卡片完全一样圆，改这一个参数即可。
+                .overlayGlassCard(cornerRadius: Radius.card)
             // 用户反馈「输入框上移让观感更协调」：原来整个内容块在 detent 里垂直居中，
             // 输入框悬在卡片正中、与标题脱节（标题上方留白按算式约 175pt，见下）。
             // 改为全站输入弹窗同口径——输入区贴顶、操作区沉底（MemoSection addSheet /

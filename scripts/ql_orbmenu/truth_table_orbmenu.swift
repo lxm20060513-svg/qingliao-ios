@@ -620,5 +620,148 @@ check("胶囊文字有软兜底（lineLimit(1) + minimumScaleFactor）",
 // 逐字进度只在真的前进时写（值没变也写会白白触发订阅方重算）
 check("逐字进度只在前进时写（next != 当前值）", speechClean.contains("if next != self.progress.charCount"))
 
+// 8) v3.9.78：菜单层在材质模糊**之上**重画一颗「锚点球」（用户：「这个界面需要把底部的智慧球显示出来」）
+//    真因：v3.9.77 把遮罩改成整屏 `.ultraThinMaterial` 后，dock 那颗球被压在磨砂层**下面**
+//    （整条 dock 一起糊掉，球只剩一团浅蓝光斑）—— 而六颗胶囊恰恰是**从球心弹射**出来的，
+//    锚点看不见，绽放就没了起点。修法 = 在材质之后、胶囊之前按**同源几何/尺寸/状态**重画一颗。
+// v3.9.78 追加：锚点做成参数（`.dockOrb` / `.pet(size:)`）—— 原来的 `private var ball` 改名 `anchorObject`
+// 并内部分支；切片口径不变（同一段文本里同时含两个分支）。
+let orbBall = between(orbClean, "private var anchorObject: some View", "private func pillOffset")
+check("锚点球切片取到（切空了下面就是空真）", !orbBall.isEmpty)
+check("锚点球与可见球同源球心（ballCenter）", orbBall.contains(".position(ballCenter)"))
+check("锚点球尺寸走单一真源 DockOrbOverlay.defaultBallSize",
+      orbBall.contains("size: DockOrbOverlay.defaultBallSize")
+      && orbBall.contains("width: DockOrbOverlay.defaultBallSize"))
+check("锚点球三态直传 + fps 分档（与 dock 那颗同一套观感）",
+      orbBall.contains("thinking: thinking") && orbBall.contains("unseen: unseen")
+      && orbBall.contains("failed: failed") && orbBall.contains("fps: thinking ? 30 : 15"))
+// ⚠️ 菜单层是**模态**的：锚点球只能看不能吃事件，否则点球收起这条（与轻纱同语义）会被抢掉。
+check("锚点球不吃事件（allowsHitTesting(false)，点球 = 点空白 = 收起）",
+      orbBall.contains(".allowsHitTesting(false)") && !orbBall.contains("onTapGesture"))
+// v3.9.78：锚点是**参数**（dock 球 / 聊天页宠物）——同一套菜单层，不在聊天页搭第二套
+check("锚点做成参数（默认 .dockOrb，另有 .pet(size:)）",
+      orbClean.contains("var anchor: OrbQuickMenuAnchor = .dockOrb")
+      && orbClean.contains("case pet(size: CGFloat)"))
+check("锚点是宠物时必须重画宠物（不是画球）",
+      orbBall.contains("PetAvatar(size: size, state: thinking ? .thinking : .idle)"))
+check("宠物锚点只覆盖中心（几何换算与落点不动）",
+      orbClean.contains("let c = petAnchor?.center ?? DockOrbOverlay.orbCenterGlobal(slotIndex: slotIndex,")
+      && orbClean.contains("ballCenter: CGPoint(x: c.x - g.minX, y: c.y - g.minY)"))
+// ZStack 层序是本次修复的**真身**：材质 → 光晕 → 锚点球 → 胶囊。
+// 球若回到材质之前，就等于没修（又被糊掉）；若跑到胶囊之后，会盖住胶囊底排的呼吸。
+let orbZStack = between(orbClean, "ZStack {", "ForEach(Array(OrbQuickAction.all.enumerated())")
+check("菜单 ZStack 切片取到（切空了层序断言就是空真）", !orbZStack.isEmpty)
+let iMaterial = orbZStack.range(of: "Rectangle().fill(.ultraThinMaterial)")
+let iHaloIn = orbZStack.range(of: "halo")
+let iBallIn = orbZStack.range(of: "anchorObject")   // v3.9.78：原 `ball` 改名（层序断言跟着改）
+check("层序 = 材质 → 光晕 → 锚点球（球在材质之上，否则又被糊掉）",
+      iMaterial != nil && iHaloIn != nil && iBallIn != nil
+      && iMaterial!.lowerBound < iHaloIn!.lowerBound
+      && iHaloIn!.lowerBound < iBallIn!.lowerBound)
+check("Overlay → Layer 三态透传接线完整",
+      between(orbClean, "OrbQuickMenuLayer(ballCenter:", "onAction: onAction")
+          .contains("thinking: thinking")
+      && !between(orbClean, "OrbQuickMenuLayer(ballCenter:", "onAction: onAction").isEmpty)
+// DockTabView 侧：状态直传（切片到调用点，别整文件 grep —— DockOrbOverlay 那处也有同款串）
+let menuCall = between(stripCommentLines(dockSrc),
+                       "OrbQuickMenuOverlay(barHeight: dockBarHeight",
+                       "onClose: { showOrbMenu = false })")
+check("DockTabView 调用点切片取到", menuCall.contains("slotCount: dockSlotCount"))
+check("DockTabView 把三态传进菜单（球在原位也跟随真实状态）",
+      menuCall.contains("thinking: stream.isStreaming")
+      && menuCall.contains("unseen: orbUnseen")
+      && menuCall.contains("failed: orbFailed"))
+// 尺寸单一真源：dock 侧不再写字面量、菜单层也不许自己写一个
+check("球尺寸单一真源在 DockOrbOverlay（dock 侧改引用常量）",
+      chatEffectsSrc.contains("static let defaultBallSize: CGFloat = 52")
+      && chatEffectsSrc.contains("var ballSize: CGFloat = DockOrbOverlay.defaultBallSize"))
+check("菜单层不再出现写死的球尺寸字面量", !orbClean.contains("size: 52"))
+
+// 10) v3.9.78：语音对话页「后面的文字显示不出来」（用户报修，配图 = 朗读态）
+//     真因：正文挂 `.lineLimit(4)` + 逐字增长 → 念到第 5 行以后新吐的字全部落在被裁掉的那段里。
+//     修法：正文改**定高 ScrollView + 逐字变化自动贴底**，且不再截 120 字。
+let replySlice = between(voiceClean, "private var replyText: some View", "private static let replyMaxHeight")
+check("正文切片取到（切空了下面就是空真）", !replySlice.isEmpty)
+check("正文不再挂 lineLimit（旧 4 行裁切必须清零，它就是把「后面的文字」关掉的那一行）",
+      !voiceClean.contains("lineLimit")
+      && !between(voiceClean, "Text(phaseLabel)", "if let voiceError").isEmpty)
+check("core 里正文改走 replyText（不再是裸 Text(displayText) + 裁切）",
+      between(voiceClean, "Text(phaseLabel)", "if let voiceError").contains("replyText"))
+check("正文走 ScrollView + 定高上限（长文可读、不外扩挤走底栏）",
+      replySlice.contains("ScrollView(") && replySlice.contains(".frame(maxHeight: Self.replyMaxHeight)"))
+check("正文区高度上限走常量（≈8 行），不写魔法数",
+      voiceClean.contains("private static let replyMaxHeight: CGFloat = 220"))
+check("逐字增长时自动贴底（新念出来的字始终在眼前）",
+      replySlice.contains("proxy.scrollTo(Self.replyBottomAnchor, anchor: .bottom)")
+      && replySlice.contains(".onChange(of: displayText)")
+      && voiceClean.contains("private static let replyBottomAnchor = \"voice_reply_bottom\""))
+check("长文阅读走行距令牌（LineSpacing.long）", replySlice.contains(".lineSpacing(LineSpacing.long)"))
+// 朗读结束切回摘要段时也不能只有开头 —— 旧的 120 字硬截断是同一个症状的另一半
+check("最后一条回答不再截 120 字（截断理由已被 ScrollView 取代）",
+      !voiceClean.contains("text.count > 120"))
+
+// ── 12. v3.9.78 语音页顶栏（用户 2026-09-25 装机报：「语音对话四个字居中，退出胶囊同步改成右边胶囊样式」）──
+// 居中的真因：原来是 `HStack[退出, Spacer, 标题, Spacer, 自动发送]` —— 双 Spacer 只在**两侧等宽**时才把标题
+// 顶到屏幕中线，而「退出」比「自动发送 · 开」窄一大截 → 标题实际偏左。改法 = ZStack + 标题吃满屏宽。
+let voiceHeaderSlice: String = {
+    guard let a = voiceSrc.range(of: "private var header: some View {"),
+          let b = voiceSrc.range(of: "// MARK: 核心视觉") else { return "" }
+    return String(voiceSrc[a.lowerBound..<b.lowerBound])
+}()
+check("语音页顶栏切片可切出（空了后面全是空真）", !voiceHeaderSlice.isEmpty)
+check("顶栏改 ZStack 承载（标题不再夹在两个宽度不等的胶囊之间）",
+      voiceHeaderSlice.contains("ZStack {"))
+check("标题吃满屏宽 → 恒在屏幕中线（不随两侧胶囊宽窄漂移）",
+      voiceHeaderSlice.contains(".frame(maxWidth: .infinity)"))
+check("标题文案不变", voiceHeaderSlice.contains("Text(\"语音对话\")"))
+check("退出胶囊与右侧同款（accent：蓝字 + 蓝描边，不再走中性灰）",
+      voiceHeaderSlice.contains("Text(\"退出\").pill(.topBar, tone: .accent)"))
+check("右侧模式胶囊仍在（顶栏没被改坏）",
+      voiceHeaderSlice.contains("Text(engine.mode == .auto ? \"自动发送 · 开\" : \"自动发送 · 关\")"))
+
+// ── 11. v3.9.78 浮层卡片口径（用户 2026-09-25：圆角加大 + 背景改模糊半透明，随后「同口径也推到其它弹窗」）──
+// 由头：聊天页那张意图动作卡在他眼里「圆角小 + 背景像实心白卡」→ 出三候选稿（16+玻璃 / 22+玻璃 / 22+更透）
+// → 他拍板 **C**（圆角 22 + 同族最薄的 `.ultraThinMaterial`）；再要求推到识别浮层与速记/待办弹窗。
+// 口径收在 `Theme/LiquidGlass.swift` 的 `OverlayGlassCard`（`.overlayGlassCard()`）：
+// 调用点只准写调用，材质/圆角/描边三个数值只准出现在那一处（否则改一处漏两处 = 方框套圆框）。
+let lgSrc = src("Theme/LiquidGlass.swift")
+let overlayMod: String = {
+    guard let a = lgSrc.range(of: "struct OverlayGlassCard: ViewModifier"),
+          let b = lgSrc.range(of: "// MARK: - 滚动层次感") else { return "" }
+    return String(lgSrc[a.lowerBound..<b.lowerBound])
+}()
+check("浮层卡片口径切片可切出（空了后面全是空真）", !overlayMod.isEmpty)
+check("材质 = .ultraThinMaterial（用户挑的「更透」那档，不是 regularMaterial）",
+      overlayMod.contains(".background(.ultraThinMaterial,"))
+check("圆角默认 Radius.hero(22)（用户从 12/16/22 三档里选的 22）",
+      overlayMod.contains("var cornerRadius: CGFloat = Radius.hero"))
+check("描边 = 白 0.8pt 亮边，浅 0.12 / 深 0.22（与 GlassCard 同参）",
+      overlayMod.contains("strokeBorder(Color.white.opacity(scheme == .dark ? 0.22 : 0.12), lineWidth: 0.8)"))
+check("对外暴露 .overlayGlassCard() 且默认走 hero 档",
+      lgSrc.contains("func overlayGlassCard(cornerRadius: CGFloat = Radius.hero) -> some View"))
+
+// 调用点①：聊天页意图动作卡（聊天页那张，用户原图就是它）
+check("① 意图动作卡走 .overlayGlassCard()",
+      src("Features/Chat/IntentActionBar.swift").contains(".overlayGlassCard()"))
+// 调用点②：AI 识别浮层两张卡（扫描中 / 没认出可用内容）
+// ⚠️ identifySrc 已在第 9 节声明过 —— 顶层重复 `let` = 编译不过（本节第一版就踩了），直接复用。
+// ⚠️ 计数/排除式断言先剥注释：这两张卡的注释里就写着 `.overlayGlassCard()` 与旧口径（说明「改了什么」），
+//    不剥会数出 4 处（注释 2 + 代码 2）→ 假红。
+let identifyClean = stripCommentLines(identifySrc)
+check("② 识别浮层两张卡都走新口径（应当是 2 处）",
+      identifyClean.components(separatedBy: ".overlayGlassCard()").count - 1 == 2)
+check("② 识别浮层旧的实心卡口径清零（regularMaterial / Radius.inset / 暗发丝线）",
+      !identifyClean.contains(".regularMaterial")
+      && !identifyClean.contains("Radius.inset")
+      && !identifyClean.contains("Color.primary.opacity(0.06)"))
+// 调用点③：速记/待办弹窗里的输入卡（弹窗自身底不动 —— v3.9.23 决策：系统玻璃底不许覆盖）
+let captureSrc = src("Features/OrbQuickMenu.swift")
+check("③ 速记/待办输入卡走新口径（圆角取 Radius.card 档，不是 hero）",
+      captureSrc.contains(".overlayGlassCard(cornerRadius: Radius.card)"))
+check("③ 输入卡旧的实灰底清零（.background(.quaternary,）",
+      !captureSrc.contains(".background(.quaternary,"))
+check("③ 弹窗自身依旧不铺背景（v3.9.23 红线：别给 sheet 挂 presentationBackground）",
+      !captureSrc.contains(".presentationBackground"))
+
 print("智慧球长按菜单真值表：\(passCount) 通过 / \(failCount) 失败")
 if failCount > 0 { exit(1) }

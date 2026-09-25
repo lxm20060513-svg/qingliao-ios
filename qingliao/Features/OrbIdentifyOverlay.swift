@@ -187,11 +187,10 @@ struct OrbIdentifyOverlay: View {
                 .foregroundStyle(.secondary)
         }
         .padding(Spacing.xxl)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: Radius.inset, style: .continuous)
-                .stroke(Color.primary.opacity(0.06), lineWidth: 1)
-        )
+        // v3.9.78（用户「同口径也推到其它弹窗」）：与聊天页意图动作卡**同一口径** ——
+        // 毛玻璃最薄档 `.ultraThinMaterial` + 圆角 `Radius.hero`(22) + 白 0.8pt 亮边，收在 `.overlayGlassCard()`。
+        // 原口径 = `.regularMaterial` + `Radius.inset`(12) + `Color.primary.opacity(0.06)` 暗发丝线（实心卡观感）。
+        .overlayGlassCard()
         .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
         .padding(.bottom, Spacing.xl)
     }
@@ -216,11 +215,10 @@ struct OrbIdentifyOverlay: View {
             }
         }
         .padding(Spacing.xxl)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: Radius.inset, style: .continuous)
-                .stroke(Color.primary.opacity(0.06), lineWidth: 1)
-        )
+        // v3.9.78（用户「同口径也推到其它弹窗」）：与聊天页意图动作卡**同一口径** ——
+        // 毛玻璃最薄档 `.ultraThinMaterial` + 圆角 `Radius.hero`(22) + 白 0.8pt 亮边，收在 `.overlayGlassCard()`。
+        // 原口径 = `.regularMaterial` + `Radius.inset`(12) + `Color.primary.opacity(0.06)` 暗发丝线（实心卡观感）。
+        .overlayGlassCard()
         .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
         .padding(.bottom, Spacing.xl)
     }

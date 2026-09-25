@@ -355,9 +355,36 @@ check("优先权落在输入栏那一层（切片里 inputArea + layoutPriority 
 check("优先权不再挂整个 chatComposerArea", !cvSrc.contains("chatComposerArea\n                .layoutPriority(1)"))
 check("输入栏优先权全文件只出现 1 次", cvSrc.components(separatedBy: ".layoutPriority(1)").count - 1 == 1)
 check("欢迎页顶部留白随键盘收起", cvSrc.contains("Spacer(minLength: kb.isVisible ? 0 : 56)"))
-check("欢迎页智能球保持既有口径（不因布局改小）", cvSrc.contains("LiquidOrbAvatar(size: 96, thinking: aiBusy, live: true)"))
+// v3.9.78：欢迎页形象已从液态球换成卡通宠物（PetAvatar）——「身份尺寸不因布局改动而变」这条口径不变，只是主体换了
+check("欢迎页形象保持既有尺寸口径（96pt，不因布局改小）", cvSrc.contains("PetAvatar(size: 96,"))
 check("建议芯片随键盘收起", cvSrc.contains("if !kb.isVisible {") && cvRaw.contains("// if !kb.isVisible（建议芯片）"))
 check("续聊卡随键盘收起", cvSrc.contains("!clearing, !kb.isVisible {"))
+
+// ── 9. 意图动作卡外观口径（v3.9.78 用户定稿「方案 C」：「弹窗卡片圆角加大，背景改成模糊半透明」）──
+// 旧形态 = `.regularMaterial` + `Radius.inset`(12) + `Color.primary.opacity(0.06)` 暗发丝线 ——
+// 浅色底上材质偏白，看着像**实心卡**；定稿 = 浮层玻璃口径（`.ultraThinMaterial` 同族最薄 + `Radius.hero`(22)
+// + 白 0.8pt 亮边），实现收在 `Theme/LiquidGlass.swift` 的 `OverlayGlassCard`（`.overlayGlassCard()`）——
+// 用户随后说「同口径也推到其它弹窗」，识别浮层卡 / 速记待办输入卡共用同一处口径
+// （调用点清单与单一真源断言见 智慧球菜单真值表 第 11 节）。
+let barCardSlice: String = {
+    guard let a = barSrc.range(of: ".frame(maxWidth: .infinity, alignment: .leading)"),
+          let b = barSrc.range(of: ".padding(.horizontal, Spacing.section)") else { return "" }
+    return String(barSrc[a.lowerBound..<b.lowerBound])
+}()
+check("意图卡外观切片可切出（空了后面全是空真）", !barCardSlice.isEmpty)
+// ⚠️ 排除式断言一律先剥注释：本卡的注释里就写着旧口径（Radius.inset / .regularMaterial），
+//    不剥会把「说明」当成回退 → 假红（本仓踩过多次）。
+let cardClean = stripComments(barCardSlice)
+check("走浮层玻璃口径 .overlayGlassCard()（口径数值不写在调用点）",
+      cardClean.contains(".overlayGlassCard()"))
+check("旧的实心卡口径清零（.regularMaterial / Radius.inset / 暗发丝线）",
+      !cardClean.contains(".regularMaterial")
+      && !cardClean.contains("Radius.inset")
+      && !cardClean.contains("Color.primary.opacity(0.06)"))
+check("调用点不再自己画圆角/材质（单一口径只在 OverlayGlassCard 里）",
+      !cardClean.contains("RoundedRectangle(cornerRadius:"))
+check("浮层投影留在调用点（0.12 / 12 / y4）",
+      cardClean.contains(".shadow(color: .black.opacity(0.12), radius: 12, y: 4)"))
 
 print("\n———————————————")
 print(failures == 0 ? "✅ 全部通过 \(total)/\(total)" : "❌ 失败 \(failures)/\(total)")

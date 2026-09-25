@@ -19,6 +19,9 @@ struct AppearanceSheet: View {
     @AppStorage("qingliao_siri_glow_width") private var glowWidth = 22.0
     // v3.0.4：补全本地外观独有项（输入框流光 / 天气城市）
     @AppStorage("qingliao_input_glow") private var glowOn = true
+    /// v3.9.78：聊天页形象（与聊天页 PetAvatar 共用同一组 key —— 本地/云端同一份设置，双模式 UI 必须一致）
+    @AppStorage(PetKeys.style) private var petStyle: PetStyle = .liquid
+    @AppStorage(PetKeys.motion) private var petMotion: PetMotion = .system
     @State private var weatherCity = UserDefaults.standard.string(forKey: "qingliao_weather_city") ?? ""
     @State private var showWeatherCityField = false
 
@@ -33,6 +36,25 @@ struct AppearanceSheet: View {
                         appearanceOption("跟随系统", value: "system")
                     }
                     .padding(.vertical, Spacing.xs)
+                }
+                // v3.9.78：聊天页形象（用户拍板「三种都要 + 在设置里增加卡通宠物选择，放在外观设置项里」）
+                // 与「主题」同款三选一 idiom（缩略图 + 名称 + 选中蓝框）；缩略图以 96 画、按 52 显示，
+                // 这样不会被 PetAvatar 的「76pt 以下简化」砍掉细节。
+                Section("聊天页形象") {
+                    HStack(spacing: 10) {
+                        ForEach(PetStyle.allCases) { style in
+                            petOption(style)
+                        }
+                    }
+                    .padding(.vertical, Spacing.xs)
+                    HStack(spacing: 10) {
+                        ForEach(PetMotion.allCases) { motion in
+                            motionOption(motion)
+                        }
+                    }
+                    Text("选中的形象出现在聊天页顶部：轻点＝摸一下（长按仍是语音）。宠物动画「减弱 / 关闭」可省电，关掉后形象静止显示，状态仍由文案承担。")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 }
                 // 交互
                 Section("交互") {
@@ -143,6 +165,58 @@ struct AppearanceSheet: View {
                 )
         }
         .buttonStyle(.plain)
+    }
+
+    /// v3.9.78：形象选项（三选一）——以 96pt 画、按 52pt 显示，保留完整细节（不被简化阈值砍）
+    private func petOption(_ style: PetStyle) -> some View {
+        let selected = petStyle == style
+        return Button {
+            petStyle = style
+        } label: {
+            VStack(spacing: Spacing.xs) {
+                PetAvatar(size: 96, state: .idle, styleOverride: style)
+                    .frame(width: 52, height: 52)
+                Text(style.name)
+                    .font(.system(size: Typography.caption, weight: selected ? .semibold : .regular))
+                    .foregroundStyle(selected ? Color.accentColor : Color.primary)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, Spacing.sm)
+            .background(
+                RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
+                    .fill(selected ? Color.accentColor.opacity(0.12) : Color(uiColor: .systemGray6))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
+                    .strokeBorder(selected ? Color.accentColor.opacity(0.5) : Color.clear, lineWidth: 1.5)
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("聊天页形象：\(style.name)")
+        .accessibilityAddTraits(selected ? [.isSelected] : [])
+    }
+
+    /// v3.9.78：宠物动画三档（无障碍硬要求：默认跟随系统；「减弱/关闭」可省电）
+    private func motionOption(_ motion: PetMotion) -> some View {
+        let selected = petMotion == motion
+        return Button {
+            petMotion = motion
+        } label: {
+            Text(motion.name)
+                .font(.system(size: Typography.subhead, weight: .medium))
+                .foregroundStyle(selected ? Color.white : Color.primary)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, Spacing.sm)
+                .background(
+                    RoundedRectangle(cornerRadius: Radius.chip, style: .continuous)
+                        .fill(selected ? Color.accentColor : Color(uiColor: .systemGray5))
+                )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("宠物动画：\(motion.name)")
+        .accessibilityAddTraits(selected ? [.isSelected] : [])
     }
 
     private func sliderRow(_ title: String, value: Binding<Double>, range: ClosedRange<Double>,

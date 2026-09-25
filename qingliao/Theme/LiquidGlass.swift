@@ -128,6 +128,34 @@ struct SheetFrostCard: ViewModifier {
     }
 }
 
+// MARK: - v3.9.78 浮层卡片（半透明毛玻璃底 · 白亮边 · 大圆角）
+//
+// 由头（用户 2026-09-25）：「弹窗卡片圆角加大，背景改成模糊半透明」——先出三候选稿
+// （16+玻璃 / 22+玻璃 / 22+更透），用户拍板 **方案 C = 圆角 22 + ultraThinMaterial（同族最薄、最透）**。
+//
+// 与 `SheetFrostCard`(v3.9.47) 的分工（别混用，也别合并）：
+//   · `SheetFrostCard` = **弹窗内部**的常规卡片：圆角 16、`Tint.line` 发丝描边、自带两层柔影；
+//   · 本修饰器 = **浮层卡片**（意图动作卡 / AI 识别浮层卡 / 速记待办输入卡）：圆角默认 `Radius.hero`(22)、
+//     **白 0.8pt 亮边**（浅 0.12 / 深 0.22，与 `GlassCard` 同参）、**不带阴影**（阴影由调用点自己给，
+//     浮层各自的投影半径不同）。
+// ⚠️ 与 v3.9.23「弹窗自身不铺背景」那条红线不冲突：本修饰器只作用在**卡片**上。
+// ⚠️ 圆角与描边必须同一个角值 —— 漏一处就会出现「方框套圆框」（本仓 v3.9.63 实录）。
+
+struct OverlayGlassCard: ViewModifier {
+    var cornerRadius: CGFloat = Radius.hero
+    @Environment(\.colorScheme) private var scheme
+
+    func body(content: Content) -> some View {
+        content
+            .background(.ultraThinMaterial,
+                        in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .strokeBorder(Color.white.opacity(scheme == .dark ? 0.22 : 0.12), lineWidth: 0.8)
+            )
+    }
+}
+
 // MARK: - 滚动层次感（v3.9.0 批3）
 // 卡片进出视口时轻微缩放 + 淡出。**必须挂在 Lazy 容器内的元素上**（挂在外层 ScrollView 上无效）。
 // 数值收在这一处：原来只有会话列表手写 0.965/0.75，现在看板/生活卡片复用同一档。
@@ -158,6 +186,11 @@ extension View {
     /// 弹窗内的卡片：毛玻璃底 + 16 圆角（卡形与 `dashboardCard()` 同参，只把实色卡底换成半透明）
     func frostedCard(cornerRadius: CGFloat = 16) -> some View {
         modifier(SheetFrostCard(cornerRadius: cornerRadius))
+    }
+    /// v3.9.78 浮层卡片：毛玻璃底 + 大圆角（默认 `Radius.hero` 22）+ 白 0.8pt 亮边，**不带阴影**
+    /// （阴影由调用点按各自的浮层投影给；意图动作卡 / 识别浮层卡 / 速记待办输入卡都走这个）
+    func overlayGlassCard(cornerRadius: CGFloat = Radius.hero) -> some View {
+        modifier(OverlayGlassCard(cornerRadius: cornerRadius))
     }
 }
 
