@@ -574,8 +574,18 @@ check("译文卡三件套在位（复制 / 换一张 / 发给 AI 出口）+ 原�
       identifySrc.contains("copyTranslation(text)")
       && identifySrc.contains("restartTranslate()")
       && identifySrc.contains("Text(copiedTranslation ? \"已复制\" : \"复制\")")
-      && identifySrc.contains(".lineLimit(3)")
-      && identifySrc.contains(".frame(maxHeight: 220)"))
+      && identifySrc.contains(".lineLimit(3)"))
+// v3.9.80（用户口径「译文卡片根据译文字体多少自适应大小」）：译文区高度必须跟着内容走。
+// 旧形态 = 贪婪 ScrollView 直接挂 `.frame(maxHeight: 220)` → 2 行译文也被撑满 220（卡内约 180pt 空白）。
+// 新形态 = `ViewThatFits` 两稿（整段放得下就整段渲染，放不下才限高滚动）+ 上限收在单一常量。
+check("译文区自适应：ViewThatFits 两稿（整段稿在前、限高滚动稿在后）",
+      identifySrc.contains("ViewThatFits(in: .vertical)")
+      && identifySrc.contains(".frame(maxHeight: Self.translationMaxHeight)"))
+check("译文区上限收在单一常量 translationMaxHeight（=220，改一处即改天花板）",
+      identifySrc.contains("private static let translationMaxHeight: CGFloat = 220"))
+check("旧的贪婪译文框形态已清零（不许再出现 ScrollView 直接挂 maxHeight: 220）",
+      // 先去注释行：本文件的注释里为了讲清「旧形态」会原样写下那个字符串（踩过一次假红）
+      !stripCommentLines(identifySrc).contains(".frame(maxHeight: 220)"))
 // 方向判据：真值表内复刻同一条判据并断言行为，再断言源侧同形（源改了而这里没改会红）
 func mirrorTranslateTarget(_ t: String) -> String {
     t.unicodeScalars.contains { (0x4E00...0x9FFF).contains($0.value) } ? "英文" : "中文"
@@ -952,6 +962,37 @@ check("③ 输入卡旧的实灰底清零（.background(.quaternary,）",
       !captureSrc.contains(".background(.quaternary,"))
 check("③ 弹窗自身依旧不铺背景（v3.9.23 红线：别给 sheet 挂 presentationBackground）",
       !captureSrc.contains(".presentationBackground"))
+
+// ── ⑪ v3.9.80：设置页「系统音色」行文字错位（用户真机原话：「系统音色文字错位调整一下」）──
+// 真机取证（截图 1179×2556，红色手绘圈标出该行右侧）：该行右侧值是**两条墨迹带**
+// （y 701~716pt 与 719.7~734.3pt，中心 708.5/727 关于左侧标签中心 717.8 对称）——
+// 值折成了两行，左标签被垂直居中夹在中间 = 错位。宽度实测：折行前整串 ≈ 130pt。
+let settingsSrc = src("Features/Settings/SettingsModelSheets.swift")
+check("护栏：设置页文件读得到（读不到下面的断言会指向错处）", !settingsSrc.isEmpty)
+let settingsClean = stripCommentLines(settingsSrc)
+// 根因①：label 把质量说了两遍 —— 系统 name 自带「（高音质）」还再拼「· 优质」
+check("音色 label 去重函数存在（名字已含质量字样就不再追加）",
+      speechClean.contains("static func voiceLabel(name: String, tag: String)"))
+check("音色 label 必须走去重函数（不许再直接拼 name + tag）",
+      speechClean.contains("label: voiceLabel(name: v.name, tag: qualityTag(v))")
+      && !speechClean.contains("\"\\($0.name) · \\(qualityTag($0))\"")
+      && !speechClean.contains("\"\\(v.name) · \\(qualityTag(v))\""))
+check("去重覆盖四类质量字样（高音质/高清/优质/增强）",
+      speechClean.contains("[\"高音质\", \"高清\", \"优质\", \"增强\"]"))
+// 根因②（防线）：值一旦折行，行内左标签就会被垂直居中 → 钉死单行
+let sysVoiceRow = between(settingsClean, "Text(\"系统音色\")", "Text(voiceHintText")
+check("系统音色行切片取到（空了下面的断言等于白写）", !sysVoiceRow.isEmpty)
+check("系统音色行的值钉单行（折行=左标签被居中夹住=错位）",
+      sysVoiceRow.contains(".lineLimit(1)")
+      && !sysVoiceRow.contains(".truncationMode"))
+// Spacer() 在 HStack 里本就带约 8pt 最小间距，`Spacer(minLength: 8)` 是**显式化**而非修复：
+// 真正修好错位的是 SpeechManager 的 label 去重 + 值钉单行（上面两条）。这一条钉的是「别退回 0 间距」。
+check("系统音色行显式留最小间距（退成裸 Spacer() 只是口径退回，视觉等价）",
+      sysVoiceRow.contains("Spacer(minLength: 8)"))
+// 同类行一并扫（神经语音「音色」行同样用 menu Picker 显示长名字）
+let neuralVoiceRow = between(settingsClean, "Text(\"音色\")", "Text(\"开启后 AI 回复")
+check("神经语音音色行切片取到", !neuralVoiceRow.isEmpty)
+check("神经语音音色行同口径钉单行", neuralVoiceRow.contains(".lineLimit(1)"))
 
 print("智慧球长按菜单真值表：\(passCount) 通过 / \(failCount) 失败")
 if failCount > 0 { exit(1) }

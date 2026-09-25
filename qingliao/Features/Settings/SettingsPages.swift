@@ -125,7 +125,7 @@ struct TasksView: View {
                                     Label("删除任务", systemImage: "trash")
                                 }
                             }
-                            Divider().padding(.leading, 62)
+                            Divider().padding(.leading, Spacing.rowDividerInsetWide)
                         }
                     }
                     .background(Color(uiColor: .secondarySystemGroupedBackground))

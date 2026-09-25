@@ -32,7 +32,7 @@ struct CardGallerySheet: View {
                     // v3.9.27：协议速览（卡片怎么触发的，一眼明白）
                     footerNote
                 }
-                .padding(.horizontal, 18)
+                .padding(.horizontal, Spacing.sheetInset)
                 .padding(.vertical, Spacing.section)
             }
             .scrollContentBackground(.hidden)   // v3.9.27：同款规则——列表自带底别盖系统玻璃

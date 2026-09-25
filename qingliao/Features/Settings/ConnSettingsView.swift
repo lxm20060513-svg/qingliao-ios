@@ -50,7 +50,7 @@ struct ConnSettingsView: View {
                         SettingRow(icon: "globe.asia.australia.fill", iconColor: .green,
                                    title: "服务器地址", value: shortServer, chevron: true)
                             .onTapGesture { showServerSheet = true }
-                        Divider().padding(.leading, 52)
+                        Divider().padding(.leading, Spacing.rowDividerInset)
                         SettingRow(icon: "network", iconColor: .blue,
                                    title: "测试连接", value: testing ? "检测中..." : nil,
                                    chevron: !testing)
@@ -76,7 +76,7 @@ struct ConnSettingsView: View {
                         SettingRow(icon: "tray.full.fill", iconColor: .teal,
                                    title: "会话存储位置", value: sessionLocShort, chevron: true)
                             .onTapGesture { showSessionLocSheet = true }
-                        Divider().padding(.leading, 52)
+                        Divider().padding(.leading, Spacing.rowDividerInset)
                         // v2.0.85：文件上传位置（App 附件整份上传的落点，可自定义 NAS 目录）
                         SettingRow(icon: "arrow.up.doc.fill", iconColor: .indigo,
                                    title: "文件上传位置", value: uploadDirShort, chevron: true)
@@ -171,13 +171,13 @@ private struct UploadDirSheet: View {
                 .padding(Spacing.xl)
                 .background(Color(uiColor: .secondarySystemGroupedBackground))
                 .clipShape(RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
-                .padding(.horizontal, 20)
+                .padding(.horizontal, Spacing.sheetInset)
 
             if let r = result {
                 Text(r.text)
                     .font(.system(size: Typography.subhead))
                     .foregroundStyle(r.ok ? Color.green : Color.red)
-                    .padding(.horizontal, 20)
+                    .padding(.horizontal, Spacing.sheetInset)
             }
 
             Button {
@@ -190,7 +190,7 @@ private struct UploadDirSheet: View {
             }
             .buttonStyle(.plain)
             .disabled(saving || path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            .padding(.horizontal, 20)
+            .padding(.horizontal, Spacing.sheetInset)
 
             Button("取消") { dismiss() }
                 .font(.system(size: Typography.body))

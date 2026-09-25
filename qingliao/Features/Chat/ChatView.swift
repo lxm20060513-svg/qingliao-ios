@@ -154,7 +154,10 @@ struct PendingSend: Codable, Equatable {
 /// 流未结束时最后一行视为「正在执行」，其余打勾——长任务里用户不必等结果才知道在干什么。
 /// v3.9.58：行尾补耗时——completed 行显示「· Ns」（stream.stepDuration(at:)，nil 则不显示）；
 /// running 行显示「已等 Ns」（stream.runningElapsed()，nil/老后端不显示），长工具不再像卡死。
-/// v3.9.58b：流被中止/报错时（unresolved）行尾补「重试」按钮 → regenerate 最后一条回复。
+/// v3.9.58b：流被中止/报错时（unresolved）行尾补按钮 → regenerate 最后一条回复。
+/// v3.9.80：该按钮文案统一为「重新生成」（原先写「重试」）——同一动作在聊天页只保留一个名字：
+/// 「重新生成」= 重新生成最后一条回复（复用 regenerate 链路）；「重试」在本 App 专指「重跑失败的操作」
+/// （加载失败/连接失败等），别再拿它命名这个动作（真值表钉住，见 ql_toolsteps）。
 struct ToolStepRow: View {
     let title: String
     let running: Bool
@@ -165,7 +168,7 @@ struct ToolStepRow: View {
     var duration: Double? = nil
     /// v3.9.58：running 行的已等待秒数（nil=不显示；由调用方每秒刷新驱动）
     var elapsed: Int? = nil
-    /// v3.9.58b：重试回调（nil=不显示按钮；仅 unresolved 且是最后一步时传入）
+    /// v3.9.58b：重新生成回调（nil=不显示按钮；仅 unresolved 且是最后一步时传入）
     var onRetry: (() -> Void)? = nil
     var body: some View {
         HStack(spacing: 8) {
@@ -198,7 +201,7 @@ struct ToolStepRow: View {
             }
             if unresolved, let onRetry {
                 Button(action: onRetry) {
-                    Label("重试", systemImage: "arrow.clockwise")
+                    Label("重新生成", systemImage: "arrow.clockwise")
                         .font(.system(size: Typography.caption, weight: .medium))
                         .foregroundStyle(Color.accentColor)
                         .padding(.horizontal, Spacing.md)
@@ -206,7 +209,7 @@ struct ToolStepRow: View {
                         .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
                 }
                 .buttonStyle(PressStyle())
-                .accessibilityLabel("重试这步工具")
+                .accessibilityLabel("重新生成回复")
             }
         }
         .padding(.horizontal, Spacing.xl)
@@ -217,6 +220,23 @@ struct ToolStepRow: View {
             RoundedRectangle(cornerRadius: Radius.inset, style: .continuous)
                 .strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8)
         )
+    }
+}
+
+/// v3.9.80：工具明细被裁时的提示行（「更早的 N 步未列出」）。
+/// 单独抽成 struct 而不是内联在 toolStepCards 里：那处是本文件最深的 ViewBuilder
+/// （TimelineView → VStack），内联插值 Text 在 CI 上踩过
+/// 「Unable to type-check this expression in reasonable time」（同一处 224 行附近的同类抽法）。
+struct ToolStepsTruncationNote: View {
+    /// 被裁掉的步数（toolSteps − 明细条数）
+    let hidden: Int
+    /// 明细里保留的步数
+    let shown: Int
+
+    var body: some View {
+        Text("更早的 \(hidden) 步未列出（只留最近 \(shown) 步）")
+            .font(.system(size: Typography.caption))
+            .foregroundStyle(.tertiary)
     }
 }
 
@@ -964,11 +984,15 @@ struct ChatView: View {
     /// 切到 B 不该显示 A 的工具卡 —— 与本仓本地流「按 currentStreamSessionId 收窄」的既定口径一致。
     @ViewBuilder
     private var toolStepCards: some View {
-        if !stream.toolNames.isEmpty, auth.currentStreamSessionId == chat.sessionId {
+        // v3.9.80：门控改用 `toolSteps`（= max(toolSeq, toolNames.count)）——摘要行读的就是这个值，
+        // 原先门控只认 toolNames，与显示口径脱节（toolSeq>0 但明细为空时整卡不渲染）。
+        if stream.toolSteps > 0, auth.currentStreamSessionId == chat.sessionId {
             VStack(alignment: .leading, spacing: 6) {
                 // v3.9.27：生成中也可随时收起（用户反馈「不必等输出完才能收」）——
                 // 统一走「摘要行 + expanded 控制明细」，不再按 isStreaming 强制展开。
-                ToolStepsSummaryRow(count: stream.toolNames.count,
+                // v3.9.80：摘要行显示**实际步数**（后端 toolSeq 全量计数；toolNames 只下发最近 10 步，
+                // 直接用它的 count 会把 10 步以上的任务一律显示成「10 步工具调用」——用户 2026-09-25 真机反馈）
+                ToolStepsSummaryRow(count: stream.toolSteps,
                                     expanded: toolStepsExpanded) {
                     withAnimation(Motion.snap) { toolStepsExpanded.toggle() }   // v3.9.19：裸动画收口到令牌（原 .easeOut(0.18)）
                 }
@@ -978,6 +1002,13 @@ struct ChatView: View {
                     // collapsed 摘要行不受影响（零额外重建）。
                     TimelineView(.periodic(from: .now, by: 1)) { _ in
                         VStack(alignment: .leading, spacing: 6) {
+                            // v3.9.80：明细若被裁（老后端只下发最近 10 步 / toolSeq 已计到尚未命名的步），
+                            // 先明说「更早的没列出来」，否则摘要行写 17 步、明细只有 10 行，看着像丢了几步。
+                            // 必须带 `!toolNames.isEmpty`：全空时这条会输出「只留最近 0 步」这种自相矛盾的文案。
+                            if !stream.toolNames.isEmpty, stream.toolSteps > stream.toolNames.count {
+                                ToolStepsTruncationNote(hidden: stream.toolSteps - stream.toolNames.count,
+                                                        shown: stream.toolNames.count)
+                            }
                             ForEach(Array(stream.toolNames.enumerated()), id: \.offset) { idx, name in
                                 let isLast = idx == stream.toolNames.count - 1
                                 ToolStepRow(title: name,
@@ -2441,9 +2472,9 @@ struct ChatView: View {
             // 现在只丢「刚离开的这个会话」的排队项；其余留在盘上，回到那个会话或下次启动再补发。
             dropPendingQueue(dropping: prior)
             refreshVisibleMessages()
-            stream.toolNames = []          // v3.9.17：工具进度卡同样会跨会话残留 → 一并清（否则 B 会话底部显示 A 跑过的工具）
-            stream.toolSpans = []          // v3.9.58：耗时列表同清
-            stream.toolStartedAt = 0
+            // v3.9.80：工具进度四件套走单一入口复位（原先这里手写三行，漏了 v3.9.80 新增的 toolSeq
+            // → 摘要行会把上一会话的步数当成本会话的「实际步数」；详见 StreamClient.resetToolProgress）
+            stream.resetToolProgress()
             // v3.0.51 A1：会话加载后重传残留 base64 图片（重启续传/失败重传）
             // SR4：走 ChatStore 的单飞入口——旧会话那条重传链会先被 cancel，不会跨会话争写 messages
             chat.startImageRetryUploads(auth: auth)

@@ -248,7 +248,7 @@ struct FilesManagerSheet: View {
         VStack(spacing: 0) {
             ForEach(entries) { e in
                 VStack(spacing: 0) {
-                    if e.id != entries.first?.id { Divider().padding(.leading, 52) }
+                    if e.id != entries.first?.id { Divider().padding(.leading, Spacing.rowDividerInset) }
                     FilesManagerRow(entry: e,
                                     onOpen: { open(e) },
                                     onShare: { share(e) },
@@ -625,14 +625,14 @@ private struct FileRenameSheet: View {
                 .padding(Spacing.xl)
                 .background(Color(uiColor: .secondarySystemGroupedBackground))
                 .clipShape(RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
-                .padding(.horizontal, 20)
+                .padding(.horizontal, Spacing.sheetInset)
 
             if let err = errorText {
                 Text(err)
                     .font(.system(size: Typography.subhead))
                     .foregroundStyle(.red)
                     .multilineTextAlignment(.center)
-                    .padding(.horizontal, 20)
+                    .padding(.horizontal, Spacing.sheetInset)
             } else if duplicated {
                 Text("同名文件已存在，换个名字")
                     .font(.system(size: Typography.caption))
@@ -650,7 +650,7 @@ private struct FileRenameSheet: View {
             .buttonStyle(.plain)
             .disabled(saving || trimmed.isEmpty || unchanged || duplicated)
             .opacity(saving || trimmed.isEmpty || unchanged || duplicated ? 0.5 : 1)
-            .padding(.horizontal, 20)
+            .padding(.horizontal, Spacing.sheetInset)
 
             Button("取消") { dismiss() }
                 .font(.system(size: Typography.body))

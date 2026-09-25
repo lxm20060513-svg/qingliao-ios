@@ -586,7 +586,7 @@ final class AuthStore {
         }
     }
 
-    func streamPoll(taskId: String, offset: Int) async throws -> (String, Bool, String, String, Bool, [[String: Any]], [String], [[String: Any]], Double) {
+    func streamPoll(taskId: String, offset: Int) async throws -> (String, Bool, String, String, Bool, [[String: Any]], [String], [[String: Any]], Double, Int) {
         let (data, code): (Data, Int)
         // v2.0.116 fix：轮询也带 X-Auth-Token（后端 do_GET 统一鉴权）
         if NetworkMonitor.shared.isCellular {
@@ -624,7 +624,12 @@ final class AuthStore {
         // v3.9.58：已完成工具步骤的耗时 [{n:中文名, s:秒}]——老后端无此键=空数组（耗时显示整体退化为无秒数）
         let toolSpans: [[String: Any]] = j["toolSpans"] as? [[String: Any]] ?? []
         let lastToolAt = j["lastToolAt"] as? Double ?? (j["lastToolAt"] as? Int).map(Double.init) ?? 0
-        return (content, done, status, error, agent, inbox, toolNames, toolSpans, lastToolAt)
+        // v3.9.80：**真实工具步数**（后端 `toolSeq`：每收到一个 function_call 事件 +1，全量计数）。
+        // toolNames 只下发**最近 10 步**（后端防长任务把响应撑大）→ 摘要行的「N 步工具调用」必须用这个数，
+        // 否则 10 步以上的任务一律显示成 10 步（用户 2026-09-25 真机反馈）。
+        // 老后端无此键 = 0 → UI 回落 toolNames.count（优雅退化，不显示假步数）。
+        let toolSeq = (j["toolSeq"] as? Int) ?? (j["toolSeq"] as? Double).map(Int.init) ?? 0
+        return (content, done, status, error, agent, inbox, toolNames, toolSpans, lastToolAt, toolSeq)
     }
 
     /// v3.0.31：流式任务恢复——qingliao 服务重启后内存任务丢失（poll 404），

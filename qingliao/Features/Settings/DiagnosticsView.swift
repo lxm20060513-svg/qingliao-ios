@@ -119,13 +119,13 @@ struct DiagnosticsView: View {
         VStack(spacing: 0) {
             SettingRow(icon: "app.badge.fill", iconColor: .blue, title: "App 版本",
                        value: env.version.isEmpty ? "未知" : env.version)
-            Divider().padding(.leading, 52)
+            Divider().padding(.leading, Spacing.rowDividerInset)
             SettingRow(icon: "number.square.fill", iconColor: .indigo, title: "构建号",
                        value: env.build.isEmpty ? "未知" : env.build)
-            Divider().padding(.leading, 52)
+            Divider().padding(.leading, Spacing.rowDividerInset)
             SettingRow(icon: "iphone.gen3", iconColor: .gray, title: "设备型号",
                        value: env.device.isEmpty ? "未知" : env.device)
-            Divider().padding(.leading, 52)
+            Divider().padding(.leading, Spacing.rowDividerInset)
             SettingRow(icon: "gear.badge.checkmark", iconColor: .teal, title: "系统版本",
                        value: env.os.isEmpty ? "未知" : env.os)
         }
@@ -139,7 +139,7 @@ struct DiagnosticsView: View {
         VStack(spacing: 0) {
             SettingRow(icon: "wifi", iconColor: .green, title: "网络状态",
                        value: env.network.isEmpty ? "未知" : env.network)
-            Divider().padding(.leading, 52)
+            Divider().padding(.leading, Spacing.rowDividerInset)
             Button {
                 Task { await checkPing() }
             } label: {
@@ -175,12 +175,12 @@ struct DiagnosticsView: View {
         VStack(spacing: 0) {
             SettingRow(icon: "tray.full.fill", iconColor: .purple, title: "待上报记录",
                        value: pendingText)
-            Divider().padding(.leading, 52)
+            Divider().padding(.leading, Spacing.rowDividerInset)
             SettingRow(icon: "checkmark.seal.fill",
                        iconColor: uploadStats.lastOK ? .green : .orange,
                        title: "上报统计",
                        value: uploadStatsText)
-            Divider().padding(.leading, 52)
+            Divider().padding(.leading, Spacing.rowDividerInset)
             Button {
                 Task { await manualUpload() }
             } label: {
@@ -206,12 +206,12 @@ struct DiagnosticsView: View {
             }
             .buttonStyle(.plain)
             .disabled(uploading)
-            Divider().padding(.leading, 52)
+            Divider().padding(.leading, Spacing.rowDividerInset)
             SettingRow(icon: "gauge.with.dots.needle.67percent", iconColor: .red, title: "卡顿检测",
                        value: hangEnabled ? "阈值 \(hangThreshold)ms" : "已关闭",
                        toggle: $hangEnabled)
             if hangEnabled {
-                Divider().padding(.leading, 52)
+                Divider().padding(.leading, Spacing.rowDividerInset)
                 HStack(spacing: 10) {
                     Text("卡顿阈值").font(.system(size: Typography.body))
                     Spacer()
@@ -222,7 +222,7 @@ struct DiagnosticsView: View {
                 }
                 .padding(.horizontal, Spacing.section).padding(.vertical, Spacing.lg)
             }
-            Divider().padding(.leading, 52)
+            Divider().padding(.leading, Spacing.rowDividerInset)
             Button {
                 simulateHang()
             } label: {
@@ -275,7 +275,7 @@ struct DiagnosticsView: View {
                 ForEach(events) { e in
                     recordRow(e)
                     if e.id != events.last?.id {
-                        Divider().padding(.leading, 52)
+                        Divider().padding(.leading, Spacing.rowDividerInset)
                     }
                 }
                 Divider().padding(.leading, Spacing.xxl)

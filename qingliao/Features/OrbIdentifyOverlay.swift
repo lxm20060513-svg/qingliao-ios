@@ -59,6 +59,9 @@ struct OrbIdentifyOverlay: View {
 
     /// 结果卡底边与球心之间留的呼吸（球半径 34 + 间距 26）
     private static let cardSpacing: CGFloat = 60
+    /// v3.9.80（用户口径「译文卡片根据译文字体多少自适应大小」）：译文区高度上限 ——
+    /// 译文不超它时卡片随内容长高；超了才在卡内滚动。改这一处即改「译文卡最高能多高」。
+    private static let translationMaxHeight: CGFloat = 220
 
     var body: some View {
         GeometryReader { geo in
@@ -294,14 +297,24 @@ struct OrbIdentifyOverlay: View {
                 .font(.system(size: Typography.caption))
                 .foregroundStyle(.secondary)
                 .lineLimit(3)
-            // 长文本要能读完：卡在球上方，定个上限让它在卡内滚动（别把卡顶出屏幕）
-            ScrollView {
+            // 译文区高度**跟着字数走**（v3.9.80 · 用户原话「译文卡片根据译文字体多少自适应大小」）。
+            // 原写法 = 贪婪 `ScrollView` + `.frame(maxHeight: 220)`：ScrollView 会吃掉提案给它的全部高度
+            // → 2 行译文也被撑到 220，卡里凭空多出约 180pt 空白（用户截图的越南语禁烟牌就是 2 行译文 / 卡高 ~375）。
+            // 改法 = 两稿择一：整段放得下就整段渲染（卡随内容长高），放不下才换限高滚动稿。
+            // 外层 `.frame(maxHeight: translationMaxHeight)` 把**提案**钳在上限 →
+            // ① 的「放得下」= 不超过 220（而不是「不超过球上方全部空间」），所以长译文仍走 ② 滚动、卡高天花板不变。
+            ViewThatFits(in: .vertical) {
                 Text(text)
                     .font(.system(size: Typography.body))
                     .frame(maxWidth: .infinity, alignment: .leading)
+                ScrollView {
+                    Text(text)
+                        .font(.system(size: Typography.body))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .scrollIndicators(.hidden)
             }
-            .frame(maxHeight: 220)
-            .scrollIndicators(.hidden)
+            .frame(maxHeight: Self.translationMaxHeight)
             HStack(spacing: Spacing.xl) {
                 Button { copyTranslation(text) } label: {
                     Text(copiedTranslation ? "已复制" : "复制").pill(.primary, tone: .accent)

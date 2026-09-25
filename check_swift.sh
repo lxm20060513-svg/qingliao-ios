@@ -192,4 +192,15 @@ $SWIFT/swiftc -o /tmp/test_voice_dialog /tmp/ql_voice_main/main.swift qingliao/C
 [ ${PIPESTATUS[0]} -eq 0 ] || { echo "❌ 语音对话真值表编译失败"; exit 1; }
 /tmp/test_voice_dialog || exit 1
 
+echo "=== 20. 工具步数显示真值表（v3.9.80 真机反馈修复）==="
+# 单文件（读源文件做护栏 + 步数算式 max(toolSeq, toolNames.count) 纯计算镜像，不 import 项目代码）。
+# 口径（用户原话）：「这个目前最多就显示10步，改成显示实际步数」——
+# 后端为控体积只下发最近 10 步明细，全量步数走同一响应的 toolSeq，摘要行必须吃它。
+run_unit /tmp/test_toolsteps scripts/ql_toolsteps/truth_table_toolsteps.swift
+
+echo "=== 21. 设置页间距口径真值表（v3.9.80 baseline-ui 打磨）==="
+# 单文件（读源 + 扫 Settings 目录，不 import 项目代码）→ run_unit 直接编跑。
+# 口径：分隔线缩进与「非卡片内容左右留白」各收成命名令牌（52/62 与 18），字面量清零。
+run_unit /tmp/test_settings_ui scripts/ql_settings_ui/truth_table_settings_ui.swift
+
 exit $?

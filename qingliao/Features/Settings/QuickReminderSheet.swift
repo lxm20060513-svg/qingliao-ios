@@ -197,7 +197,7 @@ struct QuickReminderSheet: View {
         } else {
             VStack(spacing: 0) {
                 ForEach(Array(store.scheduled.enumerated()), id: \.element.id) { index, item in
-                    if index > 0 { Divider().padding(.leading, 52) }
+                    if index > 0 { Divider().padding(.leading, Spacing.rowDividerInset) }
                     reminderRow(item)
                 }
                 Divider()
@@ -222,7 +222,7 @@ struct QuickReminderSheet: View {
     private var finishedCard: some View {
         VStack(spacing: 0) {
             ForEach(Array(store.finished.enumerated()), id: \.element.id) { index, item in
-                if index > 0 { Divider().padding(.leading, 52) }
+                if index > 0 { Divider().padding(.leading, Spacing.rowDividerInset) }
                 reminderRow(item, finished: true)
             }
             Divider()

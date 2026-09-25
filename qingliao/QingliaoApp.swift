@@ -310,11 +310,12 @@ struct CrashAlertSheet: View {
                 .font(.system(size: Typography.subhead))
                 .foregroundStyle(.secondary)
             // 日志预览（最多展示前 12 行，完整内容走导出/复制）
-            ScrollView {
-                Text(String(logText.split(separator: "\n").prefix(12).joined(separator: "\n")))
-                    .font(.system(size: Typography.caption, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            // v3.9.80：两稿（与译文卡同口径）——旧写法是贪婪 `ScrollView` + 限高 140：
+            // ScrollView 会吃掉提案给它的全部高度 → 只有两三行的短日志也占满 140pt，卡里白一大块。
+            // ① 整段放得下 → 直接渲染（内容多高就多高）；② 12 行超过上限时才回落滚动稿。
+            ViewThatFits(in: .vertical) {
+                crashLogPreviewBody
+                ScrollView { crashLogPreviewBody }
             }
             .frame(maxHeight: 140)
             .padding(Spacing.lg)
@@ -372,6 +373,14 @@ struct CrashAlertSheet: View {
         .sheet(isPresented: $showExporter) {
             ActivityShareSheet(items: [logText])
         }
+    }
+
+    /// 日志预览本体（两稿共用）：最多前 12 行，等宽小字。
+    private var crashLogPreviewBody: some View {
+        Text(String(logText.split(separator: "\n").prefix(12).joined(separator: "\n")))
+            .font(.system(size: Typography.caption, design: .monospaced))
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

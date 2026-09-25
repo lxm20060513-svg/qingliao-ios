@@ -46,4 +46,22 @@ enum Spacing {
     static let xxl: CGFloat = 14
     /// 16pt — 分区之间
     static let section: CGFloat = 16
+
+    // MARK: - v3.9.80 语义常量（跨文件同一概念的单一真源）
+    //
+    // 为什么加在 Spacing 里：这些值本来散在各处当字面量写（52 出现 46 次、水平留白写过 18/20 两种），
+    // 改一处要翻五个文件；抽成命名常量后「改口径只改这里」，真值表 ql_theme 会盯着它们。
+
+    /// 18pt — **弹窗/设置页「非卡片内容」左右留白**（分组标题、说明文字、错误提示、按钮行同口径）。
+    /// 与 `SectionHeader` 的行内边距一致（真源 SettingsSheets.swift 的 SectionHeader）；
+    /// 收敛前同一概念写过 18（12 处）与 20（9 处）两种 → 统一到 18（多数 + 与分组标题对齐）。
+    static let sheetInset: CGFloat = 18
+    /// 54pt — **设置页行内分隔线左缩进**（让分隔线正好从行文字左边缘起画）。
+    /// 算式（见 SettingRow）：行内留白 14 + 图标 28 + 图标与文字间距 12 = **54**。
+    /// v3.9.80：收敛前 46 处写 52（比算式少 2pt，分隔线压进图标列 2pt）→ 用户拍板「严格按算式对齐」，
+    /// 本版全量改成 54（46 处分隔线各右移 2pt，肉眼不可辨，但从此算式与取值一致、改图标尺寸时真值表会红）。
+    static let rowDividerInset: CGFloat = 54
+    /// 62pt — **36pt 图标行**的分隔线缩进（cron 任务列表那种「图标 36 + 两行文字」的行）：
+    /// 与算式 14 + 36 + 12 = 62 逐字一致（收敛前是 SettingsPages.swift 里唯一一处写 62 的字面量）。
+    static let rowDividerInsetWide: CGFloat = 62
 }

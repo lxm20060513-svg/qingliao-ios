@@ -40,10 +40,32 @@ final class StreamClient {
     // v3.9.17：AI 后端路径的工具进度（中文名，后端下发）。流结束后**保留**——让用户能看到
     // 刚才跑了哪些工具；只有 start() 开新流时才清空。
     var toolNames: [String] = []
+    /// v3.9.80：**真实工具步数**（后端 `toolSeq` 全量计数）。`toolNames` 只留最近 10 步 →
+    /// 摘要行必须用 `toolSteps`（取两者较大值），否则 10 步以上的任务一律显示成「10 步工具调用」。
+    var toolSeq: Int = 0
+
+    /// v3.9.80：摘要行显示的实际步数。老后端无 `toolSeq`（=0）时回落可数到的条数，不显示假数。
+    var toolSteps: Int { max(toolSeq, toolNames.count) }
+
+    /// v3.9.80：工具进度**四件套的单一复位入口**（工具名 / 耗时 / 真实步数 / 起算时刻）。
+    ///
+    /// 为什么收成一处：之前三处口径不一 —— `start()` 清四件、切会话（ChatView）只清三件
+    /// （漏掉本次新增的 `toolSeq` → `toolSteps` 会沿用上一会话的步数）、接回在途任务
+    /// （`restoreIfNeeded` / `adoptRemote`）一件都不清。以后再加工具进度字段，只改这里。
+    func resetToolProgress() {
+        toolNames = []
+        toolSpans = []
+        toolSpansSig = ""
+        toolSeq = 0
+        toolStartedAt = 0
+    }
     /// v3.9.58：已完成工具步骤的耗时（后端 [{n:中文名, s:秒}] 的解包）。
-    /// 只增不改（后端保证追加序且 toolSpans.count ≤ toolNames.count），App 按下标取耗时：
+    /// 只增不改（后端保证追加序、与 toolNames 同长同序），App 按下标取耗时：
     /// `stepDuration(at: idx)`，取不到（老后端/该步未收口）返回 nil → 行尾不显示秒数。
     var toolSpans: [ToolSpan] = []
+    /// v3.9.80：`toolSpans` 的**内容签名**（"名|秒,名|秒…"）——刷新判据用。
+    /// `[String: Any]` 不可比较，只能拼串；同时它就是「只在变化时写入」的闸门，避免每轮轮询重建视图。
+    private var toolSpansSig = ""
     /// v3.9.58：当前（最后一步）工具的开始时刻——进行中那行的「已等 Ns」由它算。
     /// 老后端无 lastToolAt 键=0 → 不显示等待秒数（优雅退化）。
     var toolStartedAt: TimeInterval = 0
@@ -153,9 +175,7 @@ final class StreamClient {
         stopPolling()
         generation += 1   // v3.0.50：废除在途旧轮询代
         content = ""
-        toolNames = []    // v3.9.17：新流的工具进度从零开始（防上一轮残留）
-        toolSpans = []    // v3.9.58：耗时列表同清
-        toolStartedAt = 0
+        resetToolProgress()   // v3.9.80：工具四件套统一复位（原先这里手写四行，别处漏写）
         offset = 0
         failCount = 0
         idleStreak = 0
@@ -249,15 +269,27 @@ final class StreamClient {
             return   // 网络恢复 → 本轮直接返回，下一轮按正常间隔续流
         }
         do {
-            let (c, done, st, err, agent, piggyback, toolsIn, spansIn, lastToolAtIn) = try await auth.streamPoll(taskId: taskId, offset: offset)
+            let (c, done, st, err, agent, piggyback, toolsIn, spansIn, lastToolAtIn, toolSeqIn) = try await auth.streamPoll(taskId: taskId, offset: offset)
             guard generation == self.generation else { return }   // v3.0.50：旧代轮询丢弃
             // v3.9.17：工具进度——只在变化时写入，避免每 0.15s 轮询都触发视图重建。
             // 位置必须在旧代 guard **之后**：否则切会话/起新流后，上一代在途 poll 返回时
             // 会把旧任务的工具名写进新流（同函数内 agent/failCount/piggyback 全在 guard 之后）
             if toolsIn != toolNames { toolNames = toolsIn }
-            // v3.9.58：耗时列表同步——只在条数变化时写入（后端只追加且数量 ≤ 工具名数），
-            // 避免每轮轮询都触发视图重建；takenAt 随最后一步收口刷新（进行中秒数从它起算）。
-            if spansIn.count != toolSpans.count {
+            // v3.9.80：真实步数同步（同上，只在变化时写入）。**不要**退回用 `toolNames.count` 计数：
+            // 该键是后端逐 function_call 累加的真值；v3.9.80 之前 toolNames 被裁成最近 10 步，
+            // 用 count 会把长任务一律显示成「10 步工具调用」（用户 2026-09-25 真机反馈）。
+            if toolSeqIn != toolSeq { toolSeq = toolSeqIn }
+            // v3.9.80：耗时列表同步 —— 判据从「条数变化」改成「内容签名变化」。
+            // 旧判据的漏洞（发版前只读审查指出）：后端曾把 toolSpans 也裁成最近 10 步（滑动窗口），
+            // 窗口填满后条数恒为 10 → 列表被冻结在最初那 10 步，第 11 步起 `stepDuration(at: idx)`
+            // 按 toolNames 的下标取到**别步**的秒数，且永不自愈。条数相同但内容变了也必须刷新。
+            let spanSig = spansIn.map { d in
+                let n = (d["n"] as? String) ?? ""
+                let s = (d["s"] as? Double) ?? ((d["s"] as? Int).map(Double.init) ?? 0)
+                return "\(n)|\(s)"
+            }.joined(separator: ",")
+            if spanSig != toolSpansSig {
+                toolSpansSig = spanSig
                 toolSpans = spansIn.compactMap { d in
                     guard let n = d["n"] as? String else { return nil }
                     let s = (d["s"] as? Double) ?? ((d["s"] as? Int).map(Double.init) ?? 0)
@@ -557,6 +589,7 @@ final class StreamClient {
         if let sid = d["sessionId"] as? String {
             auth.currentStreamSessionId = sid
         }
+        resetToolProgress()   // v3.9.80：接回的任务从零开始记工具（否则卡里是上一轮残留的工具名/步数）
         isStreaming = true
         isDone = false
         lastFailed = false   // v3.9.33：接回在途任务 = 重新开跑（与 start()/adoptRemote 同口径）
@@ -589,6 +622,7 @@ final class StreamClient {
         idleStreak = 0
         backoff = 0.5
         interval = 0.25
+        resetToolProgress()   // v3.9.80：接管远端任务同样从零起算（与 start()/restoreIfNeeded 同口径）
         isStreaming = true
         isDone = false
         status = "streaming"

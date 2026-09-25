@@ -912,7 +912,7 @@ struct StockSearchSheet: View {
                         .font(.system(size: Typography.caption))
                         .foregroundStyle(.red)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 20)
+                        .padding(.horizontal, Spacing.sheetInset)
                         .padding(.top, Spacing.sm)
                 }
                 if searching {

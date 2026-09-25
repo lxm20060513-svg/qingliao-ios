@@ -116,10 +116,12 @@ struct AppearanceSheet: View {
                     HStack {
                         Text("天气城市")
                             .font(.system(size: Typography.body))
-                        Spacer()
+                        Spacer(minLength: 8)
                         Text(weatherCity.isEmpty ? "未设置" : weatherCity)
                             .font(.system(size: Typography.subhead))
                             .foregroundStyle(.secondary)
+                            // v3.9.80：钉单行（城市名长时折行会把左标题夹成垂直居中，与设置页行口径一致）
+                            .lineLimit(1)
                     }
                     if showWeatherCityField {
                         HStack(spacing: 10) {

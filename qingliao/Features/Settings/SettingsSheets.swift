@@ -52,7 +52,7 @@ struct ServerSheet: View {
                     .font(.system(size: Typography.caption))
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 18)
+                    .padding(.horizontal, Spacing.sheetInset)
                     .padding(.top, Spacing.xs)
 
                 TextField("server.example.com:8080", text: $server)
@@ -63,7 +63,7 @@ struct ServerSheet: View {
                     .padding(Spacing.xl)
                     .background(Color(uiColor: .secondarySystemGroupedBackground))
                     .clipShape(RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
-                    .padding(.horizontal, 18)
+                    .padding(.horizontal, Spacing.sheetInset)
                     .padding(.top, Spacing.xxl)
                     .onChange(of: server) { _, _ in validationError = nil }
 
@@ -95,7 +95,7 @@ struct ServerSheet: View {
                     .pill(.primary)
             }
             .buttonStyle(.plain)
-            .padding(.horizontal, 18)
+            .padding(.horizontal, Spacing.sheetInset)
             .padding(.top, Spacing.xl)
 
             if saved {
@@ -137,14 +137,14 @@ struct PinPathSheet: View {
                     .padding(Spacing.xl)
                     .background(Color(uiColor: .secondarySystemGroupedBackground))
                     .clipShape(RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
-                    .padding(.horizontal, 18)
+                    .padding(.horizontal, Spacing.sheetInset)
                     .padding(.top, Spacing.xxl)
 
                 Text("NAS 上的存储目录路径，pins.json 保存在此目录下")
                     .font(.system(size: Typography.subhead))
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 20)
+                    .padding(.horizontal, Spacing.sheetInset)
                     .padding(.top, Spacing.lg)
 
                 Button {
@@ -157,7 +157,7 @@ struct PinPathSheet: View {
                         .pill(.primary)
                 }
                 .buttonStyle(.plain)
-                .padding(.horizontal, 18)
+                .padding(.horizontal, Spacing.sheetInset)
                 .padding(.top, Spacing.xl)
 
                 Button {
@@ -172,7 +172,7 @@ struct PinPathSheet: View {
                         .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
                 }
                 .buttonStyle(.plain)
-                .padding(.horizontal, 18)
+                .padding(.horizontal, Spacing.sheetInset)
                 .padding(.top, Spacing.lg)
 
                 Spacer()
@@ -209,7 +209,7 @@ struct PasswordSheet: View {
                 .padding(Spacing.xl)
                 .background(Color(uiColor: .secondarySystemGroupedBackground))
                 .clipShape(RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
-                .padding(.horizontal, 18)
+                .padding(.horizontal, Spacing.sheetInset)
                 .padding(.top, Spacing.xxl)
 
             SecureField("新密码", text: $newPassword)
@@ -217,7 +217,7 @@ struct PasswordSheet: View {
                 .padding(Spacing.xl)
                 .background(Color(uiColor: .secondarySystemGroupedBackground))
                 .clipShape(RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
-                .padding(.horizontal, 18)
+                .padding(.horizontal, Spacing.sheetInset)
                 .padding(.top, Spacing.lg)
 
             // v2.0.83c：新密码二次确认（两次一致才可提交）
@@ -226,14 +226,14 @@ struct PasswordSheet: View {
                 .padding(Spacing.xl)
                 .background(Color(uiColor: .secondarySystemGroupedBackground))
                 .clipShape(RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
-                .padding(.horizontal, 18)
+                .padding(.horizontal, Spacing.sheetInset)
                 .padding(.top, Spacing.lg)
             if !confirmPassword.isEmpty && confirmPassword != newPassword {
                 Text("两次输入的密码不一致")
                     .font(.system(size: Typography.caption))
                     .foregroundStyle(.red)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 20)
+                    .padding(.horizontal, Spacing.sheetInset)
                     .padding(.top, Spacing.xs)
             }
 
@@ -246,7 +246,7 @@ struct PasswordSheet: View {
                     .pill(.primary)
             }
             .buttonStyle(.plain)
-            .padding(.horizontal, 18)
+            .padding(.horizontal, Spacing.sheetInset)
             .padding(.top, Spacing.xl)
 
             if let r = result {
@@ -303,7 +303,7 @@ struct SectionHeader: View {
             .font(.system(size: Typography.subhead, weight: .semibold))
             .foregroundStyle(.tertiary)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 18)
+            .padding(.horizontal, Spacing.sheetInset)
             .padding(.top, Spacing.xxl)
             .padding(.bottom, Spacing.xs)
     }
@@ -328,11 +328,14 @@ struct SettingRow: View {
             Text(title)
                 .font(.system(size: Typography.body))
                 .foregroundStyle(.primary)
-            Spacer()
+            Spacer(minLength: 8)   // 与 SettingsModelSheets 的音色行同口径（显式留最小间距）
             if let value {
+                // v3.9.80：行尾值钉单行——值折成两行时左标题会被垂直居中夹住 = 真机报过的
+                // 「系统音色文字错位」同款（那一行已修；这里是共用的行组件，一处修覆盖设置页所有行）
                 Text(value)
                     .font(.system(size: Typography.subhead))
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
             if chevron {
                 Image(systemName: "chevron.right")

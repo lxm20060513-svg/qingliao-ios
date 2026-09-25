@@ -8,10 +8,10 @@ extension SettingsView {
         SectionHeader("账号与安全")
         VStack(spacing: 0) {
             SettingRow(icon: "person.crop.circle.fill", iconColor: .blue, title: auth.username, value: "已登录")
-            Divider().padding(.leading, 52)
+            Divider().padding(.leading, Spacing.rowDividerInset)
             SettingRow(icon: "key.horizontal.fill", iconColor: .gray, title: "修改密码", chevron: true)
                 .tapButton { showPasswordSheet = true }
-            Divider().padding(.leading, 52)
+            Divider().padding(.leading, Spacing.rowDividerInset)
             toggleRow(icon: "faceid", iconColor: .blue, title: "Face ID 登录", isOn: $faceIDLogin)
                 .onChange(of: faceIDLogin) { _, on in
                     if on { requestFaceIDAuth() } else { FaceIDStore.clear() }
@@ -21,7 +21,7 @@ extension SettingsView {
                 } message: {
                     Text("未通过系统 Face ID 验证，登录页快捷登录不可用。")
                 }
-            Divider().padding(.leading, 52)
+            Divider().padding(.leading, Spacing.rowDividerInset)
             toggleRow(icon: "lock.fill", iconColor: .green, title: "App 锁", isOn: $appLockOn)
                 .onChange(of: appLockOn) { _, on in
                     if on { requestAppLockAuth() }
@@ -40,21 +40,21 @@ extension SettingsView {
         VStack(spacing: 0) {
             SettingRow(icon: "globe.asia.australia.fill", iconColor: .green, title: "连接设置", chevron: true)
                 .tapButton { showConnSettings = true }
-            Divider().padding(.leading, 52)
+            Divider().padding(.leading, Spacing.rowDividerInset)
             SettingRow(icon: "cpu.fill", iconColor: .orange, title: "模型管理", value: currentModel, chevron: true)
                 .tapButton { showModelSheet = true }
-            Divider().padding(.leading, 52)
+            Divider().padding(.leading, Spacing.rowDividerInset)
             SettingRow(icon: "bubble.left.and.bubble.right.fill", iconColor: .blue,
                        title: "微信通道模型", value: wechatChannelModel, chevron: true)
                 .tapButton { showWechatChannel = true }
-            Divider().padding(.leading, 52)
+            Divider().padding(.leading, Spacing.rowDividerInset)
             SettingRow(icon: "house.fill", iconColor: .purple, title: "HA 设置", chevron: true)
                 .tapButton { showHASettings = true }
-            Divider().padding(.leading, 52)
+            Divider().padding(.leading, Spacing.rowDividerInset)
             // v3.5.0：MCP 工具服务（App 配 key → Hermes 原生 MCP 工具）
             SettingRow(icon: "puzzlepiece.extension.fill", iconColor: .teal, title: "MCP 工具服务", chevron: true)
                 .tapButton { showMCPSettings = true }
-            Divider().padding(.leading, 52)
+            Divider().padding(.leading, Spacing.rowDividerInset)
             localModelToggle
         }
         .glassListCard()
@@ -93,11 +93,11 @@ extension SettingsView {
         }
         .padding(.horizontal, Spacing.xxl).padding(.vertical, Spacing.sm)
         if localModelOn {
-            Divider().padding(.leading, 52)
+            Divider().padding(.leading, Spacing.rowDividerInset)
             SettingRow(icon: "shippingbox.fill", iconColor: .indigo, title: "管理模型",
                        value: "已装列表 / 拉取新模型", chevron: true)
                 .tapButton { showLocalModels = true }
-            Divider().padding(.leading, 52)
+            Divider().padding(.leading, Spacing.rowDividerInset)
             Button { Task { await checkLocalUpdate() } } label: {
                 HStack(spacing: 12) {
                     Image(systemName: "arrow.triangle.2.circlepath")
@@ -123,14 +123,14 @@ extension SettingsView {
         VStack(spacing: 0) {
             SettingRow(icon: "books.vertical.fill", iconColor: .green, title: "知识库", value: "文档检索问答", chevron: true)
                 .tapButton { showKB = true }
-            Divider().padding(.leading, 52)
+            Divider().padding(.leading, Spacing.rowDividerInset)
             SettingRow(icon: "brain.head.profile", iconColor: .pink, title: "AI 记忆", value: "\(memoryCount) 条", chevron: true)
                 .tapButton { showMemory = true }
-            Divider().padding(.leading, 52)
+            Divider().padding(.leading, Spacing.rowDividerInset)
             // v3.9.26：能力示例（卡片画廊）——让「AI 能出什么卡」可见，不用靠碰运气触发
             SettingRow(icon: "rectangle.grid.2x2.fill", iconColor: .indigo, title: "能力示例", value: "5 种卡片形态", chevron: true)
                 .tapButton { showCardGallery = true }
-            Divider().padding(.leading, 52)
+            Divider().padding(.leading, Spacing.rowDividerInset)
             // v3.0.81：上下文自动管理
             toggleRow(icon: "arrow.down.circle.fill", iconColor: .purple,
                       title: "上下文自动压缩", subtitle: "token超限时AI摘要压缩历史消息", isOn: $contextAutoCompress)
@@ -138,7 +138,7 @@ extension SettingsView {
                     UserDefaults.standard.set(new, forKey: "qingliao_context_auto_compress")
                 }
             if contextAutoCompress {
-                Divider().padding(.leading, 52)
+                Divider().padding(.leading, Spacing.rowDividerInset)
                 HStack {
                     Text("压缩阈值")
                         .font(.system(size: Typography.body))
@@ -155,7 +155,7 @@ extension SettingsView {
                     UserDefaults.standard.set(new, forKey: "qingliao_context_threshold")
                 }
             }
-            Divider().padding(.leading, 52)
+            Divider().padding(.leading, Spacing.rowDividerInset)
             // v3.9.56：智能路由（TypeSafe 判定开关）——用户 2026-09-21 拍板「开关 + 就地展开」方案。
             // 后端为真源：开关/模式/阈值改动当场写后端（免重启即时生效），本地不存一份。
             toggleRow(icon: "arrow.triangle.branch", iconColor: .purple,
@@ -163,7 +163,7 @@ extension SettingsView {
             if tsRouting.enabled {
                 tsRoutingParams
             }
-            Divider().padding(.leading, 52)
+            Divider().padding(.leading, Spacing.rowDividerInset)
             toggleRow(icon: "message.badge.filled.fill", iconColor: .green,
                       title: "微信推送", subtitle: "自动化执行结果推送到微信", isOn: $pushWeixin)
                 .onChange(of: pushWeixin) { _, new in
@@ -176,7 +176,7 @@ extension SettingsView {
     /// v3.9.56：智能路由「就地展开」参数区。
     /// 沿用「上下文自动压缩 → 压缩阈值」的既有展开形态（Divider + 行），不新增 sheet / 文件。
     @ViewBuilder var tsRoutingParams: some View {
-        Divider().padding(.leading, 52)
+        Divider().padding(.leading, Spacing.rowDividerInset)
 
         // 判定模式：两枚胶囊。没有「关闭」档 —— 关掉上面那个开关就是不判定
         HStack(spacing: Spacing.md) {
@@ -197,7 +197,7 @@ extension SettingsView {
             tsParamNote(TypesafeRouting.modeOffHint, warn: true)
         }
 
-        Divider().padding(.leading, 52)
+        Divider().padding(.leading, Spacing.rowDividerInset)
 
         // 判定阈值：概率 ≥ 该值 → 判「要干活」。后端允许 0~1，UI 收窄到有意义的区间
         HStack(spacing: Spacing.md) {
@@ -211,7 +211,7 @@ extension SettingsView {
         .padding(.horizontal, Spacing.section)
         .padding(.vertical, Spacing.lg)
 
-        Divider().padding(.leading, 52)
+        Divider().padding(.leading, Spacing.rowDividerInset)
 
         // 判定超时：超时即回退关键词规则（不让用户等判定）
         HStack(spacing: Spacing.md) {
@@ -224,7 +224,7 @@ extension SettingsView {
         .padding(.horizontal, Spacing.section)
         .padding(.vertical, Spacing.lg)
 
-        Divider().padding(.leading, 52)
+        Divider().padding(.leading, Spacing.rowDividerInset)
 
         // 熔断状态：key 失效/上游挂掉连续失败 → 判定自动停 X 秒，期间零上游调用（不再白等）
         HStack(spacing: Spacing.sm) {
@@ -284,38 +284,38 @@ extension SettingsView {
         VStack(spacing: 0) {
             SettingRow(icon: "key.fill", iconColor: .teal, title: "密码管理", value: "\(secretCount) 条凭据", chevron: true)
                 .tapButton { showSecrets = true }
-            Divider().padding(.leading, 52)
+            Divider().padding(.leading, Spacing.rowDividerInset)
             SettingRow(icon: "clock.badge.fill", iconColor: .red, title: "定时任务", chevron: true)
                 .tapButton { showTasks = true }
-            Divider().padding(.leading, 52)
+            Divider().padding(.leading, Spacing.rowDividerInset)
             SettingRow(icon: "clock.arrow.circlepath", iconColor: .orange, title: "执行历史",
                        value: "自动化/场景执行记录", chevron: true)
                 .tapButton { showHistory = true }
-            Divider().padding(.leading, 52)
+            Divider().padding(.leading, Spacing.rowDividerInset)
             SettingRow(icon: "doc.text.fill", iconColor: .orange, title: "日志", chevron: true)
                 .tapButton { showLogs = true }
             // v3.6.0：崩溃日志入口整合为「诊断」页（App 自身诊断 + 崩溃/卡顿自上报）
-            Divider().padding(.leading, 52)
+            Divider().padding(.leading, Spacing.rowDividerInset)
             SettingRow(icon: "stethoscope", iconColor: .red, title: "诊断",
                        value: CrashReporter.hasPendingLog() ? "有待查看" : "设备/网络/崩溃记录",
                        chevron: true)
                 .tapButton { showDiagnostics = true }
             // v3.0.74：钉一钉存储路径
-            Divider().padding(.leading, 52)
+            Divider().padding(.leading, Spacing.rowDividerInset)
             SettingRow(icon: "pin.fill", iconColor: .indigo, title: "钉一钉存储",
                        value: pinPathDisplay, chevron: true)
                 .tapButton { showPinPath = true }
             // v3.5.x：生活卡片设置（股票 / 资讯 / 快递 / 价格监控）
-            Divider().padding(.leading, 52)
+            Divider().padding(.leading, Spacing.rowDividerInset)
             SettingRow(icon: "rectangle.grid.2x2", iconColor: .green, title: "生活卡片",
                        value: "股票 / 资讯 / 快递 / 价格监控", chevron: true)
                 .tapButton { showLifeCards = true }
-            Divider().padding(.leading, 52)
+            Divider().padding(.leading, Spacing.rowDividerInset)
             // v3.9.32：一句话本地定时提醒（与上面「定时任务」不同：纯本地系统通知，App 不在也响）
             SettingRow(icon: "bell.badge.fill", iconColor: .pink, title: "定时提醒",
                        value: "一句话定时间", chevron: true)
                 .tapButton { showQuickReminder = true }
-            Divider().padding(.leading, 52)
+            Divider().padding(.leading, Spacing.rowDividerInset)
             // v3.9.32：文件管理（上传目录浏览：预览 / 分享 / 重命名 / 删除）
             SettingRow(icon: "folder.fill", iconColor: .indigo, title: "文件管理",
                        value: "上传目录里的文件", chevron: true)
@@ -338,7 +338,7 @@ extension SettingsView {
             SettingRow(icon: "cpu.fill", iconColor: .indigo, title: "Agent 模型",
                        value: agentModel.isEmpty ? "跟随主模型" : agentModel, chevron: true)
                 .tapButton { showAgentModelSheet = true }
-            Divider().padding(.leading, 52)
+            Divider().padding(.leading, Spacing.rowDividerInset)
             SettingRow(icon: "questionmark.circle.fill", iconColor: .gray, title: "使用说明", chevron: false)
                 .tapButton { withAnimation(Motion.snap) { showAgentHelp.toggle() } }
             if showAgentHelp {
@@ -353,10 +353,10 @@ extension SettingsView {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, Spacing.xxl).padding(.bottom, Spacing.xl)
             }
-            Divider().padding(.leading, 52)
+            Divider().padding(.leading, Spacing.rowDividerInset)
             SettingRow(icon: "text.badge.plus", iconColor: .orange, title: "Agent 关键词", value: "分流匹配词管理", chevron: true)
                 .tapButton { showAgentKeywords = true }
-            Divider().padding(.leading, 52)
+            Divider().padding(.leading, Spacing.rowDividerInset)
             SettingRow(icon: "brain.head.profile", iconColor: .purple, title: "Agent 记忆",
                        value: agentRuleCount > 0 ? "\(agentRuleCount) 条规则" : "暂无", chevron: true)
                 .tapButton { showAgentMemory = true }

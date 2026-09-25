@@ -255,7 +255,9 @@ final class SpeechManager: NSObject, ObservableObject, AVSpeechSynthesizerDelega
             if ra != rb { return ra < rb }
             return a.name < b.name
         }
-        let options = ranked.map { SpeechVoiceOption(id: $0.identifier, label: "\($0.name) · \(qualityTag($0))") }
+        let options = ranked.map { v in
+            SpeechVoiceOption(id: v.identifier, label: voiceLabel(name: v.name, tag: qualityTag(v)))
+        }
         return SpeechVoiceCatalog(options: options, hasHigh: zh.contains { $0.quality != .default })
     }
 
@@ -275,13 +277,29 @@ final class SpeechManager: NSObject, ObservableObject, AVSpeechSynthesizerDelega
         }
     }
 
+    /// v3.9.80（用户真机原话：「系统音色文字错位调整一下」）：音色的**显示名**。
+    /// 系统给高端音色的 `name` 自带质量后缀（实测 iPhone 上 zh 音色叫「月（高音质）」），
+    /// 再拼一次「· 优质」= 同一信息说两遍 → 整串超宽，在设置行里折成两行，
+    /// 左侧标签被垂直居中夹在两行之间，看着就是错位。
+    /// 规则：名字里已经写明质量就不再追加；名字不带质量字样（compact 音色，如「婷婷~~」）才补 tag。
+    /// ⚠️ 判定用「名字已含质量字样」而不是 `quality != .default` —— 名字带后缀但 quality 仍是
+    ///    `.default` 的机型存在（名字说了质量就不该再拼）。
+    /// 这一份判据表**同时被设置页提示文案引用**（原来两处各写一份，扩到四种字样后提示没跟上，
+    /// 用户照提示找不到标记 —— 发版前只读审查指出）。
+    nonisolated static let qualityMarkers = ["高音质", "高清", "优质", "增强"]
+
+    nonisolated static func voiceLabel(name: String, tag: String) -> String {
+        let mentions = qualityMarkers.contains { name.contains($0) }
+        return mentions ? name : name + " · " + tag
+    }
+
     /// 设置页提示（只读缓存状态，零 AVFoundation 调用）
     static var systemVoiceHint: String {
         guard voiceCatalogLoaded else {
             return "正在后台读取系统音色，稍等片刻；列表暂时为空不代表没装语音包。"
         }
         return hasHighQualityVoice
-            ? "优先选带「优质 / 增强」标记的音色，听感明显比「标准」自然。"
+            ? "优先选带「\(qualityMarkers.joined(separator: " / "))」标记的音色，听感明显比「标准」自然。"
             : "想更自然：iOS 设置 → 辅助功能 → 朗读内容 → 声音 → 中文，下载「增强」或「优质」音色（App 不能代你下载），回到这里即可选中。"
     }
 

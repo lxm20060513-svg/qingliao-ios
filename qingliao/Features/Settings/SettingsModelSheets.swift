@@ -486,7 +486,7 @@ struct ModelSheet: View {
             Text("模型")
                 .font(.system(size: Typography.subhead))
                 .foregroundStyle(.secondary)
-            Spacer()
+            Spacer(minLength: 8)   // v3.9.80：与音色行同口径（原 Spacer() 没留最小间距）
             Picker("", selection: Binding(
                 get: { "\(ttsProvider)|\(ttsModel)" },
                 set: { raw in
@@ -507,6 +507,8 @@ struct ModelSheet: View {
                 }
             }
             .pickerStyle(.menu)
+            // v3.9.80：与音色行同口径钉单行（该表将来支持插件追加，长 label 折行会把左标题夹成垂直居中）
+            .lineLimit(1)
             .tint(.indigo)
         }
         // 音色下拉（随模型联动）
@@ -514,7 +516,7 @@ struct ModelSheet: View {
             Text("音色")
                 .font(.system(size: Typography.subhead))
                 .foregroundStyle(.secondary)
-            Spacer()
+            Spacer(minLength: 8)
             Picker("", selection: $ttsVoice) {
                 ForEach(ttsVoiceOptions, id: \.id) { v in
                     Text(v.name).tag(v.id)
@@ -522,6 +524,12 @@ struct ModelSheet: View {
             }
             .pickerStyle(.menu)
             .tint(.indigo)
+            // v3.9.80（用户真机报「系统音色文字错位」后一并扫的同类行）：值折成两行时左侧标签会被
+            // 垂直居中夹在两行中间，整行看着就是错位的；这里与系统音色行同口径钉单行，
+            // 长名字尾部按默认方式截断（完整名字仍能在展开的菜单里看到）。
+            // ⚠️ 只挂 lineLimit：truncationMode 是 Text 专用修饰符，挂在 Picker 上属于「本机验不了类型」
+            //    的改动（Linux 无 iOS SDK，类型错只有 CI Archive 会暴露），而尾部截断本就是默认值。
+            .lineLimit(1)
             .onChange(of: ttsVoice) { _, new in
                 CloudConfig.setTTsVoice(new)
             }
@@ -540,7 +548,7 @@ struct ModelSheet: View {
             Text("系统音色")
                 .font(.system(size: Typography.subhead))
                 .foregroundStyle(.secondary)
-            Spacer()
+            Spacer(minLength: 8)
             Picker("", selection: $sysVoiceID) {
                 Text("自动（最自然可用）").tag("")
                 ForEach(voiceOptions) { opt in
@@ -549,6 +557,11 @@ struct ModelSheet: View {
             }
             .pickerStyle(.menu)
             .tint(.indigo)
+            // v3.9.80（用户真机原话：「系统音色文字错位调整一下」）：系统给高端音色的 name 自带质量后缀
+            // （实测「月（高音质）」），再拼一次「· 优质」→ 整串超宽折成两行，左侧标签被垂直居中夹在
+            // 两行之间 = 用户看到的错位。根因在 SpeechManager 的 label 去重，这里再钉一道**本行防护**：
+            // 值永远单行、尾部截断（完整名字在展开的菜单里仍可读）。
+            .lineLimit(1)
             .onChange(of: sysVoiceID) { _, new in
                 SpeechManager.setSystemVoiceID(new)
             }
