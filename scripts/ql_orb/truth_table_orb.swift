@@ -99,6 +99,16 @@ check("球渲染器文件已删除（A=删）+ 全仓无 LiquidOrbAvatar 代码�
       && orbResidue.isEmpty)
 check("护栏：幽灵路径（删错了也读不到的那两个文件）",
       orbPath.hasSuffix("LiquidOrbAvatar.swift") && orbMetalPath.hasSuffix("LiquidOrbEffect.metal"))
+// 🚨 删源文件时**必须扫 CI 断言**：CI 的 Verify 原来硬断言包内有 default.metallib（护着那个着色器），
+// 文件删了断言还在 → 这一版必然在 CI 判红（本轮实测拦下一次白烧构建）。这条护栏把两者绑死。
+let workflowPath = "/opt/data/qingliao_ios/.github/workflows/build-ios.yml"
+let workflowSrc = (try? String(contentsOfFile: workflowPath, encoding: .utf8)) ?? ""
+check("护栏：CI workflow 读得到", !workflowSrc.isEmpty, workflowPath)
+let metalLeft = allSources.contains { $0.0.hasSuffix(".metal") }
+check("全仓已无 .metal 时，CI 不得再硬断言 default.metallib（否则包必然判红）",
+      metalLeft || !workflowSrc.contains("❌ 包内缺 default.metallib"))
+check("Metal 工具链那步改成条件式（有 .metal 才装，回头再加也不用改 CI）",
+      workflowSrc.contains("if find qingliao -name '*.metal' | grep -q .; then"))
 
 // ② 欢迎页形象 = 宠物（尺寸仍是 96pt：欢迎页身份，不因布局改动而变）
 check("欢迎页形象 = PetAvatar 96pt",
