@@ -131,7 +131,7 @@ enum HomeShortcutManager {
         }
     }
 
-    /// 系统回调（AppDelegate.performActionFor）→ 存待处理 + 广播。返回 false = 不是我们的快捷方式。
+    /// 系统回调（QingliaoSceneDelegate 的两条入口）→ 存待处理 + 广播。返回 false = 不是我们的快捷方式。
     @discardableResult
     static func handle(_ item: UIApplicationShortcutItem) -> Bool {
         guard let id = HomeShortcut.actionId(from: item.type), HomeShortcut.action(id: id) != nil else {
@@ -146,5 +146,38 @@ enum HomeShortcutManager {
     static func consumePending() -> Int? {
         defer { pendingActionId = nil }
         return pendingActionId
+    }
+}
+
+// MARK: - v3.9.83 系统快捷方式的**真正接收端**（SceneDelegate）
+//
+// 🚨 为什么必须有这个类：SwiftUI 生命周期（@main App + WindowGroup）下进程是 **scene-based** 的，
+//    UIKit 把「桌面图标长按项被点」交给 **scene delegate**：
+//      · App 已在运行（前台/后台）→ `windowScene(_:performActionFor:completionHandler:)`
+//      · App 未运行（冷启动）      → `scene(_:willConnectTo:options:)` 的 `connectionOptions.shortcutItem`
+//    而 `UIApplicationDelegate.application(_:performActionFor:completionHandler:)` 在 scene-based app 上
+//    **根本不会被调用**（Apple 文档明说：非 scene app 才走 app delegate 那条）。
+//
+//    v3.9.82 只在 AppDelegate 里实现了 performActionFor → 整条链路是死代码：
+//    真机表现 = 点快捷方式只把 App 打开、不跳转（用户 2026-09-26 报的就是这个）。
+//
+// ⚠️ 这个类**不建窗口**：WindowGroup 的窗口仍归 SwiftUI 管，我们只是借 scene delegate 收快捷方式事件。
+//    注册方式见 QingliaoAppDelegate.application(_:configurationForConnecting:options:)
+//    （注册途径有两条：app delegate 或 Info.plist 的 UIApplicationSceneManifest，前者优先）。
+final class QingliaoSceneDelegate: NSObject, UIWindowSceneDelegate {
+
+    /// ① App 未运行 → 从桌面快捷方式冷启动：此时快捷方式在 connectionOptions 里
+    func scene(_ scene: UIScene,
+               willConnectTo session: UISceneSession,
+               options connectionOptions: UIScene.ConnectionOptions) {
+        guard let item = connectionOptions.shortcutItem else { return }
+        HomeShortcutManager.handle(item)
+    }
+
+    /// ② App 已在运行 → 系统第二条回调（返回 true = 我们处理了，系统不再走默认行为）
+    func windowScene(_ windowScene: UIWindowScene,
+                     performActionFor shortcutItem: UIApplicationShortcutItem,
+                     completionHandler: @escaping (Bool) -> Void) {
+        completionHandler(HomeShortcutManager.handle(shortcutItem))
     }
 }

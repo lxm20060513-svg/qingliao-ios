@@ -36,14 +36,30 @@ final class QingliaoAppDelegate: NSObject, UIApplicationDelegate,
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         UNUserNotificationCenter.current().delegate = self
+        // v3.9.83：非 scene 进程的冷启动路径（App 未采用 scene 时，系统把快捷方式塞进 launchOptions）。
+        // scene 化进程（SwiftUI 生命周期）走 QingliaoSceneDelegate —— 两条互补，互不干扰。
+        if let item = launchOptions?[.shortcutItem] as? UIApplicationShortcutItem {
+            HomeShortcutManager.handle(item)
+        }
         // v3.9.82：桌面图标长按快捷方式 —— 按用户设置重建系统菜单（动态 shortcutItems；
         // 桌面长按菜单系统上限 4 项，所以 6 个候选里只挂选中的那几个）
         HomeShortcutManager.sync()
         return true
     }
 
-    /// v3.9.82：桌面图标长按快捷方式被点 → 存待处理 + 广播（派发在 DockTabView 侧的
-    /// DockRootSignalsModifier，动作仍走 handleOrbAction 单一真源）。
+    /// v3.9.83：注册自己的 scene delegate —— SwiftUI 生命周期下快捷方式事件**只发给 scene delegate**，
+    /// 不注册 = AppDelegate 的 performActionFor 永远不会被调用（v3.9.82 真机「点了不跳转」的根因）。
+    /// 只借它收快捷方式事件，窗口仍归 SwiftUI 的 WindowGroup 管（delegate 里不建窗口）。
+    func application(_ application: UIApplication,
+                     configurationForConnecting connectingSceneSession: UISceneSession,
+                     options: UIScene.ConnectionOptions) -> UISceneConfiguration {
+        let config = UISceneConfiguration(name: nil, sessionRole: connectingSceneSession.role)
+        config.delegateClass = QingliaoSceneDelegate.self
+        return config
+    }
+
+    /// v3.9.82 起保留、v3.9.83 起降为**兜底**：只有非 scene 进程会走这条（scene 进程走 QingliaoSceneDelegate）。
+    /// 留着零成本 —— 哪天进程不再是 scene-based，链路照样通。
     /// 返回 false = 不是本 App 的快捷方式类型，交回系统默认行为。
     func application(_ application: UIApplication,
                      performActionFor shortcutItem: UIApplicationShortcutItem,

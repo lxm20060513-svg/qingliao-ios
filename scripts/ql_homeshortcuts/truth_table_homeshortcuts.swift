@@ -6,7 +6,7 @@ import Foundation
 // iOS 桌面长按菜单**系统上限就是 4 项**（静态 plist 与动态 shortcutItems 同一口径），
 // 所以本版口径 = 6 项全做候选、设置页自己挑 4 项、按设置重建系统菜单。
 //
-// 本表钉七件事（都是「本机一眼能查、真机上才看得出来」的形态）：
+// 本表钉八件事（都是「本机一眼能查、真机上才看得出来」的形态）：
 //   ① 候选顺序 = 用户点名顺序（order == [4,5,2,0,1,3]），默认勾选 = 前 4 项；
 //   ② **不复制第二套动作表**：HomeShortcuts.swift 里不许出现快捷方式标题/图标字面量，
 //      标题与动作语义只有 `OrbQuickAction.all` 一个真源（复制必然漂移）；
@@ -14,7 +14,9 @@ import Foundation
 //   ④ **「全关」与「从没设置过」必须区分**（off 哨兵）—— 否则最后一项永远关不掉（点掉又自己亮回来）；
 //   ⑤ 系统菜单按设置动态重建（不用 plist 静态 UIApplicationShortcutItems）；
 //   ⑥ 接收点挂在 `OrbMenuFromPetModifier`（body 巨型链不许再挂第二个 .modifier —— CI 类型检查超时红线）；
-//   ⑦ 设置页有入口、弹窗有「恢复默认」（且判据用集合比较）。
+//   ⑦ 设置页有入口、弹窗有「恢复默认」（且判据用集合比较）；
+//   ⑧ **v3.9.83：接收端必须是 scene delegate**（SwiftUI 进程是 scene-based，AppDelegate 的
+//      performActionFor 永不被调用 —— v3.9.82 真机「点了不跳转」的根因，见下方 ⑦ 段注释）。
 
 var passCount = 0
 var failCount = 0
@@ -125,9 +127,34 @@ check("body 链上 OrbMenuFromPetModifier 只挂一处（没多出第二个 .mod
 let appDelegate = region(chat, from: "final class QingliaoAppDelegate", to: "// v2.0.110")
 check("启动时重建菜单：didFinishLaunching 里 HomeShortcutManager.sync()",
       flat(appDelegate).contains("HomeShortcutManager.sync()"))
-check("系统回调在 AppDelegate：performActionFor → HomeShortcutManager.handle",
+// 🚨 v3.9.83（真机 bug：点快捷方式只把 App 打开、不跳转）——下面这组才是**接收端的真形态**：
+//    SwiftUI 生命周期（@main App + WindowGroup）下进程是 scene-based 的，UIKit 把快捷方式事件
+//    交给 **scene delegate**，`UIApplicationDelegate.application(_:performActionFor:)` 在 scene-based
+//    进程上**根本不会被调用**（Apple 文档：非 scene app 才用 app delegate 那条）。
+//    v3.9.82 只写了 AppDelegate 那条 → 整条链路是死代码，而且原来这里那条
+//    「系统回调在 AppDelegate：performActionFor」断言**正好把错形态钉成了正确形态**，所以本地全绿、
+//    真机全废。教训：断言要钉「事件真实到达的路径」，不能钉「我写了哪个方法」。
+check("AppDelegate 注册了 scene delegate（缺这条，快捷方式事件永远到不了 App）",
+      flat(appDelegate).contains("configurationForConnectingconnectingSceneSession")
+      && flat(appDelegate).contains("config.delegateClass=QingliaoSceneDelegate.self"))
+check("scene delegate 实现 UIWindowSceneDelegate（不是只声明）",
+      flat(stripCommentLines(shortcuts)).contains("finalclassQingliaoSceneDelegate:NSObject,UIWindowSceneDelegate"))
+check("两条入口都在：冷启动 connectionOptions.shortcutItem + 运行中 windowScene(performActionFor:)",
+      flat(stripCommentLines(shortcuts)).contains("connectionOptions.shortcutItem")
+      && flat(stripCommentLines(shortcuts)).contains("funcwindowScene(_windowScene:UIWindowScene,performActionFor"))
+check("两条入口都汇到 HomeShortcutManager.handle（单一真源，不再各写一套）",
+      flat(stripCommentLines(shortcuts)).components(separatedBy: "HomeShortcutManager.handle(").count - 1 == 2)
+check("scene delegate 里不建窗口（窗口仍归 SwiftUI 的 WindowGroup 管）",
+      !flat(stripCommentLines(shortcuts)).contains("makeKeyAndVisible"))
+check("AppDelegate 的 performActionFor 降为兜底但仍在（非 scene 进程的唯一入口）",
       flat(appDelegate).contains("performActionForshortcutItem")
       && flat(appDelegate).contains("completionHandler(HomeShortcutManager.handle(shortcutItem))"))
+check("冷启动兜底读 launchOptions[.shortcutItem]（非 scene 进程的冷启动路径）",
+      flat(appDelegate).contains("launchOptions?[.shortcutItem]"))
+// 第二条注册途径（plist 兜底）：只在 AppDelegate 那条被系统绕过时才起作用，但不写就少一层保险。
+check("project.yml 声明 scene manifest + 指向同一个 SceneDelegate（plist 兜底途径）",
+      flat(proj).contains("UIApplicationSceneManifest")
+      && flat(proj).contains("UISceneDelegateClassName:\"$(PRODUCT_MODULE_NAME).QingliaoSceneDelegate\""))
 check("设置页有「桌面快捷方式」入口，行尾计数读同一真值",
       sections.contains("桌面快捷方式") && flat(sections).contains("HomeShortcutStore.ids(from:homeShortcutsRaw).count"))
 check("入口打开 HomeShortcutSheet（弹窗挂了 medium/large 两档高度）",

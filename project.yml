@@ -36,6 +36,17 @@ targets:
         CFBundleShortVersionString: "3.9.82"
         CFBundleVersion: "527"
         UILaunchScreen: {}
+        # v3.9.83：SCENE 生命周期 + 声明自己的 scene delegate。
+        # SwiftUI 进程本就是 scene-based，而系统把「桌面图标长按项被点」**只发给 scene delegate**，
+        # AppDelegate 的 performActionFor 永不被调用（v3.9.82 真机「点了不跳转」的根因）。
+        # 注册途径有两条：AppDelegate 的 configurationForConnecting（优先）与本清单（兜底），两条都写。
+        # 附带收益：iOS 27 SDK 起「非 scene app」直接不启动（Apple 已在 iOS 26 发警告），这步提前合规。
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+          UISceneConfigurations:
+            UIWindowSceneSessionRoleApplication:
+              - UISceneConfigurationName: Default Configuration
+                UISceneDelegateClassName: "$(PRODUCT_MODULE_NAME).QingliaoSceneDelegate"
         # v3.8.0：实时活动（灵动岛/锁屏「AI 正在回复」）——挂件代码在 QingliaoWidget target
         NSSupportsLiveActivities: true
         # v3.9.3：语音转文字改设备端识别（iOS 26 SpeechAnalyzer/SpeechTranscriber）
