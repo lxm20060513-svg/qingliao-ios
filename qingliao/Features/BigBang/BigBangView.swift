@@ -209,7 +209,11 @@ struct BigBangView: View {
                     }
                     // showCopyCount = false（窄屏兜底稿）或未选中时：只留图标，标签走 accessibilityLabel
                 }
-                .pill(.primary)
+                // 🚨 v3.9.77 用户口径：「底部的胶囊需统一样式和大小」—— **样式与尺寸都统一**。
+                // 原实现这颗「复制」走 `.pill(.primary)`（另一套尺寸 + 强调色），同一排里又高又亮，
+                // 与旁边四颗明显不是一路。现在 5 颗全部 `.pill(.topBar, tone: .neutral)`：
+                // 同高、同底色、同描边、同圆角。主操作靠**文字本身**（「复制 N」）识别，不靠尺寸/颜色拉差异。
+                .pill(.topBar, tone: .neutral)
             }
             .buttonStyle(.plain)
             .disabled(selected.isEmpty)

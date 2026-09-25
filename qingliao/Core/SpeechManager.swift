@@ -28,6 +28,19 @@ private struct SpeechVoiceCatalog: Sendable {
     let hasHigh: Bool
 }
 
+/// v3.9.77 复审修：逐字进度的**独立**发布箱（谁要谁读）。
+/// 为什么不挂在 SpeechManager 自身的 @Published 上：`SpeechManager.shared` 被聊天列表里**每颗气泡**
+/// 观察（`ChatMessageBubble` 的 `@ObservedObject`），而逐字进度在朗读全程以 ≈12.5Hz 变化 →
+/// 会把整片聊天列表的 body 每 0.08s 全量重算一遍（那个文件 body 上千行）。
+/// 这与「麦克风电平不走 @Published」是同一类问题：**只有一个消费方的高频状态，别让全仓共享的单例替它广播**。
+/// 现在只有语音对话页订阅它，聊天页不再被连坐。
+/// `fileprivate(set)` = 只有本文件内的 SpeechManager 能写，外部只能读。
+@MainActor
+final class SpokenProgress: ObservableObject {
+    @Published fileprivate(set) var text: String = ""
+    @Published fileprivate(set) var charCount: Int = 0
+}
+
 @MainActor
 final class SpeechManager: NSObject, ObservableObject, AVSpeechSynthesizerDelegate,
                            AVAudioPlayerDelegate {
@@ -39,6 +52,29 @@ final class SpeechManager: NSObject, ObservableObject, AVSpeechSynthesizerDelega
 
     private let synth = AVSpeechSynthesizer()
     private var player: AVAudioPlayer?
+
+    /// v3.9.77：驱动「文字跟随语音逐字输出」。
+    /// `progress.text` = 交给 TTS 的**清洗后文本**（与念出来的字完全一致），`progress.charCount` = 已念到的字符数。
+    /// 两个引擎精度不同：系统引擎由 `willSpeakRangeOfSpeechString` **精确**回调；云端引擎播的是 mp3、
+    /// **没有**逐字回调，只能按「播放位置 ÷ 每字时长」估算 —— 会有累积误差（标点停顿处最明显），
+    /// 这是该方案的固有上限，不是 bug。视图侧一律用 `String(progress.text.prefix(progress.charCount))`，
+    /// 天然和念的内容对齐；**别去截原始回复**（原文含 markdown，字符数和清洗后不同，会越对越偏）。
+    /// 🚨 v3.9.77 复审修：这两个值**不再是 SpeechManager 的 @Published** —— 消费方一律读 `progress`
+    /// （挂在共享单例上会把整片聊天列表按 12.5Hz 重算，详见 SpokenProgress 的注释）。
+    let progress = SpokenProgress()
+    private var cloudTickTimer: Timer?
+    /// v3.9.77 复审修（第二轮）：本段朗读**是否真的起播过**（ticker 里观察到 isPlaying 为真）。
+    /// 用来区分「播过又停」与「还没起播」—— 蓝牙/车机路由、音频会话刚被别处 setActive(false) 后重激活，
+    /// 起播都可能慢于 1 秒；按「播放已死」收尾会把刚开口的朗读整条误杀（本仓踩过会话抢时序的坑）。
+    private var cloudPlaybackSeen = false
+    /// v3.9.77 复审：暂停/被来电抢占时用来计「连续多少拍播放位置没前进」。
+    /// 放实例属性是为了让主 actor 闭包能改它（闭包里 `var` 局部变量在 Swift 6 下不允许跨并发域改写）。
+    private var cloudIdleTicks = 0
+    /// v3.9.77 修审查：当前这条 utterance 的身份。系统引擎的逐字回调是**异步**送达的，
+    /// 上一条的迟到回调会落在下一条已经开始之后 —— 没有这个身份比对，它会拿旧文本的偏移
+    /// 顶进新文本的进度里，导致新一条**整段瞬显**（逐字动画失效）。同文件其它异步路径
+    /// （324/336 行）都用 `guard gen == ttsGeneration` 这一套，只有系统回调原先漏了。
+    private var currentUtteranceID: ObjectIdentifier?
     private var auth: AuthStore?
     // v3.0.x：TTS 代次 —— 每次 toggle/stop 递增；旧 Task 恢复后校验代次，丢弃过期结果（防陈旧异步覆盖）
     private var ttsGeneration = 0
@@ -78,6 +114,10 @@ final class SpeechManager: NSObject, ObservableObject, AVSpeechSynthesizerDelega
         guard !clean.isEmpty else { return }
         speakingID = id
         cloudDegraded = false
+        progress.text = clean            // 逐字基准：与即将念出的字逐字对齐
+        progress.charCount = 0
+        cloudTickTimer?.invalidate()
+        cloudTickTimer = nil
         if !preferSystem, CloudConfig.ttsEnabled {
             let gen = ttsGeneration
             Task { await speakViaCloud(clean, id: id, gen: gen) }
@@ -97,6 +137,13 @@ final class SpeechManager: NSObject, ObservableObject, AVSpeechSynthesizerDelega
         player = nil
         speakingID = nil
         cloudDegraded = false
+        cloudTickTimer?.invalidate()
+        cloudTickTimer = nil
+        progress.charCount = 0
+        // v3.9.77 修审查：原来只清计数不清文本 —— 任何非朗读路径读这两个属性都会拿到**上一条**的内容
+        //（现在只有语音页读，属侥幸没炸）。消费方已有 isEmpty 兜底，清干净更稳。
+        progress.text = ""
+        currentUtteranceID = nil
     }
 
     // MARK: - v3.5.x 朗读音频会话（系统 / 云端两套引擎共用）
@@ -122,6 +169,7 @@ final class SpeechManager: NSObject, ObservableObject, AVSpeechSynthesizerDelega
         // v3.9.10 hotfix：这里**只读缓存**，绝不在主线程枚举音色（原因见下方音色目录注释）
         ut.voice = Self.resolvedSystemVoice()
         ut.rate = Self.systemRate
+        currentUtteranceID = ObjectIdentifier(ut)   // v3.9.77：逐字回调靠它认身份、丢弃上一条的迟到回调
         synth.speak(ut)
     }
 
@@ -333,6 +381,8 @@ final class SpeechManager: NSObject, ObservableObject, AVSpeechSynthesizerDelega
         p.prepareToPlay()
         p.play()
         player = p
+        // v3.9.77：云端路径没有逐字回调 → 按播放位置估算推进（读 currentTime，暂停/缓冲也不会飘）
+        startCloudTicker(duration: p.duration)
     }
 
     // MARK: - v3.4.x TTS 本地缓存（同一段话不重复请求云端 /api/tts）
@@ -383,6 +433,36 @@ final class SpeechManager: NSObject, ObservableObject, AVSpeechSynthesizerDelega
 
     // MARK: - AVSpeechSynthesizerDelegate
 
+    /// v3.9.77：系统引擎的**精确**逐字回调（AVSpeechSynthesizer 每念到一个词范围就调一次）。
+    /// 云端播放中（player != nil）不接受系统回调，避免两套进度互相覆盖。
+    nonisolated func speechSynthesizer(_ s: AVSpeechSynthesizer,
+                                       willSpeakRangeOfSpeechString characterRange: NSRange,
+                                       utterance: AVSpeechUtterance) {
+        let end = characterRange.location + characterRange.length      // 先算成 Int，只让 Sendable 值过域
+        let uid = ObjectIdentifier(utterance)                          // utterance 非 Sendable → 只传身份
+        Task { @MainActor in
+            guard self.player == nil, !self.progress.text.isEmpty else { return }
+            // v3.9.77 修审查：① 身份不符 = 上一条的迟到回调，直接丢弃（否则新一条整段瞬显）；
+            // ② 偏移是 UTF-16 码元，而 prefix/count 按 Character 算，含 emoji 时会跑到语音前面 → 换算。
+            guard self.currentUtteranceID == uid else { return }
+            // 落在代理对中间时 charOffset 返回 nil → **保持上一拍**，绝不跳到全文（复审实测：
+            // 旧写法遇 emoji 会让那一帧进度直接顶到全文，比不做还糟）。
+            guard let off = self.charOffset(utf16: end) else { return }
+            self.progress.charCount = Swift.min(self.progress.text.count, off)
+        }
+    }
+
+    /// UTF-16 码元偏移 → Character 偏移（越界 / 落在代理对中间都安全，取不到边界就返回全文）。
+    /// 返回 nil = 该 UTF-16 偏移落在代理对中间（`String.Index(_:within:)` 对这种情况**不向下取整**），
+    /// 调用方应保持上一拍进度，而不是当成「已念完」。
+    private func charOffset(utf16: Int) -> Int? {
+        let u16 = progress.text.utf16
+        let clamped = Swift.min(Swift.max(0, utf16), u16.count)
+        let i16 = u16.index(u16.startIndex, offsetBy: clamped)
+        return String.Index(i16, within: progress.text)
+            .map { progress.text.distance(from: progress.text.startIndex, to: $0) }
+    }
+
     nonisolated func speechSynthesizer(_ s: AVSpeechSynthesizer,
                                        didFinish utterance: AVSpeechUtterance) {
         Task { @MainActor in
@@ -411,8 +491,83 @@ final class SpeechManager: NSObject, ObservableObject, AVSpeechSynthesizerDelega
             guard let pl = self.player, ObjectIdentifier(pl) == pid else { return }
             self.player = nil
             self.speakingID = nil
+            // v3.9.77 修审查：**自然播完**是最常见路径，原来这条路上没人清 ticker —— ticker 里的早退
+            // 只看 player，而 player 刚被置 nil，于是它 0.08s 一拍一直空转到进程结束（单例，永不回收）。
+            self.stopCloudTicker()
+            self.progress.charCount = self.progress.text.count   // 收尾补足到全文，否则永远差最后一字
             try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         }
     }
 }
 
+
+
+// MARK: - v3.9.77 云端 TTS 的逐字进度估算
+
+extension SpeechManager {
+    /// 云端 mp3 没有逐字回调，只能按「播放位置 ÷ 每字时长」估算。
+    /// 用 `player.currentTime` 而不是墙钟：暂停/缓冲/被打断时都不会漂，且随播放自然停住。
+    /// 误差来源：标点停顿、英文单词、数字读法——所以只用于「文字跟着语音往外吐」的观感，
+    /// **不要**拿它做任何精确判断（例：不要用它决定念完没念完）。
+    func startCloudTicker(duration: TimeInterval) {
+        cloudTickTimer?.invalidate()
+        let total = progress.text.count
+        guard total > 0, duration > 0.2 else { return }
+        let perChar = duration / Double(total)
+        cloudIdleTicks = 0
+        cloudPlaybackSeen = false
+        // v3.9.77 复审修（第二轮）：Task 代次护栏（沿用本文件 `guard gen == ttsGeneration` 的既有 idiom）——
+        // 已入队的 Task 不会随 timer.invalidate() 取消，落到 MainActor 时若新一条朗读已开始，
+        // 旧闭包捕获的 total/perChar 会写进**新文本**的进度、甚至把新 ticker 停掉。
+        let gen = ttsGeneration
+        // 🚨 v3.9.77 **BLOCKER**（复审用真编译器在本机复现，`-parse` / `-typecheck` **全部放行**）：
+        // Timer 的 block 是 @Sendable，它的参数 `t`（Timer 非 Sendable）**不能**被送进
+        // `Task { @MainActor in }` —— 真编译直接报 `sending 'perChar' risks causing data races`，Archive 必挂。
+        // 正解 = 闭包参数写成 `_`，自毁一律走实例方法 `stopCloudTicker()`。
+        // ⚠️ 别改成 `{ @MainActor [weak self] t in }`：那样报 "loses global actor 'MainActor'"（也实测过）。
+        cloudTickTimer = Timer.scheduledTimer(withTimeInterval: 0.08, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }        // 单例，实际不可达
+                guard gen == self.ttsGeneration else { return }   // 旧代次：静默退场，别碰新 ticker
+                // player 已销毁（播完 / 被 stop）→ 立刻收掉，别让 0.08s 定时器长驻空转。
+                guard let pl = self.player else { self.stopCloudTicker(); return }
+                // 暂停 / 被来电抢占时 isPlaying 为假但 player 还在 → 连续若干拍位置没前进就收掉；
+                // 否则每 0.08s 空转一条 MainActor Task，直到下次朗读（全仓没有音频中断处理）。
+                guard pl.isPlaying else {
+                    self.cloudIdleTicks += 1
+                    // v3.9.77 复审修（第二轮）：别一律当「播放已死」—— 分两种情形：
+                    // ① 从未起播（cloudPlaybackSeen == false）：给 60 拍 ≈4.8s 起播宽限（路由切换/会话重激活）；
+                    // ② 播过又停（暂停 / 被来电抢占）：11 拍 ≈0.88s 足够。
+                    let limit = self.cloudPlaybackSeen ? 10 : 60
+                    if self.cloudIdleTicks > limit {
+                        // 🚨 v3.9.77 复审修：这条分支已经判定「播放已死」，只收 ticker 不够 ——
+                        // player / speakingID 留着，语音页会永久停在「朗读中」（它的状态机只由 speakingID
+                        // 驱动）→ 麦克风再不开、半双工闭环断死，只能手动点「打断」。
+                        // 按 stop 口径收尾：speakingID 归 nil 会让引擎收到 .speechEnded 自动续听。
+                        self.stopCloudTicker()
+                        self.player = nil
+                        self.speakingID = nil
+                        self.cloudDegraded = false
+                        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+                    }
+                    return
+                }
+                self.cloudIdleTicks = 0
+                self.cloudPlaybackSeen = true          // 真的起播了：此后才允许按「播过又停」收尾
+                let n = Int(pl.currentTime / perChar)
+                // 只在**真的前进**时才写：值没变也写会白白触发订阅方重算（复审建议）。
+                let next = Swift.min(total, Swift.max(self.progress.charCount, n))
+                if next != self.progress.charCount { self.progress.charCount = next }
+                if next >= total { self.stopCloudTicker() }
+            }
+        }
+    }
+
+    /// 统一收掉云端逐字 ticker（invalidate + 置 nil）。**所有**自毁路径都走这里 ——
+    /// 不要在 Timer 闭包内直接用它的参数 `t`（见 startCloudTicker 里的 BLOCKER 注释）。
+    private func stopCloudTicker() {
+        cloudTickTimer?.invalidate()
+        cloudTickTimer = nil
+        cloudIdleTicks = 0
+    }
+}

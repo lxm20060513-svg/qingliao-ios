@@ -69,8 +69,13 @@ check("通知名已注册", chatViewSrc.contains("static let qingliaoOrbVoiceInp
 // ── 3. 菜单层形态（A+C 方案定稿护栏） ─────────────────────────
 check("菜单浮层挂在 DockTabView", dockSrc.contains("OrbQuickMenuOverlay(barHeight: dockBarHeight"))
 check("速记弹窗 sheet(item:) 挂载", dockSrc.contains(".sheet(item: $quickCapture,"))   // 后面还跟着 onDismiss 复位
-check("不做全屏磨砂（方案 C 只取光晕——轻纱 0.12 是黑色淡遮罩非 material）",
-      orbMenuSrc.contains("Color.black.opacity(shown ? 0.12 : 0)") && !orbMenuSrc.contains(".ultraThinMaterial"))
+// 🚨 v3.9.77 **用户口径推翻方案 C 的「不做全屏磨砂」**（原话：「这个背景上下白，中间灰，改全半模糊效果」）。
+//   旧形态 `Color.black.opacity(0.12)` 既不模糊、又没铺安全区 → 上下露原页面、中间一条灰纱（用户看到的就是这个）。
+//   现在必须是**整屏材质模糊 + 铺满安全区**。**别照旧定稿改回去。**
+check("遮罩 = 全屏半透明模糊（ultraThinMaterial 铺满安全区）",
+      orbMenuSrc.contains("Rectangle().fill(.ultraThinMaterial)") && orbMenuSrc.contains(".ignoresSafeArea()"))
+check("旧的纯色黑纱已清零（无模糊、没铺满的形态）",
+      !stripCommentLines(orbMenuSrc).contains("Color.black.opacity(shown ? 0.12 : 0)"))
 check("绽放动效 = 从球心弹射（initial 位置 = 球心）+ 错峰入场",
       orbMenuSrc.contains(".position(reduceMotion ? p : (shown ? p : ballCenter))")
       && orbMenuSrc.contains(".delay(Double(index) * 0.05)"))
@@ -457,6 +462,163 @@ check("降级文案带真实原因（不支持设备端识别的机型不能只�
       voiceSrc.contains("liveSpeech.lastError ?? "))
 check("准备期文案（这段时间不能显示「聆听中」）",
       voiceSrc.contains("正在准备语音模型"))
+
+// ── ⑩ v3.9.77 界面口径（用户 2026-09-25 装机后报的 4 条）────────────────────
+// 这四条都不是「审美偏好」，而是**可回退的具体口径**，所以逐条钉住。
+let micSrc = src("Core/LiveSpeechTranscriber.swift")
+let speechSrc = src("Core/SpeechManager.swift")
+// ⚠️ 排除式断言一律先剥注释：本仓已被「注释里叙述旧写法」绊倒过多次 ——
+//    这次就是 `.pill(.primary)` 那条（注释原文里写着旧口径 → 断言假红）。
+let voiceClean = stripCommentLines(voiceSrc)
+let micClean = stripCommentLines(micSrc)
+let speechClean = stripCommentLines(speechSrc)
+
+// 1) 语音对话页跟随系统明暗（原来按深色稿写死了深底 + .environment(\\.colorScheme, .dark)）
+check("语音页不再写死深色环境", !voiceClean.contains(".environment(\\.colorScheme, .dark)"))
+check("语音页底色走系统语义（Color(.systemBackground)）", voiceSrc.contains("Color(.systemBackground)"))
+check("语音页文字走语义色（不再 foregroundStyle(.white) 硬写）", !voiceClean.contains("foregroundStyle(.white)"))
+check("柔光/涟漪强度按主题分档（isDark 判定存在）", voiceSrc.contains("private var isDark: Bool"))
+// 2) 球高光接近球心 —— 偏左上会让人眼觉得整球离开了涟漪中心（几何本来就同心）
+check("球高光居中（UnitPoint 0.44/0.40）", voiceSrc.contains("UnitPoint(x: 0.44, y: 0.40)"))
+check("旧的偏心高光已消失（0.36/0.32）", !voiceClean.contains("UnitPoint(x: 0.36, y: 0.32)"))
+// 3) 波条跟真实麦克风电平起伏
+check("波条每帧自读电平（TimelineView + currentInputLevel，不靠广播）",
+      voiceClean.contains("TimelineView(") && voiceClean.contains("liveSpeech.currentInputLevel()"))
+// ── v3.9.77 用户定稿「方案 2」：波形 = 单条横向渐变波浪线 + 一条淡副波 ──────────────
+//    （取代原来那排 11 根竖柱；灵动感 = 振幅跟电平 + 相位随时间推进）
+check("波形是 Canvas 画的波浪线（不再是那排竖柱）",
+      voiceClean.contains("Canvas { context, size in") && voiceClean.contains("Self.wavePath("))
+check("渐变描边（蓝 → 紫 → 青，横向）",
+      voiceClean.contains(".linearGradient(Gradient(colors: mainColors)"))
+check("振幅跟电平（安静仍留 2.4pt 呼吸，不平成死直线）", voiceClean.contains("2.4 + 32 * lv"))
+check("相位随时间推进（此起彼伏）；减弱动态效果时静止",
+      voiceClean.contains("reduceMotion ? 0 : ctx.date.timeIntervalSinceReferenceDate * 2.2"))
+check("两条波：主波 + 淡副波（层次感）", voiceClean.contains("amp * 0.58"))
+check("旧的 11 根竖柱系数数组已删除", !voiceClean.contains("private static let waveShape"))
+check("写死的固定波高数组已删（不然又变成不说话也一个样）", !voiceClean.contains("waveHeights"))
+check("识别引擎暴露**非隔离**电平读数（波条每帧读它，不走广播）",
+      micClean.contains("nonisolated func currentInputLevel() -> Float"))
+check("tap 里算 RMS 且不碰 self（捕获 Sendable 的 micMeter）—— 接线不能断",
+      micClean.contains("[feeder, micMeter]") && micClean.contains("MicLevelMeter.rms(of: buffer)")
+      && micClean.contains("micMeter.update("))
+check("电平转发器 @unchecked Sendable（音频线程写、主线程读）",
+      micClean.contains("final class MicLevelMeter: @unchecked Sendable"))
+// 🚨 v3.9.77 修审查：电平**不能**走 @Published —— 本类被聊天页共用，广播会让聊天页超大 body
+//     在整段录音里被 14Hz 全量重绘（性能硬要求）。原来那套「0.07s 定时器写 @Published」已整块删掉。
+check("电平不走 @Published（否则聊天页被连坐重绘）",
+      !micClean.contains("@Published private(set) var inputLevel"))
+check("电平没有独立定时器了（定时器那套已整块删除）", !micClean.contains("startLevelTimer"))
+check("teardown 把电平清零（否则波条停在最后一帧）", micClean.contains("micMeter.update(0)"))
+// 4) AI 文字跟随语音逐字输出
+// 🚨 v3.9.77 复审修：逐字进度原来挂在 SpeechManager 自身的 @Published 上 —— 而 SpeechManager.shared
+//    被聊天列表每颗气泡观察（ChatMessageBubble 的 @ObservedObject）→ 朗读全程以 ≈12.5Hz 让整片
+//    聊天列表 body 全量重算（与「麦克风电平不走 @Published」同一类）。现在改成独立发布箱，只语音页订阅。
+check("逐字进度走独立发布箱 SpokenProgress（挂共享单例上会让聊天页连坐重绘）",
+      speechSrc.contains("final class SpokenProgress: ObservableObject")
+      && speechSrc.contains("let progress = SpokenProgress()"))
+check("逐字进度的旧形态已清零（不再是 SpeechManager 的 @Published）",
+      !speechClean.contains("@Published private(set) var spokenCharCount")
+      && !speechClean.contains("@Published private(set) var spokenText"))
+// ⚠️ 这里必须查**带参数名的完整签名**且剥注释：只查 `willSpeakRangeOfSpeechString` 会被
+//    「注释里提到这个方法名」命中 —— 反向自证 D4 实测把真回调删掉它照样绿（假护栏）。
+check("系统引擎走精确逐字回调（带参数名的完整签名）",
+      speechClean.contains("willSpeakRangeOfSpeechString characterRange"))
+check("云端按时长估算且读播放位置（currentTime，不用墙钟 → 缓冲/暂停都不飘）",
+      speechSrc.contains("pl.currentTime / perChar"))
+check("语音页按逐字进度输出（读独立箱 prefix(charCount)）",
+      voiceSrc.contains("prefix(spokenProgress.charCount)"))
+
+// 5) 大爆炸底部胶囊统一样式与尺寸（原来那颗「复制」混用 .pill(.primary) = 另一套尺寸）
+let bbSrc = src("Features/BigBang/BigBangView.swift")
+let bbBar = between(bbSrc, "private func bottomBar(showCopyCount: Bool)", "private func wordChip")
+check("大爆炸底部条切片取到（切片空了下面两条就是空真）", !bbBar.isEmpty)
+check("底部条不再混用 .pill(.primary)（那是另一套尺寸，会高出一截）",
+      !stripCommentLines(bbBar).contains(".pill(.primary)"))
+// 🚨 v3.9.77 用户二次澄清：「统一样式和大小」= **样式与尺寸都要一致**（我第一版只统一了尺寸、
+//   还留着主操作的强调色，不合口径）→ 5 颗现在全部 .pill(.topBar, tone: .neutral)。
+// 🚨 v3.9.77 复审修：原来数的是**未剥注释**的切片 —— 注释里那句「5 颗全部 .pill(.topBar, tone: .neutral)」
+//    也被计入（实测计数 6）→ `>= 5` 实际只要求 4 颗，退回一颗也不红（假护栏）。改成剥注释 + 精确条数。
+check("底部条 5 颗胶囊完全一致（同尺寸 + 同色调，剥注释后精确 5 颗）",
+      stripCommentLines(bbBar).components(separatedBy: ".pill(.topBar, tone: .neutral)").count - 1 == 5
+      && !stripCommentLines(bbBar).contains(".pill(.topBar, tone: .accent)"))
+
+
+// 6) 长按菜单的背景遮罩 = **全屏半透明模糊**（用户 2026-09-25：「这个背景上下白，中间灰，改全半模糊效果」）
+//    旧形态 = 一层 `Color.black.opacity(0.12)`，既不模糊、又没铺安全区 → 上下露原页面、中间一条灰纱。
+let orbSrc = src("Features/OrbQuickMenu.swift")
+let orbClean = stripCommentLines(orbSrc)
+check("菜单遮罩走材质模糊（.ultraThinMaterial 自带背景模糊）",
+      orbClean.contains("Rectangle().fill(.ultraThinMaterial)"))
+check("菜单遮罩铺满全屏（.ignoresSafeArea()）—— 去掉就回到「上下白、中间灰」",
+      orbClean.contains(".ignoresSafeArea()"))
+check("旧的纯色 12% 黑纱已清零（无模糊、没铺满的旧形态）",
+      !orbClean.contains("Color.black.opacity(shown ? 0.12 : 0)"))
+check("遮罩仍吃掉空白点击（点空白收起保住）",
+      orbClean.contains("onTapGesture(perform: dismissAnimated)"))
+
+
+// 7) 长按菜单 6 颗胶囊**大小统一**（用户 2026-09-25：「这个截图的 6 个胶囊也大小统一一下」）
+let orbPill = between(orbSrc, "private func pillVisual(", "private func pillHitArea")
+check("菜单胶囊切片取到（切空了下面就是空真）", !orbPill.isEmpty)
+check("菜单视觉层钉统一宽度（与命中层同源 pillSize）",
+      orbPill.contains(".frame(width: OrbQuickMenuLayout.pillSize.width)"))
+// ⚠️ 令牌真值：Spacing.xl = 12（原来写 `Spacing.xl + 2` = 14）。统一宽度 101 下，
+//    内容 73pt + padding 12×2 = 97 → 余量 4pt。改回 14 会顶到 101、再宽一点就挤压截字。
+check("水平 padding 用 Spacing.xl（12），别改回 xl + 2",
+      orbPill.contains(".padding(.horizontal, Spacing.xl)")
+      && !orbPill.contains(".padding(.horizontal, Spacing.xl + 2)"))
+check("统一尺寸常量仍是几何算式的基准（101×36）",
+      orbSrc.contains("static let pillSize = CGSize(width: 101, height: 36)"))
+
+
+// 9) v3.9.77 修审查：两条「跑起来才暴露」的缺陷用源码形态钉住（预检/编译都查不出这类）
+check("系统逐字回调带身份护栏（丢弃上一条的迟到回调，否则新一条整段瞬显）",
+      speechClean.contains("guard self.currentUtteranceID == uid else { return }"))
+check("云端播毕回收 ticker（自然播完是最常见路径，原来没人清 → 永不回收的空转定时器）",
+      // 自毁统一走实例方法（BLOCKER 修复后 Timer 闭包参数改成 `_`，不再用 `t`）→ 断言认方法体里的那一行
+      speechClean.contains("private func stopCloudTicker()")
+      && speechClean.contains("cloudTickTimer?.invalidate()")
+      && speechClean.contains("self.stopCloudTicker()"))
+// 🚨 v3.9.77 BLOCKER 护栏：Timer 的 block 是 @Sendable，它的参数 `t`（Timer 非 Sendable）**不能**
+//    被送进 `Task { @MainActor in }` —— 真编译报 `sending '...' risks causing data races`，
+//    而 `-parse` / `-typecheck` **全部放行**（本机预检永远绿）。这条断言是唯一能拦住它回潮的东西。
+check("Timer 闭包参数是 `_`、且不使用 t（用 t 会让 Archive 直接失败）",
+      speechClean.contains("repeats: true) { [weak self] _ in")
+      && !speechClean.contains("t.invalidate()"))
+check("UTF-16 偏移换算成 Character（含 emoji 时逐字不会跑到语音前面）",
+      speechClean.contains("private func charOffset(utf16: Int) -> Int"))
+check("stop() 一并清掉逐字文本（防非朗读路径读到上一条内容）",
+      speechClean.contains("progress.text = \"\""))
+
+// 🚨 v3.9.77 复审修（第二批）：空闲超时（播放已死）必须**连状态一起收尾** ——
+//    只收 ticker 会让语音页永久停在「朗读中」（页面状态机只由 speakingID 驱动）→ 麦克风再不开、闭环断死。
+let idleSlice = between(speechClean, "guard pl.isPlaying else {", "self.cloudIdleTicks = 0")
+check("空闲超时切片取到（切片空了下面这条就是空真）", !idleSlice.isEmpty)
+check("空闲超时一并清 player/speakingID（否则语音页卡在朗读中，只能手点打断）",
+      idleSlice.contains("self.speakingID = nil") && idleSlice.contains("self.player = nil"))
+// 🚨 v3.9.77 复审修（第二轮）：空闲看门狗必须区分「从未起播」与「播过又停」——
+//    一律按「播放已死」收尾会把起播慢（蓝牙/车机路由）的朗读整条误杀：静音 + speakingID 归 nil
+//    → 引擎直接跳「聆听中」，用户看到的是一整条朗读被吞。
+check("起播宽限：从未起播给 ≈4.8s（60 拍），播过又停才用 11 拍",
+      speechClean.contains("let limit = self.cloudPlaybackSeen ? 10 : 60")
+      && speechClean.contains("self.cloudPlaybackSeen = true"))
+check("ticker 的 Task 带代次护栏（旧 Task 不得写新文本进度、不得停新 ticker）",
+      speechClean.contains("guard gen == self.ttsGeneration else { return }"))
+// 🚨 浅色下球体不能只有深色稿那套白心（白球贴白底 = 球看不见，复审实测半径 43 处只剩 ≈22% accent）
+check("球体渐变按深浅色分档（ballColors）", voiceClean.contains("private var ballColors: [Color]"))
+// 断言点是「渲染处取变量」而不是「文件里不许出现 0.92」——分档本体的深色分支里仍然要有 0.92。
+check("球体渲染处取自分档变量（不再写死颜色数组）",
+      voiceClean.contains(".fill(RadialGradient(colors: ballColors,"))
+// 🚨 v3.9.77 复审修：只钉「变量存在 + 渲染处取变量」不够 —— 把 ballColors 改回单档（只留深色那套）
+//    正是要修的「白球贴白底看不见」，那两条仍会全绿。所以必须钉**两套参数都在**。
+check("球体分档两套参数都在（浅色档必须压白心，否则白球贴白底）",
+      voiceClean.contains("isDark ? [.white.opacity(0.92)")
+      && voiceClean.contains(": [.white.opacity(0.42)"))
+// 固定宽度胶囊的文字软兜底（宽度常量是按令牌算式估的，图标 advance 有波动）
+check("胶囊文字有软兜底（lineLimit(1) + minimumScaleFactor）",
+      orbClean.contains(".lineLimit(1)") && orbClean.contains(".minimumScaleFactor(0.85)"))
+// 逐字进度只在真的前进时写（值没变也写会白白触发订阅方重算）
+check("逐字进度只在前进时写（next != 当前值）", speechClean.contains("if next != self.progress.charCount"))
 
 print("智慧球长按菜单真值表：\(passCount) 通过 / \(failCount) 失败")
 if failCount > 0 { exit(1) }

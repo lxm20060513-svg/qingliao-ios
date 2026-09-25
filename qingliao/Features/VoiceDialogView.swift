@@ -26,8 +26,22 @@ struct VoiceDialogView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(ChatStore.self) private var chat
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var colorScheme
+    /// v3.9.77：跟随系统明暗（用户要求「界面对应系统 UI」）。只用来调柔光/涟漪强度，
+    /// 文字一律走语义色（.primary/.secondary），所以浅色下也不会出现白字看不见。
+    private var isDark: Bool { colorScheme == .dark }
+    /// 球体渐变分档（v3.9.77 复审修）：浅色底就是 `systemBackground`（近白），白心 0.92 的球贴上去
+    /// 等于「白球贴白底」——半径 43 处只剩 ≈22% accent，球体轮廓基本消失（那套参数只有深色稿成立）。
+    /// 浅色档压白心、让主题色主导，两套主题下球都立得住。
+    private var ballColors: [Color] {
+        isDark ? [.white.opacity(0.92), Color.accentColor.opacity(0.45), .clear]
+               : [.white.opacity(0.42), Color.accentColor.opacity(0.86), .clear]
+    }
     @StateObject private var liveSpeech = LiveSpeechTranscriber()
     @ObservedObject private var speech = SpeechManager.shared
+    /// 逐字进度的**独立**观察对象（v3.9.77 复审修）：不观察 SpeechManager 自身的高频 @Published，
+    /// 那会把整片聊天列表按 12.5Hz 连坐重绘（见 `SpokenProgress` 注释）。
+    @ObservedObject private var spokenProgress = SpeechManager.shared.progress
     @AppStorage("qingliao_auto_read_reply") private var autoReadReply = false
 
     @State private var engine = VoiceDialogEngine()
@@ -44,11 +58,14 @@ struct VoiceDialogView: View {
 
     var body: some View {
         ZStack {
-            // 深色科幻底（用户按深色稿拍板）：这一页不跟随系统浅色，局部固定深色环境
-            LinearGradient(colors: [Color(red: 0.02, green: 0.03, blue: 0.07),
-                                    Color(red: 0.01, green: 0.01, blue: 0.03)],
-                           startPoint: .top, endPoint: .bottom)
+            // v3.9.77：**跟随系统明暗**（原实现按深色稿写死了深底 + .environment(.colorScheme, .dark)，
+            // 浅色模式下整页仍是黑的）。现在是：系统底 + 一片 accent 柔光（深色 0.22 / 浅色 0.14），
+            // 两套主题都保住「科幻感 · 轻盈」，对比度各自调过。
+            Color(.systemBackground).ignoresSafeArea()
+            RadialGradient(colors: [Color.accentColor.opacity(isDark ? 0.22 : 0.14), .clear],
+                           center: .center, startRadius: 0, endRadius: 420)
                 .ignoresSafeArea()
+                .allowsHitTesting(false)
             VStack(spacing: 0) {
                 header
                 Spacer(minLength: 0)
@@ -59,7 +76,6 @@ struct VoiceDialogView: View {
             .padding(.horizontal, Spacing.section)
             .padding(.bottom, Spacing.xxl)
         }
-        .environment(\.colorScheme, .dark)
         .onAppear {
             autoReadBefore = autoReadReply
             autoReadReply = true              // 「全念」：临时打开，退出还原
@@ -95,7 +111,7 @@ struct VoiceDialogView: View {
             Spacer(minLength: 0)
             Text("语音对话")
                 .font(.system(size: Typography.headline, weight: .semibold))
-                .foregroundStyle(.white)
+                .foregroundStyle(.primary)
             Spacer(minLength: 0)
             Button { toggleMode() } label: {
                 Text(engine.mode == .auto ? "自动发送 · 开" : "自动发送 · 关")
@@ -112,7 +128,7 @@ struct VoiceDialogView: View {
         VStack(spacing: Spacing.xxl) {
             ZStack {
                 Circle()
-                    .fill(RadialGradient(colors: [Color.accentColor.opacity(0.34), .clear],
+                    .fill(RadialGradient(colors: [Color.accentColor.opacity(isDark ? 0.34 : 0.22), .clear],
                                          center: .center, startRadius: 0, endRadius: 112))
                     .frame(width: 224, height: 224)
                 ForEach(0..<3, id: \.self) { i in
@@ -127,9 +143,12 @@ struct VoiceDialogView: View {
                                    value: ripple)
                 }
                 Circle()
-                    .fill(RadialGradient(colors: [.white.opacity(0.92),
-                                                  Color.accentColor.opacity(0.45), .clear],
-                                         center: UnitPoint(x: 0.36, y: 0.32),
+                    .fill(RadialGradient(colors: ballColors,
+                                         // 🚨 v3.9.77：高光点必须**接近球心**。原来写 (0.36, 0.32)（明显偏左上），
+                                         // 人眼会把最亮处当球心 → 看着球「没居中在涟漪里」（用户 2026-09-25 报）。
+                                         // 几何上三圈涟漪与球本来就同心（ZStack 中心对齐），偏心是**视觉**造成的。
+                                         // 保留一点点左上偏移（0.44/0.40）留立体感，但视觉重心回到中心。
+                                         center: UnitPoint(x: 0.44, y: 0.40),
                                          startRadius: 2, endRadius: 56))
                     .frame(width: 86, height: 86)
                     .shadow(color: Color.accentColor.opacity(0.55), radius: 28)
@@ -140,10 +159,10 @@ struct VoiceDialogView: View {
             VStack(spacing: Spacing.md) {
                 Text(phaseLabel)
                     .font(.system(size: Typography.caption))
-                    .foregroundStyle(.white.opacity(0.55))
+                    .foregroundStyle(.secondary)
                 Text(displayText)
                     .font(.system(size: Typography.title, weight: .medium))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(.primary)
                     .multilineTextAlignment(.center)
                     .lineLimit(4)
                     .frame(maxWidth: .infinity)
@@ -177,24 +196,69 @@ struct VoiceDialogView: View {
             }
             Text(engine.mode == .auto ? "停顿 2 秒自动发送 · 也可直接点「发送」" : "说完点「发送」")
                 .font(.system(size: Typography.caption))
-                .foregroundStyle(.white.opacity(0.45))
+                .foregroundStyle(.secondary)
         }
     }
 
+    /// v3.9.77（用户定稿：**方案 2**）：波形 = **一条横向渐变（蓝→紫→青）的细波浪线 + 一条淡副波**，
+    /// 取代原来的 11 根竖柱。灵动感来自两处：振幅跟麦克风实时电平、**相位随时间推进**（线在流动）。
+    /// 数据源仍是 `liveSpeech.currentInputLevel()` 每帧自读 —— **不走 @Published 广播**，
+    /// 否则共用的聊天页（按住说话）会被连坐重绘（复审实测问题）。
+    /// 原来是写死的固定高度数组 = 不管你说不说话都一个样（用户报「波浪应跟着音频高低波动」）。
+    /// 现在每根条按自身形状系数缩放：安静时收到 8pt 最低，说话时按电平长高。
     private var waveBars: some View {
-        HStack(spacing: 5) {
-            ForEach(Array(Self.waveHeights.enumerated()), id: \.offset) { _, h in
-                Capsule()
-                    .fill(Color.accentColor.opacity(engine.phase == .listening ? 0.9 : 0.28))
-                    .frame(width: 4, height: h)
+        // v3.9.77：波条**每帧自己读电平**（`TimelineView` 只重绘这一小块子树）。
+        // 不走 @Published 广播 —— 那会让共用的聊天页跟着 14Hz 重绘（审查实测问题）。
+        // 周期取 0.06s（≈16fps，跟手且省电）；「减弱动态效果」降到 0.25s，只保必要的音量反馈。
+        // ⚠️ schedule 用 `.periodic(from:by:)` 同一类型 + 参数分档：写成三元选 `.animation`/`.periodic`
+        // 会因两个 schedule 类型不等价而编译失败（本仓踩过，别改成那种写法）。
+        TimelineView(.periodic(from: .now, by: reduceMotion ? 0.25 : 0.06)) { ctx in
+            Canvas { context, size in
+                let lv = CGFloat(isListening ? liveSpeech.currentInputLevel() : 0)
+                let amp = 2.4 + 32 * lv                 // 安静仍留 2.4pt 呼吸（死直线比微微起伏更"卡住"）
+                let phase = reduceMotion ? 0 : ctx.date.timeIntervalSinceReferenceDate * 2.2
+                let strong = isListening ? 0.95 : 0.40 // 深浅两套主题共用，靠不透明度分档
+                let mid = size.height / 2
+                let mainColors = [Color.accentColor.opacity(strong),
+                                  Color.purple.opacity(strong * 0.9),
+                                  Color.teal.opacity(strong * 0.85)]
+                let subColors = [Color.accentColor.opacity(strong * 0.40),
+                                 Color.teal.opacity(strong * 0.32)]
+                context.stroke(
+                    Self.wavePath(in: size, amp: amp, phase: phase, wavelength: 66),
+                    with: .linearGradient(Gradient(colors: mainColors),
+                                          startPoint: CGPoint(x: 0, y: mid),
+                                          endPoint: CGPoint(x: size.width, y: mid)),
+                    lineWidth: 2.1)
+                context.stroke(
+                    Self.wavePath(in: size, amp: amp * 0.58, phase: phase * 0.8 + 1.6, wavelength: 82),
+                    with: .linearGradient(Gradient(colors: subColors),
+                                          startPoint: CGPoint(x: 0, y: mid),
+                                          endPoint: CGPoint(x: size.width, y: mid)),
+                    lineWidth: 1.3)
             }
         }
-        .frame(height: 40, alignment: .center)
-        .animation(Motion.snap, value: engine.phase)
+        .frame(height: 96)
         .allowsHitTesting(false)
     }
 
-    private static let waveHeights: [CGFloat] = [10, 20, 32, 18, 26, 38, 22, 30, 14, 24, 12]
+    private var isListening: Bool { engine.phase == .listening }
+
+    /// 正弦波路径：两端按 `sin(πt)^0.55` 收口（细线自然收尾，比硬裁好看）。
+    /// 纯函数、不碰状态 → 抽成 static，日后可进真值表按采样点断言。
+    static func wavePath(in size: CGSize, amp: CGFloat, phase: Double, wavelength: CGFloat) -> Path {
+        var p = Path()
+        let steps = 96
+        let mid = size.height / 2
+        for i in 0...steps {
+            let x = size.width * CGFloat(i) / CGFloat(steps)
+            let t = Double(i) / Double(steps)
+            let envelope = pow(sin(Double.pi * t), 0.55)
+            let y = mid + amp * CGFloat(envelope * sin(2 * Double.pi * Double(x) / Double(wavelength) + phase))
+            if i == 0 { p.move(to: CGPoint(x: x, y: y)) } else { p.addLine(to: CGPoint(x: x, y: y)) }
+        }
+        return p
+    }
 
     // MARK: 文案
 
@@ -217,7 +281,12 @@ struct VoiceDialogView: View {
             return engine.draft.isEmpty ? "我在听…" : engine.draft
         case .sending:
             return "已发出，等 AI 回复"
-        case .speaking, .idle, .ended:
+        case .speaking:
+            // v3.9.77：文字跟着语音**逐字**吐出来（系统引擎精确回调 / 云端按播放位置估算，
+            // 数据源见 SpeechManager 的独立发布箱 `progress`：text + charCount）。已念部分为空时先给摘要占位。
+            let spoken = String(spokenProgress.text.prefix(spokenProgress.charCount))
+            return spoken.isEmpty ? (latestReplyExcerpt ?? "AI 正在组织答案") : spoken
+        case .idle, .ended:
             return latestReplyExcerpt ?? "AI 正在组织答案"
         }
     }

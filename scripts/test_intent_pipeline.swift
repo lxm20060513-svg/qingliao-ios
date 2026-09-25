@@ -304,7 +304,19 @@ let barSlice: String = {
 }()
 check("底部条切片可切出（空了后面全是空真）", !barSlice.isEmpty)
 check("底部条胶囊走 .pill 口径（topBar ×4）", barSlice.components(separatedBy: ".pill(.topBar").count - 1 >= 4)
-check("主操作胶囊走 .pill(.primary)", barSlice.contains(".pill(.primary)"))
+// 🚨 v3.9.77 **用户定稿推翻旧口径**：原 v3.9.72 让"主操作"（复制）走 `.pill(.primary)` —— 那是**另一套尺寸**，
+//   同一排里它比旁边的「全选/清除/两个图标」更高更宽。用户装机后明确报「底部的胶囊需统一样式和大小」。
+//   → 尺寸口径统一为 `.topBar`（全部 5 颗），主次改用 **tone(.accent)** 区分。别再按 v3.9.72 改回去。
+// 本表没有 stripCommentLines helper → 就地剥整行注释（注释里叙述旧写法不该算回退）
+let barCode = barSlice.split(separator: "\n")
+    .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+    .joined(separator: "\n")
+check("底部条胶囊尺寸统一（不得再混 .pill(.primary)＝另一套尺寸）", !barCode.contains(".pill(.primary)"))
+// 🚨 v3.9.77 用户二次澄清：「统一样式和大小」= 样式与尺寸都要一致 → 复制胶囊不再用 accent 强调色。
+check("底部条 5 颗完全一致（同尺寸 + 同色调 neutral）",
+      barCode.components(separatedBy: ".pill(.topBar, tone: .neutral)").count - 1 >= 5
+      && !barCode.contains(".pill(.topBar, tone: .accent)"))
+check("底部条 5 颗胶囊全部同一尺寸口径", barSlice.components(separatedBy: ".pill(.topBar").count - 1 >= 5)
 check("文字标签防压缩（fixedSize ≥3）", barSlice.components(separatedBy: ".fixedSize()").count - 1 >= 3)
 check("底部条不再手写水平内边距（根因）", !barSlice.contains(".padding(.horizontal"))
 check("底部条不再有硬宽度 minWidth", !barSlice.contains("minWidth"))

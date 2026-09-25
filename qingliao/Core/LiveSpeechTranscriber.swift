@@ -198,6 +198,20 @@ final class LiveSpeechTranscriber: ObservableObject {
     @Published private(set) var needsPermission = false
     /// 最后一次失败原因（给 UI 提示）
     @Published private(set) var lastError: String?
+
+    /// v3.9.77：麦克风**实时电平**数据源（0…1），驱动语音对话页的波形条跟着人声起伏。
+    ///
+    /// 🚨 **故意不是 `@Published`**（修审查）：本类被 `ChatView`（按住说话）和语音对话页**共用**，
+    /// 若电平走 `@Published`，每次变化会广播给**所有**订阅者 —— 聊天页那个超大 body 会在整段录音里
+    /// 被 14Hz 全量重绘，而真正需要它的只有语音对话页的那排波条（"优先性能"是硬要求）。
+    /// 现在改成「谁要谁读」：电平只落在 Sendable 箱子里，波条所在的 `TimelineView` 每帧读一次快照。
+    /// `nonisolated` 让读侧不必回 MainActor 等待 —— `MicLevelMeter` 是 `@unchecked Sendable` 的不可变引用。
+    /// 音频线程只做 `update`，**不碰 self**（Swift 6：@Sendable 闭包捕获非 Sendable 的 @MainActor self 直接报错；
+    /// 绕过去同步读 MainActor 属性则正是 v3.9.3 的音频线程 SIGTRAP）。
+    private nonisolated let micMeter = MicLevelMeter()
+
+    /// 当前麦克风电平（0…1）。非隔离读：内部 NSLock 保护，音频线程写、任意线程读都安全。
+    nonisolated func currentInputLevel() -> Float { micMeter.current() }
     /// 本次 stop 识别到的内容（不含基线）——UI 用它区分「没识别到」与「识别到但与基线相同」
     @Published private(set) var lastRecognizedText = ""
 
@@ -479,8 +493,11 @@ final class LiveSpeechTranscriber: ObservableObject {
             // 「长按语音转文字立刻闪退」的根因，dSYM 符号化证实崩溃帧就是这个闭包）。
             // 编译期不报错、check_swift(-parse) 查不出（与 v3.7.0 剪贴板 completion 同类）。
             // @Sendable 后闭包成为非隔离闭包；闭包体只碰 @unchecked Sendable 的 feeder，安全。
-            input.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { @Sendable [feeder] buffer, _ in
+            input.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { @Sendable [feeder, micMeter] buffer, _ in
                 feeder.feed(buffer)
+                // v3.9.77：顺带算一路实时电平（波形条跟随人声）。micMeter 在闭包创建时取值后只持引用，
+                // 与 feeder 同款 —— 不碰 self，所以不会触发隔离检查。
+                micMeter.update(MicLevelMeter.rms(of: buffer))
             }
             tapInstalled = true
             engine.prepare()
@@ -586,6 +603,9 @@ final class LiveSpeechTranscriber: ObservableObject {
         resultsTask = nil
         if tapInstalled {
             engine.inputNode.removeTap(onBus: 0)
+            // v3.9.77：电平没有独立定时器了（波条自己每帧读），这里只需把箱子清零 ——
+            // 否则停麦后波条会停在最后一帧的高度上。
+            micMeter.update(0)
             tapInstalled = false
         }
         if engine.isRunning { engine.stop() }
@@ -595,5 +615,31 @@ final class LiveSpeechTranscriber: ObservableObject {
         try? session.setCategory(.playback, mode: .default)
         try? session.setActive(false, options: .notifyOthersOnDeactivation)
         isRunning = false
+    }
+}
+
+
+// MARK: - v3.9.77 麦克风电平（波形条数据源）
+
+/// 麦克风电平转发器：`installTap` 的闭包是 `@Sendable` 的，**不能捕获 @MainActor 的 self**
+/// （Swift 6 会直接报 "capture of 'self' ... non-Sendable type in @Sendable closure"；
+/// 就算绕过捕获，同步读 MainActor 属性也会像 v3.9.3 那样在音频线程 SIGTRAP）。
+/// 所以电平先写进这个 `@unchecked Sendable` 的小箱子，主线程再 readout。
+/// 与 `feeder` 是同一套思路，改这段前先读 `installTap` 那段注释。
+final class MicLevelMeter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var level: Float = 0
+
+    func update(_ v: Float) { lock.lock(); level = v; lock.unlock() }
+    func current() -> Float { lock.lock(); defer { lock.unlock() }; return level }
+
+    /// PCM buffer → RMS(0…1)。语音 RMS 多在 0.02~0.15，乘 4 拉到肉眼可见的范围（再 clamp 到 1）。
+    static func rms(of buffer: AVAudioPCMBuffer) -> Float {
+        guard let ch = buffer.floatChannelData?[0] else { return 0 }
+        let n = Int(buffer.frameLength)
+        guard n > 0 else { return 0 }
+        var sum: Float = 0
+        for i in 0..<n { let s = ch[i]; sum += s * s }
+        return min(1, (sum / Float(n)).squareRoot() * 4)
     }
 }

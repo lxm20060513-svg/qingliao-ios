@@ -175,11 +175,21 @@ struct OrbQuickMenuLayer: View {
 
     var body: some View {
         ZStack {
-            // 轻纱聚焦（不做全屏磨砂——方案 C 只取光晕）+ 点空白收起。
-            // 这层是模态菜单，必须吃掉空白点击；球体被胶囊环围住，长按手势此时不可达，无冲突。
-            Color.black.opacity(shown ? 0.12 : 0)
-                .contentShape(Rectangle())
-                .onTapGesture(perform: dismissAnimated)
+            // 🚨 v3.9.77：**全屏半透明模糊**遮罩（用户：「这个背景上下白，中间灰，改全半模糊效果」）。
+            // 两个真因都在原来这一层：
+            //   ① `Color.black.opacity(0.12)` **没铺安全区** → 上下露出原页面（观感「上下白」），
+            //      中间只剩一条 12% 黑纱（观感「中间灰」）；
+            //   ② 纯色遮罩**不带背景模糊**（原注释写的就是「不做全屏磨砂，方案 C 只取光晕」——本轮用户推翻）。
+            // 现在 = 整屏材质模糊（`.ultraThinMaterial` 自带背后内容模糊，深浅色自动适配）+ 一层极淡压暗提对比。
+            // ⚠️ `.ignoresSafeArea()` 必须留：去掉就回到「上下白、中间灰」那条带。
+            ZStack {
+                Rectangle().fill(.ultraThinMaterial)
+                Color.black.opacity(0.10)      // 压暗一档，让胶囊与文字在模糊底上更立得住
+            }
+            .ignoresSafeArea()
+            .opacity(shown ? 1 : 0)            // 与菜单同节奏淡入淡出（沿用 shown，不新增状态源）
+            .contentShape(Rectangle())
+            .onTapGesture(perform: dismissAnimated)
 
             halo
 
@@ -245,9 +255,23 @@ struct OrbQuickMenuLayer: View {
             Text(action.title)
                 .font(.system(size: Typography.subhead, weight: .semibold))
                 .foregroundStyle(.primary)
+                // v3.9.77 复审修：视觉层钉了固定宽度（pillSize.width = 101，是按令牌算式**估**的，
+                // 图标 advance 有波动）→ 给文字一个软兜底：宁可略缩，也别被固定宽压成省略号。
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
         }
-        .padding(.horizontal, Spacing.xl + 2)
+        // 🚨 v3.9.77 用户：「这个截图的 6 个胶囊也大小统一一下」。
+        // 原来视觉层**没有固定宽度** —— 宽度随「图标 + 文字 + padding」自适应，而六颗图标各不同
+        // （plus.bubble.fill / brain.head.profile / checklist / text.viewfinder / waveform.circle.fill / mic.fill），
+        // 各自的 natural width 不一样 → 六颗宽度各不相同。命中层早就在用统一的 `pillSize`，两边一直不一致。
+        // 现在视觉层钉到同一个 `pillSize.width`，与命中层、与 OrbQuickMenuLayout 的几何算式**三处同源**。
+        // ⚠️ 水平 padding 同步由 14（`Spacing.xl + 2`）收到 12（`Spacing.xl`）：给「统一宽度」腾空间。
+        //    实测令牌真值（Spacing.swift）：xl=12 / lg=10 / md=8 —— 复核时别按记忆当 md=12。
+        //    最长内容「新建会话」= 图标≈15 + 间距 6 + 四字 52 + padding 12×2 = 97pt ≤ 101，留 4pt 余量。
+        //    **别把 padding 加回去**（14 时 = 101pt 顶满、再宽一点就会被固定宽度挤压截字）。
+        .padding(.horizontal, Spacing.xl)
         .padding(.vertical, Spacing.lg)
+        .frame(width: OrbQuickMenuLayout.pillSize.width)
         // 玻璃挂在 padding 之后（dock pill 同口径）；胶囊本身就是 Capsule，glassEffect 默认形状正合适。
         // v3.9.59：可点元素必须走 .regular.interactive()（Pill.swift 定版）——裸 glassEffect 是静态卡口径，
         // 按下去没有玻璃反馈，与同屏 dock 胶囊观感不一致。
