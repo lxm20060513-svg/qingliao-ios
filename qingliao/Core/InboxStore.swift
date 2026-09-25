@@ -29,6 +29,11 @@ final class InboxStore {
     private var consumedOrder: [String] = []
     private var pollingTask: Task<Void, Never>?
     private let consumedKey = "qingliao_inbox_consumed_ids"
+    /// v3.9.76（用户规则：进度要按时间前后推）：**按来源任务分组**的最后一条进度快照。
+    /// 用途：迟到的旧快照（投递层重投导致）必须丢弃——见 `InboxProgressOrder`。
+    /// 只存内存：App 重启后为空 → 重启后第一条进度无条件接受（本来也没有累积的旧快照要防），
+    /// 跨重启的兜底走会话里「15 分钟内最后一条进度气泡」（见 consumeOne）。
+    private var progressSnapshots: [String: InboxProgressOrder.Snapshot] = [:]
 
     /// 推送轮询间隔（秒）。App 前台持续轮询；后台系统会冻结 task。
     /// v3.0.x fix：流式结束后临时缩短间隔快速拉取（1s），3 轮后恢复默认 5s
@@ -126,14 +131,52 @@ final class InboxStore {
             return
         }
         consume(id)
+        // v3.9.76：固定投递会话（qingliao_delivery）是「只装 cron/system 投递详情」的壳，
+        // App 侧**不许**把推送气泡注入进去。起因（用户实测）：「轻聊投递会混进普通 AI 推送内容」
+        // ——投递会话里出现了「⏳ AI 正在回复（已生成 152 字，第 17 步 运行代码）」这种普通 AI 进度残片：
+        // 后端只把 cron/system 写进该会话（`inbox_api.push` 刻意排除 reply/progress），
+        // 混入源是**这里**——progress/reply 被无条件注入「当前会话」，当天用户开着的恰是投递壳。
+        // 命中时：reply 类仍弹通知（用户要知道有回复来了），progress 类静默丢弃（任务中心另有「进行中」卡片）；
+        // cron/system 类**不受影响**（继续走下面的任务中心分支，别在这里拦掉）。
+        // ⚠️ 判据用会话 id（`ChatStore.deliverySessionId`），不用标题。
+        if chat.isDeliverySession, taskType == "reply" || taskType == "progress" {
+            if taskType == "reply" {
+                NotificationHelper.notify(title: "轻聊 · 推送", body: text, sessionId: chat.sessionId)
+            }
+            await markDone(id, auth: auth)
+            return
+        }
         // v3.9.7：进行中进度推送（后端在静默期推来的「已生成 N 字 + 最近片段」）→ 注入会话 🔔 进度气泡。
         // 三处刻意的不同：① 不走 reply 去重（带字数的快照天然唯一，也绝不能和最终回复互判重复）；
         // ② 不弹本地通知（进度是"回到 App 时看"的信息，弹横幅只会在回前台那一瞬轰炸）；
         // ③ 不进任务中心（进度留痕在会话里，任务中心另有「进行中」卡片实时刷新进度）。
         // isPush=true 保证它留在会话展示但**不进模型上下文**（historyPayload 会滤掉 isPush）。
         if taskType == "progress" {
+            // 🚨 v3.9.76 用户规则：「进度这类回复要按时间前后推，不要 20 步推在 17 步前」。
+            // 进度是状态快照，只有前进才有意义 → **迟到的旧快照直接丢弃**（投递层会把僵尸 sending
+            // 重置回 pending 重投，旧快照就会落在更新的快照之后，用户看到 20 步排在 17 步前）。
+            // 分组键用 source_task_id：toolSeq 每任务独立计数，跨任务比会误丢新任务的第一条进度。
+            // ⚠️ 分组键**必须**是 source_task_id，且**拿不到就整段闸门放行**：
+            //   ① 原来 nil 落 "unknown" 共用桶 —— 两个都没有 source_task_id 的任务会互相判回退
+            //      （A 的 20 步存进桶后，B 的第一条 step 1 被判「迟到」丢弃 + markDone，那条进度永久丢失），
+            //      正是上面注释要避免的跨任务比较；
+            //   ② 重启后的「会话里最后一条进度气泡」兜底同理：气泡文本里取不到来源任务，
+            //      用户 15 分钟内连发两条消息时，第二条的第一条进度会被拿第一条当基准误丢。
+            //   → 基准**只信内存里的同任务快照**。代价是重启后同任务可能有极少一次乱序，
+            //     但「宁可偶尔乱序，绝不丢进度」（丢数据不可恢复，乱序下次快照就正过来了）。
+            if let snap = InboxProgressOrder.snapshot(from: text) {
+                let baseline: InboxProgressOrder.Snapshot? = sourceTaskId.flatMap { progressSnapshots[$0] }
+                if let key = sourceTaskId {
+                    if !InboxProgressOrder.shouldAccept(snap, after: baseline) {
+                        // 丢弃也要 markDone：否则后端认为没送到，会一直重投这条旧快照
+                        await markDone(id, auth: auth)
+                        return
+                    }
+                    progressSnapshots[key] = snap
+                }
+            }
             var pmsg = ChatMessage(role: "assistant", content: text,
-                                   timestamp: Date().timeIntervalSince1970 * 1000)
+                                   timestamp: nowMs)
             pmsg.isPush = true
             chat.append(pmsg)
             lastInjectedCount += 1

@@ -117,6 +117,76 @@ QingliaoWidget/          挂件 Extension target（.appex）：灵动岛/锁屏�
 - **实时活动的 `staleDate` 不是"容忍度"，是"最长假进度时长"**（v3.9.54 立）：免费签名无 APNs ⇒ 进程冻结后没有任何人替我们 update，画面会停在最后一拍。所以「多久转 `.stale`（→ 系统可收起）」就是「僵尸活动最多还能骗用户多久」。活着时推手每 1.2~2.0s 一拍、每拍都带新 staleDate 重新 update，因此把它从 15 分钟压到 4 分钟对正常显示毫无影响，只砍掉挂机的 11 分钟
 - **流式协议加字段一律"可选 + 缺省退化"，不 bump 版本**（v3.9.57 立，NAS 侧 `1c8fbaf` 的实现口径）：`AuthStore.streamPoll` 的返回元组直接扩参（`+toolSpans +lastToolAt`），后端没这两个字段时前端退化成"显示已等 Ns、不显示实测耗时"，而不是报错或空屏。iOS 与后端**分开发版**（NAS 镜像重建有先后），这条是两侧唯一的安全垫；新增字段照此办理，别引入要求"后端必须先于 App"的硬依赖
 
+## 🆕 近期变更（v3.9.76，2026-09-25）
+
+> 用户逐个报的 App 问题（6 条）+ 长按智慧球新增两个功能胶囊。基线 = `5162f54`（3.9.75 / 520）。
+
+- **长按智慧球：4 颗胶囊 → 6 颗，新增「AI 识别」「语音对话」**（`Features/OrbQuickMenu.swift` 几何重排 + 新文件 `Features/OrbIdentifyOverlay.swift`、`Features/VoiceDialogView.swift`、`Core/VoiceDialogEngine.swift`、`Features/DockTabView.swift` 接线）。
+  布局改为**两排各 3 颗**（`columnDX` 64→118）：下排 新建会话 / AI 速记 / 今日待办，上排 AI 识别 / 语音对话 / 语音输入；
+  `OrbQuickMenuLayout.center` 改 6 位公式（`i % 3` 取列、`i >= 3` 为上排）。`id` 是语义标识（`handleOrbAction` 按它分发），与数组顺序解耦。
+- **「AI 识别」= 球上悬浮结果卡 + 球心扫描环 + 背景虚化**（用户从方案稿选定的变体 2）。点胶囊 → 拍照/相册 → **直接识别**，
+  不再需要「先选图、再点识别」两步。刻意**不新造第二套**：认内容走 `IntentExtractor.extract(image:auth:)`（与聊天页同一条管道）、
+  结果与动作直接嵌 `IntentActionBar`（类型徽标 / 动作胶囊 / 点即写 / 5 秒撤销 / 低置信只给问 AI·复制）、
+  「问 AI」复用既有 `.qingliaoTaskSend` 通道（与任务中心、备忘录「发给 AI」同一条路）。相机两道闸沿用：
+  `isSourceTypeAvailable(.camera)` 先查可用性、内容 `ignoresSafeArea()`；无相机设备自动走相册。**没认出内容 ≠ 失败**（给「重拍 / 换一张」，不报红）。
+- **「语音对话」= 全屏涟漪页 · 深色科幻**（`VoiceDialogView` + `VoiceDialogEngine`）：闭环 = 说 → **停顿 2 秒自动发**（也可点「发送」，两种模式顶栏可切）
+  → AI 回 → 自动朗读（**念全文**）→ 念完自动续听。三条复用：判断全在 `VoiceDialogEngine`（纯逻辑、可本机真值表）、
+  发送走 `.qingliaoTaskSend` → `ChatView.sendCore`、朗读**借用聊天页的自动朗读**（进页临时打开 `qingliao_auto_read_reply`、**退出还原原值**，不偷改用户设置）。
+  **半双工**：念的时候停麦（本仓录音走 `.record`、朗读走 `.playback` 是切换式的，全双工需 `.playAndRecord` + `.voiceChat` 做回声消除，
+  不改音频会话硬上全双工会把自己的朗读录进去 → 自问自答）；想打断点「打断」（停朗读 → `speakingID` 归 nil → 引擎自动续听）。
+  兜底：等待回复 25 秒未开始念 → 回收音（防麦克风永久锁死）；同一段文本重复回调**不刷新判停**（否则永远攒不满）。
+- **点「轻聊投递」会话回归普通会话**（`SessionsView.open(_:)`）：v3.9.75 的「按标题分流进任务中心」被用户实测否决，
+  已移除 `showTaskCenter` + `TaskCenterView` 呈现 + `open(_:)` 标题特判；`open(_:)` 恒为 `markRead` → `chat.load(s)` → `onOpenSession()` 三步。
+  **类级：入口落点以用户预期为准，别拿「收件箱归宿是 X」覆盖用户的直接诉求；判定用稳定 id 不用标题。**
+- **投递壳不再混入 AI 推送气泡**（`ChatStore.DELIVERY_SESSION_ID` + `InboxStore.consumeOne` 闸门）：分层定责结论 = 后端
+  `inbox_api.push` 只把 `task_type in (cron, system)` 写进固定投递会话（刻意排除 reply/progress），**漏点在 App**——
+  `consumeOne` 把 progress/reply 无条件注入「当前会话」。修法：按 **id**（`qingliao_delivery`，与后端 `sessions_api.DELIVERY_SESSION_ID` 同源）
+  识别投递会话并拦注入，reply 仍弹通知、cron/system 不受影响。
+- **进度推送保序**（新 `Core/InboxProgressOrder.swift` + `InboxStore` 接线）：后端进度快照本身单调，乱序来自**投递层重投**
+  （App 拉到未确认的旧快照被后端当「僵尸」重置回队列）。App 侧加**严格前进**判据（步数变大或同步数字数更多），
+  迟到旧快照丢弃但**必须确认**（否则后端持续重投）；比对**按来源任务分组**（`toolSeq` 每任务独立计数，跨任务比会误丢新任务第一条）；
+  重启后分组表为空时用会话里**15 分钟内**最后一条进度气泡兜底。
+- **剪贴板识别口径放开**（`ClipboardIntentDetector` 8 类 detection pattern：链接/地址/联系方式/金额/快递单号/时间等，**刻意不含纯数字**）+
+  **两个探测器解耦**（原来 guard-let 串联，位置探测失败会吞掉整链 → 「连第一次都不弹」），点「识别」读不到剪贴板时**出声**（震动 + 2.4 秒提示）。
+  硬边界：**只扩 pattern、绝不主动读剪贴板内容**（主动读会弹系统「允许粘贴」授权窗——正是该功能要避免的打扰）。
+- **长按智慧球的胶囊「点好几次才跳转」**（`OrbQuickMenu.swift`）：根因 = 点击手势与**入场位移动画挂在同一个视图**上，
+  SwiftUI 的命中测试跟着布局动画走，弹射/错峰入场那几百毫秒里点到的是「途中的位置」。改为**视觉层与命中层分离**：
+  动画层 `allowsHitTesting(false)` 不吃事件，点击交给位置固定在终点、不参与任何动画的透明层；并加首次点击锁定防连点。
+- **护栏**：智慧球菜单表 **138 条**（含 6 颗几何 + 两个新页面的形态断言）、新增「语音对话轮次」表 **24 条**（`check_swift.sh` 第 19 步）、
+  入口行为表 27 条、进度顺序表 21 条、剪贴板表 32 条。六维反向自证全过（几何取模改回 %4 / 判停缩到 0.5 秒 / 删重复回调判重 /
+  删兜底超时 / 放开发音阶段 / 虚化改纯色，各自精准报红）——自证中抓到一条**假护栏**（表内几何是镜像计算，只绑常量字面量时源码公式改了不报红），已补公式级绑定断言。
+- **🔍 CI 前双路只读审查的修正（3 个编译级 + 8 个真缺口，全部已修）**：
+  - **剪贴板 detection API 是按「类目名」猜错的（编译必挂）**：`UIPasteboard.DetectionPattern` 只有
+    `.number` / `.probableWebSearch` / `.probableWebURL` **三个**成员；`detectedValues(for:)` 收的是
+    **key-path 集合**（`Set<PartialKeyPath<UIPasteboard.DetectedValues>>`），字段是**复数数组**
+    （`postalAddresses` / `phoneNumbers` / `emailAddresses` / `moneyAmounts` / `shipmentTrackingNumbers` /
+    `calendarEvents` / `links`），**没有** `dateTime`。改成 key-path 形态 + `!values.xxx.isEmpty` 判命中。
+    类级教训：**别按语义猜 Apple API 的成员名**，先翻文档页的 Topics 列表。
+  - **`guard let result = await IntentExtractor.extract(text:auth:)` 编不过**：文本重载返回**非可选**
+    `RecognizedIntent`（可选的是 image 重载），那个 guard 是死分支，已删。
+  - **语音页发送依赖 ChatView 在视图树**：`.qingliaoTaskSend` 的唯一接收方是 `ChatView.sendCore`，
+    「全念」的触发点在 ChatView 的 `assistantLandedToken` —— 球在任意 tab 都在，不先切聊天页就
+    **消息静默消失 + 一句也不念**。已照 case 2/4 补切页闸。（类级：**跨页通知通道必须同时保证接收方在树**。）
+  - **`Action.sendNow` 语义补全为「发出 + 停麦」**：原来只在 `speechStarted` 才停麦，发送到开口那段
+    最长 25 秒仍在收音，且停麦的音频会话收尾 `setActive(false)` 会与朗读起播抢时序**把刚开口的念读掐掉**。
+  - **超时兜底之后仍要能停麦**：等回复 25 秒超时会退回 `.listening` 重新开麦，而 AI 可能**这时才开始念**
+    → 麦克风与扬声器同开、录到自己的朗读 = 自问自答。用 `awaitingSpeech` 记住「这轮还没念过」。
+  - **退出停麦判据含 `isPreparing` 且改用 `cancel()`**：`isRunning` 直到起麦那刻才 true，准备期
+    （首次权限框 / 下语音模型）点退出会直接 return，随后 `start()` 跑完在**页面消失后**开麦 → 残余收音；
+    而这一页是全仓唯一停麦调用点。退出另外补 `SpeechManager.shared.stop()`（否则「关了自动朗读还在响」）。
+  - **进度闸门只信同任务的内存快照**：原实现 `sourceTaskId ?? "unknown"` 让两个无 id 的任务共用桶
+    （A 的 20 步之后 B 的第一条被判迟到→丢弃+markDone，**进度永久丢失**），重启兜底拿「会话里最后一条
+    进度气泡」当基准同样跨任务。改为**拿不到 source_task_id 就整段放行**——宁可偶尔乱序，绝不丢数据。
+  - **语音页两处编译隐患**：补 `import Combine`（`Timer.publish` 属于 Combine）；`ticker` 收进 `@State`
+    （View 重建会换 publisher → 0.25s 判停定时器被反复重启 = 「说完不自动发」）。降级文案带
+    `liveSpeech.lastError`，准备期显示「正在准备语音模型…」（那段时间麦克风其实还没开）。
+  - **护栏自身的两个毛病**：`test_clipboard_gate` 原来把**编不过的假 API 名**钉成正确形态（护栏成了事故源，
+    已按真实 API 重钉 + 正则负向前瞻防 `\.postalAddresses` 被子串喂饱）；「识别失败出声出口」是**计数代理**
+    断言（已注明下限语义）；`ql_entry` 四条排除式断言从「声明形态串」改成**裸标识串 + 剥注释**（改个名躲不掉），
+    「问 AI」「扫描环」等断言全部**切片**到具体闭包/函数体内。
+- **⚠️ 需真机验收**：涟漪节奏与收音启停时机、结果卡离球距离、6 颗胶囊是否挤、自动发送会不会被环境音打断、剪贴板提示条实际观感、进度推送顺序。
+- **⚠️ CI 风险**：新增两个页面用到 UIKit（相机浮层）与新 SF Symbol（`text.viewfinder` / `waveform.circle.fill`），本机无 Xcode 编不了，只能靠 CI Archive 兜底。
+
 ## 🆕 近期变更（v3.9.75，2026-09-25）
 
 > 用户一轮报的五个 App 问题，一次修完发版。⚠️ 编号口径：v3.9.59~v3.9.74 由 NAS 侧自行发出，**本仓 README 没有对应变更段**，
@@ -143,10 +213,15 @@ QingliaoWidget/          挂件 Extension target（.appex）：灵动岛/锁屏�
 - **拍照界面顶部黑边 → 改全屏呈现**（`ChatView.swift:1056`）：`CameraPicker` 的 `.sheet` 换 `.fullScreenCover`。
   UIKit `UIImagePickerController` 放在 sheet 卡里时顶部留出一条不属于它的容器间隙；`CameraPicker.swift` 的
   Coordinator 自己 dismiss，故只改呈现容器，回调逻辑不动。
+  ⚠️ **v3.9.76 修正**：只换呈现容器不够——`fullScreenCover` 的内容视图默认被约束在安全区内，取景层只铺满这个内缩矩形，
+  顶部状态栏高度（≈59pt）露出的仍是宿主黑底，用户复报「系统相机顶部有黑边」。已给相机内容补 `.ignoresSafeArea()`。
 - **点"轻聊投递"会话不再跳进 AI 聊天的推送消息**（`SessionsView.open(_:)`）：该会话是推送投递的落地壳，`chat.load(s)` 后
   进 `ChatView` 会把 `InboxStore` 的 push 混在对话里。改为标题命中时 `showTaskCenter = true`（`.fullScreenCover` 呈现 `TaskCenterView`），
   并照常 `markRead` + `Haptics.tap()`。⚠️ **命中口径是 `s.title.contains("投递")`**：三仓里不存在"轻聊投递"字面量，后端会话条目也没有
   channel/source 字段（只有 `id/title/messages/updatedAt`），所以只能按标题路由——**服务端改名会失配**，届时改这一处判定即可。
+  ⚠️ **v3.9.76 已回退**：用户实测否决（「从轻聊投递会话点进去应该跳到会话内容看到投递信息详情，而不是跳到任务中心」）——
+  投递会话回归普通会话路径（`open(_:)` 不再按标题分流；`chat.load` 后那 7 条投递消息就是用户要看的内容）；
+  任务中心仍有常驻入口（聊天页 header）。
 - **⚠️ 需真机验收**：2（展开态图标观感与第一层是否被挤）、4（相机是否真全屏）、5（投递会话点击落点）。
   1 与 3 有逻辑口径可自查，但红点基线依赖"升级后第一次冷启动"这一次性动作，**删 App 重装才算干净验证**。
   本机无 Xcode：全工程 `swiftc -parse` 通过（150 个源文件），真值表**本机跑不了**（脚本要 NAS 的 `/opt/data` 环境，

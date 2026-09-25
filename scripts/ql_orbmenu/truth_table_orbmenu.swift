@@ -50,8 +50,9 @@ check("球命中层存在", orbMenuSrc.contains("struct OrbHitLayer: View"))
 check("长按+轻点用 ExclusiveGesture（分开挂会补认 tap，v2.0.107 实踩）",
       orbMenuSrc.contains("ExclusiveGesture(") && orbMenuSrc.contains("LongPressGesture(minimumDuration: 0.45)"))
 check("DockTabView 挂了球命中层", dockSrc.contains("OrbHitLayer(barHeight: dockBarHeight"))
+// v3.9.76：条件扩成「菜单 / 识别浮层 / 语音对话页都不在」——三层都要模态接管，缺一个就是两层抢触摸
 check("菜单开着时命中层隐藏（菜单层模态接管）",
-      dockSrc.contains("if !showOrbMenu {") && dockSrc.contains("OrbHitLayer"))
+      dockSrc.contains("if !showOrbMenu && !showIdentify && !showVoiceDialog {") && dockSrc.contains("OrbHitLayer"))
 check("长按触感 press", dockSrc.contains("Haptics.press()") )
 
 // ── 2. 四个动作复用既有入口 ──────────────────────────────────
@@ -99,7 +100,7 @@ check("命中层挂在可见球之后（同 overlay 内后挂者在上，才拿�
 // ── 5. 纯计算回归：胶囊落点几何（v3.9.60 两排两列 —— 本次 bug 正题） ──
 // 镜像 OrbQuickMenuLayout（第 7 节 ③ 用源护栏钉住字面量，源改了这里必须同步改）
 let pillW = 101.0, pillH = 36.0            // 胶囊尺寸估值（令牌算式见 OrbQuickMenuLayout.pillSize 注释）
-let columnDX = 64.0, upperDY = 160.0, lowerDY = 104.0
+let columnDX = 118.0, upperDY = 160.0, lowerDY = 104.0   // v3.9.76：一排 2 颗 → 3 颗
 
 // 🔒 反向绑定：上面的「镜像常量」必须等于 OrbQuickMenuLayout 里的真值 —— 否则源改了表照样绿（假护栏）
 func parseCGSize(_ s: String, _ marker: String) -> (Double, Double)? {
@@ -122,28 +123,28 @@ check("表内 pillW/pillH 与源码 pillSize 同源（源改了这里必红）",
 check("表内呼吸间距与源码 minGapAboveBall 同源（74pt）", srcBreath == 74)
 let breathGap = srcBreath ?? 74
 func center(_ index: Int) -> (x: Double, y: Double) {
-    let i = ((index % 4) + 4) % 4
-    let isLeft = (i == 0 || i == 1)
-    let isUpper = (i == 1 || i == 2)
-    return (isLeft ? -columnDX : columnDX, -(isUpper ? upperDY : lowerDY))
+    let i = ((index % 6) + 6) % 6
+    let col = Double(i % 3) - 1                 // −1 / 0 / +1
+    let isUpper = i >= 3
+    return (col * columnDX, -(isUpper ? upperDY : lowerDY))
 }
-let pts = (0..<4).map { center($0) }
+let pts = (0..<6).map { center($0) }
 
 // ① 四颗落点互不相同（曾出现两颗重合 = 视觉上压在一起）
-check("四颗胶囊落点互不相同", Set(pts.map { String($0.x) + "," + String($0.y) }).count == 4)
+check("六颗胶囊落点互不相同", Set(pts.map { String($0.x) + "," + String($0.y) }).count == 6)
 // ② 两两不重叠（AABB：横向或纵向任一方向分开即不重叠）
 func overlaps(_ a: (x: Double, y: Double), _ b: (x: Double, y: Double)) -> Bool {
     abs(a.x - b.x) < pillW && abs(a.y - b.y) < pillH
 }
 var overlapPairs: [String] = []
-for i in 0..<4 {
-    for j in (i + 1)..<4 where overlaps(pts[i], pts[j]) {
+for i in 0..<6 {
+    for j in (i + 1)..<6 where overlaps(pts[i], pts[j]) {
         overlapPairs.append(String(i) + "-" + String(j))
     }
 }
-check("四颗胶囊两两不重叠（AABB）", overlapPairs.isEmpty)
+check("六颗胶囊两两不重叠（AABB）", overlapPairs.isEmpty)
 // ③ 最小间隙 ≥ 12pt（不重叠还不够——贴在一起观感仍是糊成一团）
-let hGap = 2 * columnDX - pillW            // 同排水平间隙
+let hGap = columnDX - pillW                // 同排相邻水平间隙（一排 3 颗）
 let vGap = upperDY - lowerDY - pillH       // 两排纵向间隙
 check("同排水平间隙 ≥ 12pt", hGap >= 12)
 check("两排纵向间隙 ≥ 12pt", vGap >= 12)
@@ -172,10 +173,10 @@ check("旧弧线内侧中心距 < 胶囊宽（横向重叠 = 事故证据）", o
 check("旧弧线内外排纵向差 < 胶囊高（上下贴合 = 事故证据）", oldRowGap < pillH)
 // ⑦ 错峰延迟单调（50ms 步进）——⚠️ 不能直接 == [0,0.05,0.10,0.15]：0.05*3 二进制不精确
 // （= 0.15000000000000002）会假红，必须用单调 + 容差断言。
-let delays = (0..<4).map { Double($0) * 0.05 }
+let delays = (0..<6).map { Double($0) * 0.05 }
 check("错峰延迟单调递增（50ms 步进）",
       zip(delays, delays.dropFirst()).allSatisfy { $1 > $0 }
-      && abs(delays[3] - 0.15) < 1e-9)
+      && abs(delays[5] - 0.25) < 1e-9)
 
 // ── 6. 速记弹窗口径 ─────────────────────────────────────────
 check("弹窗背景不覆盖（系统默认玻璃底，全站口径）",
@@ -207,12 +208,19 @@ check("轻纱补了 contentShape(Rectangle())（点空白收起靠它）", orbMe
 check("可点胶囊走 glassEffect(.regular.interactive())", orbMenuSrc.contains("glassEffect(.regular.interactive())"))
 // ③ 落点几何与源码字面量绑定（第 5 节是镜像计算，源码改了必须同步改表）
 check("落点常量与源码绑定（columnDX / upperDY / lowerDY）",
-      orbMenuSrc.contains("static let columnDX: CGFloat = 64")
+      orbMenuSrc.contains("static let columnDX: CGFloat = 118")
       && orbMenuSrc.contains("static let upperDY: CGFloat = 160")
       && orbMenuSrc.contains("static let lowerDY: CGFloat = 104"))
 check("落点单一真源 = OrbQuickMenuLayout.center",
       orbMenuSrc.contains("OrbQuickMenuLayout.center(index: index, ballCenter: ballCenter)"))
-check("取模防越界（加第 5 颗胶囊不崩）", orbMenuSrc.contains("let i = ((index % 4) + 4) % 4"))
+check("取模防越界（胶囊数量再变也不崩）", orbMenuSrc.contains("let i = ((index % 6) + 6) % 6"))
+// 🔒 公式级反向绑定（v3.9.76 反向自证抓到）：第 5 节的落点回归是**表内镜像计算**，
+//    只绑常量字面量时，把源码取模从 %6 改回 %4（四颗重叠的老 bug）仍能让落点断言全绿 ——
+//    必须把公式本身也钉住，镜像回归才有意义。
+check("落点公式与源码绑定（%6 取模 · 每排 3 列 · 上排 = i >= 3）",
+      orbMenuSrc.contains("let i = ((index % 6) + 6) % 6")
+      && orbMenuSrc.contains("let col = CGFloat(i % 3) - 1")
+      && orbMenuSrc.contains("let isUpper = i >= 3"))
 // ③′ 🚨 旧「角度散开」实现必须清零（四颗胶囊重叠的根因；断言带声明形态的串，别断言裸符号名）
 check("旧角度表已删除", !orbMenuSrc.contains("private static let angles: [Double]"))
 check("旧角度取模已删除", !orbMenuSrc.contains("Self.angles[index % Self.angles.count]"))
@@ -301,6 +309,12 @@ let stopBtnSlice: String = {
           let b = widgetSrc.range(of: "/// v3.9.10：右侧阶段指示改为") else { return "" }
     return String(widgetSrc[a.lowerBound..<b.lowerBound])
 }()
+/// 取两段锚点之间的切片（任一锚点不存在就返回空串 → 由调用方断言非空，避免"空了就是空真"）。
+func between(_ s: String, _ a: String, _ b: String) -> String {
+    guard let ra = s.range(of: a), let rb = s.range(of: b, range: ra.upperBound..<s.endIndex) else { return "" }
+    return String(s[ra.upperBound..<rb.lowerBound])
+}
+
 // 排除式断言先去注释：本仓已两次被「注释里写着旧写法」绊成假红/假绿
 func stripCommentLines(_ s: String) -> String {
     s.split(separator: "\n", omittingEmptySubsequences: false)
@@ -343,6 +357,106 @@ check("挂件代码里没有 Material（同上）", !stripCommentLines(widgetSrc
 check("横幅玻璃层不抢触摸（独立切片断言，见 ②）", glassSlice.contains(".allowsHitTesting(false)"))
 check("展开态玻璃底衬自绘（无描边版）", widgetSrc.contains("private var expandedGlass")
       && !widgetSrc.contains("cornerRadius: 10, style: .continuous)\n                .strokeBorder(Color.white.opacity(0.16)"))
+
+
+// ── 9. v3.9.76 智慧球两个新入口（AI 识别浮层 / 语音对话页）────────────
+// 用户拍板：「长按智慧球增加 AI 识别和语音对话胶囊」；形态 = 识别走**球上悬浮卡 + 扫描环 + 背景虚化**，
+// 语音走**全屏涟漪页 · 深色科幻 · 全念**。本节钉住这两页最容易走形的口径。
+let identifySrc = src("Features/OrbIdentifyOverlay.swift")
+let voiceSrc = src("Features/VoiceDialogView.swift")
+check("OrbIdentifyOverlay.swift 源可读", !identifySrc.isEmpty)
+check("VoiceDialogView.swift 源可读", !voiceSrc.isEmpty)
+
+// ① 不新造第二套识别/动作口径：认内容走意图管道、画结果与执行动作复用动作条
+check("识别浮层走 IntentExtractor.extract(image:auth:)（与聊天页同一条管道）",
+      identifySrc.contains("await IntentExtractor.extract(image: image, auth: auth)"))
+check("识别浮层复用 IntentActionBar（不新造动作条）",
+      identifySrc.contains("IntentActionBar(intent: intent,"))
+// ② 背景虚化 + 空白可收起（不补 contentShape 就点不到，本仓已知坑）
+check("背景走材质虚化（用户拍板「虚化背景」）", identifySrc.contains(".fill(.ultraThinMaterial)"))
+check("虚化层补 contentShape（否则空白点不到 = 收不起来）",
+      identifySrc.contains(".contentShape(Rectangle())"))
+// ③ 几何同源：扫描环与卡片位置都用球心真源，别自己算等分
+check("扫描环/卡片位置走 orbCenterGlobal（与可见球严格同源）",
+      identifySrc.contains("DockOrbOverlay.orbCenterGlobal(slotIndex: slotIndex"))
+// ④ 相机两道闸：可用性 + ignoresSafeArea（后者是 v3.9.75 顶部黑边的修复）
+check("相机先查可用性（无相机设备 present 会抛异常）",
+      identifySrc.contains("UIImagePickerController.isSourceTypeAvailable(.camera)"))
+check("相机内容 ignoresSafeArea（顶部黑边修复不许回退）",
+      identifySrc.contains("CameraPicker { img in recognize(img) }") && identifySrc.contains(".ignoresSafeArea()"))
+// ⑤ 没认出 ≠ 失败：不得出现「识别失败」这类报错口气（用户看到会以为坏了）
+// 剥注释行再断言：本文件注释里为说明口径会出现「识别失败」字样，直接 contains 会假红
+check("没认出内容不算失败（代码里不出现「识别失败」报错口气）",
+      !stripCommentLines(identifySrc).contains("识别失败"))
+// ⑥ 纯视觉层不吃触摸（扫描环 / 涟漪不许吞掉卡片与空白的点击）
+// ⚠️ 切片断言（本文件自己立的反面教材：整文件 grep 会被另一处喂饱）
+let ringSlice = between(identifySrc, "private func scanRings", "private func startScanLoop")
+check("扫描环层切片取到（切片空了本条就是空真）", !ringSlice.isEmpty)
+check("扫描环层 allowsHitTesting(false)（纯视觉，不吃触摸）", ringSlice.contains(".allowsHitTesting(false)"))
+// ⑦ 「问 AI」复用既有跨页发送通道，不新造通知
+// 切片到 onAskAI 闭包内：整文件任意一处 post 就能喂饱（今天恰好只此一处才侥幸成立），
+// 而「没切页 → 通知落空 → 消息静默消失」这个真缺口它根本覆盖不到。
+let askAISlice = between(dockSrc, "onAskAI: { text in", "onClose:")
+check("「问 AI」闭包切片取到（切片空了本条就是空真）", !askAISlice.isEmpty)
+check("「问 AI」走既有 .qingliaoTaskSend（不新造通道）",
+      askAISlice.contains("NotificationCenter.default.post(name: .qingliaoTaskSend,"))
+check("「问 AI」先切到聊天页 + 0.35s 闸（否则 ChatView 不在树 → 通知落空）",
+      askAISlice.contains("selected = .chat") && askAISlice.contains("seconds(0.35)"))
+
+// ⑧ 语音对话页：判断在 engine、页面只执行动作；发送与朗读都复用既有口径
+check("语音页不自己判「该不该发」（只执行 engine 给的动作）",
+      voiceSrc.contains("perform(engine.handle("))
+check("语音页发送走 .qingliaoTaskSend（与键盘发送同一条流）",
+      voiceSrc.contains("NotificationCenter.default.post(name: .qingliaoTaskSend, object: text)"))
+check("语音页临时打开自动朗读并在退出还原（全念复用 + 不偷改用户设置）",
+      voiceSrc.contains("autoReadBefore = autoReadReply")
+      && voiceSrc.contains("if let before = autoReadBefore { autoReadReply = before }"))
+check("语音页观察 speakingID 做半双工（念的时候停麦）",
+      voiceSrc.contains(".onChange(of: speech.speakingID)"))
+check("语音页保持纯 SwiftUI（import UIKit 会让本机无法预检）",
+      !voiceSrc.contains("import UIKit"))
+check("语音页半双工口径写进注释（防后人改成全双工导致自问自答）",
+      voiceSrc.contains("半双工"))
+check("引擎判停/超时可注入时间（否则这条回归只能靠真机手感）",
+      src("Core/VoiceDialogEngine.swift").contains("mutating func handle(_ event: Event, now: Date = Date()) -> Action"))
+
+// ⑨ 接线：两个胶囊都要有真实分支，且切页时不许留死层
+check("DockTabView 分发「AI 识别」胶囊", dockSrc.contains("showIdentify = true"))
+check("DockTabView 分发「语音对话」胶囊", dockSrc.contains("showVoiceDialog = true"))
+check("切页时两个新层都收起（不留浮在新页面上的死层）",
+      dockSrc.contains("if showIdentify { showIdentify = false }")
+      && dockSrc.contains("if showVoiceDialog { showVoiceDialog = false }"))
+check("识别浮层开着时摘掉球命中层（不许两层同时吃触摸）",
+      dockSrc.contains("if !showOrbMenu && !showIdentify && !showVoiceDialog {"))
+
+// ⑨′ 语音对话页的两条命脉 + 降级口径（v3.9.76 审查抓到的真缺口，补护栏防回退）
+//    ① 「发送」= 发出 + **停麦**（Action.sendNow 的语义）；不停麦 → 发送到开口那段还在收音，
+//       且停麦的音频会话收尾会和朗读起播抢时序，把刚开口的念读掐掉。
+//    ② 宿主进入本页前**必须先切到聊天页**：本页发送走 `.qingliaoTaskSend`（唯一接收方 ChatView）、
+//       「全念」走 ChatView 的 assistantLandedToken —— 两者都只在 ChatView 在树时生效。
+//       球在任意 tab 都在，不切页 = 用户说完消息静默消失、一句也不念。
+let voiceSendSlice = between(voiceSrc, "case .sendNow(let text):", "case .openMic:")
+check("语音页发送切片取到（切片空了本条就是空真）", !voiceSendSlice.isEmpty)
+check("语音页发送时同步停麦（Action.sendNow 语义 = 发出 + 停麦）",
+      voiceSendSlice.contains("await closeMic()"))
+check("语音页发完仍走既有 .qingliaoTaskSend 通道",
+      voiceSendSlice.contains("NotificationCenter.default.post(name: .qingliaoTaskSend"))
+let voiceCase5 = between(dockSrc, "case 5:   // 语音对话", "default:")
+check("语音对话入口切片取到（切片空了本条就是空真）", !voiceCase5.isEmpty)
+check("语音对话入口先切聊天页（否则通知落空 = 消息静默消失）",
+      voiceCase5.contains("selected = .chat"))
+// ⚠️ 停麦判据含 isPreparing：isRunning 直到起麦那刻才 true，准备期（首次权限框 / 下模型）用户
+//    完全可能点退出 —— 只看 isRunning 会 return，随后 start() 跑完在页面消失后开麦 → 残余收音。
+let voiceCloseMic = between(voiceSrc, "private func closeMic() async {", "private func toggleMode")
+check("停麦切片取到", !voiceCloseMic.isEmpty)
+check("停麦判据含 isPreparing 且用 cancel()（准备期也能中断）",
+      voiceCloseMic.contains("liveSpeech.isPreparing") && voiceCloseMic.contains("await liveSpeech.cancel()"))
+check("退出路径停朗读（否则「明明关了自动朗读还在响」）",
+      voiceSrc.contains("SpeechManager.shared.stop()"))
+check("降级文案带真实原因（不支持设备端识别的机型不能只报「没打开」）",
+      voiceSrc.contains("liveSpeech.lastError ?? "))
+check("准备期文案（这段时间不能显示「聆听中」）",
+      voiceSrc.contains("正在准备语音模型"))
 
 print("智慧球长按菜单真值表：\(passCount) 通过 / \(failCount) 失败")
 if failCount > 0 { exit(1) }

@@ -1,6 +1,7 @@
 // MARK: - v3.9.59（攒版）智慧球长按快捷菜单
 //
-// 交互：长按 dock 智慧球（≥0.45s）→ 弹出 4 颗功能胶囊：新建会话 / AI 速记 / 语音输入 / 今日待办。
+// 交互：长按 dock 智慧球（≥0.45s）→ 弹出 6 颗功能胶囊：新建会话 / AI 速记 / 今日待办（下排）
+//        + AI 识别 / 语音对话 / 语音输入（上排）。
 // 动效 = 方案 A+C 混合（用户拍板）：A 绽放（胶囊从球心弹簧弹射、错峰入场，落点几何见 OrbQuickMenuLayout）
 //        + C 的球心光晕扩散（常驻柔光 + 一圈扩散环），**不做**全屏磨砂。
 // v3.9.60：落点由「弧线散开」改为「两排两列」——弧线在 393pt 屏宽下四颗胶囊必然重叠（用户实测），
@@ -28,11 +29,18 @@ struct OrbQuickAction: Identifiable {
     let icon: String
     let color: Color
 
+    /// v3.9.76：4 颗 → 6 颗。**数组顺序 = 落点索引**（下排 0/1/2 贴球、上排 3/4/5 更远，
+    /// 见 OrbQuickMenuLayout.center）；`id` 是**语义标识**（DockTabView.handleOrbAction 按它分发），
+    /// 与顺序解耦 —— 以后重排只动这个数组，不要动 id（动了就是悄悄换功能）。
     static let all: [OrbQuickAction] = [
+        // 下排（离球近、拇指最顺手 → 高频：新建 / 速记 / 待办）
         OrbQuickAction(id: 0, title: "新建会话", icon: "plus.bubble.fill", color: .blue),
         OrbQuickAction(id: 1, title: "AI 速记", icon: "brain.head.profile", color: .purple),
-        OrbQuickAction(id: 2, title: "语音输入", icon: "mic.fill", color: .pink),
         OrbQuickAction(id: 3, title: "今日待办", icon: "checklist", color: .orange),
+        // 上排（抬视线才用 → 本轮新增的「看」与「说」两个入口 + 原语音输入）
+        OrbQuickAction(id: 4, title: "AI 识别", icon: "text.viewfinder", color: .teal),
+        OrbQuickAction(id: 5, title: "语音对话", icon: "waveform.circle.fill", color: .indigo),
+        OrbQuickAction(id: 2, title: "语音输入", icon: "mic.fill", color: .pink),
     ]
 }
 
@@ -114,20 +122,30 @@ struct OrbQuickMenuOverlay: View {
 enum OrbQuickMenuLayout {
     /// 胶囊尺寸估值（本机无 Xcode SDK 渲染不出，按令牌算式推；真机不齐只改这一处）
     static let pillSize = CGSize(width: 101, height: 36)
-    /// 同排半间距（中心距 = 2×64 = 128）
-    static let columnDX: CGFloat = 64
+    /// 同排半间距（中心距 = 2×118 = 236；v3.9.76 一排 2 颗 → 3 颗，同步放宽）
+    static let columnDX: CGFloat = 118
     /// 上排抬升（离球心更远）、下排抬升
     static let upperDY: CGFloat = 160
     static let lowerDY: CGFloat = 104
     /// 胶囊底到球心的最小间距（球半径约 34pt + 呼吸 40pt）
     static let minGapAboveBall: CGFloat = 74
 
-    /// 单颗胶囊的中心点。取模防越界（加第 5 颗胶囊不崩）。
+    /// 单颗胶囊的中心点。取模防越界（胶囊数量再变也不崩）。
+    ///
+    /// v3.9.76 排列改为**两排各 3 颗**（原来一排 2 颗，放不下第 5、6 颗）：
+    ///   index 0/1/2 = 下排左/中/右，3/4/5 = 上排左/中/右。
+    /// 几何校验（最窄 375pt 屏也成立，球心 x = 187.5）：
+    ///   · 同排相邻间隙 = columnDX − pillW = 118 − 101 = **17pt** ≥ 12（不糊成一团）
+    ///     （236 是**外沿两颗**的中心距，不是相邻间隙——v3.9.76 审查纠正；三颗总宽 337pt，
+    ///      375pt 小屏最左仍留 19pt，结论不变）
+    ///   · 两排纵向间隙 = 160 − 104 − 36 = **20pt** ≥ 12
+    ///   · 最左胶囊左缘 = 187.5 − 118 − 50.5 = **19pt** ≥ 8（不越界）
+    ///   · 下排胶囊底到球心 = 104 − 18 = **86pt** ≥ minGapAboveBall 74（仍留呼吸）
     static func center(index: Int, ballCenter: CGPoint) -> CGPoint {
-        let i = ((index % 4) + 4) % 4
-        let isLeft = (i == 0 || i == 1)
-        let isUpper = (i == 1 || i == 2)
-        return CGPoint(x: ballCenter.x + (isLeft ? -columnDX : columnDX),
+        let i = ((index % 6) + 6) % 6
+        let col = CGFloat(i % 3) - 1                 // −1 / 0 / +1
+        let isUpper = i >= 3
+        return CGPoint(x: ballCenter.x + col * columnDX,
                        y: ballCenter.y - (isUpper ? upperDY : lowerDY))
     }
 }
@@ -140,6 +158,10 @@ struct OrbQuickMenuLayer: View {
     var onClose: () -> Void
 
     @State private var shown = false
+    /// v3.9.76（用户实测）：「点击胶囊有时候要点击好几次才跳转」。
+    /// 一旦有一次点击真的被识别，就锁死——否则连点会起多个 0.16s 延迟任务，
+    /// 动作互相打断（弹两次 sheet / 切两次页），观感就是"点了没反应"。
+    @State private var activated = false
     @Environment(\.colorScheme) private var scheme
     /// v3.9.59：减弱动态效果（系统辅助功能）——弹簧散射/位移会加重不适感，退化为「原地淡入」。
     /// 全仓口径一致：LoginView、LiquidOrbAvatar 都读同一环境值，本层别自己发明开关。
@@ -199,7 +221,24 @@ struct OrbQuickMenuLayer: View {
 
     private func orbPill(_ action: OrbQuickAction, index: Int) -> some View {
         let p = pillOffset(index: index)
-        return HStack(spacing: Spacing.sm) {
+        // 🚨 v3.9.76 修复「点击胶囊有时候要点击好几次才跳转」：视觉层与**命中层必须分开**。
+        // 原来 onTapGesture 挂在与位移动画同一个视图上 —— 入场弹簧还在飞（错峰后约 0.6s 才落定）时，
+        // SwiftUI 的命中测试跟着布局动画走，用户点到的是"途中的位置"：前几次点击必然落空
+        //（点空落在轻纱上还会顺手把菜单收起）。现在视觉层 allowsHitTesting(false)，
+        // 命中交给一个**位置固定在终态、完全不参与动画**的透明层 —— 长按一弹出来就能点中。
+        // 代价（有意取舍）：入场动画那零点几秒里，胶囊没有 glassEffect 的按下形变反馈（透明层收不到玻璃手势）；
+        // 点击后 0.16s 就跳转，反馈感来自目标页面本身。
+        // 顺带绕开第二个隐患：.glassEffect(.regular.interactive()) 自带交互识别器，
+        // 与 onTapGesture 挂同一视图时也可能吃掉第一次点击。
+        return ZStack {
+            pillVisual(action, index: index, center: p)
+            pillHitArea(action, center: p)
+        }
+    }
+
+    /// 视觉层：参与入场动画（从球心弹射落位 + 缩放淡入），**不挂点击手势、不吃事件**
+    private func pillVisual(_ action: OrbQuickAction, index: Int, center p: CGPoint) -> some View {
+        HStack(spacing: Spacing.sm) {
             Image(systemName: action.icon)
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(action.color)
@@ -224,16 +263,28 @@ struct OrbQuickMenuLayer: View {
         // 错峰绽放：按 index 延迟 50ms（0 下左 → 1 上左 → 2 上右 → 3 下右，落点见 OrbQuickMenuLayout）；
         // reduceMotion 下走 pillAnimation 的退化分支
         .animation(pillAnimation(index: index), value: shown)
-        .onTapGesture {
-            Haptics.tap()
-            dismissAnimated()
-            // 先播收场动画（0.16s）再执行动作，切页/弹窗不抢动画帧
-            Task { try? await Task.sleep(for: .seconds(0.16)); onAction(action) }
-        }
-        // v3.9.59：无障碍——自定义手势视图默认既读不到也点不动，合成一个元素 + 按钮 trait（双击即触发）
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(action.title)
-        .accessibilityAddTraits(.isButton)
+        .allowsHitTesting(false)   // 🚨 v3.9.76：视觉层不许吃事件（命中全交给下面的固定层）
+    }
+
+    /// 命中层（v3.9.76）：**位置固定在终态、不参与任何位移动画** + 首次点击即锁定
+    private func pillHitArea(_ action: OrbQuickAction, center p: CGPoint) -> some View {
+        Color.clear
+            .frame(width: OrbQuickMenuLayout.pillSize.width,
+                   height: OrbQuickMenuLayout.pillSize.height)
+            .contentShape(Rectangle())
+            .position(p)
+            .onTapGesture {
+                guard !activated else { return }   // 防连点：动作只执行一次
+                activated = true
+                Haptics.tap()
+                dismissAnimated()
+                // 先播收场动画（0.16s）再执行动作，切页/弹窗不抢动画帧
+                Task { try? await Task.sleep(for: .seconds(0.16)); onAction(action) }
+            }
+            // v3.9.59：无障碍——自定义手势视图默认既读不到也点不动，合成一个元素 + 按钮 trait（双击即触发）
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(action.title)
+            .accessibilityAddTraits(.isButton)
     }
 
     private func dismissAnimated() {

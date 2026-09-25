@@ -50,3 +50,34 @@ enum ClipboardBanner {
     /// 提示条弹出后，用户一直没操作 → 自动收起（秒）
     static let autoHideSeconds: Double = 10
 }
+
+/// v3.9.76：剪贴板里「本地能识别」的结构化类型命中集合（口径放开后取代原来的「只认链接」）。
+///
+/// 放这个纯 Foundation 文件、而不是探测器旁边，是为了能进本机真值表——
+/// 探测器 `ClipboardIntentDetector` 依赖 UIKit，本机（Linux，无 iOS SDK）根本编不了。
+/// 于是把**判断逻辑**（任一类命中就值得问一句）与**取值逻辑**（detection API）拆开，
+/// 前者可测、后者只能装机看。别把它挪回 UIKit 文件（挪回去 = 这张表失去意义）。
+struct ClipboardIntentHits: Equatable {
+    var link = false
+    var address = false
+    var contact = false
+    var amount = false
+    var express = false
+    var datetime = false
+
+    /// 任一类命中 → 值得弹条问用户一句。
+    /// 🚨 这就是「口径放开」的判据：**别退回只认 `link`**（用户 2026-09-25 拍板放开）。
+    var any: Bool { link || address || contact || amount || express || datetime }
+
+    /// 命中类别的中文名（提示条文案用），如「链接 / 地址」；空串 = 什么都没有
+    var label: String {
+        var names: [String] = []
+        if link { names.append("链接") }
+        if address { names.append("地址") }
+        if contact { names.append("联系方式") }
+        if amount { names.append("金额") }
+        if express { names.append("快递单号") }
+        if datetime { names.append("时间") }
+        return names.joined(separator: " / ")
+    }
+}

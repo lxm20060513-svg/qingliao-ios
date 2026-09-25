@@ -161,4 +161,35 @@ else
   exit 1
 fi
 
+echo "=== 17. 入口行为真值表（v3.9.76 攒版）==="
+# 单文件（读源文件做护栏，不 import 项目代码）→ run_unit 直接编跑。
+# 口径：① 会话列表 open(_:) 是唯一进会话入口，不许按标题特判「投递」（v3.9.75 曾特判成开任务中心，
+#       用户真机实测否掉：「点进去应该看到投递信息详情」）② 相机 fullScreenCover 内容必须
+#       .ignoresSafeArea()（缺它 = 取景层只铺满安全区，顶部状态栏高度露黑底）。
+run_unit /tmp/test_entry scripts/ql_entry/truth_table_entry.swift
+
+echo "=== 18. 进度推送顺序真值表（v3.9.76 用户规则）==="
+# 纯逻辑（不 import UIKit）→ 本机可编可跑。
+# 口径：用户 2026-09-25 定的规则——「进度这类回复要按时间前后推，不要 20 步推在 17 步前」。
+#      进度是**状态快照**，迟到的旧快照（投递层把僵尸 sending 重置回 pending 重投）必须丢弃；
+#      判据按 source_task_id 分组——toolSeq 每任务独立计数，跨任务比会误丢新任务的第一条进度。
+# 多文件编译时只有 main.swift 允许顶层代码 → 复制一份到临时目录做 main.swift（同第 7 步）
+rm -rf /tmp/ql_progress_main && mkdir -p /tmp/ql_progress_main
+cp scripts/test_inbox_progress.swift /tmp/ql_progress_main/main.swift
+rm -f /tmp/test_inbox_progress   # 先删旧产物，否则编译失败时会跑到上一轮残留二进制 → 假绿
+$SWIFT/swiftc -o /tmp/test_inbox_progress /tmp/ql_progress_main/main.swift qingliao/Core/InboxProgressOrder.swift 2>&1 | head -10
+[ ${PIPESTATUS[0]} -eq 0 ] || { echo "❌ 进度顺序真值表编译失败"; exit 1; }
+/tmp/test_inbox_progress || exit 1
+
+echo "=== 19. 语音对话轮次真值表（v3.9.76 新功能）==="
+# 纯逻辑（不 import UIKit）→ 本机可编可跑。
+# 口径：用户拍板「自动发和点一下发都要」+ 停顿 2 秒；AI 回复全念 → 念的时候必须停麦（半双工）。
+# 多文件编译时只有 main.swift 允许顶层代码 → 复制一份做 main.swift（同第 7/18 步）
+rm -rf /tmp/ql_voice_main && mkdir -p /tmp/ql_voice_main
+cp scripts/test_voice_dialog.swift /tmp/ql_voice_main/main.swift
+rm -f /tmp/test_voice_dialog   # 先删旧产物，否则编译失败时会跑到上一轮残留二进制 → 假绿
+$SWIFT/swiftc -o /tmp/test_voice_dialog /tmp/ql_voice_main/main.swift qingliao/Core/VoiceDialogEngine.swift 2>&1 | head -10
+[ ${PIPESTATUS[0]} -eq 0 ] || { echo "❌ 语音对话真值表编译失败"; exit 1; }
+/tmp/test_voice_dialog || exit 1
+
 exit $?

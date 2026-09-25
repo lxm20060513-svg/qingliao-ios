@@ -44,6 +44,10 @@ struct DockTabView: View {
     @State private var dockBarHeight: CGFloat = DockOrbOverlay.fallbackBarHeight
     /// v3.9.59（攒版）：长按智慧球 → 快捷菜单（新建会话 / AI 速记 / 语音输入 / 今日待办）
     @State private var showOrbMenu = false
+    /// v3.9.76：智慧球「AI 识别」浮层（球上悬浮结果卡 + 扫描环 + 背景虚化）
+    @State private var showIdentify = false
+    /// v3.9.76：智慧球「语音对话」全屏页（说 → 自动发 → 自动念 → 自动续听）
+    @State private var showVoiceDialog = false
     /// v3.9.59：速记弹窗（AI 速记 → 备忘录；今日待办 → 待办清单）
     @State private var quickCapture: QuickCaptureMode?
     @Environment(AuthStore.self) private var auth
@@ -95,6 +99,10 @@ struct DockTabView: View {
                 // v3.9.59：切页即收起长按菜单——手动切 tab 与程序化切页（深链 / 分享 / 备忘录「发给 AI」/
                 // 灵动岛）都走这里；不收的话菜单会浮在新页面上（此时命中层已被 if !showOrbMenu 摘掉）。
                 if showOrbMenu { showOrbMenu = false }
+                // v3.9.76：识别浮层与语音对话页同样要跟着收——深链 / 分享 / 通知切页时
+                // 留着它们会浮在新页面上（此时球命中层已被条件摘掉，收不起来就成死层）
+                if showIdentify { showIdentify = false }
+                if showVoiceDialog { showVoiceDialog = false }
                 // v3.9.33：切到聊天页 = 回复已在眼前 → 清掉球上的「未查看 / 失败」提示
                 if newVal == .chat { clearOrbNotice() }
                 // v3.6.2：点 dock 智能球（= 切到聊天页）→ 放烟花，保留原智能球的点击特效
@@ -139,7 +147,7 @@ struct DockTabView: View {
                     // v3.9.59：球命中层——只盖住球体一小块（68pt 圆）：
                     //   轻点 = 手动切聊天页（onChange 的触感/清提示/烟花照旧走一遍），
                     //   长按 = 弹快捷菜单。菜单开着时本层不显示（菜单层自己接管全部交互）。
-                    if !showOrbMenu {
+                    if !showOrbMenu && !showIdentify && !showVoiceDialog {
                         OrbHitLayer(barHeight: dockBarHeight,
                                     slotIndex: 2,
                                     slotCount: dockSlotCount,
@@ -169,6 +177,37 @@ struct DockTabView: View {
                 }
             }
             .animation(Motion.snap, value: showOrbMenu)
+            // v3.9.76：智慧球「AI 识别」浮层（球上悬浮卡 + 扫描环 + 背景虚化）。
+            // 与长按菜单互斥（菜单先收起才进这里）。「问 AI」复用既有 .qingliaoTaskSend 通道
+            // —— 与任务中心、备忘录「发给 AI」完全同一条路，不新造通道。
+            .overlay {
+                if showIdentify {
+                    OrbIdentifyOverlay(barHeight: dockBarHeight,
+                                       slotIndex: 2,
+                                       slotCount: dockSlotCount,
+                                       onAskAI: { text in
+                                           showIdentify = false
+                                           if selected != .chat { skipBurstOnce() }
+                                           selected = .chat
+                                           // 切页转场落定后再发（与 .qingliaoOrbVoiceInput 同一道 0.35s 闸：
+                                           // 转场还在跑时投递，聊天页可能还没进树，通知会落空）
+                                           Task { @MainActor in
+                                               try? await Task.sleep(for: .seconds(0.35))
+                                               NotificationCenter.default.post(name: .qingliaoTaskSend,
+                                                                               object: text)
+                                           }
+                                       },
+                                       onClose: { showIdentify = false })
+                        .transition(.opacity)
+                        .zIndex(45)
+                }
+            }
+            .animation(Motion.snap, value: showIdentify)
+            // v3.9.76：语音对话全屏页（长按智慧球「语音对话」胶囊）。
+            // 全屏而非 sheet：这一页要盖住 dock 与 tab bar 做沉浸式收音，sheet 会留出下层。
+            .fullScreenCover(isPresented: $showVoiceDialog) {
+                VoiceDialogView()
+            }
             // v3.9.59：速记弹窗（AI 速记 / 今日待办共用一个输入弹窗）
             // v3.9.59：onDismiss 复位——若某次 present 被别的 sheet 挡掉，quickCapture 会一直非 nil，
             // 之后「AI 速记 / 今日待办」再也弹不出来（MemoSection v3.9.17 / TodoSection 同款坑，本仓踩过）。
@@ -313,6 +352,22 @@ struct DockTabView: View {
             NotificationCenter.default.post(name: .qingliaoOrbVoiceInput, object: nil)
         case 3:   // 今日待办
             quickCapture = .todo
+        case 4:   // AI 识别（v3.9.76）
+            // 菜单层与识别浮层同挂 dock overlay：不先收菜单就是两层同时吃触摸
+            showOrbMenu = false
+            showIdentify = true
+        case 5:   // 语音对话（v3.9.76）
+            // 与速记弹窗是两种 presentation：同时挂会互相顶掉，先把弹窗收干净
+            showOrbMenu = false
+            quickCapture = nil
+            // 🚨 必须先让聊天页进视图树（与 case 2/4 同款闸）：本页的两条命脉都挂在 ChatView 上 ——
+            //   「发送」走 `.qingliaoTaskSend`（ChatView.sendCore 是唯一接收方），
+            //   「全念」走 ChatView 的 assistantLandedToken（自动朗读的触发点）。
+            //   两者都只在 ChatView **在视图树里**才生效；而智慧球在任意 tab 都在，
+            //   用户在会话/看板/生活页长按球进来说话，不切页就会「消息静默消失 + 一句也不念」。
+            if selected != .chat { skipBurstOnce() }
+            selected = .chat
+            showVoiceDialog = true
         default:
             break
         }

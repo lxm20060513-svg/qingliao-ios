@@ -7,6 +7,14 @@ import SwiftUI
 @MainActor
 @Observable
 final class ChatStore {
+    /// v3.9.76：固定投递会话 id —— 与后端 `sessions_api.DELIVERY_SESSION_ID` 同源（那边是常量，不可删、标题锁定）。
+    /// 语义：它是「只装 cron/system 投递详情」的壳（内容由后端 `append_delivery_message` 维护），
+    /// App 侧不许把推送气泡注入它（见 `InboxStore.consumeOne` 的闸门）。
+    /// ⚠️ 判据必须用 **id**，不许用标题包含「投递」——标题可被改，且 v3.9.75 拿标题做分流已被用户实测否决。
+    static let deliverySessionId = "qingliao_delivery"
+    /// 当前打开的会话是不是投递壳（InboxStore 注入推送前的闸门判据）
+    var isDeliverySession: Bool { sessionId == Self.deliverySessionId }
+
     var sessionId: String
     var messages: [ChatMessage] = []
     var title = ""

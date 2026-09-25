@@ -268,6 +268,10 @@ struct ChatView: View {
     @State var showIntentClipboardBanner = false
     @State var recognizingImage = false        // 图片「识别」进行中（挡连点：连点会并发跑多次 OCR）
     @State var intentNoContentHint = false     // 图里没认出内容：给一次可见反馈（静默什么都不发生 = 像按钮坏了）
+    /// v3.9.76：失败提示的文案（图片识别与剪贴板识别共用同一槽位，文案不同——原来写死"图里…"）
+    @State var intentNoContentHintText = "图里没认出内容，可以直接发给 AI"
+    /// v3.9.76：本次检测到的类别名（"链接 / 地址"…）——提示条文案用；空串 = 没检测到
+    @State var clipboardIntentLabel = ""
     // 剪贴板的**单一真值源**（v3.9.72 收口）：上次进 App 时看到过的那一版 changeCount。
     // v3.8.1 的「已处理过的那一版」（handledClipChange + handledClipUptime 两个 @AppStorage）在
     // v3.9.72 换门后只写不读、已成为死代码，本轮删除——**别再恢复**，它有两个漏斗：
@@ -1054,13 +1058,17 @@ struct ChatView: View {
         .photosPicker(isPresented: $showPhotoPicker, selection: $photoItem, matching: .images)
         // v2.0.38：拍照输入（拍完进图片预览条，确认后发送）
         // v3.9.75：.sheet → .fullScreenCover。UIImagePickerController 的取景界面按「全屏」画自己的
-        // safe-area，落在 page-sheet 容器里顶部就露出一条黑底（用户报的"拍照界面顶部黑边"）。
+        // 布局，落在 page-sheet 容器里顶部会露出一条不属于它的黑底。
+        // v3.9.76：**还要 ignoresSafeArea**——只换呈现方式不够：fullScreenCover 的内容视图默认
+        // 被约束在安全区内，取景层只铺满这个内缩矩形，顶部状态栏高度（≈59pt）露出的仍是黑底，
+        // 就是用户报的「系统相机顶部有黑边」。相机 App 本身就是全屏取景，这里对齐它。
         // CameraPicker 的 Coordinator 自己 dismiss，换呈现方式不需要改回调。
         .fullScreenCover(isPresented: $showCameraPicker) {
             CameraPicker { img in
                 pendingImage = img
                 pendingImageData = compressImage(img)
             }
+            .ignoresSafeArea()
         }
         // v2.0.43：快捷指令面板（点击填充输入框）
         .sheet(isPresented: $showQuickPrompts) {
@@ -1379,23 +1387,28 @@ struct ChatView: View {
         // 现在：内容没变 → 直接静默返回，一次都不打扰；内容真变了（在别的 App 拷了东西再切回来，
         // 也就是地图分享兜底那套流程）→ 才往下探。
         guard ClipboardPromptGate.decide(changeCount: cc, lastSeenChange: lastSeenClipChange) == .probe else { return }
-        // v3.9.1：nil = 探测失败（与"不是位置链接"区分开）——失败不记账，留给下次进前台再探
-        guard let isLocation = await MapClipboardDetector.hasLocationLink() else { return }
-        if isLocation {
+        // 🚨 v3.9.76 修复（用户：「剪贴板内容识别现在连第一次都不弹窗了」）：两个探测器**必须彼此独立**。
+        // 旧写法是「guard let isLocation = await MapClipboardDetector.hasLocationLink() else { return }」——
+        // 位置探测**一失败（nil）就整条链放弃**，于是位置那一层在真机抛错时，会把后面「普通链接」
+        // 的提示也一起吞掉，表现就是"永远不弹"（而且因为连探都没探到链接层，用户完全看不出原因）。
+        // 现在：位置探测失败只当"不是位置链接"，继续往下走链接探测。
+        let isLocation = await MapClipboardDetector.hasLocationLink()
+        if isLocation == true {
             lastSeenClipChange = cc       // v3.9.72：这一版"看过了"（唯一真值源）
             withAnimation(Motion.settle) { showClipboardBanner = true }   // 只提示；真正内容等点按再读
             scheduleClipboardAutoHide()   // v3.9.72：一段时间没操作自动收起
             return
         }
-        // v3.9.71 输入收口：不是位置链接 → 再看是不是普通链接（同款 detection API，不读内容、不弹窗）
-        // 只认链接：数字类 pattern 误报率太高（验证码/工号/金额），主动弹条打扰不划算
-        // v3.9.71 审查修正：探测是**三态**（true / false / nil=失败）。原来把 markClipboardHandled(cc)
-        // 放在探测之前、又用 `== true` 判，等于把 nil 和 false 一起吞掉 → 一次探测失败就把这份剪贴板
-        // 永久标记成"已处理"，用户再也看不到链接提示（和地图分支"失败不记账"的口径正好相反）。
-        guard let hasLink = await ClipboardIntentDetector.hasWebLink() else { return }   // 失败不记账
-        // v3.9.72：不管认没认出链接，这一版都记成"看过了"——纯文本剪贴板不再每次进 App 重探
+        // v3.9.76（用户拍板「1」放开）：不是位置链接 → 再看本地能识别的**结构化类型**
+        // （链接 / 地址 / 联系方式 / 金额 / 快递单号 / 时间），任一类命中就弹条问一句。
+        // 仍然只用 detection API：不读内容、不弹系统「允许粘贴」。
+        // 探测是**三态**（命中集合 / 空集 / nil=失败）——失败**不记账**（保持"下次进前台再探"），
+        // 别退回 `== true` 那种把 nil 和 false 一起吞掉的写法（v3.9.71 审查踩过一次）。
+        guard let hits = await ClipboardIntentDetector.recognizableHits() else { return }   // 失败不记账
+        // v3.9.72：不管认没认出来，这一版都记成"看过了"——没有可识别内容的剪贴板不再每次进 App 重探
         lastSeenClipChange = cc
-        guard hasLink else { return }
+        guard hits.any else { return }
+        clipboardIntentLabel = hits.label
         withAnimation(Motion.settle) { showIntentClipboardBanner = true }
         scheduleClipboardAutoHide()   // v3.9.72：一段时间没操作自动收起
     }
@@ -1472,7 +1485,9 @@ struct ChatView: View {
             Image(systemName: "sparkles")
                 .font(.system(size: Typography.subhead, weight: .semibold))
                 .foregroundStyle(Color.accentColor)
-            Text("检测到剪贴板里的链接")
+            // v3.9.76：口径放开后文案不能写死"链接"（现在也可能是地址/金额/快递单号/时间…）
+            Text(clipboardIntentLabel.isEmpty ? "检测到剪贴板里可识别的内容"
+                                              : "检测到剪贴板里的" + clipboardIntentLabel)
                 .font(.system(size: Typography.subhead))
                 .foregroundStyle(.primary)
                 .lineLimit(1)
@@ -1530,7 +1545,7 @@ struct ChatView: View {
             HStack(spacing: 6) {
                 Image(systemName: "exclamationmark.circle")
                     .font(.system(size: Typography.subhead))
-                Text("图里没认出内容，可以直接发给 AI")
+                Text(intentNoContentHintText)
                     .font(.system(size: Typography.subhead))
             }
             .foregroundStyle(.secondary)
@@ -1556,8 +1571,17 @@ struct ChatView: View {
                 withAnimation(Motion.settle) { intentResult = result }
                 return
             }
-            Haptics.error()
-            withAnimation(Motion.settle) { intentNoContentHint = true }
+            flashNoContent("图里没认出内容，可以直接发给 AI")
+        }
+    }
+
+    /// v3.9.76：识别失败的统一出声出口（Haptics + 2.4 秒槽位提示；不弹窗、不打断输入）。
+    /// 口径来自本批定的「失败必出声」——静默什么都不发生，用户只会以为按钮坏了。
+    private func flashNoContent(_ text: String) {
+        Haptics.error()
+        intentNoContentHintText = text
+        withAnimation(Motion.settle) { intentNoContentHint = true }
+        Task {
             try? await Task.sleep(nanoseconds: 2_400_000_000)
             withAnimation(Motion.settle) { intentNoContentHint = false }
         }
@@ -1567,9 +1591,21 @@ struct ChatView: View {
     private func runIntentFromClipboard() {
         // v3.9.72：记账已在探测时完成（lastSeenClipChange），此处只收起提示
         withAnimation(Motion.snap) { showIntentClipboardBanner = false }
-        guard let raw = MapClipboardDetector.readText() else { return }
+        // 🚨 v3.9.76 修复：读不到剪贴板必须出声。原来「else { return }」是静默的 = 点了没反应，
+        // 用户只会以为"识别连第一次都不弹窗了"。两条真实路径都会读不到：
+        //   ① 这段时间剪贴板被清空 / 换成了非文本（图片、文件）；
+        //   ② 系统「允许粘贴」被拒 → UIPasteboard.string 返回 nil，且此后不再弹授权窗（一直静默）。
+        guard let raw = MapClipboardDetector.readText() else {
+            flashNoContent("没读出剪贴板内容，可长按输入框粘贴")
+            return
+        }
         Task {
-            intentResult = await IntentExtractor.extract(text: raw, auth: auth)
+            let result = await IntentExtractor.extract(text: raw, auth: auth)
+            // ⚠️ v3.9.76 修正：`extract(text:auth:)` 与 image 重载不同，返回的是**非可选** `RecognizedIntent`
+            //   （文本入口永远有结果，没认出时 kind == .text），所以**不能**写 `guard let result else` ——
+            //   CI 会报 "initializer for conditional binding must have Optional type, not 'RecognizedIntent'"。
+            //   （image 重载那个 `if let` 是对的，别一起改。）
+            withAnimation(Motion.settle) { intentResult = result }
         }
     }
 
@@ -1577,7 +1613,11 @@ struct ChatView: View {
     private func sendClipboardLink() {
         // v3.9.72：记账已在探测时完成（lastSeenClipChange），此处只收起提示
         withAnimation(Motion.snap) { showClipboardBanner = false }
-        guard let raw = MapClipboardDetector.readText() else { return }
+        // v3.9.76：读不到同样要出声（与「识别」同口径：失败必出声，静默 = 像按钮坏了）
+        guard let raw = MapClipboardDetector.readText() else {
+            flashNoContent("没读出剪贴板内容，可长按输入框粘贴")
+            return
+        }
         if let url = URL(string: raw), let loc = MapLocationParser.parse(url) {
             let cl = CLLocation(latitude: loc.coord.latitude, longitude: loc.coord.longitude)
             if cl.coordinate.isValid {
