@@ -27,6 +27,9 @@ struct DashboardView: View {
     // v3.0.36：模型使用量栏（/api/nas/providers-usage）
     @State private var providerUsages: [ProviderUsage] = []
     @State private var usageError = ""
+    // v3.9.82：token 用量卡（今日/本月，单位 M；后端读 Hermes state.db 的真实用量）
+    @State private var tokenUsage: TokenUsage?
+    @State private var tokenUsageError = ""
     // v3.4.2b：模型使用量卡隐藏集合——长按单卡只隐藏该 provider（逗号分隔 id 持久化）
     @AppStorage("dashboard_hidden_usage_providers") private var hiddenUsageRaw = ""
     @State private var showUsageRestore = false
@@ -656,6 +659,25 @@ struct DashboardView: View {
         }
     }
 
+    /// token 用量（v3.9.82：今日/本月，单位 M）
+    @ViewBuilder
+    private var tokenUsageBlock: some View {
+        sectionTitle("token 用量")
+        if let u = tokenUsage {
+            TokenUsageCard(usage: u)
+        } else if !tokenUsageError.isEmpty {
+            Text(tokenUsageError)
+                .font(.system(size: Typography.subhead))
+                .foregroundStyle(.secondary)
+                .padding(.vertical, Spacing.sm)
+        } else {
+            Text("加载中…")
+                .font(.system(size: Typography.subhead))
+                .foregroundStyle(.secondary)
+                .padding(.vertical, Spacing.sm)
+        }
+    }
+
     /// 设备体检
     @ViewBuilder
     private var diagnoseBlock: some View {
@@ -787,6 +809,22 @@ struct DashboardView: View {
         }
     }
 
+    /// v3.9.82：token 用量（今日/本月，单位 M）——后端 /api/nas/token-usage 读 Hermes state.db
+    private func loadTokenUsage() async {
+        guard let j = await auth.jsonOrLog("/api/nas/token-usage") else {
+            tokenUsageError = "token 用量查询失败"
+            return
+        }
+        if let u = TokenUsage.parse(j) {
+            tokenUsage = u
+            tokenUsageError = ""
+        } else if let e = j["error"] as? String, !e.isEmpty {
+            tokenUsageError = e
+        } else {
+            tokenUsageError = "token 用量暂不可用"
+        }
+    }
+
     /// 快捷指令：启动/关闭 Clash
     private func clashAction(_ action: String) {
         // v2.0.102：防抖——操作中再点直接忽略（原两个并发 Task 各自 defer 释放 busy 互相覆盖）
@@ -867,7 +905,9 @@ struct DashboardView: View {
         async let routerTask: Void = loadRouter()
         async let usageTask: Void = loadProviderUsage()
         async let rulesTask: Void = loadRules()
-        _ = await (nasTask, haTask, scenesTask, autosTask, sugTask, routerTask, usageTask, rulesTask)
+        // v3.9.82：token 用量与其余 8 路并发（同一个在途闸门覆盖）
+        async let tokenTask: Void = loadTokenUsage()
+        _ = await (nasTask, haTask, scenesTask, autosTask, sugTask, routerTask, usageTask, rulesTask, tokenTask)
     }
 
     /// NAS 状态
@@ -1313,6 +1353,7 @@ struct DashboardView: View {
         case .rules:       return AnyView(rulesBlock)
         case .nas:         return AnyView(nasPanelBlock)
         case .usage:       return AnyView(usageBlock)
+        case .tokens:      return AnyView(tokenUsageBlock)
         case .diagnose:    return AnyView(diagnoseBlock)
         case .router:      return AnyView(routerBlock)
         case .pin:         return AnyView(pinBlock)
@@ -1344,7 +1385,7 @@ struct DashboardView: View {
 
 /// rawValue 会写进 UserDefaults 的顺序串，**改名即让老用户的自定义顺序失效**——只增不改不删。
 enum BoardCard: String, CaseIterable, Identifiable {
-    case suggestion, home, scenes, automations, rules, nas, usage, diagnose, router, pin, connectors
+    case suggestion, home, scenes, automations, rules, nas, usage, tokens, diagnose, router, pin, connectors
 
     var id: String { rawValue }
 
@@ -1358,6 +1399,7 @@ enum BoardCard: String, CaseIterable, Identifiable {
         case .rules: return "自动规则"
         case .nas: return "NAS 面板"
         case .usage: return "模型使用量"
+        case .tokens: return "token 用量"
         case .diagnose: return "设备体检"
         case .router: return "路由器"
         case .pin: return "钉一钉"
@@ -2288,6 +2330,52 @@ struct DiskTile: View {
 /// v3.0.36 模型使用量卡片（与 MeterCard/ServiceCard 同款 HomeKit 卡片风格）
 
 /// 每 provider 一张：图标 + 名 + 余额/用量 + 副文本 + 状态；plan 模式加用量进度条
+/// v3.9.82：token 用量卡 —— 今日 / 本月两栏，主数字 M（百万），下排小字拆输入/输出/缓存命中。
+/// 「含缓存命中」是有意的口径：缓存读也是真实消耗的 token（计费打折但不为 0），
+/// 拆出来是为了让用户看得见大头在哪，而不是把 3 亿藏起来。
+struct TokenUsageCard: View {
+    let usage: TokenUsage
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            column(title: "今日", icon: "calendar", window: usage.today, color: .blue)
+            column(title: "本月", icon: "calendar.badge.clock", window: usage.month, color: .indigo)
+        }
+    }
+
+    @ViewBuilder
+    private func column(title: String, icon: String, window: TokenUsage.Window, color: Color) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 5) {
+                Image(systemName: icon)
+                    .font(.system(size: Typography.tiny, weight: .medium))
+                    .foregroundStyle(color)
+                Text(title)
+                    .font(.system(size: Typography.tiny, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+            Text(window.totalM)
+                .font(.system(size: Typography.title, weight: .bold))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+            Text("输入 \(window.inputM) · 输出 \(window.outputM)")
+                .font(.system(size: Typography.tiny))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+            Text("缓存 \(window.cacheM)" + (window.sessions > 0 ? " · \(window.sessions) 会话" : ""))
+                .font(.system(size: Typography.tiny))
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(Spacing.xl)
+        .dashboardCard()
+    }
+}
+
 struct UsageCard: View {
     let usage: ProviderUsage
 

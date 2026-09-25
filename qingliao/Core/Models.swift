@@ -546,3 +546,51 @@ extension [String: Any] {
         self[key] as? [[String: Any]] ?? []
     }
 }
+
+// MARK: - token 用量（/api/nas/token-usage，v3.9.82）
+
+/// v3.9.82：看板「token 用量」卡数据。
+/// 数据源 = 后端读 Hermes state.db 的 sessions 表（真实消耗，非估算）。
+/// 单位统一 **M（百万）**：卡片放不下精确到个位的 token 数，也没有意义。
+struct TokenUsage {
+    /// 一个时间窗的口径（today / month 各一份）
+    struct Window {
+        let input: Int
+        let output: Int
+        let cache: Int
+        let total: Int
+        let sessions: Int
+
+        var totalM: String { TokenUsage.mText(total) }
+        var inputM: String { TokenUsage.mText(input) }
+        var outputM: String { TokenUsage.mText(output) }
+        var cacheM: String { TokenUsage.mText(cache) }
+    }
+
+    let today: Window
+    let month: Window
+
+    /// token 数 → M 文本（3.5 亿 → "353.6M"）；一位小数足够，且 <0.1M 也不会显示成 0M
+    static func mText(_ n: Int) -> String {
+        String(format: "%.1fM", Double(n) / 1_000_000)
+    }
+
+    static func parse(_ j: [String: Any]) -> TokenUsage? {
+        guard (j["ok"] as? Bool) == true,
+              let t = j["today"] as? [String: Any],
+              let m = j["month"] as? [String: Any] else { return nil }
+        return TokenUsage(today: window(t), month: window(m))
+    }
+
+    /// 数值字段容错：后端 SQLite 的 SUM 可能回 int，也可能回 float/NSNumber
+    private static func window(_ d: [String: Any]) -> Window {
+        func i(_ k: String) -> Int {
+            if let v = d[k] as? Int { return v }
+            if let v = d[k] as? Double { return Int(v) }
+            if let v = d[k] as? NSNumber { return v.intValue }
+            return 0
+        }
+        return Window(input: i("input"), output: i("output"), cache: i("cache"),
+                      total: i("total"), sessions: i("sessions"))
+    }
+}

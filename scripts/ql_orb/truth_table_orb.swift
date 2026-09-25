@@ -279,9 +279,13 @@ check("烟花原点槽位透传（dock 传 index/count，ChatEffects 不再写�
       dockSrc.contains("ballCenterFromBottom(barHeight: dockBarHeight,")
       && dockSrc.contains("index: 2, count: dockSlotCount)")
       && !effectsSrc.contains("contentCenterDrop(index: 2, count: 5)"))
-// ── v3.9.79b：译文卡两处收口（审查「可优化」第 4/5 条）──
-check("「换一张」复位「已复制」（否则新译文卡会先闪一行「已复制」）",
-      identifySrc.contains("private func restartTranslate() {\n        copiedTranslation = false"))
+// ── v3.9.82：译文改弹窗后，这条护栏跟着搬（译文卡整套搬进 Features/TranslateSheet.swift）──
+// 旧断言钉的是 restartTranslate 里的「已复制」复位 —— 那段状态随译文卡一起走了。
+// 现在钉「浮层不再持有复制反馈状态」（两处状态各管各 = 迟早漂移）；弹窗侧由
+// scripts/ql_translatesheet/ 那张表管。
+check("译文卡搬走后浮层不再持有「已复制」状态（两处不再打架）",
+      !identifySrc.contains("copiedTranslation")
+      && identifySrc.contains("private func restartTranslate() {\n        translateMode = true"))
 check("翻译只一问一答：oneShot 超时收到 30s（默认 120s 会让卡 2 分钟无可重试、无可取消）",
       identifySrc.contains("auth: auth, timeout: 30)"))
 // ChatView 侧：消费通知 + 收法与语音模式同口径（先清 FocusState，再 60ms UIKit 兜底）

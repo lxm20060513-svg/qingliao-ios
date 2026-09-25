@@ -539,7 +539,9 @@ check("扫描环层 allowsHitTesting(false)（纯视觉，不吃触摸）", ring
 // ⑦ 「问 AI」复用既有跨页发送通道，不新造通知
 // 切片到 onAskAI 闭包内：整文件任意一处 post 就能喂饱（今天恰好只此一处才侥幸成立），
 // 而「没切页 → 通知落空 → 消息静默消失」这个真缺口它根本覆盖不到。
-let askAISlice = between(dockSrc, "onAskAI: { text in", "onClose:")
+// v3.9.82：宿主把「发给 AI」收成了**唯一出口** `askAI(_:)`（识别动作条 / 译文弹窗共用），
+// 调用点闭包里只剩一行转发 → 切片改切那个函数体（原来的切法收口后切出来是空壳）。
+let askAISlice = between(dockSrc, "private func askAI(", "/// 四个胶囊动作分发")
 check("「问 AI」闭包切片取到（切片空了本条就是空真）", !askAISlice.isEmpty)
 check("「问 AI」走既有 .qingliaoTaskSend（不新造通道）",
       askAISlice.contains("NotificationCenter.default.post(name: .qingliaoTaskSend,"))
@@ -580,13 +582,15 @@ check("进翻译模式时提示文案改口（否则用户不知道这次拍照�
 // 会把「做个总结」之类的内容塞进译文提示词），也不许自动把用户弹去聊天页（用户拍板「译文别回聊天页」）。
 let translateSlice = between(identifySrc, "if translating {", "let found = await IntentExtractor.extract")
 check("翻译分支切片取到（切片空了下面几条就是空真）", !translateSlice.isEmpty)
-check("翻译分支 = 只取字 + 一问一答 + 就地落成译文卡（不进 IntentActionBar）",
+check("翻译分支 = 只取字 + 一问一答 + 译文交回宿主弹窗（不进 IntentActionBar、不回聊天页）",
       translateSlice.contains("await IntentExtractor.ocrText(in: image)")
       && translateSlice.contains("QingliaoIntentClient.oneShot(TranslateKit.prompt(for: source),")
       && translateSlice.contains("auth: auth, timeout: 30)")   // v3.9.79b：一问一答不挂 120s 默认超时
-      && translateSlice.contains("phase = .translated(source: source")
+      // v3.9.82：不在本层出卡了 —— 回调宿主弹 TranslateSheet（形态照 AI 速记弹窗）
+      && translateSlice.contains("onTranslated(source,")
+      && !translateSlice.contains("phase = .translated")
       && !translateSlice.contains(".result(")
-      && !translateSlice.contains("onAskAI("))          // 就地显示为主路：别在分支里直接发会话
+      && !translateSlice.contains("onAskAI("))          // 就地为家：别在分支里直接发会话
 check("翻译失败不静默退回选区（落在卡里给重试，且留着原图）",
       translateSlice.contains("phase = .translateFailed")
       && identifySrc.contains("@State private var lastImage: UIImage?")
@@ -596,24 +600,23 @@ check("一问一答入口只有一处实现（ask 复用它，别再各写一份
       && src("Core/AppIntents.swift").contains("return try await oneShot(style.instructionPrefix + q, auth: auth)"))
 check("只取字的新入口收在 IntentExtractor（复用非 Sendable 那套处理，不另起后台闭包）",
       src("Core/IntentExtractor.swift").contains("static func ocrText(in image: UIImage) async -> String?"))
-check("每次进浮层复位翻译模式（否则下次拍照莫名出译文）",
-      identifySrc.contains("translateMode = false\n            lastImage = nil"))
-check("译文卡三件套在位（复制 / 换一张 / 发给 AI 出口）+ 原文留 3 行便于核对",
-      identifySrc.contains("copyTranslation(text)")
-      && identifySrc.contains("restartTranslate()")
-      && identifySrc.contains("Text(copiedTranslation ? \"已复制\" : \"复制\")")
-      && identifySrc.contains(".lineLimit(3)"))
-// v3.9.80（用户口径「译文卡片根据译文字体多少自适应大小」）：译文区高度必须跟着内容走。
-// 旧形态 = 贪婪 ScrollView 直接挂 `.frame(maxHeight: 220)` → 2 行译文也被撑满 220（卡内约 180pt 空白）。
-// 新形态 = `ViewThatFits` 两稿（整段放得下就整段渲染，放不下才限高滚动）+ 上限收在单一常量。
-check("译文区自适应：ViewThatFits 两稿（整段稿在前、限高滚动稿在后）",
-      identifySrc.contains("ViewThatFits(in: .vertical)")
-      && identifySrc.contains(".frame(maxHeight: Self.translationMaxHeight)"))
-check("译文区上限收在单一常量 translationMaxHeight（=220，改一处即改天花板）",
-      identifySrc.contains("private static let translationMaxHeight: CGFloat = 220"))
-check("旧的贪婪译文框形态已清零（不许再出现 ScrollView 直接挂 maxHeight: 220）",
+check("每次进浮层按宿主传入的模式起手（默认识别态；只有译文弹窗的「换一张」传真）",
+      identifySrc.contains("translateMode = startInTranslateMode\n            lastImage = nil"))
+// v3.9.82：译文卡整套搬进 `Features/TranslateSheet.swift`（用户「改弹窗，跟 AI 速记弹窗一致」）——
+// 这里只钉「浮层里确实没了」；弹窗形态由 scripts/ql_translatesheet/ 那张表管（单一真源，别抄第二套）。
+check("译文卡整套已搬出识别浮层（复制反馈 / 译文标题行都不再留在这里）",
+      !identifySrc.contains("copyTranslation")
+      && !identifySrc.contains("copiedTranslation")
+      && !identifySrc.contains("译文 · 翻成"))   // 标题行已搬进 TranslateSheet（图标 character.book.closed
+                                                  // 在浮层里仍留着 —— 那是选图态那颗「AI 翻译」胶囊，别一起删）
+// v3.9.82：译文改弹窗后，v3.9.80 那两条（ViewThatFits 两稿 / 上限单一常量 220）**随译文卡一起作废** ——
+// 译文区现在是「玻璃卡内滚动 + 占满弹窗剩余高度」。这里改成负断言：浮层里不许再出现旧的限高形态
+// （出现 = 有人又把译文卡加回来，两套形态并存）。
+check("浮层里旧译文框形态彻底清零（ViewThatFits / translationMaxHeight / maxHeight: 220 全无）",
       // 先去注释行：本文件的注释里为了讲清「旧形态」会原样写下那个字符串（踩过一次假红）
-      !stripCommentLines(identifySrc).contains(".frame(maxHeight: 220)"))
+      !stripCommentLines(identifySrc).contains("ViewThatFits(in: .vertical)")
+      && !stripCommentLines(identifySrc).contains("translationMaxHeight")
+      && !stripCommentLines(identifySrc).contains(".frame(maxHeight: 220)"))
 // 方向判据：真值表内复刻同一条判据并断言行为，再断言源侧同形（源改了而这里没改会红）
 func mirrorTranslateTarget(_ t: String) -> String {
     t.unicodeScalars.contains { (0x4E00...0x9FFF).contains($0.value) } ? "英文" : "中文"
@@ -652,6 +655,20 @@ check("切页时两个新层都收起（不留浮在新页面上的死层）",
       && dockSrc.contains("if showVoiceDialog { showVoiceDialog = false }"))
 check("识别浮层开着时摘掉球命中层（不许两层同时吃触摸）",
       dockSrc.contains("if !showOrbMenu && !showIdentify && !showVoiceDialog {"))
+
+// ⑨‴ v3.9.82：handleOrbAction 的统一收口必须清掉**全部**呈现位态 —— 桌面快捷方式是绕过菜单命中层的第二入口
+//      且能在任意时刻进来，漏清一个就是「点了没反应」（sheet 压住新开的浮层）。本批新增「译文弹窗」时正好漏过一次，
+//      所以这里按清单逐项钉死：新增位态必须同步扩收口，否则这条红。
+let orbCollar = between(dockSrc, "private func handleOrbAction(_ action: OrbQuickAction) {", "switch action.id {")
+check("收口切片取到（切片空了下面几条就是空真）", !orbCollar.isEmpty)
+for (slot, line) in [("菜单", "showOrbMenu = false"),
+                     ("速记 sheet", "quickCapture = nil"),
+                     ("识别浮层", "showIdentify = false"),
+                     ("换一张哨兵", "identifyStartTranslate = false"),
+                     ("语音对话", "showVoiceDialog = false"),
+                     ("译文 sheet", "translateResult = nil")] {
+    check("收口清掉全部呈现位态：" + slot, orbCollar.contains(line))
+}
 
 // ⑨′ 语音对话页的两条命脉 + 降级口径（v3.9.76 审查抓到的真缺口，补护栏防回退）
 //    ① 「发送」= 发出 + **停麦**（Action.sendNow 的语义）；不停麦 → 发送到开口那段还在收音，
@@ -985,8 +1002,10 @@ check("① 意图动作卡走 .overlayGlassCard()",
 // ⚠️ 计数/排除式断言先剥注释：这两张卡的注释里就写着 `.overlayGlassCard()` 与旧口径（说明「改了什么」），
 //    不剥会数出 4 处（注释 2 + 代码 2）→ 假红。
 let identifyClean = stripCommentLines(identifySrc)
-check("② 识别浮层所有卡都走新口径（v3.9.79 起 5 张：识别中/没认出/翻译中/译文/翻译失败；应当是 5 处）",
-      identifyClean.components(separatedBy: ".overlayGlassCard()").count - 1 == 5)
+// v3.9.82：译文改成弹窗 → 本层少一张（译文卡搬进 Features/TranslateSheet.swift）→ 5 处变 4 处。
+// 浮层里剩 4 张：识别中（扫描）/ 没认出 / 翻译中 / 翻译失败。弹窗那张由 scripts/ql_translatesheet/ 管。
+check("② 识别浮层所有卡都走新口径（v3.9.82 起 4 张：识别中/没认出/翻译中/翻译失败；应当是 4 处）",
+      identifyClean.components(separatedBy: ".overlayGlassCard()").count - 1 == 4)
 check("② 识别浮层旧的实心卡口径清零（regularMaterial / Radius.inset / 暗发丝线）",
       !identifyClean.contains(".regularMaterial")
       && !identifyClean.contains("Radius.inset")

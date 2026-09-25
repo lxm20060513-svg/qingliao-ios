@@ -302,25 +302,45 @@ struct VoiceDialogView: View {
     /// 小屏上由 ScrollView 自己收缩）+ 逐字文本变化时**自动贴底** → 新念出来的字始终在眼前，
     /// 想回看前文直接手滑即可。
     /// ⚠️ 别再退回 `lineLimit`：那等于把「后面的文字」重新关掉（真值表有护栏钉住）。
+    ///
+    /// v3.9.82：改成**两稿**（与译文卡 `OrbIdentifyOverlay`、崩溃日志预览 `QingliaoApp` 同口径）——
+    /// 上面那版仍是「贪婪 `ScrollView` + `.frame(maxHeight:)`」：`ScrollView` 会吃掉提案给它的
+    /// **全部**高度 → 只想说两三句的短回复也占满 220pt，正文区白一大块、把波形往下挤。
+    /// 稿 1 = 内容自然高度（短回复按实际行数收缩）；稿 2 = 内容超上限时才用可滚动一稿
+    /// （吃满上限 + 逐字变化贴底）。两稿**共用同一 `replyTextBody`**，防两稿内容漂移。
+    /// ⚠️ 两条红线：别退回 `lineLimit`；**别把两稿调换**（调换 = 短回复又白撑）。真值表都钉住了。
     private var replyText: some View {
         ScrollViewReader { proxy in
-            ScrollView(.vertical, showsIndicators: false) {
-                Text(displayText)
-                    .font(.system(size: Typography.title, weight: .medium))
-                    .foregroundStyle(.primary)
-                    .multilineTextAlignment(.center)
-                    // 长文阅读走全站行距令牌（v3.9.19 口径：≥15pt 连续阅读文本用 LineSpacing.long）
-                    .lineSpacing(LineSpacing.long)
-                    .frame(maxWidth: .infinity)
-                    .id(Self.replyBottomAnchor)
-                    .animation(Motion.snap, value: displayText)
+            ViewThatFits(in: .vertical) {
+                replyTextBody
+                ScrollView(.vertical, showsIndicators: false) {
+                    replyTextBody
+                }
             }
+            // ⚠️ v3.9.82（代码审查）：上限必须钳在**外层（提案）**上。ViewThatFits 的取舍判据是
+            //   「这一稿放不放得进它收到的提案」—— 只把 maxHeight 挂在稿 2 上，稿 1 的「放得下」就变成
+            //   「不超过本页剩余的全部高度」（≈400pt）→ 中长回复（≈8~14 行）走稿 1、不滚动也不受上限
+            //   约束，把波形与底栏的呼吸位吃掉；小屏再往下压就是裁切且无法滚动（稿 1 不是 ScrollView）。
+            //   口径与被删掉的译文卡同一套，那里写着：「① 的『放得下』= 不超过 220」。
             .frame(maxHeight: Self.replyMaxHeight)
             .onChange(of: displayText) { _, _ in
                 // 逐字增长（≈12.5Hz）：**不做动画**直接贴底 —— 带动画会一顿一顿
                 proxy.scrollTo(Self.replyBottomAnchor, anchor: .bottom)
             }
         }
+    }
+
+    /// 正文本体（两稿共用：稿 1 直接放、稿 2 塞进 `ScrollView`）
+    private var replyTextBody: some View {
+        Text(displayText)
+            .font(.system(size: Typography.title, weight: .medium))
+            .foregroundStyle(.primary)
+            .multilineTextAlignment(.center)
+            // 长文阅读走全站行距令牌（v3.9.19 口径：≥15pt 连续阅读文本用 LineSpacing.long）
+            .lineSpacing(LineSpacing.long)
+            .frame(maxWidth: .infinity)
+            .id(Self.replyBottomAnchor)
+            .animation(Motion.snap, value: displayText)
     }
 
     /// 正文区高度上限（≈8 行 @17pt + 行距 6）：852 屏上 260 波形 + 顶栏 + 底栏之后仍有富余；

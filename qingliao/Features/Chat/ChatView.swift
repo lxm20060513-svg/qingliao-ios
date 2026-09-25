@@ -36,7 +36,19 @@ final class QingliaoAppDelegate: NSObject, UIApplicationDelegate,
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         UNUserNotificationCenter.current().delegate = self
+        // v3.9.82：桌面图标长按快捷方式 —— 按用户设置重建系统菜单（动态 shortcutItems；
+        // 桌面长按菜单系统上限 4 项，所以 6 个候选里只挂选中的那几个）
+        HomeShortcutManager.sync()
         return true
+    }
+
+    /// v3.9.82：桌面图标长按快捷方式被点 → 存待处理 + 广播（派发在 DockTabView 侧的
+    /// DockRootSignalsModifier，动作仍走 handleOrbAction 单一真源）。
+    /// 返回 false = 不是本 App 的快捷方式类型，交回系统默认行为。
+    func application(_ application: UIApplication,
+                     performActionFor shortcutItem: UIApplicationShortcutItem,
+                     completionHandler: @escaping (Bool) -> Void) {
+        completionHandler(HomeShortcutManager.handle(shortcutItem))
     }
 
     // v2.0.110：后台刷新（方案2推送）——iOS 定期唤醒 App，检查流式任务是否完成 →

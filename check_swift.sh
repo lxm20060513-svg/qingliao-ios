@@ -209,4 +209,26 @@ echo "=== 22. 色彩令牌口径真值表（v3.9.80 improve-ui 审计落地）==
 # 但留字面量 = 改口径时被落下 → 又变回「每处各调一下」）。
 run_unit /tmp/test_uitokens scripts/ql_uitokens/truth_table_uitokens.swift
 
+echo "=== 23. 语音对话页正文两稿口径真值表（v3.9.82 贪婪容器收口）==="
+# 单文件（读源做护栏，不 import 项目代码）→ run_unit 直接编跑。
+# 口径：`ScrollView` + 定高上限 = 贪婪（吃掉提案给它的**全部**高度）→ 短回复也白撑上限；
+# 改 ViewThatFits 两稿：稿 1 = 内容自然高度 / 稿 2 = 可滚动 + 上限（两稿共用同一 body）。
+# 顺序断言是重点：两稿调换 = 退回白撑，本表会点名报红。
+run_unit /tmp/test_voiceui scripts/ql_voiceui/truth_table_voiceui.swift
+
+echo "=== 24. 桌面图标长按快捷方式真值表（v3.9.82 用户点名 6 项 / 系统上限 4 项）==="
+# 钉：候选顺序 = 用户点名顺序 + 默认前 4；标题/图标只有 OrbQuickAction.all 一个真源（不许抄第二套）；
+# 动作分发只经 handleOrbAction；**「全关」哨兵**（无此哨兵 = 最后一项点掉又自己亮回来）；
+# 动态重建 shortcutItems（不用 plist 静态项）；接收点仍在 OrbMenuFromPetModifier（body 巨型链不多挂修饰符）。
+run_unit /tmp/test_homeshortcuts scripts/ql_homeshortcuts/truth_table_homeshortcuts.swift
+
+echo "=== 25. 译文弹窗真值表（v3.9.82 用户「改弹窗，跟 AI 速记弹窗一致」）==="
+# 钉：形态逐条对齐参照物 QuickCaptureSheet（档位 medium+large / Spacing.section / 贴顶 / headline 粗体 /
+# 玻璃正文卡 Radius.card / 背景不覆盖交给系统）；**识别浮层里不许再有译文卡**
+# （translatedCard / copyTranslation / copiedTranslation / translationMaxHeight 全清零）；
+# 译文只有一条出口（onTranslated → 宿主 .sheet(item:)）；宿主 onDismiss 复位；
+# 「发给 AI」仍是唯一通道（askAI 单出口、.qingliaoTaskSend 只 post 一次）；
+# 「换一张」接回翻译模式且事后必须复位（不然下次拍照莫名出译文）；速记那条路没被误伤。
+run_unit /tmp/test_translatesheet scripts/ql_translatesheet/truth_table_translatesheet.swift
+
 exit $?

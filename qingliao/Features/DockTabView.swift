@@ -53,6 +53,12 @@ struct DockTabView: View {
     @State private var showVoiceDialog = false
     /// v3.9.59：速记弹窗（AI 速记 → 备忘录；今日待办 → 待办清单）
     @State private var quickCapture: QuickCaptureMode?
+    /// v3.9.82：译文弹窗（用户「这个卡片改弹窗吧，跟 AI 速记弹窗一致」）——
+    /// 识别浮层翻出译文后不再就地出卡，改成回宿主弹这一张（形态照 QuickCaptureSheet）。
+    @State private var translateResult: TranslateResult?
+    /// v3.9.82：下一次进识别浮层时**直接以翻译模式起手**（只有译文弹窗的「换一张」会置真；
+    /// 浮层每次 onAppear 都复位，所以事后必须清掉，否则下一次拍照会莫名出译文）。
+    @State private var identifyStartTranslate = false
     @Environment(AuthStore.self) private var auth
     @Environment(ChatStore.self) private var chat
     @Environment(StreamClient.self) private var stream
@@ -178,7 +184,8 @@ struct DockTabView: View {
             //    in reasonable time"，Archive 阶段直接失败。抽出去后 body 上只剩一个 .modifier(…) 泛型调用。
             .modifier(OrbMenuFromPetModifier(showOrbMenu: $showOrbMenu,
                                              petAnchor: $orbMenuPetAnchor,
-                                             blocked: showIdentify || showVoiceDialog))
+                                             blocked: showIdentify || showVoiceDialog,
+                                             onQuickAction: dispatchQuickAction))
             // v3.9.79：菜单弹出即收键盘（用户 2026-09-25：「这个界面自动收回键盘」）——
             // 广播点合在 OrbMenuFromPetModifier 里的 onChange(of: showOrbMenu)（长按球 + 长按宠物两条路都覆盖），
             // **刻意不在链上再挂第二个 .modifier**：body 巨型链多一个泛型调用就是 CI run #571 那类超时风险。
@@ -190,19 +197,20 @@ struct DockTabView: View {
                     OrbIdentifyOverlay(barHeight: dockBarHeight,
                                        slotIndex: 2,
                                        slotCount: dockSlotCount,
-                                       onAskAI: { text in
+                                       onAskAI: { askAI($0) },
+                                       // v3.9.82：译文交回宿主弹 TranslateSheet（形态照 AI 速记弹窗）。
+                                       // 同帧收浮层 + present：浮层是 overlay（不是 presentation），
+                                       // 两者不互斥；真机若被吞再按仓里规则加 0.35s 闸。
+                                       onTranslated: { source, text in
                                            showIdentify = false
-                                           if selected != .chat { skipBurstOnce() }
-                                           selected = .chat
-                                           // 切页转场落定后再发（与 .qingliaoOrbVoiceInput 同一道 0.35s 闸：
-                                           // 转场还在跑时投递，聊天页可能还没进树，通知会落空）
-                                           Task { @MainActor in
-                                               try? await Task.sleep(for: .seconds(0.35))
-                                               NotificationCenter.default.post(name: .qingliaoTaskSend,
-                                                                               object: text)
-                                           }
+                                           identifyStartTranslate = false
+                                           translateResult = TranslateResult(source: source, text: text)
                                        },
-                                       onClose: { showIdentify = false })
+                                       startInTranslateMode: identifyStartTranslate,
+                                       onClose: {
+                                           showIdentify = false
+                                           identifyStartTranslate = false
+                                       })
                         .transition(.opacity)
                         .zIndex(45)
                 }
@@ -218,6 +226,19 @@ struct DockTabView: View {
             // 之后「AI 速记 / 今日待办」再也弹不出来（MemoSection v3.9.17 / TodoSection 同款坑，本仓踩过）。
             .sheet(item: $quickCapture, onDismiss: { quickCapture = nil }) { mode in
                 QuickCaptureSheet(mode: mode)
+            }
+            // v3.9.82：译文弹窗（形态照上一张速记弹窗抄）。
+            // ⚠️ 同一宿主上链式并存两个 .sheet —— 仓里的坑是「两个同时为真只有一个生效」；
+            //    这两张**互斥**：速记从长按菜单进、译文从识别浮层进，任一条路都先收掉另一条。
+            //    真机若出现「译文弹不出来」，按仓里规则给 present 加 0.35s 闸（先收浮层再弹）。
+            .sheet(item: $translateResult, onDismiss: { translateResult = nil }) { r in
+                TranslateSheet(result: r,
+                               onAskAI: { askAI($0) },
+                               onRetry: {
+                                   // 换一张：重开识别浮层并以翻译模式起手（相册一颗按钮的事，不再自动弹相册）
+                                   identifyStartTranslate = true
+                                   showIdentify = true
+                               })
             }
             // v3.0.60 回顾：系统 tab bar 自行处理滚动边缘玻璃；此处不再加纯色背景掐死折射
             // v3.4.26：切页暂停/恢复看板轮询已改参数直传（DashboardView(isActive:)），通知已移除
@@ -337,6 +358,20 @@ struct DockTabView: View {
 
     // MARK: - v3.9.59 长按智慧球快捷菜单
 
+    /// v3.9.82：「发给 AI」的**唯一出口**（识别动作条 / 译文弹窗共用）——
+    /// 切聊天页 + post `.qingliaoTaskSend`（与任务中心、备忘录「发给 AI」同一条通道），
+    /// 0.35s 闸：转场还在跑时投递，聊天页可能还没进树，通知会落空。
+    private func askAI(_ text: String) {
+        showIdentify = false
+        identifyStartTranslate = false
+        if selected != .chat { skipBurstOnce() }
+        selected = .chat
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(0.35))
+            NotificationCenter.default.post(name: .qingliaoTaskSend, object: text)
+        }
+    }
+
     /// 四个胶囊动作分发——全部复用既有入口，不新造状态：
     ///   新建会话 → requestNewSession（ChatView 的 pendingNewSession 两步走清屏，勿直接清数据）
     ///   AI 速记  → 速记弹窗 → MemoStore（source "orb"）
@@ -344,6 +379,21 @@ struct DockTabView: View {
     ///              DockTabView 摸不到 ChatView 的 @State，通知是本仓既有的跨页触发模式）
     ///   今日待办 → 速记弹窗 → TodoStore（source "orb"）
     private func handleOrbAction(_ action: OrbQuickAction) {
+        // v3.9.82（代码审查）：桌面快捷方式是**绕过菜单**的第二入口 —— 球命中层要求
+        // `!showOrbMenu && !showIdentify && !showVoiceDialog` 才在，快捷方式不经过它，而且它能在任意时刻
+        // 进来（含 App 在后台、识别浮层 / 速记弹窗 / 译文弹窗 / 语音对话还开着的时候）。所以这里统一把
+        // 「瞬时 UI」收干净再走分支：原先的互斥只靠可达性成立，新入口一来就漏。
+        // ⚠️ 本函数的全部呈现位态（6 个：菜单 / 速记 sheet / 识别浮层 / 换一张哨兵 / 语音对话 / 译文 sheet）
+        //    都必须在这里清掉一个不漏 —— 漏一个就是「点了没反应」（sheet 压住新开的浮层）或同一宿主两个
+        //    sheet 同时为真（本文件 231 行记着那个坑）。新增位态时同步扩这里 + 真值表护栏。
+        // 清标志与本分支的置位都在**同一次事务**里，最终值以分支为准（不会顺手关掉本分支要开的东西）；
+        // 也顺带清掉「换一张」哨兵 —— 快捷方式进 AI 识别应正常起手，不该继承上次的翻译模式。
+        showOrbMenu = false
+        quickCapture = nil
+        showIdentify = false
+        identifyStartTranslate = false
+        showVoiceDialog = false
+        translateResult = nil
         switch action.id {
         case 0:   // 新建会话
             // v3.9.59：已在聊天页 = selected 不变、不会放烟花，白置标志会吞掉紧接着的一次真点击烟花
@@ -359,13 +409,10 @@ struct DockTabView: View {
         case 3:   // 今日待办
             quickCapture = .todo
         case 4:   // AI 识别（v3.9.76）
-            // 菜单层与识别浮层同挂 dock overlay：不先收菜单就是两层同时吃触摸
-            showOrbMenu = false
+            // 菜单层与识别浮层同挂 dock overlay：不先收菜单就是两层同时吃触摸（收口已提到函数开头）
             showIdentify = true
         case 5:   // 语音对话（v3.9.76）
-            // 与速记弹窗是两种 presentation：同时挂会互相顶掉，先把弹窗收干净
-            showOrbMenu = false
-            quickCapture = nil
+            // 与速记弹窗是两种 presentation：同时挂会互相顶掉（收口已提到函数开头）
             // 🚨 必须先让聊天页进视图树（与 case 2/4 同款闸）：本页的两条命脉都挂在 ChatView 上 ——
             //   「发送」走 `.qingliaoTaskSend`（ChatView.sendCore 是唯一接收方），
             //   「全念」走 ChatView 的 assistantLandedToken（自动朗读的触发点）。
@@ -378,6 +425,17 @@ struct DockTabView: View {
             break
         }
     }
+
+    // MARK: - v3.9.82 桌面图标长按快捷方式
+    /// 快捷方式 id → 动作分发。**刻意只做一层转发**：真正的分发仍是 handleOrbAction，
+    /// 避免「桌面快捷方式」和「长按智慧球菜单」各维护一套动作语义（必然漂移）。
+    private func dispatchQuickAction(_ id: Int) {
+        guard let action = HomeShortcut.action(id: id) else { return }
+        handleOrbAction(action)
+    }
+
+    // v3.9.82：`dispatchPendingQuickAction()` 的定义已搬到 `OrbMenuFromPetModifier`（唯一的调用点在那里）。
+    // 本类型别再放第二份：跨类型引用不到私有成员就是这么来的（本地 -parse 全绿、CI 才报 has no member）。
 
     // MARK: - v3.4.14 系统分享接入口
     /// 解析系统分享的 URL（文件/图片/文本/链接）→ 生成 SharedPayload 入 ShareRouter，切到聊天页并广播。
@@ -500,6 +558,8 @@ private extension DockTabView {
 }
 
 // MARK: - v3.9.78 宠物长按 → 智慧球那套快捷菜单（独立 ViewModifier）
+// v3.9.82：本类型**一并承担桌面图标长按快捷方式的接收**（见 onQuickAction / dispatchPendingQuickAction），
+//          理由就是它在 body 上只占一个 `.modifier(…)` 调用 —— 新开一个修饰符正是护栏要拦的事。
 //
 // 为什么单独立一个类型：DockTabView.body 是一条极长的修饰符链，往上再挂带闭包的 .onChange/.onReceive
 // 会让 Swift 类型检查器超时（CI run #571 实测：`unable to type-check this expression in reasonable time`
@@ -509,6 +569,24 @@ private struct OrbMenuFromPetModifier: ViewModifier {
     @Binding var petAnchor: OrbPetAnchor?
     /// 识别浮层 / 语音页开着时为真 —— 与 dock 命中层同一互斥口径，此时不弹菜单
     let blocked: Bool
+    /// v3.9.82：桌面图标长按快捷方式（传 OrbQuickAction.id）→ 调用方交给 handleOrbAction 分发。
+    /// ⚠️ 名字里没有「快捷方式」是**故意不改名**：`ql ios check` 的源护栏（truth_table_orb.swift）
+    /// 与反向自证（pet_guard_mutation.py ㊵）都以 `OrbMenuFromPetModifier` 这个类型名做锚点，
+    /// 改名等于让三条护栏集体变红，而它们防的是同一件事（body 巨型链不许再挂泛型调用）。
+    /// 传方法引用（dispatchQuickAction）而不是闭包字面量，也是为省那点类型推导负担。
+    let onQuickAction: (Int) -> Void
+
+    /// v3.9.82：取走待处理的桌面快捷方式动作并分发（取走即清空）；false = 当前没有待处理动作。
+    /// ⚠️ 本类型**看不到** DockTabView 的私有成员（`private` 作用域 = 声明自身 + 同文件扩展，
+    ///   跨类型不可见）—— 必须走上面注入的 `onQuickAction` 方法引用。首版直接在这里写
+    ///   `dispatchPendingQuickAction()`（定义留在宿主里）→ check_swift.sh 第 1 步只做 `swiftc -parse`
+    ///   （纯语法、不做名字解析）全绿，只有 CI Archive 报 `has no member`。
+    @discardableResult
+    private func dispatchPendingQuickAction() -> Bool {
+        guard let id = HomeShortcutManager.consumePending() else { return false }
+        onQuickAction(id)
+        return true
+    }
 
     func body(content: Content) -> some View {
         content
@@ -541,6 +619,20 @@ private struct OrbMenuFromPetModifier: ViewModifier {
                 guard showOrbMenu, !blocked else { return }
                 guard let anchor = OrbPetAnchor(userInfo: note.userInfo) else { return }
                 petAnchor = anchor
+            }
+            // v3.9.82：桌面图标长按快捷方式 —— 两路（与 v3.9.7 灵动岛按钮同款）：
+            //   ① 进程在跑：通知直达（观察者已注册）
+            //   ② App 刚被图标长按拉起：performActionFor 早于本视图挂树、通知会丢 → 启动后取一次待处理动作
+            // ⚠️ 动作分发不在这一层做：只把 id 交给 DockTabView.dispatchQuickAction → handleOrbAction（单一真源）。
+            .onReceive(NotificationCenter.default.publisher(for: .qingliaoQuickAction)) { _ in
+                dispatchPendingQuickAction()
+            }
+            .task {
+                // 补一次；仍为空则 0.8s 再补（覆盖「通知发出时观察者刚注册、body 还没跑完」的窄窗口）
+                if !dispatchPendingQuickAction() {
+                    try? await Task.sleep(for: .seconds(0.8))
+                    _ = dispatchPendingQuickAction()
+                }
             }
     }
 }

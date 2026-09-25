@@ -369,6 +369,12 @@ extension SettingsView {
         VStack(spacing: 0) {
             SettingRow(icon: "circle.lefthalf.filled", iconColor: .purple, title: "外观", value: appearanceName, chevron: true)
                 .tapButton { withAnimation(Motion.snap) { showAppearance = true } }
+            // v3.9.82：桌面图标长按快捷方式（长按桌面「轻聊」图标即可看到选中的几项）。
+            // 行尾计数读 @AppStorage 原始串（HomeShortcutStore.ids(from:)）→ 弹窗里改完立即刷新。
+            SettingRow(icon: "square.grid.2x2.fill", iconColor: .indigo, title: "桌面快捷方式",
+                       value: "已选 \(HomeShortcutStore.ids(from: homeShortcutsRaw).count)/\(HomeShortcut.maxCount)",
+                       chevron: true)
+                .tapButton { showHomeShortcuts = true }
             // v3.x review fix：showAppearanceOptions 死代码块（深浅色 chips/输入框流光/Siri 发光滑条/
             // AI 输出行高）永不显示（唯一写点恒置 false）——已删除，统一由 AppearanceSheet 管理
         }

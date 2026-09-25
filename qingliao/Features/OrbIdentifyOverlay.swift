@@ -17,6 +17,10 @@ import UIKit
 //
 // 本文件只负责「从球边起手 → 选图 → 扫描环 → 把结果卡摆到球上方」这一段**新形态**。
 //
+// v3.9.82（用户 2026-09-25「这个卡片改弹窗吧，跟 AI 速记弹窗一致」）：翻译拿到译文后**不在本层出卡**，
+//   改为回调 `onTranslated` → 宿主弹 `TranslateSheet`（形态照 `QuickCaptureSheet` 抄）。
+//   原来的「译文卡 + 限高 220 + 复制/换一张/发给AI」整套随之搬进那个文件；本层只剩 选图/识别/翻译中/失败。
+//
 // 几何：球心一律走 `DockOrbOverlay.orbCenterGlobal`（与可见球 / 长按菜单严格同源），
 //       绝不在本文件里自己算等分（v3.9.59 的命中圈错位就是这么来的）。
 
@@ -26,21 +30,25 @@ struct OrbIdentifyOverlay: View {
     var slotCount: Int = 5
     /// 「问 AI」交回宿主（宿主负责 post 通知 + 切聊天页；本层碰不到聊天流）
     var onAskAI: (String) -> Void
+    /// v3.9.82：拿到译文立刻交回宿主弹「译文弹窗」（与 AI 速记同一形态）——本层不再渲染译文
+    var onTranslated: (String, String) -> Void = { _, _ in }
+    /// v3.9.82：「换一张」从译文弹窗回来时，直接以**翻译模式**起手（否则用户还得再点一次「AI 翻译」）
+    var startInTranslateMode: Bool = false
     var onClose: () -> Void
 
     @Environment(AuthStore.self) private var auth
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// 状态机（`.result` 直接带意图 —— 卡片的全部内容都由它渲染，本层不解析字段）。
-    /// v3.9.79 起翻译模式多三段：`.translating`（AI 在翻）/ `.translated`（就地出译文，**不回聊天页**）
-    /// / `.translateFailed`（没拿到译文：给「重试 / 换一张」，别静默退回选区）。
+    /// v3.9.79 起翻译模式多两段：`.translating`（AI 在翻）/ `.translateFailed`（没拿到译文：
+    /// 给「重试 / 换一张」，别静默退回选区）。
+    /// v3.9.82：`.translated` **已删** —— 拿到译文即回调宿主弹 `TranslateSheet`，本层不再有译文态。
     private enum Phase: Equatable {
         case pick                          // 还没选图：拍照 / 相册
         case scanning                      // 识别中：扫描环加速
         case result(RecognizedIntent)       // 认出来了：交给 IntentActionBar
         case blank                         // 图里没认出可用内容（**不是**失败，文案别带报错口气）
         case translating                   // 翻译中：字已取到，在等 AI 回译文
-        case translated(source: String, text: String)   // 译文就地显示（带原文，便于核对翻对没）
         case translateFailed              // 没拿到译文：给「重试 / 换一张」，别静默退回选区
     }
     @State private var phase: Phase = .pick
@@ -49,8 +57,6 @@ struct OrbIdentifyOverlay: View {
     @State private var translateMode = false
     /// 翻译失败后「重试」要用的原图（只在这一个流程里用，进浮层即清空）
     @State private var lastImage: UIImage?
-    /// 「复制译文」的即时反馈（1.6s 后自动收回，不留假的「已复制」）
-    @State private var copiedTranslation = false
     @State private var showCamera = false
     @State private var showPhotoPicker = false
     @State private var photoItem: PhotosPickerItem?
@@ -59,9 +65,6 @@ struct OrbIdentifyOverlay: View {
 
     /// 结果卡底边与球心之间留的呼吸（球半径 34 + 间距 26）
     private static let cardSpacing: CGFloat = 60
-    /// v3.9.80（用户口径「译文卡片根据译文字体多少自适应大小」）：译文区高度上限 ——
-    /// 译文不超它时卡片随内容长高；超了才在卡内滚动。改这一处即改「译文卡最高能多高」。
-    private static let translationMaxHeight: CGFloat = 220
 
     var body: some View {
         GeometryReader { geo in
@@ -104,9 +107,9 @@ struct OrbIdentifyOverlay: View {
         }
         .onAppear {
             // v3.9.79：每次进浮层都从「识别模式」起手（AI 翻译模式不留到下一次，免得下次拍照莫名其妙出译文）
-            translateMode = false
+            // v3.9.82：例外 —— 译文弹窗里的「换一张」回来时宿主显式传 true（用户明确要接着翻，别再点一次「AI 翻译」）
+            translateMode = startInTranslateMode
             lastImage = nil            // 上一轮的重试原图不留到下一次
-            copiedTranslation = false
             if reduceMotion { appeared = true }
             else { withAnimation(.spring(response: 0.42, dampingFraction: 0.78)) { appeared = true } }
         }
@@ -187,8 +190,6 @@ struct OrbIdentifyOverlay: View {
             blankCard
         case .translating:
             translatingCard
-        case .translated(let source, let text):
-            translatedCard(source: source, text: text)
         case .translateFailed:
             translateFailedCard
         }
@@ -282,57 +283,9 @@ struct OrbIdentifyOverlay: View {
         .padding(.bottom, Spacing.xl)
     }
 
-    /// 译文卡：就地出译文（不回聊天页）。原文留 3 行小字便于核对翻对没 —— 只有译文用户没法验。
-    private func translatedCard(source: String, text: String) -> some View {
-        VStack(alignment: .leading, spacing: Spacing.lg) {
-            HStack(spacing: Spacing.sm) {
-                Image(systemName: "character.book.closed")
-                    .font(.system(size: Typography.caption))
-                    .foregroundStyle(Color.accentColor)
-                Text("译文 · 翻成\(TranslateKit.targetLabel(for: source))")
-                    .font(.system(size: Typography.subhead, weight: .semibold))
-                Spacer(minLength: 0)
-            }
-            Text(source)
-                .font(.system(size: Typography.caption))
-                .foregroundStyle(.secondary)
-                .lineLimit(3)
-            // 译文区高度**跟着字数走**（v3.9.80 · 用户原话「译文卡片根据译文字体多少自适应大小」）。
-            // 原写法 = 贪婪 `ScrollView` + `.frame(maxHeight: 220)`：ScrollView 会吃掉提案给它的全部高度
-            // → 2 行译文也被撑到 220，卡里凭空多出约 180pt 空白（用户截图的越南语禁烟牌就是 2 行译文 / 卡高 ~375）。
-            // 改法 = 两稿择一：整段放得下就整段渲染（卡随内容长高），放不下才换限高滚动稿。
-            // 外层 `.frame(maxHeight: translationMaxHeight)` 把**提案**钳在上限 →
-            // ① 的「放得下」= 不超过 220（而不是「不超过球上方全部空间」），所以长译文仍走 ② 滚动、卡高天花板不变。
-            ViewThatFits(in: .vertical) {
-                Text(text)
-                    .font(.system(size: Typography.body))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                ScrollView {
-                    Text(text)
-                        .font(.system(size: Typography.body))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .scrollIndicators(.hidden)
-            }
-            .frame(maxHeight: Self.translationMaxHeight)
-            HStack(spacing: Spacing.xl) {
-                Button { copyTranslation(text) } label: {
-                    Text(copiedTranslation ? "已复制" : "复制").pill(.primary, tone: .accent)
-                }
-                Button { restartTranslate() } label: {
-                    Text("换一张").pill(.primary, tone: .neutral)
-                }
-                // 「发给 AI」= 用户第一次拍板的那条通道（发进会话继续追问）。就地看译文是主路，这条是出口。
-                Button { onAskAI(TranslateKit.prompt(for: source)) } label: {
-                    Text("发给 AI").pill(.primary, tone: .neutral)
-                }
-            }
-        }
-        .padding(Spacing.xxl)
-        .overlayGlassCard()
-        .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
-        .padding(.bottom, Spacing.xl)
-    }
+    // v3.9.82：译文卡**已删除** —— 整套（原文 2 行 / 玻璃卡内滚动译文 / 关闭·复制·换一张·发给AI）
+    //   搬进 `Features/TranslateSheet.swift`，形态照 AI 速记弹窗（用户 2026-09-25 拍板）。
+    //   🚫 别再往本文件加译文态卡片：译文一律回宿主弹窗（单一出口，防两套形态并存）。
 
     /// 失败也留在卡里：别静默退回选区让用户以为「拍糊了」（真原因可能是网络/后端没回）
     private var translateFailedCard: some View {
@@ -357,23 +310,11 @@ struct OrbIdentifyOverlay: View {
         .padding(.bottom, Spacing.xl)
     }
 
-    /// 复制译文 + 即时反馈（1.6s 后收回，不留假的「已复制」）
-    private func copyTranslation(_ text: String) {
-        UIPasteboard.general.string = text
-        copiedTranslation = true
-        Haptics.success()
-        Task { @MainActor in
-            try? await Task.sleep(for: .seconds(1.6))
-            copiedTranslation = false
-        }
-    }
-
-    /// 「换一张」：只把相册弹出来，**保留当前 phase**（用户点取消时原样回到刚看的译文卡，
-    /// 而不是掉回空白选区——审查① 指出这会让「取消」变成丢内容）。
-    /// v3.9.79b：顺手复位「已复制」（它的 1.6s 反馈窗口跨得过来 —— 复制后立刻换图会让新译文卡
-    ///           先闪一行「已复制」，明明是另一张的译文）。
+    /// 「换一张」：只把相册弹出来，**保留当前 phase**（用户点取消时原样回到刚看的那一步，
+    /// 而不是掉回空白选区 —— 审查① 指出这会让「取消」变成丢内容）。
+    /// v3.9.82：译文弹窗里那颗「换一张」走宿主（关弹窗 → 重开浮层 + 翻译模式），这一颗只留给
+    ///          「翻译失败 / 没认出字」卡（重选一张图 = 最直接的补救）。
     private func restartTranslate() {
-        copiedTranslation = false
         translateMode = true
         showPhotoPicker = true
     }
@@ -397,7 +338,8 @@ struct OrbIdentifyOverlay: View {
         Haptics.tap()
         Task { @MainActor in
             // v3.9.79「AI 翻译」分支（用户拍板：**就地出译文，不回聊天页**）
-            //   OCR 只取字 → 交给后端一问一答（非流式，与 App 内「问 AI」同一条 /api/stream/chat）→ 译文就地显示。
+            //   OCR 只取字 → 交给后端一问一答（非流式，与 App 内「问 AI」同一条 /api/stream/chat）
+            //   → v3.9.82 起译文回宿主弹窗显示（本层不再出卡）。
             // ⚠️ 刻意**不走** IntentExtractor.extract：那条路没字时会去叫云端视觉模型，
             //    会把「做个总结」之类的内容塞进译文提示词里。
             if translating {
@@ -416,9 +358,12 @@ struct OrbIdentifyOverlay: View {
                     // 这张卡 2 分钟内既无可重选也无取消（唯一出路是点空白关浮层）。翻译只要一问一答 → 30s。
                     let reply = try await QingliaoIntentClient.oneShot(TranslateKit.prompt(for: source),
                                                                       auth: auth, timeout: 30)
-                    phase = .translated(source: source,
-                                        text: reply.trimmingCharacters(in: .whitespacesAndNewlines))
+                    // v3.9.82（用户「这个卡片改弹窗吧，跟 AI 速记弹窗一致」）：译文不在本层渲染 ——
+                    // 交回宿主弹 `TranslateSheet`；宿主在回调里同时收起本浮层（phase 停在 .translating
+                    // 无妨，整个浮层随即被移除）。
                     Haptics.success()
+                    onTranslated(source,
+                                 reply.trimmingCharacters(in: .whitespacesAndNewlines))
                 } catch {
                     // 失败留在卡里（别静默退回选区，那会被当成「拍糊了」）
                     phase = .translateFailed

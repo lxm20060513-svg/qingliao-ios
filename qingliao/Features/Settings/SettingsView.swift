@@ -27,6 +27,9 @@ struct SettingsView: View {
         return p.isEmpty ? "默认路径" : (p.count > 20 ? "..." + p.suffix(17) : p)
     }
     @State var showAppearance = false   // v3.0.4：外观弹窗（与云端统一）
+    // v3.9.82：桌面图标长按快捷方式（6 项候选里自己挑 4 项显示；iOS 桌面长按菜单上限就是 4）
+    @State var showHomeShortcuts = false
+    @AppStorage(HomeShortcutStore.defaultsKey) var homeShortcutsRaw = ""
     @State var scrollPos = ScrollPosition()
     @State var showModelSheet = false
     @State var showWechatChannel = false   // v3.0.19：微信窗通道模型设置
@@ -122,6 +125,11 @@ struct SettingsView: View {
             AppearanceSheet()
                 .presentationDetents([.medium, .large])
                 .scrollContentBackground(.hidden)
+        }
+        .sheet(isPresented: $showHomeShortcuts) {
+            // v3.9.82：桌面快捷方式选择（动态 shortcutItems，最多 4 项）
+            HomeShortcutSheet()
+                .presentationDetents([.medium, .large])
         }
         .sheet(isPresented: $showTasks) {
             TasksView()
