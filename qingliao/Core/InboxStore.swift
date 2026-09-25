@@ -164,6 +164,7 @@ final class InboxStore {
             //      用户 15 分钟内连发两条消息时，第二条的第一条进度会被拿第一条当基准误丢。
             //   → 基准**只信内存里的同任务快照**。代价是重启后同任务可能有极少一次乱序，
             //     但「宁可偶尔乱序，绝不丢进度」（丢数据不可恢复，乱序下次快照就正过来了）。
+            let nowMs = Date().timeIntervalSince1970 * 1000   // 注入气泡的时间戳（闸门不再需要它）
             if let snap = InboxProgressOrder.snapshot(from: text) {
                 let baseline: InboxProgressOrder.Snapshot? = sourceTaskId.flatMap { progressSnapshots[$0] }
                 if let key = sourceTaskId {

@@ -57,11 +57,16 @@ enum ClipboardIntentDetector {
     /// `\.moneyAmounts`（金额）/ `\.shipmentTrackingNumbers`（快递单号）/ `\.calendarEvents`（日程）。
     /// 刻意**不含** `\.number`，也不请求 `\.flightNumbers`：前者一串数字（验证码/工号）误报率太高，
     /// 且两者在意图管道里都没有对应类目。
-    static let patterns: Set<PartialKeyPath<UIPasteboard.DetectedValues>> = [
-        \.probableWebURL, \.probableWebSearch, \.links,
-        \.postalAddresses, \.phoneNumbers, \.emailAddresses,
-        \.moneyAmounts, \.shipmentTrackingNumbers, \.calendarEvents,
-    ]
+    /// ⚠️ 这里必须是**计算属性**，不能是 `static let`：`KeyPath` 不是 `Sendable`，
+    ///   Swift 6 严格并发下 `static let` 存这种类型会直接报
+    ///   "static property 'patterns' is not concurrency-safe"（CI 实测）。
+    ///   计算属性每次返回一份新建的集合（9 个 key path，开销可忽略）→ 无共享可变状态。
+    ///   （用 `nonisolated(unsafe)` 也能编过，但那只是"我知道不安全"的逃逸口，不该用在能干净解决的地方。）
+    static var patterns: Set<PartialKeyPath<UIPasteboard.DetectedValues>> {
+        [\.probableWebURL, \.probableWebSearch, \.links,
+         \.postalAddresses, \.phoneNumbers, \.emailAddresses,
+         \.moneyAmounts, \.shipmentTrackingNumbers, \.calendarEvents]
+    }
 
     private static func hit(_ s: String?) -> Bool { !(s ?? "").isEmpty }
 }

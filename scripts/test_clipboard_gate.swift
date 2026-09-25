@@ -114,7 +114,8 @@ check("v3.9.76·探测链不得退回只认链接（旧 hasWebLink 形态不得�
 // ⚠️ 首版断言扫的是**整个探测器文件** → 实测"把 patterns 集合缩回只剩 .probableWebURL"仍绿（假信心）：
 //    函数体里对 values.postalAddress 等的访问把断言喂饱了。必须**切片**只看 patterns 集合那一段。
 let patternsBlock: String = {
-    guard let s = detectorCode.range(of: "static let patterns"),
+    // 锚点跟源码同步：源码改计算属性后这里也必须改（锚点失配 = 切片空 = 下面几条全变空真）
+    guard let s = detectorCode.range(of: "static var patterns"),
           let e = detectorCode.range(of: "]", range: s.upperBound..<detectorCode.endIndex) else { return "" }
     return String(detectorCode[s.lowerBound..<e.upperBound])
 }()
