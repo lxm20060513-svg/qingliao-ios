@@ -128,7 +128,7 @@ struct SheetFrostCard: ViewModifier {
     }
 }
 
-// MARK: - v3.9.78 浮层卡片（半透明毛玻璃底 · 白亮边 · 大圆角）
+// MARK: - v3.9.78 浮层卡片（半透明毛玻璃底 · 淡色描边 + 白亮边 · 大圆角）
 //
 // 由头（用户 2026-09-25）：「弹窗卡片圆角加大，背景改成模糊半透明」——先出三候选稿
 // （16+玻璃 / 22+玻璃 / 22+更透），用户拍板 **方案 C = 圆角 22 + ultraThinMaterial（同族最薄、最透）**。
@@ -136,8 +136,9 @@ struct SheetFrostCard: ViewModifier {
 // 与 `SheetFrostCard`(v3.9.47) 的分工（别混用，也别合并）：
 //   · `SheetFrostCard` = **弹窗内部**的常规卡片：圆角 16、`Tint.line` 发丝描边、自带两层柔影；
 //   · 本修饰器 = **浮层卡片**（意图动作卡 / AI 识别浮层卡 / 速记待办输入卡）：圆角默认 `Radius.hero`(22)、
-//     **白 0.8pt 亮边**（浅 0.12 / 深 0.22，与 `GlassCard` 同参）、**不带阴影**（阴影由调用点自己给，
-//     浮层各自的投影半径不同）。
+//     **外圈淡色描边**（`Tint.line` 0.8pt，浅 0.08 / 深 0.16 —— 用户 2026-09-25 追加：「弹窗卡片边框加淡色描边」，
+//     纯白亮边在浅色底上几乎看不见）+ **内缩 0.8pt 的白 0.8pt 亮边**（浅 0.12 / 深 0.22，与 `GlassCard` 同参）、
+//     **不带阴影**（阴影由调用点自己给，浮层各自的投影半径不同）。
 // ⚠️ 与 v3.9.23「弹窗自身不铺背景」那条红线不冲突：本修饰器只作用在**卡片**上。
 // ⚠️ 圆角与描边必须同一个角值 —— 漏一处就会出现「方框套圆框」（本仓 v3.9.63 实录）。
 
@@ -149,9 +150,17 @@ struct OverlayGlassCard: ViewModifier {
         content
             .background(.ultraThinMaterial,
                         in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            // v3.9.78 追加（用户：「弹窗卡片边框加淡色描边」）：纯白亮边在**浅色底**（聊天页 systemBackground）上
+            // 几乎看不见 → 外圈压一条 `Tint.line` 淡色线做可见边界（浅 0.08 / 深 0.16，全站描边同参）。
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .strokeBorder(Tint.line(scheme), lineWidth: 0.8)
+            )
+            // 白 0.8pt 亮边**内缩 0.8pt** 排在外圈淡色线里侧：保留玻璃高光，两条线不重叠（仍只有一处半径参数）
             .overlay(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .strokeBorder(Color.white.opacity(scheme == .dark ? 0.22 : 0.12), lineWidth: 0.8)
+                    .padding(0.8)
             )
     }
 }
@@ -187,8 +196,9 @@ extension View {
     func frostedCard(cornerRadius: CGFloat = 16) -> some View {
         modifier(SheetFrostCard(cornerRadius: cornerRadius))
     }
-    /// v3.9.78 浮层卡片：毛玻璃底 + 大圆角（默认 `Radius.hero` 22）+ 白 0.8pt 亮边，**不带阴影**
-    /// （阴影由调用点按各自的浮层投影给；意图动作卡 / 识别浮层卡 / 速记待办输入卡都走这个）
+    /// v3.9.78 浮层卡片：毛玻璃底 + 大圆角（默认 `Radius.hero` 22）+ 外圈淡色描边（`Tint.line` 0.8pt）+
+    /// 内缩 0.8pt 的白 0.8pt 亮边，**不带阴影**（阴影由调用点按各自的浮层投影给；
+    /// 意图动作卡 / 识别浮层卡 / 速记待办输入卡都走这个）
     func overlayGlassCard(cornerRadius: CGFloat = Radius.hero) -> some View {
         modifier(OverlayGlassCard(cornerRadius: cornerRadius))
     }

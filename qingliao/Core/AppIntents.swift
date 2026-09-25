@@ -50,17 +50,24 @@ enum QingliaoIntentClient {
         guard !q.isEmpty else { throw QingliaoIntentError(message: "问题是空的") }
         // 用 Self.auth() 显式限定：避免 `let auth = try auth()` 这种「变量与函数同名」的写法
         let auth = try Self.auth()
-        // 模型/provider 走 CloudConfig 的统一取源（各处自己读 UserDefaults 会各说各话）
+        return try await oneShot(style.instructionPrefix + q, auth: auth)
+    }
+
+    /// 一问一答（**非流式**）的通用入口 —— 调用方自带完整提示词、自带 auth。
+    ///
+    /// v3.9.79 从 `ask` 里抽出来：App 内的「AI 翻译」浮层也要「一次调用拿一段文本」，
+    /// 而模型/provider 只认 `CloudConfig.mainModelAndProvider`（各处自己读 UserDefaults 会各说各话）。
+    /// timeout 120：这条链路后端要跑 Hermes agent 的工具循环（查 NAS / 查天气…），默认 30s 会把长回答掐断。
+    @MainActor
+    static func oneShot(_ prompt: String, auth: AuthStore, timeout: TimeInterval = 120) async throws -> String {
         let (model, provider) = CloudConfig.mainModelAndProvider
         let payload: [String: Any] = [
             "model": model,
             "provider": provider,
-            "messages": [["role": "user", "content": style.instructionPrefix + q]],
+            "messages": [["role": "user", "content": prompt]],
             "stream": false,
         ]
-        // timeout 120：这条链路后端要跑 Hermes agent 的工具循环（查 NAS / 查天气…），
-        // 默认 30s 会把长回答掐断成"超时"。
-        let j = try await auth.json("/api/stream/chat", method: "POST", body: payload, timeout: 120)
+        let j = try await auth.json("/api/stream/chat", method: "POST", body: payload, timeout: timeout)
         let text = QingliaoAIReply.text(from: j)
         guard !text.isEmpty else {
             throw QingliaoIntentError(message: "轻聊没有返回内容（后端 200 但正文为空）")

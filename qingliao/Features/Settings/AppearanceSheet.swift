@@ -38,8 +38,11 @@ struct AppearanceSheet: View {
                     .padding(.vertical, Spacing.xs)
                 }
                 // v3.9.78：聊天页形象（用户拍板「三种都要 + 在设置里增加卡通宠物选择，放在外观设置项里」）
-                // 与「主题」同款三选一 idiom（缩略图 + 名称 + 选中蓝框）；缩略图以 96 画、按 52 显示，
-                // 这样不会被 PetAvatar 的「76pt 以下简化」砍掉细节。
+                // 与「主题」同款三选一 idiom（缩略图 + 名称 + 选中蓝框）；缩略图**按显示尺寸 52pt 直接画**
+                // 并用 keepDetail 绕过 PetAvatar 的 76pt 简化阈值（细节不丢、尺寸又不会被撑爆）。
+                // ⚠️ v3.9.78 真机报修：原来写「PetAvatar(size: 96) + .frame(52,52)」——frame 只改布局槽位、
+                //    **不缩放画面**，96pt 画布会从 52pt 槽位四周各溢出 22pt：形象顶到卡片上边框、下沿压住名称文字。
+                //    要改尺寸就改 size，永远不要用 frame 去"缩"它。
                 Section("聊天页形象") {
                     HStack(spacing: 10) {
                         ForEach(PetStyle.allCases) { style in
@@ -167,15 +170,15 @@ struct AppearanceSheet: View {
         .buttonStyle(.plain)
     }
 
-    /// v3.9.78：形象选项（三选一）——以 96pt 画、按 52pt 显示，保留完整细节（不被简化阈值砍）
+    /// v3.9.78：形象选项（三选一）——按显示尺寸 52pt 直接画（矢量，任意尺寸都清晰），
+    /// 细节靠 keepDetail 保住，而不是靠「96 画 + frame 52 塞」（那套会溢出卡片：v3.9.78 真机报修）
     private func petOption(_ style: PetStyle) -> some View {
         let selected = petStyle == style
         return Button {
             petStyle = style
         } label: {
             VStack(spacing: Spacing.xs) {
-                PetAvatar(size: 96, state: .idle, styleOverride: style)
-                    .frame(width: 52, height: 52)
+                PetAvatar(size: 52, state: .idle, styleOverride: style, keepDetail: true)
                 Text(style.name)
                     .font(.system(size: Typography.caption, weight: selected ? .semibold : .regular))
                     .foregroundStyle(selected ? Color.accentColor : Color.primary)

@@ -21,6 +21,9 @@ extension Notification.Name {
     static let qingliaoTaskSend = Notification.Name("qingliao_task_send")
     // v3.9.14：备忘录「发给 AI」——生活页发通知，这里发送 + DockTabView 切回聊天页
     static let qingliaoMemoSend = Notification.Name("qingliao_memo_send")
+    // v3.9.79：长按快捷菜单弹出 → 收键盘（DockTabView 广播，ChatView 消费）
+    // （用户 2026-09-25：「这个界面自动收回键盘」——键盘开着时长按球/宠物，六颗胶囊被键盘挤在上半屏）
+    static let qingliaoDismissKeyboard = Notification.Name("qingliao_dismiss_keyboard")
     // v3.9.59：长按 dock 智慧球 →「语音输入」胶囊——DockTabView 切聊天页后广播，ChatView 消费进语音模式
     static let qingliaoOrbVoiceInput = Notification.Name("qingliao_orb_voice_input")
 }
@@ -260,6 +263,9 @@ struct ChatView: View {
     @Environment(StreamClient.self) var stream
     @Environment(InboxStore.self) var inbox   // v3.4.0：底部上拉手动拉取收件箱
     @Environment(KeyboardObserver.self) var kb
+    /// v3.9.79：横屏判据 —— iPhone 横屏的 `horizontalSizeClass` 仍是 `.compact`（只有 Plus/Max 变 `.regular`），
+    /// 所以「矮屏」只认 `verticalSizeClass == .compact`。见 `AdaptiveLayout.isShort`。
+    @Environment(\.verticalSizeClass) private var vSize
     @State var pinStore = PinStore.shared   // v3.0.74：钉一钉
     // v3.7.0：剪贴板地图链接兜底入口（地图分享面板里没有轻聊 → 「拷贝」后在聊天页一键发送）
     @State var showClipboardBanner = false
@@ -1209,6 +1215,18 @@ struct ChatView: View {
                 toggleVoiceMode(keyboardWasUp: kb.isVisible)
             }
         }
+        // v3.9.79：长按快捷菜单弹出即收键盘（用户 2026-09-25：「这个界面自动收回键盘」）。
+        // 收法与语音模式**同一口径**（见 ChatViewVoice.toggleVoiceMode）：先清 FocusState 让输入栏缩回第一层，
+        // 再延迟 60ms 用 UIKit 强制 resignFirstResponder 兜底 —— iOS 27 在触摸聚焦动画中可能覆盖 FocusState 的修改。
+        // 菜单关闭后**不自动弹回**（用户点输入框才回来）：菜单是模态层，弹回键盘会和胶囊抢下半屏。
+        .onReceive(NotificationCenter.default.publisher(for: .qingliaoDismissKeyboard)) { _ in
+            inputFocus = false
+            Task {
+                try? await Task.sleep(for: .seconds(0.06))
+                UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),
+                                                to: nil, from: nil, for: nil)
+            }
+        }
         .onAppear {
             drainShareInbox()
             // v3.4.x 发送可靠性：启动恢复上次未发出的排队消息（杀 App/断网重启不丢）→ 立即补发
@@ -1703,142 +1721,227 @@ struct ChatView: View {
 
     // v2.0.111：欢迎页独立于 ScrollView——不再受滚动容器背景/裁剪影响，logo 永远完整显示
     private var welcomeView: some View {
+        // v3.9.79 横屏（矮屏）：用户拍板「按方案 2 改」= 左边形象 + 问候，右边芯片竖排。
+        // ⚠️ 判据只认 verticalSizeClass —— iPhone 横屏的 horizontalSizeClass 仍是 .compact，
+        //    拿 .regular 判横屏等于永不生效（这正是横屏一直没排版的根因，见 AdaptiveLayout.isShort）。
+        Group {
+            if AdaptiveLayout.isShort(vSize) { welcomeLandscape } else { welcomePortrait }
+        }
+    }
+
+    private var welcomePortrait: some View {
         VStack(spacing: 0) {
             // v3.4.29：顶部弹性留白（原写死在容器上的 padding(.top,120)）——小屏不再被挤压，大屏自然下移，最多 120pt
             // v3.9.71：键盘弹起时这段留白归零（56→0 / 120→12）——空态遮住输入框的头号占地户
             Spacer(minLength: kb.isVisible ? 0 : 56).frame(maxHeight: kb.isVisible ? 12 : 120)
 
-            ZStack {
-                // v3.9.78：欢迎页形象 = 用户拍板的**卡通宠物**（三选一，见 PetAvatar / PetPainter）。
-                // 原口径（v3.9.57~v3.9.77）= 96pt 液态球（Metal 着色器）+ live: true 常驻 30fps；
-                // 现在换成原生矢量宠物：零 SPM 依赖、包体积增量 0，且**不再常驻逐帧渲染**
-                // （只有呼吸/眨眼/状态切换时才动，后台/键盘无关场景自动停 —— 比原来省电）。
-                // 尺寸仍锁 96pt（欢迎页身份，不因布局改动而变）；三态：思考中（AI 正在回）/ 抚摸（轻点）/ 待机。
-                PetAvatar(size: 96,
-                          state: petState,
-                          patTrigger: petPat)
-            }
-            .frame(width: 96, height: 96)
-            .contentShape(Rectangle())   // 形象自身 allowsHitTesting(false)，不补命中域整块点不到
-            .accessibilityLabel("轻聊智能体")
-            // v3.9.78：量宠物在屏幕上的真实中心（菜单从这里绽放；键盘/滚动导致的位移会同步刷新）
-            .onGeometryChange(for: CGPoint.self) { proxy in
-                let r = proxy.frame(in: .global)
-                return CGPoint(x: r.midX, y: r.midY)
-            } action: { petGlobalCenter = $0 }
-            // v3.9.57：入口交互化——轻点聚焦输入框（v3.9.78 起同时触发「抚摸」反应）。
-            // v3.9.78：**长按口径改成与长按智慧球完全一致**（用户：「长按宠物改成和长按智慧球一样的效果」）
-            //   —— 不再直连语音转文字，而是弹同一套六颗快捷胶囊（语音输入/语音对话都在菜单里，语音入口没丢；
-            //      动作分发仍走 DockTabView.handleOrbAction，单一真源，不在聊天页复制第二套）。
-            // 用 ExclusiveGesture 而非分别挂 onTapGesture + onLongPressGesture：后者在长按触发后
-            // 抬手仍会补一次 tap → 键盘又被聚焦起来（v2.0.107 的口径会被打破）。
-            .gesture(
-                ExclusiveGesture(
-                    LongPressGesture(minimumDuration: 0.45).onEnded { _ in
-                        Haptics.press()       // 与长按智慧球同一触感（不是 .tap）
-                        NotificationCenter.default.post(
-                            name: .qingliaoOrbMenuFromPet,
-                            object: nil,
-                            userInfo: OrbPetAnchor(center: petGlobalCenter, size: 96).userInfo)
-                    },
-                    TapGesture().onEnded {
-                        Haptics.tap()
-                        petPat += 1        // 抚摸：一次触感 + ≤1.2s 一次性反应（不进任何功能页）
-                        inputFocus = true
-                    }
-                )
-            )
+            petHero
 
             // v3.4.29：文案组与 logo 拉开距离（原整体 spacing 12 → 96pt 的球和文字贴在一起，头重脚轻）
             // 现改为分组：logo↔文案 18pt，问候↔副标题 6pt（同组紧、跨组松）
-            VStack(spacing: 6) {
-                // v3.4.25：问候语随时段变化
-                Text(welcomeGreeting)
-                    .font(.system(size: Typography.title, weight: .bold))
-                    .foregroundStyle(
-                        LinearGradient(colors: [.blue, .purple],
-                                       startPoint: .topLeading, endPoint: .bottomTrailing)
-                    )
-                Text(welcomeSubtitle)
-                    .font(.system(size: Typography.subhead))
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.top, 18)
+            textBlock
 
             // v3.4.25：上下文感知建议芯片——新会话给开场模板，续聊会话给话题延续入口
             // v3.4.29：统一为全站玻璃淡雅风（原 accentColor 实色底+同色文字，与顶部续聊芯片条是两套观感；
             // 且高饱和蓝抢了问候语的视觉主角位）；水平内边距 24 → 16 与消息区/续聊条对齐
             // v3.9.71：键盘弹起时整排芯片收起——用户此刻在打字，芯片既不必要又占 ~46pt
             if !kb.isVisible {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(welcomeSuggestions) { s in
-                        Button {
-                            Haptics.tap()
-                            if chat.messages.isEmpty {
-                                inputText = s.prompt
-                                inputFocus = true
-                            } else {
-                                // 续聊场景直接发送延续指令
-                                sendCore(text: s.prompt, imageData: nil)
-                            }
-                        } label: {
-                            HStack(spacing: Spacing.xs) {
-                                Image(systemName: s.icon)
-                                    .font(.system(size: Typography.caption, weight: .medium))
-                                Text(s.title)
-                                    .font(.system(size: Typography.subhead, weight: .medium))
-                            }
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, Spacing.xl)
-                            .padding(.vertical, Spacing.md)
-                            .background(.ultraThinMaterial, in: Capsule())
-                            .overlay(Capsule().strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8))
-                        }
-                        .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
-                    }
-                }
-                .padding(.horizontal, Spacing.section)
-            }
-            .padding(.top, 18)
+                portraitChips
             }   // if !kb.isVisible（建议芯片）
 
             // v3.4.29：继续上次会话——用户手动新建/清空会话后一键回到上一个会话，免切「会话」tab 再找
             // （启动自动 loadLastSession 只覆盖 App 重启场景，新建会话后原先没有任何回归路径）
             // v3.9.71：键盘弹起时这张卡也收起（约 64pt）——它不是"打字中"需要的东西
-            if let last = chat.lastLoadedSession, last.id != chat.sessionId, !clearing, !kb.isVisible {
-                Button {
+            resumeRow
+        }
+    }
+
+    // MARK: v3.9.79 欢迎页拆件（横屏两栏与竖屏共用同一批子视图 —— 别复制第二套，手势/样式只此一份）
+
+    /// 欢迎页形象：96pt 身份尺寸 + 长按（同一套六颗胶囊）/ 轻点（抚摸 + 聚焦输入框）手势。
+    /// ⚠️ 竖屏与横屏共用本视图：手势只写这一份，横屏不许再来一套（两套迟早口径不一）。
+    private var petHero: some View {
+        ZStack {
+            // v3.9.78：欢迎页形象 = 用户拍板的**卡通宠物**（三选一，见 PetAvatar / PetPainter）。
+            // 原口径（v3.9.57~v3.9.77）= 96pt 液态球（Metal 着色器）+ live: true 常驻 30fps；
+            // 现在换成原生矢量宠物：零 SPM 依赖、包体积增量 0，且**不再常驻逐帧渲染**
+            // （只有呼吸/眨眼/状态切换时才动，后台/键盘无关场景自动停 —— 比原来省电）。
+            // 尺寸仍锁 96pt（欢迎页身份，不因布局改动而变）；三态：思考中（AI 正在回）/ 抚摸（轻点）/ 待机。
+            PetAvatar(size: 96,
+                      state: petState,
+                      patTrigger: petPat)
+        }
+        .frame(width: 96, height: 96)
+        .contentShape(Rectangle())   // 形象自身 allowsHitTesting(false)，不补命中域整块点不到
+        .accessibilityLabel("轻聊智能体")
+        // v3.9.78：量宠物在屏幕上的真实中心（菜单从这里绽放；键盘/滚动导致的位移会同步刷新）
+        .onGeometryChange(for: CGPoint.self) { proxy in
+            let r = proxy.frame(in: .global)
+            return CGPoint(x: r.midX, y: r.midY)
+        } action: { petGlobalCenter = $0 }
+        // v3.9.79：宠物中心一变就**只刷新菜单锚点**（dock 侧仅在菜单开着时消费，关着直接丢弃 → 无副作用）。
+        // 为什么必须做：长按弹菜单会顺手收键盘 → 宠物随 Spacer 回弹下移 ≥56pt，而锚点是长按那一刻的快照，
+        // 菜单层会在旧位置再画一只宠物（真机观感＝两只宠物）。发版前只读审查实测指出这条交互缺陷。
+        .onChange(of: petGlobalCenter) { _, center in
+            NotificationCenter.default.post(
+                name: .qingliaoPetAnchorMoved,
+                object: nil,
+                userInfo: OrbPetAnchor(center: center, size: 96).userInfo)
+        }
+        // v3.9.57：入口交互化——轻点聚焦输入框（v3.9.78 起同时触发「抚摸」反应）。
+        // v3.9.78：**长按口径改成与长按智慧球完全一致**（用户：「长按宠物改成和长按智慧球一样的效果」）
+        //   —— 不再直连语音转文字，而是弹同一套六颗快捷胶囊（语音输入/语音对话都在菜单里，语音入口没丢；
+        //      动作分发仍走 DockTabView.handleOrbAction，单一真源，不在聊天页复制第二套）。
+        // 用 ExclusiveGesture 而非分别挂 onTapGesture + onLongPressGesture：后者在长按触发后
+        // 抬手仍会补一次 tap → 键盘又被聚焦起来（v2.0.107 的口径会被打破）。
+        .gesture(
+            ExclusiveGesture(
+                LongPressGesture(minimumDuration: 0.45).onEnded { _ in
+                    Haptics.press()       // 与长按智慧球同一触感（不是 .tap）
+                    NotificationCenter.default.post(
+                        name: .qingliaoOrbMenuFromPet,
+                        object: nil,
+                        userInfo: OrbPetAnchor(center: petGlobalCenter, size: 96).userInfo)
+                },
+                TapGesture().onEnded {
                     Haptics.tap()
-                    chat.load(last)
-                } label: {
-                    HStack(spacing: Spacing.md) {
-                        Image(systemName: "arrow.uturn.backward.circle")
-                            .font(.system(size: Typography.body, weight: .medium))
-                            .foregroundStyle(.secondary)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("继续上次")
-                                .font(.system(size: Typography.caption, weight: .medium))
-                                .foregroundStyle(.secondary)
-                            Text(last.title.isEmpty ? "未命名会话" : last.title)
-                                .font(.system(size: Typography.subhead, weight: .semibold))
-                                .foregroundStyle(.primary)
-                                .lineLimit(1)
-                        }
-                        Spacer(minLength: 8)
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: Typography.caption, weight: .semibold))
-                            .foregroundStyle(.tertiary)
-                    }
-                    .padding(.horizontal, Spacing.xxl)
-                    .padding(.vertical, Spacing.lg)
-                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: Radius.field, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: Radius.field, style: .continuous)
-                        .strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8))
+                    petPat += 1        // 抚摸：一次触感 + ≤1.2s 一次性反应（不进任何功能页）
+                    inputFocus = true
                 }
-                .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
-                .padding(.horizontal, Spacing.section)
-                .padding(.top, Spacing.section)
+            )
+        )
+    }
+
+    /// 问候语 + 副标题。v3.4.29 分组口径：形象↔文案 18pt、问候↔副标题 6pt（同组紧、跨组松）。
+    private var textBlock: some View {
+        VStack(spacing: 6) {
+            // v3.4.25：问候语随时段变化
+            Text(welcomeGreeting)
+                .font(.system(size: Typography.title, weight: .bold))
+                .foregroundStyle(
+                    LinearGradient(colors: [.blue, .purple],
+                                   startPoint: .topLeading, endPoint: .bottomTrailing)
+                )
+            Text(welcomeSubtitle)
+                .font(.system(size: Typography.subhead))
+                .foregroundStyle(.secondary)
+        }
+        .padding(.top, 18)
+    }
+
+    /// 竖屏口径：一排横滑芯片（芯片多时能滑，不挤压）
+    private var portraitChips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(welcomeSuggestions) { s in
+                    suggestionChip(s)
+                }
             }
+            .padding(.horizontal, Spacing.section)
+        }
+        .padding(.top, 18)
+    }
+
+    /// 横屏（矮屏）口径：芯片**竖排一列**（用户拍板方案 2 的右列），宽度统一便于对齐
+    private var landscapeChips: some View {
+        VStack(alignment: .leading, spacing: Spacing.md) {
+            ForEach(welcomeSuggestions) { s in
+                suggestionChip(s)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .frame(width: 176)
+    }
+
+    /// 建议芯片本体 —— **样式单一真源**：竖屏横滑与横屏竖排都用它，别各写一份（改样式只会改到一边）。
+    private func suggestionChip(_ s: WelcomeSuggestion) -> some View {
+        Button {
+            Haptics.tap()
+            if chat.messages.isEmpty {
+                inputText = s.prompt
+                inputFocus = true
+            } else {
+                // 续聊场景直接发送延续指令
+                sendCore(text: s.prompt, imageData: nil)
+            }
+        } label: {
+            HStack(spacing: Spacing.xs) {
+                Image(systemName: s.icon)
+                    .font(.system(size: Typography.caption, weight: .medium))
+                Text(s.title)
+                    .font(.system(size: Typography.subhead, weight: .medium))
+                    // 横屏芯片列是定宽 176：标题再长也先缩字别静默省略号（审查① 指出）
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
+            }
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, Spacing.xl)
+            .padding(.vertical, Spacing.md)
+            .background(.ultraThinMaterial, in: Capsule())
+            .overlay(Capsule().strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8))
+        }
+        .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
+    }
+
+    /// 「继续上次」卡：v3.4.29 加的回归路径（启动自动 loadLastSession 只覆盖 App 重启场景）。
+    /// v3.9.71：键盘弹起时收起（约 64pt）——它不是"打字中"需要的东西。
+    /// 竖屏在底部、横屏在两栏下方，两处共用本视图。
+    @ViewBuilder
+    private var resumeRow: some View {
+        if let last = chat.lastLoadedSession, last.id != chat.sessionId, !clearing, !kb.isVisible {
+            Button {
+                Haptics.tap()
+                chat.load(last)
+            } label: {
+                HStack(spacing: Spacing.md) {
+                    Image(systemName: "arrow.uturn.backward.circle")
+                        .font(.system(size: Typography.body, weight: .medium))
+                        .foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("继续上次")
+                            .font(.system(size: Typography.caption, weight: .medium))
+                            .foregroundStyle(.secondary)
+                        Text(last.title.isEmpty ? "未命名会话" : last.title)
+                            .font(.system(size: Typography.subhead, weight: .semibold))
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+                    }
+                    Spacer(minLength: 8)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: Typography.caption, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                }
+                .padding(.horizontal, Spacing.xxl)
+                .padding(.vertical, Spacing.lg)
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: Radius.field, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: Radius.field, style: .continuous)
+                    .strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8))
+            }
+            .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
+            .padding(.horizontal, Spacing.section)
+            .padding(.top, Spacing.section)
+        }
+    }
+
+    /// v3.9.79 横屏欢迎页（用户拍板「按方案 2 改」）：
+    /// 左列 = 形象 + 问候语，右列 = 芯片竖排一列，下方仍留「继续上次」。
+    /// 为什么横屏要两栏：852×393 的可用高只有 ~190pt（减去输入栏 + dock），竖屏那套「留白 56 + 形象 96 +
+    /// 文案 + 一排芯片」横着摆不下，只能把芯片挪到横向富余的右侧。
+    private var welcomeLandscape: some View {
+        VStack(spacing: 0) {
+            HStack(alignment: .center, spacing: Spacing.xxl + 18) {
+                VStack(spacing: 0) {
+                    petHero
+                    textBlock
+                }
+                // 横屏 + 键盘弹起：高度只剩 ~170pt，芯片那一列（≈160pt）会顶出去 → 与竖屏同口径收起
+                if !kb.isVisible {
+                    landscapeChips
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(.top, Spacing.lg)
+            resumeRow
         }
     }
 

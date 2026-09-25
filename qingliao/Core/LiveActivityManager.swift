@@ -208,7 +208,9 @@ final class LiveActivityManager {
                                                            canStop: canStop,
                                                            progress: newProgress,
                                                            spin: lastSpin,
-                                                           beatSeconds: lastBeat)
+                                                           beatSeconds: lastBeat,
+                                                           // v3.9.79：形象随 `ContentState` 下发（挂件读不到主 App 的 UserDefaults）
+                                                           petStyle: PetStyle.current.rawValue)
         let content = ActivityContent(state: state, staleDate: Self.staleDate())
 
         if !hasActive {
@@ -290,7 +292,8 @@ final class LiveActivityManager {
                                                            // 不传就落 init 默认（起步档），慢档轮次收尾时
                                                            // 与「两侧永远同一口径」相悖（当前完成态无 beat 消费者，
                                                            // 属口径/健壮性收口）
-                                                           beatSeconds: lastBeat)
+                                                           beatSeconds: lastBeat,
+                                                           petStyle: PetStyle.current.rawValue)
         let content = ActivityContent(state: state, staleDate: Date().addingTimeInterval(60))
 
         // 这期间又开始了新一轮 → 新活动不能被这一轮收尾碰到
@@ -371,7 +374,8 @@ final class LiveActivityManager {
                                                            canStop: false,
                                                            progress: 1.0,
                                                            spin: lastSpin,
-                                                           beatSeconds: lastBeat)
+                                                           beatSeconds: lastBeat,
+                                                           petStyle: PetStyle.current.rawValue)
         let content = ActivityContent(state: state, staleDate: Date().addingTimeInterval(60))
         // 与 `finish()` 同口径：把完成态作为 end 的 content 传入，让**系统**按时收起
         // （不依赖本进程继续存活——后台刷新的窗口只有几秒，睡 2s 再 end 会被再次挂起打断）。
@@ -502,7 +506,8 @@ final class LiveActivityManager {
                 let cfg = Self.tickStep(phase: self.lastPhase)
                 let nextProgress = min(cfg.cap, self.lastProgress + cfg.step)
                 // 累计相位，**不回绕**（回绕会让弧角度从 315° 倒插回 0°，每 9.6s 反向急扫一次）
-                let nextSpin = self.lastSpin + 0.125
+                // v3.9.79：步长收进 `OrbBeat.spinStep`（挂件侧要按同一拍长做奇偶，别各写一份）
+                let nextSpin = self.lastSpin + OrbBeat.spinStep
                 ticks += 1
                 // 单调不倒退；到顶后 progress 不变，靠 spin 产生可见变化（所以这里不再 return）
                 self.lastProgress = max(self.lastProgress, nextProgress)
@@ -534,7 +539,8 @@ final class LiveActivityManager {
                                                canStop: lastCanStop,
                                                progress: progress,
                                                spin: spin,
-                                               beatSeconds: lastBeat)
+                                               beatSeconds: lastBeat,
+                                               petStyle: PetStyle.current.rawValue)
     }
 
     // MARK: - 私有

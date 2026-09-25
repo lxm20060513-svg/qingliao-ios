@@ -75,6 +75,11 @@ struct OrbPetAnchor: Equatable {
 extension Notification.Name {
     /// 聊天页宠物长按 → 请求 dock 层弹出「长按快捷菜单」（与长按智慧球同一套菜单与动作分发）
     static let qingliaoOrbMenuFromPet = Notification.Name("qingliaoOrbMenuFromPet")
+    /// v3.9.79：宠物在屏幕上的真实中心变了 → **只刷新菜单锚点**（不弹菜单）。
+    /// 为什么必须与上面那条分开：菜单弹出会顺手收键盘，宠物随之下移（Spacer 回弹 ≥56pt），
+    /// 而锚点是「长按那一刻的快照」→ 菜单层会在旧位置再画一只宠物（真机观感＝两只宠物 + 胶囊挂在上方那只身上）。
+    /// 复用「打开菜单」那条通知做不到这件事：宠物任何位移都会把菜单重新弹出来。
+    static let qingliaoPetAnchorMoved = Notification.Name("qingliao_pet_anchor_moved")
 }
 
 /// 菜单锚点画什么：dock 智慧球（默认）/ 聊天页宠物

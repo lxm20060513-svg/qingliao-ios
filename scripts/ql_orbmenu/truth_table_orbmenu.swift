@@ -37,8 +37,25 @@ check("ChatEffects.swift 源可读", !chatEffectsSrc.isEmpty)
 // 命中层若自己写一份 width*(i+0.5)/n 等分估算，iOS 26 玻璃 tab bar 内容内缩时圈就偏 → 按球没反应。
 check("ChatEffects 提供全局球心 orbCenterGlobal", chatEffectsSrc.contains("static func orbCenterGlobal("))
 check("orbCenterGlobal 的 x 优先真实槽位中心", chatEffectsSrc.contains("slotCenterGlobal(index: slotIndex, count: slotCount)?.x"))
-check("orbCenterGlobal 的 y 与可见球同一条几何公式",
-      chatEffectsSrc.contains("keyWindowHeight - keyWindowSafeBottom - barH / 2 + dockContentCenterDrop"))
+check("orbCenterGlobal 的 y 与可见球同一条几何公式（内容差值同源，别各写一份）",
+      chatEffectsSrc.contains("let drop = contentCenterDrop(index: slotIndex, count: slotCount)")
+      && chatEffectsSrc.contains("keyWindowHeight - keyWindowSafeBottom - barH / 2 + drop"))
+// v3.9.79（用户横屏报修「智慧球在 dock 里上下没居中」）：内容差值必须**按当前朝向实测**，
+// 写死的 6.3 只是竖屏量出来的兜底值 —— 横屏 tab bar 紧凑形态下差值≈0。
+check("dock 内容差值按朝向实测（6.3 只当兜底）",
+      chatEffectsSrc.contains("static func slotContentDrop(index: Int, count: Int) -> CGFloat?")
+      && chatEffectsSrc.contains("static func contentCenterDrop(index: Int = 2, count: Int = 5) -> CGFloat")
+      && chatEffectsSrc.contains("if let d = slotContentDrop(index: index, count: count) { return d }")
+      && chatEffectsSrc.contains("let shortScreen = keyWindow?.traitCollection.verticalSizeClass == .compact"))
+// 审查① 实测指出：可见球曾用 @State liveDrop 缓存，命中层走实时值 → 转屏后 0.15s 窗口内差 6.3pt
+// =「球看着在那儿、按上去没反应」。口径固定为：**五处几何全部调同一个 contentCenterDrop，任何一处都不许缓存**。
+check("几何差值单一出口：可见球 / 球心 / 烟花原点都走 contentCenterDrop，且源里不许再有缓存状态",
+      chatEffectsSrc.contains("let drop = DockOrbOverlay.contentCenterDrop(index: slotIndex, count: slotCount)")
+      && chatEffectsSrc.contains("let drop = contentCenterDrop(index: slotIndex, count: slotCount)")
+      && chatEffectsSrc.contains("barHeight / 2 - contentCenterDrop(index: index, count: count)")
+      && !chatEffectsSrc.contains("@State private var liveDrop")
+      && !chatEffectsSrc.contains("latestDrop")
+      && !chatEffectsSrc.contains("barH / 2 + dockContentCenterDrop"))
 check("命中层走 orbCenterGlobal", orbMenuSrc.contains("DockOrbOverlay.orbCenterGlobal(slotIndex: slotIndex"))
 check("命中层 + 菜单层两处共用（出现 2 次）",
       orbMenuSrc.components(separatedBy: "DockOrbOverlay.orbCenterGlobal(").count - 1 == 2)
@@ -359,6 +376,99 @@ check("底衬不画小圆角描边（审查：与系统大圆角错位）",
 // ⚠️ 必须先剥注释行：本文件注释里为说明事故会出现 "glassEffect" / "Material" 字样，直接 contains 会假红。
 check("挂件代码里没有 glassEffect（岛内一律自绘）", !stripCommentLines(widgetSrc).contains("glassEffect"))
 check("挂件代码里没有 Material（同上）", !stripCommentLines(widgetSrc).contains("Material"))
+
+// ⑧ v3.9.79：灵动岛图标跟随卡通形象 + 右侧环 → 进度条（用户 2026-09-25 两条真机要求）
+//
+// 用户原话：「加改一条，灵动岛球图标跟随卡通形象动态图」/「灵动岛右边的圈圈也改成进度条」。
+// 这一节钉住的都是「改起来容易、回归起来没感觉」的点：
+//   a) 形象必须由 `ContentState.petStyle` 下发 —— 挂件读不到主 App 的 UserDefaults（免费签名无 App Groups）
+//   b) 形象画法复用主 App 的 PetPainter —— 挂件里另抄一套造型 = 两处造型必然分叉
+//   c) 动效只随数据更新 —— 往实时活动塞自走帧源是历史事故（「动几下就不动了」）
+//   d) 进度条高光必须折返 —— 取余到 1 会瞬跳回 0，白块每轮倒着闪（环时代审查踩过）
+//   e) 挂件 target 源码清单 —— 漏一个文件本机预检照样全绿，只有 CI Archive 会红（典型假绿）
+let attributesSrc = src("Core/LiveActivityAttributes.swift")
+let managerSrc = src("Core/LiveActivityManager.swift")
+let projectSrc = src("../project.yml")
+let islandIconCount = islandSlice.components(separatedBy: "PetOrbView(size:").count - 1
+check("灵动岛三处图标都是卡通形象（展开 36 / 紧凑 27 / 极简 24）",
+      islandIconCount == 3
+      && islandSlice.contains("PetOrbView(size: 36,")
+      && islandSlice.contains("PetOrbView(size: 27,")
+      && islandSlice.contains("PetOrbView(size: 24,"))
+// ⚠️ 不能用 contains("OrbView(")：`PetOrbView(` 本身就含这个子串（实测假红）。用「减去 Pet 前缀」的计数。
+let islandPlainOrbCalls = stripCommentLines(islandSlice).components(separatedBy: "OrbView(").count
+    - stripCommentLines(islandSlice).components(separatedBy: "PetOrbView(").count
+check("全挂件已无 OrbView 调用（球体视图整块退役；横幅也画形象）",
+      islandPlainOrbCalls == 0
+      && stripCommentLines(widgetSrc).components(separatedBy: "OrbView(").count
+         - stripCommentLines(widgetSrc).components(separatedBy: "PetOrbView(").count == 0
+      && widgetSrc.contains("PetOrbView(size: 46, styleRaw: state.petStyle"))
+check("形象走共享矢量绘制（PetPainter），挂件不另抄造型",
+      widgetSrc.contains("PetPainter(style: style,"))
+let petOrbSlice = between(widgetSrc, "struct PetOrbView: View {", "/// 轻聊球调色板")
+check("PetOrbView 切片可切出（空了本条就是空真）", !petOrbSlice.isEmpty)
+// 实参**顺序**要按声明逐字对齐（本仓最贵的失败类型，只有 CI Archive 会暴露）。
+// ⚠️ 不能用「逐个标签 contains」：那样把 state/blink 换序照样绿（反向自证实测）——必须断言有序片段。
+let iBlink = petOrbSlice.range(of: "blink: false,")
+let iSimplify = petOrbSlice.range(of: "simplify: size < PetKeys.simplifyBelow)")
+check("PetPainter 实参序 = 声明序（style→state→blink→simplify）",
+      widgetSrc.contains("PetPainter(style: style,\n                       state: petState,\n                       blink: false,")
+      && iBlink != nil && iSimplify != nil && iBlink!.lowerBound < iSimplify!.lowerBound)
+// ⚠️ 必须按**三处都在传**判（反向自证实测：只断言 contains 时，把其中一处改成写死液态仍然全绿）
+check("形象随 ContentState.petStyle 下发（三处图标都传，不是只传一处）",
+      widgetSrc.components(separatedBy: "styleRaw: context.state.petStyle").count - 1 == 3
+      && attributesSrc.contains("var petStyle: String"))
+check("petStyle 刻意不给默认值（漏传必须编译不过 → 不会静默画回球）",
+      !attributesSrc.contains("petStyle: String =")
+      && attributesSrc.contains("?? PetStyle.liquid.rawValue"))
+check("主 App 四处状态构造都下发当前形象",
+      managerSrc.components(separatedBy: "petStyle: PetStyle.current.rawValue").count - 1 == 4)
+check("形象动效只随数据更新（呼吸按拍换向，无自走帧源）",
+      petOrbSlice.contains("OrbBeat.spinStep")
+      && petOrbSlice.contains("OrbBeat.animation(beat)")
+      && !stripCommentLines(petOrbSlice).contains("repeatForever")
+      && !stripCommentLines(widgetSrc).contains("TimelineView"))
+check("眨眼底层不做（岛内渲染不出瞬时眨眼）", petOrbSlice.contains("blink: false"))
+check("spin 步长单一真源 OrbBeat.spinStep（App 侧不许再写死 0.125）",
+      attributesSrc.contains("static let spinStep: Double = 0.125")
+      && !managerSrc.contains("+ 0.125"))
+check("紧凑态右侧是进度条（28×5.5）", islandSlice.contains("phaseBar(state: state, width: 28, height: 5.5)"))
+check("展开态右侧是进度条（54×6.5）", islandSlice.contains("phaseBar(state: context.state, width: 54, height: 6.5)"))
+// ⚠️ 断言「调用」而不是裸名字：声明 `private func phaseRing(state:` 也含同名子串（实测假红）
+check("全挂件已无 phaseRing 调用（环整块退役；横幅也改进度条 52×7）",
+      !stripCommentLines(widgetSrc).contains("phaseRing(state: state, size:")
+      && !stripCommentLines(islandSlice).contains("self.phaseRing(")
+      && widgetSrc.contains("phaseBar(state: state, width: 52, height: 7)"))
+let phaseBarSlice = between(widgetSrc, "private func phaseBar(", "/// v3.9.10：右侧阶段指示改为")
+check("phaseBar 切片可切出（空了本条就是空真）", !phaseBarSlice.isEmpty)
+check("进度条高光位置用折返（取余会瞬跳回 0，白块倒着闪）",
+      phaseBarSlice.contains("truncatingRemainder(dividingBy: 2)")
+      && !phaseBarSlice.contains("spin.truncatingRemainder(dividingBy: 1)"))
+check("进度条语义仍是「本轮推进度」不是答案完成度",
+      phaseBarSlice.contains("min(1.0, max(0.06, state.progress))"))
+check("进度条颜色口径与环一致（failed 红 / done 绿 / streaming 紫）",
+      phaseBarSlice.contains("failed ? OrbPalette.fail")
+      && phaseBarSlice.contains("done ? OrbPalette.success")
+      && phaseBarSlice.contains("streaming ? OrbPalette.tail"))
+// 退役符号不得复活：只钉「无调用」不够 —— 把定义整块加回来（无人调用）或换个拼法调用都能绕过（审查④ F2）。
+// `phaseRing(` 带括号是为了不误伤退役注释里的裸符号名；`struct OrbView` 没有括号，所以另判一次。
+check("退役的球体视图/阶段环不得复活（定义与任何拼法的调用都算）",
+      !stripCommentLines(widgetSrc).contains("phaseRing(")
+      && !widgetSrc.contains("struct OrbView"))
+check("进度条过渡按本拍现算（不许写死秒数）",
+      phaseBarSlice.contains("OrbBeat.animation(state.beatSeconds)"))
+// 呼吸只许往内收：外扩 + 向上 offset 会让 36pt 展开态顶出布局框 ~1.26pt，
+// 而同一区域上方就是传感器区（36.67pt 顶行，38 就被圆角遮罩切边）——审查 F5 的推算。
+check("形象呼吸只往内收（不外扩、不越框）",
+      widgetSrc.contains(".scaleEffect(inhale ? 0.97 : 1.0)")
+      && !stripCommentLines(widgetSrc).contains(".scaleEffect(inhale ? 1.0 : 1.03)"))
+// ⚠️ 必须断言「在挂件的 sources 块里」而不是「文件里出现过这行」：条目挪到主 App 的 sources 下、
+//    或在别处残留同样字符串，都曾能让本条假绿（＝它自称要堵的那类假绿）。审查 F1 指出。
+let widgetSourcesBlock = between(projectSrc, "QingliaoWidget:", "info:")
+check("挂件 target sources 块非空（空了本条就是空真）", !widgetSourcesBlock.isEmpty)
+check("挂件 target 编入 PetModel.swift + PetPainter.swift（漏了只有 CI Archive 会红）",
+      widgetSourcesBlock.contains("- qingliao/Features/Chat/PetModel.swift")
+      && widgetSourcesBlock.contains("- qingliao/Features/Chat/PetPainter.swift"))
 check("横幅玻璃层不抢触摸（独立切片断言，见 ②）", glassSlice.contains(".allowsHitTesting(false)"))
 check("展开态玻璃底衬自绘（无描边版）", widgetSrc.contains("private var expandedGlass")
       && !widgetSrc.contains("cornerRadius: 10, style: .continuous)\n                .strokeBorder(Color.white.opacity(0.16)"))
@@ -407,6 +517,77 @@ check("「问 AI」走既有 .qingliaoTaskSend（不新造通道）",
       askAISlice.contains("NotificationCenter.default.post(name: .qingliaoTaskSend,"))
 check("「问 AI」先切到聊天页 + 0.35s 闸（否则 ChatView 不在树 → 通知落空）",
       askAISlice.contains("selected = .chat") && askAISlice.contains("seconds(0.35)"))
+
+// ⑩ v3.9.79 横屏欢迎页两栏（用户拍板方案 2）+ 横屏判据的根因修复
+// 根因：原来 AdaptiveLayout 拿 horizontalSizeClass == .regular 判横屏，而 iPhone 横屏仍是 .compact
+// → 那些"横屏放宽"的分支从来没生效过，横屏一直按竖屏尺寸硬排。
+check("横屏判据收在 AdaptiveLayout.isShort（只认 verticalSizeClass）",
+      src("Theme/AdaptiveLayout.swift").contains("static func isShort(_ vSize: UserInterfaceSizeClass?) -> Bool")
+      && src("Theme/AdaptiveLayout.swift").contains("vSize == .compact"))
+check("欢迎页按矮屏分流（横屏走两栏，不再拿竖屏尺寸硬排）",
+      chatViewSrc.contains("if AdaptiveLayout.isShort(vSize) { welcomeLandscape } else { welcomePortrait }"))
+check("横屏两栏 = 左形象+问候 / 右芯片竖排（用户拍板方案 2）",
+      chatViewSrc.contains("private var welcomeLandscape: some View")
+      && chatViewSrc.contains("private var landscapeChips: some View")
+      && chatViewSrc.contains("HStack(alignment: .center, spacing: Spacing.xxl + 18)"))
+// 拆件必须共用：形象手势 / 芯片样式 / 续聊卡各只有一处实现（横屏复制第二套 = 迟早两边走样）
+check("形象/芯片/续聊卡只此一份（横屏复用拆件，不许复制第二套手势与样式）",
+      chatViewSrc.components(separatedBy: "name: .qingliaoOrbMenuFromPet").count - 1 == 1
+      && chatViewSrc.components(separatedBy: "private func suggestionChip(_ s: WelcomeSuggestion)").count - 1 == 1
+      && chatViewSrc.components(separatedBy: "Text(\"继续上次\")").count - 1 == 1
+      && chatViewSrc.components(separatedBy: "petHero").count - 1 == 3)   // 定义 1 + 竖屏 1 + 横屏 1
+check("横屏 + 键盘弹起时芯片列收起（否则顶出屏幕）",
+      chatViewSrc.contains("if !kb.isVisible {\n                    landscapeChips\n                }"))
+
+// ⑨ v3.9.79「AI 翻译」胶囊（用户拍板：拍照/相册旁边加第三颗 → 拍照或选图**直接出译文**，不再给动作条；
+//    方向口径 = **自动双向**：中文→英文、其他语言→中文）
+check("识别浮层有第三颗「AI 翻译」胶囊（入口在位）",
+      identifySrc.contains("Label(\"AI 翻译\", systemImage: \"character.book.closed\")"))
+check("翻译模式可见且可退出（胶囊变「退出翻译」，错点一下能退回识别）",
+      identifySrc.contains("Label(\"退出翻译\", systemImage: \"xmark\")")
+      && identifySrc.contains("@State private var translateMode = false"))
+check("进翻译模式时提示文案改口（否则用户不知道这次拍照会出译文）",
+      identifySrc.contains("\"拍一张或选一张，AI 直接给你译文\""))
+// 关键行为：翻译分支**只取字 + 就地出译文** —— 不许走 extract（那条路没字时会去叫云端视觉模型，
+// 会把「做个总结」之类的内容塞进译文提示词），也不许自动把用户弹去聊天页（用户拍板「译文别回聊天页」）。
+let translateSlice = between(identifySrc, "if translating {", "let found = await IntentExtractor.extract")
+check("翻译分支切片取到（切片空了下面几条就是空真）", !translateSlice.isEmpty)
+check("翻译分支 = 只取字 + 一问一答 + 就地落成译文卡（不进 IntentActionBar）",
+      translateSlice.contains("await IntentExtractor.ocrText(in: image)")
+      && translateSlice.contains("QingliaoIntentClient.oneShot(TranslateKit.prompt(for: source),")
+      && translateSlice.contains("auth: auth, timeout: 30)")   // v3.9.79b：一问一答不挂 120s 默认超时
+      && translateSlice.contains("phase = .translated(source: source")
+      && !translateSlice.contains(".result(")
+      && !translateSlice.contains("onAskAI("))          // 就地显示为主路：别在分支里直接发会话
+check("翻译失败不静默退回选区（落在卡里给重试，且留着原图）",
+      translateSlice.contains("phase = .translateFailed")
+      && identifySrc.contains("@State private var lastImage: UIImage?")
+      && identifySrc.contains("guard let img = lastImage"))
+check("一问一答入口只有一处实现（ask 复用它，别再各写一份 payload）",
+      src("Core/AppIntents.swift").contains("static func oneShot(_ prompt: String, auth: AuthStore")
+      && src("Core/AppIntents.swift").contains("return try await oneShot(style.instructionPrefix + q, auth: auth)"))
+check("只取字的新入口收在 IntentExtractor（复用非 Sendable 那套处理，不另起后台闭包）",
+      src("Core/IntentExtractor.swift").contains("static func ocrText(in image: UIImage) async -> String?"))
+check("每次进浮层复位翻译模式（否则下次拍照莫名出译文）",
+      identifySrc.contains("translateMode = false\n            lastImage = nil"))
+check("译文卡三件套在位（复制 / 换一张 / 发给 AI 出口）+ 原文留 3 行便于核对",
+      identifySrc.contains("copyTranslation(text)")
+      && identifySrc.contains("restartTranslate()")
+      && identifySrc.contains("Text(copiedTranslation ? \"已复制\" : \"复制\")")
+      && identifySrc.contains(".lineLimit(3)")
+      && identifySrc.contains(".frame(maxHeight: 220)"))
+// 方向判据：真值表内复刻同一条判据并断言行为，再断言源侧同形（源改了而这里没改会红）
+func mirrorTranslateTarget(_ t: String) -> String {
+    t.unicodeScalars.contains { (0x4E00...0x9FFF).contains($0.value) } ? "英文" : "中文"
+}
+let translateSrc = src("Core/TranslateKit.swift")
+check("TranslateKit 源读得到（空了后面是空真）", !translateSrc.isEmpty)
+check("判据 = 汉字基本区 0x4E00...0x9FFF（与镜像同形）",
+      translateSrc.contains("(0x4E00...0x9FFF).contains($0.value)"))
+check("方向镜像：含汉字 → 英文", mirrorTranslateTarget("出发去北京") == "英文")
+check("方向镜像：纯拉丁 → 中文", mirrorTranslateTarget("Hello world") == "中文")
+check("提示词句式 = 「翻译成<方向>（保留原意，只输出译文）」+ 原文另起一行",
+      translateSrc.contains("请把下面这段文字翻译成\\(targetLabel(for: text))（保留原意，只输出译文）：\\n\\(text)"))
 
 // ⑧ 语音对话页：判断在 engine、页面只执行动作；发送与朗读都复用既有口径
 check("语音页不自己判「该不该发」（只执行 engine 给的动作）",
@@ -737,6 +918,15 @@ check("圆角默认 Radius.hero(22)（用户从 12/16/22 三档里选的 22）",
       overlayMod.contains("var cornerRadius: CGFloat = Radius.hero"))
 check("描边 = 白 0.8pt 亮边，浅 0.12 / 深 0.22（与 GlassCard 同参）",
       overlayMod.contains("strokeBorder(Color.white.opacity(scheme == .dark ? 0.22 : 0.12), lineWidth: 0.8)"))
+// v3.9.78 追加（用户 2026-09-25「弹窗卡片边框加淡色描边」）：外圈再压一条 `Tint.line` 淡色线 ——
+// 纯白亮边在浅色底（聊天页 systemBackground）上几乎看不见，用户看到的是「卡片没边框」。
+check("边框有可见淡色描边：外圈 Tint.line 0.8pt（浅 0.08 / 深 0.16，全站描边同参）",
+      overlayMod.contains(".strokeBorder(Tint.line(scheme), lineWidth: 0.8)"))
+// 两条线必须错开：白亮边内缩 0.8pt，否则同一条弧上叠两条线（观感更糊，且浪费一层）
+check("白亮边内缩 0.8pt 排在外圈淡色线里侧（两条线不重叠）",
+      overlayMod.contains(".strokeBorder(Color.white.opacity(scheme == .dark ? 0.22 : 0.12), lineWidth: 0.8)\n                    .padding(0.8)"))
+check("描边只有一层半径源（圆角与描边必须同一个角值，防方框套圆框）",
+      overlayMod.components(separatedBy: "RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)").count - 1 == 3)
 check("对外暴露 .overlayGlassCard() 且默认走 hero 档",
       lgSrc.contains("func overlayGlassCard(cornerRadius: CGFloat = Radius.hero) -> some View"))
 
@@ -748,8 +938,8 @@ check("① 意图动作卡走 .overlayGlassCard()",
 // ⚠️ 计数/排除式断言先剥注释：这两张卡的注释里就写着 `.overlayGlassCard()` 与旧口径（说明「改了什么」），
 //    不剥会数出 4 处（注释 2 + 代码 2）→ 假红。
 let identifyClean = stripCommentLines(identifySrc)
-check("② 识别浮层两张卡都走新口径（应当是 2 处）",
-      identifyClean.components(separatedBy: ".overlayGlassCard()").count - 1 == 2)
+check("② 识别浮层所有卡都走新口径（v3.9.79 起 5 张：识别中/没认出/翻译中/译文/翻译失败；应当是 5 处）",
+      identifyClean.components(separatedBy: ".overlayGlassCard()").count - 1 == 5)
 check("② 识别浮层旧的实心卡口径清零（regularMaterial / Radius.inset / 暗发丝线）",
       !identifyClean.contains(".regularMaterial")
       && !identifyClean.contains("Radius.inset")

@@ -58,11 +58,19 @@ struct QingliaoActivityAttributes: ActivityAttributes {
         /// 完全静止（用户报的「灵动岛动画还是会断」＝这个顿挫）。
         /// 现在两侧共用同一个数：过渡 = `OrbBeat.duration(拍)`（>2s 的过渡 Apple 侧不保证播完）。
         var beatSeconds: Double
+        /// v3.9.79：**当前卡通形象**（`PetStyle.rawValue`）——挂件照它画灵动岛图标
+        /// （用户 2026-09-25：「加改一条，灵动岛球图标跟随卡通形象动态图」）。
+        /// 为什么走「数据下发」而不是挂件自己读 UserDefaults：侧载免费签名拿不到 App Groups，
+        /// 扩展进程读不到主 App 的 `UserDefaults.standard`（见挂件文件头注释）。
+        /// ⚠️ **刻意不给默认值**：漏传就编译不过——有默认值时挂件会静默画回液态球，
+        /// 与用户在设置里选的猫/海豹不一致（同 `OrbView.beat` 的口径）。
+        var petStyle: String
 
         init(sessionTitle: String, modelName: String, startedAt: Date, isAnswering: Bool,
              phase: String = QingliaoActivityAttributes.Phase.thinking.rawValue,
              actionText: String = "", canStop: Bool = false,
-             progress: Double = 0.18, spin: Double = 0, beatSeconds: Double = OrbBeat.fast) {
+             progress: Double = 0.18, spin: Double = 0, beatSeconds: Double = OrbBeat.fast,
+             petStyle: String) {
             self.sessionTitle = sessionTitle
             self.modelName = modelName
             self.startedAt = startedAt
@@ -73,11 +81,12 @@ struct QingliaoActivityAttributes: ActivityAttributes {
             self.progress = progress
             self.spin = spin
             self.beatSeconds = beatSeconds
+            self.petStyle = petStyle
         }
 
         private enum CodingKeys: String, CodingKey {
             case sessionTitle, modelName, startedAt, isAnswering, phase, actionText, canStop,
-                 progress, spin, beatSeconds
+                 progress, spin, beatSeconds, petStyle
         }
 
         /// v3.9.7：手写解码。
@@ -101,6 +110,9 @@ struct QingliaoActivityAttributes: ActivityAttributes {
             spin = try c.decodeIfPresent(Double.self, forKey: .spin) ?? 0
             // v3.9.37：旧活动缺这个键 → 按 1.2s 一拍渲染（= 与新推手起步节奏一致，不会跳变）
             beatSeconds = try c.decodeIfPresent(Double.self, forKey: .beatSeconds) ?? OrbBeat.fast
+            // v3.9.79：旧活动缺这个键 → 按液态小生物渲染（原球的材质配色，身份不断层），
+            // 绝不落空白；认不出的值由挂件侧 `PetStyle.from(_:)` 再兜一次。
+            petStyle = try c.decodeIfPresent(String.self, forKey: .petStyle) ?? PetStyle.liquid.rawValue
         }
     }
 
@@ -132,6 +144,10 @@ enum OrbBeat {
     static let cap: Double = 1.95
     /// 下限：拍间隔被写成异常小值时，别让过渡退化成瞬跳。
     static let floor: Double = 0.45
+    /// v3.9.79：**不确定态相位每拍推进量**（`ContentState.spin` 的步长）。
+    /// 从「App 侧写死的 0.125 + 挂件侧自己猜」收成一份：挂件要按「第几拍」做奇偶（形象呼吸换向、
+    /// 高光折返）时，必须用同一个步长，否则两侧节奏不同步。
+    static let spinStep: Double = 0.125
 
     /// 数值换算（本文件刻意不 import SwiftUI；挂件的 `animation(_:)` 只是它外面包一层）。
     static func duration(_ beat: Double) -> Double {

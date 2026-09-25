@@ -21,65 +21,8 @@ import SwiftUI
 //    欢迎页/消息头像这两个位置是本文件独占，删掉的 605 行 + 一个 76KB 着色器不再进包。
 //    护栏「全仓无球渲染器残留引用」钉住不得复活（要回滚请从 git 历史取，别凭记忆重写）。
 
-enum PetKeys {
-    static let style = "qingliao_pet_style"
-    static let motion = "qingliao_pet_motion"
-    /// 76pt 以下简化（消息头像 30/38pt 走这条路）
-    static let simplifyBelow: CGFloat = 76
-}
-
-// MARK: 形象（三选一，设置项写在「外观设置 → 聊天页形象」）
-
-enum PetStyle: String, CaseIterable, Identifiable {
-    case liquid      // 液态小生物：沿用原球的材质与配色 → 身份不断层
-    case cat         // 圆润小猫：走出球的配色，辨识度最高
-    case seal        // 小海豹：冷色玻璃体积感，最贴「球」的形
-
-    var id: String { rawValue }
-
-    var name: String {
-        switch self {
-        case .liquid: return "液态小生物"
-        case .cat: return "圆润小猫"
-        case .seal: return "小海豹"
-        }
-    }
-
-    var blurb: String {
-        switch self {
-        case .liquid: return "沿用原来那颗球的材质与配色"
-        case .cat: return "暖色暖光，辨识度最高"
-        case .seal: return "冷色玻璃质感，最接近球的体形"
-        }
-    }
-}
-
-// MARK: 宠物动画三档（无障碍硬要求：默认跟随系统）
-
-enum PetMotion: String, CaseIterable, Identifiable {
-    case system      // 跟随系统（系统开了「减弱动态效果」就自动减弱）
-    case reduced     // 减弱：只留瞬时切换，不做位移/缩放
-    case off         // 关闭：完全静止（仍可点击，状态变化靠文案/角标）
-
-    var id: String { rawValue }
-
-    var name: String {
-        switch self {
-        case .system: return "跟随系统"
-        case .reduced: return "减弱"
-        case .off: return "关闭"
-        }
-    }
-}
-
-// MARK: 形象状态（只做冗余表达；宠物永远不是唯一的信息通道）
-
-enum PetState: Equatable {
-    case idle
-    case patting        // 抚摸（单击后 1.1s 内）
-    case thinking       // AI 正在回
-    case alert          // 有新消息 / 上一次失败（形态已就绪，接线由宿主决定）
-}
+// ⚠️ 形象枚举（PetKeys / PetStyle / PetMotion / PetState）已抽到同目录 `PetModel.swift`：
+//    实时活动挂件 target 也要画同一只形象（v3.9.79），挂件不带 AppStorage/View，所以模型单独一个文件。
 
 // MARK: - 形象视图
 
@@ -90,6 +33,10 @@ struct PetAvatar: View {
     var patTrigger: Int = 0
     /// 设置页预览用：不受用户当前选择影响（nil = 跟随用户选择）
     var styleOverride: PetStyle? = nil
+    /// 设置页缩略图用：**按小尺寸直接画**但要保留完整细节（绕过 76pt 简化阈值）。
+    /// ⚠️ 别再退回「以 96 画 + `.frame(52,52)` 显示」那套：frame 只改布局槽位、不缩放画面，
+    /// 96pt 画布会从 52pt 槽位四周各溢出 22pt —— 形象压住卡片圆角边框和自家名字（v3.9.78 真机报修）。
+    var keepDetail: Bool = false
 
     @AppStorage(PetKeys.style) private var storedStyle: PetStyle = .liquid
     @AppStorage(PetKeys.motion) private var motionSetting: PetMotion = .system
@@ -116,7 +63,7 @@ struct PetAvatar: View {
     /// 有效状态：抚摸反应优先（一次性），其次传入的状态
     private var effectiveState: PetState { patting ? .patting : state }
 
-    private var simplify: Bool { size < PetKeys.simplifyBelow }
+    private var simplify: Bool { keepDetail ? false : size < PetKeys.simplifyBelow }
 
     var body: some View {
         let drawSize = size

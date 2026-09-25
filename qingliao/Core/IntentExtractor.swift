@@ -65,6 +65,13 @@ enum IntentExtractor {
         return IntentPipeline.classify(text: t)
     }
 
+    /// v3.9.79：「AI 翻译」胶囊用 —— **只取字**，不走意图管道、不碰端侧/云端模型。
+    /// 复用同一个 `scanImage`（`UIImage` 非 Sendable 的那套 nonisolated + continuation 处理），
+    /// 别在调用点自己再起一个后台闭包 —— 那正是 Swift 6 sending 报错的老坑（见 scanImage 注释）。
+    static func ocrText(in image: UIImage) async -> String? {
+        await scanImage(image).ocrText
+    }
+
     /// 一次扫描的结果（Sendable 值类型，可安全跨并发域）
     private struct Scan: Sendable {
         var ocrText: String?

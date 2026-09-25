@@ -56,12 +56,27 @@ print("\n=== ② 源护栏 ===")
 // 本表原来的球渲染器护栏（live 透传 / 冻结判定）随之退役 —— 球文件保留但**不得再被引用**，
 // 新的口径护栏见下：宠物组件 / 三只形态 / 动画三档 / 设置项同源 / 省电门控 / 不打扰红线。
 let petPath = "/opt/data/qingliao_ios/qingliao/Features/Chat/PetAvatar.swift"
+/// v3.9.79：形象枚举（PetKeys / PetStyle / PetMotion / PetState）已抽到 PetModel.swift
+/// —— 实时活动挂件 target 也要编它（挂件不带 AppStorage/View）。枚举类断言一律读这里。
+let petModelPath = "/opt/data/qingliao_ios/qingliao/Features/Chat/PetModel.swift"
 let painterPath = "/opt/data/qingliao_ios/qingliao/Features/Chat/PetPainter.swift"
 let chatPath = "/opt/data/qingliao_ios/qingliao/Features/Chat/ChatView.swift"
 let bubblePath = "/opt/data/qingliao_ios/qingliao/Features/Chat/ChatMessageBubble.swift"
 let settingsPath = "/opt/data/qingliao_ios/qingliao/Features/Settings/AppearanceSheet.swift"
 
 let petSrc = (try? String(contentsOfFile: petPath, encoding: .utf8)) ?? ""
+let petModelSrc = (try? String(contentsOfFile: petModelPath, encoding: .utf8)) ?? ""
+// 读不到就报出来（否则断言会指向错处：enumLines("") 返回 []，「三只形象齐备」变红但看不出是文件被搬走）
+check("护栏：PetModel.swift 读得到", !petModelSrc.isEmpty, petModelPath)
+// 进挂件的**唯一理由**是「纯模型」：挂件 target 不编 View / 不读 @AppStorage（审查 F3）。
+// 与 PetPainter 那条同类红线（!contains("import UIKit")）成对，别只钉一头。
+// ⚠️ 必须先剥注释行：本文件的注释里为说明「为什么不能塞 AppStorage/View」会写出这些字样（实测假红）。
+let petModelCode = petModelSrc.split(separator: "\n", omittingEmptySubsequences: false)
+    .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+    .joined(separator: "\n")
+check("PetModel.swift 是纯模型（无 View / 无 @AppStorage / 无 UIKit）——否则挂件编不过",
+      !petModelCode.contains(": View") && !petModelCode.contains("@AppStorage")
+      && !petModelCode.contains("import UIKit"))
 let painterSrc = (try? String(contentsOfFile: painterPath, encoding: .utf8)) ?? ""
 let chatSrc = (try? String(contentsOfFile: chatPath, encoding: .utf8)) ?? ""
 let bubbleSrc = (try? String(contentsOfFile: bubblePath, encoding: .utf8)) ?? ""
@@ -177,8 +192,14 @@ check("护栏：长按的 keyboardWasUp 用 kb.isVisible（不是 inputFocus）"
 // ⑦ 长按宠物 → 复用智慧球那一套菜单层（单真源，不在聊天页搭第二套）
 let menuPath = "/opt/data/qingliao_ios/qingliao/Features/OrbQuickMenu.swift"
 let dockPath = "/opt/data/qingliao_ios/qingliao/Features/DockTabView.swift"
+let effectsPath = "/opt/data/qingliao_ios/qingliao/Features/Chat/ChatEffects.swift"
+let identifyPath = "/opt/data/qingliao_ios/qingliao/Features/OrbIdentifyOverlay.swift"
 let menuSrc = (try? String(contentsOfFile: menuPath, encoding: .utf8)) ?? ""
 let dockSrc = (try? String(contentsOfFile: dockPath, encoding: .utf8)) ?? ""
+let effectsSrc = (try? String(contentsOfFile: effectsPath, encoding: .utf8)) ?? ""
+let identifySrc = (try? String(contentsOfFile: identifyPath, encoding: .utf8)) ?? ""
+check("护栏：OrbQuickMenu/DockTabView/ChatEffects/OrbIdentifyOverlay 都读得到（空了下面的断言就是空真）",
+      !menuSrc.isEmpty && !dockSrc.isEmpty && !effectsSrc.isEmpty && !identifySrc.isEmpty)
 check("护栏：OrbQuickMenu.swift 读得到", !menuSrc.isEmpty, menuPath)
 check("护栏：DockTabView.swift 读得到", !dockSrc.isEmpty, dockPath)
 check("菜单锚点做成参数（dock 球 / 宠物），不是两套菜单",
@@ -198,8 +219,10 @@ check("动作分发单一真源：聊天页没有复制 handleOrbAction",
       && !chatSrc.contains("handleOrbAction("))
 check("接收侧把锚点交给菜单并复用 handleOrbAction（六条入口不变）",
       dockSrc.contains("petAnchor: orbMenuPetAnchor,") && dockSrc.contains("onAction: { handleOrbAction($0) }"))
+// ⚠️ 必须断言**跨行片段**：拆成两段 contains 时，把 `petAnchor = nil` 挪进 else（行为反转）也照样绿
+//    —— 发版前审查第二轮实测指出（当时就是这么写宽的）。
 check("菜单收起即清锚点（否则下次长按球会锚在宠物位置）",
-      dockSrc.contains("if !shown { petAnchor = nil }"))
+      dockSrc.contains("if !shown {\n                    petAnchor = nil"))
 check("互斥口径与 dock 命中层一致（识别浮层/语音页开着时不弹）",
       dockSrc.contains("guard !showOrbMenu, !blocked else { return }")
       && dockSrc.contains("blocked: showIdentify || showVoiceDialog"))
@@ -213,6 +236,63 @@ check("body 巨型链上只挂一个 .modifier，带闭包的修饰符收进独�
       && iMenuModifier!.lowerBound < iMenuOnReceive!.lowerBound)
 check("菜单浮层抽成独立计算属性（8 参 + 两闭包不留 body 里）",
       dockSrc.contains("var orbMenuOverlay: some View {") && dockSrc.contains("if showOrbMenu { orbMenuOverlay }"))
+// ── v3.9.79：长按菜单弹出即收键盘（用户 2026-09-25 真机：「这个界面自动收回键盘」）──
+// 由头：键盘开着时长按球/宠物，六颗胶囊被键盘挤在上半屏。收在 `showOrbMenu` 一处 onChange
+// （长按球 OrbHitLayer 与长按宠物 .qingliaoOrbMenuFromPet 两条路都经过它），键盘实际怎么收在 ChatView 侧。
+// ⚠️ v3.9.79 审查后口径变更：广播点**合进既有 `OrbMenuFromPetModifier`**（同一个 onChange），
+//    不再单独加第二个 .modifier —— body 巨型链上多一个泛型调用就是 CI run #571 类型检查超时那类风险。
+check("菜单弹出即收键盘：收在既有修饰符的 onChange(of: showOrbMenu) 里（两条打开路径都覆盖）",
+      dockSrc.contains("private struct OrbMenuFromPetModifier: ViewModifier {")
+      && dockSrc.contains(".onChange(of: showOrbMenu) { _, shown in"))
+// 相对位置断言：post 必须在修饰符定义之后（= 在它体内），不许挂回 body 巨型链
+let iDismissModifier = dockSrc.range(of: "private struct OrbMenuFromPetModifier: ViewModifier {")
+let iDismissPost = dockSrc.range(of: "NotificationCenter.default.post(name: .qingliaoDismissKeyboard, object: nil)")
+check("收键盘的 post 收在 else 分支里（＝菜单**弹出**时收；挪到别处任何位置都该变红）",
+      iDismissModifier != nil && iDismissPost != nil
+      && iDismissModifier!.lowerBound < iDismissPost!.lowerBound
+      && dockSrc.contains("} else {\n                    NotificationCenter.default.post(name: .qingliaoDismissKeyboard, object: nil)"))
+check("dock body 巨型链上只挂一个 .modifier（多挂一个泛型调用 = 类型检查超时，run #571 实录）",
+      dockSrc.components(separatedBy: ".modifier(OrbMenuFromPetModifier(").count - 1 == 1
+      && !dockSrc.contains(".modifier(OrbMenuKeyboardDismissModifier("))
+check("通知名单一真源（只在一处定义）",
+      chatSrc.contains("static let qingliaoDismissKeyboard = Notification.Name(\"qingliao_dismiss_keyboard\")"))
+// ── v3.9.79b：菜单锚点必须跟着宠物走（发版前审查实测的真机交互缺陷）──
+// 链：菜单弹出即收键盘 → 宠物随 Spacer 回弹下移 ≥56pt → 锚点若还停在长按那一刻的快照，
+//     菜单层会在旧位置**再画一只宠物** → 观感「两只宠物 + 胶囊挂在上方那只身上」。
+// 两条通知必须分开：拿「打开菜单」那条来做锚点刷新，宠物任何位移都会把菜单重新弹出来。
+check("锚点刷新走独立通知（不能复用「打开菜单」那条，否则宠物位移会重弹菜单）",
+      menuSrc.contains("static let qingliaoPetAnchorMoved = Notification.Name(\"qingliao_pet_anchor_moved\")")
+      && menuSrc.contains("static let qingliaoOrbMenuFromPet = Notification.Name(\"qingliaoOrbMenuFromPet\")"))
+check("聊天页：宠物真实中心一变即广播锚点（onGeometryChange 之后紧接 onChange）",
+      chatSrc.contains("} action: { petGlobalCenter = $0 }")
+      && chatSrc.contains(".onChange(of: petGlobalCenter) { _, center in")
+      && chatSrc.contains("userInfo: OrbPetAnchor(center: center, size: 96).userInfo)"))
+let anchorRefreshSlice = slice(dockSrc,
+                               from: ".onReceive(NotificationCenter.default.publisher(for: .qingliaoPetAnchorMoved))",
+                               to: "    }\n}\n")
+check("dock 侧锚点刷新切片切得出（空了本条就是空真）", !anchorRefreshSlice.isEmpty)
+check("dock 侧只在菜单开着时更新锚点（关着丢弃，且**不打开**菜单）",
+      anchorRefreshSlice.contains("guard showOrbMenu, !blocked else { return }")
+      && !anchorRefreshSlice.contains("showOrbMenu = true"))
+// ── v3.9.79b：烟花原点不再写死槽位号（审查「可优化」第 3 条）──
+check("烟花原点槽位透传（dock 传 index/count，ChatEffects 不再写死 2/5）",
+      dockSrc.contains("ballCenterFromBottom(barHeight: dockBarHeight,")
+      && dockSrc.contains("index: 2, count: dockSlotCount)")
+      && !effectsSrc.contains("contentCenterDrop(index: 2, count: 5)"))
+// ── v3.9.79b：译文卡两处收口（审查「可优化」第 4/5 条）──
+check("「换一张」复位「已复制」（否则新译文卡会先闪一行「已复制」）",
+      identifySrc.contains("private func restartTranslate() {\n        copiedTranslation = false"))
+check("翻译只一问一答：oneShot 超时收到 30s（默认 120s 会让卡 2 分钟无可重试、无可取消）",
+      identifySrc.contains("auth: auth, timeout: 30)"))
+// ChatView 侧：消费通知 + 收法与语音模式同口径（先清 FocusState，再 60ms UIKit 兜底）
+let dismissSlice = slice(chatSrc,
+                         from: ".onReceive(NotificationCenter.default.publisher(for: .qingliaoDismissKeyboard))",
+                         to: ".onAppear {")
+check("ChatView 收键盘切片切得出（空了后面全是空真）", !dismissSlice.isEmpty)
+check("收法 = 先清 FocusState 让输入栏缩回第一层，再 60ms UIKit 兜底（iOS 27 触摸聚焦会覆盖 FocusState）",
+      dismissSlice.contains("inputFocus = false")
+      && dismissSlice.contains("try? await Task.sleep(for: .seconds(0.06))")
+      && dismissSlice.contains("UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),"))
 check("语音入口没丢：菜单里仍有「语音输入」+「语音对话」",
       menuSrc.contains("title: \"语音输入\"") && menuSrc.contains("title: \"语音对话\""))
 check("宠物锚点打包/解包成对（NSValue 包 CGPoint，尺寸随包带）",
@@ -232,21 +312,21 @@ func enumLines(_ src: String, _ name: String) -> [String] {
         }
     }
 }
-let styleCases = enumLines(petSrc, "PetStyle")
+let styleCases = enumLines(petModelSrc, "PetStyle")
 check("三只形象齐备且顺序固定（liquid / cat / seal —— 设置页三格顺序跟着它）",
       styleCases == ["liquid", "cat", "seal"], styleCases.joined(separator: "/"))
-let motionCases = enumLines(petSrc, "PetMotion")
+let motionCases = enumLines(petModelSrc, "PetMotion")
 check("动画三档齐备且顺序固定（system / reduced / off）",
       motionCases == ["system", "reduced", "off"], motionCases.joined(separator: "/"))
 check("三只都有各自画法（不是同一套换色；锚点带括号，防「drawSealX」式假绿）",
       painterSrc.contains("private func drawLiquid(") && painterSrc.contains("private func drawCat(")
       && painterSrc.contains("private func drawSeal("))
 check("两个设置 key 收在 PetKeys（单一真源）",
-      petSrc.contains("static let style = \"qingliao_pet_style\"")
-      && petSrc.contains("static let motion = \"qingliao_pet_motion\""))
-check("76pt 以下自动简化（30/38pt 头像走简化形态，细节不糊）",
-      petSrc.contains("static let simplifyBelow: CGFloat = 76")
-      && petSrc.contains("private var simplify: Bool { size < PetKeys.simplifyBelow }"))
+      petModelSrc.contains("static let style = \"qingliao_pet_style\"")
+      && petModelSrc.contains("static let motion = \"qingliao_pet_motion\""))
+check("76pt 以下自动简化（30/38pt 头像走简化形态，细节不糊；设置页缩略图走 keepDetail 旁路）",
+      petModelSrc.contains("static let simplifyBelow: CGFloat = 76")
+      && petSrc.contains("private var simplify: Bool { keepDetail ? false : size < PetKeys.simplifyBelow }"))
 check("省电门控：关闭 / 减弱 / 后台 一律不动",
       petSrc.contains("case .off: return false") && petSrc.contains("case .reduced: return false")
       && petSrc.contains("scenePhase == .active"))
@@ -277,9 +357,9 @@ check("动画三档走 PetMotion.allCases",
       settingsSrc.contains("ForEach(PetMotion.allCases)"))
 check("设置页读的是同一组 key（不是另写一份，本地/云端天然一致）",
       settingsSrc.contains("@AppStorage(PetKeys.style)") && settingsSrc.contains("@AppStorage(PetKeys.motion)"))
-check("缩略图以 96 画、52 显示（不被简化阈值砍掉细节）",
-      settingsSrc.contains("PetAvatar(size: 96, state: .idle, styleOverride: style)")
-      && settingsSrc.contains(".frame(width: 52, height: 52)"))
+check("缩略图按显示尺寸直接画（52 画 = 52 显示，keepDetail 保细节）——不得再用「96 画 + frame 52」硬塞（会溢出卡片）",
+      settingsSrc.contains("PetAvatar(size: 52, state: .idle, styleOverride: style, keepDetail: true)")
+      && !settingsSrc.contains(".frame(width: 52, height: 52)"))
 check("选中态可见（蓝框/highlight）+ 无障碍标注",
       settingsSrc.contains("accessibilityLabel(\"聊天页形象：\\(style.name)\")")
       && settingsSrc.contains("accessibilityAddTraits(selected ? [.isSelected] : [])"))

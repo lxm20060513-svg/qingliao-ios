@@ -179,6 +179,9 @@ struct DockTabView: View {
             .modifier(OrbMenuFromPetModifier(showOrbMenu: $showOrbMenu,
                                              petAnchor: $orbMenuPetAnchor,
                                              blocked: showIdentify || showVoiceDialog))
+            // v3.9.79：菜单弹出即收键盘（用户 2026-09-25：「这个界面自动收回键盘」）——
+            // 广播点合在 OrbMenuFromPetModifier 里的 onChange(of: showOrbMenu)（长按球 + 长按宠物两条路都覆盖），
+            // **刻意不在链上再挂第二个 .modifier**：body 巨型链多一个泛型调用就是 CI run #571 那类超时风险。
             // v3.9.76：智慧球「AI 识别」浮层（球上悬浮卡 + 扫描环 + 背景虚化）。
             // 与长按菜单互斥（菜单先收起才进这里）。「问 AI」复用既有 .qingliaoTaskSend 通道
             // —— 与任务中心、备忘录「发给 AI」完全同一条路，不新造通道。
@@ -223,7 +226,8 @@ struct DockTabView: View {
             // v3.6.2：全屏粒子爆发（点 dock 智能球触发；纯视觉，不挡交互）
             .overlay {
                 if showDockBurst {
-                    FullScreenBurst(originFromBottom: DockOrbOverlay.ballCenterFromBottom(barHeight: dockBarHeight))
+                    FullScreenBurst(originFromBottom: DockOrbOverlay.ballCenterFromBottom(barHeight: dockBarHeight,
+                                                                                        index: 2, count: dockSlotCount))
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .allowsHitTesting(false)
                         .transition(.opacity)
@@ -508,9 +512,20 @@ private struct OrbMenuFromPetModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            // 菜单收起时清锚点：否则下一次长按球的菜单会锚在上次的宠物位置
+            // 菜单收起时清锚点：否则下一次长按球的菜单会锚在上次的宠物位置；
+            // 菜单**弹出**时顺手收键盘（用户 2026-09-25：「这个界面自动收回键盘」）。
+            // 收在 showOrbMenu 这一处：长按球（OrbHitLayer）与长按宠物（.qingliaoOrbMenuFromPet）
+            // 两条路都经过这个状态位 → 不会漏掉某一条。
+            // 键盘「怎么收」在 ChatView 侧（清 FocusState + 60ms UIKit 兜底，与语音模式同口径），dock 这层只广播。
+            // ⚠️ v3.9.79 审查后合并：原来另挂一个 `OrbMenuKeyboardDismissModifier`，等于 body 巨型链上
+            //    又多一个泛型 .modifier 调用 —— 那正是 CI run #571「type-check 超时」的同类风险；
+            //    这里本就有同一个 onChange(of: showOrbMenu)，合进来，链上保持只有 1 个修饰符。
             .onChange(of: showOrbMenu) { _, shown in
-                if !shown { petAnchor = nil }
+                if !shown {
+                    petAnchor = nil
+                } else {
+                    NotificationCenter.default.post(name: .qingliaoDismissKeyboard, object: nil)
+                }
             }
             // 聊天页宠物长按 ＝ 长按智慧球**同一套**菜单（用户：「长按宠物改成和长按智慧球一样的效果」）。
             // 只换锚点，动作分发仍走 handleOrbAction（单一真源，不在聊天页复制第二套）。
@@ -520,5 +535,19 @@ private struct OrbMenuFromPetModifier: ViewModifier {
                 petAnchor = anchor
                 showOrbMenu = true
             }
+            // v3.9.79：菜单**开着**时宠物真实中心变了 → 只更新锚点，不重开菜单（见 Notification.Name 处的事故说明：
+            // 收键盘让宠物下移 ≥56pt，锚点不跟着走就会「两只宠物」）。菜单关着时这条通知直接丢弃。
+            .onReceive(NotificationCenter.default.publisher(for: .qingliaoPetAnchorMoved)) { (note: Notification) in
+                guard showOrbMenu, !blocked else { return }
+                guard let anchor = OrbPetAnchor(userInfo: note.userInfo) else { return }
+                petAnchor = anchor
+            }
     }
 }
+
+// MARK: - v3.9.79 长按快捷菜单弹出 → 收键盘
+//
+// 由头（用户 2026-09-25 真机截图）：「这个界面自动收回键盘」——键盘开着时长按智慧球/宠物，
+// 六颗胶囊被键盘挤在上半屏，观感是「菜单浮在半空」。
+// 广播点**合进上面的 `OrbMenuFromPetModifier`**（同一个 onChange(of: showOrbMenu)），
+// 理由：不再往 DockTabView.body 的巨型修饰符链上多加一个泛型调用（CI run #571 类型检查超时那类风险）。
