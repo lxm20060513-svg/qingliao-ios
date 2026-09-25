@@ -169,36 +169,16 @@ struct DockTabView: View {
             }
             // v3.9.59：长按球快捷菜单浮层（最顶层，模态——轻纱吃掉空白点击收起）
             .overlay {
-                if showOrbMenu {
-                    OrbQuickMenuOverlay(barHeight: dockBarHeight,
-                                        slotIndex: 2,
-                                        slotCount: dockSlotCount,
-                                        // v3.9.78：锚点球与 dock 那颗同状态（菜单开着时球仍在原位可见）
-                                        thinking: stream.isStreaming,
-                                        unseen: orbUnseen,
-                                        failed: orbFailed,
-                                        petAnchor: orbMenuPetAnchor,
-                                        onAction: { handleOrbAction($0) },
-                                        onClose: { showOrbMenu = false })
-                        .transition(.opacity)
-                        .zIndex(40)
-                }
+                if showOrbMenu { orbMenuOverlay }
             }
             .animation(Motion.snap, value: showOrbMenu)
-            // v3.9.78：菜单收起时把锚点清掉（否则下一次长按球的菜单会锚在上次的宠物位置）
-            .onChange(of: showOrbMenu) { _, shown in
-                if !shown { orbMenuPetAnchor = nil }
-            }
-            // v3.9.78：聊天页宠物长按 = 长按智慧球**同一套**菜单（用户：「长按宠物改成和长按智慧球一样的效果」）。
-            // 只把锚点换成宠物，动作分发仍走 handleOrbAction（单一真源——不在聊天页复制一份，
-            // 否则新建会话/速记/待办/识别/语音这六条入口迟早两套口径）。
-            // 互斥口径与 dock 命中层一致：识别浮层/语音页开着时不弹。
-            .onReceive(NotificationCenter.default.publisher(for: .qingliaoOrbMenuFromPet)) { note in
-                guard !showOrbMenu, !showIdentify, !showVoiceDialog else { return }
-                guard let anchor = OrbPetAnchor(userInfo: note.userInfo) else { return }
-                orbMenuPetAnchor = anchor
-                showOrbMenu = true
-            }
+            // v3.9.78：宠物长按 → 同一套菜单（含收起时清锚点）。
+            // 🚨 这段**必须**是独立 ViewModifier，不能在 body 的巨型表达式上直接再挂两个带闭包的修饰符：
+            //    实测（CI run #571）整条链当场 "the compiler is unable to type-check this expression
+            //    in reasonable time"，Archive 阶段直接失败。抽出去后 body 上只剩一个 .modifier(…) 泛型调用。
+            .modifier(OrbMenuFromPetModifier(showOrbMenu: $showOrbMenu,
+                                             petAnchor: $orbMenuPetAnchor,
+                                             blocked: showIdentify || showVoiceDialog))
             // v3.9.76：智慧球「AI 识别」浮层（球上悬浮卡 + 扫描环 + 背景虚化）。
             // 与长按菜单互斥（菜单先收起才进这里）。「问 AI」复用既有 .qingliaoTaskSend 通道
             // —— 与任务中心、备忘录「发给 AI」完全同一条路，不新造通道。
@@ -490,5 +470,55 @@ private struct TabTransitionModifier: ViewModifier {
 extension View {
     func tabTransition(for tab: DockTab, selected: Binding<DockTab>) -> some View {
         modifier(TabTransitionModifier(tab: tab, selected: selected))
+    }
+}
+
+// MARK: - v3.9.78：长按快捷菜单浮层（独立计算属性）
+//
+// 同样是为了不把 body 那条修饰符链撑到类型检查超时（CI run #571 实测）——浮层本身是 8 个参数 + 两个闭包，
+// 留在 body 里等于又一层嵌套表达式。参数与语义一字未改，只是搬了个地方。
+private extension DockTabView {
+    @ViewBuilder
+    var orbMenuOverlay: some View {
+        OrbQuickMenuOverlay(barHeight: dockBarHeight,
+                            slotIndex: 2,
+                            slotCount: dockSlotCount,
+                            // v3.9.78：锚点球与 dock 那颗同状态（菜单开着时球仍在原位可见）
+                            thinking: stream.isStreaming,
+                            unseen: orbUnseen,
+                            failed: orbFailed,
+                            petAnchor: orbMenuPetAnchor,
+                            onAction: { handleOrbAction($0) },
+                            onClose: { showOrbMenu = false })
+            .transition(.opacity)
+            .zIndex(40)
+    }
+}
+
+// MARK: - v3.9.78 宠物长按 → 智慧球那套快捷菜单（独立 ViewModifier）
+//
+// 为什么单独立一个类型：DockTabView.body 是一条极长的修饰符链，往上再挂带闭包的 .onChange/.onReceive
+// 会让 Swift 类型检查器超时（CI run #571 实测：`unable to type-check this expression in reasonable time`
+// → Archive 失败）。把闭包搬进这里的 body，等于给编译器一个新的、很小的检查单元。
+private struct OrbMenuFromPetModifier: ViewModifier {
+    @Binding var showOrbMenu: Bool
+    @Binding var petAnchor: OrbPetAnchor?
+    /// 识别浮层 / 语音页开着时为真 —— 与 dock 命中层同一互斥口径，此时不弹菜单
+    let blocked: Bool
+
+    func body(content: Content) -> some View {
+        content
+            // 菜单收起时清锚点：否则下一次长按球的菜单会锚在上次的宠物位置
+            .onChange(of: showOrbMenu) { _, shown in
+                if !shown { petAnchor = nil }
+            }
+            // 聊天页宠物长按 ＝ 长按智慧球**同一套**菜单（用户：「长按宠物改成和长按智慧球一样的效果」）。
+            // 只换锚点，动作分发仍走 handleOrbAction（单一真源，不在聊天页复制第二套）。
+            .onReceive(NotificationCenter.default.publisher(for: .qingliaoOrbMenuFromPet)) { (note: Notification) in
+                guard !showOrbMenu, !blocked else { return }
+                guard let anchor = OrbPetAnchor(userInfo: note.userInfo) else { return }
+                petAnchor = anchor
+                showOrbMenu = true
+            }
     }
 }

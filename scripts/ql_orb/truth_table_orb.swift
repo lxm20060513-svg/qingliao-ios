@@ -199,9 +199,20 @@ check("动作分发单一真源：聊天页没有复制 handleOrbAction",
 check("接收侧把锚点交给菜单并复用 handleOrbAction（六条入口不变）",
       dockSrc.contains("petAnchor: orbMenuPetAnchor,") && dockSrc.contains("onAction: { handleOrbAction($0) }"))
 check("菜单收起即清锚点（否则下次长按球会锚在宠物位置）",
-      dockSrc.contains("if !shown { orbMenuPetAnchor = nil }"))
+      dockSrc.contains("if !shown { petAnchor = nil }"))
 check("互斥口径与 dock 命中层一致（识别浮层/语音页开着时不弹）",
-      dockSrc.contains("guard !showOrbMenu, !showIdentify, !showVoiceDialog else { return }"))
+      dockSrc.contains("guard !showOrbMenu, !blocked else { return }")
+      && dockSrc.contains("blocked: showIdentify || showVoiceDialog"))
+// 相对位置断言：带闭包的 onReceive 必须在 modifier 定义**之后**（= 在它体内），不能在 body 链上。
+// （别写成 !contains(...) —— 那个字符串在 modifier 里本来就有，写成取反只会假红）
+let iMenuModifier = dockSrc.range(of: "private struct OrbMenuFromPetModifier: ViewModifier {")
+let iMenuOnReceive = dockSrc.range(of: ".onReceive(NotificationCenter.default.publisher(for: .qingliaoOrbMenuFromPet))")
+check("body 巨型链上只挂一个 .modifier，带闭包的修饰符收进独立类型（否则类型检查超时）",
+      dockSrc.contains(".modifier(OrbMenuFromPetModifier(showOrbMenu: $showOrbMenu,")
+      && iMenuModifier != nil && iMenuOnReceive != nil
+      && iMenuModifier!.lowerBound < iMenuOnReceive!.lowerBound)
+check("菜单浮层抽成独立计算属性（8 参 + 两闭包不留 body 里）",
+      dockSrc.contains("var orbMenuOverlay: some View {") && dockSrc.contains("if showOrbMenu { orbMenuOverlay }"))
 check("语音入口没丢：菜单里仍有「语音输入」+「语音对话」",
       menuSrc.contains("title: \"语音输入\"") && menuSrc.contains("title: \"语音对话\""))
 check("宠物锚点打包/解包成对（NSValue 包 CGPoint，尺寸随包带）",
