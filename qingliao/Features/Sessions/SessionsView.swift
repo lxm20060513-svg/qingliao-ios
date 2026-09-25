@@ -1116,7 +1116,7 @@ private struct SessionTagCapsules: View {
                     .lineLimit(1)
                     .padding(.horizontal, Spacing.sm)
                     .padding(.vertical, Spacing.xxs)
-                    .background(tagColor(t).opacity(0.14), in: Capsule())
+                    .background(tagColor(t).opacity(Tint.subtle), in: Capsule())
             }
         }
     }

@@ -51,7 +51,7 @@ struct AgentResultCard: View {
                     .symbolEffect(.bounce, value: card.status?.text ?? "")   // v3.9.0：结果状态更新弹一下
                     .foregroundStyle(toneColor(card.status?.tone))
                     .frame(width: 22, height: 22)
-                    .background(toneColor(card.status?.tone).opacity(0.14), in: Capsule())
+                    .background(toneColor(card.status?.tone).opacity(Tint.subtle), in: Capsule())
                 VStack(alignment: .leading, spacing: 2) {
                     if !title.isEmpty {
                         Text(title)

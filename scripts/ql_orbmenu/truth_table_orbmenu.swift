@@ -200,6 +200,34 @@ check("错峰延迟单调递增（50ms 步进）",
       zip(delays, delays.dropFirst()).allSatisfy { $1 > $0 }
       && abs(delays[5] - 0.25) < 1e-9)
 
+// ⑧ v3.9.80：锚点是宠物时整组镜像到**宠物下方**（用户截图口径：「这个界面胶囊弹出放在卡通宠物下方」）──
+// 镜像判据：x 逐点不变（横向排布不动）、y = 向上版的相反数。近排仍是 index 0-2。
+func centerBelow(_ index: Int) -> (x: Double, y: Double) {
+    let i = ((index % 6) + 6) % 6
+    let col = Double(i % 3) - 1
+    let isUpper = i >= 3
+    return (col * columnDX, (isUpper ? upperDY : lowerDY))
+}
+let ptsBelow = (0..<6).map { centerBelow($0) }
+check("镜像后 x 与向上版逐点一致（只翻方向，不改横向排布）",
+      zip(pts, ptsBelow).allSatisfy { $0.x == $1.x })
+check("镜像后 y = 向上版的相反数（整组落到锚点下方）",
+      zip(pts, ptsBelow).allSatisfy { $0.y == -$1.y })
+check("镜像后六颗仍两两不重叠（AABB）", {
+    for i in 0..<6 { for j in (i + 1)..<6 where overlaps(ptsBelow[i], ptsBelow[j]) { return false } }
+    return true
+}())
+// 宠物锚点位置（欢迎页竖屏）：顶部安全区 59 + 弹性留白 ≤120 + 宠物半径 48 → 最靠上的球心 y = 227
+// 宠物半径按 96pt 身份尺寸算（ChatView：`PetAvatar(size: 96`）——比 dock 球（半径 34）大一倍。
+let petRadius = 48.0
+let petBallY = 59.0 + 120.0 + petRadius
+for (i, p) in ptsBelow.enumerated() {
+    check("镜像后胶囊不压宠物本体（#" + String(i) + "）", p.y - halfH >= petRadius)
+    check("镜像后与宠物留视觉呼吸 ≥ 24pt（#" + String(i) + "）", p.y - halfH - petRadius >= 24)
+    check("镜像后胶囊下缘在输入栏之上（#" + String(i) + "，输入栏顶 ≈ 屏高 852 − 安全区 34 − 输入栏 120）",
+          petBallY + p.y + halfH <= 852 - 34 - 120)
+}
+
 // ── 6. 速记弹窗口径 ─────────────────────────────────────────
 check("弹窗背景不覆盖（系统默认玻璃底，全站口径）",
       !orbMenuSrc.contains("presentationBackground") && !orbMenuSrc.contains(".systemBackground"))
@@ -233,8 +261,8 @@ check("落点常量与源码绑定（columnDX / upperDY / lowerDY）",
       orbMenuSrc.contains("static let columnDX: CGFloat = 118")
       && orbMenuSrc.contains("static let upperDY: CGFloat = 160")
       && orbMenuSrc.contains("static let lowerDY: CGFloat = 104"))
-check("落点单一真源 = OrbQuickMenuLayout.center",
-      orbMenuSrc.contains("OrbQuickMenuLayout.center(index: index, ballCenter: ballCenter)"))
+check("落点单一真源 = OrbQuickMenuLayout.center（方向作为参数传入，不在调用点手写加减）",
+      orbMenuSrc.contains("OrbQuickMenuLayout.center(index: index, ballCenter: ballCenter, below: pillsBelow)"))
 check("取模防越界（胶囊数量再变也不崩）", orbMenuSrc.contains("let i = ((index % 6) + 6) % 6"))
 // 🔒 公式级反向绑定（v3.9.76 反向自证抓到）：第 5 节的落点回归是**表内镜像计算**，
 //    只绑常量字面量时，把源码取模从 %6 改回 %4（四颗重叠的老 bug）仍能让落点断言全绿 ——
@@ -835,9 +863,18 @@ check("锚点做成参数（默认 .dockOrb，另有 .pet(size:)）",
       && orbClean.contains("case pet(size: CGFloat)"))
 check("锚点是宠物时必须重画宠物（不是画球）",
       orbBall.contains("PetAvatar(size: size, state: thinking ? .thinking : .idle)"))
-check("宠物锚点只覆盖中心（几何换算与落点不动）",
+check("宠物锚点只覆盖中心（几何换算同源：petAnchor.center → ballCenter，不在聊天页另算一套）",
       orbClean.contains("let c = petAnchor?.center ?? DockOrbOverlay.orbCenterGlobal(slotIndex: slotIndex,")
       && orbClean.contains("ballCenter: CGPoint(x: c.x - g.minX, y: c.y - g.minY)"))
+// v3.9.80：宠物锚点与 dock 球**方向相反** —— dock 球贴屏底向上绽放；宠物在上半屏整组落到宠物下方
+// （用户 2026-09-25 截图：「这个界面胶囊弹出放在卡通宠物下方」）。方向只在 pillsBelow 一处判定。
+check("锚点是宠物时胶囊落在宠物下方（方向由 pillsBelow 判定，不散落多处）",
+      orbClean.contains("if case .pet = anchor { return true }")
+      && orbClean.contains("below: pillsBelow"))
+check("落点几何支持镜像（below ? 加 : 减，只此一处判定方向）",
+      orbClean.contains("y: below ? ballCenter.y + dy : ballCenter.y - dy"))
+check("旧「一律向上」调用形态清零（不许再出现不带 below 参数的调用）",
+      !orbClean.contains("OrbQuickMenuLayout.center(index: index, ballCenter: ballCenter)"))
 // ZStack 层序是本次修复的**真身**：材质 → 光晕 → 锚点球 → 胶囊。
 // 球若回到材质之前，就等于没修（又被糊掉）；若跑到胶囊之后，会盖住胶囊底排的呼吸。
 let orbZStack = between(orbClean, "ZStack {", "ForEach(Array(OrbQuickAction.all.enumerated())")

@@ -197,12 +197,19 @@ enum OrbQuickMenuLayout {
     ///   · 两排纵向间隙 = 160 − 104 − 36 = **20pt** ≥ 12
     ///   · 最左胶囊左缘 = 187.5 − 118 − 50.5 = **19pt** ≥ 8（不越界）
     ///   · 下排胶囊底到球心 = 104 − 18 = **86pt** ≥ minGapAboveBall 74（仍留呼吸）
-    static func center(index: Int, ballCenter: CGPoint) -> CGPoint {
+    /// v3.9.80：`below` = 整组镜像到**锚点下方**（锚点是欢迎页/聊天页宠物时用）。
+    ///
+    /// 为什么分方向：dock 智慧球贴在屏幕底部 → 六颗胶囊必须向上绽放（原口径，不动）；
+    /// 而欢迎页宠物在上半屏，一律向上会让远排钻进状态栏/灵动岛、近排压在宠物脸上
+    /// （用户 2026-09-25 截图：「这个界面胶囊弹出放在卡通宠物下方」）。
+    /// 镜像后 index 0-2 仍是「离锚点更近的那一排」，观感只翻方向、不改排布。
+    static func center(index: Int, ballCenter: CGPoint, below: Bool = false) -> CGPoint {
         let i = ((index % 6) + 6) % 6
         let col = CGFloat(i % 3) - 1                 // −1 / 0 / +1
         let isUpper = i >= 3
+        let dy = isUpper ? upperDY : lowerDY
         return CGPoint(x: ballCenter.x + col * columnDX,
-                       y: ballCenter.y - (isUpper ? upperDY : lowerDY))
+                       y: below ? ballCenter.y + dy : ballCenter.y - dy)
     }
 }
 
@@ -328,9 +335,18 @@ struct OrbQuickMenuLayer: View {
         .allowsHitTesting(false)
     }
 
-    /// 胶囊相对球心的落点（两排两列，几何见 OrbQuickMenuLayout）
+    /// 胶囊相对锚点的落点（两排各三颗，几何见 OrbQuickMenuLayout）
+    ///
+    /// v3.9.80：方向按锚点分两种 —— dock 智慧球贴屏底 → **向上**绽放（原口径）；
+    /// 欢迎页/聊天页宠物在上半屏 → 整组落在**宠物下方**（用户 2026-09-25 截图口径：
+    /// 「这个界面胶囊弹出放在卡通宠物下方」）。方向只在这一处判定，几何仍走单一真源。
+    private var pillsBelow: Bool {
+        if case .pet = anchor { return true }
+        return false
+    }
+
     private func pillOffset(index: Int) -> CGPoint {
-        OrbQuickMenuLayout.center(index: index, ballCenter: ballCenter)
+        OrbQuickMenuLayout.center(index: index, ballCenter: ballCenter, below: pillsBelow)
     }
 
     private func orbPill(_ action: OrbQuickAction, index: Int) -> some View {

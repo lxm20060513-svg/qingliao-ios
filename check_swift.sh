@@ -200,7 +200,13 @@ run_unit /tmp/test_toolsteps scripts/ql_toolsteps/truth_table_toolsteps.swift
 
 echo "=== 21. 设置页间距口径真值表（v3.9.80 baseline-ui 打磨）==="
 # 单文件（读源 + 扫 Settings 目录，不 import 项目代码）→ run_unit 直接编跑。
-# 口径：分隔线缩进与「非卡片内容左右留白」各收成命名令牌（52/62 与 18），字面量清零。
+# 口径：分隔线缩进与「非卡片内容左右留白」各收成命名令牌（54/62 与 18），字面量清零。
 run_unit /tmp/test_settings_ui scripts/ql_settings_ui/truth_table_settings_ui.swift
+
+echo "=== 22. 色彩令牌口径真值表（v3.9.80 improve-ui 审计落地）==="
+# 单文件（读源做护栏，不 import 项目代码）→ run_unit 直接编跑。
+# 口径：tone/tag 色**淡色胶囊底**一律走 Tint.subtle，不留字面 opacity（0.12/0.14 肉眼难辨，
+# 但留字面量 = 改口径时被落下 → 又变回「每处各调一下」）。
+run_unit /tmp/test_uitokens scripts/ql_uitokens/truth_table_uitokens.swift
 
 exit $?

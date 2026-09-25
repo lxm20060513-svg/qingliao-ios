@@ -98,7 +98,7 @@ struct ConnectorPanelSheet: View {
                     .font(.system(size: Typography.title))
                     .foregroundStyle(tint)
                     .frame(width: 44, height: 44)
-                    .background(tint.opacity(0.14), in: RoundedRectangle(cornerRadius: 11))
+                    .background(tint.opacity(Tint.subtle), in: RoundedRectangle(cornerRadius: 11))
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
                         .font(.system(size: Typography.body, weight: .semibold))
