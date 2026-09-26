@@ -189,7 +189,11 @@ jobs:
                     % (share_dir + 'Info.plist' in names, share_bins))
               print('  包内 appex 相关条目：', sorted(n for n in names if '.appex' in n)[:20])
               sys.exit(1)
-          share_plist = plistlib.loads(z.read(share_dir + 'Info.plist'))
+          # ⚠️ 外层那个 `with zipfile.ZipFile(ipa) as z:` 早就退出了（`z` 已关闭）→ 必须自己重开一个；
+          # 直接 `z.read(...)` 会 `ValueError: ZIP archive already closed`（v3.9.92 CI #589 实踩，
+          # 整步在「语音权限串」之后静默崩掉，报错只有一行 traceback，不看日志根本定位不到）。
+          with zipfile.ZipFile(ipa) as zs:
+              share_plist = plistlib.loads(zs.read(share_dir + 'Info.plist'))
           share_point = (share_plist.get('NSExtension') or {}).get('NSExtensionPointIdentifier')
           if share_point != 'com.apple.share-services':
               print('❌ 分享扩展的 NSExtensionPointIdentifier 不是 share-services：', share_point)
