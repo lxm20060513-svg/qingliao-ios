@@ -66,7 +66,7 @@ struct BubbleTheme {
 }
 
 // MARK: - 看板卡片统一样式（DeviceCard / MeterCard / ServiceCard 共用）
-// 背景 + 0.8pt 描边 + 圆角裁剪，一处定义三处复用
+// 玻璃底（v3.9.83，用户拍板「跟长按智慧球功能胶囊同款」）+ 0.8pt 白描边 + 圆角裁剪，一处定义全站复用
 //
 // ⚠️ 圆角约定（v3.8.1 起，防回归）：
 //   · 卡片一律 **16**（dashboardCard() 默认值）：看板 DeviceCard/MeterCard/ServiceCard、智能建议卡、
@@ -88,14 +88,17 @@ struct DashboardCardStyle: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .background(Color(uiColor: .secondarySystemGroupedBackground))
+            // v3.9.83（用户拍板）：卡底改「长按智慧球功能胶囊」同款原生玻璃
+            //（OrbQuickMenu.swift:398 口径 = glassEffect + 白 0.8pt 描边浅 0.12/深 0.22 + 单层柔影）。
+            // 🚨 矩形卡必须显式 in: RoundedRectangle（裸 glassEffect 默认 Capsule，会渲染成大弧度胶囊蒙版）。
+            // 卡不是可点元素本体（可点性在卡内 Button 上），走静态卡口径不加 .interactive()。
+            // 圆角仍 16（用户明确 16，非胶囊档）；GlassCard 的 shadow 档（14/5）比胶囊重，取胶囊档 10/4。
+            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .strokeBorder(Tint.line(scheme), lineWidth: 0.8)
+                    .strokeBorder(Color.white.opacity(scheme == .dark ? 0.22 : 0.12), lineWidth: 0.8)
             )
-            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-            .shadow(color: .black.opacity(0.06), radius: 1, y: 1)
-            .shadow(color: .black.opacity(0.05), radius: 8, y: 3)
+            .shadow(color: .black.opacity(0.12), radius: 10, y: 4)
     }
 }
 
