@@ -23,9 +23,20 @@ final class Counter: @unchecked Sendable {
 func read(_ p: String) -> String {
     (try? String(contentsOfFile: p, encoding: .utf8)) ?? ""
 }
+/// 去掉注释再判代码。
+/// v4.0.0：原实现只剥「整行以 // 开头」，**剥不掉缩进注释与行尾注释** ——
+///   于是注释里作为反面教材写着的坏 API 会被当代码命中，护栏自己判自己红。
+/// 现改为：先去掉每行 `//` 之后的内容（字符串字面量里的 // 罕见，代价可接受）。
 func stripComments(_ s: String) -> String {
     s.split(separator: "\n", omittingEmptySubsequences: false)
-        .map { $0.hasPrefix("//") ? "" : String($0) }
+        .map { line -> String in
+            if let i = line.firstIndex(of: "/"), i == line.startIndex,
+               line.index(after: i) < line.endIndex, line[line.index(after: i)] == "/" {
+                return ""
+            }
+            if let r = line.range(of: "//") { return String(line[line.startIndex..<r.lowerBound]) }
+            return String(line)
+        }
         .joined(separator: "\n")
 }
 
@@ -110,10 +121,21 @@ if let oc = av.range(of: ".onChange(of: animate)") {
 }
 
 // MARK: - 6. 🚨 命中域：位移溢出后仍可点（抚摸不失灵）
-check("命中域横向扩到 ±18pt（盖住 14pt 位移，宠物在框外也点得到）",
-      cv.contains("leading: -18") && cv.contains("trailing: -18"))
-check("命中域不是裸 Rectangle()（否则位移段失灵）",
-      !cv.contains(".contentShape(Rectangle())   // 形象自身"))
+//
+// v4.0.0 终解：**透明 overlay 扩边**（不是 inset 形状）。
+// 中途试过两种写法都编不过，是当时在猜 API：
+//   ① `Rectangle().inset(by: EdgeInsets)` → Rectangle 的 inset(by:) 收 CGFloat；
+//   ② `Path(insetBy:)` → 该重载根本不存在。
+// 现写法用的都是 iOS 17 起就有的稳定 API，且 overlay 不参与父级布局（撑宽 frame 会挤走旁边文字）。
+check("命中域靠透明 overlay 扩边（横向 96+18×2，盖住 14pt 位移）",
+      cv.contains("Color.clear") && cv.contains("96 + 18 * 2"))
+check("扩边层挂了 contentShape（Color.clear 本身不构成命中形状）",
+      cv.contains(".contentShape(Rectangle())"))
+// 反向：不再用那两个编不过的写法
+check("代码里不再用 Rectangle().inset(by:)（收 CGFloat，编译失败）",
+      !stripComments(cv).contains("Rectangle().inset("))
+check("代码里不再用 Path(insetBy:)（该重载不存在）",
+      !stripComments(cv).contains("Path(insetBy:"))
 
 // MARK: - 7. 旧四动作不得被改坏（v3.9.85 回归）
 for (n, v) in [("歪头", "case .headTilt: return 6"), ("张望", "case .lookAround: return -3")] {

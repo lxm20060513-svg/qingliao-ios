@@ -170,16 +170,29 @@ check("护栏：切片必须覆盖长按分支（终点锚点在长按之后）"
       heroSrc.contains("LongPressGesture(minimumDuration: 0.45)"))
 // v4.0.0：命中域从裸 Rectangle() 扩成带 inset 的形状（走动位移 ±14pt 会溢出 96×96 框，
 //   不扩则宠物走到框外那半截点不到）。护栏守的是「**形象有命中域**」这个意图，不是某个具体形状字面量。
-// ⚠️ 必须是 Path(insetBy:)：Rectangle 的 inset(by:) 收 CGFloat，传 EdgeInsets 编不过
-//   （v4.0.0 CI Archive 就挂在 "cannot convert EdgeInsets to CGFloat"）。
+// ⚠️ 命中域必须用**仓里真实存在**的 API。v4.0.0 连续两次猜错：
+//   ① `Rectangle().inset(by: EdgeInsets)` → Rectangle 的 inset(by:) 收 CGFloat，编不过；
+//   ② `Path(insetBy:)` → 这个重载根本不存在（iOS 17 的 Path 没有）。
+//   终解是「裸 Rectangle() + 透明扩边 overlay」，两者都是 iOS 17 起就有的稳定 API。
 check("护栏：形象补了 contentShape 命中域（自身 allowsHitTesting(false)）",
-      heroSrc.contains(".contentShape(Path(insetBy:") && petSrc.contains(".allowsHitTesting(false)"))
-// 反向：命中域不许退回裸 Rectangle()（那样位移段失灵，v4.0.0 修过的 bug 会复发）
-check("护栏：命中域已扩到位移范围（不是裸 Rectangle）",
-      !heroSrc.contains(".contentShape(Rectangle())"))
-// 正向：用 Path(insetBy:) —— Rectangle().inset(by: EdgeInsets) 在 xcodebuild 下编不过
-check("护栏：命中域用 Path(insetBy:)（Rectangle 的 inset 收 CGFloat，传 EdgeInsets 编译失败）",
-      heroSrc.contains("Path(insetBy: EdgeInsets(top: -4"))
+      heroSrc.contains(".contentShape(Rectangle())") && petSrc.contains(".allowsHitTesting(false)"))
+// ⚠️ 这里刻意**没有**「不许出现 .contentShape(Rectangle())」这类断言：
+//   裸 Rectangle 正是终解的一部分（96×96 本体命中 + overlay 扩边），
+//   禁掉它会与上一条正向断言自相矛盾。真约束是「扩边靠 overlay」+「不猜不存在的重载」。
+// 正向：扩边命中靠**透明 overlay**，不靠撑宽 frame（撑宽会把旁边文字挤走）
+check("护栏：命中域扩边用透明 overlay（不撑宽 frame，避免挤走旁边文字）",
+      heroSrc.contains("Color.clear") && heroSrc.contains("96 + 18 * 2"))
+// 反向：不再出现那两个不存在的重载（v4.0.0 连续两次 CI 挂在这上面）。
+// ⚠️ 必须先 stripComments —— 上面那段注释**故意**留着这两个坏 API 作为反面教材，
+//    不剥注释就会自己判自己红。
+let heroCode = stripComments(heroSrc)
+check("护栏：代码里不再用 Rectangle().inset(by:)（收 CGFloat，编译失败）",
+      !heroCode.contains("Rectangle().inset("))
+check("护栏：代码里不再用 Path(insetBy:)（该重载不存在）",
+      !heroCode.contains("Path(insetBy:"))
+// 反向：扩边命中层不许退回「只靠本体」（那正是 v4.0.0 修前的失灵状态）
+check("护栏：扩边命中层还在（位移 ±14pt 段仍可点）",
+      heroCode.contains("Color.clear") && heroCode.contains("96 + 18 * 2"))
 
 // ③ 交互口径：点 = 聚焦输入框 + 抚摸；**长按 = 与长按智慧球完全同一套快捷菜单**（v3.9.78 用户要求）
 check("护栏：形象挂了 ExclusiveGesture（点/长按互斥）",

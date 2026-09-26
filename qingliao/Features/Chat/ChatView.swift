@@ -1858,14 +1858,25 @@ struct ChatView: View {
                       state: petState,
                       patTrigger: petPat)
         }
+        // 尺寸仍锁 96pt（身份尺寸不因命中域而变）
         .frame(width: 96, height: 96)
-        // v4.0.0：走动位移最大 ±0.145×96 ≈ ±14pt，会溢出这个 96×96 框。
-        // 命中域若只按 96×96 算，宠物走到框外那半截就点不到 → 「轻点抚摸」在手的位置失灵。
-        // 命中域取横向 96+两侧各 18pt（位移余量 14pt + 余量），纵向不扩（颠步只有 3pt，够用）
-        // ⚠️ 用 Path(insetBy:) 而不是 Rectangle().inset(by:)：Rectangle 的 inset(by:) 收 CGFloat，
-        //   传 EdgeInsets 编不过（CI Archive 报 cannot convert EdgeInsets to CGFloat）；
-        //   Path 的 inset(by:) 才是 EdgeInsets 版本。
-        .contentShape(Path(insetBy: EdgeInsets(top: -4, leading: -18, bottom: -4, trailing: -18)))
+        // v4.0.0 走动位移最大 ±0.145×96 ≈ ±14pt，会溢出这个 96×96 框；宠物走到框外那半截若
+        // 点不到，「轻点抚摸」就在手的位置失灵 → 命中域横向放宽到两侧各 18pt。
+        //
+        // ⚠️ 别再试图构造「带 inset 的形状」：v4.0.0 连续两次踩坑 ——
+        //   ① `Rectangle().inset(by: EdgeInsets)` → Rectangle 的 inset(by:) 收 CGFloat，编不过；
+        //   ② `Path(insetBy:)` → 这个重载根本不存在（iOS 17 的 Path 没有）。
+        // 正确做法：叠一个**透明扩边 overlay** 当命中层。overlay 不参与父级布局，
+        //   所以不会像「直接 frame 撑宽」那样把旁边文字挤走 —— 这是选它而不是撑宽的唯一理由。
+        .overlay {
+            // 透明命中层：横向 ±18pt（位移余量 14pt + 4pt 保险），纵向不扩（颠步仅 3pt）。
+            // Color.clear 自身不渲染任何像素，但挂上 contentShape 后就是命中形状。
+            Color.clear
+                .frame(width: 96 + 18 * 2, height: 96)
+                .contentShape(Rectangle())
+        }
+        // 96×96 本体也要命中（overlay 虽已覆盖更大范围，但本体命中语义留一份，双保险）
+        .contentShape(Rectangle())
         .accessibilityLabel("轻聊智能体")
         // v3.9.78：量宠物在屏幕上的真实中心（菜单从这里绽放；键盘/滚动导致的位移会同步刷新）
         .onGeometryChange(for: CGPoint.self) { proxy in

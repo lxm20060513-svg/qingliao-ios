@@ -1093,12 +1093,16 @@ struct SessionRow: View {
         }
         .padding(.horizontal, Spacing.xxl)
         .padding(.vertical, Spacing.lg)
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        // 会话条目边框（深浅色通用细描边）
-        .overlay(
-            RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
-                .strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8)
-        )
+        // v4.0.0（用户拍板）：会话卡玻璃化，**复用 dashboardCard()** ——
+        //   与意图动作卡 / 门锁卡完全同档（.glassEffect(.regular) + 白亮边 0.12/0.22 + 柔影 10/4，
+        //   圆角 16）。不新增第三套玻璃样式。
+        //
+        // ⚠️ 关键（v4.0.0 踩过的坑 F2）：**不要**写成
+        //     `.background(折射源).background(玻璃)` 两层 —— SwiftUI 里先挂的 background 画得更靠前，
+        //     不透明底色会把玻璃完全压死，页面观感与实色无差别。
+        //   dashboardCard() 内部是「内容 + 玻璃 + 描边 + 影」单链，玻璃在内容之下、内容之上无遮挡，
+        //   不存在这个次序问题，故直接套用即可。
+        .dashboardCard(cornerRadius: Radius.card)
         .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
         .contentShape(Rectangle())
         // 用 tap 手势而非 Button 包裹（Button 会与 swipeActions 滑动手势冲突，导致滑动删除失效）
@@ -1232,11 +1236,8 @@ private struct RemoteHitRow: View {
         }
         .padding(.horizontal, Spacing.xxl)
         .padding(.vertical, Spacing.lg)
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .overlay(
-            RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
-                .strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8)
-        )
+        // v4.0.0：搜索命中行同样属会话列表的卡，与 SessionRow 走同一档玻璃（口径单源）。
+        .dashboardCard(cornerRadius: Radius.card)
         .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
         .contentShape(Rectangle())
         // 与 SessionRow 一致用 tap 手势（Button 会与 swipeActions 冲突）
