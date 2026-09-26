@@ -317,6 +317,7 @@ struct ChatView: View {
     @State var pinStore = PinStore.shared   // v3.0.74：钉一钉
     // v3.7.0：剪贴板地图链接兜底入口（地图分享面板里没有轻聊 → 「拷贝」后在聊天页一键发送）
     @State var showClipboardBanner = false
+    @State var resumeRowDismissed = false     // v3.9.86：「继续上次」卡的忽略（本次进入会话内有效）
     // v3.9.71：输入收口——识别结果（动作条数据源）+ 剪贴板链接的「识别」提示
     @State var intentResult: RecognizedIntent?
     @State var showIntentClipboardBanner = false
@@ -414,6 +415,8 @@ struct ChatView: View {
     @State var showArchiveHint = false
     // v3.0.27：章节列表（纯静态展示，不做滚动导航）
     @State var showTOCSheet = false
+    // v3.9.86：长回复阅读（长按气泡「全屏阅读」→ 半屏 sheet 放大阅读 + 章节大纲）
+    @State var longReplyPayload: LongReplyPayload? = nil
     // v3.0.51 A2：极长会话分页懒加载——初始只渲染尾部最近 N 条，顶部可"加载更早"
     @State var displayLimit = 300
     private static let loadMoreStep = 300
@@ -1218,6 +1221,13 @@ struct ChatView: View {
                 .presentationDetents([.medium, .large])
                 .scrollContentBackground(.hidden)
         }
+        // v3.9.86：长回复阅读（长按气泡「全屏阅读」）。detents 与全站输入弹窗同档（medium/large）——
+        // 沿用现有档位不新增宿主，大爆炸的 fullScreenCover 不动，避免 zoom 转场源 id 打架。
+        .sheet(item: $longReplyPayload) { payload in
+            LongReplySheet(payload: payload)
+                .presentationDetents([.medium, .large])
+                .scrollContentBackground(.hidden)
+        }
         .fileImporter(isPresented: $showFileImporter,
                       allowedContentTypes: [.data]) { result in
             if case .success(let url) = result {
@@ -1572,19 +1582,20 @@ struct ChatView: View {
             }
             .buttonStyle(PressStyle())
             .foregroundStyle(Color.accentColor)
+            // v3.9.86：忽略改成文字胶囊（与「识别」同款 pill，次级色；与识别版提示统一口径）
             Button {
                 cancelClipboardAutoHide()
                 // v3.9.72：这一版在探测时已记成"看过"，点忽略只需收起
                 withAnimation(Motion.snap) { showClipboardBanner = false }
             } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: Typography.caption, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .padding(Spacing.xs)
-                    .contentShape(Rectangle())
+                Text("忽略")
+                    .font(.system(size: Typography.subhead))
+                    .padding(.horizontal, Spacing.lg)
+                    .padding(.vertical, Spacing.xs)
+                    .glassPillStroke()
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("忽略")
+            .buttonStyle(PressStyle())
+            .foregroundStyle(.secondary)
         }
         .padding(.horizontal, Spacing.xl)
         .padding(.vertical, Spacing.md)
@@ -1622,19 +1633,20 @@ struct ChatView: View {
             }
             .buttonStyle(PressStyle())
             .foregroundStyle(Color.accentColor)
+            // v3.9.86：忽略改成文字胶囊（原 xmark 太小不好点，用户 2026-09-26 拍板）
             Button {
                 cancelClipboardAutoHide()
                 // v3.9.72：同上，记账已在探测时完成
                 withAnimation(Motion.snap) { showIntentClipboardBanner = false }
             } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: Typography.caption, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .padding(Spacing.xs)
-                    .contentShape(Rectangle())
+                Text("忽略")
+                    .font(.system(size: Typography.subhead))
+                    .padding(.horizontal, Spacing.lg)
+                    .padding(.vertical, Spacing.xs)
+                    .glassPillStroke()
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("忽略")
+            .buttonStyle(PressStyle())
+            .foregroundStyle(.secondary)
         }
         .padding(.horizontal, Spacing.xl)
         .padding(.vertical, Spacing.md)
@@ -1963,7 +1975,7 @@ struct ChatView: View {
     /// 竖屏在底部、横屏在两栏下方，两处共用本视图。
     @ViewBuilder
     private var resumeRow: some View {
-        if let last = chat.lastLoadedSession, last.id != chat.sessionId, !clearing, !kb.isVisible {
+        if let last = chat.lastLoadedSession, last.id != chat.sessionId, !clearing, !kb.isVisible, !resumeRowDismissed {
             Button {
                 Haptics.tap()
                 chat.load(last)
@@ -1988,11 +2000,28 @@ struct ChatView: View {
                 }
                 .padding(.horizontal, Spacing.xxl)
                 .padding(.vertical, Spacing.lg)
-                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: Radius.field, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: Radius.field, style: .continuous)
-                    .strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8))
+                // v3.9.86：统一玻璃卡（dashboardCard 真源样式，与全站卡片一致；原手写 ultraThinMaterial 在浅色下发灰）
+                .dashboardCard(cornerRadius: Radius.field)
             }
             .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
+            // v3.9.86：忽略胶囊（用户拍板，与剪贴板条同款 pill；内层 Button 不会冒泡触发外层跳转）
+            .overlay(alignment: .topTrailing) {
+                Button {
+                    Haptics.tap()
+                    withAnimation(Motion.snap) { resumeRowDismissed = true }
+                } label: {
+                    Text("忽略")
+                        .font(.system(size: Typography.caption))
+                        .padding(.horizontal, Spacing.md)
+                        .padding(.vertical, Spacing.xxs)
+                        .background(.ultraThinMaterial, in: Capsule())
+                        .overlay(Capsule().strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8))
+                }
+                .buttonStyle(PressStyle())
+                .foregroundStyle(.secondary)
+                .padding(.top, 6)
+                .padding(.trailing, 10)
+            }
             .padding(.horizontal, Spacing.section)
             .padding(.top, Spacing.section)
         }
@@ -2182,6 +2211,12 @@ struct ChatView: View {
             // v3.9.32：长按「提醒我」——默认文案取该条消息内容
             reminderSeedText = text
             showQuickReminder = true
+        } onRead: { text in
+            // v3.9.86：长按「全屏阅读」——半屏 sheet 放大读长回复（标题取首行摘要）
+            let head = text.split(separator: "\n").first.map(String.init) ?? "长回复"
+            longReplyPayload = LongReplyPayload(id: "rd-" + msg.id,
+                                                 text: text,
+                                                 title: head.count > 18 ? String(head.prefix(18)) + "…" : head)
         } onAIImageTap: { url in
             openAIImage(url, sourceID: msg.id)   // v3.4.29：带转场源
         } onFileTap: { url, name in

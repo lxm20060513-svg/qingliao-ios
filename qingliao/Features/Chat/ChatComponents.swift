@@ -46,6 +46,8 @@ struct MessageBlockView: View {
     var onDelete: () -> Void = {}
     var onRegenerate: (() -> Void)? = nil
     var onWithdraw: (() -> Void)? = nil
+    // v3.9.86：长回复阅读入口（长按菜单「全屏阅读」）；主代理接线后走屏幕级 sheet
+    var onRead: ((String) -> Void)? = nil
     // v3.0.74：钉一钉（长按菜单钉到看板）——传当前段落/选中文字
     var onPin: ((String) -> Void)? = nil
     // v3.7.0：加入备忘录（长按菜单）——传当前段落/选中文字
@@ -143,6 +145,14 @@ struct MessageBlockView: View {
             onBigBang(blockPlainText)
         } label: {
             Label("大爆炸", systemImage: "burst.fill")
+        }
+        // v3.9.86：长回复阅读（半屏 sheet 放大 + 章节大纲）——传当前段落文字
+        if let onRead = onRead {
+            Button {
+                onRead(blockPlainText)
+            } label: {
+                Label("全屏阅读", systemImage: "text.book.closed")
+            }
         }
         if let onRegenerate {
             Button {
@@ -288,6 +298,7 @@ struct MessageBlockView: View {
                     onDelete: onDelete,
                     onRegenerate: onRegenerate,
                     onWithdraw: onWithdraw,
+                    onRead: onRead,          // v3.9.86：长回复阅读（长按文字菜单）
                     onMultiSelect: onMultiSelect,
                     onMemo: onMemo
                 )

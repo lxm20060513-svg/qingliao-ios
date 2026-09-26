@@ -50,15 +50,7 @@ struct LifeView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            PageHeader(title: "生活", subtitle: "行情 · 资讯 · 快递 · 价格",
-                       trailing: AnyView(
-                        Button { showSectionEditor = true } label: {
-                            Image(systemName: "slider.horizontal.3")
-                                .font(.system(size: Typography.body))
-                                .foregroundStyle(.secondary)
-                        }
-                        .accessibilityLabel("自定义板块")
-                       ))
+            PageHeader(title: "生活", subtitle: "行情 · 资讯 · 快递 · 价格")
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 10) {
                     // v3.9.85：按用户自定义顺序渲染，隐藏的板块不出现
@@ -85,6 +77,8 @@ struct LifeView: View {
                                                           })
                         }
                     }
+                    // v3.9.85：底部「自定义板块」入口（与看板 cardEditorEntry 同款低调样式，用户 2026-09-26 拍板）
+                    sectionEditorEntry
                 }
                 .padding(.horizontal, Spacing.xxl)
                 .padding(.bottom, 100)
@@ -122,6 +116,25 @@ struct LifeView: View {
                 await loadLife()
             }
         }
+    }
+
+    /// v3.9.85：底部「自定义板块」入口（与看板 cardEditorEntry 同款低调样式）
+    private var sectionEditorEntry: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "square.and.pencil")
+                .font(.system(size: Typography.caption))
+                .foregroundStyle(.tertiary)
+            Text(hiddenSections.isEmpty ? "自定义板块（排序 / 隐藏）"
+                                    : "自定义板块 · 已隐藏 \(hiddenSections.count) 个板块")
+                .font(.system(size: Typography.subhead))
+                .foregroundStyle(.tertiary)
+            Spacer()
+        }
+        .padding(.horizontal, Spacing.xl)
+        .padding(.vertical, Spacing.md)
+        .dashboardCard()
+        .contentShape(Rectangle())
+        .tapButton { showSectionEditor = true }
     }
 
     // MARK: - 数据（自 DashboardView 原样迁入）

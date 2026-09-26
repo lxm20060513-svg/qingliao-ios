@@ -53,6 +53,8 @@ struct MessageBubble: View {
     var onTodo: ((String) -> Void)? = nil
     // v3.9.32：定时提醒（长按菜单「提醒我」）——传当前段落/整条内容
     var onRemind: ((String) -> Void)? = nil
+    // v3.9.86：长回复阅读（长按菜单「全屏阅读」→ LongReplySheet 半屏放大 + 章节大纲）
+    var onRead: ((String) -> Void)? = nil
     // v2.0.128：AI 消息内图片点击（传 URL/data URL，打开大图）
     var onAIImageTap: (String) -> Void = { _ in }
     // v3.9.17：AI 生成物点击（传 URL + 显示名 → QuickLook 预览）
@@ -403,6 +405,7 @@ struct MessageBubble: View {
                                         onDelete: onDelete,
                                         onRegenerate: onRegenerate,
                                         onWithdraw: nil,
+                                        onRead: onRead,   // v3.9.86：长回复阅读入口
                                         onPin: onPin,
                                         onMemo: onMemo,
                                         onTodo: onTodo,
@@ -788,6 +791,7 @@ struct MessageBubble: View {
                                 onDelete: onDelete,
                                 onRegenerate: onRegenerate,
                                 onWithdraw: nil,
+                                onRead: onRead,       // v3.9.86：长回复阅读入口
                                 onPin: onPin,
                                 onMemo: onMemo,
                                 onTodo: onTodo,

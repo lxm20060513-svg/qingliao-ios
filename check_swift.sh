@@ -234,4 +234,11 @@ echo "=== 25. 译文弹窗真值表（v3.9.82 用户「改弹窗，跟 AI 速记
 # 「换一张」接回翻译模式且事后必须复位（不然下次拍照莫名出译文）；速记那条路没被误伤。
 run_unit /tmp/test_translatesheet scripts/ql_translatesheet/truth_table_translatesheet.swift
 
+echo "=== 26. 长回复阅读真值表（v3.9.86 功能 4 · B 方案：半屏 sheet 放大）==="
+# 单文件（读源做护栏，不 import 项目代码）→ run_unit 直接编跑。
+# 口径（用户 2026-09-26 拍板「B 半屏 sheet 放大，沿用现有 detent」）：沿用 medium/large 不新增宿主、
+# 复用 SelectableTextLabel/MarkdownRenderer 既有渲染与章节真源、分享走「先 dismiss 再 present」
+# （同宿主互斥）、大纲是本 sheet 内一层、参数声明序 = 调用序。
+run_unit /tmp/test_reading scripts/ql_reading/truth_table_reading.swift
+
 exit $?

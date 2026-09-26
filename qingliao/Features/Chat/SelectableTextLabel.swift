@@ -41,6 +41,8 @@ struct SelectableTextLabel: UIViewRepresentable {
     var onDelete: () -> Void = {}
     var onRegenerate: (() -> Void)? = nil
     var onWithdraw: (() -> Void)? = nil
+    // v3.9.86：长回复阅读入口（长按菜单「全屏阅读」→ LongReplySheet 半屏放大阅读）；nil = 不显示
+    var onRead: ((String) -> Void)? = nil
     // v3.3.0：多选合并转发入口（文字长按菜单）
     var onMultiSelect: () -> Void = {}
     // v3.7.0：加入备忘录——有选区存选中片段，无选区存整段；nil = 菜单不显示该项
@@ -280,6 +282,18 @@ struct SelectableTextLabel: UIViewRepresentable {
                     self.parent.onBigBang(textView.text ?? self.parent.attributedText.string)
                 }
             })
+
+            // v3.9.86：长回复阅读（长按整段/选中片段都进；sheet 内正文通栏 + 章节大纲）
+            if let onRead = parent.onRead {
+                children.append(UIAction(title: "全屏阅读", image: UIImage(systemName: "text.book.closed")) { _ in
+                    if hasSelection, let sel = textView.selectedTextRange,
+                       let t = textView.text(in: sel), !t.isEmpty {
+                        onRead(t)
+                    } else {
+                        onRead(textView.text ?? self.parent.attributedText.string)
+                    }
+                })
+            }
 
             // v3.7.0：加入备忘录——有选区存选中片段，无选区存整段（与「复制」同款选区判定）
             if let onMemo = parent.onMemo {

@@ -358,7 +358,8 @@ check("欢迎页顶部留白随键盘收起", cvSrc.contains("Spacer(minLength: 
 // v3.9.78：欢迎页形象已从液态球换成卡通宠物（PetAvatar）——「身份尺寸不因布局改动而变」这条口径不变，只是主体换了
 check("欢迎页形象保持既有尺寸口径（96pt，不因布局改小）", cvSrc.contains("PetAvatar(size: 96,"))
 check("建议芯片随键盘收起", cvSrc.contains("if !kb.isVisible {") && cvRaw.contains("// if !kb.isVisible（建议芯片）"))
-check("续聊卡随键盘收起", cvSrc.contains("!clearing, !kb.isVisible {"))
+check("续聊卡随键盘收起", cvSrc.contains("!clearing, !kb.isVisible, !resumeRowDismissed {"))
+check("续聊卡忽略胶囊可收起(v3.9.86)", cvSrc.contains("resumeRowDismissed = true"))
 
 // ── 9. 意图动作卡外观口径（v3.9.78 用户定稿「方案 C」：「弹窗卡片圆角加大，背景改成模糊半透明」）──
 // 旧形态 = `.regularMaterial` + `Radius.inset`(12) + `Color.primary.opacity(0.06)` 暗发丝线 ——
