@@ -172,6 +172,17 @@ func run() -> Int32 {
     // 冷启动这次重置不得凭空弹「登录已过期」
     check("冷启动重置保存/恢复过期标志（不凭空弹横幅）",
           store.contains("let expiredBefore = auth.sessionExpired"))
+    // 🚨 CI 教训（v4.0.0 Archive 失败）：`UserDefaultsKey.model` / `.provider` 是我**凭空写的**，
+    //   仓里没有这两个成员 → xcodebuild 报 "type 'UserDefaultsKey' has no member 'model'"。
+    //   `-parse` 查不出（不解析成员），只有真编译才发现。故这里钉住：凡引用的 key 成员必须在
+    //   Models.swift 里真实存在。
+    let modelsSrc = read("qingliao/Core/Models.swift")
+    for key in ["model", "provider", "agentModel", "agentProvider", "lastActiveAt", "lastUsedAt"] {
+        check("UserDefaultsKey.\(key) 在 Models.swift 里真实存在（防凭空造 API）",
+              modelsSrc.contains("static let \(key)"))
+    }
+    check("UserDefaultsKey 复用既有 key 字面量（不另起一套）",
+          modelsSrc.contains("\"qingliao_model\"") && modelsSrc.contains("\"qingliao_provider\""))
 
     print("\n———————————————")
     print(fail == 0 ? "🎉 全部通过（\(pass) 项）" : "❌ \(fail) 个失败（\(pass) 通过）")

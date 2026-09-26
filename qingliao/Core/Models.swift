@@ -18,6 +18,8 @@ enum UserDefaultsKey {
     static let lastUsedAt = "qingliao_last_used_at"
     // v3.4.12：agentEnabled key 已移除——「Agent 智能回复」开关删除后无任何读取方
     // （AuthStore.streamStart 恒发 agentEnabled=true 走字面量，不再读 UserDefaults）
+    static let model   = "qingliao_model"
+    static let provider = "qingliao_provider"
     static let agentModel   = "qingliao_agent_model"
     static let agentProvider = "qingliao_agent_provider"
     // v3.10.x：「免费模型（免 Key）」开关已整条移除——实测 opencode zen 免费档对非 OpenCode 客户端

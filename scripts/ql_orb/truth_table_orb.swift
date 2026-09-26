@@ -168,13 +168,18 @@ let heroSrc = slice(chatSrc, from: "PetAvatar(size: 96,", to: "inputFocus = true
 check("护栏：欢迎页形象切片切得出（空了下面几条就是空真）", !heroSrc.isEmpty)
 check("护栏：切片必须覆盖长按分支（终点锚点在长按之后）",
       heroSrc.contains("LongPressGesture(minimumDuration: 0.45)"))
-// v4.0.0：命中域从裸 Rectangle() 扩成 Rectangle().inset(by:)（走动位移 ±14pt 会溢出 96×96 框，
+// v4.0.0：命中域从裸 Rectangle() 扩成带 inset 的形状（走动位移 ±14pt 会溢出 96×96 框，
 //   不扩则宠物走到框外那半截点不到）。护栏守的是「**形象有命中域**」这个意图，不是某个具体形状字面量。
+// ⚠️ 必须是 Path(insetBy:)：Rectangle 的 inset(by:) 收 CGFloat，传 EdgeInsets 编不过
+//   （v4.0.0 CI Archive 就挂在 "cannot convert EdgeInsets to CGFloat"）。
 check("护栏：形象补了 contentShape 命中域（自身 allowsHitTesting(false)）",
-      heroSrc.contains(".contentShape(") && petSrc.contains(".allowsHitTesting(false)"))
+      heroSrc.contains(".contentShape(Path(insetBy:") && petSrc.contains(".allowsHitTesting(false)"))
 // 反向：命中域不许退回裸 Rectangle()（那样位移段失灵，v4.0.0 修过的 bug 会复发）
 check("护栏：命中域已扩到位移范围（不是裸 Rectangle）",
       !heroSrc.contains(".contentShape(Rectangle())"))
+// 正向：用 Path(insetBy:) —— Rectangle().inset(by: EdgeInsets) 在 xcodebuild 下编不过
+check("护栏：命中域用 Path(insetBy:)（Rectangle 的 inset 收 CGFloat，传 EdgeInsets 编译失败）",
+      heroSrc.contains("Path(insetBy: EdgeInsets(top: -4"))
 
 // ③ 交互口径：点 = 聚焦输入框 + 抚摸；**长按 = 与长按智慧球完全同一套快捷菜单**（v3.9.78 用户要求）
 check("护栏：形象挂了 ExclusiveGesture（点/长按互斥）",
