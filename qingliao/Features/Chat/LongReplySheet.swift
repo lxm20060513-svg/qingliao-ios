@@ -159,7 +159,7 @@ struct LongReplySheet: View {
                     .fixedSize()
                     .padding(.horizontal, 12)
                     .padding(.vertical, 6)
-                    .background(Tint.subtle, in: Capsule())
+                    .background(Color.primary.opacity(Tint.subtle), in: Capsule())
             }
             .buttonStyle(.plain)
             .disabled(sections.count <= 1)
@@ -254,7 +254,7 @@ struct LongReplySheet: View {
                 .fixedSize()          // 文字不许被压没（v3.9.72 胶囊空字根因：压缩时字被吃成 0 宽）
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
-                .background(Tint.subtle, in: Capsule())
+                .background(Color.primary.opacity(Tint.subtle), in: Capsule())
         }
         .buttonStyle(.plain)
     }
