@@ -140,8 +140,11 @@ final class ChatStore {
         // 取「离开时刻」与「最近使用时刻」的**较晚者**：前者覆盖切走后被杀，后者覆盖一直前台被杀
         let away = defaults.double(forKey: UserDefaultsKey.lastActiveAt)
         let used = defaults.double(forKey: UserDefaultsKey.lastUsedAt)
-        idleMinutesSince(nowMs: Date().timeIntervalSince1970 * 1000,
-                         lastActiveAtMs: max(away, used))
+        // ⚠️ 必须显式 return：这是**多语句**函数体，Swift 只在单表达式函数里隐式返回。
+        //   漏掉时 `swiftc -parse` 照样过（语法合法），只有 xcodebuild 的类型检查才报
+        //   "missing return in static method expected to return 'Int?'"（v4.0.0 CI 挂过一次）。
+        return idleMinutesSince(nowMs: Date().timeIntervalSince1970 * 1000,
+                                lastActiveAtMs: max(away, used))
     }
 
     /// 按设置决定冷启动落在哪个会话。返回 true = 已开新对话。

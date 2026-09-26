@@ -184,6 +184,43 @@ func run() -> Int32 {
     check("UserDefaultsKey 复用既有 key 字面量（不另起一套）",
           modelsSrc.contains("\"qingliao_model\"") && modelsSrc.contains("\"qingliao_provider\""))
 
+    // 🚨 CI 教训（v4.0.0 Archive 又挂一次）：`idleMinutesSinceLastActive` 改成多语句函数体后，
+    //   末尾那句裸调用**漏了 return**。`-parse` 照样过（语法合法），
+    //   只有 xcodebuild 类型检查才报 "missing return ... expected to return 'Int?'"。
+    //   这里钉住：凡是"有 let 语句 + 返回 Int?"的函数体，末句必须带 return。
+    check("idleMinutesSinceLastActive 末句显式 return（多语句函数体不隐式返回）",
+          store.contains("return idleMinutesSince(nowMs:"))
+    // 反向：扫 ChatStore 里所有「声明了返回类型」的函数——函数体里连一个 return 都没有就判红。
+    //   单表达式函数的隐式返回是合法的，所以只在「完全找不到 return」时报，
+    //   不去猜每个函数的具体末句形状——宁可漏报，绝不误报。
+    //   ⚠️ 只在**多语句**函数体上要求 return：单表达式函数用隐式返回是合法的
+    //   （如 `func sameCompressTarget(...) -> Bool { sessionId == sid && ... }`），
+    //   粗判会把这些合法的旧代码全判红。判据：函数体首行之后还有非空语句行。
+    var scannedFns = 0
+    for chunk in store.components(separatedBy: "func ").dropFirst() {
+        let sig = chunk.prefix(220)
+        guard sig.contains("->"),
+              !sig.contains("-> Void"), !sig.contains("-> ()"),
+              let open = sig.firstIndex(of: "{") else { continue }
+        // 取签名行（含 { 的那一行）之后的部分作为"函数体"
+        let afterSig = chunk[chunk.index(after: open)...]
+        let bodyLines = afterSig.split(separator: "\n", omittingEmptySubsequences: false)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        // 第一条非空行是单表达式的话（无 let/var/if/guard/for）→ 隐式返回合法
+        guard let first = bodyLines.first else { continue }
+        let isSingleExpr = !(first.hasPrefix("let ") || first.hasPrefix("var ")
+                             || first.hasPrefix("if ") || first.hasPrefix("guard ")
+                             || first.hasPrefix("for ") || first.hasPrefix("return ")
+                             || first.hasPrefix("while ") || first.hasPrefix("switch "))
+        scannedFns += 1
+        if bodyLines.count > 1 && !isSingleExpr && !afterSig.contains("return ") {
+            check("多语句函数体里必须出现 return（missing return 会挂 CI Archive）：\(sig.prefix(60))", false)
+        }
+    }
+    check("missing-return 扫描器确实扫到了函数（不是空转通过，扫到 \(scannedFns) 个）",
+          scannedFns > 5)
+
     print("\n———————————————")
     print(fail == 0 ? "🎉 全部通过（\(pass) 项）" : "❌ \(fail) 个失败（\(pass) 通过）")
     return fail == 0 ? 0 : 1
