@@ -106,6 +106,25 @@ check("载荷版本为 1", ShareLinkCodec.payloadVersion == 1)
 check("剪贴板类型是自定义类型（不复用标准文本/图片类型）",
       ShareLinkCodec.pasteboardType.hasPrefix("com.qingliao.app2.") && !ShareLinkCodec.pasteboardType.hasPrefix("public."))
 
+// MARK: 9. 源码护栏：扩展里三件「本地 -parse 全绿、CI/真机才现形」的错
+// ① SDK 参数标签 —— 2026-09-27 实踩：`add(request, completionHandler:)` 应为
+//    `add(request, withCompletionHandler:)`；本机 `swiftc -parse` 当时全绿，CI run #588 Archive 才挂。
+// ② 扩展点标识写错 → 真机分享面板里根本不出现「轻聊」（CI 也拦不住，除非 Verify IPA 那步加校验）。
+// ③ 依赖没 embed → .appex 不进 PlugIns，工程能编但分享面板里没有本 App。
+let repoProbe = ["qingliaoShare/ShareNudge.swift", "project.yml"].compactMap {
+    try? String(contentsOfFile: $0, encoding: .utf8)
+}
+check("源码护栏：两个被读文件都拿到了（读不到后面的断言会假绿，故单独断言）", repoProbe.count == 2)
+if repoProbe.count == 2 {
+    check("扩展兜底通知用 withCompletionHandler: 标签（写错 → 本地绿、CI Archive 红）",
+          repoProbe[0].contains("add(request, withCompletionHandler: nil)")
+          && !repoProbe[0].contains("add(request, completionHandler:"))
+    check("分享扩展扩展点 = com.apple.share-services（写错 → 真机分享面板里没有「轻聊」）",
+          repoProbe[1].contains("NSExtensionPointIdentifier: com.apple.share-services"))
+    check("分享扩展嵌进主 App（- target: qingliaoShare + embed: true）",
+          repoProbe[1].contains("- target: qingliaoShare\n        embed: true"))
+}
+
 print("共 \(checks) 条断言，失败 \(failures) 条")
 if failures > 0 { exit(1) }
 print("✅ ShareLinkCodec 全部通过")

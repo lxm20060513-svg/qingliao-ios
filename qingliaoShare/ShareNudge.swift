@@ -28,7 +28,9 @@ enum ShareNudge {
             // ⚠️ 回调里**重新取** `current()`，不把 center 捕获进来：`UNUserNotificationCenter`
             // 不是 Sendable，捕获它在 Swift 6 严格并发下是编译错误。
             // 本仓既有写法同此（QuickReminderScheduler / NotificationHelper 的续体桥接）。
-            UNUserNotificationCenter.current().add(request, completionHandler: nil)
+            // ⚠️ 参数标签是 `withCompletionHandler:`（不是 `completionHandler:`）——
+            // 写错本地 `swiftc -parse` 全绿（纯语法）、CI Archive 才挂（v3.9.91 实踩，run #588）。
+            UNUserNotificationCenter.current().add(request, withCompletionHandler: nil)
         }
     }
 }
