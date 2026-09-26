@@ -376,16 +376,24 @@ check("意图卡外观切片可切出（空了后面全是空真）", !barCardSl
 // ⚠️ 排除式断言一律先剥注释：本卡的注释里就写着旧口径（Radius.inset / .regularMaterial），
 //    不剥会把「说明」当成回退 → 假红（本仓踩过多次）。
 let cardClean = stripComments(barCardSlice)
-check("走浮层玻璃口径 .overlayGlassCard()（口径数值不写在调用点）",
-      cardClean.contains(".overlayGlassCard()"))
+// 🚨 v4.0.0：意图动作卡已从 overlayGlassCard 切到 dashboardCard（= 门锁卡同款原生玻璃，
+//   真机报「浅色对话底上 ultraThin 看着像实心白卡」）。投影也跟着收进 DashboardCardStyle 的
+//   柔影 10/4 —— 它是**看板卡片浮在页面之上**的档，投影由该口径自带，调用点不再叠一层
+//   （叠两层阴影只会让下投影更重，与看板其它卡片不一致）。
+// 护栏意图从「投影写在调用点」改成「投影没被顺手抹掉」：两种形态都算过，只是不许回到「卡片没有投影」。
+check("意图卡走看板玻璃口径 .dashboardCard()（门锁卡同款，v4.0.0）",
+      cardClean.contains(".dashboardCard()"))
 check("旧的实心卡口径清零（.regularMaterial / Radius.inset / 暗发丝线）",
       !cardClean.contains(".regularMaterial")
       && !cardClean.contains("Radius.inset")
       && !cardClean.contains("Color.primary.opacity(0.06)"))
-check("调用点不再自己画圆角/材质（单一口径只在 OverlayGlassCard 里）",
+check("调用点不再自己画圆角/材质（单一口径只在 DashboardCardStyle 里）",
       !cardClean.contains("RoundedRectangle(cornerRadius:"))
-check("浮层投影留在调用点（0.12 / 12 / y4）",
-      cardClean.contains(".shadow(color: .black.opacity(0.12), radius: 12, y: 4)"))
+let lgRaw = (try? String(contentsOfFile: "qingliao/Theme/LiquidGlass.swift", encoding: .utf8)) ?? ""
+check("读得到玻璃口径源文件（路径没被挪）", !lgRaw.isEmpty)
+check("卡片投影收在看板口径里（DashboardCardStyle 自带柔影 10/4，调用点不叠第二层）",
+      !cardClean.contains(".shadow(")
+      && lgRaw.components(separatedBy: "struct DashboardCardStyle").last!.contains(".shadow(color: .black.opacity(0.12), radius: 10, y: 4)"))
 
 print("\n———————————————")
 print(failures == 0 ? "✅ 全部通过 \(total)/\(total)" : "❌ 失败 \(failures)/\(total)")

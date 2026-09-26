@@ -24,6 +24,20 @@ struct AppearanceSheet: View {
     @AppStorage(PetKeys.motion) private var petMotion: PetMotion = .system
     @State private var weatherCity = UserDefaults.standard.string(forKey: "qingliao_weather_city") ?? ""
     @State private var showWeatherCityField = false
+    // v4.0.0：启动会话（与 ChatStore.applyLaunchSessionPolicy 读同一组 key）
+    @AppStorage(UserDefaultsKey.launchSessionMode) private var launchMode = LaunchSessionMode.auto.rawValue
+    @AppStorage(UserDefaultsKey.launchSessionMins) private var launchMins = LaunchSessionMode.defaultIdleMinutes
+    /// 把「选了会怎样」写在下面，用户不用猜
+    private var launchHint: String {
+        switch LaunchSessionMode(rawValue: launchMode) ?? .auto {
+        case .auto:
+            return "距上次关闭 App 不超过 \(launchMins) 分钟就回到上次会话继续聊；超过 \(launchMins) 分钟就开一个空白新对话（历史不丢，只换新起点）。"
+        case .last:
+            return "每次打开 App 都直接回到上次那个会话，不管隔了多久。"
+        case .new:
+            return "每次打开 App 都是一个空白新对话，历史会话都保留在会话列表里。"
+        }
+    }
 
     var body: some View {
         NavigationStack {
@@ -67,6 +81,31 @@ struct AppearanceSheet: View {
                         .onChange(of: liveActivityOn) { _, on in
                             if !on { Task { @MainActor in await LiveActivityManager.shared.end() } }
                         }
+                }
+                // v4.0.0：启动会话（用户拍板放外观设置里）。三档 + 自动档的空闲阈值。
+                Section("启动会话") {
+                    Picker("打开 App 时", selection: $launchMode) {
+                        ForEach(LaunchSessionMode.allCases) { m in
+                            Text(m.title).tag(m.rawValue)
+                        }
+                    }
+                    .pickerStyle(.navigationLink)
+                    // 与阈值行同一套绑定口径：只在「自动」档出现
+                    if LaunchSessionMode(rawValue: launchMode) == .auto {
+                        HStack {
+                            Text("超过多久算久未使用")
+                            Spacer()
+                            Picker("", selection: $launchMins) {
+                                ForEach(LaunchSessionMode.idleOptions, id: \.self) { v in
+                                    Text("\(v) 分钟").tag(v)
+                                }
+                            }
+                            .labelsHidden()
+                        }
+                    }
+                    Text(launchHint)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 }
                 // AI 回答发光（对齐本地 Siri 发光 4 参数）
                 Section("AI 回答发光") {

@@ -131,6 +131,49 @@ struct SheetFrostCard: ViewModifier {
     }
 }
 
+// MARK: - v4.0.0 整页玻璃底（设置页）
+//
+// 由用户定稿：「设置页的背景也改成跟意图卡一样的玻璃式」→ 拍板「**整页铺玻璃底**（含二级页），分组卡浮在上面透光」。
+//
+// 为什么不是「给页底铺一个 .ultraThinMaterial」：Material 只是把背后内容模糊，**背后没内容时就退化成一块
+// 白/灰板** —— 这正是本轮刚修掉的「意图卡看着像实心白卡」的同一个坑（浅色底上模糊后仍接近白）。
+// 原生 `.glassEffect` 才有折射与边缘高光，所以这里底层给不透明 systemBackground 当折射源，上层再铺玻璃。
+//
+// ⚠️ 玻璃层挂在**内容下面**（zOrder 靠 background 实现），分组卡（glassListCard）浮在上面，
+//    不要改成盖在内容之上，否则列表文字会被玻璃糊住。
+
+struct GlassPageBackground: ViewModifier {
+    // v4.0.0 审查 F3 后**故意不再有 cornerRadius 参数**：整页玻璃一律不圆角
+    //   （ignoresSafeArea 只扩 frame 不裁形状，带圆角会露四个切角）。留着这个参数会诱导
+    //   后来人又传回 22，玻璃页就又变成「浮在屏幕上的面板」。
+    @Environment(\.colorScheme) private var scheme
+
+    func body(content: Content) -> some View {
+        content
+            .background {
+                // 🚨 审查 F2 抓到的真错：原先写成 `.background(A).background(B)` 两层 ——
+                //   SwiftUI 里**先挂的 background 画得更靠前**（叠放顺序 内容 → A → B），
+                //   而 A 是不透明 systemBackground，等于**把玻璃 B 压死**，玻璃完全不可见，
+                //   页面观感就是纯 systemBackground —— 玻璃白做了（且注释里的推理正好写反）。
+                // 改法：**单层 ZStack 一次画完**，顺序无关：折射源在最下、玻璃盖在上面。
+                //   分组卡（glassListCard）是 content 的一部分，天然浮在玻璃之上。
+                ZStack {
+                    // 折射源：必须不透明，且**不是纯白**——留一点明度差，原生玻璃才有东西可折射
+                    Color(uiColor: .systemBackground)
+                    Color.accentColor.opacity(scheme == .dark ? 0.10 : 0.06)
+                    // 与 dashboardCard / 意图卡同一档玻璃（.regular）。
+                    // 🚨 审查 F3：整页档**不能沿用卡片的 22 圆角** —— ignoresSafeArea 只扩 frame
+                    //   不裁形状，22 圆角会留四个切角 + 角外露底，看着像浮在屏幕上的面板而非整页底。
+                    //   故整页一律不圆角（用 Rectangle 形状本身，in: 同形）。
+                    Rectangle()
+                        .glassEffect(.regular, in: Rectangle())
+                        .ignoresSafeArea()
+                }
+                .ignoresSafeArea()
+            }
+    }
+}
+
 // MARK: - v3.9.78 浮层卡片（半透明毛玻璃底 · 淡色描边 + 白亮边 · 大圆角）
 //
 // 由头（用户 2026-09-25）：「弹窗卡片圆角加大，背景改成模糊半透明」——先出三候选稿
@@ -191,6 +234,15 @@ extension View {
     }
     func glassListCard() -> some View {
         modifier(GlassListCard())
+    }
+    /// v4.0.0：整页玻璃底（设置页用）。
+    /// 做法与意图卡（`.glassEffect(.regular)`）**同一口径**，但铺满全页：
+    ///   · 底层 = systemBackground（不透明，作玻璃要折射的内容源；玻璃是「透出背后的东西」，
+    ///     底下什么都没有的话玻璃只会退化成一块白/灰板 —— 这正是「material 垫浅色底看着像实心白卡」的坑）
+    ///   · 上层 = 全页 `.glassEffect(.regular, in: RoundedRectangle)`，与 dashboardCard 同一档玻璃
+    /// 分两层而非只铺 material：只有真·原生玻璃才有折射/高光，换 Material 得不到那个观感。
+    func glassPageBackground() -> some View {
+        modifier(GlassPageBackground())
     }
     func dashboardCard(cornerRadius: CGFloat = 16) -> some View {
         modifier(DashboardCardStyle(cornerRadius: cornerRadius))

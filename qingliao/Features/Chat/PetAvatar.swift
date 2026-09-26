@@ -57,6 +57,11 @@ struct PetAvatar: View {
         case lookAround    // 左右张望
         case happyWiggle   // 开心扭动
         case stretch       // 伸懒腰（拉长一下）
+        // v4.0.0（用户：「增加走动搞怪动画让它活起来」）：真·位移，不是原地形变。
+        // v3.9.85 那四个动作全在原地（rotate/scale/offset 幅度都是 0.0x×size），
+        // 观感上仍是「贴着原地晃」→ 补两个踱步动作：横向挪 + 朝向翻转 + 上下颠步。
+        case strollLeft
+        case strollRight
 
         var duration: TimeInterval {
             switch self {
@@ -65,9 +70,14 @@ struct PetAvatar: View {
             case .lookAround: return 1.6
             case .happyWiggle: return 0.9
             case .stretch: return 1.5
+            case .strollLeft, .strollRight: return 2.2
             }
         }
-        static let pool: [Quirk] = [.headTilt, .lookAround, .happyWiggle, .stretch]
+        static let pool: [Quirk] = [.headTilt, .lookAround, .happyWiggle, .stretch,
+                                    .strollLeft, .strollRight]
+
+        /// 是否是「走动」类：需要按行进方向镜像朝向
+        var isStroll: Bool { self == .strollLeft || self == .strollRight }
     }
 
     private var style: PetStyle { styleOverride ?? storedStyle }
@@ -101,6 +111,8 @@ struct PetAvatar: View {
         switch quirky {
         case .headTilt: return 6
         case .lookAround: return -3
+        // 踱步时的前倾（走路重心前移的身体感），左右一致 → 用同一个正角度
+        case .strollLeft, .strollRight: return 2.5
         default: return 0
         }
     }
@@ -109,9 +121,22 @@ struct PetAvatar: View {
         switch quirky {
         case .lookAround: return size * 0.03
         case .happyWiggle: return size * 0.015
+        // 走动位移：14pt（≈96pt 形象的 15%），落在宿主 96×96 框外的欢迎页空白区，不压文字
+        case .strollLeft: return -size * 0.145
+        case .strollRight: return size * 0.145
         default: return 0
         }
     }
+    /// 踱步的行进方向：0 = 正向，1 = 水平镜像（scaleEffect(x: -1)）
+    /// ⚠️ 只镜像 Canvas 层的位移与朝向，**不影响 overlay 的角标/思考点**（那些挂在本层之外）。
+    private var quirkyMirror: CGFloat { quirkyActive && quirky == .strollLeft ? -1.0 : 1.0 }
+    /// 踱步时的上下颠步（每步一点，锚点在底部 = 脚不离地）
+    private var quirkyBob: CGFloat {
+        guard quirkyActive, quirky.isStroll else { return 0 }
+        return strollPhase ? -size * 0.03 : 0
+    }
+    /// 颠步相位：独立 @State，由 strollLoop 定时翻转（与 quirky 的进出是两段时间轴）
+    @State private var strollPhase = false
 
     private var simplify: Bool { keepDetail ? false : size < PetKeys.simplifyBelow }
 
@@ -125,19 +150,34 @@ struct PetAvatar: View {
                 .draw(&context, size: canvasSize)
         }
         .frame(width: drawSize, height: drawSize)
+        // v4.0.0：走动 = 真位移。层级：Canvas → 镜像 → 呼吸缩放 → 形变缩放 → 旋转 → 位移 + 颠步。
+        //   锚点统一 .bottom：位移与颠步都从「脚」出发，不出现整体漂浮。
+        //   ⚠️ 镜像与位移的**先后顺序对结果没有影响**（外层 offset 在未镜像的父空间里做，
+        //     不会被内层 scaleEffect 镜像）—— 真正要守住的是**两者的方向配对**：
+        //     strollLeft 必须 shift<0 且 mirror<0（朝左走、朝左看），strollRight 反之。
+        //     配对错了才是「横着滑」（朝右走却朝左看）。该约束由 ql_pet 真值表逐档钉住。
+        .scaleEffect(x: quirkyMirror, y: 1, anchor: .bottom)
         // 呼吸：整层缩放（不触发 Canvas 重绘，最省）——「减弱/关闭」时恒为 1
         .scaleEffect(breath && animate ? 1.02 : 1.0)
-        // v3.9.85：微动作形变层（同呼吸，纯变换不重绘；锚点在底部 = 从「脚」上长出来）
+        // 微动作形变层（同呼吸，纯变换不重绘；锚点在底部 = 从「脚」上长出来）
         .scaleEffect(quirkyScale, anchor: .bottom)
         .rotationEffect(.degrees(quirkyAngle), anchor: .bottom)
-        .offset(x: quirkyShift)
+        .offset(x: quirkyShift, y: quirkyBob)
         // 思考中的三点气泡 / 新消息角标：SwiftUI 覆盖层（自带动画，不重绘 Canvas）
         .overlay(alignment: .topTrailing) { decoration }
         .allowsHitTesting(false)
         .accessibilityHidden(true)
         .onAppear { if animate { startBreath() } }
         .onChange(of: animate) { _, now in
-            if now { startBreath() } else { withAnimation(nil) { breath = false } }
+            if now {
+                startBreath()
+            } else {
+                // v4.0.0：不动时必须把姿态复位，否则切后台/被系统挂起时正卡在「抬起」，
+                // 回前台会看到宠物僵在半抬状态；同时 quirky 也清零（无动画包裹 = 立即归位）。
+                strollPhase = false
+                quirky = .none
+                withAnimation(nil) { breath = false }
+            }
         }
         .task(id: animate) { await blinkLoop() }
         .task(id: animate) { await quirkyLoop() }   // v3.9.85：灵动微动作
@@ -172,15 +212,42 @@ struct PetAvatar: View {
     /// v3.9.85：微动作循环——8~16s 随机播一个，每个动作「出去 + 回来」两段动画
     private func quirkyLoop() async {
         while !Task.isCancelled {
-            try? await Task.sleep(for: .seconds(Double.random(in: 8...16)))
+            try? await Task.sleep(for: .seconds(Double.random(in: 6...14)))
             guard animate, !Task.isCancelled, state == .idle, !patting else { continue }
             let q = Quirk.pool.randomElement() ?? .headTilt
             let d = q.duration
-            withAnimation(.easeInOut(duration: d * 0.4)) { quirky = q }
-            try? await Task.sleep(for: .seconds(d * 0.6))
-            guard !Task.isCancelled else { return }
-            withAnimation(.easeInOut(duration: d * 0.4)) { quirky = .none }
+            if q.isStroll {
+                await playStroll(q, duration: d)
+            } else {
+                withAnimation(.easeInOut(duration: d * 0.4)) { quirky = q }
+                try? await Task.sleep(for: .seconds(d * 0.6))
+                guard !Task.isCancelled else { return }
+                withAnimation(.easeInOut(duration: d * 0.4)) { quirky = .none }
+            }
         }
+    }
+
+    /// v4.0.0 踱步：真实位移的完整编排（四段）
+    ///   ① 迈出去（easeInOut，位移到 0.145×size，同步镜像朝向）
+    ///   ② 途中颠步 2 次（每步 duration/4，起脚一次落一次）
+    ///   ③ 站定顿一下（0.35×duration，活着但没走）
+    ///   ④ 走回原位（镜像必须先回正向，否则回程是「倒着滑」）
+    private func playStroll(_ q: Quirk, duration d: TimeInterval) async {
+        withAnimation(.easeInOut(duration: d * 0.3)) { quirky = q }
+        // 颠步：纵向起伏由 quirkyBob 承担（strollPhase 翻转），横向位移保持不变
+        for _ in 0..<2 {
+            try? await Task.sleep(for: .seconds(d * 0.2))
+            guard animate, !Task.isCancelled else { return }
+            withAnimation(.easeInOut(duration: d * 0.1)) { strollPhase = true }
+            try? await Task.sleep(for: .seconds(d * 0.1))
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeInOut(duration: d * 0.1)) { strollPhase = false }
+        }
+        // 站定顿一下：憋一下再走，像真的停下来看了一眼
+        try? await Task.sleep(for: .seconds(d * 0.35))
+        guard animate, !Task.isCancelled else { return }
+        strollPhase = false
+        withAnimation(.easeInOut(duration: d * 0.3)) { quirky = .none }
     }
 
     @ViewBuilder

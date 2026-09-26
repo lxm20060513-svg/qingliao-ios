@@ -58,6 +58,22 @@ echo "=== 5. Agent 结果卡片解析单元测试 ==="
 run_unit /tmp/test_agent_card -swift-version 6 \
     qingliao/Core/AgentCardParser.swift scripts/test_agent_card.swift
 
+echo "=== 5b. 启动会话策略真值表（v4.0.0 自动/上次会话/新对话 + 15 分钟边界）==="
+# 🚨 必须把生产源码编进来（审查抓出的真问题）：只编测试文件时，表内那份镜像实现
+#    与生产代码各改各的 → 公式/常量/接线被改坏也全绿。现在编的就是 qingliao/Core/LaunchSession.swift。
+# 入口：多文件一起编译时顶层只允许声明，调用代码由这里现生成一个 main.swift 承担。
+# 入口文件名**必须**叫 main.swift —— swiftc 只在 main.swift 里允许顶层可执行表达式。
+mkdir -p /tmp/ls_entry && cat > /tmp/ls_entry/main.swift <<'LSEOF'
+import Foundation
+// 现生成的测试入口（每次预检重建，不入库）。main.swift 不会自动 import Foundation → 显式写。
+exit(LaunchSessionTruthTable.main())
+LSEOF
+run_unit /tmp/test_launch_session -swift-version 6 \
+    qingliao/Core/LaunchSession.swift scripts/test_launch_session.swift /tmp/ls_entry/main.swift
+
+echo "=== 5c. 宠物动画真值表（v4.0.0 走动搞怪 + 镜像/位移顺序坑）==="
+run_unit /tmp/test_pet -swift-version 6 scripts/ql_pet/truth_table_pet.swift
+
 echo "=== 6. 挂件 Extension 语法检查（v3.8.0 实时活动）==="
 $SWIFT/swiftc -parse qingliaoWidget/*.swift qingliao/Core/LiveActivityAttributes.swift qingliao/Core/LiveActivityActions.swift 2>&1 | grep -v "^$" | head -10
 if [ ${PIPESTATUS[0]} -eq 0 ]; then

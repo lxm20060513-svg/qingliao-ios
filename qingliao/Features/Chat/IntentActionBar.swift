@@ -50,16 +50,21 @@ struct IntentActionBar: View {
         }
         .padding(Spacing.xl)
         .frame(maxWidth: .infinity, alignment: .leading)
-        // v3.9.78（用户定稿：**方案 C**）：「弹窗卡片圆角加大，背景改成模糊半透明」
-        //   · 圆角 Radius.inset(12) → **Radius.hero(22)**（hero 卡 / 大面板档；用户从 12/16/22 三档里选了 22）；
-        //   · 材质 `.regularMaterial` → **`.ultraThinMaterial`**：同族最薄、最透，背后对话内容明显透出来
-        //     （原来的 regular 在浅色底上偏白、看着像实心卡）；
-        //   · 描边 → 白 0.8pt 亮边（浅 0.12 / 深 0.22），原来是 `Color.primary.opacity(0.06)` 暗发丝线。
-        // 三件事收在一处口径 = `Theme/LiquidGlass.swift` 的 `OverlayGlassCard`（`.overlayGlassCard()`）：
-        // 识别浮层卡 / 速记待办输入卡也走它（用户「同口径推到其它弹窗」）。阴影仍留在调用点（各浮层投影不同）。
-        // ⚠️ 圆角与描边必须同一个角值，漏一处就是「方框套圆框」——已由意图管道真值表第 9 节钉住。
-        .overlayGlassCard()
-        .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
+        // 玻璃口径（v4.0.0 现行）：走 `dashboardCard()`，理由见下方注释。
+        // ⚠️ v3.9.78 曾在此处挂一整段「方案 C：22 圆角 + .ultraThinMaterial + 白亮边 + 投影留调用点」
+        //   的注释，但 v4.0.0 已把本体换成 dashboardCard()（16 圆角 / .glassEffect(.regular) /
+        //   投影 10-4 且在口径里）—— 那段注释留着会让人照着改回旧口径。已删，别再加回来。
+        //
+        // 🚨 v4.0.0（用户 2026-09-26 真机报：「这张卡背景像实心白卡，换成跟门锁卡一样的透明底」）：
+        //   真因 —— `.ultraThinMaterial` 背后是**浅色对话底**时，模糊后仍是接近白的实色观感，
+        //   玻璃的「透」在浅底上根本不成立（真机看图 = 白卡片）。门锁卡（`PinCard`）走
+        //   `.dashboardCard()` = **`.glassEffect(.regular, in: RoundedRectangle(16))`** 原生玻璃，
+        //   同样浅底上能透出层次 → 用户要的就是这一档。
+        //   本卡改走 `dashboardCard()`：**不新增第三套玻璃口径**，直接复用门锁卡那套已被真机认可的
+        //   `DashboardCardStyle`（圆角 16 / 白 0.8pt 描边浅 0.12 深 0.22 / 柔影 10-4）。
+        //   识别浮层、速记待办、译文卡**保持 `overlayGlassCard` 不动**（那是用户 2026-09-25 单独拍板的另一档，
+        //   它们各自在弹窗/浮层里有系统材质垫底，ultraThin 在那里是透的）。
+        .dashboardCard()
         .padding(.horizontal, Spacing.section)
         .transition(.move(edge: .bottom).combined(with: .opacity))
         .onDisappear { undoTask?.cancel() }

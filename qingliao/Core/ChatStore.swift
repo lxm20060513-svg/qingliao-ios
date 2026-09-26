@@ -74,6 +74,9 @@ final class ChatStore {
     private var saveTask: Task<Void, Never>?
     // v3.0.1 fix：会话 id 用固定 key（v3.9.28：云端/本地双 key 已随云端模式移除）
     private var sessionKey: String { "qingliao_current_session" }
+    /// v4.0.0：已 newSession 但**尚未落库**的新会话 id。空会话不夺「当前会话」指针，
+    /// 首条消息发出落库后才由 claimPendingSessionId() 交接（详见 newSession 注释）。
+    private var pendingSessionId: String?
 
     init() {
         let key = "qingliao_current_session"
@@ -115,6 +118,127 @@ final class ChatStore {
         return patched
     }
 
+    // MARK: - v4.0.0 启动会话策略（设置页「启动会话」：自动 / 上次会话 / 新对话）
+
+    /// 记录「上次离开 App 的时刻」——「自动」档判空闲时长的唯一依据。
+    /// 写在**进后台**而不是退出进程：iOS 很少真正 terminate，强杀时任何代码都不执行，
+    /// 只在退后台记一笔才能覆盖「切走去别的事、过几十分钟回来看」这个最常见场景。
+    /// v4.0.0：记「离开 App 的时刻」，同时**刷新最近使用时刻**。
+    /// 为什么两件事要一起：只记离开时刻的话，「连续前台用 40 分钟 → 在前台被系统终止」
+    /// 这个场景读到的仍是几十小时前那一次离开 → 自动档误判「久未使用」→ 明明刚在聊却开新对话。
+    /// 两个 key 取较晚的那个即可覆盖两种终止方式（切走后再被杀 / 一直前台被杀）。
+    static func touchLastActive(defaults: UserDefaults = .standard) {
+        let now = Date().timeIntervalSince1970 * 1000
+        defaults.set(now, forKey: UserDefaultsKey.lastActiveAt)
+        defaults.set(now, forKey: UserDefaultsKey.lastUsedAt)
+    }
+
+    /// 上次离开 App 距今的分钟数；无记录（首次安装/被清）返回 nil
+    static func idleMinutesSinceLastActive(defaults: UserDefaults = .standard) -> Int? {
+        // v4.0.0：换算搬进 LaunchSession.swift 的生产函数（真值表直接编译那份源码，
+        // 改公式必红；原先这里一份、表里又一份镜像，公式改了全绿）。
+        // 取「离开时刻」与「最近使用时刻」的**较晚者**：前者覆盖切走后被杀，后者覆盖一直前台被杀
+        let away = defaults.double(forKey: UserDefaultsKey.lastActiveAt)
+        let used = defaults.double(forKey: UserDefaultsKey.lastUsedAt)
+        idleMinutesSince(nowMs: Date().timeIntervalSince1970 * 1000,
+                         lastActiveAtMs: max(away, used))
+    }
+
+    /// 按设置决定冷启动落在哪个会话。返回 true = 已开新对话。
+    /// 「自动」档无空闲记录（首次安装）时**保守回落到上次会话**：此时没有任何证据说明
+    /// 上次会话已「久未使用」，凭空开新对话只会让用户丢上下文。
+    @discardableResult
+    func applyLaunchSessionPolicy(auth: AuthStore, defaults: UserDefaults = .standard) async -> Bool {
+        let mode = LaunchSessionMode(rawValue: defaults.string(forKey: UserDefaultsKey.launchSessionMode) ?? "") ?? .auto
+        // v4.0.0（审查 LOW）：原先 `object(forKey:) as? Int` 在值以 Double 落盘时**静默返回 nil**
+        // → 无声退回 15 分钟，而用户明明选了别的档。走 NSNumber 桥，两种数值类型都吃得下。
+        let threshold: Int = {
+            guard let o = defaults.object(forKey: UserDefaultsKey.launchSessionMins) else {
+                return LaunchSessionMode.defaultIdleMinutes   // 键不存在 = 用户没设过
+            }
+            return (o as? NSNumber)?.intValue ?? LaunchSessionMode.defaultIdleMinutes
+        }()
+
+        // v4.0.0：三档判定也搬进生产函数（同上，真值表编译的就是这份）
+        let openNew = shouldOpenNewSession(mode: mode,
+                                           idleMinutes: Self.idleMinutesSinceLastActive(defaults: defaults),
+                                           threshold: threshold)
+
+        if openNew {
+            // 🚨 v4.0.0 审查抓到的真回归（修法在此，勿简化）：冷启动直接 newSession() 会**永久毁掉
+            //   「回到上次那个会话」的路**。原因链：
+            //   ① newSession() 把 sessionId 换成全新 id 并覆写 UserDefaults 指针；
+            //   ② 这个新 id **从未落库**（只有发第一条消息才 POST），/api/sessions/list 里查不到；
+            //   ③ 用户此刻直接杀掉 App → 下次冷启动 init 读到的就是这个**空壳 id**；
+            //   ④ loadLastSession 按 id 匹配 → 无命中 → 静默 return；
+            //   ⑤ lastLoadedSession 只在 load() 里赋值，跨启动不保留 → 欢迎页「继续上次」永不出现。
+            //   而且**每次冷启动都再覆写一次** → 越用越回不去。
+            // 修法：开新对话**之前**先把旧会话捞出来存进 lastLoadedSession，
+            //   新会话照样是干净的空白页，但「继续上次」那一条退路始终在。
+            await keepLastSessionAsFallback(auth: auth)
+            newSession()
+            // v4.0.0（审查 MEDIUM）：只换本地 sessionId **不会**动 gateway 侧的会话上下文 ——
+            //   这正是「新建会话后 AI 还记得上文」的根因（v3.4.29 已修过一次，挂在 UI 加号入口）。
+            //   冷启动这条路径不走那个 onChange，所以这里直接自己投一次静默 /new。
+            //   为什么不复用 pendingNewSessionReset：那个标志由 ChatView 的 onChange(sessionId) 消费，
+            //   而冷启动时 sessionId 在首帧之前就定好了，onChange 根本不会触发。
+            await silentGatewayResetForNewSession(auth: auth)
+        } else {
+            await loadLastSession(auth: auth)
+        }
+        return openNew
+    }
+
+    /// v4.0.0：冷启动开新对话后补投一次静默 /new（gateway 侧上下文重置）。
+    /// 与 `ChatView.silentGatewayReset()` 同语义：只投单条 `/new`（不带历史），不落本地消息、不接流。
+    /// 失败静默 —— 下次冷启动还会再投，用户最多损失一次「新会话仍记得上文」，不会卡住启动。
+    /// v4.0.0（审查 F12）：defaults 由调用方传入，与 applyLaunchSessionPolicy 同一份口径
+    ///   （原先这里硬用 UserDefaults.standard，而 lastActiveAt 走参数 —— 传 test double 会漏）。
+    private func silentGatewayResetForNewSession(auth: AuthStore,
+                                                 defaults: UserDefaults = .standard) async {
+        // 🚨 审查 F4 抓到的真错：原先这里硬读 UserDefaults 且默认 model = ""，
+        //   键不存在时会发 `model: ""` → 后端 400 → `try?` 静默吞掉 → gateway 上下文**根本没重置**，
+        //   而表面看「修好了」。且绕过了 resolveModel 的优先级链（视觉>Agent>主）：
+        //   配了独立 Agent 模型的用户，重置请求会发到另一个模型上，上下文未必被清。
+        // 现在与 `ChatView.resolveModel(hasImage: false)` 同口径（/new 是纯文本、无图 → 无视觉档）。
+        let agentModel = defaults.string(forKey: UserDefaultsKey.agentModel) ?? ""
+        let agentProvider = defaults.string(forKey: UserDefaultsKey.agentProvider) ?? ""
+        let model: String
+        let provider: String
+        if !agentModel.isEmpty {
+            model = agentModel
+            provider = agentProvider
+        } else {
+            model = defaults.string(forKey: UserDefaultsKey.model) ?? "deepseek-v4-flash"
+            provider = defaults.string(forKey: UserDefaultsKey.provider) ?? "opencode"
+        }
+        let payload: [[String: Any]] = [["role": "user", "content": "/new"]]
+        // 🚨 审查 F5 抓到的副作用：streamStart 不是无害调用 —— 遇 401 会 markSessionExpired()，
+        //   于是「冷启动时 token 恰好过期」→ **启动即弹「登录已过期」横幅**（此前不聊就不会弹）；
+        //   这次 /new 还会作为真实后台任务出现在任务中心，且冷启动多一次网络往返（用户看到「卡一下」）。
+        //   用户点加号那次（ChatView.silentGatewayReset）该弹就弹 —— 那是用户主动动作；
+        //   冷启动这次是系统自己加的，不能凭空吓用户。故进出都保存/恢复该标志。
+        //   不改成别的端点：后端没有无副作用的 stream/reset（已查，只有 sync-models/model-providers 之类）。
+        let expiredBefore = auth.sessionExpired
+        defer { auth.sessionExpired = expiredBefore }
+        _ = try? await auth.streamStart(sessionId: sessionId, model: model,
+                                        provider: provider, messages: payload)
+    }
+
+    /// v4.0.0：冷启动开新对话前，先按**当前 sessionId** 把旧会话捞进 `lastLoadedSession`。
+    /// 查不到（旧 id 本身就不在列表里，如首装）就什么都不做 —— 绝不凭空造一个假会话。
+    private func keepLastSessionAsFallback(auth: AuthStore) async {
+        guard messages.isEmpty else { return }
+        let sid = sessionId
+        guard let j = try? await auth.json("/api/sessions/list"),
+              let raw = j["sessions"] as? [Any] else { return }
+        let sessions = raw.compactMap { ChatSession.parse($0 as? [String: Any] ?? [:]) }
+        guard let match = sessions.first(where: { $0.id == sid }) else { return }
+        // ⚠️ 只存 lastLoadedSession，**不动 sessionId / title / messages**：
+        //   那三样一改就不是「新对话」了（用户要的是空白新会话，不是旧会话换了个壳）。
+        lastLoadedSession = match
+    }
+
     // MARK: - v3.1.5 启动自动加载上次会话（解决"App 忘记上下文"）
     /// App 重启后自动从后端/本地存储加载当前 sessionId 对应的会话消息，
     /// 让 historyPayload() 有上下文可发，不再每条消息都"从零开始"。
@@ -135,8 +259,21 @@ final class ChatStore {
         sessionId = UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(13).description
         title = ""
         messages = []
-        highlightTarget = nil   // v2.0.44：新建会话清除残留定位目标
-        defaults.set(sessionId, forKey: sessionKey)
+        highlightTarget = nil   // v2.0.44：新建会话清除残留定位
+        // 🚨 v4.0.0（审查 F6，高）：原先这里**无条件**把「当前会话」指针指向新 id。
+        //   而这个 id 在第一条消息发出前**从未落库** → 谁在此时杀掉 App，下次启动读到的就是
+        //   这个查不到的空壳 id → 欢迎页「继续上次」永久失联，且每次冷启动再覆写一次。
+        //   内存里的 keepLastSessionAsFallback 只能遮住**当次**进程，跨启动就丢。
+        // 改法：**空会话不夺指针**。指针只在真正落库后才交出去（见 claimPendingSessionId）。
+        pendingSessionId = sessionId
+    }
+
+    /// v4.0.0：首条消息发出、会话已落库时，才把「当前会话」指针交给这个新会话。
+    /// 落库前被杀 → 指针仍指旧会话，下次启动照旧回到你真正的对话。
+    func claimPendingSessionId() {
+        guard let pending = pendingSessionId else { return }
+        pendingSessionId = nil
+        defaults.set(pending, forKey: sessionKey)
     }
 
     /// v3.9.58c：「继续上次任务」横幅用——按 id 从后端拉会话并切换（含消息加载）。
@@ -254,6 +391,12 @@ final class ChatStore {
         }
         if title.isEmpty, m.isUser, !m.content.isEmpty {
             title = String(m.content.prefix(30))
+        }
+        // v4.0.0（审查 F6）：首条消息落地 = 这个新会话已在后端注册（发消息必然建会话），
+        // 此时才把「当前会话」指针交出去。在那之前指针一直指着你真正的上一个会话 ——
+        // 中途被杀也不会让下次启动落到一个查不到的空壳 id 上。
+        if m.isUser {
+            claimPendingSessionId()
         }
     }
 

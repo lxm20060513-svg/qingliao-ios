@@ -1859,7 +1859,10 @@ struct ChatView: View {
                       patTrigger: petPat)
         }
         .frame(width: 96, height: 96)
-        .contentShape(Rectangle())   // 形象自身 allowsHitTesting(false)，不补命中域整块点不到
+        // v4.0.0：走动位移最大 ±0.145×96 ≈ ±14pt，会溢出这个 96×96 框。
+        // 命中域若只按 96×96 算，宠物走到框外那半截就点不到 → 「轻点抚摸」在手的位置失灵。
+        // 命中域取横向 96+两侧各 18pt（位移余量 14pt + 余量），纵向不扩（颠步只有 3pt，够用）
+        .contentShape(Rectangle().inset(by: EdgeInsets(top: -4, leading: -18, bottom: -4, trailing: -18)))
         .accessibilityLabel("轻聊智能体")
         // v3.9.78：量宠物在屏幕上的真实中心（菜单从这里绽放；键盘/滚动导致的位移会同步刷新）
         .onGeometryChange(for: CGPoint.self) { proxy in

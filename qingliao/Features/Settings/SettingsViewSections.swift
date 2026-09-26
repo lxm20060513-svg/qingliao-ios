@@ -163,7 +163,15 @@ extension SettingsView {
             if tsRouting.enabled {
                 tsRoutingParams
             }
-            Divider().padding(.leading, Spacing.rowDividerInset)
+        }
+        .glassListCard()
+    }
+
+    /// v4.0.0：微信推送（**从 aiSection 摘出**）—— 通知投递不是「AI 能力」，
+    /// 原先混在「AI 智能」组里，名不副实。现归「通知与自动化」大类。
+    @ViewBuilder var aiNotifySection: some View {
+        SectionHeader("消息推送")
+        VStack(spacing: 0) {
             toggleRow(icon: "message.badge.filled.fill", iconColor: .green,
                       title: "微信推送", subtitle: "自动化执行结果推送到微信", isOn: $pushWeixin)
                 .onChange(of: pushWeixin) { _, new in
@@ -279,18 +287,32 @@ extension SettingsView {
         .padding(.bottom, Spacing.lg)
     }
 
-    @ViewBuilder var dataSection: some View {
-        SectionHeader("数据与自动化")
+    /// v4.0.0：定时/自动化类（**从 dataSection 拆出**）。判定标准 = 「什么时候会自己来找你 / 替你干活」。
+    @ViewBuilder var automationSection: some View {
+        SectionHeader("定时与自动化")
         VStack(spacing: 0) {
-            SettingRow(icon: "key.fill", iconColor: .teal, title: "密码管理", value: "\(secretCount) 条凭据", chevron: true)
-                .tapButton { showSecrets = true }
-            Divider().padding(.leading, Spacing.rowDividerInset)
             SettingRow(icon: "clock.badge.fill", iconColor: .red, title: "定时任务", chevron: true)
                 .tapButton { showTasks = true }
             Divider().padding(.leading, Spacing.rowDividerInset)
             SettingRow(icon: "clock.arrow.circlepath", iconColor: .orange, title: "执行历史",
                        value: "自动化/场景执行记录", chevron: true)
                 .tapButton { showHistory = true }
+            Divider().padding(.leading, Spacing.rowDividerInset)
+            // v3.9.32：一句话本地定时提醒（与上面「定时任务」不同：纯本地系统通知，App 不在也响）
+            SettingRow(icon: "bell.badge.fill", iconColor: .pink, title: "定时提醒",
+                       value: "一句话定时间", chevron: true)
+                .tapButton { showQuickReminder = true }
+        }
+        .glassListCard()
+    }
+
+    /// v4.0.0：数据与文件（**从原「数据与自动化」收窄**）。判定标准 = 「东西存在哪 / 出问题去哪看」。
+    /// 原 9 条里混了定时（3）、排障（2）、存储（4）三类，现只留后两类。
+    @ViewBuilder var dataSection: some View {
+        SectionHeader("数据与文件")
+        VStack(spacing: 0) {
+            SettingRow(icon: "key.fill", iconColor: .teal, title: "密码管理", value: "\(secretCount) 条凭据", chevron: true)
+                .tapButton { showSecrets = true }
             Divider().padding(.leading, Spacing.rowDividerInset)
             SettingRow(icon: "doc.text.fill", iconColor: .orange, title: "日志", chevron: true)
                 .tapButton { showLogs = true }
@@ -310,11 +332,6 @@ extension SettingsView {
             SettingRow(icon: "rectangle.grid.2x2", iconColor: .green, title: "生活卡片",
                        value: "股票 / 资讯 / 快递 / 价格监控", chevron: true)
                 .tapButton { showLifeCards = true }
-            Divider().padding(.leading, Spacing.rowDividerInset)
-            // v3.9.32：一句话本地定时提醒（与上面「定时任务」不同：纯本地系统通知，App 不在也响）
-            SettingRow(icon: "bell.badge.fill", iconColor: .pink, title: "定时提醒",
-                       value: "一句话定时间", chevron: true)
-                .tapButton { showQuickReminder = true }
             Divider().padding(.leading, Spacing.rowDividerInset)
             // v3.9.32：文件管理（上传目录浏览：预览 / 分享 / 重命名 / 删除）
             SettingRow(icon: "folder.fill", iconColor: .indigo, title: "文件管理",

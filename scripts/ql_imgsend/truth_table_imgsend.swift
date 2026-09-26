@@ -163,12 +163,17 @@ check("预取有大小与魔数护栏（别把 HTML 报错页当图缓存）",
 check("蜂窝下一律不预取（不弹 Safari 授权窗、不占 relay 串行槽）",
       storeSrc.contains("guard !NetworkMonitor.shared.isCellular else { return }"))
 // 🚨 冷启动触发点：onChange(of: sessionId) 在同值时**不会触发** → 必须额外补一次
+// v4.0.0：冷启动那行已改名 applyLaunchSessionPolicy（内含开新对话/回上次两分支），
+//   但**本条护栏要守的是「会话落定之后才补跑图片链」这个顺序**，与调用名无关
+//   → 认两个名字任一，别把护栏钉死在某个函数名上。
 let coldStartOK: Bool = {
-    guard let a = appSrc.range(of: "await chat.loadLastSession(auth: auth)"),
+    let names = ["await chat.applyLaunchSessionPolicy(auth: auth)",
+                 "await chat.loadLastSession(auth: auth)"]
+    guard let a = names.compactMap({ appSrc.range(of: $0) }).first,
           let b = appSrc.range(of: "chat.startImageRetryUploads(auth: auth)") else { return false }
     return a.upperBound < b.lowerBound
 }()
-check("冷启动补触发（loadLastSession 之后，且 order 在后）", coldStartOK)
+check("冷启动补触发（会话落定之后，且 order 在后）", coldStartOK)
 check("切会话仍保留原触发点", chatViewSrc.contains("chat.startImageRetryUploads(auth: auth)"))
 // 事故证据：这条链原先只有 onChange 触发点（冷启动不跑）——冻结这个「单触发点」形态，回归即红
 check("事故证据：onChange(of: chat.sessionId) 是原（唯一）触发点，冷启动不覆盖",

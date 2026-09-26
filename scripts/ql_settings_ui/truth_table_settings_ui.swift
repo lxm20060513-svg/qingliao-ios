@@ -20,6 +20,32 @@ func src(_ path: String) -> String {
     (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
 }
 
+/// v4.0.0：去掉 `//` 与 `/* */` 注释，只留代码文本。
+/// 本表要断言"某段结构真的这样写"，而注释里常留着**旧口径的说明**
+/// （v3.9.78 的 22 圆角注释就是这么差点把护栏喂成假绿的），故一律先剥注释再判。
+func stripComments(_ s: String) -> String {
+    var out = ""
+    var inLine = false, inBlock = false
+    var prev: Character = " "
+    for ch in s {
+        if inLine {
+            if ch == "\n" { inLine = false; out.append(ch) }
+            continue
+        }
+        if inBlock {
+            if ch == "*" && prev == "/" { inBlock = false }
+            prev = ch == "*" ? "*" : " "
+            continue
+        }
+        if ch == "/" && prev == "/" { inLine = true; prev = " "; continue }
+        if ch == "/" , let n = out.last, n == "*" { inBlock = true; prev = " "; continue }
+        out.append(ch)
+        prev = ch
+    }
+    // 去行尾残留的「*/」残留与多余空白
+    return out.replacingOccurrences(of: "*/", with: " ")
+}
+
 let spacingSrc = src("qingliao/Theme/Spacing.swift")
 let sheetsSrc = src("qingliao/Features/Settings/SettingsSheets.swift")
 
@@ -95,6 +121,41 @@ check("天气城市行切片取到且行尾值钉单行", !cityRowBody.isEmpty &
 let ttsModelRowBody = slice(src("qingliao/Features/Settings/SettingsModelSheets.swift"),
                             "Text(\"模型\")", "// 音色下拉")
 check("TTS 模型行切片取到且 Picker 钉单行", !ttsModelRowBody.isEmpty && ttsModelRowBody.contains(".lineLimit(1)"))
+
+// MARK: - 设置页 8 大类二级页 + 整页玻璃底（v4.0.0）
+let svSrc = stripComments(src("qingliao/Features/Settings/SettingsView.swift"))
+let dockSrc = stripComments(src("qingliao/Features/DockTabView.swift"))
+let lgGlassSrc = stripComments(src("qingliao/Theme/LiquidGlass.swift"))
+
+// 玻璃底本体
+check("有 glassPageBackground 修饰符（整页玻璃）", lgGlassSrc.contains("struct GlassPageBackground"))
+// 🚨 审查 F2 抓到的真错：写成 `.background(A).background(B)` 两层时，SwiftUI 里**先挂的画得更靠前**，
+//   不透明的折射源 A 会把玻璃 B 压死 → 玻璃完全不可见（白做）。必须单层 ZStack 一次画完。
+// ⚠️ 锚点不能用 `// MARK:` 注释（stripComments 已剥掉）→ 用真实的 struct 声明/下一段代码。
+let glassPageBody = slice(lgGlassSrc, "struct GlassPageBackground", "struct OverlayGlassCard")
+check("🚨 折射源与玻璃在**同一个 ZStack**（不是两层 background 叠放）",
+      glassPageBody.contains("ZStack") && glassPageBody.contains("glassEffect"))
+let bgCount = glassPageBody.components(separatedBy: ".background").count - 1
+check("🚨 只挂一次 background（两次=玻璃被折射源压死）", bgCount == 1)
+// 🚨 审查 F3：整页档不能带卡片圆角，否则四角露底看着像浮在屏幕上的面板
+check("整页玻璃不圆角（用 Rectangle 形状，无 RoundedRectangle 圆角档）",
+      glassPageBody.contains("Rectangle()") && !glassPageBody.contains("RoundedRectangle"))
+check("整页玻璃档已无 cornerRadius 参数（防止后来人又传回 22）",
+      !lgGlassSrc.contains("cornerRadius: CGFloat\n    @Environment(\\.colorScheme) private var scheme")
+      || !glassPageBody.contains("cornerRadius"))
+check("设置页挂了整页玻璃底", svSrc.contains(".glassPageBackground()"))
+
+// 二级页
+check("设置页有 SettingsGroup 枚举（8 大类）", svSrc.contains("enum SettingsGroup"))
+check("设置 tab 包了 NavigationStack（否则 NavigationLink 点了不推）",
+      dockSrc.contains("NavigationStack"))
+check("🚨 设置页显式藏系统导航栏（否则顶部多一段空白/空返回槽）",
+      dockSrc.contains(".toolbar(.hidden, for: .navigationBar)"))
+check("明细页有自绘返回键（PageHeader 不支持返回键）", svSrc.contains("backButton"))
+check("大类行带 chevron（否则看不出能点进去）",
+      slice(svSrc, "NavigationLink {", ".buttonStyle(.plain)").contains("chevron: true"))
+check("退出登录留在主页（危险操作不藏两层）",
+      slice(svSrc, "var categoryList", "var detailBody").contains("logoutButton"))
 
 print("设置页间距口径真值表：\(passCount) 通过 / \(failCount) 失败")
 if failCount > 0 { exit(1) }

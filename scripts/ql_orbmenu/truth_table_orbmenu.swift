@@ -995,8 +995,19 @@ check("对外暴露 .overlayGlassCard() 且默认走 hero 档",
       lgSrc.contains("func overlayGlassCard(cornerRadius: CGFloat = Radius.hero) -> some View"))
 
 // 调用点①：聊天页意图动作卡（聊天页那张，用户原图就是它）
-check("① 意图动作卡走 .overlayGlassCard()",
-      src("Features/Chat/IntentActionBar.swift").contains(".overlayGlassCard()"))
+// 🚨 v4.0.0：这张卡**已切走** overlayGlassCard 口径 → 改走 dashboardCard()（= 门锁卡 PinCard 同款
+//   `.glassEffect(.regular, in: RoundedRectangle(16))` 原生玻璃）。
+//   真机证据：`.ultraThinMaterial` 背后是浅色对话底时模糊后仍接近白 = 看着像实心白卡；
+//   而 dashboardCard 同样浅底能透出层次，用户要的就是这一档。
+//   下方 ② 识别浮层 4 张**保持 overlayGlassCard 不动**（2026-09-25 用户单独拍板，浮层里有系统材质垫底）。
+let intentBarClean = stripCommentLines(src("Features/Chat/IntentActionBar.swift"))
+check("① 意图动作卡走 .dashboardCard()（门锁卡同款原生玻璃，v4.0.0）",
+      intentBarClean.contains(".dashboardCard()"))
+check("① 意图动作卡已不挂 overlayGlassCard（避免两套玻璃叠着/改回旧档）",
+      !intentBarClean.contains(".overlayGlassCard()"))
+// 门锁卡/看板卡那套玻璃口径本身不许被这次改动动（浅底也能透的判据）
+check("① dashboardCard 口径仍是 .glassEffect(.regular, in: RoundedRectangle)（未被顺手改掉）",
+      lgSrc.contains(".glassEffect(.regular, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))"))
 // 调用点②：AI 识别浮层两张卡（扫描中 / 没认出可用内容）
 // ⚠️ identifySrc 已在第 9 节声明过 —— 顶层重复 `let` = 编译不过（本节第一版就踩了），直接复用。
 // ⚠️ 计数/排除式断言先剥注释：这两张卡的注释里就写着 `.overlayGlassCard()` 与旧口径（说明「改了什么」），

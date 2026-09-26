@@ -94,7 +94,17 @@ struct DockTabView: View {
                 // v3.6.2：生活页（原看板「生活数据」栏目迁入）
                 LifeView(isActive: selected == .life)
                     .tabTransition(for: .life, selected: $selected)
-                SettingsView()
+                // v4.0.0：设置页大类 → 明细的二级页需要 NavigationStack 才有返回栈
+                // （TabView 里裸放 NavigationLink 点了不推、也不显示返回键）。
+                // 只包设置 tab —— 其他 tab 的层级结构一行不动。
+                NavigationStack {
+                    SettingsView()
+                        // 🚨 审查 F7：iOS 26 的 NavigationStack 在无 navigationTitle 时仍保留
+                        //   导航栏占位 → 顶部多一段空白/空返回槽。本页用自绘 PageHeader（不占系统栏），
+                        //   故显式藏掉。参考同仓同款：RecordSection:236 / MemoSection:235 / TodoSection:224。
+                        //   二级页仍要系统侧滑返回，但它的 PageHeader 已自绘返回键，不靠系统栏。
+                        .toolbar(.hidden, for: .navigationBar)
+                }
                     .tabTransition(for: .settings, selected: $selected)
             }
             // v3.4.30：装机实测后按用户要求关闭自动收缩——tab bar 常驻不缩，滚动时不再变窄

@@ -53,8 +53,10 @@ struct QingliaoApp: App {
                     InboxStore.shared.startPolling()
                     // v3.1.5：启动自动加载上次会话消息（解决 App 重启后"忘记上下文"）
                     // v3.4.25：与上方轻初始化解耦后仍 await 收尾（根视图依赖会话内容渲染）
+                    // v4.0.0：改走启动会话策略（设置页可选 自动/上次会话/新对话，
+                    // 「自动」= 距上次离开 App 超过阈值（默认 15 分钟）就开新对话）
                     if auth.isLoggedIn {
-                        await chat.loadLastSession(auth: auth)
+                        await chat.applyLaunchSessionPolicy(auth: auth)
                     }
                     // v3.9.60：冷启动补一次图片链。原先只挂在 ChatView 的 .onChange(of: chat.sessionId) 上，
                     // 而冷启动路径是 loadLastSession → load() 把 sessionId 赋成**同一个值**（初值本就取自
@@ -74,6 +76,16 @@ struct QingliaoApp: App {
                         stream.persistState(sessionId: auth.currentStreamSessionId)
                         InboxStore.shared.stopPolling()   // v3.9.1：进后台停收件箱轮询（此前 stopPolling 全仓无人调用，后台全靠系统挂起兜底）
                     }
+                    // v4.0.0：记一笔「离开 App 的时刻」——启动会话策略「自动」档判 15 分钟空闲的依据。
+                    // 记在这里而不是退进程：强杀不执行任何代码，离开 App 是唯一能覆盖
+                    // 「切走 → 隔几十分钟回来」这个主场景的时机。
+                    //
+                    // 🚨 必须挂在 `if phase == .background` **之外**（与 .active 分支同级）：
+                    //   上一版我把它塞进了 .background 块体内、判据写 `phase != .active` ——
+                    //   在该分支里恒为 true，等价于 .background，.inactive 场景**一个都没补上**，
+                    //   而注释还写着「inactive 同样算离开 App」。真值表只查字符串存在、不查它是否被
+                    //   外层条件罩住，所以照样全绿。判据与位置都要对，两者缺一就是假修。
+                    if phase != .active { ChatStore.touchLastActive() }
                     // v2.0.87t：前台恢复自动重连（蜂窝 IPv6 会话后台过期 → 重建，免手动飞行模式）
                     // v3.0.81：串行恢复——先刷新网络会话，再恢复流式（原并发导致 restartPolling 用旧连接）
                     if phase == .active {

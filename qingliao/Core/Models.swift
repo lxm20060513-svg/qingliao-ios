@@ -5,6 +5,17 @@ import SwiftUI
 
 /// App 全局 UserDefaults key 集中管理，防止拼写错误导致静默失效
 enum UserDefaultsKey {
+    // v4.0.0：启动会话行为（auto/last/new）+ 自动档的空闲阈值（分钟）
+    static let launchSessionMode  = "qingliao_launch_session_mode"
+    static let launchSessionMins  = "qingliao_launch_session_minutes"
+    // v4.0.0：上次离开 App 的时刻（ms）——「自动」档判 15 分钟空闲的依据。
+    // 用**上次离开 App 的时刻**而不是会话最后一条消息的时间：后者会把「上午聊完、
+    // 中午才开 App」误判成久未使用 → 明明刚聊过却开新对话。
+    // 写入时机 = scenePhase 非 active（.inactive 也记：通知中心/控制中心/来电横幅只到 inactive）。
+    static let lastActiveAt = "qingliao_last_active_at"
+    // v4.0.0：最近使用时刻。用于补上「一直前台用着却被系统终止」——
+    // 此时没有离开事件，只有使用痕迹；idle 取 lastActiveAt 与本键的较晚者。
+    static let lastUsedAt = "qingliao_last_used_at"
     // v3.4.12：agentEnabled key 已移除——「Agent 智能回复」开关删除后无任何读取方
     // （AuthStore.streamStart 恒发 agentEnabled=true 走字面量，不再读 UserDefaults）
     static let agentModel   = "qingliao_agent_model"
