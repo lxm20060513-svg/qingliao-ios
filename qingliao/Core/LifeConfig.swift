@@ -278,6 +278,39 @@ struct LifePrice {
     }
 }
 
+// MARK: - 提醒推送（快递状态变化 / 生活周报）
+
+/// 对应后端 life_config.json 的 `notify` 段（GET|POST /api/life/config）。
+/// 后端默认：expressWatch=false、weeklyReport=true、每周日 20:00 推一次。
+struct LifeNotify {
+    var expressWatch: Bool = false      // 快递状态变化才推
+    var expressWatchEvery: Int = 1800   // 轮询间隔（秒），后端钳在 60…86400
+    var weeklyReport: Bool = true       // 允许推生活周报
+    var weeklyReportDay: Int = 6        // 0=周一 … 6=周日（与后端口径一致）
+    var weeklyReportHour: Int = 20      // 0…23（北京时间）
+    var scheduler: Bool = true          // 后端进程内调度总开关
+
+    var json: [String: Any] {
+        ["expressWatch": expressWatch,
+         "expressWatchEvery": expressWatchEvery,
+         "weeklyReport": weeklyReport,
+         "weeklyReportDay": weeklyReportDay,
+         "weeklyReportHour": weeklyReportHour,
+         "scheduler": scheduler]
+    }
+
+    static func parse(_ j: [String: Any]) -> LifeNotify {
+        var n = LifeNotify()
+        if let b = j["expressWatch"] as? Bool { n.expressWatch = b }
+        if let v = lifeInt(j["expressWatchEvery"]) { n.expressWatchEvery = min(86400, max(60, v)) }
+        if let b = j["weeklyReport"] as? Bool { n.weeklyReport = b }
+        if let d = lifeInt(j["weeklyReportDay"]) { n.weeklyReportDay = min(6, max(0, d)) }
+        if let h = lifeInt(j["weeklyReportHour"]) { n.weeklyReportHour = min(23, max(0, h)) }
+        if let b = j["scheduler"] as? Bool { n.scheduler = b }
+        return n
+    }
+}
+
 // MARK: - 配置整体
 
 struct LifeConfig {
@@ -286,6 +319,7 @@ struct LifeConfig {
     var rss: [LifeRssSourceRef] = []
     var express: LifeExpress = LifeExpress()
     var price: LifePrice = LifePrice()
+    var notify: LifeNotify = LifeNotify()
 
     /// POST /api/life/config 的 body["config"] 形态
     var json: [String: Any] {
@@ -293,7 +327,8 @@ struct LifeConfig {
          "stocks": stocks.map { $0.json },
          "rss": rss.map { $0.json },
          "express": express.json,
-         "price": price.json]
+         "price": price.json,
+         "notify": notify.json]
     }
 
     static func parse(_ j: [String: Any]) -> LifeConfig {
@@ -303,6 +338,7 @@ struct LifeConfig {
         c.rss = (j["rss"] as? [[String: Any]] ?? []).compactMap { LifeRssSourceRef.parse($0) }
         if let e = j["express"] as? [String: Any] { c.express = LifeExpress.parse(e) }
         if let p = j["price"] as? [String: Any] { c.price = LifePrice.parse(p) }
+        if let n = j["notify"] as? [String: Any] { c.notify = LifeNotify.parse(n) }
         return c
     }
 }

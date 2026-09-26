@@ -77,6 +77,7 @@ struct LifeCardsSettingsView: View {
                     rssSection
                     expressSection
                     priceSection
+                    notifySection
                 }
                 .padding(.horizontal, Spacing.xxl)
                 .padding(.bottom, 60)
@@ -425,6 +426,101 @@ struct LifeCardsSettingsView: View {
             labeledField("状态字段 state_path", placeholder: "state", text: $config.express.source.statePath)
         }
         .padding(.horizontal, Spacing.xxl)
+    }
+
+    // MARK: ⑤ 提醒推送（快递状态变化 / 生活周报）
+
+    private static let notifyWeekDays = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
+
+    @ViewBuilder
+    private var notifySection: some View {
+        SectionHeader("提醒推送")
+        VStack(spacing: 0) {
+            notifyToggle(icon: "shippingbox.fill", color: .orange,
+                         title: "快递状态变化提醒",
+                         subtitle: "轨迹有更新才推一条，不重复打扰",
+                         isOn: persisting($config.notify.expressWatch))
+            if config.notify.expressWatch {
+                rowDivider
+                notifyPickerRow(title: "检测间隔") {
+                    Picker("", selection: persisting($config.notify.expressWatchEvery)) {
+                        Text("30 分钟").tag(1800)
+                        Text("1 小时").tag(3600)
+                        Text("2 小时").tag(7200)
+                        Text("6 小时").tag(21600)
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                }
+            }
+            rowDivider
+            notifyToggle(icon: "doc.text.image.fill", color: .blue,
+                         title: "生活周报",
+                         subtitle: "天气 / 快递 / 股票 / 待办 / 花费汇总成一条",
+                         isOn: persisting($config.notify.weeklyReport))
+            if config.notify.weeklyReport {
+                rowDivider
+                notifyPickerRow(title: "推送时间") {
+                    HStack(spacing: Spacing.sm) {
+                        Picker("", selection: persisting($config.notify.weeklyReportDay)) {
+                            ForEach(0..<7, id: \.self) { i in
+                                Text(Self.notifyWeekDays[i]).tag(i)
+                            }
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.menu)
+                        Picker("", selection: persisting($config.notify.weeklyReportHour)) {
+                            ForEach(0..<24, id: \.self) { h in
+                                Text(String(format: "%02d:00", h)).tag(h)
+                            }
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.menu)
+                    }
+                }
+            }
+        }
+        .glassListCard()
+
+        Text("周报与快递提醒由后端定时任务推送，App 关着也能收到；关掉开关即停止推送。")
+            .font(.system(size: Typography.caption))
+            .foregroundStyle(.tertiary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, Spacing.xs)
+            .padding(.top, Spacing.sm)
+    }
+
+    private func notifyToggle(icon: String, color: Color, title: String,
+                              subtitle: String, isOn: Binding<Bool>) -> some View {
+        HStack(spacing: 12) {
+            iconBadge(icon, color: color)
+            VStack(alignment: .leading, spacing: Spacing.xxs) {
+                Text(title)
+                    .font(.system(size: Typography.body, weight: .medium))
+                    .foregroundStyle(.primary)
+                Text(subtitle)
+                    .font(.system(size: Typography.caption))
+                    .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: Spacing.md)
+            Toggle("", isOn: isOn).labelsHidden().scaleEffect(0.8).tint(.green)
+        }
+        .padding(.horizontal, Spacing.xxl)
+        .padding(.vertical, Spacing.lg)
+    }
+
+    private func notifyPickerRow<Content: View>(title: String,
+                                                @ViewBuilder content: () -> Content) -> some View {
+        HStack(spacing: 12) {
+            Text(title)
+                .font(.system(size: Typography.body))
+                .foregroundStyle(.primary)
+            Spacer(minLength: Spacing.md)
+            content()
+        }
+        .padding(.horizontal, Spacing.xxl)
+        .padding(.vertical, Spacing.md)
     }
 
     // MARK: ④ 价格监控
