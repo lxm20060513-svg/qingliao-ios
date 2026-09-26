@@ -20,6 +20,26 @@ struct LifeView: View {
     @State private var lifeLoading = false
     @State private var lifeError = ""
     @State private var showLifeSettings = false
+    // v3.9.85：板块自定义（排序 + 隐藏）——抄看板 dashboard_card_order 模式
+    @AppStorage("life_section_order") private var sectionOrderRaw = ""
+    @AppStorage("life_section_hidden") private var sectionHiddenRaw = ""
+    @State private var showSectionEditor = false
+
+    /// 已存顺序在前；串里没出现的（新增板块）按默认顺序补后面
+    private var orderedSections: [LifeSection] {
+        var seen = Set<LifeSection>()
+        let saved = sectionOrderRaw.split(separator: ",")
+            .compactMap { LifeSection(rawValue: String($0)) }
+            .filter { seen.insert($0).inserted }
+        return saved + LifeSection.allCases.filter { !seen.contains($0) }
+    }
+    private var hiddenSections: Set<LifeSection> {
+        Set(sectionHiddenRaw.split(separator: ",").compactMap { LifeSection(rawValue: String($0)) })
+    }
+    private var visibleSections: [LifeSection] {
+        let h = hiddenSections
+        return orderedSections.filter { !h.contains($0) }
+    }
     // v3.6.2：资讯展开态（同时只展开一条）+ 正文状态缓存 + 资讯专用刷新转圈
     @State private var expandedEntryID: String?
     @State private var articles: [String: LifeArticleState] = [:]
@@ -30,32 +50,41 @@ struct LifeView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            PageHeader(title: "生活", subtitle: "行情 · 资讯 · 快递 · 价格")
+            PageHeader(title: "生活", subtitle: "行情 · 资讯 · 快递 · 价格",
+                       trailing: AnyView(
+                        Button { showSectionEditor = true } label: {
+                            Image(systemName: "slider.horizontal.3")
+                                .font(.system(size: Typography.body))
+                                .foregroundStyle(.secondary)
+                        }
+                        .accessibilityLabel("自定义板块")
+                       ))
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 10) {
-                    // v3.7.0：备忘录栏目（排在「生活数据」之前）；v3.9.35：待办清单紧随其后
-                    MemoSection()
-                    TodoSection()
-                    // v3.9.71：记录分区（意图管道里金额/读数的落点，也接手动记账）
-                    RecordSection()
-                    // v3.9.58：定时任务聚合卡（AI 建的提醒可视化可取消；空列表整卡隐藏）
-                    // isActive 直传：卡内自持 .task，切走 tab 即停轮询
-                    AutomationsSection(isActive: isActive)
-                    LifeCardsSection(data: life,
-                                     loading: lifeLoading,
-                                     error: lifeError,
-                                     zoomNS: zoomNS,   // v3.9.0：非闭包实参必须在闭包实参之前（实参序红线）
-                                     onDeleteStock: { st in Task { await deleteStock(st) } },
-                                     onAddStock: { showLifeSettings = true },
-                                     onRefresh: { Task { await loadLife(fresh: true) } },
-                                     feedsRefreshing: feedsRefreshing,
-                                     onRefreshFeeds: { Task { await refreshFeeds() } },
-                                     articleStates: articles,
-                                     onOpenArticle: { e in openArticle(e) },
-                                     expandedArticleID: expandedEntryID,
-                                     onBigBang: { text, sourceID in
-                                         bigBangPayload = BigBangPayload(text: text, sourceID: sourceID)
-                                     })
+                    // v3.9.85：按用户自定义顺序渲染，隐藏的板块不出现
+                    ForEach(visibleSections) { section in
+                        switch section {
+                        case .memo: MemoSection()
+                        case .todo: TodoSection()
+                        case .record: RecordSection()
+                        case .automations: AutomationsSection(isActive: isActive)
+                        case .lifeCards: LifeCardsSection(data: life,
+                                                          loading: lifeLoading,
+                                                          error: lifeError,
+                                                          zoomNS: zoomNS,   // v3.9.0：非闭包实参必须在闭包实参之前（实参序红线）
+                                                          onDeleteStock: { st in Task { await deleteStock(st) } },
+                                                          onAddStock: { showLifeSettings = true },
+                                                          onRefresh: { Task { await loadLife(fresh: true) } },
+                                                          feedsRefreshing: feedsRefreshing,
+                                                          onRefreshFeeds: { Task { await refreshFeeds() } },
+                                                          articleStates: articles,
+                                                          onOpenArticle: { e in openArticle(e) },
+                                                          expandedArticleID: expandedEntryID,
+                                                          onBigBang: { text, sourceID in
+                                                              bigBangPayload = BigBangPayload(text: text, sourceID: sourceID)
+                                                          })
+                        }
+                    }
                 }
                 .padding(.horizontal, Spacing.xxl)
                 .padding(.bottom, 100)
@@ -68,6 +97,10 @@ struct LifeView: View {
         .sheet(isPresented: $showLifeSettings) {
             LifeCardsSettingsView()
                 .presentationDetents([.medium, .large])
+        }
+        // v3.9.85：板块自定义（排序 + 隐藏）
+        .sheet(isPresented: $showSectionEditor) {
+            LifeSectionEditorSheet(visible: visibleSections, hidden: Array(hiddenSections))
         }
         // v3.7.0：资讯正文长按「大爆炸」→ 全屏炸开选词
         .fullScreenCover(item: $bigBangPayload) { payload in

@@ -833,7 +833,23 @@ struct ChatView: View {
     /// 抽成独立属性给 type-checker 更小的表达式单元。
     @ViewBuilder
     private var inputArea: some View {
-        if selectMode {
+        if chat.isDeliverySession {
+            // v3.9.85：投递会话只读——cron/system 投递详情只收不发（此前输入栏照常可打字，发了也白发）。
+            // 不给输入框只压一条提示：用户不会误以为能回复；高度与输入栏对齐(50)避免底部跳动。
+            HStack(spacing: 8) {
+                Image(systemName: "tray.full")
+                    .font(.system(size: Typography.subhead))
+                    .foregroundStyle(.secondary)
+                Text("投递会话 · 仅接收，不支持回复")
+                    .font(.system(size: Typography.subhead))
+                    .foregroundStyle(.secondary)
+                Spacer()
+            }
+            .frame(height: 50)
+            .padding(.horizontal, Spacing.md)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .padding(.horizontal, Spacing.md)
+        } else if selectMode {
             mergeSelectBar
         } else {
             ChatInputBar(text: $inputText,

@@ -172,7 +172,7 @@ final class ChatStore {
     // MARK: - v2.0.58 两步走新建会话
     // MARK: - v2.0.65 未读红点（本地概念：会话有新消息且未打开）
 
-    var unread: [String: Bool] = [:]              // sessionId -> 有未读
+    var unread: [String: Int] = [:]               // v3.9.85：sessionId -> 未读**条数**（原 Bool 红点，改实心红色数字角标）
     /// v3.9.75：上次查看时间**必须落盘**。原来是纯内存字典，进程一死就清空，
     /// 于是冷启动后 `lastTime > (seenTimes ?? 0)` 对每个会话都成立 → 重开 App 满屏红点（用户报）。
     private let seenTimesKey = "qingliao_seen_times"
@@ -206,10 +206,17 @@ final class ChatStore {
         }
         for s in sessions {
             guard s.id != currentId, let lt = s.lastTime else { continue }
-            if lt > (seenTimes[s.id] ?? 0) + 1000 {
-                unread[s.id] = true
+            let seen = seenTimes[s.id] ?? 0
+            if lt > seen + 1000 {
+                // v3.9.85：数出晚于已读基线的条数（sessions/list 带全量 messages，本地数，零后端改造）
+                // 1000ms 容差沿用原红点口径；无时间戳的极端消息按 1 条兜底（至少亮「1」不亮空）
+                let count = s.messages.filter { m in
+                    guard let ts = m.timestamp else { return true }
+                    return ts > seen + 1000
+                }.count
+                unread[s.id] = max(count, 1)
             } else {
-                unread[s.id] = nil   // 新消息读过后红点要能自己灭（原来只靠 markRead，跨设备/网页端读不掉）
+                unread[s.id] = nil   // 新消息读过后角标要能自己灭（原来只靠 markRead，跨设备/网页端读不掉）
             }
         }
     }

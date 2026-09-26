@@ -46,6 +46,29 @@ struct PetAvatar: View {
     @State private var breath = false
     @State private var blink = false
     @State private var patting = false
+    // v3.9.85：灵动微动作——idle 时每隔一段时间随机来一下，让宠物「像活的」。
+    // 全部走 SwiftUI 层变换（rotate/offset），不触发 Canvas 重绘，成本与呼吸同级。
+    @State private var quirky: Quirk = .none
+
+    /// 一次性微动作（形变 + 时长）
+    private enum Quirk: Equatable {
+        case none
+        case headTilt      // 歪头好奇
+        case lookAround    // 左右张望
+        case happyWiggle   // 开心扭动
+        case stretch       // 伸懒腰（拉长一下）
+
+        var duration: TimeInterval {
+            switch self {
+            case .none: return 0
+            case .headTilt: return 1.4
+            case .lookAround: return 1.6
+            case .happyWiggle: return 0.9
+            case .stretch: return 1.5
+            }
+        }
+        static let pool: [Quirk] = [.headTilt, .lookAround, .happyWiggle, .stretch]
+    }
 
     private var style: PetStyle { styleOverride ?? storedStyle }
 
@@ -63,6 +86,33 @@ struct PetAvatar: View {
     /// 有效状态：抚摸反应优先（一次性），其次传入的状态
     private var effectiveState: PetState { patting ? .patting : state }
 
+    // v3.9.85：微动作 → 三轴变换值（idle 才生效，thinking/alert 保持稳重）
+    private var quirkyActive: Bool { animate && state == .idle && !patting && quirky != .none }
+    private var quirkyScale: CGFloat {
+        guard quirkyActive else { return 1.0 }
+        switch quirky {
+        case .stretch: return 1.04
+        case .happyWiggle: return 1.02
+        default: return 1.0
+        }
+    }
+    private var quirkyAngle: CGFloat {
+        guard quirkyActive else { return 0 }
+        switch quirky {
+        case .headTilt: return 6
+        case .lookAround: return -3
+        default: return 0
+        }
+    }
+    private var quirkyShift: CGFloat {
+        guard quirkyActive else { return 0 }
+        switch quirky {
+        case .lookAround: return size * 0.03
+        case .happyWiggle: return size * 0.015
+        default: return 0
+        }
+    }
+
     private var simplify: Bool { keepDetail ? false : size < PetKeys.simplifyBelow }
 
     var body: some View {
@@ -77,6 +127,10 @@ struct PetAvatar: View {
         .frame(width: drawSize, height: drawSize)
         // 呼吸：整层缩放（不触发 Canvas 重绘，最省）——「减弱/关闭」时恒为 1
         .scaleEffect(breath && animate ? 1.02 : 1.0)
+        // v3.9.85：微动作形变层（同呼吸，纯变换不重绘；锚点在底部 = 从「脚」上长出来）
+        .scaleEffect(quirkyScale, anchor: .bottom)
+        .rotationEffect(.degrees(quirkyAngle), anchor: .bottom)
+        .offset(x: quirkyShift)
         // 思考中的三点气泡 / 新消息角标：SwiftUI 覆盖层（自带动画，不重绘 Canvas）
         .overlay(alignment: .topTrailing) { decoration }
         .allowsHitTesting(false)
@@ -86,6 +140,7 @@ struct PetAvatar: View {
             if now { startBreath() } else { withAnimation(nil) { breath = false } }
         }
         .task(id: animate) { await blinkLoop() }
+        .task(id: animate) { await quirkyLoop() }   // v3.9.85：灵动微动作
         .onChange(of: patTrigger) { _, _ in playPat() }
     }
 
@@ -111,6 +166,20 @@ struct PetAvatar: View {
         Task {
             try? await Task.sleep(for: .seconds(1.1))
             patting = false
+        }
+    }
+
+    /// v3.9.85：微动作循环——8~16s 随机播一个，每个动作「出去 + 回来」两段动画
+    private func quirkyLoop() async {
+        while !Task.isCancelled {
+            try? await Task.sleep(for: .seconds(Double.random(in: 8...16)))
+            guard animate, !Task.isCancelled, state == .idle, !patting else { continue }
+            let q = Quirk.pool.randomElement() ?? .headTilt
+            let d = q.duration
+            withAnimation(.easeInOut(duration: d * 0.4)) { quirky = q }
+            try? await Task.sleep(for: .seconds(d * 0.6))
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeInOut(duration: d * 0.4)) { quirky = .none }
         }
     }
 

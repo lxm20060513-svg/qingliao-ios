@@ -664,7 +664,7 @@ struct DashboardView: View {
     private var tokenUsageBlock: some View {
         sectionTitle("token 用量")
         if let u = tokenUsage {
-            TokenUsageCard(usage: u)
+            TokenUsageCard(usage: u, onReset: { Task { await resetTokenUsage() } })
         } else if !tokenUsageError.isEmpty {
             Text(tokenUsageError)
                 .font(.system(size: Typography.subhead))
@@ -822,6 +822,22 @@ struct DashboardView: View {
             tokenUsageError = e
         } else {
             tokenUsageError = "token 用量暂不可用"
+        }
+    }
+
+    /// v3.9.85：长按 token 卡 → 重置统计（后端记重置起点，今日/本月旧账不再计入）
+    private func resetTokenUsage() async {
+        do {
+            let (data, resp) = try await auth.request("/api/nas/token-usage-reset", method: "POST", body: [:])
+            let j = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+            guard resp.statusCode == 200, (j?["ok"] as? Bool) == true else {
+                tokenUsageError = "重置失败，请重试"
+                return
+            }
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            await loadTokenUsage()
+        } catch {
+            tokenUsageError = "重置失败，请重试"
         }
     }
 
@@ -2335,11 +2351,22 @@ struct DiskTile: View {
 /// 拆出来是为了让用户看得见大头在哪，而不是把 3 亿藏起来。
 struct TokenUsageCard: View {
     let usage: TokenUsage
+    var onReset: (() -> Void)? = nil   // v3.9.85：长按重置（nil=不启用）
+    @State private var showResetConfirm = false
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             column(title: "今日", icon: "calendar", window: usage.today, color: .blue)
             column(title: "本月", icon: "calendar.badge.clock", window: usage.month, color: .indigo)
+        }
+        .onLongPressGesture(minimumDuration: 0.5) {
+            guard onReset != nil else { return }
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            showResetConfirm = true
+        }
+        .confirmationDialog("重置 token 用量统计？\n从现在起重新累计，今日/本月旧账清零。", isPresented: $showResetConfirm, titleVisibility: .visible) {
+            Button("重置统计", role: .destructive) { onReset?() }
+            Button("取消", role: .cancel) {}
         }
     }
 

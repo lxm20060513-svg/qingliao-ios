@@ -599,7 +599,7 @@ struct SessionsView: View {
                    tags: tagStore.tags(for: s.id),
                    showCheck: editing,
                    checked: selectedIds.contains(s.id),
-                   unread: chat.unread[s.id] ?? false,
+                   unread: chat.unread[s.id] ?? 0,
                    categoryName: categoryStore.categoryForSession(s.id)?.name) {
             if editing {
                 toggleSelect(s.id)
@@ -982,7 +982,7 @@ struct SessionRow: View {
     var tags: [String] = []   // v3.0.51 B7：会话标签
     var showCheck = false   // v2.0.87ad：多选模式
     var checked = false
-    var unread = false      // v3.9.32：未读红点（列表外产生的新消息）
+    var unread = 0          // v3.9.85：未读**条数**（原 Bool 红点，改实心红色数字角标，对标微信）
     var categoryName: String? = nil   // v3.9.32：所属分类（长按「移动到…」设过才显示）
     var action: () -> Void = {}
 
@@ -1069,12 +1069,15 @@ struct SessionRow: View {
                 Text(session.relativeTime)
                     .font(.system(size: Typography.caption))
                     .foregroundStyle(.tertiary)
-                // v3.9.32：未读红点——此前 unread/markRead 只有存储层、全仓零渲染
-                if unread && !showCheck {
-                    Circle()
-                        .fill(Color.red)
-                        .frame(width: 8, height: 8)
-                        .accessibilityLabel("有未读消息")
+                // v3.9.85：实心红色数字角标（原 v3.9.32 红点）——对标微信：≥100 显示 99+
+                if unread > 0 && !showCheck {
+                    Text(unread >= 100 ? "99+" : "\(unread)")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 5)
+                        .frame(minWidth: 17, minHeight: 17)
+                        .background(Capsule().fill(Color.red))
+                        .accessibilityLabel("\(unread) 条未读消息")
                 }
                 // v2.0.87ad：多选勾选圈（编辑模式替代 chevron）
                 if showCheck {
