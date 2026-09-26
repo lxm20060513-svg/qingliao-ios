@@ -2011,9 +2011,9 @@ struct ChatView: View {
                             .lineLimit(1)
                     }
                     Spacer(minLength: 8)
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: Typography.caption, weight: .semibold))
-                        .foregroundStyle(.tertiary)
+                    // v3.9.88：右侧不再放 chevron「>」——右上角已有「忽略」胶囊，
+                    // 同一张卡上两个「指向」语义的控件打架（用户拍板：胶囊取代 >）。
+                    // 整行可点（外层 Button）就够表达「进去继续聊」。
                 }
                 .padding(.horizontal, Spacing.xxl)
                 .padding(.vertical, Spacing.lg)
@@ -2116,13 +2116,16 @@ struct ChatView: View {
                             Haptics.tap()
                             sendCore(text: s.prompt, imageData: nil)
                         } label: {
-                            Text(s.title)
-                                .font(.system(size: Typography.subhead, weight: .medium))
-                                .foregroundStyle(.secondary)
-                                .padding(.horizontal, Spacing.xl)
-                                .padding(.vertical, Spacing.md)
-                                .background(.ultraThinMaterial, in: Capsule())
-                                .overlay(Capsule().strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8))
+                            // v3.9.88（用户拍板）：三颗建议胶囊改用 `chatHeaderPill()`——
+                            // 与 header 的 TTS 朗读胶囊**同一款样式**（原生液态玻璃 + accent 0.28/0.8pt 描边 +
+                            // 定高 15pt），不再手写「淡字 + ultraThinMaterial + primary 淡描边」那套。
+                            // 顺带把 `s.icon` 用上（之前 icon 字段只写在数据里、界面没渲染，字段是死的）。
+                            HStack(spacing: 3) {
+                                Image(systemName: s.icon)
+                                Text(s.title)
+                            }
+                            .foregroundStyle(Color.accentColor)
+                            .chatHeaderPill()
                         }
                         .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
                     }

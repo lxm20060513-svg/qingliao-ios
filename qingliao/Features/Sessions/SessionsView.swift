@@ -1066,9 +1066,6 @@ struct SessionRow: View {
             Spacer(minLength: 8)
 
             VStack(alignment: .trailing, spacing: 4) {
-                Text(session.relativeTime)
-                    .font(.system(size: Typography.caption))
-                    .foregroundStyle(.tertiary)
                 // v3.9.85：实心红色数字角标（原 v3.9.32 红点）——对标微信：≥100 显示 99+
                 if unread > 0 && !showCheck {
                     Text(unread >= 100 ? "99+" : "\(unread)")
@@ -1089,6 +1086,11 @@ struct SessionRow: View {
                         .font(.system(size: Typography.caption, weight: .semibold))
                         .foregroundStyle(.tertiary)
                 }
+                // v3.9.88（用户拍板）：时间移到 chevron 下面 —— 右列自上而下读作
+                // 「未读数 → 进入箭头 → 时间」，时间跟着「>」这条视觉轴，不再飘在卡片最上方。
+                Text(session.relativeTime)
+                    .font(.system(size: Typography.caption))
+                    .foregroundStyle(.tertiary)
             }
         }
         .padding(.horizontal, Spacing.xxl)

@@ -3,85 +3,7 @@ import LocalAuthentication
 
 // MARK: - 设置页（iOS 设置风格分组列表，全部功能行可用）
 
-/// v4.0.0（用户：「设置页现在条目太多，按逻辑归类一下」→ 拍板「收进二级页，主页只留 6~8 个大类」）：
-/// 28 条平铺一屏要滚很久，且「数据与自动化」9 条里混了定时/排障/文件存储三种不相干的东西。
-/// 归类口径（每类的判定标准写在这里，改动前先对着看）：
-///   · 账号与安全：只放「门锁类」——进 App 之前的事（身份 + 上锁）
-///   · 连接与模型：只放「连到哪 / 用哪个大脑」——机器与模型
-///   · AI 与记忆：只放「AI 自己的能力和它的记忆」——含 Agent 记忆（语义同类，v3.x 曾分属两组）
-///   · 通知与自动化：只放「什么时候会自己来找你 / 替你干活」
-///   · 数据与文件：只放「东西存在哪 / 出问题去哪看」——存储 + 排障
-///   · 外观与显示
-///   · 关于
-enum SettingsGroup: String, CaseIterable, Identifiable {
-    case account      // 账号与安全
-    case connection   // 连接与模型
-    case ai           // AI 与记忆
-    case automation   // 通知与自动化
-    case data         // 数据与文件
-    case agent        // Agent
-    case appearance   // 外观与显示
-    case about        // 关于
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .account: return "账号与安全"
-        case .connection: return "连接与模型"
-        case .ai: return "AI 与记忆"
-        case .automation: return "通知与自动化"
-        case .data: return "数据与文件"
-        case .agent: return "Agent"
-        case .appearance: return "外观与显示"
-        case .about: return "关于"
-        }
-    }
-    var icon: String {
-        switch self {
-        case .account: return "person.crop.circle.fill"
-        case .connection: return "antenna.radiowaves.left.and.right"
-        case .ai: return "brain.head.profile"
-        case .automation: return "bell.badge.fill"
-        case .data: return "internaldrive.fill"
-        case .agent: return "cpu.fill"
-        case .appearance: return "paintpalette.fill"
-        case .about: return "info.circle.fill"
-        }
-    }
-    var iconColor: Color {
-        switch self {
-        case .account: return .teal
-        case .connection: return .blue
-        case .ai: return .purple
-        case .automation: return .pink
-        case .data: return .indigo
-        case .agent: return .orange
-        case .appearance: return .green
-        case .about: return .secondary
-        }
-    }
-    /// 一行摘要（主页只显示这个，明细在二级页）
-    var summary: String {
-        switch self {
-        case .account: return "密码、Face ID、App 锁"
-        case .connection: return "服务器、模型、MCP 工具"
-        case .ai: return "记忆、知识库、能力与路由"
-        case .automation: return "定时任务、提醒、推送"
-        case .data: return "文件存储、日志与诊断"
-        case .agent: return "Agent 模型与行为规则"
-        case .appearance: return "主题、玻璃、快捷方式"
-        case .about: return "版本与致谢"
-        }
-    }
-}
-
 struct SettingsView: View {
-    /// v4.0.0：nil = 主页（只列大类）；非 nil = 该类明细页。
-    /// 明细页**复用同一个 View 里的同一批 @State/@AppStorage**（不另建子 View、不传状态），
-    /// 目的：所有 sheet 挂载、行尾计数刷新（memoryCount/secretCount…）逻辑一行都不动 = 零回归。
-    var group: SettingsGroup? = nil
-    @Environment(\.dismiss) private var dismiss   // v4.0.0：明细页返回用（NavigationStack pop）
     @Environment(AuthStore.self) var auth
     // v3.4.28：横屏限宽
     @Environment(\.horizontalSizeClass) private var hSizeSettings
@@ -172,83 +94,19 @@ struct SettingsView: View {
     // v2.0.128：AI 输出行高（0-6 步进 0.5，默认 1.0 = 紧凑；滑条控制）已随死代码外观块删除——
     // 行高/流光/Siri 发光全部统一由 AppearanceSheet 管理（与云端同一组件）
     // v2.0.102：切回设置页刷新计数（密码管理/记忆增删后行尾数字即时更新，原只有 .task 首刷）
-
-    /// v4.0.0：明细页右上角返回键。本页用自绘 PageHeader（不占系统 nav bar），
-    /// 所以不能用系统返回手势，只能给显式按钮；`@Environment(\.dismiss)` 拿到的是
-    /// NavigationStack 的 pop（明细页就是 NavigationLink 推出来的）。
-    private var backButton: AnyView {
-        AnyView(
-            Button { dismiss() } label: {
-                HStack(spacing: 3) {
-                    Image(systemName: "chevron.right")   // RTL 语义：本 App 不做 RTL 适配，用右箭头指回右侧主页
-                        .font(.system(size: 13, weight: .semibold))
-                    Text("设置").font(.system(size: Typography.body))
-                }
-                .foregroundStyle(Color.accentColor)
-            }
-        )
-    }
-
-    /// v4.0.0：主页 = 8 个大类（SettingRow 玻璃卡 + NavigationLink 进二级页）
-    /// 退出登录**留在主页**（不塞进「账号与安全」二级页）—— 危险操作不该藏在两层里。
-    @ViewBuilder private var categoryList: some View {
-        VStack(spacing: 0) {
-            VStack(spacing: 0) {
-                ForEach(Array(SettingsGroup.allCases.enumerated()), id: \.element.id) { idx, g in
-                    if idx > 0 { Divider().padding(.leading, Spacing.rowDividerInset) }
-                    NavigationLink {
-                        SettingsView(group: g)
-                    } label: {
-                        // v4.0.0（审查 F8）：大类行要给 chevron —— 否则只有摘要文字、
-                        // 看不出这行能点进二级页。
-                        SettingRow(icon: g.icon, iconColor: g.iconColor,
-                                   title: g.title, value: g.summary, chevron: true)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .glassListCard()
-            logoutButton
-        }
-    }
-
-    /// v4.0.0：明细页 = 按 group 分发。**顺序即页内顺序**，与主页大类顺序一致。
-    @ViewBuilder private var detailBody: some View {
-        switch group {
-        case .account:
-            accountSection
-        case .connection:
-            connectionSection
-        case .ai:
-            aiSection
-        case .agent:
-            agentSection
-        case .automation:
-            // 「通知与自动化」= 原「数据与自动化」里的定时/推送类（v4.0.0 从存储/排障里拆出）
-            aiNotifySection
-            automationSection
-        case .data:
-            dataSection
-        case .appearance:
-            appearanceSection
-        case .about:
-            aboutSection
-        case nil:
-            EmptyView()
-        }
-    }
-
     var body: some View {
         VStack(spacing: 0) {
-            PageHeader(title: group.map(\.title) ?? "设置", trailing: group == nil ? nil : backButton)
+            PageHeader(title: "设置")
             ScrollView {
                 VStack(spacing: 0) {
-                    // v4.0.0：主页只列 8 个大类；明细页按 group 渲染对应分组（其余分组不参与布局）
-                    if group == nil {
-                        categoryList
-                    } else {
-                        detailBody
-                    }
+                    accountSection
+                    connectionSection
+                    aiSection
+                    dataSection
+                    agentSection
+                    appearanceSection
+                    aboutSection
+                    logoutButton
                 }
                 .padding(.horizontal, Spacing.xxl)
                 .padding(.bottom, 100)
@@ -258,8 +116,6 @@ struct SettingsView: View {
             }
             .scrollPosition($scrollPos)
         }
-        // v4.0.0：整页玻璃底（含二级页）——玻璃层在分组卡之下，卡片透出光
-        .glassPageBackground()
         .sheet(isPresented: $showPasswordSheet) {
             PasswordSheet()
                 .presentationDetents([.medium])

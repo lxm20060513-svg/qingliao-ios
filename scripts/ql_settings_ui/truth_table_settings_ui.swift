@@ -139,40 +139,40 @@ let sessRowBody = slice(sessCode, "struct SessionRow", "// MARK: - v3.9.33")
 check("会话卡修饰链上没有自行挂的实色 background（F2：实色底会压死玻璃）",
       !sessRowBody.contains(".background("))
 
-// MARK: - 设置页 8 大类二级页 + 整页玻璃底（v4.0.0）
+// MARK: - 设置页 v3.9.88 回退：单页平铺，无 8 大类二级页、无整页玻璃底
+//   用户拍板「设置界面回退到 3.9.87 版本」→ 下面改为**反向断言**：一旦有人又把
+//   归类二级页 / 整页玻璃底加回来，这条真值表就红。
 let svSrc = stripComments(src("qingliao/Features/Settings/SettingsView.swift"))
 let dockSrc = stripComments(src("qingliao/Features/DockTabView.swift"))
 let lgGlassSrc = stripComments(src("qingliao/Theme/LiquidGlass.swift"))
 
-// 玻璃底本体
-check("有 glassPageBackground 修饰符（整页玻璃）", lgGlassSrc.contains("struct GlassPageBackground"))
-// 🚨 审查 F2 抓到的真错：写成 `.background(A).background(B)` 两层时，SwiftUI 里**先挂的画得更靠前**，
-//   不透明的折射源 A 会把玻璃 B 压死 → 玻璃完全不可见（白做）。必须单层 ZStack 一次画完。
-// ⚠️ 锚点不能用 `// MARK:` 注释（stripComments 已剥掉）→ 用真实的 struct 声明/下一段代码。
+// 玻璃底本体（整页档本身保留在 Theme 里，只是不再被设置页引用）
+check("有 glassPageBackground 修饰符（整页玻璃本体仍留在 Theme 供别处用）",
+      lgGlassSrc.contains("struct GlassPageBackground"))
 let glassPageBody = slice(lgGlassSrc, "struct GlassPageBackground", "struct OverlayGlassCard")
 check("🚨 折射源与玻璃在**同一个 ZStack**（不是两层 background 叠放）",
       glassPageBody.contains("ZStack") && glassPageBody.contains("glassEffect"))
 let bgCount = glassPageBody.components(separatedBy: ".background").count - 1
 check("🚨 只挂一次 background（两次=玻璃被折射源压死）", bgCount == 1)
-// 🚨 审查 F3：整页档不能带卡片圆角，否则四角露底看着像浮在屏幕上的面板
 check("整页玻璃不圆角（用 Rectangle 形状，无 RoundedRectangle 圆角档）",
       glassPageBody.contains("Rectangle()") && !glassPageBody.contains("RoundedRectangle"))
-check("整页玻璃档已无 cornerRadius 参数（防止后来人又传回 22）",
-      !lgGlassSrc.contains("cornerRadius: CGFloat\n    @Environment(\\.colorScheme) private var scheme")
-      || !glassPageBody.contains("cornerRadius"))
-check("设置页挂了整页玻璃底", svSrc.contains(".glassPageBackground()"))
 
-// 二级页
-check("设置页有 SettingsGroup 枚举（8 大类）", svSrc.contains("enum SettingsGroup"))
-check("设置 tab 包了 NavigationStack（否则 NavigationLink 点了不推）",
-      dockSrc.contains("NavigationStack"))
-check("🚨 设置页显式藏系统导航栏（否则顶部多一段空白/空返回槽）",
-      dockSrc.contains(".toolbar(.hidden, for: .navigationBar)"))
-check("明细页有自绘返回键（PageHeader 不支持返回键）", svSrc.contains("backButton"))
-check("大类行带 chevron（否则看不出能点进去）",
-      slice(svSrc, "NavigationLink {", ".buttonStyle(.plain)").contains("chevron: true"))
-check("退出登录留在主页（危险操作不藏两层）",
-      slice(svSrc, "var categoryList", "var detailBody").contains("logoutButton"))
+// 🚨 回退后必须回到 3.9.87 形态：设置页**单页平铺**，下列 v4.0.0 特征一律不许回来
+check("🚨 设置页不再挂整页玻璃底（v3.9.88 用户拍板回退 3.9.87）",
+      !svSrc.contains(".glassPageBackground()"))
+check("🚨 设置页不再有 SettingsGroup 8 大类枚举（回退为单页平铺）",
+      !svSrc.contains("enum SettingsGroup"))
+check("🚨 设置页不再有自绘返回键（无二级页，不需要返回）",
+      !svSrc.contains("backButton"))
+check("🚨 设置页不再用 NavigationLink 推二级页",
+      !svSrc.contains("NavigationLink {"))
+check("🚨 设置页 body 直接平铺全部分组（account/connection/ai/data/agent/appearance/about）",
+      slice(svSrc, "ScrollView {", "scrollPosition").contains("accountSection")
+      && slice(svSrc, "ScrollView {", "scrollPosition").contains("dataSection")
+      && slice(svSrc, "ScrollView {", "scrollPosition").contains("appearanceSection")
+      && slice(svSrc, "ScrollView {", "scrollPosition").contains("logoutButton"))
+check("🚨 退出登录与各分组同页（不再藏进二级页）",
+      slice(svSrc, "ScrollView {", "scrollPosition").contains("logoutButton"))
 
 print("设置页间距口径真值表：\(passCount) 通过 / \(failCount) 失败")
 if failCount > 0 { exit(1) }
