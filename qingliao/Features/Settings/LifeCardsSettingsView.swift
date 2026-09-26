@@ -44,6 +44,9 @@ struct LifeCardsSettingsView: View {
 
     // SR15：文本类输入的防抖保存任务（每敲一个字就 POST 会把编辑过程整段推给后端）
     @State private var persistTask: Task<Void, Never>?
+    /// 配置是否成功读回。未读回时 config 还是默认值，此时任何 persist 都会把
+    /// 一整份默认值 POST 上去、静默覆盖用户真实设置（v3.9.87 审查）。
+    @State private var loadedOK = false
 
     /// SR15：包一层「写入即安排保存」。本页顶部约定写着「每次改动立即整体保存」，
     /// 但只有胶囊/Stepper/增删按钮那几条路径真的调了 persist()；
@@ -55,6 +58,37 @@ struct LifeCardsSettingsView: View {
                       binding.wrappedValue = v
                       schedulePersist()
                   })
+    }
+
+    /// 后端把检测间隔钳在 60…86400，而 Picker 只能显示列出的档位。
+    /// 配置里出现非档位值时，Picker 会渲染成空白且用户看不出当前值
+    /// → 读侧夹到最近档位，并在 load 后一次性归一化（否则界面显示与真实值长期不一致）。
+    /// 档位单一真源 = `expressIntervals`，改档位只改这一处。
+    static let expressIntervals: [(label: String, seconds: Int)] = [
+        ("15 分钟", 900), ("30 分钟", 1800), ("1 小时", 3600),
+        ("2 小时", 7200), ("6 小时", 21600), ("24 小时", 86400),
+    ]
+
+    /// load() 成功后把非档位值归一化（静默，不 POST——下次用户改动才写回）
+    func normalizeInterval() {
+        let allowed = Self.expressIntervals.map(\.seconds)
+        let v = config.notify.expressWatchEvery
+        guard !allowed.contains(v) else { return }
+        config.notify.expressWatchEvery =
+            allowed.min(by: { abs($0 - v) < abs($1 - v) }) ?? 3600
+    }
+
+    private var clampedInterval: Binding<Int> {
+        let allowed = Self.expressIntervals.map(\.seconds)
+        let base = Binding<Int>(
+            get: { config.notify.expressWatchEvery },
+            set: { config.notify.expressWatchEvery = $0 })
+        return Binding<Int>(
+            get: {
+                let v = base.wrappedValue
+                return allowed.contains(v) ? v : (allowed.min(by: { abs($0 - v) < abs($1 - v) }) ?? 3600)
+            },
+            set: { persisting(base).wrappedValue = $0 })
     }
 
     /// 防抖 0.6s 后整体保存（连续输入只发一次）
@@ -84,6 +118,7 @@ struct LifeCardsSettingsView: View {
             }
             .navigationTitle("生活卡片")
             .navigationBarTitleDisplayMode(.inline)
+            .refreshable { await load() }   // 读失败时提示「下拉重试」——得真能下拉
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     // SR15：先冲掉防抖窗口里的最后一笔改动再关页（原来只 dismiss，
@@ -443,11 +478,10 @@ struct LifeCardsSettingsView: View {
             if config.notify.expressWatch {
                 rowDivider
                 notifyPickerRow(title: "检测间隔") {
-                    Picker("", selection: persisting($config.notify.expressWatchEvery)) {
-                        Text("30 分钟").tag(1800)
-                        Text("1 小时").tag(3600)
-                        Text("2 小时").tag(7200)
-                        Text("6 小时").tag(21600)
+                    Picker("", selection: persisting(clampedInterval)) {
+                        ForEach(Self.expressIntervals, id: \.seconds) { item in
+                            Text(item.label).tag(item.seconds)
+                        }
                     }
                     .labelsHidden()
                     .pickerStyle(.menu)
@@ -808,7 +842,9 @@ struct LifeCardsSettingsView: View {
                 if newPackageCarrier.isEmpty, let first = presets.carriers.first {
                     newPackageCarrier = first.code
                 }
-                error = ""
+                loadedOK = j["config"] is [String: Any]
+                if loadedOK { normalizeInterval() }
+                error = loadedOK ? "" : "读取配置失败：后端未返回配置"
             }
         } else {
             error = "读取配置失败：网络或后端不可用"
@@ -818,6 +854,11 @@ struct LifeCardsSettingsView: View {
 
     /// 每次改动立即整体保存；排队中的改动不会被返回值回灌覆盖。
     private func persist() async {
+        // 未成功读回配置时，config 还是默认值：POST 上去等于用默认值覆盖用户真实设置
+        guard loadedOK else {
+            error = "配置尚未成功读取，改动未保存（请下拉重试后再改）"
+            return
+        }
         if saving {
             pendingSave = true
             return

@@ -262,8 +262,25 @@ enum AgentCardParser {
 
         var i = 0
         while i < lines.count {
+            if isFenceLine(lines[i]), let lang = fenceLanguage(lines[i]), !isCardFence(lang) {
+                // 带语言标记的非卡片围栏（```swift / ```markdown …）：整块原样保留。
+                // 必须在卡片判定**之前**吞掉它，否则「文档里贴 ql-card 示例」会渲染成假卡。
+                //
+                // 🚨 裸 ```（无语言标记）**不能**进这里：它同时是「闭合行」的写法，
+                // 当成开块会一路吞到文末、把后面的真卡整块吃掉。裸围栏走下面的
+                // buffer 路径（与本轮改动前完全一致）。
+                var k = i + 1
+                while k < lines.count, !isFenceLine(lines[k]) { k += 1 }
+                let stop = min(k, lines.count - 1)   // 未闭合 → 一直保留到文末
+                buffer.append(contentsOf: lines[i...stop])
+                i = (k < lines.count) ? k + 1 : lines.count
+                continue
+            }
             if let lang = fenceLanguage(lines[i]), isCardFence(lang) {
                 // 收集围栏体：找到闭合 ``` 才算「完成」
+                // 两阶段：先整块收（到行首闭合围栏或文末）；整块 JSON 解析失败时，
+                // 再按「行内 ```」逐行截断重试一次 —— 兼容模型把闭合三反引号
+                // 粘在 JSON 末尾同一行的写法（`..."}``` `），不改则整块被当代码块显示。
                 var body: [String] = []
                 var j = i + 1
                 var closed = false
@@ -272,16 +289,56 @@ enum AgentCardParser {
                     body.append(lines[j])
                     j += 1
                 }
-                if closed, let card = AgentCard.parse(json: body.joined(separator: "\n")) {
+                // 未闭合围栏**不得出卡**（哪怕当前围栏体恰好是合法 JSON）：流式生成中
+                // 先渲染卡片、下一帧闭合围栏到了又退成原文 = 用户看到卡片闪一下变代码块。
+                // 行内 ``` 截断那条路径自带定界符，可豁免这道门槛。
+                var card = closed ? AgentCard.parse(json: body.joined(separator: "\n")) : nil
+                // consumed = 卡片结束后应继续扫描的行号：闭合时跳过闭合行本身
+                var consumed = closed ? j + 1 : j
+                var trailing: [String] = []
+                var cut = false
+                if card == nil {
+                    // 行内闭合兜底（无论是否找到行首闭合围栏都试；行首闭合的写法
+                    // 行内截断必然解析失败 → 自然不走这条路，行为不变）。
+                    // 截不出卡就走原文（流式半截 JSON 依然整块当文本，绝不出半截卡片）。
+                    var cutBody: [String] = []
+                    for line in body {
+                        if let idx = inlineFenceIndex(line) {
+                            cutBody.append(String(line[line.startIndex..<idx]))
+                            cut = true
+                            break
+                        }
+                        cutBody.append(line)
+                    }
+                    if cut, let c2 = AgentCard.parse(json: cutBody.joined(separator: "\n")) {
+                        card = c2
+                        consumed = i + 1 + cutBody.count
+                        // 闭合 ``` 之后同一行的残留文字不能吞掉（按零回归逐字保留）
+                        let cutLineIdx = consumed - 1
+                        if cutLineIdx < lines.count,
+                           let idx = inlineFenceIndex(lines[cutLineIdx]) {
+                            let line = lines[cutLineIdx]
+                            // 从 ``` 之后取（index(after:) 只跳过一个反引号，会漏两个）
+                            let rest = line.index(idx, offsetBy: 3, limitedBy: line.endIndex)
+                                .map { String(line[$0...]) } ?? ""
+                            if !rest.isEmpty { trailing = [rest] }
+                        }
+                    }
+                }
+                if let card {
                     flushText()
                     segments.append(.card(card))
-                    i = j + 1
+                    buffer.append(contentsOf: trailing)
+                    i = consumed
                     continue
                 }
-                // 未闭合（流式中） / JSON 非法 / 空卡片 → 原文照旧（含围栏行本身）
-                let last = min(j, lines.count - 1)
+                // 未闭合（流式中） / JSON 非法 / 空卡片 → 原文照旧（含围栏行本身）。
+                // 退化区 = 围栏头 + 围栏体；闭合/截断成功后 consumed 已越过它，
+                // 故退化区上界取 consumed-1（否则会把闭合行之后的内容也算进来）。
+                let end = (closed || cut) ? consumed - 1 : j   // cut 时 consumed-1 = 切点行
+                let last = min(end, lines.count - 1)
                 if i <= last { buffer.append(contentsOf: lines[i...last]) }
-                i = closed ? j + 1 : lines.count
+                i = (closed || cut) ? consumed : lines.count
                 continue
             }
             buffer.append(lines[i])
@@ -304,6 +361,14 @@ enum AgentCardParser {
         lang.lowercased()
             .replacingOccurrences(of: "-", with: "")
             .replacingOccurrences(of: "_", with: "") == "qlcard"
+    }
+
+    /// 行内 ``` 的位置（非行首）。模型偶发把闭合三反引号粘在 JSON 末尾同一行
+    /// （`..."}``` `）—— 不做这个兜底，整块卡片会被当代码块原样显示。
+    /// 零回归：截断后的 JSON 仍须通过 JSONSerialization，否则照样退化为原文。
+    private static func inlineFenceIndex(_ line: String) -> String.Index? {
+        guard isFenceLine(line) == false else { return nil }
+        return line.range(of: "```")?.lowerBound
     }
 
     private static func isFenceLine(_ line: String) -> Bool {

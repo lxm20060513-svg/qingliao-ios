@@ -33,8 +33,8 @@ targets:
         CFBundleDevelopmentRegion: zh_CN
         CFBundleLocalizations:
           - zh-Hans
-        CFBundleShortVersionString: "3.9.86"
-        CFBundleVersion: "531"
+        CFBundleShortVersionString: "3.9.87"
+        CFBundleVersion: "532"
         UILaunchScreen: {}
         # v3.9.83：SCENE 生命周期 + 声明自己的 scene delegate。
         # SwiftUI 进程本就是 scene-based，而系统把「桌面图标长按项被点」**只发给 scene delegate**，
@@ -126,8 +126,8 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.qingliao.app2
         INFOPLIST_KEY_CFBundleDisplayName: 轻聊
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-        MARKETING_VERSION: "3.9.86"
-        CURRENT_PROJECT_VERSION: "531"
+        MARKETING_VERSION: "3.9.87"
+        CURRENT_PROJECT_VERSION: "532"
         ENABLE_PREVIEWS: YES
         CODE_SIGNING_ALLOWED: "NO"
 
@@ -154,15 +154,15 @@ targets:
         CFBundleDisplayName: 轻聊
         CFBundlePackageType: XPC!
         # 扩展与宿主版本号必须一致（XcodeGen 对未声明的键默认写 1.0/1，会让 .appex 自报 1.0(1)）
-        CFBundleShortVersionString: "3.9.86"
-        CFBundleVersion: "531"
+        CFBundleShortVersionString: "3.9.87"
+        CFBundleVersion: "532"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.qingliao.app2.widget
-        MARKETING_VERSION: "3.9.86"
-        CURRENT_PROJECT_VERSION: "531"
+        MARKETING_VERSION: "3.9.87"
+        CURRENT_PROJECT_VERSION: "532"
         CODE_SIGNING_ALLOWED: "NO"
         CODE_SIGNING_REQUIRED: "NO"
         SKIP_INSTALL: YES

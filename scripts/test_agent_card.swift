@@ -204,6 +204,107 @@ enum AgentCardTestMain {
     // 未知 type 仍回退 .result（原有容错不被 plan 破坏）
     let unknownType = "```ql-card\n{\"type\":\"whatever\",\"title\":\"未知类型\"}\n```"
     check("未知 type 回退 .result", cardOf(AgentCardParser.parse(unknownType), 0)?.kind == .result)
+
+    // MARK: - 9. 行内闭合围栏（2026-09-26 实锤：模型把 ``` 粘在 JSON 末尾同一行）
+    // 现象：解析器只认行首 ```，认不出闭合 → 整块卡片当代码块原样显示（用户报「出一堆代码」）。
+
+    let inlineClosed = "已经同步完了，结果如下：\n\n```ql-card\n{\"type\":\"result\",\"title\":\"同步完成\",\"footer\":\"未发版：攒着\"}```\n\n还要继续吗？"
+    let inlineSegs = AgentCardParser.parse(inlineClosed)
+    check("行内闭合围栏出卡片", cardOf(inlineSegs, 1)?.title == "同步完成")
+    check("行内闭合：footer 完整", cardOf(inlineSegs, 1)?.footer == "未发版：攒着")
+    check("行内闭合：前段文本保留", textOf(inlineSegs, 0) == "已经同步完了，结果如下：\n")
+    // 切点行之后各行原样进下一文本段（含紧跟的空行）
+    check("行内闭合：后段文本保留", textOf(inlineSegs, 2) == "\n还要继续吗？")
+
+    // 多行 JSON + 行内闭合（真实事故形态：JSON 跨行，最后一行 }``` 同行）
+    let inlineMulti = "```ql-card\n{\"title\":\"跨行卡\",\n \"list\":[{\"title\":\"步骤一\",\"tone\":\"ok\"},{\"title\":\"步骤二\",\"tone\":\"warn\"}],\n \"footer\":\"2 步\"}```"
+    let inlineMultiSegs = AgentCardParser.parse(inlineMulti)
+    check("多行 JSON 行内闭合出卡", cardOf(inlineMultiSegs, 0)?.title == "跨行卡")
+    check("多行 JSON 行内闭合：清单完整", cardOf(inlineMultiSegs, 0)?.items.count == 2)
+    check("多行 JSON 行内闭合：footer", cardOf(inlineMultiSegs, 0)?.footer == "2 步")
+
+    // 反向自证：行内 ``` 之后 JSON 仍非法 → 必须退回原文（不能瞎截出半截卡片）
+    let inlineBad = "```ql-card\n{这不是 JSON}```"
+    let inlineBadSegs = AgentCardParser.parse(inlineBad)
+    check("行内闭合但 JSON 非法 → 原文保留", inlineBadSegs.count == 1 && textOf(inlineBadSegs, 0) == inlineBad)
+
+    // 反向自证：流式半截 JSON 后面跟着普通代码（无闭合）→ 不出卡、原文逐字保留
+    let inlineStreaming = "文字\n```ql-card\n{\"title\":\"半截\",\"metrics\":[{\"label\":\"下\",\"value\":9"
+    let inlineStreamingSegs = AgentCardParser.parse(inlineStreaming)
+    check("流式半截 + 行内无闭合 → 不出卡", inlineStreamingSegs.allSatisfy { if case .text = $0 { return true } else { return false } })
+    check("流式半截原文逐字保留", inlineStreamingSegs.count == 1 && textOf(inlineStreamingSegs, 0) == inlineStreaming)
+
+    // 行内 ``` 在普通代码块里不误伤（无 ql-card 围栏 → 门控短路，零改动）
+    let plainInlineFence = "看代码：\n```\nlet a = 1\n```swift\nlet b = 2\n```"
+    expectSingleText("无卡片标记的代码块不受影响", plainInlineFence)
+
+    // 卡片围栏后的行内 ``` 收尾（卡片仍出，后面残留文字另起文本段）
+    let inlineTail = "```ql-card\n{\"title\":\"卡\"}```尾巴文字"
+    let inlineTailSegs = AgentCardParser.parse(inlineTail)
+    check("行内闭合后残留文字进文本段", cardOf(inlineTailSegs, 0)?.title == "卡" && textOf(inlineTailSegs, 1) == "尾巴文字")
+
+    // 对抗：卡片 JSON 的文本字段里合法含 ``` （行内）→ 截断必然切坏 JSON，
+    // 必须退回原文，绝不能把好卡截成半截。
+    let inlineInField = "```ql-card\n{\"title\":\"卡\",\"text\":\"用 ```ql-card 包裹\"}```"
+    let inlineInFieldSegs = AgentCardParser.parse(inlineInField)
+    check("字段内含 ``` → 退回原文不截半", inlineInFieldSegs.count == 1 && textOf(inlineInFieldSegs, 0) == inlineInField)
+
+    // 对抗：两张卡片之间夹 ```swift 代码块（行内闭合写法也不能吞掉中间的代码块）
+    let twoCards = "```ql-card\n{\"title\":\"甲\"}```\n\n```swift\nlet a = 1\n```\n\n```ql-card\n{\"title\":\"乙\"}```"
+    let twoCardsSegs = AgentCardParser.parse(twoCards)
+    check("两卡片 + 中间代码块：甲出卡", cardOf(twoCardsSegs, 0)?.title == "甲")
+    // 段序 = 甲卡(0) / 中间代码块文本(1) / 乙卡(2)：两张卡之间必然夹一个文本段
+    check("两卡片 + 中间代码块：乙出卡", cardOf(twoCardsSegs, 2)?.title == "乙")
+    check("两卡片 + 中间代码块：乙卡前是代码块段", cardOf(twoCardsSegs, 1) == nil
+        && textOf(twoCardsSegs, 1)?.contains("```swift") == true)
+    check("两卡片 + 中间代码块：代码块原文保留", twoCardsSegs.contains { if case .text(let t) = $0 { return t.contains("let a = 1") } else { return false } })
+
+    // 对抗：行内闭合 + 后面紧跟一张正常独占行闭合的卡（两次消费互不干扰）
+    let mixedClose = "```ql-card\n{\"title\":\"内\"}```\n```ql-card\n{\"title\":\"外\"}\n```"
+    let mixedSegs = AgentCardParser.parse(mixedClose)
+    check("行内闭合后紧跟独占行闭合：两卡都在", cardOf(mixedSegs, 0)?.title == "内" && cardOf(mixedSegs, 1)?.title == "外")
+
+    // 对抗：行内闭合 + 卡片有 3 个以上段落，前置普通代码块不受影响
+    let preCode = "先看代码：\n```python\nprint(1)\n```\n然后：\n```ql-card\n{\"title\":\"后卡\"}```"
+    let preCodeSegs = AgentCardParser.parse(preCode)
+    check("前置普通代码块 + 行内闭合卡", cardOf(preCodeSegs, 1)?.title == "后卡"
+        && preCodeSegs.contains { if case .text(let t) = $0 { return t.contains("print(1)") } else { return false } })
+
+    // 回归 v3.9.87：裸 ``` 是「闭合行」写法，不能被当成非卡围栏的开块
+    // （曾把后面整段连同真卡一起吞成文本）
+    let bareFenceThenCard = "```ql-card\n{\"title\":\"A\"}```\n```\n说明文字\n```ql-card\n{\"title\":\"B\"}\n```\n尾部"
+    // 段序 = 甲卡(0) / 裸 ```+说明文字 文本段(1) / 乙卡(2) / 尾部文本(3)
+    let bfSegs = AgentCardParser.parse(bareFenceThenCard)
+    check("裸 ``` 闭合行后的真卡不丢（B 卡仍在）", cardOf(bfSegs, 2)?.title == "B")
+    check("裸 ``` 之后到 B 卡之间的原文保留",
+          textOf(bfSegs, 1)?.contains("说明文字") == true)
+
+    // 回归：正常独占行闭合的老写法必须逐字不变
+    let normalClosed = "```ql-card\n{\"title\":\"老写法\"}\n```"
+    check("老写法（独占行闭合）不受影响", cardOf(AgentCardParser.parse(normalClosed), 0)?.title == "老写法")
+
+    // 反向自证：完整 JSON + 围栏未闭合（流式中间帧）必须逐字保留原文，
+    // 绝不能先渲染卡片、下一帧又退成代码块（v3.9.87 审查发现的用户可见跳动）。
+    let unclosedComplete = "```ql-card\n{\"title\":\"还没写完\"}"
+    let unclosedSegs = AgentCardParser.parse(unclosedComplete)
+    check("完整 JSON + 未闭合围栏 → 不出卡（防流式回退跳动）",
+        unclosedSegs.allSatisfy { if case .text = $0 { return true } else { return false } })
+    check("完整 JSON + 未闭合围栏 → 原文逐字保留",
+        unclosedSegs.count == 1 && textOf(unclosedSegs, 0) == unclosedComplete)
+    // 逐帧复现流式：末帧补上闭合围栏后必须变成卡片（不得反向吞成代码块）
+    let unclosedThenClosed = unclosedComplete + "\n```"
+    check("下一帧补上闭合围栏 → 正常出卡",
+        cardOf(AgentCardParser.parse(unclosedThenClosed), 0)?.title == "还没写完")
+    // 完整性对照：同一份 JSON 显式闭合的形态必须仍然出卡（证明上一条不是被门槛整体堵死）
+    check("显式闭合的同款 JSON 仍出卡（门槛只拦未闭合）",
+        cardOf(AgentCardParser.parse("```ql-card\n{\"title\":\"还没写完\"}\n```"), 0)?.title == "还没写完")
+
+    // 反向自证：外层围栏未闭合时，内层 ```ql-card 是「文档里贴的示例」，不得渲染成真卡
+    let nestedExample = "```markdown\n```ql-card\n{\"title\":\"示例卡\"}\n```\n```"
+    let nestedSegs = AgentCardParser.parse(nestedExample)
+    check("外层围栏未闭合：内层 ql-card 示例不渲染成卡（防假卡）",
+        nestedSegs.allSatisfy { if case .text = $0 { return true } else { return false } }
+        && textOf(nestedSegs, 0) == nestedExample)
     }
 
     static func main() {
