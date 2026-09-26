@@ -1,17 +1,25 @@
 // MARK: - v3.9.59（攒版）智慧球长按快捷菜单
 //
-// 交互：长按 dock 智慧球（≥0.45s）→ 弹出 6 颗功能胶囊：新建会话 / AI 速记 / 今日待办（下排）
-//        + AI 识别 / 语音对话 / 语音输入（上排）。
+// 交互：长按 dock 智慧球（≥0.45s）→ 弹出 8 颗功能胶囊：新建会话 / AI 速记 / 今日待办（下排）
+//        + AI 识别 / 语音对话 / 语音输入（中排 = v3.9.76 的「上排」，位置一颗未动）
+//        + 会话纪要 / 拍照识别（最上排 2 颗**居中**，v4.0.x 方案 A 新增）。
 // 动效 = 方案 A+C 混合（用户拍板）：A 绽放（胶囊从球心弹簧弹射、错峰入场，落点几何见 OrbQuickMenuLayout）
 //        + C 的球心光晕扩散（常驻柔光 + 一圈扩散环），**不做**全屏磨砂。
 // v3.9.60：落点由「弧线散开」改为「两排两列」——弧线在 393pt 屏宽下四颗胶囊必然重叠（用户实测），
 //        几何根因与算式写在 OrbQuickMenuLayout 上方。
+// v4.0.x：6 颗 → 8 颗（方案 A，用户拍板对比稿）。**原 6 颗落点一颗不动**，只在更上方加第三排
+//        2 颗居中（dy = 216，列 ∓0.5 → x = 球心 ∓59）→ 三排 dy 104 / 160 / 216、行间隙恒 20pt。
+//        最窄 375pt 屏校验与「不撞灵动岛」的算式写在 OrbQuickMenuLayout.center 上方。
 //
 // 复用既有入口（不新造状态/后端）：
 //   新建会话 → ChatStore.requestNewSession()（ChatView 的 pendingNewSession 两步走清屏）
 //   AI 速记  → MemoStore.add(content:source:"orb")
 //   语音输入 → 切聊天页 + 进程内通知 → ChatView.toggleVoiceMode（与输入框长按同一条路径）
 //   今日待办 → TodoStore.add(content:source:"orb")
+//   会话纪要 → DockTabView.fullScreenCover 呈现 MeetingMinutesView()（v4.0.x 新增，页内自带 dismiss）
+//   拍照识别 → CameraPicker 拍一张 → ShareRouter.enqueue(SharedPayload(...)) + .qingliaoShareIncoming
+//              —— 与「系统分享接收」**同一条既有管道**（ChatView.drainShareInbox 自动压图并 sendCore），
+//                 不新造通道、不动 ChatView（v4.0.x 新增）。
 //
 // 手势口径（本仓已验证的模式）：
 //   · 轻点 + 长按并存必须用 ExclusiveGesture（分开挂会在长按后补认一次 tap，v2.0.107 实踩）；
@@ -29,18 +37,23 @@ struct OrbQuickAction: Identifiable {
     let icon: String
     let color: Color
 
-    /// v3.9.76：4 颗 → 6 颗。**数组顺序 = 落点索引**（下排 0/1/2 贴球、上排 3/4/5 更远，
-    /// 见 OrbQuickMenuLayout.center）；`id` 是**语义标识**（DockTabView.handleOrbAction 按它分发），
-    /// 与顺序解耦 —— 以后重排只动这个数组，不要动 id（动了就是悄悄换功能）。
+    /// v3.9.76：4 颗 → 6 颗；v4.0.x：6 颗 → 8 颗。**数组顺序 = 落点索引**
+    /// （下排 0/1/2 贴球、中排 3/4/5 更远、最上排 6/7 居中，见 OrbQuickMenuLayout.center）；
+    /// `id` 是**语义标识**（DockTabView.handleOrbAction 按它分发），与顺序解耦 ——
+    /// 以后重排只动这个数组，不要动 id（动了就是悄悄换功能）。
     static let all: [OrbQuickAction] = [
         // 下排（离球近、拇指最顺手 → 高频：新建 / 速记 / 待办）
         OrbQuickAction(id: 0, title: "新建会话", icon: "plus.bubble.fill", color: .blue),
         OrbQuickAction(id: 1, title: "AI 速记", icon: "brain.head.profile", color: .purple),
         OrbQuickAction(id: 3, title: "今日待办", icon: "checklist", color: .orange),
-        // 上排（抬视线才用 → 本轮新增的「看」与「说」两个入口 + 原语音输入）
+        // 中排（v3.9.76 的「上排」——抬视线才用 → 「看」与「说」两个入口 + 原语音输入）
         OrbQuickAction(id: 4, title: "AI 识别", icon: "text.viewfinder", color: .teal),
         OrbQuickAction(id: 5, title: "语音对话", icon: "waveform.circle.fill", color: .indigo),
         OrbQuickAction(id: 2, title: "语音输入", icon: "mic.fill", color: .pink),
+        // 最上排（v4.0.x 新增，2 颗**居中**：列 ∓0.5 → x = 球心 ∓59）
+        // 图标取 SF Symbols 里既有的「清单卡」与「取景器」形态，与上两排同一套细线风格
+        OrbQuickAction(id: 6, title: "会话纪要", icon: "list.bullet.rectangle", color: .brown),
+        OrbQuickAction(id: 7, title: "拍照识别", icon: "camera.viewfinder", color: .cyan),
     ]
 }
 
@@ -172,48 +185,68 @@ struct OrbQuickMenuOverlay: View {
 //   · 393pt 屏宽下放 4 颗 101pt 宽的胶囊，靠「同弧散开」永远排不下（要内侧间距 ≥127pt 得把半径推到
 //     ~195pt，外侧就会飞出屏幕）——所以落点改成**保持原「上下两排」观感、把间距拉开**，动画不动。
 //
-// 落点（以球心为原点，与 v3.9.59 截图里看到的排布一致）：
-//   index 0 下左 · 1 上左 · 2 上右 · 3 下右
-//   同排中心距 128pt（101 + 27 间隙）；两排纵向差 56pt（36 + 20 间隙）
+// 落点（以球心为原点）：
+//   v3.9.76：两排各 3 颗（index 0 下左 · 1 下中 · 2 下右 · 3 上左 · 4 上中 · 5 上右）
+//            同排中心距 236pt（101 + 17 间隙）；两排纵向差 56pt（36 + 20 间隙）
+//   v4.0.x ：6 颗 → 8 颗（方案 A）—— **上面 6 颗一颗不动**，只在更上方加第三排：
+//            index 6/7 = 最上排，2 颗**居中**（列 ∓0.5 → x = 球心 ∓59，两颗中心距 = 118pt）
+//            三排 dy = 104 / 160 / 216，行间隙恒 20pt（36 + 20 = 56 步进）
 enum OrbQuickMenuLayout {
     /// 胶囊尺寸估值（本机无 Xcode SDK 渲染不出，按令牌算式推；真机不齐只改这一处）
     static let pillSize = CGSize(width: 101, height: 36)
     /// 同排半间距（中心距 = 2×118 = 236；v3.9.76 一排 2 颗 → 3 颗，同步放宽）
+    /// v4.0.x：最上排那 2 颗也吃这一个常量（列取 ∓0.5 → 中心距 = 118），不为它新起一个数字。
     static let columnDX: CGFloat = 118
-    /// 上排抬升（离球心更远）、下排抬升
+    /// 中排抬升（= v3.9.76 的「上排」，8 颗后位置一颗未动）、下排抬升
     static let upperDY: CGFloat = 160
     static let lowerDY: CGFloat = 104
+    /// v4.0.x 方案 A：最上排抬升 = upperDY 160 + 行间隙 20 + 胶囊高 36 = **216**
+    static let topDY: CGFloat = 216
     /// 胶囊底到球心的最小间距（球半径约 34pt + 呼吸 40pt）
     static let minGapAboveBall: CGFloat = 74
 
     /// 单颗胶囊的中心点。取模防越界（胶囊数量再变也不崩）。
     ///
-    /// v3.9.76 排列改为**两排各 3 颗**（原来一排 2 颗，放不下第 5、6 颗）：
-    ///   index 0/1/2 = 下排左/中/右，3/4/5 = 上排左/中/右。
-    /// 几何校验（最窄 375pt 屏也成立，球心 x = 187.5）：
+    /// v3.9.76 排列 = **两排各 3 颗**：index 0/1/2 = 下排左/中/右，3/4/5 = 中排左/中/右。
+    /// v4.0.x 方案 A = **三排 2/3/3**（用户拍板对比稿 /opt/data/scripts/ql_orbmenu/mock/eight_pills_compare.png）：
+    ///   index 6/7 = 最上排 2 颗、**居中**（列 ∓0.5 → x = 球心 ∓59 = columnDX/2）。
+    ///   前 6 颗的落点与 v3.9.76 **逐点相同**（老用户的手感不因扩到 8 颗而变）。
+    /// 几何校验（最窄 375pt 屏也成立，球心 x = 187.5；pillW/H = 101/36）：
     ///   · 同排相邻间隙 = columnDX − pillW = 118 − 101 = **17pt** ≥ 12（不糊成一团）
     ///     （236 是**外沿两颗**的中心距，不是相邻间隙——v3.9.76 审查纠正；三颗总宽 337pt，
-    ///      375pt 小屏最左仍留 19pt，结论不变）
-    ///   · 两排纵向间隙 = 160 − 104 − 36 = **20pt** ≥ 12
-    ///   · 最左胶囊左缘 = 187.5 − 118 − 50.5 = **19pt** ≥ 8（不越界）
+    ///      375pt 小屏最左仍留 19pt）
+    ///   · 排间纵向间隙 = 160 − 104 − 36 = **20pt**；最上排 = 216 − 160 − 36 = **20pt** ≥ 12
+    ///   · 最左胶囊左缘（下/中排）= 187.5 − 118 − 50.5 = **19pt** ≥ 8（不越界）
+    ///   · 最上排 2 颗：中心距 = 2×59 = **118pt**（= columnDX），间隙 **17pt**；
+    ///     最左胶囊左缘 = 187.5 − 59 − 50.5 = **78pt**（比那两排更靠内 → 更不可能越界）
     ///   · 下排胶囊底到球心 = 104 − 18 = **86pt** ≥ minGapAboveBall 74（仍留呼吸）
+    ///   · 撞灵动岛/状态栏（向上绽放，最高那颗 = index 6/7）：顶边 = 球心 y − 216 − 18
+    ///       · 375×667：球心 y = 667 − 34 − 24.5 = 608.5 → 顶边 **374.5pt**，
+    ///         距状态栏下沿（20pt）**354.5pt**、距屏顶 374.5pt（隔着大半个屏，摸不到）
+    ///       · 393×852 + 灵动岛（下沿 59pt）：球心 y = 852 − 34 − 24.5 = 793.5 → 顶边 **559.5pt**，
+    ///         距灵动岛下沿 **500.5pt**
     /// v3.9.80：`below` = 整组镜像到**锚点下方**（锚点是欢迎页/聊天页宠物时用）。
     ///
-    /// 为什么分方向：dock 智慧球贴在屏幕底部 → 六颗胶囊必须向上绽放（原口径，不动）；
+    /// 为什么分方向：dock 智慧球贴在屏幕底部 → 八颗胶囊必须向上绽放（原口径，不动）；
     /// 而欢迎页宠物在上半屏，一律向上会让远排钻进状态栏/灵动岛、近排压在宠物脸上
     /// （用户 2026-09-25 截图：「这个界面胶囊弹出放在卡通宠物下方」）。
     /// 镜像后 index 0-2 仍是「离锚点更近的那一排」，观感只翻方向、不改排布。
+    /// v4.0.x 下锚（宠物）方向校验：宠物球心 y = 59 + 120 + 48 = 227（933 高屏更靠下，表里按 852 算）
+    ///   · 最远排（index 6/7）底边 = 227 + 216 + 18 = **461pt** ≤ 输入栏顶 698pt（852 − 34 − 120）
+    ///   · 离状态栏最近的是近排（index 0-2）：顶边 = 227 + 104 − 18 = **313pt**，
+    ///     距灵动岛下沿（59pt）**254pt** —— 两个方向都不进状态栏。
     static func center(index: Int, ballCenter: CGPoint, below: Bool = false) -> CGPoint {
-        let i = ((index % 6) + 6) % 6
-        let col = CGFloat(i % 3) - 1                 // −1 / 0 / +1
-        let isUpper = i >= 3
-        let dy = isUpper ? upperDY : lowerDY
+        let i = ((index % 8) + 8) % 8
+        // v4.0.x 方案 A：i ≥ 6 = 最上排 2 颗**居中**（列 ∓0.5）；前 6 颗仍是每排 3 列（∓1 / 0）
+        let isTopRow = i >= 6
+        let col: CGFloat = isTopRow ? (i == 6 ? -0.5 : 0.5) : CGFloat(i % 3) - 1
+        let dy = isTopRow ? topDY : (i >= 3 ? upperDY : lowerDY)
         return CGPoint(x: ballCenter.x + col * columnDX,
                        y: below ? ballCenter.y + dy : ballCenter.y - dy)
     }
 }
 
-// MARK: - 菜单层（轻纱 + 光晕 + 两排胶囊）
+// MARK: - 菜单层（轻纱 + 光晕 + 三排胶囊）
 
 struct OrbQuickMenuLayer: View {
     let ballCenter: CGPoint

@@ -73,6 +73,19 @@ final class RecordStore {
         return (item, true)
     }
 
+    /// 一句话记账（聊天页入口 · v4.0.x）：把解析好的草稿写成一笔金额记录。
+    ///
+    /// 为什么这层薄包装要放在 Store 而不是聊天页里拼 addDetailed 参数：
+    /// `kind=amount` / `unit=元` / `source=chat`（RecordKit 的 source 注释里预留的那个值）
+    /// / `note=分类+原话` 这四处口径必须**只有一份** —— 聊天页、意图条、生活页三个入口写出来的
+    /// 记录，才能被生活页同一套「本月合计 / 最近 3 条」逻辑无差别显示（口径散在调用点 = 下一个
+    /// 入口照抄时必改歪）。真值表在 scripts/test_chat_record.swift 里连卡片文案一起钉住。
+    @discardableResult
+    func addExpense(_ draft: ChatExpenseDraft) -> (item: RecordItem, inserted: Bool)? {
+        addDetailed(kind: "amount", title: draft.item, amount: draft.amount, unit: draft.unit,
+                    note: draft.storeNote, source: "chat")
+    }
+
     /// 新增（旧签名：生活页手写入口用；动作条走 addDetailed 拿 inserted）
     @discardableResult
     func add(kind: String, title: String, amount: Double?, unit: String,

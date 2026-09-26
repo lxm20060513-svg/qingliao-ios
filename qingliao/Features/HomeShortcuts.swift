@@ -5,9 +5,10 @@
 //  v3.9.82：桌面 App 图标长按快捷方式（Home Screen Quick Actions）
 //
 //  为什么是「动态」而不是 plist 里的静态 UIApplicationShortcutItems：
-//    ① iOS 桌面长按菜单**系统上限就是 4 项**（静态/动态一个口径），而用户要的 6 项塞不下；
+//    ① iOS 桌面长按菜单**系统上限就是 4 项**（静态/动态一个口径），而候选（v4.0.x 已 8 项）塞不下；
 //    ② 用户要「设置里自己挑 4 个显示」——静态 plist 改不了，只能按设置重建 shortcutItems。
-//  所以：6 项全做候选，设置页勾选 4 项（HomeShortcutStore），每次同步重建系统菜单。
+//  所以：候选清单全做（v4.0.x = 8 项：原 6 项 + 会话纪要 / 拍照识别），设置页勾选 4 项（HomeShortcutStore），
+//  每次同步重建系统菜单。
 //
 //  ⚠️ 动作分发**不复制第二套**：id 语义与长按智慧球菜单完全一致（OrbQuickAction.all），
 //     点击后统一交给 DockTabView.handleOrbAction —— 那边是唯一真源，这里只负责「把 id 送到」。
@@ -19,9 +20,10 @@ import UIKit
 // MARK: - 候选清单
 
 enum HomeShortcut {
-    /// 候选展示顺序（= 用户点名的顺序：AI识别 / 语音对话 / 语音输入 / 新建会话 / AI速记 / 今日待办）。
+    /// 候选展示顺序（= 用户点名的顺序：AI识别 / 语音对话 / 语音输入 / 新建会话 / AI速记 / 今日待办 /
+    /// 会话纪要 / 拍照识别）。**新胶囊一律排尾**，不动老用户已熟悉的候选次序。
     /// 存的是 OrbQuickAction.id，不是数组下标 —— 与智慧球菜单同一套语义标识。
-    static let order: [Int] = [4, 5, 2, 0, 1, 3]
+    static let order: [Int] = [4, 5, 2, 0, 1, 3, 6, 7]
 
     /// iOS 桌面长按菜单的上限（系统硬限制，改不了）
     static let maxCount = 4

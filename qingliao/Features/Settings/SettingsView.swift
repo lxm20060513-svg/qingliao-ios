@@ -27,7 +27,9 @@ struct SettingsView: View {
         return p.isEmpty ? "默认路径" : (p.count > 20 ? "..." + p.suffix(17) : p)
     }
     @State var showAppearance = false   // v3.0.4：外观弹窗（与云端统一）
-    // v3.9.82：桌面图标长按快捷方式（6 项候选里自己挑 4 项显示；iOS 桌面长按菜单上限就是 4）
+    // v3.9.82：桌面图标长按快捷方式（候选清单里自己挑 4 项显示；iOS 桌面长按菜单上限就是 4）
+    // v4.0.x：候选已随 OrbQuickAction.all 长到 8 项 —— 候选列表是动态的（HomeShortcut.candidates），
+    //         这里与弹窗都不许再写死项数。
     @State var showHomeShortcuts = false
     @AppStorage(HomeShortcutStore.defaultsKey) var homeShortcutsRaw = ""
     @State var scrollPos = ScrollPosition()

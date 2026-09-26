@@ -96,6 +96,9 @@ final class ChatStore {
         messages = patchAwayLanded(s.id, s.messages)
         lastLoadedSession = s   // v3.4.29：欢迎页「继续上次」用
         defaults.set(sessionId, forKey: sessionKey)
+        // v3.9.90：这次打开也顺手反推一次「这个标题是不是我们写的」——
+        // 跨设备/网页端改名只有到这一步（线上标题进内存）才看得见。
+        noteExternalTitleIfNeeded(s.id, title: s.title, messages: s.messages)
     }
 
     /// v3.9.39 A1：「迟到的回复」——用户在回答期间切走了会话，答案按发起时的快照落回**原会话**
@@ -303,6 +306,7 @@ final class ChatStore {
         awayLandedReplies = [:]
         unread = [:]
         seenTimes = [:]
+        resetTitleMarks()   // v3.9.90：自动命名/用户改名标记同属「上一个账号的状态」
         lastLoadedSession = nil
         pendingNewSession = false
         pendingNewSessionReset = false
@@ -393,7 +397,14 @@ final class ChatStore {
             messages.append(m)
         }
         if title.isEmpty, m.isUser, !m.content.isEmpty {
-            title = String(m.content.prefix(30))
+            // v3.9.90：30 字兜底口径收进 SessionAutoName（自动命名失败的回落值 = 同一个函数；
+            // 两处各写一份 prefix(30) 早晚漂移）。行为与历史逐字一致。
+            title = SessionAutoName.fallbackTitle(m.content)
+        } else if m.isUser, !title.isEmpty {
+            // v3.9.90：产品口径 3a 第二条——「用户手动改过名字的会话，之后不再自动改名」。
+            // 会话列表的重命名（SessionsView.rename → applyTitle）是直接写 `chat.title`，
+            // App 侧没有任何事件可挂，只能反推（判据见 noteExternalTitleIfNeeded 的注释）。
+            noteExternalTitleIfNeeded(sessionId, title: title, messages: messages)
         }
         // v4.0.0（审查 F6）：首条消息落地 = 这个新会话已在后端注册（发消息必然建会话），
         // 此时才把「当前会话」指针交出去。在那之前指针一直指着你真正的上一个会话 ——
@@ -718,7 +729,7 @@ final class ChatStore {
     private func writeSessionSnapshot(auth: AuthStore, sessionId sid: String, messages msgs: [ChatMessage], title t: String, allowEmpty: Bool = false) async {
         guard allowEmpty || !msgs.isEmpty else { return }
         let msgsPayload = Self.messagesPayload(msgs)
-        let firstUserText = msgs.first(where: { $0.isUser })?.content.prefix(30).description ?? ""
+        let firstUserText = SessionAutoName.fallbackTitle(msgs.first(where: { $0.isUser })?.content ?? "")
         let payload: [String: Any] = [
             "id": sid,
             "title": t.isEmpty ? firstUserText : t,
@@ -732,6 +743,152 @@ final class ChatStore {
         } catch {
             print("[saveToServer] 保存会话失败 sid=\(sid.prefix(8)) error=\(error.localizedDescription)")
         }
+        // v3.9.90：这条写 = 「首条消息已落库」的信号 → 决定要不要起一次名（产品口径 3a）。
+        // 放在写**之后**：命名结果的落库会 await 这一条写链，顺序天然是「先消息、后标题」。
+        maybeAutoName(auth: auth, sessionId: sid, messages: msgs, title: t)
+    }
+
+    // MARK: - v3.9.90 会话自动命名（用户拍板 3a：首条消息后起一次名；手动改过名字的不再自动改）
+    //
+    // 触发点为什么选在落库口（writeSessionSnapshot）而不是 append：
+    //   ① 「首条消息后起名」在时间上就是**这条消息已落库**，落库口正好拿得到 (sid, msgs, title) 三件事实；
+    //   ② 全类只有落库口手上有 AuthStore —— ChatStore 不持有它（App 里 AuthStore 是 QingliaoApp 的
+    //      @State，不是单例），在 append 里发起命名就得为此新增一个 auth 引用或新调用点，
+    //      两者都会碰到别人正在改的文件（QingliaoApp/DockTabView/ChatView）；
+    //   ③ ChatView 在 append 之后**立刻** `Task { chat.saveToServer(auth: auth) }`
+    //      （v3.3.0 的注释写明「消息落盘必须在 append 后立即执行」），所以落库口就是首条消息那一刻。
+    //
+    // 落库口径：命名结果一律走既有 `saveToServer(auth:)`（500ms 防抖 + FIFO 串行写 + **当下**消息快照），
+    // 绝不用发起命名时的旧快照去 merge —— 后端 merge 对同 id 是整体覆盖，旧快照会盖掉期间新落的消息。
+
+    /// 起名请求进行中的任务（新请求来时取消上一个：起名是 UX 增强，不需要重试、不值得堆积）
+    private var autoNameTask: Task<Void, Never>?
+
+    /// 已自动命名的会话：sid → 我们写进去的标题（UserDefaults 持久化）
+    /// 两个用途：① 同一会话只起一次名（幂等，跨启动也算）② 判断「线上这个标题是不是我们写的」
+    private static let autoNamedTitlesKey = "qingliao_auto_named_titles"
+    /// 用户手动改过名字的会话 id（UserDefaults 持久化）
+    /// 向后兼容：老数据没有这个 key → 空集 = 「没有用户改名记录」，行为与升级前一致（不多改任何标题）
+    private static let renamedByUserKey = "qingliao_renamed_by_user"
+    private var autoNamedTitles: [String: String] = [:]
+    private var renamedByUser: Set<String> = []
+    private var titleMarksLoaded = false
+
+    private func loadTitleMarksIfNeeded() {
+        guard !titleMarksLoaded else { return }
+        titleMarksLoaded = true
+        autoNamedTitles = (UserDefaults.standard.dictionary(forKey: Self.autoNamedTitlesKey) as? [String: String]) ?? [:]
+        renamedByUser = Set(UserDefaults.standard.stringArray(forKey: Self.renamedByUserKey) ?? [])
+    }
+
+    /// 记下「这个会话的标题是我们自动起的」
+    private func recordAutoNamed(sid: String, title t: String) {
+        loadTitleMarksIfNeeded()
+        autoNamedTitles[sid] = t
+        UserDefaults.standard.set(autoNamedTitles, forKey: Self.autoNamedTitlesKey)
+    }
+
+    /// 记下「这个会话用户手动改过名」——之后不再自动改名（产品口径 3a 第二条）
+    private func markRenamedByUser(_ sid: String) {
+        loadTitleMarksIfNeeded()
+        guard !renamedByUser.contains(sid) else { return }
+        renamedByUser.insert(sid)
+        UserDefaults.standard.set(Array(renamedByUser), forKey: Self.renamedByUserKey)
+    }
+
+    /// SR10 同款：登出时丢弃上一个账号的标记（ChatStore 跨登录态存活，别把旧账号的会话标记留给下一个）
+    private func resetTitleMarks() {
+        autoNameTask?.cancel()
+        autoNameTask = nil
+        autoNamedTitles = [:]
+        renamedByUser = []
+        titleMarksLoaded = true   // 已清空 → 不必再从 defaults 读回旧值
+        UserDefaults.standard.removeObject(forKey: Self.autoNamedTitlesKey)
+        UserDefaults.standard.removeObject(forKey: Self.renamedByUserKey)
+    }
+
+    /// 从「手上的这个标题」反推用户是否手动改过名。
+    /// 为什么只能反推：会话列表的「重命名」（SessionsView.rename → applyTitle 直接写 `chat.title`）
+    /// 与网页端改名都只改 title，App 侧挂不到任何事件；唯一可靠的证据是
+    /// 「这个标题既不是我们的 30 字兜底、也不是我们的自动命名结果」（判据 = SessionAutoName.isAppTitle）。
+    /// 误判方向是**保守**的：多记一个 = 少一次自动命名，绝不会反过来覆盖用户的东西。
+    private func noteExternalTitleIfNeeded(_ sid: String, title t: String, messages msgs: [ChatMessage]) {
+        loadTitleMarksIfNeeded()
+        guard !t.isEmpty, !renamedByUser.contains(sid) else { return }
+        let fallback = SessionAutoName.fallbackTitle(msgs.first(where: { $0.isUser })?.content ?? "")
+        guard !SessionAutoName.isAppTitle(t, autoNamed: autoNamedTitles[sid], fallback: fallback) else { return }
+        markRenamedByUser(sid)
+    }
+
+    /// 首条消息落库那一刻决定要不要起名（判断全在 SessionAutoName.shouldFire，那边有真值表逐条钉）
+    private func maybeAutoName(auth: AuthStore, sessionId sid: String, messages msgs: [ChatMessage], title t: String) {
+        loadTitleMarksIfNeeded()
+        guard let first = msgs.first else { return }
+        // 先反推「这个标题是不是我们写的」，再看该不该起名：
+        // ① 会话列表改名（SessionsView.rename → applyTitle 直接写 chat.title）不经过本方法，
+        //    但它的下一次落库会带着新标题走到这里 —— 先记标记，下面的 userRenamed 才拦得住；
+        // ② 正常首条消息路径下 title 就是我们刚写的 30 字兜底 → isAppTitle 为真，不会误记。
+        noteExternalTitleIfNeeded(sid, title: t, messages: msgs)
+        guard SessionAutoName.shouldFire(messageCount: msgs.count,
+                                        firstIsUser: first.isUser,
+                                        firstMessageNameable: SessionAutoName.isNameable(first.content),
+                                        alreadyAutoNamed: autoNamedTitles[sid] != nil,
+                                        userRenamed: renamedByUser.contains(sid),
+                                        isDeliverySession: sid == Self.deliverySessionId) else { return }
+        let snapshot = first.content
+        autoNameTask?.cancel()
+        autoNameTask = Task { [weak self] in
+            guard let self else { return }
+            // 失败（无网/超时/后端报错/输出不可用）一律返回 nil → 静默留着 30 字兜底，不弹错不阻塞
+            guard let name = await self.requestAutoName(auth: auth, firstMessage: snapshot) else { return }
+            self.applyAutoName(name, auth: auth, sessionId: sid, snapshotFirstUser: snapshot)
+        }
+    }
+
+    /// 调一次既有一问一答入口（`/api/stream/chat` 非流式）——与 Siri「问轻聊」/ AI 摘要同一条链路，
+    /// 不新增后端接口。任何失败都返回 nil，由调用方静默回落。
+    private func requestAutoName(auth: AuthStore, firstMessage: String) async -> String? {
+        // 模型/provider 只认 CloudConfig.mainModelAndProvider（v3.9.79 口径：各处自己读 UserDefaults 会各说各话）
+        let (model, provider) = CloudConfig.mainModelAndProvider
+        let payload: [String: Any] = [
+            "model": model,
+            "provider": provider,
+            "messages": [
+                ["role": "system", "content": SessionAutoName.systemPrompt],
+                ["role": "user", "content": SessionAutoName.prompt(firstMessage: firstMessage)]
+            ],
+            "stream": false
+        ]
+        do {
+            // timeout 15：起名是后台小任务，卡住的请求没有意义 —— 超时即回落 30 字兜底（用户无感）
+            let j = try await auth.json("/api/stream/chat", method: "POST", body: payload, timeout: 15)
+            // 取值口径复用 QingliaoIntentSupport.QingliaoAIReply（与摘要/Siri 同一处真相，别各写一份）
+            return SessionAutoName.sanitize(QingliaoAIReply.text(from: j))
+        } catch {
+            print("[AutoName] 起名失败（静默回落 30 字兜底）：\(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    /// 落名字：四个「不」全过才写（判断见 SessionAutoName.shouldApply），然后走既有落库链路
+    private func applyAutoName(_ name: String, auth: AuthStore, sessionId sid: String, snapshotFirstUser: String) {
+        loadTitleMarksIfNeeded()
+        let fallback = SessionAutoName.fallbackTitle(snapshotFirstUser)
+        let currentFirst = messages.first(where: { $0.isUser })?.content ?? ""
+        guard SessionAutoName.shouldApply(isSameSession: sessionId == sid,
+                                         currentTitle: title,
+                                         snapshotFallback: fallback,
+                                         currentFirstUser: currentFirst,
+                                         snapshotFirstUser: snapshotFirstUser,
+                                         userRenamed: renamedByUser.contains(sid)) else {
+            // 没落地也要留证据：标题成了「不是我们两种形态」= 人在起名在途时手动改过名 → 记下来
+            if sessionId == sid { noteExternalTitleIfNeeded(sid, title: title, messages: messages) }
+            return
+        }
+        title = name
+        recordAutoNamed(sid: sid, title: name)
+        // 落库走既有防抖 + FIFO 串行写（快照**当下**的消息；绝不用发起命名时的旧快照）
+        Task { await self.saveToServer(auth: auth) }
     }
 
     // MARK: - v2.0.36
@@ -805,7 +962,7 @@ final class ChatStore {
     func compressContext(keepLast: Int = 20) -> Bool {
         guard messages.count > keepLast + 1 else { return false }
         let dropped = messages.count - keepLast
-        let firstUser = messages.first { $0.isUser }?.content.prefix(30).description ?? ""
+        let firstUser = SessionAutoName.fallbackTitle(messages.first { $0.isUser }?.content ?? "")
         let marker = ChatMessage(role: "system", content: "（已压缩上下文：早期对话共 \(dropped) 条已省略，首条主题：\(firstUser)）",
                                  timestamp: messages.first?.timestamp)
         messages.removeFirst(dropped)

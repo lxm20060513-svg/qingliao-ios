@@ -34,10 +34,13 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Check version literals
-        # v3.9.41（SR53）：版本号在 project.yml 里是 8 处字面量（主 App + 挂件各一份
+        # v3.9.41（SR53）：版本号在 project.yml 里是字面量（**每个 target 一份**
         # CFBundleShortVersionString/CFBundleVersion 与 MARKETING_VERSION/CURRENT_PROJECT_VERSION），
         # 全靠手改。漏一处就打出「主 App 3.9.41 / 挂件 3.9.40」的包；改了版本却忘了改 tag（或反之）
         # 会做出与 tag 名不同版的包，事后根本查不出来。跑在 Archive 前，几秒钟判掉。
+        # v4.0.1：v4.0.1 起 target 有 3 个（主 App / 挂件 / 分享扩展）→ 12 处；且判据从「唯一值是否
+        #   只有 1 个」升级为「每组键的数量 == target 数」——只比唯一值看不出**漏声明**（某 target
+        #   少写一组键时唯一值仍是 1，XcodeGen 会给它默认写 1.0/1，打出来的包自报版本错）。
         env:
           REF_TYPE: ${{ github.ref_type }}
         run: |
@@ -57,6 +60,15 @@ jobs:
           if [ "$n_builds" != "1" ]; then
             echo "::error::project.yml 构建号不一致：$(printf '%s ' $builds)"; exit 1
           fi
+          # v4.0.1：数量判据（每个 target 4 组键各一处）
+          n_targets=$(grep -cE '^ +type: (application|app-extension)' project.yml || true)
+          for key in MARKETING_VERSION CFBundleShortVersionString CFBundleVersion CURRENT_PROJECT_VERSION; do
+            n=$(grep -cE "^ *$key:" project.yml || true)
+            if [ "$n" != "$n_targets" ]; then
+              echo "::error::$key 只在 $n 处声明（$n_targets 个 target 应各一处）—— 有 target 会落成默认 1.0/1"
+              exit 1
+            fi
+          done
           ver=$shorts
           if [ "$REF_TYPE" = "tag" ]; then
             tag=${GITHUB_REF_NAME#v}
@@ -147,7 +159,7 @@ jobs:
              or appex_plist.get('CFBundleVersion') != app_plist.get('CFBundleVersion'):
               # v3.9.41（SR53）：原来只 ⚠️ 打印不拦——挂件与主 App 版本号不一致的包照样发到 release，
               # 侧载能装但挂件更新/实时活动行为不可控，而且没人会去看那行日志。
-              print('❌ 挂件与主 App 版本不一致：app=%s(%s) appex=%s(%s) —— 核对 project.yml 的 8 处版本字面量'
+              print('❌ 挂件与主 App 版本不一致：app=%s(%s) appex=%s(%s) —— 核对 project.yml 的 12 处版本字面量'
                     % (app_plist.get('CFBundleShortVersionString'), app_plist.get('CFBundleVersion'),
                        appex_plist.get('CFBundleShortVersionString'), appex_plist.get('CFBundleVersion')))
               sys.exit(1)
@@ -164,6 +176,32 @@ jobs:
                   print('❌ 主 App Info.plist 缺 %s —— 语音转文字首次使用会崩' % key)
                   sys.exit(1)
           print('✅ 语音权限串就位（麦克风 + 语音识别）')
+          # v4.0.1：分享扩展同样要打进 PlugIns 且自报正确版本 —— 这一步原来只认挂件，
+          # 分享扩展没编进去 / 版本不符 / PointIdentifier 写错时 **CI 全绿**（真机却在分享面板里
+          # 要么看不到「轻聊」、要么点进去是个空白壳），正是本仓「本地绿 ≠ 能装」最贵的一类漏。
+          # 二进制名不写死（PRODUCT_NAME 可能变）：按「appex 目录下非 Info.plist 的条目」判存在。
+          share_dir = 'Payload/Qingliao.app/PlugIns/qingliaoShare.appex/'
+          share_bins = sorted(n for n in names
+                              if n.startswith(share_dir) and '/' not in n[len(share_dir):]
+                              and n != share_dir + 'Info.plist')
+          if share_dir + 'Info.plist' not in names or not share_bins:
+              print('❌ 分享扩展未打进 Payload/Qingliao.app/PlugIns/（Info.plist=%s，二进制=%s）'
+                    % (share_dir + 'Info.plist' in names, share_bins))
+              print('  包内 appex 相关条目：', sorted(n for n in names if '.appex' in n)[:20])
+              sys.exit(1)
+          share_plist = plistlib.loads(z.read(share_dir + 'Info.plist'))
+          share_point = (share_plist.get('NSExtension') or {}).get('NSExtensionPointIdentifier')
+          if share_point != 'com.apple.share-services':
+              print('❌ 分享扩展的 NSExtensionPointIdentifier 不是 share-services：', share_point)
+              sys.exit(1)
+          if share_plist.get('CFBundleShortVersionString') != app_plist.get('CFBundleShortVersionString') \
+             or share_plist.get('CFBundleVersion') != app_plist.get('CFBundleVersion'):
+              print('❌ 分享扩展与主 App 版本不一致：app=%s(%s) share=%s(%s) —— 核对 project.yml 的 12 处版本字面量'
+                    % (app_plist.get('CFBundleShortVersionString'), app_plist.get('CFBundleVersion'),
+                       share_plist.get('CFBundleShortVersionString'), share_plist.get('CFBundleVersion')))
+              sys.exit(1)
+          print('✅ 分享扩展 .appex 就位且配置正确（NSExtensionPointIdentifier=%s，%s）'
+                % (share_point, share_bins[0].rsplit('/', 1)[-1]))
           print('✅ 挂件 .appex 就位且配置正确（NSExtensionPointIdentifier=%s）' % ext)
           PYEOF
 

@@ -25,6 +25,11 @@ targets:
       # v3.8.0：灵动岛/锁屏实时活动挂件（embed: true → 编进 Qingliao.app/PlugIns/）
       - target: QingliaoWidget
         embed: true
+      # v4.0.1：系统分享接收扩展（embed: true → 编进 Qingliao.app/PlugIns/）。
+      # 侧载（免费签名）没有 App Groups，扩展与主 App 靠「URL scheme + 系统剪贴板」传内容，
+      # 协议与两条通道见 qingliao/Core/ShareLinkCodec.swift 的文件头注释。
+      - target: qingliaoShare
+        embed: true
     info:
       path: qingliao/Info.plist
       properties:
@@ -167,12 +172,68 @@ targets:
         CODE_SIGNING_REQUIRED: "NO"
         SKIP_INSTALL: YES
 
+  # v4.0.1：**系统分享接收扩展** —— 从别的 App（照片 / Safari / 备忘录…）把文本、链接、图片
+  # 分享进轻聊**当前会话**（口径 1a：入口只留这三类，不声明 File/视频/音频）。
+  #
+  # ⚠️ 侧载（免费签名）**没有 App Groups**（与挂件同一约束）→ 扩展与主 App 没有共享容器：
+  #    共享文件、共享 UserDefaults 全都不可用。所以内容只走两条**系统级**通道：
+  #      ① `qingliao://share?...`（URL scheme，短文本/链接）——主 App 侧是既有的 .onOpenURL；
+  #      ② 系统剪贴板（自定义类型，图片 / 超长文本）——扩展写、主 App 进前台时读。
+  #    协议、去重令牌、档位都写在 qingliao/Core/ShareLinkCodec.swift 的文件头注释里；
+  #    ⚠️ 另一条硬限制：**iOS 18 起扩展无法拉起宿主 App**（extensionContext.open 会被系统拒），
+  #    所以「唤起轻聊」只算尽力而为，兜底是「内容已在剪贴板 + 用户手动打开轻聊」。
+  qingliaoShare:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "26.0"
+    sources:
+      - qingliaoShare
+      # 协议编解码：主 App 与扩展必须编**同一份**源码（同挂件编 LiveActivityAttributes 的做法），
+      # 否则「怎么打包 / 怎么解包」两处各写一份必然漂移。纯 Foundation，两边都能编。
+      - qingliao/Core/ShareLinkCodec.swift
+    info:
+      path: qingliaoShare/Info.plist
+      properties:
+        CFBundleDisplayName: 轻聊
+        CFBundlePackageType: XPC!
+        # 扩展与宿主版本号必须一致（XcodeGen 对未声明的键默认写 1.0/1，会让 .appex 自报 1.0(1)）
+        CFBundleShortVersionString: "3.9.90"
+        CFBundleVersion: "535"
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.share-services
+          # 不用 storyboard：直接挂 VC 类（本仓没有 MainInterface.storyboard，少一份要同步的资源）
+          NSExtensionPrincipalClass: "$(PRODUCT_MODULE_NAME).ShareViewController"
+          # 出现条件（口径 1a：用户拍板「分享入口只留文本 / 链接 / 图片」，故只声明我们**真的能收**的三类；
+          # 视频 / 音频 / 文件都不声明 —— 轻聊现有的分享落点只能接文本与单图
+          # （ShareRouter 一条 = 一图一文本），声明 File 会出现一个「点进去只发文件名、内容读不出」的入口）：
+          #   · 文本、网页链接、图片 各一条
+          #   · 网页归档（webarchive，二进制）不处理，故不声明 WebPage
+          NSExtensionAttributes:
+            NSExtensionActivationRule:
+              # 2 = 「至少命中一类就出现」；缺省（1）是「宿主给的每一类都必须能处理才算」，
+              # 那种规则下系统一次给「照片 + 视频」这类组合时整个入口会直接消失。
+              NSExtensionActivationDictionaryVersion: 2
+              NSExtensionActivationSupportsText: true
+              NSExtensionActivationSupportsWebURLWithMaxCount: 1
+              NSExtensionActivationSupportsImageWithMaxCount: 1
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.qingliao.app2.share
+        MARKETING_VERSION: "3.9.90"
+        CURRENT_PROJECT_VERSION: "535"
+        CODE_SIGNING_ALLOWED: "NO"
+        CODE_SIGNING_REQUIRED: "NO"
+        SKIP_INSTALL: YES
+
 schemes:
   Qingliao:
     build:
       targets:
         Qingliao: all
         QingliaoWidget: all
+        # 分享扩展也在归档时编（embed: true 已让它成为 App 的依赖，这里再显式列一次 =
+        # 直接用 `-scheme Qingliao archive` 也不会漏编）
+        qingliaoShare: all
     run:
       config: Debug
     archive:

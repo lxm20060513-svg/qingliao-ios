@@ -60,6 +60,7 @@ struct MemoItem: Identifiable, Codable, Equatable, Sendable {
         case "bigbang": return "选词"
         case "orb": return "智能球"   // v3.9.59：dock 智慧球长按 → AI 速记
         case "intent": return "识别"   // v3.9.71：意图管道（识别出来的内容一键存）
+        case "meeting": return "会议纪要"   // v4.0.x：会话纪要页（现场长录音 → 转写 → 整理）
         default: return "手记"
         }
     }
@@ -71,6 +72,7 @@ struct MemoItem: Identifiable, Codable, Equatable, Sendable {
         case "bigbang": return "wand.and.stars"
         case "orb": return "circle.dashed"   // v3.9.59：智能球来源
         case "intent": return "sparkles"     // v3.9.71：识别来源
+        case "meeting": return "doc.text.fill"   // v4.0.x：会议纪要来源（页面里备忘指向用的是同一个符号）
         default: return "square.and.pencil"
         }
     }

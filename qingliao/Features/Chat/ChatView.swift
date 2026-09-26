@@ -26,6 +26,11 @@ extension Notification.Name {
     static let qingliaoDismissKeyboard = Notification.Name("qingliao_dismiss_keyboard")
     // v3.9.59：长按 dock 智慧球 →「语音输入」胶囊——DockTabView 切聊天页后广播，ChatView 消费进语音模式
     static let qingliaoOrbVoiceInput = Notification.Name("qingliao_orb_voice_input")
+    // v4.0.x：会话纪要页整理完 → 把纪要卡放进当前会话（MeetingMinutesView 广播，object = 卡片文本）
+    static let qingliaoMinutesCard = Notification.Name("qingliao_minutes_card")
+    // v4.0.1：分享接收（ShareIntake，在 Core 层摸不到 DockTabView 的 selected）投递前，
+    // 先请宿主把聊天页切进视图树 —— 载荷的落点全是 ChatView 挂的 onReceive，人不在就落空。
+    static let qingliaoOpenChat = Notification.Name("qingliao_open_chat")
 }
 
 // MARK: - v2.0.60 通知点击直达会话（AppDelegate 捕获通知点击 → 存 sessionId）
@@ -327,6 +332,13 @@ struct ChatView: View {
     @State var intentNoContentHintText = "图里没认出内容，可以直接发给 AI"
     /// v3.9.76：本次检测到的类别名（"链接 / 地址"…）——提示条文案用；空串 = 没检测到
     @State var clipboardIntentLabel = ""
+    // v4.0.x 一句话记账（口径 1a）：刚在聊天框里记下的那一笔 → 驱动输入栏上方「已记账 + 撤销」动作条。
+    // 只留**最近一笔**（这是个「刚做完的事」提示，不是账本列表；账本看生活页）。
+    @State var chatRecordEntry: ChatRecordEntry?
+    /// v4.0.x 一句话记账去重表（签名 → 上次记账时刻）。**为什么不能只靠 RecordStore 的 2 秒护栏**：
+    /// 「重试」入口（retryMessage）会清掉 sendCore 的 60s 幂等签名并原样重发同一条文本，
+    /// 只按 2 秒去重时「失败 → 一分钟后点重试」会凭空多记一笔。窗口见 ChatRecordKit.repeatWindow。
+    @State var chatRecordSignatures: [String: TimeInterval] = [:]
     // 剪贴板的**单一真值源**（v3.9.72 收口）：上次进 App 时看到过的那一版 changeCount。
     // v3.8.1 的「已处理过的那一版」（handledClipChange + handledClipUptime 两个 @AppStorage）在
     // v3.9.72 换门后只写不读、已成为死代码，本轮删除——**别再恢复**，它有两个漏斗：
@@ -1312,6 +1324,13 @@ struct ChatView: View {
                                                 to: nil, from: nil, for: nil)
             }
         }
+        // v4.0.x 会话纪要：纪要页整理完把卡片文本发过来 → 按记账卡同一路径插一张本地卡
+        // （object = 卡片文本；卡已由 MinutesKit 组装好，这里只负责落进当前会话）
+        .onReceive(NotificationCenter.default.publisher(for: .qingliaoMinutesCard)) { note in
+            if let card = note.object as? String, !card.isEmpty {
+                insertMinutesCard(card)
+            }
+        }
         .onAppear {
             drainShareInbox()
             // v3.4.x 发送可靠性：启动恢复上次未发出的排队消息（杀 App/断网重启不丢）→ 立即补发
@@ -1474,6 +1493,9 @@ struct ChatView: View {
         pendingImageBar
         // v3.9.71：识别结果动作条（挂在输入栏**之外**，输入栏那套两层结构一律不碰）
         intentActionBarSlot
+        // v4.0.x：一句话记账的「已记账 + 撤销」条（同一套定位口径，见 ChatRecordBar 头注释：
+        // 撤销按钮放不进卡片里，所以它落在卡片下方这一条上；卡片 footer 只指路）
+        chatRecordBarSlot
         // 内联附件面板（类微信 + 面板：点击回形针展开）
         // v2.0.96b：发牌弹出效果（每个按钮依次从底部弹出 + 回弹）
         attachmentMenuBar
@@ -1683,6 +1705,97 @@ struct ChatView: View {
             .padding(.vertical, Spacing.xs)
             .transition(.opacity)
         }
+    }
+
+    /// v4.0.x：一句话记账动作条槽位（没记过账时整块不占位）
+    ///
+    /// 位置口径与 intentActionBarSlot 完全一致（挂在输入栏之外、同一组内外边距）——
+    /// 两条同时出现时上下叠着，视觉上是同一类「刚发生的事，可以撤」条。
+    @ViewBuilder
+    private var chatRecordBarSlot: some View {
+        if let entry = chatRecordEntry {
+            ChatRecordBar(item: entry.item,
+                          category: entry.category,
+                          onUndo: { undoLandedExpense(entry) },
+                          onClose: { withAnimation(Motion.settle) { chatRecordEntry = nil } })
+                .padding(.horizontal, Spacing.xs)
+                .padding(.bottom, Spacing.xs)
+        }
+    }
+
+    /// v4.0.x 一句话记账：把「买菜 86」这类短句记成一笔 + 在会话里插一张记账卡（口径 1a）。
+    ///
+    /// 为什么挂在 sendCore：它是全 App **唯一的发送收口**（发送 / 排队 / 问 AI / 继续下一步都走它），
+    /// 挂这一个点就能覆盖各条发送分支，不必在每个入口各抄一遍识别。
+    ///
+    /// 三件事的落点：
+    ///   ① 写入 → RecordStore.addExpense（source=chat，生活页「本月合计 / 最近记录」立刻能看到）
+    ///   ② 卡片 → 会话里的 assistant + **isPush** 消息，内容是 ```ql-card 围栏，由既有
+    ///      AgentCardParser → AgentResultCard 渲染（**不新造第二套渲染体系**）。
+    ///      isPush 的两个作用都必要：留在会话展示、但 ChatStore.historyPayload 会滤掉它
+    ///      → 卡片 JSON **不进模型上下文**（不会污染对话、不会被复读），跨重启也保留
+    ///      （messagesPayload 写 isPush、ChatMessage.parse 读回）。代价：气泡上会带「🔔 推送」角标
+    ///      （bubblePushTag 只看 isPush，不区分来源）——要改得动 ChatMessageBubble.swift，不在本轮范围。
+    ///   ③ 确认 → 用户那句话**照旧发给 AI**（这里不拦发送），AI 的回话就是对话层面的确认；
+    ///      卡片本身是「账已落库」的权威确认。
+    private func noteChatExpenseIfMatched(text: String, imageData: String?) {
+        guard imageData == nil else { return }              // 带图/纯图不记账
+        guard !chat.isDeliverySession else { return }       // 投递会话是只读视图：不许往里写卡、记账号
+        let sig = ChatRecordKit.signature(sessionId: chat.sessionId, text: text)
+        let now = Date().timeIntervalSince1970
+        if let last = chatRecordSignatures[sig], now - last < ChatRecordKit.repeatWindow {
+            // ❌ 不能静默 return：用户看到的是「同一句话说了两遍，第二遍没记账」——像功能坏了。
+            // 出声说明「已记过、没重复记」，并指路撤销入口（账本在生活页）。
+            flashNoContent("这句 10 分钟内已记过，没重复记账")
+            return
+        }
+        guard let draft = ChatRecordKit.draft(from: text) else { return }
+        guard let added = RecordStore.shared.addExpense(draft) else { return }
+        chatRecordSignatures[sig] = now
+        // 表别无限长（一页聊天里可能记很多笔）：顺手清掉过窗口的老条目
+        if chatRecordSignatures.count > 40 {
+            chatRecordSignatures = chatRecordSignatures.filter { now - $0.value < ChatRecordKit.repeatWindow }
+        }
+        // Store 的 2 秒连点护栏命中时返回的是**已存在**那条（inserted=false）→ 不再插第二张卡、
+        // 也不撤旧条（撤了会把几分钟前那笔的提示顶掉）
+        guard added.inserted else { return }
+        let card = ChatRecordKit.cardText(title: added.item.title,
+                                          amount: added.item.amount ?? draft.amount,
+                                          unit: draft.unit,
+                                          category: draft.category,
+                                          raw: draft.raw)
+        var msg = ChatMessage.local(role: "assistant", content: card)
+        msg.isPush = true
+        chat.append(msg)      // append 内部带 Motion.enter；count/lastID 变化会触发 refreshVisibleMessages
+        withAnimation(Motion.settle) {
+            chatRecordEntry = ChatRecordEntry(item: added.item, category: draft.category,
+                                              cardMessageID: msg.id, signature: sig)
+        }
+        Haptics.success()     // v3.4.25：写入类动作的成功触感（与意图条写库同口径）
+    }
+
+    /// v4.0.x 一句话记账：撤销刚才那笔（**真删**，不是把提示藏起来）。
+    /// 三步都要：删记录（生活页立刻少一笔，NAS 同步走 Store 自己的 save）、
+    /// 从会话里收回那张卡（卡还在 = 用户以为还记着）、
+    /// 放回去重签名（否则「撤销完再说一遍同一句」会被自己的 10 分钟窗口挡掉，看起来像坏了）。
+    private func undoLandedExpense(_ entry: ChatRecordEntry) {
+        RecordStore.shared.delete(entry.item)
+        chat.messages.removeAll { $0.id == entry.cardMessageID }
+        chatRecordSignatures.removeValue(forKey: entry.signature)
+        withAnimation(Motion.settle) { chatRecordEntry = nil }
+        Haptics.tap()
+        Task { await chat.saveToServer(auth: auth) }   // 卡片被收回也要落库，否则重进会话又回来
+    }
+
+    /// v4.0.x 会话纪要：把纪要页送来的卡片插进当前会话。
+    /// 与记账卡**同一路径**（`ChatMessage.local` + `isPush = true` + `chat.append`）：
+    /// 本地卡不进模型上下文（不是用户说的话、也不是 AI 的回复），但重进会话要还在 → 顺手落库。
+    private func insertMinutesCard(_ card: String) {
+        var msg = ChatMessage.local(role: "assistant", content: card)
+        msg.isPush = true
+        chat.append(msg)
+        Haptics.success()
+        Task { await chat.saveToServer(auth: auth) }
     }
 
     /// v3.9.71 图片「识别」统一入口（按钮只负责触发，逻辑收在这里）
@@ -2577,6 +2690,9 @@ struct ChatView: View {
             // v3.0.51 A1：会话加载后重传残留 base64 图片（重启续传/失败重传）
             // SR4：走 ChatStore 的单飞入口——旧会话那条重传链会先被 cancel，不会跨会话争写 messages
             chat.startImageRetryUploads(auth: auth)
+            // v4.0.x 一句话记账：「已记账 + 撤销」条是「这段对话里刚做的事」，换会话即复位
+            // （记录本体是全局账本、撤销仍能删掉它，但把别处那条提示挂到新会话上看着像 bug）
+            chatRecordEntry = nil
         }
         // v3.4.25：改双重触发——count（增删）+ lastID（整组替换/清空重建时 count 不变，仅靠
         // sessionId 兜底会漏渲染；lastID 变化补上「同条数内容替换」场景，且流式 tick 不改 lastID，
@@ -3056,6 +3172,9 @@ struct ChatView: View {
             withAnimation(Motion.settle) {   // v3.9.0：动效令牌收口（原 spring 0.25/0.15）
                 chat.append(msg)
             }
+            // v4.0.x 一句话记账：排队路径也要记（用户在别的会话等回答时发的这句照样得进账本），
+            // 卡片插在用户气泡之后、AI 回话之前 —— 顺序 = 用户话 → 记账卡 → AI 确认
+            noteChatExpenseIfMatched(text: text, imageData: imageData)
             pendingQueue.append(PendingSend(text: text, imageData: imageData, sessionId: chat.sessionId))
             persistPendingQueue()
             Task { await chat.saveToServer(auth: auth) }
@@ -3072,6 +3191,10 @@ struct ChatView: View {
         withAnimation(Motion.settle) {   // v3.9.0：动效令牌收口（原 spring 0.25/0.15）
             chat.append(msg)
         }
+        // v4.0.x 一句话记账（口径 1a）：卡插在用户气泡之后（顺序 = 用户话 → 记账卡 → AI 回话）。
+        // 放在 append 之后是为了会话里的先后顺序；放在 saveToServer 之前是为了同一份快照把卡一起落库。
+        // ⚠️ 上面的「长文本 relay 分段」分支不需要另挂：记账只认 ≤24 字的短句，永远进不到那一段。
+        noteChatExpenseIfMatched(text: text, imageData: imageData)
         // v3.3.0 fix：消息落盘必须在 append 后立即执行（不能依赖流式回答后才 saveToServer）。
         // 否则 App 被杀/网络断开/流式失败时，用户刚发的消息只存在内存里，丢了。
         Task { await chat.saveToServer(auth: auth) }

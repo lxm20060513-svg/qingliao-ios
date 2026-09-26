@@ -100,6 +100,17 @@ struct QingliaoApp: App {
                         }
                     }
                 }
+                // v4.0.1：**系统分享接收扩展**的短内容通道 —— `qingliao://share?...`
+                // （扩展 `extensionContext.open` 成功时送来的；用户也可能在浏览器/快捷指令里手打同一 URL）。
+                //
+                // 为什么可以再挂一个 `.onOpenURL`：同一场景里挂多个时**每个闭包都会响应**
+                // （SwiftUI 既定行为），而 `ShareIntake.handle` 只认 `qingliao://share`：
+                // scheme 与既有深链同为 `qingliao`，host 是 `share` —— DockTabView 那个处理器的
+                // 两个分支（`QingliaoDeepLink.Route` 解析、file/http/geo 分享）对 `share` host 全不命中，
+                // 旧路径零变化；这里也**不动** DockTabView（并行改动的文件）。
+                .onOpenURL { url in
+                    ShareIntake.handle(url: url, loggedIn: auth.isLoggedIn)
+                }
         }
     }
 
@@ -202,6 +213,9 @@ struct RootView: View {
         // 不清的话换账号登录后看到的仍是旧账号会话，且 loadLastSession 的 isEmpty 护栏让它不会被覆盖。
         .onChange(of: auth.isLoggedIn) { _, logged in
             if !logged { chat.resetForLogout() }
+            // v4.0.1：未登录时收到的分享先扣在 ShareIntake 里（见那里的 pendingWhileLoggedOut），
+            // 登录一成功立刻补投 —— 否则「没登录 → 分享 → 登录」这一串里，内容永远到不了会话。
+            if logged { ShareIntake.flushPending(loggedIn: true) }
             // v3.9.45：登录成功 → 让登录卡片再挂 0.95s 演完「放大上抛淡出」，DockTabView
             // 同时在它下面就位（首页已渲染），卡片像是"飞成了首页"。退场时长取自 LoginView
             // 自己的 .delay(0.2) + 0.45s；到点直接撤（此时已 opacity 0，撤掉无感）。
@@ -226,6 +240,10 @@ struct RootView: View {
             // 流式途中回前台：管理器认得这一轮 → 方法内部第一行就 return，不会误杀正在显示的活动。
             if phase == .active {
                 Task { await LiveActivityManager.shared.convergeOrphanActivities() }
+                // v4.0.1：回前台时接一次分享扩展的**剪贴板通道** —— iOS 18 起扩展拉不起宿主 App
+                // （`extensionContext.open` 被系统拒），用户手动打开轻聊就是这条通道的唯一时机。
+                // `resume` 内部先 `contains` 探再读（见 ShareIntake）：没有我们的载荷时连授权弹窗都不会出现。
+                ShareIntake.resume(loggedIn: auth.isLoggedIn)
             }
         }
         // v3.9.42：本机流收尾的**跨会话兜底**（修「任务完成后灵动岛一直不退出」的主路径）。
@@ -273,6 +291,9 @@ struct RootView: View {
             if auth.isLoggedIn {
                 Task { await CrashReporter.flushPending(auth: auth) }
             }
+            // v4.0.1：冷启动也接一次分享扩展的剪贴板通道。`.onChange(of: scenePhase)` 不报**初值**
+            // （冷启动那次 .active 不是「变化」），只靠它就漏掉「App 已被划掉 → 分享 → 手动打开」这条路径。
+            ShareIntake.resume(loggedIn: auth.isLoggedIn)
             // v3.4.29：Splash 由固定 1.6s 空等 → 最短 0.6s（保留品牌节奏）。
             // 首屏内容全部来自本地数据（会话消息/AI 记忆），无需等网络
             try? await Task.sleep(for: .seconds(0.6))

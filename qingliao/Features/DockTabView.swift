@@ -56,6 +56,10 @@ struct DockTabView: View {
     /// v3.9.82：译文弹窗（用户「这个卡片改弹窗吧，跟 AI 速记弹窗一致」）——
     /// 识别浮层翻出译文后不再就地出卡，改成回宿主弹这一张（形态照 QuickCaptureSheet）。
     @State private var translateResult: TranslateResult?
+    /// v4.0.x：长按菜单「会话纪要」全屏页（页内自带 dismiss；本页只负责呈现与收口）
+    @State private var showMinutes = false
+    /// v4.0.x：长按菜单「拍照识别」系统相机（拍一张 → ShareRouter 既有管道 → 聊天页发送）
+    @State private var showCamera = false
     /// v3.9.82：下一次进识别浮层时**直接以翻译模式起手**（只有译文弹窗的「换一张」会置真；
     /// 浮层每次 onAppear 都复位，所以事后必须清掉，否则下一次拍照会莫名出译文）。
     @State private var identifyStartTranslate = false
@@ -231,6 +235,18 @@ struct DockTabView: View {
             .fullScreenCover(isPresented: $showVoiceDialog) {
                 VoiceDialogView()
             }
+            // v4.0.x：长按菜单「会话纪要」全屏页（新胶囊 id 6）。
+            // 全屏而非 sheet：纪要正文要占满整屏读，页内自带 dismiss（与语音对话页同一口径）。
+            .fullScreenCover(isPresented: $showMinutes) {
+                MeetingMinutesView()
+            }
+            // v4.0.x：长按菜单「拍照识别」系统相机（新胶囊 id 7）。
+            // 内容视图必须 .ignoresSafeArea() —— 同 ql_entry 第 17 步的口径：只换 fullScreenCover
+            // 容器不够，内容默认仍受安全区约束 → 顶部露宿主黑边（v3.9.75 用户实测报过）。
+            // 内容抽成 cameraCover（不在 body 巨型链上写字面量闭包）：CI run #571 的 type-check 超时坑。
+            .fullScreenCover(isPresented: $showCamera) {
+                cameraCover
+            }
             // v3.9.59：速记弹窗（AI 速记 / 今日待办共用一个输入弹窗）
             // v3.9.59：onDismiss 复位——若某次 present 被别的 sheet 挡掉，quickCapture 会一直非 nil，
             // 之后「AI 速记 / 今日待办」再也弹不出来（MemoSection v3.9.17 / TodoSection 同款坑，本仓踩过）。
@@ -298,6 +314,14 @@ struct DockTabView: View {
                 // 程序化切页必须先跳过一次烟花（与深链/分享/灵动岛同款）——
                 // 否则点「发给 AI」会误放全屏粒子（v3.6.2 修过的回归）
                 skipBurstOnce()
+                selected = .chat
+            }
+            // v4.0.1：分享接收（`ShareIntake`）投递前先请宿主切到聊天页 —— 与备忘录「发给 AI」同款。
+            // 它拿不到 `selected`（Core 层），而载荷两条落点全挂在「ChatView 在视图树里」，
+            // 用户从别的 App 分享过来时人可能停在生活页/看板页 → 不切页就是消息静默消失。
+            .onReceive(NotificationCenter.default.publisher(for: .qingliaoOpenChat)) { _ in
+                // 已在聊天页就别跳过烟花（与 case 0/2/4 同一条理由：白置标志会吞掉紧接着的真点击烟花）
+                if selected != .chat { skipBurstOnce() }
                 selected = .chat
             }
             // v3.9.7：灵动岛「停止生成」按钮——`LiveActivityIntent` 在**主 App 进程**执行，
@@ -393,9 +417,10 @@ struct DockTabView: View {
         // `!showOrbMenu && !showIdentify && !showVoiceDialog` 才在，快捷方式不经过它，而且它能在任意时刻
         // 进来（含 App 在后台、识别浮层 / 速记弹窗 / 译文弹窗 / 语音对话还开着的时候）。所以这里统一把
         // 「瞬时 UI」收干净再走分支：原先的互斥只靠可达性成立，新入口一来就漏。
-        // ⚠️ 本函数的全部呈现位态（6 个：菜单 / 速记 sheet / 识别浮层 / 换一张哨兵 / 语音对话 / 译文 sheet）
-        //    都必须在这里清掉一个不漏 —— 漏一个就是「点了没反应」（sheet 压住新开的浮层）或同一宿主两个
-        //    sheet 同时为真（本文件 231 行记着那个坑）。新增位态时同步扩这里 + 真值表护栏。
+        // ⚠️ 本函数的全部呈现位态（8 个：菜单 / 速记 sheet / 识别浮层 / 换一张哨兵 / 语音对话 /
+        //    译文 sheet / 会话纪要全屏页 / 拍照识别相机）都必须在这里清掉一个不漏 —— 漏一个就是「点了没反应」
+        //    （sheet 压住新开的浮层）或同一宿主两个 sheet 同时为真（本文件 231 行记着那个坑）。
+        //    新增位态时同步扩这里 + 真值表护栏。
         // 清标志与本分支的置位都在**同一次事务**里，最终值以分支为准（不会顺手关掉本分支要开的东西）；
         // 也顺带清掉「换一张」哨兵 —— 快捷方式进 AI 识别应正常起手，不该继承上次的翻译模式。
         showOrbMenu = false
@@ -404,6 +429,8 @@ struct DockTabView: View {
         identifyStartTranslate = false
         showVoiceDialog = false
         translateResult = nil
+        showMinutes = false
+        showCamera = false
         switch action.id {
         case 0:   // 新建会话
             // v3.9.59：已在聊天页 = selected 不变、不会放烟花，白置标志会吞掉紧接着的一次真点击烟花
@@ -431,8 +458,54 @@ struct DockTabView: View {
             if selected != .chat { skipBurstOnce() }
             selected = .chat
             showVoiceDialog = true
+        case 6:   // 会话纪要（v4.0.x 新胶囊）
+            // 🚨 必须先让聊天页进视图树（与 case 2/4/7 同款闸）：纪要整理完那张卡由
+            //    `MeetingMinutesView` post `.qingliaoMinutesCard`，**唯一接收方是 ChatView 的 onReceive**
+            //    —— 用户在生活页/看板页长按球进纪要、录完音整理好，卡片会因为 ChatView 不在树里而
+            //    静默消失（备忘存了、卡没了，用户只看到「整理完成」）。
+            //    顺带的好处：dismiss 纪要页出来就是聊天页，刚落的那张卡就在眼前。
+            // 全屏页而非 sheet：纪要正文要占满整屏读，页内自带 dismiss（与语音对话页同一口径）。
+            if selected != .chat { skipBurstOnce() }
+            selected = .chat
+            showMinutes = true
+        case 7:   // 拍照识别（v4.0.x 新胶囊）
+            // 无摄像头设备（模拟器 / 部分无相机 iPad）present .camera 会抛 NSInvalidArgumentException
+            // —— 与 OrbIdentifyOverlay.openCameraOrAlbum、ChatView 同一道闸，别在三处写出不同判据。
+            // 兜底退回既有的「AI 识别」浮层（它自带相册入口），比静默无反应诚实。
+            if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                showCamera = true
+            } else {
+                showIdentify = true
+            }
         default:
             break
+        }
+    }
+
+    // MARK: - v4.0.x 拍照识别（长按菜单新胶囊 id 7）
+
+    /// 相机呈现内容。抽成属性是给 body 巨型链减负（不要在那条链上写字面量闭包 → CI 类型检查超时红线，
+    /// run #571 那类）。`.ignoresSafeArea()` 不能省：只换 fullScreenCover 容器不够，内容默认仍受安全区
+    /// 约束 → 顶部露宿主黑边（v3.9.75 用户实测报过）。
+    private var cameraCover: some View {
+        CameraPicker { image in handleCameraShot(image) }
+            .ignoresSafeArea()
+    }
+
+    /// 拍完一张 → 走**既有的系统分享接收管道**（不新造通道、不动 ChatView）：
+    ///   ShareRouter 入队 → 切聊天页 → 0.35s 闸后 post `.qingliaoShareIncoming`
+    ///   → ChatView.drainShareInbox 自动压图并 sendCore（与系统分享/分享扩展完全同一条路）。
+    /// 闸的理由与 askAI 一字不差：转场还在跑时投递，接收方可能还没进视图树 → 通知落空。
+    private func handleCameraShot(_ image: UIImage) {
+        showCamera = false                      // 关相机（菜单已在 handleOrbAction 的收口里关掉）
+        ShareRouter.shared.enqueue(SharedPayload(text: "帮我看看这张照片",
+                                                 image: image,
+                                                 sourceName: "拍照识别"))
+        if selected != .chat { skipBurstOnce() }
+        selected = .chat
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(0.35))
+            NotificationCenter.default.post(name: .qingliaoShareIncoming, object: nil)
         }
     }
 
