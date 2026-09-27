@@ -547,5 +547,13 @@ echo "=== 38. 会话列表「进行中」标识真值表（v4.0.x · 2026-09-27 
 #   行内不许读 stream.content（每 token 变化 = 列表每 token 重算）。
 run_unit /tmp/test_sessions scripts/ql_sessions/truth_table_sessions.swift
 
+echo "=== 39. 框架回调闭包隔离护栏（v3.9.97 真机 Signal(5) 定案）==="
+# 机制：ObjC 桥接的 completion 参数**多数没有 @Sendable**；闭包字面量写在 @MainActor 类型里会**继承 MainActor 隔离**，
+#   框架在后台队列回调它时做隔离检查 → SIGTRAP（栈：dispatch_assert_queue_not ← libswift_Concurrency ← closure #1 ([EKReminder]?) -> ()）。
+#   编译器全程沉默：-parse 无输出、CI archive 照过、零告警，只有真机崩（v3.9.97「查看待办」动作 100% 复现）。
+# 名单只列**实测崩溃**的 API（fetchReminders / detectPatterns / installTap / requestRecordPermission），宁少勿滥防误报；
+# 判定 = 闭包字面量显式带 @Sendable，或所在函数标 nonisolated。
+python3 scripts/check_framework_callback_isolation.py || exit 1
+
 [ $fail -eq 0 ] || { echo "❌ 有护栏失守"; exit 1; }
 exit 0

@@ -104,8 +104,15 @@ extension AgentActionExecutor {
                                                              ending: end, calendars: nil)
         // fetchReminders 只有回调式 API（没有同步/async 版本），这里桥回 async。
         // 顺带把「没设到点时间的待办」也收进来：用户问"我有什么待办"时，无时间的也算。
+        //
+        // 🚨 闭包字面量必须显式写 `@Sendable`（2026-09-27 v3.9.97 真机 4 次 Signal(5) 定案）：
+        //    EventKit 的 completion 参数**不是** @Sendable，而本类型是 `@MainActor enum AgentActionExecutor`
+        //    → 字面量默认**继承 MainActor 隔离** → EventKit 在自己的后台队列回调它时做隔离检查 → SIGTRAP。
+        //    符号化后的崩溃帧正是这里的 `closure #1 ([EKReminder]?) -> ()`（dSYM 零歧义）。
+        //    `-parse`、CI archive、编译器告警**全程沉默**，只有真机崩；加 `@Sendable` 是唯一改法，
+        //    别去掉这个属性、也别只把「捕获的对象」做成 Sendable（继承隔离的是字面量本身）。
         let rows: [ReminderSnapshot] = await withCheckedContinuation { cont in
-            store.fetchReminders(matching: predicate) { list in
+            store.fetchReminders(matching: predicate) { @Sendable list in
                 let snaps = (list ?? []).map { r in
                     ReminderSnapshot(identifier: r.calendarItemIdentifier,
                                      title: r.title ?? "无标题",
