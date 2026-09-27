@@ -1,5 +1,16 @@
-import SwiftUI
+// 本文件由 2026-09-27 工程治理「Settings 物理合并」生成：多份同域设置页文件合并为一，
+// UI 入口与行为零改动，仅文件边界变化。合并前各文件的来源见下方 MARK 分段。
+
+import Combine
 import Foundation
+import LocalAuthentication
+import PDFKit
+import QuickLook
+import SwiftUI
+import UIKit
+import UniformTypeIdentifiers
+
+// MARK: ===== 以下原为 Features/Settings/LifeCardsSettingsView.swift =====
 
 // MARK: - 生活卡片设置页（v3.5.x）
 //
@@ -995,4 +1006,585 @@ struct LifeHeaderEditor: View {
             .background(Color(uiColor: .secondarySystemGroupedBackground),
                         in: RoundedRectangle(cornerRadius: Radius.icon, style: .continuous))
     }
+}
+
+// MARK: ===== 以下原为 Features/Settings/QuickReminderSheet.swift =====
+
+// MARK: - v3.9.32 一句话本地定时提醒（列表 / 新建 / 解析确认）
+//
+// 入口有两个：
+//   · 设置 →「定时提醒」；
+//   · 聊天消息长按 →「提醒我」（`presetText` 带该条消息内容，截断后作为默认提醒内容）。
+//
+// 为什么要有「确认解析结果」这一步：解析器是规则式的（不做 LLM 兜底），**必须**让用户看见
+// 「到底定到了几点」再点创建——否则一句话理解偏了，用户要等到「该响的时候没响」才发现。
+// 所以这里把 summary 用胶囊显式摆出来，解析失败也把可读原因原样显示（不静默）。
+//
+// 视觉沿用全站口径：SectionHeader + glassListCard 分组（与设置页同款）、间距/圆角/字号走
+// Spacing / Radius / Typography 令牌、胶囊走 Pill();本文件不引入新的魔法数。
+
+struct QuickReminderSheet: View {
+    /// 默认提醒内容（聊天「提醒我」入口传入该条消息；会自动截断，用户可改）
+    var presetText: String = ""
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var text = ""
+    @State private var phrase = ""
+    @FocusState private var phraseFocused: Bool
+    /// 创建成功反馈（会自动消失，避免一直挂着）
+    @State private var createdText: String?
+    @State private var createError: String?
+
+    private var store: QuickReminderStore { .shared }
+
+    /// 时间那句话的解析结果（空输入不解析）
+    private var parsed: QuickReminderParseResult? {
+        let p = phrase.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !p.isEmpty else { return nil }
+        return QuickReminderParser.parseDetailed(p)
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 0) {
+                    SectionHeader("新建提醒")
+                    composeCard
+                    if store.auth == .denied { authBanner }
+                    SectionHeader("待触发")
+                    pendingCard
+                    if !store.finished.isEmpty {
+                        SectionHeader("已提醒")
+                        finishedCard
+                    }
+                }
+                .padding(.horizontal, Spacing.xxl)
+                .padding(.bottom, Spacing.section)
+            }
+            .scrollDismissesKeyboard(.interactively)
+            .scrollContentBackground(.hidden)   // 不盖系统玻璃弹窗底（见 LiquidGlass.swift v3.9.23 决策）
+            .navigationTitle("定时提醒")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("完成") { dismiss() }
+                }
+            }
+            .task {
+                await store.refreshAuth()
+                await store.reconcile()
+            }
+            .onAppear {
+                if text.isEmpty { text = QuickReminderParser.seedText(from: presetText) }
+                if !presetText.isEmpty { phraseFocused = true }
+            }
+            .onChange(of: phrase) { _, _ in
+                createdText = nil
+                createError = nil
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    // MARK: - 新建
+
+    private var composeCard: some View {
+        VStack(alignment: .leading, spacing: Spacing.xl) {
+            TextField("提醒内容（可留空）", text: $text, axis: .vertical)
+                .font(.system(size: Typography.body))
+                .lineLimit(1...3)
+                .textInputAutocapitalization(.never)
+            Divider()
+            HStack(spacing: Spacing.md) {
+                Image(systemName: "clock")
+                    .font(.system(size: Typography.body))
+                    .foregroundStyle(.secondary)
+                TextField("什么时候（如：明天早上 7 点半）", text: $phrase)
+                    .font(.system(size: Typography.body))
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .focused($phraseFocused)
+                    .submitLabel(.done)
+            }
+            parseFeedback
+            createRow
+        }
+        .padding(.horizontal, Spacing.xxl)
+        .padding(.vertical, Spacing.xxl)
+        .glassListCard()
+    }
+
+    /// 解析结果 / 失败原因（用户确认「定到了几点」的那一行）
+    @ViewBuilder
+    private var parseFeedback: some View {
+        if let result = parsed {
+            switch result {
+            case .success(let p):
+                HStack(alignment: .firstTextBaseline, spacing: Spacing.md) {
+                    Text(p.summary).pill(.page, tone: .accent)
+                    Text(p.rule.repeats ? "\(p.rule.label) · 由系统准点弹出" : "仅响一次 · 由系统准点弹出")
+                        .font(.system(size: Typography.caption))
+                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 0)
+                }
+            case .failure(let message):
+                HStack(alignment: .firstTextBaseline, spacing: Spacing.md) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: Typography.caption))
+                        .foregroundStyle(.orange)
+                    Text(message)
+                        .font(.system(size: Typography.caption))
+                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 0)
+                }
+            }
+        } else {
+            Text("写一句话就行：「5 分钟后」「明天早上 7 点半」「后天下午 3 点」「每天 7:30」「下周一 9 点」")
+                .font(.system(size: Typography.caption))
+                .foregroundStyle(.tertiary)
+        }
+    }
+
+    private var createRow: some View {
+        HStack(spacing: Spacing.lg) {
+            Button {
+                Task { await create() }
+            } label: {
+                Text("创建提醒").pill(.primary, tone: .accent)
+            }
+            .buttonStyle(.plain)
+            .disabled(parsed?.value == nil)
+            .opacity(parsed?.value == nil ? 0.45 : 1)
+
+            if let createdText {
+                Label(createdText, systemImage: "checkmark.circle.fill")
+                    .font(.system(size: Typography.caption))
+                    .foregroundStyle(.green)
+                    .lineLimit(1)
+            } else if let createError {
+                Text(createError)
+                    .font(.system(size: Typography.caption))
+                    .foregroundStyle(.red)
+                    .lineLimit(2)
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    /// 权限被拒横幅（App 内已无法再弹系统授权框，只能引导去设置）
+    private var authBanner: some View {
+        HStack(spacing: Spacing.xl) {
+            Image(systemName: "bell.slash.fill")
+                .font(.system(size: Typography.title))
+                .foregroundStyle(.orange)
+            VStack(alignment: .leading, spacing: Spacing.xxs) {
+                Text("通知权限没开")
+                    .font(.system(size: Typography.body, weight: .medium))
+                Text("没权限就不会响——去系统设置 →「通知 → 轻聊」打开")
+                    .font(.system(size: Typography.caption))
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: Spacing.sm)
+            Button {
+                QuickReminderStore.openSystemNotificationSettings()
+            } label: {
+                Text("去设置").pill(.page, tone: .accent)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, Spacing.xxl)
+        .padding(.vertical, Spacing.xxl)
+        .dashboardCard()
+        .padding(.top, Spacing.xxl)
+    }
+
+    // MARK: - 列表
+
+    @ViewBuilder
+    private var pendingCard: some View {
+        if store.scheduled.isEmpty {
+            emptyHint
+        } else {
+            VStack(spacing: 0) {
+                ForEach(Array(store.scheduled.enumerated()), id: \.element.id) { index, item in
+                    if index > 0 { Divider().padding(.leading, Spacing.rowDividerInset) }
+                    reminderRow(item)
+                }
+                Divider()
+                Text(footerText)
+                    .font(.system(size: Typography.caption))
+                    .foregroundStyle(.tertiary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, Spacing.xxl)
+                    .padding(.vertical, Spacing.lg)
+            }
+            .glassListCard()
+        }
+    }
+
+    private var footerText: String {
+        store.pendingCount > 0
+            ? "系统已登记 \(store.pendingCount) 条提醒——App 关掉 / 手机重启也会准点响"
+            : "提醒交给系统登记，App 关掉也会准点响"
+    }
+
+    @ViewBuilder
+    private var finishedCard: some View {
+        VStack(spacing: 0) {
+            ForEach(Array(store.finished.enumerated()), id: \.element.id) { index, item in
+                if index > 0 { Divider().padding(.leading, Spacing.rowDividerInset) }
+                reminderRow(item, finished: true)
+            }
+            Divider()
+            Button {
+                Task { await store.clearFinished() }
+            } label: {
+                Text("清空已提醒记录").pill(.page, tone: .neutral)
+            }
+            .buttonStyle(.plain)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, Spacing.xxl)
+            .padding(.vertical, Spacing.lg)
+        }
+        .glassListCard()
+    }
+
+    private var emptyHint: some View {
+        VStack(spacing: Spacing.md) {
+            Image(systemName: "bell.badge")
+                .font(.system(size: Typography.titleXL))
+                .foregroundStyle(Color.accentColor.opacity(0.7))
+            Text("还没有提醒")
+                .font(.system(size: Typography.title, weight: .semibold))
+            Text("在上面写一句时间，或长按聊天里的消息选「提醒我」")
+                .font(.system(size: Typography.subhead))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, Spacing.section)
+        .padding(.horizontal, Spacing.xxl)
+        .dashboardCard()
+    }
+
+    /// 单条提醒行（长按菜单 / 右侧按钮都能删）
+    private func reminderRow(_ item: QuickReminder, finished: Bool = false) -> some View {
+        HStack(spacing: Spacing.xl) {
+            Image(systemName: item.rule.repeats ? "arrow.clockwise" : (finished ? "bell.slash" : "bell.fill"))
+                .font(.system(size: Typography.subhead, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 28, height: 28)
+                .background(finished ? Color.gray : (item.rule.repeats ? Color.indigo : Color.orange),
+                            in: RoundedRectangle(cornerRadius: Radius.icon, style: .continuous))
+            VStack(alignment: .leading, spacing: Spacing.xxs) {
+                Text(item.text)
+                    .font(.system(size: Typography.body, weight: .medium))
+                    .foregroundStyle(finished ? .secondary : .primary)
+                    .lineLimit(2)
+                Text(finished ? "已提醒 · \(item.timeText)" : item.timeText)
+                    .font(.system(size: Typography.caption))
+                    .foregroundStyle(.tertiary)
+            }
+            Spacer(minLength: Spacing.sm)
+            Button {
+                Task { await delete(item) }
+            } label: {
+                Image(systemName: "trash")
+                    .font(.system(size: Typography.subhead))
+                    .foregroundStyle(.red.opacity(0.85))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("删除提醒 \(item.text)")
+        }
+        .padding(.horizontal, Spacing.xxl)
+        .padding(.vertical, Spacing.lg)
+        .contextMenu {
+            Button(role: .destructive) {
+                Task { await delete(item) }
+            } label: {
+                Label("删除提醒", systemImage: "trash")
+            }
+        }
+    }
+
+    // MARK: - 动作
+
+    private func create() async {
+        guard case .success(let p) = parsed else { return }
+        let ok = await store.add(text: text, parse: p)
+        if ok {
+            Haptics.success()
+            createdText = "已排上：\(p.summary)"
+            createError = nil
+            text = ""
+            phrase = ""
+        } else {
+            Haptics.error()
+            // v3.9.41（SR30）：登记失败的真实原因（如系统 64 条 pending 已满）原先只 NSLog
+            createError = store.lastScheduleError
+                ?? "没能排上——通知权限没开，去系统设置打开后再试"
+        }
+    }
+
+    private func delete(_ item: QuickReminder) async {
+        Haptics.tap()
+        await store.delete(item)
+    }
+}
+
+// MARK: ===== 以下原为 Features/Settings/CardGallerySheet.swift =====
+
+// MARK: - v3.9.26 能力示例（卡片画廊）
+//
+// 背景：AI 回复里支持 ```ql-card 围栏协议（见 Core/AgentCardParser.swift + docs/agent-card-protocol.md），
+// 有 5 种形态（result / metrics / list / table / status）。但用户在聊天里只能「碰运气」遇到，
+// 没有任何地方能看到「AI 能出什么样的卡」。
+//
+// 本页把 5 种形态各用样例数据渲染一张，入口在 设置 → AI 智能 → 能力示例。
+// **零后端**：AgentCard 是普通 struct（memberwise init），样例数据在 App 内直接构造，
+// 不走 Hermes、不改后端 schema；渲染**直接复用聊天里的 AgentResultCard**——
+// 所见即聊天里所得，不做「演示专用样式」（否则展示与真实渲染会漂移）。
+//
+// ⚠️ 维护提醒：AgentCard 加新字段/新形态时，本页要同步补一个样例（否则画廊与真实能力脱节）。
+
+struct CardGallerySheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    intro
+                    protocolGuide
+                    ForEach(Self.samples) { sample in
+                        VStack(alignment: .leading, spacing: 6) {
+                            caption(sample)
+                            // 与聊天里同一渲染路径（不是演示样式）
+                            AgentResultCard(card: sample.card)
+                        }
+                    }
+                    // v3.9.27：协议速览（卡片怎么触发的，一眼明白）
+                    footerNote
+                }
+                .padding(.horizontal, Spacing.sheetInset)
+                .padding(.vertical, Spacing.section)
+            }
+            .scrollContentBackground(.hidden)   // v3.9.27：同款规则——列表自带底别盖系统玻璃
+            .navigationTitle("能力示例")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("关闭") { dismiss() }
+                }
+            }
+        }
+    }
+
+    // MARK: 协议速览（v3.9.27：结果类回复自动出卡 + 示例可复制）
+
+    @State private var exampleCopied = false
+
+    /// 卡片 JSON 示例（与后端 system prompt 注入的示例同款，可直接复制到聊天里试渲染）
+    private static let exampleJSON =
+        """
+        ```ql-card
+        {"type":"result","title":"NAS 体检","status":{"text":"全部正常","tone":"ok"},
+         "fields":[{"key":"存储池","value":"健康","tone":"ok"},
+                   {"key":"内存","value":"62%","tone":"info"}],
+         "metrics":[{"label":"CPU","value":"12","unit":"%"}],
+         "footer":"检查时间 今天 09:20"}
+        ```
+        """
+
+    @ViewBuilder
+    private var protocolGuide: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("卡片是怎么出现的？")
+                .font(.system(size: Typography.subhead, weight: .semibold))
+            Text("AI 回复检查、诊断、清单、对比这类结果时，会自动把关键信息整理成卡片附在文字后面——不用你开口要。闲聊和普通问答不会出卡片。")
+                .font(.system(size: Typography.tiny))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Button {
+                UIPasteboard.general.string = Self.exampleJSON
+                exampleCopied = true
+                UISelectionFeedbackGenerator().selectionChanged()
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 1_500_000_000)
+                    exampleCopied = false
+                }
+            } label: {
+                Label(exampleCopied ? "已复制，去聊天里粘贴发送试试" : "复制示例，去聊天里试试",
+                      systemImage: exampleCopied ? "checkmark.circle.fill" : "doc.on.doc")
+                    .font(.system(size: Typography.caption, weight: .medium))
+                    .padding(.horizontal, Spacing.lg)
+                    .padding(.vertical, Spacing.sm)
+                    .glassPillStroke()
+            }
+            .buttonStyle(PressStyle())
+        }
+        .padding(Spacing.lg)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.accentColor.opacity(Tint.faint), in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+    }
+
+    @ViewBuilder
+    private var footerNote: some View {
+        Text("卡片完全离线解析，失败时自动退回普通文字显示，不会丢内容。")
+            .font(.system(size: Typography.tiny))
+            .foregroundStyle(.tertiary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    // MARK: 顶部说明（三段式：图标 + 标题 + 一句人话）
+
+    @ViewBuilder
+    private var intro: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "sparkles")
+                .font(.system(size: Typography.caption, weight: .semibold))
+                .foregroundStyle(Color.accentColor)
+                .frame(width: 22, height: 22)
+                .background(Color.accentColor.opacity(Tint.subtle), in: Circle())
+            VStack(alignment: .leading, spacing: 2) {
+                Text("AI 会把结构化结果整理成卡片")
+                    .font(.system(size: Typography.subhead, weight: .semibold))
+                Text("下面 5 种是当前支持的形态，聊天里自动出现，不需要你去要。")
+                    .font(.system(size: Typography.tiny))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    // MARK: 每张卡上方的说明行（参考图的三段式：图标 + 粗体名 + 一句灰字）
+
+    @ViewBuilder
+    private func caption(_ s: Sample) -> some View {
+        HStack(alignment: .top, spacing: 6) {
+            Image(systemName: s.icon)
+                .font(.system(size: Typography.tiny, weight: .semibold))
+                .foregroundStyle(Color.secondary)
+                .frame(width: 18, height: 18)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(s.name)
+                    .font(.system(size: Typography.caption, weight: .semibold))
+                    .foregroundStyle(.primary)
+                Text(s.desc)
+                    .font(.system(size: Typography.tiny))
+                    .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    // MARK: 样例
+
+    struct Sample: Identifiable, Sendable {
+        let id: String
+        let icon: String
+        let name: String
+        let desc: String
+        let card: AgentCard
+    }
+
+    static let samples: [Sample] = [
+        Sample(
+            id: "result", icon: "checkmark.seal.fill",
+            name: "结论卡",
+            desc: "跑完检查后给一句结论 + 关键项，不用读完整段日志",
+            card: AgentCard(
+                kind: .result, title: "NAS 体检", subtitle: "3 项检查完成",
+                status: AgentCard.Status(text: "全部正常", tone: .ok),
+                fields: [
+                    .init(key: "存储池", value: "健康", tone: .ok),
+                    .init(key: "内存占用", value: "62%", tone: .info),
+                    .init(key: "容器", value: "6 个运行中", tone: .ok),
+                ],
+                metrics: [], items: [], table: nil,
+                footer: "检查时间 今天 09:20"
+            )
+        ),
+        Sample(
+            id: "metrics", icon: "chart.bar.fill",
+            name: "指标卡",
+            desc: "数值类结果用大号数字排开，变化时数字会滚动",
+            card: AgentCard(
+                kind: .metrics, title: "实时占用", subtitle: "每 10 秒刷新",
+                status: nil,
+                fields: [],
+                metrics: [
+                    .init(label: "CPU", value: "12", unit: "%", tone: .ok),
+                    .init(label: "内存", value: "3.8", unit: "GB", tone: .warn),
+                    .init(label: "温度", value: "46", unit: "°C", tone: .info),
+                ],
+                items: [], table: nil, footer: nil
+            )
+        ),
+        Sample(
+            id: "list", icon: "checklist",
+            name: "清单卡",
+            desc: "多条待办/多步任务，逐条带状态色",
+            card: AgentCard(
+                kind: .list, title: "今天要做的事", subtitle: "3 条",
+                status: nil, fields: [], metrics: [],
+                items: [
+                    .init(title: "把照片备份到 NAS", subtitle: "还剩 12 GB 没传", status: "进行中", tone: .warn),
+                    .init(title: "检查路由器固件", subtitle: nil, status: "已完成", tone: .ok),
+                    .init(title: "给绿萝浇水", subtitle: nil, status: "未开始", tone: .info),
+                ],
+                table: nil, footer: "睡前提醒一次"
+            )
+        ),
+        Sample(
+            id: "table", icon: "tablecells.fill",
+            name: "表格卡",
+            desc: "多列对比（各模型用量、各设备状态）不走样",
+            card: AgentCard(
+                kind: .table, title: "本周模型用量", subtitle: "按调用次数排序",
+                status: nil, fields: [], metrics: [], items: [],
+                table: AgentCard.Table(
+                    columns: ["模型", "调用", "花费"],
+                    rows: [
+                        ["deepseek-flash", "128", "¥0.42"],
+                        ["glm-5.2", "31", "¥0.18"],
+                        ["mimo-v2.5", "9", "免费"],
+                    ]
+                ),
+                footer: nil
+            )
+        ),
+        Sample(
+            id: "plan", icon: "list.clipboard.fill",
+            name: "任务计划卡",
+            desc: "多步任务收尾时按执行顺序汇报各步完成度",
+            card: AgentCard(
+                kind: .plan, title: "备份照片到 NAS", subtitle: "3 步任务",
+                status: AgentCard.Status(text: "2/3 完成", tone: .ok),
+                fields: [], metrics: [],
+                items: [
+                    .init(title: "扫描相册", subtitle: "发现 128 张新照片", status: "完成", tone: .ok),
+                    .init(title: "上传到 NAS", subtitle: "已传 86 张", status: "进行中", tone: .warn),
+                    .init(title: "生成缩略图", subtitle: nil, status: "待开始", tone: .info),
+                ],
+                table: nil, footer: nil
+            )
+        ),
+        Sample(
+            id: "status", icon: "waveform.path.ecg",
+            name: "状态卡",
+            desc: "多服务/多设备巡检，异常项一眼看见",
+            card: AgentCard(
+                kind: .status, title: "服务状态", subtitle: "4 项巡检",
+                status: AgentCard.Status(text: "1 项异常", tone: .error),
+                fields: [
+                    .init(key: "轻聊后端", value: "运行中", tone: .ok),
+                    .init(key: "Hermes 网关", value: "运行中", tone: .ok),
+                    .init(key: "语音识别", value: "未响应", tone: .error),
+                ],
+                metrics: [], items: [], table: nil,
+                footer: "上次巡检 今天 09:20"
+            )
+        ),
+    ]
 }

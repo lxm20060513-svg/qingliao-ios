@@ -1,7 +1,20 @@
+// 本文件由 2026-09-27 工程治理「Settings 物理合并」生成：多份同域设置页文件合并为一，
+// UI 入口与行为零改动，仅文件边界变化。合并前各文件的来源见下方 MARK 分段。
+
+import Combine
+import Foundation
+import LocalAuthentication
+import PDFKit
+import QuickLook
+import SwiftUI
+import UIKit
+import UniformTypeIdentifiers
+
+// MARK: ===== 以下原为 Features/Settings/SettingsModelSheets.swift =====
+
 // MARK: - 设置：模型管理相关 Sheet（v3.0.80 自 SettingsView.swift 拆出，纯搬家无逻辑改动）
 // 内容：provider 缓存 / 自定义模型组 / ModelSheet / CustomProviderEditSheet / AboutView / WechatChannelSheet / AgentModelSheet
 
-import SwiftUI
 
 // MARK: - v3.0.35 provider 模型列表缓存（微信通道 / Agent / 模型管理共用同一份）
 //
@@ -1800,5 +1813,635 @@ struct AgentModelSheet: View {
         }
         syncing = false
         syncResult = "✅ 已刷新"
+    }
+}
+
+// MARK: ===== 以下原为 Features/Settings/VisionModelSheet.swift =====
+
+// MARK: - v3.0.28 视觉模型配置（统一：App 与微信通道共用同一份配置）
+//
+// v3.0.28 重构：原先「App 本地视觉模型」与「微信通道视觉模型」是两份独立配置，
+// 现在统一为一份「共享视觉模型」——在下方模型列表点选打勾即同时写入：
+//   1) App 本地（CloudConfig，App 内发图走 effectiveVisionModel）
+//   2) 微信通道（后端 /api/channel/vision-model → wechat-profile auxiliary.vision，Hermes 微信通道用）
+// 选择动作 = 直接在对应模型后面点选打勾（checkmark），无需额外按钮。
+
+struct VisionModelSheet: View {
+    @Environment(AuthStore.self) private var auth
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var enabled = CloudConfig.visionFallbackEnabled
+    /// 当前共享视觉模型（App 本地 + 微信通道共用的那份配置）
+    @State private var selectedModel: String = CloudConfig.localVisionModel ?? ""
+    @State private var selectedProvider: String = CloudConfig.localVisionProvider
+
+    @State private var syncing = false
+    @State private var syncResult: String?
+
+    // 同步的模型列表（复用 ModelSheet 的数据源）
+    @State private var allProviders: [(id: String, models: [String])] = []
+    @State private var opencodeAppleModels: [String] = []
+    @State private var deepseekModels: [String] = []
+    @State private var stepfunModels: [String] = []
+    @State private var sensenovaModels: [String] = []
+    @State private var localInstalled: [String] = []
+
+    // 主模型（显示 + 视觉判定；v3.9.26：统一走 CloudConfig.mainModelAndProvider ——
+    // 云端模式下真源是 activeConfig（@Observable，切模型即时刷新），不是本地键 qingliao_model/provider）
+    private var mainModel: String { CloudConfig.mainModelAndProvider.model }
+    private var mainModelSupportsVision: Bool {
+        let main = CloudConfig.mainModelAndProvider
+        return CloudConfig.modelSupportsVision(main.model, provider: main.provider)
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                // MARK: - 开关 + 状态
+                Section {
+                    HStack(spacing: 12) {
+                        Image(systemName: "eye.fill")
+                            .font(.system(size: Typography.subhead, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .frame(width: 28, height: 28)
+                            .background(Color.purple, in: RoundedRectangle(cornerRadius: Radius.icon, style: .continuous))
+                        VStack(alignment: .leading, spacing: Spacing.xxs) {
+                            Text("视觉模型自动切换").font(.system(size: Typography.body, weight: .medium))
+                            Text(statusText)
+                                .font(.system(size: Typography.caption)).foregroundStyle(.tertiary).lineLimit(1)
+                        }
+                        Spacer()
+                        Toggle("", isOn: $enabled).labelsHidden().scaleEffect(0.8).tint(.green)
+                            .onChange(of: enabled) { _, new in
+                                CloudConfig.setVisionFallbackEnabled(new)
+                            }
+                    }
+                }
+
+                if enabled {
+                    // MARK: - 主模型状态
+                    Section {
+                        HStack(spacing: 8) {
+                            Image(systemName: mainModelSupportsVision ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
+                                .foregroundStyle(mainModelSupportsVision ? .green : .orange)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("主模型：\(mainModel)")
+                                    .font(.system(size: Typography.subhead, weight: .medium))
+                                Text(mainModelSupportsVision
+                                     ? "已支持视觉，无需配置备用模型"
+                                     : "不支持视觉，发送图片时将使用下方点选的共享视觉模型")
+                                    .font(.system(size: Typography.caption)).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+
+                // MARK: - 共享视觉模型（App + 微信通道共用）说明
+                Section {
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "checkmark.seal.fill")
+                                .font(.system(size: Typography.subhead))
+                                .foregroundStyle(.purple)
+                            Text("共享视觉模型（App + 微信通道）")
+                                .font(.system(size: Typography.subhead, weight: .medium))
+                            Spacer()
+                            if syncing {
+                                ProgressView().controlSize(.mini)
+                            }
+                        }
+                        Text(sharedVisionDisplay)
+                            .font(.system(size: Typography.subhead))
+                            .foregroundStyle(.secondary)
+                        Text("点选下方任一模型即设置：App 内发图 与 微信通道收图 共用的视觉模型（写入 wechat-profile，改完自动重启 gateway）。")
+                            .font(.system(size: Typography.tiny))
+                            .foregroundStyle(.tertiary)
+                        if let syncResult {
+                            Text(syncResult)
+                                .font(.system(size: Typography.caption))
+                                .foregroundStyle(syncResult.hasPrefix("✅") ? Color.green : Color.orange)
+                        }
+                        if !selectedModel.isEmpty {
+                            HStack(spacing: 8) {
+                                Button("清除配置") {
+                                    clearSharedVision()
+                                }
+                                .font(.system(size: Typography.caption, weight: .medium))
+                                .foregroundStyle(.red)
+                                .padding(.horizontal, Spacing.lg).padding(.vertical, Spacing.xs)
+                                .background(Color.red.opacity(Tint.faint), in: Capsule())
+                            }
+                        }
+                    }
+                    .padding(.vertical, Spacing.xxs)
+                } header: {
+                    Text("共享配置")
+                }
+
+                // MARK: - 模型列表选择（点选打勾 = 设为共享视觉模型）
+                Section("选择视觉模型（点选打勾）") {
+                    if deepseekModels.isEmpty && localInstalled.isEmpty && allProviders.isEmpty
+                        && opencodeAppleModels.isEmpty && stepfunModels.isEmpty && sensenovaModels.isEmpty {
+                        Text("暂无可用模型\n请先在「模型管理」中同步模型列表")
+                            .font(.system(size: Typography.subhead)).foregroundStyle(.secondary)
+                    } else {
+                        // opencode（apple）模型
+                        if !opencodeAppleModels.isEmpty {
+                            modelGroup("opencode（apple）", provider: "opencode-apple", models: opencodeAppleModels)
+                        }
+                        if !deepseekModels.isEmpty {
+                            modelGroup("deepseek（官方）", provider: "deepseek", models: deepseekModels)
+                        }
+                        if !stepfunModels.isEmpty {
+                            modelGroup("stepfun", provider: "stepfun", models: stepfunModels)
+                        }
+                        if !sensenovaModels.isEmpty {
+                            modelGroup("sensenova（商汤）", provider: "sensenova", models: sensenovaModels)
+                        }
+                        if !localInstalled.isEmpty {
+                            modelGroup("本地模型", provider: "local", models: localInstalled)
+                        }
+                        // 通用 provider
+                        let hardcoded = ["opencode", "opencode-apple", "deepseek", "stepfun", "sensenova", "local"]
+                        ForEach(allProviders.filter { !hardcoded.contains($0.id) && !$0.models.isEmpty }, id: \.id) { p in
+                            modelGroup(providerDisplayName(p.id), provider: p.id, models: p.models)
+                        }
+                    }
+                }
+            }
+            .navigationTitle("视觉模型配置")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("完成") { dismiss() }
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    // v3.9.35：刷新改回系统裸按钮——与「完成」同款系统玻璃胶囊
+                    Button("刷新") { Task { await syncModels() } }
+                }
+            }
+            .task { await loadCachedModels() }
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    // MARK: - 模型行（点选打勾）
+
+    private func modelGroup(_ group: String, provider: String, models: [String]) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(group)
+                .font(.system(size: Typography.caption, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .padding(.leading, Spacing.xs)
+                .padding(.vertical, Spacing.xs)
+            ForEach(models, id: \.self) { model in
+                let isSelected = selectedModel == model && selectedProvider == provider
+                let name = modelDisplayName(provider: provider, model: model)
+                HStack(spacing: 10) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(name)
+                            .font(.system(size: Typography.subhead, weight: .medium))
+                            .foregroundStyle(isSelected ? Color.accentColor : Color.primary)
+                        if model != name {
+                            Text(model)
+                                .font(.system(size: Typography.tiny))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    Spacer()
+                    // 点选打勾：选中显示实心对勾，未选显示空心圈
+                    Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: Typography.headline))
+                        .foregroundStyle(isSelected ? Color.accentColor : Color.secondary.opacity(0.35))
+                }
+                .padding(.vertical, Spacing.md)
+                .padding(.horizontal, Spacing.xs)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    selectSharedVision(provider: provider, model: model)
+                }
+            }
+        }
+    }
+
+    // MARK: - 状态文案
+
+    private var statusText: String {
+        if !enabled { return "已关闭" }
+        if mainModelSupportsVision { return "主模型支持视觉，无需配置" }
+        if selectedModel.isEmpty { return "未配置视觉模型" }
+        return "已配置：\(selectedModel)"
+    }
+
+    /// 共享视觉模型显示文案
+    private var sharedVisionDisplay: String {
+        if selectedModel.isEmpty { return "未配置（主模型支持视觉时直接用主模型；主模型不支持时发图会降级为纯文本）" }
+        return "\(selectedModel)（\(providerDisplayName(selectedProvider))）"
+    }
+
+    private func modelDisplayName(provider: String, model: String) -> String {
+        switch provider {
+        case "opencode", "opencode-apple":
+            let names: [String: String] = [
+                "deepseek-v4-flash": "DeepSeek V4 Flash",
+                "deepseek-v4-flash-free": "DeepSeek V4 Flash Free",
+                "deepseek-v4-pro": "DeepSeek V4 Pro",
+                "kimi-k3": "Kimi K3", "kimi-k2.7-code": "Kimi K2.7 Code",
+                "kimi-k2.6": "Kimi K2.6", "kimi-k2.5": "Kimi K2.5",
+                "glm-5.3": "GLM 5.3", "glm-5.2": "GLM 5.2", "glm-5.1": "GLM 5.1", "glm-5": "GLM 5",
+                "qwen3.8-max": "Qwen3.8 Max", "qwen3.7-max": "Qwen3.7 Max",
+                "qwen3.7-plus": "Qwen3.7 Plus", "qwen3.6-plus": "Qwen3.6 Plus",
+                "minimax-m3": "MiniMax M3", "minimax-m2.7": "MiniMax M2.7", "minimax-m2.5": "MiniMax M2.5",
+                "mimo-v2.5-pro": "MiMo V2.5 Pro", "mimo-v2.5": "MiMo V2.5",
+                "mimo-v2-pro": "MiMo V2 Pro", "mimo-v2-omni": "MiMo V2 Omni",
+                "gpt-5.6-luna": "GPT-5.6 Luna", "grok-4.5": "Grok 4.5",
+            ]
+            return names[model] ?? model
+        case "sensenova":
+            let names: [String: String] = [
+                "sensenova-6.8-flash-lite": "SenseNova 6.8 Flash Lite",
+                "sensenova-6.7-flash-lite": "SenseNova 6.7 Flash Lite",
+                "sensenova-u1-fast": "SenseNova U1 Fast",
+            ]
+            return names[model] ?? model
+        default:
+            return model
+        }
+    }
+
+    private func providerDisplayName(_ id: String) -> String {
+        switch id {
+        case "opencode": return "opencode（google）"
+        case "opencode-apple": return "opencode（apple）"
+        case "deepseek": return "deepseek（官方）"
+        case "stepfun": return "stepfun"
+        case "sensenova": return "sensenova（商汤）"
+        case "local": return "本地模型"
+        default: return id
+        }
+    }
+
+    // MARK: - 数据加载
+
+    private func loadCachedModels() async {
+        // 读取共享配置：微信通道为源（持久），App 本地镜像
+        await loadSharedVision()
+        // 从 UserDefaults 恢复缓存的模型列表
+        if let s = UserDefaults.standard.array(forKey: "qingliao_models_stepfun") as? [String] { stepfunModels = s }
+        if let d = UserDefaults.standard.array(forKey: "qingliao_models_deepseek") as? [String] { deepseekModels = d }
+        if let a = UserDefaults.standard.array(forKey: "qingliao_models_opencode_apple") as? [String] { opencodeAppleModels = a }
+        if let sn = UserDefaults.standard.array(forKey: "qingliao_models_sensenova") as? [String] { sensenovaModels = sn }
+        // 本地 Ollama 模型
+        if let j = try? await auth.json("/api/local/models") {
+            localInstalled = (j["models"] as? [[String: Any]] ?? []).map { $0["name"] as? String ?? "" }
+        }
+        // 通用 provider（v3.0.35：先展示缓存，网络成功写缓存，与其他入口共用）
+        if allProviders.isEmpty {
+            if !ModelProvidersCache.load().isEmpty {
+                allProviders = ModelProvidersCache.load()
+            }
+            if let j = try? await auth.json("/api/stream/model-providers?with_models=1"),
+               (j["ok"] as? Bool) == true,
+               let plist = j["providers"] as? [[String: Any]] {
+                var result: [(id: String, models: [String])] = []
+                for p in plist {
+                    guard let id = p["id"] as? String else { continue }
+                    let models = (p["models"] as? [String]) ?? []
+                    if !models.isEmpty { result.append((id: id, models: models)) }
+                }
+                allProviders = result
+                ModelProvidersCache.save(result)
+            }
+        }
+    }
+
+    /// 读取共享视觉模型：后端为源（持久），回读后同步到 App 本地 CloudConfig
+    /// 后端将 local 归一化为 ollama 存储，回读时还原为 local 以便与模型列表匹配
+    private func loadSharedVision() async {
+        var fromBackend = false
+        if let j = try? await auth.json("/api/channel/vision-model") {
+            if (j["ok"] as? Bool) == true {
+                let prov = j["provider"] as? String
+                let model = j["model"] as? String
+                if let m = model, !m.isEmpty {
+                    let p = prov == "ollama" ? "local" : prov
+                    selectedProvider = p ?? "opencode"
+                    selectedModel = m
+                    fromBackend = true
+                    // 同步到 App 本地：让 App 发图与微信通道共用同一份
+                    CloudConfig.setVisionModel(m, provider: p ?? "opencode")
+                }
+            }
+        }
+        // 后端无配置 → 用 App 本地已配置的（保持一份配置的语义）
+        if !fromBackend {
+            selectedModel = CloudConfig.localVisionModel ?? ""
+            selectedProvider = CloudConfig.localVisionProvider
+            if !selectedModel.isEmpty {
+                // 把本地配置推给微信通道，保证两边一致
+                _ = await pushToBackendAsync(provider: selectedProvider, model: selectedModel)
+            }
+        }
+    }
+
+    /// 点选打勾 = 设置共享视觉模型（App 本地 + 微信通道）
+    private func selectSharedVision(provider: String, model: String) {
+        // v3.9.41（SR27）：syncing 此前全仓无赋值点 → :91 的转圈永不显示、两道闸门恒开（连点并发下发）
+        guard !syncing else { return }
+        syncing = true
+        selectedModel = model
+        selectedProvider = provider
+        // 1) App 本地（立即生效）
+        CloudConfig.setVisionModel(model, provider: provider)
+        // 2) 微信通道（异步，自动重启 gateway）
+        syncResult = "正在同步微信通道…"
+        Task {
+            defer { syncing = false }
+            let ok = await pushToBackendAsync(provider: provider, model: model)
+            if ok {
+                syncResult = "✅ 已共享：\(model)（App + 微信通道，gateway 重启后生效，约 10-30 秒）"
+            } else {
+                syncResult = "⚠️ 微信通道同步失败（App 本地已生效，可稍后重试）"
+            }
+        }
+    }
+
+    /// 清除共享视觉模型（App 本地 + 微信通道）
+    private func clearSharedVision() {
+        guard !syncing else { return }   // v3.9.41（SR27）：同上，赋值点补在两个入口
+        syncing = true
+        selectedModel = ""
+        selectedProvider = "opencode"
+        CloudConfig.clearVisionModel()
+        syncResult = "正在清除微信通道…"
+        Task {
+            defer { syncing = false }
+            let ok = await pushDeleteBackendAsync()
+            if ok {
+                syncResult = "✅ 已清除共享视觉模型（gateway 重启后生效，约 10-30 秒）"
+            } else {
+                syncResult = "⚠️ 微信通道清除失败（App 本地已清除）"
+            }
+        }
+    }
+
+    /// POST 共享视觉模型到微信通道（返回是否成功）
+    @discardableResult
+    private func pushToBackendAsync(provider: String, model: String) async -> Bool {
+        do {
+            let j = try await auth.json("/api/channel/vision-model", method: "POST",
+                                        body: ["provider": provider, "model": model])
+            return (j["ok"] as? Bool) == true
+        } catch {
+            return false
+        }
+    }
+
+    /// DELETE 微信通道视觉模型（返回是否成功）
+    @discardableResult
+    private func pushDeleteBackendAsync() async -> Bool {
+        do {
+            let j = try await auth.json("/api/channel/vision-model", method: "DELETE")
+            return (j["ok"] as? Bool) == true
+        } catch {
+            return false
+        }
+    }
+
+    private func syncModels() async {
+        // 复用后端 sync-models 接口
+        func fetch(_ provider: String) async -> [String]? {
+            guard let j = try? await auth.json("/api/stream/sync-models?provider=\(provider)"),
+                  (j["ok"] as? Bool) == true,
+                  let list = j["models"] as? [String] else { return nil }
+            return list
+        }
+        // v3.0.34：4 个 provider 并发同步（async let），避免串行转圈
+        async let sf = fetch("stepfun")
+        async let ds = fetch("deepseek")
+        async let oa = fetch("opencode-apple")
+        async let sn = fetch("sensenova")
+        let (s, d, oaR, snR) = await (sf, ds, oa, sn)
+        if let s {
+            stepfunModels = s
+            UserDefaults.standard.set(s, forKey: "qingliao_models_stepfun")
+        }
+        if let d {
+            deepseekModels = d
+            UserDefaults.standard.set(d, forKey: "qingliao_models_deepseek")
+        }
+        if let oaR {
+            opencodeAppleModels = oaR
+            UserDefaults.standard.set(oaR, forKey: "qingliao_models_opencode_apple")
+        }
+        if let snR {
+            sensenovaModels = snR
+            UserDefaults.standard.set(snR, forKey: "qingliao_models_sensenova")
+        }
+        // 通用 provider
+        if let j = try? await auth.json("/api/stream/model-providers?with_models=1"),
+           (j["ok"] as? Bool) == true,
+           let plist = j["providers"] as? [[String: Any]] {
+            var result: [(id: String, models: [String])] = []
+            for p in plist {
+                guard let id = p["id"] as? String else { continue }
+                let models = (p["models"] as? [String]) ?? []
+                if !models.isEmpty { result.append((id: id, models: models)) }
+            }
+            allProviders = result
+            ModelProvidersCache.save(result)
+        }
+    }
+}
+
+// MARK: ===== 以下原为 Features/Settings/LocalModelsSheet.swift =====
+
+// MARK: - v2.0.118 本地模型管理（自主选择/拉取）
+
+struct LocalModelsSheet: View {
+    @Environment(AuthStore.self) private var auth
+    @Environment(\.dismiss) private var dismiss
+    @State private var models: [LocalModelInfo] = []
+    @State private var pullName = ""
+    @State private var pulling = false
+    @State private var pullResult = ""
+    // v3.9.41（SR48）：删除是破坏性且不可逆（模型要重新拉几百 MB），原先侧滑点一下就立刻下发；
+    // 且删除「当前正在用的那个本地模型」后 provider=local + 已不存在的模型名会一直留着 → 之后每条
+    // AI 请求都失败。改成先确认，删成功后把选择回落到 App 默认 provider。
+    @State private var deleteTarget: String?
+    @State private var deleting = false
+    @State private var loadFailed = false
+
+    /// v2.0.118：当前选用的本地模型（provider=local 时显示勾选）
+    private var currentLocal: String? {
+        let p = UserDefaults.standard.string(forKey: "qingliao_provider")
+        let m = UserDefaults.standard.string(forKey: "qingliao_model")
+        return p == "local" ? m : nil
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section("已安装模型（点选使用）") {
+                    if models.isEmpty {
+                        // v3.9.41（SR48）：拉取失败与真的没模型分得开（原先一律显示「暂无模型」）
+                        Text(loadFailed ? "模型列表获取失败（网络或后端不可用），可点右上角「刷新」重试"
+                                        : "暂无模型——下方输入模型名拉取，如 qwen3:1.7b")
+                            .font(.system(size: Typography.subhead))
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(models) { m in
+                            HStack {
+                                Image(systemName: "cpu")
+                                    .font(.system(size: Typography.subhead))
+                                    .foregroundStyle(Color.indigo)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(m.name)
+                                        .font(.system(size: Typography.body, weight: .medium))
+                                    Text("\(m.size) · \(m.modified)")
+                                        .font(.system(size: Typography.caption))
+                                        .foregroundStyle(.tertiary)
+                                }
+                                Spacer()
+                                // v2.0.118：当前选用的本地模型显示勾选
+                                if currentLocal == m.name {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .font(.system(size: Typography.body))
+                                        .foregroundStyle(Color.green)
+                                }
+                            }
+                            .padding(.vertical, Spacing.xxs)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                // 选为当前模型（provider=local）
+                                UserDefaults.standard.set(m.name, forKey: "qingliao_model")
+                                UserDefaults.standard.set("local", forKey: "qingliao_provider")
+                                dismiss()
+                            }
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                Button(role: .destructive) {
+                                    deleteTarget = m.name
+                                } label: {
+                                    Label("删除", systemImage: "trash")
+                                }
+                            }
+                        }
+                    }
+                }
+                Section("拉取新模型（断网兜底自主扩充）") {
+                    HStack(spacing: 8) {
+                        TextField("如 qwen3:1.7b / qwen2.5:0.5b", text: $pullName)
+                            .font(.system(size: Typography.subhead))
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                        Button {
+                            Task { await pullModel() }
+                        } label: {
+                            if pulling {
+                                ProgressView().controlSize(.small)
+                            } else {
+                                Text("拉取")
+                                    .font(.system(size: Typography.subhead, weight: .semibold))
+                                    .foregroundStyle(Color.accentColor)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(pulling || pullName.trimmingCharacters(in: .whitespaces).isEmpty)
+                    }
+                    if !pullResult.isEmpty {
+                        Text(pullResult)
+                            .font(.system(size: Typography.subhead))
+                            .foregroundStyle(pullResult.hasPrefix("✅") ? Color.green : Color.orange)
+                    }
+                    Text("模型名格式：<名称>:<版本>，Ollama 库里的都行（qwen3 / qwen2.5 / llama3.2 等）")
+                        .font(.system(size: Typography.caption))
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            .navigationTitle("本地模型")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("完成") { dismiss() }
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    // v3.9.35：刷新改回系统裸按钮——与「完成」同款系统玻璃胶囊
+                    Button("刷新") { Task { await load() } }
+                }
+            }
+            .task { await load() }
+        }
+        // v3.9.41（SR48）：删除前确认；当前正在使用的模型额外提示会切回默认 provider
+        .alert("删除模型", isPresented: Binding(get: { deleteTarget != nil },
+                                                set: { if !$0 { deleteTarget = nil } })) {
+            Button("删除", role: .destructive) {
+                if let name = deleteTarget { Task { await deleteModel(name) } }
+                deleteTarget = nil
+            }
+            Button("取消", role: .cancel) { deleteTarget = nil }
+        } message: {
+            Text(deleteTarget == currentLocal
+                 ? "确定删除 \(deleteTarget ?? "")？删除后需重新拉取。它正是当前使用的模型，删除后会自动切回默认服务商。"
+                 : "确定删除 \(deleteTarget ?? "")？删除后需重新拉取。")
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    private func deleteModel(_ name: String) async {
+        // v3.9.41（SR48）：删除在飞的闸门（确认弹窗关闭后仍可连点侧滑）
+        guard !deleting else { return }
+        deleting = true
+        defer { deleting = false }
+        do {
+            let j = try await auth.json("/api/local/delete", method: "POST", body: ["model": name])
+            let ok = (j["ok"] as? Bool) ?? false
+            pullResult = (ok ? "✅ " : "❌ ") + ((j["message"] as? String) ?? "")
+            if ok, name == currentLocal {
+                // 当前选中的就是它 → 清掉失效选择，否则 provider=local + 已删模型名会一直留着
+                UserDefaults.standard.removeObject(forKey: "qingliao_model")
+                UserDefaults.standard.set("opencode", forKey: "qingliao_provider")
+                pullResult = "✅ 已删除 \(name)，并已切回默认服务商"
+            }
+        } catch {
+            pullResult = "❌ 删除失败：\(error.localizedDescription)"
+        }
+        await load()
+    }
+
+    private func load() async {
+        // v3.9.41（SR48）：原来 try? 吞掉所有错误 → 列表空还显示「暂无模型」，看不出是没拉到
+        do {
+            let j = try await auth.json("/api/local/models")
+            models = (j["models"] as? [[String: Any]] ?? []).map { LocalModelInfo($0) }
+            loadFailed = false
+        } catch {
+            loadFailed = true
+        }
+    }
+
+    private func pullModel() async {
+        let name = pullName.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty else { return }
+        pulling = true
+        defer { pulling = false }
+        if let j = try? await auth.json("/api/local/update", method: "POST", body: ["model": name]) {
+            let ok = (j["ok"] as? Bool) ?? false
+            pullResult = (ok ? "✅ " : "❌ ") + ((j["message"] as? String) ?? "")
+            if ok { pullName = ""; await load() }
+        } else {
+            pullResult = "❌ 拉取失败（请确认本地模型开关已开启）"
+        }
+    }
+}
+
+struct LocalModelInfo: Identifiable {
+    let id = UUID()
+    let name: String
+    let size: String
+    let modified: String
+    init(_ d: [String: Any]) {
+        name = d["name"] as? String ?? ""
+        size = d["size"] as? String ?? ""
+        modified = d["modified"] as? String ?? ""
     }
 }

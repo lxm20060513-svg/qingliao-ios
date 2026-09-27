@@ -11,7 +11,7 @@ import Foundation
 //     机器上编译跑真值表（见 scripts/test_quick_reminder.swift）——时间解析错一格就是「提醒不响/响错点」，
 //     必须能在本地回归；
 //   · QuickReminderScheduler.swift = 申请权限 + 注册/撤销 UNCalendarNotificationTrigger（依赖 UserNotifications）；
-//   · Features/Settings/QuickReminderSheet.swift = 列表 / 新建 / 确认解析结果的 UI。
+//   · Features/Settings/SettingsLifeCards.swift = 列表 / 新建 / 确认解析结果的 UI。
 //
 // 解析器契约：`parseDetailed(_:now:calendar:)` 是**纯函数**（同一 now + 同一输入 → 同一结果，不读系统时钟、
 // 不写任何状态），方便真值表逐条断言；`parse` 是它的 nil 糖。

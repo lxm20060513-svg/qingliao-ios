@@ -61,8 +61,13 @@ let petPath = "/opt/data/qingliao_ios/qingliao/Features/Chat/PetAvatar.swift"
 let petModelPath = "/opt/data/qingliao_ios/qingliao/Features/Chat/PetModel.swift"
 let painterPath = "/opt/data/qingliao_ios/qingliao/Features/Chat/PetPainter.swift"
 let chatPath = "/opt/data/qingliao_ios/qingliao/Features/Chat/ChatView.swift"
+/// v4.0.x 工程治理拆分：通知名单（`extension Notification.Name`）与 AppDelegate 已从 ChatView.swift
+/// 搬到 ChatAppDelegate.swift。凡是断言「通知名/通知广播」的真值表，**必须同时读这两个文件**——
+/// 只读 ChatView.swift 会在拆分当天全部假红（本人实测：ql_orb 104 条里报红 1 条就是这个原因）。
+/// 口径：名单是**全仓单一真源**，跨这两个文件合计只允许出现 1 次。
+let chatDelegatePath = "/opt/data/qingliao_ios/qingliao/Features/Chat/ChatAppDelegate.swift"
 let bubblePath = "/opt/data/qingliao_ios/qingliao/Features/Chat/ChatMessageBubble.swift"
-let settingsPath = "/opt/data/qingliao_ios/qingliao/Features/Settings/AppearanceSheet.swift"
+let settingsPath = "/opt/data/qingliao_ios/qingliao/Features/Settings/SettingsCommon.swift"
 
 let petSrc = (try? String(contentsOfFile: petPath, encoding: .utf8)) ?? ""
 let petModelSrc = (try? String(contentsOfFile: petModelPath, encoding: .utf8)) ?? ""
@@ -79,6 +84,7 @@ check("PetModel.swift 是纯模型（无 View / 无 @AppStorage / 无 UIKit）�
       && !petModelCode.contains("import UIKit"))
 let painterSrc = (try? String(contentsOfFile: painterPath, encoding: .utf8)) ?? ""
 let chatSrc = (try? String(contentsOfFile: chatPath, encoding: .utf8)) ?? ""
+let delegateSrc = (try? String(contentsOfFile: chatDelegatePath, encoding: .utf8)) ?? ""
 let bubbleSrc = (try? String(contentsOfFile: bubblePath, encoding: .utf8)) ?? ""
 let settingsSrc = (try? String(contentsOfFile: settingsPath, encoding: .utf8)) ?? ""
 
@@ -86,8 +92,9 @@ let settingsSrc = (try? String(contentsOfFile: settingsPath, encoding: .utf8)) ?
 check("护栏：PetAvatar.swift 读得到", !petSrc.isEmpty, petPath)
 check("护栏：PetPainter.swift 读得到", !painterSrc.isEmpty, painterPath)
 check("护栏：ChatView.swift 读得到", !chatSrc.isEmpty, chatPath)
+check("护栏：ChatAppDelegate.swift 读得到", !delegateSrc.isEmpty, chatDelegatePath)
 check("护栏：ChatMessageBubble.swift 读得到", !bubbleSrc.isEmpty, bubblePath)
-check("护栏：AppearanceSheet.swift 读得到", !settingsSrc.isEmpty, settingsPath)
+check("护栏：SettingsCommon.swift 读得到", !settingsSrc.isEmpty, settingsPath)
 
 // ① 球退役：全仓不得再出现调用点（渲染器文件保留是为了可回滚，但一旦被引用说明口径被破坏）
 func swiftSources(under dir: String) -> [(String, String)] {
@@ -299,7 +306,8 @@ check("dock body 巨型链上只挂一个 .modifier（多挂一个泛型调用 =
       dockSrc.components(separatedBy: ".modifier(OrbMenuFromPetModifier(").count - 1 == 1
       && !dockSrc.contains(".modifier(OrbMenuKeyboardDismissModifier("))
 check("通知名单一真源（只在一处定义）",
-      chatSrc.contains("static let qingliaoDismissKeyboard = Notification.Name(\"qingliao_dismiss_keyboard\")"))
+      (chatSrc.components(separatedBy: "static let qingliaoDismissKeyboard = Notification.Name(").count - 1)
+        + (delegateSrc.components(separatedBy: "static let qingliaoDismissKeyboard = Notification.Name(").count - 1) == 1)
 // ── v3.9.79b：菜单锚点必须跟着宠物走（发版前审查实测的真机交互缺陷）──
 // 链：菜单弹出即收键盘 → 宠物随 Spacer 回弹下移 ≥56pt → 锚点若还停在长按那一刻的快照，
 //     菜单层会在旧位置**再画一只宠物** → 观感「两只宠物 + 胶囊挂在上方那只身上」。

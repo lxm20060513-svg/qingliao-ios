@@ -188,7 +188,7 @@ for k in need:
 # ── 8. 过期文案：源码里不许再出现「提醒事项没有接口」的错误说法
 stale = []
 for rel in ('qingliao/Core/AppPermissionKit.swift',
-            'qingliao/Features/Settings/AppPermissionsSheet.swift'):
+            'qingliao/Features/Settings/SettingsSystem.swift'):
     src = read(rel)
     for line in src.split('\n'):
         if '提醒事项' in line and ('未开放' in line or '没有接口' in line or '无接口' in line):
@@ -197,7 +197,7 @@ for rel in ('qingliao/Core/AppPermissionKit.swift',
             stale.append('%s: %s' % (rel, line.strip()[:60]))
 check('源码里没有残留「提醒事项无接口」的过期文案', not stale, '; '.join(stale))
 
-pagesrc = read('qingliao/Features/Settings/AppPermissionsSheet.swift')
+pagesrc = read('qingliao/Features/Settings/SettingsSystem.swift')
 check('权限页写明了「删除照片可在最近删除恢复」这条退路',
       '最近删除' in pagesrc)
 

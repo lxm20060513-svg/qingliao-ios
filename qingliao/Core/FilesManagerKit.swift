@@ -5,7 +5,7 @@ import Foundation
 // 为什么单独一个文件：本文件**只依赖 Foundation**，不 import SwiftUI/UIKit —— 本机（无 Xcode SDK）
 // 能用 swiftc 真编译 + 真跑一份真值表（scripts/ql_files/truth_table_files.swift），把「JSON 解析 /
 // 排序 / 体积格式 / 路径拼接 / 扩展名分流」这些纯函数在推 CI 前就验掉。
-// 视图层（Features/Settings/FilesManagerSheet.swift）只做渲染与调用，不再夹带解析逻辑。
+// 视图层（Features/Settings/SettingsData.swift）只做渲染与调用，不再夹带解析逻辑。
 //
 // ── 后端契约（NAS files_api.py，2026-09-17 只读核实；/api/files 经 unified_router 9127 转发）──
 //   GET  /api/files/config               → {"ok":true,"upload_dir":"<绝对路径>"}                （需鉴权）

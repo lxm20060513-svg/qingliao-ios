@@ -18,7 +18,7 @@ ROOT = "/opt/data/qingliao_ios"
 FILES = {
     "Core/LifeConfig.swift": "qingliao/Core/LifeConfig.swift",
     "Core/LifeCards.swift": "qingliao/Core/LifeCards.swift",
-    "Features/Settings/LifeCardsSettingsView.swift": "qingliao/Features/Settings/LifeCardsSettingsView.swift",
+    "Features/Settings/SettingsLifeCards.swift": "qingliao/Features/Settings/SettingsLifeCards.swift",
     "Features/Dashboard/LifeExpressPriceCards.swift": "qingliao/Features/Dashboard/LifeExpressPriceCards.swift",
     "Features/Dashboard/LifeCardsSection.swift": "qingliao/Features/Dashboard/LifeCardsSection.swift",
 }
@@ -27,7 +27,7 @@ FILES = {
 GONE = {
     "Core/LifeConfig.swift": ["LifePrice", "LifePriceItem", "LifePriceSource", "价格监控", '"price"'],
     "Core/LifeCards.swift": ["LifePriceCard", "LifePriceWatchItem", "价格监控", 'case "price"'],
-    "Features/Settings/LifeCardsSettingsView.swift": [
+    "Features/Settings/SettingsLifeCards.swift": [
         "LifePriceItem", "priceSection", "priceItemCard", "addPriceItem", "removePriceItem",
         "setExtract", "testPrice", "testButton", "priceTesting", "priceResults",
         "/api/life/price/test", "价格监控", "正则 pattern", "目标价", "币种",
@@ -44,7 +44,7 @@ KEEP = {
                              "struct LifeExpressCard", "struct LifePlaceholderItem",
                              "var hasLifeCards", "struct LifeStock", "let price: Double?",
                              "var priceText: String", "price: number(j[\"price\"])"],
-    "Features/Settings/LifeCardsSettingsView.swift": ["LifeHeaderEditor", "stockSection",
+    "Features/Settings/SettingsLifeCards.swift": ["LifeHeaderEditor", "stockSection",
                                                       "rssSection", "expressSection"],
     "Features/Dashboard/LifeExpressPriceCards.swift": ["struct LifeExpressCardView", "LifeCardHeaderRow"],
     "Features/Dashboard/LifeCardsSection.swift": ["expressBlock", "LifeExpressCardView", "stockCell", "placeholderCard"],

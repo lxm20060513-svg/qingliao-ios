@@ -44,6 +44,9 @@ func stripCommentLines(_ s: String) -> String {
 let noteSrc = src("Core/StreamProgressText.swift")
 let streamSrc = src("Core/StreamClient.swift")
 let chatSrc = src("Features/Chat/ChatView.swift")
+// v4.0.x 工程治理拆分：ToolProgressNote 的**定义**搬到 ChatToolStepCards.swift，**调用点**仍在 ChatView.swift。
+// 「struct 存在 / 样式令牌 / lineLimit」读新文件，「插在摘要行与明细之间」读 ChatView.swift。
+let toolCardsSrc = src("Features/Chat/ChatToolStepCards.swift")
 // 后端真源路径可用 QL_BACKEND_SRC 覆盖；找不到时下面的「两端同口径」段按 ⚠️ 跳过（并有独立断言兜住）
 let backendPath = ProcessInfo.processInfo.environment["QL_BACKEND_SRC"] ?? "/opt/data/qingliao_backend/src/stream_api.py"
 let backend = (try? String(contentsOfFile: backendPath, encoding: .utf8)) ?? ""
@@ -122,13 +125,13 @@ let pollWrite = sNoComment.contains("content += c") &&
 check("poll 追加内容后刷新锚点（漏了 → 静默永远 0 秒）", pollWrite)
 
 // ChatView：插在摘要行之后、明细之前；1s 走秒；独立 struct（防 CI 类型检查超时）
-check("ChatView 有独立 ToolProgressNote struct（不内联进深 ViewBuilder）",
-      chatSrc.contains("struct ToolProgressNote: View {"))
+check("有独立 ToolProgressNote struct（在 ChatToolStepCards.swift，不内联进深 ViewBuilder）",
+      toolCardsSrc.contains("struct ToolProgressNote: View {"))
 check("小字用同款小字令牌（Typography.caption + .tertiary）",
-      chatSrc.contains("ToolProgressNote") && chatSrc.contains(".foregroundStyle(.tertiary)"))
+      toolCardsSrc.contains("Typography.caption") && toolCardsSrc.contains(".foregroundStyle(.tertiary)"))
 // 单行会把「最近：…」尾部截掉（整行约 100 字）——必须允许两行
 check("允许两行（lineLimit(2)），单行会截掉「最近」尾部",
-      chatSrc.contains(".lineLimit(2)") && !chatSrc.contains(".lineLimit(1)\n            .frame(maxWidth: .infinity"))
+      toolCardsSrc.contains(".lineLimit(2)") && !toolCardsSrc.contains(".lineLimit(1)"))
 if let r = chatSrc.range(of: "private var toolStepCards: some View {") {
     let body = String(chatSrc[r.lowerBound...])
     let iSummary = body.range(of: "ToolStepsSummaryRow(count: stream.toolSteps,")?.lowerBound

@@ -407,7 +407,7 @@ echo "=== 32. 启动会话设置：外观页入口不许被删（v3.9.94）==="
 # 🚨 这段 UI 是**补的入口**，不是新功能：LaunchSession.swift 的判定逻辑与两个 UserDefaults key
 # 早就存在，但 AppearanceSheet 从来没有入口 → 用户根本设不了，永远吃默认的 .auto + 15 分钟。
 # 所以护栏盯的是「入口不许被删 / 阈值只对 auto 生效」这两类退化。
-AP=qingliao/Features/Settings/AppearanceSheet.swift
+AP=qingliao/Features/Settings/SettingsCommon.swift
 LS=qingliao/Core/LaunchSession.swift
 ck "启动会话两个 key 已声明" 'launchSessionMode' qingliao/Core/Models.swift
 ck "外观页读到了 launchSessionMode" '@AppStorage\(' "$AP"
@@ -565,6 +565,27 @@ echo "=== 40. 聊天页工具卡进度小字真值表（v3.9.81 · 2026-09-27 �
 #   任一端改了这里就红——后端源码不在本机时该段 ⚠️ 跳过并计数，不冒充绿）；
 #   ② 静默锚点 contentGrowAt 的 6 个写入点齐（漏一处 = 静默永远 0 秒，真机看着像卡死）。
 run_unit /tmp/test_progressnote scripts/ql_progressnote/truth_table_progressnote.swift
+
+echo "=== 41. 价格功能已移除的静态护栏（v4.0.x 工程治理：补挂孤儿真值表）==="
+# 为什么不早发现：价格监控已从 App 删除，guard_price_removed.py 断言「每个删除点必须为 0」。
+# 它写在 scripts/ql_life_noprice/ 下却**从未被 check_swift.sh 调用** —— 本地和 CI 都不跑，
+# 于是「价格代码被误加回来」这类回归没有任何拦截（scripts/check_guard_coverage.py 抓到的第 1 例）。
+# 口径：价格监控移除后不得再有 price/价格 字段的写入路径。
+python3 scripts/ql_life_noprice/guard_price_removed.py || exit 1
+
+echo "=== 42. 护栏覆盖率守卫（v4.0.x 工程治理第 1 号整改：孤儿/断链断言）==="
+# 防「回归保障」这条短板自我复制：任何新建真值表或 scripts/*.py 守卫，必须挂进本脚本，
+# 否则本地和 CI 都不会跑它。新建时它会红，提示你补 check_swift.sh 那一段。
+python3 scripts/check_guard_coverage.py || exit 1
+
+echo "=== 43. SwiftUI 参数序护栏（v4.0.x 工程治理第 2 号整改：本地/CI 都查不出的编译错）==="
+# 机制：SwiftUI View 的**成员初始化器**要求「调用处实参序 = 存储属性声明序」，写反了编译器报
+#   `argument 'x' must precede argument 'y'`。而 -parse 只查语法（完全合法、零告警），
+#   只有 CI Archive 才暴露，一轮 20 分钟；历史同类坑见 skill swiftui-param-order。
+# 自测先行：脚本内置样例必须抓到 2 处乱序 —— 抓到 0 条 = 解析器失效，那才是最大的坑
+#   （本守卫第一版就因正则漏了名字替换而「扫描 0 个调用点」假绿过一轮，已修）。
+python3 scripts/check_swiftui_param_order.py --self-test || exit 1
+python3 scripts/check_swiftui_param_order.py || exit 1
 
 [ $fail -eq 0 ] || { echo "❌ 有护栏失守"; exit 1; }
 exit 0

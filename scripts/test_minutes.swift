@@ -508,6 +508,8 @@ enum MinutesTruthTable {
         print("\n=== 9. 录音页 / 聊天页接线护栏（读源码）===")
         let view = readSource("qingliao/Features/Chat/MeetingMinutesView.swift")
         let chat = readSource("qingliao/Features/Chat/ChatView.swift")
+        // v4.0.x 工程治理拆分：通知名「声明端」搬到 ChatAppDelegate.swift，消费端（onReceive）仍在 ChatView.swift。
+        let chatDelegate = readSource("qingliao/Features/Chat/ChatAppDelegate.swift")
         let memo = readSource("qingliao/Core/MemoStore.swift")
         check("录音页源码读到了", !view.isEmpty)
         check("聊天页源码读到了", !chat.isEmpty)
@@ -531,8 +533,8 @@ enum MinutesTruthTable {
         check("中途退出给「存原文备忘」退路", view.contains("存原文备忘"))
         check("视图可无参构造（另一个 agent 这么调）", view.contains("struct MeetingMinutesView: View"))
 
-        checkEq("聊天页只声明了一处通知名",
-                chat.components(separatedBy: "static let qingliaoMinutesCard").count - 1, 1)
+        checkEq("通知名单一真源（只在 ChatAppDelegate.swift 声明一次）",
+                chatDelegate.components(separatedBy: "static let qingliaoMinutesCard").count - 1, 1)
         checkEq("聊天页只挂了一处 onReceive",
                 chat.components(separatedBy: "for: .qingliaoMinutesCard").count - 1, 1)
         check("插入点复用本地卡片路径（isPush，不进模型上下文）",

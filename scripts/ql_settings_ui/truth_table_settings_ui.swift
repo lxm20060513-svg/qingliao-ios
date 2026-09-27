@@ -47,11 +47,11 @@ func stripComments(_ s: String) -> String {
 }
 
 let spacingSrc = src("qingliao/Theme/Spacing.swift")
-let sheetsSrc = src("qingliao/Features/Settings/SettingsSheets.swift")
+let sheetsSrc = src("qingliao/Features/Settings/SettingsCommon.swift")
 
 // ── 1. 源可读（空了后面全是空真） ─────────────────────────────
 check("Spacing.swift 源可读", !spacingSrc.isEmpty)
-check("SettingsSheets.swift 源可读", !sheetsSrc.isEmpty)
+check("SettingsCommon.swift 源可读", !sheetsSrc.isEmpty)
 
 // ── 2. 三个语义令牌在位且值逐字正确 ───────────────────────────
 check("sheetInset = 18 在位", spacingSrc.contains("static let sheetInset: CGFloat = 18"))
@@ -82,7 +82,7 @@ check("SectionHeader 左右留白走 Spacing.sheetInset（与说明文字/错误
 // ── 5. Settings 目录下字面量清零（逐文件扫，不是只看某一个文件） ──
 let settingsDir = "qingliao/Features/Settings"
 let files = (try? FileManager.default.contentsOfDirectory(atPath: settingsDir)) ?? []
-check("Settings 目录可枚举（\(files.count) 个文件）", files.count > 10)
+check("Settings 目录可枚举（\(files.count) 个文件，2026-09-27 合并后为 8）", files.count >= 8)
 let swiftFiles = files.filter { $0.hasSuffix(".swift") }
 let bodies = swiftFiles.map { (name: $0, body: src("\(settingsDir)/\($0)")) }
 func hitCount(_ pattern: (String) -> Bool) -> Int { bodies.filter { pattern($0.body) }.count }
@@ -99,7 +99,7 @@ check("rowDividerInset 至少被 40 处使用（收敛前是 46 处字面量）"
 check("sheetInset 至少被 15 处使用（收敛前 18×12 + 20×9 = 21 处字面量）",
       bodies.reduce(0) { $0 + $1.body.components(separatedBy: "Spacing.sheetInset)").count - 1 } >= 15)
 check("rowDividerInsetWide 被 cron 任务行那一处使用",
-      src("qingliao/Features/Settings/SettingsPages.swift").contains("Spacing.rowDividerInsetWide)"))
+      src("qingliao/Features/Settings/SettingsCommon.swift").contains("Spacing.rowDividerInsetWide)"))
 
 // ── 6. 行尾值表单行口径（值折行 → 左标题被垂直居中夹住 = 真机报过的「文字错位」同款） ──
 /// 取 a 之后、b 之前的一段源码（先断言切片非空，否则下面的断言等于空真）
@@ -115,10 +115,10 @@ check("共用行组件的行尾值钉单行", settingRowBody.contains(".lineLimi
 check("共用行组件 Spacer 显式留最小间距（Spacer() 视觉等价，这里只是把口径写明）",
       settingRowBody.contains("Spacer(minLength: 8)"))
 // 三个同形行（不是 SettingRow）单独钉
-let cityRowBody = slice(src("qingliao/Features/Settings/AppearanceSheet.swift"),
+let cityRowBody = slice(src("qingliao/Features/Settings/SettingsCommon.swift"),
                         "Text(\"天气城市\")", "showWeatherCityField")
 check("天气城市行切片取到且行尾值钉单行", !cityRowBody.isEmpty && cityRowBody.contains(".lineLimit(1)"))
-let ttsModelRowBody = slice(src("qingliao/Features/Settings/SettingsModelSheets.swift"),
+let ttsModelRowBody = slice(src("qingliao/Features/Settings/SettingsModels.swift"),
                             "Text(\"模型\")", "// 音色下拉")
 check("TTS 模型行切片取到且 Picker 钉单行", !ttsModelRowBody.isEmpty && ttsModelRowBody.contains(".lineLimit(1)"))
 
@@ -147,7 +147,7 @@ check("会话卡修饰链上没有自行挂的实色 background（F2：实色底
 // MARK: - 设置页 v3.9.88 回退：单页平铺，无 8 大类二级页、无整页玻璃底
 //   用户拍板「设置界面回退到 3.9.87 版本」→ 下面改为**反向断言**：一旦有人又把
 //   归类二级页 / 整页玻璃底加回来，这条真值表就红。
-let svSrc = stripComments(src("qingliao/Features/Settings/SettingsView.swift"))
+let svSrc = stripComments(src("qingliao/Features/Settings/SettingsCore.swift"))
 let dockSrc = stripComments(src("qingliao/Features/DockTabView.swift"))
 let lgGlassSrc = stripComments(src("qingliao/Theme/LiquidGlass.swift"))
 

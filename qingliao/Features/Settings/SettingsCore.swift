@@ -1,4 +1,274 @@
+// 本文件由 2026-09-27 工程治理「Settings 物理合并」生成：多份同域设置页文件合并为一，
+// UI 入口与行为零改动，仅文件边界变化。合并前各文件的来源见下方 MARK 分段。
+
+import Combine
+import Foundation
+import LocalAuthentication
+import PDFKit
+import QuickLook
 import SwiftUI
+import UIKit
+import UniformTypeIdentifiers
+
+// MARK: ===== 以下原为 Features/Settings/SettingsView.swift =====
+
+// MARK: - 设置页（iOS 设置风格分组列表，全部功能行可用）
+
+struct SettingsView: View {
+    @Environment(AuthStore.self) var auth
+    // v3.4.28：横屏限宽
+    @Environment(\.horizontalSizeClass) private var hSizeSettings
+    @AppStorage("qingliao_appearance") var appearance = "system"   // dark/light/system（默认跟随系统）
+
+    // v2.0.83c：连接设置二级页（服务器地址/测试连接/会话存储位置收进二级）
+    @State var showConnSettings = false
+    @State var showPasswordSheet = false
+    @State var showSecrets = false
+    // v2.0.81：知识库页面
+    @State var showKB = false
+    // v2.0.87：AI 记忆
+    @State var showMemory = false
+    @State var memoryCount = 0
+    @State var showTasks = false
+    @State var showLogs = false
+    // v3.0.74：钉一钉存储路径
+    @State var showPinPath = false
+    var pinPathDisplay: String {
+        let p = PinStore.shared.storagePath
+        return p.isEmpty ? "默认路径" : (p.count > 20 ? "..." + p.suffix(17) : p)
+    }
+    @State var showAppearance = false   // v3.0.4：外观弹窗（与云端统一）
+    // v3.9.82：桌面图标长按快捷方式（候选清单里自己挑 4 项显示；iOS 桌面长按菜单上限就是 4）
+    // v4.0.x：候选已随 OrbQuickAction.all 长到 8 项 —— 候选列表是动态的（HomeShortcut.candidates），
+    //         这里与弹窗都不许再写死项数。
+    @State var showHomeShortcuts = false
+    @AppStorage(HomeShortcutStore.defaultsKey) var homeShortcutsRaw = ""
+    @State var scrollPos = ScrollPosition()
+    @State var showModelSheet = false
+    @State var showWechatChannel = false   // v3.0.19：微信窗通道模型设置
+    @State var showAbout = false
+    @State var confirmLogout = false   // v3.0.5 review fix：退出登录二次确认（与云端一致）
+    @State var secretCount = 0
+    @State var showHASettings = false
+    // v3.5.0：MCP 工具服务管理弹窗
+    @State var showMCPSettings = false
+    // v3.9.95：权限与 AI 操控（日历/相册/通知/HomeKit 的授权与 AI 开关）
+    @State var showAppPermissions = false
+    // v3.5.x：生活卡片设置（股票 / 资讯 / 快递）
+    @State var showLifeCards = false
+    // v3.9.32：一句话本地定时提醒 / 文件管理
+    @State var showQuickReminder = false
+    @State var showFilesManager = false
+    // v3.0.17：聊天字体大小从一级菜单移除（外观二级菜单持有），fontSize 声明一并清理
+    // v3.0.9：外观下天气城市已移除（天气城市设定在看板 WeatherBadge 点按处），相关状态一并清理
+    // v2.0.101：Agent 使用说明内联展开
+    @State var showAgentHelp = false
+    // v2.0.105：Agent 关键词管理弹窗
+    @State var showAgentKeywords = false
+    // v2.0.113：Agent 记忆弹窗 + 计数
+    @State var showAgentMemory = false
+    @State var agentRuleCount = 0
+    // v3.0.20：Agent 模型自定义（独立于主模型，可单独指定 Agent 使用的模型）
+    @State var showAgentModelSheet = false
+    @AppStorage(UserDefaultsKey.agentModel) var agentModel = ""
+    @AppStorage(UserDefaultsKey.agentProvider) var agentProvider = ""
+    // v2.0.116：执行历史弹窗
+    @State var showHistory = false
+    // v3.4.25：崩溃日志查看/导出弹窗
+    // v3.6.0：原独立「崩溃日志」弹窗整合进「诊断」页（DiagnosticsView 内含崩溃日志分组），
+    //         避免两个重复又可能互相矛盾的入口；本页不再单独持有该弹窗状态。
+    @State var showDiagnostics = false
+    // v2.0.117：本地模型（Ollama 断网兜底）
+    @AppStorage("qingliao_local_model") var localModelOn = false
+    @State var localModelSyncing = false   // v-review fix：程序化回写开关时抑制 onChange 回声 POST
+    @State var localStatusText = "未开启"
+    @State var localUpdateText = "断网兜底用本地模型"
+    @State var localChecking = false
+    // v2.0.118：本地模型管理弹窗
+    @State var showLocalModels = false
+    @State var showCardGallery = false   // v3.9.26：能力示例（卡片画廊）
+    // v3.0.10：视觉模型配置弹窗（已移至模型管理弹窗内）
+    // v2.0.113：微信推送开关（同步后端 push_settings.json）
+    @AppStorage("qingliao_push_weixin") var pushWeixin = true
+    // v3.0.81：上下文管理
+    @AppStorage("qingliao_context_auto_compress") var contextAutoCompress = false
+    @AppStorage("qingliao_context_threshold") var contextThreshold = 4000
+    // v3.9.56：TypeSafe 智能路由（设置页开关 + 就地展开）。后端是唯一真源，所以用 @State 影子状态
+    // 而不是 @AppStorage —— 本地也存一份的话，换设备/运维改了后端配置，UI 就会显示假状态。
+    @State var tsRouting = TypesafeRouting.fallback
+    @State var tsBreaker = TypesafeBreaker.closed
+    @State var tsSyncing = false   // 读回来时抑制回声 POST（同 localModelSyncing 口径）
+    @State var tsBusy = false
+    @State var tsError = ""
+    // v2.0.88：Face ID 登录开关（关闭后删除 Keychain 凭据，登录页不再显示快捷按钮）
+    @AppStorage("qingliao_faceid_login") var faceIDLogin = true
+    @State var faceIDAuthFailed = false   // v2.0.89f：开关打开时系统授权失败提示
+    // v2.0.92：App 锁开关（启动时 Face ID 验证）
+    @AppStorage("qingliao_app_lock") var appLockOn = false
+    @State var appLockAuthFailed = false
+    // v2.0.128：AI 输出行高（0-6 步进 0.5，默认 1.0 = 紧凑；滑条控制）已随死代码外观块删除——
+    // 行高/流光/Siri 发光全部统一由 AppearanceSheet 管理（与云端同一组件）
+    // v2.0.102：切回设置页刷新计数（密码管理/记忆增删后行尾数字即时更新，原只有 .task 首刷）
+    var body: some View {
+        VStack(spacing: 0) {
+            PageHeader(title: "设置")
+            ScrollView {
+                VStack(spacing: 0) {
+                    accountSection
+                    connectionSection
+                    aiSection
+                    dataSection
+                    agentSection
+                    appearanceSection
+                    aboutSection
+                    logoutButton
+                }
+                .padding(.horizontal, Spacing.xxl)
+                .padding(.bottom, 100)
+                // v3.4.28：横屏限宽居中
+                .frame(maxWidth: .infinity)
+                .frame(maxWidth: AdaptiveLayout.contentMaxWidth(hSizeSettings))
+            }
+            .scrollPosition($scrollPos)
+        }
+        .sheet(isPresented: $showPasswordSheet) {
+            PasswordSheet()
+                .presentationDetents([.medium])
+        }
+        .sheet(isPresented: $showAppearance) {
+            // v3.0.4：外观弹窗（与云端共用同一组件，样式统一）
+            AppearanceSheet()
+                .presentationDetents([.medium, .large])
+                .scrollContentBackground(.hidden)
+        }
+        .sheet(isPresented: $showHomeShortcuts) {
+            // v3.9.82：桌面快捷方式选择（动态 shortcutItems，最多 4 项）
+            HomeShortcutSheet()
+                .presentationDetents([.medium, .large])
+        }
+        .sheet(isPresented: $showTasks) {
+            TasksView()
+                .presentationDetents([.medium, .large])
+        }
+        .sheet(isPresented: $showLogs) {
+            LogsView()
+                .presentationDetents([.medium, .large])
+        }
+        .sheet(isPresented: $showConnSettings) {
+            ConnSettingsView()
+                .presentationDetents([.medium, .large])
+        }
+        .sheet(isPresented: $showModelSheet) {
+            ModelSheet(current: currentModel)
+                .presentationDetents([.medium, .large])
+        }
+        .sheet(isPresented: $showWechatChannel) {
+            WechatChannelSheet()
+                .presentationDetents([.medium, .large])
+        }
+        .sheet(isPresented: $showAbout) {
+            AboutView()
+                .presentationDetents([.medium])
+        }
+        .sheet(isPresented: $showSecrets) {
+            SecretsView()
+                .presentationDetents([.medium, .large])
+        }
+        // v2.0.81：知识库
+        .sheet(isPresented: $showKB) {
+            KBView()
+                .presentationDetents([.medium, .large])
+                .scrollContentBackground(.hidden)
+        }
+        // v2.0.87：AI 记忆
+        .sheet(isPresented: $showMemory) {
+            MemoryView()
+                .presentationDetents([.medium, .large])
+        }
+        .sheet(isPresented: $showHASettings) {
+            HASettingsSheet()
+                .presentationDetents([.medium])
+        }
+        // v3.5.0：MCP 工具服务管理
+        .sheet(isPresented: $showMCPSettings) {
+            MCPSettingsSheet()
+                .presentationDetents([.medium, .large])
+                .scrollContentBackground(.hidden)
+        }
+        // v3.9.95：权限与 AI 操控
+        .sheet(isPresented: $showAppPermissions) {
+            AppPermissionsSheet()
+                .presentationDetents([.large])
+                .scrollContentBackground(.hidden)
+        }
+        // v3.5.x：生活卡片设置页（股票 / 资讯 / 快递 / 价格监控）
+        .sheet(isPresented: $showLifeCards) {
+            LifeCardsSettingsView()
+                .presentationDetents([.medium, .large])
+        }
+        // v3.9.32：定时提醒（纯本地 UNCalendarNotificationTrigger，无后端依赖）
+        .sheet(isPresented: $showQuickReminder) {
+            QuickReminderSheet()
+                .presentationDetents([.medium, .large])
+                .scrollContentBackground(.hidden)
+        }
+        // v3.9.32：文件管理（上传目录浏览：预览 / 分享 / 重命名 / 删除）
+        .sheet(isPresented: $showFilesManager) {
+            FilesManagerSheet()
+                .presentationDetents([.medium, .large])
+                .scrollContentBackground(.hidden)
+        }
+        // v2.0.105：Agent 关键词管理
+        .sheet(isPresented: $showAgentKeywords) {
+            AgentKeywordsSheet()
+                .scrollContentBackground(.hidden)
+        }
+        // v2.0.113：Agent 记忆弹窗（同 AI 记忆样式）
+        .sheet(isPresented: $showAgentMemory) {
+            AgentMemorySheet()
+                .scrollContentBackground(.hidden)
+        }
+        // v3.0.20：Agent 模型选择弹窗
+        .sheet(isPresented: $showAgentModelSheet) {
+            AgentModelSheet()
+                .presentationDetents([.medium, .large])
+        }
+        // v2.0.116：执行历史弹窗（v3.9.35：补 presentationDetents——漏挂导致默认全屏，
+        // 与全站弹窗「默认半屏 medium、可上拉 large」不一致）
+        .sheet(isPresented: $showHistory) {
+            HistorySheet()
+                .presentationDetents([.medium, .large])
+        }
+        // v3.6.0：原「崩溃日志」行整合为「诊断」页（App 自身诊断：版本/设备/网络/后端连通性/
+        // 崩溃与卡顿记录/一键复制导出/手动上报），崩溃日志查看导出在该页内，入口不再重复。
+        .sheet(isPresented: $showDiagnostics) {
+            DiagnosticsView()
+                .presentationDetents([.medium, .large])
+        }
+        // v2.0.118：本地模型管理弹窗
+        .sheet(isPresented: $showLocalModels) {
+            LocalModelsSheet()
+                .scrollContentBackground(.hidden)
+        }
+        // v3.9.26：能力示例（5 种卡片形态展示，零后端、纯 App 内样例数据）
+        // v3.9.27：补 .scrollContentBackground(.hidden)——ScrollView 自带底会盖住系统玻璃弹窗底
+        //（与 v3.9.23「清遮挡层、不覆盖材质」定稿同规则，用户报的「能力示例弹窗圆角背景不对」即此）
+        .sheet(isPresented: $showCardGallery) {
+            CardGallerySheet()
+                .presentationDetents([.medium, .large])
+                .scrollContentBackground(.hidden)
+        }
+        // v2.0.102：切回设置页刷新计数（密码管理/记忆增删后行尾数字即时更新，原只有 .task 首刷）
+        .onAppear { Task { await loadCounts() } }
+        .task {
+            await loadCounts()
+            await loadLocalStatus()   // v-review fix：进入设置页即以后端 /api/local/status 校准本地模型开关
+            await loadTypesafeRouting()   // v3.9.56：进设置页即读后端真实路由开关/熔断状态
+        }
+    }
+}
+
+// MARK: ===== 以下原为 Features/Settings/SettingsViewSections.swift =====
 
 // MARK: - Section 计算属性（body 瘦身：500 行 → 8 个独立段，SwiftUI diff 只遍历变化段）
 
@@ -417,5 +687,243 @@ extension SettingsView {
             Text("退出后回到登录页，可切换本地 AI / 云端 AI 模式。云端配置（API Key）仍保留在手机本地。")
         }
         .padding(.top, Spacing.xxs)
+    }
+}
+
+// MARK: ===== 以下原为 Features/Settings/SettingsViewHelpers.swift =====
+
+// MARK: - 共用组件（toggle 行 / Siri 滑条）
+
+extension SettingsView {
+
+    func toggleRow(icon: String, iconColor: Color, title: String, subtitle: String? = nil, isOn: Binding<Bool>) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: Typography.subhead, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 28, height: 28)
+                .background(iconColor, in: RoundedRectangle(cornerRadius: Radius.icon, style: .continuous))
+            if let subtitle {
+                VStack(alignment: .leading, spacing: Spacing.xxs) {
+                    Text(title).font(.system(size: Typography.body, weight: .medium))
+                    Text(subtitle).font(.system(size: Typography.caption)).foregroundStyle(.tertiary)
+                }
+            } else {
+                Text(title).font(.system(size: Typography.body)).foregroundStyle(.primary)
+            }
+            Spacer()
+            Toggle("", isOn: isOn).labelsHidden().scaleEffect(0.8).tint(.green)
+        }
+        .padding(.horizontal, Spacing.xxl).padding(.vertical, Spacing.lg)
+    }
+}
+
+// MARK: - 辅助函数
+
+extension SettingsView {
+
+    /// v2.0.117：加载本地模型状态（容器 + 已装模型）——后端为源：
+    /// v-review fix：依据 /api/local/status 的 container 状态回写开关，防 UI 与后端脱钩
+    func loadLocalStatus() async {
+        if let j = try? await auth.json("/api/local/status") {
+            let up = (j["container"] as? String) == "up"
+            let models = (j["models"] as? [[String: Any]] ?? []).map { $0["name"] as? String ?? "" }
+            if up {
+                localStatusText = "运行中" + (models.isEmpty ? "" : " · " + models.prefix(2).joined(separator: " / "))
+            } else {
+                localStatusText = "已停止（点开关开启）"
+            }
+            // 回写开关（加守卫防 onChange 回声 POST 循环）
+            if localModelOn != up {
+                localModelSyncing = true
+                localModelOn = up
+                localModelSyncing = false
+            }
+        } else {
+            localStatusText = "状态获取失败"
+        }
+    }
+
+    /// v2.0.117：检查模型更新
+    func checkLocalUpdate() async {
+        guard !localChecking else { return }
+        localChecking = true
+        defer { localChecking = false }
+        if let j = try? await auth.json("/api/local/check-update") {
+            localUpdateText = (j["message"] as? String) ?? "检查完成"
+        } else {
+            localUpdateText = "检查失败，请稍后重试"
+        }
+    }
+
+    /// v2.0.102：加载凭据/记忆计数（设置页行尾显示）
+    func loadCounts() async {
+        if let j = try? await auth.json("/api/secrets") {
+            secretCount = (j["secrets"] as? [Any])?.count ?? 0
+        }
+        if let j = try? await auth.json("/api/memory/list") {
+            memoryCount = (j["entries"] as? [String] ?? []).count
+        }
+        // v2.0.113：同步微信推送开关（后端为准）
+        if let j = try? await auth.json("/api/push/settings"),
+           let v = j["pushWeixin"] as? Bool {
+            pushWeixin = v
+        }
+        // v2.0.113：Agent 记忆条数（行尾数字）
+        if let j = try? await auth.json("/api/agent/rules") {
+            agentRuleCount = (j["rules"] as? [Any] ?? []).count
+        }
+    }
+
+    var appearanceName: String {
+        switch appearance {
+        case "light": return "浅色"
+        case "system": return "跟随系统"
+        default: return "深色"
+        }
+    }
+
+    /// 当前默认模型（UserDefaults）
+    var currentModel: String {
+        UserDefaults.standard.string(forKey: "qingliao_model") ?? "deepseek-v4-flash"
+    }
+
+    // v3.0.19：微信通道当前模型（UserDefaults 缓存，进弹窗时刷新）
+    var wechatChannelModel: String {
+        UserDefaults.standard.string(forKey: "qingliao_wechat_channel_model") ?? "跟随默认"
+    }
+
+    /// v2.0.89f：打开 Face ID 开关时立即申请系统权限（用户实测"点开关没有权限申请"）
+    func requestFaceIDAuth() {
+        let context = LAContext()
+        var err: NSError?
+        guard context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &err) else {
+            faceIDLogin = false   // 设备不支持/已被拒绝 → 回滚开关
+            faceIDAuthFailed = true
+            return
+        }
+        context.localizedReason = "用于登录页一键登录轻聊"
+        context.evaluatePolicy(.deviceOwnerAuthentication,
+                               localizedReason: "用于登录页一键登录轻聊") { success, error in
+            DispatchQueue.main.async {
+                if success { return }
+                // v2.0.102：用户主动取消（userCancel）不算失败——保留开关不弹提示
+                if let la = error as? LAError, la.code == .userCancel { return }
+                // 拒绝/系统错误 → 回滚开关，提示去系统设置开启
+                faceIDLogin = false
+                faceIDAuthFailed = true
+            }
+        }
+    }
+
+    /// v2.0.92：打开 App 锁开关时申请权限（逻辑同 Face ID 登录）
+    func requestAppLockAuth() {
+        let context = LAContext()
+        var err: NSError?
+        guard context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &err) else {
+            appLockOn = false
+            appLockAuthFailed = true
+            return
+        }
+        context.localizedReason = "用于启动时解锁轻聊"
+        context.evaluatePolicy(.deviceOwnerAuthentication,
+                               localizedReason: "用于启动时解锁轻聊") { success, error in
+            DispatchQueue.main.async {
+                if success { return }
+                // v2.0.102：用户主动取消不算失败——保留开关不弹提示
+                if let la = error as? LAError, la.code == .userCancel { return }
+                appLockOn = false
+                appLockAuthFailed = true
+            }
+        }
+    }
+}
+
+// MARK: - v3.9.56 TypeSafe 智能路由（读回来显示 + 改完回写；后端是唯一真源）
+
+extension SettingsView {
+
+    /// 开关绑定。set 里先动 UI（开关手感不等网络），POST 失败再拉回后端现状
+    /// —— 防「开关显示 ON 但后端其实没开」这种脱钩（同 localModelToggle 的处置）。
+    var tsEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { tsRouting.enabled },
+            set: { new in
+                tsRouting.enabled = new
+                guard !tsSyncing else { return }   // 读回来造成的写入不回写（否则回声 POST 循环）
+                Task { await saveTypesafeRouting(["enabled": new]) }
+            }
+        )
+    }
+
+    /// 阈值绑定（每步一次 POST；后端改配置免重启，即时生效）
+    var tsThresholdBinding: Binding<Double> {
+        Binding(
+            get: { tsRouting.threshold },
+            set: { new in
+                tsRouting.threshold = new
+                guard !tsSyncing else { return }
+                Task { await saveTypesafeRouting(["threshold": new]) }
+            }
+        )
+    }
+
+    /// 读后端真实状态（进设置页 / 熔断轮询 / 保存失败回滚，都走这一处）
+    func loadTypesafeRouting() async {
+        guard let j = try? await auth.json("/api/agent/typesafe/routing") else {
+            tsError = "状态获取失败，请检查连接后重进本页"
+            return
+        }
+        applyTypesafeRouting(j)
+    }
+
+    /// 把后端响应整体写进影子状态；解析失败的那一段保留上一次的值（不拿兜底值冒充后端现状）
+    func applyTypesafeRouting(_ j: [String: Any]) {
+        tsSyncing = true
+        if let raw = j["routing"] as? [String: Any], let cfg = TypesafeRouting(json: raw) {
+            tsRouting = cfg
+        }
+        if let raw = j["breaker"] as? [String: Any] {
+            tsBreaker = TypesafeBreaker(json: raw) ?? .closed
+        }
+        tsSyncing = false
+        tsError = ""
+    }
+
+    /// 回写（部分字段补丁）：成功以响应为准刷新；失败拉回后端现状 + 红字，绝不留下假状态。
+    func saveTypesafeRouting(_ patch: [String: Any]) async {
+        guard !tsBusy else { return }
+        tsBusy = true
+        defer { tsBusy = false }
+        do {
+            let j = try await auth.json("/api/agent/typesafe/routing", method: "POST", body: patch)
+            if (j["ok"] as? Bool) == false {
+                tsError = (j["error"] as? String) ?? "保存失败"
+                await loadTypesafeRouting()
+            } else {
+                applyTypesafeRouting(j)
+            }
+        } catch {
+            tsError = "保存失败，请检查连接"
+            await loadTypesafeRouting()
+        }
+    }
+
+    /// 参数区小胶囊。选中 = 主题色淡底 + 同色文字 + 0.8pt 同色细描边；未选中 = 中性淡底
+    /// —— 走 v3.9.35「三件套」口径，不用实色胶囊（用户明确否决过实色）。
+    func tsCapsule(_ title: String, on: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: Typography.subhead, weight: .semibold))
+                .foregroundStyle(on ? Color.accentColor : Color.primary)
+                .padding(.horizontal, Spacing.xl)
+                .padding(.vertical, Spacing.sm)
+                .background(on ? Color.accentColor.opacity(Tint.subtle) : Color.primary.opacity(Tint.faint),
+                            in: Capsule())
+                .overlay(Capsule().strokeBorder(on ? Color.accentColor.opacity(0.28)
+                                                   : Color.secondary.opacity(0.22),
+                                                lineWidth: 0.8))
+        }
+        .buttonStyle(PressStyle())
     }
 }

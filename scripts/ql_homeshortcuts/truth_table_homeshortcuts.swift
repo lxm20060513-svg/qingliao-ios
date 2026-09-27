@@ -42,11 +42,14 @@ func region(_ s: String, from: String, to: String) -> String {
 }
 
 let shortcuts = src("qingliao/Features/HomeShortcuts.swift")
-let sheet = src("qingliao/Features/Settings/HomeShortcutSheet.swift")
+let sheet = src("qingliao/Features/Settings/SettingsData.swift")
 let dock = src("qingliao/Features/DockTabView.swift")
 let chat = src("qingliao/Features/Chat/ChatView.swift")
-let sections = src("qingliao/Features/Settings/SettingsViewSections.swift")
-let settings = src("qingliao/Features/Settings/SettingsView.swift")
+// v4.0.x 工程治理拆分：`final class QingliaoAppDelegate` 已从 ChatView.swift 搬到 ChatAppDelegate.swift，
+// 下面 ⑦ 组「App 生命周期接线」全部断言 appDelegate region —— 读错文件就是 4 条假红。
+let chatDelegate = src("qingliao/Features/Chat/ChatAppDelegate.swift")
+let sections = src("qingliao/Features/Settings/SettingsCore.swift")
+let settings = src("qingliao/Features/Settings/SettingsCore.swift")
 let orbMenu = src("qingliao/Features/OrbQuickMenu.swift")
 let proj = src("project.yml")
 
@@ -126,7 +129,7 @@ check("body 链上 OrbMenuFromPetModifier 只挂一处（没多出第二个 .mod
       stripCommentLines(dock).components(separatedBy: ".modifier(OrbMenuFromPetModifier(").count - 1 == 1)
 
 // ── ⑦ App 生命周期接线 + 设置页入口 ─────────────────────────────────
-let appDelegate = region(chat, from: "final class QingliaoAppDelegate", to: "// v2.0.110")
+let appDelegate = region(chatDelegate, from: "final class QingliaoAppDelegate", to: "// v2.0.110")
 check("启动时重建菜单：didFinishLaunching 里 HomeShortcutManager.sync()",
       flat(appDelegate).contains("HomeShortcutManager.sync()"))
 // 🚨 v3.9.83（真机 bug：点快捷方式只把 App 打开、不跳转）——下面这组才是**接收端的真形态**：

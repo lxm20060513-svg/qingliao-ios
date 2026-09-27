@@ -24,6 +24,9 @@ let widgetSrc = src("../qingliaoWidget/QingliaoLiveActivityWidget.swift")
 let orbMenuSrc = src("Features/OrbQuickMenu.swift")
 let dockSrc = src("Features/DockTabView.swift")
 let chatViewSrc = src("Features/Chat/ChatView.swift")
+// v4.0.x 工程治理拆分：通知名**定义**已搬去 ChatAppDelegate.swift，「消费」仍在 ChatView.swift。
+// 两者必须分开读，否则拆文件当天这条假红（本人实测）。
+let chatDelegateSrc = src("Features/Chat/ChatAppDelegate.swift")
 let chatEffectsSrc = src("Features/Chat/ChatEffects.swift")
 
 // ── 源护栏：非空 ─────────────────────────────────────────────
@@ -81,7 +84,10 @@ check("语音输入走进程内通知（DockTabView 摸不到 ChatView @State）
       dockSrc.contains(".qingliaoOrbVoiceInput") && chatViewSrc.contains(".qingliaoOrbVoiceInput"))
 check("ChatView 消费通知后走 toggleVoiceMode（与输入框长按同一路径）",
       chatViewSrc.contains("toggleVoiceMode(keyboardWasUp: kb.isVisible)"))
-check("通知名已注册", chatViewSrc.contains("static let qingliaoOrbVoiceInput = Notification.Name(\"qingliao_orb_voice_input\")"))
+check("护栏：ChatAppDelegate.swift 读得到（拆出的通知名单+AppDelegate）", !chatDelegateSrc.isEmpty)
+check("通知名已注册（定义在 ChatAppDelegate.swift，不在 ChatView.swift）",
+      chatDelegateSrc.contains("static let qingliaoOrbVoiceInput = Notification.Name(\"qingliao_orb_voice_input\")")
+      && !chatViewSrc.contains("static let qingliaoOrbVoiceInput"))
 
 // ── 3. 菜单层形态（A+C 方案定稿护栏） ─────────────────────────
 check("菜单浮层挂在 DockTabView", dockSrc.contains("OrbQuickMenuOverlay(barHeight: dockBarHeight"))
@@ -1163,7 +1169,7 @@ check("③ 弹窗自身依旧不铺背景（v3.9.23 红线：别给 sheet 挂 pr
 // 真机取证（截图 1179×2556，红色手绘圈标出该行右侧）：该行右侧值是**两条墨迹带**
 // （y 701~716pt 与 719.7~734.3pt，中心 708.5/727 关于左侧标签中心 717.8 对称）——
 // 值折成了两行，左标签被垂直居中夹在中间 = 错位。宽度实测：折行前整串 ≈ 130pt。
-let settingsSrc = src("Features/Settings/SettingsModelSheets.swift")
+let settingsSrc = src("Features/Settings/SettingsModels.swift")
 check("护栏：设置页文件读得到（读不到下面的断言会指向错处）", !settingsSrc.isEmpty)
 let settingsClean = stripCommentLines(settingsSrc)
 // 根因①：label 把质量说了两遍 —— 系统 name 自带「（高音质）」还再拼「· 优质」
@@ -1195,6 +1201,8 @@ check("神经语音音色行同口径钉单行", neuralVoiceRow.contains(".lineL
 // 才在视图树里 —— 人在生活页/看板页时投递 = 通知落空 = 内容静默消失（本仓口径：不切页 = 消息没了）。
 let dockClean = stripCommentLines(dockSrc)
 let chatClean = stripCommentLines(chatViewSrc)
+// 通知名定义搬到 ChatAppDelegate.swift：这一条断言的「定义端」要读新文件（消费端仍在 ChatView）。
+let chatDelegateClean = stripCommentLines(chatDelegateSrc)
 let shareIntakeSrc = src("Core/ShareIntake.swift")
 let shareIntakeClean = stripCommentLines(shareIntakeSrc)
 check("护栏：ShareIntake.swift 源可读（读不到时下面的断言会指向错处）", !shareIntakeSrc.isEmpty)
@@ -1208,8 +1216,8 @@ check("⑦ 拍照识别（case 7）拍完**就地**出全屏看图页、**不**�
 check("宿主消费 .qingliaoOpenChat → 切聊天页（ShareIntake 在 Core 层摸不到 selected）",
       between(dockClean, "publisher(for: .qingliaoOpenChat)", "LiveActivityActionBridge")
           .contains("selected = .chat"))
-check("通知名两端配对：ChatView 定义 + DockTabView 消费",
-      chatClean.contains("static let qingliaoOpenChat")
+check("通知名两端配对：ChatAppDelegate 定义 + DockTabView 消费",
+      chatDelegateClean.contains("static let qingliaoOpenChat")
       && dockClean.contains("publisher(for: .qingliaoOpenChat)"))
 check("分享接收：投递前先请宿主切页（deliver 里 post .qingliaoOpenChat）",
       shareIntakeClean.contains("post(name: .qingliaoOpenChat,"))

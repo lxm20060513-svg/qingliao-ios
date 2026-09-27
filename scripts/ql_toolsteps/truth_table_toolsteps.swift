@@ -40,11 +40,16 @@ func stripCommentLines(_ s: String) -> String {
 let streamSrc = src("Core/StreamClient.swift")
 let authSrc = src("Core/AuthStore.swift")
 let chatViewSrc = src("Features/Chat/ChatView.swift")
+// v4.0.x 工程治理拆分：工具卡的 4 个视图（ToolStepRow / ToolStepsTruncationNote / ToolProgressNote /
+// ToolStepsSummaryRow）已从 ChatView.swift 搬到 ChatToolStepCards.swift。断言「卡片长什么样」读新文件，
+// 断言「谁在调它 / 门控口径」仍读 ChatView.swift。混读会得到「源码在但看不见」的假红。
+let toolCardsSrc = src("Features/Chat/ChatToolStepCards.swift")
 
 // ── 0. 源可读（空了后面全是空真） ─────────────────────────────
 check("StreamClient.swift 源可读", !streamSrc.isEmpty)
 check("AuthStore.swift 源可读", !authSrc.isEmpty)
 check("ChatView.swift 源可读", !chatViewSrc.isEmpty)
+check("ChatToolStepCards.swift 源可读", !toolCardsSrc.isEmpty)
 
 // ── 1. 后端键名对齐：toolSeq（App 解的就是它，改键名必须两处一起改） ──
 check("AuthStore 解出全量步数键 toolSeq（与后端响应键同名）",
@@ -76,8 +81,8 @@ check("摘要行步数吃 stream.toolSteps（不是 toolNames.count）",
 check("旧形态清零：摘要行不再直接用 stream.toolNames.count",
       !stripCommentLines(chatViewSrc).contains("ToolStepsSummaryRow(count: stream.toolNames.count"))
 check("明细被裁时说清「更早的 N 步未列出」（抽成 ToolStepsTruncationNote，避免深层 ViewBuilder type-check 超时）",
-      chatViewSrc.contains("struct ToolStepsTruncationNote: View {")
-      && chatViewSrc.contains("Text(\"更早的 \\(hidden) 步未列出（只留最近 \\(shown) 步）\")"))
+      toolCardsSrc.contains("struct ToolStepsTruncationNote: View {")
+      && toolCardsSrc.contains("Text(\"更早的 \\(hidden) 步未列出（只留最近 \\(shown) 步）\")"))
 check("提示行带「明细非空」守卫（否则会输出「只留最近 0 步」这种自相矛盾的文案）",
       chatViewSrc.contains("if !stream.toolNames.isEmpty, stream.toolSteps > stream.toolNames.count {"))
 check("工具卡门控与显示口径一致（用 toolSteps，不再只认 toolNames 是否为空）",
@@ -90,12 +95,12 @@ check("耗时列表刷新判据用内容签名（防「条数不变但内容变�
 
 // ── 3b. 同一动作一个名字：工具卡失败行 = 「重新生成」（v3.9.80 文案统一） ──
 check("工具卡失败行按钮写「重新生成」（与气泡/长按菜单/选择文本菜单同名）",
-      chatViewSrc.contains("Label(\"重新生成\", systemImage: \"arrow.clockwise\")"))
+      toolCardsSrc.contains("Label(\"重新生成\", systemImage: \"arrow.clockwise\")"))
 check("无障碍标签说对行为（「重新生成回复」，不再误称「重试这步工具」）",
-      chatViewSrc.contains(".accessibilityLabel(\"重新生成回复\")"))
+      toolCardsSrc.contains(".accessibilityLabel(\"重新生成回复\")"))
 check("旧文案清零：工具行不再用「重试」命名这个动作（注释里可以提历史）",
-      !stripCommentLines(chatViewSrc).contains("重试这步工具")
-      && !stripCommentLines(chatViewSrc).contains("Label(\"重试\", systemImage:"))
+      !stripCommentLines(toolCardsSrc).contains("重试这步工具")
+      && !stripCommentLines(toolCardsSrc).contains("Label(\"重试\", systemImage:"))
 
 // ── 4. 算式镜像：与 StreamClient.toolSteps 同口径，本机可算 ──────
 func mirrorToolSteps(toolSeq: Int, names: Int) -> Int { max(toolSeq, names) }
