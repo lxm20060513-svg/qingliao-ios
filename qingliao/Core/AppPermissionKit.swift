@@ -122,12 +122,10 @@ enum AppPermissionKit {
     }
 
     static func aiControlEnabled(_ c: AppCapability) -> Bool {
-        get {
-            // 总闸关 → 任何能力都不许 AI 动手（比逐项开关优先）
-            guard aiControlMasterEnabled else { return false }
-            guard c.aiControllable else { return false }
-            return UserDefaults.standard.bool(forKey: aiKey(c))
-        }
+        // 总闸关 → 任何能力都不许 AI 动手（比逐项开关优先）
+        guard aiControlMasterEnabled else { return false }
+        guard c.aiControllable else { return false }
+        return UserDefaults.standard.bool(forKey: aiKey(c))
     }
 
     static func setAIControlEnabled(_ on: Bool, for c: AppCapability) {

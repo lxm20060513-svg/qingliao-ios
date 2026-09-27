@@ -106,7 +106,8 @@ enum AgentActionExecutor {
     /// 新建事件。**写操作**：调用方（动作卡）只在用户点「执行」胶囊后才走到这里，
     /// 本函数不再重复确认一次；它只做权限闸门（双闸门 + 后台保护）。
     private static func createEvent(_ action: AgentAction) async -> Outcome {
-        guard let reason = await AppPermissionKit.mutationGuard(.calendar) else {
+        // mutationGuard 返回 nil = 放行；非 nil = 拒绝原因（直接给用户看）
+        if let reason = await AppPermissionKit.mutationGuard(.calendar) {
             return .failed(reason)
         }
         guard let title = action.param("title") else { return .failed("没给事件标题") }
@@ -145,7 +146,8 @@ enum AgentActionExecutor {
 
     /// 删除事件。**删操作**：必须用户明确确认。参数用 eventIdentifier（AI 从日历读到的 ID）。
     private static func deleteEvent(_ action: AgentAction) async -> Outcome {
-        guard let reason = await AppPermissionKit.mutationGuard(.calendar) else {
+        // mutationGuard 返回 nil = 放行；非 nil = 拒绝原因（直接给用户看）
+        if let reason = await AppPermissionKit.mutationGuard(.calendar) {
             return .failed(reason)
         }
         guard let ident = action.param("eventIdentifier") ?? action.param("id") else {
@@ -172,7 +174,8 @@ enum AgentActionExecutor {
 
     /// 存图到相册。写操作 → 需确认。dataURL 由后端给（base64 PNG/JPEG）。
     private static func savePhoto(_ action: AgentAction) async -> Outcome {
-        guard let reason = await AppPermissionKit.mutationGuard(.photos) else {
+        // mutationGuard 返回 nil = 放行；非 nil = 拒绝原因（直接给用户看）
+        if let reason = await AppPermissionKit.mutationGuard(.photos) {
             return .failed(reason)
         }
         guard let raw = action.param("dataURL") ?? action.param("data") else {
@@ -196,9 +199,9 @@ enum AgentActionExecutor {
         }
         // 撤销 = 删掉刚存的那张（只能删自己创建的，系统允许）
         return .done(message: "已存入相册", undo: {
-            guard let id = localID,
-                  let assets = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil),
-                  assets.count > 0 else { return }
+            guard let id = localID else { return }
+            let assets = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil)
+            guard assets.count > 0 else { return }
             try? await PHPhotoLibrary.shared().performChanges {
                 PHAssetChangeRequest.deleteAssets(assets)
             }
@@ -216,7 +219,8 @@ enum AgentActionExecutor {
 
     /// 发系统通知。写操作 → 需确认。不可撤销（通知已出去了）→ doneNoUndo。
     private static func notify(_ action: AgentAction) async -> Outcome {
-        guard let reason = await AppPermissionKit.mutationGuard(.notifications) else {
+        // mutationGuard 返回 nil = 放行；非 nil = 拒绝原因（直接给用户看）
+        if let reason = await AppPermissionKit.mutationGuard(.notifications) {
             return .failed(reason)
         }
         let body = action.param("body") ?? action.param("message") ?? "（无内容）"

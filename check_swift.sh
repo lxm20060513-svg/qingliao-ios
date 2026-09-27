@@ -478,4 +478,29 @@ _n=$(grep 'allowExpense: true' "$CV" | grep -vc '^ *//')
 [ "$_n" = "2" ] && echo "✅ 只有输入栏 send() 那 2 处传 allowExpense: true（分享/任务/备忘/问AI 全部默认 false）" || { echo "❌ allowExpense: true 传点是 $_n 处（应 2），有人给非用户亲手路径开了记账闸"; fail=1; }
 [ $fail -eq 0 ] || { echo "❌ 第 33 段有护栏失守"; exit 1; }
 echo "✅ 两路复审 P0/P1 回归护栏全绿"
-exit $?
+# === 5b. Swift 编译盲区护栏（-parse 抓不到、CI archive 才挂的类型错）===
+chk_fail=0
+# ① 计算属性里误用「换行 get {}」—— 单行 get { ... } 全项目合法，只有换行版才会挂
+#    判据：static var/func 开头的行以 { 结尾，下一行是 get {
+if grep -nE '^\s*static (func|var).*\{[[:space:]]*$' -A1 qingliao/Core/AppPermissionKit.swift 2>/dev/null | grep -qE '^[0-9]+-[[:space:]]*get \{[[:space:]]*$'; then
+  echo "❌ AppPermissionKit：计算属性里出现 get {}（CI 必挂 cannot find 'get' in scope）"; chk_fail=1
+fi
+# ② mutationGuard 返回 String?，必须用 if let 收，不能 guard let
+if grep -rn 'guard let .* = await AppPermissionKit.mutationGuard' qingliao/ 2>/dev/null | grep -q .; then
+  echo "❌ mutationGuard 被 guard let 接收（返回 nil=放行，应写 if let）"; chk_fail=1
+fi
+# ③ PHAsset.fetchAssets 返回非 Optional，不能条件绑定
+if grep -rn 'let assets = PHAsset.fetchAssets' qingliao/ 2>/dev/null | grep -q .; then
+  if grep -rnE 'guard let assets = PHAsset.fetchAssets' qingliao/ 2>/dev/null | grep -q .; then
+    echo "❌ PHAsset.fetchAssets 被 guard let 绑定（PHFetchResult 非 Optional）"; chk_fail=1
+  fi
+fi
+# ④ SF Symbol 字符串误传给只收 SoftWave? 的参数
+if grep -rnE 'tagView\("[a-z]' qingliao/ 2>/dev/null | grep -q .; then
+  echo "❌ tagView(\"...\") 传了字符串（该参数是 SoftWave?，纯图标请用 iconTag）"; chk_fail=1
+fi
+[ $chk_fail -eq 0 ] || { echo "❌ 第 34 段有护栏失守"; exit 1; }
+echo "✅ 编译盲区护栏 4 项全绿"
+
+[ $fail -eq 0 ] || { echo "❌ 有护栏失守"; exit 1; }
+exit 0

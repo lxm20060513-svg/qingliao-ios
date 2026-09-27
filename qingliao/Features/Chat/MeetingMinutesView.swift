@@ -207,6 +207,21 @@ struct MeetingMinutesView: View {
         tagView(nil as SoftWave?, text)
     }
 
+    /// 纯 SF Symbol 前缀的小标签（无波形）—— 与 tagView 同款胶囊，只是换个图标
+    private func iconTag(_ symbol: String, _ text: String) -> some View {
+        HStack(spacing: Spacing.xs) {
+            Image(systemName: symbol)
+                .font(.system(size: Typography.tiny))
+            Text(text)
+                .font(.system(size: Typography.caption, weight: .medium))
+                .monospacedDigit()
+        }
+        .foregroundStyle(.primary)
+        .padding(.horizontal, Spacing.lg)
+        .padding(.vertical, Spacing.sm)
+        .background(Color.secondary.opacity(Tint.subtle), in: Capsule())
+    }
+
     /// 展示用小标签：淡底胶囊（**不上玻璃** —— 玻璃只给交互控件，见 Pill.swift 头注）
     private func tagView(_ wave: SoftWave?, _ text: String) -> some View {
         HStack(spacing: Spacing.xs) {
@@ -300,9 +315,9 @@ struct MeetingMinutesView: View {
                         Text(summary.theme)
                             .font(.system(size: Typography.headline, weight: .semibold))
                         HStack(spacing: Spacing.md) {
-                            tagView("clock", MinutesKit.durationText(summary.duration))
+                            iconTag("clock", MinutesKit.durationText(summary.duration))
                             textTag(MinutesKit.countText(summary.charCount))
-                            tagView("checklist", MinutesKit.todoText(summary.todoCount))
+                            iconTag("checklist", MinutesKit.todoText(summary.todoCount))
                         }
                         Divider().opacity(0.4)
                         Text(summary.body)
