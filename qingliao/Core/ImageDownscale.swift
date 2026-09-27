@@ -46,4 +46,45 @@ enum ImageDownscale {
     /// 变成 base64（历史图不再发 URL），超大图会给上游一个 MB 级 body，留一道体积闸门
     static let wifiMaxSide: CGFloat = 1024
     static let wifiQuality: CGFloat = 0.6
+
+    // MARK: - v4.0.x：`UIImage` → data URL（拍照识别全屏页用）
+
+    /// 当前网络该用的档位（与 `ChatStore.sizedForSend` 同一套判据：蜂窝只能 480/0.45，WiFi 走宽档）。
+    /// 两处各写一遍三元表达式迟早分叉，所以收在这里 —— 调用方只要 `currentMaxSide / currentQuality`。
+    static var currentMaxSide: CGFloat { NetworkMonitor.shared.isCellular ? cellularMaxSide : wifiMaxSide }
+    static var currentQuality: CGFloat { NetworkMonitor.shared.isCellular ? cellularQuality : wifiQuality }
+
+    /// `UIImage` → `data:image/jpeg;base64,…`（**全程后台**，主线程零阻塞）。
+    ///
+    /// 为什么收在这里、而不是让调用方自己压：`UIImage` 非 Sendable，Swift 6 下「主隔离把它交出去之后
+    /// 再碰」直接是编译错误（`sending 'image' risks causing data races`，IntentExtractor.scanImage 踩过）。
+    /// 这里照同一套姿势：只在 nonisolated 函数的后台闭包里碰它，对外只交回 String。
+    ///
+    /// 用途：相机给的是 `UIImage`，而后端只认 data URL —— 自家图片 URL 只有 AAAA，交给 IPv4 上游必 400
+    /// （见 ImageBlocks 文件头）。压不动（尺寸非法 / 编码失败）返回 nil，调用方出声，绝不静默。
+    static func dataURL(from image: UIImage, maxSide: CGFloat, quality: CGFloat) async -> String? {
+        nonisolated(unsafe) let img = image          // 只被下面那个后台闭包使用一次
+        return await withCheckedContinuation { (cont: CheckedContinuation<String?, Never>) in
+            DispatchQueue.global(qos: .userInitiated).async {
+                let size = img.size
+                guard size.width > 1, size.height > 1 else { cont.resume(returning: nil); return }
+                var w = size.width
+                var h = size.height
+                if max(w, h) > maxSide {
+                    let scale = maxSide / max(w, h)
+                    w *= scale
+                    h *= scale
+                }
+                let renderer = UIGraphicsImageRenderer(size: CGSize(width: w, height: h))
+                let resized = renderer.image { _ in
+                    img.draw(in: CGRect(x: 0, y: 0, width: w, height: h))
+                }
+                guard let d = resized.jpegData(compressionQuality: quality) else {
+                    cont.resume(returning: nil)
+                    return
+                }
+                cont.resume(returning: "data:image/jpeg;base64," + d.base64EncodedString())
+            }
+        }
+    }
 }

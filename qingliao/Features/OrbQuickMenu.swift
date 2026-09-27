@@ -17,9 +17,11 @@
 //   语音输入 → 切聊天页 + 进程内通知 → ChatView.toggleVoiceMode（与输入框长按同一条路径）
 //   今日待办 → TodoStore.add(content:source:"orb")
 //   会话纪要 → DockTabView.fullScreenCover 呈现 MeetingMinutesView()（v4.0.x 新增，页内自带 dismiss）
-//   拍照识别 → CameraPicker 拍一张 → ShareRouter.enqueue(SharedPayload(...)) + .qingliaoShareIncoming
-//              —— 与「系统分享接收」**同一条既有管道**（ChatView.drainShareInbox 自动压图并 sendCore），
-//                 不新造通道、不动 ChatView（v4.0.x 新增）。
+//   拍照识别 → CameraPicker 拍一张 → **就地**进「AI 识别」浮层看图回答（形态与 AI 识别同款：
+//              球上浮层卡 + 背景虚化 + 球心扫描环，关掉即走）。
+//              ⚠️ 2026-09-27 改口径（旧口径作废）：原来是 ShareRouter.enqueue(SharedPayload(...)) +
+//                 .qingliaoShareIncoming 走「系统分享接收」同一条管道发进**当前会话**；用户实测后要的是
+//                 「不发送当前对话框，直接在当页做」→ 已撤（详见 DockTabView.handleCameraShot 的注释）。
 //
 // 手势口径（本仓已验证的模式）：
 //   · 轻点 + 长按并存必须用 ExclusiveGesture（分开挂会在长按后补认一次 tap，v2.0.107 实踩）；

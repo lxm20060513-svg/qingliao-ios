@@ -478,6 +478,36 @@ _n=$(grep 'allowExpense: true' "$CV" | grep -vc '^ *//')
 [ "$_n" = "2" ] && echo "✅ 只有输入栏 send() 那 2 处传 allowExpense: true（分享/任务/备忘/问AI 全部默认 false）" || { echo "❌ allowExpense: true 传点是 $_n 处（应 2），有人给非用户亲手路径开了记账闸"; fail=1; }
 [ $fail -eq 0 ] || { echo "❌ 第 33 段有护栏失守"; exit 1; }
 echo "✅ 两路复审 P0/P1 回归护栏全绿"
+
+echo "=== 34. 拍照识别就地看真值表（v4.0.x · 2026-09-27 口径变更）==="
+# 多文件编译时只有 main.swift 允许顶层代码 → 复制一份到临时目录做 main.swift。
+# 口径：长按菜单「拍照识别」拍完**就地**进「AI 识别」浮层看图回答（球上浮层卡 + 背景虚化 + 球心扫描环，
+#      与 AI 识别同形态）—— 不发进当前会话、不切聊天页、不落 ChatStore；提示词/超时/三态文案全在
+#      PhotoAskKit 一处；图块仍只有 ImageBlocks 一个构造点。
+# PhotoAskKit 是纯 Foundation（不 import UIKit/SwiftUI）→ 可以和表一起编，直接调它的值做回归。
+rm -rf /tmp/ql_photoask_main && mkdir -p /tmp/ql_photoask_main
+cp scripts/ql_photoask/truth_table_photoask.swift /tmp/ql_photoask_main/main.swift
+rm -f /tmp/test_photoask
+$SWIFT/swiftc -o /tmp/test_photoask /tmp/ql_photoask_main/main.swift \
+    qingliao/Core/PhotoAskKit.swift 2>&1 | head -10
+[ ${PIPESTATUS[0]} -eq 0 ] || { echo "❌ 编译失败：/tmp/test_photoask"; exit 1; }
+/tmp/test_photoask || exit 1
+
+echo "=== 35. 快捷指令 / Siri「打开某页」真值表（v4.0.x · 2026-09-27 报错修复）==="
+# 口径：用户真机跑快捷指令自动化「打开轻聊看板」当场报
+#   `The provided URL scheme `qingliao` is unsupported; launch is prohibited`
+#   → 旧写法（intent 返回 `.result(opensIntent: OpenURLIntent(qingliao://<tab>))`，请系统 launch
+#     自己的 scheme）在 iOS 26 被拒。新链路：intent 走前台模式（supportedModes）+
+#     `QingliaoRouteHandoff` 进程内投递 → DockTabView 的 applyRoute 落地（广播 + 冷启动补读）。
+# QingliaoIntentSupport.swift 是纯 Foundation → 可以和表一起编，直接跑投递件的真值。
+rm -rf /tmp/ql_intents_main && mkdir -p /tmp/ql_intents_main
+cp scripts/ql_intents/truth_table_intents.swift /tmp/ql_intents_main/main.swift
+rm -f /tmp/test_intents
+$SWIFT/swiftc -o /tmp/test_intents /tmp/ql_intents_main/main.swift \
+    qingliao/Core/QingliaoIntentSupport.swift 2>&1 | head -10
+[ ${PIPESTATUS[0]} -eq 0 ] || { echo "❌ 编译失败：/tmp/test_intents"; exit 1; }
+/tmp/test_intents || exit 1
+
 # === 5b. Swift 编译盲区护栏（-parse 抓不到、CI archive 才挂的类型错）===
 chk_fail=0
 # ① 计算属性里误用「换行 get {}」—— 单行 get { ... } 全项目合法，只有换行版才会挂
@@ -499,7 +529,7 @@ fi
 if grep -rnE 'tagView\("[a-z]' qingliao/ 2>/dev/null | grep -q .; then
   echo "❌ tagView(\"...\") 传了字符串（该参数是 SoftWave?，纯图标请用 iconTag）"; chk_fail=1
 fi
-[ $chk_fail -eq 0 ] || { echo "❌ 第 34 段有护栏失守"; exit 1; }
+[ $chk_fail -eq 0 ] || { echo "❌ 第 36 段有护栏失守"; exit 1; }
 echo "✅ 编译盲区护栏 4 项全绿"
 
 [ $fail -eq 0 ] || { echo "❌ 有护栏失守"; exit 1; }

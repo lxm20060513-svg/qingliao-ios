@@ -27,21 +27,11 @@ enum QingliaoDeepLink {
         case chat, sessions, dashboard, life, settings
     }
 
-    /// 构造深链。scheme/host 都是常量，正常不会失败；**仍然不 force unwrap**——
-    /// intent 里崩溃会把 App 进程一起带走，宁可返回 nil 让调用方抛一条可读错误。
-    static func url(_ route: Route) -> URL? {
-        var c = URLComponents()
-        c.scheme = scheme
-        c.host = route.rawValue
-        return c.url
-    }
-
-    static func openURL(_ route: Route) throws -> URL {
-        guard let u = url(route) else {
-            throw QingliaoIntentError(message: "深链构造失败（\(scheme)://\(route.rawValue)）")
-        }
-        return u
-    }
+    // 🔒 这里**故意不再提供**「造一条 qingliao:// 串」的助手（原 `url(_:)` / `openURL(_:)` 已删）。
+    //    iOS 26 上任何「请系统 launch 本 App 自定义 scheme」的路径都会被拒 —— 用户真机在快捷指令
+    //    自动化里实测到 `The provided URL scheme 'qingliao' is unsupported; launch is prohibited`。
+    //    App 内跳页一律走 `QingliaoRouteHandoff`（进程内投递）；本 scheme 只留给「系统自己开自己」的
+    //    场合：灵动岛 `widgetURL` 回跳、`.onOpenURL` 收系统分享与外部深链。
 
     /// 从深链解析目标页（App 侧 `.onOpenURL` 用）。
     /// 只认本 App 的 scheme，且 host 必须在 `Route` 白名单里；其余 URL（系统分享进来的
@@ -74,4 +64,58 @@ enum QingliaoAIReply {
         let flat = text.replacingOccurrences(of: "\n", with: " ")
         return flat.count > limit ? String(flat.prefix(limit)) + "…" : flat
     }
+}
+
+
+/// intent 的**应用内投递**（v4.0.x）——把「打开某页」从系统深链改成进程内路由。
+///
+/// 为什么不再走 `OpenURLIntent` + `qingliao://<tab>`：iOS 26 上让系统去开**自己的**自定义 scheme
+/// 会当场被拒 —— 快捷指令自动化里报
+/// `The provided URL scheme `qingliao` is unsupported; launch is prohibited`（用户在
+/// 「打开轻聊看板」自动化上实测到，intent 侧 `.result(opensIntent:)` 那一版）。
+/// 正路是 intent 声明**前台模式** `supportedModes`：系统先把 App 带到前台，
+/// intent 代码在 App 进程里跑 → 「打开哪一页」不必再过系统 launch 这一关，
+/// 直接投递给已经在跑的 `DockTabView`。
+///
+/// 两条腿缺一不可：App 已在跑时广播即时生效；App 是被这条 intent 冷启动时观察者还没注册、
+/// 广播会丢 → 落一个带时间戳的兜底值，等根视图起来补读一次。
+/// （与 `LiveActivityActionBridge` 同一姿势 —— 那里已经踩过「通知丢了就静默失效」。）
+///
+/// `qingliao://` scheme 本身**保留**：灵动岛 `widgetURL`、分享扩展回跳、`onOpenURL` 深链都还用它。
+enum QingliaoRouteHandoff {
+
+    /// 主 App 侧监听这条通知（进程内即时生效）
+    static let notification = Notification.Name("qingliao.openRoute")
+
+    /// 兜底存储 key：App 冷启动时读一次（进程刚起来时观察者还没注册，通知会丢）
+    static let defaultsKey = "qingliao_pending_route"
+
+    /// 兜底路由的有效期：超过这个时长就丢弃。
+    /// 理由同 `LiveActivityActionBridge.staleAfter`：flag 万一没被消费会留到下次冷启动，
+    /// 届时把用户莫名切到某个 tab。写入带时间戳，读取过期即丢。
+    private static let staleAfter: TimeInterval = 60
+
+    /// 投递目标页（intent 侧调用，已在 App 进程里）
+    static func request(_ route: QingliaoDeepLink.Route) {
+        UserDefaults.standard.set("\(route.rawValue)|\(Date().timeIntervalSince1970)", forKey: defaultsKey)
+        NotificationCenter.default.post(name: notification, object: route.rawValue)
+    }
+
+    /// 取出并清空待处理路由；没有 / 已过期 / 格式不对都返回 nil（幂等，可重复调用）
+    static func consume() -> QingliaoDeepLink.Route? {
+        guard let raw = UserDefaults.standard.string(forKey: defaultsKey) else { return nil }
+        UserDefaults.standard.removeObject(forKey: defaultsKey)
+        let parts = raw.split(separator: "|", maxSplits: 1)
+        guard let name = parts.first.map(String.init),
+              let route = QingliaoDeepLink.Route(rawValue: name) else { return nil }
+        if parts.count > 1, let stamped = TimeInterval(parts[1]),
+           Date().timeIntervalSince1970 - stamped > staleAfter {
+            return nil
+        }
+        return route
+    }
+
+    /// `DockTab.rawValue` ↔ `Route.rawValue` 一一对应的唯一映射点。
+    /// intent 侧只投 route 名（String），App 侧不必再认识第二种表示。
+    static func route(named name: String) -> QingliaoDeepLink.Route? { QingliaoDeepLink.Route(rawValue: name) }
 }

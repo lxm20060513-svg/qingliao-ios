@@ -147,12 +147,9 @@ struct ChatMessage: Identifiable, Equatable, Sendable {
             return o.isEmpty ? nil : o
         }()
         if let img = image {
-            var blocks: [[String: Any]] = []
-            if !content.isEmpty {
-                blocks.append(["type": "text", "text": content])
-            }
-            blocks.append(["type": "image_url", "image_url": ["url": img]])
-            p["content"] = blocks
+            // v4.0.x：图块构造收口到 `ImageBlocks`（单一来源 —— ql_imgsend 真值表按构造点计数，
+            // 多一处构造点就等于绕过「只准 base64、绝不许把自家 URL 交给上游」那条决策）
+            p["content"] = ImageBlocks.content(text: content, img: img)
         } else {
             p["content"] = content
         }

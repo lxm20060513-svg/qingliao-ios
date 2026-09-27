@@ -583,7 +583,11 @@ check("扫描环/卡片位置走 orbCenterGlobal（与可见球严格同源）",
 check("相机先查可用性（无相机设备 present 会抛异常）",
       identifySrc.contains("UIImagePickerController.isSourceTypeAvailable(.camera)"))
 check("相机内容 ignoresSafeArea（顶部黑边修复不许回退）",
-      identifySrc.contains("CameraPicker { img in recognize(img) }") && identifySrc.contains(".ignoresSafeArea()"))
+      identifySrc.contains("CameraPicker { img in") && identifySrc.contains(".ignoresSafeArea()"))
+// v4.0.x：相机回调按模式分流 —— 拍照识别模式走 askPhoto（就地看图），否则原样 recognize（识别内容）
+//        ⚠️ 别把这行改回单分支：改回 = 拍照识别又掉回「识别内容」那条链，问出来的东西完全不对。
+check("相机回调按模式分流（photoAskMode ? askPhoto : recognize）",
+      identifySrc.contains("if photoAskMode { askPhoto(img) } else { recognize(img) }"))
 // ⑤ 没认出 ≠ 失败：不得出现「识别失败」这类报错口气（用户看到会以为坏了）
 // 剥注释行再断言：本文件注释里为说明口径会出现「识别失败」字样，直接 contains 会假红
 check("没认出内容不算失败（代码里不出现「识别失败」报错口气）",
@@ -657,8 +661,9 @@ check("一问一答入口只有一处实现（ask 复用它，别再各写一份
       && src("Core/AppIntents.swift").contains("return try await oneShot(style.instructionPrefix + q, auth: auth)"))
 check("只取字的新入口收在 IntentExtractor（复用非 Sendable 那套处理，不另起后台闭包）",
       src("Core/IntentExtractor.swift").contains("static func ocrText(in image: UIImage) async -> String?"))
-check("每次进浮层按宿主传入的模式起手（默认识别态；只有译文弹窗的「换一张」传真）",
-      identifySrc.contains("translateMode = startInTranslateMode\n            lastImage = nil"))
+check("每次进浮层按宿主传入的模式起手（默认识别态；译文弹窗的「换一张」传真；拍照识别传真 + 那张照片）",
+      identifySrc.contains("translateMode = startInTranslateMode")
+      && identifySrc.contains("if let img = photoAskImage {"))
 // v3.9.82：译文卡整套搬进 `Features/TranslateSheet.swift`（用户「改弹窗，跟 AI 速记弹窗一致」）——
 // 这里只钉「浮层里确实没了」；弹窗形态由 scripts/ql_translatesheet/ 那张表管（单一真源，别抄第二套）。
 check("译文卡整套已搬出识别浮层（复制反馈 / 译文标题行都不再留在这里）",
@@ -707,8 +712,8 @@ check("引擎判停/超时可注入时间（否则这条回归只能靠真机手
 // ⑨ 接线：两个胶囊都要有真实分支，且切页时不许留死层
 check("DockTabView 分发「AI 识别」胶囊", dockSrc.contains("showIdentify = true"))
 check("DockTabView 分发「语音对话」胶囊", dockSrc.contains("showVoiceDialog = true"))
-check("切页时两个新层都收起（不留浮在新页面上的死层）",
-      dockSrc.contains("if showIdentify { showIdentify = false }")
+check("切页时两个新层都收起（不留浮在新页面上的死层），识别浮层连载荷一起清",
+      dockSrc.contains("if showIdentify { showIdentify = false; identifyPhoto = nil }")
       && dockSrc.contains("if showVoiceDialog { showVoiceDialog = false }"))
 check("识别浮层开着时摘掉球命中层（不许两层同时吃触摸）",
       dockSrc.contains("if !showOrbMenu && !showIdentify && !showVoiceDialog {"))
@@ -725,15 +730,20 @@ for (slot, line) in [("菜单", "showOrbMenu = false"),
                      ("语音对话", "showVoiceDialog = false"),
                      ("译文 sheet", "translateResult = nil"),
                      ("会话纪要全屏页", "showMinutes = false"),
-                     ("拍照识别相机", "showCamera = false")] {
+                     ("拍照识别相机", "showCamera = false"),
+                     ("拍照识别那张照片（识别浮层载荷）", "identifyPhoto = nil")] {
     check("收口清掉全部呈现位态：" + slot, orbCollar.contains(line))
 }
 
 // ⑨⁗ v4.0.x：两颗新胶囊（id 6 会话纪要 / id 7 拍照识别）的分发接线 —— 与上面同一套「唯一真源」口径。
 //   会话纪要：fullScreenCover(isPresented: $showMinutes) → MeetingMinutesView()（页内自带 dismiss）
-//   拍照识别：fullScreenCover(isPresented: $showCamera) → CameraPicker → onImage 里走**既有分享管道**：
-//             ShareRouter 入队 → 切聊天页 → 0.35s 闸 → post .qingliaoShareIncoming
-//             （ChatView.drainShareInbox 自动压图 sendCore；不动 ChatView、不新造通道）
+//   拍照识别（**2026-09-27 改口径，旧口径已作废**）：fullScreenCover(isPresented: $showCamera) → CameraPicker
+//             → onImage 里把照片交给**「AI 识别」浮层**（球上浮层卡 + 背景虚化 + 球心扫描环），就地让 AI
+//             看图回答。形态与 AI 识别同款 = 用户拍板口径；曾短暂做成「整屏看图页」被用户当场否掉，
+//             所以这里钉死「不许再有第二个整屏页」。
+//             ⚠️ 旧口径（v3.9.93 ~ 改前）是走分享管道**发进当前会话**：ShareRouter 入队 → 切聊天页 →
+//                0.35s 闸 → post .qingliaoShareIncoming。用户实测后要的是「不发送当前对话框，
+//                直接在当页做」→ 管道已撤，下面几条旧断言按新口径重写（别再照旧判红）。
 check("DockTabView 分发「会话纪要」胶囊", dockSrc.contains("showMinutes = true"))
 check("会话纪要以 fullScreenCover 呈现 MeetingMinutesView()（页内自带 dismiss，与语音对话页同口径）",
       dockSrc.contains(".fullScreenCover(isPresented: $showMinutes) {")
@@ -746,17 +756,24 @@ check("相机内容 .ignoresSafeArea()（缺它 = 顶部露宿主黑边；与 ql
       dockSrc.contains("CameraPicker { image in handleCameraShot(image) }\n            .ignoresSafeArea()"))
 let camSlice = between(dockSrc, "private func handleCameraShot(", "// MARK: - v3.9.82")
 check("拍照识别切片取到（切片空了下面几条就是空真）", !camSlice.isEmpty)
-check("拍照识别走既有分享管道（ShareRouter 入队 + SharedPayload 三件套），不新造通道",
-      camSlice.contains("ShareRouter.shared.enqueue(SharedPayload(")
-      && camSlice.contains("sourceName: \"拍照识别\"")
-      && camSlice.contains("image: image"))
-check("拍完通知的仍是既有 .qingliaoShareIncoming（ChatView.drainShareInbox 消费）",
-      camSlice.contains("NotificationCenter.default.post(name: .qingliaoShareIncoming, object: nil)")
-      && chatViewSrc.contains(".qingliaoShareIncoming"))
-check("拍照识别先切聊天页（不切页 = 消息静默消失，同 case 2/4/5 口径）",
-      camSlice.contains("if selected != .chat { skipBurstOnce() }")
-      && camSlice.contains("selected = .chat"))
-check("拍照识别有 0.35s 闸（转场未完成时投递，接收方可能还没进视图树 → 通知落空；照 askAI）",
+// ⚠️ 口径变更（2026-09-27）：下面这组断言钉的是**新口径**——「不进会话、不切页、就地出看图页」。
+check("拍照识别**不再**走分享管道（旧口径发进当前会话；用户否掉了「污染会话」）",
+      !camSlice.contains("ShareRouter.shared.enqueue")
+      && !camSlice.contains("sourceName: \"拍照识别\"")
+      && !camSlice.contains(".qingliaoShareIncoming"))
+check("拍完**就地**把照片交给识别浮层看图（identifyPhoto = image + showIdentify = true）",
+      camSlice.contains("identifyPhoto = image") && camSlice.contains("showIdentify = true"))
+check("拍完**不切聊天页**（旧口径的 selected = .chat / skipBurstOnce 已撤——看一眼就走，别把人从别的 tab 拽走）",
+      !camSlice.contains("selected = .chat")
+      && !camSlice.contains("skipBurstOnce()"))
+check("就地看这条 UI 与「AI 识别」同源：宿主把照片传进 OrbIdentifyOverlay（photoAskImage: identifyPhoto）",
+      dockSrc.contains("photoAskImage: identifyPhoto"))
+check("**没有**第二个整屏看图页（两套形态并存正是这次返工的原因）",
+      !dockSrc.contains("PhotoAskView") && !dockSrc.contains("photoAskShot")
+      && !FileManager.default.fileExists(atPath: "qingliao/Features/PhotoAskView.swift"))
+check("关浮层时连同载荷一起清（漏清 = 下次点普通「AI 识别」会莫名对上一张老照片提问）",
+      dockSrc.components(separatedBy: "identifyPhoto = nil").count - 1 >= 4)
+check("拍照识别有 0.35s 闸（相机与浮层是同一宿主上两种呈现，同帧一收一开会被吞；照 askAI）",
       camSlice.contains("try? await Task.sleep(for: .seconds(0.35))"))
 check("拍完同时关相机（菜单已在收口里关上）", camSlice.contains("showCamera = false"))
 check("无摄像头设备兜底（present .camera 会抛 NSInvalidArgumentException，本仓已踩）",
@@ -1106,9 +1123,11 @@ check("① dashboardCard 口径仍是 .glassEffect(.regular, in: RoundedRectangl
 //    不剥会数出 4 处（注释 2 + 代码 2）→ 假红。
 let identifyClean = stripCommentLines(identifySrc)
 // v3.9.82：译文改成弹窗 → 本层少一张（译文卡搬进 Features/TranslateSheet.swift）→ 5 处变 4 处。
-// 浮层里剩 4 张：识别中（扫描）/ 没认出 / 翻译中 / 翻译失败。弹窗那张由 scripts/ql_translatesheet/ 管。
-check("② 识别浮层所有卡都走新口径（v3.9.82 起 4 张：识别中/没认出/翻译中/翻译失败；应当是 4 处）",
-      identifyClean.components(separatedBy: ".overlayGlassCard()").count - 1 == 4)
+// v4.0.x：浮层再加「拍照识别」三段（askingPhoto / photoAnswer / photoFailed）→ 4 处变 7 处。
+// 浮层里 7 张：识别中（扫描）/ 没认出 / 翻译中 / 翻译失败 / 拍照见图等回答 / 看图回答 / 看图失败。
+//            弹窗那张由 scripts/ql_translatesheet/ 管；拍照识别这条链的口径由 scripts/ql_photoask/ 管。
+check("② 识别浮层所有卡都走新口径（v4.0.x 起 7 张：识别中/没认出/翻译中/翻译失败/看图等回答/看图回答/看图失败；应当是 7 处）",
+      identifyClean.components(separatedBy: ".overlayGlassCard()").count - 1 == 7)
 check("② 识别浮层旧的实心卡口径清零（regularMaterial / Radius.inset / 暗发丝线）",
       !identifyClean.contains(".regularMaterial")
       && !identifyClean.contains("Radius.inset")
@@ -1165,8 +1184,8 @@ check("护栏：ShareIntake.swift 源可读（读不到时下面的断言会指�
 let case6 = between(dockClean, "case 6:", "case 7:")
 check("⑥ 会话纪要（case 6）先切聊天页再弹全屏页 —— 否则整理好的纪要卡静默消失", !case6.isEmpty &&
       case6.contains("selected = .chat") && case6.contains("showMinutes = true"))
-check("⑦ 拍照识别（case 7）经 handleCameraShot 切聊天页（既有口径，别被后来的改动挤掉）",
-      between(dockClean, "private func handleCameraShot", "private func dispatchQuickAction")
+check("⑦ 拍照识别（case 7）拍完**就地**出全屏看图页、**不**切聊天页（2026-09-27 口径变更，别被后来的改动挤回旧管道）",
+      !between(dockClean, "private func handleCameraShot", "private func dispatchQuickAction")
           .contains("selected = .chat"))
 check("宿主消费 .qingliaoOpenChat → 切聊天页（ShareIntake 在 Core 层摸不到 selected）",
       between(dockClean, "publisher(for: .qingliaoOpenChat)", "LiveActivityActionBridge")

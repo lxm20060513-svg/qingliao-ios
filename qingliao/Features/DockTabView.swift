@@ -58,8 +58,14 @@ struct DockTabView: View {
     @State private var translateResult: TranslateResult?
     /// v4.0.x：长按菜单「会话纪要」全屏页（页内自带 dismiss；本页只负责呈现与收口）
     @State private var showMinutes = false
-    /// v4.0.x：长按菜单「拍照识别」系统相机（拍一张 → ShareRouter 既有管道 → 聊天页发送）
+    /// v4.0.x：长按菜单「拍照识别」系统相机（拍一张 → **就地**进「AI 识别」浮层让 AI 看图回答）
     @State private var showCamera = false
+    /// v4.0.x（2026-09-27 改口径）：拍完那张照片 → 交给「AI 识别」浮层**就地**看图回答
+    ///（形态与 AI 识别同款：球上浮层卡 + 背景虚化 + 球心扫描环；**不进会话、不切聊天页**）。
+    /// 旧口径是走 ShareRouter 分享管道发进当前对话，用户实测后否掉了「污染会话」。
+    /// ⚠️ 它其实是「识别浮层」这个位态的**载荷**：`showIdentify = true` 时一起设，关浮层时必须一起清 ——
+    ///   漏清 = 下一次点普通「AI 识别」会莫名对上一张老照片提问（本仓「状态没复位」那一类坑）。
+    @State private var identifyPhoto: UIImage?
     /// v3.9.82：下一次进识别浮层时**直接以翻译模式起手**（只有译文弹窗的「换一张」会置真；
     /// 浮层每次 onAppear 都复位，所以事后必须清掉，否则下一次拍照会莫名出译文）。
     @State private var identifyStartTranslate = false
@@ -124,7 +130,7 @@ struct DockTabView: View {
                 if showOrbMenu { showOrbMenu = false }
                 // v3.9.76：识别浮层与语音对话页同样要跟着收——深链 / 分享 / 通知切页时
                 // 留着它们会浮在新页面上（此时球命中层已被条件摘掉，收不起来就成死层）
-                if showIdentify { showIdentify = false }
+                if showIdentify { showIdentify = false; identifyPhoto = nil }
                 if showVoiceDialog { showVoiceDialog = false }
                 // v3.9.33：切到聊天页 = 回复已在眼前 → 清掉球上的「未查看 / 失败」提示
                 if newVal == .chat { clearOrbNotice() }
@@ -218,12 +224,17 @@ struct DockTabView: View {
                                        onTranslated: { source, text in
                                            showIdentify = false
                                            identifyStartTranslate = false
+                                           identifyPhoto = nil          // 关浮层必须连载荷一起清
                                            translateResult = TranslateResult(source: source, text: text)
                                        },
                                        startInTranslateMode: identifyStartTranslate,
+                                       // v4.0.x：宿主拍完的那张照片（「拍照识别」就地看图）。
+                                       // 非 nil 时浮层起手就对着它问 AI；nil = 原「AI 识别」流程不受影响。
+                                       photoAskImage: identifyPhoto,
                                        onClose: {
                                            showIdentify = false
                                            identifyStartTranslate = false
+                                           identifyPhoto = nil          // 关浮层必须连载荷一起清（漏 = 下次误用老照片）
                                        })
                         .transition(.opacity)
                         .zIndex(45)
@@ -262,6 +273,9 @@ struct DockTabView: View {
                                onAskAI: { askAI($0) },
                                onRetry: {
                                    // 换一张：重开识别浮层并以翻译模式起手（相册一颗按钮的事，不再自动弹相册）
+                                   // ⚠️ 必须清载荷：浮层重建会跑 onAppear，`identifyPhoto` 非 nil 就被当成
+                                   //   「拍照识别」去问上一张老照片（载荷成对设/清，别只设不清）。
+                                   identifyPhoto = nil
                                    identifyStartTranslate = true
                                    showIdentify = true
                                })
@@ -333,6 +347,10 @@ struct DockTabView: View {
                 if selected != .chat { skipBurstOnce() }
                 selected = .chat
             }
+            // v4.0.x：快捷指令 / Siri 的「打开轻聊…」动作（intent 走前台模式 + 进程内投递到这一层）。
+            // 🚨 这段**必须**是独立 ViewModifier，不能在 body 巨型链上直接挂两个带闭包的修饰符：
+            //    与上面 `OrbMenuFromPetModifier` 同一条红线（CI run #571 那类 Archive 类型检查超时）。
+            .modifier(IntentRouteModifier(onRoute: applyRoute))
             // v3.9.7：灵动岛「停止生成」按钮——`LiveActivityIntent` 在**主 App 进程**执行，
             // 所以进程内通知能直达这里（挂件进程触不到 App 的流）
             .onReceive(NotificationCenter.default.publisher(for: LiveActivityActionBridge.notification)) { note in
@@ -407,6 +425,7 @@ struct DockTabView: View {
     private func askAI(_ text: String) {
         showIdentify = false
         identifyStartTranslate = false
+        identifyPhoto = nil
         if selected != .chat { skipBurstOnce() }
         selected = .chat
         Task { @MainActor in
@@ -426,10 +445,10 @@ struct DockTabView: View {
         // `!showOrbMenu && !showIdentify && !showVoiceDialog` 才在，快捷方式不经过它，而且它能在任意时刻
         // 进来（含 App 在后台、识别浮层 / 速记弹窗 / 译文弹窗 / 语音对话还开着的时候）。所以这里统一把
         // 「瞬时 UI」收干净再走分支：原先的互斥只靠可达性成立，新入口一来就漏。
-        // ⚠️ 本函数的全部呈现位态（8 个：菜单 / 速记 sheet / 识别浮层 / 换一张哨兵 / 语音对话 /
-        //    译文 sheet / 会话纪要全屏页 / 拍照识别相机）都必须在这里清掉一个不漏 —— 漏一个就是「点了没反应」
-        //    （sheet 压住新开的浮层）或同一宿主两个 sheet 同时为真（本文件 231 行记着那个坑）。
-        //    新增位态时同步扩这里 + 真值表护栏。
+        // ⚠️ 本函数的全部呈现位态（9 个：菜单 / 速记 sheet / 识别浮层 / 换一张哨兵 / 语音对话 /
+        //    译文 sheet / 会话纪要全屏页 / 拍照识别相机 / 拍照识别看图页）都必须在这里清掉一个不漏 ——
+        //    漏一个就是「点了没反应」（sheet 压住新开的浮层）或同一宿主两个 sheet 同时为真
+        //    （本文件 231 行记着那个坑）。新增位态时同步扩这里 + 真值表护栏。
         // 清标志与本分支的置位都在**同一次事务**里，最终值以分支为准（不会顺手关掉本分支要开的东西）；
         // 也顺带清掉「换一张」哨兵 —— 快捷方式进 AI 识别应正常起手，不该继承上次的翻译模式。
         showOrbMenu = false
@@ -440,6 +459,7 @@ struct DockTabView: View {
         translateResult = nil
         showMinutes = false
         showCamera = false
+        identifyPhoto = nil
         switch action.id {
         case 0:   // 新建会话
             // v3.9.59：已在聊天页 = selected 不变、不会放烟花，白置标志会吞掉紧接着的一次真点击烟花
@@ -481,6 +501,9 @@ struct DockTabView: View {
             // 无摄像头设备（模拟器 / 部分无相机 iPad）present .camera 会抛 NSInvalidArgumentException
             // —— 与 OrbIdentifyOverlay.openCameraOrAlbum、ChatView 同一道闸，别在三处写出不同判据。
             // 兜底退回既有的「AI 识别」浮层（它自带相册入口），比静默无反应诚实。
+            // ⚠️ 2026-09-27 改口径：拍完**就地**进「AI 识别」浮层让 AI 看图回答（球上浮层卡 + 背景虚化 +
+            //   球心扫描环，与「AI 识别」同一形态）—— 不发进会话、不切聊天页、不落 ChatStore。
+            //   旧口径的分享管道已撤，原因见 handleCameraShot 的注释。
             if UIImagePickerController.isSourceTypeAvailable(.camera) {
                 showCamera = true
             } else {
@@ -501,20 +524,27 @@ struct DockTabView: View {
             .ignoresSafeArea()
     }
 
-    /// 拍完一张 → 走**既有的系统分享接收管道**（不新造通道、不动 ChatView）：
-    ///   ShareRouter 入队 → 切聊天页 → 0.35s 闸后 post `.qingliaoShareIncoming`
-    ///   → ChatView.drainShareInbox 自动压图并 sendCore（与系统分享/分享扩展完全同一条路）。
-    /// 闸的理由与 askAI 一字不差：转场还在跑时投递，接收方可能还没进视图树 → 通知落空。
+    /// 拍完一张 → **就地**进「AI 识别」浮层，让 AI 看图回答（形态 = 球上浮层卡 + 背景虚化 + 球心扫描环）。
+    ///
+    /// ⚠️ 口径变更（2026-09-27，用户拍板）：**不要再退回分享管道**。旧口径（v3.9.93）是
+    ///   `ShareRouter.enqueue(sourceName: "拍照识别")` → `selected = .chat` → 0.35s 后 post
+    ///   `.qingliaoShareIncoming` → ChatView.drainShareInbox 自动压图并 sendCore，把
+    ///   「帮我看看这张照片」+ 图发进**当前会话**。用户实测后要的是「不发送当前对话框，直接在当页做」：
+    ///   拍照识别是「看一眼就走」的即时动作，不该往会话里堆消息、也不该把人从别的 tab 拽到聊天页。
+    ///   （分享管道本身仍在，服系统分享 / 分享扩展；这里只是不再用它。）
+    ///   形态也定过一版：曾短暂做成「全屏看图页」，用户随即改回**与「AI 识别」同一形态的球上浮层卡** ——
+    ///   所以这套 UI 落在 `OrbIdentifyOverlay`（浮层新增三段：askingPhoto / photoAnswer / photoFailed），
+    ///   **不要再另造一个整屏页**（两套形态并存就是这次返工的原因）。
+    ///
+    /// 0.35s 闸：相机与浮层是**同一宿主上的两种呈现**，相机 dismiss 与浮层出现同帧会被吞（本仓记过这个坑，
+    ///   `askAI` 一字不差）。所以先关相机、错开一拍再把照片交给浮层。
+    /// 不切页之后 `skipBurstOnce()` 也不需要了 —— 它只为「从别的 tab 跳聊天页」时的烟花去抖。
     private func handleCameraShot(_ image: UIImage) {
         showCamera = false                      // 关相机（菜单已在 handleOrbAction 的收口里关掉）
-        ShareRouter.shared.enqueue(SharedPayload(text: "帮我看看这张照片",
-                                                 image: image,
-                                                 sourceName: "拍照识别"))
-        if selected != .chat { skipBurstOnce() }
-        selected = .chat
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(0.35))
-            NotificationCenter.default.post(name: .qingliaoShareIncoming, object: nil)
+            identifyPhoto = image               // 载荷：浮层起手就对着这张问 AI（关浮层时一起清）
+            showIdentify = true
         }
     }
 
@@ -530,6 +560,18 @@ struct DockTabView: View {
     // 本类型别再放第二份：跨类型引用不到私有成员就是这么来的（本地 -parse 全绿、CI 才报 has no member）。
 
     // MARK: - v3.4.14 系统分享接入口
+    /// v4.0.x：「某条深链 / 某个 intent 要开哪一页」的**唯一落地点**。
+    ///
+    /// 三条来源共用它，别再各写一份 tab 切换：`onOpenURL` 的 `qingliao://<tab>`、
+    /// intent 的进程内广播、intent 冷启动兜底补读。
+    /// 已在目标页时不 `skipBurstOnce()` —— 白置标志会吞掉紧接着的真点击烟花
+    ///（与 `.qingliaoOpenChat` 那条同一理由）。
+    private func applyRoute(_ route: QingliaoDeepLink.Route) {
+        guard let tab = DockTab(rawValue: route.rawValue) else { return }
+        if selected != tab { skipBurstOnce() }
+        selected = tab
+    }
+
     /// 解析系统分享的 URL（文件/图片/文本/链接）→ 生成 SharedPayload 入 ShareRouter，切到聊天页并广播。
     /// v3.4.24：地图 App 分享的定位链接 → 解析经纬度入 SharedPayload.location（AI 推荐周边）。
     private func handleShareURL(_ url: URL) {
@@ -537,9 +579,8 @@ struct DockTabView: View {
         // v3.9.32：泛化为快捷指令 / Siri 的页面深链（qingliao://chat|sessions|dashboard|life|settings）。
         // Route.rawValue 与 DockTab.rawValue 一一对应；其余 URL 原样落到下面的分享分支。
         // （原「只认 host == chat」的窄分支已由这里覆盖——chat 也是 Route 的一个 case，别再写第二份判断。）
-        if let route = QingliaoDeepLink.route(for: url), let tab = DockTab(rawValue: route.rawValue) {
-            skipBurstOnce()
-            selected = tab
+        if let route = QingliaoDeepLink.route(for: url) {
+            applyRoute(route)
             return
         }
         var payload: SharedPayload?
@@ -735,3 +776,33 @@ private struct OrbMenuFromPetModifier: ViewModifier {
 // 六颗胶囊被键盘挤在上半屏，观感是「菜单浮在半空」。
 // 广播点**合进上面的 `OrbMenuFromPetModifier`**（同一个 onChange(of: showOrbMenu)），
 // 理由：不再往 DockTabView.body 的巨型修饰符链上多加一个泛型调用（CI run #571 类型检查超时那类风险）。
+
+
+/// v4.0.x：快捷指令 / Siri「打开轻聊某页」的投递落地（`.modifier(IntentRouteModifier(onRoute:))`）。
+///
+/// 两条腿缺一条就是「点快捷指令没反应」：
+///   · 广播 —— App 已经在跑：进程内通知直达
+///   · 兜底 —— App 是被这条 intent 拉起来的：观察者注册前广播会丢，起来时补读一次落盘值
+/// ⚠️ 广播这条**必须顺手清兜底 flag**（幂等）：不清的话同一条路由会被应用两次 —— App 在 60s 内
+///    重建再 appear，人会被从当前页莫名拽回那一页（与灵动岛那条 `LiveActivityActionBridge.consume()`
+///    同一姿势）。
+/// ⚠️ 本类型**看不到** `DockTabView` 的私有成员（跨类型不可见）—— 切页逻辑由宿主注入 `onRoute`
+///    （传方法引用 `applyRoute` 而不是闭包字面量，也是为省那点类型推导负担）。
+private struct IntentRouteModifier: ViewModifier {
+    /// 由宿主注入 —— `DockTabView.applyRoute(_:)`（`qingliao://` 深链 / 广播 / 冷启动三条来源共用）
+    let onRoute: (QingliaoDeepLink.Route) -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .onReceive(NotificationCenter.default.publisher(for: QingliaoRouteHandoff.notification)) { note in
+                guard let raw = note.object as? String else { return }
+                _ = QingliaoRouteHandoff.consume()   // 清兜底（幂等，理由见上）
+                guard let route = QingliaoRouteHandoff.route(named: raw) else { return }
+                onRoute(route)
+            }
+            .task {
+                guard let route = QingliaoRouteHandoff.consume() else { return }
+                onRoute(route)
+            }
+    }
+}

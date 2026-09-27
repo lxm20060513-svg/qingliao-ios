@@ -18,8 +18,11 @@ import Foundation
 //     UserDefaults 的服务器地址 + Keychain 的 token，与 App 内**同一套存储**，不新造第二份凭据。
 //  2. **不能有 UI**。App Intent 可能在没有界面的进程里跑（App 被系统在后台拉起），
 //     所以「问轻聊」走后端 `/api/stream/chat`（一次性、非流式），不挂 App 内那套 StreamClient 轮询。
-//  3. **回 App 用深链**：`OpenURLIntent` + `qingliao://`（Info.plist 已注册该 scheme；
-//     灵动岛 `qingliao://chat` 走的是同一条路），App 侧由 `DockTabView.onOpenURL` 消费。
+//  3. **回 App 到某页**：intent 声明前台模式（`supportedModes`）+ 进程内投递给 `DockTabView`。
+//     ⚠️ **别退回 `OpenURLIntent` + `qingliao://`**：iOS 26 上让系统去开自己的自定义 scheme 会当场被拒，
+//     快捷指令里报「The provided URL scheme `qingliao` is unsupported; launch is prohibited」
+//     （用户「打开轻聊看板」自动化实测）。`qingliao://` 深链仍归灵动岛 `widgetURL` / 分享回跳 /
+//     `onOpenURL` 用 —— 两个入口各管一段，不是二选一，也别互相顶替。
 //
 // ⚠️ App Shortcuts **每个 App 最多 10 条**，超了是**构建期**失败（appintentsmetadataprocessor 报
 //    "Found N App Shortcuts, but each app may have at most 10"）。本文件现在 8 条 —— 加速捷前先数。
@@ -60,11 +63,38 @@ enum QingliaoIntentClient {
     /// timeout 120：这条链路后端要跑 Hermes agent 的工具循环（查 NAS / 查天气…），默认 30s 会把长回答掐断。
     @MainActor
     static func oneShot(_ prompt: String, auth: AuthStore, timeout: TimeInterval = 120) async throws -> String {
-        let (model, provider) = CloudConfig.mainModelAndProvider
+        try await oneShot(prompt, auth: auth, imageDataURL: nil, timeout: timeout)
+    }
+
+    /// 一问一答（**非流式**）· **带图**版 —— v4.0.x「拍照识别」全屏看图页用。
+    ///
+    /// 与上面那条**除 messages[0].content 形态外一字不差**（同一个 `/api/stream/chat` 端点、同一套模型取源），
+    /// 所以文本那条只是它 `imageDataURL: nil` 的分支 —— 别在这条旁边再写第二份 payload 拼装。
+    ///
+    /// `imageDataURL` 必须是 `data:` base64 串：自家图片 URL 只有 AAAA，交给 IPv4 上游必 400
+    /// （见 `ImageBlocks` 文件头）。图块构造统一走 `ImageBlocks.content`（全仓唯一构造点，ql_imgsend 真值表钉着）。
+    @MainActor
+    static func oneShot(_ prompt: String, auth: AuthStore, imageDataURL: String?,
+                        timeout: TimeInterval = 120) async throws -> String {
+        // 模型取源分两条，**别合并**：
+        //   · 带图 → `modelForImage`（视觉模型 > Agent 模型 > 主模型，与 ChatView.resolveModel 同规则）
+        //   · 纯文本（AI 翻译 / 问轻聊 / 纪要）→ 只认 `CloudConfig.mainModelAndProvider`
+        //     （v3.9.79 口径：翻译浮层是按主模型配的 30s 超时，切到 Agent 档位会成片掐断）
+        let (model, provider) = imageDataURL == nil
+            ? CloudConfig.mainModelAndProvider
+            : modelForImage(true)
+        // 逐分支直赋 `[[String: Any]]`：不要写成 `Any` 与 `??` 混推（本机 `swiftc -parse` 查不出这类，
+        // 只有 CI Archive 才炸）。下面两条分支与 Models.swift 的图块分支同一写法。
+        let messages: [[String: Any]]
+        if let img = imageDataURL {
+            messages = [["role": "user", "content": ImageBlocks.content(text: prompt, img: img)]]
+        } else {
+            messages = [["role": "user", "content": prompt]]
+        }
         let payload: [String: Any] = [
             "model": model,
             "provider": provider,
-            "messages": [["role": "user", "content": prompt]],
+            "messages": messages,
             "stream": false,
         ]
         let j = try await auth.json("/api/stream/chat", method: "POST", body: payload, timeout: timeout)
@@ -73,6 +103,22 @@ enum QingliaoIntentClient {
             throw QingliaoIntentError(message: "轻聊没有返回内容（后端 200 但正文为空）")
         }
         return text
+    }
+
+    /// 「带图时用哪个模型」的取源 —— 必须与 `ChatView.resolveModel` 同规则（视觉模型 > Agent 模型 > 主模型）。
+    /// 为什么不能直接调它：那是 ChatView 的实例方法（读视图 @AppStorage 状态），这一层（无界面客户端）拿不到。
+    /// ⚠️ 改口径时两处一起看 —— 别让「拍照识别用哪个模型」和「聊天页发图用哪个模型」分叉。
+    /// ⚠️ 纯文本链路（AI 翻译 / 问轻聊 / 纪要）**刻意不走这里** —— 那几条按 `CloudConfig.mainModelAndProvider`
+    ///   取源（见 `oneShot` 里那段注释），别顺手合并成一条：翻译浮层的 30s 超时是配主模型的。
+    @MainActor
+    static func modelForImage(_ hasImage: Bool) -> (model: String, provider: String) {
+        if hasImage, let vision = CloudConfig.effectiveVisionModel() {
+            return (vision.model, vision.provider)
+        }
+        let agentModel = UserDefaults.standard.string(forKey: UserDefaultsKey.agentModel) ?? ""
+        let agentProvider = UserDefaults.standard.string(forKey: UserDefaultsKey.agentProvider) ?? ""
+        if !agentModel.isEmpty { return (agentModel, agentProvider) }
+        return CloudConfig.mainModelAndProvider
     }
 
     /// 收件箱待处理条目文本。
@@ -256,45 +302,64 @@ struct CheckInboxIntent: AppIntent {
     }
 }
 
-// MARK: - 动作 4~7：打开 App 到指定页（零参数深链）
+// MARK: - 动作 4~7：打开 App 到指定页（零参数）
 //
-// 用 `OpenURLIntent` + `.result(opensIntent:)`（Apple 文档给的"从 intent 打开 URL"正路），
-// 不用已废弃的 `openAppWhenRun`（iOS 16–26 已标 Deprecated，扩展里置 true 还会直接编译报错）。
-// App 侧由 `DockTabView.onOpenURL` 消费 `qingliao://<tab>`。
+// 口径（v4.0.x，用户实测踩出来的）：
+// · 旧写法 `OpenURLIntent` + `.result(opensIntent:)` 在 iOS 26 上**当场报错**——
+//   「The provided URL scheme `qingliao` is unsupported; launch is prohibited」，
+//   即系统拒绝从 intent 里 launch 自己的自定义 scheme（快捷指令自动化里必现）。
+// · 改用 `supportedModes = .foreground(.immediate)`（`.foreground` 的文档口径：系统把 App 带到前台后
+//   才跑动作），intent 代码于是就在 **App 进程**里执行 → 目标页直接用 `QingliaoRouteHandoff` 投递给
+//   `DockTabView`，不再过系统 launch 这一关。
+// · `openAppWhenRun` 仍不用：iOS 16–26 已标 Deprecated，扩展里置 true 还会直接编译报错。
 
 struct OpenChatIntent: AppIntent {
     static var title: LocalizedStringResource { "打开轻聊聊天" }
     static var description: IntentDescription { IntentDescription("打开轻聊并回到聊天页") }
+    /// 计算属性而非 `static let`：与 `title` 同一理由——Swift 6 严格并发下静态存储属性会报
+    /// nonisolated global shared mutable state，CI Archive 直接失败。
+    static var supportedModes: IntentModes { .foreground(.immediate) }
 
-    func perform() async throws -> some IntentResult & OpensIntent {
-        .result(opensIntent: OpenURLIntent(try QingliaoDeepLink.openURL(.chat)))
+    @MainActor
+    func perform() async throws -> some IntentResult {
+        QingliaoRouteHandoff.request(.chat)
+        return .result()
     }
 }
 
 struct OpenSessionsIntent: AppIntent {
     static var title: LocalizedStringResource { "打开轻聊会话列表" }
     static var description: IntentDescription { IntentDescription("打开轻聊并切到会话列表") }
+    static var supportedModes: IntentModes { .foreground(.immediate) }
 
-    func perform() async throws -> some IntentResult & OpensIntent {
-        .result(opensIntent: OpenURLIntent(try QingliaoDeepLink.openURL(.sessions)))
+    @MainActor
+    func perform() async throws -> some IntentResult {
+        QingliaoRouteHandoff.request(.sessions)
+        return .result()
     }
 }
 
 struct OpenDashboardIntent: AppIntent {
     static var title: LocalizedStringResource { "打开轻聊看板" }
     static var description: IntentDescription { IntentDescription("打开轻聊并切到看板页") }
+    static var supportedModes: IntentModes { .foreground(.immediate) }
 
-    func perform() async throws -> some IntentResult & OpensIntent {
-        .result(opensIntent: OpenURLIntent(try QingliaoDeepLink.openURL(.dashboard)))
+    @MainActor
+    func perform() async throws -> some IntentResult {
+        QingliaoRouteHandoff.request(.dashboard)
+        return .result()
     }
 }
 
 struct OpenLifeIntent: AppIntent {
     static var title: LocalizedStringResource { "打开轻聊生活页" }
     static var description: IntentDescription { IntentDescription("打开轻聊并切到生活页（备忘 / 待办 / 股票 · 资讯 / 快递）") }
+    static var supportedModes: IntentModes { .foreground(.immediate) }
 
-    func perform() async throws -> some IntentResult & OpensIntent {
-        .result(opensIntent: OpenURLIntent(try QingliaoDeepLink.openURL(.life)))
+    @MainActor
+    func perform() async throws -> some IntentResult {
+        QingliaoRouteHandoff.request(.life)
+        return .result()
     }
 }
 
