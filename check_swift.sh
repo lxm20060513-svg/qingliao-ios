@@ -532,5 +532,20 @@ fi
 [ $chk_fail -eq 0 ] || { echo "❌ 第 36 段有护栏失守"; exit 1; }
 echo "✅ 编译盲区护栏 4 项全绿"
 
+echo "=== 37. AI 本地动作 / 能力扩容一致性护栏（v4.0.x：5 类新能力 + 7 个新动作）==="
+# 为什么单独成脚本：「动作表」这一轮被复制到 8 个接线点（能力枚举 / Linux shim / rawValue /
+# 执行器分派 / 卡片图标 / 单测分级表 / project.yml 权限串 / 后端 QLACTION_PROMPT），
+# 任何一处漏改**本地都不报错**：有的是运行期才现形（"内部错误"、静默按错分级），
+# 有的只在 CI archive 挂（switch 不穷尽），有的是真机第一次用就 SIGABRT（缺权限串）。
+python3 scripts/check_action_capabilities.py || exit 1
+
+echo "=== 38. 会话列表「进行中」标识真值表（v4.0.x · 2026-09-27 用户拍板）==="
+# 单文件（读源文件做护栏，不 import 项目代码）→ run_unit 直接编跑。
+# 口径（用户从编号选项里拍板）：位置 = **替换右列 chevron**；形态 = **呼吸脉冲圆点**（减弱动态效果时静止常亮）；
+#   判定 = **本机这条流没结束就算**（切到别的会话、App 切后台都照显；App 被杀/重启不还原 —— 服务端没这字段）。
+# 钉的是最容易静默出错的几处：归属 id 结束后不清空（必须配 isStreaming/isDone 双判）、多选编辑态优先、
+#   行内不许读 stream.content（每 token 变化 = 列表每 token 重算）。
+run_unit /tmp/test_sessions scripts/ql_sessions/truth_table_sessions.swift
+
 [ $fail -eq 0 ] || { echo "❌ 有护栏失守"; exit 1; }
 exit 0

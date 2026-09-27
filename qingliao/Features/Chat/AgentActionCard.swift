@@ -72,9 +72,22 @@ struct AgentActionCard: View {
         switch action.kind {
         case .calendarCreate: return "calendar.badge.plus"
         case .calendarDelete: return "calendar.badge.minus"
+        case .calendarUpdate: return "calendar.badge.clock"
         case .calendarFree:   return "calendar.day.timeline.left"
         case .calendarToday:  return "calendar"
+        case .reminderCreate: return "checklist"
+        case .reminderList:   return "checklist.checked"
+        case .reminderDelete: return "checklist.unchecked"
         case .photoSave:      return "square.and.arrow.down"
+        case .photoDelete:    return "trash"
+        case .contactsSearch: return "person.crop.circle.badge.questionmark"
+        case .contactsCreate: return "person.crop.circle.badge.plus"
+        case .locationCurrent: return "location"
+        case .clipboardRead:  return "doc.on.clipboard"
+        case .clipboardWrite: return "doc.on.clipboard.fill"
+        case .fileList:       return "folder"
+        case .fileRead:       return "doc.text"
+        case .fileWrite:      return "square.and.pencil"
         case .notify:         return "bell.badge"
         }
     }

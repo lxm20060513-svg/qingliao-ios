@@ -7,6 +7,10 @@ struct SessionsView: View {
     @Environment(ChatStore.self) private var chat
     @Environment(CategoryStore.self) private var categoryStore   // v3.0.27：会话分类
     @Environment(SessionTagStore.self) private var tagStore     // v3.0.51 B7：会话标签
+    // v4.0.x：会话列表「进行中」标识的流真源（用户 2026-09-27 拍板）。
+    // 只在这里读 isStreaming / isDone 两个布尔；**不许**读 stream.content —— 那是每 token 都变的量，
+    // 一旦被 body 读到，整张会话列表会跟着每个 token 重算一次。
+    @Environment(StreamClient.self) private var stream
 
     @State private var sessions: [ChatSession] = []
     @State private var isLoading = false
@@ -590,6 +594,16 @@ struct SessionsView: View {
         onOpenSession?()
     }
 
+    /// v4.0.x：**哪个会话算「进行中」**（用户拍板口径：本机这条流没结束就算 —— 切到别的会话看别的行、
+    /// App 切后台都照显）。真源 = 流归属会话 `auth.currentStreamSessionId`（StreamClient 启动时写入）。
+    /// ⚠️ 它**结束后不清空**（全仓只有 StreamClient 三处赋值，没有复位），所以必须同时判 isStreaming / isDone：
+    /// 只看 id 会把「上一次跑过的那个会话」永久标成进行中。
+    private var runningSessionID: String? {
+        guard stream.isStreaming, !stream.isDone else { return nil }
+        let sid = auth.currentStreamSessionId
+        return sid.isEmpty ? nil : sid
+    }
+
     /// v3.0.51：会话 cell（SessionRow + 长按菜单）——拆辅助函数，防嵌套 ForEach type-check 超时
     @ViewBuilder
     private func sessionCell(_ s: ChatSession) -> some View {
@@ -600,7 +614,8 @@ struct SessionsView: View {
                    showCheck: editing,
                    checked: selectedIds.contains(s.id),
                    unread: chat.unread[s.id] ?? 0,
-                   categoryName: categoryStore.categoryForSession(s.id)?.name) {
+                   categoryName: categoryStore.categoryForSession(s.id)?.name,
+                   running: runningSessionID == s.id) {
             if editing {
                 toggleSelect(s.id)
             } else {
@@ -984,6 +999,8 @@ struct SessionRow: View {
     var checked = false
     var unread = 0          // v3.9.85：未读**条数**（原 Bool 红点，改实心红色数字角标，对标微信）
     var categoryName: String? = nil   // v3.9.32：所属分类（长按「移动到…」设过才显示）
+    /// v4.0.x：该会话本机正在生成（流在跑且流归属就是它）——真源与口径见 SessionsView.runningSessionID
+    var running = false
     var action: () -> Void = {}
 
     // MARK: - v3.4.25 会话头像个性化（id hash → 稳定的色系×图标组合）
@@ -1081,6 +1098,10 @@ struct SessionRow: View {
                     Image(systemName: checked ? "checkmark.circle.fill" : "circle")
                         .font(.system(size: Typography.headline))
                         .foregroundStyle(checked ? Color.accentColor : Color.secondary.opacity(0.4))
+                } else if running {
+                    // v4.0.x（用户拍板）：进行中的会话，右列箭头位置换成呼吸脉冲小圆点。
+                    // 排在 showCheck 之后 = 多选编辑态优先（编辑时要看勾选圈，标识不许把入口顶掉）。
+                    RunningDot()
                 } else {
                     Image(systemName: "chevron.right")
                         .font(.system(size: Typography.caption, weight: .semibold))
@@ -1109,6 +1130,28 @@ struct SessionRow: View {
         .contentShape(Rectangle())
         // 用 tap 手势而非 Button 包裹（Button 会与 swipeActions 滑动手势冲突，导致滑动删除失效）
         .onTapGesture { action() }
+    }
+}
+
+// MARK: - v4.0.x 会话「进行中」标识（用户 2026-09-27 拍板：位置=替换右列箭头，形态=呼吸脉冲圆点）
+//
+// 语义：**只有本机这条流没结束**才出现（切到别的会话、App 切后台都算；App 被杀/重启不还原 ——
+//   服务端没有「会话运行中」字段，本机 StreamClient 是唯一真源，见 SessionsView.runningSessionID）。
+// 动效：opacity 循环（GPU 合成、无每帧布局，同 SkeletonBlock）；开了「减弱动态效果」即静止常亮。
+private struct RunningDot: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var dim = false
+
+    var body: some View {
+        Circle()
+            .fill(Color.accentColor)
+            .frame(width: 9, height: 9)
+            .opacity(reduceMotion ? 1 : (dim ? 0.35 : 1))
+            .frame(width: Typography.caption, height: Typography.caption)   // 占位与 chevron 同宽，行高不跳
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.6).repeatForever(autoreverses: true),
+                       value: dim)
+            .onAppear { if !reduceMotion { dim = true } }
+            .accessibilityLabel("正在生成回复")
     }
 }
 

@@ -32,18 +32,41 @@ struct AgentAction: Equatable, Sendable {
         // 日历
         case calendarCreate = "calendar.create"
         case calendarDelete = "calendar.delete"
+        case calendarUpdate = "calendar.update"    // v4.0.x 改事件
         case calendarFree  = "calendar.free"       // 查空闲（只读）
         case calendarToday = "calendar.today"      // 今天日程（只读）
+        // 提醒事项（EventKit 的 .reminder 实体，与日历同一个 store）
+        case reminderCreate = "reminder.create"
+        case reminderList   = "reminder.list"      // 看待办（只读）
+        case reminderDelete = "reminder.delete"
         // 相册
         case photoSave    = "photo.save"           // 存图（写）
+        case photoDelete  = "photo.delete"         // 删图（删）
+        // 通讯录
+        case contactsSearch = "contacts.search"    // 查联系人（只读）
+        case contactsCreate = "contacts.create"    // 新建联系人（写）
+        // 定位
+        case locationCurrent = "location.current"  // 当前位置（只读）
+        // 剪贴板
+        case clipboardRead  = "clipboard.read"     // 读剪贴板（只读）
+        case clipboardWrite = "clipboard.write"    // 写剪贴板（写）
+        // 文件（轻聊自己的沙盒目录，不是任意路径）
+        case fileList  = "file.list"               // 列目录（只读）
+        case fileRead  = "file.read"               // 读文件（只读）
+        case fileWrite = "file.write"              // 写文件（写）
         // 通知
         case notify       = "notify"              // 系统通知（写）
 
         var capability: AppCapability {
             switch self {
-            case .calendarCreate, .calendarDelete, .calendarFree, .calendarToday:
+            case .calendarCreate, .calendarDelete, .calendarUpdate, .calendarFree, .calendarToday:
                 return .calendar
-            case .photoSave:   return .photos
+            case .reminderCreate, .reminderList, .reminderDelete: return .reminders
+            case .photoSave, .photoDelete:  return .photos
+            case .contactsSearch, .contactsCreate: return .contacts
+            case .locationCurrent:          return .location
+            case .clipboardRead, .clipboardWrite: return .clipboard
+            case .fileList, .fileRead, .fileWrite: return .files
             case .notify:      return .notifications
             }
         }
@@ -56,9 +79,14 @@ struct AgentAction: Equatable, Sendable {
 
         var impact: Impact {
             switch self {
-            case .calendarFree, .calendarToday: return .read
-            case .calendarCreate, .photoSave, .notify: return .write
-            case .calendarDelete: return .delete
+            case .calendarFree, .calendarToday, .reminderList, .contactsSearch,
+                 .locationCurrent, .clipboardRead, .fileList, .fileRead:
+                return .read
+            case .calendarCreate, .calendarUpdate, .photoSave, .notify,
+                 .reminderCreate, .contactsCreate, .clipboardWrite, .fileWrite:
+                return .write
+            case .calendarDelete, .photoDelete, .reminderDelete:
+                return .delete
             }
         }
 
@@ -67,9 +95,22 @@ struct AgentAction: Equatable, Sendable {
             switch self {
             case .calendarCreate: return "新建日历事件"
             case .calendarDelete: return "删除日历事件"
+            case .calendarUpdate: return "修改日历事件"
             case .calendarFree:   return "查询空闲时段"
             case .calendarToday:  return "查看今日日程"
+            case .reminderCreate: return "新建提醒事项"
+            case .reminderList:   return "查看提醒事项"
+            case .reminderDelete: return "删除提醒事项"
             case .photoSave:      return "保存到相册"
+            case .photoDelete:    return "删除相册照片"
+            case .contactsSearch: return "查询联系人"
+            case .contactsCreate: return "新建联系人"
+            case .locationCurrent: return "获取当前位置"
+            case .clipboardRead:  return "读取剪贴板"
+            case .clipboardWrite: return "写入剪贴板"
+            case .fileList:       return "查看文件目录"
+            case .fileRead:       return "读取文件"
+            case .fileWrite:      return "写入文件"
             case .notify:         return "发送系统通知"
             }
         }

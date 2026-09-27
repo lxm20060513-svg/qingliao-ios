@@ -135,9 +135,14 @@ check("会话卡没有自己手搓 glassEffect（口径单源）",
 // 反向：F2 坑的真正形态是「实色底与玻璃同时出现在同一条修饰链上」——
 //   实色底会画在玻璃之上（先挂=background 画得更靠前），玻璃被完全压死。
 //   dashboardCard() 把玻璃/描边/影收在一处，故卡上不得再自行出现任何实色 background。
-let sessRowBody = slice(sessCode, "struct SessionRow", "// MARK: - v3.9.33")
+// ⚠️ v4.0.x 修（原写法是空真、恒绿）：原来 slice(sessCode, "struct SessionRow", "// MARK: - v3.9.33")
+//   —— sessCode 已 stripComments，而结束锚点 "// MARK: …" 恰好被剥掉 → slice 恒返回 "" → 断言恒过（假绿）。
+//   改为锚在**代码文本**上，只盯会话卡自己的修饰链（.dashboardCard → .onTapGesture）：
+//   卡内分类胶囊/标签胶囊的 .background(…, in: Capsule()) 不属 F2 口径，本就不该进这一段。
+let sessCardChain = slice(sessCode, ".dashboardCard(cornerRadius: Radius.card)", ".onTapGesture { action() }")
+check("会话卡修饰链切片非空（防再次空真）", !sessCardChain.isEmpty)
 check("会话卡修饰链上没有自行挂的实色 background（F2：实色底会压死玻璃）",
-      !sessRowBody.contains(".background("))
+      !sessCardChain.contains(".background("))
 
 // MARK: - 设置页 v3.9.88 回退：单页平铺，无 8 大类二级页、无整页玻璃底
 //   用户拍板「设置界面回退到 3.9.87 版本」→ 下面改为**反向断言**：一旦有人又把

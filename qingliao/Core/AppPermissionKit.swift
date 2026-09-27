@@ -2,6 +2,8 @@ import Foundation
 import UIKit
 import EventKit
 import Photos
+import Contacts
+import CoreLocation
 import UserNotifications
 // ⚠️ 刻意**不** import HomeKit：本版不做任何 HomeKit 控制（侧载拿不到 entitlement，见文件头），
 //    import 了只会让「以后想接」的人以为已经接上了。AppCapability.homekit 只保留状态行与说明。
@@ -16,8 +18,16 @@ import UserNotifications
 //      侧载走免费签名，entitlement 与 App Groups 同级别拿不到。
 //      故本文件**只给状态行 + 说明**，不 import 任何 HomeKit 控制代码（import 了也必然失败）。
 //   ❌ Apple 从未提供 API（不是权限不给，是接口不存在）：
-//      · 提醒事项 Reminders —— EventKit 只有 EKEventStore，没有任何 Reminder 类
 //      · 任何第三方 App 的私有数据（微信/抖音/Strava…）—— 只能用 openURL 跳转让用户手点
+//      · 系统闹钟/计时器、短信与通话记录、备忘录与邮件正文、别的 App 沙盒、绝大多数系统设置
+//
+//   ⚠️ **2026-09-27 更正一处长期错误说法（v3.9.95 遗留）**：本文件曾写
+//      「提醒事项 Reminders —— EventKit 只有 EKEventStore，没有任何 Reminder 类」，**那是错的**。
+//      EventKit 自 iOS 6 起就有 `EKReminder` / `EKEventStore` 的 `.reminder` 实体类型 /
+//      `requestFullAccessToReminders()` —— 提醒事项与日历**同一套框架、同一个 store**。
+//      侧载（免费签名）也不影响它：它走普通 TCC 授权，不需要任何 entitlement
+//      （与 HomeKit 的 `com.apple.developer.homekit` 完全是两码事）。
+//      当时据此写下的「做不到」文案（权限页 boundaryNote + 后端 QLACTION_PROMPT）已一并改正。
 //
 // 三条安全口径（v3.9.95 与用户对齐，勿绕过）：
 //   ① **双闸门**：系统授权 + 「允许 AI 操作」开关，两者都通才允许写/删。
@@ -36,7 +46,12 @@ import UserNotifications
 /// ① 本枚举 ② `AppPermissionKit.status(of:)` ③ `AgentAction` 的执行器 ④ 权限页 UI 一行
 enum AppCapability: String, CaseIterable, Identifiable, Sendable {
     case calendar
+    case reminders
     case photos
+    case contacts
+    case location
+    case clipboard
+    case files
     case notifications
     case homekit
 
@@ -45,7 +60,12 @@ enum AppCapability: String, CaseIterable, Identifiable, Sendable {
     var displayName: String {
         switch self {
         case .calendar:      return "日历"
+        case .reminders:     return "提醒事项"
         case .photos:        return "相册"
+        case .contacts:      return "通讯录"
+        case .location:      return "定位"
+        case .clipboard:     return "剪贴板"
+        case .files:         return "文件"
         case .notifications: return "通知"
         case .homekit:       return "家庭"
         }
@@ -54,7 +74,12 @@ enum AppCapability: String, CaseIterable, Identifiable, Sendable {
     var sfSymbol: String {
         switch self {
         case .calendar:      return "calendar"
+        case .reminders:     return "checklist"
         case .photos:        return "photo"
+        case .contacts:      return "person.crop.circle"
+        case .location:      return "location"
+        case .clipboard:     return "doc.on.clipboard"
+        case .files:         return "folder"
         case .notifications: return "bell"
         case .homekit:       return "house"
         }
@@ -65,10 +90,20 @@ enum AppCapability: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .calendar:
             return "读你的日程、查空闲时段；经你确认后可新建、修改、删除日历事件。"
+        case .reminders:
+            return "读你的待办提醒、新建提醒（可带到点时间）；经你确认后可删除。"
         case .photos:
-            return "读取相册图片供你识别；经你确认后可把 AI 生成的图存入相册。"
+            return "读取相册图片供你识别；经你确认后可把 AI 生成的图存入相册、或删除某张照片（删除后 30 天内在「最近删除」可恢复）。"
+        case .contacts:
+            return "按名字/号码查联系人；经你确认后可新建联系人。"
+        case .location:
+            return "读取你当前所在的大致位置（每次都单独征求系统同意，只用于当次回答）。"
+        case .clipboard:
+            return "读写系统剪贴板。写入不需要许可；每次读取 iOS 都会弹一次系统「粘贴」提示，这是系统行为，App 关不掉。"
+        case .files:
+            return "读写轻聊自己的文件目录（在「文件」App → 我的 iPhone → 轻聊 里能看到），碰不到其它 App 的文件。"
         case .notifications:
-            return "让 AI 用系统通知提醒你（提醒事项 App 本身 Apple 未开放接口，只能跳转打开）。"
+            return "让 AI 用系统通知提醒你。"
         case .homekit:
             return "家庭（HomeKit）需要开发者证书授权，侧载安装无法使用。"
         }
@@ -166,6 +201,41 @@ enum AppPermissionKit {
             case .notDetermined: return .notDetermined
             @unknown default:    return .notDetermined
             }
+        case .reminders:
+            // 与日历同一个 EKEventStore，只是实体类型改成 .reminder（iOS 17+ 的 full access 口径）
+            let s = EKEventStore.authorizationStatus(for: .reminder)
+            switch s {
+            case .fullAccess, .writeOnly: return .granted
+            case .denied:                 return .denied
+            case .restricted:             return .restricted
+            case .notDetermined:          return .notDetermined
+            @unknown default:             return .notDetermined
+            }
+        case .contacts:
+            // iOS 18 起多一档 .limited（用户只选了部分联系人）→ 给 granted：
+            // 读他能看到的那部分、新建走系统弹窗，静默标「未授权」反而让用户找不到入口。
+            let s = CNContactStore.authorizationStatus(for: .contacts)
+            switch s {
+            case .authorized, .limited: return .granted
+            case .denied:               return .denied
+            case .restricted:           return .restricted
+            case .notDetermined:        return .notDetermined
+            @unknown default:           return .notDetermined
+            }
+        case .location:
+            // ⚠️ CLLocationManager 必须在主线程创建 —— 这个函数不在 MainActor 上，显式跳一下
+            let s = await MainActor.run { CLLocationManager().authorizationStatus }
+            switch s {
+            case .authorizedWhenInUse, .authorizedAlways: return .granted
+            case .denied:                                 return .denied
+            case .restricted:                             return .restricted
+            case .notDetermined:                          return .notDetermined
+            @unknown default:                             return .notDetermined
+            }
+        case .clipboard, .files:
+            // 这两项**没有系统授权概念**：剪贴板读写与 App 自己的沙盒目录都不需要 TCC 许可。
+            // 恒 granted，但外层双闸门（总闸 + 单项「允许 AI 操作」）照样生效 —— 用户关掉就不给动。
+            return .granted
         case .notifications:
             let s = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
             switch s {
@@ -202,6 +272,31 @@ enum AppPermissionKit {
         case .photos:
             let s = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
             return AppPermissionKit.state(ofPhoto: s)
+        case .reminders:
+            let store = EKEventStore()
+            do {
+                let granted = try await store.requestFullAccessToReminders()
+                return granted ? .granted : .denied
+            } catch {
+                NSLog("[PERM] reminders request failed: \(error)")
+                return await status(of: .reminders)
+            }
+        case .contacts:
+            let store = CNContactStore()
+            do {
+                let granted = try await store.requestAccess(for: .contacts)
+                return granted ? .granted : .denied
+            } catch {
+                NSLog("[PERM] contacts request failed: \(error)")
+                return await status(of: .contacts)
+            }
+        case .location:
+            // 定位的授权回调只能经 CLLocationManagerDelegate 拿，而 delegate 回调是 nonisolated
+            // （Swift 6 下直接捕获 manager 会报 sending 风险）→ 统一收进 LocationPermission
+            // 这个 @MainActor 单例，回调里只传 Double/枚举这些 Sendable 值。
+            return await LocationPermission.shared.request()
+        case .clipboard, .files:
+            return .granted
         case .notifications:
             let granted = (try? await UNUserNotificationCenter.current()
                 .requestAuthorization(options: [.alert, .sound])) ?? false
@@ -246,5 +341,44 @@ enum AppPermissionKit {
         guard st == .granted else { return "\(c.displayName)未授权（当前：\(st.label)）" }
         guard aiControlEnabled(c) else { return "「允许 AI 操作·\(c.displayName)」未开启" }
         return nil
+    }
+}
+
+// MARK: - 定位授权（v4.0.x）
+
+/// 定位授权的桥。
+///
+/// 为什么单独一个类型：`CLLocationManager` **必须在主线程创建**，而它的授权回调只能经
+/// delegate 拿；Swift 6 下 delegate 方法是 `nonisolated`，在里头读 manager / 捕获它都会撞
+/// sending 规则。这里刻意**不用 delegate**：`requestWhenInUseAuthorization()` 是"弹框请求"，
+/// 状态去轮询就已经够用（用户点允许/拒绝只是改一个状态值），零 continuation、零并发坑。
+/// 需要真实定位坐标的地方是 `AgentActionExecutorLocal` 里的 `locationManager(_:didUpdateLocations:)`，
+/// 那里走「delegate 只带 Sendable 值（Double）回 MainActor」的口径。
+@MainActor
+final class LocationPermission {
+    static let shared = LocationPermission()
+    private let manager = CLLocationManager()
+
+    func request() async -> PermissionState {
+        var s = LocationPermission.state(of: manager.authorizationStatus)
+        guard s == .notDetermined else { return s }
+        manager.requestWhenInUseAuthorization()
+        // 最多等 30 秒（弹框可能被晾着）。超时按当前状态返回，不把 continuation 挂死。
+        for _ in 0..<60 {
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            s = LocationPermission.state(of: manager.authorizationStatus)
+            if s != .notDetermined { return s }
+        }
+        return s
+    }
+
+    static func state(of s: CLAuthorizationStatus) -> PermissionState {
+        switch s {
+        case .authorizedWhenInUse, .authorizedAlways: return .granted
+        case .denied:                                 return .denied
+        case .restricted:                             return .restricted
+        case .notDetermined:                          return .notDetermined
+        @unknown default:                             return .notDetermined
+        }
     }
 }

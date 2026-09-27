@@ -48,9 +48,20 @@ enum AgentActionExecutor {
         case .calendarFree:   return await freeSlots(action)
         case .calendarToday:  return await todayEvents(action)
         case .calendarCreate: return await createEvent(action)
+        case .calendarUpdate: return await updateEvent(action)
         case .calendarDelete: return await deleteEvent(action)
         case .photoSave:      return await savePhoto(action)
+        case .photoDelete:    return await deletePhoto(action)
         case .notify:         return await notify(action)
+        // v4.0.x 第二批能力（提醒事项/通讯录/定位/剪贴板/文件）。
+        // ⚠️ 它们**只经由这里**进二级分派（AgentActionExecutorLocal.runLocal）——
+        //    不要在那个文件里另起入口，双入口必然分叉。
+        case .reminderCreate, .reminderList, .reminderDelete,
+             .contactsSearch, .contactsCreate,
+             .locationCurrent,
+             .clipboardRead, .clipboardWrite,
+             .fileList, .fileRead, .fileWrite:
+            return await runLocal(action)
         }
     }
 
@@ -170,6 +181,57 @@ enum AgentActionExecutor {
                       undo: { try? store.save(keep, span: .thisEvent, commit: true) })
     }
 
+    /// 修改事件（v4.0.x）。**写操作**：只改给到的字段，没给的保持原样。
+    /// 时间口径：给了 start 就整体挪（end 没给 → 保持原时长）；单独给 end 才只改结束时间。
+    private static func updateEvent(_ action: AgentAction) async -> Outcome {
+        // mutationGuard 返回 nil = 放行；非 nil = 拒绝原因（直接给用户看）
+        if let reason = await AppPermissionKit.mutationGuard(.calendar) {
+            return .failed(reason)
+        }
+        guard let ident = action.param("eventIdentifier") ?? action.param("id") else {
+            return .failed("没给要改的事件 ID")
+        }
+        guard AppPermissionKit.foregroundActive else { return .failed("App 在后台，先回到轻聊再改") }
+        let store = EKEventStore()
+        guard let ev = store.event(withIdentifier: ident) else {
+            return .failed("找不到这个事件（可能已被删或 ID 过期）")
+        }
+        let before = ev.copy() as! EKEvent      // 改前留一份用于撤销
+
+        var changed: [String] = []
+        if let t = action.param("title") { ev.title = t; changed.append("标题") }
+        if let loc = action.param("location") { ev.location = loc; changed.append("地点") }
+        if let notes = action.param("notes") { ev.notes = notes; changed.append("备注") }
+        let oldDur = ev.endDate.timeIntervalSince(ev.startDate)
+        if let raw = action.param("start") {
+            guard let s = AgentAction.isoDate(raw) else {
+                return .failed("没认出行程开始时间（要 ISO8601，如 2026-09-28T15:00:00+08:00）")
+            }
+            ev.startDate = s
+            ev.endDate = s.addingTimeInterval(oldDur > 0 ? oldDur : 3600)
+            changed.append("开始时间")
+        }
+        if let raw = action.param("end") {
+            guard let e = AgentAction.isoDate(raw) else {
+                return .failed("没认出行程结束时间（要 ISO8601，如 2026-09-28T16:00:00+08:00）")
+            }
+            guard e > ev.startDate else { return .failed("结束时间早于开始时间，没改") }
+            ev.endDate = e
+            changed.append("结束时间")
+        }
+        guard !changed.isEmpty else {
+            return .failed("没说改什么（title / start / end / location / notes 至少给一个）")
+        }
+        do {
+            try store.save(ev, span: .thisEvent, commit: true)
+        } catch {
+            NSLog("[QLACTION] update event failed: \(error)")
+            return .failed("修改失败：\(error.localizedDescription)")
+        }
+        return .done(message: "已改「\(ev.title ?? "无标题")」的" + changed.joined(separator: "、"),
+                      undo: { try? store.save(before, span: .thisEvent, commit: true) })
+    }
+
     // MARK: - 相册
 
     /// 存图到相册。写操作 → 需确认。dataURL 由后端给（base64 PNG/JPEG）。
@@ -206,6 +268,41 @@ enum AgentActionExecutor {
                 PHAssetChangeRequest.deleteAssets(assets)
             }
         })
+    }
+
+    /// 删相册照片（v4.0.x）。**删操作**：只有用户在卡片上点过「确认删除」才会到这。
+    /// 定位目标：优先 identifier（AI 从相册读到的 localIdentifier），退化支持 latest=N（最近 N 张，N≤5）。
+    /// ⚠️ **不提供 5 秒撤销**：删完原图数据就读不回来了，没法凭空重建 asset。
+    ///    但照片会进相册「最近删除」并保留 30 天 —— 文案必须让用户知道这条退路，
+    ///    否则「删了就没」的观感会让人不敢用。
+    private static func deletePhoto(_ action: AgentAction) async -> Outcome {
+        // mutationGuard 返回 nil = 放行；非 nil = 拒绝原因（直接给用户看）
+        if let reason = await AppPermissionKit.mutationGuard(.photos) {
+            return .failed(reason)
+        }
+        guard AppPermissionKit.foregroundActive else { return .failed("App 在后台，先回到轻聊再删") }
+        let options = PHFetchOptions()
+        options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
+        var assets: PHFetchResult<PHAsset>
+        if let ident = action.param("identifier") ?? action.param("localIdentifier") {
+            assets = PHAsset.fetchAssets(withLocalIdentifiers: [ident], options: nil)
+            guard assets.count > 0 else { return .failed("找不到这张照片（可能已经被删了）") }
+        } else {
+            let n = max(1, min(Int(action.param("latest") ?? "1") ?? 1, 5))
+            options.fetchLimit = n
+            assets = PHAsset.fetchAssets(with: .image, options: options)
+            guard assets.count > 0 else { return .failed("相册里没有可删的照片") }
+        }
+        let count = assets.count
+        do {
+            try await PHPhotoLibrary.shared().performChanges {
+                PHAssetChangeRequest.deleteAssets(assets)
+            }
+        } catch {
+            NSLog("[QLACTION] delete photo failed: \(error)")
+            return .failed("删除失败：\(error.localizedDescription)")
+        }
+        return .doneNoUndo(message: "已删除 \(count) 张照片（30 天内在相册「最近删除」可恢复）")
     }
 
     private static func decodeDataURL(_ raw: String) -> Data? {

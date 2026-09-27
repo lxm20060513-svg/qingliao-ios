@@ -162,10 +162,13 @@ struct AppPermissionsSheet: View {
             Label("能力边界", systemImage: "info.circle")
                 .font(.system(size: Typography.caption, weight: .semibold))
             Text("""
-            · 提醒事项（Reminders）：Apple 未开放任何接口，只能跳转系统 App 由你手点。
-            · 微信等第三方 App 的数据：同样无接口，只能跳转打开。
+            · 提醒事项：可以读写了（EventKit，和日历同一套框架）。这里此前写的「Apple 未开放接口」是错的，已更正。
+            · 文件读写：只限轻聊自己的目录（「文件」App → 我的 iPhone → 轻聊），碰不到其它 App 的文件。
+            · 剪贴板：写入不需要许可；每次读取 iOS 会弹一次系统「粘贴」提示，这是系统行为，App 关不掉。
+            · 微信等第三方 App 的数据、系统闹钟、短信与通话记录、备忘录与邮件正文：Apple 未开放接口，只能跳转打开。
             · 家庭（HomeKit）：需开发者证书授权，侧载安装无法使用。
-            · AI 读取你的数据前，需要你先在系统里授权对应 App。
+            · 读你的数据前要先在系统里授权对应 App；写和删还要在上面单独打开「允许 AI 操作」，并在动作卡上点一次确认。
+            · 删除照片不可撤销（App 里没撤销按钮），但会进相册「最近删除」保留 30 天；删除提醒/事件则可 5 秒内撤销。
             """)
             .font(.system(size: Typography.caption))
             .foregroundStyle(.secondary)

@@ -8,7 +8,10 @@
 import Foundation
 
 enum AppCapability: String, CaseIterable, Sendable {
-    case calendar, photos, notifications, homekit
+    // ⚠️ 必须与 AppPermissionKit.swift 的枚举逐字对齐（顺序也要一致）——
+    //    本文件只是让 Linux 单测能编过，真值以 AppPermissionKit.swift 为准，
+    //    scripts/check_action_capabilities.py 会比对两处，漏同步直接红。
+    case calendar, reminders, photos, contacts, location, clipboard, files, notifications, homekit
 
     var aiControllable: Bool { self != .homekit }
 }

@@ -74,6 +74,16 @@ targets:
         #    但历史上 FaceID/PhotoLibraryAdd 缺串直接 SIGABRT —— 声明先补上，别等真机崩。
         NSCalendarsFullAccessUsageDescription: 让轻聊在你确认后读取和修改你的日历
         NSPhotoLibraryUsageDescription: 让轻聊在你确认后读取相册图片供 AI 识别，或存入你选中的图片
+        # v4.0.x：AI 本地动作扩容（提醒事项 / 通讯录 / 定位）。
+        # ⚠️ 与上面 FaceID / PhotoLibraryAdd 同一条教训：缺权限串在真机上不是"弹窗被拒"而是
+        #    **SIGABRT 闪退**，且只在用户真点一次该功能时复现 —— -parse 和 CI archive 都查不出。
+        #    这三条一律"用到才触发"，漏补就是"用户第一次用就崩"，先声明再说。
+        NSRemindersFullAccessUsageDescription: 让轻聊在你确认后读取你的待办提醒、新建提醒事项
+        NSContactsUsageDescription: 让轻聊在你确认后查询联系人、新建联系人
+        NSLocationWhenInUseUsageDescription: 让轻聊在你确认后读取一次当前位置，用于回答「我在哪 / 附近有什么」
+        # 文件读写走 App 自己的 Documents 沙盒（SandboxFiles）。打开文件 App 共享后，
+        # 用户能在「文件」→ 我的 iPhone → 轻聊 里看到 AI 写的文件、也能自己放文件进去给 AI 读。
+        UIFileSharingEnabled: true
         # SR8：后台刷新的 delegate 方法 application(_:performFetchWithCompletionHandler:)
         # （ChatView.swift 里那份「唤醒后查流式任务是否完成 → 本地通知」）**必须**声明
         # UIBackgroundModes: fetch 才会被系统调用；否则整条后台通知链路是死代码。

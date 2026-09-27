@@ -97,17 +97,77 @@ check("空白参数返回 nil", a?.param("   ") == nil)
 // MARK: - 分级表（口径 ②：读/写/删）
 
 let table: [(AgentAction.Kind, AgentAction.Kind.Impact, String)] = [
+    // v4.0.x 扩容后共 19 个动作。这张表是**分级真值**：读=免确认自动跑、写=点一下、删=红色确认。
+    // 漏一行不会编译失败（表是数据），所以 scripts/check_action_capabilities.py 会反查
+    // 「所有 rawValue 都必须在这张表里」——加动作忘了加分级 = 静默按错的分级执行。
     (.calendarCreate, .write,  "calendar"),
+    (.calendarUpdate, .write,  "calendar"),
     (.calendarDelete, .delete, "calendar"),
     (.calendarFree,   .read,   "calendar"),
     (.calendarToday,  .read,   "calendar"),
+    (.reminderCreate, .write,  "reminders"),
+    (.reminderList,   .read,   "reminders"),
+    (.reminderDelete, .delete, "reminders"),
     (.photoSave,      .write,  "photos"),
+    (.photoDelete,    .delete, "photos"),
+    (.contactsSearch, .read,   "contacts"),
+    (.contactsCreate, .write,  "contacts"),
+    (.locationCurrent, .read,  "location"),
+    (.clipboardRead,  .read,   "clipboard"),
+    (.clipboardWrite, .write,  "clipboard"),
+    (.fileList,       .read,   "files"),
+    (.fileRead,       .read,   "files"),
+    (.fileWrite,      .write,  "files"),
     (.notify,         .write,  "notifications"),
 ]
 for (kind, impact, cap) in table {
     check("\(kind.rawValue) 影响分级 = \(impact.rawValue)", kind.impact == impact)
     check("\(kind.rawValue) 归属能力 = \(cap)", kind.capability.rawValue == cap)
 }
+
+// MARK: - v4.0.x 扩容动作的协议解析
+
+let rem = AgentAction.parse(json: """
+{"action":"reminder.create","params":{"title":"交水费","due":"2026-09-28T09:00:00+08:00","notes":"户号 12345"},"summary":"新建提醒：交水费"}
+""")
+check("动作解析出 reminder.create", rem?.kind == .reminderCreate)
+check("提醒标题可读", rem?.param("title") == "交水费")
+check("提醒到点时间是 ISO8601", AgentAction.isoDate(rem?.param("due") ?? "") != nil)
+check("提醒 notes 可读", rem?.param("notes") == "户号 12345")
+
+let clip = AgentAction.parse(json: """
+{"action":"clipboard.write","params":{"text":"hello 轻聊"},"summary":"复制到剪贴板"}
+""")
+check("动作解析出 clipboard.write", clip?.kind == .clipboardWrite)
+check("剪贴板内容可读", clip?.param("text") == "hello 轻聊")
+
+let file = AgentAction.parse(json: """
+{"action":"file.write","params":{"path":"notes/todo.txt","content":"买牛奶\\n交房租"},"summary":"写入文件"}
+""")
+check("动作解析出 file.write", file?.kind == .fileWrite)
+check("文件名可读", file?.param("path") == "notes/todo.txt")
+check("文件内容多行保留", file?.param("content") == "买牛奶\n交房租")
+
+// 只读动作必须落在 .read（卡片据此免确认自动跑；判错 = 该跑的跑不起来 / 该确认的不确认）
+check("reminder.list 是只读", AgentAction.Kind.reminderList.impact == .read)
+check("location.current 是只读", AgentAction.Kind.locationCurrent.impact == .read)
+check("clipboard.read 是只读", AgentAction.Kind.clipboardRead.impact == .read)
+check("file.read 是只读", AgentAction.Kind.fileRead.impact == .read)
+check("contacts.search 是只读", AgentAction.Kind.contactsSearch.impact == .read)
+
+// 动作名唯一：同名 = 后端发下来会被解析成先注册的那个，静默走错分支
+let allKinds: [AgentAction.Kind] = [
+    .calendarCreate, .calendarUpdate, .calendarDelete, .calendarFree, .calendarToday,
+    .reminderCreate, .reminderList, .reminderDelete,
+    .photoSave, .photoDelete,
+    .contactsSearch, .contactsCreate,
+    .locationCurrent,
+    .clipboardRead, .clipboardWrite,
+    .fileList, .fileRead, .fileWrite,
+    .notify,
+]
+check("动作总数 19（扩容后）", allKinds.count == 19)
+check("动作名互不重复", Set(allKinds.map(\.rawValue)).count == allKinds.count)
 
 // MARK: - 参数类型容错（后端可能传数字/布尔）
 
