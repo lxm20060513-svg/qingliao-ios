@@ -70,6 +70,24 @@ final class StreamClient {
     /// 老后端无 lastToolAt 键=0 → 不显示等待秒数（优雅退化）。
     var toolStartedAt: TimeInterval = 0
 
+    /// v3.9.81：`content` **最后一次增长的时刻**——聊天页工具卡下面那行小字里「静默 N 秒」的锚点。
+    /// 口径同后端 `st["updatedAt"]`（每次内容追加时刷新）：它比 now 落后多少秒就是静默多久。
+    /// 0 = 本流还没吐过内容（那时文案是「工具：…」/「思考中」，不显示静默）。
+    private(set) var contentGrowAt: TimeInterval = 0
+
+    /// v3.9.81：聊天页工具调用块下面那行小字（口径见 `StreamProgressText`，与任务中心「进行中」卡片一致）。
+    /// 只用 `content`（真实全文），不用 `displayContent`（打字机平滑层）——字数要与后端 `len(content)` 对齐。
+    ///
+    /// 收尾后返回 nil（调用方另有 `isStreaming` 门控，这里再判一次兜底）：答完后「静默」已无意义，
+    /// 且工具卡此时已折叠成「N 步工具调用」摘要行，再挂一行停住的进度字只会误导。
+    var progressNote: String? {
+        guard isStreaming else { return nil }
+        return StreamProgressText.line(content: content,
+                                       toolName: toolNames.last ?? "",
+                                       growAt: contentGrowAt,
+                                       now: Date().timeIntervalSince1970)
+    }
+
     struct ToolSpan {
         let name: String
         let seconds: Double
@@ -125,7 +143,7 @@ final class StreamClient {
     ///
     /// 不用 `String.unicodeScalars.count`：其代理对合并语义无法从官方文档核实（astral 字符
     /// 有可能仍按 2 计），故显式走 UTF-16 并自行合并代理对——码点的定义自证，逐位等于 `len()`。
-    static func codePointCount(_ s: String) -> Int {
+    nonisolated static func codePointCount(_ s: String) -> Int {
         let units = Array(s.utf16)
         var n = 0, i = 0
         while i < units.count {
@@ -175,6 +193,7 @@ final class StreamClient {
         stopPolling()
         generation += 1   // v3.0.50：废除在途旧轮询代
         content = ""
+        contentGrowAt = 0     // v3.9.81：新流重置静默锚点（还没吐字 → 文案是「工具：…/思考中」）
         resetToolProgress()   // v3.9.80：工具四件套统一复位（原先这里手写四行，别处漏写）
         offset = 0
         failCount = 0
@@ -310,6 +329,7 @@ final class StreamClient {
                 // 用 `c.count`（字素簇）会让 offset 恒落后，重复尾部随流累积（见 codePointCount）
                 offset += Self.codePointCount(c)
                 content += c
+                contentGrowAt = Date().timeIntervalSince1970   // v3.9.81：有新增 → 静默归零重算
                 idleStreak = 0
                 if interval != 0.15 { interval = 0.15 }   // 有内容时 0.15s 高频轮询（接近逐字）
             } else if !done {
@@ -407,11 +427,13 @@ final class StreamClient {
                     // v3.9.39（C）：比较也用码点，守住不变式 `offset == codePointCount(content)`
                     if Self.codePointCount(rContent) > offset {
                         content = rContent
+                        contentGrowAt = Date().timeIntervalSince1970   // v3.9.81：接回来的内容视作刚增长
                         offset = Self.codePointCount(rContent)
                     }
                 } else {
                     // 换成了另一条在途任务：内容整体属于新任务，必须整体替换（防止新旧前缀混拼）
                     content = rContent
+                    contentGrowAt = Date().timeIntervalSince1970   // v3.9.81（同上）
                     offset = Self.codePointCount(rContent)
                 }
                 if done {
@@ -579,6 +601,7 @@ final class StreamClient {
         taskId = tid
         offset = (d["offset"] as? Int) ?? 0
         content = (d["content"] as? String) ?? ""
+        contentGrowAt = Date().timeIntervalSince1970   // v3.9.81：恢复出的内容视作刚增长（静默从 0 起走）
         recoverTried = false
         recoverFailTried = false   // 与 start()/adoptRemote 同口径：接回的任务重新享有兜底
         status = ""               // 否则上一轮的 error 残留会把接回来的正常流标成红态（灵动岛/ChatView:385）
@@ -614,6 +637,7 @@ final class StreamClient {
         pendingUserMsgId = nil
         taskId = tid
         content = initial
+        contentGrowAt = Date().timeIntervalSince1970   // v3.9.81：接管时点作静默锚点
         // v3.9.39（C）：初值同样按码点，否则第一条增量就会把 initial 的尾巴重复拉一遍
         offset = Self.codePointCount(initial)
         recoverTried = false

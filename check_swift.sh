@@ -555,5 +555,16 @@ echo "=== 39. 框架回调闭包隔离护栏（v3.9.97 真机 Signal(5) 定案�
 # 判定 = 闭包字面量显式带 @Sendable，或所在函数标 nonisolated。
 python3 scripts/check_framework_callback_isolation.py || exit 1
 
+echo "=== 40. 聊天页工具卡进度小字真值表（v3.9.81 · 2026-09-27 用户拍板 1a）==="
+# 单文件（读源文件做护栏 + 文案算式镜像，不 import 项目代码）→ run_unit 直接编跑。
+# 用户原话（真机反馈，配图任务中心「进行中」卡片）：「在聊天页的工具调用下面同步显示这段小字，也是用小字」。
+# 口径（用户从编号选项拍板）：位置 = 摘要行「N 步工具调用」**下面固定一行**（收起/展开都看得到）；
+#   文案 = **2b**（`工具名 · N 字 · 静默 X · 最近：…`——去掉「第 N 步」前缀，摘要行已写步数；
+#   工具名 / 字数 / 静默 / 最近 照旧）；时机 = 流式进行中显示、收尾即隐藏。
+# 钉的是最容易静默出错的两处：① **两端同口径**（直接读后端 stream_api.py 的格式串 / 尾部长度 / 静默分档，
+#   任一端改了这里就红——后端源码不在本机时该段 ⚠️ 跳过并计数，不冒充绿）；
+#   ② 静默锚点 contentGrowAt 的 6 个写入点齐（漏一处 = 静默永远 0 秒，真机看着像卡死）。
+run_unit /tmp/test_progressnote scripts/ql_progressnote/truth_table_progressnote.swift
+
 [ $fail -eq 0 ] || { echo "❌ 有护栏失守"; exit 1; }
 exit 0

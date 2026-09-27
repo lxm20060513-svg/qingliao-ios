@@ -245,10 +245,14 @@ check("护栏：DockTabView.swift 读得到", !dockSrc.isEmpty, dockPath)
 check("菜单锚点做成参数（dock 球 / 宠物），不是两套菜单",
       menuSrc.contains("enum OrbQuickMenuAnchor: Equatable {") && menuSrc.contains("case pet(size: CGFloat)")
       && menuSrc.contains("var anchor: OrbQuickMenuAnchor = .dockOrb"))
-check("锚点是宠物时重画的是**宠物**（画球就成「按宠物弹出一颗球」）",
-      menuSrc.contains("PetAvatar(size: size, state: thinking ? .thinking : .idle)"))
-check("dock 分支口径一字未改（仍是 SiriBallView + 尺寸单一真源）",
-      menuSrc.contains("SiriBallView(thinking: thinking,") && menuSrc.contains("size: DockOrbOverlay.defaultBallSize"))
+// 🚨 v3.9.82 口径（用户 2026-09-27：「长按智慧球跳转画面改为长按卡通宠物跳转画面，只保留一个跳转画面」）：
+//    画法**只留宠物这一套** —— 上面那条「dock 分支口径一字未改（仍是 SiriBallView）」已**故意作废**：
+//    dock 入口也画宠物，球版分支整段删掉。谁把球版加回来，这里就红。
+check("菜单锚点画法只留宠物（v3.9.82：不是「按宠物弹出一颗球」，也不是两种画法）",
+      menuSrc.contains("PetAvatar(size: anchorSize, state: thinking ? .thinking : .idle)")
+      && !menuSrc.contains("SiriBallView"))
+check("锚点尺寸仍走单一真源（dock → DockOrbOverlay.defaultBallSize / 宠物 → 自己的尺寸）",
+      menuSrc.contains("return DockOrbOverlay.defaultBallSize"))
 check("宠物只覆盖锚点中心，几何原点与坐标换算不变",
       menuSrc.contains("let c = petAnchor?.center ?? DockOrbOverlay.orbCenterGlobal(slotIndex: slotIndex,")
       && menuSrc.contains("ballCenter: CGPoint(x: c.x - g.minX, y: c.y - g.minY)"))

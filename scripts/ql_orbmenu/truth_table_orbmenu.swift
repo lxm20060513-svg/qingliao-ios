@@ -969,34 +969,52 @@ check("逐字进度只在前进时写（next != 当前值）", speechClean.conta
 //    真因：v3.9.77 把遮罩改成整屏 `.ultraThinMaterial` 后，dock 那颗球被压在磨砂层**下面**
 //    （整条 dock 一起糊掉，球只剩一团浅蓝光斑）—— 而六颗胶囊恰恰是**从球心弹射**出来的，
 //    锚点看不见，绽放就没了起点。修法 = 在材质之后、胶囊之前按**同源几何/尺寸/状态**重画一颗。
-// v3.9.78 追加：锚点做成参数（`.dockOrb` / `.pet(size:)`）—— 原来的 `private var ball` 改名 `anchorObject`
-// 并内部分支；切片口径不变（同一段文本里同时含两个分支）。
+// v3.9.78 追加：锚点做成参数（`.dockOrb` / `.pet(size:)`），原来的 `private var ball` 改名 `anchorObject`。
+// 🚨 v3.9.82 口径（用户 2026-09-27：「长按智慧球跳转画面改为长按卡通宠物跳转画面，只保留一个跳转画面」）：
+//    **画法只留宠物这一套** —— 球版分支（SiriBallView + fps 分档 + unseen/failed 三态）整段删掉，
+//    dock 入口也画宠物；尺寸按**位置**走（dock 槽位 52 = `defaultBallSize` / 宠物 96，不然会盖住 tab 图标）。
+//    下面按**新形态**钉：谁把球版分支加回来，「只画宠物」这条就红。
 let orbBall = between(orbClean, "private var anchorObject: some View", "private func pillOffset")
-check("锚点球切片取到（切空了下面就是空真）", !orbBall.isEmpty)
-check("锚点球与可见球同源球心（ballCenter）", orbBall.contains(".position(ballCenter)"))
-check("锚点球尺寸走单一真源 DockOrbOverlay.defaultBallSize",
-      orbBall.contains("size: DockOrbOverlay.defaultBallSize")
-      && orbBall.contains("width: DockOrbOverlay.defaultBallSize"))
-check("锚点球三态直传 + fps 分档（与 dock 那颗同一套观感）",
-      orbBall.contains("thinking: thinking") && orbBall.contains("unseen: unseen")
-      && orbBall.contains("failed: failed") && orbBall.contains("fps: thinking ? 30 : 15"))
-// ⚠️ 菜单层是**模态**的：锚点球只能看不能吃事件，否则点球收起这条（与轻纱同语义）会被抢掉。
-check("锚点球不吃事件（allowsHitTesting(false)，点球 = 点空白 = 收起）",
+check("锚点切片取到（切空了下面就是空真）", !orbBall.isEmpty)
+check("锚点与可见球同源球心（ballCenter）", orbBall.contains(".position(ballCenter)"))
+check("锚点只画宠物（球版分支已删，口径 v3.9.82）",
+      orbBall.contains("PetAvatar(size: anchorSize, state: thinking ? .thinking : .idle)")
+      && !orbBall.contains("SiriBallView"))
+check("锚点尺寸按位置走单一真源（dock → DockOrbOverlay.defaultBallSize，宠物 → 自己的 96）",
+      orbClean.contains("private var anchorSize: CGFloat {")
+      && orbClean.contains("if case .pet(let size) = anchor { return size }")
+      && orbClean.contains("return DockOrbOverlay.defaultBallSize"))
+check("锚点状态直传（thinking → 思考表情，与流式同拍）",
+      orbBall.contains("thinking ? .thinking : .idle"))
+// ⚠️ 菜单层是**模态**的：锚点只能看不能吃事件，否则点锚点收起这条（与轻纱同语义）会被抢掉。
+check("锚点不吃事件（allowsHitTesting(false)，点它 = 点空白 = 收起）",
       orbBall.contains(".allowsHitTesting(false)") && !orbBall.contains("onTapGesture"))
 // v3.9.78：锚点是**参数**（dock 球 / 聊天页宠物）——同一套菜单层，不在聊天页搭第二套
 check("锚点做成参数（默认 .dockOrb，另有 .pet(size:)）",
       orbClean.contains("var anchor: OrbQuickMenuAnchor = .dockOrb")
       && orbClean.contains("case pet(size: CGFloat)"))
-check("锚点是宠物时必须重画宠物（不是画球）",
-      orbBall.contains("PetAvatar(size: size, state: thinking ? .thinking : .idle)"))
+check("锚点宠物吃用户当前选的形态（PetAvatar 不带 styleOverride，不写死某一只）",
+      orbBall.contains("PetAvatar(size: anchorSize, state: thinking ? .thinking : .idle)")
+      && !orbBall.contains("styleOverride:"))
 check("宠物锚点只覆盖中心（几何换算同源：petAnchor.center → ballCenter，不在聊天页另算一套）",
       orbClean.contains("let c = petAnchor?.center ?? DockOrbOverlay.orbCenterGlobal(slotIndex: slotIndex,")
       && orbClean.contains("ballCenter: CGPoint(x: c.x - g.minX, y: c.y - g.minY)"))
-// v3.9.80：宠物锚点与 dock 球**方向相反** —— dock 球贴屏底向上绽放；宠物在上半屏整组落到宠物下方
+// v3.9.80：dock 球贴屏底向上绽放；宠物在上半屏整组落到宠物下方
 // （用户 2026-09-25 截图：「这个界面胶囊弹出放在卡通宠物下方」）。方向只在 pillsBelow 一处判定。
-check("锚点是宠物时胶囊落在宠物下方（方向由 pillsBelow 判定，不散落多处）",
-      orbClean.contains("if case .pet = anchor { return true }")
+// v3.9.82：判据从「锚点**类型**」改成「锚点**高度**」——画法统一成宠物后类型不再分方向。
+// 🚨 那条「一律朝下」的诱惑必须挡住：dock 那颗在屏幕下半，胶囊朝下就是整排落到屏幕外。
+check("方向按锚点高度判定（下半屏 → 朝上，上半屏 → 朝下），仍只在 pillsBelow 一处",
+      orbClean.contains("ballCenter.y < DockOrbOverlay.keyWindowHeight * 0.5")
       && orbClean.contains("below: pillsBelow"))
+check("旧的「按锚点类型判方向」已清零（if case .pet = anchor { return true } 不许回来）",
+      !orbClean.contains("if case .pet = anchor { return true }"))
+// 镜像：不等式的两个边界各来一发（真实几何：dock 球心 ≈799.8 / 宠物 ≈227，屏高 852）
+let v382ScreenH = 852.0
+func mirrorPillsBelow(y: Double) -> Bool { y < v382ScreenH * 0.5 }
+check("镜像：dock 那颗（球心 799.8 / 屏 852）→ 朝上（false，否则胶囊出屏）",
+      mirrorPillsBelow(y: 799.8) == false)
+check("镜像：聊天页宠物（球心 227）→ 朝下（true，用户 2026-09-25 口径）",
+      mirrorPillsBelow(y: 227) == true)
 check("落点几何支持镜像（below ? 加 : 减，只此一处判定方向）",
       orbClean.contains("y: below ? ballCenter.y + dy : ballCenter.y - dy"))
 check("旧「一律向上」调用形态清零（不许再出现不带 below 参数的调用）",

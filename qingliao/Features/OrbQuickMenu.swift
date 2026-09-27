@@ -59,12 +59,16 @@ struct OrbQuickAction: Identifiable {
     ]
 }
 
-// MARK: - v3.9.78 菜单锚点：dock 智慧球 / 聊天页宠物
+// MARK: - v3.9.78 菜单锚点：dock 智慧球 / 聊天页宠物（v3.9.82 起画法只留宠物）
 //
 // 用户：「长按宠物改成和长按智慧球一样的效果」→ 唯一正解是**同一套菜单层**换个锚点，
 // 而不是在聊天页再搭一套（动作分发 handleOrbAction 全在 DockTabView，复制一份必然漂移）。
 // 菜单层本来就吃 `ballCenter`（胶囊从它绽放、轻纱之上重画它），所以这里只把「锚点是什么」
-// 变成参数：dock 分支口径**一字未改**（仍是 SiriBallView + DockOrbOverlay.defaultBallSize）。
+// 变成参数。
+//
+// 🚨 v3.9.82（用户 2026-09-27）：「长按智慧球跳转画面改为长按卡通宠物跳转画面，只保留一个跳转画面」
+//    —— 锚点**画法只留宠物一套**（球版那套重画已整段删；dock 入口也画宠物，尺寸仍按位置走）。
+//    本条原来写的是「dock 分支口径一字未改（仍是那颗球）」—— 那句话已作废，别再照它回改。
 
 /// 从聊天页宠物发起长按时的锚点（**全局坐标** + 尺寸；由 ChatView 量好传来）
 struct OrbPetAnchor: Equatable {
@@ -331,53 +335,52 @@ struct OrbQuickMenuLayer: View {
         .allowsHitTesting(false)
     }
 
-    /// 锚点球（v3.9.78 用户：「这个界面需要把底部的智慧球显示出来」）
+    /// 锚点形象（v3.9.78 用户：「这个界面需要把底部的智慧球显示出来」；v3.9.82 改成**只画宠物**）
     ///
-    /// 为什么要在菜单层重画一颗：遮罩改成整屏 `.ultraThinMaterial` 后，dock 那颗球被压在
-    /// **磨砂层下面**（整条 dock 一起糊掉，球只剩一团浅蓝光斑）。而六颗胶囊恰恰是**从球心
+    /// 为什么要在菜单层重画一个：遮罩改成整屏 `.ultraThinMaterial` 后，锚点被压在
+    /// **磨砂层下面**（dock 那条整条一起糊掉，球只剩一团浅蓝光斑）。而八颗胶囊恰恰是**从锚点
     /// 弹射**出来的——锚点看不见，绽放就没了起点，观感上像凭空冒出来的。
     ///
-    /// 与 dock 那颗**严格同源**（不是另画一颗像的）：
-    ///   · 中心 → `ballCenter`（= `DockOrbOverlay.orbCenterGlobal`，菜单/命中层/可见球共用）；
-    ///   · 尺寸 → `DockOrbOverlay.defaultBallSize`（单一真源，改尺寸与 dock 一起变）；
-    ///   · 状态 → thinking/unseen/failed 直传（流式转动、未读亮点、失败压暗与 dock 一致）。
-    /// 它盖在材质**之上**，所以背后那颗糊掉的只是同一位置的重影，不会看出两颗球。
+    /// 🚨 v3.9.82 口径（用户 2026-09-27：「长按智慧球跳转画面改为长按卡通宠物跳转画面，
+    ///    只保留一个跳转画面」）：**球版画法整段删掉**，不管从 dock 智慧球还是聊天页宠物进来，
+    ///    这里画的一律是 `PetAvatar`（宠物那套）。别再按锚点类型分两种画法——「长按球弹出一颗球、
+    ///    长按宠物弹出一只宠物」就是用户要去掉的那两套画面。
+    ///    中心仍严格同源：`ballCenter`（= `DockOrbOverlay.orbCenterGlobal`，菜单/命中层/可见球共用）；
+    ///    状态直传 thinking（流式时表情跟着变）。
+    /// 它盖在材质**之上**，所以背后那块糊掉的只是同一位置的重影，不会看出两层。
     ///
-    /// ⚠️ 不吃事件：`allowsHitTesting(false)` 后点球 = 点空白 = 收起菜单（与轻纱同语义），
+    /// ⚠️ 不吃事件：`allowsHitTesting(false)` 后点它 = 点空白 = 收起菜单（与轻纱同语义），
     ///    别给它挂手势 —— 菜单层是模态的，多一个命中面就多一处抢触摸的雷。
+    /// 尺寸按**位置**走，不按入口改画法（v3.9.82）：dock 槽位沿用那颗球的口径
+    /// `DockOrbOverlay.defaultBallSize`（单一真源，改尺寸与 dock 一起变）—— 这里换成 96 的宠物
+    /// 会盖住两侧 tab 图标；聊天页/欢迎页宠物用它自己的尺寸（96）。
+    private var anchorSize: CGFloat {
+        if case .pet(let size) = anchor { return size }
+        return DockOrbOverlay.defaultBallSize
+    }
+
+    /// 唯一一种画法：宠物（球版分支已删，见上面的口径注释）
     @ViewBuilder
     private var anchorObject: some View {
-        Group {
-            switch anchor {
-            case .dockOrb:
-                // 原口径（未改）：与 dock 那颗球严格同源
-                SiriBallView(thinking: thinking,
-                             size: DockOrbOverlay.defaultBallSize,
-                             fps: thinking ? 30 : 15,
-                             unseen: unseen,
-                             failed: failed)
-                    .frame(width: DockOrbOverlay.defaultBallSize,
-                           height: DockOrbOverlay.defaultBallSize)
-            case .pet(let size):
-                // v3.9.78：锚点是聊天页宠物时，重画的也必须是**宠物**（用户选的形态 + 同一尺寸）。
-                // 画球就变成「长按宠物弹出一颗球」——观感与动画起点都对不上。
-                PetAvatar(size: size, state: thinking ? .thinking : .idle)
-                    .frame(width: size, height: size)
-            }
-        }
-        .position(ballCenter)
-        .opacity(shown ? 1 : 0)          // 与轻纱同节奏淡入（onAppear 的 withAnimation 一并驱动）
-        .allowsHitTesting(false)
+        PetAvatar(size: anchorSize, state: thinking ? .thinking : .idle)
+            .frame(width: anchorSize, height: anchorSize)
+            .position(ballCenter)
+            .opacity(shown ? 1 : 0)          // 与轻纱同节奏淡入（onAppear 的 withAnimation 一并驱动）
+            .allowsHitTesting(false)
     }
 
     /// 胶囊相对锚点的落点（两排各三颗，几何见 OrbQuickMenuLayout）
     ///
-    /// v3.9.80：方向按锚点分两种 —— dock 智慧球贴屏底 → **向上**绽放（原口径）；
-    /// 欢迎页/聊天页宠物在上半屏 → 整组落在**宠物下方**（用户 2026-09-25 截图口径：
-    /// 「这个界面胶囊弹出放在卡通宠物下方」）。方向只在这一处判定，几何仍走单一真源。
+    /// v3.9.80：dock 智慧球贴屏底 → **向上**绽放（原口径）；欢迎页/聊天页宠物在上半屏 →
+    /// 整组落在**宠物下方**（用户 2026-09-25 截图口径：「这个界面胶囊弹出放在卡通宠物下方」）。
+    ///
+    /// 🚨 v3.9.82：方向判据从「锚点**类型**」改成「锚点在屏幕上的**高度**」—— 画法统一成宠物后，
+    ///    类型不再区分方向：锚点在下半屏（dock 那颗，球心 y≈800 / 屏高 852）必须**朝上**，
+    ///    否则整排胶囊落到屏幕外、看得见点不到；锚点在上半屏（聊天页/欢迎页宠物）朝下。
+    ///    方向只在这一处判定，几何仍走单一真源；高度真值走 `DockOrbOverlay.keyWindowHeight`
+    ///    （与球定位同一处真源，不另取 UIScreen，避免两处口径打架）。
     private var pillsBelow: Bool {
-        if case .pet = anchor { return true }
-        return false
+        ballCenter.y < DockOrbOverlay.keyWindowHeight * 0.5
     }
 
     private func pillOffset(index: Int) -> CGPoint {
