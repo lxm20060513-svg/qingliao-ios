@@ -194,23 +194,28 @@ struct MeetingMinutesView: View {
         Group {
             if phase == .recording, let startedAt {
                 TimelineView(.periodic(from: .now, by: 1)) { ctx in
-                    tagView("waveform", MinutesKit.clockText(ctx.date.timeIntervalSince(startedAt)))
+                    tagView(SoftWave(level: { liveSpeech.currentInputLevel() }, active: phase == .recording),
+                             MinutesKit.clockText(ctx.date.timeIntervalSince(startedAt)))
                 }
             } else {
-                tagView("waveform", MinutesKit.clockText(elapsed))
+                tagView(SoftWave(level: { 0 }, active: false), MinutesKit.clockText(elapsed))
             }
         }
     }
 
     private func textTag(_ text: String) -> some View {
-        tagView("textformat", text)
+        tagView(nil as SoftWave?, text)
     }
 
     /// 展示用小标签：淡底胶囊（**不上玻璃** —— 玻璃只给交互控件，见 Pill.swift 头注）
-    private func tagView(_ icon: String, _ text: String) -> some View {
+    private func tagView(_ wave: SoftWave?, _ text: String) -> some View {
         HStack(spacing: Spacing.xs) {
-            Image(systemName: icon)
-                .font(.system(size: Typography.tiny))
+            if let wave {
+                wave
+            } else {
+                Image(systemName: "textformat")
+                    .font(.system(size: Typography.tiny))
+            }
             Text(text)
                 .font(.system(size: Typography.caption, weight: .medium))
                 .monospacedDigit()
@@ -392,7 +397,8 @@ struct MeetingMinutesView: View {
             case .preparing:
                 smallButton("取消") { closeTapped() }
             case .recording:
-                mainButton("停止并整理", icon: "stop.circle.fill") {
+                // 用户 2026-09-27：胶囊长度跟随文字（不再整条撑满）
+                mainButton("停止并整理", icon: "stop.circle.fill", hugText: true) {
                     Task { await stopRecording() }
                 }
                 smallButton("取消录音") {
@@ -416,7 +422,9 @@ struct MeetingMinutesView: View {
         .padding(.bottom, Spacing.section)
     }
 
-    private func mainButton(_ title: String, icon: String, action: @escaping () -> Void) -> some View {
+    /// `hugText = true` 时胶囊贴着文字长短走（用户 2026-09-27：「停止胶囊长度跟随文字长度」）；
+    /// 默认仍撑满（主操作该有主操作的分量）
+    private func mainButton(_ title: String, icon: String, hugText: Bool = false, action: @escaping () -> Void) -> some View {
         Button {
             Haptics.press()
             action()
@@ -425,9 +433,11 @@ struct MeetingMinutesView: View {
                 Image(systemName: icon)
                 Text(title)
             }
-            .frame(maxWidth: .infinity)
+            .frame(maxWidth: hugText ? nil : .infinity)
             .pill(PillSize.primary, tone: .accent)
             .contentShape(Capsule())
+            // hugText 时 Button 自身撑满让胶囊在栏内居中（内容不撑满，胶囊仍跟文字走）
+            .frame(maxWidth: hugText ? .infinity : nil)
         }
         .buttonStyle(PressStyle())
     }
@@ -738,5 +748,64 @@ private struct LevelBars: View {
             }
             .frame(maxHeight: .infinity, alignment: .center)
         }
+    }
+}
+
+// MARK: - 计时标签里的淡彩波形（用户 2026-09-27）
+//
+// 原是 SF Symbol「waveform」死图标；现在按麦克风电平实时脉动的一小段淡彩波浪线。
+// 仍是 TimelineView 局部重绘（0.06s），不把电平发出去 —— 见上方 LevelBars 头注。
+// 波形用 Shape 描边绘制，尺寸固定 24×12：振幅跟电平走，相位随时间流动。
+@MainActor
+private struct SoftWave: View {
+
+    let level: @MainActor () -> Float
+    let active: Bool
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private let width: CGFloat = 24
+    private let height: CGFloat = 12
+    private let barCount = 4
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: reduceMotion ? 0.4 : 0.06)) { ctx in
+            let raw = active ? CGFloat(min(1, max(0, level()))) : 0
+            // 静默也留 0.28 底振幅：没在说话时是一条平缓的线，不是一片空白
+            let amp = (0.28 + 0.72 * raw) * (height / 2)
+            let t = reduceMotion ? 0 : ctx.date.timeIntervalSinceReferenceDate
+            HStack(spacing: 2) {
+                ForEach(0..<barCount, id: \.self) { i in
+                    // 中间两根振幅更大、两端压低 —— 读起来像一条连续的电平曲线
+                    let weight = (i == 1 || i == 2) ? amp : amp * 0.45
+                    WaveLine(amp: max(1.2, weight),
+                             phase: CGFloat(t) * 3.0 + CGFloat(i) * 0.8)
+                        .stroke(Color.accentColor.opacity(0.45 + 0.4 * Double(raw)),
+                                style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
+                }
+            }
+            .frame(width: width, height: height)
+        }
+    }
+}
+
+/// 单条起伏的细波浪（一整段正弦，裁在自身高度内）
+private struct WaveLine: Shape {
+    let amp: CGFloat
+    let phase: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        var p = Path()
+        let mid = rect.midY
+        let limit = rect.height / 2
+        let steps = 10
+        for i in 0...steps {
+            let t = CGFloat(i) / CGFloat(steps)
+            let x = rect.minX + rect.width * t
+            // 用 1 个完整周期，两端归零：相邻线段首尾相接处不跳
+            let y = mid - sin(t * .pi * 2 + phase) * min(amp, limit)
+            if i == 0 { p.move(to: CGPoint(x: x, y: y)) } else { p.addLine(to: CGPoint(x: x, y: y)) }
+        }
+        return p
     }
 }

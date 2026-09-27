@@ -69,6 +69,11 @@ targets:
         # 缺这条权限串时 TCC 不是弹窗而是 **SIGABRT 闪退**（和上面 Face ID 那条同一类坑），
         # 且只在用户真点一次保存时才复现——声明先补上。
         NSPhotoLibraryAddUsageDescription: 把 AI 生成/聊天里的图片保存到你的相册
+        # v3.9.95：AI 操控本地数据（权限与 AI 操控页 / ```ql-action 动作卡）
+        # ⚠️ 缺权限串的后果分两种：EventKit/Photos 多数是"拒绝授权"，
+        #    但历史上 FaceID/PhotoLibraryAdd 缺串直接 SIGABRT —— 声明先补上，别等真机崩。
+        NSCalendarsFullAccessUsageDescription: 让轻聊在你确认后读取和修改你的日历
+        NSPhotoLibraryUsageDescription: 让轻聊在你确认后读取相册图片供 AI 识别，或存入你选中的图片
         # SR8：后台刷新的 delegate 方法 application(_:performFetchWithCompletionHandler:)
         # （ChatView.swift 里那份「唤醒后查流式任务是否完成 → 本地通知」）**必须**声明
         # UIBackgroundModes: fetch 才会被系统调用；否则整条后台通知链路是死代码。
@@ -131,8 +136,8 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.qingliao.app2
         INFOPLIST_KEY_CFBundleDisplayName: 轻聊
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-        MARKETING_VERSION: "3.9.94"
-        CURRENT_PROJECT_VERSION: "539"
+        MARKETING_VERSION: "3.9.95"
+        CURRENT_PROJECT_VERSION: "540"
         ENABLE_PREVIEWS: YES
         CODE_SIGNING_ALLOWED: "NO"
 
@@ -166,8 +171,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.qingliao.app2.widget
-        MARKETING_VERSION: "3.9.94"
-        CURRENT_PROJECT_VERSION: "539"
+        MARKETING_VERSION: "3.9.95"
+        CURRENT_PROJECT_VERSION: "540"
         CODE_SIGNING_ALLOWED: "NO"
         CODE_SIGNING_REQUIRED: "NO"
         SKIP_INSTALL: YES
@@ -219,8 +224,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.qingliao.app2.share
-        MARKETING_VERSION: "3.9.94"
-        CURRENT_PROJECT_VERSION: "539"
+        MARKETING_VERSION: "3.9.95"
+        CURRENT_PROJECT_VERSION: "540"
         CODE_SIGNING_ALLOWED: "NO"
         CODE_SIGNING_REQUIRED: "NO"
         SKIP_INSTALL: YES

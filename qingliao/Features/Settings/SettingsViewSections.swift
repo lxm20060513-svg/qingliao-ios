@@ -55,6 +55,10 @@ extension SettingsView {
             SettingRow(icon: "puzzlepiece.extension.fill", iconColor: .teal, title: "MCP 工具服务", chevron: true)
                 .tapButton { showMCPSettings = true }
             Divider().padding(.leading, Spacing.rowDividerInset)
+            // v3.9.95：权限与 AI 操控（授权状态 + 逐项「允许 AI 操作」开关 + 能力边界）
+            SettingRow(icon: "lock.shield.fill", iconColor: .indigo, title: "权限与 AI 操控", chevron: true)
+                .tapButton { showAppPermissions = true }
+            Divider().padding(.leading, Spacing.rowDividerInset)
             localModelToggle
         }
         .glassListCard()

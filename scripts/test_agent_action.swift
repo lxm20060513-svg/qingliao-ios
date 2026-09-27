@@ -1,0 +1,149 @@
+// AgentActionParser 单元测试（Linux 本地预检用，纯 Foundation，无 UI 依赖）
+//
+// 编译运行（在仓库根目录，cq 工具链见 check_swift.sh）：
+//   $SWIFT/swiftc -o /tmp/t qingliao/Core/AgentAction.swift qingliao/Core/AppPermissionKit.swift scripts/test_agent_action.swift
+//   /tmp/t
+//
+// 覆盖：零回归（无标记/非法 JSON/未知动作）· 流式安全（未闭合不出卡）·
+//       参数读取 · 动作→能力/影响分级 · ISO8601 容错
+//
+// ⚠️ AppPermissionKit 依赖 EventKit/Photos/UIKit，Linux 上编不过。
+//    所以本测试只**复制** AppCapability / AgentAction 的判定表做等价断言；
+//    真值来源仍是 AppPermissionKit.swift，改那边必须同步改这里的 assertTable（check_swift.sh 会提醒）。
+
+import Foundation
+
+nonisolated(unsafe) var failures = 0
+func check(_ name: String, _ cond: Bool) {
+    print("\(cond ? "✅" : "❌") \(name)")
+    if !cond { failures += 1 }
+}
+
+/// 零回归核心：必须退化成单文本段且逐字相同
+func expectPlain(_ name: String, _ input: String) {
+    let segs = AgentActionParser.parse(input)
+    guard segs.count == 1, case .text(let t) = segs[0] else {
+        check(name + "（应为单个文本段）", false)
+        return
+    }
+    check(name + "（文本逐字保留）", t == input)
+}
+
+func actionOf(_ segs: [AgentActionParser.Segment], _ idx: Int) -> AgentAction? {
+    guard segs.indices.contains(idx), case .action(let a) = segs[idx] else { return nil }
+    return a
+}
+
+// MARK: - 零回归（口径 ①）
+
+@main
+struct TestMain {
+    static func main() {
+expectPlain("无标记 → 原文",
+    "帮我把明天下午的会议加到日历。")
+expectPlain("非法 JSON → 原文", """
+```ql-action
+{action: calendar.create, params:}
+```
+""")
+expectPlain("未知动作 → 原文", """
+```ql-action
+{"action": "launch.missiles", "params": {}}
+```
+""")
+expectPlain("空围栏 → 原文", """
+```ql-action
+```
+""")
+
+// MARK: - 流式安全（口径 ②：未闭合不出卡）
+
+let unclosed = """
+```ql-action
+{"action": "calendar.create", "params": {"title": "半截"}}
+"""
+let unclosedSegs = AgentActionParser.parse(unclosed)
+check("未闭合围栏不出卡（流式安全）",
+      unclosedSegs.count == 1 && {
+          if case .action = unclosedSegs[0] { return false }
+          return true
+      }())
+expectPlain("未闭合围栏 → 原文逐字保留", unclosed)
+
+// MARK: - 正常解析
+
+let full = """
+好的，已帮你安排。
+
+```ql-action
+{"action": "calendar.create", "params": {"title": "季度评审", "start": "2026-09-28T15:00:00+08:00", "end": "2026-09-28T16:00:00+08:00", "location": "3 号会议室"}, "summary": "新建「季度评审」"}
+```
+
+明天上午你有空吗？
+"""
+let segs = AgentActionParser.parse(full)
+check("多段拆分正确（文本/动作/文本）", segs.count == 3)
+if case .text(let t) = segs[0] { check("首段文本保留", t.contains("已帮你安排")) }
+if case .text(let t) = segs[2] { check("尾段文本保留", t.contains("明天上午")) }
+
+let a = actionOf(segs, 1)
+check("动作解析出 calendar.create", a?.kind == .calendarCreate)
+check("summary 可读", a?.summary == "新建「季度评审」")
+check("参数可读", a?.param("title") == "季度评审")
+check("参数 location 可读", a?.param("location") == "3 号会议室")
+check("空值参数返回 nil", a?.param("missing") == nil)
+check("空白参数返回 nil", a?.param("   ") == nil)
+
+// MARK: - 分级表（口径 ②：读/写/删）
+
+let table: [(AgentAction.Kind, AgentAction.Kind.Impact, String)] = [
+    (.calendarCreate, .write,  "calendar"),
+    (.calendarDelete, .delete, "calendar"),
+    (.calendarFree,   .read,   "calendar"),
+    (.calendarToday,  .read,   "calendar"),
+    (.photoSave,      .write,  "photos"),
+    (.notify,         .write,  "notifications"),
+]
+for (kind, impact, cap) in table {
+    check("\(kind.rawValue) 影响分级 = \(impact.rawValue)", kind.impact == impact)
+    check("\(kind.rawValue) 归属能力 = \(cap)", kind.capability.rawValue == cap)
+}
+
+// MARK: - 参数类型容错（后端可能传数字/布尔）
+
+let mixed = AgentAction.parse(json: """
+{"action":"notify","params":{"delay": 5, "urgent": true, "body":"记得吃药", "skip":"x"}}
+""")
+check("数字参数转字符串", mixed?.param("delay") == "5")
+check("布尔参数转字符串", mixed?.param("urgent") == "true")
+check("字符串参数正常", mixed?.param("body") == "记得吃药")
+// 4 个标量全收下：delay(数字)/urgent(布尔)/body(字符串)/skip(字符串)。
+// ⚠️ 别在这里写"应忽略未知键" —— 协议刻意宽松（后端加字段不必改 App），键多于预期是正常的。
+check("四个标量参数全部保留", mixed?.params.count == 4)
+
+// MARK: - ISO8601 容错
+
+check("带时区 ISO8601 可解析",
+      AgentAction.isoDate("2026-09-28T15:00:00+08:00") != nil)
+check("带小数秒 ISO8601 可解析",
+      AgentAction.isoDate("2026-09-28T15:00:00.123Z") != nil)
+check("非 ISO 串返回 nil", AgentAction.isoDate("明天下午三点") == nil)
+check("空串返回 nil", AgentAction.isoDate("") == nil)
+
+// MARK: - 门控
+
+check("含 ql-action 标记被识别", AgentActionParser.containsActionMarker("a ```ql-action b"))
+check("无标记不被误判", !AgentActionParser.containsActionMarker("普通文字"))
+check("ql_action 宽容写法被识别", AgentActionParser.isActionFence("ql_action"))
+check("ql-card 不被误认为动作", !AgentActionParser.isActionFence("ql-card"))
+
+// MARK: - 结果
+
+if failures == 0 {
+    print("\n全部通过 ✅")
+} else {
+    print("\n失败 \(failures) 条 ❌")
+    exit(1)
+}
+    }
+}

@@ -664,6 +664,13 @@ struct MessageBubble: View {
     /// 会被整体当代码块渲染：丢排版、等宽黑底）。现按行扫描：配对 fence 成代码块，fence 自带语言
     /// 标记（```lang 同行），不额外吞代码正文；结尾仍开着 fence（不配对）则按原文 markdown 处理
     private static func blocks(for text: String, serverURL: String, streaming: Bool) -> [MessageContentBlock] {
+        // v3.9.95：AI 本地动作卡（```ql-action 围栏）
+        // ⚠️ 必须排在 ql-card 判定**之前**：一条回复里两者可能同时出现，
+        //   而 ql-action 的「回退纯文本」分支要交给 blocksPlain —— 它不认识动作围栏，
+        //   会把 ```ql-action 当普通代码块画出来（用户看到一段 JSON 代码）。
+        if AgentActionParser.containsActionMarker(text) {
+            return blocksWithActions(text, serverURL: serverURL, streaming: streaming)
+        }
         // v3.5.0：Agent 结果卡片（```ql-card 围栏）——先做廉价门控，无标记 → 老路径逐字不变（零回归）
         if streaming {
             guard AgentCardParser.containsCardMarker(text) else {
@@ -698,6 +705,48 @@ struct MessageBubble: View {
             }
         }
         return out.isEmpty ? blocksPlain(for: text, serverURL: serverURL) : out
+    }
+
+    /// v3.9.95：含 ```ql-action 围栏的文本切分。
+    ///
+    /// 两条口径照抄 ql-card 的做法（别各写一套，那是两边走样的起点）：
+    ///   · 流式：未闭合围栏**不出卡**（先出卡、下一帧又退回原文 = 用户看到卡闪一下）
+    ///   · 解析失败/未知动作：整块退回 blocksPlain 走原路径，**但要先摘掉 ql-action 围栏标记**，
+    ///     否则用户会看到一段 ```ql-action JSON 代码块 —— 那比"没执行"更让人困惑。
+    private static func blocksWithActions(_ text: String, serverURL: String, streaming: Bool) -> [MessageContentBlock] {
+        var out: [MessageContentBlock] = []
+        for seg in AgentActionParser.parse(text) {
+            switch seg {
+            case .action(let a):
+                out.append(.init(kind: .action(a)))
+            case .text(let t):
+                let trimmed = t.trimmingCharacters(in: .whitespacesAndNewlines)
+                if trimmed.isEmpty { continue }
+                if streaming {
+                    out.append(.init(kind: .markdown(t)))
+                } else {
+                    out.append(contentsOf: blocksPlain(for: stripActionFenceMarks(t), serverURL: serverURL))
+                }
+            }
+        }
+        // 动作卡不该是唯一内容（AI 至少会写一句话交代）——空则整段回退
+        return out.isEmpty
+            ? blocksPlain(for: stripActionFenceMarks(text), serverURL: serverURL)
+            : out
+    }
+
+    /// 把残留的 ```ql-action / ```ql_action 围栏标记降级为普通围栏（让 blocksPlain 当代码块或纯文本处理，
+    /// 而不是一个 ql-action 卡片）。**只动围栏标记行，不动内容**。
+    private static func stripActionFenceMarks(_ text: String) -> String {
+        guard text.contains("ql-action") || text.contains("ql_action") || text.contains("qlaction") else {
+            return text
+        }
+        return text.components(separatedBy: "\n").map { line -> String in
+            if let lang = AgentActionParser.fenceLanguage(line), AgentActionParser.isActionFence(lang) {
+                return "```"
+            }
+            return line
+        }.joined(separator: "\n")
     }
 
     /// v3.5.0：原 blocks 主体（卡片切分抽出后保留原名语义）——不改任何既有分段逻辑

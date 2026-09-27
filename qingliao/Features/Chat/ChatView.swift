@@ -1467,11 +1467,16 @@ struct ChatView: View {
         }
     }
 
-    /// 续聊芯片条 + 消息区（含停止录音/收件箱覆盖层）
+    /// v3.4.26 续聊芯片条 + 消息区（含停止录音/收件箱覆盖层）
+    ///
+    /// v3.9.95（用户拍板）：**去掉「继续话题 / 总结对话 / 有疑问」三颗续聊胶囊**。
+    /// 原来它在 header 下方常驻（非空会话+非流式即显示），属于历史包袱：
+    /// 三颗都是**万能话术**，点一下就发一条没信息量的指令，AI 只能机械回「回顾/总结/请提问」，
+    /// 还占掉消息区顶部一行、并让流式开始/结束时整条跳一下（插拔视图）。
+    /// 现在话题延续交给长按球的「AI 识别 + 语音对话胶囊」和空会话的欢迎芯片。
+    /// `welcomeSuggestions` 里的续聊分支、`continueChipsBar` 视图与调用点一并删除（无残留死代码）。
     @ViewBuilder
     private var chatTranscriptArea: some View {
-        // v3.4.26：续聊芯片条——有消息且非流式时显示在消息区上方（话题延续入口）
-        continueChipsBar
         messageList
             .overlay {
                 // v3.0.79：点按空白处停止录音（exitVoiceMode 注释原本就写"按钮/空白点击共用"，此处补上空白点击）
@@ -2238,57 +2243,15 @@ struct ChatView: View {
     }
 
     // v3.4.25：上下文感知建议芯片（icon/title/prompt 三元组，Identifiable 结构供 ForEach）
-    // v3.4.26 修复：原「继续话题/总结对话」组写在非空分支，但欢迎页只在空会话渲染 → 永远不显示。
-    // 现统一由 showContinueChips 控制：非空会话在 header 下方悬浮显示该组芯片（新会话仍走欢迎页）。
+    // v3.9.95：原非空会话分支（继续话题/总结对话/有疑问）随 `continueChipsBar` 一并删除，
+    // 现在只在空会话欢迎页渲染（竖屏 + 横屏两处共用同一份数据）。
     private var welcomeSuggestions: [WelcomeSuggestion] {
-        if chat.messages.isEmpty {
-            return [
-                WelcomeSuggestion(icon: "sparkles", title: "帮我写", prompt: "帮我写一份"),
-                WelcomeSuggestion(icon: "character.bubble", title: "翻译", prompt: "请将以下内容翻译成英文：\n"),
-                WelcomeSuggestion(icon: "brain", title: "头脑风暴", prompt: "请围绕以下主题给出 5 个有创意的点子：\n"),
-                WelcomeSuggestion(icon: "list.bullet.rectangle", title: "待办整理", prompt: "请把以下内容整理成清晰的待办清单：\n")
-            ]
-        }
-        // 续聊会话：话题延续 + 通用工具
-        return [
-            WelcomeSuggestion(icon: "arrow.uturn.forward", title: "继续话题", prompt: "我们刚才聊到哪里了？请简要回顾并继续。"),
-            WelcomeSuggestion(icon: "summarize", title: "总结对话", prompt: "请用 3-5 条要点总结我们这段对话的关键内容。"),
-            WelcomeSuggestion(icon: "questionmark.bubble", title: "有疑问", prompt: "关于刚才的内容，我还有几个问题想深入。")
+        [
+            WelcomeSuggestion(icon: "sparkles", title: "帮我写", prompt: "帮我写一份"),
+            WelcomeSuggestion(icon: "character.bubble", title: "翻译", prompt: "请将以下内容翻译成英文：\n"),
+            WelcomeSuggestion(icon: "brain", title: "头脑风暴", prompt: "请围绕以下主题给出 5 个有创意的点子：\n"),
+            WelcomeSuggestion(icon: "list.bullet.rectangle", title: "待办整理", prompt: "请把以下内容整理成清晰的待办清单：\n")
         ]
-    }
-
-    /// v3.4.26：续聊芯片条（非空会话且非流式时显示在消息区顶部；点按直接发送延续指令）
-    /// v3.4.x 美化：去高饱和纯蓝（用户反馈突兀）——改 Siri 淡雅低饱和风：
-    /// 图标走柔和渐变（每芯片独立色系）、文字 secondary 中性、底 ultraThinMaterial 玻璃、0.8pt 淡描边，
-    /// 与全站胶囊/玻璃卡片观感统一。
-    @ViewBuilder
-    private var continueChipsBar: some View {
-        if !chat.messages.isEmpty && !thisSessionStreaming {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(welcomeSuggestions) { s in
-                        Button {
-                            Haptics.tap()
-                            sendCore(text: s.prompt, imageData: nil)
-                        } label: {
-                            // v3.9.88（用户拍板）：三颗建议胶囊改用 `chatHeaderPill()`——
-                            // 与 header 的 TTS 朗读胶囊**同一款样式**（原生液态玻璃 + accent 0.28/0.8pt 描边 +
-                            // 定高 15pt），不再手写「淡字 + ultraThinMaterial + primary 淡描边」那套。
-                            // 顺带把 `s.icon` 用上（之前 icon 字段只写在数据里、界面没渲染，字段是死的）。
-                            HStack(spacing: 3) {
-                                Image(systemName: s.icon)
-                                Text(s.title)
-                            }
-                            .foregroundStyle(Color.accentColor)
-                            .chatHeaderPill()
-                        }
-                        .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
-                    }
-                }
-                .padding(.horizontal, Spacing.xxl)
-            }
-            .padding(.vertical, Spacing.sm)
-        }
     }
 
     /// v3.0.51：单条消息整行（日期分隔 + 时间分隔 + 气泡）——拆独立方法防 ForEach type-check 超时

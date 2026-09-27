@@ -58,6 +58,14 @@ echo "=== 5. Agent 结果卡片解析单元测试 ==="
 run_unit /tmp/test_agent_card -swift-version 6 \
     qingliao/Core/AgentCardParser.swift scripts/test_agent_card.swift
 
+echo "=== 5a. AI 本地动作协议单元测试（v3.9.95 ql-action 围栏）==="
+# ⚠️ 编的是**生产源码** qingliao/Core/AgentAction.swift，不是测试里的镜像实现 ——
+#    镜像实现会与生产代码各改各的，协议改坏也全绿（同 5b 的教训）。
+# AppPermissionKit 依赖 EventKit/Photos/UIKit，Linux 编不过 → 用 shims 里的枚举外壳。
+run_unit /tmp/test_agent_action -swift-version 6 \
+    qingliao/Core/AgentAction.swift scripts/shims/AppCapabilityShim.swift \
+    scripts/test_agent_action.swift
+
 echo "=== 5b. 启动会话策略真值表（v4.0.0 自动/上次会话/新对话 + 15 分钟边界）==="
 # 🚨 必须把生产源码编进来（审查抓出的真问题）：只编测试文件时，表内那份镜像实现
 #    与生产代码各改各的 → 公式/常量/接线被改坏也全绿。现在编的就是 qingliao/Core/LaunchSession.swift。

@@ -41,6 +41,8 @@ struct SettingsView: View {
     @State var showHASettings = false
     // v3.5.0：MCP 工具服务管理弹窗
     @State var showMCPSettings = false
+    // v3.9.95：权限与 AI 操控（日历/相册/通知/HomeKit 的授权与 AI 开关）
+    @State var showAppPermissions = false
     // v3.5.x：生活卡片设置（股票 / 资讯 / 快递 / 价格监控）
     @State var showLifeCards = false
     // v3.9.32：一句话本地定时提醒 / 文件管理
@@ -180,6 +182,12 @@ struct SettingsView: View {
         .sheet(isPresented: $showMCPSettings) {
             MCPSettingsSheet()
                 .presentationDetents([.medium, .large])
+                .scrollContentBackground(.hidden)
+        }
+        // v3.9.95：权限与 AI 操控
+        .sheet(isPresented: $showAppPermissions) {
+            AppPermissionsSheet()
+                .presentationDetents([.large])
                 .scrollContentBackground(.hidden)
         }
         // v3.5.x：生活卡片设置页（股票 / 资讯 / 快递 / 价格监控）

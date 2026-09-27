@@ -25,6 +25,7 @@ struct MessageContentBlock: Identifiable {
         case image(String)       // v2.0.128：AI 回复中的图片（URL 或 data URL）
         case file(String, String)   // v3.9.17：AI 生成物（URL, 显示名）——点击 QuickLook 预览
         case agentCard(AgentCard)   // v3.5.0：Agent 结果卡片（```ql-card 围栏 → 结构化卡片）
+        case action(AgentAction)    // v3.9.95：AI 本地动作卡（```ql-action 围栏 → 可点执行）
     }
     let kind: Kind
 }
@@ -114,6 +115,8 @@ struct MessageBlockView: View {
         case .image(let url): return url
         case .file(let url, _): return url   // v3.9.14：文件卡降级为它的 URL（大爆炸/钉一钉/存备忘录共用此处）
         case .agentCard(let card): return card.plainText   // v3.5.0：卡片降级为纯文本
+        // v3.9.95：动作卡降级为「用户看得懂的一行」——复制/存备忘录时不该把 JSON 复制出去
+        case .action(let a): return a.summary ?? a.kind.capabilityLabel
         }
     }
 
@@ -356,6 +359,11 @@ struct MessageBlockView: View {
             // v3.5.0：Agent 结果卡片（```ql-card 围栏）——单卡玻璃 + 0.8pt 描边，长按菜单同其他段
             AgentResultCard(card: card, onContinueStep: onContinueStep)
                 .contextMenu { bubbleMenu }
+        case .action(let action):
+            // v3.9.95：AI 本地动作卡（```ql-action 围栏）
+            // 刻意**不给** contextMenu：动作卡上的长按菜单会出现"复制 JSON"这类无意义项，
+            // 且用户可能从菜单误以为能撤销 —— 撤销只走卡片上那个 5 秒胶囊。
+            AgentActionCard(action: action)
         }
     }
 }

@@ -29,17 +29,35 @@ enum CloudConfig {
 
     /// 已知「同名但该 provider 下无视觉」的精确反例表。
     ///
-    /// 依据 = 2026-09-15 逐个 provider 实测（带 64x64 上红下蓝素图，直连该 provider 的 base_url）：
-    ///   · sensenova/deepseek-v4-flash → 带图 HTTP 200 但 content 为空（finish=length），**图被静默丢弃**
-    ///   · sensenova/glm-5.2           → 模型回「您未提供图片」，**静默丢图**
-    ///   · sensenova/sensenova-6.8-flash-lite → 识图正确 ✅（故不列入）
-    ///   · deepseek/deepseek-flash、deepseek/deepseek-v4-flash → 识图正确 ✅（官方通路，不列入）
+    /// 依据 = 2026-09-27 用「上红下蓝 64x64 素图」逐个 provider+model 实测（识别题「上下两半分别什么颜色」）：
+    ///   opencode-apple/deepseek-v4.1-flash → 「红色，蓝色」✅ **有视觉**
+    ///   opencode-apple/deepseek-v4-flash    → HTTP 400 "Model only supports text input"（硬拒图）
+    ///   opencode-apple/deepseek-v4-pro      → 「无法查看图片」（图被吞，静默丢图）
+    ///   deepseek(官方)/deepseek-v4-flash    → 「红色，蓝色」✅ **有视觉**
+    ///   deepseek(官方)/deepseek-flash       → 「红色，蓝色」✅
+    ///   deepseek(官方)/deepseek-v4-pro      → 「无法查看图片」（静默丢图）
+    ///   opencode-apple/kimi-k3、mimo-v2.5   → ✅ 有视觉
     ///
-    /// 命中即判「无视觉」→ 图降级为 [图片] 文本（保持既有行为，不会静默丢图）。
-    /// 新增条目必须**实测过**该 provider 下的同名模型，别照官方文档推断。
+    /// ⚠️ v3.9.95 血泪：同名模型在**不同 provider 下能力相反**已不是个别现象，而是常态。
+    /// 此前这张表只有 2 条 sensenova 反例，且通用表按模型名硬判
+    /// （`m == "deepseek-v4-flash"` → true），于是 opencode-apple 的 v4.1-flash（有视觉）
+    /// 完全不匹配 → 判 false → **App 在发送前就把图降级成 [图片] 文本**，模型压根没机会看图。
+    /// 用户侧表现就是「图片没传过来」。所以：凡 deepseek 系一律走 provider 级判定，不再按名字猜。
+    ///
+    /// 命中即判「无视觉」→ 图降级为 [图片] 文本（不会静默丢图）。
+    /// 新增条目必须**实测过**该 provider 下的该模型，别照官方文档推断。
     private static let visionDeniedPairs: Set<String> = [
+        // 商汤：带图 200 但内容为空 / 模型回「您未提供图片」（2026-09-15 实测）
         "sensenova/deepseek-v4-flash",
         "sensenova/glm-5.2",
+        // opencode-apple：实测硬拒图或静默吞图
+        "opencode-apple/deepseek-v4-flash",
+        "opencode-apple/deepseek-v4-pro",
+        "opencode/deepseek-v4-flash",
+        "opencode/deepseek-v4-pro",
+        // deepseek 官方：v4-pro 静默吞图（flash 系官方通路有视觉，不列入）
+        "deepseek/deepseek-v4-pro",
+        "deepseek/deepseek-chat",
     ]
 
     /// provider 反例命中即判「无视觉」。
@@ -75,6 +93,11 @@ enum CloudConfig {
             || m.contains("step") || m.contains("stepfun") {
             return true
         }
+        // v3.9.95：K 系全系实测有视觉（opencode-apple/kimi-k3 用素图答「红色 蓝色」✅）。
+        // 此前表里**一个 kimi 都没有** → 选 Kimi 的用户发图恒被降级成 [图片]，同样表现为「图片没传过来」。
+        if m.contains("kimi") {
+            return true
+        }
         // MiniMax M 系列（M1/M2/M2.x/M3 等）全系支持多模态视觉
         if m.contains("minimax-") {
             return true
@@ -87,9 +110,13 @@ enum CloudConfig {
         if m.contains("mimo") {
             return true
         }
-        // DeepSeek flash 系（官方 api.deepseek.com 实测支持 image_url）
-        if m == "deepseek-flash" || m == "deepseek-v4-flash" {
-            return true
+        // ⚠️ v3.9.95：**deepseek 系一律不按名字猜**。
+        // 实测同名跨 provider 结论相反：deepseek-v4-flash 在 deepseek 官方有视觉、在 opencode-apple 硬拒图；
+        // deepseek-v4.1-flash 只在 opencode-apple 有视觉、旧表压根不认这个名（→ 判 false → 图被降级）。
+        // 统一交给 provider 级判定（modelSupportsVision(_:provider:) 查 visionDeniedPairs），
+        // 查不到反例的 deepseek 系按**官方同名能力**保守给 true；确知无视觉的都已进反例表。
+        if m.hasPrefix("deepseek-") {
+            return !m.contains("-v4-pro") && m != "deepseek-chat"
         }
         return false
     }
