@@ -829,7 +829,13 @@ final class ChatStore {
         //    但它的下一次落库会带着新标题走到这里 —— 先记标记，下面的 userRenamed 才拦得住；
         // ② 正常首条消息路径下 title 就是我们刚写的 30 字兜底 → isAppTitle 为真，不会误记。
         noteExternalTitleIfNeeded(sid, title: t, messages: msgs)
-        guard SessionAutoName.shouldFire(messageCount: msgs.count,
+        // 🚨 v4.0.x 修：`msgs.count` 把**本地卡**也算成「一条对话」了。
+        // 记账卡 / 纪要卡都是 isPush 的 assistant 消息，而「买菜 86」「打车 32」正是最典型的首句
+        // → 首条用户消息 + 记账卡 = count 2，shouldFire 的 `messageCount == 1` 直接 return
+        // → **这类会话永远拿不到自动命名**，且全程静默无日志。
+        // 本地卡本来就不进模型上下文（「这是第几轮对话」不该被它影响），所以这里只数对话消息。
+        let conversational = msgs.filter { !$0.isPush && !$0.isErrorPlaceholder }.count
+        guard SessionAutoName.shouldFire(messageCount: conversational,
                                         firstIsUser: first.isUser,
                                         firstMessageNameable: SessionAutoName.isNameable(first.content),
                                         alreadyAutoNamed: autoNamedTitles[sid] != nil,

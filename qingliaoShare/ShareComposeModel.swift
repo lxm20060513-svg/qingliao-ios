@@ -36,8 +36,11 @@ final class ShareComposeModel {
     private(set) var text = ""
     /// 来源标题（`NSExtensionItem.attributedTitle`，网页标题等来源名；可空）
     private(set) var sourceName: String?
-    /// 分享进来的图片（已按档位下采样；发送时再编成 JPEG 字节）
+    /// 分享进来的图片（已按档位下采样；发送时直接复用 load 时编好的 JPEG 字节）
     private(set) var image: UIImage?
+    /// load 阶段编好的 JPEG 字节 —— 发送时复用，不再重编（重编 = 双倍 CPU/峰值内存，
+    /// 且重编失败会让 payload 谎报 `hasImage` 而剪贴板里没有图 → 主 App 必然读不到 → 整次分享丢失）
+    private(set) var imageJPEG: Data?
     /// 用户补充说明（可编辑；随消息一起发出，空 = 只发内容本身）
     var note = ""
 
@@ -135,9 +138,16 @@ final class ShareComposeModel {
             text = newText
         }
         if let imageJPEG, image == nil, let decoded = UIImage(data: imageJPEG) {
+            // 留住 load 时编好的那份：send() 直接复用，不再重编（重编失败会让 payload 谎报 hasImage）
+            self.imageJPEG = imageJPEG
             image = decoded
         }
         pending -= 1
+        // 🚨 v4.0.x 修：超时任务已把 phase 判成 .empty 之后 provider 才回调回来，
+        // 而下面 `guard ... phase == .loading` 让 phase 永远停在 .empty —— 但内容真的进来了。
+        // 而 .empty 分支只渲染 cancelButton、send() 又 `guard phase == .ready`
+        // → 用户看得见内容（内存里）却**根本没有发送入口**。迟到内容必须把空态救回 ready。
+        if case .empty = phase, hasContent { phase = .ready }
         guard pending <= 0, phase == .loading else { return }
         phase = hasContent ? .ready : .empty("没读出可分享的内容")
     }
@@ -182,14 +192,22 @@ final class ShareComposeModel {
     ///   ② 尽力 `open` 唤起主 App，成败都如实落到 UI 状态上（iOS 18 起系统会拒，那是常态不是异常）。
     func send() async {
         guard phase == .ready else { return }
+        // 🚨 v4.0.x 修：编不出图字节时**不许**再宣称 hasImage —— 那样剪贴板 JSON 里没有图数据、
+        // 主 App `payload(fromClipboardItem:)` 判 `text.isEmpty && image == nil` 返回 nil
+        // → 用户点完发送看到的是「没读到」，整次分享静默丢失。这里如实降级成纯文本。
+        let jpeg = imageJPEG ?? image.flatMap { ShareImageEncoder.jpeg($0) }
+        let hasImage = jpeg != nil
+        if image != nil, !hasImage {
+            image = nil            // 编不出字节就别留一个发不出去的图
+            imageJPEG = nil
+        }
         phase = .sending
         let payload = ShareLinkCodec.Payload(id: token,
-                                             kind: ShareLinkCodec.kind(text: text, hasImage: image != nil),
+                                             kind: ShareLinkCodec.kind(text: text, hasImage: hasImage),
                                              text: text,
                                              note: note,
                                              sourceName: sourceName,
-                                             hasImage: image != nil)
-        let jpeg = image.flatMap { ShareImageEncoder.jpeg($0) }
+                                             hasImage: hasImage)
         if payload.kind == .clipboard {
             writeClipboard(payload, imageJPEG: jpeg)
         }

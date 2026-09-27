@@ -307,6 +307,15 @@ struct DockTabView: View {
             }
             // v3.4.14 系统分享接入口：捕获从其他 App 分享进来的内容 → 入 ShareRouter + 通知 ChatView
             .onOpenURL { url in
+                // 🚨 v4.0.x 加固：分享接收协议（`qingliao://share?...`）原来只挂在 QingliaoApp
+                // （WindowGroup 的 content 上，离根最近）。但**已登录时本视图在树里、离根更近**，
+                // 而 share host 对 QingliaoDeepLink.route / file / http / geo 分支全不命中 →
+                // 落到 `String(contentsOf:)`（非文件 URL 必失败）→ guard return → 分享内容静默丢弃。
+                // 「用户已登录时分享不进来、未登录时正常」正是这个布局的必然结果。
+                // SwiftUI 对多个 onOpenURL 是「只调最深那一个」还是「逐个广播」各家说法不一，
+                // 所以这里**两个位置都接、且 share 优先**（ShareIntake 只认 qingliao://share，
+                // 不是自己的 URL 立刻 return false，对既有深链/分享零影响）——两种语义下都活。
+                if ShareIntake.handle(url: url, loggedIn: auth.isLoggedIn, loggedInProvider: { auth.isLoggedIn }) { return }
                 handleShareURL(url)
             }
             // v3.9.14：备忘录「发给 AI」——备忘录在生活页，不切回聊天页就看不到发出去的消息

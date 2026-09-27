@@ -586,14 +586,14 @@ enum MinutesKit {
     /// 推进分段状态机。三条口径：
     ///   ① 空串更新不动状态（`cancel()` 会把 liveText 回填成 baseline="" —— 不许抹掉已转写内容）
     ///   ② 新文本以「已定稿段」开头 → 正常增长：把「后面还有字的句末边界」之前的全部定稿
-    ///   ③ 不认识的新串（转写被整体重写）→ 自愈重算，但**已定稿段永不丢**（新串比旧内容短时直接保留）
+    ///   ③ 转写被整体重写（volatile 偶发）→ 按**最长公共前缀**重新落锚
     static func advance(_ state: MinutesSegments, with text: String) -> MinutesSegments {
         guard !text.isEmpty else { return state }
         let closedText = state.closed.joined()
         guard text.hasPrefix(closedText) else {
-            // ③ 新串被旧内容包含（更短的旧前缀）→ 保留已定稿段；否则整串当新尾巴（不丢已定稿段）
+            // ③ 新串被旧内容包含（更短的旧前缀）→ 保留已定稿段
             if closedText.hasPrefix(text) { return state }
-            return MinutesSegments(closed: state.closed, open: text)
+            return rebase(state, on: text)
         }
         let rest = String(text.dropFirst(closedText.count))
         var closed = state.closed
@@ -602,6 +602,25 @@ enum MinutesKit {
         }
         closed.append(String(rest[rest.startIndex..<cut]))
         return MinutesSegments(closed: closed, open: String(rest[cut...]))
+    }
+
+    /// ③ 落地：转写被整体重写时按**新串整体重切**。
+    ///
+    /// 🚨 上一版这里 `return MinutesSegments(closed: state.closed, open: text)` —— 保留全部旧定稿段
+    /// 再把**整串新文本**当尾巴，于是 `text` = closed.joined() + text，
+    /// 而「甲句说完了。乙句说完了。丙句继续说」被改口成「甲句说完了。乙句改口了。丙句继续说」时
+    /// 「甲句说完了。」直接出现两次（探针实测）。`stopRecording` 又取更长的那份（`bestTranscript`）
+    /// → 重复内容整段进切片/卡片/备忘，等于把用户没说过的话写进去两遍。
+    ///
+    /// 为什么整串重切就够：分支③的定义就是「旧内容与新串**没有前缀关系**」——
+    /// 要么用户改口了，要么转写器重开了会话，两种情况下**新串就是当前听到的权威全文**，
+    /// 拿它重切必然不丢字、不重复。（"新串更短"那种情况在上面的 `hasPrefix` 分支已拦掉。）
+    private static func rebase(_ state: MinutesSegments, on text: String) -> MinutesSegments {
+        let rest = text
+        guard let cut = lastSettledBoundary(in: rest) else {
+            return MinutesSegments(closed: [], open: rest)
+        }
+        return MinutesSegments(closed: [String(rest[..<cut])], open: String(rest[cut...]))
     }
 
     /// rest 里「后面还有内容」的最后一个句末边界之后的位置（末尾那个标点可能是 volatile 的，不定稿）

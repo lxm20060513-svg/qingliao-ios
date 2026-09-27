@@ -172,16 +172,25 @@ enum MinutesTruthTable {
         checkEq("空串更新不动状态（取消回填不抹字）", st.text, before.text)
         checkEq("空串更新不动段数", st.closed.count, before.closed.count)
 
-        // 反例：转写被整体重写成更短的旧前缀 → 已定稿段不许丢
+        // 🚨 v4.0.x 修断言：下面两条原来是**给 bug 背书**的。
+        // 原口径「更短的旧前缀不丢已定稿段」/「陌生串不清空已定稿段」来自旧实现
+        // `return MinutesSegments(closed: state.closed, open: text)` —— 保留全部旧定稿段
+        // 再把**整串新文本**当尾巴，于是 `text` = closed.joined() + text =
+        // 「甲句说完了。乙句说完了。甲句说完了」。用户说过的话被写两遍并污染整篇纪要。
+        // 新口径：转写被整体重写时，拼接结果必须**恰好等于新串**（新串就是用户当前听到的全文）。
         let shorter = "你好"
-        let kept = MinutesKit.advance(before, with: shorter)
-        checkEq("更短的旧前缀不丢已定稿段", kept.closed.count, before.closed.count)
+        let shortened = MinutesKit.advance(before, with: shorter)
+        checkEq("转写重写成更短串：拼接 == 新串（不重复拼接旧定稿段）", shortened.text, shorter)
 
-        // 反例：完全陌生的新串 → 已定稿段仍在，新串当尾巴（不静默清空）
         let alien = "换了一段完全不同的内容"
         let alienState = MinutesKit.advance(before, with: alien)
-        checkEq("陌生串不清空已定稿段", alienState.closed.count, before.closed.count)
-        check("陌生串进尾巴", alienState.open == alien)
+        checkEq("陌生串：拼接 == 新串（不静默清空、也不叠旧内容）", alienState.text, alien)
+
+        // 正常增长路径必须仍单调不减（回归护栏：别把 ② 一起改坏）
+        var grow = before
+        for _ in 0..<8 { grow = MinutesKit.advance(grow, with: grow.text + "再补一句。") }
+        check("正常增长后已定稿段单调不减", grow.closed.count >= before.closed.count)
+        check("正常增长后拼接 == 当前全文", grow.text == grow.closed.joined() + grow.open)
 
         checkEq("整篇一次算（segments(of:)）与推进口径一致",
                 MinutesKit.segments(of: full).text, full)

@@ -20,6 +20,10 @@ final class PinStore {
     }
 
     /// 钉一钉数据文件的完整路径（NAS 上）
+    /// v4.0.x 复核补：NAS 写链 FIFO（等前一次写完再写本次快照），防并发写同一 path 时
+    /// 慢的旧快照后到 → 远端复活已删条目。同一份修法见 RecordStore.writeChain。
+    private var writeChain: Task<Void, Never> = Task {}
+
     private var pinsFilePath: String {
         let base = storagePath.isEmpty
             ? "/volume1/docker/hermes/微信文件/轻聊web/data"
@@ -73,10 +77,19 @@ final class PinStore {
         // 写本地 UserDefaults 兜底
         UserDefaults.standard.set(data, forKey: "qingliao_pins_data")
 
-        // v3.0.x fix：用 Task.detached 避免继承 @MainActor（原 Task 继承 MainActor → 网络 I/O 阻塞主线程）
+        // v3.0.x fix：用 Task { } 避免继承 @MainActor（原 Task 继承 MainActor → 网络 I/O 阻塞主线程）
         let path = pinsFilePath
-        Task.detached { [weak auth] in
-            await Self.writeToFile(auth: auth, path: path, data: data)
+        // SR33：必须**强**捕获 auth（先绑成局部常量）。原来这里是 `[weak auth]` —— 任务真正跑起来时
+        // 调用方栈早已退出，弱引用可能在调度间隙被清空 → 整次 NAS 回写静默丢失
+        //（本地 UserDefaults 有、界面无异状，只在另一台设备上看得到缺条）。与 MemoStore 同款。
+        let authForWrite = auth
+        // v4.0.x 复核补：FIFO 串行写链，防并发写同一 path 时慢的旧快照后到 → 远端复活已删便签。
+        // PinStore 的 loadFromServer 也是**并集**合并，复活后没有墓碑能挡住。
+        // 与 RecordStore.writeChain 同一份修法，保持单一真源。
+        let prev = writeChain
+        writeChain = Task {
+            await prev.value
+            await Self.writeToFile(auth: authForWrite, path: path, data: data)
         }
     }
 

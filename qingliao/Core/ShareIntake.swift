@@ -59,18 +59,31 @@ enum ShareIntake {
     /// ⚠️ 同一场景里挂多个 `.onOpenURL` 时 SwiftUI 会**逐个回调**，所以这里必须先判「是不是我的」
     /// 再动手；不是就立刻返回，绝不改别人的 URL 处理结果。
     @discardableResult
-    static func handle(url: URL, loggedIn: Bool) -> Bool {
+    /// - Parameter loggedInProvider: 闸内**重取**登录态用（v4.0.x 复核补）。
+    ///   原来这里 `let isLoggedIn = loggedIn` 在 Task 外就把值**冻结**了，注释却写「闸内重取」——
+    ///   代码与注释相反。冷启动被 `extensionContext.open` 唤起时，AuthStore 常还没验完 token，
+    ///   此刻 isLoggedIn 仍为 false 被冻住：0.8s 后即便已登录也走 pendingWhileLoggedOut，
+    ///   而真正补投只挂在 .onChange(of: auth.isLoggedIn) 上、**不报初值** → 这次进程内再无第二次 flush。
+    ///   调用方传 `{ auth.isLoggedIn }` 即在闸内真读一次；不传就退化为「沿用调用时刻的登录态」。
+    static func handle(url: URL, loggedIn: Bool, loggedInProvider: (() -> Bool)? = nil) -> Bool {
         guard let p = ShareLinkCodec.payload(from: url) else { return false }
         switch p.kind {
         case .inline:
             // 正文全在 URL 里 → 不碰剪贴板（一次「允许粘贴」弹窗都不会有）
             accept(Incoming(payload: p, imageJPEG: nil), loggedIn: loggedIn)
         case .clipboard:
-            // 正文/图都在剪贴板里：读一次（跨 App 读 → 可能弹一次「允许粘贴」）
-            if let got = readClipboardPayload(expectedID: p.id) {
-                accept(Incoming(payload: got.payload, imageJPEG: got.imageJPEG), loggedIn: loggedIn)
-            } else {
-                reportMissingPayload(loggedIn: loggedIn)
+            // 🚨 v4.0.x 修：原来这一路**立刻**读剪贴板，与 resume 的 0.8s 闸自相矛盾。
+            // onOpenURL 常在冷启动 `extensionContext.open` 时回调，此刻 App 往往还没转 active
+            // → 读剪贴板落在「未 active」→ 系统静默返回空 → 图片/超长文本分享必丢。
+            // 正解：与 resume 走同一道闸；闸内重取登录态（此刻才算数）。
+            Task { @MainActor in
+                try? await Task.sleep(for: clipboardProbeDelay)
+                let isLoggedIn = loggedInProvider?() ?? loggedIn
+                if let got = readClipboardPayload(expectedID: p.id) {
+                    accept(Incoming(payload: got.payload, imageJPEG: got.imageJPEG), loggedIn: isLoggedIn)
+                } else {
+                    reportMissingPayload(loggedIn: isLoggedIn)
+                }
             }
         }
         return true
@@ -102,12 +115,19 @@ enum ShareIntake {
         guard pb.contains(pasteboardTypes: [ShareLinkCodec.pasteboardType]) else { return }
         let cc = pb.changeCount
         guard cc != lastClipboardChange else { return }   // 这一版已经消费过
-        lastClipboardChange = cc                          // 无论成败都记账：同一版只处理一次
+        // 🚨 v4.0.x 复核再修（P0，同 readClipboardPayload 那条同款）：原来在**读之前**就
+        // `lastClipboardChange = cc`（注释还写「无论成败都记账」）。可跨 App 读 items 会弹
+        // 「允许粘贴」——弹窗**未决**时 items 返回空、下面直接判失败，这一版却被永久记成
+        // 「已处理」：用户随后点完「允许粘贴」，下次 `cc != lastClipboardChange` 直接 return
+        // → 分享内容静默丢失，还多出一条「没读到」的 AI 消息。
+        // 这是回前台 / 冷启动兜底通道（iOS 18 起 open 被系统拒时用户手动开 App 就走这条），
+        // 属于「A 路径修了、B 路径漏改」的同款。正解：**真的消费掉了才记账**。
         guard let item = pb.items.first,
               let decoded = ShareLinkCodec.payload(fromClipboardItem: item) else {
             reportMissingPayload(loggedIn: loggedIn)      // 有我们的类型却读不出内容 → 出声
-            return
+            return                                          // 🚨 故意**不**记账：弹窗答完还能再试
         }
+        lastClipboardChange = pb.changeCount               // 消费成功才记账
         accept(Incoming(payload: decoded.payload, imageJPEG: decoded.imageJPEG), loggedIn: loggedIn)
     }
 
@@ -118,11 +138,15 @@ enum ShareIntake {
         -> (payload: ShareLinkCodec.Payload, imageJPEG: Data?)? {
         let pb = UIPasteboard.general
         guard pb.contains(pasteboardTypes: [ShareLinkCodec.pasteboardType]) else { return nil }
-        // 探到这一版就记账（无论成败）：成功 = 已消费；失败 = 同一版别再重复弹授权、也别重复出声
-        lastClipboardChange = pb.changeCount
+        // 🚨 v4.0.x 修：原来在**校验之前**就 `lastClipboardChange = pb.changeCount`，
+        // 而跨 App 读 items 会弹「允许粘贴」——弹窗**未决**时 items 直接返回空、校验必失败，
+        // 这一版却被永久记成「已处理」：用户随后点「允许粘贴」也再无重试
+        // （下次 probeClipboard 的 `cc != lastClipboardChange` 直接 return）→ 内容静默丢失。
+        // 正解：**真的消费掉了才记账**；读失败不记账，弹窗答完还能再试。
         guard let item = pb.items.first,
               let decoded = ShareLinkCodec.payload(fromClipboardItem: item),
               decoded.payload.id == expectedID else { return nil }
+        lastClipboardChange = pb.changeCount
         return decoded
     }
 

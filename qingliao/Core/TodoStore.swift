@@ -154,6 +154,10 @@ final class TodoStore {
         set { UserDefaults.standard.set(newValue, forKey: storagePathKey) }
     }
 
+    /// v4.0.x 复核补：NAS 写链 FIFO（等前一次写完再写本次快照），防并发写同一 path 时
+    /// 慢的旧快照后到 → 远端复活已删条目。同一份修法见 RecordStore.writeChain。
+    private var writeChain: Task<Void, Never> = Task {}
+
     private var filePath: String {
         let base = storagePath.isEmpty
             ? "/volume1/docker/hermes/微信文件/轻聊web/data"
@@ -243,7 +247,11 @@ final class TodoStore {
         let path = filePath
         // SR33：强捕获（先绑局部），理由同 MemoStore
         let authForWrite = auth
-        Task.detached {
+        // v4.0.x 复核补：FIFO 串行写链，防「删除+编辑」并发写导致远端复活（并集合并挡不住）。
+        // 与 RecordStore.writeChain 同一份修法，保持单一真源。
+        let prev = writeChain
+        writeChain = Task {
+            await prev.value
             await Self.writeToFile(auth: authForWrite, path: path, data: data)
         }
     }

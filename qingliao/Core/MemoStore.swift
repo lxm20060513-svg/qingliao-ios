@@ -140,6 +140,10 @@ final class MemoStore {
         set { UserDefaults.standard.set(newValue, forKey: storagePathKey) }
     }
 
+    /// v4.0.x 复核补：NAS 写链 FIFO（等前一次写完再写本次快照），防并发写同一 path 时
+    /// 慢的旧快照后到 → 远端复活已删条目。同一份修法见 RecordStore.writeChain。
+    private var writeChain: Task<Void, Never> = Task {}
+
     private var filePath: String {
         let base = storagePath.isEmpty
             ? "/volume1/docker/hermes/微信文件/轻聊web/data"
@@ -214,7 +218,14 @@ final class MemoStore {
         // 时调用方栈早已退出，弱引用可能在调度间隙被清空 → 整次 NAS 回写静默丢失
         //（本地 UserDefaults 有、界面无异状，只在另一台设备上看得到缺条）。
         let authForWrite = auth
-        Task.detached {
+        // v4.0.x 复核补（与 RecordStore.writeChain 同一份修法）：原来每次 save 各起一个
+        // `Task.detached` **并发**写同一 NAS path ——「删除 A」与「编辑 B」并发时慢的旧快照
+        // 后到，已删条目在远端复活；而这三个 Store 的 loadFromServer 都是**并集**合并
+        // （替换会让未落远端的条目消失），所以复活后没有任何墓碑/版本号能挡住它。
+        // 正解：FIFO 串行写链，与 RecordStore 保持单一真源。
+        let prev = writeChain
+        writeChain = Task {
+            await prev.value
             await Self.writeToFile(auth: authForWrite, path: path, data: data)
         }
     }

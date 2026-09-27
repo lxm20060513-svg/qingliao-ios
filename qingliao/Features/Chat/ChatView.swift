@@ -339,6 +339,9 @@ struct ChatView: View {
     /// 「重试」入口（retryMessage）会清掉 sendCore 的 60s 幂等签名并原样重发同一条文本，
     /// 只按 2 秒去重时「失败 → 一分钟后点重试」会凭空多记一笔。窗口见 ChatRecordKit.repeatWindow。
     @State var chatRecordSignatures: [String: TimeInterval] = [:]
+    /// v4.0.x：记账去重提示的独立位（**不能**复用 intentNoContentHint —— 那个会被意图动作条盖住）
+    @State var recordDedupNotice = false
+    @State var dedupNoticeTask: Task<Void, Never>?
     // 剪贴板的**单一真值源**（v3.9.72 收口）：上次进 App 时看到过的那一版 changeCount。
     // v3.8.1 的「已处理过的那一版」（handledClipChange + handledClipUptime 两个 @AppStorage）在
     // v3.9.72 换门后只写不读、已成为死代码，本轮删除——**别再恢复**，它有两个漏斗：
@@ -1711,6 +1714,12 @@ struct ChatView: View {
     ///
     /// 位置口径与 intentActionBarSlot 完全一致（挂在输入栏之外、同一组内外边距）——
     /// 两条同时出现时上下叠着，视觉上是同一类「刚发生的事，可以撤」条。
+    ///
+    /// 🚨 v4.0.x 修：「这句 10 分钟内已记过」的提示原来也走 `flashNoContent`（复用
+    /// intentNoContentHint），而渲染它的槽位是 `if intentResult … else if intentNoContentHint …`
+    /// → 只要意图动作条还挂着，这条提示**一个字都不显示**，用户看到的是
+    /// 「说了两遍，第二遍既没记账也没提示」。所以去重提示单独走 recordDedupNotice，
+    /// 与 intentResult 平级，谁也盖不住谁。
     @ViewBuilder
     private var chatRecordBarSlot: some View {
         if let entry = chatRecordEntry {
@@ -1720,6 +1729,29 @@ struct ChatView: View {
                           onClose: { withAnimation(Motion.settle) { chatRecordEntry = nil } })
                 .padding(.horizontal, Spacing.xs)
                 .padding(.bottom, Spacing.xs)
+        } else if recordDedupNotice {
+            HStack(spacing: 6) {
+                Image(systemName: "exclamationmark.circle")
+                    .font(.system(size: Typography.subhead))
+                Text("这句 \(Int(ChatRecordKit.repeatWindow / 60)) 分钟内已记过，没重复记账")
+                    .font(.system(size: Typography.subhead))
+            }
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, Spacing.xs)
+            .transition(.opacity)
+        }
+    }
+
+    /// 一句话记账的「已记过」去重提示（与意图动作条平级的独立位，2.4 秒后自动收）
+    private func flashRecordDedup() {
+        Haptics.error()
+        withAnimation(Motion.settle) { recordDedupNotice = true }
+        dedupNoticeTask?.cancel()
+        dedupNoticeTask = Task {
+            try? await Task.sleep(nanoseconds: 2_400_000_000)
+            guard !Task.isCancelled else { return }
+            withAnimation(Motion.settle) { recordDedupNotice = false }
         }
     }
 
@@ -1746,7 +1778,7 @@ struct ChatView: View {
         if let last = chatRecordSignatures[sig], now - last < ChatRecordKit.repeatWindow {
             // ❌ 不能静默 return：用户看到的是「同一句话说了两遍，第二遍没记账」——像功能坏了。
             // 出声说明「已记过、没重复记」，并指路撤销入口（账本在生活页）。
-            flashNoContent("这句 10 分钟内已记过，没重复记账")
+            flashRecordDedup()
             return
         }
         guard let draft = ChatRecordKit.draft(from: text) else { return }
@@ -1758,7 +1790,11 @@ struct ChatView: View {
         }
         // Store 的 2 秒连点护栏命中时返回的是**已存在**那条（inserted=false）→ 不再插第二张卡、
         // 也不撤旧条（撤了会把几分钟前那笔的提示顶掉）
-        guard added.inserted else { return }
+        guard added.inserted else {
+            // 2 秒连点护栏命中：已存在那一笔、没插新卡 —— 静默 = 用户以为没记上
+            flashRecordDedup()
+            return
+        }
         let card = ChatRecordKit.cardText(title: added.item.title,
                                           amount: added.item.amount ?? draft.amount,
                                           unit: draft.unit,
@@ -1780,9 +1816,12 @@ struct ChatView: View {
     /// 放回去重签名（否则「撤销完再说一遍同一句」会被自己的 10 分钟窗口挡掉，看起来像坏了）。
     private func undoLandedExpense(_ entry: ChatRecordEntry) {
         RecordStore.shared.delete(entry.item)
-        chat.messages.removeAll { $0.id == entry.cardMessageID }
-        chatRecordSignatures.removeValue(forKey: entry.signature)
-        withAnimation(Motion.settle) { chatRecordEntry = nil }
+        // 卡片消失与动作条收起必须同一个动画事务（原来卡片硬跳、只有动作条动）
+        withAnimation(Motion.settle) {
+            chat.messages.removeAll { $0.id == entry.cardMessageID }
+            chatRecordSignatures.removeValue(forKey: entry.signature)
+            chatRecordEntry = nil
+        }
         Haptics.tap()
         Task { await chat.saveToServer(auth: auth) }   // 卡片被收回也要落库，否则重进会话又回来
     }
@@ -1791,6 +1830,9 @@ struct ChatView: View {
     /// 与记账卡**同一路径**（`ChatMessage.local` + `isPush = true` + `chat.append`）：
     /// 本地卡不进模型上下文（不是用户说的话、也不是 AI 的回复），但重进会话要还在 → 顺手落库。
     private func insertMinutesCard(_ card: String) {
+        // 投递会话是只读视图：不许往里写卡（与记账卡 guard !chat.isDeliverySession 同一道护栏，
+        // 原先只加在记账那条上，纪要卡漏了 = 破例）
+        guard !chat.isDeliverySession else { return }
         var msg = ChatMessage.local(role: "assistant", content: card)
         msg.isPush = true
         chat.append(msg)
@@ -2934,7 +2976,11 @@ struct ChatView: View {
 
     /// v3.0.86 fix：统一「确认发送」路径——pendingSend 解包 → 清输入框/图片 → 图片持久化 → sendCore。
     /// 原长上下文弹窗「压缩后发送/直接发送」与自动压缩完成后三份重复拷贝，抽此统一（后续改一处即可）
-    private func sendPendingNow(_ p: (text: String, imageData: String?)) {
+    /// - Parameter allowExpense: v4.0.x 复核补：这条路径是「用户亲手点发送」的**后半程**
+    ///   （长上下文弹窗「压缩后发送 / 直接发送」+ 自动压缩完成后自动发），却没往下传闸 →
+    ///   同一句话在弹窗/压缩路径上不记账、在直发路径上记账，用户会以为记账时好时坏。
+    ///   调用方（send()）传 true；预检有计数断言钉住「全仓只允许那 2 处传 true」。
+    private func sendPendingNow(_ p: (text: String, imageData: String?), allowExpense: Bool = true) {
         pendingSend = nil
         inputText = ""   // v2.0.102：确认发送才清空（取消保留草稿）
         pendingImage = nil
@@ -2943,10 +2989,10 @@ struct ChatView: View {
             // v3.0.37：图片持久化
             Task {
                 let persisted = await persistImageIfNeeded(p.imageData)
-                sendCore(text: p.text, imageData: persisted)
+                sendCore(text: p.text, imageData: persisted, allowExpense: allowExpense)
             }
         } else {
-            sendCore(text: p.text, imageData: nil)
+            sendCore(text: p.text, imageData: nil, allowExpense: allowExpense)
         }
     }
 
@@ -3032,10 +3078,10 @@ struct ChatView: View {
             // v3.0.37：图片持久化——base64 先上传 NAS 换 URL 再发送（旧消息/失败仍走 base64）
             Task {
                 let persisted = await persistImageIfNeeded(img)
-                sendCore(text: text, imageData: persisted, quotedText: quotedText)
+                sendCore(text: text, imageData: persisted, quotedText: quotedText, allowExpense: true)
             }
         } else {
-            sendCore(text: text, imageData: nil, quotedText: quotedText)
+            sendCore(text: text, imageData: nil, quotedText: quotedText, allowExpense: true)
         }
     }
 
@@ -3122,7 +3168,16 @@ struct ChatView: View {
         }
     }
 
-    func sendCore(text: String, imageData: String?, quotedText: String? = nil) {
+    /// v4.0.x 一句话记账全 App **唯一的发送收口**，但**默认不记账**（`allowExpense = false`）。
+    ///
+    /// 🚨 v4.0.x 修：原来记账无条件挂在 sendCore 上，而 sendCore 同时是分享收件（`drainShareInbox`）、
+    /// 任务中心文本（`.qingliaoTaskSend`）、备忘正文「发给 AI」（`.qingliaoMemoSend`）的收口。
+    /// ChatRecordKit 的门挡得住「订单/快递/体重」，却挡不住**纯金额句** ——
+    /// 分享一段预算文档里的「预算 5000」、备忘里的「房租 2000」会被静默写进账本，
+    /// 而且用户压根没提「记账」→ 错账 + 零提示。
+    /// 正解：只有**用户亲手在输入栏点发送**的那条路径传 `allowExpense: true`；
+    /// 重试（:3902）与所有转发/收件路径保持默认 false（转发用户已说过的话不是新的消费意图）。
+    func sendCore(text: String, imageData: String?, quotedText: String? = nil, allowExpense: Bool = false) {
         // v3.4.x：同内容短时间幂等（60s 内相同文本+同会话只发一次，防抖动/重试/恢复重复投递）
         // v3.4.27 fix：比较须含 image 指纹——纯图 text 恒空，只比 text 会把 60s 内第二张纯图误判重复丢弃（拍照/相册连发纯图被吞）
         let now = Date().timeIntervalSince1970
@@ -3174,7 +3229,7 @@ struct ChatView: View {
             }
             // v4.0.x 一句话记账：排队路径也要记（用户在别的会话等回答时发的这句照样得进账本），
             // 卡片插在用户气泡之后、AI 回话之前 —— 顺序 = 用户话 → 记账卡 → AI 确认
-            noteChatExpenseIfMatched(text: text, imageData: imageData)
+            if allowExpense { noteChatExpenseIfMatched(text: text, imageData: imageData) }
             pendingQueue.append(PendingSend(text: text, imageData: imageData, sessionId: chat.sessionId))
             persistPendingQueue()
             Task { await chat.saveToServer(auth: auth) }
@@ -3183,7 +3238,9 @@ struct ChatView: View {
         guard !sendingLock else { return }   // 双击保护：第一次发送的流尚未置位时，第二次直接忽略
         sendingLock = true
         Haptics.tap()   // v3.4.25：统一触感
-        // v2.0.65：发送通知 → Dock 聊天图标轻跳
+        // v2.0.65 原注释写「发送通知 → Dock 聊天图标轻跳」，但全仓**没有任何 onReceive 收这条通知**
+        //（v4.0.x 复核核实：只有这里发、0 处收）——即这条通知自 v2.0.65 起就是空发，图标轻跳从未生效。
+        // 保留 post 是为了不破坏潜在外部观察者；注释改成如实口径，别再把它当已有功能。
         NotificationCenter.default.post(name: .qingliaoSent, object: nil)
         var msg = ChatMessage.local(role: "user", content: text, imageDataURL: imageData)
         msg.quotedText = quotedText
@@ -3194,7 +3251,7 @@ struct ChatView: View {
         // v4.0.x 一句话记账（口径 1a）：卡插在用户气泡之后（顺序 = 用户话 → 记账卡 → AI 回话）。
         // 放在 append 之后是为了会话里的先后顺序；放在 saveToServer 之前是为了同一份快照把卡一起落库。
         // ⚠️ 上面的「长文本 relay 分段」分支不需要另挂：记账只认 ≤24 字的短句，永远进不到那一段。
-        noteChatExpenseIfMatched(text: text, imageData: imageData)
+        if allowExpense { noteChatExpenseIfMatched(text: text, imageData: imageData) }
         // v3.3.0 fix：消息落盘必须在 append 后立即执行（不能依赖流式回答后才 saveToServer）。
         // 否则 App 被杀/网络断开/流式失败时，用户刚发的消息只存在内存里，丢了。
         Task { await chat.saveToServer(auth: auth) }

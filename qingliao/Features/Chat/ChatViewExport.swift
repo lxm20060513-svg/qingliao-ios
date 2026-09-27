@@ -237,6 +237,14 @@ extension ChatView {
             let startSid = chat.sessionId
             let startMsgs = chat.messages
             let startTitle = chat.title
+            // v4.0.x 复核补：上面 :195 的 `guard !stream.isStreaming` 是**发起时**（Task 外）查的，
+            // 而真正 `await stream.start` 在**上传完成之后**。弱网/大文件上传数秒，期间别的会话
+            // 起了一条流 → 这里照样放行 → 静默掐断那条流的答案（这条路径不走 sendCore，
+            // 聊天页的排队护栏救不到）。上传后再查一次，宁可让用户重发也不丢别人的答案。
+            if stream.isStreaming {
+                fileSendBlocked = true
+                return
+            }
             await stream.start(auth: auth, sessionId: chat.sessionId, model: useModel,
                                provider: useProvider, messages: history) { success, error in
                 let body: String

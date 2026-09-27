@@ -24,6 +24,12 @@ struct AppearanceSheet: View {
     @AppStorage(PetKeys.motion) private var petMotion: PetMotion = .system
     @State private var weatherCity = UserDefaults.standard.string(forKey: "qingliao_weather_city") ?? ""
     @State private var showWeatherCityField = false
+    // v3.9.94：启动会话（逻辑早已接好，见 LaunchSession.swift / ChatStore.swift:158-165，
+    // 但外观页一直没给入口 → 用户根本设不了，永远吃默认值 .auto + 15 分钟）。
+    // ⚠️ 必须用 @AppStorage 直接绑 UserDefaultsKey.*，不要自己在 onChange 里写回去：
+    //    ChatStore 读的就是这两个 key，绕一层就可能与真值表/预检断言脱钩。
+    @AppStorage(UserDefaultsKey.launchSessionMode) private var launchSessionMode = LaunchSessionMode.auto.rawValue
+    @AppStorage(UserDefaultsKey.launchSessionMins) private var launchSessionMins = Double(LaunchSessionMode.defaultIdleMinutes)
 
     var body: some View {
         NavigationStack {
@@ -67,6 +73,43 @@ struct AppearanceSheet: View {
                         .onChange(of: liveActivityOn) { _, on in
                             if !on { Task { @MainActor in await LiveActivityManager.shared.end() } }
                         }
+                }
+                // v3.9.94：启动会话（用户拍板「设置里面增加启动会话设置……放在外观设置里」）
+                // ⚠️ 这段 UI 是**补的入口**，不是新功能：判定逻辑在 LaunchSession.swift 早就有，
+                //    ChatStore.swift:158-165 也一直在读这两个 key，只是外观页没给入口，
+                //    所以用户一直只能吃默认的「自动 + 15 分钟」。
+                Section("启动会话") {
+                    HStack(spacing: 10) {
+                        // ⚠️ case 名是 .last / .new（不是 .lastSession/.newSession）——
+                        //    凭空造成员本机 -parse 查不出，CI Archive 才挂。
+                        // 标题取 mode.title（单一真源），别在这里另写一份中文。
+                        ForEach(LaunchSessionMode.allCases) { mode in
+                            launchSessionOption(mode.title, value: mode)
+                        }
+                    }
+                    .padding(.vertical, Spacing.xs)
+                    // 只有「自动」模式下阈值才有意义，另外两选一是恒定行为（跟随 / 强制新开）
+                    if LaunchSessionMode(rawValue: launchSessionMode) == .auto {
+                        // 档位跟 LaunchSessionMode.idleOptions 走（5/10/15/30/60/120），
+                        // 不用随手写的 Slider 5...60 step 5：那样 UI 会漏掉 120 档，
+                        // 而且以后加档位得改两处，容易漂。
+                        HStack(spacing: 10) {
+                            Text("闲置超时").font(.system(size: Typography.subhead)).foregroundStyle(.secondary)
+                            Spacer()
+                            Text("\(Int(launchSessionMins)) 分钟")
+                                .font(.system(size: Typography.subhead))
+                                .foregroundStyle(.secondary)
+                        }
+                        // 6 档用两行网格，别挤在一行（外放页左右余量只有 ~60pt/档，标签会压缩到认不出）
+                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: Spacing.sm), count: 3), spacing: Spacing.sm) {
+                            ForEach(LaunchSessionMode.idleOptions, id: \.self) { m in
+                                idleOption(m)
+                            }
+                        }
+                        Text("上次打开 App 距今超过 \(Int(launchSessionMins)) 分钟，就自动开一个新对话；不足则接着上次那个聊。")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 // AI 回答发光（对齐本地 Siri 发光 4 参数）
                 Section("AI 回答发光") {
@@ -167,6 +210,49 @@ struct AppearanceSheet: View {
                 .background(
                     RoundedRectangle(cornerRadius: Radius.chip, style: .continuous)
                         .fill(appearance == value ? Color.accentColor : Color(uiColor: .systemGray5))
+                )
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// v3.9.94：启动会话选项（三选一）——与 appearanceOption 同一 idiom（选中高亮段），
+    /// 实参序＝声明序（name: String, value: LaunchSessionMode），错位只有 CI Archive 报得出
+    private func launchSessionOption(_ name: String, value: LaunchSessionMode) -> some View {
+        let selected = launchSessionMode == value.rawValue
+        return Button {
+            launchSessionMode = value.rawValue
+        } label: {
+            Text(name)
+                .font(.system(size: Typography.subhead, weight: selected ? .semibold : .medium))
+                .foregroundStyle(selected ? Color.white : Color.primary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, Spacing.md)
+                .background(
+                    RoundedRectangle(cornerRadius: Radius.chip, style: .continuous)
+                        .fill(selected ? Color.accentColor : Color(uiColor: .systemGray5))
+                )
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// v3.9.94：闲置超时档位按钮（5/10/15/30/60/120，档位表来自 LaunchSessionMode.idleOptions）
+    /// 实参序＝声明序（minutes: Int）
+    private func idleOption(_ minutes: Int) -> some View {
+        let selected = Int(launchSessionMins) == minutes
+        return Button {
+            launchSessionMins = Double(minutes)
+        } label: {
+            Text("\(minutes)")
+                .font(.system(size: Typography.subhead, weight: selected ? .semibold : .regular))
+                .foregroundStyle(selected ? Color.white : Color.primary)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, Spacing.sm)
+                .background(
+                    RoundedRectangle(cornerRadius: Radius.chip, style: .continuous)
+                        .fill(selected ? Color.accentColor : Color(uiColor: .systemGray5))
                 )
         }
         .buttonStyle(.plain)

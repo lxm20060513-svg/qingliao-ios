@@ -1180,8 +1180,15 @@ check("分享接收：文本也走收件匣（队列 + onAppear 兜底），不�
       shareIntakeClean.contains("enqueue(SharedPayload(text: message")
       && !shareIntakeClean.contains("post(name: .qingliaoTaskSend"))
 check("记账：同一句 10 分钟内重复 → 出声说明（不许静默 return，用户会以为记账坏了）",
-      chatClean.contains("flashNoContent(\"这句 10 分钟内已记过，没重复记账\")")
+      // 🚨 v4.0.x 修断言：原来钉的是 flashNoContent("这句 10 分钟内已记过…") 这条具体实现。
+      // 现在去重提示走**独立位** recordDedupNotice（复用 intentNoContentHint 会被意图动作条整个盖住），
+      // 所以钉「独立提示位 + 出声」这两个口径，而不是钉死某个函数名。
+      chatClean.contains("@State var recordDedupNotice = false")
+      && chatClean.contains("private func flashRecordDedup()")
+      && chatClean.contains("Haptics.error()")
       && !chatClean.contains("ChatRecordKit.repeatWindow { return }"))
+check("记账去重提示有独立渲染位（不被意图动作条 else-if 盖住）",
+      chatClean.contains("} else if recordDedupNotice {"))
 
 print("智慧球长按菜单真值表：\(passCount) 通过 / \(failCount) 失败")
 if failCount > 0 { exit(1) }

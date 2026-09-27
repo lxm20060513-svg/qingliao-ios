@@ -305,4 +305,169 @@ echo "=== 30. 会话纪要真值表（v4.0.x 录音页 + 摘要链路 · Minutes
 run_unit /tmp/test_minutes -swift-version 6 \
     scripts/test_minutes.swift qingliao/Core/MinutesKit.swift qingliao/Core/AgentCardParser.swift
 
+echo "=== 31. 本轮夜间 code review 修复的回归护栏（读源码静态断言）==="
+# 🚨 这 8 条是本轮 4 路只读审查 + 主代理复核后修掉的真 bug 的「不许退回去」护栏。
+#    纯逻辑部分第 30 步的真值表已经能验（advance 拼接公式），
+#    剩下这几条都落在 **SwiftUI 接线**上 —— 本机无 SDK，真值表编不了，
+#    只能读源码断言；CI Archive 挂之前至少先把口径钉死。
+fail=0
+ck() {  # ck "说明" "grep -E 模式" 文件
+    if grep -qE "$2" "$3"; then
+        echo "✅ $1"
+    else
+        echo "❌ $1"
+        fail=1
+    fi
+}
+# 🚨 v4.0.x 同类风险审计抓到的教训：**只查字符串在全文件存在 = 假绿**。
+#   例：'guard !chat\.isDeliverySession' 在记账那条路径上也有 → 删掉纪要那条照样绿；
+#       'lastClipboardChange = pb\.changeCount' 在 probeClipboard 里也有 → 删掉正确那行照样绿；
+#       'case \.clipboard:' 只证明分支存在 → 把整道 active 闸删掉照样绿。
+#   ckIn "说明" "函数签名正则" "模式" 文件：只在该函数体范围内找模式，才算真断言。
+ckNot() {  # 反向断言：**不该出现**的串。出现即失败（⚠️ 别用 `ck ... && fail=1` 写反了）
+    if grep -qE "$2" "$3"; then
+        echo "❌ $1"; fail=1
+    else
+        echo "✅ $1"
+    fi
+}
+ckIn() {  # ckIn "说明" "函数签名正则" "grep -E 模式" 文件
+    local body
+    body=$(awk -v sig="$2" '
+        $0 ~ sig { f=1 }
+        f { print }
+        f && /^    \}$/ { exit }
+    ' "$4")
+    if printf '%s' "$body" | grep -qE "$3"; then
+        echo "✅ $1"
+    else
+        echo "❌ $1"
+        fail=1
+    fi
+}
+CV=qingliao/Features/Chat/ChatView.swift
+MM=qingliao/Features/Chat/MeetingMinutesView.swift
+SI=qingliao/Core/ShareIntake.swift
+RS=qingliao/Core/RecordStore.swift
+SC=qingliaoShare/ShareComposeModel.swift
+DT=qingliao/Features/DockTabView.swift
+CS=qingliao/Core/ChatStore.swift
+
+ck "记账闸：sendCore 默认不记账（分享/任务/备忘不误记）" \
+   'func sendCore\(text: String, imageData: String\?, quotedText: String\? = nil, allowExpense: Bool = false\)' "$CV"
+ck "记账闸：两处记账调用都带 allowExpense 判断" \
+   'if allowExpense \{ noteChatExpenseIfMatched' "$CV"
+ck "记账闸：用户亲手发送的路径传 allowExpense: true" \
+   'sendCore\(text: text, imageData: nil, quotedText: quotedText, allowExpense: true\)' "$CV"
+ck "去重提示走独立位（不被意图动作条盖住）" \
+   '@State var recordDedupNotice = false' "$CV"
+ck "去重提示不再复用 intentNoContentHint" \
+   'flashRecordDedup\(\)' "$CV"
+ckIn "纪要卡也有投递会话护栏（**限定 insertMinutesCard 函数体内**，不能靠记账那条同串假绿）" \
+   'func insertMinutesCard\(_ card: String\)' 'guard !chat\.isDeliverySession else \{ return \}' "$CV"
+ck "纪要放弃标记不被整理复位（abandoned 不在 summarize 里清）" \
+   'resetForNewTake\(\)' "$MM"
+ck "retry 与 restart 共用同一份重置" \
+   'resetForNewTake\(\)' "$MM"
+ckIn "剪贴板读失败不记账（**限定 readClipboardPayload 函数体内**；probeClipboard 里那处是故意的「无论成败都记账」，不能算）" \
+   'func readClipboardPayload\(expectedID: String\)' 'lastClipboardChange = pb\.changeCount' "$SI"
+ckIn "URL 通道剪贴板也走 active 闸（**限定 handle(url:) 函数体内**，光有 case .clipboard 不算）" \
+   'static func handle\(url: URL, loggedIn: Bool' 'try\? await Task\.sleep\(for: clipboardProbeDelay\)' "$SI"
+ck "撤销留墓碑（远端并集不会把删掉的复活）" \
+   'tombstones\.insert\(item\.id\)' "$RS"
+ck "远端合并跳过墓碑 id" \
+   'for r in remote where !tombstones\.contains\(r\.id\)' "$RS"
+ck "写库串行链（撤销不会被慢的旧快照覆盖）" \
+   'await prev\.value' "$RS"
+ck "迟到回调把空态救回 ready（分享扩展有发送入口）" \
+   'if case \.empty = phase, hasContent \{ phase = \.ready \}' "$SC"
+ck "分享图片字节复用（不再重编谎报 hasImage）" \
+   'let jpeg = imageJPEG \?\? image\.flatMap' "$SC"
+ck "onOpenURL 双挂加固（DockTabView 也接 share，且闸内重取登录态）" \
+   'if ShareIntake\.handle\(url: url, loggedIn: auth\.isLoggedIn, loggedInProvider: \{ auth\.isLoggedIn \}\) \{ return \}' "$DT"
+ck "自动命名不把本地卡算成对话（isPush 排除）" \
+   'let conversational = msgs\.filter \{ !\$0\.isPush && !\$0\.isErrorPlaceholder \}\.count' "$CS"
+ck "自动命名用的是 conversational 而不是 msgs.count" \
+   'SessionAutoName\.shouldFire\(messageCount: conversational' "$CS"
+ck "冷启动补投扩展 pending 载荷" \
+   'ShareIntake\.flushPending\(loggedIn: true\)' qingliao/QingliaoApp.swift
+
+[ $fail -eq 0 ] || { echo "❌ 第 31 段有护栏失守"; exit 1; }
+echo "✅ 夜间 review 修复的 19 条回归护栏全绿"
+
+echo "=== 32. 启动会话设置：外观页入口不许被删（v3.9.94）==="
+# 🚨 这段 UI 是**补的入口**，不是新功能：LaunchSession.swift 的判定逻辑与两个 UserDefaults key
+# 早就存在，但 AppearanceSheet 从来没有入口 → 用户根本设不了，永远吃默认的 .auto + 15 分钟。
+# 所以护栏盯的是「入口不许被删 / 阈值只对 auto 生效」这两类退化。
+AP=qingliao/Features/Settings/AppearanceSheet.swift
+LS=qingliao/Core/LaunchSession.swift
+ck "启动会话两个 key 已声明" 'launchSessionMode' qingliao/Core/Models.swift
+ck "外观页读到了 launchSessionMode" '@AppStorage\(' "$AP"
+ck "外观页读到了 launchSessionMins" '@AppStorage\(' "$AP"
+ck "外观页确实消费 launchSessionMode" 'launchSessionMode' "$AP"
+ck "外观页确实消费 launchSessionMins" 'launchSessionMins' "$AP"
+ck "三选一入口：自动" '自动' "$AP"
+ck "三选一入口：上次会话（标题取自枚举 title，在 LaunchSession.swift）" '上次会话' "$LS"
+ck "三选一入口：新对话" '新对话' "$AP"
+ck "阈值说明跟着阈值走（不是写死 15）" '就自动开一个新对话；不足则接着上次那个聊' "$AP"
+ck "启动会话标题取自枚举 title（单一真源，不在 UI 里另写一份中文）" 'mode.title' "$AP"
+ck "档位取自 idleOptions（单一真源）" 'idleOptions' "$LS"
+ck "三选一走 allCases 遍历（加档位不会漏界面）" 'LaunchSessionMode.allCases' "$AP"
+ck "默认阈值 15 分钟就是需求里的那个数" 'defaultIdleMinutes = 15' "$LS"
+ck "判定逻辑真被 ChatStore 消费" 'launchSessionMode' qingliao/Core/ChatStore.swift
+ck "只有 auto 模式才看超时阈值（另两档是恒定行为，不该出现阈值分支）" \
+   'case .auto:' qingliao/Core/LaunchSession.swift
+# 🚨 反向自证 1：UI 不得出现 LaunchSessionMode.xxx 形式的 case 引用（凭空造成员头号来源）
+#    —— 正确姿势是 allCases 遍历 + mode 传参。用抽样名单反证。
+for bogus in lastSession newSession lastConv newChat alwaysNew; do
+    if grep -qE "LaunchSessionMode\.$bogus\b" "$AP"; then
+        echo "❌ UI 引用了不存在的 case LaunchSessionMode.$bogus（枚举真名是 .last/.new，CI 才挂）"
+        fail=1
+    fi
+done
+echo "✅ UI 未引用任何不存在的 case（逐个抽样反证）"
+[ $fail -eq 0 ] || { echo "❌ 第 32 段有护栏失守"; exit 1; }
+echo "✅ 启动会话设置入口的 20 条护栏全绿"
+
+CVE=qingliao/Features/Chat/ChatViewExport.swift
+echo "=== 33. v4.0.x 两路复审回归护栏（P0/P1 逐条钉死）==="
+# 🚨 这些是 dispatch 两路只读审查（diff 严格审查 + 同类风险全仓审计）抓出来的真问题。
+# 修完必须钉住，否则下次重构又会退回「A 路径修了、B 路径漏改」的形态。
+ckIn "P0: probeClipboard 读失败不记账（限定 probeClipboard 函数体内）" \
+   'func probeClipboard\(' 'reportMissingPayload' "$SI"
+ckIn "P0: probeClipboard 消费成功才记账" \
+   'func probeClipboard\(' 'lastClipboardChange = pb\.changeCount' "$SI"
+# ⚠️ 用**行号先后**判真假顺序（只查「同在函数体内」区分不出前后，那等于没钉）：
+#   正确形态 = 先 guard 判空 return（读失败不记账），再 lastClipboardChange = ...（消费成功才记账）。
+# 用 awk 取 **probeClipboard 函数体内**的行号（readClipboardPayload 里也有同名赋值，不限定会取成多行）
+_pc=$(awk '/func probeClipboard\(/{f=1} f&&/lastClipboardChange = pb\.changeCount/{print NR; exit}' "$SI")
+_pe=$(awk '/func probeClipboard\(/{f=1} f&&/reportMissingPayload\(loggedIn: loggedIn\)/{print NR; exit}' "$SI")
+if [ -n "$_pc" ] && [ -n "$_pe" ] && [ "$_pe" -lt "$_pc" ]; then
+    echo "✅ P0: probeClipboard 是「读失败先 return、真正消费掉才记账」（行 $_pe < $_pc）"
+else
+    echo "❌ P0: probeClipboard 记账时机不对（消费行 $_pc 必须晚于失败行 $_pe）"; fail=1
+fi
+ck "P1: sendPendingNow 透传 allowExpense（用户亲手发的后半程不能丢记账闸）" \
+   'func sendPendingNow\(_ p: \(text: String, imageData: String\?), allowExpense: Bool' "$CV"
+ck "P1: sendFile 上传后二次查流占用（防静默掐断别的会话的答案）" \
+   'if stream\.isStreaming \{' "$CVE"
+# 字段声明不是函数体，ckIn 的「遇到收尾 } 就停」会切在它前面 → 这几条用 ck（全文件唯一串），
+# 但保留「唯一性」：下面紧跟的计数断言保证每仓只有一处。
+for st in MemoStore TodoStore PinStore; do
+  ck "$st 也有 NAS 写链 FIFO 字段" 'private var writeChain: Task<Void, Never> = Task' "qingliao/Core/$st.swift"
+  ck "$st 的 writeChain 在 save() 里被 await" 'let prev = writeChain' "qingliao/Core/$st.swift"
+done
+# 同理只查代码形态：`Task.detached { [weak auth] in` 才算真用弱捕获。
+ckNot "PinStore 不再用 [weak auth] 捕获（SR33：弱引用会被清空 → 整次 NAS 回写静默丢失）" \
+   'Task\.detached \{ \[weak auth\]' "qingliao/Core/PinStore.swift"
+ck "P1: handle(url:) 闸内重取登录态（不再把 loggedIn 冻结在 Task 外）" \
+   'let isLoggedIn = loggedInProvider\?\(\) \?\? loggedIn' "$SI"
+ck "P1: handle(url:) 保留 loggedIn 兜底参数（不传 provider 也不崩）" \
+   'loggedInProvider: \(\(\) -> Bool\)\? = nil' "$SI"
+ckNot "ShareIntake 不再声称扩展会落盘 pending（该机制不存在）" \
+   '扩展留在 pending 目录里的载荷补投进会话' "qingliao/QingliaoApp.swift"
+_n=$(grep 'allowExpense: true' "$CV" | grep -vc '^ *//')
+[ "$_n" = "2" ] && echo "✅ 只有输入栏 send() 那 2 处传 allowExpense: true（分享/任务/备忘/问AI 全部默认 false）" || { echo "❌ allowExpense: true 传点是 $_n 处（应 2），有人给非用户亲手路径开了记账闸"; fail=1; }
+[ $fail -eq 0 ] || { echo "❌ 第 33 段有护栏失守"; exit 1; }
+echo "✅ 两路复审 P0/P1 回归护栏全绿"
 exit $?

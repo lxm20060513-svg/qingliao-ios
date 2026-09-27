@@ -103,13 +103,20 @@ struct QingliaoApp: App {
                 // v4.0.1：**系统分享接收扩展**的短内容通道 —— `qingliao://share?...`
                 // （扩展 `extensionContext.open` 成功时送来的；用户也可能在浏览器/快捷指令里手打同一 URL）。
                 //
-                // 为什么可以再挂一个 `.onOpenURL`：同一场景里挂多个时**每个闭包都会响应**
-                // （SwiftUI 既定行为），而 `ShareIntake.handle` 只认 `qingliao://share`：
-                // scheme 与既有深链同为 `qingliao`，host 是 `share` —— DockTabView 那个处理器的
-                // 两个分支（`QingliaoDeepLink.Route` 解析、file/http/geo 分享）对 `share` host 全不命中，
-                // 旧路径零变化；这里也**不动** DockTabView（并行改动的文件）。
+                // 🚨 v4.0.x 修正本段注释：原来断言「同一场景里挂多个 `.onOpenURL` 时**每个闭包都会响应**
+                // （SwiftUI 既定行为）」——这一条**没有权威依据**：Apple 文档只说
+                // "The scene that SwiftUI routes the incoming URL to depends on the structure of your views"，
+                // 而 `.environment(\.openURL)` 才是明确的「最近者覆盖」语义；`onOpenURL` 修饰符
+                // 究竟逐个广播还是只调最深那一个，各家说法互相矛盾（Apple 文档没写死）。
+                // 既然判不准，就**两处都接**（这里 + DockTabView 的既有处理器，share 优先）：
+                // ShareIntake 只认 `qingliao://share`，不是自己的 URL 立刻 return false，
+                // 对既有深链/分享零变化 —— 两种语义下分享都能落地。
+                //
+                // ⚠️ 别在这段注释里写带花括号的 Swift 片段：启动会话真值表
+                // （scripts/test_launch_session.swift）用「裸数花括号深度」断言
+                // touchLastActive 的调用不在 .background 块体内，注释里的花括号会把它算偏。
                 .onOpenURL { url in
-                    ShareIntake.handle(url: url, loggedIn: auth.isLoggedIn)
+                    _ = ShareIntake.handle(url: url, loggedIn: auth.isLoggedIn, loggedInProvider: { auth.isLoggedIn })
                 }
         }
     }
@@ -294,6 +301,16 @@ struct RootView: View {
             // v4.0.1：冷启动也接一次分享扩展的剪贴板通道。`.onChange(of: scenePhase)` 不报**初值**
             // （冷启动那次 .active 不是「变化」），只靠它就漏掉「App 已被划掉 → 分享 → 手动打开」这条路径。
             ShareIntake.resume(loggedIn: auth.isLoggedIn)
+            // v4.0.x：resume 只探剪贴板里**当前**那一版；扩展若在 App 尚未起来时投递、
+            // 登录态下补一次 flushPending。**如实口径**（v4.0.x 复核更正）：原注释写「扩展自己落盘
+            // 的那份 pending 就没人捞」是**虚构的** —— 扩展侧（qingliaoShare/）全仓无 FileManager /
+            // UserDefaults / 写盘调用，ShareIntake.flushPending 只重投**本进程内存**里的
+            // pendingWhileLoggedOut。所以这一拍通常为空操作，真正生效的是 :225 的 onChange 那次。
+            // 留着它是为了覆盖「onChange 早于本 .task 完成」这个时序，不是磁盘兜底。
+            // （对应地：扩展若被系统提前回收，那份内容确实无处可捞——这是**已知限制**，尚未补落盘。）
+            if auth.isLoggedIn {
+                ShareIntake.flushPending(loggedIn: true)
+            }
             // v3.4.29：Splash 由固定 1.6s 空等 → 最短 0.6s（保留品牌节奏）。
             // 首屏内容全部来自本地数据（会话消息/AI 记忆），无需等网络
             try? await Task.sleep(for: .seconds(0.6))

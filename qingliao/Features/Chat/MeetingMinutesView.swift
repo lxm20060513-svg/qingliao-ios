@@ -517,8 +517,12 @@ struct MeetingMinutesView: View {
     /// 整理：短转写 1 次调用；超长由 MinutesKit 切片后 map-reduce（N 片 = N+1 次）
     private func summarize() async {
         guard !busy else { return }
+        // 🚨 v4.0.x 修：这里原来写 `abandoned = false`，把「用户在 stopRecording 的 await 窗口里
+        // 点 ✕ 放弃」刚置的 true 冲掉了 —— 放弃后整理照跑到底，照样存备忘、照发纪要卡，
+        // 页面自己从 .failed 翻回 .summarizing/.done。`abandoned` 现在**只**由 begin()/restart()/retry()
+        // 这类「用户主动开始新一次」的入口清，summarize 永远不碰它。
+        guard !abandoned else { busy = false; return }
         busy = true
-        abandoned = false
         failureText = nil
         notice = nil
 
@@ -664,24 +668,28 @@ struct MeetingMinutesView: View {
     }
 
     /// 整理失败后的重试：转写还在就重跑整理，没录上就重新起麦
+    ///
+    /// 🚨 v4.0.x 修：原来 else 分支只清了 4 个展示字段就 `begin()`，`segments` / `rawTranscript`
+    /// 留着上一次的话 —— 新转写与旧 `closedText` 没有前缀关系 → 命中 `advance` 的「整体重写」分支，
+    /// 「说了没几句 → 重试 → 正常说话」必然得到**两遍叠加**的转写（并整段送去总结）。
+    /// 正解：两条重试路径都走同一份重置（复用 restart 的清法，口径不许两条分叉）。
     private func retry() {
         if MinutesKit.state(of: rawTranscript) == .ok {
+            abandoned = false          // 用户主动重试 = 明确放弃上一次的中止
             Task { await summarize() }
         } else {
-            didBegin = false
-            startFailure = nil
-            failureText = nil
-            notice = nil
+            resetForNewTake()
             Task { await begin() }
         }
     }
 
-    /// 「再录一次」：清空本次状态重新起麦（上一次的纪要已经存进备忘/会话了）
-    private func restart() {
-        summary = nil
-        failureText = nil
+    /// 「重新起麦」前的统一状态清理（再录一次 / 转写失败重试 共用这一份）
+    private func resetForNewTake() {
+        didBegin = false
         startFailure = nil
+        failureText = nil
         notice = nil
+        summary = nil
         savedMemo = false
         savedRawMemo = false
         postedCard = false
@@ -692,7 +700,13 @@ struct MeetingMinutesView: View {
         elapsed = 0
         startedAt = nil
         progress = Progress()
-        didBegin = false
+    }
+
+    /// 「再录一次」：清空本次状态重新起麦（上一次的纪要已经存进备忘/会话了）
+    private func restart() {
+        // 与 retry() 的重试分支共用同一份重置 —— 两条路径各抄一份必然分叉
+        // （原 bug：retry 少清 segments/rawTranscript → 重试后转写叠加两遍）
+        resetForNewTake()
         phase = .preparing
         Task { await begin() }
     }

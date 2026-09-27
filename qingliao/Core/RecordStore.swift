@@ -25,6 +25,11 @@ final class RecordStore {
     private let storagePathKey = "qingliao_record_storage_path"
     private let fileName = "records.json"
     private let defaultsKey = "qingliao_records_data"
+    private let tombstonesKey = "qingliao_records_tombstones"
+
+    /// 撤销过的记录 id（墓碑）。合并远端时跳过这些 id，防止「撤销完又复活」。
+    /// 远端确认已无该 id 后由 loadFromServer 摘除，因此不会无限增长。
+    private(set) var tombstones: Set<String> = []
 
     /// 强引用（坑 2）
     var auth: AuthStore?
@@ -96,12 +101,22 @@ final class RecordStore {
 
     func delete(_ item: RecordItem) {
         records.removeAll { $0.id == item.id }
+        // 🚨 v4.0.x：留墓碑。loadFromServer 是**并集**合并（远端有、本地没有 → 保留），
+        // 原来撤销只删本地 + 改本地 UserDefaults；远端那份还在（写链在途/写失败）时，
+        // 下次进 App 这条就被并集拉回来 = 用户看到「撤销完又活过来了」。
+        // 墓碑让合并跳过这些 id；loadFromServer 见到远端**已经没有**它时再把墓碑摘掉
+        // （= 远端终于接受了这次删除），所以墓碑集合不会无限增长。
+        tombstones.insert(item.id)
         save()
     }
 
     /// 撤销删除（动作条撤销窗口用）
     func restore(_ item: RecordItem) {
         guard !records.contains(where: { $0.id == item.id }) else { return }
+        // 显式加回来 = 这条不该再被墓碑挡住（否则 save 后的下一次合并又把它当已删）
+        if tombstones.remove(item.id) != nil {
+            UserDefaults.standard.set(Array(tombstones), forKey: tombstonesKey)
+        }
         records.append(item)
         save()
     }
@@ -116,6 +131,11 @@ final class RecordStore {
 
     // MARK: - 持久化
 
+    /// v4.0.x：NAS 写库串行链（照 ChatStore.saveWriteChain）——**这条是撤销能不能真生效的前提**。
+    /// 原来每次 save 都各起一个 `Task.detached` 并发 pin_write 同一 path：「记账(A)」与「撤销(B=A-1)」
+    /// 谁后到 NAS 不保证，慢的旧快照 A 后到 = 已撤销的记录在远端复活，下次 loadFromServer 又并集拉回来。
+    private var writeChain: Task<Void, Never> = Task {}
+
     private func save() {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
@@ -125,7 +145,9 @@ final class RecordStore {
         let path = filePath
         // 坑 2：先绑局部强引用再进 detached
         let authForWrite = auth
-        Task.detached {
+        let prev = writeChain
+        writeChain = Task {
+            await prev.value                                  // FIFO：等前一次写完再写本次快照
             await Self.writeToFile(auth: authForWrite, path: path, data: data)
         }
     }
@@ -138,6 +160,9 @@ final class RecordStore {
            let decoded = try? decoder.decode([RecordItem].self, from: data) {
             records = decoded
         }
+        // 本地已不存在的 id 不该还留着墓碑（那说明它又被别处加回来了）
+        tombstones = Set((UserDefaults.standard.stringArray(forKey: tombstonesKey) ?? [])
+            .filter { id in !records.contains { $0.id == id } })
     }
 
     func loadFromServer() async {
@@ -150,8 +175,15 @@ final class RecordStore {
         decoder.dateDecodingStrategy = .iso8601
         guard let remote = try? decoder.decode([RecordItem].self, from: data) else { return }
 
+        // 🚨 v4.0.x：远端已确认没有的墓碑摘掉（删除终于被远端接受了），墓碑不会无限堆积
+        let remoteIDs = Set(remote.map(\.id))
+        if !tombstones.subtracting(remoteIDs).isEmpty {
+            tombstones.formIntersection(remoteIDs)
+            UserDefaults.standard.set(Array(tombstones), forKey: tombstonesKey)
+        }
+
         var byID: [String: RecordItem] = [:]
-        for r in remote { byID[r.id] = r }
+        for r in remote where !tombstones.contains(r.id) { byID[r.id] = r }
         for r in records {
             if let s = byID[r.id] {
                 byID[r.id] = s.sortDate >= r.sortDate ? s : r

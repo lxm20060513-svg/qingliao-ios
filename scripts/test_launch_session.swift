@@ -124,18 +124,36 @@ func run() -> Int32 {
     //   `if phase != .active { ... }` 塞进 `if phase == .background` 块体内（块内恒为 true、
     //   等价于 .background，.inactive 场景一个没补上）也照样全绿。
     // 现在改成**位置断言**：touchLastActive 的调用必须落在 background 块的闭合花括号之后。
+    //
+    // ⚠️ v4.0.x 再修：数花括号时必须**先剥掉行注释**。原来直接对原文裸扫，
+    //   而注释里只要出现一个不成对的 `{`（例如引用 `if x {` 这种片段、或中文括号说明），
+    //   深度就凭空 ±1 —— 这条断言会因**改注释**而随机红绿，与被测代码无关。
+    //   同理也不能剥字符串字面量里的括号；本仓这两处附近都没有字面量，剥注释已足够。
+    func depthIgnoringComments(_ s: Substring) -> Int {
+        var d = 0
+        for rawLine in s.split(separator: "\n", omittingEmptySubsequences: false) {
+            var line = Substring(rawLine)
+            if let r = line.range(of: "//") { line = line[..<r.lowerBound] }   // 去掉行注释
+            for ch in line {
+                if ch == "{" { d += 1 }
+                if ch == "}" { d -= 1 }
+            }
+        }
+        return d
+    }
     let bgOpen = app.range(of: "if phase == .background {")
     let touchAt = app.range(of: "ChatStore.touchLastActive()")
     if let bg = bgOpen, let t = touchAt {
         // 取 background 块内最后一个嵌套闭合前的位置：数花括号深度
         // ⚠️ 索引一律走 distance(from:) —— 直接把两个 String.Index 相减在 Swift 6 下不成立。
-        let seg = String(app[bg.upperBound...])
-        let rel = seg.distance(from: seg.startIndex, to: t.lowerBound)
-        var depth = 1
-        for ch in seg.prefix(rel) {
-            if ch == "{" { depth += 1 }
-            if ch == "}" { depth -= 1 }
-        }
+        // 🚨 v4.0.x 再修一处：原写 `let seg = String(app[bg.upperBound...])` 之后拿 **app 的
+        //   t.lowerBound** 去 `seg.distance(from: seg.startIndex, ...)` —— seg 是**另一个** String 实例，
+        //   跨实例传 Index 是未定义行为，实测算出的 depth 是 -4（随机数，与源码结构无关）。
+        //   正解：全程在 app 这一个 String 上算相对偏移。
+        let start = app.distance(from: app.startIndex, to: bg.upperBound)
+        let rel = app.distance(from: bg.upperBound, to: t.lowerBound)
+        let seg = app[app.index(app.startIndex, offsetBy: start)..<app.index(app.startIndex, offsetBy: start + rel)]
+        let depth = depthIgnoringComments(Substring(seg))
         check("🚨 记录时刻的判定在 background 块**外**（.inactive 也真能记）", depth == 0)
     } else {
         check("读得到 background 分支与 touchLastActive 调用", false)
