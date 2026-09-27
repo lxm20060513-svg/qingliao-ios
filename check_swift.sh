@@ -587,5 +587,14 @@ echo "=== 43. SwiftUI 参数序护栏（v4.0.x 工程治理第 2 号整改：本
 python3 scripts/check_swiftui_param_order.py --self-test || exit 1
 python3 scripts/check_swiftui_param_order.py || exit 1
 
+echo "=== 44. 成员作用域护栏（v4.0.x 工程治理第 3 号整改：CI #600 烧出来的）==="
+# 机制：拆巨型 View 时把成员追加到**文件末尾** → 落在 struct 之外 → 语法全绿（-parse 查不出），
+#   但成员引用 struct 内状态时，编译器报 "cannot find x in scope"，只有 CI Archive 才暴露。
+#   2026-09-27 CI run #600 实踩：DashboardView 拆 body 时 sheetContent / dashboardSheetDismiss /
+#   dashboardTask 三段被搬到文件尾，Archive 报 12 个 cannot find 'sheetZoomNS'/'nas' in scope。
+# 判定：顶格 4 空格缩进的成员声明或 // MARK: 出现在任何 struct/extension 块之外 = 搬运事故。
+# 双向自测已在写码时做过（好树绿 / 坏树红 3 条），改本脚本后请用 git show 旧版 DashboardView 复验。
+python3 scripts/check_member_scope.py || exit 1
+
 [ $fail -eq 0 ] || { echo "❌ 有护栏失守"; exit 1; }
 exit 0

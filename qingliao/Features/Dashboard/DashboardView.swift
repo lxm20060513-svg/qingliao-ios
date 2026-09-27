@@ -1289,6 +1289,133 @@ struct DashboardView: View {
         .contentShape(Rectangle())
         .tapButton { showCardEditor = true }
     }
+    // MARK: - v3.9.100+ 弹窗与刷新逻辑（巨型 body 拆分）
+    //
+    // 由头：L118..L344 的 227 行 body 是本仓已踩过两次的「Unable to type-check this
+    // expression in reasonable time」高危形态（一次漏检 = 20 分钟 CI 循环）。
+    // sheet 的 switch 尤其致命：13 个 case 各带 detent + zoom 转场，合成一个大表达式。
+    // 这里原样搬成下面三个成员 —— 视图顺序、层级、闭包、修饰符逐字未变。
+
+    /// activeSheet 弹窗内容（原 body 内 `.sheet(item:onDismiss:)` 的 switch）
+    @ViewBuilder
+    private func sheetContent(for s: DashboardSheet) -> some View {
+        switch s {
+        case .lights:
+            HADeviceSheet(title: "客厅灯", domain: "light")
+                .presentationDetents([.medium, .large])
+                .navigationTransition(.zoom(sourceID: DashboardSheet.lights.id, in: sheetZoomNS))   // v3.9.0
+        case .climate:
+            HADeviceSheet(title: "空调", domain: "climate")
+                .presentationDetents([.medium, .large])
+                .navigationTransition(.zoom(sourceID: DashboardSheet.climate.id, in: sheetZoomNS))   // v3.9.0
+        case .service:
+            ServiceControlSheet(service: .qingliao)
+                .presentationDetents([.medium])
+                .navigationTransition(.zoom(sourceID: DashboardSheet.service.id, in: sheetZoomNS))   // v3.9.0
+        case .serviceHermes:
+            ServiceControlSheet(service: .hermes)
+                .presentationDetents([.medium])
+                .navigationTransition(.zoom(sourceID: DashboardSheet.serviceHermes.id, in: sheetZoomNS))   // v3.9.0
+        case .disks:
+            DisksSheet(disks: nas.disks)
+                .presentationDetents([.medium, .large])
+                .navigationTransition(.zoom(sourceID: DashboardSheet.disks.id, in: sheetZoomNS))   // v3.9.0
+        case .docker:
+            DockerSheet()
+                .presentationDetents([.medium, .large])
+                .navigationTransition(.zoom(sourceID: DashboardSheet.docker.id, in: sheetZoomNS))   // v3.9.0
+        // v3.9.46：三张设备详情弹窗（统一 BoardSheetHeader 头部、统一 medium/large detents、
+        // 统一 zoom 转场 —— 用户要求"弹窗样式统一"）
+        // v3.9.54：卡形换成抄磁盘分区卡（两列网格），**离线实体不再列进来**，
+        // 所以计数文案改成"可用"（口径见 DashboardView.isAvailable）
+        case .lock:
+            HADeviceDetailSheet(title: "门锁",
+                                detail: "\(lockEntities.count) 个可用实体",
+                                entities: lockEntities,
+                                emptyTitle: "门锁现在没有可用实体",
+                                emptySubtitle: "离线实体不列（v3.9.54）；门锁电量来自 "
+                                    + "/api/ha/states（看板 30s 轮询），若刚换过电池或重新配网，"
+                                    + "下拉看板重取一次")
+                .presentationDetents([.medium, .large])
+                .navigationTransition(.zoom(sourceID: DashboardSheet.lock.id, in: sheetZoomNS))
+        case .temps:
+            HADeviceDetailSheet(title: "各房间温度",
+                                detail: "\(roomTempEntities.count) 个温度计",
+                                entities: roomTempEntities,
+                                emptyTitle: "没有读到温度传感器",
+                                emptySubtitle: "看板卡片只取一个室内温度，这里列全所有 temperature 实体")
+                .presentationDetents([.medium, .large])
+                .navigationTransition(.zoom(sourceID: DashboardSheet.temps.id, in: sheetZoomNS))
+        case .doorbell:
+            HADeviceDetailSheet(title: "猫眼",
+                                detail: "\(doorbellEntities.count) 个可用实体",
+                                entities: doorbellEntities,
+                                emptyTitle: "没有读到猫眼的实体",
+                                emptySubtitle: "这里只列小白智能猫眼自己的实体（创米插座已排除）；"
+                                    + "画面快照后端未透出，离线实体也不列")
+                .presentationDetents([.medium, .large])
+                .navigationTransition(.zoom(sourceID: DashboardSheet.doorbell.id, in: sheetZoomNS))
+        // v3.9.54：CPU / 内存弹窗已删（用户：只显示卡片，点击不再弹窗）
+        case .weather:
+            // v3.9.25：两页天气弹窗（今天 / 未来 5 天）。默认半屏 medium（用户定稿）；
+            // 保留 .large 作逃生口：第 2 页是纯 VStack（无 ScrollView），小屏若超出一行会被静默裁切。
+            WeatherSheet(mode: .local)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+                .onAppear { weatherSheetShown = true }
+                .navigationTransition(.zoom(sourceID: DashboardSheet.weather.id, in: sheetZoomNS))
+        case .connectorPanel:
+            // v3.9.74 P1.5 连接器面板：MCP + 智能家居 + 生活卡 收拢总览（Muse 借鉴）。
+            // 面板内跳转走本页已有 sheet 机制；MCP/生活卡设置弹窗在面板 dismiss 后弹出（防 sheet 叠 sheet）。
+            ConnectorPanelSheet(
+                onOpenMCP: { activeSheet = nil; pendingSheetAfterPanel = .mcp },
+                onOpenLifeCards: { activeSheet = nil; pendingSheetAfterPanel = .lifeCards },
+                haCount: haAvailableCount,
+                sceneCount: scenes.count,
+                automationCount: automations.count,
+                ruleCount: rules.count)
+                .presentationDetents([.medium, .large])
+                .navigationTransition(.zoom(sourceID: DashboardSheet.connectorPanel.id, in: sheetZoomNS))
+        }
+    }
+
+    /// 看板 sheet 关闭后的收尾：刷新天气徽章 / 消费面板跳转意图
+    private func dashboardSheetDismiss() {
+        // v3.9.25：只在**天气弹窗**关闭后刷新徽章（弹窗内换城市写 UserDefaults，此处重读）。
+        // 早先无条件刷新 → 关灯/空调/磁盘/docker 弹窗也各多打一次 /api/weather，
+        // 且 weatherCity 会先被重置回 UserDefaults 原值，城市名会闪一下。
+        if weatherSheetShown {
+            weatherSheetShown = false
+            Task { await loadWeatherWithCity() }
+        }
+        // v3.9.74c P1.5：连接器面板关闭（dismiss 已完成）后再弹 MCP/生活卡设置页。
+        // 回调只关面板+记意图；这里消费意图，async 一帧错开 dismiss 收尾，防 present 请求被静默吞。
+        if let p = pendingSheetAfterPanel {
+            pendingSheetAfterPanel = nil
+            DispatchQueue.main.async { presentedAfterPanel = p }
+        }
+    }
+
+    /// 看板生命周期：首刷全套 + 30s 轮询（隐藏页 task 取消即停）
+    private func dashboardTask() async {
+        guard isActive else { return }   // 隐藏态不启动（首次在非看板 tab 时无空转）
+        // v2.0.86：硬件温度（CPU / NVMe）首屏加载
+        await loadHw()
+        // v3.0.74：从 NAS 加载钉一钉数据
+        await pinStore.loadFromServer()
+        // 首刷全套（首次进入 / 每次切回 task 重启都会执行——等效原 onAppear + Refresh 通知）
+        await refresh()
+        await loadDockerCount()
+        await loadWeatherWithCity()
+        // 30s 自动刷新（v2.0.87c：10→30s，省电省流量，看板数据变化不敏感）
+        // v2.0.133f：仅看板可见时刷——隐藏页轮询会抢 TabView 切页动画帧（isActive 变 false → task 取消即停）
+        while !Task.isCancelled {
+            try? await Task.sleep(for: .seconds(30))
+            await refresh()
+            await loadHw()
+        }
+    }
+
 }
 
 // MARK: - v3.9.40（#15）看板栏目卡片身份 + 编辑器
@@ -2628,130 +2755,3 @@ struct WeatherBadge: View {
     }
 }
 
-
-    // MARK: - v3.9.100+ 弹窗与刷新逻辑（巨型 body 拆分）
-    //
-    // 由头：L118..L344 的 227 行 body 是本仓已踩过两次的「Unable to type-check this
-    // expression in reasonable time」高危形态（一次漏检 = 20 分钟 CI 循环）。
-    // sheet 的 switch 尤其致命：13 个 case 各带 detent + zoom 转场，合成一个大表达式。
-    // 这里原样搬成下面三个成员 —— 视图顺序、层级、闭包、修饰符逐字未变。
-
-    /// activeSheet 弹窗内容（原 body 内 `.sheet(item:onDismiss:)` 的 switch）
-    @ViewBuilder
-    private func sheetContent(for s: DashboardSheet) -> some View {
-        switch s {
-        case .lights:
-            HADeviceSheet(title: "客厅灯", domain: "light")
-                .presentationDetents([.medium, .large])
-                .navigationTransition(.zoom(sourceID: DashboardSheet.lights.id, in: sheetZoomNS))   // v3.9.0
-        case .climate:
-            HADeviceSheet(title: "空调", domain: "climate")
-                .presentationDetents([.medium, .large])
-                .navigationTransition(.zoom(sourceID: DashboardSheet.climate.id, in: sheetZoomNS))   // v3.9.0
-        case .service:
-            ServiceControlSheet(service: .qingliao)
-                .presentationDetents([.medium])
-                .navigationTransition(.zoom(sourceID: DashboardSheet.service.id, in: sheetZoomNS))   // v3.9.0
-        case .serviceHermes:
-            ServiceControlSheet(service: .hermes)
-                .presentationDetents([.medium])
-                .navigationTransition(.zoom(sourceID: DashboardSheet.serviceHermes.id, in: sheetZoomNS))   // v3.9.0
-        case .disks:
-            DisksSheet(disks: nas.disks)
-                .presentationDetents([.medium, .large])
-                .navigationTransition(.zoom(sourceID: DashboardSheet.disks.id, in: sheetZoomNS))   // v3.9.0
-        case .docker:
-            DockerSheet()
-                .presentationDetents([.medium, .large])
-                .navigationTransition(.zoom(sourceID: DashboardSheet.docker.id, in: sheetZoomNS))   // v3.9.0
-        // v3.9.46：三张设备详情弹窗（统一 BoardSheetHeader 头部、统一 medium/large detents、
-        // 统一 zoom 转场 —— 用户要求"弹窗样式统一"）
-        // v3.9.54：卡形换成抄磁盘分区卡（两列网格），**离线实体不再列进来**，
-        // 所以计数文案改成"可用"（口径见 DashboardView.isAvailable）
-        case .lock:
-            HADeviceDetailSheet(title: "门锁",
-                                detail: "\(lockEntities.count) 个可用实体",
-                                entities: lockEntities,
-                                emptyTitle: "门锁现在没有可用实体",
-                                emptySubtitle: "离线实体不列（v3.9.54）；门锁电量来自 "
-                                    + "/api/ha/states（看板 30s 轮询），若刚换过电池或重新配网，"
-                                    + "下拉看板重取一次")
-                .presentationDetents([.medium, .large])
-                .navigationTransition(.zoom(sourceID: DashboardSheet.lock.id, in: sheetZoomNS))
-        case .temps:
-            HADeviceDetailSheet(title: "各房间温度",
-                                detail: "\(roomTempEntities.count) 个温度计",
-                                entities: roomTempEntities,
-                                emptyTitle: "没有读到温度传感器",
-                                emptySubtitle: "看板卡片只取一个室内温度，这里列全所有 temperature 实体")
-                .presentationDetents([.medium, .large])
-                .navigationTransition(.zoom(sourceID: DashboardSheet.temps.id, in: sheetZoomNS))
-        case .doorbell:
-            HADeviceDetailSheet(title: "猫眼",
-                                detail: "\(doorbellEntities.count) 个可用实体",
-                                entities: doorbellEntities,
-                                emptyTitle: "没有读到猫眼的实体",
-                                emptySubtitle: "这里只列小白智能猫眼自己的实体（创米插座已排除）；"
-                                    + "画面快照后端未透出，离线实体也不列")
-                .presentationDetents([.medium, .large])
-                .navigationTransition(.zoom(sourceID: DashboardSheet.doorbell.id, in: sheetZoomNS))
-        // v3.9.54：CPU / 内存弹窗已删（用户：只显示卡片，点击不再弹窗）
-        case .weather:
-            // v3.9.25：两页天气弹窗（今天 / 未来 5 天）。默认半屏 medium（用户定稿）；
-            // 保留 .large 作逃生口：第 2 页是纯 VStack（无 ScrollView），小屏若超出一行会被静默裁切。
-            WeatherSheet(mode: .local)
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
-                .onAppear { weatherSheetShown = true }
-                .navigationTransition(.zoom(sourceID: DashboardSheet.weather.id, in: sheetZoomNS))
-        case .connectorPanel:
-            // v3.9.74 P1.5 连接器面板：MCP + 智能家居 + 生活卡 收拢总览（Muse 借鉴）。
-            // 面板内跳转走本页已有 sheet 机制；MCP/生活卡设置弹窗在面板 dismiss 后弹出（防 sheet 叠 sheet）。
-            ConnectorPanelSheet(
-                onOpenMCP: { activeSheet = nil; pendingSheetAfterPanel = .mcp },
-                onOpenLifeCards: { activeSheet = nil; pendingSheetAfterPanel = .lifeCards },
-                haCount: haAvailableCount,
-                sceneCount: scenes.count,
-                automationCount: automations.count,
-                ruleCount: rules.count)
-                .presentationDetents([.medium, .large])
-                .navigationTransition(.zoom(sourceID: DashboardSheet.connectorPanel.id, in: sheetZoomNS))
-        }
-    }
-
-    /// 看板 sheet 关闭后的收尾：刷新天气徽章 / 消费面板跳转意图
-    private func dashboardSheetDismiss() {
-        // v3.9.25：只在**天气弹窗**关闭后刷新徽章（弹窗内换城市写 UserDefaults，此处重读）。
-        // 早先无条件刷新 → 关灯/空调/磁盘/docker 弹窗也各多打一次 /api/weather，
-        // 且 weatherCity 会先被重置回 UserDefaults 原值，城市名会闪一下。
-        if weatherSheetShown {
-            weatherSheetShown = false
-            Task { await loadWeatherWithCity() }
-        }
-        // v3.9.74c P1.5：连接器面板关闭（dismiss 已完成）后再弹 MCP/生活卡设置页。
-        // 回调只关面板+记意图；这里消费意图，async 一帧错开 dismiss 收尾，防 present 请求被静默吞。
-        if let p = pendingSheetAfterPanel {
-            pendingSheetAfterPanel = nil
-            DispatchQueue.main.async { presentedAfterPanel = p }
-        }
-    }
-
-    /// 看板生命周期：首刷全套 + 30s 轮询（隐藏页 task 取消即停）
-    private func dashboardTask() async {
-        guard isActive else { return }   // 隐藏态不启动（首次在非看板 tab 时无空转）
-        // v2.0.86：硬件温度（CPU / NVMe）首屏加载
-        await loadHw()
-        // v3.0.74：从 NAS 加载钉一钉数据
-        await pinStore.loadFromServer()
-        // 首刷全套（首次进入 / 每次切回 task 重启都会执行——等效原 onAppear + Refresh 通知）
-        await refresh()
-        await loadDockerCount()
-        await loadWeatherWithCity()
-        // 30s 自动刷新（v2.0.87c：10→30s，省电省流量，看板数据变化不敏感）
-        // v2.0.133f：仅看板可见时刷——隐藏页轮询会抢 TabView 切页动画帧（isActive 变 false → task 取消即停）
-        while !Task.isCancelled {
-            try? await Task.sleep(for: .seconds(30))
-            await refresh()
-            await loadHw()
-        }
-    }
