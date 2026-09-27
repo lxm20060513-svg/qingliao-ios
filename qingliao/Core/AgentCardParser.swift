@@ -184,15 +184,22 @@ struct AgentCard: Equatable, Sendable {
         }
 
         let table: Table? = {
-            guard let td = dict["table"] as? [String: Any] else { return nil }
-            let columns = (td["columns"] as? [Any] ?? []).compactMap { str($0) }
-            let rows: [[String]] = (td["rows"] as? [Any] ?? []).compactMap { raw in
-                guard let arr = raw as? [Any] else { return nil }
-                let cells = arr.compactMap { str($0) }
-                return cells.isEmpty ? nil : cells
+            /// 从给定容器取 columns/rows（两者都空 → nil）
+            func build(_ src: [String: Any]) -> Table? {
+                let columns = (src["columns"] as? [Any] ?? []).compactMap { str($0) }
+                let rows: [[String]] = (src["rows"] as? [Any] ?? []).compactMap { raw in
+                    guard let arr = raw as? [Any] else { return nil }
+                    let cells = arr.compactMap { str($0) }
+                    return cells.isEmpty ? nil : cells
+                }
+                guard !columns.isEmpty || !rows.isEmpty else { return nil }
+                return Table(columns: columns, rows: rows)
             }
-            guard !columns.isEmpty || !rows.isEmpty else { return nil }
-            return Table(columns: columns, rows: rows)
+            // 标准写法：{"table":{"columns":[…],"rows":[[…]]}}
+            if let td = dict["table"] as? [String: Any], let t = build(td) { return t }
+            // 容错：模型常把 columns/rows 写到 JSON 顶层（prompt 平铺列举导致的误写）。
+            // 只认嵌套时整张表格被静默丢弃，卡片只剩标题/结论 —— 用户看到的是「内容不完整」。
+            return build(dict)
         }()
 
         let card = AgentCard(

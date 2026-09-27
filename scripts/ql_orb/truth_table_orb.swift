@@ -174,8 +174,25 @@ check("护栏：切片必须覆盖长按分支（终点锚点在长按之后）"
 //   ① `Rectangle().inset(by: EdgeInsets)` → Rectangle 的 inset(by:) 收 CGFloat，编不过；
 //   ② `Path(insetBy:)` → 这个重载根本不存在（iOS 17 的 Path 没有）。
 //   终解是「裸 Rectangle() + 透明扩边 overlay」，两者都是 iOS 17 起就有的稳定 API。
-check("护栏：形象补了 contentShape 命中域（自身 allowsHitTesting(false)）",
-      heroSrc.contains(".contentShape(Rectangle())") && petSrc.contains(".allowsHitTesting(false)"))
+// v4.0.0：命中域是两段 —— ①横向扩边 18pt 的透明 overlay（v4.0.0 踱步位移 ±14pt 会溢出 96×96 框，
+// 不扩边则走到框外那半截点不到）；②96×96 本体 contentShape 双保险。
+// ⚠️ 断言必须钉**扩边那一段的具体数字**：只判「文件里有 .contentShape(Rectangle())」会被
+// ChatView 里另外 8 处同名调用满足 —— 删掉扩边层照样全绿（变异脚本 ⑱ 实测撞过）。
+// ⚠️ 锚点必须带**本体那行前面那句注释**：ChatView 里 .contentShape(Rectangle()) 有 9 处，
+// 只判「切片里有 contentShape」会被 overlay 扩边层那处满足 —— 删掉本体命中域照样全绿
+// （变异脚本 ⑱ 实测撞过，exit=0 红=0）。
+check("护栏：形象本体补了 contentShape 命中域（自身 allowsHitTesting(false)）",
+      heroSrc.contains("双保险）\n        .contentShape(Rectangle())")
+      && petSrc.contains(".allowsHitTesting(false)"))
+// ⚠️ v4.0.2 补：上一版这条是无锚点的裸 contains（`.frame(96+18*2)` + `.contentShape`），
+// 变异实测：删掉 overlay 里那行 `.contentShape(Rectangle())`（保留 Color.clear + 扩边 frame）
+// 新旧两条**都还是绿的** —— 第二条被本体那处 contentShape 满足，等于没加任何保护。
+// 现钉**三行连续**的 overlay 块（Color.clear → 扩边 frame → contentShape），
+// 删任一行都红；顺序变了也红（overlay 的成立前提就是这两行叠在同一个 Color.clear 上）。
+check("命中域扩边 overlay 三行连续在位（删任一行必红，v4.0.2 补锚点）",
+      heroSrc.contains("Color.clear\n"
+                     + "                .frame(width: 96 + 18 * 2, height: 96)\n"
+                     + "                .contentShape(Rectangle())"))
 // ⚠️ 这里刻意**没有**「不许出现 .contentShape(Rectangle())」这类断言：
 //   裸 Rectangle 正是终解的一部分（96×96 本体命中 + overlay 扩边），
 //   禁掉它会与上一条正向断言自相矛盾。真约束是「扩边靠 overlay」+「不猜不存在的重载」。
@@ -340,14 +357,95 @@ func enumLines(_ src: String, _ name: String) -> [String] {
     }
 }
 let styleCases = enumLines(petModelSrc, "PetStyle")
-check("三只形象齐备且顺序固定（liquid / cat / seal —— 设置页三格顺序跟着它）",
-      styleCases == ["liquid", "cat", "seal"], styleCases.joined(separator: "/"))
+// v4.0.1：三只改「圆胖小兽 / 圆头小机器人」，但**槽位 rawValue 故意不变**（cat / seal）——
+// 老用户 UserDefaults 与在跑的实时活动 ContentState.petStyle 靠它认人，改名=静默回第一格。
+check("三只形象齐备且顺序固定（liquid / beast / robot —— 设置页三格顺序跟着它）",
+      styleCases == ["liquid", "beast", "robot"], styleCases.joined(separator: "/"))
+check("槽位 rawValue 仍沿用旧的 cat / seal（改了会静默回落第一格：老设置与在跑的实时活动都认不出）",
+      styleCases.count == 3
+      && petModelSrc.contains("case beast = \"cat\"") && petModelSrc.contains("case robot = \"seal\""))
+check("三只名字是圆形基形这一代（液态小生物 / 圆胖小兽 / 圆头小机器人）",
+      petModelSrc.contains("return \"液态小生物\"") && petModelSrc.contains("return \"圆胖小兽\"")
+      && petModelSrc.contains("return \"圆头小机器人\""))
 let motionCases = enumLines(petModelSrc, "PetMotion")
 check("动画三档齐备且顺序固定（system / reduced / off）",
       motionCases == ["system", "reduced", "off"], motionCases.joined(separator: "/"))
-check("三只都有各自画法（不是同一套换色；锚点带括号，防「drawSealX」式假绿）",
-      painterSrc.contains("private func drawLiquid(") && painterSrc.contains("private func drawCat(")
-      && painterSrc.contains("private func drawSeal("))
+check("三只都有各自画法（不是同一套换色；锚点带括号，防「drawRobotX」式假绿）",
+      painterSrc.contains("private func drawLiquid(") && painterSrc.contains("private func drawBeast(")
+      && painterSrc.contains("private func drawRobot("))
+// v4.0.1 圆形基形口径：主形是一个圆（画笔里必须有 shell 共用壳），个体靠附件区分。
+// 这条不是「证明存在」的空真：变异脚本 ㉘ 把 shell 调用换掉就会红。
+check("圆形基形：主形走共用壳 shell（三个尺寸各自给半径），个体只靠附件区分",
+      painterSrc.contains("private func shell(")
+      && painterSrc.contains("shell(&layer, s, radius: 0.40,") && painterSrc.contains("shell(&layer, s, radius: 0.37,")
+      && painterSrc.contains("shell(&layer, s, radius: 0.38,"))
+check("三只附件齐全（液态=两只小手 / 小兽=两只圆耳 / 机器人=天线+面罩带）",
+      painterSrc.contains("r(0.17, 0.60, 0.085, 0.10, s)") && painterSrc.contains("r(0.83, 0.60, 0.085, 0.10, s)")
+      && painterSrc.contains("for cx in [CGFloat(0.255), CGFloat(0.745)]")
+      && painterSrc.contains("rounded(0.49, 0.02, 0.02, 0.15, 0.01, s)") && painterSrc.contains("var visor = Path()"))
+// v4.0.2 起的核心几何护栏：附件**必须真的露在身体外面**，否则「圆+附件」= 一个光球。
+// ⚠️ 几何数值**必须从 painterSrc 真抓**（不是表里写死）：v4.0.2 实测写死版是**假绿** ——
+//   把源码内耳半径改成 0.042（被身体全盖的死代码）时，表里仍按 0.050 算 → 全绿。
+// 抓不到（模式与源码漂移）时**必须报红**：空真比没断言更坏。
+// 正则刻意带**后续 with: 颜色/角度**做锚，否则 `r(cx, ...)` 会先匹配到别处。
+func grabOne(_ re: String, _ groups: Int = 2) -> [Double]? {
+    guard let m = try? NSRegularExpression(pattern: re),
+          let hit = m.firstMatch(in: painterSrc, range: NSRange(painterSrc.startIndex..., in: painterSrc))
+    else { return nil }
+    let ns = painterSrc as NSString
+    var out: [Double] = []
+    for i in 1 ... groups {
+        let r = hit.range(at: i)
+        guard r.location != NSNotFound, let d = Double(ns.substring(with: r)) else { return nil }
+        out.append(d)
+    }
+    return out
+}
+let earCX   = grabOne("for cx in \\[CGFloat\\(([0-9.]+)\\), CGFloat\\(([0-9.]+)\\)\\]")
+let earOutG = grabOne("r\\(cx, ([0-9.]+), ([0-9.]+), [0-9.]+, s\\)\\), with: \\.color\\(Pal\\.beastMid")
+let earInG  = grabOne("r\\(cx, ([0-9.]+), ([0-9.]+), [0-9.]+, s\\)\\), with: \\.color\\(Pal\\.beastEarIn")
+let bodyR   = grabOne("shell\\(&layer, s, radius: ([0-9.]+),\\s*\\n\\s*stops: \\[\\(0\\.0, Pal\\.beastTop\\)", 1)?.first
+// 眉带两条弧：圆心必须**与半径同在一条 addArc 上**抓（分开抓会先命中 shell() 里那条
+// 同形的底部反光弧 center p(0.5, 0.5, s) → 圆心抓成 0.5，带子位置全错）。
+// 两条弧靠**角度**区分：内弧 .degrees(250)→290，外弧 .degrees(290)→250。
+let visorIn  = grabOne("addArc\\(center: p\\(0\\.5, ([0-9.]+), s\\), radius: ([0-9.]+) \\* s,\\s*\\n\\s*startAngle: \\.degrees\\(250\\)", 2)
+let visorOut = grabOne("addArc\\(center: p\\(0\\.5, ([0-9.]+), s\\), radius: ([0-9.]+) \\* s,\\s*\\n\\s*startAngle: \\.degrees\\(290\\), endAngle: \\.degrees\\(250\\)", 2)
+check("三只附件几何能从源码抓到（抓不到 = 下面几条全是空真，必须报红）",
+      earCX != nil && earOutG != nil && earInG != nil && bodyR != nil
+      && visorIn != nil && visorOut != nil,
+      "cx=\(String(describing: earCX)) 耳=\(String(describing: earOutG)) 内耳=\(String(describing: earInG)) 体=\(String(describing: bodyR)) 内弧=\(String(describing: visorIn)) 外弧=\(String(describing: visorOut))")
+// 露出量 = 附件外沿到体心距离 - 体半径（镜像 PetPainter「附件画在主形之前」的遮挡语义）
+func expose(_ cx: Double, _ cy: Double, _ rad: Double, _ body: Double) -> Double {
+    (hypot(cx - 0.5, cy - 0.5) + rad) - body
+}
+if let cx = earCX?.first, let eg = earOutG, let ig = earInG, let br = bodyR {
+    let out = expose(cx, eg[0], eg[1], br)
+    let inn = expose(cx, ig[0], ig[1], br)
+    check("小兽耳朵真露在身体外（露出 ≥8pt@96pt：旧值只露 4.3pt，等于没有耳朵）",
+          out * 96 >= 8.0, String(format: "外耳露出 %.1fpt", out * 96))
+    check("小兽内耳也真露在身体外（≥3pt@96pt：旧几何 0.26pt → 完全被盖 = 死代码）",
+          inn * 96 >= 3.0, String(format: "内耳露出 %.1fpt", inn * 96))
+}
+// 机器人眉带必须真压到**眼上沿**，且不能整条飘到眼睛上方或整条掉进眼睛里。
+// ⚠️ 判据必须**双边**：v4.0.2 实测只判 `lo ≤ 0.415` 是单边漏洞 —— 把外弧从 0.275 缩到
+// 0.20 时 lo 仍 = 0.66-0.248 = 0.412 ≤ 0.415 → 假绿，可带子已高悬在眼睛上方、完全不碰眼。
+// 正确语义：带子 y 区间 [lo,hi] 必须与眼上沿**有交叠**（lo ≤ 0.415 ≤ hi），
+// 且不能盖满整只眼（hi ≤ 0.45，眼高 0.415~0.494）。
+if let vi = visorIn, let vo = visorOut {
+    let lo = vi[0] - max(vi[1], vo[1]), hi = vi[0] - min(vi[1], vo[1])
+    check("机器人眉带真压着眼上沿（带子 y 区间须跨过 0.415：旧几何 y 0.331~0.389 一线不沾眼；"
+          + "单边判据是假绿漏洞，缩小弧反而不报红）",
+          lo <= 0.415 && hi >= 0.415,
+          String(format: "带子 y %.3f~%.3f，眼上沿 0.415", lo, hi))
+    check("机器人眉带不盖住整只眼（带子上沿 ≤0.45：眼占 0.415~0.494）",
+          hi <= 0.45, String(format: "带子上沿 %.3f", hi))
+}
+// v4.0.2 高危：rotated() 的旋转中心**不能再乘一次 s**。around 传的是 p(x,y,s)（已缩放），
+// 旧代码 `around.x * s` → 中心跑到 s² 尺度（96pt 下 (1981,-143)）→ 附件/高光全被
+// 裁到画布外 = 「液态的小手从不显示」。这里钉住旋转中心不缩放。
+check("旋转中心不二次缩放（around 已是 p() 的绝对坐标；再乘 s 会把附件/高光甩出画布）",
+      !painterSrc.contains("translationX: around.x * s") && !painterSrc.contains("y: around.y * s")
+      && painterSrc.contains("CGAffineTransform(translationX: around.x, y: around.y)"))
 check("两个设置 key 收在 PetKeys（单一真源）",
       petModelSrc.contains("static let style = \"qingliao_pet_style\"")
       && petModelSrc.contains("static let motion = \"qingliao_pet_motion\""))

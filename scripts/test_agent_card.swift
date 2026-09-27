@@ -93,6 +93,24 @@ enum AgentCardTestMain {
     check("后段文本保留", textOf(segs, 2) == "\n还要我做什么吗？")
     check("非空卡片", c1?.isEmpty == false)
 
+    // MARK: - 表格扁平写法容错（模型常把 columns/rows 提到 JSON 顶层）
+    // 真值：生产落盘里 type=table 的卡片约一半写成扁平 columns/rows，只认嵌套时整表丢失。
+    let flatTable = "结论如下：\n\n```ql-card\n{\"type\":\"table\",\"title\":\"方案评估\",\"status\":{\"text\":\"推荐 Rive\",\"tone\":\"ok\"},\"columns\":[\"方案\",\"许可证\"],\"rows\":[[\"Rive\",\"MIT\"],[\"Lottie\",\"Apache-2.0\"]],\"footer\":\"结论\"}\n```\n"
+    let ft = cardOf(AgentCardParser.parse(flatTable), 1)
+    check("扁平 columns/rows 也出表格（标题保留）", ft?.title == "方案评估")
+    check("扁平 columns/rows → columns", ft?.table?.columns == ["方案", "许可证"])
+    check("扁平 columns/rows → rows 2 行", ft?.table?.rows == [["Rive", "MIT"], ["Lottie", "Apache-2.0"]])
+    check("扁平写法 status/footer 不丢", ft?.status?.text == "推荐 Rive" && ft?.footer == "结论")
+
+    // 嵌套优先：同时存在时不被扁平回退覆盖
+    let bothTable = "```ql-card\n{\"type\":\"table\",\"table\":{\"columns\":[\"内\",\"嵌\"],\"rows\":[[\"a\",\"b\"]]},\"columns\":[\"顶\",\"层\"],\"rows\":[[\"x\",\"y\"]]}\n```"
+    check("嵌套与扁平同现 → 取嵌套", cardOf(AgentCardParser.parse(bothTable), 0)?.table?.columns == ["内", "嵌"])
+
+    // 边界：两者都无 → 不产生表格（也不崩）
+    let noTable = "```ql-card\n{\"type\":\"table\",\"title\":\"空表\"}\n```"
+    check("无 columns/rows → table 为 nil 且卡片仍出", cardOf(AgentCardParser.parse(noTable), 0)?.table == nil
+        && cardOf(AgentCardParser.parse(noTable), 0)?.title == "空表")
+
     // plainText 降级：各段文字都在（复制/大爆炸/朗读用）
     let pt = c1?.plainText ?? ""
     check("plainText 含标题", pt.contains("家庭网络体检"))

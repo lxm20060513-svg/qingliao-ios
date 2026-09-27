@@ -19,25 +19,29 @@ enum PetKeys {
 // MARK: 形象（三选一，设置项写在「外观设置 → 聊天页形象」）
 
 enum PetStyle: String, CaseIterable, Identifiable {
-    case liquid      // 液态小生物：沿用原球的材质与配色 → 身份不断层
-    case cat         // 圆润小猫：走出球的配色，辨识度最高
-    case seal        // 小海豹：冷色玻璃体积感，最贴「球」的形
+    // v4.0.1（用户 2026-09-27 拍板圆形基形稿）：三只 = 圆 + 各自附件。
+    // ⚠️ rawValue **故意沿用旧的 cat / seal**：这两个串是「第 2 格 / 第 3 格」的槽位号，
+    //    不是造型名。改名会让老用户的 `UserDefaults` 与在跑的实时活动 `ContentState.petStyle`
+    //    一起认不出来 → 静默回落第一格。造型换了，槽位号不变。
+    case liquid      // 液态小生物：蓝紫玻璃圆 + 两只小手
+    case beast = "cat"   // 圆胖小兽：暖橙圆 + 两只圆耳（辨识度最高）
+    case robot = "seal"  // 圆头小机器人：青绿金属圆 + 头顶天线
 
     var id: String { rawValue }
 
     var name: String {
         switch self {
         case .liquid: return "液态小生物"
-        case .cat: return "圆润小猫"
-        case .seal: return "小海豹"
+        case .beast: return "圆胖小兽"
+        case .robot: return "圆头小机器人"
         }
     }
 
     var blurb: String {
         switch self {
-        case .liquid: return "沿用原来那颗球的材质与配色"
-        case .cat: return "暖色暖光，辨识度最高"
-        case .seal: return "冷色玻璃质感，最接近球的体形"
+        case .liquid: return "蓝紫玻璃圆，带两只小手"
+        case .beast: return "暖橙圆胖，辨识度最高"
+        case .robot: return "青绿金属圆，头顶一根天线"
         }
     }
 
