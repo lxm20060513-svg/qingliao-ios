@@ -1696,57 +1696,9 @@ struct HADeviceSheet: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Text(title)
-                    .font(.system(size: Typography.title, weight: .bold))
-                Spacer()
-                Button {
-                    dismiss()
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: Typography.titleXL))
-                        .foregroundStyle(.tertiary)
-                }
-                .buttonStyle(.plain)
-            }
-            .padding(.horizontal, 18)
-            .padding(.top, 18)
-            .padding(.bottom, Spacing.md)
+            haSheetHeader
 
-            if loading {
-                // v3.9.42：设备是双列网格，行骨架不贴结构 → 收口转圈；
-                // 保留原 Spacer（sheet 高度由它撑，去掉会让 sheet 在加载瞬间塌一截）
-                Spacer()
-                LoadingStateView(shape: .spinner(text: "正在加载设备…"))
-                Spacer()
-            } else if entities.isEmpty {
-                Spacer()
-                Text("暂无可用设备")
-                    .font(.system(size: Typography.subhead))
-                    .foregroundStyle(.tertiary)
-                Spacer()
-            } else if domain == "light" {
-                ScrollView {
-                    LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
-                        ForEach(entities) { e in
-                            lightCard(e)
-                        }
-                    }
-                    .padding(.horizontal, Spacing.section)
-                    .padding(.bottom, 20)
-                }
-            } else {
-                // 空调：模式控制卡
-                ScrollView {
-                    VStack(spacing: 12) {
-                        ForEach(entities) { e in
-                            climateCard(e)
-                        }
-                    }
-                    .padding(.horizontal, Spacing.section)
-                    .padding(.bottom, 20)
-                }
-            }
+            haSheetContent
         }
         // v3.9.24：此处原有 systemBackground 实底 → 会盖住弹窗的系统材质（用户要求所有弹窗与「关于轻聊」一致 = 系统默认）→ 已删。
         // 注：v2.0.87l 那句"弹窗玻璃罩效果不佳"说的是当年的**自绘**玻璃，与 iOS 26 系统材质不是一回事，别据此回退
@@ -1760,6 +1712,73 @@ struct HADeviceSheet: View {
         } message: {
             Text(controlError)
         }
+    }
+
+    // MARK: - v4.0.x HADeviceSheet 分区（巨型 body 拆分）
+    //
+    // 由头：此 body 单块 67 行，与本仓已踩过两次的「Unable to type-check this
+    // expression in reasonable time」高危形态同源。设备内容区那段 if/else-if 三分支
+    // （加载中 / 空态 / 灯网格 / 空调卡）合成一个大表达式，单独拆开即止。
+    // **纯搬运**：视图顺序、层级、条件分支、闭包、修饰符逐字未变。
+
+    /// 弹窗头部：标题 + 关闭键
+    @ViewBuilder
+    private var haSheetHeader: some View {
+    HStack {
+        Text(title)
+            .font(.system(size: Typography.title, weight: .bold))
+        Spacer()
+        Button {
+            dismiss()
+        } label: {
+            Image(systemName: "xmark.circle.fill")
+                .font(.system(size: Typography.titleXL))
+                .foregroundStyle(.tertiary)
+        }
+        .buttonStyle(.plain)
+    }
+    .padding(.horizontal, 18)
+    .padding(.top, 18)
+    .padding(.bottom, Spacing.md)
+    }
+
+    /// 设备内容区：加载中 / 空态 / 灯网格 / 空调模式卡
+    @ViewBuilder
+    private var haSheetContent: some View {
+    if loading {
+        // v3.9.42：设备是双列网格，行骨架不贴结构 → 收口转圈；
+        // 保留原 Spacer（sheet 高度由它撑，去掉会让 sheet 在加载瞬间塌一截）
+        Spacer()
+        LoadingStateView(shape: .spinner(text: "正在加载设备…"))
+        Spacer()
+    } else if entities.isEmpty {
+        Spacer()
+        Text("暂无可用设备")
+            .font(.system(size: Typography.subhead))
+            .foregroundStyle(.tertiary)
+        Spacer()
+    } else if domain == "light" {
+        ScrollView {
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
+                ForEach(entities) { e in
+                    lightCard(e)
+                }
+            }
+            .padding(.horizontal, Spacing.section)
+            .padding(.bottom, 20)
+        }
+    } else {
+        // 空调：模式控制卡
+        ScrollView {
+            VStack(spacing: 12) {
+                ForEach(entities) { e in
+                    climateCard(e)
+                }
+            }
+            .padding(.horizontal, Spacing.section)
+            .padding(.bottom, 20)
+        }
+    }
     }
 
     // MARK: - 灯卡（PWA HomeKit 复刻：渐变图标容器 + 圆形小开关）
