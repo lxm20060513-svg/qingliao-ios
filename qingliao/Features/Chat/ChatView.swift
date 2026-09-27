@@ -1756,10 +1756,27 @@ struct ChatView: View {
         // 为什么必须做：长按弹菜单会顺手收键盘 → 宠物随 Spacer 回弹下移 ≥56pt，而锚点是长按那一刻的快照，
         // 菜单层会在旧位置再画一只宠物（真机观感＝两只宠物）。发版前只读审查实测指出这条交互缺陷。
         .onChange(of: petGlobalCenter) { _, center in
+            // v4.0.x：宠物中心刚就位（欢迎页刚挂树）时，若有人（快捷指令）在等这张菜单弹在宠物上 →
+            // 这里消费掉 pending 并**补发**应答（那次请求发出时本视图还没挂树，听不到）。
+            // ⚠️ 顺序要紧：`center != .zero` 写在前面（Swift 逗号条件按顺序短路）——
+            //    `publish()` 是**先消费后返回**的零值零副作用调用，一旦中心为零也被消费掉，
+            //    pending 没了、应答却没发 → 快捷指令彻底静默（连超时兜底都不会建）。
+            if center != .zero, OrbPetAnchorRegistry.publish() {
+                replyOrbMenuAnchor(center: center)
+            }
             NotificationCenter.default.post(
                 name: .qingliaoPetAnchorMoved,
                 object: nil,
+                // ⚠️ 字面量写死是**刻意的**：ql_orb 真值表钉着这一行（护栏按字面查，
+                // 「顺手改用局部变量」就会把护栏打红 —— 局部变量那版已在 v4.0.x 试过一次）。
                 userInfo: OrbPetAnchor(center: center, size: 96).userInfo)
+        }
+        // v4.0.x：dock 层要弹菜单但需要本视图的锚点 → 立刻应答（欢迎页已经在屏的情形）。
+        // 为什么不塞进 OrbMenuFromPetModifier 之类的宿主修饰符：那类修饰符挂在 DockTabView 全身，
+        // 而锚点只有本视图有；挂在宠物自己身上，生命周期与它完全一致。
+        .onReceive(NotificationCenter.default.publisher(for: .qingliaoRequestPetAnchor)) { _ in
+            guard petGlobalCenter != .zero, OrbPetAnchorRegistry.consumePendingRequest() else { return }
+            replyOrbMenuAnchor(center: petGlobalCenter)
         }
         // v3.9.57：入口交互化——轻点聚焦输入框（v3.9.78 起同时触发「抚摸」反应）。
         // v3.9.78：**长按口径改成与长按智慧球完全一致**（用户：「长按宠物改成和长按智慧球一样的效果」）
@@ -1783,6 +1800,24 @@ struct ChatView: View {
                 }
             )
         )
+    }
+
+    /// 「从宠物位置弹快捷菜单」的发声点 —— ⚠️ **刻意不与长按手势共用一个方法**。
+    ///
+    /// 两条护栏各钉一半，合起来正好要求现在这个形状（别"顺手合并"）：
+    ///   · ql_orb：长按手势那**一段切片**里必须看得到 `.qingliaoOrbMenuFromPet` + `Haptics.press()`
+    ///     + `OrbPetAnchor(center: petGlobalCenter, size: 96)`（防「长按入口被悄悄改掉」）；
+    ///   · ql_orbmenu：长按那条通知在 ChatView 里**只允许出现一次**
+    ///     （防「同一件事复制第二套手势/发声点」）。
+    /// 所以：手势那条**就地**发；App 外面进来的应答走这个方法、发**另一条**通知
+    /// `.qingliaoOpenOrbMenuAtPet`（dock 侧两条监听合并成同一段消费逻辑，见 OrbMenuFromPetModifier）。
+    /// 动作分发与互斥收口仍全在 dock 侧（`handleOrbAction`），这里只负责「报告锚点 + 一声 press 触感」。
+    private func replyOrbMenuAnchor(center: CGPoint) {
+        Haptics.press()       // 与长按智慧球同一触感（不是 .tap）
+        NotificationCenter.default.post(
+            name: .qingliaoOpenOrbMenuAtPet,
+            object: nil,
+            userInfo: OrbPetAnchor(center: center, size: 96).userInfo)
     }
 
     /// 问候语 + 副标题。v3.4.29 分组口径：形象↔文案 18pt、问候↔副标题 6pt（同组紧、跨组松）。

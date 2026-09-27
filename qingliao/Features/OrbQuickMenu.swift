@@ -91,6 +91,70 @@ struct OrbPetAnchor: Equatable {
     }
 }
 
+/// 欢迎页宠物锚点的**外部开菜单握手**（供「打开轻聊快捷菜单」那条 App 外的入口复用长按宠物那套画面）。
+///
+/// 为什么需要它：长按宠物那条路是 ChatView 直接把锚点打包进 `.qingliaoOrbMenuFromPet` 通知，
+/// dock 侧白拿；而快捷指令 / Siri 的「打开轻聊快捷菜单」是**从 App 外面**进来的 —— 它没有手势，
+/// 也不知道宠物现在在哪。于是走一次**请求 / 应答**，两条可能路径都汇到 dock 那条既有通知
+/// （动作分发、互斥收口、锚点刷新仍全在原处，**一份入口都不复制**）：
+///   ① 宠物**已经在屏**（欢迎页已挂树）→ dock 发 `.qingliaoRequestPetAnchor`，`petHero` 立刻应答；
+///   ② 宠物**刚要挂树**（刚切到聊天页）→ 那次请求没人听；随后 `onChange(of: petGlobalCenter)` 上报，
+///      `publish` 消费掉 pending 并补发同一条应答通知；
+///   ③ 两者都不来（会话已有消息、欢迎页压根不渲染）→ dock 侧超时兜底退回槽位锚点弹。
+///
+/// ⚠️ 别改回「靠坐标时间戳判宠物在不在屏」：用户停在欢迎页不动时宠物不动 → 不再上报 →
+/// 会被误判成「不在屏」，菜单锚到 dock 而不是宠物。
+@MainActor
+enum OrbPetAnchorRegistry {
+    /// 有一张菜单等着「宠物锚点就位后再弹」
+    private static var pendingOpen = false
+
+    /// 请求序号：每次请求自增。超时兜底只在「序号仍是我」时才动手 ——
+    /// 否则两次请求（用户连按两下快捷指令）时，第一个的 1.2s 到点会看到**第二个**的 pending 为真，
+    /// 把它 cancel 掉并弹 dock 槽位，把本该锚在宠物上的菜单拉回球位。
+    private static var requestSeq = 0
+
+    /// 发起一次请求，返回本次的序号（超时兜底凭它识别「自己那次」）。
+    static func beginRequest() -> Int {
+        requestSeq += 1
+        return requestSeq
+    }
+
+    /// 序号是否仍指向最后一次请求（= 我就是最新的那次，没人抢）
+    static func isLatest(_ seq: Int) -> Bool { seq == requestSeq }
+
+    /// 宠物中心上报（`petHero.onChange` 路径）：pending 被消费掉时返回 true → 请补发那条应答通知。
+    @discardableResult
+    static func publish() -> Bool {
+        let wasPending = pendingOpen
+        pendingOpen = false
+        return wasPending
+    }
+
+    /// 请求「等宠物应答锚点后弹菜单」：置 pending + 喊一声已挂树的宠物。
+    /// @return 本地 pending 是否还挂着（false = 已被消费 / 此前无人请求）。
+    @discardableResult
+    static func requestMenuOnPetAnchor() -> Bool {
+        pendingOpen = true
+        NotificationCenter.default.post(name: .qingliaoRequestPetAnchor, object: nil)
+        return pendingOpen
+    }
+
+    /// 应答侧消费（`petHero` 的请求监听器）：置 pending 时返回 true → 立刻弹。
+    @discardableResult
+    static func consumePendingRequest() -> Bool {
+        let wasPending = pendingOpen
+        pendingOpen = false
+        return wasPending
+    }
+
+    /// 超时兜底前先复查：pending 已被消费（宠物应答过了）就别再顶一层菜单
+    static var hasPendingMenu: Bool { pendingOpen }
+
+    /// 放弃等待（超时兜底：改走 dock 槽位锚点那条路）
+    static func cancelPendingMenu() { pendingOpen = false }
+}
+
 extension Notification.Name {
     /// 聊天页宠物长按 → 请求 dock 层弹出「长按快捷菜单」（与长按智慧球同一套菜单与动作分发）
     static let qingliaoOrbMenuFromPet = Notification.Name("qingliaoOrbMenuFromPet")
@@ -99,6 +163,13 @@ extension Notification.Name {
     /// 而锚点是「长按那一刻的快照」→ 菜单层会在旧位置再画一只宠物（真机观感＝两只宠物 + 胶囊挂在上方那只身上）。
     /// 复用「打开菜单」那条通知做不到这件事：宠物任何位移都会把菜单重新弹出来。
     static let qingliaoPetAnchorMoved = Notification.Name("qingliao_pet_anchor_moved")
+    /// v4.0.x：dock 层要弹菜单、但需要**欢迎页宠物的锚点** → 问一声（欢迎页在场就应答）。
+    /// 只有「App 外的快捷指令入口」会发这条；长按那条路自己带锚点，不走这里。
+    static let qingliaoRequestPetAnchor = Notification.Name("qingliao_request_pet_anchor")
+    /// v4.0.x：欢迎页宠物对上面那条请求的**应答**（带锚点）—— dock 侧与长按那条合流到同一段消费逻辑。
+    /// ⚠️ 为什么不直接复用 `.qingliaoOrbMenuFromPet`：ql_orbmenu 护栏钉着那条通知在 ChatView 里
+    /// 只出现一次（长按手势那处），复用会让「同一件事两个发声点」那条护栏打红。
+    static let qingliaoOpenOrbMenuAtPet = Notification.Name("qingliao_open_orb_menu_at_pet")
 }
 
 /// 菜单锚点画什么：dock 智慧球（默认）/ 聊天页宠物

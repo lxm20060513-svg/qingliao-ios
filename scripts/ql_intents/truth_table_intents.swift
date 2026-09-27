@@ -184,13 +184,33 @@ if let s = dockCode.range(of: "private func applyRoute("),
     let applyBody = String(dockCode[s.lowerBound..<e.lowerBound])
     let nonTab = applyBody.range(of: "QingliaoDeepLink.nonTabRoutes.contains(route)")
     let tabMap = applyBody.range(of: "DockTab(rawValue:")
-    check("applyRoute 认非 tab 路由（快捷菜单开覆盖层 showOrbMenu）",
-          nonTab != nil && applyBody.contains("showOrbMenu = true"))
+    // v4.0.x：弹菜单已收进具名方法（openOrbMenuAtDockSlot / requestOrbMenuAtPetAnchor），
+    // 这里查的是「非 tab 分支确实开了菜单」而不是裸 showOrbMenu = true（裸赋值会绕过互斥守卫）。
+    check("applyRoute 认非 tab 路由（快捷菜单走宠物锚点弹菜单）",
+          nonTab != nil && applyBody.contains("requestOrbMenuAtPetAnchor()"))
     check("非 tab 分支排在 tab 映射之前（顺序反了 = 静默落空）",
           nonTab != nil && tabMap != nil && nonTab!.lowerBound < tabMap!.lowerBound)
     let beforeTabMap = String(applyBody[applyBody.startIndex..<(tabMap?.lowerBound ?? applyBody.endIndex)])
-    check("非 tab 路由不切页（切页会经 onChange(of: selected) 立刻把菜单收掉）",
-          !beforeTabMap.contains("selected = tab"))
+    // ⚠️ v4.0.x：这条口径已改 —— 快捷菜单**现在会切到聊天页**（宠物锚点只有 ChatView 有）。
+    // 旧断言查的是 `selected = tab`（tab 映射那行的字面量），新代码写的是 `selected = .chat` → 查不到 = 空真。
+    // 现在钉的真正约束是「切页与弹菜单不许在同一轮」：切过页的**全部**路径都走 milliseconds(400) 延后请求
+    // （与「会话有没有消息」正交，两支都要延），否则 onChange(of: selected) 会在同一帧把刚弹的菜单收掉。
+    let tabSwitchSlice = stripCommentLines(
+        String(beforeTabMap.components(separatedBy: "let wasOnChat = selected == .chat").last ?? ""))
+    func firstIndex(_ hay: String, _ needle: String) -> Int? {
+        guard let r = hay.range(of: needle) else { return nil }
+        return hay.distance(from: hay.startIndex, to: r.lowerBound)
+    }
+    let taskAt = firstIndex(tabSwitchSlice, "Task { @MainActor in")
+    let slotAt = firstIndex(tabSwitchSlice, "openOrbMenuAtDockSlot()")
+    let petAt = firstIndex(tabSwitchSlice, "requestOrbMenuAtPetAnchor()")
+    check("切页后弹菜单必须延到下一轮（onChange(of: selected) 会同帧收掉菜单）",
+          taskAt != nil && slotAt != nil && petAt != nil
+          && slotAt! > taskAt! && petAt! > taskAt!)
+    check("弹菜单的落点只有两个具名方法（不许再散落裸 showOrbMenu = true）",
+          applyBody.contains("openOrbMenuAtDockSlot()")
+          && applyBody.contains("requestOrbMenuAtPetAnchor()")
+          && !applyBody.contains("showOrbMenu = true"))
 } else {
     check("找得到 applyRoute 函数体（applyRoute → handleShareURL）", false)
 }

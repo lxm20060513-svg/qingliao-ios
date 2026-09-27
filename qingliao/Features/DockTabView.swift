@@ -437,6 +437,37 @@ struct DockTabView: View {
     /// 四个胶囊动作分发——全部复用既有入口，不新造状态：
     ///   新建会话 → requestNewSession（ChatView 的 pendingNewSession 两步走清屏，勿直接清数据）
     ///   AI 速记  → 速记弹窗 → MemoStore（source "orb"）
+    /// v4.0.x：弹菜单的**两个**落点（都在宿主里，petHero 侧拿不到这些私有状态）：
+    ///   ① `openOrbMenuAtDockSlot` —— 锚在 dock 槽位（宠物不在屏时的兜底那张画面）；
+    ///   ② `requestOrbMenuAtPetAnchor` —— 请求宠物应答锚点（真正的「长按宠物那套画面」）。
+    ///
+    /// ⚠️ 两条**都**必须带 `guard !showOrbMenu`：`OrbMenuFromPetModifier.openMenuAtPetAnchor` 也有这条互斥，
+    /// 少了它就会把已经开着（宠物锚点）的菜单的锚点从宠物改回 dock 槽位 —— v3.9.79「两只宠物」同类回退。
+    private func openOrbMenuAtDockSlot() {
+        guard !showOrbMenu else { return }
+        if showIdentify || showVoiceDialog { return }
+        orbMenuPetAnchor = nil
+        showOrbMenu = true
+    }
+
+    /// v4.0.x：请求「在宠物锚点弹菜单」。握手：置 pending → 喊一声已挂树的宠物（当场应答），
+    /// 应答侧处理见 ChatView。应答迟迟不来（宠物不在屏 / 横向边缘态）→ 1.2s 后退回 dock 槽位。
+    private func requestOrbMenuAtPetAnchor() {
+        let seq = OrbPetAnchorRegistry.beginRequest()
+        if OrbPetAnchorRegistry.requestMenuOnPetAnchor() {
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(1.2))
+                // 🚨 三道闸缺一不可：① 序号仍是最新（没被后来的请求抢）② pending 还挂着（宠物还没应答）
+                //    ③ 菜单此刻没开着（别把已开着的宠物锚点菜单拽回 dock 槽位）。
+                guard OrbPetAnchorRegistry.isLatest(seq),
+                      OrbPetAnchorRegistry.hasPendingMenu else { return }
+                OrbPetAnchorRegistry.cancelPendingMenu()
+                openOrbMenuAtDockSlot()
+            }
+        }
+    }
+
+    /// 智慧球/宠物菜单的九颗胶囊动作分发（唯一真源：长按球、长按宠物、桌面快捷方式三条入口共用）。
     ///   语音输入 → 切聊天页 + 进程内通知（ChatView.toggleVoiceMode，与输入框长按同一条路径；
     ///              DockTabView 摸不到 ChatView 的 @State，通知是本仓既有的跨页触发模式）
     ///   今日待办 → 速记弹窗 → TodoStore（source "orb"）
@@ -567,14 +598,54 @@ struct DockTabView: View {
     /// 已在目标页时不 `skipBurstOnce()` —— 白置标志会吞掉紧接着的真点击烟花
     ///（与 `.qingliaoOpenChat` 那条同一理由）。
     private func applyRoute(_ route: QingliaoDeepLink.Route) {
-        // v4.0.x：非 tab 路由（快捷动作菜单）—— 开覆盖层，**不切页**。
-        // 不切页是必须的：切页会经 onChange(of: selected) 立刻把刚弹出来的菜单收掉。
+        // v4.0.x：非 tab 路由（快捷动作菜单）—— 先切到聊天页，再在**宠物位置**弹菜单。
         // 与菜单互斥的两个浮层先关掉（口径同 onChange(of: selected)：新浮层不许与它们叠）。
         if QingliaoDeepLink.nonTabRoutes.contains(route) {
-            if showIdentify { showIdentify = false; identifyPhoto = nil }
-            if showVoiceDialog { showVoiceDialog = false }
-            orbMenuPetAnchor = nil      // 锚点留空 = 锚在 dock 智慧球上（长按球那条路的口径）
-            showOrbMenu = true
+            // ⚠️ 瞬时 UI 要清**全部 9 个**呈现位态，口径与 `handleOrbAction` 的收口逐项对齐
+            //（那份注释里记着原因：桌面快捷方式是绕过命中层的第二入口，漏一个就是「点了没反应」——
+            //  sheet 压住新开的浮层）。这里原先只清了识别/语音两个，被速记 sheet、译文弹窗、
+            //  纪要全屏页、相机盖住时菜单弹了但用户看不见。
+            showOrbMenu = false
+            quickCapture = nil
+            showIdentify = false
+            identifyStartTranslate = false
+            showVoiceDialog = false
+            translateResult = nil
+            showMinutes = false
+            showCamera = false
+            identifyPhoto = nil
+            // v4.0.x（用户：「快捷菜单改成跳转到长按卡通宠物那个界面」）：这条入口现在也走**长按宠物那套画面** ——
+            // 胶囊在欢迎页卡通宠物下方绽放，锚点 = 宠物真实位置。锚点只有 ChatView 有（dock 拿不到几何），
+            // 所以走一次握手：dock 请求 → `petHero` 应答，两条来路都汇到与长按**完全同一条**通知，
+            // 动作分发/互斥收口/锚点刷新一处都不复制。
+            //
+            // 🚨 切过页之后**不能同轮就弹菜单**（详见下面 wasOnChat 处那几行）。
+            //
+            // 宠物**不在屏**时退回 dock 槽位锚点弹（那张画面里也画宠物，v3.9.82「只保留一个跳转画面」口径）：
+            //   ① 会话已有消息 → 欢迎页压根不渲染，等下去也没用，直接弹；
+            //   ② 空会话但欢迎页迟迟不上报（横屏/键盘等边缘态）→ 握手超时后兜底弹，不让用户看到「点了没反应」。
+            let wasOnChat = selected == .chat
+            // 🚨 切页与弹菜单**必须错开一轮**，与「会话有没有消息」正交：
+            //    `selected` 的变更会在 `onChange(of: selected)` 里执行「if showOrbMenu { showOrbMenu = false }」，
+            //    同一轮里先写 true 再写 false → SwiftUI 只渲染最终值 false → 菜单一次都不出现
+            //    （症状：空会话/有消息两种情况都是「只跳页不弹菜单」）。
+            //    所以：切过页的**全部**路径都延到下一轮；本来就在聊天页的同步弹（那里没有这次写入）。
+            if !wasOnChat {
+                skipBurstOnce()
+                selected = .chat
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(400))   // 让切页与 onChange(of: selected) 先落定
+                    if chat.messages.isEmpty {
+                        requestOrbMenuAtPetAnchor()
+                    } else {
+                        openOrbMenuAtDockSlot()   // 宠物不在屏（欢迎页不渲染）→ 退回 dock 槽位
+                    }
+                }
+            } else if !chat.messages.isEmpty {
+                openOrbMenuAtDockSlot()
+            } else {
+                requestOrbMenuAtPetAnchor()
+            }
             return
         }
         guard let tab = DockTab(rawValue: route.rawValue) else { return }
@@ -731,6 +802,14 @@ private struct OrbMenuFromPetModifier: ViewModifier {
         return true
     }
 
+    /// 「从宠物锚点弹菜单」的**唯一**消费点（长按通知 / 快捷指令握手应答两条来路共用，见上面两个 onReceive）。
+    private func openMenuAtPetAnchor(_ note: Notification) {
+        guard !showOrbMenu, !blocked else { return }
+        guard let anchor = OrbPetAnchor(userInfo: note.userInfo) else { return }
+        petAnchor = anchor
+        showOrbMenu = true
+    }
+
     func body(content: Content) -> some View {
         content
             // 菜单收起时清锚点：否则下一次长按球的菜单会锚在上次的宠物位置；
@@ -750,11 +829,15 @@ private struct OrbMenuFromPetModifier: ViewModifier {
             }
             // 聊天页宠物长按 ＝ 长按智慧球**同一套**菜单（用户：「长按宠物改成和长按智慧球一样的效果」）。
             // 只换锚点，动作分发仍走 handleOrbAction（单一真源，不在聊天页复制第二套）。
+            // v4.0.x：第二条 `.qingliaoOpenOrbMenuAtPet` 是**同一件事**的第二条来路 ——
+            // 「打开轻聊快捷菜单」快捷指令从 App 外面进来，需要宠物锚点，走「dock 请求 → 宠物应答」握手
+            // （应答方在 ChatView，见 OrbPetAnchorRegistry）。两条合流到下面这一个消费点，
+            // 别给应答那条再写第二份 showOrbMenu 逻辑（那才是真的复制第二套）。
             .onReceive(NotificationCenter.default.publisher(for: .qingliaoOrbMenuFromPet)) { (note: Notification) in
-                guard !showOrbMenu, !blocked else { return }
-                guard let anchor = OrbPetAnchor(userInfo: note.userInfo) else { return }
-                petAnchor = anchor
-                showOrbMenu = true
+                openMenuAtPetAnchor(note)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .qingliaoOpenOrbMenuAtPet)) { (note: Notification) in
+                openMenuAtPetAnchor(note)
             }
             // v3.9.79：菜单**开着**时宠物真实中心变了 → 只更新锚点，不重开菜单（见 Notification.Name 处的事故说明：
             // 收键盘让宠物下移 ≥56pt，锚点不跟着走就会「两只宠物」）。菜单关着时这条通知直接丢弃。

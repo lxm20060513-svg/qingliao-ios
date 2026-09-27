@@ -96,12 +96,13 @@ check("④ 弹窗档位只在 sheet 里写一次（宿主不重复设档）", !d
 
 // MARK: 5. onDismiss 复位（本仓踩过的坑）
 check("⑤ 宿主 sheet 带 onDismiss 复位", flat(dock).contains("onDismiss:{translateResult=nil}"))
-// v3.9.82：合法复位点**恰好两处** —— ① onDismiss（present 被挡掉后 item 不会一直非 nil，与速记同款）；
+// v3.9.82：合法复位点**恰好三处** —— ① onDismiss（present 被挡掉后 item 不会一直非 nil，与速记同款）；
 // ② handleOrbAction 的统一收口（桌面快捷方式是绕过菜单的第二入口，进分支前必须收干净，否则译文 sheet 会压住
-// 新开的识别浮层 / 与语音全屏 cover 互顶）。既不许少（漏掉 ① 会滞留、漏掉 ② 会「点了没反应」），也不许多
-// （散落第三处复位 = 任何一次外部复位都可能掐掉正在呈现的弹窗，必查）。
-check("⑤ 复位恰两处：onDismiss + handleOrbAction 收口",
-      flat(dock).components(separatedBy: "translateResult=nil").count - 1 == 2)
+// 新开的识别浮层 / 与语音全屏 cover 互顶）；③ v4.0.x applyRoute 的非 tab 路由分支（快捷指令「打开轻聊快捷菜单」
+// 是同一类绕过命中层的第二入口，同样必须收干净，否则弹窗压住新开的菜单 = 点了没反应）。
+// 既不许少（漏掉任一处会滞留 / 压住新浮层），也不许多（散落复位 = 任何一次外部复位都可能掐掉正在呈现的弹窗，必查）。
+check("⑤ 复位恰三处：onDismiss + handleOrbAction 收口 + applyRoute 非 tab 分支",
+      flat(dock).components(separatedBy: "translateResult=nil").count - 1 == 3)
 
 // MARK: 6. 「发给 AI」单通道
 check("⑥ 宿主有唯一出口 private func askAI(", dock.contains("private func askAI("))

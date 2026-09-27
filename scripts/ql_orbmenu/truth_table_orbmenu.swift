@@ -636,6 +636,82 @@ check("形象/芯片/续聊卡只此一份（横屏复用拆件，不许复制�
 check("横屏 + 键盘弹起时芯片列收起（否则顶出屏幕）",
       chatViewSrc.contains("if !kb.isVisible {\n                    landscapeChips\n                }"))
 
+// ⑪ v4.0.x 快捷指令「打开轻聊快捷菜单」也跳**长按卡通宠物那套画面**（用户 2026-09-28 提的）
+// 改之前那条入口锚在 dock 智慧球上（orbMenuPetAnchor = nil）——与 v3.9.82「只保留一个跳转画面」矛盾。
+// 锚点只有 ChatView 有（dock 拿不到宠物几何），所以走「dock 请求 → 宠物应答」握手，两条来路合流到一个消费点。
+let quickMenuRouteSlice = between(dockSrc, "if QingliaoDeepLink.nonTabRoutes.contains(route)",
+                                  "guard let tab = DockTab(rawValue: route.rawValue)")
+check("快捷菜单路由切片取到（切片空了本条就是空真）", !quickMenuRouteSlice.isEmpty)
+check("快捷菜单路由不再把锚点钉死在 dock（改为向宠物请求锚点）",
+      quickMenuRouteSlice.contains("requestOrbMenuAtPetAnchor()")
+      && quickMenuRouteSlice.contains("openOrbMenuAtDockSlot()"))
+// 🚨 切页与弹菜单同轮 = 菜单被 onChange(of: selected) 收掉（审查 P0）。这条是**位置**约束：
+//    「切过页」那个分支的函数体内必须出现 Task 延后，同步弹只能落在 `else` 分支里。
+//    （旧版本写成析取 `!A || B`，A 失效也不影响判定 → 假绿，已改）
+let afterTabSwitchSlice = between(dockSrc, "let wasOnChat = selected == .chat",
+                                  "guard let tab = DockTab(rawValue: route.rawValue)")
+check("切页后的分支切片取到（切片空了本条就是空真）", !afterTabSwitchSlice.isEmpty)
+let cutBranchRaw = stripCommentLines(afterTabSwitchSlice.components(separatedBy: "if !wasOnChat {").last ?? "")
+let elseBranchRaw = stripCommentLines(afterTabSwitchSlice.components(separatedBy: "} else if !chat.messages.isEmpty {").last ?? "")
+// 「切过页」分支里两个落点都**必须在 Task 之后**才出现 —— 同轮调用就会被 onChange 收掉。
+// 只查「分支体内含有这两个词」不行：把它们挪到 Task 外面（切页同轮）照样全绿，那正是这个 P0 的形态。
+func firstIndex(_ hay: String, _ needle: String) -> Int? {
+    guard let r = hay.range(of: needle) else { return nil }
+    return hay.distance(from: hay.startIndex, to: r.lowerBound)
+}
+let taskAt = firstIndex(cutBranchRaw, "Task { @MainActor in")
+let slotAt = firstIndex(cutBranchRaw, "openOrbMenuAtDockSlot()")
+let petAt = firstIndex(cutBranchRaw, "requestOrbMenuAtPetAnchor()")
+check("切过页分支的落点在延后之前不许出现（同轮 = 被 onChange 收掉）",
+      taskAt != nil && slotAt != nil && petAt != nil
+      && slotAt! > taskAt! && petAt! > taskAt!)
+check("切过页分支的延后仍要覆盖两种情况（有消息退 dock 槽位 / 空会话走宠物握手）",
+      cutBranchRaw.contains("if chat.messages.isEmpty"))
+check("同步弹只能落在「本来就在聊天页」的 else 分支里",
+      !elseBranchRaw.contains("selected = .chat")
+      && elseBranchRaw.contains("openOrbMenuAtDockSlot()")
+      && !elseBranchRaw.contains("Task { @MainActor in"))
+check("两个落点都带菜单已开互斥（防止把已开着的宠物锚点菜单拽回 dock 槽位）",
+      dockSrc.contains("private func openOrbMenuAtDockSlot() {\n        guard !showOrbMenu else { return }")
+      && dockSrc.contains("OrbPetAnchorRegistry.cancelPendingMenu()\n                openOrbMenuAtDockSlot()"))
+// 超时兜底必须先核对「序号仍是我」—— 否则连按两下快捷指令时第一个的 1.2s 到点会看到第二个的 pending，
+// 把它 cancel 掉并弹 dock 槽位（菜单锚点被拉回球位）
+let fallbackSlice = between(dockSrc, "private func requestOrbMenuAtPetAnchor() {",
+                            "// MARK: - v3.9.82")
+check("超时兜底带序号守卫（连发请求不互相抢 pending）",
+      fallbackSlice.contains("OrbPetAnchorRegistry.beginRequest()")
+      && fallbackSlice.contains("OrbPetAnchorRegistry.isLatest(seq)"))
+check("序号机制在握手单一真源里（beginRequest / isLatest 成对）",
+      orbMenuSrc.contains("static func beginRequest() -> Int")
+      && orbMenuSrc.contains("static func isLatest(_ seq: Int) -> Bool"))
+// 快捷指令是绕过球命中层的第二入口 → 进来前必须把 9 个呈现位态收干净（同 handleOrbAction 收口）
+for (slot, line) in [("菜单", "showOrbMenu = false"),
+                     ("速记 sheet", "quickCapture = nil"),
+                     ("识别浮层", "showIdentify = false"),
+                     ("换一张哨兵", "identifyStartTranslate = false"),
+                     ("语音对话", "showVoiceDialog = false"),
+                     ("译文 sheet", "translateResult = nil"),
+                     ("会话纪要全屏页", "showMinutes = false"),
+                     ("拍照识别相机", "showCamera = false"),
+                     ("识别载荷", "identifyPhoto = nil")] {
+    check("快捷指令入口同样收干净呈现位态：" + slot, quickMenuRouteSlice.contains(line))
+}
+// 补发应答的条件顺序：先判几何再消费 pending —— 反了会在中心为零时把 pending 吃掉却不应答（静默无反应）
+let petOnChangeSlice = between(chatViewSrc, ".onChange(of: petGlobalCenter)",
+                               "NotificationCenter.default.post(")
+check("补发应答：先判 center != .zero 再消费 pending",
+      petOnChangeSlice.contains("if center != .zero, OrbPetAnchorRegistry.publish()"))
+check("握手单点真源在 OrbPetAnchorRegistry（请求/应答/pending 都收在这一处）",
+      orbMenuSrc.contains("enum OrbPetAnchorRegistry")
+      && orbMenuSrc.contains("static let qingliaoRequestPetAnchor = Notification.Name(")
+      && orbMenuSrc.contains("static let qingliaoOpenOrbMenuAtPet = Notification.Name("))
+check("宠物侧应答由 petHero 承担（两条来路：已在屏的即时应答 / 刚挂树时的补发）",
+      chatViewSrc.contains("publisher(for: .qingliaoRequestPetAnchor)")
+      && chatViewSrc.contains("private func replyOrbMenuAnchor(center: CGPoint)"))
+check("dock 侧两条来路合流到同一段消费逻辑（不许复制第二份 showOrbMenu）",
+      dockSrc.components(separatedBy: "private func openMenuAtPetAnchor(_ note: Notification)").count - 1 == 1
+      && dockSrc.components(separatedBy: "openMenuAtPetAnchor(note)").count - 1 == 2)   // 两个 onReceive 各一次
+
 // ⑨ v3.9.79「AI 翻译」胶囊（用户拍板：拍照/相册旁边加第三颗 → 拍照或选图**直接出译文**，不再给动作条；
 //    方向口径 = **自动双向**：中文→英文、其他语言→中文）
 check("识别浮层有第三颗「AI 翻译」胶囊（入口在位）",
