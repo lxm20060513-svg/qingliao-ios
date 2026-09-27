@@ -25,7 +25,7 @@ import Foundation
 //     `onOpenURL` 用 —— 两个入口各管一段，不是二选一，也别互相顶替。
 //
 // ⚠️ App Shortcuts **每个 App 最多 10 条**，超了是**构建期**失败（appintentsmetadataprocessor 报
-//    "Found N App Shortcuts, but each app may have at most 10"）。本文件现在 8 条 —— 加速捷前先数。
+//    "Found N App Shortcuts, but each app may have at most 10"）。本文件现在 9 条 —— 加速捷前先数。
 
 // MARK: - 无 UI 客户端（与 App 内同一套 token / 服务器地址 / 后端接口）
 
@@ -363,6 +363,26 @@ struct OpenLifeIntent: AppIntent {
     }
 }
 
+// MARK: - 动作 8：打开快捷动作菜单（零参数，**非 tab**）
+//
+// 用户 2026-09-27 提的：「快捷指令能增加打开到这个界面吗」——「这个界面」是智慧球长按菜单
+// （8 颗胶囊：新建会话 / AI 速记 / 今日待办 / AI 识别 / 语音对话 / 语音输入 / 会话纪要 / 拍照识别）。
+// 它不是某一页（`DockTab` 里没有它），所以投的是**非 tab 路由** `.quickActions`；
+// 落地点仍是 `DockTabView.applyRoute`（非 tab 分支：开菜单覆盖层，不切页）。
+// 前台模式与上面四条同一理由：iOS 26 不许 intent 里让系统 launch 自己的 scheme。
+
+struct OpenQuickActionsIntent: AppIntent {
+    static var title: LocalizedStringResource { "打开轻聊快捷菜单" }
+    static var description: IntentDescription { IntentDescription("打开轻聊并弹出智慧球快捷菜单（8 个常用动作）") }
+    static var supportedModes: IntentModes { .foreground(.immediate) }
+
+    @MainActor
+    func perform() async throws -> some IntentResult {
+        QingliaoRouteHandoff.request(.quickActions)
+        return .result()
+    }
+}
+
 // MARK: - App Shortcuts（Siri 短语）
 //
 // 没有这一段，动作只出现在快捷指令 App 里；有了它才能"嘿 Siri，问轻聊"。
@@ -449,6 +469,15 @@ struct QingliaoAppShortcuts: AppShortcutsProvider {
                 ],
                 shortTitle: "生活页",
                 systemImageName: "sparkles"
+            )
+            AppShortcut(
+                intent: OpenQuickActionsIntent(),
+                phrases: [
+                    "打开\(.applicationName)快捷菜单",
+                    "\(.applicationName)快捷动作",
+                ],
+                shortTitle: "快捷菜单",
+                systemImageName: "hand.tap"
             )
     }
 }

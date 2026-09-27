@@ -17,15 +17,28 @@ struct QingliaoIntentError: LocalizedError {
 
 /// 深链：`qingliao://<tab>`。
 ///
-/// `Route.rawValue` **就是** `DockTab` 的 rawValue（chat/sessions/dashboard/life/settings）——
+/// tab 路由的 `Route.rawValue` **就是** `DockTab` 的 rawValue（chat/sessions/dashboard/life/settings）——
 /// App 侧只做一次 `DockTab(rawValue:)` 映射，不再维护第二张「host → 页面」表
 /// （维护两张表的下场是加一个 tab 忘改一张，深链静默失效）。
+/// v4.0.x：「不是某一页」的入口（智慧球快捷动作菜单）复用同一条投递链，见 `nonTabRoutes`。
 enum QingliaoDeepLink {
     static let scheme = "qingliao"
 
     enum Route: String, CaseIterable {
+        // tab 页：必须与 DockTab 的 case 一字不差
         case chat, sessions, dashboard, life, settings
+
+        /// 非 tab 路由：打开智慧球快捷动作菜单（8 颗胶囊），**不切页**。
+        /// 🚨 加这个 case 会让 `applyRoute` 里的 `DockTab(rawValue:)` 落空（静默返回）——
+        ///    必须同步在 `applyRoute` 给它分支，否则用户看到的是「点了没反应」。
+        case quickActions
     }
+
+    /// 不落在 tab 上的路由白名单（唯一真源）。
+    /// 护栏（`scripts/ql_intents/truth_table_intents.swift`）靠它把「Route ↔ DockTab 不许漂移」
+    /// 从「集合相等」收紧成「减去白名单后相等」；不这么做就只能把比较放宽成 ⊆，
+    /// 那样「加了 tab 忘改表」这种真漂移反而没人拦。
+    static let nonTabRoutes: Set<Route> = [.quickActions]
 
     // 🔒 这里**故意不再提供**「造一条 qingliao:// 串」的助手（原 `url(_:)` / `openURL(_:)` 已删）。
     //    iOS 26 上任何「请系统 launch 本 App 自定义 scheme」的路径都会被拒 —— 用户真机在快捷指令

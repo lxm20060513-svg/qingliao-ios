@@ -13,6 +13,8 @@
 //      （通知广播 + 带时间戳的兜底值），`DockTabView` 侧「广播 + 冷启动补读」两条腿都在
 //   ③ 「深链 / intent → 切哪一页」全 App **只有一个落地点** `applyRoute(_:)`
 //      （`onOpenURL` 的 `qingliao://<tab>`、intent 广播、兜底补读共用它）
+//      v4.0.x：**非 tab 路由**（`quickActions` 快捷动作菜单）也落在这里 —— 开覆盖层、不切页；
+//      白名单唯一真源是 `QingliaoDeepLink.nonTabRoutes`，本表⑤段按它扣除后再比 DockTab
 //   ④ `qingliao://` scheme 本身保留：灵动岛 `widgetURL` / 分享回跳 / `onOpenURL` 深链还用它
 //   ⑤ `.foreground(.immediate)` 下 `perform()` 必须 `@MainActor`：它内部同步 post 通知，
 //      App 侧 `.onReceive` 会直接在投递线程上改 SwiftUI 状态（切 tab / 白置烟花标志）
@@ -68,24 +70,25 @@ check("不再用 .result(opensIntent:)", !intentCode.contains("opensIntent"))
 check("perform 不再返回 & OpensIntent（回到 some IntentResult）", !intentCode.contains("IntentResult & OpensIntent"))
 check("不用已废弃的 openAppWhenRun", !intentCode.contains("openAppWhenRun"))
 
-// MARK: ② 四个「打开某页」intent 都声明前台模式
+// MARK: ② 「打开 App 到某处」的 intent 都声明前台模式（4 个 tab 页 + 1 个快捷菜单）
 
-check("supportedModes 出现 4 处（chat/sessions/dashboard/life 各一）",
-      count(intentCode, "static var supportedModes: IntentModes { .foreground(.immediate) }") == 4)
+check("supportedModes 出现 5 处（chat/sessions/dashboard/life + quickActions 各一）",
+      count(intentCode, "static var supportedModes: IntentModes { .foreground(.immediate) }") == 5)
 check("前台模式用 .foreground(.immediate)（不是 .deferred/.dynamic）",
       !intentCode.contains(".foreground(.deferred)") && !intentCode.contains(".foreground(.dynamic)"))
 check("supportedModes 是计算属性而非 static let（Swift 6 并发安全）",
       !intentCode.contains("static let supportedModes"))
-check("四个 perform 都标 @MainActor（同步 post 通知 → 必须主线程改 SwiftUI 状态）",
-      count(intentCode, "@MainActor\n    func perform() async throws -> some IntentResult {") == 4)
+check("五个 perform 都标 @MainActor（同步 post 通知 → 必须主线程改 SwiftUI 状态）",
+      count(intentCode, "@MainActor\n    func perform() async throws -> some IntentResult {") == 5)
 
-// MARK: ③ 四个 intent 各自投对页（route 与 title 一一对应，不许复制粘贴串页）
+// MARK: ③ 五个 intent 各自投对页（route 与 title 一一对应，不许复制粘贴串页）
 
 let routeByIntent: [(String, String, String)] = [
     ("OpenChatIntent", "chat", "打开轻聊聊天"),
     ("OpenSessionsIntent", "sessions", "打开轻聊会话列表"),
     ("OpenDashboardIntent", "dashboard", "打开轻聊看板"),
     ("OpenLifeIntent", "life", "打开轻聊生活页"),
+    ("OpenQuickActionsIntent", "quickActions", "打开轻聊快捷菜单"),
 ]
 for (type, route, title) in routeByIntent {
     guard let start = intentSrc.range(of: "struct \(type): AppIntent"),
@@ -133,21 +136,24 @@ check("白名单外的名字返回 nil", QingliaoRouteHandoff.consume() == nil)
 ud.set("dashboard", forKey: QingliaoRouteHandoff.defaultsKey)          // 老格式（无时间戳）也要能认
 check("无时间戳的老格式仍可消费", QingliaoRouteHandoff.consume() == .dashboard)
 check("route(named:) 白名单外为 nil", QingliaoRouteHandoff.route(named: "settings2") == nil)
-check("route(named:) 认得 5 个页面",
-      ["chat", "sessions", "dashboard", "life", "settings"].allSatisfy { QingliaoRouteHandoff.route(named: $0) != nil })
+check("route(named:) 认得 6 个路由（5 个 tab 页 + 快捷菜单）",
+      ["chat", "sessions", "dashboard", "life", "settings", "quickActions"].allSatisfy { QingliaoRouteHandoff.route(named: $0) != nil })
 NotificationCenter.default.removeObserver(token)
 
 // MARK: ⑤ Route ↔ DockTab 一一对应（两张表漂移 = 深链静默失效）
 
-check("Route 恰好 5 个 case", QingliaoDeepLink.Route.allCases.count == 5)
+check("Route 恰好 6 个 case（5 个 tab 页 + quickActions）", QingliaoDeepLink.Route.allCases.count == 6)
 let routeNames = Set(QingliaoDeepLink.Route.allCases.map(\.rawValue))
-check("Route rawValue 是 chat/sessions/dashboard/life/settings",
-      routeNames == ["chat", "sessions", "dashboard", "life", "settings"])
+check("Route rawValue 是 5 个 tab 页 + quickActions",
+      routeNames == ["chat", "sessions", "dashboard", "life", "settings", "quickActions"])
+check("非 tab 白名单里的名字都在 Route 里（白名单不许写错名）",
+      Set(QingliaoDeepLink.nonTabRoutes.map(\.rawValue)).isSubset(of: routeNames))
 // DockTab 的 case 列表（App 层 SwiftUI 类型，本机编不了 → 从源里取那一行）
 if let line = dockSrc.split(separator: "\n").first(where: { $0.trimmingCharacters(in: .whitespaces).hasPrefix("case ") }) {
     let tabs = Set(line.replacingOccurrences(of: "case", with: "")
         .split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) })
-    check("DockTab 的 case 与 Route rawValue 完全一致（两张表不许漂移）", tabs == routeNames)
+    check("DockTab 的 case 与 Route 的 tab 路由完全一致（两张表不许漂移；非 tab 路由按白名单扣除，扣完仍须相等）",
+          tabs == routeNames.subtracting(QingliaoDeepLink.nonTabRoutes.map(\.rawValue)))
 } else {
     check("找得到 DockTab 的 case 列表", false)
 }
@@ -169,6 +175,25 @@ check("深链 onOpenURL 同样走 applyRoute",
       dockCode.contains("if let route = QingliaoDeepLink.route(for: url)") && !dockCode.contains("skipBurstOnce()\n            selected = tab"))
 check("applyRoute 用 DockTab(rawValue: route.rawValue) 映射",
       dockCode.contains("DockTab(rawValue: route.rawValue)"))
+
+// v4.0.x：非 tab 路由（快捷动作菜单）必须**在 applyRoute 里**有分支，且排在 tab 映射之前 ——
+// 只加 Route case 不加分支 = `DockTab(rawValue:)` 落空静默 return，用户侧看到的是「点了没反应」。
+if let s = dockCode.range(of: "private func applyRoute("),
+   let e = dockCode.range(of: "private func handleShareURL("),
+   s.lowerBound < e.lowerBound {
+    let applyBody = String(dockCode[s.lowerBound..<e.lowerBound])
+    let nonTab = applyBody.range(of: "QingliaoDeepLink.nonTabRoutes.contains(route)")
+    let tabMap = applyBody.range(of: "DockTab(rawValue:")
+    check("applyRoute 认非 tab 路由（快捷菜单开覆盖层 showOrbMenu）",
+          nonTab != nil && applyBody.contains("showOrbMenu = true"))
+    check("非 tab 分支排在 tab 映射之前（顺序反了 = 静默落空）",
+          nonTab != nil && tabMap != nil && nonTab!.lowerBound < tabMap!.lowerBound)
+    let beforeTabMap = String(applyBody[applyBody.startIndex..<(tabMap?.lowerBound ?? applyBody.endIndex)])
+    check("非 tab 路由不切页（切页会经 onChange(of: selected) 立刻把菜单收掉）",
+          !beforeTabMap.contains("selected = tab"))
+} else {
+    check("找得到 applyRoute 函数体（applyRoute → handleShareURL）", false)
+}
 
 // MARK: ⑦ 双审查（2026-09-27）修正项 —— 每条都是「复发了就再出同样事故」
 

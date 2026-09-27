@@ -567,6 +567,16 @@ struct DockTabView: View {
     /// 已在目标页时不 `skipBurstOnce()` —— 白置标志会吞掉紧接着的真点击烟花
     ///（与 `.qingliaoOpenChat` 那条同一理由）。
     private func applyRoute(_ route: QingliaoDeepLink.Route) {
+        // v4.0.x：非 tab 路由（快捷动作菜单）—— 开覆盖层，**不切页**。
+        // 不切页是必须的：切页会经 onChange(of: selected) 立刻把刚弹出来的菜单收掉。
+        // 与菜单互斥的两个浮层先关掉（口径同 onChange(of: selected)：新浮层不许与它们叠）。
+        if QingliaoDeepLink.nonTabRoutes.contains(route) {
+            if showIdentify { showIdentify = false; identifyPhoto = nil }
+            if showVoiceDialog { showVoiceDialog = false }
+            orbMenuPetAnchor = nil      // 锚点留空 = 锚在 dock 智慧球上（长按球那条路的口径）
+            showOrbMenu = true
+            return
+        }
         guard let tab = DockTab(rawValue: route.rawValue) else { return }
         if selected != tab { skipBurstOnce() }
         selected = tab
