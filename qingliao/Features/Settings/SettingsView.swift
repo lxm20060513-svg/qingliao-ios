@@ -43,7 +43,7 @@ struct SettingsView: View {
     @State var showMCPSettings = false
     // v3.9.95：权限与 AI 操控（日历/相册/通知/HomeKit 的授权与 AI 开关）
     @State var showAppPermissions = false
-    // v3.5.x：生活卡片设置（股票 / 资讯 / 快递 / 价格监控）
+    // v3.5.x：生活卡片设置（股票 / 资讯 / 快递）
     @State var showLifeCards = false
     // v3.9.32：一句话本地定时提醒 / 文件管理
     @State var showQuickReminder = false

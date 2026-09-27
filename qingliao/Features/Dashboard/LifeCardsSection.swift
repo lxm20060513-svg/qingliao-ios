@@ -1,14 +1,14 @@
 import SwiftUI
 import UIKit
 
-// MARK: - v3.5.x 看板「生活数据」卡片区（行情 + 资讯 + 快递 + 价格监控）
+// MARK: - v3.5.x 看板「生活数据」卡片区（行情 + 资讯 + 快递）
 //
 // v3.9.37（用户要求）：**栏目标题「生活数据」改名为「股票」**——这一栏标题行下面紧跟的就是行情卡网格
-//          （资讯有自己的页级标题行，快递/价格卡自带卡面说明），旧名与内容对不上，故按用户口径更名；
+//          （资讯有自己的页级标题行，快递卡自带卡面说明），旧名与内容对不上，故按用户口径更名；
 //          同步改：空态文案去「生活数据」字样、折叠箭头无障碍标签。
 //
-// v3.9.32：快递 / 价格监控从「占位小字」升级为真卡片（LifeExpressCardView / LifePriceCardView，
-//          同目录 LifeExpressPriceCards.swift）；后端 packages / items 为空时仍走占位小字，
+// v3.9.32：快递从「占位小字」升级为真卡片（LifeExpressCardView，
+//          同目录 LifeExpressPriceCards.swift）；后端 packages 为空时仍走占位小字，
 //          **不渲染空卡**。
 //
 // 与 DeviceCard / MeterCard / ServiceCard / PinCard 同一套卡片语言：
@@ -122,11 +122,11 @@ struct LifeCardsSection: View {
                 noteCard(icon: "chart.line.uptrend.xyaxis", text: "暂无数据 · 点刷新")
             }
         } else if !data.hasContent {
-            // v3.9.32：一条行情/资讯都没有时——快递/价格有真数据就先渲染真卡（不空白），
-            // 只有「连快递/价格都没配」才保留原来的「未配置」提示卡
+            // v3.9.32：一条行情/资讯都没有时——快递有真数据就先渲染真卡（不空白），
+            // 只有「连快递都没配」才保留原来的「未配置」提示卡
             if data.hasLifeCards {
                 VStack(alignment: .leading, spacing: 10) {
-                    expressPriceBlock
+                    expressBlock
                     placeholderCard
                 }
             } else {
@@ -150,8 +150,8 @@ struct LifeCardsSection: View {
             }
             // 博客/资讯：v3.9.17 标题行搬到卡片外（页级标题），卡片里只放条目
             if !data.entries.isEmpty { rssSection }
-            // 快递 / 价格监控：v3.9.32 起渲染真卡片（后端已真采集）；未配置的类型走占位小字
-            expressPriceBlock
+            // 快递：v3.9.32 起渲染真卡片（后端已真采集）；未配置走占位小字
+            expressBlock
             placeholderCard
             if !data.rssErrorText.isEmpty {
                 noteRow(icon: "wifi.exclamationmark", text: data.rssErrorText)
@@ -184,17 +184,16 @@ struct LifeCardsSection: View {
         return loading ? "加载中…" : "数据源未配置"
     }
 
-    // MARK: v3.9.32 快递 / 价格监控（真卡片；空数据不渲染，避免空卡）
+    // MARK: v3.9.32 快递（真卡片；空数据不渲染，避免空卡）
 
-    /// 快递 / 价格监控真卡片——后端 packages / items 为空时 parse 不建卡（见 LifeCardsData.parse），
+    /// 快递真卡片——后端 packages 为空时 parse 不建卡（见 LifeCardsData.parse），
     /// 所以这里只渲染「有数据」的类型
     @ViewBuilder
-    private var expressPriceBlock: some View {
+    private var expressBlock: some View {
         if let ex = data.express { LifeExpressCardView(card: ex) }
-        if let pr = data.price { LifePriceCardView(card: pr) }
     }
 
-    /// 未配置类型的占位小字（后端在 packages / items 为空时下发 error + hint）
+    /// 未配置类型的占位小字（后端在 packages 为空时下发 error + hint）
     @ViewBuilder
     private var placeholderCard: some View {
         if !data.placeholders.isEmpty {

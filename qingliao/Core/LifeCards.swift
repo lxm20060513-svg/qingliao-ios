@@ -2,14 +2,14 @@ import Foundation
 
 // MARK: - v3.5.x 看板「生活数据」卡片模型（后端 GET /api/life/cards）
 //
-// 后端返回统一结构 {"ok":bool,"ts":Int,"cards":[{kind:"stock"|"rss"|"express"|"price",…}]}，
+// 后端返回统一结构 {"ok":bool,"ts":Int,"cards":[{kind:"stock"|"rss"|"express",…}]}，
 // 这里只做纯解析（无网络、无 AuthStore 依赖）——请求走 DashboardView 的 auth.jsonOrLog，
 // 避免在 Core 层引入 @MainActor 隔离/并发上的额外风险。
 //
 // 覆盖范围：stock（LifeStock）/ rss（LifeRssEntry + LifeRssSource）/
-//          express（LifeExpressCard + LifeExpressParcel）/ price（LifePriceCard + LifePriceWatchItem）
-//          —— v3.9.32 起快递 / 价格监控已从占位小字升级为真卡片；
-//          packages / items 为空时仍落 LifePlaceholderItem（引导文案，不建空卡）。
+//          express（LifeExpressCard + LifeExpressParcel）
+//          —— v3.9.32 起快递已从占位小字升级为真卡片；
+//          packages 为空时仍落 LifePlaceholderItem（引导文案，不建空卡）。
 
 /// 股票行情卡（parse 后端 "kind":"stock"）
 struct LifeStock: Identifiable {
@@ -224,122 +224,7 @@ struct LifeExpressCard: Identifiable {
     }
 }
 
-// MARK: - v3.9.32 价格监控卡（后端 "kind":"price"）
-//
-// 字段以后端源码 life_api.py（_fetch_price / _collect_price）为准（2026-09-17 核对）：
-//   卡级 {"kind":"price","id":"price","title":"价格监控","ok":bool,"items":[…],"error":str[, "hint":str]}
-//     未添加监控商品时 items=[] + error="未添加监控商品" + hint="设置 → 生活卡片 → 价格监控"
-//   条目 {"name":"…","url":"…","price":129.0|null,"currency":"CNY","target":100.0|null,
-//         "hit":bool,"ok":bool,"error":str}
-//   ⚠️ hit 只在「设了目标价且现价 ≤ 目标价」时为 true（后端仅 target 非空时才写 hit）
-//      → 到价判定必须是 hit && target != nil，单看 hit 无法区分「未设目标价」。
-//   ⚠️ 类型名用 LifePriceWatchItem：Core/LifeConfig.swift 已有配置侧 LifePriceItem（同模块不能重名）。
-
-/// 单个监控商品（后端 items[]）
-struct LifePriceWatchItem: Identifiable {
-    let id: String
-    let name: String
-    let url: String
-    let price: Double?
-    let currency: String    // CNY / HKD / USD …（后端默认 CNY）
-    let target: Double?     // 目标价（未设 = null）
-    let hit: Bool           // 后端到价标记（仅设了目标价时可能为 true）
-    let ok: Bool
-    let error: String       // 失败原因（"未填写商品 URL" / "抓取失败: …" / "未配置提取规则"…）
-
-    /// 商品名：后端已兜底成域名；两者都空时回落 URL / 占位文案
-    var displayName: String {
-        if !name.isEmpty { return name }
-        if !host.isEmpty { return host }
-        return url.isEmpty ? "未命名商品" : url
-    }
-
-    /// URL 主机名（未命名商品的兜底显示）
-    var host: String { URL(string: url)?.host ?? "" }
-
-    /// 货币符号（与 Models.swift 的币种显示口径一致，未知币种退化为编码前缀）
-    var symbol: String { LifePriceWatchItem.currencySymbol(currency) }
-
-    /// 现价：¥129.00（未取到 = "--"，与行情卡的数值口径一致）
-    var priceText: String {
-        guard ok, let p = price else { return "--" }
-        return symbol + String(format: "%.2f", p)
-    }
-
-    /// 目标价：目标 ¥100.00（未设目标价 = 空串，UI 不渲染这一段）
-    var targetText: String {
-        guard let t = target else { return "" }
-        return "目标 " + symbol + String(format: "%.2f", t)
-    }
-
-    /// 到价（现价 ≤ 目标价）：后端 hit 未设目标价时恒为 false，必须带 target 一起判定
-    var isReached: Bool { ok && hit && target != nil }
-
-    /// 失败说明（无法取价时展示，不留空行）
-    var failureText: String { error.isEmpty ? "未取到价格" : error }
-
-    static func currencySymbol(_ c: String) -> String {
-        switch c.uppercased() {
-        case "", "CNY", "RMB": return "¥"
-        case "USD": return "$"
-        case "HKD": return "HK$"
-        case "JPY": return "¥"
-        case "EUR": return "€"
-        default: return c.uppercased() + " "
-        }
-    }
-
-    static func parse(_ j: [String: Any], index: Int) -> LifePriceWatchItem? {
-        let url = LifeStock.str(j["url"])
-        let name = LifeStock.str(j["name"])
-        guard !url.isEmpty || !name.isEmpty else { return nil }
-        return LifePriceWatchItem(id: url.isEmpty ? "\(name)#\(index)" : url,
-                             name: name,
-                             url: url,
-                             price: LifeStock.number(j["price"]),
-                             currency: LifeStock.str(j["currency"]),
-                             target: LifeStock.number(j["target"]),
-                             hit: (j["hit"] as? Bool) ?? false,
-                             ok: (j["ok"] as? Bool) ?? false,
-                             error: LifeStock.str(j["error"]))
-    }
-}
-
-/// 价格监控卡（后端 "kind":"price" 整张卡）
-struct LifePriceCard: Identifiable {
-    let id: String
-    let title: String
-    let ok: Bool
-    let error: String
-    let hint: String        // 未配置时的引导（"设置 → 生活卡片 → 价格监控"）
-    let items: [LifePriceWatchItem]
-
-    var hasItems: Bool { !items.isEmpty }
-    var countText: String { "\(items.count) 项" }
-
-    /// 到价项数（卡头高亮提示用）
-    var reachedCount: Int { items.filter { $0.isReached }.count }
-
-    static func parse(_ j: [String: Any]) -> LifePriceCard? {
-        guard LifeStock.str(j["kind"]) == "price" else { return nil }
-        // 同快递卡：逐元素取字典，单条脏数据不影响其余商品
-        let raw = (j["items"] as? [Any] ?? []).compactMap { $0 as? [String: Any] }
-        var list: [LifePriceWatchItem] = []
-        for (i, r) in raw.enumerated() {
-            if let it = LifePriceWatchItem.parse(r, index: i) { list.append(it) }
-        }
-        let cid = LifeStock.str(j["id"])
-        let ctitle = LifeStock.str(j["title"])
-        return LifePriceCard(id: cid.isEmpty ? "price" : cid,
-                             title: ctitle.isEmpty ? "价格监控" : ctitle,
-                             ok: (j["ok"] as? Bool) ?? false,
-                             error: LifeStock.str(j["error"]),
-                             hint: LifeStock.str(j["hint"]),
-                             items: list)
-    }
-}
-
-/// 「未配置」占位小字（快递 / 价格监控在 packages / items 为空时落到这里）
+/// 「未配置」占位小字（快递在 packages 为空时落到这里）
 /// ——后端给 kind + error（+ hint）文案，UI 只显示小字，不空白、也不显示空卡
 struct LifePlaceholderItem: Identifiable {
     let id: String
@@ -364,8 +249,6 @@ struct LifeCardsData {
     var placeholders: [LifePlaceholderItem] = []
     /// v3.9.32：快递卡（后端 packages 非空才存在；未配置单号时不建卡，避免空卡）
     var express: LifeExpressCard?
-    /// v3.9.32：价格监控卡（后端 items 非空才存在）
-    var price: LifePriceCard?
     var updated: Date?
     var error: String = ""       // 后端整体错误（全源失败时非空）
     var loaded = false           // 是否已成功解析过一次响应
@@ -387,14 +270,14 @@ struct LifeCardsData {
         return ""
     }
 
-    /// 是否有行情 / 资讯内容（这两类为空时页面走「未配置」提示；快递/价格另判 hasLifeCards）
+    /// 是否有行情 / 资讯内容（这两类为空时页面走「未配置」提示；快递另判 hasLifeCards）
     var hasContent: Bool {
         !stocks.isEmpty || !entries.isEmpty
     }
 
-    /// v3.9.32：是否有快递 / 价格监控真卡片（用于「一条生活卡片都没配」的判定）
+    /// v3.9.32：是否有快递真卡片（用于「一条生活卡片都没配」的判定）
     var hasLifeCards: Bool {
-        (express?.hasPackages ?? false) || (price?.hasItems ?? false)
+        express?.hasPackages ?? false
     }
 
     static func parse(_ j: [String: Any]) -> LifeCardsData {
@@ -412,12 +295,6 @@ struct LifeCardsData {
                 // v3.9.32：有单号 = 真卡片；无单号（后端 packages:[] + hint）= 保留占位小字，不建空卡
                 if let card = LifeExpressCard.parse(c), card.hasPackages {
                     d.express = card
-                } else if let p = LifePlaceholderItem.parse(c) {
-                    d.placeholders.append(p)
-                }
-            case "price":
-                if let card = LifePriceCard.parse(c), card.hasItems {
-                    d.price = card
                 } else if let p = LifePlaceholderItem.parse(c) {
                     d.placeholders.append(p)
                 }

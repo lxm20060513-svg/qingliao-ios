@@ -1,16 +1,16 @@
 import SwiftUI
 
-// MARK: - v3.9.32 生活页「快递 / 价格监控」真卡片
+// MARK: - v3.9.32 生活页「快递」真卡片
 //
 // 数据来自后端 /api/life/cards（真采集：快递100 / 自定义源、商品页面抓价），
-// 解析在 Core/LifeCards.swift（LifeExpressCard / LifePriceCard），这里只做渲染。
+// 解析在 Core/LifeCards.swift（LifeExpressCard），这里只做渲染。
 //
 // 视觉口径（与 LifeCardsSection / LifeStockCard 同一套，别另立）：
 //   · 容器 .dashboardCard()（默认 16pt 圆角 + 0.8pt 描边），滚动层次用 .scrollDepth()
 //   · 胶囊一律走 Theme/Pill 的 .pill(.page)（不自己拼 Capsule + padding）
 //   · 内边距 Spacing / 字号 Typography / 浓淡 Tint / 行距 LineSpacing / 圆角 Radius / 动效 Motion；
 //     ⚠️ 栈间距（VStack/HStack spacing:）按全仓口径仍写字面值，不套 Spacing（见 Spacing.swift 第 4 条）
-//   · 价格用等宽数字 + contentTransition(.numericText())：刷新是滚动而不是硬跳
+//   · 数值用等宽数字 + contentTransition(.numericText())：刷新是滚动而不是硬跳
 //
 // ⚠️ 视图刻意拆成小 struct（卡头 / 卡内提示 / 单行）：本仓曾因深层 ViewBuilder
 //    表达式触发 CI type-check 超时。
@@ -111,102 +111,7 @@ struct LifeExpressRow: View {
     }
 }
 
-// MARK: 价格监控卡
-
-struct LifePriceCardView: View {
-    let card: LifePriceCard
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            LifeCardHeaderRow(icon: "tag",
-                              title: card.title.isEmpty ? "价格监控" : card.title,
-                              countText: card.countText,
-                              flagText: flagText,
-                              flagColor: flagColor)
-            ForEach(card.items) { it in
-                LifePriceRow(item: it)
-                if it.id != card.items.last?.id { Divider().opacity(0.4) }
-            }
-            if !card.ok, !card.error.isEmpty {
-                LifeCardNoteRow(icon: "wifi.exclamationmark", text: card.error)
-            }
-        }
-        .padding(Spacing.xl)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .dashboardCard()
-        .scrollDepth()
-    }
-
-    /// 到价是有用信号，优先报；没有到价也没有失败时不占位
-    private var flagText: String {
-        if card.reachedCount > 0 { return "到价 \(card.reachedCount) 项" }
-        let failed = card.items.filter { !$0.ok }.count
-        return failed > 0 ? "\(failed) 项未取到" : ""
-    }
-
-    private var flagColor: Color { card.reachedCount > 0 ? .red : .orange }
-}
-
-/// 单个商品：名称 + 现价（货币符号）+ 目标价；到价时整行淡红底 + 胶囊高亮
-struct LifePriceRow: View {
-    let item: LifePriceWatchItem
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            nameLine
-            priceLine
-            if !item.ok {
-                Text(item.failureText)
-                    .font(.system(size: Typography.tiny))
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(2)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        // 内边距恒定（只有底色随到价切换）——避免到价瞬间整行抖版
-        .padding(.vertical, Spacing.xs)
-        .padding(.horizontal, Spacing.sm)
-        .background(item.isReached ? Color.red.opacity(Tint.subtle) : Color.clear,
-                    in: RoundedRectangle(cornerRadius: Radius.chip, style: .continuous))
-        .animation(Motion.snap, value: item.isReached)
-        .accessibilityElement(children: .combine)
-    }
-
-    private var nameLine: some View {
-        HStack(spacing: 6) {
-            Text(item.displayName)
-                .font(.system(size: Typography.body))
-                .lineLimit(1)
-            Spacer(minLength: 0)
-            if item.isReached {
-                Text("已到价").pill(.page, tone: .danger)
-            }
-        }
-    }
-
-    private var priceLine: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Text(item.priceText)
-                .font(.system(size: Typography.title, weight: .bold).monospacedDigit())
-                .foregroundStyle(item.isReached ? Color.red : Color.primary)
-                .contentTransition(.numericText())
-                .animation(Motion.snap, value: item.priceText)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-            if !item.targetText.isEmpty {
-                Text(item.targetText)
-                    .font(.system(size: Typography.tiny).monospacedDigit())
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-            }
-            Spacer(minLength: 0)
-        }
-    }
-}
-
-// MARK: 共用小件（快递 / 价格两卡口径一致）
+// MARK: 共用小件
 
 /// 卡片首行：图标 + 标题 + 计数胶囊 + 右侧状态小字
 struct LifeCardHeaderRow: View {

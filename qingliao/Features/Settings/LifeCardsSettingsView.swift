@@ -3,7 +3,7 @@ import Foundation
 
 // MARK: - 生活卡片设置页（v3.5.x）
 //
-// 看板「生活数据」的配置入口：股票卡片 / 资讯源 / 快递 / 价格监控 四组，全部落
+// 看板「生活数据」的配置入口：股票卡片 / 资讯源 / 快递 三组，全部落
 // 后端 GET|POST /api/life/config（v2 schema，见 Core/LifeConfig.swift）。
 //
 // 约定：
@@ -38,9 +38,6 @@ struct LifeCardsSettingsView: View {
     @State private var newPackageNo = ""
     @State private var newPackageCarrier = ""
 
-    // 价格监控
-    @State private var priceTesting: Set<String> = []
-    @State private var priceResults: [String: String] = [:]
 
     // SR15：文本类输入的防抖保存任务（每敲一个字就 POST 会把编辑过程整段推给后端）
     @State private var persistTask: Task<Void, Never>?
@@ -50,7 +47,7 @@ struct LifeCardsSettingsView: View {
 
     /// SR15：包一层「写入即安排保存」。本页顶部约定写着「每次改动立即整体保存」，
     /// 但只有胶囊/Stepper/增删按钮那几条路径真的调了 persist()；
-    /// 所有 `labeledField` 文本框（快递 URL 模板/密钥/字段名、价格名称/URL/JSON 路径、币种…）
+    /// 所有 `labeledField` 文本框（快递 URL 模板/密钥/字段名…）
     /// 与自定义请求头改完都不落库，而「完成」只 dismiss → 用户白填一张表，重开页面全是空。
     private func persisting<T>(_ binding: Binding<T>) -> Binding<T> {
         Binding<T>(get: { binding.wrappedValue },
@@ -110,7 +107,6 @@ struct LifeCardsSettingsView: View {
                     stockSection
                     rssSection
                     expressSection
-                    priceSection
                     notifySection
                 }
                 .padding(.horizontal, Spacing.xxl)
@@ -557,174 +553,6 @@ struct LifeCardsSettingsView: View {
         .padding(.vertical, Spacing.md)
     }
 
-    // MARK: ④ 价格监控
-
-    @ViewBuilder
-    private var priceSection: some View {
-        SectionHeader("价格监控")
-        VStack(spacing: 0) {
-            if config.price.items.isEmpty {
-                emptyRow("暂无价格监控项")
-            } else {
-                ForEach(config.price.items.indices, id: \.self) { i in
-                    priceItemCard(i)
-                    if i < config.price.items.count - 1 { rowDivider }
-                }
-            }
-            footerButton("添加价格监控", icon: "plus.circle.fill") { addPriceItem() }
-        }
-        .glassListCard()
-
-        SectionHeader("价格数据源")
-        VStack(alignment: .leading, spacing: 10) {
-            priceTimeoutRow
-            LifeHeaderEditor(title: "自定义请求头", headers: persisting($config.price.source.headers))
-                .padding(.horizontal, Spacing.xxl)
-        }
-        .padding(.vertical, Spacing.xl)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .glassListCard()
-    }
-
-    private var priceTimeoutRow: some View {
-        HStack(spacing: 8) {
-            Text("请求超时")
-                .font(.system(size: Typography.subhead))
-                .foregroundStyle(.secondary)
-            Stepper("", value: $config.price.source.timeout, in: 3...20)
-                .labelsHidden()
-                .onChange(of: config.price.source.timeout) { _, _ in
-                    Task { await persist() }
-                }
-            Text("\(config.price.source.timeout) 秒")
-                .font(.system(size: Typography.subhead, weight: .semibold))
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, Spacing.xxl)
-    }
-
-    private func priceItemCard(_ i: Int) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                iconBadge("tag.fill", color: .pink)
-                Text(config.price.items[i].name.isEmpty ? "未命名价格项" : config.price.items[i].name)
-                    .font(.system(size: Typography.subhead, weight: .semibold))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-                Spacer(minLength: 0)
-                testButton(i)
-                deleteCircle { removePriceItem(i) }
-            }
-            labeledField("名称", placeholder: "商品名称", text: $config.price.items[i].name)
-            labeledField("商品 URL", placeholder: "https://…", text: $config.price.items[i].url)
-            extractPicker(i)
-            priceExtractField(i)
-            HStack(spacing: 10) {
-                groupStepper(i)
-                Spacer(minLength: 0)
-            }
-            HStack(alignment: .top, spacing: 10) {
-                labeledField("币种", placeholder: "CNY", text: $config.price.items[i].currency)
-                targetField(i)
-            }
-            if let r = priceResults[config.price.items[i].uid] {
-                Text(r)
-                    .font(.system(size: Typography.tiny))
-                    .foregroundStyle(r.hasPrefix("✅") ? Color.green : Color.red)
-                    .lineLimit(3)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
-        .padding(.horizontal, Spacing.xxl)
-        .padding(.vertical, Spacing.lg)
-    }
-
-    @ViewBuilder
-    private func priceExtractField(_ i: Int) -> some View {
-        if config.price.items[i].extract == "json" {
-            labeledField("JSON 路径", placeholder: "如 data.price", text: $config.price.items[i].path)
-        } else {
-            labeledField("正则 pattern", placeholder: "如 \"price\": ([0-9.]+)", text: $config.price.items[i].pattern)
-        }
-    }
-
-    private func extractPicker(_ i: Int) -> some View {
-        HStack(spacing: 8) {
-            Text("提取方式")
-                .font(.system(size: Typography.caption, weight: .semibold))
-                .foregroundStyle(.secondary)
-            capsuleToggle("正则 regex", on: config.price.items[i].extract == "regex") {
-                setExtract(i, "regex")
-            }
-            capsuleToggle("JSON 路径", on: config.price.items[i].extract == "json") {
-                setExtract(i, "json")
-            }
-            Spacer(minLength: 0)
-        }
-    }
-
-    private func groupStepper(_ i: Int) -> some View {
-        HStack(spacing: 8) {
-            Text("正则分组")
-                .font(.system(size: Typography.caption, weight: .semibold))
-                .foregroundStyle(.secondary)
-            Stepper("", value: $config.price.items[i].group, in: 0...30)
-                .labelsHidden()
-                .onChange(of: config.price.items[i].group) { _, _ in
-                    Task { await persist() }
-                }
-            Text("第 \(config.price.items[i].group) 组")
-                .font(.system(size: Typography.caption))
-                .foregroundStyle(.tertiary)
-        }
-    }
-
-    private func targetField(_ i: Int) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("目标价（可选）")
-                .font(.system(size: Typography.caption, weight: .semibold))
-                .foregroundStyle(.secondary)
-            TextField("留空不提醒", text: targetBinding(i))
-                .font(.system(size: Typography.subhead))
-                .keyboardType(.decimalPad)
-                .padding(.horizontal, Spacing.lg)
-                .padding(.vertical, Spacing.md)
-                .background(Color(uiColor: .secondarySystemGroupedBackground),
-                            in: RoundedRectangle(cornerRadius: Radius.icon, style: .continuous))
-        }
-    }
-
-    private func targetBinding(_ i: Int) -> Binding<String> {
-        Binding(get: {
-            config.price.items.indices.contains(i) ? config.price.items[i].targetText : ""
-        }, set: { v in
-            guard config.price.items.indices.contains(i) else { return }
-            let t = v.trimmingCharacters(in: .whitespacesAndNewlines)
-            config.price.items[i].target = t.isEmpty ? nil : Double(t)
-            schedulePersist()   // SR15：目标价同样是文本框，原来改完不保存
-        })
-    }
-
-    private func testButton(_ i: Int) -> some View {
-        Button {
-            testPrice(i)
-        } label: {
-            HStack(spacing: 4) {
-                if priceTesting.contains(config.price.items[i].uid) {
-                    ProgressView().controlSize(.mini)
-                } else {
-                    Image(systemName: "bolt.fill").font(.system(size: Typography.tiny, weight: .semibold))
-                }
-                Text("试抓").font(.system(size: Typography.caption, weight: .semibold))
-            }
-            .foregroundStyle(Color.accentColor)
-            .padding(.horizontal, Spacing.lg)
-            .padding(.vertical, Spacing.xs)
-            .glassPillStroke()
-        }
-        .buttonStyle(PressStyle())
-    }
-
     // MARK: 通用小组件
 
     private var rowDivider: some View {
@@ -966,62 +794,6 @@ struct LifeCardsSettingsView: View {
         Task { await persist() }
     }
 
-    private func addPriceItem() {
-        var item = LifePriceItem()
-        item.currency = "CNY"
-        config.price.items.append(item)
-        Task { await persist() }
-    }
-
-    private func removePriceItem(_ i: Int) {
-        guard config.price.items.indices.contains(i) else { return }
-        let uid = config.price.items[i].uid
-        config.price.items.remove(at: i)
-        priceResults[uid] = nil
-        Task { await persist() }
-    }
-
-    private func setExtract(_ i: Int, _ mode: String) {
-        guard config.price.items.indices.contains(i), config.price.items[i].extract != mode else { return }
-        config.price.items[i].extract = mode
-        Task { await persist() }
-    }
-
-    private func testPrice(_ i: Int) {
-        guard config.price.items.indices.contains(i) else { return }
-        let item = config.price.items[i]
-        guard !item.url.isEmpty else {
-            priceResults[item.uid] = "❌ 请先填写商品 URL"
-            return
-        }
-        priceTesting.insert(item.uid)
-        Task {
-            let body: [String: Any] = ["url": item.url,
-                                       "extract": item.extract,
-                                       "pattern": item.pattern,
-                                       "path": item.path,
-                                       "group": item.group]
-            let j = await auth.jsonOrLog("/api/life/price/test", method: "POST", body: body)
-            priceTesting.remove(item.uid)
-            if let j {
-                if (j["ok"] as? Bool) == true {
-                    priceResults[item.uid] = "✅ 取到价格 " + priceText(j["price"])
-                } else {
-                    priceResults[item.uid] = "❌ " + ((j["error"] as? String) ?? "抓取失败")
-                }
-            } else {
-                priceResults[item.uid] = "❌ 请求失败（网络或后端不可用）"
-            }
-        }
-    }
-
-    private func priceText(_ v: Any?) -> String {
-        if let d = v as? Double { return String(format: "%g", d) }
-        if let i = v as? Int { return String(i) }
-        if let n = v as? NSNumber { return n.stringValue }
-        if let s = v as? String { return s }
-        return "—"
-    }
 }
 
 // MARK: - 股票搜索（防抖 300ms，空查询不请求）
@@ -1165,7 +937,7 @@ struct StockSearchSheet: View {
     }
 }
 
-// MARK: - 请求头键值对编辑器（快递 / 价格数据源共用）
+// MARK: - 请求头键值对编辑器（快递数据源用）
 
 struct LifeHeaderEditor: View {
     let title: String

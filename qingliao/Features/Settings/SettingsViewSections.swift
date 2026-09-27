@@ -309,10 +309,10 @@ extension SettingsView {
             SettingRow(icon: "pin.fill", iconColor: .indigo, title: "钉一钉存储",
                        value: pinPathDisplay, chevron: true)
                 .tapButton { showPinPath = true }
-            // v3.5.x：生活卡片设置（股票 / 资讯 / 快递 / 价格监控）
+            // v3.5.x：生活卡片设置（股票 / 资讯 / 快递）
             Divider().padding(.leading, Spacing.rowDividerInset)
             SettingRow(icon: "rectangle.grid.2x2", iconColor: .green, title: "生活卡片",
-                       value: "股票 / 资讯 / 快递 / 价格监控", chevron: true)
+                       value: "股票 / 资讯 / 快递", chevron: true)
                 .tapButton { showLifeCards = true }
             Divider().padding(.leading, Spacing.rowDividerInset)
             // v3.9.32：一句话本地定时提醒（与上面「定时任务」不同：纯本地系统通知，App 不在也响）

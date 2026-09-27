@@ -5,7 +5,7 @@ import Foundation
 //  Muse 的核心卖点之一是接入六大类数字生活；轻聊的对应底座早已存在，只是入口散在三处：
 //    · MCP 工具服务（App 配 key → Hermes 原生 MCP 工具）→ 设置页弹窗 MCPSettingsSheet
 //    · 智能家居（HomeKit 风格设备卡 / 场景 / 自动化 / 规则）→ 看板页若干栏目
-//    · 生活卡片（股票 / 资讯 / 快递 / 价格监控）→ 生活页 + 设置页 LifeCardsSettingsView
+//    · 生活卡片（股票 / 资讯 / 快递）→ 生活页 + 设置页 LifeCardsSettingsView
 //  本面板不重复实现任何功能，只做"状态总览 + 直达入口"：四张状态卡各带在线/配置摘要，
 //  点击跳到既有入口。零新后端接口，全部复用看板 30s 轮询已有数据与 /api/mcp/servers。
 //
@@ -84,7 +84,7 @@ struct ConnectorPanelSheet: View {
         connectorCard(
             icon: "rectangle.grid.2x2.fill", tint: .green,
             title: "生活卡片",
-            status: "股票 · 资讯 · 快递 · 价格监控",
+            status: "股票 · 资讯 · 快递",
             detail: "在生活页常驻展示，点开可配置订阅项",
             tap: { onOpenLifeCards() })
     }
