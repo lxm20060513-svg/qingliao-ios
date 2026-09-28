@@ -51,7 +51,8 @@ struct LoginGuideSheet: View {
                 "已有自建 AI 端点的话，后端也可直连（QL_HERMES_URL 填该端点即可跳过本步）",
             ],
             code: "bash <(curl -fsSL https://raw.githubusercontent.com/lxm20060513-svg/qingliao-hermes-plugin/main/install.sh) <你的profile>/plugins/qingliao-platform",
-            skillCode: nil
+            skillCode: nil,
+            skillURL: nil
         ),
         GuideStep(
             id: 3, icon: "globe", iconColor: .teal,
@@ -64,7 +65,8 @@ struct LoginGuideSheet: View {
                 "历史地址会自动记住，下次从输入框右侧下拉快速切换",
             ],
             code: nil,
-            skillCode: nil
+            skillCode: nil,
+            skillURL: nil
         ),
         GuideStep(
             id: 4, icon: "person.text.rectangle", iconColor: .orange,
@@ -76,7 +78,8 @@ struct LoginGuideSheet: View {
                 "登录后可在「设置 → 账号与安全」修改密码；开启「记住登录」可 7 天免登录",
             ],
             code: nil,
-            skillCode: nil
+            skillCode: nil,
+            skillURL: nil
         ),
     ]
 
