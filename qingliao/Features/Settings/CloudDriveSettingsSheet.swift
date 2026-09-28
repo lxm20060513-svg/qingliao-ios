@@ -193,7 +193,9 @@ struct CloudDriveSettingsSheet: View {
         errMsg = nil
         defer { loading = false }
         do {
-            let d = try await auth.json("/api/clouddrive/drives")
+            // v4.0.x: 走 /api/agent/clouddrive 别名——lucky(16666) 白名单只放 /api/agent 前缀，
+            // 原 /api/clouddrive 路径在 App 主链路上被 lucky 404（真机反馈「加载失败 服务器 错误404」）
+            let d = try await auth.json("/api/agent/clouddrive/drives")
             guard let ok = d["ok"] as? Bool, ok else {
                 errMsg = d["error"] as? String ?? "加载失败"
                 return
@@ -211,7 +213,7 @@ struct CloudDriveSettingsSheet: View {
     /// 200 + ok:false 也是失败（后端异常都包在 200 里），必须查 ok
     private func remove(_ d: CloudDriveItem) async {
         do {
-            let j = try await auth.json("/api/clouddrive/remove", method: "POST", body: ["id": d.id])
+            let j = try await auth.json("/api/agent/clouddrive/remove", method: "POST", body: ["id": d.id])
             guard (j["ok"] as? Bool) ?? false else {
                 feedback = "❌ 解绑失败：\(j["error"] as? String ?? "服务器拒绝")"
                 return
@@ -319,7 +321,7 @@ struct CloudDriveAddSheet: View {
         saving = true
         defer { saving = false }
         do {
-            let j = try await auth.json("/api/clouddrive/add", method: "POST",
+            let j = try await auth.json("/api/agent/clouddrive/add", method: "POST",
                                         body: ["skill_url": skillURL.trimmingCharacters(in: .whitespacesAndNewlines),
                                                "auth_code": authCode.trimmingCharacters(in: .whitespacesAndNewlines)])
             if (j["ok"] as? Bool) == true {

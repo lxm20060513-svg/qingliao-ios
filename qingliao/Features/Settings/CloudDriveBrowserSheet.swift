@@ -377,7 +377,7 @@ struct CloudDriveBrowserSheet: View {
         defer { if loadSeq == seq { loading = false } }
         let fid = currentFid
         do {
-            let d = try await auth.json("/api/clouddrive/list?drive=\(RemoteFiles.queryEncoded(drive.id))&fid=\(RemoteFiles.queryEncoded(fid))")
+            let d = try await auth.json("/api/agent/clouddrive/list?drive=\(RemoteFiles.queryEncoded(drive.id))&fid=\(RemoteFiles.queryEncoded(fid))")
             guard loadSeq == seq else { return }   // 晚到的旧代际结论丢弃
             guard let ok = d["ok"] as? Bool, ok else {
                 // 已有列表时不覆盖（保留用户正在看的内容），错误只追加可见提示
@@ -410,7 +410,7 @@ struct CloudDriveBrowserSheet: View {
 
     @MainActor
     private func download(_ e: CloudDriveEntry) async -> Data? {
-        var q = "/api/clouddrive/download?drive=\(RemoteFiles.queryEncoded(drive.id))"
+        var q = "/api/agent/clouddrive/download?drive=\(RemoteFiles.queryEncoded(drive.id))"
         q += "&fid=\(RemoteFiles.queryEncoded(e.fid))&name=\(RemoteFiles.queryEncoded(e.name))"
         let cellular = NetworkMonitor.shared.isCellular
         do {

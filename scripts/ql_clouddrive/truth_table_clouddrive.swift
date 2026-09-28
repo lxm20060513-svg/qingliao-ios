@@ -92,15 +92,15 @@ check("副标题只读 nickname/status/error",
       subtitleFn.contains("d.nickname") && subtitleFn.contains("d.isReady") && !subtitleFn.contains("authCode"))
 
 // ── 4. 后端契约：路径/方法/字段名与 clouddrive_api.py 对齐 ───────
-check("列表走 GET /api/clouddrive/drives", setCode.contains("\"/api/clouddrive/drives\""))
-check("解绑走 POST /api/clouddrive/remove",
-      setCode.contains("\"/api/clouddrive/remove\", method: \"POST\", body: [\"id\": d.id]"))
-check("接入走 POST /api/clouddrive/add",
-      setCode.contains("\"/api/clouddrive/add\", method: \"POST\""))
-check("浏览列表走 /api/clouddrive/list 且带 drive+fid",
-      browCode.contains("\"/api/clouddrive/list?drive=") && browCode.contains("&fid="))
-check("下载走 /api/clouddrive/download 且带 drive+fid+name",
-      browCode.contains("\"/api/clouddrive/download?drive=")
+check("列表走 GET /api/agent/clouddrive/drives（lucky 白名单别名）", setCode.contains("\"/api/agent/clouddrive/drives\""))
+check("解绑走 POST /api/agent/clouddrive/remove",
+      setCode.contains("\"/api/agent/clouddrive/remove\", method: \"POST\", body: [\"id\": d.id]"))
+check("接入走 POST /api/agent/clouddrive/add",
+      setCode.contains("\"/api/agent/clouddrive/add\", method: \"POST\""))
+check("浏览列表走 /api/agent/clouddrive/list 且带 drive+fid",
+      browCode.contains("\"/api/agent/clouddrive/list?drive=") && browCode.contains("&fid="))
+check("下载走 /api/agent/clouddrive/download 且带 drive+fid+name",
+      browCode.contains("\"/api/agent/clouddrive/download?drive=")
       && browCode.contains("&fid=") && browCode.contains("&name="))
 // 后端 _do_add 读的键
 check("请求体含后端键 skill_url", setCode.contains("\"skill_url\""))

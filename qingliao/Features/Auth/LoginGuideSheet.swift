@@ -19,6 +19,8 @@ private struct GuideStep: Identifiable {
     let code: String?
     /// v3.9.89：自动部署 skill 的安装命令（有值 = 该步骤支持「丢给 Hermes 自动部署」）
     let skillCode: String?
+    /// v3.9.90：部署 skill 的下载地址（有值 = 在「自动部署」块里渲染成可点链接）
+    let skillURL: String?
 }
 
 struct LoginGuideSheet: View {
@@ -36,7 +38,8 @@ struct LoginGuideSheet: View {
                 "启动后 AI 记忆 / 智能家居 / 文件管理等模块自动随服务开启",
             ],
             code: "# 编辑 docker-compose.yml 设置密码与上游 AI 端点\ndocker compose up -d\n# 查看启动日志确认端口（默认 9127）\ndocker compose logs -f",
-            skillCode: "# 部署 skill 走自动流程：把 skill 交给你的 Hermes，\n# 然后说一句「帮我部署轻聊」，Hermes 会自动完成克隆、改配置、启动。"
+            skillCode: "# 第一步：下载部署 skill（GitHub），放进 Hermes 的 skills 目录\n# 第二步：对 Hermes 说一句「帮我部署轻聊」，\n# Hermes 会自动完成克隆、改配置、启动。",
+            skillURL: "https://github.com/lxm20060513-svg/qingliao-backend/tree/main/skills/deployment/qingliao-deploy"
         ),
         GuideStep(
             id: 2, icon: "puzzlepiece.extension", iconColor: .indigo,
@@ -114,7 +117,10 @@ struct LoginGuideSheet: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(Spacing.sheetInset)
-        .glassCard()
+        // v3.9.90：glassCard 裸调 glassEffect 默认按 Capsule 渲染（clipShape 拦不住玻璃本体）
+        // → 用户实机看到「每组文字上有大椭圆玻璃盖层」。改走全站卡底真源 dashboardCard
+        // （显式 RoundedRectangle 16），与 AgentResultCard 先例同口径。
+        .dashboardCard()
     }
 
     /// 底部备注
@@ -192,6 +198,14 @@ private struct GuideStepCard: View {
                         .foregroundStyle(.primary)
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                    // v3.9.90：skill 下载地址渲染成可点链接（用户报「没看见下载地址」）
+                    if let urlStr = step.skillURL, let url = URL(string: urlStr) {
+                        Link(destination: url) {
+                            Label("下载部署 skill（GitHub）", systemImage: "arrow.down.circle")
+                                .font(.system(size: Typography.caption, weight: .semibold))
+                                .foregroundStyle(step.iconColor)
+                        }
+                    }
                 }
                 .padding(Spacing.xl)
                 .background(step.iconColor.opacity(Tint.faint),
@@ -204,6 +218,7 @@ private struct GuideStepCard: View {
         }
         .padding(Spacing.sheetInset)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .glassCard()
+        // v3.9.90：同上，裸 glassCard 的默认 Capsule 玻璃罩（大椭圆）→ dashboardCard 真源卡底。
+        .dashboardCard()
     }
 }
