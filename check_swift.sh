@@ -605,5 +605,17 @@ echo "=== 44. 成员作用域护栏（v4.0.x 工程治理第 3 号整改：CI #6
 # 双向自测已在写码时做过（好树绿 / 坏树红 3 条），改本脚本后请用 git show 旧版 DashboardView 复验。
 python3 scripts/check_member_scope.py || exit 1
 
+echo "=== 45. AI 消息图片渲染真值表（v4.0.x）==="
+# 单文件（读源文件做护栏，不 import 项目代码）→ run_unit 直接编跑。工作目录 = 仓根。
+# 口径：加载态用现成骨架屏（与真图同圆角 Radius.inset）、换入淡入且尊重「减弱动态效果」、
+#   缓存命中不加动画、两条网络路径（含自签降级）都接线。
+run_unit /tmp/test_aiimage scripts/ql_aiimage/truth_table_aiimage.swift
+
+echo "=== 46. 上拉指示器挡板真值表（v4.0.x · 2026-09-28 用户报「AI 思考回复中不要出现」）==="
+# 单文件（读源文件做护栏，不 import 项目代码）→ run_unit 直接编跑。工作目录 = 仓根。
+# 口径：挡板改用 aiBusy（覆盖思考阶段的 remoteBusy 探测）；残留进度由 .onChange(of: aiBusy)
+#   驱动的 inboxPullReset 清（AI 忙时滚动投影恒 0、回调不触发，写在回调里等于没写）。
+run_unit /tmp/test_inboxpull scripts/ql_inboxpull/truth_table_inboxpull.swift
+
 [ $fail -eq 0 ] || { echo "❌ 有护栏失守"; exit 1; }
 exit 0

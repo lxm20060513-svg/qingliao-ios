@@ -462,5 +462,49 @@ check("第一层 HStack spacing 未动（仍 8：分隔线占 0 宽，间距口�
 check("算式：收起态容器底到屏底 = 4 + 50 = 54pt（v3.9.67 是 10 + 50 = 60）",
       abs(composerBottomMirror + collapsedContainerMirror - 54) < 0.2)
 
+// MARK: - v4.0.x 录音电平反应点（voice-glow 位点：把识别器已算好的实时 RMS 接进输入栏）
+//
+// 背景：v3.9.14 的脉动点是**固定节拍**——不管说没说话节拍都一样，答不了「麦克风到底收到我的声音没有」。
+// 电平原生通路已有护栏（在 ql_orbmenu 表：nonisolated 读数 / 不走 @Published / teardown 清零），
+// 但那里**只钉了语音对话框一个读端**。本轮在输入栏加第二个读端，所以必须同批把新读端也钉住：
+// 读端丢一个，功能静默失效，而通路护栏照样全绿。
+let levelDotSlice: String = {
+    guard let a = inputBarSrc.range(of: "private struct RecordingLevelDot") else { return "" }
+    return String(inputBarSrc[a.lowerBound...].prefix(2400))
+}()
+check("录音点接实时电平（旧固定节拍脉动点已清零）",
+      inputBarSrc.contains("RecordingLevelDot(level: recordingLevel)")
+      && !inputBarSrc.contains("PulsingRecordDot"))
+check("电平每帧自读快照：TimelineView + 闭包调用（与语音对话框波条同一套读法）",
+      inputBarSrc.contains("TimelineView(.animation(minimumInterval: 1.0 / 30.0))")
+      && inputBarSrc.contains("level()"))
+check("帧率有上限（流光是 15fps；圆点更小可略高，但不许裸 .animation 无限帧）",
+      !inputBarSrc.contains("TimelineView(.animation) {"))
+check("电平以**闭包**传入，调用点传 nonisolated 快照（按值传入 = 聊天页被 14Hz 全量重绘）",
+      inputBarSrc.contains("var recordingLevel: () -> Float = { 0 }")
+      && chatViewSrc.contains("recordingLevel: { liveSpeech.currentInputLevel() }"))
+check("实参序：recordingLevel 追加在 onPickModel 之后（成员初始化器按声明序传参）",
+      {
+          guard let a = chatViewSrc.range(of: "onPickModel: { showComposerModel = true },"),
+                let b = chatViewSrc.range(of: "recordingLevel: { liveSpeech.currentInputLevel() }")
+          else { return false }
+          return a.upperBound < b.lowerBound
+      }())
+check("光晕不用 shadow（v3.2.3 红线）；走 .background 半透明填充，不参与布局（文字不被推着移位）",
+      levelDotSlice.contains(".fill(Color.red.opacity(")
+      && levelDotSlice.contains(".background {")
+      && !levelDotSlice.contains(".shadow"))
+check("观感零回退：安静时保留原节拍分量（0.85→1.45 缩放 + 0.5→1.0 透明度），电平只做叠加",
+      levelDotSlice.contains("0.85 + 0.60 * CGFloat(breath)")
+      && levelDotSlice.contains("0.5 + 0.5 * breath"))
+// 峰值口径 1.70（安静 0.85 ↔ 最大声 1.70）。原系数 0.55 会冲到 2.00：7pt 点视觉直径顶到 14pt
+// （超口径 2pt）并压住右侧「正在听…」文字左沿 —— 审查实测出的口径漂移，护栏在这里钉住上限。
+check("电平叠加系数 0.25（与节拍项 0.60 相加恰好到 1.70 峰值，不许再放大）",
+      levelDotSlice.contains("0.85 + 0.60 * CGFloat(breath) + 0.25 * lv"))
+check("光晕直径跟圆点缩放走（否则最大声时点被放大、环反而最薄：每侧 2.5pt 应为 3.5pt）",
+      levelDotSlice.contains("7 * dotScale + 12 * lv"))
+check("「减弱动态效果」退静态红点（与 v3.9.19 同口径，「正在听」的信息不丢）",
+      levelDotSlice.contains("if reduceMotion {"))
+
 print("输入栏两层化真值表：\(passCount) 通过 / \(failCount) 失败")
 if failCount > 0 { exit(1) }

@@ -87,6 +87,12 @@ struct ChatInputBar: View {
     /// ⚠️ 追加在 `contextUsage` 之后：调用点走成员初始化器且按声明序传参，插在中间会错位
     var modelLabel: String = ""
     var onPickModel: () -> Void = {}
+    /// v4.0.x：录音实时电平读取入口（0…1），由 ChatView 传 `liveSpeech.currentInputLevel()`。
+    /// ⚠️ 必须是**闭包**而不是值：按值传入 = 电平一抖就重建输入栏，而输入栏挂在聊天页大 body 上，
+    /// 整段录音会被 14Hz 全量重绘（识别器里那条「电平不要走 @Published」的警告就是这个坑）。
+    /// 闭包只被录音点那个小 View 每帧调一次，重绘范围锁死在 7pt 圆点内。
+    /// ⚠️ 追加在 `onPickModel` 之后：调用点走成员初始化器且按声明序传参，插在中间会错位。
+    var recordingLevel: () -> Float = { 0 }
     // v3.4.29：发送动作图标弹一下（symbolEffect 驱动，无自定义动画开销）
     // v3.9.42：同一个 tick 兼作发送键关键帧的 trigger（原来另有一个 sendScale + 两段 withAnimation）
     @State private var sendBounceTick = 0
@@ -407,7 +413,7 @@ struct ChatInputBar: View {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     // v3.9.14：红点改脉动（用户反馈「录音图标是静态的，不会动」）
-                    PulsingRecordDot()
+                    RecordingLevelDot(level: recordingLevel)
                     Text(recordingText.isEmpty
                          ? (recordingStalled ? "没听清，靠近麦克风再说一次" : "正在听…")
                          : recordingText)
@@ -593,25 +599,60 @@ struct ChatInputBar: View {
 }
 
 
-/// v3.9.14：录音中的脉动红点。
+/// v4.0.x：录音中的**电平反应**红点（取代 v3.9.14 的固定节拍脉动点）。
 ///
-/// 用户反馈「录音图标是静态的，不会动」—— 原来就是一个静止的 7pt 红点。
-/// 只对这个小圆做 scale/opacity 的 repeatForever 动画：**无 shadow、无每帧渐变重绘**，
-/// 不触碰 v3.2.3 那条渲染卡死红线（红线触发条件是「每帧变化的渐变 + 阴影路径重算」）。
-private struct PulsingRecordDot: View {
-    // v3.9.19：无障碍——「降低动态效果」时不做循环脉冲
+/// 背景：v3.9.14 把静止红点改成脉动，解决了用户报的「录音图标是静态的，不会动」；但那是
+/// **固定节拍**——不管你说不说话，节拍一模一样。而录音真正要回答的是「麦克风到底收到我的声音没有」，
+/// 固定节拍答不了：贴着麦克风喊和对着三米外说话，点长得一样，用户只能靠猜。
+/// 现在把识别器早已算好的实时 RMS 接进来：点的大小 + 外圈光晕随人声起伏，一停口立刻回落。
+///
+/// 三条硬约束（都是踩出来的，不是拍脑袋）：
+///   ① **电平必须每帧自读快照、不走广播**：`micMeter` 若走 @Published，挂在同一个 body 上的聊天页
+///      会在整段录音里被 14Hz 全量重绘（见 LiveSpeechTranscriber 里那条注释）。这里用 `TimelineView`
+///      每帧调一次 `level()` 闭包——与语音对话框的波条**同一套读法**（那张表已钉死「每帧自读、不靠广播」）。
+///   ② **每帧重绘范围锁死在这一个小圆点内**：TimelineView 放在本 View 内部，不外扩到 ChatInputBar.body
+///      （那个 body 已是全仓最长的之一）。
+///   ③ **不用 .shadow**：阴影是离屏渲染，撞 v3.2.3 那条渲染卡死红线。光晕用半透明圆填充，走
+///      `.background` 画——**不参与布局**，HStack 里这点仍占 7pt，右边的上屏文字不会被推着移位。
+///
+/// 观感零回退：安静时（电平 0）的 scale/opacity 与 v3.9.14 的脉动**逐帧等价**——节拍分量仍是
+/// 0.85→1.45 缩放 + 0.5→1.0 不透明度，电平只是在它之上做叠加。
+/// 「减弱动态效果」：与 v3.9.19 同口径，不做缩放与光晕，只剩静态红点（「正在听」的信息不丢）。
+private struct RecordingLevelDot: View {
+    /// 电平读数（0…1）。闭包引用而非值：按值传入会连坐重绘聊天页，闭包每帧自己取一次快照。
+    var level: () -> Float
+
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var pulsing = false
 
     var body: some View {
-        Circle()
-            .fill(Color.red)
-            .frame(width: 7, height: 7)
-            .scaleEffect(pulsing ? 1.45 : 0.85)
-            .opacity(pulsing ? 1.0 : 0.5)
-            .animation(reduceMotion ? nil : .easeInOut(duration: 0.65).repeatForever(autoreverses: true), value: pulsing)
-            .onAppear { pulsing = true }
-            .allowsHitTesting(false)
+        if reduceMotion {
+            Circle()
+                .fill(Color.red)
+                .frame(width: 7, height: 7)
+                .allowsHitTesting(false)
+        } else {
+            TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { ctx in
+                // 节拍分量：周期 1.3s（上下各 0.65s），与 v3.9.14 的 .easeInOut(duration: 0.65) 同拍
+                let breath = 0.5 + 0.5 * sin(ctx.date.timeIntervalSinceReferenceDate * 2 * .pi / 1.3)
+                let lv = CGFloat(max(0, min(1, level())))
+                // v4.0.x：峰值口径 1.70（安静 0.85 ↔ 最大声 1.70）——电平项 0.25 与节拍项 0.60 相加恰好到顶。
+                // 原 0.55 会冲到 2.00：7pt 圆点视觉直径顶到 14pt（超口径 2pt），并压住右侧「正在听…」文字左沿。
+                let dotScale = 0.85 + 0.60 * CGFloat(breath) + 0.25 * lv
+                Circle()
+                    .fill(Color.red)
+                    .frame(width: 7, height: 7)
+                    .scaleEffect(dotScale)
+                    .opacity(min(1.0, 0.5 + 0.5 * breath + 0.5 * Double(lv)))
+                    // 光晕：直径随电平外扩的半透明填充；`.background` 不参与布局，文字不被推着移位
+                    // v4.0.x：光晕要跟着圆点缩放走——否则最大声时点被放大、环反而最薄（每侧 2.5pt，应为 3.5pt）
+                    .background {
+                        Circle()
+                            .fill(Color.red.opacity(0.18 * Double(lv)))
+                            .frame(width: 7 * dotScale + 12 * lv, height: 7 * dotScale + 12 * lv)
+                    }
+                    .allowsHitTesting(false)
+            }
+        }
     }
 }
 

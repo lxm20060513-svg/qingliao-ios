@@ -1037,6 +1037,8 @@ struct AIImageView: View {
     var displayWidthPT: CGFloat = 240
     @State private var image: UIImage?
     @State private var failed = false
+    /// v4.0.x：图片就位时淡入（骨架换真图不硬跳）。「减弱动态效果」下直接落图。
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         if url.hasPrefix("data:image/") {
@@ -1056,11 +1058,15 @@ struct AIImageView: View {
                 .scaledToFill()
                 .frame(maxWidth: 240, maxHeight: 240)
                 .clipShape(RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
+                // v4.0.x：骨架换真图走淡入（配合 revealImage 的 withAnimation），不硬跳
+                .transition(.opacity)
         } else if failed {
             placeholder
         } else {
-            ProgressView()
-                .frame(width: 240, height: 120)
+            // v4.0.x：裸转圈（240×120 白块）→ 骨架屏。
+            // 转圈只说「在等」，骨架还说「等来的东西长在这、有这么大」——这正是 Theme/Skeleton.swift
+            // 建立时定下的用法（首次加载占位，同圆角 Radius.inset 换入不跳版）。
+            SkeletonBlock(width: 240, height: 120, cornerRadius: Radius.inset)
                 .task { await loadRemote() }
         }
     }
@@ -1074,14 +1080,14 @@ struct AIImageView: View {
         }
         // 0) 缓存命中直接显示
         if let cached = cachedRemoteImage(url) {
-            image = cached
+            revealImage(cached, animated: false)
             return
         }
         // 1) URLSession（外部公开图，Ats 允许 https）
         if let (data, _) = try? await URLSession.shared.data(from: u),
            let img = UIImage(data: data) {
             setRemoteImageCache(url, img, cost: data.count, sourceData: data)
-            image = img
+            revealImage(img, animated: true)
             return
         }
         // 2) 降级 CFStream 直连（自签证书服务器：忽略证书链校验）
@@ -1096,11 +1102,22 @@ struct AIImageView: View {
             if let (data, code) = result, (200..<300).contains(code),
                let img = UIImage(data: data) {
                 setRemoteImageCache(url, img, cost: data.count, sourceData: data)
-                image = img
+                revealImage(img, animated: true)
                 return
             }
         }
         failed = true
+    }
+
+    /// v4.0.x：图片就位（骨架 → 真图）。网络路径淡入，避免骨架被真图硬顶掉；
+    /// 缓存命中是最快路径（骨架几乎没出现过），直接落图反而更稳，不给它加动画。
+    @MainActor
+    private func revealImage(_ img: UIImage, animated: Bool) {
+        guard animated, !reduceMotion else {
+            image = img
+            return
+        }
+        withAnimation(.easeOut(duration: 0.18)) { image = img }
     }
 
     private var placeholder: some View {

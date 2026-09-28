@@ -97,14 +97,29 @@ struct InboxPullLayer: View {
 // MARK: - ChatView 接线（extension 放独立文件，避免撑大 ChatView body 的 type-check）
 
 extension ChatView {
+    /// v4.0.x：AI 开始忙（思考/回复）时清掉上拉进度与 armed —— 指示器随之消失。
+    /// 必须由 `.onChange(of: aiBusy)` 驱动，不能塞进 `inboxPullHandleScroll`：
+    /// AI 忙时列表自动滚底、投影恒为 0，滚动回调一次都不发，
+    /// 「先上拉出指示器、AI 才开始回答」的残留进度就永远清不掉（用户实测的正是这种）。
+    func inboxPullReset() {
+        let st = inboxPull
+        // 同值写也会标脏读它的视图（v3.9.48 口径）→ 只在真有余量时写
+        guard st.progress != 0 || st.armed else { return }
+        st.progress = 0
+        st.armed = false
+    }
+
     /// ScrollView.onScrollGeometryChange 回调：overscroll = 内容 offset 超出底部边界的量
     /// （>0 = 已滚到底并继续上拉/回弹中；内容不足一屏时底边界按 0 计）
     func inboxPullHandleScroll(overscroll: CGFloat) {
         let st = inboxPull
-        // 刷新中 / 本会话 AI 流式中（自动滚底，会误触） / 多选模式 → 不响应
+        // 刷新中 / AI 忙 / 多选模式 → 不响应
         // v3.9.41：判定换成 thisSessionStreaming——原来 A 会话在跑流会让 B 会话的上拉刷新手势整个失效
         // （要拦的是「本会话正在自动滚底」，别的会话的流不会滚这里的底）。
-        guard !st.refreshing, !thisSessionStreaming, !selectMode else { return }
+        // v4.0.x（用户实测：AI 思考/回复过程中胶囊仍浮出）：只认 thisSessionStreaming 不够——
+        // 思考阶段（`remoteBusy` 探测已为真、本地流还没起来）不在这个判定里。
+        // 改用 `aiBusy`（= thisSessionStreaming || remoteBusy），与「AI 正在输入」同一真值源。
+        guard !st.refreshing, !aiBusy, !selectMode else { return }
         let clamped = min(1, max(0, overscroll / InboxPullState.threshold))
         // v3.9.48 性能兜底：进度已归零、也没在等待回弹时，什么都不写。
         // （调用方已把投影夹到 0，正常滚动期这条回调根本不会响；这里防的是别处再以 0 调进来——
@@ -130,6 +145,11 @@ extension ChatView {
         guard !st.refreshing else { return }
         st.refreshing = true
         st.armed = false
+        // v4.0.x（用户报「AI 思考回复中这个指示不要出现」，两路只读审查独立指为最高优先）：
+        // 手势已被消费，进度必须一并收起。只清 armed 的话，本帧 129 行刚写下的 progress（≈0.49）
+        // 从此再没人动它——`refreshing` 期间 122 行早退吃掉全部回弹回调，拉取结束只淡出 toast，
+        // 于是 68 行 `state.progress >= 0.04` 重新命中：胶囊在 toast 消失后自己浮出来并常驻。
+        if st.progress != 0 { st.progress = 0 }
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         Task { @MainActor in
             await inbox.pollOnce()

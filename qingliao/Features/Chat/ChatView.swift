@@ -254,7 +254,9 @@ struct ChatView: View {
 
     /// v3.5.1：是否有 AI 在处理本会话——本地流 / 服务器兜底探测（v3.9.28：云端流已移除）。
     /// 本地流按会话收窄：stream 是全局单例，会话 A 在跑时切到 B 不该显示"AI 正在输入"。
-    private var aiBusy: Bool {
+    /// v4.0.x：放开 `private` 供 InboxPullRefresh 读——上拉拉取推送必须与「AI 忙」共用同一真值源，
+    /// 各写一份 `thisSessionStreaming || remoteBusy` 迟早漂移（用户实测：思考阶段胶囊仍浮出）。
+    var aiBusy: Bool {
         thisSessionStreaming || remoteBusy
     }
     /// v3.8.0：实时活动（灵动岛/锁屏）展开态展示的模型名——**复用发送路径同一套选型**（视觉/Agent/主模型），
@@ -623,7 +625,11 @@ struct ChatView: View {
                     contextUsage: chat.contextUsage(maxTokens: ContextTuning.threshold),
                     // v3.9.48：聚焦展开时右下角浮出的模型快选胶囊
                     modelLabel: composerModelLabel,
-                    onPickModel: { showComposerModel = true })
+                    onPickModel: { showComposerModel = true },
+                    // v4.0.x：录音点接实时电平（voice-glow 位点）。传**闭包**不传值——
+                    // currentInputLevel() 是 nonisolated 快照，每帧由录音点自己读一次；
+                    // 若在这里取值传下去，ChatView 这个超大 body 会被电平更新连坐重绘。
+                    recordingLevel: { liveSpeech.currentInputLevel() })
                     // v2.0.129：球态输入框 —— 绑定会话 id，切会话重建复位（展开态在切会话后回球态）
                     .id(chat.sessionId)
                     // v2.0.135：消费输入栏区域的点击，防冒泡到消息区 ZStack 根手势误收键盘
@@ -2512,6 +2518,10 @@ struct ChatView: View {
             // 用户停止后那一轮若没有消息落库（例如流被取消、内容为空），标记会一直挂着，
             // 把**下一轮正常回答**也一起吞掉。
             if busy { suppressAutoReadOnce = false }
+            // v4.0.x：AI 思考/回复中不出现上拉指示器——复位挂视图级，不挂内层 ScrollView：
+            // 欢迎态/清空态会把那条 ScrollView 整段卸载，届时 aiBusy 的边沿没人接，
+            // 而 `inboxPull` 是 ChatView 级 @State（跨会话存活），残留进度会被带进下一个会话。
+            if busy { inboxPullReset() }
         }
         // v3.9.9 收口（两位只读审查都指出上一版信号不干净）：触发改为 `chat.assistantLandedToken`——
         // ChatStore 在**真正 append/insert 了一条 assistant 回复**时自增。原来监听「末条消息 id 变化」：
