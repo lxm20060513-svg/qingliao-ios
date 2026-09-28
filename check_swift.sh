@@ -617,5 +617,11 @@ echo "=== 46. 上拉指示器挡板真值表（v4.0.x · 2026-09-28 用户报「
 #   驱动的 inboxPullReset 清（AI 忙时滚动投影恒 0、回调不触发，写在回调里等于没写）。
 run_unit /tmp/test_inboxpull scripts/ql_inboxpull/truth_table_inboxpull.swift
 
+echo "=== 47. 流式轮次代次真值表（v4.0.x · startSeq 只增序号）==="
+# 单文件（读源文件做护栏，不 import 项目代码）→ run_unit 直接编跑。工作目录 = 仓根。
+# 口径：isStreaming 的 false→true 会被 finish 同帧续发吞掉，UI 端一律改看只增的 startSeq；
+#   三个开跑入口（start / restoreIfNeeded / adoptRemote）都要自增。
+run_unit /tmp/test_streamseq scripts/ql_streamseq/truth_table_streamseq.swift
+
 [ $fail -eq 0 ] || { echo "❌ 有护栏失守"; exit 1; }
 exit 0

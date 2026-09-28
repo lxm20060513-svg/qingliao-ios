@@ -14,7 +14,10 @@ import UIKit   // v3.0.81：beginBackgroundTask 延长后台存活
 @Observable
 final class StreamClient {
     var content = ""          // 累计全文
-    var isStreaming = false
+    /// v4.0.x：收口为 private(set)——全仓只有本文件这几处写它（3 处开跑 + finish 一处收尾），外面一律只读。
+    /// 开放写权限时，「新增一个跨文件开跑点却忘了自增 startSeq」是编译期查不出的漏边沿；
+    /// 收口后这种写法直接编译不过，护栏只扫单文件的盲区也随之消失。
+    private(set) var isStreaming = false
     var isDone = false
     var status = ""
     var errorMessage = ""
@@ -26,6 +29,12 @@ final class StreamClient {
     /// onFinished，排队续发（sendQueued → start()）会在同一帧把它设回 true → SwiftUI 的 onChange 看到的
     /// old/new 都是 true，整轮收尾被静默跳过（失败不压暗、「未查看」也不亮）。序号只增，收尾必被观察到一次。
     private(set) var finishSeq = 0
+    /// v4.0.x：开跑事件序号（只增不减），与上一条对称。为什么需要它：`isStreaming` 的 false→true
+    /// 边沿**会被同帧变化吞掉**——finish() 里 isStreaming=false 后同步回调 onFinished，排队续发
+    /// （sendQueued → start()）在同一帧把它设回 true → onChange 看到的 old/new 都是 true。
+    /// 上一轮失败后的自动续发正撞这个缝：球的失败态清不掉（整轮压暗）、工具卡展开态带进新一轮。
+    /// 三个开跑入口（start / restoreIfNeeded / adoptRemote）都要自增，漏一处就漏一条边沿。
+    private(set) var startSeq = 0
     /// 本次收尾是否真失败（与 finishSeq 成对写入，只在该序号变化时读它才有意义）
     private(set) var lastFinishFailed = false
     var isAgent = false        // v2.0.96b：Agent 回复标记（工具调用）
@@ -204,6 +213,7 @@ final class StreamClient {
         startSmooth()   // v3.4.20：打字机平滑释放启动
         interval = 0.25
         isStreaming = true
+        startSeq += 1   // v4.0.x：开跑边沿（只增序号，UI 据此观察「新一轮开始」，别观察 isStreaming）
         isDone = false
         status = ""
         phase = .normal   // v3.9.58：新流健康度复位
@@ -614,6 +624,7 @@ final class StreamClient {
         }
         resetToolProgress()   // v3.9.80：接回的任务从零开始记工具（否则卡里是上一轮残留的工具名/步数）
         isStreaming = true
+        startSeq += 1   // v4.0.x：接回在途任务同样是「新一轮开跑」（与 start()/adoptRemote 同口径）
         isDone = false
         lastFailed = false   // v3.9.33：接回在途任务 = 重新开跑（与 start()/adoptRemote 同口径）
         self.onFinished = onFinished
@@ -648,6 +659,7 @@ final class StreamClient {
         interval = 0.25
         resetToolProgress()   // v3.9.80：接管远端任务同样从零起算（与 start()/restoreIfNeeded 同口径）
         isStreaming = true
+        startSeq += 1   // v4.0.x：接管远端任务同样是「新一轮开跑」（与 start()/restoreIfNeeded 同口径）
         isDone = false
         status = "streaming"
         errorMessage = ""

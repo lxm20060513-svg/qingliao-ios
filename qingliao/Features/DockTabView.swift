@@ -147,17 +147,27 @@ struct DockTabView: View {
             // 同一帧把它设回 true → onChange 看到 old/new 都是 true，整轮收尾被静默跳过（失败不压暗、
             // 「未查看」也不亮）。序号只增，收尾一定被观察到一次。
             .onChange(of: stream.finishSeq) { _, _ in
-                if stream.lastFinishFailed {
+                // v4.0.x（审查指出的顺序依赖，必修）：`finishSeq` 与 `startSeq` 可能落在**同一次视图更新**里
+                // （开跑即失败、或失败后同帧排队续发），两个闭包都会跑，最终 `orbFailed` 就取决于派发顺序。
+                // 判据改成看 `isStreaming` 的**最终值**，与顺序无关：
+                //   同帧已续发（isStreaming 已回到 true）→ 本轮在跑，别为上一轮压暗；
+                //   同帧开跑即失败（isStreaming 停在 false）→ 照常压暗。
+                if stream.lastFinishFailed, !stream.isStreaming {
                     orbFailed = !chatVisible
                     orbUnseen = false
+                } else if stream.lastFinishFailed {
+                    orbFailed = false
                 } else {
                     orbUnseen = !chatVisible
                     orbFailed = false
                 }
             }
             // 新流开跑 = 上一轮的失败提示收掉（否则球会一直暗着）；「未查看」保留（排队消息自动续发不该吞掉它）
-            .onChange(of: stream.isStreaming) { _, now in
-                if now { orbFailed = false }
+            // v4.0.x：这里原来观察 `isStreaming`，撞的正是上面注释写的那个缝——上一轮失败后的
+            // **排队自动续发**（finish 同帧 start）把 false→true 吞掉，onChange 看到 old/new 都是 true，
+            // 失败态清不掉 → 球在整轮新回答期间一直压暗。改成只增的 `startSeq`，每次开跑必被观察到一次。
+            .onChange(of: stream.startSeq) { _, _ in
+                orbFailed = false
             }
             // v3.6.2：dock 聊天槽位智能球——系统 tab item 只能放系统图标（iOS 26 无自定义视图 API），
             // 故该槽位 item 置为空（无图标无文字），球由本叠加层自绘并居中于槽位；

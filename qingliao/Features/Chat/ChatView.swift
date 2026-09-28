@@ -1010,9 +1010,11 @@ struct ChatView: View {
         }
         // v3.9.14：生活页备忘录「发给 AI」→ 同样作为用户消息发出（备忘立刻能变成行动）
         // v3.9.14：新一轮开始 → 工具卡回到默认收起态（否则上一轮手动展开会带到下一轮）
-        .onChange(of: stream.isStreaming) { _, streaming in
-            // v3.9.41：加会话归属判定——A 起流不该把 B 里手动展开的工具卡收起来（该卡本来就按会话显示）
-            if streaming, thisSessionStreaming { toolStepsExpanded = false }
+        // v4.0.x：观察只增的 `startSeq` 而不是 `isStreaming`——finish() 同帧续发会把 false→true 吞掉，
+        // 上一轮展开的工具卡会带进新一轮（与 DockTabView 失败态清不掉是同型问题）。
+        .onChange(of: stream.startSeq) { _, _ in
+            // v3.9.41：会话归属判定——A 起流不该把 B 里手动展开的工具卡收起来（该卡本来就按会话显示）
+            if thisSessionStreaming { toolStepsExpanded = false }
         }
         .onReceive(NotificationCenter.default.publisher(for: .qingliaoMemoSend)) { note in
             if let text = note.object as? String, !text.isEmpty {
@@ -2514,14 +2516,15 @@ struct ChatView: View {
         // v3.9.7：busy=false 走「完成态 → 2s 后收起」，让「已完成」看得见
         .onChange(of: aiBusy, initial: true) { _, busy in
             pushLiveActivity(busy: busy)
-            // v3.9.9 fix：抑制标记在「新一轮开始」就复位——若只在 autoReadLatestReply 里清，
-            // 用户停止后那一轮若没有消息落库（例如流被取消、内容为空），标记会一直挂着，
-            // 把**下一轮正常回答**也一起吞掉。
-            if busy { suppressAutoReadOnce = false }
-            // v4.0.x：AI 思考/回复中不出现上拉指示器——复位挂视图级，不挂内层 ScrollView：
-            // 欢迎态/清空态会把那条 ScrollView 整段卸载，届时 aiBusy 的边沿没人接，
-            // 而 `inboxPull` 是 ChatView 级 @State（跨会话存活），残留进度会被带进下一个会话。
+            // v3.9.9 fix：抑制标记在「新一轮开始」就复位（v4.0.x 已挪到下面的 startSeq 观察——
+            // 挂在 aiBusy 上会被同帧续发吞掉，见那里的说明）。
             if busy { inboxPullReset() }
+        }
+        // v4.0.x（审查 TASK2 ②）：抑制标记复位是**开跑语义**，不是「忙闲变化」——原来挂在 `aiBusy`
+        // 闭包里，排队自动续发时 aiBusy 走 true →（同帧 finish→start）→ true，边沿被吞、标记复位不了，
+        // 会把续发那一轮的正常回答一起吞掉（正是 v3.9.9 想修的那个病，只是换了条路径）。改看只增的 startSeq。
+        .onChange(of: stream.startSeq) { _, _ in
+            suppressAutoReadOnce = false
         }
         // v3.9.9 收口（两位只读审查都指出上一版信号不干净）：触发改为 `chat.assistantLandedToken`——
         // ChatStore 在**真正 append/insert 了一条 assistant 回复**时自增。原来监听「末条消息 id 变化」：
