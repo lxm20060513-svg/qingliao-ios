@@ -108,9 +108,11 @@ check("v4.0.x·收尾观察端判据顺序无关（`lastFinishFailed, !stream.is
 let busyWin = sliceToNextOnChange(chatCode, from: ".onChange(of: aiBusy")
 check("v4.0.x·suppressAutoReadOnce 复位已离开 aiBusy 闭包（那条边沿会被同帧续发吞掉）",
       !busyWin.isEmpty && !busyWin.contains("suppressAutoReadOnce = false"))
-check("v4.0.x·它现挂在 startSeq 观察端（只是换了宿主，不许直接删掉）",
-      chatCode.contains("suppressAutoReadOnce = false")
-      && chatCode.contains(".onChange(of: stream.startSeq) { _, _ in\n            suppressAutoReadOnce = false"))
+let chatSeqWin = sliceToNextOnChange(chatCode, from: ".onChange(of: stream.startSeq)")
+check("v4.0.x·抑制标记复位与工具卡收起合并在同一处 startSeq 观察（同一闭包窗口内，只增一个修饰符就超类型检查阈值）",
+      chatSeqWin.contains("suppressAutoReadOnce = false") && chatSeqWin.contains("toolStepsExpanded = false"))
+check("v4.0.x·ChatView 的 startSeq 观察恰 1 处——这条 body 链贴着类型检查阈值，多挂一个带闭包的成员 Archive 即挂（CI #608 实测）",
+      chatCode.components(separatedBy: ".onChange(of: stream.startSeq)").count - 1 == 1)
 
 print("流式轮次代次真值表：\(passCount) 通过 / \(failCount) 失败")
 if failCount > 0 { exit(1) }

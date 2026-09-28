@@ -1015,6 +1015,12 @@ struct ChatView: View {
         .onChange(of: stream.startSeq) { _, _ in
             // v3.9.41：会话归属判定——A 起流不该把 B 里手动展开的工具卡收起来（该卡本来就按会话显示）
             if thisSessionStreaming { toolStepsExpanded = false }
+            // v4.0.x（审查 TASK2 ②）：抑制标记复位也是**开跑语义**，与工具卡收起合并在同一处观察。
+            // 它原来挂在 `aiBusy` 闭包里：排队自动续发时 aiBusy 走 true →（同帧 finish→start）→ true，
+            // 边沿被吞、标记复位不了，会把续发那一轮的正常回答一起吞掉（正是 v3.9.9 想修的那个病，换了条路径）。
+            // ⚠️ 不许再为它单独挂一个 `.onChange`：这条 body 修饰符链已经贴着 Swift 类型检查的阈值，
+            // 多一个带闭包的成员就会 Archive 失败（`unable to type-check in reasonable time`，CI #608 实测）。
+            suppressAutoReadOnce = false
         }
         .onReceive(NotificationCenter.default.publisher(for: .qingliaoMemoSend)) { note in
             if let text = note.object as? String, !text.isEmpty {
@@ -2516,16 +2522,12 @@ struct ChatView: View {
         // v3.9.7：busy=false 走「完成态 → 2s 后收起」，让「已完成」看得见
         .onChange(of: aiBusy, initial: true) { _, busy in
             pushLiveActivity(busy: busy)
-            // v3.9.9 fix：抑制标记在「新一轮开始」就复位（v4.0.x 已挪到下面的 startSeq 观察——
-            // 挂在 aiBusy 上会被同帧续发吞掉，见那里的说明）。
+            // v3.9.9 fix：抑制标记的复位已挪到上面那处 `startSeq` 观察（与工具卡收起合并在同一处，
+            // 别再单独挂——链长一超阈值 CI 就挂）。
             if busy { inboxPullReset() }
         }
-        // v4.0.x（审查 TASK2 ②）：抑制标记复位是**开跑语义**，不是「忙闲变化」——原来挂在 `aiBusy`
-        // 闭包里，排队自动续发时 aiBusy 走 true →（同帧 finish→start）→ true，边沿被吞、标记复位不了，
-        // 会把续发那一轮的正常回答一起吞掉（正是 v3.9.9 想修的那个病，只是换了条路径）。改看只增的 startSeq。
-        .onChange(of: stream.startSeq) { _, _ in
-            suppressAutoReadOnce = false
-        }
+        // v4.0.x（审查 TASK2 ②）：抑制标记复位已与工具卡收起合并到上面那处 `.onChange(of: stream.startSeq)`。
+        // 合并而非新增的理由：这条 body 链已贴着类型检查阈值，多挂一个带闭包的修饰符即 Archive 失败（CI #608）。
         // v3.9.9 收口（两位只读审查都指出上一版信号不干净）：触发改为 `chat.assistantLandedToken`——
         // ChatStore 在**真正 append/insert 了一条 assistant 回复**时自增。原来监听「末条消息 id 变化」：
         //   ① 切会话 / 冷启动加载（load 整组替换 messages）也会变 → 念出刚打开会话的历史旧答案；
