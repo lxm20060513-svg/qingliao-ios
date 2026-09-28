@@ -26,6 +26,8 @@ struct LoginView: View {
     @FocusState private var focusField: LoginField?
     // v3.9.45：登录失败抖动的触发计数（keyframeAnimator 的 trigger）
     @State private var shakeTrigger = 0
+    // v3.9.88：使用指南弹层
+    @State private var showGuide = false
 
     /// 登录成功后整页上浮淡出的「交接演出」——RootView 让本页在顶层多留一会儿（见 loginHandoff）
     private var handingOff: Bool { auth.isLoggedIn }
@@ -389,6 +391,26 @@ struct LoginView: View {
     /// 它只是"登录前的一次性诊断"，改成纯文字小按钮后层级立刻清楚
     @ViewBuilder
     private var loginTestButton: some View {
+        // v3.9.88：使用指南入口（首次部署教学：后端/插件/地址/初始密码）——
+        // 与测试连接同级文字小按钮，进 bottomActions 统一收口
+        Button {
+            showGuide = true
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: "questionmark.circle")
+                    .font(.system(size: Typography.caption))
+                Text("使用指南")
+                    .font(.system(size: Typography.caption, weight: .medium))
+            }
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, Spacing.lg)
+            .contentShape(Rectangle())
+            .hitArea44(v: 5)
+        }
+        .buttonStyle(PressStyle())
+        .sheet(isPresented: $showGuide) { LoginGuideSheet() }
+
         Button {
             testing = true
             testResult = nil

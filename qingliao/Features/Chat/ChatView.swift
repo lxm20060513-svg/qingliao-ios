@@ -618,7 +618,9 @@ struct ChatView: View {
                     // v3.9.14：3s 无结果才把诊断串显示出来（正常录音时输入框只显示识别文本）
                     recordingStalled: liveSpeech.liveStalled,
                     // v3.4.25：上下文使用率传入——超 80% 发送键变橙轻提醒
-                    contextUsage: chat.contextUsage(maxTokens: 4000),
+                    // v3.0.81 / v4.0.x：使用率分母与压缩阈值同源（ContextTuning.threshold），
+                    // 不再写死 4000——否则"阈值 6000 / 进度条按 4000 算"，到 3200 就变红。
+                    contextUsage: chat.contextUsage(maxTokens: ContextTuning.threshold),
                     // v3.9.48：聚焦展开时右下角浮出的模型快选胶囊
                     modelLabel: composerModelLabel,
                     onPickModel: { showComposerModel = true })
@@ -2124,7 +2126,7 @@ struct ChatView: View {
     private var contextUsageBar: some View {
         Group {
             if chat.contextInfo.count > 10 {
-                let usage = chat.contextUsage(maxTokens: 4000)
+                let usage = chat.contextUsage(maxTokens: ContextTuning.threshold)
                 let percent = Int(usage * 100)
                 let levelColor: Color = percent > 80 ? .red : (percent > 50 ? .orange : .green)
                 HStack(spacing: 4) {
@@ -2742,10 +2744,9 @@ struct ChatView: View {
         // v2.0.102：清空输入框移到发送确认之后——长上下文弹窗点"取消"时草稿保留（修复草稿丢失）
         quotedMessage = nil
 
-        // v3.0.81：上下文自动管理
+        // v3.0.81：上下文自动管理（v4.0.x：阈值真源 = ContextTuning，别再在本文件写死 6000）
         let autoCompress = UserDefaults.standard.bool(forKey: "qingliao_context_auto_compress")
-        let threshold = UserDefaults.standard.integer(forKey: "qingliao_context_threshold")
-        let effectiveThreshold = threshold > 0 ? threshold : 4000
+        let effectiveThreshold = ContextTuning.threshold
 
         if autoCompress && chat.needsCompress(threshold: effectiveThreshold) {
             // 自动压缩：先显示提示，后台执行 AI 摘要

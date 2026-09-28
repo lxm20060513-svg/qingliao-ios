@@ -54,6 +54,10 @@ struct SettingsView: View {
     @State var showMCPSettings = false
     // v3.9.95：权限与 AI 操控（日历/相册/通知/HomeKit 的授权与 AI 开关）
     @State var showAppPermissions = false
+    // v4.0.x：邮件接入（IMAP/SMTP 邮箱账号，AI 可收发邮件）
+    @State var showMailSettings = false
+    // v4.0.x：网盘接入（夸克等官方 skill 包 + 授权码；用户口径=放设置，不进连接器面板）
+    @State var showCloudDrive = false
     // v3.5.x：生活卡片设置（股票 / 资讯 / 快递）
     @State var showLifeCards = false
     // v3.9.32：一句话本地定时提醒 / 文件管理
@@ -90,9 +94,9 @@ struct SettingsView: View {
     // v3.0.10：视觉模型配置弹窗（已移至模型管理弹窗内）
     // v2.0.113：微信推送开关（同步后端 push_settings.json）
     @AppStorage("qingliao_push_weixin") var pushWeixin = true
-    // v3.0.81：上下文管理
+    // v3.0.81：上下文管理（v4.0.x：默认值与真源 ContextTuning.defaultThreshold 同源，勿再写字面量）
     @AppStorage("qingliao_context_auto_compress") var contextAutoCompress = false
-    @AppStorage("qingliao_context_threshold") var contextThreshold = 4000
+    @AppStorage("qingliao_context_threshold") var contextThreshold = ContextTuning.defaultThreshold
     // v3.9.56：TypeSafe 智能路由（设置页开关 + 就地展开）。后端是唯一真源，所以用 @State 影子状态
     // 而不是 @AppStorage —— 本地也存一份的话，换设备/运维改了后端配置，UI 就会显示假状态。
     @State var tsRouting = TypesafeRouting.fallback
@@ -192,6 +196,18 @@ struct SettingsView: View {
         // v3.5.0：MCP 工具服务管理
         .sheet(isPresented: $showMCPSettings) {
             MCPSettingsSheet()
+                .presentationDetents([.medium, .large])
+                .scrollContentBackground(.hidden)
+        }
+        // v4.0.x：邮件接入
+        .sheet(isPresented: $showMailSettings) {
+            MailSettingsSheet()
+                .presentationDetents([.medium, .large])
+                .scrollContentBackground(.hidden)
+        }
+        // v4.0.x：网盘接入
+        .sheet(isPresented: $showCloudDrive) {
+            CloudDriveSettingsSheet()
                 .presentationDetents([.medium, .large])
                 .scrollContentBackground(.hidden)
         }
@@ -324,6 +340,14 @@ extension SettingsView {
             // v3.5.0：MCP 工具服务（App 配 key → Hermes 原生 MCP 工具）
             SettingRow(icon: "puzzlepiece.extension.fill", iconColor: .teal, title: "MCP 工具服务", chevron: true)
                 .tapButton { showMCPSettings = true }
+            Divider().padding(.leading, Spacing.rowDividerInset)
+            // v4.0.x：邮件接入（配一次邮箱，AI 就能收发邮件）
+            SettingRow(icon: "envelope.fill", iconColor: .blue, title: "邮件接入", chevron: true)
+                .tapButton { showMailSettings = true }
+            Divider().padding(.leading, Spacing.rowDividerInset)
+            // v4.0.x：网盘接入（位置按用户要求放设置，不塞连接器面板）
+            SettingRow(icon: "externaldrive.fill", iconColor: .teal, title: "网盘接入", chevron: true)
+                .tapButton { showCloudDrive = true }
             Divider().padding(.leading, Spacing.rowDividerInset)
             // v3.9.95：权限与 AI 操控（授权状态 + 逐项「允许 AI 操作」开关 + 能力边界）
             SettingRow(icon: "lock.shield.fill", iconColor: .indigo, title: "权限与 AI 操控", chevron: true)

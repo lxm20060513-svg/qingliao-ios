@@ -1055,12 +1055,15 @@ final class ChatStore {
 
     /// 检查是否需要压缩（基于 token 阈值）
     /// 返回 true = 需要压缩
-    func needsCompress(threshold: Int = 4000) -> Bool {
+    /// 阈值一律由调用点从 ContextTuning 读，**不给默认值**：
+    /// 历史上这里写死过 4000，与设置页显示值脱节，漏传就静默回退旧值。
+    func needsCompress(threshold: Int) -> Bool {
         return contextInfo.tokens > threshold
     }
 
     /// 上下文使用率（0.0 ~ 1.0+）
-    func contextUsage(maxTokens: Int = 8000) -> Double {
+    /// maxTokens 一律由调用点传入（同上，历史上默认值 8000 与实际 4000 两套分母并存）。
+    func contextUsage(maxTokens: Int) -> Double {
         return Double(contextInfo.tokens) / Double(maxTokens)
     }
 

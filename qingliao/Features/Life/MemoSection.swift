@@ -361,6 +361,46 @@ struct MemoSection: View {
     }
 }
 
+// MARK: - 备忘正文链接识别（点链接跳系统浏览器）
+//
+// ⚠️ 为什么不能直接 `Text(AttributedString(正文))` 就完事：SwiftUI 只有**走 Markdown 解析**
+// 才会给 URL 打 .link 属性，纯文本 → AttributedString 出来的还是一坨无属性的字，链接照样点不了。
+// 聊天页能点是因为那边经过 markdown 渲染管线。备忘正文是用户手写/从聊天原样存过来的裸文本，
+// 所以这里显式用 NSDataDetector 扫一遍 http/https（外加常见裸域名前缀），手动挂 .link。
+//
+// 点击由调用处的 `.environment(\.openURL)` 统一接管 → UIApplication.open 进系统浏览器
+// （不弹内嵌 SFSafari 预览），与聊天页 AI 消息同一口径。
+private enum MemoLinkDetector {
+    /// NSDataDetector 构造较贵（要加载链接规则），全 App 复用同一个实例
+    nonisolated(unsafe) static let shared: NSDataDetector? = try? NSDataDetector(
+        types: NSTextCheckingResult.CheckingType.link.rawValue)
+}
+
+private func memoLinkified(_ text: String) -> AttributedString {
+    var attr = AttributedString(text)
+    // 裸域名（example.com/path 这种没写协议的）也认，否则「粘贴来的网址」多半识别不出来
+    guard let detector = MemoLinkDetector.shared else { return attr }
+    let ns = text as NSString
+    let range = NSRange(location: 0, length: ns.length)
+    for hit in detector.matches(in: text, options: [], range: range) {
+        guard let url = hit.url, url.scheme != nil else { continue }
+        // 换算成 AttributedString 的索引区间。NSDataDetector 给的是 UTF-16 的 NSRange，
+        // 必须先过 `Range(_:in:)` 拿到 String.Index，再交给 AttributedString.Index(_:within:)——
+        // 注意这两处签名都**没有参数标签**（`Range(nsRange:in:)` / `attr.ranges(of:)` 都不存在，
+        // 只有 CI Archive 才拦得住，见 scripts/ql_memo 真值表）。
+        guard let strRange = Range(hit.range, in: text) else { continue }
+        guard let lower = AttributedString.Index(strRange.lowerBound, within: attr),
+              let upper = AttributedString.Index(strRange.upperBound, within: attr) else { continue }
+        let r = lower..<upper
+        // 只挂 .link + 下划线，**不**预置前景色：SwiftUI 渲染 .link 段时自带 accentColor，
+        // 而上面那条 .foregroundStyle(.primary) 优先级高于属性里的颜色（写了也会被盖掉，
+        // 反而在不同主题下出现"以为没生效"的错觉）。非链接段继续走 .primary。
+        attr[r].link = url
+        attr[r].underlineStyle = .single
+    }
+    return attr
+}
+
 // MARK: - v3.9.18 自绘顶栏用的小胶囊
 // 为什么不用系统 toolbar：iOS 26 会把导航栏按钮渲染成玻璃胶囊，尺寸由系统定（字号/controlSize 都压不小），
 // 用户反馈「关闭/编辑/复制胶囊太大」→ 自绘顶栏 + `.toolbar(.hidden, for: .navigationBar)`，尺寸完全可控。
@@ -497,12 +537,21 @@ private struct MemoDetailSheet: View {
                             .background(Color(uiColor: .secondarySystemGroupedBackground),
                                         in: RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
                     } else {
-                        Text(current.content)
+                        // v3.9.9x：正文里的链接要能识别并点开（原来纯 Text(String)，URL 只是灰字）
+                        // memoLinkified 用 NSDataDetector 扫出 URL 手动挂 .link（SwiftUI 不会自动认）
+                        // → 显示为主题色下划线，.textSelection 仍可长按选中复制；
+                        // .environment(\.openURL) 接管点击 → UIApplication.open 直接跳系统浏览器
+                        // （不弹内嵌 SFSafari 预览）。非 http(s)（如 tel:/mailto:）也交给系统处理。
+                        Text(memoLinkified(current.content))
                             .font(.system(size: Typography.headline))
                             .lineSpacing(LineSpacing.long)
                             .foregroundStyle(.primary)
                             .textSelection(.enabled)
                             .frame(maxWidth: .infinity, alignment: .leading)
+                            .environment(\.openURL, OpenURLAction { url in
+                                UIApplication.shared.open(url)
+                                return .handled
+                            })
                     }
                     HStack(spacing: 6) {
                         if current.pinned {

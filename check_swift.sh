@@ -222,6 +222,15 @@ echo "=== 20. 工具步数显示真值表（v3.9.80 真机反馈修复）==="
 # 后端为控体积只下发最近 10 步明细，全量步数走同一响应的 toolSeq，摘要行必须吃它。
 run_unit /tmp/test_toolsteps scripts/ql_toolsteps/truth_table_toolsteps.swift
 
+echo "=== 20b. 邮件接入设置页真值表（v4.0.x：安全边界/后端契约/接线）==="
+run_unit /tmp/test_mail scripts/ql_mail/truth_table_mail.swift
+
+echo "=== 20c. 网盘接入真值表（v4.0.x：位置口径/安全边界/后端契约/浏览护栏）==="
+# 单文件（读源文件做护栏，不 import 项目代码）→ run_unit 直接编跑。
+# 口径：①「网盘接入放设置、不放连接器卡片」是用户明确纠正过的位置，钉死防塞回；
+#      ②授权码/技能地址明文不落 App；③路径与 clouddrive_api.py 对齐；④浏览页 fid 栈与蜂窝闸。
+run_unit /tmp/test_clouddrive scripts/ql_clouddrive/truth_table_clouddrive.swift
+
 echo "=== 21. 设置页间距口径真值表（v3.9.80 baseline-ui 打磨）==="
 # 单文件（读源 + 扫 Settings 目录，不 import 项目代码）→ run_unit 直接编跑。
 # 口径：分隔线缩进与「非卡片内容左右留白」各收成命名令牌（54/62 与 18），字面量清零。
