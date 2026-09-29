@@ -84,7 +84,7 @@ run_unit /tmp/test_pet -swift-version 6 scripts/ql_pet/truth_table_pet.swift
 
 # v4.0.9 点击震动总开关（闸门 + 裸 generator 清零）
 if python3 scripts/ql_haptics/truth_table_haptics.py >/tmp/tt_haptics.log 2>&1; then
-  echo "✅ v4.0.9 震动开关真值表 22 项"
+  echo "✅ v4.0.9 震动开关真值表 $(grep -oE '[0-9]+ 项' /tmp/tt_haptics.log | tail -1)"
 else
   echo "❌ v4.0.9 震动开关真值表"
   cat /tmp/tt_haptics.log
@@ -93,7 +93,7 @@ fi
 
 # v4.0.8 表格导出入口（两条渲染路径都得有导出，防回归）
 if python3 scripts/ql_tableexport/truth_table_tableexport.py >/tmp/tt_tableexport.log 2>&1; then
-  echo "✅ v4.0.8 表格导出真值表 20 项"
+  echo "✅ v4.0.8 表格导出真值表 $(grep -oE '[0-9]+ 项' /tmp/tt_tableexport.log | tail -1)"
 else
   echo "❌ v4.0.8 表格导出真值表"
   cat /tmp/tt_tableexport.log

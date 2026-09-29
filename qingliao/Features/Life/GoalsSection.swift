@@ -479,6 +479,12 @@ struct GoalsSection: View {
 
 // MARK: - 目标 → 待办 的桥（打通口径：拆出的步骤直接进待办清单）
 
+/// ⚠️ 必须标 @MainActor：桥直接摸 `TodoStore.shared` / `GoalStore.shared`（都是
+/// @MainActor @Observable 单例）。不标的话，即使调用方包了
+/// `await MainActor.run { ... }`，编译器仍判定桥体本身是 nonisolated →
+/// CI Archive 报 "main actor-isolated static property 'shared' can not be
+/// referenced from a nonisolated context"。这类错误 -parse 查不出来。
+@MainActor
 enum GoalTodoBridge {
     /// 目标在待办里的识别标记
     static func marker(for goal: GoalItem) -> String { "［目标·\(goal.title)］" }

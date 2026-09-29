@@ -119,6 +119,22 @@ for label, src, struct in (
     check(label + " 仅在 CSV 生成成功时开分享面板（showShare = csvURL != nil）",
           "showShare = csvURL != nil" in body)
 
+# ── v3.9.112：Archive 实测红过的两类错误，钉死防复发 ─────────────────────
+_ex = open(os.path.join(ROOT, "qingliao/Core/AgentActionExecutor.swift"), encoding="utf-8").read()
+check("Outcome 提供 doneNoUndo（不可撤销语义有归属）",
+      "case doneNoUndo(message: String)" in _ex)
+# Outcome.done(message:undo:) 的 undo **无默认值**，单行调用漏传 = 编译红。
+_bad = [i for i, l in enumerate(_ex.splitlines(), 1)
+        if re.search(r'\.done\(message:.*\)\s*$', l) and not l.rstrip().endswith(",")]
+check("无「单行 .done 漏传 undo」写法（不可撤销请用 doneNoUndo）%s"
+      % ("｜行 %s" % _bad if _bad else ""), not _bad)
+
+# 摸 @MainActor @Observable 单例的桥接类型必须标 @MainActor，
+# 否则 Archive 报 "main actor-isolated ... from a nonisolated context"。
+_gs = open(os.path.join(ROOT, "qingliao/Features/Life/GoalsSection.swift"), encoding="utf-8").read()
+check("GoalTodoBridge 标了 @MainActor（Archive 实测红过：actor 隔离）",
+      re.search(r'@MainActor\s*\n\s*enum GoalTodoBridge', _gs) is not None)
+
 print("")
 if fails:
     print("失败 %d 条 ❌" % len(fails))

@@ -456,7 +456,8 @@ enum AgentActionExecutor {
                           })
         }
         // 口径 ③：失败必须出声。目标已建但没建上每日推送 = 半成品，如实说，不假装成功。
-        return .done(message: "已建目标「\(title)」并进了待办，但每日自动推进没建上（目标卡片详情里可重试）")
+        // 不可撤销：目标已落库，撤销它等于静默删用户数据 → 用 doneNoUndo（语义也更准）
+        return .doneNoUndo(message: "已建目标「\(title)」并进了待办，但每日自动推进没建上（目标卡片详情里可重试）")
     }
 
     private static func markGoalStep(_ action: AgentAction, auth: AuthStore?) async -> Outcome {
