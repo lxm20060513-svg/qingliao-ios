@@ -230,6 +230,7 @@ struct GoalsSection: View {
                     MiniCapsule(title: "创建", accent: true) { confirmAdd() }
                 }
                 .padding(.horizontal, Spacing.section)
+                .padding(.top, Spacing.xl)
                 .padding(.bottom, Spacing.xs)
             }
         }
@@ -315,6 +316,7 @@ struct GoalsSection: View {
                     MiniCapsule(title: "完成", accent: true) { showAll = false }
                 }
                 .padding(.horizontal, Spacing.section)
+                .padding(.top, Spacing.xl)
                 .padding(.bottom, Spacing.xs)
             }
             .toolbar(.hidden, for: .navigationBar)
@@ -430,6 +432,7 @@ struct GoalsSection: View {
                     MiniCapsule(title: "完成", accent: true) { detail = nil }
                 }
                 .padding(.horizontal, Spacing.section)
+                .padding(.top, Spacing.xl)
                 .padding(.bottom, Spacing.xs)
             }
             .alert("删除这个目标？", isPresented: Binding(
