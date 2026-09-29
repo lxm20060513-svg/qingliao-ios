@@ -5,6 +5,8 @@ import UIKit
 enum DockTab: String, CaseIterable, Identifiable {
     // v3.6.2：dock 顺序重排 = 会话 → 看板 → 聊天 → 生活 → 设置
     // （enum 声明序与 TabView 内声明序一致，便于对照；TabView 顺序由视图插入序决定）
+    // v4.0.x：dock 图标换 B 组（用户选定）：看板 chart.pie / 生活 heart / 设置 gearshape（空心）；
+    // 会话 clock 保留。语义直白风，每个图标一眼看出页面用途；智慧球槽位（chat）不受影响。
     case sessions, dashboard, chat, life, settings
 
     var id: String { rawValue }
@@ -22,10 +24,10 @@ enum DockTab: String, CaseIterable, Identifiable {
     var icon: String {
         switch self {
         case .sessions: "clock"
-        case .dashboard: "square.grid.2x2.fill"
+        case .dashboard: "chart.pie"
         case .chat: "message.fill"
-        case .life: "sparkles"
-        case .settings: "gearshape.fill"
+        case .life: "heart"
+        case .settings: "gearshape"
         }
     }
 }

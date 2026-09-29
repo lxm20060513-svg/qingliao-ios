@@ -713,41 +713,27 @@ extension SettingsView {
     // ⚠️ 尺寸口径：直接 `PetAvatar(size: 96)` 画，**不要**再套 `.frame` 去"缩"（v3.9.78 真机报修：
     // frame 只改布局槽位、不缩放画面，96pt 画布会溢出 52pt 槽位压住边框和文字）。真要小就传小 size。
     @ViewBuilder var petStudioBanner: some View {
-        VStack(spacing: Spacing.xs) {
-            Button {
-                showPetStudio = true
-            } label: {
-                VStack(spacing: Spacing.xs) {
-                    PetAvatar(size: 96, state: .idle, keepDetail: true)
-                        .overlay(
-                            // 小角标：点进去有更多可配项（不靠文字说明）
-                            Image(systemName: "slider.horizontal.3")
-                                .font(.system(size: Typography.caption, weight: .semibold))
-                                .foregroundStyle(.white)
-                                .frame(width: 24, height: 24)
-                                .background(Circle().fill(Color.accentColor))
-                                .overlay(Circle().strokeBorder(Color.white.opacity(0.9), lineWidth: 1.5))
-                                .offset(x: 34, y: 30)
-                        )
-                    Text(petSummary)
-                        .font(.system(size: Typography.subhead, weight: .medium))
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-                    Text("点击自定义表情与动作")
-                        .font(.system(size: Typography.caption))
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, Spacing.md)
-                .background(
-                    RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
-                        .fill(Color(uiColor: .secondarySystemGroupedBackground).opacity(0.6))
-                )
+        // v4.0.11：只留卡通头像本体 + 头像下方一行名称（petSummary），角标/提示文字撤掉
+        Button {
+            showPetStudio = true
+        } label: {
+            VStack(spacing: Spacing.xs) {
+                PetAvatar(size: 96, state: .idle, keepDetail: true)
+                Text(petStyle.name)
+                    .font(.system(size: Typography.subhead, weight: .medium))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("卡通宠物：\(petSummary)")
-            .accessibilityHint("轻点进入自定义")
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, Spacing.md)
+            .background(
+                RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
+                    .fill(Color(uiColor: .secondarySystemGroupedBackground).opacity(0.6))
+            )
         }
+        .buttonStyle(.plain)
+        .accessibilityLabel("卡通宠物：\(petSummary)")
+        .accessibilityHint("轻点进入自定义")
         .padding(.bottom, Spacing.sm)
     }
 
