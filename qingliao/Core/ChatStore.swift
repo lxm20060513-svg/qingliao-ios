@@ -1024,7 +1024,7 @@ final class ChatStore {
 
         // 调用 AI 摘要（用当前模型）
         let model = UserDefaults.standard.string(forKey: "qingliao_model") ?? "deepseek-v4-flash"
-        let provider = UserDefaults.standard.string(forKey: "qingliao_provider") ?? "deepseek"
+        let provider = UserDefaults.standard.string(forKey: "qingliao_provider") ?? "opencode"
 
         do {
             // 直接 await（无需 withCheckedThrowingContinuation + Task 嵌套，

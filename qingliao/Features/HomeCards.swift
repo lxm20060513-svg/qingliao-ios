@@ -26,7 +26,8 @@ import SwiftUI
 @Observable
 final class HomeCardData {
     var mailUnread: Int?
-    var mailOldest: String = ""          // "1 小时前"
+    var mailLatest: String = ""          // "1 小时前"（后端倒序 → 是**最新**一封）
+                                          // 2026-09-30 审查：原名 mailOldest 与数据口径相反，UI 标「最早」实为最新
     var weatherTemp: Double?
     var weatherCode: Int?
     var weatherText: String = ""
@@ -62,15 +63,17 @@ final class HomeCardData {
         monthCount = t.count
     }
 
-    /// 未读数 + 最早一封的相对时间（后端 list_messages 已按时间倒序返回）
+    /// 未读数 + 最新一封的相对时间（后端 list_messages 按时间**倒序**返回，first 即最新）
+    /// ⚠️ 2026-09-30 审查：原 limit=5 让角标恒显「5」（未读多于 5 时失真），提到 50；
+    ///    上限 99+ 由 badge() 兜底。
     private func loadMail(auth: AuthStore) async {
-        guard let j = try? await auth.json("/api/mail/messages?unread=1&limit=5") else { return }
+        guard let j = try? await auth.json("/api/mail/messages?unread=1&limit=50") else { return }
         let msgs = j["messages"] as? [[String: Any]] ?? []
         mailUnread = msgs.count
         guard let first = msgs.first,
               let dateStr = first["date"] as? String,
               let d = HomeCardData.parseMailDate(dateStr) else { return }
-        mailOldest = HomeCardData.relative(d)
+        mailLatest = HomeCardData.relative(d)
     }
 
     /// 天气：城市未设置就不显示（与看板同口径），有进程内缓存直接用
@@ -462,7 +465,7 @@ struct HomeCardFace: View {
         case .mail:
             guard let n = data.mailUnread else { return "点一下让轻聊去查" }
             if n == 0 { return "没有未读 · 点一下复查" }
-            return data.mailOldest.isEmpty ? "\(n) 封未读" : "\(n) 封未读 · 最早 \(data.mailOldest)"
+            return data.mailLatest.isEmpty ? "\(n) 封未读" : "\(n) 封未读 · 最新 \(data.mailLatest)"
         case .resume:
             return "回到上一个会话继续"
         case .todo:

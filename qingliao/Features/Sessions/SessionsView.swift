@@ -603,15 +603,15 @@ struct SessionsView: View {
         Set(BackgroundStreamRunner.shared.running.keys)
     }
 
-    private var runningSessionID: String? {
+    /// ⚠️ 2026-09-30（发布前审查拦下）：它原先写成 `runningSessionID: String?` 计算属性，却引用了
+    /// sessionCell 的形参 `s`（属 SessionsView 层，无 `s` 成员）→ `cannot find 's' in scope`：
+    /// `swiftc -parse` 盲区，只有 CI Archive 才炸。改成按会话判定的方法。
+    private func isRunning(_ s: ChatSession) -> Bool {
         // v4.1.x 多会话并行：优先读后台跑流器（多会话可同时标「进行中」）；
         // 前台单例口径保持不变（正在看的会话由它负责）。
-        guard stream.isStreaming, !stream.isDone else {
-            return backgroundRunningIDs.contains(s.id) ? s.id : nil
-        }
-        let sid = auth.currentStreamSessionId
-        if backgroundRunningIDs.contains(s.id) { return s.id }
-        return sid.isEmpty ? nil : sid
+        if backgroundRunningIDs.contains(s.id) { return true }
+        guard stream.isStreaming, !stream.isDone else { return false }
+        return auth.currentStreamSessionId == s.id
     }
 
     /// v3.0.51：会话 cell（SessionRow + 长按菜单）——拆辅助函数，防嵌套 ForEach type-check 超时
@@ -625,7 +625,7 @@ struct SessionsView: View {
                    checked: selectedIds.contains(s.id),
                    unread: chat.unread[s.id] ?? 0,
                    categoryName: categoryStore.categoryForSession(s.id)?.name,
-                   running: runningSessionID == s.id) {
+                   running: isRunning(s)) {
             if editing {
                 toggleSelect(s.id)
             } else {
@@ -1011,7 +1011,7 @@ struct SessionRow: View {
     var checked = false
     var unread = 0          // v3.9.85：未读**条数**（原 Bool 红点，改实心红色数字角标，对标微信）
     var categoryName: String? = nil   // v3.9.32：所属分类（长按「移动到…」设过才显示）
-    /// v4.0.x：该会话本机正在生成（流在跑且流归属就是它）——真源与口径见 SessionsView.runningSessionID
+    /// v4.0.x：该会话本机正在生成（流在跑且流归属就是它）——真源与口径见 SessionsView.isRunning(_:)
     var running = false
     var action: () -> Void = {}
 
@@ -1148,7 +1148,7 @@ struct SessionRow: View {
 // MARK: - v4.0.x 会话「进行中」标识（用户 2026-09-27 拍板：位置=替换右列箭头，形态=呼吸脉冲圆点）
 //
 // 语义：**只有本机这条流没结束**才出现（切到别的会话、App 切后台都算；App 被杀/重启不还原 ——
-//   服务端没有「会话运行中」字段，本机 StreamClient 是唯一真源，见 SessionsView.runningSessionID）。
+//   服务端没有「会话运行中」字段，本机 StreamClient 是唯一真源，见 SessionsView.isRunning(_:)）。
 // 动效：opacity 循环（GPU 合成、无每帧布局，同 SkeletonBlock）；开了「减弱动态效果」即静止常亮。
 private struct RunningDot: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion

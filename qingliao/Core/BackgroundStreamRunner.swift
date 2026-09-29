@@ -30,6 +30,10 @@ final class BackgroundStreamRunner {
         let title: String                      // 通知/角标文案用（发起时快照）
         let userMsgId: String?                 // 落库锚点（pendingUserMsgId 同源）
         let snapshot: [ChatMessage]            // 发起时会话快照（落库基底）
+        /// 2026-09-30（发布前审查）：同会话「撤销后重新移交」时会建新 entry，而旧 loop 的
+        /// 在途回包（await 返回后）只判过 `running[sid] != nil` → 会写进新条目（offset/content
+        /// 串任务，旧 loop 拿到 done 还会把新条目 finish 掉）。每次 adopt 发一个代次令牌，回包落笔前校验。
+        let gen: String = UUID().uuidString
         var offset: Int = 0
         var content: String = ""
         var startedAt: TimeInterval = Date().timeIntervalSince1970
@@ -87,10 +91,13 @@ final class BackgroundStreamRunner {
             var idleStreak = 0
             while !Task.isCancelled {
                 guard let self, let entry = self.running[sid] else { return }
+                let myGen = entry.gen
                 do {
                     let (c, done, st, err, agent, piggyback, _, _, _, _) =
                         try await auth.streamPoll(taskId: entry.taskId, offset: entry.offset)
-                    guard self.running[sid] != nil else { return }   // 已被撤销/接管
+                    // 2026-09-30 审查：撤销后重新移交会建**新** entry，此时 sid 仍存在但已是别人，
+                    // 在途回包不得落笔（否则 offset/content 串任务，旧 loop 还会把新条目 finish 掉）
+                    guard self.running[sid]?.gen == myGen else { return }
                     failCount = 0
                     if !piggyback.isEmpty {
                         InboxStore.shared.ingestPiggyback(piggyback)   // 与前台 pollOnce 同口径
@@ -105,17 +112,19 @@ final class BackgroundStreamRunner {
                         interval = idleStreak <= 12 ? 0.25 : 0.8
                     }
                     if done {
+                        guard self.running[sid]?.gen == myGen else { return }
                         await self.finish(sessionId: sid, success: st != "error", error: err,
                                           agent: agent, auth: auth, chat: chat)
                         return
                     }
                 } catch APIError.unauthorized {
+                    guard self.running[sid]?.gen == myGen else { return }
                     await self.finish(sessionId: sid, success: false,
                                       error: APIError.unauthorized.localizedDescription,
                                       agent: false, auth: auth, chat: chat)
                     return
                 } catch {
-                    guard self.running[sid] != nil else { return }
+                    guard self.running[sid]?.gen == myGen else { return }
                     failCount += 1
                     // 弱网退避（8s 封顶）；404 = 服务端任务没了（qingliao 重启）→ 立即收尾，
                     // 不重试（runner 没有单例的 recover 管线，重试也拿不回任务）
@@ -158,7 +167,14 @@ final class BackgroundStreamRunner {
         var m2 = ChatMessage.local(role: "assistant", content: body)
         m2.agent = agent
         msgs.append(m2)
-        await chat.saveToServer(auth: auth, sessionId: sid, messages: msgs, title: entry.title)
+        // ⚠️ 2026-09-30（发布前审查拦下，真数据破坏）：快照为空 = 拿不到被移交会话的历史
+        // （流在 A 跑、用户切到 B 后在 B 点「+新建会话」→ ChatView 侧 startMsgs 为 []）。
+        // 此时若照旧 saveToServer，等于用「仅 1 条 assistant」整会话覆盖（后端 merge 是整覆盖，
+        // 而 writeSessionSnapshot 的护栏只拦空数组）→ 被移交会话的历史全被抹掉。
+        // 空快照一律不覆盖服务端会话：只记「迟到回复」，进该会话时补回（同既有 landAwayReply 口径）。
+        if !entry.snapshot.isEmpty {
+            await chat.saveToServer(auth: auth, sessionId: sid, messages: msgs, title: entry.title)
+        }
         chat.noteAwayLandedReply(sessionId: sid, text: body)   // 列表旧快照 load 进内存时补回
 
         // 未读 +1（用户不在该会话/前台时才记，避免正在看时红点闪现）

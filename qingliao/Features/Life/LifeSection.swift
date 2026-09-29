@@ -101,7 +101,13 @@ struct LifeSectionEditorSheet: View {
     }
 
     private func persist() {
-        orderRaw = shown.map(\.rawValue).joined(separator: ",")
+        // ⚠️ 2026-09-30（同类风险审计）：顺序串必须写**全量**（shown + 隐藏项），
+        // 只写 shown 会把隐藏项从顺序里彻底抹掉 → 之后「显示」恢复时它被 orderedSections
+        // 补到列表最末，用户排好的位置被重置。口径对标 BoardCardEditorSheet.persist（SR13）。
+        let full = (shown + hiddenList).reduce(into: [LifeSection]()) { acc, s in
+            if !acc.contains(s) { acc.append(s) }
+        }
+        orderRaw = full.map(\.rawValue).joined(separator: ",")
         hiddenRaw = hiddenList.map(\.rawValue).joined(separator: ",")
     }
 }

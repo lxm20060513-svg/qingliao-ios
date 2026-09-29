@@ -65,15 +65,21 @@ check("SessionsView 注入了 StreamClient（@Environment(StreamClient.self) pri
       viewCode.contains("@Environment(StreamClient.self) private var stream"))
 
 // ── 3. 「算不算进行中」的判定（本表最重要的三条） ──────────────
-let judge = slice(viewCode, "private var runningSessionID: String?", "private func sessionCell(_ s: ChatSession)")
-check("runningSessionID 切片非空（护栏不许空真）", !judge.isEmpty)
+// 2026-09-30：判定从 `private var runningSessionID: String?` 改成按会话判定的方法
+// （原属性引用了 sessionCell 的形参 s → 编译不过，swiftc -parse 查不出、CI Archive 才炸；
+//  发布前审查拦下）。断言语义一条未减，只同步锚点，并补一条多会话并行口径。
+let judge = slice(viewCode, "private func isRunning(_ s: ChatSession) -> Bool", "private func sessionCell(_ s: ChatSession)")
+check("isRunning 切片非空（护栏不许空真）", !judge.isEmpty)
 check("必须取**流归属**会话 auth.currentStreamSessionId（不是当前打开的会话）",
       judge.contains("auth.currentStreamSessionId"))
 check("必须同时判 stream.isStreaming（光看归属 id 会把上次跑过的会话永久标成进行中）",
       judge.contains("stream.isStreaming"))
 check("必须同时判 !stream.isDone（流收尾后 isStreaming/isDone 才是真状态）",
       judge.contains("!stream.isDone"))
-check("空 id 不得误标（sid.isEmpty → nil）", judge.contains("sid.isEmpty"))
+check("空 id 不得误标（归属比较 == s.id，空串永不相等）",
+      judge.contains("auth.currentStreamSessionId == s.id"))
+check("多会话并行：后台跑流集合命中也算「进行中」（BackgroundStreamRunner 口径）",
+      judge.contains("backgroundRunningIDs.contains(s.id)"))
 
 // ── 4. 性能口径：行内不许读每 token 都会变的内容 ────────────────
 check("行内不得读 stream.content（每 token 变化 → 会话列表每 token 重算）",
