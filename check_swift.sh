@@ -658,7 +658,7 @@ echo "=== 48. AI 中途追问「问题卡」真值表（v3.9.110）==="
 #   落地再发网络；两端题干格式（iOS splitQuestion ↔ 后端 OPT_SEP_LINE）必须一致。
 run_unit /tmp/test_askquestion scripts/ql_askquestion/truth_table_askquestion.swift
 
-echo "=== 49. 首页「方块卡片」真值表（v4.0.8）==="
+echo "=== 49. 首页「方块卡片」真值表（v4.0.9 · 84 项）==="
 # 多文件编译：被测真源是**纯 Foundation** 的 HomeCardOrder.swift（无 SwiftUI 依赖），
 # 直接编真实实现而不是照抄一份镜像 → 不存在「表与实现漂移」这个洞。
 # 多文件时只有 main.swift 允许顶层代码（第 4 步同口径），故先 cp 成 main.swift。
