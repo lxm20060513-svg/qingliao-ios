@@ -20,7 +20,7 @@ struct SplashView: View {
             }
 
             VStack(spacing: 0) {
-                // 聊天气泡 logo + 呼吸光晕
+                // v4.0.x：logo 换正式图标资产（卡片叠层立体 Q，与 AppIcon 同款）
                 ZStack {
                     Circle()
                         .fill(Color.blue.opacity(appeared ? 0.22 : 0.4))
@@ -29,12 +29,11 @@ struct SplashView: View {
                         .scaleEffect(appeared ? 1.35 : 0.7)
                         .opacity(appeared ? 0 : 0.7)
 
-                    Image(systemName: "bubble.left.and.bubble.right.fill")
-                        .font(.system(size: 76))
-                        .foregroundStyle(
-                            LinearGradient(colors: [.blue, .indigo], startPoint: .topLeading, endPoint: .bottomTrailing)
-                        )
-                        .shadow(color: Color.blue.opacity(0.5), radius: 22, y: 6)
+                    Image("AboutLogo")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 132, height: 132)
+                        .shadow(color: Color.blue.opacity(0.35), radius: 18, y: 6)
                 }
                 .scaleEffect(appeared ? 1 : 0.72)
                 .opacity(appeared ? 1 : 0)

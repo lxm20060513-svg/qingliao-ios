@@ -141,10 +141,12 @@ struct LoginView: View {
                     .fill(Color.blue.opacity(Tint.subtle))
                     .frame(width: 128, height: 128)
                     .blur(radius: 26)
-                Image(systemName: "bubble.left.and.bubble.right.fill")
-                    .font(.system(size: 64))
-                    .foregroundStyle(LinearGradient(colors: [.blue, .indigo], startPoint: .topLeading, endPoint: .bottomTrailing))
-                    .shadow(color: Color.blue.opacity(0.45), radius: 18, y: 6)
+                // v4.0.x：logo 换正式图标资产（与 AppIcon 同款）
+                Image("AboutLogo")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 108, height: 108)
+                    .shadow(color: Color.blue.opacity(0.3), radius: 14, y: 5)
             }
             VStack(spacing: 6) {
                 Text("轻聊")
