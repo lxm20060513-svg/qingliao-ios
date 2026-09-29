@@ -635,11 +635,14 @@ check("横屏两栏 = 左形象+问候 / 右芯片竖排（用户拍板方案 2�
       chatViewSrc.contains("private var welcomeLandscape: some View")
       && chatViewSrc.contains("private var landscapeChips: some View")
       && chatViewSrc.contains("HStack(alignment: .center, spacing: Spacing.xxl + 18)"))
-// 拆件必须共用：形象手势 / 芯片样式 / 续聊卡各只有一处实现（横屏复制第二套 = 迟早两边走样）
-check("形象/芯片/续聊卡只此一份（横屏复用拆件，不许复制第二套手势与样式）",
+// 拆件必须共用：形象手势 / 芯片样式各只有一处实现（横屏复制第二套 = 迟早两边走样）。
+// v4.0.9（用户拍板）：页脚那条「继续上次」长条卡已删除 → 原来钉的「续聊卡只此一份」
+// （`Text("继续上次")` 恰一次）随之退场，改成**零残留护栏**（防它哪天又被加回来）。
+check("形象/芯片只此一份（横屏复用拆件，不许复制第二套手势与样式）＋续聊长条卡已删",
       chatViewSrc.components(separatedBy: "name: .qingliaoOrbMenuFromPet").count - 1 == 1
       && chatViewSrc.components(separatedBy: "private func suggestionChip(_ s: WelcomeSuggestion)").count - 1 == 1
-      && chatViewSrc.components(separatedBy: "Text(\"继续上次\")").count - 1 == 1
+      && chatViewSrc.components(separatedBy: "resumeRow").count - 1 == 0
+      && chatViewSrc.components(separatedBy: "Text(\"继续上次\")").count - 1 == 0
       && chatViewSrc.components(separatedBy: "petHero").count - 1 == 3)   // 定义 1 + 竖屏 1 + 横屏 1
 check("横屏 + 键盘弹起时芯片列收起（否则顶出屏幕）",
       chatViewSrc.contains("if !kb.isVisible {\n                    landscapeChips\n                }"))

@@ -506,12 +506,11 @@ struct HomeCardEditorSheet: View {
                             })) {
                             Label(HomeCardLabels.name(k), systemImage: HomeCardLabels.icon(k))
                         }
-                        .disabled(k == .custom)
                     }
                 } header: {
                     Text("首页显示哪些卡片")
                 } footer: {
-                    Text("关掉的卡片不留空位；重新打开会回到原来的位置。在首页长按卡片可拖动排序。")
+                    Text("关掉的卡片不留空位；重新打开会回到原来的位置。在首页长按卡片可拖动排序。「空槽位」是添加快捷卡的入口，也可关掉，随时用这里重新打开。")
                 }
             }
             .navigationTitle("自定义首页卡片")
@@ -536,7 +535,7 @@ enum HomeCardLabels {
         case .weather: return "天气"
         case .expense: return "本月账目"
         case .agentTip: return "agent 主动推荐"
-        case .custom: return "空槽位（固定）"
+        case .custom: return "空槽位"
         }
     }
 

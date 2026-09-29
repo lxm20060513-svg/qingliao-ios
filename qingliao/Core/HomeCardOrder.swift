@@ -9,9 +9,11 @@
 //  （scripts/ql_chat_home/truth_table_homecards.swift），而真值表只能用 swiftc 编译单文件，
 //  混进 SwiftUI 依赖就编不过。
 //
-//  版式口径（= 用户 2026-09-29 拍板的 B3 稿）：**2 列等宽方块**，末尾固定带 1 个
+//  版式口径（= 用户 2026-09-29 拍板的 B3 稿）：**2 列等宽方块**，默认在末尾带 1 个
 //  「空槽位」引导卡（点它打开卡片库添加）。不做宽卡特例 —— 有宽卡会让行高与命中区
 //  分叉、拖拽几何要多算一套，还与定稿不一致。
+//  ⚠️ v4.0.9（用户拍板）：**空槽位不再是「固定项」，可以关**——关掉后首页不渲染它；
+//  「添加卡片」的入口仍由页头「自定义」胶囊承担（它始终在），所以关掉不会让用户失去添加路径。
 //
 //  持久化口径（UserDefaults，由视图层写入，这里只做纯函数）：
 //  · "qingliao_home_card_order" = 逗号分隔的 kind 串（用户拖拽后的顺序）
@@ -30,7 +32,7 @@ enum HomeCardKind: String, CaseIterable {
     case weather      // 天气
     case expense      // 记一笔（本月账目）
     case agentTip     // agent 主动推荐
-    case custom       // 空槽位 → 打开卡片库添加（固定钉在末尾，不参与拖拽）
+    case custom       // 空槽位 → 打开卡片库添加（钉在末尾、不参与拖拽；可关，关掉即不渲染）
 
     /// 默认展示顺序（= 目录顺序，拖拽前 / 新用户口径）
     static var catalogOrder: [HomeCardKind] { allCases }
@@ -47,7 +49,7 @@ enum HomeCardOrder {
     /// 把「用户存的顺序串 + 关掉的串」归一化成最终渲染用的 kind 列表。
     /// - Parameters:
     ///   - rawOrder: 逗号分隔的 kind 串（可空 / 可含未知项 / 可重复）
-    ///   - rawOff:   逗号分隔的「关掉」kind 串（空串 = 没关任何一张）
+    ///   - rawOff:   逗号分隔的「关掉」kind 串（空串 = 没关任何一张；v4.0.9 起 `custom` 也可在里面）
     static func resolve(order rawOrder: String, off rawOff: String) -> [HomeCardKind] {
         let off = parse(rawOff)
         let seen = parse(rawOrder)
@@ -88,14 +90,18 @@ enum HomeCardOrder {
     ///   但真值表不钉住就没人拦；见本表「开关方向不许反」。）
     /// 关闭后卡不参与渲染，但仍**留在顺序串里**（重开时回原位，不排到最后 ——
     /// 用户排序的心智不能因为关一次就被打乱）。
-    /// ⚠️ 至少留一张**真卡**：`custom` 空槽位不算卡，全关会让首页只剩一个「空槽位」，
-    /// 用户会当成 App 坏了（真值表钉住）→ 关到只剩最后一张时直接拒关（返回原值）。
+    /// ⚠️ 至少留一张**真卡**：`custom` 空槽位不算卡（关掉它也不救场），全关会让首页只剩一个
+    /// 「空槽位」，用户会当成 App 坏了（真值表钉住）→ 关到只剩最后一张真卡时直接拒关（返回原值）。
+    /// v4.0.9：`custom` 自己**可关**（用户拍板「固定的空槽位可以关掉」）—— 它不再走特殊分支，
+    /// 与其余 6 张卡共用同一套「关掉就进 off」的流程。
     static func setEnabled(_ off: [HomeCardKind], _ kind: HomeCardKind, on: Bool) -> [HomeCardKind] {
         if on {
             return off.filter { $0 != kind }        // 打开 = 从 off 移除（不在里面也幂等）
         }
-        guard kind != .custom else { return off }   // 空槽位固定显示，不给关（UI 也禁用，逻辑再守一道）
         guard !off.contains(kind) else { return off }
+        // ⚠️ 这里**不再**给 `custom` 开小灶（v4.0.9 之前有一道「空槽位直接原样返回」的守卫）：
+        // 用户要求空槽位也能关。下面这道「至少留一张真卡」的守卫不含 `custom`（draggable 已排除它），
+        // 所以「关掉空槽位 + 关掉 5 张真卡」仍会被拦下，首页不会变成一张卡都没有。
         let next = off + [kind]
         guard HomeCardKind.draggable.contains(where: { !next.contains($0) }) else { return off }
         return next
@@ -194,7 +200,8 @@ enum HomeCardStore {
     /// 当前「被关掉」的集合 —— **读取路径的单一真源**（视图侧别再各写一份 parse）。
     /// · 键不存在 = 用户从没动过开关 → 走默认档（首屏 4 张）；否则 7 张 2 列 = 4 行约 370pt，
     ///   竖屏首页塞不下，会把宠物与问候语挤没
-    /// · 空槽位 `custom` 是「添加卡片」的唯一入口 → 永远不许被关（脏数据也别想关掉它）
+    /// · v4.0.9：空槽位 `custom` **也可关**（用户拍板）→ 不再从 off 里强制剔掉它；
+    ///   「添加卡片」入口由页头「自定义」胶囊兜底（那个胶囊恒在），不会失联
     /// · 6 张真卡被全关（老数据 / 手改）→ 兜底放回 resume，否则首页只剩一个空槽位，
     ///   用户会当成 App 坏了（与 setEnabled 的「拒关最后一张」同一口径）
     static var off: [HomeCardKind] {
@@ -202,7 +209,6 @@ enum HomeCardStore {
         // 后者 = 用户把卡片全开了 → 听用户的（哨兵口径，丢了这两行的区别就是首屏口径错乱）。
         let stored = UserDefaults.standard.string(forKey: offKey)
         let raw = HomeCardOrder.parse(stored ?? HomeCardOrder.encode(defaultOff))
-            .filter { $0 != .custom }
         let kept = HomeCardKind.draggable.filter { !raw.contains($0) }
         return kept.isEmpty ? raw.filter { $0 != .resume } : raw
     }
@@ -214,11 +220,14 @@ enum HomeCardStore {
         HomeCardOrder.resolve(order: UserDefaults.standard.string(forKey: orderKey) ?? "", off: "")
     }
 
-    /// 当前渲染列表（= 完整顺序 - 被关掉的；空槽位固定补在末尾）
+    /// 当前渲染列表（= 完整顺序 - 被关掉的；空槽位可见时钉在末尾）
+    /// ⚠️ v4.0.9：空槽位被关掉时**不再补回**（旧实现无条件 `base + [.custom]`，等于把 off 里的
+    /// custom 无视掉 —— 那正是「固定的空槽位关不掉」的真正根因）。
     static var kinds: [HomeCardKind] {
         let base = HomeCardOrder.resolve(
             order: UserDefaults.standard.string(forKey: orderKey) ?? "",
             off: HomeCardOrder.encode(off))
+        if off.contains(.custom) { return base }
         return base.contains(.custom) ? base : base + [.custom]
     }
 

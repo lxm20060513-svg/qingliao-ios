@@ -1,6 +1,6 @@
 import Foundation
 
-// MARK: - v4.0.8 聊天首页「方块卡片」真值表
+// MARK: - v4.0.9 聊天首页「方块卡片」真值表
 //
 // 被测真源 = `qingliao/Core/HomeCardOrder.swift`（纯 Foundation，无 SwiftUI）。
 // 本表**直接编译那份源码**（不是镜像），所以没有「表与实现漂移」这个洞：
@@ -17,7 +17,9 @@ import Foundation
 //   ⑥ 单一真源：UserDefaults 键字面量全仓只有 HomeCardOrder.swift 一处；
 //   ⑦ UI 不自算几何：拖拽走 HomeCardOrder.dragTarget、写回走 HomeCardOrder.mergeVisible；
 //   ⑧ 接入形态：ChatView 的 welcomeView 里挂 homeCardsGrid（键盘弹起同档收起）；
-//   ⑨ 胶囊口径：首页「自定义」胶囊走全站 chatHeaderPill()，不许再手写 ultraThinMaterial 胶囊。
+//   ⑨ 胶囊口径：首页「自定义」胶囊走全站 chatHeaderPill()，不许再手写 ultraThinMaterial 胶囊；
+//   ⑩ v4.0.9（用户拍板）：**空槽位可关**（旧实现无条件补回 = 关不掉的真根因）、页脚那条
+//      「继续上次」长条卡**已删除**（resumeRow 零残留，用途由首页「继续上次会话」方块卡承担）。
 
 // Swift 6 严格并发：main.swift 顶层代码是 @MainActor 隔离的，而顶层变量不能挂 global actor
 // → 计数器用 nonisolated(unsafe)（单线程顺序跑，无并发访问），这样 check 从顶层调用得通
@@ -104,8 +106,10 @@ check("🚨 拒关最后一张真卡：只剩 resume 时再关它 → 原样返�
 check("对照：还剩别的真卡时允许关（不是把整排开关禁掉）",
       HomeCardOrder.setEnabled([.mail, .todo, .weather, .expense], .resume, on: false)
         == [.mail, .todo, .weather, .expense, .resume])
-check("空槽位不可关（UI 禁用 + 逻辑再守一道）",
-      HomeCardOrder.setEnabled([.mail], .custom, on: false) == [.mail])
+check("v4.0.9 空槽位可关（旧口径「UI 禁用 + 逻辑再守一道」已按用户要求撤销）",
+      HomeCardOrder.setEnabled([.mail], .custom, on: false) == [.mail, .custom])
+check("真卡全关时再关空槽位 → 仍拒关（首页不会一张卡都不剩）",
+      HomeCardOrder.setEnabled(HomeCardKind.draggable, .custom, on: false) == HomeCardKind.draggable)
 
 // ── ④ 拖拽落位几何（相对位移，不是绝对格） ──────────────────────
 let cellW = 170.0, rowH = 93.0, n = 6
@@ -203,8 +207,8 @@ check("完整顺序恒为 catalog 全量 7 张（拖拽写回拿它当 oldFull�
       HomeCardStore.fullOrder.count == 7 && Set(HomeCardStore.fullOrder) == Set(HomeCardKind.allCases))
 
 ud.set("todo,weather,expense,custom,zzz_kind", forKey: HomeCardStore.offKey)
-check("脏 off 串：未知项丢弃 + 空槽位不许被关（否则首页没有「添加卡片」入口）",
-      HomeCardStore.off == [.todo, .weather, .expense])
+check("脏 off 串：未知项丢弃 + 空槽位照用户意思保留在 off（v4.0.9 起它可关）",
+      HomeCardStore.off == [.todo, .weather, .expense, .custom])
 ud.set(HomeCardOrder.encode(HomeCardKind.draggable), forKey: HomeCardStore.offKey)
 check("脏数据把 6 张真卡全关 → 兜底放回 resume（与 setEnabled 拒关同一口径）",
       HomeCardStore.off == HomeCardKind.draggable.filter { $0 != .resume })
@@ -220,6 +224,14 @@ check("模拟开一张默认关掉的卡：它真的出现在渲染列表里（f
       HomeCardStore.kinds.contains(.todo))
 check("开卡不把它挪到末尾（顺序串保留原槽位）",
       HomeCardStore.kinds == [.mail, .resume, .todo, .agentTip, .custom])
+
+ud.set(HomeCardOrder.encode([.custom]), forKey: HomeCardStore.offKey)
+check("🚨 空槽位关掉 → 不再被无条件补回（旧实现 `kinds` 末尾恒补 custom = 关不掉的真根因）",
+      HomeCardStore.off == [.custom]
+        && HomeCardStore.kinds == HomeCardKind.catalogOrder.filter { $0 != .custom })
+check("空槽位关掉后仍有「添加卡片」入口：页头「自定义」胶囊恒在（不失联）",
+      flat(stripCommentLines(cards)).contains(".chatHeaderPill()")
+        && flat(stripCommentLines(cards)).contains("HomeCardEditorSheet(off:$off)"))
 
 if let keepOrder { ud.set(keepOrder, forKey: HomeCardStore.orderKey) }
 else { ud.removeObject(forKey: HomeCardStore.orderKey) }
@@ -253,8 +265,16 @@ check("视图状态与读取路径同源：full = HomeCardStore.fullOrder、off 
 check("行高/间距取自 HomeCardStore（不在视图里写死 84 / 9）",
       flat(stripCommentLines(cards)).contains("privateletcardHeight=HomeCardStore.cardHeight")
         && flat(stripCommentLines(cards)).contains("privateletgap=HomeCardStore.gap"))
-check("空槽位固定钉在末尾（kinds 末尾补 custom）",
+check("空槽位可见时仍钉在末尾（kinds 末尾补 custom）",
       flat(stripCommentLines(coreSrc)).contains("returnbase.contains(.custom)?base:base+[.custom]"))
+check("🚨 kinds 必须先让 off 说话：关掉的空槽位不许被补回",
+      flat(stripCommentLines(coreSrc)).contains("ifoff.contains(.custom){returnbase}"))
+check("setEnabled 不再给空槽位开小灶（旧守卫已删）",
+      !flat(stripCommentLines(coreSrc)).contains("guardkind!=.customelse{returnoff}"))
+check("面板不再禁用空槽位开关（v4.0.9：用户要求可关）",
+      !flat(stripCommentLines(cards)).contains(".disabled(k==.custom)"))
+check("v4.0.9：页脚「继续上次」长条卡已删除（ChatView 里 resumeRow 零残留）",
+      !flat(stripCommentLines(chat)).contains("resumeRow"))
 check("ChatView 定义 homeCardsGrid 并在 welcomeView 里挂上",
       flat(stripCommentLines(chat)).contains("privatevarhomeCardsGrid:someView")
         && flat(stripCommentLines(chat)).contains("if!kb.isVisible{homeCardsGrid}"))

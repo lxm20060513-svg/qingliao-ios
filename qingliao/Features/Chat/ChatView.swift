@@ -21,7 +21,6 @@ struct ChatView: View {
     @State var pinStore = PinStore.shared   // v3.0.74：钉一钉
     // v3.7.0：剪贴板地图链接兜底入口（地图分享面板里没有轻聊 → 「拷贝」后在聊天页一键发送）
     @State var showClipboardBanner = false
-    @State var resumeRowDismissed = false     // v3.9.86：「继续上次」卡的忽略（本次进入会话内有效）
     // v3.9.71：输入收口——识别结果（动作条数据源）+ 剪贴板链接的「识别」提示
     @State var intentResult: RecognizedIntent?
     @State var showIntentClipboardBanner = false
@@ -819,7 +818,8 @@ struct ChatView: View {
             chatStatusBannerStrip
             chatTranscriptArea
             // 🚨 v3.9.71 修复（用户截图报「输入法会遮住输入框」）：空态（欢迎页）在键盘弹起时把输入栏挤没了。
-            //   算法：欢迎页是不可滚动的定高内容（顶部留白 56 + 智能球 96 + 文案 + 4 芯片 + 继续上次卡 ≈ 380pt），
+            //   算法：欢迎页是不可滚动的定高内容（顶部留白 56 + 智能球 96 + 文案 + 4 芯片 + 快捷卡片网格；
+            //   v4.0.9 已删掉页脚那条「继续上次」长条卡 ≈ -64pt），
             //   九宫格键盘 + 候选栏 ≈ 340pt，屏幕 852 − 键盘 340 − 头部 110 − 输入栏 58 ≈ **只剩 344pt**。
             //   344 < 380 → VStack 压不动欢迎页，就只能把**输入栏挤到键盘后面**（截图即此）。
             //   layoutPriority(1)：空间不足时**先挤上面的内容区**，输入栏必须完整可见。
@@ -1756,10 +1756,9 @@ struct ChatView: View {
                 homeCardsGrid
             }
 
-            // v3.4.29：继续上次会话——用户手动新建/清空会话后一键回到上一个会话，免切「会话」tab 再找
-            // （启动自动 loadLastSession 只覆盖 App 重启场景，新建会话后原先没有任何回归路径）
-            // v3.9.71：键盘弹起时这张卡也收起（约 64pt）——它不是"打字中"需要的东西
-            resumeRow
+            // v4.0.9（用户拍板）：删掉页脚那条「继续上次」长条卡 ——
+            // 它的用途已被首页「继续上次会话」方块卡完整覆盖（同一入口，且那张还能关/能排序），
+            // 留着等于一页两份「回到上个会话」的入口，白占 ~64pt 还把欢迎页顶得更高。
         }
     }
 
@@ -1942,65 +1941,8 @@ struct ChatView: View {
         .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
     }
 
-    /// 「继续上次」卡：v3.4.29 加的回归路径（启动自动 loadLastSession 只覆盖 App 重启场景）。
-    /// v3.9.71：键盘弹起时收起（约 64pt）——它不是"打字中"需要的东西。
-    /// 竖屏在底部、横屏在两栏下方，两处共用本视图。
-    @ViewBuilder
-    private var resumeRow: some View {
-        if let last = chat.lastLoadedSession, last.id != chat.sessionId, !clearing, !kb.isVisible, !resumeRowDismissed {
-            Button {
-                Haptics.tap()
-                chat.load(last)
-            } label: {
-                HStack(spacing: Spacing.md) {
-                    Image(systemName: "arrow.uturn.backward.circle")
-                        .font(.system(size: Typography.body, weight: .medium))
-                        .foregroundStyle(.secondary)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("继续上次")
-                            .font(.system(size: Typography.caption, weight: .medium))
-                            .foregroundStyle(.secondary)
-                        Text(last.title.isEmpty ? "未命名会话" : last.title)
-                            .font(.system(size: Typography.subhead, weight: .semibold))
-                            .foregroundStyle(.primary)
-                            .lineLimit(1)
-                    }
-                    Spacer(minLength: 8)
-                    // v3.9.88：右侧不再放 chevron「>」——右上角已有「忽略」胶囊，
-                    // 同一张卡上两个「指向」语义的控件打架（用户拍板：胶囊取代 >）。
-                    // 整行可点（外层 Button）就够表达「进去继续聊」。
-                }
-                .padding(.horizontal, Spacing.xxl)
-                .padding(.vertical, Spacing.lg)
-                // v3.9.86：统一玻璃卡（dashboardCard 真源样式，与全站卡片一致；原手写 ultraThinMaterial 在浅色下发灰）
-                .dashboardCard(cornerRadius: Radius.field)
-            }
-            .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
-            // v3.9.86：忽略胶囊（用户拍板，与剪贴板条同款 pill；内层 Button 不会冒泡触发外层跳转）
-            .overlay(alignment: .topTrailing) {
-                Button {
-                    Haptics.tap()
-                    withAnimation(Motion.snap) { resumeRowDismissed = true }
-                } label: {
-                    Text("忽略")
-                        .font(.system(size: Typography.caption))
-                        .padding(.horizontal, Spacing.md)
-                        .padding(.vertical, Spacing.xxs)
-                        .background(.ultraThinMaterial, in: Capsule())
-                        .overlay(Capsule().strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8))
-                }
-                .buttonStyle(PressStyle())
-                .foregroundStyle(.secondary)
-                .padding(.top, 6)
-                .padding(.trailing, 10)
-            }
-            .padding(.horizontal, Spacing.section)
-            .padding(.top, Spacing.section)
-        }
-    }
-
     /// v3.9.79 横屏欢迎页（用户拍板「按方案 2 改」）：
-    /// 左列 = 形象 + 问候语，右列 = 芯片竖排一列，下方仍留「继续上次」。
+    /// 左列 = 形象 + 问候语，右列 = 芯片竖排一列（v4.0.9 起下方那条「继续上次」长条卡已删除）。
     /// 为什么横屏要两栏：852×393 的可用高只有 ~190pt（减去输入栏 + dock），竖屏那套「留白 56 + 形象 96 +
     /// 文案 + 一排芯片」横着摆不下，只能把芯片挪到横向富余的右侧。
     private var welcomeLandscape: some View {
@@ -2017,7 +1959,6 @@ struct ChatView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding(.top, Spacing.lg)
-            resumeRow
         }
     }
 
