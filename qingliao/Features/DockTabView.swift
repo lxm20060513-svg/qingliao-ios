@@ -36,6 +36,8 @@ struct DockTabView: View {
     @State private var selected: DockTab = .chat
     // v3.6.2：dock 智能球点击 → 全屏粒子爆发（原由聊天页智能球展开触发，球迁到 dock 后跟随迁移）
     @State private var showDockBurst = false
+    /// v4.0.7：烟花粒子特效开关（设置 → 外观 → 交互；与「输入框流光」同一排）。默认开，关掉后点球不放烟花。
+    @AppStorage("qingliao_dock_burst") private var dockBurstOn = true
     /// v3.6.2：分享/深链等「程序化切到聊天页」跳过烟花（烟花的语义是「点了 dock 智能球」）
     @State private var skipNextBurst = false
     /// v3.9.33：球第三态「刚答完未查看」——AI 收尾时用户不在这页
@@ -96,7 +98,12 @@ struct DockTabView: View {
             // 各页自带背景，tab bar 玻璃改为采样真实滚动内容。
 
             TabView(selection: $selected) {
-                SessionsView(onOpenSession: { selected = .chat })
+                // v4.0.7：程序化切页与其他路径同口径——已在聊天页就不跳过（白置标志会吞掉真点击烟花），
+                // 否则从会话 tab 点开会话会放满屏烟花（v3.6.2 同类回归）
+                SessionsView(onOpenSession: {
+                    if selected != .chat { skipBurstOnce() }
+                    selected = .chat
+                })
                     .tabTransition(for: .sessions, selected: $selected)
                 // v3.4.26：isActive 参数直传（selected==.dashboard），替代 qingliaoDashboardLeave/Refresh 通知——
                 // 轮询暂停/恢复收进 DashboardView 自身生命周期，去隐式耦合
@@ -425,6 +432,8 @@ struct DockTabView: View {
 
     /// 点 dock 智能球 → 烟花（约 1.55s 后移除特效层，与原型一致）
     private func fireDockBurst() {
+        // v4.0.7：开关关着就不放（skipBurstOnce 的去抖逻辑不受影响，语义仍是「程序化切页不放烟花」）
+        guard dockBurstOn else { return }
         showDockBurst = true
         Task { try? await Task.sleep(for: .seconds(1.55)); showDockBurst = false }
     }

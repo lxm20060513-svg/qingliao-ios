@@ -107,11 +107,22 @@ struct PetStudioSheet: View {
                         }
                     }
                     .padding(.vertical, Spacing.xxs)
+                    // v4.0.7：与「试一下」同款淡底胶囊（用户：胶囊风格没统一，别再混系统 .bordered）
                     HStack(spacing: 10) {
                         Button("全开") { setAllQuirks(true) }
-                            .buttonStyle(.bordered)
+                            .buttonStyle(.plain)
+                            .font(.system(size: Typography.caption, weight: .medium))
+                            .foregroundStyle(Color.accentColor)
+                            .padding(.horizontal, Spacing.md)
+                            .padding(.vertical, Spacing.xxs)
+                            .background(Capsule().fill(Color.accentColor.opacity(Tint.subtle)))
                         Button("全关") { setAllQuirks(false) }
-                            .buttonStyle(.bordered)
+                            .buttonStyle(.plain)
+                            .font(.system(size: Typography.caption, weight: .medium))
+                            .foregroundStyle(Color.accentColor)
+                            .padding(.horizontal, Spacing.md)
+                            .padding(.vertical, Spacing.xxs)
+                            .background(Capsule().fill(Color.accentColor.opacity(Tint.subtle)))
                     }
                     .padding(.vertical, Spacing.xxs)
                     Text("勾掉的动作待机时就不会再出现。动作在 6~14 秒随机触发一次，不影响思考/提醒脸的稳重感。")
@@ -248,7 +259,7 @@ struct PetStudioSheet: View {
                     .foregroundStyle(Color.accentColor)
                     .padding(.horizontal, Spacing.sm)
                     .padding(.vertical, Spacing.xxs)
-                    .background(Capsule().fill(Color.accentColor.opacity(0.12)))
+                    .background(Capsule().fill(Color.accentColor.opacity(Tint.subtle)))
             }
             .buttonStyle(.plain)
         }
