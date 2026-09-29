@@ -38,7 +38,8 @@ extension AgentActionExecutor {
         case .fileWrite:       return await writeFile(action)
         // 其余动作不走这条路（编译期就能发现漏接：这里只列本地那 11 个）
         case .calendarCreate, .calendarUpdate, .calendarDelete, .calendarFree, .calendarToday,
-             .photoSave, .photoDelete, .notify:
+             .photoSave, .photoDelete, .notify, .mailSend:
+            // mail.send 需要登录态（auth）走后端，由 run(_:auth:) 直接分派 —— 别在这里另起入口
             return .failed("内部错误：这个动作不该走本地分派")
         }
     }

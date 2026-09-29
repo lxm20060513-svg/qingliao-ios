@@ -31,7 +31,7 @@ enum AgentActionExecutor {
     }
 
     /// 统一入口。**卡片点「执行」→ 这里；只读动作自动执行 → 也这里。**
-    static func run(_ action: AgentAction) async -> Outcome {
+    static func run(_ action: AgentAction, auth: AuthStore? = nil) async -> Outcome {
         let cap = action.kind.capability
 
         // ①② 前置：能力不可用 / 未授权 —— 读动作也要查，否则用户面对「静默空结果」
@@ -53,6 +53,8 @@ enum AgentActionExecutor {
         case .photoSave:      return await savePhoto(action)
         case .photoDelete:    return await deletePhoto(action)
         case .notify:         return await notify(action)
+        // v4.0.x 邮件代发：需要登录态走后端，由 run(_:auth:) 直接分派（不走 runLocal）
+        case .mailSend:       return await sendMail(action, auth: auth)
         // v4.0.x 第二批能力（提醒事项/通讯录/定位/剪贴板/文件）。
         // ⚠️ 它们**只经由这里**进二级分派（AgentActionExecutorLocal.runLocal）——
         //    不要在那个文件里另起入口，双入口必然分叉。
@@ -336,5 +338,55 @@ enum AgentActionExecutor {
             return .failed("发通知失败：\(error.localizedDescription)")
         }
         return .doneNoUndo(message: "已发出通知")
+    }
+
+    // MARK: - 邮件（v4.0.x AI 代发）
+
+    /// AI 代发邮件。**写动作**：只读动作免确认那条路走不到这里，只有卡片点「执行」才会调。
+    ///
+    /// 与其它写动作的关键区别：**发不发得出去**的真闸门在**后端账号配置**
+    /// （设置 → 邮件 → 该账号「允许 AI 直接发送」），不在 iOS —— status(of: .mail) 恒 .granted
+    /// （邮件没有任何 TCC 授权可请求，理由见 AppPermissionKit.status 里的注释）。
+    /// ⚠️ **App 侧闸门照样要过**（v3.9.110 审查修）：权限页对每个 `aiControllable` 能力都渲染
+    ///    「允许 AI 操作·X」开关，而 `status(of: .mail)` 恒 `.granted` ⇒ 若这里不走 mutationGuard，
+    ///    用户把该开关（或总闸）关掉后 AI 照样能发信 —— 那个开关就成了摆设。故与其它写动作同口径，
+    ///    先过 `mutationGuard(.mail)`（后台保护 + 总闸 + 单项开关 + 系统授权一起判）。
+    ///    两道闸门各管一段：App 侧管「用户允不允许 AI 动这个能力」，后端账号配置
+    ///    （「允许 AI 直接发信」）管「真发还是只存草稿」——**别把后者当前者的替代**。
+    ///
+    /// ⚠️ 最要紧的一条：**绝不把「只生成了草稿」说成「已发送」**。后端三种结果
+    ///    （sent / draft / ok:false）分别对三句不同的话，draft 必须让用户知道「没发出去」。
+    private static func sendMail(_ action: AgentAction, auth: AuthStore?) async -> Outcome {
+        if let reason = await AppPermissionKit.mutationGuard(.mail) { return .failed(reason) }
+        guard let to = action.param("to") else { return .failed("缺收件人") }
+        guard let auth else { return .failed("登录状态不可用，请回到轻聊重试") }
+        let subject = action.param("subject") ?? ""
+        let body = action.param("body") ?? ""
+        var payload: [String: Any] = ["to": to, "subject": subject, "body": body]
+        // account 可选：不传 = 后端自己挑默认账号；传了 = 指定用哪个邮箱发（多账号时用）
+        if let acc = action.param("account") { payload["account"] = acc }
+        let res: [String: Any]
+        do {
+            res = try await auth.json("/api/mail/ai_send", method: "POST", body: payload)
+        } catch {
+            NSLog("[QLACTION] mail.send 请求失败: \(error)")
+            return .failed("发送失败：\(error.localizedDescription)")
+        }
+        // 后端口径：出错时 HTTP 仍是 200，错误在 body 的 ok/error 里（跟该文件既有风格一致）
+        if (res["ok"] as? Bool) == false {
+            return .failed((res["error"] as? String) ?? "发送失败")
+        }
+        if (res["sent"] as? Bool) == true {
+            let subj = subject.isEmpty ? "（无主题）" : "（主题：\(subject)）"
+            return .doneNoUndo(message: "已发送邮件给 \(to)\(subj)")
+        }
+        if (res["draft"] as? Bool) == true {
+            // note 由后端原样透传（说明为什么没真发、要用户去做什么）→ 优先念给用户听；
+            // 后端没给才回落到本地兜底句。⚠️ 别自己另编一句盖掉它：后端知道的具体原因更多。
+            let note = (res["note"] as? String) ?? "该账号未开启「允许 AI 直接发信」，去 设置 → 邮件 打开后再说一次"
+            return .doneNoUndo(message: "未发送：\(note)")
+        }
+        // ok=true 但既没 sent 也没 draft：后端契约变了 —— 不猜、不报成功
+        return .failed("发送结果不明确（后端未回 sent/draft）")
     }
 }

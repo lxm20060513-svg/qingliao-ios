@@ -15,6 +15,10 @@ import SwiftUI
 struct AgentActionCard: View {
     let action: AgentAction
 
+    /// 登录态：`mail.send` 这类「必须走后端」的动作要它。根视图已 `.environment(auth)` 全树注入
+    /// （同 ChatView / IntentActionBar 的取法），别再往卡片里显式传参。
+    @Environment(AuthStore.self) private var auth
+
     private enum Phase: Equatable {
         case idle
         case running
@@ -89,6 +93,7 @@ struct AgentActionCard: View {
         case .fileRead:       return "doc.text"
         case .fileWrite:      return "square.and.pencil"
         case .notify:         return "bell.badge"
+        case .mailSend:       return "envelope.fill"
         }
     }
 
@@ -183,7 +188,7 @@ struct AgentActionCard: View {
         // ① 防重复：只有 idle 能进
         guard case .idle = phase else { return }
         phase = .running
-        let outcome = await AgentActionExecutor.run(action)
+        let outcome = await AgentActionExecutor.run(action, auth: auth)
         let loud = action.kind.impact != .read
         switch outcome {
         case .done(let msg, let u):

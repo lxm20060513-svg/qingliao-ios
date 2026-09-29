@@ -27,9 +27,9 @@ BE_COPY = os.path.join(os.path.dirname(ROOT), 'scripts', 'ql_be_deploy', 'stream
 
 # ── 真值表：能力（顺序即权限页展示顺序，**改动要连 AppPermissionKit 一起对齐**）
 CAPS = ['calendar', 'reminders', 'photos', 'contacts', 'location',
-        'clipboard', 'files', 'notifications', 'homekit']
+        'clipboard', 'files', 'notifications', 'mail', 'homekit']
 
-# ── 真值表：19 个动作 → (影响分级, 归属能力, prompt 里给模型看的动作名)
+# ── 真值表：20 个动作 → (影响分级, 归属能力, prompt 里给模型看的动作名)
 #     prompt 名 = rawValue，唯一例外是 notify（后端一直写作 notify）
 ACTIONS = [
     ('calendarCreate', 'calendar.create', 'write', 'calendar'),
@@ -51,6 +51,7 @@ ACTIONS = [
     ('fileRead', 'file.read', 'read', 'files'),
     ('fileWrite', 'file.write', 'write', 'files'),
     ('notify', 'notify', 'write', 'notifications'),
+    ('mailSend', 'mail.send', 'write', 'mail'),
 ]
 ACT_NAMES = [a[1] for a in ACTIONS]
 
@@ -77,7 +78,7 @@ def check(name, cond, detail=''):
 kit = read('qingliao/Core/AppPermissionKit.swift')
 m = re.search(r'enum AppCapability: String, CaseIterable[^{]*\{(.*?)\n\}', kit, re.S)
 cases = re.findall(r'^\s*case\s+(\w+)\s*$', m.group(1), re.M) if m else []
-check('AppCapability 九项齐全且顺序一致（权限页展示顺序）',
+check('AppCapability 十项齐全且顺序一致（权限页展示顺序）',
       cases == CAPS, '实际 %s' % cases)
 
 # 每个能力都要有展示名 / 图标 / 说明（漏一个 → 权限页出现空行或编译错）
@@ -87,7 +88,7 @@ for label, pattern in (('displayName', r'var displayName: String \{(.*?)\n    \}
     mm = re.search(pattern, kit, re.S)
     body = mm.group(1) if mm else ''
     missing = [c for c in CAPS if ('case .%s:' % c) not in body]
-    check('能力表 %s 覆盖全部九项' % label, not missing, '缺 %s' % missing)
+    check('能力表 %s 覆盖全部十项' % label, not missing, '缺 %s' % missing)
 
 # ── 2. shim 同步
 shim = read('scripts/shims/AppCapabilityShim.swift')
@@ -234,6 +235,57 @@ check('file.write 用例的 JSON 换行写成 \\\\n（JSON 转义形态）',
 check('断言侧比较值用 \\n（Swift 转义 = 真实换行）',
       'file?.param("content") == "买牛奶\\n交房租"' in t)
 
+# ── 11. v3.9.110 审查修（双只读审查抓到的 6 类，逐类钉死防复现）
+# 起因：新增 mail.send 时**只改了一半** —— 分派写好了、run() 的签名与卡片的 auth 却没跟上。
+# 本地预检（swiftc -parse）与前面所有断言都不查「签名 / 成员存在」，于是全绿，只有 CI Archive 才炸。
+exsrc = read('qingliao/Core/AgentActionExecutor.swift')
+cardsrc = read('qingliao/Features/Chat/AgentActionCard.swift')
+check('run(_:auth:) 签名带 auth 形参（漏 = run 里的 auth 未定义，只有 CI 才报）',
+      'static func run(_ action: AgentAction, auth: AuthStore? = nil) async -> Outcome' in exsrc)
+check('动作卡把 auth 传进执行器（漏 = 多传实参 + auth 未定义双错）',
+      'AgentActionExecutor.run(action, auth: auth)' in cardsrc)
+check('AgentActionCard 自己取登录态环境（漏 = 上面的 auth 无法解析）',
+      '@Environment(AuthStore.self) private var auth' in cardsrc)
+check('mail.send 与其它写动作同口径过 mutationGuard（漏 = 权限页那个开关变成摆设）',
+      'if let reason = await AppPermissionKit.mutationGuard(.mail) { return .failed(reason) }' in exsrc)
+
+inb = read('qingliao/Core/InboxStore.swift')
+check('作答必须查后端 ok（漏 = 200+ok:false 被当成功，卡面停在「已回答」而 AI 一直等）',
+      'guard (d["ok"] as? Bool) ?? false else {' in inb)
+check('作答路径不得退回「丢弃响应体」的写法',
+      '_ = try await auth.request("/api/inbox/answer"' not in inb)
+check('作答失败必须落到卡上（markQuestionFailed），不许只写一个没有读者的 lastError',
+      'markQuestionFailed(' in inb)
+
+check('动作全集表用 allCases（手写列表扩容必漏，本轮就漏了 mailSend）',
+      'AgentAction.Kind.allCases' in t
+      and 'let allKinds: [AgentAction.Kind] = [' not in t)
+
+pagesrc2 = read('qingliao/Features/Settings/SettingsSystem.swift')
+check('权限页不再把「邮件正文」写进「只能跳转打开」（与同页 mail 能力自相矛盾）',
+      '备忘录与邮件正文' not in pagesrc2 and '邮件：能代你发' in pagesrc2)
+
+# 问题卡：卡口径是「一直留着」，长按卡头必须有清理入口，否则 AI 已超时退出的追问卡永远删不掉
+qcard = read('qingliao/Features/Chat/ChatQuestionCard.swift')
+bub = read('qingliao/Features/Chat/ChatMessageBubble.swift')
+check('问题卡卡头挂了最小菜单（复制题干 / 删除）',
+      '.contextMenu { questionCardMenu }' in qcard and 'questionCardMenu' in qcard)
+check('宿主把删除入口传进问题卡（漏 = 菜单里的删除项走不到 onDelete）',
+      'ChatQuestionCard(message: message, onAnswer: onAnswerQuestion, onDelete: onDelete)' in bub)
+check('作答失败要出声（卡上写出原因 + 回退待答，不许静默停成「已回答」）',
+      'answerFailedHint(' in qcard and 'questionError' in qcard)
+
+# 解析：剥序号必须锚行首（早期 range(of: ". ") 会把选项正文里的「. 」当序号，无声截断）
+mdl = read('qingliao/Core/Models.swift')
+check('选项剥序号锚在行首（不许退回查行内任意位置的写法）',
+      'options: .regularExpression' in mdl and 't.range(of: ". ")' not in mdl)
+
+# 提示词不许承诺客户端没有的参数（cc 那次：模型给了会被静默丢掉，用户以为抄送了）
+if os.path.exists(BE_COPY):
+    be2 = open(BE_COPY, encoding='utf-8').read()
+    check('后端 prompt 不许再承诺 mail.send 的 cc（客户端只认 to/subject/body/account）',
+          'cc 可选' not in be2)
+
 print('')
 if fails:
     print('❌ 动作/能力一致性护栏失守 %d 处：' % len(fails))
@@ -241,4 +293,4 @@ if fails:
         print('   · %s' % f)
     sys.exit(1)
 print('✅ AI 动作 / 能力扩容护栏全绿（%d 动作 × %d 能力 × %d 个接线点）'
-      % (len(ACTIONS), len(CAPS) - 1, 8))
+      % (len(ACTIONS), len(CAPS), 8))

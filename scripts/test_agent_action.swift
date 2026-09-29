@@ -119,6 +119,7 @@ let table: [(AgentAction.Kind, AgentAction.Kind.Impact, String)] = [
     (.fileRead,       .read,   "files"),
     (.fileWrite,      .write,  "files"),
     (.notify,         .write,  "notifications"),
+    (.mailSend,       .write,  "mail"),
 ]
 for (kind, impact, cap) in table {
     check("\(kind.rawValue) 影响分级 = \(impact.rawValue)", kind.impact == impact)
@@ -148,6 +149,23 @@ check("动作解析出 file.write", file?.kind == .fileWrite)
 check("文件名可读", file?.param("path") == "notes/todo.txt")
 check("文件内容多行保留", file?.param("content") == "买牛奶\n交房租")
 
+
+// MARK: - 邮件代发（v4.0.x）的协议解析
+
+// ⚠️ 正文是多行：JSON 里的换行必须写成 \\n（Swift 多行字符串会把 \n 先变成真实换行 → JSON 直接非法，解析整段退化成原文）。
+let mailJSON = """
+{"action":"mail.send","params":{"to":"lxm20060513@163.com","subject":"本周进展","body":"1. 联调完成\\n2. 改图纸","account":"acc-eeb8da14"},"summary":"发本周进展给自己"}
+"""
+let mail = AgentAction.parse(json: mailJSON)
+check("动作解析出 mail.send", mail?.kind == .mailSend)
+check("收件人可读", mail?.param("to") == "lxm20060513@163.com")
+check("主题可读", mail?.param("subject") == "本周进展")
+check("正文多行保留", mail?.param("body") == "1. 联调完成\n2. 改图纸")
+check("account 可读（多账号时指定用哪个发）", mail?.param("account") == "acc-eeb8da14")
+check("mail.send 是写动作（必须点胶囊确认，不能自动发）", AgentAction.Kind.mailSend.impact == .write)
+check("mail.send 归属邮件能力", AgentAction.Kind.mailSend.capability.rawValue == "mail")
+check("mail.send 的标签给用户看得懂", AgentAction.Kind.mailSend.capabilityLabel == "发送邮件")
+
 // 只读动作必须落在 .read（卡片据此免确认自动跑；判错 = 该跑的跑不起来 / 该确认的不确认）
 check("reminder.list 是只读", AgentAction.Kind.reminderList.impact == .read)
 check("location.current 是只读", AgentAction.Kind.locationCurrent.impact == .read)
@@ -156,17 +174,10 @@ check("file.read 是只读", AgentAction.Kind.fileRead.impact == .read)
 check("contacts.search 是只读", AgentAction.Kind.contactsSearch.impact == .read)
 
 // 动作名唯一：同名 = 后端发下来会被解析成先注册的那个，静默走错分支
-let allKinds: [AgentAction.Kind] = [
-    .calendarCreate, .calendarUpdate, .calendarDelete, .calendarFree, .calendarToday,
-    .reminderCreate, .reminderList, .reminderDelete,
-    .photoSave, .photoDelete,
-    .contactsSearch, .contactsCreate,
-    .locationCurrent,
-    .clipboardRead, .clipboardWrite,
-    .fileList, .fileRead, .fileWrite,
-    .notify,
-]
-check("动作总数 19（扩容后）", allKinds.count == 19)
+// v3.9.110 审查修：改用 allCases，别再手写列表——扩容时手写那份必然漏（本轮就漏了 mailSend，
+// 「动作名互不重复」这条负断言的覆盖面比真值表少一项，是典型的假绿夹具）。
+let allKinds: [AgentAction.Kind] = AgentAction.Kind.allCases
+check("动作总数 20（扩容后）", allKinds.count == 20)
 check("动作名互不重复", Set(allKinds.map(\.rawValue)).count == allKinds.count)
 
 // MARK: - 参数类型容错（后端可能传数字/布尔）

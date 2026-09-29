@@ -63,6 +63,10 @@ struct MessageBubble: View {
     var onMultiSelect: () -> Void = {}
     // v3.9.74 P2.6：plan 卡「继续下一步」——下一未完成步骤作为用户消息发回（nil = 只读）
     var onContinueStep: ((String) -> Void)? = nil
+    // v3.9.110：问题卡作答回调（传用户答案原文）。nil = 只读渲染 —— 会话导出/预览等
+    // 没有宿主回调的路径自动退回只读（同 onContinueStep 的门控口径）。
+    // ⚠️ 声明位置必须紧跟 onContinueStep 且调用点也传在同一位（实参序 = 声明序，见技能 swiftui-param-order）。
+    var onAnswerQuestion: ((String) -> Void)? = nil
     // v3.0.15：AI 流式输出中——头像显示粒子球（orbits 流动），替代静态脑形标
     var streamingAvatar: Bool = false
     // v3.0.17：流式输出中 markdown 段用 SwiftUI Text 渲染（绕开 UITextView 流式锁窄布局 bug 家族）
@@ -195,6 +199,32 @@ struct MessageBubble: View {
     }
 
     var body: some View {
+        // v3.9.110：问题卡（AI 中途追问）走独立渲染；其余消息逐字走原链（normalBubbleBody）。
+        // 只加一个早退分支，不动原链里的任何修饰符 —— ChatView.body 与这里的链都已贴近
+        // Swift 类型检查阈值，别顺手往两边挂东西。
+        if message.questionId != nil {
+            questionCardBody
+        } else {
+            normalBubbleBody
+        }
+    }
+
+    /// v3.9.110：问题卡本体 —— AI 头像 / 右侧留白 / 限宽全部复用与普通回复**同一套附件**
+    ///（观感必须与 AI 气泡对齐：同一列、同一边距、同一头像），卡体本身在 ChatQuestionCard。
+    @ViewBuilder
+    private var questionCardBody: some View {
+        HStack(alignment: .top, spacing: 8) {
+            bubbleLeadingAccessory
+            ChatQuestionCard(message: message, onAnswer: onAnswerQuestion, onDelete: onDelete)
+                .frame(maxWidth: AdaptiveLayout.bubbleMaxWidth(hSize), alignment: .leading)
+            bubbleTrailingAccessory
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// 普通气泡本体（v3.9.110：从 body 原样搬出，视图顺序/层级/条件/修饰符**逐字未变**，
+    /// 只为给问题卡让出上面的早退分支）
+    private var normalBubbleBody: some View {
         HStack(alignment: .top, spacing: 8) {
             bubbleLeadingAccessory
 

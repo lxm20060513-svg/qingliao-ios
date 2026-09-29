@@ -56,6 +56,8 @@ struct AgentAction: Equatable, Sendable {
         case fileWrite = "file.write"              // 写文件（写）
         // 通知
         case notify       = "notify"              // 系统通知（写）
+        // 邮件（v4.0.x AI 代发）
+        case mailSend     = "mail.send"           // 代发邮件（写，必须点胶囊确认）
 
         var capability: AppCapability {
             switch self {
@@ -68,6 +70,7 @@ struct AgentAction: Equatable, Sendable {
             case .clipboardRead, .clipboardWrite: return .clipboard
             case .fileList, .fileRead, .fileWrite: return .files
             case .notify:      return .notifications
+            case .mailSend:    return .mail
             }
         }
 
@@ -83,7 +86,7 @@ struct AgentAction: Equatable, Sendable {
                  .locationCurrent, .clipboardRead, .fileList, .fileRead:
                 return .read
             case .calendarCreate, .calendarUpdate, .photoSave, .notify,
-                 .reminderCreate, .contactsCreate, .clipboardWrite, .fileWrite:
+                 .reminderCreate, .contactsCreate, .clipboardWrite, .fileWrite, .mailSend:
                 return .write
             case .calendarDelete, .photoDelete, .reminderDelete:
                 return .delete
@@ -112,6 +115,7 @@ struct AgentAction: Equatable, Sendable {
             case .fileRead:       return "读取文件"
             case .fileWrite:      return "写入文件"
             case .notify:         return "发送系统通知"
+            case .mailSend:       return "发送邮件"
             }
         }
     }

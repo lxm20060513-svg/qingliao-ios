@@ -623,5 +623,11 @@ echo "=== 47. 流式轮次代次真值表（v4.0.x · startSeq 只增序号）==
 #   三个开跑入口（start / restoreIfNeeded / adoptRemote）都要自增。
 run_unit /tmp/test_streamseq scripts/ql_streamseq/truth_table_streamseq.swift
 
+echo "=== 48. AI 中途追问「问题卡」真值表（v3.9.110）==="
+# 单文件（读源文件做护栏，不 import 项目代码）→ run_unit 直接编跑。工作目录 = 仓根。
+# 口径：问题卡必须从 MessageBubble.body 早退到独立组件（漏 = 退化成普通气泡）；作答先本地
+#   落地再发网络；两端题干格式（iOS splitQuestion ↔ 后端 OPT_SEP_LINE）必须一致。
+run_unit /tmp/test_askquestion scripts/ql_askquestion/truth_table_askquestion.swift
+
 [ $fail -eq 0 ] || { echo "❌ 有护栏失守"; exit 1; }
 exit 0

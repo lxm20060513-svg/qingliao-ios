@@ -53,6 +53,9 @@ enum AppCapability: String, CaseIterable, Identifiable, Sendable {
     case clipboard
     case files
     case notifications
+    // v4.0.x：邮件（AI 代发）。iOS 没有「发信」这项 TCC 权限可查/可请求，
+    // 真闸门在后端账号配置 —— 详见 AppPermissionKit.status(of: .mail) 里的注释。
+    case mail
     case homekit
 
     var id: String { rawValue }
@@ -67,6 +70,7 @@ enum AppCapability: String, CaseIterable, Identifiable, Sendable {
         case .clipboard:     return "剪贴板"
         case .files:         return "文件"
         case .notifications: return "通知"
+        case .mail:          return "邮件"
         case .homekit:       return "家庭"
         }
     }
@@ -81,6 +85,7 @@ enum AppCapability: String, CaseIterable, Identifiable, Sendable {
         case .clipboard:     return "doc.on.clipboard"
         case .files:         return "folder"
         case .notifications: return "bell"
+        case .mail:          return "envelope"
         case .homekit:       return "house"
         }
     }
@@ -102,6 +107,8 @@ enum AppCapability: String, CaseIterable, Identifiable, Sendable {
             return "读写系统剪贴板。写入不需要许可；每次读取 iOS 都会弹一次系统「粘贴」提示，这是系统行为，App 关不掉。"
         case .files:
             return "读写轻聊自己的文件目录（在「文件」App → 我的 iPhone → 轻聊 里能看到），碰不到其它 App 的文件。"
+        case .mail:
+            return "让 AI 代你发邮件。App 侧没有系统授权可给；能否真发出去取决于「设置 → 邮件」里该账号是否开了「允许 AI 直接发信」。"
         case .notifications:
             return "让 AI 用系统通知提醒你。"
         case .homekit:
@@ -232,6 +239,13 @@ enum AppPermissionKit {
             case .notDetermined:                          return .notDetermined
             @unknown default:                             return .notDetermined
             }
+        case .mail:
+            // ⚠️ 邮件**没有**系统级 TCC 授权可查/可请求（iOS 不暴露「发信」权限）。所以恒 .granted ——
+            //    发不发得出去的真闸门是**后端账号配置**（设置 → 邮件 → 「允许 AI 直接发信」）：
+            //    关着的时候后端只回草稿、根本不连 SMTP（见 AgentActionExecutor.sendMail 的三态处理）。
+            //    外层双闸门（总闸 + 单项「允许 AI 操作」）照样生效 —— 用户关掉就不给动。
+            //    ⚠️ 别改成 .unavailable：那会让卡片把整项标灰、用户以为功能坏了。
+            return .granted
         case .clipboard, .files:
             // 这两项**没有系统授权概念**：剪贴板读写与 App 自己的沙盒目录都不需要 TCC 许可。
             // 恒 granted，但外层双闸门（总闸 + 单项「允许 AI 操作」）照样生效 —— 用户关掉就不给动。
@@ -296,6 +310,9 @@ enum AppPermissionKit {
             // 这个 @MainActor 单例，回调里只传 Double/枚举这些 Sendable 值。
             return await LocationPermission.shared.request()
         case .clipboard, .files:
+            return .granted
+        case .mail:
+            // 没有系统授权可请求（理由见 status(of: .mail) 里的注释）→ 不弹框，直接回 granted。
             return .granted
         case .notifications:
             let granted = (try? await UNUserNotificationCenter.current()

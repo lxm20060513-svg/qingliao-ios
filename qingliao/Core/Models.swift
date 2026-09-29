@@ -46,6 +46,14 @@ struct ChatMessage: Identifiable, Equatable, Sendable {
     var isPush: Bool = false         // v3.0.82：Hermes 主动推送消息（本地收件箱注入，显示"推送"标签）
     /// v3.4.x 引用回复：长按消息「引用」后，该消息携带被引用的原文摘要（气泡内可视化引用块）。
     var quotedText: String?          // 被引用的原文（用户气泡顶部显示，便于对上文）
+    /// v3.9.110：AI 中途追问「问题卡」——会话内联可作答卡。
+    /// questionId 非 nil 时该条消息**渲染成问题卡**（ChatQuestionCard）而非普通气泡：
+    /// 卡内含选项胶囊 + 自由输入，答完就地变「已回答」态并留痕。
+    /// 后端来源：ask_user.py 推 task_type=question 的 inbox 条目，id 即队列 id（作答时回传）。
+    var questionId: String?
+    var questionOptions: [String]?   // 快捷选项（点一下即答）；空 = 只让打字
+    var questionAnswer: String?      // 用户已答内容（nil = 待答）
+    var questionError: String?       // 作答**没送到**时的原因（nil = 无错误）；卡上要出声，别静默
     /// v3.4.x code review fix：id 唯一性兜底短后缀——id 由 role+content 哈希+timestamp 拼成，
     /// timestamp 为 nil 或同毫秒重复内容时两条消息 id 会撞（ForEach 重复 id / Equatable 误判同一消息）。
     /// 新创建消息自动带随机 8 位十六进制 uid；持久化时随消息写入 "uid" 字段、解析时读回，
@@ -128,7 +136,38 @@ struct ChatMessage: Identifiable, Equatable, Sendable {
         msg.withdrawn = d["withdrawn"] as? Bool ?? false
         // v3.4.x code review fix：读回持久化的 uid（保持跨重启 id 稳定）；无则置 nil 走确定性旧格式
         msg.uid = d["uid"] as? String
+        // v3.9.110：读回问题卡三字段（重启/切会话后仍渲染成可作答卡、仍显示已答内容）
+        msg.questionId = d["questionId"] as? String
+        msg.questionOptions = d["questionOptions"] as? [String]
+        msg.questionAnswer = d["questionAnswer"] as? String
         return msg
+    }
+
+    /// v3.9.110：问题卡「题干 / 选项」拆分——后端 ask_user.py 的 text 形态固定为
+    ///     <题干…>\n选项：\n1. A\n2. B
+    /// `选项：` 是独立分隔行（后端常量 OPT_SEP_LINE，**改动必须两边同步**）。
+    /// 找不到分隔行 → 全是题干、无选项（App 只给输入框）。序号前缀（`1. `）渲染成按钮时要剥掉。
+    static func splitQuestion(_ text: String) -> (body: String, options: [String]) {
+        let lines = text.components(separatedBy: "\n")
+        guard let sep = lines.firstIndex(where: {
+            $0.trimmingCharacters(in: .whitespaces) == "选项："
+        }) else {
+            return (text.trimmingCharacters(in: .whitespacesAndNewlines), [])
+        }
+        let body = lines[..<sep].joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        let opts: [String] = lines[(sep + 1)...].compactMap { line in
+            let t = line.trimmingCharacters(in: .whitespaces)
+            guard !t.isEmpty else { return nil }
+            // 「1. xxx」/「1、xxx」/「1) xxx」→ 剥**行首**序号；无序号的散行原样当选项。
+            // ⚠️ 必须锚在行首：早期写法是 `range(of: ". ")`（查行内任意位置），
+            //    选项文本自己带「. 」时会被无声截断（「2. 用 A. 再验证」→ 只剩「再验证」）。
+            if let r = t.range(of: #"^\s*\d+\s*[.、)．]\s*"#, options: .regularExpression) {
+                let s = String(t[r.upperBound...]).trimmingCharacters(in: .whitespaces)
+                return s.isEmpty ? nil : s
+            }
+            return t
+        }
+        return (body.isEmpty ? text : body, opts)
     }
 
     /// 本地新消息（无时间戳）

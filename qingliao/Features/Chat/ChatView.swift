@@ -2133,6 +2133,11 @@ struct ChatView: View {
         } onContinueStep: { step in
             // v3.9.74 P2.6：plan 卡「继续下一步」——下一未完成步骤原样发回（走 sendCore 全链路：落库/排队/流式互斥全复用）
             sendCore(text: step, imageData: nil)
+        } onAnswerQuestion: { answer in
+            // v3.9.110：问题卡作答 —— 交后端（AI 侧 ask_user.py 的长轮询正等这个答案）
+            // + 就地切「已回答」态并落库。整条链路收在 InboxStore.answerQuestion 一处。
+            guard let qid = msg.questionId, !qid.isEmpty else { return }
+            Task { await inbox.answerQuestion(messageId: msg.id, inboxId: qid, answer: answer) }
         }
     }
 

@@ -414,6 +414,24 @@ final class ChatStore {
         }
     }
 
+    /// v3.9.110：把会话里某条问题卡就地标记为已答（卡片切「已回答」态 + 显示答案留痕）。
+    /// 只改内存，落库交给调用方（InboxStore 随后 saveToServer）——与注入路径同一节奏，
+    /// 避免在这里偷偷起一个 async 落库任务与会话保存链打架。
+    func markQuestionAnswered(messageId: String, answer: String) {
+        guard let i = messages.firstIndex(where: { $0.id == messageId }) else { return }
+        messages[i].questionAnswer = answer
+        messages[i].questionError = nil   // 成功即清错（重试成功那次要把上一轮的红字抹掉）
+    }
+
+    /// 作答**没送到**（后端 200+ok:false / 网络错）→ 回退到待答态并在卡上留下原因。
+    /// ⚠️ 与 markQuestionAnswered 互斥、必须成对：停在「已回答」等于骗用户答案已送达，
+    ///    而 AI 侧长轮询其实一直在等（直到超时）。回退待答顺带就是重试入口（输入控件会回来）。
+    func markQuestionFailed(messageId: String, reason: String) {
+        guard let i = messages.firstIndex(where: { $0.id == messageId }) else { return }
+        messages[i].questionAnswer = nil
+        messages[i].questionError = reason
+    }
+
     /// 流式结束后落库 assistant 消息（与最后一条相同则跳过，防重复）
     /// v2.0.102：去重仅限"连续两条 assistant 内容相同"（流式重复场景）——
     ///           上一条若是用户消息（新一轮提问），即使内容相同也必须新增（修复相同回复被吞）
@@ -719,6 +737,12 @@ final class ChatStore {
             }
             if m.isPush { p["isPush"] = true }
             if m.agent { p["agent"] = true }
+            // v3.9.110：问题卡三字段落库——重启/切会话后仍是可作答卡（未答）或已答态（带答案）
+            if let q = m.questionId {
+                p["questionId"] = q
+                if let o = m.questionOptions, !o.isEmpty { p["questionOptions"] = o }
+                if let a = m.questionAnswer, !a.isEmpty { p["questionAnswer"] = a }
+            }
             // v3.4.x：持久化引用原文（重启/切会话后气泡仍渲染）
             if let q = m.quotedText, !q.isEmpty { p["quotedText"] = q }
             return p

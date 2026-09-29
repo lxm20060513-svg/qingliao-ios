@@ -68,6 +68,39 @@ final class InboxStore {
         self.stream = stream
     }
 
+    /// v3.9.110：用户作答问题卡 → POST /api/inbox/answer（AI 侧 ask_user.py 的长轮询正在等这个答案）
+    /// + 就地更新会话里那条消息为「已回答」并落库。
+    ///
+    /// ⚠️ **刻意不 markDone**（与后端口径一致：inbox_api docstring 写明「App 侧不 markDone question」）：
+    /// ① 收尾归 AI 侧（它拿到答案后自己调 done）；② read_answer 只看 answer 值、不看 status，
+    /// 但 App 提前 done 会让「AI 还没取走答案」的窗口里卡片从队列消失——平白多一条竞态。
+    /// 代价：AI 已超时退出时该条目会 pending 到后端 STALE_TTL（24h）自动清理；期间被
+    /// consumedIds 去重挡住，不会重复注入/重复通知，只是每轮 poll 多带一条字节。
+    func answerQuestion(messageId: String, inboxId: String, answer: String) async {
+        let text = answer.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, let auth else { return }
+        // 先本地落地：用户点完立刻看到已答态，不等网络往返。
+        // 失败时**不回滚这条答案**（卡上保留用户真实给过的答复），而是把卡片切到「提交失败」态
+        // （markQuestionFailed）——答案与失败态并存、可重试，绝不静默假装已送达。
+        chat?.markQuestionAnswered(messageId: messageId, answer: text)
+        do {
+            let d = try await auth.json("/api/inbox/answer", method: "POST",
+                                        body: ["id": inboxId, "text": text])
+            // ⚠️ 后端这个端点失败时仍是 **HTTP 200 + ok:false**（条目已被 AI done / 被 STALE_TTL 清掉）；
+            //    早期写法 `_ = try await auth.request(...)` 把失败当成功 → 卡片停在「已回答」，
+            //    而 AI 侧长轮询永远等不到答案（直到超时），用户却以为答案送出去了。
+            //    与 MailSettingsSheet 同口径：一律查 ok。
+            guard (d["ok"] as? Bool) ?? false else {
+                chat?.markQuestionFailed(messageId: messageId,
+                                         reason: (d["error"] as? String) ?? "提交失败")
+                return
+            }
+            await chat?.saveToServer(auth: auth)
+        } catch {
+            chat?.markQuestionFailed(messageId: messageId, reason: error.localizedDescription)
+        }
+    }
+
     /// v3.4.23：搭载投递消费——StreamClient poll 响应捎带的收件箱消息走此入口。
     /// 与 pollOnce 同一套去重/分流/标记已读逻辑（复用 consumeOne），
     /// 立即处理不等 5s 轮询（推送滞后根治）。
@@ -127,7 +160,11 @@ final class InboxStore {
     private func consumeOne(id: String, text: String, sourceTaskId: String?, taskType: String,
                             auth: AuthStore, chat: ChatStore) async {
         guard !consumedIds.contains(id) else {
-            await markDone(id, auth: auth)
+            // v3.9.110：**问题卡重复投递时不 markDone** —— 后端 pop/peek 只看 status=="pending"，
+            // 一旦 done 就永久不再投递；卡要一直留着让用户随时能答（用户 2026-09 拍板 3a）。
+            // 重复注入/重复通知由 consumedIds 挡住，队列里的 pending 由 AI 侧拿到答案后自己 done；
+            // 没人取走的僵尸条目由后端 STALE_TTL（24h）自动清理。
+            if taskType != "question" { await markDone(id, auth: auth) }
             return
         }
         consume(id)
@@ -139,11 +176,36 @@ final class InboxStore {
         // 命中时：reply 类仍弹通知（用户要知道有回复来了），progress 类静默丢弃（任务中心另有「进行中」卡片）；
         // cron/system 类**不受影响**（继续走下面的任务中心分支，别在这里拦掉）。
         // ⚠️ 判据用会话 id（`ChatStore.deliverySessionId`），不用标题。
+        // v3.9.110 补记：**question 类刻意不在这个闸门里** —— AI 追问必须落到用户此刻停留的会话，
+        //   否则人看不到卡、也没法作答（AI 侧一直等到超时）。代价是投递壳里可能冒出一张问题卡；
+        //   这是**显式取舍**（审查提过要不要一并拦掉，结论：不拦），不是漏写。
         if chat.isDeliverySession, taskType == "reply" || taskType == "progress" {
             if taskType == "reply" {
                 NotificationHelper.notify(title: "轻聊 · 推送", body: text, sessionId: chat.sessionId)
             }
             await markDone(id, auth: auth)
+            return
+        }
+        // v3.9.110：AI 中途追问「问题卡」（后端 ask_user.py 推的 task_type=question）→
+        // 注入当前会话成一张**可作答卡**（不是普通气泡：带 questionId，气泡层渲染成
+        // ChatQuestionCard —— 选项胶囊 + 自由输入 + 答完留痕）。
+        // 四处刻意与其它类不同（用户 2026-09 拍板「方案 A 会话内联 / 快捷选项 / 卡一直留着」）：
+        //   ① 不进任务中心：追问的语义就是「AI 在对话里问你」，去任务中心找是两处分散；
+        //   ② **不 markDone**：卡要一直留着（用户随时能答），AI 侧拿到答案后自己收尾；
+        //   ③ isPush=true：留在会话展示，但 historyPayload 会滤掉它 → 不进模型上下文
+        //      （问题本来就是 AI 自己提的，回灌只会造成自问自答的重复）；
+        //   ④ 弹本地通知（侧载无 APNs）：不弹的话用户根本不知道 AI 卡在等他。
+        if taskType == "question" {
+            let parts = ChatMessage.splitQuestion(text)
+            var qmsg = ChatMessage(role: "assistant", content: text,
+                                   timestamp: Date().timeIntervalSince1970 * 1000)
+            qmsg.isPush = true
+            qmsg.questionId = id
+            qmsg.questionOptions = parts.options.isEmpty ? nil : parts.options
+            chat.append(qmsg)
+            lastInjectedCount += 1
+            NotificationHelper.notify(title: "轻聊 · AI 需要你确认", body: parts.body,
+                                      sessionId: chat.sessionId)
             return
         }
         // v3.9.7：进行中进度推送（后端在静默期推来的「已生成 N 字 + 最近片段」）→ 注入会话 🔔 进度气泡。
