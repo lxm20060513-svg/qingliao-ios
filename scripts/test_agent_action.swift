@@ -97,7 +97,7 @@ check("空白参数返回 nil", a?.param("   ") == nil)
 // MARK: - 分级表（口径 ②：读/写/删）
 
 let table: [(AgentAction.Kind, AgentAction.Kind.Impact, String)] = [
-    // v4.0.x 扩容后共 19 个动作。这张表是**分级真值**：读=免确认自动跑、写=点一下、删=红色确认。
+    // v4.0.7 后共 22 个动作。这张表是**分级真值**：读=免确认自动跑、写=点一下、删=红色确认。
     // 漏一行不会编译失败（表是数据），所以 scripts/check_action_capabilities.py 会反查
     // 「所有 rawValue 都必须在这张表里」——加动作忘了加分级 = 静默按错的分级执行。
     (.calendarCreate, .write,  "calendar"),
@@ -120,6 +120,8 @@ let table: [(AgentAction.Kind, AgentAction.Kind.Impact, String)] = [
     (.fileWrite,      .write,  "files"),
     (.notify,         .write,  "notifications"),
     (.mailSend,       .write,  "mail"),
+    (.goalCreate,     .write,  "reminders"),
+    (.goalStepDone,   .write,  "reminders"),
 ]
 for (kind, impact, cap) in table {
     check("\(kind.rawValue) 影响分级 = \(impact.rawValue)", kind.impact == impact)
@@ -177,7 +179,25 @@ check("contacts.search 是只读", AgentAction.Kind.contactsSearch.impact == .re
 // v3.9.110 审查修：改用 allCases，别再手写列表——扩容时手写那份必然漏（本轮就漏了 mailSend，
 // 「动作名互不重复」这条负断言的覆盖面比真值表少一项，是典型的假绿夹具）。
 let allKinds: [AgentAction.Kind] = AgentAction.Kind.allCases
-check("动作总数 20（扩容后）", allKinds.count == 20)
+check("动作总数 22（v4.0.7 加 goal.create/goal.step_done）", allKinds.count == 22)
+// MARK: - v4.0.7 长期目标动作
+let goalActions: [AgentAction.Kind] = [.goalCreate, .goalStepDone]
+check("goal 动作数 2", goalActions.count == 2)
+for k in goalActions {
+    check("\(k.rawValue) 归类为写操作", k.impact == .write)
+    check("\(k.rawValue) 归 reminders 能力", k.capability == .reminders)
+    check("\(k.rawValue) 标签非空", !k.capabilityLabel.isEmpty)
+}
+check("goal.create 是写（必须点确认）", AgentAction.Kind.goalCreate.impact == .write)
+check("goal.step_done 是写", AgentAction.Kind.goalStepDone.impact == .write)
+if let a = AgentAction.parse(json: #"{"action":"goal.create","params":{"title":"秋季新品","steps":"[\"定产品线\",\"备货5000\"]"},"summary":"建长期目标"}"#) {
+    check("解析 goal.create", a.kind == .goalCreate)
+    check("解析出标题", a.param("title") == "秋季新品")
+    check("解析出步骤 JSON", a.param("steps")?.contains("备货5000") == true)
+} else { check("解析 goal.create", false) }
+check("未知 goal.x 动作退化为 nil（不猜不执行）",
+      AgentAction.parse(json: #"{"action":"goal.explode"}"#) == nil)
+
 check("动作名互不重复", Set(allKinds.map(\.rawValue)).count == allKinds.count)
 
 // MARK: - 参数类型容错（后端可能传数字/布尔）

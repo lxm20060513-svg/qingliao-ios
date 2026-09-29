@@ -1408,7 +1408,7 @@ struct CardGallerySheet: View {
             Button {
                 UIPasteboard.general.string = Self.exampleJSON
                 exampleCopied = true
-                UISelectionFeedbackGenerator().selectionChanged()
+                Haptics.selection()
                 Task { @MainActor in
                     try? await Task.sleep(nanoseconds: 1_500_000_000)
                     exampleCopied = false

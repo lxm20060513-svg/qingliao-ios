@@ -55,6 +55,9 @@ enum AgentActionExecutor {
         case .notify:         return await notify(action)
         // v4.0.x 邮件代发：需要登录态走后端，由 run(_:auth:) 直接分派（不走 runLocal）
         case .mailSend:       return await sendMail(action, auth: auth)
+        // v4.0.7 长期目标：AI 判定「我在筹备XX」→ 用户点确认 → 建目标 + 拆步骤进待办
+        case .goalCreate:     return await createGoal(action, auth: auth)
+        case .goalStepDone:   return await markGoalStep(action, auth: auth)
         // v4.0.x 第二批能力（提醒事项/通讯录/定位/剪贴板/文件）。
         // ⚠️ 它们**只经由这里**进二级分派（AgentActionExecutorLocal.runLocal）——
         //    不要在那个文件里另起入口，双入口必然分叉。
@@ -388,5 +391,94 @@ enum AgentActionExecutor {
         }
         // ok=true 但既没 sent 也没 draft：后端契约变了 —— 不猜、不报成功
         return .failed("发送结果不明确（后端未回 sent/draft）")
+    }
+
+    // MARK: - v4.0.7 长期目标
+    //
+    // 口径（用户 v4.0.7 定）：
+    //   AI 只**提议**（ql-action 卡片），用户点「执行」才真建 —— 绝不自动建。
+    //   建目标 = 写本地 GoalStore（卡片立刻可见）+ 问后端建每日 9:00 推进 job。
+    //   两段 cron 已按用户口径收为**只早上 9:00 一条**。
+    //
+    // ⚠️ steps 走 JSON 字符串参数：AgentAction.params 是 [String: String] 标量字典，
+    //    协议不收数组。AI 侧负责把步骤序列化成 JSON 字符串，这里只做**容错解析**——
+    //    解析不出来就退回通用里程碑（与后端 _auto_split 同一口径），不静默丢步骤。
+
+    /// AI 给的步骤列表：容错收 JSON 数组 / 换行分隔的纯文本
+    private static func parseSteps(_ raw: String?) -> [String] {
+        guard let raw, !raw.isEmpty else { return [] }
+        if let data = raw.data(using: .utf8),
+           let arr = try? JSONSerialization.jsonObject(with: data) as? [Any] {
+            let titles = arr.compactMap { item -> String? in
+                if let s = item as? String { return s.trimmingCharacters(in: .whitespaces) }
+                if let d = item as? [String: Any] {
+                    if let t = d["title"] as? String { return t.trimmingCharacters(in: .whitespaces) }
+                    if let t = d["text"] as? String { return t.trimmingCharacters(in: .whitespaces) }
+                }
+                return nil
+            }
+            let ok = titles.filter { !$0.isEmpty }
+            if !ok.isEmpty { return ok }
+        }
+        // 非 JSON → 按换行/顿号切（AI 常直接写「1. 选题 2. 备货」）
+        return raw
+            .components(separatedBy: CharacterSet(charactersIn: "\n、;；"))
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+    }
+
+    private static func createGoal(_ action: AgentAction, auth: AuthStore?) async -> Outcome {
+        if let reason = await AppPermissionKit.mutationGuard(.reminders) { return .failed(reason) }
+        guard let title = action.param("title") else { return .failed("缺目标标题") }
+        let steps = parseSteps(action.param("steps"))
+        let hour = action.param("morningHour").flatMap { Int($0) } ?? 9
+
+        // 用户 v4.0.7 口径：只早上 9:00 一条，晚间复盘段默认关掉
+        let g = GoalItem(title: title,
+                         steps: steps.map { GoalStep(title: $0) },
+                         morningEnabled: true, eveningEnabled: false,
+                         morningHour: hour)
+        let gid = g.id
+
+        // 1) 先落本地：卡片立刻出现在生活页，不等网络
+        await MainActor.run { GoalStore.shared.add(g) }
+        // 1b) 步骤灌进待办清单（用户口径：打通，拆出的步骤直接进待办）
+        await MainActor.run { GoalTodoBridge.pushStepsToTodo(g) }  // 同一 target，桥可见
+
+        // 2) 再让后端把每日 9:00 的 cron job 建上（复用 store 既有封装，回灌 cronJobID）
+        let merged = await GoalStore.shared.createOnBackend(g)
+        if let merged, !merged.cronJobID.isEmpty {
+            await MainActor.run { GoalStore.shared.update(merged) }
+            return .done(message: "已建目标「\(title)」，\(steps.count) 步已进待办，每天 \(hour):00 推进",
+                          undo: {
+                              await MainActor.run { GoalStore.shared.remove(gid) }
+                              await GoalStore.shared.deleteOnBackend(goalID: gid)
+                          })
+        }
+        // 口径 ③：失败必须出声。目标已建但没建上每日推送 = 半成品，如实说，不假装成功。
+        return .done(message: "已建目标「\(title)」并进了待办，但每日自动推进没建上（目标卡片详情里可重试）")
+    }
+
+    private static func markGoalStep(_ action: AgentAction, auth: AuthStore?) async -> Outcome {
+        if let reason = await AppPermissionKit.mutationGuard(.reminders) { return .failed(reason) }
+        guard let gid = action.param("goalId") else { return .failed("缺目标 ID") }
+        guard let sid = action.param("stepId") else { return .failed("缺步骤 ID") }
+        let done = (action.param("done") ?? "true") != "false"
+        // 直接写目标态（不是 toggle）—— toggle 在「想勾成未勾」时会反向
+        await MainActor.run {
+            GoalStore.shared.mutate(gid) { g in
+                guard let j = g.steps.firstIndex(where: { $0.id == sid }) else { return }
+                g.steps[j].done = done
+                g.steps[j].doneAt = done ? Date() : nil
+            }
+        }
+        // 步骤同步进待办清单：勾了就在待办里划掉
+        await MainActor.run { GoalTodoBridge.syncStepDone(goalID: gid, stepID: sid) }
+        // 后端只暴露 PATCH /api/life/goal（已实测），步骤态随目标一起带回去
+        if let auth {
+            _ = try? await auth.json("/api/life/goal", method: "PATCH",
+                                     body: ["id": gid, "stepId": sid, "stepDone": done])
+        }
+        return .doneNoUndo(message: done ? "已勾掉这一步" : "已恢复这一步")
     }
 }

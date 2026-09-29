@@ -197,7 +197,7 @@ struct WeatherSheet: View {
         VStack(spacing: 10) {
             Button {
                 withAnimation(Motion.settle) { extrasExpanded.toggle() }
-                UISelectionFeedbackGenerator().selectionChanged()
+                Haptics.selection()
             } label: {
                 HStack(spacing: 5) {
                     Text(extrasExpanded ? "收起" : "展开更多")

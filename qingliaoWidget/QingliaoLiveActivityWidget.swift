@@ -50,7 +50,8 @@ struct QingliaoLiveActivityWidget: Widget {
                     // 高度约 36.67pt，38 会顶到灵动岛圆角遮罩被切上下边（本机无 iOS SDK，这类几何只能真机定论）。
                     // v3.9.79：图标从「球」换成**用户选的卡通形象**（用户 2026-09-25：「加改一条，
                     // 灵动岛球图标跟随卡通形象动态图」）。形象随 ContentState.petStyle 下发，尺寸口径不变。
-                    PetOrbView(size: 36, styleRaw: context.state.petStyle, phase: context.state.phase,
+                    PetOrbView(size: 36, styleRaw: context.state.petStyle, faceRaw: context.state.petFace,
+                               phase: context.state.phase,
                                spin: context.state.spin, beat: context.state.beatSeconds)
                         .padding(.leading, 1)
                 }
@@ -68,12 +69,14 @@ struct QingliaoLiveActivityWidget: Widget {
             } compactLeading: {
                 // v3.9.12：25 → 27（真机反馈「球反而小了」——球再加大一档，环同时收小，主次才分明）
                 // v3.9.79：同上，换卡通形象（27 仍取 36 的 3/4，主次关系不变）
-                PetOrbView(size: 27, styleRaw: context.state.petStyle, phase: context.state.phase,
+                PetOrbView(size: 27, styleRaw: context.state.petStyle, faceRaw: context.state.petFace,
+                           phase: context.state.phase,
                            spin: context.state.spin, beat: context.state.beatSeconds)
             } compactTrailing: {
                 self.compactTrailing(state: context.state)
             } minimal: {
-                PetOrbView(size: 24, styleRaw: context.state.petStyle, phase: context.state.phase,
+                PetOrbView(size: 24, styleRaw: context.state.petStyle, faceRaw: context.state.petFace,
+                           phase: context.state.phase,
                            spin: context.state.spin, beat: context.state.beatSeconds)
             }
             .keylineTint(OrbPalette.accent)
@@ -270,7 +273,8 @@ struct QingliaoLiveActivityWidget: Widget {
     private func lockScreenBanner(state: QingliaoActivityAttributes.ContentState) -> some View {
         HStack(spacing: 12) {
             // v3.9.79（用户回「1」拍板：锁屏横幅也换）：球 → 卡通形象，与灵动岛三处同一份画法/同一份状态下发
-            PetOrbView(size: 46, styleRaw: state.petStyle, phase: state.phase,
+            PetOrbView(size: 46, styleRaw: state.petStyle, faceRaw: state.petFace,
+                       phase: state.phase,
                        spin: state.spin, beat: state.beatSeconds)
             VStack(alignment: .leading, spacing: 3) {
                 Text(state.sessionTitle.isEmpty ? "轻聊" : state.sessionTitle)
@@ -348,6 +352,8 @@ struct PetOrbView: View {
     var size: CGFloat
     /// `PetStyle.rawValue`（由 `ContentState.petStyle` 透传；认不出的值落回液态小生物）
     var styleRaw: String
+    /// v4.0.6：`PetFace.rawValue`（由 `ContentState.petFace` 透传；认不出的值落回平静脸）
+    var faceRaw: String
     /// 阶段字符串（`QingliaoActivityAttributes.Phase`）
     var phase: String
     /// 累计相位（同 OrbView.spin，每拍 +0.125，不回绕）
@@ -356,6 +362,10 @@ struct PetOrbView: View {
     var beat: Double
 
     private var style: PetStyle { PetStyle.from(styleRaw) }
+
+    /// v4.0.6：常态表情随 `ContentState.petFace` 下发（同 petStyle 口径：挂件读不到主 App 的
+    /// UserDefaults，只能吃下发值；挂件的 `done` 态就是 idle，此时画的就是用户选的脸）
+    private var face: PetFace { PetFace.from(faceRaw) }
 
     /// 阶段 → 形象表情（与球时代同口径：thinking/streaming = 思考脸，failed = alert 脸，done = 常态）
     private var petState: PetState {
@@ -379,6 +389,7 @@ struct PetOrbView: View {
         Canvas { gc, canvasSize in
             PetPainter(style: style,
                        state: petState,
+                       face: face,
                        blink: false,       // 见上：实时活动渲染不出瞬时眨眼，硬做会变成慢速眯眼
                        // 岛内尺寸 24 ~ 36pt 全在 76pt 简化阈值以下：只画头 + 眼 + 嘴。
                        // 这里显式写成尺寸判断（而不是靠 PetAvatar 的 76pt 阈值），是因为本视图

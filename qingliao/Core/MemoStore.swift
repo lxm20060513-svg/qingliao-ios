@@ -177,6 +177,17 @@ final class MemoStore {
         save()
     }
 
+    /// 全部删除（含已完成/置顶）——「全部备忘」弹窗顶栏「清空」胶囊用。
+    /// 必须走 save() 同一条 FIFO 写链：否则远端留旧快照，loadFromServer 的并集合并会把条目复活。
+    @discardableResult
+    func removeAll() -> Int {
+        let n = memos.count
+        guard n > 0 else { return 0 }
+        memos.removeAll()
+        save()
+        return n
+    }
+
     func update(_ item: MemoItem, content: String) {
         let text = content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, let idx = memos.firstIndex(where: { $0.id == item.id }) else { return }

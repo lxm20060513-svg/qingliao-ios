@@ -299,6 +299,9 @@ struct AgentResultCard: View {
 
 private struct AgentCardTable: View {
     let rows: [[String]]
+    // v4.0.8：补导出入口（此前只有 markdown 表格有，ql-card 表格从 v3.5.0 起就没这按钮）
+    @State private var showShare = false
+    @State private var csvURL: URL?
 
     private var colWidths: [CGFloat] {
         guard let first = rows.first else { return [] }
@@ -311,6 +314,19 @@ private struct AgentCardTable: View {
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             VStack(alignment: .leading, spacing: 0) {
+                // v4.0.8：导出 CSV（与 markdown 表格同款视觉语言，复用 TableCSVExport 单一真源）
+                Button {
+                    csvURL = TableCSVExport.makeCSV(rows: rows, name: "card")
+                    showShare = csvURL != nil
+                } label: {
+                    Image(systemName: "square.and.arrow.up")
+                        .font(.system(size: Typography.subhead, weight: .medium))
+                        .foregroundStyle(Color.secondary)
+                        .padding(Spacing.xs)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(CodeCopyButtonStyle())
+                .accessibilityLabel("导出表格")
                 ForEach(rows.indices, id: \.self) { r in
                     HStack(spacing: 0) {
                         ForEach(rows[r].indices, id: \.self) { c in
@@ -338,5 +354,10 @@ private struct AgentCardTable: View {
             RoundedRectangle(cornerRadius: Radius.icon, style: .continuous)
                 .strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8)
         )
+        .sheet(isPresented: $showShare) {
+            if let csvURL {
+                ActivityShareSheet(items: [csvURL])
+            }
+        }
     }
 }

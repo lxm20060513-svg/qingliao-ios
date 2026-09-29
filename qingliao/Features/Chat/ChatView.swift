@@ -2094,16 +2094,16 @@ struct ChatView: View {
             withdrawMessage(msg)
         } onPin: { text in
             pinStore.add(content: text, sourceSessionId: chat.sessionId, sourceRole: msg.role)
-            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            Haptics.notify(.success)
         } onMemo: { text in
             // v3.7.0：加入备忘录（整条气泡 / 选中片段）→ 生活页「备忘录」栏目
             if MemoStore.shared.add(content: text, source: "chat") {
-                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                Haptics.notify(.success)
             }
         } onTodo: { text in
             // v3.9.35：加入待办（整条气泡 / 选中片段）→ 生活页「待办清单」栏目
             if TodoStore.shared.add(content: text, source: "chat") {
-                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                Haptics.notify(.success)
             }
         } onRemind: { text in
             // v3.9.32：长按「提醒我」——默认文案取该条消息内容
@@ -2193,7 +2193,7 @@ struct ChatView: View {
         } else {
             selectedMsgIDs.insert(msg.id)
         }
-        UISelectionFeedbackGenerator().selectionChanged()
+        Haptics.selection()
     }
 
     /// 全选/取消全选

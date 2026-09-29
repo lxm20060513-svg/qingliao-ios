@@ -65,12 +65,16 @@ struct QingliaoActivityAttributes: ActivityAttributes {
         /// ⚠️ **刻意不给默认值**：漏传就编译不过——有默认值时挂件会静默画回液态球，
         /// 与用户在设置里选的猫/海豹不一致（同 `OrbView.beat` 的口径）。
         var petStyle: String
+        /// v4.0.6：**常态表情**（`PetFace.rawValue`）——与 petStyle 同口径下发给挂件。
+        /// 挂件的 `done` 态就是 idle，此时画的是用户选的脸；不跟着走 = 灵动岛和 App 里两张脸。
+        /// 同样刻意不给默认值（漏传编译不过）。
+        var petFace: String
 
         init(sessionTitle: String, modelName: String, startedAt: Date, isAnswering: Bool,
              phase: String = QingliaoActivityAttributes.Phase.thinking.rawValue,
              actionText: String = "", canStop: Bool = false,
              progress: Double = 0.18, spin: Double = 0, beatSeconds: Double = OrbBeat.fast,
-             petStyle: String) {
+             petStyle: String, petFace: String) {
             self.sessionTitle = sessionTitle
             self.modelName = modelName
             self.startedAt = startedAt
@@ -82,11 +86,12 @@ struct QingliaoActivityAttributes: ActivityAttributes {
             self.spin = spin
             self.beatSeconds = beatSeconds
             self.petStyle = petStyle
+            self.petFace = petFace
         }
 
         private enum CodingKeys: String, CodingKey {
             case sessionTitle, modelName, startedAt, isAnswering, phase, actionText, canStop,
-                 progress, spin, beatSeconds, petStyle
+                 progress, spin, beatSeconds, petStyle, petFace
         }
 
         /// v3.9.7：手写解码。
@@ -113,6 +118,8 @@ struct QingliaoActivityAttributes: ActivityAttributes {
             // v3.9.79：旧活动缺这个键 → 按液态小生物渲染（原球的材质配色，身份不断层），
             // 绝不落空白；认不出的值由挂件侧 `PetStyle.from(_:)` 再兜一次。
             petStyle = try c.decodeIfPresent(String.self, forKey: .petStyle) ?? PetStyle.liquid.rawValue
+            // v4.0.6：旧活动缺这个键 → 平静脸（原默认脸，身份不断层），挂件侧 `PetFace.from(_:)` 再兜一次
+            petFace = try c.decodeIfPresent(String.self, forKey: .petFace) ?? PetFace.calm.rawValue
         }
     }
 

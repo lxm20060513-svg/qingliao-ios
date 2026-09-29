@@ -268,7 +268,7 @@ struct BigBangView: View {
         let joined = sorted.map { $0.text }.joined()
         guard !joined.isEmpty else { return }
         if MemoStore.shared.add(content: joined, source: "bigbang") {
-            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            Haptics.notify(.success)
             withAnimation { memoSaved = true }
         }
     }

@@ -728,7 +728,7 @@ struct DashboardView: View {
                 tokenUsageError = "重置失败，请重试"
                 return
             }
-            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            Haptics.notify(.success)
             await loadTokenUsage()
         } catch {
             tokenUsageError = "重置失败，请重试"
@@ -2434,7 +2434,7 @@ struct TokenUsageCard: View {
         }
         .onLongPressGesture(minimumDuration: 0.5) {
             guard onReset != nil else { return }
-            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            Haptics.medium()
             showResetConfirm = true
         }
         .confirmationDialog("重置 token 用量统计？\n从现在起重新累计，今日/本月旧账清零。", isPresented: $showResetConfirm, titleVisibility: .visible) {

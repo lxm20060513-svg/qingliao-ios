@@ -29,7 +29,7 @@ BE_COPY = os.path.join(os.path.dirname(ROOT), 'scripts', 'ql_be_deploy', 'stream
 CAPS = ['calendar', 'reminders', 'photos', 'contacts', 'location',
         'clipboard', 'files', 'notifications', 'mail', 'homekit']
 
-# ── 真值表：20 个动作 → (影响分级, 归属能力, prompt 里给模型看的动作名)
+# ── 真值表：22 个动作 → (影响分级, 归属能力, prompt 里给模型看的动作名)
 #     prompt 名 = rawValue，唯一例外是 notify（后端一直写作 notify）
 ACTIONS = [
     ('calendarCreate', 'calendar.create', 'write', 'calendar'),
@@ -52,6 +52,9 @@ ACTIONS = [
     ('fileWrite', 'file.write', 'write', 'files'),
     ('notify', 'notify', 'write', 'notifications'),
     ('mailSend', 'mail.send', 'write', 'mail'),
+    # v4.0.7 长期目标：AI 判定「我在筹备XX」→ 回建目标卡 → 用户点确认才建
+    ('goalCreate', 'goal.create', 'write', 'reminders'),
+    ('goalStepDone', 'goal.step_done', 'write', 'reminders'),
 ]
 ACT_NAMES = [a[1] for a in ACTIONS]
 
@@ -151,6 +154,17 @@ missing = [a[0] for a in ACTIONS if not re.search(r'\.%s\b' % a[0], ex)]
 check('每个动作都在执行器里有落点（漏 = 运行期"内部错误"）', not missing, '缺 %s' % missing)
 check('本地动作只由 runLocal 二级分派（不许出现第二个入口）',
       ex.count('static func runLocal(') == 1)
+
+# v3.9.111：上一条把两个文件**拼起来** grep，漏接点查不出来 ——
+# 新 kind 在 Executor.swift 出现过就算「有落点」，但若 runLocal 的 switch 没补 case
+# 照样编译红（switch must be exhaustive，无 default 兜底）。改为对 runLocal 单独穷尽。
+_loc = read('qingliao/Core/AgentActionExecutorLocal.swift')
+_sw = re.search(r'static func runLocal\(_ action: AgentAction\) async -> Outcome \{\s*switch action\.kind \{(.*?)\n        \}', _loc, re.S)
+_run_local_cases = set(re.findall(r'\.(\w+)[,:]?', _sw.group(1))) if _sw else set()
+_miss_local = [a[0] for a in ACTIONS if a[0] not in _run_local_cases]
+check('runLocal 的 switch 穷尽覆盖全部动作（无 default 兜底，漏一个 = CI 报 switch 不穷尽）',
+      bool(_sw) and not _miss_local,
+      'runLocal switch 未覆盖 %s' % _miss_local if _sw else '未定位到 runLocal switch')
 
 # ── 5. 卡片图标
 card = read('qingliao/Features/Chat/AgentActionCard.swift')

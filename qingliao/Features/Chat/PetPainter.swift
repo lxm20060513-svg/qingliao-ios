@@ -18,6 +18,8 @@ import SwiftUI
 struct PetPainter {
     let style: PetStyle
     let state: PetState
+    /// v4.0.6：常态表情（只作用于 idle 态；thinking/alert 仍由宿主信号决定，见 PetModel 注释）
+    let face: PetFace
     let blink: Bool
     let simplify: Bool
 
@@ -204,6 +206,72 @@ struct PetPainter {
         ctx.stroke(m, with: .color(color.opacity(opacity)), style: StrokeStyle(lineWidth: max(1, width * s), lineCap: .round))
     }
 
+    // MARK: v4.0.6 常态表情修饰器（只包 idle 态的五官）
+    //
+    // 口径：四种表情**不是四套新画法**，而是复用已有零件的组合 ——
+    //   平静 = 原样；开心 = 眼变笑眼 + 嘴加大；困倦 = 半闭眼 + 张嘴；俏皮 = 眨单眼 + 歪嘴。
+    // 这样三只形象 × 四表情 = 12 份几何不必各自手写，且**已有造型口径不会被改动**。
+    // `paint` 传进来的是该形象原本 idle 的画法，改写只在它外面套修饰。
+
+    /// 笑眼（上弯弧，比「闭眼」弧更扁更弯）
+    private func happyEyes(_ ctx: inout GraphicsContext, _ s: CGFloat,
+                          _ cx1: CGFloat, _ cx2: CGFloat, _ cy: CGFloat,
+                          _ rx: CGFloat, _ color: Color) {
+        for cx in [cx1, cx2] {
+            var arc = Path()
+            arc.move(to: p(cx - rx * 0.9, cy, s))
+            arc.addQuadCurve(to: p(cx + rx * 0.9, cy, s), control: p(cx, cy - rx * 1.1, s))
+            ctx.stroke(arc, with: .color(color), style: StrokeStyle(lineWidth: max(1, 0.020 * s), lineCap: .round))
+        }
+    }
+    /// 半闭眼：压扁的黑豆（不做闭合弧 —— 闭眼会和「开心笑眼」在缩小后糊成一样）
+    private func halfLiddedEyes(_ ctx: inout GraphicsContext, _ s: CGFloat,
+                                _ cx1: CGFloat, _ cx2: CGFloat, _ cy: CGFloat,
+                                _ rx: CGFloat, _ ry: CGFloat, _ color: Color) {
+        for cx in [cx1, cx2] {
+            ctx.fill(Path(ellipseIn: r(cx, cy + ry * 0.35, rx * 0.9, ry * 0.34, s)), with: .color(color))
+        }
+    }
+    /// 俏皮的单眼眨：用一条细弧（点眼 + 弧眼，活泼感）
+    private func winkEyes(_ ctx: inout GraphicsContext, _ s: CGFloat,
+                          _ cx1: CGFloat, _ cx2: CGFloat, _ cy: CGFloat,
+                          _ rx: CGFloat, _ color: Color) {
+        for (i, cx) in [cx1, cx2].enumerated() {
+            if i == 0 {
+                ctx.fill(Path(ellipseIn: r(cx, cy, rx * 0.9, rx * 1.15, s)), with: .color(color))
+                ctx.fill(Path(ellipseIn: r(cx + rx * 0.32, cy - rx * 0.42, rx * 0.38, rx * 0.32, s)),
+                         with: .color(.white.opacity(0.95)))
+            } else {
+                var arc = Path()
+                arc.move(to: p(cx - rx * 0.9, cy, s))
+                arc.addQuadCurve(to: p(cx + rx * 0.9, cy, s), control: p(cx, cy - rx * 0.9, s))
+                ctx.stroke(arc, with: .color(color), style: StrokeStyle(lineWidth: max(1, 0.018 * s), lineCap: .round))
+            }
+        }
+    }
+    /// 张嘴（困倦）：一个小椭圆（不是「思考」那条横线）
+    private func smallOpenMouth(_ ctx: inout GraphicsContext, _ s: CGFloat,
+                                _ y: CGFloat, _ rx: CGFloat, _ ry: CGFloat,
+                                _ color: Color) {
+        ctx.fill(Path(ellipseIn: r(0.5, y, rx, ry, s)), with: .color(color.opacity(0.85)))
+    }
+    /// 俏皮的歪嘴：一头高一头低的两段曲线（明显不对称 = 「调皮」而不是「笑」）
+    private func smirkMouth(_ ctx: inout GraphicsContext, _ s: CGFloat,
+                            _ y: CGFloat, _ half: CGFloat,
+                            _ color: Color) {
+        var m = Path()
+        m.move(to: p(0.5 - half, y + half * 0.12, s))
+        m.addQuadCurve(to: p(0.5 + half * 0.9, y - half * 0.22, s), control: p(0.5, y + half * 0.55, s))
+        ctx.stroke(m, with: .color(color.opacity(0.8)),
+                   style: StrokeStyle(lineWidth: max(1, 0.016 * s), lineCap: .round))
+    }
+    /// 大笑嘴（开心）：比默认 smile 更弯更深
+    private func bigSmile(_ ctx: inout GraphicsContext, _ s: CGFloat,
+                          _ y: CGFloat, _ half: CGFloat, _ depth: CGFloat,
+                          _ color: Color) {
+        smile(&ctx, s, y, half, depth, color, 0.85, 0.020)
+    }
+
     // MARK: 1 · 液态小生物（圆 + 两只小手；蓝紫玻璃，延续原球身份）
 
     private func drawLiquid(_ ctx: inout GraphicsContext, _ s: CGFloat) {
@@ -226,8 +294,21 @@ struct PetPainter {
     private func paintLiquidFace(_ ctx: inout GraphicsContext, _ s: CGFloat) {
         switch state {
         case .idle:
-            dotEyes(&ctx, s, 0.40, 0.60, 0.46, 0.050, 0.064, Pal.liquidInk, closed: blink)
-            smile(&ctx, s, 0.58, 0.03, 0.035, Pal.liquidInk, 0.72, 0.015)
+            // v4.0.6：常态表情接管 idle 的眼与嘴；腮红仍由共用方法画（抚摸时才加浓）
+            switch face {
+            case .calm:
+                dotEyes(&ctx, s, 0.40, 0.60, 0.46, 0.050, 0.064, Pal.liquidInk, closed: blink)
+                smile(&ctx, s, 0.58, 0.03, 0.035, Pal.liquidInk, 0.72, 0.015)
+            case .happy:
+                happyEyes(&ctx, s, 0.40, 0.60, 0.47, 0.050, Pal.liquidInk)
+                bigSmile(&ctx, s, 0.58, 0.035, 0.045, Pal.liquidInk)
+            case .sleepy:
+                halfLiddedEyes(&ctx, s, 0.40, 0.60, 0.46, 0.050, 0.064, Pal.liquidInk)
+                smallOpenMouth(&ctx, s, 0.585, 0.028, 0.020, Pal.liquidInk)
+            case .playful:
+                winkEyes(&ctx, s, 0.40, 0.60, 0.46, 0.050, Pal.liquidInk)
+                smirkMouth(&ctx, s, 0.58, 0.035, Pal.liquidInk)
+            }
             blushPair(&ctx, s, 0.30, 0.70, 0.55, 0.040, 0.024)
         case .patting:
             dotEyes(&ctx, s, 0.40, 0.60, 0.49, 0.050, 0.060, Pal.liquidInk, closed: true)
@@ -271,11 +352,28 @@ struct PetPainter {
         // 口鼻：三角鼻 + 一竖（辨识度锚点，四态都在）
         switch state {
         case .idle:
-            dotEyes(&ctx, s, 0.39, 0.61, 0.44, 0.064, 0.080, Pal.beastInk, closed: blink)
+            // v4.0.6：常态表情接管 idle 的眼与嘴；**口鼻三角鼻四态都有，保持原样**（辨识度锚点）
+            switch face {
+            case .calm:
+                dotEyes(&ctx, s, 0.39, 0.61, 0.44, 0.064, 0.080, Pal.beastInk, closed: blink)
+            case .happy:
+                happyEyes(&ctx, s, 0.39, 0.61, 0.45, 0.064, Pal.beastInk)
+            case .sleepy:
+                halfLiddedEyes(&ctx, s, 0.39, 0.61, 0.44, 0.064, 0.080, Pal.beastInk)
+            case .playful:
+                winkEyes(&ctx, s, 0.39, 0.61, 0.44, 0.064, Pal.beastInk)
+            }
             ctx.fill(Path(ellipseIn: r(0.50, 0.555, 0.040, 0.030, s)), with: .color(Pal.beastNose))
             var ph = Path()
             ph.move(to: p(0.50, 0.585, s)); ph.addLine(to: p(0.50, 0.615, s))
             ctx.stroke(ph, with: .color(Pal.beastEdge), style: StrokeStyle(lineWidth: max(1, 0.012 * s), lineCap: .round))
+            // v4.0.6：表情嘴（原来 idle 只有鼻+一竖，没有嘴 —— 这里补上，四种表情才分得开）
+            switch face {
+            case .calm: break   // 原样：保持 v4.0.2 定的口鼻辨识度锚点，不额外加嘴
+            case .happy: bigSmile(&ctx, s, 0.645, 0.045, 0.042, Pal.beastInk)
+            case .sleepy: smallOpenMouth(&ctx, s, 0.650, 0.026, 0.020, Pal.beastInk)
+            case .playful: smirkMouth(&ctx, s, 0.645, 0.042, Pal.beastInk)
+            }
         case .patting:
             dotEyes(&ctx, s, 0.39, 0.61, 0.45, 0.060, 0.074, Pal.beastInk, closed: true)
             ctx.fill(Path(ellipseIn: r(0.50, 0.555, 0.040, 0.030, s)), with: .color(Pal.beastNose))
@@ -337,9 +435,34 @@ struct PetPainter {
         switch state {
         case .idle:
             // 待机眼别太小：真图看下来 0.09×0.07 在 96pt 上像两条缝 → 放大到 0.10×0.078
-            ctx.fill(rect(0.36, 0.415, 0.10, 0.078), with: .color(Pal.botInk))
-            ctx.fill(rect(0.54, 0.415, 0.10, 0.078), with: .color(Pal.botInk))
-            ctx.fill(rounded(0.45, 0.555, 0.10, 0.03, 0.015, s), with: .color(Pal.botInk.opacity(0.8)))
+            // v4.0.6：常态表情接管 idle 的眼与嘴；**方眼是这台机器的造型锚点**，
+            // 所以开心/俏皮仍用方眼 + 变化嘴，而不是换成豆眼笑弧（那会像换了只宠物）
+            switch face {
+            case .calm, .happy, .playful:
+                ctx.fill(rect(0.36, 0.415, 0.10, 0.078), with: .color(Pal.botInk))
+                ctx.fill(rect(0.54, 0.415, 0.10, 0.078), with: .color(Pal.botInk))
+            case .sleepy:
+                // 半闭：压扁的方块（同款方件，只改高度 = 造型语言一致）
+                ctx.fill(rect(0.36, 0.437, 0.10, 0.034), with: .color(Pal.botInk))
+                ctx.fill(rect(0.54, 0.437, 0.10, 0.034), with: .color(Pal.botInk))
+            }
+            switch face {
+            case .calm:
+                ctx.fill(rounded(0.45, 0.555, 0.10, 0.03, 0.015, s), with: .color(Pal.botInk.opacity(0.8)))
+            case .happy:
+                // 笑 = 嘴横条上移 + 两侧上翘（方件化的笑，保持机器人语汇）
+                ctx.fill(rounded(0.42, 0.545, 0.16, 0.030, 0.015, s), with: .color(Pal.botInk))
+                ctx.fill(rounded(0.375, 0.520, 0.045, 0.030, 0.012, s), with: .color(Pal.botInk.opacity(0.75)))
+                ctx.fill(rounded(0.58, 0.520, 0.045, 0.030, 0.012, s), with: .color(Pal.botInk.opacity(0.75)))
+            case .sleepy:
+                // 困 = 小方口（方开口，区别于 happy 的横条）
+                ctx.fill(rounded(0.465, 0.545, 0.07, 0.045, 0.014, s), with: .color(Pal.botInk.opacity(0.85)))
+            case .playful:
+                // 俏皮 = 单眼变成细横条（wink 的方件版） + 歪嘴
+                ctx.fill(rect(0.36, 0.437, 0.10, 0.030), with: .color(Pal.botInk))
+                ctx.fill(rounded(0.44, 0.545, 0.10, 0.030, 0.012, s), with: .color(Pal.botInk.opacity(0.8)))
+                ctx.fill(rounded(0.555, 0.522, 0.045, 0.028, 0.011, s), with: .color(Pal.botInk.opacity(0.7)))
+            }
         case .patting:
             for x in [CGFloat(0.37), CGFloat(0.54)] {
                 var arc = Path()

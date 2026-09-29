@@ -272,7 +272,7 @@ struct DockerContainerCard: View {
                 if container.isComposeProject && hasUpdate {
                     Spacer(minLength: 4)
                     Button {
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        Haptics.light()
                         onUpgrade()
                     } label: {
                         // v2.0.87ap：圆形升级按钮（圆底浅色 + 箭头）
@@ -449,13 +449,13 @@ private struct ContainerSection: View {
                         DockerContainerCard(container: c, hasUpdate: updates[c.name] == true, onUpgrade: { onUpgrade(c) })
                             .onTapGesture {
                                 guard allowActions else { return }   // v3.9.41（SR37）
-                                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                                Haptics.medium()
                                 let act = c.status.contains("Up") ? "stop" : "start"
                                 Task { await onAction(c, act) }
                             }
                             .contextMenu {
                                 Button(role: .destructive) {
-                                    UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
+                                    Haptics.rigid()
                                     onDelete(c)
                                 } label: {
                                     Label("删除容器", systemImage: "trash")
@@ -541,7 +541,7 @@ private struct ImageSection: View {
                         DockerImageCard(image: img)
                             .contextMenu {
                                 Button(role: .destructive) {
-                                    UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
+                                    Haptics.rigid()
                                     onDelete(img)
                                 } label: {
                                     Label("删除镜像", systemImage: "trash")
@@ -629,7 +629,7 @@ private struct DeploySection: View {
 
             Button {
                 focused = false
-                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                Haptics.light()
                 Task { await onDeploy() }
             } label: {
                 HStack(spacing: 8) {

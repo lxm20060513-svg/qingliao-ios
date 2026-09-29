@@ -94,6 +94,8 @@ struct AgentActionCard: View {
         case .fileWrite:      return "square.and.pencil"
         case .notify:         return "bell.badge"
         case .mailSend:       return "envelope.fill"
+        case .goalCreate:     return "target"
+        case .goalStepDone:   return "checkmark.seal.fill"
         }
     }
 

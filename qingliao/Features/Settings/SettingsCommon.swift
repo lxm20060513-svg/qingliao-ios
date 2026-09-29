@@ -899,9 +899,8 @@ struct AppearanceSheet: View {
     @AppStorage("qingliao_siri_glow_width") private var glowWidth = 22.0
     // v3.0.4：补全本地外观独有项（输入框流光 / 天气城市）
     @AppStorage("qingliao_input_glow") private var glowOn = true
-    /// v3.9.78：聊天页形象（与聊天页 PetAvatar 共用同一组 key —— 本地/云端同一份设置，双模式 UI 必须一致）
-    @AppStorage(PetKeys.style) private var petStyle: PetStyle = .liquid
-    @AppStorage(PetKeys.motion) private var petMotion: PetMotion = .system
+    // v4.0.6：聊天页形象/表情/动作/动画档四组 key 已搬去 PetStudioSheet（外观页不再重复持有，
+    // 否则两处 @AppStorage 同 key 也能跑，但「外观页改动不刷新预览」这类半联动问题会很难查）。
     @State private var weatherCity = UserDefaults.standard.string(forKey: "qingliao_weather_city") ?? ""
     @State private var showWeatherCityField = false
     // v3.9.94：启动会话（逻辑早已接好，见 LaunchSession.swift / ChatStore.swift:158-165，
@@ -923,28 +922,10 @@ struct AppearanceSheet: View {
                     }
                     .padding(.vertical, Spacing.xs)
                 }
-                // v3.9.78：聊天页形象（用户拍板「三种都要 + 在设置里增加卡通宠物选择，放在外观设置项里」）
-                // 与「主题」同款三选一 idiom（缩略图 + 名称 + 选中蓝框）；缩略图**按显示尺寸 52pt 直接画**
-                // 并用 keepDetail 绕过 PetAvatar 的 76pt 简化阈值（细节不丢、尺寸又不会被撑爆）。
-                // ⚠️ v3.9.78 真机报修：原来写「PetAvatar(size: 96) + .frame(52,52)」——frame 只改布局槽位、
-                //    **不缩放画面**，96pt 画布会从 52pt 槽位四周各溢出 22pt：形象顶到卡片上边框、下沿压住名称文字。
-                //    要改尺寸就改 size，永远不要用 frame 去"缩"它。
-                Section("聊天页形象") {
-                    HStack(spacing: 10) {
-                        ForEach(PetStyle.allCases) { style in
-                            petOption(style)
-                        }
-                    }
-                    .padding(.vertical, Spacing.xs)
-                    HStack(spacing: 10) {
-                        ForEach(PetMotion.allCases) { motion in
-                            motionOption(motion)
-                        }
-                    }
-                    Text("选中的形象出现在聊天页顶部：轻点＝摸一下（长按仍是语音）。宠物动画「减弱 / 关闭」可省电，关掉后形象静止显示，状态仍由文案承担。")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
+                // v3.9.78 的「聊天页形象」段（形象三选一 + 动画三档）**已于 v4.0.6 搬去 PetStudioSheet**
+                // （用户：「外观里面的聊天页选项就可以移动到卡通宠物头像的设置里」）。
+                // 搬走而非复制：两处都能改迟早会不一致，且外观页那个 petOption/motionOption 已无调用点。
+                // 聊天页顶部仍是同一只宠物（共用 PetKeys.style/.motion/.quirks/.face 四个 key）。
                 // 交互
                 Section("交互") {
                     Toggle("输入框流光光效", isOn: $glowOn)   // v3.0.4：补全本地独有项
@@ -1136,58 +1117,6 @@ struct AppearanceSheet: View {
                 )
         }
         .buttonStyle(.plain)
-    }
-
-    /// v3.9.78：形象选项（三选一）——按显示尺寸 52pt 直接画（矢量，任意尺寸都清晰），
-    /// 细节靠 keepDetail 保住，而不是靠「96 画 + frame 52 塞」（那套会溢出卡片：v3.9.78 真机报修）
-    private func petOption(_ style: PetStyle) -> some View {
-        let selected = petStyle == style
-        return Button {
-            petStyle = style
-        } label: {
-            VStack(spacing: Spacing.xs) {
-                PetAvatar(size: 52, state: .idle, styleOverride: style, keepDetail: true)
-                Text(style.name)
-                    .font(.system(size: Typography.caption, weight: selected ? .semibold : .regular))
-                    .foregroundStyle(selected ? Color.accentColor : Color.primary)
-                    .lineLimit(1)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, Spacing.sm)
-            .background(
-                RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
-                    .fill(selected ? Color.accentColor.opacity(0.12) : Color(uiColor: .systemGray6))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
-                    .strokeBorder(selected ? Color.accentColor.opacity(0.5) : Color.clear, lineWidth: 1.5)
-            )
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("聊天页形象：\(style.name)")
-        .accessibilityAddTraits(selected ? [.isSelected] : [])
-    }
-
-    /// v3.9.78：宠物动画三档（无障碍硬要求：默认跟随系统；「减弱/关闭」可省电）
-    private func motionOption(_ motion: PetMotion) -> some View {
-        let selected = petMotion == motion
-        return Button {
-            petMotion = motion
-        } label: {
-            Text(motion.name)
-                .font(.system(size: Typography.subhead, weight: .medium))
-                .foregroundStyle(selected ? Color.white : Color.primary)
-                .lineLimit(1)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, Spacing.sm)
-                .background(
-                    RoundedRectangle(cornerRadius: Radius.chip, style: .continuous)
-                        .fill(selected ? Color.accentColor : Color(uiColor: .systemGray5))
-                )
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("宠物动画：\(motion.name)")
-        .accessibilityAddTraits(selected ? [.isSelected] : [])
     }
 
     private func sliderRow(_ title: String, value: Binding<Double>, range: ClosedRange<Double>,

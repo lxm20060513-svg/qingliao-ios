@@ -82,6 +82,24 @@ run_unit /tmp/test_launch_session -swift-version 6 \
 echo "=== 5c. 宠物动画真值表（v4.0.0 走动搞怪 + 镜像/位移顺序坑）==="
 run_unit /tmp/test_pet -swift-version 6 scripts/ql_pet/truth_table_pet.swift
 
+# v4.0.9 点击震动总开关（闸门 + 裸 generator 清零）
+if python3 scripts/ql_haptics/truth_table_haptics.py >/tmp/tt_haptics.log 2>&1; then
+  echo "✅ v4.0.9 震动开关真值表 22 项"
+else
+  echo "❌ v4.0.9 震动开关真值表"
+  cat /tmp/tt_haptics.log
+  FAIL=1
+fi
+
+# v4.0.8 表格导出入口（两条渲染路径都得有导出，防回归）
+if python3 scripts/ql_tableexport/truth_table_tableexport.py >/tmp/tt_tableexport.log 2>&1; then
+  echo "✅ v4.0.8 表格导出真值表 20 项"
+else
+  echo "❌ v4.0.8 表格导出真值表"
+  cat /tmp/tt_tableexport.log
+  FAIL=1
+fi
+
 echo "=== 6. 挂件 Extension 语法检查（v3.8.0 实时活动）==="
 $SWIFT/swiftc -parse qingliaoWidget/*.swift qingliao/Core/LiveActivityAttributes.swift qingliao/Core/LiveActivityActions.swift 2>&1 | grep -v "^$" | head -10
 if [ ${PIPESTATUS[0]} -eq 0 ]; then

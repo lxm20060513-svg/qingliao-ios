@@ -210,7 +210,8 @@ final class LiveActivityManager {
                                                            spin: lastSpin,
                                                            beatSeconds: lastBeat,
                                                            // v3.9.79：形象随 `ContentState` 下发（挂件读不到主 App 的 UserDefaults）
-                                                           petStyle: PetStyle.current.rawValue)
+                                                           petStyle: PetStyle.current.rawValue,
+                                                           petFace: PetFace.current.rawValue)
         let content = ActivityContent(state: state, staleDate: Self.staleDate())
 
         if !hasActive {
@@ -293,7 +294,8 @@ final class LiveActivityManager {
                                                            // 与「两侧永远同一口径」相悖（当前完成态无 beat 消费者，
                                                            // 属口径/健壮性收口）
                                                            beatSeconds: lastBeat,
-                                                           petStyle: PetStyle.current.rawValue)
+                                                           petStyle: PetStyle.current.rawValue,
+                                                           petFace: PetFace.current.rawValue)
         let content = ActivityContent(state: state, staleDate: Date().addingTimeInterval(60))
 
         // 这期间又开始了新一轮 → 新活动不能被这一轮收尾碰到
@@ -375,7 +377,8 @@ final class LiveActivityManager {
                                                            progress: 1.0,
                                                            spin: lastSpin,
                                                            beatSeconds: lastBeat,
-                                                           petStyle: PetStyle.current.rawValue)
+                                                           petStyle: PetStyle.current.rawValue,
+                                                           petFace: PetFace.current.rawValue)
         let content = ActivityContent(state: state, staleDate: Date().addingTimeInterval(60))
         // 与 `finish()` 同口径：把完成态作为 end 的 content 传入，让**系统**按时收起
         // （不依赖本进程继续存活——后台刷新的窗口只有几秒，睡 2s 再 end 会被再次挂起打断）。
@@ -540,7 +543,8 @@ final class LiveActivityManager {
                                                progress: progress,
                                                spin: spin,
                                                beatSeconds: lastBeat,
-                                               petStyle: PetStyle.current.rawValue)
+                                               petStyle: PetStyle.current.rawValue,
+                                               petFace: PetFace.current.rawValue)
     }
 
     // MARK: - 私有

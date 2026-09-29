@@ -33,6 +33,8 @@ struct PetAvatar: View {
     var patTrigger: Int = 0
     /// 设置页预览用：不受用户当前选择影响（nil = 跟随用户选择）
     var styleOverride: PetStyle? = nil
+    /// v4.0.6：表情缩略图用（每张脸要单独画出选中的那一张，故不能只跟随全局选择）
+    var faceOverride: PetFace? = nil
     /// 设置页缩略图用：**按小尺寸直接画**但要保留完整细节（绕过 76pt 简化阈值）。
     /// ⚠️ 别再退回「以 96 画 + `.frame(52,52)` 显示」那套：frame 只改布局槽位、不缩放画面，
     /// 96pt 画布会从 52pt 槽位四周各溢出 22pt —— 形象压住卡片圆角边框和自家名字（v3.9.78 真机报修）。
@@ -40,6 +42,10 @@ struct PetAvatar: View {
 
     @AppStorage(PetKeys.style) private var storedStyle: PetStyle = .liquid
     @AppStorage(PetKeys.motion) private var motionSetting: PetMotion = .system
+    // v4.0.6：常态表情（只影响 idle 态的脸；thinking/alert 仍走宿主信号，见 PetModel 口径）
+    @AppStorage(PetKeys.face) private var storedFace: PetFace = .calm
+    // v4.0.6：行为动作勾选集（逗号分隔串；缺失 key = 全开，见 PetKeys.enabledQuirks）
+    @AppStorage(PetKeys.quirks) private var quirksRaw: String = ""
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @Environment(\.scenePhase) private var scenePhase
 
@@ -48,39 +54,29 @@ struct PetAvatar: View {
     @State private var patting = false
     // v3.9.85：灵动微动作——idle 时每隔一段时间随机来一下，让宠物「像活的」。
     // 全部走 SwiftUI 层变换（rotate/offset），不触发 Canvas 重绘，成本与呼吸同级。
-    @State private var quirky: Quirk = .none
+    // v4.0.6：Quirk 已从本文件 private 提到 PetModel.swift（设置页要给它做多选，
+    // 文件级 private 跨文件不可见 —— 当年 MiniCapsule 就栽在这条上）。
+    // 用 Optional 表达「不在动作中」：模型里那个 .none 是给设置页枚举用的哨兵，不该混进来。
+    @State private var quirky: Quirk? = nil
 
-    /// 一次性微动作（形变 + 时长）
-    private enum Quirk: Equatable {
-        case none
-        case headTilt      // 歪头好奇
-        case lookAround    // 左右张望
-        case happyWiggle   // 开心扭动
-        case stretch       // 伸懒腰（拉长一下）
-        // v4.0.0（用户：「增加走动搞怪动画让它活起来」）：真·位移，不是原地形变。
-        // v3.9.85 那四个动作全在原地（rotate/scale/offset 幅度都是 0.0x×size），
-        // 观感上仍是「贴着原地晃」→ 补两个踱步动作：横向挪 + 朝向翻转 + 上下颠步。
-        case strollLeft
-        case strollRight
-
-        var duration: TimeInterval {
-            switch self {
-            case .none: return 0
-            case .headTilt: return 1.4
-            case .lookAround: return 1.6
-            case .happyWiggle: return 0.9
-            case .stretch: return 1.5
-            case .strollLeft, .strollRight: return 2.2
-            }
-        }
-        static let pool: [Quirk] = [.headTilt, .lookAround, .happyWiggle, .stretch,
-                                    .strollLeft, .strollRight]
-
-        /// 是否是「走动」类：需要按行进方向镜像朝向
-        var isStroll: Bool { self == .strollLeft || self == .strollRight }
+    /// 当前勾选的动作集合。⚠️ 本组件用 @AppStorage 拿到的是**非 optional String**，
+    /// 「没设过」与「设成空串」在这里长得一样 —— 两种语义在 PetKeys.enabledQuirks 里
+    /// 靠 UserDefaults.string(forKey:) 分开；这里只有在 key 真正缺失时才回全开。
+    private var enabledQuirks: Set<Quirk> {
+        UserDefaults.standard.string(forKey: PetKeys.quirks) == nil
+            ? Set(Quirk.pool) : PetKeys.enabledQuirks()
     }
 
     private var style: PetStyle { styleOverride ?? storedStyle }
+    /// v4.0.6：表情缩略图走 override，其余走用户选择
+    private var face: PetFace { faceOverride ?? storedFace }
+    /// v4.0.6：动作预览时手动播一个（不参与随机循环；预览用 state=.idle）
+    ///
+    /// ⚠️ 刻意**不加 private**：加了会让本 struct 的 memberwise init 变私有，
+    /// 7 个跨文件调用点（PetStudioSheet / SettingsCore / OrbQuickMenu / ChatView /
+    /// ChatMessageBubble）全部编译红。memberwise init 的实参序 = 属性声明序，
+    /// **新增存储属性时必须排在本行之后**，并同步核对全部调用点传参序。
+    var quirkPreview: Quirk? = nil
 
     /// 是否允许动：设置「关闭」否；「减弱」+ 系统或设置任一要求减弱否；后台否
     private var motionAllowed: Bool {
@@ -97,42 +93,44 @@ struct PetAvatar: View {
     private var effectiveState: PetState { patting ? .patting : state }
 
     // v3.9.85：微动作 → 三轴变换值（idle 才生效，thinking/alert 保持稳重）
-    private var quirkyActive: Bool { animate && state == .idle && !patting && quirky != .none }
+    // v4.0.6：quirky 改成 Optional（Quirk 模型里没有 .none），所以这里统一走
+    // `current` 这个「已归一化」的值：不在动作中 → nil，switch 落到 default 全 0。
+    private var quirkyActive: Bool { animate && state == .idle && !patting && quirky != nil }
+    /// v4.0.6：设置页动作预览走 `quirkPreview`（手动定格，不看动画档），
+    /// 聊天页走随机循环的 `quirky`。
+    private var current: Quirk? { quirkPreview ?? (quirkyActive ? quirky : nil) }
     private var quirkyScale: CGFloat {
-        guard quirkyActive else { return 1.0 }
-        switch quirky {
-        case .stretch: return 1.04
-        case .happyWiggle: return 1.02
+        switch current {
+        case .some(.stretch): return 1.04
+        case .some(.happyWiggle): return 1.02
         default: return 1.0
         }
     }
     private var quirkyAngle: CGFloat {
-        guard quirkyActive else { return 0 }
-        switch quirky {
-        case .headTilt: return 6
-        case .lookAround: return -3
+        switch current {
+        case .some(.headTilt): return 6
+        case .some(.lookAround): return -3
         // 踱步时的前倾（走路重心前移的身体感），左右一致 → 用同一个正角度
-        case .strollLeft, .strollRight: return 2.5
+        case .some(.strollLeft), .some(.strollRight): return 2.5
         default: return 0
         }
     }
     private var quirkyShift: CGFloat {
-        guard quirkyActive else { return 0 }
-        switch quirky {
-        case .lookAround: return size * 0.03
-        case .happyWiggle: return size * 0.015
+        switch current {
+        case .some(.lookAround): return size * 0.03
+        case .some(.happyWiggle): return size * 0.015
         // 走动位移：14pt（≈96pt 形象的 15%），落在宿主 96×96 框外的欢迎页空白区，不压文字
-        case .strollLeft: return -size * 0.145
-        case .strollRight: return size * 0.145
+        case .some(.strollLeft): return -size * 0.145
+        case .some(.strollRight): return size * 0.145
         default: return 0
         }
     }
     /// 踱步的行进方向：0 = 正向，1 = 水平镜像（scaleEffect(x: -1)）
     /// ⚠️ 只镜像 Canvas 层的位移与朝向，**不影响 overlay 的角标/思考点**（那些挂在本层之外）。
-    private var quirkyMirror: CGFloat { quirkyActive && quirky == .strollLeft ? -1.0 : 1.0 }
+    private var quirkyMirror: CGFloat { current == .strollLeft ? -1.0 : 1.0 }
     /// 踱步时的上下颠步（每步一点，锚点在底部 = 脚不离地）
     private var quirkyBob: CGFloat {
-        guard quirkyActive, quirky.isStroll else { return 0 }
+        guard let q = current, q.isStroll else { return 0 }
         return strollPhase ? -size * 0.03 : 0
     }
     /// 颠步相位：独立 @State，由 strollLoop 定时翻转（与 quirky 的进出是两段时间轴）
@@ -145,6 +143,7 @@ struct PetAvatar: View {
         Canvas { context, canvasSize in
             PetPainter(style: style,
                        state: effectiveState,
+                       face: face,
                        blink: blink && animate,
                        simplify: simplify)
                 .draw(&context, size: canvasSize)
@@ -175,12 +174,14 @@ struct PetAvatar: View {
                 // v4.0.0：不动时必须把姿态复位，否则切后台/被系统挂起时正卡在「抬起」，
                 // 回前台会看到宠物僵在半抬状态；同时 quirky 也清零（无动画包裹 = 立即归位）。
                 strollPhase = false
-                quirky = .none
+                quirky = nil
                 withAnimation(nil) { breath = false }
             }
         }
         .task(id: animate) { await blinkLoop() }
-        .task(id: animate) { await quirkyLoop() }   // v3.9.85：灵动微动作
+        // v4.0.6：task id 里带上勾选串 —— 用户在设置页改了勾选，这一层必须重挂一次，
+        // 否则循环还拿着旧池子，新勾的动作要等下次进聊天页才生效。
+        .task(id: "\(animate)-\(quirksRaw)") { await quirkyLoop() }   // v3.9.85：灵动微动作
         .onChange(of: patTrigger) { _, _ in playPat() }
     }
 
@@ -210,11 +211,14 @@ struct PetAvatar: View {
     }
 
     /// v3.9.85：微动作循环——8~16s 随机播一个，每个动作「出去 + 回来」两段动画
+    /// v4.0.6：池子 = 用户勾选的那几个（enabledQuirks）；全关时**彻底不播**（不是硬塞一个默认动作）。
     private func quirkyLoop() async {
         while !Task.isCancelled {
             try? await Task.sleep(for: .seconds(Double.random(in: 6...14)))
             guard animate, !Task.isCancelled, state == .idle, !patting else { continue }
-            let q = Quirk.pool.randomElement() ?? .headTilt
+            // ⚠️ 每轮重算：勾选可能在本轮等待期间被改（设置页或 task id 重挂都会走到这）
+            let pool = Quirk.pool.filter { enabledQuirks.contains($0) }
+            guard let q = pool.randomElement() else { continue }
             let d = q.duration
             if q.isStroll {
                 await playStroll(q, duration: d)
@@ -222,7 +226,7 @@ struct PetAvatar: View {
                 withAnimation(.easeInOut(duration: d * 0.4)) { quirky = q }
                 try? await Task.sleep(for: .seconds(d * 0.6))
                 guard !Task.isCancelled else { return }
-                withAnimation(.easeInOut(duration: d * 0.4)) { quirky = .none }
+                withAnimation(.easeInOut(duration: d * 0.4)) { quirky = nil }
             }
         }
     }
@@ -247,7 +251,7 @@ struct PetAvatar: View {
         try? await Task.sleep(for: .seconds(d * 0.35))
         guard animate, !Task.isCancelled else { return }
         strollPhase = false
-        withAnimation(.easeInOut(duration: d * 0.3)) { quirky = .none }
+        withAnimation(.easeInOut(duration: d * 0.3)) { quirky = nil }
     }
 
     @ViewBuilder

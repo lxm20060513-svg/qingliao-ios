@@ -500,11 +500,19 @@ let petOrbSlice = between(widgetSrc, "struct PetOrbView: View {", "/// 轻聊球
 check("PetOrbView 切片可切出（空了本条就是空真）", !petOrbSlice.isEmpty)
 // 实参**顺序**要按声明逐字对齐（本仓最贵的失败类型，只有 CI Archive 会暴露）。
 // ⚠️ 不能用「逐个标签 contains」：那样把 state/blink 换序照样绿（反向自证实测）——必须断言有序片段。
+// v4.0.6：PetPainter 加了 face 参数（常态表情），声明序变为 style→state→face→blink→simplify
+let iFace = petOrbSlice.range(of: "face: face,")
 let iBlink = petOrbSlice.range(of: "blink: false,")
 let iSimplify = petOrbSlice.range(of: "simplify: size < PetKeys.simplifyBelow)")
-check("PetPainter 实参序 = 声明序（style→state→blink→simplify）",
-      widgetSrc.contains("PetPainter(style: style,\n                       state: petState,\n                       blink: false,")
-      && iBlink != nil && iSimplify != nil && iBlink!.lowerBound < iSimplify!.lowerBound)
+check("PetPainter 实参序 = 声明序（style→state→face→blink→simplify）",
+      widgetSrc.contains("PetPainter(style: style,\n                       state: petState,\n                       face: face,\n                       blink: false,")
+      && iFace != nil && iBlink != nil && iSimplify != nil
+      && iFace!.lowerBound < iBlink!.lowerBound && iBlink!.lowerBound < iSimplify!.lowerBound)
+// v4.0.6：face 由 ContentState.petFace 下发（挂件读不到主 App 的 UserDefaults，免费签名无 App Groups）
+check("表情随 ContentState.petFace 下发（挂件也画用户选的脸）",
+      widgetSrc.components(separatedBy: "faceRaw: context.state.petFace").count - 1 == 3
+      && attributesSrc.contains("var petFace: String")
+      && !attributesSrc.contains("var petFace: String ="))
 // ⚠️ 必须按**三处都在传**判（反向自证实测：只断言 contains 时，把其中一处改成写死液态仍然全绿）
 check("形象随 ContentState.petStyle 下发（三处图标都传，不是只传一处）",
       widgetSrc.components(separatedBy: "styleRaw: context.state.petStyle").count - 1 == 3

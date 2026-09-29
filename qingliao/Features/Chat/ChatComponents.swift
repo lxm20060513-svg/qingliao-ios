@@ -372,7 +372,9 @@ struct MessageBlockView: View {
 
 /// v3.4.25：低调半透明按钮样式——常态 opacity 0.55，按压时高亮 + 微缩放（isPressed 驱动，
 /// 不用手势叠加：DragGesture 挂 Button 上与 tap 手势有互相干扰风险）
-private struct CodeCopyButtonStyle: ButtonStyle {
+// v4.0.8：去掉 private —— AgentResultCard.swift 的表格导出按钮要复用。
+// 各文件私藏副本正是 MiniCapsule 的老坑（CI Archive 报 cannot find X in scope）。
+struct CodeCopyButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .opacity(configuration.isPressed ? 1.0 : 0.55)
@@ -397,7 +399,7 @@ private struct CodeCopyButton: View {
             UIPasteboard.general.string = codeText
             Haptics.success()   // v3.9.30：复制触感（与图标 bounce 同步）
             // UISelectionFeedbackGenerator：轻触感反馈（低成本，点击有实感）
-            UISelectionFeedbackGenerator().selectionChanged()
+            Haptics.selection()
             copied = true
             resetTask?.cancel()
             resetTask = Task { @MainActor in
@@ -662,7 +664,7 @@ private struct MarkdownTableView: View {
                 HStack(alignment: .top, spacing: 0) {
                     // v3.5.0：分享按钮（低调半透明，与 CodeCopyButton 同款视觉语言）
                     Button {
-                        csvURL = Self.makeCSV(rows: rows)
+                        csvURL = TableCSVExport.makeCSV(rows: rows, name: "table")
                         showShare = csvURL != nil
                     } label: {
                         Image(systemName: "square.and.arrow.up")
@@ -711,8 +713,21 @@ private struct MarkdownTableView: View {
         }
     }
 
+}
+
+/// MARK: - v4.0.8 表格导出公共工具
+//
+// 抽到公共层的原因：表格在 App 里有**两条渲染路径**，此前导出按钮只挂在 markdown 那条
+// （MarkdownTableView）上，ql-card 里的表格（AgentCardTable）从 v3.5.0 起就没有导出入口
+// —— 用户抱怨「聊天里的表格没有导出按钮」正是这条路径。
+//
+// ⚠️ 别再往各自文件里各抄一份 private 版本：那正是 MiniCapsule 踩过的坑
+// （本机 -parse 全绿、CI Archive 报 cannot find X in scope）。单一真源。
+
+enum TableCSVExport {
     /// rows → CSV 临时文件（RFC 4180 转义：含逗号/引号/换行的字段加引号，引号翻倍）
-    private static func makeCSV(rows: [[String]]) -> URL? {
+    /// 带 UTF-8 BOM 头：Excel/WPS 直接打开中文不乱码。
+    static func makeCSV(rows: [[String]], name: String = "table") -> URL? {
         func esc(_ s: String) -> String {
             if s.contains(",") || s.contains("\"") || s.contains("\n") {
                 return "\"\(s.replacingOccurrences(of: "\"", with: "\"\""))\""
@@ -722,9 +737,8 @@ private struct MarkdownTableView: View {
         let csv = rows.map { $0.map(esc).joined(separator: ",") }.joined(separator: "\r\n")
         let dir = FileManager.default.temporaryDirectory
         let stamp = Int(Date().timeIntervalSince1970)
-        let url = dir.appendingPathComponent("qingliao_table_\(stamp).csv")
+        let url = dir.appendingPathComponent("qingliao_\(name)_\(stamp).csv")
         do {
-            // BOM 头：Excel/WPS 直接打开 UTF-8 中文不乱码
             var data = Data([0xEF, 0xBB, 0xBF])
             data.append(Data(csv.utf8))
             try data.write(to: url)

@@ -21,6 +21,8 @@ struct TodoSection: View {
     /// 每次写库后由 `refreshDetail()` 回灌这一份，呈现期间不再动 `detail`（换值可能触发重呈现）。
     @State private var detailCurrent: TodoItem?
     @State private var pendingDelete: TodoItem?
+    /// 「全部待办」弹窗顶栏「清空」胶囊的二次确认（挂在弹窗内的 List 上——宿主级 alert 会被 sheet 盖住）
+    @State private var confirmClearAll = false
     @State private var editDraft = ""
     /// v3.9.35b：详情页编辑态标志（查看=待办风格大卡；编辑=TextEditor）
     @State private var detailEditing = false
@@ -167,6 +169,11 @@ struct TodoSection: View {
                         .font(.system(size: Typography.caption))
                         .foregroundStyle(.secondary)
                     Spacer(minLength: 0)
+                    // v3.9.110：清空胶囊（与「完成」同排、左侧）——确认框挂在下面 List 上，
+                    // 不能挂宿主：宿主那个 alert 在 sheet 之上会被盖住（同 pendingDelete 的坑）
+                    if !store.sorted.isEmpty {
+                        MiniCapsule(title: "清空") { confirmClearAll = true }
+                    }
                     MiniCapsule(title: "完成", accent: true) { showAll = false }
                 }
                 .padding(.horizontal, Spacing.section)
@@ -220,6 +227,17 @@ struct TodoSection: View {
                 }
                 .listStyle(.plain)
                 .scrollContentBackground(.hidden)
+                // v3.9.110：「清空」二次确认（挂在弹窗内，同 pendingDeleteInList 的道理）
+                .alert("清空全部待办？", isPresented: $confirmClearAll) {
+                    Button("清空 \(store.sorted.count) 条", role: .destructive) {
+                        store.removeAll()
+                        showAll = false          // 清空后收起弹窗 → 生活页回到空态引导卡
+                        Haptics.success()
+                    }
+                    Button("取消", role: .cancel) { confirmClearAll = false }
+                } message: {
+                    Text("将删除全部 \(store.sorted.count) 条待办（含已完成），删除后不可恢复。")
+                }
             }
             .toolbar(.hidden, for: .navigationBar)
         }

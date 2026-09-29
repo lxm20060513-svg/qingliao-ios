@@ -150,7 +150,7 @@ extension ChatView {
         // 从此再没人动它——`refreshing` 期间 122 行早退吃掉全部回弹回调，拉取结束只淡出 toast，
         // 于是 68 行 `state.progress >= 0.04` 重新命中：胶囊在 toast 消失后自己浮出来并常驻。
         if st.progress != 0 { st.progress = 0 }
-        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        Haptics.medium()
         Task { @MainActor in
             await inbox.pollOnce()
             st.refreshing = false
@@ -160,9 +160,7 @@ extension ChatView {
                 let n = inbox.lastInjectedCount
                 st.toast = n > 0 ? "🔔 已拉取 \(n) 条新推送" : "✅ 暂无新推送"
             }
-            UINotificationFeedbackGenerator().notificationOccurred(
-                inbox.lastError != nil ? .warning : .success
-            )
+            Haptics.notify(inbox.lastError != nil ? .warning : .success)
             // 延时清 toast（代次防竞态：期间若又触发一次拉取，不清新 toast）
             st.toastGen += 1
             let gen = st.toastGen

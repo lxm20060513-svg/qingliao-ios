@@ -42,6 +42,8 @@ struct MemoSection: View {
     @State private var pendingDelete: MemoItem?
     /// v3.9.38：列表内左滑删除的二次确认（确认框挂在弹窗内部——宿主那个会在 sheet 之上被盖住）
     @State private var pendingDeleteInList: MemoItem?
+    /// v3.9.110：「全部备忘」弹窗顶栏「清空」胶囊的二次确认（同上，挂在弹窗内部）
+    @State private var confirmClearAll = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -187,6 +189,10 @@ struct MemoSection: View {
                         .font(.system(size: Typography.caption))
                         .foregroundStyle(.secondary)
                     Spacer(minLength: 0)
+                    // v3.9.110：清空胶囊（与「完成」同排、左侧）——确认框挂在弹窗内，见下方 List
+                    if !store.sorted.isEmpty {
+                        MiniCapsule(title: "清空") { confirmClearAll = true }
+                    }
                     MiniCapsule(title: "完成", accent: true) { showAll = false }
                 }
                 .padding(.horizontal, Spacing.section)
@@ -231,6 +237,17 @@ struct MemoSection: View {
                 }
                 .listStyle(.plain)
                 .scrollContentBackground(.hidden)
+                // v3.9.110：「清空」二次确认（挂在 List 上与下面那个单条删除 alert 分层，避免互相顶掉）
+                .alert("清空全部备忘？", isPresented: $confirmClearAll) {
+                    Button("清空 \(store.sorted.count) 条", role: .destructive) {
+                        store.removeAll()
+                        showAll = false          // 清空后收起弹窗 → 生活页回到空态引导卡
+                        Haptics.success()
+                    }
+                    Button("取消", role: .cancel) { confirmClearAll = false }
+                } message: {
+                    Text("将删除全部 \(store.sorted.count) 条备忘（含置顶），删除后不可恢复。")
+                }
             }
             .toolbar(.hidden, for: .navigationBar)
             // v3.9.38：弹窗内的删除确认（与宿主那个同口径：说清删的是哪条、删后不可恢复）。

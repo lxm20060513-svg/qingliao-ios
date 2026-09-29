@@ -58,6 +58,9 @@ struct AgentAction: Equatable, Sendable {
         case notify       = "notify"              // 系统通知（写）
         // 邮件（v4.0.x AI 代发）
         case mailSend     = "mail.send"           // 代发邮件（写，必须点胶囊确认）
+        // v4.0.7 长期目标：AI 判定「我在筹备XX」→ 回建目标卡 → 用户点确认才建
+        case goalCreate   = "goal.create"         // 建长期目标（写，必须点确认）
+        case goalStepDone = "goal.step_done"      // 勾掉目标的一步（写）
 
         var capability: AppCapability {
             switch self {
@@ -71,6 +74,8 @@ struct AgentAction: Equatable, Sendable {
             case .fileList, .fileRead, .fileWrite: return .files
             case .notify:      return .notifications
             case .mailSend:    return .mail
+            // v4.0.7：目标归到 reminders 能力（复用「待办/提醒」这档已有授权，不新增能力位）
+            case .goalCreate, .goalStepDone: return .reminders
             }
         }
 
@@ -86,7 +91,8 @@ struct AgentAction: Equatable, Sendable {
                  .locationCurrent, .clipboardRead, .fileList, .fileRead:
                 return .read
             case .calendarCreate, .calendarUpdate, .photoSave, .notify,
-                 .reminderCreate, .contactsCreate, .clipboardWrite, .fileWrite, .mailSend:
+                 .reminderCreate, .contactsCreate, .clipboardWrite, .fileWrite, .mailSend,
+                 .goalCreate, .goalStepDone:
                 return .write
             case .calendarDelete, .photoDelete, .reminderDelete:
                 return .delete
@@ -116,6 +122,8 @@ struct AgentAction: Equatable, Sendable {
             case .fileWrite:      return "写入文件"
             case .notify:         return "发送系统通知"
             case .mailSend:       return "发送邮件"
+            case .goalCreate:     return "建长期目标"
+            case .goalStepDone:   return "更新目标进度"
             }
         }
     }

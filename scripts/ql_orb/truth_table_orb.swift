@@ -68,6 +68,10 @@ let chatPath = "/opt/data/qingliao_ios/qingliao/Features/Chat/ChatView.swift"
 let chatDelegatePath = "/opt/data/qingliao_ios/qingliao/Features/Chat/ChatAppDelegate.swift"
 let bubblePath = "/opt/data/qingliao_ios/qingliao/Features/Chat/ChatMessageBubble.swift"
 let settingsPath = "/opt/data/qingliao_ios/qingliao/Features/Settings/SettingsCommon.swift"
+// v4.0.6：宠物配置（形象三选一 + 表情 + 行为动作 + 动画三档）已从外观页**搬去独立页** PetStudioSheet，
+// 入口挂在设置页顶部大头像。护栏的读取源随之改成「外观页 + 宠物页」两份，
+// 断言内容不变（仍是同一组 key、同一套三选一 idiom），只是不再假定它住在外观页里。
+let petStudioPath = "/opt/data/qingliao_ios/qingliao/Features/Settings/PetStudioSheet.swift"
 
 let petSrc = (try? String(contentsOfFile: petPath, encoding: .utf8)) ?? ""
 let petModelSrc = (try? String(contentsOfFile: petModelPath, encoding: .utf8)) ?? ""
@@ -87,6 +91,7 @@ let chatSrc = (try? String(contentsOfFile: chatPath, encoding: .utf8)) ?? ""
 let delegateSrc = (try? String(contentsOfFile: chatDelegatePath, encoding: .utf8)) ?? ""
 let bubbleSrc = (try? String(contentsOfFile: bubblePath, encoding: .utf8)) ?? ""
 let settingsSrc = (try? String(contentsOfFile: settingsPath, encoding: .utf8)) ?? ""
+let petStudioSrc = (try? String(contentsOfFile: petStudioPath, encoding: .utf8)) ?? ""
 
 // 读不到 → 全部护栏都会假绿，先钉住
 check("护栏：PetAvatar.swift 读得到", !petSrc.isEmpty, petPath)
@@ -95,6 +100,7 @@ check("护栏：ChatView.swift 读得到", !chatSrc.isEmpty, chatPath)
 check("护栏：ChatAppDelegate.swift 读得到", !delegateSrc.isEmpty, chatDelegatePath)
 check("护栏：ChatMessageBubble.swift 读得到", !bubbleSrc.isEmpty, bubblePath)
 check("护栏：SettingsCommon.swift 读得到", !settingsSrc.isEmpty, settingsPath)
+check("护栏：PetStudioSheet.swift 读得到（v4.0.6 宠物配置新家）", !petStudioSrc.isEmpty, petStudioPath)
 
 // ① 球退役：全仓不得再出现调用点（渲染器文件保留是为了可回滚，但一旦被引用说明口径被破坏）
 func swiftSources(under dir: String) -> [(String, String)] {
@@ -485,21 +491,25 @@ check("消息头像（30pt）换宠物且随流式态切换",
 check("消息头像未误设常驻（无 live / repeatForever 类标记）",
       !bubbleSrc.contains("live: true"))
 
-// ⑥ 设置项：外观 → 聊天页形象（三选一 + 动画三档），且与聊天页同源
-check("外观设置里有「聊天页形象」一节",
-      settingsSrc.contains("Section(\"聊天页形象\")"))
-check("三选一走 PetStyle.allCases（加形态不用改设置页）",
-      settingsSrc.contains("ForEach(PetStyle.allCases)"))
+// ⑥ 设置项：设置页顶部大头像 → PetStudioSheet（形象三选一 + 表情 + 行为动作 + 动画三档），且与聊天页同源
+// v4.0.6 起这段住在 PetStudioSheet.swift；外观页**必须已经不在**（两处都能改迟早不一致）。
+check("宠物配置有独立页（PetStudioSheet）且从设置页顶部进",
+      petStudioSrc.contains("struct PetStudioSheet"))
+check("形象三选一走 PetStyle.allCases（加形态不用改设置页）",
+      petStudioSrc.contains("ForEach(PetStyle.allCases)"))
 check("动画三档走 PetMotion.allCases",
-      settingsSrc.contains("ForEach(PetMotion.allCases)"))
+      petStudioSrc.contains("ForEach(PetMotion.allCases)"))
 check("设置页读的是同一组 key（不是另写一份，本地/云端天然一致）",
-      settingsSrc.contains("@AppStorage(PetKeys.style)") && settingsSrc.contains("@AppStorage(PetKeys.motion)"))
+      petStudioSrc.contains("@AppStorage(PetKeys.style)") && petStudioSrc.contains("@AppStorage(PetKeys.motion)"))
 check("缩略图按显示尺寸直接画（52 画 = 52 显示，keepDetail 保细节）——不得再用「96 画 + frame 52」硬塞（会溢出卡片）",
-      settingsSrc.contains("PetAvatar(size: 52, state: .idle, styleOverride: style, keepDetail: true)")
-      && !settingsSrc.contains(".frame(width: 52, height: 52)"))
+      petStudioSrc.contains("PetAvatar(size: 52, state: .idle, styleOverride: style,")
+      && !petStudioSrc.contains(".frame(width: 52, height: 52)"))
 check("选中态可见（蓝框/highlight）+ 无障碍标注",
-      settingsSrc.contains("accessibilityLabel(\"聊天页形象：\\(style.name)\")")
-      && settingsSrc.contains("accessibilityAddTraits(selected ? [.isSelected] : [])"))
+      petStudioSrc.contains("accessibilityLabel(\"形象：\\(style.name)\")")
+      && petStudioSrc.contains("accessibilityAddTraits(selected ? [.isSelected] : [])"))
+// 🚨 反向红线：这段已经从外观页搬走，别为了"好找"又复制回去
+check("外观页不再重复宠物配置（搬走不是复制）",
+      !settingsSrc.contains("Section(\"聊天页形象\")") && !settingsSrc.contains("ForEach(PetStyle.allCases)"))
 
 print(failures == 0 ? "\n🎉 真值表全部通过（\(total) 项）" : "\n💥 失败 \(failures)/\(total) 条")
 exit(failures == 0 ? 0 : 1)

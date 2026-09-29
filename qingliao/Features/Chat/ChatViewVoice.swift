@@ -44,7 +44,7 @@ extension ChatView {
                 NSLog("[VOICE] 未识别到内容 \(voiceDiag)")
             } else {
                 inputText = text
-                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                Haptics.notify(.success)
             }
         }
     }
@@ -113,9 +113,7 @@ extension ChatView {
                 return
             }
 
-            let gen = UIImpactFeedbackGenerator(style: .heavy)
-            gen.prepare()
-            gen.impactOccurred()   // 长按激活震动反馈
+            Haptics.prepareHeavy()   // 长按激活：先蓄力再震（v4.0.9 收编，受总开关管辖）
             if !keyboardWasUp {
                 inputFocus = false   // 键盘原本未开 → 收回触摸聚焦弹起的键盘（语音模式不弹键盘）
                 // v2.0.108c：FocusState 在触摸聚焦动画中设置可能被系统覆盖（iOS27）——

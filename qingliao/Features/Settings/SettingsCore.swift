@@ -113,11 +113,18 @@ struct SettingsView: View {
     // v2.0.128：AI 输出行高（0-6 步进 0.5，默认 1.0 = 紧凑；滑条控制）已随死代码外观块删除——
     // 行高/流光/Siri 发光全部统一由 AppearanceSheet 管理（与云端同一组件）
     // v2.0.102：切回设置页刷新计数（密码管理/记忆增删后行尾数字即时更新，原只有 .task 首刷）
+    // v4.0.6：卡通宠物自定义页 + 大头像摘要所需的 key
+    // （与 PetStudioSheet 共用同一组 @AppStorage，所以摘要改完立刻刷新，不需要额外通知）
+    @State var showPetStudio = false
+    @AppStorage(PetKeys.style) var petStyle: PetStyle = .liquid
+    @AppStorage(PetKeys.face) var petFace: PetFace = .calm
     var body: some View {
         VStack(spacing: 0) {
             PageHeader(title: "设置")
             ScrollView {
                 VStack(spacing: 0) {
+                    // v4.0.6：卡通宠物大头像（设置页顶部，点进去自定义）
+                    petStudioBanner
                     accountSection
                     connectionSection
                     aiSection
@@ -144,6 +151,11 @@ struct SettingsView: View {
             AppearanceSheet()
                 .presentationDetents([.medium, .large])
                 .scrollContentBackground(.hidden)
+        }
+        .sheet(isPresented: $showPetStudio) {
+            // v4.0.6：卡通宠物自定义（形象 / 表情 / 行为动作 / 动画档；改完聊天页联动）
+            PetStudioSheet()
+                .presentationDetents([.medium, .large])
         }
         .sheet(isPresented: $showHomeShortcuts) {
             // v3.9.82：桌面快捷方式选择（动态 shortcutItems，最多 4 项）
@@ -667,6 +679,15 @@ extension SettingsView {
         VStack(spacing: 0) {
             SettingRow(icon: "circle.lefthalf.filled", iconColor: .purple, title: "外观", value: appearanceName, chevron: true)
                 .tapButton { withAnimation(Motion.snap) { showAppearance = true } }
+            // v4.0.6：宠物配置行（顶部大头像是主入口，这里是滚动后的兜底入口，同一个 sheet）
+            SettingRow(icon: "face.smiling.inverse", iconColor: .pink, title: "卡通宠物",
+                       value: petSummary, chevron: true)
+                .tapButton { showPetStudio = true }
+            // v4.0.9：点击震动总开关。闸门在 Core/Haptics.swift 的 4+5 个语义入口统一 early-return，
+            // 覆盖全站 144 处 Haptics.* 调用点；这里只是那个开关的唯一 UI 入口。
+            // 默认开（key 缺失 = 开）→ 老用户行为不变。
+            SettingRow(icon: "iphone.radiowaves.left.and.right", iconColor: .teal, title: "点击震动",
+                       toggle: $hapticsOn)
             // v3.9.82：桌面图标长按快捷方式（长按桌面「轻聊」图标即可看到选中的几项）。
             // 行尾计数读 @AppStorage 原始串（HomeShortcutStore.ids(from:)）→ 弹窗里改完立即刷新。
             SettingRow(icon: "square.grid.2x2.fill", iconColor: .indigo, title: "桌面快捷方式",
@@ -677,6 +698,61 @@ extension SettingsView {
             // AI 输出行高）永不显示（唯一写点恒置 false）——已删除，统一由 AppearanceSheet 管理
         }
         .glassListCard()
+    }
+
+    // v4.0.6：卡通宠物大头像入口（设置页顶部居中）。
+    //
+    // 为什么放最顶：宠物是 App 的表情门面，入口要显眼；同时「聊天页形象」段已从外观页搬进
+    // 那一层（用户 v4.0.6 拍板），所以这里就是**唯一**的宠物配置入口。
+    //
+    // ⚠️ 尺寸口径：直接 `PetAvatar(size: 96)` 画，**不要**再套 `.frame` 去"缩"（v3.9.78 真机报修：
+    // frame 只改布局槽位、不缩放画面，96pt 画布会溢出 52pt 槽位压住边框和文字）。真要小就传小 size。
+    @ViewBuilder var petStudioBanner: some View {
+        VStack(spacing: Spacing.xs) {
+            Button {
+                showPetStudio = true
+            } label: {
+                VStack(spacing: Spacing.xs) {
+                    PetAvatar(size: 96, state: .idle, keepDetail: true)
+                        .overlay(
+                            // 小角标：点进去有更多可配项（不靠文字说明）
+                            Image(systemName: "slider.horizontal.3")
+                                .font(.system(size: Typography.caption, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .frame(width: 24, height: 24)
+                                .background(Circle().fill(Color.accentColor))
+                                .overlay(Circle().strokeBorder(Color.white.opacity(0.9), lineWidth: 1.5))
+                                .offset(x: 34, y: 30)
+                        )
+                    Text(petSummary)
+                        .font(.system(size: Typography.subhead, weight: .medium))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                    Text("点击自定义表情与动作")
+                        .font(.system(size: Typography.caption))
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, Spacing.md)
+                .background(
+                    RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
+                        .fill(Color(uiColor: .secondarySystemGroupedBackground).opacity(0.6))
+                )
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("卡通宠物：\(petSummary)")
+            .accessibilityHint("轻点进入自定义")
+        }
+        .padding(.bottom, Spacing.sm)
+    }
+
+    /// v4.0.9 点击震动总开关（与 Haptics.enabledKey 同一个 key，两边共用勿各写一份）
+    @AppStorage(Haptics.enabledKey) private var hapticsOn = true
+
+    /// 行尾/角标摘要：形象 + 表情 + 动作数（一行说完，别让人点进去才发现是空的）
+    private var petSummary: String {
+        let on = PetKeys.enabledQuirks().count
+        return "\(petStyle.name) · \(petFace.name)脸 · 动作 \(on)/\(Quirk.pool.count)"
     }
 
     @ViewBuilder var aboutSection: some View {

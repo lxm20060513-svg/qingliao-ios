@@ -5,6 +5,7 @@ import SwiftUI
 enum LifeSection: String, CaseIterable, Identifiable {
     case memo        // 备忘录
     case todo        // 待办清单
+    case goals       // v4.0.7 长期目标（AI 建目标 + cron 每天推进）
     case record      // 记录
     case automations // 定时任务
     case lifeCards   // 生活数据（行情/资讯/快递/价格）
@@ -15,6 +16,7 @@ enum LifeSection: String, CaseIterable, Identifiable {
         switch self {
         case .memo: return "备忘录"
         case .todo: return "待办清单"
+        case .goals: return "长期目标"
         case .record: return "记录"
         case .automations: return "定时任务"
         case .lifeCards: return "生活数据"

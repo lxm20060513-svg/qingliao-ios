@@ -12,8 +12,20 @@ import Foundation
 enum PetKeys {
     static let style = "qingliao_pet_style"
     static let motion = "qingliao_pet_motion"
+    /// v4.0.6：常态表情（用户选「待机时用这张脸」；thinking/alert 仍由宿主驱动，不归这里管）
+    static let face = "qingliao_pet_face"
+    /// v4.0.6：行为动作勾选集（逗号分隔的 Quirk.rawValue）
+    static let quirks = "qingliao_pet_quirks"
     /// 76pt 以下简化（消息头像 30/38pt 走这条路）
     static let simplifyBelow: CGFloat = 76
+
+    /// 当前勾选的动作集合。**key 不存在 = 全开**（老用户升级后行为不变），
+    /// key 存在但串为空 = 一个都不播（用户主动全关）——这两种语义必须区分开。
+    static func enabledQuirks() -> Set<Quirk> {
+        guard let raw = UserDefaults.standard.string(forKey: quirks) else { return Set(Quirk.pool) }
+        let on = Set(raw.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) })
+        return Set(Quirk.pool.filter { on.contains($0.rawValue) })
+    }
 }
 
 // MARK: 形象（三选一，设置项写在「外观设置 → 聊天页形象」）
@@ -75,6 +87,94 @@ enum PetMotion: String, CaseIterable, Identifiable {
         case .off: return "关闭"
         }
     }
+}
+
+// MARK: 常态表情（v4.0.6：用户可在设置里挑「待机时用这张脸」）
+//
+// 口径：只管 **idle** 态的脸。thinking / alert 仍是宿主信号驱动（AI 在回、后端离线），
+// 表情选择不能把它们盖掉——宠物是状态的**冗余**通道，语义必须真实。
+// 所以映射是「选中的表情 → idle 态复用哪套五官」，不新增第四种状态枚举。
+
+enum PetFace: String, CaseIterable, Identifiable {
+    case calm     // 平静：默认 = 原 idle 脸
+    case happy    // 开心：笑眼 + 弯嘴
+    case sleepy   // 困倦：半闭眼 + 微微张嘴
+    case playful  // 俏皮：wink + 歪嘴
+
+    var id: String { rawValue }
+
+    var name: String {
+        switch self {
+        case .calm: return "平静"
+        case .happy: return "开心"
+        case .sleepy: return "困倦"
+        case .playful: return "俏皮"
+        }
+    }
+
+    var blurb: String {
+        switch self {
+        case .calm: return "默认表情，眨眨眼"
+        case .happy: return "笑眼弯嘴，一直开心"
+        case .sleepy: return "半闭眼，慢悠悠"
+        case .playful: return "眨单眼，歪嘴"
+        }
+    }
+
+    /// v3.9.79 同款兜底：给挂件用（挂件读不到主 App 的 UserDefaults，只认下发的串）
+    static func from(_ raw: String) -> PetFace {
+        PetFace(rawValue: raw) ?? .calm
+    }
+
+    /// v4.0.6：当前选的脸（与 `@AppStorage(PetKeys.face)` 同一个 key）
+    static var current: PetFace {
+        PetFace(rawValue: UserDefaults.standard.string(forKey: PetKeys.face) ?? "") ?? .calm
+    }
+}
+
+// MARK: 行为动作（v4.0.6 从 PetAvatar 内 private 提上来，成为可选集合）
+//
+// ⚠️ 提到 PetModel 的唯一理由：**设置页要给这六个动作做多选**，而设置页不能读
+//    另一个文件里的 private 枚举（当年 MiniCapsule 就栽在这条上，见 LifeCapsule.swift 头注释）。
+//    提上来后 PetAvatar 与设置页共用一份定义，不会两处漂。
+
+enum Quirk: String, CaseIterable, Identifiable, Equatable {
+    case headTilt      // 歪头好奇
+    case lookAround    // 左右张望
+    case happyWiggle   // 开心扭动
+    case stretch       // 伸懒腰（拉长一下）
+    // v4.0.0：真·位移，不是原地形变（横向挪 + 朝向翻转 + 上下颠步）
+    case strollLeft
+    case strollRight
+
+    var id: String { rawValue }
+
+    var name: String {
+        switch self {
+        case .headTilt: return "歪头"
+        case .lookAround: return "张望"
+        case .happyWiggle: return "扭动"
+        case .stretch: return "伸懒腰"
+        case .strollLeft: return "向左踱"
+        case .strollRight: return "向右踱"
+        }
+    }
+
+    var duration: TimeInterval {
+        switch self {
+        case .headTilt: return 1.4
+        case .lookAround: return 1.6
+        case .happyWiggle: return 0.9
+        case .stretch: return 1.5
+        case .strollLeft, .strollRight: return 2.2
+        }
+    }
+
+    static let pool: [Quirk] = [.headTilt, .lookAround, .happyWiggle, .stretch,
+                                .strollLeft, .strollRight]
+
+    /// 是否是「走动」类：需要按行进方向镜像朝向
+    var isStroll: Bool { self == .strollLeft || self == .strollRight }
 }
 
 // MARK: 形象状态（只做冗余表达；宠物永远不是唯一的信息通道）
