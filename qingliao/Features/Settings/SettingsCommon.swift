@@ -978,7 +978,7 @@ struct AppearanceSheet: View {
                 }
                 // AI 回答发光（对齐本地 Siri 发光 4 参数）
                 Section("AI 回答发光") {
-                    Toggle("Siri 边框光晕", isOn: $siriGlow)
+                    Toggle("边框光晕", isOn: $siriGlow)
                     // v3.0.36：灵动岛光晕（独立开关）
                     Toggle("灵动岛光晕", isOn: $islandGlow)
                     if siriGlow || islandGlow {
