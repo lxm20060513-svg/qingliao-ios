@@ -563,7 +563,7 @@ struct GoalRowCard: View {
             if let s = goal.nextStep, !compact {
                 HStack(spacing: 4) {
                     Image(systemName: "arrow.right.circle")
-                        .font(.system(size: Typography.caption2))
+                        .font(.system(size: Typography.caption))
                         .foregroundStyle(.tertiary)
                     Text("下一步：\(s.title)")
                         .font(.system(size: Typography.caption))

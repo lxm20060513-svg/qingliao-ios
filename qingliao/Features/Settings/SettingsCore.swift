@@ -19,6 +19,11 @@ struct SettingsView: View {
     // v3.4.28：横屏限宽
     @Environment(\.horizontalSizeClass) private var hSizeSettings
     @AppStorage("qingliao_appearance") var appearance = "system"   // dark/light/system（默认跟随系统）
+    /// v4.0.9 点击震动总开关（与 Haptics.enabledKey 同一个 key，两边共用勿各写一份）
+    /// ⚠️ 必须放在 **struct 主体**（本行附近），不能放 extension ——
+    /// extension 不许含存储属性，Archive 报 "extensions must not contain stored
+    /// properties" + "declared inside an extension cannot have a wrapper"（-parse 查不出）。
+    @AppStorage(Haptics.enabledKey) private var hapticsOn = true
 
     // v2.0.83c：连接设置二级页（服务器地址/测试连接/会话存储位置收进二级）
     @State var showConnSettings = false
@@ -745,9 +750,6 @@ extension SettingsView {
         }
         .padding(.bottom, Spacing.sm)
     }
-
-    /// v4.0.9 点击震动总开关（与 Haptics.enabledKey 同一个 key，两边共用勿各写一份）
-    @AppStorage(Haptics.enabledKey) private var hapticsOn = true
 
     /// 行尾/角标摘要：形象 + 表情 + 动作数（一行说完，别让人点进去才发现是空的）
     private var petSummary: String {

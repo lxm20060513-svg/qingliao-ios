@@ -288,4 +288,29 @@ struct PetStudioSheet: View {
         let ordered = Quirk.pool.filter { set.contains($0) }
         quirksRaw = ordered.map(\.rawValue).joined(separator: ",")
     }
+
+    /// v3.9.78 原本在外观页，v4.0.6 搬「聊天页形象」时连 UI 一起搬过来。
+    /// ⚠️ 搬走时**只搬了调用点、漏了定义** —— 外观页那段被整段删除后
+    /// `motionOption` 全仓无定义，Archive 报 cannot find 'motionOption' in scope。
+    /// -parse 查不出（成员不存在只有 Archive 拦得住）。
+    private func motionOption(_ motion: PetMotion) -> some View {
+        let selected = petMotion == motion
+        return Button {
+            petMotion = motion
+        } label: {
+            Text(motion.name)
+                .font(.system(size: Typography.subhead, weight: .medium))
+                .foregroundStyle(selected ? Color.white : Color.primary)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, Spacing.sm)
+                .background(
+                    RoundedRectangle(cornerRadius: Radius.chip, style: .continuous)
+                        .fill(selected ? Color.accentColor : Color(uiColor: .systemGray5))
+                )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("宠物动画：\(motion.name)")
+        .accessibilityAddTraits(selected ? [.isSelected] : [])
+    }
 }

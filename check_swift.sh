@@ -100,6 +100,17 @@ else
   FAIL=1
 fi
 
+# v3.9.113 成员存在性护栏（Typography/Spacing/Radius 假令牌、搬 UI 漏定义、
+# extension 内存储属性、Outcome.undo 漏参、@MainActor 隔离、static @AppStorage）
+# 这 6 类都是 -parse 拦不住、只有 CI Archive 拦得住的错误类型
+if python3 scripts/ql_membercheck/truth_table_membercheck.py >/tmp/tt_membercheck.log 2>&1; then
+  echo "✅ v3.9.113 成员存在性真值表 $(grep -oE '[0-9]+ 项' /tmp/tt_membercheck.log | tail -1)"
+else
+  echo "❌ v3.9.113 成员存在性真值表"
+  cat /tmp/tt_membercheck.log
+  FAIL=1
+fi
+
 echo "=== 6. 挂件 Extension 语法检查（v3.8.0 实时活动）==="
 $SWIFT/swiftc -parse qingliaoWidget/*.swift qingliao/Core/LiveActivityAttributes.swift qingliao/Core/LiveActivityActions.swift 2>&1 | grep -v "^$" | head -10
 if [ ${PIPESTATUS[0]} -eq 0 ]; then
