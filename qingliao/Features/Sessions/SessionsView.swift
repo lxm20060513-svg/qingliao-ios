@@ -598,9 +598,19 @@ struct SessionsView: View {
     /// App 切后台都照显）。真源 = 流归属会话 `auth.currentStreamSessionId`（StreamClient 启动时写入）。
     /// ⚠️ 它**结束后不清空**（全仓只有 StreamClient 三处赋值，没有复位），所以必须同时判 isStreaming / isDone：
     /// 只看 id 会把「上一次跑过的那个会话」永久标成进行中。
+    /// v4.1.x 多会话并行：后台跑流器里在跑的会话集合（多个可同时「进行中」）
+    private var backgroundRunningIDs: Set<String> {
+        Set(BackgroundStreamRunner.shared.running.keys)
+    }
+
     private var runningSessionID: String? {
-        guard stream.isStreaming, !stream.isDone else { return nil }
+        // v4.1.x 多会话并行：优先读后台跑流器（多会话可同时标「进行中」）；
+        // 前台单例口径保持不变（正在看的会话由它负责）。
+        guard stream.isStreaming, !stream.isDone else {
+            return backgroundRunningIDs.contains(s.id) ? s.id : nil
+        }
         let sid = auth.currentStreamSessionId
+        if backgroundRunningIDs.contains(s.id) { return s.id }
         return sid.isEmpty ? nil : sid
     }
 
@@ -886,6 +896,8 @@ struct SessionsView: View {
     }
 
     private func delete(_ s: ChatSession) {
+        // v4.1.x 多会话并行：该会话若有后台流在跑 → 撤轮询 + 停服务端任务（不往已删会话写库）
+        BackgroundStreamRunner.shared.cancelForDeletedSession(sessionId: s.id, auth: auth)
         // v2.0.57：三保险——①contextMenu 关闭瞬间不改数据（先弹确认再删）
         // ②后端删除成功才 load() 整体刷新（不就地改 sessions）
         // ③删当前会话：切聊天 tab 后在屏 newSession（v2.0.44 已验证路径），

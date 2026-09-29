@@ -113,12 +113,13 @@ check("progressNote 口径：只用真实 content + 最后一步工具名（不�
       sNoComment.contains("content: content,") && sNoComment.contains("toolName: toolNames.last ?? \"\"")
       && !sNoComment.contains("toolSeq: toolSeq,"))
 check("收尾即隐藏（guard isStreaming）", sNoComment.contains("guard isStreaming else { return nil }"))
-// 内容赋值点：start() 清零 + poll 追加 + recover 两处 + 恢复 + 接管 = 6 处刷新
+// 内容赋值点：start() 清零 + poll 追加 + recover 两处 + 恢复 + 接管 + detachLocally = 7 处刷新
 // ⚠️ 算式：`components(separatedBy:)` 的 count = 出现次数 + 1（声明行是 `var contentGrowAt: TimeInterval`
-// 带冒号、不匹配 `contentGrowAt =`），所以期望 7 = 6 次写入 + 1。别按「声明 1 + 写入 N」改期望值。
+// 带冒号、不匹配 `contentGrowAt =`），所以期望 8 = 7 次写入 + 1。别按「声明 1 + 写入 N」改期望值。
 let growWrites = sNoComment.components(separatedBy: "contentGrowAt =").count
-// 期望 7 = 写入 6（start 清零 / poll 追加 / recover 同任务 / recover 换任务 / 杀后台恢复 / 接管远端）+ 1
-check("静默锚点赋值点齐（期望 7，实际 \(growWrites)）—— 漏一处 = 静默永远 0 秒", growWrites == 7)
+// 期望 8 = 写入 7（start 清零 / poll 追加 / recover 同任务 / recover 换任务 / 杀后台恢复 / 接管远端
+// / v4.1.x detachLocally 移交后台跑流器时清零）+ 1
+check("静默锚点赋值点齐（期望 8，实际 \(growWrites)）—— 漏一处 = 静默永远 0 秒", growWrites == 8)
 check("start() 新流清零锚点", sNoComment.contains("contentGrowAt = 0"))
 let pollWrite = sNoComment.contains("content += c") &&
     sNoComment.range(of: "content \\+= c(?:\\s*\\n\\s*contentGrowAt =)", options: .regularExpression) != nil

@@ -948,8 +948,7 @@ struct ChatView: View {
                 .scrollContentBackground(.hidden)
         }
         // v3.9.48：输入栏展开态的模型快选（右下角胶囊）。detents 与 Hermes 捷径/章节列表同档
-        .sheet(isPresented: $showComposerModel) {
-            ComposerModelSheet()
+        .sheet(isPresented: $showComposerModel) {            ComposerModelSheet()
                 .presentationDetents([.medium, .large])
                 .scrollContentBackground(.hidden)
         }
@@ -1691,6 +1690,36 @@ struct ChatView: View {
 
     // MARK: - 消息列表
 
+    /// v4.0.8：首页快捷卡片网格。执行通道全部由这里注入 —— HomeCardsGrid 不自造路由
+    /// （见 HomeCards.swift 文件头口径 4）。天气卡在聊天页没有现成弹窗，故本页自己挂一个
+    /// WeatherSheet（看板那份在 DashboardView 里，跨 tab 复用会带进看板的 isActive 轮询）。
+    private var homeCardsGrid: some View {
+        HomeCardsGrid(
+            resumeSession: chat.lastLoadedSession,
+            onResume: { s in
+                Haptics.tap()
+                chat.load(s)
+            },
+            onAsk: { q in
+                Haptics.tap()
+                inputText = q
+                send()
+            },
+            onOpenLife: {
+                Haptics.tap()
+                QingliaoRouteHandoff.request(.life)      // 切生活页（待办/账目）
+            },
+            onOpenWeather: {
+                Haptics.tap()
+                showHomeWeather = true
+            }
+        )
+    }
+
+    // v4.0.8：首页天气卡弹窗（聊天页专属一份，见 homeCardsGrid 注释）
+    @State private var showHomeWeather = false
+
+
     // v2.0.111：欢迎页独立于 ScrollView——不再受滚动容器背景/裁剪影响，logo 永远完整显示
     private var welcomeView: some View {
         // v3.9.79 横屏（矮屏）：用户拍板「按方案 2 改」= 左边形象 + 问候，右边芯片竖排。
@@ -1720,6 +1749,12 @@ struct ChatView: View {
             if !kb.isVisible {
                 portraitChips
             }   // if !kb.isVisible（建议芯片）
+
+            // v4.0.8：首页「快捷卡片」2 列网格（长按拖拽排序 + 自定义开关）。
+            // 与芯片同档收起：键盘弹起时 4 行网格（约 370pt）会把输入框顶没。
+            if !kb.isVisible {
+                homeCardsGrid
+            }
 
             // v3.4.29：继续上次会话——用户手动新建/清空会话后一键回到上一个会话，免切「会话」tab 再找
             // （启动自动 loadLastSession 只覆盖 App 重启场景，新建会话后原先没有任何回归路径）
@@ -2453,6 +2488,9 @@ struct ChatView: View {
             // 于是「A 会话里排队、切去 B」= 无条件把 A 的待发吞掉，且盘上那份也一起没了。
             // 现在只丢「刚离开的这个会话」的排队项；其余留在盘上，回到那个会话或下次启动再补发。
             dropPendingQueue(dropping: prior)
+            // v4.1.x 多会话并行：进入新会话前，若它有后台流在跑 → 撤后台轮询，
+            // 前台由既有 probeRemoteBusy（6s 内）→ adoptRemote 无缝接回显示。不撤会双轮询抢流。
+            BackgroundStreamRunner.shared.retractIfRunning(sessionId: chat.sessionId)
             refreshVisibleMessages()
             // v3.9.80：工具进度四件套走单一入口复位（原先这里手写三行，漏了 v3.9.80 新增的 toolSeq
             // → 摘要行会把上一会话的步数当成本会话的「实际步数」；详见 StreamClient.resetToolProgress）
@@ -2482,7 +2520,27 @@ struct ChatView: View {
                 // v3.9.41（SR60）：只清本会话的排队项（+ 下面紧接的停流），
                 // 别的目标会话的待发不该被「点了一下加号」顺带吞掉
                 dropPendingQueue(dropping: chat.sessionId)
-                if stream.isStreaming { stream.stop(auth: auth) }
+                // v4.1.x 多会话并行：新建会话**不再杀旧流**——旧流移交后台跑流器继续轮询，
+                // 跑完按发起时快照落库（答案不丢）；v3.0.11 的「先停旧流防串话」已过时
+                //（后端实测真并行、按 sessionId 隔离），且 stream.start 本就会复位单例接管前台。
+                // 移交失败（单例空闲/异常态）才走原 stop 兜底。
+                if stream.isStreaming, !stream.isDone, !stream.taskId.isEmpty,
+                   !auth.currentStreamSessionId.isEmpty {
+                    let sid = auth.currentStreamSessionId
+                    let tid = stream.taskId
+                    let anchor = stream.pendingUserMsgId
+                    let startMsgs = chat.sessionId == sid ? chat.messages : []
+                    let startTitle = chat.sessionId == sid ? chat.title : ""
+                    BackgroundStreamRunner.shared.adopt(taskId: tid, sessionId: sid,
+                                                        title: startTitle, userMsgId: anchor,
+                                                        snapshot: startMsgs,
+                                                        offset: stream.handoffOffset,
+                                                        content: stream.handoffContent,
+                                                        auth: auth, chat: chat)
+                    stream.detachLocally()   // 只停本地轮询，服务端任务继续跑；落库归 runner
+                } else if stream.isStreaming {
+                    stream.stop(auth: auth)   // 兜底：缺 taskId/会话 id 的异常态按旧路停掉
+                }
                 withAnimation(nil) { chat.newSession() }
                 chat.pendingNewSession = false
                 clearing = false

@@ -117,6 +117,9 @@ final class StreamClient {
 
     var taskId = ""
     private var offset = 0
+    /// v4.1.x 多会话并行：移交后台跑流器时取当前码点 offset/已收内容（先取再 detachLocally）
+    var handoffOffset: Int { offset }
+    var handoffContent: String { content }
     private var failCount = 0
     private var idleStreak = 0
     private var recoverTried = false   // v3.0.31：poll 404（任务丢失）时只尝试 recover 一次
@@ -242,6 +245,36 @@ final class StreamClient {
         } catch {
             finish(success: false, error: "启动失败：\(error.localizedDescription)")
         }
+    }
+
+    /// v4.1.x 多会话并行：**本地脱离**——移交后台跑流器前调用。
+    /// 与 stop 的区别：不调服务端 /stop（任务继续跑）、不触发 onFinished 落库回调
+    ///（落库由 BackgroundStreamRunner 收尾负责，双落库 = 复读事故族）。
+    /// 只掐本地轮询 + 复位给下一个会话用（等价于一次「无声的 finish(不回调)」）。
+    func detachLocally() {
+        stopPolling()
+        generation += 1   // 在途 pollOnce resume 一律作废
+        stopSmooth()
+        endBgTask()
+        onFinished = nil   // 关键：吞掉收尾回调（runner 负责落库）
+        content = ""; contentGrowAt = 0; offset = 0
+        failCount = 0; idleStreak = 0; backoff = 0.5
+        recoverTried = false; recoverFailTried = false
+        resetToolProgress()
+        isStreaming = false
+        isDone = true      // 守卫口径：单例视为空闲（start 会整体复位）
+        status = ""
+        phase = .normal
+        errorMessage = ""
+        lastFailed = false
+        lastFinishFailed = false
+        isAgent = false
+        taskId = ""        // 防 probe/recover 误认领已移交的任务
+        // startSeq / finishSeq 都不动：detach 是「移交」不是「收尾」——
+        // finishSeq 的两个观察端（DockTabView 球、RootView 灵动岛）会把这次当成真收尾处理：
+        // lastFinishFailed 已清 false → 球亮「未查看」（假）、灵动岛 finishOrphanedRound（假收尾）。
+        // 真收尾边沿由后台跑流器落库/通知链负责，UI 角标走 SessionsView 的 backgroundRunningIDs。
+        clearPersisted()   // 持久化标记交给 runner 口径（runner 完成后由收件箱/落库收口）
     }
 
     /// 主动停止

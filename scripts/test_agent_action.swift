@@ -156,11 +156,11 @@ check("文件内容多行保留", file?.param("content") == "买牛奶\n交房�
 
 // ⚠️ 正文是多行：JSON 里的换行必须写成 \\n（Swift 多行字符串会把 \n 先变成真实换行 → JSON 直接非法，解析整段退化成原文）。
 let mailJSON = """
-{"action":"mail.send","params":{"to":"lxm20060513@163.com","subject":"本周进展","body":"1. 联调完成\\n2. 改图纸","account":"acc-eeb8da14"},"summary":"发本周进展给自己"}
+{"action":"mail.send","params":{"to":"someone@example.com","subject":"本周进展","body":"1. 联调完成\\n2. 改图纸","account":"acc-eeb8da14"},"summary":"发本周进展给自己"}
 """
 let mail = AgentAction.parse(json: mailJSON)
 check("动作解析出 mail.send", mail?.kind == .mailSend)
-check("收件人可读", mail?.param("to") == "lxm20060513@163.com")
+check("收件人可读", mail?.param("to") == "someone@example.com")
 check("主题可读", mail?.param("subject") == "本周进展")
 check("正文多行保留", mail?.param("body") == "1. 联调完成\n2. 改图纸")
 check("account 可读（多账号时指定用哪个发）", mail?.param("account") == "acc-eeb8da14")

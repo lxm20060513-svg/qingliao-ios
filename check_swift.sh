@@ -658,5 +658,16 @@ echo "=== 48. AI 中途追问「问题卡」真值表（v3.9.110）==="
 #   落地再发网络；两端题干格式（iOS splitQuestion ↔ 后端 OPT_SEP_LINE）必须一致。
 run_unit /tmp/test_askquestion scripts/ql_askquestion/truth_table_askquestion.swift
 
+echo "=== 49. 首页「方块卡片」真值表（v4.0.8）==="
+# 多文件编译：被测真源是**纯 Foundation** 的 HomeCardOrder.swift（无 SwiftUI 依赖），
+# 直接编真实实现而不是照抄一份镜像 → 不存在「表与实现漂移」这个洞。
+# 多文件时只有 main.swift 允许顶层代码（第 4 步同口径），故先 cp 成 main.swift。
+# 口径：相对位移拖拽（微抖不甩位）、写回保位（关掉的卡留原槽）、至少留一张真卡（全关只剩空槽位
+#   用户会当 App 坏了）、键字面量单一真源、UI 不自算几何、ChatView 挂载形态。
+rm -rf /tmp/ql_homecards_main && mkdir -p /tmp/ql_homecards_main
+cp scripts/ql_chat_home/truth_table_homecards.swift /tmp/ql_homecards_main/main.swift
+run_unit /tmp/test_homecards -swift-version 6 /tmp/ql_homecards_main/main.swift \
+    qingliao/Core/HomeCardOrder.swift
+
 [ $fail -eq 0 ] || { echo "❌ 有护栏失守"; exit 1; }
 exit 0
