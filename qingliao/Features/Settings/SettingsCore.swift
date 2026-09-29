@@ -685,13 +685,13 @@ extension SettingsView {
             SettingRow(icon: "circle.lefthalf.filled", iconColor: .purple, title: "外观", value: appearanceName, chevron: true)
                 .tapButton { withAnimation(Motion.snap) { showAppearance = true } }
             // v4.0.6：宠物配置行（顶部大头像是主入口，这里是滚动后的兜底入口，同一个 sheet）
-            SettingRow(icon: "face.smiling.inverse", iconColor: .pink, title: "卡通宠物",
+            SettingRow(icon: "face.smiling.inverse", iconColor: .pink, title: "AI形象",
                        value: petSummary, chevron: true)
                 .tapButton { showPetStudio = true }
             // v4.0.9：点击震动总开关。闸门在 Core/Haptics.swift 的 4+5 个语义入口统一 early-return，
             // 覆盖全站 144 处 Haptics.* 调用点；这里只是那个开关的唯一 UI 入口。
             // 默认开（key 缺失 = 开）→ 老用户行为不变。
-            SettingRow(icon: "iphone.radiowaves.left.and.right", iconColor: .teal, title: "点击震动",
+            SettingRow(icon: "iphone.radiowaves.left.and.right", iconColor: .teal, title: "震动反馈",
                        toggle: $hapticsOn)
             // v3.9.82：桌面图标长按快捷方式（长按桌面「轻聊」图标即可看到选中的几项）。
             // 行尾计数读 @AppStorage 原始串（HomeShortcutStore.ids(from:)）→ 弹窗里改完立即刷新。

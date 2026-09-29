@@ -75,8 +75,8 @@ for o in offenders:
     print("     ↳ " + o)
 
 # ── 3. 设置页有唯一 UI 入口，且共用同一个 key ─────────────
-check("设置页有「点击震动」行", 'title: "点击震动"' in s)
-check("设置页该行挂在 toggle: 上", re.search(r'title: "点击震动"', s) is not None
+check("设置页有「震动反馈」行", 'title: "震动反馈"' in s)
+check("设置页该行挂在 toggle: 上", re.search(r'title: "震动反馈"', s) is not None
       and "toggle: $hapticsOn" in s)
 check("设置页用 Haptics.enabledKey（不另写字符串）",
       "@AppStorage(Haptics.enabledKey) private var hapticsOn" in s)

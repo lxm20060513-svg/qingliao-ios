@@ -1185,7 +1185,7 @@ struct AboutView: View {
 
             VStack(alignment: .leading, spacing: 10) {
                 // v3.0.8：项目版本说明（iOS 客户端版本）
-                aboutRow("项目版本", "轻聊 3.0 · iOS 客户端 v\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?")")
+                aboutRow("项目版本", "轻聊 · iOS 客户端 v\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?")")
                 // v3.0.3：统一介绍框架——顶部 App 概述（两端一致），下方「当前模式」针对云端/本地分别说明
                 aboutRow("产品", "轻聊 —— 面向家庭的 AI 智能助手，SwiftUI 原生客户端，支持「本地 AI」与「云端 AI」两种形态，数据按模式本地保存。")
                 appModeRow(isCloud)
@@ -1196,7 +1196,7 @@ struct AboutView: View {
                           ? "DeepSeek / Kimi / GLM / MiniMax / OpenAI 等 OpenAI 兼容服务多厂商接入"
                           : "DeepSeek V4 / Kimi / StepFun 多模型聚合（OpenCode Go + 官方 API）")
                 aboutRow("架构", isCloud
-                          ? "SwiftUI 原生 · 轻聊 3.0 云端模式 · 直连云端 API（Wi-Fi / 蜂窝均可）"
+                          ? "SwiftUI 原生 · 轻聊 云端模式 · 直连云端 API（Wi-Fi / 蜂窝均可）"
                           : "SwiftUI 原生 · Hermes Agent · 自建 NAS 后端（连接自家 NAS）")
                 // v3.0.8：Hermes Agent 版本号固定放在介绍最后一行（本地模式读容器实时版本）
                 if !isCloud {

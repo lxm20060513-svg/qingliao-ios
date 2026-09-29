@@ -978,9 +978,9 @@ struct AppearanceSheet: View {
                 }
                 // AI 回答发光（对齐本地 Siri 发光 4 参数）
                 Section("AI 回答发光") {
-                    Toggle("Siri 边框发光", isOn: $siriGlow)
-                    // v3.0.36：灵动岛发光（独立开关）
-                    Toggle("灵动岛发光", isOn: $islandGlow)
+                    Toggle("Siri 边框光晕", isOn: $siriGlow)
+                    // v3.0.36：灵动岛光晕（独立开关）
+                    Toggle("灵动岛光晕", isOn: $islandGlow)
                     if siriGlow || islandGlow {
                         sliderRow("亮度", value: $glowBrightness, range: 0.2...1.5, suffix: { String(format: "%.0f%%", $0 * 100) })
                         sliderRow("呼吸频率", value: $glowFreq, range: 0.5...6.0, suffix: { String(format: "%.1f", $0) })

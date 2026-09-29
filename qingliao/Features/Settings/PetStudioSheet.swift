@@ -145,7 +145,7 @@ struct PetStudioSheet: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            .navigationTitle("卡通宠物")
+            .navigationTitle("AI形象")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
