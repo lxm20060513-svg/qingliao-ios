@@ -561,6 +561,8 @@ struct DockTabView: View {
             } else {
                 showIdentify = true
             }
+        case 8:   // 记一笔（v3.9.96 新胶囊）：弹窗输入金额+用途 → 记账卡片（与聊天页/生活页同口径落库）
+            quickCapture = .expense
         default:
             break
         }

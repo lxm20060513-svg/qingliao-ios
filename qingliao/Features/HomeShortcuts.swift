@@ -23,7 +23,7 @@ enum HomeShortcut {
     /// 候选展示顺序（= 用户点名的顺序：AI识别 / 语音对话 / 语音输入 / 新建会话 / AI速记 / 今日待办 /
     /// 会话纪要 / 拍照识别）。**新胶囊一律排尾**，不动老用户已熟悉的候选次序。
     /// 存的是 OrbQuickAction.id，不是数组下标 —— 与智慧球菜单同一套语义标识。
-    static let order: [Int] = [4, 5, 2, 0, 1, 3, 6, 7]
+    static let order: [Int] = [4, 5, 2, 0, 1, 3, 6, 7, 8]
 
     /// iOS 桌面长按菜单的上限（系统硬限制，改不了）
     static let maxCount = 4

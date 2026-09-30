@@ -1780,13 +1780,9 @@ struct ChatView: View {
             // 现改为分组：logo↔文案 18pt，问候↔副标题 6pt（同组紧、跨组松）
             textBlock
 
-            // v3.4.25：上下文感知建议芯片——新会话给开场模板，续聊会话给话题延续入口
-            // v3.4.29：统一为全站玻璃淡雅风（原 accentColor 实色底+同色文字，与顶部续聊芯片条是两套观感；
-            // 且高饱和蓝抢了问候语的视觉主角位）；水平内边距 24 → 16 与消息区/续聊条对齐
-            // v3.9.71：键盘弹起时整排芯片收起——用户此刻在打字，芯片既不必要又占 ~46pt
-            if !kb.isVisible {
-                portraitChips
-            }   // if !kb.isVisible（建议芯片）
+            // v4.0.12（用户拍板）：欢迎页建议芯片（帮我写/翻译/头脑风暴/待办整理 4 颗）整条下线 ——
+            // 都是万能话术模板，与 v3.9.95 删续聊胶囊同一理由；portraitChips/landscapeChips/
+            // suggestionChip/welcomeSuggestions 一并删除（无残留死代码）。
 
             // v4.0.8：首页「快捷卡片」2 列网格（长按拖拽排序 + 自定义开关）。
             // 与芯片同档收起：键盘弹起时 4 行网格（约 370pt）会把输入框顶没。
@@ -1928,75 +1924,18 @@ struct ChatView: View {
         .padding(.top, 18)
     }
 
-    /// 竖屏口径：一排横滑芯片（芯片多时能滑，不挤压）
-    private var portraitChips: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(welcomeSuggestions) { s in
-                    suggestionChip(s)
-                }
-            }
-            .padding(.horizontal, Spacing.section)
-        }
-        .padding(.top, 18)
-    }
-
-    /// 横屏（矮屏）口径：芯片**竖排一列**（用户拍板方案 2 的右列），宽度统一便于对齐
-    private var landscapeChips: some View {
-        VStack(alignment: .leading, spacing: Spacing.md) {
-            ForEach(welcomeSuggestions) { s in
-                suggestionChip(s)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
-        .frame(width: 176)
-    }
-
-    /// 建议芯片本体 —— **样式单一真源**：竖屏横滑与横屏竖排都用它，别各写一份（改样式只会改到一边）。
-    private func suggestionChip(_ s: WelcomeSuggestion) -> some View {
-        Button {
-            Haptics.tap()
-            if chat.messages.isEmpty {
-                inputText = s.prompt
-                inputFocus = true
-            } else {
-                // 续聊场景直接发送延续指令
-                sendCore(text: s.prompt, imageData: nil)
-            }
-        } label: {
-            HStack(spacing: Spacing.xs) {
-                Image(systemName: s.icon)
-                    .font(.system(size: Typography.caption, weight: .medium))
-                Text(s.title)
-                    .font(.system(size: Typography.subhead, weight: .medium))
-                    // 横屏芯片列是定宽 176：标题再长也先缩字别静默省略号（审查① 指出）
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.85)
-            }
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, Spacing.xl)
-            .padding(.vertical, Spacing.md)
-            .background(.ultraThinMaterial, in: Capsule())
-            .overlay(Capsule().strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8))
-        }
-        .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
-    }
-
+    // v4.0.12（用户拍板）：建议芯片整条下线。原 portraitChips（竖屏横滑一排）、landscapeChips
+    //（横屏右列竖排）、suggestionChip（样式单一真源）、welcomeSuggestions（帮我写/翻译/头脑风暴/
+    // 待办整理 4 颗万能话术模板）全部删除，无残留死代码。
     /// v3.9.79 横屏欢迎页（用户拍板「按方案 2 改」）：
-    /// 左列 = 形象 + 问候语，右列 = 芯片竖排一列（v4.0.9 起下方那条「继续上次」长条卡已删除）。
-    /// 为什么横屏要两栏：852×393 的可用高只有 ~190pt（减去输入栏 + dock），竖屏那套「留白 56 + 形象 96 +
-    /// 文案 + 一排芯片」横着摆不下，只能把芯片挪到横向富余的右侧。
+    /// 左列 = 形象 + 问候语（v4.0.12 起右列芯片下线，横屏只剩居中一组，不再两栏）。
+    /// 为什么曾经两栏：852×393 的可用高只有 ~190pt（减去输入栏 + dock），竖屏那套「留白 56 + 形象 96 +
+    /// 文案 + 一排芯片」横着摆不下，曾把芯片挪到横向富余的右侧。
     private var welcomeLandscape: some View {
         VStack(spacing: 0) {
-            HStack(alignment: .center, spacing: Spacing.xxl + 18) {
-                VStack(spacing: 0) {
-                    petHero
-                    textBlock
-                }
-                // 横屏 + 键盘弹起：高度只剩 ~170pt，芯片那一列（≈160pt）会顶出去 → 与竖屏同口径收起
-                if !kb.isVisible {
-                    landscapeChips
-                }
+            VStack(spacing: 0) {
+                petHero
+                textBlock
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding(.top, Spacing.lg)
@@ -2017,18 +1956,6 @@ struct ChatView: View {
 
     private var welcomeSubtitle: String {
         chat.messages.isEmpty ? "我能帮你查资料、写代码、执行自动化任务" : "随时继续刚才的话题"
-    }
-
-    // v3.4.25：上下文感知建议芯片（icon/title/prompt 三元组，Identifiable 结构供 ForEach）
-    // v3.9.95：原非空会话分支（继续话题/总结对话/有疑问）随 `continueChipsBar` 一并删除，
-    // 现在只在空会话欢迎页渲染（竖屏 + 横屏两处共用同一份数据）。
-    private var welcomeSuggestions: [WelcomeSuggestion] {
-        [
-            WelcomeSuggestion(icon: "sparkles", title: "帮我写", prompt: "帮我写一份"),
-            WelcomeSuggestion(icon: "character.bubble", title: "翻译", prompt: "请将以下内容翻译成英文：\n"),
-            WelcomeSuggestion(icon: "brain", title: "头脑风暴", prompt: "请围绕以下主题给出 5 个有创意的点子：\n"),
-            WelcomeSuggestion(icon: "list.bullet.rectangle", title: "待办整理", prompt: "请把以下内容整理成清晰的待办清单：\n")
-        ]
     }
 
     /// v3.0.51：单条消息整行（日期分隔 + 时间分隔 + 气泡）——拆独立方法防 ForEach type-check 超时
@@ -2677,28 +2604,32 @@ struct ChatView: View {
     struct TypingIndicator: View {
         // v3.9.19：无障碍——「降低动态效果」时不做循环脉冲
         @Environment(\.accessibilityReduceMotion) private var reduceMotion
-        @State var animating = false
         var body: some View {
-            HStack(spacing: Spacing.xs) {
-                ForEach(0..<3, id: \.self) { i in
-                    // v3.4.20：三点跳动 → 蓝紫渐变脉冲圆（与发送按钮/Siri 流光同语言，"AI 活着"统一视觉）
-                    Circle()
-                        .fill(LinearGradient(colors: [.blue, .indigo, .pink],
-                                             startPoint: .topLeading, endPoint: .bottomTrailing))
-                        .frame(width: 8, height: 8)
-                        .scaleEffect(animating ? 1.0 : 0.55)
-                        .opacity(animating ? 1.0 : 0.45)
-                        .animation(reduceMotion ? nil : .easeInOut(duration: 0.6).repeatForever(autoreverses: true).delay(Double(i) * 0.18), value: animating)
+            // v4.0.12 根治「圆点脉冲自己消失」（用户 2026-09-30 真机实报，v4.0.10 的 onDisappear
+            // 复位没根治）：repeatForever 靠视图身份稳定 + false→true 边沿启动，思考气泡在
+            // 工具卡展开/走秒 TimelineView 重建父级时身份抖动，边沿丢了 @State 已是 true →
+            // 动画永不重启，三点静止在 0.55 缩放 + 0.45 透明度 ≈ 肉眼空泡。
+            // 根治：改 TimelineView 驱动——相位由时间戳直接算出，视图怎么重建都停不下来。
+            // 周期/延迟与旧版一致（0.6s autoreverse + 每颗错相 0.18s），reduceMotion 退回静止满点。
+            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: reduceMotion)) { timeline in
+                let t = timeline.date.timeIntervalSinceReferenceDate
+                HStack(spacing: Spacing.xs) {
+                    ForEach(0..<3, id: \.self) { i in
+                        // v3.4.20：三点跳动 → 蓝紫渐变脉冲圆（与发送按钮/Siri 流光同语言，"AI 活着"统一视觉）
+                        // 波形：|sin| 三角化成 0→1→0 脉冲，周期 1.2s（= 旧版 0.6s easeInOut 往返），
+                        // 每颗相位错开 0.18s；强度下限 0.45 = 旧版低点，上限 1.0 = 旧版高点。
+                        let phase = (t + Double(i) * 0.18).truncatingRemainder(dividingBy: 1.2) / 1.2
+                        let pulse = abs(2.0 * phase - 1.0)            // 1→0→1
+                        let strength = reduceMotion ? 1.0 : 0.45 + 0.55 * (1.0 - pulse)
+                        Circle()
+                            .fill(LinearGradient(colors: [.blue, .indigo, .pink],
+                                                 startPoint: .topLeading, endPoint: .bottomTrailing))
+                            .frame(width: 8, height: 8)
+                            .scaleEffect(0.55 + 0.45 * strength)
+                            .opacity(strength)
+                    }
                 }
             }
-            // ⚠️ 循环脉冲靠 `animating` 的 false→true **边沿**启动（`.animation(_:value:)` 只在值变化时施加动画）。
-            // 只写「onAppear 置 true」会概率卡死：视图离开层级又被加回（滚动回收 / `thisSessionStreaming`
-            // 抖动 / 切会话回来）时 @State 仍是 true → 第二次 onAppear 无变化 → repeatForever 不重启，
-            // 三点就静止在半透明小点（v4.0.10 真机实报「思考气泡动画会概率消失」）。
-            // 修法：消隐时复位 —— 下次出现必定是 false→true 边沿。两行成对，删掉 onDisappear 就复发。
-            // （刻意用同步赋值，不用 DispatchQueue.main.async 翻转：Swift 6 严格并发下闭包捕获 View 会编译不过）
-            .onAppear { animating = true }
-            .onDisappear { animating = false }
         }
     }
 
@@ -3360,6 +3291,14 @@ struct ChatView: View {
     /// 不新增 user 消息、不触发 lastSentSignature 幂等（那是 sendCore 的护栏，重发需绕过）。
     /// 指数退避：1s → 2s；弱网断网时先等网络恢复再重试（v3.4.x 弱网重连 ④）。
     private func autoRetryStream(for msg: ChatMessage) {
+        // v3.9.96 方案2：Agent 任务不自动重试。SSE 断开 ≠ 任务失败——后端 Agent 可能已在跑工具，
+        // 自动重发会在服务端再起一个重复任务（用户取消时只能停掉其中一个，
+        // 表象即「已取消但 AI 还在执行工具」）。Agent 模式的失败一律交给用户手动重试按钮。
+        if stream.isAgent {
+            autoRetryCount = 0
+            chat.markFailed(id: msg.id)   // 失败态 → 显示重试按钮，由用户决定
+            return
+        }
         guard autoRetryCount < 2 else {
             autoRetryCount = 0   // 重试耗尽 → 复位，等手动按钮
             return

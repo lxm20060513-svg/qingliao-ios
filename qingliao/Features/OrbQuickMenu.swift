@@ -56,6 +56,8 @@ struct OrbQuickAction: Identifiable {
         // 图标取 SF Symbols 里既有的「清单卡」与「取景器」形态，与上两排同一套细线风格
         OrbQuickAction(id: 6, title: "会话纪要", icon: "list.bullet.rectangle", color: .brown),
         OrbQuickAction(id: 7, title: "拍照识别", icon: "camera.viewfinder", color: .cyan),
+        // v3.9.96 新增（用户需求）：记一笔 —— 弹窗输入金额+用途 → RecordStore 记账（kind=amount，与生活页/聊天页同一落库口径）
+        OrbQuickAction(id: 8, title: "记一笔", icon: "yensign.circle.fill", color: .green),
     ]
 }
 
@@ -313,11 +315,13 @@ enum OrbQuickMenuLayout {
     ///   · 离状态栏最近的是近排（index 0-2）：顶边 = 227 + 104 − 18 = **313pt**，
     ///     距灵动岛下沿（59pt）**254pt** —— 两个方向都不进状态栏。
     static func center(index: Int, ballCenter: CGPoint, below: Bool = false) -> CGPoint {
-        let i = ((index % 8) + 8) % 8
-        // v4.0.x 方案 A：i ≥ 6 = 最上排 2 颗**居中**（列 ∓0.5）；前 6 颗仍是每排 3 列（∓1 / 0）
-        let isTopRow = i >= 6
-        let col: CGFloat = isTopRow ? (i == 6 ? -0.5 : 0.5) : CGFloat(i % 3) - 1
-        let dy = isTopRow ? topDY : (i >= 3 ? upperDY : lowerDY)
+        // v3.9.96：8 → 9 颗（新增「记一笔」）。最上排从「2 颗居中 ∓0.5」改为标准 3 列（−1/0/+1）
+        // —— 几何实证：8 颗的 ±59 列位塞不下第 3 颗（0.5 与 1.0 中心距 59 < 胶囊宽 101，必然重叠）；
+        //    三排对齐同一网格（3/3/3，每排 3 列）观感更整，同排间隙仍 17pt、最窄 375pt 不越界。
+        //    会话纪要/拍照识别两颗的横向位置随之对齐（±59 → ∓118/0），纵向不动。
+        let i = ((index % 9) + 9) % 9
+        let col: CGFloat = CGFloat(i >= 6 ? i - 7 : i % 3) - 1   // i≥6：6→−1 / 7→0 / 8→+1
+        let dy = i >= 6 ? topDY : (i >= 3 ? upperDY : lowerDY)
         return CGPoint(x: ballCenter.x + col * columnDX,
                        y: below ? ballCenter.y + dy : ballCenter.y - dy)
     }
@@ -550,24 +554,70 @@ struct OrbQuickMenuLayer: View {
 
 enum QuickCaptureMode: String, Identifiable {
     case memo, todo
+    case expense          // v3.9.96：记一笔（金额 + 用途 → 记账卡片）
 
     var id: String { rawValue }
-    var title: String { self == .memo ? "AI 速记" : "记待办" }
-    var placeholder: String { self == .memo ? "想到什么记什么…" : "要做的什么事…" }
+    var title: String {
+        switch self {
+        case .memo: return "AI 速记"
+        case .todo: return "记待办"
+        case .expense: return "记一笔"
+        }
+    }
+    var placeholder: String {
+        switch self {
+        case .memo: return "想到什么记什么…"
+        case .todo: return "要做的什么事…"
+        case .expense: return "买了什么（如 午餐）…"
+        }
+    }
 }
 
 struct QuickCaptureSheet: View {
     let mode: QuickCaptureMode
     @State private var text = ""
+    // v3.9.96：记一笔专用（金额输入；用途 = text）
+    @State private var amountText = ""
+    @FocusState private var amountFocused: Bool
     @Environment(\.dismiss) private var dismiss
+
+    /// 金额是否有效（> 0 且能解析；与 RecordSection.saveDraft 同款解析口径）
+    private var parsedAmount: Double? {
+        Double(amountText.replacingOccurrences(of: ",", with: "")
+            .trimmingCharacters(in: .whitespaces))
+    }
+    private var canSave: Bool {
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        switch mode {
+        case .expense: return !t.isEmpty && (parsedAmount ?? 0) > 0
+        default: return !t.isEmpty
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.lg) {
             HStack(spacing: Spacing.sm) {
-                Image(systemName: mode == .memo ? "brain.head.profile" : "checklist")
-                    .foregroundStyle(mode == .memo ? Color.purple : Color.orange)
+                switch mode {
+                case .memo: Image(systemName: "brain.head.profile").foregroundStyle(Color.purple)
+                case .todo: Image(systemName: "checklist").foregroundStyle(Color.orange)
+                case .expense: Image(systemName: "yensign.circle.fill").foregroundStyle(Color.green)
+                }
                 Text(mode.title)
                     .font(.system(size: Typography.headline, weight: .bold))
+            }
+            if mode == .expense {
+                // v3.9.96 记一笔：金额行（¥ 前缀 + 数字键盘）在标题下方、用途输入框上方
+                HStack(spacing: Spacing.md) {
+                    Text("¥")
+                        .font(.system(size: Typography.headline, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                    TextField("0", text: $amountText)
+                        .keyboardType(.decimalPad)
+                        .font(.system(size: Typography.headline, weight: .semibold))
+                        .focused($amountFocused)
+                }
+                .padding(Spacing.xl)
+                .overlayGlassCard(cornerRadius: Radius.card)
             }
             TextField(mode.placeholder, text: $text, axis: .vertical)
                 .lineLimit(1...4)
@@ -591,7 +641,7 @@ struct QuickCaptureSheet: View {
                     Text("保存").pill(.primary, tone: .accent)
                 }
                 .buttonStyle(.plain)
-                .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .disabled(!canSave)
             }
         }
         // 输入框上移的几何算式（393pt 宽 / medium detent）：
@@ -604,6 +654,12 @@ struct QuickCaptureSheet: View {
         // v3.9.59：与全站输入弹窗同档（MemoSection / TodoSection / QuickReminderSheet 都是 medium + large）
         .presentationDetents([.medium, .large])
         // 弹窗背景不覆盖：交给 iOS 26 系统默认玻璃底（全站口径）
+        // v3.9.96 记一笔：弹出后自动聚焦金额框（键盘直接就位，少一次点按）
+        .onAppear {
+            if mode == .expense {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { amountFocused = true }
+            }
+        }
     }
 
     private func save() {
@@ -612,6 +668,16 @@ struct QuickCaptureSheet: View {
         switch mode {
         case .memo: _ = MemoStore.shared.add(content: content, source: "orb")
         case .todo: _ = TodoStore.shared.add(content: content, source: "orb")
+        case .expense:
+            // v3.9.96 记一笔：与聊天页/生活页同一落库口径（RecordStore.addDetailed，kind=amount/unit=元）。
+            // 分类走 ChatRecordKit.category(for:) 词表兜底「其它」；备注带分类，方便生活页回溯。
+            let amount = parsedAmount ?? 0
+            guard amount > 0 else { return }
+            let category = ChatRecordKit.category(for: content)
+            _ = RecordStore.shared.addDetailed(kind: "amount", title: content,
+                                               amount: amount, unit: "元",
+                                               note: "分类：\(category)｜来源：记一笔",
+                                               source: "orb")
         }
         Haptics.success()
         dismiss()

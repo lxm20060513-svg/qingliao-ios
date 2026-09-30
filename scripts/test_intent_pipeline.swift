@@ -357,7 +357,12 @@ check("输入栏优先权全文件只出现 1 次", cvSrc.components(separatedBy
 check("欢迎页顶部留白随键盘收起", cvSrc.contains("Spacer(minLength: kb.isVisible ? 0 : 56)"))
 // v3.9.78：欢迎页形象已从液态球换成卡通宠物（PetAvatar）——「身份尺寸不因布局改动而变」这条口径不变，只是主体换了
 check("欢迎页形象保持既有尺寸口径（96pt，不因布局改小）", cvSrc.contains("PetAvatar(size: 96,"))
-check("建议芯片随键盘收起", cvSrc.contains("if !kb.isVisible {") && cvRaw.contains("// if !kb.isVisible（建议芯片）"))
+// v4.0.12（用户拍板）：欢迎页建议芯片（帮我写/翻译/头脑风暴/待办整理）整条下线。
+// 原来这里钉的「建议芯片随键盘收起」（if !kb.isVisible + 注释锚点）随本体一起退场，
+// 改成删除护栏——语义不丢：当年防的是「键盘弹起它还赖着」，现在防的是「它别再回来」。
+check("欢迎页建议芯片已删除（v4.0.12）：portraitChips/landscapeChips/suggestionChip/welcomeSuggestions 零残留",
+      !cvRaw.contains("portraitChips:") && !cvRaw.contains("landscapeChips:")
+      && !cvRaw.contains("func suggestionChip") && !cvRaw.contains("let welcomeSuggestions"))
 // v4.0.9（用户拍板）：页脚那条「继续上次」长条卡**已删除**。原来这里钉的两条形态串
 //（「续聊卡随键盘收起」/「忽略胶囊可收起」）随本体一起退场，改成**删除护栏**——
 // 旧符号零残留，语义不丢：当年防的是「键盘弹起它还赖着」，现在防的是「它别再回来」。

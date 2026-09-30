@@ -8,7 +8,7 @@ import Foundation
 // 所以本版口径 = 候选全做（v4.0.x = 8 项）、设置页自己挑 4 项、按设置重建系统菜单。
 //
 // 本表钉八件事（都是「本机一眼能查、真机上才看得出来」的形态）：
-//   ① 候选顺序 = 用户点名顺序 + 新胶囊排尾（order == [4,5,2,0,1,3,6,7]），默认勾选 = 前 4 项；
+//   ① 候选顺序 = 用户点名顺序 + 新胶囊排尾（order == [4,5,2,0,1,3,6,7,8]），默认勾选 = 前 4 项；
 //   ② **不复制第二套动作表**：HomeShortcuts.swift 里不许出现快捷方式标题/图标字面量，
 //      标题与动作语义只有 `OrbQuickAction.all` 一个真源（复制必然漂移）；
 //   ③ 动作派发只经过 `handleOrbAction`（桌面菜单与长按智慧球同一套动作语义）；
@@ -58,8 +58,8 @@ check("HomeShortcutSheet.swift 源可读", !sheet.isEmpty)
 check("DockTabView.swift 源可读", !dock.isEmpty)
 
 // ── ① 候选与默认：顺序 = 用户点名顺序 ───────────────────────────────
-check("候选顺序 = 用户点名顺序 + 新胶囊排尾：order == [4, 5, 2, 0, 1, 3, 6, 7]",
-      flat(shortcuts).contains("staticletorder:[Int]=[4,5,2,0,1,3,6,7]"))
+check("候选顺序 = 用户点名顺序 + 新胶囊排尾：order == [4, 5, 2, 0, 1, 3, 6, 7, 8]",
+      flat(shortcuts).contains("staticletorder:[Int]=[4,5,2,0,1,3,6,7,8]"))
 check("默认勾选 = 点名的前 4 项：defaultIds == [4, 5, 2, 0]",
       flat(shortcuts).contains("staticletdefaultIds:[Int]=[4,5,2,0]"))
 check("上限 4 = iOS 系统限制（maxCount = 4，不写死在别处）",
@@ -164,8 +164,8 @@ check("设置页有「桌面快捷方式」入口，行尾计数读同一真值"
       sections.contains("桌面快捷方式") && flat(sections).contains("HomeShortcutStore.ids(from:homeShortcutsRaw).count"))
 check("入口打开 HomeShortcutSheet（弹窗挂了 medium/large 两档高度）",
       flat(stripCommentLines(settings)).contains("HomeShortcutSheet()"))
-check("OrbQuickAction.all 已是 8 项（候选清单的来源，被删/改数会连带失效）",
-      orbMenu.components(separatedBy: "OrbQuickAction(id:").count - 1 == 8)
+check("OrbQuickAction.all 已是 9 项（候选清单的来源，被删/改数会连带失效）",
+      orbMenu.components(separatedBy: "OrbQuickAction(id:").count - 1 == 9)
 
 // ── ⑨ v4.0.x：候选清单必须**跟着 OrbQuickAction.all 长**（6 → 8）──────────
 // 这是本条不是「改数字」而是**绑定**：order 少写一个 id = 设置页少一个可勾选项（用户看不到新胶囊），
@@ -184,12 +184,12 @@ let orderIds: [Int] = {
         .split(separator: ",")
         .compactMap { Int($0.trimmingCharacters(in: .whitespaces)) }
 }()
-check("候选数 = OrbQuickAction.all 数量（v4.0.x：8 = 8；order 是候选清单唯一真源）",
+check("候选数 = OrbQuickAction.all 数量（v3.9.96：9 = 9；order 是候选清单唯一真源）",
       !orderIds.isEmpty && orderIds.count == orbAllIds.count)
 check("order 里每个 id 都能在 OrbQuickAction.all 找到（错一个 = 设置页整项消失）",
       !orderIds.isEmpty && Set(orderIds).isSubset(of: orbAllIds))
-check("新胶囊 id 6/7 已进候选（排尾，不动老用户已熟悉的候选次序）",
-      Array(orderIds.suffix(2)) == [6, 7])
+check("新胶囊 id 6/7/8 已进候选（排尾，不动老用户已熟悉的候选次序）",
+      Array(orderIds.suffix(3)) == [6, 7, 8])
 check("默认勾选与上限未动（新候选不自动上位 —— 老用户桌面菜单不因发版而变）",
       flat(shortcuts).contains("staticletdefaultIds:[Int]=[4,5,2,0]")
       && flat(shortcuts).contains("staticletmaxCount=4"))

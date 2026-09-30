@@ -585,14 +585,20 @@ let typingCode = typingSlice.split(separator: "\n")
     .filter { !$0.hasPrefix("//") }
     .joined(separator: "\n")
 check("TypingIndicator 源切片非空（切片失败 = 下面全是空真）", typingSlice.count > 200)
-check("🚨 消隐时复位（回归根因：视图复用后无 false→true 边沿 → repeatForever 不重启）",
-      typingCode.contains(".onDisappear { animating = false }"))
-check("出现时置位（与上一行成对，缺一即概率卡死）",
-      typingCode.contains(".onAppear { animating = true }"))
+// v4.0.12 根治「圆点脉冲自己消失」（用户 2026-09-30 真机实报：onAppear/onDisappear 边沿方案
+// 没根治，思考气泡在父级重建时身份抖动，边沿丢失后 @State 已是 true → 动画永不重启 ≈ 空泡）。
+// 根治：TimelineView 驱动——相位由时间戳直接算出，视图怎么重建都停不下来；旧断言全部退役。
+check("🚨 脉冲改 TimelineView 驱动（无 repeatForever 边沿依赖，父级重建不再卡死）",
+      typingCode.contains("TimelineView(.animation(")
+      && typingCode.contains("timeline.date.timeIntervalSinceReferenceDate"))
+check("零 @State 动画位（不存在可丢失的 false→true 边沿 = 根因移除）",
+      !typingCode.contains("@State") && !typingCode.contains(".repeatForever"))
+check("周期与旧版一致（1.2s 全周期 = 0.6s easeInOut 往返 + 每颗错相 0.18s）",
+      typingCode.contains("dividingBy: 1.2") && typingCode.contains("Double(i) * 0.18"))
+check("reduceMotion：暂停时钟 + 退回静止满点（无障碍口径保留）",
+      typingCode.contains("paused: reduceMotion") && typingCode.contains("reduceMotion ? 1.0 :"))
 check("不许改用异步翻转（Swift 6 严格并发下闭包捕获 View 编译不过）",
       !typingCode.contains("DispatchQueue.main.async"))
-check("三点脉冲外观口径不动（repeatForever + 分相 delay）",
-      typingCode.contains(".repeatForever(autoreverses: true).delay(Double(i) * 0.18)"))
 
 // 同族第三处：header「AI 正在输入」小三点（LiquidGlass.BusyDots）——同一个「边沿」坑。
 // 三处（ChatView.TypingIndicator / PetAvatar.ThinkingDots / BusyDots）修法一致：消隐复位。

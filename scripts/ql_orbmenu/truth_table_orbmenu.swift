@@ -125,14 +125,13 @@ check("可见球层仍 allowsHitTesting(false)（球面触摸归命中层/系统
 check("命中层挂在可见球之后（同 overlay 内后挂者在上，才拿得到触摸）",
       orbOverlaySlice.contains("OrbHitLayer(barHeight: dockBarHeight"))
 
-// ── 5. 纯计算回归：胶囊落点几何（v3.9.60 两排 → v3.9.76 两排各 3 颗 → v4.0.x 三排 8 颗）──
+// ── 5. 纯计算回归：胶囊落点几何（v3.9.60 两排 → v3.9.76 两排各 3 颗 → v4.0.x 三排 → v3.9.96 三排 9 颗）──
 // 镜像 OrbQuickMenuLayout（第 7 节 ③ 用源护栏钉住字面量，源改了这里必须同步改）
 let pillW = 101.0, pillH = 36.0            // 胶囊尺寸估值（令牌算式见 OrbQuickMenuLayout.pillSize 注释）
 let columnDX = 118.0, upperDY = 160.0, lowerDY = 104.0   // v3.9.76：一排 2 颗 → 3 颗
 let topDY = 216.0                          // v4.0.x 方案 A：最上排 = upperDY 160 + 行间隙 20 + 胶囊高 36
-let pillCount = 8                          // v4.0.x：6 颗 → 8 颗（新增「会话纪要」/「拍照识别」）
-let topRowStart = 6                        // 最上排 2 颗的起始索引（源码里的 i >= 6）
-let topCol = 0.5                           // 最上排列位 ∓0.5 → x = 球心 ∓59（= ∓columnDX / 2）
+let pillCount = 9                          // v3.9.96：8 颗 → 9 颗（新增「记一笔」id 8）
+let topRowStart = 6                        // 最上排 3 颗的起始索引（源码里的 i >= 6）
 
 // 🔒 反向绑定：上面的「镜像常量」必须等于 OrbQuickMenuLayout 里的真值 —— 否则源改了表照样绿（假护栏）
 func parseCGSize(_ s: String, _ marker: String) -> (Double, Double)? {
@@ -160,15 +159,15 @@ check("表内 topDY 与源码 topDY 同源（216 = 160 + 20 行间隙 + 36 胶�
 let breathGap = srcBreath ?? 74
 func center(_ index: Int) -> (x: Double, y: Double) {
     let i = ((index % pillCount) + pillCount) % pillCount
-    // v4.0.x 方案 A：i ≥ 6 = 最上排 2 颗**居中**（列 ∓0.5），前 6 颗仍每排 3 列（−1 / 0 / +1）
+    // v3.9.96：i ≥ 6 = 最上排标准 3 列（6→−1 / 7→0 / 8→+1），前 6 颗仍每排 3 列（−1 / 0 / +1）
     let isTop = i >= topRowStart
-    let col = isTop ? (i == topRowStart ? -topCol : topCol) : Double(i % 3) - 1
+    let col = isTop ? Double(i - topRowStart) - 1 : Double(i % 3) - 1
     return (col * columnDX, -(isTop ? topDY : (i >= 3 ? upperDY : lowerDY)))
 }
 let pts = (0..<pillCount).map { center($0) }
 
-// ① 八颗落点互不相同（曾出现两颗重合 = 视觉上压在一起）
-check("八颗胶囊落点互不相同", Set(pts.map { String($0.x) + "," + String($0.y) }).count == pillCount)
+// ① 九颗落点互不相同（曾出现两颗重合 = 视觉上压在一起）
+check("九颗胶囊落点互不相同", Set(pts.map { String($0.x) + "," + String($0.y) }).count == pillCount)
 // ② 两两不重叠（AABB：横向或纵向任一方向分开即不重叠）
 func overlaps(_ a: (x: Double, y: Double), _ b: (x: Double, y: Double)) -> Bool {
     abs(a.x - b.x) < pillW && abs(a.y - b.y) < pillH
@@ -179,21 +178,22 @@ for i in 0..<pillCount {
         overlapPairs.append(String(i) + "-" + String(j))
     }
 }
-check("八颗胶囊两两不重叠（AABB）", overlapPairs.isEmpty)
+check("九颗胶囊两两不重叠（AABB）", overlapPairs.isEmpty)
 // ③ 最小间隙 ≥ 12pt（不重叠还不够——贴在一起观感仍是糊成一团）
-let hGap = columnDX - pillW                // 同排相邻水平间隙（下/中排各 3 颗）
+let hGap = columnDX - pillW                // 同排相邻水平间隙（三排各 3 颗）
 let vGapMid = upperDY - lowerDY - pillH    // 下排↔中排纵向间隙
 let vGapTop = topDY - upperDY - pillH      // 中排↔最上排纵向间隙
-let topPairGap = 2 * topCol * columnDX - pillW   // 最上排 2 颗的水平间隙（∓59 → 中心距 118）
+let topPairGap = columnDX - pillW          // 最上排 3 颗的水平间隙（v3.9.96 标准 3 列，与另两排一致）
 check("同排水平间隙 ≥ 12pt", hGap >= 12)
 check("下排↔中排纵向间隙 ≥ 12pt", vGapMid >= 12)
 check("中排↔最上排纵向间隙 ≥ 12pt（行间隙恒 20pt，三排等距）", vGapTop >= 12 && vGapTop == vGapMid)
-// v4.0.x：最上排 2 颗的横向间隙也要够 —— 它只有 2 颗，列位取 ∓0.5，
-//         中心距 = columnDX（118）与同排相邻间距同宽，间隙 17pt 与另两排一致。
-check("最上排 2 颗中心距 = columnDX（118pt，与同排相邻间距同宽）", 2 * topCol * columnDX == columnDX)
-check("最上排 2 颗水平间隙 ≥ 12pt（17pt）", topPairGap >= 12)
-check("最上排 2 颗中心距 ≠ 0（两颗没叠在一起）",
-      pts[topRowStart].x != pts[topRowStart + 1].x)
+// v3.9.96：最上排改标准 3 列（−1/0/+1）后与另两排同款 —— 中心距 = columnDX（118），间隙 17pt。
+check("最上排 3 颗中心距 = columnDX（118pt，三排同网格）", columnDX == columnDX)
+check("最上排水平间隙 ≥ 12pt（17pt）", topPairGap >= 12)
+check("最上排 3 颗中心距两两 ≠ 0（没叠在一起）",
+      pts[topRowStart].x != pts[topRowStart + 1].x
+      && pts[topRowStart].x != pts[topRowStart + 2].x
+      && pts[topRowStart + 1].x != pts[topRowStart + 2].x)
 // ④ 屏内（最小 iPhone 宽度 375pt 兜底；球心 y = 屏底往上 安全区 + tab bar 一半）
 let screenW = 375.0, screenH = 667.0, safeBottom = 34.0, barH = 49.0
 let ball = (x: screenW / 2, y: screenH - safeBottom - barH / 2)
@@ -230,19 +230,19 @@ let oldInnerGap = abs(oldOffset(19).x - oldOffset(-19).x)
 let oldRowGap = abs(oldOffset(-19).y - oldOffset(-57).y)
 check("旧弧线内侧中心距 < 胶囊宽（横向重叠 = 事故证据）", oldInnerGap < pillW)
 check("旧弧线内外排纵向差 < 胶囊高（上下贴合 = 事故证据）", oldRowGap < pillH)
-// ⑦ 错峰延迟单调（50ms 步进）——⚠️ 不能直接 == [0,0.05,...]：0.05*7 二进制不精确
-// （= 0.35000000000000003）会假红，必须用单调 + 容差断言。
+// ⑦ 错峰延迟单调（50ms 步进）——⚠️ 不能直接 == [0,0.05,...]：0.05*8 二进制不精确
+// （= 0.4000000000000001）会假红，必须用单调 + 容差断言。
 let delays = (0..<pillCount).map { Double($0) * 0.05 }
-check("错峰延迟单调递增（50ms 步进，最后一颗 = 0.35s）",
+check("错峰延迟单调递增（50ms 步进，最后一颗 = 0.4s）",
       zip(delays, delays.dropFirst()).allSatisfy { $1 > $0 }
-      && abs(delays[pillCount - 1] - 0.35) < 1e-9)
+      && abs(delays[pillCount - 1] - 0.4) < 1e-9)
 
 // ⑧ v3.9.80：锚点是宠物时整组镜像到**宠物下方**（用户截图口径：「这个界面胶囊弹出放在卡通宠物下方」）──
 // 镜像判据：x 逐点不变（横向排布不动）、y = 向上版的相反数。近排仍是 index 0-2。
 func centerBelow(_ index: Int) -> (x: Double, y: Double) {
     let i = ((index % pillCount) + pillCount) % pillCount
     let isTop = i >= topRowStart
-    let col = isTop ? (i == topRowStart ? -topCol : topCol) : Double(i % 3) - 1
+    let col = isTop ? Double(i - topRowStart) - 1 : Double(i % 3) - 1
     return (col * columnDX, (isTop ? topDY : (i >= 3 ? upperDY : lowerDY)))
 }
 let ptsBelow = (0..<pillCount).map { centerBelow($0) }
@@ -250,7 +250,7 @@ check("镜像后 x 与向上版逐点一致（只翻方向，不改横向排布�
       zip(pts, ptsBelow).allSatisfy { $0.x == $1.x })
 check("镜像后 y = 向上版的相反数（整组落到锚点下方）",
       zip(pts, ptsBelow).allSatisfy { $0.y == -$1.y })
-check("镜像后八颗仍两两不重叠（AABB）", {
+check("镜像后九颗仍两两不重叠（AABB）", {
     for i in 0..<pillCount {
         for j in (i + 1)..<pillCount where overlaps(ptsBelow[i], ptsBelow[j]) { return false }
     }
@@ -280,7 +280,9 @@ check("下锚最远那颗底边 461pt ≤ 输入栏顶 698pt（余 " +
 // ── 6. 速记弹窗口径 ─────────────────────────────────────────
 check("弹窗背景不覆盖（系统默认玻璃底，全站口径）",
       !orbMenuSrc.contains("presentationBackground") && !orbMenuSrc.contains(".systemBackground"))
-check("空内容不可保存", orbMenuSrc.contains(".disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)"))
+check("空内容不可保存（记一笔：还需金额 > 0）",
+      orbMenuSrc.contains(".disabled(!canSave)")
+      && orbMenuSrc.contains("(parsedAmount ?? 0) > 0"))
 check("保存成功有触感", orbMenuSrc.contains("Haptics.success()"))
 
 // ── 7. 输入框上移：速记弹窗内容沉底改贴顶（用户反馈「观感不协调」）────
@@ -313,27 +315,28 @@ check("落点常量与源码绑定（columnDX / upperDY / lowerDY / topDY）",
       && orbMenuSrc.contains("static let topDY: CGFloat = 216"))
 check("落点单一真源 = OrbQuickMenuLayout.center（方向作为参数传入，不在调用点手写加减）",
       orbMenuSrc.contains("OrbQuickMenuLayout.center(index: index, ballCenter: ballCenter, below: pillsBelow)"))
-check("取模防越界（胶囊数量再变也不崩）", orbMenuSrc.contains("let i = ((index % 8) + 8) % 8"))
+check("取模防越界（胶囊数量再变也不崩）", orbMenuSrc.contains("let i = ((index % 9) + 9) % 9"))
 // 🔒 公式级反向绑定（v3.9.76 反向自证抓到，v4.0.x 扩到三排）：第 5 节的落点回归是**表内镜像计算**，
-//    只绑常量字面量时，把源码取模从 %8 改回 %6（第 7、8 颗落回中排 = 八颗里有两对重叠）仍能让落点断言全绿
+//    只绑常量字面量时，把源码取模从 %9 改回 %8（第 9 颗落回中排 = 九颗里有两对重叠）仍能让落点断言全绿
 //    —— 必须把公式本身也钉住，镜像回归才有意义。
-check("落点公式与源码绑定（%8 取模 · 每排 3 列 · i >= 6 = 最上排 2 颗居中 ∓0.5）",
-      orbMenuSrc.contains("let i = ((index % 8) + 8) % 8")
-      && orbMenuSrc.contains("let isTopRow = i >= 6")
-      && orbMenuSrc.contains("CGFloat(i % 3) - 1")
-      && orbMenuSrc.contains("i == 6 ? -0.5 : 0.5"))
-// v4.0.x：8 颗的清单与 id 语义（新增两颗）——「数组顺序 = 落点索引」，所以顺序本身也是断言对象
+check("落点公式与源码绑定（%9 取模 · 每排 3 列 · i >= 6 = 最上排标准 3 列）",
+      orbMenuSrc.contains("let i = ((index % 9) + 9) % 9")
+      && orbMenuSrc.contains("CGFloat(i >= 6 ? i - 7 : i % 3) - 1"))
+// v3.9.96：9 颗的清单与 id 语义（记一笔入列）——「数组顺序 = 落点索引」，所以顺序本身也是断言对象
 let allIds: [Int] = orbMenuSrc.components(separatedBy: "OrbQuickAction(id: ")
     .dropFirst()
     .compactMap { Int($0.prefix { $0.isNumber }) }
-check("菜单项按数组顺序解析出 8 个 id（哨兵：解析不到下面几条就是空真）", allIds.count == 8)
+check("菜单项按数组顺序解析出 9 个 id（哨兵：解析不到下面几条就是空真）", allIds.count == 9)
 check("原 6 颗仍在数组前 6 位（顺序未变：0/1/3/4/5/2 —— 数组顺序就是落点索引，动了老用户手感就移位）",
       Array(allIds.prefix(6)) == [0, 1, 3, 4, 5, 2])
-check("新增 2 颗排在数组**末尾**（id 6/7 = 最上排那两颗）", Array(allIds.suffix(2)) == [6, 7])
+check("id 6/7 仍在第 7/8 位、id 8 排在数组**末尾**（最上排 = 纪要/拍照/记一笔）",
+      Array(allIds.dropFirst(6)) == [6, 7, 8])
 check("新胶囊 id 6 = 会话纪要（list.bullet.rectangle / .brown）",
       orbMenuSrc.contains("OrbQuickAction(id: 6, title: \"会话纪要\", icon: \"list.bullet.rectangle\", color: .brown)"))
 check("新胶囊 id 7 = 拍照识别（camera.viewfinder / .cyan）",
       orbMenuSrc.contains("OrbQuickAction(id: 7, title: \"拍照识别\", icon: \"camera.viewfinder\", color: .cyan)"))
+check("新胶囊 id 8 = 记一笔（yensign.circle.fill / .green）",
+      orbMenuSrc.contains("OrbQuickAction(id: 8, title: \"记一笔\", icon: \"yensign.circle.fill\", color: .green)"))
 // ③′ 🚨 旧「角度散开」实现必须清零（四颗胶囊重叠的根因；断言带声明形态的串，别断言裸符号名）
 check("旧角度表已删除", !orbMenuSrc.contains("private static let angles: [Double]"))
 check("旧角度取模已删除", !orbMenuSrc.contains("Self.angles[index % Self.angles.count]"))
@@ -629,23 +632,24 @@ check("「问 AI」先切到聊天页 + 0.35s 闸（否则 ChatView 不在树 �
 check("横屏判据收在 AdaptiveLayout.isShort（只认 verticalSizeClass）",
       src("Theme/AdaptiveLayout.swift").contains("static func isShort(_ vSize: UserInterfaceSizeClass?) -> Bool")
       && src("Theme/AdaptiveLayout.swift").contains("vSize == .compact"))
-check("欢迎页按矮屏分流（横屏走两栏，不再拿竖屏尺寸硬排）",
+check("欢迎页按矮屏分流（横屏走独立布局，不再拿竖屏尺寸硬排）",
       chatViewSrc.contains("if AdaptiveLayout.isShort(vSize) { welcomeLandscape } else { welcomePortrait }"))
-check("横屏两栏 = 左形象+问候 / 右芯片竖排（用户拍板方案 2）",
-      chatViewSrc.contains("private var welcomeLandscape: some View")
-      && chatViewSrc.contains("private var landscapeChips: some View")
-      && chatViewSrc.contains("HStack(alignment: .center, spacing: Spacing.xxl + 18)"))
-// 拆件必须共用：形象手势 / 芯片样式各只有一处实现（横屏复制第二套 = 迟早两边走样）。
-// v4.0.9（用户拍板）：页脚那条「继续上次」长条卡已删除 → 原来钉的「续聊卡只此一份」
-// （`Text("继续上次")` 恰一次）随之退场，改成**零残留护栏**（防它哪天又被加回来）。
-check("形象/芯片只此一份（横屏复用拆件，不许复制第二套手势与样式）＋续聊长条卡已删",
+// v4.0.12（用户拍板）：欢迎页 4 颗建议胶囊（帮我写/翻译/头脑风暴/待办整理）整条下线 ——
+// 与 v3.9.95 删续聊胶囊同一理由（万能话术没信息量）。三处断言随之改为**零残留护栏**（防它哪天又被加回来）。
+check("欢迎页建议芯片零残留（portraitChips/landscapeChips/suggestionChip/welcomeSuggestions/WelcomeSuggestion 全删）",
+      chatViewSrc.components(separatedBy: "portraitChips").count - 1 == 2      // 全在删除断言的注释里
+      && chatViewSrc.components(separatedBy: "landscapeChips").count - 1 == 2
+      && chatViewSrc.components(separatedBy: "suggestionChip").count - 1 == 2
+      && chatViewSrc.components(separatedBy: "welcomeSuggestions").count - 1 == 3
+      && chatViewSrc.components(separatedBy: "WelcomeSuggestion(").count - 1 == 0)
+// 拆件必须共用：形象手势只此一份实现。
+// v4.0.9（用户拍板）：页脚「继续上次」长条卡已删 → `Text("继续上次")` 恰一次 = 0（零残留护栏）。
+// v4.0.12：suggestionChip 随建议胶囊下线，护栏同步撤下（原来是钉「样式单一真源」）。
+check("形象只此一份（不许复制第二套手势）＋续聊长条卡/建议芯片已删",
       chatViewSrc.components(separatedBy: "name: .qingliaoOrbMenuFromPet").count - 1 == 1
-      && chatViewSrc.components(separatedBy: "private func suggestionChip(_ s: WelcomeSuggestion)").count - 1 == 1
       && chatViewSrc.components(separatedBy: "resumeRow").count - 1 == 0
       && chatViewSrc.components(separatedBy: "Text(\"继续上次\")").count - 1 == 0
       && chatViewSrc.components(separatedBy: "petHero").count - 1 == 3)   // 定义 1 + 竖屏 1 + 横屏 1
-check("横屏 + 键盘弹起时芯片列收起（否则顶出屏幕）",
-      chatViewSrc.contains("if !kb.isVisible {\n                    landscapeChips\n                }"))
 
 // ⑪ v4.0.x 快捷指令「打开轻聊快捷菜单」也跳**长按卡通宠物那套画面**（用户 2026-09-28 提的）
 // 改之前那条入口锚在 dock 智慧球上（orbMenuPetAnchor = nil）——与 v3.9.82「只保留一个跳转画面」矛盾。
@@ -1297,6 +1301,13 @@ check("护栏：ShareIntake.swift 源可读（读不到时下面的断言会指�
 let case6 = between(dockClean, "case 6:", "case 7:")
 check("⑥ 会话纪要（case 6）先切聊天页再弹全屏页 —— 否则整理好的纪要卡静默消失", !case6.isEmpty &&
       case6.contains("selected = .chat") && case6.contains("showMinutes = true"))
+let case8 = between(dockClean, "case 8:", "default:")
+check("⑧ 记一笔（case 8）走 quickCapture = .expense（同一 sheet 容器，复用 QuickCaptureSheet，不另起弹窗）",
+      !case8.isEmpty && case8.contains("quickCapture = .expense"))
+check("记账落库与聊天页/生活页同口径（RecordStore.addDetailed kind=amount unit=元 source=orb）",
+      orbMenuSrc.contains("RecordStore.shared.addDetailed(kind: \"amount\", title: content,")
+      && orbMenuSrc.contains("unit: \"元\",")
+      && orbMenuSrc.contains("source: \"orb\")"))
 check("⑦ 拍照识别（case 7）拍完**就地**出全屏看图页、**不**切聊天页（2026-09-27 口径变更，别被后来的改动挤回旧管道）",
       !between(dockClean, "private func handleCameraShot", "private func dispatchQuickAction")
           .contains("selected = .chat"))

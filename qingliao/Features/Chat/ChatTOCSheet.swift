@@ -3,12 +3,7 @@ import SwiftUI
 // MARK: - 消息气泡
 
 // MARK: - v3.0.27 章节列表弹窗（纯静态章节标题展示，不做大纲导航）
-struct WelcomeSuggestion: Identifiable {
-    let id = UUID()
-    let icon: String
-    let title: String
-    let prompt: String
-}
+// v4.0.12：WelcomeSuggestion 结构随欢迎页 4 颗建议胶囊一并删除（唯一使用者已下线，无残留死代码）。
 
 struct TOCSheet: View {
     let headers: [MarkdownRenderer.TOCItem]
