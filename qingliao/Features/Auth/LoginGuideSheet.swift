@@ -81,6 +81,20 @@ struct LoginGuideSheet: View {
             skillCode: nil,
             skillURL: nil
         ),
+        GuideStep(
+            id: 5, icon: "arrow.triangle.2.circlepath", iconColor: .green,
+            title: "以后怎么更新",
+            brief: "后端出新版本后，在部署目录（你克隆仓库的那个文件夹）里跑一条命令就行，不用重装、不用改配置。",
+            bullets: [
+                "./update.sh —— 更新到最新 + 自动重启。数据、会话、密码全部保留",
+                "./update.sh --check —— 只看有没有新版，不动任何东西",
+                "更新前会自动把数据备份到 backups/，万一新版有问题可回滚",
+                "App「设置 → 关于」能看到当前后端版本，方便确认配套的是哪一版",
+            ],
+            code: "# 在后端目录里执行（把路径换成你自己的部署目录）\ncd 你的部署目录\n./update.sh",
+            skillCode: nil,
+            skillURL: nil
+        ),
     ]
 
     var body: some View {
@@ -111,9 +125,9 @@ struct LoginGuideSheet: View {
     @ViewBuilder
     private var guideIntro: some View {
         VStack(alignment: .leading, spacing: Spacing.sm) {
-            Text("三步上手")
+            Text("五步上手")
                 .font(.system(size: Typography.headline, weight: .bold))
-            Text("部署后端 → 部署插件 → App 登录。全程约 10 分钟，跟着下面的步骤做即可。")
+            Text("部署后端 → 部署插件 → App 登录。前三步约 10 分钟；以后更新只要一条命令（见第 5 步）。")
                 .font(.system(size: Typography.subhead))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

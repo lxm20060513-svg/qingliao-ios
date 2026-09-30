@@ -193,6 +193,8 @@ struct AboutView: View {
     @Environment(AuthStore.self) private var auth   // v3.0.8：拉 Hermes 版本
     // v3.0.8：Hermes 容器版本（项目版本说明，从 NAS /api/nas/status 实时读）
     @State private var hermesVersion = "读取中…"
+    // v4.0.14：轻聊后端版本（从免鉴权 /api/version 读，装完 App 一眼确认后端配套哪版）
+    @State private var backendVersion = "读取中…"
 
     var body: some View {
         VStack(spacing: 14) {
@@ -230,6 +232,16 @@ struct AboutView: View {
                         .font(.system(size: Typography.subhead))
                         .foregroundStyle(.secondary)
                 }
+                // v4.0.14：轻聊后端版本（/api/version 免鉴权，失败只显示"未获取到"，不打扰用户）
+                HStack(alignment: .top) {
+                    Text("轻聊后端")
+                        .font(.system(size: Typography.subhead, weight: .medium))
+                        .foregroundStyle(.primary)
+                        .frame(width: 68, alignment: .leading)
+                    Text(backendVersion)
+                        .font(.system(size: Typography.subhead))
+                        .foregroundStyle(.secondary)
+                }
             }
             .font(.system(size: Typography.subhead))
             .padding(.horizontal, 24)
@@ -249,6 +261,22 @@ struct AboutView: View {
                 hermesVersion = v
             } else {
                 hermesVersion = "未获取到"
+            }
+            // v4.0.14：拉轻聊后端版本。/api/version 免鉴权，返回
+            // {"version":"v4.0.13","commit":"8f2e181","built":"2026-10-01"}。
+            // version 为空 = 部署方没注入版本信息（很常见），此时只显示 commit 或提示，
+            // 不算错误 —— 所以不写死"未获取到"当错误态。
+            if let j = try? await auth.json("/api/version") {
+                let ver = (j["version"] as? String)?.trimmingCharacters(in: .whitespaces) ?? ""
+                let commit = (j["commit"] as? String) ?? ""
+                let built = (j["built"] as? String) ?? ""
+                var parts: [String] = []
+                if !ver.isEmpty { parts.append(ver) }
+                if !commit.isEmpty { parts.append("(\(commit))") }
+                if !built.isEmpty { parts.append("· \(built)") }
+                backendVersion = parts.isEmpty ? "未标注版本" : parts.joined(separator: " ")
+            } else {
+                backendVersion = "未获取到"
             }
         }
     }
