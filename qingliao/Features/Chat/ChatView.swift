@@ -9,6 +9,14 @@ import Speech
 import UIKit
 import UserNotifications
 
+/// v4.0.11：把「本会话落库」与「被移交任务落库」两条边沿合成一个可观察值，供 ChatView 的 `.onChange`
+/// 使用 —— 该 view 的修饰符链已处在编译器类型检查超时的临界点（CI 报 2548 行 unable to type-check），
+/// 合成后 modifier 数与出包前持平。Equatable 是 `.onChange(of:)` 的前提。
+private struct LandedSignal: Equatable {
+    let token: Int
+    let away: Int
+}
+
 struct ChatView: View {
     @Environment(AuthStore.self) var auth
     @Environment(ChatStore.self) var chat
@@ -410,6 +418,24 @@ struct ChatView: View {
         // v3.9.43 视觉改薄一档（高 ~25）→ 纵向外扩跟着思考胶囊的 v:10
         .hitArea44(h: 8, v: 10)
         .accessibilityLabel(autoReadReply ? "自动朗读已开启" : "自动朗读已关闭")
+    }
+
+    /// v4.0.11：从 body 的 `.task` 里提出来的启动期逻辑（见 body 处注释：编译器类型检查超时）。
+    /// 纯等价搬移，逐行顺序与原先一致，零行为变化。
+    private func bootstrapChat() async {
+        // v3.0.51 A2 fix：初始化可见消息缓存（首次渲染不为空）
+        refreshVisibleMessages()
+        // v3.4.29：先用上次结果填充状态点——首屏不再闪"检测中"灰点（后台校验回来再纠正）
+        if let cached = UserDefaults.standard.object(forKey: "qingliao_server_online_cache") as? Bool {
+            serverOnline = cached
+        }
+        // v3.7.0：进聊天页探一次剪贴板（地图分享「拷贝」后切回来即可见胶囊）
+        await checkMapClipboard()
+        // 服务器连接状态检测（真实绿点）
+        let r = await auth.testConnection(server: auth.serverURL)
+        let ok = r.hasPrefix("✅")
+        serverOnline = ok
+        UserDefaults.standard.set(ok, forKey: "qingliao_server_online_cache")   // v3.4.29：写缓存供下次首屏
     }
 
     /// v3.9.8：自动朗读最新一条 AI 回复。
@@ -2532,21 +2558,11 @@ struct ChatView: View {
                 }
             }
         }
-        .task {
-            // v3.0.51 A2 fix：初始化可见消息缓存（首次渲染不为空）
-            refreshVisibleMessages()
-            // v3.4.29：先用上次结果填充状态点——首屏不再闪"检测中"灰点（后台校验回来再纠正）
-            if let cached = UserDefaults.standard.object(forKey: "qingliao_server_online_cache") as? Bool {
-                serverOnline = cached
-            }
-            // v3.7.0：进聊天页探一次剪贴板（地图分享「拷贝」后切回来即可见胶囊）
-            await checkMapClipboard()
-            // 服务器连接状态检测（真实绿点）
-            let r = await auth.testConnection(server: auth.serverURL)
-            let ok = r.hasPrefix("✅")
-            serverOnline = ok
-            UserDefaults.standard.set(ok, forKey: "qingliao_server_online_cache")   // v3.4.29：写缓存供下次首屏
-        }
+        // v4.0.11：启动期逻辑从 body 修饰符链里**提出来**（纯等价重构，零行为变化）。
+        // 根因：CI 报 `ChatView.swift:2548: the compiler is unable to type-check this expression
+        // in reasonable time` —— 巨型 view 链内再塞大闭包，编译器类型检查超时（本地 `-parse`
+        // 只查语法，查不出这类问题，只有 Archive 才挂）。
+        .task { await bootstrapChat() }
         .fullScreenCover(item: $bigBangPayload) { payload in
             // v3.9.0：zoom 转场——从被长按的气泡"生长"出来（与图片查看器同一机制）
             if payload.sourceID.isEmpty {
@@ -2580,15 +2596,15 @@ struct ChatView: View {
         // 服务器探针 的并集，切会话 / 探针抖动 / 失败自动重试的空窗 / 用户点停止都会 true→false，
         // 据此朗读会念到上一条旧答案、半截答案，甚至切过去那个会话的内容；
         // 流式中的内容活在 streamingBubble（不落 chat.messages），所以"落库事件"才是本轮结束的可靠信号。
-        .onChange(of: chat.assistantLandedToken) { _, _ in
-            autoReadLatestReply()
-        }
-        // v4.1.x 发布前**复核修正**（2026-09-30）：被移交的后台任务落库**不会**自增 assistantLandedToken
-        //（那个只认本会话落库，走 noteAssistantLanded）→ 挂在它上面是空操作、缺口照旧。改用专用边沿：
-        // 现象（A 里第二条一直显示「排队中」，要重进聊天页才补发）由此关闭。
-        // 幂等安全：pumpPendingQueue 只派发属于当前会话的条目、且被 !stream.isStreaming 挡着。
-        .onChange(of: chat.awayLandedTick) { _, _ in
-            pumpPendingQueue()
+        // v4.0.11：两条「落库」边沿合成**一个**观察值 —— 本 view 的修饰符链已处在编译器类型检查超时的
+        // 临界点（CI 报 ChatView.swift:2548 unable to type-check），能不加 modifier 就不加。
+        // token：本会话落库（驱动自动朗读）；away：被移交的后台任务落库（驱动排队排空）。
+        // away 不能用 token 代替：assistantLandedToken 只在 noteAssistantLanded 自增，移交落库走的是
+        // noteAwayLandedReply → 挂在 token 上是空操作、缺口照旧（A 里第二条一直「排队中」，要重进聊天页
+        // 才补发）。pumpPendingQueue 幂等：只派发属于当前会话的条目、且被 !stream.isStreaming 挡着。
+        .onChange(of: LandedSignal(token: chat.assistantLandedToken, away: chat.awayLandedTick)) { old, new in
+            if new.token != old.token { autoReadLatestReply() }
+            if new.away != old.away { pumpPendingQueue() }
         }
         // v3.9.7：阶段变化（思考中 → 输出中）也要推一次，否则灵动岛会一直停在「思考中」
         // （内容没变的重复调用会被管理器挡掉，不会造成 update 风暴）
