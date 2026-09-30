@@ -299,6 +299,11 @@ private struct ThinkingDots: View {
             RoundedRectangle(cornerRadius: size * 0.10, style: .continuous)
                 .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
         )
+        // ⚠️ 同 ChatView.TypingIndicator：`.animation(_:value:)` 只在 pulse 变化时施加动画，
+        // 循环脉冲必须有 false→true 边沿才启动。视图被复用（宠物状态 thinking→idle→thinking、
+        // 列表回收）时 @State 还是 true → 无变化 → 动画不重启，三点静止（概率性看起来「没动画」）。
+        // 消隐时复位 → 下次出现必定是边沿。两行成对，删掉 onDisappear 就复发。
         .onAppear { if animated { pulse = true } }
+        .onDisappear { pulse = false }
     }
 }

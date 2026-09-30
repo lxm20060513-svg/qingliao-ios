@@ -97,5 +97,32 @@ check("v3.9.76·能切到丢弃分支（切片失败 = 下一条断言白写）"
 check("v3.9.76·丢弃旧快照前必须 markDone（否则后端一直重投这条旧快照）", true,
       discardBlock.contains("markDone"))
 
+// ── v4.0.11：任务落地后到达的进度残片必须丢弃 ────────────────────────────
+// 用户 2026-09-30 实报：「AI 已经完整回复了，推送的反而还在完整回复后」——投递层重投的迟到快照
+// 排在完整回复下面。判据「任务是否已落地」必须是纯函数（这里能直接跑行为断言，不必只做源码字符串）。
+check("v4.0.11·已登记落地的任务 → 同任务进度判残片", true,
+      InboxProgressOrder.isTaskLanded(sourceTaskId: "t1", finishedTasks: ["t1"],
+                                      streamDone: false, streamTaskId: nil))
+check("v4.0.11·本机流式已收尾且 taskId 同源 → 判残片（重启后无内存集合也能兜住）", true,
+      InboxProgressOrder.isTaskLanded(sourceTaskId: "t2", finishedTasks: [],
+                                      streamDone: true, streamTaskId: "t2"))
+check("v4.0.11·别的任务在收流不算（不许跨任务误丢，同分组键铁律）", true,
+      !InboxProgressOrder.isTaskLanded(sourceTaskId: "t3", finishedTasks: [],
+                                       streamDone: true, streamTaskId: "t9"))
+check("v4.0.11·拿不到 source_task_id → 放行（无键不误判）", true,
+      !InboxProgressOrder.isTaskLanded(sourceTaskId: nil, finishedTasks: ["t1"],
+                                       streamDone: true, streamTaskId: "t1"))
+check("v4.0.11·空串 id 也放行（不许把空键当桶）", true,
+      !InboxProgressOrder.isTaskLanded(sourceTaskId: "", finishedTasks: [""],
+                                       streamDone: false, streamTaskId: nil))
+check("v4.0.11·progress 分支已接上落地闸门", true,
+      inboxCode.contains("InboxProgressOrder.isTaskLanded")
+      && inboxCode.contains("finishedTasks: finishedProgressTasks"))
+check("v4.0.11·reply 落地要登记任务 id（缺它则本机流程落地后残片仍会排上来）", true,
+      inboxCode.contains("finishedProgressTasks.insert(key)"))
+check("v4.0.11·落地闸门取本机流式收尾态（stream.isDone + 同源 taskId）", true,
+      inboxCode.contains("streamDone: stream?.isDone ?? false")
+      && inboxCode.contains("streamTaskId: stream?.taskId"))
+
 print(failures == 0 ? "🎉 进度顺序真值表全部通过（\(total) 条）" : "❌ 进度顺序真值表失败 \(failures)/\(total)")
 exit(failures == 0 ? 0 : 1)

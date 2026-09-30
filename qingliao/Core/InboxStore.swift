@@ -35,6 +35,12 @@ final class InboxStore {
     /// 跨重启的兜底走会话里「15 分钟内最后一条进度气泡」（见 consumeOne）。
     private var progressSnapshots: [String: InboxProgressOrder.Snapshot] = [:]
 
+    /// v4.0.11：**已经落地最终回复**的任务 id（source_task_id）。
+    /// 用途：任务落地后到达的同任务进度快照全是残片，必须丢弃 —— 否则会注入到列表末尾，
+    /// 排在完整回复**下面**（用户 2026-09-30 实报：「AI 已经完整回复了，推送的反而还在完整回复后」）。
+    /// 只存内存：重启后靠「本机流式已收尾」这条判据兜着。
+    private var finishedProgressTasks: Set<String> = []
+
     /// 推送轮询间隔（秒）。App 前台持续轮询；后台系统会冻结 task。
     /// v3.0.x fix：流式结束后临时缩短间隔快速拉取（1s），3 轮后恢复默认 5s
     var pollInterval: Double = 5
@@ -66,6 +72,33 @@ final class InboxStore {
         self.auth = auth
         self.chat = chat
         self.stream = stream
+    }
+
+    /// v4.0.11：主动 Agent 消息「有用/没用」→ POST /api/agent/proactive/feedback
+    /// + 就地把该条切终态并落库。
+    ///
+    /// 口径与 answerQuestion 刻意一致：**先本地落地再走网络**。反馈是「一次性的表态」，
+    /// 网络失败不该让用户再点一次（重复点 = 采纳率被计两次，阈值学歪）；
+    /// 失败时**不回滚**本地态（用户确实表过态了），只打日志——服务端丢一次反馈
+    /// 代价远小于「用户点了但界面像没反应」。
+    /// @param verdict 只能 "adopted"（有用）/ "ignored"（没用），与后端白名单一致
+    func sendProactiveFeedback(messageId: String, proactiveId: String, verdict: String) async {
+        guard verdict == "adopted" || verdict == "ignored", let auth else { return }
+        // 已表过态就不重复提交（采纳率只能计一次）
+        guard (chat?.proactiveVerdictOf(messageId: messageId) ?? "").isEmpty else { return }
+        chat?.markProactiveVerdict(messageId: messageId, verdict: verdict)
+        do {
+            let d = try await auth.json("/api/agent/proactive/feedback", method: "POST",
+                                        body: ["id": proactiveId, "verdict": verdict])
+            // 后端这个端点失败时同样是 HTTP 200 + ok:false（id 找不到/verdict 非法）
+            guard (d["ok"] as? Bool) ?? false else {
+                print("[proactive] 反馈未被后端接受: \(d["error"] as? String ?? "-")")
+                return
+            }
+            await chat?.saveToServer(auth: auth)
+        } catch {
+            print("[proactive] 反馈提交失败: \(error.localizedDescription)")
+        }
     }
 
     /// v3.9.110：用户作答问题卡 → POST /api/inbox/answer（AI 侧 ask_user.py 的长轮询正在等这个答案）
@@ -101,6 +134,17 @@ final class InboxStore {
         }
     }
 
+    /// 某个任务已落地（最终回复已进会话）→ 之后同任务的进度快照一律按残片丢弃。
+    /// 发布前审查（2026-09-30）：`finishedProgressTasks` 原先**只有后端 reply 分支**写入，
+    /// 而被移交的后台任务落库（BackgroundStreamRunner.finish）根本不走后端 reply 推送，
+    /// 另一条判据（stream.isDone/taskId 同源）又被 detachLocally 清空 → 移交/重启后
+    /// 同任务的迟到快照仍会排到完整回复下面（用户实报那条的移交形态）。
+    func markTaskLanded(_ taskId: String) {
+        guard !taskId.isEmpty else { return }
+        finishedProgressTasks.insert(taskId)
+        progressSnapshots.removeValue(forKey: taskId)
+    }
+
     /// v3.4.23：搭载投递消费——StreamClient poll 响应捎带的收件箱消息走此入口。
     /// 与 pollOnce 同一套去重/分流/标记已读逻辑（复用 consumeOne），
     /// 立即处理不等 5s 轮询（推送滞后根治）。
@@ -115,6 +159,11 @@ final class InboxStore {
                       let text = d["text"] as? String else { continue }
                 let sourceTaskId = d["source_task_id"] as? String
                 let taskType = d["task_type"] as? String ?? "reply"
+                // 🚨 发布前审查（2026-09-30，同族缺口）：pollOnce 早已有「流式进行中只放行 progress」的闸门
+                //（见上面 :180），这条搭载入口没有 → 同一批迟到快照从这里绕过去。
+                // 上面那句「reply 类有 shouldSkipDuplicate+延迟重检兜底」不成立：延迟重检的条件是
+                // `stream.isDone`，流式进行中它**根本不执行**（正是 v3.0.90 要拦的窗口）。
+                if (stream?.isStreaming ?? false), taskType != "progress" { continue }
                 await consumeOne(id: id, text: text, sourceTaskId: sourceTaskId,
                                  taskType: taskType, auth: auth, chat: chat)
             }
@@ -179,9 +228,14 @@ final class InboxStore {
         // v3.9.110 补记：**question 类刻意不在这个闸门里** —— AI 追问必须落到用户此刻停留的会话，
         //   否则人看不到卡、也没法作答（AI 侧一直等到超时）。代价是投递壳里可能冒出一张问题卡；
         //   这是**显式取舍**（审查提过要不要一并拦掉，结论：不拦），不是漏写。
-        if chat.isDeliverySession, taskType == "reply" || taskType == "progress" {
-            if taskType == "reply" {
-                NotificationHelper.notify(title: "轻聊 · 推送", body: text, sessionId: chat.sessionId)
+        // v4.0.11 补记：**agent 类也归进这个闸门**（与 question 相反）。理由同 reply——
+        //   投递会话是 cron/system 的固定壳，主动消息混进去等于把「AI 主动开口」塞进
+        //   一个用户当归档看待的会话里（用户当年报过的同一个 bug）。回落到这里的
+        //   agent 消息只弹通知不注入（quiet: 静默时段本来也不会有，但手动 run 兜底）。
+        if chat.isDeliverySession, taskType == "reply" || taskType == "progress" || taskType == "agent" {
+            if taskType == "reply" || taskType == "agent" {
+                NotificationHelper.notify(title: taskType == "agent" ? "轻聊 · 主动" : "轻聊 · 推送",
+                                          body: text, sessionId: chat.sessionId)
             }
             await markDone(id, auth: auth)
             return
@@ -208,6 +262,26 @@ final class InboxStore {
                                       sessionId: chat.sessionId)
             return
         }
+        // v4.0.11：主动 Agent 消息（后端 proactive_agent 投的 task_type=agent）→
+        // 注入当前会话成**可回复的普通气泡**（不是任务中心卡片）。
+        // 口径与 reply 一致但两处刻意不同：
+        //   ① 不走 reply 去重（InboxDedup 是给「AI 回复双投」用的；主动消息与 AI 回复
+        //      是两套不同来源，共用双向包含判据会把「你刚问的和你刚被主动提醒的
+        //      话题相近」误判成重复 → 主动消息被吞。主动消息带 proactiveId 天然唯一）。
+        //   ② 弹通知标题写「轻聊 · 主动」而非「轻聊 · 推送」——用户能一眼分清
+        //      这是 AI 主动开口，不是自己发问的回复。
+        // isPush=true：留在会话展示但 historyPayload 会滤掉它 → 不进模型上下文。
+        if taskType == "agent" {
+            var amsg = ChatMessage(role: "assistant", content: text,
+                                   timestamp: Date().timeIntervalSince1970 * 1000)
+            amsg.isPush = true
+            amsg.proactiveId = sourceTaskId?.isEmpty == false ? sourceTaskId : id
+            chat.append(amsg)
+            lastInjectedCount += 1
+            NotificationHelper.notify(title: "轻聊 · 主动", body: text, sessionId: chat.sessionId)
+            await markDone(id, auth: auth)
+            return
+        }
         // v3.9.7：进行中进度推送（后端在静默期推来的「已生成 N 字 + 最近片段」）→ 注入会话 🔔 进度气泡。
         // 三处刻意的不同：① 不走 reply 去重（带字数的快照天然唯一，也绝不能和最终回复互判重复）；
         // ② 不弹本地通知（进度是"回到 App 时看"的信息，弹横幅只会在回前台那一瞬轰炸）；
@@ -226,6 +300,18 @@ final class InboxStore {
             //      用户 15 分钟内连发两条消息时，第二条的第一条进度会被拿第一条当基准误丢。
             //   → 基准**只信内存里的同任务快照**。代价是重启后同任务可能有极少一次乱序，
             //     但「宁可偶尔乱序，绝不丢进度」（丢数据不可恢复，乱序下次快照就正过来了）。
+            // 🚨 v4.0.11 用户规则（2026-09-30 真机实报）：「AI 已经完整回复了，推送的反而还在完整回复后」。
+            // 进度是**进行中**的快照；任务一旦落地（最终回复已进会话，或本机流式已收尾），
+            // 之后到达的同任务进度全是残片 —— 不拦就会被注入到列表末尾，排在完整回复**下面**。
+            // 两条落地路径都认：① reply 分支已写入 finishedProgressTasks；② 本机流式 isDone 且 taskId 同源。
+            // 分组键同铁律：拿不到 source_task_id 就放行（别跨任务误丢）。
+            if InboxProgressOrder.isTaskLanded(sourceTaskId: sourceTaskId,
+                                              finishedTasks: finishedProgressTasks,
+                                              streamDone: stream?.isDone ?? false,
+                                              streamTaskId: stream?.taskId) {
+                await markDone(id, auth: auth)   // 丢弃也要 markDone，否则后端会一直重投这条残片
+                return
+            }
             let nowMs = Date().timeIntervalSince1970 * 1000   // 注入气泡的时间戳（闸门不再需要它）
             if let snap = InboxProgressOrder.snapshot(from: text) {
                 let baseline: InboxProgressOrder.Snapshot? = sourceTaskId.flatMap { progressSnapshots[$0] }
@@ -254,6 +340,12 @@ final class InboxStore {
             NotificationHelper.notify(title: "轻聊 · 任务", body: text, sessionId: chat.sessionId)
             await markDone(id, auth: auth)
             return
+        }
+        // v4.0.11：最终回复落地 → 记住这个任务，之后同任务的进度快照一律按残片丢弃（见 progress 闸门）。
+        // 放在去重判定**之前**：去重命中（回复已在会话里）同样算「已落地」。
+        if let key = sourceTaskId, !key.isEmpty {
+            finishedProgressTasks.insert(key)
+            progressSnapshots.removeValue(forKey: key)
         }
         // reply 去重（详见 InboxDedup）：taskId 同源铁证 + 双向包含 + 截断前缀
         if !shouldSkipDuplicate(push: text, in: chat.messages, extra: stream?.content ?? "", sourceTaskId: sourceTaskId) {

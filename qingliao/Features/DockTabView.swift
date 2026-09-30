@@ -729,7 +729,12 @@ struct DockTabView: View {
     /// `pendingQueue` 是 `ChatView` 的 `@State`，Dock 摸不到 → 用进程内通知请聊天页清。
     private func handleLiveActivityStop() {
         _ = LiveActivityActionBridge.consume()   // 清掉兜底 flag（两条路径都到这儿，幂等）
-        guard stream.isStreaming else { return }
+        // 🚨 发布前复核修正（2026-09-30）：①归属从 runner 自己取 —— `auth.currentStreamSessionId` 只表示
+        // 「最后开跑/接回的流属于哪个会话」（detachLocal 不清它），会被后续开跑的流覆盖 → away 分支会在
+        // runner 明明还在跑时莫名失效；②两条链路都要停，不用二选一（同时为真即同会话双轮询，
+        // 用户点的这轮反而没停）。
+        let awaySids = BackgroundStreamRunner.shared.runningSessionIds
+        guard stream.isStreaming || !awaySids.isEmpty else { return }
         skipBurstOnce()
         selected = .chat
         NotificationCenter.default.post(name: LiveActivityActionBridge.clearPendingQueueNotification, object: nil)
@@ -737,7 +742,8 @@ struct DockTabView: View {
         // 而排队消息是**持久化**的（下次进聊天页 restorePendingQueue 会恢复并自动发出）→ 这里补一次兜底清理，
         // 杜绝「点了停止，排队消息照样自己发出去」。
         UserDefaults.standard.removeObject(forKey: UserDefaultsKey.pendingQueue)
-        stream.stop(auth: auth)
+        if stream.isStreaming { stream.stop(auth: auth) }
+        for sid in awaySids { BackgroundStreamRunner.shared.stop(sessionId: sid, auth: auth) }
     }
 }
 

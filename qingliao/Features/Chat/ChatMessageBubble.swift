@@ -63,10 +63,13 @@ struct MessageBubble: View {
     var onMultiSelect: () -> Void = {}
     // v3.9.74 P2.6：plan 卡「继续下一步」——下一未完成步骤作为用户消息发回（nil = 只读）
     var onContinueStep: ((String) -> Void)? = nil
-    // v3.9.110：问题卡作答回调（传用户答案原文）。nil = 只读渲染 —— 会话导出/预览等
-    // 没有宿主回调的路径自动退回只读（同 onContinueStep 的门控口径）。
-    // ⚠️ 声明位置必须紧跟 onContinueStep 且调用点也传在同一位（实参序 = 声明序，见技能 swiftui-param-order）。
+    /// v3.9.110：问题卡作答回调（传用户答案原文）。nil = 只读渲染 —— 会话导出/预览等
+    /// 没有宿主回调的路径自动退回只读（同 onContinueStep 的门控口径）。
+    /// ⚠️ 声明位置必须紧跟 onContinueStep 且调用点也传在同一位（实参序 = 声明序，见技能 swiftui-param-order）。
     var onAnswerQuestion: ((String) -> Void)? = nil
+    // v4.0.11：主动 Agent 消息的「有用/没用」反馈（传 verdict: adopted/ignored）。
+    // nil = 只读渲染（无宿主回调的路径不显示反馈条）。
+    var onProactiveFeedback: ((String, String) -> Void)? = nil
     // v3.0.15：AI 流式输出中——头像显示粒子球（orbits 流动），替代静态脑形标
     var streamingAvatar: Bool = false
     // v3.0.17：流式输出中 markdown 段用 SwiftUI Text 渲染（绕开 UITextView 流式锁窄布局 bug 家族）
@@ -238,6 +241,7 @@ struct MessageBubble: View {
                     bubbleDeliveryRow
                     bubbleSpeakButton
                     bubblePushTag
+                    bubbleProactiveFeedback
                 }
                 .padding(.horizontal, isMultiBubbleAI ? 2 : 13)
                 .padding(.vertical, isMultiBubbleAI ? 2 : 9)
@@ -577,6 +581,49 @@ struct MessageBubble: View {
                 .padding(.vertical, Spacing.xxs)
                 .background(Color.blue.opacity(Tint.faint), in: Capsule())
                 .padding(.top, Spacing.xxs)
+        }
+    }
+
+    /// v4.0.11：主动 Agent 消息的「有用/没用」反馈条
+    ///
+    /// 存在的理由：主动 Agent 的**唯一学习信号**就是这个。阈值是后端按采纳率
+    /// 自适应抬/降的（_adaptive_threshold），没有回灌就永远停在默认 0.55 = 不会变聪明。
+    /// 因此反馈条**只在 proactiveId 非空时**出现（=后端主动投的那类），
+    /// 普通回复/进度/提问卡一律不显示，避免变成需要点掉的噪音。
+    @ViewBuilder
+    private var bubbleProactiveFeedback: some View {
+        if let pid = message.proactiveId, !pid.isEmpty, let cb = onProactiveFeedback {
+            if let v = message.proactiveVerdict, !v.isEmpty {
+                HStack(spacing: Spacing.xs) {
+                    Image(systemName: v == "adopted" ? "checkmark.circle.fill" : "hand.thumbsdown.fill")
+                        .font(.system(size: Typography.tiny))
+                    Text(v == "adopted" ? "已采纳 · 我会更主动" : "已忽略 · 我会少打扰")
+                        .font(.system(size: Typography.tiny))
+                }
+                .foregroundStyle(v == "adopted" ? Color.green : Color.secondary)
+                .padding(.top, Spacing.xxs)
+            } else {
+                HStack(spacing: Spacing.sm) {
+                    Text("这条有用吗")
+                        .font(.system(size: Typography.tiny))
+                        .foregroundStyle(.secondary)
+                    Button {
+                        cb(pid, "adopted")
+                        Haptics.success()
+                    } label: {
+                        Label("有用", systemImage: "hand.thumbsup")
+                    }
+                    .buttonStyle(PressStyle(scale: 0.9))
+                    Button {
+                        cb(pid, "ignored")
+                        Haptics.success()
+                    } label: {
+                        Label("没用", systemImage: "hand.thumbsdown")
+                    }
+                    .buttonStyle(PressStyle(scale: 0.9))
+                }
+                .padding(.top, Spacing.xxs)
+            }
         }
     }
 

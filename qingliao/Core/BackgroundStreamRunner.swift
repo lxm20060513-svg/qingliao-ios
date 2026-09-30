@@ -58,7 +58,11 @@ final class BackgroundStreamRunner {
                userMsgId: String?, snapshot: [ChatMessage],
                offset: Int, content: String,
                auth: AuthStore, chat: ChatStore) {
-        cancelLocal(sessionId: sid)   // 同会话重复移交去重
+        // 🚨 发布前复核修正（2026-09-30）：把「不掐已在跑的健康任务」这条不变量**下沉到本函数**。
+        // 原先只在 ChatView 发送路径加护栏，新建会话路径是直接 adopt → 同会话已有条目仍会被下面
+        // 这句 cancelLocal 掐掉（本端再也等不到它的落库/通知）。同会话重复 adopt 现在是 no-op。
+        guard running[sid] == nil else { return }
+        cancelLocal(sessionId: sid)   // 同会话重复移交去重（上面的 guard 已挡主路径，此处兜底）
         var e = Entry(sessionId: sid, taskId: taskId, title: title,
                       userMsgId: userMsgId, snapshot: snapshot)
         e.offset = offset
@@ -185,15 +189,49 @@ final class BackgroundStreamRunner {
         if UIApplication.shared.applicationState != .active {
             NotificationHelper.notifyReply(body, sessionId: sid)
         }
+        // 🚨 发布前审查（2026-09-30）：登记「该任务已落地」。被移交的任务落库**不走**后端 reply 推送，
+        // 而进度残片闸门的另一条判据（stream.isDone/taskId 同源）在移交时已被 detachLocally 清空 taskId
+        // → 不登记的话，移交/重启后同任务的迟到快照仍会注入到完整回复**下面**（用户实报那条的移交形态）。
+        // 🚨 发布前复核修正（2026-09-30）：**只在真正落地时登记**。finish 也被「连接中断 / 401 / 404」
+        // 这些失败收尾路径调用，那时服务端任务可能仍在跑 —— 无条件登记会把该 taskId 永久判成残片，
+        // 之后前台接回同一任务时它的进度快照会被**全部丢弃**（新引入的回归，比原缺口更糟）。
+        if success { InboxStore.shared.markTaskLanded(entry.taskId) }
         InboxStore.shared.triggerFastPoll()   // 与前台收尾同口径：快拉收件箱去重
     }
 
     // MARK: - 内部
+
+    /// 后台移交任务的**真源**快照（会话 id 列表）。
+    /// 发布前复核（2026-09-30）：调用方别拿 `auth.currentStreamSessionId` 当「后台任务的归属」——
+    /// 它只表示「最后开跑/接回的流属于哪个会话」（detachLocal 并不清它），任何后续开跑的流都会覆盖，
+    /// 于是「停后台任务」的分支会在 runner 明明还在跑时莫名失效。
+    var runningSessionIds: [String] { Array(running.keys) }
+
+    /// 用户点「停止生成」时，被移交的后台任务也要停得住。
+    /// 发布前审查（2026-09-30）：停止入口（灵动岛 / 输入栏）原先只认本机 `stream.isStreaming`，
+    /// 被移交出去的任务点了「停止生成」是**静默无效**的（用户对「可见入口点了没反应」零容忍）。
+    /// 与 StreamClient.stop 同口径：撤本地轮询 + 尽力停服务端任务。
+    func stop(sessionId sid: String, auth: AuthStore) {
+        guard let entry = running[sid] else { return }
+        cancelLocal(sessionId: sid)
+        if !entry.taskId.isEmpty {
+            Task { await auth.streamStop(taskId: entry.taskId) }
+        }
+    }
 
     /// 只撤本地轮询（不动服务端任务）——移交/前台接回场景用
     private func cancelLocal(sessionId sid: String) {
         running.removeValue(forKey: sid)
         tasks[sid]?.cancel()
         tasks.removeValue(forKey: sid)
+    }
+
+    /// 登出：撤掉**所有**在跑的后台移交任务。
+    /// 发布前审查（2026-09-30）：轮询 loop 捕获的是 adopt 时的 auth/chat 引用，而 `running` 是纯内存单例——
+    /// 不撤的话，登出后迟到的回包仍会走 finish → 往**刚 reset 的 store** 写上一个账号的会话内容、
+    /// 未读 +1 和本地通知（全仓 5 处 runner 引用没有一处接在登出）。
+    /// 只撤本地轮询，不动服务端任务（与 cancelLocal 同口径）。
+    func cancelAll() {
+        for sid in Array(running.keys) { cancelLocal(sessionId: sid) }
     }
 }

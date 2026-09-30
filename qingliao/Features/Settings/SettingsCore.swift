@@ -76,6 +76,8 @@ struct SettingsView: View {
     // v3.0.9：外观下天气城市已移除（天气城市设定在看板 WeatherBadge 点按处），相关状态一并清理
     // v2.0.101：Agent 使用说明内联展开
     @State var showAgentHelp = false
+    // v4.0.11：主动 Agent 设置弹窗（后端 proactive_agent：总开关/预算/静默/事件源/复盘）
+    @State var showProactive = false
     // v2.0.105：Agent 关键词管理弹窗
     @State var showAgentKeywords = false
     // v2.0.113：Agent 记忆弹窗 + 计数
@@ -253,6 +255,12 @@ struct SettingsView: View {
         .sheet(isPresented: $showFilesManager) {
             FilesManagerSheet()
                 .presentationDetents([.medium, .large])
+                .scrollContentBackground(.hidden)
+        }
+        // v4.0.11：主动 Agent（后端 proactive_agent 的唯一 UI 面）
+        .sheet(isPresented: $showProactive) {
+            ProactiveAgentSheet()
+                .presentationDetents([.large])
                 .scrollContentBackground(.hidden)
         }
         // v2.0.105：Agent 关键词管理
@@ -653,6 +661,11 @@ extension SettingsView {
         // Agent 模型/关键词/记忆入口保留（模型仍影响 resolveModel 选型，关键词/记忆管理后端端点仍活）。
         SectionHeader("Agent 设置")
         VStack(spacing: 0) {
+            // v4.0.11：主动 Agent 入口（放最前——这是「AI 会自己开口」的总闸，用户第一眼要看它）
+            SettingRow(icon: "bolt.horizontal.circle.fill", iconColor: .orange, title: "主动 Agent",
+                       value: "AI 主动开口 · 预算/静默/复盘", chevron: true)
+                .tapButton { showProactive = true }
+            Divider().padding(.leading, Spacing.rowDividerInset)
             // v3.0.20：Agent 模型自定义（可单独指定 Agent 使用的模型，不依赖主模型）
             SettingRow(icon: "cpu.fill", iconColor: .indigo, title: "Agent 模型",
                        value: agentModel.isEmpty ? "跟随主模型" : agentModel, chevron: true)

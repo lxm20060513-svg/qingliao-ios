@@ -107,8 +107,15 @@ final class ChatStore {
     /// 都会把这条回复盖掉（后端 merge 是整会话覆盖）。所以落库时记一笔，进该会话时补回内存，补一次即清。
     private var awayLandedReplies: [String: String] = [:]
 
+    /// 被移交的后台任务**落库**的专用边沿（每次 +1）。
+    /// 发布前复核（2026-09-30）：曾想复用 `assistantLandedToken` 来补「落库后排空排队消息」，但那个
+    /// token 只在本会话落库时自增（noteAssistantLanded），移交落库走的是本处 → 挂上去是**空操作**、
+    /// 缺口照旧。单独一个序号，也避免把移交的回复误带进自动朗读链。
+    private(set) var awayLandedTick = 0
+
     func noteAwayLandedReply(sessionId sid: String, text: String) {
         awayLandedReplies[sid] = text
+        awayLandedTick &+= 1
     }
 
     /// 快照里缺这条迟到回复就补到末尾（已有则只清记录，不重复插）
@@ -432,6 +439,19 @@ final class ChatStore {
         messages[i].questionError = reason
     }
 
+    /// v4.0.11：读某条消息的主动反馈终态（供 InboxStore 提交前做幂等闸门）
+    func proactiveVerdictOf(messageId: String) -> String {
+        messages.first { $0.id == messageId }?.proactiveVerdict ?? ""
+    }
+
+    /// v4.0.11：主动 Agent 消息的「有用/没用」就地落 verdict（并清掉可点态）。
+    /// 幂等：已判过的直接返回（后端一次 feedback 只计一次，重复 POST 会污染采纳率）。
+    func markProactiveVerdict(messageId: String, verdict: String) {
+        guard let i = messages.firstIndex(where: { $0.id == messageId }) else { return }
+        guard (messages[i].proactiveVerdict ?? "").isEmpty else { return }
+        messages[i].proactiveVerdict = verdict
+    }
+
     /// 流式结束后落库 assistant 消息（与最后一条相同则跳过，防重复）
     /// v2.0.102：去重仅限"连续两条 assistant 内容相同"（流式重复场景）——
     ///           上一条若是用户消息（新一轮提问），即使内容相同也必须新增（修复相同回复被吞）
@@ -736,6 +756,9 @@ final class ChatStore {
                 p["imageDataURL"] = nil
             }
             if m.isPush { p["isPush"] = true }
+            // v4.0.11：主动 Agent 事件 id 落库——已反馈过的不能再点第二次（记 verdict）
+            if let pid = m.proactiveId, !pid.isEmpty { p["proactiveId"] = pid }
+            if let pv = m.proactiveVerdict, !pv.isEmpty { p["proactiveVerdict"] = pv }
             if m.agent { p["agent"] = true }
             // v3.9.110：问题卡三字段落库——重启/切会话后仍是可作答卡（未答）或已答态（带答案）
             if let q = m.questionId {

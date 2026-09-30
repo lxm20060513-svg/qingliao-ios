@@ -2129,6 +2129,11 @@ struct ChatView: View {
             // + 就地切「已回答」态并落库。整条链路收在 InboxStore.answerQuestion 一处。
             guard let qid = msg.questionId, !qid.isEmpty else { return }
             Task { await inbox.answerQuestion(messageId: msg.id, inboxId: qid, answer: answer) }
+        } onProactiveFeedback: { pid, verdict in
+            // v4.0.11：主动 Agent 消息「有用/没用」→ 回灌后端做采纳率复盘
+            //（后端按采纳/忽略比自适应抬降置信度阈值 = 主动 Agent 唯一的学习信号）
+            Task { await inbox.sendProactiveFeedback(messageId: msg.id,
+                                                      proactiveId: pid, verdict: verdict) }
         }
     }
 
@@ -2325,8 +2330,19 @@ struct ChatView: View {
                         // 切到 B 会话后 A 的回答在 B 底下逐字长出来（串话实报的第一现场）。
                         // v3.9.41：这四处统一走 `thisSessionStreaming`（此处判定与之完全等价）。
                         // 轮询不受影响：切回 A 时条件重新成立，气泡与打字机原样接回。
-                        if thisSessionStreaming {
-                            if stream.content.isEmpty {
+                        // v4.1.x（2026-09-30 真机实报「整个气泡压根不出现」）：条件与 `aiBusy` 对齐。
+                        // 只认本地流会漏掉「服务器有在途任务、本地被 `!stream.isStreaming`（3253 行）
+                        // 挡着没接回」这一态：胶囊/灵动岛按 aiBusy 显示「AI 正在输入」，聊天流里却一个气泡都没有。
+                        // remoteBusy 由**本会话**探针写入、切会话时已复位 → 不会串会话。
+                        if thisSessionStreaming || remoteBusy {
+                            // ⚠️ 纯 remoteBusy 时**必须**显示思考气泡：此刻 stream.content 可能是别的会话/
+                            // 上一轮的残留，拿去渲染就是串话（本仓实报过）。
+                            // 🚨 发布前审查拦下（2026-09-30）：这两条分支**写反过一次**——条件原先写成
+                            // `thisSessionStreaming && !stream.content.isEmpty`，而该分支体里是三点，
+                            // 于是「本地流式且有内容」时全程只显示三点、整段回答到收尾才蹦出来；
+                            // 首帧（content 为空）与纯 remoteBusy 反而去渲染 streamingBubble（拿残留内容当本轮 = 串话）。
+                            // 口径：**有真内容才渲染内容**；无内容（首帧）与纯 remoteBusy 一律三点。
+                            if !thisSessionStreaming || stream.content.isEmpty {
                                 // 思考中动画（三点跳动，气泡加大版）
                                 // v3.0.15：恢复 v3.0.12 之前的原始三点动画（思考球 orbits 粒子已移除，改由输出头像承担粒子球）
                                 // v3.0.18：思考期头像也改为粒子球（38pt，用户要求全程粒子球头像）
@@ -2444,6 +2460,11 @@ struct ChatView: View {
             // 于是「A 会话里排队、切去 B」= 无条件把 A 的待发吞掉，且盘上那份也一起没了。
             // 现在只丢「刚离开的这个会话」的排队项；其余留在盘上，回到那个会话或下次启动再补发。
             dropPendingQueue(dropping: prior)
+            // v4.1.x：忙态结论属于**上一个**会话，必须作废重探——否则新会话会继承上一会话的
+            // 「AI 正在输入」（胶囊/灵动岛）甚至思考气泡（气泡条件已含 remoteBusy）。
+            // 探针 6s 内自己纠正；目标会话本机有 pending 标记时 probeRemoteBusy 会立刻置 true，不闪。
+            remoteBusy = false
+            remoteBusyFails = 0
             // v4.1.x 多会话并行：进入新会话前，若它有后台流在跑 → 撤后台轮询，
             // 前台由既有 probeRemoteBusy（6s 内）→ adoptRemote 无缝接回显示。不撤会双轮询抢流。
             BackgroundStreamRunner.shared.retractIfRunning(sessionId: chat.sessionId)
@@ -2562,6 +2583,13 @@ struct ChatView: View {
         .onChange(of: chat.assistantLandedToken) { _, _ in
             autoReadLatestReply()
         }
+        // v4.1.x 发布前**复核修正**（2026-09-30）：被移交的后台任务落库**不会**自增 assistantLandedToken
+        //（那个只认本会话落库，走 noteAssistantLanded）→ 挂在它上面是空操作、缺口照旧。改用专用边沿：
+        // 现象（A 里第二条一直显示「排队中」，要重进聊天页才补发）由此关闭。
+        // 幂等安全：pumpPendingQueue 只派发属于当前会话的条目、且被 !stream.isStreaming 挡着。
+        .onChange(of: chat.awayLandedTick) { _, _ in
+            pumpPendingQueue()
+        }
         // v3.9.7：阶段变化（思考中 → 输出中）也要推一次，否则灵动岛会一直停在「思考中」
         // （内容没变的重复调用会被管理器挡掉，不会造成 update 风暴）
         .onChange(of: liveActivityPhase) { _, _ in
@@ -2647,7 +2675,14 @@ struct ChatView: View {
                         .animation(reduceMotion ? nil : .easeInOut(duration: 0.6).repeatForever(autoreverses: true).delay(Double(i) * 0.18), value: animating)
                 }
             }
+            // ⚠️ 循环脉冲靠 `animating` 的 false→true **边沿**启动（`.animation(_:value:)` 只在值变化时施加动画）。
+            // 只写「onAppear 置 true」会概率卡死：视图离开层级又被加回（滚动回收 / `thisSessionStreaming`
+            // 抖动 / 切会话回来）时 @State 仍是 true → 第二次 onAppear 无变化 → repeatForever 不重启，
+            // 三点就静止在半透明小点（v4.0.10 真机实报「思考气泡动画会概率消失」）。
+            // 修法：消隐时复位 —— 下次出现必定是 false→true 边沿。两行成对，删掉 onDisappear 就复发。
+            // （刻意用同步赋值，不用 DispatchQueue.main.async 翻转：Swift 6 严格并发下闭包捕获 View 会编译不过）
             .onAppear { animating = true }
+            .onDisappear { animating = false }
         }
     }
 
@@ -2968,24 +3003,31 @@ struct ChatView: View {
                 }
             }
         }
+        // v4.1.x 多会话并行（2026-09-30 用户实报修正）：单例在跑、但跑的是**别的会话**的流时不再排队——
+        // 把那条流移交后台跑流器继续轮询（服务端任务不停），本条立即开跑。
+        // 实报现象：两个会话同时跑时，第二条上屏后顶着「排队中」，要等前面整轮跑完才轮到它。
+        // 这条口径在「新建会话」路径早已落地，发送路径漏了同一口（后端实测真并行、按 sessionId 隔离）。
         if stream.isStreaming {
-            // ⚠️ 刻意用**全局**判定（不是 thisSessionStreaming）：单例只有一条流，别的会话在跑时
-            // 在这里起流会静默掐断它（StreamClient.start 无「已在跑就拒绝」的守卫）。
-            // 排队消息由 `pumpPendingQueue()` 在**任意一条**流收尾时接走，包括收尾时用户已在别的会话。
-            // 排队路径：消息立即显示（标记排队中），回答结束后自动发送
-            var msg = ChatMessage.local(role: "user", content: text, imageDataURL: imageData)
-            msg.quotedText = quotedText
-            msg.queued = true
-            withAnimation(Motion.settle) {   // v3.9.0：动效令牌收口（原 spring 0.25/0.15）
-                chat.append(msg)
+            // 移交不出去（异常态：无 taskId/无归属会话）或流就属于本会话（同一会话连发，并发会串上下文与落库）
+            // → 退回排队老路
+            if !handoffRunningStreamToBackground() {
+                // ⚠️ 这里的 isStreaming 刻意是**全局**的（不是 thisSessionStreaming）：单例只有一条流。
+                // 排队消息由 `pumpPendingQueue()` 在**任意一条**流收尾时接走，包括收尾时用户已在别的会话。
+                // 排队路径：消息立即显示（标记排队中），回答结束后自动发送
+                var msg = ChatMessage.local(role: "user", content: text, imageDataURL: imageData)
+                msg.quotedText = quotedText
+                msg.queued = true
+                withAnimation(Motion.settle) {   // v3.9.0：动效令牌收口（原 spring 0.25/0.15）
+                    chat.append(msg)
+                }
+                // v4.0.x 一句话记账：排队路径也要记（用户在别的会话等回答时发的这句照样得进账本），
+                // 卡片插在用户气泡之后、AI 回话之前 —— 顺序 = 用户话 → 记账卡 → AI 确认
+                if allowExpense { noteChatExpenseIfMatched(text: text, imageData: imageData) }
+                pendingQueue.append(PendingSend(text: text, imageData: imageData, sessionId: chat.sessionId))
+                persistPendingQueue()
+                Task { await chat.saveToServer(auth: auth) }
+                return
             }
-            // v4.0.x 一句话记账：排队路径也要记（用户在别的会话等回答时发的这句照样得进账本），
-            // 卡片插在用户气泡之后、AI 回话之前 —— 顺序 = 用户话 → 记账卡 → AI 确认
-            if allowExpense { noteChatExpenseIfMatched(text: text, imageData: imageData) }
-            pendingQueue.append(PendingSend(text: text, imageData: imageData, sessionId: chat.sessionId))
-            persistPendingQueue()
-            Task { await chat.saveToServer(auth: auth) }
-            return
         }
         // 双击保护：第一次发送的流尚未置位时，第二次直接忽略。
         // ⚠️ v4.0.10：不许写成「无窗口上限的硬锁」——锁可能等不到解锁回调（见 sendingLockAt 注释），
@@ -3453,6 +3495,43 @@ struct ChatView: View {
             rest = String(rest.dropFirst(take))
         }
         return chunks
+    }
+
+    /// v4.1.x 多会话并行（发送路径接入 · 2026-09-30 用户实报修正）：
+    /// 单例里正跑着的流属于**别的会话**时，把它移交 BackgroundStreamRunner（服务端任务继续跑），
+    /// 本地单例腾出来给当前会话立即开跑——取代「一律排队、等前面那轮整个跑完才轮到它」。
+    ///
+    /// 为什么能这么干：后端实测真并行、按 sessionId 隔离（见 BackgroundStreamRunner 头注），
+    /// 「新建会话」路径早已按这条口径移交，**发送路径漏了同一口** → 实报现象就是
+    /// 「两个会话同时跑时，第二条上屏后显示排队中」。
+    ///
+    /// 不移交的两种情况（返回 false，调用方退回排队老路）：
+    /// ① 流就属于本会话——同一会话并发会串上下文与落库（那正是排队该管的场景）；
+    /// ② 异常态：没有 taskId / 拿不到流归属会话（无主流的移交给谁都可能写错会话）。
+    @discardableResult
+    func handoffRunningStreamToBackground() -> Bool {
+        guard stream.isStreaming, !stream.isDone, !stream.taskId.isEmpty else { return false }
+        let sid = auth.currentStreamSessionId
+        guard !sid.isEmpty, sid != chat.sessionId else { return false }
+        // 🚨 发布前审查拦下（2026-09-30）：该会话若**已有在跑的移交任务**，adopt 里的
+        // `cancelLocal(sessionId:)` 会把那条健康任务掐掉（running 条目被移除、轮询 Task 被 cancel），
+        // 本端从此等不到它的落库/通知（服务端任务仍在跑，只能靠后端推送兜底）。
+        // 已在跑就按排队口径处理（返回 false，调用方退回排队老路）。
+        guard !BackgroundStreamRunner.shared.isRunning(sessionId: sid) else { return false }
+        // 快照口径：流属于别的会话，本端拿不到它的历史 → 传空。BackgroundStreamRunner.finish 对
+        // 空快照有明文的护栏（不覆盖服务端会话，回复走 noteAwayLandedReply 迟到补回），
+        // 与「切走后那轮才完成」的既有口径一致。
+        BackgroundStreamRunner.shared.adopt(taskId: stream.taskId, sessionId: sid,
+                                            title: "", userMsgId: stream.pendingUserMsgId,
+                                            snapshot: [],
+                                            offset: stream.handoffOffset,
+                                            content: stream.handoffContent,
+                                            auth: auth, chat: chat)
+        stream.detachLocally()   // 只停本地轮询，服务端任务继续跑；落库归 runner
+        // 移交后那条流的收尾回调被吞（detachLocally 把 onFinished 置 nil）→ 它的发送锁永不释放。
+        // 本次发送的锁紧接着由 sendCore 重新置位，这里显式解锁防上一次的锁残留（与新建路径同口径）。
+        sendingLock = false
+        return true
     }
 
     /// v3.9.41：回答收尾 → 自动发出队列里的下一条（从 startStream 的收尾回调里抽出来复用）。

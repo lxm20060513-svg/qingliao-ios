@@ -261,4 +261,13 @@ check("LiveActivityManager 四处下发都带 petFace",
       read("qingliao/Core/LiveActivityManager.swift")
         .components(separatedBy: "petFace: PetFace.current.rawValue").count - 1 == 4)
 
+// MARK: - 13. v4.0.10 思考气泡三点动画概率不启动（同一坑：脉冲必须有 false→true 边沿）
+let petAvatarAnimSrc = read("qingliao/Features/Chat/PetAvatar.swift")
+check("ThinkingDots 消隐时复位（视图复用后仍有 false→true 边沿）",
+      petAvatarAnimSrc.contains(".onDisappear { pulse = false }"))
+check("ThinkingDots 出现时置位（与上一行成对，缺一即概率不跳）",
+      petAvatarAnimSrc.contains(".onAppear { if animated { pulse = true } }"))
+check("不许改用异步翻转（Swift 6 严格并发下闭包捕获 View 编译不过）",
+      !petAvatarAnimSrc.contains("DispatchQueue.main.async"))
+
 report()

@@ -328,7 +328,12 @@ struct BusyDots: View {
                         .delay(Double(i) * 0.16), value: on)
             }
         }
+        // ⚠️ 同族坑（v4.0.10 真机实报「思考气泡动画会概率消失」）：循环呼吸靠 `on` 的 false→true
+        // **边沿**启动（`.animation(_:value:)` 只在值变化时施加动画）。只写「onAppear 置 true」时，
+        // 视图离开层级又被加回（header 随会话/流状态重排、滚动回收）@State 仍是 true →
+        // 第二次 onAppear 无变化 → repeatForever 不重启 → 三点静止。消隐复位才保证下次出现有边沿。
         .onAppear { on = true }
+        .onDisappear { on = false }
     }
 }
 

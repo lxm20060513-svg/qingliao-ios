@@ -26,6 +26,10 @@ struct SkeletonBlock: View {
             .animation(reduceMotion ? nil : .easeInOut(duration: 0.9).repeatForever(autoreverses: true),
                        value: dim)
             .onAppear { if !reduceMotion { dim = true } }
+            // v4.1.x 发布前同族审查（2026-09-30）：循环脉冲靠 false→true 边沿驱动，视图复用
+            // （列表/容器滚动回收）时 @State 停在 true → 再出现没有边沿 = 呼吸动画消失。
+            // 与 ThinkingIndicator / ThinkingDots / BusyDots 三处同口径，必须成对。
+            .onDisappear { dim = false }
     }
 }
 

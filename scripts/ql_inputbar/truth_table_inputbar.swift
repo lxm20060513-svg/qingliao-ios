@@ -537,5 +537,122 @@ check("移交后台跑流器后显式解锁（detachLocally 之后 sendingLock =
 check("收尾回调里的解锁仍在（两条解锁路径并存，防误删）",
       chatViewSrc.contains("sendingLock = false   // 无论结果，先释放发送锁"))
 
+// ── v4.1.x 多会话并行：发送路径不再「一律排队」（2026-09-30 用户实报） ─────
+// 实报：「两个会话同时跑时，第二条上屏后显示排队中」——A 会话跑着，切到 B 发消息，
+// 旧逻辑无条件走本地排队（消息顶着「排队中」），要等 A 整轮跑完才轮到 B。
+// 口径修正：在跑的流属于**别的会话**时，把那条流移交 BackgroundStreamRunner（服务端任务不停），
+// 本地单例腾出来给本条立即开跑；同会话连发仍走排队（并发会串上下文与落库）。
+// 三条都会**静默**错，所以钉住：①移交必须在排队分支**之前**（否则永远走不到）；
+// ②同会话不许移交（guard sid != chat.sessionId）；③排队老路不许被删（同会话唯一出路）。
+let handoffSlice: String = {
+    guard let a = chatViewSrc.range(of: "func handoffRunningStreamToBackground()") else { return "" }
+    return String(chatViewSrc[a.lowerBound...])
+}()
+check("handoffRunningStreamToBackground 源切片非空（切片失败 = 下面全是空真）", handoffSlice.count > 200)
+check("🚨 sendCore 在排队分支**之前**尝试移交（跨会话并行入口，写反了永远走不到）",
+      {
+          guard let s = sendCoreSlice.range(of: "if !handoffRunningStreamToBackground()"),
+                let q = sendCoreSlice.range(of: "msg.queued = true") else { return false }
+          return s.lowerBound < q.lowerBound
+      }())
+check("同会话连发不许移交（guard 里带 `sid != chat.sessionId`）",
+      handoffSlice.contains("sid != chat.sessionId"))
+check("异常态护栏齐（isStreaming / !isDone / taskId 非空缺一味就移交给错对象）",
+      handoffSlice.contains("stream.isStreaming, !stream.isDone, !stream.taskId.isEmpty"))
+check("移交复用既有 adopt（后台跑流器）+ detachLocally 组合",
+      handoffSlice.contains("BackgroundStreamRunner.shared.adopt(")
+      && handoffSlice.contains("stream.detachLocally()"))
+check("移交后显式解锁（detachLocally 吞掉 onFinished → 防发送锁泄漏）",
+      handoffSlice.contains("sendingLock = false"))
+check("排队老路仍在（同会话连发的唯一出路，不许被这次改动删掉）",
+      sendCoreSlice.contains("pendingQueue.append(PendingSend(") && sendCoreSlice.contains("persistPendingQueue()"))
+check("「排队中」标记仍在（同会话排队时那条上屏角标）", sendCoreSlice.contains("msg.queued = true"))
+
+// ── v4.0.10：思考气泡动画概率不启动（2026-09-30 用户实报） ────────────
+// 循环脉冲靠 `.animation(_:value:)` 的 false→true **边沿**启动；只写「onAppear 置 true」时，
+// 视图离开层级又被加回（滚动回收 / `thisSessionStreaming` 抖动 / 切会话回来）@State 仍是 true
+// → 第二次 onAppear 无变化 → repeatForever 不重启 → 三点静止。四条一起钉住：
+// ①onAppear 与 onDisappear **成对**（消隐复位才保证下次出现有边沿）②不许改用异步翻转
+// ③不许退回「只有 onAppear 没有 onDisappear」的老写法 ④外观口径不动。
+let typingSlice: String = {
+    guard let a = chatViewSrc.range(of: "struct TypingIndicator: View") else { return "" }
+    return String(chatViewSrc[a.lowerBound...])
+}()
+// 只认定位切片里的**代码行**（注释里会提到 `DispatchQueue.main.async` 这个反面例子，
+// 不滤掉注释的话「不许改异步」那条会假失败）。
+let typingCode = typingSlice.split(separator: "\n")
+    .map { $0.trimmingCharacters(in: .whitespaces) }
+    .filter { !$0.hasPrefix("//") }
+    .joined(separator: "\n")
+check("TypingIndicator 源切片非空（切片失败 = 下面全是空真）", typingSlice.count > 200)
+check("🚨 消隐时复位（回归根因：视图复用后无 false→true 边沿 → repeatForever 不重启）",
+      typingCode.contains(".onDisappear { animating = false }"))
+check("出现时置位（与上一行成对，缺一即概率卡死）",
+      typingCode.contains(".onAppear { animating = true }"))
+check("不许改用异步翻转（Swift 6 严格并发下闭包捕获 View 编译不过）",
+      !typingCode.contains("DispatchQueue.main.async"))
+check("三点脉冲外观口径不动（repeatForever + 分相 delay）",
+      typingCode.contains(".repeatForever(autoreverses: true).delay(Double(i) * 0.18)"))
+
+// 同族第三处：header「AI 正在输入」小三点（LiquidGlass.BusyDots）——同一个「边沿」坑。
+// 三处（ChatView.TypingIndicator / PetAvatar.ThinkingDots / BusyDots）修法一致：消隐复位。
+let liquidSrc = src("Theme/LiquidGlass.swift")
+let busyDotsSlice: String = {
+    guard let a = liquidSrc.range(of: "struct BusyDots: View") else { return "" }
+    return String(liquidSrc[a.lowerBound...].prefix(1200))
+}()
+let busyCode = busyDotsSlice.split(separator: "\n")
+    .map { $0.trimmingCharacters(in: .whitespaces) }
+    .filter { !$0.hasPrefix("//") }
+    .joined(separator: "\n")
+check("BusyDots 切片非空（header「AI 正在输入」小三点）", busyCode.count > 100)
+check("🚨 BusyDots 消隐时复位（缺它则三点概率静止不呼吸）",
+      busyCode.contains(".onDisappear { on = false }"))
+check("BusyDots 出现时置位", busyCode.contains(".onAppear { on = true }"))
+check("BusyDots 外观口径不动（opacity 呼吸 + 分相 delay）",
+      busyCode.contains(".delay(Double(i) * 0.16), value: on)"))
+
+// ── v4.1.x：多会话并行下「整个气泡压根不出现」（2026-09-30 用户实报，与动画那条是**两条不同的链**）──
+// 现象：输入栏胶囊/灵动岛按 aiBusy 显示「AI 正在输入」，聊天流里却一个思考气泡都没有。
+// 根因：气泡条件只认 thisSessionStreaming，漏掉「服务器有在途任务、本地被 guard `!stream.isStreaming`
+// 挡着没接回」这一态（多会话并行时几乎必现：另有会话在前台收流 → 自己不接回）。三条护栏：
+let bubbleCond: String = {
+    guard let a = chatViewSrc.range(of: "if thisSessionStreaming || remoteBusy {") else { return "" }
+    let tail = String(chatViewSrc[a.lowerBound...])
+    let window = String(tail.prefix(3000))   // 足够罩住本组两个分支（中间的说明注释也算在内）
+    // 终点取窗口内**最后一次** streamingBubble：上面那段注释里会提到这个名字（首现在注释里），
+    // 只有 backwards 才能切到真正的 else 体（用首现会把切片截在注释上，下面三条全假红）。
+    if let b = window.range(of: "streamingBubble", options: .backwards) {
+        return String(window[..<b.upperBound])
+    }
+    return window
+}()
+check("🚨 思考气泡条件与 aiBusy 对齐（含 remoteBusy，否则「气泡压根不出现」）",
+      bubbleCond.contains("if thisSessionStreaming || remoteBusy {"))
+check("🚨 气泡内层条件必须取反（无内容/纯 remoteBusy 走三点）",
+      bubbleCond.contains("if !thisSessionStreaming || stream.content.isEmpty {"))
+// 防再写反（发布前审查实抓，2026-09-30）：光断言「条件存在」是**假护栏**——条件写反过一次，
+// 症状是「本地流式全程三点、整段回答到收尾才蹦出来」。这里改断言**分支体归属**：
+let bubbleIfBody: String = {
+    guard let a = bubbleCond.range(of: "if !thisSessionStreaming || stream.content.isEmpty {") else { return "" }
+    let tail = String(bubbleCond[a.lowerBound...])
+    guard let b = tail.range(of: "} else {") else { return "" }
+    return String(tail[..<b.lowerBound])
+}()
+let bubbleElseBody: String = {
+    guard let b = bubbleCond.range(of: "} else {") else { return "" }
+    return String(bubbleCond[b.upperBound...].prefix(200))
+}()
+check("🚨 气泡 if 体必须是三点（写反 = 有内容时只显示三点，回答最后才蹦出来）",
+      bubbleIfBody.contains("TypingIndicator()") && !bubbleIfBody.contains("streamingBubble"))
+check("🚨 气泡 else 体必须是 streamingBubble（否则首帧/纯 remoteBusy 拿残留内容渲染 = 串话）",
+      bubbleElseBody.contains("streamingBubble"))
+let sidChangeSlice: String = {
+    guard let a = chatViewSrc.range(of: "dropPendingQueue(dropping: prior)") else { return "" }
+    return String(chatViewSrc[a.lowerBound...].prefix(700))
+}()
+check("🚨 切会话作废上一会话的忙态结论（否则新会话假气泡 / 假「AI 正在输入」）",
+      sidChangeSlice.contains("remoteBusy = false") && sidChangeSlice.contains("remoteBusyFails = 0"))
+
 print("输入栏两层化真值表：\(passCount) 通过 / \(failCount) 失败")
 if failCount > 0 { exit(1) }

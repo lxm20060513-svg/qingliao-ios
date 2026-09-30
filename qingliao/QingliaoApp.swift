@@ -223,7 +223,14 @@ struct RootView: View {
         // 统一在这里收敛——AuthStore 看不到 ChatStore，而后者是 App 级 @State、跨登录态存活。
         // 不清的话换账号登录后看到的仍是旧账号会话，且 loadLastSession 的 isEmpty 护栏让它不会被覆盖。
         .onChange(of: auth.isLoggedIn) { _, logged in
-            if !logged { chat.resetForLogout() }
+            if !logged {
+                // 🚨 发布前审查（2026-09-30）：先撤掉所有在跑的后台移交任务再 reset —— 轮询 loop
+                // 捕获的是 adopt 时的 auth/chat 引用，不撤的话登出后迟到的回包仍会走 finish，
+                // 往**刚 reset 的 store** 写上一个账号的会话内容、未读 +1 和本地通知
+                //（全仓 5 处 runner 引用没有一处接在登出）。
+                BackgroundStreamRunner.shared.cancelAll()
+                chat.resetForLogout()
+            }
             // v4.0.1：未登录时收到的分享先扣在 ShareIntake 里（见那里的 pendingWhileLoggedOut），
             // 登录一成功立刻补投 —— 否则「没登录 → 分享 → 登录」这一串里，内容永远到不了会话。
             if logged { ShareIntake.flushPending(loggedIn: true) }

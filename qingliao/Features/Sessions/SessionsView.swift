@@ -1163,6 +1163,9 @@ private struct RunningDot: View {
             .animation(reduceMotion ? nil : .easeInOut(duration: 0.6).repeatForever(autoreverses: true),
                        value: dim)
             .onAppear { if !reduceMotion { dim = true } }
+            // v4.1.x 发布前同族审查（2026-09-30）：列表行被滚动回收时 @State 停在 true，
+            // 再出现没有 false→true 边沿 = 呼吸动画消失（本仓「动画概率消失」的同族第 2 处）。
+            .onDisappear { dim = false }
             .accessibilityLabel("正在生成回复")
     }
 }

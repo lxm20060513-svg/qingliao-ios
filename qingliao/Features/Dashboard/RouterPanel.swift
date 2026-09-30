@@ -84,6 +84,9 @@ struct RouterPanel: View {
                                ? .easeInOut(duration: 1.0).repeatForever(autoreverses: true) : Motion.flow,
                                value: breathe)
                     .onAppear { breathe = true }
+                    // v4.1.x 发布前同族审查（2026-09-30）：这条的动画表达式还随 router.ok 在
+                    // Motion.flow / repeatForever 间切换，边沿更脆 —— 离屏时复位（同族第 3 处）。
+                    .onDisappear { breathe = false }
                 Spacer()
                 Button {
                     onRefresh?()

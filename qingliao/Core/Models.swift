@@ -54,6 +54,13 @@ struct ChatMessage: Identifiable, Equatable, Sendable {
     var questionOptions: [String]?   // 快捷选项（点一下即答）；空 = 只让打字
     var questionAnswer: String?      // 用户已答内容（nil = 待答）
     var questionError: String?       // 作答**没送到**时的原因（nil = 无错误）；卡上要出声，别静默
+    /// v4.0.11：主动 Agent 消息的后端事件 id（proactive_agent 投的 task_type=agent）。
+    /// 非 nil 时气泡底部渲染「有用/没用」——回灌给后端做采纳率复盘，抬高/下调置信度阈值。
+    /// 取值 = 后端 proactive_log 里的 entry id（也是 /api/agent/proactive/feedback 的 id）。
+    var proactiveId: String?
+    /// v4.0.11：已反馈的判定（adopted/ignored）。非 nil 时反馈条变成「已采纳/已忽略」终态，
+    /// 不再重复提交（后端一次 feedback 只加一次计数，重复 POST 会污染采纳率）。
+    var proactiveVerdict: String?
     /// v3.4.x code review fix：id 唯一性兜底短后缀——id 由 role+content 哈希+timestamp 拼成，
     /// timestamp 为 nil 或同毫秒重复内容时两条消息 id 会撞（ForEach 重复 id / Equatable 误判同一消息）。
     /// 新创建消息自动带随机 8 位十六进制 uid；持久化时随消息写入 "uid" 字段、解析时读回，
@@ -140,6 +147,9 @@ struct ChatMessage: Identifiable, Equatable, Sendable {
         msg.questionId = d["questionId"] as? String
         msg.questionOptions = d["questionOptions"] as? [String]
         msg.questionAnswer = d["questionAnswer"] as? String
+        // v4.0.11：读回主动 Agent 事件 id（重启/切会话后「有用/没用」仍可回灌）
+        msg.proactiveId = d["proactiveId"] as? String
+        msg.proactiveVerdict = d["proactiveVerdict"] as? String
         return msg
     }
 

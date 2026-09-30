@@ -39,6 +39,19 @@ enum InboxProgressOrder {
         return new.chars > last.chars
     }
 
+    /// v4.0.11（用户 2026-09-30 真机实报）：「AI 已经完整回复了，推送的反而还在完整回复后」。
+    /// 任务是否**已落地最终回复** —— 落地之后同任务的任何进度快照都是残片，必须丢弃
+    /// （否则会被注入到列表末尾，排在完整回复**下面**）。两条落地路径都要认：
+    ///   ① `finishedTasks`：reply 分支处理过该任务（注入成功或去重命中，都意味着回复已进会话）；
+    ///   ② `streamDone && streamTaskId == sourceTaskId`：本机流式刚收尾（回复已落库）。
+    /// 分组键同铁律：拿不到 source_task_id 一律返回 false（放行），绝不跨任务误丢进度。
+    static func isTaskLanded(sourceTaskId: String?, finishedTasks: Set<String>,
+                             streamDone: Bool, streamTaskId: String?) -> Bool {
+        guard let key = sourceTaskId, !key.isEmpty else { return false }
+        if finishedTasks.contains(key) { return true }
+        return streamDone && streamTaskId == key
+    }
+
     /// 基准快照是否还「新鲜」（App 重启后内存分组表为空，只能拿会话里最后一条进度气泡兜底——
     /// 进度是单会话串行任务的产物，用时间窗把「上一条任务留下的旧气泡」排除掉，别拿它去比新任务）
     static func isFresh(baselineMs: TimeInterval?, nowMs: TimeInterval, windowMs: TimeInterval = 15 * 60 * 1000) -> Bool {
