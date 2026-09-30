@@ -15,6 +15,19 @@ final class ChatStore {
     /// 当前打开的会话是不是投递壳（InboxStore 注入推送前的闸门判据）
     var isDeliverySession: Bool { sessionId == Self.deliverySessionId }
 
+    // v4.0.x proactive：固定主动会话（与投递壳是两回事，勿混）
+    //
+    /// 主动 Agent（后端 proactive_agent）消息的归属会话。不可删除、标题锁定。
+    /// 与投递壳三点区别：
+    ///   ① 投递壳**只装不答**；主动会话是**人机对话**，用户在里面正常回复、走 stream。
+    ///   ② 投递壳是只读视图（不许写卡/记账号）；主动会话不设这道闸门。
+    ///   ③ 投递壳内容以客户端为准；主动会话内容以 NAS 为准（后端 _CLIENT_WINS_IDS 不含它）。
+    static let proactiveSessionId = "qingliao_proactive"
+    /// 当前打开的会话是不是主动会话
+    var isProactiveSession: Bool { sessionId == Self.proactiveSessionId }
+    /// 投递壳 ∪ 主动会话：两个固定会话合起来（都不可删、都标题锁定）
+    var isFixedSession: Bool { isDeliverySession || isProactiveSession }
+
     var sessionId: String
     var messages: [ChatMessage] = []
     var title = ""
@@ -378,8 +391,6 @@ final class ChatStore {
         seenTimes[id] = Date().timeIntervalSince1970 * 1000
         UserDefaults.standard.set(seenTimes, forKey: seenTimesKey)
     }
-
-    var totalUnread: Int { unread.count }
 
     /// 请求新建会话（只设标志不清数据）：ChatView 观察到后先切欢迎页卸载列表，
     /// 下一帧再 newSession——v2.0.44 的"先切tab再清空"在 tab 切换动画期间（半隐藏状态）
@@ -887,7 +898,7 @@ final class ChatStore {
                                         firstMessageNameable: SessionAutoName.isNameable(first.content),
                                         alreadyAutoNamed: autoNamedTitles[sid] != nil,
                                         userRenamed: renamedByUser.contains(sid),
-                                        isDeliverySession: sid == Self.deliverySessionId) else { return }
+                                        isDeliverySession: sid == Self.deliverySessionId || sid == Self.proactiveSessionId) else { return }
         let snapshot = first.content
         autoNameTask?.cancel()
         autoNameTask = Task { [weak self] in

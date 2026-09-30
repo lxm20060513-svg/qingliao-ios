@@ -14,7 +14,9 @@ struct TodoSection: View {
     @State private var showAll = false
     /// v3.9.37：卡片 → 「全部待办」列表的原生 zoom 转场（与备忘录卡片同款弹窗动画）
     @Namespace private var todoZoomNS
-    @State private var draft = ""
+    /// 新建弹窗的会话序号：每次打开自增，配合 `.id(addSession)` 强制换新实例
+    /// （原正文是宿主 @State + 显式 `draft = ""` 复位；现由 LifeNoteComposeSheet 自己持有）
+    @State private var addSession = 0
     @State private var detail: TodoItem?
     /// v3.9.41（SR34）：详情页**实际渲染**用的副本；`detail` 只负责驱动呈现（一旦被 sheet 取用，
     /// 传进闭包的就是那一刻的快照，之后 store 改了它也不会跟着变 → 大勾选圆点了没反应）。
@@ -31,7 +33,7 @@ struct TodoSection: View {
         root
             .frame(maxWidth: .infinity, alignment: .leading)
             .task { await store.loadFromServer() }
-            .sheet(isPresented: $showAdd) { addSheet }
+            .sheet(isPresented: $showAdd) { addSheet.id(addSession) }
             // SR35：「全部待办」弹窗里长按/左滑的删除确认，必须挂在弹窗自己这棵树上
             .sheet(isPresented: $showAll) { deleteConfirm(on: allSheet) }
             .sheet(item: $detail, onDismiss: { detail = nil; detailCurrent = nil }) { t in
@@ -56,74 +58,50 @@ struct TodoSection: View {
     /// v3.9.41（SR35）：删除确认框本体，宿主与「全部待办」弹窗各挂一次。
     /// 原先只有宿主那一份（旧 :40），而弹窗盖在宿主之上时宿主级 alert 呈现不出来 →
     /// 列表里长按「删除」= 点了没反应。备忘录的 MemoSection 早已把确认框搬进弹窗内，待办漏抄。
-    @ViewBuilder
+    /// 确认框本体已收进 LifeDeleteConfirm（工作线 B：目标/记录/备忘弹窗内那份同款）
     private func deleteConfirm<V: View>(on view: V) -> some View {
-        view.alert("删除这条待办？", isPresented: Binding(
-            get: { pendingDelete != nil },
-            set: { if !$0 { pendingDelete = nil } }
-        )) {
-            Button("删除", role: .destructive) {
-                if let item = pendingDelete { store.delete(item) }
-                pendingDelete = nil
-            }
-            Button("取消", role: .cancel) { pendingDelete = nil }
-        } message: {
-            Text(pendingDelete?.content.prefix(40).description ?? "")
-        }
+        view.modifier(LifeDeleteConfirm(
+            title: "删除这条待办？",
+            pending: pendingDelete,
+            onCancel: { pendingDelete = nil },
+            onDelete: { store.delete($0) },
+            message: { $0.content.prefix(40).description }
+        ))
     }
 
     // MARK: 页级标题行（与备忘录同款）
 
+    /// 外壳已收进 LifeSectionHeader（工作线 B：备忘/目标/记录三份同款）
     private var pageHeader: some View {
-        HStack(spacing: 8) {
-            Text("待办清单")
-                .font(.system(size: Typography.body, weight: .bold))
-            if !store.todos.isEmpty {
-                let pending = store.pendingCount
-                Text(pending > 0 ? "\(pending) 项待办" : "已完成")
-                    .font(.system(size: Typography.subhead))
-                    .foregroundStyle(.secondary)
-            }
-            Spacer(minLength: 0)
-            Button {
-                draft = ""
-                showAdd = true
-            } label: {
-                Text("添加").pill(.page)
-            }
-            .buttonStyle(PressStyle())
-            .accessibilityLabel("添加待办")
-        }
-        .padding(.top, Spacing.sm)
+        LifeSectionHeader(
+            title: "待办清单",
+            subtitle: store.todos.isEmpty ? nil : pendingSubtitle,
+            subtitleLineLimit: nil,
+            addAccessibilityLabel: "添加待办",
+            onAdd: startAdd
+        )
+    }
+
+    private var pendingSubtitle: String {
+        let pending = store.pendingCount
+        return pending > 0 ? "\(pending) 项待办" : "已完成"
     }
 
     /// 空态引导卡（与备忘录空态同几何：16 圆角 + 83pt 高）
     private var emptyTap: some View {
-        Button {
-            draft = ""
-            showAdd = true
-        } label: {
-            HStack(spacing: Spacing.md) {
-                Image(systemName: "checklist")
-                    .font(.system(size: Typography.body))
-                    .foregroundStyle(Color.accentColor.opacity(0.9))
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("有什么要做的")
-                        .font(.system(size: Typography.body))
-                        .foregroundStyle(.primary)
-                    Text("聊天长按加入待办，AI 给出的清单会自动收进来")
-                        .font(.system(size: Typography.caption))
-                        .foregroundStyle(.tertiary)
-                        .lineLimit(1)
-                }
-                Spacer(minLength: 0)
-            }
-            .padding(Spacing.xl)
-            .frame(maxWidth: .infinity, minHeight: MemoCardMetrics.minHeight, alignment: .leading)
-            .dashboardCard()
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(PressStyle())
+        LifeEmptyStateCard(
+            icon: "checklist",
+            title: "有什么要做的",
+            subtitle: "聊天长按加入待办，AI 给出的清单会自动收进来",
+            onTap: startAdd
+        )
+    }
+
+    /// 页级标题行与空态引导卡共用这一个入口（正文改由 LifeNoteComposeSheet 自己的 @State 持有，
+    /// 靠 addSession 换实例保证每次空白）
+    private func startAdd() {
+        addSession += 1
+        showAdd = true
     }
 
     // MARK: 页面单卡（显示列表最上的一条 = 未完成优先、最新在前）
@@ -391,47 +369,19 @@ struct TodoSection: View {
 
     // MARK: 新增（与备忘录添加弹窗同款）
 
+    /// 外壳已收进 LifeNoteComposeSheet（工作线 B：与备忘那份同款），只差占位符与标题
     private var addSheet: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                TextEditor(text: $draft)
-                    .font(.system(size: Typography.title))
-                    .scrollContentBackground(.hidden)
-                    .padding(Spacing.xl)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                    .background(Color(uiColor: .secondarySystemGroupedBackground),
-                                in: RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
-                    .overlay(alignment: .topLeading) {
-                        if draft.isEmpty {
-                            Text("要做什么…")
-                                .font(.system(size: Typography.title))
-                                .foregroundStyle(.tertiary)
-                                .padding(.horizontal, Spacing.section)
-                                .padding(.vertical, 20)
-                                .allowsHitTesting(false)
-                        }
-                    }
-                    .padding(.horizontal, Spacing.section)
-                    .padding(.top, Spacing.md)
-            }
-            .navigationTitle("新建待办")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") { showAdd = false }
+        LifeNoteComposeSheet(
+            title: "新建待办",
+            placeholder: "要做什么…",
+            onSave: { text in
+                if store.add(content: text, source: "manual") {
+                    Haptics.success()
                 }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("保存") {
-                        if store.add(content: draft, source: "manual") {
-                            Haptics.success()
-                        }
-                        showAdd = false
-                    }
-                    .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
-            }
-        }
-        .presentationDetents([.medium, .large])
+                showAdd = false
+            },
+            onCancel: { showAdd = false }
+        )
     }
 }
 

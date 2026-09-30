@@ -320,7 +320,8 @@ enum OrbQuickMenuLayout {
         //    三排对齐同一网格（3/3/3，每排 3 列）观感更整，同排间隙仍 17pt、最窄 375pt 不越界。
         //    会话纪要/拍照识别两颗的横向位置随之对齐（±59 → ∓118/0），纵向不动。
         let i = ((index % 9) + 9) % 9
-        let col: CGFloat = CGFloat(i >= 6 ? i - 7 : i % 3) - 1   // i≥6：6→−1 / 7→0 / 8→+1
+        // 列位：i<6 → i%3 − 1（−1/0/+1）；i≥6 → i−7（−1/0/+1）。两段各自都以球心为 0 列。
+        let col: CGFloat = CGFloat(i >= 6 ? i - 7 : i % 3) - (i >= 6 ? 0 : 1)
         let dy = i >= 6 ? topDY : (i >= 3 ? upperDY : lowerDY)
         return CGPoint(x: ballCenter.x + col * columnDX,
                        y: below ? ballCenter.y + dy : ballCenter.y - dy)

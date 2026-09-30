@@ -148,10 +148,6 @@ enum QuickReminderParseResult: Equatable {
         if case .success(let p) = self { return p }
         return nil
     }
-    var failureMessage: String? {
-        if case .failure(let m) = self { return m }
-        return nil
-    }
 }
 
 // MARK: - 解析器

@@ -26,8 +26,6 @@ enum DiagnosticsUploader {
         authStore = auth
     }
 
-    static var lastResultText: String { lastMessage }
-
     /// 把本机待上报队列分批 POST /api/diag/report；每批成功后立即出队。
     ///
     /// 为什么要分批：蜂窝下 URLSession 直连失败会走 Safari relay，而 relay 是把请求塞进

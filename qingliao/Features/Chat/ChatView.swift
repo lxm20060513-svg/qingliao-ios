@@ -133,6 +133,8 @@ struct ChatView: View {
     @State var autoRetryCount = 0    // v3.4.x：消息失败自动重试计数（网络类错误最多自动重试 2 次，防死循环）
     @State private var lastSentSignature: (sessionId: String, text: String, image: String?, ts: TimeInterval)?  // 同内容 60s 幂等（v3.4.27 fix：签名含图片指纹——纯图 text 恒空，无图指纹会把 60s 内第二张纯图误判重复丢弃）
     @State var fileSendBlocked = false   // v2.0.102：流式中发文件提示
+    // v4.0.x：清空固定会话被拦时的提示（文案要带会话名，所以用 String? 而非 Bool）
+    @State var clearBlockedHint: String?
     @State var voiceTooShort = false   // v2.0.102：录音太短提示
     @State var voiceDiag = ""   // v3.0.78 诊断：录音链路诊断信息
     // v2.0.88：AI 回答中发送的消息队列（回答结束后自动逐条发送）
@@ -561,6 +563,13 @@ struct ChatView: View {
             showTOCSheet = true
         }
         Button("清空本会话消息", role: .destructive) {
+            // v4.0.x：固定会话（投递壳 / 轻聊主动）不许清空 ——
+            // 投递壳在后端 _CLIENT_WINS_IDS 里，App 写空数组会**真实抹掉 NAS 上的投递历史**，
+            // 这与「固定会话不可删」是同一类保护：上轮只护了删除口，漏了清空口。
+            guard !chat.isFixedSession else {
+                clearBlockedHint = "「\(chat.title)」是固定会话，不能清空"
+                return
+            }
             // v2.0.40：两步走清空——先切欢迎页分支（列表立即卸载，数据未动），
             // 下一帧再清数据。列表销毁与数据清空完全错开，杜绝同帧崩溃。
             clearing = true
@@ -885,6 +894,14 @@ struct ChatView: View {
             Button("好的", role: .cancel) {}
         } message: {
             Text("没有识别到内容，请靠近麦克风、按住说完一整句再松手。\n[诊断] \(voiceDiag)")
+        }
+        // v4.0.x：固定会话清空被拦提示
+        .alert("无法清空", isPresented: Binding(
+            get: { clearBlockedHint != nil },
+            set: { if !$0 { clearBlockedHint = nil } })) {
+            Button("好的", role: .cancel) { clearBlockedHint = nil }
+        } message: {
+            Text(clearBlockedHint ?? "")
         }
         // v2.0.102：AI 回答中发文件提示
         .alert("AI 回答中", isPresented: $fileSendBlocked) {

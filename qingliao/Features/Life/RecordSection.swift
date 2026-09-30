@@ -39,44 +39,29 @@ struct RecordSection: View {
         )
     }
 
+    /// 删除确认框本体已收进 LifeDeleteConfirm（工作线 B：待办/目标/备忘弹窗内那份同款）
     private func deleteConfirm<V: View>(on view: V) -> some View {
-        view.alert("删除这条记录？", isPresented: Binding(
-            get: { pendingDelete != nil },
-            set: { if !$0 { pendingDelete = nil } }
-        )) {
-            Button("删除", role: .destructive) {
-                if let item = pendingDelete { store.delete(item) }
-                pendingDelete = nil
-            }
-            Button("取消", role: .cancel) { pendingDelete = nil }
-        } message: {
-            Text(pendingDelete?.amountText ?? "")
-        }
+        view.modifier(LifeDeleteConfirm(
+            title: "删除这条记录？",
+            pending: pendingDelete,
+            onCancel: { pendingDelete = nil },
+            onDelete: { store.delete($0) },
+            message: { $0.amountText }
+        ))
     }
 
     // MARK: 页级标题行（与备忘录/待办同款）
 
+    /// 外壳已收进 LifeSectionHeader（工作线 B：备忘/待办/目标三份同款）。
+    /// lineLimit(1) 只记录这一处需要（副标题是「本月 x 元 · n 条」，可能偏长）→ 走可选参数。
     private var pageHeader: some View {
-        HStack(spacing: 8) {
-            Text("记录")
-                .font(.system(size: Typography.body, weight: .bold))
-            if !store.records.isEmpty {
-                Text(subtitleText)
-                    .font(.system(size: Typography.subhead))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-            Spacer(minLength: 0)
-            Button {
-                resetDraft()
-                showAdd = true
-            } label: {
-                Text("添加").pill(.page)
-            }
-            .buttonStyle(PressStyle())
-            .accessibilityLabel("添加记录")
-        }
-        .padding(.top, Spacing.sm)
+        LifeSectionHeader(
+            title: "记录",
+            subtitle: store.records.isEmpty ? nil : subtitleText,
+            subtitleLineLimit: 1,
+            addAccessibilityLabel: "添加记录",
+            onAdd: startAdd
+        )
     }
 
     private var subtitleText: String {
@@ -88,33 +73,20 @@ struct RecordSection: View {
     // MARK: 空态引导卡（与待办空态同几何）
 
     private var emptyTap: some View {
-        Button {
-            resetDraft()
-            showAdd = true
-        } label: {
-            HStack(spacing: Spacing.md) {
-                Image(systemName: "sum")
-                    .font(.system(size: Typography.body))
-                    .foregroundStyle(Color.accentColor.opacity(0.9))
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("随手记一笔")
-                        .font(.system(size: Typography.body))
-                        .foregroundStyle(.primary)
-                    // v3.9.71 审查：原文案承诺"复制金额会自动认出来"，但剪贴板探测器**只认链接**
-                    // （数字类 pattern 误报率太高，刻意不做），所以那句话是空头承诺。改成可达路径。
-                    Text("截图里的金额/读数可在聊天页点「识别」后记到这里")
-                        .font(.system(size: Typography.caption))
-                        .foregroundStyle(.tertiary)
-                        .lineLimit(1)
-                }
-                Spacer(minLength: 0)
-            }
-            .padding(Spacing.xl)
-            .frame(maxWidth: .infinity, minHeight: MemoCardMetrics.minHeight, alignment: .leading)
-            .dashboardCard()
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(PressStyle())
+        LifeEmptyStateCard(
+            icon: "sum",
+            title: "随手记一笔",
+            // v3.9.71 审查：原文案承诺"复制金额会自动认出来"，但剪贴板探测器**只认链接**
+            // （数字类 pattern 误报率太高，刻意不做），所以那句话是空头承诺。改成可达路径。
+            subtitle: "截图里的金额/读数可在聊天页点「识别」后记到这里",
+            onTap: startAdd
+        )
+    }
+
+    /// 页级标题行、空态引导卡、卡片长按菜单三处共用这一个入口
+    private func startAdd() {
+        resetDraft()
+        showAdd = true
     }
 
     // MARK: 单张页卡（本月合计 + 最近读数 + 最近 3 条）
@@ -175,7 +147,7 @@ struct RecordSection: View {
                     Label("删除最新一条", systemImage: "trash")
                 }
             }
-            Button { resetDraft(); showAdd = true } label: {
+            Button { startAdd() } label: {
                 Label("添加记录", systemImage: "plus")
             }
         }

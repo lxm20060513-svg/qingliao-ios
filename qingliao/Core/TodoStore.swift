@@ -155,14 +155,12 @@ final class TodoStore {
     }
 
     /// v4.0.x 复核补：NAS 写链 FIFO（等前一次写完再写本次快照），防并发写同一 path 时
-    /// 慢的旧快照后到 → 远端复活已删条目。同一份修法见 RecordStore.writeChain。
+    /// 慢的旧快照后到 → 远端复活已删条目。排队形态由 SyncedStore 统一注释说明
+    /// （5 个 Store 的写链是同一份修法，见 Core/SyncedStore.swift 的「FIFO 写链」段）。
     private var writeChain: Task<Void, Never> = Task {}
 
     private var filePath: String {
-        let base = storagePath.isEmpty
-            ? "/volume1/docker/hermes/微信文件/轻聊web/data"
-            : storagePath
-        return "\(base)/\(fileName)"
+        SyncedStore.remotePath(storagePath: storagePath, fileName: fileName)
     }
 
     private init() {
@@ -250,43 +248,32 @@ final class TodoStore {
     // MARK: - 持久化（与 MemoStore 同款：本地 UserDefaults + NAS 文件双写）
 
     private func save() {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        guard let data = try? encoder.encode(todos) else { return }
+        // 编解码策略（.iso8601）由 SyncedStore 统一持有，两端天然对齐
+        guard let data = SyncedStore.encode(todos) else { return }
         UserDefaults.standard.set(data, forKey: defaultsKey)
 
         let path = filePath
         // SR33：强捕获（先绑局部），理由同 MemoStore
         let authForWrite = auth
         // v4.0.x 复核补：FIFO 串行写链，防「删除+编辑」并发写导致远端复活（并集合并挡不住）。
-        // 与 RecordStore.writeChain 同一份修法，保持单一真源。
+        // 排队形态见 Core/SyncedStore.swift 的「FIFO 写链」段。
         let prev = writeChain
         writeChain = Task {
-            await prev.value
-            await Self.writeToFile(auth: authForWrite, path: path, data: data)
+            await prev.value                                  // FIFO：等前一次写完再写本次快照
+            await SyncedStore.writeToFile(auth: authForWrite, path: path, data: data)
         }
     }
 
     private func loadLocal() {
         // 解码策略必须与 save() 的 .iso8601 对齐（MemoStore 实踩：不对齐 = 本地兜底恒空）
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        if let data = UserDefaults.standard.data(forKey: defaultsKey),
-           let decoded = try? decoder.decode([TodoItem].self, from: data) {
+        if let decoded = SyncedStore.readLocal([TodoItem].self, defaultsKey: defaultsKey) {
             todos = decoded
         }
     }
 
     /// 从 NAS 拉取（按 id 合并取较新，不整体替换——MemoStore 实踩：替换会让未落远端的条目"消失"）
     func loadFromServer() async {
-        guard let auth else { return }
-        guard let path = filePath.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-              let j = try? await auth.json("/api/files/pin_read?path=\(path)"),
-              let b64 = j["data"] as? String,
-              let data = Data(base64Encoded: b64) else { return }
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        guard let remote = try? decoder.decode([TodoItem].self, from: data) else { return }
+        guard let remote = await SyncedStore.readRemote([TodoItem].self, auth: auth, path: filePath) else { return }
 
         var byID: [String: TodoItem] = [:]
         for t in remote { byID[t.id] = t }
@@ -310,11 +297,5 @@ final class TodoStore {
         }
         todos = merged
         if changed { save() }
-    }
-
-    private static func writeToFile(auth: AuthStore?, path: String, data: Data) async {
-        guard let auth else { return }
-        let body: [String: Any] = ["path": path, "data": data.base64EncodedString()]
-        _ = try? await auth.json("/api/files/pin_write", method: "POST", body: body)
     }
 }

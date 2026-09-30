@@ -169,7 +169,9 @@ enum SessionAutoName {
     ///   - firstMessageNameable: 内容值不值得起名（见 isNameable）
     ///   - alreadyAutoNamed: 这个会话已经自动命名过（本地持久化标记，含跨启动）
     ///   - userRenamed: 这个会话用户手动改过名字（本地持久化标记）
-    ///   - isDeliverySession: 是不是投递壳会话（标题后端锁定）
+    ///   - isDeliverySession: 是不是**固定会话**（投递壳或主动会话，标题后端锁定）
+    ///     v4.0.x：参数名沿用，但语义已扩为两个固定会话合起来 ——
+    ///     投递壳 qingliao_delivery 与主动会话 qingliao_proactive **都**标题锁定。
     static func shouldFire(messageCount: Int,
                            firstIsUser: Bool,
                            firstMessageNameable: Bool,
@@ -177,7 +179,7 @@ enum SessionAutoName {
                            userRenamed: Bool,
                            isDeliverySession: Bool) -> Bool {
         guard messageCount == 1, firstIsUser else { return false }   // 只认「首条消息落库」这一刻
-        guard !isDeliverySession else { return false }               // ③ 投递壳标题锁定
+        guard !isDeliverySession else { return false }               // ③ 固定会话标题锁定（含主动会话）
         guard !alreadyAutoNamed else { return false }                // ① 一个会话只起一次
         guard !userRenamed else { return false }                     // ② 用户改过 → 不再自动改
         return firstMessageNameable

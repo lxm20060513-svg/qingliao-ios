@@ -272,7 +272,7 @@ struct AgentMemorySheet: View {
 
     private func load() async {
         if let j = try? await auth.json("/api/agent/rules") {
-            rules = (j["rules"] as? [[String: Any]] ?? []).map { AgentRuleItem($0) }
+            rules = SettingsLoad.list(j, key: "rules", make: AgentRuleItem.init)
         }
     }
 

@@ -37,7 +37,8 @@ struct MemoSection: View {
     @State private var showAll = false
     /// v3.9.20：卡片 → 「全部备忘」列表的原生 zoom 转场（同看板卡片 / 资讯→大爆炸那套）
     @Namespace private var memoZoomNS
-    @State private var draft = ""
+    /// 新建弹窗的会话序号：每次打开自增，配合 `.id(addSession)` 强制换新实例（见 addSheet 注释）
+    @State private var addSession = 0
     @State private var detail: MemoItem?
     @State private var pendingDelete: MemoItem?
     /// v3.9.38：列表内左滑删除的二次确认（确认框挂在弹窗内部——宿主那个会在 sheet 之上被盖住）
@@ -58,11 +59,14 @@ struct MemoSection: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         // v3.7.0：进入生活页即拉 NAS 上的备忘（本地已有则远端为空时不清本地）
         .task { await store.loadFromServer() }
-        .sheet(isPresented: $showAdd) { addSheet }
+        .sheet(isPresented: $showAdd) { addSheet.id(addSession) }
         // v3.9.17：点卡片 → 全部备忘列表
         .sheet(isPresented: $showAll) { allSheet }
         // v3.9.17：onDismiss 复位——若某次 present 被别的 sheet 挡掉，detail 会一直非 nil，
         // 之后「换一条」就不再触发 .sheet(item:)，详情再也打不开
+        // ⚠️ `.id(addSession)` 是刚需：新建弹窗的正文现在由 LifeNoteComposeSheet 自己的 @State 持有，
+        // 而 SwiftUI 会保留已 present 过视图的状态 → 不换 id 的话，第二次打开会带出上次的残留正文。
+        // 每次 startAdd 自增一次 → 每次打开都是全新实例（等价于原先显式 `draft = ""`）。
         .sheet(item: $detail, onDismiss: { detail = nil }) { m in
             MemoDetailSheet(item: m, onDelete: { item in
                 detail = nil
@@ -74,73 +78,45 @@ struct MemoSection: View {
             })
             .presentationDetents([.medium, .large])
         }
-        .alert("删除这条备忘？", isPresented: Binding(
-            get: { pendingDelete != nil },
-            set: { if !$0 { pendingDelete = nil } }
-        )) {
-            Button("删除", role: .destructive) {
-                if let item = pendingDelete { store.delete(item) }
-                pendingDelete = nil
-            }
-            Button("取消", role: .cancel) { pendingDelete = nil }
-        } message: {
-            Text(pendingDelete?.content.prefix(40).description ?? "")
-        }
+        .modifier(LifeDeleteConfirm(
+            title: "删除这条备忘？",
+            pending: pendingDelete,
+            onCancel: { pendingDelete = nil },
+            onDelete: { store.delete($0) },
+            message: { $0.content.prefix(40).description }
+        ))
     }
 
     // MARK: 页级标题行（v3.9.17：与「生活数据」同款——标题在卡片外，右侧放宽/实心胶囊）
 
+    /// v3.9.4：只留文字 + 胶囊（去图标）；v3.9.19：尺寸走 .pill(.page) 口径
+    /// 外壳已收进 LifeSectionHeader（工作线 B：待办/目标/记录三份同款）
     private var pageHeader: some View {
-        HStack(spacing: 8) {
-            Text("备忘录")
-                .font(.system(size: Typography.body, weight: .bold))
-            if !store.memos.isEmpty {
-                Text("\(store.memos.count) 条")
-                    .font(.system(size: Typography.subhead))
-                    .foregroundStyle(.secondary)
-            }
-            Spacer(minLength: 0)
-            Button {
-                draft = ""
-                showAdd = true
-            } label: {
-                // v3.9.4：只留文字 + 胶囊（去图标）；v3.9.19：尺寸走 .pill(.page) 口径
-                Text("添加").pill(.page)
-            }
-            .buttonStyle(PressStyle())
-            .accessibilityLabel("添加备忘录")
-        }
-        .padding(.top, Spacing.sm)
+        LifeSectionHeader(
+            title: "备忘录",
+            subtitle: store.memos.isEmpty ? nil : "\(store.memos.count) 条",
+            subtitleLineLimit: nil,
+            addAccessibilityLabel: "添加备忘录",
+            onAdd: startAdd
+        )
     }
 
     /// v3.9.14：空态改成"可点的引导卡"——原来那句话是说明书腔，现在点了就能写
+    /// v3.9.33：与单卡同几何（16 圆角 + 同高），空态 ↔ 有内容不跳变
     private var emptyTap: some View {
-        Button {
-            draft = ""
-            showAdd = true
-        } label: {
-            HStack(spacing: Spacing.md) {
-                Image(systemName: "square.and.pencil")
-                    .font(.system(size: Typography.body))
-                    .foregroundStyle(Color.accentColor.opacity(0.9))
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("记点什么")
-                        .font(.system(size: Typography.body))
-                        .foregroundStyle(.primary)
-                    Text("聊天里长按消息、大爆炸选词，都能存进来")
-                        .font(.system(size: Typography.caption))
-                        .foregroundStyle(.tertiary)
-                        .lineLimit(1)
-                }
-                Spacer(minLength: 0)
-            }
-            .padding(Spacing.xl)
-            // v3.9.33：与单卡同几何（16 圆角 + 同高），空态 ↔ 有内容不跳变
-            .frame(maxWidth: .infinity, minHeight: MemoCardMetrics.minHeight, alignment: .leading)
-            .dashboardCard()
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(PressStyle())
+        LifeEmptyStateCard(
+            icon: "square.and.pencil",
+            title: "记点什么",
+            subtitle: "聊天里长按消息、大爆炸选词，都能存进来",
+            onTap: startAdd
+        )
+    }
+
+    /// 页级标题行与空态引导卡共用这一个入口（正文改由 LifeNoteComposeSheet 自己的 @State 持有，
+    /// 靠 addSession 换实例保证每次空白）
+    private func startAdd() {
+        addSession += 1
+        showAdd = true
     }
 
     // MARK: 单卡（v3.9.33：页面上只有这一张卡——原 2 层错位卡边整块删除）
@@ -252,18 +228,13 @@ struct MemoSection: View {
             .toolbar(.hidden, for: .navigationBar)
             // v3.9.38：弹窗内的删除确认（与宿主那个同口径：说清删的是哪条、删后不可恢复）。
             // 挂在弹窗内部是因为宿主那个 alert 在 sheet 之上会被盖住。
-            .alert("删除这条备忘？", isPresented: Binding(
-                get: { pendingDeleteInList != nil },
-                set: { if !$0 { pendingDeleteInList = nil } }
-            )) {
-                Button("删除", role: .destructive) {
-                    if let item = pendingDeleteInList { store.delete(item) }
-                    pendingDeleteInList = nil
-                }
-                Button("取消", role: .cancel) { pendingDeleteInList = nil }
-            } message: {
-                Text(pendingDeleteInList?.content.prefix(40).description ?? "")
-            }
+            .modifier(LifeDeleteConfirm(
+                title: "删除这条备忘？",
+                pending: pendingDeleteInList,
+                onCancel: { pendingDeleteInList = nil },
+                onDelete: { store.delete($0) },
+                message: { $0.content.prefix(40).description }
+            ))
         }
         .presentationDetents([.medium, .large])
         .navigationTransition(.zoom(sourceID: "memo-all", in: memoZoomNS))   // v3.9.20：从备忘录卡片放大展开
@@ -334,47 +305,19 @@ struct MemoSection: View {
 
     // MARK: 新增
 
+    /// 外壳已收进 LifeNoteComposeSheet（工作线 B：与待办那份同款），只差占位符与标题
     private var addSheet: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                TextEditor(text: $draft)
-                    .font(.system(size: Typography.title))
-                    .scrollContentBackground(.hidden)
-                    .padding(Spacing.xl)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                    .background(Color(uiColor: .secondarySystemGroupedBackground),
-                                in: RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
-                    .overlay(alignment: .topLeading) {
-                        if draft.isEmpty {
-                            Text("写点什么…")
-                                .font(.system(size: Typography.title))
-                                .foregroundStyle(.tertiary)
-                                .padding(.horizontal, Spacing.section)
-                                .padding(.vertical, 20)
-                                .allowsHitTesting(false)
-                        }
-                    }
-                    .padding(.horizontal, Spacing.section)
-                    .padding(.top, Spacing.md)
-            }
-            .navigationTitle("新建备忘")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") { showAdd = false }
+        LifeNoteComposeSheet(
+            title: "新建备忘",
+            placeholder: "写点什么…",
+            onSave: { text in
+                if store.add(content: text, source: "manual") {
+                    Haptics.success()
                 }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("保存") {
-                        if store.add(content: draft, source: "manual") {
-                            Haptics.success()
-                        }
-                        showAdd = false
-                    }
-                    .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
-            }
-        }
-        .presentationDetents([.medium, .large])
+                showAdd = false
+            },
+            onCancel: { showAdd = false }
+        )
     }
 }
 

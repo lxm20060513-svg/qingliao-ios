@@ -24,9 +24,6 @@ enum ContextTuning {
     /// 应当按新默认走；用户手动调过别的值则一律尊重用户选择。
     static let legacyThreshold = 4000
 
-    /// 设置页 Stepper 允许的区间
-    static let thresholdRange = 1000...16000
-
     /// 老设备一次性迁移：UserDefaults 里存着历史旧默认 4000 时说明用户从没手动调过这档，
     /// 按新默认改写。必须在**设置页渲染前**调（否则 AppStorage 仍显示 4000，与实际压缩口径不符）。
     /// 只改 legacyThreshold 这一个值；用户调过的其它值一律不碰。

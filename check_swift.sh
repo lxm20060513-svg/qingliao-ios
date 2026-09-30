@@ -504,9 +504,24 @@ ck "P1: sendFile 上传后二次查流占用（防静默掐断别的会话的答
    'if stream\.isStreaming \{' "$CVE"
 # 字段声明不是函数体，ckIn 的「遇到收尾 } 就停」会切在它前面 → 这几条用 ck（全文件唯一串），
 # 但保留「唯一性」：下面紧跟的计数断言保证每仓只有一处。
-for st in MemoStore TodoStore PinStore; do
-  ck "$st 也有 NAS 写链 FIFO 字段" 'private var writeChain: Task<Void, Never> = Task' "qingliao/Core/$st.swift"
-  ck "$st 的 writeChain 在 save() 里被 await" 'let prev = writeChain' "qingliao/Core/$st.swift"
+# 名单**动态推导**（按「真的调用了 SyncedStore」筛），不再手写 ——
+#   v4.0.x 原名单只有 Memo/Todo/Pin，抽 SyncedStore 时新纳入的 Goal/Record 漏在名单外，
+#   护栏对它们完全失守（假绿）。手写名单每加一个 Store 就会漏一次。
+#   ⚠️ 不能用 `ls *Store.swift`：Core 下还有 Auth/Chat/Inbox/Diagnostics/PlanProgress/
+#   SessionTag 等 6 个不同构的 Store（审计已实证：无 ISO8601+NAS 快照双写通道）。
+_store_list=$(grep -ln 'SyncedStore\.' qingliao/Core/*Store.swift 2>/dev/null | xargs -n1 basename 2>/dev/null | sed 's/\.swift$//' | grep -v '^SyncedStore$' | sort)
+_store_n=$(echo "$_store_list" | grep -c .)
+if [ "$_store_n" != "5" ]; then
+  echo "❌ P0: 走 SyncedStore 体系的 Store 数量是 $_store_n（期望 5）：$_store_list"
+  echo "      新增/删除 Store 后必须同步本段护栏名单，别让新 Store 悄悄失守"
+  fail=1
+fi
+for st in $_store_list; do
+  f="qingliao/Core/$st.swift"
+  ck "$st 也有 NAS 写链 FIFO 字段" 'private var writeChain: Task<Void, Never> = Task' "$f"
+  # 钉「await prev.value」而不是裸 'let prev = writeChain'：后者全文件匹配，
+  # 把这行挪到任何位置（包括另一条死路径）照样绿 —— 护栏要守的是 save() 里真的等前一次写完。
+  ck "$st 的 writeChain 在写链里被 await（FIFO 行为，非仅声明存在）" 'await prev\.value' "$f"
 done
 # 同理只查代码形态：`Task.detached { [weak auth] in` 才算真用弱捕获。
 ckNot "PinStore 不再用 [weak auth] 捕获（SR33：弱引用会被清空 → 整次 NAS 回写静默丢失）" \
@@ -679,6 +694,31 @@ rm -rf /tmp/ql_homecards_main && mkdir -p /tmp/ql_homecards_main
 cp scripts/ql_chat_home/truth_table_homecards.swift /tmp/ql_homecards_main/main.swift
 run_unit /tmp/test_homecards -swift-version 6 /tmp/ql_homecards_main/main.swift \
     qingliao/Core/HomeCardOrder.swift
+
+echo "=== 50. 智慧球菜单胶囊几何真值表（v4.0.x）==="
+# 事故：v3.9.96 把最上排改成 3 列时，center() 的列位算式写成
+#   CGFloat(i >= 6 ? i - 7 : i % 3) - 1 —— 外面那个 -1 把 6/7/8 映射成 −2/−1/0，
+#   整排左移一列，「会话纪要」在 375pt 屏上中心 x=−48.5pt、左缘 −99pt，整颗飞出屏幕左侧。
+# 正确形态：−1 只作用于 i<6 那段（i%3 − 1）；i≥6 段本身即 −1/0/+1、不再减。
+#   —— 直接删掉那个 -1 会引入第二个 bug：下/中排列位变 0/1/2，430pt 屏最右列飞出右边。
+# 本表从生产源码解析列位算式（不写镜像实现），并对两个历史事故形态各钉一条反向断言。
+python3 scripts/ql_orbmenu/truth_table_orbmenu_geom.py || exit 1
+
+echo "=== 51. 弹窗风格真值表（v4.0.x）==="
+# 事故：v4.0.11 主动 Agent 弹窗自带实色底（systemGroupedBackground）+ 锁 [.large] 全屏，
+#       与其它半屏玻璃弹窗不统一（用户口径：「其他弹窗是弹窗一半，背景是半透明毛玻璃」）。
+# 真源决策：qingliao/Theme/LiquidGlass.swift:471-487（v3.9.23，勿再尝试挂 presentationBackground 材质）。
+# 本表把口径钉成代码级断言 —— 风格不许靠记忆。
+python3 scripts/ql_sheet_style/truth_table_sheet_style.py 2>&1 | tee /tmp/tt_sheet.log
+grep -q '✅ ALL PASS' /tmp/tt_sheet.log || fail=1
+
+echo "=== 52. 固定会话真值表（v4.0.x proactive）==="
+# 用户实测 bug：「主动 Agent 消息串进正常会话」。根因：proactive_agent.deliver() 走
+# inbox_api.push(task_type="agent")，而 push 无 session_id 参数 → 消息只进 inbox 池，
+# App 侧 InboxStore.consumeOne 再 chat.append 注入「当前会话」。v4.0.x 给它自己的
+# 固定会话 qingliao_proactive（轻聊主动），与投递壳「轻聊投递」区分：可回复、NAS 为准。
+python3 scripts/ql_fixed_session/truth_table_fixed_session.py 2>&1 | tee /tmp/tt_fixed.log
+grep -q '✅ ALL PASS' /tmp/tt_fixed.log || fail=1
 
 [ $fail -eq 0 ] || { echo "❌ 有护栏失守"; exit 1; }
 exit 0

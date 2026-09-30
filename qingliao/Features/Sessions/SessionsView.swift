@@ -646,11 +646,16 @@ struct SessionsView: View {
             } label: {
                 Label(favIDs.contains(s.id) ? "取消收藏" : "收藏", systemImage: favIDs.contains(s.id) ? "star.slash" : "star")
             }
-            Button {
-                renameTarget = s
-                renameText = s.title
-            } label: {
-                Label("重命名", systemImage: "pencil")
+            // v4.0.x：固定会话（投递壳 / 轻聊主动）标题锁定 → 不给「重命名」入口。
+            // 后端只锁自动命名（SessionAutoName 闸门），用户手动改名是另一条路，
+            // 不护住就会把「轻聊投递」「轻聊主动」改名成别的，固定会话就找不到了。
+            if s.id != ChatStore.deliverySessionId && s.id != ChatStore.proactiveSessionId {
+                Button {
+                    renameTarget = s
+                    renameText = s.title
+                } label: {
+                    Label("重命名", systemImage: "pencil")
+                }
             }
             Menu("移动到…") {
                 Button("无分类") {
@@ -700,10 +705,14 @@ struct SessionsView: View {
                     Label("新建标签", systemImage: "plus")
                 }
             }
-            Button(role: .destructive) {
-                confirmDelete = s
-            } label: {
-                Label("删除会话", systemImage: "trash")
+            // v4.0.x：固定会话（投递壳 / 轻聊主动）不可删除 → 直接不给「删除会话」这个入口，
+            // 而不是给一个点了会报错的按钮（所有可见 UI 入口都必须可用）。
+            if s.id != ChatStore.deliverySessionId && s.id != ChatStore.proactiveSessionId {
+                Button(role: .destructive) {
+                    confirmDelete = s
+                } label: {
+                    Label("删除会话", systemImage: "trash")
+                }
             }
         }
     }
@@ -857,8 +866,16 @@ struct SessionsView: View {
     }
 
     private func deleteSelected() {
-        let ids = Array(selectedIds)
-        guard !ids.isEmpty else { return }
+        // v4.0.x：批量删除要把两个固定会话过滤掉（同 delete() 的理由）。
+        // 否则整批请求被后端 _PROTECTED_IDS 部分拒绝 → deleted 数对不上 → 走失败分支。
+        let fixed: Set<String> = [ChatStore.deliverySessionId, ChatStore.proactiveSessionId]
+        let ids = Array(selectedIds).filter { !fixed.contains($0) }
+        guard !ids.isEmpty else {
+            editing = false
+            selectedIds.removeAll()
+            deleteError = "固定会话不能删除"
+            return
+        }
         let idsCopy = ids
         selectedIds.removeAll()
         editing = false
@@ -896,6 +913,12 @@ struct SessionsView: View {
     }
 
     private func delete(_ s: ChatSession) {
+        // v4.0.x：固定会话（投递壳 / 轻聊主动）不可删除 —— 后端 _PROTECTED_IDS 会拒绝，
+        // 这里先拦在前端，不让用户点完才看到一个失败的报错。
+        if s.id == ChatStore.deliverySessionId || s.id == ChatStore.proactiveSessionId {
+            deleteError = "「\(s.title)」是固定会话，不能删除"
+            return
+        }
         // v4.1.x 多会话并行：该会话若有后台流在跑 → 撤轮询 + 停服务端任务（不往已删会话写库）
         BackgroundStreamRunner.shared.cancelForDeletedSession(sessionId: s.id, auth: auth)
         // v2.0.57：三保险——①contextMenu 关闭瞬间不改数据（先弹确认再删）

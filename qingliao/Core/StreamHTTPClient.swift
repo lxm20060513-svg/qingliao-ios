@@ -344,19 +344,9 @@ final class StreamState: @unchecked Sendable {
         set { lock.withLock { _sent = newValue } }
     }
 
-    var sentOffset: Int {
-        get { lock.withLock { _sentOffset } }
-        set { lock.withLock { _sentOffset = newValue } }
-    }
-
     var writeFailCount: Int {
         get { lock.withLock { _writeFailCount } }
         set { lock.withLock { _writeFailCount = newValue } }
-    }
-
-    var zeroWrites: Int {
-        get { lock.withLock { _zeroWrites } }
-        set { lock.withLock { _zeroWrites = newValue } }
     }
 
     var lastEvent: Int {

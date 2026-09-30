@@ -49,10 +49,9 @@ struct ChatInputBar: View {
     var onStop: () -> Void = {}
     var onPickAttachment: () -> Void = {}
     var onCamera: () -> Void = {}   // v2.0.38 拍照输入
-    // 语音输入（按住说话）
+    // 语音输入（按住说话）—— v3.9.28 云端模式移除后仅剩 isRecording 态，
+    // onVoiceStart/onVoiceEnd 全仓零注入点（语音走 voiceMode + onLongPressInput），已删。
     var isRecording: Bool = false
-    var onVoiceStart: () -> Void = {}
-    var onVoiceEnd: () -> Void = {}
     // v2.0.96：语音转文字模式（长按发送按钮进入；Siri 彩色图标）
     // v3.9.7：语音态**不再**给输入框加流光特效——只保留「发送键变收音图标」这一个视觉提示
     var voiceMode: Bool = false

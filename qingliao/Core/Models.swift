@@ -390,7 +390,6 @@ struct NASStatus {
     var memPct: Double { memTotal > 0 ? memUsed / memTotal : 0 }
     var memUsedText: String { memUsed.byteText }
     var memTotalText: String { memTotal.byteText }
-    var qingliaoMemText: String { qingliaoMem.byteText }
     var hermesMemText: String { hermesMem.byteText }
     var qingliaoDockerMemText: String { qingliaoDockerMem.map { $0.byteText } ?? "--" }
     var cpuText: String { String(format: "%.1f%%", cpu) }
@@ -587,10 +586,6 @@ extension [String: Any] {
     /// 安全提取 String 字段
     func str(_ key: String, _ fallback: String = "") -> String {
         self[key] as? String ?? fallback
-    }
-    /// 安全提取 Double 字段
-    func dbl(_ key: String, _ fallback: Double = 0) -> Double {
-        (self[key] as? Double) ?? fallback
     }
     /// 安全提取 Bool 字段
     func bool(_ key: String, _ fallback: Bool = false) -> Bool {

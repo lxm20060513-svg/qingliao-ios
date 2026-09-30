@@ -161,15 +161,13 @@ final class GoalStore {
         set { UserDefaults.standard.set(newValue, forKey: storagePathKey) }
     }
 
-    /// 认账的默认 NAS 目录（与 TodoStore 完全一致）
+    /// 认账的默认 NAS 目录（与 TodoStore 完全一致，见 SyncedStore.remotePath）
     private var filePath: String {
-        let base = storagePath.isEmpty
-            ? "/volume1/docker/hermes/微信文件/轻聊web/data"
-            : storagePath
-        return "\(base)/\(fileName)"
+        SyncedStore.remotePath(storagePath: storagePath, fileName: fileName)
     }
 
-    /// 🚨 FIFO 串行写链：防远端 union merge 复活刚删的目标
+    /// 🚨 FIFO 串行写链：防远端 union merge 复活刚删的目标。
+    /// 排队形态见 Core/SyncedStore.swift 的「FIFO 写链」段（5 仓同一份修法）。
     private var writeChain: Task<Void, Never> = Task {}
 
     private init() { loadLocal() }
@@ -179,26 +177,22 @@ final class GoalStore {
 
     // ── 本地 ──────────────────────────────────────────
     private func loadLocal() {
-        let d = JSONDecoder()
-        d.dateDecodingStrategy = .iso8601   // 🚨 必须与 save() 对齐
-        if let data = UserDefaults.standard.data(forKey: defaultsKey),
-           let decoded = try? d.decode([GoalItem].self, from: data) {
+        // 🚨 解码策略由 SyncedStore 统一持有，与 save() 天然对齐（原来靠两处手写对齐，容易抄漏）
+        if let decoded = SyncedStore.readLocal([GoalItem].self, defaultsKey: defaultsKey) {
             goals = decoded
         }
     }
 
     private func save() {
-        let e = JSONEncoder()
-        e.dateEncodingStrategy = .iso8601
-        guard let data = try? e.encode(goals) else { return }
+        guard let data = SyncedStore.encode(goals) else { return }
         UserDefaults.standard.set(data, forKey: defaultsKey)
-        // 🚨 FIFO 写链：先绑局部 authForWrite + path 再进 Task
+        // 🚨 FIFO 写链：先绑局部 authForWrite + path 再排队
         let path = filePath
         let authForWrite = auth
         let prev = writeChain
         writeChain = Task {
-            await prev.value
-            await Self.writeToFile(auth: authForWrite, path: path, data: data)
+            await prev.value                                  // FIFO：等前一次写完再写本次快照
+            await SyncedStore.writeToFile(auth: authForWrite, path: path, data: data)
         }
     }
 
@@ -256,24 +250,9 @@ final class GoalStore {
         return victims.count
     }
 
-    /// cron 回写推进汇报
-    func applyReport(goalID: String, report: String, at: Date = Date()) {
-        mutate(goalID) { g in
-            g.lastReport = report
-            g.lastPushedAt = at
-        }
-    }
-
     // ── 远端同步 ──────────────────────────────────────────
     func loadFromServer() async {
-        guard let auth else { return }
-        guard let path = filePath.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-              let j = try? await auth.json("/api/files/pin_read?path=\(path)"),
-              let b64 = j["data"] as? String,
-              let data = Data(base64Encoded: b64) else { return }
-        let d = JSONDecoder()
-        d.dateDecodingStrategy = .iso8601
-        guard let remote = try? d.decode([GoalItem].self, from: data) else { return }
+        guard let remote = await SyncedStore.readRemote([GoalItem].self, auth: auth, path: filePath) else { return }
 
         // 🚨 墓碑优先：墓碑里的 id 一律不复活
         var byID: [String: GoalItem] = [:]
@@ -303,13 +282,6 @@ final class GoalStore {
         }
         goals = merged
         if changed { save() }
-    }
-
-    private static func writeToFile(auth: AuthStore?, path: String, data: Data) async {
-        guard let auth else { return }
-        _ = try? await auth.json("/api/files/pin_write",
-                                 method: "POST",
-                                 body: ["path": path, "data": data.base64EncodedString()])
     }
 
     // ── 后端 API 桥（建目标时让后端建 cron job）──────────

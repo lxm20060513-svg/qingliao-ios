@@ -232,17 +232,3 @@ struct OrbCanvasView: View {
     }
 }
 
-// MARK: - 预设（64px 版本）
-
-extension OrbOpts {
-    static let orbits64 = OrbOpts(
-        orbitN: 12, ghostN: 40, ghostR: 0.9, ghostA: 0.5,
-        particles: 3, partR: 1.2, partRDepth: 1.6,
-        rsPow: 0.6, rMin: 0.3
-    )
-    static let ring64 = OrbOpts(
-        ghostN: 150, lanes: 5, segs: 88, faceOn: 1,
-        rBase: 1.1, rDepth: 1.7, wobMul: 0.368, bandMul: 3.627, spin: 0,
-        rsPow: 0.6, rMin: 0.3
-    )
-}

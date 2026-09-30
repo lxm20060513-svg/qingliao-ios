@@ -154,6 +154,4 @@ final class ShareRouter {
         guard !pending.isEmpty else { return nil }
         return pending.removeFirst()
     }
-
-    func hasPending() -> Bool { !pending.isEmpty }
 }

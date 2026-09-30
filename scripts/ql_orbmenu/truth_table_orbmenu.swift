@@ -321,7 +321,17 @@ check("取模防越界（胶囊数量再变也不崩）", orbMenuSrc.contains("l
 //    —— 必须把公式本身也钉住，镜像回归才有意义。
 check("落点公式与源码绑定（%9 取模 · 每排 3 列 · i >= 6 = 最上排标准 3 列）",
       orbMenuSrc.contains("let i = ((index % 9) + 9) % 9")
-      && orbMenuSrc.contains("CGFloat(i >= 6 ? i - 7 : i % 3) - 1"))
+      // v4.0.x：这条原先钉的是 `... - 1` —— 而那正是把整排左移一列的事故算式
+      //（−1 误作用于 i≥6 段 → 6/7/8 落成 −2/−1/0，375pt 屏「会话纪要」左缘 −99pt、整颗飞出屏幕）。
+      // 正确形态：−1 只属 i<6 段（i%3 − 1），i≥6 段本身即 −1/0/+1、不再减。
+      && orbMenuSrc.contains("CGFloat(i >= 6 ? i - 7 : i % 3) - (i >= 6 ? 0 : 1)"))
+// 反向自证：两个历史事故形态的字面量都不得回到源码里
+check("🚫 反向：事故1 算式（统一 -1，最上排左移一列）已不在源码",
+      !orbMenuSrc.contains("CGFloat(i >= 6 ? i - 7 : i % 3) - 1"))
+check("🚫 反向：事故2 算式（完全不减，下/中排变 0/1/2 列）已不在源码",
+      // 锚定「整行到行尾」而非裸前缀：正确源码含同前缀但带 ` - (i >= 6 ...)`，
+      // 裸 contains 会误判为事故2 形态（自己踩过一次假红）。
+      !orbMenuSrc.contains("let col: CGFloat = CGFloat(i >= 6 ? i - 7 : i % 3)\n"))
 // v3.9.96：9 颗的清单与 id 语义（记一笔入列）——「数组顺序 = 落点索引」，所以顺序本身也是断言对象
 let allIds: [Int] = orbMenuSrc.components(separatedBy: "OrbQuickAction(id: ")
     .dropFirst()

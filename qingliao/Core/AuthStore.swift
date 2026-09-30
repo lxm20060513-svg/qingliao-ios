@@ -708,21 +708,6 @@ final class AuthStore {
             // 静默：失败不打扰（避免频繁弹窗），用户实际操作时再走完整 relay
         }
     }
-
-    /// 测试 relay 中转：GET /r/ping（经 Safari 进程，验证整条链路）
-    func testRelay() async -> String {
-        do {
-            let (data, code) = try await relay.relay(method: "GET", path: "/r/ping", timeout: 20)
-            if code == 200, let s = String(data: data, encoding: .utf8), s.contains("pong") {
-                return "✅ relay 中转正常"
-            }
-            return "⚠️ relay 返回异常（\(code)）"
-        } catch APIError.relayCancelled {
-            return "⚠️ 已取消（用户关闭弹窗）"
-        } catch {
-            return "❌ relay 失败（\(error.localizedDescription)）"
-        }
-    }
 }
 
 enum APIError: Error, LocalizedError {

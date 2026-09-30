@@ -141,14 +141,12 @@ final class MemoStore {
     }
 
     /// v4.0.x 复核补：NAS 写链 FIFO（等前一次写完再写本次快照），防并发写同一 path 时
-    /// 慢的旧快照后到 → 远端复活已删条目。同一份修法见 RecordStore.writeChain。
+    /// 慢的旧快照后到 → 远端复活已删条目。排队形态由 SyncedStore 统一注释说明
+    /// （5 个 Store 的写链是同一份修法，见 Core/SyncedStore.swift 的「FIFO 写链」段）。
     private var writeChain: Task<Void, Never> = Task {}
 
     private var filePath: String {
-        let base = storagePath.isEmpty
-            ? "/volume1/docker/hermes/微信文件/轻聊web/data"
-            : storagePath
-        return "\(base)/\(fileName)"
+        SyncedStore.remotePath(storagePath: storagePath, fileName: fileName)
     }
 
     private init() {
@@ -218,26 +216,25 @@ final class MemoStore {
     // MARK: - 持久化
 
     private func save() {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
         // 注：编码走合成的 encode(to:)（含 pinned/updatedAt）——只有解码是手写的（见 MemoItem）
-        guard let data = try? encoder.encode(memos) else { return }
+        // 编解码策略（.iso8601）与解码端对齐由 SyncedStore 统一持有。
+        guard let data = SyncedStore.encode(memos) else { return }
         UserDefaults.standard.set(data, forKey: defaultsKey)
 
         let path = filePath
-        // SR33：这里必须**强**捕获 auth（先绑成局部常量再让闭包捕获它）。detached 任务真正跑起来
+        // SR33：这里必须**强**捕获 auth（先绑成局部常量再进链）。写任务真正跑起来
         // 时调用方栈早已退出，弱引用可能在调度间隙被清空 → 整次 NAS 回写静默丢失
         //（本地 UserDefaults 有、界面无异状，只在另一台设备上看得到缺条）。
         let authForWrite = auth
-        // v4.0.x 复核补（与 RecordStore.writeChain 同一份修法）：原来每次 save 各起一个
+        // v4.0.x 复核补：原来每次 save 各起一个
         // `Task.detached` **并发**写同一 NAS path ——「删除 A」与「编辑 B」并发时慢的旧快照
-        // 后到，已删条目在远端复活；而这三个 Store 的 loadFromServer 都是**并集**合并
+        // 后到，已删条目在远端复活；而这几个 Store 的 loadFromServer 都是**并集**合并
         // （替换会让未落远端的条目消失），所以复活后没有任何墓碑/版本号能挡住它。
-        // 正解：FIFO 串行写链，与 RecordStore 保持单一真源。
+        // 正解：FIFO 串行写链，排队形态见 Core/SyncedStore.swift 的「FIFO 写链」段。
         let prev = writeChain
         writeChain = Task {
-            await prev.value
-            await Self.writeToFile(auth: authForWrite, path: path, data: data)
+            await prev.value                                  // FIFO：等前一次写完再写本次快照
+            await SyncedStore.writeToFile(auth: authForWrite, path: path, data: data)
         }
     }
 
@@ -246,10 +243,7 @@ final class MemoStore {
         // `.deferredToDate`（期望 Double 时间戳）去解 save() 写出的 .iso8601 字符串日期
         // → 永远 typeMismatch → 被 try? 吞掉 → 每次冷启动本地缓存都是空。
         // 危害不止"离线看不到"：此时若新增一条，save() 会把只含新条目的数组写回 NAS 覆盖其余备忘。
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        if let data = UserDefaults.standard.data(forKey: defaultsKey),
-           let decoded = try? decoder.decode([MemoItem].self, from: data) {
+        if let decoded = SyncedStore.readLocal([MemoItem].self, defaultsKey: defaultsKey) {
             memos = decoded
         }
     }
@@ -258,14 +252,8 @@ final class MemoStore {
     /// ⚠️ 必须**合并**而不是整体替换：save() 是 detached 异步写 NAS，刚添加的备忘可能
     /// 还没落远端；直接 `memos = decoded` 会让它从界面上"消失"（重启才由 UserDefaults 找回）。
     func loadFromServer() async {
-        guard let auth else { return }
-        guard let path = filePath.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-              let j = try? await auth.json("/api/files/pin_read?path=\(path)"),
-              let b64 = j["data"] as? String,
-              let data = Data(base64Encoded: b64) else { return }
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        guard let remote = try? decoder.decode([MemoItem].self, from: data) else { return }
+        // 远端读盘 + 解码：与 loadLocal 共用同一套 .iso8601 策略（见 SyncedStore）
+        guard let remote = await SyncedStore.readRemote([MemoItem].self, auth: auth, path: filePath) else { return }
 
         // 按 id 并集：同 id 取**最后修改**较新的一条；本地独有（远端还没收到）保留
         // v3.9.14：比较基准从 createdAt 改为 updatedAt —— 否则编辑/置顶过的条目
@@ -293,11 +281,5 @@ final class MemoStore {
         }
         memos = merged
         if changed { save() }   // 本地有远端没有/内容更新 → 回写一次补齐 NAS
-    }
-
-    private static func writeToFile(auth: AuthStore?, path: String, data: Data) async {
-        guard let auth else { return }
-        let body: [String: Any] = ["path": path, "data": data.base64EncodedString()]
-        _ = try? await auth.json("/api/files/pin_write", method: "POST", body: body)
     }
 }

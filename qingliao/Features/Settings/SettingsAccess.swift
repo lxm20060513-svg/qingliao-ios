@@ -314,6 +314,8 @@ struct SecretsView: View {
                     Spacer()
                 }
                 .frame(maxWidth: .infinity)
+                // v3.9.23 豁免：这不是弹窗根底，是生物解锁「验证失败」态那一行的行内底
+                // （同行有 .pill(.primary) 主按钮作为视觉主体），去掉会失去分隔感。
                 .background(Color(uiColor: .systemBackground))
             } else {
                 content
@@ -353,7 +355,8 @@ struct SecretsView: View {
                 }
             }
         }
-        .background(Color(uiColor: .systemBackground))
+        // v3.9.23 决策：弹窗背景不覆盖，让系统默认玻璃生效（勿再挂实色底）。
+        // 原来这里挂了一行 systemBackground 实色底 → 密钥页变实色页，与其它弹窗不统一。v4.0.x 移除。
         .task { await load() }
         // v3.9.41（SR22）：一离开前台就把已显形的密码全部掩回（任务切换器/切走再回来不再留明文）
         .onChange(of: scenePhase) { _, phase in
@@ -715,7 +718,6 @@ struct MCPSettingsSheet: View {
 
     // 新增表单
     @State private var showAdd = false
-    @State private var selectedTemplate: MCPTemplate?
     @State private var customURL = ""
     @State private var key = ""
     @State private var saving = false

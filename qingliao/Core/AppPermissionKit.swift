@@ -174,13 +174,6 @@ enum AppPermissionKit {
         UserDefaults.standard.set(on, forKey: aiKey(c))
     }
 
-    /// 某个能力能否被 AI 写入/删除（**双闸门**：总闸 + 单项 + 系统授权都通）。
-    /// 任何写/删动作执行前**必须**过这一关，不得内联判断。
-    static func canAIMutate(_ c: AppCapability) async -> Bool {
-        guard aiControlEnabled(c) else { return false }
-        return await status(of: c) == .granted
-    }
-
     // MARK: 状态查询
 
     static func status(of c: AppCapability) async -> PermissionState {

@@ -196,15 +196,12 @@ struct CloudDriveSettingsSheet: View {
             // v4.0.x: 走 /api/agent/clouddrive 别名——lucky(16666) 白名单只放 /api/agent 前缀，
             // 原 /api/clouddrive 路径在 App 主链路上被 lucky 404（真机反馈「加载失败 服务器 错误404」）
             let d = try await auth.json("/api/agent/clouddrive/drives")
+            // 后端异常都包在 200 里 → 必须查 ok（真值表 ql_clouddrive 钉的就是这一行，别挪进共享 helper）
             guard let ok = d["ok"] as? Bool, ok else {
                 errMsg = d["error"] as? String ?? "加载失败"
                 return
             }
-            var arr: [CloudDriveItem] = []
-            if let list = d["drives"] as? [[String: Any]] {
-                for x in list { arr.append(CloudDriveItem(x)) }
-            }
-            drives = arr
+            drives = SettingsLoad.list(d, key: "drives", make: CloudDriveItem.init)
         } catch {
             errMsg = "加载失败：\(error.localizedDescription)"
         }

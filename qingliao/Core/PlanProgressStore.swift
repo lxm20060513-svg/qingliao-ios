@@ -41,12 +41,6 @@ struct PlanProgressStore: @unchecked Sendable {
         defaults.set(arr, forKey: key(fp))
     }
 
-    /// 下一个未完成步骤下标（无则 nil = 全部完成）
-    func nextPendingIndex(stepCount: Int, fp: UInt64) -> Int? {
-        let done = completedIndexes(for: fp)
-        return (0..<stepCount).first { !done.contains($0) }
-    }
-
     /// 进度文案：已勾选 n / 共 m 步
     static func progressText(done: Int, total: Int) -> String {
         "已完成 \(done)/\(total) 步"

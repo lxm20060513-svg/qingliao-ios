@@ -306,7 +306,6 @@ struct DockerImage: Identifiable {
     let id: String
     let size: String
     let inUse: Bool   // v2.0.86n：被容器使用（绿点）/ 空镜像（红点）
-    var idStr: String { id }
 }
 
 extension DockerSheet {

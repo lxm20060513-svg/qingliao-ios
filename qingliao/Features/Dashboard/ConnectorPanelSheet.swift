@@ -43,7 +43,9 @@ struct ConnectorPanelSheet: View {
                 .padding(.vertical, Spacing.md)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .background(easedBackground)
+            // v3.9.23 决策：弹窗背景一律不覆盖，让系统默认玻璃生效。
+            // 原来这里挂了 .background(easedBackground) → Color(.systemGroupedBackground) 实色底，
+            // 把「连接器」弹窗变成实色页、与其它半屏玻璃弹窗不统一。v4.0.x 移除（连带 easedBackground 属性）。
             .navigationTitle("连接器")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -133,9 +135,9 @@ struct ConnectorPanelSheet: View {
             .padding(.top, Spacing.sm)
     }
 
-    private var easedBackground: some View {
-        Color(.systemGroupedBackground).ignoresSafeArea()
-    }
+    // v3.9.23 决策：背景不覆盖，让系统默认玻璃生效。
+    // v4.0.x 移除了 easedBackground（Color(.systemGroupedBackground).ignoresSafeArea()）——
+    // 它是 sheet 根视图上的实色底，正是「弹窗风格不统一」的成因之一。
 
     // MARK: - 数据（复用 /api/mcp/servers，与 MCPSettingsSheet 同一接口）
     private func loadMCP() async {

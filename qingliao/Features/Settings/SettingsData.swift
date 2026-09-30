@@ -850,7 +850,7 @@ struct HistorySheet: View {
 
     private func load() async {
         if let j = try? await auth.json("/api/history") {
-            items = (j["history"] as? [[String: Any]] ?? []).map { HistoryItem($0) }
+            items = SettingsLoad.list(j, key: "history", make: HistoryItem.init)
         }
         loaded = true
     }

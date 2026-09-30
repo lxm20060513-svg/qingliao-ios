@@ -31,9 +31,6 @@ final class SafariRelay: NSObject {
     /// 上下文提供方（iOS 13+ ASWAS 必需）
     private let contextProvider = RelayContextProvider()
 
-    /// 总超时（含 sheet 弹出 + 服务器执行 + 302 回跳）
-    private let relayTimeout: TimeInterval = 45
-
     // MARK: - 公开 API
 
     /// CFStream 直连任意请求（GET/POST，带 query/body）——纯 socket 层，蜂窝下也走这条路径

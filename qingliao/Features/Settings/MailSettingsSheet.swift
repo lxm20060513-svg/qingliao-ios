@@ -228,15 +228,12 @@ struct MailSettingsSheet: View {
         defer { loading = false }
         do {
             let d = try await auth.json("/api/mail/accounts")
+            // mail_api 的响应约定：异常包在 200 里 → 必须查 ok（真值表 ql_mail 钉的就是这一行）
             guard let ok = d["ok"] as? Bool, ok else {
                 errMsg = "加载失败"
                 return
             }
-            var arr: [MailAccountItem] = []
-            if let list = d["accounts"] as? [[String: Any]] {
-                for x in list { arr.append(MailAccountItem(x)) }
-            }
-            accounts = arr
+            accounts = SettingsLoad.list(d, key: "accounts", make: MailAccountItem.init)
         } catch {
             errMsg = "加载失败：\(error.localizedDescription)"
         }

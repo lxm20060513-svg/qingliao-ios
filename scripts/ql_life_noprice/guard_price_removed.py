@@ -23,6 +23,20 @@ FILES = {
     "Features/Dashboard/LifeCardsSection.swift": "qingliao/Features/Dashboard/LifeCardsSection.swift",
 }
 
+# 🚨 v4.0.x 工程瘦身（2026-09-30）：SettingsLifeCards.swift 被拆分，新文件默认**不在**上面的
+# FILES 里 → 第 1 段「文件存在且可读」不检查它、第 2 段「已删干净」也不查它 → 被移除的
+# 价格监控代码只要整块搬进新文件，本护栏**照样全绿**。这是「负向断言因搬运而静默失效」
+# 的典型：绿灯反而是坑（同类坑已在 DashboardView/SettingsModels 拆分时核实过）。
+#
+# 修法 = 把 GONE 断言改成**全目录扫描**：Settings 目录下任何 .swift 都不得再出现这些符号。
+# 只要有人把价格监控代码搬进任何一个新文件，第 2 段立刻见红。
+GONE_SCOPE_DIRS = {
+    # key 沿用 FILES 的键名，仅用于报告；扫描范围是该目录下全部 .swift
+    "Features/Settings/SettingsLifeCards.swift": "qingliao/Features/Settings",
+    "Features/Dashboard/LifeExpressPriceCards.swift": "qingliao/Features/Dashboard",
+    "Features/Dashboard/LifeCardsSection.swift": "qingliao/Features/Dashboard",
+}
+
 # 每个文件里「必须已经完全不存在」的符号
 GONE = {
     "Core/LifeConfig.swift": ["LifePrice", "LifePriceItem", "LifePriceSource", "价格监控", '"price"'],
@@ -68,6 +82,20 @@ for k, rel in FILES.items():
     if ok:
         src[k] = open(p, encoding="utf-8").read()
 
+# 1.5 扫描范围内的全部 .swift（含拆分产生的新文件）—— 见 GONE_SCOPE_DIRS 注释
+scope_src = {}   # rel_path -> 源码
+for _k, _d in GONE_SCOPE_DIRS.items():
+    _abs = os.path.join(ROOT, _d)
+    if not os.path.isdir(_abs):
+        continue
+    for _f in sorted(os.listdir(_abs)):
+        if not _f.endswith(".swift"):
+            continue
+        _rel = os.path.join(_d, _f)
+        scope_src[_rel] = open(os.path.join(_abs, _f), encoding="utf-8").read()
+ck("扫描范围内有 .swift 可读（拆分新文件也会被扫到）", len(scope_src) > 0,
+   "scanned=%d" % len(scope_src))
+
 print("== 2. 已删干净（每个符号必须 0 命中）")
 for k, syms in GONE.items():
     s = src.get(k)
@@ -76,6 +104,18 @@ for k, syms in GONE.items():
     for sym in syms:
         n = s.count(sym)
         ck("%s 无 %r" % (k.split("/")[-1], sym), n == 0, "count=%d" % n)
+
+print("== 2.5 全目录扫描：被移除的符号不得出现在任何拆分新文件里")
+# 关键：范围 = 该 GONE 键所在目录下的**每一个** .swift（含不在 FILES 里的新文件）
+for k, syms in GONE.items():
+    scope_dir = GONE_SCOPE_DIRS.get(k)
+    if not scope_dir:
+        continue
+    for sym in syms:
+        bad = [rel for rel, s in scope_src.items()
+               if rel.startswith(scope_dir + os.sep) and sym in s]
+        ck("%s/ 全目录无 %r" % (scope_dir.split("/")[-1], sym), not bad,
+           ("命中: " + ", ".join(os.path.basename(b) for b in bad)) if bad else "")
 
 print("== 3. 未误伤（保留物必须还在）")
 for k, syms in KEEP.items():

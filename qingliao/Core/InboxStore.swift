@@ -54,6 +54,28 @@ final class InboxStore {
         consumedOrder = saved.isEmpty ? saved : Array(consumedIds).sorted()
     }
 
+    /// v4.0.x：把一条主动 Agent 消息落进固定主动会话「轻聊主动」。
+    ///
+    /// 🚫 刻意**不**用 `chat.loadById(...)` 来"切到那个会话再 append" ——
+    /// `load()` 会整体替换 ChatStore 的 messages/sessionId，用户正看着的对话会被当场清空。
+    /// 注入必须对当前内存态**无感**。
+    ///
+    /// 落库职责在**后端**，不在这里：`inbox_api.push(task_type="agent")` 已经调用
+    /// `sessions_api.append_proactive_message()` 把这条消息写进「轻聊主动」了
+    /// （本轮 v4.0.x 给后端加的分支，已实测落库成功）。App 侧只负责**让气泡可见**：
+    ///   ① 用户此刻正停在「轻聊主动」里 → 直接 append（气泡实时出现）；
+    ///   ② 停在别的会话（常见）→ 什么都不做，**绝不碰 ChatStore 内存态**。
+    ///      用户切过去时 `loadById` 从 NAS 读到的就是后端已落库的那条。
+    ///
+    /// ⚠️ 这里刻意**不做** App 侧写库：App 对 /api/sessions 的唯一写入口是 merge（全量上传），
+    /// 拿它追加一条就得先拉全量再整体覆盖，既多余又有把「用户回复」被空数组冲掉的风险
+    /// （投递壳 v3.9.72 踩过，后端为此单独维护 _CLIENT_WINS_IDS）。
+    private func injectToProactiveSession(_ msg: ChatMessage) {
+        guard let chat, chat.sessionId == ChatStore.proactiveSessionId else { return }
+        chat.append(msg)
+        lastInjectedCount += 1
+    }
+
     private func consume(_ id: String) {
         guard !consumedIds.contains(id) else { return }
         consumedIds.insert(id)
@@ -263,22 +285,29 @@ final class InboxStore {
             return
         }
         // v4.0.11：主动 Agent 消息（后端 proactive_agent 投的 task_type=agent）→
-        // 注入当前会话成**可回复的普通气泡**（不是任务中心卡片）。
-        // 口径与 reply 一致但两处刻意不同：
+        // 注入**固定主动会话**「轻聊主动」成**可回复的普通气泡**（不是任务中心卡片）。
+        //
+        // 🚨 v4.0.x 修（用户实测：「主动消息串进正常会话」）：原先这里 `chat.append(amsg)`
+        // 注入的是**当前会话** —— 用户当时开着哪个会话，主动消息就落进哪个，
+        // 于是「AI 主动开口」被塞进用户正在聊的正事里。现在改为注入
+        // ChatStore.proactiveSessionId 那个固定会话：不可删、标题锁定、内容以 NAS 为准。
+        // 口径与 reply 一致但三处刻意不同：
         //   ① 不走 reply 去重（InboxDedup 是给「AI 回复双投」用的；主动消息与 AI 回复
         //      是两套不同来源，共用双向包含判据会把「你刚问的和你刚被主动提醒的
         //      话题相近」误判成重复 → 主动消息被吞。主动消息带 proactiveId 天然唯一）。
         //   ② 弹通知标题写「轻聊 · 主动」而非「轻聊 · 推送」——用户能一眼分清
         //      这是 AI 主动开口，不是自己发问的回复。
+        //   ③ 注入目标固定 → 即使用户正停在别的会话，主动消息也只会进「轻聊主动」，
+        //      不会打断当前对话（这正是本次要修的核心）。
         // isPush=true：留在会话展示但 historyPayload 会滤掉它 → 不进模型上下文。
         if taskType == "agent" {
             var amsg = ChatMessage(role: "assistant", content: text,
                                    timestamp: Date().timeIntervalSince1970 * 1000)
             amsg.isPush = true
             amsg.proactiveId = sourceTaskId?.isEmpty == false ? sourceTaskId : id
-            chat.append(amsg)
-            lastInjectedCount += 1
-            NotificationHelper.notify(title: "轻聊 · 主动", body: text, sessionId: chat.sessionId)
+            injectToProactiveSession(amsg)
+            NotificationHelper.notify(title: "轻聊 · 主动", body: text,
+                                      sessionId: ChatStore.proactiveSessionId)
             await markDone(id, auth: auth)
             return
         }

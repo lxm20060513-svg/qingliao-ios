@@ -1,7 +1,7 @@
 // 一句话记账（聊天页入口 · 口径 1a）真值表 —— Linux 本地预检用，纯 Foundation，无 UI 依赖
 //
-// 编译运行（在仓库根目录，工具链路径见 check_swift.sh）：
-//   ./scripts/check_chat_record.sh
+// 编译运行（在仓库根目录，权威入口是 check_swift.sh 第 28 段）：
+//   ./check_swift.sh
 // 等价于：
 //   $SWIFT/swiftc -swift-version 6 -o /tmp/test_chat_record /tmp/ql_chat_record_main/main.swift \
 //       qingliao/Core/ChatRecordKit.swift qingliao/Core/IntentPipeline.swift \

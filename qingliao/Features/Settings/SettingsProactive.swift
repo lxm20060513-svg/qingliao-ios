@@ -38,7 +38,9 @@ struct ProactiveAgentSheet: View {
                 .padding(.horizontal, Spacing.xl)
                 .padding(.vertical, Spacing.xl)
             }
-            .background(Color(uiColor: .systemGroupedBackground))
+            // v3.9.23 决策：弹窗背景一律不覆盖，让系统默认玻璃生效（勿再挂实色底）。
+            // 原来这里挂了一行 systemGroupedBackground 实色底，正是它把主动 Agent 弹窗
+            // 变成实色页、与其它半屏玻璃弹窗不统一。已在 v4.0.x 移除。
             .scrollContentBackground(.hidden)
             .navigationTitle("主动 Agent")
             .navigationBarTitleDisplayMode(.inline)

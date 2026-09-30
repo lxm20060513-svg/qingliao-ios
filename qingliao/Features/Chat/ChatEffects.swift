@@ -144,7 +144,7 @@ struct SiriBallView: View {
     private static let dockOrbitOpts = OrbOpts(orbitN: 10, ghostN: 34, ghostR: 1.7, ghostA: 0.85,
                                                particles: 4, partR: 2.6, partRDepth: 3.2,
                                                rsPow: 0.6, rMin: 0.9)
-    /// dock 小尺寸 ring（空闲呼吸）：环点数与 ring64 一致，半径按 ≈1.8 倍放大保证可见
+    /// dock 小尺寸 ring（空闲呼吸）：环点数沿用大球 150 粒，半径按 ≈1.8 倍放大保证可见
     private static let dockRingOpts = OrbOpts(ghostN: 150, ghostR: 1.7, ghostA: 0.5,
                                               lanes: 5, segs: 88, faceOn: 1,
                                               rBase: 2.0, rDepth: 3.2,

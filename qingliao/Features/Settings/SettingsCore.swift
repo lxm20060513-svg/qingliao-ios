@@ -240,7 +240,7 @@ struct SettingsView: View {
                 .presentationDetents([.large])
                 .scrollContentBackground(.hidden)
         }
-        // v3.5.x：生活卡片设置页（股票 / 资讯 / 快递 / 价格监控）
+        // v3.5.x：生活卡片设置页（股票 / 资讯 / 快递）
         .sheet(isPresented: $showLifeCards) {
             LifeCardsSettingsView()
                 .presentationDetents([.medium, .large])
@@ -260,7 +260,8 @@ struct SettingsView: View {
         // v4.0.11：主动 Agent（后端 proactive_agent 的唯一 UI 面）
         .sheet(isPresented: $showProactive) {
             ProactiveAgentSheet()
-                .presentationDetents([.large])
+                // v4.0.x：原为 [.large]（锁死全屏），与全站半屏弹窗不一致 → 统一为 [.medium, .large]
+                .presentationDetents([.medium, .large])
                 .scrollContentBackground(.hidden)
         }
         // v2.0.105：Agent 关键词管理

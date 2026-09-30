@@ -44,10 +44,7 @@ final class RecordStore {
     }
 
     private var filePath: String {
-        let base = storagePath.isEmpty
-            ? "/volume1/docker/hermes/微信文件/轻聊web/data"
-            : storagePath
-        return "\(base)/\(fileName)"
+        SyncedStore.remotePath(storagePath: storagePath, fileName: fileName)
     }
 
     private init() {
@@ -131,33 +128,30 @@ final class RecordStore {
 
     // MARK: - 持久化
 
-    /// v4.0.x：NAS 写库串行链（照 ChatStore.saveWriteChain）——**这条是撤销能不能真生效的前提**。
+    /// v4.0.x：NAS 写库串行链——**这条是撤销能不能真生效的前提**。
     /// 原来每次 save 都各起一个 `Task.detached` 并发 pin_write 同一 path：「记账(A)」与「撤销(B=A-1)」
     /// 谁后到 NAS 不保证，慢的旧快照 A 后到 = 已撤销的记录在远端复活，下次 loadFromServer 又并集拉回来。
+    /// 排队形态见 Core/SyncedStore.swift 的「FIFO 写链」段（5 仓同一份修法）。
     private var writeChain: Task<Void, Never> = Task {}
 
     private func save() {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        guard let data = try? encoder.encode(records) else { return }
+        // 编解码策略（.iso8601）由 SyncedStore 统一持有，两端天然对齐
+        guard let data = SyncedStore.encode(records) else { return }
         UserDefaults.standard.set(data, forKey: defaultsKey)
 
         let path = filePath
-        // 坑 2：先绑局部强引用再进 detached
+        // 坑 2：先绑局部强引用再进写链
         let authForWrite = auth
         let prev = writeChain
         writeChain = Task {
             await prev.value                                  // FIFO：等前一次写完再写本次快照
-            await Self.writeToFile(auth: authForWrite, path: path, data: data)
+            await SyncedStore.writeToFile(auth: authForWrite, path: path, data: data)
         }
     }
 
     private func loadLocal() {
         // 解码策略必须与 save() 的 .iso8601 对齐（不对齐 = 本地兜底恒空）
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        if let data = UserDefaults.standard.data(forKey: defaultsKey),
-           let decoded = try? decoder.decode([RecordItem].self, from: data) {
+        if let decoded = SyncedStore.readLocal([RecordItem].self, defaultsKey: defaultsKey) {
             records = decoded
         }
         // 本地已不存在的 id 不该还留着墓碑（那说明它又被别处加回来了）
@@ -166,14 +160,7 @@ final class RecordStore {
     }
 
     func loadFromServer() async {
-        guard let auth else { return }
-        guard let path = filePath.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-              let j = try? await auth.json("/api/files/pin_read?path=\(path)"),
-              let b64 = j["data"] as? String,
-              let data = Data(base64Encoded: b64) else { return }
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        guard let remote = try? decoder.decode([RecordItem].self, from: data) else { return }
+        guard let remote = await SyncedStore.readRemote([RecordItem].self, auth: auth, path: filePath) else { return }
 
         // 🚨 v4.0.x：远端已确认没有的墓碑摘掉（删除终于被远端接受了），墓碑不会无限堆积
         let remoteIDs = Set(remote.map(\.id))
@@ -204,11 +191,5 @@ final class RecordStore {
         }
         records = merged
         if changed { save() }
-    }
-
-    private static func writeToFile(auth: AuthStore?, path: String, data: Data) async {
-        guard let auth else { return }
-        let body: [String: Any] = ["path": path, "data": data.base64EncodedString()]
-        _ = try? await auth.json("/api/files/pin_write", method: "POST", body: body)
     }
 }

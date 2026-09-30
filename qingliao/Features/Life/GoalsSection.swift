@@ -63,79 +63,54 @@ struct GoalsSection: View {
         )
     }
 
-    @ViewBuilder
+    /// 删除确认框本体已收进 LifeDeleteConfirm（工作线 B：待办/记录/备忘弹窗内那份同款）
     private func deleteConfirm<V: View>(on view: V) -> some View {
-        view.alert("删除这个目标？", isPresented: Binding(
-            get: { pendingDelete != nil },
-            set: { if !$0 { pendingDelete = nil } }
-        )) {
-            Button("删除", role: .destructive) {
-                if let g = pendingDelete {
-                    store.remove(g.id)
-                    // 🚨 同步删后端目标 —— 后端会连带删掉它的 cron job，
-                    //    否则明天早上还会推一个用户已经删掉的目标。
-                    Task { await store.deleteOnBackend(goalID: g.id) }
-                }
-                pendingDelete = nil
-            }
-            Button("取消", role: .cancel) { pendingDelete = nil }
-        } message: {
-            Text(pendingDelete?.title.prefix(40).description ?? "")
-        }
+        view.modifier(LifeDeleteConfirm(
+            title: "删除这个目标？",
+            pending: pendingDelete,
+            onCancel: { pendingDelete = nil },
+            onDelete: { g in
+                store.remove(g.id)
+                // 🚨 同步删后端目标 —— 后端会连带删掉它的 cron job，
+                //    否则明天早上还会推一个用户已经删掉的目标。
+                Task { await store.deleteOnBackend(goalID: g.id) }
+            },
+            message: { $0.title.prefix(40).description }
+        ))
     }
 
     // MARK: 页级标题行
 
+    /// 外壳已收进 LifeSectionHeader（工作线 B：备忘/待办/记录三份同款）
     private var pageHeader: some View {
-        HStack(spacing: 8) {
-            Text("长期目标")
-                .font(.system(size: Typography.body, weight: .bold))
-            if !store.goals.isEmpty {
-                let n = store.activeCount
-                Text(n > 0 ? "\(n) 个进行中" : "全部完成")
-                    .font(.system(size: Typography.subhead))
-                    .foregroundStyle(.secondary)
-            }
-            Spacer(minLength: 0)
-            Button {
-                draft = ""
-                showAdd = true
-            } label: {
-                Text("添加").pill(.page)
-            }
-            .buttonStyle(PressStyle())
-            .accessibilityLabel("添加长期目标")
-        }
-        .padding(.top, Spacing.sm)
+        LifeSectionHeader(
+            title: "长期目标",
+            subtitle: store.goals.isEmpty ? nil : activeSubtitle,
+            subtitleLineLimit: nil,
+            addAccessibilityLabel: "添加长期目标",
+            onAdd: startAdd
+        )
+    }
+
+    private var activeSubtitle: String {
+        let n = store.activeCount
+        return n > 0 ? "\(n) 个进行中" : "全部完成"
     }
 
     /// 空态引导卡（与待办空态同几何：16 圆角 + 83pt 高）
     private var emptyTap: some View {
-        Button {
-            draft = ""
-            showAdd = true
-        } label: {
-            HStack(spacing: Spacing.md) {
-                Image(systemName: "target")
-                    .font(.system(size: Typography.body))
-                    .foregroundStyle(Color.accentColor.opacity(0.9))
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("有个想长期推进的事")
-                        .font(.system(size: Typography.body))
-                        .foregroundStyle(.primary)
-                    Text("跟 AI 说「我在筹备 XX」，它会拆成步骤并每天推你一步")
-                        .font(.system(size: Typography.caption))
-                        .foregroundStyle(.tertiary)
-                        .lineLimit(1)
-                }
-                Spacer(minLength: 0)
-            }
-            .padding(Spacing.xl)
-            .frame(maxWidth: .infinity, minHeight: MemoCardMetrics.minHeight, alignment: .leading)
-            .dashboardCard()
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(PressStyle())
+        LifeEmptyStateCard(
+            icon: "target",
+            title: "有个想长期推进的事",
+            subtitle: "跟 AI 说「我在筹备 XX」，它会拆成步骤并每天推你一步",
+            onTap: startAdd
+        )
+    }
+
+    /// 页级标题行与空态引导卡共用这一个入口
+    private func startAdd() {
+        draft = ""
+        showAdd = true
     }
 
     // MARK: 页面单卡（显示最上的一个 = 未完成优先、最新在前）

@@ -72,8 +72,6 @@ enum HomeShortcutStore {
 
     static func isOn(_ id: Int) -> Bool { ids.contains(id) }
 
-    static var selectedCount: Int { ids.count }
-
     /// 勾选 / 取消。勾满 4 个后再勾新的：**不动已选项、直接忽略**（设置页把未选项置灰并说明），
     /// 比「悄悄顶掉最早那个」可预期 —— 用户看不到自己哪一项被换掉了会当成 bug。
     @discardableResult
