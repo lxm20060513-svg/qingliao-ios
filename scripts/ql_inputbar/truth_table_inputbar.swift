@@ -506,5 +506,36 @@ check("光晕直径跟圆点缩放走（否则最大声时点被放大、环反�
 check("「减弱动态效果」退静态红点（与 v3.9.19 同口径，「正在听」的信息不丢）",
       levelDotSlice.contains("if reduceMotion {"))
 
+// ── v4.0.10 发送锁 / 幂等闸门（「发出去不上屏」根因护栏） ─────────────
+// 实报：v4.0.9 上「输入内容点发送没反应，消息不上屏，后端零请求」。
+// 根因：发送锁只在流收尾回调里解锁；「新建会话」把在跑的流移交给 BackgroundStreamRunner 时走
+// StreamClient.detachLocally()（刻意把 onFinished 置 nil，落库归 runner）→ 回调永不执行 →
+// 锁永久为真 → 此后 sendCore 第一道 guard 静默 return（输入框已清空，用户看到「发出去不上屏」）。
+// 护栏钉三件事：锁必须有窗口上限 + 移交路径显式解锁 + 幂等只对自动路径生效。
+let sendCoreSlice: String = {
+    guard let a = chatViewSrc.range(of: "func sendCore(") else { return "" }
+    return String(chatViewSrc[a.lowerBound...])
+}()
+check("sendCore 源切片非空", sendCoreSlice.count > 100)
+check("🚨 发送锁不许写成无窗口硬锁（`guard !sendingLock` 必须清零）",
+      !sendCoreSlice.contains("guard !sendingLock"))
+check("发送锁判定带窗口上限（sendingLockAt 差值 < 0.8）",
+      sendCoreSlice.contains("if sendingLock {") && sendCoreSlice.contains("now - sendingLockAt < 0.8"))
+check("锁超窗必须自动解锁（泄漏后能自愈，不许等回调）",
+      sendCoreSlice.contains("发送锁超窗自动解锁"))
+check("上锁时同步记置位时刻（sendingLockAt = now）", sendCoreSlice.contains("sendingLockAt = now"))
+check("两条静默吞路径都留取证日志（双击拦截 / 幂等丢弃）",
+      sendCoreSlice.contains("[SEND] 双击拦截") && sendCoreSlice.contains("[SEND] 幂等丢弃"))
+check("🚨 幂等闸门必须放行「用户亲手发送」（条件带 !allowExpense）",
+      sendCoreSlice.contains("now - last.ts < 60, !allowExpense {"))
+check("移交后台跑流器后显式解锁（detachLocally 之后 sendingLock = false）",
+      {
+          guard let a = chatViewSrc.range(of: "stream.detachLocally()") else { return false }
+          let after = String(chatViewSrc[a.upperBound...].prefix(400))
+          return after.contains("sendingLock = false")
+      }())
+check("收尾回调里的解锁仍在（两条解锁路径并存，防误删）",
+      chatViewSrc.contains("sendingLock = false   // 无论结果，先释放发送锁"))
+
 print("输入栏两层化真值表：\(passCount) 通过 / \(failCount) 失败")
 if failCount > 0 { exit(1) }

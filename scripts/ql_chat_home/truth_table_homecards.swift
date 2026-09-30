@@ -1,6 +1,6 @@
 import Foundation
 
-// MARK: - v4.0.9 聊天首页「方块卡片」真值表
+// MARK: - v4.0.10 聊天首页「方块卡片」真值表
 //
 // 被测真源 = `qingliao/Core/HomeCardOrder.swift`（纯 Foundation，无 SwiftUI）。
 // 本表**直接编译那份源码**（不是镜像），所以没有「表与实现漂移」这个洞：
@@ -17,9 +17,22 @@ import Foundation
 //   ⑥ 单一真源：UserDefaults 键字面量全仓只有 HomeCardOrder.swift 一处；
 //   ⑦ UI 不自算几何：拖拽走 HomeCardOrder.dragTarget、写回走 HomeCardOrder.mergeVisible；
 //   ⑧ 接入形态：ChatView 的 welcomeView 里挂 homeCardsGrid（键盘弹起同档收起）；
-//   ⑨ 胶囊口径：首页「自定义」胶囊走全站 chatHeaderPill()，不许再手写 ultraThinMaterial 胶囊；
+//   ⑨ 胶囊口径：首页「自定义」胶囊走**栏目头档** sectionHeaderPill()（v4.0.10 起，比聊天页顶栏那档
+//      矮 4pt），不许再手写 ultraThinMaterial 胶囊；聊天页顶栏那档 chatHeaderPill() 不许跟着变矮；
 //   ⑩ v4.0.9（用户拍板）：**空槽位可关**（旧实现无条件补回 = 关不掉的真根因）、页脚那条
-//      「继续上次」长条卡**已删除**（resumeRow 零残留，用途由首页「继续上次会话」方块卡承担）。
+//      「继续上次」长条卡**已删除**（resumeRow 零残留，用途由首页「继续上次会话」方块卡承担）；
+//   ⑪ v4.0.10 真机两条坏形（用户配图 + 手报）：**卡高恒定**（agentTip 副标题折两行 → 内容 ~94pt
+//      顶在 84pt 槽位、ZStack 居中溢出 → 真机「这张卡大小不一样」；像素量 283px vs 同排 254px）
+//      ＋ **长按拖动真能成立**（卡片是 Button，内置手势拦住挂父级的长按 → 拖不动；
+//      改 simultaneousGesture，并用 suppressTapUntil 挡掉松手后的误触轻点）
+//      ＋ **慢点击不许被吞**（二修：门闩只在**真位移 ≥ 6pt** 时上 —— 按住不动再松手 = 轻点照常执行；
+//      长按门槛 0.28 → 0.40s）
+//      ＋ **栏目头「自定义」胶囊变矮**（原先借聊天页顶栏档 27pt，在 11pt 栏目头旁又高又重 →
+//      新档 15 + 2×Spacing.xs = 23pt；只压高度，字号/横内距/描边不动）。
+//   ⑫ v4.0.10（用户要求「在设置里增加可以关掉首页快捷卡片功能」）：总开关 `HomeCardStore.enabledKey`
+//      —— **键缺失 = 开**（老用户行为不变，别用 bool(forKey:)）、默认值走 `enabledDefault` 单一真源、
+//      关掉 = **整块不渲染且不留空占位**（留占位等于关不掉）、设置页那一行必须恒在
+//      （首页关了就没别的入口可点了，否则只能删 App 重装才能开回来）。
 
 // Swift 6 严格并发：main.swift 顶层代码是 @MainActor 隔离的，而顶层变量不能挂 global actor
 // → 计数器用 nonisolated(unsafe)（单线程顺序跑，无并发访问），这样 check 从顶层调用得通
@@ -39,16 +52,27 @@ func stripCommentLines(_ s: String) -> String {
 }
 /// 去掉全部空白 —— 顺序/相邻类断言不受缩进漂移影响
 func flat(_ s: String) -> String { s.filter { !$0.isWhitespace } }
+/// 取 `func xxx` 到函数体收尾（4 空格缩进的 `}`）之间的源码。
+/// 用途：口径类断言必须**只看这个函数体**——「同名 token 在文件别处出现过就算过」是假绿。
+func fnBody(_ sig: String, _ s: String) -> String {
+    guard let r = s.range(of: sig) else { return "" }
+    let rest = s[r.lowerBound...]
+    guard let e = rest.range(of: "\n    }") else { return String(rest) }
+    return String(rest[rest.startIndex..<e.lowerBound])
+}
 
 let coreSrc = src("qingliao/Core/HomeCardOrder.swift")
 let cards = src("qingliao/Features/HomeCards.swift")
 let chat = src("qingliao/Features/Chat/ChatView.swift")
 let gate = src("check_swift.sh")
+let pill = src("qingliao/Theme/Pill.swift")
+let settings = src("qingliao/Features/Settings/SettingsCore.swift")
 
 check("HomeCardOrder.swift 源可读", !coreSrc.isEmpty)
 check("HomeCards.swift 源可读", !cards.isEmpty)
 check("ChatView.swift 源可读", !chat.isEmpty)
 check("check_swift.sh 源可读", !gate.isEmpty)
+check("Pill.swift 源可读（栏目头/聊天页头两档口径都在它里面）", !pill.isEmpty)
 
 // ── ① 目录与默认档 ─────────────────────────────────────────────
 check("卡片种类 7 类（mail/resume/todo/weather/expense/agentTip/custom）",
@@ -230,7 +254,7 @@ check("🚨 空槽位关掉 → 不再被无条件补回（旧实现 `kinds` 末
       HomeCardStore.off == [.custom]
         && HomeCardStore.kinds == HomeCardKind.catalogOrder.filter { $0 != .custom })
 check("空槽位关掉后仍有「添加卡片」入口：页头「自定义」胶囊恒在（不失联）",
-      flat(stripCommentLines(cards)).contains(".chatHeaderPill()")
+      flat(stripCommentLines(cards)).contains(".sectionHeaderPill()")
         && flat(stripCommentLines(cards)).contains("HomeCardEditorSheet(off:$off)"))
 
 if let keepOrder { ud.set(keepOrder, forKey: HomeCardStore.orderKey) }
@@ -255,8 +279,31 @@ check("卡片区不自造路由：HomeCards 不出现 QingliaoRouteHandoff（通
       !flat(stripCommentLines(cards)).contains("QingliaoRouteHandoff"))
 check("agent 卡空 prompt 兜底：idle 取建议池首项（点得快也不会发空消息）",
       flat(stripCommentLines(cards)).contains("prompt:pool[0].prompt"))
-check("「自定义」胶囊走全站口径 chatHeaderPill()",
-      flat(stripCommentLines(cards)).contains(".chatHeaderPill()"))
+check("「自定义」胶囊走栏目头档 sectionHeaderPill()（不再是聊天页顶栏那一档）",
+      flat(stripCommentLines(cards)).contains(".sectionHeaderPill()")
+        && !flat(stripCommentLines(cards)).contains(".chatHeaderPill()"))
+check("🚨 栏目头胶囊比聊天页头那档矮 4pt：vPad=Spacing.xs（15 + 2×4 = 23pt，旧档 15 + 2×6 = 27pt）",
+      {
+          let body = flat(stripCommentLines(fnBody("func sectionHeaderPill", pill)))
+          return body.contains(".padding(.vertical,Spacing.xs)")
+              && body.contains(".frame(height:15)")
+              && !body.contains(".padding(.vertical,Spacing.sm)")
+      }())
+check("未点名项保持原值：chatHeaderPill 仍 Spacing.sm（聊天页顶栏两枚不跟着变矮）",
+      {
+          let body = flat(stripCommentLines(fnBody("func chatHeaderPill", pill)))
+          return body.contains(".padding(.vertical,Spacing.sm)")
+              && body.contains(".frame(height:15)")
+      }())
+check("两档只差纵向内距：sectionHeaderPill 与 chatHeaderPill 的字号/横内距/玻璃/命中区同参",
+      {
+          let a = flat(stripCommentLines(fnBody("func sectionHeaderPill", pill)))
+          let b = flat(stripCommentLines(fnBody("func chatHeaderPill", pill)))
+          let same = [".font(.system(size:Typography.caption,weight:.semibold))",
+                      ".padding(.horizontal,Spacing.md)",
+                      ".glassPillStroke()", ".contentShape(Capsule())"]
+          return same.allSatisfy { a.contains($0) && b.contains($0) }
+      }())
 check("首页卡片不再手写 ultraThinMaterial 胶囊（散落材质在浅色下发灰）",
       !flat(stripCommentLines(cards)).contains(".ultraThinMaterial,in:Capsule()"))
 check("视图状态与读取路径同源：full = HomeCardStore.fullOrder、off = HomeCardStore.off（不许各自 parse）",
@@ -277,12 +324,100 @@ check("v4.0.9：页脚「继续上次」长条卡已删除（ChatView 里 resume
       !flat(stripCommentLines(chat)).contains("resumeRow"))
 check("ChatView 定义 homeCardsGrid 并在 welcomeView 里挂上",
       flat(stripCommentLines(chat)).contains("privatevarhomeCardsGrid:someView")
-        && flat(stripCommentLines(chat)).contains("if!kb.isVisible{homeCardsGrid}"))
+        && flat(stripCommentLines(chat)).contains("if!kb.isVisible&&homeCardsOn{homeCardsGrid}"))
+
+// ── ⑫ 总开关（v4.0.10 用户要求：设置里能关掉首页快捷卡片） ─────────────
+check("总开关键与默认值的单一真源（字面量只在 Core，默认值只有一个常量）",
+      HomeCardStore.enabledKey == "qingliao_home_card_enabled"
+        && HomeCardStore.enabledDefault == true)
+check("键字面量不外泄：HomeCards / ChatView / 设置页里不出现该字面量（都走 enabledKey）",
+      !flat(stripCommentLines(cards)).contains("qingliao_home_card_enabled")
+        && !flat(stripCommentLines(chat)).contains("qingliao_home_card_enabled")
+        && !flat(stripCommentLines(settings)).contains("qingliao_home_card_enabled"))
+check("设置页源可读（不然下面两条是假绿）", !flat(stripCommentLines(settings)).isEmpty)
+check("设置页有恒在的开关行（标题「首页快捷卡片」+ toggle 绑定）",
+      flat(stripCommentLines(settings)).contains("SettingRow(icon:\"rectangle.grid.2x2.fill\"")
+        && flat(stripCommentLines(settings)).contains("title:\"首页快捷卡片\",toggle:$homeCardsOn)"))
+check("设置页与聊天页绑同一个键、默认值都取 enabledDefault（不许各自写 true）",
+      flat(stripCommentLines(settings)).contains("@AppStorage(HomeCardStore.enabledKey)privatevarhomeCardsOn=HomeCardStore.enabledDefault")
+        && flat(stripCommentLines(chat)).contains("@AppStorage(HomeCardStore.enabledKey)privatevarhomeCardsOn=HomeCardStore.enabledDefault"))
+check("🚨 关掉 = 整块不渲染且不留空占位（homeCardsGrid 全仓只有「定义 + 那一处挂载」两处引用）",
+      flat(stripCommentLines(chat)).components(separatedBy: "homeCardsGrid").count - 1 == 2)
 check("执行通道注入齐全（resume/ask/life/weather 四条，组件不自造路由）",
       flat(stripCommentLines(chat)).contains("onResume:") && flat(stripCommentLines(chat)).contains("onAsk:")
         && flat(stripCommentLines(chat)).contains("onOpenLife:") && flat(stripCommentLines(chat)).contains("onOpenWeather:"))
 check("本表已挂进 check_swift.sh（护栏不自嗨）",
       flat(gate).contains("scripts/ql_chat_home/truth_table_homecards.swift"))
+
+// ── ⑪ v4.0.10 真机坏形：卡高恒定 + 长按拖动真成立 ────────────────
+// 用户配图报「第 4 张卡（agent 主动推荐）大小明显跟其他 3 张不一样」：
+// 记忆里第一条是 20+ 字的「AI 行为规则」→ 副标题折两行 → 内容 ~94pt 顶在 84pt 槽位里，
+// ZStack 居中溢出（像素量：该卡 283px vs 同排 254px @3x）。截断/筛选口径收进 HomeCardTipKit。
+check("记忆语境：规则型长条目（20+ 字）被拒 → nil（退回池内短句，不再折两行）",
+      HomeCardTipKit.memoryLine(entries: ["AI生成输出回复时不要回复已经回复过的内容"]) == nil)
+check("记忆语境：含换行的条目被拒（换行 = 折行 = 撑破卡高）",
+      HomeCardTipKit.memoryLine(entries: ["第一行\n第二行"]) == nil)
+check("记忆语境：空 / 纯空白条目跳过，取后面那条合规的",
+      HomeCardTipKit.memoryLine(entries: ["", "   ", "用户常用简称"]) == "用户常用简称")
+check("记忆语境：超 8 字截断加省略号（连同前缀仍是一行）",
+      HomeCardTipKit.memoryLine(entries: ["偏好简短回复不要客套"]) == "偏好简短回复不要…")
+check("记忆语境：整条 ≤ 8 字原样用",
+      HomeCardTipKit.memoryLine(entries: ["用户常住深圳"]) == "用户常住深圳")
+check("记忆语境：无合规条目 → nil（退回池内短句）；有 → 「记得：xxx」",
+      HomeCardTipKit.memoryLine(entries: []) == nil
+        && HomeCardTipKit.subtitle(memory: nil, pool: "看看钱花在哪") == "看看钱花在哪"
+        && HomeCardTipKit.subtitle(memory: "用户常住深圳", pool: "看看钱花在哪") == "记得：用户常住深圳")
+check("🚨 卡面副标题恒单行（lineLimit(1)、无 .fixedSize 竖直撑开）——双行会撑破 84pt 卡高",
+      flat(stripCommentLines(cards)).contains("Text(subtitle).font(.system(size:Typography.tiny)).foregroundStyle(.secondary).lineLimit(1)")
+        && !flat(stripCommentLines(cards)).contains("fixedSize(horizontal:false,vertical:true)"))
+check("🚨 长按拖动不被 Button 抢：卡上挂的是 simultaneousGesture（旧 .gesture 真机拖不动）",
+      flat(stripCommentLines(cards)).contains(".simultaneousGesture(dragGesture(index:index))"))
+check("拖完不吃轻点：tap 首行有 suppressTapUntil 门闩；onEnded 只在真拖动后上闩",
+      flat(stripCommentLines(cards)).contains("ifDate()<suppressTapUntil{return}")
+        && flat(stripCommentLines(cards)).contains(
+            "HomeCardDragKit.isRealDrag(dx:drag.translation.width,dy:drag.translation.height)else{return}suppressTapUntil=Date().addingTimeInterval(HomeCardDragKit.latchWindow)"))
+
+// ── ⑫ v4.0.10 二修（真机报「agent 主动推荐卡片点了没反应」）：慢点击不许被拖动吞 ──
+//    根因：轻点与长按拖动抢同一次按压；旧口径「长按一成立就上闩」→ 按住不动再松手 = 什么都不发生。
+check("拖动判定收在 HomeCardDragKit（纯逻辑可测，别散在视图里靠手感）",
+      HomeCardDragKit.moveThreshold == 6 && HomeCardDragKit.latchWindow == 0.8)
+check("长按门槛别再退回 0.28 秒（太短：慢点击被吃进拖动会话）",
+      HomeCardDragKit.longPressSeconds >= 0.35 && HomeCardDragKit.longPressSeconds <= 0.6
+        && !flat(stripCommentLines(cards)).contains("LongPressGesture(minimumDuration:0.28)"))
+check("长按手势取常量而不是字面量（门槛只有一处真源）",
+      flat(stripCommentLines(cards)).contains("LongPressGesture(minimumDuration:HomeCardDragKit.longPressSeconds)"))
+check("🚨 按住不动不算拖动：零位移/微小位移一律判 false（松手要当轻点）",
+      !HomeCardDragKit.isRealDrag(dx: 0, dy: 0)
+        && !HomeCardDragKit.isRealDrag(dx: 5.9, dy: 0)
+        && !HomeCardDragKit.isRealDrag(dx: 4, dy: 4)
+        && !HomeCardDragKit.isRealDrag(dx: -1, dy: 2))
+check("真拖动仍要判 true（阈值边界 + 各方向 + 负向）",
+      HomeCardDragKit.isRealDrag(dx: 6, dy: 0)
+        && HomeCardDragKit.isRealDrag(dx: 0, dy: -6)
+        && HomeCardDragKit.isRealDrag(dx: -12, dy: 3)
+        && HomeCardDragKit.isRealDrag(dx: 0, dy: 40))
+check("onChanged 上闩被真位移把住（不是「长按成立就上闩」）",
+      flat(stripCommentLines(cards)).contains(
+        "ifHomeCardDragKit.isRealDrag(dx:moved.width,dy:moved.height){suppressTapUntil=Date().addingTimeInterval(HomeCardDragKit.latchWindow)}"))
+check("🚨 全仓每一次上闩都排在 isRealDrag 判定之后（漏一处 = 慢点击又被吞）", { () -> Bool in
+    let src = flat(stripCommentLines(cards))
+    var idx = src.startIndex
+    var total = 0
+    while let r = src.range(of: "suppressTapUntil=Date()", range: idx..<src.endIndex) {
+        total += 1
+        let head = src[src.startIndex..<r.lowerBound]
+        let tailText = String(head.suffix(240))
+        guard tailText.contains("isRealDrag") else { return false }
+        idx = r.upperBound
+    }
+    return total >= 2   // onChanged 续窗 + onEnded 收尾，两处都必须有
+}())
+check("真拖动那条路没丢：换位调用排在门闩之后（先上闩再 dragTarget）", { () -> Bool in
+    let src = flat(stripCommentLines(cards))
+    guard let latch = src.range(of: "HomeCardDragKit.isRealDrag(dx:drag.translation.width"),
+          let target = src.range(of: "lettarget=HomeCardOrder.dragTarget(") else { return false }
+    return latch.lowerBound < target.lowerBound
+}())
 
 print(fail == 0 ? "✅ ql_chat_home 真值表 \(pass) 项全过" : "❌ 失败 \(fail) / 通过 \(pass)")
 if fail > 0 { exit(1) }

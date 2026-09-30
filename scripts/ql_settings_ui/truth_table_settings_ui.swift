@@ -179,5 +179,57 @@ check("🚨 设置页 body 直接平铺全部分组（account/connection/ai/data
 check("🚨 退出登录与各分组同页（不再藏进二级页）",
       slice(svSrc, "ScrollView {", "scrollPosition").contains("logoutButton"))
 
+// MARK: - v4.0.10 开关（Toggle）统一口径：尺寸一律系统原生、配色默认系统绿
+//   用户真机反馈：「设置里面桌面快捷方式弹窗的开关胶囊和系统的大小不一样，别的地方看哪里不一样
+//   的一起改过来」。成因：设置里 6 处挂了 .scaleEffect(0.8) 缩过版，而「桌面快捷方式」弹窗、
+//   首页卡片弹窗、登录页那些是系统原生 → 同一个 App 里两种开关大小；配色还混了 绿/蓝/橙。
+//   修法：全仓开关只走 Theme/SwitchStyle.swift 的 qingliaoSwitch()（尺寸/配色/标签三件事一处定）。
+let switchStyleCode = stripComments(src("qingliao/Theme/SwitchStyle.swift"))
+check("开关口径文件在位（Theme/SwitchStyle.swift）", !switchStyleCode.isEmpty)
+check("口径函数签名 = 唯一入口（默认隐藏标签 + 默认系统绿）",
+      switchStyleCode.contains("func qingliaoSwitch(hideLabel: Bool = true, color: Color = .green)"))
+check("口径内部：隐藏标签走 labelsHidden()、配色走 .tint(color)（标签条件化靠 @ViewBuilder）",
+      switchStyleCode.contains("labelsHidden()") && switchStyleCode.contains(".tint(color)"))
+check("🚨 口径本体不许出现 scaleEffect（缩一下就是用户报的「和设置里开关大小不一样」）",
+      !switchStyleCode.contains("scaleEffect"))
+
+/// 全仓扫开关：每个独立的 `Toggle(` 后面必须紧跟 qingliaoSwitch(，且不许自己叠加尺寸/配色修饰符
+func allSwiftFiles(_ dir: String) -> [String] {
+    guard let en = FileManager.default.enumerator(atPath: dir) else { return [] }
+    return en.compactMap { $0 as? String }.filter { $0.hasSuffix(".swift") }
+        .map { "\(dir)/\($0)" }.sorted()
+}
+/// 去注释 + 压缩空白：跨行修饰链（.onChange / 换行 .tint）归一化成一行，便于按"后 N 字符"断言
+func squashToggleCode(_ s: String) -> String {
+    stripComments(s).split(separator: "\n", omittingEmptySubsequences: false)
+        .map { String($0.filter { !$0.isWhitespace }) }.joined()
+}
+let appSwift = allSwiftFiles("qingliao")
+check("全仓 .swift 可枚举（\(appSwift.count) 个）", appSwift.count >= 40)
+var toggleTotal = 0, toggleStyled = 0, toggleScaled = 0, toggleManual = 0
+var toggleUnstyled: [String] = []
+for f in appSwift {
+    let code = squashToggleCode(src(f))
+    var idx = code.startIndex
+    while let r = code.range(of: "Toggle(", range: idx..<code.endIndex) {
+        idx = r.upperBound
+        // 只认独立 Toggle(：notifyToggle( / quirkToggle( 这类自造名不算开关
+        if let before = code[code.startIndex..<r.lowerBound].last,
+           before.isLetter || before.isNumber || before == "_" { continue }
+        toggleTotal += 1
+        let tail = String(code[r.upperBound...].prefix(300))
+        if tail.contains("qingliaoSwitch(") { toggleStyled += 1 } else { toggleUnstyled.append(f) }
+        if tail.contains("scaleEffect") { toggleScaled += 1 }
+        if tail.contains(".labelsHidden()") || tail.contains(".tint(") { toggleManual += 1 }
+    }
+}
+check("全仓扫到 \(toggleTotal) 处真开关（v4.0.10 开关口径收口时为 19 处）", toggleTotal >= 19)
+check("🚨 每一处开关都走 qingliaoSwitch()（没走的：\(toggleUnstyled.joined(separator: " / "))）",
+      toggleStyled == toggleTotal)
+check("🚨 全仓开关不许叠加 scaleEffect（缩过版 = 用户报的「和系统大小不一样」）",
+      toggleScaled == 0)
+check("🚨 开关调用点不许自己手写 .labelsHidden()/.tint()（口径必须单源，手写就会再漂）",
+      toggleManual == 0)
+
 print("设置页间距口径真值表：\(passCount) 通过 / \(failCount) 失败")
 if failCount > 0 { exit(1) }

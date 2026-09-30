@@ -545,7 +545,7 @@ struct LifeCardsSettingsView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: Spacing.md)
-            Toggle("", isOn: isOn).labelsHidden().scaleEffect(0.8).tint(.green)
+            Toggle("", isOn: isOn).qingliaoSwitch()
         }
         .padding(.horizontal, Spacing.xxl)
         .padding(.vertical, Spacing.lg)

@@ -5,6 +5,20 @@
 //  v4.0.8：聊天首页「方块卡片」组件（2 列等宽网格 + 长按拖拽排序 + 自定义开关）。
 //  版式 = 用户 2026-09-29 拍板的 B3 稿；纯逻辑全在 Core/HomeCardOrder.swift（那里有真值表）。
 //
+//  v4.0.10 真机两条坏形修正（用户配图 + 原话报修）：
+//   · **卡高恒定**：副标题恒单行（`lineLimit(1)`，且**禁** `.fixedSize(horizontal:false, vertical:true)`）。
+//     真机坏形：记忆里第一条是 20+ 字的「AI 行为规则」，旧写法前缀 16 字后折成两行 →
+//     内容 ~94pt 顶在 84pt 的槽位里，ZStack 居中溢出 → 看就是「第 4 张卡比同排那三张高一块」
+//     （像素量：该卡 283px vs 同排 254px @3x）。截断/筛选口径全在 HomeCardTipKit。
+//   · **长按拖动真成立**：卡片是 Button，`Button 内置手势会拦住挂在父级的长按`（本仓 v2.0.96b
+//     在发送键上踩过同一个坑）→ 长按永远不成立、拖不动。正解 = `.simultaneousGesture`，
+//     并让 `tap(_:)` 首行读 suppressTapUntil 挡掉松手后的误触轻点（拖动中还有描边 + 放大提示）。
+//   · **慢点击照样能点**（二修真机报「agent 主动推荐卡片点了没反应」）：门闩只在**真位移 ≥ 6pt**
+//     时上（`HomeCardDragKit.isRealDrag`）——「按住不动再松手」不算拖动，轻点照常执行。
+//   · **栏目头「自定义」胶囊变矮**：原先借用聊天页顶栏那档 `chatHeaderPill()`（15 + 2×6 = 27pt），
+//     摆在只有 11pt 文字的栏目头旁边又高又重（用户：「太大，矮一点」）→ 换 `sectionHeaderPill()`
+//     （15 + 2×4 = 23pt，只压高度，字号/横内距/描边/玻璃同参）。两档都在 Theme/Pill.swift，真值表两侧都钉。
+//
 //  四条口径，改前先读：
 //  1. **拖拽落位不自算**：位移 → 目标槽一律调 HomeCardOrder.dragTarget，UI 只负责量尺寸。
 //     2 列网格里「跨一行 = 2 格」，这层换算自算必错（真值表已钉死）。
@@ -150,13 +164,13 @@ struct HomeCardTip: Equatable {
     static func suggested(entries: [String], now: Date) -> HomeCardTip {
         let slot = Calendar.current.ordinality(of: .day, in: .era, for: now) ?? 0
         let base = pool[abs(slot) % pool.count]
-        var tip = HomeCardTip(title: base.title, subtitle: base.sub, prompt: base.prompt)
-        // 记忆里有明确偏好时，副标题带上它（「主动学习」的最小可见形态）
-        if let e = entries.first(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }) {
-            let short = e.count > 16 ? String(e.prefix(16)) + "…" : e
-            tip.subtitle = "记得：\(short)"
-        }
-        return tip
+        // 记忆里有「一行放得下的短条」时，副标题带上它（「主动学习」的最小可见形态）。
+        // ⚠️ v4.0.10：截断/筛选口径统一在 HomeCardTipKit —— 旧的前缀 16 字写法碰上
+        //    规则型长记忆会折成两行，把这张卡撑得比同排高 10pt（真机报「大小不一样」）。
+        let line = HomeCardTipKit.memoryLine(entries: entries)
+        return HomeCardTip(title: base.title,
+                           subtitle: HomeCardTipKit.subtitle(memory: line, pool: base.sub),
+                           prompt: base.prompt)
     }
 }
 
@@ -186,6 +200,9 @@ struct HomeCardsGrid: View {
     @State private var data = HomeCardData()
     @State private var dragFrom: Int?
     @State private var dragOffset: CGSize = .zero
+    /// v4.0.10：长按拖动成立后，Button 松手时仍会送一次「轻点」→ 用这个时间戳把它挡掉。
+    /// 没有它，用户拖完卡片会顺手跳进那个会话/生活页（拖一次跳一次，比拖不动更烦）。
+    @State private var suppressTapUntil: Date = .distantPast
     @State private var showEditor = false
     @State private var cellSize: CGSize = .zero
 
@@ -241,7 +258,7 @@ struct HomeCardsGrid: View {
                 showEditor = true
             } label: {
                 Text("自定义")
-                    .chatHeaderPill()
+                    .sectionHeaderPill()
             }
             .buttonStyle(PressStyle())
             .foregroundStyle(.secondary)
@@ -285,11 +302,20 @@ struct HomeCardsGrid: View {
         }
         .frame(maxWidth: .infinity)
         .frame(height: cardHeight)
+        // 拖动中有明确视觉信号（描边 + 放大 + 阴影）：用户报「长按没反应」时至少能看见手势已成立
+        .overlay(
+            RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
+                .strokeBorder(Color.accentColor.opacity(dragging ? 0.55 : 0), lineWidth: 2)
+        )
         .scaleEffect(dragging ? 1.04 : 1)
         .shadow(color: .black.opacity(dragging ? 0.18 : 0), radius: 12, y: 6)
         .zIndex(dragging ? 1 : 0)
         .offset(dragging ? dragOffset : .zero)
-        .gesture(dragGesture(index: index))
+        // ⚠️ v4.0.10 真机 bug：卡片是 Button（PressStyle），`Button 内置手势会拦住挂在父级的
+        // 长按/拖拽`（本仓 v2.0.96b 在发送键上踩过同一个坑）→ 长按永远不成立、拖不动。
+        // 正解 = simultaneousGesture（与 Button 的按压手势并行识别），误触轻点由
+        // suppressTapUntil 门闩在 `tap(_:)` 里挡掉，见那两处注释。
+        .simultaneousGesture(dragGesture(index: index))
     }
 
     private var emptySlot: some View {
@@ -332,7 +358,7 @@ struct HomeCardsGrid: View {
     // MARK: 拖拽
 
     private func dragGesture(index: Int?) -> some Gesture {
-        LongPressGesture(minimumDuration: 0.28)
+        LongPressGesture(minimumDuration: HomeCardDragKit.longPressSeconds)
             .sequenced(before: DragGesture(minimumDistance: 2))
             .onChanged { value in
                 guard let index else { return }
@@ -342,16 +368,31 @@ struct HomeCardsGrid: View {
                         withAnimation(Motion.snap) { dragFrom = index; dragOffset = .zero }
                         Haptics.tap()
                     }
-                    dragOffset = drag?.translation ?? .zero
+                    let moved = drag?.translation ?? .zero
+                    dragOffset = moved
+                    // 🚨 v4.0.10 二修：**只有真的移动了才上闩**。
+                    //    旧写法「长按一成立就上闩」把「按久一点再松手」（手指没动）的轻点一起吞了
+                    //    → 真机报「agent 主动推荐卡片点了没反应」。按住不动不算拖动，松手要照常干活。
+                    if HomeCardDragKit.isRealDrag(dx: moved.width, dy: moved.height) {
+                        suppressTapUntil = Date().addingTimeInterval(HomeCardDragKit.latchWindow)
+                    }
                 default:
                     break
                 }
             }
             .onEnded { value in
+                // ⚠️ 只对「真的拖动过」上闩：普通轻点时 dragFrom 一直是 nil，
+                // 若在这里无脑上闩，轻点会被自己挡掉（卡片全成死的）
                 guard let from = dragFrom else { return }
                 dragFrom = nil
                 dragOffset = .zero
-                guard case .second(true, let drag?) = value else { return }
+                // 🚨 v4.0.10 二修：长按成立但**手指没动** → 不算拖动：不上闩、不换位，
+                //    让 Button 松手补送的那次轻点照常执行（用户按久一点再松手也当点了）。
+                guard case .second(true, let drag?) = value,
+                      HomeCardDragKit.isRealDrag(dx: drag.translation.width,
+                                                 dy: drag.translation.height)
+                else { return }
+                suppressTapUntil = Date().addingTimeInterval(HomeCardDragKit.latchWindow)
                 let target = HomeCardOrder.dragTarget(
                     from: from,
                     dx: Double(drag.translation.width),
@@ -375,6 +416,9 @@ struct HomeCardsGrid: View {
     // MARK: 轻点执行
 
     private func tap(_ kind: HomeCardKind) {
+        // v4.0.10：**真拖动**之后的那一次松手不再当作轻点，否则「拖一次跳一次」。
+        // 二修：门闩只在真位移时上（HomeCardDragKit）→ 慢点击/按住不动再松手照常执行。
+        if Date() < suppressTapUntil { return }
         switch kind {
         case .mail:
             onAsk("查一下我的新邮件，挑出要紧的总结给我。")
@@ -411,16 +455,21 @@ struct HomeCardFace: View {
                 .foregroundStyle(.primary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
+            // v4.0.10：**恒单行**——双行副标题会把内容撑到 ~94pt，比 84pt 槽位高 10pt，
+            // 而 ZStack 会把它居中 → 真机看就是「这张卡比同排那三张高一块」。别改回 lineLimit(2)，
+            // 也**别加 .fixedSize(horizontal: false, vertical: true)**（那正是当年撑破卡高的写法）。
             Text(subtitle)
                 .font(.system(size: Typography.tiny))
                 .foregroundStyle(.secondary)
-                .lineLimit(2)
+                .lineLimit(1)
+                .truncationMode(.tail)
                 .multilineTextAlignment(.leading)
-                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 9)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        // 兜底：万一以后有更长的内容，也只许在卡内截断，不许画到卡外（卡高恒定是硬口径）
+        .clipped()
         .dashboardCard(cornerRadius: Radius.card)
     }
 
@@ -506,6 +555,7 @@ struct HomeCardEditorSheet: View {
                             })) {
                             Label(HomeCardLabels.name(k), systemImage: HomeCardLabels.icon(k))
                         }
+                        .qingliaoSwitch(hideLabel: false)
                     }
                 } header: {
                     Text("首页显示哪些卡片")

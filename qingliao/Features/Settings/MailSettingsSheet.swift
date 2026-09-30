@@ -308,7 +308,7 @@ struct MailAccountEditSheet: View {
                 }
 
                 Section {
-                    Toggle("允许 AI 直接发信", isOn: $allowDirectSend)
+                    Toggle("允许 AI 直接发信", isOn: $allowDirectSend).qingliaoSwitch(hideLabel: false)
                     Text(allowDirectSend
                          ? "开启后 AI 可调用 SMTP 直接发送（你自己确认收件人后才会发）。"
                          : "关闭（推荐）：AI 只把邮件内容生成到聊天里，由你确认后自行发送。")
@@ -318,7 +318,7 @@ struct MailAccountEditSheet: View {
 
                 if isEditing {
                     Section {
-                        Toggle("设为默认邮箱", isOn: $isDefault)
+                        Toggle("设为默认邮箱", isOn: $isDefault).qingliaoSwitch(hideLabel: false)
                     }
                 }
 

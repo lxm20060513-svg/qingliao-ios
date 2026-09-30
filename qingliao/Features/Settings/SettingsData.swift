@@ -983,6 +983,7 @@ struct HomeShortcutSheet: View {
                 Image(systemName: a.icon).foregroundStyle(a.color)
             }
         }
+        .qingliaoSwitch(hideLabel: false)
         // 选满 4 个后未选项置灰（点了也不会生效，所以灰掉比让它弹一下回弹更诚实）
         .disabled(!on && full)
         .accessibilityLabel("\(a.title) 桌面快捷方式")

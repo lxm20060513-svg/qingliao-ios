@@ -165,9 +165,14 @@ echo "=== 13. 图片发送串真值表（v3.9.60）==="
 # 口径：payload 里只允许 base64，绝不许把自家（只有 IPv6 的）图片 URL 交给上游模型。
 run_unit /tmp/test_imgsend scripts/ql_imgsend/truth_table_imgsend.swift
 
-echo "=== 14. 输入栏两层化真值表（v3.9.61）==="
+echo "=== 14. 输入栏两层化真值表（v4.0.10 · 115 项）==="
 # 单文件（读源文件做护栏 + 高度算式镜像，不 import 项目代码）→ run_unit 直接编跑。
-# 口径：两层恒定结构（messageRow/toolRow）、归属正确、旧单行形态清零。
+# 口径：两层恒定结构（messageRow/toolRow）、归属正确、旧单行形态清零；
+#   v4.0.10 加**发送锁/幂等闸门**护栏（真机故障「输入内容点发送没反应、消息不上屏、后端零请求」）：
+#   发送锁只靠流收尾回调解锁是**承重墙裂缝**——「＋新建会话」把在跑的流移交给后台 runner 时走
+#   StreamClient.detachLocally()（刻意 onFinished = nil），回调永不执行 → 锁永久为真 → 此后每次
+#   发送都在 sendCore 第一道 guard 静默 return。护栏钉：锁必须有 0.8s 窗口上限 + 超窗自愈、
+#   上位处同步记时刻、移交路径显式解锁、幂等只对自动路径生效（`!allowExpense`，用户亲手发的永不去重）。
 run_unit /tmp/test_inputbar scripts/ql_inputbar/truth_table_inputbar.swift
 
 echo "=== 15. 意图管道真值表（v3.9.71）==="
@@ -658,12 +663,18 @@ echo "=== 48. AI 中途追问「问题卡」真值表（v3.9.110）==="
 #   落地再发网络；两端题干格式（iOS splitQuestion ↔ 后端 OPT_SEP_LINE）必须一致。
 run_unit /tmp/test_askquestion scripts/ql_askquestion/truth_table_askquestion.swift
 
-echo "=== 49. 首页「方块卡片」真值表（v4.0.9 · 84 项）==="
+echo "=== 49. 首页「方块卡片」真值表（v4.0.10 · 111 项）==="
 # 多文件编译：被测真源是**纯 Foundation** 的 HomeCardOrder.swift（无 SwiftUI 依赖），
 # 直接编真实实现而不是照抄一份镜像 → 不存在「表与实现漂移」这个洞。
 # 多文件时只有 main.swift 允许顶层代码（第 4 步同口径），故先 cp 成 main.swift。
 # 口径：相对位移拖拽（微抖不甩位）、写回保位（关掉的卡留原槽）、至少留一张真卡（全关只剩空槽位
-#   用户会当 App 坏了）、键字面量单一真源、UI 不自算几何、ChatView 挂载形态。
+#   用户会当 App 坏了）、键字面量单一真源、UI 不自算几何、ChatView 挂载形态、
+#   v4.0.10 真机坏形三条：**卡高恒定**（副标题恒单行，禁 .fixedSize 竖直撑开——双行会让
+#   内容 94pt 顶在 84pt 槽位里居中溢出）、**长按拖动不被 Button 抢**（simultaneousGesture +
+#   拖完不吃轻点）、**栏目头「自定义」胶囊变矮**（借聊天页顶栏那档 27pt → 新栏目头档 23pt，
+#   只压高度，且聊天页那两枚不许跟着变），三条都配真机报修图/原话；
+#   v4.0.10 再加**总开关**（用户要求）：设置「外观与显示」里一行「首页快捷卡片」，关掉 = 整块不渲染
+#   且不留空占位；键缺失 = 开（老用户行为不变），默认值走 HomeCardStore.enabledDefault 单一真源。
 rm -rf /tmp/ql_homecards_main && mkdir -p /tmp/ql_homecards_main
 cp scripts/ql_chat_home/truth_table_homecards.swift /tmp/ql_homecards_main/main.swift
 run_unit /tmp/test_homecards -swift-version 6 /tmp/ql_homecards_main/main.swift \

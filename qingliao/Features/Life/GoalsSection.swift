@@ -198,14 +198,14 @@ struct GoalsSection: View {
                     Toggle("早间推进提醒", isOn: Binding(
                         get: { addMorning },
                         set: { addMorning = $0 }
-                    ))
+                    )).qingliaoSwitch(hideLabel: false)
                     if addMorning {
                         Stepper("早上 \(addMorningHour):00", value: $addMorningHour, in: 6...12)
                     }
                     Toggle("晚间复盘", isOn: Binding(
                         get: { addEvening },
                         set: { addEvening = $0 }
-                    ))
+                    )).qingliaoSwitch(hideLabel: false)
                     if addEvening {
                         Stepper("晚上 \(addEveningHour):00", value: $addEveningHour, in: 18...23)
                     }

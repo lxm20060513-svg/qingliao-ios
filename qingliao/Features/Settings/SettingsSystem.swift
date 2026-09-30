@@ -539,8 +539,7 @@ struct AppPermissionsSheet: View {
                 Text("允许 AI 操作我的数据")
                     .font(.system(size: Typography.subhead, weight: .semibold))
                 Spacer()
-                Toggle("", isOn: $masterOn)
-                    .labelsHidden()
+                Toggle("", isOn: $masterOn).qingliaoSwitch()
                     .onChange(of: masterOn) { _, _ in
                         AppPermissionKit.aiControlMasterEnabled = masterOn
                         Haptics.tap()
@@ -585,8 +584,7 @@ struct AppPermissionsSheet: View {
                             AppPermissionKit.setAIControlEnabled(newValue, for: cap)
                             Haptics.tap()
                         }
-                    ))
-                    .labelsHidden()
+                    )).qingliaoSwitch()
                     .disabled(!masterOn || st != .granted)
                 }
             }

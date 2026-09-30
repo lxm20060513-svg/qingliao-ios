@@ -187,11 +187,60 @@ enum HomeCardOrder {
     }
 }
 
+// MARK: - agentTip 副标题口径（纯 Foundation，真值表直接编译这份）
+
+/// v4.0.10 真机坏形修复：**卡片副标题恒单行**。
+///
+/// 坏形长这样：记忆里第一条是「AI 生成输出回复时不要回复…」这类 20+ 字的行为规则，
+/// 旧写法无脑 `prefix(16)` 后折成两行 → 卡内容 ~94pt 顶在 84pt 的槽位里，
+/// ZStack 居中溢出，真机看就是「这张卡比同排那三张高一块」。
+///
+/// 所以这里定死口径（视图层只管渲染，不再各写一份截断）：
+///   · 只挑**短且单行**的条目当语境 —— 超长 / 含换行 / 空条目一律不配；
+///   · 命中的条目再截到 `memoryMaxChars`，加上前缀一行放得下（156pt 宽、11pt 字号 ≈ 14 汉字）；
+///   · 一条都不合规 → 返回 nil，调用方退回建议池短句（卡面永不空着）。
+enum HomeCardTipKit {
+    static let memoryPrefix = "记得："
+    /// 语境正文最多几个字（连同前缀 3 字 + 可能的省略号 1 字 = 12 字上限）
+    static let memoryMaxChars = 8
+    /// 整条超过这个长度就不配当卡面副标题（行为规则类条目动辄 20+ 字）
+    static let memoryAcceptLimit = 12
+
+    /// 挑一条「能一行放下」的记忆当语境；nil = 没有合规条目
+    static func memoryLine(entries: [String]) -> String? {
+        let picked = entries
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty && !$0.contains("\n") && $0.count <= memoryAcceptLimit }
+        guard let t = picked else { return nil }
+        return t.count > memoryMaxChars ? String(t.prefix(memoryMaxChars)) + "…" : t
+    }
+
+    /// 卡面副标题：合规记忆 → 「记得：xxx」，否则池内短句
+    static func subtitle(memory: String?, pool: String) -> String {
+        guard let m = memory else { return pool }
+        return memoryPrefix + m
+    }
+}
+
 // MARK: - 持久化键（单一真源，视图与真值表共用同一份字符串）
 
 enum HomeCardStore {
     static let orderKey = "qingliao_home_card_order"
     static let offKey = "qingliao_home_card_off"
+
+    /// v4.0.10（用户：「在设置里增加可以关掉首页快捷卡片功能」）：首页快捷卡片**总开关**。
+    ///
+    /// 语义照抄 v4.0.9 的震动开关（Core/Haptics.swift `enabledKey`）：**键缺失 = 开**
+    /// —— 老用户升级后行为不变，不写迁移、不落默认值。
+    /// ⚠️ 别用 `UserDefaults.bool(forKey:)`：它把「没设过」和「设过且关」都当 false，
+    /// 新装用户首页会莫名空白（同族坑见 ql_homeshortcuts 表 ④ 的 off 哨兵）。
+    /// 读取一律走这个常量（`@AppStorage(HomeCardStore.enabledKey)`），
+    /// 字面量全仓只保留在**本文件**（真值表钉住）。
+    static let enabledKey = "qingliao_home_card_enabled"
+
+    /// 默认值单一真源：设置页与聊天页两处 `@AppStorage` 都写 `= HomeCardStore.enabledDefault`
+    /// —— 别各写一个 `true`，否则将来改默认会漏改一处（这类漂移本仓吃过亏）。
+    static let enabledDefault = true
 
     /// 落位几何：2 列网格里单格高（pt）—— 视觉与拖拽命中区共用这一个值，别各写一份
     static let cardHeight: CGFloat = 84
@@ -240,5 +289,31 @@ enum HomeCardStore {
     static func persist(order: [HomeCardKind], off: [HomeCardKind]) {
         UserDefaults.standard.set(HomeCardOrder.encode(order), forKey: orderKey)
         UserDefaults.standard.set(HomeCardOrder.encode(off), forKey: offKey)
+    }
+}
+
+
+// MARK: - 卡片上「轻点执行」与「长按拖动」的争抢判定（纯逻辑，真值表直接测）
+
+/// v4.0.10 二修（用户真机报「agent 主动推荐卡片点了没反应」）：
+/// 卡片上「轻点干活」和「长按拖动」抢的是**同一次按压**。判定口径收在这里，
+/// 视图只喂数据 —— 别再靠手感调 `minimumDuration`/阈值，那些值真机一改就翻车。
+enum HomeCardDragKit {
+    /// 长按成立门槛（秒）。0.28 太短：用户「按久一点再松手」的慢点击会被算进拖动会话、
+    /// 轻点被吞 → 真机表现就是「点了没反应」。提到 0.40（贴近 iOS 惯例），
+    /// 让慢点击留在轻点域、真正的长按仍能拖动。
+    static let longPressSeconds: Double = 0.40
+
+    /// 「真拖动」位移阈值（pt，任一方向）。小于它 = 手指只是按住没动 → **不算拖动**：
+    /// 松手必须照常执行轻点。这是「点了没反应」的根治点
+    /// （旧实现「长按一成立就上闩」，等于把所有慢点击都吞掉）。
+    static let moveThreshold: Double = 6
+
+    /// 拖完之后的闩窗（秒）：挡住 Button 松手补送的那次轻点，避免「拖一次跳一次」。
+    static let latchWindow: TimeInterval = 0.8
+
+    /// 这一点位移算不算「真的在拖」
+    static func isRealDrag(dx: Double, dy: Double) -> Bool {
+        max(abs(dx), abs(dy)) >= moveThreshold
     }
 }

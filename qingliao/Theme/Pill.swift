@@ -142,4 +142,21 @@ extension View {
             .glassPillStroke()
             .contentShape(Capsule())
     }
+
+    /// v4.0.10：**栏目头**胶囊档（首页「快捷卡片」右侧那枚「自定义」，也是空槽位关掉后唯一的添加入口）。
+    /// 病根：它原先直接借用 `chatHeaderPill()`，而那一档是给聊天页顶栏「思考档位 / 朗读」用的
+    /// （高度 15 + 上下各 Spacing.sm(6) = **27pt**），摆在只有 11pt 文字的栏目头旁边又高又重
+    /// （用户：「快捷卡片的自定义胶囊太大了，矮一点」）。
+    /// 算式：高度 15 + 上下各 Spacing.xs(4) = **23pt**（比旧档矮 4pt）；字号 / 横内距 / 描边 / 玻璃沿用同一套。
+    /// ⚠️ `chatHeaderPill()` 是聊天页顶栏的口径，**不许**为了这枚栏目头去改它（那两枚会跟着变矮）——
+    /// 真值表 `ql_chat_home` 两侧都钉了断言。
+    func sectionHeaderPill() -> some View {
+        self
+            .font(.system(size: Typography.caption, weight: .semibold))
+            .frame(height: 15)
+            .padding(.horizontal, Spacing.md)
+            .padding(.vertical, Spacing.xs)
+            .glassPillStroke()
+            .contentShape(Capsule())
+    }
 }

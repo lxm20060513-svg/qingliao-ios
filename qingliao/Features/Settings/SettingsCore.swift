@@ -25,6 +25,10 @@ struct SettingsView: View {
     /// properties" + "declared inside an extension cannot have a wrapper"（-parse 查不出）。
     @AppStorage(Haptics.enabledKey) private var hapticsOn = true
 
+    // v4.0.10（用户：「在设置里增加可以关掉首页快捷卡片功能」）：首页快捷卡片总开关。
+    // 与聊天页绑同一个键（Core/HomeCardStore.enabledKey）→ 那边立刻跟着变。
+    @AppStorage(HomeCardStore.enabledKey) private var homeCardsOn = HomeCardStore.enabledDefault
+
     // v2.0.83c：连接设置二级页（服务器地址/测试连接/会话存储位置收进二级）
     @State var showConnSettings = false
     @State var showPasswordSheet = false
@@ -387,7 +391,7 @@ extension SettingsView {
                 Text(localStatusText).font(.system(size: Typography.caption)).foregroundStyle(.tertiary).lineLimit(1)
             }
             Spacer()
-            Toggle("", isOn: $localModelOn).labelsHidden().scaleEffect(0.8).tint(.green)
+            Toggle("", isOn: $localModelOn).qingliaoSwitch()
                 .onChange(of: localModelOn) { _, new in
                     guard !localModelSyncing else { return }
                     Task {
@@ -693,6 +697,11 @@ extension SettingsView {
             // 默认开（key 缺失 = 开）→ 老用户行为不变。
             SettingRow(icon: "iphone.radiowaves.left.and.right", iconColor: .teal, title: "震动反馈",
                        toggle: $hapticsOn)
+            // v4.0.10（用户要求）：首页快捷卡片**总开关**。关掉 = 聊天页首页那一整块网格
+            // （含「自定义」入口）都不渲染；卡片的逐张开关与排序**原样留着**，再打开照旧。
+            // 关掉后想加回来就走这里（首页没有入口可点了，所以这一行必须恒在）。
+            SettingRow(icon: "rectangle.grid.2x2.fill", iconColor: .blue, title: "首页快捷卡片",
+                       toggle: $homeCardsOn)
             // v3.9.82：桌面图标长按快捷方式（长按桌面「轻聊」图标即可看到选中的几项）。
             // 行尾计数读 @AppStorage 原始串（HomeShortcutStore.ids(from:)）→ 弹窗里改完立即刷新。
             SettingRow(icon: "square.grid.2x2.fill", iconColor: .indigo, title: "桌面快捷方式",
@@ -800,7 +809,7 @@ extension SettingsView {
                 Text(title).font(.system(size: Typography.body)).foregroundStyle(.primary)
             }
             Spacer()
-            Toggle("", isOn: isOn).labelsHidden().scaleEffect(0.8).tint(.green)
+            Toggle("", isOn: isOn).qingliaoSwitch()
         }
         .padding(.horizontal, Spacing.xxl).padding(.vertical, Spacing.lg)
     }

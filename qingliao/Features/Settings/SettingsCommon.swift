@@ -357,10 +357,7 @@ struct SettingRow: View {
             }
             // v2.0.87az：行尾开关
             if let toggle {
-                Toggle("", isOn: toggle)
-                    .labelsHidden()
-                    .scaleEffect(0.8)
-                    .tint(.green)
+                Toggle("", isOn: toggle).qingliaoSwitch()
             }
         }
         .padding(.horizontal, Spacing.xxl)
@@ -930,11 +927,11 @@ struct AppearanceSheet: View {
                 // 聊天页顶部仍是同一只宠物（共用 PetKeys.style/.motion/.quirks/.face 四个 key）。
                 // 交互
                 Section("交互") {
-                    Toggle("输入框流光光效", isOn: $glowOn)   // v3.0.4：补全本地独有项
+                    Toggle("输入框流光光效", isOn: $glowOn).qingliaoSwitch(hideLabel: false)   // v3.0.4：补全本地独有项
                     // v4.0.7：点 dock 智慧球的烟花粒子特效（用户：烟花也做个开关放设置里）
-                    Toggle("烟花粒子特效", isOn: $dockBurstOn)
+                    Toggle("烟花粒子特效", isOn: $dockBurstOn).qingliaoSwitch(hideLabel: false)
                     // v3.8.0：灵动岛/锁屏实时活动——AI 回复中亮起、结束收起；关掉立即收起正在显示的活动
-                    Toggle("灵动岛实时活动", isOn: $liveActivityOn)
+                    Toggle("灵动岛实时活动", isOn: $liveActivityOn).qingliaoSwitch(hideLabel: false)
                         .onChange(of: liveActivityOn) { _, on in
                             if !on { Task { @MainActor in await LiveActivityManager.shared.end() } }
                         }
@@ -978,9 +975,9 @@ struct AppearanceSheet: View {
                 }
                 // AI 回答发光（对齐本地 Siri 发光 4 参数）
                 Section("AI 回答发光") {
-                    Toggle("边框光晕", isOn: $siriGlow)
+                    Toggle("边框光晕", isOn: $siriGlow).qingliaoSwitch(hideLabel: false)
                     // v3.0.36：灵动岛光晕（独立开关）
-                    Toggle("灵动岛光晕", isOn: $islandGlow)
+                    Toggle("灵动岛光晕", isOn: $islandGlow).qingliaoSwitch(hideLabel: false)
                     if siriGlow || islandGlow {
                         sliderRow("亮度", value: $glowBrightness, range: 0.2...1.5, suffix: { String(format: "%.0f%%", $0 * 100) })
                         sliderRow("呼吸频率", value: $glowFreq, range: 0.5...6.0, suffix: { String(format: "%.1f", $0) })

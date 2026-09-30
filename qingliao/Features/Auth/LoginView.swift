@@ -256,7 +256,7 @@ struct LoginView: View {
                 .font(.system(size: Typography.subhead))
                 .foregroundStyle(.secondary)
         }
-        .tint(.blue)
+        .qingliaoSwitch(hideLabel: false)
         .padding(.horizontal, Self.formH)
     }
 

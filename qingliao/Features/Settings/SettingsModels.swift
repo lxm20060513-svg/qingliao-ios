@@ -484,7 +484,7 @@ struct ModelSheet: View {
                     .font(.system(size: Typography.tiny)).foregroundStyle(.tertiary)
             }
             Spacer()
-            Toggle("", isOn: $ttsOn).labelsHidden().scaleEffect(0.8).tint(.green)
+            Toggle("", isOn: $ttsOn).qingliaoSwitch()
                 .onChange(of: ttsOn) { _, new in
                     CloudConfig.setTTsEnabled(new)
                 }
@@ -1871,7 +1871,7 @@ struct VisionModelSheet: View {
                                 .font(.system(size: Typography.caption)).foregroundStyle(.tertiary).lineLimit(1)
                         }
                         Spacer()
-                        Toggle("", isOn: $enabled).labelsHidden().scaleEffect(0.8).tint(.green)
+                        Toggle("", isOn: $enabled).qingliaoSwitch()
                             .onChange(of: enabled) { _, new in
                                 CloudConfig.setVisionFallbackEnabled(new)
                             }

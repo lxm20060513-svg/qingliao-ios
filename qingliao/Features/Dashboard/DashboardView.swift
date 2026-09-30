@@ -2331,9 +2331,7 @@ private struct RuleRow: View {
                     .lineLimit(2)
             }
             Spacer(minLength: 6)
-            Toggle("", isOn: Binding(get: { item.enabled }, set: { onToggle($0) }))
-                .labelsHidden()
-                .tint(.orange)
+            Toggle("", isOn: Binding(get: { item.enabled }, set: { onToggle($0) })).qingliaoSwitch(color: .orange)
         }
         .padding(.vertical, Spacing.xxs)
         .contentShape(Rectangle())

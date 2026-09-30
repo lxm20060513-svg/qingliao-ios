@@ -115,6 +115,13 @@ struct ChatView: View {
     @State var voiceStartToken = 0    // v3.9.3：语音启动代次——首次可能要下载模型（数秒~数十秒），
                                       // 期间用户若已取消，start() 返回后必须作废，否则会卡在语音模式
     @State var sendingLock = false   // v2.0.102：发送锁（防双击双流竞态）
+    /// v4.0.10：锁的置位时刻。**发送锁必须有窗口上限**——收尾回调不是必然发生的：
+    /// 「新建会话」把在跑的流移交给 BackgroundStreamRunner 时会调 `StreamClient.detachLocally()`，
+    /// 那条路径刻意把 onFinished 置 nil（落库归 runner），于是 startStream 的 completion 永不执行。
+    /// 旧实现只靠 completion 里的 `sendingLock = false` 解锁 → 一次「回答中新建会话」就让发送锁
+    /// 永久为真，此后**所有发送在 sendCore 第一道 guard 静默 return**（输入框已清空、消息不上屏、
+    /// 后端零请求），用户看到的就是「发出去不上屏」。v4.0.9 实报复现。
+    @State var sendingLockAt: TimeInterval = 0
     @State var autoRetryCount = 0    // v3.4.x：消息失败自动重试计数（网络类错误最多自动重试 2 次，防死循环）
     @State private var lastSentSignature: (sessionId: String, text: String, image: String?, ts: TimeInterval)?  // 同内容 60s 幂等（v3.4.27 fix：签名含图片指纹——纯图 text 恒空，无图指纹会把 60s 内第二张纯图误判重复丢弃）
     @State var fileSendBlocked = false   // v2.0.102：流式中发文件提示
@@ -1690,6 +1697,11 @@ struct ChatView: View {
 
     // MARK: - 消息列表
 
+    // v4.0.10（用户：「在设置里增加可以关掉首页快捷卡片功能」）：首页快捷卡片总开关。
+    // 键常量在 Core/HomeCardStore（字面量不许出现在本文件 —— 单一真源）；
+    // 设置页绑的是同一个键，@AppStorage 自带观察 → 那边一拨这里立刻重渲染，不需要通知/回调。
+    @AppStorage(HomeCardStore.enabledKey) private var homeCardsOn = HomeCardStore.enabledDefault
+
     /// v4.0.8：首页快捷卡片网格。执行通道全部由这里注入 —— HomeCardsGrid 不自造路由
     /// （见 HomeCards.swift 文件头口径 4）。天气卡在聊天页没有现成弹窗，故本页自己挂一个
     /// WeatherSheet（看板那份在 DashboardView 里，跨 tab 复用会带进看板的 isActive 轮询）。
@@ -1752,7 +1764,10 @@ struct ChatView: View {
 
             // v4.0.8：首页「快捷卡片」2 列网格（长按拖拽排序 + 自定义开关）。
             // 与芯片同档收起：键盘弹起时 4 行网格（约 370pt）会把输入框顶没。
-            if !kb.isVisible {
+            // v4.0.10：设置里可整体关掉（`homeCardsOn`）—— 关掉就是**整块不渲染**
+            // （连「快捷卡片 / 自定义」栏头一起），**不留空占位**（留占位 = 关不掉，用户会当没生效）。
+            // 卡片的顺序与逐张开关**原样留**在 UserDefaults 里，再打开还是原样（不是重置）。
+            if !kb.isVisible && homeCardsOn {
                 homeCardsGrid
             }
 
@@ -2479,6 +2494,9 @@ struct ChatView: View {
                                                         content: stream.handoffContent,
                                                         auth: auth, chat: chat)
                     stream.detachLocally()   // 只停本地轮询，服务端任务继续跑；落库归 runner
+                    // v4.0.10：移交后收尾回调被吞（onFinished = nil），startStream 里的
+                    // `sendingLock = false` 永不执行 → 必须在这里显式解锁，否则整页发送永久失效
+                    sendingLock = false
                 } else if stream.isStreaming {
                     stream.stop(auth: auth)   // 兜底：缺 taskId/会话 id 的异常态按旧路停掉
                 }
@@ -2908,15 +2926,22 @@ struct ChatView: View {
         // v3.4.x：同内容短时间幂等（60s 内相同文本+同会话只发一次，防抖动/重试/恢复重复投递）
         // v3.4.27 fix：比较须含 image 指纹——纯图 text 恒空，只比 text 会把 60s 内第二张纯图误判重复丢弃（拍照/相册连发纯图被吞）
         let now = Date().timeIntervalSince1970
+        // v4.0.10：幂等只对**自动路径**（重试/分享收件/恢复投递）生效——`allowExpense` 已是
+        // 「用户亲手在输入栏点发送」的唯一标记（见上方口径）。用户亲手发的永不去重：60s 内重复
+        // 发同一句是正当行为，旧实现把它静默丢掉（零提示、不上屏）＝「点了发送没反应」。
         if let last = lastSentSignature, last.sessionId == chat.sessionId, last.text == text,
-           last.image == imageData, now - last.ts < 60 {
+           last.image == imageData, now - last.ts < 60, !allowExpense {
+            NSLog("[SEND] 幂等丢弃（自动路径，60s 内同内容）")
             return
         }
         lastSentSignature = (chat.sessionId, text, imageData, now)
         // v3.0.52：蜂窝下 base64 图 body 过大 → 先超强压缩（uploadImage 蜂窝大概率失败退回 base64 大 body，
         // 导致 CFStream/relay 载不动 → 后端 bad json 400；压小后直连可过）
         let imageData = compressForCellular(imageData)
-        guard !text.isEmpty || imageData != nil else { return }
+        guard !text.isEmpty || imageData != nil else {
+            NSLog("[SEND] 空内容丢弃")
+            return
+        }
         // v3.0.19 review fix #1：语音指令标志在此一次性消费——标记本消息 + 转播报意图 + 清空 sid
 
         // v2.0.126：蜂窝 relay 3.5KB 限制自动分段（粘贴长文本不丢内容）
@@ -2962,8 +2987,19 @@ struct ChatView: View {
             Task { await chat.saveToServer(auth: auth) }
             return
         }
-        guard !sendingLock else { return }   // 双击保护：第一次发送的流尚未置位时，第二次直接忽略
+        // 双击保护：第一次发送的流尚未置位时，第二次直接忽略。
+        // ⚠️ v4.0.10：不许写成「无窗口上限的硬锁」——锁可能等不到解锁回调（见 sendingLockAt 注释），
+        // 一旦泄漏就是「发出去不上屏 + 后端零请求」的永久故障。窗口 0.8s：够挡双击，又短到不误伤连发。
+        if sendingLock {
+            if now - sendingLockAt < 0.8 {
+                NSLog("[SEND] 双击拦截（锁龄 \(String(format: "%.2f", now - sendingLockAt))s）")
+                return
+            }
+            NSLog("[SEND] 发送锁超窗自动解锁（锁龄 \(String(format: "%.2f", now - sendingLockAt))s）")
+            sendingLock = false
+        }
         sendingLock = true
+        sendingLockAt = now
         Haptics.tap()   // v3.4.25：统一触感
         // v2.0.65 原注释写「发送通知 → Dock 聊天图标轻跳」，但全仓**没有任何 onReceive 收这条通知**
         //（v4.0.x 复核核实：只有这里发、0 处收）——即这条通知自 v2.0.65 起就是空发，图标轻跳从未生效。
