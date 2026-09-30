@@ -26,11 +26,14 @@
 CI 只在 **`v*` tag 推送**时触发（分支 push 不触发；版本线现为 `v3.9.x`），产出 unsigned IPA artifact，并覆盖上传到 release `qingliao-ipa-2`（NAS/Hermes 从这里取包）。
 
 ```bash
-# 1) 版本号：project.yml **8 处**必须一致——主 App 与挂件 target（QingliaoWidget）各 4 处
-#    （CFBundleShortVersionString / CFBundleVersion / MARKETING_VERSION / CURRENT_PROJECT_VERSION）
+# 1) 版本号：project.yml **12 处**必须一致——3 个 target（主 App / QingliaoWidget / QingliaoShare）
+#    各 4 处（CFBundleShortVersionString / CFBundleVersion / MARKETING_VERSION / CURRENT_PROJECT_VERSION）
 #    grep -nE 'CFBundleShortVersionString:|MARKETING_VERSION:|^ *CFBundleVersion:|CURRENT_PROJECT_VERSION:' project.yml
-#    —— 8 行必须全是最新版本，否则崩溃日志版本误导定位（v2.0.53 教训）；CI 的 Check version literals 步骤
+#    —— 12 行必须全是最新版本，否则崩溃日志版本误导定位（v2.0.53 教训）；CI 的 Check version literals 步骤
 #    会在 Archive 前用同一口径再判一次，并把 tag 名与 project.yml 版本对比
+#    ⚠️ 只改 CFBundle* 那一组、漏掉 MARKETING_VERSION/CURRENT_PROJECT_VERSION 是最常见的翻车姿势
+#      （两组键在文件里各 3 处，肉眼扫一遍容易只看前 3 处）—— bump 完**先跑 `bash bump_version_check.sh`**，
+#      它就是 CI 同款口径的本地自查，1 秒出结果，别用一次 15 分钟的 CI 去试错（v4.0.11 教训）
 #    新增 target（widget/extension）必须写它自己的 Info.plist 版本号，否则 XcodeGen 默认落 1.0/1（v3.8.0 教训）
 # 2) 自查（见下）+ ./check_swift.sh + commit
 git push origin feature/handoff-301
