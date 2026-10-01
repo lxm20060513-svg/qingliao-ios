@@ -16,7 +16,11 @@ import Foundation
 // 合计口径（刻意保守，避免长成账本体系）：
 //   · 只把 `unit == "元"` 的条目算进「本月合计」——度/kWh 是读数不是钱，混着加是无意义的数字。
 //   · 读数单独走 latestMeter()，"最近读数"一行显示。
-//   · 不按类别分组（第一版刻意不做类别字段，真需要了再加）。
+//
+// v4.0.19 起「分类」升为一等字段（原先是塞在 note 字符串「分类：餐饮｜原话：…」里）：
+//   · 新写入的条目 category 落在独立字段，note 只留原话；
+//   · **老数据不清洗、靠读取时回退解析**（categoryFromNote）——清洗要写回 NAS，
+//     一次写错就是用户账目被改，代价远大于每次读多跑一个字符串切分。
 
 /// 一条记录
 struct RecordItem: Identifiable, Codable, Equatable, Sendable {
@@ -27,13 +31,15 @@ struct RecordItem: Identifiable, Codable, Equatable, Sendable {
     var amount: Double?
     var unit: String
     var note: String
+    /// v4.0.19 一等字段。空串 = 未分类；老数据在解码时从 note 回退解析出来
+    var category: String
     /// intent（意图管道写入）/ manual（生活页手写）/ chat（聊天气泡）
     var source: String
     var createdAt: Date
     var updatedAt: Date
 
     init(id: String = UUID().uuidString, kind: String, title: String, amount: Double? = nil,
-         unit: String = "", note: String = "", source: String = "manual",
+         unit: String = "", note: String = "", category: String = "", source: String = "manual",
          createdAt: Date = Date(), updatedAt: Date? = nil) {
         self.id = id
         self.kind = kind
@@ -41,6 +47,7 @@ struct RecordItem: Identifiable, Codable, Equatable, Sendable {
         self.amount = amount
         self.unit = unit
         self.note = note
+        self.category = category
         self.source = source
         self.createdAt = createdAt
         self.updatedAt = updatedAt ?? createdAt
@@ -65,13 +72,16 @@ struct RecordItem: Identifiable, Codable, Equatable, Sendable {
         amount = try c.decodeIfPresent(Double.self, forKey: .amount)
         unit = try c.decodeIfPresent(String.self, forKey: .unit) ?? ""
         note = try c.decodeIfPresent(String.self, forKey: .note) ?? ""
+        // v4.0.19：新字段缺失 → 从 note 里的「分类：X｜原话：…」回退，老账目的分类因此也能进占比
+        let rawCategory = try c.decodeIfPresent(String.self, forKey: .category) ?? ""
+        category = rawCategory.isEmpty ? RecordKit.categoryFromNote(note) : rawCategory
         source = try c.decodeIfPresent(String.self, forKey: .source) ?? "manual"
         createdAt = try c.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
         updatedAt = try c.decodeIfPresent(Date.self, forKey: .updatedAt) ?? createdAt
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, kind, title, amount, unit, note, source, createdAt, updatedAt
+        case id, kind, title, amount, unit, note, category, source, createdAt, updatedAt
     }
 
     var sortDate: Date { updatedAt }
@@ -83,7 +93,44 @@ struct RecordItem: Identifiable, Codable, Equatable, Sendable {
     }
 }
 
+/// 本月某个分类的合计（v4.0.19 分类占比）
+///
+/// 为什么是 struct 而不是 tuple：`ForEach(rows, id: \.category)` 这类 key path 打在 tuple 上
+/// 本地 -parse 查不出、CI Archive 才报「key path cannot refer to tuple element」；
+/// 顺带让 UI 的 ForEach 直接吃 Identifiable。
+struct CategoryTotal: Identifiable, Equatable, Sendable {
+    let category: String
+    let amount: Double
+    let count: Int
+    var id: String { category }
+}
+
 enum RecordKit {
+
+    /// 未分类的显示名（空串在 UI 上统一显示成它）
+    static let uncategorized = "未分类"
+
+    /// 分类显示名：空 = 未分类
+    static func categoryLabel(_ raw: String) -> String {
+        let s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return s.isEmpty ? uncategorized : s
+    }
+
+    /// 从老格式 note「分类：餐饮｜原话：买菜」里取出分类；取不到返回 ""
+    /// 兼容三种形态：带「｜原话：」、只有「分类：X」、以及完全不带（返回 ""）
+    static func categoryFromNote(_ note: String) -> String {
+        guard note.contains("分类：") else { return "" }
+        let after = note.components(separatedBy: "分类：").dropFirst().joined(separator: "分类：")
+        let head = after.components(separatedBy: "｜").first ?? after
+        return head.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// 从老格式 note 里取回原话（去掉「分类：X｜原话：」前缀）；无前缀原样返回
+    static func plainNote(_ note: String) -> String {
+        guard note.contains("原话：") else { return note }
+        return note.components(separatedBy: "原话：").dropFirst()
+            .joined(separator: "原话：").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 
     /// "2026-09"（跨年靠年月组合，别用"第几月"糊过去）
     static func monthKey(_ date: Date, calendar: Calendar = .current) -> String {
@@ -104,6 +151,29 @@ enum RecordKit {
             n += 1
         }
         return (sum, n)
+    }
+
+    /// v4.0.19 分类占比：本月「元」条目按 category 聚合，金额降序（同额按条数、再按名称排，保证稳定）
+    /// 老数据的分类由 RecordItem 解码时回退填充，所以这里不用再解 note。
+    static func categoryTotals(_ items: [RecordItem], now: Date = Date(),
+                               calendar: Calendar = .current) -> [CategoryTotal] {
+        let key = monthKey(now, calendar: calendar)
+        var sum: [String: Double] = [:]
+        var cnt: [String: Int] = [:]
+        for i in items where i.unit == "元" {
+            guard let a = i.amount else { continue }
+            guard monthKey(i.createdAt, calendar: calendar) == key else { continue }
+            let c = categoryLabel(i.category)
+            sum[c, default: 0] += a
+            cnt[c, default: 0] += 1
+        }
+        return sum.keys.sorted { a, b in
+            let sa = sum[a] ?? 0, sb = sum[b] ?? 0
+            if sa != sb { return sa > sb }
+            let ca = cnt[a] ?? 0, cb = cnt[b] ?? 0
+            if ca != cb { return ca > cb }
+            return a < b
+        }.map { CategoryTotal(category: $0, amount: sum[$0] ?? 0, count: cnt[$0] ?? 0) }
     }
 
     /// 最近一条读数（非「元」的数值条目）

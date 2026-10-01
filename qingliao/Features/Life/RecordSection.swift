@@ -14,6 +14,8 @@ struct RecordSection: View {
     @State private var draftAmount = ""
     @State private var draftUnit = "元"
     @State private var pendingDelete: RecordItem?
+    /// v4.0.19 正在编辑的那一笔（候选池①：原来只能删了重记）
+    @State private var editing: RecordItem?
 
     private let units = ["元", "度", "kWh"]
 
@@ -116,6 +118,9 @@ struct RecordSection: View {
                         Spacer(minLength: 0)
                     }
                 }
+                if !store.monthByCategory.isEmpty {
+                    categoryBreakdown
+                }
                 Divider().opacity(0.4)
                 ForEach(Array(store.sorted.prefix(3))) { r in
                     HStack(spacing: 8) {
@@ -154,6 +159,14 @@ struct RecordSection: View {
         .accessibilityLabel("记录，本月合计 \(String(format: "%.2f", store.monthTotal.amount)) 元，\(store.records.count) 条，点开查看全部")
     }
 
+    /// v4.0.19 本月分类占比（候选池②的可视部分）。
+    /// 本体拆成独立 struct：顶卡已经是 Button label 里的一长串 ViewBuilder，
+    /// 再内联一个 GeometryReader 有 type-check 超时风险（本仓踩过，只有 CI 报）。
+    private var categoryBreakdown: some View {
+        RecordCategoryBar(rows: Array(store.monthByCategory.prefix(3)),
+                          total: store.monthTotal.amount)
+    }
+
     // MARK: 全部记录（半屏 sheet，左滑删）
 
     private var allSheet: some View {
@@ -174,7 +187,13 @@ struct RecordSection: View {
                 List {
                     ForEach(store.sorted) { r in
                         RecordRowCard(item: r)
+                            .contentShape(Rectangle())
+                            // 点按 = 编辑这一笔（用 onTapGesture 而不是包 Button：Button 会跟 List 的左滑删抢手势）
+                            .onTapGesture { editing = r }
                             .contextMenu {
+                                Button { editing = r } label: {
+                                    Label("编辑", systemImage: "pencil")
+                                }
                                 Button(role: .destructive) { pendingDelete = r } label: {
                                     Label("删除", systemImage: "trash")
                                 }
@@ -206,6 +225,13 @@ struct RecordSection: View {
                 .scrollContentBackground(.hidden)
             }
             .toolbar(.hidden, for: .navigationBar)
+        }
+        .sheet(item: $editing, onDismiss: { editing = nil }) { item in
+            RecordEditSheet(item: item) { title, amount, unit, category in
+                if store.update(item, title: title, amount: amount, unit: unit, category: category) {
+                    Haptics.success()
+                }
+            }
         }
         .presentationDetents([.medium, .large])
     }
@@ -285,9 +311,16 @@ private struct RecordRowCard: View {
                     .font(.system(size: Typography.body))
                     .foregroundStyle(.primary)
                     .lineLimit(1)
-                Text(MemoItem.relativeTime(item.updatedAt))
-                    .font(.system(size: Typography.caption))
-                    .foregroundStyle(.tertiary)
+                HStack(spacing: 6) {
+                    Text(MemoItem.relativeTime(item.updatedAt))
+                        .font(.system(size: Typography.caption))
+                        .foregroundStyle(.tertiary)
+                    if !item.category.isEmpty {
+                        Text(RecordKit.categoryLabel(item.category))
+                            .font(.system(size: Typography.caption))
+                            .foregroundStyle(RecordCategoryColor.tint(item.category))
+                    }
+                }
             }
             Spacer(minLength: 0)
             Text(item.amountText)
@@ -299,5 +332,165 @@ private struct RecordRowCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .dashboardCard()
         .contentShape(Rectangle())
+    }
+}
+
+/// v4.0.19 编辑已记的一笔（候选池①）：金额 / 事项 / 单位 / 分类。
+/// 几何照抄同文件的新建 sheet（同一批 TextField 样式），差别只有预填 + 保存走 store.update。
+/// 「删除」不在这里 —— 它仍在列表的长按菜单上，编辑弹窗只负责改。
+private struct RecordEditSheet: View {
+    let item: RecordItem
+    let onSave: (_ title: String, _ amount: Double?, _ unit: String, _ category: String) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var title: String
+    @State private var amount: String
+    @State private var unit: String
+    @State private var category: String
+
+    private let units = ["元", "度", "kWh"]
+
+    init(item: RecordItem, onSave: @escaping (String, Double?, String, String) -> Void) {
+        self.item = item
+        self.onSave = onSave
+        _title = State(initialValue: item.title)
+        _amount = State(initialValue: item.amount.map { RecordEditSheet.numberText($0) } ?? "")
+        _unit = State(initialValue: item.unit.isEmpty ? "元" : item.unit)
+        _category = State(initialValue: item.category)
+    }
+
+    /// 金额回填去掉无意义尾零：86 → 86、86.5 → 86.5（不能用 %g：大额会变科学计数法）
+    static func numberText(_ v: Double) -> String {
+        var s = String(format: "%.2f", v)
+        if s.contains(".") {
+            s = s.replacingOccurrences(of: "0+$", with: "", options: .regularExpression)
+                .replacingOccurrences(of: "\\.$", with: "", options: .regularExpression)
+        }
+        return s
+    }
+
+    private var catOptions: [String] {
+        var list = ChatRecordKit.allCategories
+        // 老数据/将来新增的自定义分类不在词表里时，也要能保住原值（否则一打开就被改成词表首项）
+        if !category.isEmpty && !list.contains(category) { list.insert(category, at: 0) }
+        return list
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: Spacing.md) {
+                TextField("名称（如 超市 / 电表）", text: $title)
+                    .font(.system(size: Typography.title))
+                    .padding(Spacing.xl)
+                    .background(Color(uiColor: .secondarySystemGroupedBackground),
+                                in: RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
+
+                HStack(spacing: Spacing.md) {
+                    TextField("数值", text: $amount)
+                        .font(.system(size: Typography.title))
+                        .keyboardType(.decimalPad)
+                        .padding(Spacing.xl)
+                        .background(Color(uiColor: .secondarySystemGroupedBackground),
+                                    in: RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
+                    Picker("单位", selection: $unit) {
+                        ForEach(units, id: \.self) { Text($0).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(maxWidth: 180)
+                }
+
+                HStack(spacing: Spacing.md) {
+                    Text("分类")
+                        .font(.system(size: Typography.body))
+                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 0)
+                    Picker("分类", selection: $category) {
+                        Text(RecordKit.uncategorized).tag("")
+                        ForEach(catOptions, id: \.self) { c in
+                            Text(c).tag(c)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, Spacing.section)
+            .padding(.top, Spacing.md)
+            .navigationTitle("编辑记录")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("保存") {
+                        onSave(title, parsedAmount, unit, category)
+                        dismiss()
+                    }
+                    .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    /// 空 / 非法 → nil（= 这条本来就没有金额，回到「纯文字记录」形态，与新建口径一致）
+    private var parsedAmount: Double? {
+        let raw = amount.replacingOccurrences(of: ",", with: "")
+            .trimmingCharacters(in: .whitespaces)
+        guard !raw.isEmpty, let v = Double(raw), v.isFinite else { return nil }
+        return v
+    }
+}
+
+/// 分类色标（只服务占比条与图例）。用系统色而不是新增主题令牌：这几支颜色只此一处用，
+/// 进主题反而让「令牌 == 全站语义」的口径变浑浊。哈希自算（djb2）保证同一分类每次同色。
+private enum RecordCategoryColor {
+    static let palette: [Color] = [.orange, .blue, .green, .purple, .pink, .teal, .indigo, .brown]
+
+    static func tint(_ category: String) -> Color {
+        let name = RecordKit.categoryLabel(category)
+        guard name != RecordKit.uncategorized else { return .gray }
+        var h = 5381
+        for u in name.unicodeScalars { h = (h &* 33) &+ Int(u.value) }
+        return palette[abs(h) % palette.count]
+    }
+}
+
+/// 分类占比条 + 前三名图例（口径与「本月合计」同源：RecordKit.categoryTotals）
+private struct RecordCategoryBar: View {
+    let rows: [CategoryTotal]
+    let total: Double
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            GeometryReader { geo in
+                HStack(spacing: 2) {
+                    ForEach(rows) { r in
+                        Capsule()
+                            .fill(RecordCategoryColor.tint(r.category))
+                            .frame(width: max(3, geo.size.width * CGFloat(r.amount / max(total, 0.0001))))
+                    }
+                }
+            }
+            .frame(height: 6)
+            HStack(spacing: 10) {
+                ForEach(rows) { r in
+                    HStack(spacing: 4) {
+                        Circle()
+                            .fill(RecordCategoryColor.tint(r.category))
+                            .frame(width: 6, height: 6)
+                        Text(r.category)
+                            .font(.system(size: Typography.caption))
+                            .foregroundStyle(.secondary)
+                        Text(String(format: "%.0f%%", r.amount / max(total, 0.0001) * 100))
+                            .font(.system(size: Typography.caption))
+                            .foregroundStyle(.tertiary)
+                            .monospacedDigit()
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+        }
     }
 }

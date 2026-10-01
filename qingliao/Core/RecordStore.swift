@@ -60,16 +60,18 @@ final class RecordStore {
     /// 记账场景里"同额两笔"是正常业务（同店同价、同额两笔），所以去重只能护连点，不能吞掉第二笔。
     @discardableResult
     func addDetailed(kind: String, title: String, amount: Double?, unit: String,
-                     note: String = "", source: String = "manual") -> (item: RecordItem, inserted: Bool)? {
+                     note: String = "", category: String = "",
+                     source: String = "manual") -> (item: RecordItem, inserted: Bool)? {
         let text = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return nil }
+        let cat = category.trimmingCharacters(in: .whitespacesAndNewlines)
         // 只防"2 秒内连点"这一种情况（原来是 5 分钟，会吞掉正当的第二笔）
         if let first = records.first, first.title == text, first.amount == amount,
            Date().timeIntervalSince(first.createdAt) < 2 {
             return (first, false)
         }
         let item = RecordItem(kind: kind, title: text, amount: amount, unit: unit,
-                              note: note, source: source)
+                              note: note, category: cat, source: source)
         records.insert(item, at: 0)
         save()
         return (item, true)
@@ -85,15 +87,42 @@ final class RecordStore {
     @discardableResult
     func addExpense(_ draft: ChatExpenseDraft) -> (item: RecordItem, inserted: Bool)? {
         addDetailed(kind: "amount", title: draft.item, amount: draft.amount, unit: draft.unit,
-                    note: draft.storeNote, source: "chat")
+                    note: draft.raw, category: draft.category, source: "chat")
     }
 
     /// 新增（旧签名：生活页手写入口用；动作条走 addDetailed 拿 inserted）
     @discardableResult
     func add(kind: String, title: String, amount: Double?, unit: String,
-             note: String = "", source: String = "manual") -> RecordItem? {
+             note: String = "", category: String = "",
+             source: String = "manual") -> RecordItem? {
         addDetailed(kind: kind, title: title, amount: amount, unit: unit,
-                    note: note, source: source)?.item
+                    note: note, category: category, source: source)?.item
+    }
+
+    /// v4.0.19（记账候选池①）编辑已记的一笔：金额 / 事项 / 单位 / 分类。
+    ///
+    /// 三个设计取舍：
+    ///   · **保留 id 与 createdAt**（编辑不是新记一笔），只推 updatedAt —— 所以编辑后这条会
+    ///     浮到列表顶部（sortDate = updatedAt），也保证合并远端时本地这版胜出（loadFromServer 按 sortDate 取新）。
+    ///   · 全量入参（四样都要给）：避免「只改标题 → 金额被静默清空」这类可选参数陷阱。
+    ///   · 找不到 id 返回 false，不静默当成功（调用方据此提示）。
+    @discardableResult
+    func update(_ item: RecordItem, title: String, amount: Double?, unit: String,
+                category: String, note: String? = nil) -> Bool {
+        guard let idx = records.firstIndex(where: { $0.id == item.id }) else { return false }
+        let text = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return false }
+        var r = records[idx]
+        r.title = text
+        r.amount = amount
+        r.unit = amount == nil ? "" : unit
+        r.category = category.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let note { r.note = note }
+        r.kind = amount == nil ? "note" : (r.unit == "元" ? "amount" : "meter")
+        r.updatedAt = Date()
+        records[idx] = r
+        save()
+        return true
     }
 
     func delete(_ item: RecordItem) {
@@ -123,6 +152,11 @@ final class RecordStore {
     var sorted: [RecordItem] { RecordKit.sorted(records) }
 
     var monthTotal: (amount: Double, count: Int) { RecordKit.monthTotal(records) }
+
+    /// v4.0.19：本月分类占比（金额降序），口径与本月合计完全一致（只算「元」的当期条目）
+    var monthByCategory: [CategoryTotal] {
+        RecordKit.categoryTotals(records)
+    }
 
     var latestMeter: RecordItem? { RecordKit.latestMeter(records) }
 
@@ -186,7 +220,8 @@ final class RecordStore {
         let changed = merged.count != remote.count || merged.contains { r in
             guard let s = remoteByID[r.id] else { return true }
             return r.title != s.title || r.amount != s.amount || r.unit != s.unit
-                || r.note != s.note || r.kind != s.kind || r.source != s.source
+                || r.note != s.note || r.category != s.category
+                || r.kind != s.kind || r.source != s.source
                 || Int(r.updatedAt.timeIntervalSince1970) != Int(s.updatedAt.timeIntervalSince1970)
         }
         records = merged

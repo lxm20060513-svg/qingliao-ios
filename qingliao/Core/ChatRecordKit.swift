@@ -45,10 +45,9 @@ struct ChatExpenseDraft: Equatable, Sendable {
     /// 记账时间（= 解析时刻；作为参数传入而不是内部取 Date()，真值表才能固定）
     let at: Date
 
-    /// 落库备注：分类 + 原话。
-    /// 为什么塞 note：RecordItem **没有** category 字段（RecordKit 头注释「第一版刻意不做类别字段」），
-    /// 而生活页只显示 title / 金额 / 时间 —— 分类不落进 note 就只活在卡片上、库里丢干净，
-    /// 将来要做「分类统计」时无从回溯。
+    /// v4.0.19 起**不再用于落库**：分类已是 RecordItem.category 一等字段，note 只留原话
+    /// （RecordStore.addExpense 传的是 draft.category + draft.raw）。保留它只为兼容旧格式
+    /// 「分类：X｜原话：Y」的构造与真值表口径 —— 新代码不要拿它写库。
     var storeNote: String { "分类：\(category)｜原话：\(raw)" }
 }
 
@@ -291,6 +290,14 @@ enum ChatRecordKit {
             return row.name
         }
         return "其它"
+    }
+
+    /// v4.0.19：全部分类名（编辑/选择界面用）。顺序 = 词表顺序，末尾补兜底「其它」。
+    /// 存在的意义：编辑笔账时要能改分类，UI 不该自己再抄一份词表（抄了必漂移）。
+    static var allCategories: [String] {
+        var names = categoryTable.map { $0.name }
+        if !names.contains("其它") { names.append("其它") }
+        return names
     }
 
     // MARK: - 词表

@@ -250,6 +250,57 @@ let legacyDecoded = try? legacyDecoder.decode([RecordItem].self, from: legacyJSO
 check("旧 JSON 缺字段不崩（decodeIfPresent）", legacyDecoded?.count == 1)
 check("旧条目缺 amount 时 amountText 不崩", legacyDecoded?.first.map { $0.amountText.isEmpty == false } ?? false)
 
+// ── 7b. 分类字段（v4.0.19：分类升为一等字段 + 本月分类占比）──
+//
+// 为什么要这一节：分类原先塞在 note 字符串「分类：X｜原话：Y」里。改成独立字段后，
+// 读取端必须**同时吃新字段与老格式**，否则历史账目的分类补不回来、永远显示成「未分类」。
+
+check("分类显示名：空/空白 → 未分类",
+      RecordKit.categoryLabel("") == "未分类" && RecordKit.categoryLabel("   ") == "未分类")
+check("分类显示名：非空原样", RecordKit.categoryLabel("餐饮") == "餐饮")
+
+// 老格式回退解析（这条路径决定历史账目还能不能进占比）
+check("老格式取分类", RecordKit.categoryFromNote("分类：餐饮｜原话：买菜 86") == "餐饮")
+check("老格式只有「分类：X」也能取", RecordKit.categoryFromNote("分类：交通") == "交通")
+check("无分类前缀 → 空串（不得凭 note 正文猜分类）", RecordKit.categoryFromNote("原话：买菜 86").isEmpty)
+check("空 note → 空串", RecordKit.categoryFromNote("").isEmpty)
+check("老格式取原话", RecordKit.plainNote("分类：餐饮｜原话：买菜 86") == "买菜 86")
+check("无前缀 note 原样返回", RecordKit.plainNote("买菜 86") == "买菜 86")
+
+// 新字段优先于 note：同一条两边都在时，必须以字段为准（老格式只是兜底）
+let catJSON = #"[{"id":"c1","kind":"amount","title":"买菜","amount":86,"unit":"元","note":"分类：其它｜原话：买菜 86","category":"餐饮","source":"chat","createdAt":"2026-09-01T10:00:00Z","updatedAt":"2026-09-01T10:00:00Z"}]"#
+if let ds = try? legacyDecoder.decode([RecordItem].self, from: catJSON.data(using: .utf8)!) {
+    check("有 category 字段时以字段为准（不被 note 老格式盖掉）", ds.first?.category == "餐饮")
+} else {
+    check("带 category 的新 JSON 可解析", false)
+}
+// 缺 category 的老数据 → 解码时从 note 回退
+let legacyCatJSON = #"[{"id":"c2","kind":"amount","title":"买菜","amount":86,"unit":"元","note":"分类：餐饮｜原话：买菜 86","source":"chat","createdAt":"2026-09-01T10:00:00Z","updatedAt":"2026-09-01T10:00:00Z"}]"#
+if let ds = try? legacyDecoder.decode([RecordItem].self, from: legacyCatJSON.data(using: .utf8)!) {
+    check("老数据缺 category 字段 → 从 note 回退出「餐饮」", ds.first?.category == "餐饮")
+} else {
+    check("老格式 JSON 可解析", false)
+}
+
+// 分类占比：金额降序 / 只算本月 / 只算「元」/ 空分类兜「未分类」
+let catRecs: [RecordItem] = [
+    RecordItem(kind: "amount", title: "买菜", amount: 60, unit: "元", category: "餐饮", source: "chat", createdAt: day(2026, 9, 3)),
+    RecordItem(kind: "amount", title: "打车", amount: 20, unit: "元", category: "交通", source: "chat", createdAt: day(2026, 9, 4)),
+    RecordItem(kind: "amount", title: "午饭", amount: 40, unit: "元", category: "餐饮", source: "chat", createdAt: day(2026, 9, 5)),
+    RecordItem(kind: "amount", title: "没分类的", amount: 5, unit: "元", category: "", source: "manual", createdAt: day(2026, 9, 6)),
+    RecordItem(kind: "meter", title: "电表", amount: 1234, unit: "度", category: "居家", source: "intent", createdAt: day(2026, 9, 7)),
+    RecordItem(kind: "amount", title: "上月", amount: 999, unit: "元", category: "餐饮", source: "chat", createdAt: day(2026, 8, 20)),
+]
+let cats = RecordKit.categoryTotals(catRecs, now: day(2026, 9, 23), calendar: cal)
+check("分类条数 = 3（餐饮/交通/未分类；读数与上月不计）", cats.count == 3)
+check("金额降序：餐饮 100 两条居首", cats.first?.category == "餐饮"
+      && abs((cats.first?.amount ?? 0) - 100) < 0.001 && cats.first?.count == 2)
+check("第二是交通 20", cats.count > 1 && cats[1].category == "交通" && abs(cats[1].amount - 20) < 0.001)
+check("空分类归入「未分类」（不许静默消失）", cats.contains { $0.category == "未分类" && abs($0.amount - 5) < 0.001 })
+check("占比之和 == 本月合计（同口径，口径漂移必红）",
+      abs(cats.reduce(0) { $0 + $1.amount } - RecordKit.monthTotal(catRecs, now: day(2026, 9, 23), calendar: cal).amount) < 0.001)
+
+
 // MARK: - 8. 动作表完整性（源码级护栏：加了新动作不许漏文案 / 图标 / 执行分支）
 //
 // 为什么要有：动作表是"三处必须同步"的典型（IntentAction case / 动作条文案图标 / 执行器分支）。

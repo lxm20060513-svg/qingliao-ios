@@ -12,7 +12,8 @@
 //   · **反例占三分之一以上**：本入口是「点即写」（写错就进用户账本），
 //     所以「不该认的必须不认」比「该认的能认」更重要 —— 反例条数不足直接判红，防后人只加正例。
 //   · 两段识别：① 带单位/前缀 → 复用 IntentPipeline；② 裸数字 → 本仓新增的窄门。
-//   · 分类只做词表命中 + 兜底「其它」；分类必须落进 note（RecordItem 没有 category 字段）。
+//   · 分类只做词表命中 + 兜底「其它」；**v4.0.19 起分类落 RecordItem.category 一等字段**，
+//     note 只留原话（老数据「分类：X｜原话：Y」由 RecordKit 解码时回退解析）。
 //   · 卡片走既有 ```ql-card 协议：**必须能被真的 AgentCardParser 解出来**（不是手写字符串自证）。
 //   · 卡片**不带动作段**：AgentCard 协议今天没有可交互动作位（撤销按钮因此在宿主动作条上，
 //     见 ChatRecordBar 头注释）。谁要往卡里加按钮，先改 AgentCardParser/AgentResultCard。
@@ -73,6 +74,7 @@ enum ChatRecordTruthTable {
         sectionFive_卡片()
         sectionSix_签名与时间文案()
         sectionSeven_反例占比哨兵()
+        sectionFourB_落库口径护栏()
     }
 
     // MARK: - 1. 裸数字正例（② 本仓补的那条窄门）
@@ -172,8 +174,33 @@ enum ChatRecordTruthTable {
             check("note 断言前置（应认出「买菜 86」）", false)
             return
         }
-        check("note 含分类", d.storeNote.contains("分类：餐饮"))
-        check("note 含原话（事后可追溯）", d.storeNote.contains("原话：买菜 86"))
+        check("旧格式 note 含分类（兼容口径）", d.storeNote.contains("分类：餐饮"))
+        check("旧格式 note 含原话（事后可追溯）", d.storeNote.contains("原话：买菜 86"))
+
+        // v4.0.19：真正落库的是字段 + 原话，不是那个旧格式串
+        check("draft 自带 category 字段（不再靠 note 携带分类）", d.category == "餐饮")
+        check("draft.raw 就是原话（落进 note 的应该是它）", d.raw == "买菜 86")
+    }
+
+    // MARK: - 4b. 落库口径源码护栏（分类不许只活在卡片上）
+
+    static func sectionFourB_落库口径护栏() {
+        print("\n=== 4b. 落库口径源码护栏 ===")
+        guard let store = try? String(contentsOfFile: "qingliao/Core/RecordStore.swift", encoding: .utf8) else {
+            check("读得到 RecordStore.swift（路径写错 = 这条护栏白写）", false)
+            return
+        }
+        guard let kit = try? String(contentsOfFile: "qingliao/Core/RecordKit.swift", encoding: .utf8) else {
+            check("读得到 RecordKit.swift", false)
+            return
+        }
+        check("addExpense 走 category 字段 + note 只留原话",
+              store.contains("note: draft.raw, category: draft.category, source: \"chat\")"))
+        check("RecordItem 有一等字段 category", kit.contains("var category: String"))
+        check("编辑能力存在（候选池①：不能只剩删了重记）",
+              store.contains("func update(_ item: RecordItem, title: String"))
+        check("远端合并的差异判定带上 category（否则改分类不回写）",
+              store.contains("r.category != s.category"))
     }
 
     // MARK: - 5. 卡片（必须能被真的 AgentCardParser 解出来）
