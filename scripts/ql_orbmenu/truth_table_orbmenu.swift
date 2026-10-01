@@ -1336,8 +1336,9 @@ check("记账：同一句 10 分钟内重复 → 出声说明（不许静默 ret
       // 🚨 v4.0.x 修断言：原来钉的是 flashNoContent("这句 10 分钟内已记过…") 这条具体实现。
       // 现在去重提示走**独立位** recordDedupNotice（复用 intentNoContentHint 会被意图动作条整个盖住），
       // 所以钉「独立提示位 + 出声」这两个口径，而不是钉死某个函数名。
+      // v4.0.19：flashRecordDedup 加了 itemID 参数（候选池⑯ 去重可点查账），断言放宽为函数存在。
       chatClean.contains("@State var recordDedupNotice = false")
-      && chatClean.contains("private func flashRecordDedup()")
+      && chatClean.contains("private func flashRecordDedup(")
       && chatClean.contains("Haptics.error()")
       && !chatClean.contains("ChatRecordKit.repeatWindow { return }"))
 check("记账去重提示有独立渲染位（不被意图动作条 else-if 盖住）",

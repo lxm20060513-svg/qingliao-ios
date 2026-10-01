@@ -93,6 +93,38 @@ struct RecordItem: Identifiable, Codable, Equatable, Sendable {
     }
 }
 
+/// 一天的账目分组（候选池⑤ 账本明细页：按日分组 + 日小计）
+///
+/// 为什么按 **createdAt** 分组而不是 sortDate(updatedAt)：编辑一笔账不该把它搬到今天，
+/// 「这笔钱是哪天花的」是账本的骨架。（列表排序仍用 updatedAt，两件事不冲突。）
+struct DayGroup: Identifiable, Equatable, Sendable {
+    let day: String        // "2026-09-26"
+    let label: String      // 今天 / 昨天 / 9月24日
+    let expense: Double    // 日小计：只算「元」的支出（读数是读数，不是钱）
+    let income: Double     // 日收入（单列，绝不并进小计）
+    let items: [RecordItem]
+    var id: String { day }
+}
+
+/// 一个月的收支（候选池⑥ 月度趋势）
+struct MonthStat: Identifiable, Equatable, Sendable {
+    let key: String        // "2026-09"
+    let label: String      // "9月"
+    let expense: Double
+    let income: Double
+    var id: String { key }
+}
+
+/// 本月进度与月末预估（候选池⑥）
+struct MonthProjection: Equatable, Sendable {
+    let spent: Double
+    let income: Double
+    let daysElapsed: Int
+    let daysInMonth: Int
+    let dailyAvg: Double
+    let projected: Double
+}
+
 /// 本月某个分类的合计（v4.0.19 分类占比）
 ///
 /// 为什么是 struct 而不是 tuple：`ForEach(rows, id: \.category)` 这类 key path 打在 tuple 上
@@ -144,10 +176,9 @@ enum RecordKit {
         return String(format: "%04d-%02d", c.year ?? 0, c.month ?? 0)
     }
 
-    /// 本月合计：**只算单位是「元」的**（读数混进来会算出毫无意义的和）
-    static func monthTotal(_ items: [RecordItem], now: Date = Date(),
+    /// 某个月的支出合计（key = "2026-09"）——趋势（⑥）与月末预估共用这一处口径
+    static func monthTotal(_ items: [RecordItem], key: String,
                            calendar: Calendar = .current) -> (amount: Double, count: Int) {
-        let key = monthKey(now, calendar: calendar)
         var sum = 0.0
         var n = 0
         for i in items where i.unit == "元" && i.kind != incomeKind {
@@ -159,10 +190,15 @@ enum RecordKit {
         return (sum, n)
     }
 
-    /// 本月收入合计（与 monthTotal 完全对称；同样只算「元」、同样按月过滤）
-    static func monthIncome(_ items: [RecordItem], now: Date = Date(),
+    /// 本月合计：**只算单位是「元」的**（读数混进来会算出毫无意义的和）
+    static func monthTotal(_ items: [RecordItem], now: Date = Date(),
+                           calendar: Calendar = .current) -> (amount: Double, count: Int) {
+        monthTotal(items, key: monthKey(now, calendar: calendar), calendar: calendar)
+    }
+
+    /// 某个月的收入合计（key = "2026-09"）
+    static func monthIncome(_ items: [RecordItem], key: String,
                             calendar: Calendar = .current) -> (amount: Double, count: Int) {
-        let key = monthKey(now, calendar: calendar)
         var sum = 0.0
         var n = 0
         for i in items where i.unit == "元" && i.kind == incomeKind {
@@ -172,6 +208,12 @@ enum RecordKit {
             n += 1
         }
         return (sum, n)
+    }
+
+    /// 本月收入合计（与 monthTotal 完全对称；同样只算「元」、同样按月过滤）
+    static func monthIncome(_ items: [RecordItem], now: Date = Date(),
+                            calendar: Calendar = .current) -> (amount: Double, count: Int) {
+        monthIncome(items, key: monthKey(now, calendar: calendar), calendar: calendar)
     }
 
     /// v4.0.19 分类占比：本月「元」条目按 category 聚合，金额降序（同额按条数、再按名称排，保证稳定）
@@ -195,6 +237,111 @@ enum RecordKit {
             if ca != cb { return ca > cb }
             return a < b
         }.map { CategoryTotal(category: $0, amount: sum[$0] ?? 0, count: cnt[$0] ?? 0) }
+    }
+
+    // MARK: - v4.0.19 候选池 ⑤⑥⑬：账本统计（纯逻辑，本机真值表逐条断言）
+
+    /// 支出/收入小计（**只算「元」**：度/kWh 是读数不是钱；收入按 kind 单列，绝不混进支出）
+    static func sumMoney(_ items: [RecordItem]) -> (expense: Double, income: Double) {
+        var e = 0.0
+        var i = 0.0
+        for r in items where r.unit == "元" {
+            guard let a = r.amount else { continue }
+            if r.kind == incomeKind { i += a } else { e += a }
+        }
+        return (e, i)
+    }
+
+    /// （日期键）"2026-09-26"
+    static func dayKey(_ date: Date, calendar: Calendar = .current) -> String {
+        let c = calendar.dateComponents([.year, .month, .day], from: date)
+        return String(format: "%04d-%02d-%02d", c.year ?? 0, c.month ?? 0, c.day ?? 0)
+    }
+
+    /// "2026-09" → "9月"
+    static func monthLabel(_ key: String) -> String {
+        let parts = key.components(separatedBy: "-")
+        guard parts.count == 2, let m = Int(parts[1]) else { return key }
+        return String(m) + "月"
+    }
+
+    /// 明细页的日期标题：今天 / 昨天 / 9月24日。
+    /// today/yesterday 由调用方传**键**（纯字符串比较 → 本机真值表可测，不依赖系统日历）。
+    static func dayLabel(_ day: String, today: String, yesterday: String) -> String {
+        if day == today { return "今天" }
+        if day == yesterday { return "昨天" }
+        let parts = day.components(separatedBy: "-")
+        guard parts.count == 3, let m = Int(parts[1]), let d = Int(parts[2]) else { return day }
+        return String(m) + "月" + String(d) + "日"
+    }
+
+    /// 明细页主列表：按 **createdAt** 分组，组新→旧、组内新→旧（候选池⑤）
+    static func dayGroups(_ items: [RecordItem], now: Date = Date(),
+                          calendar: Calendar = .current) -> [DayGroup] {
+        let today = dayKey(now, calendar: calendar)
+        let yday = dayKey(calendar.date(byAdding: .day, value: -1, to: now) ?? now, calendar: calendar)
+        var order: [String] = []
+        var bucket: [String: [RecordItem]] = [:]
+        for r in items {
+            let k = dayKey(r.createdAt, calendar: calendar)
+            if bucket[k] == nil { order.append(k) }
+            bucket[k, default: []].append(r)
+        }
+        // 键定长（yyyy-MM-dd）→ 字符串降序就是日期降序
+        return order.sorted(by: >).map { k in
+            let list = (bucket[k] ?? []).sorted { $0.createdAt > $1.createdAt }
+            let s = sumMoney(list)
+            return DayGroup(day: k, label: dayLabel(k, today: today, yesterday: yday),
+                            expense: s.expense, income: s.income, items: list)
+        }
+    }
+
+    /// 近 N 个自然日（**含今天**）的支出/收入（候选池⑬ 首页卡周趋势）
+    static func recentDays(_ items: [RecordItem], days: Int = 7, now: Date = Date(),
+                           calendar: Calendar = .current) -> (expense: Double, income: Double, count: Int) {
+        let start = calendar.startOfDay(for: now)
+        let from = calendar.date(byAdding: .day, value: -(max(1, days) - 1), to: start) ?? start
+        var e = 0.0
+        var i = 0.0
+        var n = 0
+        for r in items where r.unit == "元" {
+            guard let a = r.amount else { continue }
+            let d = calendar.startOfDay(for: r.createdAt)
+            guard d >= from, d <= start else { continue }
+            if r.kind == incomeKind { i += a } else { e += a }
+            n += 1
+        }
+        return (e, i, n)
+    }
+
+    /// 最近 months 个月（含本月，**升序** = 图表从左到右的时间顺序）（候选池⑥）
+    static func monthStats(_ items: [RecordItem], months: Int = 3, now: Date = Date(),
+                           calendar: Calendar = .current) -> [MonthStat] {
+        let n = max(1, months)
+        var out: [MonthStat] = []
+        for back in stride(from: n - 1, through: 0, by: -1) {
+            guard let d = calendar.date(byAdding: .month, value: -back, to: now) else { continue }
+            let key = monthKey(d, calendar: calendar)
+            out.append(MonthStat(key: key, label: monthLabel(key),
+                                 expense: monthTotal(items, key: key, calendar: calendar).amount,
+                                 income: monthIncome(items, key: key, calendar: calendar).amount))
+        }
+        return out
+    }
+
+    /// 本月进度与月末预估：日均 = 已花 / 已过天数，预估 = 日均 × 当月天数（候选池⑥）
+    /// 空账本 / 1 号都不会除零（elapsed 取 max(1, …)），且预估随已花单调不减。
+    static func monthProjection(_ items: [RecordItem], now: Date = Date(),
+                                calendar: Calendar = .current) -> MonthProjection {
+        let key = monthKey(now, calendar: calendar)
+        let spent = monthTotal(items, key: key, calendar: calendar).amount
+        let income = monthIncome(items, key: key, calendar: calendar).amount
+        let elapsed = max(1, calendar.component(.day, from: now))
+        let daysInMonth = calendar.range(of: .day, in: .month, for: now)?.count ?? 30
+        let avg = spent / Double(elapsed)
+        return MonthProjection(spent: spent, income: income, daysElapsed: elapsed,
+                               daysInMonth: daysInMonth, dailyAvg: avg,
+                               projected: avg * Double(daysInMonth))
     }
 
     /// 最近一条读数（非「元」的数值条目）

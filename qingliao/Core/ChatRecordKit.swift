@@ -56,7 +56,9 @@ struct ChatExpenseDraft: Equatable, Sendable {
 /// 会话里刚记下的一笔（驱动输入栏上方的「已记账 + 撤销」动作条；撤销要能一并收回卡片）
 struct ChatRecordEntry: Equatable {
     let item: RecordItem
-    let category: String
+    /// v4.0.19 候选池⑭：动作条上改分类后要回写这里，否则展开区显示的还是旧分类
+    /// （SwiftUI 的 Picker 绑定读的就是这个值）。改 var 不影响 Equatable 合成。
+    var category: String
     /// 批量入账（候选池④）时**除第一笔以外**的其余条目。撤销必须一次全撤 ——
     /// 只撤第一笔会留下「用户以为撤了、账本里还剩两笔」这种最难查的账。
     var extraItems: [RecordItem] = []

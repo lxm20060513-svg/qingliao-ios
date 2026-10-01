@@ -48,6 +48,12 @@ struct ChatView: View {
     /// v4.0.x：记账去重提示的独立位（**不能**复用 intentNoContentHint —— 那个会被意图动作条盖住）
     @State var recordDedupNotice = false
     @State var dedupNoticeTask: Task<Void, Never>?
+    /// v4.0.19 候选池⑯：被去重挡下的到底是哪一笔 —— 提示可点开看（原来只有一句死文字）
+    @State var dedupItem: RecordItem?
+    @State var dedupExpanded = false
+    /// v4.0.19：签名 → 那一笔的 id。去重命中时要能反查「记的是哪一笔」，
+    /// 光有 chatRecordSignatures 的**时刻**查不出条目。
+    @State var chatRecordItems: [String: String] = [:]
     // 剪贴板的**单一真值源**（v3.9.72 收口）：上次进 App 时看到过的那一版 changeCount。
     // v3.8.1 的「已处理过的那一版」（handledClipChange + handledClipUptime 两个 @AppStorage）在
     // v3.9.72 换门后只写不读、已成为死代码，本轮删除——**别再恢复**，它有两个漏斗：
@@ -1518,19 +1524,38 @@ struct ChatView: View {
                           category: entry.category,
                           batchCount: entry.extraItems.count + 1,
                           batchTotal: ([entry.item] + entry.extraItems).reduce(0) { $0 + ($1.amount ?? 0) },
+                          onRecategorize: { recategorizeLanded(entry, $0) },
                           onUndo: { undoLandedExpense(entry) },
                           onClose: { withAnimation(Motion.settle) { chatRecordEntry = nil } })
                 .padding(.horizontal, Spacing.xs)
                 .padding(.bottom, Spacing.xs)
         } else if recordDedupNotice {
-            HStack(spacing: 6) {
-                Image(systemName: "exclamationmark.circle")
-                    .font(.system(size: Typography.subhead))
-                Text("这句 \(Int(ChatRecordKit.repeatWindow / 60)) 分钟内已记过，没重复记账")
-                    .font(.system(size: Typography.subhead))
+            // 候选池⑯：这条提示从「死文字」升级为**可点** —— 点开摊出被挡下的那一笔。
+            // 为什么要能点：用户看到「已记过」第一反应是「哪一笔？」，指不到就只好去生活页翻。
+            VStack(alignment: .leading, spacing: Spacing.xxs) {
+                Button(action: toggleDedupDetail) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "exclamationmark.circle")
+                            .font(.system(size: Typography.subhead))
+                        Text("这句 \(Int(ChatRecordKit.repeatWindow / 60)) 分钟内已记过，没重复记账")
+                            .font(.system(size: Typography.subhead))
+                        Spacer(minLength: 0)
+                        if dedupItem != nil {
+                            Text(dedupExpanded ? "收起" : "看这一笔")
+                                .font(.system(size: Typography.caption))
+                        }
+                    }
+                    .foregroundStyle(.secondary)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(dedupItem == nil ? "已记过提示"
+                                                     : (dedupExpanded ? "收起那一笔的详情" : "查看被去重挡下的那一笔"))
+                if let d = dedupItem, dedupExpanded {
+                    dedupDetailRow(d)
+                }
             }
-            .foregroundStyle(.secondary)
-            .frame(maxWidth: .infinity)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.vertical, Spacing.xs)
             .transition(.opacity)
         } else if !stream.memoAdded.isEmpty {
@@ -1571,7 +1596,12 @@ struct ChatView: View {
     }
 
     /// 一句话记账的「已记过」去重提示（与意图动作条平级的独立位，2.4 秒后自动收）
-    private func flashRecordDedup() {
+    private func flashRecordDedup(itemID: String? = nil) {
+        // 候选池⑯：能查到就是「哪一笔」，查不到（条目已被删掉）就退回纯提示，不假装能点
+        dedupItem = itemID.flatMap { id in
+            RecordStore.shared.records.first { $0.id == id }
+        }
+        dedupExpanded = false
         Haptics.error()
         withAnimation(Motion.settle) { recordDedupNotice = true }
         dedupNoticeTask?.cancel()
@@ -1605,7 +1635,7 @@ struct ChatView: View {
         if let last = chatRecordSignatures[sig], now - last < ChatRecordKit.repeatWindow {
             // ❌ 不能静默 return：用户看到的是「同一句话说了两遍，第二遍没记账」——像功能坏了。
             // 出声说明「已记过、没重复记」，并指路撤销入口（账本在生活页）。
-            flashRecordDedup()
+            flashRecordDedup(itemID: chatRecordItems[sig])
             return
         }
         let drafts = ChatRecordKit.batchDrafts(from: text)
@@ -1616,15 +1646,17 @@ struct ChatView: View {
         }
         guard let first = added.first else { return }
         chatRecordSignatures[sig] = now
+        chatRecordItems[sig] = first.item.id
         // 表别无限长（一页聊天里可能记很多笔）：顺手清掉过窗口的老条目
         if chatRecordSignatures.count > 40 {
             chatRecordSignatures = chatRecordSignatures.filter { now - $0.value < ChatRecordKit.repeatWindow }
+            chatRecordItems = chatRecordItems.filter { chatRecordSignatures[$0.key] != nil }
         }
         // Store 的 2 秒连点护栏命中时返回的是**已存在**那条（inserted=false）→ 不再插第二张卡、
         // 也不撤旧条（撤了会把几分钟前那笔的提示顶掉）
         guard first.inserted else {
             // 2 秒连点护栏命中：已存在那一笔、没插新卡 —— 静默 = 用户以为没记上
-            flashRecordDedup()
+            flashRecordDedup(itemID: first.item.id)
             return
         }
         // 单笔走原卡（口径不变）；多笔走批量卡（一张卡列全，撤销仍是一次全撤）
@@ -1650,6 +1682,47 @@ struct ChatView: View {
         Haptics.success()     // v3.4.25：写入类动作的成功触感（与意图条写库同口径）
     }
 
+    /// 候选池⑭：在动作条上直接改这一笔的分类（**真写回** RecordStore，不是只改提示字）。
+    /// 写回后把 entry.category 也更新 —— 否则展开区的 Picker 读到的还是旧值（选了又跳回去）。
+    /// 失败必须出声：静默会让用户以为改了，生活页占比却纹丝不动。
+    private func recategorizeLanded(_ entry: ChatRecordEntry, _ category: String) {
+        guard RecordStore.shared.update(entry.item, title: entry.item.title,
+                                        amount: entry.item.amount, unit: entry.item.unit,
+                                        category: category) else {
+            Haptics.error()
+            return
+        }
+        var e = entry
+        e.category = category
+        withAnimation(Motion.settle) { chatRecordEntry = e }
+        Haptics.success()
+    }
+
+    /// 候选池⑯：摊开/收起被去重挡下的那一笔
+    private func toggleDedupDetail() {
+        guard dedupItem != nil else { return }
+        Haptics.tap()
+        withAnimation(Motion.settle) { dedupExpanded.toggle() }
+    }
+
+    /// 候选池⑯：那一笔的一行摘要（名称 + 金额 + 相对时间）
+    private func dedupDetailRow(_ d: RecordItem) -> some View {
+        HStack(spacing: 8) {
+            Text(d.title)
+                .font(.system(size: Typography.caption))
+                .lineLimit(1)
+            Spacer(minLength: 0)
+            Text(d.amountText)
+                .font(.system(size: Typography.caption))
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+            Text(MemoItem.relativeTime(d.updatedAt))
+                .font(.system(size: Typography.caption))
+                .foregroundStyle(.tertiary)
+        }
+        .padding(.leading, 22)
+    }
+
     /// v4.0.x 一句话记账：撤销刚才那笔（**真删**，不是把提示藏起来）。
     /// 三步都要：删记录（生活页立刻少一笔，NAS 同步走 Store 自己的 save）、
     /// 从会话里收回那张卡（卡还在 = 用户以为还记着）、
@@ -1662,6 +1735,7 @@ struct ChatView: View {
         withAnimation(Motion.settle) {
             chat.messages.removeAll { $0.id == entry.cardMessageID }
             chatRecordSignatures.removeValue(forKey: entry.signature)
+            chatRecordItems.removeValue(forKey: entry.signature)
             chatRecordEntry = nil
         }
         Haptics.tap()

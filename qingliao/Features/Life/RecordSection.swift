@@ -16,6 +16,8 @@ struct RecordSection: View {
     @State private var pendingDelete: RecordItem?
     /// v4.0.19 正在编辑的那一笔（候选池①：原来只能删了重记）
     @State private var editing: RecordItem?
+    /// v4.0.19 候选池⑤：明细页的分类筛选（nil = 全部）
+    @State private var filterCategory: String?
 
     private let units = ["元", "度", "kWh"]
 
@@ -169,57 +171,29 @@ struct RecordSection: View {
 
     // MARK: 全部记录（半屏 sheet，左滑删）
 
+    // MARK: 全部记录（半屏 sheet = 账本明细）
+
+    /// v4.0.19 候选池⑤⑥：明细页 = 顶部「本月进度 + 近 3 月趋势 + 近 7 天」+ 按日分组的账目。
+    /// 为什么要分组：一长串平铺的记录看不出「哪天花了多少」，而账本的心智本来就是按天翻。
+    /// 分组/小计口径全在 RecordKit.dayGroups（纯逻辑，本机真值表钉着），这里只摆位。
     private var allSheet: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                HStack(spacing: 8) {
-                    Text("全部记录")
-                        .font(.system(size: Typography.title, weight: .semibold))
-                    Text(subtitleText)
-                        .font(.system(size: Typography.caption))
-                        .foregroundStyle(.secondary)
-                    Spacer(minLength: 0)
-                    MiniCapsule(title: "完成", accent: true) { showAll = false }
-                }
-                .padding(.horizontal, Spacing.section)
-                .padding(.top, Spacing.xl)
-                .padding(.bottom, Spacing.md)
+                sheetHeader
                 List {
-                    ForEach(store.sorted) { r in
-                        RecordRowCard(item: r)
-                            .contentShape(Rectangle())
-                            // 点按 = 编辑这一笔（用 onTapGesture 而不是包 Button：Button 会跟 List 的左滑删抢手势）
-                            .onTapGesture { editing = r }
-                            .contextMenu {
-                                Button { editing = r } label: {
-                                    Label("编辑", systemImage: "pencil")
-                                }
-                                Button(role: .destructive) { pendingDelete = r } label: {
-                                    Label("删除", systemImage: "trash")
-                                }
+                    summaryRow
+                    if !categoryChips.isEmpty { chipsRow }
+                    ForEach(dayGroups) { g in
+                        Section {
+                            ForEach(g.items) { r in
+                                recordRow(r)
                             }
-                            .listRowInsets(EdgeInsets(top: 0, leading: Spacing.section,
-                                                      bottom: 8, trailing: Spacing.section))
-                            .listRowSeparator(.hidden)
-                            .listRowBackground(Color.clear)
-                    }
-                    .onDelete { offsets in
-                        // 单行删走确认框；批量手势（极少见）直接删
-                        guard offsets.count == 1, let idx = offsets.first else {
-                            for r in offsets.map({ store.sorted[$0] }) { store.delete(r) }
-                            return
+                            .onDelete { offsets in deleteInGroup(g, offsets) }
+                        } header: {
+                            dayHeader(g)
                         }
-                        pendingDelete = store.sorted[idx]
                     }
-                    if store.sorted.isEmpty {
-                        Text("还没有记录")
-                            .font(.system(size: Typography.subhead))
-                            .foregroundStyle(.tertiary)
-                            .frame(maxWidth: .infinity, alignment: .center)
-                            .padding(.top, Spacing.xxl)
-                            .listRowSeparator(.hidden)
-                            .listRowBackground(Color.clear)
-                    }
+                    if dayGroups.isEmpty { emptyListRow }
                 }
                 .listStyle(.plain)
                 .scrollContentBackground(.hidden)
@@ -234,6 +208,151 @@ struct RecordSection: View {
             }
         }
         .presentationDetents([.medium, .large])
+    }
+
+    private var sheetHeader: some View {
+        HStack(spacing: 8) {
+            Text("全部记录")
+                .font(.system(size: Typography.title, weight: .semibold))
+            Text(subtitleText)
+                .font(.system(size: Typography.caption))
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 0)
+            MiniCapsule(title: "完成", accent: true) { showAll = false }
+        }
+        .padding(.horizontal, Spacing.section)
+        .padding(.top, Spacing.xl)
+        .padding(.bottom, Spacing.md)
+    }
+
+    /// 顶部汇总卡（本月进度 / 趋势 / 近 7 天）—— 本体在 RecordMonthSummary
+    private var summaryRow: some View {
+        let now = Date()
+        return RecordMonthSummary(
+            projection: RecordKit.monthProjection(store.records, now: now),
+            stats: RecordKit.monthStats(store.records, months: 3, now: now),
+            week: RecordKit.recentDays(store.records, days: 7, now: now)
+        )
+        .listRowInsets(EdgeInsets(top: 0, leading: Spacing.section,
+                                  bottom: Spacing.md, trailing: Spacing.section))
+        .listRowSeparator(.hidden)
+        .listRowBackground(Color.clear)
+    }
+
+    /// 分类筛选（只有存在分类数据时才出现）：账目一多，平铺列表定位不了「餐饮这个月花了多少」
+    private var categoryChips: [String] {
+        var set = Set<String>()
+        for r in store.records where !r.category.isEmpty { set.insert(r.category) }
+        return set.sorted()
+    }
+
+    private var chipsRow: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                chip(nil, "全部")
+                ForEach(categoryChips, id: \.self) { c in
+                    chip(c, RecordKit.categoryLabel(c))
+                }
+            }
+            .padding(.vertical, 2)
+        }
+        .listRowInsets(EdgeInsets(top: 0, leading: Spacing.section,
+                                  bottom: Spacing.md, trailing: 0))
+        .listRowSeparator(.hidden)
+        .listRowBackground(Color.clear)
+    }
+
+    private func chip(_ value: String?, _ title: String) -> some View {
+        let on = filterCategory == value
+        return Button {
+            filterCategory = value
+            Haptics.selection()
+        } label: {
+            Text(title)
+                .font(.system(size: Typography.caption, weight: on ? .semibold : .regular))
+                .foregroundStyle(on ? Color.white : Color.secondary)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(Capsule().fill(on ? Color.accentColor
+                                               : Color(uiColor: .secondarySystemGroupedBackground)))
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// 明细页的行集合：按筛选条件过滤后交给 RecordKit 分组（分组内部会重排，顺序不依赖这里）
+    private var dayGroups: [DayGroup] {
+        let list: [RecordItem]
+        if let c = filterCategory {
+            list = store.records.filter { $0.category == c }
+        } else {
+            list = store.records
+        }
+        return RecordKit.dayGroups(list)
+    }
+
+    /// 日组头：日期 + 当日收入（绿）/当日支出小计（灰）。两个小计都为 0 时不摆数字，保持干净。
+    private func dayHeader(_ g: DayGroup) -> some View {
+        HStack(spacing: 8) {
+            Text(g.label)
+                .font(.system(size: Typography.subhead, weight: .semibold))
+            Spacer(minLength: 0)
+            if g.income > 0 {
+                Text(String(format: "+%.2f", g.income))
+                    .font(.system(size: Typography.caption))
+                    .foregroundStyle(.green)
+                    .monospacedDigit()
+            }
+            if g.expense > 0 {
+                Text(String(format: "支出 %.2f", g.expense))
+                    .font(.system(size: Typography.caption))
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
+        }
+        .padding(.horizontal, Spacing.section)
+        .padding(.top, Spacing.md)
+        .padding(.bottom, 4)
+        .textCase(nil)
+        .listRowBackground(Color.clear)
+    }
+
+    private func recordRow(_ r: RecordItem) -> some View {
+        RecordRowCard(item: r)
+            .contentShape(Rectangle())
+            // 点按 = 编辑这一笔（用 onTapGesture 而不是包 Button：Button 会跟 List 的左滑删抢手势）
+            .onTapGesture { editing = r }
+            .contextMenu {
+                Button { editing = r } label: {
+                    Label("编辑", systemImage: "pencil")
+                }
+                Button(role: .destructive) { pendingDelete = r } label: {
+                    Label("删除", systemImage: "trash")
+                }
+            }
+            .listRowInsets(EdgeInsets(top: 0, leading: Spacing.section,
+                                      bottom: 8, trailing: Spacing.section))
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
+    }
+
+    /// 左滑删：单行走确认框；批量手势（极少见）直接删。
+    /// 分组后 offsets 是**组内**下标 —— 必须映射回该组的 items，不能再去索引全局列表（那是上一版的形态）。
+    private func deleteInGroup(_ g: DayGroup, _ offsets: IndexSet) {
+        guard offsets.count == 1, let idx = offsets.first, idx < g.items.count else {
+            for i in offsets where i < g.items.count { store.delete(g.items[i]) }
+            return
+        }
+        pendingDelete = g.items[idx]
+    }
+
+    private var emptyListRow: some View {
+        Text(filterCategory == nil ? "还没有记录" : "这个分类还没有记录")
+            .font(.system(size: Typography.subhead))
+            .foregroundStyle(.tertiary)
+            .frame(maxWidth: .infinity, alignment: .center)
+            .padding(.top, Spacing.xxl)
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
     }
 
     // MARK: 新建（外壳照抄待办新建：取消/保存 toolbar + medium/large）
@@ -492,5 +611,87 @@ private struct RecordCategoryBar: View {
                 Spacer(minLength: 0)
             }
         }
+    }
+}
+
+/// v4.0.19 候选池⑥：明细页顶部汇总（本月已花 / 日均 / 月末预估 / 近 7 天 / 近 3 月柱状）。
+/// 拆成独立 struct 的理由同 RecordCategoryBar：宿主 ViewBuilder 里再堆计算 + 多层 HStack，
+/// type-check 会超时（本仓踩过，而且只有 CI 报，本地 -parse 查不出）。
+private struct RecordMonthSummary: View {
+    let projection: MonthProjection
+    let stats: [MonthStat]
+    let week: (expense: Double, income: Double, count: Int)
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Spacing.md) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text("本月已花")
+                    .font(.system(size: Typography.caption))
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+                Text(String(format: "%.2f 元", projection.spent))
+                    .font(.system(size: Typography.title, weight: .semibold))
+                    .monospacedDigit()
+            }
+            HStack(alignment: .top, spacing: 18) {
+                metric("日均", String(format: "%.0f", projection.dailyAvg))
+                metric("月末预估", String(format: "%.0f", projection.projected))
+                metric("近 7 天", String(format: "%.0f", week.expense))
+                Spacer(minLength: 0)
+            }
+            if stats.contains(where: { $0.expense > 0 }) {
+                RecordTrendBars(stats: stats)
+            }
+            Text("月末预估 = 日均 × 当月 " + String(projection.daysInMonth) + " 天，只作参考")
+                .font(.system(size: Typography.caption))
+                .foregroundStyle(.tertiary)
+        }
+        .padding(Spacing.xl)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .dashboardCard()
+    }
+
+    private func metric(_ label: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label)
+                .font(.system(size: Typography.caption))
+                .foregroundStyle(.tertiary)
+            Text(value)
+                .font(.system(size: Typography.subhead, weight: .medium))
+                .monospacedDigit()
+        }
+    }
+}
+
+/// 近 N 月迷你柱状（高度按最大值归一；本月那根用实色强调）。
+/// 全 0 时调用方不渲染它 —— 零高柱子看上去像 bug。
+private struct RecordTrendBars: View {
+    let stats: [MonthStat]
+
+    private var peak: Double {
+        let m = stats.map { max($0.expense, 0) }.max() ?? 0
+        return max(m, 0.0001)
+    }
+
+    var body: some View {
+        let lastKey = stats.last?.key
+        return HStack(alignment: .bottom, spacing: 10) {
+            ForEach(stats) { s in
+                VStack(spacing: 4) {
+                    Text(String(format: "%.0f", s.expense))
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+                        .monospacedDigit()
+                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        .fill(s.key == lastKey ? Color.accentColor : Color.accentColor.opacity(0.35))
+                        .frame(height: max(3, 44 * CGFloat(s.expense / peak)))
+                    Text(s.label)
+                        .font(.system(size: Typography.caption))
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity)
+            }
+        }
+        .frame(height: 78, alignment: .bottom)
     }
 }

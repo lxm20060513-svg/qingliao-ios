@@ -88,7 +88,7 @@ final class BackendUpdateModel {
         if case .restarting = phase { return }
         phase = .checking
         do {
-            let (data, code) = try await auth.request("POST", "/api/selfupdate",
+            let (data, code) = try await auth.request("/api/selfupdate", method: "POST",
                                                       body: ["action": "check"])
             guard code == 200,
                   let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
@@ -130,7 +130,7 @@ final class BackendUpdateModel {
                 }
             }
             do {
-                let (data, code) = try await auth.request("POST", "/api/selfupdate",
+                let (data, code) = try await auth.request("/api/selfupdate", method: "POST",
                                                           body: ["action": "run"])
                 guard code == 200,
                       let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any],

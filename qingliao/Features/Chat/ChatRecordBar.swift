@@ -1,6 +1,6 @@
 import SwiftUI
 
-// MARK: - v4.0.x 一句话记账 · 会话内动作条（「真撤销」的落点）
+// MARK: - v4.0.x 一句话记账 · 会话内动作条（「真撤销」+「改分类」的落点）
 //
 // 出现在哪：聊天页输入栏**上方**（宿主 ChatView.chatComposerArea 里、intentActionBarSlot 之后），
 // 由宿主用与意图动作条同一套定位/动效挂出来（不碰输入栏内部那套两层结构）。
@@ -19,6 +19,11 @@ import SwiftUI
 //   卡片 footer 只写「撤销：点输入框上方的『撤销』」= 指路，**不是**假按钮
 //   （卡上没有任何可点元素宣称自己能撤销）。
 //
+// v4.0.19 候选池⑭：条上可以**展开看这一笔 + 直接改分类**。
+//   改分类落回 RecordStore.update（真写回，生活页占比条与本月合计立刻跟着变），
+//   不是只改这条提示上的字。批量入账（batchCount > 1）时不给改分类：那几笔各记各的
+//   分类，条上只有一个 category 字段，改了会以一代全 —— 宁可说清楚「各笔分类照原样保留」。
+//
 // 生命周期：留到用户按「撤销」或「关闭」，或离开/重建这一页。
 //   刻意**不做**意图动作条那样的 5 秒窗口：记账卡是长期留在会话里的，
 //   「记错了要能撤」不该被 5 秒卡掉 —— 这是本入口与意图动作条唯一的形态差异，不是抄漏。
@@ -29,9 +34,14 @@ struct ChatRecordBar: View {
     var batchCount: Int = 1
     /// 批量时这几笔的合计（元）
     var batchTotal: Double = 0
+    /// 候选池⑭：改分类（宿主实现：RecordStore.update + 回写 entry.category）。
+    /// 给默认空实现是为了**不破坏别的调用点/预览**，宿主必须传真的。
+    var onRecategorize: (String) -> Void = { _ in }
     /// 真撤销（宿主实现：RecordStore.delete + 收回会话里那张卡）
     var onUndo: () -> Void
     var onClose: () -> Void
+
+    @State private var expanded = false
 
     private var isIncome: Bool { item.kind == RecordKit.incomeKind }
 
@@ -46,35 +56,54 @@ struct ChatRecordBar: View {
                                         category: category, isIncome: isIncome)
     }
 
+    /// 分类词表（与编辑弹窗同一处口径）：老数据里的自定义分类不在表内时也要保住原值，
+    /// 否则一展开就被改成词表首项 —— 那是「点一下看看」就改了用户的账。
+    private var catOptions: [String] {
+        var list = ChatRecordKit.allCategories
+        if !category.isEmpty && !list.contains(category) { list.insert(category, at: 0) }
+        return list
+    }
+
+    /// 只有单笔才给改分类（批量各笔分类不同，条上改会以一代全）
+    private var canRecategorize: Bool { batchCount <= 1 }
+
     var body: some View {
-        HStack(spacing: Spacing.md) {
-            Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: Typography.subhead))
-                .foregroundStyle(Color.accentColor)
-            VStack(alignment: .leading, spacing: Spacing.xxs) {
-                Text(titleText)
+        VStack(alignment: .leading, spacing: Spacing.md) {
+            HStack(spacing: Spacing.md) {
+                Image(systemName: "checkmark.circle.fill")
                     .font(.system(size: Typography.subhead))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-                Text(summary)
-                    .font(.system(size: Typography.caption))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                    .foregroundStyle(Color.accentColor)
+                Button(action: toggleExpanded) {
+                    VStack(alignment: .leading, spacing: Spacing.xxs) {
+                        Text(titleText)
+                            .font(.system(size: Typography.subhead))
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+                        Text(summary)
+                            .font(.system(size: Typography.caption))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(expanded ? "收起这笔账的详情" : "展开这笔账的详情")
+                // 撤销 = 删除类动作 → danger 淡底（Pill 口径：红/灰危险色不上玻璃）
+                Button(action: onUndo) {
+                    Text("撤销").pill(.topBar, tone: .danger)
+                }
+                .buttonStyle(PressStyle())
+                .accessibilityLabel("撤销刚才记的这笔账")
+                Button(action: onClose) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: Typography.subhead))
+                        .foregroundStyle(.tertiary)
+                }
+                .buttonStyle(PressStyle())
+                .accessibilityLabel("关闭记账提示")
             }
-            Spacer(minLength: 0)
-            // 撤销 = 删除类动作 → danger 淡底（Pill 口径：红/灰危险色不上玻璃）
-            Button(action: onUndo) {
-                Text("撤销").pill(.topBar, tone: .danger)
-            }
-            .buttonStyle(PressStyle())
-            .accessibilityLabel("撤销刚才记的这笔账")
-            Button(action: onClose) {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: Typography.subhead))
-                    .foregroundStyle(.tertiary)
-            }
-            .buttonStyle(PressStyle())
-            .accessibilityLabel("关闭记账提示")
+            if expanded { detail }
         }
         .padding(Spacing.xl)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -82,5 +111,51 @@ struct ChatRecordBar: View {
         .dashboardCard()
         .padding(.horizontal, Spacing.section)
         .transition(.move(edge: .bottom).combined(with: .opacity))
+    }
+
+    /// 展开区：分类（可改）+ 金额 + 记账时间
+    @ViewBuilder
+    private var detail: some View {
+        Divider().opacity(0.4)
+        HStack(spacing: 8) {
+            Text("分类")
+                .font(.system(size: Typography.caption))
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 0)
+            if canRecategorize {
+                Picker("分类", selection: Binding(get: { category },
+                                                 set: { onRecategorize($0) })) {
+                    Text(RecordKit.uncategorized).tag("")
+                    ForEach(catOptions, id: \.self) { c in
+                        Text(c).tag(c)
+                    }
+                }
+                .pickerStyle(.menu)
+                .labelsHidden()
+                .accessibilityLabel("改这一笔的分类")
+            } else {
+                Text("批量入账，各笔分类照原样保留")
+                    .font(.system(size: Typography.caption))
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        HStack(spacing: 8) {
+            Text(item.amountText)
+                .font(.system(size: Typography.caption))
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+            Text(category.isEmpty ? RecordKit.uncategorized : RecordKit.categoryLabel(category))
+                .font(.system(size: Typography.caption))
+                .foregroundStyle(.tertiary)
+            Spacer(minLength: 0)
+            Text(MemoItem.relativeTime(item.createdAt))
+                .font(.system(size: Typography.caption))
+                .foregroundStyle(.tertiary)
+        }
+    }
+
+    private func toggleExpanded() {
+        Haptics.tap()
+        withAnimation(Motion.settle) { expanded.toggle() }
     }
 }

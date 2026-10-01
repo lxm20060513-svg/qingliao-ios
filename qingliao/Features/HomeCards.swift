@@ -49,6 +49,8 @@ final class HomeCardData {
     var todoOpen: Int = 0
     var monthAmount: Double = 0
     var monthCount: Int = 0
+    /// v4.0.19 候选池⑬：近 7 天支出（首页卡副标题升级成「本月 + 本周」）
+    var weekAmount: Double = 0
     var tip: HomeCardTip = .idle
     var loaded = false
 
@@ -75,6 +77,7 @@ final class HomeCardData {
         let t = RecordStore.shared.monthTotal
         monthAmount = t.amount
         monthCount = t.count
+        weekAmount = RecordKit.recentDays(RecordStore.shared.records, days: 7).expense
     }
 
     /// 未读数 + 最新一封的相对时间（后端 list_messages 按时间**倒序**返回，first 即最新）
@@ -524,9 +527,13 @@ struct HomeCardFace: View {
             let city = data.weatherCity.isEmpty ? "" : " · \(data.weatherCity)"
             return "\(Int(t.rounded()))°\(data.weatherText)\(city)"
         case .expense:
-            return data.monthCount == 0
-                ? "本月还没有记录"
-                : "¥\(String(format: "%.0f", data.monthAmount)) · \(data.monthCount) 笔"
+            // 候选池⑬：有本周数据就报「本月 + 本周」，否则退回「本月 · N 笔」。
+            // ⚠️ 副标题**恒单行**（卡高恒定，见本文件顶部注释）——加字必须算长度，别写成两行。
+            guard data.monthCount > 0 else { return "本月还没有记录" }
+            if data.weekAmount > 0 {
+                return "¥\(String(format: "%.0f", data.monthAmount)) · 本周 ¥\(String(format: "%.0f", data.weekAmount))"
+            }
+            return "¥\(String(format: "%.0f", data.monthAmount)) · \(data.monthCount) 笔"
         case .agentTip:
             return data.tip.subtitle
         case .custom:

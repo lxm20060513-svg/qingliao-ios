@@ -411,6 +411,20 @@ ckIn() {  # ckIn "说明" "函数签名正则" "grep -E 模式" 文件
         fail=1
     fi
 }
+ckNotIn() {  # ckNotIn "说明" "函数签名正则" "不该出现的模式" 文件 —— 函数体内出现即失败
+    local body
+    body=$(awk -v sig="$2" '
+        $0 ~ sig { f=1 }
+        f { print }
+        f && /^    \}$/ { exit }
+    ' "$4")
+    if printf '%s' "$body" | grep -qE "$3"; then
+        echo "❌ $1"
+        fail=1
+    else
+        echo "✅ $1"
+    fi
+}
 CV=qingliao/Features/Chat/ChatView.swift
 MM=qingliao/Features/Chat/MeetingMinutesView.swift
 SI=qingliao/Core/ShareIntake.swift
@@ -427,8 +441,12 @@ ck "记账闸：用户亲手发送的路径传 allowExpense: true" \
    'sendCore\(text: text, imageData: nil, quotedText: quotedText, allowExpense: true\)' "$CV"
 ck "去重提示走独立位（不被意图动作条盖住）" \
    '@State var recordDedupNotice = false' "$CV"
+# v4.0.19：flashRecordDedup 加 itemID 参数（候选池⑯），原「无参签名存在」断言会假红。
+# 本条真意 = 去重提示不得复用 intentNoContentHint 路径：钉「函数体内不含 intentNoContentHint」。
 ck "去重提示不再复用 intentNoContentHint" \
-   'flashRecordDedup\(\)' "$CV"
+   'private func flashRecordDedup' "$CV"
+ckNX "去重提示体内不落 intentNoContentHint（复用=回归）" \
+   'flashRecordDedup' 'intentNoContentHint' "$CV"
 ckIn "纪要卡也有投递会话护栏（**限定 insertMinutesCard 函数体内**，不能靠记账那条同串假绿）" \
    'func insertMinutesCard\(_ card: String\)' 'guard !chat\.isDeliverySession else \{ return \}' "$CV"
 ck "纪要放弃标记不被整理复位（abandoned 不在 summarize 里清）" \
@@ -779,6 +797,14 @@ else
 fi
 run_unit /tmp/test_jn_app.bin scripts/ql_journal/truth_table_journal_app.swift | tee /tmp/tt_jn_app.log
 grep -q '0 失败' /tmp/tt_jn_app.log || fail=1
+
+echo "=== 56. 记账账本统计真值表（候选池 ⑤ 明细 / ⑥ 月度趋势 / ⑬ 周趋势）==="
+# 表在仓内 scripts/ql_record/truth_table_record.swift（纯 Foundation，不依赖 UI）。
+# 钉死的口径：① 明细按 createdAt 分日（编辑不改发生日）② 日/周/月小计**只算「元」**，度数不进钱、
+# ③ 收入单列绝不并进支出 ④ 近 N 天窗口含今天且左边界闭区间 ⑤ 月末预估不除零、空账本不出 NaN。
+# 这几条漏一条，用户看到的就是假数字 —— 所以反例（读数/收入/跨窗口旧账）占本表近一半。
+run_unit /tmp/test_record_stats scripts/ql_record/truth_table_record.swift qingliao/Core/RecordKit.swift | tee /tmp/tt_record.log
+grep -q '0 失败' /tmp/tt_record.log || fail=1
 
 [ $fail -eq 0 ] || { echo "❌ 有护栏失守"; exit 1; }
 exit 0
