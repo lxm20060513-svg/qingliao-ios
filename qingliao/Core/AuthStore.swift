@@ -256,7 +256,7 @@ final class AuthStore {
         // v2.0.70：蜂窝下恢复 relay 兜底（v2.0.68 一刀切去掉后蜂窝无法登录——iOS 管控下
         // 直连 POST 必挂，relay 是唯一通道；代价是 ASWAS 弹 Safari 授权窗，但可用优先）。
         // WiFi 下不弹：NetworkMonitor 已收紧（有 WiFi 接口绝不判蜂窝）+ 登录强制直连仅限 WiFi。
-        let (data, code): (Data, Int)
+        var (data, code) = (Data(), 0)
         if NetworkMonitor.shared.isCellular {
             do {
                 (data, code) = try await relay.directRequest(method: method, path: path,
