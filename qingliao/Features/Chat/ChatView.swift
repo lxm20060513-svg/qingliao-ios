@@ -563,11 +563,12 @@ struct ChatView: View {
             showTOCSheet = true
         }
         Button("清空本会话消息", role: .destructive) {
-            // v4.0.x：固定会话（投递壳 / 轻聊主动）不许清空 ——
-            // 投递壳在后端 _CLIENT_WINS_IDS 里，App 写空数组会**真实抹掉 NAS 上的投递历史**，
-            // 这与「固定会话不可删」是同一类保护：上轮只护了删除口，漏了清空口。
-            guard !chat.isFixedSession else {
-                clearBlockedHint = "「\(chat.title)」是固定会话，不能清空"
+            // v4.0.18：固定会话（投递壳 / 轻聊主动）**允许**清空（用户拍板：这两个会话也要能清）。
+            // 后端配套：投递壳本就走 _CLIENT_WINS_IDS（v3.9.72 内容以客户端为准）；
+            // 主动会话由 merge_sessions 空数组特判采纳（显式清空意图，非空快照仍以 NAS 为准防丢回复）。
+            // 本会话正在收流 → 拦（流式回复结束后的落库写会把刚清空的会话又写满）。
+            if thisSessionStreaming {
+                clearBlockedHint = "AI 正在回复，等回复结束后再清空"
                 return
             }
             // v2.0.40：两步走清空——先切欢迎页分支（列表立即卸载，数据未动），
@@ -576,13 +577,17 @@ struct ChatView: View {
             // SR5：原实现在 clearMessages **之前**就 Task{saveToServer}，写的是清空前的全量快照
             // （后端同 id 整会话覆盖 → 白写），而清空后的空数组又被 writeSessionSnapshot 的
             // 「空即跳过」护栏挡掉 → NAS 上历史原封不动，重启/换设备后「清空的消息又复活」。
+            // v4.0.15：发空写之前先排空在途写链（防旧快照在空写之后落地盖回）。
             let sid = chat.sessionId
             let ttl = chat.title
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
-                withAnimation(nil) { chat.clearMessages() }
-                clearing = false
-                Task { await chat.saveToServer(auth: auth, sessionId: sid, messages: [],
-                                               title: ttl, allowEmpty: true) }
+            Task {
+                await chat.flushPendingWrites()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                    withAnimation(nil) { chat.clearMessages() }
+                    clearing = false
+                    Task { await chat.saveToServer(auth: auth, sessionId: sid, messages: [],
+                                                   title: ttl, allowEmpty: true) }
+                }
             }
         }
         Button("取消", role: .cancel) {}

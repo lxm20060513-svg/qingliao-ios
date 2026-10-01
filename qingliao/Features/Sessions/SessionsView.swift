@@ -744,13 +744,12 @@ struct SessionsView: View {
             }
             // v4.1.x：清空会话内容（清消息、留会话与标题）——放在「删除会话」之前，
             // 两项都是 destructive，删除仍排最后（视觉与操作风险递增）。
-            // 固定会话（投递壳 / 轻聊主动）不给入口，与「不可删/不可改名」同一类保护（见下面 delete 的注释）。
-            if s.id != ChatStore.deliverySessionId && s.id != ChatStore.proactiveSessionId {
-                Button(role: .destructive) {
-                    confirmClear = s
-                } label: {
-                    Label("清空会话内容", systemImage: "eraser")
-                }
+            // v4.0.18：固定会话（投递壳 / 轻聊主动）**也给入口**（用户拍板：这两个会话也要能清；
+            // 删除仍不给——后端 _PROTECTED_IDS 拒删，入口必须可用）。
+            Button(role: .destructive) {
+                confirmClear = s
+            } label: {
+                Label("清空会话内容", systemImage: "eraser")
             }
             // v4.0.x：固定会话（投递壳 / 轻聊主动）不可删除 → 直接不给「删除会话」这个入口，
             // 而不是给一个点了会报错的按钮（所有可见 UI 入口都必须可用）。
@@ -977,14 +976,9 @@ struct SessionsView: View {
     ///
     /// 不传 updatedAt：App 恒发 0，后端条件是 `incoming >= cur`，恒成立 → 覆盖生效。
     private func clearContent(_ s: ChatSession) {
-        // 固定会话（投递壳 / 轻聊主动）不许清空 —— 与 ChatView「清空本会话消息」里
-        // 的 chat.isFixedSession 闸门同一口径：主动会话内容以 NAS 为准，App 写空数组
-        // 会被后端忽略；投递壳随时会被 append_delivery_message 再写回来，清了等于白做。
-        // 菜单里已不给入口，这里是第二道（深链/其他入口不依赖菜单可见性）。
-        if s.id == ChatStore.deliverySessionId || s.id == ChatStore.proactiveSessionId {
-            clearError = "「\(s.title)」是固定会话，不能清空"
-            return
-        }
+        // v4.0.18：固定会话（投递壳 / 轻聊主动）**允许**清空（用户拍板：这两个会话也要能清）。
+        // 后端配套：投递壳走 _CLIENT_WINS_IDS（内容以客户端为准，v3.9.72）；
+        // 主动会话由 merge_sessions 空数组特判采纳（显式清空意图，非空快照仍以 NAS 为准）。
         // 该会话有后台流在跑 → 先撤：跑完的答案会把刚清空的会话又写满。
         BackgroundStreamRunner.shared.cancelForDeletedSession(sessionId: s.id, auth: auth)
         let sid = s.id

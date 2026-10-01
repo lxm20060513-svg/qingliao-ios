@@ -130,25 +130,37 @@ check("批量删除过滤掉固定会话（否则后端部分拒绝→走失败�
 check("contextMenu 对固定会话不显示删除入口",
       s_sess.count("if s.id != ChatStore.deliverySessionId && s.id != ChatStore.proactiveSessionId") >= 2)
 
-# ═══ 4b. 清空口 / 改名口（审查 2 在 v4.0.x 抓出的同型遗留）═══
-# 上一轮只护了删除口，漏了两个同型口子，都是真会丢数据的：
-#   ① 清空口：ChatView「清空本会话消息」无 guard。投递壳在后端 _CLIENT_WINS_IDS 里，
-#      App 写空数组会**真实抹掉 NAS 上的投递历史**（清空比删除更隐蔽：会话还在，内容没了）。
-#   ② 改名口：后端只锁**自动命名**（SessionAutoName 闸门），用户手动改名是另一条路，
-#      不护住就能把「轻聊投递」「轻聊主动」改名成别的 → 固定会话再也认不出来。
-print("== 4b. 清空口 / 改名口（固定会话保护必须全覆盖，不能只护删除）")
+# ═══ 4b. 清空口 / 改名口 ═══
+# v4.0.18 语义反转（用户拍板）：固定会话（投递壳 / 轻聊主动）**允许清空**——
+#   投递壳本就走后端 _CLIENT_WINS_IDS（v3.9.72 内容以客户端为准）；
+#   主动会话由 merge_sessions 空数组特判采纳（显式清空意图；非空快照仍以 NAS 为准防丢回复）。
+# 但清空口仍须有护栏：本会话正在收流时拦（流式回复的落库写会把刚清空的会话又写满）。
+#   改名口维持锁定（后端标题锁定 + 前端不给入口）。
+print("== 4b. 清空口 / 改名口（固定会话可清空 + 流拦截护栏）")
 p_cv, s_cv = find("ChatView.swift")
 cl = re.search(r'Button\("清空本会话消息".*?\n        \}', s_cv, re.DOTALL)
 check("能定位清空按钮", cl is not None)
 if cl:
-    check("清空口拦固定会话（isFixedSession，非仅投递壳）",
-          "isFixedSession" in cl.group(0), "护栏未抓到清空口缺口")
-    check("清空拦截在 clearMessages() 之前（不能先清再拦）",
-          cl.group(0).find("isFixedSession") < cl.group(0).find("clearMessages()"))
+    check("清空口不再拦固定会话（v4.0.18 反转：两固定会话都可清）",
+          "isFixedSession" not in cl.group(0), "清空口又把固定会话拦了（旧护栏复活）")
+    check("清空口拦正在收流的会话（防流式落库写盖回）",
+          "thisSessionStreaming" in cl.group(0), "流拦截缺失")
+    check("流拦截在 clearMessages() 之前（不能先清再拦）",
+          cl.group(0).find("thisSessionStreaming") < cl.group(0).find("clearMessages()"))
     check("有可见提示（不给点了没反应的按钮）", "clearBlockedHint" in cl.group(0))
+    check("发空写前排空在途写链（flushPendingWrites，防旧快照盖回）",
+          "flushPendingWrites" in cl.group(0), "写链闸门缺失")
 check("ChatView 声明 clearBlockedHint 状态", "@State var clearBlockedHint" in s_cv)
 check("clearBlockedHint 挂在 alert 上（提示真能弹出来）",
       'alert("无法清空"' in s_cv and "clearBlockedHint != nil" in s_cv)
+# 会话列表：清空入口对固定会话可见（入口必须可用），删除入口仍隐藏
+check("contextMenu 清空入口对固定会话可见（不含固定会话排除判断的清空按钮）",
+      "confirmClear = s" in s_sess and
+      "清空会话内容" in s_sess)
+check("contextMenu 删除入口仍对固定会话隐藏（两处排除判断：改名+删除）",
+      s_sess.count("if s.id != ChatStore.deliverySessionId && s.id != ChatStore.proactiveSessionId") >= 2)
+check("clearContent 不再拦固定会话（v4.0.18 反转）",
+      "固定会话，不能清空" not in s_sess, "SessionsView 清空闸门未放开")
 rn = re.search(r'if s\.id != ChatStore\.deliverySessionId.*?renameText = s\.title', s_sess, re.DOTALL)
 check("改名口对固定会话不显示入口", rn is not None, "护栏未抓到改名口缺口")
 check("renameTarget 赋值点唯一（没有第二个漏护的改名入口）",
@@ -168,7 +180,7 @@ try:
     r = subprocess.run(
         ["python3", os.path.join(os.path.dirname(ROOT), "scripts", "ql.py"),
          "nas", "exec",
-         "docker exec qingliao sh -c \"grep -n 'PROACTIVE_SESSION_ID\\|_PROTECTED_IDS =\\|_CLIENT_WINS_IDS =\\|append_proactive_message' '/volume1/docker/hermes/微信文件/轻聊web/backend/sessions_api.py'\""],
+         "docker exec qingliao sh -c \"grep -n 'PROACTIVE_SESSION_ID\\|_PROTECTED_IDS =\\|_CLIENT_WINS_IDS =\\|append_proactive_message\\|主动会话显式清空采纳' '/volume1/docker/hermes/微信文件/轻聊web/backend/sessions_api.py'\""],
         cwd=os.path.dirname(ROOT), capture_output=True, text=True, timeout=90)
     be = r.stdout
 except Exception as e:
@@ -180,6 +192,8 @@ else:
     check("后端有 _PROTECTED_IDS 且含主动会话", "_PROTECTED_IDS" in be and "PROACTIVE_SESSION_ID" in be)
     check("后端有 _CLIENT_WINS_IDS（主动会话不在其中）", "_CLIENT_WINS_IDS" in be)
     check("后端有 append_proactive_message", "append_proactive_message" in be)
+    check("后端有主动会话显式清空特判（v4.0.18）",
+          "主动会话显式清空采纳" in be, "空数组清空特判缺失——主动会话清空将不落库")
 
 # ═══ 7. 反向自证：把修复形态改坏，断言必须变红 ═══
 print("== 7. 反向自证（改坏 → 判红 → 还原）")

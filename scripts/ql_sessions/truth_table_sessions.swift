@@ -143,13 +143,16 @@ check("长按菜单有「清空会话内容」入口（清消息、留会话与�
 check("入口由「打开确认弹窗」驱动，不在 contextMenu 关闭瞬间改数据（同 delete 的 v2.0.57 口径）",
       menu.contains("confirmClear = s"))
 check("清空入口是 destructive（与删除同级，不可误触）",
-      menu.contains("Button(role: .destructive) {\n                    confirmClear = s"))
+      menu.contains("Button(role: .destructive) {\n                confirmClear = s"))
 let clearIdx = menu.range(of: "清空会话内容")?.lowerBound
 let deleteIdx = menu.range(of: "Label(\"删除会话\"")?.lowerBound
 check("「清空会话内容」排在「删除会话」**之前**（风险递增，两项都是 destructive）",
       (clearIdx != nil && deleteIdx != nil) && clearIdx! < deleteIdx!)
-check("固定会话不给清空入口（投递壳 / 轻聊主动，与不可删同一口径）",
-      menu.contains("if s.id != ChatStore.deliverySessionId && s.id != ChatStore.proactiveSessionId {\n                Button(role: .destructive) {\n                    confirmClear = s"))
+// v4.0.18 反转：固定会话（投递壳 / 轻聊主动）**也给清空入口**（用户拍板：这两个会话也要能清；
+// 删除仍不给入口）。清空入口不得再按固定会话排除。
+check("清空入口对固定会话可见（清空按钮前无固定会话排除判断）",
+      menu.contains("Button(role: .destructive) {\n                confirmClear = s") &&
+      !menu.contains("if s.id != ChatStore.deliverySessionId && s.id != ChatStore.proactiveSessionId {\n                Button(role: .destructive) {\n                    confirmClear = s"))
 
 // —— 确认弹窗：独立文案，明说「会话与标题保留」（不是复用删除弹窗） ——
 check("清空有独立的确认弹窗（不与删除共用一个 alert）",
@@ -169,9 +172,9 @@ check("标题沿用当前值（不清空标题 = 产品口径）",
 check("messages 传空数组（真清空内容）",
       clearFn.contains("\"messages\": [Any]()"))
 
-// —— 固定会话闸门（不依赖菜单隐藏：别处调用也要拦） ——
-check("clearContent 内部也拦固定会话（不只靠菜单隐藏这一道）",
-      clearFn.contains("s.id == ChatStore.deliverySessionId || s.id == ChatStore.proactiveSessionId"))
+// —— 固定会话闸门（v4.0.18 反转：固定会话允许清空，clearContent 不再拦） ——
+check("clearContent 不再拦固定会话（后端已支持两固定会话清空落库）",
+      !clearFn.contains("s.id == ChatStore.deliverySessionId || s.id == ChatStore.proactiveSessionId"))
 
 // —— 不设「冷启动缓存不许清空」这道闸：它对清空是**错的**（rename ③ 的坑不适用）——
 //    rename 要把完整消息集写回去，50 条快照会截断历史；清空发的是空数组，
