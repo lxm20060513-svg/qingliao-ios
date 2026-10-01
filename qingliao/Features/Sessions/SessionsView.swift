@@ -120,51 +120,8 @@ struct SessionsView: View {
             Button("确定") { rename() }
             Button("取消", role: .cancel) {}
         }
-        // v2.0.57：删除确认（弹窗完全关闭后再执行删除，绕开 contextMenu 动画期数据变更）
-        // v2.0.87ad：多选底部删除栏
-        .safeAreaInset(edge: .bottom) {
-            if editing {
-                HStack(spacing: 14) {
-                    Button {
-                        // v3.9.39：全选只覆盖**当前可见**的会话。搜索态列表渲染的是 filteredSessions，
-                        // 原来取 sortedSessions 的全部 id → 搜到 3 行、全选、删除 = 对全部会话发 merge。
-                        if allVisibleSelected {
-                            selectedIds.subtract(visibleSessionIDs)
-                        } else {
-                            selectedIds.formUnion(visibleSessionIDs)
-                        }
-                    } label: {
-                        Text(allVisibleSelected ? "取消全选" : "全选")
-                            .font(.system(size: Typography.subhead, weight: .medium))
-                            .foregroundStyle(Color.accentColor)
-                    }
-                    .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
-                    Spacer()
-                    Text("\(selectedIds.count) 条")
-                        .font(.system(size: Typography.subhead))
-                        .foregroundStyle(.secondary)
-                    Button {
-                        // v3.9.39：批量删除先确认（此前一点就直接对服务器发 merge）
-                        batchDeleteCount = selectedIds.count
-                        confirmBatchDelete = true
-                    } label: {
-                        Label("删除", systemImage: "trash")
-                            .font(.system(size: Typography.subhead, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 18)
-                            .padding(.vertical, Spacing.md)
-                            .background(selectedIds.isEmpty ? Color.red.opacity(0.4) : Color.red,
-                                        in: RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
-                    }
-                    .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
-                    .disabled(selectedIds.isEmpty)
-                }
-                .padding(.horizontal, 18)
-                .padding(.vertical, Spacing.lg)
-                .padding(.bottom, 78)   // v2.0.87af：避开 Dock 栏高度
-                .background(.ultraThinMaterial)
-            }
-        }
+        // v2.0.87ad：多选底部删除栏 → 已提取为 batchEditBottomBar（v4.0.16 降载，语义等价）
+        .safeAreaInset(edge: .bottom) { batchEditBottomBar }
         .alert("删除会话", isPresented: Binding(get: { confirmDelete != nil }, set: { if !$0 { confirmDelete = nil } })) {
             Button("删除", role: .destructive) {
                 if let s = confirmDelete {
@@ -185,26 +142,6 @@ struct SessionsView: View {
             Button("取消", role: .cancel) {}
         } message: {
             Text("将删除 \(batchDeleteCount) 个会话及其全部消息，此操作不可恢复")
-        }
-        // v4.1.x：清空会话内容确认（先确认再动数据，同 delete 的两处保险口径）
-        .alert("清空会话内容", isPresented: Binding(get: { confirmClear != nil }, set: { if !$0 { confirmClear = nil } })) {
-            Button("清空", role: .destructive) {
-                if let s = confirmClear {
-                    confirmClear = nil
-                    Task { try? await Task.sleep(for: .seconds(0.3)); clearContent(s) }
-                }
-            }
-            Button("取消", role: .cancel) {}
-        } message: {
-            // 不带条数：列表可能来自 50 条冷启动缓存（loadFromSessionCache），
-            // 显示的条数与服务器真实条数不符，用户会以为只清了一部分。
-            Text("将清空「\(confirmClear?.title ?? "")」的全部消息，会话与标题保留，此操作不可恢复")
-        }
-        // v4.1.x：清空失败提示（列表非空时 errorText 不渲染，失败会完全静默）
-        .alert("清空失败", isPresented: Binding(get: { clearError != nil }, set: { if !$0 { clearError = nil } })) {
-            Button("好", role: .cancel) { clearError = nil }
-        } message: {
-            Text(clearError ?? "")
         }
         // v3.0.27：新建分类
         .alert("新建分类", isPresented: $showAddCategory) {
@@ -304,6 +241,80 @@ struct SessionsView: View {
         .glassListCard()   // v3.4.25：毛玻璃风格（Theme/LiquidGlass.swift GlassListCard）
         .padding(.horizontal, Spacing.xxl)
         .padding(.bottom, Spacing.md)
+
+        // v4.1.x：清空会话内容确认（先确认再动数据，同 delete 的两处保险口径）
+        .alert("清空会话内容", isPresented: Binding(get: { confirmClear != nil }, set: { if !$0 { confirmClear = nil } })) {
+            Button("清空", role: .destructive) {
+                if let s = confirmClear {
+                    confirmClear = nil
+                    Task { try? await Task.sleep(for: .seconds(0.3)); clearContent(s) }
+                }
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            // 不带条数：列表可能来自 50 条冷启动缓存（loadFromSessionCache），
+            // 显示的条数与服务器真实条数不符，用户会以为只清了一部分。
+            Text("将清空「\(confirmClear?.title ?? "")」的全部消息，会话与标题保留，此操作不可恢复")
+        }
+        // v4.1.x：清空失败提示（列表非空时 errorText 不渲染，失败会完全静默）
+        .alert("清空失败", isPresented: Binding(get: { clearError != nil }, set: { if !$0 { clearError = nil } })) {
+            Button("好", role: .cancel) { clearError = nil }
+        } message: {
+            Text(clearError ?? "")
+        }
+    }
+
+
+    /// v4.0.16：多选底部删除栏（原挂在 body 主链上）
+    ///
+    /// 为什么搬出来：body 主修饰链在本版加了 2 条 alert 后类型检查超时（CI #631
+    /// `SessionsView.swift:225 unable to type-check`）。alert 已迁 2 条到 headerBar，
+    /// 剩下这条 safeAreaInset 内含大 HStack（3 个 Button + Text + 背景）同样占预算 ——
+    /// 一次搬完，别等下一轮 CI 在别的行再报同一个错。
+    /// 语义等价：safeAreaInset 是视图级 modifier，挂在 headerBar 上仍作用于同一屏。
+    @ViewBuilder
+    private var batchEditBottomBar: some View {
+            if editing {
+                HStack(spacing: 14) {
+                    Button {
+                        // v3.9.39：全选只覆盖**当前可见**的会话。搜索态列表渲染的是 filteredSessions，
+                        // 原来取 sortedSessions 的全部 id → 搜到 3 行、全选、删除 = 对全部会话发 merge。
+                        if allVisibleSelected {
+                            selectedIds.subtract(visibleSessionIDs)
+                        } else {
+                            selectedIds.formUnion(visibleSessionIDs)
+                        }
+                    } label: {
+                        Text(allVisibleSelected ? "取消全选" : "全选")
+                            .font(.system(size: Typography.subhead, weight: .medium))
+                            .foregroundStyle(Color.accentColor)
+                    }
+                    .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
+                    Spacer()
+                    Text("\(selectedIds.count) 条")
+                        .font(.system(size: Typography.subhead))
+                        .foregroundStyle(.secondary)
+                    Button {
+                        // v3.9.39：批量删除先确认（此前一点就直接对服务器发 merge）
+                        batchDeleteCount = selectedIds.count
+                        confirmBatchDelete = true
+                    } label: {
+                        Label("删除", systemImage: "trash")
+                            .font(.system(size: Typography.subhead, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 18)
+                            .padding(.vertical, Spacing.md)
+                            .background(selectedIds.isEmpty ? Color.red.opacity(0.4) : Color.red,
+                                        in: RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
+                    }
+                    .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
+                    .disabled(selectedIds.isEmpty)
+                }
+                .padding(.horizontal, 18)
+                .padding(.vertical, Spacing.lg)
+                .padding(.bottom, 78)   // v2.0.87af：避开 Dock 栏高度
+                .background(.ultraThinMaterial)
+            }
     }
 
     /// 首屏骨架屏
