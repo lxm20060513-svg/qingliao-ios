@@ -133,6 +133,20 @@ def update_entry(old, new):
     check("判定池只含 status=pending",
           pool == ["交年度预算表", "刚标的事"], str(pool))
 
+    # 1b) v4.0.17：_pending_with_due 下发的 text **不许截断**。
+    # App 拿这个 text 原样回传去改状态（settle），后端按**完整正文**匹配条目；
+    # 原来下发 text[:60] → 超 60 字的条目（手动加的可能很长）勾销/忽略必然匹配不上，
+    # 恒显示「操作失败，已还原」且无限重试。这条钉住不再截断。
+    _long = "长" * 80
+    dump(rows + [{"text": _long, "status": "pending",
+                  "updated": old_ts, "created": old_ts}])
+    _pw = pa._pending_with_due(pa.get_config())
+    _pw_long = [r for r in _pw if r["text"].startswith("长")]
+    check("超 60 字条目的下发正文不被截断（App 回传要按它匹配状态）",
+          bool(_pw_long) and len(_pw_long[0]["text"]) == 80,
+          repr([len(r["text"]) for r in _pw_long]))
+    dump(rows)
+
     # 2) 未到期不产、到期才产（真跑，非 dry_run）
     n, detail = pa.followup_event()
     texts = [d["text"] for d in (detail or [])]

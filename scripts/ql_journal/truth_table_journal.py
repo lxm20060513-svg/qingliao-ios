@@ -53,15 +53,37 @@ try:
     # 隔离：把落盘目录指到临时目录，别碰真实记忆/留痕
     os.environ["QL_DATA_DIR"] = tmp
 
-    # 造一份假 memory_store（照第 5 项的契约）
+    # 造一份假 memory_store。
+    # v4.0.17 修「假桩架空检测力」：原来 check_and_save 恒 return True，且只 append，
+    # 于是 journal_answer 里「丢弃返回值 + 无条件 saved:True」的谎报行为这张表也测不出
+    # （变异验证：把线上 saved:False 改成 True，表仍 43/43 全绿）。
+    # 现在按线上真实语义实现：check_and_save 走**记忆意图正则**（自由文本抽不出东西
+    # 返回 []）；add_entry 是**真实写入链路**（去重命中返回 False）。
+    # 这样「日记自由文本到底有没有落库」才是真检测。
     ms = os.path.join(tmp, "memory_store.py")
     saved_mem = []
     with open(ms, "w", encoding="utf-8") as f:
         f.write(
             "_META = []\n"
             "_SAVED = []\n"
+            "_ENTRIES = []\n"
+            "import re\n"
+            "_REMEMBER = re.compile(r'(?:记住|请记住|别忘了|我是|我叫|我喜欢|我不喜欢|"
+            "我经常|我习惯|我一直|以后)([^。！？!?，,；;\\n]{2,60})')\n"
             "def list_meta():\n    return list(_META)\n"
-            "def check_and_save(t):\n    _SAVED.append(t)\n    return True\n"
+            "def list_entries():\n    return list(_ENTRIES)\n"
+            "def add_entry(text, source='', session_id=''):\n"
+            "    t = str(text).strip()\n"
+            "    if not t or len(t) < 2:\n        return False\n"
+            "    if t in _ENTRIES:\n        return False\n"
+            "    _ENTRIES.append(t)\n    _SAVED.append(t)\n    return True\n"
+            "def check_and_save(t, session_id=''):\n"
+            "    out = []\n"
+            "    for m in _REMEMBER.finditer(str(t)):\n"
+            "        ph = m.group(1).strip()\n"
+            "        if ph and len(ph) >= 2 and add_entry(ph, source='chat'):\n"
+            "            out.append(ph)\n"
+            "    return out\n"
         )
 
     import types
@@ -158,12 +180,48 @@ try:
     check("周统计只数上一周的 3 条（不含本周 2 条）", spoke == 3, "spoke=%s" % spoke)
     check("周统计带累计采纳/忽略", ad == 3 and ig == 1, "ad=%s ig=%s" % (ad, ig))
 
-    # 周一 23 点 → 应同时产每日一问 + 周回顾，且回顾报上一周数据
-    monday = pa._now().replace(hour=23)
+    # v4.0.17：这段原来把时间设在**周一 23 点**，而默认静默时段是 quietStart=23 →
+    # 正好卡在静默窗口上。修 in_quiet 漏判之前，这张表其实在断言「静默时段内也产出
+    # 每日一问」——而真实 run_once 的 gate 根本不会投递，属于不真实的假绿断言。
+    # 现在把配置挪到明确不挡的位置（静默 3-4 点、提问 20 点起），测试周一 22 点：
+    # 既在提问点之后、又不在静默窗口里，与真实投递条件一致。
+    pa.save_config({"quietStart": 3, "quietEnd": 4, "journalHour": 20})
+    check("save_config 收下静默/提问时刻（3-4 点静默、20 点起提问）",
+          int(pa.get_config()["journalHour"]) == 20
+          and int(pa.get_config()["quietStart"]) == 3, repr(pa.get_config().get("journalHour")))
+    # 周一 22 点 → 应同时产每日一问 + 周回顾，且回顾报上一周数据
+    monday = pa._now().replace(hour=22)
     monday = monday - _dt.timedelta(days=monday.weekday())      # 回到本周一
     pa._now = lambda: monday
     n, detail = pa.journal_event(dry_run=True)
     kinds = [d["kind"] for d in detail]
+    # v4.0.17：静默时段内必须**不产出、不消耗留痕**。
+    # 原来 journal_event 不查 in_quiet → 事件照产、asked=True 落盘，随后 run_once 的
+    # gate 判静默不投递、pop_events 把事件丢掉 → 留痕说「已问过」，用户一条没收到，
+    # 当天机会作废。变异验证：删掉 in_quiet 早退，这张表原本仍全绿。
+    # ⚠️ 静默窗口必须落在**提问点之后**（22-23 点静默、20 点起提问），设成 1-5 点时
+    # 上游 hour 判断（journalHour=20，2 点 < 20）会先挡住 → 断言恒真，删掉 in_quiet
+    # 早退也照样 0 产出。变异验证就是靠这一点才发现前面两版断言是空转的。
+    pa.save_config({"quietStart": 22, "quietEnd": 23, "journalHour": 20})
+    # 先把当天留痕清干净：走到这里时 asked 已被前面的环节置 True，那样即使删掉
+    # in_quiet 早退也会因为「今天已问过」而 0 产出 → 又成恒真。
+    _j0 = pa._load(pa.JOURNAL_FILE, {})
+    _j0.pop(pa._day(), None)
+    pa._save(pa.JOURNAL_FILE, _j0)
+    pa._now = lambda: monday.replace(hour=22)     # 静默窗口内（且已过提问点）
+    _n_q, _d_q = pa.journal_event(dry_run=False)
+    check("静默时段内不产出任何事件（gate 不投递就别先消耗留痕）",
+          _n_q == 0 and not _d_q, "n=%s d=%s" % (_n_q, _d_q))
+    _j_q = pa._load(pa.JOURNAL_FILE, {})
+    _rec_q = _j_q.get(pa._day()) or {}
+    check("静默时段内不写 asked/weekAsked 留痕（当天机会不作废）",
+          not _rec_q.get("asked") and not _rec_q.get("weekAsked"), repr(_rec_q))
+    # 还原到测试基准（静默 3-4、22 点提问）
+    pa.save_config({"quietStart": 3, "quietEnd": 4, "journalHour": 20})
+    pa._now = lambda: monday
+    check("离开静默时段后照常产出（早退不是把功能关死）",
+          pa.journal_event(dry_run=True)[0] >= 1)
+
     check("周一产出每日一问 + 周回顾两条",
           kinds == ["journal", "week_review"], repr(kinds))
     wk_text = detail[-1]["text"]
@@ -208,9 +266,29 @@ try:
     r = pa.journal_answer("今天把专利交初稿了")
     check("答问返回 ok 且写进记忆", r.get("ok") is True and r.get("saved") is True, repr(r))
     check("记忆里出现该条", "今天把专利交初稿了" in mod._SAVED, repr(mod._SAVED))
-    st = pa.journal_state()
-    check("留痕 answered=True 且回显答案",
-          st["answered"] is True and st["answer"] == "今天把专利交初稿了", repr(st))
+    # v4.0.17：这条必须**紧跟首次答问**。原来它排在下面几条探测（重复答/写入失败）之后，
+    # 答案已被后续调用覆盖 → 断言的其实是最后一次答问的正文，属于顺序依赖的假断言。
+    _st1 = pa.journal_state()
+    check("留痕 answered=True 且回显首次答案",
+          _st1["answered"] is True and _st1["answer"] == "今天把专利交初稿了", repr(_st1))
+    # v4.0.17 补真实检测力（原来这条恒成立，因为假桩的 check_and_save 恒 return True）：
+    # ① 自由文本日记答案**必须真的落进记忆**（旧实现走 check_and_save 意图抽取，
+    #    「今天把专利交初稿了」抽不出东西 → 一条没存却回 saved:True）
+    check("自由文本答案真落进记忆条目表（不是只过意图抽取）",
+          "今天把专利交初稿了" in mod._ENTRIES, repr(mod._ENTRIES[-3:]))
+    # ② 去重命中不许谎报「新增」：同一条再答一次，saved 必须是 False
+    r2 = pa.journal_answer("今天把专利交初稿了")
+    check("重复答同一条不谎报新增（saved=False）",
+          r2.get("ok") is True and r2.get("saved") is False, repr(r2))
+    # ③ 记忆写入抛异常时必须 saved=False（留痕仍 answered=True）
+    _real_add = mod.add_entry
+    mod.add_entry = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("disk full"))
+    r3 = pa.journal_answer("一条会写入失败的答案")
+    mod.add_entry = _real_add
+    check("写入失败必须如实报 saved=False（不谎报）",
+          r3.get("ok") is True and r3.get("saved") is False, repr(r3))
+    check("写入失败留痕仍 answered=True（答题本身算成功）",
+          pa.journal_state()["answered"] is True)
     check("空内容被拒", pa.journal_answer("   ")["ok"] is False)
     r = pa.journal_answer("x" * 500)
     check("超长答案被截断到 300 字",
@@ -218,15 +296,37 @@ try:
           repr(len(pa.journal_state()["answer"])))
 
     # ── 10) 留痕只留最近 90 天 ──
+    # v4.0.17 修「这条断言恒真」：原来 key 写成 "2020-01-%02d" % ((i%28)+1) if ... else ...，
+    # 日期大量折叠 → 实际只有三十几个不同 key，远小于 90，len(...) <= 91 怎么都成立。
+    # 变异验证：把线上剪枝整段注释掉，这张表仍全绿。
+    # 现在造 120 个**互不相同**的真实日期（跨月用 date+timedelta 推），
+    # 并断言：① 剪枝前确实 > 90 条（证明不是恒真）② 最新的 90 个保留 ③ 最老的被剪掉。
+    from datetime import date as _d, timedelta as _td
     j = pa._load(pa.JOURNAL_FILE, {})
-    for i in range(1, 120):
-        j["2020-01-%02d" % ((i % 28) + 1) if i < 29 else "2020-%02d-01" % ((i % 12) + 1)] = {}
+    base = _d(2024, 1, 1)
+    keys = [(base + _td(days=i)).isoformat() for i in range(120)]
+    for k in keys:
+        j[k] = {}
     pa._save(pa.JOURNAL_FILE, j)
+    pre = len(pa._load(pa.JOURNAL_FILE, {}))
+    # 上界是 121：120 条造数 + 今天(monday)自己那条由前面环节写入。
+    # 关键在 pre > 90（证明不是恒真），不等于 120。
+    check("前置：剪枝前留痕 > 90 条（证明下面不是恒真）", pre > 90,
+          "pre=%d" % pre)
     pa._now = lambda: monday
     pa.journal_event(dry_run=False)
-    check("留痕超过 90 天被剪掉",
-          len(pa._load(pa.JOURNAL_FILE, {})) <= 91,
-          "left=%d" % len(pa._load(pa.JOURNAL_FILE, {})))
+    after_j = pa._load(pa.JOURNAL_FILE, {})
+    # 今天(monday)自己那条也会被写进来，所以上界 91；关键断言是「最老的没了、最新的还在」
+    check("留痕超过 90 天被剪掉", len(after_j) <= 91, "left=%d" % len(after_j))
+    check("最老的留痕确实被剪掉（不是靠 key 折叠凑数）", keys[0] not in after_j)
+    # 剪枝保留 sorted(j.keys())[-90:] = 字典序最新 90 条 + 今天那条 = 91 条。
+    _should_keep = keys[-89:]
+    check("最新 90 条留痕保留",
+          all(k in after_j for k in _should_keep),
+          "missing=%s" % [k for k in _should_keep if k not in after_j][:3])
+    check("剪掉的正好是最老的 31 条（120-89），不多不少",
+          len([k for k in keys if k not in after_j]) == 31,
+          "cut=%d" % len([k for k in keys if k not in after_j]))
 
 finally:
     pa = locals().get("pa")
