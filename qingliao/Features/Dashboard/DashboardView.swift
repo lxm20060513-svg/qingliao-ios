@@ -174,6 +174,15 @@ struct DashboardView: View {
                 case .lifeCards:
                     LifeCardsSettingsView()
                         .presentationDetents([.medium, .large])
+                // v4.0.x 第 3 项：接入中心一页新增两个直达口（邮件 / 网盘）。
+                // 复用设置页里那同一份 sheet，**不新做一套 UI**（用户口径：
+                // 同一个功能只能有一个界面，双模式/双入口各做一套=埋雷）。
+                case .mail:
+                    MailSettingsSheet()
+                        .presentationDetents([.medium, .large])
+                case .cloudDrive:
+                    CloudDriveSettingsSheet()
+                        .presentationDetents([.medium, .large])
                 }
             }
             // v3.9.21：删除规则确认
@@ -1129,7 +1138,7 @@ struct DashboardView: View {
     // v3.9.74c：面板关闭后真正呈现在弹的设置页（与 pending 意图分开，防 dismiss/present 同帧抖动）
     @State private var presentedAfterPanel: AfterPanelSheet?
     enum AfterPanelSheet: String, Identifiable {
-        case mcp, lifeCards
+        case mcp, lifeCards, mail, cloudDrive
         var id: String { rawValue }
     }
 
@@ -1370,6 +1379,8 @@ struct DashboardView: View {
             ConnectorPanelSheet(
                 onOpenMCP: { activeSheet = nil; pendingSheetAfterPanel = .mcp },
                 onOpenLifeCards: { activeSheet = nil; pendingSheetAfterPanel = .lifeCards },
+                onOpenMail: { activeSheet = nil; pendingSheetAfterPanel = .mail },
+                onOpenCloudDrive: { activeSheet = nil; pendingSheetAfterPanel = .cloudDrive },
                 haCount: haAvailableCount,
                 sceneCount: scenes.count,
                 automationCount: automations.count,

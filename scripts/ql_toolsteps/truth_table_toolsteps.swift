@@ -54,9 +54,16 @@ check("ChatToolStepCards.swift 源可读", !toolCardsSrc.isEmpty)
 // ── 1. 后端键名对齐：toolSeq（App 解的就是它，改键名必须两处一起改） ──
 check("AuthStore 解出全量步数键 toolSeq（与后端响应键同名）",
       authSrc.contains("j[\"toolSeq\"]"))
-check("streamPoll 返回值带上 toolSeq（元组尾多一位 Int，调用方同步解构）",
-      authSrc.contains("[[String: Any]], Double, Int) {")
-      && authSrc.contains("toolSpans, lastToolAt, toolSeq)"))
+// v4.0.120：元组尾位会随新字段增长（本轮追加 memoAdded），所以这里**不再钉死**具体元组文本 ——
+// 钉死的原意是「AuthStore 返回什么，调用方就同步解构什么」（漏解构 = 编译不过，本就不必测），
+// 真正该守的是**新字段两端都接上了**：后端键名同名 + 出现在返回值里。
+// 旧写法 `[[String: Any]], Double, Int) {` 在追加 `[String]` 后必然假红，且与本意无关。
+check("streamPoll 元组已带上 memoAdded（v4.0.120 追加位）",
+      authSrc.contains("let memoAdded = j[\"memoAdded\"] as? [String] ?? []")
+      && authSrc.contains("toolSeq, memoAdded)"))
+check("调用方同步解构出 memoAdded（漏了就是忘了接 UI）",
+      streamSrc.contains("toolSeqIn, memoIn) = try await auth.streamPoll")
+      && streamSrc.contains("!memoDismissed.contains($0)"))
 
 // ── 2. StreamClient：状态位 + 清零 + 同步 + 口径 ────────────────
 check("StreamClient 有全量步数状态位 toolSeq",

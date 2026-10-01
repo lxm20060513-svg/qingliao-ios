@@ -18,3 +18,5 @@ HANDOFF-archive.md
 RUNBOOK.md
 docs/PERF_AUDIT.md
 docs/UI_POLISH_PLAN.md
+__pycache__/
+*.pyc

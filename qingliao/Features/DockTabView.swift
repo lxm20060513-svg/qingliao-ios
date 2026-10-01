@@ -334,7 +334,7 @@ struct DockTabView: View {
                     return
                 }
                 chat.load(s)
-                chat.markRead(s.id)   // v3.9.39：深链也算「打开会话」，与 SessionsView.open 同口径，否则红点永久挂着
+                chat.markRead(s.id, upTo: s.lastTime)   // v4.0.15：同 SessionsView.open 口径（带基线）；v3.9.39：深链也算「打开会话」，否则红点永久挂着
                 skipBurstOnce()
                 selected = .chat
             }

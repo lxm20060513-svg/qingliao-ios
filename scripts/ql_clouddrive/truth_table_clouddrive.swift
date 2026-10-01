@@ -71,9 +71,20 @@ check("设置里有「网盘接入」入口行",
       coreSrc.contains("title: \"网盘接入\"") && coreSrc.contains("showCloudDrive = true"))
 check("入口图标与配色唯一（externaldrive.fill + .teal）",
       coreSrc.contains("icon: \"externaldrive.fill\", iconColor: .teal, title: \"网盘接入\""))
-check("连接器面板不含网盘（用户纠正过位置，别塞回去）",
-      !connSrc.contains("网盘") && !connSrc.contains("云盘") && !connSrc.contains("externaldrive"))
-check("连接器面板仍只有三类（MCP / 智能家居 / 生活卡片）",
+// 🚨 2026-10-01 决策变更（v4.0.x 七项待办第 3 项「接入中心一页」）：
+// 原口径是「网盘只在设置、不进连接器面板」——那是**因为当时连接器面板只有状态总览、没有直达口**，
+// 网盘管理页塞进看板是重复实现。**第 3 项改变了这个前提**：接入中心变成"一页看全自己接了什么，
+// 点卡片直达既有设置页"，即卡片只做**状态总览 + 入口**，管理逻辑仍只有 CloudDriveSettingsSheet 一份。
+// 所以旧断言从「面板里不许出现网盘」改为「面板里只许出现状态卡 + 入口，不许再实现一份管理逻辑」：
+// 钉的是**不重复实现**这条真风险，而不是钉死某个字不许出现。详见 ql_connector 真值表第 ④ 组
+// （复用同一份 CloudDriveSettingsSheet，全仓两处宿主、无二套 UI）。
+check("连接器面板的网盘卡只做状态+入口，不复制管理逻辑（不重复实现）",
+      connSrc.contains("网盘接入")
+      && connSrc.contains("onOpenCloudDrive")
+      && !connSrc.contains("CloudDriveBrowserSheet")
+      && !connSrc.contains("/api/agent/clouddrive/add")
+      && !connSrc.contains("/api/agent/clouddrive/remove"))
+check("连接器面板仍含 MCP / 智能家居 / 生活卡片三类",
       connSrc.contains("mcpCard") && connSrc.contains("smartHomeCard") && connSrc.contains("lifeCardsCard"))
 
 // ── 3. 安全边界：技能地址/授权码明文不落 App、不回显 ────────────

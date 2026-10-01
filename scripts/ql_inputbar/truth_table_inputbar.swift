@@ -597,6 +597,13 @@ check("周期与旧版一致（1.2s 全周期 = 0.6s easeInOut 往返 + 每颗�
       typingCode.contains("dividingBy: 1.2") && typingCode.contains("Double(i) * 0.18"))
 check("reduceMotion：暂停时钟 + 退回静止满点（无障碍口径保留）",
       typingCode.contains("paused: reduceMotion") && typingCode.contains("reduceMotion ? 1.0 :"))
+check("🚨 切断祖先动画事务继承（v4.0.14 真机再报「还是会丢失」的真根因：宿主满屏 "
+    + "withAnimation / .animation(_:value:) 在更上层，逐帧 scaleEffect/opacity 被隐式动画"
+    + "插值成一团均值 → 帧在走、画面看着静止）",
+      typingCode.contains(".transaction { $0.animation = nil }"))
+check("🚨 强度下限 ≥0.6（时钟被主线程抢占时那一帧仍看得见三点，不会退化成空泡）",
+      typingCode.contains("0.62 + 0.38 * (1.0 - pulse)")
+      && !typingCode.contains("0.45 + 0.55 * (1.0 - pulse)"))
 check("不许改用异步翻转（Swift 6 严格并发下闭包捕获 View 编译不过）",
       !typingCode.contains("DispatchQueue.main.async"))
 

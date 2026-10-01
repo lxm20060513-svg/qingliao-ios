@@ -256,6 +256,21 @@ echo "=== 20. 工具步数显示真值表（v3.9.80 真机反馈修复）==="
 # 后端为控体积只下发最近 10 步明细，全量步数走同一响应的 toolSeq，摘要行必须吃它。
 run_unit /tmp/test_toolsteps scripts/ql_toolsteps/truth_table_toolsteps.swift
 
+echo "=== 21. AI 记住瞬间真值表（v4.0.120 第 2 项）==="
+# 单文件纯逻辑（memoAdded 两道闸门的镜像模型，不 import 项目代码）。
+# 口径：① 后端 memoAdded 是「整流只增不减」的累积数组，0.15s 轮询下同一条只能触发一次
+#      ② 复位与工具进度同生命周期（切会话/起新流后同一条是新事件，该再弹）
+#      ③ 撤销必须真删且不被后端重发弹回（不接 memoDismissed 就会「删了又弹」）
+run_unit /tmp/test_memo_added scripts/ql_memo_added/truth_table_memo_added.swift
+
+echo "=== 21a. 接入中心一页真值表（v4.0.x 第 3 项）==="
+# 纯 Python（读源文件做护栏）：口径是「邮件开关不许写成局部 PATCH」——
+# 后端 save_account → normalize() 会把没传的字段全写成空值，只 POST
+# {id, allow_direct_send} 会静默清空用户邮箱昵称/安全协议/默认标记。
+# ⚠️ 必须 exit 1 不能用 fail=1：本段在第 377 行 `fail=0` **之前**，
+# 那时 fail 还没初始化，写进去会被后面无条件重置抹掉 → 恒假绿。
+python3 scripts/ql_connector/truth_table_connector.py || exit 1
+
 echo "=== 20b. 邮件接入设置页真值表（v4.0.x：安全边界/后端契约/接线）==="
 run_unit /tmp/test_mail scripts/ql_mail/truth_table_mail.swift
 
@@ -719,6 +734,51 @@ echo "=== 52. 固定会话真值表（v4.0.x proactive）==="
 # 固定会话 qingliao_proactive（轻聊主动），与投递壳「轻聊投递」区分：可回复、NAS 为准。
 python3 scripts/ql_fixed_session/truth_table_fixed_session.py 2>&1 | tee /tmp/tt_fixed.log
 grep -q '✅ ALL PASS' /tmp/tt_fixed.log || fail=1
+
+echo "=== 53. 记忆条目结构化真值表（v4.0.x 第 4 项）==="
+# 事故背景：本项**故意没改**后端 entries 的结构（仍是 [str]），只在旁边挂 meta 表。
+#   理由：entries 是全仓最热共享结构（App 三处 + WebUI qllm.js + prompt_block 注入 +
+#   proactive 偏好块全按字符串读它），换成 [dict] 会让那些地方**静默渲染成空白**。
+#   本表钉两件事：① App 侧状态取值与后端 memory_store.STATUSES 逐字一致（漂了就空白胶囊）
+#   ② MemoryView 已彻底不直接读后端 entries 字段渲染（回落只允许在 MemoryEntry.parse 里）。
+python3 scripts/ql_memometa/truth_table_memoitem.py 2>&1 | tee /tmp/tt_memoitem.log
+grep -q '✅ ALL PASS' /tmp/tt_memoitem.log || fail=1
+
+echo "=== 54. 主动跟进闭环真值表（v4.0.x 第 5 项）==="
+# 两张表都要跑：后端表验「到没到点 + 次数上限 + 剪枝」，App 表验「界面不自己重算到期 /
+# 检查按钮不真投递 / 勾销不在前端删计数」。缺任一张都会漏事故：后端全对而 App 误传
+# dry_run:false，点一下「现在检查」就真发消息并吃掉一次提问机会。
+# 后端表跑的是 NAS 上**线上那份字节**（ql.py nas read 现拉），不是镜像实现；
+# 拉不到（离线/NAS 不可达）时明确跳过而不是拿本地副本凑一个假绿。
+FU_DIR=scripts/ql_followup
+FU_TMP=/opt/data/cache/scratch
+# ql.py = 本机统一入口（/opt/data/scripts/ql.py，仓外）；这里只用来现拉线上字节，
+# 表本身已随仓走（scripts/ql_followup/）。离线时走 else 分支明确跳过，不凑假绿。
+if python3 /opt/data/scripts/ql.py nas read 微信文件/轻聊web/backend/proactive_agent.py > "$FU_TMP/pa_live.py" 2>/dev/null \
+   && python3 /opt/data/scripts/ql.py nas read 微信文件/轻聊web/backend/memory_api.py > "$FU_TMP/mapi_live.py" 2>/dev/null \
+   && [ -s "$FU_TMP/pa_live.py" ] && [ -s "$FU_TMP/mapi_live.py" ]; then
+  ( cd "$FU_DIR" && python3 truth_table_followup.py ) 2>&1 | tee /tmp/tt_fu_be.log
+  if grep -q '❌' /tmp/tt_fu_be.log; then fail=1; echo "❌ 第 5 项后端表有失守"; fi
+else
+  echo "⚠️ 拉不到线上后端副本（离线），第 5 项后端表本轮未跑"
+fi
+run_unit /tmp/test_fu_app scripts/ql_followup/truth_table_followup_app.swift | tee /tmp/tt_fu_app.log
+grep -q '0 失败' /tmp/tt_fu_app.log || fail=1
+
+echo "=== 55. 反思日记真值表（v4.0.x 第 6 项）==="
+# 后端表验「几点问 / 一天一次 / 周一才发周回顾 / 答案截断 / 90 天剪枝 / 总开关」，
+# App 表验「问句不自造 / 预览不真投递 / 答问不谎报已存 / Stepper 区间与后端一致」。
+# 后端表同样跑线上那份字节（QL_PA_SRC 指向现拉的副本），离线时明确跳过不凑假绿。
+JN_DIR=scripts/ql_journal
+if python3 /opt/data/scripts/ql.py nas read 微信文件/轻聊web/backend/proactive_agent.py > "$FU_TMP/pa_journal_live.py" 2>/dev/null \
+   && [ -s "$FU_TMP/pa_journal_live.py" ]; then
+  ( cd "$JN_DIR" && QL_PA_SRC="$FU_TMP/pa_journal_live.py" python3 truth_table_journal.py ) 2>&1 | tee /tmp/tt_jn_be.log
+  if grep -q '❌' /tmp/tt_jn_be.log; then fail=1; echo "❌ 第 6 项后端表有失守"; fi
+else
+  echo "⚠️ 拉不到线上后端副本（离线），第 6 项后端表本轮未跑"
+fi
+run_unit /tmp/test_jn_app.bin scripts/ql_journal/truth_table_journal_app.swift | tee /tmp/tt_jn_app.log
+grep -q '0 失败' /tmp/tt_jn_app.log || fail=1
 
 [ $fail -eq 0 ] || { echo "❌ 有护栏失守"; exit 1; }
 exit 0

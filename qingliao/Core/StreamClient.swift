@@ -67,6 +67,10 @@ final class StreamClient {
         toolSpansSig = ""
         toolSeq = 0
         toolStartedAt = 0
+        // v4.0.120：「已记住」与工具进度同生命周期——切会话/起新流后同一句话再次被记住，
+        // 属于**该弹的新事件**，不能被上一流压掉。
+        memoAdded = []
+        memoDismissed = []
     }
     /// v3.9.58：已完成工具步骤的耗时（后端 [{n:中文名, s:秒}] 的解包）。
     /// 只增不改（后端保证追加序、与 toolNames 同长同序），App 按下标取耗时：
@@ -78,6 +82,29 @@ final class StreamClient {
     /// v3.9.58：当前（最后一步）工具的开始时刻——进行中那行的「已等 Ns」由它算。
     /// 老后端无 lastToolAt 键=0 → 不显示等待秒数（优雅退化）。
     var toolStartedAt: TimeInterval = 0
+    /// v4.0.120：**本流新记住的条目**（已去重，可直接喂给 UI 弹「已记住」条）。
+    ///
+    /// 后端 `memoAdded` 是「整流只增不减」的累积数组，0.15s 一次的轮询会把同一条重复下发几十次。
+    /// 这里在**旧代 guard 之后**做集合差集，只把「后端有、本流没见过」的条目并进来 ——
+    /// 位置与 toolNames/toolSeq 一致：否则切会话后上一代在途 poll 会把旧流的记忆写进新流。
+    /// 与工具进度同生命周期，`resetToolProgress()` 里清空。
+    private(set) var memoAdded: [String] = []
+
+    /// v4.0.120：**本流已被撤销/关掉的条目**——差集之外的第二道闸门。
+    ///
+    /// 🚨 真值表实测抓到的洞：光靠 `memoAdded` 差集不够。后端 `memoAdded` 是「整流只增不减」
+    /// 的累积数组，**它不感知 App 的撤销** → 撤销后下一轮 poll 又把同一条发回来，
+    /// 条目「删了又弹」。所以撤销/关闭必须记进这个集合，poll 时一并过滤。
+    /// 同样在 resetToolProgress() 里清（跟本流同生命周期：新会话里同一条是新事件）。
+    private var memoDismissed: Set<String> = []
+
+    /// v4.0.120：撤销/关闭成功后从本流列表摘掉该条目并记入屏蔽集（防「删了又弹」）。
+    /// 写入口必须收在 StreamClient 里（`memoAdded` 是 `private(set)`，UI 侧只读）——
+    /// 不这样开写权限，这类漏边沿就回到调用方身上了。
+    func forgetMemo(_ texts: [String]) {
+        memoDismissed.formUnion(texts)
+        memoAdded.removeAll { memoDismissed.contains($0) }
+    }
 
     /// v3.9.81：`content` **最后一次增长的时刻**——聊天页工具卡下面那行小字里「静默 N 秒」的锚点。
     /// 口径同后端 `st["updatedAt"]`（每次内容追加时刷新）：它比 now 落后多少秒就是静默多久。
@@ -331,7 +358,7 @@ final class StreamClient {
             return   // 网络恢复 → 本轮直接返回，下一轮按正常间隔续流
         }
         do {
-            let (c, done, st, err, agent, piggyback, toolsIn, spansIn, lastToolAtIn, toolSeqIn) = try await auth.streamPoll(taskId: taskId, offset: offset)
+            let (c, done, st, err, agent, piggyback, toolsIn, spansIn, lastToolAtIn, toolSeqIn, memoIn) = try await auth.streamPoll(taskId: taskId, offset: offset)
             guard generation == self.generation else { return }   // v3.0.50：旧代轮询丢弃
             // v3.9.17：工具进度——只在变化时写入，避免每 0.15s 轮询都触发视图重建。
             // 位置必须在旧代 guard **之后**：否则切会话/起新流后，上一代在途 poll 返回时
@@ -360,6 +387,13 @@ final class StreamClient {
             }
             // lastToolAt 后端为浮点秒（epoch）；0=老后端无键 → UI 优雅退化不显示秒数
             if lastToolAtIn > 0 { toolStartedAt = lastToolAtIn }
+            // v4.0.120：本流新记住的条目——后端是累积数组，这里做差集只并入没见过的。
+            // 两道闸门：① 差集（防同一条重复弹）② memoDismissed（防撤销后又被后端重发弹回）。
+            // 空轮不写入，避免每 0.15s 重建视图（同 toolNames 的处理）。
+            if !memoIn.isEmpty {
+                let fresh = memoIn.filter { !memoAdded.contains($0) && !memoDismissed.contains($0) }
+                if !fresh.isEmpty { memoAdded.append(contentsOf: fresh) }
+            }
             if agent { isAgent = true }   // v2.0.96b：Agent 回复标记
             failCount = 0
             // v3.4.23：搭载投递消费——poll 响应里捎带的收件箱消息立即注入任务中心/会话，

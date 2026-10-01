@@ -114,6 +114,112 @@ check("减速时静止常亮（opacity 取 1，不是 0）", dot.contains("reduc
 check("有无障碍标签（纯图形标识，VoiceOver 读不到就没有语义）", dot.contains("accessibilityLabel"))
 check("RunningDot 不自行挂实色底（会话卡 F2 口径：卡上不得再压实色底）", !dot.contains(".background("))
 
+// ══════════════════════════════════════════════════════════════════
+// v4.1.x「一键清空会话内容」（会话列表长按菜单 → 清消息、留会话与标题）
+//
+// 为什么值得钉（三处都会**静默**错，用户只看到「点了没反应」或「删完又回来」）：
+//   ① 它走的是 merge 的 **sessions 键 + 空 messages 数组**，不是 deleted 键 ——
+//      钉 deleted 为空数组（真源 = 切片里 "deleted": []），否则日后有人改成删除就等于
+//      把「保留会话与标题」这条产品口径悄悄换掉（那不是清空，是删除）。
+//   ② 固定会话（投递壳 / 轻聊主动）不许清空：主动会话内容**以 NAS 为准**，
+//      App 写空数组会被后端 _CLIENT_WINS_IDS 之外那条路忽略 → 用户看到「清空没反应」。
+//      与「不可删 / 不可改名」同一类保护，故菜单里**直接不给入口**（不给会报错的按钮）。
+//   ③ 正在看的会话必须在**可见的聊天页**上清数据：隐藏 TabView 页直接清 messages 是本仓
+//      实测的 SIGTRAP 组合（v2.0.44/2.0.54/2.0.56），故钉「先切 tab + 延迟一帧再清」。
+//   ④ 反过来钉一条**否定**纪律：这里**不能**照抄 rename() 的 sessionsFromNetwork 闸门。
+//      那个闸门防的是「拿 50 条缓存快照去写 → 整会话覆盖 → 永久截断历史」，
+//      而清空发的是空数组、后端直接采用 incoming，压根没有截断风险；
+//      照抄只会让冷启动缓存的用户点了没反应。否定式纪律最容易被「顺手补齐」违反，故钉死。
+// ══════════════════════════════════════════════════════════════════
+
+let clearFn = slice(viewCode, "private func clearContent(_ s: ChatSession)", "private func delete(_ s: ChatSession)")
+check("clearContent 切片非空（护栏不许空真）", !clearFn.isEmpty)
+
+// —— 入口：长按菜单里真有一项，且固定会话不给入口（不是给一个点了报错的按钮） ——
+let menu = slice(viewCode, "Menu(\"标签\")", "func rank(")
+check("长按菜单切片非空", !menu.isEmpty)
+check("长按菜单有「清空会话内容」入口（清消息、留会话与标题）",
+      menu.contains("Label(\"清空会话内容\""))
+check("入口由「打开确认弹窗」驱动，不在 contextMenu 关闭瞬间改数据（同 delete 的 v2.0.57 口径）",
+      menu.contains("confirmClear = s"))
+check("清空入口是 destructive（与删除同级，不可误触）",
+      menu.contains("Button(role: .destructive) {\n                    confirmClear = s"))
+let clearIdx = menu.range(of: "清空会话内容")?.lowerBound
+let deleteIdx = menu.range(of: "Label(\"删除会话\"")?.lowerBound
+check("「清空会话内容」排在「删除会话」**之前**（风险递增，两项都是 destructive）",
+      (clearIdx != nil && deleteIdx != nil) && clearIdx! < deleteIdx!)
+check("固定会话不给清空入口（投递壳 / 轻聊主动，与不可删同一口径）",
+      menu.contains("if s.id != ChatStore.deliverySessionId && s.id != ChatStore.proactiveSessionId {\n                Button(role: .destructive) {\n                    confirmClear = s"))
+
+// —— 确认弹窗：独立文案，明说「会话与标题保留」（不是复用删除弹窗） ——
+check("清空有独立的确认弹窗（不与删除共用一个 alert）",
+      viewCode.contains(".alert(\"清空会话内容\""))
+check("确认弹窗文案写明「会话与标题保留」（用户点之前就知道删的是什么）",
+      viewCode.contains("会话与标题保留"))
+check("清空有独立的失败提示（errorText 只在列表为空时渲染，失败会静默）",
+      viewCode.contains(".alert(\"清空失败\"") && viewCode.contains("clearError"))
+
+// —— 载荷：走 sessions 键（会话与标题保留），绝不走 deleted ——
+check("清空写请求走 merge 的 sessions 键（会话本身保留）",
+      clearFn.contains("\"sessions\": [[\"id\": sid, \"title\": ttl, \"messages\": [Any]()]"))
+check("deleted 必须为空数组（走 deleted 就等于删会话，不是清空内容）",
+      clearFn.contains("\"deleted\": [] as [Any]"))
+check("标题沿用当前值（不清空标题 = 产品口径）",
+      clearFn.contains("let ttl = s.title") && clearFn.contains("\"title\": ttl"))
+check("messages 传空数组（真清空内容）",
+      clearFn.contains("\"messages\": [Any]()"))
+
+// —— 固定会话闸门（不依赖菜单隐藏：别处调用也要拦） ——
+check("clearContent 内部也拦固定会话（不只靠菜单隐藏这一道）",
+      clearFn.contains("s.id == ChatStore.deliverySessionId || s.id == ChatStore.proactiveSessionId"))
+
+// —— 不设「冷启动缓存不许清空」这道闸：它对清空是**错的**（rename ③ 的坑不适用）——
+//    rename 要把完整消息集写回去，50 条快照会截断历史；清空发的是空数组，
+//    后端 merge 对同 id 直接采用 incoming（sessions_api：incoming 带 messages 含空数组 → 采用），
+//    空数组落到线上恒为「无消息」，**无截断风险**。照抄 rename 的闸门只会让
+//    冷启动缓存的用户点了没反应。护栏钉死这个「不许被加回来」的判断。
+check("不得搬用 rename 的 sessionsFromNetwork 闸门（清空发空数组，无截断风险）",
+      !clearFn.contains("sessionsFromNetwork"))
+check("也就不再需要为清空去取完整消息集（不该出现 usingLiveChat/msgs 分支）",
+      !clearFn.contains("usingLiveChat") && !clearFn.contains("let msgs ="))
+
+// —— 当前会话：切 tab + 延迟一帧再清（隐藏页清数据 = 本仓实测 SIGTRAP） ——
+check("当前会话清空前必须先切到聊天页（onOpenSession）",
+      clearFn.contains("onOpenSession?()"))
+check("清数据必须延迟一帧（0.08s）执行，不能与切 tab 同帧（v2.0.44/2.0.54/2.0.56 教训）",
+      clearFn.contains("DispatchQueue.main.asyncAfter(deadline: .now() + 0.08)"))
+
+// —— 失败必须提示 + 成功才动内存 ——
+check("服务器未确认成功就不许动本地内存（清完又被下次 saveToServer 写回去 = 白做）",
+      clearFn.contains("guard synced else { await load(); return }"))
+check("失败文案有网络异常与服务器异常两态",
+      clearFn.contains("清空未同步到服务器：") && clearFn.contains("清空未同步到服务器（服务器返回异常）"))
+check("该会话有后台流在跑时先撤（否则答案把刚清空的会话又写满）",
+      clearFn.contains("BackgroundStreamRunner.shared.cancelForDeletedSession(sessionId: s.id, auth: auth)"))
+check("成功后整体刷新列表（不就地改 sessions，与 delete 同口径）",
+      clearFn.contains("await load()"))
+// —— v4.0.15：清空前必须排空写链，否则在途旧快照把刚清掉的内容整会话盖回来 ——
+// 事故机制：clearContent 自己直发 merge（不进 saveWriteChain），而 ChatView 的防抖写
+// 可能已带着清空前的旧快照排在链里/在途 → 空写落地后旧快照后到 → 「清空了又全回来」。
+check("清空前必须先排空写链（flushPendingWrites）", clearFn.contains("await chat.flushPendingWrites()"))
+let nsPos: (String, String) -> Int = { hay, needle in
+    (hay as NSString).range(of: needle).location == NSNotFound
+        ? Int.max : (hay as NSString).range(of: needle).location
+}
+check("排空必须排在发空写之前（不是写完之后才排）",
+      nsPos(clearFn, "flushPendingWrites") < nsPos(clearFn, "/api/sessions/merge"))
+// —— 确认弹窗不许显示条数（列表可能来自 50 条冷启动缓存，条数会与真实不符）——
+check("确认弹窗不显示消息条数（冷启动缓存条数会骗人）",
+      !viewCode.contains("confirmClear?.messages.count"))
+
+// —— 与既有删除路径互不串味（两处都还在，各司其职） ——
+check("删除会话路径仍在（deleted 键 + confirmDelete）",
+      viewCode.contains("confirmDelete = s") && viewCode.contains("Label(\"删除会话\""))
+let delFn = slice(viewCode, "private func delete(_ s: ChatSession)", "}\n\n")
+check("delete 切片非空", !delFn.isEmpty)
+check("清空逻辑没有混进 delete 函数体（两条路径必须各自独立可读）",
+      !delFn.contains("清空未同步到服务器"))
+
 // ── 7. 结果 ──────────────────────────────────────────────────
 print("会话列表「进行中」标识真值表：\(passCount) 通过 / \(failCount) 失败")
 if failCount > 0 { exit(1) }

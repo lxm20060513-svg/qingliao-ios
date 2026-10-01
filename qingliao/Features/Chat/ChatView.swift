@@ -1208,6 +1208,13 @@ struct ChatView: View {
                     pendingResumeInfo = nil
                     Task {
                         let ok = await chat.loadById(sid, auth: auth)
+                        // v4.0.15：切进会话即视为已读 —— syncUnread 的循环 guard s.id != currentId
+                        // 会跳过当前会话，红点只能靠 markRead 熄灭；漏调就是永久红点。
+                        // 用 lastLoadedSession 而不是重拉列表：ChatStore 不持有 sessions 列表
+                        // （那是 SessionsView 的 @State），loadById→load 已把它写好。
+                        if ok, let lt = chat.lastLoadedSession?.lastTime {
+                            chat.markRead(sid, upTo: lt)
+                        }
                         if !ok {
                             // 会话已删/拉不到 → 标记已无意义，清掉并提示
                             StreamClient.discardPersistedTask()
@@ -1519,6 +1526,40 @@ struct ChatView: View {
             .frame(maxWidth: .infinity)
             .padding(.vertical, Spacing.xs)
             .transition(.opacity)
+        } else if !stream.memoAdded.isEmpty {
+            // v4.0.120：AI「记住瞬间」提示条。判据直接读 stream.memoAdded（@Observable，
+            // 写入自动触发刷新）——**不另挂 .onChange**：本 body 修饰符链已贴着 Swift 类型检查
+            // 阈值，多一个带闭包的成员就会 Archive 失败（CI #608 实测，见 startSeq 处注释）。
+            // 12 秒自动收尾放在 ChatMemoBar 自己的 .task 里，不占宿主的链。
+            ChatMemoBar(texts: stream.memoAdded,
+                        onUndo: { undoMemo(stream.memoAdded) },
+                        onClose: { stream.forgetMemo(stream.memoAdded) })
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+        }
+    }
+
+    /// v4.0.120：一键撤销 = 真删。调 /api/memory/delete 删掉刚记住的条目。
+    /// 🚨 删除失败必须可见（v3.9.41 同款教训：try? 吞错 → 记忆「看着删了」重开又回来），
+    /// 失败时保留提示条（不清 memoAdded）并震动，不假装撤销成功。
+    private func undoMemo(_ texts: [String]) {
+        Task {
+            // v4.0.15：逐条删中途失败时，**已删成功的那几条必须先从提示条里摘掉**。
+            // 否则用户再点「撤销」会对早就不存在的条目再发一次 delete，失败点永远停在
+            // 同一条上 → 提示条再也撤不掉（每点一次都失败）。
+            var deleted: [String] = []
+            for t in texts {
+                guard let j = try? await auth.json("/api/memory/delete", method: "POST",
+                                                   body: ["text": t]),
+                      (j["ok"] as? Bool) == true else {
+                    Haptics.error()
+                    if !deleted.isEmpty { stream.forgetMemo(deleted) }   // 已生效的先摘
+                    return   // 剩余条目保留提示条，请用户到记忆页手动删——不静默吞掉
+                }
+                deleted.append(t)
+            }
+            // 全部删成功才摘掉提示条（forgetMemo 同时清本流列表，避免同一流后续重弹）
+            Haptics.success()
+            stream.forgetMemo(texts)
         }
     }
 
@@ -1754,6 +1795,8 @@ struct ChatView: View {
             onResume: { s in
                 Haptics.tap()
                 chat.load(s)
+                // v4.0.15：同 loadById 那条，切进来必须 markRead（详见其注释）
+                if let lt = s.lastTime { chat.markRead(s.id, upTo: lt) }
             },
             onAsk: { q in
                 Haptics.tap()
@@ -2628,16 +2671,30 @@ struct ChatView: View {
             // 动画永不重启，三点静止在 0.55 缩放 + 0.45 透明度 ≈ 肉眼空泡。
             // 根治：改 TimelineView 驱动——相位由时间戳直接算出，视图怎么重建都停不下来。
             // 周期/延迟与旧版一致（0.6s autoreverse + 每颗错相 0.18s），reduceMotion 退回静止满点。
+            //
+            // v4.0.14（用户 2026-10-01 真机再报「动画还是会丢失」）：TimelineView 已经没有「边沿」
+            // 可丢，剩下两类残余风险各钉一处——
+            // ① **继承的动画事务**：ChatView 满屏 withAnimation / .animation（scrollBottom、
+            //    .animation(Motion.settle, value: ...)、高亮、胶囊飞出等 106 处），而这三颗点
+            //    的 scaleEffect/opacity 就在这条链下面。祖先若带着 in-flight 动画事务，逐帧新值
+            //    会被「从上一帧插值」甚至整个事务被跳过 → 帧在走、点看着不动。`.transaction { $0.animation = nil }`
+            //    只清掉本子树隐式动画的继承（TimelineView 的帧值是直接给值，不靠隐式动画，
+            //    所以动画本身不受影响）。
+            // ② **时钟被主线程抢占**：思考期工具卡在重渲染（toolStepCards / refreshVisibleMessages），
+            //    主线程满载时帧源拿不到 tick。若那一帧恰好停在三角波谷底，三点同亮 0.45 缩放 +
+            //    0.45 透明度 = 肉眼「空泡」。所以把强度下限从 0.45 抬到 0.62：**任何一帧都是
+            //    看得见的三颗点**，时钟停住也只表现为「不呼吸」，不会退化成空泡。
             TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: reduceMotion)) { timeline in
                 let t = timeline.date.timeIntervalSinceReferenceDate
                 HStack(spacing: Spacing.xs) {
                     ForEach(0..<3, id: \.self) { i in
                         // v3.4.20：三点跳动 → 蓝紫渐变脉冲圆（与发送按钮/Siri 流光同语言，"AI 活着"统一视觉）
                         // 波形：|sin| 三角化成 0→1→0 脉冲，周期 1.2s（= 旧版 0.6s easeInOut 往返），
-                        // 每颗相位错开 0.18s；强度下限 0.45 = 旧版低点，上限 1.0 = 旧版高点。
+                        // 每颗相位错开 0.18s；上限 1.0 = 旧版高点（不动），下限 v4.0.14 由 0.45 抬到 0.62。
                         let phase = (t + Double(i) * 0.18).truncatingRemainder(dividingBy: 1.2) / 1.2
                         let pulse = abs(2.0 * phase - 1.0)            // 1→0→1
-                        let strength = reduceMotion ? 1.0 : 0.45 + 0.55 * (1.0 - pulse)
+                        // v4.0.14：下限 0.45 → 0.62（见 body 上方 ②）。上限 1.0 不变，旧版高点一致。
+                        let strength = reduceMotion ? 1.0 : 0.62 + 0.38 * (1.0 - pulse)
                         Circle()
                             .fill(LinearGradient(colors: [.blue, .indigo, .pink],
                                                  startPoint: .topLeading, endPoint: .bottomTrailing))
@@ -2646,6 +2703,11 @@ struct ChatView: View {
                             .opacity(strength)
                     }
                 }
+                // v4.0.14：切断祖先动画事务的继承（见 body 上方 ①）。宿主的
+                // withAnimation / .animation(_:value:) 都在更上层，逐帧新值可能被
+                // 上一事务插值/跳过 → 帧在走、画面不动。只清本子树隐式动画，
+                // TimelineView 的帧值是直接给值，动画观感不受影响。
+                .transaction { $0.animation = nil }
             }
         }
     }

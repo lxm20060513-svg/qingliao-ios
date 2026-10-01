@@ -45,6 +45,12 @@ struct SessionsView: View {
     // v2.0.87ad：多选删除
     @State private var editing = false
     @State private var selectedIds = Set<String>()
+    // v4.1.x：长按菜单「清空会话内容」——清消息、**保留会话本身与标题**。
+    // 与「删除会话」是两件事：删除走 merge 的 deleted 键（整条会话消失），
+    // 清空走 merge 的 sessions 键 + 空 messages 数组（会话仍在，标题沿用当前值）。
+    @State private var confirmClear: ChatSession?
+    // 清空失败提示（沿用 renameError/deleteError 的口径：errorText 只在列表为空时才渲染，承载不了）
+    @State private var clearError: String?
     // v3.9.39：批量删除确认（镜像 confirmDelete：先确认再动数据）。条数单独存一份，
     // 不用可空值同时当弹窗驱动——那样弹窗退场时计数已被清成 nil，文案会跳成「0 个会话」
     @State private var confirmBatchDelete = false
@@ -179,6 +185,26 @@ struct SessionsView: View {
             Button("取消", role: .cancel) {}
         } message: {
             Text("将删除 \(batchDeleteCount) 个会话及其全部消息，此操作不可恢复")
+        }
+        // v4.1.x：清空会话内容确认（先确认再动数据，同 delete 的两处保险口径）
+        .alert("清空会话内容", isPresented: Binding(get: { confirmClear != nil }, set: { if !$0 { confirmClear = nil } })) {
+            Button("清空", role: .destructive) {
+                if let s = confirmClear {
+                    confirmClear = nil
+                    Task { try? await Task.sleep(for: .seconds(0.3)); clearContent(s) }
+                }
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            // 不带条数：列表可能来自 50 条冷启动缓存（loadFromSessionCache），
+            // 显示的条数与服务器真实条数不符，用户会以为只清了一部分。
+            Text("将清空「\(confirmClear?.title ?? "")」的全部消息，会话与标题保留，此操作不可恢复")
+        }
+        // v4.1.x：清空失败提示（列表非空时 errorText 不渲染，失败会完全静默）
+        .alert("清空失败", isPresented: Binding(get: { clearError != nil }, set: { if !$0 { clearError = nil } })) {
+            Button("好", role: .cancel) { clearError = nil }
+        } message: {
+            Text(clearError ?? "")
         }
         // v3.0.27：新建分类
         .alert("新建分类", isPresented: $showAddCategory) {
@@ -588,7 +614,7 @@ struct SessionsView: View {
         // 一条普通会话，点它就该进会话内容看投递详情；v3.9.75 曾把它特判成开任务中心，
         // 用户实测直接否掉了（「点进去应该看到投递信息详情，不是跳任务中心」）。
         // 任务中心有自己的常驻入口，在聊天页 header 那一排（见 ChatView showTaskCenter）。
-        chat.markRead(s.id)   // v3.9.32：打开会话即已读（此前 markRead 全仓零调用，红点会永久挂着）
+        chat.markRead(s.id, upTo: s.lastTime)   // v4.0.15：带上会话最后消息时间做基线，防时钟差导致角标复亮；v3.9.32：打开会话即已读（此前 markRead 全仓零调用，红点会永久挂着）
         chat.load(s)
         Haptics.tap()         // v3.4.29：进入会话触感
         onOpenSession?()
@@ -705,6 +731,16 @@ struct SessionsView: View {
                     Label("新建标签", systemImage: "plus")
                 }
             }
+            // v4.1.x：清空会话内容（清消息、留会话与标题）——放在「删除会话」之前，
+            // 两项都是 destructive，删除仍排最后（视觉与操作风险递增）。
+            // 固定会话（投递壳 / 轻聊主动）不给入口，与「不可删/不可改名」同一类保护（见下面 delete 的注释）。
+            if s.id != ChatStore.deliverySessionId && s.id != ChatStore.proactiveSessionId {
+                Button(role: .destructive) {
+                    confirmClear = s
+                } label: {
+                    Label("清空会话内容", systemImage: "eraser")
+                }
+            }
             // v4.0.x：固定会话（投递壳 / 轻聊主动）不可删除 → 直接不给「删除会话」这个入口，
             // 而不是给一个点了会报错的按钮（所有可见 UI 入口都必须可用）。
             if s.id != ChatStore.deliverySessionId && s.id != ChatStore.proactiveSessionId {
@@ -771,6 +807,9 @@ struct SessionsView: View {
         // 序列化在 Task 内做，但只往闭包里带 Sendable 值（t / msgs），字典不进捕获列表
         Task {
             do {
+                // v4.0.15：直发 merge 之前先排空在途写链（与 clearContent 同一闸门）。
+                // 否则链里压着的旧快照写会在改名写之后落地，把新标题整会话盖回旧名。
+                await chat.flushPendingWrites()
                 let j = try await auth.json("/api/sessions/merge", method: "POST", body: [
                     "sessions": [["id": t.id, "title": newName,
                                   "messages": ChatStore.messagesPayload(msgs)] as [String: Any]],
@@ -881,6 +920,9 @@ struct SessionsView: View {
         editing = false
         Task {
             do {
+                // v4.0.15：删之前排空在途写链 —— 否则压着的旧快照写会在删除写之后落地，
+                // 把刚删掉的会话整会话 merge 回来（用户报「删了又活着回来」）。
+                await chat.flushPendingWrites()
                 let j = try await auth.json("/api/sessions/merge", method: "POST", body: [
                     "sessions": [] as [Any], "deleted": idsCopy
                 ])
@@ -912,6 +954,68 @@ struct SessionsView: View {
         }
     }
 
+    /// v4.1.x：清空会话内容（清消息、**保留会话本身与标题**）
+    ///
+    /// 与「删除会话」/「改名」的本质差别（一句话说清为什么可以更简单）：
+    /// 两者都要把**完整消息集**原样发回后端（整会话覆盖），所以必须防「拿截断快照去写」；
+    /// 清空发的是**空数组**，后端 merge 对同 id 直接采用 incoming
+    /// （sessions_api.merge_sessions：`incoming 带 messages（含空数组）→ 采用`），
+    /// 空数组无论来自完整数据还是 50 条缓存，落到线上的结果都是「没有消息」——
+    /// **不存在截断风险**，因此不需要 rename() 那道 sessionsFromNetwork 闸门。
+    /// 反过来说：这道闸门若照抄过来，只会让冷启动缓存的用户永远清不掉（点了没反应）。
+    ///
+    /// 不传 updatedAt：App 恒发 0，后端条件是 `incoming >= cur`，恒成立 → 覆盖生效。
+    private func clearContent(_ s: ChatSession) {
+        // 固定会话（投递壳 / 轻聊主动）不许清空 —— 与 ChatView「清空本会话消息」里
+        // 的 chat.isFixedSession 闸门同一口径：主动会话内容以 NAS 为准，App 写空数组
+        // 会被后端忽略；投递壳随时会被 append_delivery_message 再写回来，清了等于白做。
+        // 菜单里已不给入口，这里是第二道（深链/其他入口不依赖菜单可见性）。
+        if s.id == ChatStore.deliverySessionId || s.id == ChatStore.proactiveSessionId {
+            clearError = "「\(s.title)」是固定会话，不能清空"
+            return
+        }
+        // 该会话有后台流在跑 → 先撤：跑完的答案会把刚清空的会话又写满。
+        BackgroundStreamRunner.shared.cancelForDeletedSession(sessionId: s.id, auth: auth)
+        let sid = s.id
+        let ttl = s.title
+        let isCurrent = chat.sessionId == sid
+        Task {
+            // ① 先写服务器：会话与标题都带上，只把 messages 换成空数组。
+            //    放在切 tab 之前——请求慢也不该让用户对着旧界面等。
+            // ② 失败必须提示：merge 返回 ok=true 后服务器仍可能拒收（如固定会话），
+            //    静默 return 会让用户以为清空了，刷新后内容原样回来。
+            var synced = false
+            do {
+                // v4.0.15：发空写之前先把链排空 —— 否则在途旧快照写会在空写之后落地，
+                // 把刚清掉的消息整会话盖回来（用户报「清空了又全回来」）。
+                await chat.flushPendingWrites()
+                let j = try await auth.json("/api/sessions/merge", method: "POST", body: [
+                    "sessions": [["id": sid, "title": ttl, "messages": [Any]()] as [String: Any]],
+                    "deleted": [] as [Any]
+                ])
+                synced = (j["ok"] as? Bool) == true
+                if !synced { clearError = "清空未同步到服务器（服务器返回异常），请联网后重试" }
+            } catch {
+                clearError = "清空未同步到服务器：\(error.localizedDescription)"
+            }
+            guard synced else { await load(); return }
+
+            await MainActor.run { Haptics.success() }
+            // ③ 正在看的就是它 → 内存也得清，否则**下一次任何 saveToServer** 会把内存里的
+            //    旧消息整会话写回去（用户看到「清空了又全回来」）。
+            //    顺序＝先让聊天页可见、完成转场，再清数据：隐藏的 TabView 页与数据清空
+            //    同帧是本仓历史崩溃组合（README「列表崩溃三连排查」②，v2.0.44/2.0.54/2.0.56）。
+            //    与 delete() 的「删当前会话」同一套路（那边换成 requestNewSession）。
+            if isCurrent {
+                onOpenSession?()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                    withAnimation(nil) { chat.clearMessages() }
+                }
+            }
+            await load()
+        }
+    }
+
     private func delete(_ s: ChatSession) {
         // v4.0.x：固定会话（投递壳 / 轻聊主动）不可删除 —— 后端 _PROTECTED_IDS 会拒绝，
         // 这里先拦在前端，不让用户点完才看到一个失败的报错。
@@ -928,6 +1032,8 @@ struct SessionsView: View {
         let deletingId = s.id
         Task {
             do {
+                // v4.0.15：删之前排空在途写链（同上，防「删了又活着回来」）。
+                await chat.flushPendingWrites()
                 let j = try await auth.json("/api/sessions/merge", method: "POST", body: [
                     "sessions": [] as [Any],
                     "deleted": [s.id]

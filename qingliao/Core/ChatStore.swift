@@ -368,6 +368,16 @@ final class ChatStore {
             UserDefaults.standard.set(seenTimes, forKey: seenTimesKey)
             return
         }
+        // v4.0.15：正在查看的会话自己不在下面循环里，退出后再同步就会拿旧基线比 → 刚看过的消息复亮。
+        // 这里把它的基线抬到它的 lastTime。口径**刻意不用设备时钟**（与 markRead 不同），见下面。
+        if let cur = sessions.first(where: { $0.id == currentId }), let lt = cur.lastTime {
+            // 🚨 基线只取后端下发的 lt（消息 timestamp 走 NAS 时钟），**不用设备 now**：
+            // 设备时间不准/被改到未来时 now 是假未来值，之后该会话所有新消息都比基线小 →
+            // 红点永不亮，且基线只增、没有自愈路径。设备时钟只用于 markRead 的当下清零。
+            seenTimes[currentId] = max(seenTimes[currentId] ?? 0, lt)
+            unread[currentId] = nil
+            UserDefaults.standard.set(seenTimes, forKey: seenTimesKey)
+        }
         for s in sessions {
             guard s.id != currentId, let lt = s.lastTime else { continue }
             let seen = seenTimes[s.id] ?? 0
@@ -385,10 +395,14 @@ final class ChatStore {
         }
     }
 
-    func markRead(_ id: String) {
+    /// - Parameter upTo: 该会话当前最后一条消息的时间戳(ms)。基线取「设备当前时间」与「upTo」的较大值：
+    ///   消息 timestamp 由服务端生成（AI 回复/推送走 NAS 时钟），NAS 比设备快时只用设备时间做基线，
+    ///   刚读过的消息仍落在「晚于基线」窗口内 → 重开 App 角标复亮（用户报 v4.0.14）。取 max 后与时钟差解耦。
+    func markRead(_ id: String, upTo lastMessageTime: TimeInterval? = nil) {
         unread[id] = nil
         loadSeenTimesIfNeeded()   // 必须在写入前：先落盘旧内容再改，否则未加载时这次的标记会被空字典覆盖掉
-        seenTimes[id] = Date().timeIntervalSince1970 * 1000
+        let now = Date().timeIntervalSince1970 * 1000
+        seenTimes[id] = max(now, lastMessageTime ?? 0)
         UserDefaults.standard.set(seenTimes, forKey: seenTimesKey)
     }
 
@@ -719,6 +733,17 @@ final class ChatStore {
             guard !Task.isCancelled else { return }
             await self?.saveToServer(auth: auth, sessionId: sid, messages: msgs, title: t)
         }
+    }
+
+    /// 排空所有在途/待发的会话写（cancel 尚未起跑的防抖 + 等 FIFO 链里已排队的写完）。
+    ///
+    /// v4.0.15 清空会话内容新增的闸门：那条路径**自己**直发 merge（不经过 saveToServer），
+    /// 若链里还压着清空前的旧快照写，空写落地后旧快照会整会话盖回来 —— 用户看到「清空了又全回来」。
+    /// 与其把清空也塞进链（会牵动载荷形态与既有真值表），不如在发空写**之前**先把链排空。
+    func flushPendingWrites() async {
+        saveTask?.cancel()
+        saveTask = nil
+        await saveWriteChain.value
     }
 
     // v3.4.25：写库串行链——所有 saveToServer 的实际网络写经此 FIFO 排队。

@@ -331,9 +331,11 @@ struct AgentRuleItem: Identifiable {
 struct MemoryView: View {
     @Environment(AuthStore.self) private var auth
     @Environment(\.dismiss) private var dismiss
-    @State private var entries: [String] = []
+    // v4.0.x 第 4 项：entries（纯字符串）→ items（带 status/日期/来源）。
+    // 只存 items 一份真源：并行存两个数组必然会出现"列表和状态对不上"的中间态。
+    @State private var items: [MemoryEntry] = []
     @State private var newText = ""
-    @State private var message: (ok: Bool, text: String)?
+    @State private var message: (ok: Bool, text: String)? = nil
     @State private var busy = false
     @State private var confirmDelete: String?   // v2.0.102：删除确认（记忆不可恢复）
     // v3.9.40（#19）：就地编辑——editing 存**原条目**（非空即弹窗打开），editText 是输入框内容
@@ -378,7 +380,7 @@ struct MemoryView: View {
                 // 列表
                 ScrollView {
                     VStack(spacing: 8) {
-                        if entries.isEmpty {
+                        if items.isEmpty {
                             VStack(spacing: 8) {
                                 Image(systemName: "brain.head.profile")
                                     .font(.system(size: Typography.display))
@@ -392,19 +394,55 @@ struct MemoryView: View {
                             }
                             .padding(.top, 60)
                         } else {
-                            ForEach(entries, id: \.self) { e in
-                                HStack(spacing: 10) {
+                            ForEach(items) { item in
+                                HStack(alignment: .top, spacing: 10) {
                                     Image(systemName: "brain.head.profile")
                                         .font(.system(size: Typography.body))
-                                        .foregroundStyle(Color.accentColor)
-                                    Text(e)
-                                        .font(.system(size: Typography.subhead))
-                                        .textSelection(.enabled)
-                                    Spacer()
+                                        .foregroundStyle(item.isDimmed ? Color.secondary : Color.accentColor)
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(item.text)
+                                            .font(.system(size: Typography.subhead))
+                                            .foregroundStyle(item.isDimmed ? Color.secondary : Color.primary)
+                                            .textSelection(.enabled)
+                                        // v4.0.x 第 4 项：状态 + 日期 + 来源三枚元信息
+                                        HStack(spacing: 6) {
+                                            MemoStatusChip(item: item)
+                                            if let d = item.displayDate {
+                                                Label {
+                                                    Text(d, format: .dateTime.year().month().day())
+                                                } icon: {
+                                                    Image(systemName: "calendar")
+                                                }
+                                                .font(.system(size: Typography.caption))
+                                                .foregroundStyle(.tertiary)
+                                            }
+                                            if item.hasSource {
+                                                Label(item.sourceTitle, systemImage: item.sourceIcon)
+                                                    .font(.system(size: Typography.caption))
+                                                    .foregroundStyle(.tertiary)
+                                            }
+                                        }
+                                    }
+                                    Spacer(minLength: 0)
+                                    // v4.0.x 第 4 项：改状态（不改正文）
+                                    Menu {
+                                        ForEach(MemoryEntry.allStatuses, id: \.self) { s in
+                                            Button {
+                                                Task { await setStatus(item, s) }
+                                            } label: {
+                                                Label(MemoryEntry.statusTitle(s), systemImage: MemoryEntry.statusIcon(s))
+                                            }
+                                        }
+                                    } label: {
+                                        Image(systemName: "ellipsis.circle")
+                                            .font(.system(size: Typography.subhead))
+                                            .foregroundStyle(Color.accentColor)
+                                    }
+                                    .accessibilityLabel("修改这条记忆的状态")
                                     // v3.9.40（#19）：就地编辑（原只能删了再加，会掉到列表末尾）
                                     Button {
-                                        editText = e
-                                        editing = e
+                                        editText = item.text
+                                        editing = item.text
                                     } label: {
                                         Image(systemName: "pencil")
                                             .font(.system(size: Typography.subhead))
@@ -413,7 +451,7 @@ struct MemoryView: View {
                                     .buttonStyle(.plain)
                                     .accessibilityLabel("编辑这条记忆")
                                     Button {
-                                        confirmDelete = e   // v2.0.102：先确认再删（记忆不可恢复）
+                                        confirmDelete = item.text   // v2.0.102：先确认再删（记忆不可恢复）
                                     } label: {
                                         Image(systemName: "trash")
                                             .font(.system(size: Typography.subhead))
@@ -469,9 +507,14 @@ struct MemoryView: View {
     }
 
     private func load() async {
-        if let j = try? await auth.json("/api/memory/list") {
-            entries = j["entries"] as? [String] ?? []
-        }
+        guard let j = try? await auth.json("/api/memory/list") else { return }
+        // 第 4 项：解析失败保持**原列表不动**（沿用 v3.9.41 定的口径）——
+        // 一次网络抖动就把用户的记忆页清空，用户会以为记忆全没了。
+        let parsed = MemoryEntry.parse(j)
+        // 「保持原列表不动」只适用于**解析不出东西**的场合；后端真的返回了空列表
+        // （用户删光了）必须照它清空，否则界面留着一条永远删不掉的幽灵条目。
+        if parsed.isEmpty && !items.isEmpty && !MemoryEntry.hasListField(j) { return }
+        items = parsed
     }
 
     private func add() {
@@ -483,7 +526,7 @@ struct MemoryView: View {
             if let j = try? await auth.json("/api/memory/add", method: "POST", body: ["text": t]) {
                 let ok = (j["ok"] as? Bool) ?? false
                 message = (ok, j["message"] as? String ?? (ok ? "已记住" : "保存失败"))
-                entries = j["entries"] as? [String] ?? entries
+                if ok && MemoryEntry.hasListField(j) { items = MemoryEntry.parse(j) }
                 if ok { newText = "" }
             } else {
                 message = (false, "请求失败")
@@ -504,7 +547,9 @@ struct MemoryView: View {
             return
         }
         message = (true, "已删除")
-        entries = j["entries"] as? [String] ?? entries
+        // v4.0.15：按「字段在不在」判定，不是「解析出东西没有」——
+        // 删光最后一条时后端合法返回空列表，跳过赋值会让条目看着删不掉。
+        if MemoryEntry.hasListField(j) { items = MemoryEntry.parse(j) }
     }
 
     /// v3.9.40（#19）：就地编辑一条记忆（后端 /api/memory/update 保位置改写）
@@ -521,9 +566,28 @@ struct MemoryView: View {
                                         body: ["old": old, "text": t]) {
             let ok = (j["ok"] as? Bool) ?? false
             message = (ok, j["message"] as? String ?? (ok ? "已更新" : "更新失败"))
-            entries = j["entries"] as? [String] ?? entries
+            if ok && MemoryEntry.hasListField(j) { items = MemoryEntry.parse(j) }
         } else {
             message = (false, "请求失败")
         }
+    }
+
+    /// v4.0.x 第 4 项：只翻状态，不动正文（后端 /api/memory/status 独立端点）。
+    /// 失败时**保持原状态不动**并报错 —— 静默失败会让用户以为标成功了，回头发现
+    /// 记忆还在生效，白白去改一遍别的设置。
+    private func setStatus(_ item: MemoryEntry, _ status: String) async {
+        guard status != item.normalizedStatus else { return }   // 没变就不打接口
+        guard let j = try? await auth.json("/api/memory/status", method: "POST",
+                                        body: ["text": item.text, "status": status]) else {
+            message = (false, "状态更新失败：请求失败")
+            return
+        }
+        let ok = (j["ok"] as? Bool) ?? false
+        guard ok else {
+            message = (false, j["message"] as? String ?? "状态更新失败")
+            return
+        }
+        message = (true, "已标记为「\(MemoryEntry.statusTitle(status))」")
+        if MemoryEntry.hasListField(j) { items = MemoryEntry.parse(j) }
     }
 }

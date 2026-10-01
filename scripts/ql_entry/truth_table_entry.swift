@@ -72,11 +72,26 @@ check("SessionsView 不再 present 任务中心（TaskCenterView 已清零）",
 let openBody = between(sess, "private func open(_ s: ChatSession) {", "@ViewBuilder")
 check("open(_:) 函数体切片取到（锚点没改名）", !openBody.isEmpty)
 check("open(_:) 三步齐：markRead → load → 切 tab（投递会话也走这一条）",
-      openBody.contains("chat.markRead(s.id)")
+      openBody.contains("chat.markRead(s.id")
       && openBody.contains("chat.load(s)")
       && openBody.contains("onOpenSession?()"))
 check("open(_:) 里没有任何提前 return 的特殊分流",
       !openBody.contains("showTaskCenter = true") && !openBody.contains("TaskCenterView()"))
+// —— v4.0.15：全仓每条「进入会话」路径都必须伴随 markRead ——
+// 事故机制：syncUnread 的循环体 `guard s.id != currentId` 会跳过当前会话，
+// 红点只能靠 markRead 熄灭。漏掉任何一条进入路径 → 该会话角标永久挂着（用户报「红点消不掉」）。
+let resumeById = between(chat, "let ok = await chat.loadById(sid, auth: auth)", "// v3.9.73")
+check("欢迎页「继续上次任务」进入会话后必须 markRead（loadById 那条）",
+      resumeById.contains("chat.markRead(sid"))
+// ⚠️ 反向自证：只钉 markRead(sid 会假绿 —— 把基线来源换成不存在的成员或删掉基线，表照样全绿。
+// 强钉「条件真能拿到 lastTime」这一段，否则这条护栏只会钉住函数名、钉不住接线。
+check("loadById 那条 markRead 受 ok 与 lastTime 保护（不许退化成无条件清基线）",
+      resumeById.contains("if ok, let lt = chat.lastLoadedSession?.lastTime"))
+let resumeCard = between(chat, "onResume: { s in", "onAsk: { q in")
+check("首页快捷卡「继续上次」进入会话后必须 markRead（load(s) 那条）",
+      resumeCard.contains("chat.markRead(s.id"))
+check("markRead 都要带 upTo（设备时钟与 NAS 时钟有差，只用设备时间会让刚读过的消息复亮）",
+      resumeById.contains("markRead(sid, upTo:") && resumeCard.contains("markRead(s.id, upTo:"))
 
 // —— ② 相机：fullScreenCover 的内容必须忽略安全区 ——
 let camSlice = between(chat, ".fullScreenCover(isPresented: $showCameraPicker)", "// v2.0.43")
