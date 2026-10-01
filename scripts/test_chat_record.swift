@@ -58,6 +58,20 @@ func expectDraft(_ name: String, _ text: String, amount: Double?, item: String?,
 }
 
 /// 反例：必须**不认**（宁可漏，不可错账）
+/// 收入（候选池③）：口径 = 单笔 + isIncome + 分类固定「收入」
+func expectIncome(_ name: String, _ text: String, amount: Double?, item: String?) {
+    positives += 1
+    guard let d = ChatRecordKit.draft(from: text, now: fixedNow()) else {
+        check("\(name)（「\(text)」应认成一笔收入）", false)
+        return
+    }
+    check("\(name)（isIncome = true）", d.isIncome)
+    if let amount { check("\(name)（金额 = \(amount)）", d.amount == amount) }
+    if let item { check("\(name)（事项 = \(item)）", d.item == item) }
+    check("\(name)（单位恒为元）", d.unit == "元")
+    check("\(name)（原话保留）", d.raw == text)
+}
+
 func expectNil(_ name: String, _ text: String) {
     negatives += 1
     check("\(name)（「\(text)」不应认成一笔）", ChatRecordKit.draft(from: text, now: fixedNow()) == nil)
@@ -73,6 +87,8 @@ enum ChatRecordTruthTable {
         sectionFour_分类与备注()
         sectionFive_卡片()
         sectionSix_签名与时间文案()
+        sectionEight_收入()
+        sectionNine_批量()
         sectionSeven_反例占比哨兵()
         sectionFourB_落库口径护栏()
     }
@@ -151,8 +167,9 @@ enum ChatRecordTruthTable {
         expectNil("带非金额单位（%）", "涨了 8 %")
         expectNil("序数", "第 3 章")
         expectNil("超长（>24 字）", "昨天买了菜，路上堵了 20 分钟，回来又看了一会儿书")
-        expectNil("收入语义（工资）", "收了 500 工资")
-        expectNil("收入语义（退款）", "退款 88 到账")
+        expectNil("收入词混进验证码语境", "验证码 1234 到账")
+        expectNil("收入词但有两个数字（不猜）", "退款 88 和 99 到账")
+        expectNil("批量句里有一段认不出（整批不认）", "早餐12 验证码1234")
         expectNil("超过裸数字上限", "买菜 123456")
         expectNil("小数点后三位", "买菜 17.999")
         expectNil("只有单位词没有事项", "人民币 100")
@@ -265,6 +282,58 @@ enum ChatRecordTruthTable {
     }
 
     // MARK: - 7. 反例占比哨兵
+
+    static func sectionEight_收入() {
+        print("\n=== 8. 收入（候选池③）===")
+        expectIncome("发工资", "发工资 8000", amount: 8000, item: "工资")
+        expectIncome("报销", "报销 200", amount: 200, item: "报销")
+        expectIncome("退款到账", "退款 88 到账", amount: 88, item: "到账")
+        expectIncome("收了工资", "收了 500 工资", amount: 500, item: "工资")
+
+        if let d = ChatRecordKit.draft(from: "发工资 8000", now: fixedNow()) {
+            check("收入条目分类固定为「收入」（不混进支出分类）", d.category == ChatRecordKit.incomeCategory)
+        } else {
+            check("收入句能认出来", false)
+        }
+
+        // 口径护栏：收支靠 kind 区分（不是靠金额正负）—— 支出侧每个统计都必须跳过收入
+        let recs = [
+            RecordItem(kind: RecordKit.incomeKind, title: "工资", amount: 8000, unit: "元",
+                       category: ChatRecordKit.incomeCategory, source: "chat", createdAt: fixedNow()),
+            RecordItem(kind: "amount", title: "买菜", amount: 86, unit: "元",
+                       category: "餐饮", source: "chat", createdAt: fixedNow()),
+        ]
+        check("本月支出合计不含收入（8000 不得抵掉 86）",
+              RecordKit.monthTotal(recs, now: fixedNow(), calendar: fixedCalendar()).amount == 86)
+        check("本月收入合计只算收入",
+              RecordKit.monthIncome(recs, now: fixedNow(), calendar: fixedCalendar()).amount == 8000)
+        check("收入不进支出分类占比",
+              RecordKit.categoryTotals(recs, now: fixedNow(), calendar: fixedCalendar())
+                  .allSatisfy { $0.category != ChatRecordKit.incomeCategory })
+    }
+
+    static func sectionNine_批量() {
+        print("\n=== 9. 多笔批量入账（候选池④）===")
+        let a = ChatRecordKit.batchDrafts(from: "早餐12 打车35 水果28", now: fixedNow())
+        check("空格分隔三笔全认出（\(a.count) 笔）", a.count == 3)
+        check("三笔金额依次 12/35/28", a.map { $0.amount } == [12, 35, 28])
+        check("三笔事项依次 早餐/打车/水果", a.map { $0.item } == ["早餐", "打车", "水果"])
+
+        let b = ChatRecordKit.batchDrafts(from: "早餐 12、打车 35", now: fixedNow())
+        check("顿号分隔两笔", b.count == 2 && b.map { $0.amount } == [12, 35])
+
+        let c = ChatRecordKit.batchDrafts(from: "买菜 86", now: fixedNow())
+        check("单笔句只出一笔（不许被切碎）", c.count == 1 && c[0].item == "买菜")
+
+        let d = ChatRecordKit.batchDrafts(from: "早餐12 验证码1234", now: fixedNow())
+        check("有一段认不出 → 整批不认（宁可漏不可错账）", d.isEmpty)
+
+        let e = ChatRecordKit.batchDrafts(from: "买菜 86 和 12", now: fixedNow())
+        check("切出来的碎片认不出 → 整批不认（不硬凑）", e.isEmpty)
+
+        let f = ChatRecordKit.batchDrafts(from: "早餐12 收工资8000", now: fixedNow())
+        check("批量里收支可以混着记", f.count == 2 && f[0].isIncome == false && f[1].isIncome)
+    }
 
     static func sectionSeven_反例占比哨兵() {
         print("\n=== 7. 反例占比哨兵 ===")

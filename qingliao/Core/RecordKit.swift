@@ -107,6 +107,12 @@ struct CategoryTotal: Identifiable, Equatable, Sendable {
 
 enum RecordKit {
 
+    /// 收入的 kind（v4.0.19 候选池③）。
+    /// 为什么用 kind 而不是「负数金额」：负数一旦漏进任何一处 sum，会把用户看到的
+    /// 「本月合计」悄悄抵小，而且看不出来是 bug。用 kind 显式区分后，支出侧的每个统计
+    /// 都必须写 `kind != incomeKind`，漏一处就在真值表里红。
+    static let incomeKind = "income"
+
     /// 未分类的显示名（空串在 UI 上统一显示成它）
     static let uncategorized = "未分类"
 
@@ -144,7 +150,22 @@ enum RecordKit {
         let key = monthKey(now, calendar: calendar)
         var sum = 0.0
         var n = 0
-        for i in items where i.unit == "元" {
+        for i in items where i.unit == "元" && i.kind != incomeKind {
+            guard let a = i.amount else { continue }
+            guard monthKey(i.createdAt, calendar: calendar) == key else { continue }
+            sum += a
+            n += 1
+        }
+        return (sum, n)
+    }
+
+    /// 本月收入合计（与 monthTotal 完全对称；同样只算「元」、同样按月过滤）
+    static func monthIncome(_ items: [RecordItem], now: Date = Date(),
+                            calendar: Calendar = .current) -> (amount: Double, count: Int) {
+        let key = monthKey(now, calendar: calendar)
+        var sum = 0.0
+        var n = 0
+        for i in items where i.unit == "元" && i.kind == incomeKind {
             guard let a = i.amount else { continue }
             guard monthKey(i.createdAt, calendar: calendar) == key else { continue }
             sum += a
@@ -160,7 +181,7 @@ enum RecordKit {
         let key = monthKey(now, calendar: calendar)
         var sum: [String: Double] = [:]
         var cnt: [String: Int] = [:]
-        for i in items where i.unit == "元" {
+        for i in items where i.unit == "元" && i.kind != incomeKind {   // 收入不进支出分类占比
             guard let a = i.amount else { continue }
             guard monthKey(i.createdAt, calendar: calendar) == key else { continue }
             let c = categoryLabel(i.category)

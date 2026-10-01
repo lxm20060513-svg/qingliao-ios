@@ -1516,6 +1516,8 @@ struct ChatView: View {
         if let entry = chatRecordEntry {
             ChatRecordBar(item: entry.item,
                           category: entry.category,
+                          batchCount: entry.extraItems.count + 1,
+                          batchTotal: ([entry.item] + entry.extraItems).reduce(0) { $0 + ($1.amount ?? 0) },
                           onUndo: { undoLandedExpense(entry) },
                           onClose: { withAnimation(Motion.settle) { chatRecordEntry = nil } })
                 .padding(.horizontal, Spacing.xs)
@@ -1606,8 +1608,13 @@ struct ChatView: View {
             flashRecordDedup()
             return
         }
-        guard let draft = ChatRecordKit.draft(from: text) else { return }
-        guard let added = RecordStore.shared.addExpense(draft) else { return }
+        let drafts = ChatRecordKit.batchDrafts(from: text)
+        guard !drafts.isEmpty else { return }
+        var added: [(item: RecordItem, inserted: Bool)] = []
+        for d in drafts {
+            if let a = RecordStore.shared.addExpense(d) { added.append(a) }
+        }
+        guard let first = added.first else { return }
         chatRecordSignatures[sig] = now
         // 表别无限长（一页聊天里可能记很多笔）：顺手清掉过窗口的老条目
         if chatRecordSignatures.count > 40 {
@@ -1615,21 +1622,29 @@ struct ChatView: View {
         }
         // Store 的 2 秒连点护栏命中时返回的是**已存在**那条（inserted=false）→ 不再插第二张卡、
         // 也不撤旧条（撤了会把几分钟前那笔的提示顶掉）
-        guard added.inserted else {
+        guard first.inserted else {
             // 2 秒连点护栏命中：已存在那一笔、没插新卡 —— 静默 = 用户以为没记上
             flashRecordDedup()
             return
         }
-        let card = ChatRecordKit.cardText(title: added.item.title,
-                                          amount: added.item.amount ?? draft.amount,
-                                          unit: draft.unit,
-                                          category: draft.category,
-                                          raw: draft.raw)
+        // 单笔走原卡（口径不变）；多笔走批量卡（一张卡列全，撤销仍是一次全撤）
+        let card: String
+        if drafts.count == 1 {
+            card = ChatRecordKit.cardText(title: first.item.title,
+                                          amount: first.item.amount ?? drafts[0].amount,
+                                          unit: drafts[0].unit,
+                                          category: drafts[0].category,
+                                          raw: drafts[0].raw,
+                                          isIncome: drafts[0].isIncome)
+        } else {
+            card = ChatRecordKit.batchCardText(drafts)
+        }
         var msg = ChatMessage.local(role: "assistant", content: card)
         msg.isPush = true
         chat.append(msg)      // append 内部带 Motion.enter；count/lastID 变化会触发 refreshVisibleMessages
         withAnimation(Motion.settle) {
-            chatRecordEntry = ChatRecordEntry(item: added.item, category: draft.category,
+            chatRecordEntry = ChatRecordEntry(item: first.item, category: drafts[0].category,
+                                              extraItems: added.dropFirst().map { $0.item },
                                               cardMessageID: msg.id, signature: sig)
         }
         Haptics.success()     // v3.4.25：写入类动作的成功触感（与意图条写库同口径）
@@ -1641,6 +1656,8 @@ struct ChatView: View {
     /// 放回去重签名（否则「撤销完再说一遍同一句」会被自己的 10 分钟窗口挡掉，看起来像坏了）。
     private func undoLandedExpense(_ entry: ChatRecordEntry) {
         RecordStore.shared.delete(entry.item)
+        // 批量入账（④）：撤销必须一次全撤，见 ChatRecordEntry.extraItems 的注释
+        for extra in entry.extraItems { RecordStore.shared.delete(extra) }
         // 卡片消失与动作条收起必须同一个动画事务（原来卡片硬跳、只有动作条动）
         withAnimation(Motion.settle) {
             chat.messages.removeAll { $0.id == entry.cardMessageID }
@@ -2670,50 +2687,52 @@ struct ChatView: View {
         // v3.9.19：无障碍——「降低动态效果」时不做循环脉冲
         @Environment(\.accessibilityReduceMotion) private var reduceMotion
         var body: some View {
-            // v4.0.12 根治「圆点脉冲自己消失」（用户 2026-09-30 真机实报，v4.0.10 的 onDisappear
-            // 复位没根治）：repeatForever 靠视图身份稳定 + false→true 边沿启动，思考气泡在
-            // 工具卡展开/走秒 TimelineView 重建父级时身份抖动，边沿丢了 @State 已是 true →
-            // 动画永不重启，三点静止在 0.55 缩放 + 0.45 透明度 ≈ 肉眼空泡。
-            // 根治：改 TimelineView 驱动——相位由时间戳直接算出，视图怎么重建都停不下来。
-            // 周期/延迟与旧版一致（0.6s autoreverse + 每颗错相 0.18s），reduceMotion 退回静止满点。
+            // v4.0.12 根治「圆点脉冲自己消失」（用户 2026-09-30 真机实报）：改 TimelineView 驱动。
+            // v4.0.14（再报）：抬强度下限 + 切祖先动画事务继承。
             //
-            // v4.0.14（用户 2026-10-01 真机再报「动画还是会丢失」）：TimelineView 已经没有「边沿」
-            // 可丢，剩下两类残余风险各钉一处——
-            // ① **继承的动画事务**：ChatView 满屏 withAnimation / .animation（scrollBottom、
-            //    .animation(Motion.settle, value: ...)、高亮、胶囊飞出等 106 处），而这三颗点
-            //    的 scaleEffect/opacity 就在这条链下面。祖先若带着 in-flight 动画事务，逐帧新值
-            //    会被「从上一帧插值」甚至整个事务被跳过 → 帧在走、点看着不动。`.transaction { $0.animation = nil }`
-            //    只清掉本子树隐式动画的继承（TimelineView 的帧值是直接给值，不靠隐式动画，
-            //    所以动画本身不受影响）。
-            // ② **时钟被主线程抢占**：思考期工具卡在重渲染（toolStepCards / refreshVisibleMessages），
-            //    主线程满载时帧源拿不到 tick。若那一帧恰好停在三角波谷底，三点同亮 0.45 缩放 +
-            //    0.45 透明度 = 肉眼「空泡」。所以把强度下限从 0.45 抬到 0.62：**任何一帧都是
-            //    看得见的三颗点**，时钟停住也只表现为「不呼吸」，不会退化成空泡。
-            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: reduceMotion)) { timeline in
-                let t = timeline.date.timeIntervalSinceReferenceDate
-                HStack(spacing: Spacing.xs) {
-                    ForEach(0..<3, id: \.self) { i in
-                        // v3.4.20：三点跳动 → 蓝紫渐变脉冲圆（与发送按钮/Siri 流光同语言，"AI 活着"统一视觉）
-                        // 波形：|sin| 三角化成 0→1→0 脉冲，周期 1.2s（= 旧版 0.6s easeInOut 往返），
-                        // 每颗相位错开 0.18s；上限 1.0 = 旧版高点（不动），下限 v4.0.14 由 0.45 抬到 0.62。
-                        let phase = (t + Double(i) * 0.18).truncatingRemainder(dividingBy: 1.2) / 1.2
-                        let pulse = abs(2.0 * phase - 1.0)            // 1→0→1
-                        // v4.0.14：下限 0.45 → 0.62（见 body 上方 ②）。上限 1.0 不变，旧版高点一致。
-                        let strength = reduceMotion ? 1.0 : 0.62 + 0.38 * (1.0 - pulse)
-                        Circle()
-                            .fill(LinearGradient(colors: [.blue, .indigo, .pink],
-                                                 startPoint: .topLeading, endPoint: .bottomTrailing))
-                            .frame(width: 8, height: 8)
-                            .scaleEffect(0.55 + 0.45 * strength)
-                            .opacity(strength)
-                    }
+            // v4.0.19（用户 2026-10-01 三报「动画动一段时间就会消失」）：前两版都没根治，真根因在
+            // **调度本身**——`.animation` 是官方文档定义的「pausable schedule」（可暂停调度）：
+            // 只在系统判定「有动画内容在跑」时全速 tick，子树没有 Core Animation 活动时会被
+            // 降频甚至暂停（OpenSwiftUI 实现注释「Respects system animation settings」）。
+            // 而这三颗点是 TimelineView 自己驱动的——系统看「没有活动动画」→ 停时钟 →
+            // 三点凝在某一帧 → 肉眼「动一会儿就停了/消失」。根治：换 `.periodic` 墙钟调度，
+            // 官方契约「updates at regular intervals」永不暂停，与系统动画状态无关。
+            // 相位仍由时间戳直接算出（丢帧后下一帧相位自动正确，v4.0.12 的核心优点保留）；
+            // 周期/错相与旧版一致（1.2s 全周期 + 每颗错相 0.18s）；强度下限 0.62 保留
+            //（主线程抢占丢帧时那一帧仍看得见）；reduceMotion 直接渲染静止满点（periodic 无 paused 参数）。
+            if reduceMotion {
+                dotRow(timeline: nil)
+            } else {
+                TimelineView(.periodic(from: .now, by: 1.0 / 30.0)) { timeline in
+                    dotRow(timeline: timeline.date.timeIntervalSinceReferenceDate)
                 }
-                // v4.0.14：切断祖先动画事务的继承（见 body 上方 ①）。宿主的
-                // withAnimation / .animation(_:value:) 都在更上层，逐帧新值可能被
-                // 上一事务插值/跳过 → 帧在走、画面不动。只清本子树隐式动画，
-                // TimelineView 的帧值是直接给值，动画观感不受影响。
-                .transaction { $0.animation = nil }
             }
+        }
+
+        /// 三颗点一行。timeline = 当前墙钟秒数；传 nil = reduceMotion 静止满点。
+        private func dotRow(timeline: Double?) -> some View {
+            HStack(spacing: Spacing.xs) {
+                ForEach(0..<3, id: \.self) { i in
+                    // v3.4.20：三点跳动 → 蓝紫渐变脉冲圆（与发送按钮/Siri 流光同语言，"AI 活着"统一视觉）
+                    // 波形：|sin| 三角化成 0→1→0 脉冲，周期 1.2s（= 旧版 0.6s easeInOut 往返），
+                    // 每颗相位错开 0.18s；上限 1.0 = 旧版高点（不动），下限 v4.0.14 由 0.45 抬到 0.62。
+                    let pulse = timeline.map { t in
+                        abs(2.0 * ((t + Double(i) * 0.18)
+                            .truncatingRemainder(dividingBy: 1.2) / 1.2) - 1.0)   // 1→0→1
+                    }
+                    let strength = pulse.map { 0.62 + 0.38 * (1.0 - $0) } ?? 1.0
+                    Circle()
+                        .fill(LinearGradient(colors: [.blue, .indigo, .pink],
+                                             startPoint: .topLeading, endPoint: .bottomTrailing))
+                        .frame(width: 8, height: 8)
+                        .scaleEffect(0.55 + 0.45 * strength)
+                        .opacity(strength)
+                }
+            }
+            // v4.0.14：切断祖先动画事务的继承。宿主的 withAnimation / .animation(_:value:) 都在
+            // 更上层，逐帧新值可能被上一事务插值/跳过 → 帧在走、画面不动。只清本子树隐式动画，
+            // periodic 逐帧直接给值，动画观感不受影响。
+            .transaction { $0.animation = nil }
         }
     }
 

@@ -25,12 +25,25 @@ import SwiftUI
 struct ChatRecordBar: View {
     let item: RecordItem
     let category: String
+    /// 批量入账（候选池④）：这次一共记了几笔。>1 时标题改「已记 N 笔」，「撤销」一次全撤
+    var batchCount: Int = 1
+    /// 批量时这几笔的合计（元）
+    var batchTotal: Double = 0
     /// 真撤销（宿主实现：RecordStore.delete + 收回会话里那张卡）
     var onUndo: () -> Void
     var onClose: () -> Void
 
+    private var isIncome: Bool { item.kind == RecordKit.incomeKind }
+
+    private var titleText: String {
+        if batchCount > 1 { return "已记 \(batchCount) 笔" }
+        return (isIncome ? "已记收入 · " : "已记账 · ") + item.title
+    }
+
     private var summary: String {
-        ChatRecordKit.barSummary(amount: item.amount ?? 0, unit: item.unit, category: category)
+        if batchCount > 1 { return "合计 " + RecordKit.amountText(batchTotal, unit: "元") }
+        return ChatRecordKit.barSummary(amount: item.amount ?? 0, unit: item.unit,
+                                        category: category, isIncome: isIncome)
     }
 
     var body: some View {
@@ -39,7 +52,7 @@ struct ChatRecordBar: View {
                 .font(.system(size: Typography.subhead))
                 .foregroundStyle(Color.accentColor)
             VStack(alignment: .leading, spacing: Spacing.xxs) {
-                Text("已记账 · \(item.title)")
+                Text(titleText)
                     .font(.system(size: Typography.subhead))
                     .foregroundStyle(.primary)
                     .lineLimit(1)

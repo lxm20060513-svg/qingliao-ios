@@ -44,6 +44,8 @@ struct ChatExpenseDraft: Equatable, Sendable {
     let raw: String
     /// 记账时间（= 解析时刻；作为参数传入而不是内部取 Date()，真值表才能固定）
     let at: Date
+    /// 这笔是**收入**（v4.0.19 候选池③）：落库 kind = income，支出侧统计一律跳过它
+    var isIncome: Bool = false
 
     /// v4.0.19 起**不再用于落库**：分类已是 RecordItem.category 一等字段，note 只留原话
     /// （RecordStore.addExpense 传的是 draft.category + draft.raw）。保留它只为兼容旧格式
@@ -55,6 +57,9 @@ struct ChatExpenseDraft: Equatable, Sendable {
 struct ChatRecordEntry: Equatable {
     let item: RecordItem
     let category: String
+    /// 批量入账（候选池④）时**除第一笔以外**的其余条目。撤销必须一次全撤 ——
+    /// 只撤第一笔会留下「用户以为撤了、账本里还剩两笔」这种最难查的账。
+    var extraItems: [RecordItem] = []
     /// 会话里那张记账卡的消息 id（撤销时一并从会话里收回）
     let cardMessageID: String
     /// 去重签名（撤销后要放回，否则「撤销完再说一遍同一句」会被自己挡掉）
@@ -87,6 +92,7 @@ enum ChatRecordKit {
     static func draft(from raw: String, now: Date = Date()) -> ChatExpenseDraft? {
         let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, text.count <= maxTextLength else { return nil }
+        if let d = incomeDraft(from: text, now: now) { return d }  // ⓪ 收入（候选池③）
         if let d = unitDraft(from: text, now: now) { return d }   // ① 带单位：既有管道
         return bareDraft(from: text, now: now)                    // ② 裸数字：本文件的门
     }
@@ -94,6 +100,84 @@ enum ChatRecordKit {
     /// 去重签名：会话 + 文本（口径与 sendCore 的 lastSentSignature 同构，只是窗口更长）
     static func signature(sessionId: String, text: String) -> String {
         sessionId + "|" + text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    // MARK: - ⓪ 收入（候选池③）
+
+    /// 收入条目的分类（固定值）：收入不该混进支出分类占比里，单独一个「收入」桶
+    static let incomeCategory = "收入"
+
+    /// 一句话记收入：「发工资 8000」「报销 200」「退款 88 到账」。
+    ///
+    /// 为什么以前拒得很干脆、现在能做：原口径是「收入语义不猜」（宁可漏），因为聊天入口是**点即写**，
+    /// 猜错就是用户账本里的错账。现在放开的依据是**收入词是显式写出来的**（「工资」「报销」），
+    /// 不是靠数字特征猜的；同时用 kind 把收支分开，收入不会被算进「本月合计」。
+    ///
+    /// 门（与支出**同严**，宁可漏不可错账）：
+    ///   · 必须命中收入词；命中「非消费语义」词（验证码/快递/单号…）一律拒
+    ///     ——「验证码 1234 到账」跟真实收入在字符层面同构；
+    ///   · 数字恰好一个、独立成词、正数且 ≤ maxAmount；
+    ///   · 事项 = 剥掉金额后剩下最长的一段（「收了 500 工资」→ 工资）；全剥光则退回命中的收入词
+    ///     （「报销 200」→ 报销），宁可事项朴素，也不要静默不记。
+    private static func incomeDraft(from text: String, now: Date) -> ChatExpenseDraft? {
+        guard containsAny(text, incomeWords) else { return nil }
+        guard !containsAny(text, nonExpenseWords) else { return nil }
+        let tokens = numberTokens(in: text)
+        guard tokens.count == 1, let tok = tokens.first else { return nil }
+        guard tok.value > 0, tok.value <= maxAmount else { return nil }
+        let hit = incomeWords.first { text.contains($0) } ?? incomeCategory
+        let bare = text.replacingCharacters(in: tok.range, with: " ")
+        // ① 只剥**命中的那个**收入词 —— 保住「收了 500 工资」里真正的事项「工资」
+        var item = cleanItem(bare.replacingOccurrences(of: hit, with: " "))
+        // ② 剥不干净（「发工资」剥掉「工资」只剩「发」）就再剥掉全部收入词
+        if item.count <= 1 {
+            var allBare = bare
+            for w in incomeWords { allBare = allBare.replacingOccurrences(of: w, with: " ") }
+            item = cleanItem(allBare)
+        }
+        // ③ 还是空/只剩一个字 → 退回命中的收入词本身（「报销 200」→ 报销）
+        if item.count <= 1 {
+            item = hit
+        }
+        guard isUsableIncomeItem(item) else { return nil }
+        return ChatExpenseDraft(item: item, amount: tok.value, unit: "元",
+                                category: incomeCategory, raw: text, at: now, isIncome: true)
+    }
+
+    /// 收入事项可用性：与 isUsableItem 唯一的差别是**不排除收入词** ——
+    /// 收入条目的标题本来就该叫「工资」「报销」，用支出那把尺子会把自己人的词判死。
+    private static func isUsableIncomeItem(_ s: String) -> Bool {
+        let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty, t.count <= maxItemLength, hasHan(t) else { return false }
+        return !containsAny(t, nonExpenseWords)
+    }
+
+    // MARK: - ④ 多笔批量入账
+
+    /// 一句话记多笔：「早餐12 打车35 水果28」「早餐 12、打车 35」。
+    ///
+    /// 口径（宁可漏、不可错账）：
+    ///   · **先试单笔**：单笔能认出的就一定是单笔（别把「买菜 86」这种正常句切碎）；
+    ///   · 单笔认不出且全文 ≥2 个数字时才切段，每段走**同一套** draft(from:) 门（不新造第二套规则）；
+    ///   · **有一段认不出 → 整批不认**（返回空）。只记半句比不记更伤：用户看到账本里多一笔少一笔，
+    ///     根本不知道哪笔对。
+    static func batchDrafts(from raw: String, now: Date = Date()) -> [ChatExpenseDraft] {
+        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return [] }
+        if let one = draft(from: text, now: now) { return [one] }
+        guard numberTokens(in: text).count >= 2 else { return [] }
+        let seps = CharacterSet(charactersIn: "\n、,，;；/|+")
+        var pieces = text.components(separatedBy: seps)
+        if pieces.count <= 1 { pieces = text.components(separatedBy: " ") }   // 「早餐12 打车35」
+        guard pieces.count <= 12 else { return [] }                           // 上限：再多就是整段文本，不是记账
+        var out: [ChatExpenseDraft] = []
+        for p in pieces {
+            let one = p.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !one.isEmpty else { continue }
+            guard let d = draft(from: one, now: now) else { return [] }
+            out.append(d)
+        }
+        return out.count >= 2 ? out : []
     }
 
     // MARK: - ① 带单位：复用 IntentPipeline
@@ -351,12 +435,13 @@ enum ChatRecordKit {
     /// 所以「撤销」由宿主（ChatView）在输入栏上方给真按钮，卡片 footer **指路**（指路 ≠ 假按钮：
     /// 卡上没有任何可点元素宣称自己能撤销）。
     static func cardText(title: String, amount: Double, unit: String, category: String,
-                         raw: String, at: Date = Date(), calendar: Calendar = .current) -> String {
+                         raw: String, at: Date = Date(), calendar: Calendar = .current,
+                         isIncome: Bool = false) -> String {
         let payload: [String: Any] = [
             "type": "metrics",
-            "title": "记一笔 · \(title)",
+            "title": (isIncome ? "记收入 · " : "记一笔 · ") + title,
             "subtitle": "一句话记账",
-            "status": ["text": "已记账", "tone": "ok"],
+            "status": ["text": isIncome ? "已记收入" : "已记账", "tone": "ok"],
             "metrics": [["label": "金额", "value": moneyText(amount), "unit": unit]],
             "fields": [
                 ["key": "分类", "value": category],
@@ -384,7 +469,32 @@ enum ChatRecordKit {
     }
 
     /// 动作条上的一行摘要（金额 + 分类），与卡片同源，避免两处各拼一遍
-    static func barSummary(amount: Double, unit: String, category: String) -> String {
-        RecordKit.amountText(amount, unit: unit) + " · " + category
+    static func barSummary(amount: Double, unit: String, category: String,
+                           isIncome: Bool = false) -> String {
+        (isIncome ? "+" : "") + RecordKit.amountText(amount, unit: unit) + " · " + category
+    }
+
+    /// 批量入账（候选池④）的卡片：一张卡把 N 笔全列出来，合计写在标题上。
+    /// 撤销仍然是「一次全撤」（宿主用 ChatRecordEntry.extraItems 一起删）。
+    static func batchCardText(_ drafts: [ChatExpenseDraft], at: Date = Date(),
+                              calendar: Calendar = .current) -> String {
+        let total = drafts.reduce(0) { $0 + $1.amount }
+        let allIncome = drafts.allSatisfy { $0.isIncome }
+        let payload: [String: Any] = [
+            "type": "list",
+            "title": "记 \(drafts.count) 笔 · 合计 " + RecordKit.amountText(total, unit: "元"),
+            "subtitle": "一句话记账",
+            "status": ["text": allIncome ? "已记收入" : "已记账", "tone": "ok"],
+            "list": drafts.map { d -> [String: String] in
+                ["title": d.item,
+                 "subtitle": (d.isIncome ? "+" : "") + RecordKit.amountText(d.amount, unit: d.unit)
+                             + " · " + d.category]
+            },
+            "fields": [["key": "时间", "value": timeText(at, calendar: calendar)]],
+            "footer": "撤销：点输入框上方的「撤销」（一次收回这 \(drafts.count) 笔）",
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]),
+              let json = String(data: data, encoding: .utf8) else { return "" }
+        return "```ql-card\n" + json + "\n```"
     }
 }

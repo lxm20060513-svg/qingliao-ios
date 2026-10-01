@@ -86,7 +86,8 @@ final class RecordStore {
     /// 入口照抄时必改歪）。真值表在 scripts/test_chat_record.swift 里连卡片文案一起钉住。
     @discardableResult
     func addExpense(_ draft: ChatExpenseDraft) -> (item: RecordItem, inserted: Bool)? {
-        addDetailed(kind: "amount", title: draft.item, amount: draft.amount, unit: draft.unit,
+        addDetailed(kind: draft.isIncome ? RecordKit.incomeKind : "amount",
+                    title: draft.item, amount: draft.amount, unit: draft.unit,
                     note: draft.raw, category: draft.category, source: "chat")
     }
 
