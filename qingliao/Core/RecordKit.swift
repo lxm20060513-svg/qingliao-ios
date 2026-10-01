@@ -125,6 +125,44 @@ struct MonthProjection: Equatable, Sendable {
     let projected: Double
 }
 
+/// 固定支出（候选池⑨）：房租 / 宽带 / 订阅 —— 每月固定一笔，到日子自动记。
+///
+/// 为什么日期上限是 28：29-31 号在小月不存在。让用户设 31 号，2 月就变成
+/// 「这个月的房租去哪了」；宁可晚一两天记，也不要静默漏一个月。
+struct FixedExpense: Identifiable, Codable, Equatable, Sendable {
+    var id: String
+    var title: String
+    var amount: Double
+    var category: String
+    var day: Int            // 每月第几天（1...28）
+    var enabled: Bool
+    var lastApplied: String // 已自动入账的月份（"2026-09"）；空 = 还没入过
+
+    init(id: String = UUID().uuidString, title: String, amount: Double,
+         category: String = "", day: Int = 1, enabled: Bool = true, lastApplied: String = "") {
+        self.id = id
+        self.title = title
+        self.amount = amount
+        self.category = category
+        self.day = FixedExpense.clampDay(day)
+        self.enabled = enabled
+        self.lastApplied = lastApplied
+    }
+
+    static func clampDay(_ d: Int) -> Int { min(max(d, 1), 28) }
+}
+
+/// 预算水位（候选池⑦）
+///
+/// 四档而不是布尔：80% 起就该提醒（还能救），100% 之后是另一句话（已经超了）。
+/// **只有两档（没超/超了）时，用户在 99% 那天什么提示都看不到** —— 那正是最该省的一天。
+enum BudgetLevel: String, Equatable, Sendable {
+    case none    // 没设预算
+    case safe    // < 80%
+    case near    // ≥ 80%
+    case over    // ≥ 100%
+}
+
 /// 本月某个分类的合计（v4.0.19 分类占比）
 ///
 /// 为什么是 struct 而不是 tuple：`ForEach(rows, id: \.category)` 这类 key path 打在 tuple 上
@@ -342,6 +380,86 @@ enum RecordKit {
         return MonthProjection(spent: spent, income: income, daysElapsed: elapsed,
                                daysInMonth: daysInMonth, dailyAvg: avg,
                                projected: avg * Double(daysInMonth))
+    }
+
+    // MARK: - v4.0.19 候选池⑦：月预算与超支水位（纯逻辑，真值表逐条钉）
+
+    /// 预算水位。budget ≤ 0 = 没设预算（**不是**"花了就超"）。
+    /// nearRatio 默认 80%：预警天天挂着就不再是预警。
+    static func budgetLevel(spent: Double, budget: Double, nearRatio: Double = 0.8) -> BudgetLevel {
+        guard budget > 0 else { return .none }
+        let ratio = spent / budget
+        if ratio >= 1 { return .over }
+        if ratio >= nearRatio { return .near }
+        return .safe
+    }
+
+    /// 已用比例（没设预算返回 0 —— UI 拿它画进度条，不能除零、也不能画满）
+    static func budgetRatio(spent: Double, budget: Double) -> Double {
+        guard budget > 0 else { return 0 }
+        return spent / budget
+    }
+
+    /// 预算一行文案（明细页汇总卡与首页卡共用这一处中文，别在两处各写一份）
+    static func budgetText(spent: Double, budget: Double) -> String {
+        guard budget > 0 else { return "还没设月预算" }
+        let used = Int((budgetRatio(spent: spent, budget: budget) * 100).rounded())
+        if spent >= budget {
+            return String(format: "已超预算 %.0f 元 · 已用 %d%%", spent - budget, used)
+        }
+        return String(format: "已用 %d%% · 还剩 %.0f 元", used, budget - spent)
+    }
+
+    // MARK: - v4.0.19 候选池⑨：固定支出的到期判定（纯逻辑）
+
+    /// 这一期该自动入账的固定支出。三个条件：开关开着、当月还没入过、当天已到约定日。
+    ///
+    /// 为什么是「**已到**」而不是「正好当天」：用户不是每天都开 App。
+    /// 只认当天的话，设了每月 1 号的房租，1 号没开 App，这个月就永远记不上 ——
+    /// 而「固定支出」的全部意义就是不需要人惦记。
+    static func fixedDue(_ list: [FixedExpense], now: Date = Date(),
+                         calendar: Calendar = .current) -> [FixedExpense] {
+        let key = monthKey(now, calendar: calendar)
+        let day = calendar.component(.day, from: now)
+        return list.filter { $0.enabled && $0.lastApplied != key && day >= $0.day }
+    }
+
+    // MARK: - v4.0.19 候选池⑫：导出 CSV 的行构造（纯逻辑；转义/BOM 由 ChatComponents.TableCSVExport 统一负责，别在这重写一份）
+
+    /// 一行的时间戳（"2026-09-26 14:03"）。
+    /// CSV 必须精确到分：只给日期时，同一天多笔在表里分不出先后。
+    static func stampText(_ date: Date, calendar: Calendar = .current) -> String {
+        let c = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: date)
+        return String(format: "%04d-%02d-%02d %02d:%02d", c.year ?? 0, c.month ?? 0, c.day ?? 0,
+                      c.hour ?? 0, c.minute ?? 0)
+    }
+
+    /// 来源的中文名（导出的表是给人看的，不该出现 chat/manual 这种内部标识）
+    static func sourceLabel(_ source: String) -> String {
+        switch source {
+        case "chat": return "聊天"
+        case "manual": return "手动"
+        case "fixed": return "固定支出"
+        default: return source.isEmpty ? "手动" : source
+        }
+    }
+
+    /// 账本 CSV 的行：表头 + 按时间倒序的账目（与页面顺序一致）。
+    /// **没金额的条目金额列留空**，不是 0 —— 写成 0 会被读成"这笔花了 0 元"。
+    static func csvRows(_ items: [RecordItem]) -> [[String]] {
+        var rows: [[String]] = [["时间", "事项", "金额", "单位", "分类", "来源", "备注"]]
+        for r in sorted(items) {
+            rows.append([
+                stampText(r.createdAt),
+                r.title,
+                r.amount.map { String(format: "%.2f", $0) } ?? "",
+                r.unit,
+                r.category,
+                sourceLabel(r.source),
+                r.note
+            ])
+        }
+        return rows
     }
 
     /// 最近一条读数（非「元」的数值条目）

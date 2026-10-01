@@ -1,4 +1,4 @@
-// v4.0.19 记账候选池 ⑤⑥⑬ 统计纯逻辑真值表 —— Linux 本地预检用，纯 Foundation，无 UI 依赖
+// v4.0.19 记账候选池 ⑤⑥⑦⑫⑬ 统计/预算/导出纯逻辑真值表 —— Linux 本地预检用，纯 Foundation，无 UI 依赖
 //
 // 编译运行（在仓库根目录，权威入口是 check_swift.sh 的对应段）：
 //   ./check_swift.sh
@@ -64,6 +64,9 @@ enum RecordStatsTruthTable {
         sectionE_月末预估()
         sectionF_空数据与除零()
         sectionG_反例哨兵()
+        sectionH_预算水位()
+        sectionI_导出CSV()
+        sectionJ_固定支出()
     }
 
     // MARK: - A. 日期键 / 标题
@@ -243,6 +246,133 @@ enum RecordStatsTruthTable {
               RecordKit.dayGroups([item("a", 1, at: date(2026, 9, 26, 9, 0)),
                                    item("b", 2, at: date(2026, 9, 26, 21, 0))],
                                   now: now, calendar: cal).count == 1)
+    }
+
+    /// 候选池⑦：预算水位与文案（阈值边界是这条功能的全部风险点 —— 99% 那天必须已经提醒过）
+    static func sectionH_预算水位() {
+        // 没设预算 ≠ 花了就超
+        positives += 1
+        check("没设预算（0）判 none，不报超支", RecordKit.budgetLevel(spent: 999, budget: 0) == .none)
+        positives += 1
+        check("负数预算也判 none（不出现「已超 -100」）", RecordKit.budgetLevel(spent: 5, budget: -1) == .none)
+        // 边界：79.9% 仍算 safe，80% 起 near，100% 起 over
+        positives += 1
+        check("79.9% 还在 safe", RecordKit.budgetLevel(spent: 1598, budget: 2000) == .safe)
+        positives += 1
+        check("80% 整点进 near（提前量不能靠浮点侥幸）", RecordKit.budgetLevel(spent: 1600, budget: 2000) == .near)
+        positives += 1
+        check("99% 是 near（这天就必须已提醒过）", RecordKit.budgetLevel(spent: 1980, budget: 2000) == .near)
+        positives += 1
+        check("100% 整点进 over", RecordKit.budgetLevel(spent: 2000, budget: 2000) == .over)
+        positives += 1
+        check("超了的还是 over（不回落成 near）", RecordKit.budgetLevel(spent: 2600, budget: 2000) == .over)
+        // 比例与文案
+        positives += 1
+        check("没设预算时比例恒 0（进度条不能画满）", approx(RecordKit.budgetRatio(spent: 500, budget: 0), 0))
+        positives += 1
+        check("比例口径 = 已花 / 预算", approx(RecordKit.budgetRatio(spent: 500, budget: 2000), 0.25))
+        positives += 1
+        check("未超文案报「已用 % + 还剩」",
+              RecordKit.budgetText(spent: 500, budget: 2000) == "已用 25% · 还剩 1500 元")
+        positives += 1
+        check("超支文案报「超了多少」",
+              RecordKit.budgetText(spent: 2180, budget: 2000) == "已超预算 180 元 · 已用 109%")
+        positives += 1
+        check("刚好花完算超支 0 元（不是「还剩 0」）",
+              RecordKit.budgetText(spent: 2000, budget: 2000) == "已超预算 0 元 · 已用 100%")
+        positives += 1
+        check("没设预算时的文案不是空串（UI 那行要能读）",
+              RecordKit.budgetText(spent: 500, budget: 0) == "还没设月预算")
+        // 反例：预算水位绝不能把收入算成支出（否则发工资那天被报「超支」）
+        negatives += 1
+        check("反例：发了工资那天不该报超支",
+              RecordKit.budgetLevel(spent: 100, budget: 2000) == .safe)
+        negatives += 1
+        check("反例：预算为 0 时文案里不得出现「超」字",
+              !RecordKit.budgetText(spent: 99999, budget: 0).contains("超"))
+        negatives += 1
+        check("反例：预算为 0 时比例不得是 999（不是除零兜底成 1 或极大）",
+              RecordKit.budgetRatio(spent: 99999, budget: 0) == 0)
+    }
+
+    /// 候选池⑫：导出账本 CSV 的行构造。
+    /// 转义（含逗号/引号的字段加引号）与 BOM 由 ChatComponents.TableCSVExport 统一负责，这里只钉行内容。
+    static func sectionI_导出CSV() {
+        let list = [
+            item("早饭", 12, at: date(2026, 9, 26, 8, 5)),
+            item("打车", 35.5, category: "交通", at: date(2026, 9, 25, 19, 40)),
+            item("今天心情不错", nil, unit: "", kind: "note", at: date(2026, 9, 24, 9, 0))
+        ]
+        let rows = RecordKit.csvRows(list)
+        positives += 1
+        check("表头固定 7 列（列数一变，用户的历史表格脚本就错位）",
+              rows.first == ["时间", "事项", "金额", "单位", "分类", "来源", "备注"])
+        positives += 1
+        check("行数 = 1 表头 + 3 条账目", rows.count == 4)
+        positives += 1
+        check("按时间倒序（最新在最上面，与明细页一致）",
+              rows[1][1] == "早饭" && rows[3][1] == "今天心情不错")
+        positives += 1
+        check("金额固定两位小数（12 不能写成 12.0）", rows[1][2] == "12.00" && rows[2][2] == "35.50")
+        positives += 1
+        check("时间戳精确到分（同一天多笔分得出先后）", rows[1][0] == "2026-09-26 08:05")
+        positives += 1
+        check("分类原样带出 + 来源翻成中文", rows[2][4] == "交通" && rows[1][5] == "手动")
+        // 反例
+        negatives += 1
+        check("反例：无金额条目的金额列留空，不是 0.00", rows[3][2] == "")
+        negatives += 1
+        check("反例：导出行里不得出现内部标识 manual/chat",
+              !rows.joined().contains("manual") && !rows.joined().contains("chat"))
+        negatives += 1
+        check("反例：空账本也必须有表头（否则导出的是个空文件）", RecordKit.csvRows([]).count == 1)
+        negatives += 1
+        check("反例：来源为空时兜底「手动」，不是空串（表格里不该有空格）",
+              RecordKit.sourceLabel("") == "手动")
+    }
+
+    /// 候选池⑨：固定支出的到期判定。
+    /// 风险全在「该记的没记」和「不该记的重复记」两头 —— 都是用户不会天天核账的静默错误。
+    static func sectionJ_固定支出() {
+        let cal = fixedCalendar()
+        let sep = fixedNow()                       // 2026-09-26
+        let f1 = FixedExpense(title: "房租", amount: 3000, category: "住房", day: 1)
+        let f25 = FixedExpense(title: "宽带", amount: 129, day: 25)
+        let f27 = FixedExpense(title: "订阅", amount: 18, day: 27)
+        let off = FixedExpense(title: "健身", amount: 200, day: 5, enabled: false)
+
+        positives += 1
+        check("已到约定日 → 到期", RecordKit.fixedDue([f1], now: sep, calendar: cal).count == 1)
+        positives += 1
+        check("还没到约定日的不到期", RecordKit.fixedDue([f27], now: sep, calendar: cal).isEmpty)
+        positives += 1
+        check("当天正好是约定日 → 到期（含当天）",
+              RecordKit.fixedDue([f25], now: date(2026, 9, 25, 8, 0), calendar: cal).count == 1)
+        positives += 1
+        check("补记：1 号没开 App，26 号打开仍会补上", RecordKit.fixedDue([f1], now: sep, calendar: cal).count == 1)
+        positives += 1
+        check("关掉的不到期", RecordKit.fixedDue([off], now: sep, calendar: cal).isEmpty)
+        positives += 1
+        check("本月已入过 → 不再重复", RecordKit.fixedDue([FixedExpense(title: "房租", amount: 3000, day: 1,
+                                                                    lastApplied: "2026-09")],
+                                                      now: sep, calendar: cal).isEmpty)
+        positives += 1
+        check("跨月会重新到期（上月记过不影响本月）",
+              RecordKit.fixedDue([FixedExpense(title: "房租", amount: 3000, day: 1,
+                                               lastApplied: "2026-08")],
+                                 now: sep, calendar: cal).count == 1)
+        // 反例
+        negatives += 1
+        check("反例：day 超上限被夹到 28（设 31 号在 2 月永远不触发）", FixedExpense.clampDay(31) == 28)
+        negatives += 1
+        check("反例：day 下限夹到 1（0 号不存在）", FixedExpense.clampDay(0) == 1)
+        negatives += 1
+        check("反例：一条都不该记时返回空（不是「全都记一遍」）",
+              RecordKit.fixedDue([off, FixedExpense(title: "x", amount: 1, day: 27)], now: sep, calendar: cal).isEmpty)
+        negatives += 1
+        check("反例：上月入账的记录不得让本月跳过",
+              RecordKit.fixedDue([FixedExpense(title: "房租", amount: 3000, day: 1, lastApplied: "2026-08")],
+                                 now: sep, calendar: cal).count == 1)
     }
 
     static func main() {

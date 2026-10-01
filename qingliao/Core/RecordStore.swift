@@ -61,12 +61,15 @@ final class RecordStore {
     @discardableResult
     func addDetailed(kind: String, title: String, amount: Double?, unit: String,
                      note: String = "", category: String = "",
-                     source: String = "manual") -> (item: RecordItem, inserted: Bool)? {
+                     source: String = "manual",
+                     skipRapidDedup: Bool = false) -> (item: RecordItem, inserted: Bool)? {
         let text = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return nil }
         let cat = category.trimmingCharacters(in: .whitespacesAndNewlines)
         // 只防"2 秒内连点"这一种情况（原来是 5 分钟，会吞掉正当的第二笔）
-        if let first = records.first, first.title == text, first.amount == amount,
+        // skipRapidDedup：固定支出自动入账走这条（两条同额同名的固定支出是合法的，
+        // 被连点去重吞掉一笔 = 账本静默少一笔，比"手滑记两条"严重得多）
+        if !skipRapidDedup, let first = records.first, first.title == text, first.amount == amount,
            Date().timeIntervalSince(first.createdAt) < 2 {
             return (first, false)
         }
@@ -160,6 +163,82 @@ final class RecordStore {
     }
 
     var latestMeter: RecordItem? { RecordKit.latestMeter(records) }
+
+    /// v4.0.19 候选池⑦：月预算（0 = 没设）。
+    ///
+    /// 为什么存 UserDefaults 而不是进 records.json：
+    /// 预算是一条**设置**，不是一笔账。写进账本快照会跟着 NAS 同步走，
+    /// 一旦序列化形态变形，就会在账本里冒出一条名叫"预算"的假记录。
+    ///
+    /// 为什么用存储属性而不是 computed：@Observable 只对存储属性发通知，
+    /// 做成 `UserDefaults.double(forKey:)` 的 computed 时**改完 UI 不刷新**
+    /// （用户设了 2000，进度条还是"没设预算"）。
+    private(set) var monthBudget: Double = UserDefaults.standard.double(forKey: RecordStore.budgetKey)
+
+    private static let budgetKey = "qingliao_record_month_budget"
+
+    /// 设月预算（负数按 0 = 清除处理）
+    func setBudget(_ value: Double) {
+        monthBudget = max(0, value)
+        UserDefaults.standard.set(monthBudget, forKey: RecordStore.budgetKey)
+    }
+
+    /// 本月预算水位（UI 只读结论，别自己算比例）
+    var budgetLevel: BudgetLevel {
+        RecordKit.budgetLevel(spent: monthTotal.amount, budget: monthBudget)
+    }
+
+    // MARK: - v4.0.19 候选池⑨：固定支出（配置 + 自动入账）
+
+    private static let fixedKey = "qingliao_record_fixed_expenses"
+
+    /// 固定支出配置。存 UserDefaults（同预算：它是**设置**不是账目）。
+    /// 自动入账写出来的是真账目，照常进 records → 照常同步 NAS。
+    private(set) var fixedExpenses: [FixedExpense] =
+        SyncedStore.readLocal([FixedExpense].self, defaultsKey: RecordStore.fixedKey) ?? []
+
+    private func saveFixed() {
+        if let data = SyncedStore.encode(fixedExpenses) {
+            UserDefaults.standard.set(data, forKey: RecordStore.fixedKey)
+        }
+    }
+
+    func addFixed(title: String, amount: Double, category: String, day: Int) {
+        let t = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty, amount > 0, amount.isFinite else { return }
+        fixedExpenses.append(FixedExpense(title: t, amount: amount, category: category, day: day))
+        saveFixed()
+    }
+
+    func removeFixed(_ id: String) {
+        fixedExpenses.removeAll { $0.id == id }
+        saveFixed()
+    }
+
+    func setFixedEnabled(_ id: String, _ on: Bool) {
+        guard let i = fixedExpenses.firstIndex(where: { $0.id == id }) else { return }
+        fixedExpenses[i].enabled = on
+        saveFixed()
+    }
+
+    /// 补记本期该入账的固定支出，返回入账笔数。
+    /// 调用点：进记录区（RecordSection.task）—— 打开 App 就补，不依赖后台调度。
+    @discardableResult
+    func applyFixedExpenses(now: Date = Date()) -> Int {
+        let due = RecordKit.fixedDue(fixedExpenses, now: now)
+        guard !due.isEmpty else { return 0 }
+        let key = RecordKit.monthKey(now)
+        for f in due {
+            addDetailed(kind: "amount", title: f.title, amount: f.amount, unit: "元",
+                        note: "固定支出", category: f.category, source: "fixed",
+                        skipRapidDedup: true)
+            if let i = fixedExpenses.firstIndex(where: { $0.id == f.id }) {
+                fixedExpenses[i].lastApplied = key
+            }
+        }
+        saveFixed()
+        return due.count
+    }
 
     // MARK: - 持久化
 

@@ -88,9 +88,9 @@ final class BackendUpdateModel {
         if case .restarting = phase { return }
         phase = .checking
         do {
-            let (data, code) = try await auth.request("/api/selfupdate", method: "POST",
+            let (data, resp) = try await auth.request("/api/selfupdate", method: "POST",
                                                       body: ["action": "check"])
-            guard code == 200,
+            guard resp.statusCode == 200,
                   let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                 // 404=老后端 / 401=未登录 / 其他：回到版本号比对结论
                 await quickCheck()
@@ -130,9 +130,9 @@ final class BackendUpdateModel {
                 }
             }
             do {
-                let (data, code) = try await auth.request("/api/selfupdate", method: "POST",
+                let (data, resp) = try await auth.request("/api/selfupdate", method: "POST",
                                                           body: ["action": "run"])
-                guard code == 200,
+                guard resp.statusCode == 200,
                       let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                       j["ok"] as? Bool == true else {
                     let msg = ((try? JSONSerialization.jsonObject(with: data) as? [String: Any])

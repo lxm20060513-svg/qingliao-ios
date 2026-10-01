@@ -51,6 +51,8 @@ final class HomeCardData {
     var monthCount: Int = 0
     /// v4.0.19 候选池⑬：近 7 天支出（首页卡副标题升级成「本月 + 本周」）
     var weekAmount: Double = 0
+    /// v4.0.19 候选池⑦⑬：月预算（>0 = 已设，超支/接近时副标题优先报水位）
+    var monthBudget: Double = 0
     var tip: HomeCardTip = .idle
     var loaded = false
 
@@ -78,6 +80,7 @@ final class HomeCardData {
         monthAmount = t.amount
         monthCount = t.count
         weekAmount = RecordKit.recentDays(RecordStore.shared.records, days: 7).expense
+        monthBudget = RecordStore.shared.monthBudget
     }
 
     /// 未读数 + 最新一封的相对时间（后端 list_messages 按时间**倒序**返回，first 即最新）
@@ -530,6 +533,17 @@ struct HomeCardFace: View {
             // 候选池⑬：有本周数据就报「本月 + 本周」，否则退回「本月 · N 笔」。
             // ⚠️ 副标题**恒单行**（卡高恒定，见本文件顶部注释）——加字必须算长度，别写成两行。
             guard data.monthCount > 0 else { return "本月还没有记录" }
+            // 候选池⑦：设了预算就优先报水位（超支 > 接近 > 平常）
+            if data.monthBudget > 0 {
+                switch RecordKit.budgetLevel(spent: data.monthAmount, budget: data.monthBudget) {
+                case .over:
+                    return "已超预算 ¥\(String(format: "%.0f", data.monthAmount - data.monthBudget))"
+                case .near:
+                    return "¥\(String(format: "%.0f", data.monthAmount)) · 已用 \(Int((data.monthAmount / data.monthBudget * 100).rounded()))%"
+                default:
+                    break
+                }
+            }
             if data.weekAmount > 0 {
                 return "¥\(String(format: "%.0f", data.monthAmount)) · 本周 ¥\(String(format: "%.0f", data.weekAmount))"
             }

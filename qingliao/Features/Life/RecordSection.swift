@@ -18,13 +18,24 @@ struct RecordSection: View {
     @State private var editing: RecordItem?
     /// v4.0.19 候选池⑤：明细页的分类筛选（nil = 全部）
     @State private var filterCategory: String?
+    /// v4.0.19 候选池⑦：设月预算的弹窗
+    @State private var showBudget = false
+    /// v4.0.19 候选池⑨：固定支出管理弹窗
+    @State private var showFixed = false
+    /// v4.0.19 候选池⑫：导出的 CSV 临时文件（nil = 还没生成/生成失败）
+    @State private var csvURL: URL?
+    @State private var showExport = false
 
     private let units = ["元", "度", "kWh"]
 
     var body: some View {
         root
             .frame(maxWidth: .infinity, alignment: .leading)
-            .task { await store.loadFromServer() }
+            .task {
+                await store.loadFromServer()
+                // 候选池⑨：进记录区就补记本月该自动入账的固定支出（打开 App 即补，不依赖后台调度）
+                store.applyFixedExpenses()
+            }
             .sheet(isPresented: $showAdd) { addSheet }
             // 删除确认框必须挂在弹窗自己这棵树上（SR35：宿主级 alert 在弹窗之上呈现不出来）
             .sheet(isPresented: $showAll) { deleteConfirm(on: allSheet) }
@@ -207,7 +218,25 @@ struct RecordSection: View {
                 }
             }
         }
+        // 预算弹窗必须挂在这个 sheet 自己这棵树上（SR35：宿主级 sheet 在弹窗之上呈现不出来）
+        .sheet(isPresented: $showBudget) {
+            RecordBudgetSheet(current: store.monthBudget) { store.setBudget($0) }
+        }
+        .sheet(isPresented: $showExport) {
+            if let csvURL { ActivityShareSheet(items: [csvURL]) }
+        }
+        .sheet(isPresented: $showFixed) {
+            FixedExpenseSheet()
+        }
         .presentationDetents([.medium, .large])
+    }
+
+    /// 候选池⑫：导出账本 CSV（复用手势同款 ChatComponents.TableCSVExport：RFC 4180 转义 + UTF-8 BOM，
+    /// 中文用 Excel/WPS 直接打开不乱码；行构造在 RecordKit.csvRows，真值表钉着）
+    private func exportCSV() {
+        csvURL = TableCSVExport.makeCSV(rows: RecordKit.csvRows(store.records), name: "账本")
+        showExport = csvURL != nil
+        if showExport { Haptics.success() } else { Haptics.error() }
     }
 
     private var sheetHeader: some View {
@@ -218,6 +247,16 @@ struct RecordSection: View {
                 .font(.system(size: Typography.caption))
                 .foregroundStyle(.secondary)
             Spacer(minLength: 0)
+            // 候选池⑫：导出账本 CSV（导**全部**账目，不受上面的分类筛选影响 —— 导出是备份，不是视图截图）
+            Button(action: exportCSV) {
+                Image(systemName: "square.and.arrow.up")
+                    .font(.system(size: Typography.subhead, weight: .medium))
+                    .foregroundStyle(Color.secondary)
+                    .padding(Spacing.xs)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("导出账本 CSV")
             MiniCapsule(title: "完成", accent: true) { showAll = false }
         }
         .padding(.horizontal, Spacing.section)
@@ -231,7 +270,11 @@ struct RecordSection: View {
         return RecordMonthSummary(
             projection: RecordKit.monthProjection(store.records, now: now),
             stats: RecordKit.monthStats(store.records, months: 3, now: now),
-            week: RecordKit.recentDays(store.records, days: 7, now: now)
+            week: RecordKit.recentDays(store.records, days: 7, now: now),
+            budget: store.monthBudget,
+            onSetBudget: { showBudget = true },
+            fixed: store.fixedExpenses.filter { $0.enabled },
+            onManageFixed: { showFixed = true }
         )
         .listRowInsets(EdgeInsets(top: 0, leading: Spacing.section,
                                   bottom: Spacing.md, trailing: Spacing.section))
@@ -621,6 +664,90 @@ private struct RecordMonthSummary: View {
     let projection: MonthProjection
     let stats: [MonthStat]
     let week: (expense: Double, income: Double, count: Int)
+    /// 候选池⑦：月预算（0 = 没设）
+    let budget: Double
+    var onSetBudget: () -> Void = {}
+    /// 候选池⑨：已启用的固定支出（显示条数与每月合计）
+    var fixed: [FixedExpense] = []
+    var onManageFixed: () -> Void = {}
+
+    /// 固定支出摘要文案（抽出来：插值里塞 reduce 闭包会让这个 View 的类型检查变慢，本仓踩过）
+    private var fixedSummary: String {
+        guard !fixed.isEmpty else { return "还没设" }
+        var sum = 0.0
+        for f in fixed { sum += f.amount }
+        return "\(fixed.count) 项 · 每月 \(String(format: "%.0f", sum)) 元"
+    }
+
+    /// 固定支出一行：条数 + 每月合计（金额是"每月固定要出"的钱，和本月已花的进度无关）
+    private var fixedRow: some View {
+        HStack(spacing: 8) {
+            Text("固定支出")
+                .font(.system(size: Typography.caption))
+                .foregroundStyle(.tertiary)
+            Spacer(minLength: 0)
+            Text(fixedSummary)
+                .font(.system(size: Typography.caption))
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+            Button(action: onManageFixed) {
+                Text("管理")
+                    .font(.system(size: Typography.caption))
+                    .foregroundStyle(Color.accentColor)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("管理固定支出")
+        }
+    }
+
+    private var level: BudgetLevel {
+        RecordKit.budgetLevel(spent: projection.spent, budget: budget)
+    }
+
+    private var levelColor: Color {
+        switch level {
+        case .over: return .red
+        case .near: return .orange
+        default: return Color.secondary
+        }
+    }
+
+    /// 超支/接近时才染色的进度条：封顶 100%（超了条就满，"超了多少"由文案说）
+    private var budgetBar: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color.secondary.opacity(0.15))
+                Capsule()
+                    .fill(levelColor)
+                    .frame(width: max(3, geo.size.width
+                        * CGFloat(min(RecordKit.budgetRatio(spent: projection.spent, budget: budget), 1))))
+            }
+        }
+        .frame(height: 6)
+    }
+
+    private var budgetRow: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Text("月预算")
+                    .font(.system(size: Typography.caption))
+                    .foregroundStyle(.tertiary)
+                Spacer(minLength: 0)
+                Text(RecordKit.budgetText(spent: projection.spent, budget: budget))
+                    .font(.system(size: Typography.caption))
+                    .foregroundStyle(levelColor)
+                    .monospacedDigit()
+                Button(action: onSetBudget) {
+                    Text(budget > 0 ? "改" : "设置")
+                        .font(.system(size: Typography.caption))
+                        .foregroundStyle(Color.accentColor)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(budget > 0 ? "修改月预算" : "设置月预算")
+            }
+            if budget > 0 { budgetBar }
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.md) {
@@ -639,6 +766,8 @@ private struct RecordMonthSummary: View {
                 metric("近 7 天", String(format: "%.0f", week.expense))
                 Spacer(minLength: 0)
             }
+            budgetRow
+            fixedRow
             if stats.contains(where: { $0.expense > 0 }) {
                 RecordTrendBars(stats: stats)
             }
@@ -693,5 +822,160 @@ private struct RecordTrendBars: View {
             }
         }
         .frame(height: 78, alignment: .bottom)
+    }
+}
+
+/// v4.0.19 候选池⑦：设月预算（留空 / 0 = 不设预算）。
+/// 几何照抄同文件的新建/编辑 sheet，差别是只有一个金额输入 + 「0 = 清除」的口径写在副标题里。
+private struct RecordBudgetSheet: View {
+    let current: Double
+    let onSave: (Double) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var text: String
+
+    init(current: Double, onSave: @escaping (Double) -> Void) {
+        self.current = current
+        self.onSave = onSave
+        _text = State(initialValue: current > 0 ? RecordEditSheet.numberText(current) : "")
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: Spacing.md) {
+                TextField("月预算（元）", text: $text)
+                    .font(.system(size: Typography.title))
+                    .keyboardType(.decimalPad)
+                    .padding(Spacing.xl)
+                    .background(Color(uiColor: .secondarySystemGroupedBackground),
+                                in: RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
+                Text("留空或填 0 = 不设预算。预算只统计「元」支出：收入与电表读数都不计入。")
+                    .font(.system(size: Typography.caption))
+                    .foregroundStyle(.tertiary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, Spacing.section)
+            .padding(.top, Spacing.md)
+            .navigationTitle("月预算")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("保存") {
+                        onSave(parsed)
+                        dismiss()
+                    }
+                }
+            }
+        }
+        .presentationDetents([.medium])
+    }
+
+    /// 非法 / 空 / ≤0 → 0（= 清除预算），与「留空就是不设」的口径一致
+    private var parsed: Double {
+        let raw = text.replacingOccurrences(of: ",", with: "").trimmingCharacters(in: .whitespaces)
+        guard let v = Double(raw), v.isFinite, v > 0 else { return 0 }
+        return v
+    }
+}
+
+/// v4.0.19 候选池⑨：固定支出管理（房租 / 宽带 / 订阅 —— 到日子自动记一笔）
+/// 直接读 store（@Observable）：增删/开关后列表要立刻刷新，走闭包传值的话 sheet 里那份副本不会更新。
+private struct FixedExpenseSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var store = RecordStore.shared
+
+    @State private var title = ""
+    @State private var amountText = ""
+    @State private var category = ""
+    @State private var day = 1
+
+    private var parsedAmount: Double {
+        let raw = amountText.replacingOccurrences(of: ",", with: "").trimmingCharacters(in: .whitespaces)
+        guard let v = Double(raw), v.isFinite, v > 0 else { return 0 }
+        return v
+    }
+
+    private var canAdd: Bool {
+        !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && parsedAmount > 0
+    }
+
+    private var catOptions: [String] {
+        var list = ChatRecordKit.allCategories
+        if !category.isEmpty && !list.contains(category) { list.insert(category, at: 0) }
+        return list
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    TextField("事项（房租 / 宽带 / 订阅…）", text: $title)
+                    TextField("金额（元）", text: $amountText)
+                        .keyboardType(.decimalPad)
+                    Picker("分类", selection: $category) {
+                        Text(RecordKit.uncategorized).tag("")
+                        ForEach(catOptions, id: \.self) { c in
+                            Text(c).tag(c)
+                        }
+                    }
+                    Stepper("每月 \(day) 日", value: $day, in: 1...28)
+                    Button("添加") {
+                        store.addFixed(title: title, amount: parsedAmount, category: category, day: day)
+                        Haptics.success()
+                        title = ""
+                        amountText = ""
+                        category = ""
+                        day = 1
+                    }
+                    .disabled(!canAdd)
+                } header: {
+                    Text("新增")
+                } footer: {
+                    Text("到日子自动记一笔（来源标「固定支出」）。日期上限 28 号：29-31 号在小月不存在，宁晚不误。")
+                }
+
+                Section {
+                    if store.fixedExpenses.isEmpty {
+                        Text("还没有固定支出")
+                            .font(.system(size: Typography.subhead))
+                            .foregroundStyle(.tertiary)
+                    }
+                    ForEach(store.fixedExpenses) { f in
+                        HStack(spacing: 10) {
+                            Toggle("", isOn: Binding(get: { f.enabled },
+                                                     set: { store.setFixedEnabled(f.id, $0) }))
+                                .labelsHidden()
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(f.title)
+                                    .font(.system(size: Typography.subhead))
+                                Text("每月 \(f.day) 日 · \(String(format: "%.2f", f.amount)) 元"
+                                     + (f.lastApplied.isEmpty ? "" : " · 本月已记"))
+                                    .font(.system(size: Typography.caption))
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer(minLength: 0)
+                        }
+                    }
+                    .onDelete { offsets in
+                        for i in offsets where i < store.fixedExpenses.count {
+                            store.removeFixed(store.fixedExpenses[i].id)
+                        }
+                    }
+                } header: {
+                    Text("已设 \(store.fixedExpenses.count) 项")
+                }
+            }
+            .navigationTitle("固定支出")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") { dismiss() }
+                }
+            }
+        }
     }
 }
