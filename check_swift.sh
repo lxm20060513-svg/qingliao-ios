@@ -798,13 +798,25 @@ fi
 run_unit /tmp/test_jn_app.bin scripts/ql_journal/truth_table_journal_app.swift | tee /tmp/tt_jn_app.log
 grep -q '0 失败' /tmp/tt_jn_app.log || fail=1
 
-echo "=== 56. 记账账本统计真值表（候选池 ⑤ 明细 / ⑥ 月度趋势 / ⑬ 周趋势）==="
+echo "=== 56. 记账账本真值表（候选池 ⑤ 明细 / ⑥ 趋势 / ⑦ 预算 / ⑨ 固定支出 / ⑫ 导出 / ⑬ 周趋势）==="
 # 表在仓内 scripts/ql_record/truth_table_record.swift（纯 Foundation，不依赖 UI）。
 # 钉死的口径：① 明细按 createdAt 分日（编辑不改发生日）② 日/周/月小计**只算「元」**，度数不进钱、
 # ③ 收入单列绝不并进支出 ④ 近 N 天窗口含今天且左边界闭区间 ⑤ 月末预估不除零、空账本不出 NaN。
 # 这几条漏一条，用户看到的就是假数字 —— 所以反例（读数/收入/跨窗口旧账）占本表近一半。
 run_unit /tmp/test_record_stats scripts/ql_record/truth_table_record.swift qingliao/Core/RecordKit.swift | tee /tmp/tt_record.log
 grep -q '0 失败' /tmp/tt_record.log || fail=1
+
+# 候选池 ⑦⑨⑫ 的 UI 入口存在性：入口被误删时功能是「悄悄消失」的，编译不会报错、真值表也测不到 UI。
+grep -q 'private struct RecordBudgetSheet' qingliao/Features/Life/RecordSection.swift \
+  || { echo "❌ 缺月预算弹窗（候选池⑦）"; fail=1; }
+grep -q 'private struct FixedExpenseSheet' qingliao/Features/Life/RecordSection.swift \
+  || { echo "❌ 缺固定支出管理（候选池⑨）"; fail=1; }
+grep -q 'store.applyFixedExpenses()' qingliao/Features/Life/RecordSection.swift \
+  || { echo "❌ 固定支出没有入账触发点（设了也不会自动记）"; fail=1; }
+grep -q 'TableCSVExport.makeCSV(rows: RecordKit.csvRows' qingliao/Features/Life/RecordSection.swift \
+  || { echo "❌ 缺账本 CSV 导出（候选池⑫）"; fail=1; }
+grep -q 'RecordKit.budgetLevel' qingliao/Features/HomeCards.swift \
+  || { echo "❌ 首页卡没接预算水位（候选池⑦⑬：超支了卡片看不出来）"; fail=1; }
 
 [ $fail -eq 0 ] || { echo "❌ 有护栏失守"; exit 1; }
 exit 0

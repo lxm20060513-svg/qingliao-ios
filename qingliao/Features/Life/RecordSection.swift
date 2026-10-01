@@ -946,9 +946,10 @@ private struct FixedExpenseSheet: View {
                     }
                     ForEach(store.fixedExpenses) { f in
                         HStack(spacing: 10) {
+                            // 全仓开关口径：一律走 qingliaoSwitch()（尺寸/配色/标签三件事一处定）
                             Toggle("", isOn: Binding(get: { f.enabled },
                                                      set: { store.setFixedEnabled(f.id, $0) }))
-                                .labelsHidden()
+                                .qingliaoSwitch()
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(f.title)
                                     .font(.system(size: Typography.subhead))
@@ -972,7 +973,8 @@ private struct FixedExpenseSheet: View {
             .navigationTitle("固定支出")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
+                // 设置页弹窗口径：顶栏「完成」一律放左（cancellationAction）
+                ToolbarItem(placement: .cancellationAction) {
                     Button("完成") { dismiss() }
                 }
             }
