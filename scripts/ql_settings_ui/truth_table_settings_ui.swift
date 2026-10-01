@@ -231,5 +231,30 @@ check("🚨 全仓开关不许叠加 scaleEffect（缩过版 = 用户报的「�
 check("🚨 开关调用点不许自己手写 .labelsHidden()/.tint()（口径必须单源，手写就会再漂）",
       toggleManual == 0)
 
+// MARK: - 弹窗顶栏「完成」胶囊统一放左侧（2026-10-01 用户拍板：「设置页弹窗的完成胶囊统一放左边，后面的设计要遵循」）
+// 口径：所有 sheet/弹窗顶栏的「完成」按钮一律 ToolbarItem(placement: .cancellationAction)（左位）；
+//   键盘工具条（placement: .keyboard）的「完成」是收键盘用，不属顶栏，不在本口径内。
+//   双按钮弹窗 = 左「完成」右「取消」（SettingsModelAgent 口径）。
+// 实现：逐文件剥注释后逐行扫 Button("完成")，向前找最近的 ToolbarItem(placement:) 归类；
+//   归类用 squash 后按行切，向前 7 行内必能命中 ToolbarItem 行（现有全部写法均满足）。
+var doneLeft = 0, doneRight = 0, doneKeyboard = 0
+var doneMisplaced: [String] = []
+for f in appSwift {
+    let lines = stripComments(src(f)).split(separator: "\n", omittingEmptySubsequences: false)
+        .map { String($0) }
+    for (i, ln) in lines.enumerated() where ln.contains("Button(\"完成\")") {
+        let back = lines[max(0, i - 7)...i].joined(separator: "\n")
+        if back.contains("placement: .keyboard") { doneKeyboard += 1; continue }
+        if back.contains("placement: .cancellationAction") { doneLeft += 1; continue }
+        if back.contains("placement: .confirmationAction") || back.contains("placement: .topBarTrailing") {
+            doneRight += 1; doneMisplaced.append(f)
+        }
+    }
+}
+check("全仓扫到顶栏「完成」\(doneLeft) 处在左位 + 键盘工具条 \(doneKeyboard) 处（左位 ≥37 才算全量覆盖）",
+      doneLeft >= 37 && doneKeyboard >= 2)
+check("🚨 弹窗顶栏「完成」一律放左（cancellationAction）；在右侧的：\(doneMisplaced.joined(separator: " / "))",
+      doneRight == 0)
+
 print("设置页间距口径真值表：\(passCount) 通过 / \(failCount) 失败")
 if failCount > 0 { exit(1) }

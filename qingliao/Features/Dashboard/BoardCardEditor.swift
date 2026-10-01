@@ -65,7 +65,7 @@ struct BoardCardEditorSheet: View {
             .navigationTitle("自定义卡片")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { Button("完成") { dismiss() } }
             }
         }
         .presentationDetents([.medium, .large])

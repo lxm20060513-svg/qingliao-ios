@@ -262,6 +262,23 @@ final class AuthStore {
                 (data, code) = try await relay.directRequest(method: method, path: path,
                                                              headers: headers, body: bodyData,
                                                              timeout: timeout ?? 10)
+                // v4.0.19（用户 2026-10-01 真机实报「生活卡片下拉必报网络错误」+ 后端探针实锤）：
+                // iOS 27 蜂窝 CFStream 直连会**静默丢自定义头**——请求到达后端时 X-Auth-Token 为空 →
+                // 假 401。原来只有 directRequest 抛错才降级 relay，401 是有效响应不抛 → 假 401 直接返回。
+                // 白名单接口 401 被静默降级 200 掩盖了问题，非白名单（如 /api/life/config）如实报错。
+                // 修法：直连 401 且本请求带了 token → 判定为假 401，用 relay 复验一次（relay 头完整）。
+                if code == 401, headers["X-Auth-Token"]?.isEmpty == false,
+                   !path.contains("/api/auth/"), !sessionExpired {
+                    // v4.0.19 审查建议①②落地：真401（token真过期）不重试（避免连环弹 ASWAS 授权窗）；
+                    // 复验独立 do/catch——复验失败保留原401语义，不再落外层 catch 二次 relay（双倍30s超时）
+                    do {
+                        (data, code) = try await relay.relay(method: method, path: path,
+                                                             headers: headers, body: bodyData,
+                                                             timeout: timeout ?? 30)
+                    } catch {
+                        (data, code) = (Data(), 401)
+                    }
+                }
             } catch {
                 (data, code) = try await relay.relay(method: method, path: path,
                                                      headers: headers, body: bodyData,

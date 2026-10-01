@@ -588,21 +588,26 @@ check("TypingIndicator 源切片非空（切片失败 = 下面全是空真）", 
 // v4.0.12 根治「圆点脉冲自己消失」（用户 2026-09-30 真机实报：onAppear/onDisappear 边沿方案
 // 没根治，思考气泡在父级重建时身份抖动，边沿丢失后 @State 已是 true → 动画永不重启 ≈ 空泡）。
 // 根治：TimelineView 驱动——相位由时间戳直接算出，视图怎么重建都停不下来；旧断言全部退役。
-check("🚨 脉冲改 TimelineView 驱动（无 repeatForever 边沿依赖，父级重建不再卡死）",
-      typingCode.contains("TimelineView(.animation(")
-      && typingCode.contains("timeline.date.timeIntervalSinceReferenceDate"))
+// v4.0.19（用户 2026-10-01 三报「动一段时间就会消失」）：`.animation` 调度是官方「pausable
+// schedule」——没有活动动画时被系统降频/暂停，恰是本动画停摆的真根因 → 换 `.periodic`
+// 墙钟调度（regular intervals 永不暂停）。护栏同步换契约：钉 periodic + 禁 .animation 调度。
+check("🚨 脉冲改 TimelineView 墙钟驱动（.periodic；.animation 是 pausable schedule、会被系统停表）",
+      typingCode.contains("TimelineView(.periodic(from: .now")
+      && typingCode.contains("timeline.date.timeIntervalSinceReferenceDate")
+      && !typingCode.contains("TimelineView(.animation("))
 check("零 @State 动画位（不存在可丢失的 false→true 边沿 = 根因移除）",
       !typingCode.contains("@State") && !typingCode.contains(".repeatForever"))
 check("周期与旧版一致（1.2s 全周期 = 0.6s easeInOut 往返 + 每颗错相 0.18s）",
       typingCode.contains("dividingBy: 1.2") && typingCode.contains("Double(i) * 0.18"))
-check("reduceMotion：暂停时钟 + 退回静止满点（无障碍口径保留）",
-      typingCode.contains("paused: reduceMotion") && typingCode.contains("reduceMotion ? 1.0 :"))
+check("reduceMotion：不建时钟直接渲染静止满点（强度 1.0，periodic 无 paused 参数）",
+      typingCode.contains("if reduceMotion {") && typingCode.contains("dotRow(timeline: nil)")
+      && typingCode.contains("?? 1.0"))
 check("🚨 切断祖先动画事务继承（v4.0.14 真机再报「还是会丢失」的真根因：宿主满屏 "
     + "withAnimation / .animation(_:value:) 在更上层，逐帧 scaleEffect/opacity 被隐式动画"
     + "插值成一团均值 → 帧在走、画面看着静止）",
       typingCode.contains(".transaction { $0.animation = nil }"))
 check("🚨 强度下限 ≥0.6（时钟被主线程抢占时那一帧仍看得见三点，不会退化成空泡）",
-      typingCode.contains("0.62 + 0.38 * (1.0 - pulse)")
+      typingCode.contains("0.62 + 0.38 * (1.0 - $0)")   // v4.0.19 起 pulse 收进 map 闭包，形参是 $0
       && !typingCode.contains("0.45 + 0.55 * (1.0 - pulse)"))
 check("不许改用异步翻转（Swift 6 严格并发下闭包捕获 View 编译不过）",
       !typingCode.contains("DispatchQueue.main.async"))

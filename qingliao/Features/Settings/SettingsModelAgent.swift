@@ -149,14 +149,14 @@ struct AgentModelSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
                     Button("完成") {
                         agentModel = selected
                         agentProvider = selectedProvider
                         dismiss()
                     }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("取消") { dismiss() }
                 }
                 ToolbarItem(placement: .primaryAction) {
                     // v3.9.35：刷新改回系统裸按钮——与「完成」同款系统玻璃胶囊

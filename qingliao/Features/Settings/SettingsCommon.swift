@@ -1052,7 +1052,7 @@ struct AppearanceSheet: View {
             .navigationTitle("外观设置")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
+                ToolbarItem(placement: .cancellationAction) {
                     Button("完成") { dismiss() }
                 }
             }

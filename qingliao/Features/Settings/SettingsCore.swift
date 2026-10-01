@@ -357,6 +357,9 @@ extension SettingsView {
             SettingRow(icon: "globe.asia.australia.fill", iconColor: .green, title: "连接设置", chevron: true)
                 .tapButton { showConnSettings = true }
             Divider().padding(.leading, Spacing.rowDividerInset)
+            // v4.0.15：后端一键更新（落后自动挂橙点提示；详见 BackendUpdate.swift）
+            BackendUpdateRow()
+            Divider().padding(.leading, Spacing.rowDividerInset)
             SettingRow(icon: "cpu.fill", iconColor: .orange, title: "模型管理", value: currentModel, chevron: true)
                 .tapButton { showModelSheet = true }
             Divider().padding(.leading, Spacing.rowDividerInset)

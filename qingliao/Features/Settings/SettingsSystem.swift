@@ -521,7 +521,7 @@ struct AppPermissionsSheet: View {
             .navigationTitle("权限与 AI 操控")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
+                ToolbarItem(placement: .cancellationAction) {
                     Button("完成") { dismiss() }
                 }
             }

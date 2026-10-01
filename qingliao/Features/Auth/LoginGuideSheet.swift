@@ -114,7 +114,7 @@ struct LoginGuideSheet: View {
             .navigationTitle("使用指南")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .cancellationAction) {
                     Button("完成") { dismiss() }
                 }
             }

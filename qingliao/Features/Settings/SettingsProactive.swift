@@ -53,7 +53,7 @@ struct ProactiveAgentSheet: View {
             .navigationTitle("主动 Agent")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .cancellationAction) {
                     Button("完成") { dismiss() }
                 }
             }

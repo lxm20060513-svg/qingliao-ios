@@ -566,7 +566,7 @@ struct HomeCardEditorSheet: View {
             .navigationTitle("自定义首页卡片")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
+                ToolbarItem(placement: .cancellationAction) {
                     Button("完成") { dismiss() }
                 }
             }
