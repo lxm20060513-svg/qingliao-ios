@@ -26,10 +26,14 @@ struct BoardCardEditorSheet: View {
     var body: some View {
         NavigationStack {
             List {
-                Section("显示中（↑↓ 调整顺序）") {
+                // ⚠️ 不能写 Section("标题") { … } footer: { … } —— 这个重载不存在（CI 报
+                // missing argument label 'content:'）；本仓统一形态是 content 在前、header/footer 具名。
+                Section {
                     ForEach(Array(shown.enumerated()), id: \.element) { idx, card in
                         shownRow(card: card, idx: idx)
                     }
+                } header: {
+                    Text("显示中（↑↓ 调整顺序）")
                 } footer: {
                     Text("也可以直接在看板上长按任意栏目标题后拖动排序，两种方式同步。")
                 }
