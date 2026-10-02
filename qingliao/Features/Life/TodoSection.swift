@@ -25,6 +25,8 @@ struct TodoSection: View {
     @State private var pendingDelete: TodoItem?
     /// 「全部待办」弹窗顶栏「清空」胶囊的二次确认（挂在弹窗内的 List 上——宿主级 alert 会被 sheet 盖住）
     @State private var confirmClearAll = false
+    /// v4.0.25：「清理已完成」胶囊的二次确认（同上，挂在弹窗内 List 上）
+    @State private var confirmClearCompleted = false
     @State private var editDraft = ""
     /// v3.9.35b：详情页编辑态标志（查看=待办风格大卡；编辑=TextEditor）
     @State private var detailEditing = false
@@ -147,6 +149,10 @@ struct TodoSection: View {
                         .font(.system(size: Typography.caption))
                         .foregroundStyle(.secondary)
                     Spacer(minLength: 0)
+                    // v4.0.25：「清理已完成」胶囊（批量删已勾选，与「清空」并存；有已完成条目才出）
+                    if store.todos.contains(where: { $0.done }) {
+                        MiniCapsule(title: "清理已完成") { confirmClearCompleted = true }
+                    }
                     // v3.9.110：清空胶囊（与「完成」同排、左侧）——确认框挂在下面 List 上，
                     // 不能挂宿主：宿主那个 alert 在 sheet 之上会被盖住（同 pendingDelete 的坑）
                     if !store.sorted.isEmpty {
@@ -215,6 +221,16 @@ struct TodoSection: View {
                     Button("取消", role: .cancel) { confirmClearAll = false }
                 } message: {
                     Text("将删除全部 \(store.sorted.count) 条待办（含已完成），删除后不可恢复。")
+                }
+                // v4.0.25：「清理已完成」二次确认（口径同「清空」，但保留未完成项、不收起弹窗）
+                .alert("清理已完成？", isPresented: $confirmClearCompleted) {
+                    Button("清理 \(store.todos.filter { $0.done }.count) 条", role: .destructive) {
+                        store.clearCompleted()
+                        Haptics.success()
+                    }
+                    Button("取消", role: .cancel) { confirmClearCompleted = false }
+                } message: {
+                    Text("将删除 \(store.todos.filter { $0.done }.count) 条已完成待办，未完成的不受影响。")
                 }
             }
             .toolbar(.hidden, for: .navigationBar)

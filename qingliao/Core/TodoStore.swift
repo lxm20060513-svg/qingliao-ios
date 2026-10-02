@@ -134,6 +134,23 @@ struct TodoItem: Identifiable, Codable, Equatable, Sendable {
 @Observable
 @MainActor
 final class TodoStore {
+
+    /// v4.0.25 确认制：AI 提取出的**候选**行（不落库，等用户在确认卡上勾选）。
+    /// 放 TodoStore 类级别（v4.0.25 审查修复：原嵌在 TodoItem 内，裸名引用解析不到，CI 必挂）
+    struct TodoCandidate: Identifiable, Equatable, Sendable {
+        let id: UUID = UUID()
+        var content: String
+        /// AI 侧语义已完成（[x] / ☑ / tone=ok）→ 默认勾选态照抄，加入时保持
+        var suggestedDone: Bool
+        /// 确认卡上的勾选态（默认全选——AI 判定已完成的也先选上，用户可取消）
+        var selected: Bool = true
+
+        init(content: String, suggestedDone: Bool, selected: Bool = true) {
+            self.content = content
+            self.suggestedDone = suggestedDone
+            self.selected = selected
+        }
+    }
     static let shared = TodoStore()
 
     private(set) var todos: [TodoItem] = []
@@ -184,23 +201,66 @@ final class TodoStore {
         return true
     }
 
-    /// AI 回复结束自动提取（勾选框行 + 计划/待办卡片条目，全历史按内容去重
-    ///——AI 每轮可能重复产出同一条待办，且落库口 upsertAssistant 会被多次命中）
+    /// AI 回复结束提取的**候选**待办（v4.0.25 确认制：不再静默落库，见 stageCandidates）。
+    /// key = 消息 id（ChatMessage.id 稳定：含持久化 uid，跨重启/会话切换不漂移）。
+    /// 内存态即可：App 重启后候选丢失 = 该回复回到「不提取」——静默丢候选好过静默灌清单。
+    private(set) var pendingCandidates: [String: [TodoCandidate]] = [:]
+    /// 已确认的消息 → 实际加入条数（确认卡就地切回执用）
+    private(set) var confirmedCounts: [String: Int] = [:]
+    /// 已忽略的消息（「忽略」后确认卡消失）
+    private(set) var dismissedMessageIDs: Set<String> = []
+
+    // MARK: - AI 提取确认制（v4.0.25）
+
+    /// 落库口调用：提取候选**只挂账不落库**。返回 nil = 本回复没有可提取项（含已被 AI
+    /// 重复产出且已在清单里的——全部命中已有项时不出卡，保持老行为零打扰）。
     @discardableResult
-    func addAuto(from text: String) -> Int {
+    func stageCandidates(from text: String, messageID: String) -> [TodoCandidate]? {
+        guard !dismissedMessageIDs.contains(messageID), confirmedCounts[messageID] == nil else { return nil }
+        // 幂等：同一条消息重复落库（重试/恢复链路会双命中 upsertAssistant）不重挂——
+        // 重挂会覆盖用户已改过的勾选态
+        if let staged = pendingCandidates[messageID] { return staged }
         var items = TodoItem.extractChecklist(from: text)
         items += TodoItem.extractCardItems(from: text)
-        guard !items.isEmpty else { return 0 }
+        guard !items.isEmpty else { return nil }
         let existing = Set(todos.map { $0.content })
         var seen = Set<String>()
-        var added = 0
+        var candidates: [TodoCandidate] = []
         for (content, done) in items where !existing.contains(content) && !seen.contains(content) {
             seen.insert(content)
-            todos.append(TodoItem(content: content, done: done, source: "ai", updatedAt: Date()))
+            candidates.append(TodoCandidate(content: content, suggestedDone: done))
+        }
+        guard !candidates.isEmpty else { return nil }
+        pendingCandidates[messageID] = candidates
+        return candidates
+    }
+
+    /// 确认卡勾选态切换（纯内存，不动 store）
+    func toggleCandidate(messageID: String, index: Int) {
+        guard pendingCandidates[messageID]?.indices.contains(index) == true else { return }
+        pendingCandidates[messageID]?[index].selected.toggle()
+    }
+
+    /// 用户点「加入」：只把勾选中的落库（source=ai），就地切回执。
+    @discardableResult
+    func confirmCandidates(messageID: String) -> Int {
+        guard let cands = pendingCandidates[messageID], !cands.isEmpty else { return 0 }
+        let existing = Set(todos.map { $0.content })
+        var added = 0
+        for c in cands where c.selected && !existing.contains(c.content) {
+            todos.insert(TodoItem(content: c.content, done: c.suggestedDone, source: "ai", updatedAt: Date()), at: 0)
             added += 1
         }
+        pendingCandidates[messageID] = nil
         if added > 0 { save() }
+        confirmedCounts[messageID] = added
         return added
+    }
+
+    /// 用户点「忽略」：候选丢弃，不再出卡（同一条回复重试落库也不会再弹）
+    func dismissCandidates(messageID: String) {
+        pendingCandidates[messageID] = nil
+        dismissedMessageIDs.insert(messageID)
     }
 
     func delete(_ item: TodoItem) {
@@ -215,6 +275,17 @@ final class TodoStore {
         let n = todos.count
         guard n > 0 else { return 0 }
         todos.removeAll()
+        save()
+        return n
+    }
+
+    /// v4.0.25：批量删除已完成条目——「全部待办」顶栏「清理已完成」胶囊用（与「清空」并存）。
+    /// 同走 save() FIFO 写链（理由同 removeAll）。
+    @discardableResult
+    func clearCompleted() -> Int {
+        let n = todos.filter { $0.done }.count
+        guard n > 0 else { return 0 }
+        todos.removeAll { $0.done }
         save()
         return n
     }

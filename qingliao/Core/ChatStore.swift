@@ -489,13 +489,14 @@ final class ChatStore {
     ///          回复区（锚点后、下一个 user 前）去重与插入，杜绝跨轮污染。
     func upsertAssistant(_ text: String, agent: Bool = false, afterUserID: String? = nil) {
         let ts = Date().timeIntervalSince1970 * 1000
-        // v3.9.35：AI 回复落库时自动提取待办（勾选框行 → 待办清单）。
-        // v3.9.75：同时收 ql-card 的 plan 卡 / 带待标语的 list 卡条目（此前 AI 用卡片列的待办永远进不了清单）。
-        // 挂在唯一落库口：正常完成/重试/恢复收尾全覆盖；addAuto 内部按内容去重，
-        // 同一条待办多轮重复产出不会重复收录。错误占位（⚠️ 前缀）不含勾选框，天然不触发。
-        if text.count >= 8, !text.hasPrefix("⚠️") {
-            TodoStore.shared.addAuto(from: text)
-        }
+        // v3.9.35：AI 回复落库时提取待办候选。
+        // v4.0.25 确认制：不再静默落库（AI 每轮重复产出会灌噪音）——只 stage 候选，
+        // 由气泡下的确认卡（TodoConfirmCard）等用户勾选后才进清单。
+        // v4.0.25 审查修复：stage 移到两个插入分支落库之后（stageTodoCandidates）——
+        // 原放函数头会在查重早退时把候选挂在从未进 messages 的 id 上（幽灵候选，
+        // 确认卡永不出现也永不清理）；重试/恢复重放每次都是新 uid 新 id，旧位置的
+        // 「同 id 幂等」根本挡不住，早退前 stage 还会让 dismiss 后的重放重新挂账。
+        let pending = ChatMessage(role: "assistant", content: text, timestamp: ts)
         // 🚨 v3.4.22 复读根治第一层：全历史精确查重（在所有分支之前）。
         // 实证（2026-09-08 晚 stream dump）：恢复链路 anchor 失配/重试路径会把同一条旧回答
         // 重复落库 3 次（msg1==msg3==msg7，1284 字完全相同）——原去重只查锚点同轮区域/末尾
@@ -527,13 +528,15 @@ final class ChatStore {
                 return
             }
             // 插入到该轮回复区末尾——其后若有排队/新发 user 消息，保持原位不被错位污染
-            var m = ChatMessage(role: "assistant", content: text, timestamp: ts)
+            // v4.0.25：复用函数头建的 pending（stageTodoCandidates 挂账用的 id 与落库消息一致）
+            var m = pending
             m.agent = agent   // v2.0.96b：Agent 回复标记
             // v3.9.31：插入带上滑入位动画（append 同款；完成回调多为裸调用无动画上下文）
             withAnimation(Motion.enter) {
                 messages.insert(m, at: regionEnd)
             }
             noteAssistantLanded(m)   // v3.9.9：本轮回答真正落库 → 触发自动朗读（哪怕它插在数组中段）
+            stageTodoCandidates(m)   // v4.0.25：确认落库后才挂候选账（消息 id 真实存在）
             return
         }
         // —— 无锚点：原末尾语义（兼容无发起消息的调用方）——
@@ -555,13 +558,21 @@ final class ChatStore {
             }
             return
         }
-        var m = ChatMessage(role: "assistant", content: text, timestamp: ts)
+        var m = pending
         m.agent = agent   // v2.0.96b：Agent 回复标记
         // v3.9.31：插入带上滑入位动画（append 同款）
         withAnimation(Motion.enter) {
             messages.append(m)
         }
         noteAssistantLanded(m)   // v3.9.9：同上
+        stageTodoCandidates(m)   // v4.0.25：确认落库后才挂候选账
+    }
+
+    /// v4.0.25 确认制：本条回复真落库后，把其中的待办候选挂账（等用户在确认卡上勾选加入）。
+    /// 只在 upsertAssistant 的两个插入分支尾部调用——查重早退路径不 stage（无幽灵候选）。
+    private func stageTodoCandidates(_ m: ChatMessage) {
+        guard m.role == "assistant", m.content.count >= 8, !m.content.hasPrefix("⚠️") else { return }
+        TodoStore.shared.stageCandidates(from: m.content, messageID: m.id)
     }
 
     /// v2.0.59：按 id 标记消息发送失败（显示重试按钮）

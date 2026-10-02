@@ -238,7 +238,8 @@ QingliaoWidget/          挂件 Extension target（.appex）：灵动岛/锁屏�
   Markdown 的 `- [ ]` / `- [x]` 文本，而 AI 的结构化结果自 v3.9.31 起走 ` ```ql-card ` 围栏（后端 `QCARD_PROMPT` 明确
   "多步骤任务收尾用 `type=plan`"），于是卡片里的步骤一条都进不去。新增 `extractCardItems(from:)`：`kind == .plan` 直接取全部
   `Item`，`kind == .list` 要求 title+subtitle 命中"待办/任务/todo/计划/安排/清单"才收（防把设备列表当待办），
-  done 判定 = `tone == .ok` 或 status 含"完成"。`addAuto` 把两路结果合起来按 content 去重（既有条目 + 本轮内部都去重）。
+  done 判定 = `tone == .ok` 或 status 含"完成"。v4.0.25 确认制：提取结果不再静默落库——`TodoStore.stageCandidates`
+  只挂候选账，气泡下的确认卡（`TodoConfirmCard`）等用户勾选点「加入」才经 `confirmCandidates` 进清单（「忽略」则不再弹）。
   `extractChecklist` **原样不动**（NAS 侧有真值表守着它）。
 - **拍照界面顶部黑边 → 改全屏呈现**（`ChatView.swift:1056`）：`CameraPicker` 的 `.sheet` 换 `.fullScreenCover`。
   UIKit `UIImagePickerController` 放在 sheet 卡里时顶部留出一条不属于它的容器间隙；`CameraPicker.swift` 的

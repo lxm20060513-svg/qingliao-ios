@@ -227,6 +227,8 @@ struct MessageBubble: View {
 
     /// 普通气泡本体（v3.9.110：从 body 原样搬出，视图顺序/层级/条件/修饰符**逐字未变**，
     /// 只为给问题卡让出上面的早退分支）
+    /// v4.0.25：改 @ViewBuilder——气泡行之外挂了待办确认卡（条件视图需要 builder）
+    @ViewBuilder
     private var normalBubbleBody: some View {
         HStack(alignment: .top, spacing: 8) {
             bubbleLeadingAccessory
@@ -279,6 +281,12 @@ struct MessageBubble: View {
             bubbleTrailingAccessory
         }
         .frame(maxWidth: .infinity, alignment: message.isUser ? .trailing : .leading)
+        // v4.0.25：待办候选确认卡（AI 提取确认制）——挂在气泡**之外**（本行底部），
+        // 不嵌进灰气泡内层（审查建议④：内嵌会被气泡底色+内边距包成双层卡片）。
+        // 流式中不出卡（stage 由落库口触发，流式期间本卡自然无候选）、撤回消息不出卡。
+        if !message.isUser, !streamingText, !message.withdrawn {
+            TodoConfirmCard(messageID: message.id)
+        }
         // v2.0.125：长按菜单按区域分发 —— 文字区由 SelectableTextLabel 的 UITextView 编辑菜单接管
         //（复制/引用/分享/大爆炸/选择文本/重新生成/撤回/删除）；图片/文件卡片挂 cardMenu；
         // 代码块/表格走 MessageBlockView 内部 SwiftUI 菜单。
