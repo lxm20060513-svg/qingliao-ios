@@ -266,7 +266,8 @@ struct PetAvatar: View {
     private func playCelebrate() {
         guard animate else { return }
         let pool = Quirk.pool.filter { enabledQuirks.contains($0) }
-        let festive = [Quirk.cheer, .heart, .clap, .wave].filter { pool.contains($0) }
+        // ⚠️ case 名以 PetModel.swift 为准：比心=heartHands、挥手=waveHello（不是 heart/wave）
+        let festive = [Quirk.cheer, .heartHands, .clap, .waveHello].filter { pool.contains($0) }
         guard let q = festive.randomElement() ?? pool.randomElement() else {
             playPat()
             return

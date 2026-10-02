@@ -652,14 +652,15 @@ struct ChatView: View {
                     // v3.9.48：聚焦展开时右下角浮出的模型快选胶囊
                     modelLabel: composerModelLabel,
                     onPickModel: { showComposerModel = true },
-                    // v4.0.27：模型思考档位胶囊迁入工具层（附件/相机旁）——传展示值不传枚举
-                    reasoningLevelIcon: reasoningLevel.symbol,
-                    reasoningLevelTitle: reasoningLevel.title,
-                    onPickReasoning: { showReasoningPicker = true },
                     // v4.0.x：录音点接实时电平（voice-glow 位点）。传**闭包**不传值——
                     // currentInputLevel() 是 nonisolated 快照，每帧由录音点自己读一次；
                     // 若在这里取值传下去，ChatView 这个超大 body 会被电平更新连坐重绘。
-                    recordingLevel: { liveSpeech.currentInputLevel() })
+                    // ⚠️ 实参序必须 = ChatInputBar 存储属性声明序（recordingLevel 声明在最前）
+                    recordingLevel: { liveSpeech.currentInputLevel() },
+                    // v4.0.27：模型思考档位胶囊迁入工具层（附件/相机旁）——传展示值不传枚举
+                    reasoningLevelIcon: reasoningLevel.symbol,
+                    reasoningLevelTitle: reasoningLevel.title,
+                    onPickReasoning: { showReasoningPicker = true })
                     // v2.0.129：球态输入框 —— 绑定会话 id，切会话重建复位（展开态在切会话后回球态）
                     .id(chat.sessionId)
                     // v2.0.135：消费输入栏区域的点击，防冒泡到消息区 ZStack 根手势误收键盘

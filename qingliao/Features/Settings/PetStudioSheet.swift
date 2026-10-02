@@ -277,6 +277,12 @@ struct PetStudioSheet: View {
         case .stretch: return "伸个懒腰"
         case .strollLeft: return "往左踱几步"
         case .strollRight: return "往右踱几步"
+        // v4.0.27：手部动作组（加了 case 就必须在这里补，漏一个只有 CI Archive 抓得到）
+        case .waveHello: return "挥手打个招呼"
+        case .clap: return "鼓鼓掌"
+        case .heartHands: return "比个心"
+        case .cheer: return "举手欢呼"
+        case .chinRest: return "托着腮发呆"
         }
     }
 
