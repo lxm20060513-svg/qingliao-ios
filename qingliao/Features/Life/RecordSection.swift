@@ -227,8 +227,9 @@ struct RecordSection: View {
         }
         .sheet(isPresented: $showFixed) {
             FixedExpenseSheet()
+                // v4.0.20：原来挂在宿主链上（对弹窗不生效）→ 移进 sheet 内容
+                .presentationDetents([.medium, .large])
         }
-        .presentationDetents([.medium, .large])
     }
 
     /// 候选池⑫：导出账本 CSV（复用手势同款 ChatComponents.TableCSVExport：RFC 4180 转义 + UTF-8 BOM，

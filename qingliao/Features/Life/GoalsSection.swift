@@ -318,12 +318,14 @@ struct GoalsSection: View {
                         Spacer()
                         if g.isFinished {
                             Text("已完成").pill(.topBar, tone: .accent)
-                        } else if g.paused {
-                            Text("已暂停").pill(.topBar)
                         } else {
-                            Text("每天 \(g.morningHour):00 / \(g.eveningHour):00")
-                                .font(.system(size: Typography.caption))
-                                .foregroundStyle(.secondary)
+                            // v4.0.20（#5）：详情页同口径 —— 不再只报「每天 9:00/21:00」，
+                            // 而是说清后台到底在不在跑
+                            Circle()
+                                .fill(g.scheduleHealth == .running ? Color.green
+                                      : (g.scheduleHealth == .paused ? Color.secondary : Color.orange))
+                                .frame(width: 6, height: 6)
+                            Text(GoalSchedule.healthLabel(g.scheduleHealth)).pill(.topBar)
                         }
                     }
                     if !g.steps.isEmpty {
@@ -382,6 +384,34 @@ struct GoalsSection: View {
                             .font(.system(size: Typography.subhead))
                             .foregroundStyle(.primary)
                             .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+
+                // v4.0.20（#6）：后台推进时间线 —— 用户要看到「后台到底跑过什么、跑了几次」
+                //（此前只有一句 lastReport，被覆盖式写库，历史留不下）
+                if !g.reports.isEmpty {
+                    Section("后台推进记录") {
+                        ForEach(g.reports.sorted { $0.at > $1.at }) { r in
+                            VStack(alignment: .leading, spacing: 3) {
+                                HStack(spacing: 6) {
+                                    if r.isAgentAction {
+                                        Image(systemName: "wand.and.stars")
+                                            .font(.system(size: Typography.caption))
+                                            .foregroundStyle(Color.orange)
+                                    }
+                                    Text(Self.stamp(r.at))
+                                        .font(.system(size: Typography.caption))
+                                        .foregroundStyle(.secondary)
+                                    if r.isAgentAction {
+                                        Text("AI 自动").pill(.topBar, tone: .accent)
+                                    }
+                                }
+                                Text(r.text)
+                                    .font(.system(size: Typography.caption))
+                                    .foregroundStyle(.primary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
                     }
                 }
 
@@ -520,10 +550,28 @@ struct GoalRowCard: View {
                     .foregroundStyle(.primary)
                     .lineLimit(1)
                 Spacer(minLength: 0)
-                if goal.paused {
-                    Text("暂停").pill(.topBar)
-                } else if !goal.isFinished {
-                    Text("每天 \(goal.morningHour):00").pill(.topBar)
+                if goal.isFinished {
+                    Text("已完成").pill(.topBar)
+                } else {
+                    // v4.0.20（#5）：后台健康点 —— 一眼看出「它到底在不在跑」
+                    //（绿=已接上 cron 在跑 / 灰=用户暂停 / 橙=没建上 cron 的半成品）
+                    Circle()
+                        .fill(healthColor(goal.scheduleHealth))
+                        .frame(width: 6, height: 6)
+                    Text(GoalSchedule.healthLabel(goal.scheduleHealth)).pill(.topBar)
+                }
+            }
+
+            // v4.0.20（#5）：后台状态条 —— 下一次什么时候动（用户原话「不知道有没有触发后台」）
+            if !compact, !goal.isFinished {
+                HStack(spacing: 4) {
+                    Image(systemName: "clock.arrow.circlepath")
+                        .font(.system(size: Typography.caption))
+                        .foregroundStyle(.tertiary)
+                    Text(goal.scheduleText(now: Date()))
+                        .font(.system(size: Typography.caption))
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
                 }
             }
 
@@ -555,5 +603,14 @@ struct GoalRowCard: View {
                minHeight: compact ? MemoCardMetrics.minHeight : nil,
                alignment: .leading)
         .dashboardCard()
+    }
+
+    /// v4.0.20（#5）：健康点配色
+    private func healthColor(_ h: GoalSchedule.Health) -> Color {
+        switch h {
+        case .running:  return .green
+        case .paused:   return .secondary
+        case .detached: return .orange
+        }
     }
 }

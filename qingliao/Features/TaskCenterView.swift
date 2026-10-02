@@ -272,11 +272,28 @@ private struct TaskRow: View {
                     Circle().strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8)
                 )
             VStack(alignment: .leading, spacing: 3) {
-                Text(item.text)
+                Text(displayText)
                     .font(.subheadline)
                     .strikethrough(item.completed, color: .secondary)
                     .foregroundStyle(item.completed ? .secondary : .primary)
                     .lineLimit(3)
+                // v4.0.20（#11）：后台自主推进任务 → 标出「跑到第几步了」。
+                // 后端 goal cron 首行被强制输出【目标推进 k/N】，这里解析成角标 + 细进度条；
+                // 用户原话：「任务中心的任务那里加通知，表明当前后台自主推进任务进行到哪一步了」
+                if let p = progress {
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 5) {
+                            Image(systemName: "arrow.triangle.2.circlepath")
+                                .font(.system(size: Typography.caption, weight: .semibold))
+                            Text(GoalProgressMark.label(step: p.step, total: p.total))
+                                .font(.system(size: Typography.caption, weight: .semibold))
+                        }
+                        .foregroundStyle(Color.blue)
+                        ProgressView(value: GoalProgressMark.ratio(step: p.step, total: p.total))
+                            .progressViewStyle(.linear)
+                            .tint(.blue)
+                    }
+                }
                 HStack(spacing: 6) {
                     Text(typeLabel)
                         .font(.caption2.weight(.medium))
@@ -302,6 +319,12 @@ private struct TaskRow: View {
         }
         .padding(.vertical, Spacing.xs)
     }
+
+    /// v4.0.20（#11）：正文里去掉进度标记（角标已经表达过，不重复）
+    private var displayText: String { GoalProgressMark.stripped(item.text) }
+
+    /// v4.0.20（#11）：这条是不是「后台自主推进」的第几步
+    private var progress: (step: Int, total: Int)? { GoalProgressMark.parse(item.text) }
 
     private var iconName: String {
         switch item.taskType {

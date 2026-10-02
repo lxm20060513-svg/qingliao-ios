@@ -198,7 +198,7 @@ struct BackendUpdateSheet: View {
                         logCard
                     }
                 }
-                .padding(20)
+                .padding(Spacing.sheetInset)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .navigationTitle("后端更新")
@@ -210,6 +210,9 @@ struct BackendUpdateSheet: View {
             }
             .task { await model.preciseCheck() }
         }
+        // v4.0.20：设置域同类详情弹窗（本地模型 / 视觉模型 / Agent）一律声明 detent，
+        // 本弹窗此前缺这一行 → 打开就是全高、也没有中档可拖，一眼「跟别的弹窗不一样」。
+        .presentationDetents([.medium, .large])
     }
 
     @ViewBuilder private var statusCard: some View {

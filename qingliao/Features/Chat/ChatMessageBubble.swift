@@ -567,20 +567,36 @@ struct MessageBubble: View {
         }
     }
 
-    /// Hermes 主动推送标签
+    /// v4.0.20 推送来源角标（用户 2026-10 口径 1a：三色区分前台 / 定时 / 主动）
+    ///
+    /// 原先是单一蓝色「🔔 推送」——用户读不出「这条是我问出来的、还是后台自己跑出来的」。
+    /// 来源映射是纯逻辑 `PushKind.style(for:)`（真值表钉住）；问题卡自带卡面，不再重复出角标。
     @ViewBuilder
     private var bubblePushTag: some View {
-        // v3.4.x：移除「Agent 回复」标签——v3.4.8 起所有回复恒走 Hermes agent，
-        // 标注已无信息量（用户确认移除）。agent 字段链路保留（落库/推送兼容不动）。
-        // v3.0.82：Hermes 主动推送标签（收件箱注入，蓝色系）
-        if message.isPush {
-            Text("🔔 推送")
+        if PushKind.showsTag(role: message.role, isPush: message.isPush,
+                             questionId: message.questionId) {
+            let style = PushKind.style(for: message.pushKind)
+            let tint = pushKindColor(style.colorKey)
+            HStack(spacing: 4) {
+                Circle().fill(tint).frame(width: 5, height: 5)
+                Text(style.label)
+            }
                 .font(.system(size: Typography.tiny, weight: .semibold))
-                .foregroundStyle(Color.blue)
+                .foregroundStyle(tint)
                 .padding(.horizontal, Spacing.sm)
                 .padding(.vertical, Spacing.xxs)
-                .background(Color.blue.opacity(Tint.faint), in: Capsule())
+                .background(tint.opacity(Tint.faint), in: Capsule())
                 .padding(.top, Spacing.xxs)
+        }
+    }
+
+    /// colorKey → 色值（UI 层唯一映射点；`PushKind` 刻意不 import SwiftUI，好做纯逻辑真值表）
+    private func pushKindColor(_ key: String) -> Color {
+        switch key {
+        case "orange": return .orange
+        case "blue":   return .blue
+        case "green":  return .green
+        default:       return .secondary
         }
     }
 

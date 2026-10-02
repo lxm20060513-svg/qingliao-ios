@@ -818,5 +818,24 @@ grep -q 'TableCSVExport.makeCSV(rows: RecordKit.csvRows' qingliao/Features/Life/
 grep -q 'RecordKit.budgetLevel' qingliao/Features/HomeCards.swift \
   || { echo "❌ 首页卡没接预算水位（候选池⑦⑬：超支了卡片看不出来）"; fail=1; }
 
+echo "=== 57. 气泡来源角标真值表（v4.0.20 · 区分 cron/主动 Agent/系统/后台推进/回复）==="
+# 用户诉求：「我不知道当前任务是前台任务还是触发了后台自主推进任务」→ 气泡角标按来源分色。
+# 表钉的是**纯映射**（PushKind.style）+ 源接线（InboxStore 每类消息都真的赋了 kind）。
+run_unit /tmp/test_pushkind scripts/ql_pushkind/truth_table_pushkind.swift
+
+echo "=== 58. 目标后台状态真值表（v4.0.20 · 交接回执 / 健康点 / 推进时间线 / 第几步标注）==="
+# 覆盖：① 交接待办卡回执 ② 目标卡后台状态条 ③ 推进时间线 ④ 任务中心「第 k/N 步」角标
+# ⑤ 后端接线护栏 —— 只有能看见线上后端源时第 ⑤ 段才真跑（CI 里打印「⚠️ 跳过」）。
+# 想本地覆盖后端那几条：先 `ql backend fetch` 拉到副本，或设 QL_BE 指向后端目录。
+run_unit /tmp/test_goalbg scripts/ql_goalbg/truth_table_goalbg.swift
+
+echo "=== 59. 看板拖拽排序真值表（v4.0.20 · 归一化 / 落位几何 / 键单一真源）==="
+# 本表**直接编译 BoardCardOrder.swift 真源**（不是镜像 → 没有表/实现漂移的洞）。
+# 多文件编译时顶层代码只允许待在 main.swift → 先拷成 main.swift 再编
+# （等价形态见 scripts/ql_record/truth_table_record.swift 头部注释）。
+rm -rf /tmp/ql_board_main && mkdir -p /tmp/ql_board_main
+cp scripts/ql_board/truth_table_board.swift /tmp/ql_board_main/main.swift
+run_unit /tmp/test_board /tmp/ql_board_main/main.swift qingliao/Core/BoardCardOrder.swift
+
 [ $fail -eq 0 ] || { echo "❌ 有护栏失守"; exit 1; }
 exit 0

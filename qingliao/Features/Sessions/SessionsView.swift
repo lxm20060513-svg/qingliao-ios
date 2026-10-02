@@ -360,6 +360,42 @@ struct SessionsView: View {
         .background(Color.primary.opacity(0.05))
     }
 
+    /// v4.0.20（#9）：后台推进浮条（有后台跑流才出现；点一下跳到那条会话）
+    @ViewBuilder
+    private var backgroundRunningBar: some View {
+        let ids = backgroundRunningIDs
+        if !ids.isEmpty {
+            let names = ids.compactMap { id in sessions.first { $0.id == id }?.title }
+            Button {
+                Haptics.tap()
+                if let first = ids.sorted().first, let s = sessions.first(where: { $0.id == first }) {
+                    open(s)
+                }
+            } label: {
+                HStack(spacing: Spacing.sm) {
+                    Image(systemName: "hourglass")
+                        .font(.system(size: Typography.caption, weight: .semibold))
+                    Text(names.isEmpty
+                         ? "后台正在推进 \(ids.count) 个任务"
+                         : "后台正在推进：\(names.prefix(2).joined(separator: "、"))\(names.count > 2 ? " 等" : "")")
+                        .font(.system(size: Typography.caption, weight: .semibold))
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                    Text("查看")
+                        .font(.system(size: Typography.caption, weight: .semibold))
+                        .foregroundStyle(Color.accentColor)
+                }
+                .foregroundStyle(.primary)
+                .padding(.horizontal, Spacing.xl)
+                .padding(.vertical, Spacing.md)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
+            }
+            .buttonStyle(PressStyle())
+            .accessibilityLabel("后台正在推进，点按查看")
+        }
+    }
+
     /// 会话列表（搜索区 / 空态 / 卡片列表）
     @ViewBuilder
     private var sessionsListBody: some View {
@@ -375,6 +411,9 @@ struct SessionsView: View {
                     searchResultsArea
                 } else {
                     BotCard()
+                    // v4.0.20（#9）：后台推进常驻浮条 —— 退出聊天页后仍能看到「后台还在跑」，
+                    // 点一下直接跳回那条会话（此前一离开聊天页就完全失去线索）
+                    backgroundRunningBar
                     if sessions.isEmpty {
                         sessionsEmptyState
                     } else {
@@ -644,11 +683,25 @@ struct SessionsView: View {
     /// sessionCell 的形参 `s`（属 SessionsView 层，无 `s` 成员）→ `cannot find 's' in scope`：
     /// `swiftc -parse` 盲区，只有 CI Archive 才炸。改成按会话判定的方法。
     private func isRunning(_ s: ChatSession) -> Bool {
-        // v4.1.x 多会话并行：优先读后台跑流器（多会话可同时标「进行中」）；
-        // 前台单例口径保持不变（正在看的会话由它负责）。
-        if backgroundRunningIDs.contains(s.id) { return true }
+        isForegroundRunning(s) || isBackgroundRunning(s)
+    }
+
+    /// v4.0.20（#8）：把「进行中」拆成两态 —— 前台流（你正在看的这条）与
+    /// **后台跑流**（退出聊天页 / 切别的会话也在推进）。原先合并成一枚呼吸点，
+    /// 用户读不出「是我在问，还是后台自己在跑」。
+    private func isForegroundRunning(_ s: ChatSession) -> Bool {
         guard stream.isStreaming, !stream.isDone else { return false }
         return auth.currentStreamSessionId == s.id
+    }
+
+    private func isBackgroundRunning(_ s: ChatSession) -> Bool {
+        backgroundRunningIDs.contains(s.id)
+    }
+
+    /// v4.0.20（#4）：固定会话（轻聊投递 / 轻聊主动）恒置顶 —— 它们是后端锁定 id 的功能壳，
+    /// 掉到列表中间等于把「cron 详情」和「AI 主动开口」埋起来。
+    private func isFixedSession(_ id: String) -> Bool {
+        id == ChatStore.deliverySessionId || id == ChatStore.proactiveSessionId
     }
 
     /// v3.0.51：会话 cell（SessionRow + 长按菜单）——拆辅助函数，防嵌套 ForEach type-check 超时
@@ -662,7 +715,10 @@ struct SessionsView: View {
                    checked: selectedIds.contains(s.id),
                    unread: chat.unread[s.id] ?? 0,
                    categoryName: categoryStore.categoryForSession(s.id)?.name,
-                   running: isRunning(s)) {
+                   running: isRunning(s),
+                   runningForeground: isForegroundRunning(s),
+                   runningBackground: isBackgroundRunning(s),
+                   isFixed: isFixedSession(s.id)) {
             if editing {
                 toggleSelect(s.id)
             } else {
@@ -673,10 +729,14 @@ struct SessionsView: View {
         // v3.9.0：改为统一修饰器 .scrollDepth()（数值与看板/生活卡片同源）
         .scrollDepth()
         .contextMenu {
-            Button {
-                togglePin(s)
-            } label: {
-                Label(pinnedIDs.contains(s.id) ? "取消置顶" : "置顶", systemImage: pinnedIDs.contains(s.id) ? "pin.slash" : "pin")
+            // v4.0.20（#4）：固定会话恒置顶（rank 写死 3）→ 不给「置顶/取消置顶」，
+            // 免得用户点了没反应（或以为置顶失效）
+            if !isFixedSession(s.id) {
+                Button {
+                    togglePin(s)
+                } label: {
+                    Label(pinnedIDs.contains(s.id) ? "取消置顶" : "置顶", systemImage: pinnedIDs.contains(s.id) ? "pin.slash" : "pin")
+                }
             }
             Button {
                 toggleFav(s)
@@ -761,9 +821,25 @@ struct SessionsView: View {
                 }
             }
         }
+        // v4.1.x：单条左滑删除（trailing 边；滑到底 = allowsFullSwipe 默认 true → 直接触发）。
+        // 与长按菜单**同一套删链**，不另写存储写逻辑：这里只把 confirmDelete 置上，
+        // 由既有「删除会话」确认弹窗（二次确认）→ delete(_:)（内含 flushPendingWrites
+        // 写链闸门 + merge 的 deleted 键）收尾，防「删了又活着回来」。
+        // 固定会话（投递壳 / 轻聊主动）与长按菜单同一口径：**不给入口**
+        // （后端 _PROTECTED_IDS 拒删，给了就是「点了会报错的按钮」）。
+        .swipeActions(edge: .trailing) {
+            if s.id != ChatStore.deliverySessionId && s.id != ChatStore.proactiveSessionId {
+                Button(role: .destructive) {
+                    confirmDelete = s
+                } label: {
+                    Label("删除", systemImage: "trash")
+                }
+            }
+        }
     }
 
     private func rank(_ id: String) -> Int {
+        if isFixedSession(id) { return 3 }   // v4.0.20（#4）：固定会话恒置顶，用户手动置顶的排它之下
         if pinnedIDs.contains(id) { return 2 }
         if favIDs.contains(id) { return 1 }
         return 0
@@ -1147,7 +1223,20 @@ struct SessionRow: View {
     var categoryName: String? = nil   // v3.9.32：所属分类（长按「移动到…」设过才显示）
     /// v4.0.x：该会话本机正在生成（流在跑且流归属就是它）——真源与口径见 SessionsView.isRunning(_:)
     var running = false
+    /// v4.0.20（#8）：进行中来源两态 —— 前台流（你正在看的这条）/ 后台跑流（退出聊天页也在推进）。
+    /// 原先共用一枚呼吸点，用户读不出「是我在问，还是后台自己在跑」。
+    var runningForeground = false
+    var runningBackground = false
+    /// v4.0.20（#4）：固定会话（轻聊投递 / 轻聊主动）——恒置顶 + 锁形图标 + 用途胶囊
+    var isFixed = false
     var action: () -> Void = {}
+
+    /// v4.0.20（#4）：固定会话用途一句话 —— 「轻聊投递」只装 cron/system 详情、
+    /// 「轻聊主动」是 AI 主动开口且可回复（后端两个固定会话语义不同，用户在列表里看不出）
+    private var fixedSessionHint: String? {
+        guard isFixed else { return nil }
+        return session.id == ChatStore.deliverySessionId ? "只装不答" : "可回复"
+    }
 
     // MARK: - v3.4.25 会话头像个性化（id hash → 稳定的色系×图标组合）
 
@@ -1190,6 +1279,13 @@ struct SessionRow: View {
 
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: Spacing.xs) {
+                    // v4.0.20（#4）：固定会话锁形图标 —— 一眼看出「这是系统会话，删不掉、改不了名」
+                    if isFixed {
+                        Image(systemName: "lock.fill")
+                            .font(.system(size: Typography.tiny))
+                            .foregroundStyle(Color.accentColor)
+                            .accessibilityLabel("固定会话")
+                    }
                     if pinned {
                         Image(systemName: "pin.fill")
                             .font(.system(size: Typography.tiny))
@@ -1205,6 +1301,16 @@ struct SessionRow: View {
                         .font(.system(size: Typography.body, weight: .semibold))
                         .foregroundStyle(.primary)
                         .lineLimit(1)
+                    // v4.0.20（#4）：固定会话用途胶囊 —— 两个常驻置顶的会话原来不说自己是干嘛的
+                    if let hint = fixedSessionHint {
+                        Text(hint)
+                            .font(.system(size: Typography.tiny))
+                            .foregroundStyle(Color.secondary)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.secondary.opacity(Tint.soft), in: Capsule())
+                            .lineLimit(1)
+                    }
                     // v3.9.32：分类小胶囊（此前分类只在长按菜单里能设，设完看不见）
                     if let cat = categoryName, !cat.isEmpty {
                         Text(cat)
@@ -1244,9 +1350,21 @@ struct SessionRow: View {
                     Image(systemName: checked ? "checkmark.circle.fill" : "circle")
                         .font(.system(size: Typography.headline))
                         .foregroundStyle(checked ? Color.accentColor : Color.secondary.opacity(0.4))
+                } else if runningForeground {
+                    // v4.0.20（#8）：前台流 = 你正在看的这条 → 蓝点呼吸（原形态）
+                    RunningDot()
+                } else if runningBackground {
+                    // v4.0.20（#8）：后台跑流 = 退出聊天页也在推进 → 灰点 + 「后台」小字。
+                    // 原先两者共用一枚蓝点，用户读不出「谁在跑」——这正是本次要修的病灶。
+                    HStack(spacing: 3) {
+                        Circle().fill(Color.secondary.opacity(0.65)).frame(width: 7, height: 7)
+                        Text("后台")
+                            .font(.system(size: Typography.tiny))
+                            .foregroundStyle(.secondary)
+                    }
+                    .accessibilityLabel("后台正在推进")
                 } else if running {
-                    // v4.0.x（用户拍板）：进行中的会话，右列箭头位置换成呼吸脉冲小圆点。
-                    // 排在 showCheck 之后 = 多选编辑态优先（编辑时要看勾选圈，标识不许把入口顶掉）。
+                    // 兜底：调用方只给了 running（未拆两态）时保持旧观感
                     RunningDot()
                 } else {
                     Image(systemName: "chevron.right")

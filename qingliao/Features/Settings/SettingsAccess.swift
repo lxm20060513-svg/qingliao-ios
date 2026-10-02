@@ -674,7 +674,7 @@ struct SecretEditSheet: View {
             .disabled(name.isEmpty || address.isEmpty || username.isEmpty)
             Spacer()
         }
-        .padding(18)
+        .padding(Spacing.sheetInset)
         .onAppear {
             if let entry {
                 name = entry.name
@@ -769,6 +769,7 @@ struct MCPSettingsSheet: View {
                 MCPAddSheet(templates: templates) { template, k, url in
                     await save(template: template, key: k, url: url)
                 }
+                .presentationDetents([.medium, .large])
                 .scrollContentBackground(.hidden)
             }
             .confirmationDialog("删除 \(pendingDelete?.id ?? "")？将触发 Hermes 重启（约 30 秒）",
@@ -1074,7 +1075,7 @@ struct HASettingsSheet: View {
 
             Spacer()
         }
-        .padding(18)
+        .padding(Spacing.sheetInset)
         .navigationTitle("HA 设置")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {

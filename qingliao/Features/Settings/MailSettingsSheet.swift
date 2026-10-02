@@ -124,6 +124,8 @@ struct MailSettingsSheet: View {
                     if ok { await load() }
                     return ok
                 }
+                // v4.0.20：设置域统一口径 [.medium, .large]（此前漏声明 → 打开即全高，与同类弹窗不一致）
+                .presentationDetents([.medium, .large])
                 .scrollContentBackground(.hidden)
             }
             .confirmationDialog("删除 \(pendingDelete?.email ?? "")？该邮箱的授权码会一并删除",

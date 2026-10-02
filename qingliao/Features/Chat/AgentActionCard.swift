@@ -41,6 +41,7 @@ struct AgentActionCard: View {
                 Text(s).font(.system(size: Typography.caption)).foregroundStyle(.secondary)
             }
             controls
+            handoffNote
             resultArea
         }
         .padding(Spacing.lg)
@@ -167,6 +168,28 @@ struct AgentActionCard: View {
                         .foregroundStyle(Color.accentColor)
                 }
                 .buttonStyle(PressStyle())
+            }
+        }
+    }
+
+    /// v4.0.20（#1）：建目标卡 = **前台 → 后台的交接点**（用户 2026-10 口径 2a：原地变回执，不另起气泡）。
+    /// 用户原来点完「执行」只看到一句「已建目标…」，读不出「这件事从此由后台接管了」。
+    @ViewBuilder
+    private var handoffNote: some View {
+        if action.kind == .goalCreate {
+            switch phase {
+            case .idle:
+                Label("确认后交给后台：每天按点自动推进，结果回到这里和「生活 → 长期目标」",
+                      systemImage: "arrow.turn.down.right")
+                    .font(.system(size: Typography.caption))
+                    .foregroundStyle(.secondary)
+            case .done:
+                Label("已在后台运行 —— 不用守着，推进结果会回到这里和「生活 → 长期目标」",
+                      systemImage: "checkmark.seal.fill")
+                    .font(.system(size: Typography.caption))
+                    .foregroundStyle(Color.green)
+            case .running, .failed:
+                EmptyView()
             }
         }
     }

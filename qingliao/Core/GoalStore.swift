@@ -30,6 +30,8 @@ struct GoalItem: Identifiable, Codable, Equatable, Sendable {
     /// 最近一次推进的汇报正文（cron 回写）
     var lastReport: String
     var lastPushedAt: Date?
+    /// v4.0.20（#6）：后台推进留痕（倒序时间线）。老数据为空 —— 后端从本版起追加写入。
+    var reports: [GoalReport]
     /// 手动暂停（暂停时 cron job 被 disable，用户自己掌控节奏）
     var paused: Bool
     /// 每日两段的时间点（0-23），默认早 9 / 晚 21
@@ -46,6 +48,7 @@ struct GoalItem: Identifiable, Codable, Equatable, Sendable {
          eveningHour: Int = 21,
          lastReport: String = "",
          lastPushedAt: Date? = nil,
+         reports: [GoalReport] = [],
          paused: Bool = false,
          createdAt: Date = Date(),
          updatedAt: Date? = nil) {
@@ -59,6 +62,7 @@ struct GoalItem: Identifiable, Codable, Equatable, Sendable {
         self.eveningHour = min(max(eveningHour, 0), 23)
         self.lastReport = lastReport
         self.lastPushedAt = lastPushedAt
+        self.reports = reports
         self.paused = paused
         self.createdAt = createdAt
         self.updatedAt = updatedAt ?? createdAt
@@ -79,13 +83,14 @@ struct GoalItem: Identifiable, Codable, Equatable, Sendable {
         updatedAt = try c.decodeIfPresent(Date.self, forKey: .updatedAt) ?? createdAt
         lastReport = try c.decodeIfPresent(String.self, forKey: .lastReport) ?? ""
         lastPushedAt = try c.decodeIfPresent(Date.self, forKey: .lastPushedAt)
+        reports = try c.decodeIfPresent([GoalReport].self, forKey: .reports) ?? []
         paused = try c.decodeIfPresent(Bool.self, forKey: .paused) ?? false
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, title, steps, cronJobID, morningEnabled, eveningEnabled
         case morningHour, eveningHour, createdAt, updatedAt
-        case lastReport, lastPushedAt, paused
+        case lastReport, lastPushedAt, paused, reports
     }
 
     var sortDate: Date { updatedAt }

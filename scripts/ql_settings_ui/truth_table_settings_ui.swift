@@ -90,9 +90,47 @@ func hitCount(_ pattern: (String) -> Bool) -> Int { bodies.filter { pattern($0.b
 let badLiteral = { (b: String) -> Bool in
     b.contains(".padding(.leading, 52)") || b.contains(".padding(.leading, 62)")
         || b.contains(".padding(.horizontal, 18)") || b.contains(".padding(.horizontal, 20)")
+        // v4.0.20：**裸形态**此前没被盯 → 后端更新弹窗的 `.padding(20)` 整轮收敛漏网，
+        // 用户真机报「设置页弹窗跟其他弹窗不一致」。这里一并清零（18 也是同概念字面量）。
+        || b.contains(".padding(20)") || b.contains(".padding(18)")
 }
-check("缩进/水平留白字面量清零（52/62/18/20 四形态，扫 \(swiftFiles.count) 个文件）",
+check("缩进/水平留白字面量清零（52/62/18/20 四形态 + 裸 padding(18/20)，扫 \(swiftFiles.count) 个文件）",
       hitCount(badLiteral) == 0)
+
+// v4.0.20：设置域「详情弹窗」必须声明 detent ─────────────────────────────
+// 用户真机报：「设置后端更新弹窗又跟其他弹窗不一致」。根因 = 该 sheet 没写
+// `.presentationDetents` → 打开即全高、没有中档可拖，与同类详情弹窗（本地模型 /
+// 视觉模型 / Agent）形态不同。钉住这三个必须声明，防止再漏。
+for name in ["BackendUpdate.swift", "LocalModelsSheet.swift", "VisionModelSheet.swift",
+             "MailSettingsSheet.swift", "CloudDriveSettingsSheet.swift", "SettingsAccess.swift"] {
+    let body = stripComments(src("\(settingsDir)/\(name)"))
+    check("🚨 设置详情弹窗 \(name) 声明了 presentationDetents",
+          body.contains(".presentationDetents("))
+}
+
+// v4.0.20 续（子代理全仓审计）：同一类问题用户已报两次「弹窗跟其他弹窗不一致」，
+// 把「挂错位置」这个更隐蔽的形态也钉死。
+// ⚠️ 光看字符串区分不出「贴闭包内」(生效) 与「挂宿主链上」(不生效) —— 两种写法长一模一样。
+//    必须按**花括号配平**取 sheet 闭包体，再断言 detent 在体内。
+func sheetClosureBody(_ src: String, after anchor: String) -> String? {
+    guard let r = src.range(of: anchor) else { return nil }
+    let rest = src[r.upperBound...]
+    guard let open = rest.firstIndex(of: "{") else { return nil }
+    var depth = 0
+    var i = open
+    while i < rest.endIndex {
+        if rest[i] == "{" { depth += 1 }
+        else if rest[i] == "}" { depth -= 1; if depth == 0 { return String(rest[open...i]) } }
+        i = rest.index(after: i)
+    }
+    return nil
+}
+let recordSrc = stripComments(src("qingliao/Features/Life/RecordSection.swift"))
+let fixedBlock = sheetClosureBody(recordSrc, after: ".sheet(isPresented: $showFixed)") ?? ""
+check("🚨 账本固定支出弹窗的 detent 在 sheet 闭包**内**（挂在宿主链上对弹窗不生效）",
+      fixedBlock.contains(".presentationDetents("))
+check("（反向自证）闭包体确实是 FixedExpenseSheet 的那个（防锚点失配后空真）",
+      fixedBlock.contains("FixedExpenseSheet()"))
 // 正断言：令牌真的被用起来了（不然可能只是把字面量删了）
 check("rowDividerInset 至少被 40 处使用（收敛前是 46 处字面量）",
       bodies.reduce(0) { $0 + $1.body.components(separatedBy: "Spacing.rowDividerInset)").count - 1 } >= 40)

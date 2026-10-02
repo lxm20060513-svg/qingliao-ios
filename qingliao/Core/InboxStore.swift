@@ -276,6 +276,7 @@ final class InboxStore {
             var qmsg = ChatMessage(role: "assistant", content: text,
                                    timestamp: Date().timeIntervalSince1970 * 1000)
             qmsg.isPush = true
+            qmsg.pushKind = "question"
             qmsg.questionId = id
             qmsg.questionOptions = parts.options.isEmpty ? nil : parts.options
             chat.append(qmsg)
@@ -304,6 +305,7 @@ final class InboxStore {
             var amsg = ChatMessage(role: "assistant", content: text,
                                    timestamp: Date().timeIntervalSince1970 * 1000)
             amsg.isPush = true
+            amsg.pushKind = "agent"
             amsg.proactiveId = sourceTaskId?.isEmpty == false ? sourceTaskId : id
             injectToProactiveSession(amsg)
             NotificationHelper.notify(title: "轻聊 · 主动", body: text,
@@ -356,6 +358,7 @@ final class InboxStore {
             var pmsg = ChatMessage(role: "assistant", content: text,
                                    timestamp: nowMs)
             pmsg.isPush = true
+            pmsg.pushKind = "progress"
             chat.append(pmsg)
             lastInjectedCount += 1
             await markDone(id, auth: auth)
@@ -366,7 +369,8 @@ final class InboxStore {
             TaskCenterStore.shared.add(TaskCenterItem(
                 id: id, text: text, taskType: taskType,
                 sourceTaskId: sourceTaskId))
-            NotificationHelper.notify(title: "轻聊 · 任务", body: text, sessionId: chat.sessionId)
+            NotificationHelper.notify(title: "轻聊 · 任务", body: text, sessionId: chat.sessionId,
+                                      sound: false)   // #10：定时/后台任务走静默，别抢前台对话铃声
             await markDone(id, auth: auth)
             return
         }
@@ -393,6 +397,7 @@ final class InboxStore {
             var msg = ChatMessage(role: "assistant", content: text,
                                   timestamp: Date().timeIntervalSince1970 * 1000)
             msg.isPush = true
+            msg.pushKind = "reply"
             chat.append(msg)
             lastInjectedCount += 1
             // 弹本地通知（侧载无 APNs，用本地通知横幅兜底；App 前台也弹）

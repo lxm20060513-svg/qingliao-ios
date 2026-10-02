@@ -61,6 +61,10 @@ struct ChatMessage: Identifiable, Equatable, Sendable {
     /// v4.0.11：已反馈的判定（adopted/ignored）。非 nil 时反馈条变成「已采纳/已忽略」终态，
     /// 不再重复提交（后端一次 feedback 只加一次计数，重复 POST 会污染采纳率）。
     var proactiveVerdict: String?
+    /// v4.0.20：推送来源（气泡角标三色用）——cron / system / agent / progress / reply。
+    /// 后端 `inbox_api.push` 与 `sessions_api.append_fixed_message` 都带 `task_type`；
+    /// 老数据为 nil（按 reply 处理，即「你问的」）。映射口径见 `PushKind.style(for:)`。
+    var pushKind: String?
     /// v3.4.x code review fix：id 唯一性兜底短后缀——id 由 role+content 哈希+timestamp 拼成，
     /// timestamp 为 nil 或同毫秒重复内容时两条消息 id 会撞（ForEach 重复 id / Equatable 误判同一消息）。
     /// 新创建消息自动带随机 8 位十六进制 uid；持久化时随消息写入 "uid" 字段、解析时读回，
@@ -150,6 +154,9 @@ struct ChatMessage: Identifiable, Equatable, Sendable {
         // v4.0.11：读回主动 Agent 事件 id（重启/切会话后「有用/没用」仍可回灌）
         msg.proactiveId = d["proactiveId"] as? String
         msg.proactiveVerdict = d["proactiveVerdict"] as? String
+        // v4.0.20：推送来源角标——本地落库读 "pushKind"；服务端固定会话历史读 "task_type"
+        // （后端 append_fixed_message 写入），两者取先命中的。
+        msg.pushKind = (d["pushKind"] as? String) ?? (d["task_type"] as? String)
         return msg
     }
 

@@ -88,6 +88,7 @@ struct CloudDriveSettingsSheet: View {
             // 同一宿主多 sheet 互斥：新增表单开之前先清掉删除确认态
             .sheet(isPresented: $showAdd, onDismiss: { Task { await load() } }) {
                 CloudDriveAddSheet()
+                    .presentationDetents([.medium, .large])
                     .scrollContentBackground(.hidden)
             }
             .confirmationDialog(removeDialogTitle,
@@ -104,6 +105,7 @@ struct CloudDriveSettingsSheet: View {
             // 否则某次 present 被别的弹层吞掉后 item 卡非 nil → 之后点行再也打不开浏览页）
             .sheet(item: $browsingDrive, onDismiss: { browsingDrive = nil }) { d in
                 CloudDriveBrowserSheet(drive: d)
+                    .presentationDetents([.medium, .large])
             }
             .task { await load() }
         }

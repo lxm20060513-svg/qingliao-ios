@@ -411,7 +411,7 @@ struct SessionLocSheet: View {
             .disabled(saving)
             Spacer()
         }
-        .padding(20)
+        .padding(Spacing.sheetInset)
         .navigationTitle("会话存储位置")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -840,7 +840,7 @@ struct NewTaskSheet: View {
             .disabled(saving || name.isEmpty || cron.isEmpty || prompt.isEmpty)
             Spacer()
         }
-        .padding(18)
+        .padding(Spacing.sheetInset)
     }
 
     private func save() {

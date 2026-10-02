@@ -1,34 +1,16 @@
 import SwiftUI
 
-enum BoardCard: String, CaseIterable, Identifiable {
-    case suggestion, home, scenes, automations, rules, nas, usage, tokens, diagnose, router, pin, connectors
-
-    var id: String { rawValue }
-
-    /// 与各 block 的 sectionTitle 保持一致
-    var title: String {
-        switch self {
-        case .suggestion: return "智能建议"
-        case .home: return "智能家居"
-        case .scenes: return "智慧场景"
-        case .automations: return "自动化"
-        case .rules: return "自动规则"
-        case .nas: return "NAS 面板"
-        case .usage: return "模型使用量"
-        case .tokens: return "token 用量"
-        case .diagnose: return "设备体检"
-        case .router: return "路由器"
-        case .pin: return "钉一钉"
-        case .connectors: return "连接器"
-        }
-    }
-}
+// ⚠️ v4.0.20：`enum BoardCard` 已搬到 qingliao/Core/BoardCardOrder.swift
+// （纯 Foundation 的排序逻辑所在，真值表要直接编译它 → 枚举不能留在 import SwiftUI 的文件里）。
+// 本文件只管编辑器界面。
 
 /// ⚠️ 排序用「上移/下移」按钮而不是 List 拖动手柄：拖动要常驻 editMode，
 /// 而 editMode 激活时行内按钮的点击由系统接管，这行为没法在没真机构建前验证，宁可用最朴素的按钮。
+/// v4.0.20：看板上也能**长按栏目标题拖动**排序（DashboardView.sectionTitle 的手势），
+/// 这个弹窗仍是「隐藏 / 恢复」与「点按微调」的入口，两种方式共用同一对持久化键。
 struct BoardCardEditorSheet: View {
-    @AppStorage("dashboard_card_order") private var orderRaw = ""
-    @AppStorage("dashboard_hidden_cards") private var hiddenRaw = ""
+    @AppStorage(BoardCardStore.orderKey) private var orderRaw = ""
+    @AppStorage(BoardCardStore.hiddenKey) private var hiddenRaw = ""
     @Environment(\.dismiss) private var dismiss
     @State private var shown: [BoardCard] = []
     @State private var hiddenList: [BoardCard] = []
@@ -48,6 +30,8 @@ struct BoardCardEditorSheet: View {
                     ForEach(Array(shown.enumerated()), id: \.element) { idx, card in
                         shownRow(card: card, idx: idx)
                     }
+                } footer: {
+                    Text("也可以直接在看板上长按任意栏目标题后拖动排序，两种方式同步。")
                 }
                 if !hiddenList.isEmpty {
                     Section("已隐藏") {

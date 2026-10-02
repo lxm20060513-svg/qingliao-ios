@@ -144,7 +144,7 @@ struct AgentModelSheet: View {
                     .padding(.bottom, Spacing.md)
                 }
             }
-            .padding(18)
+            .padding(Spacing.sheetInset)
             .navigationTitle("Agent 模型")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

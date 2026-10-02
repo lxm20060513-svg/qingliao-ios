@@ -449,7 +449,7 @@ enum AgentActionExecutor {
         let merged = await GoalStore.shared.createOnBackend(g)
         if let merged, !merged.cronJobID.isEmpty {
             await MainActor.run { GoalStore.shared.update(merged) }
-            return .done(message: "已建目标「\(title)」，\(steps.count) 步已进待办，每天 \(hour):00 推进",
+            return .done(message: "已在后台运行 · 每天 \(hour):00 推进 · 共 \(steps.count) 步（已进待办）",
                           undo: {
                               await MainActor.run { GoalStore.shared.remove(gid) }
                               await GoalStore.shared.deleteOnBackend(goalID: gid)

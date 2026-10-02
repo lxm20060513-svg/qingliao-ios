@@ -175,7 +175,7 @@ struct ModelSheet: View {
                 .padding(.bottom, Spacing.md)
             }
         }
-        .padding(18)
+        .padding(Spacing.sheetInset)
         .navigationTitle("模型管理")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {

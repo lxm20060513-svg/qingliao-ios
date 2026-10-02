@@ -145,6 +145,14 @@ struct ProactiveAgentSheet: View {
                            value: boolText(cfg["llmJudge"] as? Bool),
                            toggle: Binding(get: { cfg["llmJudge"] as? Bool ?? true },
                                           set: { patch(["llmJudge": $0]) }))
+                Divider().padding(.leading, Spacing.rowDividerInset)
+                // v4.0.20（#2）：长期目标自动判定 —— 关掉后 AI 不再把闲聊误判成长期目标。
+                // 后端 stream_api 按同一个 key 整段门控 goal.create 的动作说明；
+                // 已存在的目标照常由 cron 推进（那个开关只管「要不要新认目标」）。
+                SettingRow(icon: "target", iconColor: .pink, title: "长期目标自动判定",
+                           value: boolText(cfg["goalAutoDetect"] as? Bool),
+                           toggle: Binding(get: { cfg["goalAutoDetect"] as? Bool ?? true },
+                                          set: { patch(["goalAutoDetect": $0]) }))
             }
             .glassListCard()
         }

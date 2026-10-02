@@ -48,22 +48,23 @@ struct DashboardView: View {
         hiddenUsageRaw = s.sorted().joined(separator: ",")
     }
     // v3.9.40（#15）：看板栏目卡片自定义——顺序与显隐各自持久化（逗号分隔 BoardCard.rawValue）
-    @AppStorage("dashboard_card_order") private var cardOrderRaw = ""
-    @AppStorage("dashboard_hidden_cards") private var hiddenCardsRaw = ""
+    // v4.0.20：键字面量收进 BoardCardStore（单一真源），长按拖拽与编辑器共用同一对键。
+    @AppStorage(BoardCardStore.orderKey) private var cardOrderRaw = ""
+    @AppStorage(BoardCardStore.hiddenKey) private var hiddenCardsRaw = ""
     @State private var showCardEditor = false
+    // v4.0.20：长按拖动排序的在途状态（落位几何全在 BoardCardOrder，这里只存 UI 状态）
+    @State private var dragCard: BoardCard?                         // 正在被拖的栏目（nil = 没在拖）
+    @State private var dragOffsetY: CGFloat = 0                     // 拖拽中的竖直位移（视觉反馈）
+    @State private var sectionHeights: [BoardCard: CGFloat] = [:]   // 各栏目实测高度（落位几何要用）
 
-    /// 已存顺序在前；串里没出现的（首次使用 / 之后新增的栏目 / 未知键）按默认顺序补在后面
+    /// 完整顺序（含被隐藏的栏目）。归一化口径收在 BoardCardOrder.resolve（真值表直接编它）。
+    /// SR13：去重——旧版本的编辑器把隐藏项重复写进了 dashboard_card_order，
+    /// 这些脏值会一直流到这里 → 看板同一张卡片渲染两遍。parse 就地清掉，老数据自愈。
     private var orderedCards: [BoardCard] {
-        // SR13：去重——旧版本的编辑器把隐藏项重复写进了 dashboard_card_order，
-        // 这些脏值会一直流到这里（saved 不做去重）→ 看板同一张卡片渲染两遍。就地清掉，老数据自愈。
-        var seen = Set<BoardCard>()
-        let saved = cardOrderRaw.split(separator: ",")
-            .compactMap { BoardCard(rawValue: String($0)) }
-            .filter { seen.insert($0).inserted }
-        return saved + BoardCard.allCases.filter { !seen.contains($0) }
+        BoardCardOrder.resolve(order: cardOrderRaw)
     }
     private var hiddenCards: Set<BoardCard> {
-        Set(hiddenCardsRaw.split(separator: ",").compactMap { BoardCard(rawValue: String($0)) })
+        Set(BoardCardOrder.parse(hiddenCardsRaw))   // v4.0.20：收进单一真源，别在视图里再写一份 parse
     }
     private var visibleCards: [BoardCard] {
         let h = hiddenCards
@@ -133,10 +134,21 @@ struct DashboardView: View {
             ScrollView {
                 // v2.0.133f：VStack → LazyVStack——TabView 切页动画期间看板全量卡片一次性布局是切页卡顿主因，
                 // 懒加载后只渲染可见卡片（与 v2.0.132 ChatView 消息列表同款方案；看板无批量移除路径，安全）
-                LazyVStack(alignment: .leading, spacing: 10) {
+                LazyVStack(alignment: .leading, spacing: BoardCardOrder.sectionSpacing) {
                     // v3.9.40（#15）：10 个栏目由写死顺序改为按用户自定义顺序渲染（可隐藏）
+                    // v4.0.20：每个栏目量高（列高不等 → 落位几何必须喂实测高度）+ 拖动中的
+                    //          位移/放大/阴影反馈。
+                    // ⚠️ onGeometryChange 必须排在 .offset 之前 —— 它量的是栏目**自然高度**，
+                    //    拖动位移不该污染高度（否则落位会拿自己算自己）。
                     ForEach(visibleCards) { card in
                         boardBlock(card)
+                            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { h in
+                                sectionHeights[card] = h
+                            }
+                            .offset(y: dragCard == card ? dragOffsetY : 0)
+                            .scaleEffect(dragCard == card ? 1.01 : 1)
+                            .shadow(color: .black.opacity(dragCard == card ? 0.16 : 0), radius: 14, y: 6)
+                            .zIndex(dragCard == card ? 1 : 0)
                     }
                     cardEditorEntry
                 }
@@ -258,7 +270,7 @@ struct DashboardView: View {
     private var smartSuggestionBlock: some View {
         // v2.0.116：智能建议（基于天气/NAS/设备状态，Agent 生成）
         // v2.0.118：门锁卡同风格（普通圆角卡背景）+ 标题左上 + 内容靠左 + 重新生成右上
-        sectionTitle("智能建议")
+        sectionTitle("智能建议", card: .suggestion)
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text("今日建议")
@@ -315,7 +327,7 @@ struct DashboardView: View {
     /// 智能家居设备栅格
     @ViewBuilder
     private var homeDevicesBlock: some View {
-        sectionTitle("智能家居")
+        sectionTitle("智能家居", card: .home)
     LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
             DeviceCard(name: "开关", icon: "lightbulb.fill", value: haLights, sub: "\(lightsOn) 盏开启 · 点击控制", status: lightsOn > 0 ? .on : .off)
                 .tapButton { activeSheet = .lights }
@@ -350,7 +362,7 @@ struct DashboardView: View {
         // v2.0.96：场景（AI 对话生成动作组，点一下逐条执行）
         // v2.0.96b：改「智慧场景」标题 + HomeKit 卡片风格（对齐 DeviceCard）
         // v2.0.96c：空态可点击刷新（TabView 切 tab 不触发 onAppear 的 iOS 版本差异兜底）
-        sectionTitle("智慧场景")
+        sectionTitle("智慧场景", card: .scenes)
         if scenes.isEmpty {
             HStack(spacing: 6) {
                 Image(systemName: "bolt.fill")
@@ -401,7 +413,7 @@ struct DashboardView: View {
     @ViewBuilder
     private var automationsBlock: some View {
         // v2.0.104：自动化（AI 生成"X分钟后执行Y"，倒计时到点自动执行后消失）
-        sectionTitle("自动化")
+        sectionTitle("自动化", card: .automations)
         if automations.isEmpty {
             HStack(spacing: 6) {
                 Image(systemName: "timer")
@@ -468,7 +480,7 @@ struct DashboardView: View {
         // v3.9.21：自动规则（条件触发）——规则本体在后端 rules_engine：时间窗/HA 实体/上报事件
         // 命中且过冷却才执行；App 只负责列出、开关、删除（新建走对话/快捷指令，不在 App 里堆表单）
         if !rules.isEmpty {
-            sectionTitle("自动规则")
+            sectionTitle("自动规则", card: .rules)
             VStack(spacing: 10) {
                 ForEach(rules) { r in
                     RuleRow(item: r,
@@ -489,7 +501,7 @@ struct DashboardView: View {
     /// NAS 面板
     @ViewBuilder
     private var nasPanelBlock: some View {
-        sectionTitle("NAS 面板")
+        sectionTitle("NAS 面板", card: .nas)
         LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
             // v3.9.46：CPU / 内存卡曾接详情弹窗；**v3.9.54 用户判掉**：「去掉CPU和内存卡片的弹窗，
             // 只显示卡片，点击不再弹窗」→ 摘掉 tapButton 与 zoom 源，sub 里那句"点击查看"一并改实话。
@@ -524,7 +536,7 @@ struct DashboardView: View {
         // v3.0.36：模型使用量（DeepSeek/StepFun 官方余额；无接口 provider 降级显示）
         // v3.4.2b：长按任意用量卡 → 只隐藏该 provider 卡（持久化）；
         // 节底部显示"已隐藏 N 个 · 点击恢复"（弹菜单逐张恢复/全部恢复）
-        sectionTitle("模型使用量")
+        sectionTitle("模型使用量", card: .usage)
         if usageError.isEmpty && providerUsages.isEmpty {
             Text("加载中…")
                 .font(.system(size: Typography.subhead))
@@ -565,7 +577,7 @@ struct DashboardView: View {
     /// token 用量（v3.9.82：今日/本月，单位 M）
     @ViewBuilder
     private var tokenUsageBlock: some View {
-        sectionTitle("token 用量")
+        sectionTitle("token 用量", card: .tokens)
         if let u = tokenUsage {
             TokenUsageCard(usage: u, onReset: { Task { await resetTokenUsage() } })
         } else if !tokenUsageError.isEmpty {
@@ -585,7 +597,7 @@ struct DashboardView: View {
     @ViewBuilder
     private var diagnoseBlock: some View {
         // v3.0.18：设备一键体检（六维诊断：服务/磁盘/容器/负载/内存/温度）
-        sectionTitle("设备体检")
+        sectionTitle("设备体检", card: .diagnose)
         DiagnoseCard(items: diagnoseItems, level: diagnoseLevel, summary: diagnoseSummary,
                      error: diagnoseError, diagnosing: diagnosing) {
             Task { await runDiagnose() }
@@ -595,7 +607,7 @@ struct DashboardView: View {
     /// 路由器
     @ViewBuilder
     private var routerBlock: some View {
-        sectionTitle("路由器")
+        sectionTitle("路由器", card: .router)
         RouterPanel(router: router,
                     busy: clashBusy,
                     onStart: { clashAction("start") },
@@ -608,7 +620,7 @@ struct DashboardView: View {
     @ViewBuilder
     private var pinBlock: some View {
         // v3.0.74：钉一钉（聊天消息钉到看板）——始终显示
-        sectionTitle("钉一钉")
+        sectionTitle("钉一钉", card: .pin)
         if pinStore.pins.isEmpty {
             Text("长按聊天消息 → 钉一钉")
                 .font(.system(size: Typography.subhead))
@@ -1146,7 +1158,7 @@ struct DashboardView: View {
     /// 不重复实现功能，状态总览 + 直达入口：点卡片 → 面板关闭 → 再弹对应设置页。
     @ViewBuilder
     private var connectorsBlock: some View {
-        sectionTitle("连接器")
+        sectionTitle("连接器", card: .connectors)
         // 与钉一钉同款「始终显示 + 低调提示」形态
         Button {
             activeSheet = .connectorPanel
@@ -1228,10 +1240,66 @@ struct DashboardView: View {
         return haAlarmArmed ? "布防中 · 点击撤防" : "已撤防 · 点击布防"
     }
 
-    private func sectionTitle(_ s: String) -> some View {
-        Text(s)
-            .font(.system(size: Typography.body, weight: .bold))
-            .padding(.top, Spacing.sm)
+    /// v4.0.20：栏目头 = 标题 + 尾部「拖动把手」图标，并挂**长按拖动排序**手势。
+    /// ⚠️ 手势只落在栏目头这一行（纯 Text/Image，没有别的交互子视图）——
+    ///    看板里不少栏目内容自带长按（UsageCard / 场景卡 / 自动化卡的 contextMenu、
+    ///    TokenUsageCard 的「重置」长按），若把拖动挂在整块栏目上，那些既有长按会被拖动会话吃掉。
+    private func sectionTitle(_ s: String, card: BoardCard) -> some View {
+        HStack(spacing: Spacing.sm) {
+            Text(s)
+                .font(.system(size: Typography.body, weight: .bold))
+            Spacer(minLength: 0)
+            Image(systemName: "line.3.horizontal")
+                .font(.system(size: Typography.caption, weight: .semibold))
+                .foregroundStyle(dragCard == card ? Color.accentColor : Color.secondary.opacity(0.5))
+        }
+        .padding(.top, Spacing.sm)
+        .contentShape(Rectangle())   // 整行都可长按（不只盯着那两个字）
+        .accessibilityLabel("\(s)，长按可拖动调整顺序")
+        .simultaneousGesture(boardDragGesture(card))
+    }
+
+    /// v4.0.20：长按栏目头进入拖动 → 松手按落位几何换位并落盘。
+    /// 手法与首页卡片一致（Core/HomeCardOrder.swift 那套）：长按 + 拖动序列手势。
+    /// 栏目头没有 Button，理论上 `.gesture` 也够，但沿用 simultaneousGesture 以防将来栏目头加按钮时被抢。
+    private func boardDragGesture(_ card: BoardCard) -> some Gesture {
+        LongPressGesture(minimumDuration: BoardCardOrder.longPressSeconds)
+            .sequenced(before: DragGesture(minimumDistance: 2))
+            .onChanged { value in
+                guard case .second(true, let drag) = value else { return }
+                if dragCard != card {
+                    withAnimation(Motion.snap) { dragCard = card; dragOffsetY = 0 }
+                    Haptics.tap()
+                }
+                dragOffsetY = drag?.translation.height ?? 0
+            }
+            .onEnded { value in
+                guard dragCard == card else { dragCard = nil; dragOffsetY = 0; return }
+                var dy: CGFloat = 0
+                if case .second(true, let drag?) = value { dy = drag.translation.height }
+                dragCard = nil
+                dragOffsetY = 0
+                // 手指按住没动（位移 < 阈值）→ 不算拖动，松手不换位
+                guard BoardCardOrder.isRealDrag(dx: 0, dy: Double(dy)),
+                      let from = visibleCards.firstIndex(of: card) else { return }
+                let heights = visibleCards.map { Double(sectionHeights[$0] ?? 0) }
+                let target = BoardCardOrder.dragTarget(from: from, dy: Double(dy),
+                                                       heights: heights,
+                                                       spacing: Double(BoardCardOrder.sectionSpacing))
+                guard target != from else { return }
+                withAnimation(Motion.settle) { applyBoardMove(card, to: target) }
+                Haptics.success()
+            }
+    }
+
+    /// v4.0.20：换位后写回**完整**顺序（被隐藏的栏目留在原槽）+ 落盘到既有键。
+    /// 落位/写回几何全在 BoardCardOrder（UI 只负责量尺寸与调它，不自拼顺序）。
+    private func applyBoardMove(_ card: BoardCard, to target: Int) {
+        let moved = BoardCardOrder.move(visibleCards, kind: card, to: target)
+        let full = BoardCardOrder.mergeVisible(oldFull: orderedCards,
+                                               newVisible: moved,
+                                               hidden: hiddenCards)
+        cardOrderRaw = BoardCardOrder.encode(full)
     }
 
     /// v3.4.2b：已隐藏用量卡恢复行（点击弹菜单逐张恢复/全部恢复）——独立方法

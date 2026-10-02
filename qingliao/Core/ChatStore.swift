@@ -792,6 +792,8 @@ final class ChatStore {
                 p["imageDataURL"] = nil
             }
             if m.isPush { p["isPush"] = true }
+            // v4.0.20：推送来源一起落库——否则重启/切会话后角标退化成「你问的」（来源丢失）
+            if let k = m.pushKind, !k.isEmpty { p["pushKind"] = k }
             // v4.0.11：主动 Agent 事件 id 落库——已反馈过的不能再点第二次（记 verdict）
             if let pid = m.proactiveId, !pid.isEmpty { p["proactiveId"] = pid }
             if let pv = m.proactiveVerdict, !pv.isEmpty { p["proactiveVerdict"] = pv }

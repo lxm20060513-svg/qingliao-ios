@@ -27,11 +27,13 @@ enum NotificationHelper {
     /// v3.4.x code review fix（中）：改用稳定 djb2 哈希替代 String.hashValue——hashValue 带进程随机
     /// 种子，跨启动相同 body 生成不同 identifier（同内容替换只在同进程内成立，重启后推送仍堆叠）；
     /// 并去掉 abs()（hash == Int.min 时 abs 溢出崩溃）。负值用 UInt64 位模式自然消除。
-    static func notify(title: String, body: String, sessionId: String? = nil) {
+    static func notify(title: String, body: String, sessionId: String? = nil, sound: Bool = true) {
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
-        content.sound = .default
+        // v4.0.20：#10 通知分层——后台推进（cron/system）走静默，不抢前台对话的铃声。
+        //（前端对话完成 / AI 主动开口 / 追问仍响：那三类需要用户当场处理）
+        if sound { content.sound = .default }
         if let sid = sessionId {
             content.userInfo = ["qingliao_session": sid]
         }

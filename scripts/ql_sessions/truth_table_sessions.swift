@@ -223,6 +223,83 @@ check("delete 切片非空", !delFn.isEmpty)
 check("清空逻辑没有混进 delete 函数体（两条路径必须各自独立可读）",
       !delFn.contains("清空未同步到服务器"))
 
+// ══════════════════════════════════════════════════════════════════
+// v4.1.x「单条会话左滑删除」（会话行 .swipeActions(trailing)，滑到底即触发）
+//
+// 为什么值得钉（四处都会**静默**错，编译器不报、真值表不写就没人拦）：
+//   ① 左滑动作只许「置确认状态」—— 一旦直连 delete(s) 或自己发 merge，
+//      既有「删除会话」二次确认就被绕过（用户点一下滑走就没了）；
+//   ② 必须复用既有删链 delete(_:)（内含 flushPendingWrites 写链闸门 + merge deleted 键），
+//      另写一套存储写逻辑 = 又造一个「删了又活着回来 / 清空了又全回来」的入口；
+//   ③ 固定会话（投递壳 / 轻聊主动）必须**不给入口**（与长按菜单、批量删同一口径），
+//      后端 _PROTECTED_IDS 拒删，给了就是「点了会报错的按钮」；
+//   ④ 滑到底要能触发 → 不得写 allowsFullSwipe: false（写了就只能滑完再点那颗按钮）。
+// ══════════════════════════════════════════════════════════════════
+
+let cell = slice(viewCode, "private func sessionCell(_ s: ChatSession)", "private func rank(_ id: String)")
+check("sessionCell 切片非空（护栏不许空真）", !cell.isEmpty)
+check("左滑删除挂在会话行上（.swipeActions(edge: .trailing)）",
+      cell.contains(".swipeActions(edge: .trailing)"))
+
+// ⚠️ 左滑动作切片：锚 ① .swipeActions(edge: .trailing)；锚 ② 动作块收尾 + 函数收尾。
+//    切片为空 = 锚漂了，下面的否定式断言会全部假绿，故先钉「切片非空」哨兵。
+let swipe = slice(cell, ".swipeActions(edge: .trailing)", "\n        }\n    }")
+check("左滑动作切片非空（护栏不许空真）", !swipe.isEmpty)
+check("左滑动作是 destructive 红色「删除」（Button(role: .destructive) + trash 图标）",
+      swipe.contains("Button(role: .destructive)") && swipe.contains("Label(\"删除\", systemImage: \"trash\")"))
+check("左滑只置确认状态（confirmDelete = s），不自行删数据",
+      swipe.contains("confirmDelete = s") && !swipe.contains("delete(s)"))
+check("左滑动作里没有第二条存储写逻辑（不得直连 merge / auth.json）",
+      !swipe.contains("/api/sessions") && !swipe.contains("auth.json"))
+check("滑到底即触发（不得写 allowsFullSwipe: false）", !swipe.contains("allowsFullSwipe"))
+check("固定会话不给左滑入口（与长按菜单同一口径：两个固定会话 id 都排除）",
+      swipe.contains("ChatStore.deliverySessionId") && swipe.contains("ChatStore.proactiveSessionId"))
+
+// —— 复用链：左滑 → confirmDelete → 既有「删除会话」alert → delete(_:)，删前必须排空写链 ——
+check("二次确认沿用既有「删除会话」alert（confirmDelete 绑定，未为左滑另写一套弹窗）",
+      viewCode.contains(".alert(\"删除会话\"") && viewCode.contains("isPresented: Binding(get: { confirmDelete != nil }"))
+check("确认弹窗的「删除」仍走既有 delete(_:)（v2.0.57 口径：弹窗关完、延迟 0.3s 再删）",
+      viewCode.contains("Task { try? await Task.sleep(for: .seconds(0.3)); delete(s) }"))
+check("既有删链 delete(_:) 仍在（delFn 切片非空，下面两条才有意义）", !delFn.isEmpty)
+check("左滑复用的删链在发 merge 之前先排空在途写链（flushPendingWrites，防「删了又活着回来」）",
+      nsPos(delFn, "flushPendingWrites") < nsPos(delFn, "/api/sessions/merge"))
+check("左滑复用的删链走 merge 的 deleted 键（与批量删同一条实现路径）",
+      delFn.contains("\"deleted\": [s.id]"))
+
+// —— 反向自证：把形态逐维度改坏，同一条断言必须变红（没红过 = 没有护栏）——
+let swipeConfirmOnly: (String) -> Bool = { $0.contains("confirmDelete = s") && !$0.contains("delete(s)") }
+let swipeNoWrite: (String) -> Bool = { !$0.contains("/api/sessions") && !$0.contains("auth.json") }
+let swipeFullOK: (String) -> Bool = { !$0.contains("allowsFullSwipe") }
+let swipeFixedGuard: (String) -> Bool = {
+    $0.contains("ChatStore.deliverySessionId") && $0.contains("ChatStore.proactiveSessionId")
+}
+
+let badDirect = cell.replacingOccurrences(of: "confirmDelete = s", with: "delete(s)")
+let badDirectSlice = slice(badDirect, ".swipeActions(edge: .trailing)", "\n        }\n    }")
+check("🚫 反向①：左滑直连 delete(s)（绕过二次确认）→ 判红",
+      !badDirectSlice.isEmpty && swipeConfirmOnly(swipe) && !swipeConfirmOnly(badDirectSlice))
+
+let badWrite = cell.replacingOccurrences(
+    of: "confirmDelete = s",
+    with: "confirmDelete = nil\n                _ = try? await auth.json(\"/api/sessions/merge\")")
+let badWriteSlice = slice(badWrite, ".swipeActions(edge: .trailing)", "\n        }\n    }")
+check("🚫 反向②：左滑里塞 merge 调用（另写一套存储写逻辑）→ 判红",
+      !badWriteSlice.isEmpty && swipeNoWrite(swipe) && !swipeNoWrite(badWriteSlice))
+
+let badFull = cell.replacingOccurrences(
+    of: ".swipeActions(edge: .trailing)",
+    with: ".swipeActions(edge: .trailing, allowsFullSwipe: false)")
+// 锚不写成 ".swipeActions(edge: .trailing)"（带右括号）—— 变异后右括号被参数替换掉了，
+// 锚会「找不到」→ 切片为空 → 断言假绿。用不带右括号的锚，变异前后都在。
+let badFullSlice = slice(badFull, ".swipeActions(", "\n        }\n    }")
+check("🚫 反向③：写成 allowsFullSwipe: false（滑到底不触发）→ 判红",
+      !badFullSlice.isEmpty && swipeFullOK(swipe) && !swipeFullOK(badFullSlice))
+
+let badGuard = cell.replacingOccurrences(of: "ChatStore.proactiveSessionId", with: "ChatStore.someOtherId")
+let badGuardSlice = slice(badGuard, ".swipeActions(edge: .trailing)", "\n        }\n    }")
+check("🚫 反向④：左滑口去掉固定会话拦截（主动会话可被滑掉）→ 判红",
+      !badGuardSlice.isEmpty && swipeFixedGuard(swipe) && !swipeFixedGuard(badGuardSlice))
+
 // ── 7. 结果 ──────────────────────────────────────────────────
 print("会话列表「进行中」标识真值表：\(passCount) 通过 / \(failCount) 失败")
 if failCount > 0 { exit(1) }
