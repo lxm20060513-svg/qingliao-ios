@@ -68,11 +68,7 @@ struct TodoConfirmCard: View {
                     store.confirmCandidates(messageID: messageID)
                 } label: {
                     Text("加入 \(cands.filter { $0.selected }.count) 条")
-                        .font(.system(size: Typography.caption, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, Spacing.lg)
-                        .padding(.vertical, Spacing.xs)
-                        .background(Color.accentColor, in: Capsule())
+                        .pill(.topBar, tone: .accent)
                 }
                 .buttonStyle(PressStyle())
                 .disabled(cands.filter { $0.selected }.isEmpty)   // 全不勾 = 无可加

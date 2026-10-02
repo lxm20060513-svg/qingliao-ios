@@ -239,6 +239,8 @@ struct ChatView: View {
     /// v3.9.9 收口：用户主动「停止生成」（输入栏 / 灵动岛）→ 本轮不自动朗读（别把残句念一遍）
     @State private var suppressAutoReadOnce = false
     @State private var showReasoningPicker = false
+    /// v4.0.27：header 中央宠物的「回答完成」庆祝触发器（本会话流结束那一刻 +1）
+    @State private var petCelebrate = 0
     /// v3.9.48：输入栏展开态右下角的模型快选面板
     @State private var showComposerModel = false
 
@@ -372,35 +374,7 @@ struct ChatView: View {
         ReasoningLevel(rawValue: reasoningLevelRaw) ?? .low
     }
 
-    /// v3.6.5：仅本地模式包一层（独立属性，避免 headerTrailingItems 表达式过复杂
-    /// 触发 Xcode 26「unable to type-check in reasonable time」——v3.3.0 已因此抽离过一次）
-    /// v3.9.28：云端模式移除后恒显示，保留独立属性防 type-check 超时的初衷不变
-    @ViewBuilder
-    private var localReasoningPill: some View {
-        reasoningPill
-    }
-
-    /// v3.6.5：模型思考档位胶囊（放在任务中心左侧）。点击弹出档位选择。
-    /// 仅本地模式显示——云端由服务商决定思考策略（且云端侧暂不做改动）。
-    /// v3.9.46：尺寸统一走 `chatHeaderPill()`（与右侧朗读胶囊同一档，不再各自手写 padding）
-    private var reasoningPill: some View {
-        Button {
-            showReasoningPicker = true
-        } label: {
-            HStack(spacing: 3) {
-                Image(systemName: reasoningLevel.symbol)
-                Text(reasoningLevel.title)
-            }
-            .foregroundStyle(Color.accentColor)
-            .chatHeaderPill()
-        }
-        .buttonStyle(PressStyle())
-        // v3.9.34：胶囊视觉 46×24 → 命中区 46×44（只纵向外扩，横向本就 >44）
-        .hitArea44(h: 0, v: 10)
-        .accessibilityLabel("模型思考档位，当前\(reasoningLevel.title)")
-    }
-
-    /// v3.9.8：header「朗读」胶囊开关（放思考档位胶囊右侧、任务中心左侧）。
+    /// v3.9.8：header「朗读」胶囊开关（v4.0.27 起思考档位胶囊已迁入输入栏，它成为 header 首枚）。
     /// 开 = AI 每轮回复结束自动念一遍；关 = 不自动念（气泡上的朗读按钮仍可手动念，互不影响）。
     /// v3.9.43（用户要求）：样式与左侧思考档位胶囊**完全对齐**——同一枚原生液态玻璃
     /// （`glassPillStroke()` = `glassEffect(.regular.interactive())` + accent 0.28 / 0.8pt 描边）
@@ -495,7 +469,7 @@ struct ChatView: View {
     @ViewBuilder
     private var headerTrailingItems: some View {
         HStack(spacing: 12) {
-            localReasoningPill
+            // v4.0.27：思考档位胶囊迁入输入栏工具层（附件/相机旁），header 不再挂它
             autoReadPill
             Button {
                 showTaskCenter = true
@@ -678,6 +652,10 @@ struct ChatView: View {
                     // v3.9.48：聚焦展开时右下角浮出的模型快选胶囊
                     modelLabel: composerModelLabel,
                     onPickModel: { showComposerModel = true },
+                    // v4.0.27：模型思考档位胶囊迁入工具层（附件/相机旁）——传展示值不传枚举
+                    reasoningLevelIcon: reasoningLevel.symbol,
+                    reasoningLevelTitle: reasoningLevel.title,
+                    onPickReasoning: { showReasoningPicker = true },
                     // v4.0.x：录音点接实时电平（voice-glow 位点）。传**闭包**不传值——
                     // currentInputLevel() 是 nonisolated 快照，每帧由录音点自己读一次；
                     // 若在这里取值传下去，ChatView 这个超大 body 会被电平更新连坐重绘。
@@ -1138,15 +1116,34 @@ struct ChatView: View {
     // 这里按原注释分段把视图块原样搬成独立 @ViewBuilder 属性 —— **纯搬运**：视图顺序、
     // 层级、条件分支、闭包、修饰符逐字未变，渲染结果与拆分前一致，只为把类型检查表达式打小。
 
+    /// v4.0.27：聊天页 header 正中的宠物 —— 状态跟着 AI 走：
+    ///   **AI 忙**（本会话收流 / 远程忙）= `.thinking`（转圈眼 + 歪头）
+    ///   **空闲** = `.idle`（呼吸、眨眼，每 6~14s 自娱一个小动作）
+    ///   **回答完成** = `celebrateTrigger` +1 → 播一个喜庆动作（比心/欢呼/鼓掌/挥手，随机挑）
+    /// 62pt：比消息头像（30pt）/思考头像（38pt）大一档，做 header 的视觉主角；
+    /// 用户从 40 → 50 → 62 三档对比里选定 62。仍低于 76pt 的简化阈值 → 走简化形态，长挂不费电。
+    private var petHeaderBadge: some View {
+        PetAvatar(size: 62,
+                  state: aiBusy ? .thinking : .idle,
+                  celebrateTrigger: petCelebrate)
+    }
+
     /// 页头 + 思考档位/聊天操作弹窗 + 任务中心全屏页
     @ViewBuilder
     private var chatHeaderBar: some View {
         PageHeader(title: "聊天",
                    subtitle: headerSubtitle,
                    trailing: AnyView(headerTrailingItems),
+                   centerView: AnyView(petHeaderBadge),   // v4.0.27：标题行正中的会动宠物
                    showStatus: true,
                    statusColor: headerColor,
                    busy: aiBusy)
+        // v4.0.27：本会话这轮回答结束（忙→闲）→ 让宠物播一个庆祝动作。
+        // 用 thisSessionStreaming 而不是 aiBusy：后端「远程忙碌」在整个 App 里是全局的，
+        // 别的会话跑完也会让 aiBusy 落回 false，那样宠物会在不相干的时候突然庆祝。
+        .onChange(of: thisSessionStreaming) { was, now in
+            if was && !now { petCelebrate += 1 }
+        }
         .confirmationDialog("模型思考档位", isPresented: $showReasoningPicker, titleVisibility: .visible) {
             reasoningPickerContent
         }

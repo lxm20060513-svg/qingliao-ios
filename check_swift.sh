@@ -175,7 +175,7 @@ echo "=== 13. 图片发送串真值表（v3.9.60）==="
 # 口径：payload 里只允许 base64，绝不许把自家（只有 IPv6 的）图片 URL 交给上游模型。
 run_unit /tmp/test_imgsend scripts/ql_imgsend/truth_table_imgsend.swift
 
-echo "=== 14. 输入栏两层化真值表（v4.0.10 · 115 项）==="
+echo "=== 14. 输入栏两层化真值表（v4.0.10 · 121 项）==="
 # 单文件（读源文件做护栏 + 高度算式镜像，不 import 项目代码）→ run_unit 直接编跑。
 # 口径：两层恒定结构（messageRow/toolRow）、归属正确、旧单行形态清零；
 #   v4.0.10 加**发送锁/幂等闸门**护栏（真机故障「输入内容点发送没反应、消息不上屏、后端零请求」）：

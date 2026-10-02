@@ -55,6 +55,8 @@ struct MessageBlockView: View {
     var onMemo: ((String) -> Void)? = nil
     // v3.9.35：加入待办（长按菜单）——传当前段落/选中文字
     var onTodo: ((String) -> Void)? = nil
+    // v4.0.25：存为长期目标（长按菜单）——传当前段落/选中文字
+    var onGoal: ((String) -> Void)? = nil
     // v3.9.32：定时提醒（长按菜单）——传当前段落文字作为提醒内容
     // 主代理接线后（ChatView 传 onRemind）走调用方；未接线时本视图自己弹 QuickReminderSheet（兜底，见 requestRemind）
     var onRemind: ((String) -> Void)? = nil
@@ -195,6 +197,14 @@ struct MessageBlockView: View {
                 Label("加入待办", systemImage: "checklist")
             }
         }
+        // v4.0.25：存为长期目标——把这段内容直接建成长期目标（首行当标题、后端自动拆步骤）
+        if let onGoal {
+            Button {
+                onGoal(blockPlainText)
+            } label: {
+                Label("存为长期目标", systemImage: "target")
+            }
+        }
         // v3.9.32：提醒我——一句话定时提醒（本地 UNCalendarNotificationTrigger，App 关了也响）
         Button {
             requestRemind()
@@ -303,7 +313,8 @@ struct MessageBlockView: View {
                     onWithdraw: onWithdraw,
                     onRead: onRead,          // v3.9.86：长回复阅读（长按文字菜单）
                     onMultiSelect: onMultiSelect,
-                    onMemo: onMemo
+                    onMemo: onMemo,
+                    onGoal: onGoal
                 )
                 .frame(maxWidth: .infinity, alignment: .leading)
             }

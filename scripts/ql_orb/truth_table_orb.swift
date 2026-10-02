@@ -398,7 +398,12 @@ check("圆形基形：主形走共用壳 shell（三个尺寸各自给半径）�
       && painterSrc.contains("shell(&layer, s, radius: 0.40,") && painterSrc.contains("shell(&layer, s, radius: 0.37,")
       && painterSrc.contains("shell(&layer, s, radius: 0.38,"))
 check("三只附件齐全（液态=两只小手 / 小兽=两只圆耳 / 机器人=天线+面罩带）",
-      painterSrc.contains("r(0.17, 0.60, 0.085, 0.10, s)") && painterSrc.contains("r(0.83, 0.60, 0.085, 0.10, s)")
+      // v4.0.26：液态的手改为**姿势驱动**（不再写死坐标 0.17/0.83，改为按 handCenter 定位）。
+      // 断言随之升级：钉「手按 handCenter 画 + 手色比身体深一档」——
+      //   · 比钉死坐标更抗改（以后调手势参数不必同步改这条）
+      //   · 仍然挡得住「把手删了」「手色改回同色系（=隐形）」两种真回归
+      painterSrc.contains("r(c.x / s, c.y / s, 0.070, 0.082, s)")
+      && painterSrc.contains("Pal.liquidDeep")
       && painterSrc.contains("for cx in [CGFloat(0.255), CGFloat(0.745)]")
       && painterSrc.contains("rounded(0.49, 0.02, 0.02, 0.15, 0.01, s)") && painterSrc.contains("var visor = Path()"))
 // v4.0.2 起的核心几何护栏：附件**必须真的露在身体外面**，否则「圆+附件」= 一个光球。

@@ -153,6 +153,13 @@ struct ProactiveAgentSheet: View {
                            value: boolText(cfg["goalAutoDetect"] as? Bool),
                            toggle: Binding(get: { cfg["goalAutoDetect"] as? Bool ?? true },
                                           set: { patch(["goalAutoDetect": $0]) }))
+                Divider().padding(.leading, Spacing.rowDividerInset)
+                // v4.0.25：待办升级建议 —— 同一类待办攒到 3 条（都还没做）时，
+                // AI 会问一句「要不要升级成长期目标」。关掉就只留原样待办，不再提议。
+                SettingRow(icon: "checklist", iconColor: .green, title: "待办升级建议",
+                           value: boolText(cfg["todoCluster"] as? Bool),
+                           toggle: Binding(get: { cfg["todoCluster"] as? Bool ?? true },
+                                          set: { patch(["todoCluster": $0]) }))
             }
             .glassListCard()
         }

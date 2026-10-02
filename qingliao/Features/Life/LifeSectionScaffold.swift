@@ -49,7 +49,9 @@ struct LifeSectionHeader: View {
             Spacer(minLength: 0)
             if let secondaryAction {
                 Button(action: secondaryAction.action) {
-                    Text(secondaryAction.title).pill(.page, tone: .neutral)
+                    // v4.0.26：统一成主胶囊样式（tone 默认 .accent = 原生液态玻璃）。
+                    // 原为 .neutral（淡灰底+描边老样式），与右边「添加」并排像两个体系的按钮。
+                    Text(secondaryAction.title).pill(.page)
                 }
                 .buttonStyle(PressStyle())
             }

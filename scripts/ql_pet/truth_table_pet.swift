@@ -64,7 +64,7 @@ check("读得到聊天页源文件（路径没被挪）", !cv.isEmpty)
 check("Quirk 枚举有踱步动作（strollLeft / strollRight）",
       pmC.contains("case strollLeft") && pmC.contains("case strollRight"))
 check("踱步进随机池（不然新动作永远不播，等于白加）",
-      pmC.contains(".strollLeft, .strollRight]"))
+      pmC.contains(".strollLeft, .strollRight,"))
 check("isStroll 判定存在（镜像/颠步都靠它分流）",
       pmC.contains("var isStroll: Bool"))
 
@@ -269,5 +269,65 @@ check("ThinkingDots 出现时置位（与上一行成对，缺一即概率不跳
       petAvatarAnimSrc.contains(".onAppear { if animated { pulse = true } }"))
 check("不许改用异步翻转（Swift 6 严格并发下闭包捕获 View 编译不过）",
       !petAvatarAnimSrc.contains("DispatchQueue.main.async"))
+
+// MARK: - 14. v4.0.26 手部动作（三只形象都有手 + 5 组手势动作）
+//
+// 这批的核心风险是**静默失效**：手画了但看不见、动作写了但手瞬移、手僵在半空。
+// 每条断言都对应一个真实踩过的坑（首版就翻在「看不见」上）。
+let paC = stripComments(pa)
+check("手部绘制函数存在", paC.contains("private func hand("))
+check("三只形象都调了 hand（下层 3 处 + 身前补画 1 处）",
+      paC.components(separatedBy: "hand(&").count - 1 >= 4)
+// 🚨 可见性：首版手中心 0.175 紧贴主形边缘 → 只露出 ≈2.6pt，用户反馈「完全没看到手」
+check("手基准贴到身体外缘（0.115，而非首版翻车的 0.175）",
+      paC.contains("0.115 + h.fold"))
+check("手色比身体深一档（同色系 = 隐形）",
+      paC.contains("Pal.liquidDeep") && paC.contains("Pal.beastBottom") && paC.contains("Pal.botBottom"))
+check("合到身前的手改画在主形之上（否则整只手被圆盖住 → 实测露出 0%）",
+      paC.contains("handsInFront"))
+check("身前/体侧的判据是手的水平偏移阈值（0.20）", paC.contains("> 0.20"))
+// 🚨 姿势必须可插值：否则 withAnimation 只能整块跳变（手「啪」地瞬移）
+check("PetHandSide / PetHandPose conform VectorArithmetic",
+      pa.contains("extension PetHandSide: VectorArithmetic")
+      && pa.contains("extension PetHandPose: VectorArithmetic"))
+check("VectorArithmetic 覆盖全部四个分量（漏一个 → 那分量不动，手摆一半卡住）",
+      paC.contains("Double(lift * lift + fold * fold + spread * spread + swing * swing)"))
+// 动作进池 + 分流
+check("5 个手势动作都进随机池",
+      pmC.contains(".waveHello, .clap, .heartHands, .cheer, .chinRest]"))
+check("isHandAction 判定存在（身体层与手势层的分流依据）",
+      pmC.contains("var isHandAction: Bool"))
+check("循环按 isHandAction 接力到手部编排",
+      avC.contains("} else if q.isHandAction {"))
+// 编排完整性
+check("五个编排函数都在（挥手/鼓掌/比心/欢呼/托腮）",
+      ["playWave", "playClap", "playHeartHands", "playCheer", "playChinRest"]
+        .allSatisfy { avC.contains("func \($0)() async") })
+check("编排入口按动作分派（playHandAction）",
+      avC.contains("func playHandAction(_ q: Quirk) async"))
+// 🚨 手不能僵在半空：每条编排末尾都得放回贴身
+let handSeg = String(av[av.range(of: "MARK: v4.0.26 手部动作编排")!.lowerBound...])
+    .components(separatedBy: "private var decoration")[0]
+check("每条编排末尾都把手放回贴身（≥5 次 .rest）",
+      handSeg.components(separatedBy: "quirkyHands = .rest").count - 1 >= 5)
+check("编排每段都重查 animate/取消（后台/减弱时立刻收住）",
+      handSeg.components(separatedBy: "guard animate, !Task.isCancelled else { return }").count >= 5)
+if let oc = av.range(of: ".onChange(of: animate)") {
+    let seg = String(av[oc.lowerBound...])
+    let cut = seg.range(of: ".task(id: animate)")?.lowerBound ?? seg.endIndex
+    check("手部复位写在 onChange(of: animate) 的 else 分支（回前台不会看到手悬着）",
+          seg[seg.startIndex..<cut].contains("quirkyHands = .rest"))
+} else {
+    check("存在 onChange(of: animate) 监听", false)
+}
+// 缩略图与播放必须同一套姿势值，否则设置页和真机对不上
+check("有 representativePose（各动作的代表姿势）",
+      avC.contains("static func representativePose(_ q: Quirk) -> PetHandPose"))
+check("设置页预览走 representativePose（缩略图定格该动作）",
+      avC.contains("if let q = quirkPreview { return Self.representativePose(q) }"))
+check("Canvas 把手部姿势传进画笔（不传 = 手永远贴身）",
+      avC.contains("handPose: currentHandPose)"))
+check("欢呼的身体配合（缩放 + 蹦）也在（手举起来时身体不能钉在地上）",
+      avC.contains("case .some(.cheer): return 1.06") && avC.contains("if q == .cheer { return strollPhase"))
 
 report()

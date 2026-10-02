@@ -47,6 +47,8 @@ struct SelectableTextLabel: UIViewRepresentable {
     var onMultiSelect: () -> Void = {}
     // v3.7.0：加入备忘录——有选区存选中片段，无选区存整段；nil = 菜单不显示该项
     var onMemo: ((String) -> Void)? = nil
+    // v4.0.25：存为长期目标（长按菜单）——传当前段落/选中片段
+    var onGoal: ((String) -> Void)? = nil
 
     // v3.0.13：布局跟踪——SwiftUI 只在 observed 属性变化时调 updateUIView，气泡在展开/折叠动画
     // 期间宽度渐进变化时 updateUIView 可能不重进，导致 UITextView 的 NSTextContainer 锁在动画起始的
@@ -304,6 +306,19 @@ struct SelectableTextLabel: UIViewRepresentable {
                         onMemo(t)
                     } else {
                         onMemo(textView.text ?? self.parent.attributedText.string)
+                    }
+                })
+            }
+
+            // v4.0.25：存为长期目标——有选区存选中片段，无选区存整段（与「存备忘录」同款判定）
+            if let onGoal = parent.onGoal {
+                children.append(UIAction(title: hasSelection ? "存为长期目标（选中）" : "存为长期目标",
+                                         image: UIImage(systemName: "target")) { _ in
+                    if hasSelection, let sel = textView.selectedTextRange,
+                       let t = textView.text(in: sel), !t.isEmpty {
+                        onGoal(t)
+                    } else {
+                        onGoal(textView.text ?? self.parent.attributedText.string)
                     }
                 })
             }

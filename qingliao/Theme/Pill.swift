@@ -128,7 +128,7 @@ extension View {
             .overlay(Capsule().strokeBorder(Color.accentColor.opacity(0.28), lineWidth: 0.8))
     }
 
-    /// v3.9.46：聊天页头部那一排胶囊的统一档（思考档位 + 朗读）。
+    /// v3.9.46：聊天页头部那一排胶囊的统一档（v4.0.27 起思考档位迁入输入栏，header 只剩朗读一枚，档位保留）。
     /// 病根：两枚各自手写「padding + glassPillStroke」，字号 10 vs 11、且一枚内容是「图标+文字」
     /// 另一枚是"光图标"——SF Symbol 的固有行高与文字行高不同，于是并排差 1~2pt，一眼不齐。
     /// 这里把内容**框死成同一高度**（15pt），字号/内边距/玻璃一处定义，再加同排胶囊只会齐。

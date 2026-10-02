@@ -15,6 +15,78 @@ import SwiftUI
 // 坐标一律**归一化到 0…1**，乘画布边长 → 任意尺寸都对；76pt 以下走 `simplify`
 // （只画主形 + 眼 + 嘴，附件与高光全丢，小了会糊成一团）。
 
+/// v4.0.26：**手部姿势** —— 两只小手从「画死的静态附件」升级为可摆姿势的部件。
+///
+/// 背景：三只形象里原本只有液态小生物有手（画死在圆后、永不变化）。本次给三只都配手，
+/// 并把手的位置/角度/合拢拆成参数：**动作 = 这个姿势随时间的函数**（挥手只是 lift/swing 随时间摆）。
+/// 坐标一律归一化；`rest`（全 0）= 贴身静止姿势。
+///
+/// ⚠️ 分工：心形/星星这类**特效**仍不在这里画（那些是 SwiftUI 覆盖层），
+/// 本结构只管手的骨架几何。
+struct PetHandPose: Equatable {
+    var left: PetHandSide = PetHandSide()
+    var right: PetHandSide = PetHandSide()
+
+    /// 贴身静止（默认）—— 不传姿势的调用点行为与改造前一致
+    static let rest = PetHandPose()
+
+    /// 两只手同参数（鼓掌这类对称动作用）
+    static func both(lift: CGFloat = 0, fold: CGFloat = 0,
+                     spread: CGFloat = 0, swing: CGFloat = 0) -> PetHandPose {
+        let s = PetHandSide(lift: lift, fold: fold, spread: spread, swing: swing)
+        return PetHandPose(left: s, right: s)
+    }
+}
+
+/// 单只手的姿势（归一化 + 角度制）
+struct PetHandSide: Equatable {
+    /// 抬起：0 = 贴身原位，1 = 举到脸侧高度
+    var lift: CGFloat = 0
+    /// 合拢：0 = 张开，1 = 收到身体中线（鼓掌 / 比心）
+    var fold: CGFloat = 0
+    /// 外张：0 = 贴身体，1 = 高举外张（挥手 / 欢呼更大气）
+    var spread: CGFloat = 0
+    /// 摆动角（度，正 = 向身体外侧摆）
+    var swing: CGFloat = 0
+}
+
+// MARK: v4.0.26：让手部姿势可被 SwiftUI 动画插值
+//
+// 为什么必须 conform：**动作 = 姿势随时间的函数**。若姿势不可插值，`withAnimation` 只能整块
+// 跳变（手「啪」地瞬移），挥手/鼓掌这类要连贯摆动的动作就废了。conform `VectorArithmetic`
+// 后 SwiftUI 逐帧插值各分量，动作天然顺滑，代价只是下面几十行加法/缩放。
+// ⚠️ 新增分量时必须同步改这四个运算，否则新分量不动（静默 —— 手摆一半卡住）。
+extension PetHandSide: VectorArithmetic {
+    static var zero: PetHandSide { PetHandSide() }
+    static func + (l: PetHandSide, r: PetHandSide) -> PetHandSide {
+        PetHandSide(lift: l.lift + r.lift, fold: l.fold + r.fold,
+                    spread: l.spread + r.spread, swing: l.swing + r.swing)
+    }
+    static func - (l: PetHandSide, r: PetHandSide) -> PetHandSide {
+        PetHandSide(lift: l.lift - r.lift, fold: l.fold - r.fold,
+                    spread: l.spread - r.spread, swing: l.swing - r.swing)
+    }
+    mutating func scale(by rhs: Double) {
+        lift *= CGFloat(rhs); fold *= CGFloat(rhs)
+        spread *= CGFloat(rhs); swing *= CGFloat(rhs)
+    }
+    var magnitudeSquared: Double {
+        Double(lift * lift + fold * fold + spread * spread + swing * swing)
+    }
+}
+
+extension PetHandPose: VectorArithmetic {
+    static var zero: PetHandPose { PetHandPose() }
+    static func + (l: PetHandPose, r: PetHandPose) -> PetHandPose {
+        PetHandPose(left: l.left + r.left, right: l.right + r.right)
+    }
+    static func - (l: PetHandPose, r: PetHandPose) -> PetHandPose {
+        PetHandPose(left: l.left - r.left, right: l.right - r.right)
+    }
+    mutating func scale(by rhs: Double) { left.scale(by: rhs); right.scale(by: rhs) }
+    var magnitudeSquared: Double { left.magnitudeSquared + right.magnitudeSquared }
+}
+
 struct PetPainter {
     let style: PetStyle
     let state: PetState
@@ -22,6 +94,8 @@ struct PetPainter {
     let face: PetFace
     let blink: Bool
     let simplify: Bool
+    /// v4.0.26：手部姿势（默认贴身静止）
+    var handPose: PetHandPose = .rest
 
     // 调色板（与效果稿同一套）
     private enum Pal {
@@ -62,6 +136,22 @@ struct PetPainter {
         case .beast: drawBeast(&ctx, s)
         case .robot: drawRobot(&ctx, s)
         }
+        // 🚨 v4.0.26：手合到**身前**时（鼓掌/比心/托腮）必须画在主形**之后**才看得见 ——
+        //    画在主形之前的手会被圆整块盖住（实测露出 0%，用户复现「完全没看到手」）。
+        //    体侧的手（贴身/挥手/欢呼）仍画在主形之前，根部被圆压住 = 从身后伸出来的观感。
+        if !simplify && handsInFront {
+            hand(&ctx, s, handPose.left, side: -1)
+            hand(&ctx, s, handPose.right, side: +1)
+        }
+    }
+
+    /// 手中心到中线的水平距离：0.115 = 贴身基准，越大越靠身体中线（fold 收拢 / spread 外张 / lift 上移）
+    private func handDX(_ h: PetHandSide) -> CGFloat {
+        0.115 + h.fold * 0.260 - h.spread * 0.030 - h.lift * 0.010
+    }
+    /// 手是否已合到身前（落进主形圆内 → 必须画在主形之上，否则整块被遮）
+    private var handsInFront: Bool {
+        handDX(handPose.left) > 0.20 || handDX(handPose.right) > 0.20
     }
 
     // MARK: 坐标助手
@@ -92,6 +182,68 @@ struct PetPainter {
         path.closeSubpath()
         return path
     }
+    // MARK: 手（v4.0.26：三只共用一套骨架几何，样式各自一份）
+    //
+    // 骨架：手中心基准 (−0.5, 0.615) 处（左右对称，x 用镜像）。
+    //   抬起 lift  → y 上移 0.34（0.615 的脸侧高度）
+    //   合拢 fold  → x 向中线收 0.16（两手相距 0.33 → 落到胸前）
+    //   外张 spread→ x 再向外 0.045（挥手/欢呼时更舒展）
+    // 手自身角度：基础 ±20°（与旧液态小手一致）+ 外张 + 摆动。
+    // ⚠️ 三只手画在**主形之前**（被圆压住根部的观感），调用点顺序不能挪到 shell 之后。
+
+    /// 手中心（side = −1 左 / +1 右）
+    private func handCenter(_ h: PetHandSide, side: CGFloat, _ s: CGFloat) -> CGPoint {
+        // 🚨 v4.0.26 修订（首版翻车）：手画在主形**之前**（会被圆压住根部），所以手中心必须
+        //    贴到身体外缘，露出才够看。首版基准 0.175 时手只露 ≈2.6pt@96pt（用户：「完全没看到手」）。
+        //    现在基准 0.115：手覆盖 x∈[0.045,0.185]，身体左缘（y=0.615 处）x=0.117 →
+        //    露出 ≈0.072 ≈ 6.9pt@96pt（大半只手）；抬得越高身体越窄，露出更多（欢呼时几乎全露）。
+        //    fold 系数 0.26：fold=1 时两手中心间距 0.17 < 手宽 → 合拢（鼓掌/比心要碰到）。
+        let dx: CGFloat = handDX(h)
+        let dy: CGFloat = 0.615 - h.lift * 0.360
+        return p(side < 0 ? dx : 1 - dx, dy, s)
+    }
+
+    /// 手自身旋转角（度）
+    private func handAngle(_ h: PetHandSide, side: CGFloat) -> CGFloat {
+        let base: CGFloat = 20 + h.spread * 12 + h.swing
+        return side < 0 ? base : -base
+    }
+
+    /// 画一只手（样式按形象分：液态＝玻璃小圆豆 / 小兽＝圆爪带肉垫 / 机器人＝金属钳）
+    private func hand(_ ctx: inout GraphicsContext, _ s: CGFloat,
+                      _ h: PetHandSide, side: CGFloat) {
+        let c = handCenter(h, side: side, s)
+        let a = handAngle(h, side: side)
+        switch style {
+        case .liquid:
+            // 手色比身体**深一档**（同色会被圆吃掉 —— 首版翻车的第二个原因）
+            ctx.fill(rotated(Path(ellipseIn: r(c.x / s, c.y / s, 0.070, 0.082, s)), a, c, s),
+                     with: .color(Pal.liquidDeep))
+            if !simplify {
+                ctx.fill(rotated(Path(ellipseIn: r(c.x / s - 0.006, c.y / s - 0.032, 0.024, 0.021, s)), a, c, s),
+                         with: .color(Pal.liquidTop.opacity(0.75)))
+            }
+        case .beast:
+            ctx.fill(rotated(Path(ellipseIn: r(c.x / s, c.y / s, 0.066, 0.074, s)), a, c, s),
+                     with: .color(Pal.beastBottom))
+            if !simplify {
+                // 掌心三点肉垫（画在靠身体一侧）
+                for k in [-1, 0, 1] as [CGFloat] {
+                    ctx.fill(rotated(Path(ellipseIn: r(c.x / s + k * 0.032 - side * 0.010,
+                                                       c.y / s + 0.044, 0.014, 0.013, s)), a, c, s),
+                             with: .color(Pal.beastEarIn.opacity(0.95)))
+                }
+            }
+        case .robot:
+            ctx.fill(rotated(rounded(c.x / s - 0.062, c.y / s - 0.080, 0.124, 0.160, 0.046, s), a, c, s),
+                     with: .color(Pal.botBottom))
+            if !simplify {
+                ctx.fill(rotated(rounded(c.x / s - 0.052, c.y / s - 0.007 + 0.017, 0.104, 0.014, 0.007, s), a, c, s),
+                         with: .color(Pal.botTop.opacity(0.9)))
+            }
+        }
+    }
+
     private func soft(_ ctx: inout GraphicsContext, radius: CGFloat, _ body: (inout GraphicsContext) -> Void) {
         ctx.drawLayer { layer in
             layer.addFilter(.blur(radius: radius))
@@ -276,12 +428,11 @@ struct PetPainter {
 
     private func drawLiquid(_ ctx: inout GraphicsContext, _ s: CGFloat) {
         withBodyTransforms(&ctx, s) { layer in
-            if !simplify {
-                // 两只小手（同材质小球，画在主形之前 → 半个身子被圆压住，像从后面伸出来）
-                layer.fill(rotated(Path(ellipseIn: r(0.17, 0.60, 0.085, 0.10, s)), 20, p(0.17, 0.60, s), s),
-                           with: .color(Pal.liquidMid))
-                layer.fill(rotated(Path(ellipseIn: r(0.83, 0.60, 0.085, 0.10, s)), -20, p(0.83, 0.60, s), s),
-                           with: .color(Pal.liquidMid))
+            if !simplify && !handsInFront {
+                // 两只小手（v4.0.26：姿势参数化 → 动作 = 姿势随时间的函数）
+                // 合到身前的姿势改由 draw() 画在主形之上（否则被圆盖住）
+                hand(&layer, s, handPose.left, side: -1)
+                hand(&layer, s, handPose.right, side: +1)
             }
             shell(&layer, s, radius: 0.40,
                   stops: [(0.0, Pal.liquidTop), (0.45, Pal.liquidMid), (0.80, Pal.liquidDeep), (1.0, Pal.liquidEdge)],
@@ -338,6 +489,11 @@ struct PetPainter {
                 for cx in [CGFloat(0.255), CGFloat(0.745)] {
                     layer.fill(Path(ellipseIn: r(cx, 0.225, 0.095, 0.095, s)), with: .color(Pal.beastMid))
                     layer.fill(Path(ellipseIn: r(cx, 0.225, 0.050, 0.050, s)), with: .color(Pal.beastEarIn.opacity(0.85)))
+                }
+                // v4.0.26：两只圆爪（体侧时画在主形之前 → 爪根被圆压住；合到身前时由 draw() 画在上层）
+                if !handsInFront {
+                    hand(&layer, s, handPose.left, side: -1)
+                    hand(&layer, s, handPose.right, side: +1)
                 }
             }
             shell(&layer, s, radius: 0.37,
@@ -398,6 +554,11 @@ struct PetPainter {
                 // 天线（画在主形之前）
                 layer.fill(rounded(0.49, 0.02, 0.02, 0.15, 0.01, s), with: .color(Pal.botInk.opacity(0.55)))
                 layer.fill(Path(ellipseIn: r(0.50, 0.03, 0.034, 0.034, s)), with: .color(Pal.botLamp))
+                // v4.0.26：两只金属钳手（体侧时画在主形之前 → 关节被圆压住；合到身前时由 draw() 画在上层）
+                if !handsInFront {
+                    hand(&layer, s, handPose.left, side: -1)
+                    hand(&layer, s, handPose.right, side: +1)
+                }
             }
             shell(&layer, s, radius: 0.38,
                   stops: [(0.0, Pal.botTop), (0.50, Pal.botMid), (1.0, Pal.botBottom)],

@@ -51,6 +51,8 @@ struct MessageBubble: View {
     var onMemo: ((String) -> Void)? = nil
     // v3.9.35：加入待办（长按菜单）——传当前段落/整条内容
     var onTodo: ((String) -> Void)? = nil
+    // v4.0.25：存为长期目标（长按菜单）——传当前段落/整条内容
+    var onGoal: ((String) -> Void)? = nil
     // v3.9.32：定时提醒（长按菜单「提醒我」）——传当前段落/整条内容
     var onRemind: ((String) -> Void)? = nil
     // v3.9.86：长回复阅读（长按菜单「全屏阅读」→ LongReplySheet 半屏放大 + 章节大纲）
@@ -150,6 +152,14 @@ struct MessageBubble: View {
                 onMemo(displayContent)
             } label: {
                 Label("存备忘录", systemImage: "note.text")
+            }
+        }
+        // v4.0.25：存为长期目标（整条气泡内容）
+        if let onGoal {
+            Button {
+                onGoal(displayContent)
+            } label: {
+                Label("存为长期目标", systemImage: "target")
             }
         }
         // v3.9.35：加入待办（整条气泡内容）
@@ -411,7 +421,8 @@ struct MessageBubble: View {
                 onRegenerate: nil,
                 onWithdraw: canWithdraw ? onWithdraw : nil,
                 onMultiSelect: onMultiSelect,
-                onMemo: onMemo
+                onMemo: onMemo,
+                onGoal: onGoal
             )
         }
     }
@@ -451,6 +462,7 @@ struct MessageBubble: View {
                                         onPin: onPin,
                                         onMemo: onMemo,
                                         onTodo: onTodo,
+                                        onGoal: onGoal,
                                         onRemind: onRemind,
                                         onImageTap: { url in onAIImageTap(url) },   // v2.0.128：AI 图片点击打开大图
                                         onFileTap: { url, name in onFileTap(url, name) },   // v3.9.17：AI 生成物预览
@@ -945,6 +957,7 @@ struct MessageBubble: View {
                                 onPin: onPin,
                                 onMemo: onMemo,
                                 onTodo: onTodo,
+                                onGoal: onGoal,
                                 onRemind: onRemind,
                                 onImageTap: { url in onAIImageTap(url) },
                                 onFileTap: { url, name in onFileTap(url, name) },   // v3.9.17：AI 生成物预览

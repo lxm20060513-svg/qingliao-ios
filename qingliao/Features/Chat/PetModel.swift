@@ -51,9 +51,9 @@ enum PetStyle: String, CaseIterable, Identifiable {
 
     var blurb: String {
         switch self {
-        case .liquid: return "蓝紫玻璃圆，带两只小手"
-        case .beast: return "暖橙圆胖，辨识度最高"
-        case .robot: return "青绿金属圆，头顶一根天线"
+        case .liquid: return "蓝紫玻璃圆，两只玻璃小手"
+        case .beast: return "暖橙圆胖，两只圆爪带肉垫"
+        case .robot: return "青绿金属圆，天线 + 两只金属钳手"
         }
     }
 
@@ -146,6 +146,14 @@ enum Quirk: String, CaseIterable, Identifiable, Equatable {
     // v4.0.0：真·位移，不是原地形变（横向挪 + 朝向翻转 + 上下颠步）
     case strollLeft
     case strollRight
+    // v4.0.26：**用手表达**的动作（用户 2026-10-02 拍板「做123456」= 手势全要）。
+    // 与上面几档的区别：这些动作的主要看点是**两只手的姿势编排**，身体变换只是配合。
+    // 姿势随时间变化 → 会触发 Canvas 重绘（与眨眼同级，仅动作播放期间；见 PetAvatar 头注释）。
+    case waveHello     // 挥手打招呼（单手举起左右摆）
+    case clap          // 鼓掌（两手向中间合拍）
+    case heartHands    // 比心（两手胸前合拢）
+    case cheer         // 举手欢呼（双手高举 + 上跳）
+    case chinRest      // 托腮（单手扶脸侧）
 
     var id: String { rawValue }
 
@@ -157,6 +165,11 @@ enum Quirk: String, CaseIterable, Identifiable, Equatable {
         case .stretch: return "伸懒腰"
         case .strollLeft: return "向左踱"
         case .strollRight: return "向右踱"
+        case .waveHello: return "挥手"
+        case .clap: return "鼓掌"
+        case .heartHands: return "比心"
+        case .cheer: return "欢呼"
+        case .chinRest: return "托腮"
         }
     }
 
@@ -167,14 +180,29 @@ enum Quirk: String, CaseIterable, Identifiable, Equatable {
         case .happyWiggle: return 0.9
         case .stretch: return 1.5
         case .strollLeft, .strollRight: return 2.2
+        case .waveHello: return 1.8
+        case .clap: return 1.4
+        case .heartHands: return 1.9
+        case .cheer: return 1.4
+        case .chinRest: return 2.4
         }
     }
 
     static let pool: [Quirk] = [.headTilt, .lookAround, .happyWiggle, .stretch,
-                                .strollLeft, .strollRight]
+                                .strollLeft, .strollRight,
+                                .waveHello, .clap, .heartHands, .cheer, .chinRest]
 
     /// 是否是「走动」类：需要按行进方向镜像朝向
     var isStroll: Bool { self == .strollLeft || self == .strollRight }
+
+    /// v4.0.26：是否是「用手表达」的动作 —— 由 PetAvatar 交给手部姿势编排去播，
+    /// 身体层只做轻微配合（不再走通用形变分支）。
+    var isHandAction: Bool {
+        switch self {
+        case .waveHello, .clap, .heartHands, .cheer, .chinRest: return true
+        default: return false
+        }
+    }
 }
 
 // MARK: 形象状态（只做冗余表达；宠物永远不是唯一的信息通道）

@@ -672,5 +672,41 @@ let sidChangeSlice: String = {
 check("🚨 切会话作废上一会话的忙态结论（否则新会话假气泡 / 假「AI 正在输入」）",
       sidChangeSlice.contains("remoteBusy = false") && sidChangeSlice.contains("remoteBusyFails = 0"))
 
+// ── v4.0.27 思考档位胶囊迁入工具层（用户：胶囊放输入框展开态拍照旁、风格对齐附件/相机） ──
+// ① 输入栏侧：reasoningButton 挂 toolRow（附件/相机之后）、壳逐值对齐 attachButtons（淡底 Tint.faint
+//   + 0.8pt 同色描边）、门控走 reasoningLevelTitle 空串（与 modelButton 同套）。
+// ② ChatView 侧：header 不再挂（reasoningPill/localReasoningPill 清零）、调用点传展示值 + 回调，
+//   实参序 = 声明序（recordingLevel 之后）。
+check("思考档位胶囊挂进工具层（附件/相机之后）",
+      toolRowSlice.components(separatedBy: "attachButtons").count - 1 == 1
+      && toolRowSlice.contains("attachButtons\n            reasoningButton"))
+check("思考档位胶囊壳对齐附件/相机（淡底 Tint.faint + 0.8pt 同色描边）",
+      {
+          guard let a = inputBarSrc.range(of: "private var reasoningButton: some View") else { return false }
+          let body = String(inputBarSrc[a.lowerBound...].prefix(1600))
+          guard let end = body.range(of: "\n    }\n") else { return false }
+          let slice = String(body[body.startIndex..<end.upperBound])
+          return !slice.isEmpty
+              && slice.contains(".background(Color.primary.opacity(Tint.faint), in: Capsule())")
+              && slice.contains("Capsule().strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8)")
+              && slice.contains("hitArea44(h: 9, v: 9)")
+      }())
+check("思考档位胶囊门控 = reasoningLevelTitle 空串（别的调用方零感知）",
+      inputBarSrc.contains("if !reasoningLevelTitle.isEmpty {"))
+check("调用点传展示值 + 回调（实参序 = 声明序，recordingLevel 之前）",
+      {
+          guard let a = chatViewSrc.range(of: "reasoningLevelIcon: reasoningLevel.symbol"),
+                let b = chatViewSrc.range(of: "reasoningLevelTitle: reasoningLevel.title"),
+                let c = chatViewSrc.range(of: "onPickReasoning: { showReasoningPicker = true },"),
+                let d = chatViewSrc.range(of: "recordingLevel: { liveSpeech.currentInputLevel() }")
+          else { return false }
+          return a.upperBound < b.lowerBound && b.upperBound < c.lowerBound && c.upperBound < d.lowerBound
+      }())
+check("header 旧思考胶囊清零（reasoningPill / localReasoningPill 不复存在）",
+      !chatViewSrc.contains("private var reasoningPill: some View")
+      && !chatViewSrc.contains("localReasoningPill"))
+check("档位弹窗仍由 ChatView 持有（confirmationDialog 不动）",
+      chatViewSrc.contains(".confirmationDialog(\"模型思考档位\", isPresented: $showReasoningPicker"))
+
 print("输入栏两层化真值表：\(passCount) 通过 / \(failCount) 失败")
 if failCount > 0 { exit(1) }

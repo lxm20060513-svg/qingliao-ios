@@ -92,6 +92,13 @@ struct ChatInputBar: View {
     /// 闭包只被录音点那个小 View 每帧调一次，重绘范围锁死在 7pt 圆点内。
     /// ⚠️ 追加在 `onPickModel` 之后：调用点走成员初始化器且按声明序传参，插在中间会错位。
     var recordingLevel: () -> Float = { 0 }
+    /// v4.0.27：模型思考档位胶囊（从聊天页 header 迁入工具层，挂在附件/相机旁）。
+    /// 传**展示值**不传枚举——输入栏不认识 ReasoningLevel，ChatView 侧算好图标+标题再给。
+    /// ⚠️ `reasoningLevelTitle` 为空 = 整块不渲染（与 modelButton 同一套门控）。
+    /// ⚠️ 追加在 `recordingLevel` 之后：调用点走成员初始化器且按声明序传参，插在中间会错位。
+    var reasoningLevelIcon: String = ""
+    var reasoningLevelTitle: String = ""
+    var onPickReasoning: () -> Void = {}
     // v3.4.29：发送动作图标弹一下（symbolEffect 驱动，无自定义动画开销）
     // v3.9.42：同一个 tick 兼作发送键关键帧的 trigger（原来另有一个 sendScale + 两段 withAnimation）
     @State private var sendBounceTick = 0
@@ -334,6 +341,7 @@ struct ChatInputBar: View {
     private var toolRow: some View {
         HStack(spacing: 8) {
             attachButtons
+            reasoningButton
             Spacer(minLength: 0)
             if !modelLabel.isEmpty {
                 modelButton
@@ -378,6 +386,37 @@ struct ChatInputBar: View {
             .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
             // v3.9.75：命中区 44×44（视觉 26×26 → 外扩 9）
             .hitArea44(h: 9, v: 9)
+        }
+    }
+
+    /// v4.0.27：模型思考档位胶囊（从聊天页 header 迁入）。
+    /// 风格**逐值对齐**旁边附件/相机胶囊（attachButtons）：淡底 `Tint.faint` + 0.8pt 同色描边、
+    /// 字重 medium、命中区外扩 9——同排胶囊美观度统一；唯一差异是内容多一枚档位文字
+    /// （「低/中/高/不思考」必须可见，纯图标读不出档位）。骨架行高 26 与图标框同高 → 垂直不撑行
+    /// （第二层行高仍由 toolRowMinHeight 38 收口）。`reasoningLevelTitle` 为空整块不渲染
+    /// （与 modelButton 同一套门控，别的调用方零感知）。
+    @ViewBuilder
+    private var reasoningButton: some View {
+        if !reasoningLevelTitle.isEmpty {
+            Button(action: onPickReasoning) {
+                HStack(spacing: 3) {
+                    Image(systemName: reasoningLevelIcon)
+                        .font(.system(size: Typography.body, weight: .medium))
+                    Text(reasoningLevelTitle)
+                        .font(.system(size: Typography.caption, weight: .medium))
+                        .lineLimit(1)
+                        .fixedSize()
+                }
+                .foregroundStyle(.secondary)
+                .frame(height: 26)
+                .padding(.horizontal, Spacing.md)
+                .background(Color.primary.opacity(Tint.faint), in: Capsule())
+                .overlay(Capsule().strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8))
+            }
+            .buttonStyle(PressStyle())
+            // 视觉高 26（与附件/相机同档）→ 命中区外扩 9 到 44；横向本就 >44
+            .hitArea44(h: 9, v: 9)
+            .accessibilityLabel("模型思考档位，当前\(reasoningLevelTitle)")
         }
     }
 
