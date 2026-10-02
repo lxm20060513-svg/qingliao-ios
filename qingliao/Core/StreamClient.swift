@@ -205,12 +205,16 @@ final class StreamClient {
             while let self, !Task.isCancelled {
                 if self.isDone && self.smoothedContent.count >= self.content.count { break }
                 if self.smoothedContent.count < self.content.count {
-                    // 每次 tick 释放 1-3 个字符（追赶积压时加速），_utf8 兼容 emoji 安全切片
-                    let backlog = self.content.count - self.smoothedContent.count
-                    let step = backlog > 60 ? 4 : (backlog > 20 ? 2 : 1)
-                    let s = self.smoothedContent
-                    let idx = s.index(s.startIndex, offsetBy: min(step, backlog), limitedBy: s.endIndex) ?? s.endIndex
-                    self.smoothedContent = String(s[..<idx])
+                    // 每次 tick 释放 1-3 个字符（追赶积压时加速）
+                    // 🚨 v4.0.23 根治「流式气泡空白 / 思考气泡一有工具调用就被空气泡顶掉」：
+                    //    原实现在**自己的副本**上做切片（`let s = smoothedContent` + `s[..<idx]`），
+                    //    空串起步时 `index(_:offsetBy:limitedBy:)` 恒返回 nil → 落到 `?? s.endIndex`
+                    //    → 每 tick 都切出空串、smoothedContent 永远停在 ""：平滑层自 v3.4.20 起从未吐过字，
+                    //    流式期间 displayContent 恒空，直到收尾 stopSmooth 才一次性补齐全文。
+                    //    推进算法已抽成纯函数 SmoothRelease（Core/SmoothRelease.swift，带真值表单测）。
+                    let target = SmoothRelease.nextLength(smoothedCount: self.smoothedContent.count,
+                                                          contentCount: self.content.count)
+                    self.smoothedContent = String(self.content.prefix(target))
                 }
                 try? await Task.sleep(for: .milliseconds(48))   // v3.0.41 红线：50ms 级节流（高频全树重建曾卡死）
             }
