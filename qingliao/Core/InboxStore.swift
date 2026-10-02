@@ -181,13 +181,14 @@ final class InboxStore {
                       let text = d["text"] as? String else { continue }
                 let sourceTaskId = d["source_task_id"] as? String
                 let taskType = d["task_type"] as? String ?? "reply"
+                let sessionId = d["session_id"] as? String   // v4.0.21：归属会话
                 // 🚨 发布前审查（2026-09-30，同族缺口）：pollOnce 早已有「流式进行中只放行 progress」的闸门
                 //（见上面 :180），这条搭载入口没有 → 同一批迟到快照从这里绕过去。
                 // 上面那句「reply 类有 shouldSkipDuplicate+延迟重检兜底」不成立：延迟重检的条件是
                 // `stream.isDone`，流式进行中它**根本不执行**（正是 v3.0.90 要拦的窗口）。
                 if (stream?.isStreaming ?? false), taskType != "progress" { continue }
                 await consumeOne(id: id, text: text, sourceTaskId: sourceTaskId,
-                                 taskType: taskType, auth: auth, chat: chat)
+                                 taskType: taskType, sessionId: sessionId, auth: auth, chat: chat)
             }
             await chat.saveToServer(auth: auth)
         }
@@ -217,7 +218,7 @@ final class InboxStore {
                 // （它们的消费会弹通知 + 进任务中心，流式期间插进来是计划外副作用）
                 if streaming, it.taskType != "progress" { continue }
                 await consumeOne(id: it.id, text: it.text, sourceTaskId: it.sourceTaskId,
-                                 taskType: it.taskType, auth: auth, chat: chat)
+                                 taskType: it.taskType, sessionId: it.sessionId, auth: auth, chat: chat)
             }
             // 注入后保存会话，让推送消息也落库（用户切会话/重开还能看到）
             await chat.saveToServer(auth: auth)
@@ -229,6 +230,7 @@ final class InboxStore {
     /// v3.4.23：单条收件消息消费（去重 → 分流任务中心/会话气泡 → 通知 → 标已读）。
     /// pollOnce（5s 轮询）与 ingestPiggyback（搭载投递）共用。
     private func consumeOne(id: String, text: String, sourceTaskId: String?, taskType: String,
+                            sessionId: String?,
                             auth: AuthStore, chat: ChatStore) async {
         guard !consumedIds.contains(id) else {
             // v3.9.110：**问题卡重复投递时不 markDone** —— 后端 pop/peek 只看 status=="pending"，
@@ -239,6 +241,72 @@ final class InboxStore {
             return
         }
         consume(id)
+        // 🚨 v4.0.21 根治（用户实报「消息串进不同会话」）：收件箱推送现在带**会话归属**
+        // （后端 inbox_api.push 的 `session_id`，reply/progress/question 三类都会带）。
+        // 气泡必须落进**它归属的那个会话**，而不是「App 此刻打开的会话」。三种情形：
+        //   · 无 session_id（老后端 / agent / cron / system）→ 不拦，行为零变化；
+        //   · 归属会话 == 当前打开的会话 → 不拦，走下面各分支既有内存注入（去重/渲染/通知口径全不变）；
+        //   · 归属会话 != 当前打开的会话 → 落进归属会话（**写库不切会话**）。
+        // ⚠️ 这段必须在下面**投递壳闸门之前**：那条闸门对 reply/progress 无条件 markDone 并 return，
+        //   放在它后面，用户停在投递壳时归属别的会话的推送会被它就地吃掉（串位的镜像：丢件）。
+        // 纪律同 `injectToProactiveSession`：ChatStore 内存态必须无感 —— 绝不能 `loadById` 切过去
+        // （那会把用户正看着的对话当场清空）。
+        // 归属会话在 NAS 上查不到（被删/未同步）→ 回落到旧行为：宁可串位，绝不丢消息。
+        if let sid = ownedSessionId(sessionId, current: chat.sessionId),
+           taskType == "reply" || taskType == "progress" || taskType == "question" {
+            // 固定投递壳的内容由后端 `append_delivery_message` 维护，App 一律不注入（与投递闸门同口径）
+            if sid == ChatStore.deliverySessionId {
+                if taskType == "reply" {
+                    NotificationHelper.notify(title: "轻聊 · 推送", body: text, sessionId: sid)
+                }
+                await markDone(id, auth: auth)
+                return
+            }
+            // 进度快照是「正在进行中」的实时指示器：归属会话没打开就没有可展示的位置，
+            // 写进历史只会攒一批过期进度气泡（还要复制整套「前进 / 残片」判据）。
+            // 任务中心另有「进行中」卡片实时刷新（不依赖这条推送）；最终回复会经 reply 路径落进归属会话。
+            if taskType == "progress" {
+                await markDone(id, auth: auth)
+                return
+            }
+            var msg = ChatMessage(role: "assistant", content: text,
+                                  timestamp: Date().timeIntervalSince1970 * 1000)
+            msg.isPush = true
+            msg.pushKind = taskType
+            var notifyBody = text
+            if taskType == "question" {
+                let parts = ChatMessage.splitQuestion(text)
+                msg.questionId = id
+                msg.questionOptions = parts.options.isEmpty ? nil : parts.options
+                notifyBody = parts.body
+            }
+            // reply 落地记账（与下面 reply 分支同一口径，同样放在判定之前：去重命中也算「已落地」）：
+            // 缺这条 → 该任务后续进度快照的「残片」判据拿不到铁证，会追加到完整回复下面（v4.0.11 回归）
+            if taskType == "reply", let key = sourceTaskId, !key.isEmpty {
+                finishedProgressTasks.insert(key)
+                progressSnapshots.removeValue(forKey: key)
+            }
+            switch await landPushInOwnedSession(msg, sessionId: sid, sourceTaskId: sourceTaskId,
+                                                auth: auth, chat: chat) {
+            case .landed:
+                lastInjectedCount += 1
+                // 通知口径与各分支既有规则一致：reply 弹横幅、question 弹「需要你确认」、progress 静默
+                if taskType == "reply" {
+                    NotificationHelper.notify(title: "轻聊 · 推送", body: notifyBody, sessionId: sid)
+                } else if taskType == "question" {
+                    NotificationHelper.notify(title: "轻聊 · AI 需要你确认", body: notifyBody, sessionId: sid)
+                }
+                // question 刻意不 markDone（卡要一直留着让用户随时能答，见下面对应分支的说明）
+                if taskType != "question" { await markDone(id, auth: auth) }
+                return
+            case .duplicate:
+                // 归属会话里已有同一条（本机流式已落库 / away 分支补回）→ 只收尾，不重复注入
+                if taskType != "question" { await markDone(id, auth: auth) }
+                return
+            case .targetMissing:
+                break   // 回落到下面各分支的旧行为（注入当前会话 / 任务中心）
+            }
+        }
         // v3.9.76：固定投递会话（qingliao_delivery）是「只装 cron/system 投递详情」的壳，
         // App 侧**不许**把推送气泡注入进去。起因（用户实测）：「轻聊投递会混进普通 AI 推送内容」
         // ——投递会话里出现了「⏳ AI 正在回复（已生成 152 字，第 17 步 运行代码）」这种普通 AI 进度残片：
@@ -412,8 +480,54 @@ final class InboxStore {
     /// v3.2.1 加固：extra 参数额外比对 stream.content（流式进行中的当前回复）——即使 chat.messages
     /// 因时序暂缺该回复（pollOnce 抢在 upsertAssistant 落库前），只要 stream.content 持有即可命中去重。
     /// v3.4.x 收敛：判定逻辑抽到静态纯函数 InboxDedup.shouldSkip（可单测防漂移），实例方法只做壳。
-    private func shouldSkipDuplicate(push text: String, in messages: [ChatMessage], extra: String = "", sourceTaskId: String? = nil) -> Bool {
-        InboxDedup.shouldSkip(push: text, in: messages, extra: extra, sourceTaskId: sourceTaskId, currentTaskId: stream?.taskId)
+    /// v4.0.21：`useCurrentStream` —— 被 InboxDedup 隐式用于「taskId 同源」的铁证判定。
+    /// 归属会话路由**必须传 false**：`stream` 是**当前打开会话**的流式态，拿它去比对归属会话的消息
+    /// 会跨会话误命中，判定 duplicate → markDone → 归属会话永久丢这条气泡。
+    private func shouldSkipDuplicate(push text: String, in messages: [ChatMessage], extra: String = "",
+                                     sourceTaskId: String? = nil, useCurrentStream: Bool = true) -> Bool {
+        InboxDedup.shouldSkip(push: text, in: messages, extra: extra, sourceTaskId: sourceTaskId,
+                              currentTaskId: useCurrentStream ? stream?.taskId : nil)
+    }
+
+    // MARK: - v4.0.21 会话归属（推送落进「它归属的会话」）
+
+    /// 这条推送的**归属会话**：只有「非空且不同于当前打开的会话」才返回（否则 nil = 不拦，走旧路径）。
+    private func ownedSessionId(_ sessionId: String?, current: String) -> String? {
+        guard let sid = sessionId?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !sid.isEmpty, sid != current else { return nil }
+        return sid
+    }
+
+    private enum PushLanding {
+        case landed          // 已写进归属会话
+        case duplicate       // 归属会话里已有同内容 → 不重复注入
+        case targetMissing   // 归属会话在 NAS 上查不到 → 调用方回落旧行为
+    }
+
+    /// v4.0.21：把推送气泡落进**归属会话**（写库不切会话）。
+    ///
+    /// 去重比对源是**归属会话自己的消息**（不是当前会话），且**不看当前会话的流式态**
+    /// （`extra` / `currentTaskId` 都属于当前打开的会话，跨会话比对会把别的会话的推送误判成重复而永久丢弃）。
+    /// 读-改-写整体交给 `ChatStore.appendMessageToOwnedSession`（在 FIFO 串行链内**重读**）：
+    /// 链外「先读快照 → 再写」的间隙里，后台流式落地的最终回复会被这份旧快照整会话抹掉。
+    private func landPushInOwnedSession(_ msg: ChatMessage, sessionId sid: String,
+                                        sourceTaskId: String?, auth: AuthStore,
+                                        chat: ChatStore) async -> PushLanding {
+        guard let target = await chat.fetchSessionSnapshot(sessionId: sid, auth: auth) else {
+            print("[inbox] 归属会话 \(sid.prefix(8))… 在 NAS 上查不到 → 回落到当前会话注入")
+            return .targetMissing
+        }
+        if shouldSkipDuplicate(push: msg.content, in: target.messages, extra: "",
+                               sourceTaskId: sourceTaskId, useCurrentStream: false) {
+            print("[inbox] 归属会话 \(sid.prefix(8))… 已有同内容 → 不重复注入")
+            return .duplicate
+        }
+        guard await chat.appendMessageToOwnedSession(msg, sessionId: sid, auth: auth) else {
+            print("[inbox] 归属会话 \(sid.prefix(8))… 写入时已查不到 → 回落到当前会话注入")
+            return .targetMissing
+        }
+        print("[inbox] 推送已落归属会话 \(sid.prefix(8))…（当前会话未受影响）")
+        return .landed
     }
 
     // MARK: - 轮询启动/停止
@@ -454,12 +568,15 @@ final class InboxStore {
 
     // MARK: - 后端 API
 
-    private func inboxItems(_ auth: AuthStore) async throws -> [(id: String, text: String, sourceTaskId: String?, taskType: String)] {
+    private func inboxItems(_ auth: AuthStore) async throws -> [(id: String, text: String, sourceTaskId: String?, taskType: String, sessionId: String?)] {
         let json = try await auth.json("/api/inbox", method: "GET")
         guard let arr = json["items"] as? [[String: Any]] else { return [] }
         return arr.compactMap { d in
             guard let id = d["id"] as? String, let text = d["text"] as? String else { return nil }
-            return (id, text, d["source_task_id"] as? String, d["task_type"] as? String ?? "reply")
+            // v4.0.21：session_id = 这条推送**归属的会话**（后端 inbox_api.push 补的字段；
+            // 老后端/agent/cron/system 不带 → nil → 走旧行为）
+            return (id, text, d["source_task_id"] as? String, d["task_type"] as? String ?? "reply",
+                    d["session_id"] as? String)
         }
     }
 

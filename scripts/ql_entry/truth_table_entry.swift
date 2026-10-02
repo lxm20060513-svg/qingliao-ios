@@ -119,11 +119,23 @@ check("闸门只拦 reply/progress —— cron/system 仍走任务中心分支�
       consume.contains("taskType == " + Q + "reply" + Q + " || taskType == " + Q + "progress" + Q)
       && consume.contains("TaskCenterStore.shared.add("))
 // 顺序断言：闸门必须排在 progress 注入分支**之前**，否则残片照旧落进投递壳
+// v4.0.21：锚点从 `if taskType == "progress"` 换成**注入动作** `chat.append(pmsg)` ——
+//   会话归属路由新增了一个「归属别的会话的进度：不写任何会话」的早退分支（同样是 `if taskType == "progress"`），
+//   旧锚点会把它误当注入分支（护栏替身撞车）。钉「真实注入动作」保住原检测力，也不怕早退分支再多一个。
 check("闸门排在 progress 注入分支之前",
       { () -> Bool in
           guard let g = consume.range(of: "if chat.isDeliverySession"),
-                let p = consume.range(of: "if taskType == " + Q + "progress" + Q) else { return false }
+                let p = consume.range(of: "chat.append(pmsg)") else { return false }
           return g.lowerBound < p.lowerBound
+      }())
+// v4.0.21 新不变量：会话归属路由必须排在投递闸门**之前**。
+// 闸门对 reply/progress 无条件 markDone 并 return —— 排在它后面，用户停在投递壳时，
+// 归属别的会话的推送会被它就地吃掉（「消息串进不同会话」的镜像：丢件）。
+check("会话归属路由排在投递闸门之前",
+      { () -> Bool in
+          guard let o = consume.range(of: "if let sid = ownedSessionId(sessionId, current: chat.sessionId)"),
+                let g = consume.range(of: "if chat.isDeliverySession") else { return false }
+          return o.lowerBound < g.lowerBound
       }())
 check("InboxStore 不用标题判投递（旧形态清零）", !inbox.contains("title.contains"))
 

@@ -767,6 +767,29 @@ final class ChatStore {
         await saveWriteChain.value
     }
 
+    /// 🚨 v4.0.21（会话归属路由配套）：把一条推送气泡追加进**任意会话**，读-改-写整体在 FIFO 串行链内。
+    ///
+    /// 为什么必须整段进链：后端 merge 对同 id 会话是**整会话覆盖**（见 `messagesPayload` 注释），
+    /// 而同一个「非当前打开」的会话还有别的写者（后台流式落地 BackgroundStreamRunner、会话改名/清空）。
+    /// 串行链只保证网络写次序，**管不住「先读快照 → 再写」的间隙**：间隙里落地的最终回复，
+    /// 会被这份旧快照整会话抹掉。把重读放进链内，链外就没有可插入的写者。
+    /// 返回 false = 服务端查不到该会话（被删/未同步）→ 调用方回落旧行为，绝不丢消息。
+    @discardableResult
+    func appendMessageToOwnedSession(_ msg: ChatMessage, sessionId sid: String, auth: AuthStore) async -> Bool {
+        let prev = saveWriteChain
+        let job = Task<Bool, Never> { [weak self] in
+            await prev.value   // 等前一个写完成（FIFO）
+            guard let self,
+                  let snap = await self.fetchSessionSnapshot(sessionId: sid, auth: auth) else { return false }
+            var msgs = snap.messages
+            msgs.append(msg)
+            await self.writeSessionSnapshot(auth: auth, sessionId: sid, messages: msgs, title: snap.title)
+            return true
+        }
+        saveWriteChain = Task { _ = await job.value }
+        return await job.value
+    }
+
     /// v3.9.39：消息序列化的**唯一**口径。后端 merge 对同 id 会话是整体覆盖
     /// （sessions_api.merge_sessions：App 不发 updatedAt，恒 `0 >= 0` → incoming 全量替换），
     /// 因此少写一个字段就等于把该字段在线上抹掉。任何要写整会话的路径（含会话列表改名）
@@ -831,6 +854,23 @@ final class ChatStore {
         // v3.9.90：这条写 = 「首条消息已落库」的信号 → 决定要不要起一次名（产品口径 3a）。
         // 放在写**之后**：命名结果的落库会 await 这一条写链，顺序天然是「先消息、后标题」。
         maybeAutoName(auth: auth, sessionId: sid, messages: msgs, title: t)
+    }
+
+    /// v4.0.21：读 NAS 上**任意会话**的最新快照（不切会话、不碰内存态）。
+    ///
+    /// 用途：收件箱推送带会话归属（`session_id`）时，气泡要落进**归属会话**而不是
+    /// 「当前打开的会话」（根治用户实报的「消息串进不同会话」）。
+    /// 与 `loadLastSession` 同一条读路径（`/api/sessions/list` + `ChatSession.parse`），
+    /// 区别只在**不调 `load()`** —— load 会整体替换 sessionId/title/messages，
+    /// 用户正看着的对话会被当场清空（同 `InboxStore.injectToProactiveSession` 的纪律）。
+    ///
+    /// 返回 nil = 该会话在 NAS 上不存在（被删 / 尚未同步）→ 调用方回落到旧行为，绝不丢消息。
+    func fetchSessionSnapshot(sessionId sid: String, auth: AuthStore) async -> ChatSession? {
+        guard !sid.isEmpty else { return nil }
+        guard let j = try? await auth.json("/api/sessions/list"),
+              let raw = j["sessions"] as? [Any] else { return nil }
+        let sessions = raw.compactMap { ChatSession.parse($0 as? [String: Any] ?? [:]) }
+        return sessions.first(where: { $0.id == sid })
     }
 
     // MARK: - v3.9.90 会话自动命名（用户拍板 3a：首条消息后起一次名；手动改过名字的不再自动改）

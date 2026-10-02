@@ -57,13 +57,17 @@ check("出角标门槛：只给 assistant 的推送出，且问题卡不重复�
       && pushKindSrc.contains("return questionId == nil || questionId!.isEmpty"))
 
 // ── 2. 链路在位：写入 → 落库 → 读回 ──────────────────────────────
+// v4.0.21：新增第 5 处 —— 会话归属路由（归属会话≠当前打开时把 reply/progress/question
+// 落进归属会话，pushKind 由 taskType 带入）。注入端每加一处都必须标来源，故计数同步到 5。
 let inboxWriteCount = inboxSrc.components(separatedBy: "pushKind = ").count - 1
-check("注入端四处都标了来源（agent / progress / question / reply）——实测 \(inboxWriteCount) 处",
-      inboxWriteCount == 4)
+check("注入端五处都标了来源（agent / progress / question / reply + 会话归属路由）——实测 \(inboxWriteCount) 处",
+      inboxWriteCount == 5)
 for (kind, why) in [("agent", "主动消息进「轻聊主动」"), ("progress", "进度快照"),
                     ("question", "AI 追问卡"), ("reply", "回复推送")] {
     check("注入端标了 \(kind)（\(why)）", inboxSrc.contains("pushKind = \"\(kind)\""))
 }
+check("会话归属路由也带来源角标（pushKind 由 taskType 带入，不是空手落库）",
+      inboxSrc.contains("msg.pushKind = taskType"))
 check("落库端持久化 pushKind（否则重启后角标退化成「你问的」）",
       chatSrc.contains("p[\"pushKind\"] = k"))
 check("解析端读回：本地 pushKind 优先，服务端固定会话回落 task_type",
