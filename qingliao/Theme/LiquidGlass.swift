@@ -265,11 +265,6 @@ struct PageHeader: View {
     let title: String
     var subtitle: String? = nil
     var trailing: AnyView? = nil
-    /// v4.0.27：标题行**正中**的可选内容（聊天页放会动的宠物）。
-    /// 用 overlay 绝对居中而不是塞进 HStack：HStack 里居中会被左右两侧宽度带偏
-    /// （标题短、右侧胶囊宽 → 视觉重心右移），overlay 是相对整行居中，才是「中间位置」。
-    /// 纯叠加层：不参与布局、不撑高 header，其他页面不传即无任何变化。
-    var centerView: AnyView? = nil
     // 真实状态点：默认不显示（装饰性绿点已废弃），需要状态指示的页面显式传入
     var showStatus: Bool = false
     var statusColor: Color = .green
@@ -278,12 +273,10 @@ struct PageHeader: View {
 
     /// 显式 init：避免复杂调用处 memberwise init 推断导致类型检查超时
     init(title: String, subtitle: String? = nil, trailing: AnyView? = nil,
-         centerView: AnyView? = nil,
          showStatus: Bool = false, statusColor: Color = .green, busy: Bool = false) {
         self.title = title
         self.subtitle = subtitle
         self.trailing = trailing
-        self.centerView = centerView
         self.showStatus = showStatus
         self.statusColor = statusColor
         self.busy = busy
@@ -315,10 +308,6 @@ struct PageHeader: View {
         .padding(.horizontal, 18)
         .padding(.top, Spacing.sm)
         .padding(.bottom, Spacing.md)
-        // v4.0.27：标题行正中的宠物（纯叠加，不参与布局、不改 header 高度）
-        .overlay(alignment: .center) {
-            if let centerView { centerView }
-        }
     }
 }
 

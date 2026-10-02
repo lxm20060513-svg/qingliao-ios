@@ -693,14 +693,19 @@ check("思考档位胶囊壳对齐附件/相机（淡底 Tint.faint + 0.8pt 同�
       }())
 check("思考档位胶囊门控 = reasoningLevelTitle 空串（别的调用方零感知）",
       inputBarSrc.contains("if !reasoningLevelTitle.isEmpty {"))
-check("调用点传展示值 + 回调（实参序 = 声明序，recordingLevel 之前）",
+check("调用点传展示值 + 回调（实参序 = 声明序：recordingLevel 声明在最前）",
       {
           guard let a = chatViewSrc.range(of: "reasoningLevelIcon: reasoningLevel.symbol"),
                 let b = chatViewSrc.range(of: "reasoningLevelTitle: reasoningLevel.title"),
-                let c = chatViewSrc.range(of: "onPickReasoning: { showReasoningPicker = true },"),
+                let c = chatViewSrc.range(of: "onPickReasoning: { showReasoningPicker = true }"),
                 let d = chatViewSrc.range(of: "recordingLevel: { liveSpeech.currentInputLevel() }")
           else { return false }
-          return a.upperBound < b.lowerBound && b.upperBound < c.lowerBound && c.upperBound < d.lowerBound
+          // ⚠️ v4.0.28 修正（存量假红）：旧断言要求 recordingLevel 排在 **最后**，与 ChatInputBar
+          // 的真实声明序矛盾（声明区：recordingLevel 在 94 行，reasoningLevelIcon/Title/onPickReasoning
+          // 在 99~101 行）→ 恒红。真口径 = 本仓铁律「实参序 = 声明序」：recordingLevel 必须在最前。
+          return d.upperBound <= a.lowerBound
+              && a.upperBound < b.lowerBound
+              && b.upperBound < c.lowerBound
       }())
 check("header 旧思考胶囊清零（reasoningPill / localReasoningPill 不复存在）",
       !chatViewSrc.contains("private var reasoningPill: some View")

@@ -239,8 +239,6 @@ struct ChatView: View {
     /// v3.9.9 收口：用户主动「停止生成」（输入栏 / 灵动岛）→ 本轮不自动朗读（别把残句念一遍）
     @State private var suppressAutoReadOnce = false
     @State private var showReasoningPicker = false
-    /// v4.0.27：header 中央宠物的「回答完成」庆祝触发器（本会话流结束那一刻 +1）
-    @State private var petCelebrate = 0
     /// v3.9.48：输入栏展开态右下角的模型快选面板
     @State private var showComposerModel = false
 
@@ -1117,34 +1115,15 @@ struct ChatView: View {
     // 这里按原注释分段把视图块原样搬成独立 @ViewBuilder 属性 —— **纯搬运**：视图顺序、
     // 层级、条件分支、闭包、修饰符逐字未变，渲染结果与拆分前一致，只为把类型检查表达式打小。
 
-    /// v4.0.27：聊天页 header 正中的宠物 —— 状态跟着 AI 走：
-    ///   **AI 忙**（本会话收流 / 远程忙）= `.thinking`（转圈眼 + 歪头）
-    ///   **空闲** = `.idle`（呼吸、眨眼，每 6~14s 自娱一个小动作）
-    ///   **回答完成** = `celebrateTrigger` +1 → 播一个喜庆动作（比心/欢呼/鼓掌/挥手，随机挑）
-    /// 62pt：比消息头像（30pt）/思考头像（38pt）大一档，做 header 的视觉主角；
-    /// 用户从 40 → 50 → 62 三档对比里选定 62。仍低于 76pt 的简化阈值 → 走简化形态，长挂不费电。
-    private var petHeaderBadge: some View {
-        PetAvatar(size: 62,
-                  state: aiBusy ? .thinking : .idle,
-                  celebrateTrigger: petCelebrate)
-    }
-
     /// 页头 + 思考档位/聊天操作弹窗 + 任务中心全屏页
     @ViewBuilder
     private var chatHeaderBar: some View {
         PageHeader(title: "聊天",
                    subtitle: headerSubtitle,
                    trailing: AnyView(headerTrailingItems),
-                   centerView: AnyView(petHeaderBadge),   // v4.0.27：标题行正中的会动宠物
                    showStatus: true,
                    statusColor: headerColor,
                    busy: aiBusy)
-        // v4.0.27：本会话这轮回答结束（忙→闲）→ 让宠物播一个庆祝动作。
-        // 用 thisSessionStreaming 而不是 aiBusy：后端「远程忙碌」在整个 App 里是全局的，
-        // 别的会话跑完也会让 aiBusy 落回 false，那样宠物会在不相干的时候突然庆祝。
-        .onChange(of: thisSessionStreaming) { was, now in
-            if was && !now { petCelebrate += 1 }
-        }
         .confirmationDialog("模型思考档位", isPresented: $showReasoningPicker, titleVisibility: .visible) {
             reasoningPickerContent
         }

@@ -330,4 +330,20 @@ check("Canvas 把手部姿势传进画笔（不传 = 手永远贴身）",
 check("欢呼的身体配合（缩放 + 蹦）也在（手举起来时身体不能钉在地上）",
       avC.contains("case .some(.cheer): return 1.06") && avC.contains("if q == .cheer { return strollPhase"))
 
+// MARK: - 15. v4.0.28 移除聊天页 header 中央宠物（用户拍板「宠物太多了，还是把 header 中间的宠物拿掉」）
+//
+// 只删那一只：欢迎页身份宠物（petHero）、消息头像（30pt）、设置页宠物入口都必须留。
+// 护栏因此两向都要钉——既钉「删干净、不留死状态」，也钉「别误伤其它宠物」。
+let cvC = stripComments(cv)
+check("header 中央宠物已移除（petHeaderBadge 不再存在）", !cvC.contains("petHeaderBadge"))
+check("ChatView 不再给 PageHeader 传 centerView（叠加管道调用点清零）",
+      !cvC.contains("centerView"))
+check("PageHeader 的宠物叠加管道整体拆除（LiquidGlass 里 centerView 清零）",
+      !stripComments(read("qingliao/Theme/LiquidGlass.swift")).contains("centerView"))
+check("庆祝触发器随之清零（不留没人写的死状态）", !cvC.contains("petCelebrate"))
+check("欢迎页身份宠物仍在（只删 header 那只，别误伤）", cvC.contains("private var petHero"))
+check("消息头像宠物仍在（列表里的 30pt 头像）",
+      stripComments(read("qingliao/Features/Chat/ChatMessageBubble.swift"))
+        .contains("PetAvatar(size: 30"))
+
 report()
