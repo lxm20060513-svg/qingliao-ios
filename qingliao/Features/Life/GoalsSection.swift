@@ -295,9 +295,10 @@ struct GoalsSection: View {
                 .padding(.bottom, Spacing.xs)
             }
             .toolbar(.hidden, for: .navigationBar)
-            .presentationDetents([.medium, .large])
-            .navigationTransition(.zoom(sourceID: "goal-all", in: goalZoomNS))
         }
+        // v4.0.23：detents/zoom 归位到 NavigationStack 外层，与备忘录/待办的挂载点完全一致
+        .presentationDetents([.medium, .large])
+        .navigationTransition(.zoom(sourceID: "goal-all", in: goalZoomNS))
     }
 
     // MARK: 详情弹窗

@@ -14,6 +14,8 @@ struct RecordSection: View {
     @State private var draftAmount = ""
     @State private var draftUnit = "元"
     @State private var pendingDelete: RecordItem?
+    /// v4.0.23：记录卡片 → 全部记录弹窗的 zoom 源命名空间（对齐备忘录/待办/目标：从卡片放大展开）
+    @Namespace private var recordZoomNS
     /// v4.0.19 正在编辑的那一笔（候选池①：原来只能删了重记）
     @State private var editing: RecordItem?
     /// v4.0.19 候选池⑤：明细页的分类筛选（nil = 全部）
@@ -184,6 +186,8 @@ struct RecordSection: View {
                 Label("添加记录", systemImage: "plus")
             }
         }
+        // v4.0.23：卡片即 zoom 源（点开「全部记录」时从这张卡放大展开，对齐备忘录/待办/目标卡片）
+        .matchedTransitionSource(id: "record-all", in: recordZoomNS)
         .accessibilityLabel("记录，本月合计 \(String(format: "%.2f", store.monthTotal.amount)) 元，\(store.records.count) 条，点开查看全部")
     }
 
@@ -226,6 +230,9 @@ struct RecordSection: View {
             }
             .toolbar(.hidden, for: .navigationBar)
         }
+        // v4.0.23：与备忘录/待办/目标对齐 —— 半屏 detents + 从卡片放大展开（原来这里是全屏升起）
+        .presentationDetents([.medium, .large])
+        .navigationTransition(.zoom(sourceID: "record-all", in: recordZoomNS))
         .sheet(item: $editing, onDismiss: { editing = nil }) { item in
             RecordEditSheet(item: item) { title, amount, unit, category in
                 if store.update(item, title: title, amount: amount, unit: unit, category: category) {
