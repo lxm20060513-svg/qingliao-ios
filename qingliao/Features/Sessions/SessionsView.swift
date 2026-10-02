@@ -397,35 +397,44 @@ struct SessionsView: View {
     }
 
     /// 会话列表（搜索区 / 空态 / 卡片列表）
+    ///
+    /// v4.0.21：容器 **ScrollView + LazyVStack → List**（用户拍板「换 List 让左滑真能用」）。
+    /// 根因：`.swipeActions` 的官方语义是**只对 List 行生效**（"Adds swipe actions to a view
+    /// that is presented in a list."）—— 此前它挂在 LazyVStack 的行上，修饰符**静默无效**，
+    /// 左滑删除在真机上一直没有反应（编译器、预检、编译期全都不报，只有手指能发现）。
+    /// 观感靠逐行抹平 List 自带样式，数值与改造前**逐值对齐**（改前：外层 spacing 10、
+    /// 会话行 spacing 8、左右 padding `Spacing.xxl`=14、底部留白 90），口径收在
+    /// `.sessionListRow(vHalfGap:)` 单一处（见文件尾 SessionListRowChrome）。
+    /// 惰性渲染仍由 List 自身保证（原 LazyVStack 的省内存目的不变，见 v3.9.48 记录）。
     @ViewBuilder
     private var sessionsListBody: some View {
-        ScrollView {
-            // v3.9.48 性能：外层 VStack → LazyVStack。内层会话列表 v2.0.133g 就已经是 LazyVStack
-            //（"会话多时全量渲染拖慢 TabView 切页"），但它套在**非懒**的 VStack 里等于白做——
-            // 外层 VStack 为了定自己的尺寸会向惰性子栈索取理想高，那一问就把所有行实例化出来了。
-            // `alignment: .center` 必须写：VStack 默认 .center，LazyVStack 默认 .leading，
-            // 不写会把空态插画/BotCard 这类没吃满宽度的块推到左边（观感回退）。
-            LazyVStack(alignment: .center, spacing: 10) {
-                if isSearching {
-                    // v3.9.33：搜索结果区（本地优先，本地零命中再补远端全史搜索）
-                    searchResultsArea
+        List {
+            if isSearching {
+                // v3.9.33：搜索结果区（本地优先，本地零命中再补远端全史搜索）
+                searchResultsArea
+            } else {
+                BotCard()
+                    .sessionListRow(vHalfGap: 5)   // 5×2 = 10pt（= 原外层 LazyVStack(spacing: 10)）
+                // v4.0.20（#9）：后台推进常驻浮条 —— 退出聊天页后仍能看到「后台还在跑」，
+                // 点一下直接跳回那条会话（此前一离开聊天页就完全失去线索）
+                backgroundRunningBar
+                    .sessionListRow(vHalfGap: 5)
+                if sessions.isEmpty {
+                    sessionsEmptyState
+                        .sessionListRow(vHalfGap: 5)
                 } else {
-                    BotCard()
-                    // v4.0.20（#9）：后台推进常驻浮条 —— 退出聊天页后仍能看到「后台还在跑」，
-                    // 点一下直接跳回那条会话（此前一离开聊天页就完全失去线索）
-                    backgroundRunningBar
-                    if sessions.isEmpty {
-                        sessionsEmptyState
-                    } else {
-                        sessionsListStack
-                    }
+                    sessionsListStack
                 }
             }
-            .padding(.horizontal, Spacing.xxl)
-            .padding(.bottom, 90)
-            // v3.9.30：空态/列表切换过渡动画（emerge 浮现；reduceMotion 时系统自动忽略带动画的过渡）
-            .animation(Motion.emerge, value: filteredSessions.isEmpty)
         }
+        .listStyle(.plain)                                  // 去掉分组灰底与分组头悬浮行为
+        .scrollContentBackground(.hidden)                    // 透出页面底（原本是 ScrollView 的透明底）
+        .environment(\.defaultMinListRowHeight, 0)          // List 默认给行兜底 44pt 最小高，会把卡片间距撑变形
+        .contentMargins(.bottom, 90, for: .scrollContent)    // = 原 `.padding(.bottom, 90)`
+        // v3.9.30：空态/列表切换过渡动画（emerge 浮现；reduceMotion 时系统自动忽略带动画的过渡）
+        .animation(Motion.emerge, value: filteredSessions.isEmpty)
+        // v3.9.30：删除/刷新后列表项淡出与位置移动过渡（数组替换不再生硬跳变）
+        .animation(Motion.settle, value: sortedSessions.map(\.id))
         .scrollPosition($scrollPos)
         // v2.0.86h：Dock 滑动隐藏已删除（从未生效，手动开关替代）
         .refreshable {
@@ -457,21 +466,17 @@ struct SessionsView: View {
         .padding(.top, 20)
     }
 
-    /// 会话卡片列表（LazyVStack）
+    /// 会话卡片行（List 行）
+    ///
+    /// v4.0.21：外层 `LazyVStack(spacing: 8)` 去掉 —— 行必须**直接**落在 List 里，
+    /// `.swipeActions` 才生效（根因见 sessionsListBody 注释）；惰性由 List 承担。
     @ViewBuilder
     private var sessionsListStack: some View {
-        // 每条会话独立卡片 + 间隔（会话条目间距）
-        // v2.0.133g：VStack → LazyVStack——会话多时全量渲染拖慢 TabView 切页；
-        // 删除已改后端驱动+load() 整体刷新（v2.0.56 根治），无就地 diff 崩溃路径，安全
-        LazyVStack(spacing: 8) {
-            // v3.3.0：bot 模式已移除，会话列表不再按 bot 分组，直接平铺
-            ForEach(sortedSessions) { s in
-                // v3.0.51：会话 cell（SessionRow+长按菜单）拆辅助函数，避免嵌套 ForEach type-check 超时
-                sessionCell(s)
-            }
+        // v3.3.0：bot 模式已移除，会话列表不再按 bot 分组，直接平铺
+        ForEach(sortedSessions) { s in
+            sessionCell(s)
+                .sessionListRow(vHalfGap: 4)   // 4×2 = 8pt（= 原 LazyVStack(spacing: 8)）
         }
-        // v3.9.30：删除/刷新后列表项淡出与位置移动过渡（数组替换不再生硬跳变）
-        .animation(Motion.settle, value: sortedSessions.map(\.id))
     }
 
     private var addButton: some View {
@@ -540,10 +545,11 @@ struct SessionsView: View {
     @ViewBuilder
     private var searchResultsArea: some View {
         if !filteredSessions.isEmpty {
-            LazyVStack(spacing: 8) {
-                ForEach(filteredSessions) { s in
-                    sessionCell(s)
-                }
+            // v4.0.21：LazyVStack(spacing: 8) → 直接铺成 List 行（左滑删除要求行落在 List 里，
+            // 套一层容器就等于又失效了）；惰性由 List 承担。
+            ForEach(filteredSessions) { s in
+                sessionCell(s)
+                    .sessionListRow(vHalfGap: 4)
             }
         } else {
             if remoteSearching {
@@ -555,6 +561,7 @@ struct SessionsView: View {
                         .foregroundStyle(.secondary)
                 }
                 .padding(.top, 20)
+                .sessionListRow(vHalfGap: 5)
             } else if !remoteHits.isEmpty {
                 remoteHitsList
             } else {
@@ -565,6 +572,7 @@ struct SessionsView: View {
                                iconColors: [.teal, .blue])
                     .padding(.top, 20)
                     .transition(.opacity.combined(with: .scale(scale: 0.96)))   // v3.9.30：空态浮现过渡（配 Motion.emerge）
+                    .sessionListRow(vHalfGap: 5)
             }
             // 失败不静默（本仓刚因静默 return 被用户报「功能坏了」）：远端搜索/打开失败留一行小字
             if let note = remoteNoticeText {
@@ -572,6 +580,7 @@ struct SessionsView: View {
                     .font(.system(size: Typography.caption))
                     .foregroundStyle(.tertiary)
                     .padding(.top, Spacing.sm)
+                    .sessionListRow(vHalfGap: 5)
             }
         }
     }
@@ -579,18 +588,21 @@ struct SessionsView: View {
     /// 远端命中列表：会话仍能对上本地列表 → 走普通会话行（同本地搜索结果）；
     /// 只在服务器上的旧会话 → 轻量命中行（标题 + 命中片段），点击后先拉全量列表再进会话。
     private var remoteHitsList: some View {
-        VStack(alignment: .leading, spacing: Spacing.md) {
+        // v4.0.21：外层 VStack(alignment:.leading)/LazyVStack 去掉 —— 逐行铺进 List
+        // （同上：行不在 List 里，`.swipeActions` 静默失效）
+        Group {
             Text("全部历史")
                 .font(.system(size: Typography.caption, weight: .semibold))
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, Spacing.xs)
-            LazyVStack(spacing: 8) {
-                ForEach(remoteHits) { hit in
-                    if let s = localSession(id: hit.id) {
-                        sessionCell(s)
-                    } else {
-                        RemoteHitRow(hit: hit) { openRemote(id: hit.id) }
-                    }
+                .sessionListRow(vHalfGap: 5)
+            ForEach(remoteHits) { hit in
+                if let s = localSession(id: hit.id) {
+                    sessionCell(s)
+                        .sessionListRow(vHalfGap: 4)
+                } else {
+                    RemoteHitRow(hit: hit) { openRemote(id: hit.id) }
+                        .sessionListRow(vHalfGap: 4)
                 }
             }
         }
@@ -1554,5 +1566,35 @@ private struct RemoteHitRow: View {
         .contentShape(Rectangle())
         // 与 SessionRow 一致用 tap 手势（Button 会与 swipeActions 冲突）
         .onTapGesture { onTap() }
+    }
+}
+
+// MARK: - v4.0.21 会话列表改 List 后的「行样式抹平」
+
+/// 逐行抹平 List 自带样式（系统分隔线 / 系统行底 / 行内边距），让每一行看起来仍是一张独立卡片。
+///
+/// `vHalfGap` = 单侧垂直留白，**相邻两行相贴 = 2×vHalfGap**：
+///   · 会话行 4 → 8pt（与改造前 `LazyVStack(spacing: 8)` 同值）
+///   · 非会话行 5 → 10pt（与改造前外层 `LazyVStack(spacing: 10)` 同值）
+/// 左右取 `Spacing.xxl`(=14)，与改造前外层 `.padding(.horizontal, Spacing.xxl)` 同值。
+/// 这三条是「换 List 但观感不变」的全部代价所在，收在此处单源，别在各调用点手写。
+private struct SessionListRowChrome: ViewModifier {
+    let vHalfGap: CGFloat
+
+    func body(content: Content) -> some View {
+        content
+            .listRowInsets(EdgeInsets(top: vHalfGap,
+                                      leading: Spacing.xxl,
+                                      bottom: vHalfGap,
+                                      trailing: Spacing.xxl))
+            .listRowSeparator(.hidden)          // 卡片自带玻璃底与描边，系统分隔线是多余的
+            .listRowBackground(Color.clear)     // 不留系统行底，否则卡片后多一层底色
+    }
+}
+
+private extension View {
+    /// 会话列表的 List 行样式（口径单源，实现见 SessionListRowChrome）
+    func sessionListRow(vHalfGap: CGFloat) -> some View {
+        modifier(SessionListRowChrome(vHalfGap: vHalfGap))
     }
 }

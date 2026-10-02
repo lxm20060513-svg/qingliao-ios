@@ -300,6 +300,65 @@ let badGuardSlice = slice(badGuard, ".swipeActions(edge: .trailing)", "\n       
 check("🚫 反向④：左滑口去掉固定会话拦截（主动会话可被滑掉）→ 判红",
       !badGuardSlice.isEmpty && swipeFixedGuard(swipe) && !swipeFixedGuard(badGuardSlice))
 
+// ══════════════════════════════════════════════════════════════════
+// v4.0.21「会话列表容器必须是 List」—— 单条左滑删除的真实前置条件（用户拍板「换 List」）
+//
+// 为什么值得钉（**编译器、swiftc -parse、编译期全都不报，只有真机手指能发现**）：
+//   `.swipeActions` 的官方语义 = 「Adds swipe actions to a view that is presented in a **list**」
+//   —— 行落在 ScrollView/LazyVStack 里时该修饰符**静默无效**。上面那组 v4.1.x 左滑断言
+//   （只断言「.swipeActions 挂在会话行上」）因此一直在为**一个真机无效的功能**发绿灯：
+//   它钉住了形态，没钉「形态生效的前提」。本条补的正是前提 —— 会话行必须**直接**落在 List 里。
+//   反向：谁把 List 改回 ScrollView/LazyVStack（图省事/图复用容器），本条立刻变红。
+// ══════════════════════════════════════════════════════════════════
+
+let listBody = slice(viewCode, "private var sessionsListBody: some View", "private var sessionsEmptyState")
+check("sessionsListBody 切片非空（护栏不许空真）", !listBody.isEmpty)
+check("会话列表容器是 List（左滑删除生效的前提）", listBody.contains("List {"))
+check("旧容器形态清零：不得再用 ScrollView 包会话列表", !listBody.contains("ScrollView"))
+check("旧容器形态清零：不得再用 LazyVStack 包会话列表", !listBody.contains("LazyVStack"))
+check("List 已抹平自带样式：plain + 隐藏自带底 + 行高兜底清零",
+      listBody.contains(".listStyle(.plain)")
+      && listBody.contains(".scrollContentBackground(.hidden)")
+      && listBody.contains(".environment(\\.defaultMinListRowHeight, 0)"))
+
+let listStack = slice(viewCode, "private var sessionsListStack: some View", "private var addButton")
+check("会话行容器切片非空（护栏不许空真）", !listStack.isEmpty)
+check("会话行直接铺进 List（ForEach(sortedSessions)），不再套 LazyVStack",
+      listStack.contains("ForEach(sortedSessions)") && !listStack.contains("LazyVStack"))
+check("会话行带 List 行样式（.sessionListRow）", listStack.contains(".sessionListRow("))
+
+let searchArea = slice(viewCode, "private var searchResultsArea: some View", "private var remoteNoticeText")
+check("搜索区切片非空（护栏不许空真）", !searchArea.isEmpty)
+check("搜索结果行也直接铺进 List（搜索态左滑同样要能用）",
+      searchArea.contains("ForEach(filteredSessions)") && !searchArea.contains("LazyVStack"))
+check("远端命中行也逐行铺进 List（不再套 VStack）",
+      searchArea.contains("ForEach(remoteHits)") && !searchArea.contains("VStack("))
+
+// —— 行样式抹平必须只有一处实现（新形态在 + 旧写法不得散落在各调用点）——
+let chromeCount = viewCode.components(separatedBy: ".listRowSeparator(.hidden)").count - 1
+check("行样式抹平实现唯一（.listRowSeparator(.hidden) 只许在 SessionListRowChrome 里出现 1 次）",
+      chromeCount == 1)
+check("行样式三件套齐全（行内边距 + 无分隔线 + 透明行底）",
+      viewCode.contains(".listRowInsets(EdgeInsets(")
+      && viewCode.contains(".listRowSeparator(.hidden)")
+      && viewCode.contains(".listRowBackground(Color.clear)"))
+let rowCalls = viewCode.components(separatedBy: ".sessionListRow(").count - 1
+check("每类行都挂了行样式（调用点 ≥ 5：非搜索 3 类 + 会话行 + 搜索区各行）", rowCalls >= 5)
+
+// —— 反向自证：容器改回旧形态，上面的断言必须变红（没红过 = 没有护栏）——
+let badBackToScroll = viewCode.replacingOccurrences(
+    of: "private var sessionsListBody: some View {\n        List {",
+    with: "private var sessionsListBody: some View {\n        ScrollView {\n            LazyVStack {")
+let badBodySlice = slice(badBackToScroll, "private var sessionsListBody: some View", "private var sessionsEmptyState")
+check("🚫 反向①：容器改回 ScrollView+LazyVStack（左滑又静默失效）→ 判红",
+      !badBodySlice.isEmpty && listBody.contains("List {") && !badBodySlice.contains("List {"))
+
+let badStack = viewCode.replacingOccurrences(of: "ForEach(sortedSessions)",
+                                             with: "LazyVStack { ForEach(sortedSessions)")
+let badStackSlice = slice(badStack, "private var sessionsListStack: some View", "private var addButton")
+check("🚫 反向②：会话行又套回 LazyVStack → 判红",
+      !badStackSlice.isEmpty && !listStack.contains("LazyVStack") && badStackSlice.contains("LazyVStack"))
+
 // ── 7. 结果 ──────────────────────────────────────────────────
 print("会话列表「进行中」标识真值表：\(passCount) 通过 / \(failCount) 失败")
 if failCount > 0 { exit(1) }
