@@ -25,6 +25,11 @@ struct RecordSection: View {
     /// v4.0.19 候选池⑫：导出的 CSV 临时文件（nil = 还没生成/生成失败）
     @State private var csvURL: URL?
     @State private var showExport = false
+    /// v4.0.22 候选池⑪ App 入口：扫账单（拍照/选图 → 识别 → 确认入账）
+    @State private var showBillScan = false
+    /// 扫账单弹窗的「会话号」：每次打开自增，配合 `.id(...)` 强制换新实例
+    /// （SwiftUI 会保留已 present 过视图的 @State，不换实例会带回上一张图/上一次金额）
+    @State private var billScanSession = 0
 
     private let units = ["元", "度", "kWh"]
 
@@ -39,6 +44,10 @@ struct RecordSection: View {
             .sheet(isPresented: $showAdd) { addSheet }
             // 删除确认框必须挂在弹窗自己这棵树上（SR35：宿主级 alert 在弹窗之上呈现不出来）
             .sheet(isPresented: $showAll) { deleteConfirm(on: allSheet) }
+            // v4.0.22 候选池⑪：扫账单（自身带 detents，内容不含实色底 —— 与全站弹窗口径一致）
+            // ⚠️ `.id(billScanSession)` 是刚需：SwiftUI 会**保留已 present 过视图的状态**，
+            // 不换实例的话「扫一次 → 关掉 → 再扫」会带着上一张图/上一次金额回来（与 Memo/Todo 同源坑）。
+            .sheet(isPresented: $showBillScan) { BillScanSheet().id(billScanSession) }
     }
 
     private var root: some View {
@@ -75,7 +84,13 @@ struct RecordSection: View {
             subtitle: store.records.isEmpty ? nil : subtitleText,
             subtitleLineLimit: 1,
             addAccessibilityLabel: "添加记录",
-            onAdd: startAdd
+            onAdd: startAdd,
+            // v4.0.22：扫账单入口恒在（空态也要能扫，别逼用户先手记一笔再看见入口）
+            // 先自增会话号再 present：配合上面的 `.id(...)` 保证每次打开都是全新实例
+            secondaryAction: (title: "扫账单", action: {
+                billScanSession += 1
+                showBillScan = true
+            })
         )
     }
 

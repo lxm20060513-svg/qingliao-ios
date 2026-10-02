@@ -35,6 +35,9 @@ struct LifeSectionHeader: View {
     let subtitleLineLimit: Int?
     let addAccessibilityLabel: String
     let onAdd: () -> Void
+    /// 记录区专用（v4.0.22 「扫账单」）：可选的次要动作，排在「添加」左边。
+    /// nil = 不显示（备忘/待办/目标三处不传，观感零变化）。
+    var secondaryAction: (title: String, action: () -> Void)? = nil
 
     var body: some View {
         HStack(spacing: 8) {
@@ -44,6 +47,12 @@ struct LifeSectionHeader: View {
                 subtitleText(subtitle)
             }
             Spacer(minLength: 0)
+            if let secondaryAction {
+                Button(action: secondaryAction.action) {
+                    Text(secondaryAction.title).pill(.page, tone: .neutral)
+                }
+                .buttonStyle(PressStyle())
+            }
             Button(action: onAdd) {
                 Text("添加").pill(.page)
             }

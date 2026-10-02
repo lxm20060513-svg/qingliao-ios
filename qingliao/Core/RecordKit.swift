@@ -440,6 +440,7 @@ enum RecordKit {
         case "chat": return "聊天"
         case "manual": return "手动"
         case "fixed": return "固定支出"
+        case "bill": return "扫账单"
         default: return source.isEmpty ? "手动" : source
         }
     }

@@ -127,29 +127,46 @@ struct SettingsView: View {
     // v4.0.6：卡通宠物自定义页 + 大头像摘要所需的 key
     // （与 PetStudioSheet 共用同一组 @AppStorage，所以摘要改完立刻刷新，不需要额外通知）
     @State var showPetStudio = false
+    // v4.0.22：设置页搜索（顶部搜索框 + 结果区；索引见 Core/SettingsSearchIndex.swift）
+    @State var settingsQuery = ""
+    @State var searchScrollTarget: String?   // 结果里「滚到分组看」的锚点（sec-account / sec-ai / sec-appearance）
     @AppStorage(PetKeys.style) var petStyle: PetStyle = .liquid
     @AppStorage(PetKeys.face) var petFace: PetFace = .calm
     var body: some View {
         VStack(spacing: 0) {
             PageHeader(title: "设置")
+            // v4.0.22：设置项越堆越多，顶部给一行搜索框（索引与匹配见 Core/SettingsSearchIndex.swift）
+            SettingsSearchBar(text: $settingsQuery)
             ScrollView {
-                VStack(spacing: 0) {
-                    // v4.0.6：卡通宠物大头像（设置页顶部，点进去自定义）
-                    petStudioBanner
-                    accountSection
-                    connectionSection
-                    aiSection
-                    dataSection
-                    agentSection
-                    appearanceSection
-                    aboutSection
-                    logoutButton
+                ScrollViewReader { proxy in
+                    VStack(spacing: 0) {
+                        // v4.0.22：搜索结果插在最上面；下面各分组照旧全在 —— 点「滚到分组看」那条结果时
+                        // 锚点一定在树上，不需要「先清查询、等一帧再滚」的时序把戏
+                        if !settingsQuery.isEmpty {
+                            SettingsSearchList(query: settingsQuery) { openSearchEntry($0) }
+                        }
+                        // v4.0.6：卡通宠物大头像（设置页顶部，点进去自定义）
+                        petStudioBanner
+                        accountSection.id("sec-account")
+                        connectionSection
+                        aiSection.id("sec-ai")
+                        dataSection
+                        agentSection
+                        appearanceSection.id("sec-appearance")
+                        aboutSection
+                        logoutButton
+                    }
+                    .onChange(of: searchScrollTarget) { _, target in
+                        guard let target else { return }
+                        withAnimation(Motion.snap) { proxy.scrollTo(target, anchor: .top) }
+                        searchScrollTarget = nil
+                    }
+                    .padding(.horizontal, Spacing.xxl)
+                    .padding(.bottom, 100)
+                    // v3.4.28：横屏限宽居中
+                    .frame(maxWidth: .infinity)
+                    .frame(maxWidth: AdaptiveLayout.contentMaxWidth(hSizeSettings))
                 }
-                .padding(.horizontal, Spacing.xxl)
-                .padding(.bottom, 100)
-                // v3.4.28：横屏限宽居中
-                .frame(maxWidth: .infinity)
-                .frame(maxWidth: AdaptiveLayout.contentMaxWidth(hSizeSettings))
             }
             .scrollPosition($scrollPos)
         }
@@ -310,6 +327,55 @@ struct SettingsView: View {
             await loadCounts()
             await loadLocalStatus()   // v-review fix：进入设置页即以后端 /api/local/status 校准本地模型开关
             await loadTypesafeRouting()   // v3.9.56：进设置页即读后端真实路由开关/熔断状态
+        }
+    }
+
+    // MARK: - v4.0.22 设置页搜索
+
+    /// 搜索结果点开：弹窗类直接开对应弹窗，开关类滚到所属分组（清空查询后各分组就在下面）。
+    /// 这些 route 字面量与 Core/SettingsSearchIndex.swift 的 entries 一一对应 ——
+    /// 真值表反向核验「索引里每条 route 都在这里被处理」，漏一条就是「搜到了、点下去没反应」。
+    private func openSearchEntry(_ entry: SettingsSearchEntry) {
+        settingsQuery = ""
+        switch entry.route {
+        case "password": showPasswordSheet = true
+        case "conn": showConnSettings = true
+        case "model": showModelSheet = true
+        case "wechatChannel": showWechatChannel = true
+        case "ha": showHASettings = true
+        case "mcp": showMCPSettings = true
+        case "mail": showMailSettings = true
+        case "cloudDrive": showCloudDrive = true
+        case "appPermissions": showAppPermissions = true
+        case "localModels": showLocalModels = true
+        case "kb": showKB = true
+        case "memory": showMemory = true
+        case "cardGallery": showCardGallery = true
+        case "secrets": showSecrets = true
+        case "tasks": showTasks = true
+        case "history": showHistory = true
+        case "logs": showLogs = true
+        case "diagnostics": showDiagnostics = true
+        case "pinPath": showPinPath = true
+        case "lifeCards": showLifeCards = true
+        case "quickReminder": showQuickReminder = true
+        case "filesManager": showFilesManager = true
+        case "proactive": showProactive = true
+        case "agentModel": showAgentModelSheet = true
+        case "agentHelp":
+            // 使用说明是**行内展开**（不是弹窗）：点结果就把那一段展开，并滚到它所在的分组
+            showAgentHelp = true
+            searchScrollTarget = "sec-ai"
+        case "agentKeywords": showAgentKeywords = true
+        case "agentMemory": showAgentMemory = true
+        case "appearance": showAppearance = true
+        case "pet": showPetStudio = true
+        case "homeShortcuts": showHomeShortcuts = true
+        case "about": showAbout = true
+        case "sec:account": searchScrollTarget = "sec-account"
+        case "sec:ai": searchScrollTarget = "sec-ai"
+        case "sec:appearance": searchScrollTarget = "sec-appearance"
+        default: break
         }
     }
 }

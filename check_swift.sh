@@ -29,6 +29,16 @@ run_unit() {
     "$out" || exit 1
 }
 
+# v4.0.22：纯逻辑真值表若编在 Swift 5 模式下，「本地绿、CI Archive 才炸」的严格并发问题会漏检。
+# 新表（ql_bill / ql_settings_search）走这条：显式 -swift-version 6，与 CI 严格并发口径一致。
+run_unit6() {
+    local out="$1"; shift
+    rm -f "$out"
+    $SWIFT/swiftc -swift-version 6 -o "$out" "$@" 2>&1 | head -10
+    [ ${PIPESTATUS[0]} -eq 0 ] || { echo "❌ 编译失败（Swift 6 模式）：$out"; exit 1; }
+    "$out" || exit 1
+}
+
 echo "=== 1. 语法检查（全部 .swift） ==="
 # 🚨 2026-09-17 实踩：原 glob 是 `qingliao/Features/*/*.swift`（只扫子目录），
 # 而 Features 根目录下也有文件（TaskCenterView.swift 等）→ 它们**从未被本地预检覆盖**，
@@ -836,6 +846,35 @@ echo "=== 59. 看板拖拽排序真值表（v4.0.20 · 归一化 / 落位几何 
 rm -rf /tmp/ql_board_main && mkdir -p /tmp/ql_board_main
 cp scripts/ql_board/truth_table_board.swift /tmp/ql_board_main/main.swift
 run_unit /tmp/test_board /tmp/ql_board_main/main.swift qingliao/Core/BoardCardOrder.swift
+
+echo "=== 60. 扫账单真值表（v4.0.22 候选池⑪ App 入口 · 金额缺失 / 失败口径 / 分类白名单 / 浮点）==="
+# 表在仓内 scripts/ql_bill/truth_table_bill.swift（纯 Foundation，编译真源 Core/BillScanKit.swift）。
+# 钉死的口径：① amount 缺失 → 草稿出但金额 nil（不许拿 0 冒充）② amount+item 双空 → 判失败
+# ③ ok 才是成败判据（HTTP 一律 200）④ category 越界收敛成「其他」⑤ 进账本前四舍五入到分。
+run_unit6 /tmp/test_bill scripts/ql_bill/truth_table_bill.swift qingliao/Core/BillScanKit.swift | tee /tmp/tt_bill.log
+grep -q '0 失败' /tmp/tt_bill.log || fail=1
+
+echo "=== 61. 设置页搜索真值表（v4.0.22 · 匹配规则 + 路由真值 + 视图接线）==="
+# 表在仓内 scripts/ql_settings_search/truth_table_settings_search.swift（编译真源 Core/SettingsSearchIndex.swift）。
+# 除了匹配规则，本表还做**源级路由核验**：索引每条 route 都必须在 SettingsCore.openSearchEntry 里被处理，
+# sec:* 路由必须有 .id("…") 锚点 —— 漏一条就是「搜到了点下去没反应」。
+run_unit6 /tmp/test_settings_search scripts/ql_settings_search/truth_table_settings_search.swift qingliao/Core/SettingsSearchIndex.swift | tee /tmp/tt_settings_search.log
+grep -q '0 失败' /tmp/tt_settings_search.log || fail=1
+
+# v4.0.22 两处新入口的存在性：入口被误删时功能是「悄悄消失」的（编译不报、真值表也测不到 UI）。
+# ⚠️ 一律**先剥行注释再匹配**（注释里出现同名串不算数，否则就是假绿护栏 —— 审查实测删掉真入口后
+# 原版 `grep -q '扫账单'` 仍命中注释照样绿）。匹配串取**代码形态**（调用实参/成员访问），不取裸词。
+strip_comments() { sed 's://.*::' "$1"; }
+strip_comments qingliao/Features/Life/RecordSection.swift | grep -q 'secondaryAction: (title: "扫账单", action:' \
+  || { echo "❌ 记录页缺「扫账单」入口（候选池⑪ App 入口）"; fail=1; }
+strip_comments qingliao/Features/Life/RecordSection.swift | grep -q 'BillScanSheet().id(billScanSession)' \
+  || { echo "❌ 扫账单弹窗没挂 .id(会话号)：SwiftUI 复用上次状态（重开带旧图/旧金额）"; fail=1; }
+strip_comments qingliao/Features/Life/LifeSectionScaffold.swift | grep -q 'Button(action: secondaryAction.action)' \
+  || { echo "❌ 页级标题行没消费次要动作槽位（入口没地方挂）"; fail=1; }
+strip_comments qingliao/Features/Life/BillScanSheet.swift | grep -q '"/api/agent/intent/bill"' \
+  || { echo "❌ 扫账单没打后端识别接口（App 端自造识别=假数据）"; fail=1; }
+strip_comments qingliao/Features/Settings/SettingsCore.swift | grep -q 'SettingsSearchBar(text: \$settingsQuery)' \
+  || { echo "❌ 设置页缺搜索框"; fail=1; }
 
 [ $fail -eq 0 ] || { echo "❌ 有护栏失守"; exit 1; }
 exit 0
