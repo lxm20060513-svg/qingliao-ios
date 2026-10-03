@@ -205,6 +205,17 @@ enum Quirk: String, CaseIterable, Identifiable, Equatable {
     }
 }
 
+// MARK: 宠物待机动效时序（单一真源，v4.0.37）
+//
+// 待机微动作的触发间隔。v4.0.37 起用户拍板「2~5 秒随机触发」——比旧值（6~14s）密得多，
+// 目的是让宠物明显「活」着。写成常量数组而非 `Double.random(in:)` 是为了：
+// ①设置页文案、渲染稿脚本、护栏表都读同一处，不会各写一个数字；
+// ②护栏可钉住「间隔集合 == [2,3,4,5]」，改值时逼红提醒同步文案。
+enum PetMotionTiming {
+    /// 待机微动作（歪头/张望/扭动/伸懒腰/眨眼之外的 quirk 动作）两次触发之间的随机间隔，单位秒。
+    static let idleQuirkInterval: [Double] = [2, 3, 4, 5]
+}
+
 // MARK: 形象状态（只做冗余表达；宠物永远不是唯一的信息通道）
 
 enum PetState: Equatable {

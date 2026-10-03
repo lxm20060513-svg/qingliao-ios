@@ -661,8 +661,17 @@ let bubbleElseBody: String = {
     guard let b = bubbleCond.range(of: "} else {") else { return "" }
     return String(bubbleCond[b.upperBound...].prefix(200))
 }()
+// v4.0.39：三点本体已从 inline 块抽成计算属性 thinkingIndicatorRow（外面套了一层浮现包装），
+// 所以 if 体不再出现 TypingIndicator() 字面量。断言跟着改成**两跳**：if 体必须调 thinkingIndicatorRow，
+// 且 thinkingIndicatorRow 本体（定义处）必须真的渲染 TypingIndicator() —— 语义没变，
+// 仍能钉住「if 体是三点、else 体是 streamingBubble」这条发布前审查抓出来的分支归属。
+let typingRowSrc: String = {
+    guard let a = chatViewSrc.range(of: "private var thinkingIndicatorRow: some View") else { return "" }
+    return String(chatViewSrc[a.lowerBound...].prefix(1200))
+}()
 check("🚨 气泡 if 体必须是三点（写反 = 有内容时只显示三点，回答最后才蹦出来）",
-      bubbleIfBody.contains("TypingIndicator()") && !bubbleIfBody.contains("streamingBubble"))
+      bubbleIfBody.contains("thinkingIndicatorRow") && !bubbleIfBody.contains("streamingBubble")
+      && typingRowSrc.contains("TypingIndicator()"))
 check("🚨 气泡 else 体必须是 streamingBubble（否则首帧/纯 remoteBusy 拿残留内容渲染 = 串话）",
       bubbleElseBody.contains("streamingBubble"))
 let sidChangeSlice: String = {

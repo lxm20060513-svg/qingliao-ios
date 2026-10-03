@@ -254,8 +254,15 @@ struct ScrollPinTruthTable {
               chatView.contains("scrollPinState = ChatScrollPin.next(state: scrollPinState")
                 && chatView.contains("@State private var scrollPinState = ChatScrollPinState.pinnedAtBottom")
                 && !chatView.contains("prevOffset:"))
-        check("B6 滚底目标仍是流式气泡（.id(\"streaming\") 那一行）",
-              chatView.contains("proxy.scrollTo(\"streaming\", anchor: .bottom)"))
+        // v4.0.39：滚底锚点 id 改成走单一真源 streamingAnchorID（带 startSeq 后缀，
+        // 让三点行每轮强制重建、浮现必播）。断言跟着迁到新真源，并加钉「三处同源」——
+        // id 字符串曾散在 .id ×2 + scrollTo ×1，改一处忘另两处 → 贴底静默失效。
+        check("B6 滚底目标仍是流式气泡（streamingAnchorID 那一行）",
+              chatView.contains("proxy.scrollTo(streamingAnchorID, anchor: .bottom)"))
+        check("B6b 锚点 id 走单一真源：三处全用 streamingAnchorID、零处裸字符串",
+              chatView.contains("private var streamingAnchorID: String { \"streaming-\\(stream.startSeq)\" }")
+                && chatView.components(separatedBy: ".id(streamingAnchorID)").count - 1 == 2
+                && !chatView.contains("proxy.scrollTo(\"streaming\""))
         check("B7 不满一屏贴底用的容器高度仍在测量",
               chatView.contains("chatListViewportH = h"))
 
@@ -274,16 +281,16 @@ struct ScrollPinTruthTable {
         // 比对前先把空白归一，免得护栏被缩进变动打红（本表只钉语义，不钉排版）。
         let squashed = chatView.split(whereSeparator: { $0.isWhitespace }).joined()
         check("B9 滚底守卫与渲染条件同源（thisSessionStreaming || remoteBusy 才滚 streaming 行）",
-              squashed.contains("ifthisSessionStreaming||remoteBusy{proxy.scrollTo(\"streaming\",anchor:.bottom)"))
+              squashed.contains("ifthisSessionStreaming||remoteBusy{proxy.scrollTo(streamingAnchorID,anchor:.bottom)"))
         check("B10 流式滚底延后一拍（防上一帧几何），且延迟段内二次判定贴底",
               squashed.contains("DispatchQueue.main.async{guardscrollPinState.pinnedelse{return}scrollBottom(proxy,animated:false)}"))
         check("B11 append（自己发出 / 回答落库）时复位贴底态——旧 unpinned 不得熄火整段流式",
               squashed.contains("scrollPinState=.pinnedAtBottom"))
         // 反向自证：旧形态拼回 → B9/B10 必红
-        let squashedOldGuard = "if thisSessionStreaming { proxy.scrollTo(\"streaming\", anchor: .bottom) } else if let last = chat.messages.last { }"
+        let squashedOldGuard = "if thisSessionStreaming { proxy.scrollTo(streamingAnchorID, anchor: .bottom) } else if let last = chat.messages.last { }"
             .split(whereSeparator: { $0.isWhitespace }).joined()
         check("B12 反向自证：滚底退回「只看本机流」→ B9 必红",
-              !squashedOldGuard.contains("ifthisSessionStreaming||remoteBusy{proxy.scrollTo(\"streaming\",anchor:.bottom)"),
+              !squashedOldGuard.contains("ifthisSessionStreaming||remoteBusy{proxy.scrollTo(streamingAnchorID,anchor:.bottom)"),
               negative: true)
         let squashedOldStream = "onChange(of: stream.content) { guard scrollPinState.pinned else { return } scrollBottom(proxy, animated: false) }"
             .split(whereSeparator: { $0.isWhitespace }).joined()

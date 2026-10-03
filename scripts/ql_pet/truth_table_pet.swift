@@ -387,4 +387,18 @@ check("气泡留白只在对侧：AI 左贴边 / 用户右贴边（内容侧不�
       && cbC.contains("if !message.isUser { Spacer(minLength: 12) }"))
 check("欢迎页身份宠物仍在（防误伤）", cvC.contains("private var petHero"))
 
+// MARK: - 17. v4.0.37 待机微动作间隔改为 2~5 秒随机（用户拍板）
+// 间隔值是「单一真源 + 设置页文案同源」，不是散落的 `Double.random(in:)`：
+// 改值时护栏逼红，提醒同步 PetStudioSheet 文案与渲染稿脚本里的旧数字。
+check("间隔常量落在 PetMotionTiming.idleQuirkInterval（单一真源）",
+      pmC.contains("enum PetMotionTiming")
+      && pmC.contains("static let idleQuirkInterval: [Double] = [2, 3, 4, 5]"))
+check("quirkyLoop 走该常量取随机间隔，不写裸 random",
+      paAC.contains("PetMotionTiming.idleQuirkInterval.randomElement() ?? 3"))
+check("旧的 6~14s 间隔已清零",
+      !paAC.contains("Double.random(in: 6...14)")
+      && !stripComments(read("qingliao/Features/Settings/PetStudioSheet.swift")).contains("6~14"))
+check("设置页文案已同步为 2~5 秒",
+      stripComments(read("qingliao/Features/Settings/PetStudioSheet.swift")).contains("2~5 秒随机触发"))
+
 report()

@@ -125,7 +125,7 @@ struct PetStudioSheet: View {
                             .background(Capsule().fill(Color.accentColor.opacity(Tint.subtle)))
                     }
                     .padding(.vertical, Spacing.xxs)
-                    Text("勾掉的动作待机时就不会再出现。动作在 6~14 秒随机触发一次，不影响思考/提醒脸的稳重感。")
+                    Text("勾掉的动作待机时就不会再出现。动作在 2~5 秒随机触发一次，不影响思考/提醒脸的稳重感。")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 } header: {

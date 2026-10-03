@@ -318,7 +318,7 @@ struct PetAvatar: View {
     }
 
     /// v4.0.27：庆祝动作 —— 「AI 刚回答完」时播一次，庆祝味优先。
-    /// 与 quirkyLoop 的区别：那个是 6~14s 的空闲自娱（受 state == .idle 门控、且不抢手头动作），
+    /// 与 quirkyLoop 的区别：那个是待机自娱（受 state == .idle 门控、间隔见 PetMotionTiming.idleQuirkInterval、且不抢手头动作），
     /// 这个由宿主明确触发，不看 state（回答完那一刻 state 刚从 .thinking 落回 .idle，
     /// 用 state 门控反而可能因时序差漏播）。
     ///
@@ -354,11 +354,15 @@ struct PetAvatar: View {
         }
     }
 
-    /// v3.9.85：微动作循环——8~16s 随机播一个，每个动作「出去 + 回来」两段动画
+    /// v3.9.85：微动作循环——每个动作「出去 + 回来」两段动画
+    /// v4.0.37：触发间隔由 6~14s 改为 **2~5s 随机**（用户拍板「卡通宠物动画改为 2-5 秒随机触发」），
+    /// 让待机的宠物明显「活」起来；间隔落在 PetMotionTiming.idleQuirkInterval 单一真源。
     /// v4.0.6：池子 = 用户勾选的那几个（enabledQuirks）；全关时**彻底不播**（不是硬塞一个默认动作）。
     private func quirkyLoop() async {
         while !Task.isCancelled {
-            try? await Task.sleep(for: .seconds(Double.random(in: 6...14)))
+            // 间隔随机取自 PetMotionTiming.idleQuirkInterval（v4.0.37：2~5 秒）；池空时兜底 3 秒。
+            let gap = PetMotionTiming.idleQuirkInterval.randomElement() ?? 3
+            try? await Task.sleep(for: .seconds(gap))
             guard animate, !Task.isCancelled, state == .idle, !patting else { continue }
             // ⚠️ 每轮重算：勾选可能在本轮等待期间被改（设置页或 task id 重挂都会走到这）
             let pool = Quirk.pool.filter { enabledQuirks.contains($0) }

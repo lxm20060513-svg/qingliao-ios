@@ -67,6 +67,7 @@ let chat = src("qingliao/Features/Chat/ChatView.swift")
 let gate = src("check_swift.sh")
 let pill = src("qingliao/Theme/Pill.swift")
 let settings = src("qingliao/Features/Settings/SettingsCore.swift")
+let quote = src("qingliao/Core/WelcomeQuotes.swift")
 
 check("HomeCardOrder.swift 源可读", !coreSrc.isEmpty)
 check("HomeCards.swift 源可读", !cards.isEmpty)
@@ -418,6 +419,29 @@ check("真拖动那条路没丢：换位调用排在门闩之后（先上闩再 
           let target = src.range(of: "lettarget=HomeCardOrder.dragTarget(") else { return false }
     return latch.lowerBound < target.lowerBound
 }())
+
+
+check("WelcomeQuotes.swift 源可读", !quote.isEmpty)
+check("护栏：随机一言单一真源 pick() 在（ChatView 不内联数组）",
+      quote.contains("static func pick() -> String"))
+check("护栏：三类语料齐全（正能量 / 古诗词 / 生活感悟）",
+      quote.contains("static let brightLines") &&
+      quote.contains("static let poemLines") &&
+      quote.contains("static let calmLines"))
+check("护栏：古诗词每条自带出处「—」（避免来路不明的假诗）", { () -> Bool in
+    guard let r = quote.range(of: "static let poemLines"),
+          let e = quote.range(of: "static let calmLines"),
+          e.lowerBound > r.upperBound else { return false }
+    let body = String(quote[r.upperBound..<e.lowerBound])
+    let lines = body.split(separator: "\n").map(String.init)
+        .filter { $0.trimmingCharacters(in: .whitespaces).hasPrefix("\"") }
+    return lines.count >= 8 && lines.allSatisfy { $0.contains("—") }
+}())
+check("护栏：空态副标题走随机一言（v4.0.34 硬编码功能清单已下线）",
+      chat.contains("WelcomeQuotes.pick()") &&
+      !stripCommentLines(chat).contains("我能帮你查资料"))
+check("护栏：有消息时仍是状态提示「随时继续刚才的话题」",
+      chat.contains("\"随时继续刚才的话题\""))
 
 print(fail == 0 ? "✅ ql_chat_home 真值表 \(pass) 项全过" : "❌ 失败 \(fail) / 通过 \(pass)")
 if fail > 0 { exit(1) }

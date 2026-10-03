@@ -35,7 +35,27 @@ enum Motion {
     /// 持续型（呼吸 / 流光收尾），不加回弹
     static var flow: Animation { .smooth(duration: 0.28) }
 
-    /// 新消息气泡上滑入位（y:8→0 + opacity 0→1，v3.9.31）——dampingRatio 0.8 无过冲，
-    /// 只让新插入行有过渡、不放大既有位移
-    static var enter: Animation { .spring(response: 0.18, dampingFraction: 0.8) }
+    /// 新消息气泡上滑入位（y:8→0 + opacity 0→1，v3.9.31）
+    ///
+    /// v4.0.39：dampingFraction 0.8 → 0.72（**轻微过冲**）。这是本轮唯一一次全局改动 enter 的理由：
+    /// 插入动画由 ChatStore.append / upsertAssistant 的 withAnimation 统一驱动，用户发送气泡与
+    /// AI 回答落库共用同一条事务，改这一处就同时拿到「发送弹出」与「流式收尾落位回弹」两种回弹，
+    /// 不必在视图层各挂一套 keyframe（keyframeAnimator 会在降频/后台时凝帧，本仓三点动画已因此翻车）。
+    /// 过冲幅度刻意压得很小（约 3~4%），只到「弹了一下」的观感，不会像弹窗 emerge 那样夸张。
+    static var enter: Animation { .spring(response: 0.20, dampingFraction: 0.72) }
+
+    /// 用户发送气泡的位移量（pt，配合上面的过冲读作「弹上来」）
+    static let bubbleRise: CGFloat = 12
+
+    /// 流式气泡首帧浮现（淡入 + 上浮）。比 enter 更快更钝：流式首帧没有「弹」的语义，只是「长出来」。
+    static var streamBorn: Animation { .easeOut(duration: 0.22) }
+
+    /// 流式期间那道下扫光带的单程时长（秒，往返 = 2×）
+    static let streamSweepDuration: Double = 1.2
+
+    /// 流式光带的最大不透明度。**必须极淡**（3.5%）：这条光带靠 repeatForever 驱动，
+    /// 而 repeatForever 属官方定义的 pausable schedule（子树无 Core Animation 活动时会被降频/暂停，
+    /// 本仓 v4.0.19 三点动画「动一会儿就停」同源）。压到肉眼近乎不可见，冻结时无感知，
+    /// 跑起来时也只当一层极淡的空气感，绝不抢正文可读性。
+    static let streamSweepOpacity: Double = 0.035
 }

@@ -13,6 +13,13 @@ struct StreamingBubbleView: View {
     @Environment(StreamClient.self) private var stream
     var onAIImageTap: (String) -> Void = { _ in }
     var onFileTap: (String, String) -> Void = { _, _ in }
+    /// v4.0.39：首帧浮现用的一次性开关。为什么不靠 .transition：
+    /// 这条气泡的插入由 `stream.isStreaming` 翻转驱动，而那个写入发生在 StreamClient 的网络
+    /// 回调里、**没有 withAnimation 事务**（本仓的插入动画事务只包在 ChatStore.append /
+    /// upsertAssistant 里），transition 在无事务时不会播放 → 必须自己带动画上下文。
+    @State private var born = false
+    /// v4.0.39：开「降低动态效果」时首帧直接落终态，不播浮现（与 TypingIndicator 同口径）。
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         MessageBubble(
@@ -21,10 +28,73 @@ struct StreamingBubbleView: View {
             onAIImageTap: onAIImageTap,   // v2.0.128：流式中 AI 图片可点
             onFileTap: onFileTap,         // v3.9.17：流式中 AI 生成物可点
             streamingAvatar: true,   // v3.0.15：AI 输出中头像 = 粒子球
-            streamingText: true   // v3.0.17：流式长文用 SwiftUI Text 渲染（根治 UITextView 锁窄缩小）
+            streamingText: true,   // v3.0.17：流式长文用 SwiftUI Text 渲染（根治 UITextView 锁窄缩小）
+            streamingSweep: true   // v4.0.39：流式期间气泡内 3.5% 极淡下扫光带（声明序在 streamingText 之后）
         )
+        // v4.0.39：①首帧淡入 + 上浮 8pt（「长出来」，比用户发送气泡克制；Motion.enter 的过冲
+        // 让它不显生硬）。挂在 MessageBubble 之外，内部排版/几何一概不动。
+        .opacity(born ? 1 : 0)
+        .offset(y: born ? 0 : 8)
+        .onAppear {
+            if reduceMotion { born = true } else { withAnimation(Motion.streamBorn) { born = true } }
+        }
+        // v4.0.39（审查建议⑥）：逐轮复位。answer 中途重连/recover 时 StreamClient.start 会把
+        // content 清空 → 三点行 ↔ 流式气泡互换 → 本视图重建；不按轮次复位就会出现「回答中途冒一次淡入」。
+        // startSeq 每轮必变，是这仓认定的「开跑语义」唯一可靠信号（与 typingBorn 同款复位点）。
+        .onChange(of: stream.startSeq) {
+            if reduceMotion { born = true } else { withAnimation(Motion.streamBorn) { born = false } }
+        }
         // v3.9.30：流式增量落进同一气泡 → 高度/排版变化走 settle 平滑生长（原瞬跳）
         .animation(Motion.settle, value: stream.displayContent)
+    }
+}
+
+// MARK: - v4.0.39 流式下扫光带
+//
+// 一道 3.5% 不透明度的柔光带，1.2s 单程在气泡内自上而下循环扫过（v4.0.39 用户要求「流式输出气泡动画」）。
+// 三个刻意的取舍：
+//  ① 驱动用 .offset + repeatForever（不是 TimelineView）：offset 改 transform、走 Core Animation，
+//     不引第二套墙钟；光带被系统判定「无动画活动」而冻结的风险已由 Motion.streamSweepOpacity
+//     压到 3.5% 可无视（同本仓三点动画 v4.0.12/v4.0.19 三次翻车的同源坑，本轮不复现）。
+//  ② 不用 .ultraThinMaterial（反光过强、像蒙了一层玻璃）→ 改用三段白渐变硬边淡出。
+//  ③ 只在单气泡模式挂：多气泡段落时每段自带圆角底，一条横贯的光带会把段落割成条纹（挂载点见 MessageBubble）。
+struct StreamSweepBand: View {
+    /// 光带宽（pt）：窄到只读作「一道扫过」，不至于像进度条。
+    private let bandWidth: CGFloat = 56
+    /// 单程位移的**下限**（pt）。绝大多数 AI 气泡高度 < 300pt，实测值取几何实测高度再加一个带宽：
+    /// 硬编码 320 的问题是带代码块/表格的长回复轻易超过 320pt —— 那时首帧 +320 仍落在可视区内，
+    /// 光带会从气泡中部凭空开始扫（v4.0.39 审查建议③）。
+    /// 用 GeometryReader 已有的 geo.size.height 取实高，不额外读一次布局。
+    private let travelFloor: CGFloat = 320
+
+    @State private var sweeping = false
+
+    var body: some View {
+        // ⚠️ 首帧 sweeping=false → 光带停在气泡下方（被 clip 裁掉，看不见）；
+        //    onAppear 写 true 触发 repeatForever。没这一下它会从气泡中间凭空开始扫。
+        GeometryReader { geo in
+            // 实测高度 + 一个带宽：保证光带两端完全在气泡外（首帧与末帧都被 clip 裁掉），
+            // 无论气泡多高 —— 高于 320 的长回复（代码块/表格）也不会从中间冒出来。
+            // ⚠️ 用内联 max 表达式而非闭包内 `let travel`（少一个局部声明，避开 ViewBuilder
+            // 里局部变量的解析歧义；swiftc -parse 本地验不出这类，得 CI 才知）。
+            LinearGradient(
+                colors: [.white.opacity(0), .white.opacity(1), .white.opacity(0)],
+                startPoint: .leading, endPoint: .trailing
+            )
+            .frame(width: bandWidth)
+            .rotationEffect(.degrees(18))   // 轻微斜切，像手扫过而非贴纸平移
+            .offset(y: sweeping ? -max(travelFloor, geo.size.height + bandWidth)
+                                : max(travelFloor, geo.size.height + bandWidth))
+            .frame(width: geo.size.width, height: geo.size.height)
+            .clipped()
+        }
+        .allowsHitTesting(false)
+        .opacity(Motion.streamSweepOpacity)
+        .animation(
+            .easeInOut(duration: Motion.streamSweepDuration).repeatForever(autoreverses: true),
+            value: sweeping
+        )
+        .onAppear { sweeping = true }
     }
 }
 
@@ -76,12 +146,18 @@ struct MessageBubble: View {
     var streamingAvatar: Bool = false
     // v3.0.17：流式输出中 markdown 段用 SwiftUI Text 渲染（绕开 UITextView 流式锁窄布局 bug 家族）
     var streamingText: Bool = false
+    /// v4.0.39：流式期间在气泡内走一道极淡的下扫光带（v4.0.39 用户要求「流式输出气泡动画」）。
+    /// ⚠️ 声明序铁律：本参数必须排在 streamingText **之后** —— StreamingBubbleView 的调用点
+    ///    是按声明序传标签实参（streamingAvatar: → streamingText: → 本参数），挪位即编译失败。
+    var streamingSweep: Bool = false
     // v2.0.38：聊天字体大小（设置页可调，实时生效）
     @AppStorage("qingliao_font_size") private var fontSize = 15.0   // v2.0.87r：默认15号
     // v2.0.128：AI 输出行高（设置页滑条，实时生效）
     @AppStorage("qingliao_ai_line_spacing") private var aiLineSpacing = 1.0
     // v3.4.28：横屏自适应（气泡/图片宽度按宽屏放宽）
     @Environment(\.horizontalSizeClass) private var hSize
+    // v4.0.39：开「降低动态效果」时不挂流式光带（与 TypingIndicator / AIImageView 同口径）
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     // v2.0.65：深浅色气泡双色值 / 超长消息折叠
     @Environment(\.colorScheme) private var scheme
     // v2.0.130：AI 发图 MEDIA 路径 → 服务器图片 URL（读 App 配置的服务器地址）
@@ -275,10 +351,41 @@ struct MessageBubble: View {
                         }
                     }
                 )
+                // v4.0.39：流式期间的下扫光带。用 overlay（不是 background）→ 画在气泡底色之上、
+                // 但仍在描边之下；clipShape 到同一个圆角矩形，绝不溢出到气泡外。
+                // 多气泡段落模式（isMultiBubbleAI）不挂：那时每段自带圆角底，光带跨段会割裂。
+                // 驱动用 .offset + repeatForever（不引第二套时钟）：见 Motion.streamSweepOpacity 的注释——
+                // 即便系统判定「无动画活动」把这条 repeatForever 冻住，光带也只剩 3.5% 的一层淡影，
+                // 肉眼读作静态质感而非「动画卡住」。reduceMotion 直接不挂。
+                .overlay(
+                    Group {
+                        if streamingSweep && !isMultiBubbleAI && !reduceMotion {
+                            StreamSweepBand()
+                        }
+                    }
+                )
             .frame(maxWidth: AdaptiveLayout.bubbleMaxWidth(hSize), alignment: message.isUser ? .trailing : .leading)   // v3.4.28 横屏自适应（竖屏仍 366）
             // v2.0.85c：气泡出现微动画（缩放 + 淡入，单条插入安全）
-            .transition(.scale(scale: 0.94, anchor: message.isUser ? .trailing : .leading)
-                .combined(with: .opacity))
+            // v4.0.39（用户要求「发送气泡动画」）：分角色两套过渡。
+            //   · 用户发送气泡 = 「弹上来」：offset 下 12pt → 0 + scale 0.88→1，锚点固定 .trailing
+            //     （贴右边那侧），所以放大时不会朝屏幕中间漂。
+            //   · AI 气泡 = 「长出来」：scale 0.97 + offset 6pt，比用户那条克制得多。
+            //     AI 这条同时兼任**流式收尾落位回弹**：落库走 ChatStore.upsertAssistant 的
+            //     withAnimation(Motion.enter)，Motion.enter 本轮已调成带轻微过冲的 spring
+            //     （response 0.20 / damping 0.72）→ 回答停住那一刻有一下很小的回弹，无需另挂动画。
+            // 不用 keyframeAnimation 做「0.88→1.08→1」两段：那是 pausable schedule，
+            // 子树无 Core Animation 活动时会被降频/暂停（本仓三点动画 v4.0.12/v4.0.19/v4.0.20
+            // 三次在这上面翻车，最后靠 .periodic 墙钟才根治）。这里改用 spring 的天然过冲达到
+            // 同款「弹了一下」的观感，且与插入事务同源、不引第二套调度。
+            .transition(message.isUser
+                ? .asymmetric(
+                    insertion: .scale(scale: 0.88, anchor: .trailing)
+                        .combined(with: .offset(y: Motion.bubbleRise)),
+                    removal: .opacity)
+                : .asymmetric(
+                    insertion: .scale(scale: 0.97, anchor: .leading)
+                        .combined(with: .offset(y: 6)),
+                    removal: .opacity))
 
             bubbleTrailingAccessory
         }

@@ -1089,6 +1089,11 @@ struct ChatView: View {
             // ⚠️ 不许再为它单独挂一个 `.onChange`：这条 body 修饰符链已经贴着 Swift 类型检查的阈值，
             // 多一个带闭包的成员就会 Archive 失败（`unable to type-check in reasonable time`，CI #608 实测）。
             suppressAutoReadOnce = false
+            // v4.0.39：思考三点的浮现开关复位。**必须挂 startSeq 而不是 thisSessionStreaming**：
+            // 排队自动续发时 finish()→start() 同帧（见上面注释），false→true 的边沿会被吞掉 →
+            // 挂在 busy 翻转上的复位不执行 → 那一轮三点直接凭空显示（只有第一轮有上浮动画）。
+            // startSeq 只增、每轮必变，是这仓认定的「开跑语义」唯一可靠信号。
+            typingBorn = false
         }
         .onReceive(NotificationCenter.default.publisher(for: .qingliaoMemoSend)) { note in
             if let text = note.object as? String, !text.isEmpty {
@@ -1991,6 +1996,11 @@ struct ChatView: View {
         Group {
             if AdaptiveLayout.isShort(vSize) { welcomeLandscape } else { welcomePortrait }
         }
+        // v4.0.39：每次真正进入欢迎页（清空/新建会话/切到空会话）才重抽一句，
+        // 挂在 onAppear 而不是 body 求值处——见 welcomeQuote 处的注释。
+        .onAppear {
+            if chat.messages.isEmpty { welcomeQuote = WelcomeQuotes.pick() }
+        }
     }
 
     private var welcomePortrait: some View {
@@ -2194,9 +2204,18 @@ struct ChatView: View {
         }
     }
 
+    /// v4.0.34（用户拍板）：空态副标题从硬编码功能清单改为**随机一言**（正能量 / 鸡汤 / 古诗词 /
+    /// 生活感悟混池），文案单一真源在 `Core/WelcomeQuotes.swift`，本视图只抽签。
+    /// 有消息时仍显示「随时继续刚才的话题」——那是状态提示，不参与随机。
     private var welcomeSubtitle: String {
-        chat.messages.isEmpty ? "我能帮你查资料、写代码、执行自动化任务" : "随时继续刚才的话题"
+        chat.messages.isEmpty ? welcomeQuote : "随时继续刚才的话题"
     }
+
+    /// v4.0.39（审查阻断①修正）：抽中的那一句存 @State，**不在 body 的计算属性里直接调 pick()**。
+    /// 原因：welcomeSubtitle 是 body 里的计算属性，每逢 body 重算（@AppStorage 字号/服务器地址、
+    /// remoteBusy 探针轮询、speech 状态…）就重新求值一次 → 直调 pick() 会让停在欢迎页不动时
+    /// 句子自己来回换（用户看到的「抖动」）。改法：进屏时抽一次存 state，body 只读 state。
+    @State private var welcomeQuote = WelcomeQuotes.pick()
 
     /// v3.0.51：单条消息整行（日期分隔 + 时间分隔 + 气泡）——拆独立方法防 ForEach type-check 超时
     /// v3.4.2：改吃 entry 快照（prevMsg），渲染不再索引可变 chat.messages（越界 SIGTRAP 根治）
@@ -2494,6 +2513,52 @@ struct ChatView: View {
         .transition(.move(edge: .bottom).combined(with: .opacity))
     }
 
+    /// v4.0.39：思考三点那一行（思考/等待期显示，思考气泡本体保留，v4.0.31 口径）。
+    /// 几何逐字沿用原 inline 写法（灰底、圆角 Radius.card、minHeight 44、左对齐钉边），
+    /// 只在外面多挂一层**浮现包装**：opacity 0→1 + 下移 8pt→0。
+    /// 为什么不用 .transition/.move：三点这行的出现由 `thisSessionStreaming || remoteBusy` 翻转驱动，
+    /// 那两个写入发生在 StreamClient 网络回调与 onChange 里、**不带 withAnimation 事务**，
+    /// transition 在无事务时不会播放（流式气泡首帧同理，见 StreamingBubbleView.born）。
+    /// reduceMotion 时 onAppear 直接落终态，不播浮现。
+    private var thinkingIndicatorRow: some View {
+        TypingIndicator()
+            .padding(.horizontal, Spacing.section)
+            .padding(.vertical, Spacing.xxl)
+            .background(Color(uiColor: .systemGray5))
+            .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+            .frame(minHeight: 44)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .opacity(typingBorn ? 1 : 0)
+            .offset(y: typingBorn ? 0 : 8)
+            .onAppear {
+                if reduceMotion { typingBorn = true }
+                else { withAnimation(Motion.streamBorn) { typingBorn = true } }
+            }
+            // 保留原 inline 块上的 .transition(.opacity)（v4.0.39 未删）：它管的是
+            // 「三点行 ↔ streamingBubble」在同一 if/else 里互换时的退场淡出。
+            // 浮现进场由上面的 born 包装负责，两者分工不重叠。
+            .transition(.opacity)
+            // 🚨 v4.0.39（审查阻断②修正）：身份必须**逐轮变**。原 `.id("streaming")` 恒定，
+            // 而纯 remoteBusy 时三点行常驻屏上（探针在途/续接态，仓库自己注释说这是常见态）：
+            // 此刻 startSeq 递增但行没被卸载 → onAppear 不再触发 → 上一轮点亮后又被复位成
+            // opacity 0 的那一次，整轮思考期三点静默不可见（无报错、无日志，纯 UI 少一块）。
+            // 改成带 startSeq 的复合身份：每轮身份变 → 强制重建 → onAppear 必触发 → 浮现必播。
+            .id(streamingAnchorID)
+    }
+
+    /// v4.0.39：思考三点浮现开关（配 thinkingIndicatorRow）
+    @State private var typingBorn = false
+    /// v4.0.39：开「降低动态效果」时不播浮现（与 TypingIndicator 内部同口径）
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// v4.0.39：流式区（思考三点行 / 流式气泡）滚动锚点 id 的**单一真源**。
+    ///
+    /// 为什么带 startSeq：身份逐轮变 → 每轮强制重建该行 → onAppear 必触发 → 浮现动画必播
+    /// （恒定 id 在纯 remoteBusy 常驻屏时会吞掉 onAppear，见 thinkingIndicatorRow 处的阻断②注释）。
+    /// 为什么必须是单一真源：本轮之前 id 字符串在**三处**各写一份（`.id` ×2 + `scrollTo` ×1），
+    /// 改一处忘另两处 → scrollTo 找不到锚点 → 贴底静默失效（v4.0.37 刚修过这个病）。
+    private var streamingAnchorID: String { "streaming-\(stream.startSeq)" }
+
     /// v3.0.15：流式输出气泡——拆独立计算属性（防 messageList 巨型 body type-check 超时）
     /// v3.9.40（#3）：真正渲染交给 StreamingBubbleView——displayContent 每 48ms 的写入只失效那条气泡，
     /// 不再让 ChatView.body（连同整份 LazyVStack 消息列表）跟着逐 tick 重画。
@@ -2503,7 +2568,7 @@ struct ChatView: View {
             onAIImageTap: { url in openAIImage(url) },   // v2.0.128：流式中 AI 图片可点（参数须在 streamingAvatar 前）
             onFileTap: { url, name in openAIFile(url, name) }   // v3.9.17：流式中 AI 生成物可点
         )
-        .id("streaming")
+        .id(streamingAnchorID)   // v4.0.39：与三点行同一身份真源（scrollBottom 也滚它）
     }
 
     private var messageList: some View {
@@ -2580,15 +2645,7 @@ struct ChatView: View {
                                 // v4.0.33：左对齐钉回——LazyVStack 默认 center 对齐，删掉头像/宠物后本行没有
                                 // maxWidth 无穷的 frame 拉满（普通气泡靠这个贴边），三点气泡被居中挂在中轴
                                 //（真机截图实报）。与 messageRow 同款 `.frame(maxWidth: .infinity, alignment: .leading)`。
-                                TypingIndicator()
-                                    .padding(.horizontal, Spacing.section)
-                                    .padding(.vertical, Spacing.xxl)
-                                    .background(Color(uiColor: .systemGray5))
-                                    .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
-                                    .frame(minHeight: 44)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .id("streaming")
-                                    .transition(.opacity)
+                                thinkingIndicatorRow
                             } else {
                                 streamingBubble
                             }
@@ -3019,7 +3076,11 @@ struct ChatView: View {
             // `chat.messages.last`（用户自己那条，位置在三点**上方**）→ 气泡一路沉到输入栏下面。
             // 与渲染条件同源：行在就滚行。
             if thisSessionStreaming || remoteBusy {
-                proxy.scrollTo("streaming", anchor: .bottom)
+                // v4.0.39：id 与三点行/流式气泡的 .id 保持**逐字一致**（含 startSeq 后缀）。
+                // ⚠️ 两处曾经不一致的代价：三点行身份改成 "streaming-<seq>" 而这里还滚 "streaming"
+                // → scrollTo 找不到锚点 → 贴底静默失效（v4.0.37 刚修好过一次）。
+                // 抽成单一真源，别再各写一份字符串。
+                proxy.scrollTo(streamingAnchorID, anchor: .bottom)
             } else if let last = chat.messages.last {
                 proxy.scrollTo(last.id, anchor: .bottom)
             }
