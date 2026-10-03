@@ -302,11 +302,13 @@ struct MessageBubble: View {
     // 这里按原注释分段把视图块原样搬成独立 @ViewBuilder 属性 —— **纯搬运**：视图顺序、
     // 层级、条件分支、闭包、修饰符逐字未变，渲染结果与拆分前一致，只为把类型检查表达式打小。
 
-    /// 用户气泡左侧留白 / AI 气泡左侧留白
-    /// v4.0.31：AI 头像已删 —— 两侧对称只留 Spacer（12，沿用原用户侧留白值）
+    /// 气泡**内容侧不留白**（贴边）：AI 贴屏幕左、用户贴屏幕右（v4.0.37）。
+    /// 留白只挂在对侧负责撑开 —— 原先两侧各一个 Spacer(12)，AI 左边距因此是 12 + 列表 6 = 18pt、
+    /// 用户右边距同样 18pt，且这 12pt 反过来挤掉气泡可用宽度（用户实报「再往左贴到边，右边同理」）。
     @ViewBuilder
     private var bubbleLeadingAccessory: some View {
-        Spacer(minLength: 12)
+        // 用户的：左侧留白把气泡顶到右边；AI 的：左侧什么都不留 → 贴到边
+        if message.isUser { Spacer(minLength: 12) }
     }
 
     /// 气泡内可视化引用块
@@ -650,11 +652,10 @@ struct MessageBubble: View {
         }
     }
 
-    /// 气泡右侧留白（对称 12）
-    /// v4.0.31：用户头像（渐变圆 Q）已删 —— 两侧只留 Spacer；AI 侧原为 4，现统一 12（对称、近满宽）
+    /// 气泡右侧留白（v4.0.37：只服务 AI —— 把气泡顶到左边；用户侧不留 → 贴到边）
     @ViewBuilder
     private var bubbleTrailingAccessory: some View {
-        Spacer(minLength: 12)
+        if !message.isUser { Spacer(minLength: 12) }
     }
 
     /// 消息内容分段：``` 代码块 → 等宽深色块；其余 → markdown

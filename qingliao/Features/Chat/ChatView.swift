@@ -2682,6 +2682,10 @@ struct ChatView: View {
             // v3.0.86 fix：缓存刷新已上提 ZStack 层 onChange（ScrollView 卸载/欢迎态也生效），
             // 此处的 count 变化只负责贴底滚动（消息 append 场景）
             .onChange(of: chat.messages.count) {
+                // v4.0.37：append（自己发出 / 回答落库）本来就意味着「要跟着看」——把贴底态一并复位。
+                // 否则上一轮遗留的 unpinned 会让随后整段流式的自动滚底全部熄火（真机「贴底没效果」的一支）。
+                // 不加新行为：此处原本就无条件滚底，复位只是让随后的 delta 不再被旧态挡住。
+                scrollPinState = .pinnedAtBottom
                 scrollBottom(proxy)
             }
             .onChange(of: displayLimit) { _, _ in
@@ -2691,7 +2695,14 @@ struct ChatView: View {
             // onScrollGeometryChange 实时维护）——上翻阅读历史不再被 delta 拽回；无动画防高频打断
             .onChange(of: stream.content) { _, _ in
                 guard scrollPinState.pinned else { return }
-                scrollBottom(proxy, animated: false)
+                // v4.0.37（2026-10-03 真机「贴底没效果」复查）：同一帧里内容刚长高、布局尚未落地，
+                // 立刻 scrollTo 用的是**上一帧几何**（只滚到上一屏底）→ 最新几行永远差一截，
+                // 逐 delta 累加后就是「最新文字一路沉到输入栏下面」。延到下一拍、几何更新后再滚；
+                // 延迟窗口内用户若上翻，第二道 pinned 判定会把这次滚动放掉，不把人拽回去。
+                DispatchQueue.main.async {
+                    guard scrollPinState.pinned else { return }
+                    scrollBottom(proxy, animated: false)
+                }
             }
 
         }
@@ -3000,7 +3011,12 @@ struct ChatView: View {
         let action = {
             // v3.9.41：`.id("streaming")` 那条气泡只在**本会话**有流时才存在（messageList 已按会话收窄）→
             // 判定必须同源，否则 A 在跑时 B 里滚底会 scrollTo 一个不存在的 id（停在半空、不落最后一条）。
-            if thisSessionStreaming {
+            // v4.0.37（2026-10-03 真机「贴底没效果」复查）：这条判据原先只认 thisSessionStreaming，
+            // 但 `.id("streaming")` 那行**存在**的条件是 `thisSessionStreaming || remoteBusy`（2564 行）——
+            // 纯 remoteBusy（服务器在途、本地尚未接回）时那行就是三点气泡，旧写法却回落去滚
+            // `chat.messages.last`（用户自己那条，位置在三点**上方**）→ 气泡一路沉到输入栏下面。
+            // 与渲染条件同源：行在就滚行。
+            if thisSessionStreaming || remoteBusy {
                 proxy.scrollTo("streaming", anchor: .bottom)
             } else if let last = chat.messages.last {
                 proxy.scrollTo(last.id, anchor: .bottom)

@@ -270,6 +270,27 @@ struct ScrollPinTruthTable {
                 && reverted.contains("prevOffset:"),
               negative: true)
 
+        // v4.0.37（2026-10-03 真机实报「贴底修复没效果」复查）：三处接线孔洞。
+        // 比对前先把空白归一，免得护栏被缩进变动打红（本表只钉语义，不钉排版）。
+        let squashed = chatView.split(whereSeparator: { $0.isWhitespace }).joined()
+        check("B9 滚底守卫与渲染条件同源（thisSessionStreaming || remoteBusy 才滚 streaming 行）",
+              squashed.contains("ifthisSessionStreaming||remoteBusy{proxy.scrollTo(\"streaming\",anchor:.bottom)"))
+        check("B10 流式滚底延后一拍（防上一帧几何），且延迟段内二次判定贴底",
+              squashed.contains("DispatchQueue.main.async{guardscrollPinState.pinnedelse{return}scrollBottom(proxy,animated:false)}"))
+        check("B11 append（自己发出 / 回答落库）时复位贴底态——旧 unpinned 不得熄火整段流式",
+              squashed.contains("scrollPinState=.pinnedAtBottom"))
+        // 反向自证：旧形态拼回 → B9/B10 必红
+        let squashedOldGuard = "if thisSessionStreaming { proxy.scrollTo(\"streaming\", anchor: .bottom) } else if let last = chat.messages.last { }"
+            .split(whereSeparator: { $0.isWhitespace }).joined()
+        check("B12 反向自证：滚底退回「只看本机流」→ B9 必红",
+              !squashedOldGuard.contains("ifthisSessionStreaming||remoteBusy{proxy.scrollTo(\"streaming\",anchor:.bottom)"),
+              negative: true)
+        let squashedOldStream = "onChange(of: stream.content) { guard scrollPinState.pinned else { return } scrollBottom(proxy, animated: false) }"
+            .split(whereSeparator: { $0.isWhitespace }).joined()
+        check("B13 反向自证：流式滚底退回「同帧直滚」→ B10 必红",
+              !squashedOldStream.contains("DispatchQueue.main.async{guardscrollPinState.pinnedelse{return}scrollBottom(proxy,animated:false)}"),
+              negative: true)
+
         // ── C. 结果 ──────────────────────────────────────────────────────
         let total = positives + negatives
         let ratio = total == 0 ? 0 : Double(negatives) / Double(total)

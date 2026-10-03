@@ -382,8 +382,9 @@ check("30pt 消息头像全仓清零（46=设置页表情缩略图保留）",
       && !cbC.contains("PetAvatar(size: 30"))
 check("思考气泡 38pt 宠物已删（v4.0.32 用户复看截图拍板：思考期也不留头像，只留三点气泡本体）",
       !stripComments(read("qingliao/Features/Chat/ChatView.swift")).contains("PetAvatar(size: 38"))
-check("气泡两侧留白 Spacer 对称 12（头像位收窄）",
-      cbC.contains("private var bubbleLeadingAccessory: some View {\n        Spacer(minLength: 12)"))
+check("气泡留白只在对侧：AI 左贴边 / 用户右贴边（内容侧不留 Spacer 12，v4.0.37 用户要求「往左贴到边」）",
+      cbC.contains("if message.isUser { Spacer(minLength: 12) }")
+      && cbC.contains("if !message.isUser { Spacer(minLength: 12) }"))
 check("欢迎页身份宠物仍在（防误伤）", cvC.contains("private var petHero"))
 
 report()
