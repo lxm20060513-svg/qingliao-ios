@@ -238,6 +238,18 @@ private struct ActiveTaskRow: View {
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                 }
+                // v4.0.37（OpenMuse 借鉴⑧）：结构化步骤清单——「跑到哪了」从一行字符串变成可数的步骤。
+                // 老后端 plan 为空 → 整块不渲染（优雅退化）；被裁时先明说「更早的 N 步未列出」，
+                // 与聊天页工具卡同一口径（那边 ToolStepsTruncationNote 的判据也是
+                // toolSteps > toolNames.count），否则明细 20 行、planSeq 25 看着像丢了几步。
+                if !task.plan.isEmpty {
+                    if let hidden = ActiveTaskPlan.hiddenCount(planSeq: task.planSeq,
+                                                               shown: task.plan.count) {
+                        ToolStepsTruncationNote(hidden: hidden, shown: task.plan.count)
+                            .padding(.top, 2)
+                    }
+                    PlanStepList(steps: task.plan)
+                }
             }
             Spacer()
             ProgressView()
@@ -251,6 +263,43 @@ private struct ActiveTaskRow: View {
         let secs = Int(Date().timeIntervalSince1970 - task.createdAt)
         if secs < 60 { return "\(max(secs, 0))s" }
         return "\(secs / 60)m\(secs % 60)s"
+    }
+}
+
+/// v4.0.37：进行中任务的步骤清单（后端 `plan[]`，解析见 `Core/ActiveTaskPlan.swift`）。
+///
+/// 视觉语义与聊天页工具卡**一致**（绿勾=已完成 / 小转圈=在跑 / 耗时 `.caption2` 等宽数字、
+/// 10 秒以下保留一位小数），但不带卡片底与描边 —— `ToolStepRow` 自带卡底，那是为聊天页的独立区块
+/// 设计的，直接搬进 List 行会变成「卡中卡」。字号/配色沿用本行既有的 `.caption2` 体系，不引新档位。
+private struct PlanStepList: View {
+    let steps: [ActiveTaskPlan.Step]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            ForEach(steps) { s in
+                HStack(spacing: 6) {
+                    if s.done {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.caption2)
+                            .foregroundStyle(.green)
+                    } else {
+                        ProgressView().controlSize(.mini)
+                    }
+                    Text(s.done ? s.title : "正在\(s.title)…")
+                        .font(.caption2)
+                        .foregroundStyle(s.done ? Color.secondary : Color.primary)
+                        .lineLimit(1)
+                    if let d = s.seconds {
+                        Text(d < 10 ? String(format: "%.1fs", d) : "\(Int(d.rounded()))s")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                            .monospacedDigit()
+                    }
+                    Spacer(minLength: 0)
+                }
+            }
+        }
+        .padding(.top, 2)
     }
 }
 

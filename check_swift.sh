@@ -884,6 +884,14 @@ echo "=== 63. 聊天页贴底推进真值表（v4.0.36 · 流式气泡不往上�
 run_unit6 /tmp/test_scrollpin scripts/ql_scrollpin/truth_table_scrollpin.swift qingliao/Core/ChatScrollPin.swift | tee /tmp/tt_scrollpin.log
 grep -q '0 失败' /tmp/tt_scrollpin.log || fail=1
 
+echo "=== 64. 任务中心结构化步骤真值表（v4.0.37 · plan[]）==="
+# 口径（OpenMuse 借鉴⑧）：任务中心原先进度只有一行拼出来的字符串，看不出「几步 / 到哪步 / 每步多久」。
+# 后端 /api/agent/tasks/active 的流式任务补 plan[] + planSeq（复用 toolSpans/toolSeq 埋点，零新增采集），
+# 任务中心渲染成步骤清单。表分三段：plan[] 解析语义（编译真实 Core/ActiveTaskPlan.swift）、
+# App 接线、后端下发（读 NAS 运行源）。
+run_unit6 /tmp/test_taskplan scripts/ql_taskplan/truth_table_taskplan.swift qingliao/Core/ActiveTaskPlan.swift | tee /tmp/tt_taskplan.log
+grep -q '0 失败' /tmp/tt_taskplan.log || fail=1
+
 # v4.0.22 两处新入口的存在性：入口被误删时功能是「悄悄消失」的（编译不报、真值表也测不到 UI）。
 # ⚠️ 一律**先剥行注释再匹配**（注释里出现同名串不算数，否则就是假绿护栏 —— 审查实测删掉真入口后
 # 原版 `grep -q '扫账单'` 仍命中注释照样绿）。匹配串取**代码形态**（调用实参/成员访问），不取裸词。

@@ -581,6 +581,10 @@ final class AuthStore {
         let detail: String
         let status: String      // running / done / error
         let createdAt: TimeInterval
+        /// v4.0.37：结构化步骤（后端 `plan[]`，见 ActiveTaskPlan）。老后端=空数组 → 任务中心不渲染步骤清单。
+        let plan: [ActiveTaskPlan.Step]
+        /// v4.0.37：后端全量步数（`planSeq`）。比 `plan.count` 大 → 任务中心出「更早的 N 步未列出」。
+        let planSeq: Int
     }
 
     func fetchActiveTasks() async -> [ActiveTask] {
@@ -596,7 +600,11 @@ final class AuthStore {
                     title: d["title"] as? String ?? "",
                     detail: d["detail"] as? String ?? "",
                     status: d["status"] as? String ?? "running",
-                    createdAt: (d["createdAt"] as? Double) ?? (d["createdAt"] as? TimeInterval) ?? 0)
+                    createdAt: (d["createdAt"] as? Double) ?? (d["createdAt"] as? TimeInterval) ?? 0,
+                    // v4.0.37：结构化步骤（解析语义与脏数据兜底全在 Core/ActiveTaskPlan.swift，
+                    // 有真值表盯着）。老后端无这两个键 → 空数组 / 0，任务中心优雅退化。
+                    plan: ActiveTaskPlan.parse(d["plan"]),
+                    planSeq: (d["planSeq"] as? Int) ?? (d["planSeq"] as? Double).map(Int.init) ?? 0)
             }
         } catch {
             return []
