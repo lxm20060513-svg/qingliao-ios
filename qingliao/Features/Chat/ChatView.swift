@@ -171,6 +171,9 @@ struct ChatView: View {
     @State private var visibleMessagesCache: [MessageRowItem] = []
     // v3.0.86 fix：是否贴底（onScrollGeometryChange 实时维护）——流式自动滚底仅贴底时生效
     @State private var isScrollPinned = true
+    // v4.0.34：消息列表滚动容器的可视高度（GeometryReader 测量）——内容不满一屏时
+    // 列表以它为 minHeight 底部对齐，流式最新气泡始终贴在输入框上方（微信式贴底）
+    @State private var chatListViewportH: CGFloat = 0
     /// v3.9.78：欢迎页宠物的「抚摸」反应触发器（轻点自增 → PetAvatar 播一次 ≤1.2s 反应）
     @State private var petPat = 0
     /// v3.9.78：宠物在屏幕上的真实中心（长按弹菜单时当锚点用，胶囊从宠物身上绽放）
@@ -2592,6 +2595,12 @@ struct ChatView: View {
                     .padding(.horizontal, 6)
                     .padding(.top, Spacing.md)
                     .padding(.bottom, Spacing.md)
+                    // v4.0.34：内容不满一屏时整体贴底（微信式）——流式最新气泡始终紧贴输入框上方，
+                    // 不再悬在屏幕中部。frame 高度取滚动容器测量值（GeometryReader 只读布局，不撑高
+                    // ScrollView 自身），minHeight 语义 = 「不满屏时占满、超屏时自然增长」，满屏后
+                    // 行为与改前完全一致（不影响上翻历史/加载更早/贴底检测）。对齐 .bottom 使不足的
+                    // 高度全部留在列表顶部（顶部留白、底部贴住输入栏）。
+                    .frame(minHeight: chatListViewportH, alignment: .bottom)
                     .id("messages")   // v2.0.39：与欢迎页分支区分身份
                 }
                 .animation(Motion.settle, value: chat.messages.isEmpty)   // v3.9.30：驱动欢迎页/列表切换过渡
@@ -2640,6 +2649,13 @@ struct ChatView: View {
                     || geo.contentOffset.y >= bottomMax - 8
             } action: { _, pinned in
                 isScrollPinned = pinned
+            }
+            // v4.0.34：测量滚动容器可视高度——列表 minHeight 用它实现「不满屏也贴底」
+            //（onScrollGeometryChange 首次挂载即回调一次初始值；键盘弹出容器变矮也自动更新）
+            .onScrollGeometryChange(for: CGFloat.self) { geo in
+                geo.containerSize.height
+            } action: { _, h in
+                chatListViewportH = h
             }
             // v2.0.135：ScrollView 是 UIKit 桥接视图，其区域点击不冒泡到 ZStack 根手势
             // （v2.0.112b 把 onTapGesture 移到 ZStack 后，有消息时点空白收键盘失效，用户复报）
