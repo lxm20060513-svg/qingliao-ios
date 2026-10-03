@@ -713,5 +713,59 @@ check("header 旧思考胶囊清零（reasoningPill / localReasoningPill 不复�
 check("档位弹窗仍由 ChatView 持有（confirmationDialog 不动）",
       chatViewSrc.contains(".confirmationDialog(\"模型思考档位\", isPresented: $showReasoningPicker"))
 
+// ── v4.0.36 朗读胶囊迁入工具层（用户：胶囊移动到对话框展开态底部模型思考档位旁边，
+//            图标风格对齐模型思考档位胶囊） ──
+// ① 输入栏侧：autoReadButton 挂 toolRow（紧挨思考档位之后）、图标风格**逐值对齐** reasoningButton、
+//   门控走 autoReadIcon 空串（与 reasoningButton 同套：别的调用方零感知）。
+// ② ChatView 侧：旧位置清零（autoReadPill 本体 + 调用点都搬走）、状态与动作留本页（toggleAutoRead）、
+//   调用点传展示值 + 回调，实参序 = 声明序（onPickReasoning 之后）。
+/// 切出输入栏里某个 `private var X: some View` 的函数体（首个「4 空格缩进的 }」为止）
+func barSlice(_ marker: String) -> String {
+    guard let a = inputBarSrc.range(of: marker) else { return "" }
+    let body = String(inputBarSrc[a.lowerBound...].prefix(1600))
+    guard let end = body.range(of: "\n    }\n") else { return "" }
+    return String(body[body.startIndex..<end.upperBound])
+}
+let autoReadSlice = barSlice("private var autoReadButton: some View")
+let reasoningSliceV436 = barSlice("private var reasoningButton: some View")
+check("两枚胶囊的函数体都切出来了（切片空了 → 下面两条就成了空真）",
+      !autoReadSlice.isEmpty && !reasoningSliceV436.isEmpty)
+check("朗读胶囊挂进工具层（思考档位之后、模型快选之前，且只挂一处）",
+      {
+          guard let r = toolRowSlice.range(of: "reasoningButton"),
+                let a = toolRowSlice.range(of: "autoReadButton"),
+                let s = toolRowSlice.range(of: "Spacer(minLength: 0)") else { return false }
+          return r.upperBound < a.lowerBound && a.upperBound < s.lowerBound
+              && toolRowSlice.components(separatedBy: "autoReadButton").count - 1 == 1
+      }())
+check("🚨 朗读胶囊图标风格逐值对齐思考档位（字号/字重 + 视觉高 + 淡底 + 0.8pt 描边 + 命中区 44）",
+      ["Typography.body, weight: .medium", "height: 26",
+       "Color.primary.opacity(Tint.faint), in: Capsule()",
+       "strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8)",
+       "hitArea44(h: 9, v: 9)"].allSatisfy { autoReadSlice.contains($0) && reasoningSliceV436.contains($0) })
+check("朗读胶囊 = 纯图标 26×26 视觉面 + 两态只差图标着色（accent / secondary，沿用 header 口径）",
+      autoReadSlice.contains("Image(systemName: autoReadIcon)")
+      && autoReadSlice.contains(".frame(width: 26, height: 26)")
+      && autoReadSlice.contains("autoReadOn ? Color.accentColor : Color.secondary"))
+check("朗读胶囊门控 = autoReadIcon 空串（别的调用方零感知）",
+      inputBarSrc.contains("if !autoReadIcon.isEmpty {"))
+check("朗读胶囊只此两处（声明 + 挂载，不许有第二个挂点）",
+      inputBarSrc.components(separatedBy: "autoReadButton").count - 1 == 2)
+check("调用点传展示值 + 回调（实参序 = 声明序：onPickReasoning 之后紧跟 autoReadIcon/On/onToggle）",
+      {
+          guard let c = chatViewSrc.range(of: "onPickReasoning: { showReasoningPicker = true }"),
+                let i = chatViewSrc.range(of: "autoReadIcon: \"speaker.wave.2.fill\""),
+                let o = chatViewSrc.range(of: "autoReadOn: autoReadReply"),
+                let t = chatViewSrc.range(of: "onToggleAutoRead: { toggleAutoRead() }")
+          else { return false }
+          return c.upperBound < i.lowerBound && i.upperBound < o.lowerBound && o.upperBound < t.lowerBound
+      }())
+check("header 旧朗读胶囊清零（autoReadPill 不复存在：本体与调用点都搬走了）",
+      !chatViewSrc.contains("autoReadPill"))
+check("状态与动作仍留 ChatView（toggleAutoRead：关掉立刻闭嘴 + 触感；状态走 UserDefaults 不变）",
+      chatViewSrc.contains("private func toggleAutoRead()")
+      && chatViewSrc.contains("if !autoReadReply { SpeechManager.shared.stop() }")
+      && chatViewSrc.contains("Haptics.tap()"))
+
 print("输入栏两层化真值表：\(passCount) 通过 / \(failCount) 失败")
 if failCount > 0 { exit(1) }

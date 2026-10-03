@@ -339,9 +339,11 @@ let lgC = stripComments(read("qingliao/Theme/LiquidGlass.swift"))
 let cbC = stripComments(read("qingliao/Features/Chat/ChatMessageBubble.swift"))
 let paAC = stripComments(read("qingliao/Features/Chat/PetAvatar.swift"))
 let ppC = stripComments(read("qingliao/Features/Chat/PetPainter.swift"))
-check("header 中央宠物已回归（petHeaderBadge 在，62pt）",
-      cvC.contains("private var petHeaderBadge") && cvC.contains("PetAvatar(size: 62,"))
-check("header 宠物 keepDetail 旁路简化阈值（v4.0.32 真机报修「没有手」：62<76 会被简化成头+眼+嘴）",
+check("header 中央宠物已回归（petHeaderBadge 在，v4.0.36 起 60pt）",
+      cvC.contains("private var petHeaderBadge") && cvC.contains("PetAvatar(size: 60,"))
+check("v4.0.36 宠物尺寸旧值清零（62pt 不得残留：同屏只许一处 header 尺寸）",
+      !cvC.contains("PetAvatar(size: 62,"))
+check("header 宠物 keepDetail 旁路简化阈值（v4.0.32 真机报修「没有手」：60/62<76 会被简化成头+眼+嘴）",
       cvC.contains("keepDetail: true,\n                  thinkingFaceOverride: .sleepy"))
 check("ChatView 给 PageHeader 传 centerView（且空会话=欢迎页不挂，需求4）",
       cvC.contains("centerView: chat.messages.isEmpty ? nil : AnyView(chatHeaderPet)"))

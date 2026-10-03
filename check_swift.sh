@@ -876,6 +876,14 @@ echo "=== 62. 流式平滑层推进真值表（v4.0.23 · 空气泡回归）==="
 # A 段验算法本身（Core/SmoothRelease.swift），B 段读 StreamClient.swift 钉死接线、防旧写法复活。
 run_unit6 /tmp/test_smooth scripts/test_smooth.swift qingliao/Core/SmoothRelease.swift
 
+echo "=== 63. 聊天页贴底推进真值表（v4.0.36 · 流式气泡不往上顶）==="
+# 事故：贴底判定原先是内联闭包里一个 Bool（“现在在不在底部”）直接赋给 isScrollPinned，
+# 分不清「谁让内容不在底部」→ 流式 delta 让内容长高时同帧 offset 未动，被判成「用户上滑」，
+# 自动滚底整段熄火，最新一行一路沉到输入栏下面（2026-10-03 用户实报）。
+# A 段验推进算法本体（Core/ChatScrollPin.swift），B 段读 ChatView.swift 钉死接线与旧形态清除。
+run_unit6 /tmp/test_scrollpin scripts/ql_scrollpin/truth_table_scrollpin.swift qingliao/Core/ChatScrollPin.swift | tee /tmp/tt_scrollpin.log
+grep -q '0 失败' /tmp/tt_scrollpin.log || fail=1
+
 # v4.0.22 两处新入口的存在性：入口被误删时功能是「悄悄消失」的（编译不报、真值表也测不到 UI）。
 # ⚠️ 一律**先剥行注释再匹配**（注释里出现同名串不算数，否则就是假绿护栏 —— 审查实测删掉真入口后
 # 原版 `grep -q '扫账单'` 仍命中注释照样绿）。匹配串取**代码形态**（调用实参/成员访问），不取裸词。

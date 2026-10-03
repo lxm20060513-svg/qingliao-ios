@@ -17,6 +17,16 @@ private struct LandedSignal: Equatable {
     let away: Int
 }
 
+/// v4.0.36：滚动几何快照，供「贴底（pinned）」判定用。
+/// 为什么不用 `Bool`：判定「用户是否离开底部」必须**同时**看 offset 与内容高度——
+/// 流式 delta 只会让内容变高（offset 同帧不动），只拿一个 Bool 结果就会把
+/// 「内容变高」误判成「用户上滑」（详见下方 onScrollGeometryChange 处的注释）。
+private struct ChatScrollSnapshot: Equatable {
+    let offset: CGFloat
+    let contentH: CGFloat
+    let containerH: CGFloat
+}
+
 struct ChatView: View {
     @Environment(AuthStore.self) var auth
     @Environment(ChatStore.self) var chat
@@ -170,7 +180,7 @@ struct ChatView: View {
     // 避免每帧 stream.delta 触发 body 重建 O(visible) 数组
     @State private var visibleMessagesCache: [MessageRowItem] = []
     // v3.0.86 fix：是否贴底（onScrollGeometryChange 实时维护）——流式自动滚底仅贴底时生效
-    @State private var isScrollPinned = true
+    @State private var scrollPinState = ChatScrollPinState.pinnedAtBottom
     // v4.0.34：消息列表滚动容器的可视高度（GeometryReader 测量）——内容不满一屏时
     // 列表以它为 minHeight 底部对齐，流式最新气泡始终贴在输入框上方（微信式贴底）
     @State private var chatListViewportH: CGFloat = 0
@@ -377,32 +387,17 @@ struct ChatView: View {
         ReasoningLevel(rawValue: reasoningLevelRaw) ?? .low
     }
 
-    /// v3.9.8：header「朗读」胶囊开关（v4.0.27 起思考档位胶囊已迁入输入栏，它成为 header 首枚）。
-    /// 开 = AI 每轮回复结束自动念一遍；关 = 不自动念（气泡上的朗读按钮仍可手动念，互不影响）。
-    /// v3.9.43（用户要求）：样式与左侧思考档位胶囊**完全对齐**——同一枚原生液态玻璃
-    /// （`glassPillStroke()` = `glassEffect(.regular.interactive())` + accent 0.28 / 0.8pt 描边）
-    /// 与同一档内边距（h `Spacing.md` / v `Spacing.sm`），不再自绘「淡底 Capsule + 关态补描边」那套。
-    /// ⚠️ 玻璃底两态共用、不做区分 ⇒ 「开 / 关」只剩**图标着色**这一个信号（accent / secondary），
-    ///    别再指望远底色的深浅能读出状态；语义另有 accessibilityLabel 兜着。
-    private var autoReadPill: some View {
-        Button {
-            autoReadReply.toggle()
-            if !autoReadReply { SpeechManager.shared.stop() }   // 关掉立刻闭嘴，不留半句
-            Haptics.tap()
-        } label: {
-            // v3.9.9（用户要求）：**只留图标、不要文字**——header 上多一个"朗读"两字太占宽
-            // （与思考档位胶囊同处一行，窄屏会把标题挤掉）。语义靠图标 + accessibilityLabel 表达。
-            // v3.9.37（用户要求）：两态共用同一枚喇叭图标，只靠颜色区分——启用蓝(accent) / 禁用灰(secondary)；
-            // 原禁用态用的是 speaker.slash（带斜杠），用户要求改成「灰色喇叭」即可
-            Image(systemName: "speaker.wave.2.fill")
-                .foregroundStyle(autoReadReply ? Color.accentColor : Color.secondary)
-                .chatHeaderPill()
-        }
-        .buttonStyle(PressStyle())
-        // v3.9.34：命中区抬到 ≥44（外扩 8 小于同行 12pt 间距，不越界抢点）；
-        // v3.9.43 视觉改薄一档（高 ~25）→ 纵向外扩跟着思考胶囊的 v:10
-        .hitArea44(h: 8, v: 10)
-        .accessibilityLabel(autoReadReply ? "自动朗读已开启" : "自动朗读已关闭")
+    /// v3.9.8：自动朗读开关（开 = AI 每轮回复结束自动念一遍；关 = 不自动念，
+    /// 气泡上的朗读按钮仍可手动念，互不影响）。
+    /// v4.0.36（用户要求）：胶囊本体**从 header 迁入输入栏工具层**——挂在模型思考档位旁、
+    /// 图标风格跟着思考档位胶囊同档；header 不再挂它。
+    /// 这里只留「状态 + 动作」：显隐/样式由 ChatInputBar 的 `autoReadIcon` / `autoReadOn` 决定，
+    /// 本页只把展示值与回调传下去（输入栏不认识 TTS 概念，与思考档位同一套传参口径）。
+    /// v3.9.37（用户要求）：两态共用同一枚喇叭图标、只靠颜色区分——启用蓝(accent) / 禁用灰(secondary)。
+    private func toggleAutoRead() {
+        autoReadReply.toggle()
+        if !autoReadReply { SpeechManager.shared.stop() }   // 关掉立刻闭嘴，不留半句
+        Haptics.tap()
     }
 
     /// v4.0.11：从 body 的 `.task` 里提出来的启动期逻辑（见 body 处注释：编译器类型检查超时）。
@@ -475,8 +470,9 @@ struct ChatView: View {
     @ViewBuilder
     private var headerTrailingItems: some View {
         HStack(spacing: 12) {
-            // v4.0.27：思考档位胶囊迁入输入栏工具层（附件/相机旁），header 不再挂它
-            autoReadPill
+            // v4.0.27：思考档位胶囊迁入输入栏工具层（附件/相机旁）
+            // v4.0.36：朗读胶囊同样迁入工具层（紧挨思考档位）
+            // ⇒ header 右侧两枚胶囊都已不在，这里只剩任务中心入口
             Button {
                 showTaskCenter = true
             } label: {
@@ -666,7 +662,12 @@ struct ChatView: View {
                     // v4.0.27：模型思考档位胶囊迁入工具层（附件/相机旁）——传展示值不传枚举
                     reasoningLevelIcon: reasoningLevel.symbol,
                     reasoningLevelTitle: reasoningLevel.title,
-                    onPickReasoning: { showReasoningPicker = true })
+                    onPickReasoning: { showReasoningPicker = true },
+                    // v4.0.36：朗读胶囊同样迁入工具层（紧挨思考档位）——同一套「传展示值 + 回调」
+                    // ⚠️ 实参序必须 = ChatInputBar 存储属性声明序（autoReadIcon 声明在 onPickReasoning 之后）
+                    autoReadIcon: "speaker.wave.2.fill",
+                    autoReadOn: autoReadReply,
+                    onToggleAutoRead: { toggleAutoRead() })
                     // v2.0.129：球态输入框 —— 绑定会话 id，切会话重建复位（展开态在切会话后回球态）
                     .id(chat.sessionId)
                     // v2.0.135：消费输入栏区域的点击，防冒泡到消息区 ZStack 根手势误收键盘
@@ -1148,12 +1149,12 @@ struct ChatView: View {
     ///   **空闲** = `.idle`（呼吸、眨眼、随机微动作）
     ///   **回答完成** = `celebrateTrigger` +1 → 庆祝动作（欢呼/比心/鼓掌/挥手随机）+ 开心脸（方案 A：celebrateFace=.happy，播完回落）
     ///   **出错** = `.alert` + 默认脸 + 张望一次（方案 A：alertFaceOverride=.calm，张望由 PetAvatar 内驱动）
-    /// 62pt（用户当年三档对比选定）；v4.0.32 起加 keepDetail 旁路简化阈值——
-    /// 62 < 76 本会被画成「头+眼+嘴」（真机报修「header 宠物没有手」），现在完整细节照常画，
+    /// 60pt（v4.0.36 用户改规格，此前 62pt 是当年三档对比选定值）；v4.0.32 起加 keepDetail
+    /// 旁路简化阈值——60 < 76 本会被画成「头+眼+嘴」（真机报修「header 宠物没有手」），现在完整细节照常画，
     /// 省电靠 state 映射（idle 只呼吸+眨眼+偶发微动作，无逐帧常驻）。
     /// 交互与欢迎页那只完全同款（拍板 2A）：轻点抚摸+聚焦输入框 / 长按快捷菜单（手势挂 overlay 命中层）。
     private var petHeaderBadge: some View {
-        PetAvatar(size: 62,
+        PetAvatar(size: 60,
                   state: aiBusy ? .thinking : (headerPetError ? .alert : .idle),
                   patTrigger: petPat,
                   celebrateTrigger: petCelebrate,
@@ -2641,14 +2642,29 @@ struct ChatView: View {
                 inboxPullHandleScroll(overscroll: overscroll)
             }
             // v3.0.86 fix：贴底检测（pinned）——内容不满屏或已滚到底（容差 8pt）视为贴底。
-            // 流式自动滚底仅贴底时生效：用户上翻阅读历史时 pinned=false，不被 delta 拽回底部
-            .onScrollGeometryChange(for: Bool.self) { geo in
-                let maxY = geo.contentSize.height - geo.containerSize.height
-                let bottomMax = max(0, maxY)
-                return geo.contentSize.height <= geo.containerSize.height
-                    || geo.contentOffset.y >= bottomMax - 8
-            } action: { _, pinned in
-                isScrollPinned = pinned
+            // 流式自动滚底仅贴底时生效：用户上翻阅读历史时 pinned=false，不被 delta 拽回底部。
+            // 🚨 v4.0.36 修（用户实报「流式最新文字一路沉到输入框下面、气泡不往上顶」）：
+            //   原写法 `isScrollPinned = pinned` 无法区分「谁让内容不在底部」——流式每来一段 delta
+            //   内容就长高几十 pt，而**同一帧里 offset 还没动**（滚底挂在 stream.content 的 onChange、
+            //   onScrollGeometryChange 可能先跑），于是第一段 delta 就把 pinned 判成 false
+            //   → 之后每段都被 `guard isScrollPinned` 挡掉、自动滚底当场熄火，气泡只能在输入栏下面继续长。
+            //   现在只有「用户真的把内容往回滚」才解除贴底；内容变高不参与判定，
+            //   处于/回到底部即恢复贴底。用户上翻阅读时 delta 依旧不会把人拽回底部（语义不变）。
+            //   ⚠️ 本轮补丁（审查实踩）：解除贴底判的是**累计**回滚量而不是单帧增量——
+            //   单帧阈值（<prev-1）会让「每帧不足 1pt 的慢速上滑」永远解除不了，照样被 delta 拽回。
+            //   状态因此从一个 Bool 变成 ChatScrollPinState（pinned + 贴底基准 offset）。
+            //   判定本体已抽成纯函数 ChatScrollPin.next（Core/ChatScrollPin.swift）——
+            //   原来内联在这条闭包里，linux swiftc 编不进真值表，等于这段最容易错的逻辑没有单测。
+            //   单测：scripts/ql_scrollpin/truth_table_scrollpin.swift（check_swift.sh 第 63 段）。
+            .onScrollGeometryChange(for: ChatScrollSnapshot.self) { geo in
+                ChatScrollSnapshot(offset: geo.contentOffset.y,
+                                   contentH: geo.contentSize.height,
+                                   containerH: geo.containerSize.height)
+            } action: { _, new in
+                scrollPinState = ChatScrollPin.next(state: scrollPinState,
+                                                    offset: new.offset,
+                                                    contentH: new.contentH,
+                                                    containerH: new.containerH)
             }
             // v4.0.34：测量滚动容器可视高度——列表 minHeight 用它实现「不满屏也贴底」
             //（onScrollGeometryChange 首次挂载即回调一次初始值；键盘弹出容器变矮也自动更新）
@@ -2671,10 +2687,10 @@ struct ChatView: View {
             .onChange(of: displayLimit) { _, _ in
                 refreshVisibleMessages()
             }
-            // v3.0.86 fix：流式内容变化仅在用户贴底时自动滚底（isScrollPinned 由下方
+            // v3.0.86 fix：流式内容变化仅在用户贴底时自动滚底（scrollPinState 由下方
             // onScrollGeometryChange 实时维护）——上翻阅读历史不再被 delta 拽回；无动画防高频打断
             .onChange(of: stream.content) { _, _ in
-                guard isScrollPinned else { return }
+                guard scrollPinState.pinned else { return }
                 scrollBottom(proxy, animated: false)
             }
 

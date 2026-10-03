@@ -99,6 +99,12 @@ struct ChatInputBar: View {
     var reasoningLevelIcon: String = ""
     var reasoningLevelTitle: String = ""
     var onPickReasoning: () -> Void = {}
+    /// v4.0.36：自动朗读胶囊（从聊天页 header 迁入工具层，紧挨思考档位）。
+    /// 与 reasoningButton 同一套门控：`autoReadIcon` 为空 = 整块不渲染（别的调用方零感知）。
+    /// ⚠️ 追加在 `onPickReasoning` 之后：调用点走成员初始化器且按声明序传参，插在中间会错位。
+    var autoReadIcon: String = ""
+    var autoReadOn: Bool = false
+    var onToggleAutoRead: () -> Void = {}
     // v3.4.29：发送动作图标弹一下（symbolEffect 驱动，无自定义动画开销）
     // v3.9.42：同一个 tick 兼作发送键关键帧的 trigger（原来另有一个 sendScale + 两段 withAnimation）
     @State private var sendBounceTick = 0
@@ -342,6 +348,8 @@ struct ChatInputBar: View {
         HStack(spacing: 8) {
             attachButtons
             reasoningButton
+            // v4.0.36：自动朗读胶囊（header 迁入）——紧挨思考档位，同为「次级操作」语义
+            autoReadButton
             Spacer(minLength: 0)
             if !modelLabel.isEmpty {
                 modelButton
@@ -417,6 +425,32 @@ struct ChatInputBar: View {
             // 视觉高 26（与附件/相机同档）→ 命中区外扩 9 到 44；横向本就 >44
             .hitArea44(h: 9, v: 9)
             .accessibilityLabel("模型思考档位，当前\(reasoningLevelTitle)")
+        }
+    }
+
+    /// v4.0.36：自动朗读开关胶囊（从聊天页 header 迁入工具层，用户原话「移动到对话框展开态底部
+    /// 模型思考档位旁边，图标风格对齐模型思考档位胶囊」）。
+    /// 风格**逐值对齐** reasoningButton：图标字号/字重同为 `Typography.body` / medium、
+    /// 视觉面 26 高、淡底 `Tint.faint` + 0.8pt 同色描边、命中区外扩 9（26 + 9×2 = 44）。
+    /// 内容**只留图标**（header 时期就是「不要文字」，工具层比顶栏更挤）；
+    /// 开 / 关 只差图标着色（accent / secondary）——沿用 header 时期的光学口径
+    /// （v3.9.37 用户拍板：两态共用同一枚喇叭、只靠颜色区分）。
+    /// `autoReadIcon` 为空整块不渲染（与 reasoningButton 同一套门控，别的调用方零感知）。
+    @ViewBuilder
+    private var autoReadButton: some View {
+        if !autoReadIcon.isEmpty {
+            Button(action: onToggleAutoRead) {
+                Image(systemName: autoReadIcon)
+                    .font(.system(size: Typography.body, weight: .medium))
+                    .foregroundStyle(autoReadOn ? Color.accentColor : Color.secondary)
+                    .frame(width: 26, height: 26)
+                    .background(Color.primary.opacity(Tint.faint), in: Capsule())
+                    .overlay(Capsule().strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8))
+            }
+            .buttonStyle(PressStyle())
+            // 视觉 26（与思考档位/附件/相机同档）→ 命中区外扩 9 到 44
+            .hitArea44(h: 9, v: 9)
+            .accessibilityLabel(autoReadOn ? "自动朗读已开启" : "自动朗读已关闭")
         }
     }
 
