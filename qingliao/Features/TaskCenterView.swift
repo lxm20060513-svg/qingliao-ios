@@ -240,12 +240,11 @@ private struct ActiveTaskRow: View {
                 }
                 // v4.0.37（OpenMuse 借鉴⑧）：结构化步骤清单——「跑到哪了」从一行字符串变成可数的步骤。
                 // 老后端 plan 为空 → 整块不渲染（优雅退化）；被裁时先明说「更早的 N 步未列出」，
-                // 与聊天页工具卡同一口径（那边 ToolStepsTruncationNote 的判据也是
-                // toolSteps > toolNames.count），否则明细 20 行、planSeq 25 看着像丢了几步。
+                // 与聊天页工具卡同一口径（那边也是 toolSteps > toolNames.count；两边的「列出数」都含在跑步）。
                 if !task.plan.isEmpty {
                     if let hidden = ActiveTaskPlan.hiddenCount(planSeq: task.planSeq,
-                                                               shown: ActiveTaskPlan.doneCount(task.plan)) {
-                        ToolStepsTruncationNote(hidden: hidden, shown: ActiveTaskPlan.doneCount(task.plan))
+                                                              plan: task.plan) {
+                        ToolStepsTruncationNote(hidden: hidden, shown: task.plan.count)
                             .padding(.top, 2)
                     }
                     PlanStepList(steps: task.plan)

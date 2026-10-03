@@ -105,16 +105,20 @@ struct TaskPlanTruthTable {
         check("s 非数值 → nil（不显示成 0.0s）", dirty[0].seconds == nil)
         check("s 是 Int → Double", dirty[1].seconds == 2.0)
 
-        // 1g. 已收口步数（截断提示的 shown 只数这项，与聊天页工具卡同口径）
-        check("doneCount 排除在跑行", ActiveTaskPlan.doneCount(running) == 1)
-        check("doneCount 全完成 = 全部", ActiveTaskPlan.doneCount(two) == 2)
-        check("doneCount 空 = 0", ActiveTaskPlan.doneCount([]) == 0)
-
-        // 1f. 「更早的 N 步未列出」判据
-        check("被裁：25 步明细 21 → 提示 4", ActiveTaskPlan.hiddenCount(planSeq: 25, shown: 21) == 4)
-        check("刚好相等 → 不提示", ActiveTaskPlan.hiddenCount(planSeq: 20, shown: 20) == nil)
-        check("老后端（都是 0）→ 不提示", ActiveTaskPlan.hiddenCount(planSeq: 0, shown: 0) == nil)
-        check("明细比全量还多（异常）→ 不提示负数", ActiveTaskPlan.hiddenCount(planSeq: 2, shown: 5) == nil)
+        // 1f. 「更早的 N 步未列出」判据 = 总步数 − **实际列出行数**（与聊天页同一条式子）
+        //     后端的 toolNames（← toolHistory，added 分支）同样「added 计 + 裁到 20 条」，
+        //     所以两边的「列出数」都**含在跑那一行** —— 有在跑但没被裁时必须不出提示。
+        let rows20 = Array(repeating: two[0], count: 20)   // 20 行已完成（被裁满）
+        let rows21 = rows20 + [running[1]]                 // 20 已完成 + 1 在跑
+        let rows3 = two + [running[1]]                     // 2 已完成 + 1 在跑 = 3 行（没被裁）
+        let rows5 = rows3 + two + [running[1]]
+        check("被裁：25 步、列 21 行 → 提示 4", ActiveTaskPlan.hiddenCount(planSeq: 25, plan: rows21) == 4)
+        check("被裁且无在跑：21 步、列 20 行 → 提示 1", ActiveTaskPlan.hiddenCount(planSeq: 21, plan: rows20) == 1)
+        check("★有在跑但一步没被裁（3 步全列出）→ 不提示（若拿「已完成步数」当列出数会假报 1 步，真回归过一次）",
+              ActiveTaskPlan.hiddenCount(planSeq: 3, plan: rows3) == nil)
+        check("刚好相等 → 不提示", ActiveTaskPlan.hiddenCount(planSeq: 20, plan: rows20) == nil)
+        check("老后端（都是 0）→ 不提示", ActiveTaskPlan.hiddenCount(planSeq: 0, plan: []) == nil)
+        check("明细比全量还多（异常）→ 不提示负数", ActiveTaskPlan.hiddenCount(planSeq: 2, plan: rows5) == nil)
 
         // ── 2. App 侧接线护栏 ──
         check("AuthStore 用真实解析函数（不是内联手解）",
@@ -129,11 +133,13 @@ struct TaskPlanTruthTable {
         check("任务中心渲染步骤清单", taskCenterSrc.contains("PlanStepList(steps: task.plan)"))
         check("任务中心复用既有截断提示（同一口径，不自造文案）",
               taskCenterSrc.contains("ToolStepsTruncationNote(hidden: hidden,"))
-        check("截断提示两处数字都只数已完成步（shown 不含在跑行）",
-              taskCenterSrc.contains("shown: ActiveTaskPlan.doneCount(task.plan))")
-              && !taskCenterSrc.contains("shown: task.plan.count"))
-        check("截断判据走 hiddenCount（单一真源）",
-              taskCenterSrc.contains("ActiveTaskPlan.hiddenCount(planSeq: task.planSeq,"))
+        check("截断提示的 shown = 实际列出行数（含在跑步），与聊天页同式",
+              taskCenterSrc.contains("ToolStepsTruncationNote(hidden: hidden, shown: task.plan.count)"))
+        // 反向：拿「已完成步数」当列出数是真回归（每个在跑的工具都假报「更早的 1 步未列出」）
+        check("截断提示不再用 doneCount 当 shown", !taskCenterSrc.contains("doneCount"))
+        check("截断判据走 hiddenCount（单一真源，直接吃 plan 数组，传不错参数）",
+              taskCenterSrc.contains("ActiveTaskPlan.hiddenCount(planSeq: task.planSeq,")
+              && taskCenterSrc.contains("plan: task.plan)"))
         check("步骤清单是独立 struct（深 ViewBuilder 不内联，避免 CI 类型检查超时）",
               taskCenterSrc.contains("private struct PlanStepList: View"))
         check("步骤清单与聊天页工具卡同套语义（绿勾 + 耗时等宽数字 + 同一耗时文案）",

@@ -53,18 +53,14 @@ enum ActiveTaskPlan {
         }
     }
 
-    /// 「更早的 N 步未列出」的判据：后端全量步数（`planSeq`）比明细条数多 → 返回被裁步数，否则 nil。
-    /// 与聊天页工具卡同一口径（那边是 `toolSteps > toolNames.count` 出 `ToolStepsTruncationNote`）：
-    /// 不提示的话摘要写 25 步、明细只列 20 行，看着像丢了几步。
-    static func hiddenCount(planSeq: Int, shown: Int) -> Int? {
-        let h = planSeq - shown
+    /// 「更早的 N 步未列出」的判据 —— 与聊天页工具卡**同一条式子**：总步数 − **实际列出的行数**。
+    ///
+    /// `plan` 里已含「正在跑」那一行；后端 `toolNames`（← `toolHistory`，stream_api.py 的 added 分支）
+    /// 同样是「added 计 + 裁到 20 条」，聊天页那边 `hidden = toolSteps − toolNames.count` 数的也是列出行数。
+    /// 所以没被裁时（例：3 步其中 1 步在跑）这里得 0 → 不出提示，与聊天页完全一致。
+    /// ⚠️ 切勿改成「已完成步数」当列出数：那样**每有一个工具在跑就会假报「更早的 1 步未列出」**（真回归过一次）。
+    static func hiddenCount(planSeq: Int, plan: [Step]) -> Int? {
+        let h = planSeq - plan.count
         return h > 0 ? h : nil
-    }
-
-    /// 已收口步数 —— 截断提示的两处数字（「更早 N 步」「只留最近 M 步」）都只能数这项：
-    /// 聊天页数的是 `toolNames/toolSpans`（已完成明细），不含「正在跑」那条。若把 running 行也算进去，
-    /// 同一任务在聊天页写「更早 1 步未列出」、任务中心却因条数相等**不出提示**，两端口径就分叉了。
-    static func doneCount(_ steps: [Step]) -> Int {
-        steps.filter { $0.done }.count
     }
 }
