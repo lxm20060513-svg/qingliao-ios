@@ -842,7 +842,9 @@ struct ChatView: View {
                     }
                 }
             }
-            .padding(.horizontal, Spacing.xl)   // v4.0.31：AI 头像已删——与 AI 气泡文本左缘对齐（容器 6 + 12 = 18，原 44+6 是给头像留的）
+            // v4.0.38：原此处是 `.padding(.horizontal, Spacing.xl)`（v4.0.31 注释「容器 6 + 12 = 18，
+            // 与 AI 气泡左缘对齐」）—— 气泡内容侧贴边后外缘只剩列表左右 6pt，本块若继续自留 12
+            // 就会比它所属的 AI 气泡多缩进一档（真机可见错位）。故不再自留白，工具卡外缘与气泡左缘齐平。
             .transition(.opacity)
         }
     }

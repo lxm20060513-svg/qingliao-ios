@@ -100,6 +100,26 @@ check("耗时列表刷新判据用内容签名（防「条数不变但内容变�
       streamSrc.contains("if spanSig != toolSpansSig {")
       && !stripCommentLines(streamSrc).contains("if spansIn.count != toolSpans.count {"))
 
+// ── 3c. 工具卡外缘与 AI 气泡左缘齐平（v4.0.38 气泡内容侧贴边） ──
+// 由头：v4.0.31 起本块自留 `.padding(.horizontal, Spacing.xl)`（12），是对着「AI 气泡外缘 18pt」
+// （列表 6 + 气泡侧 Spacer 12）标定的；v4.0.38 气泡内容侧不再留白、外缘收到 6pt，本块若继续
+// 自留 12 就会比它所属的 AI 气泡多缩进一档（真机可见错位）。只读 ChatView 的 toolStepCards 块，
+// 免得把输入区/引用条里同名的 padding 一起误判。
+func sliceBlock(_ s: String, from: String, to: String) -> String {
+    guard let a = s.range(of: from) else { return "" }
+    let rest = s[a.upperBound...]
+    guard let b = rest.range(of: to) else { return String(rest) }
+    return String(rest[..<b.lowerBound])
+}
+let toolStepCardsBlock = sliceBlock(chatViewSrc,
+                                    from: "private var toolStepCards: some View {",
+                                    to: "var body: some View {")
+check("工具卡块读得到（切块非空，否则下面两条是空真）", !toolStepCardsBlock.isEmpty)
+check("工具卡块不再自留横向留白（外缘与 AI 气泡齐平，v4.0.38 贴边）",
+      !stripCommentLines(toolStepCardsBlock).contains(".padding(.horizontal, Spacing.xl)"))
+check("工具卡仍受会话门控（防切片/改写误伤门控）",
+      toolStepCardsBlock.contains("auth.currentStreamSessionId == chat.sessionId"))
+
 // ── 3b. 同一动作一个名字：工具卡失败行 = 「重新生成」（v3.9.80 文案统一） ──
 check("工具卡失败行按钮写「重新生成」（与气泡/长按菜单/选择文本菜单同名）",
       toolCardsSrc.contains("Label(\"重新生成\", systemImage: \"arrow.clockwise\")"))
