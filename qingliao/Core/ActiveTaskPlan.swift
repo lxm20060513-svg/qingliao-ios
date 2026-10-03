@@ -60,4 +60,11 @@ enum ActiveTaskPlan {
         let h = planSeq - shown
         return h > 0 ? h : nil
     }
+
+    /// 已收口步数 —— 截断提示的两处数字（「更早 N 步」「只留最近 M 步」）都只能数这项：
+    /// 聊天页数的是 `toolNames/toolSpans`（已完成明细），不含「正在跑」那条。若把 running 行也算进去，
+    /// 同一任务在聊天页写「更早 1 步未列出」、任务中心却因条数相等**不出提示**，两端口径就分叉了。
+    static func doneCount(_ steps: [Step]) -> Int {
+        steps.filter { $0.done }.count
+    }
 }

@@ -105,6 +105,11 @@ struct TaskPlanTruthTable {
         check("s 非数值 → nil（不显示成 0.0s）", dirty[0].seconds == nil)
         check("s 是 Int → Double", dirty[1].seconds == 2.0)
 
+        // 1g. 已收口步数（截断提示的 shown 只数这项，与聊天页工具卡同口径）
+        check("doneCount 排除在跑行", ActiveTaskPlan.doneCount(running) == 1)
+        check("doneCount 全完成 = 全部", ActiveTaskPlan.doneCount(two) == 2)
+        check("doneCount 空 = 0", ActiveTaskPlan.doneCount([]) == 0)
+
         // 1f. 「更早的 N 步未列出」判据
         check("被裁：25 步明细 21 → 提示 4", ActiveTaskPlan.hiddenCount(planSeq: 25, shown: 21) == 4)
         check("刚好相等 → 不提示", ActiveTaskPlan.hiddenCount(planSeq: 20, shown: 20) == nil)
@@ -123,7 +128,10 @@ struct TaskPlanTruthTable {
               taskCenterSrc.contains("if !task.plan.isEmpty {"))
         check("任务中心渲染步骤清单", taskCenterSrc.contains("PlanStepList(steps: task.plan)"))
         check("任务中心复用既有截断提示（同一口径，不自造文案）",
-              taskCenterSrc.contains("ToolStepsTruncationNote(hidden: hidden, shown: task.plan.count)"))
+              taskCenterSrc.contains("ToolStepsTruncationNote(hidden: hidden,"))
+        check("截断提示两处数字都只数已完成步（shown 不含在跑行）",
+              taskCenterSrc.contains("shown: ActiveTaskPlan.doneCount(task.plan))")
+              && !taskCenterSrc.contains("shown: task.plan.count"))
         check("截断判据走 hiddenCount（单一真源）",
               taskCenterSrc.contains("ActiveTaskPlan.hiddenCount(planSeq: task.planSeq,"))
         check("步骤清单是独立 struct（深 ViewBuilder 不内联，避免 CI 类型检查超时）",
@@ -143,8 +151,14 @@ struct TaskPlanTruthTable {
             check("后端任务卡下发 plan 字段", beSrc.contains("\"plan\": _task_plan(st),"))
             check("后端下发 planSeq（全量步数）",
                   beSrc.contains("\"planSeq\": int(st.get(\"toolSeq\") or 0),"))
-            check("后端「在跑」判据 = toolSeq > 已完成条数",
-                  beSrc.contains("if seq > len(spans) and st.get(\"lastTool\"):"))
+            check("后端「在跑」判据 = 真的未收口（在跑标记），不是 toolSeq−被裁明细",
+                  beSrc.contains("if (st.get(\"toolSpanStart\") or st.get(\"toolSpanStartSolo\")) and st.get(\"lastTool\"):"))
+            // 反向：首版 `toolSeq > len(spans)` 是真实缺陷（toolSpans 硬裁 20 条、toolSeq 无上限，
+            // 跑过 20 步后差值恒 >0 → 已收口的末步被永远挂一条假「正在…」，双路审查抓到）
+            check("后端不再用 toolSeq−明细长度 当在跑判据",
+                  !beSrc.contains("if seq > len(spans)"))
+            check("后端 s 非数值不给键（App 的 nil 分支才可达，不伪造 0.0s）",
+                  beSrc.contains("if isinstance(x.get(\"s\"), (int, float)):"))
             check("后端步骤名走 _TOOL_NAME_ZH（单一真源，App 不维护映射表）",
                   beSrc.contains("_TOOL_NAME_ZH.get(str(x.get(\"n\") or \"\")"))
             check("后端异常兜底返回空数组（不把任务卡打挂）",

@@ -244,8 +244,8 @@ private struct ActiveTaskRow: View {
                 // toolSteps > toolNames.count），否则明细 20 行、planSeq 25 看着像丢了几步。
                 if !task.plan.isEmpty {
                     if let hidden = ActiveTaskPlan.hiddenCount(planSeq: task.planSeq,
-                                                               shown: task.plan.count) {
-                        ToolStepsTruncationNote(hidden: hidden, shown: task.plan.count)
+                                                               shown: ActiveTaskPlan.doneCount(task.plan)) {
+                        ToolStepsTruncationNote(hidden: hidden, shown: ActiveTaskPlan.doneCount(task.plan))
                             .padding(.top, 2)
                     }
                     PlanStepList(steps: task.plan)
