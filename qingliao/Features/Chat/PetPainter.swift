@@ -96,6 +96,9 @@ struct PetPainter {
     let simplify: Bool
     /// v4.0.26：手部姿势（默认贴身静止）
     var handPose: PetHandPose = .rest
+    /// v4.0.31：思考态专属表情（方案 A「思考=困倦脸」）。nil = 各形态默认 thinking 脸；
+    /// 只有 thinking 态消费它，idle/alert/patting 不读 —— 常态表情不混进别的状态。
+    var thinkingFace: PetFace? = nil
 
     // 调色板（与效果稿同一套）
     private enum Pal {
@@ -467,8 +470,14 @@ struct PetPainter {
                      with: .color(Pal.blush.opacity(0.9)))
             blushPair(&ctx, s, 0.30, 0.70, 0.56, 0.044, 0.026)
         case .thinking:
-            dotEyes(&ctx, s, 0.40, 0.60, 0.46, 0.050, 0.064, Pal.liquidInk, closed: blink)
-            flatMouth(&ctx, s, 0.585, 0.04, Pal.liquidInk, 0.55)
+            // v4.0.31：thinkingFace 指定表情（方案 A 困倦脸=半闭眼+小张嘴）就走它，nil 走默认平嘴
+            if thinkingFace == .sleepy {
+                halfLiddedEyes(&ctx, s, 0.40, 0.60, 0.46, 0.050, 0.064, Pal.liquidInk)
+                smallOpenMouth(&ctx, s, 0.585, 0.028, 0.020, Pal.liquidInk)
+            } else {
+                dotEyes(&ctx, s, 0.40, 0.60, 0.46, 0.050, 0.064, Pal.liquidInk, closed: blink)
+                flatMouth(&ctx, s, 0.585, 0.04, Pal.liquidInk, 0.55)
+            }
         case .alert:
             dotEyes(&ctx, s, 0.40, 0.60, 0.47, 0.050, 0.064, Pal.liquidInk, closed: blink)
             ctx.fill(Path(ellipseIn: r(0.50, 0.59, 0.028, 0.034, s)), with: .color(Pal.liquidInk.opacity(0.85)))
@@ -535,9 +544,16 @@ struct PetPainter {
             ctx.fill(Path(ellipseIn: r(0.50, 0.555, 0.040, 0.030, s)), with: .color(Pal.beastNose))
             smile(&ctx, s, 0.585, 0.05, 0.05, Pal.beastInk, 0.7, 0.015)
         case .thinking:
-            dotEyes(&ctx, s, 0.39, 0.61, 0.44, 0.064, 0.080, Pal.beastInk, closed: blink)
-            ctx.fill(Path(ellipseIn: r(0.50, 0.550, 0.034, 0.026, s)), with: .color(Pal.beastNose))
-            flatMouth(&ctx, s, 0.595, 0.03, Pal.beastInk, 0.6)
+            // v4.0.31：同 liquid —— thinkingFace 指定困倦脸就走半闭眼变体
+            if thinkingFace == .sleepy {
+                halfLiddedEyes(&ctx, s, 0.39, 0.61, 0.44, 0.064, 0.080, Pal.beastInk)
+                ctx.fill(Path(ellipseIn: r(0.50, 0.550, 0.034, 0.026, s)), with: .color(Pal.beastNose))
+                smallOpenMouth(&ctx, s, 0.595, 0.026, 0.020, Pal.beastInk)
+            } else {
+                dotEyes(&ctx, s, 0.39, 0.61, 0.44, 0.064, 0.080, Pal.beastInk, closed: blink)
+                ctx.fill(Path(ellipseIn: r(0.50, 0.550, 0.034, 0.026, s)), with: .color(Pal.beastNose))
+                flatMouth(&ctx, s, 0.595, 0.03, Pal.beastInk, 0.6)
+            }
         case .alert:
             dotEyes(&ctx, s, 0.39, 0.61, 0.43, 0.072, 0.090, Pal.beastInk, closed: blink)
             ctx.fill(Path(ellipseIn: r(0.50, 0.550, 0.034, 0.026, s)), with: .color(Pal.beastNose))
@@ -632,9 +648,16 @@ struct PetPainter {
             }
             smile(&ctx, s, 0.55, 0.06, 0.06, Pal.botInk, 0.8, 0.020)
         case .thinking:
-            ctx.fill(rect(0.36, 0.415, 0.10, 0.078), with: .color(Pal.botInk))
-            ctx.fill(rect(0.54, 0.415, 0.10, 0.078), with: .color(Pal.botInk))
-            ctx.fill(rounded(0.46, 0.565, 0.08, 0.03, 0.015, s), with: .color(Pal.botInk.opacity(0.7)))
+            // v4.0.31：同 liquid —— 机器人困倦 = 眼屏压扁一半
+            if thinkingFace == .sleepy {
+                ctx.fill(rect(0.36, 0.44, 0.10, 0.052), with: .color(Pal.botInk))
+                ctx.fill(rect(0.54, 0.44, 0.10, 0.052), with: .color(Pal.botInk))
+                ctx.fill(rounded(0.46, 0.565, 0.08, 0.03, 0.015, s), with: .color(Pal.botInk.opacity(0.7)))
+            } else {
+                ctx.fill(rect(0.36, 0.415, 0.10, 0.078), with: .color(Pal.botInk))
+                ctx.fill(rect(0.54, 0.415, 0.10, 0.078), with: .color(Pal.botInk))
+                ctx.fill(rounded(0.46, 0.565, 0.08, 0.03, 0.015, s), with: .color(Pal.botInk.opacity(0.7)))
+            }
         case .alert:
             ctx.fill(rounded(0.36, 0.41, 0.10, 0.08, 0.022, s), with: .color(Pal.botInk))
             ctx.fill(rounded(0.54, 0.41, 0.10, 0.08, 0.022, s), with: .color(Pal.botInk))

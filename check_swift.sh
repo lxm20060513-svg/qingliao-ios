@@ -463,8 +463,8 @@ ck "去重提示走独立位（不被意图动作条盖住）" \
 # 本条真意 = 去重提示不得复用 intentNoContentHint 路径：钉「函数体内不含 intentNoContentHint」。
 ck "去重提示不再复用 intentNoContentHint" \
    'private func flashRecordDedup' "$CV"
-ckNX "去重提示体内不落 intentNoContentHint（复用=回归）" \
-   'flashRecordDedup' 'intentNoContentHint' "$CV"
+ckNotIn "去重提示体内不落 intentNoContentHint（复用=回归）" \
+   'private func flashRecordDedup' 'intentNoContentHint' "$CV"
 ckIn "纪要卡也有投递会话护栏（**限定 insertMinutesCard 函数体内**，不能靠记账那条同串假绿）" \
    'func insertMinutesCard\(_ card: String\)' 'guard !chat\.isDeliverySession else \{ return \}' "$CV"
 ck "纪要放弃标记不被整理复位（abandoned 不在 summarize 里清）" \

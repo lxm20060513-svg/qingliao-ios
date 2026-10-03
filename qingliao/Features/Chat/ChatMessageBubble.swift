@@ -199,17 +199,9 @@ struct MessageBubble: View {
         }
     }
 
-    /// v3.9.2：AI 头像 = siri 液态玻璃球（当时用开源项目 lersent001/orb 的 Metal 渲染器）
-    ///   · 思考中（streamingAvatar）→ thinking 态，30fps 连续动画
-    ///   · 其余 → idle 态静态帧（播完回落过渡即冻结，长列表里不产生连续 GPU 开销）
-    /// v3.9.78：球退役，改画用户选的卡通宠物（**30pt 走简化形态**：只画头 + 眼 + 嘴，见 PetAvatar.simplify）；
-    ///   待机时同样不逐帧渲染（只在呼吸/眨眼时动），长列表开销不升反降。
-    /// 拆独立计算属性：防止 body 巨型表达式 type-check 超时（v3.0.15 CI 实测）
-    @ViewBuilder
-    private var aiAvatar: some View {
-        PetAvatar(size: 30, state: streamingAvatar ? .thinking : .idle)
-            .frame(width: 30, height: 30)
-    }
+    // v4.0.31：AI 头像已删（用户拍板「取消 AI 头像和我的头像」，气泡近满宽）。
+    // 历史口径备查：v3.9.2 AI 头像=液态球、v3.9.78 改卡通宠物 30pt；v4.0.31 起气泡行不再挂头像，
+    // streamingAvatar 参数保留（流式渲染分支仍用它，不再驱动任何头像）。
 
     var body: some View {
         // v3.9.110：问题卡（AI 中途追问）走独立渲染；其余消息逐字走原链（normalBubbleBody）。
@@ -310,16 +302,11 @@ struct MessageBubble: View {
     // 这里按原注释分段把视图块原样搬成独立 @ViewBuilder 属性 —— **纯搬运**：视图顺序、
     // 层级、条件分支、闭包、修饰符逐字未变，渲染结果与拆分前一致，只为把类型检查表达式打小。
 
-    /// 用户气泡左侧留白 / AI 头像
+    /// 用户气泡左侧留白 / AI 气泡左侧留白
+    /// v4.0.31：AI 头像已删 —— 两侧对称只留 Spacer（12，沿用原用户侧留白值）
     @ViewBuilder
     private var bubbleLeadingAccessory: some View {
-        if message.isUser {
-            // v2.0.41：左侧留白 48→24，用户气泡更宽（右缘贴边）
-            // v3.9.27：气泡变长（366→369 近满宽）——Spacer 同步收窄，别让硬约束把 maxWidth 压回去
-            Spacer(minLength: 12)
-        } else {
-            aiAvatar
-        }
+        Spacer(minLength: 12)
     }
 
     /// 气泡内可视化引用块
@@ -663,24 +650,11 @@ struct MessageBubble: View {
         }
     }
 
-    /// 用户头像 / AI 气泡右侧留白
+    /// 气泡右侧留白（对称 12）
+    /// v4.0.31：用户头像（渐变圆 Q）已删 —— 两侧只留 Spacer；AI 侧原为 4，现统一 12（对称、近满宽）
     @ViewBuilder
     private var bubbleTrailingAccessory: some View {
-        if message.isUser {
-            // v2.0.65：用户头像（渐变圆 + 首字母，与 AI 头像对称）
-            ZStack {
-                Circle()
-                    .fill(LinearGradient(colors: [.teal, .blue], startPoint: .topLeading, endPoint: .bottomTrailing))
-                Text("Q")
-                    .font(.system(size: Typography.subhead, weight: .bold))
-                    .foregroundStyle(.white)
-            }
-            .frame(width: 30, height: 30)
-        } else {
-            // v2.0.41：AI 气泡右侧留白 48→10，气泡右缘贴红线（约距屏幕右 22pt）
-            // v3.9.27：气泡变长（366→369）——Spacer 再收窄到 4，避免压缩 maxWidth
-            Spacer(minLength: 4)
-        }
+        Spacer(minLength: 12)
     }
 
     /// 消息内容分段：``` 代码块 → 等宽深色块；其余 → markdown

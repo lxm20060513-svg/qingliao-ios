@@ -325,25 +325,61 @@ check("有 representativePose（各动作的代表姿势）",
       avC.contains("static func representativePose(_ q: Quirk) -> PetHandPose"))
 check("设置页预览走 representativePose（缩略图定格该动作）",
       avC.contains("if let q = quirkPreview { return Self.representativePose(q) }"))
-check("Canvas 把手部姿势传进画笔（不传 = 手永远贴身）",
-      avC.contains("handPose: currentHandPose)"))
+check("Canvas 把手部姿势传进画笔（不传 = 手永远贴身；v4.0.31 尾随 thinkingFace 参数，字面串同步）",
+      avC.contains("handPose: currentHandPose,\n                       thinkingFace:"))
 check("欢呼的身体配合（缩放 + 蹦）也在（手举起来时身体不能钉在地上）",
       avC.contains("case .some(.cheer): return 1.06") && avC.contains("if q == .cheer { return strollPhase"))
 
-// MARK: - 15. v4.0.28 移除聊天页 header 中央宠物（用户拍板「宠物太多了，还是把 header 中间的宠物拿掉」）
+// MARK: - 15. v4.0.31 header 中央宠物按新规格回归（v4.0.28 删除被用户拍板推翻：62pt + 全动作 + 表情映射）
 //
-// 只删那一只：欢迎页身份宠物（petHero）、消息头像（30pt）、设置页宠物入口都必须留。
-// 护栏因此两向都要钉——既钉「删干净、不留死状态」，也钉「别误伤其它宠物」。
+// 旧删除护栏已整体反转——同一批护栏不能同时钉「删干净」与「在」，v4.0.28 的 4 条删除断言
+// 改写为存在断言；「别误伤其它宠物」方向的断言保留并扩展（欢迎页 petHero 不动、消息头像 30pt 已删是本版需求1）。
 let cvC = stripComments(cv)
-check("header 中央宠物已移除（petHeaderBadge 不再存在）", !cvC.contains("petHeaderBadge"))
-check("ChatView 不再给 PageHeader 传 centerView（叠加管道调用点清零）",
-      !cvC.contains("centerView"))
-check("PageHeader 的宠物叠加管道整体拆除（LiquidGlass 里 centerView 清零）",
-      !stripComments(read("qingliao/Theme/LiquidGlass.swift")).contains("centerView"))
-check("庆祝触发器随之清零（不留没人写的死状态）", !cvC.contains("petCelebrate"))
-check("欢迎页身份宠物仍在（只删 header 那只，别误伤）", cvC.contains("private var petHero"))
-check("消息头像宠物仍在（列表里的 30pt 头像）",
-      stripComments(read("qingliao/Features/Chat/ChatMessageBubble.swift"))
-        .contains("PetAvatar(size: 30"))
+let lgC = stripComments(read("qingliao/Theme/LiquidGlass.swift"))
+let cbC = stripComments(read("qingliao/Features/Chat/ChatMessageBubble.swift"))
+let paAC = stripComments(read("qingliao/Features/Chat/PetAvatar.swift"))
+let ppC = stripComments(read("qingliao/Features/Chat/PetPainter.swift"))
+check("header 中央宠物已回归（petHeaderBadge 在，62pt）",
+      cvC.contains("private var petHeaderBadge") && cvC.contains("PetAvatar(size: 62,"))
+check("ChatView 给 PageHeader 传 centerView（且空会话=欢迎页不挂，需求4）",
+      cvC.contains("centerView: chat.messages.isEmpty ? nil : AnyView(chatHeaderPet)"))
+check("PageHeader 叠加管道已恢复（LiquidGlass 里 centerView 属性 + overlay 在）",
+      lgC.contains("var centerView: AnyView? = nil")
+      && lgC.contains(".overlay(alignment: .center) {"))
+check("庆祝触发器已回归（petCelebrate + 忙→闲 +1）",
+      cvC.contains("@State private var petCelebrate = 0")
+      && cvC.contains("if was && !now { petCelebrate += 1 }"))
+check("欢迎页身份宠物不受影响（petHero 仍 96pt）",
+      cvC.contains("PetAvatar(size: 96,"))
+// 反向自证锚：把上一行改成 !contains 即可验证护栏有牙（勿真改，这里注释记录）。
+check("表情映射三参数在（方案 A：thinking=sleepy / alert=calm / celebrate=happy）",
+      cvC.contains("thinkingFaceOverride: .sleepy")
+      && cvC.contains("alertFaceOverride: .calm")
+      && cvC.contains("celebrateFace: .happy")
+      && paAC.contains("var thinkingFaceOverride: PetFace? = nil")
+      && paAC.contains("var alertFaceOverride: PetFace? = nil")
+      && paAC.contains("var celebrateFace: PetFace? = nil"))
+check("思考托腮 + 出错张望在（PetAvatar 状态映射）",
+      paAC.contains("withAnimation(.easeInOut(duration: 0.4)) { quirky = .chinRest }")
+      && paAC.contains("playLookAround()"))
+check("PetPainter thinking 态吃 thinkingFace（三形态分派在）",
+      ppC.contains("var thinkingFace: PetFace? = nil")
+      && ppC.components(separatedBy: "thinkingFace == .sleepy").count - 1 == 3
+      && paAC.contains("thinkingFace: state == .thinking ? (thinkingFaceOverride ?? face) : nil"))
+check("庆祝换脸限时回落在（celebrateFaceActive）",
+      paAC.contains("@State private var celebrateFaceActive: PetFace? = nil")
+      && paAC.contains("celebrateFaceActive = nil"))
+
+// MARK: - 16. v4.0.31 消息气泡两侧头像已删（用户拍板需求1；思考气泡 38pt 宠物保留）
+check("AI 头像计算属性已删（aiAvatar 清零）", !cbC.contains("aiAvatar"))
+check("用户头像（渐变圆 Q）已删", !cbC.contains("Text(\"Q\")"))
+check("30pt 消息头像全仓清零（46=设置页表情缩略图保留）",
+      !stripComments(read("qingliao/Features/Chat/ChatView.swift")).contains("PetAvatar(size: 30")
+      && !cbC.contains("PetAvatar(size: 30"))
+check("思考气泡 38pt 宠物保留（拍板：只删两侧，思考气泡留）",
+      stripComments(read("qingliao/Features/Chat/ChatView.swift")).contains("PetAvatar(size: 38, state: .thinking)"))
+check("气泡两侧留白 Spacer 对称 12（头像位收窄）",
+      cbC.contains("private var bubbleLeadingAccessory: some View {\n        Spacer(minLength: 12)"))
+check("欢迎页身份宠物仍在（防误伤）", cvC.contains("private var petHero"))
 
 report()

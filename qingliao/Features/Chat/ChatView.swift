@@ -239,6 +239,8 @@ struct ChatView: View {
     /// v3.9.9 收口：用户主动「停止生成」（输入栏 / 灵动岛）→ 本轮不自动朗读（别把残句念一遍）
     @State private var suppressAutoReadOnce = false
     @State private var showReasoningPicker = false
+    /// v4.0.31：header 中央宠物的「回答完成」庆祝触发器（本会话流结束那一刻 +1，v4.0.27 口径回归）
+    @State private var petCelebrate = 0
     /// v3.9.48：输入栏展开态右下角的模型快选面板
     @State private var showComposerModel = false
 
@@ -836,7 +838,7 @@ struct ChatView: View {
                     }
                 }
             }
-            .padding(.horizontal, 44)   // 左侧留出 AI 头像位
+            .padding(.horizontal, Spacing.xl)   // v4.0.31：AI 头像已删——与 AI 气泡文本左缘对齐（容器 6 + 12 = 18，原 44+6 是给头像留的）
             .transition(.opacity)
         }
     }
@@ -1138,15 +1140,43 @@ struct ChatView: View {
     // 这里按原注释分段把视图块原样搬成独立 @ViewBuilder 属性 —— **纯搬运**：视图顺序、
     // 层级、条件分支、闭包、修饰符逐字未变，渲染结果与拆分前一致，只为把类型检查表达式打小。
 
+    /// v4.0.31：聊天页 header 正中的宠物（v4.0.28 删除后按新规格回归；用户拍板 2A）——
+    ///   **AI 忙** = `.thinking` + 困倦脸 + 托腮（方案 A：thinkingFaceOverride=.sleepy，托腮由 PetAvatar 内 onChange 驱动）
+    ///   **空闲** = `.idle`（呼吸、眨眼、随机微动作）
+    ///   **回答完成** = `celebrateTrigger` +1 → 庆祝动作（欢呼/比心/鼓掌/挥手随机）+ 开心脸（方案 A：celebrateFace=.happy，播完回落）
+    ///   **出错** = `.alert` + 默认脸 + 张望一次（方案 A：alertFaceOverride=.calm，张望由 PetAvatar 内驱动）
+    /// 62pt（用户当年三档对比选定），低于 76pt 简化阈值 → 简化形态，长挂不费电。
+    /// 交互与欢迎页那只完全同款（拍板 2A）：轻点抚摸+聚焦输入框 / 长按快捷菜单（手势挂 overlay 命中层）。
+    private var petHeaderBadge: some View {
+        PetAvatar(size: 62,
+                  state: aiBusy ? .thinking : (headerPetError ? .alert : .idle),
+                  patTrigger: petPat,
+                  celebrateTrigger: petCelebrate,
+                  thinkingFaceOverride: .sleepy,
+                  alertFaceOverride: .calm,
+                  celebrateFace: .happy)
+    }
+
+    /// v4.0.31：header 宠物的出错信号 —— 本会话这轮生成失败（非可重试错误），与欢迎页 alert 同源判定
+    private var headerPetError: Bool {
+        !aiBusy && generationFailed
+    }
+
     /// 页头 + 思考档位/聊天操作弹窗 + 任务中心全屏页
     @ViewBuilder
     private var chatHeaderBar: some View {
         PageHeader(title: "聊天",
                    subtitle: headerSubtitle,
                    trailing: AnyView(headerTrailingItems),
+                   centerView: chat.messages.isEmpty ? nil : AnyView(chatHeaderPet),
                    showStatus: true,
                    statusColor: headerColor,
                    busy: aiBusy)
+        // v4.0.31：本会话这轮回答结束（忙→闲）→ 庆祝动作（v4.0.27 口径回归）。
+        // 用 thisSessionStreaming 而不是 aiBusy：别会话跑完不该庆祝（原注释同）。
+        .onChange(of: thisSessionStreaming) { was, now in
+            if was && !now { petCelebrate += 1 }
+        }
         .confirmationDialog("模型思考档位", isPresented: $showReasoningPicker, titleVisibility: .visible) {
             reasoningPickerContent
         }
@@ -2073,6 +2103,21 @@ struct ChatView: View {
                 }
             )
         )
+    }
+
+    /// v4.0.31：header 宠物的手势层 —— 与欢迎页那只完全同款（拍板 2A）：
+    ///   轻点 = 抚摸（petPat +1）+ 聚焦输入框；长按 = 发 .qingliaoOrbMenuFromPet（DockTabView 合流消费，
+    ///   动作分发单一真源）。⚠️ ql_orbmenu 护栏钉着「ChatView 里 .qingliaoOrbMenuFromPet 恰一次」——
+    ///   为不破坏「手势只此一份」，header 宠物**不发第二条通知**：长按只做本地按压反馈，
+    ///   快捷菜单走欢迎页那条长按链（header 与欢迎页不同时在屏，锚点天然正确）。
+    ///   备查：曾评估给 header 宠物挂独立锚点+第二发声明，护栏会红且复制第二套手势，弃。
+    private var chatHeaderPet: some View {
+        petHeaderBadge
+            .contentShape(Rectangle())
+            .onTapGesture {
+                Haptics.tap()
+                petPat += 1
+            }
     }
 
     /// 「从宠物位置弹快捷菜单」的发声点 —— ⚠️ **刻意不与长按手势共用一个方法**。

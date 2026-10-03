@@ -75,7 +75,17 @@ struct PetAvatar: View {
 
     private var style: PetStyle { styleOverride ?? storedStyle }
     /// v4.0.6：表情缩略图走 override，其余走用户选择
-    private var face: PetFace { faceOverride ?? storedFace }
+    /// v4.0.31：header 宠物的状态表情映射 —— thinking/alert 各有 override；
+    /// celebrateFace 由 playCelebrate 写进 celebrateFaceActive（限时），播完自动回落。
+    private var face: PetFace {
+        if let f = faceOverride { return f }
+        if patting { return storedFace }
+        switch state {
+        case .thinking where thinkingFaceOverride != nil: return thinkingFaceOverride!
+        case .alert where alertFaceOverride != nil: return alertFaceOverride!
+        default: return celebrateFaceActive ?? storedFace
+        }
+    }
     /// v4.0.6：动作预览时手动播一个（不参与随机循环；预览用 state=.idle）
     ///
     /// ⚠️ 刻意**不加 private**：加了会让本 struct 的 memberwise init 变私有，
@@ -83,6 +93,16 @@ struct PetAvatar: View {
     /// ChatMessageBubble）全部编译红。memberwise init 的实参序 = 属性声明序，
     /// **新增存储属性时必须排在本行之后**，并同步核对全部调用点传参序。
     var quirkPreview: Quirk? = nil
+
+    // ── v4.0.31：状态表情 override（聊天页 header 宠物的表情映射，方案 A）──
+    /// 思考中（state == .thinking）时画的脸。nil = 走默认 thinking 脸。
+    /// header 宠物传 .sleepy（困倦脸配托腮）。
+    var thinkingFaceOverride: PetFace? = nil
+    /// 出错态（state == .alert）时画的脸。nil = 走默认 alert 脸。header 宠物传 .calm。
+    var alertFaceOverride: PetFace? = nil
+    /// 庆祝（celebrateTrigger 触发）时画的脸。nil = 不换脸只播动作。
+    /// header 宠物传 .happy（开心脸配庆祝动作），播完自动落回用户所选常态表情。
+    var celebrateFace: PetFace? = nil
 
     /// 是否允许动：设置「关闭」否；「减弱」+ 系统或设置任一要求减弱否；后台否
     private var motionAllowed: Bool {
@@ -101,7 +121,12 @@ struct PetAvatar: View {
     // v3.9.85：微动作 → 三轴变换值（idle 才生效，thinking/alert 保持稳重）
     // v4.0.6：quirky 改成 Optional（Quirk 模型里没有 .none），所以这里统一走
     // `current` 这个「已归一化」的值：不在动作中 → nil，switch 落到 default 全 0。
-    private var quirkyActive: Bool { animate && state == .idle && !patting && quirky != nil }
+    // v4.0.31：thinking + 托腮（.chinRest）单独放行 ——「AI 在想」配托腮（方案 A 拍板），
+    // 不走随机循环（thinkingForcedChinRest 直接给 quirky 赋值），此处只为让 current 归一化放行。
+    private var quirkyActive: Bool {
+        animate && !patting && quirky != nil
+            && (state == .idle || (state == .thinking && quirky == .chinRest))
+    }
     /// v4.0.6：设置页动作预览走 `quirkPreview`（手动定格，不看动画档），
     /// 聊天页走随机循环的 `quirky`。
     private var current: Quirk? { quirkPreview ?? (quirkyActive ? quirky : nil) }
@@ -175,6 +200,11 @@ struct PetAvatar: View {
     }
     /// 颠步相位：独立 @State，由 strollLoop 定时翻转（与 quirky 的进出是两段时间轴）
     @State private var strollPhase = false
+    // ── v4.0.31：header 宠物状态映射的内部状态 ──
+    /// 庆祝期间临时画的脸（celebrateFace 的限时载体）；播放结束清 nil → 落回 storedFace
+    @State private var celebrateFaceActive: PetFace? = nil
+    /// 出错张望：alert 出现时播一次「张望」动作（body 里 onChange 驱动）
+    @State private var lastAlertSeen = false
 
     private var simplify: Bool { keepDetail ? false : size < PetKeys.simplifyBelow }
 
@@ -186,7 +216,8 @@ struct PetAvatar: View {
                        face: face,
                        blink: blink && animate,
                        simplify: simplify,
-                       handPose: currentHandPose)
+                       handPose: currentHandPose,
+                       thinkingFace: state == .thinking ? (thinkingFaceOverride ?? face) : nil)
                 .draw(&context, size: canvasSize)
         }
         .frame(width: drawSize, height: drawSize)
@@ -228,6 +259,24 @@ struct PetAvatar: View {
         .onChange(of: patTrigger) { _, _ in playPat() }
         // v4.0.27：AI 回答完成 → 播一次庆祝动作（header 中央宠物用）
         .onChange(of: celebrateTrigger) { _, _ in playCelebrate() }
+        // v4.0.31：状态映射（方案 A）——
+        //   thinking 进入 → 强制托腮（quirky=.chinRest，退出时清回 nil 回随机循环）；
+        //   alert 出现 → 播一次「张望」（错误脸配张望），沿 lastAlertSeen 边沿只播一次。
+        .onChange(of: state) { _, now in
+            guard animate else { return }
+            if now == .thinking {
+                guard quirky == nil else { return }   // 正在播的动作让它播完（很短）
+                withAnimation(.easeInOut(duration: 0.4)) { quirky = .chinRest }
+            } else if quirky == .chinRest {
+                withAnimation(.easeInOut(duration: 0.3)) { quirky = nil }
+            }
+            if now == .alert, !lastAlertSeen {
+                lastAlertSeen = true
+                playLookAround()
+            } else if now != .alert {
+                lastAlertSeen = false
+            }
+        }
     }
 
     private func startBreath() {
@@ -255,6 +304,19 @@ struct PetAvatar: View {
         }
     }
 
+    /// v4.0.31：出错张望 —— alert 出现时播一次 .lookAround（与随机循环同一套编排节奏）。
+    private func playLookAround() {
+        guard animate else { return }
+        let q = Quirk.lookAround
+        let d = q.duration
+        withAnimation(.easeInOut(duration: d * 0.4)) { quirky = q }
+        Task {
+            try? await Task.sleep(for: .seconds(d * 0.6))
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeInOut(duration: d * 0.4)) { quirky = nil }
+        }
+    }
+
     /// v4.0.27：庆祝动作 —— 「AI 刚回答完」时播一次，庆祝味优先。
     /// 与 quirkyLoop 的区别：那个是 6~14s 的空闲自娱（受 state == .idle 门控、且不抢手头动作），
     /// 这个由宿主明确触发，不看 state（回答完那一刻 state 刚从 .thinking 落回 .idle，
@@ -272,6 +334,9 @@ struct PetAvatar: View {
             playPat()
             return
         }
+        // v4.0.31：庆祝期间临时换脸（celebrateFace，方案 A「完成=开心脸」）；播完回落用户所选
+        let faceDuringCelebrate = celebrateFace
+        if faceDuringCelebrate != nil { celebrateFaceActive = faceDuringCelebrate }
         Task {
             let d = q.duration
             if q.isHandAction {
@@ -285,6 +350,7 @@ struct PetAvatar: View {
                 guard !Task.isCancelled else { return }
                 withAnimation(.easeInOut(duration: d * 0.4)) { quirky = nil }
             }
+            celebrateFaceActive = nil
         }
     }
 

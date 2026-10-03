@@ -491,8 +491,9 @@ check("零依赖：画笔只有 SwiftUI（不引 Lottie / Rive / 任何运行时
 // ⑤ 消息头像：换宠物 + 不误设常驻动画（误设会让长列表每个头像都连续渲染）
 check("思考头像（38pt）换宠物思考态",
       chatSrc.contains("PetAvatar(size: 38, state: .thinking)"))
-check("消息头像（30pt）换宠物且随流式态切换",
-      bubbleSrc.contains("PetAvatar(size: 30, state: streamingAvatar ? .thinking : .idle)"))
+// v4.0.31：消息头像已删（用户拍板「取消 AI 头像和我的头像」）—— 断言反转为删除护栏
+check("消息头像（30pt）已删（PetAvatar(size: 30 全仓气泡文件清零）",
+      !bubbleSrc.contains("PetAvatar(size: 30"))
 check("消息头像未误设常驻（无 live / repeatForever 类标记）",
       !bubbleSrc.contains("live: true"))
 
