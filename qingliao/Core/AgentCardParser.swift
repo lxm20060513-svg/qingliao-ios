@@ -257,6 +257,14 @@ enum AgentCardParser {
     static func parse(_ text: String) -> [Segment] {
         guard containsCardMarker(text) else { return [.text(text)] }
 
+        // 四反引号降级改写（2026-10-03 实战形态）：模型偶发把卡片写成 ````ql-card … ````，
+        // 内部再套 ```json。解析器只认三反引号 → 整块退化成代码块。改写成功 → 按
+        // 三反引号路径继续；外层围栏不成对（流式中）或非卡片语言（用户真贴 markdown）
+        // → 原文一字不动，零回归。
+        if let demoted = demoteFourBacktickCard(text) {
+            return parse(demoted)
+        }
+
         let lines = text.components(separatedBy: "\n")
         var segments: [Segment] = []
         var buffer: [String] = []
@@ -371,7 +379,7 @@ enum AgentCardParser {
     }
 
     /// 行内 ``` 的位置（非行首）。模型偶发把闭合三反引号粘在 JSON 末尾同一行
-    /// （`..."}``` `）—— 不做这个兜底，整块卡片会被当代码块原样显示。
+    /// （`..."}" + "```"）—— 不做这个兜底，整块卡片会被当代码块原样显示。
     /// 零回归：截断后的 JSON 仍须通过 JSONSerialization，否则照样退化为原文。
     private static func inlineFenceIndex(_ line: String) -> String.Index? {
         guard isFenceLine(line) == false else { return nil }
@@ -380,5 +388,58 @@ enum AgentCardParser {
 
     private static func isFenceLine(_ line: String) -> Bool {
         line.trimmingCharacters(in: .whitespaces).hasPrefix("```")
+    }
+
+    // MARK: - 四反引号降级改写
+
+    /// 把 ````ql-card … ```` 包裹的卡片降级改写成三反引号裸 JSON 形态（协议归一化）。
+    /// 只在「外层四反引号围栏成对、语言标记是卡片」时改写，返回 nil = 原样保留：
+    /// - 外层未闭合（流式中间帧）→ 不改（防卡片闪一下退回原文）
+    /// - ````markdown 等非卡片语言 → 不改（用户真贴的 markdown 原文逐字保留）
+    /// - 内层 ```json 语言行 → 顺带剥掉（JSON 裸写在围栏内）
+    /// 改写后仍走三反引号路径的全部门槛（闭合 + JSONSerialization），改不动 = 零回归。
+    static func demoteFourBacktickCard(_ text: String) -> String? {
+        let lines = text.components(separatedBy: "\n")
+        var openIdx: Int?
+        var count = 0
+        for (idx, line) in lines.enumerated() {
+            let t = line.trimmingCharacters(in: .whitespaces)
+            if t.hasPrefix("````") {
+                if openIdx == nil {
+                    // 开头行：四反引号 + 卡片语言标记（ql-card / ql_card / qlcard）
+                    let lang = String(t.dropFirst(4)).trimmingCharacters(in: .whitespaces)
+                        .lowercased()
+                        .replacingOccurrences(of: "-", with: "")
+                        .replacingOccurrences(of: "_", with: "")
+                    guard lang == "qlcard" else { return nil }
+                    openIdx = idx
+                } else {
+                    // 闭合行：必须是「行首纯四反引号」才算成对闭合
+                    guard t == "````" else { return nil }
+                    count += 1
+                }
+            }
+        }
+        // 恰好一开一闭才算成对；0 个或多个闭合 = 流式半截 / 形态不认识 → 原样
+        guard let open = openIdx, count == 1 else { return nil }
+        // 外层闭合行 = 最后一个行首纯四反引号行（count==1 时唯一）
+        let close = lines.lastIndex { $0.trimmingCharacters(in: .whitespaces) == "````" }
+
+        var out: [String] = []
+        for (idx, line) in lines.enumerated() {
+            if idx == open {
+                out.append("```ql-card")
+            } else if idx == close {
+                out.append("```")
+            } else if idx == open + 1 || idx == close! - 1 {
+                // 内层 ```json 开行 / 内层闭合 ``` 行：整行剥掉（JSON 本体裸写）。
+                // 仅在确实是围栏行时剥，普通内容行不受影响。
+                let t = line.trimmingCharacters(in: .whitespaces)
+                out.append(t == "```json" || t == "```" ? "" : line)
+            } else {
+                out.append(line)
+            }
+        }
+        return out.joined(separator: "\n")
     }
 }

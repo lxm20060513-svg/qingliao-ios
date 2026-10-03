@@ -323,6 +323,27 @@ enum AgentCardTestMain {
     check("外层围栏未闭合：内层 ql-card 示例不渲染成卡（防假卡）",
         nestedSegs.allSatisfy { if case .text = $0 { return true } else { return false } }
         && textOf(nestedSegs, 0) == nestedExample)
+
+    // MARK: - 四反引号降级改写（2026-10-03 实战形态：````ql-card 内嵌 ```json）
+
+    // ① 四反引号 + 内嵌 ```json → 出卡（核心修复目标）
+    let fourNested = "````ql-card\n```json\n{\"type\":\"result\",\"title\":\"发版完成\",\"status\":{\"text\":\"已上架\",\"tone\":\"ok\"}}\n```\n````"
+    check("四反引号+内嵌json → 出卡", cardOf(AgentCardParser.parse(fourNested), 0)?.title == "发版完成")
+
+    // ② 纯四反引号（无内层 ```json）→ 出卡
+    let fourPlain = "````ql-card\n{\"title\":\"纯四反引号\"}\n````"
+    check("纯四反引号 → 出卡", cardOf(AgentCardParser.parse(fourPlain), 0)?.title == "纯四反引号")
+
+    // ③ 无语言标记的四反引号围栏（用户真贴 markdown）→ 原样保留
+    let fourMarkdown = "````\n# 这是用户贴的代码块\n````"
+    expectSingleText("无语言四反引号围栏原样", fourMarkdown)
+
+    // ④ ````markdown 非卡片语言 → 原样保留
+    expectSingleText("四反引号+非卡片语言原样", "````markdown\n```ql-card\n{\"title\":\"示例\"}\n```\n````")
+
+    // ⑤ 外层未闭合（流式中间帧）→ 不改写、不出卡、原文逐字
+    let fourUnclosed = "````ql-card\n```json\n{\"title\":\"半截\"}\n```"
+    expectSingleText("四反引号未闭合原文保留", fourUnclosed)
     }
 
     static func main() {
