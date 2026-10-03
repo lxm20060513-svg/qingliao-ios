@@ -1145,13 +1145,16 @@ struct ChatView: View {
     ///   **空闲** = `.idle`（呼吸、眨眼、随机微动作）
     ///   **回答完成** = `celebrateTrigger` +1 → 庆祝动作（欢呼/比心/鼓掌/挥手随机）+ 开心脸（方案 A：celebrateFace=.happy，播完回落）
     ///   **出错** = `.alert` + 默认脸 + 张望一次（方案 A：alertFaceOverride=.calm，张望由 PetAvatar 内驱动）
-    /// 62pt（用户当年三档对比选定），低于 76pt 简化阈值 → 简化形态，长挂不费电。
+    /// 62pt（用户当年三档对比选定）；v4.0.32 起加 keepDetail 旁路简化阈值——
+    /// 62 < 76 本会被画成「头+眼+嘴」（真机报修「header 宠物没有手」），现在完整细节照常画，
+    /// 省电靠 state 映射（idle 只呼吸+眨眼+偶发微动作，无逐帧常驻）。
     /// 交互与欢迎页那只完全同款（拍板 2A）：轻点抚摸+聚焦输入框 / 长按快捷菜单（手势挂 overlay 命中层）。
     private var petHeaderBadge: some View {
         PetAvatar(size: 62,
                   state: aiBusy ? .thinking : (headerPetError ? .alert : .idle),
                   patTrigger: petPat,
                   celebrateTrigger: petCelebrate,
+                  keepDetail: true,
                   thinkingFaceOverride: .sleepy,
                   alertFaceOverride: .calm,
                   celebrateFace: .happy)
@@ -2566,21 +2569,16 @@ struct ChatView: View {
                                 // 思考中动画（三点跳动，气泡加大版）
                                 // v3.0.15：恢复 v3.0.12 之前的原始三点动画（思考球 orbits 粒子已移除，改由输出头像承担粒子球）
                                 // v3.0.18：思考期头像也改为粒子球（38pt，用户要求全程粒子球头像）
-                                HStack(alignment: .top, spacing: 10) {
-                                    // v3.9.2：思考中占位头像 = 液态玻璃球；v3.9.78：换成用户选的卡通宠物（思考态，简化形态）
-                                    PetAvatar(size: 38, state: .thinking)
-                                        .frame(width: 38, height: 38)
-                                    // v2.0.35：去掉"思考中"文字（用户要求），保留三点跳动动画
-                                    TypingIndicator()
-                                        .padding(.horizontal, Spacing.section)
-                                        .padding(.vertical, Spacing.xxl)
-                                        .background(Color(uiColor: .systemGray5))
-                                        .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
-                                        .frame(minHeight: 44)
-                                    Spacer(minLength: 48)
-                                }
-                                .id("streaming")
-                                .transition(.opacity)
+                                // v4.0.32：思考期头像也删（用户复看截图拍板「AI头像还在」= 三点气泡旁 38pt 宠物一并删；
+                                // 原 v3.9.78 思考宠物、v4.0.31「思考气泡保留」口径中的气泡=三点本体，头像不留）
+                                TypingIndicator()
+                                    .padding(.horizontal, Spacing.section)
+                                    .padding(.vertical, Spacing.xxl)
+                                    .background(Color(uiColor: .systemGray5))
+                                    .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+                                    .frame(minHeight: 44)
+                                    .id("streaming")
+                                    .transition(.opacity)
                             } else {
                                 streamingBubble
                             }

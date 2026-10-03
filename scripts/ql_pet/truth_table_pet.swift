@@ -341,6 +341,8 @@ let paAC = stripComments(read("qingliao/Features/Chat/PetAvatar.swift"))
 let ppC = stripComments(read("qingliao/Features/Chat/PetPainter.swift"))
 check("header 中央宠物已回归（petHeaderBadge 在，62pt）",
       cvC.contains("private var petHeaderBadge") && cvC.contains("PetAvatar(size: 62,"))
+check("header 宠物 keepDetail 旁路简化阈值（v4.0.32 真机报修「没有手」：62<76 会被简化成头+眼+嘴）",
+      cvC.contains("keepDetail: true,\n                  thinkingFaceOverride: .sleepy"))
 check("ChatView 给 PageHeader 传 centerView（且空会话=欢迎页不挂，需求4）",
       cvC.contains("centerView: chat.messages.isEmpty ? nil : AnyView(chatHeaderPet)"))
 check("PageHeader 叠加管道已恢复（LiquidGlass 里 centerView 属性 + overlay 在）",
@@ -376,8 +378,8 @@ check("用户头像（渐变圆 Q）已删", !cbC.contains("Text(\"Q\")"))
 check("30pt 消息头像全仓清零（46=设置页表情缩略图保留）",
       !stripComments(read("qingliao/Features/Chat/ChatView.swift")).contains("PetAvatar(size: 30")
       && !cbC.contains("PetAvatar(size: 30"))
-check("思考气泡 38pt 宠物保留（拍板：只删两侧，思考气泡留）",
-      stripComments(read("qingliao/Features/Chat/ChatView.swift")).contains("PetAvatar(size: 38, state: .thinking)"))
+check("思考气泡 38pt 宠物已删（v4.0.32 用户复看截图拍板：思考期也不留头像，只留三点气泡本体）",
+      !stripComments(read("qingliao/Features/Chat/ChatView.swift")).contains("PetAvatar(size: 38"))
 check("气泡两侧留白 Spacer 对称 12（头像位收窄）",
       cbC.contains("private var bubbleLeadingAccessory: some View {\n        Spacer(minLength: 12)"))
 check("欢迎页身份宠物仍在（防误伤）", cvC.contains("private var petHero"))

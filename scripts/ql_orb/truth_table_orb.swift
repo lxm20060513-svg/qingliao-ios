@@ -488,9 +488,9 @@ check("零依赖：画笔只有 SwiftUI（不引 Lottie / Rive / 任何运行时
       painterSrc.contains("import SwiftUI") && !painterSrc.contains("import Lottie")
       && !painterSrc.contains("import RiveRuntime") && !painterSrc.contains("import UIKit"))
 
-// ⑤ 消息头像：换宠物 + 不误设常驻动画（误设会让长列表每个头像都连续渲染）
-check("思考头像（38pt）换宠物思考态",
-      chatSrc.contains("PetAvatar(size: 38, state: .thinking)"))
+// ⑤ 消息头像：v4.0.31 删两侧头像、v4.0.32 思考期头像也删（用户复看截图拍板）—— 反转为删除护栏
+check("思考头像（38pt）已删（思考期只留三点气泡本体，ChatView 清零）",
+      !chatSrc.contains("PetAvatar(size: 38"))
 // v4.0.31：消息头像已删（用户拍板「取消 AI 头像和我的头像」）—— 断言反转为删除护栏
 check("消息头像（30pt）已删（PetAvatar(size: 30 全仓气泡文件清零）",
       !bubbleSrc.contains("PetAvatar(size: 30"))
