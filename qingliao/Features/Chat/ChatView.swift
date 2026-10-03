@@ -2182,6 +2182,11 @@ struct ChatView: View {
             if TodoStore.shared.add(content: text, source: "chat") {
                 Haptics.notify(.success)
             }
+        } onGoal: { text in
+            // v4.0.25：存为长期目标（整条气泡 / 选中片段）——首行当标题（>40 字截断），
+            // 本地先落库（卡片立刻可见）→ 后端建每日推进 + 兜底拆步骤 → 步骤灌进待办清单。
+            // 与生活页手动路径（GoalsSection.confirmAdd）同链路，仅多 pushStepsToTodo（v4.0.26 口径）。
+            saveAsGoal(text: text)
         } onRemind: { text in
             // v3.9.32：长按「提醒我」——默认文案取该条消息内容
             reminderSeedText = text
@@ -2220,6 +2225,37 @@ struct ChatView: View {
             //（后端按采纳/忽略比自适应抬降置信度阈值 = 主动 Agent 唯一的学习信号）
             Task { await inbox.sendProactiveFeedback(messageId: msg.id,
                                                       proactiveId: pid, verdict: verdict) }
+        }
+    }
+
+    /// v4.0.25/26：长按「存为长期目标」——把该段内容直接建成长期目标。
+    /// 口径（与 AgentActionExecutor.createGoal 一致）：
+    /// ① 首行当标题（>40 字截断 + …）② 本地先落库（卡片立刻可见，不等网络）
+    /// ③ 后端建每日推进；steps 留空 → 后端 goal_module._auto_split 兜底拆步骤
+    /// ④ 后端拆出的步骤灌进待办清单（GoalTodoBridge.pushStepsToTodo，v4.0.26 口径）
+    /// ⑤ 失败必须出声（lastReport 标 ⚠️，与生活页手动路径同文案），绝不假装成功。
+    private func saveAsGoal(text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let firstLine = trimmed.split(separator: "\n").first.map(String.init) ?? trimmed
+        let title = firstLine.count > 40 ? String(firstLine.prefix(40)) + "…" : firstLine
+
+        let g = GoalItem(title: title,
+                         morningEnabled: true, eveningEnabled: false,
+                         morningHour: 9)   // 用户 v4.0.7 口径：只早 9:00 一段，晚复盘默认关
+        GoalStore.shared.add(g)
+        Haptics.notify(.success)
+
+        Task { @MainActor in
+            // 步骤为空 → 后端 _auto_split 兜底拆 4 步 → merged 里带回，灌进待办
+            guard let merged = await GoalStore.shared.createOnBackend(g) else {
+                GoalStore.shared.mutate(g.id) {
+                    $0.lastReport = "⚠️ 每日推送没建上（后端没响应），可以稍后在详情里重建。"
+                }
+                return
+            }
+            GoalStore.shared.update(merged)
+            GoalTodoBridge.pushStepsToTodo(merged)   // 拆出的步骤进待办（目标创建后统一标记 todoLinked）
         }
     }
 

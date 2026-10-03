@@ -315,6 +315,15 @@ final class GoalStore {
         guard let j = try? await auth.json("/api/life/goal", method: "POST", body: body),
               let remote = j["goal"] as? [String: Any] else { return nil }
         var merged = goal
+        // v4.0.26：本地 steps 为空时，后端 _auto_split 兜底拆的步骤要带回来 ——
+        // 否则聊天页「存为长期目标」路径 pushStepsToTodo 推 0 条（拆了但没进待办）。
+        if merged.steps.isEmpty,
+           let rawSteps = remote["steps"] as? [[String: Any]], !rawSteps.isEmpty {
+            merged.steps = rawSteps.compactMap { d in
+                guard let t = d["title"] as? String, !t.isEmpty else { return nil }
+                return GoalStep(id: d["id"] as? String ?? UUID().uuidString, title: t)
+            }
+        }
         if let ids = remote["cronJobIDs"] as? [String], !ids.isEmpty {
             merged.cronJobID = ids[0]
         } else if let one = remote["cronJobID"] as? String, !one.isEmpty {
