@@ -75,15 +75,15 @@ check("check_swift.sh 源可读", !gate.isEmpty)
 check("Pill.swift 源可读（栏目头/聊天页头两档口径都在它里面）", !pill.isEmpty)
 
 // ── ① 目录与默认档 ─────────────────────────────────────────────
-check("卡片种类 7 类（mail/resume/todo/weather/expense/agentTip/custom）",
-      HomeCardKind.allCases.count == 7)
+check("卡片种类 17 类（v4.0.29 加十张新卡：mail/resume/todo/weather/expense/agentTip + nextReminder/memo/express/stock/kb/scene/device/cloud/goal/clipboard + custom）",
+      HomeCardKind.allCases.count == 17)
 check("catalogOrder == allCases（默认顺序 = 目录顺序，不另写一份数组）",
       HomeCardKind.catalogOrder == HomeCardKind.allCases)
-check("可拖拽 6 张、空槽位不进拖拽流",
-      HomeCardKind.draggable.count == 6 && !HomeCardKind.draggable.contains(.custom))
-check("默认关掉的三张 = [todo, weather, expense]",
-      HomeCardStore.defaultOff == [.todo, .weather, .expense])
-check("默认档下首屏 4 张 = [mail, resume, agentTip, custom]",
+check("可拖拽 16 张、空槽位不进拖拽流",
+      HomeCardKind.draggable.count == 16 && !HomeCardKind.draggable.contains(.custom))
+check("默认关掉 = 老三张 + 十张新卡（v4.0.29：新卡不挤占老用户首屏）",
+      HomeCardStore.defaultOff == [.todo, .weather, .expense, .nextReminder, .memo, .express, .stock, .kb, .scene, .device, .cloud, .goal, .clipboard])
+check("默认档下首屏仍 4 张 = [mail, resume, agentTip, custom]（新卡默认关、不挤占首屏）",
       HomeCardOrder.resolve(order: "", off: HomeCardOrder.encode(HomeCardStore.defaultOff))
         == [.mail, .resume, .agentTip, .custom])
 
@@ -98,12 +98,12 @@ check("encode 往返：encode → parse 恒等",
 check("encode 空列表写空串（「顺序」没有全关语义，不写哨兵）",
       HomeCardOrder.encode([]) == "")
 check("resolve 去重：重复 kind 只留一次",
-      HomeCardOrder.resolve(order: "mail,mail,mail", off: "").count == 7)
+      HomeCardOrder.resolve(order: "mail,mail,mail", off: "").count == 17)
 check("resolve 补齐新卡：顺序串只有 resume → 首项 resume + 其余按 catalog 排尾",
       HomeCardOrder.resolve(order: "resume", off: "") == [.resume] + HomeCardKind.catalogOrder.filter { $0 != .resume })
-check("resolve 未知项不影响补全：\"zzz,mail\" → 7 项且首项 mail",
+check("resolve 未知项不影响补全：\"zzz,mail\" → 17 项且首项 mail",
       HomeCardOrder.resolve(order: "zzz,mail", off: "").first == .mail
-        && HomeCardOrder.resolve(order: "zzz,mail", off: "").count == 7)
+        && HomeCardOrder.resolve(order: "zzz,mail", off: "").count == 17)
 check("resolve 过滤被关的卡", !HomeCardOrder.resolve(order: "", off: "todo,weather").contains(.todo))
 check("resolve 只在「列表为空」时兜底；全关时剩下的 custom 不算数 → 开关侧必须自己拒关最后一张真卡",
       HomeCardOrder.resolve(order: "", off: HomeCardOrder.encode(HomeCardKind.draggable)) == [.custom])
@@ -176,7 +176,7 @@ check("rows 五张 → 3 行（2+2+1），末行补 nil",
       HomeCardOrder.rows([.mail, .resume, .todo, .weather, .expense])
         == [[.mail, .resume], [.todo, .weather], [.expense, nil]])
 check("rows 元素守恒：拍平非 nil 数 == 输入数",
-      HomeCardOrder.rows(HomeCardKind.catalogOrder).flatMap { $0 }.compactMap { $0 }.count == 7)
+      HomeCardOrder.rows(HomeCardKind.catalogOrder).flatMap { $0 }.compactMap { $0 }.count == 17)
 check("rows columns <= 0 → 空（不许死循环）",
       HomeCardOrder.rows([.mail, .resume], columns: 0).isEmpty)
 
@@ -190,11 +190,11 @@ check("写回：关掉的卡逐个留在原槽（默认档下结果 == catalog �
 let mergedSwapped = HomeCardOrder.mergeVisible(oldFull: HomeCardKind.catalogOrder,
                                                newVisible: [.resume, .mail, .agentTip, .custom],
                                                off: offDefault)
-check("写回：可见卡换位（resume/mail 对调）后，被关的三张仍在原槽 3/4/5 位",
-      mergedSwapped == [.resume, .mail, .todo, .weather, .expense, .agentTip, .custom])
+check("写回：可见卡换位（resume/mail 对调）后，被关的三张仍在原槽 3/4/5 位、新卡按 catalog 排尾",
+      mergedSwapped == [.resume, .mail, .todo, .weather, .expense, .agentTip, .nextReminder, .memo, .express, .stock, .kb, .scene, .device, .cloud, .goal, .clipboard, .custom])
 check("写回后重新打开 todo → 精确回到第 3 位（不是排到末尾）",
       HomeCardOrder.resolve(order: HomeCardOrder.encode(mergedSwapped), off: "weather,expense") ==
-        [.resume, .mail, .todo, .agentTip, .custom])
+        [.resume, .mail, .todo, .agentTip, .nextReminder, .memo, .express, .stock, .kb, .scene, .device, .cloud, .goal, .clipboard, .custom])
 check("写回：oldFull 之外的新卡（升版加卡）补到末尾",
       HomeCardOrder.mergeVisible(oldFull: [.mail, .resume],
                                  newVisible: [.resume, .mail, .todo],
@@ -202,7 +202,7 @@ check("写回：oldFull 之外的新卡（升版加卡）补到末尾",
 check("写回长度守恒（可见卡少于槽位的边界不崩）",
       HomeCardOrder.mergeVisible(oldFull: HomeCardKind.catalogOrder,
                                  newVisible: [.mail],
-                                 off: []).count == 7)
+                                 off: []).count == 17)
 
 // ── ⑦ 持久化键 / 版式常量（单一真源） ───────────────────────────
 check("UserDefaults 键字面量全仓只在 HomeCardOrder.swift（grep 单一真源）",
@@ -225,21 +225,21 @@ ud.removeObject(forKey: HomeCardStore.orderKey)
 ud.removeObject(forKey: HomeCardStore.offKey)
 check("首次使用（键都不存在）：off == 默认档三张 —— 否则面板显示「三张默认关掉的卡是开的」，与首页对不上",
       HomeCardStore.off == HomeCardStore.defaultOff)
-check("首次使用：渲染 4 张 = [mail, resume, agentTip, custom]",
+check("首次使用：渲染仍 4 张 = [mail, resume, agentTip, custom]（新卡默认关）",
       HomeCardStore.kinds == [.mail, .resume, .agentTip, .custom])
-check("完整顺序恒为 catalog 全量 7 张（拖拽写回拿它当 oldFull，关掉的卡才留得住）",
-      HomeCardStore.fullOrder.count == 7 && Set(HomeCardStore.fullOrder) == Set(HomeCardKind.allCases))
+check("完整顺序恒为 catalog 全量 17 张（拖拽写回拿它当 oldFull，关掉的卡才留得住）",
+      HomeCardStore.fullOrder.count == 17 && Set(HomeCardStore.fullOrder) == Set(HomeCardKind.allCases))
 
 ud.set("todo,weather,expense,custom,zzz_kind", forKey: HomeCardStore.offKey)
 check("脏 off 串：未知项丢弃 + 空槽位照用户意思保留在 off（v4.0.9 起它可关）",
       HomeCardStore.off == [.todo, .weather, .expense, .custom])
 ud.set(HomeCardOrder.encode(HomeCardKind.draggable), forKey: HomeCardStore.offKey)
-check("脏数据把 6 张真卡全关 → 兜底放回 resume（与 setEnabled 拒关同一口径）",
+check("脏数据把 16 张真卡全关 → 兜底放回 resume（与 setEnabled 拒关同一口径）",
       HomeCardStore.off == HomeCardKind.draggable.filter { $0 != .resume })
 
 ud.set("", forKey: HomeCardStore.offKey)
 check("动过开关（键存在空串）→ 完全听用户的，不回灌默认档",
-      HomeCardStore.off.isEmpty && HomeCardStore.kinds.count == 7)
+      HomeCardStore.off.isEmpty && HomeCardStore.kinds.count == 17)
 
 ud.set(HomeCardOrder.encode(HomeCardStore.defaultOff), forKey: HomeCardStore.offKey)
 ud.set(HomeCardOrder.encode(HomeCardOrder.setEnabled(HomeCardStore.off, .todo, on: true)),

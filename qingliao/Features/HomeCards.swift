@@ -31,6 +31,7 @@
 //
 
 import SwiftUI
+import UIKit   // v4.0.29：剪贴板卡读 UIPasteboard（轻点那一刻才读）
 
 // MARK: - 取数（一屏只打这几趟，全部走既有后端，零新接口）
 
@@ -56,8 +57,40 @@ final class HomeCardData {
     var tip: HomeCardTip = .idle
     var loaded = false
 
+    // ── v4.0.29 十张新卡的取数槽 ──
+    /// 下一提醒（本地 QuickReminderStore，最近一条待触发）
+    var nextReminderText: String = ""
+    var nextReminderTime: Date?
+    /// 备忘速记（MemoStore 最新一条）
+    var memoLatest: String = ""
+    /// 快递在途（/api/life/cards → LifeExpressCard）
+    var expressCount: Int = -1        // -1 = 未加载/未配置
+    var expressLine: String = ""
+    /// 关注行情（/api/life/cards → 首只自选股）
+    var stockName: String = ""
+    var stockLine: String = ""        // "23.40 +2.1%"
+    /// 知识库问答（/api/kb/list 文档数）
+    var kbCount: Int = -1
+    /// 家庭场景（/api/scenes/list 首个场景名）
+    var sceneName: String = ""
+    var sceneCount: Int = -1
+    /// 设备状态（/api/hw/status）
+    var deviceLine: String = ""
+    /// 云盘（/api/agent/clouddrive/drives 就绪数）
+    var cloudCount: Int = -1
+    var cloudName: String = ""
+    /// 今日目标（GoalStore 本地）
+    var goalTotal: Int = -1
+    var goalDoneToday: Int = 0
+    var goalNextTitle: String = ""
+
     private var mailFetched = false
     private var weatherFetched = false
+    private var lifeFetched = false   // 快递 + 行情同源，一趟请求
+    private var kbFetched = false
+    private var sceneFetched = false
+    private var deviceFetched = false
+    private var cloudFetched = false
 
     /// 卡片区出现时调一次；各自内部去重（拖拽排序会反复重画视图，别重复打后端）
     func load(auth: AuthStore) async {
@@ -71,6 +104,152 @@ final class HomeCardData {
             await loadWeather(auth: auth)
         }
         if tip == .idle { tip = await Self.loadTip(auth: auth) }
+        // v4.0.29：十张新卡（按需取数，未打开的卡不打无谓请求 —— 各卡在「开」时才补拉）
+        loadGoalLocal()
+        loadReminderLocal()
+        loadMemoLocal()
+        if anyVisible(.express, .stock), !lifeFetched {
+            lifeFetched = true
+            await loadLifeCards(auth: auth)
+        }
+        if anyVisible(.kb), !kbFetched {
+            kbFetched = true
+            await loadKB(auth: auth)
+        }
+        if anyVisible(.scene), !sceneFetched {
+            sceneFetched = true
+            await loadScenes(auth: auth)
+        }
+        if anyVisible(.device), !deviceFetched {
+            deviceFetched = true
+            await loadDevice(auth: auth)
+        }
+        if anyVisible(.cloud), !cloudFetched {
+            cloudFetched = true
+            await loadCloud(auth: auth)
+        }
+    }
+
+    /// 当前可见卡片里是否包含任一目标 kind（editor 开关变化后由 loadOnDemand 补拉）
+    private var visibleKinds: Set<HomeCardKind> {
+        Set(HomeCardStore.fullOrder.filter { !HomeCardStore.off.contains($0) })
+    }
+    private func anyVisible(_ kinds: HomeCardKind...) -> Bool {
+        let vis = visibleKinds
+        return kinds.contains { vis.contains($0) }
+    }
+
+    /// 「自定义」面板关掉后重开卡片区 → 补拉新开卡的数（HomeCardsGrid.task 每次出现都会调 load）
+    func loadOnDemand(auth: AuthStore) async {
+        if anyVisible(.express, .stock), !lifeFetched {
+            lifeFetched = true
+            await loadLifeCards(auth: auth)
+        }
+        if anyVisible(.kb), !kbFetched {
+            kbFetched = true
+            await loadKB(auth: auth)
+        }
+        if anyVisible(.scene), !sceneFetched {
+            sceneFetched = true
+            await loadScenes(auth: auth)
+        }
+        if anyVisible(.device), !deviceFetched {
+            deviceFetched = true
+            await loadDevice(auth: auth)
+        }
+        if anyVisible(.cloud), !cloudFetched {
+            cloudFetched = true
+            await loadCloud(auth: auth)
+        }
+    }
+
+    // MARK: v4.0.29 新卡取数（全部走既有后端/Store，零新接口）
+
+    /// 今日目标：本地 GoalStore 已同步，直接读（不打后端）
+    private func loadGoalLocal() {
+        let goals = GoalStore.shared.goals.filter { !$0.paused }
+        guard !goals.isEmpty else { goalTotal = 0; return }
+        goalTotal = goals.count
+        // 「今日完成数」= 所有未暂停目标的步骤里 done=true 的条数；下一件 = 第一条未完成步骤
+        var done = 0
+        for g in goals {
+            for s in g.steps where s.done { done += 1 }
+        }
+        goalDoneToday = done
+        for g in goals {
+            if let next = g.steps.first(where: { !$0.done }) {
+                goalNextTitle = next.title
+                break
+            }
+        }
+    }
+
+    /// 下一提醒：本地 QuickReminderStore（scheduled 已按时间升序，first = 最近要响的）
+    private func loadReminderLocal() {
+        guard let next = QuickReminderStore.shared.scheduled.first else { return }
+        nextReminderText = next.text
+        nextReminderTime = next.fireDate
+    }
+
+    /// 备忘速记：MemoStore 最新一条（memos 未排序，这里取 createdAt 最大）
+    private func loadMemoLocal() {
+        guard let latest = MemoStore.shared.memos.max(by: { $0.createdAt < $1.createdAt }) else { return }
+        memoLatest = latest.content
+    }
+
+    /// 快递 + 行情：同源 /api/life/cards，一趟请求两张卡
+    private func loadLifeCards(auth: AuthStore) async {
+        guard let j = try? await auth.json("/api/life/cards") else { return }
+        let d = LifeCardsData.parse(j)
+        if let ex = d.express, ex.hasPackages {
+            expressCount = ex.packages.count
+            let undelivered = ex.packages.filter { !$0.isDelivered }
+            if let first = undelivered.first {
+                expressLine = "\(first.title) · \(first.statusText.isEmpty ? "在途" : first.statusText)"
+            } else if let any = ex.packages.first {
+                expressLine = "\(any.title) · \(any.statusText.isEmpty ? "已查询" : any.statusText)"
+            }
+        } else {
+            expressCount = 0
+        }
+        if let s = d.stocks.first(where: { $0.ok }) {
+            stockName = s.name
+            stockLine = "\(s.priceText) \(s.changeText)"
+        }
+    }
+
+    /// 知识库问答：文档数
+    private func loadKB(auth: AuthStore) async {
+        guard let j = try? await auth.json("/api/kb/list") else { return }
+        kbCount = (j["docs"] as? [[String: Any]] ?? []).count
+    }
+
+    /// 家庭场景：首个场景名 + 总数
+    private func loadScenes(auth: AuthStore) async {
+        guard let j = try? await auth.json("/api/scenes/list") else { return }
+        let arr = j["scenes"] as? [[String: Any]] ?? []
+        sceneCount = arr.count
+        sceneName = arr.first?["name"] as? String ?? ""
+    }
+
+    /// 设备状态：CPU/SSD 温度（看板同源 /api/hw/status）
+    private func loadDevice(auth: AuthStore) async {
+        guard let j = try? await auth.json("/api/hw/status") else { return }
+        var parts: [String] = []
+        if let c = j["cpu_temp"] as? Double { parts.append(String(format: "CPU %.0f°C", c)) }
+        if let s = j["ssd_temp"] as? Double { parts.append(String(format: "SSD %.0f°C", s)) }
+        deviceLine = parts.joined(separator: " · ")
+    }
+
+    /// 云盘：就绪盘数 + 首个昵称
+    private func loadCloud(auth: AuthStore) async {
+        guard let j = try? await auth.json("/api/agent/clouddrive/drives"),
+              let ok = j["ok"] as? Bool, ok else { return }
+        let raw = j["drives"] as? [[String: Any]] ?? []
+        let items = raw.map { CloudDriveItem($0) }
+        let ready = items.filter { $0.isReady }
+        cloudCount = ready.count
+        cloudName = ready.first?.nickname ?? ready.first?.name ?? ""
     }
 
     /// 待办 / 账目：本地 Store 已同步过，直接读，不打后端
@@ -196,6 +375,10 @@ struct HomeCardsGrid: View {
     var onOpenLife: () -> Void
     /// 打开天气弹窗
     var onOpenWeather: () -> Void
+    /// v4.0.29：切到看板（场景 / 设备状态卡的落点）
+    var onOpenBoard: () -> Void
+    /// v4.0.29：打开弹窗的通用通道（备忘录 / 提醒面板 / 云盘浏览等由 ChatView 挂 sheet）
+    var onOpenSheet: (HomeCardKind) -> Void
 
     /// 完整顺序（catalog 全量，含被关掉的）—— 写回的唯一真源。
     /// ⚠️ 必须用 fullOrder（全量）而不是 kinds（渲染列表）：否则新开的卡不在 full 里 → 开了看不见。
@@ -247,6 +430,7 @@ struct HomeCardsGrid: View {
         }
         .padding(.horizontal, Spacing.section)
         .task { await data.load(auth: auth) }
+        .task(id: off.count) { await data.loadOnDemand(auth: auth) }   // 开新卡 → 补拉它的数
         .sheet(isPresented: $showEditor) {
             HomeCardEditorSheet(off: $off) { HomeCardStore.persist(order: full, off: off) }
                 .presentationDetents([.medium, .large])
@@ -436,9 +620,40 @@ struct HomeCardsGrid: View {
             onOpenWeather()
         case .agentTip:
             onAsk(data.tip.prompt)
+        // ── v4.0.29 十张新卡 ──
+        case .nextReminder:
+            onOpenSheet(.nextReminder)          // 打开提醒面板（可直接新建）
+        case .memo:
+            onOpenSheet(.memo)                  // 打开备忘录页
+        case .express:
+            onOpenLife()                        // 快递详情在生活页
+        case .stock:
+            onOpenLife()                        // 行情详情在生活页
+        case .kb:
+            onAsk("@知识库 ")                    // 带前缀发问（输入框填充，用户补问题）
+        case .scene, .device:
+            onOpenBoard()                       // 场景一键执行 / 设备详情在看板
+        case .cloud:
+            onOpenSheet(.cloud)                 // 云盘浏览
+        case .goal:
+            onOpenLife()                        // 目标在生活页
+        case .clipboard:
+            tapClipboard()
         case .custom:
             showEditor = true
         }
+    }
+
+    /// 剪贴板卡：轻点那一刻才读 UIPasteboard（渲染期读 = 每次开首页弹系统「粘贴」提示）。
+    /// 有内容 → 直接把内容发给 AI（识别/处理）；无内容 → 轻提示。
+    private func tapClipboard() {
+        let text = UIPasteboard.general.string?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !text.isEmpty, text.count <= 2000 else {
+            Haptics.error()
+            return
+        }
+        Haptics.tap()
+        onAsk("帮我看看剪贴板里这段内容：\n\(text)")
     }
 }
 
@@ -487,6 +702,17 @@ struct HomeCardFace: View {
         case .weather: return data.weatherTemp == nil ? "cloud.fill" : WeatherCode.symbol(data.weatherCode)
         case .expense: return "yensign.circle.fill"
         case .agentTip: return "sparkles"
+        // v4.0.29 十张新卡
+        case .nextReminder: return "bell.badge.fill"
+        case .memo: return "note.text"
+        case .express: return "shippingbox.fill"
+        case .stock: return "chart.line.uptrend.xyaxis"
+        case .kb: return "books.vertical.fill"
+        case .scene: return "house.fill"
+        case .device: return "cpu.fill"
+        case .cloud: return "cloud.fill"
+        case .goal: return "flag.checkered"
+        case .clipboard: return "doc.on.clipboard.fill"
         case .custom: return "plus"
         }
     }
@@ -499,6 +725,17 @@ struct HomeCardFace: View {
         case .weather: return .teal
         case .expense: return .orange
         case .agentTip: return .purple
+        // v4.0.29 十张新卡
+        case .nextReminder: return .red
+        case .memo: return .yellow
+        case .express: return .brown
+        case .stock: return .mint
+        case .kb: return .cyan
+        case .scene: return .blue
+        case .device: return .gray
+        case .cloud: return .teal
+        case .goal: return .orange
+        case .clipboard: return .indigo
         case .custom: return .gray
         }
     }
@@ -511,8 +748,27 @@ struct HomeCardFace: View {
         case .weather: return "天气"
         case .expense: return "本月账目"
         case .agentTip: return data.tip.title
+        // v4.0.29 十张新卡
+        case .nextReminder: return "下一提醒"
+        case .memo: return "备忘速记"
+        case .express: return "快递在途"
+        case .stock: return data.stockName.isEmpty ? "关注行情" : data.stockName
+        case .kb: return "知识库问答"
+        case .scene: return "家庭场景"
+        case .device: return "设备状态"
+        case .cloud: return "云盘"
+        case .goal: return "今日目标"
+        case .clipboard: return "剪贴板"
         case .custom: return "空槽位"
         }
+    }
+
+    /// 副标题口径（⚠️ 恒单行，见本文件顶部注释；相对时间/文案放不下会被截断）
+    private func reminderTimeText(_ d: Date) -> String {
+        let sameDay = Calendar.current.isDate(d, inSameDayAs: Date())
+        let fmt = DateFormatter()
+        fmt.dateFormat = sameDay ? "HH:mm" : "MM-dd HH:mm"
+        return fmt.string(from: d)
     }
 
     private var subtitle: String {
@@ -550,6 +806,34 @@ struct HomeCardFace: View {
             return "¥\(String(format: "%.0f", data.monthAmount)) · \(data.monthCount) 笔"
         case .agentTip:
             return data.tip.subtitle
+        // ── v4.0.29 十张新卡 ──
+        case .nextReminder:
+            guard let t = data.nextReminderTime else { return "没有待响的提醒" }
+            return "\(reminderTimeText(t)) · \(data.nextReminderText)"
+        case .memo:
+            return data.memoLatest.isEmpty ? "点一下去记一笔" : data.memoLatest
+        case .express:
+            guard data.expressCount > 0 else { return data.expressCount == 0 ? "没有在途快递" : "去生活页配置单号" }
+            return "\(data.expressCount) 件 · \(data.expressLine)"
+        case .stock:
+            return data.stockLine.isEmpty ? "去生活页关注股票" : data.stockLine
+        case .kb:
+            guard data.kbCount >= 0 else { return "点一下问知识库" }
+            return data.kbCount == 0 ? "还没有文档 · 去设置上传" : "\(data.kbCount) 份文档 · 点一下提问"
+        case .scene:
+            guard data.sceneCount > 0 else { return "没有可用场景" }
+            return data.sceneName.isEmpty ? "\(data.sceneCount) 个场景" : "「\(data.sceneName)」等 \(data.sceneCount) 个"
+        case .device:
+            return data.deviceLine.isEmpty ? "点一下看看看板" : data.deviceLine
+        case .cloud:
+            guard data.cloudCount > 0 else { return data.cloudCount == 0 ? "还没接云盘" : "点一下去设置" }
+            return data.cloudName.isEmpty ? "\(data.cloudCount) 个盘已就绪" : "\(data.cloudName) 等 \(data.cloudCount) 个盘"
+        case .goal:
+            guard data.goalTotal > 0 else { return "还没有长期目标" }
+            if data.goalNextTitle.isEmpty { return "\(data.goalTotal) 个目标 · 步骤全完成" }
+            return "\(data.goalTotal) 个目标 · 下一步 \(data.goalNextTitle)"
+        case .clipboard:
+            return "点一下发给 AI 处理"
         case .custom:
             return "点这里添加"
         }
@@ -606,6 +890,17 @@ enum HomeCardLabels {
         case .weather: return "天气"
         case .expense: return "本月账目"
         case .agentTip: return "agent 主动推荐"
+        // v4.0.29 十张新卡
+        case .nextReminder: return "下一提醒"
+        case .memo: return "备忘速记"
+        case .express: return "快递在途"
+        case .stock: return "关注行情"
+        case .kb: return "知识库问答"
+        case .scene: return "家庭场景"
+        case .device: return "设备状态"
+        case .cloud: return "云盘"
+        case .goal: return "今日目标"
+        case .clipboard: return "剪贴板"
         case .custom: return "空槽位"
         }
     }
@@ -618,6 +913,17 @@ enum HomeCardLabels {
         case .weather: return "cloud.fill"
         case .expense: return "yensign.circle.fill"
         case .agentTip: return "sparkles"
+        // v4.0.29 十张新卡
+        case .nextReminder: return "bell.badge.fill"
+        case .memo: return "note.text"
+        case .express: return "shippingbox.fill"
+        case .stock: return "chart.line.uptrend.xyaxis"
+        case .kb: return "books.vertical.fill"
+        case .scene: return "house.fill"
+        case .device: return "cpu.fill"
+        case .cloud: return "cloud.fill"
+        case .goal: return "flag.checkered"
+        case .clipboard: return "doc.on.clipboard.fill"
         case .custom: return "plus"
         }
     }

@@ -988,6 +988,26 @@ struct ChatView: View {
                 .presentationDetents([.medium, .large])
                 .scrollContentBackground(.hidden)
         }
+        // v4.0.29：首页「备忘速记」卡 → 备忘卡片（复用生活页 MemoSection，弹窗里直接看/记）
+        .sheet(isPresented: $showHomeMemoBrowser) {
+            NavigationStack {
+                ScrollView {
+                    MemoSection()
+                        .padding(.horizontal, Spacing.section)
+                }
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("完成") { showHomeMemoBrowser = false }
+                    }
+                }
+            }
+            .presentationDetents([.large])
+        }
+        // v4.0.29：首页「云盘」卡 → 云盘浏览（复用设置页 CloudDriveSettingsSheet 的列表 + 浏览器）
+        .sheet(isPresented: $showHomeCloudDrive) {
+            CloudDriveSettingsSheet()
+                .presentationDetents([.large])
+        }
         // v3.9.48：输入栏展开态的模型快选（右下角胶囊）。detents 与 Hermes 捷径/章节列表同档
         .sheet(isPresented: $showComposerModel) {            ComposerModelSheet()
                 .presentationDetents([.medium, .large])
@@ -1886,12 +1906,42 @@ struct ChatView: View {
             onOpenWeather: {
                 Haptics.tap()
                 showHomeWeather = true
+            },
+            // v4.0.29：新卡通道 —— 场景/设备切看板；备忘/提醒/云盘走弹窗
+            onOpenBoard: {
+                Haptics.tap()
+                QingliaoRouteHandoff.request(.dashboard)
+            },
+            onOpenSheet: { kind in
+                Haptics.tap()
+                switch kind {
+                case .nextReminder:
+                    reminderSeedText = ""
+                    showQuickReminder = true             // 复用既有提醒面板（可直接新建）
+                case .memo:
+                    showHomeMemoBrowser = true           // 复用备忘录浏览页
+                case .cloud:
+                    showHomeCloudDrive = true            // 复用云盘浏览
+                default:
+                    break
+                }
             }
         )
+        // 🚨 v4.0.29 顺带修存量 bug：showHomeWeather 只有置 true、从未有 sheet 呈现它 → 天气卡轻点没反应。
+        //    WeatherSheet 复用看板那份视图（聊天页自己挂，不带看板的轮询副作用）。
+        .sheet(isPresented: $showHomeWeather) {
+            WeatherSheet(mode: .local)
+                .presentationDetents([.large])
+        }
     }
 
     // v4.0.8：首页天气卡弹窗（聊天页专属一份，见 homeCardsGrid 注释）
+    // 🚨 v4.0.29 顺带修存量 bug：showHomeWeather 只有置 true、从未有任何 sheet 呈现它
+    //    （grep 全文件 0 个呈现点）→ 天气卡轻点「没反应」。呈现补在 homeCardsGrid 的视图链上。
     @State private var showHomeWeather = false
+    // v4.0.29：新卡弹窗宿主（备忘录 / 云盘）
+    @State private var showHomeMemoBrowser = false
+    @State private var showHomeCloudDrive = false
 
 
     // v2.0.111：欢迎页独立于 ScrollView——不再受滚动容器背景/裁剪影响，logo 永远完整显示

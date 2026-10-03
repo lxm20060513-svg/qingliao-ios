@@ -32,6 +32,17 @@ enum HomeCardKind: String, CaseIterable {
     case weather      // 天气
     case expense      // 记一笔（本月账目）
     case agentTip     // agent 主动推荐
+    // v4.0.29 候选池批次：十张新卡（数据全部走既有 Store/后端，零新接口）
+    case nextReminder // 下一提醒（本地 QuickReminderStore）
+    case memo         // 备忘速记（MemoStore）
+    case express      // 快递在途（/api/life/cards）
+    case stock        // 关注行情（/api/life/cards）
+    case kb           // 知识库问答（/api/kb/list）
+    case scene        // 家庭场景（/api/scenes/list）
+    case device       // 设备状态（/api/hw/status）
+    case cloud        // 云盘（/api/agent/clouddrive/drives）
+    case goal         // 今日目标（GoalStore）
+    case clipboard    // 剪贴板（轻点那一刻才读，不在渲染期读 —— 避免首页弹系统粘贴提示）
     case custom       // 空槽位 → 打开卡片库添加（钉在末尾、不参与拖拽；可关，关掉即不渲染）
 
     /// 默认展示顺序（= 目录顺序，拖拽前 / 新用户口径）
@@ -280,10 +291,15 @@ enum HomeCardStore {
         return base.contains(.custom) ? base : base + [.custom]
     }
 
-    /// 默认关掉的卡（= 收起进「自定义」里的三张）
-    /// 为什么不全开：7 张 2 列 = 4 行 ≈ 370pt，竖屏首页塞不下，会把宠物与问候语挤没。
-    /// 首屏 3 张（继续上次 / 新邮件 / agent 推荐）覆盖 80% 的开屏意图，其余按需打开。
-    static let defaultOff: [HomeCardKind] = [.todo, .weather, .expense]
+    /// 默认关掉的卡（= 收起进「自定义」里的）
+    /// 为什么不全开：全量 2 列行数太多，竖屏首页塞不下，会把宠物与问候语挤没。
+    /// 首屏（继续上次 / 新邮件 / agent 推荐）覆盖 80% 的开屏意图，其余按需打开。
+    /// v4.0.29：十张新卡**默认全关**（卡片目录到 17 项，新卡不挤占老用户首屏；
+    /// resolve 的「缺失 kind 自动补尾」保证老用户升级后排序不重置，想要哪张自己来「自定义」开）。
+    static let defaultOff: [HomeCardKind] = [
+        .todo, .weather, .expense,
+        .nextReminder, .memo, .express, .stock, .kb, .scene, .device, .cloud, .goal, .clipboard,
+    ]
 
     /// 写回（order 必须含被关掉的卡，否则重开后位置会漂）
     static func persist(order: [HomeCardKind], off: [HomeCardKind]) {
