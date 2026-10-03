@@ -333,6 +333,14 @@ echo "=== 26. 长回复阅读真值表（v3.9.86 功能 4 · B 方案：半屏 s
 # （同宿主互斥）、大纲是本 sheet 内一层、参数声明序 = 调用序。
 run_unit /tmp/test_reading scripts/ql_reading/truth_table_reading.swift
 
+echo "=== 26b. 流式分段朗读真值表（v4.0.x · 满一条气泡段落即送 TTS）==="
+# 两文件编译：真值表 + qingliao/Core/StreamTTSSegmenter.swift（纯 Foundation，无 UI 依赖），
+# 切分口径再由表内源护栏钉住与 MessageBubble.splitParagraphs 不漂移。
+# 口径：feed 只吐新凑满段、纯代码围栏段跳过不占序号、未闭合围栏永不送半截；接线钉住
+# 「增量处 feed（不等 finish）+ 落库边沿 hasStreamingSpeech 守卫 + speakSegment 不先 stop」。
+run_unit /tmp/test_streamtts scripts/ql_streamtts/truth_table_streamtts.swift \
+    qingliao/Core/StreamTTSSegmenter.swift
+
 echo "=== 27. 会话自动命名真值表（v3.9.90 首条消息后起一次名 / 人改过名字的不再自动改）==="
 # 单文件（读源做护栏 + 镜像逐字校验 ChatStore 的接线与 SessionAutoName 的判断句，不 import 项目代码）→ run_unit 直接编跑。
 # 工作目录 = 仓根（表内用相对路径 "Core/ChatStore.swift" / "Core/SessionAutoName.swift" 读源）→ 必须从仓根跑。

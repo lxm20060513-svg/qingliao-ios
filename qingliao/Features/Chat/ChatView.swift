@@ -425,6 +425,9 @@ struct ChatView: View {
         // 抑制标记**只在真正要念时才消费**：原来无条件清掉，生成期来一个 🔔 进度气泡（isPush）
         // 就把标记吃掉，用户停止后落库的残句又会被念出来（只读审查抓到的回归）。
         guard autoReadReply, !suppressAutoReadOnce else { return }
+        // v4.0.x 流式分段朗读：本条已在流式期间由分段队列逐段朗读 → 落库边沿整段朗读跳过
+        //（guard 后置：suppressAutoReadOnce 的消费语义不受影响）。
+        if stream.hasStreamingSpeech { return }
         // v3.9.9：念**刚落库的那条**，不用 `chat.messages.last`——AI 回答中用户又发消息时
         // 本轮回复 insert 在数组中段，末条是排队 user 消息（见 ChatStore.lastLandedAssistantUID）
         guard let landedUID = chat.lastLandedAssistantUID,

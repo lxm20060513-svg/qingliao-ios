@@ -90,6 +90,13 @@ final class StreamClient {
     /// 与工具进度同生命周期，`resetToolProgress()` 里清空。
     private(set) var memoAdded: [String] = []
 
+    /// v4.0.x 流式分段朗读：启用条件（自动朗读开 + 朗读引擎未接管过本消息）。
+    /// 只读 UserDefaults：ChatView 的落库边沿朗读在同一条件下触发，两处口径一致；
+    /// `hasStreamingSpeech` = 当前已由分段队列接管（防落库边沿重复整段朗读）。
+    static var streamTTSInbox: Bool {
+        UserDefaults.standard.bool(forKey: "qingliao_auto_read_reply")
+    }
+
     /// v4.0.120：**本流已被撤销/关掉的条目**——差集之外的第二道闸门。
     ///
     /// 🚨 真值表实测抓到的洞：光靠 `memoAdded` 差集不够。后端 `memoAdded` 是「整流只增不减」
@@ -97,6 +104,14 @@ final class StreamClient {
     /// 条目「删了又弹」。所以撤销/关闭必须记进这个集合，poll 时一并过滤。
     /// 同样在 resetToolProgress() 里清（跟本流同生命周期：新会话里同一条是新事件）。
     private var memoDismissed: Set<String> = []
+
+    /// v4.0.x 流式分段朗读：分段队列副本（值语义，本类唯一写入口；-1 = 未启用）。
+    private(set) var ttsSegments = StreamTTSSegmenter()
+    /// v4.0.x 流式分段朗读：本功能当前朗读的消息 id（有值 = 分段队列已接管本条，
+    /// 落库边沿的整段自动朗读据此跳过；`detachLocally` 的 `onFinished = nil` 坑由此免疫）。
+    private(set) var streamingSpeechMsgID: String?
+    /// v4.0.x：分段队列是否已接管当前这条回复（供 UI 守卫判断）。
+    var hasStreamingSpeech: Bool { streamingSpeechMsgID != nil }
 
     /// v4.0.120：撤销/关闭成功后从本流列表摘掉该条目并记入屏蔽集（防「删了又弹」）。
     /// 写入口必须收在 StreamClient 里（`memoAdded` 是 `private(set)`，UI 侧只读）——
@@ -244,6 +259,7 @@ final class StreamClient {
         backoff = 0.5   // v3.4.x：新流重置退避
         recoverTried = false
         recoverFailTried = false   // 新流必须清：否则上一轮的 3 连败会永久关掉 v3.0.80 的兜底
+        ttsReset()   // v4.0.x 流式分段朗读：新流清队列/换消息锚（上一轮的段落全部作废）
         startSmooth()   // v3.4.20：打字机平滑释放启动
         interval = 0.25
         isStreaming = true
@@ -292,6 +308,10 @@ final class StreamClient {
         failCount = 0; idleStreak = 0; backoff = 0.5
         recoverTried = false; recoverFailTried = false
         resetToolProgress()
+        // v4.0.x 流式分段朗读：本流已移交后台 → 队列停喂；已在念的段落继续（中断比突兀闭嘴好），
+        // 落库边沿整段朗读在 ChatView 用 hasStreamingSpeech 守卫跳过，不因移交而误触发。
+        ttsSegments.reset()
+        streamingSpeechMsgID = nil
         isStreaming = false
         isDone = true      // 守卫口径：单例视为空闲（start 会整体复位）
         status = ""
@@ -312,11 +332,37 @@ final class StreamClient {
     func stop(auth: AuthStore) {
         stopPolling()
         generation += 1   // v3.0.50：停止后旧 pollOnce resume 不再写状态
+        ttsReset()   // v4.0.x 流式分段朗读：停流 → 队列作废（朗读本体由 ChatView 停止入口统一关）
         if !taskId.isEmpty, !isDone {
             Task { await auth.streamStop(taskId: taskId) }
         }
         if isStreaming, !isDone {
             finish(success: false, error: "已停止", userInitiated: true)   // v3.9.33：我按的停止 ≠ 失败
+        }
+    }
+
+    // MARK: - v4.0.x 流式分段朗读（满一条气泡段落即送 TTS，不等全文完）
+
+    /// 新一轮开始：队列复位 + 本功能的消息锚（段落 id 前缀用它，`#s<序号>` 段签名）。
+    private func ttsReset() {
+        ttsSegments.reset()
+        streamingSpeechMsgID = nil
+    }
+
+    /// poll 增量到达后的喂入口。启用条件（与落库边沿整段朗读同口径 + 本机流在跑）：
+    /// ① 自动朗读开着（StreamClient.streamTTSInbox）② 尚未由分段队列接管（hasStreamingSpeech=false）
+    /// ③ 本流确属当前会话（移交后台的流不再喂）。首个增量 activate()，此后每轮喂全文取新凑满的段落。
+    /// 段落 id = `<streamingSpeechMsgID>#s<序号>`：每段独立 id，气泡逐字动画与「停止」按钮逐段生效。
+    private func feedStreamingTTS() {
+        let speech = SpeechManager.shared
+        if !ttsSegments.isActive {
+            guard Self.streamTTSInbox, !hasStreamingSpeech else { return }
+            ttsSegments.activate()
+            streamingSpeechMsgID = "stream-\(startSeq)"
+        }
+        for para in ttsSegments.feed(full: content) {
+            let n = ttsSegments.fedCount
+            speech.speakSegment(para, id: "\(streamingSpeechMsgID ?? "stream")#s\(n)")
         }
     }
 
@@ -413,6 +459,7 @@ final class StreamClient {
                 contentGrowAt = Date().timeIntervalSince1970   // v3.9.81：有新增 → 静默归零重算
                 idleStreak = 0
                 if interval != 0.15 { interval = 0.15 }   // 有内容时 0.15s 高频轮询（接近逐字）
+                feedStreamingTTS()   // v4.0.x 流式分段朗读：满一条气泡段落即送 TTS（不等全文完）
             } else if !done {
                 idleStreak += 1
                 // v3.0.57：首 token 思考期高频空轮 0.25s——首 token 落地后最快 0.25s 拉到
@@ -539,6 +586,14 @@ final class StreamClient {
     /// - Parameter userInitiated: 由**用户**主动停止/取消触发的收尾（true）——不算失败，dock 球不该为它压暗
     private func finish(success: Bool, error: String, userInitiated: Bool = false) {
         guard !isDone else { return }   // v3.1.2：防重入——poll done + recover done 竞态导致 onFinished 重复触发队列发送
+        // v4.0.x 流式分段朗读：流定格 → 尾段（无空行终止符的最后一段）作为末段送读。
+        // 只有成功收尾才送（失败/手动停止的残句不该念——与 suppressAutoReadOnce 口径一致）。
+        if success, ttsSegments.isActive {
+            for para in ttsSegments.feed(full: content, isFinal: true) {
+                let n = ttsSegments.fedCount
+                SpeechManager.shared.speakSegment(para, id: "\(streamingSpeechMsgID ?? "stream")#s\(n)")
+            }
+        }
         isStreaming = false
         isDone = true
         status = success ? "done" : "error"
@@ -694,6 +749,7 @@ final class StreamClient {
             auth.currentStreamSessionId = sid
         }
         resetToolProgress()   // v3.9.80：接回的任务从零开始记工具（否则卡里是上一轮残留的工具名/步数）
+        ttsReset()   // v4.0.x 流式分段朗读：接回 = 新一轮，队列按新内容锚重开
         isStreaming = true
         startSeq += 1   // v4.0.x：接回在途任务同样是「新一轮开跑」（与 start()/adoptRemote 同口径）
         isDone = false
@@ -729,6 +785,7 @@ final class StreamClient {
         backoff = 0.5
         interval = 0.25
         resetToolProgress()   // v3.9.80：接管远端任务同样从零起算（与 start()/restoreIfNeeded 同口径）
+        ttsReset()   // v4.0.x 流式分段朗读：接管 = 新一轮，队列按新内容锚重开
         isStreaming = true
         startSeq += 1   // v4.0.x：接管远端任务同样是「新一轮开跑」（与 start()/restoreIfNeeded 同口径）
         isDone = false

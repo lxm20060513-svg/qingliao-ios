@@ -78,12 +78,20 @@ final class SpeechManager: NSObject, ObservableObject, AVSpeechSynthesizerDelega
     private var auth: AuthStore?
     // v3.0.x：TTS 代次 —— 每次 toggle/stop 递增；旧 Task 恢复后校验代次，丢弃过期结果（防陈旧异步覆盖）
     private var ttsGeneration = 0
+    /// v4.0.x 流式分段朗读：云端引擎的**段完成 FIFO**——speakSegment 入队，播完出队后放行下一段。
+    /// （StreamClient 是流式喂入/进度的唯一真源，这里只管「云端音频一次只能播一段」的顺序播放。）
+    private var cloudSegmentQueue: [(id: String, text: String)] = []
+    /// v4.0.x 流式分段朗读：云端引擎当前段是否仍在播（完成回调放行判据）。
+    private var cloudSegmentPlaying = false
 
     override init() {
         super.init()
         synth.delegate = self
     }
 
+    /// v4.0.x 流式分段朗读：当前由分段队列朗读的消息 id（`#s` 段签名）
+    /// —— start() 用它识别并忽略落库边沿的重复整段触发。
+    var streamingSpeechID: String?
     /// 注入 AuthStore（供 TTS 走后端 /api/tts）。在主环境设置一次即可。
     func attach(auth: AuthStore) {
         self.auth = auth
@@ -106,6 +114,9 @@ final class SpeechManager: NSObject, ObservableObject, AVSpeechSynthesizerDelega
 
     private func start(_ raw: String, id: String, preferSystem: Bool) {
         stop()
+        // v4.0.x 流式分段朗读：有**别处**（分段队列路径）已通过 speakSegment 接管本条时，
+        // 这次整段 speak 是落库边沿的重复触发，直接忽略（手动朗读无流式签名 → 照常走）。
+        if id == streamingSpeechID { return }
         // 去掉 markdown 符号 + 换行变句号
         let clean = raw
             .replacingOccurrences(of: #"[*#`>_~\[\]()!|\-]"#, with: "", options: .regularExpression)
@@ -128,6 +139,11 @@ final class SpeechManager: NSObject, ObservableObject, AVSpeechSynthesizerDelega
 
     func stop() {
         ttsGeneration += 1   // 每次停止/重载递增，使 in-flight 云端请求的代次校验失效
+        // v4.0.x 流式分段朗读：一次 stop = 整个分段队列作废（云端 FIFO 清空；此后 speak()
+        // 不再因 streamingSpeechID 被拦——落库边沿整段朗读恢复正常接管）。
+        cloudSegmentQueue.removeAll()
+        cloudSegmentPlaying = false
+        streamingSpeechID = nil
         synth.stopSpeaking(at: .immediate)
         if player?.isPlaying == true {
             player?.stop()
@@ -144,6 +160,52 @@ final class SpeechManager: NSObject, ObservableObject, AVSpeechSynthesizerDelega
         //（现在只有语音页读，属侥幸没炸）。消费方已有 isEmpty 兜底，清干净更稳。
         progress.text = ""
         currentUtteranceID = nil
+    }
+
+    // MARK: - v4.0.x 流式分段朗读（段间顺序播放）
+
+    /// 流式分段朗读专用入口：一段一 id（`<锚>#s<序号>`）。
+    /// 与 speak() 的区别：**不 stop 上一段**（顺序队列语义）；系统引擎 synth 内建排队，逐条 speak 即串行；
+    /// 云端引擎一次只能播一段 → 段进 FIFO，播完回调出队放行下一段。
+    /// id 不同 → 气泡逐字动画与「停止」按钮逐段生效。
+    func speakSegment(_ raw: String, id: String) {
+        guard !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        streamingSpeechID = id
+        if CloudConfig.ttsEnabled {
+            // 云端引擎：FIFO 顺序播放——空闲直接播，忙则排队等完成回调放行。
+            guard !cloudSegmentPlaying else {
+                cloudSegmentQueue.append((id: id, text: raw))
+                return
+            }
+            cloudSegmentPlaying = true
+            speakingID = id
+            cloudDegraded = false
+            progress.text = raw
+            progress.charCount = 0
+            let gen = ttsGeneration
+            Task { await speakViaCloud(raw, id: id, gen: gen) }
+        } else {
+            // 系统引擎：AVSpeechSynthesizer 内建串行队列，逐条 speak 即顺序播放。
+            speakingID = id
+            cloudDegraded = false
+            progress.text = raw
+            progress.charCount = 0
+            speakViaSystem(raw, id: id)
+        }
+    }
+
+    /// v4.0.x 流式分段朗读：云端引擎一段播完 → 放行 FIFO 下一段（无段则纯收尾）。
+    private func streamCloudSegmentFinished() {
+        cloudSegmentPlaying = false
+        guard let next = cloudSegmentQueue.first,
+              !next.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        cloudSegmentQueue.removeFirst()
+        cloudSegmentPlaying = true
+        speakingID = next.id
+        progress.text = next.text
+        progress.charCount = 0
+        let gen = ttsGeneration
+        Task { await speakViaCloud(next.text, id: next.id, gen: gen) }
     }
 
     // MARK: - v3.5.x 朗读音频会话（系统 / 云端两套引擎共用）
@@ -492,6 +554,11 @@ final class SpeechManager: NSObject, ObservableObject, AVSpeechSynthesizerDelega
                 if self.player == nil {
                     self.speakingID = nil
                     self.cloudDegraded = false
+                    // v4.0.x 流式分段朗读：云端段回退系统语音播毕 → 放行 FIFO 下一段
+                    //（纯系统路径 cloudSegmentPlaying == false，不碰队列；synth 自身串行）。
+                    if self.cloudSegmentPlaying {
+                        self.streamCloudSegmentFinished()
+                    }
                     // v3.5.x：系统语音播毕也回收播放会话（与云端播毕路径对齐，不长期占用音频焦点）
                     try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
                 }
@@ -509,6 +576,8 @@ final class SpeechManager: NSObject, ObservableObject, AVSpeechSynthesizerDelega
             guard let pl = self.player, ObjectIdentifier(pl) == pid else { return }
             self.player = nil
             self.speakingID = nil
+            // v4.0.x 流式分段朗读：云端音频自然播完 → 放行 FIFO 下一段
+            self.streamCloudSegmentFinished()
             // v3.9.77 修审查：**自然播完**是最常见路径，原来这条路上没人清 ticker —— ticker 里的早退
             // 只看 player，而 player 刚被置 nil，于是它 0.08s 一拍一直空转到进程结束（单例，永不回收）。
             self.stopCloudTicker()
@@ -566,6 +635,8 @@ extension SpeechManager {
                         self.player = nil
                         self.speakingID = nil
                         self.cloudDegraded = false
+                        // v4.0.x 流式分段朗读：判死收尾即放行 FIFO 下一段（与自然播完同口径）
+                        self.streamCloudSegmentFinished()
                         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
                     }
                     return
