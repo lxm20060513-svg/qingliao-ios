@@ -2571,12 +2571,16 @@ struct ChatView: View {
                                 // v3.0.18：思考期头像也改为粒子球（38pt，用户要求全程粒子球头像）
                                 // v4.0.32：思考期头像也删（用户复看截图拍板「AI头像还在」= 三点气泡旁 38pt 宠物一并删；
                                 // 原 v3.9.78 思考宠物、v4.0.31「思考气泡保留」口径中的气泡=三点本体，头像不留）
+                                // v4.0.33：左对齐钉回——LazyVStack 默认 center 对齐，删掉头像/宠物后本行没有
+                                // maxWidth 无穷的 frame 拉满（普通气泡靠这个贴边），三点气泡被居中挂在中轴
+                                //（真机截图实报）。与 messageRow 同款 `.frame(maxWidth: .infinity, alignment: .leading)`。
                                 TypingIndicator()
                                     .padding(.horizontal, Spacing.section)
                                     .padding(.vertical, Spacing.xxl)
                                     .background(Color(uiColor: .systemGray5))
                                     .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
                                     .frame(minHeight: 44)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
                                     .id("streaming")
                                     .transition(.opacity)
                             } else {
