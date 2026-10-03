@@ -32,6 +32,11 @@ struct SessionsView: View {
     @State private var pinnedIDs: Set<String> = Set(UserDefaults.standard.stringArray(forKey: "qingliao_pinned_sessions") ?? [])
     // v2.0.60：会话收藏（⭐）
     @State private var favIDs: Set<String> = Set(UserDefaults.standard.stringArray(forKey: "qingliao_fav_sessions") ?? [])
+    // v4.1.x：会话归档（本地状态，模式同 pinnedIDs/favIDs）——右滑归档、归档箱里右滑取消。
+    // 归档不是删除：会话与消息原样留在服务器，只是从主列表隐藏。
+    @State private var archivedIDs: Set<String> = Set(UserDefaults.standard.stringArray(forKey: "qingliao_archived_sessions") ?? [])
+    // v4.1.x：是否正在看「归档箱」视图（true = 列表只显示已归档会话）
+    @State private var showArchived = false
     // v2.0.43：会话重命名
     @State private var renameTarget: ChatSession?
     @State private var renameText = ""
@@ -90,6 +95,8 @@ struct SessionsView: View {
         .task { await load() }
         // v2.0.102：切回会话列表立即刷新（聊天里新建/重命名后列表即时更新，原只有 .task 首刷）
         .onAppear {
+            // v4.1.x：离开过本页就退出归档箱视图（避免下次进来还停在归档箱）
+            showArchived = false
             Task { await load() }
         }
         // v3.9.33：关键词变化 → 本地过滤即刻生效（无网络），远端全史搜索走 450ms 防抖
@@ -196,8 +203,25 @@ struct SessionsView: View {
     @ViewBuilder
     private var sessionsHeaderBar: some View {
         // v2.0.87ad：多选编辑入口（非空会话时显示）
-        PageHeader(title: "会话", trailing: AnyView(HStack(spacing: 14) {
+        // v4.1.x：标题随归档箱视图切换；trailing 加「归档箱」小图标（archivebox / tray.full）
+        PageHeader(title: showArchived ? "归档箱" : "会话",
+                   trailing: AnyView(HStack(spacing: 14) {
             if !sessions.isEmpty {
+                Button {
+                    withAnimation(Motion.tap) {
+                        // v4.0.35：切视图必须清多选态——否则主列表勾 5 条切到归档箱，
+                        // 底栏仍显示「5 条」，删除的是此刻屏幕上看不见的那批会话（误删）
+                        editing = false
+                        selectedIds.removeAll()
+                        showArchived.toggle()
+                    }
+                } label: {
+                    Image(systemName: showArchived ? "tray.full" : "archivebox")
+                        .font(.system(size: Typography.headline, weight: .medium))
+                        .foregroundStyle(showArchived ? Color.accentColor : Color.secondary)
+                }
+                .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
+                .accessibilityLabel(showArchived ? "返回会话列表" : "查看归档会话")
                 Button {
                     withAnimation(Motion.tap) {
                         editing.toggle()
@@ -422,6 +446,11 @@ struct SessionsView: View {
                 if sessions.isEmpty {
                     sessionsEmptyState
                         .sessionListRow(vHalfGap: 5)
+                } else if !isSearching && sortedSessions.isEmpty {
+                    // v4.0.35：按当前视图口径判空——归档箱为空但主列表有会话时，
+                    // 也要渲染空态文案（此前判据是未过滤的 sessions.isEmpty，空态文案永远走不到）
+                    sessionsEmptyState
+                        .sessionListRow(vHalfGap: 5)
                 } else {
                     sessionsListStack
                 }
@@ -456,10 +485,10 @@ struct SessionsView: View {
                     .font(.system(size: Typography.titleXL))
                     .foregroundStyle(Color.blue.opacity(0.7))
             }
-            Text("暂无会话记录")
+            Text(showArchived ? "暂无归档会话" : "暂无会话记录")
                 .font(.system(size: Typography.subhead))
                 .foregroundStyle(.secondary)
-            Text("点击右上角 + 开始和 AI 对话")
+            Text(showArchived ? "右滑会话即可归档到这里" : "点击右上角 + 开始和 AI 对话")
                 .font(.system(size: Typography.caption))
                 .foregroundStyle(.tertiary)
         }
@@ -502,8 +531,14 @@ struct SessionsView: View {
     // MARK: - v2.0.36 搜索 / 置顶
 
     /// 置顶优先，收藏次之，其余按最新→最旧（v2.0.60 加收藏）
+    ///
+    /// v4.1.x：归档的会话从主列表隐藏（归档箱视图反过来只显示已归档的）。
+    /// 过滤放在排序前，归档会话不参与任何列表排序。
     private var sortedSessions: [ChatSession] {
-        sessions.sorted {
+        let base = showArchived
+            ? sessions.filter { archivedIDs.contains($0.id) }
+            : sessions.filter { !archivedIDs.contains($0.id) }
+        return base.sorted {
             let a = rank($0.id), b = rank($1.id)
             if a != b { return a > b }
             return ($0.lastTime ?? 0) > ($1.lastTime ?? 0)
@@ -528,7 +563,9 @@ struct SessionsView: View {
     private var visibleSessions: [ChatSession] {
         guard isSearching else { return sortedSessions }
         if !filteredSessions.isEmpty { return filteredSessions }
+        // v4.0.35：远端兜底命中同样遵守当前视图的归档口径（与 remoteHitsList 同判据）
         return remoteHits.compactMap { localSession(id: $0.id) }
+            .filter { showArchived ? archivedIDs.contains($0.id) : !archivedIDs.contains($0.id) }
     }
 
     private var visibleSessionIDs: Set<String> { Set(visibleSessions.map(\.id)) }
@@ -598,8 +635,17 @@ struct SessionsView: View {
                 .sessionListRow(vHalfGap: 5)
             ForEach(remoteHits) { hit in
                 if let s = localSession(id: hit.id) {
-                    sessionCell(s)
-                        .sessionListRow(vHalfGap: 4)
+                    // v4.0.35：远端命中对回本地会话时，也要遵守当前视图的归档口径——
+                    // 主列表里已归档的、归档箱里未归档的，都不画成可勾选的会话行
+                    //（防归档箱内全选批量删除把看不见的主列表会话一起删掉），
+                    // 降级为轻量命中行（无勾选框，仍可点开看）。
+                    if showArchived ? archivedIDs.contains(s.id) : !archivedIDs.contains(s.id) {
+                        sessionCell(s)
+                            .sessionListRow(vHalfGap: 4)
+                    } else {
+                        RemoteHitRow(hit: hit) { openRemote(id: hit.id) }
+                            .sessionListRow(vHalfGap: 4)
+                    }
                 } else {
                     RemoteHitRow(hit: hit) { openRemote(id: hit.id) }
                         .sessionListRow(vHalfGap: 4)
@@ -755,6 +801,17 @@ struct SessionsView: View {
             } label: {
                 Label(favIDs.contains(s.id) ? "取消收藏" : "收藏", systemImage: favIDs.contains(s.id) ? "star.slash" : "star")
             }
+            // v4.1.x：归档（与右滑同一套 toggleArchive，不另写第二份状态写逻辑）
+            // v4.0.35：固定会话不给归档入口（同重命名/删除口径：不给点了会报错的按钮；
+            // toggleArchive 内另有同款拦截兜底）
+            if !isFixedSession(s.id) {
+                Button {
+                    toggleArchive(s)
+                } label: {
+                    Label(archivedIDs.contains(s.id) ? "取消归档" : "归档",
+                          systemImage: archivedIDs.contains(s.id) ? "tray.and.arrow.up" : "archivebox")
+                }
+            }
             // v4.0.x：固定会话（投递壳 / 轻聊主动）标题锁定 → 不给「重命名」入口。
             // 后端只锁自动命名（SessionAutoName 闸门），用户手动改名是另一条路，
             // 不护住就会把「轻聊投递」「轻聊主动」改名成别的，固定会话就找不到了。
@@ -833,21 +890,24 @@ struct SessionsView: View {
                 }
             }
         }
+        // v4.1.x：右滑归档（leading 边）——本地状态，会话不删、消息不动，只从主列表隐藏。
+        // 已归档的会话（归档箱视图里）同一位置变成「取消归档」。
+        .swipeActions(edge: .leading, allowsFullSwipe: true) {
+            Button {
+                toggleArchive(s)
+            } label: {
+                Label(archivedIDs.contains(s.id) ? "取消归档" : "归档",
+                      systemImage: archivedIDs.contains(s.id) ? "tray.and.arrow.up" : "archivebox")
+            }
+            .tint(.indigo)
+        }
         // v4.1.x：单条左滑删除（trailing 边；滑到底 = allowsFullSwipe 默认 true → 直接触发）。
         // 与长按菜单**同一套删链**，不另写存储写逻辑：这里只把 confirmDelete 置上，
         // 由既有「删除会话」确认弹窗（二次确认）→ delete(_:)（内含 flushPendingWrites
         // 写链闸门 + merge 的 deleted 键）收尾，防「删了又活着回来」。
-        // 固定会话（投递壳 / 轻聊主动）与长按菜单同一口径：**不给入口**
-        // （后端 _PROTECTED_IDS 拒删，给了就是「点了会报错的按钮」）。
-        .swipeActions(edge: .trailing) {
-            if s.id != ChatStore.deliverySessionId && s.id != ChatStore.proactiveSessionId {
-                Button(role: .destructive) {
-                    confirmDelete = s
-                } label: {
-                    Label("删除", systemImage: "trash")
-                }
-            }
-        }
+        // v4.0.35：固定会话**整体不挂** trailing swipe——此前是挂了修饰符但内容为空 if，
+        // 固定会话左滑会拉开一块死空白 swipe 区，观感是「功能坏了」。
+        .modifier(TrailingDeleteSwipe(isActive: !isFixedSession(s.id)) { confirmDelete = s })
     }
 
     private func rank(_ id: String) -> Int {
@@ -873,6 +933,27 @@ struct SessionsView: View {
             pinnedIDs.insert(s.id)
         }
         UserDefaults.standard.set(Array(pinnedIDs), forKey: "qingliao_pinned_sessions")
+    }
+
+    // MARK: - v4.1.x 会话归档
+
+    /// 归档/取消归档（本地 UserDefaults，同置顶/收藏模式；先移出多选态防悬挂勾选）
+    private func toggleArchive(_ s: ChatSession) {
+        // v4.0.35：固定会话（轻聊投递/轻聊主动）禁止归档——与 delete(_:) 同款拦截，
+        // 归档后从主列表消失（rank 置顶也救不回），cron 详情壳会被埋
+        if s.id == ChatStore.deliverySessionId || s.id == ChatStore.proactiveSessionId {
+            deleteError = "「\(s.title)」是固定会话，不能归档"
+            return
+        }
+        selectedIds.remove(s.id)
+        if archivedIDs.contains(s.id) {
+            archivedIDs.remove(s.id)
+            Haptics.light()
+        } else {
+            archivedIDs.insert(s.id)
+            Haptics.success()
+        }
+        UserDefaults.standard.set(Array(archivedIDs), forKey: "qingliao_archived_sessions")
     }
 
     /// v2.0.43：重命名会话（本地列表 + 当前打开会话 + 后端 merge 同步）
@@ -1592,9 +1673,32 @@ private struct SessionListRowChrome: ViewModifier {
     }
 }
 
+private struct TrailingDeleteSwipe: ViewModifier {
+    let isActive: Bool
+    let onTrigger: () -> Void
+
+    func body(content: Content) -> some View {
+        if isActive {
+            content.swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                Button(role: .destructive) {
+                    onTrigger()
+                } label: {
+                    Label("删除", systemImage: "trash")
+                }
+            }
+        } else {
+            content
+        }
+    }
+}
+
 private extension View {
     /// 会话列表的 List 行样式（口径单源，实现见 SessionListRowChrome）
     func sessionListRow(vHalfGap: CGFloat) -> some View {
         modifier(SessionListRowChrome(vHalfGap: vHalfGap))
     }
 }
+
+/// v4.0.35：左滑删除的条件挂载——固定会话（投递壳/轻聊主动）不挂 trailing swipe，
+/// 免得「挂了修饰符但内容为空 if」留下一块死空白 swipe 区。
+/// isActive=false 时原样返回 content，不产生任何 swipe 手势。

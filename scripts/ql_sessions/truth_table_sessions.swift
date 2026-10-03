@@ -224,7 +224,7 @@ check("清空逻辑没有混进 delete 函数体（两条路径必须各自独�
       !delFn.contains("清空未同步到服务器"))
 
 // ══════════════════════════════════════════════════════════════════
-// v4.1.x「单条会话左滑删除」（会话行 .swipeActions(trailing)，滑到底即触发）
+// v4.1.x「单条会话左滑删除」（TrailingDeleteSwipe 条件修饰器，滑到底即触发）
 //
 // 为什么值得钉（四处都会**静默**错，编译器不报、真值表不写就没人拦）：
 //   ① 左滑动作只许「置确认状态」—— 一旦直连 delete(s) 或自己发 merge，
@@ -234,26 +234,35 @@ check("清空逻辑没有混进 delete 函数体（两条路径必须各自独�
 //   ③ 固定会话（投递壳 / 轻聊主动）必须**不给入口**（与长按菜单、批量删同一口径），
 //      后端 _PROTECTED_IDS 拒删，给了就是「点了会报错的按钮」；
 //   ④ 滑到底要能触发 → 不得写 allowsFullSwipe: false（写了就只能滑完再点那颗按钮）。
+// v4.0.35：swipe 从内联挂载改为 TrailingDeleteSwipe 条件修饰器（固定会话整行不挂，
+// 消死空白 swipe 区），形态断言同步搬家——钉修饰器本体 + sessionCell 的接线。
 // ══════════════════════════════════════════════════════════════════
 
 let cell = slice(viewCode, "private func sessionCell(_ s: ChatSession)", "private func rank(_ id: String)")
 check("sessionCell 切片非空（护栏不许空真）", !cell.isEmpty)
-check("左滑删除挂在会话行上（.swipeActions(edge: .trailing)）",
-      cell.contains(".swipeActions(edge: .trailing)"))
 
-// ⚠️ 左滑动作切片：锚 ① .swipeActions(edge: .trailing)；锚 ② 动作块收尾 + 函数收尾。
-//    切片为空 = 锚漂了，下面的否定式断言会全部假绿，故先钉「切片非空」哨兵。
-let swipe = slice(cell, ".swipeActions(edge: .trailing)", "\n        }\n    }")
-check("左滑动作切片非空（护栏不许空真）", !swipe.isEmpty)
+// —— 修饰器本体（真值所在）——
+let modDef = slice(viewCode, "private struct TrailingDeleteSwipe", "private extension View")
+check("TrailingDeleteSwipe 修饰器定义存在（v4.0.35 条件挂载形态）", !modDef.isEmpty)
+check("左滑删除仍挂在 trailing 边（.swipeActions(edge: .trailing)）",
+      modDef.contains(".swipeActions(edge: .trailing"))
 check("左滑动作是 destructive 红色「删除」（Button(role: .destructive) + trash 图标）",
-      swipe.contains("Button(role: .destructive)") && swipe.contains("Label(\"删除\", systemImage: \"trash\")"))
-check("左滑只置确认状态（confirmDelete = s），不自行删数据",
-      swipe.contains("confirmDelete = s") && !swipe.contains("delete(s)"))
-check("左滑动作里没有第二条存储写逻辑（不得直连 merge / auth.json）",
-      !swipe.contains("/api/sessions") && !swipe.contains("auth.json"))
-check("滑到底即触发（不得写 allowsFullSwipe: false）", !swipe.contains("allowsFullSwipe"))
-check("固定会话不给左滑入口（与长按菜单同一口径：两个固定会话 id 都排除）",
-      swipe.contains("ChatStore.deliverySessionId") && swipe.contains("ChatStore.proactiveSessionId"))
+      modDef.contains("Button(role: .destructive)") && modDef.contains("Label(\"删除\", systemImage: \"trash\")"))
+check("滑到底即触发（allowsFullSwipe: true）",
+      modDef.contains("allowsFullSwipe: true") && !modDef.contains("allowsFullSwipe: false"))
+check("动作只置确认回调，不自行删数据（onTrigger 闭包，不得直连 delete/merge）",
+      modDef.contains("onTrigger()")
+      && !modDef.contains("delete(")
+      && !modDef.contains("/api/sessions")
+      && !modDef.contains("auth.json"))
+
+// —— sessionCell 接线（消费侧）——
+check("sessionCell 接线走 TrailingDeleteSwipe（不再内联挂 trailing swipe）",
+      cell.contains(".modifier(TrailingDeleteSwipe("))
+check("接线传 isActive: !isFixedSession（固定会话整行不挂，消死空白区）",
+      cell.contains("isActive: !isFixedSession(s.id)"))
+check("接线回调只置确认状态（confirmDelete = s），不自行删数据",
+      cell.contains("{ confirmDelete = s }") && !cell.contains("delete(s)"))
 
 // —— 复用链：左滑 → confirmDelete → 既有「删除会话」alert → delete(_:)，删前必须排空写链 ——
 check("二次确认沿用既有「删除会话」alert（confirmDelete 绑定，未为左滑另写一套弹窗）",
@@ -267,38 +276,27 @@ check("左滑复用的删链走 merge 的 deleted 键（与批量删同一条实
       delFn.contains("\"deleted\": [s.id]"))
 
 // —— 反向自证：把形态逐维度改坏，同一条断言必须变红（没红过 = 没有护栏）——
-let swipeConfirmOnly: (String) -> Bool = { $0.contains("confirmDelete = s") && !$0.contains("delete(s)") }
-let swipeNoWrite: (String) -> Bool = { !$0.contains("/api/sessions") && !$0.contains("auth.json") }
-let swipeFullOK: (String) -> Bool = { !$0.contains("allowsFullSwipe") }
-let swipeFixedGuard: (String) -> Bool = {
-    $0.contains("ChatStore.deliverySessionId") && $0.contains("ChatStore.proactiveSessionId")
-}
+let badMod = modDef.replacingOccurrences(of: "onTrigger()", with: "delete(s)")
+check("🚫 反向①：动作直连 delete(s)（绕过二次确认）→ 判红",
+      !badMod.contains("onTrigger()") && badMod.contains("delete("))
 
-let badDirect = cell.replacingOccurrences(of: "confirmDelete = s", with: "delete(s)")
-let badDirectSlice = slice(badDirect, ".swipeActions(edge: .trailing)", "\n        }\n    }")
-check("🚫 反向①：左滑直连 delete(s)（绕过二次确认）→ 判红",
-      !badDirectSlice.isEmpty && swipeConfirmOnly(swipe) && !swipeConfirmOnly(badDirectSlice))
+let badWrite = modDef.replacingOccurrences(
+    of: "onTrigger()",
+    with: "_ = try? await auth.json(\"/api/sessions/merge\")")
+check("🚫 反向②：动作里塞 merge 调用（另写一套存储写逻辑）→ 判红",
+      badWrite.contains("/api/sessions"))
 
-let badWrite = cell.replacingOccurrences(
-    of: "confirmDelete = s",
-    with: "confirmDelete = nil\n                _ = try? await auth.json(\"/api/sessions/merge\")")
-let badWriteSlice = slice(badWrite, ".swipeActions(edge: .trailing)", "\n        }\n    }")
-check("🚫 反向②：左滑里塞 merge 调用（另写一套存储写逻辑）→ 判红",
-      !badWriteSlice.isEmpty && swipeNoWrite(swipe) && !swipeNoWrite(badWriteSlice))
-
-let badFull = cell.replacingOccurrences(
-    of: ".swipeActions(edge: .trailing)",
-    with: ".swipeActions(edge: .trailing, allowsFullSwipe: false)")
-// 锚不写成 ".swipeActions(edge: .trailing)"（带右括号）—— 变异后右括号被参数替换掉了，
-// 锚会「找不到」→ 切片为空 → 断言假绿。用不带右括号的锚，变异前后都在。
-let badFullSlice = slice(badFull, ".swipeActions(", "\n        }\n    }")
+let badFull = modDef.replacingOccurrences(
+    of: "allowsFullSwipe: true",
+    with: "allowsFullSwipe: false")
 check("🚫 反向③：写成 allowsFullSwipe: false（滑到底不触发）→ 判红",
-      !badFullSlice.isEmpty && swipeFullOK(swipe) && !swipeFullOK(badFullSlice))
+      !badFull.contains("allowsFullSwipe: true") && badFull.contains("allowsFullSwipe: false"))
 
-let badGuard = cell.replacingOccurrences(of: "ChatStore.proactiveSessionId", with: "ChatStore.someOtherId")
-let badGuardSlice = slice(badGuard, ".swipeActions(edge: .trailing)", "\n        }\n    }")
-check("🚫 反向④：左滑口去掉固定会话拦截（主动会话可被滑掉）→ 判红",
-      !badGuardSlice.isEmpty && swipeFixedGuard(swipe) && !swipeFixedGuard(badGuardSlice))
+let badWiring = cell.replacingOccurrences(
+    of: "isActive: !isFixedSession(s.id)",
+    with: "isActive: true")
+check("🚫 反向④：接线去掉固定会话拦截（主动会话左滑出删除区）→ 判红",
+      badWiring.contains("isActive: true") && !badWiring.contains("isActive: !isFixedSession(s.id)"))
 
 // ══════════════════════════════════════════════════════════════════
 // v4.0.21「会话列表容器必须是 List」—— 单条左滑删除的真实前置条件（用户拍板「换 List」）
