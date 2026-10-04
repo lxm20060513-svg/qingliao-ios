@@ -170,6 +170,19 @@ struct SettingsView: View {
             }
             .scrollPosition($scrollPos)
         }
+        .background(settingsCold1())
+        .background(settingsCold2())
+        .background(settingsCold3())
+        .background(settingsCold4())
+        .background(settingsCold5())
+        .background(settingsCold6())
+        .background(settingsCold7())
+        .background(settingsCold8())
+    }
+
+    /// 深度治理：行为型深层修饰器下沉背景层（.background 不影响布局，语义等价）
+    private func settingsCold1() -> some View {
+        Color.clear
         .sheet(isPresented: $showPasswordSheet) {
             PasswordSheet()
                 .presentationDetents([.medium])
@@ -190,6 +203,11 @@ struct SettingsView: View {
             HomeShortcutSheet()
                 .presentationDetents([.medium, .large])
         }
+    }
+
+    /// 深度治理：行为型深层修饰器下沉背景层（.background 不影响布局，语义等价）
+    private func settingsCold2() -> some View {
+        Color.clear
         .sheet(isPresented: $showTasks) {
             TasksView()
                 .presentationDetents([.medium, .large])
@@ -206,6 +224,11 @@ struct SettingsView: View {
             ModelSheet(current: currentModel)
                 .presentationDetents([.medium, .large])
         }
+    }
+
+    /// 深度治理：行为型深层修饰器下沉背景层（.background 不影响布局，语义等价）
+    private func settingsCold3() -> some View {
+        Color.clear
         .sheet(isPresented: $showWechatChannel) {
             WechatChannelSheet()
                 .presentationDetents([.medium, .large])
@@ -225,6 +248,11 @@ struct SettingsView: View {
                 .scrollContentBackground(.hidden)
         }
         // v2.0.87：AI 记忆
+    }
+
+    /// 深度治理：行为型深层修饰器下沉背景层（.background 不影响布局，语义等价）
+    private func settingsCold4() -> some View {
+        Color.clear
         .sheet(isPresented: $showMemory) {
             MemoryView()
                 .presentationDetents([.medium, .large])
@@ -246,6 +274,11 @@ struct SettingsView: View {
                 .scrollContentBackground(.hidden)
         }
         // v4.0.x：网盘接入
+    }
+
+    /// 深度治理：行为型深层修饰器下沉背景层（.background 不影响布局，语义等价）
+    private func settingsCold5() -> some View {
+        Color.clear
         .sheet(isPresented: $showCloudDrive) {
             CloudDriveSettingsSheet()
                 .presentationDetents([.medium, .large])
@@ -269,6 +302,11 @@ struct SettingsView: View {
                 .scrollContentBackground(.hidden)
         }
         // v3.9.32：文件管理（上传目录浏览：预览 / 分享 / 重命名 / 删除）
+    }
+
+    /// 深度治理：行为型深层修饰器下沉背景层（.background 不影响布局，语义等价）
+    private func settingsCold6() -> some View {
+        Color.clear
         .sheet(isPresented: $showFilesManager) {
             FilesManagerSheet()
                 .presentationDetents([.medium, .large])
@@ -292,6 +330,11 @@ struct SettingsView: View {
                 .scrollContentBackground(.hidden)
         }
         // v3.0.20：Agent 模型选择弹窗
+    }
+
+    /// 深度治理：行为型深层修饰器下沉背景层（.background 不影响布局，语义等价）
+    private func settingsCold7() -> some View {
+        Color.clear
         .sheet(isPresented: $showAgentModelSheet) {
             AgentModelSheet()
                 .presentationDetents([.medium, .large])
@@ -316,6 +359,11 @@ struct SettingsView: View {
         // v3.9.26：能力示例（5 种卡片形态展示，零后端、纯 App 内样例数据）
         // v3.9.27：补 .scrollContentBackground(.hidden)——ScrollView 自带底会盖住系统玻璃弹窗底
         //（与 v3.9.23「清遮挡层、不覆盖材质」定稿同规则，用户报的「能力示例弹窗圆角背景不对」即此）
+    }
+
+    /// 深度治理：行为型深层修饰器下沉背景层（.background 不影响布局，语义等价）
+    private func settingsCold8() -> some View {
+        Color.clear
         .sheet(isPresented: $showCardGallery) {
             CardGallerySheet()
                 .presentationDetents([.medium, .large])

@@ -252,5 +252,32 @@ if let a = idx(code, "private func chatBodyChrome1") {
         ok(!segText.contains(m), "③‴ 负断言：\(m) 未回到 chrome 段（回退 = 宿主类型深度回升到危险区）")
     }
 }
+// ── ③⁗ v4.0.51d：设置页 29 个 sheet 下沉背景层（同款治理，防回退）─────────────
+// 实测：SettingsCore.body 曾内联 31 个深层修饰器（29 sheet + onAppear + task）→ 202 层
+// （dSYM 最深符号，全属 8Qingliao10PageHeaderV 调用点）→ 切页/弹层时实例化有爆栈风险。
+if let f = try? String(contentsOfFile: repo + "/qingliao/Features/Settings/SettingsCore.swift", encoding: .utf8) {
+    var sCount = 0
+    while idx(f, "private func settingsCold\(sCount + 1)() -> some View {") != nil { sCount += 1 }
+    ok(sCount >= 6, "③⁗ 设置页冷组数量 \(sCount)（应 ≥6，说明下沉结构还在）")
+    for cn in 1...max(sCount, 1) {
+        guard let h = idx(f, "private func settingsCold\(cn)() -> some View {") else { continue }
+        let s0 = String(f.dropFirst(h))
+        let seg: String = { if let e = idx(s0, "\n    }") { return String(s0.prefix(e)) }; return s0 }()
+        let inds = seg.split(separator: "\n").map(String.init)
+            .filter { $0.trimmingCharacters(in: .whitespaces).hasPrefix(".") }
+            .map { $0.prefix { $0 == " " }.count }
+        let mn = inds.min() ?? 0
+        let top = inds.filter { $0 == mn }.count
+        ok(top >= 1 && top <= 4, "③⁗ 设置页冷组 settingsCold\(cn) 顶层 \(top) 条（要求 1…4）")
+    }
+    if let b = idx(f, "var body: some View {") {
+        let b0 = String(f.dropFirst(b))
+        let body: String = { if let e = idx(b0, "\n    }") { return String(b0.prefix(e)) }; return b0 }()
+        let top8 = body.split(separator: "\n").map(String.init).filter { $0.hasPrefix("        .") }
+        let bad = top8.filter { !$0.contains(".background(settingsCold") }
+        ok(bad.isEmpty, "③⁗ 负断言：设置页 body 顶层非 background 链 \(bad.count) 条（应 0，回退 = 深度回升到 200 层）")
+        _ = top8
+    }
+}
 print("  —— 类型栈深度真值表：\(pass) 通过 / \(fail) 失败")
 if fail > 0 { exit(1) }

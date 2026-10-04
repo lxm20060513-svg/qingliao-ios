@@ -90,6 +90,13 @@ struct LifeView: View {
             .refreshable { await loadLife() }
         }
         // v3.5.x：生活卡片设置页（股票 / 资讯 / 快递）
+        .background(lifeCold1())
+        .background(lifeCold2())
+    }
+
+    /// 深度治理：行为型深层修饰器下沉背景层（.background 不影响布局，语义等价）
+    private func lifeCold1() -> some View {
+        Color.clear
         .sheet(isPresented: $showLifeSettings) {
             LifeCardsSettingsView()
                 .presentationDetents([.medium, .large])
@@ -99,6 +106,11 @@ struct LifeView: View {
             LifeSectionEditorSheet(visible: visibleSections, hidden: Array(hiddenSections))
         }
         // v3.7.0：资讯正文长按「大爆炸」→ 全屏炸开选词
+    }
+
+    /// 深度治理：行为型深层修饰器下沉背景层（.background 不影响布局，语义等价）
+    private func lifeCold2() -> some View {
+        Color.clear
         .fullScreenCover(item: $bigBangPayload) { payload in
             // v3.9.0：zoom 转场——从被长按的资讯行"生长"出来
             if payload.sourceID.isEmpty {
