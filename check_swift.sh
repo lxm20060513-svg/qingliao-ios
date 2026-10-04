@@ -516,6 +516,29 @@ ck "自动命名用的是 conversational 而不是 msgs.count" \
 ck "冷启动补投扩展 pending 载荷" \
    'ShareIntake\.flushPending\(loggedIn: true\)' qingliao/QingliaoApp.swift
 
+echo "=== 69. 长期目标后台推进闭环真值表（v4.0.44 · 报告回写 / 每步通知 / 确认卡 / 步骤序号 / 下一步状态）==="
+# 用户 7 条要求里的 ③④⑤⑥ 段对应的实现口径：
+#   ① 报告回写：cron 桥 ql_task_push.py → 后端 goals_report_from_cron（按 cronJobID 精确匹配，
+#      job 名不可信——生产上真实目标的 job 名是自定义的；非目标 job → skipped 不算失败）
+#   ② 每步完成 → 推一条 system 进轻聊投递 + **单步**待办联动划掉（不是只在全完成时一把划）
+#   ③ 需要拍板 → question 卡（可点选/可手输）+ 答案回写目标时间线 + 注入原会话
+#   ④ 进行中作业详情带「正在推进 第 k/N 步」 ⑤ 下一步标「进行中 / 预计 X 开始 / 待开始」
+#   ⑥ 步骤清单显式「第 N 步」（enumerated + 保 element.id）
+# 纯逻辑走**镜像**：GoalSchedule.swift 里的 GoalItem 扩展依赖 GoalStore.swift（import SwiftUI），
+# 本机无 SwiftUI 编不了 → 与第 68 段同口径（镜像口径 + 剥注释后的源级断言双保险）。
+# ⚠️ 不写 `run_unit6 … | tee`：管道会把 run_unit6 内部的 `exit 1` 吞进子壳（脚本照常往下走），
+# 且 `grep -q '0 失败'` 会被「10 失败 / 20 失败」子串误命中 → 两条假绿通道（审查抓到）。
+# 改为自己编自己跑：退出码 + 收紧的结论行判据，双闸门。
+rm -f /tmp/test_goal_loop
+if ! $SWIFT/swiftc -swift-version 6 -o /tmp/test_goal_loop scripts/ql_goal_loop/truth_table_goal_loop.swift > /tmp/tt_goal_loop.log 2>&1; then
+  echo "❌ 第 69 段真值表编译失败"; tail -5 /tmp/tt_goal_loop.log; fail=1
+elif /tmp/test_goal_loop >> /tmp/tt_goal_loop.log 2>&1; then
+  echo "  $(tail -1 /tmp/tt_goal_loop.log)"
+  grep -qE '/ 0 失败$' /tmp/tt_goal_loop.log || { echo "❌ 第 69 段结论行异常（须以「/ 0 失败」结尾）"; fail=1; }
+else
+  echo "❌ 第 69 段真值表判定失败（改坏必红）"; tail -6 /tmp/tt_goal_loop.log; fail=1
+fi
+
 [ $fail -eq 0 ] || { echo "❌ 第 31 段有护栏失守"; exit 1; }
 echo "✅ 夜间 review 修复的 19 条回归护栏全绿"
 
@@ -973,48 +996,6 @@ ckNot "残留 Self.stamp（stamp 已迁到 GoalRowCard，GoalsSection 上不存�
   "Self\\.stamp\\(" qingliao/Features/Life/GoalsSection.swift
 ck "GoalRowCard.stamp 必须是 nonisolated static 且非 private（供 GoalsSection 跨类型调用）" \
   "^    static func stamp\\(_ d: Date\\) -> String" qingliao/Features/Life/GoalsSection.swift
-
-echo "=== 69. 长期目标后台推进闭环真值表（v4.0.44 · 报告回写 / 每步通知 / 确认卡 / 步骤序号 / 下一步状态）==="
-# 用户 7 条要求里的 ③④⑤⑥ 段对应的实现口径：
-#   ① 报告回写：cron 桥 ql_task_push.py → 后端 goals_report_from_cron（按 cronJobID 精确匹配，
-#      job 名不可信——生产上真实目标的 job 名是自定义的；非目标 job → skipped 不算失败）
-#   ② 每步完成 → 推一条 system 进轻聊投递 + **单步**待办联动划掉（不是只在全完成时一把划）
-#   ③ 需要拍板 → question 卡（可点选/可手输）+ 答案回写目标时间线 + 注入原会话
-#   ④ 进行中作业详情带「正在推进 第 k/N 步」 ⑤ 下一步标「进行中 / 预计 X 开始 / 待开始」
-#   ⑥ 步骤清单显式「第 N 步」（enumerated + 保 element.id）
-# 纯逻辑走**镜像**：GoalSchedule.swift 里的 GoalItem 扩展依赖 GoalStore.swift（import SwiftUI），
-# 本机无 SwiftUI 编不了 → 与第 68 段同口径（镜像口径 + 剥注释后的源级断言双保险）。
-# ⚠️ 不写 `run_unit6 … | tee`：管道会把 run_unit6 内部的 `exit 1` 吞进子壳（脚本照常往下走），
-# 且 `grep -q '0 失败'` 会被「10 失败 / 20 失败」子串误命中 → 两条假绿通道（审查抓到）。
-# 改为自己编自己跑：退出码 + 收紧的结论行判据，双闸门。
-rm -f /tmp/test_goal_loop
-if ! $SWIFT/swiftc -swift-version 6 -o /tmp/test_goal_loop scripts/ql_goal_loop/truth_table_goal_loop.swift > /tmp/tt_goal_loop.log 2>&1; then
-  echo "❌ 第 69 段真值表编译失败"; tail -5 /tmp/tt_goal_loop.log; fail=1
-elif /tmp/test_goal_loop >> /tmp/tt_goal_loop.log 2>&1; then
-  echo "  $(tail -1 /tmp/tt_goal_loop.log)"
-  grep -qE '/ 0 失败$' /tmp/tt_goal_loop.log || { echo "❌ 第 69 段结论行异常（须以「/ 0 失败」结尾）"; fail=1; }
-else
-  echo "❌ 第 69 段真值表判定失败（改坏必红）"; tail -6 /tmp/tt_goal_loop.log; fail=1
-fi
-
-echo "=== 70. 改口重答真值表（v4.0.44 待做池 3 · 只允许改最后一条 user / 旧回答折叠「已修改」/ 失败还原）==="
-# 用户 2026-10-04 卡片拍板：① 折叠态复用现有灰气泡（与「撤回」同款）② 只允许改最后一条 user 消息。
-# A 段**真编译真跑** qingliao/Core/MessageEditKit.swift（纯 Foundation，与实现同一份文件 →
-# 没有「表/实现漂移」的洞）：钉「哪条能改（最后一条 user，排除失败/撤回/推送/问题卡）」与
-# 「折叠哪几条（锚点之后的回答，问题卡与推送不折叠）」。
-# B 段用**剥注释**的源级断言钉接线与四条护栏：① 折叠只 flip 标记、不清正文（原文留给回退/导出/分享）
-# ② 失败还原不留白 ③ 折叠不进模型上下文 ④ AI 侧菜单没有「编辑」 ⑥ edited 不复用 withdrawn。
-# ⚠️ 不写 `run_unit6 … | tee`（与第 69 段同因：管道吞 exit 1，且 '0 失败' 会被「10 失败」误命中）。
-rm -f /tmp/test_editmsg
-if ! $SWIFT/swiftc -swift-version 6 -o /tmp/test_editmsg \
-     scripts/ql_editmsg/truth_table_editmsg.swift qingliao/Core/MessageEditKit.swift > /tmp/tt_editmsg.log 2>&1; then
-  echo "❌ 第 70 段真值表编译失败"; tail -5 /tmp/tt_editmsg.log; fail=1
-elif /tmp/test_editmsg >> /tmp/tt_editmsg.log 2>&1; then
-  echo "  $(tail -1 /tmp/tt_editmsg.log)"
-  grep -qE '/ 0 失败$' /tmp/tt_editmsg.log || { echo "❌ 第 70 段结论行异常（须以「/ 0 失败」结尾）"; fail=1; }
-else
-  echo "❌ 第 70 段真值表判定失败（改坏必红）"; tail -6 /tmp/tt_editmsg.log; fail=1
-fi
 
 [ $fail -eq 0 ] || { echo "❌ 有护栏失守"; exit 1; }
 exit 0
