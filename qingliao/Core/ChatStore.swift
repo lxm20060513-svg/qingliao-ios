@@ -464,6 +464,24 @@ final class ChatStore {
         messages[i].questionError = reason
     }
 
+    /// v4.0.46：问题卡**回执** —— AI 侧已把答案取走（用户报「选完卡不确定回复完成没」）。
+    /// 幂等：每轮 poll 都可能查到同一条，已确认过就不再动。
+    func markQuestionAcked(messageId: String) {
+        guard let i = messages.firstIndex(where: { $0.id == messageId }) else { return }
+        guard !messages[i].questionAcked else { return }
+        messages[i].questionAcked = true
+        messages[i].questionExpired = false
+    }
+
+    /// v4.0.46：回执的另一半 —— 条目确实从队列消失了，但原因是**过期清理**（24h 没人确认），
+    /// 不是 AI 取走。卡上必须照实说：「AI 已收到」在这里是假回执，等于骗用户答案送到了。
+    func markQuestionExpired(messageId: String) {
+        guard let i = messages.firstIndex(where: { $0.id == messageId }) else { return }
+        guard !messages[i].questionExpired else { return }
+        messages[i].questionExpired = true
+        messages[i].questionAcked = false   // 与 acked 互斥：卡头 acked 优先，留着它会把「已过期」盖成假回执
+    }
+
     /// v4.0.11：读某条消息的主动反馈终态（供 InboxStore 提交前做幂等闸门）
     func proactiveVerdictOf(messageId: String) -> String {
         messages.first { $0.id == messageId }?.proactiveVerdict ?? ""

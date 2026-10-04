@@ -54,6 +54,14 @@ struct ChatMessage: Identifiable, Equatable, Sendable {
     var questionOptions: [String]?   // 快捷选项（点一下即答）；空 = 只让打字
     var questionAnswer: String?      // 用户已答内容（nil = 待答）
     var questionError: String?       // 作答**没送到**时的原因（nil = 无错误）；卡上要出声，别静默
+    /// v4.0.46：问题卡**回执**（用户报「选完卡之后给个回馈，不然不确定回复完成没」）。
+    /// 来源：`GET /api/inbox/answer?id=` 的 `taken` / `gone_reason`，由 InboxStore.refreshQuestionAcks 推导。
+    ///   taken=true + gone_reason=="mark_done" → AI 侧把答案取走了（真送达）
+    ///   taken=true + 其它原因（*_stale_24h…） → 不是被取走而是过期清理（**不许报假回执**）
+    /// ⚠️ 刻意**不落库**（不进 messagesPayload / asPayload）：一次性回执，重启后再查一遍即知，
+    ///    落库只会让状态卡在旧快照上——真值在后端队列，不在这里。
+    var questionAcked: Bool = false      // AI 已取走答案 → 卡头「AI 已收到」
+    var questionExpired: Bool = false    // 条目因过期被清理 → 卡头「卡片已过期」
     /// v4.0.42 待做池 ①：提问推荐「猜你想问」候选——挂在这条 assistant 消息上。
     /// 非 nil 且非空时，气泡下方渲染三枚胶囊（点一下直接接着问）+「换一批」。
     /// 空数组 = 后端「宁缺勿滥」判没有好候选 → 整区不渲染（不是错误，别出声）。

@@ -31,17 +31,58 @@ enum SyncedStore {
         return "\(base)/\(fileName)"
     }
 
-    // MARK: - 编解码（.iso8601 两端对齐）
+    // MARK: - 编解码（宽松 ISO8601 两端对齐）
+    //
+    // ⚠️ 同一份文件有**两个写入方**：App 自己（`.iso8601` → `2026-10-04T03:14:51Z`）和后端
+    //    （goals/todos 由 goal_module、proactive_agent 回写）。后端历史上用
+    //    `datetime.now().isoformat()` 写过 naive + 微秒（`2026-10-04T09:59:58.666916`），
+    //    而 `.iso8601` 解码策略**只认**「带时区 + 无小数秒」→ 整个数组 dataCorrupted →
+    //    被下面 `try?` 吞掉 → loadFromServer 静默 return → 界面永远停在本地旧快照
+    //    （待办不自动划、目标步骤与任务中心不对应、卡片看不到报告）。后端写入侧已统一成
+    //    `…Z`，这里同时把解码做成宽松，防任何写入方再犯（真值表 scripts/ql_goal_ts）。
 
     static func makeEncoder() -> JSONEncoder {
         let e = JSONEncoder()
-        e.dateEncodingStrategy = .iso8601
+        e.dateEncodingStrategy = .iso8601     // App 写出的形态 `…Z`，后端 fromisoformat 照常解析
         return e
+    }
+
+    /// 宽松解析两种来源的 ISO8601 串；返回 nil 表示不是可识别的时间格式。
+    static func parseISO(_ s: String, frac: ISO8601DateFormatter,
+                         plain: ISO8601DateFormatter, naive: DateFormatter) -> Date? {
+        if let d = frac.date(from: s) { return d }     // `…T09:59:58.666Z`（带小数秒）
+        if let d = plain.date(from: s) { return d }    // `…T09:59:58Z` / `…+08:00`
+        // 尾缀 Z 落到这里只说明小数秒位数（6 位）没被上面认出来 —— naive 按 UTC 解仍正确（只丢亚秒精度）；
+        // 但**带显式偏移**（+08:00 / -05:00）也落到这里，naive 会把本地时间当 UTC 硬解、整条差 8 小时。
+        // 那种串宁可判「不认识」（返回 nil），也不给出错 8 小时的时间。
+        if !s.hasSuffix("Z"), !s.hasSuffix("z"),
+           s.range(of: #"[+-]\d{2}:?\d{2}$"#, options: .regularExpression) != nil { return nil }
+        // 无时区（历史值）：容器 TZ=UTC，故按 UTC 解释；小数秒直接截掉（毫秒精度对展示无影响）
+        let head = s.split(separator: ".").first.map(String.init) ?? s
+        return naive.date(from: head)
     }
 
     static func makeDecoder() -> JSONDecoder {
         let d = JSONDecoder()
-        d.dateDecodingStrategy = .iso8601
+        // 每次 makeDecoder 建一次 formatter（不放 static let：Swift 6 下静态 mutable 对象要过并发检查，
+        // 而这里每次 load 只创建一次，开销可忽略）
+        let frac = ISO8601DateFormatter()
+        frac.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let plain = ISO8601DateFormatter()
+        plain.formatOptions = [.withInternetDateTime]
+        let naive = DateFormatter()
+        naive.locale = Locale(identifier: "en_US_POSIX")
+        naive.timeZone = TimeZone(identifier: "UTC")
+        naive.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+        d.dateDecodingStrategy = .custom { decoder in
+            let c = try decoder.singleValueContainer()
+            let s = try c.decode(String.self)
+            guard let date = parseISO(s, frac: frac, plain: plain, naive: naive) else {
+                throw DecodingError.dataCorruptedError(
+                    in: c, debugDescription: "无法解析的时间戳：\(s)")
+            }
+            return date
+        }
         return d
     }
 

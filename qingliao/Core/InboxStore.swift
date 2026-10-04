@@ -203,6 +203,8 @@ final class InboxStore {
         do {
             let items = try await inboxItems(auth)
             lastInjectedCount = 0
+            // v4.0.46：问题卡回执与「有没有新条目」无关，先扫一遍（用户报「选完卡不确定回复完成没」）
+            await refreshQuestionAcks(auth: auth, chat: chat)
             guard !items.isEmpty else { return }
             // v3.0.90 fix：流式进行中不注入。后端 AI 回复 done 即推收件箱（_maybe_push_app），
             // 而流式回复要等 done → finish → upsertAssistant 才落库到 chat.messages；若本轮
@@ -224,6 +226,47 @@ final class InboxStore {
             await chat.saveToServer(auth: auth)
         } catch {
             lastError = "\(error)"
+        }
+    }
+
+    /// v4.0.46：问题卡**回执轮询**（用户报「选完卡之后给个回馈，不然不确定回复完成没」）。
+    ///
+    /// 只问「已经提交过答案、但还没拿到回执」的卡（通常 0~1 条，绝大多数轮次直接 return）：
+    ///   taken=false            → 条目还在队列里等 AI 取 → 保持「已提交 · 等 AI 确认」
+    ///   taken=true  + mark_done → AI 真的取走了答案 → 「✅ AI 已收到」
+    ///   taken=true  + 其它原因  → 是 24h 过期清理（AI 早超时了）→ 「卡片已过期」，**不许报假回执**
+    ///
+    /// ⚠️ 刻意沿用 answerQuestion 里那套「后端 200 也可能语义失败」的判断口径：一律查 ok/taken，
+    ///    不做 `try?` 吞错——吞了就会把「查不到」当成「查到了」。
+    /// 节流：poll 默认 5s / 快拉 1s，而「等 AI 确认」可能持续几分钟 → 回执扫描最多 10s 一次，
+    /// 否则同一张卡每轮都打一次接口（审查点名的新增请求量）。
+    private var lastAckSweep: Date = .distantPast
+
+    func refreshQuestionAcks(auth: AuthStore, chat: ChatStore) async {
+        guard Date().timeIntervalSince(lastAckSweep) >= 10 else { return }
+        lastAckSweep = Date()
+        let pending = chat.messages.filter { m in
+            guard let q = m.questionId, !q.isEmpty else { return false }
+            guard !((m.questionAnswer ?? "").isEmpty) else { return false }   // 没提交过，无可确认
+            guard m.questionError == nil else { return false }                // 没送到 → 等重试，别报回执
+            return !m.questionAcked && !m.questionExpired
+        }
+        guard !pending.isEmpty else { return }
+        for m in pending {
+            guard let q = m.questionId else { continue }
+            // 口径同 answerQuestion：后端 200 也可能语义失败（ok=false）→ 查 ok 且查 taken，不做 try? 吞错
+            do {
+                let d = try await auth.json("/api/inbox/answer?id=\(q)", method: "GET")
+                guard (d["ok"] as? Bool) ?? false, (d["taken"] as? Bool) ?? false else { continue }
+                let why = (d["gone_reason"] as? String) ?? ""
+                if why == "mark_done" {
+                    chat.markQuestionAcked(messageId: m.id)
+                } else {
+                    chat.markQuestionExpired(messageId: m.id)
+                }
+            } catch {
+                continue   // 网络错 → 下一轮再查；绝不能把「查不到」当成「查到了」
+            }
         }
     }
 
@@ -253,8 +296,19 @@ final class InboxStore {
         // （那会把用户正看着的对话当场清空）。
         // 归属会话在 NAS 上查不到（被删/未同步）→ 回落到旧行为：宁可串位，绝不丢消息。
         if let sid = ownedSessionId(sessionId, current: chat.sessionId),
-           taskType == "reply" || taskType == "progress" || taskType == "question" {
+           taskType == "reply" || taskType == "progress" {
             // 固定投递壳的内容由后端 `append_delivery_message` 维护，App 一律不注入（与投递闸门同口径）
+            // v4.0.46 修（用户实报「不弹选题卡，我选不了」）：**question 不进这条归属分支**。
+            //   起因：AI 侧推的问题卡带 session_id=qingliao_delivery（投递壳只收不发 / 内容由后端维护），
+            //   ① 老代码把它归进这里 → 撞上下面的投递壳闸门就被静默 markDone：卡不显示、不能答、
+            //      归档原因 mark_done（队列里查不到），用户干等、AI 侧一直超时；
+            //   ② 只把它从闸门里放出来还不够（审查抓到）：归属分支走 `landPushInOwnedSession`，
+            //      非当前会话时是**整会话写回**（fetchSessionSnapshot + writeSessionSnapshot），
+            //      与后端并发 append 投递壳会互相吞行；
+            //   ③ 故 question 一律落到**当前会话**（下方 `taskType == "question"` 分支 `chat.append`）：
+            //      与 v3.9.110 的显式口径一致（「AI 追问必须落到用户此刻停留的会话」，否则人看不到卡），
+            //      且不写任何归属壳。答案走 POST /api/inbox/answer（见 answerQuestion），
+            //      **与会话能否回复无关** —— 所以投递壳里弹卡也不影响作答。
             if sid == ChatStore.deliverySessionId {
                 if taskType == "reply" {
                     NotificationHelper.notify(title: "轻聊 · 推送", body: text, sessionId: sid)

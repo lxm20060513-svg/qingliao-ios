@@ -78,13 +78,13 @@ struct ChatQuestionCard: View {
             ZStack {
                 Circle().fill(headTint.opacity(Tint.subtle))
                 Circle().strokeBorder(headTint.opacity(0.26), lineWidth: 0.8)
-                Image(systemName: answered ? "checkmark" : "questionmark")
+                Image(systemName: headIcon)
                     .font(.system(size: Typography.caption, weight: .bold))
                     .foregroundStyle(headTint)
             }
             .frame(width: Layout.iconSize, height: Layout.iconSize)
 
-            Text(answered ? "已回答" : "AI 需要你确认")
+            Text(headTitle)
                 .font(.system(size: Typography.caption, weight: .semibold))
                 .foregroundStyle(headTint)
 
@@ -117,7 +117,43 @@ struct ChatQuestionCard: View {
         }
     }
 
-    private var headTint: Color { answered ? .green : .orange }
+    /// v4.0.46 **四态**口径（改了这里要同步真值表 scripts/ql_ask_card/truth_table_ask_card.swift）：
+    ///   待答 → 「AI 需要你确认」 | 已提交未确认 → 「已提交 · 等 AI 确认」
+    ///   AI 已取走 → 「AI 已收到」   | 条目过期清理 → 「卡片已过期」（不是 AI 收的，别报假回执）
+    private var headTitle: String {
+        if !answered { return "AI 需要你确认" }
+        if message.questionAcked { return "AI 已收到" }
+        if message.questionExpired { return "卡片已过期" }
+        return "已提交 · 等 AI 确认"
+    }
+
+    private var headIcon: String {
+        if !answered { return "questionmark" }
+        if message.questionAcked { return "checkmark" }
+        if message.questionExpired { return "exclamationmark" }
+        return "paperplane.fill"
+    }
+
+    private var headTint: Color {
+        if !answered { return .orange }
+        if message.questionAcked { return .green }
+        if message.questionExpired { return .secondary }
+        return .orange
+    }
+
+    /// v4.0.46：答案下方的回执行（用户报「选完卡之后给个回馈，不然不确定回复完成没」）——
+    /// 「已提交」= 后端队列里还等着；「AI 已收到」= 真的送达了；「已过期」= 照实说没送到。
+    private var receiptText: String {
+        if message.questionAcked { return "AI 已收到，会接着按你的选择往下做" }
+        if message.questionExpired { return "这卡已过期（AI 侧没等到答复），需要的话让 AI 重发一张" }
+        return "已送出，等 AI 确认…"
+    }
+
+    private var receiptTint: Color {
+        if message.questionAcked { return .green }
+        if message.questionExpired { return .orange }
+        return .secondary
+    }
 
     /// 作答**没送到**：回退待答态的同时把原因说出来。
     /// ⚠️ 别静默停在「已回答」——用户以为 AI 收到了，而 AI 侧长轮询其实一直在等到超时。
@@ -208,9 +244,17 @@ struct ChatQuestionCard: View {
                     .foregroundStyle(.primary)
                     .multilineTextAlignment(.leading)
                     .fixedSize(horizontal: false, vertical: true)
-                Text("你")
-                    .font(.system(size: Typography.tiny))
-                    .foregroundStyle(.tertiary)
+                // v4.0.46：回执行（「你」+ 送达到哪一步）——用户报「选完卡不确定回复完成没」
+                HStack(spacing: Spacing.sm) {
+                    Text("你")
+                        .font(.system(size: Typography.tiny))
+                        .foregroundStyle(.tertiary)
+                    Text(receiptText)
+                        .font(.system(size: Typography.tiny))
+                        .foregroundStyle(receiptTint)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                }
             }
             Spacer(minLength: 0)
         }
