@@ -358,9 +358,23 @@ check("主操作走 pill(.primary, tone: .accent) 统一出口",
       orbMenuSrc.contains("Text(\"保存\").pill(.primary, tone: .accent)") && !orbMenuSrc.contains("borderedProminent"))
 // ⑤ 菜单随切页收起（深链 / 分享 / 备忘录「发给 AI」等程序化切页不留残影）
 check("切页时收起菜单", dockSrc.contains("if showOrbMenu { showOrbMenu = false }"))
-// ⑥ 已在聊天页时轻点球要有反馈（selected 不变 → onChange 不触发，触感/清提示会整体丢失）
-check("轻点球语义补齐（已在聊天页补触感 + 清提示）",
-      dockSrc.contains("if selected == .chat { Haptics.tap(); clearOrbNotice() }"))
+// ⑥ 轻点球的语义（**v4.0.47 用户 2026-10-04 改口径：轻点 = 回到聊天首页**）
+//   旧口径只切页、留着上一个会话；新口径 = 切到聊天页 + 新建空白会话（显示欢迎页）。
+//   「已在聊天页」那一支 selected 不变 → onChange(of: selected) 不触发，所以触感/清提示必须自己补。
+//   🚨 dockSrc 是**原样源码**（本表未剥注释）：断言一律用「带花括号/正则」的代码形态，
+//      否则改天有人在注释里抄一句旧写法就假绿（v3.9.77 复审踩过同款）。
+// 🔑 复审加固（2026-10-04）：原来只 contains 那句 requestNewSession 会**静默假绿** ——
+//   它在文件里出现两次（「已在聊天页」支 / else 支），只删 else 支那行时本条 + 下面两条全过。
+//   本功能的**主路径** = 「从别的 tab 点球 → 切页 + 新建会话」，这里把 else 支连切页一起按窗口钉死。
+check("🔑 从别的 tab 点球 = 切页 + 新建空白会话（主路径，else 支整段钉死）",
+      dockSrc.range(of: #"\}\s*else\s*\{[\s\S]{0,250}?selected = \.chat[\s\S]{0,250}?if !chat\.messages\.isEmpty \{ chat\.requestNewSession\(\) \}"#,
+                    options: .regularExpression) != nil)
+check("轻点球 = 回聊天首页（新建会话走 requestNewSession，与长按菜单 case 0 同一条路）",
+      dockSrc.contains("if !chat.messages.isEmpty { chat.requestNewSession() }"))
+check("已在聊天首页（空会话）时不重复新建（只补触感 + 清提示）",
+      dockSrc.range(of: "Haptics.tap\\(\\)\\s+clearOrbNotice\\(\\)", options: .regularExpression) != nil)
+check("旧「轻点只切页、留着上一个会话」口径清零（改回即红）",
+      !dockSrc.contains("else { selected = .chat }"))
 check("程序化切页前的 skipBurstOnce 加守卫（避免标志空置吞掉下一次真点击烟花）",
       dockSrc.contains("if selected != .chat { skipBurstOnce() }"))
 // ⑦ 来源标注：source "orb" 不补分支会显示成「手记 / 手动」，与手动条目无法区分

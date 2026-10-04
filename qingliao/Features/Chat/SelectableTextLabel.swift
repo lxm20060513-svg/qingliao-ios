@@ -41,6 +41,10 @@ struct SelectableTextLabel: UIViewRepresentable {
     var onDelete: () -> Void = {}
     var onRegenerate: (() -> Void)? = nil
     var onWithdraw: (() -> Void)? = nil
+    /// v4.0.44 待做池 3：编辑已发消息（改口重答）——**只有最后一条 user 消息**会传非 nil
+    ///（口径收口在 MessageEditKit.editableIndex，UI 不自己判）；nil = 菜单不显示该入口。
+    /// ⚠️ 声明序铁律：紧贴 onWithdraw —— ChatMessageBubble 的调用点按声明序传标签实参。
+    var onEdit: (() -> Void)? = nil
     // v3.9.86：长回复阅读入口（长按菜单「全屏阅读」→ LongReplySheet 半屏放大阅读）；nil = 不显示
     var onRead: ((String) -> Void)? = nil
     // v3.3.0：多选合并转发入口（文字长按菜单）
@@ -334,6 +338,13 @@ struct SelectableTextLabel: UIViewRepresentable {
             if let onWithdraw = parent.onWithdraw {
                 children.append(UIAction(title: "撤回", image: UIImage(systemName: "arrow.uturn.backward")) { _ in
                     onWithdraw()
+                })
+            }
+            // v4.0.44 待做池 3：编辑已发消息（改口重答）。只在「最后一条 user 消息」上出现
+            //（ChatView 传非 nil）；AI 回答的菜单里永远没有这一项——用户没打过那段字。
+            if let onEdit = parent.onEdit {
+                children.append(UIAction(title: "编辑", image: UIImage(systemName: "pencil")) { _ in
+                    onEdit()
                 })
             }
             children.append(UIAction(title: "删除", image: UIImage(systemName: "trash"), attributes: .destructive) { _ in

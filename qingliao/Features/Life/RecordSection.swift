@@ -32,6 +32,8 @@ struct RecordSection: View {
     /// 扫账单弹窗的「会话号」：每次打开自增，配合 `.id(...)` 强制换新实例
     /// （SwiftUI 会保留已 present 过视图的 @State，不换实例会带回上一张图/上一次金额）
     @State private var billScanSession = 0
+    /// v4.0.45 待做池④：生活数据可视化报表（折线趋势 + 分类环图，独立半屏页）
+    @State private var showReport = false
 
     private let units = ["元", "度", "kWh"]
 
@@ -247,6 +249,8 @@ struct RecordSection: View {
         .sheet(isPresented: $showExport) {
             if let csvURL { ActivityShareSheet(items: [csvURL]) }
         }
+        // v4.0.45 待做池④：数据报表（独立页；detents 由 RecordReportSheet 自带）
+        .sheet(isPresented: $showReport) { RecordReportSheet() }
         .sheet(isPresented: $showFixed) {
             FixedExpenseSheet()
                 // v4.0.20：原来挂在宿主链上（对弹窗不生效）→ 移进 sheet 内容
@@ -270,6 +274,16 @@ struct RecordSection: View {
                 .font(.system(size: Typography.caption))
                 .foregroundStyle(.secondary)
             Spacer(minLength: 0)
+            // v4.0.45 待做池④：数据报表入口（折线趋势 + 分类环图）
+            Button { showReport = true } label: {
+                Image(systemName: "chart.bar.xaxis")
+                    .font(.system(size: Typography.subhead, weight: .medium))
+                    .foregroundStyle(Color.secondary)
+                    .padding(Spacing.xs)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("数据报表")
             // 候选池⑫：导出账本 CSV（导**全部**账目，不受上面的分类筛选影响 —— 导出是备份，不是视图截图）
             Button(action: exportCSV) {
                 Image(systemName: "square.and.arrow.up")
@@ -628,9 +642,10 @@ private struct RecordEditSheet: View {
     }
 }
 
-/// 分类色标（只服务占比条与图例）。用系统色而不是新增主题令牌：这几支颜色只此一处用，
+/// 分类色标（只服务占比条与图例，以及报表环图）。用系统色而不是新增主题令牌：这几支颜色只此几处用，
 /// 进主题反而让「令牌 == 全站语义」的口径变浑浊。哈希自算（djb2）保证同一分类每次同色。
-private enum RecordCategoryColor {
+/// v4.0.45 待做池④：报表环图复用同一调色板 → 从 `private` 放开到模块内可见（单一来源，别在报表里再抄一份）。
+enum RecordCategoryColor {
     static let palette: [Color] = [.orange, .blue, .green, .purple, .pink, .teal, .indigo, .brown]
 
     static func tint(_ category: String) -> Color {

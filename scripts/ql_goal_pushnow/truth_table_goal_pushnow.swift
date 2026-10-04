@@ -2,6 +2,11 @@
 //
 // 用户原话（2026-10-04）：
 //   ① 长期目标卡片加一个「现在开始推进」的胶囊
+//   ⚠️ v4.0.47（同日后续口径变更）：① 那颗胶囊从卡片**搬进**详情弹窗顶栏，紧挨「后台运行中」；
+//      两枚状态胶囊（后台运行中 / 已完成）统一降到 `.pill(.page)` 小档。
+//      用户原话：「长期目标卡片的后台运行中胶囊字体小一点对齐其他胶囊字体，胶囊大小也一样」
+//             「现在开始推进胶囊放在长期目标弹窗里面后台运行中胶囊旁边」。
+//      → 卡片上不再挂推进胶囊（是「搬」不是「两处都放」），断言已改成分片判定。
 //   ② 任务中心的任务应该要显示后台推进任务
 //   ③ 后台推进任务里需要我确认回复的，推送轻聊投递的同时把消息推送到原会话
 //   ④ 已完成的项目请自己在待办清单和长期目标卡片里面划掉
@@ -156,10 +161,50 @@ ok(gs.contains("g.finishedAt != r.finishedAt") && gs.contains("g.originSessionId
 ok(gs.contains("g.manualPushAt != r.manualPushAt"), "#1 manualPushAt 进了差异比对")
 
 let gsec = code("qingliao/Features/Life/GoalsSection.swift")
-ok(gsec.contains("\"现在开始推进\""), "#1 卡片上有「现在开始推进」")
-ok(gsec.contains("onPushNow"), "#1 胶囊通过 onPushNow 回调（不是硬编码）")
-ok(gsec.contains("pushingIDs"), "#1 推进中防连点")
+// v4.0.47（用户 2026-10-04）：「现在开始推进」胶囊从**卡片底部**搬进**详情弹窗顶栏**
+//（紧挨「后台运行中」），状态胶囊（后台运行中 / 已完成）降档到 `.pill(.page)` 小档（10pt）。
+// 所以这里必须**分片**断言：只查「全文件含这串」抓不到搬没搬（旧写法留在卡里也会绿）。
+// 🚨 分片锚点只能用**代码**锚：`code()` 已剥行注释 → MARK/注释不在切片里。
+//   · 详情弹窗切片 → 到其后第一个顶层方法 `func stepTimeText`（弹窗内只有调用点
+//     `stepTimeText(s)`，不带 "func " 前缀，不会提前截断）
+//   · 卡体切片 → 从 `struct GoalRowCard` 到卡内第一个方法 `private func healthColor`
+func slice(_ src: String, from: String, to: String) -> String {
+    guard let a = src.range(of: from) else { return "" }
+    let tail = String(src[a.upperBound...])
+    // 🚨 断言加固（2026-10-04 复审）：`to` 锚缺失时**不许**回退成「tail 到文件尾」——
+    //    那会让切片过宽、下面「卡片上已撤掉」这类负断言假绿（锚点改名后静默放过）。
+    //    返回空串 → 上面的哨兵断言直接红，逼你同步本表。
+    guard let b = tail.range(of: to) else { return "" }
+    return String(tail[..<b.lowerBound])
+}
+let detailSlice = slice(gsec, from: "private func detailSheet", to: "func stepTimeText")
+let cardSlice = slice(gsec, from: "struct GoalRowCard", to: "private func healthColor")
+ok(!detailSlice.isEmpty && !cardSlice.isEmpty,
+   "分片锚点有效（切片为空 = 锚点被改名，需同步本表）")
+ok(gsec.contains("MiniCapsule(title: \"现在开始推进\", accent: true, size: .page) { pushNow(g) }"),
+   "#1 胶囊走 MiniCapsule + 统一 pushNow 入口（不硬编码后端调用）")
+// v4.0.47 复审补（用户「胶囊大小也一样」）：推进胶囊必须同档 .page 小胶囊 ——
+// MiniCapsule 默认档是 .topBar(13pt)，漏传 size 就会和并排的 10pt 状态胶囊不同高。
+ok(detailSlice.contains("MiniCapsule(title: \"现在开始推进\", accent: true, size: .page)"),
+   "🔑 并排两枚同档：推进胶囊 = .page 小档（与「后台运行中」同高）")
+ok(detailSlice.contains("Text(\"已完成\").pill(.page"),
+   "#2 弹窗侧「已完成」也降档（只钉卡片形态的话，弹窗那侧漏改抓不到）")
+ok(detailSlice.contains("现在开始推进"), "#1 详情弹窗顶栏有推进胶囊")
+ok(!cardSlice.contains("现在开始推进"), "🔑 卡片上已撤掉（两处都挂 = 没真「搬」进弹窗）")
+ok(gsec.contains("pushingIDs") && detailSlice.contains("pushingIDs"),
+   "#1 推进中防连点（转圈态跟着胶囊进弹窗）")
+ok(!gsec.contains("onPushNow"), "#1 旧回调入参已清零（卡内不再有内层按钮）")
 ok(gsec.contains("store.pushNowOnBackend"), "#1 真调后端")
+// #2 状态胶囊口径：卡片 + 弹窗两处都降到 .pill(.page)（用户 2026-10-04「字体小一点对齐其他胶囊」）
+ok(gsec.contains("Text(GoalSchedule.healthLabel(goal.scheduleHealth)).pill(.page)"),
+   "#2 卡片「后台运行中」= .pill(.page) 小档（10pt，与栏目头「添加」同档）")
+ok(gsec.contains("Text(GoalSchedule.healthLabel(g.scheduleHealth)).pill(.page)"),
+   "#2 弹窗「后台运行中」同档（与推进胶囊并排时同高）")
+ok(!gsec.contains("healthLabel(goal.scheduleHealth)).pill(.topBar)")
+   && !gsec.contains("healthLabel(g.scheduleHealth)).pill(.topBar)"),
+   "🔑 旧 13pt 玻璃档清零（留着 = 两枚口径仍不一致）")
+ok(gsec.contains("Text(\"已完成\").pill(.page)"),
+   "#2 同位置的「已完成」一起降档（否则同一位置两枚大小不一）")
 ok(gsec.contains("已完成 \\(store.finishedGoals.count) 个"), "#4 已完成折叠行")
 ok(gsec.contains("var finishedFold: some View"), "#4 折叠行有实现")
 ok(gsec.contains("store.sortedActiveFirst"), "#4 列表用未完成优先排序")

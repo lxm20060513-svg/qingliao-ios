@@ -618,8 +618,11 @@ struct ChatHTMLDocument: FileDocument {
             if let img = m.imageDataURL, !img.isEmpty, img.hasPrefix("data:image/") {
                 inner += "<img src=\"\(img)\" alt=\"图片\">"
             }
+            // v4.0.44 待做池 3：折叠态（被改口取代的旧回答）导出口径与气泡一致（「已修改」占位，
+            // 不带原文——原文已被用户改掉，导出/分享不该把它漏出去）
             let text = m.withdrawn ? "已撤回"
-                : (m.audioPath != nil ? "[语音]" : m.content)
+                : (m.edited ? MessageEditKit.editedLabel
+                   : (m.audioPath != nil ? "[语音]" : m.content))
             if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 // AI 内容按 markdown 轻渲染（换行保底），防长段落挤成一坨
                 let htmlText = esc(text)

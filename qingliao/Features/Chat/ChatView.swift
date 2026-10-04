@@ -175,6 +175,10 @@ struct ChatView: View {
     @State var selectMode = false
     @State var selectedMsgIDs: Set<String> = []
     @State var selectBlocked = false      // 流式中尝试进入多选 → 提示
+    // v4.0.44 待做池 3：改口（编辑已发消息）——待编辑的那条 + 重答失败提示
+    @State var editingMessage: ChatMessage? = nil
+    @State var editFailedAlert = false
+    @State var editFailedNote = ""
     @State var fileGoneAlert = false      // v3.9.31：文件预览下载失败 → 文件已失效提示
     @State var mergeTooMany = false       // 合并超过 99 条 → 提示
     static let maxMergeCount = 99
@@ -931,6 +935,12 @@ struct ChatView: View {
         } message: {
             Text("AI 正在回答，回答完成后再多选合并。")
         }
+        // v4.0.44 待做池 3：改口重答失败 → 明说「已还原」（用户刚改完就等新回答，不能静默）
+        .alert("改口重答失败", isPresented: $editFailedAlert) {
+            Button("好的", role: .cancel) {}
+        } message: {
+            Text("已把原来的回答还原回去（不留白）。原因：\(editFailedNote)")
+        }
         // v3.9.31：文件预览下载失败提示——MEDIA: 指向的生成物多已被服务器清理，点卡片要有反馈
         .alert("文件已失效", isPresented: $fileGoneAlert) {
             Button("好的", role: .cancel) {}
@@ -1044,6 +1054,14 @@ struct ChatView: View {
             LongReplySheet(payload: payload)
                 .presentationDetents([.medium, .large])
                 .scrollContentBackground(.hidden)
+        }
+        // v4.0.44 待做池 3：改口面板（长按自己的最后一条消息「编辑」）。detents 与全站输入弹窗同档。
+        .sheet(item: $editingMessage) { m in
+            MessageEditSheet(originalText: m.content) { newText in
+                editMessage(m, newText: newText)
+            }
+            .presentationDetents([.medium, .large])
+            .scrollContentBackground(.hidden)
         }
         .fileImporter(isPresented: $showFileImporter,
                       allowedContentTypes: [.data]) { result in
@@ -2301,7 +2319,8 @@ struct ChatView: View {
     private func chatMessageBubble(_ msg: ChatMessage) -> some View {
         MessageBubble(message: msg,
                       isHighlighted: msg.id == highlightMessageID,
-                      zoomNS: zoomNS) {   // v3.4.29：zoom 转场（非闭包实参须在 trailing closure 之前）
+                      zoomNS: zoomNS,
+                      onEdit: editAction(msg)) {   // v4.0.44 待做池 3：改口入口（nil = 菜单里没「编辑」）
             regenerate(at: msg.id)
         } onBigBang: { text in
             bigBangPayload = BigBangPayload(text: text, sourceID: "bb-" + msg.id)   // v3.9.1：与上面的转场源 id 成对
@@ -4363,6 +4382,101 @@ struct ChatView: View {
                 } else {
                     landAwayReply(body, agent: stream.isAgent,
                                   snapshot: startMsgs, sid: startSid, title: startTitle)
+                }
+            }
+        }
+    }
+
+    // MARK: - v4.0.44 待做池 3：改口重答（编辑已发消息 → 旧回答折叠「已修改」+ 基于新原文重答）
+
+    /// 这条消息此刻能不能改口（nil = 长按菜单里不显示「编辑」）。
+    /// 条件：**全局**没在跑流（stream.start 会掐断在跑的流）+ 它就是最后一条 user 消息。
+    /// ⚠️ 判据必须是全局 `stream.isStreaming`，不能收窄成 `thisSessionStreaming`：
+    /// 入口按会话收窄、执行端（editMessage 的 guard）按全局 → 多会话并行时别的会话在跑流，
+    /// 本会话菜单仍显示「编辑」，点完 editMessage 静默 return = 用户消息没改也没提示。
+    /// 「单例是否被占用」的护栏一律用全局判据，见本文件 286-292 的铁律。
+    func editAction(_ msg: ChatMessage) -> (() -> Void)? {
+        guard !stream.isStreaming, chat.editableUserMessageID == msg.id else { return nil }
+        return {
+            inputFocus = false
+            editingMessage = msg
+        }
+    }
+
+    /// 改口重答：换掉用户原文 → 该轮旧回答折叠为「已修改」→ 基于新原文重答。
+    /// 用户拍板（2026-10-04 卡）：折叠态复用现有灰气泡；只允许改最后一条 user 消息。
+    /// 重答失败/空回复 → 还原折叠的旧回答（宁可回到旧回答，也不留白）+ 出提示。
+    func editMessage(_ msg: ChatMessage, newText: String) {
+        let text = newText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !stream.isStreaming else { return }   // 入口 editAction 已按**全局** stream.isStreaming 隐藏（勿改回收窄的 thisSessionStreaming：多会话并行时会「菜单显示编辑、点完静默 return」）
+        // 只允许最后一条 user 消息（面板之外再兜一层）
+        guard let idx = chat.messages.firstIndex(where: { $0.id == msg.id }),
+              MessageEditKit.editableIndex(chat.editRows) == idx else { return }
+        guard !text.isEmpty, text != chat.messages[idx].content else { return }
+        // 换原文 —— content 参与 id 计算，改完 id 就变了，锚点必须重取
+        // v4.0.47：原文/原 id 先留底 —— 失败要连**用户原文**一起还原，否则落成「新文 + 旧答」（答非所问）
+        let originalText = chat.messages[idx].content
+        let originalID = msg.id
+        guard chat.updateUserText(id: msg.id, newText: text) else { return }
+        let anchorID = chat.messages[idx].id
+        let folded = chat.foldRepliesAfterUser(anchorID)   // 折叠旧回答（快照留着失败回退）
+        refreshVisibleMessages()
+        // v4.0.47：编辑**立刻落盘**再起流。否则杀后台窗口内编辑丢失（服务端还是旧文），
+        // 而恢复锚点已换成新 id → 锚点失配、旧文配新答。与 sendCore「追加后即时保存」同口径。
+        Task { await chat.saveToServer(auth: auth) }
+        let lastUserHasImage = chat.messages[idx].imageDataURL != nil
+        let (useModel, useProvider) = resolveModel(hasImage: lastUserHasImage)
+        let history = chat.historyPayload(model: useModel, provider: useProvider)
+        // 与 regenerate 同口径：快照在改动**之后**取，切走会话时落回发起时的会话
+        let startSid = chat.sessionId
+        let startMsgs = chat.messages
+        let startTitle = chat.title
+        Task {
+            stream.pendingUserMsgId = anchorID   // 杀后台恢复的锚点
+            await stream.start(auth: auth, sessionId: chat.sessionId, model: useModel,
+                               provider: useProvider, messages: history) { success, error in
+                let content = stream.content.trimmingCharacters(in: .whitespacesAndNewlines)
+                let ok = success && !content.isEmpty
+                let body: String
+                if ok {
+                    body = stream.content
+                } else if success {
+                    body = Self.emptyReplyNote
+                } else {
+                    body = stream.content.isEmpty ? "⚠️ \(error)" : stream.content + "\n\n⚠️ \(error)"
+                }
+                if chat.sessionId == startSid {
+                    if ok {
+                        chat.upsertAssistant(body, agent: stream.isAgent, afterUserID: anchorID)
+                        showSentOK()
+                        InboxStore.shared.triggerFastPoll()
+                    } else {
+                        // 重答没成 → 原样还原被折叠的旧回答（否则这轮只剩「已修改」、新回答又没有）
+                        chat.unfoldReplies(folded)
+                        // v4.0.47：连**用户原文**一起还原。只还原旧答会落成「新文 + 旧答」——
+                        // 用新问题配旧答案，正是用户口径「失败自动还原、内容与气泡状态一致」要挡的。
+                        if chat.updateUserText(id: anchorID, newText: originalText) {
+                            stream.pendingUserMsgId = originalID   // 锚点跟着回到旧 id
+                        }
+                        Haptics.notify(.error)
+                        editFailedNote = success ? Self.emptyReplyNote : (error.isEmpty ? "网络异常" : error)
+                        editFailedAlert = true
+                    }
+                    refreshVisibleMessages()
+                    Task { await chat.saveToServer(auth: auth) }
+                } else {
+                    // 切走会话：落回发起时的会话（同 regenerate）。失败时快照里的折叠态也要还原，
+                    // 否则那个会话永久留一条「已修改」而没有任何新回答。
+                    var snap = startMsgs
+                    if !ok {
+                        for f in folded {
+                            if let i = snap.firstIndex(where: { $0.id == f.id }) { snap[i] = f }
+                        }
+                        // v4.0.47：用户原文同口径回滚——只还原旧答会落成「新文 + 旧答」（答非所问）
+                        if let i = snap.firstIndex(where: { $0.id == anchorID }) { snap[i] = msg }
+                    }
+                    landAwayReply(body, agent: stream.isAgent, snapshot: snap,
+                                  sid: startSid, title: startTitle)
                 }
             }
         }

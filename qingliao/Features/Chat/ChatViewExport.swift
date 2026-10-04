@@ -18,6 +18,9 @@ extension ChatView {
     /// 图片/语音/撤回无法用纯文本还原 → 用与聊天语义一致的占位文本
     func cardRow(for msg: ChatMessage) -> (role: String, text: String) {
         if msg.withdrawn { return (msg.role, "已撤回") }                    // 气泡同文案
+        // v4.0.44 待做池 3：被改口取代的旧回答 —— 气泡是「已修改」灰气泡，卡片必须同口径。
+        // 不放行这条 = 分享卡片会把**用户已经改掉的旧回答原文**原样漏出去。
+        if msg.edited { return (msg.role, MessageEditKit.editedLabel) }
         if let img = msg.imageDataURL, !img.isEmpty { return (msg.role, "[图片]") }
         if msg.audioPath != nil { return (msg.role, "[语音]") }
         return (msg.role, msg.content)

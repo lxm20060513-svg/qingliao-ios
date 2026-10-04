@@ -15,6 +15,11 @@ import SwiftUI
 struct MiniCapsule: View {
     let title: String
     var accent: Bool = false
+    /// v4.0.47（用户 2026-10-04）：档位可调，默认 `.topBar`（13pt，全站顶栏/工具条口径）。
+    /// 传 `.page` = 与生活页栏目头「添加」同档的小胶囊（10pt + h10/v4）——长期目标的状态胶囊
+    /// 降档后，紧挨它的「现在开始推进」必须同档，否则并排两枚胶囊不一样高。
+    /// ⚠️ 声明位置在 `action` **之前**：调用方多用尾随闭包写 action，参数只能按声明序传。
+    var size: PillSize = .topBar
     let action: () -> Void
 
     var body: some View {
@@ -22,7 +27,7 @@ struct MiniCapsule: View {
             // v3.9.19：走 .pill(.topBar) 口径；原 accent 分支是实色底，改为口径内的淡底（与全站一致）
             // v3.9.22：.topBar 档字号 tiny(10) → subhead(13)，用户反馈这些小胶囊文字偏小
             Text(title)
-                .pill(.topBar, tone: accent ? .accent : .neutral)
+                .pill(size, tone: accent ? .accent : .neutral)
                 .contentShape(Capsule())
         }
         .buttonStyle(PressStyle())

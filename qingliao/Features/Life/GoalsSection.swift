@@ -172,11 +172,10 @@ struct GoalsSection: View {
     @ViewBuilder
     private var topCard: some View {
         if let top = mainList.first {
-            // 🚨 用 onTapGesture 而不是 Button 包裹：GoalRowCard 内部自带「现在开始推进」胶囊，
-            //    Button 套 Button 在 SwiftUI 里内层点击不可靠（点胶囊会变成打开详情）。
-            GoalRowCard(goal: top, compact: true,
-                        onPushNow: { pushNow($0) },
-                        pushing: pushingIDs.contains(top.id))
+            // 🚨 用 onTapGesture 而不是 Button 包裹（**这一条保持不动**）：当年是因为卡内自带
+            //    「现在开始推进」胶囊，Button 套 Button 时内层点击不可靠。胶囊已在 v4.0.47
+            //    搬进详情弹窗，但这条链路不回退、不改动 —— 少一处回归面（真值表也钉着它）。
+            GoalRowCard(goal: top, compact: true)
             .contentShape(Rectangle())
             .onTapGesture { openCard() }
             .contextMenu { goalMenuItems(top) }
@@ -325,10 +324,8 @@ struct GoalsSection: View {
             List {
                 // v4.0.40（#4）：未完成优先，已完成沉底（用户要「已完成自己划掉」）
                 ForEach(store.sortedActiveFirst) { g in
-                    // 🚨 同上：不 Button 包 Button，内层胶囊点击要能独立生效
-                    GoalRowCard(goal: g, compact: false,
-                                onPushNow: { pushNow($0) },
-                                pushing: pushingIDs.contains(g.id))
+                    // 🚨 同上：不 Button 包 Button（卡内胶囊 v4.0.47 已撤进详情弹窗，链路保持不动）
+                    GoalRowCard(goal: g, compact: false)
                     .contentShape(Rectangle())
                     .onTapGesture {
                         // 🚨 同宿主多 sheet 互斥：先关列表，等它收起再开详情
@@ -399,15 +396,28 @@ struct GoalsSection: View {
                         }
                         Spacer()
                         if g.isFinished {
-                            Text("已完成").pill(.topBar, tone: .accent)
+                            Text("已完成").pill(.page, tone: .accent)
                         } else {
                             // v4.0.20（#5）：详情页同口径 —— 不再只报「每天 9:00/21:00」，
-                            // 而是说清后台到底在不在跑
-                            Circle()
-                                .fill(g.scheduleHealth == .running ? Color.green
-                                      : (g.scheduleHealth == .paused ? Color.secondary : Color.orange))
-                                .frame(width: 6, height: 6)
-                            Text(GoalSchedule.healthLabel(g.scheduleHealth)).pill(.topBar)
+                            // 而是说清后台到底在不在跑。
+                            // v4.0.47（用户 2026-10-04）：「现在开始推进」从**卡片底部**搬进这里，
+                            // 紧挨「后台运行中」；状态胶囊同时降档 `.pill(.page)`（与卡片一侧同口径）。
+                            HStack(spacing: 6) {
+                                Circle()
+                                    .fill(g.scheduleHealth == .running ? Color.green
+                                          : (g.scheduleHealth == .paused ? Color.secondary : Color.orange))
+                                    .frame(width: 6, height: 6)
+                                Text(GoalSchedule.healthLabel(g.scheduleHealth)).pill(.page)
+                                if pushingIDs.contains(g.id) {
+                                    // 推进中：转圈 + 文案占位（不再点，防连点跑两遍）
+                                    ProgressView().controlSize(.mini)
+                                    Text("推进中…")
+                                        .font(.system(size: Typography.tiny))
+                                        .foregroundStyle(.secondary)
+                                } else {
+                                    MiniCapsule(title: "现在开始推进", accent: true, size: .page) { pushNow(g) }
+                                }
+                            }
                         }
                     }
                     if !g.steps.isEmpty {
@@ -643,10 +653,9 @@ enum GoalTodoBridge {
 struct GoalRowCard: View {
     let goal: GoalItem
     var compact: Bool = false
-    /// v4.0.40（#1）：点胶囊立刻在后台推进一次。nil = 不提供这个入口（已完成/推进中）
-    var onPushNow: ((GoalItem) -> Void)? = nil
-    /// v4.0.40（#1）：是否正在推进中（转圈 + 禁用，防连点）
-    var pushing: Bool = false
+    // v4.0.47（用户 2026-10-04）：原 `onPushNow` / `pushing` 两个入参随「现在开始推进」胶囊
+    // 一起撤出卡片 —— 卡内已无内层按钮，回调链路没有调用方（胶囊改在详情弹窗里直调
+    // `GoalsSection.pushNow`）。空留参数只会诱使后来者又往卡上挂按钮。
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -660,14 +669,17 @@ struct GoalRowCard: View {
                     .lineLimit(1)
                 Spacer(minLength: 0)
                 if goal.isFinished {
-                    Text("已完成").pill(.topBar)
+                    Text("已完成").pill(.page)
                 } else {
                     // v4.0.20（#5）：后台健康点 —— 一眼看出「它到底在不在跑」
                     //（绿=已接上 cron 在跑 / 灰=用户暂停 / 橙=没建上 cron 的半成品）
                     Circle()
                         .fill(healthColor(goal.scheduleHealth))
                         .frame(width: 6, height: 6)
-                    Text(GoalSchedule.healthLabel(goal.scheduleHealth)).pill(.topBar)
+                    // v4.0.47（用户 2026-10-04）：状态胶囊降档到 `.pill(.page)`（10pt，与生活页栏目头
+                    // 「添加」同一档小胶囊）。原 `.topBar` 是 13pt 玻璃底，摆在卡片标题行、又紧挨下面
+                    // 10pt 的步骤状态标，又大又重、两枚口径也不一致。同位置的「已完成」一起降档。
+                    Text(GoalSchedule.healthLabel(goal.scheduleHealth)).pill(.page)
                 }
             }
 
@@ -745,21 +757,9 @@ struct GoalRowCard: View {
                 }
             }
 
-            // v4.0.40（#1）：立刻推进的胶囊（已完成的不给）
-            if onPushNow != nil, !goal.isFinished {
-                HStack(spacing: 6) {
-                    if pushing {
-                        // 推进中：转圈 + 文案占位（不再点，防连点跑两遍）
-                        ProgressView().controlSize(.mini)
-                        Text("推进中…")
-                            .font(.system(size: Typography.tiny))
-                            .foregroundStyle(.secondary)
-                    } else {
-                        MiniCapsule(title: "现在开始推进", accent: true) { onPushNow?(goal) }
-                    }
-                    Spacer(minLength: 0)
-                }
-            }
+            // v4.0.40（#1）→ v4.0.47（用户 2026-10-04）：「现在开始推进」胶囊已从卡片
+            // **搬进详情弹窗顶栏**（紧挨「后台运行中」，见 GoalsSection.detailSheet）。
+            // 卡片只留状态、动作收进弹窗 —— 两处都挂等于重复入口（用户口径是「搬」不是「复制」）。
         }
         .padding(Spacing.xl)
         .frame(maxWidth: .infinity,

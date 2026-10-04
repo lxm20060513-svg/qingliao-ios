@@ -516,29 +516,6 @@ ck "自动命名用的是 conversational 而不是 msgs.count" \
 ck "冷启动补投扩展 pending 载荷" \
    'ShareIntake\.flushPending\(loggedIn: true\)' qingliao/QingliaoApp.swift
 
-echo "=== 69. 长期目标后台推进闭环真值表（v4.0.44 · 报告回写 / 每步通知 / 确认卡 / 步骤序号 / 下一步状态）==="
-# 用户 7 条要求里的 ③④⑤⑥ 段对应的实现口径：
-#   ① 报告回写：cron 桥 ql_task_push.py → 后端 goals_report_from_cron（按 cronJobID 精确匹配，
-#      job 名不可信——生产上真实目标的 job 名是自定义的；非目标 job → skipped 不算失败）
-#   ② 每步完成 → 推一条 system 进轻聊投递 + **单步**待办联动划掉（不是只在全完成时一把划）
-#   ③ 需要拍板 → question 卡（可点选/可手输）+ 答案回写目标时间线 + 注入原会话
-#   ④ 进行中作业详情带「正在推进 第 k/N 步」 ⑤ 下一步标「进行中 / 预计 X 开始 / 待开始」
-#   ⑥ 步骤清单显式「第 N 步」（enumerated + 保 element.id）
-# 纯逻辑走**镜像**：GoalSchedule.swift 里的 GoalItem 扩展依赖 GoalStore.swift（import SwiftUI），
-# 本机无 SwiftUI 编不了 → 与第 68 段同口径（镜像口径 + 剥注释后的源级断言双保险）。
-# ⚠️ 不写 `run_unit6 … | tee`：管道会把 run_unit6 内部的 `exit 1` 吞进子壳（脚本照常往下走），
-# 且 `grep -q '0 失败'` 会被「10 失败 / 20 失败」子串误命中 → 两条假绿通道（审查抓到）。
-# 改为自己编自己跑：退出码 + 收紧的结论行判据，双闸门。
-rm -f /tmp/test_goal_loop
-if ! $SWIFT/swiftc -swift-version 6 -o /tmp/test_goal_loop scripts/ql_goal_loop/truth_table_goal_loop.swift > /tmp/tt_goal_loop.log 2>&1; then
-  echo "❌ 第 69 段真值表编译失败"; tail -5 /tmp/tt_goal_loop.log; fail=1
-elif /tmp/test_goal_loop >> /tmp/tt_goal_loop.log 2>&1; then
-  echo "  $(tail -1 /tmp/tt_goal_loop.log)"
-  grep -qE '/ 0 失败$' /tmp/tt_goal_loop.log || { echo "❌ 第 69 段结论行异常（须以「/ 0 失败」结尾）"; fail=1; }
-else
-  echo "❌ 第 69 段真值表判定失败（改坏必红）"; tail -6 /tmp/tt_goal_loop.log; fail=1
-fi
-
 [ $fail -eq 0 ] || { echo "❌ 第 31 段有护栏失守"; exit 1; }
 echo "✅ 夜间 review 修复的 19 条回归护栏全绿"
 
@@ -607,8 +584,8 @@ ck "P1: sendFile 上传后二次查流占用（防静默掐断别的会话的答
 #   SessionTag 等 6 个不同构的 Store（审计已实证：无 ISO8601+NAS 快照双写通道）。
 _store_list=$(grep -ln 'SyncedStore\.' qingliao/Core/*Store.swift 2>/dev/null | xargs -n1 basename 2>/dev/null | sed 's/\.swift$//' | grep -v '^SyncedStore$' | sort)
 _store_n=$(echo "$_store_list" | grep -c .)
-if [ "$_store_n" != "5" ]; then
-  echo "❌ P0: 走 SyncedStore 体系的 Store 数量是 $_store_n（期望 5）：$_store_list"
+if [ "$_store_n" != "6" ]; then
+  echo "❌ P0: 走 SyncedStore 体系的 Store 数量是 $_store_n（期望 6）：$_store_list"
   echo "      新增/删除 Store 后必须同步本段护栏名单，别让新 Store 悄悄失守"
   fail=1
 fi
@@ -996,6 +973,130 @@ ckNot "残留 Self.stamp（stamp 已迁到 GoalRowCard，GoalsSection 上不存�
   "Self\\.stamp\\(" qingliao/Features/Life/GoalsSection.swift
 ck "GoalRowCard.stamp 必须是 nonisolated static 且非 private（供 GoalsSection 跨类型调用）" \
   "^    static func stamp\\(_ d: Date\\) -> String" qingliao/Features/Life/GoalsSection.swift
+
+echo "=== 69. 长期目标后台推进闭环真值表（v4.0.44 · 报告回写 / 每步通知 / 确认卡 / 步骤序号 / 下一步状态）==="
+# 用户 7 条要求里的 ③④⑤⑥ 段对应的实现口径：
+#   ① 报告回写：cron 桥 ql_task_push.py → 后端 goals_report_from_cron（按 cronJobID 精确匹配，
+#      job 名不可信——生产上真实目标的 job 名是自定义的；非目标 job → skipped 不算失败）
+#   ② 每步完成 → 推一条 system 进轻聊投递 + **单步**待办联动划掉（不是只在全完成时一把划）
+#   ③ 需要拍板 → question 卡（可点选/可手输）+ 答案回写目标时间线 + 注入原会话
+#   ④ 进行中作业详情带「正在推进 第 k/N 步」 ⑤ 下一步标「进行中 / 预计 X 开始 / 待开始」
+#   ⑥ 步骤清单显式「第 N 步」（enumerated + 保 element.id）
+# 纯逻辑走**镜像**：GoalSchedule.swift 里的 GoalItem 扩展依赖 GoalStore.swift（import SwiftUI），
+# 本机无 SwiftUI 编不了 → 与第 68 段同口径（镜像口径 + 剥注释后的源级断言双保险）。
+# ⚠️ 不写 `run_unit6 … | tee`：管道会把 run_unit6 内部的 `exit 1` 吞进子壳（脚本照常往下走），
+# 且 `grep -q '0 失败'` 会被「10 失败 / 20 失败」子串误命中 → 两条假绿通道（审查抓到）。
+# 改为自己编自己跑：退出码 + 收紧的结论行判据，双闸门。
+rm -f /tmp/test_goal_loop
+if ! $SWIFT/swiftc -swift-version 6 -o /tmp/test_goal_loop scripts/ql_goal_loop/truth_table_goal_loop.swift > /tmp/tt_goal_loop.log 2>&1; then
+  echo "❌ 第 69 段真值表编译失败"; tail -5 /tmp/tt_goal_loop.log; fail=1
+elif /tmp/test_goal_loop >> /tmp/tt_goal_loop.log 2>&1; then
+  echo "  $(tail -1 /tmp/tt_goal_loop.log)"
+  grep -qE '/ 0 失败$' /tmp/tt_goal_loop.log || { echo "❌ 第 69 段结论行异常（须以「/ 0 失败」结尾）"; fail=1; }
+else
+  echo "❌ 第 69 段真值表判定失败（改坏必红）"; tail -6 /tmp/tt_goal_loop.log; fail=1
+fi
+
+echo "=== 70. 改口重答真值表（v4.0.44 待做池 3 · 只允许改最后一条 user / 旧回答折叠「已修改」/ 失败还原）==="
+# 用户 2026-10-04 卡片拍板：① 折叠态复用现有灰气泡（与「撤回」同款）② 只允许改最后一条 user 消息。
+# A 段**真编译真跑** qingliao/Core/MessageEditKit.swift（纯 Foundation，与实现同一份文件 →
+# 没有「表/实现漂移」的洞）：钉「哪条能改（最后一条 user，排除失败/撤回/推送/问题卡）」与
+# 「折叠哪几条（锚点之后的回答，问题卡与推送不折叠）」。
+# B 段用**剥注释**的源级断言钉接线与四条护栏：① 折叠只 flip 标记、不清正文（原文留给回退/导出/分享）
+# ② 失败还原不留白 ③ 折叠不进模型上下文 ④ AI 侧菜单没有「编辑」 ⑥ edited 不复用 withdrawn。
+# ⚠️ 不写 `run_unit6 … | tee`（与第 69 段同因：管道吞 exit 1，且 '0 失败' 会被「10 失败」误命中）。
+rm -f /tmp/test_editmsg
+if ! $SWIFT/swiftc -swift-version 6 -o /tmp/test_editmsg \
+     scripts/ql_editmsg/truth_table_editmsg.swift qingliao/Core/MessageEditKit.swift > /tmp/tt_editmsg.log 2>&1; then
+  echo "❌ 第 70 段真值表编译失败"; tail -5 /tmp/tt_editmsg.log; fail=1
+elif /tmp/test_editmsg >> /tmp/tt_editmsg.log 2>&1; then
+  echo "  $(tail -1 /tmp/tt_editmsg.log)"
+  grep -qE '/ 0 失败$' /tmp/tt_editmsg.log || { echo "❌ 第 70 段结论行异常（须以「/ 0 失败」结尾）"; fail=1; }
+else
+  echo "❌ 第 70 段真值表判定失败（改坏必红）"; tail -6 /tmp/tt_editmsg.log; fail=1
+fi
+
+echo "=== 71. 生活数据报表真值表（v4.0.45 待做池 4 · 逐日序列 / 只算元支出 / 就绪门槛 / 同源 / 入口）==="
+# 纯逻辑**真编译真跑** qingliao/Core/RecordKit.swift：钉 dailySeries（近 N 天升序、缺天补 0）、
+# daysWithExpense / trendReady / seriesPeak 的口径；A–E 段含零值/单点/窗口边界/收入与读数排除/同源对拍。
+# F 段用**剥注释**的源级断言钉接线与护栏：报表视图必须调 RecordKit 纯函数喂数（禁视图内二次聚合）、
+# 折线(addLine)与环图(addArc)都真在、配色复用 RecordCategoryColor、入口已接线。
+# ⚠️ 不写 `run_unit … | tee`（与 69/70 段同因：管道吞 exit 1，'0 失败' 会被「10 失败」误命中）。
+rm -f /tmp/test_qlreport
+if ! $SWIFT/swiftc -swift-version 6 -o /tmp/test_qlreport \
+     scripts/ql_report/truth_table_report.swift qingliao/Core/RecordKit.swift > /tmp/tt_report.log 2>&1; then
+  echo "❌ 第 71 段真值表编译失败"; tail -5 /tmp/tt_report.log; fail=1
+elif /tmp/test_qlreport >> /tmp/tt_report.log 2>&1; then
+  echo "  $(tail -1 /tmp/tt_report.log)"
+  grep -qE '/ 0 失败$' /tmp/tt_report.log || { echo "❌ 第 71 段结论行异常（须以「/ 0 失败」结尾）"; fail=1; }
+else
+  echo "❌ 第 71 段真值表判定失败（改坏必红）"; tail -6 /tmp/tt_report.log; fail=1
+fi
+
+# 入口/视图存在性（剥注释 → 只看代码形态，本仓「注释里写了就假绿」的老坑）
+[ -f qingliao/Features/Life/RecordReportSheet.swift ] \
+  || { echo "❌ 缺数据报表页（待做池④）"; fail=1; }
+strip_comments qingliao/Features/Life/RecordSection.swift | grep -q '\.sheet(isPresented: \$showReport) { RecordReportSheet() }' \
+  || { echo "❌ 报表入口未接线（待做池④）"; fail=1; }
+strip_comments qingliao/Features/Life/RecordSection.swift | grep -q 'accessibilityLabel("数据报表")' \
+  || { echo "❌ 报表入口缺可访问标签（待做池④）"; fail=1; }
+
+echo "=== 72. 习惯打卡真值表（v4.0.46 待做池 5 · 每天一次 + 不可补签 / 本地日归日 / 漏一天归零 / 曲线）==="
+# 口径（**用户 2026-10-04 在 App 选项卡拍板**，见台账待做池⑤）：每天一次 + **不可补签**，
+# 连续天数=连续自然日、漏一天归零；频次不做「每周 N 次」。
+# A–D 段**真编译真跑** qingliao/Core/HabitKit.swift（纯 Foundation，与实现同一份文件 →
+# 没有「表/实现漂移」的洞）：钉打卡幂等、本地日切分（23:59 vs 次日 00:01、跨时区不写死 UTC）、
+# 连续天数归零 / bestStreak 保留历史 / currentStreak 今天未打卡从昨天数（不谎报）、
+# 空习惯不崩、lastNDays 升序缺天补 false。
+# E 段用**剥注释**的源级断言钉接线与口径：① 不可补签——HabitKit/HabitStore 代码里不得出现补签路径
+# ② 视图不越权重算连续天数/不直接改 days（口径收在 HabitKit）③ 生活页几何单一来源
+# （MemoCardMetrics / LifeEmptyStateCard / LifeSectionHeader）④ Store 走 SyncedStore FIFO 写链 +  NAS 双写
+# ⑤ 生活页栏目已接线（LifeSection .habit / LifeView switch / App attach）。
+# ⚠️ 不写 `run_unit … | tee`（与 69/70/71 段同因：管道吞 exit 1，'0 失败' 会被「10 失败」误命中）。
+rm -f /tmp/test_habit
+if ! $SWIFT/swiftc -swift-version 6 -o /tmp/test_habit \
+     scripts/ql_habit/truth_table_habit.swift qingliao/Core/HabitKit.swift > /tmp/tt_habit.log 2>&1; then
+  echo "❌ 第 72 段真值表编译失败"; tail -5 /tmp/tt_habit.log; fail=1
+elif /tmp/test_habit >> /tmp/tt_habit.log 2>&1; then
+  echo "  $(tail -1 /tmp/tt_habit.log)"
+  grep -qE '/ 0 失败$' /tmp/tt_habit.log || { echo "❌ 第 72 段结论行异常（须以「/ 0 失败」结尾）"; fail=1; }
+else
+  echo "❌ 第 72 段真值表判定失败（改坏必红）"; tail -6 /tmp/tt_habit.log; fail=1
+fi
+
+# 入口/视图存在性（剥注释 → 只看代码形态，本仓「注释里写了就假绿」的老坑）
+[ -f qingliao/Features/Life/HabitSection.swift ] \
+  || { echo "❌ 缺习惯栏目视图（待做池⑤）"; fail=1; }
+[ -f qingliao/Core/HabitStore.swift ] \
+  || { echo "❌ 缺习惯 Store（待做池⑤）"; fail=1; }
+strip_comments qingliao/Features/Life/LifeSection.swift | grep -q 'case habit' \
+  || { echo "❌ LifeSection 未加 .habit（待做池⑤）"; fail=1; }
+strip_comments qingliao/Features/Life/LifeView.swift | grep -q 'case \.habit: HabitSection()' \
+  || { echo "❌ 生活页 switch 未接线 .habit → HabitSection()（待做池⑤）"; fail=1; }
+strip_comments qingliao/QingliaoApp.swift | grep -q 'HabitStore\.shared\.attach(auth: auth)' \
+  || { echo "❌ App 启动未 attach HabitStore（待做池⑤）"; fail=1; }
+
+echo "=== 73. 问题卡投递路由真值表（v4.0.46 · question 必须落会话可作答，不得被投递壳短路吞掉）==="
+# ⚠️ v4.0.46 提交漏挂（→ §42 护栏覆盖率守卫会红并 exit 1，把 §43 起的全部真值表/守卫**整段跳过**，
+#    本地预检等于半瘫）。本段补挂；表本身实测 43/0 绿。口径：question 卡不得走「归属=投递壳 → 静默 markDone」。
+run_unit /tmp/test_ask_card scripts/ql_ask_card/truth_table_ask_card.swift
+
+echo "=== 74. 长期目标卡片口径真值表（v4.0.46 · 首页卡只显当前进行中那一步）==="
+# 同上（v4.0.46 漏挂补挂）；实测 16/0 绿。口径：compact 卡不画已完成行/折叠计数，全量只在详情页。
+run_unit /tmp/test_goal_card scripts/ql_goal_card/truth_table_goal_card.swift
+
+echo "=== 75. SyncedStore 宽松 ISO8601 真值表（v4.0.46 · 时间戳口径统一）==="
+# 同上（v4.0.46 漏挂补挂）；实测 39/0 绿。口径：naive 无时区 / 带微秒 / Z 三种时间戳都要能解。
+run_unit /tmp/test_goal_ts scripts/ql_goal_ts/truth_table_synced_ts.swift
+
+echo "=== 76. 登录页使用指南文案真值表（v4.0.47 · 指南 = 真实部署流程：install.sh / 必填 token / 地址口径 / 一键更新）==="
+# 本表为什么存在：LoginGuideSheet 是全 App 唯一面向用户的教学文案，**此前零护栏** ——
+# v3.9.88 起一直教「编辑 docker-compose.yml 设密码」，而 QL_INBOX_TOKEN / QL_PUSH_TOKEN 是必填
+# （compose 默认空 → 后端 inbox/push 接口一律拒绝放行且**不报错**），文案与后端 README 漂移
+# 没有任何真值表拦得住。用户 2026-10-04 评审后拍板「全改」→ 顺手把这件事变成硬断言。
+# 纯文本级断言（无可跑逻辑）；真源 = 后端仓 README:41/121-123 + install.sh:35 + 本仓 AuthStore.swift:133。
+# 反向变异已验证：把旧口径改回去 → 7 处红 + exit 1（非假绿）。
+run_unit6 /tmp/test_qlguide scripts/ql_guide/truth_table_guide.swift
 
 [ $fail -eq 0 ] || { echo "❌ 有护栏失守"; exit 1; }
 exit 0

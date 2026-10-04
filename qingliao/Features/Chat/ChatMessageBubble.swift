@@ -103,6 +103,11 @@ struct MessageBubble: View {
     var isHighlighted: Bool = false   // v2.0.43 搜索定位高亮
     // v3.4.29：图片 zoom 转场命名空间（气泡小图 → 全屏大图生长）
     var zoomNS: Namespace.ID? = nil
+    /// v4.0.44 待做池 3：编辑已发消息（改口重答）——nil = 长按菜单里没有「编辑」。
+    /// ⚠️ 声明位置必须在**所有尾随闭包实参之前**：只有最后一条 user 消息才传非 nil，
+    ///    「条件为 nil」只能出现在括号实参里（SE-0286 尾随闭包后不能再插非闭包实参），
+    ///    所以 ChatView 把它传在 zoomNS 之后、trailing closures 之前。
+    var onEdit: (() -> Void)? = nil
     var onRegenerate: () -> Void = {}
     var onBigBang: (String) -> Void = { _ in }
     var onQuote: () -> Void = {}      // v2.0.36 引用回复
@@ -283,11 +288,38 @@ struct MessageBubble: View {
         // v3.9.110：问题卡（AI 中途追问）走独立渲染；其余消息逐字走原链（normalBubbleBody）。
         // 只加一个早退分支，不动原链里的任何修饰符 —— ChatView.body 与这里的链都已贴近
         // Swift 类型检查阈值，别顺手往两边挂东西。
-        if message.questionId != nil {
+        if message.edited {
+            // v4.0.44 待做池 3：被改口取代的旧回答 —— 折叠为「已修改」灰气泡
+            editedBubbleBody
+        } else if message.questionId != nil {
             questionCardBody
         } else {
             normalBubbleBody
         }
+    }
+
+    /// v4.0.44 待做池 3：折叠态气泡（用户拍板方案 1「复用现有灰气泡」）——
+    /// 观感与「撤回」同款（同灰底、同内边距、同限宽），只靠文案区分语义：
+    /// 撤回 = 内容不存在了；已修改 = 内容被基于新原文的新回答取代。
+    /// 独立成一条早退分支（不塞进 normalBubbleBody）的原因：折叠态**不该**再挂正文/候选/待办确认卡/
+    /// 朗读/送达行，逐个加 `!edited` 条件既啰嗦又容易漏（漏一个就把已被取代的旧内容漏出来）。
+    @ViewBuilder
+    private var editedBubbleBody: some View {
+        HStack(alignment: .top, spacing: 8) {
+            bubbleLeadingAccessory
+            Text(MessageEditKit.editedLabel)
+                .font(.system(size: CGFloat(fontSize)))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 13)
+                .padding(.vertical, 9)
+                .frame(maxWidth: AdaptiveLayout.bubbleMaxWidth(hSize), alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: Radius.field, style: .continuous)
+                        .fill(aiBubbleColor)   // v2.0.92：与撤回统一灰
+                )
+            bubbleTrailingAccessory
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     /// v3.9.110：问题卡本体 —— AI 头像 / 右侧留白 / 限宽全部复用与普通回复**同一套附件**
@@ -500,6 +532,7 @@ struct MessageBubble: View {
                 onDelete: onDelete,
                 onRegenerate: nil,
                 onWithdraw: canWithdraw ? onWithdraw : nil,
+                onEdit: onEdit,   // v4.0.44 待做池 3：编辑已发消息（声明序紧贴 onWithdraw）
                 onMultiSelect: onMultiSelect,
                 onMemo: onMemo,
                 onGoal: onGoal

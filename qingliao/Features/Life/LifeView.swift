@@ -58,6 +58,7 @@ struct LifeView: View {
                         switch section {
                         case .memo: MemoSection()
                         case .todo: TodoSection()
+                        case .habit: HabitSection()   // v4.0.46：习惯打卡
                         case .goals: GoalsSection()   // v4.0.7：长期目标
                         case .record: RecordSection()
                         case .automations: AutomationsSection(isActive: isActive)

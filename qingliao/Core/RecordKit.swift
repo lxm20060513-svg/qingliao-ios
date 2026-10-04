@@ -382,6 +382,70 @@ enum RecordKit {
                                projected: avg * Double(daysInMonth))
     }
 
+    // MARK: - v4.0.45 待做池④：生活数据可视化报表（纯逻辑；图表只摆位，数字全走这里）
+    //
+    // 「同源」是这一节的核心护栏：报表折线/环图的每个数字都必须来自这里，
+    // 与账本列表（monthTotal / categoryTotals / dayGroups）用的是**同一套只算「元」的支出口径**。
+    // 视图里一行业务聚合都不许再写 —— 否则图和列表会对不上，而且是那种"看着都合理"的错。
+
+    /// 报表就绪门槛：窗口内**有支出的不同日期数** ≥ 这个值才画趋势图。
+    /// 为什么是 7：一两天的数据连不成「趋势」，画出来只是几根孤立竖线，反而像报表坏了。
+    /// 宁可先给引导（还差几天），也别给一条假趋势。
+    static let reportMinDays = 7
+
+    /// 折线上的一天（升序 = 图表从左到右）
+    struct DayPoint: Identifiable, Equatable, Sendable {
+        let key: String    // "2026-09-26"
+        let label: String  // "9/26"
+        let expense: Double
+        var id: String { key }
+    }
+
+    /// "2026-09-26" → "9/26"（图表 X 轴标签带年份太长会挤在一起）
+    static func shortDayLabel(_ day: String) -> String {
+        let p = day.components(separatedBy: "-")
+        guard p.count == 3, let m = Int(p[1]), let d = Int(p[2]) else { return day }
+        return String(m) + "/" + String(d)
+    }
+
+    /// 近 days 个自然日（含今天）的**逐日支出**，升序、缺数据的日子补 0（折线要连续）。
+    /// 口径与 dayGroups / monthTotal **完全同源**：只算 `unit == "元"` 且 `kind != income`，按 createdAt 归日。
+    static func dailySeries(_ items: [RecordItem], days: Int = 14, now: Date = Date(),
+                            calendar: Calendar = .current) -> [DayPoint] {
+        let n = max(1, days)
+        let start = calendar.startOfDay(for: now)
+        var sum: [String: Double] = [:]
+        for r in items where r.unit == "元" && r.kind != incomeKind {
+            guard let a = r.amount else { continue }
+            // 未来时间的脏数据不进窗口（时钟偏移/手工改过日期）
+            guard calendar.startOfDay(for: r.createdAt) <= start else { continue }
+            sum[dayKey(r.createdAt, calendar: calendar), default: 0] += a
+        }
+        var out: [DayPoint] = []
+        out.reserveCapacity(n)
+        for back in stride(from: n - 1, through: 0, by: -1) {
+            guard let d = calendar.date(byAdding: .day, value: -back, to: start) else { continue }
+            let k = dayKey(d, calendar: calendar)
+            out.append(DayPoint(key: k, label: shortDayLabel(k), expense: sum[k] ?? 0))
+        }
+        return out
+    }
+
+    /// 窗口内有支出的**不同日期数**（趋势就绪判据与「还差几天」引导文案共用）
+    static func daysWithExpense(_ series: [DayPoint]) -> Int {
+        series.reduce(0) { $0 + ($1.expense > 0 ? 1 : 0) }
+    }
+
+    /// 趋势图是否够数据画（不足 → 出引导卡而非空图）
+    static func trendReady(_ series: [DayPoint], minDays: Int = reportMinDays) -> Bool {
+        daysWithExpense(series) >= minDays
+    }
+
+    /// 折线峰值（画图归一用）。全 0 时返回 0 —— 调用方据此走引导，**不许拿它做除数**。
+    static func seriesPeak(_ series: [DayPoint]) -> Double {
+        series.map { max($0.expense, 0) }.max() ?? 0
+    }
+
     // MARK: - v4.0.19 候选池⑦：月预算与超支水位（纯逻辑，真值表逐条钉）
 
     /// 预算水位。budget ≤ 0 = 没设预算（**不是**"花了就超"）。

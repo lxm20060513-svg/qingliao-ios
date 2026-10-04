@@ -201,9 +201,24 @@ struct DockTabView: View {
                                     slotCount: dockSlotCount,
                                     // v3.9.59：轻点复用「点系统 tab item」的语义——已在聊天页时 selected 不变、
                                     // onChange 不触发，触感与清提示会整体丢失（原先这层是系统 tab item 的按压反馈）。
+                                    // v4.0.47（用户 2026-10-04）：轻点 = **回到聊天首页** —— 除切到聊天页，
+                                    // 还要新建一个空白会话（显示聊天首页/欢迎页）。原口径只切页、留着上一个
+                                    // 会话，用户要的是「回首页」。新建走 `chat.requestNewSession()`（两步走清屏，
+                                    // 与长按菜单 case 0 同一条路），**不直接清数据**。
+                                    // 已在聊天首页（空会话）时不再新建：本来就没会话可退，反而会把欢迎页的
+                                    // 随机一言重抽一次、清屏动画白闪一下。
                                     onTap: {
-                                        if selected == .chat { Haptics.tap(); clearOrbNotice() }
-                                        else { selected = .chat }
+                                        // 触感分工：切页那一支的 Haptics.tap() 由 onChange(of: selected)
+                                        // 统一给（同现状），别在这里再响一次
+                                        if selected == .chat {
+                                            Haptics.tap()
+                                            clearOrbNotice()
+                                            if !chat.messages.isEmpty { chat.requestNewSession() }
+                                        } else {
+                                            // 先让聊天页进视图树，再要新会话（与长按菜单 case 0 同序）
+                                            selected = .chat
+                                            if !chat.messages.isEmpty { chat.requestNewSession() }
+                                        }
                                     },
                                     onLongPress: {
                                         Haptics.press()

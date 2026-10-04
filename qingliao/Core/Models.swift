@@ -34,13 +34,20 @@ enum UserDefaultsKey {
 
 struct ChatMessage: Identifiable, Equatable, Sendable {
     let role: String        // user / assistant / system
-    let content: String     // 纯文本形态（数组 content 取 text 部分）
+    /// v4.0.44 待做池 3：改口（编辑已发消息）要就地换掉原文 → 从 let 改 var。
+    /// 注意 id 含 content 哈希，改文案**会换 id**：改完必须重取 id（调用方见 ChatView.editMessage）。
+    var content: String     // 纯文本形态（数组 content 取 text 部分）
     let timestamp: TimeInterval?   // 毫秒
     var imageDataURL: String?      // data:image/jpeg;base64,...（本地发送的图片）
     var failed: Bool = false       // v2.0.59：发送失败标记（显示重试按钮）
     var audioPath: String?         // v2.0.61：本地语音消息文件路径（m4a）
     var queued: Bool = false       // v2.0.88：AI 回答中发送，排队等待自动处理
     var withdrawn: Bool = false    // v2.0.92：已撤回（显示"[已撤回]"占位）
+    /// v4.0.44 待做池 3：被「改口」取代的旧回答 —— 折叠态（灰气泡「已修改」）。
+    /// 与 withdrawn 的区别（护栏⑥：两者不许复用同一字段）：撤回=内容不再存在（落库清正文），
+    /// 折叠=内容**没变**、只是被基于新原文的新回答取代（原文保留，失败可原样回退）；
+    /// 共同点=都不进模型上下文、都不算消息身份（不进 id 计算，flip 一下不会换 id）。
+    var edited: Bool = false
     var agent: Bool = false        // v2.0.96b：Agent 回复标记（工具调用回复，显示标签）
     var voiceCommand: Bool = false   // v3.0.19：语音指令触发（长按智能球，显示 🎤 标记）
     var isPush: Bool = false         // v3.0.82：Hermes 主动推送消息（本地收件箱注入，显示"推送"标签）
@@ -160,6 +167,8 @@ struct ChatMessage: Identifiable, Equatable, Sendable {
         msg.quotedText = d["quotedText"] as? String
         // SR6：读回撤回标记（原来只写内存 → 重启后撤回失效，原文照旧显示并进上下文）
         msg.withdrawn = d["withdrawn"] as? Bool ?? false
+        // v4.0.44：读回折叠标记（重启/切会话后旧回答仍是「已修改」灰气泡，不再原样复现）
+        msg.edited = d["edited"] as? Bool ?? false
         // v3.4.x code review fix：读回持久化的 uid（保持跨重启 id 稳定）；无则置 nil 走确定性旧格式
         msg.uid = d["uid"] as? String
         // v3.9.110：读回问题卡三字段（重启/切会话后仍渲染成可作答卡、仍显示已答内容）

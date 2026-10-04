@@ -74,7 +74,7 @@ final class ChatStore {
         return collapsed
     }
 
-    private func isAssistantDuplicate(_ text: String, in region: ArraySlice<ChatMessage>) -> Bool {
+    private func isAssistantDuplicate(_ text: String, in region: some Collection<ChatMessage>) -> Bool {
         let key = ChatStore.assistantKey(text)
         guard !key.isEmpty else { return false }
         let window = region.suffix(8)
@@ -563,8 +563,12 @@ final class ChatStore {
         // 8 条，隔了新消息就漏。旧回答一旦重复进历史，模型每轮都能看到 → 持续复读。
         // v3.4.25：加长度门槛——短回复（≤30字）不同上下文可合法同文（"好的"/"1"），全历史
         // 查重会误吞；只对长回复做全历史拦截，短回复仍走锚点区域去重兜底。
+        // v4.0.44 待做池 3：被折叠的旧回答（edited）是**历史陈列物**，不算「已存在的一条回答」——
+        // 改口重答时它就在历史里，若参与查重，「改了错别字 → 模型给出同款回答」会被整条吞掉
+        // （用户只看到「已修改」灰气泡、没有任何新回答）。四处查重一律跳过它（edited 默认 false，
+        // 对存量数据零影响）。
         if text.count > 30,
-           messages.contains(where: { $0.role == "assistant" && $0.content == text }) {
+           messages.contains(where: { $0.role == "assistant" && !$0.edited && $0.content == text }) {
             return
         }
         if let anchorID = afterUserID,
@@ -576,12 +580,13 @@ final class ChatStore {
             // 同轮竞态双落库（正常完成 + 恢复完成/重放）→ 区域内最后一条内容相同则跳过
             if regionEnd - 1 > anchorIdx,
                messages[regionEnd - 1].role == "assistant",
+               !messages[regionEnd - 1].edited,          // v4.0.44：折叠态不参与（见函数头注释）
                messages[regionEnd - 1].content == text {
                 messages[regionEnd - 1].agent = agent || messages[regionEnd - 1].agent
                 return
             }
-            // 归一化相似度兜底：改写型重复也跳过
-            if isAssistantDuplicate(text, in: region) {
+            // 归一化相似度兜底：改写型重复也跳过（同样跳过折叠态）
+            if isAssistantDuplicate(text, in: region.filter { !$0.edited }) {
                 if let last = region.last, last.role == "assistant" {
                     messages[regionEnd - 1].agent = agent || messages[regionEnd - 1].agent
                 }
@@ -600,9 +605,10 @@ final class ChatStore {
             return
         }
         // —— 无锚点：原末尾语义（兼容无发起消息的调用方）——
-        let tail = messages.suffix(8)
+        // v4.0.44：尾窗统计同样剔除折叠态（口径与上面两处一致）
+        let tail = messages.filter { !$0.edited }.suffix(8)
         // 检查最近 N 条中是否有连续相同内容的 assistant（含当前最后一条）
-        if let idx = messages.indices.last, idx > 0,
+        if let idx = messages.indices.last, idx > 0, !messages[idx].edited,
            messages[idx].role == "assistant", messages[idx].content == text {
             // 检查前面是否有相同内容的 assistant（最近 5 条内任一相同即可去重）
             let hasDuplicateInTail = tail.dropLast().contains { $0.role == "assistant" && $0.content == text }
@@ -701,8 +707,11 @@ final class ChatStore {
         }()
         let breakRepeatSeed = !CloudConfig.isStrongModel(provider: curProvider, model: curModel)
         // SR6：撤回的消息同样不得进模型上下文（原来只滤推送与错误占位，撤回正文照发给 AI）
-        let ctxMessages = Self.sanitizeForContext(messages.filter { !$0.isPush && !$0.isErrorPlaceholder && !$0.withdrawn },
-                                                  breakRepeatSeed: breakRepeatSeed)
+        // v4.0.44 待做池 3：被折叠的旧回答（edited）同理——它的原文已被新原文取代，
+        // 再喂给模型 = 模型看到「问 A / 答 A / 问 A'」的双份上下文（复读源）。
+        let ctxMessages = Self.sanitizeForContext(messages.filter {
+            !$0.isPush && !$0.isErrorPlaceholder && !$0.withdrawn && !$0.edited
+        }, breakRepeatSeed: breakRepeatSeed)
         // v3.4.x code review fix：落实注释原语义——只保留"最后一条带图消息"的 imageDataURL
         //（前面已发过的图片不进 payload，防 base64 全量重复膨胀）；其余带图消息降级为 [图片] 占位文本
         let lastImageIdx = ctxMessages.lastIndex { $0.imageDataURL != nil }
@@ -885,6 +894,10 @@ final class ChatStore {
                 p["content"] = ""
                 p["imageDataURL"] = nil
             }
+            // v4.0.44 待做池 3：折叠标记落库（重启/切会话后仍是「已修改」灰气泡）。
+            // 与撤回**刻意不同**：正文照常写回——折叠态要保留原文（回退/导出/分享都要它，
+            // 且它已被 historyPayload 挡在模型上下文之外，留着不污染）。
+            if m.edited { p["edited"] = true }
             if m.isPush { p["isPush"] = true }
             // v4.0.20：推送来源一起落库——否则重启/切会话后角标退化成「你问的」（来源丢失）
             if let k = m.pushKind, !k.isEmpty { p["pushKind"] = k }
@@ -942,6 +955,71 @@ final class ChatStore {
               let raw = j["sessions"] as? [Any] else { return nil }
         let sessions = raw.compactMap { ChatSession.parse($0 as? [String: Any] ?? [:]) }
         return sessions.first(where: { $0.id == sid })
+    }
+
+    // MARK: - v4.0.44 待做池 3：改口重答（编辑已发消息 → 旧回答折叠「已修改」+ 基于新原文重答）
+    //
+    // 链路：长按自己的最后一条消息 →「编辑」→ 面板改原文 → 本文两个方法 + ChatView.editMessage：
+    //   ① updateUserText     就地换原文（id 会变，调用方重取）
+    //   ② foldRepliesAfterUser  把该轮旧回答折叠成「已修改」灰气泡（原文保留）
+    //   ③ 重答失败 → unfoldReplies 原样还原（宁可回到旧回答，也不留白）
+    // 判定口径全部收口在 MessageEditKit（纯逻辑层），UI 与 Store 不各写一份。
+
+    /// 消息列表 → 纯逻辑层判定输入（唯一 Row 构造点）
+    var editRows: [MessageEditKit.Row] { messages.map(Self.editRow) }
+
+    /// 单条消息 → 纯逻辑层输入
+    private static func editRow(_ m: ChatMessage) -> MessageEditKit.Row {
+        MessageEditKit.Row(role: m.role, withdrawn: m.withdrawn, failed: m.failed,
+                           isPush: m.isPush, isQuestion: m.questionId != nil,
+                           edited: m.edited, queued: m.queued)
+    }
+
+    /// 本轮可改的那条 user 消息 id（nil = 无可改）——UI 用它决定长按菜单里有没有「编辑」
+    ///
+    /// v4.0.47：判定口径仍归 MessageEditKit，但**不再每次 map 全表**——本属性被每个气泡各问一次，
+    /// 长会话 + 流式重绘会变成 O(n²)（每帧几百次全表映射）。改为从「最后一条 user」起切片喂进去：
+    /// MessageEditKit 只会挑最后一条 user，切片起点就是它 → 结论等价（期待下标 0），单次成本降到 O(尾巴)。
+    /// ⚠️ 别在这里重写判定条件（那就成了第二份真源）；返回的仍是全表里那条消息的 id。
+    var editableUserMessageID: String? {
+        guard let i = messages.lastIndex(where: { $0.role == "user" }) else { return nil }
+        guard MessageEditKit.editableIndex(messages[i...].map(Self.editRow)) == 0 else { return nil }
+        return messages[i].id
+    }
+
+    /// 改口：就地换掉用户原文。返回 true = 真的改了（内容确有变化）。
+    /// ⚠️ content 参与 id 计算 → **改完 id 就变了**，调用方必须重新取 id 再当锚点用。
+    @discardableResult
+    func updateUserText(id: String, newText: String) -> Bool {
+        guard let i = messages.firstIndex(where: { $0.isUser && $0.id == id }),
+              messages[i].content != newText else { return false }
+        messages[i].content = newText
+        return true
+    }
+
+    /// 把锚点 user 消息之后的旧回答折叠成「已修改」（正文保留、但不再进模型上下文）。
+    /// 返回被折叠消息的快照——重答失败时交给 unfoldReplies 原样还原。
+    @discardableResult
+    func foldRepliesAfterUser(_ anchorID: String) -> [ChatMessage] {
+        guard let a = messages.lastIndex(where: { $0.isUser && $0.id == anchorID }) else { return [] }
+        var snap: [ChatMessage] = []
+        for i in MessageEditKit.foldTargets(editRows, afterUserIndex: a) {
+            snap.append(messages[i])          // 先存快照（存的是折叠前的原样）
+            messages[i].edited = true
+            // 旧候选区随旧回答一起收走：候选是「接着旧原文问」的引导，留着点下去是旧问题的延伸
+            messages[i].suggestions = nil
+        }
+        return snap
+    }
+
+    /// 重答失败回退：把折叠的旧回答原样还原（含候选区）。
+    /// 按 id 定位——折叠只 flip 标记、**不动 content**，所以 id 与折叠前完全一致
+    /// （这是「不清正文」换来的好处：回退不需要额外的稳定键）。
+    func unfoldReplies(_ snapshots: [ChatMessage]) {
+        for s in snapshots {
+            guard let i = messages.firstIndex(where: { $0.id == s.id }) else { continue }
+            messages[i] = s
+        }
     }
 
     // MARK: - v3.9.90 会话自动命名（用户拍板 3a：首条消息后起一次名；手动改过名字的不再自动改）
