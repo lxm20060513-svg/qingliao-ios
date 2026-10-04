@@ -175,7 +175,8 @@ struct ImageAnnotateSheet: View {
             for s in strokes {
                 let pts = s.points.map { ImageAnnotation.denormalize($0, inRect: rect) }
                 guard let first = pts.first else { continue }
-                let ink = color(at: s.colorIndex)
+                // UIKit 绘制通道：setFill/setStroke 是 UIColor 的方法（color(at:) 返回 SwiftUI Color）→ 显式桥接
+                let ink = UIColor(color(at: s.colorIndex))
                 let lw = max(1, s.widthRatio * w)
                 if pts.count == 1 {
                     // 单点 = 圆点
