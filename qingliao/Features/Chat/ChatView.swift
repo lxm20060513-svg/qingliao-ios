@@ -3670,15 +3670,24 @@ struct ChatView: View {
     /// 失败态（failed）不落库：`writeSessionSnapshot` 本就不持久化 failed，重进会话时也会从服务器
     /// 重取，标了也只是切回去那一瞬可见，反而误导「重试按钮在别处能用」。
     /// SR12：改 internal —— ChatViewExport.swift 的 regenerate/sendFile 同族路径也要用（extension 跨文件够不到 private）。
+    /// 🚨 v4.0.57（同族收口）：落库改走链内 `appendMessageToOwnedSession` —— **不再拿发起时快照整会话覆盖**。
+    /// 旧写法（`snapshot + 回复` 整份写）在「切走 → 这条回复落地」的间隙里，会把期间落进该会话的
+    /// 其他写者内容（收件箱推送 / 其他端）一起抹掉。`snapshot` 参数降级为**回落兜底**：
+    /// 只有链内发现「服务端查不到该会话」时才用它（口径同 v4.0.21 注释：宁可回落，绝不丢消息）。
     func landAwayReply(_ text: String, agent: Bool, snapshot: [ChatMessage],
                        sid: String, title: String) {
-        var msgs = snapshot
         var m = ChatMessage(role: "assistant", content: text,
                             timestamp: Date().timeIntervalSince1970 * 1000)
         m.agent = agent
-        msgs.append(m)
         chat.noteAwayLandedReply(sessionId: sid, text: text)
-        Task { await chat.saveToServer(auth: auth, sessionId: sid, messages: msgs, title: title) }
+        Task {
+            let outcome = await chat.appendMessageToOwnedSession(m, sessionId: sid, auth: auth)
+            if case .targetMissing = outcome, !snapshot.isEmpty {
+                var msgs = snapshot
+                msgs.append(m)
+                await chat.saveToServer(auth: auth, sessionId: sid, messages: msgs, title: title)
+            }
+        }
     }
 
     // MARK: - v3.5.1 AI 正在输入 状态（header 小字）

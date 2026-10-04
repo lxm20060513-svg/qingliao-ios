@@ -1208,5 +1208,14 @@ echo "=== 82. AI 回复双投真值表（v4.0.56 · 链内复检 / 注入查重 
 #      ⑥ 反向自证（删掉链内复检 / 改回裸 append → 必红）。
 run_unit6 /tmp/test_pushdedup scripts/ql_pushdedup/truth_table_pushdedup.swift
 
+echo "=== 83. 迟到回复落库同族收口真值表（v4.0.57 · 链内重读 / 回落兜底 / 覆盖语义反向自证）==="
+# 同族第二条（2026-10-05 只读审查指出）：BackgroundStreamRunner.finish 与 ChatView.landAwayReply
+# 都拿「发起时快照 + 回复」整份写服务端会话，而后端 merge 对同 id 是整会话覆盖 →
+# 流跑着期间落进该会话的其他写者内容（收件箱推送 / 其他端）会被旧数组抹掉（丢消息，比多一条更糟）。
+# 覆盖：① 两处都走链内 appendMessageToOwnedSession（链内重读 + 查重）② 旧快照降级为 .targetMissing 回落兜底
+#      ③ 兜底仍带「空快照不覆盖」守卫（2026-09-30 真数据破坏那条）④ 覆盖语义镜像（旧写法丢消息 / 新写法保住）
+#      ⑤ 反向自证（任一处退回整份写 / 兜底丢守卫 → 必红）。
+run_unit6 /tmp/test_snapshotwrite scripts/ql_snapshotwrite/truth_table_snapshotwrite.swift
+
 [ $fail -eq 0 ] || { echo "❌ 有护栏失守"; exit 1; }
 exit 0

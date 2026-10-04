@@ -166,19 +166,25 @@ final class BackgroundStreamRunner {
         }
         if body.isEmpty { body = "⚠️ 本轮空回复" }
 
-        // 落库基底：发起时快照。若期间服务器侧会话已有新消息（其他端/收件箱写入），
-        // 以发起快照为准追加——快照缺迟到的其他端消息属于既有 landAwayReply 同族边界，不放大。
-        var msgs = entry.snapshot
+        // 🚨 v4.0.57（同族收口，2026-10-05 只读审查指出）：落库**不再用「发起时快照」整会话覆盖**。
+        // 后端 merge 对同 id 会话是**整会话覆盖**，而这个会话在流跑着的时候还有别的写者
+        // （收件箱推送注入 / 其他端同步）——快照里缺的那些消息会被旧数组直接抹掉（丢消息，
+        // 与 v4.0.56 双投事故同一「先读快照 → 后写」家族）。改走 ChatStore 的 FIFO 链内
+        // `appendMessageToOwnedSession`：**链内重读服务端最新快照** → 同内容查重 → 追加 → 写。
         var m2 = ChatMessage.local(role: "assistant", content: body)
         m2.agent = agent
-        msgs.append(m2)
         // ⚠️ 2026-09-30（发布前审查拦下，真数据破坏）：快照为空 = 拿不到被移交会话的历史
         // （流在 A 跑、用户切到 B 后在 B 点「+新建会话」→ ChatView 侧 startMsgs 为 []）。
-        // 此时若照旧 saveToServer，等于用「仅 1 条 assistant」整会话覆盖（后端 merge 是整覆盖，
-        // 而 writeSessionSnapshot 的护栏只拦空数组）→ 被移交会话的历史全被抹掉。
+        // 此时若照旧落库等于用「仅 1 条 assistant」整会话覆盖 → 被移交会话的历史全被抹掉。
         // 空快照一律不覆盖服务端会话：只记「迟到回复」，进该会话时补回（同既有 landAwayReply 口径）。
         if !entry.snapshot.isEmpty {
-            await chat.saveToServer(auth: auth, sessionId: sid, messages: msgs, title: entry.title)
+            let outcome = await chat.appendMessageToOwnedSession(m2, sessionId: sid, auth: auth)
+            if case .targetMissing = outcome {
+                // 服务端查不到该会话（被删/未同步）→ 回落旧行为，绝不丢这条回复
+                var msgs = entry.snapshot
+                msgs.append(m2)
+                await chat.saveToServer(auth: auth, sessionId: sid, messages: msgs, title: entry.title)
+            }
         }
         chat.noteAwayLandedReply(sessionId: sid, text: body)   // 列表旧快照 load 进内存时补回
 
