@@ -205,8 +205,32 @@ struct PetAvatar: View {
     @State private var celebrateFaceActive: PetFace? = nil
     /// 出错张望：alert 出现时播一次「张望」动作（body 里 onChange 驱动）
     @State private var lastAlertSeen = false
+    /// v4.0.39：TTS 朗读时的嘴型驱动（**独立发布箱**，见 PetSpeechShape 头注释 ——
+    /// 挂 SpeechManager 会把整片聊天列表按 12.5Hz 连坐重绘）。
+    /// nil = 没在念 → 各形态画自己的常态嘴。
+    /// ⚠️ 刻意**不加 private**：加了会让本 struct 的 memberwise init 变私有，7 个跨文件调用点全红
+    /// （与上方 quirkPreview 同一条纪律）。它有默认值 → 既有调用点零改动。
+    /// ⚠️ 有意的取舍：另 6 个调用点（宠物工坊预览、快捷菜单悬浮球、设置页等）也会跟着按
+    ///   音节边界重绘 Canvas。同一刻本来就只有一只宠物在屏上、且只在朗读时重绘，
+    ///   开销可接受；换来的是「哪里显示宠物哪里会开口」的一致口径（反之要逐点开参数更易漏）。
+    @ObservedObject var speechDrive = PetSpeechDrive.shared
 
     private var simplify: Bool { keepDetail ? false : size < PetKeys.simplifyBelow }
+
+    /// v4.0.39：当前嘴型开合度。
+    /// ⚠️ 只在**真的在朗读**时给值，其余一律 nil：
+    ///   · nil → PetPainter 画各形态的常态嘴（嘴型不接管）
+    ///   · 0   → 画闭嘴线（正在停顿/标点/刚开始念）—— 也要给值，否则停顿时嘴会僵在张开态
+    ///   · >0  → 椭圆口型按开合度张合
+    /// 🚨 v4.0.40 修审查：**权威判据只用 speakingID，不能用 `isSpeaking || speakingID`**。
+    ///   isSpeaking 是发布箱的 @Published，只负责触发重画；它是「本驱动认为在念」，
+    ///   漏 clear 时它**仍为 true** → 与它取或等于照样按陈旧 amount 画嘴 = 永久张嘴，
+    ///   恰是注释声称要防的那件事。speakingID 是 SpeechManager 的权威状态，
+    ///   任何收尾路径（含 didCancel）都会清，漏了也立刻不再接管 → 嘴回常态。
+    private var mouthOpen: Double? {
+        guard SpeechManager.shared.speakingID != nil else { return nil }
+        return PetSpeechShape.clamp01(speechDrive.amount)
+    }
 
     var body: some View {
         let drawSize = size
@@ -217,7 +241,8 @@ struct PetAvatar: View {
                        blink: blink && animate,
                        simplify: simplify,
                        handPose: currentHandPose,
-                       thinkingFace: state == .thinking ? (thinkingFaceOverride ?? face) : nil)
+                       thinkingFace: state == .thinking ? (thinkingFaceOverride ?? face) : nil,
+                       mouthOpen: mouthOpen)
                 .draw(&context, size: canvasSize)
         }
         .frame(width: drawSize, height: drawSize)

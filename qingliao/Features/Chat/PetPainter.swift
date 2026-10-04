@@ -99,6 +99,35 @@ struct PetPainter {
     /// v4.0.31：思考态专属表情（方案 A「思考=困倦脸」）。nil = 各形态默认 thinking 脸；
     /// 只有 thinking 态消费它，idle/alert/patting 不读 —— 常态表情不混进别的状态。
     var thinkingFace: PetFace? = nil
+    /// v4.0.39：**朗读时的开合度** 0…1（页头宠物跟着 TTS 开口说话）。
+    /// 纯值语义：只被 `mouthOpen` 消费，与手部姿势/表情各走各的，互不污染。
+    /// nil = 没在念 → 各形态画自己的常态嘴；非 nil → 常态嘴换成按开合度张开的口型。
+    var mouthOpen: Double? = nil
+
+    /// v4.0.39：把形态原本的嘴**按开合度**画出来（三形态共用一套，保证嘴型节奏一致）。
+    /// - 未在念（nil）→ 调用方照旧画自己的嘴，本函数返回 false。
+    /// - 在念 → 画椭圆口型（ry 随开合度），返回 true（调用方跳过原嘴）。
+    /// - `flatWhenClosed`：该形态常态**本来没有嘴**时传 false（目前只有小兽 calm），
+    ///   极小开合就干脆不画 —— 否则「静→有嘴→静」在停顿时凭空多出一条嘴线，观感跳变。
+    @discardableResult
+    private func drawMouthIfSpeaking(_ ctx: inout GraphicsContext, _ s: CGFloat,
+                                    y: CGFloat, ink: Color, maxHalf: CGFloat,
+                                    maxRy: CGFloat, flatWhenClosed: Bool = true) -> Bool {
+        guard let open = mouthOpen else { return false }
+        // v4.0.40：这里**必须保持零跨文件依赖** —— 本文件同时被挂件 target 共编
+        //   （project.yml QingliaoWidget sources 里没有 PetSpeechShape.swift，
+        //   引用它会 cannot find in scope、Archive 必挂）。clamp 就地内联。
+        let o = min(max(open, 0), 1)
+        // 极小开合（音节起始/收音）画一条细线 = 闭嘴，避免出现「一闪而过的小点」
+        if o < 0.12 {
+            if flatWhenClosed { flatMouth(&ctx, s, y, maxHalf * 0.55, ink, 0.45) }
+            return true
+        }
+        let rx = maxHalf * (0.62 + 0.38 * o)
+        let ry = maxRy * (0.30 + 0.70 * o)
+        ctx.fill(Path(ellipseIn: r(0.5, y, rx, ry, s)), with: .color(ink.opacity(0.85)))
+        return true
+    }
 
     // 调色板（与效果稿同一套）
     private enum Pal {
@@ -452,35 +481,54 @@ struct PetPainter {
             switch face {
             case .calm:
                 dotEyes(&ctx, s, 0.40, 0.60, 0.46, 0.050, 0.064, Pal.liquidInk, closed: blink)
-                smile(&ctx, s, 0.58, 0.03, 0.035, Pal.liquidInk, 0.72, 0.015)
+                // v4.0.39：在念 → 嘴型接管；不在念 → 常态 smile
+                if !drawMouthIfSpeaking(&ctx, s, y: 0.580, ink: Pal.liquidInk, maxHalf: 0.040, maxRy: 0.034) {
+                    smile(&ctx, s, 0.58, 0.03, 0.035, Pal.liquidInk, 0.72, 0.015)
+                }
             case .happy:
                 happyEyes(&ctx, s, 0.40, 0.60, 0.47, 0.050, Pal.liquidInk)
-                bigSmile(&ctx, s, 0.58, 0.035, 0.045, Pal.liquidInk)
+                if !drawMouthIfSpeaking(&ctx, s, y: 0.580, ink: Pal.liquidInk, maxHalf: 0.046, maxRy: 0.038) {
+                    bigSmile(&ctx, s, 0.58, 0.035, 0.045, Pal.liquidInk)
+                }
             case .sleepy:
                 halfLiddedEyes(&ctx, s, 0.40, 0.60, 0.46, 0.050, 0.064, Pal.liquidInk)
-                smallOpenMouth(&ctx, s, 0.585, 0.028, 0.020, Pal.liquidInk)
+                if !drawMouthIfSpeaking(&ctx, s, y: 0.585, ink: Pal.liquidInk, maxHalf: 0.034, maxRy: 0.028) {
+                    smallOpenMouth(&ctx, s, 0.585, 0.028, 0.020, Pal.liquidInk)
+                }
             case .playful:
                 winkEyes(&ctx, s, 0.40, 0.60, 0.46, 0.050, Pal.liquidInk)
-                smirkMouth(&ctx, s, 0.58, 0.035, Pal.liquidInk)
+                if !drawMouthIfSpeaking(&ctx, s, y: 0.580, ink: Pal.liquidInk, maxHalf: 0.042, maxRy: 0.034) {
+                    smirkMouth(&ctx, s, 0.58, 0.035, Pal.liquidInk)
+                }
             }
             blushPair(&ctx, s, 0.30, 0.70, 0.55, 0.040, 0.024)
         case .patting:
             dotEyes(&ctx, s, 0.40, 0.60, 0.49, 0.050, 0.060, Pal.liquidInk, closed: true)
-            ctx.fill(Path(ellipseIn: r(0.50, 0.57, 0.035, 0.026, s)),
-                     with: .color(Pal.blush.opacity(0.9)))
+            // v4.0.39：patting 也要能被嘴型接管（摸宠物时正好在朗读的场景很常见）
+            if !drawMouthIfSpeaking(&ctx, s, y: 0.570, ink: Pal.liquidInk, maxHalf: 0.035, maxRy: 0.026) {
+                ctx.fill(Path(ellipseIn: r(0.50, 0.57, 0.035, 0.026, s)),
+                         with: .color(Pal.blush.opacity(0.9)))
+            }
             blushPair(&ctx, s, 0.30, 0.70, 0.56, 0.044, 0.026)
         case .thinking:
             // v4.0.31：thinkingFace 指定表情（方案 A 困倦脸=半闭眼+小张嘴）就走它，nil 走默认平嘴
             if thinkingFace == .sleepy {
                 halfLiddedEyes(&ctx, s, 0.40, 0.60, 0.46, 0.050, 0.064, Pal.liquidInk)
-                smallOpenMouth(&ctx, s, 0.585, 0.028, 0.020, Pal.liquidInk)
+                if !drawMouthIfSpeaking(&ctx, s, y: 0.585, ink: Pal.liquidInk, maxHalf: 0.034, maxRy: 0.028) {
+                    smallOpenMouth(&ctx, s, 0.585, 0.028, 0.020, Pal.liquidInk)
+                }
             } else {
                 dotEyes(&ctx, s, 0.40, 0.60, 0.46, 0.050, 0.064, Pal.liquidInk, closed: blink)
-                flatMouth(&ctx, s, 0.585, 0.04, Pal.liquidInk, 0.55)
+                if !drawMouthIfSpeaking(&ctx, s, y: 0.585, ink: Pal.liquidInk, maxHalf: 0.040, maxRy: 0.028) {
+                    flatMouth(&ctx, s, 0.585, 0.04, Pal.liquidInk, 0.55)
+                }
             }
         case .alert:
             dotEyes(&ctx, s, 0.40, 0.60, 0.47, 0.050, 0.064, Pal.liquidInk, closed: blink)
-            ctx.fill(Path(ellipseIn: r(0.50, 0.59, 0.028, 0.034, s)), with: .color(Pal.liquidInk.opacity(0.85)))
+            // v4.0.39：alert 也要能被嘴型接管（朗读回包/出错时最常出现的就是这个状态）
+            if !drawMouthIfSpeaking(&ctx, s, y: 0.590, ink: Pal.liquidInk, maxHalf: 0.028, maxRy: 0.034) {
+                ctx.fill(Path(ellipseIn: r(0.50, 0.59, 0.028, 0.034, s)), with: .color(Pal.liquidInk.opacity(0.85)))
+            }
         }
     }
 
@@ -534,30 +582,53 @@ struct PetPainter {
             ctx.stroke(ph, with: .color(Pal.beastEdge), style: StrokeStyle(lineWidth: max(1, 0.012 * s), lineCap: .round))
             // v4.0.6：表情嘴（原来 idle 只有鼻+一竖，没有嘴 —— 这里补上，四种表情才分得开）
             switch face {
-            case .calm: break   // 原样：保持 v4.0.2 定的口鼻辨识度锚点，不额外加嘴
-            case .happy: bigSmile(&ctx, s, 0.645, 0.045, 0.042, Pal.beastInk)
-            case .sleepy: smallOpenMouth(&ctx, s, 0.650, 0.026, 0.020, Pal.beastInk)
-            case .playful: smirkMouth(&ctx, s, 0.645, 0.042, Pal.beastInk)
+            case .calm:
+                // v4.0.2 起常态刻意无嘴（口鼻辨识度锚点）——但**朗读中必须有口型**，
+                // 否则小兽冷静脸（默认表情）永远不开口，等于这个形态白做。
+                if drawMouthIfSpeaking(&ctx, s, y: 0.645, ink: Pal.beastInk, maxHalf: 0.044, maxRy: 0.034,
+                                       flatWhenClosed: false) {
+                    // 已画口型；极小开合（停顿时）不画嘴线，保持常态「无嘴」造型
+                }
+            case .happy:
+                if !drawMouthIfSpeaking(&ctx, s, y: 0.645, ink: Pal.beastInk, maxHalf: 0.048, maxRy: 0.038) {
+                    bigSmile(&ctx, s, 0.645, 0.045, 0.042, Pal.beastInk)
+                }
+            case .sleepy:
+                if !drawMouthIfSpeaking(&ctx, s, y: 0.650, ink: Pal.beastInk, maxHalf: 0.032, maxRy: 0.026) {
+                    smallOpenMouth(&ctx, s, 0.650, 0.026, 0.020, Pal.beastInk)
+                }
+            case .playful:
+                if !drawMouthIfSpeaking(&ctx, s, y: 0.645, ink: Pal.beastInk, maxHalf: 0.044, maxRy: 0.034) {
+                    smirkMouth(&ctx, s, 0.645, 0.042, Pal.beastInk)
+                }
             }
         case .patting:
             dotEyes(&ctx, s, 0.39, 0.61, 0.45, 0.060, 0.074, Pal.beastInk, closed: true)
             ctx.fill(Path(ellipseIn: r(0.50, 0.555, 0.040, 0.030, s)), with: .color(Pal.beastNose))
-            smile(&ctx, s, 0.585, 0.05, 0.05, Pal.beastInk, 0.7, 0.015)
+            if !drawMouthIfSpeaking(&ctx, s, y: 0.585, ink: Pal.beastInk, maxHalf: 0.050, maxRy: 0.036) {
+                smile(&ctx, s, 0.585, 0.05, 0.05, Pal.beastInk, 0.7, 0.015)
+            }
         case .thinking:
             // v4.0.31：同 liquid —— thinkingFace 指定困倦脸就走半闭眼变体
             if thinkingFace == .sleepy {
                 halfLiddedEyes(&ctx, s, 0.39, 0.61, 0.44, 0.064, 0.080, Pal.beastInk)
                 ctx.fill(Path(ellipseIn: r(0.50, 0.550, 0.034, 0.026, s)), with: .color(Pal.beastNose))
-                smallOpenMouth(&ctx, s, 0.595, 0.026, 0.020, Pal.beastInk)
+                if !drawMouthIfSpeaking(&ctx, s, y: 0.595, ink: Pal.beastInk, maxHalf: 0.032, maxRy: 0.026) {
+                    smallOpenMouth(&ctx, s, 0.595, 0.026, 0.020, Pal.beastInk)
+                }
             } else {
                 dotEyes(&ctx, s, 0.39, 0.61, 0.44, 0.064, 0.080, Pal.beastInk, closed: blink)
                 ctx.fill(Path(ellipseIn: r(0.50, 0.550, 0.034, 0.026, s)), with: .color(Pal.beastNose))
-                flatMouth(&ctx, s, 0.595, 0.03, Pal.beastInk, 0.6)
+                if !drawMouthIfSpeaking(&ctx, s, y: 0.595, ink: Pal.beastInk, maxHalf: 0.030, maxRy: 0.024) {
+                    flatMouth(&ctx, s, 0.595, 0.03, Pal.beastInk, 0.6)
+                }
             }
         case .alert:
             dotEyes(&ctx, s, 0.39, 0.61, 0.43, 0.072, 0.090, Pal.beastInk, closed: blink)
             ctx.fill(Path(ellipseIn: r(0.50, 0.550, 0.034, 0.026, s)), with: .color(Pal.beastNose))
-            ctx.fill(Path(ellipseIn: r(0.50, 0.600, 0.026, 0.022, s)), with: .color(Pal.beastEdge.opacity(0.85)))
+            if !drawMouthIfSpeaking(&ctx, s, y: 0.600, ink: Pal.beastInk, maxHalf: 0.026, maxRy: 0.022) {
+                ctx.fill(Path(ellipseIn: r(0.50, 0.600, 0.026, 0.022, s)), with: .color(Pal.beastEdge.opacity(0.85)))
+            }
         }
         blushPair(&ctx, s, 0.27, 0.73, 0.565, 0.040, 0.024)
     }
@@ -625,20 +696,28 @@ struct PetPainter {
             }
             switch face {
             case .calm:
-                ctx.fill(rounded(0.45, 0.555, 0.10, 0.03, 0.015, s), with: .color(Pal.botInk.opacity(0.8)))
+                if !drawMouthIfSpeaking(&ctx, s, y: 0.562, ink: Pal.botInk, maxHalf: 0.044, maxRy: 0.026) {
+                    ctx.fill(rounded(0.45, 0.555, 0.10, 0.03, 0.015, s), with: .color(Pal.botInk.opacity(0.8)))
+                }
             case .happy:
                 // 笑 = 嘴横条上移 + 两侧上翘（方件化的笑，保持机器人语汇）
-                ctx.fill(rounded(0.42, 0.545, 0.16, 0.030, 0.015, s), with: .color(Pal.botInk))
-                ctx.fill(rounded(0.375, 0.520, 0.045, 0.030, 0.012, s), with: .color(Pal.botInk.opacity(0.75)))
-                ctx.fill(rounded(0.58, 0.520, 0.045, 0.030, 0.012, s), with: .color(Pal.botInk.opacity(0.75)))
+                if !drawMouthIfSpeaking(&ctx, s, y: 0.560, ink: Pal.botInk, maxHalf: 0.060, maxRy: 0.028) {
+                    ctx.fill(rounded(0.42, 0.545, 0.16, 0.030, 0.015, s), with: .color(Pal.botInk))
+                    ctx.fill(rounded(0.375, 0.520, 0.045, 0.030, 0.012, s), with: .color(Pal.botInk.opacity(0.75)))
+                    ctx.fill(rounded(0.58, 0.520, 0.045, 0.030, 0.012, s), with: .color(Pal.botInk.opacity(0.75)))
+                }
             case .sleepy:
                 // 困 = 小方口（方开口，区别于 happy 的横条）
-                ctx.fill(rounded(0.465, 0.545, 0.07, 0.045, 0.014, s), with: .color(Pal.botInk.opacity(0.85)))
+                if !drawMouthIfSpeaking(&ctx, s, y: 0.567, ink: Pal.botInk, maxHalf: 0.034, maxRy: 0.026) {
+                    ctx.fill(rounded(0.465, 0.545, 0.07, 0.045, 0.014, s), with: .color(Pal.botInk.opacity(0.85)))
+                }
             case .playful:
                 // 俏皮 = 单眼变成细横条（wink 的方件版） + 歪嘴
                 ctx.fill(rect(0.36, 0.437, 0.10, 0.030), with: .color(Pal.botInk))
-                ctx.fill(rounded(0.44, 0.545, 0.10, 0.030, 0.012, s), with: .color(Pal.botInk.opacity(0.8)))
-                ctx.fill(rounded(0.555, 0.522, 0.045, 0.028, 0.011, s), with: .color(Pal.botInk.opacity(0.7)))
+                if !drawMouthIfSpeaking(&ctx, s, y: 0.560, ink: Pal.botInk, maxHalf: 0.046, maxRy: 0.026) {
+                    ctx.fill(rounded(0.44, 0.545, 0.10, 0.030, 0.012, s), with: .color(Pal.botInk.opacity(0.8)))
+                    ctx.fill(rounded(0.555, 0.522, 0.045, 0.028, 0.011, s), with: .color(Pal.botInk.opacity(0.7)))
+                }
             }
         case .patting:
             for x in [CGFloat(0.37), CGFloat(0.54)] {
@@ -646,22 +725,30 @@ struct PetPainter {
                 arc.move(to: p(x, 0.47, s)); arc.addQuadCurve(to: p(x + 0.09, 0.47, s), control: p(x + 0.045, 0.40, s))
                 ctx.stroke(arc, with: .color(Pal.botInk), style: StrokeStyle(lineWidth: max(1, 0.020 * s), lineCap: .round))
             }
-            smile(&ctx, s, 0.55, 0.06, 0.06, Pal.botInk, 0.8, 0.020)
+            if !drawMouthIfSpeaking(&ctx, s, y: 0.550, ink: Pal.botInk, maxHalf: 0.060, maxRy: 0.030) {
+                smile(&ctx, s, 0.55, 0.06, 0.06, Pal.botInk, 0.8, 0.020)
+            }
         case .thinking:
             // v4.0.31：同 liquid —— 机器人困倦 = 眼屏压扁一半
             if thinkingFace == .sleepy {
                 ctx.fill(rect(0.36, 0.44, 0.10, 0.052), with: .color(Pal.botInk))
                 ctx.fill(rect(0.54, 0.44, 0.10, 0.052), with: .color(Pal.botInk))
-                ctx.fill(rounded(0.46, 0.565, 0.08, 0.03, 0.015, s), with: .color(Pal.botInk.opacity(0.7)))
+                if !drawMouthIfSpeaking(&ctx, s, y: 0.580, ink: Pal.botInk, maxHalf: 0.036, maxRy: 0.026) {
+                    ctx.fill(rounded(0.46, 0.565, 0.08, 0.03, 0.015, s), with: .color(Pal.botInk.opacity(0.7)))
+                }
             } else {
                 ctx.fill(rect(0.36, 0.415, 0.10, 0.078), with: .color(Pal.botInk))
                 ctx.fill(rect(0.54, 0.415, 0.10, 0.078), with: .color(Pal.botInk))
-                ctx.fill(rounded(0.46, 0.565, 0.08, 0.03, 0.015, s), with: .color(Pal.botInk.opacity(0.7)))
+                if !drawMouthIfSpeaking(&ctx, s, y: 0.580, ink: Pal.botInk, maxHalf: 0.040, maxRy: 0.026) {
+                    ctx.fill(rounded(0.46, 0.565, 0.08, 0.03, 0.015, s), with: .color(Pal.botInk.opacity(0.7)))
+                }
             }
         case .alert:
             ctx.fill(rounded(0.36, 0.41, 0.10, 0.08, 0.022, s), with: .color(Pal.botInk))
             ctx.fill(rounded(0.54, 0.41, 0.10, 0.08, 0.022, s), with: .color(Pal.botInk))
-            ctx.fill(Path(ellipseIn: r(0.50, 0.575, 0.030, 0.034, s)), with: .color(Pal.botInk.opacity(0.85)))
+            if !drawMouthIfSpeaking(&ctx, s, y: 0.575, ink: Pal.botInk, maxHalf: 0.030, maxRy: 0.034) {
+                ctx.fill(Path(ellipseIn: r(0.50, 0.575, 0.030, 0.034, s)), with: .color(Pal.botInk.opacity(0.85)))
+            }
         }
         blushPair(&ctx, s, 0.26, 0.74, 0.60, 0.055, 0.032, 0.38)
     }

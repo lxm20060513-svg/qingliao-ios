@@ -75,6 +75,9 @@ final class SpeechManager: NSObject, ObservableObject, AVSpeechSynthesizerDelega
     /// 顶进新文本的进度里，导致新一条**整段瞬显**（逐字动画失效）。同文件其它异步路径
     /// （324/336 行）都用 `guard gen == ttsGeneration` 这一套，只有系统回调原先漏了。
     private var currentUtteranceID: ObjectIdentifier?
+    /// v4.0.40：口型音节表已为「哪条 utterance」切过。willSpeakRange 用它当「本段只切一次」的哨兵，
+    /// 不能用 progress.charCount == 0（emoji 下 charOffset 返 nil 时它恒为 0 → 每帧重切）。
+    private var syllablesBegunFor: ObjectIdentifier?
     private var auth: AuthStore?
     // v3.0.x：TTS 代次 —— 每次 toggle/stop 递增；旧 Task 恢复后校验代次，丢弃过期结果（防陈旧异步覆盖）
     private var ttsGeneration = 0
@@ -87,6 +90,35 @@ final class SpeechManager: NSObject, ObservableObject, AVSpeechSynthesizerDelega
     override init() {
         super.init()
         synth.delegate = self
+        // v4.0.39：注册音频中断观察者（来电/Siri/其他 App 抢音频会话）。
+        //   原来完全没有这个观察者 → 打断后既不进 didFinish 也不进 stop()，
+        //   speakingID 与嘴型驱动双双悬空 = 宠物永久张嘴；云端侧靠 ticker 判死侥幸兜住，
+        //   系统引擎这条路没有任何收尾。
+        // ⚠️ v4.0.40 修审查：必须用 **selector 版**。block 版 addObserver(forName:object:queue:using:)
+        //   的闭包是 @Sendable，在 Swift 6 下 `[weak self]` 捕获 @MainActor 的 SpeechManager 会报
+        //   「capture of 'self' with non-sendable type」（同仓 KeyboardObserver.swift 文件头同一条纪律）。
+        //   selector 回调按 .main 队列投递，本类已是 @MainActor，直接写即可，不用包 Task。
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(handleInterruption(_:)),
+            name: AVAudioSession.interruptionNotification,
+            object: AVAudioSession.sharedInstance())
+    }
+
+    /// v4.0.40：音频中断（来电/Siri/闹钟）。
+    ///   `.began` → 只闭嘴、**不打断朗读**（否则来电就把用户的话停了）；
+    ///     shouldResume 续播时 willSpeakRange 会自然重新张嘴。
+    ///   `.ended` 且非 `.shouldResume` → 真没有后续了，走 stop() 全量收尾。
+    @objc private func handleInterruption(_ note: Notification) {
+        guard let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+              let type = AVAudioSession.InterruptionType(rawValue: raw) else { return }
+        if type == .began {
+            PetSpeechDrive.shared.close()
+            return
+        }
+        guard let optsRaw = note.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt else { return }
+        let opts = AVAudioSession.InterruptionOptions(rawValue: optsRaw)
+        guard !opts.contains(.shouldResume) else { return }   // 该续播就别打断用户
+        stop()
     }
 
     /// v4.0.x 流式分段朗读：当前由分段队列朗读的消息 id（`#s` 段签名）
@@ -127,6 +159,8 @@ final class SpeechManager: NSObject, ObservableObject, AVSpeechSynthesizerDelega
         cloudDegraded = false
         progress.text = clean            // 逐字基准：与即将念出的字逐字对齐
         progress.charCount = 0
+        // v4.0.39：页头宠物跟着开口 —— 按本段文本切音节，嘴先闭上（独立发布箱，不挂本单例）
+        PetSpeechDrive.shared.begin(clean)
         cloudTickTimer?.invalidate()
         cloudTickTimer = nil
         if !preferSystem, CloudConfig.ttsEnabled {
@@ -159,7 +193,10 @@ final class SpeechManager: NSObject, ObservableObject, AVSpeechSynthesizerDelega
         // v3.9.77 修审查：原来只清计数不清文本 —— 任何非朗读路径读这两个属性都会拿到**上一条**的内容
         //（现在只有语音页读，属侥幸没炸）。消费方已有 isEmpty 兜底，清干净更稳。
         progress.text = ""
+        // v4.0.39：嘴型必须一并闭上（否则点「停止」后宠物嘴一直张着）
+        PetSpeechDrive.shared.clear()
         currentUtteranceID = nil
+        syllablesBegunFor = nil   // v4.0.40：与 currentUtteranceID 同步清，避免复用到同址旧对象的哨兵
     }
 
     // MARK: - v4.0.x 流式分段朗读（段间顺序播放）
@@ -182,6 +219,8 @@ final class SpeechManager: NSObject, ObservableObject, AVSpeechSynthesizerDelega
             cloudDegraded = false
             progress.text = raw
             progress.charCount = 0
+            // v4.0.39：页头宠物嘴型跟本段（流式分段朗读也走同一条路）
+            PetSpeechDrive.shared.begin(raw)
             let gen = ttsGeneration
             Task { await speakViaCloud(raw, id: id, gen: gen) }
         } else {
@@ -190,6 +229,10 @@ final class SpeechManager: NSObject, ObservableObject, AVSpeechSynthesizerDelega
             cloudDegraded = false
             progress.text = raw
             progress.charCount = 0
+            // v4.0.40：**这里不切音节表**。系统引擎是入队即 speak(ut)：段1 还在念的时候
+            //   ut2 就已入队，若此刻 begin(段2 文本)，段1 的嘴型会按错误的音节表走；
+            //   而段1 的 willSpeakRange 又会被身份哨兵挡掉 → 段1 全程闭嘴（口型一段一断档）。
+            //   切表统一交给 willSpeakRange —— 每条 utterance 真正开念那一刻才切，口径唯一。
             speakViaSystem(raw, id: id)
         }
     }
@@ -204,6 +247,8 @@ final class SpeechManager: NSObject, ObservableObject, AVSpeechSynthesizerDelega
         speakingID = next.id
         progress.text = next.text
         progress.charCount = 0
+        // v4.0.39：换段时嘴型按新段重新切音节（否则用上一段的音节表对口 → 节奏全错）
+        PetSpeechDrive.shared.begin(next.text)
         let gen = ttsGeneration
         Task { await speakViaCloud(next.text, id: next.id, gen: gen) }
     }
@@ -232,6 +277,10 @@ final class SpeechManager: NSObject, ObservableObject, AVSpeechSynthesizerDelega
         ut.voice = Self.resolvedSystemVoice()
         ut.rate = Self.systemRate
         currentUtteranceID = ObjectIdentifier(ut)   // v3.9.77：逐字回调靠它认身份、丢弃上一条的迟到回调
+        // v4.0.40：每条新 utterance 一律作废旧哨兵。AVSpeechUtterance 是临时对象、播完即释放，
+        //   下一条完全可能被分配到**同一地址** → ObjectIdentifier 复用 → 哨兵判假、begin 被跳过，
+        //   而 units 此时已被 didFinish 清空 → 这条朗读全程闭嘴，嘴型功能静默失效。
+        syllablesBegunFor = nil
         synth.speak(ut)
     }
 
@@ -520,15 +569,28 @@ final class SpeechManager: NSObject, ObservableObject, AVSpeechSynthesizerDelega
                                        utterance: AVSpeechUtterance) {
         let end = characterRange.location + characterRange.length      // 先算成 Int，只让 Sendable 值过域
         let uid = ObjectIdentifier(utterance)                          // utterance 非 Sendable → 只传身份
+        let spoken = utterance.speechString                        // String 是 Sendable，可过域
         Task { @MainActor in
             guard self.player == nil, !self.progress.text.isEmpty else { return }
             // v3.9.77 修审查：① 身份不符 = 上一条的迟到回调，直接丢弃（否则新一条整段瞬显）；
             // ② 偏移是 UTF-16 码元，而 prefix/count 按 Character 算，含 emoji 时会跑到语音前面 → 换算。
             guard self.currentUtteranceID == uid else { return }
+            // v4.0.39 修审查：**系统引擎的分段队列**（流式朗读满段就送 TTS）会把所有段一次性
+            //   入 synth 串行队列，于是入队那一刻就 begin() 会让「段1 还在念、嘴型已按段2 的表走」。
+            //   改成在**这条 utterance 真正开念**时按它自己的文本重切音节（与身份判据同一纪律）。
+            //   ⚠️ 只在**每段第一帧**切一次：willSpeakRange 每 0.08s 来一次，无条件 begin 等于
+            //   每帧全量重切音节表（长回复时白烧 CPU）。
+            // 🚨 v4.0.40 修审查：**不能只用 charCount == 0 当「本段还没切过」**——
+            //   含 emoji 时 charOffset 会返回 nil（落在代理对中间）而 progress.charCount 保持 0，
+            //   下一帧又满足 == 0 → 每帧对全文重跑 Array(text) + O(n) 切分，长回复+emoji 是持续 CPU 浪费。
+            //   改用「已为哪条 utterance 切过」的身份哨兵（与 currentUtteranceID 同一套身份纪律）。
+            if self.syllablesBegunFor != uid { PetSpeechDrive.shared.begin(spoken); self.syllablesBegunFor = uid }
             // 落在代理对中间时 charOffset 返回 nil → **保持上一拍**，绝不跳到全文（复审实测：
             // 旧写法遇 emoji 会让那一帧进度直接顶到全文，比不做还糟）。
             guard let off = self.charOffset(utf16: end) else { return }
             self.progress.charCount = Swift.min(self.progress.text.count, off)
+            // v4.0.39：页头宠物嘴型跟着这个逐字进度走（独立发布箱，见 PetSpeechShape 注释）
+            PetSpeechDrive.shared.advance(toChar: self.progress.charCount)
         }
     }
 
@@ -544,6 +606,23 @@ final class SpeechManager: NSObject, ObservableObject, AVSpeechSynthesizerDelega
     }
 
     nonisolated func speechSynthesizer(_ s: AVSpeechSynthesizer,
+                                       didCancel utterance: AVSpeechUtterance) {
+        // v4.0.39：原来只实现 didFinish。系统侧取消（音频会话被抢占后未 .shouldResume、
+        //   外部 stopSpeaking 之外的 synth 内部中断）既不进 didFinish 也不进 stop()
+        //   → speakingID 与嘴型驱动双双悬空 = 宠物永久张嘴。云端 mp3 侧有 ticker 判死兜底，
+        //   系统引擎这条原本没有对等兜底。复用 stop() 口径，别手写清零（免漏字段）。
+        // 🚨 v4.0.40 修审查：必须**先比身份**。`start()` 是 `stop()` → `synth.speak(ut)` 同步走完，
+        //   而上一条的 didCancel 是异步入队的 → 主 runloop 交付它时新一条已在念，
+        //   只判 `speakingID != nil` 会把**刚起的这条立刻掐断**（用户看到「快速连点两个气泡，第二条没声音」）。
+        //   纪律与同文件 willSpeakRange / audioPlayerDidFinishPlaying 一致：闭包内先取 uid，再按 uid 丢弃过期回调。
+        let uid = ObjectIdentifier(utterance)
+        Task { @MainActor in
+            guard self.currentUtteranceID == uid, self.player == nil else { return }
+            self.stop()
+        }
+    }
+
+    nonisolated func speechSynthesizer(_ s: AVSpeechSynthesizer,
                                        didFinish utterance: AVSpeechUtterance) {
         Task { @MainActor in
             // v3.0.x fix：云端 TTS 播放中 player != nil，系统 TTS didFinish 不清除 speakingID
@@ -554,6 +633,8 @@ final class SpeechManager: NSObject, ObservableObject, AVSpeechSynthesizerDelega
                 if self.player == nil {
                     self.speakingID = nil
                     self.cloudDegraded = false
+                    PetSpeechDrive.shared.clear()   // v4.0.39：系统语音播毕 → 闭嘴
+                    self.syllablesBegunFor = nil   // v4.0.40：哨兵一并作废（didFinish 是最常见的自然收尾路径）
                     // v4.0.x 流式分段朗读：云端段回退系统语音播毕 → 放行 FIFO 下一段
                     //（纯系统路径 cloudSegmentPlaying == false，不碰队列；synth 自身串行）。
                     if self.cloudSegmentPlaying {
@@ -576,6 +657,13 @@ final class SpeechManager: NSObject, ObservableObject, AVSpeechSynthesizerDelega
             guard let pl = self.player, ObjectIdentifier(pl) == pid else { return }
             self.player = nil
             self.speakingID = nil
+            // v4.0.39 修审查：cloudSegmentPlaying 为真时**不能**在这里 clear() ——
+            //   streamCloudSegmentFinished() 会放行下一段并 begin(下一段) 重建音节表，
+            //   顺序反了会把刚建好的表清空 → 从第 2 段起嘴型恒 0（多段朗读里宠物全程闭嘴）。
+            //   队列还有下一段时只补足进度（驱动方会重置），嘴型交给下一段的 begin/advance 接管。
+            if !self.cloudSegmentPlaying {
+                PetSpeechDrive.shared.clear()   // v4.0.39：真播完了才闭嘴
+            }
             // v4.0.x 流式分段朗读：云端音频自然播完 → 放行 FIFO 下一段
             self.streamCloudSegmentFinished()
             // v3.9.77 修审查：**自然播完**是最常见路径，原来这条路上没人清 ticker —— ticker 里的早退
@@ -635,6 +723,7 @@ extension SpeechManager {
                         self.player = nil
                         self.speakingID = nil
                         self.cloudDegraded = false
+                        PetSpeechDrive.shared.clear()   // v4.0.39：判死收尾同样要闭嘴
                         // v4.0.x 流式分段朗读：判死收尾即放行 FIFO 下一段（与自然播完同口径）
                         self.streamCloudSegmentFinished()
                         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
@@ -646,7 +735,10 @@ extension SpeechManager {
                 let n = Int(pl.currentTime / perChar)
                 // 只在**真的前进**时才写：值没变也写会白白触发订阅方重算（复审建议）。
                 let next = Swift.min(total, Swift.max(self.progress.charCount, n))
-                if next != self.progress.charCount { self.progress.charCount = next }
+                if next != self.progress.charCount {
+                    self.progress.charCount = next
+                    PetSpeechDrive.shared.advance(toChar: next)   // v4.0.39：云端估算进度同样驱动嘴型
+                }
                 if next >= total { self.stopCloudTicker() }
             }
         }

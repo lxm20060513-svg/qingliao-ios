@@ -92,6 +92,12 @@ run_unit /tmp/test_launch_session -swift-version 6 \
 echo "=== 5c. 宠物动画真值表（v4.0.0 走动搞怪 + 镜像/位移顺序坑）==="
 run_unit /tmp/test_pet -swift-version 6 scripts/ql_pet/truth_table_pet.swift
 
+# v4.0.40 TTS 朗读时页头宠物跟着开口说话（PetSpeechShape 音节切分 + mouth 采样 + 接线护栏）
+# 多文件编译时只有 main.swift 允许顶层代码 → 复制一份到临时目录（与第 4 段同一手法）
+rm -rf /tmp/ql_petspeech_main && mkdir -p /tmp/ql_petspeech_main
+cp scripts/ql_petspeech/truth_table_petspeech.swift /tmp/ql_petspeech_main/main.swift
+run_unit6 /tmp/test_petspeech /tmp/ql_petspeech_main/main.swift qingliao/Core/PetSpeechShape.swift
+
 # v4.0.9 点击震动总开关（闸门 + 裸 generator 清零）
 if python3 scripts/ql_haptics/truth_table_haptics.py >/tmp/tt_haptics.log 2>&1; then
   echo "✅ v4.0.9 震动开关真值表 $(grep -oE '[0-9]+ 项' /tmp/tt_haptics.log | tail -1)"
