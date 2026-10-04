@@ -88,6 +88,25 @@ enum GoalSchedule {
         return f
     }()
 
+    /// v4.0.44（用户第⑤条）：下一次推进的**时刻短语**（「今天 9:00」/「明天 9:00」/「10月6日 9:00」）。
+    /// 与 nextRunText 同源（同一个 nextRun 口径）——卡片上「下一步 · 预计 X 开始」要的只是时刻，
+    /// 不能把「后台 … 推进」整句拿来拼（会变成两句拼一起的怪句子）。
+    static func nextRunMomentText(now: Date, morningHour: Int, eveningHour: Int,
+                                  morningEnabled: Bool, eveningEnabled: Bool,
+                                  health: Health,
+                                  calendar: Calendar = .current) -> String? {
+        guard let next = nextRun(now: now, morningHour: morningHour, eveningHour: eveningHour,
+                                 morningEnabled: morningEnabled, eveningEnabled: eveningEnabled,
+                                 health: health, calendar: calendar) else {
+            return nil
+        }
+        let hm = Self.hmFormatter.string(from: next)
+        if calendar.isDate(next, inSameDayAs: now) { return "今天 \(hm)" }
+        if let tomorrow = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: now)),
+           calendar.isDate(next, inSameDayAs: tomorrow) { return "明天 \(hm)" }
+        return Self.dayHmFormatter.string(from: next)
+    }
+
     /// 状态条主文案（健康点由 UI 按 health 上色）
     static func nextRunText(now: Date, morningHour: Int, eveningHour: Int,
                             morningEnabled: Bool, eveningEnabled: Bool,
@@ -97,16 +116,14 @@ enum GoalSchedule {
         case .paused:   return "已暂停 · 后台不会自动推进"
         case .detached: return "未接上后台 · 详情里可重试"
         case .running:
-            guard let next = nextRun(now: now, morningHour: morningHour, eveningHour: eveningHour,
-                                     morningEnabled: morningEnabled, eveningEnabled: eveningEnabled,
-                                     health: health, calendar: calendar) else {
+            guard let moment = nextRunMomentText(now: now, morningHour: morningHour,
+                                                 eveningHour: eveningHour,
+                                                 morningEnabled: morningEnabled,
+                                                 eveningEnabled: eveningEnabled,
+                                                 health: health, calendar: calendar) else {
                 return "没有开启推进时段"
             }
-            let hm = Self.hmFormatter.string(from: next)
-            if calendar.isDate(next, inSameDayAs: now) { return "后台 今天 \(hm) 推进" }
-            if let tomorrow = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: now)),
-               calendar.isDate(next, inSameDayAs: tomorrow) { return "后台 明天 \(hm) 推进" }
-            return "后台 \(Self.dayHmFormatter.string(from: next)) 推进"
+            return "后台 \(moment) 推进"
         }
     }
 }
@@ -126,6 +143,16 @@ extension GoalItem {
                                  morningEnabled: morningEnabled,
                                  eveningEnabled: eveningEnabled,
                                  health: scheduleHealth)
+    }
+
+    /// v4.0.44（用户第⑤条）：下一步「预计 X 开始」里的时刻短语；后台不会自己动 → nil。
+    func nextRunMoment(now: Date) -> String? {
+        GoalSchedule.nextRunMomentText(now: now,
+                                       morningHour: morningHour,
+                                       eveningHour: eveningHour,
+                                       morningEnabled: morningEnabled,
+                                       eveningEnabled: eveningEnabled,
+                                       health: scheduleHealth)
     }
 }
 

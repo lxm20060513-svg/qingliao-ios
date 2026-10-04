@@ -426,7 +426,9 @@ struct GoalsSection: View {
 
                 if !g.steps.isEmpty {
                     Section("步骤") {
-                        ForEach(g.steps) { s in
+                        // v4.0.44（用户第⑥条）：显式序号 —— 原话「步骤清单带完成顺序」。
+                        // enumerated 后 id 仍取 element.id：步骤身份不变，勾选/动画不错位。
+                        ForEach(Array(g.steps.enumerated()), id: \.element.id) { idx, s in
                             Button {
                                 store.toggleStep(goalID: g.id, stepID: s.id)
                                 refreshDetail()
@@ -438,10 +440,17 @@ struct GoalsSection: View {
                                         .font(.system(size: Typography.body))
                                         .foregroundStyle(s.done ? Color.accentColor : .secondary)
                                     VStack(alignment: .leading, spacing: 2) {
-                                        Text(s.title)
-                                            .font(.system(size: Typography.body))
-                                            .foregroundStyle(s.done ? .secondary : .primary)
-                                            .strikethrough(s.done)
+                                        HStack(alignment: .firstTextBaseline, spacing: 4) {
+                                            // v4.0.44（用户第⑥条）：显式「第N步」，一眼看出完成顺序
+                                            Text("第\(idx + 1)步")
+                                                .font(.system(size: Typography.tiny, weight: .semibold))
+                                                .foregroundStyle(.tertiary)
+                                                .monospacedDigit()
+                                            Text(s.title)
+                                                .font(.system(size: Typography.body))
+                                                .foregroundStyle(s.done ? .secondary : .primary)
+                                                .strikethrough(s.done)
+                                        }
                                         // v4.0.40（#5）：每个步骤的开始 / 完成时间。
                                         // nil = 老数据还没打上时间戳 → 整行不渲染，不显示「未开始」噪声。
                                         if let t = stepTimeText(s) {
@@ -695,6 +704,9 @@ struct GoalRowCard: View {
                         .font(.system(size: Typography.caption))
                         .foregroundStyle(.tertiary)
                         .lineLimit(1)
+                    // v4.0.44（用户第⑤条）：下一步到底「在进行中」还是「还没到点」——
+                    // 已开始 → 进行中；未开始 → 预计 <后台下次推进时刻> 开始
+                    nextStepStatusMark(goal, s)
                 }
             }
 
@@ -752,5 +764,28 @@ struct GoalRowCard: View {
         let f = DateFormatter()
         f.dateFormat = "M月d日 HH:mm"
         return f.string(from: d)
+    }
+
+    /// v4.0.44（用户第⑤条）：下一步状态标 —— 卡内小标签（tiny + h6/v1，走「文章内小标签」口径）。
+    /// 不套 PillSize 那三档**操作胶囊**：那是按钮口径，塞进行内会变大变笨（见 Pill.swift 头注）。
+    /// 已开始 → 「进行中」；未开始 → 「预计 <后台下次推进时刻> 开始」；
+    /// 编不出时刻（后台没接上/两段都关）→ 只说「待开始」，不编时间。
+    /// 🚨 必须留在 GoalRowCard 内：它是本 struct 的实例方法，唯一调用点在下面 nextStep 行。
+    ///    放进平级的 GoalsSection 会变成跨类型裸调用 —— 本机 `swiftc -parse` 全绿、CI Archive 必炸
+    ///    （同类事故：v4.0.43 的 GoalsSection.stamp 跨类型调用）。真值表钉了「同 struct」这条。
+    @ViewBuilder
+    func nextStepStatusMark(_ goal: GoalItem, _ s: GoalStep) -> some View {
+        let started = s.startedAt != nil
+        let text: String = started
+            ? "进行中"
+            : (goal.nextRunMoment(now: Date()).map { "预计 \($0) 开始" } ?? "待开始")
+        Text(text)
+            .font(.system(size: Typography.tiny))
+            .foregroundStyle(started ? Color.accentColor : Color.secondary)
+            .lineLimit(1)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 1)
+            .overlay(Capsule().strokeBorder(
+                (started ? Color.accentColor : Color.secondary).opacity(0.28), lineWidth: 0.8))
     }
 }
