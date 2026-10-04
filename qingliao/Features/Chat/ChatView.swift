@@ -2771,15 +2771,40 @@ struct ChatView: View {
         .id(streamingAnchorID)   // v4.0.39：与三点行同一身份真源（scrollBottom 也滚它）
     }
 
+    /// 顶部「加载更早」按钮（v4.0.49：从 LazyVStack 内容里抽成不透明属性 —— 原来这条
+    /// Button/HStack/Image/Text/background(Capsule) 链**内联**在 messageList 的类型名里，
+    /// 给启动期 demangler 递归多塞 ~350 字符，抽出来名字里只剩一个 Qo 引用）
+    private var loadEarlierButton: some View {
+        Button {
+            withAnimation(Motion.snap) {
+                displayLimit += Self.loadMoreStep
+            }
+        } label: {
+            HStack(spacing: Spacing.xs) {
+                Image(systemName: "chevron.up")
+                    .font(.system(size: Typography.tiny, weight: .semibold))
+                Text("加载更早 \(min(visibleStartIndex, Self.loadMoreStep)) 条")
+                    .font(.system(size: Typography.subhead, weight: .medium))
+            }
+            .foregroundStyle(.secondary)
+            .padding(.vertical, Spacing.md)
+            .padding(.horizontal, Spacing.xxl)
+            .background(Color.secondary.opacity(Tint.faint), in: Capsule())
+        }
+        .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
+        .padding(.bottom, Spacing.xxs)
+    }
+
     private var messageList: some View {
         ZStack {
             // v2.0.40：clearing 期间直接显示欢迎页（列表已卸载，数据稍后清空）
             // v3.9.30：容器挂 settle —— 驱动 welcome/列表 if 切换的浮现过渡（transition 需同帧动画）
             if (chat.messages.isEmpty || clearing) && !thisSessionStreaming {
                 welcomeView
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                    .id("welcome")   // v3.4.29：原 padding(.top,120) 已移入 welcomeView 顶部弹性留白（小屏不再挤）
-                    .transition(.opacity.combined(with: .scale(scale: 0.97)))   // v3.9.30：欢迎页浮现过渡
+                    // v4.0.49：frame/id/transition 折进具名 ViewModifier —— 这三条原来内联在
+                    // messageList 的类型名里（~210 字符）；折后名字里只剩组名。id/transition 仍作用在
+                    // 同一个 welcomeView 上（身份真源与浮现过渡语义不变）。
+                    .modifier(WelcomeBranchChrome(host: self))
             } else {
             ScrollViewReader { proxy in
                 // v3.9.58c：把 proxy 挂到 @State，供引用块跳转等非 onChange 路径滚动定位。
@@ -2791,26 +2816,9 @@ struct ChatView: View {
                 // 列表再清数据），批量移除崩溃路径不复存在；长聊天记录仅渲染可见气泡，
                 // 修复长文本滑动/左右切页卡顿
                 LazyVStack(spacing: 10) {
-                                        // v3.0.51 A2：顶部"加载更早"按钮（会话长于可见窗口时显示）
+                                        // v3.0.51 A2：顶部"加载更早"按钮（会话长于可见窗口时显示）；v4.0.49 抽出到 loadEarlierButton
                                         if visibleStartIndex > 0 {
-                                            Button {
-                                                withAnimation(Motion.snap) {
-                                                    displayLimit += Self.loadMoreStep
-                                                }
-                                            } label: {
-                                                HStack(spacing: Spacing.xs) {
-                                                    Image(systemName: "chevron.up")
-                                                        .font(.system(size: Typography.tiny, weight: .semibold))
-                                                    Text("加载更早 \(min(visibleStartIndex, Self.loadMoreStep)) 条")
-                                                        .font(.system(size: Typography.subhead, weight: .medium))
-                                                }
-                                                .foregroundStyle(.secondary)
-                                                .padding(.vertical, Spacing.md)
-                                                .padding(.horizontal, Spacing.xxl)
-                                                .background(Color.secondary.opacity(Tint.faint), in: Capsule())
-                                            }
-                                            .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
-                                            .padding(.bottom, Spacing.xxs)
+                                            loadEarlierButton
                                         }
                                         ForEach(visibleMessagesCache) { entry in
                                                                     // v3.0.51：整行（日期分隔 + 时间分隔 + 气泡）拆辅助函数，ForEach 内只留薄调用
@@ -2863,318 +2871,19 @@ struct ChatView: View {
                     .frame(minHeight: chatListViewportH, alignment: .bottom)
                     .id("messages")   // v2.0.39：与欢迎页分支区分身份
                 }
-                .animation(Motion.settle, value: chat.messages.isEmpty)   // v3.9.30：驱动欢迎页/列表切换过渡
-            // v2.0.111：消息区背景透明（ScrollView 默认白底遮住上方 logo/内容）
-            .scrollContentBackground(.hidden)
-            // v2.0.86h：Dock 滑动隐藏已删除（从未生效，手动开关替代）
-            // v2.0.43：搜索定位——滚动到命中消息并高亮 2 秒
-            // v3.9.58c：proxy 写回 @State（引用块跳转用）；onAppear 只跑一次，不参与 body 重算
-            .onAppear { scrollProxyRef = proxy }
-            .onChange(of: chat.highlightTarget?.content) { _, _ in
-                guard let t = chat.highlightTarget,
-                      let idx = chat.indexOfMessage(role: t.role, contentPrefix: t.content) else { return }
-                let mid = chat.messages[idx].id
-                highlightMessageID = mid
-                withAnimation(Motion.settle) {
-                    proxy.scrollTo(mid, anchor: .center)
-                }
-                Task {
-                    try? await Task.sleep(for: .seconds(2))
-                    withAnimation(Motion.settle) { highlightMessageID = nil }
-                }
-            }
-            // 滚动消息区即收起键盘（微信式）
-            .scrollDismissesKeyboard(.immediately)
-            // v3.4.1：底部上拉拉取收件箱——官方滚动几何回调（每帧实时含过拉 bounce）。
-            // overscroll = offset 超底部边界量；触底再上拉为正。详见 InboxPullRefresh.swift
-            .onScrollGeometryChange(for: CGFloat.self) { geo in
-                let maxY = geo.contentSize.height - geo.containerSize.height
-                // v3.9.48 性能：投影**先夹 0 再取整**。onScrollGeometryChange 只在投影值变化时
-                // 回调 action，原先未过拉时返回的是逐帧变化的负数 → 整个正常滚动过程每帧回调一次、
-                // 每帧写一次 @Observable progress（Observation 不做等值比较，写同值也标脏
-                // InboxPullLayer——那层里还挂着一颗 ultraThinMaterial 胶囊）。
-                // 夹 0 后正常滚动期投影恒为 0，一次回调都不发；过拉本身只有 0...60pt 有意义，
-                // 取整到 1pt 拉满过程最多 60 次失效，指示器跟手位移看不出差别。
-                let overscroll = geo.contentOffset.y - max(0, maxY)
-                return overscroll <= 0 ? 0 : overscroll.rounded()
-            } action: { _, overscroll in
-                inboxPullHandleScroll(overscroll: overscroll)
-            }
-            // v3.0.86 fix：贴底检测（pinned）——内容不满屏或已滚到底（容差 8pt）视为贴底。
-            // 流式自动滚底仅贴底时生效：用户上翻阅读历史时 pinned=false，不被 delta 拽回底部。
-            // 🚨 v4.0.36 修（用户实报「流式最新文字一路沉到输入框下面、气泡不往上顶」）：
-            //   原写法 `isScrollPinned = pinned` 无法区分「谁让内容不在底部」——流式每来一段 delta
-            //   内容就长高几十 pt，而**同一帧里 offset 还没动**（滚底挂在 stream.content 的 onChange、
-            //   onScrollGeometryChange 可能先跑），于是第一段 delta 就把 pinned 判成 false
-            //   → 之后每段都被 `guard isScrollPinned` 挡掉、自动滚底当场熄火，气泡只能在输入栏下面继续长。
-            //   现在只有「用户真的把内容往回滚」才解除贴底；内容变高不参与判定，
-            //   处于/回到底部即恢复贴底。用户上翻阅读时 delta 依旧不会把人拽回底部（语义不变）。
-            //   ⚠️ 本轮补丁（审查实踩）：解除贴底判的是**累计**回滚量而不是单帧增量——
-            //   单帧阈值（<prev-1）会让「每帧不足 1pt 的慢速上滑」永远解除不了，照样被 delta 拽回。
-            //   状态因此从一个 Bool 变成 ChatScrollPinState（pinned + 贴底基准 offset）。
-            //   判定本体已抽成纯函数 ChatScrollPin.next（Core/ChatScrollPin.swift）——
-            //   原来内联在这条闭包里，linux swiftc 编不进真值表，等于这段最容易错的逻辑没有单测。
-            //   单测：scripts/ql_scrollpin/truth_table_scrollpin.swift（check_swift.sh 第 63 段）。
-            .onScrollGeometryChange(for: ChatScrollSnapshot.self) { geo in
-                ChatScrollSnapshot(offset: geo.contentOffset.y,
-                                   contentH: geo.contentSize.height,
-                                   containerH: geo.containerSize.height)
-            } action: { _, new in
-                scrollPinState = ChatScrollPin.next(state: scrollPinState,
-                                                    offset: new.offset,
-                                                    contentH: new.contentH,
-                                                    containerH: new.containerH)
-            }
-            // v4.0.34：测量滚动容器可视高度——列表 minHeight 用它实现「不满屏也贴底」
-            //（onScrollGeometryChange 首次挂载即回调一次初始值；键盘弹出容器变矮也自动更新）
-            .onScrollGeometryChange(for: CGFloat.self) { geo in
-                geo.containerSize.height
-            } action: { _, h in
-                chatListViewportH = h
-            }
-            // v2.0.135：ScrollView 是 UIKit 桥接视图，其区域点击不冒泡到 ZStack 根手势
-            // （v2.0.112b 把 onTapGesture 移到 ZStack 后，有消息时点空白收键盘失效，用户复报）
-            // → ScrollView 自身也挂一个：点消息区空白收键盘（点气泡由 MessageBubble 手势优先消费，不受影响）
-            .onTapGesture {
-                inputFocus = false
-            }
-            // v3.0.86 fix：缓存刷新已上提 ZStack 层 onChange（ScrollView 卸载/欢迎态也生效），
-            // 此处的 count 变化只负责贴底滚动（消息 append 场景）
-            .onChange(of: chat.messages.count) {
-                // v4.0.37：append（自己发出 / 回答落库）本来就意味着「要跟着看」——把贴底态一并复位。
-                // 否则上一轮遗留的 unpinned 会让随后整段流式的自动滚底全部熄火（真机「贴底没效果」的一支）。
-                // 不加新行为：此处原本就无条件滚底，复位只是让随后的 delta 不再被旧态挡住。
-                scrollPinState = .pinnedAtBottom
-                scrollBottom(proxy)
-            }
-            .onChange(of: displayLimit) { _, _ in
-                refreshVisibleMessages()
-            }
-            // v3.0.86 fix：流式内容变化仅在用户贴底时自动滚底（scrollPinState 由下方
-            // onScrollGeometryChange 实时维护）——上翻阅读历史不再被 delta 拽回；无动画防高频打断
-            // 🚨 v4.0.40（2026-10-04 用户再报「流式时最新气泡始终沉在输入框下面」）——本次改的是
-            // **信号源**，不是时序：
-            //   · 渲染（气泡高度）由打字机平滑层 stream.displayContent 驱动，每 48ms 一 tick；
-            //   · 旧写法滚底挂在 stream.content 上，那只在 poll 落字时变（约 0.15s 一次）→ 两个信号源
-            //     不同源：每滚一次底，随后 48~150ms 内气泡又长高 1~3 行，逐 tick 累加出来的观感就是
-            //     「最新几行永远差一截、沉到输入栏下面」。v4.0.36/37/38 三版都在调时序/判定
-            //     （累计回滚量、延后一拍），没碰过「滚底信号 ≠ 渲染信号」这个根。
-            // 现在滚底与渲染同源：displayContent 每变一次就滚一次，两者节拍一致。
-            // 同理别退回 stream.content —— 源级护栏 ql_scrollpin B14 钉住这条。
-            .onChange(of: stream.displayContent) { _, _ in
-                guard scrollPinState.pinned else { return }
-                // v4.0.37：延到下一拍、几何更新后再滚（同一帧内容刚长高、布局尚未落地）。
-                // 延迟窗口内用户若上翻，第二道 pinned 判定会把这次滚动放掉，不把人拽回去。
-                DispatchQueue.main.async {
-                    guard scrollPinState.pinned else { return }
-                    scrollBottom(proxy, animated: false)
-                }
-            }
+            .modifier(MessageListScroll1(host: self, proxy: proxy))
+            .modifier(MessageListScroll2(host: self, proxy: proxy))
+            .modifier(MessageListScroll3(host: self, proxy: proxy))
 
         }
         }
         }
-        // v2.0.112b：点消息区空白收键盘——原 onTapGesture 只挂 ScrollView（有消息才显示），
-        // 欢迎页（无消息）状态点空白无法收键盘 → 移到 ZStack 根统一生效
-        // v2.0.135：ZStack 无 contentShape 时透明空白不可命中（此前只有点 logo/气泡才触发收键盘）
-        // → 补 contentShape(Rectangle()) 让整片区域可命中；有消息场景由 ScrollView 自身手势兜底
-        .contentShape(Rectangle())
-        .background(Color.clear)
-        .onTapGesture {
-            inputFocus = false
-        }
-        // v3.0.86 fix：以下 onChange 挂在 messageList 的 ZStack 层（不随欢迎页/清空态卸载的
-        // ScrollView 走）——两步走清空/新建会话/整组替换消息（ChatStore.load 新旧条数相同）
-        // 时可见缓存仍能重建，根治「空态后首条消息错显上一会话缓存行」
-        .onChange(of: chat.sessionId) { prior, _ in
-            // v3.9.41（SR60）：切会话 ≠ 取消发送。原来这里走 clearPendingQueue()（内存 + 盘一起清），
-            // 于是「A 会话里排队、切去 B」= 无条件把 A 的待发吞掉，且盘上那份也一起没了。
-            // 现在只丢「刚离开的这个会话」的排队项；其余留在盘上，回到那个会话或下次启动再补发。
-            dropPendingQueue(dropping: prior)
-            // v4.1.x：忙态结论属于**上一个**会话，必须作废重探——否则新会话会继承上一会话的
-            // 「AI 正在输入」（胶囊/灵动岛）甚至思考气泡（气泡条件已含 remoteBusy）。
-            // 探针 6s 内自己纠正；目标会话本机有 pending 标记时 probeRemoteBusy 会立刻置 true，不闪。
-            remoteBusy = false
-            remoteBusyFails = 0
-            // v4.1.x 多会话并行：进入新会话前，若它有后台流在跑 → 撤后台轮询，
-            // 前台由既有 probeRemoteBusy（6s 内）→ adoptRemote 无缝接回显示。不撤会双轮询抢流。
-            BackgroundStreamRunner.shared.retractIfRunning(sessionId: chat.sessionId)
-            refreshVisibleMessages()
-            // v3.9.80：工具进度四件套走单一入口复位（原先这里手写三行，漏了 v3.9.80 新增的 toolSeq
-            // → 摘要行会把上一会话的步数当成本会话的「实际步数」；详见 StreamClient.resetToolProgress）
-            stream.resetToolProgress()
-            // v3.0.51 A1：会话加载后重传残留 base64 图片（重启续传/失败重传）
-            // SR4：走 ChatStore 的单飞入口——旧会话那条重传链会先被 cancel，不会跨会话争写 messages
-            chat.startImageRetryUploads(auth: auth)
-            // v4.0.x 一句话记账：「已记账 + 撤销」条是「这段对话里刚做的事」，换会话即复位
-            // （记录本体是全局账本、撤销仍能删掉它，但把别处那条提示挂到新会话上看着像 bug）
-            chatRecordEntry = nil
-        }
-        // v3.4.25：改双重触发——count（增删）+ lastID（整组替换/清空重建时 count 不变，仅靠
-        // sessionId 兜底会漏渲染；lastID 变化补上「同条数内容替换」场景，且流式 tick 不改 lastID，
-        // 不引入额外高频重建）
-        .onChange(of: chat.messages.count) {
-            refreshVisibleMessages()
-        }
-        .onChange(of: chat.messages.last?.id ?? "") { _, _ in
-            refreshVisibleMessages()
-        }
-        .onChange(of: chat.pendingNewSession) { _, pending in
-            guard pending else { return }
-            clearing = true
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
-                // v3.0.11 fix：新建会话前先清队列+停流——原实现旧流仍在跑，
-                // 回答内容会持续显示/落进新会话（同 bot 串话根因族）
-                // v3.9.41（SR60）：只清本会话的排队项（+ 下面紧接的停流），
-                // 别的目标会话的待发不该被「点了一下加号」顺带吞掉
-                dropPendingQueue(dropping: chat.sessionId)
-                // v4.1.x 多会话并行：新建会话**不再杀旧流**——旧流移交后台跑流器继续轮询，
-                // 跑完按发起时快照落库（答案不丢）；v3.0.11 的「先停旧流防串话」已过时
-                //（后端实测真并行、按 sessionId 隔离），且 stream.start 本就会复位单例接管前台。
-                // 移交失败（单例空闲/异常态）才走原 stop 兜底。
-                if stream.isStreaming, !stream.isDone, !stream.taskId.isEmpty,
-                   !auth.currentStreamSessionId.isEmpty {
-                    let sid = auth.currentStreamSessionId
-                    let tid = stream.taskId
-                    let anchor = stream.pendingUserMsgId
-                    let startMsgs = chat.sessionId == sid ? chat.messages : []
-                    let startTitle = chat.sessionId == sid ? chat.title : ""
-                    BackgroundStreamRunner.shared.adopt(taskId: tid, sessionId: sid,
-                                                        title: startTitle, userMsgId: anchor,
-                                                        snapshot: startMsgs,
-                                                        offset: stream.handoffOffset,
-                                                        content: stream.handoffContent,
-                                                        auth: auth, chat: chat)
-                    stream.detachLocally()   // 只停本地轮询，服务端任务继续跑；落库归 runner
-                    // v4.0.10：移交后收尾回调被吞（onFinished = nil），startStream 里的
-                    // `sendingLock = false` 永不执行 → 必须在这里显式解锁，否则整页发送永久失效
-                    sendingLock = false
-                } else if stream.isStreaming {
-                    stream.stop(auth: auth)   // 兜底：缺 taskId/会话 id 的异常态按旧路停掉
-                }
-                withAnimation(nil) { chat.newSession() }
-                chat.pendingNewSession = false
-                clearing = false
-                // v3.4.29：加号 = 等同 /new——本地新建完成后补发 /new，触发 gateway 侧上下文重置。
-                // sessionId 已换成新值，与 sendCore 的 60s 幂等签名（含 sessionId）不冲突
-                if chat.pendingNewSessionReset {
-                    chat.pendingNewSessionReset = false
-                    silentGatewayReset()
-                }
-            }
-        }
-        // v4.0.11：启动期逻辑从 body 修饰符链里**提出来**（纯等价重构，零行为变化）。
-        // 根因：CI 报 `ChatView.swift:2548: the compiler is unable to type-check this expression
-        // in reasonable time` —— 巨型 view 链内再塞大闭包，编译器类型检查超时（本地 `-parse`
-        // 只查语法，查不出这类问题，只有 Archive 才挂）。
-        .task { await bootstrapChat() }
-        .fullScreenCover(item: $bigBangPayload) { payload in
-            // v3.9.0：zoom 转场——从被长按的气泡"生长"出来（与图片查看器同一机制）
-            if payload.sourceID.isEmpty {
-                BigBangView(text: payload.text, onAskAI: { t in sendCore(text: t, imageData: nil) })
-            } else {
-                BigBangView(text: payload.text, onAskAI: { t in sendCore(text: t, imageData: nil) })
-                    .navigationTransition(.zoom(sourceID: payload.sourceID, in: zoomNS))
-            }
-        }
-        // v3.7.0：回前台时重探一次（用户刚在地图里「拷贝」→ 切回轻聊即出现胶囊）
-        .onChange(of: scenePhase) { _, phase in
-            if phase == .active { Task { await checkMapClipboard() } }
-        }
-        // v3.8.0：灵动岛 / 锁屏实时活动——AI 开始时亮起、结束时收起（本地驱动，侧载免费签名可用）
-        // initial: true：冷启动时先结算一次（服务端还在回复的场景由 remoteBusy 探针随后触发 true）
-        // v3.9.7：busy=false 走「完成态 → 2s 后收起」，让「已完成」看得见
-        .onChange(of: aiBusy, initial: true) { _, busy in
-            pushLiveActivity(busy: busy)
-            // v3.9.9 fix：抑制标记的复位已挪到上面那处 `startSeq` 观察（与工具卡收起合并在同一处，
-            // 别再单独挂——链长一超阈值 CI 就挂）。
-            if busy { inboxPullReset() }
-        }
-        // v4.0.x（审查 TASK2 ②）：抑制标记复位已与工具卡收起合并到上面那处 `.onChange(of: stream.startSeq)`。
-        // 合并而非新增的理由：这条 body 链已贴着类型检查阈值，多挂一个带闭包的修饰符即 Archive 失败（CI #608）。
-        // v3.9.9 收口（两位只读审查都指出上一版信号不干净）：触发改为 `chat.assistantLandedToken`——
-        // ChatStore 在**真正 append/insert 了一条 assistant 回复**时自增。原来监听「末条消息 id 变化」：
-        //   ① 切会话 / 冷启动加载（load 整组替换 messages）也会变 → 念出刚打开会话的历史旧答案；
-        //   ② AI 回答中用户又发一条（排队）时，本轮回复 insert 在中段、末条仍是 user 消息 → 信号不变，
-        //      这一轮永远不朗读。
-        // 为什么不用 `aiBusy`（历史教训，别改回去）：aiBusy = (本机流 && 会话匹配) || 云端流 ||
-        // 服务器探针 的并集，切会话 / 探针抖动 / 失败自动重试的空窗 / 用户点停止都会 true→false，
-        // 据此朗读会念到上一条旧答案、半截答案，甚至切过去那个会话的内容；
-        // 流式中的内容活在 streamingBubble（不落 chat.messages），所以"落库事件"才是本轮结束的可靠信号。
-        // v4.0.11：两条「落库」边沿合成**一个**观察值 —— 本 view 的修饰符链已处在编译器类型检查超时的
-        // 临界点（CI 报 ChatView.swift:2548 unable to type-check），能不加 modifier 就不加。
-        // token：本会话落库（驱动自动朗读）；away：被移交的后台任务落库（驱动排队排空）。
-        // away 不能用 token 代替：assistantLandedToken 只在 noteAssistantLanded 自增，移交落库走的是
-        // noteAwayLandedReply → 挂在 token 上是空操作、缺口照旧（A 里第二条一直「排队中」，要重进聊天页
-        // 才补发）。pumpPendingQueue 幂等：只派发属于当前会话的条目、且被 !stream.isStreaming 挡着。
-        .onChange(of: LandedSignal(token: chat.assistantLandedToken, away: chat.awayLandedTick)) { old, new in
-            if new.token != old.token { autoReadLatestReply() }
-            if new.away != old.away { pumpPendingQueue() }
-        }
-        // v3.9.7：阶段变化（思考中 → 输出中）也要推一次，否则灵动岛会一直停在「思考中」
-        // （内容没变的重复调用会被管理器挡掉，不会造成 update 风暴）
-        .onChange(of: liveActivityPhase) { _, _ in
-            guard aiBusy else { return }
-            pushLiveActivity(busy: true)
-        }
-        // v2.0.59：上下文过长提示（60+ 条建议压缩）
-        .alert("上下文较长", isPresented: $showLongContextAlert) {
-            Button("压缩后发送") {
-                if let p = pendingSend {
-                    chat.compressContext()
-                    sendPendingNow(p)
-                }
-            }
-            Button("直接发送") {
-                if let p = pendingSend {
-                    sendPendingNow(p)
-                }
-            }
-            Button("取消", role: .cancel) { pendingSend = nil }
-        } message: {
-            Text("当前会话已 \(chat.messages.count) 条消息，继续发送可能接近模型上下文上限。压缩后仅保留最近 20 条（早期内容替换为摘要标记）。")
-        }
-        // v3.0.81：AI 摘要压缩中提示
-        .alert("正在压缩上下文", isPresented: $showCompressingAlert) {
-            // 无按钮，自动消失
-        } message: {
-            Text("AI 正在总结历史消息，请稍候...")
-        }
-        // v2.0.36：图片大图查看器（v2.0.62 相册翻页）
-        .quickLookPreview($quickLookURL)   // v3.9.17：AI 生成物（PDF/表格/文本）预览
-        .fullScreenCover(item: $viewerPayload) { p in
-            // v3.4.29：zoom 转场——全屏大图从被点的小图"生长"出来（iOS 18+ 原生，支持 fullScreenCover）
-            if p.sourceID.isEmpty {
-                ImageViewer(images: p.images, index: p.index)
-            } else {
-                ImageViewer(images: p.images, index: p.index)
-                    .navigationTransition(.zoom(sourceID: p.sourceID, in: zoomNS))
-            }
-        }
-        // v2.0.36：导出会话记录
-        .fileExporter(isPresented: $showExporter,
-                      document: ChatLogDocument(text: exportText),
-                      contentType: .plainText,
-                      defaultFilename: "轻聊会话") { _ in }
-        .fileExporter(isPresented: $showMarkdownExporter,
-                      document: ChatMarkdownDocument(text: exportMarkdown),
-                      contentType: ChatMarkdownDocument.markdownType,
-                      defaultFilename: "轻聊会话") { _ in }
-        .fileExporter(isPresented: $showPDFExporter,
-                      document: ChatPDFDocument(data: exportPDFData ?? Data()),
-                      contentType: .pdf,
-                      defaultFilename: "轻聊会话") { _ in }
-        // v3.4.28：导出格式选择面板 + HTML 导出
-        .sheet(isPresented: $showExportSheet) {
-            ChatExportSheet(title: chat.title, messages: chat.messages) { format in
-                handleExport(format)
-            }
-            .scrollContentBackground(.hidden)
-        }
-        .fileExporter(isPresented: $showHTMLExporter,
-                      document: ChatHTMLDocument(html: exportHTML),
-                      contentType: .html,
-                      defaultFilename: "轻聊会话") { _ in }
+        .modifier(MessageListChrome1(host: self))
+        .modifier(MessageListChrome2(host: self))
+        .modifier(MessageListChrome3(host: self))
+        .modifier(MessageListChrome4(host: self))
+        .modifier(MessageListChrome5(host: self))
+        .modifier(MessageListChrome6(host: self))
         // v2.0.36：录音权限被拒提示
     }
 
@@ -4570,3 +4279,467 @@ struct ChatView: View {
                                       quality: ImageDownscale.cellularQuality) ?? imageDataURL
     }
 }   // v3.0.50：扫码球移除后 ChatView struct 闭合
+
+
+// MARK: - v4.0.49 启动链类型折叠（防启动期 demangler 递归爆主线程 1MB 栈）
+// 事故：v4.0.47 / v4.0.48 侧载装完「一点开就闪退」。设备 .ips 实证 = 主线程栈溢出，
+// demangler 在 messageList.getter 里递归 102 帧；定量对得上该类型的 mangled 名 **1951 字符**
+// （≈19 字符/帧 × 每帧 ~9.3KB）。4.0.48 的 AnyView 擦除只动到了内联子链，
+// 真正的开销是**外层链本身**（16 条 ScrollView 修饰器 + 22 条 ZStack 修饰器全内联在类型名里）。
+//
+// 修法：折成具名 ViewModifier 分组 —— 父类型名只留组名（~35 字符），组内链在各组自己的一次调用里
+// 解析（各自 1MB 栈预算）。⚠️ 不透明属性（some View）做不到这一点：解析不透明类型时仍要解析其
+// 底层类型名，长度照样算进同一次递归 —— 这是 4.0.48 修了但没修到点上的原因。
+//
+// 视图树、修饰器顺序与语义一律不动（等价重构）：.id("messages") / .transition 等身份与动画真源
+// 仍作用在同一个视图上，只是类型结构从「一条 40 层的链」变成「几个具名组」。
+extension ChatView {
+    // MARK: - v4.0.49 启动链折叠（防 demangler 栈溢出；护栏 = ql_typestack ③′）
+    // 事故：类型名 1951 字符 ↔ demangler 递归 102 帧 ↔ 主线程 1MB 栈吃干 → 一点开就闪退。
+    // 规则：谁也不许把这些链再内联回 messageList —— 改链请改这里的 applyXxx，别动调用点。
+
+    /// 启动链折叠第 1 组（4 条修饰器）：名字里只出现本组具名类型，不再内联整条链
+    @MainActor
+    private func applyMessageListScroll1<C: View>(to content: C, proxy: ScrollViewProxy) -> some View {
+        content
+                .animation(Motion.settle, value: chat.messages.isEmpty)   // v3.9.30：驱动欢迎页/列表切换过渡
+            // v2.0.111：消息区背景透明（ScrollView 默认白底遮住上方 logo/内容）
+            .scrollContentBackground(.hidden)
+            // v2.0.86h：Dock 滑动隐藏已删除（从未生效，手动开关替代）
+            // v2.0.43：搜索定位——滚动到命中消息并高亮 2 秒
+            // v3.9.58c：proxy 写回 @State（引用块跳转用）；onAppear 只跑一次，不参与 body 重算
+            .onAppear { scrollProxyRef = proxy }
+            .onChange(of: chat.highlightTarget?.content) { _, _ in
+                guard let t = chat.highlightTarget,
+                      let idx = chat.indexOfMessage(role: t.role, contentPrefix: t.content) else { return }
+                let mid = chat.messages[idx].id
+                highlightMessageID = mid
+                withAnimation(Motion.settle) {
+                    proxy.scrollTo(mid, anchor: .center)
+                }
+                Task {
+                    try? await Task.sleep(for: .seconds(2))
+                    withAnimation(Motion.settle) { highlightMessageID = nil }
+                }
+            }
+            // 滚动消息区即收起键盘（微信式）
+            .scrollDismissesKeyboard(.immediately)
+            // v3.4.1：底部上拉拉取收件箱——官方滚动几何回调（每帧实时含过拉 bounce）。
+            // overscroll = offset 超底部边界量；触底再上拉为正。详见 InboxPullRefresh.swift
+    }
+
+    /// 启动链折叠第 2 组（4 条修饰器）：名字里只出现本组具名类型，不再内联整条链
+    @MainActor
+    private func applyMessageListScroll2<C: View>(to content: C, proxy: ScrollViewProxy) -> some View {
+        content
+            .onScrollGeometryChange(for: CGFloat.self) { geo in
+                let maxY = geo.contentSize.height - geo.containerSize.height
+                // v3.9.48 性能：投影**先夹 0 再取整**。onScrollGeometryChange 只在投影值变化时
+                // 回调 action，原先未过拉时返回的是逐帧变化的负数 → 整个正常滚动过程每帧回调一次、
+                // 每帧写一次 @Observable progress（Observation 不做等值比较，写同值也标脏
+                // InboxPullLayer——那层里还挂着一颗 ultraThinMaterial 胶囊）。
+                // 夹 0 后正常滚动期投影恒为 0，一次回调都不发；过拉本身只有 0...60pt 有意义，
+                // 取整到 1pt 拉满过程最多 60 次失效，指示器跟手位移看不出差别。
+                let overscroll = geo.contentOffset.y - max(0, maxY)
+                return overscroll <= 0 ? 0 : overscroll.rounded()
+            } action: { _, overscroll in
+                inboxPullHandleScroll(overscroll: overscroll)
+            }
+            // v3.0.86 fix：贴底检测（pinned）——内容不满屏或已滚到底（容差 8pt）视为贴底。
+            // 流式自动滚底仅贴底时生效：用户上翻阅读历史时 pinned=false，不被 delta 拽回底部。
+            // 🚨 v4.0.36 修（用户实报「流式最新文字一路沉到输入框下面、气泡不往上顶」）：
+            //   原写法 `isScrollPinned = pinned` 无法区分「谁让内容不在底部」——流式每来一段 delta
+            //   内容就长高几十 pt，而**同一帧里 offset 还没动**（滚底挂在 stream.content 的 onChange、
+            //   onScrollGeometryChange 可能先跑），于是第一段 delta 就把 pinned 判成 false
+            //   → 之后每段都被 `guard isScrollPinned` 挡掉、自动滚底当场熄火，气泡只能在输入栏下面继续长。
+            //   现在只有「用户真的把内容往回滚」才解除贴底；内容变高不参与判定，
+            //   处于/回到底部即恢复贴底。用户上翻阅读时 delta 依旧不会把人拽回底部（语义不变）。
+            //   ⚠️ 本轮补丁（审查实踩）：解除贴底判的是**累计**回滚量而不是单帧增量——
+            //   单帧阈值（<prev-1）会让「每帧不足 1pt 的慢速上滑」永远解除不了，照样被 delta 拽回。
+            //   状态因此从一个 Bool 变成 ChatScrollPinState（pinned + 贴底基准 offset）。
+            //   判定本体已抽成纯函数 ChatScrollPin.next（Core/ChatScrollPin.swift）——
+            //   原来内联在这条闭包里，linux swiftc 编不进真值表，等于这段最容易错的逻辑没有单测。
+            //   单测：scripts/ql_scrollpin/truth_table_scrollpin.swift（check_swift.sh 第 63 段）。
+            .onScrollGeometryChange(for: ChatScrollSnapshot.self) { geo in
+                ChatScrollSnapshot(offset: geo.contentOffset.y,
+                                   contentH: geo.contentSize.height,
+                                   containerH: geo.containerSize.height)
+            } action: { _, new in
+                scrollPinState = ChatScrollPin.next(state: scrollPinState,
+                                                    offset: new.offset,
+                                                    contentH: new.contentH,
+                                                    containerH: new.containerH)
+            }
+            // v4.0.34：测量滚动容器可视高度——列表 minHeight 用它实现「不满屏也贴底」
+            //（onScrollGeometryChange 首次挂载即回调一次初始值；键盘弹出容器变矮也自动更新）
+            .onScrollGeometryChange(for: CGFloat.self) { geo in
+                geo.containerSize.height
+            } action: { _, h in
+                chatListViewportH = h
+            }
+            // v2.0.135：ScrollView 是 UIKit 桥接视图，其区域点击不冒泡到 ZStack 根手势
+            // （v2.0.112b 把 onTapGesture 移到 ZStack 后，有消息时点空白收键盘失效，用户复报）
+            // → ScrollView 自身也挂一个：点消息区空白收键盘（点气泡由 MessageBubble 手势优先消费，不受影响）
+            .onTapGesture {
+                inputFocus = false
+            }
+            // v3.0.86 fix：缓存刷新已上提 ZStack 层 onChange（ScrollView 卸载/欢迎态也生效），
+            // 此处的 count 变化只负责贴底滚动（消息 append 场景）
+    }
+
+    /// 启动链折叠第 3 组（3 条修饰器）：名字里只出现本组具名类型，不再内联整条链
+    @MainActor
+    private func applyMessageListScroll3<C: View>(to content: C, proxy: ScrollViewProxy) -> some View {
+        content
+            .onChange(of: chat.messages.count) {
+                // v4.0.37：append（自己发出 / 回答落库）本来就意味着「要跟着看」——把贴底态一并复位。
+                // 否则上一轮遗留的 unpinned 会让随后整段流式的自动滚底全部熄火（真机「贴底没效果」的一支）。
+                // 不加新行为：此处原本就无条件滚底，复位只是让随后的 delta 不再被旧态挡住。
+                scrollPinState = .pinnedAtBottom
+                scrollBottom(proxy)
+            }
+            .onChange(of: displayLimit) { _, _ in
+                refreshVisibleMessages()
+            }
+            // v3.0.86 fix：流式内容变化仅在用户贴底时自动滚底（scrollPinState 由下方
+            // onScrollGeometryChange 实时维护）——上翻阅读历史不再被 delta 拽回；无动画防高频打断
+            // 🚨 v4.0.40（2026-10-04 用户再报「流式时最新气泡始终沉在输入框下面」）——本次改的是
+            // **信号源**，不是时序：
+            //   · 渲染（气泡高度）由打字机平滑层 stream.displayContent 驱动，每 48ms 一 tick；
+            //   · 旧写法滚底挂在 stream.content 上，那只在 poll 落字时变（约 0.15s 一次）→ 两个信号源
+            //     不同源：每滚一次底，随后 48~150ms 内气泡又长高 1~3 行，逐 tick 累加出来的观感就是
+            //     「最新几行永远差一截、沉到输入栏下面」。v4.0.36/37/38 三版都在调时序/判定
+            //     （累计回滚量、延后一拍），没碰过「滚底信号 ≠ 渲染信号」这个根。
+            // 现在滚底与渲染同源：displayContent 每变一次就滚一次，两者节拍一致。
+            // 同理别退回 stream.content —— 源级护栏 ql_scrollpin B14 钉住这条。
+            .onChange(of: stream.displayContent) { _, _ in
+                guard scrollPinState.pinned else { return }
+                // v4.0.37：延到下一拍、几何更新后再滚（同一帧内容刚长高、布局尚未落地）。
+                // 延迟窗口内用户若上翻，第二道 pinned 判定会把这次滚动放掉，不把人拽回去。
+                DispatchQueue.main.async {
+                    guard scrollPinState.pinned else { return }
+                    scrollBottom(proxy, animated: false)
+                }
+            }
+    }
+
+    /// 启动链折叠第 1 组（4 条修饰器）：名字里只出现本组具名类型，不再内联整条链
+    @MainActor
+    private func applyMessageListChrome1<C: View>(to content: C) -> some View {
+        content
+            // v2.0.112b：点消息区空白收键盘——原 onTapGesture 只挂 ScrollView（有消息才显示），
+            // 欢迎页（无消息）状态点空白无法收键盘 → 移到 ZStack 根统一生效
+            // v2.0.135：ZStack 无 contentShape 时透明空白不可命中（此前只有点 logo/气泡才触发收键盘）
+            // → 补 contentShape(Rectangle()) 让整片区域可命中；有消息场景由 ScrollView 自身手势兜底
+            .contentShape(Rectangle())
+            .background(Color.clear)
+            .onTapGesture {
+                inputFocus = false
+            }
+            // v3.0.86 fix：以下 onChange 挂在 messageList 的 ZStack 层（不随欢迎页/清空态卸载的
+            // ScrollView 走）——两步走清空/新建会话/整组替换消息（ChatStore.load 新旧条数相同）
+            // 时可见缓存仍能重建，根治「空态后首条消息错显上一会话缓存行」
+            .onChange(of: chat.sessionId) { prior, _ in
+                // v3.9.41（SR60）：切会话 ≠ 取消发送。原来这里走 clearPendingQueue()（内存 + 盘一起清），
+                // 于是「A 会话里排队、切去 B」= 无条件把 A 的待发吞掉，且盘上那份也一起没了。
+                // 现在只丢「刚离开的这个会话」的排队项；其余留在盘上，回到那个会话或下次启动再补发。
+                dropPendingQueue(dropping: prior)
+                // v4.1.x：忙态结论属于**上一个**会话，必须作废重探——否则新会话会继承上一会话的
+                // 「AI 正在输入」（胶囊/灵动岛）甚至思考气泡（气泡条件已含 remoteBusy）。
+                // 探针 6s 内自己纠正；目标会话本机有 pending 标记时 probeRemoteBusy 会立刻置 true，不闪。
+                remoteBusy = false
+                remoteBusyFails = 0
+                // v4.1.x 多会话并行：进入新会话前，若它有后台流在跑 → 撤后台轮询，
+                // 前台由既有 probeRemoteBusy（6s 内）→ adoptRemote 无缝接回显示。不撤会双轮询抢流。
+                BackgroundStreamRunner.shared.retractIfRunning(sessionId: chat.sessionId)
+                refreshVisibleMessages()
+                // v3.9.80：工具进度四件套走单一入口复位（原先这里手写三行，漏了 v3.9.80 新增的 toolSeq
+                // → 摘要行会把上一会话的步数当成本会话的「实际步数」；详见 StreamClient.resetToolProgress）
+                stream.resetToolProgress()
+                // v3.0.51 A1：会话加载后重传残留 base64 图片（重启续传/失败重传）
+                // SR4：走 ChatStore 的单飞入口——旧会话那条重传链会先被 cancel，不会跨会话争写 messages
+                chat.startImageRetryUploads(auth: auth)
+                // v4.0.x 一句话记账：「已记账 + 撤销」条是「这段对话里刚做的事」，换会话即复位
+                // （记录本体是全局账本、撤销仍能删掉它，但把别处那条提示挂到新会话上看着像 bug）
+                chatRecordEntry = nil
+            }
+            // v3.4.25：改双重触发——count（增删）+ lastID（整组替换/清空重建时 count 不变，仅靠
+            // sessionId 兜底会漏渲染；lastID 变化补上「同条数内容替换」场景，且流式 tick 不改 lastID，
+            // 不引入额外高频重建）
+    }
+
+    /// 启动链折叠第 2 组（4 条修饰器）：名字里只出现本组具名类型，不再内联整条链
+    @MainActor
+    private func applyMessageListChrome2<C: View>(to content: C) -> some View {
+        content
+            .onChange(of: chat.messages.count) {
+                refreshVisibleMessages()
+            }
+            .onChange(of: chat.messages.last?.id ?? "") { _, _ in
+                refreshVisibleMessages()
+            }
+            .onChange(of: chat.pendingNewSession) { _, pending in
+                guard pending else { return }
+                clearing = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                    // v3.0.11 fix：新建会话前先清队列+停流——原实现旧流仍在跑，
+                    // 回答内容会持续显示/落进新会话（同 bot 串话根因族）
+                    // v3.9.41（SR60）：只清本会话的排队项（+ 下面紧接的停流），
+                    // 别的目标会话的待发不该被「点了一下加号」顺带吞掉
+                    dropPendingQueue(dropping: chat.sessionId)
+                    // v4.1.x 多会话并行：新建会话**不再杀旧流**——旧流移交后台跑流器继续轮询，
+                    // 跑完按发起时快照落库（答案不丢）；v3.0.11 的「先停旧流防串话」已过时
+                    //（后端实测真并行、按 sessionId 隔离），且 stream.start 本就会复位单例接管前台。
+                    // 移交失败（单例空闲/异常态）才走原 stop 兜底。
+                    if stream.isStreaming, !stream.isDone, !stream.taskId.isEmpty,
+                       !auth.currentStreamSessionId.isEmpty {
+                        let sid = auth.currentStreamSessionId
+                        let tid = stream.taskId
+                        let anchor = stream.pendingUserMsgId
+                        let startMsgs = chat.sessionId == sid ? chat.messages : []
+                        let startTitle = chat.sessionId == sid ? chat.title : ""
+                        BackgroundStreamRunner.shared.adopt(taskId: tid, sessionId: sid,
+                                                            title: startTitle, userMsgId: anchor,
+                                                            snapshot: startMsgs,
+                                                            offset: stream.handoffOffset,
+                                                            content: stream.handoffContent,
+                                                            auth: auth, chat: chat)
+                        stream.detachLocally()   // 只停本地轮询，服务端任务继续跑；落库归 runner
+                        // v4.0.10：移交后收尾回调被吞（onFinished = nil），startStream 里的
+                        // `sendingLock = false` 永不执行 → 必须在这里显式解锁，否则整页发送永久失效
+                        sendingLock = false
+                    } else if stream.isStreaming {
+                        stream.stop(auth: auth)   // 兜底：缺 taskId/会话 id 的异常态按旧路停掉
+                    }
+                    withAnimation(nil) { chat.newSession() }
+                    chat.pendingNewSession = false
+                    clearing = false
+                    // v3.4.29：加号 = 等同 /new——本地新建完成后补发 /new，触发 gateway 侧上下文重置。
+                    // sessionId 已换成新值，与 sendCore 的 60s 幂等签名（含 sessionId）不冲突
+                    if chat.pendingNewSessionReset {
+                        chat.pendingNewSessionReset = false
+                        silentGatewayReset()
+                    }
+                }
+            }
+            // v4.0.11：启动期逻辑从 body 修饰符链里**提出来**（纯等价重构，零行为变化）。
+            // 根因：CI 报 `ChatView.swift:2548: the compiler is unable to type-check this expression
+            // in reasonable time` —— 巨型 view 链内再塞大闭包，编译器类型检查超时（本地 `-parse`
+            // 只查语法，查不出这类问题，只有 Archive 才挂）。
+            .task { await bootstrapChat() }
+    }
+
+    /// 启动链折叠第 3 组（4 条修饰器）：名字里只出现本组具名类型，不再内联整条链
+    @MainActor
+    private func applyMessageListChrome3<C: View>(to content: C) -> some View {
+        content
+            .fullScreenCover(item: $bigBangPayload) { payload in
+                // v3.9.0：zoom 转场——从被长按的气泡"生长"出来（与图片查看器同一机制）
+                if payload.sourceID.isEmpty {
+                    BigBangView(text: payload.text, onAskAI: { t in sendCore(text: t, imageData: nil) })
+                } else {
+                    BigBangView(text: payload.text, onAskAI: { t in sendCore(text: t, imageData: nil) })
+                        .navigationTransition(.zoom(sourceID: payload.sourceID, in: zoomNS))
+                }
+            }
+            // v3.7.0：回前台时重探一次（用户刚在地图里「拷贝」→ 切回轻聊即出现胶囊）
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active { Task { await checkMapClipboard() } }
+            }
+            // v3.8.0：灵动岛 / 锁屏实时活动——AI 开始时亮起、结束时收起（本地驱动，侧载免费签名可用）
+            // initial: true：冷启动时先结算一次（服务端还在回复的场景由 remoteBusy 探针随后触发 true）
+            // v3.9.7：busy=false 走「完成态 → 2s 后收起」，让「已完成」看得见
+            .onChange(of: aiBusy, initial: true) { _, busy in
+                pushLiveActivity(busy: busy)
+                // v3.9.9 fix：抑制标记的复位已挪到上面那处 `startSeq` 观察（与工具卡收起合并在同一处，
+                // 别再单独挂——链长一超阈值 CI 就挂）。
+                if busy { inboxPullReset() }
+            }
+            // v4.0.x（审查 TASK2 ②）：抑制标记复位已与工具卡收起合并到上面那处 `.onChange(of: stream.startSeq)`。
+            // 合并而非新增的理由：这条 body 链已贴着类型检查阈值，多挂一个带闭包的修饰符即 Archive 失败（CI #608）。
+            // v3.9.9 收口（两位只读审查都指出上一版信号不干净）：触发改为 `chat.assistantLandedToken`——
+            // ChatStore 在**真正 append/insert 了一条 assistant 回复**时自增。原来监听「末条消息 id 变化」：
+            //   ① 切会话 / 冷启动加载（load 整组替换 messages）也会变 → 念出刚打开会话的历史旧答案；
+            //   ② AI 回答中用户又发一条（排队）时，本轮回复 insert 在中段、末条仍是 user 消息 → 信号不变，
+            //      这一轮永远不朗读。
+            // 为什么不用 `aiBusy`（历史教训，别改回去）：aiBusy = (本机流 && 会话匹配) || 云端流 ||
+            // 服务器探针 的并集，切会话 / 探针抖动 / 失败自动重试的空窗 / 用户点停止都会 true→false，
+            // 据此朗读会念到上一条旧答案、半截答案，甚至切过去那个会话的内容；
+            // 流式中的内容活在 streamingBubble（不落 chat.messages），所以"落库事件"才是本轮结束的可靠信号。
+            // v4.0.11：两条「落库」边沿合成**一个**观察值 —— 本 view 的修饰符链已处在编译器类型检查超时的
+            // 临界点（CI 报 ChatView.swift:2548 unable to type-check），能不加 modifier 就不加。
+            // token：本会话落库（驱动自动朗读）；away：被移交的后台任务落库（驱动排队排空）。
+            // away 不能用 token 代替：assistantLandedToken 只在 noteAssistantLanded 自增，移交落库走的是
+            // noteAwayLandedReply → 挂在 token 上是空操作、缺口照旧（A 里第二条一直「排队中」，要重进聊天页
+            // 才补发）。pumpPendingQueue 幂等：只派发属于当前会话的条目、且被 !stream.isStreaming 挡着。
+            .onChange(of: LandedSignal(token: chat.assistantLandedToken, away: chat.awayLandedTick)) { old, new in
+                if new.token != old.token { autoReadLatestReply() }
+                if new.away != old.away { pumpPendingQueue() }
+            }
+            // v3.9.7：阶段变化（思考中 → 输出中）也要推一次，否则灵动岛会一直停在「思考中」
+            // （内容没变的重复调用会被管理器挡掉，不会造成 update 风暴）
+    }
+
+    /// 启动链折叠第 4 组（4 条修饰器）：名字里只出现本组具名类型，不再内联整条链
+    @MainActor
+    private func applyMessageListChrome4<C: View>(to content: C) -> some View {
+        content
+            .onChange(of: liveActivityPhase) { _, _ in
+                guard aiBusy else { return }
+                pushLiveActivity(busy: true)
+            }
+            // v2.0.59：上下文过长提示（60+ 条建议压缩）
+            .alert("上下文较长", isPresented: $showLongContextAlert) {
+                Button("压缩后发送") {
+                    if let p = pendingSend {
+                        chat.compressContext()
+                        sendPendingNow(p)
+                    }
+                }
+                Button("直接发送") {
+                    if let p = pendingSend {
+                        sendPendingNow(p)
+                    }
+                }
+                Button("取消", role: .cancel) { pendingSend = nil }
+            } message: {
+                Text("当前会话已 \(chat.messages.count) 条消息，继续发送可能接近模型上下文上限。压缩后仅保留最近 20 条（早期内容替换为摘要标记）。")
+            }
+            // v3.0.81：AI 摘要压缩中提示
+            .alert("正在压缩上下文", isPresented: $showCompressingAlert) {
+                // 无按钮，自动消失
+            } message: {
+                Text("AI 正在总结历史消息，请稍候...")
+            }
+            // v2.0.36：图片大图查看器（v2.0.62 相册翻页）
+            .quickLookPreview($quickLookURL)   // v3.9.17：AI 生成物（PDF/表格/文本）预览
+    }
+
+    /// 启动链折叠第 5 组（4 条修饰器）：名字里只出现本组具名类型，不再内联整条链
+    @MainActor
+    private func applyMessageListChrome5<C: View>(to content: C) -> some View {
+        content
+            .fullScreenCover(item: $viewerPayload) { p in
+                // v3.4.29：zoom 转场——全屏大图从被点的小图"生长"出来（iOS 18+ 原生，支持 fullScreenCover）
+                if p.sourceID.isEmpty {
+                    ImageViewer(images: p.images, index: p.index)
+                } else {
+                    ImageViewer(images: p.images, index: p.index)
+                        .navigationTransition(.zoom(sourceID: p.sourceID, in: zoomNS))
+                }
+            }
+            // v2.0.36：导出会话记录
+            .fileExporter(isPresented: $showExporter,
+                          document: ChatLogDocument(text: exportText),
+                          contentType: .plainText,
+                          defaultFilename: "轻聊会话") { _ in }
+            .fileExporter(isPresented: $showMarkdownExporter,
+                          document: ChatMarkdownDocument(text: exportMarkdown),
+                          contentType: ChatMarkdownDocument.markdownType,
+                          defaultFilename: "轻聊会话") { _ in }
+            .fileExporter(isPresented: $showPDFExporter,
+                          document: ChatPDFDocument(data: exportPDFData ?? Data()),
+                          contentType: .pdf,
+                          defaultFilename: "轻聊会话") { _ in }
+            // v3.4.28：导出格式选择面板 + HTML 导出
+    }
+
+    /// 启动链折叠第 6 组（2 条修饰器）：名字里只出现本组具名类型，不再内联整条链
+    @MainActor
+    private func applyMessageListChrome6<C: View>(to content: C) -> some View {
+        content
+            .sheet(isPresented: $showExportSheet) {
+                ChatExportSheet(title: chat.title, messages: chat.messages) { format in
+                    handleExport(format)
+                }
+                .scrollContentBackground(.hidden)
+            }
+            .fileExporter(isPresented: $showHTMLExporter,
+                          document: ChatHTMLDocument(html: exportHTML),
+                          contentType: .html,
+                          defaultFilename: "轻聊会话") { _ in }
+    }
+
+    @MainActor
+    private struct MessageListScroll1: ViewModifier {
+        let host: ChatView
+        let proxy: ScrollViewProxy
+
+        func body(content: Content) -> some View { host.applyMessageListScroll1(to: content, proxy: proxy) }
+    }
+
+    @MainActor
+    private struct MessageListScroll2: ViewModifier {
+        let host: ChatView
+        let proxy: ScrollViewProxy
+
+        func body(content: Content) -> some View { host.applyMessageListScroll2(to: content, proxy: proxy) }
+    }
+
+    @MainActor
+    private struct MessageListScroll3: ViewModifier {
+        let host: ChatView
+        let proxy: ScrollViewProxy
+
+        func body(content: Content) -> some View { host.applyMessageListScroll3(to: content, proxy: proxy) }
+    }
+
+    @MainActor
+    private struct MessageListChrome1: ViewModifier {
+        let host: ChatView
+
+        func body(content: Content) -> some View { host.applyMessageListChrome1(to: content) }
+    }
+
+    @MainActor
+    private struct MessageListChrome2: ViewModifier {
+        let host: ChatView
+
+        func body(content: Content) -> some View { host.applyMessageListChrome2(to: content) }
+    }
+
+    @MainActor
+    private struct MessageListChrome3: ViewModifier {
+        let host: ChatView
+
+        func body(content: Content) -> some View { host.applyMessageListChrome3(to: content) }
+    }
+
+    @MainActor
+    private struct MessageListChrome4: ViewModifier {
+        let host: ChatView
+
+        func body(content: Content) -> some View { host.applyMessageListChrome4(to: content) }
+    }
+
+    @MainActor
+    private struct MessageListChrome5: ViewModifier {
+        let host: ChatView
+
+        func body(content: Content) -> some View { host.applyMessageListChrome5(to: content) }
+    }
+
+    @MainActor
+    private struct MessageListChrome6: ViewModifier {
+        let host: ChatView
+
+        func body(content: Content) -> some View { host.applyMessageListChrome6(to: content) }
+    }
+
+    /// 欢迎页分支（frame/id/transition）——v4.0.49 折叠组
+    @MainActor
+    private struct WelcomeBranchChrome: ViewModifier {
+        let host: ChatView
+
+        func body(content: Content) -> some View { host.applyWelcomeBranchChrome(to: content) }
+    }
+
+    @MainActor
+    private func applyWelcomeBranchChrome<C: View>(to content: C) -> some View {
+        content
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .id("welcome")   // v3.4.29：原 padding(.top,120) 已移入 welcomeView 顶部弹性留白（小屏不再挤）
+            .transition(.opacity.combined(with: .scale(scale: 0.97)))   // v3.9.30：欢迎页浮现过渡
+    }
+
+}

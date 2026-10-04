@@ -576,7 +576,14 @@ check("「排队中」标记仍在（同会话排队时那条上屏角标）", s
 // ③不许退回「只有 onAppear 没有 onDisappear」的老写法 ④外观口径不动。
 let typingSlice: String = {
     guard let a = chatViewSrc.range(of: "struct TypingIndicator: View") else { return "" }
-    return String(chatViewSrc[a.lowerBound...])
+    let rest = String(chatViewSrc[a.lowerBound...])
+    // v4.0.49：切到**下一处同级声明**为止（原先切到 EOF）。启动链折叠把带 DispatchQueue.main.async
+    // 的 onChange 块搬到了文件末尾的 extension 里，切到 EOF 会把它算进 TypingIndicator 的切片 →
+    // 「不许改异步翻转」假红。上界锚 = 紧随其后的同级声明。
+    for anchor in ["\n    private func timeDivider(", "\n    private func ", "\n    func "] {
+        if let b = rest.range(of: anchor) { return String(rest[..<b.lowerBound]) }
+    }
+    return rest
 }()
 // 只认定位切片里的**代码行**（注释里会提到 `DispatchQueue.main.async` 这个反面例子，
 // 不滤掉注释的话「不许改异步」那条会假失败）。
@@ -584,7 +591,8 @@ let typingCode = typingSlice.split(separator: "\n")
     .map { $0.trimmingCharacters(in: .whitespaces) }
     .filter { !$0.hasPrefix("//") }
     .joined(separator: "\n")
-check("TypingIndicator 源切片非空（切片失败 = 下面全是空真）", typingSlice.count > 200)
+check("TypingIndicator 源切片非空且已在上界截断（失败/未截断 = 空真或假红）",
+      typingSlice.count > 1000 && typingSlice.count < 3600)
 // v4.0.12 根治「圆点脉冲自己消失」（用户 2026-09-30 真机实报：onAppear/onDisappear 边沿方案
 // 没根治，思考气泡在父级重建时身份抖动，边沿丢失后 @State 已是 true → 动画永不重启 ≈ 空泡）。
 // 根治：TimelineView 驱动——相位由时间戳直接算出，视图怎么重建都停不下来；旧断言全部退役。

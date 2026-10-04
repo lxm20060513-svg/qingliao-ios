@@ -27,6 +27,17 @@
 //
 // ⚠️ 文本级断言（视图代码无可跑逻辑）：只钉判别性子串；注释按**整行**剥离
 //   （行内剥会把 `//` 后面的说明截断造成假红）。
+//
+// ── v4.0.49 复盘：4.0.48 为什么还是崩（同一台设备、同一份 .ips 形状） ──────────
+// 4.0.48 的擦除只做在**内层元组元素**（thinkingIndicatorRow/toolStepCards），而崩点那个
+//   类型名是 messageList 自己的返回类型：`_ConditionalContent<欢迎页分支, ScrollViewReader<
+//   ScrollView<LazyVStack<…>>>>` 之外还挂着 **22 条 ZStack 级修饰器** + ScrollView 上 **11 条**，
+//   全部**内联**在名字里 → 实测该类型名 1951 字符（dSYM 符号表量出；同段还并存 9290 字符的
+//   lazy witness 名）。demangler 递归 102 帧 ↔ 每 19 字符 ≈ 1 帧、每帧 ~9.3KB → 1MB 栈吃干。
+// 结论修正：危险量是**名字的字符数**，不是元组嵌套层数；AnyView 只擦内联子链，擦不掉
+//   「父视图自己那条修饰器链」。iOS 27.2 beta 运行时多几帧泛型校验 → 从「偶尔」变「必崩」。
+// 修法（v4.0.49）= 把长链**折成具名 ViewModifier 分组**（父名里只剩组名，链在各组自己的
+//   调用里解析），另把 LazyVStack 内容里的内联按钮链抽成不透明属性。护栏在 ③′。
 
 import Foundation
 
@@ -123,5 +134,52 @@ ok(ml.contains(".padding(EdgeInsets(top: Spacing.md, leading: 6, bottom: Spacing
 ok(!ml.contains(".padding(.horizontal, 6)\n                    .padding(.top, Spacing.md)"),
    "③ 负断言：三条分散 padding 已不存在（回退 = 深度回升）")
 
+// ── ③′ v4.0.49：启动链的长修饰器链必须折成具名 ViewModifier 分组 ─────────
+// 量纲：类型名**字符数**。实测 19 字符 ≈ 1 帧 demangler 递归 ≈ 9.3KB 栈（4.0.48：1951 字符 ↔ 102 帧）。
+// 折前 messageList 返回类型名里内联了 ScrollView 链 11 条 + ZStack 链 22 条 + 欢迎页分支 3 条
+//   + 内联按钮链 ≈ 1250+ 字符；折后这三处只剩 `.modifier(组名)`，实测目标 ≤8 层/≤900 字符。
+let foldGroups = ["MessageListScroll1(host: self, proxy: proxy)",
+                  "MessageListScroll2(host: self, proxy: proxy)",
+                  "MessageListScroll3(host: self, proxy: proxy)",
+                  "MessageListChrome1(host: self)", "MessageListChrome2(host: self)",
+                  "MessageListChrome3(host: self)", "MessageListChrome4(host: self)",
+                  "MessageListChrome5(host: self)", "MessageListChrome6(host: self)",
+                  "WelcomeBranchChrome(host: self)"]
+for g in foldGroups {
+    ok(ml.contains(".modifier(\(g))"), "③′ 折叠组已就位：.modifier(\(g))")
+}
+// 链不许再内联回 messageList（回退 = 名字长度回升 ≈ 1250 字符 ≈ 65 帧 ≈ 600KB 栈 = 回到必崩区）
+for m in [".onScrollGeometryChange(", ".scrollDismissesKeyboard(", ".fileExporter(",
+          ".fullScreenCover(", ".quickLookPreview(", ".alert(", ".sheet(",
+          ".onTapGesture {", ".scrollContentBackground("] {
+    ok(!ml.contains(m), "③′ 负断言：\(m) 未内联回 messageList（回退 = 启动链名字变长）")
+}
+// 内联按钮链已抽成属性（原来 ~350 字符直接压在 LazyVStack 内容类型里）
+ok(ml.contains("loadEarlierButton"), "③′ 「加载更早」按钮已抽成不透明属性（内容类型不再内联按钮链）")
+ok(!ml.contains("Text(\"加载更早 "), "③′ 负断言：按钮链文案未内联回 messageList")
+// 组必须**短**：单组 ≤5 条链式修饰器（组太胖 = 折叠没落地，名字还是会涨）
+// 注：`code` 已整行剥注释，锚点必须是**代码行**（首个折叠方法）
+let foldExt: String = {
+    guard let a = idx(code, "func applyMessageListScroll1<C: View>") else { return "" }
+    return String(code.dropFirst(a))
+}()
+ok(!foldExt.isEmpty, "③′ 折叠区（extension）定位成功（锚点 = 首个折叠方法还在）")
+if !foldExt.isEmpty {
+    for n in ["MessageListScroll1", "MessageListScroll2", "MessageListScroll3",
+              "MessageListChrome1", "MessageListChrome2", "MessageListChrome3",
+              "MessageListChrome4", "MessageListChrome5", "MessageListChrome6",
+              "WelcomeBranchChrome"] {
+        guard let a = idx(foldExt, "func apply\(n)<C: View>") else {
+            ok(false, "③′ 找不到折叠方法 apply\(n)"); continue
+        }
+        let body = String(foldExt.dropFirst(a))
+        let seg: String = {
+            if let e = idx(body, "\n    }") { return String(body.prefix(e)) }
+            return body
+        }()
+        let dots = seg.split(separator: "\n").filter { $0.trimmingCharacters(in: .whitespaces).hasPrefix(".") }.count
+        ok(dots >= 1 && dots <= 5, "③′ 组 \(n) 只承载 \(dots) 条修饰器（要求 1…5）")
+    }
+}
 print("  —— 类型栈深度真值表：\(pass) 通过 / \(fail) 失败")
 if fail > 0 { exit(1) }
