@@ -37,6 +37,12 @@ struct GoalItem: Identifiable, Codable, Equatable, Sendable {
     /// 每日两段的时间点（0-23），默认早 9 / 晚 21
     var morningHour: Int
     var eveningHour: Int
+    /// v4.0.40（#5）：手动「现在开始推进」的时刻（后端回写）
+    var manualPushAt: Date?
+    /// v4.0.40（#4）：全部步骤完成的时刻 —— 有值即视为已完成（卡片折叠、cron 停掉）
+    var finishedAt: Date?
+    /// v4.0.40（#3）：建目标时那条会话 —— 后台推进遇到「需要你确认」推回这里
+    var originSessionId: String
 
     init(id: String = UUID().uuidString,
          title: String,
@@ -50,6 +56,9 @@ struct GoalItem: Identifiable, Codable, Equatable, Sendable {
          lastPushedAt: Date? = nil,
          reports: [GoalReport] = [],
          paused: Bool = false,
+         manualPushAt: Date? = nil,
+         finishedAt: Date? = nil,
+         originSessionId: String = "",
          createdAt: Date = Date(),
          updatedAt: Date? = nil) {
         self.id = id
@@ -64,6 +73,9 @@ struct GoalItem: Identifiable, Codable, Equatable, Sendable {
         self.lastPushedAt = lastPushedAt
         self.reports = reports
         self.paused = paused
+        self.manualPushAt = manualPushAt
+        self.finishedAt = finishedAt
+        self.originSessionId = originSessionId
         self.createdAt = createdAt
         self.updatedAt = updatedAt ?? createdAt
     }
@@ -85,12 +97,16 @@ struct GoalItem: Identifiable, Codable, Equatable, Sendable {
         lastPushedAt = try c.decodeIfPresent(Date.self, forKey: .lastPushedAt)
         reports = try c.decodeIfPresent([GoalReport].self, forKey: .reports) ?? []
         paused = try c.decodeIfPresent(Bool.self, forKey: .paused) ?? false
+        manualPushAt = try c.decodeIfPresent(Date.self, forKey: .manualPushAt)
+        finishedAt = try c.decodeIfPresent(Date.self, forKey: .finishedAt)
+        originSessionId = try c.decodeIfPresent(String.self, forKey: .originSessionId) ?? ""
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, title, steps, cronJobID, morningEnabled, eveningEnabled
         case morningHour, eveningHour, createdAt, updatedAt
         case lastReport, lastPushedAt, paused, reports
+        case manualPushAt, finishedAt, originSessionId
     }
 
     var sortDate: Date { updatedAt }
@@ -101,7 +117,13 @@ struct GoalItem: Identifiable, Codable, Equatable, Sendable {
         return Double(steps.filter { $0.done }.count) / Double(steps.count)
     }
     var doneCount: Int { steps.filter { $0.done }.count }
+    /// v4.0.40（#4）：完成判定 = 有步骤且全勾上。
+    /// 后端 finishedAt 只作辅助展示，不参与判定 —— 用户手动取消一个勾选就应立刻回到进行中。
     var isFinished: Bool { !steps.isEmpty && steps.allSatisfy { $0.done } }
+    /// v4.0.40（#5）：整体开始时间 = 最早的那个步骤开始时间（没有就退回创建时间）
+    var startedAt: Date {
+        steps.compactMap { $0.startedAt }.min() ?? createdAt
+    }
 
     /// 明天要推进哪一步（第一个未完成的）
     var nextStep: GoalStep? { steps.first { !$0.done } }
@@ -115,17 +137,22 @@ struct GoalStep: Identifiable, Codable, Equatable, Hashable, Sendable {
     var todoLinked: Bool
     var done: Bool
     var doneAt: Date?
+    /// v4.0.40（#5）：这一步的开始时间 —— 后台第一次把它列为「今天推这一步」时打戳。
+    /// 老数据没有该键 → nil（卡片不显示这行，不是显示 0）。
+    var startedAt: Date?
 
     init(id: String = UUID().uuidString,
          title: String,
          todoLinked: Bool = false,
          done: Bool = false,
-         doneAt: Date? = nil) {
+         doneAt: Date? = nil,
+         startedAt: Date? = nil) {
         self.id = id
         self.title = title
         self.todoLinked = todoLinked
         self.done = done
         self.doneAt = doneAt
+        self.startedAt = startedAt
     }
 
     // 🚨 手写解码
@@ -136,10 +163,11 @@ struct GoalStep: Identifiable, Codable, Equatable, Hashable, Sendable {
         todoLinked = try c.decodeIfPresent(Bool.self, forKey: .todoLinked) ?? false
         done = try c.decodeIfPresent(Bool.self, forKey: .done) ?? false
         doneAt = try c.decodeIfPresent(Date.self, forKey: .doneAt)
+        startedAt = try c.decodeIfPresent(Date.self, forKey: .startedAt)
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, title, todoLinked, done, doneAt
+        case id, title, todoLinked, done, doneAt, startedAt
     }
 }
 
@@ -178,7 +206,19 @@ final class GoalStore {
     private init() { loadLocal() }
 
     var sorted: [GoalItem] { goals.sorted { $0.sortDate > $1.sortDate } }
+    /// v4.0.40（#4）：未完成优先（已完成的沉底 —— 用户要「已完成自己划掉」）
+    var sortedActiveFirst: [GoalItem] {
+        goals.sorted { a, b in
+            if a.isFinished != b.isFinished { return !a.isFinished }
+            return a.sortDate > b.sortDate
+        }
+    }
     var activeCount: Int { goals.filter { !$0.isFinished }.count }
+    /// v4.0.40（#4）：已完成数（页头「N 个进行中 · M 个已完成」）
+    var finishedCount: Int { goals.filter { $0.isFinished }.count }
+    /// v4.0.40（#4）：未完成目标（页面主卡只从这里取）
+    var activeGoals: [GoalItem] { sortedActiveFirst.filter { !$0.isFinished } }
+    var finishedGoals: [GoalItem] { sortedActiveFirst.filter { $0.isFinished } }
 
     // ── 本地 ──────────────────────────────────────────
     private func loadLocal() {
@@ -278,6 +318,9 @@ final class GoalStore {
                 || g.cronJobID != r.cronJobID
                 || g.lastReport != r.lastReport
                 || g.paused != r.paused
+                || g.finishedAt != r.finishedAt
+                || g.originSessionId != r.originSessionId
+                || g.manualPushAt != r.manualPushAt
                 || g.morningEnabled != r.morningEnabled
                 || g.eveningEnabled != r.eveningEnabled
                 || g.steps.count != r.steps.count
@@ -304,6 +347,8 @@ final class GoalStore {
         let body: [String: Any] = [
             "id": goal.id,
             "title": goal.title,
+            // v4.0.40（#3）：带上建目标时那条会话 → 后台推进遇到「需要你确认」能推回原会话
+            "sessionId": goal.originSessionId,
             "steps": goal.steps.map { s -> [String: Any] in
                 ["id": s.id, "title": s.title, "todoLinked": s.todoLinked]
             },
@@ -330,6 +375,18 @@ final class GoalStore {
             merged.cronJobID = one
         }
         return merged
+    }
+
+    /// v4.0.40（#1）：「现在开始推进」—— 后端在后台跑一次早推进，回写卡片 + 推送。
+    /// 立即返回；真正内容后台产出（任务中心能实时看到那条作业）。
+    /// 返回 false = 请求都没发出去（此时别改本地状态，让用户可以再点一次）。
+    @discardableResult
+    func pushNowOnBackend(goalID: String) async -> Bool {
+        guard let auth else { return false }
+        guard let j = try? await auth.json("/api/life/goal/push_now", method: "POST",
+                                         body: ["id": goalID]),
+              (j["ok"] as? Bool) == true else { return false }
+        return true
     }
 
     /// 暂停/恢复每日推进（后端要同步 disable/enable job）

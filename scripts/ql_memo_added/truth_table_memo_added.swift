@@ -96,5 +96,82 @@ check("撤销不存在的条目=无副作用", m6.memoAdded == ["A", "B"], "\(m6
 m6.forget(["A", "B"])
 check("全部撤销后清空", m6.memoAdded.isEmpty)
 
+// ─────── ④ 源级接线断言（模型全绿但源码没接 = 功能 100% 不 work）───────
+// 镜像模型证明不了「ChatView 真的挂了这条 bar」「撤销真的调了 delete」。
+// 2026-10-04 取证发现：本项功能早在 v4.0.120 就落地了，但护栏只覆盖镜像模型 ——
+// 源码里删掉挂载点/换成别的端点，表照样全绿。下列断言把接线钉死。
+print("── ④ 源级接线（读 App 源码）")
+
+let repoRoot = ProcessInfo.processInfo.environment["QL_REPO"] ?? FileManager.default.currentDirectoryPath
+func src(_ rel: String) -> String {
+    let p = rel.hasPrefix("/") ? rel : "\(repoRoot)/\(rel)"
+    return (try? String(contentsOfFile: p, encoding: .utf8)) ?? ""
+}
+func sc(_ name: String, _ cond: Bool, _ detail: String = "") {
+    check(name, cond, detail)
+}
+func slice(_ s: String, _ from: String, _ to: String) -> String {
+    guard let a = s.range(of: from)?.lowerBound else { return "" }
+    guard let b = s.range(of: to, range: a..<s.endIndex)?.lowerBound else { return String(s[a...]) }
+    return String(s[a..<b])
+}
+// 写成字面量相对路径（不拼变量）：check_guard_coverage.py 的 SRC_RE 靠这个形态
+// 校验「引用的源文件真的存在」，拼变量的写法会被它当成没读源码而漏掉断链检查。
+let chatView = src("qingliao/Features/Chat/ChatView.swift")
+let streamClient = src("qingliao/Core/StreamClient.swift")
+let authStore = src("qingliao/Core/AuthStore.swift")
+let memoBar = src("qingliao/Features/Chat/ChatMemoBar.swift")
+sc("C0 五个源文件都读到（路径没断）",
+   !chatView.isEmpty && !streamClient.isEmpty && !authStore.isEmpty && !memoBar.isEmpty)
+
+// C1 提示条真的挂在输入栏上方那个槽位里
+sc("C1 bar 挂在 chatRecordBarSlot", chatView.contains("} else if !stream.memoAdded.isEmpty {"))
+sc("C1 bar 用 ChatMemoBar 渲染", chatView.contains("ChatMemoBar(texts: stream.memoAdded"))
+sc("C1 ChatMemoBar.swift 存在", !memoBar.isEmpty)
+
+// C2 判据只读 stream.memoAdded（不另挂 .onChange —— 那条链贴着类型检查阈值）
+let slot = slice(chatView, "private var chatRecordBarSlot", "// MARK: - v3.7.0")
+sc("C2 判据读 stream.memoAdded", slot.contains("stream.memoAdded.isEmpty"))
+
+// C3 撤销 = 真删 /api/memory/delete（不是本地隐藏）
+let undoBody = slice(chatView, "private func undoMemo", "private func flashRecordDedup")
+sc("C3 撤销调 memory/delete", undoBody.contains("/api/memory/delete"))
+sc("C3 撤销逐条删", undoBody.contains("for t in texts"))
+// v3.9.41 同款教训：try? 吞错 → 记忆「看着删了」重开又回来
+sc("C3 撤销判 ok 字段", undoBody.contains("(j[\"ok\"] as? Bool) == true"))
+sc("C3 删除失败震动可见（不假装成功）", undoBody.contains("Haptics.error()"))
+// 部分失败时已删的那几条必须先摘掉，否则再点撤销永远停在同一条失败
+sc("C3 部分失败先摘已删条目", undoBody.contains("stream.forgetMemo(deleted)"))
+
+// C4 撤销成功后从本流摘掉（防「删了又弹」）
+sc("C4 撤销成功调 forgetMemo", undoBody.contains("stream.forgetMemo(texts)"))
+sc("C4 关闭钮也走 forgetMemo", slot.contains("stream.forgetMemo(stream.memoAdded)"))
+sc("C4 forgetMemo 是唯一写入口", streamClient.contains("func forgetMemo(_ texts: [String])"))
+
+// C5 两道闸门都在源码里（差集 + 撤销屏蔽集）
+sc("C5 差集闸门", streamClient.contains("!memoAdded.contains($0)"))
+sc("C5 撤销屏蔽集闸门", streamClient.contains("!memoDismissed.contains($0)"))
+
+// C6 复位与工具进度同生命周期（切会话/新流后同一条是新事件）
+let resetBody = slice(streamClient, "func resetToolProgress()", "/// v3.9.58：工具步骤耗时")
+sc("C6 resetToolProgress 清 memoAdded", resetBody.contains("memoAdded = []"))
+sc("C6 resetToolProgress 清 memoDismissed", resetBody.contains("memoDismissed = []"))
+
+// C7 后端键解包（老后端无此键 = 空数组 → 不弹）
+sc("C7 AuthStore 解 memoAdded", authStore.contains("j[\"memoAdded\"] as? [String]"))
+sc("C7 回落空数组", authStore.contains("as? [String] ?? []"))
+
+// C8 12 秒自动收尾挂在 bar 自己的 .task 里（不占宿主修饰符链）
+sc("C8 bar 自带 task 定时收尾", memoBar.contains(".task(id: texts)"))
+sc("C8 定时 12 秒", memoBar.contains("12_000_000_000"))
+
+// C9 与长期目标卡不重叠：同一槽位是 if/else if 互斥（一次只弹一条）
+sc("C9 槽位互斥（记账条/去重条/记忆条 三选一）",
+   chatView.contains("} else if recordDedupNotice {") && slot.contains("} else if !stream.memoAdded.isEmpty {"))
+
+// C10 胶囊/卡片走统一 token（不自造）
+sc("C10 撤销胶囊走 topBar 口径", memoBar.contains("Text(\"撤销\").pill(.topBar, tone: .danger)"))
+sc("C10 卡片走 dashboardCard", memoBar.contains(".dashboardCard()"))
+
 print("\n通过 \(pass) / 失败 \(fail)")
 exit(fail == 0 ? 0 : 1)

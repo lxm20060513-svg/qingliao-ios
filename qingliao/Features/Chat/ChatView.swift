@@ -95,6 +95,11 @@ struct ChatView: View {
     // v3.9.14：工具进度卡展开状态——生成中强制展开，答完默认收起（用户反馈这几行别一直摊着）
     @State var toolStepsExpanded = false
     // v3.4.24：任务中心全屏页（header 常驻小图标入口，原 DockTabView 全局 overlay 已移除）
+    // v4.0.42 待做池 ①：提问推荐「猜你想问」
+    /// 正在拉候选的 anchor（user 消息 id）——并发去重用，同一轮不重复打后端
+    @State var suggestLoadingAnchor: String?
+    /// 「换一批」的批号（同一 anchor 递增）——后端只当透传参数，App 侧靠它去重同一次点击
+    @State var suggestBatch = 0
     @State var showTaskCenter = false
     @State private var taskStore = TaskCenterStore.shared
     @State var showExporter = false
@@ -2249,6 +2254,11 @@ struct ChatView: View {
         }
         chatMessageBubble(msg)
             .id(msg.id)
+            // v4.0.42 待做池 ①：追问候选区（三枚胶囊 + 换一批）挂在该条 AI 回答下方。
+            // 候选为 nil / 空数组时 followUpSuggestionsRow 整体不渲染（宁缺勿滥，不占位）。
+            // 放在 messageRow 这一层而不是塞进 MessageBubble：气泡内已有多条同款底部条
+            // （有用/没用、引用块），再插一条会让 ql_inputbar 的行数真值与 CI type-check 都更难。
+            followUpSuggestionsRow(msg)
             // v3.3.0：多选模式 → 全行可点勾选 + 右上角选中圆圈
             .overlay {
                 if selectMode {
@@ -2385,6 +2395,133 @@ struct ChatView: View {
         }
     }
 
+    // MARK: - v4.0.42 待做池 ①：提问推荐「猜你想问」
+
+    /// v4.0.42：拉取追问候选并挂到该轮回答下面。
+    ///
+    /// 口径（护栏钉死，逐条对应待做池护栏清单）：
+    /// ① 后端返空 / ok:false / 异常 ⇒ **静默**：`applySuggestions` 会把该轮旧候选清掉，
+    ///    界面上就是「这一轮没有候选区」，不出声、不占位、不报错弹窗；
+    /// ② 「换一批」= 同一个方法再跑一次，`batch` 递增 + exclude 里带上上一批 ⇒ **替换**不是追加；
+    /// ③ 同一 anchor 并发去重（`suggestLoadingAnchor`），连点「换一批」不会并发打后端；
+    /// ④ 会话在这期间被切走 ⇒ 丢弃结果（候选只能挂在本会话里，别串到别人会话上）；
+    /// ⑤ exclude = 上一批候选 ∪ 最近几条用户原文（FollowUpSuggest.excludeBatch 单一真源）。
+    func fetchFollowUpSuggestions(afterUserID: String, batch: Int) {
+        guard !afterUserID.isEmpty else { return }
+        guard suggestLoadingAnchor != afterUserID else { return }   // ③ 同轮去重
+        // ① 该轮的 user 原文 + 它后面那条 assistant 摘要作上下文
+        guard let anchorIdx = chat.messages.firstIndex(where: { $0.isUser && $0.id == afterUserID }) else { return }
+        let askText = chat.messages[anchorIdx].content
+        var answerText = ""
+        var i = anchorIdx + 1
+        while i < chat.messages.count, !chat.messages[i].isUser {
+            if chat.messages[i].role == "assistant" { answerText = chat.messages[i].content }
+            i += 1
+        }
+        let sid = chat.sessionId
+        let asked = FollowUpSuggest.recentUserTexts(
+            roles: chat.messages.map(\.role), contents: chat.messages.map(\.content))
+        let prev = chat.messages[(anchorIdx + 1)..<min(i, chat.messages.count)]
+            .compactMap { $0.suggestions }.flatMap { $0 }
+        let exclude = FollowUpSuggest.excludeBatch(previous: prev, askedTexts: asked)
+        suggestLoadingAnchor = afterUserID
+        if batch > 0 { suggestBatch = batch }
+        Task {
+            var qs: [String] = []
+            if let j = try? await auth.json(FollowUpSuggest.endpoint, method: "POST",
+                                           body: ["lastUser": askText, "lastAssistant": answerText,
+                                                 "exclude": exclude, "batch": batch],
+                                           timeout: 30) {
+                // 后端 ok:false 时 questions 也是空数组，这里 parse 会直接得 []
+                qs = FollowUpSuggest.parseQuestions(j["questions"])
+            }
+            await MainActor.run {
+                defer { if suggestLoadingAnchor == afterUserID { suggestLoadingAnchor = nil } }
+                // ④ 会话已切走 → 丢弃（chat.messages 已是别人的会话）
+                guard chat.sessionId == sid else { return }
+                chat.applySuggestions(qs, afterUserID: afterUserID)
+            }
+        }
+    }
+
+    /// v4.0.42：点一枚候选 = **只把文本作为新提问发出去**。
+    /// 🚨 硬口径：**绝不**先把候选插成一条 user 消息 —— 那会与 sendCore 内部 append 的
+    /// user 消息重复（同一条话出现两次）。护栏钉死：这里只能调 sendCore，不能碰 chat.append。
+    /// 同时按护栏⑥清掉本轮候选区（问完就该收起，别让旧候选留在下面误导）。
+    private func tapFollowUpSuggestion(_ q: String) {
+        let text = q.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        Haptics.tap()
+        clearAllSuggestions()
+        // ⚠️ 刻意**不传** allowExpense: true：那个标志是「用户亲手在输入栏点发送」的唯一标记
+        // （还兼作 60s 幂等去重的豁免，见 sendCore 注释），口径护栏钉死只许输入栏那两处用。
+        // 点候选按自动路径走：候选文本多为长句，不会计事；而同一条候选 60s 内重复点被幂等挡掉
+        // 恰好也是对的（连点是误触，不是「用户就是要问两遍」）。
+        sendCore(text: text, imageData: nil)
+    }
+
+    /// v4.0.42：「换一批」——用同一端点重拉，exclude 带上上一批（替换，不是追加）。
+    /// 挂载点通过消息 id 反查锚点（assistant 的上一条 user 消息），
+    /// 这样每一行的「换一批」天然只作用于自己那一轮，不依赖外部状态。
+    private func refreshFollowUpSuggestions(forAssistant msg: ChatMessage) {
+        guard let idx = chat.messages.firstIndex(where: { $0.id == msg.id }) else { return }
+        // 该条回答**之前**最近的一条 user 消息 = 本轮锚点（比 id 字符串比较可靠）
+        guard let anchorIdx = chat.messages[..<idx].lastIndex(where: { $0.isUser }) else { return }
+        fetchFollowUpSuggestions(afterUserID: chat.messages[anchorIdx].id, batch: suggestBatch + 1)
+    }
+
+    /// v4.0.42：清掉全会话的候选区（新一轮提问时调用 —— 护栏⑥「切会话/新提问清空候选」）
+    private func clearAllSuggestions() {
+        for i in chat.messages.indices where !chat.messages[i].isUser {
+            chat.messages[i].suggestions = nil
+        }
+    }
+
+    /// v4.0.42：候选区视图（三枚胶囊 +「换一批」）。**候选为空调用方就不渲染**。
+    /// 尺寸走 `.topBar` 胶囊口径（本仓「操作胶囊」唯一入口，不自造 padding+Capsule）。
+    @ViewBuilder
+    private func followUpSuggestionsRow(_ msg: ChatMessage) -> some View {
+        if let qs = msg.suggestions, FollowUpSuggest.shouldRender(qs) {
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(Array(qs.enumerated()), id: \.offset) { _, q in
+                    Button {
+                        tapFollowUpSuggestion(q)
+                    } label: {
+                        Text(q)
+                            .font(.system(size: PillSize.topBar.fontSize))
+                            .foregroundStyle(PillTone.accent.fg)
+                            .padding(.horizontal, PillSize.topBar.hPad)
+                            .padding(.vertical, PillSize.topBar.vPad)
+                            .glassEffect(.regular.interactive())
+                            .overlay(Capsule().strokeBorder(PillTone.accent.stroke, lineWidth: 0.8))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .buttonStyle(.plain)
+                }
+                // 「换一批」：同一端点重拉（exclude 带上一批 ⇒ 结果是替换）
+                Button {
+                    refreshFollowUpSuggestions(forAssistant: msg)
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.triangle.2.circlepath")
+                            .font(.system(size: Typography.tiny))
+                        Text("换一批")
+                            .font(.system(size: PillSize.page.fontSize))
+                    }
+                    .foregroundStyle(PillTone.neutral.fg)
+                    .padding(.horizontal, PillSize.page.hPad)
+                    .padding(.vertical, PillSize.page.vPad)
+                    .background(PillTone.neutral.bg, in: Capsule())
+                    .overlay(Capsule().strokeBorder(PillTone.neutral.stroke, lineWidth: 0.8))
+                }
+                .buttonStyle(.plain)
+                .disabled(suggestLoadingAnchor != nil)
+                .opacity(suggestLoadingAnchor != nil ? 0.5 : 1)
+            }
+            .padding(.leading, 6)   // 与气泡文本左缘对齐（气泡自身不留白，见 v4.0.38）
+            .padding(.bottom, 6)
+        }
+    }
     /// v4.0.25/26：长按「存为长期目标」——把该段内容直接建成长期目标。
     /// 口径（与 AgentActionExecutor.createGoal 一致）：
     /// ① 首行当标题（>40 字截断 + …）② 本地先落库（卡片立刻可见，不等网络）
@@ -3426,6 +3563,9 @@ struct ChatView: View {
             NSLog("[SEND] 发送锁超窗自动解锁（锁龄 \(String(format: "%.2f", now - sendingLockAt))s）")
             sendingLock = false
         }
+        // v4.0.42 待做池 ①：新一轮提问前清掉旧候选区（护栏⑥：新提问清空候选，
+//     别让上一轮的候选留在老回答下面误导点）。
+        clearAllSuggestions()
         sendingLock = true
         sendingLockAt = now
         Haptics.tap()   // v3.4.25：统一触感
@@ -3524,6 +3664,10 @@ struct ChatView: View {
                 } else {
                     chat.upsertAssistant(stream.content, agent: stream.isAgent, afterUserID: msg.id)
                     showSentOK()
+                    // v4.0.42 待做池 ①：回答已落地 → **异步**拉追问候选（后端 0~3 条，空数组合法）。
+                    // 必须在这之后（候选挂在刚落库的回答下面）；必须异步：多一次模型调用，
+                    // 同步做会把气泡上屏拖慢。失败/没候选一律静默，不出声不占位。
+                    fetchFollowUpSuggestions(afterUserID: msg.id, batch: 0)
                     // v3.1.9 fix：流式完成 → 快拉收件箱（后端 _maybe_push_app 已入队本次回复，
                     // 此刻 isStreaming=false 且回复已落库 → 去重命中、不重复注入）
                     InboxStore.shared.triggerFastPoll()

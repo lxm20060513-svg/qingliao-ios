@@ -36,6 +36,10 @@ struct GoalsSection: View {
     @State private var pendingDelete: GoalItem?
     /// 「全部目标」弹窗顶栏「清空」胶囊的二次确认
     @State private var confirmClearAll = false
+    /// v4.0.40（#4）：已完成目标折叠行是否展开
+    @State private var showFinished = false
+    /// v4.0.40（#1）：哪些目标正在「手动推进中」（按钮转圈 + 禁用，防连点）
+    @State private var pushingIDs: Set<String> = []
 
     var body: some View {
         root
@@ -57,10 +61,52 @@ struct GoalsSection: View {
                 if store.goals.isEmpty {
                     emptyTap
                 } else {
+                    // v4.0.40（#4）：主卡只显示**未完成**的那个；已完成的收进下方折叠行
                     topCard
+                    if !store.finishedGoals.isEmpty {
+                        finishedFold
+                    }
                 }
             }
         )
+    }
+
+    /// v4.0.40（#4）：已完成折叠行 —— 默认只占一行，点开才展开看是哪几个
+    private var finishedFold: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Button {
+                withAnimation(.snappy(duration: 0.22)) { showFinished.toggle() }
+                Haptics.light()
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "checkmark.seal")
+                        .font(.system(size: Typography.caption))
+                        .foregroundStyle(.tertiary)
+                    Text(showFinished ? "已完成 \(store.finishedGoals.count) 个 · 收起" : "已完成 \(store.finishedGoals.count) 个")
+                        .font(.system(size: Typography.caption))
+                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 0)
+                    Image(systemName: showFinished ? "chevron.up" : "chevron.down")
+                        .font(.system(size: Typography.tiny, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(PressStyle())
+
+            if showFinished {
+                ForEach(store.finishedGoals) { g in
+                    Button {
+                        detailCurrent = g
+                        detail = g
+                    } label: {
+                        GoalRowCard(goal: g, compact: true)
+                    }
+                    .buttonStyle(PressStyle())
+                    .contextMenu { goalMenuItems(g) }
+                }
+            }
+        }
     }
 
     /// 删除确认框本体已收进 LifeDeleteConfirm（工作线 B：待办/记录/备忘弹窗内那份同款）
@@ -93,8 +139,11 @@ struct GoalsSection: View {
     }
 
     private var activeSubtitle: String {
-        let n = store.activeCount
-        return n > 0 ? "\(n) 个进行中" : "全部完成"
+        // v4.0.40（#4）：已完成数也报出来 —— 用户要一眼看到「哪些已经被划掉了」
+        let a = store.activeCount, f = store.finishedCount
+        if a > 0 && f > 0 { return "\(a) 个进行中 · \(f) 个已完成" }
+        if a > 0 { return "\(a) 个进行中" }
+        return f > 0 ? "全部完成（\(f) 个）" : "还没有目标"
     }
 
     /// 空态引导卡（与待办空态同几何：16 圆角 + 83pt 高）
@@ -113,31 +162,60 @@ struct GoalsSection: View {
         showAdd = true
     }
 
-    // MARK: 页面单卡（显示最上的一个 = 未完成优先、最新在前）
+    // MARK: 页面单卡（显示最上的一个**未完成**目标 = 未完成优先、最新在前）
+
+    /// v4.0.40（#4）：主卡数据源 = 未完成目标。全完成时退回用最新的那个（否则空卡）
+    private var mainList: [GoalItem] {
+        store.activeGoals.isEmpty ? Array(store.sorted.prefix(1)) : store.activeGoals
+    }
 
     @ViewBuilder
     private var topCard: some View {
-        if let top = store.sorted.first {
-            Button {
-                openCard()
-            } label: {
-                GoalRowCard(goal: top, compact: true)
-            }
-            .buttonStyle(PressStyle())
+        if let top = mainList.first {
+            // 🚨 用 onTapGesture 而不是 Button 包裹：GoalRowCard 内部自带「现在开始推进」胶囊，
+            //    Button 套 Button 在 SwiftUI 里内层点击不可靠（点胶囊会变成打开详情）。
+            GoalRowCard(goal: top, compact: true,
+                        onPushNow: { pushNow($0) },
+                        pushing: pushingIDs.contains(top.id))
+            .contentShape(Rectangle())
+            .onTapGesture { openCard() }
             .contextMenu { goalMenuItems(top) }
             .matchedTransitionSource(id: "goal-all", in: goalZoomNS)
-            .accessibilityLabel(store.sorted.count == 1
+            .accessibilityLabel(store.goals.count == 1
                                 ? "长期目标，1 个，点开查看"
-                                : "长期目标，共 \(store.sorted.count) 个，点开查看全部")
+                                : "长期目标，共 \(store.goals.count) 个，点开查看全部")
         }
     }
 
     private func openCard() {
-        if store.sorted.count == 1, let only = store.sorted.first {
+        if store.goals.count == 1, let only = store.sorted.first {
             detailCurrent = only
             detail = only
         } else {
             showAll = true
+        }
+    }
+
+    // MARK: v4.0.40（#1）现在开始推进
+
+    /// 点胶囊 → 后端后台跑一次推进 → 回写卡片 + 推送。
+    /// 这里只负责发请求 + 转圈态；真正内容由后端产出（任务中心可见进度）。
+    private func pushNow(_ g: GoalItem) {
+        guard !pushingIDs.contains(g.id) else { return }
+        pushingIDs.insert(g.id)
+        Haptics.light()
+        Task { @MainActor in
+            let ok = await store.pushNowOnBackend(goalID: g.id)
+            pushingIDs.remove(g.id)
+            guard !ok else {
+                Haptics.success()
+                // 卡片立刻回读一次：手动推进的时刻 / 步骤开始时间已由后端写入
+                await store.loadFromServer()
+                refreshDetail()
+                return
+            }
+            Haptics.error()
+            store.mutate(g.id) { $0.lastReport = "⚠️ 手动推进没发出去（连不上后端），稍后再试一次。" }
         }
     }
 
@@ -245,8 +323,14 @@ struct GoalsSection: View {
     private var allSheet: some View {
         NavigationStack {
             List {
-                ForEach(store.sorted) { g in
-                    Button {
+                // v4.0.40（#4）：未完成优先，已完成沉底（用户要「已完成自己划掉」）
+                ForEach(store.sortedActiveFirst) { g in
+                    // 🚨 同上：不 Button 包 Button，内层胶囊点击要能独立生效
+                    GoalRowCard(goal: g, compact: false,
+                                onPushNow: { pushNow($0) },
+                                pushing: pushingIDs.contains(g.id))
+                    .contentShape(Rectangle())
+                    .onTapGesture {
                         // 🚨 同宿主多 sheet 互斥：先关列表，等它收起再开详情
                         showAll = false
                         Task { @MainActor in
@@ -255,10 +339,7 @@ struct GoalsSection: View {
                             detailCurrent = g
                             detail = g
                         }
-                    } label: {
-                        GoalRowCard(goal: g, compact: false)
                     }
-                    .buttonStyle(PressStyle())
                     .contextMenu { goalMenuItems(g) }
                     .listRowInsets(EdgeInsets(top: 0, leading: Spacing.section, bottom: 8, trailing: Spacing.section))
                     .listRowSeparator(.hidden)
@@ -361,6 +442,13 @@ struct GoalsSection: View {
                                             .font(.system(size: Typography.body))
                                             .foregroundStyle(s.done ? .secondary : .primary)
                                             .strikethrough(s.done)
+                                        // v4.0.40（#5）：每个步骤的开始 / 完成时间。
+                                        // nil = 老数据还没打上时间戳 → 整行不渲染，不显示「未开始」噪声。
+                                        if let t = stepTimeText(s) {
+                                            Text(t)
+                                                .font(.system(size: Typography.tiny))
+                                                .foregroundStyle(.tertiary)
+                                        }
                                         if s.todoLinked {
                                             Text("已同步到待办")
                                                 .font(.system(size: Typography.tiny))
@@ -462,6 +550,19 @@ struct GoalsSection: View {
         }
     }
 
+    /// v4.0.40（#5）：步骤时间文案。「已开始 X」/「已完成 X」/「X 开始 · Y 完成」。
+    /// 返回 nil = 一个时间都没有（老数据还没打戳）→ 调用方整行不渲染。
+    func stepTimeText(_ s: GoalStep) -> String? {
+        let started = s.startedAt.map { "已开始 " + GoalRowCard.stamp($0) }
+        let done = s.doneAt.map { "已完成 " + GoalRowCard.stamp($0) }
+        switch (started, done) {
+        case let (a?, b?): return "\(a) · \(b)"
+        case let (a?, nil): return a
+        case let (nil, b?): return b
+        default: return nil
+        }
+    }
+
     /// SR34：写库后回灌详情副本（否则勾了步骤界面没反应）
     private func refreshDetail() {
         guard let id = detail?.id else { return }
@@ -477,12 +578,6 @@ struct GoalsSection: View {
     /// 勾上步骤 → 同步在待办里对应的条目划掉；取消勾 → 待办恢复
     private func syncTodo(step: GoalStep, goal: GoalItem) {
         GoalTodoBridge.syncStepDone(step: step, goal: goal)
-    }
-
-    private static func stamp(_ d: Date) -> String {
-        let f = DateFormatter()
-        f.dateFormat = "M月d日 HH:mm"
-        return f.string(from: d)
     }
 }
 
@@ -539,6 +634,10 @@ enum GoalTodoBridge {
 struct GoalRowCard: View {
     let goal: GoalItem
     var compact: Bool = false
+    /// v4.0.40（#1）：点胶囊立刻在后台推进一次。nil = 不提供这个入口（已完成/推进中）
+    var onPushNow: ((GoalItem) -> Void)? = nil
+    /// v4.0.40（#1）：是否正在推进中（转圈 + 禁用，防连点）
+    var pushing: Bool = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -598,6 +697,39 @@ struct GoalRowCard: View {
                         .lineLimit(1)
                 }
             }
+
+            // v4.0.40（#5）：开始时间 —— 用户原话「明确备注好每一个任务的开始时间」
+            HStack(spacing: 4) {
+                Image(systemName: "calendar.badge.clock")
+                    .font(.system(size: Typography.caption))
+                    .foregroundStyle(.tertiary)
+                Text("开始于 \(Self.stamp(goal.startedAt))")
+                    .font(.system(size: Typography.caption))
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+                if let at = goal.manualPushAt {
+                    Text("· 手动推进 \(Self.stamp(at))")
+                        .font(.system(size: Typography.caption))
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                }
+            }
+
+            // v4.0.40（#1）：立刻推进的胶囊（已完成的不给）
+            if onPushNow != nil, !goal.isFinished {
+                HStack(spacing: 6) {
+                    if pushing {
+                        // 推进中：转圈 + 文案占位（不再点，防连点跑两遍）
+                        ProgressView().controlSize(.mini)
+                        Text("推进中…")
+                            .font(.system(size: Typography.tiny))
+                            .foregroundStyle(.secondary)
+                    } else {
+                        MiniCapsule(title: "现在开始推进", accent: true) { onPushNow?(goal) }
+                    }
+                    Spacer(minLength: 0)
+                }
+            }
         }
         .padding(Spacing.xl)
         .frame(maxWidth: .infinity,
@@ -613,5 +745,12 @@ struct GoalRowCard: View {
         case .paused:   return .secondary
         case .detached: return .orange
         }
+    }
+
+    /// 时间戳文案（与 GoalsSection.detailSheet 同一口径，跨 view 复用一份）
+    static func stamp(_ d: Date) -> String {
+        let f = DateFormatter()
+        f.dateFormat = "M月d日 HH:mm"
+        return f.string(from: d)
     }
 }

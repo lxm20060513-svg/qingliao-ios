@@ -477,6 +477,48 @@ final class ChatStore {
         messages[i].proactiveVerdict = verdict
     }
 
+    /// v4.0.42 待做池 ①：把后端生成的追问候选挂到**刚落地的那条 assistant 消息**上。
+    ///
+    /// 锚点口径 = `upsertAssistant(_:agent:afterUserID:)` 里那条**真实的 user 消息 id**
+    /// （调用方在流式 done 时手上就有），而不是「最后一条 assistant」——后者在并发流
+    /// / 后台推送落库的会话里会挂错行（候选出现在别人的回答下面）。
+    ///
+    /// 三条硬口径（护栏钉死）：
+    /// ① 空数组 = 宁缺勿滥 ⇒ **清掉**原有候选后什么都不做，绝不保留上一批陈旧候选；
+    /// ② 「换一批」是**替换**不是追加（同一个 anchor id 反复调用即覆盖）；
+    /// ③ 候选**不进 id / 不落库**（见 Models.swift 注释），所以这里改数组不会引起行重插。
+    func applySuggestions(_ questions: [String], afterUserID: String?) {
+        guard let anchorID = afterUserID, !anchorID.isEmpty,
+              let anchorIdx = messages.lastIndex(where: { $0.isUser && $0.id == anchorID }) else { return }
+        // 该轮回复区右边界（开区间）：锚点之后直到下一个 user 消息 —— 与 upsertAssistant 同款算法
+        var regionEnd = anchorIdx + 1
+        while regionEnd < messages.count, !messages[regionEnd].isUser { regionEnd += 1 }
+        // 该轮**最后一条** assistant（没有 assistant 就不挂：候选必须挂在回答下面）
+        guard let target = messages[(anchorIdx + 1)..<regionEnd].last(where: { $0.role == "assistant" }),
+              let idx = messages.firstIndex(where: { $0.id == target.id }) else {
+            // 无回答可挂：顺手清掉该轮可能残留的旧候选（口径①）
+            if questions.isEmpty { clearSuggestions(afterUserID: anchorID) }
+            return
+        }
+        let cleaned = FollowUpSuggest.parseQuestions(questions)
+        guard FollowUpSuggest.shouldRender(cleaned) else {
+            messages[idx].suggestions = nil
+            return
+        }
+        messages[idx].suggestions = cleaned
+    }
+
+    /// v4.0.42：清掉该轮的候选区（新一轮提问 / 切会话时调用，口径：上一批别留着误导）
+    func clearSuggestions(afterUserID: String?) {
+        guard let anchorID = afterUserID, !anchorID.isEmpty,
+              let anchorIdx = messages.lastIndex(where: { $0.isUser && $0.id == anchorID }) else { return }
+        var regionEnd = anchorIdx + 1
+        while regionEnd < messages.count, !messages[regionEnd].isUser { regionEnd += 1 }
+        for i in (anchorIdx + 1)..<regionEnd where messages[i].role == "assistant" {
+            messages[i].suggestions = nil
+        }
+    }
+
     /// 流式结束后落库 assistant 消息（与最后一条相同则跳过，防重复）
     /// v2.0.102：去重仅限"连续两条 assistant 内容相同"（流式重复场景）——
     ///           上一条若是用户消息（新一轮提问），即使内容相同也必须新增（修复相同回复被吞）

@@ -54,6 +54,13 @@ struct ChatMessage: Identifiable, Equatable, Sendable {
     var questionOptions: [String]?   // 快捷选项（点一下即答）；空 = 只让打字
     var questionAnswer: String?      // 用户已答内容（nil = 待答）
     var questionError: String?       // 作答**没送到**时的原因（nil = 无错误）；卡上要出声，别静默
+    /// v4.0.42 待做池 ①：提问推荐「猜你想问」候选——挂在这条 assistant 消息上。
+    /// 非 nil 且非空时，气泡下方渲染三枚胶囊（点一下直接接着问）+「换一批」。
+    /// 空数组 = 后端「宁缺勿滥」判没有好候选 → 整区不渲染（不是错误，别出声）。
+    /// ⚠️ 刻意**不进** `id` 计算：候选是挂在消息上的附加物，不是消息身份的一部分，
+    /// 进 id 会让每次换一批都把这条消息当「新消息」→ 插入动画重播、行身份漂移。
+    /// 同理也刻意不写进 `asPayload`（发往模型的上下文里不该含候选，那会变成复读源）。
+    var suggestions: [String]?
     /// v4.0.11：主动 Agent 消息的后端事件 id（proactive_agent 投的 task_type=agent）。
     /// 非 nil 时气泡底部渲染「有用/没用」——回灌给后端做采纳率复盘，抬高/下调置信度阈值。
     /// 取值 = 后端 proactive_log 里的 entry id（也是 /api/agent/proactive/feedback 的 id）。
@@ -151,6 +158,9 @@ struct ChatMessage: Identifiable, Equatable, Sendable {
         msg.questionId = d["questionId"] as? String
         msg.questionOptions = d["questionOptions"] as? [String]
         msg.questionAnswer = d["questionAnswer"] as? String
+        // v4.0.42：候选**刻意不落库**（messagesPayload 不写 suggestions）——
+        // 它是一次性引导，重启/重进会话后重新生成即可；落库会让整会话 payload 变大，
+        // 且「换一批」后的旧候选会被当成历史内容长期留存。
         // v4.0.11：读回主动 Agent 事件 id（重启/切会话后「有用/没用」仍可回灌）
         msg.proactiveId = d["proactiveId"] as? String
         msg.proactiveVerdict = d["proactiveVerdict"] as? String

@@ -273,11 +273,27 @@ echo "=== 20. 工具步数显示真值表（v3.9.80 真机反馈修复）==="
 run_unit /tmp/test_toolsteps scripts/ql_toolsteps/truth_table_toolsteps.swift
 
 echo "=== 21. AI 记住瞬间真值表（v4.0.120 第 2 项）==="
-# 单文件纯逻辑（memoAdded 两道闸门的镜像模型，不 import 项目代码）。
+# 单文件纯逻辑（memoAdded 两道闸门的镜像模型，不 import 项目代码）+ 源级接线断言。
 # 口径：① 后端 memoAdded 是「整流只增不减」的累积数组，0.15s 轮询下同一条只能触发一次
 #      ② 复位与工具进度同生命周期（切会话/起新流后同一条是新事件，该再弹）
 #      ③ 撤销必须真删且不被后端重发弹回（不接 memoDismissed 就会「删了又弹」）
+#      ④ 源级：bar 真挂进槽位 / 撤销真打 delete 端点（镜像模型证明不了接线）
 run_unit /tmp/test_memo_added scripts/ql_memo_added/truth_table_memo_added.swift
+# 后端表跑 NAS 上**线上那份字节**（ql.py nas read 现拉），不拿本地副本凑假绿。
+# 🚨 该表 import 线上 memory_store.py 会在临时目录里跑（QL_DATA_DIR 先设好），
+#    绝不能指向真实 data/memory.json —— 表内第一项就是断言这点。
+MB_TMP=/opt/data/cache/scratch
+if python3 /opt/data/scripts/ql.py nas read 微信文件/轻聊web/backend/memory_store.py > "$MB_TMP/mem_store_live.py" 2>/dev/null \
+   && python3 /opt/data/scripts/ql.py nas read 微信文件/轻聊web/backend/memory_api.py > "$MB_TMP/mapi_live.py" 2>/dev/null \
+   && python3 /opt/data/scripts/ql.py nas read 微信文件/轻聊web/backend/stream_api.py > "$MB_TMP/stream_api_live.py" 2>/dev/null \
+   && [ -s "$MB_TMP/mem_store_live.py" ] && [ -s "$MB_TMP/mapi_live.py" ] && [ -s "$MB_TMP/stream_api_live.py" ]; then
+  ( cd scripts/ql_memo_added && python3 truth_table_memo_added_be.py ) 2>&1 | tee /tmp/tt_memo_be.log
+  # ⚠️ 必须 exit 1 不能用 fail=1：本段在第 417 行 `fail=0` **之前**，
+  # 那时 fail 还没初始化，写进去会被后面无条件重置抹掉 → 恒假绿（同 21a 段同款坑）。
+  if grep -q '❌' /tmp/tt_memo_be.log; then echo "❌ 第 21 项后端表有失守"; exit 1; fi
+else
+  echo "⚠️ 拉不到线上后端副本（离线），第 21 项后端表本轮未跑"
+fi
 
 echo "=== 21a. 接入中心一页真值表（v4.0.x 第 3 项）==="
 # 纯 Python（读源文件做护栏）：口径是「邮件开关不许写成局部 PATCH」——
@@ -927,6 +943,28 @@ run_unit6 /tmp/test_bubbleanim /tmp/ql_bubbleanim_main/main.swift qingliao/Core/
 # 那条 grep 会恒红、fail 被永久置 1 → 全量预检收尾必报「有护栏失守」（踩过一次）。
 # 断言口径与 run_unit6 的退出码一致：非 0 即红。
 grep -q '✅ 全部通过' /tmp/tt_bubbleanim.log || fail=1
+
+echo "=== 67. 建议池① 提问推荐「猜你想问」真值表（v4.0.42）==="
+# 三段：FollowUpSuggest 纯函数（真编译真跑）+ ChatStore 锚点算法（影子实现跑同款语义）
+#        + 源级接线断言（点候选不重复插消息 / 换一批是替换 / 空候选不渲染 / 不落库不进 id）。
+# 后端那条链由 scripts/ql_followup_suggest/test_suggest_api.py 覆盖（跑线上字节）。
+# 走 run_unit6：与 CI 严格并发口径对齐（v4.0.22 教训：Swift 5 编过的表本地绿、CI 才炸）。
+mkdir -p /tmp/ql_sug_main && cp scripts/ql_suggest/truth_table_suggest.swift /tmp/ql_sug_main/main.swift
+run_unit6 /tmp/test_suggest /tmp/ql_sug_main/main.swift qingliao/Core/FollowUpSuggest.swift | tee /tmp/tt_suggest.log
+grep -q '0 失败' /tmp/tt_suggest.log || fail=1
+# 源级入口存在性：候选区视图真挂在 messageRow 里（剥行注释再匹配代码形态，防注释喂绿）
+strip_comments qingliao/Features/Chat/ChatView.swift | grep -q 'followUpSuggestionsRow(msg)' \
+  || { echo "❌ messageRow 没挂追问候选区"; fail=1; }
+strip_comments qingliao/Core/ChatStore.swift | grep -q 'func applySuggestions(_ questions: \[String\], afterUserID: String?)' \
+  || { echo "❌ ChatStore 缺 applySuggestions（候选无处可挂）"; fail=1; }
+strip_comments qingliao/Core/FollowUpSuggest.swift | grep -q 'static let endpoint = "/api/agent/suggest_questions"' \
+  || { echo "❌ 端点字面量不在纯逻辑单一真源里"; fail=1; }
+
+echo "=== 68. 长期目标 5 项改进真值表（v4.0.40 · 现在开始推进/任务中心/推原会话/自动划掉/开始时间）==="
+# 覆盖：① 步骤时间文案与「无戳不渲染」② 完成判定与未完成优先排序 ③ needs-user 解析口径
+#      ④ iOS 新字段解码兜底 + 胶囊接线 + 已完成折叠 ⑤ 后端 push_now / bgjobs 落盘 / 待办联动
+# 与第 58 项（ql_goalbg）的分工：那表钉「后台状态可见性」，本表钉「手动推进 + 自动收尾闭环」。
+run_unit /tmp/test_goal_pushnow scripts/ql_goal_pushnow/truth_table_goal_pushnow.swift
 
 [ $fail -eq 0 ] || { echo "❌ 有护栏失守"; exit 1; }
 exit 0
