@@ -145,18 +145,17 @@ final class SpeechManager: NSObject, ObservableObject, AVSpeechSynthesizerDelega
         //   「投递通知的那个线程」。本类是 @MainActor 而 @objc 成员不受 Swift 6 静态隔离检查
         //   （「编译过」≠「隔离安全」）→ 必须显式把工作搬回主线程。
         //   与本文件其它 nonisolated 回调同一纪律：**只在当前线程取出 Sendable 值过域**。
-        //   ⚠️ Notification / AVAudioSession / 枚举都**不是 Sendable**，一律不许捕获进 Task；
-        //   事件身份用 ObjectIdentifier 带过去（v3.9.77 起本文件的既有做法）。
-        //   这里求值 sharedInstance() 无副作用顾虑：回调本身只会在音频会话**已经存在**
-        //   （有人播音）时才触发，不存在 v4.0.41 H-1 那个「读单例就创建会话」的问题。
-        let eventObjID = (note.object as AnyObject).map(ObjectIdentifier.init)
+        //   ⚠️ Notification / AVAudioSession / 枚举都**不是 Sendable**，一律不许捕获进 Task。
+        //   这里只需要一个「是不是音频会话的中断通知」的判断（object: nil 之后要自己过滤，
+        //   H-1 的语义不能丢），`is` 判断的结果是 **Bool（本身就是 Sendable）**，直接带过域即可，
+        //   比带 ObjectIdentifier 更简单，也不必求值 sharedInstance()。
+        let isAudioSessionEvent = note.object is AVAudioSession
         let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt
         let optsRaw = note.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt
         Task { @MainActor in
             // v4.0.41（H-1）：观察者改成 object: nil 后，这里补回原本由 object 过滤提供的语义 ——
             //   只处理音频会话的中断通知，别的同名事件直接忽略。
-            guard let eventObjID,
-                  eventObjID == ObjectIdentifier(AVAudioSession.sharedInstance()) else { return }
+            guard isAudioSessionEvent else { return }
             guard let raw,
                   let type = AVAudioSession.InterruptionType(rawValue: raw) else { return }
             if type == .began {

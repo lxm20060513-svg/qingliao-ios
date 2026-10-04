@@ -315,8 +315,8 @@ check("B26 中断观察者不提前实例化音频会话 + 回调显式回主线
         && spC.contains("object: nil)")
         && !spC.contains("object: AVAudioSession.sharedInstance())")
         && !spC.contains("queue: .main)")   // selector 版没有这个参数，写了编译不过（run #663）
-        && spC.contains("let eventObjID = (note.object as AnyObject).map(ObjectIdentifier.init)")
-        && spC.contains("eventObjID == ObjectIdentifier(AVAudioSession.sharedInstance())")
+        && spC.contains("let isAudioSessionEvent = note.object is AVAudioSession")
+        && spC.contains("guard isAudioSessionEvent else { return }")
         && spC.contains("@objc private func handleInterruption"),
       negative: true)
 
