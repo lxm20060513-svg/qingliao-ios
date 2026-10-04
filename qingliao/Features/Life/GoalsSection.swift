@@ -695,6 +695,52 @@ struct GoalRowCard: View {
                 }
             }
 
+            // v4.0.45（用户第④条）：卡片上也要「看得见已划掉的步骤 + 下一步状态」。
+            // 口径（用户选 2）：只列**已完成**（划掉）+ **下一步**，其余折叠成「…还有 N 步」；
+            // 已完成的展示封顶 3 条 —— 全列的话 8/9 完成时卡片又会长回去，违背「保持矮」。
+            // 只在 compact（列表/首页卡）出：详情页已有整份带序号的步骤清单，不重复两遍。
+            if compact, !goal.isFinished, goal.nextStep != nil {
+                VStack(alignment: .leading, spacing: 3) {
+                    if cardHiddenDoneCount > 0 {
+                        Text("…前面还有 \(cardHiddenDoneCount) 步已完成")
+                            .font(.system(size: Typography.tiny))
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                    }
+                    ForEach(cardShownDoneSteps) { s in
+                        HStack(spacing: 5) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.system(size: Typography.tiny))
+                                .foregroundStyle(Color.accentColor)
+                            Text(s.title)
+                                .font(.system(size: Typography.caption))
+                                .foregroundStyle(.secondary)
+                                .strikethrough(true, color: .secondary)
+                                .lineLimit(1)
+                        }
+                    }
+                    if let s = goal.nextStep {
+                        HStack(spacing: 5) {
+                            Image(systemName: "circle")
+                                .font(.system(size: Typography.tiny))
+                                .foregroundStyle(.secondary)
+                            // 序号 = 已完成数 + 1（与详情页「第N步」同口径）
+                            Text("第\(goal.doneCount + 1)步 \(s.title)")
+                                .font(.system(size: Typography.caption, weight: .medium))
+                                .foregroundStyle(.primary)
+                                .lineLimit(1)
+                            nextStepStatusMark(goal, s)
+                        }
+                    }
+                    if cardRestStepCount > 0 {
+                        Text("…还有 \(cardRestStepCount) 步")
+                            .font(.system(size: Typography.tiny))
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                    }
+                }
+            }
+
             if let s = goal.nextStep, !compact {
                 HStack(spacing: 4) {
                     Image(systemName: "arrow.right.circle")
@@ -748,6 +794,23 @@ struct GoalRowCard: View {
                minHeight: compact ? MemoCardMetrics.minHeight : nil,
                alignment: .leading)
         .dashboardCard()
+    }
+
+    // MARK: v4.0.45（用户第④条）卡片步骤区
+
+    /// 卡片上列出的已完成步骤：最近完成的至多 3 条（封顶见 body 注释）
+    private var cardShownDoneSteps: [GoalStep] {
+        Array(goal.steps.filter { $0.done }.suffix(3))
+    }
+
+    /// 被折叠掉的已完成步骤数（>0 时出一行「…前面还有 N 步已完成」）
+    private var cardHiddenDoneCount: Int {
+        max(0, goal.doneCount - cardShownDoneSteps.count)
+    }
+
+    /// 折叠掉的未完成步骤数（「下一步」之外还剩多少）
+    private var cardRestStepCount: Int {
+        max(0, goal.steps.count - goal.doneCount - (goal.nextStep == nil ? 0 : 1))
     }
 
     /// v4.0.20（#5）：健康点配色
