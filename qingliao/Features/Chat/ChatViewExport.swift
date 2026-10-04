@@ -16,22 +16,23 @@ extension ChatView {
 
     /// 会话卡片行 = 消息在聊天里的忠实呈现（完整原文、保留换行，与气泡内容一致）；
     /// 图片/语音/撤回无法用纯文本还原 → 用与聊天语义一致的占位文本
-    func cardRow(for msg: ChatMessage) -> (role: String, text: String) {
-        if msg.withdrawn { return (msg.role, "已撤回") }                    // 气泡同文案
+    func cardRow(for msg: ChatMessage) -> SessionCardKit.CardRow {
+        if msg.withdrawn { return SessionCardKit.CardRow(role: msg.role, text: "已撤回") }   // 气泡同文案
         // v4.0.44 待做池 3：被改口取代的旧回答 —— 气泡是「已修改」灰气泡，卡片必须同口径。
         // 不放行这条 = 分享卡片会把**用户已经改掉的旧回答原文**原样漏出去。
-        if msg.edited { return (msg.role, MessageEditKit.editedLabel) }
-        if let img = msg.imageDataURL, !img.isEmpty { return (msg.role, "[图片]") }
-        if msg.audioPath != nil { return (msg.role, "[语音]") }
-        return (msg.role, msg.content)
+        if msg.edited { return SessionCardKit.CardRow(role: msg.role, text: MessageEditKit.editedLabel) }
+        if let img = msg.imageDataURL, !img.isEmpty { return SessionCardKit.CardRow(role: msg.role, text: "[图片]") }
+        if msg.audioPath != nil { return SessionCardKit.CardRow(role: msg.role, text: "[语音]") }
+        return SessionCardKit.CardRow(role: msg.role, text: msg.content)
     }
 
-    /// v2.0.92：分享会话卡片（最近 15 条渲染成图片 → 系统分享/微信）
+    /// v2.0.92：分享会话卡片（渲染成图片 → 系统分享/微信）
     /// 卡片内容与会话内容保持一致：完整原文不截断、保留换行（v2.0.92 曾压平换行+120字截断，已移除）
+    /// v4.0.x 待做池⑨：**长图版** —— 由「最近 15 条」改为**整会话**渲染，条数/高度上限与截断尾注
+    /// 统一交给 SessionCardView → SessionCardKit.layout（绝不切断单条消息、超限出尾注不静默丢）。
     func shareSessionCard() {
-        let msgs = Array(chat.messages.suffix(15))
-        guard !msgs.isEmpty else { return }
-        let rows = msgs.map { cardRow(for: $0) }
+        let rows = chat.messages.map { cardRow(for: $0) }
+        guard !rows.isEmpty else { return }
         let card = SessionCardView(rows: rows)
         let renderer = ImageRenderer(content: card)
         renderer.scale = 3   // @3x 高清

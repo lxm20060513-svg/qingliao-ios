@@ -1122,5 +1122,83 @@ echo "=== 77. 启动期类型栈深度真值表（v4.0.48 · 根治 4.0.47 真�
 # 纯文本级断言；实测 14/0 绿（含 2 条负断言：裸链形态、三条分散 padding）。
 run_unit6 /tmp/test_qltypestack scripts/ql_typestack/truth_table_typestack.swift
 
+echo "=== 78. 断点续传 App 半程真值表（待做池⑥ · 后端「稳妥档」的 App 侧消费）==="
+# 本表为什么存在：后端「稳妥档」已把「中断任务」判死并标 outcome=outcome_unknown、
+# 保留已完成步（plan/planSeq），但 App 侧 streamRecover 原先只解 5 个字段 → 断点信息全丢，
+# 用户只看到笼统的「连接中断，请重试」。本表钉死：① 中断任务如实外显「已完成第 k 步 ·
+# 结果未知 · 未自动重放」② 非中断**绝不误伤**原错误文案 ③ 队列总览口径（只统计当前会话 /
+# 序号从 1 起 / 空文本跳过 / 长文本截断）。A/B 段真编译真跑（ResumeInfo + SendQueueOverview），
+# C 段剥注释源级钉接线。实测 33 正 / 12 反 / 0 失败。
+# ⚠️ 双闸门（退出码 + 结论行须以「/ 0 失败」结尾），防「10 失败」子串假绿——与 69/70/71/72 同款。
+rm -f /tmp/test_resume_ui
+if ! $SWIFT/swiftc -swift-version 6 -o /tmp/test_resume_ui \
+     scripts/ql_resume_ui/truth_table_resume_ui.swift \
+     qingliao/Core/ResumeInfo.swift qingliao/Core/SendQueueOverview.swift \
+     qingliao/Core/ActiveTaskPlan.swift qingliao/Features/Chat/ChatPendingSend.swift > /tmp/tt_resume_ui.log 2>&1; then
+  echo "❌ 第 78 段真值表编译失败"; tail -5 /tmp/tt_resume_ui.log; fail=1
+elif /tmp/test_resume_ui >> /tmp/tt_resume_ui.log 2>&1; then
+  echo "  $(tail -1 /tmp/tt_resume_ui.log)"
+  grep -qE '/ 0 失败$' /tmp/tt_resume_ui.log || { echo "❌ 第 78 段结论行异常（须以「/ 0 失败」结尾）"; fail=1; }
+else
+  echo "❌ 第 78 段真值表判定失败（改坏必红）"; tail -6 /tmp/tt_resume_ui.log; fail=1
+fi
+
+echo "=== 79. 手写圈注（图片圈注）真值表（待做池⑦ · 用户拍板「只做图片圈注」）==="
+# 本表为什么存在：图片链路（pendingImage / compressImage / 发送）早已现成，本项只加了
+# 「画布采集 → 归一化 → 烘焙进原图」一层；但口径一旦写错，真机就是「圈的位置跟手指对不上/
+# 输出被拉伸/撤销撤错」——而这类几何缺陷本地 `swiftc -parse` 全查不出。故把几何口径收进
+# Core/ImageAnnotationKit.swift（纯 Foundation）用真值表真跑：
+#   · 归一化 0…1 夹取、aspect-fit 等比矩形 → **标注与原图按比例对齐、不拉伸**（换屏宽不变）
+#   · 落点去抖、换色/换宽另起一笔、撤销回退一笔、清空归零
+#   · 源级钉接线：圈注入口 / 面板接线 / 烘焙尺寸取原图（长宽比一致）/ 完成胶囊左位
+# ⚠️ 双闸门（退出码 + 结论行须以「/ 0 失败」结尾），防「10 失败」子串假绿——与 69~72/78 同款。
+rm -f /tmp/test_annotate
+if ! $SWIFT/swiftc -swift-version 6 -o /tmp/test_annotate \
+     scripts/ql_annotate/truth_table_annotate.swift \
+     qingliao/Core/ImageAnnotationKit.swift > /tmp/tt_annotate.log 2>&1; then
+  echo "❌ 第 79 段真值表编译失败"; tail -5 /tmp/tt_annotate.log; fail=1
+elif /tmp/test_annotate >> /tmp/tt_annotate.log 2>&1; then
+  echo "  $(tail -1 /tmp/tt_annotate.log)"
+  grep -qE '/ 0 失败$' /tmp/tt_annotate.log || { echo "❌ 第 79 段结论行异常（须以「/ 0 失败」结尾）"; fail=1; }
+else
+  echo "❌ 第 79 段真值表判定失败（改坏必红）"; tail -6 /tmp/tt_annotate.log; fail=1
+fi
+
+echo "=== 80. 链接预览卡片真值表（待做池⑧ · 微信式 · 首个链接 / 失败不出空卡 / 无图降级）==="
+# 本表为什么存在：链接预览的坑全在「判定」上 —— 一条消息里多个 URL 该取哪个、末尾标点算不算
+# 链接、抓取失败时会不会留一张空卡、缩略图加载不到会不会显示破图。这些错 `swiftc -parse` 全查不出，
+# 真机才暴露（且是「偶尔一张空卡」这种最难复现的形态）。故把判定收进 Core/LinkPreviewKit.swift
+# （纯 Foundation）用真值表真跑 + 源级钉接线（入口行 / 卡片 / 缓存 store / 重抓 / 关闭）。
+# ⚠️ 双闸门（退出码 + 结论行须以「/ 0 失败」结尾），防「10 失败」子串假绿——与 69~72/78/79 同款。
+rm -f /tmp/test_linkpreview
+if ! $SWIFT/swiftc -swift-version 6 -o /tmp/test_linkpreview \
+     scripts/ql_linkpreview/truth_table_linkpreview.swift \
+     qingliao/Core/LinkPreviewKit.swift > /tmp/tt_linkpreview.log 2>&1; then
+  echo "❌ 第 80 段真值表编译失败"; tail -5 /tmp/tt_linkpreview.log; fail=1
+elif /tmp/test_linkpreview >> /tmp/tt_linkpreview.log 2>&1; then
+  echo "  $(tail -1 /tmp/tt_linkpreview.log)"
+  grep -qE '/ 0 失败$' /tmp/tt_linkpreview.log || { echo "❌ 第 80 段结论行异常（须以「/ 0 失败」结尾）"; fail=1; }
+else
+  echo "❌ 第 80 段真值表判定失败（改坏必红）"; tail -6 /tmp/tt_linkpreview.log; fail=1
+fi
+
+echo "=== 81. 会话分享卡片（长图版）真值表（待做池⑨ · 长图上限截断+尾注 / 新 logo / 微信式气泡）==="
+# 本表为什么存在：长图化的坑全在「上限与截断」上 —— 超长会话把 ImageRenderer 一次渲染爆内存（watchdog/OOM）、
+# 尾注漏出（静默丢）/乱出（没截断也出）、从**最新端**倒着丢（把用户刚发的丢掉）、切断半条消息。
+# 这些错 `swiftc -parse` 全查不出、本机无 SDK 也目视不了，只好收进 Core/SessionCardKit.swift（纯 Foundation）
+# 用真值表真跑：条数/高度双上限、丢最早整条、至少留最新 1 条、时间序不变、空会话不出卡 + 源级钉接线。
+# ⚠️ 双闸门（退出码 + 结论行须以「/ 0 失败」结尾），防「10 失败」子串假绿——与 69~72/78/79/80 同款。
+rm -f /tmp/test_sessioncard
+if ! $SWIFT/swiftc -swift-version 6 -o /tmp/test_sessioncard \
+     scripts/ql_sessioncard/truth_table_sessioncard.swift \
+     qingliao/Core/SessionCardKit.swift > /tmp/tt_sessioncard.log 2>&1; then
+  echo "❌ 第 81 段真值表编译失败"; tail -5 /tmp/tt_sessioncard.log; fail=1
+elif /tmp/test_sessioncard >> /tmp/tt_sessioncard.log 2>&1; then
+  echo "  $(tail -1 /tmp/tt_sessioncard.log)"
+  grep -qE '/ 0 失败$' /tmp/tt_sessioncard.log || { echo "❌ 第 81 段结论行异常（须以「/ 0 失败」结尾）"; fail=1; }
+else
+  echo "❌ 第 81 段真值表判定失败（改坏必红）"; tail -6 /tmp/tt_sessioncard.log; fail=1
+fi
+
 [ $fail -eq 0 ] || { echo "❌ 有护栏失守"; exit 1; }
 exit 0

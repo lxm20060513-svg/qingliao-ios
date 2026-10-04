@@ -926,51 +926,93 @@ struct FileMessageCard: View {
 }
 
 // MARK: - v2.0.92 会话分享卡片（ImageRenderer 渲染为图片，微信/系统分享）
+// v4.0.x 待做池⑨：长图化 —— 去定宽假设（整会话渲染，按上限截断出尾注）、换 App logo、
+// 微信式左右分栏气泡。上限/截断口径全在 Core/SessionCardKit.swift（真值表 ql_sessioncard 钉死）。
 
 struct SessionCardView: View {
-    let rows: [(role: String, text: String)]
+    let rows: [SessionCardKit.CardRow]
     var title: String = "轻聊 AI 会话"   // v3.3.0：合并发送时自定义标题
+
+    /// 截断计划（条数/高度上限 → 尾注）；与高度估算共用同一组常量
+    private var plan: SessionCardKit.Plan { SessionCardKit.layout(rows) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 8) {
-                Image(systemName: "bubble.left.and.bubble.right.fill")
-                    .font(.system(size: Typography.title))
-                    .foregroundStyle(LinearGradient(colors: [.blue, .indigo], startPoint: .topLeading, endPoint: .bottomTrailing))
-                Text(title)
-                    .font(.system(size: Typography.title, weight: .bold))
-            }
-            Text(formattedDate)
-                .font(.system(size: Typography.caption))
-                .foregroundStyle(.secondary)
-                .padding(.top, Spacing.xs)
+            header
             Divider()
                 .padding(.vertical, Spacing.lg)
-            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
-                HStack(alignment: .top, spacing: 8) {
-                    Text(row.role == "user" ? "我" : "AI")
-                        .font(.system(size: Typography.tiny, weight: .bold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, Spacing.md)
-                        .padding(.vertical, Spacing.xs)
-                        .background(row.role == "user" ? Color.blue : Color.indigo, in: Capsule())
-                    Text(row.text)
-                        .font(.system(size: Typography.subhead))
-                        .lineSpacing(LineSpacing.compact)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .foregroundStyle(.primary)
+            VStack(alignment: .leading, spacing: CGFloat(SessionCardKit.rowSpacing)) {
+                ForEach(Array(plan.rows.enumerated()), id: \.offset) { _, row in
+                    bubble(for: row)
                 }
-                .padding(.vertical, Spacing.xs)
+            }
+            if plan.truncated {
+                Text(SessionCardKit.footerNote(omitted: plan.omitted, shown: plan.rows.count))
+                    .font(.system(size: Typography.tiny))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.top, Spacing.section)
             }
         }
-        .padding(18)
-        .frame(width: 340)
+        .padding(CGFloat(SessionCardKit.hPadding))
+        .frame(width: CGFloat(SessionCardKit.cardWidth), alignment: .leading)
+        // v3.9.23 豁免：分享卡是 ImageRenderer 渲染成图的**独立卡片**（从不作 sheet 内容），
+        // 自带实色底是刻意的（出图须不透明）——与「弹窗统一靠系统玻璃」那条口径无关。
         .background(Color(uiColor: .systemBackground))
         .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
                 .strokeBorder(Color.black.opacity(Tint.faint))
         )
+    }
+
+    /// 标题栏：新 logo（与启动页/登录页/关于页同源，禁另存一份）+ 标题 + 日期 + 落款
+    private var header: some View {
+        HStack(spacing: Spacing.lg) {
+            Image("AboutLogo")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 34, height: 34)
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            VStack(alignment: .leading, spacing: Spacing.xxs) {
+                Text(title)
+                    .font(.system(size: Typography.title, weight: .bold))
+                Text(formattedDate)
+                    .font(.system(size: Typography.caption))
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 0)
+            Text("轻聊 AI")
+                .font(.system(size: Typography.tiny, weight: .semibold))
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    /// 微信式左右分栏气泡：用户右（蓝底白字）、AI 左（浅灰底深字）。
+    /// 行宽固定 = gutter + bubbleMaxWidth（不靠 Spacer 分配 → 渲染确定，与高度估算同源）
+    @ViewBuilder
+    private func bubble(for row: SessionCardKit.CardRow) -> some View {
+        let isUser = row.role == "user"
+        HStack(alignment: .top, spacing: 0) {
+            if isUser {
+                Spacer(minLength: 0).frame(width: CGFloat(SessionCardKit.gutter))
+            }
+            Text(row.text)
+                .font(.system(size: CGFloat(SessionCardKit.bodyFont)))
+                .lineSpacing(LineSpacing.compact)
+                .foregroundStyle(isUser ? Color.white : Color.primary)
+                .padding(.horizontal, CGFloat(SessionCardKit.bubbleHPad))
+                .padding(.vertical, CGFloat(SessionCardKit.bubbleVPad))
+                .background(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(isUser ? Color.blue : Color(uiColor: .secondarySystemBackground))
+                )
+                .frame(width: CGFloat(SessionCardKit.bubbleMaxWidth),
+                       alignment: isUser ? .trailing : .leading)
+            if !isUser {
+                Spacer(minLength: 0).frame(width: CGFloat(SessionCardKit.gutter))
+            }
+        }
     }
 
     private var formattedDate: String {

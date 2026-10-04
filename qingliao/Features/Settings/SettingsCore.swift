@@ -146,15 +146,15 @@ struct SettingsView: View {
                             SettingsSearchList(query: settingsQuery) { openSearchEntry($0) }
                         }
                         // v4.0.6：卡通宠物大头像（设置页顶部，点进去自定义）
-                        petStudioBanner
-                        accountSection.id("sec-account")
-                        connectionSection
-                        aiSection.id("sec-ai")
-                        dataSection
-                        agentSection
-                        appearanceSection.id("sec-appearance")
-                        aboutSection
-                        logoutButton
+                        AnyView(petStudioBanner)
+                        AnyView(accountSection.id("sec-account"))
+                        AnyView(connectionSection)
+                        AnyView(aiSection.id("sec-ai"))
+                        AnyView(dataSection)
+                        AnyView(agentSection)
+                        AnyView(appearanceSection.id("sec-appearance"))
+                        AnyView(aboutSection)
+                        AnyView(logoutButton)
                     }
                     .onChange(of: searchScrollTarget) { _, target in
                         guard let target else { return }

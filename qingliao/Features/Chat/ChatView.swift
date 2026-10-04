@@ -134,6 +134,7 @@ struct ChatView: View {
     @State var photoItem: PhotosPickerItem?
     @State var pendingImage: UIImage?
     @State var pendingImageData: String?
+    @State var showAnnotate = false   // v4.0.50 待做池⑦：图片圈注面板
     // v3.9.3：语音转文字改**设备端实时转写**（SpeechAnalyzer/SpeechTranscriber）——
     // 边说边出字、音频不上传、本地/云端双模式都能用；后端 ASR 与 VoiceRecorder 整条链路已移除
     @StateObject var liveSpeech = LiveSpeechTranscriber()
@@ -735,6 +736,22 @@ struct ChatView: View {
                 .buttonStyle(PressStyle())
                 .disabled(recognizingImage)
                 .accessibilityLabel("识别图片内容")
+                // v4.0.50 待做池⑦：圈注入口——在图上画圈/划重点/箭头，完成后与原图一起发给 AI
+                Button {
+                    showAnnotate = true
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "pencil.tip.crop.circle")
+                        Text("圈注")
+                    }
+                    .font(.system(size: Typography.subhead, weight: .semibold))
+                    .foregroundStyle(Color.accentColor)
+                    .padding(.horizontal, Spacing.lg)
+                    .padding(.vertical, Spacing.xs)
+                    .glassPillStroke()
+                }
+                .buttonStyle(PressStyle())
+                .accessibilityLabel("圈注图片")
                 Button {
                     pendingImage = nil
                     pendingImageData = nil
@@ -901,8 +918,9 @@ struct ChatView: View {
         )))))))
     }
 
-    // v4.0.51 拆段 1/7：纯搬运（顺序、闭包、文案逐字未变）。
-    // 链式修饰器 = 泛型嵌套层数，运行时 demangle 按层递归；≤6 层/段 = 远离主线程栈爆点。
+    /// v4.0.51：body 修饰器链第 1/7 段（顶层 6 个，纯搬运、顺序不变）。
+    /// 拆段原因：链式修饰器 = 泛型嵌套层数；37 层会让运行时 demangle 递归
+    /// 撞爆主线程 1MB 栈（实测 Crash 173 帧 + Stack Guard 命中）。
     private func chatBodyChrome1<V: View>(_ content: V) -> some View {
         content
         .animation(.easeOut(duration: kb.animationDuration), value: kb.height)
@@ -911,35 +929,47 @@ struct ChatView: View {
         .background(chatColdChrome2())
     }
 
-    // v4.0.51 拆段 2/7：纯搬运（顺序、闭包、文案逐字未变）。
-    // 链式修饰器 = 泛型嵌套层数，运行时 demangle 按层递归；≤6 层/段 = 远离主线程栈爆点。
+    /// v4.0.51：body 修饰器链第 2/7 段（顶层 5 个，纯搬运、顺序不变）。
+    /// 拆段原因：链式修饰器 = 泛型嵌套层数；37 层会让运行时 demangle 递归
+    /// 撞爆主线程 1MB 栈（实测 Crash 173 帧 + Stack Guard 命中）。
     private func chatBodyChrome2<V: View>(_ content: V) -> some View {
         content
         .background(chatColdChrome3())
         .background(chatColdChrome4())
     }
 
-    // v4.0.51 拆段 3/7：纯搬运（顺序、闭包、文案逐字未变）。
-    // 链式修饰器 = 泛型嵌套层数，运行时 demangle 按层递归；≤6 层/段 = 远离主线程栈爆点。
+    /// v4.0.51：body 修饰器链第 3/7 段（顶层 5 个，纯搬运、顺序不变）。
+    /// 拆段原因：链式修饰器 = 泛型嵌套层数；37 层会让运行时 demangle 递归
+    /// 撞爆主线程 1MB 栈（实测 Crash 173 帧 + Stack Guard 命中）。
     private func chatBodyChrome3<V: View>(_ content: V) -> some View {
         content
         .background(chatColdChrome5())
         .background(chatColdChrome6())
     }
 
-    // v4.0.51 拆段 4/7：纯搬运（顺序、闭包、文案逐字未变）。
-    // 链式修饰器 = 泛型嵌套层数，运行时 demangle 按层递归；≤6 层/段 = 远离主线程栈爆点。
+    /// v4.0.51：body 修饰器链第 4/7 段（顶层 5 个，纯搬运、顺序不变）。
+    /// 拆段原因：链式修饰器 = 泛型嵌套层数；37 层会让运行时 demangle 递归
+    /// 撞爆主线程 1MB 栈（实测 Crash 173 帧 + Stack Guard 命中）。
     private func chatBodyChrome4<V: View>(_ content: V) -> some View {
         content
         .background(chatColdChrome7())
         .background(chatColdChrome8())
     }
 
-    // v4.0.51 拆段 5/7：纯搬运（顺序、闭包、文案逐字未变）。
-    // 链式修饰器 = 泛型嵌套层数，运行时 demangle 按层递归；≤6 层/段 = 远离主线程栈爆点。
+    /// v4.0.51：body 修饰器链第 5/7 段（顶层 5 个，纯搬运、顺序不变）。
+    /// 拆段原因：链式修饰器 = 泛型嵌套层数；37 层会让运行时 demangle 递归
+    /// 撞爆主线程 1MB 栈（实测 Crash 173 帧 + Stack Guard 命中）。
     private func chatBodyChrome5<V: View>(_ content: V) -> some View {
         content
         .background(chatColdChrome9())
+        .background(chatColdChrome10())
+    }
+
+    /// v4.0.51：body 修饰器链第 6/7 段（顶层 5 个，纯搬运、顺序不变）。
+    /// 拆段原因：链式修饰器 = 泛型嵌套层数；37 层会让运行时 demangle 递归
+    /// 撞爆主线程 1MB 栈（实测 Crash 173 帧 + Stack Guard 命中）。
+    private func chatBodyChrome6<V: View>(_ content: V) -> some View {
+        content
         .overlay(alignment: .top) {
             if showArchiveHint {
             AnyView(archiveBanner
@@ -948,18 +978,12 @@ struct ChatView: View {
             )
             }
         }
-    }
-
-    // v4.0.51 拆段 6/7：纯搬运（顺序、闭包、文案逐字未变）。
-    // 链式修饰器 = 泛型嵌套层数，运行时 demangle 按层递归；≤6 层/段 = 远离主线程栈爆点。
-    private func chatBodyChrome6<V: View>(_ content: V) -> some View {
-        content
-        .background(chatColdChrome10())
         .background(chatColdChrome11())
     }
 
-    // v4.0.51 拆段 7/7：纯搬运（顺序、闭包、文案逐字未变）。
-    // 链式修饰器 = 泛型嵌套层数，运行时 demangle 按层递归；≤6 层/段 = 远离主线程栈爆点。
+    /// v4.0.51：body 修饰器链第 7/7 段（顶层 6 个，纯搬运、顺序不变）。
+    /// 拆段原因：链式修饰器 = 泛型嵌套层数；37 层会让运行时 demangle 递归
+    /// 撞爆主线程 1MB 栈（实测 Crash 173 帧 + Stack Guard 命中）。
     private func chatBodyChrome7<V: View>(_ content: V) -> some View {
         content
         .background(chatColdChrome12())
@@ -1195,12 +1219,27 @@ struct ChatView: View {
             .scrollContentBackground(.hidden)
             )
         }
+        // v4.0.50 待做池⑦：图片圈注面板（选图 → 圈注 → 完成后烘焙进原图，再由既有图片链路发出）
+        .sheet(isPresented: $showAnnotate) {
+            if let img = pendingImage {
+            AnyView(ImageAnnotateSheet(source: img, onDone: { out in
+                    pendingImage = out
+                    pendingImageData = compressImage(out)
+                })
+            )
+            }
+        }
         .fileImporter(isPresented: $showFileImporter,
                       allowedContentTypes: [.data]) { result in
             if case .success(let url) = result {
                 sendFile(url)
             }
         }
+    }
+
+    /// v4.0.51c：行为型深层修饰器下沉背景层（.background 不影响布局）
+    private func chatColdChrome10() -> some View {
+        Color.clear
         .onChange(of: photoItem) { _, newItem in
             guard let newItem else { return }
             Task {
@@ -1216,7 +1255,7 @@ struct ChatView: View {
     }
 
     /// v4.0.51c：行为型深层修饰器下沉背景层（.background 不影响布局）
-    private func chatColdChrome10() -> some View {
+    private func chatColdChrome11() -> some View {
         Color.clear
         .onChange(of: chat.messages.count) { _, newCount in
             // 超阈值（300 条）显示归档提示；回到阈值下自动隐藏
@@ -1248,7 +1287,7 @@ struct ChatView: View {
     }
 
     /// v4.0.51c：行为型深层修饰器下沉背景层（.background 不影响布局）
-    private func chatColdChrome11() -> some View {
+    private func chatColdChrome12() -> some View {
         Color.clear
         .onChange(of: stream.startSeq) { _, _ in
             // v3.9.41：会话归属判定——A 起流不该把 B 里手动展开的工具卡收起来（该卡本来就按会话显示）
@@ -1265,11 +1304,6 @@ struct ChatView: View {
             // startSeq 只增、每轮必变，是这仓认定的「开跑语义」唯一可靠信号。
             typingBorn = false
         }
-    }
-
-    /// v4.0.51c：行为型深层修饰器下沉背景层（.background 不影响布局）
-    private func chatColdChrome12() -> some View {
-        Color.clear
         .onReceive(NotificationCenter.default.publisher(for: .qingliaoMemoSend)) { note in
             if let text = note.object as? String, !text.isEmpty {
                 // 与输入栏 send() 同口径：用户真的发起新一轮 → 先掐掉上一轮朗读，
@@ -1302,16 +1336,16 @@ struct ChatView: View {
         }
         // v4.0.x 会话纪要：纪要页整理完把卡片文本发过来 → 按记账卡同一路径插一张本地卡
         // （object = 卡片文本；卡已由 MinutesKit 组装好，这里只负责落进当前会话）
-        .onReceive(NotificationCenter.default.publisher(for: .qingliaoMinutesCard)) { note in
-            if let card = note.object as? String, !card.isEmpty {
-                insertMinutesCard(card)
-            }
-        }
     }
 
     /// v4.0.51c：行为型深层修饰器下沉背景层（.background 不影响布局）
     private func chatColdChrome13() -> some View {
         Color.clear
+        .onReceive(NotificationCenter.default.publisher(for: .qingliaoMinutesCard)) { note in
+            if let card = note.object as? String, !card.isEmpty {
+                insertMinutesCard(card)
+            }
+        }
         .onAppear {
             drainShareInbox()
             // v3.4.x 发送可靠性：启动恢复上次未发出的排队消息（杀 App/断网重启不丢）→ 立即补发
@@ -1326,8 +1360,11 @@ struct ChatView: View {
 
     // MARK: - 巨型 body 拆分（纯搬运）
     //
-    // 由头：此 body 单块 263 行（主体是 188 行链式修饰符，按约束 2 保留在 body），是本仓已踩过两次的「Unable to type-check this
+    // 由头：此 body 单块 263 行，是本仓已踩过两次的「Unable to type-check this
     // expression in reasonable time」高危形态（一次漏检 = 20 分钟 CI 循环）。
+    // v4.0.51 追加：链式修饰符 = SwiftUI 泛型嵌套层数，运行时 demangle 需按层递归；
+    //   37 层链实测把主线程 1MB 栈撞爆（IPS：Stack Guard 命中 + 173 帧全在 decodeMangledType）。
+    //   那 188 行链已按 ≤6 个/段搬进上方 chatBodyChrome1…7 —— **纯搬运**：顺序逐字未变。
     // 这里按原注释分段把视图块原样搬成独立 @ViewBuilder 属性 —— **纯搬运**：视图顺序、
     // 层级、条件分支、闭包、修饰符逐字未变，渲染结果与拆分前一致，只为把类型检查表达式打小。
 
@@ -1791,7 +1828,16 @@ struct ChatView: View {
                         onUndo: { undoMemo(stream.memoAdded) },
                         onClose: { stream.forgetMemo(stream.memoAdded) })
                 .transition(.move(edge: .bottom).combined(with: .opacity))
+        } else if !pendingQueueRows.isEmpty {
+            // 待做池⑥：弱网/多会话「队列总览」——排队消息逐条带序号（在等什么、排第几）。
+            // 与上面几条**同一槽位、互斥**（记账条 / 去重条 / 记忆条 / 队列条只显示一个）。
+            SendQueueBar(rows: pendingQueueRows, onClearAll: { clearPendingQueue() })
         }
+    }
+
+    /// 待做池⑥：当前会话的排队消息 → 带序号的展示行（口径在 `Core/SendQueueOverview.swift`）。
+    private var pendingQueueRows: [SendQueueOverview.Row] {
+        SendQueueOverview.rows(pendingQueue, sessionId: chat.sessionId)
     }
 
     /// v4.0.120：一键撤销 = 真删。调 /api/memory/delete 删掉刚记住的条目。
@@ -2397,6 +2443,9 @@ struct ChatView: View {
     /// 句子自己来回换（用户看到的「抖动」）。改法：进屏时抽一次存 state，body 只读 state。
     @State private var welcomeQuote = WelcomeQuotes.pick()
 
+    /// v4.0.52 待做池 ⑧：链接预览缓存（按消息 id；行级 @State，随 ChatView 生命周期）。
+    @State private var linkPreviews = LinkPreviewStore.shared
+
     /// v3.0.51：单条消息整行（日期分隔 + 时间分隔 + 气泡）——拆独立方法防 ForEach type-check 超时
     /// v3.4.2：改吃 entry 快照（prevMsg），渲染不再索引可变 chat.messages（越界 SIGTRAP 根治）
     @ViewBuilder
@@ -2422,6 +2471,8 @@ struct ChatView: View {
             // 放在 messageRow 这一层而不是塞进 MessageBubble：气泡内已有多条同款底部条
             // （有用/没用、引用块），再插一条会让 ql_inputbar 的行数真值与 CI type-check 都更难。
             followUpSuggestionsRow(msg)
+            // v4.0.52 待做池 ⑧：链接预览卡片（消息首个 http(s) 链接；失败/已关则整行不渲染）
+            linkPreviewRow(msg)
             // v3.3.0：多选模式 → 全行可点勾选 + 右上角选中圆圈
             .overlay {
                 if selectMode {
@@ -2684,6 +2735,36 @@ struct ChatView: View {
             }
             .padding(.leading, 6)   // 与气泡文本左缘对齐（气泡自身不留白，见 v4.0.38）
             .padding(.bottom, 6)
+        }
+    }
+
+    /// v4.0.52 待做池 ⑧：链接预览卡片行（微信式）。
+    /// 口径：消息里第一个 http(s) 链接 → 后端抓 og 元数据 → 气泡下方渲染一张卡。
+    /// · 只取**首个**链接（一条消息多链接不堆多张卡，见 LinkPreviewKit）；
+    /// · 抓取失败 / 无可用元数据 / 用户已关 → **整行不渲染**（不显示空卡，不占位）；
+    /// · 拉取挂在 `.task(id:)`（行进入可见区才抓；结果按消息 id 缓存，不重复打后端）；
+    /// · 与 followUpSuggestionsRow 同层（不塞进 MessageBubble：气泡底条已很密，见其注释）。
+    @ViewBuilder
+    private func linkPreviewRow(_ msg: ChatMessage) -> some View {
+        let text = msg.content
+        if !linkPreviews.isDismissed(msg.id), LinkPreviewKit.candidateURL(in: text) != nil {
+            Group {
+                if case .ready(let p)? = linkPreviews.state(for: msg.id) {
+                    LinkPreviewCard(
+                        preview: p,
+                        onDismiss: { linkPreviews.dismiss(msg.id) },
+                        onRelink: {
+                            Task { await linkPreviews.load(id: msg.id, text: text, auth: auth, force: true) }
+                        }
+                    )
+                    .padding(.leading, 6)
+                    .padding(.bottom, 6)
+                }
+            }
+            // 行进入可见区才抓；结果按消息 id 缓存（load 对已有状态短路 → 不会反复打后端）
+            .task(id: msg.id) {
+                await linkPreviews.load(id: msg.id, text: text, auth: auth)
+            }
         }
     }
     /// v4.0.25/26：长按「存为长期目标」——把该段内容直接建成长期目标。
@@ -3685,7 +3766,11 @@ struct ChatView: View {
             if probeTick % 2 != 0 { return }
         }
         do {
-            let (tid, rContent, done, status, _) = try await auth.streamRecover(sessionId: sid)
+            let r = try await auth.streamRecover(sessionId: sid)
+            let tid = r.taskId
+            let rContent = r.content
+            let done = r.done
+            let status = r.status
             let alive = (tid?.isEmpty == false) && !done && status == "streaming"
             remoteBusy = alive
             remoteBusyFails = 0

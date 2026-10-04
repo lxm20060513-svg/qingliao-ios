@@ -663,7 +663,22 @@ final class AuthStore {
     /// v3.0.31：流式任务恢复——qingliao 服务重启后内存任务丢失（poll 404），
     /// 调 /api/stream/recover 找回：内存优先（返回可继续轮询的 taskId），
     /// 磁盘兜底（streams/*.json 节流落盘，返回 done=true + 完整内容）。
-    func streamRecover(sessionId: String) async throws -> (String?, String, Bool, String, String) {
+    ///
+    /// 待做池⑥：磁盘兜底分支还会带 `outcome`（中断标记）/ `plan` / `planSeq`（已完成步）——
+    /// 这几个断点信息在此一并解出（口径见 `Core/ResumeInfo.swift`），供调用方如实外显
+    /// 「已完成第 k 步 · 结果未知 · 未自动重放」。老后端无这些键 → 空值，零行为变化。
+    struct RecoverResult {
+        let taskId: String?
+        let content: String
+        let done: Bool
+        let status: String
+        let error: String
+        let outcome: String
+        let plan: [ActiveTaskPlan.Step]
+        let planSeq: Int
+    }
+
+    func streamRecover(sessionId: String) async throws -> RecoverResult {
         let enc = sessionId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? sessionId
         let (data, _) = try await request("/api/stream/recover?sessionId=" + enc)
         guard let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
@@ -674,7 +689,12 @@ final class AuthStore {
         let done = j["done"] as? Bool ?? true
         let status = j["status"] as? String ?? ""
         let error = j["error"] as? String ?? ""
-        return (tid, content, done, status, error)
+        // 待做池⑥：中断任务的断点信息（老后端无键 → 空 / [] / 0，调用方按「非中断」处理）。
+        let outcome = j["outcome"] as? String ?? ""
+        let plan = ActiveTaskPlan.parse(j["plan"])
+        let planSeq = (j["planSeq"] as? Int) ?? (j["planSeq"] as? Double).map(Int.init) ?? 0
+        return RecoverResult(taskId: tid, content: content, done: done, status: status,
+                             error: error, outcome: outcome, plan: plan, planSeq: planSeq)
     }
 
     /// 流式停止：蜂窝 → CFStream 直连 POST（免弹窗），失败降级 relay；Wi-Fi → 直连

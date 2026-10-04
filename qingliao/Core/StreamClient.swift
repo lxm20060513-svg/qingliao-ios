@@ -537,7 +537,15 @@ final class StreamClient {
     /// （poll 404 → localTaskGone=true）则直接收尾报错，让用户重发——绝不复活旧答案。
     private func tryRecover(auth: AuthStore, localTaskGone: Bool = false) async -> Bool {
         do {
-            let (tid, rContent, done, st, err) = try await auth.streamRecover(sessionId: auth.currentStreamSessionId)
+            let r = try await auth.streamRecover(sessionId: auth.currentStreamSessionId)
+            let tid = r.taskId
+            let rContent = r.content
+            let done = r.done
+            let st = r.status
+            let err = r.error
+            // 待做池⑥：中断任务（后端磁盘兜底/reconcile 标 outcome=outcome_unknown）的如实外显
+            // —— 「已完成第 k 步 · 结果未知 · 未自动重放」。非中断任务 notice=nil → 保持原错误文案。
+            let interruptedNote = ResumeInfo.notice(outcome: r.outcome, plan: r.plan, planSeq: r.planSeq)
             if let tid, !tid.isEmpty {
                 let isSameTask = (tid == self.taskId)
                 let inFlight = (!done && st == "streaming")
@@ -545,7 +553,7 @@ final class StreamClient {
                     // 没采纳 → 把「普通失败路径那一次 recover 机会」还回去（v3.5.2 code review：
                     // 原实现把"忽略"也当"已接管"消费掉，弱网下会白丢本轮唯一一次续流机会）
                     recoverFailTried = false
-                    if localTaskGone { finish(success: false, error: "连接中断，请重试") }
+                    if localTaskGone { finish(success: false, error: interruptedNote ?? "连接中断，请重试") }
                     return true
                 }
                 // 采纳：换 taskId
@@ -565,7 +573,8 @@ final class StreamClient {
                     offset = Self.codePointCount(rContent)
                 }
                 if done {
-                    finish(success: st != "error", error: err)
+                    // 待做池⑥：中断任务用断点提示（含已完成步数），普通任务保持原 error。
+                    finish(success: st != "error", error: interruptedNote ?? err)
                 }
                 return true
             }

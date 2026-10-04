@@ -245,7 +245,7 @@ struct EditMsgTruthTable {
         print("── ③ 源级接线：分享 / 导出（折叠态不许漏原文）──")
 
         ok(code("qingliao/Features/Chat/ChatViewExport.swift")
-            .contains("if msg.edited { return (msg.role, MessageEditKit.editedLabel) }"),
+            .contains("if msg.edited { return SessionCardKit.CardRow(role: msg.role, text: MessageEditKit.editedLabel) }"),
            "分享卡片：折叠态用「已修改」占位（不漏已被改掉的旧原文）")
         ok(code("qingliao/Features/Chat/ChatComponents.swift").contains("m.edited ? MessageEditKit.editedLabel"),
            "HTML 导出：同上")
