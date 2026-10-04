@@ -907,6 +907,68 @@ struct ChatView: View {
         content
         .animation(.easeOut(duration: kb.animationDuration), value: kb.height)
         // v2.0.96：语音授权/转写失败提示（v3.9.3：设备端识别——麦克风权限 / 机型不支持 / 识别中断）
+        .background(chatColdChrome1())
+        .background(chatColdChrome2())
+    }
+
+    // v4.0.51 拆段 2/7：纯搬运（顺序、闭包、文案逐字未变）。
+    // 链式修饰器 = 泛型嵌套层数，运行时 demangle 按层递归；≤6 层/段 = 远离主线程栈爆点。
+    private func chatBodyChrome2<V: View>(_ content: V) -> some View {
+        content
+        .background(chatColdChrome3())
+        .background(chatColdChrome4())
+    }
+
+    // v4.0.51 拆段 3/7：纯搬运（顺序、闭包、文案逐字未变）。
+    // 链式修饰器 = 泛型嵌套层数，运行时 demangle 按层递归；≤6 层/段 = 远离主线程栈爆点。
+    private func chatBodyChrome3<V: View>(_ content: V) -> some View {
+        content
+        .background(chatColdChrome5())
+        .background(chatColdChrome6())
+    }
+
+    // v4.0.51 拆段 4/7：纯搬运（顺序、闭包、文案逐字未变）。
+    // 链式修饰器 = 泛型嵌套层数，运行时 demangle 按层递归；≤6 层/段 = 远离主线程栈爆点。
+    private func chatBodyChrome4<V: View>(_ content: V) -> some View {
+        content
+        .background(chatColdChrome7())
+        .background(chatColdChrome8())
+    }
+
+    // v4.0.51 拆段 5/7：纯搬运（顺序、闭包、文案逐字未变）。
+    // 链式修饰器 = 泛型嵌套层数，运行时 demangle 按层递归；≤6 层/段 = 远离主线程栈爆点。
+    private func chatBodyChrome5<V: View>(_ content: V) -> some View {
+        content
+        .background(chatColdChrome9())
+        .overlay(alignment: .top) {
+            if showArchiveHint {
+            AnyView(archiveBanner
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .zIndex(20)
+            )
+            }
+        }
+    }
+
+    // v4.0.51 拆段 6/7：纯搬运（顺序、闭包、文案逐字未变）。
+    // 链式修饰器 = 泛型嵌套层数，运行时 demangle 按层递归；≤6 层/段 = 远离主线程栈爆点。
+    private func chatBodyChrome6<V: View>(_ content: V) -> some View {
+        content
+        .background(chatColdChrome10())
+        .background(chatColdChrome11())
+    }
+
+    // v4.0.51 拆段 7/7：纯搬运（顺序、闭包、文案逐字未变）。
+    // 链式修饰器 = 泛型嵌套层数，运行时 demangle 按层递归；≤6 层/段 = 远离主线程栈爆点。
+    private func chatBodyChrome7<V: View>(_ content: V) -> some View {
+        content
+        .background(chatColdChrome12())
+        .background(chatColdChrome13())
+    }
+
+    /// v4.0.51c：行为型深层修饰器下沉背景层（.background 不影响布局）
+    private func chatColdChrome1() -> some View {
+        Color.clear
         .alert("语音转文字不可用", isPresented: $voiceAuthFailed) {
             Button("去设置") {
                 if let url = URL(string: UIApplication.openSettingsURLString) {
@@ -941,6 +1003,11 @@ struct ChatView: View {
             Text(clearBlockedHint ?? "")
         }
         // v2.0.102：AI 回答中发文件提示
+    }
+
+    /// v4.0.51c：行为型深层修饰器下沉背景层（.background 不影响布局）
+    private func chatColdChrome2() -> some View {
+        Color.clear
         .alert("AI 回答中", isPresented: $fileSendBlocked) {
             Button("好的", role: .cancel) {}
         } message: {
@@ -949,10 +1016,9 @@ struct ChatView: View {
         // v3.3.0：流式中进入多选提示
     }
 
-    // v4.0.51 拆段 2/7：纯搬运（顺序、闭包、文案逐字未变）。
-    // 链式修饰器 = 泛型嵌套层数，运行时 demangle 按层递归；≤6 层/段 = 远离主线程栈爆点。
-    private func chatBodyChrome2<V: View>(_ content: V) -> some View {
-        content
+    /// v4.0.51c：行为型深层修饰器下沉背景层（.background 不影响布局）
+    private func chatColdChrome3() -> some View {
+        Color.clear
         .alert("AI 回答中", isPresented: $selectBlocked) {
             Button("好的", role: .cancel) {}
         } message: {
@@ -977,6 +1043,11 @@ struct ChatView: View {
             Text("最多合并 \(Self.maxMergeCount) 条，请减少勾选后再合并。")
         }
         // v2.0.61：杀后台流式恢复（幂等——无持久化任务时静默返回）
+    }
+
+    /// v4.0.51c：行为型深层修饰器下沉背景层（.background 不影响布局）
+    private func chatColdChrome4() -> some View {
+        Color.clear
         .task {
             await resumePersistedStream()
             // v3.9.58c：探测未完任务标记——标记归属**其他**会话时显示「继续上次任务」横幅
@@ -991,10 +1062,9 @@ struct ChatView: View {
         // 改用 SwiftUI 原生更新周期里写（liveSpeech.liveText 变化 → 必然走这里），松手定稿后框内即最终文本
     }
 
-    // v4.0.51 拆段 3/7：纯搬运（顺序、闭包、文案逐字未变）。
-    // 链式修饰器 = 泛型嵌套层数，运行时 demangle 按层递归；≤6 层/段 = 远离主线程栈爆点。
-    private func chatBodyChrome3<V: View>(_ content: V) -> some View {
-        content
+    /// v4.0.51c：行为型深层修饰器下沉背景层（.background 不影响布局）
+    private func chatColdChrome5() -> some View {
+        Color.clear
         .onChange(of: liveSpeech.liveText) { _, newValue in
             // v3.9.9：守卫与录音行同口径（voiceMode 或识别器在跑），否则会出现
             // "红点行有字、输入框里没字"的分裂状态
@@ -1027,6 +1097,11 @@ struct ChatView: View {
             )
         }
         // v2.0.96：Hermes 捷径面板（官方斜杠命令，点击填充输入框）
+    }
+
+    /// v4.0.51c：行为型深层修饰器下沉背景层（.background 不影响布局）
+    private func chatColdChrome6() -> some View {
+        Color.clear
         .sheet(isPresented: $showHermesShortcut) {
             AnyView(HermesShortcutSheet { cmd in
                 inputText = cmd
@@ -1039,10 +1114,9 @@ struct ChatView: View {
         // v3.0.27：章节列表
     }
 
-    // v4.0.51 拆段 4/7：纯搬运（顺序、闭包、文案逐字未变）。
-    // 链式修饰器 = 泛型嵌套层数，运行时 demangle 按层递归；≤6 层/段 = 远离主线程栈爆点。
-    private func chatBodyChrome4<V: View>(_ content: V) -> some View {
-        content
+    /// v4.0.51c：行为型深层修饰器下沉背景层（.background 不影响布局）
+    private func chatColdChrome7() -> some View {
+        Color.clear
         .sheet(isPresented: $showTOCSheet) {
             AnyView(TOCSheet(headers: tocHeaders(), onNavigate: { item in
                 // v3.9.41：按 TOCItem.msgIndex 定位（数据源已逐条抽取并打标，见 tocHeaders()）
@@ -1086,6 +1160,11 @@ struct ChatView: View {
             )
         }
         // v3.9.48：输入栏展开态的模型快选（右下角胶囊）。detents 与 Hermes 捷径/章节列表同档
+    }
+
+    /// v4.0.51c：行为型深层修饰器下沉背景层（.background 不影响布局）
+    private func chatColdChrome8() -> some View {
+        Color.clear
         .sheet(isPresented: $showComposerModel) {
             AnyView(ComposerModelSheet()
                 .presentationDetents([.medium, .large])
@@ -1096,10 +1175,9 @@ struct ChatView: View {
         // 沿用现有档位不新增宿主，大爆炸的 fullScreenCover 不动，避免 zoom 转场源 id 打架。
     }
 
-    // v4.0.51 拆段 5/7：纯搬运（顺序、闭包、文案逐字未变）。
-    // 链式修饰器 = 泛型嵌套层数，运行时 demangle 按层递归；≤6 层/段 = 远离主线程栈爆点。
-    private func chatBodyChrome5<V: View>(_ content: V) -> some View {
-        content
+    /// v4.0.51c：行为型深层修饰器下沉背景层（.background 不影响布局）
+    private func chatColdChrome9() -> some View {
+        Color.clear
         .sheet(item: $longReplyPayload) {
             payload in
             AnyView(LongReplySheet(payload: payload)
@@ -1135,20 +1213,11 @@ struct ChatView: View {
             }
         }
         // v3.4.x 存储自洁：长会话超阈值 → 顶部滑出提示条，点击手动归档导出
-        .overlay(alignment: .top) {
-            if showArchiveHint {
-            AnyView(archiveBanner
-                    .transition(.move(edge: .top).combined(with: .opacity))
-                    .zIndex(20)
-            )
-            }
-        }
     }
 
-    // v4.0.51 拆段 6/7：纯搬运（顺序、闭包、文案逐字未变）。
-    // 链式修饰器 = 泛型嵌套层数，运行时 demangle 按层递归；≤6 层/段 = 远离主线程栈爆点。
-    private func chatBodyChrome6<V: View>(_ content: V) -> some View {
-        content
+    /// v4.0.51c：行为型深层修饰器下沉背景层（.background 不影响布局）
+    private func chatColdChrome10() -> some View {
+        Color.clear
         .onChange(of: chat.messages.count) { _, newCount in
             // 超阈值（300 条）显示归档提示；回到阈值下自动隐藏
             withAnimation(Motion.settle) {   // v3.9.0：动效令牌收口（原 spring 0.3/0.1）
@@ -1176,6 +1245,11 @@ struct ChatView: View {
         // v3.9.14：新一轮开始 → 工具卡回到默认收起态（否则上一轮手动展开会带到下一轮）
         // v4.0.x：观察只增的 `startSeq` 而不是 `isStreaming`——finish() 同帧续发会把 false→true 吞掉，
         // 上一轮展开的工具卡会带进新一轮（与 DockTabView 失败态清不掉是同型问题）。
+    }
+
+    /// v4.0.51c：行为型深层修饰器下沉背景层（.background 不影响布局）
+    private func chatColdChrome11() -> some View {
+        Color.clear
         .onChange(of: stream.startSeq) { _, _ in
             // v3.9.41：会话归属判定——A 起流不该把 B 里手动展开的工具卡收起来（该卡本来就按会话显示）
             if thisSessionStreaming { toolStepsExpanded = false }
@@ -1193,10 +1267,9 @@ struct ChatView: View {
         }
     }
 
-    // v4.0.51 拆段 7/7：纯搬运（顺序、闭包、文案逐字未变）。
-    // 链式修饰器 = 泛型嵌套层数，运行时 demangle 按层递归；≤6 层/段 = 远离主线程栈爆点。
-    private func chatBodyChrome7<V: View>(_ content: V) -> some View {
-        content
+    /// v4.0.51c：行为型深层修饰器下沉背景层（.background 不影响布局）
+    private func chatColdChrome12() -> some View {
+        Color.clear
         .onReceive(NotificationCenter.default.publisher(for: .qingliaoMemoSend)) { note in
             if let text = note.object as? String, !text.isEmpty {
                 // 与输入栏 send() 同口径：用户真的发起新一轮 → 先掐掉上一轮朗读，
@@ -1234,6 +1307,11 @@ struct ChatView: View {
                 insertMinutesCard(card)
             }
         }
+    }
+
+    /// v4.0.51c：行为型深层修饰器下沉背景层（.background 不影响布局）
+    private func chatColdChrome13() -> some View {
+        Color.clear
         .onAppear {
             drainShareInbox()
             // v3.4.x 发送可靠性：启动恢复上次未发出的排队消息（杀 App/断网重启不丢）→ 立即补发

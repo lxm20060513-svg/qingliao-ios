@@ -228,5 +228,29 @@ if let a = idx(code, "private func chatBodyChrome1") {
 } else {
     ok(false, "③″ 分段方法区定位失败（锚点 = private func chatBodyChrome1）")
 }
+// ── ③‴ v4.0.51c：行为型深层修饰器必须留在背景层 chatColdChromeN（≤4 个/组）──
+// 依据：.alert/.sheet/.onReceive/.onChange/.task 每个自带 6~15 层泛型嵌套；挂在内容链上会把
+// 宿主类型堆到 150+ 层 → 首帧 demangle 撞爆主线程栈。下沉到 .background(Color.clear) 后宿主只剩短链。
+var coldCount = 0
+while idx(code, "private func chatColdChrome\(coldCount + 1)() -> some View {") != nil { coldCount += 1 }
+ok(coldCount >= 6, "③‴ 冷组数量 \(coldCount)（应 ≥6，说明下沉结构还在）")
+for cn in 1...max(coldCount, 1) {
+    guard let h = idx(code, "private func chatColdChrome\(cn)() -> some View {") else { continue }
+    let s0 = String(code.dropFirst(h))
+    let seg: String = { if let e = idx(s0, "\n    }") { return String(s0.prefix(e)) }; return s0 }()
+    let dl = seg.split(separator: "\n").map(String.init)
+        .filter { $0.trimmingCharacters(in: .whitespaces).hasPrefix(".") }
+    let inds = dl.map { $0.prefix { $0 == " " }.count }
+    let mn = inds.min() ?? 0
+    let top = inds.filter { $0 == mn }.count
+    ok(top >= 1 && top <= 4, "③‴ 冷组 chatColdChrome\(cn) 顶层 \(top) 条修饰器（要求 1…4）")
+}
+if let a = idx(code, "private func chatBodyChrome1") {
+    let hs = String(code.dropFirst(a))
+    let segText: String = { if let e = idx(hs, "private func chatColdChrome1") { return String(hs.prefix(e)) }; return hs }()
+    for m in [".alert(", ".sheet(", ".fullScreenCover(", ".onReceive(", ".onChange(", ".task(", ".photosPicker(", ".fileImporter(", ".onAppear("] {
+        ok(!segText.contains(m), "③‴ 负断言：\(m) 未回到 chrome 段（回退 = 宿主类型深度回升到危险区）")
+    }
+}
 print("  —— 类型栈深度真值表：\(pass) 通过 / \(fail) 失败")
 if fail > 0 { exit(1) }
