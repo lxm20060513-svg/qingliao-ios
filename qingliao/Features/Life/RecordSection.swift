@@ -39,19 +39,8 @@ struct RecordSection: View {
 
     var body: some View {
         root
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .task {
-                await store.loadFromServer()
-                // 候选池⑨：进记录区就补记本月该自动入账的固定支出（打开 App 即补，不依赖后台调度）
-                store.applyFixedExpenses()
-            }
-            .sheet(isPresented: $showAdd) { addSheet }
-            // 删除确认框必须挂在弹窗自己这棵树上（SR35：宿主级 alert 在弹窗之上呈现不出来）
-            .sheet(isPresented: $showAll) { deleteConfirm(on: allSheet) }
-            // v4.0.22 候选池⑪：扫账单（自身带 detents，内容不含实色底 —— 与全站弹窗口径一致）
-            // ⚠️ `.id(billScanSession)` 是刚需：SwiftUI 会**保留已 present 过视图的状态**，
-            // 不换实例的话「扫一次 → 关掉 → 再扫」会带着上一张图/上一次金额回来（与 Memo/Todo 同源坑）。
-            .sheet(isPresented: $showBillScan) { BillScanSheet().id(billScanSession) }
+            .modifier(RecordSectionBodyChrome(host: self))
+            .modifier(RecordSectionBodySheets(host: self))
     }
 
     private var root: some View {
@@ -1017,5 +1006,57 @@ private struct FixedExpenseSheet: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - v4.0.50 启动链类型折叠（防启动期 demangler 递归爆主线程 1MB 栈）
+//
+// 事故与 ChatView（v4.0.49）/ DashboardView（v4.0.50）同源：本文件 body 返回类型名里
+// **内联**了每条 .sheet 内容闭包的完整类型（各 sheet 的正文视图树），dSYM 实测 body 的
+// mangled 类型名 1236 字符。危险量是**名字的字符数**（≈19 字符 = 1 帧 demangler 递归，
+// 每帧 ~9.3KB 主线程栈），TabView 启动即渲染本页，与其它视图叠加可吃干 1MB 栈 → 一点开就闪退。
+//
+// 修法 = 把 body 的修饰器链折成具名 ViewModifier 分组：父类型名里只剩组名，链在各组自己的
+// applyXxx 调用里解析（各自一次 1MB 栈预算）。⚠️ 修饰器**种类/数量/顺序/参数**逐字未变
+// （等价重构，视图树与身份/动画真源不动）；谁也不许把这些链再内联回 body ——
+// 改链请改这里的 applyXxx，别动调用点。
+extension RecordSection {
+    /// 折叠组 1（2 条修饰器）：页壳（宽度对齐 + 进页面拉一次数据）
+    @MainActor
+    private func applyRecordSectionBodyChrome<C: View>(to content: C) -> some View {
+        content
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .task {
+                await store.loadFromServer()
+                // 候选池⑨：进记录区就补记本月该自动入账的固定支出（打开 App 即补，不依赖后台调度）
+                store.applyFixedExpenses()
+            }
+    }
+
+    /// 折叠组 2（3 条修饰器）：三张弹窗（新建 / 全部记录 / 扫账单）
+    @MainActor
+    private func applyRecordSectionBodySheets<C: View>(to content: C) -> some View {
+        content
+            .sheet(isPresented: $showAdd) { addSheet }
+            // 删除确认框必须挂在弹窗自己这棵树上（SR35：宿主级 alert 在弹窗之上呈现不出来）
+            .sheet(isPresented: $showAll) { deleteConfirm(on: allSheet) }
+            // v4.0.22 候选池⑪：扫账单（自身带 detents，内容不含实色底 —— 与全站弹窗口径一致）
+            // ⚠️ `.id(billScanSession)` 是刚需：SwiftUI 会**保留已 present 过视图的状态**，
+            // 不换实例的话「扫一次 → 关掉 → 再扫」会带着上一张图/上一次金额回来（与 Memo/Todo 同源坑）。
+            .sheet(isPresented: $showBillScan) { BillScanSheet().id(billScanSession) }
+    }
+
+    @MainActor
+    private struct RecordSectionBodyChrome: ViewModifier {
+        let host: RecordSection
+
+        func body(content: Content) -> some View { host.applyRecordSectionBodyChrome(to: content) }
+    }
+
+    @MainActor
+    private struct RecordSectionBodySheets: ViewModifier {
+        let host: RecordSection
+
+        func body(content: Content) -> some View { host.applyRecordSectionBodySheets(to: content) }
     }
 }

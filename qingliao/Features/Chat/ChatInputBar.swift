@@ -202,70 +202,12 @@ struct ChatInputBar: View {
             messageRow
             toolRow
         }
-        .animation(Motion.snap, value: toolLayerExpanded)
-        .padding(.horizontal, Spacing.lg)
-        // v3.9.67（用户：「收起态高度改为 50」）：垂直 padding 由 Spacing.md(12) 降到
-        // **Spacing.xs(4)** —— 收起态容器高 = 第一层 42 + 4×2 = **50**（原 66 是 42+12×2，
-        // 用户原话「58 我觉得还是高了点」→ 真机观感 66 后进一步收紧；第二层高归 0 后
-        // 比展开态 84 矮 34pt）。发送键上下居中空间 = 第一层内 5pt + 容器 4pt。
-        // 仍走令牌不写魔法数（xs 是 8 档里的最小档之一，「紧贴元素」语义与本态吻合）。
-        .padding(.vertical, Spacing.xs)
-        // v2.0.87e：原生液态玻璃输入栏（iOS 26+）
-        // v3.9.62：玻璃形状 Capsule → 14pt 档圆角矩形（Radius.field，输入框档）。
-        // v3.9.63：v3.9.62 的写法 `.background { RoundedRectangle(...).glassEffect() }` **不成立**——
-        //   Apple 官方明确 glassEffect 的默认形状是 Capsule（`DefaultGlassEffectShape`；原文「applies
-        //   the given effect within a Capsule shape behind the view's content」），宿主 Shape 是圆角矩形
-        //   也拦不住：玻璃本体仍按胶囊渲染（两端半径 = 容器高/2 ≈54），衬在圆角矩形白边**里面**——
-        //   用户看到的就是「方形圆角框里还套一层椭圆玻璃」。正确做法 = 官方 `in:` 参数把玻璃钉进
-        //   RoundedRectangle：`.glassEffect(.regular, in: RoundedRectangle(...))`，玻璃与描边同形，
-        //   整个容器只剩一个形状。
-        // 半径历史：v3.9.62 用 Radius.field(14) → v3.9.64 用 Radius.card(16) →
-        //   v3.9.65 起用户明确「加到 18」→ ChatInputBarLayout.containerCornerRadius（单一真源，见 enum 定义）。
-        // 外层玻璃容器其余件（白边/聚焦蓝边/流光）全部换成同一个形状（四处同形真值表钉住）。
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: ChatInputBarLayout.containerCornerRadius, style: .continuous))
-        // v3.4.20：聚焦态光晕——输入框获得焦点时边缘亮起淡蓝细描边（0.8pt 与全站描边同参），失焦淡出。
-        // 静态描边（非每帧重绘），无 shadow 叠加，不触碰 v3.2.3 渲染卡死红线。
-        .overlay {
-            RoundedRectangle(cornerRadius: ChatInputBarLayout.containerCornerRadius, style: .continuous)
-                .strokeBorder(Color.blue.opacity(focused ? 0.45 : 0), lineWidth: 0.8)
-                .allowsHitTesting(false)
-        }
-        .animation(Motion.snap, value: focused)
-        // v3.2.3 渲染卡死根治：外层阴影移到流光 overlay **之前**——阴影只对静态背景/内容生效，
-        // 不再因流光每帧变化触发阴影 CGPath 重算（.ips 8BADF00D 主线程栈铁证：
-        // ShapeLayerShadowHelper.updateShadow → Path.cgPath → RenderBox CG::stroker 病态递归卡死）
-        .shadow(color: .black.opacity(0.3), radius: 14, y: 5)
-        // v2.0.87s：等待回复特效（v2.0.87ay：改回 87 版效果——内部旋转流光，Siri 淡雅）
-        .overlay {
-            // v3.9.7：语音转文字过程中输入框**不加这层特效**，保持普通输入框形态——
-            //         语音态唯一的视觉提示是「发送键变收音图标」。流光只在 streaming（等待回复）态出现。
-            // 卡死防护靠 v3.2.3 三件套（流光无 shadow + 15fps + 外层阴影静态化在 overlay 前）。
-            if streaming && inputGlowOn {
-                // v2.0.139 性能：流光 60→30fps；v3.2.3：30→15fps + **去掉 .shadow**
-                let schedule: AnimationTimelineSchedule = .animation(minimumInterval: 1.0 / 15.0)
-                TimelineView(schedule) { context in
-                    let t = context.date.timeIntervalSinceReferenceDate
-                    let angle = (t * 70).truncatingRemainder(dividingBy: 360)
-                    // v3.9.64：用户原话「把输入框流光填满外部的方形框」——流光本体由 **Capsule 改为
-                    //   与容器同形的圆角矩形**。Capsule 版两端半径 = 容器高/2，流光被压成
-                    //   「两端大弧」的条状；同形矩形后流光铺满整个方形圆角框的四边与四角
-                    //   （含圆角处）——玻璃/白边/聚焦蓝边/流光四处同一个形状（v3.9.63 定稿口径）。
-                    // v3.9.65：容器圆角随「加到 18」走同一常量 containerCornerRadius，流光仍是同形。
-                    RoundedRectangle(cornerRadius: ChatInputBarLayout.containerCornerRadius, style: .continuous).fill(
-                        AngularGradient(
-                            colors: [.blue.opacity(0.22), .indigo.opacity(0.22),
-                                     .pink.opacity(0.22), .red.opacity(0.16), .blue.opacity(0.22)],
-                            center: .center, angle: .degrees(angle)
-                        )
-                    )
-                    .allowsHitTesting(false)   // v2.0.87al：不拦截点击（停止按钮可点）
-                }
-            } else {
-                RoundedRectangle(cornerRadius: ChatInputBarLayout.containerCornerRadius, style: .continuous)
-                    .strokeBorder(.white.opacity(Tint.subtle), lineWidth: 0.8)
-            }
-        }
-        .padding(.horizontal, 18)   // v2.0.87aw：输入框宽度收窄（12→18）
+        // v4.x：启动链类型折叠——原 9 条修饰器链改由 3 个具名 ViewModifier 分组承载（各 ≤6 条），
+        // 父链只留组名，`fullInputBar` 的类型名不再内联整条链。语义/顺序逐条不动。
+        // 见文件末尾 `extension ChatInputBar`（applyInputBarFrameChrome / GlassChrome / GlowChrome）。
+        .modifier(InputBarFrameChrome(host: self))
+        .modifier(InputBarGlassChrome(host: self))
+        .modifier(InputBarGlowChrome(host: self))
     }
 
     /// 第一层（消息输入层）：输入框 + 停止/发送键。
@@ -667,6 +609,126 @@ struct ChatInputBar: View {
             )
             .animation(Motion.snap, value: sendColors)
         }
+    }
+}
+
+// MARK: - v4.x 输入栏启动链类型折叠（防 demangler 递归爆主线程 1MB 栈）
+//
+// 事故族同 ChatView v4.0.49：`ChatInputBar.body` 的 mangled 类型名 ≈1544 字符（估算 ≈81 帧 /
+// 0.75MB 栈），逼近主线程栈预算；Swift demangler 解析该类型名时按嵌套层数递归，1MB 栈用尽即崩。
+// 修法一致：把 `fullInputBar` 原先内联的 9 条修饰器链折进**具名 ViewModifier 分组**——
+// 父类型名只留组名（~22 字符），组内链在各组自己的 `applyInputBarXxx` 里解析（各自 1MB 栈预算）。
+// ⚠️ 输入栏是**高频重绘**视图（每次按键都重算），因此禁用 AnyView 类型擦除（会破坏 SwiftUI 静态
+//    diff、拖累重绘性能）；只用 `.modifier(组名(host: self))` 折叠——`ModifiedContent<Content, 具名
+//    Modifier>` 是编译期具体类型，静态 diff 不丢。
+//
+// 视图树、修饰器种类/顺序/参数一律不动（等价重构）。谁也不许把这些链再内联回 fullInputBar——
+// 改链请改这里的 applyInputBarXxx，别动调用点。
+extension ChatInputBar {
+    // MARK: - v4.x/v4.0.50 输入栏启动链折叠（防 demangler 栈溢出）
+    // 护栏 = 发版时 check_type_depth.py 对 dSYM 的物理门禁；⚠️ ql_typestack 尚未覆盖本文件 —— 待补断言。
+
+    /// 启动链折叠第 1 组（3 条修饰器）：容器动效 + 内/外边距。
+    @MainActor
+    private func applyInputBarFrameChrome<C: View>(to content: C) -> some View {
+        content
+            .animation(Motion.snap, value: toolLayerExpanded)
+            .padding(.horizontal, Spacing.lg)
+            // v3.9.67（用户：「收起态高度改为 50」）：垂直 padding 由 Spacing.md(12) 降到
+            // **Spacing.xs(4)** —— 收起态容器高 = 第一层 42 + 4×2 = **50**（原 66 是 42+12×2，
+            // 用户原话「58 我觉得还是高了点」→ 真机观感 66 后进一步收紧；第二层高归 0 后
+            // 比展开态 84 矮 34pt）。发送键上下居中空间 = 第一层内 5pt + 容器 4pt。
+            // 仍走令牌不写魔法数（xs 是 8 档里的最小档之一，「紧贴元素」语义与本态吻合）。
+            .padding(.vertical, Spacing.xs)
+    }
+
+    /// 启动链折叠第 2 组（4 条修饰器）：玻璃底 + 聚焦蓝边 + 静态外阴影。
+    @MainActor
+    private func applyInputBarGlassChrome<C: View>(to content: C) -> some View {
+        content
+            // v2.0.87e：原生液态玻璃输入栏（iOS 26+）
+            // v3.9.62：玻璃形状 Capsule → 14pt 档圆角矩形（Radius.field，输入框档）。
+            // v3.9.63：v3.9.62 的写法 `.background { RoundedRectangle(...).glassEffect() }` **不成立**——
+            //   Apple 官方明确 glassEffect 的默认形状是 Capsule（`DefaultGlassEffectShape`；原文「applies
+            //   the given effect within a Capsule shape behind the view's content」），宿主 Shape 是圆角矩形
+            //   也拦不住：玻璃本体仍按胶囊渲染（两端半径 = 容器高/2 ≈54），衬在圆角矩形白边**里面**——
+            //   用户看到的就是「方形圆角框里还套一层椭圆玻璃」。正确做法 = 官方 `in:` 参数把玻璃钉进
+            //   RoundedRectangle：`.glassEffect(.regular, in: RoundedRectangle(...))`，玻璃与描边同形，
+            //   整个容器只剩一个形状。
+            // 半径历史：v3.9.62 用 Radius.field(14) → v3.9.64 用 Radius.card(16) →
+            //   v3.9.65 起用户明确「加到 18」→ ChatInputBarLayout.containerCornerRadius（单一真源，见 enum 定义）。
+            // 外层玻璃容器其余件（白边/聚焦蓝边/流光）全部换成同一个形状（四处同形真值表钉住）。
+            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: ChatInputBarLayout.containerCornerRadius, style: .continuous))
+            // v3.4.20：聚焦态光晕——输入框获得焦点时边缘亮起淡蓝细描边（0.8pt 与全站描边同参），失焦淡出。
+            // 静态描边（非每帧重绘），无 shadow 叠加，不触碰 v3.2.3 渲染卡死红线。
+            .overlay {
+                RoundedRectangle(cornerRadius: ChatInputBarLayout.containerCornerRadius, style: .continuous)
+                    .strokeBorder(Color.blue.opacity(focused ? 0.45 : 0), lineWidth: 0.8)
+                    .allowsHitTesting(false)
+            }
+            .animation(Motion.snap, value: focused)
+            // v3.2.3 渲染卡死根治：外层阴影移到流光 overlay **之前**——阴影只对静态背景/内容生效，
+            // 不再因流光每帧变化触发阴影 CGPath 重算（.ips 8BADF00D 主线程栈铁证：
+            // ShapeLayerShadowHelper.updateShadow → Path.cgPath → RenderBox CG::stroker 病态递归卡死）
+            .shadow(color: .black.opacity(0.3), radius: 14, y: 5)
+    }
+
+    /// 启动链折叠第 3 组（2 条修饰器）：等待回复流光 overlay + 收窄水平 padding。
+    @MainActor
+    private func applyInputBarGlowChrome<C: View>(to content: C) -> some View {
+        content
+            // v2.0.87s：等待回复特效（v2.0.87ay：改回 87 版效果——内部旋转流光，Siri 淡雅）
+            .overlay {
+                // v3.9.7：语音转文字过程中输入框**不加这层特效**，保持普通输入框形态——
+                //         语音态唯一的视觉提示是「发送键变收音图标」。流光只在 streaming（等待回复）态出现。
+                // 卡死防护靠 v3.2.3 三件套（流光无 shadow + 15fps + 外层阴影静态化在 overlay 前）。
+                if streaming && inputGlowOn {
+                    // v2.0.139 性能：流光 60→30fps；v3.2.3：30→15fps + **去掉 .shadow**
+                    let schedule: AnimationTimelineSchedule = .animation(minimumInterval: 1.0 / 15.0)
+                    TimelineView(schedule) { context in
+                        let t = context.date.timeIntervalSinceReferenceDate
+                        let angle = (t * 70).truncatingRemainder(dividingBy: 360)
+                        // v3.9.64：用户原话「把输入框流光填满外部的方形框」——流光本体由 **Capsule 改为
+                        //   与容器同形的圆角矩形**。Capsule 版两端半径 = 容器高/2，流光被压成
+                        //   「两端大弧」的条状；同形矩形后流光铺满整个方形圆角框的四边与四角
+                        //   （含圆角处）——玻璃/白边/聚焦蓝边/流光四处同一个形状（v3.9.63 定稿口径）。
+                        // v3.9.65：容器圆角随「加到 18」走同一常量 containerCornerRadius，流光仍是同形。
+                        RoundedRectangle(cornerRadius: ChatInputBarLayout.containerCornerRadius, style: .continuous).fill(
+                            AngularGradient(
+                                colors: [.blue.opacity(0.22), .indigo.opacity(0.22),
+                                         .pink.opacity(0.22), .red.opacity(0.16), .blue.opacity(0.22)],
+                                center: .center, angle: .degrees(angle)
+                            )
+                        )
+                        .allowsHitTesting(false)   // v2.0.87al：不拦截点击（停止按钮可点）
+                    }
+                } else {
+                    RoundedRectangle(cornerRadius: ChatInputBarLayout.containerCornerRadius, style: .continuous)
+                        .strokeBorder(.white.opacity(Tint.subtle), lineWidth: 0.8)
+                }
+            }
+            .padding(.horizontal, 18)   // v2.0.87aw：输入框宽度收窄（12→18）
+    }
+
+    @MainActor
+    private struct InputBarFrameChrome: ViewModifier {
+        let host: ChatInputBar
+
+        func body(content: Content) -> some View { host.applyInputBarFrameChrome(to: content) }
+    }
+
+    @MainActor
+    private struct InputBarGlassChrome: ViewModifier {
+        let host: ChatInputBar
+
+        func body(content: Content) -> some View { host.applyInputBarGlassChrome(to: content) }
+    }
+
+    @MainActor
+    private struct InputBarGlowChrome: ViewModifier {
+        let host: ChatInputBar
+
+        func body(content: Content) -> some View { host.applyInputBarGlowChrome(to: content) }
     }
 }
 

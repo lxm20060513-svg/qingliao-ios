@@ -222,8 +222,15 @@ check("带闭包的投递监听抽成 IntentRouteModifier（body 巨型链不许
       dockSrc.contains("private struct IntentRouteModifier: ViewModifier")
       && dockCode.contains(".modifier(IntentRouteModifier(onRoute: applyRoute))"))
 
-// 该结构是本文件最后一个类型 → 取标记之后的部分即可（不引 between：本表没这个助手）
-let intentModSlice = dockCode.components(separatedBy: "private struct IntentRouteModifier").last ?? ""
+// v4.0.50：折叠新增了 DockTabChrome1..4（文件尾部），IntentRouteModifier 不再是「本文件最后一个类型」——
+//   必须按「下一个顶层声明」截断，否则切片会吞进折叠分组（那里合法地引用了 selected）→ 假红。
+//   顶层声明一律 0 缩进，故用行首 "\nprivate " 作为终止符（嵌套的 private 都带缩进，不会误切）。
+let intentModSlice: String = {
+    guard let a = dockCode.range(of: "private struct IntentRouteModifier") else { return "" }
+    let rest = dockCode[a.upperBound...]
+    if let b = rest.range(of: "\nprivate ") { return String(rest[rest.startIndex..<b.lowerBound]) }
+    return String(rest)
+}()
 check("IntentRouteModifier 自己碰不到 selected（切页必须由宿主注入）",
       !intentModSlice.isEmpty && !intentModSlice.contains("selected"))
 check("广播这条也清兜底 flag（幂等：不清 = 60s 内重进会被拽回那一页）",

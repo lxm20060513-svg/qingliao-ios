@@ -142,13 +142,8 @@ struct DashboardView: View {
                     //    拖动位移不该污染高度（否则落位会拿自己算自己）。
                     ForEach(visibleCards) { card in
                         boardBlock(card)
-                            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { h in
-                                sectionHeights[card] = h
-                            }
-                            .offset(y: dragCard == card ? dragOffsetY : 0)
-                            .scaleEffect(dragCard == card ? 1.01 : 1)
-                            .shadow(color: .black.opacity(dragCard == card ? 0.16 : 0), radius: 14, y: 6)
-                            .zIndex(dragCard == card ? 1 : 0)
+                            // v4.0.50：量高→位移→放大→阴影→层级 5 条链折成具名组（见本文件末 applyDashboardCardChrome）
+                            .modifier(DashboardCardChrome(host: self, card: card))
                     }
                     cardEditorEntry
                 }
@@ -158,95 +153,12 @@ struct DashboardView: View {
                 .frame(maxWidth: .infinity)
                 .frame(maxWidth: AdaptiveLayout.contentMaxWidth(hSizeBoard))
             }
-            .scrollPosition($scrollPos)
-            // v2.0.86h：Dock 滑动隐藏已删除（从未生效，手动开关替代）
-            .refreshable {
-                await refresh()
-            }
-            .sheet(item: $activeSheet, onDismiss: dashboardSheetDismiss) { s in
-                sheetContent(for: s)
-            }
-            // v3.9.40（#15）：卡片编辑器（排序 / 隐藏）
-            .sheet(isPresented: $showCardEditor) {
-                // SR13：`all` 必须传**可见**卡片。原来传 orderedCards（含隐藏项），
-                // 而 init 把 all 整个塞进 `shown` → 隐藏卡片同时出现在「显示中」和「已隐藏」两栏；
-                // 在「显示中」再点一次隐藏，hiddenList 就多一份重复，persist 写出的
-                // orderRaw = shown + hiddenList 也带重复键 → orderedCards 返回重复元素 →
-                // 看板同一张卡片渲染两遍，且 ForEach(id: \.element) 重复 id（SwiftUI 直接告警/错位）。
-                BoardCardEditorSheet(all: visibleCards,
-                                     hidden: orderedCards.filter { hiddenCards.contains($0) })
-            }
-            // v3.9.74 P1.5：连接器面板里点「MCP 工具服务」「生活卡片」→ 面板关闭后再弹对应设置页
-            // （呈现由上面 onDismiss 消费 pendingSheetAfterPanel 驱动；sheet(item:) 随置 nil 关闭）
-            .sheet(item: $presentedAfterPanel) { target in
-                switch target {
-                case .mcp:
-                    MCPSettingsSheet()
-                        .presentationDetents([.medium, .large])
-                case .lifeCards:
-                    LifeCardsSettingsView()
-                        .presentationDetents([.medium, .large])
-                // v4.0.x 第 3 项：接入中心一页新增两个直达口（邮件 / 网盘）。
-                // 复用设置页里那同一份 sheet，**不新做一套 UI**（用户口径：
-                // 同一个功能只能有一个界面，双模式/双入口各做一套=埋雷）。
-                case .mail:
-                    MailSettingsSheet()
-                        .presentationDetents([.medium, .large])
-                case .cloudDrive:
-                    CloudDriveSettingsSheet()
-                        .presentationDetents([.medium, .large])
-                }
-            }
-            // v3.9.21：删除规则确认
-            .alert("删除这条规则？", isPresented: Binding(
-                get: { pendingRuleDelete != nil },
-                set: { if !$0 { pendingRuleDelete = nil } }
-            )) {
-                Button("删除", role: .destructive) {
-                    if let r = pendingRuleDelete { Task { await removeRule(r) } }
-                    pendingRuleDelete = nil
-                }
-                Button("取消", role: .cancel) { pendingRuleDelete = nil }
-            } message: {
-                Text(pendingRuleDelete?.name ?? "")
-            }
-            // v2.0.96：场景执行结果提示
-            .alert("场景执行结果", isPresented: $showSceneResult) {
-                Button("好的", role: .cancel) {}
-            } message: {
-                Text(sceneResult)
-            }
-            // v2.0.113：危险场景执行确认（布防/离家/断电类防误触）
-            .confirmationDialog("确认执行场景？",
-                                isPresented: Binding(get: { confirmSceneRun != nil },
-                                                     set: { if !$0 { confirmSceneRun = nil } }),
-                                titleVisibility: .visible) {
-                Button("执行") {
-                    if let s = confirmSceneRun {
-                        executeScene(s)
-                    }
-                    confirmSceneRun = nil
-                }
-                Button("取消", role: .cancel) { confirmSceneRun = nil }
-            } message: {
-                Text("场景「\(confirmSceneRun?.name ?? "")」包含安全相关动作（布防/离家/断电），执行后可能改变家庭安防状态。")
-            }
-            // v3.9.46：安防卡点击布防/撤防的确认（同一套危险动作方言：confirmationDialog + 明示后果）
-            .confirmationDialog("确认变更安防状态？",
-                                isPresented: Binding(get: { confirmArmTarget != nil },
-                                                     set: { if !$0 { confirmArmTarget = nil } }),
-                                titleVisibility: .visible) {
-                armDialogButtons
-            } message: {
-                Text(armDialogMessage)
-            }
-            // v3.9.46：布防/撤防的失败回执（原来这类写操作失败只会被 catch 吞掉）
-            .alert("安防操作", isPresented: Binding(get: { !alarmError.isEmpty },
-                                                    set: { if !$0 { alarmError = "" } })) {
-                Button("知道了", role: .cancel) { alarmError = "" }
-            } message: {
-                Text(alarmError)
-            }
+            // v4.0.50 启动链折叠：ScrollView 上 10 条修饰器折成两个具名组。
+            // 滚动定位/下拉刷新/三张 sheet → DashboardScrollChrome；
+            // 三条 alert + 两条 confirmationDialog → DashboardDialogChrome。
+            // 视图树与语义逐条守恒，链在本文件末的 applyXxx 里解析。
+            .modifier(DashboardScrollChrome(host: self))
+            .modifier(DashboardDialogChrome(host: self))
         }
         // v2.0.96b：切回看板立即刷新（对话里生成场景后看板即时联动）
         // v2.0.102：单一刷新入口（.task 首刷+轮询）——修并发双刷/旧响应覆盖
@@ -1495,4 +1407,157 @@ struct DashboardView: View {
         }
     }
 
+}
+
+
+// MARK: - v4.0.50 启动链类型折叠（防启动期 demangler 递归爆主线程 1MB 栈）
+//
+// 事故与 ChatView 同源（见 ChatView.swift 末段 v4.0.49 复盘）：本页 body 的 mangled 类型名
+// 实测 2033 字符（dSYM 符号表量出）≈ 1.0MB 主线程栈，正好压在崩线附近。危险量是**名字的字符数**，
+// 不是元组嵌套层数 —— body 里内联的每条修饰器（尤其 sheet 的 switch、alert 的按钮闭包）
+// 都会把整棵闭包类型压进父类型名。
+//
+// 修法 = 把 body 里过长的修饰器链折成具名 ViewModifier 分组：父类型名里只剩组名，链在各组
+// 自己的 applyXxx 调用里解析（各自一次 1MB 栈预算）。
+// ⚠️ 视图树、修饰器**种类/数量/顺序/参数**一律逐字未变（等价重构）；谁也不许把这些链再内联回
+//    body —— 改链请改这里的 applyXxx，别动调用点。
+extension DashboardView {
+
+    /// 折叠组 1（5 条修饰器）：滚动定位 / 下拉刷新 / 三张 sheet 通道
+    @MainActor
+    private func applyDashboardScrollChrome<C: View>(to content: C) -> some View {
+        content
+            .scrollPosition($scrollPos)
+            // v2.0.86h：Dock 滑动隐藏已删除（从未生效，手动开关替代）
+            .refreshable {
+                await refresh()
+            }
+            .sheet(item: $activeSheet, onDismiss: dashboardSheetDismiss) { s in
+                sheetContent(for: s)
+            }
+            // v3.9.40（#15）：卡片编辑器（排序 / 隐藏）
+            .sheet(isPresented: $showCardEditor) {
+                // SR13：`all` 必须传**可见**卡片。原来传 orderedCards（含隐藏项），
+                // 而 init 把 all 整个塞进 `shown` → 隐藏卡片同时出现在「显示中」和「已隐藏」两栏；
+                // 在「显示中」再点一次隐藏，hiddenList 就多一份重复，persist 写出的
+                // orderRaw = shown + hiddenList 也带重复键 → orderedCards 返回重复元素 →
+                // 看板同一张卡片渲染两遍，且 ForEach(id: \.element) 重复 id（SwiftUI 直接告警/错位）。
+                BoardCardEditorSheet(all: visibleCards,
+                                     hidden: orderedCards.filter { hiddenCards.contains($0) })
+            }
+            // v3.9.74 P1.5：连接器面板里点「MCP 工具服务」「生活卡片」→ 面板关闭后再弹对应设置页
+            // （呈现由上面 onDismiss 消费 pendingSheetAfterPanel 驱动；sheet(item:) 随置 nil 关闭）
+            .sheet(item: $presentedAfterPanel) { target in
+                switch target {
+                case .mcp:
+                    MCPSettingsSheet()
+                        .presentationDetents([.medium, .large])
+                case .lifeCards:
+                    LifeCardsSettingsView()
+                        .presentationDetents([.medium, .large])
+                // v4.0.x 第 3 项：接入中心一页新增两个直达口（邮件 / 网盘）。
+                // 复用设置页里那同一份 sheet，**不新做一套 UI**（用户口径：
+                // 同一个功能只能有一个界面，双模式/双入口各做一套=埋雷）。
+                case .mail:
+                    MailSettingsSheet()
+                        .presentationDetents([.medium, .large])
+                case .cloudDrive:
+                    CloudDriveSettingsSheet()
+                        .presentationDetents([.medium, .large])
+                }
+            }
+    }
+
+    /// 折叠组 2（5 条修饰器）：3 条 alert + 2 条 confirmationDialog（危险动作方言）
+    @MainActor
+    private func applyDashboardDialogChrome<C: View>(to content: C) -> some View {
+        content
+            // v3.9.21：删除规则确认
+            .alert("删除这条规则？", isPresented: Binding(
+                get: { pendingRuleDelete != nil },
+                set: { if !$0 { pendingRuleDelete = nil } }
+            )) {
+                Button("删除", role: .destructive) {
+                    if let r = pendingRuleDelete { Task { await removeRule(r) } }
+                    pendingRuleDelete = nil
+                }
+                Button("取消", role: .cancel) { pendingRuleDelete = nil }
+            } message: {
+                Text(pendingRuleDelete?.name ?? "")
+            }
+            // v2.0.96：场景执行结果提示
+            .alert("场景执行结果", isPresented: $showSceneResult) {
+                Button("好的", role: .cancel) {}
+            } message: {
+                Text(sceneResult)
+            }
+            // v2.0.113：危险场景执行确认（布防/离家/断电类防误触）
+            .confirmationDialog("确认执行场景？",
+                                isPresented: Binding(get: { confirmSceneRun != nil },
+                                                     set: { if !$0 { confirmSceneRun = nil } }),
+                                titleVisibility: .visible) {
+                Button("执行") {
+                    if let s = confirmSceneRun {
+                        executeScene(s)
+                    }
+                    confirmSceneRun = nil
+                }
+                Button("取消", role: .cancel) { confirmSceneRun = nil }
+            } message: {
+                Text("场景「\(confirmSceneRun?.name ?? "")」包含安全相关动作（布防/离家/断电），执行后可能改变家庭安防状态。")
+            }
+            // v3.9.46：安防卡点击布防/撤防的确认（同一套危险动作方言：confirmationDialog + 明示后果）
+            .confirmationDialog("确认变更安防状态？",
+                                isPresented: Binding(get: { confirmArmTarget != nil },
+                                                     set: { if !$0 { confirmArmTarget = nil } }),
+                                titleVisibility: .visible) {
+                armDialogButtons
+            } message: {
+                Text(armDialogMessage)
+            }
+            // v3.9.46：布防/撤防的失败回执（原来这类写操作失败只会被 catch 吞掉）
+            .alert("安防操作", isPresented: Binding(get: { !alarmError.isEmpty },
+                                                    set: { if !$0 { alarmError = "" } })) {
+                Button("知道了", role: .cancel) { alarmError = "" }
+            } message: {
+                Text(alarmError)
+            }
+    }
+
+    /// 折叠组 3（5 条修饰器）：栏目卡片拖动反馈链（量高 → 位移 → 放大 → 阴影 → 层级）
+    @MainActor
+    private func applyDashboardCardChrome<C: View>(to content: C, card: BoardCard) -> some View {
+        content
+            // ⚠️ onGeometryChange 必须排在 .offset 之前 —— 它量的是栏目**自然高度**，
+            //    拖动位移不该污染高度（否则落位会拿自己算自己）。
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { h in
+                sectionHeights[card] = h
+            }
+            .offset(y: dragCard == card ? dragOffsetY : 0)
+            .scaleEffect(dragCard == card ? 1.01 : 1)
+            .shadow(color: .black.opacity(dragCard == card ? 0.16 : 0), radius: 14, y: 6)
+            .zIndex(dragCard == card ? 1 : 0)
+    }
+
+    @MainActor
+    private struct DashboardScrollChrome: ViewModifier {
+        let host: DashboardView
+
+        func body(content: Content) -> some View { host.applyDashboardScrollChrome(to: content) }
+    }
+
+    @MainActor
+    private struct DashboardDialogChrome: ViewModifier {
+        let host: DashboardView
+
+        func body(content: Content) -> some View { host.applyDashboardDialogChrome(to: content) }
+    }
+
+    @MainActor
+    private struct DashboardCardChrome: ViewModifier {
+        let host: DashboardView
+        let card: BoardCard
+
+        func body(content: Content) -> some View { host.applyDashboardCardChrome(to: content, card: card) }
+    }
 }

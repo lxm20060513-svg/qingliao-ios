@@ -18,6 +18,35 @@ func check(_ name: String, _ cond: Bool) {
     if cond { passCount += 1 } else { failCount += 1; print("❌ \(name)") }
 }
 
+// v4.0.50：body 修饰器链折进具名 ViewModifier 后，缩进随之变化 ——
+//   原「字面量里带缩进空格」的匹配会假红。改成**空白归一化**匹配：只把连续空白折成单空格再比，
+//   相邻性语义完全不变（仍是「overlay{ 紧跟同形圆角矩形 + 该描边」这类严格断言）。
+func norm(_ s: String) -> String {
+    s.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+}
+// 只剥「整行注释」（行内 // 不剥——会截断文案里的 http:// 字面量，本仓既有约定）：
+// 负向断言必须只扫代码，否则有人在折叠块注释里写 Capsule()/Radius. 就假红。
+func stripCommentLines(_ s: String) -> String {
+    s.split(separator: "\n", omittingEmptySubsequences: false)
+        .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+        .joined(separator: "\n")
+}
+// v4.0.50：折叠后同形代码搬到了 applyInputBar*Chrome / InputBar*Chrome（文件尾部）。
+//   护栏范围必须跟着扩，否则「只在 fullInputBar 函数体里找」会变成空转 → 假绿。
+func inputBarFoldScope(_ s: String) -> String? {
+    guard let a = s.range(of: "private var fullInputBar: some View") else { return nil }
+    let after = String(s[a.lowerBound...])
+    guard let end = after.range(of: "\n    }\n") else { return nil }
+    let body = String(after[after.startIndex..<end.upperBound])
+    // 只加「折叠分组块」这一段（applyInputBarFrameChrome → RecordingLevelDot 之间）；
+    // 附件/相机按钮的 `in: Capsule()` 在更早处（下锚点之前），天然不在本范围内。
+    // 两段都先剥整行注释：折叠块注释里出现 Capsule/Radius 字样时不得假红。
+    guard let c = s.range(of: "private func applyInputBarFrameChrome"),
+          let d = s.range(of: "private struct RecordingLevelDot", range: c.upperBound..<s.endIndex)
+    else { return nil }
+    return stripCommentLines(body) + "\n" + stripCommentLines(String(s[c.lowerBound..<d.lowerBound]))
+}
+
 let root = "qingliao"
 func src(_ path: String) -> String {
     guard let s = try? String(contentsOfFile: "\(root)/\(path)", encoding: .utf8) else { return "" }
@@ -243,21 +272,20 @@ check("玻璃容器不再是 Capsule（旧胶囊形态清零）",
       !inputBarSrc.contains(".background { Capsule().glassEffect() }"))
 // fullInputBar 体内四处不得再引用 Radius 令牌做容器圆角（18 已改走 Layout 常量）——
 // 排除范围只切 fullInputBar 函数体，注释里提到的历史档名不算回退。
-check("四处同形：fullInputBar 函数体内容器圆角全部走 containerCornerRadius（不再引用 Radius 档）",
+check("四处同形：fullInputBar 及折叠分组内圆角全部走 containerCornerRadius（不再引用 Radius 档）",
       {
-          guard let a = inputBarSrc.range(of: "private var fullInputBar: some View") else { return false }
-          let body = String(inputBarSrc[a.lowerBound..<inputBarSrc.endIndex])
-          guard let end = body.range(of: "\n    }\n") else { return false }
-          return !String(body[body.startIndex..<end.upperBound]).contains("cornerRadius: Radius.")
+          guard let slice = inputBarFoldScope(inputBarSrc) else { return false }
+          return !slice.contains("cornerRadius: Radius.")
       }())
+let flatInputBarSrc = norm(stripCommentLines(inputBarSrc))
 check("聚焦蓝边描边同圆角矩形（与玻璃底同形）",
-      inputBarSrc.contains("overlay {\n            \(containerShape)\n                .strokeBorder(Color.blue.opacity(focused ? 0.45 : 0), lineWidth: 0.8)"))
+      flatInputBarSrc.contains(norm("overlay {\n\(containerShape)\n.strokeBorder(Color.blue.opacity(focused ? 0.45 : 0), lineWidth: 0.8)")))
 check("常态白边描边同圆角矩形（与玻璃底同形）",
-      inputBarSrc.contains("\(containerShape)\n                    .strokeBorder(.white.opacity(Tint.subtle), lineWidth: 0.8)"))
+      flatInputBarSrc.contains(norm("\(containerShape)\n.strokeBorder(.white.opacity(Tint.subtle), lineWidth: 0.8)")))
 // 流光层同形（v3.9.64 新增）：等回复流光必须铺满方框，不得退回 Capsule。
 // 命中点 = `RoundedRectangle(cornerRadius: …).fill(`（Capsule 版无此前缀）。
 check("流光层是同形圆角矩形（填满方形框，不再两端大弧的 Capsule）",
-      inputBarSrc.contains("\(containerShape).fill(\n                        AngularGradient("))
+      flatInputBarSrc.contains(norm("\(containerShape).fill(\nAngularGradient(")))
 // 旧形态清零：流光本体不再是 Capsule（只认带声明/调用形态的串，注释里提到 Capsule 不算）
 check("流光旧形态清零：流光本体不用 Capsule().fill(",
       !inputBarSrc.contains("Capsule().fill("))
@@ -267,12 +295,9 @@ check("四处同形：容器圆弧全部引用 containerCornerRadius（玻璃/�
       inputBarSrc.components(separatedBy: "cornerRadius: ChatInputBarLayout.containerCornerRadius").count - 1 == 4)
 // 排除式：fullInputBar 体内不得再出现容器级 Capsule。
 // ⚠️ 只排除「容器形态」串：发送/停止/附件钮的 `in: Capsule()` 是按钮级胶囊，属既定口径不动。
-check("fullInputBar 体内没有容器级 Capsule 描边/玻璃（按钮级 in: Capsule() 不在此列）",
+check("fullInputBar 及折叠分组内没有容器级 Capsule 描边/玻璃（按钮级 in: Capsule() 不在此列）",
       {
-          guard let a = inputBarSrc.range(of: "private var fullInputBar: some View") else { return false }
-          let body = String(inputBarSrc[a.lowerBound..<inputBarSrc.endIndex])
-          guard let end = body.range(of: "\n    }\n") else { return false }
-          let slice = String(body[body.startIndex..<end.upperBound])
+          guard let slice = inputBarFoldScope(inputBarSrc) else { return false }
           return !slice.contains("Capsule().glassEffect()")
               && !slice.contains("Capsule().strokeBorder")
       }())

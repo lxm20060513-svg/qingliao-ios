@@ -56,35 +56,8 @@ struct MemoSection: View {
                 memoCard
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        // v3.7.0：进入生活页即拉 NAS 上的备忘（本地已有则远端为空时不清本地）
-        .task { await store.loadFromServer() }
-        .sheet(isPresented: $showAdd) { addSheet.id(addSession) }
-        // v3.9.17：点卡片 → 全部备忘列表
-        .sheet(isPresented: $showAll) { allSheet }
-        // v3.9.17：onDismiss 复位——若某次 present 被别的 sheet 挡掉，detail 会一直非 nil，
-        // 之后「换一条」就不再触发 .sheet(item:)，详情再也打不开
-        // ⚠️ `.id(addSession)` 是刚需：新建弹窗的正文现在由 LifeNoteComposeSheet 自己的 @State 持有，
-        // 而 SwiftUI 会保留已 present 过视图的状态 → 不换 id 的话，第二次打开会带出上次的残留正文。
-        // 每次 startAdd 自增一次 → 每次打开都是全新实例（等价于原先显式 `draft = ""`）。
-        .sheet(item: $detail, onDismiss: { detail = nil }) { m in
-            MemoDetailSheet(item: m, onDelete: { item in
-                detail = nil
-                // 等 detail sheet 完全 dismiss 再弹确认框（同一帧里同时 present 会丢弹窗）
-                Task { @MainActor in
-                    try? await Task.sleep(for: .milliseconds(350))
-                    pendingDelete = item
-                }
-            })
-            .presentationDetents([.medium, .large])
-        }
-        .modifier(LifeDeleteConfirm(
-            title: "删除这条备忘？",
-            pending: pendingDelete,
-            onCancel: { pendingDelete = nil },
-            onDelete: { store.delete($0) },
-            message: { $0.content.prefix(40).description }
-        ))
+        .modifier(MemoSectionBodyChrome(host: self))
+        .modifier(MemoSectionBodySheets(host: self))
     }
 
     // MARK: 页级标题行（v3.9.17：与「生活数据」同款——标题在卡片外，右侧放宽/实心胶囊）
@@ -588,5 +561,73 @@ private struct MemoDetailSheet: View {
         }
         editing = false
         Haptics.success()
+    }
+}
+
+// MARK: - v4.0.50 启动链类型折叠（防启动期 demangler 递归爆主线程 1MB 栈）
+//
+// 事故与 ChatView（v4.0.49）/ DashboardView（v4.0.50）同源：本文件 body 返回类型名里
+// **内联**了每条 .sheet 内容闭包的完整类型（各 sheet 的正文视图树），dSYM 实测 body 的
+// mangled 类型名 1323 字符。危险量是**名字的字符数**（≈19 字符 = 1 帧 demangler 递归，
+// 每帧 ~9.3KB 主线程栈），TabView 启动即渲染本页，与其它视图叠加可吃干 1MB 栈 → 一点开就闪退。
+//
+// 修法 = 把 body 的修饰器链折成具名 ViewModifier 分组：父类型名里只剩组名，链在各组自己的
+// applyXxx 调用里解析（各自一次 1MB 栈预算）。⚠️ 修饰器**种类/数量/顺序/参数**逐字未变
+// （等价重构，视图树与身份/动画真源不动）；谁也不许把这些链再内联回 body ——
+// 改链请改这里的 applyXxx，别动调用点。
+extension MemoSection {
+    /// 折叠组 1（2 条修饰器）：页壳（宽度对齐 + 进页面拉一次数据）
+    @MainActor
+    private func applyMemoSectionBodyChrome<C: View>(to content: C) -> some View {
+        content
+            .frame(maxWidth: .infinity, alignment: .leading)
+            // v3.7.0：进入生活页即拉 NAS 上的备忘（本地已有则远端为空时不清本地）
+            .task { await store.loadFromServer() }
+    }
+
+    /// 折叠组 2（4 条修饰器）：四段弹窗链（新建 / 全部备忘 / 详情 / 宿主删除确认）
+    @MainActor
+    private func applyMemoSectionBodySheets<C: View>(to content: C) -> some View {
+        content
+            .sheet(isPresented: $showAdd) { addSheet.id(addSession) }
+            // v3.9.17：点卡片 → 全部备忘列表
+            .sheet(isPresented: $showAll) { allSheet }
+            // v3.9.17：onDismiss 复位——若某次 present 被别的 sheet 挡掉，detail 会一直非 nil，
+            // 之后「换一条」就不再触发 .sheet(item:)，详情再也打不开
+            // ⚠️ `.id(addSession)` 是刚需：新建弹窗的正文现在由 LifeNoteComposeSheet 自己的 @State 持有，
+            // 而 SwiftUI 会保留已 present 过视图的状态 → 不换 id 的话，第二次打开会带出上次的残留正文。
+            // 每次 startAdd 自增一次 → 每次打开都是全新实例（等价于原先显式 `draft = ""`）。
+            .sheet(item: $detail, onDismiss: { detail = nil }) { m in
+                MemoDetailSheet(item: m, onDelete: { item in
+                    detail = nil
+                    // 等 detail sheet 完全 dismiss 再弹确认框（同一帧里同时 present 会丢弹窗）
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(350))
+                        pendingDelete = item
+                    }
+                })
+                .presentationDetents([.medium, .large])
+            }
+            .modifier(LifeDeleteConfirm(
+                title: "删除这条备忘？",
+                pending: pendingDelete,
+                onCancel: { pendingDelete = nil },
+                onDelete: { store.delete($0) },
+                message: { $0.content.prefix(40).description }
+            ))
+    }
+
+    @MainActor
+    private struct MemoSectionBodyChrome: ViewModifier {
+        let host: MemoSection
+
+        func body(content: Content) -> some View { host.applyMemoSectionBodyChrome(to: content) }
+    }
+
+    @MainActor
+    private struct MemoSectionBodySheets: ViewModifier {
+        let host: MemoSection
+
+        func body(content: Content) -> some View { host.applyMemoSectionBodySheets(to: content) }
     }
 }

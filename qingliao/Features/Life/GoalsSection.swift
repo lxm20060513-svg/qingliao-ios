@@ -43,14 +43,8 @@ struct GoalsSection: View {
 
     var body: some View {
         root
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .task { await store.loadFromServer() }
-            .sheet(isPresented: $showAdd) { addSheet }
-            // 🚨 确认框必须挂在弹窗自己这棵树上（SR35）
-            .sheet(isPresented: $showAll) { deleteConfirm(on: allSheet) }
-            .sheet(item: $detail, onDismiss: { detail = nil; detailCurrent = nil }) { g in
-                detailSheet(detailCurrent ?? g)
-            }
+            .modifier(GoalsSectionBodyChrome(host: self))
+            .modifier(GoalsSectionBodySheets(host: self))
     }
 
     /// 页面主体：确认框挂在这——页卡长按删除时生效的就是这一份
@@ -809,5 +803,52 @@ struct GoalRowCard: View {
             .padding(.vertical, 1)
             .overlay(Capsule().strokeBorder(
                 (started ? Color.accentColor : Color.secondary).opacity(0.28), lineWidth: 0.8))
+    }
+}
+
+// MARK: - v4.0.50 启动链类型折叠（防启动期 demangler 递归爆主线程 1MB 栈）
+//
+// 事故与 ChatView（v4.0.49）/ DashboardView（v4.0.50）同源：本文件 body 返回类型名里
+// **内联**了每条 .sheet 内容闭包的完整类型（各 sheet 的正文视图树），dSYM 实测 body 的
+// mangled 类型名 1196 字符。危险量是**名字的字符数**（≈19 字符 = 1 帧 demangler 递归，
+// 每帧 ~9.3KB 主线程栈），TabView 启动即渲染本页，与其它视图叠加可吃干 1MB 栈 → 一点开就闪退。
+//
+// 修法 = 把 body 的修饰器链折成具名 ViewModifier 分组：父类型名里只剩组名，链在各组自己的
+// applyXxx 调用里解析（各自一次 1MB 栈预算）。⚠️ 修饰器**种类/数量/顺序/参数**逐字未变
+// （等价重构，视图树与身份/动画真源不动）；谁也不许把这些链再内联回 body ——
+// 改链请改这里的 applyXxx，别动调用点。
+extension GoalsSection {
+    /// 折叠组 1（2 条修饰器）：页壳（宽度对齐 + 进页面拉一次数据）
+    @MainActor
+    private func applyGoalsSectionBodyChrome<C: View>(to content: C) -> some View {
+        content
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .task { await store.loadFromServer() }
+    }
+
+    /// 折叠组 2（3 条修饰器）：三张弹窗（新建 / 全部目标 / 详情）
+    @MainActor
+    private func applyGoalsSectionBodySheets<C: View>(to content: C) -> some View {
+        content
+            .sheet(isPresented: $showAdd) { addSheet }
+            // 🚨 确认框必须挂在弹窗自己这棵树上（SR35）
+            .sheet(isPresented: $showAll) { deleteConfirm(on: allSheet) }
+            .sheet(item: $detail, onDismiss: { detail = nil; detailCurrent = nil }) { g in
+                detailSheet(detailCurrent ?? g)
+            }
+    }
+
+    @MainActor
+    private struct GoalsSectionBodyChrome: ViewModifier {
+        let host: GoalsSection
+
+        func body(content: Content) -> some View { host.applyGoalsSectionBodyChrome(to: content) }
+    }
+
+    @MainActor
+    private struct GoalsSectionBodySheets: ViewModifier {
+        let host: GoalsSection
+
+        func body(content: Content) -> some View { host.applyGoalsSectionBodySheets(to: content) }
     }
 }
