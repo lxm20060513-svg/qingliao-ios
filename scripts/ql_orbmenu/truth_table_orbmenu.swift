@@ -358,23 +358,22 @@ check("主操作走 pill(.primary, tone: .accent) 统一出口",
       orbMenuSrc.contains("Text(\"保存\").pill(.primary, tone: .accent)") && !orbMenuSrc.contains("borderedProminent"))
 // ⑤ 菜单随切页收起（深链 / 分享 / 备忘录「发给 AI」等程序化切页不留残影）
 check("切页时收起菜单", dockSrc.contains("if showOrbMenu { showOrbMenu = false }"))
-// ⑥ 轻点球的语义（**v4.0.47 用户 2026-10-04 改口径：轻点 = 回到聊天首页**）
-//   旧口径只切页、留着上一个会话；新口径 = 切到聊天页 + 新建空白会话（显示欢迎页）。
-//   「已在聊天页」那一支 selected 不变 → onChange(of: selected) 不触发，所以触感/清提示必须自己补。
+// ⑥ 轻点球的语义（**v4.0.54 用户 2026-10-05 回退：轻点 = 只切页，不再新建会话**）
+//   v4.0.47 曾改成「回聊天首页」（切到聊天页 + 新建空白会话）；用户实报「每次点击智慧球就打开
+//   新会话」，正在看的会话被顶掉 → 回退到原口径：轻点只切页、**保留当前会话**；
+//   已在聊天页时只补触感 + 清提示。新建会话留在长按菜单 case 0 与「会话 tab 的 + 号」。
 //   🚨 dockSrc 是**原样源码**（本表未剥注释）：断言一律用「带花括号/正则」的代码形态，
 //      否则改天有人在注释里抄一句旧写法就假绿（v3.9.77 复审踩过同款）。
-// 🔑 复审加固（2026-10-04）：原来只 contains 那句 requestNewSession 会**静默假绿** ——
-//   它在文件里出现两次（「已在聊天页」支 / else 支），只删 else 支那行时本条 + 下面两条全过。
-//   本功能的**主路径** = 「从别的 tab 点球 → 切页 + 新建会话」，这里把 else 支连切页一起按窗口钉死。
-check("🔑 从别的 tab 点球 = 切页 + 新建空白会话（主路径，else 支整段钉死）",
-      dockSrc.range(of: #"\}\s*else\s*\{[\s\S]{0,250}?selected = \.chat[\s\S]{0,250}?if !chat\.messages\.isEmpty \{ chat\.requestNewSession\(\) \}"#,
-                    options: .regularExpression) != nil)
-check("轻点球 = 回聊天首页（新建会话走 requestNewSession，与长按菜单 case 0 同一条路）",
-      dockSrc.contains("if !chat.messages.isEmpty { chat.requestNewSession() }"))
-check("已在聊天首页（空会话）时不重复新建（只补触感 + 清提示）",
-      dockSrc.range(of: "Haptics.tap\\(\\)\\s+clearOrbNotice\\(\\)", options: .regularExpression) != nil)
-check("旧「轻点只切页、留着上一个会话」口径清零（改回即红）",
-      !dockSrc.contains("else { selected = .chat }"))
+check("轻点球 = 只切页（else 支整段钉死，保留当前会话）",
+      dockSrc.range(of: #"else\s*\{\s*selected = \.chat\s*\}"#, options: .regularExpression) != nil)
+check("已在聊天页时只补触感 + 清提示",
+      dockSrc.range(of: #"Haptics\.tap\(\);\s*clearOrbNotice\(\)"#, options: .regularExpression) != nil)
+// 🔑 复审加固（2026-10-05）：反向钉「onTap 块内不得再新建会话」——正向只 contains 旧形态
+//   会漏掉「两个支路只删一支」的半回退；窗口从 onTap 起算，只覆盖该闭包本身（注释在 onTap 之前，不入窗）。
+check("🔑 轻点球的 onTap 块内不得再新建会话（v4.0.47 口径已回退，改回即红）",
+      dockSrc.range(of: #"onTap:\s*\{[\s\S]{0,400}?requestNewSession"#, options: .regularExpression) == nil)
+check("旧「轻点 = 回聊天首页（新建会话）」形态清零",
+      !dockSrc.contains("if !chat.messages.isEmpty { chat.requestNewSession() }"))
 check("程序化切页前的 skipBurstOnce 加守卫（避免标志空置吞掉下一次真点击烟花）",
       dockSrc.contains("if selected != .chat { skipBurstOnce() }"))
 // ⑦ 来源标注：source "orb" 不补分支会显示成「手记 / 手动」，与手动条目无法区分
