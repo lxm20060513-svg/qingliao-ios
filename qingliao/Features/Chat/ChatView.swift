@@ -875,22 +875,36 @@ struct ChatView: View {
 
 
     var body: some View {
-        // v2.0.140：禁用系统键盘避让——ChatInputBar 已手动按 kb.topY 精确计算 bottom padding，
-        // 系统默认避让叠加会双重上抬 → 输入框与键盘间留空隙（用户红线标注）。
-        // 只保留手动控制，输入框精确贴键盘。
-        VStack(spacing: 0) {
-            chatHeaderBar
-            chatStatusBannerStrip
-            chatTranscriptArea
-            // 🚨 v3.9.71 修复（用户截图报「输入法会遮住输入框」）：空态（欢迎页）在键盘弹起时把输入栏挤没了。
-            //   算法：欢迎页是不可滚动的定高内容（顶部留白 56 + 智能球 96 + 文案 + 4 芯片 + 快捷卡片网格；
-            //   v4.0.9 已删掉页脚那条「继续上次」长条卡 ≈ -64pt），
-            //   九宫格键盘 + 候选栏 ≈ 340pt，屏幕 852 − 键盘 340 − 头部 110 − 输入栏 58 ≈ **只剩 344pt**。
-            //   344 < 380 → VStack 压不动欢迎页，就只能把**输入栏挤到键盘后面**（截图即此）。
-            //   layoutPriority(1)：空间不足时**先挤上面的内容区**，输入栏必须完整可见。
-            //   配套：welcomeView 自己在键盘弹起时收缩（见那里的注释），否则会看到被截断的欢迎页。
-            chatComposerArea
-        }
+        chatBodyChrome7(
+        chatBodyChrome6(
+        chatBodyChrome5(
+        chatBodyChrome4(
+        chatBodyChrome3(
+        chatBodyChrome2(
+        chatBodyChrome1(
+            // v2.0.140：禁用系统键盘避让——ChatInputBar 已手动按 kb.topY 精确计算 bottom padding，
+            // 系统默认避让叠加会双重上抬 → 输入框与键盘间留空隙（用户红线标注）。
+            // 只保留手动控制，输入框精确贴键盘。
+            VStack(spacing: 0) {
+                chatHeaderBar
+                chatStatusBannerStrip
+                chatTranscriptArea
+                // 🚨 v3.9.71 修复（用户截图报「输入法会遮住输入框」）：空态（欢迎页）在键盘弹起时把输入栏挤没了。
+                //   算法：欢迎页是不可滚动的定高内容（顶部留白 56 + 智能球 96 + 文案 + 4 芯片 + 快捷卡片网格；
+                //   v4.0.9 已删掉页脚那条「继续上次」长条卡 ≈ -64pt），
+                //   九宫格键盘 + 候选栏 ≈ 340pt，屏幕 852 − 键盘 340 − 头部 110 − 输入栏 58 ≈ **只剩 344pt**。
+                //   344 < 380 → VStack 压不动欢迎页，就只能把**输入栏挤到键盘后面**（截图即此）。
+                //   layoutPriority(1)：空间不足时**先挤上面的内容区**，输入栏必须完整可见。
+                //   配套：welcomeView 自己在键盘弹起时收缩（见那里的注释），否则会看到被截断的欢迎页。
+                chatComposerArea
+            }
+        )))))))
+    }
+
+    // v4.0.51 拆段 1/7：纯搬运（顺序、闭包、文案逐字未变）。
+    // 链式修饰器 = 泛型嵌套层数，运行时 demangle 按层递归；≤6 层/段 = 远离主线程栈爆点。
+    private func chatBodyChrome1<V: View>(_ content: V) -> some View {
+        content
         .animation(.easeOut(duration: kb.animationDuration), value: kb.height)
         // v2.0.96：语音授权/转写失败提示（v3.9.3：设备端识别——麦克风权限 / 机型不支持 / 识别中断）
         .alert("语音转文字不可用", isPresented: $voiceAuthFailed) {
@@ -933,6 +947,12 @@ struct ChatView: View {
             Text("AI 正在回答，稍等片刻再发送文件。")
         }
         // v3.3.0：流式中进入多选提示
+    }
+
+    // v4.0.51 拆段 2/7：纯搬运（顺序、闭包、文案逐字未变）。
+    // 链式修饰器 = 泛型嵌套层数，运行时 demangle 按层递归；≤6 层/段 = 远离主线程栈爆点。
+    private func chatBodyChrome2<V: View>(_ content: V) -> some View {
+        content
         .alert("AI 回答中", isPresented: $selectBlocked) {
             Button("好的", role: .cancel) {}
         } message: {
@@ -969,6 +989,12 @@ struct ChatView: View {
         }
         // v3.9.6：实时转写同步进输入框 —— 不依赖「启动时存下来的闭包写 @State」，
         // 改用 SwiftUI 原生更新周期里写（liveSpeech.liveText 变化 → 必然走这里），松手定稿后框内即最终文本
+    }
+
+    // v4.0.51 拆段 3/7：纯搬运（顺序、闭包、文案逐字未变）。
+    // 链式修饰器 = 泛型嵌套层数，运行时 demangle 按层递归；≤6 层/段 = 远离主线程栈爆点。
+    private func chatBodyChrome3<V: View>(_ content: V) -> some View {
+        content
         .onChange(of: liveSpeech.liveText) { _, newValue in
             // v3.9.9：守卫与录音行同口径（voiceMode 或识别器在跑），否则会出现
             // "红点行有字、输入框里没字"的分裂状态
@@ -1008,6 +1034,12 @@ struct ChatView: View {
             .scrollContentBackground(.hidden)
         }
         // v3.0.27：章节列表
+    }
+
+    // v4.0.51 拆段 4/7：纯搬运（顺序、闭包、文案逐字未变）。
+    // 链式修饰器 = 泛型嵌套层数，运行时 demangle 按层递归；≤6 层/段 = 远离主线程栈爆点。
+    private func chatBodyChrome4<V: View>(_ content: V) -> some View {
+        content
         .sheet(isPresented: $showTOCSheet) {
             TOCSheet(headers: tocHeaders(), onNavigate: { item in
                 // v3.9.41：按 TOCItem.msgIndex 定位（数据源已逐条抽取并打标，见 tocHeaders()）
@@ -1053,6 +1085,12 @@ struct ChatView: View {
         }
         // v3.9.86：长回复阅读（长按气泡「全屏阅读」）。detents 与全站输入弹窗同档（medium/large）——
         // 沿用现有档位不新增宿主，大爆炸的 fullScreenCover 不动，避免 zoom 转场源 id 打架。
+    }
+
+    // v4.0.51 拆段 5/7：纯搬运（顺序、闭包、文案逐字未变）。
+    // 链式修饰器 = 泛型嵌套层数，运行时 demangle 按层递归；≤6 层/段 = 远离主线程栈爆点。
+    private func chatBodyChrome5<V: View>(_ content: V) -> some View {
+        content
         .sheet(item: $longReplyPayload) { payload in
             LongReplySheet(payload: payload)
                 .presentationDetents([.medium, .large])
@@ -1091,6 +1129,12 @@ struct ChatView: View {
                     .zIndex(20)
             }
         }
+    }
+
+    // v4.0.51 拆段 6/7：纯搬运（顺序、闭包、文案逐字未变）。
+    // 链式修饰器 = 泛型嵌套层数，运行时 demangle 按层递归；≤6 层/段 = 远离主线程栈爆点。
+    private func chatBodyChrome6<V: View>(_ content: V) -> some View {
+        content
         .onChange(of: chat.messages.count) { _, newCount in
             // 超阈值（300 条）显示归档提示；回到阈值下自动隐藏
             withAnimation(Motion.settle) {   // v3.9.0：动效令牌收口（原 spring 0.3/0.1）
@@ -1133,6 +1177,12 @@ struct ChatView: View {
             // startSeq 只增、每轮必变，是这仓认定的「开跑语义」唯一可靠信号。
             typingBorn = false
         }
+    }
+
+    // v4.0.51 拆段 7/7：纯搬运（顺序、闭包、文案逐字未变）。
+    // 链式修饰器 = 泛型嵌套层数，运行时 demangle 按层递归；≤6 层/段 = 远离主线程栈爆点。
+    private func chatBodyChrome7<V: View>(_ content: V) -> some View {
+        content
         .onReceive(NotificationCenter.default.publisher(for: .qingliaoMemoSend)) { note in
             if let text = note.object as? String, !text.isEmpty {
                 // 与输入栏 send() 同口径：用户真的发起新一轮 → 先掐掉上一轮朗读，

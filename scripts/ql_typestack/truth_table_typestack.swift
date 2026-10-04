@@ -135,9 +135,14 @@ ok(!ml.contains(".padding(.horizontal, 6)\n                    .padding(.top, Sp
    "③ 负断言：三条分散 padding 已不存在（回退 = 深度回升）")
 
 // ── ③′ v4.0.49：启动链的长修饰器链必须折成具名 ViewModifier 分组 ─────────
-// 量纲：类型名**字符数**。实测 19 字符 ≈ 1 帧 demangler 递归 ≈ 9.3KB 栈（4.0.48：1951 字符 ↔ 102 帧）。
-// 折前 messageList 返回类型名里内联了 ScrollView 链 11 条 + ZStack 链 22 条 + 欢迎页分支 3 条
-//   + 内联按钮链 ≈ 1250+ 字符；折后这三处只剩 `.modifier(组名)`，实测目标 ≤8 层/≤900 字符。
+// 量纲修正（v4.0.51）：真正决定闪退的是**泛型嵌套层数**（≈ demangle 递归帧数），不是字符数。
+// 实测（2026-10-05-000227.ips + dSYM 逐符号量）：mangled 名字里 y…G 组的最大嵌套层数
+//   = 运行时 demangle 的递归层数；首帧渲染 ChatView.body.getter 内
+//   __swift_instantiateConcreteTypeFromMangledNameV2 要解析该类型 → 层数超限即耗尽主线程 1MB 栈
+//   （IPS vmRegion：Stack Guard 16K + Stack 1008K，KERN_PROTECTION_FAILURE；崩溃线程 173 帧
+//    几乎全在 decodeMangledType/decodeGenericArgs/buildDescriptorPath）。
+// 旧口径反例：4.0.46 的同族名 10365 字符 / 264 层，仍在危险区 → 字符数抓不住要害。
+// 折前 messageList 返回类型内联 ScrollView 链 11 条 + ZStack 链 22 条 + 欢迎页分支 3 条 + 内联按钮链。
 let foldGroups = ["MessageListScroll1(host: self, proxy: proxy)",
                   "MessageListScroll2(host: self, proxy: proxy)",
                   "MessageListScroll3(host: self, proxy: proxy)",
@@ -180,6 +185,48 @@ if !foldExt.isEmpty {
         let dots = seg.split(separator: "\n").filter { $0.trimmingCharacters(in: .whitespaces).hasPrefix(".") }.count
         ok(dots >= 1 && dots <= 5, "③′ 组 \(n) 只承载 \(dots) 条修饰器（要求 1…5）")
     }
+}
+// ── ③″ v4.0.51：ChatView.body 的 37 层链必须保持「拆段」形态 ─────────────
+// 这是本轮真凶：body 顶层曾内联 37 个链式修饰器 → 该类型泛型嵌套 195 层（全二进制最深）
+// → 首帧渲染即撞爆主线程栈。修法 = 按 ≤6 个/段纯搬运进 chatBodyChrome1…7。
+let bodySlice = slice(code, from: "var body: some View {", to: "private func chatBodyChrome1")
+ok(!bodySlice.isEmpty, "③″ body 段落定位成功（锚点还在）")
+let bodyDots = bodySlice.split(separator: "\n")
+    .filter { $0.trimmingCharacters(in: .whitespaces).hasPrefix(".") }.count
+ok(bodyDots == 0, "③″ body 顶层不再内联链式修饰器（实测 \(bodyDots) 条；回退 = 195 层 = 必崩区）")
+var chromePos: [Int?] = []
+for n in 1...7 { chromePos.append(idx(bodySlice, "chatBodyChrome\(n)(")) }
+ok(chromePos.allSatisfy { $0 != nil }, "③″ body 里 7 段调用齐全（chatBodyChrome1…7）")
+// 梯子必须「1 在最里」：文本顺序 7→1（= 段 1 先作用于内容，等价原链顺序；写反 = 修饰器顺序错乱）
+if chromePos.allSatisfy({ $0 != nil }) {
+    let ps = chromePos.map { $0! }
+    let descending = zip(ps, ps.dropFirst()).allSatisfy { $0 > $1 }
+    ok(descending, "③″ 段调用顺序为 7→1（段 1 最里 = 原链顺序；写反会改渲染语义）")
+}
+for m in [".alert(", ".sheet(", ".fullScreenCover(", ".onReceive(", ".onChange(", ".photosPicker("] {
+    ok(!bodySlice.contains(m), "③″ 负断言：\(m) 未内联回 body（回退 = 层数回升）")
+}
+if let a = idx(code, "private func chatBodyChrome1") {
+    let hs = String(code.dropFirst(a))
+    for n in 1...7 {
+        guard let h = idx(hs, "private func chatBodyChrome\(n)<V: View>") else {
+            ok(false, "③″ 找不到分段方法 chatBodyChrome\(n)"); continue
+        }
+        let seg0 = String(hs.dropFirst(h))
+        let seg: String = {
+            if let e = idx(seg0, "\n    }") { return String(seg0.prefix(e)) }
+            return seg0
+        }()
+        // 只数**顶层**链（= 最小缩进那层）；closure 内层的修饰器属于内层类型，不算本段深度
+        let dlines = seg.split(separator: "\n").map(String.init)
+            .filter { $0.trimmingCharacters(in: .whitespaces).hasPrefix(".") }
+        let indents = dlines.map { l in l.prefix { $0 == " " }.count }
+        let minInd = indents.min() ?? 0
+        let dots = indents.filter { $0 == minInd }.count
+        ok(dots >= 1 && dots <= 6, "③″ 段 chatBodyChrome\(n) 顶层 \(dots) 条修饰器（要求 1…6）")
+    }
+} else {
+    ok(false, "③″ 分段方法区定位失败（锚点 = private func chatBodyChrome1）")
 }
 print("  —— 类型栈深度真值表：\(pass) 通过 / \(fail) 失败")
 if fail > 0 { exit(1) }
