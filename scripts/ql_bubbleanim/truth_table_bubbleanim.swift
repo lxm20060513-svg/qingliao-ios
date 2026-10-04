@@ -88,24 +88,65 @@ check("A6 Motion.enter 阻尼 ∈ [0.65, 0.85]（过冲够轻、又不过冲）"
 // ———————————————————— B 段：发送气泡动画接线 ————————————————————
 print("\n—— B 段：发送气泡「弹上来」 ——")
 
-check("B1 用户与 AI 气泡走两套不同的 insertion 过渡（按 message.isUser 分流）",
-      bubble.contains("message.isUser")
-      && bubble.contains("insertion: .scale(scale: 0.88, anchor: .trailing)"))
+// v4.0.40：判定源从 ChatMessageBubble 改成 ChatView.messageRow —— 过渡本来就在这一层
+// （被判定 inserted 的是 messageRow 整块，气泡内部没有独立插入时刻）。
+// ⚠️ 旧口径钉在气泡文件上，而实现已搬到 ChatView → 5 条断言集体判红、整张表被 check_swift.sh
+// 直接 exit 1 掐停（后续护栏全不执行）。**改挂载点就要同步改判定源**，别留两处。
+check("B1 用户与 AI 气泡走两套不同的 insertion 过渡（按 msg.isUser 分流）",
+      chat.contains("msg.isUser")
+      && chat.contains("insertion: msg.isUser"))
 
 check("B2 用户气泡带位移入场（用 Motion.bubbleRise，不是裸魔法数）",
-      bubble.contains(".offset(y: Motion.bubbleRise)"))
+      chat.contains(".offset(y: Motion.bubbleRise)"))
 
 check("B3 用户气泡锚点钉 .trailing（贴边侧放大，不朝屏幕中间漂）",
-      bubble.contains("scale: 0.88, anchor: .trailing"))
+      chat.contains("scale: 0.88, anchor: .trailing"))
 
 check("B4 AI 气泡入场克制（0.97 缩放，非 0.88）",
-      bubble.contains("insertion: .scale(scale: 0.97, anchor: .leading)"))
+      chat.contains("AnyTransition.scale(scale: 0.97, anchor: .leading)"))
+
+// v4.0.40 新增负向口径：过渡收敛到 messageRow 一处后，气泡文件里**不许**再留一份
+// 「两套 transition 叠在一行上」的旧挂载（旧口径要求的那几串必须彻底不在气泡里）。
+check("B4b 气泡文件已不含分角色 insertion 过渡（挂载点单一真源 = messageRow）",
+      !bubble.contains("insertion: msg.isUser")
+      && !bubble.contains(".scale(scale: 0.88, anchor: .trailing)"))
 
 check("B5 移除态只淡入不位移（删消息不该也弹一下）",
-      bubble.contains("removal: .opacity"))
+      chat.contains("removal: .opacity"))
 
 check("B6 旧的统一 0.94 过渡已清除",
-      !bubble.contains(".scale(scale: 0.94, anchor: message.isUser"))
+      !chat.contains(".scale(scale: 0.94, anchor: msg.isUser")
+      && !bubble.contains(".scale(scale: 0.94, anchor: message.isUser"))
+
+// B6b v4.0.40：动画事务必须由 refreshVisibleMessages 的纯追加分支开（v4.0.39 失效的真根因：
+// onChange 的 action 不带动画上下文 → transition 静默不播，无报错无日志）。
+check("B6b 纯追加才播插入动画（无事务则 transition 静默不播）",
+      chat.contains("MessageInsertAnim.isSingleAppend(prev: prevIDs, next: next.map(\\.id))")
+      && chat.contains("withAnimation(Motion.enter) { visibleMessagesCache = next }"))
+
+// ———————————————————— B6c 段：MessageInsertAnim 纯函数实跑 ————————————————————
+// v4.0.40 新增。这个纯函数是「批量移除闪退」的唯一闸门，之前**零测试覆盖**，
+// 且文件头自称的单测位置还是错的（说在 C 段，实际 C 段全是流式光带断言）。
+// 「接会话/换会话」类路径全靠它挡：只认「旧序列是新的严格前缀 + 恰好多一条」。
+print("\n—— B6c 段：纯追加判定（批量移除闪退闸门） ——")
+
+check("B6c1 纯追加一条 → 播", MessageInsertAnim.isSingleAppend(prev: ["a", "b"], next: ["a", "b", "c"]))
+check("B6c2 首条（prev 为空）→ 也播（否则用户第一句看不到动画，等于没修）",
+      MessageInsertAnim.isSingleAppend(prev: [], next: ["a"]))
+check("B6c3 变短（删消息 / 清空）→ 不播",
+      !MessageInsertAnim.isSingleAppend(prev: ["a", "b"], next: ["a"]))
+check("B6c4 等长整组替换（切会话）→ 不播",
+      !MessageInsertAnim.isSingleAppend(prev: ["a", "b"], next: ["x", "y"]))
+check("B6c5 多加两条（批量加载）→ 不播",
+      !MessageInsertAnim.isSingleAppend(prev: ["a"], next: ["a", "b", "c"]))
+check("B6c6 前缀相同但身份重排 → 不播",
+      !MessageInsertAnim.isSingleAppend(prev: ["a", "b"], next: ["b", "a", "c"]))
+check("B6c7 空→空与空→空不崩",
+      !MessageInsertAnim.isSingleAppend(prev: [], next: []))
+
+// B4b 的负向锚点：气泡文件里不许再留分角色 insertion 过渡
+check("B4c 气泡文件不含 .transition(.asymmetric 分角色挂载（旧口径残留）",
+      !bubble.contains(".transition(.asymmetric"))
 
 // B7：本轮实踩的坑 —— 组件被 patch 塞进了 AIImageView 的修饰符链里（能编译、语义全错）。
 let bandStructTopLevel = bubble.range(of: "\nstruct StreamSweepBand: View") != nil
@@ -237,8 +278,8 @@ func selfProof(_ name: String, _ turnedRed: Bool) {
 // （替换掉的东西当然找不到了），压根没验 B1/C6/B7 的判定式 → 恒真、零防恒真价值。
 // 正确形态：把被验的判定表达式抽成闭包，此处对「被改坏的文本」跑同一份判定，要求它变假。
 func b1Holds(_ src: String) -> Bool {
-    src.contains("message.isUser")
-        && src.contains("insertion: .scale(scale: 0.88, anchor: .trailing)")
+    src.contains("msg.isUser")
+        && src.contains("insertion: msg.isUser")
 }
 func c6Holds(_ src: String) -> Bool {
     src.contains("streamingSweep && !isMultiBubbleAI && !reduceMotion")
@@ -248,9 +289,9 @@ func b7Holds(_ src: String) -> Bool {
         && src.range(of: "                struct StreamSweepBand: View") == nil
 }
 
-let bubbleWithOld = bubble.replacingOccurrences(
-    of: "insertion: .scale(scale: 0.88, anchor: .trailing)",
-    with: ".scale(scale: 0.94, anchor: message.isUser ? .trailing : .leading).combined(with: .opacity)" )
+let bubbleWithOld = chat.replacingOccurrences(
+    of: "insertion: msg.isUser",
+    with: "insertion: .scale(scale: 0.94, anchor: msg.isUser ? .trailing : .leading).combined(with: .opacity)" )
 selfProof("E1 把用户过渡改回旧 0.94 → B1 判定必须转红（证明 B1 不是恒真）",
           !b1Holds(bubbleWithOld))
 

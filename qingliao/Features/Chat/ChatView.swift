@@ -227,8 +227,20 @@ struct ChatView: View {
     func refreshVisibleMessages() {
         let msgs = chat.messages
         let start = visibleStartIndex
-        visibleMessagesCache = (start..<msgs.count).map {
+        // v4.0.40：可见窗口重建前先取旧 id 序列——判定这次是不是「纯追加一条」，
+        // 是才给插入动画开事务（原因见 Core/MessageInsertAnim.swift 文件头）。
+        // 注意旧序列必须取**真实可见窗口**（而不是 chat.messages 全量）：visibleMessagesCache
+        // 装的就是它，两者窗口一致才能让「前缀相同」真正等价于「这一条是新插进来的」。
+        let prevIDs = visibleMessagesCache.map(\.id)
+        let next = (start..<msgs.count).map {
             MessageRowItem(index: $0, msg: msgs[$0], prevMsg: $0 > 0 ? msgs[$0 - 1] : nil)
+        }
+        let pureAppend = MessageInsertAnim.isSingleAppend(prev: prevIDs, next: next.map(\.id))
+        if pureAppend {
+            // 🚨 只有纯追加才播气泡插入动画。整组替换 / 清空 / 切会话不播（v3.9.31 批量移除闪退）。
+            withAnimation(Motion.enter) { visibleMessagesCache = next }
+        } else {
+            visibleMessagesCache = next
         }
     }
 
@@ -2243,13 +2255,26 @@ struct ChatView: View {
                     selectOverlay(for: msg)
                 }
             }
-            // 气泡出现动效（v3.9.31）：统一「上滑入位」y:8→0 + opacity 0→1（微信式方向感），
-            // 动画事务由 ChatStore.append/upsertAssistant 的 withAnimation(Motion.enter) 驱动。
-            // 移除仍为纯淡出。
-            // v2.0.38：批量清空/切会话走 load/clearMessages 数组替换（不经过 append/insert），
-            // 不会在此触发 spring 动画，避开当年全 cell 移除闪退
+            // 🚨 v4.0.40：气泡插入动画必须挂在**本行**（ForEach 的直接子视图），不能挂在
+            //   MessageBubble 内部的 VStack 上。
+            //   原因：transition 只对「其所在容器判定为 inserted 的那一层」生效。ForEach 插入时
+            //   被判定 inserted 的是本行整块，被它包住的 MessageBubble 内部并没有独立的插入时刻，
+            //   内层那条 scale/offset 永远不被求值 —— v4.0.39 新加的两套动画恰好全在这一层，
+            //   所以真机零观感（外层那条旧的 opacity+offset 才是唯一在播的，而它 v3.9.31 就在）。
+            //   同时把「两套 transition 叠在一行上」清成一条，语义不再分散。
+            //   · 用户发送气泡 = 「弹上来」：scale 0.88 锚 .trailing（贴右边，放大时不朝屏幕中间漂）
+            //     + 下移 12pt 起手；过冲由 Motion.enter（spring damping 0.72）天然提供，
+            //     不用 keyframeAnimation（pausable schedule，本仓三点动画已因此翻车三次）。
+            //   · AI 气泡 = 「长出来」：scale 0.97 锚 .leading + 6pt，克制得多。
+            // 动画事务由 refreshVisibleMessages 的纯追加分支提供（见 Core/MessageInsertAnim.swift）；
+            // 事务缺失时 transition 静默不播 —— 这是 v4.0.39 失效的另一半原因。
+            // 移除仍为纯淡出；整组替换 / 清空 / 切会话不播插入（批量移除闪退防护，见上）。
             .transition(.asymmetric(
-                insertion: .opacity.combined(with: .offset(y: 8)),
+                insertion: msg.isUser
+                    ? AnyTransition.scale(scale: 0.88, anchor: .trailing)
+                        .combined(with: .offset(y: Motion.bubbleRise))
+                    : AnyTransition.scale(scale: 0.97, anchor: .leading)
+                        .combined(with: .offset(y: 6)),
                 removal: .opacity))
             // v3.9.0：长按「大爆炸」时从这条气泡原生 zoom 生长（与非闭包实参 zoomNS 配对）
             .matchedTransitionSource(id: "bb-" + entry.msg.id, in: zoomNS)   // v3.9.1：独立 id 空间——气泡内图片用的是 msg.id，同 id 会让 zoom 取源不确定
@@ -2752,11 +2777,18 @@ struct ChatView: View {
             }
             // v3.0.86 fix：流式内容变化仅在用户贴底时自动滚底（scrollPinState 由下方
             // onScrollGeometryChange 实时维护）——上翻阅读历史不再被 delta 拽回；无动画防高频打断
-            .onChange(of: stream.content) { _, _ in
+            // 🚨 v4.0.40（2026-10-04 用户再报「流式时最新气泡始终沉在输入框下面」）——本次改的是
+            // **信号源**，不是时序：
+            //   · 渲染（气泡高度）由打字机平滑层 stream.displayContent 驱动，每 48ms 一 tick；
+            //   · 旧写法滚底挂在 stream.content 上，那只在 poll 落字时变（约 0.15s 一次）→ 两个信号源
+            //     不同源：每滚一次底，随后 48~150ms 内气泡又长高 1~3 行，逐 tick 累加出来的观感就是
+            //     「最新几行永远差一截、沉到输入栏下面」。v4.0.36/37/38 三版都在调时序/判定
+            //     （累计回滚量、延后一拍），没碰过「滚底信号 ≠ 渲染信号」这个根。
+            // 现在滚底与渲染同源：displayContent 每变一次就滚一次，两者节拍一致。
+            // 同理别退回 stream.content —— 源级护栏 ql_scrollpin B14 钉住这条。
+            .onChange(of: stream.displayContent) { _, _ in
                 guard scrollPinState.pinned else { return }
-                // v4.0.37（2026-10-03 真机「贴底没效果」复查）：同一帧里内容刚长高、布局尚未落地，
-                // 立刻 scrollTo 用的是**上一帧几何**（只滚到上一屏底）→ 最新几行永远差一截，
-                // 逐 delta 累加后就是「最新文字一路沉到输入栏下面」。延到下一拍、几何更新后再滚；
+                // v4.0.37：延到下一拍、几何更新后再滚（同一帧内容刚长高、布局尚未落地）。
                 // 延迟窗口内用户若上翻，第二道 pinned 判定会把这次滚动放掉，不把人拽回去。
                 DispatchQueue.main.async {
                     guard scrollPinState.pinned else { return }

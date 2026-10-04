@@ -913,7 +913,10 @@ echo "=== 66. 气泡动画真值表（v4.0.39 · 发送弹出 / 流式光带 / �
 # 三次在 pausable schedule 上翻车）、钉旧形态已清除，末段还做 4 条反向自证防恒真。
 # 本轮实踩：patch 锚点 `骨架换真图走淡入` 在 AIImageView 里也出现 → 光带组件被塞进修饰符链，
 # 能编译、语义全错。B7 专钉这个。
-run_unit6 /tmp/test_bubbleanim scripts/ql_bubbleanim/truth_table_bubbleanim.swift | tee /tmp/tt_bubbleanim.log
+# ⚠️ 多文件一起编译时 swiftc 只允许 main.swift 里有顶层代码 → 复制成 main.swift 再编。
+# B6c 段要实跑 MessageInsertAnim 这个纯函数（v4.0.40 补的测试网，之前零覆盖）。
+mkdir -p /tmp/ql_bubbleanim_main && cp scripts/ql_bubbleanim/truth_table_bubbleanim.swift /tmp/ql_bubbleanim_main/main.swift
+run_unit6 /tmp/test_bubbleanim /tmp/ql_bubbleanim_main/main.swift qingliao/Core/MessageInsertAnim.swift | tee /tmp/tt_bubbleanim.log
 # ⚠️ 这里不能用 `grep -q '0 失败'`：本表末尾打的是「✅ 全部通过 N」（无「失败」二字），
 # 那条 grep 会恒红、fail 被永久置 1 → 全量预检收尾必报「有护栏失守」（踩过一次）。
 # 断言口径与 run_unit6 的退出码一致：非 0 即红。

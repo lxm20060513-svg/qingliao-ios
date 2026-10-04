@@ -298,6 +298,22 @@ struct ScrollPinTruthTable {
               !squashedOldStream.contains("DispatchQueue.main.async{guardscrollPinState.pinnedelse{return}scrollBottom(proxy,animated:false)}"),
               negative: true)
 
+        // v4.0.40：滚底信号源必须与渲染信号同源（stream.displayContent），否则滚完又被下一 tick 撑高。
+        // ⚠️ 这条以前是「注释里声称有护栏、实际表里没有」→ 零网改动。加断言 + 反向自证补上。
+        // ⚠️ 反向自证必须**重跑同一份判定式**（B12/B13 的纪律），拿旧形态文本喂进去要求它为假；
+        //   写成「断言旧文本不含新串」是恒真写法（当然不含），零防恒真价值。
+        func b14Holds(_ src: String) -> Bool {
+            src.contains("onChange(of:stream.displayContent)")
+                && !src.contains("onChange(of:stream.content)")
+        }
+        check("B14 流式滚底挂在 stream.displayContent（与渲染同源，不是 stream.content）",
+              b14Holds(squashed))
+        let squashedContentOld = "onChange(of: stream.content) { guard scrollPinState.pinned else { return } scrollBottom(proxy, animated: false) }"
+            .split(whereSeparator: { $0.isWhitespace }).joined()
+        check("B15 反向自证：滚底退回 stream.content → B14 必红",
+              !b14Holds(squashedContentOld),
+              negative: true)
+
         // ── C. 结果 ──────────────────────────────────────────────────────
         let total = positives + negatives
         let ratio = total == 0 ? 0 : Double(negatives) / Double(total)

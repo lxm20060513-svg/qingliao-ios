@@ -365,27 +365,11 @@ struct MessageBubble: View {
                     }
                 )
             .frame(maxWidth: AdaptiveLayout.bubbleMaxWidth(hSize), alignment: message.isUser ? .trailing : .leading)   // v3.4.28 横屏自适应（竖屏仍 366）
-            // v2.0.85c：气泡出现微动画（缩放 + 淡入，单条插入安全）
-            // v4.0.39（用户要求「发送气泡动画」）：分角色两套过渡。
-            //   · 用户发送气泡 = 「弹上来」：offset 下 12pt → 0 + scale 0.88→1，锚点固定 .trailing
-            //     （贴右边那侧），所以放大时不会朝屏幕中间漂。
-            //   · AI 气泡 = 「长出来」：scale 0.97 + offset 6pt，比用户那条克制得多。
-            //     AI 这条同时兼任**流式收尾落位回弹**：落库走 ChatStore.upsertAssistant 的
-            //     withAnimation(Motion.enter)，Motion.enter 本轮已调成带轻微过冲的 spring
-            //     （response 0.20 / damping 0.72）→ 回答停住那一刻有一下很小的回弹，无需另挂动画。
-            // 不用 keyframeAnimation 做「0.88→1.08→1」两段：那是 pausable schedule，
-            // 子树无 Core Animation 活动时会被降频/暂停（本仓三点动画 v4.0.12/v4.0.19/v4.0.20
-            // 三次在这上面翻车，最后靠 .periodic 墙钟才根治）。这里改用 spring 的天然过冲达到
-            // 同款「弹了一下」的观感，且与插入事务同源、不引第二套调度。
-            .transition(message.isUser
-                ? .asymmetric(
-                    insertion: .scale(scale: 0.88, anchor: .trailing)
-                        .combined(with: .offset(y: Motion.bubbleRise)),
-                    removal: .opacity)
-                : .asymmetric(
-                    insertion: .scale(scale: 0.97, anchor: .leading)
-                        .combined(with: .offset(y: 6)),
-                    removal: .opacity))
+            // v4.0.40：原先挂在这里的那条分角色插入动画（用户 scale 0.88/.trailing + 12pt、
+            //   AI scale 0.97/.leading + 6pt）已**移到 ChatView.messageRow**（ForEach 的直接
+            //   子视图）—— transition 只对容器判定 inserted 的那一层生效，挂在气泡内部永远不播
+            //   （v4.0.39 真机零观感的根因）。这里保留占位注释，防止有人再把动画挂回内部。
+            // 事务侧：插入事务由 refreshVisibleMessages 的纯追加分支提供（Core/MessageInsertAnim.swift）。
 
             bubbleTrailingAccessory
         }
