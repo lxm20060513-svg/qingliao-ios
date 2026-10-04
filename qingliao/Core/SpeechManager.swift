@@ -162,8 +162,12 @@ final class SpeechManager: NSObject, ObservableObject, AVSpeechSynthesizerDelega
                 PetSpeechDrive.shared.close()
                 return
             }
-            guard let optsRaw,
-                  let opts = AVAudioSession.InterruptionOptions(rawValue: optsRaw) else { return }
+            // 🚨 v4.0.41 三轮 CI 实踩：`InterruptionOptions(rawValue:)` 返回**非可选**
+            //   （OptionSet 不是 failable init）→ 放进 guard 的条件绑定位（`let opts = …`）
+            //   编译不过。`InterruptionType(rawValue:)` 才是 failable，上面那行 guard let 合法。
+            //   正解：可选哨兵单独 guard，值本身用普通 let 构造。
+            guard let optsRaw else { return }
+            let opts = AVAudioSession.InterruptionOptions(rawValue: optsRaw)
             guard !opts.contains(.shouldResume) else { return }   // 该续播就别打断用户
             stop()
         }
