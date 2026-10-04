@@ -304,12 +304,20 @@ check("B25 认领新段时切逐字基准与归零进度（多段朗读逐字进
         && spC.contains("self.progress.charCount = 0"))
 
 // B26 音频中断观察者：object 必须传 nil（不得在 init 里求值 sharedInstance()），
-//   且必须显式 queue: .main（不传时回调在投递线程同步执行，不是主线程）。
+//   且回调必须**显式把工作搬回主线程**（selector 版没有 queue 参数，回调跑在投递线程）。
 //   init 里求值 sharedInstance() = 首次读懒单例就创建音频会话，而气泡 body 都在读它。
-check("B26 中断观察者不提前实例化音频会话 + 显式 queue: .main",
-      spC.contains("object: nil, queue: .main")
-        && !spC.contains("object: AVAudioSession.sharedInstance()")
-        && spC.contains("guard note.object as? AVAudioSession != nil else { return }"),
+// 🚨 v4.0.41 run #663 实踩：曾按审查建议写 object: nil, queue: .main —— **selector 版
+//   addObserver 没有 queue 参数**（那是 block 版独有），Archive 直接编译失败。
+//   现行口径 = 默认投递 + 回调内 Task { @MainActor in }（同文件 willSpeakRange 同一纪律），
+//   事件身份用 ObjectIdentifier 过域（禁捕获 non-Sendable 的 Notification/AVAudioSession）。
+check("B26 中断观察者不提前实例化音频会话 + 回调显式回主线程",
+      spC.contains("name: AVAudioSession.interruptionNotification")
+        && spC.contains("object: nil)")
+        && !spC.contains("object: AVAudioSession.sharedInstance())")
+        && !spC.contains("queue: .main)")   // selector 版没有这个参数，写了编译不过（run #663）
+        && spC.contains("let eventObjID = (note.object as AnyObject).map(ObjectIdentifier.init)")
+        && spC.contains("eventObjID == ObjectIdentifier(AVAudioSession.sharedInstance())")
+        && spC.contains("@objc private func handleInterruption"),
       negative: true)
 
 // E 段 · 反向自证：把源码改坏，断言必须转红（证明 B 段几条不是恒真）

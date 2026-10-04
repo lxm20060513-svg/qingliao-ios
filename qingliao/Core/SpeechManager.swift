@@ -124,11 +124,16 @@ final class SpeechManager: NSObject, ObservableObject, AVSpeechSynthesizerDelega
         //   **投递通知的那个线程**同步执行。Swift 6 对 @objc 的 MainActor 成员不做静态隔离检查
         //   （ObjC 运行时可绕过）→「编译过」≠「隔离安全」。一旦 AVFoundation 在非主线程投递，
         //   PetSpeechDrive.shared.close() 就是跨 actor 写 @Published = 运行期数据竞争。
-        //   传 queue: .main 后靠队列兜住，不依赖默认行为；selector 版不引入 block 的 @Sendable 问题。
+        // 🚨 v4.0.41 一轮 CI 实踩：**selector 版 addObserver 没有 queue: 参数**（那是 block 版
+        //   addObserver(forName:object:queue:using:) 独有的），写 queue: .main 直接编译不过
+        //   （run #663 Archive：extra argument 'queue' in call + cannot infer contextual base）。
+        //   而 block 版在 Swift 6 下又capture non-sendable self（见上）。两条路都堵 → 改走
+        //   **selector 保持默认投递 + 回调内显式跳主线程**（本文件 willSpeakRange/didFinish
+        //   同一纪律：只把 Sendable 值带过域，主线程上再比对身份）。
         NotificationCenter.default.addObserver(
             self, selector: #selector(handleInterruption(_:)),
             name: AVAudioSession.interruptionNotification,
-            object: nil, queue: .main)
+            object: nil)
     }
 
     /// v4.0.40：音频中断（来电/Siri/闹钟）。
@@ -136,19 +141,33 @@ final class SpeechManager: NSObject, ObservableObject, AVSpeechSynthesizerDelega
     ///     shouldResume 续播时 willSpeakRange 会自然重新张嘴。
     ///   `.ended` 且非 `.shouldResume` → 真没有后续了，走 stop() 全量收尾。
     @objc private func handleInterruption(_ note: Notification) {
-        // v4.0.41（H-1）：观察者改成 object: nil 后，这里补回原本由 object 过滤提供的语义 ——
-        //   只处理音频会话的中断通知，别的事件（如别的对象同名）直接忽略。
-        guard note.object as? AVAudioSession != nil else { return }
-        guard let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
-              let type = AVAudioSession.InterruptionType(rawValue: raw) else { return }
-        if type == .began {
-            PetSpeechDrive.shared.close()
-            return
+        // v4.0.41（H-2 一轮 CI 修）：selector 版 addObserver **没有** queue 参数，回调跑在
+        //   「投递通知的那个线程」。本类是 @MainActor 而 @objc 成员不受 Swift 6 静态隔离检查
+        //   （「编译过」≠「隔离安全」）→ 必须显式把工作搬回主线程。
+        //   与本文件其它 nonisolated 回调同一纪律：**只在当前线程取出 Sendable 值过域**。
+        //   ⚠️ Notification / AVAudioSession / 枚举都**不是 Sendable**，一律不许捕获进 Task；
+        //   事件身份用 ObjectIdentifier 带过去（v3.9.77 起本文件的既有做法）。
+        //   这里求值 sharedInstance() 无副作用顾虑：回调本身只会在音频会话**已经存在**
+        //   （有人播音）时才触发，不存在 v4.0.41 H-1 那个「读单例就创建会话」的问题。
+        let eventObjID = (note.object as AnyObject).map(ObjectIdentifier.init)
+        let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt
+        let optsRaw = note.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt
+        Task { @MainActor in
+            // v4.0.41（H-1）：观察者改成 object: nil 后，这里补回原本由 object 过滤提供的语义 ——
+            //   只处理音频会话的中断通知，别的同名事件直接忽略。
+            guard let eventObjID,
+                  eventObjID == ObjectIdentifier(AVAudioSession.sharedInstance()) else { return }
+            guard let raw,
+                  let type = AVAudioSession.InterruptionType(rawValue: raw) else { return }
+            if type == .began {
+                PetSpeechDrive.shared.close()
+                return
+            }
+            guard let optsRaw,
+                  let opts = AVAudioSession.InterruptionOptions(rawValue: optsRaw) else { return }
+            guard !opts.contains(.shouldResume) else { return }   // 该续播就别打断用户
+            stop()
         }
-        guard let optsRaw = note.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt else { return }
-        let opts = AVAudioSession.InterruptionOptions(rawValue: optsRaw)
-        guard !opts.contains(.shouldResume) else { return }   // 该续播就别打断用户
-        stop()
     }
 
     /// v4.0.x 流式分段朗读：当前由分段队列朗读的消息 id（`#s` 段签名）
