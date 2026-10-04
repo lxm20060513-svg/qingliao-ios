@@ -966,5 +966,13 @@ echo "=== 68. 长期目标 5 项改进真值表（v4.0.40 · 现在开始推进/
 # 与第 58 项（ql_goalbg）的分工：那表钉「后台状态可见性」，本表钉「手动推进 + 自动收尾闭环」。
 run_unit /tmp/test_goal_pushnow scripts/ql_goal_pushnow/truth_table_goal_pushnow.swift
 
+# v4.0.42 run #668 实踩：删掉 GoalsSection.stamp 时漏改了另外 4 处 `Self.stamp(...)`，
+# 而 `-parse` 不查成员存在性 → 预检全绿、CI Archive 才报 has no member 'stamp'。
+# 类级教训：删/改一个成员前，全仓 grep 该成员的全部引用点逐个改，别只改「看到的那几处」。
+ckNot "残留 Self.stamp（stamp 已迁到 GoalRowCard，GoalsSection 上不存在）" \
+  "Self\\.stamp\\(" qingliao/Features/Life/GoalsSection.swift
+ck "GoalRowCard.stamp 必须是 nonisolated static 且非 private（供 GoalsSection 跨类型调用）" \
+  "^    static func stamp\\(_ d: Date\\) -> String" qingliao/Features/Life/GoalsSection.swift
+
 [ $fail -eq 0 ] || { echo "❌ 有护栏失守"; exit 1; }
 exit 0

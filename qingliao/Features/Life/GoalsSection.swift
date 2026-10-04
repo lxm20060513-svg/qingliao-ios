@@ -418,7 +418,7 @@ struct GoalsSection: View {
                     Text(g.title)
                 } footer: {
                     if let at = g.lastPushedAt {
-                        Text("最近更新 \(Self.stamp(at))")
+                        Text("最近更新 \(GoalRowCard.stamp(at))")
                     } else {
                         Text("还没有推送记录")
                     }
@@ -488,7 +488,7 @@ struct GoalsSection: View {
                                             .font(.system(size: Typography.caption))
                                             .foregroundStyle(Color.orange)
                                     }
-                                    Text(Self.stamp(r.at))
+                                    Text(GoalRowCard.stamp(r.at))
                                         .font(.system(size: Typography.caption))
                                         .foregroundStyle(.secondary)
                                     if r.isAgentAction {
@@ -703,12 +703,12 @@ struct GoalRowCard: View {
                 Image(systemName: "calendar.badge.clock")
                     .font(.system(size: Typography.caption))
                     .foregroundStyle(.tertiary)
-                Text("开始于 \(Self.stamp(goal.startedAt))")
+                Text("开始于 \(GoalRowCard.stamp(goal.startedAt))")
                     .font(.system(size: Typography.caption))
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
                 if let at = goal.manualPushAt {
-                    Text("· 手动推进 \(Self.stamp(at))")
+                    Text("· 手动推进 \(GoalRowCard.stamp(at))")
                         .font(.system(size: Typography.caption))
                         .foregroundStyle(.tertiary)
                         .lineLimit(1)
