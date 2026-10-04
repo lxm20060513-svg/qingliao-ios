@@ -295,6 +295,21 @@ else
   echo "⚠️ 拉不到线上后端副本（离线），第 21 项后端表本轮未跑"
 fi
 
+echo "=== 21b. 长任务断点续传「稳妥档」真值表（待做池⑥ · v4.0.38）==="
+# 后端表跑 NAS 上**线上那份字节**（复用上面 21 项刚拉的 $MB_TMP/stream_api_live.py）。
+# 用 AST 抽出目标函数源码 → 在最小命名空间里真调，验证的是线上代码本身（非仿制）。
+# 口径（用户拍板「稳妥档」）：① 启动对账把 streaming 孤儿判为 error + outcome_unknown，
+#   已生成内容与已完成步(toolSpans/toolSeq)原样保留 = 不重放、不丢断点；
+#   ② 已完成(done)任务绝不被误伤；③ 落盘工具步走 _persist_state 不污染 updatedAt（静默真值）。
+# ⚠️ 必须 exit 1 不能用 fail=1：本段在 fail 初始化之前，会被无条件重置抹掉。
+if [ -s "$MB_TMP/stream_api_live.py" ]; then
+  python3 scripts/ql_resume/truth_table_resume.py "$MB_TMP/stream_api_live.py" 2>&1 | tee /tmp/tt_resume.log
+  if grep -q '❌' /tmp/tt_resume.log; then echo "❌ 第 21b 项断点续传真值表有失守"; exit 1; fi
+else
+  echo "❌ 第 21b 项拿不到线上 stream_api.py 字节，断点续传护栏本轮无法自证"
+  exit 1
+fi
+
 echo "=== 21a. 接入中心一页真值表（v4.0.x 第 3 项）==="
 # 纯 Python（读源文件做护栏）：口径是「邮件开关不许写成局部 PATCH」——
 # 后端 save_account → normalize() 会把没传的字段全写成空值，只 POST
@@ -1097,6 +1112,15 @@ echo "=== 76. 登录页使用指南文案真值表（v4.0.47 · 指南 = 真实�
 # 纯文本级断言（无可跑逻辑）；真源 = 后端仓 README:41/121-123 + install.sh:35 + 本仓 AuthStore.swift:133。
 # 反向变异已验证：把旧口径改回去 → 7 处红 + exit 1（非假绿）。
 run_unit6 /tmp/test_qlguide scripts/ql_guide/truth_table_guide.swift
+
+echo "=== 77. 启动期类型栈深度真值表（v4.0.48 · 根治 4.0.47 真机启动闪退）==="
+# 本表为什么存在：v4.0.47 侧载后**一点开就闪退**，.ips 实证 = 主线程栈溢出
+# （swift_getTypeByMangledNameInContext2 里 demangler 递归 ~112 帧）。定量根因 =
+# messageList 的 LazyVStack 元组类型静态嵌套 21 层（最深两条链：三点行 12 层 / 工具卡 9 层）。
+# 修法 = 类型擦除（AnyView），21 层 → ~11 层。这类事故本地预检查不出来（要真机启动才炸），
+# 但「顺手把 AnyView 去掉」是极自然的重构 → 必须钉死，否则必崩包会再发一次。
+# 纯文本级断言；实测 14/0 绿（含 2 条负断言：裸链形态、三条分散 padding）。
+run_unit6 /tmp/test_qltypestack scripts/ql_typestack/truth_table_typestack.swift
 
 [ $fail -eq 0 ] || { echo "❌ 有护栏失守"; exit 1; }
 exit 0

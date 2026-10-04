@@ -815,7 +815,10 @@ struct ChatView: View {
         // v3.9.80：门控改用 `toolSteps`（= max(toolSeq, toolNames.count)）——摘要行读的就是这个值，
         // 原先门控只认 toolNames，与显示口径脱节（toolSeq>0 但明细为空时整卡不渲染）。
         if stream.toolSteps > 0, auth.currentStreamSessionId == chat.sessionId {
-            VStack(alignment: .leading, spacing: 6) {
+            // 🚨 v4.0.48（启动闪退根治 ②）：这团工具卡（内嵌两层 TimelineView）是 LazyVStack 元组里
+            //   第二深的元素（~9 层），同样做类型擦除；`.transition(.opacity)` 留在 AnyView **外面**，
+            //   工具卡出现/收起时的淡入淡出语义不变（只让类型名变浅）。
+            AnyView(VStack(alignment: .leading, spacing: 6) {
                 // v3.9.27：生成中也可随时收起（用户反馈「不必等输出完才能收」）——
                 // 统一走「摘要行 + expanded 控制明细」，不再按 isStreaming 强制展开。
                 // v3.9.80：摘要行显示**实际步数**（后端 toolSeq 全量计数；toolNames 只下发最近 10 步，
@@ -862,7 +865,7 @@ struct ChatView: View {
                         }
                     }
                 }
-            }
+            })
             // v4.0.38：原此处是 `.padding(.horizontal, Spacing.xl)`（v4.0.31 注释「容器 6 + 12 = 18，
             // 与 AI 气泡左缘对齐」）—— 气泡内容侧贴边后外缘只剩列表左右 6pt，本块若继续自留 12
             // 就会比它所属的 AI 气泡多缩进一档（真机可见错位）。故不再自留白，工具卡外缘与气泡左缘齐平。
@@ -2708,19 +2711,29 @@ struct ChatView: View {
     /// transition 在无事务时不会播放（流式气泡首帧同理，见 StreamingBubbleView.born）。
     /// reduceMotion 时 onAppear 直接落终态，不播浮现。
     private var thinkingIndicatorRow: some View {
-        TypingIndicator()
-            .padding(.horizontal, Spacing.section)
-            .padding(.vertical, Spacing.xxl)
-            .background(Color(uiColor: .systemGray5))
-            .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
-            .frame(minHeight: 44)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .opacity(typingBorn ? 1 : 0)
-            .offset(y: typingBorn ? 0 : 8)
-            .onAppear {
-                if reduceMotion { typingBorn = true }
-                else { withAnimation(Motion.streamBorn) { typingBorn = true } }
-            }
+        // 🚨 v4.0.48（真机启动闪退根治）：这串修饰器链原先整条内联进 messageList 的 LazyVStack 类型，
+        //   使该类型静态嵌套达 21 层。启动首帧构建该类型时，Swift 运行时按 mangled name 解析类型，
+        //   demangler（decodeMangledType↔decodeGenericArgs）递归 ~112 帧把 1MB 主线程栈吃干 →
+        //   撞栈保护页 → SIGSEGV（真机 .ips 实证：EXC_BAD_ACCESS + "stack guard region"）。
+        //   修法 = **类型擦除**：AnyView 把这串链从外层类型名里摘掉（21 层 → ~11 层），
+        //   视图树、修饰器、动画、身份全部不变 —— 只让类型名变浅。
+        // ⚠️ `.transition` / `.id` 必须留在 AnyView **外面**（前者管三点行↔流式气泡互换的退场，
+        //   后者是流式区身份真源）；搬进去会改语义。
+        AnyView(
+            TypingIndicator()
+                .padding(.horizontal, Spacing.section)
+                .padding(.vertical, Spacing.xxl)
+                .background(Color(uiColor: .systemGray5))
+                .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+                .frame(minHeight: 44)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .opacity(typingBorn ? 1 : 0)
+                .offset(y: typingBorn ? 0 : 8)
+                .onAppear {
+                    if reduceMotion { typingBorn = true }
+                    else { withAnimation(Motion.streamBorn) { typingBorn = true } }
+                }
+        )
             // 保留原 inline 块上的 .transition(.opacity)（v4.0.39 未删）：它管的是
             // 「三点行 ↔ streamingBubble」在同一 if/else 里互换时的退场淡出。
             // 浮现进场由上面的 born 包装负责，两者分工不重叠。
@@ -2839,9 +2852,9 @@ struct ChatView: View {
                         }
                     }
                     // v3.9.27：气泡变长——消息区左右 padding 12→6（气泡 maxWidth 369 联动）
-                    .padding(.horizontal, 6)
-                    .padding(.top, Spacing.md)
-                    .padding(.bottom, Spacing.md)
+                    // v4.0.48：三条 padding（水平 6 / 上 md / 下 md）合并成一条 —— 类型名少两层，
+                    // 给启动期类型解析留栈余量；视觉完全等价（同边同值）。
+                    .padding(EdgeInsets(top: Spacing.md, leading: 6, bottom: Spacing.md, trailing: 6))
                     // v4.0.34：内容不满一屏时整体贴底（微信式）——流式最新气泡始终紧贴输入框上方，
                     // 不再悬在屏幕中部。frame 高度取滚动容器测量值（GeometryReader 只读布局，不撑高
                     // ScrollView 自身），minHeight 语义 = 「不满屏时占满、超屏时自然增长」，满屏后
