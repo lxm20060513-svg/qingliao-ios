@@ -75,6 +75,23 @@ final class SpeechManager: NSObject, ObservableObject, AVSpeechSynthesizerDelega
     /// 顶进新文本的进度里，导致新一条**整段瞬显**（逐字动画失效）。同文件其它异步路径
     /// （324/336 行）都用 `guard gen == ttsGeneration` 这一套，只有系统回调原先漏了。
     private var currentUtteranceID: ObjectIdentifier?
+    /// v4.0.41（审查 B-1 阻断修）：系统引擎「已入 synth 队列、但还没播完」的 utterance 台账。
+    ///
+    /// 🚨 为什么必须有它：流式分段朗读会把段1…段N **一次性**全部 `speak()` 入队（synth 内建串行），
+    ///   而原实现是在**入队那一刻**就把 `currentUtteranceID` 设成最后那条 →
+    ///   段1…段(N-1) 的 willSpeakRange / didCancel 全部撞身份闸门被丢弃（不切音节 = 不张嘴），
+    ///   段1 的 didFinish 又把 `speakingID` 清成 nil → 段2 起 `PetAvatar.mouthOpen` 直接返回 nil，
+    ///   **整条朗读宠物全程闭嘴**（命中条件：设置里关掉「云端 TTS」+ 流式分段朗读，
+    ///   正是本功能的主打配置之一）。
+    /// 台账按入队顺序存「身份 + 段 id + 段文本」，didFinish / didCancel 出队；
+    /// 身份命中台账 = 这条回调该认（顺带把逐字基准切到本段），
+    /// 不在台账 = 上一条的迟到回调或 stop() 之后的回声 → 丢弃（保住 v3.9.77 那层保护）。
+    private struct PendingUtterance {
+        let uid: ObjectIdentifier
+        let id: String
+        let text: String
+    }
+    private var systemPending: [PendingUtterance] = []
     /// v4.0.40：口型音节表已为「哪条 utterance」切过。willSpeakRange 用它当「本段只切一次」的哨兵，
     /// 不能用 progress.charCount == 0（emoji 下 charOffset 返 nil 时它恒为 0 → 每帧重切）。
     private var syllablesBegunFor: ObjectIdentifier?
@@ -97,11 +114,21 @@ final class SpeechManager: NSObject, ObservableObject, AVSpeechSynthesizerDelega
         // ⚠️ v4.0.40 修审查：必须用 **selector 版**。block 版 addObserver(forName:object:queue:using:)
         //   的闭包是 @Sendable，在 Swift 6 下 `[weak self]` 捕获 @MainActor 的 SpeechManager 会报
         //   「capture of 'self' with non-sendable type」（同仓 KeyboardObserver.swift 文件头同一条纪律）。
-        //   selector 回调按 .main 队列投递，本类已是 @MainActor，直接写即可，不用包 Task。
+        // 🚨 v4.0.41（审查 H-1 修）：object 传 nil，**不要**在这里求值 AVAudioSession.sharedInstance()。
+        //   原来写 object: sharedInstance() 会在**首次读这个懒单例时就创建音频会话** ——
+        //   而 ChatMessageBubble.body / VoiceDialogView.body 都在读它（并不朗读），
+        //   于是「打开任何一个带宠物的页面」就提前占住音频会话，影响别的 App 的音频焦点/打断处理。
+        //   改传 nil（听全部会话的中断）后在回调里校验 note.object，语义等价且零副作用。
+        // 🚨 v4.0.41（审查 H-2 修）：必须显式传 queue: .main。
+        //   注释原先写「selector 回调按 .main 队列投递」是**错的**：不传 queue 时回调在
+        //   **投递通知的那个线程**同步执行。Swift 6 对 @objc 的 MainActor 成员不做静态隔离检查
+        //   （ObjC 运行时可绕过）→「编译过」≠「隔离安全」。一旦 AVFoundation 在非主线程投递，
+        //   PetSpeechDrive.shared.close() 就是跨 actor 写 @Published = 运行期数据竞争。
+        //   传 queue: .main 后靠队列兜住，不依赖默认行为；selector 版不引入 block 的 @Sendable 问题。
         NotificationCenter.default.addObserver(
             self, selector: #selector(handleInterruption(_:)),
             name: AVAudioSession.interruptionNotification,
-            object: AVAudioSession.sharedInstance())
+            object: nil, queue: .main)
     }
 
     /// v4.0.40：音频中断（来电/Siri/闹钟）。
@@ -109,6 +136,9 @@ final class SpeechManager: NSObject, ObservableObject, AVSpeechSynthesizerDelega
     ///     shouldResume 续播时 willSpeakRange 会自然重新张嘴。
     ///   `.ended` 且非 `.shouldResume` → 真没有后续了，走 stop() 全量收尾。
     @objc private func handleInterruption(_ note: Notification) {
+        // v4.0.41（H-1）：观察者改成 object: nil 后，这里补回原本由 object 过滤提供的语义 ——
+        //   只处理音频会话的中断通知，别的事件（如别的对象同名）直接忽略。
+        guard note.object as? AVAudioSession != nil else { return }
         guard let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
               let type = AVAudioSession.InterruptionType(rawValue: raw) else { return }
         if type == .began {
@@ -197,6 +227,9 @@ final class SpeechManager: NSObject, ObservableObject, AVSpeechSynthesizerDelega
         PetSpeechDrive.shared.clear()
         currentUtteranceID = nil
         syllablesBegunFor = nil   // v4.0.40：与 currentUtteranceID 同步清，避免复用到同址旧对象的哨兵
+        // v4.0.41（审查 B-1 修）：synth 队列台账必须一并作废，否则 stop 之后到达的
+        //   旧 utterance 回调还能命中台账头部 → 把新一轮朗读误认成上一条的开念（进度/嘴型串台）。
+        systemPending.removeAll()
     }
 
     // MARK: - v4.0.x 流式分段朗读（段间顺序播放）
@@ -276,7 +309,10 @@ final class SpeechManager: NSObject, ObservableObject, AVSpeechSynthesizerDelega
         // v3.9.10 hotfix：这里**只读缓存**，绝不在主线程枚举音色（原因见下方音色目录注释）
         ut.voice = Self.resolvedSystemVoice()
         ut.rate = Self.systemRate
-        currentUtteranceID = ObjectIdentifier(ut)   // v3.9.77：逐字回调靠它认身份、丢弃上一条的迟到回调
+        // v4.0.41（审查 B-1 修）：入队即登记台账，**不再**在这里抢占式设 currentUtteranceID。
+        //   原写法在分段队列下把身份写成最后一条 → 前 N-1 段的回调全被闸门丢弃。
+        //   currentUtteranceID 改为「由台账头部驱动」，即真正在念的那一条（见 adoptPending）。
+        systemPending.append(PendingUtterance(uid: ObjectIdentifier(ut), id: id, text: clean))
         // v4.0.40：每条新 utterance 一律作废旧哨兵。AVSpeechUtterance 是临时对象、播完即释放，
         //   下一条完全可能被分配到**同一地址** → ObjectIdentifier 复用 → 哨兵判假、begin 被跳过，
         //   而 units 此时已被 didFinish 清空 → 这条朗读全程闭嘴，嘴型功能静默失效。
@@ -572,19 +608,20 @@ final class SpeechManager: NSObject, ObservableObject, AVSpeechSynthesizerDelega
         let spoken = utterance.speechString                        // String 是 Sendable，可过域
         Task { @MainActor in
             guard self.player == nil, !self.progress.text.isEmpty else { return }
-            // v3.9.77 修审查：① 身份不符 = 上一条的迟到回调，直接丢弃（否则新一条整段瞬显）；
-            // ② 偏移是 UTF-16 码元，而 prefix/count 按 Character 算，含 emoji 时会跑到语音前面 → 换算。
-            guard self.currentUtteranceID == uid else { return }
-            // v4.0.39 修审查：**系统引擎的分段队列**（流式朗读满段就送 TTS）会把所有段一次性
-            //   入 synth 串行队列，于是入队那一刻就 begin() 会让「段1 还在念、嘴型已按段2 的表走」。
-            //   改成在**这条 utterance 真正开念**时按它自己的文本重切音节（与身份判据同一纪律）。
-            //   ⚠️ 只在**每段第一帧**切一次：willSpeakRange 每 0.08s 来一次，无条件 begin 等于
-            //   每帧全量重切音节表（长回复时白烧 CPU）。
-            // 🚨 v4.0.40 修审查：**不能只用 charCount == 0 当「本段还没切过」**——
-            //   含 emoji 时 charOffset 会返回 nil（落在代理对中间）而 progress.charCount 保持 0，
-            //   下一帧又满足 == 0 → 每帧对全文重跑 Array(text) + O(n) 切分，长回复+emoji 是持续 CPU 浪费。
-            //   改用「已为哪条 utterance 切过」的身份哨兵（与 currentUtteranceID 同一套身份纪律）。
-            if self.syllablesBegunFor != uid { PetSpeechDrive.shared.begin(spoken); self.syllablesBegunFor = uid }
+            // v4.0.41（审查 B-1 修）：闸门从「等于 currentUtteranceID」改为「命中系统队列台账」。
+            //   流式分段会把 N 段一次性入队，原写法下 currentUtteranceID 已是最后一条，
+            //   段1…段(N-1) 的回调全被丢弃 → 全程闭嘴。现在认「台账里还没播完的那条」。
+            //   命中即把逐字基准/进度切到本段（原来只在 speakSegment 里设一次 progress.text，
+            //   多段时基准永远停在段1，逐字进度其实一直是错的）。
+            guard self.adoptPending(uid) else { return }
+            // 音节表**每段只切一次**（v4.0.40 纪律）：willSpeakRange 每 0.08s 来一次，
+            // 无条件 begin 等于每帧全量重切音节表（长回复时白烧 CPU）。
+            // ⚠️ 不能用 charCount == 0 当「本段还没切过」——含 emoji 时 charOffset 返回 nil
+            //   而 progress.charCount 保持 0 → 每帧重跑 Array(text) + O(n) 切分。故用身份哨兵。
+            if self.syllablesBegunFor != uid {
+                self.syllablesBegunFor = uid
+                PetSpeechDrive.shared.begin(self.systemPending.first?.text ?? spoken)
+            }
             // 落在代理对中间时 charOffset 返回 nil → **保持上一拍**，绝不跳到全文（复审实测：
             // 旧写法遇 emoji 会让那一帧进度直接顶到全文，比不做还糟）。
             guard let off = self.charOffset(utf16: end) else { return }
@@ -592,6 +629,35 @@ final class SpeechManager: NSObject, ObservableObject, AVSpeechSynthesizerDelega
             // v4.0.39：页头宠物嘴型跟着这个逐字进度走（独立发布箱，见 PetSpeechShape 注释）
             PetSpeechDrive.shared.advance(toChar: self.progress.charCount)
         }
+    }
+
+    /// v4.0.41（审查 B-1 修）：把台账头部那条**认作当前在念**（切逐字基准 + 切身份哨兵）。
+    ///   由 willSpeakRange 首次回调某条 utterance 时调用 —— 那一刻它才真的开始念。
+    ///   命中台账 = 合法；不在台账 = 迟到回调 / 已 stop → 返回 false，调用方按原纪律丢弃。
+    @discardableResult
+    private func adoptPending(_ uid: ObjectIdentifier) -> Bool {
+        guard let head = systemPending.first, head.uid == uid else { return false }
+        // v4.0.41：认下新的一段时把逐字基准切到本段并归零进度。
+        //   （原来 progress.text 只在 speakSegment 里设一次 → 多段朗读的基准永远停在段1，
+        //   charOffset 拿段1 的长度去截段2 的偏移，逐字进度其实一直是错的。段间切换才归零，
+        //   同一段内每帧调用不动它。）
+        if self.currentUtteranceID != uid {
+            self.progress.text = head.text
+            self.progress.charCount = 0
+        }
+        currentUtteranceID = uid
+        return true
+    }
+
+    /// 某条 utterance 出队（播毕 / 被取消）。返回它是不是**队尾最后一条**。
+    ///   是 → 整条朗读真的结束了（调用方据此清 speakingID / 闭嘴 / 回收音频会话）；
+    ///   否 → 还有下一段在 synth 队列里等着，**必须保留 speakingID 和嘴型驱动**，
+    ///   否则下一段起 `PetAvatar.mouthOpen` 拿到 nil = 宠物中途闭嘴（原 B-1 的致命半环）。
+    @discardableResult
+    private func finishPending(_ uid: ObjectIdentifier) -> Bool {
+        guard let idx = systemPending.firstIndex(where: { $0.uid == uid }) else { return false }
+        systemPending.remove(at: idx)
+        return systemPending.isEmpty
     }
 
     /// UTF-16 码元偏移 → Character 偏移（越界 / 落在代理对中间都安全，取不到边界就返回全文）。
@@ -617,20 +683,28 @@ final class SpeechManager: NSObject, ObservableObject, AVSpeechSynthesizerDelega
         //   纪律与同文件 willSpeakRange / audioPlayerDidFinishPlaying 一致：闭包内先取 uid，再按 uid 丢弃过期回调。
         let uid = ObjectIdentifier(utterance)
         Task { @MainActor in
-            guard self.currentUtteranceID == uid, self.player == nil else { return }
+            // v4.0.41（审查 B-1 修）：闸门从「== currentUtteranceID」改为「命中系统队列台账」。
+            //   台账为空 = 整条已 stop/播完 → 这条是迟到回调，丢弃。
+            guard self.player == nil, self.adoptPending(uid) else { return }
+            // 还有下一段在 synth 队列里 → 只把本段出队，**不能** stop()（会掐断后续段）。
+            guard self.finishPending(uid) else { return }
             self.stop()
         }
     }
 
     nonisolated func speechSynthesizer(_ s: AVSpeechSynthesizer,
                                        didFinish utterance: AVSpeechUtterance) {
+        // Swift 6：utterance 非 Sendable 不能捕获进 Task @MainActor，只传 ObjectIdentifier 身份。
+        let uid = ObjectIdentifier(utterance)
         Task { @MainActor in
-            // v3.0.x fix：云端 TTS 播放中 player != nil，系统 TTS didFinish 不清除 speakingID
-            // → 状态泄漏。改为无条件检查：如果云端 player 也在播完状态，一并清除
-            if self.speakingID != nil {
-                // 如果云端 player 还在播放，不在此清除（等 audioPlayerDidFinish 处理）
-                // 如果云端 player 已为 nil（已被 audioPlayerDidFinish 清除或本来就没用云端），直接清除
-                if self.player == nil {
+            // 🚨 v4.0.41（审查 B-1 阻断修）：这里原来无条件清 speakingID/闭嘴/回收音频会话，
+            //   而流式分段朗读下**段1 的 didFinish 到达时，段2…段N 还在 synth 队列里等着念**
+            //   → 中途把 speakingID 清成 nil → PetAvatar.mouthOpen 返回 nil → 宠物从第 2 段起闭嘴，
+            //   同时音频会话被置 inactive 把后续段掐掉。这正是「关掉云端 TTS 后宠物全程不张嘴」
+            //   在 N≥2 时的致命半环。判据：台账里出队后**还有剩余** = 整条还没念完 → 只出队，什么都不清。
+            if self.player == nil, self.adoptPending(uid), self.finishPending(uid) {
+                // 队列已空 = 这确实是最后一段的收尾：正常全量收尾
+                if self.speakingID != nil {
                     self.speakingID = nil
                     self.cloudDegraded = false
                     PetSpeechDrive.shared.clear()   // v4.0.39：系统语音播毕 → 闭嘴

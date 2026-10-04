@@ -1025,7 +1025,11 @@ check("统一尺寸常量仍是几何算式的基准（101×36）",
 
 // 9) v3.9.77 修审查：两条「跑起来才暴露」的缺陷用源码形态钉住（预检/编译都查不出这类）
 check("系统逐字回调带身份护栏（丢弃上一条的迟到回调，否则新一条整段瞬显）",
-      speechClean.contains("guard self.currentUtteranceID == uid else { return }"))
+      // 🚨 v4.0.41（审查 B-1）：闸门从「== currentUtteranceID」改成「命中系统队列台账」
+      //   （流式分段会把 N 段一次性入队，裸比 currentUtteranceID 会把前 N-1 段的回调全丢弃
+      //   → 关掉云端 TTS 时宠物全程不张嘴）。adoptPending 仍然承担同一职责：
+      //   不在台账里 = 迟到回调/stop 之后的回声 → 丢弃。
+      speechClean.contains("guard self.adoptPending(uid) else { return }"))
 check("云端播毕回收 ticker（自然播完是最常见路径，原来没人清 → 永不回收的空转定时器）",
       // 自毁统一走实例方法（BLOCKER 修复后 Timer 闭包参数改成 `_`，不再用 `t`）→ 断言认方法体里的那一行
       speechClean.contains("private func stopCloudTicker()")

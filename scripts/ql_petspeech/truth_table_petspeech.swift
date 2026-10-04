@@ -167,7 +167,12 @@ check("B2 发布箱不依赖 Combine 以外的重框架，且纯函数文件里�
 //   现在切表只发生在「真正开念」那一刻：云端分支 speakSegment + 流式换段 + willSpeakRange 哨兵。
 check("B3 切音节只发生在真正开念处（云端开念 / 流式换段 / willSpeakRange 哨兵共 ≥3 处）",
       spC.components(separatedBy: "PetSpeechDrive.shared.begin(").count - 1 >= 3
-      && spC.contains("if self.syllablesBegunFor != uid { PetSpeechDrive.shared.begin(spoken)"))
+      // 🚨 v4.0.41：这条原先锚的是 willSpeakRange 里那行**单行**写法
+      // `if self.syllablesBegunFor != uid { ...begin(spoken)... }`。审查 B-1 的修法把同一逻辑
+      // 改成多行（切表文本改取台账队首的段文本），语义更对但字面锚点失效 → 断言误报红。
+      // 改为锚「身份哨兵判据 + 切表」这两个不变量，不再依赖具体排版。
+      && spC.contains("if self.syllablesBegunFor != uid {")
+      && spC.contains("PetSpeechDrive.shared.begin(self.systemPending.first?.text ?? spoken)"))
 
 // B3b 反向自证：把 speakViaSystem 里的哨兵作废那行删掉，下面的「地址复用」判定必须判红
 //   （这是本轮审查抓到的静默失效根因：哨兵不复位 → 新 utterance 判成「已切过」→ 全程闭嘴）
@@ -251,16 +256,61 @@ check("B18 画笔保持零跨文件依赖（clamp 内联，不引用 PetSpeechSh
 // B19 编译口径（审查命中）：NotificationCenter block 版 addObserver 的闭包是 @Sendable，
 //   Swift 6 下 [weak self] 捕获 @MainActor 的 SpeechManager 会报 non-sendable capture
 //   （同仓 KeyboardObserver.swift 文件头同一条纪律）。中断观察者必须走 selector 版。
+// 🚨 v4.0.41（审查 H-2）：这条原先还断言 `!contains("queue: .main)")`（当时按「selector 回调
+//   自动在主线程」的**错误**前提钉的），审查已证伪：不传 queue 时回调在投递线程同步执行。
+//   现改为要求显式 queue: .main（B26 钉），否则注释承诺与实现不符 = 靠编译通过的假安全。
 check("B19 中断观察者用 selector 版（block 闭包捕获 self 在 Swift 6 下编译不过）",
       spC.contains("selector: #selector(handleInterruption(_:))")
-      && spC.contains("@objc private func handleInterruption")
-      && !spC.contains("queue: .main)"))
+        && spC.contains("@objc private func handleInterruption"))
 
 // B20 生命周期（审查命中）：中断 `.began` 只闭嘴、不打断朗读 —— 来电就把话停了是误伤；
 //   也不能只是停止发 willSpeakRange 而让 amount 停在最后一个非 0 值（长时间来电 = 一直张嘴）。
 check("B20 中断 .began 只闭嘴不打断（close() 存在且 began 分支走它，不调 stop）",
       driveC.contains("func close()")
       && spC.contains("if type == .began {"))
+
+// B21（审查 B-1 阻断，必挂 CI）：系统引擎的**分段队列台账**。
+//   🚨 这条是「关掉云端 TTS + 流式分段朗读 → 宠物全程不张嘴」的根因所在：
+//   分段会把段1…段N 一次性 speak() 入 synth 串行队列，若身份在**入队那一刻**就写成最后一条
+//   （原 currentUtteranceID = ObjectIdentifier(ut) 的写法），则段1…段(N-1) 的 willSpeakRange
+//   全被闸门丢弃（不切音节 = 不张嘴）；更致命的是段1 的 didFinish 无条件清 speakingID +
+//   回收音频会话 → 段2 起 PetAvatar.mouthOpen 拿到 nil，宠物中途闭嘴、后续段被掐。
+//   正解：入队登记台账（systemPending），由 willSpeakRange 认领队首（adoptPending），
+//   didFinish/didCancel 出队（finishPending），**只有台账空了才做全量收尾**。
+check("B21 系统 utterance 有入队台账（身份不在入队那一刻抢占式设定）",
+      spC.contains("private var systemPending: [PendingUtterance] = []")
+        && spC.contains("systemPending.append(PendingUtterance(")
+        && !spC.contains("currentUtteranceID = ObjectIdentifier(ut)"))
+
+check("B22 三个系统回调的闸门走台账（adoptPending + finishPending），不再裸比 currentUtteranceID",
+      spC.contains("guard self.adoptPending(uid) else { return }")   // willSpeakRange
+        && spC.contains("self.player == nil, self.adoptPending(uid)")  // didFinish
+        && spC.contains("self.player == nil, self.adoptPending(uid), self.finishPending(uid)"),
+      negative: true)
+
+// B23 致命半环：didFinish 必须「台账空」才清speakingID/闭嘴/回收音频会话。
+//   少了 finishPending 判据 → 段1 播完就把状态清干净 → 后续段全程闭嘴（且音频会话被置 inactive）。
+check("B23 didFinish 只有台账清空才做全量收尾（分段中途不清speakingID）",
+      spC.contains("self.adoptPending(uid), self.finishPending(uid)"),
+      negative: true)
+
+check("B24 stop() 必须清空台账（否则 stop 后旧回调能命中台账队首 → 新一轮被误认成上一条开念）",
+      spC.contains("systemPending.removeAll()"))
+
+// B25 多段朗读的逐字基准：adoptPending 认领新段时要把 progress.text 切到本段并归零。
+//   原来只在 speakSegment 里设一次 → 多段时基准永远停在段1，charOffset 拿段1 长度截段2 偏移。
+check("B25 认领新段时切逐字基准与归零进度（多段朗读逐字进度正确）",
+      spC.contains("self.progress.text = head.text")
+        && spC.contains("self.progress.charCount = 0"))
+
+// B26 音频中断观察者：object 必须传 nil（不得在 init 里求值 sharedInstance()），
+//   且必须显式 queue: .main（不传时回调在投递线程同步执行，不是主线程）。
+//   init 里求值 sharedInstance() = 首次读懒单例就创建音频会话，而气泡 body 都在读它。
+check("B26 中断观察者不提前实例化音频会话 + 显式 queue: .main",
+      spC.contains("object: nil, queue: .main")
+        && !spC.contains("object: AVAudioSession.sharedInstance()")
+        && spC.contains("guard note.object as? AVAudioSession != nil else { return }"),
+      negative: true)
 
 // E 段 · 反向自证：把源码改坏，断言必须转红（证明 B 段几条不是恒真）
 func mutant(_ src: String, _ from: String, _ to: String) -> String {
