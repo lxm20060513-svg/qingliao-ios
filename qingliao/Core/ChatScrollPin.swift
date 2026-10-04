@@ -61,7 +61,9 @@ enum ChatScrollPin {
                      offset: CGFloat,
                      contentH: CGFloat,
                      containerH: CGFloat) -> ChatScrollPinState {
-        // ① 内容不满一屏：永远算贴底（列表由 minHeight 底部对齐兜住，流式增长时气泡自然往上顶）
+        // ① 内容不满一屏：永远算贴底（本分支只看「装不装得下」，与列表对齐方向无关——
+        //    ChatView 的 minHeight 对齐自 v4.0.54 起是 `.top`，此前是「底部对齐」；
+        //    两种口径下 contentH ≤ containerH 都不可滚动 ⇒ 恒贴底，判据不受影响）
         if contentH <= containerH { return .pinnedAtBottom }
         let maxY = contentH - containerH
         // ② 已到（或越过）底部：容差内也算；顺手把基准挪到当前位置

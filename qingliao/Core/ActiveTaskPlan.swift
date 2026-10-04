@@ -59,6 +59,10 @@ enum ActiveTaskPlan {
     /// 同样是「added 计 + 裁到 20 条」，聊天页那边 `hidden = toolSteps − toolNames.count` 数的也是列出行数。
     /// 所以没被裁时（例：3 步其中 1 步在跑）这里得 0 → 不出提示，与聊天页完全一致。
     /// ⚠️ 切勿改成「已完成步数」当列出数：那样**每有一个工具在跑就会假报「更早的 1 步未列出」**（真回归过一次）。
+    ///
+    /// 🚨 v4.0.54 起**生产侧已无调用点**：任务中心不再渲染逐步清单（用户要求去细化信息），
+    /// 本函数只剩 `scripts/ql_taskplan/truth_table_taskplan.swift` 的 1f 单测在守护。
+    /// 别当纯死码删掉——后端仍下发 plan/planSeq、`parse` 仍在跑，要恢复渲染是零成本的一条接线。
     static func hiddenCount(planSeq: Int, plan: [Step]) -> Int? {
         let h = planSeq - plan.count
         return h > 0 ? h : nil

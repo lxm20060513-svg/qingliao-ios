@@ -128,24 +128,29 @@ struct TaskPlanTruthTable {
         check("ActiveTask 新增 plan 字段（类型指向 Core）",
               authSrc.contains("let plan: [ActiveTaskPlan.Step]"))
         check("ActiveTask 新增 planSeq 字段", authSrc.contains("let planSeq: Int"))
-        check("任务中心门控 = plan 非空（老后端整块不渲染）",
-              taskCenterSrc.contains("if !task.plan.isEmpty {"))
-        check("任务中心渲染步骤清单", taskCenterSrc.contains("PlanStepList(steps: task.plan)"))
-        check("任务中心复用既有截断提示（同一口径，不自造文案）",
-              taskCenterSrc.contains("ToolStepsTruncationNote(hidden: hidden,"))
-        check("截断提示的 shown = 实际列出行数（含在跑步），与聊天页同式",
-              taskCenterSrc.contains("ToolStepsTruncationNote(hidden: hidden, shown: task.plan.count)"))
+        // 🚨 v4.0.54（用户 2026-10-05 报障 + 截图）：任务中心**不再**渲染逐步清单（每步工具名 +
+        // 耗时 + 绿勾那一串），只留一行摘要 = `task.detail` + `elapsed`；逐步明细只在聊天页工具卡
+        // （可展开）。所以本节由「正向钉渲染」翻成「反向钉不渲染」—— 谁要把清单加回任务中心，
+        // 必须连同本表一起改，而不是让护栏默默放行。
+        // Core/ActiveTaskPlan.swift 的解析**保留**（后端照旧下发 plan/planSeq，恢复渲染零成本）。
+        check("任务中心不再渲染逐步清单（调用点 + struct 都已撤掉）",
+              !taskCenterSrc.contains("PlanStepList(steps: task.plan)")
+              && !taskCenterSrc.contains("private struct PlanStepList"))
+        check("任务中心不再渲染「更早的 N 步未列出」截断提示（清单没了，提示无宿主）",
+              !taskCenterSrc.contains("ToolStepsTruncationNote")
+              && !taskCenterSrc.contains("ActiveTaskPlan.hiddenCount"))
+        check("任务中心仍保留一行摘要（第 N 步 xxx · 字数 · 静默时长 + 总耗时）",
+              taskCenterSrc.contains("Text(task.detail)")
+              && taskCenterSrc.contains("Text(elapsed)"))
+        // ⚠️ 负断言钉**被删块专属形态**，别钉 `.monospacedDigit()` 这类通用 token：
+        //    通用 token 既不专钉这一块（用别的格式化把清单加回来照样漏检），
+        //    又会被将来任何无关数字展示误红（v4.0.54 审查意见，已改）。
+        check("任务中心不再渲染工具步清单行（ForEach(steps) / 完成态三元 / 逐步耗时文案都不在）",
+              !taskCenterSrc.contains("ForEach(steps)")
+              && !taskCenterSrc.contains("Text(s.done ? s.title :")
+              && !taskCenterSrc.contains("String(format: \"%.1fs\""))
         // 反向：拿「已完成步数」当列出数是真回归（每个在跑的工具都假报「更早的 1 步未列出」）
         check("截断提示不再用 doneCount 当 shown", !taskCenterSrc.contains("doneCount"))
-        check("截断判据走 hiddenCount（单一真源，直接吃 plan 数组，传不错参数）",
-              taskCenterSrc.contains("ActiveTaskPlan.hiddenCount(planSeq: task.planSeq,")
-              && taskCenterSrc.contains("plan: task.plan)"))
-        check("步骤清单是独立 struct（深 ViewBuilder 不内联，避免 CI 类型检查超时）",
-              taskCenterSrc.contains("private struct PlanStepList: View"))
-        check("步骤清单与聊天页工具卡同套语义（绿勾 + 耗时等宽数字 + 同一耗时文案）",
-              taskCenterSrc.contains("checkmark.circle.fill")
-              && taskCenterSrc.contains(".monospacedDigit()")
-              && taskCenterSrc.contains("Text(d < 10 ? String(format: \"%.1fs\", d)"))
 
         // ── 3. 后端护栏（读 NAS 运行源，与 ql_goalbg 同一做法） ──
         let bePath = "/opt/hermes_host/微信文件/轻聊web/backend/stream_api.py"

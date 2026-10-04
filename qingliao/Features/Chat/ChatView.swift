@@ -192,7 +192,9 @@ struct ChatView: View {
     // v3.0.86 fix：是否贴底（onScrollGeometryChange 实时维护）——流式自动滚底仅贴底时生效
     @State private var scrollPinState = ChatScrollPinState.pinnedAtBottom
     // v4.0.34：消息列表滚动容器的可视高度（GeometryReader 测量）——内容不满一屏时
-    // 列表以它为 minHeight 底部对齐，流式最新气泡始终贴在输入框上方（微信式贴底）
+    // 列表以它为 minHeight。
+    // 🚨 v4.0.54：对齐口径由 `.bottom`（贴底）改为 **`.top`** —— 新会话第一条气泡在最上方，
+    // 后面的往下堆、排满后往上翻（用户 2026-10-05 报障原话）。
     @State private var chatListViewportH: CGFloat = 0
     /// v3.9.78：欢迎页宠物的「抚摸」反应触发器（轻点自增 → PetAvatar 播一次 ≤1.2s 反应）
     @State private var petPat = 0
@@ -3086,12 +3088,17 @@ struct ChatView: View {
                     // v4.0.48：三条 padding（水平 6 / 上 md / 下 md）合并成一条 —— 类型名少两层，
                     // 给启动期类型解析留栈余量；视觉完全等价（同边同值）。
                     .padding(EdgeInsets(top: Spacing.md, leading: 6, bottom: Spacing.md, trailing: 6))
-                    // v4.0.34：内容不满一屏时整体贴底（微信式）——流式最新气泡始终紧贴输入框上方，
-                    // 不再悬在屏幕中部。frame 高度取滚动容器测量值（GeometryReader 只读布局，不撑高
-                    // ScrollView 自身），minHeight 语义 = 「不满屏时占满、超屏时自然增长」，满屏后
-                    // 行为与改前完全一致（不影响上翻历史/加载更早/贴底检测）。对齐 .bottom 使不足的
-                    // 高度全部留在列表顶部（顶部留白、底部贴住输入栏）。
-                    .frame(minHeight: chatListViewportH, alignment: .bottom)
+                    // v4.0.34：内容不满一屏时的对齐口径。原为 `.bottom`（微信式贴底：不足的高度
+                    // 全留在列表顶部，最新气泡紧贴输入框上方）。
+                    // 🚨 v4.0.54（用户 2026-10-05：「第一条气泡就是在最上，后面的气泡不断往上挤」）：
+                    // 翻成 **`.top`** —— 新会话第一条气泡出现在**屏幕最上方**，后面的依次往下堆；
+                    // 排满一屏后自然上翻（旧气泡被往上挤）。frame 高度仍取滚动容器测量值
+                    // （GeometryReader 只读布局，不撑高 ScrollView 自身），minHeight 语义 =
+                    // 「不满屏时占满、超屏时自然增长」；满屏后行为与改前完全一致
+                    // （不影响上翻历史/加载更早/贴底检测）。
+                    // 别再改回 .bottom —— ql_scrollpin 真值表已把 `.top` 钉住（其余「贴底」指的是
+                    // 滚动贴底判定，与这里的对齐无关）。
+                    .frame(minHeight: chatListViewportH, alignment: .top)
                     .id("messages")   // v2.0.39：与欢迎页分支区分身份
                 }
             .modifier(MessageListScroll1(host: self, proxy: proxy))

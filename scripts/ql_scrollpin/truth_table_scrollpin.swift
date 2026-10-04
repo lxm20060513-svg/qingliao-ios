@@ -263,19 +263,34 @@ struct ScrollPinTruthTable {
               chatView.contains("private var streamingAnchorID: String { \"streaming-\\(stream.startSeq)\" }")
                 && chatView.components(separatedBy: ".id(streamingAnchorID)").count - 1 == 2
                 && !chatView.contains("proxy.scrollTo(\"streaming\""))
-        check("B7 不满一屏贴底用的容器高度仍在测量",
+        check("B7 不满一屏用的容器高度仍在测量",
               chatView.contains("chatListViewportH = h"))
+        // 🚨 v4.0.54（用户 2026-10-05：「第一条气泡就是在最上，后面的气泡不断往上挤」）：
+        // 不满一屏时的对齐口径由 `.bottom`（微信式贴底、最新气泡紧贴输入框）翻成 **`.top`**
+        // （首条气泡落在屏幕最上、后面的依次往下堆、排满一屏后往上翻）。这里把它钉死，
+        // 防被顺手改回贴底。⚠️ 本表其余断言里的「贴底」是**滚动贴底判定**
+        // （scrollPinState / ChatScrollPin.next），指的是「要不要跟随滚到底」，
+        // 与这段布局对齐无关，别混为一谈。
+        // 判定表达式抽成闭包：正例与反向自证**共用同一份**（别写成「替换后不含原串」那种恒真自证）
+        let topAligned: (String) -> Bool = { src in
+            src.contains(".frame(minHeight: chatListViewportH, alignment: .top)")
+                && !src.contains(".frame(minHeight: chatListViewportH, alignment: .bottom)")
+        }
+        check("B7b 不满一屏时列表内容顶对齐（首条气泡在最上，非贴底）", topAligned(chatView))
 
         // 反向自证：把旧形态拼回源文本 → B3/B4/B5b 的断言必须为红（护栏有检测力）
         let reverted = chatView
             + "\n} action: { _, pinned in isScrollPinned = pinned }\n"
             + "return geo.contentSize.height <= geo.containerSize.height\n"
             + "isScrollPinned = ChatScrollPin.next(pinned: isScrollPinned, prevOffset: old.offset)\n"
+            + ".frame(minHeight: chatListViewportH, alignment: .bottom)\n"
         check("B8 反向自证：旧内联形态一旦复活 → B3/B4/B5b 必红",
               reverted.contains("action: { _, pinned in")
                 && reverted.contains("return geo.contentSize.height <= geo.containerSize.height")
                 && reverted.contains("prevOffset:"),
               negative: true)
+        // 🚨 B7b 的反向自证：对齐一旦改回 .bottom → 同一份判定表达式必须为红（审查意见补）
+        check("B8b 反向自证：对齐改回 .bottom → B7b 必红", !topAligned(reverted), negative: true)
 
         // v4.0.37（2026-10-03 真机实报「贴底修复没效果」复查）：三处接线孔洞。
         // 比对前先把空白归一，免得护栏被缩进变动打红（本表只钉语义，不钉排版）。

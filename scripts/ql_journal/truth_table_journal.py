@@ -135,11 +135,17 @@ try:
     check("dry_run 不入事件队列", len(pa._events()) == 0)
 
     # ── 4) 真跑：一天只产一次 ──
+    # ⚠️ 周一还会多产一条「周回顾」（本表第 5 节自己就定档了「周一产出每日一问 + 周回顾两条」）——
+    #    原断言写死 n==1 / kinds==["journal"]，只在非周一绿，**周一必红**（2026-10-05 周一实踩）。
+    #    按当天星期收敛成两种合法形态；不放宽成「>=1 / 包含 journal」，否则「多发一条」的真缺陷也会被放过。
+    _monday = pa._now().weekday() == 0
+    _want_kinds = ["journal", "week_review"] if _monday else ["journal"]
     n1, d1 = pa.journal_event(dry_run=False)
-    check("真跑产出每日一问", n1 == 1, "n=%s detail=%s" % (n1, d1))
-    check("dry_run 不消耗提问机会（真跑仍有可产的那一条）", len(d1) >= 1, repr(d1))
-    check("真跑入队 kind=journal",
-          [e.get("kind") for e in pa._events()] == ["journal"],
+    check("真跑产出每日一问", n1 == len(_want_kinds), "n=%s detail=%s" % (n1, d1))
+    check("dry_run 不消耗提问机会（真跑仍能产出全部该产的条数）",
+          len(d1) == len(_want_kinds), repr(d1))
+    check("真跑入队 kind 形态正确%s" % ("（周一含周回顾）" if _monday else ""),
+          [e.get("kind") for e in pa._events()] == _want_kinds,
           repr([e.get("kind") for e in pa._events()]))
     check("真跑写留痕 asked=True", pa.journal_state()["asked"] is True)
     n2, _ = pa.journal_event(dry_run=False)
