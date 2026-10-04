@@ -2269,13 +2269,19 @@ struct ChatView: View {
             // 动画事务由 refreshVisibleMessages 的纯追加分支提供（见 Core/MessageInsertAnim.swift）；
             // 事务缺失时 transition 静默不播 —— 这是 v4.0.39 失效的另一半原因。
             // 移除仍为纯淡出；整组替换 / 清空 / 切会话不播插入（批量移除闪退防护，见上）。
-            .transition(.asymmetric(
-                insertion: msg.isUser
-                    ? AnyTransition.scale(scale: 0.88, anchor: .trailing)
-                        .combined(with: .offset(y: Motion.bubbleRise))
-                    : AnyTransition.scale(scale: 0.97, anchor: .leading)
-                        .combined(with: .offset(y: 6)),
-                removal: .opacity))
+            // 🚨 v4.0.41（审查 M1）：必须门控 accessibilityReduceMotion —— 同文件的流式气泡
+            //   （ChatMessageBubble born）与三点行（typingBorn）在开「降低动态效果」时都直接落终态，
+            //   真值表 C7 还把它当纪律钉住；而本条是三者里动幅最大的一条（scale 0.88 + 12pt），
+            //   却不读 reduceMotion = 无障碍回归。降级为纯淡入。
+            .transition(reduceMotion
+                ? .asymmetric(insertion: .opacity, removal: .opacity)
+                : .asymmetric(
+                    insertion: msg.isUser
+                        ? AnyTransition.scale(scale: 0.88, anchor: .trailing)
+                            .combined(with: .offset(y: Motion.bubbleRise))
+                        : AnyTransition.scale(scale: 0.97, anchor: .leading)
+                            .combined(with: .offset(y: 6)),
+                    removal: .opacity))
             // v3.9.0：长按「大爆炸」时从这条气泡原生 zoom 生长（与非闭包实参 zoomNS 配对）
             .matchedTransitionSource(id: "bb-" + entry.msg.id, in: zoomNS)   // v3.9.1：独立 id 空间——气泡内图片用的是 msg.id，同 id 会让 zoom 取源不确定
     }

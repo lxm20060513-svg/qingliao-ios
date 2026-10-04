@@ -45,10 +45,19 @@ enum MessageInsertAnim {
     ///   - next: 重建后可见窗口的 id 序列
     /// - Returns: true = 纯追加一条，可以播插入动画；false = 其它形态，一律不播。
     static func isSingleAppend(prev: [String], next: [String]) -> Bool {
-        // 长度差必须恰为 1：变短（删/清空）、等长（整组替换/改内容）都不播。
-        guard next.count == prev.count + 1 else { return false }
-        // 前缀必须逐字相同：只要既有条目的身份或顺序变了（重排、换会话、跨会话挤入）就不是纯追加。
-        for (i, id) in prev.enumerated() where next[i] != id { return false }
+        // 形态 ①（窗口未饱和）：长度恰好多一条，且旧序列是新序列的严格前缀。
+        if next.count == prev.count + 1 {
+            for (i, id) in prev.enumerated() where next[i] != id { return false }
+            return true
+        }
+        // 形态 ②（窗口已饱和，v4.0.41 修）：可见窗口上限是 displayLimit=300（ChatView.visibleMessageCount），
+        // 会话超过 300 条后 start 会随 count 前移 —— 每追加一条，窗口同时「左移一格 + 末尾多一条」，
+        // 于是 next.count == prev.count == 300。只认形态 ① 的话，**第 301 条起插入动画恒不播**，
+        // 而长会话恰恰是用户发消息最频繁的场景（真机观感 = 「修复没生效」）。
+        // 放宽口径：等长时，唯一合法形态 = prev 去掉首条 == next 去掉末条（即只新增末尾一条、
+        // 无任何移除、无重排）。这条不含移除 → v3.9.31「全 cell 同时移除 SIGTRAP」的闸门不受影响。
+        guard next.count == prev.count, !next.isEmpty else { return false }
+        for i in 0..<(next.count - 1) where next[i] != prev[i + 1] { return false }
         return true
     }
 }

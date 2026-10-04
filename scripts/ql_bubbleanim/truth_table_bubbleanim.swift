@@ -144,6 +144,18 @@ check("B6c6 前缀相同但身份重排 → 不播",
 check("B6c7 空→空与空→空不崩",
       !MessageInsertAnim.isSingleAppend(prev: [], next: []))
 
+// v4.0.41（审查 H1 修）：可见窗口上限 displayLimit=300，会话超 300 条后窗口随 count 左移，
+// 每追加一条 = 「左移一格 + 末尾多一条」→ next.count == prev.count == 300。
+// 只认「+1 且前缀同」的话第 301 条起动画恒不播，而长会话正是用户最常发消息的场景。
+check("B6c8 窗口饱和（左移一格 + 末尾多一条）→ 播（长会话不能静默失效）",
+      MessageInsertAnim.isSingleAppend(prev: ["a", "b", "c"], next: ["b", "c", "d"]))
+check("B6c9 窗口饱和但尾部那条不是新增（纯左移，如上翻/加载更早）→ 不播",
+      !MessageInsertAnim.isSingleAppend(prev: ["b", "c", "d"], next: ["b", "c", "d"]))
+check("B6c10 窗口饱和但中间被删一条再补一条（不是纯追加）→ 不播",
+      !MessageInsertAnim.isSingleAppend(prev: ["a", "b", "c"], next: ["b", "x", "d"]))
+check("B6c11 窗口饱和但整体重排 → 不播",
+      !MessageInsertAnim.isSingleAppend(prev: ["a", "b", "c"], next: ["c", "a", "b"]))
+
 // B4b 的负向锚点：气泡文件里不许再留分角色 insertion 过渡
 check("B4c 气泡文件不含 .transition(.asymmetric 分角色挂载（旧口径残留）",
       !bubble.contains(".transition(.asymmetric"))
@@ -191,6 +203,13 @@ check("C6 光带只在单气泡模式挂（多气泡段落会割成条纹）",
 
 check("C7 开「降低动态效果」时流式气泡不播浮现",
       bubble.contains("if reduceMotion { born = true }"))
+
+// v4.0.41（审查 M1 修）：消息气泡插入过渡必须同样门控 reduceMotion —— 三处浮现动画里
+// 它的动幅最大（scale 0.88 + 12pt），却一度不读 reduceMotion = 无障碍回归。
+// 真值表 C7 已把「三点/流式要门控」当纪律钉住，本条钉第三处。
+check("C7c 消息气泡插入过渡也门控 reduceMotion（降级为纯淡入）",
+      chat.contains(".transition(reduceMotion")
+        && chat.contains("? .asymmetric(insertion: .opacity, removal: .opacity)"))
 
 // v4.0.39（审查建议⑥修正）：born 必须逐轮复位，否则回答中途重连会冒一次淡入。
 check("C7b born 按 stream.startSeq 逐轮复位（重连时不冒第二次浮现）",
