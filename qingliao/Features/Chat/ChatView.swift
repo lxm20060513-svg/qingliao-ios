@@ -1010,28 +1010,31 @@ struct ChatView: View {
         // 就是用户报的「系统相机顶部有黑边」。相机 App 本身就是全屏取景，这里对齐它。
         // CameraPicker 的 Coordinator 自己 dismiss，换呈现方式不需要改回调。
         .fullScreenCover(isPresented: $showCameraPicker) {
-            CameraPicker { img in
+            AnyView(CameraPicker { img in
                 pendingImage = img
                 pendingImageData = compressImage(img)
             }
             .ignoresSafeArea()
+            )
         }
         // v2.0.43：快捷指令面板（点击填充输入框）
         .sheet(isPresented: $showQuickPrompts) {
-            QuickPromptSheet(onPick: { prompt in
+            AnyView(QuickPromptSheet(onPick: { prompt in
                 inputText = prompt
                 showAttachmentMenu = false
             }, includeKB: true)   // v3.9.28：知识库恒显示（原按云端/本地分流，云端已移除）
             .presentationDetents([.medium, .large])
+            )
         }
         // v2.0.96：Hermes 捷径面板（官方斜杠命令，点击填充输入框）
         .sheet(isPresented: $showHermesShortcut) {
-            HermesShortcutSheet { cmd in
+            AnyView(HermesShortcutSheet { cmd in
                 inputText = cmd
                 showAttachmentMenu = false
             }
             .presentationDetents([.medium, .large])
             .scrollContentBackground(.hidden)
+            )
         }
         // v3.0.27：章节列表
     }
@@ -1041,7 +1044,7 @@ struct ChatView: View {
     private func chatBodyChrome4<V: View>(_ content: V) -> some View {
         content
         .sheet(isPresented: $showTOCSheet) {
-            TOCSheet(headers: tocHeaders(), onNavigate: { item in
+            AnyView(TOCSheet(headers: tocHeaders(), onNavigate: { item in
                 // v3.9.41：按 TOCItem.msgIndex 定位（数据源已逐条抽取并打标，见 tocHeaders()）
                 // —— 复用会话搜索的 highlightTarget 机制滚动 + 高亮
                 guard item.msgIndex >= 0, item.msgIndex < chat.messages.count else { return }
@@ -1051,16 +1054,18 @@ struct ChatView: View {
             })
             .presentationDetents([.medium])
             .scrollContentBackground(.hidden)
+            )
         }
         // v3.9.32：定时提醒面板（长按气泡「提醒我」/ 设置页入口共用）
         .sheet(isPresented: $showQuickReminder) {
-            QuickReminderSheet(presetText: reminderSeedText)
+            AnyView(QuickReminderSheet(presetText: reminderSeedText)
                 .presentationDetents([.medium, .large])
                 .scrollContentBackground(.hidden)
+            )
         }
         // v4.0.29：首页「备忘速记」卡 → 备忘卡片（复用生活页 MemoSection，弹窗里直接看/记）
         .sheet(isPresented: $showHomeMemoBrowser) {
-            NavigationStack {
+            AnyView(NavigationStack {
                 ScrollView {
                     MemoSection()
                         .padding(.horizontal, Spacing.section)
@@ -1072,16 +1077,20 @@ struct ChatView: View {
                 }
             }
             .presentationDetents([.large])
+            )
         }
         // v4.0.29：首页「云盘」卡 → 云盘浏览（复用设置页 CloudDriveSettingsSheet 的列表 + 浏览器）
         .sheet(isPresented: $showHomeCloudDrive) {
-            CloudDriveSettingsSheet()
+            AnyView(CloudDriveSettingsSheet()
                 .presentationDetents([.large])
+            )
         }
         // v3.9.48：输入栏展开态的模型快选（右下角胶囊）。detents 与 Hermes 捷径/章节列表同档
-        .sheet(isPresented: $showComposerModel) {            ComposerModelSheet()
+        .sheet(isPresented: $showComposerModel) {
+            AnyView(ComposerModelSheet()
                 .presentationDetents([.medium, .large])
                 .scrollContentBackground(.hidden)
+            )
         }
         // v3.9.86：长回复阅读（长按气泡「全屏阅读」）。detents 与全站输入弹窗同档（medium/large）——
         // 沿用现有档位不新增宿主，大爆炸的 fullScreenCover 不动，避免 zoom 转场源 id 打架。
@@ -1091,18 +1100,22 @@ struct ChatView: View {
     // 链式修饰器 = 泛型嵌套层数，运行时 demangle 按层递归；≤6 层/段 = 远离主线程栈爆点。
     private func chatBodyChrome5<V: View>(_ content: V) -> some View {
         content
-        .sheet(item: $longReplyPayload) { payload in
-            LongReplySheet(payload: payload)
+        .sheet(item: $longReplyPayload) {
+            payload in
+            AnyView(LongReplySheet(payload: payload)
                 .presentationDetents([.medium, .large])
                 .scrollContentBackground(.hidden)
+            )
         }
         // v4.0.44 待做池 3：改口面板（长按自己的最后一条消息「编辑」）。detents 与全站输入弹窗同档。
-        .sheet(item: $editingMessage) { m in
-            MessageEditSheet(originalText: m.content) { newText in
+        .sheet(item: $editingMessage) {
+            m in
+            AnyView(MessageEditSheet(originalText: m.content) { newText in
                 editMessage(m, newText: newText)
             }
             .presentationDetents([.medium, .large])
             .scrollContentBackground(.hidden)
+            )
         }
         .fileImporter(isPresented: $showFileImporter,
                       allowedContentTypes: [.data]) { result in
@@ -1124,9 +1137,10 @@ struct ChatView: View {
         // v3.4.x 存储自洁：长会话超阈值 → 顶部滑出提示条，点击手动归档导出
         .overlay(alignment: .top) {
             if showArchiveHint {
-                archiveBanner
+            AnyView(archiveBanner
                     .transition(.move(edge: .top).combined(with: .opacity))
                     .zIndex(20)
+            )
             }
         }
     }
