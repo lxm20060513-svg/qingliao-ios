@@ -516,14 +516,19 @@ final class InboxStore {
                 }
             }
             // 注入当前会话（assistant 角色 + 推送标记）
+            // 🚨 v4.0.56：走 ChatStore 的查重入口，不再裸 `append` —— 上面 InboxDedup 那几条件都
+            //    依赖 `stream` 还活着（taskId / content），流一收尾被清空就全部失守；而流式刚落库的
+            //    那条回复就在**实时 messages** 里，这里补一次与落库侧同口径的内容查重才算闭合
+            //    （2026-10-05 实据：agent:true 与 isPush:true 两条相隔 107ms，内容逐字相同）。
             var msg = ChatMessage(role: "assistant", content: text,
                                   timestamp: Date().timeIntervalSince1970 * 1000)
             msg.isPush = true
             msg.pushKind = "reply"
-            chat.append(msg)
-            lastInjectedCount += 1
-            // 弹本地通知（侧载无 APNs，用本地通知横幅兜底；App 前台也弹）
-            NotificationHelper.notify(title: "轻聊 · 推送", body: text, sessionId: chat.sessionId)
+            if chat.appendPushReplyIfNew(msg) {
+                lastInjectedCount += 1
+                // 弹本地通知（侧载无 APNs，用本地通知横幅兜底；App 前台也弹）
+                NotificationHelper.notify(title: "轻聊 · 推送", body: text, sessionId: chat.sessionId)
+            }
         }
         await markDone(id, auth: auth)
     }
@@ -571,17 +576,30 @@ final class InboxStore {
             print("[inbox] 归属会话 \(sid.prefix(8))… 在 NAS 上查不到 → 回落到当前会话注入")
             return .targetMissing
         }
+        // 链外这一判只是「省一次网络写」的快路径；**真正的闸门在链内**（对读#2 复检，见下）——
+        // 读#1 与读#2 之间的后台流式落地会让这一判失效（2026-10-05 事故）。
         if shouldSkipDuplicate(push: msg.content, in: target.messages, extra: "",
                                sourceTaskId: sourceTaskId, useCurrentStream: false) {
             print("[inbox] 归属会话 \(sid.prefix(8))… 已有同内容 → 不重复注入")
             return .duplicate
         }
-        guard await chat.appendMessageToOwnedSession(msg, sessionId: sid, auth: auth) else {
+        switch await chat.appendMessageToOwnedSession(msg, sessionId: sid, auth: auth) {
+        case .written:
+            print("[inbox] 推送已落归属会话 \(sid.prefix(8))…（当前会话未受影响）")
+            return .landed
+        case .duplicate:
+            // 🚨 v4.0.56（2026-10-05 实据）：链内读到的才是最新数据，其间后台流式落地已把同一条回复
+            //    写进该会话 —— 必须在**这一份**上判重，否则就是两条一模一样的气泡
+            //    （实测相隔 107ms：agent:true + isPush:true）。
+            //    这里**不补弹横幅**是显式取舍：把回复写进该会话的后台流式收尾在 App 非活跃时才弹通知，
+            //    活跃时只把未读 +1（BackgroundStreamRunner.finish）→ 用户至少有一条未读红点；
+            //    若日后要求「前台停在别的会话也要弹」，改的应是 BackgroundStreamRunner 那一侧，不是这里。
+            print("[inbox] 归属会话 \(sid.prefix(8))… 链内复检命中同内容 → 不重复注入")
+            return .duplicate
+        case .targetMissing:
             print("[inbox] 归属会话 \(sid.prefix(8))… 写入时已查不到 → 回落到当前会话注入")
             return .targetMissing
         }
-        print("[inbox] 推送已落归属会话 \(sid.prefix(8))…（当前会话未受影响）")
-        return .landed
     }
 
     // MARK: - 轮询启动/停止

@@ -567,8 +567,9 @@ final class ChatStore {
         // 改口重答时它就在历史里，若参与查重，「改了错别字 → 模型给出同款回答」会被整条吞掉
         // （用户只看到「已修改」灰气泡、没有任何新回答）。四处查重一律跳过它（edited 默认 false，
         // 对存量数据零影响）。
-        if text.count > 30,
-           messages.contains(where: { $0.role == "assistant" && !$0.edited && $0.content == text }) {
+        // v4.0.56：规则收进 `hasSameAssistantContent`（三处共用一份，别再各写一份 inline——
+        // 规则见该函数注释：>30 字 + 非折叠态 + 全文精确相等）。
+        if Self.hasSameAssistantContent(text, in: messages) {
             return
         }
         if let anchorID = afterUserID,
@@ -853,21 +854,93 @@ final class ChatStore {
     /// 而同一个「非当前打开」的会话还有别的写者（后台流式落地 BackgroundStreamRunner、会话改名/清空）。
     /// 串行链只保证网络写次序，**管不住「先读快照 → 再写」的间隙**：间隙里落地的最终回复，
     /// 会被这份旧快照整会话抹掉。把重读放进链内，链外就没有可插入的写者。
-    /// 返回 false = 服务端查不到该会话（被删/未同步）→ 调用方回落旧行为，绝不丢消息。
+    /// 返回 `.targetMissing` = 服务端查不到该会话（被删/未同步）→ 调用方回落旧行为，绝不丢消息。
+    ///
+    /// 🚨 v4.0.56「AI 回复双投」根治（2026-10-05 实据）：**查重必须建在链内这份刚重读的数据上**，
+    /// 与随后真正写出去的是同一份。此前调用方 `landPushInOwnedSession` 在**链外先读一次**做判定
+    /// （读#1），链内又读一次（读#2）才写 —— 两次读之间后台流式落地
+    /// （`BackgroundStreamRunner`，非当前打开会话的写者）会把最终回复写进同一会话，
+    /// 读#2 已含它却仍然无条件 `append` → 同一句话两条气泡。
+    /// 实测两条记录相隔 107ms：一条 `agent:true`（流式落库）、一条 `isPush:true`（本路径注入），
+    /// 内容 md5 完全相同、推送原文与会话正文压空白后逐字相等（296==296）。
+    enum OwnedAppendOutcome { case written, duplicate, targetMissing }
+
     @discardableResult
-    func appendMessageToOwnedSession(_ msg: ChatMessage, sessionId sid: String, auth: AuthStore) async -> Bool {
+    func appendMessageToOwnedSession(_ msg: ChatMessage, sessionId sid: String, auth: AuthStore)
+        async -> OwnedAppendOutcome {
         let prev = saveWriteChain
-        let job = Task<Bool, Never> { [weak self] in
+        let job = Task<OwnedAppendOutcome, Never> { [weak self] in
             await prev.value   // 等前一个写完成（FIFO）
             guard let self,
-                  let snap = await self.fetchSessionSnapshot(sessionId: sid, auth: auth) else { return false }
+                  let snap = await self.fetchSessionSnapshot(sessionId: sid, auth: auth) else { return .targetMissing }
+            // 🚨 链内复检：判定与写入必须用**同一份**数据（见函数头注释，2026-10-05 双投事故）
+            if Self.isReplyAlreadyInSession(msg.content, in: snap.messages) { return .duplicate }
             var msgs = snap.messages
             msgs.append(msg)
             await self.writeSessionSnapshot(auth: auth, sessionId: sid, messages: msgs, title: snap.title)
-            return true
+            return .written
         }
         saveWriteChain = Task { _ = await job.value }
         return await job.value
+    }
+
+    /// v4.0.56：**落库侧**的查重口径（`upsertAssistant` 用）：同一份文本是否已经作为回答存在。
+    /// - 两侧都先规范化（剥 `…` + 压空白）再比：落库侧与重放/恢复来的文本可能差在换行与空白；
+    /// - 门槛 >30 字：短回复（"好的"/"1"）不同轮可合法同文，全历史查重会误吞（v3.4.25 结论）；
+    /// - 只认「相等」或「**新文本是已有文本的前缀**」（= 被截断的同一条）；**不认泛包含、也不认反向前缀**
+    ///   —— 反向（已有文本是新文本的前缀）说明新文本更长、带着旧消息没有的内容，
+    ///   吞掉它等于把 AI 的答复弄丢（比留一条重复严重）。
+    /// - `edited` 折叠态不参与（v4.0.44：折叠的旧回答是**历史陈列物**，不算「已存在的一条回答」）。
+    static func hasSameAssistantContent(_ text: String, in msgs: [ChatMessage]) -> Bool {
+        let core = normalizeForDedup(text)
+        guard core.count > 30 else { return false }
+        return msgs.contains { m in
+            guard m.role == "assistant", !m.edited else { return false }
+            let other = normalizeForDedup(m.content)
+            return other == core || other.hasPrefix(core)
+        }
+    }
+
+    /// v4.0.56：**推送侧**的查重口径（链内复检 + `appendPushReplyIfNew` 用）。
+    /// 直接复用 `InboxDedup.shouldSkip` —— 推送正文是后端 `re.sub(r"\s+"," ")` 压过空白的
+    /// **单行摘要**（多段回复的换行在推送里成了空格），只有这一份口令能比中；自己另写一份
+    /// （曾用整串精确 `==`）在多段回复上必失配，链内复检形同虚设（2026-10-05 事故 + 只读审查实测指出）。
+    /// 与 `hasSameAssistantContent` 是**两个不同问题**，不合并：落库侧问「模型是不是又发了同一段」，
+    /// 这里问「这条推送是不是会话里已有内容的副本」；后者的包含/前缀判据更宽，宽只影响「少注入一条副本」，
+    /// 而前者若照抄这份宽度就会把新回答误吞掉。
+    static func isDuplicateReply(_ text: String, in msgs: [ChatMessage]) -> Bool {
+        InboxDedup.shouldSkip(push: text, in: msgs)
+    }
+
+    /// v4.0.56：**注入侧**唯一入口用的总判据 —— 「这条回复是不是已经在这个会话里」。
+    /// 两道口令取并集（任一命中即算已有）：
+    ///  ① `isDuplicateReply`（= `InboxDedup.shouldSkip`，与注入前的预检同源）：压空白 / 双向包含 /
+    ///     截断前缀 —— 但它的会话扫描**跳过 isPush 气泡**（它问的是「有没有一条非推送的正主」）；
+    ///  ② `hasSameAssistantContent`（规范化后相等或互为前缀，>30 字）：**不看 isPush**，
+    ///     补 ① 留下的格 —— 同一内容被以不同 inbox id 二次投递时，会话里已有的是推送气泡，① 看不见。
+    /// 宽窄取向是安全的：两道都只会「少注入一条副本」，判错方向不会吞掉会话里不存在的内容。
+    static func isReplyAlreadyInSession(_ text: String, in msgs: [ChatMessage]) -> Bool {
+        isDuplicateReply(text, in: msgs) || hasSameAssistantContent(text, in: msgs)
+    }
+
+    /// 查重用的规范化：剥掉截断省略号 `…` + 压掉全部空白差异（换行/多空格 → 单空格）
+    private static func normalizeForDedup(_ s: String) -> String {
+        s.replacingOccurrences(of: "…", with: "")
+            .split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
+    }
+
+    /// v4.0.56：推送回复注入会话的入口（比裸 `append` 多一道**内容查重**）。
+    /// 返回 false = 会话里已有一条同内容 assistant（典型：流式刚落库的那条）→ 不注入、不通知。
+    /// 为什么要有它：`InboxDedup` 的几条判据都依赖 `stream` 还活着（`taskId`/`content`），
+    /// 流一收尾被清空就全部失守；而「刚落地的那条回复」就在实时 `messages` 里，这条查重才闭合。
+    /// 查重口径走 `isReplyAlreadyInSession`（两道口令并集，含「已有推送副本」这一格）。
+    /// 为什么要有它：`InboxDedup` 的几条判据都依赖 `stream` 还活着（`taskId`/`content`），
+    /// 流一收尾被清空就全部失守；而「刚落地的那条回复」就在实时 `messages` 里，这条查重才闭合。
+    @discardableResult
+    func appendPushReplyIfNew(_ msg: ChatMessage) -> Bool {
+        if Self.isReplyAlreadyInSession(msg.content, in: messages) { return false }
+        append(msg)
+        return true
     }
 
     /// v3.9.39：消息序列化的**唯一**口径。后端 merge 对同 id 会话是整体覆盖

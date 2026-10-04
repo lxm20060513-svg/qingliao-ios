@@ -1200,5 +1200,13 @@ else
   echo "❌ 第 81 段真值表判定失败（改坏必红）"; tail -6 /tmp/tt_sessioncard.log; fail=1
 fi
 
+echo "=== 82. AI 回复双投真值表（v4.0.56 · 链内复检 / 注入查重 / 事故反向自证）==="
+# 事故实据（2026-10-05）：同一句回复在同一会话里落两条，相隔 107ms（agent:true + isPush:true，内容 md5 相同）。
+# body_dump 该轮只有一次模型调用 → 不是模型复读、不是生成两次，是「判定读#1 / 写入读#2 不同新鲜度」的双投。
+# 覆盖：① 查重口径唯一（hasSameAssistantContent 一份规则三处共用）② 判定数据=写入数据（链内复检在 append 之前）
+#      ③ 注入侧不裸 append（appendPushReplyIfNew）④ 谓词镜像真值表 ⑤ 事故重现（读#1 漏 / 读#2 拦）
+#      ⑥ 反向自证（删掉链内复检 / 改回裸 append → 必红）。
+run_unit6 /tmp/test_pushdedup scripts/ql_pushdedup/truth_table_pushdedup.swift
+
 [ $fail -eq 0 ] || { echo "❌ 有护栏失守"; exit 1; }
 exit 0

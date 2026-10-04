@@ -171,7 +171,15 @@ struct EditMsgTruthTable {
         }
         ok(foldBody.contains("suggestions = nil"), "旧候选区随旧回答一起收走")
         // 查重：折叠态是历史陈列物，不参与任何查重（否则「改了错别字→同款回答」会被整条吞掉）
-        ok(cs.contains("$0.role == \"assistant\" && !$0.edited && $0.content == text"), "全历史查重跳过折叠态")
+        // v4.0.56：口径搬进 `hasSameAssistantContent`（落库侧唯一入口），断言改成函数体内取景 ——
+        // 原先钉的是 inline 版字面量 `$0.role == "assistant" && !$0.edited && $0.content == text`，
+        // 重构后那是另一份（漂移源），钉它就等于把「不许漂移」钉反了。
+        if let r = cs.range(of: "static func hasSameAssistantContent(") {
+            let fnBody = String(cs[r.lowerBound...].prefix(320))
+            ok(fnBody.contains("!m.edited"), "全历史查重跳过折叠态")
+        } else {
+            ok(false, "全历史查重跳过折叠态（找不到 hasSameAssistantContent，口径被搬走或改名了）")
+        }
         ok(cs.contains("!messages[regionEnd - 1].edited"), "同轮区域查重跳过折叠态")
         ok(cs.contains("isAssistantDuplicate(text, in: region.filter { !$0.edited })"), "相似度兜底跳过折叠态")
         ok(cs.contains("let tail = messages.filter { !$0.edited }.suffix(8)"), "尾窗查重跳过折叠态")
