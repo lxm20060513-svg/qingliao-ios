@@ -179,12 +179,12 @@ struct AgentActionCard: View {
         if action.kind == .goalCreate {
             switch phase {
             case .idle:
-                Label("确认后交给后台：每天按点自动推进，结果回到这里和「生活 → 长期目标」",
+                Label("确认后交给后台：每天早晚各自动推进一次（默认 9:09 / 21:21），结果会推到你微信，也回到这里和「生活 → 长期目标」",
                       systemImage: "arrow.turn.down.right")
                     .font(.system(size: Typography.caption))
                     .foregroundStyle(.secondary)
             case .done:
-                Label("已在后台运行 —— 不用守着，推进结果会回到这里和「生活 → 长期目标」",
+                Label("已在后台运行 —— 不用守着，推进结果会推到你微信，也会回到这里和「生活 → 长期目标」",
                       systemImage: "checkmark.seal.fill")
                     .font(.system(size: Typography.caption))
                     .foregroundStyle(Color.green)

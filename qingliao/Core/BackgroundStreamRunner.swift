@@ -178,12 +178,21 @@ final class BackgroundStreamRunner {
         // 此时若照旧落库等于用「仅 1 条 assistant」整会话覆盖 → 被移交会话的历史全被抹掉。
         // 空快照一律不覆盖服务端会话：只记「迟到回复」，进该会话时补回（同既有 landAwayReply 口径）。
         if !entry.snapshot.isEmpty {
-            let outcome = await chat.appendMessageToOwnedSession(m2, sessionId: sid, auth: auth)
+            // `dedup: .authoritativeReply`：递的是**权威原文**（流式收尾的完整回复），
+            // 判重只认「规范化后相等 / 新文本是已有文本的前缀」—— 绝不能用推送侧宽口径，
+            // 否则「新回答包含旧回答」会被判成重复 → 这条回复永远不落服务端（只活在内存里）。
+            let outcome = await chat.appendMessageToOwnedSession(m2, sessionId: sid, auth: auth,
+                                                                dedup: .authoritativeReply,
+                                                                fallbackTitle: entry.title)
             if case .targetMissing = outcome {
-                // 服务端查不到该会话（被删/未同步）→ 回落旧行为，绝不丢这条回复
+                // 服务端查不到该会话（被删/未同步）→ 回落旧行为，绝不丢这条回复。
+                // 🚨 但 `.targetMissing` 也可能是「**这次列表读失败**」（网络抽风），那种情况不能
+                // 拿发起时快照整份覆盖（会把期间落进该会话的推送抹掉）→ 门禁交给
+                // `writeBackSnapshotIfSessionAbsent`（列表读成功且无此会话才真写）。
                 var msgs = entry.snapshot
                 msgs.append(m2)
-                await chat.saveToServer(auth: auth, sessionId: sid, messages: msgs, title: entry.title)
+                await chat.writeBackSnapshotIfSessionAbsent(sessionId: sid, messages: msgs,
+                                                           title: entry.title, auth: auth)
             }
         }
         chat.noteAwayLandedReply(sessionId: sid, text: body)   // 列表旧快照 load 进内存时补回

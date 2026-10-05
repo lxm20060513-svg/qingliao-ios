@@ -87,7 +87,7 @@ check("①c 总判据 isReplyAlreadyInSession = isDuplicateReply ∪ hasSameAssi
 func chainGateHolds(_ chatSrc: String) -> Bool {
     guard let r = chatSrc.range(of: "func appendMessageToOwnedSession(") else { return false }
     let body = String(chatSrc[r.lowerBound...].prefix(1500))
-    guard let g = body.range(of: "isReplyAlreadyInSession(msg.content, in: snap.messages)"),
+    guard let g = body.range(of: "isAlreadyInSession(msg.content, in: snap.messages, dedup: dedup)"),
           let a = body.range(of: "msgs.append(msg)") else { return false }
     return g.lowerBound < a.lowerBound
 }
@@ -203,7 +203,7 @@ check("⑥ 修复行为：链内读#2（同一条回复已落地）上判 → �
 
 // ── ⑦ 反向自证：改回旧形态 → 对应断言必红 ──
 let revertedChain = chat.replacingOccurrences(
-    of: "isReplyAlreadyInSession(msg.content, in: snap.messages)", with: "true")
+    of: "isAlreadyInSession(msg.content, in: snap.messages, dedup: dedup)", with: "true")
 check("⑦ 反向自证：链内复检被去掉 → ② 必红", !chainGateHolds(revertedChain))
 let revertedInject = inbox.replacingOccurrences(of: "appendPushReplyIfNew(msg)", with: "append(msg)")
 check("⑦ 反向自证：注入侧改回裸 append → ③ 必红", !replyInjectGuardHolds(revertedInject))
@@ -211,6 +211,47 @@ let revertedUnion = chat.replacingOccurrences(
     of: "isDuplicateReply(text, in: msgs) || hasSameAssistantContent(text, in: msgs)",
     with: "text == msgs.first?.content")
 check("⑦ 反向自证：总判据退回「整串精确相等」→ ①c 必红", !unionHolds(revertedUnion))
+
+// ── ⑧ v4.0.57b：落库判重口径**必须按调用方分派**（2026-10-05 只读审查 应改1）──
+// 背景：`.duplicate` 直接穿过（不落库），所以宽口径里那条 `core.contains(cm)`
+//（新回答包含旧回答）在「权威原文」路径上会把带新内容的回答判成重复 → 回复只活在内存。
+func dedupDispatchHolds(_ chatSrc: String) -> Bool {
+    guard let r = chatSrc.range(of: "static func isAlreadyInSession(") else { return false }
+    let body = String(chatSrc[r.lowerBound...].prefix(520))
+    // 去空白归一后再比对：别钉精确空格对齐（缩进/对齐一变就假红，等于没断言语义）
+    let flat = body.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
+    // 2026-10-05 只读审查 应改2：权威原文侧必须走 isReplyAlreadyLanded =
+    // **尾部窗口**内的「无门槛精确相等 ∪ >30 宽松」。
+    // 只挂 hasSameAssistantContent（>30 门槛）→ 10~30 字的权威回复对已落库推送副本恒不判重 → 双投；
+    // 不限尾部（对全历史判）→ 不同轮曾经出现过的同文短回复被误吞成 .duplicate → 不落库、冷启动即丢。
+    return flat.contains("case .pushReplica: return isReplyAlreadyInSession(text, in: msgs)")
+        && flat.contains("case .authoritativeReply: return Self.isReplyAlreadyLanded(text, in: msgs)")
+        && !flat.contains("case .authoritativeReply: return isReplyAlreadyInSession(text, in: msgs)")
+}
+check("⑧ 口径分派：pushReplica → 推送侧宽口径；authoritativeReply → 统一判据（尾部窗口 精确相等 ∪ >30 宽松）",
+      chat.contains("enum OwnedAppendDedup { case pushReplica, authoritativeReply }") && dedupDispatchHolds(chat))
+check("⑧ 链内复检走分派函数（不直接调宽口径）",
+      chainGateHolds(chat) && !String(chat[chat.range(of: "func appendMessageToOwnedSession(")!.lowerBound...].prefix(1500))
+        .contains("isReplyAlreadyInSession(msg.content"))
+check("⑧ 负断言：推送注入路径用 .pushReplica（不许改用权威原文口径，多段回复会漏判）",
+      inbox.contains("dedup: .pushReplica")
+        && !inbox.contains("dedup: .authoritativeReply")
+        && String(chat[chat.range(of: "func appendMessageToOwnedSession(")!.lowerBound...].prefix(1500))
+            .contains("dedup: dedup"))
+
+// ── ⑨ 反向自证：分派退回「一律宽口径」→ ⑧ 必红 ──
+let revertedDispatch = chat.replacingOccurrences(
+    of: "case .authoritativeReply: return Self.isReplyAlreadyLanded(text, in: msgs)",
+    with: "case .authoritativeReply: return isReplyAlreadyInSession(text, in: msgs)")
+check("⑨ 反向自证：判重分派被抹平（authoritativeReply 也用宽口径）→ ⑧ 必红",
+      !dedupDispatchHolds(revertedDispatch))
+
+// ── ⑨b 反向自证：权威原文侧退回只挂 >30 宽松口径（短回复双投窗口）→ ⑧ 必红 ──
+let revertedStrictOnly = chat.replacingOccurrences(
+    of: "case .authoritativeReply: return Self.isReplyAlreadyLanded(text, in: msgs)",
+    with: "case .authoritativeReply: return hasSameAssistantContent(text, in: msgs)")
+check("⑨b 反向自证：权威原文侧退回只挂 >30 宽松口径（10~30 字双投窗口）→ ⑧ 必红",
+      !dedupDispatchHolds(revertedStrictOnly))
 
 print("AI 回复双投真值表：\(passCount) 通过 / \(failCount) 失败")
 if failCount > 0 { exit(1) }

@@ -3681,11 +3681,19 @@ struct ChatView: View {
         m.agent = agent
         chat.noteAwayLandedReply(sessionId: sid, text: text)
         Task {
-            let outcome = await chat.appendMessageToOwnedSession(m, sessionId: sid, auth: auth)
+            // `dedup: .authoritativeReply` = 权威原文口径（见 ChatStore.OwnedAppendDedup）：
+            // 只认「规范化后相等 / 新文本是已有文本的前缀」，不用推送侧宽口径 ——
+            // 宽口径的 `core.contains(cm)` 会把「新回答包含旧回答」判成重复 → 这条迟到回复不落库、只活在内存。
+            let outcome = await chat.appendMessageToOwnedSession(m, sessionId: sid, auth: auth,
+                                                                dedup: .authoritativeReply,
+                                                                fallbackTitle: title)
             if case .targetMissing = outcome, !snapshot.isEmpty {
+                // 回落兜底前**正向确认**服务端真没有这条会话（列表读失败 ≠ 不存在，见 ChatStore
+                // `writeBackSnapshotIfSessionAbsent`）：网络抽风时整份写会把期间的推送内容盖掉。
                 var msgs = snapshot
                 msgs.append(m)
-                await chat.saveToServer(auth: auth, sessionId: sid, messages: msgs, title: title)
+                await chat.writeBackSnapshotIfSessionAbsent(sessionId: sid, messages: msgs,
+                                                           title: title, auth: auth)
             }
         }
     }

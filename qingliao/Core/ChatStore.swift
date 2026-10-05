@@ -134,7 +134,14 @@ final class ChatStore {
     /// 快照里缺这条迟到回复就补到末尾（已有则只清记录，不重复插）
     private func patchAwayLanded(_ sid: String, _ msgs: [ChatMessage]) -> [ChatMessage] {
         guard let pending = awayLandedReplies.removeValue(forKey: sid) else { return msgs }
-        if msgs.contains(where: { $0.role == "assistant" && $0.content == pending }) { return msgs }
+        // v4.0.59（2026-10-05 只读审查 应改1 续修）：判据 = **任意长度精确相等**（`isSameAssistantText`，
+        // 规范化后比、空白/换行不同也算）∪ 落库侧宽松口径（`hasSameAssistantContent`，>30 字）。
+        // 🚨 只挂后者会漏短回复：它的 >30 门槛让「⚠️ 连接中断，请重试」这类已落库的短回复
+        // 判成「内存里没有」→ 再补插一条同文气泡（用户可见重复）。
+        // （v4.0.57b 曾把整串精确 `==` 换成只挂宽松口径，方向对但漏了门槛差异这一层。）
+        // 内存这边只认精确相等 → 同一条回复可以「服务端算已有、内存算没有」→ 多插一条同义气泡（用户可见重复）。
+        // 反向失配（服务端其实没有这条）也一并消失：补回与落库现在问的是同一个问题。
+        if Self.isReplyAlreadyLanded(pending, in: msgs) { return msgs }
         var patched = msgs
         patched.append(ChatMessage(role: "assistant", content: pending,
                                    timestamp: Date().timeIntervalSince1970 * 1000))
@@ -865,23 +872,54 @@ final class ChatStore {
     /// 内容 md5 完全相同、推送原文与会话正文压空白后逐字相等（296==296）。
     enum OwnedAppendOutcome { case written, duplicate, targetMissing }
 
+    /// v4.0.57b（2026-10-05 只读审查 应改1）：**落库判重口径必须由调用方显式选** ——
+    /// 两条路径问的不是同一个问题，混用一个口径必然有一边是错的：
+    ///  - `.pushReplica`：推送副本来落库（正文是后端 `re.sub(r"\s+"," ")` 压成**单行摘要**的同一份文本）
+    ///    → 走 `isReplyAlreadyInSession`（宽：压空白 / 双向包含 / 截断前缀）。宽在这里是安全的，
+    ///    判错方向只会「少注入一条副本」。
+    ///  - `.authoritativeReply`：**权威原文**（流式落地 / 迟到回复）来落库 →
+    ///    `isSameAssistantText`（任意长度精确相等）∪ `hasSameAssistantContent`（>30 字的相等/前缀）。
+    ///    前半是 v4.0.59 补的：缺了它，≤30 字回复对已落库的推送副本恒判「不存在」→ 双投。
+    ///    🚨 这段**不许**用宽口径：`shouldSkip` 里的
+    ///    `core.contains(cm)`（新回答包含旧回答、两边都 ≥10 字）会把「带着旧消息没有的新内容的回答」
+    ///    判成重复 → `.duplicate` 不落库 → 这条回复**永远只在内存里**（冷启动/登出即丢）。
+    ///    旧写法（无条件写库）不会有这个洞 ⇒ 这是 v4.0.57 引入、必须在此补上的分派。
+    enum OwnedAppendDedup { case pushReplica, authoritativeReply }
+
     @discardableResult
-    func appendMessageToOwnedSession(_ msg: ChatMessage, sessionId sid: String, auth: AuthStore)
-        async -> OwnedAppendOutcome {
+    func appendMessageToOwnedSession(_ msg: ChatMessage, sessionId sid: String, auth: AuthStore,
+                                     dedup: OwnedAppendDedup,
+                                     fallbackTitle: String? = nil) async -> OwnedAppendOutcome {
         let prev = saveWriteChain
         let job = Task<OwnedAppendOutcome, Never> { [weak self] in
             await prev.value   // 等前一个写完成（FIFO）
             guard let self,
                   let snap = await self.fetchSessionSnapshot(sessionId: sid, auth: auth) else { return .targetMissing }
             // 🚨 链内复检：判定与写入必须用**同一份**数据（见函数头注释，2026-10-05 双投事故）
-            if Self.isReplyAlreadyInSession(msg.content, in: snap.messages) { return .duplicate }
+            if Self.isAlreadyInSession(msg.content, in: snap.messages, dedup: dedup) { return .duplicate }
             var msgs = snap.messages
             msgs.append(msg)
-            await self.writeSessionSnapshot(auth: auth, sessionId: sid, messages: msgs, title: snap.title)
+            // v4.0.57b（只读审查 建议1）：标题优先沿服务端**当前**标题（可能刚被自动命名/改名），
+            // 服务端为空时才回落调用方给的发起时标题 —— 别把本地非空标题写空
+            // （`writeSessionSnapshot` 里空标题会回落「首条 user 文本」，会话没有 user 消息时结果就是 ""）。
+            let t = snap.title.isEmpty ? (fallbackTitle ?? "") : snap.title
+            await self.writeSessionSnapshot(auth: auth, sessionId: sid, messages: msgs, title: t)
             return .written
         }
         saveWriteChain = Task { _ = await job.value }
         return await job.value
+    }
+
+    /// 落库侧判重分派（口径见 `OwnedAppendDedup`）。单独成函数：真值表按**函数体**取景断言，
+    /// 把「改用宽口径」这种回退直接钉红。
+    static func isAlreadyInSession(_ text: String, in msgs: [ChatMessage], dedup: OwnedAppendDedup) -> Bool {
+        switch dedup {
+        case .pushReplica:        return isReplyAlreadyInSession(text, in: msgs)
+        // v4.0.59 只读审查 应改2：只挂 hasSameAssistantContent 会漏 10~30 字的权威回复
+        // （它带 >30 门槛）→ 与已落库的推送副本双投；且判「已有」必须限尾部窗口
+        // （全历史会把不同轮的同文短回复误吞成 .duplicate → 不落库）。
+        case .authoritativeReply: return Self.isReplyAlreadyLanded(text, in: msgs)
+        }
     }
 
     /// v4.0.56：**落库侧**的查重口径（`upsertAssistant` 用）：同一份文本是否已经作为回答存在。
@@ -898,6 +936,36 @@ final class ChatStore {
             guard m.role == "assistant", !m.edited else { return false }
             let other = normalizeForDedup(m.content)
             return other == core || other.hasPrefix(core)
+        }
+    }
+
+    /// v4.0.59（2026-10-05 只读审查 应改1+2 的**位置**约束）：判「已有」只看**尾部窗口**，不看全历史。
+    ///
+    /// 为什么必须限尾部：全历史 `contains` 会把「几轮前同文的**另一条**回复」判成已有 ——
+    /// 对**落库侧**（`.authoritativeReply`）后果是判成 `.duplicate` 不落库，该回复只活在内存、
+    /// 冷启动/重登即丢；对 `patchAwayLanded` 后果是判「已有」不补，用户看不到已落库的迟到回复。
+    /// 高发同文源是**固定错误串**（「⚠️ 连接中断，请重试」同一会话两次失败必然同文）与泛用短应答。
+    /// 要挡的双投副本（推送注入 / 流式落地）永远就在末尾几条内 → 尾部窗口足够命中。
+    static let replyDedupTail = 6
+
+    /// 权威原文落库侧的判重：**尾部窗口内**的「任意长度精确相等 ∪ >30 宽松口径」。
+    static func isReplyAlreadyLanded(_ text: String, in msgs: [ChatMessage]) -> Bool {
+        let tail = Array(msgs.suffix(replyDedupTail))
+        return isSameAssistantText(text, in: tail) || hasSameAssistantContent(text, in: tail)
+    }
+
+    /// v4.0.59（2026-10-05 只读审查 应改1+2）：**规范化后完全相等**的判据，**没有长度门槛**。
+    ///
+    /// 与 `hasSameAssistantContent` 回答的是**两个不同问题**，别互相替代：
+    ///  - 那个问「模型是不是又发了同一段」（>30 门槛：短回复不同轮可合法同文，全历史查重会误吞）；
+    ///  - 这个问「这句话是不是**已经在这个会话里**」——任何长度都成立。
+    /// 把后者交给前者 ⇒ ≤30 字的落地回复（「⚠️ 连接中断，请重试」之类）恒判 false →
+    /// 迟到补回会再插一条同文气泡、权威原文也会与推送副本双投（2026-10-05 只读审查实测两处）。
+    static func isSameAssistantText(_ text: String, in msgs: [ChatMessage]) -> Bool {
+        let core = normalizeForDedup(text)
+        guard !core.isEmpty else { return false }
+        return msgs.contains { m in
+            m.role == "assistant" && !m.edited && normalizeForDedup(m.content) == core
         }
     }
 
@@ -1028,6 +1096,42 @@ final class ChatStore {
               let raw = j["sessions"] as? [Any] else { return nil }
         let sessions = raw.compactMap { ChatSession.parse($0 as? [String: Any] ?? [:]) }
         return sessions.first(where: { $0.id == sid })
+    }
+
+    /// v4.0.57b（2026-10-05 只读审查 应改2）：away 回落写的**唯一门禁** —— 防「用旧快照覆盖整会话」的守门人。
+    ///
+    /// 为什么不能拿 `appendMessageToOwnedSession` 的 `.targetMissing` 当「会话不存在」：
+    /// `fetchSessionSnapshot` 在**传输失败**（网络/超时/解码）时也 `return nil`（`try?` 把错误吞了），
+    /// 与「列表里确实没有这条」不可区分 → 网络抽风的窗口里用「发起时快照」整份写出去，
+    /// 而 `/api/sessions/merge` 对同 id 是**整会话覆盖** → 期间落进该会话的推送/其他端内容被抹掉，
+    /// 正是 v4.0.57 要根治的丢消息（旧行为是无条件覆盖，回落只是把窗口收窄，没堵上）。
+    ///
+    /// 所以这里**正向**再确认一次：列表读**成功**且不含该 id 才写。
+    /// 列表读失败 → 返回 false（**不知道 ≠ 不存在**）：这条回复仍在内存（`noteAwayLandedReply`）
+    /// 与并行的推送链里，代价远小于整会话被旧数组盖掉。
+    @discardableResult
+    func writeBackSnapshotIfSessionAbsent(sessionId sid: String, messages msgs: [ChatMessage],
+                                          title: String, auth: AuthStore) async -> Bool {
+        // v4.0.59（2026-10-05 只读审查 应改3 后半）：**整段进 FIFO 串行链**（与 appendMessageToOwnedSession 同范式）。
+        // ⚠️ 返回值语义（2026-10-05 只读审查）：`true` = 门禁放行（确认服务端缺席）**且**已走
+        // `writeSessionSnapshot`；但后者把网络失败吞成 `print`（沿用既有行为）→ `true` **不保证**
+        // 服务端真的收到。现有两处调用方都丢弃返回值（无影响），将来别拿它判写成败。
+        // 原来「链外读列表 + 链内写」之间仍有插入窗口：确认「会话不存在」之后、写落地之前，
+        // 别的写者（推送注入 / 后台流式落地）可能刚把该会话写出来，这份旧快照就会把
+        // 整会话覆盖掉（merge 对同 id 是整会话覆盖）。链内重读 + 链内写 → 判定与写用同一份数据。
+        let prev = saveWriteChain
+        let job = Task<Bool, Never> { [weak self] in
+            await prev.value
+            guard let self else { return false }
+            guard let j = try? await auth.json("/api/sessions/list"),
+                  let raw = j["sessions"] as? [Any] else { return false }    // 读不到 ≠ 不存在
+            let ids = raw.compactMap { ChatSession.parse($0 as? [String: Any] ?? [:])?.id }
+            guard !ids.contains(sid) else { return false }                   // 会话在 → 绝不覆盖
+            await self.writeSessionSnapshot(auth: auth, sessionId: sid, messages: msgs, title: title)
+            return true
+        }
+        saveWriteChain = Task { _ = await job.value }
+        return await job.value
     }
 
     // MARK: - v4.0.44 待做池 3：改口重答（编辑已发消息 → 旧回答折叠「已修改」+ 基于新原文重答）

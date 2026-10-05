@@ -583,7 +583,11 @@ final class InboxStore {
             print("[inbox] 归属会话 \(sid.prefix(8))… 已有同内容 → 不重复注入")
             return .duplicate
         }
-        switch await chat.appendMessageToOwnedSession(msg, sessionId: sid, auth: auth) {
+        switch await chat.appendMessageToOwnedSession(msg, sessionId: sid, auth: auth,
+                                                     dedup: .pushReplica) {
+        // ↑ `.pushReplica`：这里递的是**推送正文**（后端压成单行的同一份文本）→ 走推送侧宽口径
+        //   `isReplyAlreadyInSession`（含双向包含/截断前缀）。窄口径在这条路径上一定会漏
+        //   （多段回复的换行在推送里成了空格 → 整串精确相等必失配）。
         case .written:
             print("[inbox] 推送已落归属会话 \(sid.prefix(8))…（当前会话未受影响）")
             return .landed
