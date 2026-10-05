@@ -239,6 +239,46 @@ enum AgentActionExecutor {
 
     // MARK: - 相册
 
+    // ⚠️ 相册写操作必须走下面这两个 **nonisolated** 助手，不许在 @MainActor 方法里直接写 performChanges。
+    // PHPhotoLibrary 的 change block 由 Photos 在自己的后台队列回调；闭包字面量若写在 @MainActor 方法里
+    // 会继承 MainActor 隔离，编译器在闭包入口插「当前执行器 == MainActor」的前置检查
+    // （swift_task_isCurrentExecutor / swift_task_reportUnexpectedExecutor），后台队列上检查失败即 SIGTRAP。
+    // v4.0.57 真机 2026-10-05 符号化栈：dispatch_assert_queue_not ← libswift_Concurrency ← closure #1 in deletePhoto
+    // 放进 nonisolated 函数后字面量不继承隔离 → 不再插检查。
+    // 护栏：scripts/check_framework_callback_isolation.py（RISKY 含 performChanges）
+
+    /// 把图片写进相册（nonisolated，原因见上）。返回新建 asset 的 localIdentifier（撤销用，nil=没拿到）。
+    private nonisolated static func addPhotoAsset(data: Data) async throws -> String? {
+        var localID: String?
+        try await PHPhotoLibrary.shared().performChanges {
+            let req = PHAssetCreationRequest.forAsset()
+            req.addResource(with: .photo, data: data, options: nil)
+            localID = req.placeholderForCreatedAsset?.localIdentifier
+        }
+        return localID
+    }
+
+    /// 删相册照片（nonisolated，原因见上）。
+    /// identifiers 非空 → 按 localIdentifier 删；否则删最近 `latest` 张（夹到 1...5）。
+    /// 返回实际发起的删除张数（0 = 没找到目标）。
+    private nonisolated static func deletePhotoAssets(identifiers: [String], latest: Int) async throws -> Int {
+        let assets: PHFetchResult<PHAsset>
+        if !identifiers.isEmpty {
+            assets = PHAsset.fetchAssets(withLocalIdentifiers: identifiers, options: nil)
+        } else {
+            let options = PHFetchOptions()
+            options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
+            options.fetchLimit = max(1, min(latest, 5))
+            assets = PHAsset.fetchAssets(with: .image, options: options)
+        }
+        guard assets.count > 0 else { return 0 }
+        let count = assets.count
+        try await PHPhotoLibrary.shared().performChanges {
+            PHAssetChangeRequest.deleteAssets(assets)
+        }
+        return count
+    }
+
     /// 存图到相册。写操作 → 需确认。dataURL 由后端给（base64 PNG/JPEG）。
     private static func savePhoto(_ action: AgentAction) async -> Outcome {
         // mutationGuard 返回 nil = 放行；非 nil = 拒绝原因（直接给用户看）
@@ -252,26 +292,18 @@ enum AgentActionExecutor {
             return .failed("图片数据解不开（应形如 data:image/png;base64,…）")
         }
         guard let image = UIImage(data: data) else { return .failed("图片解不开，可能已损坏") }
-        var localID: String?
+        let savedID: String?
         do {
             // PHPhotoLibrary 写相册不需要读权限，但**必须有** .addOnly 授权
-            try await PHPhotoLibrary.shared().performChanges {
-                let req = PHAssetCreationRequest.forAsset()
-                req.addResource(with: .photo, data: data, options: nil)
-                localID = req.placeholderForCreatedAsset?.localIdentifier
-            }
+            savedID = try await addPhotoAsset(data: data)
         } catch {
             NSLog("[QLACTION] save photo failed: \(error)")
             return .failed("存相册失败：\(error.localizedDescription)")
         }
         // 撤销 = 删掉刚存的那张（只能删自己创建的，系统允许）
         return .done(message: "已存入相册", undo: {
-            guard let id = localID else { return }
-            let assets = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil)
-            guard assets.count > 0 else { return }
-            try? await PHPhotoLibrary.shared().performChanges {
-                PHAssetChangeRequest.deleteAssets(assets)
-            }
+            guard let id = savedID else { return }
+            _ = try? await deletePhotoAssets(identifiers: [id], latest: 1)
         })
     }
 
@@ -286,26 +318,22 @@ enum AgentActionExecutor {
             return .failed(reason)
         }
         guard AppPermissionKit.foregroundActive else { return .failed("App 在后台，先回到轻聊再删") }
-        let options = PHFetchOptions()
-        options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
-        var assets: PHFetchResult<PHAsset>
+        let identifiers: [String]
         if let ident = action.param("identifier") ?? action.param("localIdentifier") {
-            assets = PHAsset.fetchAssets(withLocalIdentifiers: [ident], options: nil)
-            guard assets.count > 0 else { return .failed("找不到这张照片（可能已经被删了）") }
+            identifiers = [ident]
         } else {
-            let n = max(1, min(Int(action.param("latest") ?? "1") ?? 1, 5))
-            options.fetchLimit = n
-            assets = PHAsset.fetchAssets(with: .image, options: options)
-            guard assets.count > 0 else { return .failed("相册里没有可删的照片") }
+            identifiers = []
         }
-        let count = assets.count
+        let count: Int
         do {
-            try await PHPhotoLibrary.shared().performChanges {
-                PHAssetChangeRequest.deleteAssets(assets)
-            }
+            count = try await deletePhotoAssets(identifiers: identifiers,
+                                                latest: Int(action.param("latest") ?? "1") ?? 1)
         } catch {
             NSLog("[QLACTION] delete photo failed: \(error)")
             return .failed("删除失败：\(error.localizedDescription)")
+        }
+        guard count > 0 else {
+            return .failed(identifiers.isEmpty ? "相册里没有可删的照片" : "找不到这张照片（可能已经被删了）")
         }
         return .doneNoUndo(message: "已删除 \(count) 张照片（30 天内在相册「最近删除」可恢复）")
     }

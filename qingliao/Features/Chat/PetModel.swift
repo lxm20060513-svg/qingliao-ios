@@ -146,6 +146,12 @@ enum Quirk: String, CaseIterable, Identifiable, Equatable {
     // v4.0.0：真·位移，不是原地形变（横向挪 + 朝向翻转 + 上下颠步）
     case strollLeft
     case strollRight
+    // v4.0.58：**用腿表达**的动作（用户 2026-10-05 拍板「给卡通宠物加上会走路的小脚，
+    // 要能实际走路，踢腿等动作」）。三只形象 v4.0.58 起都有两只可摆动的脚 ——
+    // 踱步（strollLeft/Right）从此是「真迈步」（腿交替 + 落脚颠步），不再是整体滑行。
+    case march         // 原地踏步（腿摆但位置不动）
+    case kick          // 踢腿（单腿向体侧踢出，身体后仰）
+    case kickFlurry    // 连踢（左右腿交替快踢三次）
     // v4.0.26：**用手表达**的动作（用户 2026-10-02 拍板「做123456」= 手势全要）。
     // 与上面几档的区别：这些动作的主要看点是**两只手的姿势编排**，身体变换只是配合。
     // 姿势随时间变化 → 会触发 Canvas 重绘（与眨眼同级，仅动作播放期间；见 PetAvatar 头注释）。
@@ -165,6 +171,9 @@ enum Quirk: String, CaseIterable, Identifiable, Equatable {
         case .stretch: return "伸懒腰"
         case .strollLeft: return "向左踱"
         case .strollRight: return "向右踱"
+        case .march: return "原地踏步"
+        case .kick: return "踢腿"
+        case .kickFlurry: return "连踢"
         case .waveHello: return "挥手"
         case .clap: return "鼓掌"
         case .heartHands: return "比心"
@@ -180,6 +189,10 @@ enum Quirk: String, CaseIterable, Identifiable, Equatable {
         case .happyWiggle: return 0.9
         case .stretch: return 1.5
         case .strollLeft, .strollRight: return 2.2
+        // 踏步 4 次落脚 / 踢一次 / 连踢三次：时长按「每条腿都看得清」定，不跟手部动作对齐
+        case .march: return 2.0
+        case .kick: return 1.4
+        case .kickFlurry: return 2.4
         case .waveHello: return 1.8
         case .clap: return 1.4
         case .heartHands: return 1.9
@@ -188,12 +201,29 @@ enum Quirk: String, CaseIterable, Identifiable, Equatable {
         }
     }
 
+    // ⚠️ 新动作**必须插在中间**，不能追加到 `.chinRest]` 之后：
+    //    ql_pet 真值表钉住两处字面量 —— 头 `[.headTilt, .lookAround, .happyWiggle, .stretch,`（老四动作）
+    //    与尾 `.waveHello, .clap, .heartHands, .cheer, .chinRest]`（手部组）。插中间两边都不动。
     static let pool: [Quirk] = [.headTilt, .lookAround, .happyWiggle, .stretch,
                                 .strollLeft, .strollRight,
+                                .march, .kick, .kickFlurry,
                                 .waveHello, .clap, .heartHands, .cheer, .chinRest]
 
     /// 是否是「走动」类：需要按行进方向镜像朝向
     var isStroll: Bool { self == .strollLeft || self == .strollRight }
+
+    /// v4.0.58：是否是「用腿表达」的动作 —— 由 PetAvatar 交给腿部编排去播
+    /// （踏步/踢腿/连踢）。身体层只做配合（颠步/后仰）。
+    var isLegAction: Bool {
+        switch self {
+        case .march, .kick, .kickFlurry: return true
+        default: return false
+        }
+    }
+
+    /// v4.0.58：会不会「迈步」的动作（踱步 + 原地踏步）—— 身体要跟着落脚颠步（quirkyBob），
+    /// 否则腿在迈、身体不沉，看起来是飘的。
+    var isGait: Bool { isStroll || self == .march }
 
     /// v4.0.26：是否是「用手表达」的动作 —— 由 PetAvatar 交给手部姿势编排去播，
     /// 身体层只做轻微配合（不再走通用形变分支）。

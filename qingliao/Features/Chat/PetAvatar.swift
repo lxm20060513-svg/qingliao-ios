@@ -154,7 +154,39 @@ struct PetAvatar: View {
         case .chinRest:
             return PetHandPose(left: PetHandSide(),
                                right: PetHandSide(lift: 0.20, fold: 0.35, spread: -0.10, swing: -20))
+        // v4.0.58：踢腿时张开双手找平衡（与 playKick 的关键帧同一套值 —— 缩略图要对得上）
+        case .kick:       return PetHandPose(left: PetHandSide(spread: 0.45), right: PetHandSide(spread: 0.45))
         default:          return .rest
+        }
+    }
+
+    /// v4.0.58：当前腿脚姿势 —— 与手部 currentHandPose 同口径：
+    ///   · 设置页预览（quirkPreview 非空）→ 定格该动作的代表姿势
+    ///   · 聊天页播放中 → 编排逐段写入的 legPhase/legKick
+    ///   · 其余 → 双脚站定
+    private var currentLegPhase: Double? {
+        if let q = quirkPreview { return Self.representativeLegs(q).phase }
+        return legPhase
+    }
+    private var currentKick: Double {
+        if let q = quirkPreview { return Self.representativeLegs(q).kick }
+        return legKick
+    }
+    private var currentKickSide: CGFloat {
+        if let q = quirkPreview { return Self.representativeLegs(q).side }
+        return legKickSide
+    }
+
+    /// v4.0.58：各动作的「代表性腿脚姿势」（设置页预览定格用）。
+    /// ⚠️ 与编排队列里的关键帧同一套值（改一处要同步改 playMarch/playKick/playKickFlurry），
+    ///    否则设置页缩略图与真机播放对不上 —— 手部 v4.0.26 同一条纪律。
+    static func representativeLegs(_ q: Quirk) -> (phase: Double?, kick: Double, side: CGFloat) {
+        switch q {
+        // 定格「抬脚迈步的半程」（phase 0.25 = 右脚抬到最高），不是站定 —— 否则缩略图看不出在走路
+        case .march, .strollLeft, .strollRight: return (0.25, 0, -1)
+        case .kick:       return (nil, 1.0, -1)     // 左腿踢到最高
+        case .kickFlurry: return (nil, 0.7, 1)      // 换到右腿的那一脚
+        default:          return (nil, 0, -1)
         }
     }
     private var quirkyScale: CGFloat {
@@ -170,8 +202,10 @@ struct PetAvatar: View {
         switch current {
         case .some(.headTilt): return 6
         case .some(.lookAround): return -3
-        // 踱步时的前倾（走路重心前移的身体感），左右一致 → 用同一个正角度
-        case .some(.strollLeft), .some(.strollRight): return 2.5
+        // 踱步/原地踏步时的前倾（走路重心前移的身体感），左右一致 → 用同一个正角度
+        case .some(.strollLeft), .some(.strollRight), .some(.march): return 2.5
+        // v4.0.58：踢腿时身体后仰（重心给踢出去的那条腿让位）；连踢左右换脚 → 不偏不倚
+        case .some(.kick): return -4
         // v4.0.26：托腮时头微微偏一下（手扶着才像在发呆）
         case .some(.chinRest): return 5
         default: return 0
@@ -195,11 +229,19 @@ struct PetAvatar: View {
     private var quirkyBob: CGFloat {
         guard let q = current else { return 0 }
         if q == .cheer { return strollPhase ? -size * 0.06 : 0 }
-        guard q.isStroll else { return 0 }
+        // v4.0.58：`isGait` 而不是 `isStroll` —— 原地踏步也要落脚颠步（腿在迈、身体不沉会显得飘）
+        guard q.isGait else { return 0 }
         return strollPhase ? -size * 0.03 : 0
     }
     /// 颠步相位：独立 @State，由 strollLoop 定时翻转（与 quirky 的进出是两段时间轴）
     @State private var strollPhase = false
+    // ── v4.0.58：腿/脚状态（与手部 quirkyHands 同一条纪律：都是可插值的原生类型，
+    //    逐段 withAnimation 写入 → SwiftUI 逐帧插值，腿不会「啪」地瞬移）──
+    /// 步态相位（nil = 站定）；踱步与原地踏步共用
+    @State private var legPhase: Double? = nil
+    /// 踢腿伸展度 0…1 / 踢哪条腿（−1 左 / +1 右）
+    @State private var legKick: Double = 0
+    @State private var legKickSide: CGFloat = -1
     // ── v4.0.31：header 宠物状态映射的内部状态 ──
     /// 庆祝期间临时画的脸（celebrateFace 的限时载体）；播放结束清 nil → 落回 storedFace
     @State private var celebrateFaceActive: PetFace? = nil
@@ -242,7 +284,12 @@ struct PetAvatar: View {
                        simplify: simplify,
                        handPose: currentHandPose,
                        thinkingFace: state == .thinking ? (thinkingFaceOverride ?? face) : nil,
-                       mouthOpen: mouthOpen)
+                       mouthOpen: mouthOpen,
+                       // v4.0.58：腿/脚 —— **尾随添加**（既有调用点与 Live Activity 挂件
+                       // 靠默认值零改动；ql_orbmenu 真值表钉着挂件那条调用的字面量前缀）
+                       legPhase: currentLegPhase,
+                       kick: currentKick,
+                       kickSide: currentKickSide)
                 .draw(&context, size: canvasSize)
         }
         .frame(width: drawSize, height: drawSize)
@@ -274,6 +321,9 @@ struct PetAvatar: View {
                 quirky = nil
                 // v4.0.26：手部姿势也一并归位（否则切后台时正卡在「手抬起」→ 回前台悬在半空）
                 quirkyHands = .rest
+                // v4.0.58：腿脚也归位（否则切后台时正卡在「抬脚/踢腿」→ 回前台一条腿僵在半空）
+                legPhase = nil
+                legKick = 0
                 withAnimation(nil) { breath = false }
             }
         }
@@ -364,7 +414,14 @@ struct PetAvatar: View {
         if faceDuringCelebrate != nil { celebrateFaceActive = faceDuringCelebrate }
         Task {
             let d = q.duration
-            if q.isHandAction {
+            if q.isLegAction {
+                // v4.0.58：池子兜底可能抽到腿部动作（4 个庆祝动作全被关掉时）→ 也要走得对，
+                // 否则踢腿会退化成「只后仰不踢」的半截动作。
+                withAnimation(.easeInOut(duration: d * 0.2)) { quirky = q }
+                await playLegAction(q)
+                guard !Task.isCancelled else { return }
+                withAnimation(.easeInOut(duration: d * 0.2)) { quirky = nil }
+            } else if q.isHandAction {
                 withAnimation(.easeInOut(duration: d * 0.2)) { quirky = q }
                 await playHandAction(q)
                 guard !Task.isCancelled else { return }
@@ -395,6 +452,13 @@ struct PetAvatar: View {
             let d = q.duration
             if q.isStroll {
                 await playStroll(q, duration: d)
+            } else if q.isLegAction {
+                // v4.0.58：用腿表达的动作（原地踏步/踢腿/连踢）—— 身体层只设 quirky
+                // （供 angle/bob 配合），腿脚姿势交给 playLegAction 逐段编排。
+                withAnimation(.easeInOut(duration: d * 0.2)) { quirky = q }
+                await playLegAction(q)
+                guard !Task.isCancelled else { return }
+                withAnimation(.easeInOut(duration: d * 0.2)) { quirky = nil }
             } else if q.isHandAction {
                 // v4.0.26：用手表达的动作 —— 身体层只设 quirky（供 scale/bob/angle 配合），
                 // 主要看点在两只手上，交给 playHandAction 逐段编排姿势。
@@ -413,25 +477,32 @@ struct PetAvatar: View {
 
     /// v4.0.0 踱步：真实位移的完整编排（四段）
     ///   ① 迈出去（easeInOut，位移到 0.145×size，同步镜像朝向）
-    ///   ② 途中颠步 2 次（每步 duration/4，起脚一次落一次）
+    ///   ② 途中颠步（每步 duration/4，起脚一次落一次）
     ///   ③ 站定顿一下（0.35×duration，活着但没走）
     ///   ④ 走回原位（镜像必须先回正向，否则回程是「倒着滑」）
+    /// v4.0.58：从「整体滑行」升级为**真迈步** —— 位移与颠步不变，同时驱动 legPhase 走两个完整
+    /// 步态周期（4 个半步）。⚠️ 落脚（strollPhase=true）与抬脚（legPhase 加半个周期）必须同一拍：
+    /// 腿和身体各走一套时间轴 → 会出现「腿在迈、身体不沉」的飘感。
     private func playStroll(_ q: Quirk, duration d: TimeInterval) async {
-        withAnimation(.easeInOut(duration: d * 0.3)) { quirky = q }
+        withAnimation(.easeInOut(duration: d * 0.3)) { quirky = q; legPhase = 0 }
         // 颠步：纵向起伏由 quirkyBob 承担（strollPhase 翻转），横向位移保持不变
-        for _ in 0..<2 {
-            try? await Task.sleep(for: .seconds(d * 0.2))
-            guard animate, !Task.isCancelled else { return }
-            withAnimation(.easeInOut(duration: d * 0.1)) { strollPhase = true }
+        var step = 0.0
+        for _ in 0..<4 {
+            try? await Task.sleep(for: .seconds(d * 0.1))
+            if legStopRequested() { return }
+            step += 0.5
+            withAnimation(.easeInOut(duration: d * 0.1)) { strollPhase = true; legPhase = step }
             try? await Task.sleep(for: .seconds(d * 0.1))
             guard !Task.isCancelled else { return }
             withAnimation(.easeInOut(duration: d * 0.1)) { strollPhase = false }
         }
         // 站定顿一下：憋一下再走，像真的停下来看了一眼
         try? await Task.sleep(for: .seconds(d * 0.35))
-        guard animate, !Task.isCancelled else { return }
+        if legStopRequested() { return }
         strollPhase = false
         withAnimation(.easeInOut(duration: d * 0.3)) { quirky = nil }
+        // v4.0.58：脚也收回站定（**独立一句**：上面那行是 ql_pet 真值表钉住的字面量，不许被改）
+        withAnimation(.easeInOut(duration: d * 0.3)) { legPhase = nil }
     }
 
     // MARK: v4.0.26 手部动作编排
@@ -521,6 +592,93 @@ struct PetAvatar: View {
         guard animate, !Task.isCancelled else { return }
         withAnimation(.easeInOut(duration: 0.36)) { quirkyHands = .rest }
         try? await Task.sleep(for: .seconds(0.40))
+    }
+
+    // MARK: v4.0.58 腿部动作编排
+    //
+    // 每个动作 = 一段「站定 → 做动作 → 收回站定」的姿势时间线，逐段 withAnimation 写入
+    // `legPhase`（踱步/踏步）或 `legKick`+`legKickSide`（踢腿）。两者都是 VectorArithmetic 原生
+    // 类型 → SwiftUI 段间逐帧插值，腿是连贯摆动而不是瞬移。
+    // ⚠️ 每段之后必须 `guard animate, !Task.isCancelled else { return }`：动作播到一半被关掉动画
+    //    （切后台、用户关开关、宿主重挂）时要立刻退出，否则腿会僵在半空。
+    // ⚠️ 关键帧值与 `representativeLegs` 对齐，否则设置页缩略图与真机播放对不上。
+    private func playLegAction(_ q: Quirk) async {
+        switch q {
+        case .march:      await playMarch()
+        case .kick:       await playKick()
+        case .kickFlurry: await playKickFlurry()
+        default:          break
+        }
+    }
+
+    /// v4.0.58：腿编排被打断（关动画 / 任务取消）时的收尾 —— 腿必须回到站定。
+    /// 只 `return` 不收尾会让脚掌僵在半空：改任意动作开关会重建 `.task(id:)` → 取消正在跑的
+    /// 腿动作，而此时 `animate` 仍为 true → `.onChange(of: animate)` 的复位不触发。
+    private func legStopRequested() -> Bool {
+        if !animate || Task.isCancelled {
+            legPhase = nil
+            legKick = 0
+            return true
+        }
+        return false
+    }
+
+    /// 原地踏步：4 次落脚，落脚瞬间身体下沉（strollPhase，与踱步共用同一个颠步通道）；横向不动
+    private func playMarch() async {
+        withAnimation(.easeInOut(duration: 0.24)) { legPhase = 0 }
+        var step = 0.0
+        for _ in 0..<4 {
+            try? await Task.sleep(for: .seconds(0.30))
+            if legStopRequested() { return }
+            step += 0.5
+            withAnimation(.easeInOut(duration: 0.26)) { legPhase = step; strollPhase = true }
+            try? await Task.sleep(for: .seconds(0.16))
+            if legStopRequested() { return }
+            withAnimation(.easeInOut(duration: 0.16)) { strollPhase = false }
+        }
+        try? await Task.sleep(for: .seconds(0.16))
+        if legStopRequested() { return }
+        strollPhase = false
+        withAnimation(.easeInOut(duration: 0.26)) { legPhase = nil }
+    }
+
+    /// 踢腿：站定 → 单腿向体侧踢出（身体后仰 + 双手张开配平）→ 收回站定
+    private func playKick() async {
+        withAnimation(.easeInOut(duration: 0.16)) { legKickSide = -1; legPhase = nil }
+        try? await Task.sleep(for: .seconds(0.16))
+        if legStopRequested() { return }
+        withAnimation(.easeOut(duration: 0.22)) {
+            legKick = 1
+            // 张开双手找平衡：腿出去、手不能还贴身上（与身体后仰同一个配合口径）
+            quirkyHands = PetHandPose(left: PetHandSide(spread: 0.45), right: PetHandSide(spread: 0.45))
+        }
+        try? await Task.sleep(for: .seconds(0.30))
+        if legStopRequested() { return }
+        withAnimation(.easeIn(duration: 0.26)) { legKick = 0; quirkyHands = .rest }
+        try? await Task.sleep(for: .seconds(0.30))
+        if legStopRequested() { return }
+        legKick = 0
+        quirkyHands = .rest
+    }
+
+    /// 连踢：左右腿交替快踢三次。
+    /// ⚠️ 换边时 `legKick` 必须已经是 0 再翻 `legKickSide`：kickSide 是 CGFloat，-1→+1 插值会
+    ///    路过 0，而绘制端按「kickSide 的符号」挑腿 —— 路过 0 的那一刻两条腿会同时半踢。
+    private func playKickFlurry() async {
+        withAnimation(.easeInOut(duration: 0.14)) { legKick = 0; legPhase = nil }
+        for (i, side) in [CGFloat(-1), 1, -1].enumerated() {
+            try? await Task.sleep(for: .seconds(i == 0 ? 0.14 : 0.10))
+            if legStopRequested() { return }
+            legKickSide = side          // 无动画赋值：此刻 legKick 已是 0（腿已收回）→ 换边无跳变
+            withAnimation(.easeOut(duration: 0.16)) { legKick = 1 }
+            try? await Task.sleep(for: .seconds(0.26))
+            if legStopRequested() { return }
+            withAnimation(.easeIn(duration: 0.14)) { legKick = 0 }
+        }
+        try? await Task.sleep(for: .seconds(0.20))
+        if legStopRequested() { return }
+        legKick = 0
+        withAnimation(.easeInOut(duration: 0.20)) { legKickSide = -1 }
     }
 
     @ViewBuilder

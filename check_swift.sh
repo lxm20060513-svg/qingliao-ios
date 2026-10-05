@@ -92,6 +92,17 @@ run_unit /tmp/test_launch_session -swift-version 6 \
 echo "=== 5c. 宠物动画真值表（v4.0.0 走动搞怪 + 镜像/位移顺序坑）==="
 run_unit /tmp/test_pet -swift-version 6 scripts/ql_pet/truth_table_pet.swift
 
+# v4.0.58 会走路的小脚 —— 纯几何体检（本机是 Linux，跑不了 SwiftUI 渲染：
+# 把「脚露在体外多少 pt / 步幅多少 pt / 会不会出画布 / 两脚会不会重叠」算出来钉住。
+# 常量从 PetPainter.swift 现读，源码改写法即红）
+if python3 scripts/ql_pet/check_leg_geometry.py >/tmp/tt_leggeo.log 2>&1; then
+  echo "✅ v4.0.58 腿/脚几何体检 $(grep -oE '[0-9]+ 项' /tmp/tt_leggeo.log | tail -1)"
+else
+  echo "❌ v4.0.58 腿/脚几何体检"
+  cat /tmp/tt_leggeo.log
+  exit 1
+fi
+
 # v4.0.40 TTS 朗读时页头宠物跟着开口说话（PetSpeechShape 音节切分 + mouth 采样 + 接线护栏）
 # 多文件编译时只有 main.swift 允许顶层代码 → 复制一份到临时目录（与第 4 段同一手法）
 rm -rf /tmp/ql_petspeech_main && mkdir -p /tmp/ql_petspeech_main
@@ -104,7 +115,7 @@ if python3 scripts/ql_haptics/truth_table_haptics.py >/tmp/tt_haptics.log 2>&1; 
 else
   echo "❌ v4.0.9 震动开关真值表"
   cat /tmp/tt_haptics.log
-  FAIL=1
+  exit 1
 fi
 
 # v4.0.8 表格导出入口（两条渲染路径都得有导出，防回归）
@@ -113,7 +124,7 @@ if python3 scripts/ql_tableexport/truth_table_tableexport.py >/tmp/tt_tableexpor
 else
   echo "❌ v4.0.8 表格导出真值表"
   cat /tmp/tt_tableexport.log
-  FAIL=1
+  exit 1
 fi
 
 # v3.9.113 成员存在性护栏（Typography/Spacing/Radius 假令牌、搬 UI 漏定义、
@@ -124,7 +135,7 @@ if python3 scripts/ql_membercheck/truth_table_membercheck.py >/tmp/tt_memberchec
 else
   echo "❌ v3.9.113 成员存在性真值表"
   cat /tmp/tt_membercheck.log
-  FAIL=1
+  exit 1
 fi
 
 echo "=== 6. 挂件 Extension 语法检查（v3.8.0 实时活动）==="
@@ -1214,8 +1225,27 @@ echo "=== 83. 迟到回复落库同族收口真值表（v4.0.57 · 链内重读 
 # 流跑着期间落进该会话的其他写者内容（收件箱推送 / 其他端）会被旧数组抹掉（丢消息，比多一条更糟）。
 # 覆盖：① 两处都走链内 appendMessageToOwnedSession（链内重读 + 查重）② 旧快照降级为 .targetMissing 回落兜底
 #      ③ 兜底仍带「空快照不覆盖」守卫（2026-09-30 真数据破坏那条）④ 覆盖语义镜像（旧写法丢消息 / 新写法保住）
-#      ⑤ 反向自证（任一处退回整份写 / 兜底丢守卫 → 必红）。
+#      ⑤ 反向自证（任一处退回整份写 / 兜底丢守卫 → 必红）
+#      v4.0.57b（2026-10-05 只读审查复审 3 条应改）：⑦ 两处 away 判重口径必须 .authoritativeReply（宽口径的
+#      「新回答包含旧回答」会把带新内容的回答判成重复 → 只活在内存）⑧ 回落兜底加正向缺席门禁
+#      writeBackSnapshotIfSessionAbsent（".targetMissing 也可能是这次列表读失败"→不许拿旧快照整份覆盖）
+#      ⑨ patchAwayLanded 与落库侧同判据（hasSameAssistantContent），不再整串精确 ==
 run_unit6 /tmp/test_snapshotwrite scripts/ql_snapshotwrite/truth_table_snapshotwrite.swift
+
+echo "=== 84. 会话列表禁止 .scrollDepth()（List 行恒非 identity → 每行常驻 0.965 缩放）==="
+# 事故（2026-10-05，用户报「轻聊 agent 这个框框的长度和下面的会话框框长度不一样」）：
+#   根因 = SessionRow 上挂了 .scrollDepth()。它在 ScrollView/LazyVStack 里按位置算 identity（看板/生活卡片正常），
+#   但在 **List 行**里 SwiftUI 恒返回「非 identity」→ 每行常驻 scaleEffect(0.965) + opacity(0.75)，
+#   卡宽比同一 List 内未挂它的卡（agent 卡 / 后台浮条 / 空态 / 搜索命中行）窄 ~14pt。
+#   实测 1179px 宽截图：agent 卡右缘 1137px = 14pt 边距（Spacing.xxl 设计值）vs 会话卡 1117px = 20.7pt（= 0.965x 缩放）。
+# 判据：SessionsView.swift 的**代码**里不得出现 scrollDepth（注释里可以提，故先剥注释再 grep：
+#   源码注释里刻意留了「不要挂 .scrollDepth()」的警示，直接 grep 会被自己的注释判红）。想恢复滚动层次感
+#   只有一条正路 —— 去掉 List 外壳（改回 ScrollView + LazyVStack），别只把这一行加回来。
+if sed 's://.*::' qingliao/Features/Sessions/SessionsView.swift | grep -qE 'scrollDepth|ScrollDepth'; then
+  echo "❌ 第 84 段 会话列表代码里又出现 .scrollDepth()（List 行恒非 identity → 会话卡比 agent 卡窄 ~14pt）"; fail=1
+else
+  echo "✅ 第 84 段 会话列表代码无 .scrollDepth()（注释里的警示不算）"
+fi
 
 [ $fail -eq 0 ] || { echo "❌ 有护栏失守"; exit 1; }
 exit 0

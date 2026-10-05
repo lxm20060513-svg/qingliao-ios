@@ -783,9 +783,15 @@ struct SessionsView: View {
                 open(s)   // v3.9.33：进会话统一入口（含 v3.9.32 markRead）——远端命中行复用同一路径
             }
         }
-        // v3.4.29：滚动层次感——行进出视口时轻微缩放 + 淡出（须在 LazyVStack 内）
-        // v3.9.0：改为统一修饰器 .scrollDepth()（数值与看板/生活卡片同源）
-        .scrollDepth()
+        // 🚨 不要在这里挂 .scrollDepth()（v4.0.21 会话列表改 List 后实测有害，2026-10-05 移除）：
+        //    `.scrollTransition` 只在 ScrollView/LazyVStack 里按元素位置算 identity（看板/生活卡片仍在用，正常）；
+        //    **List 行里 SwiftUI 对每一行恒返回「非 identity」** → 每行常驻 `scaleEffect(0.965)` + `opacity(0.75)`，
+        //    而不是设计意图的「进出视口时」才缩放。
+        //    后果：会话卡比同一 List 内未挂该修饰器的卡（agent 卡 / 后台浮条 / 空态 / 搜索命中行）窄 ~14pt（每侧 ~7pt）
+        //    —— 用户 2026-10-05 报「轻聊 agent 这个框框的长度和下面的会话框框长度不一样」。
+        //    实测（1179px 宽 · 393pt 屏）：agent 卡右缘 1137px = 14pt 边距（= Spacing.xxl 设计值）；
+        //    会话卡右缘 1117px = 20.7pt；行内头像左缘 100px（未缩放应在 84px）→ 正是 0.965 缩放（0.965x 的卡边距 = 6.9pt/侧）。
+        //    想恢复滚动层次感只有一条路：不要 List 外壳（改回 ScrollView + LazyVStack）——别只把这一行加回来。
         .contextMenu {
             // v4.0.20（#4）：固定会话恒置顶（rank 写死 3）→ 不给「置顶/取消置顶」，
             // 免得用户点了没反应（或以为置顶失效）

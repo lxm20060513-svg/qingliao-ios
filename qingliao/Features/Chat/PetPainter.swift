@@ -104,6 +104,20 @@ struct PetPainter {
     /// nil = 没在念 → 各形态画自己的常态嘴；非 nil → 常态嘴换成按开合度张开的口型。
     var mouthOpen: Double? = nil
 
+    // ── v4.0.58：腿/脚（三只形象共用一套几何，实现见下方「腿/脚」段） ──
+    /// 步态相位。`nil` = 双脚站定（常态）；0…1 = 一个完整步态周期，左右腿错半个周期：
+    ///   左脚 tt=0.75 抬到最高、右脚 tt=0.25 抬到最高（支撑相那只脚贴地不动）。
+    /// ⚠️ 相位是**单个 0…1 标量**，抬脚/外摆由 `legDeform` 从它算出；不用自定义姿势结构。
+    ///   `Double?` 本身不满足 `VectorArithmetic`（`Optional` 没有这个 conformance），也不进视图的
+    ///   `animatableData` —— 动画是**每段 keyframe 之间**由 `withAnimation` 插值（与手部
+    ///   `PetHandPose` 手写 `VectorArithmetic` 同一条「姿势不许瞬移」纪律，但零额外代码）。
+    var legPhase: Double? = nil
+    /// 踢腿伸展度 0…1（1 = 腿伸到最外、抬到最高）。只作用于 `kickSide` 那条腿。
+    var kick: Double = 0
+    /// 踢哪条腿：−1 左 / +1 右（与手同款 side 语义）。
+    /// 连踢换边时**先把 kick 归零再翻边**，避免 kickSide 插值路过 0 时两条腿同时半踢。
+    var kickSide: CGFloat = -1
+
     /// v4.0.39：把形态原本的嘴**按开合度**画出来（三形态共用一套，保证嘴型节奏一致）。
     /// - 未在念（nil）→ 调用方照旧画自己的嘴，本函数返回 false。
     /// - 在念 → 画椭圆口型（ry 随开合度），返回 true（调用方跳过原嘴）。
@@ -273,6 +287,76 @@ struct PetPainter {
                 ctx.fill(rotated(rounded(c.x / s - 0.052, c.y / s - 0.007 + 0.017, 0.104, 0.014, 0.007, s), a, c, s),
                          with: .color(Pal.botTop.opacity(0.9)))
             }
+        }
+    }
+
+    // MARK: 腿/脚（v4.0.58：用户拍板「给卡通宠物加上会走路的小脚，要能实际走路，踢腿等动作」）
+    //
+    // 三只形象共用一套几何：髋点在**身体内部**（y=0.705，三只半径 0.37~0.40 → 下缘 0.87~0.90）。
+    // 腿画在主形之前 → 腿骨上半段被圆身体压住，只露脚掌 + 一小截腿（与手「体侧时先画、被圆压住
+    // 关节」同一条画法）。**刻意不改三只形象的身体几何**：动身体半径要连带重算耳朵/天线/面罩
+    // 的露出量（那些数字都是算过的，见 drawBeast 注释），收益只有几 pt。
+    // 摆腿 = 髋不动、脚掌走弧线：抬脚 0.042 + 外摆 0.048（≈4.6pt@96pt）全部落在体外可见区。
+    // 脚色沿用「比身体深一档」的手部口径（liquidDeep / beastBottom / botBottom）——同色系会隐形。
+    private func legDeform(_ side: CGFloat) -> (lift: Double, swing: Double, kick: CGFloat) {
+        var kickAmount: CGFloat = 0
+        if kick > 0.01, (kickSide < 0 && side < 0) || (kickSide > 0 && side > 0) { kickAmount = kick }
+        guard let t = legPhase else { return (0, 0, kickAmount) }
+        let tt = side < 0 ? t : t + 0.5      // 左右腿错半个周期
+        let ang = 2 * Double.pi * tt
+        // 摆动相（tt ∈ 0.5…1）抬脚 + 外摆，峰值在 0.75；支撑相（0…0.5）恒 0 = 脚掌贴地不动
+        let liftPhase = max(0, -sin(ang))
+        return (liftPhase, cos(ang), kickAmount)
+    }
+
+    private func leg(_ ctx: inout GraphicsContext, _ s: CGFloat, side: CGFloat) {
+        let outward: CGFloat = side < 0 ? -1 : 1
+        let (liftPhase, swing, kickAmount) = legDeform(side)
+        let hipX: CGFloat = 0.5 + side * 0.085
+        let hipY: CGFloat = 0.705
+        // 脚掌的横向 = 抬脚外摆 0.05 + 踢腿外展 0.125；纵向 = 抬脚 0.042 + 踢腿抬高 0.045
+        let dx = (CGFloat(liftPhase) * 0.05 + kickAmount * 0.125) * outward
+        let hip = p(hipX, hipY, s)
+        // 站定脚掌中心 y（单一真源：脚底 = stanceY + 脚半高 ≤ 0.994，画布下缘留 0.6% 余量）。
+        // 🚨 这个数被 scripts/ql_pet/check_leg_geometry.py 现读后算「脚露在体外多少 pt」，
+        //    改它必须重跑体检（段 5d）—— 它比肉眼可靠：liquid 体半径最大（0.40），脚最早被吃掉。
+        let stanceY: CGFloat = 0.960
+        let footY = stanceY - CGFloat(liftPhase) * 0.042 - kickAmount * 0.045
+        // 🚨 旋转角与脚掌位移**共用同一个 dx**（再叠一点点 swing 的钟摆感）：
+        //    两处各算一套会出现「腿斜着、脚掌却是正的」的断腿感 —— 与手部首版同一个坑。
+        //    推导：绕髋点转 φ 后，竖直向下的腿尖横向移动 −L·sinφ → φ ≈ −dx/L。
+        let pendulum = CGFloat(swing) * 0.018 * outward
+        let phi = -((dx + pendulum) / (stanceY - hipY)) * (180 / .pi)
+        let bone = rounded(hipX - 0.030, hipY, 0.060, footY - hipY + 0.030, 0.028, s)
+        let boneColor: Color
+        let foot: Path
+        switch style {
+        case .liquid:
+            boneColor = Pal.liquidDeep
+            foot = Path(ellipseIn: r(hipX, footY, 0.080, 0.032, s))
+        case .beast:
+            boneColor = Pal.beastBottom
+            foot = Path(ellipseIn: r(hipX, footY, 0.076, 0.034, s))
+        case .robot:
+            boneColor = Pal.botBottom
+            foot = rounded(hipX - 0.074, footY - 0.032, 0.148, 0.064, 0.026, s)
+        }
+        ctx.fill(rotated(bone, phi, hip, s), with: .color(boneColor))
+        ctx.fill(rotated(foot, phi, hip, s), with: .color(boneColor))
+        guard !simplify else { return }   // 小尺寸（<76pt）下高光/肉垫只有 1pt 级，纯噪声
+        switch style {
+        case .liquid:
+            ctx.fill(rotated(Path(ellipseIn: r(hipX, footY - 0.020, 0.040, 0.014, s)), phi, hip, s),
+                     with: .color(.white.opacity(0.42)))
+        case .beast:
+            // 三颗肉垫排在前端（与小兽圆爪同一套语汇）
+            for k in [CGFloat(-1), 0, 1] {
+                ctx.fill(rotated(Path(ellipseIn: r(hipX + k * 0.036, footY - 0.018, 0.015, 0.013, s)), phi, hip, s),
+                         with: .color(Pal.beastEarIn.opacity(0.85)))
+            }
+        case .robot:
+            ctx.fill(rotated(rounded(hipX - 0.050, footY - 0.026, 0.100, 0.014, 0.007, s), phi, hip, s),
+                     with: .color(Pal.botTop.opacity(0.9)))
         }
     }
 
@@ -466,6 +550,10 @@ struct PetPainter {
                 hand(&layer, s, handPose.left, side: -1)
                 hand(&layer, s, handPose.right, side: +1)
             }
+            // v4.0.58：两只小脚（画在主形之前 → 髋关节被圆身体压住，只露脚掌 + 一小截腿）。
+            // 不受 simplify 门控：脚是这一版的主角，小尺寸也要看得见（高光/肉垫才受门控）。
+            leg(&layer, s, side: -1)
+            leg(&layer, s, side: +1)
             shell(&layer, s, radius: 0.40,
                   stops: [(0.0, Pal.liquidTop), (0.45, Pal.liquidMid), (0.80, Pal.liquidDeep), (1.0, Pal.liquidEdge)],
                   glow: Pal.liquidGlow, edge: Pal.liquidEdge)
@@ -553,6 +641,9 @@ struct PetPainter {
                     hand(&layer, s, handPose.right, side: +1)
                 }
             }
+            // v4.0.58：两只圆爪脚（同 liquid：画在主形之前，髋被圆压住；不受 simplify 门控）
+            leg(&layer, s, side: -1)
+            leg(&layer, s, side: +1)
             shell(&layer, s, radius: 0.37,
                   stops: [(0.0, Pal.beastTop), (0.55, Pal.beastMid), (1.0, Pal.beastBottom)],
                   glow: Pal.beastGlow, edge: Pal.beastEdge)
@@ -647,6 +738,9 @@ struct PetPainter {
                     hand(&layer, s, handPose.right, side: +1)
                 }
             }
+            // v4.0.58：两只金属脚（同 liquid：画在主形之前，髋被圆压住；不受 simplify 门控）
+            leg(&layer, s, side: -1)
+            leg(&layer, s, side: +1)
             shell(&layer, s, radius: 0.38,
                   stops: [(0.0, Pal.botTop), (0.50, Pal.botMid), (1.0, Pal.botBottom)],
                   glow: Pal.botGlow, edge: Pal.botEdge)

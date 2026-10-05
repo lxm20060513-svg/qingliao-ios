@@ -192,9 +192,13 @@ check("B5 逐字进度两个引擎都驱动嘴型（系统精确回调 + 云端�
 check("B6 流式分段换段时按新段重新切音节（否则用上一段音节表对口）",
       spC.contains("PetSpeechDrive.shared.begin(next.text)"))
 
+// v4.0.58：原先这条钉的是「…mouthOpen: mouthOpen)」整串（要求 mouthOpen 是最后一个实参）——
+// 新增腿/脚三个参数（legPhase/kick/kickSide 尾随添加）就把它判红了。语义是「发布箱的开合度
+// 递到了画笔」，与「是不是最后一个实参」无关 → 改成分别钉三个语义锚点（抗参数增删）。
 check("B7 PetAvatar 观察独立发布箱（非 SpeechManager）并把值传给画笔",
       avC.contains("var speechDrive = PetSpeechDrive.shared")
-      && avC.contains("thinkingFace: state == .thinking ? (thinkingFaceOverride ?? face) : nil,\n                       mouthOpen: mouthOpen)"))
+      && avC.contains("thinkingFace: state == .thinking ? (thinkingFaceOverride ?? face) : nil,")
+      && avC.contains("mouthOpen: mouthOpen"))
 
 // ⚠️ 口径说明：不要把 B8 钉成 `guard … else { return nil }` 这样的整串等值 —— 兜底写成
 // `isSpeaking || speakingID != nil` 或写成两行 guard，语义一样但断言必红。改为钉「切片里
