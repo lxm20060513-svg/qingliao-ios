@@ -219,6 +219,13 @@ check("🚨 设置页 body 直接平铺全部分组（account/connection/ai/data
 check("🚨 退出登录与各分组同页（不再藏进二级页）",
       slice(svSrc, "ScrollView {", "scrollPosition").contains("logoutButton"))
 
+// MARK: - v4.0.61 CI 实踩（run #694）：**凭空造成员** —— 本机 `-parse` 全绿，只有 Archive 报
+//   `.onDismiss` 是 `sheet(isPresented:onDismiss:content:)` 的**参数**，不是 View 修饰符；
+//   挂到内容视图上 → `value of type 'some View' has no member 'onDismiss'`。
+//   反向断言：源码里不许再出现链式 `.onDismiss`（写注释说明不算——svSrc 已 stripComments）。
+check("🚨 不得把 onDismiss 当 View 修饰符链式调用（它只是 sheet 的参数）",
+      !svSrc.contains(".onDismiss"))
+
 // MARK: - v4.0.10 开关（Toggle）统一口径：尺寸一律系统原生、配色默认系统绿
 //   用户真机反馈：「设置里面桌面快捷方式弹窗的开关胶囊和系统的大小不一样，别的地方看哪里不一样
 //   的一起改过来」。成因：设置里 6 处挂了 .scaleEffect(0.8) 缩过版，而「桌面快捷方式」弹窗、

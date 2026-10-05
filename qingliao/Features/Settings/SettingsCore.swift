@@ -213,10 +213,13 @@ struct SettingsView: View {
             LogsView()
                 .presentationDetents([.medium, .large])
         }
-        .sheet(isPresented: $showConnSettings) {
+        // v4.0.61：弹窗关闭时清掉「搜索直达」标记。
+        // ⚠️ `onDismiss` 是 `sheet(isPresented:onDismiss:content:)` 的**参数**，不是 View 修饰符 ——
+        //    挂到内容视图上会报 `value of type 'some View' has no member 'onDismiss'`，
+        //    本机 `-parse` 全绿、只有 Archive 抓得到（CI run #694 实踩）。
+        .sheet(isPresented: $showConnSettings, onDismiss: { connOpenPinPath = false }) {
             ConnSettingsView(initiallyShowPinPath: connOpenPinPath)
                 .presentationDetents([.medium, .large])
-                .onDismiss { connOpenPinPath = false }
         }
         .sheet(isPresented: $showModelSheet) {
             ModelSheet(current: currentModel)
