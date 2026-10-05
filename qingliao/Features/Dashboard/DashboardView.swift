@@ -118,19 +118,6 @@ struct DashboardView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // v2.0.87u：右上角天气（小图标 + 温度）
-            // v3.9.25：本地模式此前点徽章**完全没反应**（纯展示），本次补入口 → 天气弹窗
-            PageHeader(title: "看板", subtitle: "智能家居 · NAS 状态",
-                       trailing: AnyView(
-                        Button {
-                            activeSheet = .weather
-                        } label: {
-                            WeatherBadge(temp: weatherTemp, code: weatherCode, city: weatherCity)
-                        }
-                        .buttonStyle(PressStyle(scale: 0.94))
-                        .matchedTransitionSource(id: DashboardSheet.weather.id, in: sheetZoomNS)   // v3.9.25：徽章 → 天气弹窗 zoom
-                        .accessibilityLabel("查看天气")
-                       ))
             ScrollView {
                 // v2.0.133f：VStack → LazyVStack——TabView 切页动画期间看板全量卡片一次性布局是切页卡顿主因，
                 // 懒加载后只渲染可见卡片（与 v2.0.132 ChatView 消息列表同款方案；看板无批量移除路径，安全）
@@ -157,6 +144,24 @@ struct DashboardView: View {
             // 滚动定位/下拉刷新/三张 sheet → DashboardScrollChrome；
             // 三条 alert + 两条 confirmationDialog → DashboardDialogChrome。
             // 视图树与语义逐条守恒，链在本文件末的 applyXxx 里解析。
+            // v4.0.62：滚边玻璃（`safeAreaBar`）推广 —— 页头从 VStack 第一行改挂在滚动视图上，
+            // 滚动时内容在页头下沿走系统级模糊/渐隐（同生活页 v4.0.61 试点形态，逐字同款）。
+            // 回退：删掉本块、在 VStack 第一行恢复 PageHeader(...) 即可。
+            .safeAreaBar(edge: .top) {
+                // v2.0.87u：右上角天气（小图标 + 温度）
+                // v3.9.25：本地模式此前点徽章**完全没反应**（纯展示），本次补入口 → 天气弹窗
+                PageHeader(title: "看板", subtitle: "智能家居 · NAS 状态",
+                           trailing: AnyView(
+                            Button {
+                                activeSheet = .weather
+                            } label: {
+                                WeatherBadge(temp: weatherTemp, code: weatherCode, city: weatherCity)
+                            }
+                            .buttonStyle(PressStyle(scale: 0.94))
+                            .matchedTransitionSource(id: DashboardSheet.weather.id, in: sheetZoomNS)   // v3.9.25：徽章 → 天气弹窗 zoom
+                            .accessibilityLabel("查看天气")
+                           ))
+            }
             .modifier(DashboardScrollChrome(host: self))
             .modifier(DashboardDialogChrome(host: self))
         }

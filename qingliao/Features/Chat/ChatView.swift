@@ -493,19 +493,21 @@ struct ChatView: View {
 
     @ViewBuilder
     private var headerTrailingItems: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: HeaderPillIconButton.spacing) {
             // v4.0.27：思考档位胶囊迁入输入栏工具层（附件/相机旁）
             // v4.0.36：朗读胶囊同样迁入工具层（紧挨思考档位）
             // ⇒ header 右侧两枚胶囊都已不在，这里只剩任务中心入口
-            // v4.0.61（用户 2026-10-05）：两颗图标统一走 HeaderPillIconButton（同一胶囊口径 topBar 档）——
-            // 原先一颗 20pt/一颗 24pt、且「更多」自带外环（ellipsis.circle）与胶囊底会成双圈，
-            // 现统一胶囊口径 + 44pt 命中区，外环去掉（ellipsis）
-            HeaderPillIconButton(systemName: "checklist",
+            // v4.0.61（用户 2026-10-05）：两颗图标统一走 HeaderPillIconButton——
+            // 原先一颗 20pt/一颗 24pt（一大一小，正是用户这次点出来的问题）
+            // v4.0.62（用户 2026-10-05 复测）：胶囊调小（icon 12 / h11 / v5）+ 间距 8；两颗统一「圆环家族」——
+            // 任务中心 checklist → list.bullet.circle、更多 ellipsis → ellipsis.circle（用户选定 B 组：
+            // 圆环画布实测全 44px，光学方框最齐；v4.0.61「外环与胶囊底成双圈」的顾虑按用户选择作废）
+            HeaderPillIconButton(systemName: "list.bullet.circle",
                                  a11y: "任务中心",
                                  badge: taskStore.uncompleted > 0) {
                 showTaskCenter = true
             }
-            HeaderPillIconButton(systemName: "ellipsis", a11y: "更多") {
+            HeaderPillIconButton(systemName: "ellipsis.circle", a11y: "更多") {
                 showMoreMenu = true
             }
         }

@@ -79,17 +79,27 @@ struct SessionsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            sessionsHeaderBar
+            // v4.0.62（用户 2026-10-05）：页头（含搜索框）改挂到滚动视图上 → 列表在页头下沿走系统级模糊，
+            // 与生活页 v4.0.61 试点、看板页 v4.0.62 逐字同款。
+            // 三条**非滚动**分支（骨架 / 错误态 / 拉取失败横幅）保持原「页头当普通一行」的固定版式——
+            // 它们没有滚动内容，挂 safeAreaBar 只会多一层没意义的玻璃。
+            // 回退：把三处 sessionsHeaderBar 并回 VStack 第一行、删掉 .safeAreaBar 那一行即可。
             if isLoading && sessions.isEmpty {
+                sessionsHeaderBar
                 sessionsLoadingSkeleton
             } else if let err = errorText, sessions.isEmpty {
+                sessionsHeaderBar
                 sessionsErrorState
-            } else {
+            } else if errorText != nil {
                 // v3.9.41（SR47）：拉取失败但列表已有数据时，原先整条错误信息都不渲染
                 // （错误态判据是 sessions.isEmpty）→ 冷启动缓存秒显后遇网络失败，
                 // 用户以为看到的是最新数据。补顶部横幅，列表仍可操作。
-                if errorText != nil { sessionsStaleBanner }
+                sessionsHeaderBar
+                sessionsStaleBanner
                 sessionsListBody
+            } else {
+                sessionsListBody
+                    .safeAreaBar(edge: .top) { sessionsHeaderBar }
             }
         }
         .task { await load() }
@@ -205,12 +215,15 @@ struct SessionsView: View {
         // v2.0.87ad：多选编辑入口（非空会话时显示）
         // v4.1.x：标题随归档箱视图切换；trailing 加「归档箱」小图标（archivebox / tray.full）
         PageHeader(title: showArchived ? "归档箱" : "会话",
-                   trailing: AnyView(HStack(spacing: 12) {
-            // v4.0.61（用户 2026-10-05）：右上角图标统一走 HeaderPillIconButton（同一胶囊口径 topBar 档）——
+                   trailing: AnyView(HStack(spacing: HeaderPillIconButton.spacing) {
+            // v4.0.61（用户 2026-10-05）：右上角图标统一走 HeaderPillIconButton——
             // 三颗原先各写各的（字号 headline vs title、字重 medium vs semibold、外环图标 vs 无环）
+            // v4.0.62（用户 2026-10-05 复测）：胶囊调小 + 图标统一「圆环家族」——
+            // 归档 archivebox.circle ↔ archivebox.circle.fill（描边↔实心；原 archivebox/tray.full 无圆环版，
+            // 且 tray.full.circle 不存在，故用同一符号的实心态区分两态）、多选 checkmark.circle ↔ xmark.circle
             if !sessions.isEmpty {
                 HeaderPillIconButton(
-                    systemName: showArchived ? "tray.full" : "archivebox",
+                    systemName: showArchived ? "archivebox.circle.fill" : "archivebox.circle",
                     a11y: showArchived ? "返回会话列表" : "查看归档会话"
                 ) {
                     withAnimation(Motion.tap) {
@@ -222,7 +235,7 @@ struct SessionsView: View {
                     }
                 }
                 HeaderPillIconButton(
-                    systemName: editing ? "xmark" : "checkmark",   // 编辑态换形态，不再靠颜色区分
+                    systemName: editing ? "xmark.circle" : "checkmark.circle",   // 编辑态换形态，不再靠颜色区分
                     a11y: editing ? "退出多选" : "多选会话"
                 ) {
                     withAnimation(Motion.tap) {
@@ -507,7 +520,8 @@ struct SessionsView: View {
 
     private var addButton: some View {
         // v4.0.61：走统一的胶囊口径（尺寸/玻璃/命中区与同排两颗一致）；弹动仍由 plusBounceTick 驱动
-        HeaderPillIconButton(systemName: "plus", a11y: "新建会话", bounceTick: plusBounceTick) {
+        // v4.0.62：图标随同排两颗统一「圆环家族」→ plus → plus.circle（裸字形与圆环混排正是用户点出的"不协调"）
+        HeaderPillIconButton(systemName: "plus.circle", a11y: "新建会话", bounceTick: plusBounceTick) {
             // v2.0.58：两步走新建——ChatView 观察到 pendingNewSession 后
             // 先卸载列表再清数据（v2.0.44 的切tab+延迟在过渡期仍崩）
             Haptics.tap()          // v3.4.29：触感补齐
