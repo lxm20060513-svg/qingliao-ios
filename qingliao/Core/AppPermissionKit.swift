@@ -57,6 +57,12 @@ enum AppCapability: String, CaseIterable, Identifiable, Sendable {
     // 真闸门在后端账号配置 —— 详见 AppPermissionKit.status(of: .mail) 里的注释。
     case mail
     case homekit
+    // v4.0.57 轻聊自己的待办清单（生活页 → 待办）。无系统 TCC 权限概念（App 内数据），
+    // 与「提醒事项」(EventKit) 分开：用户说「加入待办」指的是这里
+    case todoList
+    // v4.0.60 健康数据（HealthKit，只读）。⚠️ 与 HomeKit **不同档**：免费签名也能拿到，
+    // 前提是 IPA 里带着 ad-hoc 的 healthkit entitlement 声明（见 HealthStore.swift 文件头）。
+    case health
 
     var id: String { rawValue }
 
@@ -72,6 +78,8 @@ enum AppCapability: String, CaseIterable, Identifiable, Sendable {
         case .notifications: return "通知"
         case .mail:          return "邮件"
         case .homekit:       return "家庭"
+        case .todoList:      return "待办清单"
+        case .health:        return "健康"
         }
     }
 
@@ -87,6 +95,8 @@ enum AppCapability: String, CaseIterable, Identifiable, Sendable {
         case .notifications: return "bell"
         case .mail:          return "envelope"
         case .homekit:       return "house"
+        case .todoList:      return "checkmark.circle"
+        case .health:        return "heart.text.square"
         }
     }
 
@@ -113,11 +123,21 @@ enum AppCapability: String, CaseIterable, Identifiable, Sendable {
             return "让 AI 用系统通知提醒你。"
         case .homekit:
             return "家庭（HomeKit）需要开发者证书授权，侧载安装无法使用。"
+        case .todoList:
+            return "把事项加进轻聊生活页的「待办」清单（与系统提醒事项互不相干）；经你确认后可加。"
+        case .health:
+            return "读步数/步行距离/活动能量/心率/静息心率/睡眠/运动记录（来自「健康」App）；只读不写。"
         }
     }
 
     /// 本版是否真的接了执行能力。HomeKit = false（见文件头 entitlement 说明）。
-    var aiControllable: Bool { self != .homekit }
+    var aiControllable: Bool {
+        switch self {
+        case .homekit: return false          // 侧载拿不到 homekit entitlement（见文件头）
+        case .health:  return HealthStore.isAvailable   // 真拿到 healthkit 才可控，缺了碰了会闪退
+        default:       return true
+        }
+    }
 }
 
 // MARK: - 授权状态
@@ -243,6 +263,16 @@ enum AppPermissionKit {
             // 这两项**没有系统授权概念**：剪贴板读写与 App 自己的沙盒目录都不需要 TCC 许可。
             // 恒 granted，但外层双闸门（总闸 + 单项「允许 AI 操作」）照样生效 —— 用户关掉就不给动。
             return .granted
+        case .todoList:
+            // v4.0.57 同 clipboard/files 口径：待办是 App 内数据（todos.json），没有 TCC 可查。
+            // 真闸门 = 双闸门（总闸 + 单项「允许 AI 操作·待办清单」）。
+            return .granted
+        case .health:
+            // v4.0.60：不可用（IPA 没带 healthkit 声明）→ .unavailable，不弹无意义的授权框；
+            // 可用时读本地记录的「读通了没」（HealthKit 不回传读权限，见 HealthStore 文件头）。
+            // ⚠️ 这个函数**不在 MainActor 上**（见本函数开头注释），HealthStore.shared 是 MainActor 隔离
+            //    → 必须跳主线程，否则 Swift 6 报 "expression is 'async' but is not marked with 'await'"。
+            return await MainActor.run { HealthStore.shared.authorizationState }
         case .notifications:
             let s = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
             switch s {
@@ -304,6 +334,8 @@ enum AppPermissionKit {
             return await LocationPermission.shared.request()
         case .clipboard, .files:
             return .granted
+        case .todoList:
+            return .granted
         case .mail:
             // 没有系统授权可请求（理由见 status(of: .mail) 里的注释）→ 不弹框，直接回 granted。
             return .granted
@@ -311,6 +343,11 @@ enum AppPermissionKit {
             let granted = (try? await UNUserNotificationCenter.current()
                 .requestAuthorization(options: [.alert, .sound])) ?? false
             return granted ? .granted : .denied
+        case .health:
+            // v4.0.60：不可用就直接回 .unavailable（**绝不调 requestAuthorization**，缺 entitlement 会闪退）
+            guard HealthStore.isAvailable else { return .unavailable }
+            _ = await HealthStore.shared.requestAccess()
+            return HealthStore.shared.authorizationState
         case .homekit:
             return .unavailable
         }

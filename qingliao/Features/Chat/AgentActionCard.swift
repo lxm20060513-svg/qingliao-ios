@@ -81,6 +81,7 @@ struct AgentActionCard: View {
         case .calendarFree:   return "calendar.day.timeline.left"
         case .calendarToday:  return "calendar"
         case .reminderCreate: return "checklist"
+        case .todoAdd:        return "checkmark.circle.fill"
         case .reminderList:   return "checklist.checked"
         case .reminderDelete: return "checklist.unchecked"
         case .photoSave:      return "square.and.arrow.down"
@@ -97,6 +98,7 @@ struct AgentActionCard: View {
         case .mailSend:       return "envelope.fill"
         case .goalCreate:     return "target"
         case .goalStepDone:   return "checkmark.seal.fill"
+        case .healthQuery:    return "heart.text.square"
         }
     }
 

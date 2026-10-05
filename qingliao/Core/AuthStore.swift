@@ -256,33 +256,52 @@ final class AuthStore {
         // v2.0.70：蜂窝下恢复 relay 兜底（v2.0.68 一刀切去掉后蜂窝无法登录——iOS 管控下
         // 直连 POST 必挂，relay 是唯一通道；代价是 ASWAS 弹 Safari 授权窗，但可用优先）。
         // WiFi 下不弹：NetworkMonitor 已收紧（有 WiFi 接口绝不判蜂窝）+ 登录强制直连仅限 WiFi。
+        // v4.0.60（用户 2026-10-05 实报「频繁弹登录窗」+ 后端日志取证）：
+        // relay 兜底**只留给写操作**。ASWAS 授权框是系统级、每次调用必弹且不可缓存（无「始终允许」），
+        // 而只读 GET 全是自动刷新/轮询/切页触发（看板、天气、生活卡片、inbox、列表、任务中心…），
+        // 它们直连失败也降级 relay = 「后台轮询失败也弹窗」——纯扰民，且实测只产弹窗不产结果
+        // （约 37h nginx 日志里 relay 载荷请求 0 条：点「取消」时 Safari 根本不发请求，服务端无痕）。
+        // 只读失败即失败：上层 jsonOrLog / 看板 / 列表各自降级为「显示上次数据或空」，下轮轮询 /
+        // 切页 / 下拉自会重试；写操作（发送、上传、登录、保存）保留兜底，快照类写入另有
+        // SyncedStore 的待补传队列兜底（Core/PendingPinWrites.swift）。
         var (data, code) = (Data(), 0)
         if NetworkMonitor.shared.isCellular {
+            let allowRelay = (method != "GET")
+            var directError: Error?
             do {
                 (data, code) = try await relay.directRequest(method: method, path: path,
                                                              headers: headers, body: bodyData,
                                                              timeout: timeout ?? 10)
-                // v4.0.19（用户 2026-10-01 真机实报「生活卡片下拉必报网络错误」+ 后端探针实锤）：
-                // iOS 27 蜂窝 CFStream 直连会**静默丢自定义头**——请求到达后端时 X-Auth-Token 为空 →
-                // 假 401。原来只有 directRequest 抛错才降级 relay，401 是有效响应不抛 → 假 401 直接返回。
-                // 白名单接口 401 被静默降级 200 掩盖了问题，非白名单（如 /api/life/config）如实报错。
-                // 修法：直连 401 且本请求带了 token → 判定为假 401，用 relay 复验一次（relay 头完整）。
-                if code == 401, headers["X-Auth-Token"]?.isEmpty == false,
-                   !path.contains("/api/auth/"), !sessionExpired {
-                    // v4.0.19 审查建议①②落地：真401（token真过期）不重试（避免连环弹 ASWAS 授权窗）；
-                    // 复验独立 do/catch——复验失败保留原401语义，不再落外层 catch 二次 relay（双倍30s超时）
-                    do {
-                        (data, code) = try await relay.relay(method: method, path: path,
-                                                             headers: headers, body: bodyData,
-                                                             timeout: timeout ?? 30)
-                    } catch {
-                        (data, code) = (Data(), 401)
-                    }
-                }
             } catch {
-                (data, code) = try await relay.relay(method: method, path: path,
-                                                     headers: headers, body: bodyData,
-                                                     timeout: timeout ?? 30)
+                directError = error
+            }
+            // v4.0.19（用户 2026-10-01 真机实报「生活卡片下拉必报网络错误」+ 后端探针实锤）：
+            // iOS 27 蜂窝 CFStream 直连会**静默丢自定义头**——请求到达后端时 X-Auth-Token 为空 → 假 401。
+            // v4.0.60：复验方式由 relay 改为**直连重试一次**（丢头是偶发的，重试一次即带完整头）——
+            // relay 复验每次都弹授权窗，真 401（token 过期）时也会白弹一次，纯代价无收益。
+            if directError == nil, code == 401, headers["X-Auth-Token"]?.isEmpty == false,
+               !path.contains("/api/auth/"), !sessionExpired {
+                do {
+                    (data, code) = try await relay.directRequest(method: method, path: path,
+                                                                 headers: headers, body: bodyData,
+                                                                 timeout: timeout ?? 10)
+                } catch {
+                    (data, code) = (Data(), 401)
+                }
+            }
+            if let e = directError {
+                if allowRelay {
+                    (data, code) = try await relay.relay(method: method, path: path,
+                                                         headers: headers, body: bodyData,
+                                                         timeout: timeout ?? 30)
+                } else {
+                    // 只读：不降级 relay（免授权弹窗），如实失败。
+                    // ⚠️ 已知开放项（2026-10-05 审查）：跨设备读快照（Synced·Store 的 readRemote）走 GET + query
+                    //    (/api/files/pin_read?path=…)，而 v2.0.5 实测过「标准端点带 query 在蜂窝下会挂 10s 超时」。
+                    //    收窄前它靠 relay 兜底，现在蜂窝下可能读不到远端快照（表现为「换设备看不到新条目」）。
+                    //    → 装 4.0.60 后在蜂窝下实测一次；若真读不到，再给读接口单独开一条不弹窗的通道（如改 POST 形态）。
+                    throw e
+                }
             }
         } else {
             // Wi-Fi/其他：URLSession 直连（免 relay 弹窗）
@@ -378,6 +397,48 @@ final class AuthStore {
         } else {
             return try await directHTTP(method: "GET", path: path,
                                         headers: ["X-Auth-Token": token], body: nil)
+        }
+    }
+
+    /// v4.0.60：把一份快照推 NAS（`/api/files/pin_write`）——**只直连、不降级 relay**
+    /// （写快照是后台/自动动作，绝不能弹 ASWAS 授权窗）。true = 落库成功。
+    /// 供 SyncedStore 写链与 PendingPinWrites 补传共用；失败如实返回 false，由调用方入待补传队列。
+    /// 写快照到 NAS。**只直连、不降级 relay**（自动写不该弹 ASWAS 授权窗，v4.0.60）。
+    /// 但保留「假 401 直连重试一次」：蜂窝下 CFStream 偶发静默丢自定义头 → 后端看到空 X-Auth-Token
+    /// → 假 401（v4.0.19 实的坑）。少了这一步，蜂窝写快照会恒失败入队、补传又同样失败 ——
+    /// 用户报的「待办没创建」就会以延迟补传的形式复现（2026-10-05 审查抓）。
+    /// 重试后仍 401 = 真过期 → markSessionExpired()（否则队列永不排空且毫无提示）。
+    func pushSnapshot(path: String, data: Data) async -> Bool {
+        let body: [String: Any] = ["path": path, "data": data.base64EncodedString()]
+        guard let bodyData = try? JSONSerialization.data(withJSONObject: body) else { return false }
+        let headers = ["Content-Type": "application/json", "X-Auth-Token": token]
+        do {
+            var code = 0
+            if NetworkMonitor.shared.isCellular {
+                let r = try await relay.directRequest(method: "POST", path: "/api/files/pin_write",
+                                                      headers: headers, body: bodyData, timeout: 15)
+                code = r.1
+                if code == 401, headers["X-Auth-Token"]?.isEmpty == false, !sessionExpired {
+                    let again = try? await relay.directRequest(method: "POST", path: "/api/files/pin_write",
+                                                               headers: headers, body: bodyData, timeout: 15)
+                    code = again?.1 ?? 401
+                    if code == 401 { markSessionExpired() }
+                }
+            } else {
+                let r = try await directHTTP(method: "POST", path: "/api/files/pin_write",
+                                             headers: headers, body: bodyData, timeout: 20)
+                code = r.1
+                if code == 401, headers["X-Auth-Token"]?.isEmpty == false, !sessionExpired {
+                    let again = try? await directHTTP(method: "POST", path: "/api/files/pin_write",
+                                                      headers: headers, body: bodyData, timeout: 20)
+                    code = again?.1 ?? 401
+                    if code == 401 { markSessionExpired() }
+                }
+            }
+            return (200..<300).contains(code)
+        } catch {
+            print("[AuthStore] pushSnapshot 失败 \(path): \(error)")
+            return false
         }
     }
 
@@ -697,17 +758,13 @@ final class AuthStore {
                              error: error, outcome: outcome, plan: plan, planSeq: planSeq)
     }
 
-    /// 流式停止：蜂窝 → CFStream 直连 POST（免弹窗），失败降级 relay；Wi-Fi → 直连
+    /// 流式停止：蜂窝 → CFStream 直连 POST（免弹窗）；Wi-Fi → 直连
+    /// v4.0.60：蜂窝下**不再降级 relay**——停流是收尾动作（服务端自身也会超时收尾），
+    /// 为它弹一次 ASWAS 授权窗不值，且 relay 串行队列会插队堵住用户紧接着的请求。
     func streamStop(taskId: String) async {
         if NetworkMonitor.shared.isCellular {
-            do {
-                _ = try await relay.directRequest(method: "POST", path: "/api/stream/\(taskId)/stop",
-                                                  headers: ["X-Auth-Token": token], timeout: 8)
-            } catch {
-                let uid = RelayIdentity.uid(for: currentStreamSessionId)
-                _ = try? await relay.relay(method: "POST", path: "/r/stream/stop/\(uid)/\(taskId)",
-                                           headers: ["X-Auth-Token": token], timeout: 10)
-            }
+            _ = try? await relay.directRequest(method: "POST", path: "/api/stream/\(taskId)/stop",
+                                               headers: ["X-Auth-Token": token], timeout: 8)
         } else {
             _ = try? await directHTTP(method: "POST", path: "/api/stream/\(taskId)/stop",
                                       headers: ["X-Auth-Token": token], body: nil)
@@ -746,6 +803,9 @@ final class AuthStore {
     /// v2.0.87ar：蜂窝下只直连试探（不触发 relay 授权弹窗——弹窗只在用户实际操作时弹出）
     func refreshConnection() async {
         guard !serverURL.isEmpty else { return }
+        // v4.0.60：前台恢复 = 网络大概率换过了 → 顺势补传蜂窝下写失败的快照
+        // （空队列是空操作；补传只走直连、不弹授权窗。token 已判定过期时补传必失败，直接跳过）
+        if !sessionExpired { await PendingPinWrites.flush(auth: self) }
         do {
             if NetworkMonitor.shared.isCellular {
                 _ = try await relay.directRequest(method: "GET", path: "/api/auth/status", timeout: 8)

@@ -58,6 +58,10 @@ enum AgentActionExecutor {
         // v4.0.7 长期目标：AI 判定「我在筹备XX」→ 用户点确认 → 建目标 + 拆步骤进待办
         case .goalCreate:     return await createGoal(action, auth: auth)
         case .goalStepDone:   return await markGoalStep(action, auth: auth)
+        // v4.0.57 轻聊待办清单：写 TodoStore（App 内数据），不经二级分派文件
+        case .todoAdd:        return await addTodo(action)
+        // v4.0.60 健康数据（HealthKit 只读）：本地执行，经二级分派文件（同第二批能力口径）
+        case .healthQuery:    return await runLocal(action)
         // v4.0.x 第二批能力（提醒事项/通讯录/定位/剪贴板/文件）。
         // ⚠️ 它们**只经由这里**进二级分派（AgentActionExecutorLocal.runLocal）——
         //    不要在那个文件里另起入口，双入口必然分叉。
@@ -67,7 +71,30 @@ enum AgentActionExecutor {
              .clipboardRead, .clipboardWrite,
              .fileList, .fileRead, .fileWrite:
             return await runLocal(action)
+        // v4.0.57：todo.add 在主分派里直接处理（run 的 switch 已穷举，编译器守护）
         }
+    }
+
+    // MARK: - 轻聊待办清单（v4.0.57）
+
+    /// todo.add：写进轻聊生活页自己的待办清单（TodoStore → todos.json，NAS 双写）。
+    /// 与 reminder.create（系统「提醒事项」App）是两个落点 —— 用户说「加入待办」指这里。
+    private static func addTodo(_ action: AgentAction) async -> Outcome {
+        if let reason = await AppPermissionKit.mutationGuard(.todoList) {
+            return .failed(reason)
+        }
+        guard let title = action.param("title") ?? action.param("content") ?? action.param("body") else {
+            return .failed("没给待办内容")
+        }
+        let before = TodoStore.shared.todos.count
+        let ok = TodoStore.shared.add(content: title, source: "ai")
+        guard ok else { return .failed("待办内容是空的，没法加") }
+        // TodoStore.add 对「同内容 5 分钟内已存在」会返回 true 但**不插入**（去重）—— 照实说，
+        // 别报「已加入」再让用户去生活页找不到（2026-10-05 审查抓到的「看着成功其实没成」）。
+        guard TodoStore.shared.todos.count > before else {
+            return .doneNoUndo(message: "这条已经在轻聊待办里了：「\(title)」")
+        }
+        return .doneNoUndo(message: "已加入轻聊待办：「\(title)」（生活页 → 待办 里能看到）")
     }
 
     // MARK: - 日历

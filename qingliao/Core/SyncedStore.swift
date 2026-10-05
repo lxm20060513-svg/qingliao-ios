@@ -111,8 +111,15 @@ enum SyncedStore {
     @MainActor
     static func writeToFile(auth: AuthStore?, path: String, data: Data) async {
         guard let auth else { return }
-        let body: [String: Any] = ["path": path, "data": data.base64EncodedString()]
-        _ = try? await auth.json("/api/files/pin_write", method: "POST", body: body)
+        // v4.0.60：写快照**只走直连、不降级 relay**（自动写不该弹 ASWAS 授权窗），失败即入待补传队列。
+        // 此前是 `try?` 静默吞错：蜂窝下写失败就只剩本地快照，换设备/重装才发现缺条
+        // （用户 2026-10-05 报「待办没有被创建」即此类）。成功则清掉队列里该 path 的旧副本
+        // ——防「旧快照补传后到、覆盖掉更新的快照」。
+        if await auth.pushSnapshot(path: path, data: data) {
+            PendingPinWrites.discard(path: path)
+        } else {
+            PendingPinWrites.enqueue(path: path, data: data)
+        }
     }
 
     /// GET /api/files/pin_read：读远端快照并解码。读不到/解不开一律返回 nil（保持调用方原语义）。

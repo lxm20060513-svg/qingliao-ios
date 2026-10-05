@@ -120,6 +120,27 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             archive
 
+      - name: Ad-hoc sign with entitlements（HealthKit 等能力的声明载体，别删）
+        # ⚠️ 为什么必须有这一步：本包是 CODE_SIGNING_ALLOWED=NO 的无签名 IPA，签名里没有任何
+        # entitlements → 侧载器（AltStore/SideStore）重签时不知道要给这个 App ID 开通 HealthKit，
+        # App 里「健康」会永远是「不可用」（缺 entitlement 硬调 HealthKit 会抛 ObjC 异常直接闪退，
+        # 见 qingliao/Core/HealthStore.swift 文件头）。
+        # 这里用 ad-hoc 身份（-s -）把 Config/Qingliao.entitlements 写进签名，侧载器重签时会读它、
+        # 据此开通对应能力（社区项目 NOOP 同做法：replaceable ad-hoc capability template）。
+        # 先签 PlugIns 里的扩展再签主 App（否则主 App 签名会被嵌套未签名代码顶掉）。
+        run: |
+          APP=build/App.xcarchive/Products/Applications/Qingliao.app
+          if [ ! -d "$APP" ]; then echo "::error::没找到 $APP，Archive 步骤变了？"; exit 1; fi
+          for plug in "$APP"/PlugIns/*; do
+            [ -e "$plug" ] || continue
+            codesign -s - --force --timestamp=none "$plug" || echo "⚠️ ad-hoc 签扩展失败（不致命）：$plug"
+          done
+          codesign -s - --force --timestamp=none \
+            --entitlements Config/Qingliao.entitlements "$APP"
+          echo "--- 复核：主 App 签名里的 entitlements（应看到 healthkit）---"
+          codesign -d --entitlements :- "$APP" 2>&1 | grep healthkit \
+            || echo "⚠️ 没在签名里读到 healthkit —— 侧载后「健康」会显示不可用，先查 Config/Qingliao.entitlements"
+
       - name: Package unsigned IPA (Payload zip, for SideStore)
         run: |
           mkdir -p build/ipa/Payload

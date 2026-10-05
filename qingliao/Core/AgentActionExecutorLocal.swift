@@ -36,10 +36,12 @@ extension AgentActionExecutor {
         case .fileList:        return await listFiles(action)
         case .fileRead:        return await readFile(action)
         case .fileWrite:       return await writeFile(action)
+        case .healthQuery:     return await healthSummary(action)
         // 其余动作不走这条路（编译期就能发现漏接：这里只列本地那 11 个）
         case .calendarCreate, .calendarUpdate, .calendarDelete, .calendarFree, .calendarToday,
              .photoSave, .photoDelete, .notify, .mailSend,
-             .goalCreate, .goalStepDone:
+             .goalCreate, .goalStepDone,
+             .todoAdd:
             // mail.send / goal.create / goal.step_done 需要登录态（auth）走后端，
             // 由 run(_:auth:) 直接分派 —— 别在这里另起入口
             return .failed("内部错误：这个动作不该走本地分派")

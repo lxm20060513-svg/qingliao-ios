@@ -122,6 +122,8 @@ let table: [(AgentAction.Kind, AgentAction.Kind.Impact, String)] = [
     (.mailSend,       .write,  "mail"),
     (.goalCreate,     .write,  "reminders"),
     (.goalStepDone,   .write,  "reminders"),
+    (.todoAdd,        .write,  "todoList"),
+    (.healthQuery,    .read,   "health"),
 ]
 for (kind, impact, cap) in table {
     check("\(kind.rawValue) 影响分级 = \(impact.rawValue)", kind.impact == impact)
@@ -179,7 +181,7 @@ check("contacts.search 是只读", AgentAction.Kind.contactsSearch.impact == .re
 // v3.9.110 审查修：改用 allCases，别再手写列表——扩容时手写那份必然漏（本轮就漏了 mailSend，
 // 「动作名互不重复」这条负断言的覆盖面比真值表少一项，是典型的假绿夹具）。
 let allKinds: [AgentAction.Kind] = AgentAction.Kind.allCases
-check("动作总数 22（v4.0.7 加 goal.create/goal.step_done）", allKinds.count == 22)
+check("动作总数 24（v4.0.60 加 todo.add / health.query）", allKinds.count == 24)
 // MARK: - v4.0.7 长期目标动作
 let goalActions: [AgentAction.Kind] = [.goalCreate, .goalStepDone]
 check("goal 动作数 2", goalActions.count == 2)
@@ -197,6 +199,27 @@ if let a = AgentAction.parse(json: #"{"action":"goal.create","params":{"title":"
 } else { check("解析 goal.create", false) }
 check("未知 goal.x 动作退化为 nil（不猜不执行）",
       AgentAction.parse(json: #"{"action":"goal.explode"}"#) == nil)
+
+// MARK: - v4.0.60 待办清单动作
+
+if let t = AgentAction.parse(json: #"{"action":"todo.add","params":{"title":"接入 iOS 健康数据"},"summary":"加入待办"}"#) {
+    check("解析 todo.add", t.kind == .todoAdd)
+    check("待办标题可读", t.param("title") == "接入 iOS 健康数据")
+} else { check("解析 todo.add", false) }
+check("todo.add 是写动作（必须点确认）", AgentAction.Kind.todoAdd.impact == .write)
+check("todo.add 归属待办清单能力", AgentAction.Kind.todoAdd.capability == .todoList)
+check("todo.add 标签非空", !AgentAction.Kind.todoAdd.capabilityLabel.isEmpty)
+
+// MARK: - v4.0.60 健康数据动作（HealthKit 只读）
+
+if let h = AgentAction.parse(json: #"{"action":"health.query","params":{"days":"3","metric":"sleep"},"summary":"看看最近的睡眠"}"#) {
+    check("解析 health.query", h.kind == .healthQuery)
+    check("health 参数可读", h.param("days") == "3" && h.param("metric") == "sleep")
+} else { check("解析 health.query", false) }
+check("health.query 是只读动作（免确认自动执行）", AgentAction.Kind.healthQuery.impact == .read)
+check("health.query 归属健康能力", AgentAction.Kind.healthQuery.capability == .health)
+check("health.query 标签非空", !AgentAction.Kind.healthQuery.capabilityLabel.isEmpty)
+check("待办清单能力已有 AI 操控开关位", AppCapability.todoList.aiControllable)
 
 check("动作名互不重复", Set(allKinds.map(\.rawValue)).count == allKinds.count)
 

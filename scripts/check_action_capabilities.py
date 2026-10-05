@@ -27,7 +27,7 @@ BE_COPY = os.path.join(os.path.dirname(ROOT), 'scripts', 'ql_be_deploy', 'stream
 
 # ── 真值表：能力（顺序即权限页展示顺序，**改动要连 AppPermissionKit 一起对齐**）
 CAPS = ['calendar', 'reminders', 'photos', 'contacts', 'location',
-        'clipboard', 'files', 'notifications', 'mail', 'homekit']
+        'clipboard', 'files', 'notifications', 'mail', 'homekit', 'todoList', 'health']
 
 # ── 真值表：22 个动作 → (影响分级, 归属能力, prompt 里给模型看的动作名)
 #     prompt 名 = rawValue，唯一例外是 notify（后端一直写作 notify）
@@ -55,6 +55,10 @@ ACTIONS = [
     # v4.0.7 长期目标：AI 判定「我在筹备XX」→ 回建目标卡 → 用户点确认才建
     ('goalCreate', 'goal.create', 'write', 'reminders'),
     ('goalStepDone', 'goal.step_done', 'write', 'reminders'),
+    # v4.0.60 待办清单：AI 判定「记到待办/加到待办清单」→ 回待办卡 → 用户点确认才写轻聊待办
+    ('todoAdd', 'todo.add', 'write', 'todoList'),
+    # v4.0.60 健康（HealthKit 只读）：用户问睡眠/步数/心率 → 回只读卡自动执行
+    ('healthQuery', 'health.query', 'read', 'health'),
 ]
 ACT_NAMES = [a[1] for a in ACTIONS]
 
@@ -192,6 +196,7 @@ need = {
     'NSContactsUsageDescription': '通讯录',
     'NSLocationWhenInUseUsageDescription': '定位',
     'UIFileSharingEnabled': '文件 App 共享（用户要看得到 AI 写的文件）',
+    'NSHealthShareUsageDescription': '健康（HealthKit，缺了第一次读健康就 SIGABRT）',
 }
 missing = ['%s(%s)' % (k, v) for k, v in need.items() if k not in proj]
 check('project.yml 权限串齐全（缺 = 第一次用就闪退/看不到文件）', not missing, '缺 %s' % missing)
@@ -221,18 +226,34 @@ if os.path.exists(BE_COPY):
     be = open(BE_COPY, encoding='utf-8').read()
     mm = re.search(r'QLACTION_PROMPT\s*=\s*\((.*?)\n\)', be, re.S)
     prompt = mm.group(1) if mm else ''
+    # v4.0.20（#2）起目标动作说明抽成 _GOAL_ACTION_DOC（为了能按开关整段门控），
+    # 只看 QLACTION_PROMPT 会误判 goal.create/goal.step_done 漏发（护栏假红）。
+    # 两个常量合起来 = 模型实际能收到的动作全集。
+    mg = re.search(r'_GOAL_ACTION_DOC\s*=\s*\((.*?)\n\)', be, re.S)
+    goaldoc = mg.group(1) if mg else ''
     check('后端 QLACTION_PROMPT 可定位', bool(prompt))
-    missing = [n for n in ACT_NAMES if n != 'notify' and n not in prompt]
-    check('后端 prompt 覆盖全部新动作（漏 = 模型永远不会发）',
+    # v4.0.20（#2）起目标动作说明抽成 _GOAL_ACTION_DOC，且**按开关门控**投给模型
+    # （stream_api.py：`+ (_GOAL_ACTION_DOC if _goal_auto_detect_enabled() else "")`）。
+    # 所以：goal.* 允许只出现在那个（可能被门控掉的）常量里；**其余动作必须无条件在 QLACTION_PROMPT 里**。
+    # 早先「两个常量直接拼起来查」会掩盖「开关关掉时 goal 动作压根没投递」这种假绿（2026-10-05 审查抓到）。
+    GOAL_GATED = {'goal.create', 'goal.step_done'}
+    missing = [n for n in ACT_NAMES
+               if n != 'notify' and n not in prompt
+               and not (n in GOAL_GATED and n in goaldoc)]
+    check('后端 prompt 覆盖全部新动作（goal.* 允许按开关门控，其余必须无条件在 QLACTION_PROMPT）',
           not missing, '缺 %s' % missing)
+    if goaldoc:
+        check('目标动作的门控注入点还在（_GOAL_ACTION_DOC + _goal_auto_detect_enabled）',
+              re.search(r'_GOAL_ACTION_DOC if _goal_auto_detect_enabled\(\)', be) is not None)
+    prompt_all = prompt + '\n' + goaldoc
     for must, what in (('提醒事项', '提醒事项不再是"做不到"'),
                        ('通讯录', '通讯录'),
                        ('定位', '定位'),
                        ('剪贴板', '剪贴板'),
                        ('文件', '文件读写')):
-        if must not in prompt:
+        if must not in prompt_all:
             fails.append('后端 prompt 缺 %s 的能力说明' % what)
-    if '提醒事项' in prompt and re.search(r'提醒事项[^。]{0,40}(没有任何公开接口|未提供|做不到)', prompt):
+    if '提醒事项' in prompt_all and re.search(r'提醒事项[^。]{0,40}(没有任何公开接口|未提供|做不到)', prompt_all):
         fails.append('后端 prompt 仍写着"提醒事项做不到"（与 App 侧矛盾）')
     if all('后端 prompt 缺' not in f for f in fails):
         print('✅ 后端 prompt 五项新能力说明齐全')
@@ -262,6 +283,10 @@ check('AgentActionCard 自己取登录态环境（漏 = 上面的 auth 无法解
       '@Environment(AuthStore.self) private var auth' in cardsrc)
 check('mail.send 与其它写动作同口径过 mutationGuard（漏 = 权限页那个开关变成摆设）',
       'if let reason = await AppPermissionKit.mutationGuard(.mail) { return .failed(reason) }' in exsrc)
+# v4.0.60：todo.add 也是写动作，守卫必须留在执行体里 —— 否则「允许 AI 操作·待办清单」那个开关
+# 变成摆设，越权写入只有运行期才暴露（2026-10-05 审查抓）。
+check('todo.add 过 mutationGuard(.todoList)（漏 = 待办开关变摆设 + 越权写入）',
+      'await AppPermissionKit.mutationGuard(.todoList)' in exsrc)
 
 inb = read('qingliao/Core/InboxStore.swift')
 check('作答必须查后端 ok（漏 = 200+ok:false 被当成功，卡面停在「已回答」而 AI 一直等）',

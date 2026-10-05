@@ -39,6 +39,12 @@ struct AgentAction: Equatable, Sendable {
         case reminderCreate = "reminder.create"
         case reminderList   = "reminder.list"      // 看待办（只读）
         case reminderDelete = "reminder.delete"
+        // v4.0.57 轻聊 App 自己的待办清单（TodoStore/todos.json，生活页 → 待办），
+        // 与系统「提醒事项」App（reminder.create）是两回事 —— 用户「加入待办」指这里
+        case todoAdd = "todo.add"                  // 加入待办（写）
+        // v4.0.60 iOS 健康数据（HealthKit **只读**）：用户问睡眠/步数/心率 → 回只读卡自动执行。
+        // ⚠️ 侧载要 IPA 里带 healthkit entitlement 声明才真能用，见 HealthStore.swift 文件头
+        case healthQuery = "health.query"          // 查看健康数据（只读）
         // 相册
         case photoSave    = "photo.save"           // 存图（写）
         case photoDelete  = "photo.delete"         // 删图（删）
@@ -67,6 +73,8 @@ struct AgentAction: Equatable, Sendable {
             case .calendarCreate, .calendarDelete, .calendarUpdate, .calendarFree, .calendarToday:
                 return .calendar
             case .reminderCreate, .reminderList, .reminderDelete: return .reminders
+            case .todoAdd: return .todoList
+            case .healthQuery: return .health
             case .photoSave, .photoDelete:  return .photos
             case .contactsSearch, .contactsCreate: return .contacts
             case .locationCurrent:          return .location
@@ -88,11 +96,12 @@ struct AgentAction: Equatable, Sendable {
         var impact: Impact {
             switch self {
             case .calendarFree, .calendarToday, .reminderList, .contactsSearch,
-                 .locationCurrent, .clipboardRead, .fileList, .fileRead:
+                 .locationCurrent, .clipboardRead, .fileList, .fileRead,
+                 .healthQuery:
                 return .read
             case .calendarCreate, .calendarUpdate, .photoSave, .notify,
                  .reminderCreate, .contactsCreate, .clipboardWrite, .fileWrite, .mailSend,
-                 .goalCreate, .goalStepDone:
+                 .goalCreate, .goalStepDone, .todoAdd:
                 return .write
             case .calendarDelete, .photoDelete, .reminderDelete:
                 return .delete
@@ -108,6 +117,8 @@ struct AgentAction: Equatable, Sendable {
             case .calendarFree:   return "查询空闲时段"
             case .calendarToday:  return "查看今日日程"
             case .reminderCreate: return "新建提醒事项"
+            case .todoAdd:        return "加入待办清单"
+            case .healthQuery:    return "查看健康数据"
             case .reminderList:   return "查看提醒事项"
             case .reminderDelete: return "删除提醒事项"
             case .photoSave:      return "保存到相册"

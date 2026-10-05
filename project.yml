@@ -38,8 +38,8 @@ targets:
         CFBundleDevelopmentRegion: zh_CN
         CFBundleLocalizations:
           - zh-Hans
-        CFBundleShortVersionString: "4.0.59"
-        CFBundleVersion: "616"
+        CFBundleShortVersionString: "4.0.60"
+        CFBundleVersion: "617"
         UILaunchScreen: {}
         # v3.9.83：SCENE 生命周期 + 声明自己的 scene delegate。
         # SwiftUI 进程本就是 scene-based，而系统把「桌面图标长按项被点」**只发给 scene delegate**，
@@ -79,6 +79,9 @@ targets:
         #    **SIGABRT 闪退**，且只在用户真点一次该功能时复现 —— -parse 和 CI archive 都查不出。
         #    这三条一律"用到才触发"，漏补就是"用户第一次用就崩"，先声明再说。
         NSRemindersFullAccessUsageDescription: 让轻聊在你确认后读取你的待办提醒、新建提醒事项
+        # v4.0.60 健康（HealthKit 只读）：同一条教训 —— 缺权限串在真机上是 SIGABRT 闪退，
+        # 且只在用户真点一次「健康」时复现，-parse 与 CI archive 都查不出。
+        NSHealthShareUsageDescription: 让轻聊在你确认后读取你的健康数据（步数/睡眠/心率等），用于回答你的健康问题
         NSContactsUsageDescription: 让轻聊在你确认后查询联系人、新建联系人
         NSLocationWhenInUseUsageDescription: 让轻聊在你确认后读取一次当前位置，用于回答「我在哪 / 附近有什么」
         # 文件读写走 App 自己的 Documents 沙盒（SandboxFiles）。打开文件 App 共享后，
@@ -146,8 +149,8 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.qingliao.app2
         INFOPLIST_KEY_CFBundleDisplayName: 轻聊
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-        MARKETING_VERSION: "4.0.59"
-        CURRENT_PROJECT_VERSION: "616"
+        MARKETING_VERSION: "4.0.60"
+        CURRENT_PROJECT_VERSION: "617"
         ENABLE_PREVIEWS: YES
         CODE_SIGNING_ALLOWED: "NO"
 
@@ -174,15 +177,15 @@ targets:
         CFBundleDisplayName: 轻聊
         CFBundlePackageType: XPC!
         # 扩展与宿主版本号必须一致（XcodeGen 对未声明的键默认写 1.0/1，会让 .appex 自报 1.0(1)）
-        CFBundleShortVersionString: "4.0.59"
-        CFBundleVersion: "616"
+        CFBundleShortVersionString: "4.0.60"
+        CFBundleVersion: "617"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.qingliao.app2.widget
-        MARKETING_VERSION: "4.0.59"
-        CURRENT_PROJECT_VERSION: "616"
+        MARKETING_VERSION: "4.0.60"
+        CURRENT_PROJECT_VERSION: "617"
         CODE_SIGNING_ALLOWED: "NO"
         CODE_SIGNING_REQUIRED: "NO"
         SKIP_INSTALL: YES
@@ -212,8 +215,8 @@ targets:
         CFBundleDisplayName: 轻聊
         CFBundlePackageType: XPC!
         # 扩展与宿主版本号必须一致（XcodeGen 对未声明的键默认写 1.0/1，会让 .appex 自报 1.0(1)）
-        CFBundleShortVersionString: "4.0.59"
-        CFBundleVersion: "616"
+        CFBundleShortVersionString: "4.0.60"
+        CFBundleVersion: "617"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.share-services
           # 不用 storyboard：直接挂 VC 类（本仓没有 MainInterface.storyboard，少一份要同步的资源）
@@ -234,8 +237,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.qingliao.app2.share
-        MARKETING_VERSION: "4.0.59"
-        CURRENT_PROJECT_VERSION: "616"
+        MARKETING_VERSION: "4.0.60"
+        CURRENT_PROJECT_VERSION: "617"
         CODE_SIGNING_ALLOWED: "NO"
         CODE_SIGNING_REQUIRED: "NO"
         SKIP_INSTALL: YES
