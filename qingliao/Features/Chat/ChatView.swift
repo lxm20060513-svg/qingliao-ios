@@ -1514,6 +1514,14 @@ struct ChatView: View {
     @ViewBuilder
     private var chatTranscriptArea: some View {
         messageList
+            // v4.0.64（用户 2026-10-05 真机复测第 2 条「聊天页的滚边玻璃也取消」）：
+            // iOS 26 起 ScrollView / List 会自动带「滚动边缘效果」（内容滚到边缘被**模糊 + 变暗**，
+            // 见 Apple `scrollEdgeEffectHidden(_:for:)` 文档原文 "content to be blurred and dimmed
+            // so that it works better next to surrounding UI controls such as the status bar or a
+            // tab bar"）—— 这正是用户在聊天页看到的「滚边玻璃」。本页消息区关掉它。
+            // 会话页同类处理见 SessionsView.sessionsListBody（同一批、同一口径）。
+            // ⚠️ 只关会话页 + 聊天页（用户口径）；看板 / 生活两页的页头 safeAreaBar 原样保留。
+            .scrollEdgeEffectHidden(true)
             .overlay {
                 // v3.0.79：点按空白处停止录音（exitVoiceMode 注释原本就写"按钮/空白点击共用"，此处补上空白点击）
                 // v3.9.6：整个消息区（含底部空白）都是停止面；输入栏区域不拦（不是"空白处"）

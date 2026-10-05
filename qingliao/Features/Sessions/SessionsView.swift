@@ -471,6 +471,10 @@ struct SessionsView: View {
         // v3.9.30：删除/刷新后列表项淡出与位置移动过渡（数组替换不再生硬跳变）
         .animation(Motion.settle, value: sortedSessions.map(\.id))
         .scrollPosition($scrollPos)
+        // v4.0.64（用户 2026-10-05 真机复测：会话页 + 聊天页都取消「滚边玻璃」）：
+        // iOS 26 自动给 List / ScrollView 加**滚动边缘效果**（内容滚到标签栏 / 状态栏旁被模糊 + 变暗）。
+        // 本页与聊天页消息区一并关掉；看板 / 生活两页不动（用户只点了这两页）。
+        .scrollEdgeEffectHidden(true)
         // v2.0.86h：Dock 滑动隐藏已删除（从未生效，手动开关替代）
         .refreshable {
             if !isSearching { await load() }

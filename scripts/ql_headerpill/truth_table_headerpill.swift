@@ -144,6 +144,19 @@ check("⑥ 「还有 N 条」计数同口径（count > 1 / count - 1）",
 check("🚫 反向⑥：两处不得各改一处（> 1 与 - 1 必须同时，不然会显示「还有 0 条」）",
       recordCode.contains("count > 1") && recordCode.contains("count - 1"))
 
-// ── 7. 结果 ──────────────────────────────────────────────────
+// ── 7. 滚边玻璃②：会话页 / 聊天页关闭**滚动边缘效果**（用户 2026-10-05 复测第 2 条）──
+// 真源 = iOS 26 系统 `scrollEdgeEffectHidden(_:for:)`（内容滚到标签栏 / 状态栏旁被模糊 + 变暗）。
+// ⚠️ 一律用 `code(...)`（已剥注释）—— 源码注释里出现 API 名不算调用。
+check("⑦ 会话页 List 关闭滚动边缘效果（scrollEdgeEffectHidden(true)）",
+      sessionsCode.contains(".scrollEdgeEffectHidden(true)"))
+check("⑦ 聊天页消息区关闭滚动边缘效果（scrollEdgeEffectHidden(true)）",
+      chatCode.contains(".scrollEdgeEffectHidden(true)"))
+check("🚫 反向⑦：看板 / 生活两页不许跟着关（用户只点了会话 + 聊天；那两页页头玻璃口径原样保留）",
+      !code(dashboard).contains("scrollEdgeEffectHidden")
+        && !code(life).contains("scrollEdgeEffectHidden"))
+check("🚫 反向⑦′：两页都不得改用 scrollEdgeEffectStyle（.automatic/.soft 会把模糊放回来；本仓口径是隐藏、不是换档）",
+      !sessionsCode.contains("scrollEdgeEffectStyle") && !chatCode.contains("scrollEdgeEffectStyle"))
+
+// ── 8. 结果 ──────────────────────────────────────────────────
 print("页头图标胶囊真值表：\(passCount) 通过 / \(failCount) 失败")
 if failCount > 0 { exit(1) }
