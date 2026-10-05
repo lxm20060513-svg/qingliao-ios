@@ -155,7 +155,11 @@ final class HealthStore {
     }
 
     /// 探针用的四类（正常 iPhone 用户近 7 天至少命中其一）
-    private static var probeTypes: [HKObjectType] {
+    /// ⚠️ 元素类型必须是 `HKSampleType`，不能写 `[HKObjectType]`：`HKSampleQuery(sampleType:)` 要的是 **sample** 类型，
+    /// 传 HKObjectType 数组只在**类型检查**阶段炸（`cannot convert value of type 'HKObjectType' to expected argument
+    /// type 'HKSampleType'`）——本机 `-parse` 全绿、只有 CI Archive 报（v4.0.60 首推 run #691 真踩）。
+    /// 口径：`HKObjectType.xxx()` 造出来的东西只用于「授权集 `readTypes`」，凡进查询/样本 API 一律 `HKSampleType`。
+    private static var probeTypes: [HKSampleType] {
         [HKQuantityType(.stepCount), HKQuantityType(.heartRate),
          HKCategoryType(.sleepAnalysis), HKObjectType.workoutType()]
     }
