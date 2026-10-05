@@ -79,27 +79,23 @@ struct SessionsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // v4.0.62（用户 2026-10-05）：页头（含搜索框）改挂到滚动视图上 → 列表在页头下沿走系统级模糊，
-            // 与生活页 v4.0.61 试点、看板页 v4.0.62 逐字同款。
-            // 三条**非滚动**分支（骨架 / 错误态 / 拉取失败横幅）保持原「页头当普通一行」的固定版式——
-            // 它们没有滚动内容，挂 safeAreaBar 只会多一层没意义的玻璃。
-            // 回退：把三处 sessionsHeaderBar 并回 VStack 第一行、删掉 .safeAreaBar 那一行即可。
+            // v4.0.63（用户 2026-10-05）：**取消滚边玻璃** —— 页头回退为「VStack 第一行 + 固定版式」，
+            // v4.0.62 的 `.safeAreaBar(edge: .top)` 整段撤除（用户真机复测否决；看板 / 生活两页不动）。
+            // 回退前：页头挂在滚动视图上，列表内容从页头下沿穿过并走系统级模糊；
+            // 恢复：把下面这行 `sessionsHeaderBar` 移回列表支、挂 `.safeAreaBar(edge: .top) { sessionsHeaderBar }`。
+            sessionsHeaderBar
             if isLoading && sessions.isEmpty {
-                sessionsHeaderBar
                 sessionsLoadingSkeleton
             } else if let err = errorText, sessions.isEmpty {
-                sessionsHeaderBar
                 sessionsErrorState
             } else if errorText != nil {
                 // v3.9.41（SR47）：拉取失败但列表已有数据时，原先整条错误信息都不渲染
                 // （错误态判据是 sessions.isEmpty）→ 冷启动缓存秒显后遇网络失败，
                 // 用户以为看到的是最新数据。补顶部横幅，列表仍可操作。
-                sessionsHeaderBar
                 sessionsStaleBanner
                 sessionsListBody
             } else {
                 sessionsListBody
-                    .safeAreaBar(edge: .top) { sessionsHeaderBar }
             }
         }
         .task { await load() }

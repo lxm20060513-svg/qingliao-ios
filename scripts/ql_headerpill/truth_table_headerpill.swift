@@ -1,4 +1,4 @@
-// MARK: - 页头图标胶囊真值表（v4.0.62 · 2026-10-05 用户 4.0.61 真机复测拍板）
+// MARK: - 页头图标胶囊真值表（v4.0.62 尺寸定稿 · v4.0.63 撤销会话页滚边玻璃 · 2026-10-05 用户真机复测拍板）
 //
 // 口径（用户从渲染对比稿里拍板，图在 /opt/data/scripts/ql_header_pill/mock/out/）：
 //   尺寸 = **小二档**：图标 12pt + 横 11 / 纵 5 → 胶囊约 34×25pt（原 topBar 档：13 + 14/7 → 约 41×31）；
@@ -14,8 +14,8 @@
 //   ① 尺寸只有一个真源 HeaderPillIconButton.iconFont/hPad/vPad/spacing —— 谁"顺手"改回 .pill(.topBar)
 //      或自己写 HStack(spacing: 12)，胶囊立刻回到 41×31，用户要的"调小一档"无声消失；
 //   ② 三颗图标必须同族：混排（裸字形 + 带框）就是从 v4.0.61 一路被吐槽到 v4.0.62 的病根，肉眼不易复核；
-//   ③ 会话页页头挂进滚动视图（滚边玻璃）只有**列表支**该挂：骨架/错误态/失败横幅是非滚动分支，
-//      挂上去只是多一层没意义的玻璃 —— 有人"统一一下"把它挪到 VStack 层，页头玻璃就整页失效。
+//   ③ 会话页页头**不再**挂滚动视图（v4.0.62 的滚边玻璃已被用户 v4.0.63 真机复测撤销）：页头必须留在
+//      VStack 第一行、全页 `.safeAreaBar` 计数为 0 —— 有人"统一一下"把 `.safeAreaBar` 加回来，本表第 3 组判红。
 //
 // 单文件（读源文件做护栏，不 import 项目代码）→ run_unit 直接编跑。
 
@@ -99,15 +99,13 @@ check("🚫 反向②：会话页又出现裸字形图标（archivebox / tray.fu
         && !sessionsCode.contains("systemName: \"plus\"")
         && !sessionsCode.contains("? \"xmark\" : \"checkmark\""))
 
-// ── 3. 会话页页头：滚边玻璃只挂列表支 ───────────────────────────
-check("③ 列表支页头挂进滚动视图（safeAreaBar → sessionsHeaderBar）",
-      sessionsCode.contains(".safeAreaBar(edge: .top) { sessionsHeaderBar }"))
-check("🚫 反向③：safeAreaBar 只许 1 处（骨架/错误态/失败横幅是非滚动分支，挂上只是白加一层玻璃）",
-      sessionsCode.components(separatedBy: ".safeAreaBar(").count - 1 == 1)
-check("🚫 反向③′：页头不许再回到 VStack 第一行（回退 = 列表内容从页头下面直接穿过、没有滚边模糊）",
-      !sessionsCode.contains("VStack(spacing: 0) {\n            sessionsHeaderBar"))
-check("③ 三条非滚动分支仍各自保留固定页头（骨架 / 错误态 / 失败横幅）",
-      sessionsCode.components(separatedBy: "                sessionsHeaderBar\n").count - 1 >= 3)
+// ── 3. 会话页页头：滚边玻璃已取消（v4.0.63 · 用户 2026-10-05 真机复测拍板撤销）──
+check("③ 会话页页头回到 VStack 第一行（其后紧跟就是列表分支；回退 = 页头下方再无滚动模糊）",
+      sessionsCode.contains("sessionsHeaderBar\n            if isLoading && sessions.isEmpty {"))
+check("🚫 反向③：会话页不得再挂 safeAreaBar（用户拍板取消滚边玻璃；看板/生活两页不受影响）",
+      sessionsCode.components(separatedBy: ".safeAreaBar(").count - 1 == 0)
+check("🚫 反向③′：页头只此一处（骨架/错误态/失败横幅不再各带一份；计数 >1 = 回退做成了半退）",
+      sessionsCode.components(separatedBy: "            sessionsHeaderBar\n").count - 1 == 1)
 
 // ── 4. 聊天页两颗：同族 + 同间距 ────────────────────────────────
 check("④ 聊天页任务中心：checklist → list.bullet.circle",
@@ -119,7 +117,7 @@ check("④ 聊天页页头两颗同排间距走单一真源",
 check("④ 聊天页页头两颗都走 HeaderPillIconButton",
       chatCode.components(separatedBy: "HeaderPillIconButton(").count - 1 >= 2)
 
-// ── 5. 滚边玻璃三页口径（生活试点 / 看板推广 / 会话页推广）──────
+// ── 5. 滚边玻璃两页口径（生活试点 / 看板推广；会话页 v4.0.63 已退出）──
 check("⑤ 生活页页头在滚动视图上（v4.0.61 试点）",
       code(life).components(separatedBy: ".safeAreaBar(edge: .top)").count - 1 == 1
         && life.contains("PageHeader(title: \"生活\""))
