@@ -1247,15 +1247,18 @@ else
   echo "✅ 第 84 段 会话列表代码无 .scrollDepth()（注释里的警示不算）"
 fi
 
-echo "=== 85. 页头图标胶囊真值表（v4.0.62 · 用户 2026-10-05 对 4.0.61 的真机复测）==="
+echo "=== 85. 页头图标胶囊真值表（v4.0.63 · 取消会话页滚边玻璃）==="
 # 钉：尺寸只有一个真源（icon 12 / 横 11 / 纵 5 / 间距 8；禁用 .pill(.topBar) 回退，回退 = 胶囊涨回 41×31）；
 #     会话页右上三颗 + 聊天页两颗一律**圆环家族**——裸字形与带框混排就是从 v4.0.61 一路被吐槽到 v4.0.62 的病根，
 #     且 v4.0.61「外环 + 胶囊底 = 双圈」的顾虑已被用户看稿后否决（不要再改回裸字形）；
 #     会话页页头**不进滚动视图**（v4.0.63 用户拍板取消滚边玻璃 → 回 VStack 第一行、safeAreaBar 计数 0）；
 #     看板页 PageHeader 不许挪回 VStack 第一行（回退 = 滚边玻璃整页失效）；记录卡首页 prefix(1)
 #     （`count > 1` 与 `count - 1` 必须同时改，只改一处会显示「还有 0 条」）。
-# 变异自证（2026-10-05 本机实跑 5 处）：HStack(spacing: 12) / archivebox.circle.fill→tray.full / hPad 11→14 /
-#   prefix(1)→prefix(2) / 拆掉看板 safeAreaBar —— 五处各自判红 ✅（24 通过 / 5 失败）
+# 变异自证（**历史记录** · 尺寸定稿版实跑，未在本版重跑，数字仅供溯源）：HStack(spacing: 12) /
+#   archivebox.circle.fill→tray.full / hPad 11→14 / prefix(1)→prefix(2) / 拆掉看板 safeAreaBar —— 五处各判红；
+#   本批四处（2026-10-05 **在本版实跑**，逐条各判红、每次恰 1 项失败 = 29 通过 / 1 失败）：
+#     会话页加回 .safeAreaBar → 反向③ / 页头复制成两处 → 反向③′ / 页头前插 Spacer 挪出第一行 → ③ /
+#     分支重贴 PageHeader( → 反向③″；还原后 30 通过 / 0 失败。
 run_unit /tmp/test_headerpill scripts/ql_headerpill/truth_table_headerpill.swift
 
 [ $fail -eq 0 ] || { echo "❌ 有护栏失守"; exit 1; }

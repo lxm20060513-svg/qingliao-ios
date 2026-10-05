@@ -8,7 +8,7 @@
 //        依据：这几个符号的位图画布实测**全 44px**，其余候选 39~53px 参差（archivebox 46 / checkmark 43 /
 //        plus 40 / checklist 53 / tray 52 / list.bullet 48）——「光学方框不齐」正是用户说的"不协调"。
 //   ⚠️ v4.0.61 曾以「外环图标 + 胶囊底 = 双圈」为由把外环去掉（ellipsis.circle → ellipsis）；
-//      用户看过对比稿后**明确选了带外环的 B 组** → 该顾虑作废，**不要再按那条改回裸字形**（本表第 5 组反向钉死）。
+//      用户看过对比稿后**明确选了带外环的 B 组** → 该顾虑作废，**不要再按那条改回裸字形**（本表第 2 组反向钉死）。
 //
 // 为什么值得钉（这三处都会**静默**错，不报错，只让用户下次装包再吐槽一轮）：
 //   ① 尺寸只有一个真源 HeaderPillIconButton.iconFont/hPad/vPad/spacing —— 谁"顺手"改回 .pill(.topBar)
@@ -100,12 +100,19 @@ check("🚫 反向②：会话页又出现裸字形图标（archivebox / tray.fu
         && !sessionsCode.contains("? \"xmark\" : \"checkmark\""))
 
 // ── 3. 会话页页头：滚边玻璃已取消（v4.0.63 · 用户 2026-10-05 真机复测拍板撤销）──
-check("③ 会话页页头回到 VStack 第一行（其后紧跟就是列表分支；回退 = 页头下方再无滚动模糊）",
-      sessionsCode.contains("sessionsHeaderBar\n            if isLoading && sessions.isEmpty {"))
+// 判据写「VStack → 空白 → 页头」而不是「页头行 + 紧邻 if 行」：前者真钉**第一行**（页头前再插 Spacer /
+// 注释行都判红），且不依赖 12 空格缩进字面量（重排不误伤）。
+check("③ 会话页页头是 VStack 第一行（两者之间只许空白；回退 = 页头下方再无滚动模糊）",
+      sessionsCode.components(separatedBy: "VStack(spacing: 0) {").count - 1 == 1
+        && sessionsCode.components(separatedBy: "VStack(spacing: 0) {")[1]
+             .trimmingCharacters(in: .whitespacesAndNewlines)
+             .hasPrefix("sessionsHeaderBar"))
 check("🚫 反向③：会话页不得再挂 safeAreaBar（用户拍板取消滚边玻璃；看板/生活两页不受影响）",
       sessionsCode.components(separatedBy: ".safeAreaBar(").count - 1 == 0)
 check("🚫 反向③′：页头只此一处（骨架/错误态/失败横幅不再各带一份；计数 >1 = 回退做成了半退）",
       sessionsCode.components(separatedBy: "            sessionsHeaderBar\n").count - 1 == 1)
+check("🚫 反向③″：页头**载体**也只此一处（改个属性名重贴 PageHeader( 同样判红）",
+      sessionsCode.components(separatedBy: "PageHeader(").count - 1 == 1)
 
 // ── 4. 聊天页两颗：同族 + 同间距 ────────────────────────────────
 check("④ 聊天页任务中心：checklist → list.bullet.circle",
