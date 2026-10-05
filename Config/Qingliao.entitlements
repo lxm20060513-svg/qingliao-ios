@@ -2,12 +2,6 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- v4.0.60：只声明 HealthKit（健康数据只读）。
-	     作用：本包是**无签名** IPA（CODE_SIGNING_ALLOWED=NO），
-	     侧载器（AltStore/SideStore）重签时会读这里声明的能力，
-	     再向 Apple 给你的 App ID 开通对应能力 —— 少了这一条，
-	     HealthKit 调用会因缺 entitlement 抛 ObjC 异常**直接闪退**。
-	     CI 在打包前用 `codesign -s - --entitlements Config/Qingliao.entitlements` 把它写进 Payload。 -->
 	<key>com.apple.developer.healthkit</key>
 	<true/>
 </dict>

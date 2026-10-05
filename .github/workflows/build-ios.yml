@@ -138,8 +138,11 @@ jobs:
           codesign -s - --force --timestamp=none \
             --entitlements Config/Qingliao.entitlements "$APP"
           echo "--- 复核：主 App 签名里的 entitlements（应看到 healthkit）---"
+          # 硬失败（不是 ⚠️ 软提示）：这一条就是整个「健康」功能的载体，读不到就说明这个 IPA 装了也用不了，
+          # 让它在这里红掉，别发出一个「健康永远显示不可用」的包（v4.0.60 口径）。
+          # 注意 `--entitlements :-`（冒号-）才是「输出到 stdout」的老写法，错写 `-` 在部分 macOS 上走 stderr → grep 永远读不到。
           codesign -d --entitlements :- "$APP" 2>&1 | grep healthkit \
-            || echo "⚠️ 没在签名里读到 healthkit —— 侧载后「健康」会显示不可用，先查 Config/Qingliao.entitlements"
+            || { echo "::error::签名里没有 healthkit —— 查 Config/Qingliao.entitlements（XML 注释里不能出现双连字符，AMFI 会解析失败）"; exit 1; }
 
       - name: Package unsigned IPA (Payload zip, for SideStore)
         run: |
