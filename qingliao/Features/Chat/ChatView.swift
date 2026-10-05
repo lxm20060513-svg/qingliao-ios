@@ -497,38 +497,17 @@ struct ChatView: View {
             // v4.0.27：思考档位胶囊迁入输入栏工具层（附件/相机旁）
             // v4.0.36：朗读胶囊同样迁入工具层（紧挨思考档位）
             // ⇒ header 右侧两枚胶囊都已不在，这里只剩任务中心入口
-            Button {
+            // v4.0.61（用户 2026-10-05）：两颗图标统一走 HeaderPillIconButton（同一胶囊口径 topBar 档）——
+            // 原先一颗 20pt/一颗 24pt、且「更多」自带外环（ellipsis.circle）与胶囊底会成双圈，
+            // 现统一胶囊口径 + 44pt 命中区，外环去掉（ellipsis）
+            HeaderPillIconButton(systemName: "checklist",
+                                 a11y: "任务中心",
+                                 badge: taskStore.uncompleted > 0) {
                 showTaskCenter = true
-            } label: {
-                ZStack(alignment: .topTrailing) {
-                    Image(systemName: "checklist")
-                        .font(.system(size: Typography.body, weight: .semibold))
-                        .foregroundStyle(Color.accentColor)
-                        .frame(width: 20, height: 20)
-                    if taskStore.uncompleted > 0 {
-                        Circle()
-                            .fill(Color.red)
-                            .frame(width: 7, height: 7)
-                            .overlay(Circle().strokeBorder(Color(uiColor: .systemBackground), lineWidth: 1))
-                            .offset(x: 4, y: -3)
-                    }
-                }
             }
-            .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
-            // v3.9.34：命中区撑到 44×44（图标仍 20pt、间距零变化 —— 见 hitArea44 负 padding 说明）
-            .hitArea44()
-            .accessibilityLabel("任务中心")
-
-            Button {
+            HeaderPillIconButton(systemName: "ellipsis", a11y: "更多") {
                 showMoreMenu = true
-            } label: {
-                Image(systemName: "ellipsis.circle")
-                    .font(.system(size: Typography.title, weight: .semibold))
-                    .foregroundStyle(Color.accentColor)
             }
-            .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
-            // v3.9.34：命中区撑到 44×44（图标仍 24pt、间距零变化）
-            .hitArea44()
         }
     }
 
@@ -1684,8 +1663,8 @@ struct ChatView: View {
         }
         .padding(.horizontal, Spacing.xl)
         .padding(.vertical, Spacing.md)
-        .background(.ultraThinMaterial, in: Capsule())
-        .overlay(Capsule().strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8))
+        // v4.0.61：悬浮提示条改走原生玻璃出口（原描边逐字搬进出口参数）
+        .a11yGlass(.regular, in: Capsule(), stroke: Color.primary.opacity(Tint.faint))
         .padding(.horizontal, Spacing.xxl)
         .padding(.top, Spacing.xxs)
         .padding(.bottom, Spacing.xxs)
@@ -1735,8 +1714,8 @@ struct ChatView: View {
         }
         .padding(.horizontal, Spacing.xl)
         .padding(.vertical, Spacing.md)
-        .background(.ultraThinMaterial, in: Capsule())
-        .overlay(Capsule().strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8))
+        // v4.0.61：悬浮提示条改走原生玻璃出口（原描边逐字搬进出口参数）
+        .a11yGlass(.regular, in: Capsule(), stroke: Color.primary.opacity(Tint.faint))
         .padding(.horizontal, Spacing.xxl)
         .padding(.top, Spacing.xxs)
         .padding(.bottom, Spacing.xxs)
@@ -2709,8 +2688,8 @@ struct ChatView: View {
                             .foregroundStyle(PillTone.accent.fg)
                             .padding(.horizontal, PillSize.topBar.hPad)
                             .padding(.vertical, PillSize.topBar.vPad)
-                            .glassEffect(.regular.interactive())
-                            .overlay(Capsule().strokeBorder(PillTone.accent.stroke, lineWidth: 0.8))
+                            // v4.0.61：走无障碍玻璃出口
+                            .a11yGlass(.regular.interactive(), in: Capsule(), stroke: PillTone.accent.stroke)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .buttonStyle(.plain)

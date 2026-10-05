@@ -92,7 +92,7 @@ struct SettingsSearchTruthTable {
             ("localModels", "showLocalModels"), ("kb", "showKB"), ("memory", "showMemory"),
             ("cardGallery", "showCardGallery"), ("secrets", "showSecrets"), ("tasks", "showTasks"),
             ("history", "showHistory"), ("logs", "showLogs"), ("diagnostics", "showDiagnostics"),
-            ("pinPath", "showPinPath"), ("lifeCards", "showLifeCards"), ("quickReminder", "showQuickReminder"),
+            ("pinPath", "connOpenPinPath"), ("lifeCards", "showLifeCards"), ("quickReminder", "showQuickReminder"),
             ("filesManager", "showFilesManager"), ("proactive", "showProactive"),
             ("agentModel", "showAgentModelSheet"), ("agentHelp", "showAgentHelp"),
             ("agentKeywords", "showAgentKeywords"), ("agentMemory", "showAgentMemory"),

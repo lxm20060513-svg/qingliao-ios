@@ -11,6 +11,11 @@ import SwiftUI
 struct SettingsSearchBar: View {
     @Binding var text: String
 
+    // v4.0.61：补两处原生搜索行为——键盘按「搜索」提交后收起键盘；聚焦态交给系统管（配合下面的 .focused）。
+    // ⚠️ 别把这里换成系统 `.searchable`：本文件头注已记录 v3.9.88 用户拍板回退的原因
+    //    （系统搜索栏依赖导航栈、会另起一条导航栏，与自绘 PageHeader 顶栏观感打架）。原生化 ≠ 换组件。
+    @FocusState private var searchFocused: Bool
+
     var body: some View {
         HStack(spacing: Spacing.md) {
             Image(systemName: "magnifyingglass")
@@ -21,6 +26,8 @@ struct SettingsSearchBar: View {
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled(true)
                 .submitLabel(.search)
+                .focused($searchFocused)
+                .onSubmit { searchFocused = false }   // v4.0.61：系统搜索键提交即收键盘（原生行为）
             if !text.isEmpty {
                 Button {
                     text = ""

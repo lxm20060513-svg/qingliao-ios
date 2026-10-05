@@ -112,7 +112,7 @@ struct RecordSection: View {
         showAdd = true
     }
 
-    // MARK: 单张页卡（本月合计 + 最近读数 + 最近 3 条）
+    // MARK: 单张页卡（本月合计 + 最近读数 + 最近 2 条）
 
     private var topCard: some View {
         Button {
@@ -143,7 +143,7 @@ struct RecordSection: View {
                     categoryBreakdown
                 }
                 Divider().opacity(0.4)
-                ForEach(Array(store.sorted.prefix(3))) { r in
+                ForEach(Array(store.sorted.prefix(2))) { r in
                     HStack(spacing: 8) {
                         Text(r.title)
                             .font(.system(size: Typography.subhead))
@@ -155,8 +155,8 @@ struct RecordSection: View {
                             .monospacedDigit()
                     }
                 }
-                if store.records.count > 3 {
-                    Text("还有 \(store.records.count - 3) 条")
+                if store.records.count > 2 {
+                    Text("还有 \(store.records.count - 2) 条")
                         .font(.system(size: Typography.caption))
                         .foregroundStyle(.tertiary)
                 }

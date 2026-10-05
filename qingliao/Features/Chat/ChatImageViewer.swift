@@ -58,7 +58,8 @@ struct ImageViewer: View {
                             .foregroundStyle(.white.opacity(0.9))
                             .padding(.horizontal, Spacing.xl)
                             .padding(.vertical, Spacing.xs)
-                            .background(.ultraThinMaterial, in: Capsule())
+                            // v4.0.61：图片上的悬浮控件改走原生玻璃出口（底是真实图片，玻璃才折射得出来）
+                            .a11yGlass(.regular, in: Capsule(), stroke: .clear, fallback: Color.black.opacity(0.9))
                             .padding(.leading, Spacing.section)
                     }
                     Spacer()
@@ -82,9 +83,12 @@ struct ImageViewer: View {
                         .foregroundStyle(.white)
                         .padding(.horizontal, 18)
                         .padding(.vertical, Spacing.md)
-                        .background(.ultraThinMaterial, in: Capsule())
                 }
                 .buttonStyle(.plain)
+                // v4.0.61：玻璃从 label 的 background 移到 **Button 本身** ——
+                // `interactive()` 只有作用在交互控件上才有按压反馈（挂在 background 上等于静态装饰，
+                // 这是本仓 Pill / dock 的定版写法，别退回 background）
+                .a11yGlass(.regular.interactive(), in: Capsule(), stroke: .clear, fallback: Color.black.opacity(0.9))
                 .padding(.bottom, 44)
             }
         }

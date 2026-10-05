@@ -658,7 +658,9 @@ extension ChatInputBar {
             // 半径历史：v3.9.62 用 Radius.field(14) → v3.9.64 用 Radius.card(16) →
             //   v3.9.65 起用户明确「加到 18」→ ChatInputBarLayout.containerCornerRadius（单一真源，见 enum 定义）。
             // 外层玻璃容器其余件（白边/聚焦蓝边/流光）全部换成同一个形状（四处同形真值表钉住）。
-            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: ChatInputBarLayout.containerCornerRadius, style: .continuous))
+            // v4.0.61：走无障碍玻璃出口（容器本体无描边 —— 聚焦蓝边是下面独立的 overlay，保持不动）
+            .a11yGlass(.regular, in: RoundedRectangle(cornerRadius: ChatInputBarLayout.containerCornerRadius, style: .continuous),
+                       stroke: .clear)
             // v3.4.20：聚焦态光晕——输入框获得焦点时边缘亮起淡蓝细描边（0.8pt 与全站描边同参），失焦淡出。
             // 静态描边（非每帧重绘），无 shadow 叠加，不触碰 v3.2.3 渲染卡死红线。
             .overlay {

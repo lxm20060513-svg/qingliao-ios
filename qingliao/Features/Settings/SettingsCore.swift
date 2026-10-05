@@ -40,12 +40,9 @@ struct SettingsView: View {
     @State var memoryCount = 0
     @State var showTasks = false
     @State var showLogs = false
-    // v3.0.74：钉一钉存储路径
-    @State var showPinPath = false
-    var pinPathDisplay: String {
-        let p = PinStore.shared.storagePath
-        return p.isEmpty ? "默认路径" : (p.count > 20 ? "..." + p.suffix(17) : p)
-    }
+    /// v4.0.61：搜索「钉一钉存储」直达——钉一钉存储行已搬进「连接设置」页（用户 2026-10-05），
+    /// 本开关只负责「打开连接设置并让它自己把那颗 sheet 弹出来」，页内 UI 归 ConnSettingsView
+    @State var connOpenPinPath = false
     @State var showAppearance = false   // v3.0.4：外观弹窗（与云端统一）
     // v3.9.82：桌面图标长按快捷方式（候选清单里自己挑 4 项显示；iOS 桌面长按菜单上限就是 4）
     // v4.0.x：候选已随 OrbQuickAction.all 长到 8 项 —— 候选列表是动态的（HomeShortcut.candidates），
@@ -217,8 +214,9 @@ struct SettingsView: View {
                 .presentationDetents([.medium, .large])
         }
         .sheet(isPresented: $showConnSettings) {
-            ConnSettingsView()
+            ConnSettingsView(initiallyShowPinPath: connOpenPinPath)
                 .presentationDetents([.medium, .large])
+                .onDismiss { connOpenPinPath = false }
         }
         .sheet(isPresented: $showModelSheet) {
             ModelSheet(current: currentModel)
@@ -387,7 +385,9 @@ struct SettingsView: View {
         settingsQuery = ""
         switch entry.route {
         case "password": showPasswordSheet = true
-        case "conn": showConnSettings = true
+        case "conn":
+            connOpenPinPath = false
+            showConnSettings = true
         case "model": showModelSheet = true
         case "wechatChannel": showWechatChannel = true
         case "ha": showHASettings = true
@@ -404,7 +404,10 @@ struct SettingsView: View {
         case "history": showHistory = true
         case "logs": showLogs = true
         case "diagnostics": showDiagnostics = true
-        case "pinPath": showPinPath = true
+        case "pinPath":
+            // v4.0.61：钉一钉存储已搬进「连接设置」→ 打开该页并直达它的 sheet
+            connOpenPinPath = true
+            showConnSettings = true
         case "lifeCards": showLifeCards = true
         case "quickReminder": showQuickReminder = true
         case "filesManager": showFilesManager = true
@@ -745,11 +748,6 @@ extension SettingsView {
                        value: CrashReporter.hasPendingLog() ? "有待查看" : "设备/网络/崩溃记录",
                        chevron: true)
                 .tapButton { showDiagnostics = true }
-            // v3.0.74：钉一钉存储路径
-            Divider().padding(.leading, Spacing.rowDividerInset)
-            SettingRow(icon: "pin.fill", iconColor: .indigo, title: "钉一钉存储",
-                       value: pinPathDisplay, chevron: true)
-                .tapButton { showPinPath = true }
             // v3.5.x：生活卡片设置（股票 / 资讯 / 快递）
             Divider().padding(.leading, Spacing.rowDividerInset)
             SettingRow(icon: "rectangle.grid.2x2", iconColor: .green, title: "生活卡片",
@@ -767,10 +765,6 @@ extension SettingsView {
                 .tapButton { showFilesManager = true }
         }
         .glassListCard()
-        .sheet(isPresented: $showPinPath) {
-            PinPathSheet()
-                .presentationDetents([.medium, .large])
-        }
     }
 
     @ViewBuilder var agentSection: some View {

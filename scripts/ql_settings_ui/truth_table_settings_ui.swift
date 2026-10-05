@@ -193,8 +193,10 @@ let lgGlassSrc = stripComments(src("qingliao/Theme/LiquidGlass.swift"))
 check("有 glassPageBackground 修饰符（整页玻璃本体仍留在 Theme 供别处用）",
       lgGlassSrc.contains("struct GlassPageBackground"))
 let glassPageBody = slice(lgGlassSrc, "struct GlassPageBackground", "struct OverlayGlassCard")
+// v4.0.61：玻璃改经无障碍出口 a11yGlass → 判据放宽到「两种写法之一」，原意不动（玻璃仍与折射源同 ZStack）
 check("🚨 折射源与玻璃在**同一个 ZStack**（不是两层 background 叠放）",
-      glassPageBody.contains("ZStack") && glassPageBody.contains("glassEffect"))
+      glassPageBody.contains("ZStack")
+      && (glassPageBody.contains("glassEffect") || glassPageBody.contains("a11yGlass")))
 let bgCount = glassPageBody.components(separatedBy: ".background").count - 1
 check("🚨 只挂一次 background（两次=玻璃被折射源压死）", bgCount == 1)
 check("整页玻璃不圆角（用 Rectangle 形状，无 RoundedRectangle 圆角档）",

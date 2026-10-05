@@ -306,7 +306,9 @@ check("TodoStore.swift 源可读", !todoSrc.isEmpty)
 check("命中圈补了 contentShape(Circle())", orbMenuSrc.contains(".contentShape(Circle())"))
 check("轻纱补了 contentShape(Rectangle())（点空白收起靠它）", orbMenuSrc.contains("contentShape(Rectangle())"))
 // ② 可点玻璃胶囊走 .regular.interactive()（Pill.swift 定版；裸 glassEffect 是静态卡口径，无按压反馈）
-check("可点胶囊走 glassEffect(.regular.interactive())", orbMenuSrc.contains("glassEffect(.regular.interactive())"))
+// v4.0.61：写法改经无障碍出口，判据跟到 `.a11yGlass(.regular.interactive()`（原意：可点胶囊必须有按压反馈）
+check("可点胶囊走 .regular.interactive()（v4.0.61 起经 a11yGlass 出口）",
+      orbMenuSrc.contains("a11yGlass(.regular.interactive()"))
 // ③ 落点几何与源码字面量绑定（第 5 节是镜像计算，源码改了必须同步改表）
 check("落点常量与源码绑定（columnDX / upperDY / lowerDY / topDY）",
       orbMenuSrc.contains("static let columnDX: CGFloat = 118")
@@ -1257,8 +1259,10 @@ check("① 意图动作卡走 .dashboardCard()（门锁卡同款原生玻璃，v
 check("① 意图动作卡已不挂 overlayGlassCard（避免两套玻璃叠着/改回旧档）",
       !intentBarClean.contains(".overlayGlassCard()"))
 // 门锁卡/看板卡那套玻璃口径本身不许被这次改动动（浅底也能透的判据）
-check("① dashboardCard 口径仍是 .glassEffect(.regular, in: RoundedRectangle)（未被顺手改掉）",
-      lgSrc.contains(".glassEffect(.regular, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))"))
+// v4.0.61：全站玻璃统一收进无障碍出口 `a11yGlass(...)`（口径不变，只在系统开「降低透明度」时降级为实底）
+//   → 断言跟到出口写法上，**原意不动**：仍是 `.regular` 满强度 + 同一个 RoundedRectangle(cornerRadius:, style: .continuous)。
+check("① dashboardCard 口径仍是 .a11yGlass(.regular, in: RoundedRectangle)（未被顺手改掉）",
+      lgSrc.contains(".a11yGlass(.regular, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous),"))
 // 调用点②：AI 识别浮层两张卡（扫描中 / 没认出可用内容）
 // ⚠️ identifySrc 已在第 9 节声明过 —— 顶层重复 `let` = 编译不过（本节第一版就踩了），直接复用。
 // ⚠️ 计数/排除式断言先剥注释：这两张卡的注释里就写着 `.overlayGlassCard()` 与旧口径（说明「改了什么」），

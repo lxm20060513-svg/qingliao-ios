@@ -232,6 +232,7 @@ struct PetStudioSheet: View {
                 Image(systemName: on ? "checkmark.circle.fill" : "circle")
                     .font(.system(size: Typography.title))
                     .foregroundStyle(on ? Color.accentColor : Color.secondary)
+                    .symbolEffect(.bounce, value: on)   // v4.0.61：勾选弹一下
                 VStack(alignment: .leading, spacing: 1) {
                     Text(q.name)
                         .font(.system(size: Typography.body))

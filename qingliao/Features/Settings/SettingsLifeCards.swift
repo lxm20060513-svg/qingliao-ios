@@ -333,6 +333,7 @@ struct LifeCardsSettingsView: View {
                 Image(systemName: added ? "checkmark.circle.fill" : "plus.circle")
                     .font(.system(size: Typography.title))
                     .foregroundStyle(added ? Color.green : Color.accentColor)
+                    .symbolEffect(.bounce, value: added)   // v4.0.61：状态切换弹一下（原生符号动效）
             }
             .buttonStyle(PressStyle())
             .disabled(added)
@@ -909,6 +910,7 @@ struct StockSearchSheet: View {
                 Image(systemName: added ? "checkmark.circle.fill" : "plus.circle")
                     .font(.system(size: Typography.title))
                     .foregroundStyle(added ? Color.green : Color.accentColor)
+                    .symbolEffect(.bounce, value: added)   // v4.0.61：状态切换弹一下（原生符号动效）
             }
             .padding(.horizontal, Spacing.xxl)
             .padding(.vertical, Spacing.lg)

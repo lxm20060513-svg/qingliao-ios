@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit   // v4.0.61：正文接入 Dynamic Type 用 UIFontMetrics（SwiftUI 不转发 UIKit 符号）
 
 // MARK: - v3.9.0 全站字号令牌（Typography）
 //
@@ -32,7 +33,20 @@ enum Typography {
     /// 列表次要文字 / 标签
     static let subhead: CGFloat = 13
     /// 正文
-    static let body: CGFloat = 15
+    ///
+    /// v4.0.61（用户 2026-10-05 拍板「借鉴 iOS 原生风格」第①条）：**正文字号跟随系统「文字大小」**
+    /// （Dynamic Type）。做法是 UIFontMetrics 按 `.body` 档缩放同一个数值 —— 字重/字距/层级全不变，
+    /// 只让大小跟系统走；系统没调过时返回值恰好是 15，观感零变化（所以这不是"重排"，是"接管"）。
+    ///
+    /// ⚠️ **只放正文一类跟随**：胶囊（`PillSize` 走 subhead/tiny）、栏目标题、卡片数值都**保持固定** ——
+    ///    胶囊宽度、列表行高都按固定字号量过，跟随缩放会截字/撑高。
+    /// ⚠️ 上限 = `title`(17)，不再用 +40%（v4.0.61 审查意见 5）：
+    ///    21 会反超卡片数值(17) 与弹窗标题(20)，层级反转；且本仓大量卡片高度写死，撑爆风险高。
+    /// ⚠️ 未做缓存（审查意见 4b）：加缓存需读全局 trait（`UIApplication.shared…`/@MainActor），
+    ///    在 nonisolated static 里会引入并发隔离问题；而 UIFontMetrics 构造本身轻量，实测可忽略。
+    static var body: CGFloat {
+        min(UIFontMetrics(forTextStyle: .body).scaledValue(for: 15), 17)
+    }
     /// 小标题 / 卡片数值
     static let title: CGFloat = 17
     /// 卡片 / 弹窗标题

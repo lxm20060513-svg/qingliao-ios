@@ -107,8 +107,8 @@ extension View {
                 .foregroundStyle(tone.fg)
                 .padding(.horizontal, size.hPad)
                 .padding(.vertical, size.vPad)
-                .glassEffect(.regular.interactive())
-                .overlay(Capsule().strokeBorder(tone.stroke, lineWidth: 0.8))
+                // v4.0.61：走无障碍玻璃出口（交互式玻璃 + 同色描边逐字搬到出口参数里）
+                .a11yGlass(.regular.interactive(), in: Capsule(), stroke: tone.stroke)
         } else {
             self
                 .font(.system(size: size.fontSize))
@@ -123,9 +123,8 @@ extension View {
     /// v3.9.36：散装操作胶囊的玻璃底出口（19 处）——尺寸/字号沿用各处现状只换底，
     /// 描边与 pill(.accent) 同参（accent 0.28 / 0.8pt）。徽标/标签类禁用（见 Pill.swift 头注释）。
     func glassPillStroke() -> some View {
-        self
-            .glassEffect(.regular.interactive())
-            .overlay(Capsule().strokeBorder(Color.accentColor.opacity(0.28), lineWidth: 0.8))
+        // v4.0.61：走无障碍玻璃出口（19 处散装胶囊共用这一档）
+        self.a11yGlass(.regular.interactive(), in: Capsule(), stroke: Color.accentColor.opacity(0.28))
     }
 
     /// v3.9.46：聊天页头部那一排胶囊的统一档（**现状：v4.0.36 起该排两枚胶囊——思考档位/朗读——

@@ -40,17 +40,15 @@ struct LifeView: View {
         let h = hiddenSections
         return orderedSections.filter { !h.contains($0) }
     }
-    // v3.6.2：资讯展开态（同时只展开一条）+ 正文状态缓存 + 资讯专用刷新转圈
+    // v3.6.2：资讯展开态（同时只展开一条）+ 正文状态缓存
     @State private var expandedEntryID: String?
     @State private var articles: [String: LifeArticleState] = [:]
-    @State private var feedsRefreshing = false
     // v3.7.0：资讯正文长按「大爆炸」全屏炸开载荷
     @State private var bigBangPayload: BigBangPayload?
     @Namespace private var zoomNS   // v3.9.0：资讯行 → 大爆炸 的 zoom 转场
 
     var body: some View {
         VStack(spacing: 0) {
-            PageHeader(title: "生活", subtitle: "行情 · 资讯 · 快递 · 价格")
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 10) {
                     // v3.9.85：按用户自定义顺序渲染，隐藏的板块不出现
@@ -69,8 +67,6 @@ struct LifeView: View {
                                                           onDeleteStock: { st in Task { await deleteStock(st) } },
                                                           onAddStock: { showLifeSettings = true },
                                                           onRefresh: { Task { await loadLife(fresh: true) } },
-                                                          feedsRefreshing: feedsRefreshing,
-                                                          onRefreshFeeds: { Task { await refreshFeeds() } },
                                                           articleStates: articles,
                                                           onOpenArticle: { e in openArticle(e) },
                                                           expandedArticleID: expandedEntryID,
@@ -88,6 +84,14 @@ struct LifeView: View {
                 .frame(maxWidth: AdaptiveLayout.contentMaxWidth(hSize))
             }
             .refreshable { await loadLife() }
+            // v4.0.61（试点页）：页头从 VStack 第一行改成挂在滚动视图上的系统 **safeAreaBar**（iOS 26 新 API：
+            // 「把自定义栏交给系统按栏处理」）—— 滚动时内容在页头下沿走系统级模糊/渐隐，
+            // 而不是「自绘头 + 内容在下面硬切」。系统会替它处理安全区与边缘效果。
+            // ⚠️ 本页是**唯一试点**：会话/看板等页暂不动，真机看过观感合适再推广；
+            //    不合适就整段回退 —— 删掉这个 .safeAreaBar 块、在 VStack 第一行恢复 PageHeader(...) 即可。
+            .safeAreaBar(edge: .top) {
+                PageHeader(title: "生活", subtitle: "行情 · 资讯 · 快递 · 价格")
+            }
         }
         // v3.5.x：生活卡片设置页（股票 / 资讯 / 快递）
         .background(lifeCold1())
@@ -181,24 +185,7 @@ struct LifeView: View {
         }
     }
 
-    // MARK: - v3.6.2 资讯：专用刷新 + 点击展开正文（后端 AI 抓取整理）
-
-    /// 只刷资讯：强制绕缓存（?fresh=1），局部转圈；只更新资讯相关字段，股票/占位卡不闪动
-    private func refreshFeeds() async {
-        guard !feedsRefreshing else { return }
-        feedsRefreshing = true
-        defer { feedsRefreshing = false }
-        guard let j = await auth.jsonOrLog("/api/life/cards?fresh=1") else {
-            lifeError = "资讯刷新失败（网络或后端不可用）"
-            return
-        }
-        let d = LifeCardsData.parse(j)
-        life.entries = d.entries
-        life.rssSources = d.rssSources
-        life.updated = d.updated
-        life.loaded = true
-        lifeError = d.error
-    }
+    // MARK: - v3.6.2 资讯：点击展开正文（后端 AI 抓取整理）
 
     /// 点击某条资讯：展开（首次触发拉取）/ 收起；失败态再点一次 = 重试
     private func openArticle(_ e: LifeRssEntry) {

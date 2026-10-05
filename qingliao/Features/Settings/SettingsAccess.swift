@@ -19,6 +19,12 @@ struct ConnSettingsView: View {
     @Environment(AuthStore.self) private var auth
     @Environment(\.dismiss) private var dismiss
 
+    // v4.0.61：钉一钉存储路径（用户 2026-10-05 要求：从主设置页搬到「连接设置」的「存储」下面）
+    @State private var showPinPath = false
+    /// v4.0.61 审查 7：搜索「钉一钉存储」直达只认**首次呈现**那一次，关掉后本页再出现不再自动弹
+    @State private var didAutoOpenPinPath = false
+    /// 搜索「钉一钉存储」直达：主设置页以 true 呈现本页时，进页即弹出该 sheet（免得再点一次）
+    var initiallyShowPinPath: Bool = false
     @State private var showServerSheet = false
     @State private var showSessionLocSheet = false
     @State private var showUploadDirSheet = false   // v2.0.85 文件上传位置
@@ -39,6 +45,12 @@ struct ConnSettingsView: View {
             return "…/" + parts.suffix(2).joined(separator: "/")
         }
         return sessionLoc.isEmpty ? "默认" : sessionLoc
+    }
+
+    /// v4.0.61：钉一钉存储路径短显（与主设置页原样同款；PinStore 单例 = App 内单一真源）
+    private var pinPathDisplay: String {
+        let p = PinStore.shared.storagePath
+        return p.isEmpty ? "默认路径" : (p.count > 20 ? "..." + p.suffix(17) : p)
     }
 
     /// v2.0.85：上传目录短显（取路径后两段）
@@ -93,6 +105,11 @@ struct ConnSettingsView: View {
                         SettingRow(icon: "arrow.up.doc.fill", iconColor: .indigo,
                                    title: "文件上传位置", value: uploadDirShort, chevron: true)
                             .onTapGesture { showUploadDirSheet = true }
+                        Divider().padding(.leading, Spacing.rowDividerInset)
+                        // v4.0.61：钉一钉存储（用户 2026-10-05：由主设置页搬到「存储」下面）
+                        SettingRow(icon: "pin.fill", iconColor: .indigo,
+                                   title: "钉一钉存储", value: pinPathDisplay, chevron: true)
+                            .onTapGesture { showPinPath = true }
                     }
                     .glassListCard()
                     Text("会话记录保存在 NAS 指定目录，Web 与 App 共用同一份")
@@ -118,6 +135,11 @@ struct ConnSettingsView: View {
                 SessionLocSheet(currentPath: sessionLoc)
                     .presentationDetents([.medium])
             }
+            // v4.0.61：钉一钉存储路径（自带的统一底部 sheet，形态与原主设置页一致）
+            .sheet(isPresented: $showPinPath) {
+                PinPathSheet()
+                    .presentationDetents([.medium, .large])
+            }
             // v2.0.85：文件上传位置修改
             .sheet(isPresented: $showUploadDirSheet) {
                 UploadDirSheet(current: uploadDir) { newDir in
@@ -125,6 +147,13 @@ struct ConnSettingsView: View {
                     uploadDir = newDir
                 }
                 .presentationDetents([.medium])
+            }
+            .onAppear {
+                // v4.0.61：搜索「钉一钉存储」直达（只认呈现时那一次，关掉不复发）
+                if initiallyShowPinPath && !didAutoOpenPinPath {
+                    didAutoOpenPinPath = true
+                    showPinPath = true
+                }
             }
             .task {
                 // 拉取服务器端会话存储位置 + 文件上传位置

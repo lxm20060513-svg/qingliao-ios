@@ -29,9 +29,8 @@ struct LifeCardsSection: View {
     var onDeleteStock: (LifeStock) -> Void = { _ in }
     var onAddStock: () -> Void = {}
     var onRefresh: () -> Void = {}
-    // v3.6.2：资讯卡片专用刷新（只刷资讯、局部转圈）+ 点击展开正文（后端 AI 拉取，不跳浏览器）
-    var feedsRefreshing: Bool = false
-    var onRefreshFeeds: () -> Void = {}
+    // v4.0.61：资讯卡专用「刷新」胶囊已被「下一批」取代（用户 2026-10-05 要求）——
+    //   卡片改为每批 rssBatchSize 条 + 纯本地翻页；整块强制刷新仍在同页「股票」栏那颗刷新（?fresh=1）
     var articleStates: [String: LifeArticleState] = [:]
     var onOpenArticle: (LifeRssEntry) -> Void = { _ in }
     /// v3.6.2：当前展开的条目 id（单一真源——只渲染这一条的正文，收起时置 nil 即真正收起；
@@ -44,11 +43,18 @@ struct LifeCardsSection: View {
     /// v3.9.17：资讯卡独立折叠——标题行搬到卡片外后，它和「生活数据」一样有自己的收起箭头
     @AppStorage("dashboard_rss_expanded") private var rssExpanded = true
 
+    // v4.0.61：资讯分页（用户要求「刷新胶囊换成下一批胶囊」）——一批 3 条，纯本地翻页不发请求
+    private let rssBatchSize = 3
+    @State private var rssBatch = 0
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             header
             if expanded { content }
         }
+        // v4.0.61 审查 8：条目换了一批（刷新 / 轮询 / 换股票）就回到第 1 批——
+        // 否则用户点过「下一批」后会永远停在上次页码、跳过新到的第 1 批
+        .onChange(of: data.entries.map(\.title)) { rssBatch = 0 }
     }
 
     // MARK: 标题行（对齐 DashboardView.sectionTitle 的字号与上间距）
@@ -223,17 +229,16 @@ struct LifeCardsSection: View {
             Spacer(minLength: 0)
             // v3.6.2：资讯专用刷新——后端 ?fresh=1 强制绕缓存（原整块刷新受 RSS 15 分钟缓存限制，
             // 点了 15 分钟内不出新内容）
-            if feedsRefreshing {
-                ProgressView().controlSize(.small)
+            // v4.0.61：刷新胶囊 → 下一批胶囊（本地翻到下一批条目，不再重复当前这批）
+            if rssPageCount > 1 {
+                Button {
+                    withAnimation(Motion.snap) { rssBatch = (rssBatch + 1) % rssPageCount }
+                } label: {
+                    Text("下一批").pill(.page)   // v3.9.19：页级胶囊口径
+                }
+                .buttonStyle(PressStyle())
+                .accessibilityLabel("下一批资讯")
             }
-            Button {
-                onRefreshFeeds()
-            } label: {
-                Text("刷新").pill(.page)   // v3.9.19：页级胶囊口径
-            }
-            .buttonStyle(PressStyle())
-            .disabled(feedsRefreshing)
-            .accessibilityLabel("刷新资讯")
             if !data.updatedText.isEmpty {
                 Text(data.updatedText)
                     .font(.system(size: Typography.caption))
@@ -253,12 +258,30 @@ struct LifeCardsSection: View {
         .padding(.top, Spacing.sm)
     }
 
+    // MARK: v4.0.61 资讯分页（纯本地，零请求）
+
+    /// 把后端一次给的 entries 按 rssBatchSize 切批；空数组 = 零批
+    private var rssPages: [[LifeRssEntry]] {
+        stride(from: 0, to: data.entries.count, by: rssBatchSize).map {
+            Array(data.entries[$0 ..< min($0 + rssBatchSize, data.entries.count)])
+        }
+    }
+
+    /// 批数下限 1（entries 为空时按钮也不显示，见 rssHeader 的 rssPageCount > 1）
+    private var rssPageCount: Int { max(1, rssPages.count) }
+
+    /// 当前批（rssBatch 越界时钳回最后一批——刷新后条目变少不会空卡）
+    private var rssPageEntries: [LifeRssEntry] {
+        guard !rssPages.isEmpty else { return [] }
+        return rssPages[min(max(rssBatch, 0), rssPages.count - 1)]
+    }
+
     /// 卡片里只放条目（v3.9.17：原来卡内那行「广播图标 + 博客/资讯 + 刷新 + 时间」整行已搬出去）
     private var rssCard: some View {
         VStack(alignment: .leading, spacing: 8) {
-            ForEach(data.entries) { e in
+            ForEach(rssPageEntries) { e in
                 rssRow(e)
-                if e.id != data.entries.last?.id {
+                if e.id != rssPageEntries.last?.id {
                     Divider().opacity(0.4)
                 }
             }

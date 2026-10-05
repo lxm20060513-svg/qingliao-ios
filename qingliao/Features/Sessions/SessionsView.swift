@@ -205,9 +205,14 @@ struct SessionsView: View {
         // v2.0.87ad：多选编辑入口（非空会话时显示）
         // v4.1.x：标题随归档箱视图切换；trailing 加「归档箱」小图标（archivebox / tray.full）
         PageHeader(title: showArchived ? "归档箱" : "会话",
-                   trailing: AnyView(HStack(spacing: 14) {
+                   trailing: AnyView(HStack(spacing: 12) {
+            // v4.0.61（用户 2026-10-05）：右上角图标统一走 HeaderPillIconButton（同一胶囊口径 topBar 档）——
+            // 三颗原先各写各的（字号 headline vs title、字重 medium vs semibold、外环图标 vs 无环）
             if !sessions.isEmpty {
-                Button {
+                HeaderPillIconButton(
+                    systemName: showArchived ? "tray.full" : "archivebox",
+                    a11y: showArchived ? "返回会话列表" : "查看归档会话"
+                ) {
                     withAnimation(Motion.tap) {
                         // v4.0.35：切视图必须清多选态——否则主列表勾 5 条切到归档箱，
                         // 底栏仍显示「5 条」，删除的是此刻屏幕上看不见的那批会话（误删）
@@ -215,24 +220,16 @@ struct SessionsView: View {
                         selectedIds.removeAll()
                         showArchived.toggle()
                     }
-                } label: {
-                    Image(systemName: showArchived ? "tray.full" : "archivebox")
-                        .font(.system(size: Typography.headline, weight: .medium))
-                        .foregroundStyle(showArchived ? Color.accentColor : Color.secondary)
                 }
-                .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
-                .accessibilityLabel(showArchived ? "返回会话列表" : "查看归档会话")
-                Button {
+                HeaderPillIconButton(
+                    systemName: editing ? "xmark" : "checkmark",   // 编辑态换形态，不再靠颜色区分
+                    a11y: editing ? "退出多选" : "多选会话"
+                ) {
                     withAnimation(Motion.tap) {
                         editing.toggle()
                         if !editing { selectedIds.removeAll() }
                     }
-                } label: {
-                    Image(systemName: editing ? "checkmark.circle.fill" : "checkmark.circle")
-                        .font(.system(size: Typography.headline, weight: .medium))
-                        .foregroundStyle(editing ? Color.accentColor : Color.secondary)
                 }
-                .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
             }
             addButton
         }))
@@ -509,7 +506,8 @@ struct SessionsView: View {
     }
 
     private var addButton: some View {
-        Button {
+        // v4.0.61：走统一的胶囊口径（尺寸/玻璃/命中区与同排两颗一致）；弹动仍由 plusBounceTick 驱动
+        HeaderPillIconButton(systemName: "plus", a11y: "新建会话", bounceTick: plusBounceTick) {
             // v2.0.58：两步走新建——ChatView 观察到 pendingNewSession 后
             // 先卸载列表再清数据（v2.0.44 的切tab+延迟在过渡期仍崩）
             Haptics.tap()          // v3.4.29：触感补齐
@@ -519,13 +517,7 @@ struct SessionsView: View {
                 // v3.4.29：加号 = 等同 /new——本地新建后补发 /new，让 gateway 上下文一起重置
                 chat.requestNewSession(sendReset: true)
             }
-        } label: {
-            Image(systemName: "plus")
-                .font(.system(size: Typography.title, weight: .semibold))
-                .foregroundStyle(Color.accentColor)
-                .symbolEffect(.bounce, value: plusBounceTick)   // v3.4.29：新建图标弹动
         }
-        .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
     }
 
     // MARK: - v2.0.36 搜索 / 置顶

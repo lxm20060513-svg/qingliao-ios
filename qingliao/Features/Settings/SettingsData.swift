@@ -761,6 +761,7 @@ struct HistorySheet: View {
                                 Image(systemName: h.ok ? "checkmark.circle.fill" : "xmark.circle.fill")
                                     .font(.system(size: Typography.body))
                                     .foregroundStyle(h.ok ? .green : .red)
+                                    .symbolEffect(.bounce, value: h.ok)   // v4.0.61：结果落定弹一下
                             }
                             .padding(.vertical, Spacing.xxs)
                         }

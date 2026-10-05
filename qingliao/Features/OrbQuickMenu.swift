@@ -509,10 +509,9 @@ struct OrbQuickMenuLayer: View {
         // 玻璃挂在 padding 之后（dock pill 同口径）；胶囊本身就是 Capsule，glassEffect 默认形状正合适。
         // v3.9.59：可点元素必须走 .regular.interactive()（Pill.swift 定版）——裸 glassEffect 是静态卡口径，
         // 按下去没有玻璃反馈，与同屏 dock 胶囊观感不一致。
-        .glassEffect(.regular.interactive())
-        .overlay(
-            Capsule().strokeBorder(Color.white.opacity(scheme == .dark ? 0.22 : 0.12), lineWidth: 0.8)
-        )
+        // v4.0.61：走无障碍玻璃出口（描边原为白亮边 0.12/0.22，逐字搬进出口参数）
+        .a11yGlass(.regular.interactive(), in: Capsule(),
+                   stroke: Color.white.opacity(scheme == .dark ? 0.22 : 0.12))
         .shadow(color: Color.black.opacity(0.12), radius: 10, y: 4)
         // 减弱动态效果：不做「从球心弹射落位」，原地淡入（位置/缩放都取终态）
         .scaleEffect(reduceMotion ? 1 : (shown ? 1 : 0.3))

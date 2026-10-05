@@ -12,15 +12,13 @@ struct GlassCard: ViewModifier {
     func body(content: Content) -> some View {
         content
             // 原生液态玻璃（iOS 26+，部署目标已 26）
-            .glassEffect()
-            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-            // 液态玻璃自带边缘光泽，仅保留极轻描边增强边界
+            // v4.0.61：改走无障碍玻璃出口 —— 形状显式给 RoundedRectangle（裸调默认 Capsule，
+            // 靠 clipShape 裁成矩形是历史绕过写法），描边/降级都在出口里统一处理
             // v3.4.25：深色模式描边对比度校准——纯黑下白 0.15 描边在玻璃边缘几乎不可见（发灰糊边），
             // 深色提到 0.22；浅色玻璃自带亮边反而过亮，降到 0.12，深浅观感一致
-            .overlay(
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .strokeBorder(Color.white.opacity(scheme == .dark ? 0.22 : 0.12), lineWidth: 0.8)
-            )
+            .a11yGlass(in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous),
+                       stroke: Color.white.opacity(scheme == .dark ? 0.22 : 0.12))
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             .shadow(color: Color.black.opacity(Tint.subtle), radius: 14, y: 5)
     }
 }
@@ -93,11 +91,9 @@ struct DashboardCardStyle: ViewModifier {
             // 🚨 矩形卡必须显式 in: RoundedRectangle（裸 glassEffect 默认 Capsule，会渲染成大弧度胶囊蒙版）。
             // 卡不是可点元素本体（可点性在卡内 Button 上），走静态卡口径不加 .interactive()。
             // 圆角仍 16（用户明确 16，非胶囊档）；GlassCard 的 shadow 档（14/5）比胶囊重，取胶囊档 10/4。
-            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .strokeBorder(Color.white.opacity(scheme == .dark ? 0.22 : 0.12), lineWidth: 0.8)
-            )
+            // v4.0.61：走无障碍玻璃出口（描边原为白亮边 0.12/0.22，逐字搬到出口参数里）
+            .a11yGlass(.regular, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous),
+                       stroke: Color.white.opacity(scheme == .dark ? 0.22 : 0.12))
             .shadow(color: .black.opacity(0.12), radius: 10, y: 4)
     }
 }
@@ -166,7 +162,8 @@ struct GlassPageBackground: ViewModifier {
                     //   不裁形状，22 圆角会留四个切角 + 角外露底，看着像浮在屏幕上的面板而非整页底。
                     //   故整页一律不圆角（用 Rectangle 形状本身，in: 同形）。
                     Rectangle()
-                        .glassEffect(.regular, in: Rectangle())
+                        // v4.0.61：走无障碍出口（整页玻璃无描边 → stroke 给 .clear）
+                        .a11yGlass(.regular, in: Rectangle(), stroke: .clear)
                         .ignoresSafeArea()
                 }
                 .ignoresSafeArea()
@@ -225,7 +222,60 @@ struct ScrollDepth: ViewModifier {
     }
 }
 
+// MARK: - v4.0.61 玻璃的无障碍出口（系统「降低透明度」/「增强对比度」）
+//
+// 由头（用户 2026-10-05 拍板做「借鉴 iOS 原生风格」第②条）：全站玻璃面此前只认外观、不认系统的
+// 无障碍开关 —— `accessibilityReduceMotion` 已适配 24 处，但 `accessibilityReduceTransparency` /
+// `colorSchemeContrast` 一处都没有。原生观感的核心之一就是「跟着系统设置走」。
+//
+// 单一出口，三种表现：
+//   · 常态：原样走原生液态玻璃（折射 / 边缘高光都在）
+//   · 系统开「降低透明度」：玻璃要透出背后内容才像玻璃，而弱视用户恰恰需要**不透明的可读底**
+//     → 换系统不透明实底（同一 shape、同一圆角，边界不塌）
+//   · 系统开「增强对比度」：描边加粗（0.8 → 1.4），低对比度屏上边界分得开
+//
+// ⚠️ 新增玻璃面一律走 `a11yGlass(...)`，别再裸调 `.glassEffect(...)`（否则无障碍开关对它无效）。
+
+/// ⚠️ 泛型约束必须是 `InsettableShape` 而非 `Shape`（v4.0.61 审查阻断项）：
+///    `strokeBorder` 定义在 `InsettableShape` 上，`Shape` 只有 `stroke`/`fill` ——
+///    写成 `S: Shape` 本机 `-parse` 全绿、Archive 必挂一轮。
+struct A11yGlassSurface<S: InsettableShape>: ViewModifier {
+    var glass: Glass = .regular
+    var shape: S
+    /// 常态描边色（与调用点原参逐字一致，不改观感）
+    var stroke: Color
+    var strokeWidth: CGFloat = 0.8
+    /// 降级（开「降低透明度」）时的不透明底。
+    /// 默认系统底 —— 但**深底内容（如图片浏览器上的白字白图标）必须传深色**，
+    /// 否则浅色模式下白字压近白底，比玻璃还不可读（审查意见 2）。
+    var fallback: Color? = nil
+
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorSchemeContrast) private var contrast
+
+    func body(content: Content) -> some View {
+        let w = contrast == .increased ? strokeWidth * 1.75 : strokeWidth
+        if reduceTransparency {
+            content
+                .background(fallback ?? Color(uiColor: .secondarySystemBackground), in: shape)
+                .overlay(shape.strokeBorder(stroke, lineWidth: w))
+        } else {
+            content
+                .glassEffect(glass, in: shape)
+                .overlay(shape.strokeBorder(stroke, lineWidth: w))
+        }
+    }
+}
+
 extension View {
+    /// 玻璃面统一出口（含「降低透明度」降级 / 「增强对比度」描边加粗）——见上方 A11yGlassSurface。
+    func a11yGlass<S: InsettableShape>(_ glass: Glass = .regular, in shape: S,
+                                       stroke: Color, strokeWidth: CGFloat = 0.8,
+                                       fallback: Color? = nil) -> some View {
+        modifier(A11yGlassSurface(glass: glass, shape: shape, stroke: stroke,
+                                  strokeWidth: strokeWidth, fallback: fallback))
+    }
+
     /// 滚动层次感（卡片/列表行用；Lazy 容器内才生效）
     func scrollDepth() -> some View { modifier(ScrollDepth()) }
 

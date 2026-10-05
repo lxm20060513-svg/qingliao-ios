@@ -259,8 +259,9 @@ check("两层高度都不是写死数字（写死会在放大字号时裁字）"
 //          平坦段重算：收起态 **50 − 20×2 = 10pt** / 展开态 **92 − 20×2 = 52pt**。
 //          仍走令牌不打魔法数（xs=4 是 8 档里最小档，「紧贴元素」语义与收起态吻合）。
 let containerShape = "RoundedRectangle(cornerRadius: ChatInputBarLayout.containerCornerRadius, style: .continuous)"
+// v4.0.61：玻璃统一经无障碍出口 a11yGlass（口径不变：仍 .regular + 同一个 containerCornerRadius 圆角矩形）
 check("外层玻璃容器走 containerCornerRadius(20) 圆角矩形（不再全圆角胶囊）",
-      inputBarSrc.contains(".glassEffect(.regular, in: \(containerShape))"))
+      inputBarSrc.contains(".a11yGlass(.regular, in: \(containerShape),"))
 check("容器圆角走 Layout 单一真源常量，不是魔法数",
       inputBarSrc.contains("in: \(containerShape)"))
 check("圆角常量声明在位：containerCornerRadius: CGFloat = 20（v3.9.65 的 18 → v3.9.66 的 20）",
