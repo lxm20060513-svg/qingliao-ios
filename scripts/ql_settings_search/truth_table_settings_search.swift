@@ -48,7 +48,11 @@ struct SettingsSearchTruthTable {
         positives += 1
         // 精确钉死条数（不是 ≥30）：整条连同 route 一起被删时，下面的路由核验不会红 —— 只有条数能兜住。
         // 新增设置行时必须同步加索引 + 改这里的数（有意的摩擦：漏了就是「肉眼可见却搜不到」）。
-        check("索引条数与设置页对齐（当前 \(entries.count)，期望 38）", entries.count == 38)
+        check("索引条数与设置页对齐（当前 \(entries.count)，期望 39）", entries.count == 39)
+        positives += 1
+        // v4.0.68：新增「聊天页宠物」开关行时同步加的索引（漏了就是肉眼可见却搜不到）
+        check("新增的「聊天页宠物」行搜得到（v4.0.68）",
+              SettingsSearchIndex.match("聊天页宠物").contains { $0.title == "聊天页宠物" })
         positives += 1
         check("id 全表唯一（route 会复用 → id 必须拼 title）",
               Set(entries.map(\.id)).count == entries.count)

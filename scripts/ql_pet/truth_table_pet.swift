@@ -345,8 +345,13 @@ check("v4.0.36 宠物尺寸旧值清零（62pt 不得残留：同屏只许一处
       !cvC.contains("PetAvatar(size: 62,"))
 check("header 宠物 keepDetail 旁路简化阈值（v4.0.32 真机报修「没有手」：60/62<76 会被简化成头+眼+嘴）",
       cvC.contains("keepDetail: true,\n                  thinkingFaceOverride: .sleepy"))
-check("ChatView 给 PageHeader 传 centerView（且空会话=欢迎页不挂，需求4）",
-      cvC.contains("centerView: chat.messages.isEmpty ? nil : AnyView(chatHeaderPet)"))
+check("ChatView 给 PageHeader 传 centerView（空会话=欢迎页不挂 + 设置里关掉也不挂，v4.0.68）",
+      cvC.contains("centerView: (petHeaderOn && !chat.messages.isEmpty) ? AnyView(chatHeaderPet) : nil"))
+check("聊天页宠物总开关是单一真源键（PetKeys.headerVisible：设置页开关 + 聊天页渲染共用）",
+      pm.contains("static let headerVisible = \"qingliao_pet_header_visible\"")
+      && cvC.contains("@AppStorage(PetKeys.headerVisible) private var petHeaderOn = true"))
+check("设置页「外观与显示」恒有这颗开关（关掉后从这里还能开回来）",
+      sc.contains("title: \"聊天页宠物\",\n                       toggle: $petHeaderOn)"))
 check("PageHeader 叠加管道已恢复（LiquidGlass 里 centerView 属性 + overlay 在）",
       lgC.contains("var centerView: AnyView? = nil")
       && lgC.contains(".overlay(alignment: .center) {"))

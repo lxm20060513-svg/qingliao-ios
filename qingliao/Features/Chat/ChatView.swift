@@ -271,6 +271,9 @@ struct ChatView: View {
     // 注意区别：设置页的「AI 语音朗读」管的是**引擎**（CloudConfig.ttsEnabled 默认 true → 手动朗读默认走后端
     // 神经音色），这里的胶囊管的是**要不要自动念**，两者各管一段、互不覆盖。
     @AppStorage("qingliao_auto_read_reply") private var autoReadReply = false
+    /// v4.0.68（用户 2026-10-07）：聊天页 header 正中那只宠物（设置页同名开关，key 单一真源在 `PetKeys`）。
+    /// 关掉 = 那一格**不渲染**，header 回到「没有 centerView」的原样（与空会话态同一形态，不留空占位）。
+    @AppStorage(PetKeys.headerVisible) private var petHeaderOn = true
     /// v3.9.9 收口：自动朗读去重（同一条只自动念一次，手动点气泡不受限）
     /// v3.9.9：去重键**非可选**（`msg.uid ?? msg.id`）——uid 对老数据是 nil，
     /// 可选比较会遇到 nil == nil 伪去重：第一次朗读被吞掉、之后带 nil uid 的回答永远不念
@@ -1391,7 +1394,9 @@ struct ChatView: View {
         PageHeader(title: "聊天",
                    subtitle: headerSubtitle,
                    trailing: AnyView(headerTrailingItems),
-                   centerView: chat.messages.isEmpty ? nil : AnyView(chatHeaderPet),
+                   // v4.0.68：设置里可整体关掉（`petHeaderOn`）—— 关掉 = 这一格不渲染、
+                   // header 回到「没有 centerView」的原样（与空会话态同一形态，不留空占位）。
+                   centerView: (petHeaderOn && !chat.messages.isEmpty) ? AnyView(chatHeaderPet) : nil,
                    showStatus: true,
                    statusColor: headerColor,
                    busy: aiBusy)

@@ -244,9 +244,10 @@ check("B15 header 宠物仍走 PetAvatar（接线即生效，无需新增调用�
       cvC.contains("private var petHeaderBadge")
       && cvC.contains("PetAvatar(size: 60,"))
 
-// B16 编译口径：宠物仍只在 header（非空会话）挂 —— 欢迎页有 96pt 身份宠物，不受影响
+// B16 编译口径：宠物只在 header（非空会话 + 设置里没关）挂 —— 欢迎页有 96pt 身份宠物，不受影响
+// v4.0.68：开关接入后改口径（空会话不挂 / 设置关掉也不挂），两处 call site 的断言同步到这里
 check("B16 空会话不挂 header 宠物（欢迎页身份宠物不受影响）",
-      cvC.contains("centerView: chat.messages.isEmpty ? nil : AnyView(chatHeaderPet)")
+      cvC.contains("centerView: (petHeaderOn && !chat.messages.isEmpty) ? AnyView(chatHeaderPet) : nil")
       && cvC.contains("private var petHero"))
 
 // B18 编译口径（审查命中，必挂 CI）：PetPainter.swift 同时被挂件 target 共编

@@ -16,6 +16,11 @@ enum PetKeys {
     static let face = "qingliao_pet_face"
     /// v4.0.6：行为动作勾选集（逗号分隔的 Quirk.rawValue）
     static let quirks = "qingliao_pet_quirks"
+    /// v4.0.68（用户 2026-10-07）：「聊天页 header 栏的卡通宠物在设置页里加开关，可以关掉」。
+    /// **单一真源**：设置页「外观与显示 → 聊天页宠物」那颗开关与聊天页 header 的渲染判断共用这一个 key
+    /// （字面量不许再出现在别处）。**key 不存在 = 开**（老用户升级后行为不变）。
+    /// 关掉只影响聊天页 header 正中那一只：欢迎页 96pt 形象、智慧球锚点、消息内头像、实时活动挂件都不受影响。
+    static let headerVisible = "qingliao_pet_header_visible"
     /// 76pt 以下简化（消息头像 30/38pt 走这条路）
     static let simplifyBelow: CGFloat = 76
 
