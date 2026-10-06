@@ -119,7 +119,7 @@ enum SettingsSearchIndex {
               keywords: ["震动", "触感", "haptic", "反馈"]),
         .init(route: "sec:appearance", title: "首页快捷卡片", icon: "rectangle.grid.2x2.fill", group: "外观与显示",
               keywords: ["快捷卡片", "首页卡片", "网格", "开关"]),
-        .init(route: "sec:appearance", title: "聊天页宠物", icon: "eye.slash", group: "外观与显示",
+        .init(route: "pet", title: "聊天页宠物", icon: "eye.slash", group: "外观与显示",
               keywords: ["宠物", "卡通", "聊天页", "header", "显示", "开关"]),
         .init(route: "homeShortcuts", title: "桌面快捷方式", icon: "square.grid.2x2.fill", group: "外观与显示",
               keywords: ["桌面", "快捷方式", "长按图标"]),

@@ -155,8 +155,14 @@ check("清空入口对固定会话可见（清空按钮前无固定会话排除�
       !menu.contains("if s.id != ChatStore.deliverySessionId && s.id != ChatStore.proactiveSessionId {\n            Button(role: .destructive) {\n                confirmClear = s"))
 // v4.0.68：固定会话改成顶部**并排卡**后，卡片成了唯一入口 —— 卡片不挂菜单 = 清空入口随改版消失
 //（审查实锤过一次）。另外：菜单必须仍是**单一真源**，卡片不许另抄一份。
-check("v4.0.68：并排卡挂同一份 sessionRowMenu（清空入口不在改版里丢）",
-      viewCode.components(separatedBy: ".contextMenu { sessionRowMenu(s) }").count - 1 == 2)
+// v4.0.69（用户 2026-10-07 报「轻聊投递和轻聊主动长按是同时选中两张卡，需要对每张卡能长按」）：
+// 两张卡同处一个 List 行 → 系统把行内子视图的 `.contextMenu` 提升成 **cell 级唯一宿主**，
+// 挂在每张卡上只会保留第一个菜单、且长按任一位置整行一起抬起。改成「行级一个菜单 + 按下时记录命中的卡」
+// （FixedCardMenuTarget）来分发 —— 断言随实现换轨，仍钉住「清空入口在并排卡这条路上可达」。
+check("v4.0.69：并排卡所在行挂 sessionRowMenu（清空入口在卡片这条路上仍可达）",
+      viewCode.contains("FixedCardMenuTarget.shared.id = s.id") &&
+      viewCode.contains("if let id = FixedCardMenuTarget.shared.id,") &&
+      viewCode.contains("sessionRowMenu(s)"))
 check("v4.0.68：长按菜单是单一真源（confirmClear 赋值点唯一）",
       viewCode.components(separatedBy: "confirmClear = s").count - 1 == 1)
 

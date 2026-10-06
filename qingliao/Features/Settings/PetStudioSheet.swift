@@ -26,6 +26,10 @@ struct PetStudioSheet: View {
     // v4.0.6：常态表情 + 行为动作勾选集
     @AppStorage(PetKeys.face) private var petFace: PetFace = .calm
     @AppStorage(PetKeys.quirks) private var quirksRaw: String = ""
+    /// v4.0.69（用户 2026-10-07）：「聊天页宠物」开关**从设置页「外观与显示」搬进本页**（用户：跟形象相关的
+    /// 设置收进 AI 形象）。键不变（PetKeys.headerVisible，单一真源）→ 聊天页 header 立刻跟着变；
+    /// key 不存在 = 开（老用户升级后行为不变）。
+    @AppStorage(PetKeys.headerVisible) private var headerOn = true
 
     /// 大头像预览：点一下就摸一下（复用聊天页同一条互动口径：单击=抚摸，触感+表情）
     @State private var patTrigger = 0
@@ -143,6 +147,17 @@ struct PetStudioSheet: View {
                     Text("「减弱 / 关闭」可省电：关掉后形象静止显示，AI 正在回 / 后端离线仍由文案和角标承担。")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
+                }
+
+                // MARK: 聊天页显示（v4.0.69：从设置页「外观与显示」搬来 —— 用户 2026-10-07 要求放这儿）
+                Section {
+                    Toggle("聊天页宠物", isOn: $headerOn)
+                        .qingliaoSwitch(hideLabel: false)
+                    Text("关掉 = 聊天页顶部中间不再显示这只宠物（那一格不留空位）；欢迎页大形象、智慧球、消息头像都不受影响。")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                } header: {
+                    Text("聊天页")
                 }
             }
             .navigationTitle("AI形象")

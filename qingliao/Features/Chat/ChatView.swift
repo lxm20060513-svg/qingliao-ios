@@ -1837,6 +1837,10 @@ struct ChatView: View {
             // 待做池⑥：弱网/多会话「队列总览」——排队消息逐条带序号（在等什么、排第几）。
             // 与上面几条**同一槽位、互斥**（记账条 / 去重条 / 记忆条 / 队列条只显示一个）。
             SendQueueBar(rows: pendingQueueRows, onClearAll: { clearPendingQueue() })
+                // v4.0.69（用户 2026-10-07：「待发弹窗卡片贴到输入框顶了，留点间距」）：
+                // 同槽的记账条（见本枚举上面 ChatRecordBar 调用点）带 `.padding(.bottom, Spacing.xs)`，
+                // 队列条漏了 → 卡底直接贴输入框。补齐同一档间距（口径单源：与记账条一致，别各写各的值）。
+                .padding(.bottom, Spacing.xs)
         }
     }
 

@@ -332,7 +332,14 @@ final class ChatStore {
         saveTask = nil
         awayLandedReplies = [:]
         unread = [:]
-        seenTimes = [:]
+        // 🚨 v4.0.69：**这里不许再清 seenTimes**（已读基线），否则「退出重新登录后未读角标又全部出现」（用户报）。
+        // 机制：`seenTimes = [:]` 只清了内存字典，而 `seenTimesLoaded` / `hasSeenBaseline` / UserDefaults 里的
+        // `qingliao_seen_times` 都还在 → 重登后 `loadSeenTimesIfNeeded()` 因 loaded=true 直接 return（不回读磁盘），
+        // `hasSeenBaseline` 仍为 true（不走「首次落基线」保护）→ `syncUnread` 里 `seen = seenTimes[id] ?? 0` 恒为 0
+        // → 每个有 lastTime 的会话都满足 `lt > seen + 1000` → 满屏红点。
+        // 基线是**设备级已读记录**（按 sessionId 存），同账号重登就该原样保留；角标(`unread`)重登后由
+        // syncUnread 用基线重算，真未读才会亮 —— 这正是用户预期。
+        // ⚠️ 已知残余：换账号登录时新账号的 sessionId 无基线 → 首屏会把它的会话全标未读（存量行为，非本行引入）。
         resetTitleMarks()   // v3.9.90：自动命名/用户改名标记同属「上一个账号的状态」
         lastLoadedSession = nil
         pendingNewSession = false

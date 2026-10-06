@@ -347,11 +347,15 @@ check("header 宠物 keepDetail 旁路简化阈值（v4.0.32 真机报修「没�
       cvC.contains("keepDetail: true,\n                  thinkingFaceOverride: .sleepy"))
 check("ChatView 给 PageHeader 传 centerView（空会话=欢迎页不挂 + 设置里关掉也不挂，v4.0.68）",
       cvC.contains("centerView: (petHeaderOn && !chat.messages.isEmpty) ? AnyView(chatHeaderPet) : nil"))
-check("聊天页宠物总开关是单一真源键（PetKeys.headerVisible：设置页开关 + 聊天页渲染共用）",
+check("聊天页宠物总开关是单一真源键（PetKeys.headerVisible：AI形象页开关 + 聊天页渲染共用）",
       pm.contains("static let headerVisible = \"qingliao_pet_header_visible\"")
       && cvC.contains("@AppStorage(PetKeys.headerVisible) private var petHeaderOn = true"))
-check("设置页「外观与显示」恒有这颗开关（关掉后从这里还能开回来）",
-      sc.contains("title: \"聊天页宠物\",\n                       toggle: $petHeaderOn)"))
+// v4.0.69（用户 2026-10-07：「设置里聊天页宠物开关移动到 AI 形象里」）：开关换了家。
+// 断言两件事：新家（AI形象页）真有这颗开关 + 老家（设置页外观段）真删净——留着就是「同一开关两处入口」的回退。
+check("「聊天页宠物」开关已搬进 AI形象 页（新家真有 + 老家删净）",
+      psC.contains("Toggle(\"聊天页宠物\", isOn: $headerOn)")
+      && psC.contains("@AppStorage(PetKeys.headerVisible) private var headerOn = true")
+      && !sc.contains("title: \"聊天页宠物\""))
 check("PageHeader 叠加管道已恢复（LiquidGlass 里 centerView 属性 + overlay 在）",
       lgC.contains("var centerView: AnyView? = nil")
       && lgC.contains(".overlay(alignment: .center) {"))

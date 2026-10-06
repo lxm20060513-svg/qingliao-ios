@@ -29,10 +29,9 @@ struct SettingsView: View {
     // 与聊天页绑同一个键（Core/HomeCardStore.enabledKey）→ 那边立刻跟着变。
     @AppStorage(HomeCardStore.enabledKey) private var homeCardsOn = HomeCardStore.enabledDefault
 
-    // v4.0.68（用户 2026-10-07：「聊天页 header 栏的卡通宠物在设置页里加开关，可以关掉」）：
-    // 聊天页 header 正中那只宠物的总开关。与聊天页绑同一个键（PetKeys.headerVisible）→ 那边立刻跟着变。
-    // 默认开；关掉只影响 header 那只（欢迎页形象、智慧球、消息头像照旧）。
-    @AppStorage(PetKeys.headerVisible) var petHeaderOn = true
+    // v4.0.69（用户 2026-10-07）：「聊天页宠物」开关已从本页搬到 **AI形象** 页（PetStudioSheet）。
+    // 键仍是 PetKeys.headerVisible（单一真源），只是入口换了地方 —— 这里**不要再挂同名 @AppStorage**，
+    // 否则就是「同一个开关两处入口」的回退（用户口径：跟形象相关的设置收进形象页）。
 
     // v2.0.83c：连接设置二级页（服务器地址/测试连接/会话存储位置收进二级）
     @State var showConnSettings = false
@@ -842,11 +841,8 @@ extension SettingsView {
             // 关掉后想加回来就走这里（首页没有入口可点了，所以这一行必须恒在）。
             SettingRow(icon: "rectangle.grid.2x2.fill", iconColor: .blue, title: "首页快捷卡片",
                        toggle: $homeCardsOn)
-            // v4.0.68（用户 2026-10-07）：聊天页 header 正中那只宠物的开关。关掉 = 那一格不渲染
-            // （header 回到「没有宠物」的原样，不留空占位）；欢迎页 96pt 形象、智慧球、消息头像照旧。
-            // 与「首页快捷卡片」同款：恒在的设置页入口，关掉后还能从这里打开。
-            SettingRow(icon: "eye.slash", iconColor: .pink, title: "聊天页宠物",
-                       toggle: $petHeaderOn)
+            // v4.0.69（用户 2026-10-07）：「聊天页宠物」开关已搬去 **AI形象** 页（PetStudioSheet）——
+            // 用户口径「设置里聊天页宠物开关移动到 AI 形象里」。这里只留路标，不要再挂 SettingRow。
             // v3.9.82：桌面图标长按快捷方式（长按桌面「轻聊」图标即可看到选中的几项）。
             // 行尾计数读 @AppStorage 原始串（HomeShortcutStore.ids(from:)）→ 弹窗里改完立即刷新。
             SettingRow(icon: "square.grid.2x2.fill", iconColor: .indigo, title: "桌面快捷方式",

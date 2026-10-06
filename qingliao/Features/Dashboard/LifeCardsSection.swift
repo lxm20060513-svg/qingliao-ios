@@ -85,10 +85,13 @@ struct LifeCardsSection: View {
             Button {
                 onRefresh()
             } label: {
-                Text("刷新").pill(.page)   // v3.9.19：页级胶囊口径
+                // v4.0.69：在途时给可见反馈（原来只靠 .disabled 灰掉，用户不知道点击有没有生效）
+                Text(loading ? "刷新中" : "刷新").pill(.page)   // v3.9.19：页级胶囊口径
             }
             .buttonStyle(PressStyle())
-            .disabled(loading)
+            // v4.0.69（用户报「博客资讯的刷新胶囊点击无法强制刷新」）：**去掉 `.disabled(loading)`**。
+            // 配套 LifeView.loadLife(queued: true)：在途点击不再被丢弃，而是排队补发这一次 fresh 请求。
+            // 原来 disabled + 闸门静默 return 两重叠加 = 点了完全没反应。
 
             Button {
                 withAnimation(Motion.snap) { expanded.toggle() }
@@ -252,10 +255,11 @@ struct LifeCardsSection: View {
             Button {
                 onRefresh()
             } label: {
-                Text("刷新").pill(.page)   // v3.9.19：页级胶囊口径
+                // v4.0.69：在途时给可见反馈（与股票栏那颗同一口径）
+                Text(loading ? "刷新中" : "刷新").pill(.page)   // v3.9.19：页级胶囊口径
             }
             .buttonStyle(PressStyle())
-            .disabled(loading)
+            // v4.0.69：同股票栏那颗 —— 去掉 `.disabled(loading)`，配套 loadLife(queued: true) 排队补发
             .accessibilityLabel("刷新生活数据")
             Button {
                 withAnimation(Motion.snap) { rssExpanded.toggle() }

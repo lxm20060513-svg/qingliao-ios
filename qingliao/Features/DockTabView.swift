@@ -3,11 +3,14 @@ import CoreLocation
 import UIKit
 
 enum DockTab: String, CaseIterable, Identifiable {
-    // v3.6.2：dock 顺序重排 = 会话 → 看板 → 聊天 → 生活 → 设置
+    // v4.0.69（用户 2026-10-07 拍板）：dock 顺序重排 = 会话 → 生活 → 智慧球 → 看板 → 设置。
+    // ⚠️ 智慧球必须留在第 3 槽：DockOrbOverlay / 烟花原点按 slotIndex: 2 硬编码算几何
+    //    （本文件 587 / 804 / 816 / 866 / 945 行），球心取真实槽位按钮中心 —— 重排只能动第 2 与
+    //    第 4 槽，chat 不许离开 index 2，否则球会画到别的槽上。
     // （enum 声明序与 TabView 内声明序一致，便于对照；TabView 顺序由视图插入序决定）
     // v4.0.x：dock 图标换 B 组（用户选定）：看板 chart.pie / 生活 heart / 设置 gearshape（空心）；
     // 会话 clock 保留。语义直白风，每个图标一眼看出页面用途；智慧球槽位（chat）不受影响。
-    case sessions, dashboard, chat, life, settings
+    case sessions, life, chat, dashboard, settings
 
     var id: String { rawValue }
 
@@ -105,14 +108,17 @@ struct DockTabView: View {
                     selected = .chat
                 })
                     .tabTransition(for: .sessions, selected: $selected)
+                // v4.0.69（用户 2026-10-07 拍板 dock 顺序：会话 → 生活 → 智慧球 → 看板 → 设置）：
+                // 生活页上移到第 2 槽。⚠️ chatTab 仍是第 3 个插入的视图 = 第 3 槽，球位（slotIndex 2）
+                // 不变；重排只允许交换第 2 / 第 4 槽，别把 chatTab 挪出 index 2。
+                // v3.6.2：生活页（原看板「生活数据」栏目迁入）
+                LifeView(isActive: selected == .life)
+                    .tabTransition(for: .life, selected: $selected)
+                chatTab
                 // v3.4.26：isActive 参数直传（selected==.dashboard），替代 qingliaoDashboardLeave/Refresh 通知——
                 // 轮询暂停/恢复收进 DashboardView 自身生命周期，去隐式耦合
                 DashboardView(isActive: selected == .dashboard)
                     .tabTransition(for: .dashboard, selected: $selected)
-                chatTab
-                // v3.6.2：生活页（原看板「生活数据」栏目迁入）
-                LifeView(isActive: selected == .life)
-                    .tabTransition(for: .life, selected: $selected)
                 // v4.0.0：设置页大类 → 明细的二级页需要 NavigationStack 才有返回栈
                 // （TabView 里裸放 NavigationLink 点了不推、也不显示返回键）。
                 // 只包设置 tab —— 其他 tab 的层级结构一行不动。
@@ -167,6 +173,10 @@ struct DockTabView: View {
             .tabItem { Label(DockTab.chat.title, systemImage: DockTab.chat.icon) }
         } else {
             ChatView()
+                // v4.0.69：从会话卡点进来的那一步做空间连续展开（整页从会话卡的位置放大到全屏）。
+                // 参数由会话页在点击那一刻算好放进 ChatEntryZoom；其他入口切到聊天 tab（智慧球、
+                // 通知、桌面快捷方式）取不到参数 → 不播，走原来的硬切，行为不变。
+                .chatZoomEntry(selected: $selected)
                 .tag(DockTab.chat)
                 // 槽位视觉为空（球由 DockOrbOverlay 绘制）→ 补无障碍标签，VoiceOver 仍读得出「聊天」
                 .tabItem { Text("").accessibilityLabel("聊天") }
@@ -504,32 +514,103 @@ struct DockTabView: View {
     }
 }
 
-// MARK: - Tab 切换过渡动画（淡入 + 轻微缩放，保留原生玻璃 tab bar）
+// MARK: - Tab 切换过渡动画（放大 + 从下方轻浮，保留原生玻璃 tab bar）
+//
+// v4.0.69（用户 2026-10-07：「dock 上各个 tap 的切换过渡很生硬，加入全局转场动画」）：
+// 原来只有 `scaleEffect(0.985)` 这一档 —— 1.5% 的幅度真机上几乎看不出来，观感 ≈ 硬切。
+// 现在给新页补上「4% 放大 + 从下方 10pt 浮起」，时长 snap(0.20) → settle(0.30)。
+// 仍然**不接管 tab 切换本身**（换页还是 TabView 原生），只做新页入场 —— 手势、tab bar 玻璃、
+// 无障碍、系统返回全都不动。⚠️ 视觉口径与聊天页的 `ChatZoomEntryModifier` 通用入场保持一致
+// （同样 0.96 / 10pt），别只改一边。
+// 相位（phase）而不是布尔 appeared 的原因（v4.0.69 审查）：`appeared = (newVal == tab)` 会让**离场**
+// 那页也跟着播一遍「缩回 + 下沉」的反向动画（换页没有过渡叠加窗口 = 白算一帧），而且下次切回来时
+// 起点态已经被消耗掉、没有入场可演。这里离场不动相位，只在「刚被选中」时把相位瞬归 0 再动画到 1。
+// `seq` 防 0.01s 窗口内的连点 / 快速切换：早先那次的归零 Task 醒来会把新一次的起点态提前抹掉。
 private struct TabTransitionModifier: ViewModifier {
     let tab: DockTab
     @Binding var selected: DockTab
-    @State private var appeared = false
+    /// 1 = 常态；0 = 起点态（0.96 缩放 + 下移 10pt）。赋值不加动画 → 起点态是瞬变的
+    @State private var phase: CGFloat = 1
+    @State private var seq = 0
 
     func body(content: Content) -> some View {
         content
             .tag(tab)
             .tabItem { Label(tab.title, systemImage: tab.icon) }
-            .scaleEffect(appeared ? 1 : 0.985, anchor: .center)   // v3.4.29：0.97→0.985，入场更细腻
-            .animation(Motion.snap, value: appeared)
-            .onAppear {
-                Task { try? await Task.sleep(for: .seconds(0.01)); appeared = true }
-            }
+            .scaleEffect(0.96 + 0.04 * phase, anchor: .center)   // v4.0.69：0.985(1.5%) → 0.96(4%)
+            .offset(y: 10 * (1 - phase))                         // v4.0.69：从下方 10pt 浮起
+            .onAppear { enter() }
             .onChange(of: selected) { _, newVal in
-                withAnimation(Motion.snap) {
-                    appeared = (newVal == tab)
-                }
+                guard newVal == tab else { return }              // 离场不反向播（见头注）
+                enter()
             }
+    }
+
+    /// 把这页从起点态演到常态。0.01s 的延后是为了让起点态先上屏 —— 同一帧里既设起点又起动画会被合成掉。
+    private func enter() {
+        seq += 1
+        let mySeq = seq
+        phase = 0
+        Task {
+            try? await Task.sleep(for: .seconds(0.01))
+            guard mySeq == seq else { return }                   // 已被更新的一次入场接管
+            withAnimation(Motion.settle) { phase = 1 }
+        }
     }
 }
 
 extension View {
     func tabTransition(for tab: DockTab, selected: Binding<DockTab>) -> some View {
         modifier(TabTransitionModifier(tab: tab, selected: selected))
+    }
+}
+
+// MARK: - v4.0.69 会话 → 聊天：从会话卡位置放大展开（用户 2026-10-07「过渡非常生硬，没有任何动画过渡」）
+//
+// 为什么单独立一个 ViewModifier 而不是往 body 那条巨型链上挂带闭包的东西：见上面 OrbMenuFromPetModifier
+// 的注释（CI run #571 实测 `unable to type-check this expression in reasonable time`）。这里参数很少，
+// 但同样守住「不往 body 链加东西」这条线 —— 只挂在 chatTab 这个计算属性里。
+private struct ChatZoomEntryModifier: ViewModifier {
+    @Binding var selected: DockTab
+    /// 非 nil = 正处在「起点态」（整页被缩到会话卡大小）；动画归零 = 展开完成
+    @State private var spec: ChatEntryZoomSpec?
+    /// v4.0.69（审查）：入场世代号。归零 Task 要睡 0.01s 才上屏，若这个窗口里又发生了一次换页
+    /// （连点会话卡 / 快速切走再切回），上一次的 Task 醒来会把**新一次**的起点态提前清成 nil
+    /// → 那次展开动画静默失效（退化成硬切，正是本批要修的毛病）。每次入场自增，醒来先校验身份。
+    @State private var entrySeq = 0
+
+    func body(content: Content) -> some View {
+        content
+            // 锚点 .center + 相对中心的位移：与页内原点 / safe area 无关（见 ChatEntryZoom.Spec 注释）
+            .scaleEffect(x: spec?.sx ?? 1, y: spec?.sy ?? 1, anchor: .center)
+            .offset(x: spec?.dx ?? 0, y: spec?.dy ?? 0)
+            // 起点圆角跟会话卡一致，展开时收回到 0 —— 不然压缩态是直角矩形，跟卡片对不上
+            .clipShape(RoundedRectangle(cornerRadius: spec == nil ? 0 : Radius.card, style: .continuous))
+            .onChange(of: selected) { _, newVal in
+                guard newVal == .chat else {
+                    spec = nil   // 离开聊天页：立刻复位（无动画），下次入场从头演
+                    return
+                }
+                // 有源卡片（从会话卡点进来）→ 从那张卡的位置长出来；没有（球 / 通知 / 桌面快捷方式）
+                // → 通用入场：中心略小 + 下移 10pt，与四页 `TabTransitionModifier` 同一套视觉，
+                //   免得"会话→聊天有动画、球→聊天硬切"两种观感打架。
+                // ⚠️ consume() 只调一次：它取走即清空，调两次的话第二次必然拿到 nil（动画静默失效）。
+                spec = ChatEntryZoom.shared.consume() ?? ChatEntryZoomSpec(sx: 0.96, sy: 0.96, dx: 0, dy: 10)
+                entrySeq += 1
+                let mySeq = entrySeq
+                Task {
+                    try? await Task.sleep(for: .seconds(0.01))   // 等起点态上屏，再放大到全屏
+                    guard mySeq == entrySeq else { return }      // 已被更新的一次入场接管，别抢着归零
+                    withAnimation(Motion.settle) { spec = nil }
+                }
+            }
+    }
+}
+
+extension View {
+    /// 会话 → 聊天的空间连续入场（参数由 `ChatEntryZoom` 在点击会话卡时算好；没有 = 不播）
+    func chatZoomEntry(selected: Binding<DockTab>) -> some View {
+        modifier(ChatZoomEntryModifier(selected: selected))
     }
 }
 

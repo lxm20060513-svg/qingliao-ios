@@ -20,6 +20,9 @@ struct LifeView: View {
 
     @State private var life = LifeCardsData()
     @State private var lifeLoading = false
+    /// v4.0.69（用户报「博客资讯的刷新胶囊点击无法强制刷新」）：排队中的「用户点刷新」标记。
+    /// 与 `loadLife(queued:)` 配套 —— 在途时点击不再被静默丢弃，而是排队补发；这个标记防重复排队叠请求。
+    @State private var freshQueued = false
     @State private var lifeError = ""
     @State private var showLifeSettings = false
     // v3.9.85：板块自定义（排序 + 隐藏）——抄看板 dashboard_card_order 模式
@@ -68,7 +71,9 @@ struct LifeView: View {
                                                           zoomNS: zoomNS,   // v3.9.0：非闭包实参必须在闭包实参之前（实参序红线）
                                                           onDeleteStock: { st in Task { await deleteStock(st) } },
                                                           onAddStock: { showLifeSettings = true },
-                                                          onRefresh: { Task { await loadLife(fresh: true) } },
+                                                          // v4.0.69：queued: true = 在途也不丢点击（排队补发），
+                                                          // 见 LifeView.loadLife 注释（用户报「刷新胶囊点击无法强制刷新」）
+                                                          onRefresh: { Task { await loadLife(fresh: true, queued: true) } },
                                                           articleStates: articles,
                                                           onOpenArticle: { e in openArticle(e) },
                                                           expandedArticleID: expandedEntryID,
@@ -85,7 +90,9 @@ struct LifeView: View {
                 .frame(maxWidth: .infinity)
                 .frame(maxWidth: AdaptiveLayout.contentMaxWidth(hSize))
             }
-            .refreshable { await loadLife() }
+            // v4.0.69（审查）：下拉的语义本来就是「用户显式要最新」，走 queued 通道 ——
+            // 原来 `await loadLife()` 是 queued=false，撞上 30s 轮询在途时直接 return，spin 一下什么也没发生。
+            .refreshable { await loadLife(fresh: true, queued: true) }
             // v4.0.61（试点页）：页头从 VStack 第一行改成挂在滚动视图上的系统 **safeAreaBar**（iOS 26 新 API：
             // 「把自定义栏交给系统按栏处理」）—— 滚动时内容在页头下沿走系统级模糊/渐隐，
             // 而不是「自绘头 + 内容在下面硬切」。系统会替它处理安全区与边缘效果。
@@ -165,8 +172,29 @@ struct LifeView: View {
     /// 独立异步路径：失败/超时只降级为卡片内小字，不阻塞页面其它内容；
     /// 8 秒 UI 兜底（后端已把上游收口在 ~7s 内）避免转圈卡住。
     /// - Parameter fresh: true = 带 ?fresh=1 强制绕过后端缓存（股票 60s / RSS 900s TTL）
-    private func loadLife(fresh: Bool = false) async {
-        guard !lifeLoading else { return }
+    /// - Parameter queued: true = 「用户显式点刷新」通道。v4.0.69（用户报「博客资讯的刷新胶囊点击无法强制刷新」）：
+    ///   闸门期间原来是 `guard ... else { return }` —— **静默丢弃**。30s 轮询 + 最长 8s 请求意味着点刷新
+    ///   有相当概率撞上在途窗口，用户看到的就是「点了没反应」。现在在途时**不丢点击**：等在途结束后
+    ///   自动补发这一次 fresh 请求（最多等 10s，`freshQueued` 防重复排队）。
+    private func loadLife(fresh: Bool = false, queued: Bool = false) async {
+        // v4.0.69（审查）：本次调用是不是「排队后补发的那一发」—— 决定结束时要不要放开 freshQueued
+        var queuedFresh = false
+        if lifeLoading {
+            guard queued else { return }
+            if freshQueued { return }        // 已经欠着一发补发 → 合并，不叠加
+            freshQueued = true
+            var waited: Double = 0
+            while lifeLoading && waited < 10 {
+                try? await Task.sleep(for: .seconds(0.2))
+                waited += 0.2
+            }
+            if lifeLoading { freshQueued = false; lifeError = "正在刷新，请稍后再试"; return }
+            queuedFresh = true
+        }
+        // 复位必须落在**函数级**作用域：原先写在 if 块里，而 defer 在所属花括号退出时就执行了，
+        // 等于只覆盖「等待在途结束」这一段 —— 补发的那次请求在途时再点刷新又会排一个（点几次发几次）。
+        // 只在本次是补发者时复位，免得别人的排队被这次提前返回顺手清掉。
+        defer { if queuedFresh { freshQueued = false } }
         lifeLoading = true
         let guardTask = Task {
             try? await Task.sleep(for: .seconds(8))
