@@ -56,6 +56,8 @@ struct BubbleTheme {
     }
 
     /// AI 气泡灰色（深色 systemGray5 / 浅色 systemGray6）
+    /// v4.0.66：正常态气泡已换 EnvironmentGradient 渐变（A+C 定稿）；本函数只剩两个调用语义——
+    /// 高亮（搜索定位）与撤回/已修改占位，保留原灰不跟主色变。
     static func aiBubble(scheme: ColorScheme, highlighted: Bool = false) -> Color {
         highlighted
             ? Color.accentColor.opacity(Tint.subtle)
@@ -306,6 +308,35 @@ extension View {
     /// 意图动作卡 / 识别浮层卡 / 速记待办输入卡都走这个）
     func overlayGlassCard(cornerRadius: CGFloat = Radius.hero) -> some View {
         modifier(OverlayGlassCard(cornerRadius: cornerRadius))
+    }
+
+    /// v4.0.66 A+C 定稿：淡彩渐变卡（A 方案口径）——粉白→蓝白渐变底（深色同构暗调）+
+    /// 紫调柔影 + 0.8pt 描边。压在环境渐变页底上的卡片统一出口，P1 先用于 AI 气泡，P2-P5 逐页迁移。
+    func pastelCard(cornerRadius: CGFloat = Radius.card) -> some View {
+        modifier(PastelCard(cornerRadius: cornerRadius))
+    }
+}
+
+// MARK: - v4.0.66 A+C 定稿：淡彩渐变卡（A 方案口径）
+//
+// 底 = EnvironmentGradient.pastelCardStyle（粉白→蓝白渐变，深色同构暗调）；
+// 影 = 紫调柔影（浅色可感知，压在环境渐变彩底上出层次）；描边走 Tint.line（0.8pt 深浅自适应）。
+// 与 glassListCard 的区别：那是有色底上的低调列表卡，这是页底彩化后的主卡片形态。
+
+struct PastelCard: ViewModifier {
+    var cornerRadius: CGFloat = Radius.card
+    @Environment(\.colorScheme) private var scheme
+
+    func body(content: Content) -> some View {
+        content
+            .background(EnvironmentGradient.pastelCardStyle(scheme),
+                        in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .strokeBorder(Tint.line(scheme), lineWidth: 0.8)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .shadow(color: EnvironmentGradient.pastelShadow(scheme), radius: 10, y: 4)
     }
 }
 

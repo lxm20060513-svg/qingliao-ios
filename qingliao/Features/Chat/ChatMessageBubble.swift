@@ -315,7 +315,7 @@ struct MessageBubble: View {
                 .frame(maxWidth: AdaptiveLayout.bubbleMaxWidth(hSize), alignment: .leading)
                 .background(
                     RoundedRectangle(cornerRadius: Radius.field, style: .continuous)
-                        .fill(aiBubbleColor)   // v2.0.92：与撤回统一灰
+                        .fill(aiBubbleColor)   // v2.0.92：与撤回统一灰（v4.0.66：撤回/已修改占位不改渐变，保持低调）
                 )
             bubbleTrailingAccessory
         }
@@ -362,12 +362,33 @@ struct MessageBubble: View {
                     Group {
                         if isMultiBubbleAI {
                             Color.clear
-                        } else {
+                        } else if message.withdrawn {
+                            // v2.0.92：撤回统一灰（渐变化后仍走原 aiBubbleColor，不跟气泡主色变）
                             RoundedRectangle(cornerRadius: Radius.field, style: .continuous)
-                                .fill(message.withdrawn ? aiBubbleColor : (message.isUser ? userBubbleColor : aiBubbleColor))   // v2.0.92：撤回统一灰
+                                .fill(aiBubbleColor)
+                        } else if message.isUser {
+                            // v4.0.66 A+C 定稿：用户气泡换蓝→紫渐变（EnvironmentGradient.userBubbleGradient，
+                            // 浅色 #4DA3FF→#7A5CFF / 深色 #3B82E0→#6A4FD8）；高亮态保留原 userBubbleColor
+                            // （搜索定位的语义色不动）。任意ShapeStyle 包装让两条分支同类型。
+                            RoundedRectangle(cornerRadius: Radius.field, style: .continuous)
+                                .fill(isHighlighted
+                                      ? AnyShapeStyle(userBubbleColor)
+                                      : AnyShapeStyle(EnvironmentGradient.userBubbleGradient(scheme)))
+                        } else {
+                            // v4.0.66 A+C：AI 气泡换淡彩渐变卡底（A 方案口径），撤回/编辑占位仍走原灰。
+                            // 高亮态保留原 aiBubbleColor（搜索定位语义色不动）。
+                            RoundedRectangle(cornerRadius: Radius.field, style: .continuous)
+                                .fill(isHighlighted
+                                      ? AnyShapeStyle(aiBubbleColor)
+                                      : AnyShapeStyle(EnvironmentGradient.pastelCardStyle(scheme)))
                         }
                     }
                 )
+                // v4.0.66 A+C：淡彩气泡压在环境渐变彩底上的紫调柔影（只挂 AI 气泡；用户气泡渐变
+                // 自带饱和度，不加影保持轻量）。纯视觉层。
+                .shadow(color: (!message.isUser && !message.withdrawn && !isMultiBubbleAI)
+                            ? EnvironmentGradient.pastelShadow(scheme) : .clear,
+                        radius: 10, y: 4)
                 // v2.0.43 搜索定位高亮边框
                 // v3.4.25：错误占位 → 红描边分层（错误一眼可辨，不再与正常回复同观感）
                 .overlay(
@@ -1069,9 +1090,14 @@ struct MessageBubble: View {
         .padding(.horizontal, Spacing.xl)
         .padding(.vertical, Spacing.md)
         .background(
+            // v4.0.66 A+C：多气泡段落的每段底同步换淡彩渐变（与主气泡同口径）
             RoundedRectangle(cornerRadius: Radius.field, style: .continuous)
-                .fill(aiBubbleColor)
+                .fill(isHighlighted
+                      ? AnyShapeStyle(aiBubbleColor)
+                      : AnyShapeStyle(EnvironmentGradient.pastelCardStyle(scheme)))
         )
+        .shadow(color: isHighlighted ? .clear : EnvironmentGradient.pastelShadow(scheme),
+                radius: 10, y: 4)
         .frame(maxWidth: AdaptiveLayout.bubbleMaxWidth(hSize), alignment: .leading)
     }
 

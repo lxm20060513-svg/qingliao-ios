@@ -1,0 +1,126 @@
+import SwiftUI
+
+// MARK: - v4.0.66 环境渐变主题（A+C 定稿：多彩轻盈 · 灵动跟手）
+//
+// 来源：用户从三方向对比稿中拍板「A+C 组合」——
+//   · C 的「环境渐变页底」：白/黑页底上三团 radial 弥散光晕（桃粉右上 / 天蓝左侧 / 薄荷底部），
+//     全站每页一个 modifier 铺底，浅深色各一套取值（色值逐字取自定稿稿 ql_uimock/gen_ac.py 的
+//     light.page / dark.page，勿手调）；
+//   · A 的「淡彩渐变卡」：AI 气泡/生活卡换淡彩渐变底 + 紫调柔影，见本文件 pastelCardStyle。
+//
+// 设计约束：
+//   · 每团光晕 opacity ≤ 0.38：压在白底上是「空气感」，正文对比度不受影响（A11y 红线）；
+//   · 深色取同构的暗调版本（同位置、同形状、浓度相近），不是简单调透明度；
+//   · P1 聊天页先接（ChatView 全页底），后续 P2-P5 逐页迁移；每页只铺一层，不叠团。
+
+enum EnvironmentGradient {
+
+    /// AI 气泡 / 淡彩渐变卡底（A 方案口径，浅深色各一套）
+    static func pastelCardStyle(_ scheme: ColorScheme) -> LinearGradient {
+        if scheme == .dark {
+            // 暗调：紫→蓝的深底渐变（稿 aCard2 暗色版同构：36,31,51 → 24,36,52）
+            LinearGradient(colors: [
+                Color(red: 36 / 255, green: 31 / 255, blue: 51 / 255),
+                Color(red: 24 / 255, green: 36 / 255, blue: 52 / 255),
+            ], startPoint: .topLeading, endPoint: .bottomTrailing)
+        } else {
+            // 亮调：粉白→蓝白淡彩（稿 aCard2 亮色版逐字：243,239,255 → 234,246,255）
+            LinearGradient(colors: [
+                Color(red: 243 / 255, green: 239 / 255, blue: 255 / 255),
+                Color(red: 234 / 255, green: 246 / 255, blue: 255 / 255),
+            ], startPoint: .topLeading, endPoint: .bottomTrailing)
+        }
+    }
+
+    /// 用户气泡渐变（A 方案：蓝→紫，稿 aUser 逐字）
+    static func userBubbleGradient(_ scheme: ColorScheme) -> LinearGradient {
+        if scheme == .dark {
+            // 稿 aUser 暗色版：#3B82E0 → #6A4FD8
+            LinearGradient(colors: [
+                Color(red: 0x3B / 255, green: 0x82 / 255, blue: 0xE0 / 255),
+                Color(red: 0x6A / 255, green: 0x4F / 255, blue: 0xD8 / 255),
+            ], startPoint: .topLeading, endPoint: .bottomTrailing)
+        } else {
+            // 稿 aUser 亮色版：#4DA3FF → #7A5CFF
+            LinearGradient(colors: [
+                Color(red: 0x4D / 255, green: 0xA3 / 255, blue: 0xFF / 255),
+                Color(red: 0x7A / 255, green: 0x5C / 255, blue: 0xFF / 255),
+            ], startPoint: .topLeading, endPoint: .bottomTrailing)
+        }
+    }
+
+    /// 紫调柔影（淡彩卡压在彩底上的层次影，浅色可感知、深色物理不可见仍保留同参数）
+    static func pastelShadow(scheme: ColorScheme) -> Color {
+        scheme == .dark
+            ? Color.black.opacity(0.28)
+            : Color(red: 0.42, green: 0.36, blue: 0.72).opacity(0.10)
+    }
+}
+
+// MARK: - 页底三团弥散光晕（radial 光斑层，纯视觉层零布局影响）
+
+/// 页底环境渐变入口：`EnvironmentGradient.pageBackground(scheme)` 挂在页面最底层
+/// （`.background(EnvironmentGradient.pageBackground(scheme))`，ignoresSafeArea 随页面既有口径）。
+struct EnvironmentGlowLayers: View {
+    let scheme: ColorScheme
+
+    var body: some View {
+        GeometryReader { geo in
+            let w = geo.size.width
+            let h = geo.size.height
+            ZStack {
+                // 底色：浅色纯白 / 深色纯黑（稿 page 的兜底色）
+                (scheme == .dark ? Color.black : Color.white)
+
+                // 团 1：桃粉 · 右上（稿 light 团1 rgba(255,180,214,.38) at 85%,-5% 120%×60%；
+                //                    dark 团1 rgba(150,60,110,.35)）
+                GlowBlob(tint: scheme == .dark
+                             ? Color(red: 150 / 255, green: 60 / 255, blue: 110 / 255)
+                             : Color(red: 1, green: 180 / 255, blue: 214 / 255),
+                         opacity: scheme == .dark ? 0.35 : 0.38,
+                         center: CGPoint(x: w * 0.85, y: h * -0.05),
+                         radius: CGSize(width: w * 0.60, height: h * 0.30))
+
+                // 团 2：天蓝 · 左侧（light rgba(150,200,255,.34) at -10%,30% 110%×55%；
+                //                    dark rgba(40,90,160,.35)）
+                GlowBlob(tint: scheme == .dark
+                             ? Color(red: 40 / 255, green: 90 / 255, blue: 160 / 255)
+                             : Color(red: 150 / 255, green: 200 / 255, blue: 255 / 255),
+                         opacity: scheme == .dark ? 0.35 : 0.34,
+                         center: CGPoint(x: w * -0.10, y: h * 0.30),
+                         radius: CGSize(width: w * 0.55, height: h * 0.275))
+
+                // 团 3：薄荷 · 底部（light rgba(190,240,200,.36) at 60%,108% 120%×55%；
+                //                    dark rgba(40,120,70,.30)）
+                GlowBlob(tint: scheme == .dark
+                             ? Color(red: 40 / 255, green: 120 / 255, blue: 70 / 255)
+                             : Color(red: 190 / 255, green: 240 / 255, blue: 200 / 255),
+                         opacity: scheme == .dark ? 0.30 : 0.36,
+                         center: CGPoint(x: w * 0.60, y: h * 1.08),
+                         radius: CGSize(width: w * 0.60, height: h * 0.275))
+            }
+            .frame(width: w, height: h)
+            .clipped()
+            .ignoresSafeArea()
+        }
+    }
+}
+
+/// 单团弥散光晕：径向渐变椭圆，中心浓度 → 边缘透明（对应 CSS radial-gradient 的 0%→60% 衰减）。
+/// 纯视觉层：不参与布局、不接收点击。
+private struct GlowBlob: View {
+    let tint: Color        // 基色（深浅色由调用点选好传入）
+    let opacity: Double
+    let center: CGPoint    // 椭圆中心（宿主坐标，可越界形成「从页外打光」）
+    let radius: CGSize     // 椭圆半轴
+
+    var body: some View {
+        Ellipse()
+            // EllipticalGradient 的半径走单位空间（0.5=椭圆边缘），正好铺满形状边界后归零
+            .fill(EllipticalGradient(colors: [tint.opacity(opacity), tint.opacity(0)],
+                                     center: .center))
+            .frame(width: radius.width * 2, height: radius.height * 2)
+            .position(center)
+            .allowsHitTesting(false)
+    }
+}

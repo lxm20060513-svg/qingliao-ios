@@ -36,6 +36,8 @@ struct ChatView: View {
     /// v3.9.79：横屏判据 —— iPhone 横屏的 `horizontalSizeClass` 仍是 `.compact`（只有 Plus/Max 变 `.regular`），
     /// 所以「矮屏」只认 `verticalSizeClass == .compact`。见 `AdaptiveLayout.isShort`。
     @Environment(\.verticalSizeClass) private var vSize
+    // v4.0.66 A+C：环境渐变页底需要感知深浅色（三团光晕各一套取值）
+    @Environment(\.colorScheme) private var colorSchemeEnv
     @State var pinStore = PinStore.shared   // v3.0.74：钉一钉
     // v3.7.0：剪贴板地图链接兜底入口（地图分享面板里没有轻聊 → 「拷贝」后在聊天页一键发送）
     @State var showClipboardBanner = false
@@ -974,6 +976,10 @@ struct ChatView: View {
         content
         .background(chatColdChrome12())
         .background(chatColdChrome13())
+        // v4.0.66 A+C 定稿：环境渐变页底——白/黑底上三团弥散光晕（桃粉右上/天蓝左侧/薄荷底部），
+        // 挂在整页最底层（垫在所有 coldChrome 之下，消息区/输入区都透出彩底）；
+        // 纯视觉层：不改布局、不拦手势（GlowBlob 全部 allowsHitTesting(false)）。
+        .background(EnvironmentGlowLayers(scheme: colorSchemeEnv))
     }
 
     /// v4.0.51c：行为型深层修饰器下沉背景层（.background 不影响布局）
