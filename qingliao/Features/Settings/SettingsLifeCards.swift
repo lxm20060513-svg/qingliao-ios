@@ -605,8 +605,7 @@ struct LifeCardsSettingsView: View {
             .autocorrectionDisabled()
             .padding(.horizontal, Spacing.lg)
             .padding(.vertical, Spacing.md)
-            .background(Color(uiColor: .secondarySystemGroupedBackground),
-                        in: RoundedRectangle(cornerRadius: Radius.icon, style: .continuous))
+            .pastelFill(cornerRadius: Radius.icon)
     }
 
     private func labeledField(_ label: String, placeholder: String, text: Binding<String>) -> some View {
@@ -859,8 +858,7 @@ struct StockSearchSheet: View {
             .autocorrectionDisabled()
             .padding(.horizontal, Spacing.xl)
             .padding(.vertical, Spacing.md)
-            .background(Color(uiColor: .secondarySystemGroupedBackground),
-                        in: RoundedRectangle(cornerRadius: Radius.chip, style: .continuous))
+            .pastelFill(cornerRadius: Radius.chip)
             .padding(.horizontal, Spacing.section)
             .padding(.top, Spacing.lg)
     }
@@ -1005,8 +1003,7 @@ struct LifeHeaderEditor: View {
             .autocorrectionDisabled()
             .padding(.horizontal, Spacing.md)
             .padding(.vertical, Spacing.sm)
-            .background(Color(uiColor: .secondarySystemGroupedBackground),
-                        in: RoundedRectangle(cornerRadius: Radius.icon, style: .continuous))
+            .pastelFill(cornerRadius: Radius.icon)
     }
 }
 

@@ -167,9 +167,31 @@ check("会话卡走 pastelCard()（P0 淡彩渐变卡，与 AI 气泡/生活卡�
       sessCode.contains(".pastelCard(cornerRadius: Radius.card)"))
 check("会话卡不再挂不透明 secondarySystemGroupedBackground（那会把渐变压死）",
       !sessCode.contains("secondarySystemGroupedBackground"))
-// 反向：旧玻璃口径清零（dashboardCard 玻璃压在渐变彩底上发灰，不许回潮）
-check("会话卡旧玻璃口径 dashboardCard 清零（v4.0.67 退役）",
-      !sessCode.contains(".dashboardCard("))
+// 反向：会话**行**旧玻璃口径清零（dashboardCard 玻璃压在渐变彩底上发灰，不许回潮）。
+// v4.0.68 例外（用户 2026-10-07 拍板「会话页两张固定会话卡要对齐聊天首页卡片风格」）：
+//   新加的 `FixedChannelCard` 卡面**刻意复用首页卡**（HomeCardFace 用的就是 dashboardCard），
+//   所以口径从「全文件零命中」收成「dashboardCard 只许出现在 FixedChannelCard 那一段里」。
+func occ(_ hay: String, _ needle: String) -> Int {
+    hay.components(separatedBy: needle).count - 1
+}
+let fixedCardBody = slice(sessCode, "struct FixedChannelCard: View {", "private var accessibilityText: Text {")
+check("FixedChannelCard 段切片取到且含 dashboardCard（防空真）",
+      !fixedCardBody.isEmpty && fixedCardBody.contains(".dashboardCard("))
+check("会话行旧玻璃口径 dashboardCard 清零（v4.0.67 退役；v4.0.68 仅 FixedChannelCard 例外）",
+      occ(sessCode, ".dashboardCard(") == occ(fixedCardBody, ".dashboardCard("))
+
+// v4.0.68：固定会话（轻聊投递/轻聊主动）改**顶部并排卡**——三件事一起钉死：
+//   ① 并排卡确实渲染在列表顶部；② 普通列表行**过滤掉**固定会话（否则同一会话出现两次）；
+//   ③ 多选/全选的口径（visibleSessions）同步过滤，别把不可删的固定会话算进去。
+check("固定会话并排卡渲染在 List 顶部（fixedChannelCards）",
+      sessCode.contains("fixedChannelCards")
+      && sessCode.contains("if !fixedChannelSessions.isEmpty"))
+check("普通列表行过滤掉固定会话（同会话不重复出现）",
+      sessCode.contains("ForEach(sortedSessions.filter { !isFixedSession($0.id) })"))
+check("多选口径 visibleSessions 同步过滤固定会话",
+      sessCode.contains("return sortedSessions.filter { !isFixedSession($0.id) }"))
+check("固定会话并排卡高度钉死 HomeCardStore.cardHeight（两张并排不许自适应高低不齐）",
+      fixedCardBody.contains(".frame(height: HomeCardStore.cardHeight)"))
 // 反向：会话卡不许手搓 glassEffect（要改档位只能改 PastelCard 一处）
 check("会话卡没有自己手搓 glassEffect（口径单源）",
       !sessCode.contains("glassEffect("))

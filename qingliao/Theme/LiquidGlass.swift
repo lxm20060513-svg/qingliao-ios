@@ -315,6 +315,14 @@ extension View {
     func pastelCard(cornerRadius: CGFloat = Radius.card) -> some View {
         modifier(PastelCard(cornerRadius: cornerRadius))
     }
+
+    /// v4.0.68（用户 2026-10-07 拍板「卡底统一成品牌淡色系，含搜索框一起换」）：
+    /// **淡彩填充**——同一份淡彩真源（`EnvironmentGradient.pastelCardStyle`），**不带投影**。
+    /// 给搜索框 / 输入框 / 胶囊 / 内嵌小块用（只有"卡"才需要浮起来，输入框不需要）。
+    /// 见 `PastelFill`（描边口径写在那里）。
+    func pastelFill(cornerRadius: CGFloat, stroke: Bool = true) -> some View {
+        modifier(PastelFill(cornerRadius: cornerRadius, stroke: stroke))
+    }
 }
 
 // MARK: - v4.0.66 A+C 定稿：淡彩渐变卡（A 方案口径）
@@ -337,6 +345,34 @@ struct PastelCard: ViewModifier {
             )
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             .shadow(color: EnvironmentGradient.pastelShadow(scheme: scheme), radius: 10, y: 4)
+    }
+}
+
+// MARK: - v4.0.68：淡彩填充（设置区统一出口，不带投影）
+
+/// 与 `pastelCard` **同一份**淡彩真源（粉白→蓝白渐变，深色同构暗调），只去掉投影。
+///
+/// 用途：设置区那些压在淡彩卡上的**非卡**面——搜索框、输入框、胶囊、内嵌小块。
+/// 它们原来是 `Color(uiColor: .secondarySystemGroupedBackground)`（纯白不透明）：
+/// 页底与卡片都彩化后，那几块白就是用户报的「又有白底又有渐变底，不协调」。
+///
+/// **描边默认开**（`Tint.line` 0.8pt）：压在淡彩卡上的输入框，只换底不描边，
+/// 边界会糊进卡片渐变里（= 输入框看不出边界）。调用点已经自带描边的传 `stroke: false`，别叠两层。
+struct PastelFill: ViewModifier {
+    var cornerRadius: CGFloat
+    var stroke: Bool = true
+    @Environment(\.colorScheme) private var scheme
+
+    func body(content: Content) -> some View {
+        content
+            .background(EnvironmentGradient.pastelCardStyle(scheme),
+                        in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .overlay {
+                if stroke {
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .strokeBorder(Tint.line(scheme), lineWidth: 0.8)
+                }
+            }
     }
 }
 

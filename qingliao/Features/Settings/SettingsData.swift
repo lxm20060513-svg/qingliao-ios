@@ -554,7 +554,8 @@ private struct FilesManagerRow: View {
         }
         .padding(.horizontal, Spacing.xxl)
         .padding(.vertical, Spacing.lg)
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
+        // v4.0.68：这行原来是 Color(uiColor: .secondarySystemGroupedBackground)（纯白面），
+        // 但本行是 pastelCard 列表里的一行 —— 自己再涂料只会把卡面盖白。行底交给外层卡片。
     }
 
     private var subtitle: String {
@@ -633,8 +634,7 @@ private struct FileRenameSheet: View {
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .padding(Spacing.xl)
-                .background(Color(uiColor: .secondarySystemGroupedBackground))
-                .clipShape(RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
+                .pastelFill(cornerRadius: Radius.inset)
                 .padding(.horizontal, Spacing.sheetInset)
 
             if let err = errorText {

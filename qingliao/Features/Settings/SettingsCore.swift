@@ -880,10 +880,9 @@ extension SettingsView {
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, Spacing.md)
-            .background(
-                RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
-                    .fill(Color(uiColor: .secondarySystemGroupedBackground).opacity(0.6))
-            )
+            // v4.0.68（用户 2026-10-07 拍板「卡底统一成品牌淡色系」）：形象卡原本是「纯白 0.6」，
+            // 是设置页最后一块白 —— 换品牌淡彩卡（与下面分组卡同族）。
+            .pastelCard(cornerRadius: Radius.card)
         }
         .buttonStyle(.plain)
         .accessibilityLabel("卡通宠物：\(petSummary)")

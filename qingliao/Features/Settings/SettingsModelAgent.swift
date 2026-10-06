@@ -95,8 +95,7 @@ struct AgentModelSheet: View {
                         }
                     }
                     .padding(Spacing.lg)
-                    .background(Color(uiColor: .secondarySystemGroupedBackground),
-                                in: RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
+                    .pastelFill(cornerRadius: Radius.inset, stroke: false)
                     .overlay(
                         RoundedRectangle(cornerRadius: Radius.inset, style: .continuous)
                             .strokeBorder(selected.isEmpty ? Color.accentColor.opacity(0.5) : Color.primary.opacity(Tint.faint),
@@ -221,8 +220,7 @@ struct AgentModelSheet: View {
             }
         }
         .padding(Spacing.lg)
-        .background(Color(uiColor: .secondarySystemGroupedBackground),
-                    in: RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
+        .pastelFill(cornerRadius: Radius.inset, stroke: false)
         .overlay(
             RoundedRectangle(cornerRadius: Radius.inset, style: .continuous)
                 .strokeBorder(isCur ? Color.accentColor.opacity(0.5) : Color.primary.opacity(Tint.faint),

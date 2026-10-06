@@ -306,8 +306,7 @@ struct ModelSheet: View {
                 Spacer()
             }
             .padding(Spacing.lg)
-            .background(Color(uiColor: .secondarySystemGroupedBackground),
-                        in: RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
+            .pastelFill(cornerRadius: Radius.inset, stroke: false)
             .overlay(
                 RoundedRectangle(cornerRadius: Radius.inset, style: .continuous)
                     .strokeBorder(Color.orange.opacity(0.35), lineWidth: 0.8)
@@ -430,8 +429,7 @@ struct ModelSheet: View {
                     .foregroundStyle(.tertiary)
             }
             .padding(Spacing.lg)
-            .background(Color(uiColor: .secondarySystemGroupedBackground),
-                        in: RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
+            .pastelFill(cornerRadius: Radius.inset, stroke: false)
             .overlay(
                 RoundedRectangle(cornerRadius: Radius.inset, style: .continuous)
                     .strokeBorder(Color.purple.opacity(Tint.strong), lineWidth: 0.8)
@@ -461,8 +459,7 @@ struct ModelSheet: View {
                 }
             }
             .padding(Spacing.lg)
-            .background(Color(uiColor: .secondarySystemGroupedBackground),
-                        in: RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
+            .pastelFill(cornerRadius: Radius.inset, stroke: false)
             .overlay(
                 RoundedRectangle(cornerRadius: Radius.inset, style: .continuous)
                     .strokeBorder(ttsOn ? Color.indigo.opacity(0.35) : Color.primary.opacity(Tint.faint), lineWidth: 0.8)
@@ -742,8 +739,7 @@ struct ModelSheet: View {
             }
         }
         .padding(Spacing.lg)
-        .background(Color(uiColor: .secondarySystemGroupedBackground),
-                    in: RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
+        .pastelFill(cornerRadius: Radius.inset, stroke: false)
         .overlay(
             RoundedRectangle(cornerRadius: Radius.inset, style: .continuous)
                 .strokeBorder(selected == id ? Color.accentColor.opacity(0.5) : Color.primary.opacity(Tint.faint),

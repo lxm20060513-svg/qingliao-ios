@@ -44,8 +44,16 @@ struct SettingsSearchBar: View {
         }
         .padding(.horizontal, Spacing.xl)
         .padding(.vertical, Spacing.lg)
-        .background(Color(uiColor: .secondarySystemGroupedBackground),
+        .background(EnvironmentGradient.pastelCardStyle(scheme),
                     in: RoundedRectangle(cornerRadius: Radius.field, style: .continuous))
+        // v4.0.68（用户 2026-10-07 拍板「卡底统一成品牌淡色系，含搜索框一起换」）：
+        // 搜索框原本是 .secondarySystemGroupedBackground（纯白不透明）—— 压在彩化页底上，
+        // 它就是设置页那块「白底」本尊。换**同一份**淡彩真源（与全站卡片同族）。
+        // 描边必须有：纯渐变不描边，框界会糊在页底渐变里（输入框就没有边界了）。
+        .overlay(
+            RoundedRectangle(cornerRadius: Radius.field, style: .continuous)
+                .strokeBorder(Tint.line(scheme), lineWidth: 0.8)
+        )
         .padding(.horizontal, Spacing.xxl)
         .padding(.bottom, Spacing.sm)
     }

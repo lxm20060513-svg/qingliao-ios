@@ -200,5 +200,49 @@ check("⑤ 光晕/柔影透明度取值解析到了（空了下面就是空真�
 check("⑤ 每处透明度都不超 0.38（正文对比度红线；实测最大值 \(glowOpacityVals.max() ?? -1)）",
       (glowOpacityVals.max() ?? 1) <= 0.38)
 
+// MARK: - ⑥ v4.0.68 设置区「纯白面」清零（用户 2026-10-07：「设置页又有白底又有渐变底，不协调」）
+//   口径：设置页（Features/Settings 全目录）不许再有**纯白填充面**——
+//   `secondarySystemGroupedBackground`（分组白：搜索框/形象卡/输入框/列表行底）与
+//   `Color(uiColor: .systemBackground)`（系统白：页内块底）一并清零。
+//   统一出口：`pastelFill(cornerRadius:)`（同一份淡彩真源 + 0.8pt 描边、不带投影；见 LiquidGlass）。
+//   ⚠️ 不误伤 `Color.white`：那是**前景色**（图标/文字画在彩色底上），本表按 token 判。
+let settingsDir = "qingliao/Features/Settings/"
+let settingsNames = (try? FileManager.default.contentsOfDirectory(atPath: settingsDir)) ?? []
+check("⑥ 设置目录可枚举（空了下面就是空真）", settingsNames.count >= 5)
+var whiteFills: [String] = []
+var pastelFillCalls = 0
+for name in settingsNames where name.hasSuffix(".swift") {
+    let code = stripCommentLines(src(settingsDir + name))
+    if code.contains("secondarySystemGroupedBackground") { whiteFills.append(name + " · 分组白") }
+    if code.contains("Color(uiColor: .systemBackground)") { whiteFills.append(name + " · 系统白") }
+    pastelFillCalls += occ(code, ".pastelFill(")
+}
+check("⑥ 设置区纯白填充面清零（实得 \(whiteFills.count) 处：\(whiteFills.isEmpty ? "0" : whiteFills.joined(separator: "、"))）",
+      whiteFills.isEmpty)
+
+// 正向：统一出口在位 + 真有调用点（否则「清零」可以靠删功能达成）
+let lg68 = src("qingliao/Theme/LiquidGlass.swift")
+check("⑥ pastelFill 出口在 Theme（淡彩填充·不带投影）",
+      lg68.contains("func pastelFill(cornerRadius: CGFloat, stroke: Bool = true)"))
+check("⑥ PastelFill 实现带描边开关（压在同色淡彩卡上，只换底不描边会糊掉边界）",
+      lg68.contains("struct PastelFill: ViewModifier") && lg68.contains("if stroke {"))
+check("⑥ 设置区 pastelFill 调用点 ≥ 20（实得 \(pastelFillCalls)）", pastelFillCalls >= 20)
+
+// 反向：SettingRow（共用行组件）自己不再涂料——外层已是 pastelCard，行再涂白就是那块「白底」。
+//   ⚠️ 不能笼统断言「SettingRow 体内无 .background(」：行内图标片/toggle 有自己的**彩色**底，
+//   那是前景装饰、不是行底。所以这里钉两件事：① 行底那层分组白在 SettingRow 段内零命中；
+//   ② 正向——行容器（Section 卡）确实还是 pastelCard 在供底。
+let srCode = stripCommentLines(src(settingsDir + "SettingsCommon.swift"))
+if let r = srCode.range(of: "struct SettingRow") {
+    let body = String(srCode[r.lowerBound...]).components(separatedBy: "\nstruct ").first ?? ""
+    check("⑥ SettingRow 切片取到（防空真）", body.contains("var body: some View"))
+    check("⑥ SettingRow 段内不再有分组白（行底交给外层 pastelCard）",
+          !body.contains("secondarySystemGroupedBackground") && !body.contains("Color(uiColor: .systemBackground)"))
+} else {
+    check("⑥ SettingRow 切片取到（防空真）", false)
+}
+let sysCode = stripCommentLines(src(settingsDir + "SettingsSystem.swift"))
+check("⑥ 行容器（设备与版本 Section）仍由 pastelCard 供底", sysCode.contains(".pastelCard()"))
+
 print("通过 \(passCount) / 失败 \(failCount)")
 if failCount > 0 { exit(1) }

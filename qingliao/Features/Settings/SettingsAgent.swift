@@ -17,6 +17,8 @@ import UniformTypeIdentifiers
 struct AgentKeywordsSheet: View {
     @Environment(AuthStore.self) private var auth
     @Environment(\.dismiss) private var dismiss
+    /// v4.0.68：仅用于关键词胶囊底改品牌淡彩（原来纯白）
+    @Environment(\.colorScheme) private var scheme
     @State private var builtin: [String: [String]] = [:]
     @State private var custom: [String: [String]] = [:]
     @State private var activeList = "strong"
@@ -147,8 +149,7 @@ private struct FlowText: View {
                             .font(.system(size: Typography.subhead))
                             .padding(.horizontal, Spacing.md)
                             .padding(.vertical, Spacing.xs)
-                            .background(Color(uiColor: .secondarySystemGroupedBackground),
-                                        in: Capsule())
+                            .background(EnvironmentGradient.pastelCardStyle(scheme), in: Capsule())
                     }
                     Spacer()
                 }
@@ -351,8 +352,7 @@ struct MemoryView: View {
                         .font(.system(size: Typography.subhead))
                         .padding(.horizontal, Spacing.xl)
                         .padding(.vertical, Spacing.md)
-                        .background(Color(uiColor: .secondarySystemGroupedBackground),
-                                    in: RoundedRectangle(cornerRadius: Radius.chip))
+                        .pastelFill(cornerRadius: Radius.chip)
                     Button {
                         add()
                     } label: {
@@ -462,8 +462,7 @@ struct MemoryView: View {
                                 }
                                 .padding(.horizontal, Spacing.xl)
                                 .padding(.vertical, Spacing.lg)
-                                .background(Color(uiColor: .secondarySystemGroupedBackground),
-                                            in: RoundedRectangle(cornerRadius: Radius.inset))
+                                .pastelFill(cornerRadius: Radius.inset)
                             }
                         }
                     }

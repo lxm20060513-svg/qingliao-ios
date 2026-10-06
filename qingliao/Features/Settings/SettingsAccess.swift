@@ -210,8 +210,7 @@ private struct UploadDirSheet: View {
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .padding(Spacing.xl)
-                .background(Color(uiColor: .secondarySystemGroupedBackground))
-                .clipShape(RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
+                .pastelFill(cornerRadius: Radius.inset)
                 .padding(.horizontal, Spacing.sheetInset)
 
             if let r = result {
@@ -292,6 +291,8 @@ enum SecretClipboard {
 struct SecretsView: View {
     @Environment(AuthStore.self) private var auth
     @Environment(\.dismiss) private var dismiss
+    /// v4.0.68：仅用于 toast 胶囊底改品牌淡彩（原来纯白）
+    @Environment(\.colorScheme) private var scheme
 
     @State private var entries: [SecretEntry] = []
     @State private var loading = true
@@ -345,7 +346,10 @@ struct SecretsView: View {
                 .frame(maxWidth: .infinity)
                 // v3.9.23 豁免：这不是弹窗根底，是生物解锁「验证失败」态那一行的行内底
                 // （同行有 .pill(.primary) 主按钮作为视觉主体），去掉会失去分隔感。
-                .background(Color(uiColor: .systemBackground))
+                // v4.0.68（用户 2026-10-07「设置页又有白底又有渐变底」）：原来这里是
+                // Color(uiColor: .systemBackground)（纯白），是设置区最后几块白面之一 ——
+                // 改用品牌淡彩（分隔感由色调差保留，不再是纯白块）。
+                .background(EnvironmentGradient.pastelCardStyle(scheme))
             } else {
                 content
             }
@@ -402,7 +406,7 @@ struct SecretsView: View {
                 Text(toast)
                     .font(.system(size: Typography.subhead))
                     .padding(.horizontal, Spacing.section).padding(.vertical, Spacing.md)
-                    .background(Color(uiColor: .secondarySystemGroupedBackground), in: Capsule())
+                    .background(EnvironmentGradient.pastelCardStyle(scheme), in: Capsule())
                     .padding(.bottom, 20)
                     .transition(.opacity)
             }
@@ -635,8 +639,7 @@ struct SecretRow: View {
         }
         .padding(Spacing.xl)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(uiColor: .secondarySystemGroupedBackground),
-                    in: RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
+        .pastelFill(cornerRadius: Radius.inset)
     }
 }
 

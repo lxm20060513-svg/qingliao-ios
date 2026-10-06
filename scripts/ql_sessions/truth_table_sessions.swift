@@ -321,8 +321,13 @@ check("List 已抹平自带样式：plain + 隐藏自带底 + 行高兜底清零
 
 let listStack = slice(viewCode, "private var sessionsListStack: some View", "private var sortedSessions")
 check("会话行容器切片非空（护栏不许空真）", !listStack.isEmpty)
-check("会话行直接铺进 List（ForEach(sortedSessions)），不再套 LazyVStack",
-      listStack.contains("ForEach(sortedSessions)") && !listStack.contains("LazyVStack"))
+// v4.0.68：固定会话（轻聊投递/轻聊主动）已上移到顶部并排卡 → 这里多了 filter，
+// 口径不变：会话行仍是**直接**铺进 List，且不套任何 LazyVStack。
+check("会话行直接铺进 List（ForEach(sortedSessions…)，不再套 LazyVStack",
+      listStack.contains("ForEach(sortedSessions.filter { !isFixedSession($0.id) })")
+      && !listStack.contains("LazyVStack"))
+check("v4.0.68：会话行过滤掉固定会话（顶部并排卡之后，同一会话不许在列表里再出现一次）",
+      listStack.contains("filter { !isFixedSession($0.id) }"))
 check("会话行带 List 行样式（.sessionListRow）", listStack.contains(".sessionListRow("))
 
 let searchArea = slice(viewCode, "private var searchResultsArea: some View", "private var remoteNoticeText")
@@ -351,8 +356,8 @@ let badBodySlice = slice(badBackToScroll, "private var sessionsListBody: some Vi
 check("🚫 反向①：容器改回 ScrollView+LazyVStack（左滑又静默失效）→ 判红",
       !badBodySlice.isEmpty && listBody.contains("List {") && !badBodySlice.contains("List {"))
 
-let badStack = viewCode.replacingOccurrences(of: "ForEach(sortedSessions)",
-                                             with: "LazyVStack { ForEach(sortedSessions)")
+let badStack = viewCode.replacingOccurrences(of: "ForEach(sortedSessions.filter { !isFixedSession($0.id) })",
+                                             with: "LazyVStack { ForEach(sortedSessions.filter { !isFixedSession($0.id) })")
 let badStackSlice = slice(badStack, "private var sessionsListStack: some View", "private var sortedSessions")
 check("🚫 反向②：会话行又套回 LazyVStack → 判红",
       !badStackSlice.isEmpty && !listStack.contains("LazyVStack") && badStackSlice.contains("LazyVStack"))

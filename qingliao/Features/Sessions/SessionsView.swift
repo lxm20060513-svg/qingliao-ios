@@ -473,6 +473,13 @@ struct SessionsView: View {
                 // 点一下直接跳回那条会话（此前一离开聊天页就完全失去线索）
                 backgroundRunningBar
                     .sessionListRow(vHalfGap: 5)
+                // v4.0.68（用户 2026-10-07 拍板）：固定会话（轻聊投递 / 轻聊主动）做成**两张并排卡**，
+                // 卡面对齐聊天首页卡（HomeCardFace 同款：24pt 图标片 + 名称 + 一行副标 + dashboardCard）。
+                // 它们原来是列表里的两行（带锁形图标 + 用途胶囊），混在普通会话里看不出是「功能壳」。
+                if !fixedChannelSessions.isEmpty {
+                    fixedChannelCards
+                        .sessionListRow(vHalfGap: 5)
+                }
                 if sessions.isEmpty {
                     sessionsEmptyState
                         .sessionListRow(vHalfGap: 5)
@@ -536,9 +543,33 @@ struct SessionsView: View {
     @ViewBuilder
     private var sessionsListStack: some View {
         // v3.3.0：bot 模式已移除，会话列表不再按 bot 分组，直接平铺
-        ForEach(sortedSessions) { s in
+        // v4.0.68：固定会话（轻聊投递/轻聊主动）已上移到顶部并排卡（fixedChannelCards），
+        // 这里必须**过滤掉**——否则同一个会话会渲染两次（用户拍板口径：并排卡之后列表不再重复出现）。
+        ForEach(sortedSessions.filter { !isFixedSession($0.id) }) { s in
             sessionCell(s)
                 .sessionListRow(vHalfGap: 4)   // 4×2 = 8pt（= 原 LazyVStack(spacing: 8)）
+        }
+    }
+
+    // MARK: - v4.0.68 固定会话并排卡（轻聊投递 / 轻聊主动）
+
+    /// 固定会话（后端锁定 id 的两个功能壳）。顺序写死：投递在前、主动在后。
+    /// 归档箱视图不显示（它们不可归档，后端也是硬拒）；搜索态走搜索结果区，卡片自然不参与。
+    private var fixedChannelSessions: [ChatSession] {
+        guard !showArchived else { return [] }
+        return [ChatStore.deliverySessionId, ChatStore.proactiveSessionId]
+            .compactMap { id in sessions.first { $0.id == id } }
+    }
+
+    /// 两张并排卡（各占一半宽；只有一张存在时它自然铺满整行）
+    @ViewBuilder
+    private var fixedChannelCards: some View {
+        HStack(spacing: 8) {
+            ForEach(fixedChannelSessions) { s in
+                FixedChannelCard(session: s, unread: chat.unread[s.id] ?? 0) {
+                    open(s)
+                }
+            }
         }
     }
 
@@ -575,7 +606,9 @@ struct SessionsView: View {
     /// 只有能对回本地列表的那批会画成 sessionCell，RemoteHitRow 没有勾选框）。
     /// 多选栏的全选/取消全选必须走这里，不能用 sortedSessions。
     private var visibleSessions: [ChatSession] {
-        guard isSearching else { return sortedSessions }
+        // v4.0.68：固定会话（轻聊投递/轻聊主动）已不渲染成列表行（改顶部并排卡），
+        // 多选/全选不能把它们算进来 —— 它们本来也删不掉（后端 _PROTECTED_IDS 硬拒）。
+        guard isSearching else { return sortedSessions.filter { !isFixedSession($0.id) } }
         if !filteredSessions.isEmpty { return filteredSessions }
         // v4.0.35：远端兜底命中同样遵守当前视图的归档口径（与 remoteHitsList 同判据）
         return remoteHits.compactMap { localSession(id: $0.id) }
@@ -1714,3 +1747,86 @@ private extension View {
 /// v4.0.35：左滑删除的条件挂载——固定会话（投递壳/轻聊主动）不挂 trailing swipe，
 /// 免得「挂了修饰符但内容为空 if」留下一块死空白 swipe 区。
 /// isActive=false 时原样返回 content，不产生任何 swipe 手势。
+///
+/// v4.0.68 追加：固定会话已从列表行改为**顶部并排卡**（见 `FixedChannelCard`），
+/// 本修饰器仍服务普通会话行。
+
+// MARK: - v4.0.68 固定会话并排卡（轻聊投递 / 轻聊主动）
+
+/// 会话页顶部「两张并排卡」里的单卡（用户 2026-10-07 拍板：位置=列表首行并排，卡面=名称+用途+时间+未读）。
+///
+/// 卡面**刻意对齐聊天首页卡**（`HomeCardFace`）：24pt 圆角图标片 → 名称 → 一行副标，
+/// 外层同一个 `dashboardCard(cornerRadius: Radius.card)`、同 `HomeCardStore.cardHeight`(84)。
+/// 只在首页卡基础上补两个会话页专有信息：**最后时间**（并进副标）与**未读红色数字角标**（右上角）。
+/// ⚠️ 高度不是自适应的：两张卡并排，任何一张被内容撑高都会高低不齐，所以写死 `cardHeight`。
+struct FixedChannelCard: View {
+    let session: ChatSession
+    let unread: Int
+    let onTap: () -> Void
+
+    private var isDelivery: Bool { session.id == ChatStore.deliverySessionId }
+    /// 图标片：投递=落格（只装不答），主动=火花（AI 主动开口、可回复）
+    private var icon: String { isDelivery ? "tray.and.arrow.down.fill" : "sparkles" }
+    private var tint: Color { isDelivery ? .teal : .orange }
+    /// 用途一句话（与列表行用途胶囊同一口径：投递「只装不答」/ 主动「可回复」）
+    private var purpose: String { isDelivery ? "只装不答" : "可回复" }
+
+    var body: some View {
+        Button(action: onTap) {
+            face
+        }
+        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity)
+        .frame(height: HomeCardStore.cardHeight)
+        .accessibilityLabel(accessibilityText)
+    }
+
+    private var face: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(alignment: .top, spacing: 4) {
+                Image(systemName: icon)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 24, height: 24)
+                    .background(tint, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                Spacer(minLength: 0)
+                if unread > 0 { unreadBadge }
+            }
+            Spacer(minLength: 0)
+            Text(session.title)
+                .font(.system(size: Typography.subhead, weight: .semibold))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+            Text(subtitle)
+                .font(.system(size: Typography.tiny))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 9)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .clipped()
+        .dashboardCard(cornerRadius: Radius.card)
+    }
+
+    /// 副标：用途 + 最后时间（从未有消息时只有用途）
+    private var subtitle: String {
+        session.relativeTime.isEmpty ? purpose : "\(purpose) · \(session.relativeTime)"
+    }
+
+    /// 未读红色数字角标（口径同 SessionRow：≥100 显示 99+）
+    private var unreadBadge: some View {
+        Text(unread >= 100 ? "99+" : "\(unread)")
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 5)
+            .frame(minWidth: 17, minHeight: 17)
+            .background(Color.red, in: Capsule())
+    }
+
+    private var accessibilityText: Text {
+        Text(unread > 0 ? "\(session.title)，\(purpose)，\(unread) 条未读" : "\(session.title)，\(purpose)")
+    }
+}

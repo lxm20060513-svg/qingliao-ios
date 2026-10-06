@@ -39,8 +39,7 @@ struct WechatChannelSheet: View {
                 }
                 .padding(Spacing.lg)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color(uiColor: .secondarySystemGroupedBackground))
-                .clipShape(RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
+                .pastelFill(cornerRadius: Radius.inset)
 
             if let saveResult {
                 Text(saveResult)
@@ -121,8 +120,7 @@ struct WechatChannelSheet: View {
                                             }
                                             .padding(.horizontal, Spacing.xl)
                                             .padding(.vertical, Spacing.md)
-                                            .background(Color(uiColor: .secondarySystemGroupedBackground))
-                                            .clipShape(RoundedRectangle(cornerRadius: Radius.icon, style: .continuous))
+                                            .pastelFill(cornerRadius: Radius.icon)
                                         }
                                         .buttonStyle(.plain)
                                     }

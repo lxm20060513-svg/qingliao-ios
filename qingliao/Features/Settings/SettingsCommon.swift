@@ -74,8 +74,7 @@ struct ServerSheet: View {
                     .autocorrectionDisabled()
                     .keyboardType(.URL)
                     .padding(Spacing.xl)
-                    .background(Color(uiColor: .secondarySystemGroupedBackground))
-                    .clipShape(RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
+                    .pastelFill(cornerRadius: Radius.inset)
                     .padding(.horizontal, Spacing.sheetInset)
                     .padding(.top, Spacing.xxl)
                     .onChange(of: server) { _, _ in validationError = nil }
@@ -148,8 +147,7 @@ struct PinPathSheet: View {
                 TextField("默认: /volume1/.../轻聊app", text: $path)
                     .font(.system(size: Typography.body))
                     .padding(Spacing.xl)
-                    .background(Color(uiColor: .secondarySystemGroupedBackground))
-                    .clipShape(RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
+                    .pastelFill(cornerRadius: Radius.inset)
                     .padding(.horizontal, Spacing.sheetInset)
                     .padding(.top, Spacing.xxl)
 
@@ -182,7 +180,7 @@ struct PinPathSheet: View {
                         .foregroundStyle(.red)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, Spacing.xl)
-                        .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
+                        .pastelFill(cornerRadius: Radius.inset)
                 }
                 .buttonStyle(.plain)
                 .padding(.horizontal, Spacing.sheetInset)
@@ -220,16 +218,14 @@ struct PasswordSheet: View {
                 SecureField("当前密码", text: $oldPassword)
                 .font(.system(size: Typography.body))
                 .padding(Spacing.xl)
-                .background(Color(uiColor: .secondarySystemGroupedBackground))
-                .clipShape(RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
+                .pastelFill(cornerRadius: Radius.inset)
                 .padding(.horizontal, Spacing.sheetInset)
                 .padding(.top, Spacing.xxl)
 
             SecureField("新密码", text: $newPassword)
                 .font(.system(size: Typography.body))
                 .padding(Spacing.xl)
-                .background(Color(uiColor: .secondarySystemGroupedBackground))
-                .clipShape(RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
+                .pastelFill(cornerRadius: Radius.inset)
                 .padding(.horizontal, Spacing.sheetInset)
                 .padding(.top, Spacing.lg)
 
@@ -237,8 +233,7 @@ struct PasswordSheet: View {
             SecureField("确认新密码", text: $confirmPassword)
                 .font(.system(size: Typography.body))
                 .padding(Spacing.xl)
-                .background(Color(uiColor: .secondarySystemGroupedBackground))
-                .clipShape(RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
+                .pastelFill(cornerRadius: Radius.inset)
                 .padding(.horizontal, Spacing.sheetInset)
                 .padding(.top, Spacing.lg)
             if !confirmPassword.isEmpty && confirmPassword != newPassword {
@@ -362,7 +357,8 @@ struct SettingRow: View {
         }
         .padding(.horizontal, Spacing.xxl)
         .padding(.vertical, Spacing.lg)
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
+        // v4.0.68：这行原来是 Color(uiColor: .secondarySystemGroupedBackground)（纯白面），
+        // 压在已彩化的外层 pastelCard 上就是用户报的那块「白底」→ 行底交给外层卡片，不再自己涂料。
         .contentShape(Rectangle())
     }
 }
@@ -388,8 +384,7 @@ struct SessionLocSheet: View {
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .padding(Spacing.xl)
-                .background(Color(uiColor: .secondarySystemGroupedBackground),
-                            in: RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
+                .pastelFill(cornerRadius: Radius.inset)
             if let result {
                 Text(result)
                     .font(.system(size: Typography.subhead))
@@ -572,8 +567,7 @@ struct TasksView: View {
                             Divider().padding(.leading, Spacing.rowDividerInsetWide)
                         }
                     }
-                    .background(Color(uiColor: .secondarySystemGroupedBackground))
-                    .clipShape(RoundedRectangle(cornerRadius: Radius.field, style: .continuous))
+                    .pastelFill(cornerRadius: Radius.field)
                     .padding(.horizontal, Spacing.xxl)
                     .padding(.bottom, 20)
                 }
@@ -695,8 +689,7 @@ struct LogsView: View {
                                 .padding(.vertical, Spacing.xs)
                         }
                     }
-                    .background(Color(uiColor: .secondarySystemGroupedBackground))
-                    .clipShape(RoundedRectangle(cornerRadius: Radius.field, style: .continuous))
+                    .pastelFill(cornerRadius: Radius.field)
                     .padding(.horizontal, Spacing.xxl)
                     .padding(.bottom, 20)
                 }
