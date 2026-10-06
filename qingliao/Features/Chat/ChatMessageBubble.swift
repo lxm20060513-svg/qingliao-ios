@@ -387,7 +387,7 @@ struct MessageBubble: View {
                 // v4.0.66 A+C：淡彩气泡压在环境渐变彩底上的紫调柔影（只挂 AI 气泡；用户气泡渐变
                 // 自带饱和度，不加影保持轻量）。纯视觉层。
                 .shadow(color: (!message.isUser && !message.withdrawn && !isMultiBubbleAI)
-                            ? EnvironmentGradient.pastelShadow(scheme) : .clear,
+                            ? EnvironmentGradient.pastelShadow(scheme: scheme) : .clear,
                         radius: 10, y: 4)
                 // v2.0.43 搜索定位高亮边框
                 // v3.4.25：错误占位 → 红描边分层（错误一眼可辨，不再与正常回复同观感）
@@ -1096,7 +1096,7 @@ struct MessageBubble: View {
                       ? AnyShapeStyle(aiBubbleColor)
                       : AnyShapeStyle(EnvironmentGradient.pastelCardStyle(scheme)))
         )
-        .shadow(color: isHighlighted ? .clear : EnvironmentGradient.pastelShadow(scheme),
+        .shadow(color: isHighlighted ? .clear : EnvironmentGradient.pastelShadow(scheme: scheme),
                 radius: 10, y: 4)
         .frame(maxWidth: AdaptiveLayout.bubbleMaxWidth(hSize), alignment: .leading)
     }

@@ -336,7 +336,7 @@ struct PastelCard: ViewModifier {
                     .strokeBorder(Tint.line(scheme), lineWidth: 0.8)
             )
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-            .shadow(color: EnvironmentGradient.pastelShadow(scheme), radius: 10, y: 4)
+            .shadow(color: EnvironmentGradient.pastelShadow(scheme: scheme), radius: 10, y: 4)
     }
 }
 
