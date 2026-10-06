@@ -338,11 +338,18 @@ struct RecordSection: View {
             filterCategory = value
             Haptics.selection()
         } label: {
-            Text(title)
-                .font(.system(size: Typography.caption, weight: on ? .semibold : .regular))
-                .foregroundStyle(on ? Color.white : Color.secondary)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
+            HStack(spacing: 4) {
+                // v4.0.65：胶囊配图标（与明细行同一张映射表）；「全部」没有分类，不配图标
+                if let v = value {
+                    Image(systemName: RecordKit.categoryIcon(v))
+                        .font(.system(size: Typography.tiny, weight: .medium))
+                }
+                Text(title)
+            }
+            .font(.system(size: Typography.caption, weight: on ? .semibold : .regular))
+            .foregroundStyle(on ? Color.white : Color.secondary)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
                 .background(Capsule().fill(on ? Color.accentColor
                                                : Color(uiColor: .secondarySystemGroupedBackground)))
         }
@@ -495,6 +502,8 @@ private struct RecordRowCard: View {
 
     var body: some View {
         HStack(spacing: Spacing.md) {
+            // v4.0.65（方案 B）：行首分类色块 + 白色符号
+            CategoryBadge(category: item.category)
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.title)
                     .font(.system(size: Typography.body))
@@ -594,9 +603,9 @@ private struct RecordEditSheet: View {
                         .foregroundStyle(.secondary)
                     Spacer(minLength: 0)
                     Picker("分类", selection: $category) {
-                        Text(RecordKit.uncategorized).tag("")
+                        Label(RecordKit.uncategorized, systemImage: RecordKit.categoryIcon("")).tag("")
                         ForEach(catOptions, id: \.self) { c in
-                            Text(c).tag(c)
+                            Label(c, systemImage: RecordKit.categoryIcon(c)).tag(c)
                         }
                     }
                     .pickerStyle(.menu)
@@ -635,11 +644,39 @@ private struct RecordEditSheet: View {
 /// 分类色标（只服务占比条与图例，以及报表环图）。用系统色而不是新增主题令牌：这几支颜色只此几处用，
 /// 进主题反而让「令牌 == 全站语义」的口径变浑浊。哈希自算（djb2）保证同一分类每次同色。
 /// v4.0.45 待做池④：报表环图复用同一调色板 → 从 `private` 放开到模块内可见（单一来源，别在报表里再抄一份）。
+/// v4.0.65（用户 2026-10-05 出稿拍板「方案 B」）：分类色块 = 彩色圆角方块 + 白色分类符号。
+/// 几何照出稿：边长 36、圆角 = 0.305×边长（36→11）、符号字号 = 0.5×边长（36→18）。
+/// 空分类也画（兜底托盘、灰底）——否则有图标/无图标的行左边缘参差。
+/// 稿：/opt/data/scripts/ql_record/mock/out/record_icons.png
+struct CategoryBadge: View {
+    let category: String
+    var size: CGFloat = 36
+
+    var body: some View {
+        // v4.0.65 审查（严重）：几何（边长 / 圆角 0.305×边长 / 符号 0.5×边长 / 白符号 / a11yHidden）
+        // **单出口走 BadgeShell**，与备忘·待办行首色块共用一份 —— 原先这里逐字抄了第二份，
+        // 改一处必漏一处（BadgeShell 头注却自称「只此一处」）。
+        Image(systemName: RecordKit.categoryIcon(category))
+            .font(.system(size: size * 0.5, weight: .medium))
+            .foregroundStyle(.white)
+            // 分类名在行内已有文字（方案 B 保留分类名）→ 图标不重复播报
+            .modifier(BadgeShell(size: size, color: RecordCategoryColor.tint(category)))
+    }
+}
+
 enum RecordCategoryColor {
     static let palette: [Color] = [.orange, .blue, .green, .purple, .pink, .teal, .indigo, .brown]
 
     static func tint(_ category: String) -> Color {
-        let name = RecordKit.categoryLabel(category)
+        // v4.0.65 审查（一般）：图标侧已把「居住/居家」「其他/其它」当**同一分类**
+        //（见 RecordKit.categoryIcon 的别名 case），配色侧必须**归一后再 hash** —— 否则同一概念
+        // 会取到两种颜色（账单扫描落「居住」、记账/聊天落「居家」，同屏并见时肉眼可辨）。
+        var name = RecordKit.categoryLabel(category)
+        switch name {
+        case "居住": name = "居家"
+        case "其他": name = "其它"
+        default: break
+        }
         guard name != RecordKit.uncategorized else { return .gray }
         var h = 5381
         for u in name.unicodeScalars { h = (h &* 33) &+ Int(u.value) }
@@ -945,9 +982,9 @@ private struct FixedExpenseSheet: View {
                     TextField("金额（元）", text: $amountText)
                         .keyboardType(.decimalPad)
                     Picker("分类", selection: $category) {
-                        Text(RecordKit.uncategorized).tag("")
+                        Label(RecordKit.uncategorized, systemImage: RecordKit.categoryIcon("")).tag("")
                         ForEach(catOptions, id: \.self) { c in
-                            Text(c).tag(c)
+                            Label(c, systemImage: RecordKit.categoryIcon(c)).tag(c)
                         }
                     }
                     Stepper("每月 \(day) 日", value: $day, in: 1...28)

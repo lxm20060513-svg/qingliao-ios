@@ -493,24 +493,27 @@ struct ChatView: View {
 
     @ViewBuilder
     private var headerTrailingItems: some View {
-        HStack(spacing: HeaderPillIconButton.spacing) {
-            // v4.0.27：思考档位胶囊迁入输入栏工具层（附件/相机旁）
-            // v4.0.36：朗读胶囊同样迁入工具层（紧挨思考档位）
-            // ⇒ header 右侧两枚胶囊都已不在，这里只剩任务中心入口
-            // v4.0.61（用户 2026-10-05）：两颗图标统一走 HeaderPillIconButton——
-            // 原先一颗 20pt/一颗 24pt（一大一小，正是用户这次点出来的问题）
-            // v4.0.62（用户 2026-10-05 复测）：胶囊调小（icon 12 / h11 / v5）+ 间距 8；两颗统一「圆环家族」——
-            // 任务中心 checklist → list.bullet.circle、更多 ellipsis → ellipsis.circle（用户选定 B 组：
-            // 圆环画布实测全 44px，光学方框最齐；v4.0.61「外环与胶囊底成双圈」的顾虑按用户选择作废）
-            HeaderPillIconButton(systemName: "list.bullet.circle",
+        // v4.0.27：思考档位胶囊迁入输入栏工具层（附件/相机旁）
+        // v4.0.36：朗读胶囊同样迁入工具层（紧挨思考档位）
+        // ⇒ header 右侧那两枚胶囊都已不在，只剩这两颗图标；
+        // v4.1.x（用户 2026-10-05 看对比稿拍板方案 A）：两颗**合并成一整颗胶囊**
+        // ——图标 14 / 囊高 34 / 中心距 30 / 端部内边距 12、玻璃与命中区全在 HeaderPillGroup 里定义
+        HeaderPillGroup(items: chatHeaderItems)
+    }
+
+    /// v4.1.x：聊天页页头图标项（合并成一颗胶囊用）——任务中心（有未完成任务时带红点）+ 更多
+    private var chatHeaderItems: [HeaderPillGroup.Item] {
+        [
+            HeaderPillGroup.Item(id: "tasks",
+                                 systemName: "list.bullet.circle",
                                  a11y: "任务中心",
                                  badge: taskStore.uncompleted > 0) {
                 showTaskCenter = true
-            }
-            HeaderPillIconButton(systemName: "ellipsis.circle", a11y: "更多") {
+            },
+            HeaderPillGroup.Item(id: "more", systemName: "ellipsis.circle", a11y: "更多") {
                 showMoreMenu = true
-            }
-        }
+            },
+        ]
     }
 
     /// v3.3.0：confirmationDialog 内容抽离（原内联 Menu+8个Button 过长致 Xcode26

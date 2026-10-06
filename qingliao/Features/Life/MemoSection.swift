@@ -361,18 +361,26 @@ private struct MemoNoteCard: View {
     var compact: Bool = false
 
     var body: some View {
-        // 栈间距按全仓口径写字面值（Spacing.swift 第 4 条：栈间距与内边距混在同一个令牌名下有歧义）
-        VStack(alignment: .leading, spacing: 6) {
-            Text(item.content)
-                .font(.system(size: Typography.body))
-                .foregroundStyle(.primary)
-                .lineLimit(compact ? MemoCardMetrics.lineLimit : 3)
-                .multilineTextAlignment(.leading)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            // 单卡形态把元信息行压到卡底：与行情卡「数值在上、明细在下」同一读法；
-            // 1 行备忘时卡片不塌（高度由 minHeight 兜住）
-            if compact { Spacer(minLength: 0) }
-            metaRow
+        // v4.0.65（用户 2026-10-06 看对比稿拍板「备忘走 A」）：**列表行**行首加来源色块。
+        // 页级单卡（compact）保持原样 —— 用户 v3.9.37 明确要求单卡「连图标也不要」（见 metaRow 注释），
+        // 且单卡行首突然放大显得突兀。稿：scripts/ql_memo_todo/mock/out/memo_todo_icons.png
+        HStack(alignment: .top, spacing: 10) {
+            if !compact {
+                SourceBadge(source: item.source, symbol: item.sourceIcon)
+            }
+            // 栈间距按全仓口径写字面值（Spacing.swift 第 4 条：栈间距与内边距混在同一个令牌名下有歧义）
+            VStack(alignment: .leading, spacing: 6) {
+                Text(item.content)
+                    .font(.system(size: Typography.body))
+                    .foregroundStyle(.primary)
+                    .lineLimit(compact ? MemoCardMetrics.lineLimit : 3)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                // 单卡形态把元信息行压到卡底：与行情卡「数值在上、明细在下」同一读法；
+                // 1 行备忘时卡片不塌（高度由 minHeight 兜住）
+                if compact { Spacer(minLength: 0) }
+                metaRow
+            }
         }
         .padding(Spacing.xl)
         .frame(maxWidth: .infinity,
@@ -415,10 +423,11 @@ private struct MemoNoteCard: View {
                 }
                 // v3.9.14：来源用图标代替文字（省一行宽度，一眼看出从哪来的）
                 // v3.9.37：页级单卡不再显示来源图标（用户「连图标也不要」），与时间同口径
-                if !compact {
-                    Image(systemName: item.sourceIcon)
-                        .font(.system(size: Typography.tiny))
-                }
+                // v4.0.65 审查（严重，本批自伤）：**整块删除** —— 列表行行首已有来源色块
+                //（SourceBadge，见本 struct 的 body）→ 这里再画一枚灰图标 = 同一来源在同一行
+                // 出现两次、配色口径还分裂（一个彩色一个灰）。单卡（compact）本轮行首没加色块，
+                // 但它本就要求「连图标也不要」→ 两种形态都不需要它。
+                // 稿：scripts/ql_memo_todo/mock/out/memo_todo_icons.png
                 if !compact {
                     Text(item.timeText)
                         .font(.system(size: Typography.caption))

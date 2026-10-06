@@ -187,6 +187,27 @@ enum RecordKit {
     static let uncategorized = "未分类"
 
     /// 分类显示名：空 = 未分类
+    /// v4.0.65（用户 2026-10-05 出稿拍板「方案 B」）：分类图标真源。
+    /// 全站分类图标唯一出口——记录明细行 / 分类筛选胶囊 / 分类选择器共用这一张表，
+    /// 避免各处各写 symbol 名、导致同一分类在不同位置图标不一致。
+    /// 词表见 ChatRecordKit.categoryTable（9 类 + 兜底「其它」）与 BillScanKit.categories
+    /// （含「居住」「通讯」「其他」三个变体名）→ 别名一并覆盖；未知/自定义分类兜底托盘与「其它」同形。
+    static func categoryIcon(_ raw: String) -> String {
+        switch categoryLabel(raw) {
+        case "餐饮":         return "cup.and.saucer.fill"
+        case "交通":         return "ticket.fill"
+        case "购物":         return "bag.fill"
+        case "居家", "居住": return "house.fill"
+        case "医疗":         return "cross.case.fill"
+        case "娱乐":         return "gamecontroller.fill"
+        case "学习":         return "book.fill"
+        case "人情":         return "gift.fill"
+        case "日用":         return "basket.fill"
+        case "通讯":         return "phone.fill"
+        default:            return "tray.fill"
+        }
+    }
+
     static func categoryLabel(_ raw: String) -> String {
         let s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         return s.isEmpty ? uncategorized : s

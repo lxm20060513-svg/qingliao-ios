@@ -29,8 +29,12 @@ struct LifeCardsSection: View {
     var onDeleteStock: (LifeStock) -> Void = { _ in }
     var onAddStock: () -> Void = {}
     var onRefresh: () -> Void = {}
-    // v4.0.61：资讯卡专用「刷新」胶囊已被「下一批」取代（用户 2026-10-05 要求）——
-    //   卡片改为每批 rssBatchSize 条 + 纯本地翻页；整块强制刷新仍在同页「股票」栏那颗刷新（?fresh=1）
+    // v4.0.61：资讯卡专用「刷新」胶囊被「下一批」取代（用户 2026-10-05 要求）——
+    //   卡片改为每批 rssBatchSize 条 + 纯本地翻页
+    // v4.0.x（用户 2026-10-06）：「更新于 14:32」时间文案撤下，该槽位改回「刷新」胶囊 ——
+    //   「下一批」（本地翻页，零请求）与「刷新」（走 onRefresh = /api/life/cards?fresh=1 绕 900s 缓存）
+    //   在标题行共存，两者互不替代；时间文案如要恢复：把那个 Button 换回 data.updatedText 的 Text 即可
+    //   （模型层 updated / updatedText 仍在，未删）
     var articleStates: [String: LifeArticleState] = [:]
     var onOpenArticle: (LifeRssEntry) -> Void = { _ in }
     /// v3.6.2：当前展开的条目 id（单一真源——只渲染这一条的正文，收起时置 nil 即真正收起；
@@ -239,11 +243,18 @@ struct LifeCardsSection: View {
                 .buttonStyle(PressStyle())
                 .accessibilityLabel("下一批资讯")
             }
-            if !data.updatedText.isEmpty {
-                Text(data.updatedText)
-                    .font(.system(size: Typography.caption))
-                    .foregroundStyle(.tertiary)
+            // v4.0.x（用户 2026-10-06）：「更新于 14:32」→「刷新」胶囊（原时间文案整块撤下）
+            // v4.0.65 审查（建议）：**口径订正** —— 它触发的 onRefresh 是**整块生活数据**的强制刷新
+            //（LifeView → loadLife(fresh: true) → /api/life/cards?fresh=1，含股票/资讯/快递），
+            // 并非「资讯专用」；股票栏那颗刷新绑的是同一个 onRefresh → 同屏两颗等价入口（用户要求保留）。
+            Button {
+                onRefresh()
+            } label: {
+                Text("刷新").pill(.page)   // v3.9.19：页级胶囊口径
             }
+            .buttonStyle(PressStyle())
+            .disabled(loading)
+            .accessibilityLabel("刷新生活数据")
             Button {
                 withAnimation(Motion.snap) { rssExpanded.toggle() }
             } label: {

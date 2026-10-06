@@ -1265,5 +1265,17 @@ echo "=== 85. 页头图标胶囊真值表（v4.0.64 · 会话/聊天页取消滚
 #     还原后 34 通过 / 0 失败。
 run_unit /tmp/test_headerpill scripts/ql_headerpill/truth_table_headerpill.swift
 
+echo "=== 86. 记录分类图标真值表（v4.0.65 · 用户看对比稿拍板方案 B：色块 36 + 白符号 + 保留分类名）==="
+# 钉：分类图标只有一个出口 RecordKit.categoryIcon（明细行 / 筛选胶囊 / 分类选择器共用；另写一份即漂移）；
+#     色块几何 36 / 圆角 0.305×边长 / 符号字号 0.5×边长；**配色不许顺手改成语义色**（会牵动占比条与报告）；
+#     空分类也画色块（否则有/无图标行左边缘参差）；「全部」胶囊不配图标；Picker 不得回退裸 Text(c).tag(c)。
+run_unit /tmp/test_record_icons scripts/ql_record/truth_table_record_icons.swift
+
+echo "=== 87. 备忘/待办图标真值表（v4.0.65 · 用户拍板「待办走 B / 备忘走 A」）==="
+# 钉：来源→颜色只有 SourceStyle 一个出口（另写一份 = 同一来源在待办页/备忘页长出两种色）；
+#     页级单卡不许跟着放大（用户 v3.9.37 明确要求备忘单卡「连图标也不要」）；
+#     备忘方案 A 的元信息行保持灰（不许顺手染来源色）；待办时间保持灰基线不抢视觉。
+run_unit /tmp/test_life_badges scripts/ql_lists/truth_table_life_badges.swift
+
 [ $fail -eq 0 ] || { echo "❌ 有护栏失守"; exit 1; }
 exit 0

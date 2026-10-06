@@ -319,7 +319,7 @@ check("List 已抹平自带样式：plain + 隐藏自带底 + 行高兜底清零
       && listBody.contains(".scrollContentBackground(.hidden)")
       && listBody.contains(".environment(\\.defaultMinListRowHeight, 0)"))
 
-let listStack = slice(viewCode, "private var sessionsListStack: some View", "private var addButton")
+let listStack = slice(viewCode, "private var sessionsListStack: some View", "private var sortedSessions")
 check("会话行容器切片非空（护栏不许空真）", !listStack.isEmpty)
 check("会话行直接铺进 List（ForEach(sortedSessions)），不再套 LazyVStack",
       listStack.contains("ForEach(sortedSessions)") && !listStack.contains("LazyVStack"))
@@ -353,7 +353,7 @@ check("🚫 反向①：容器改回 ScrollView+LazyVStack（左滑又静默失�
 
 let badStack = viewCode.replacingOccurrences(of: "ForEach(sortedSessions)",
                                              with: "LazyVStack { ForEach(sortedSessions)")
-let badStackSlice = slice(badStack, "private var sessionsListStack: some View", "private var addButton")
+let badStackSlice = slice(badStack, "private var sessionsListStack: some View", "private var sortedSessions")
 check("🚫 反向②：会话行又套回 LazyVStack → 判红",
       !badStackSlice.isEmpty && !listStack.contains("LazyVStack") && badStackSlice.contains("LazyVStack"))
 

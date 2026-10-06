@@ -408,9 +408,15 @@ private struct TodoRowCard: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            Image(systemName: item.done ? "checkmark.circle.fill" : "circle")
-                .font(.system(size: Typography.body))
-                .foregroundStyle(item.done ? Color.green : Color.secondary.opacity(0.5))
+            // v4.0.65（用户 2026-10-06 拍板「待办走 B」）：列表行行首升级成 36pt 完成色块；
+            // **页级单卡（compact）保持原来的 15pt 圈**——首页卡行首突然放大显得突兀。
+            if compact {
+                Image(systemName: item.done ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: Typography.body))
+                    .foregroundStyle(item.done ? Color.green : Color.secondary.opacity(0.5))
+            } else {
+                TodoStatusBadge(done: item.done)
+            }
             VStack(alignment: .leading, spacing: 6) {
                 Text(item.content)
                     .font(.system(size: Typography.body))
@@ -421,14 +427,19 @@ private struct TodoRowCard: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 if !compact {
                     HStack(spacing: Spacing.xs) {
+                        // v4.0.65（待办方案 B）：来源图标 + 来源名染来源色（聊天蓝 / AI 紫 / 智能球青 /
+                        // 手记灰）；时间保持灰色基线不抢视觉。颜色真源 = SourceStyle（全站唯一出口）
                         Image(systemName: item.sourceIcon)
                             .font(.system(size: Typography.tiny))
+                            .foregroundStyle(SourceStyle.tint(item.source))
                         Text(item.sourceLabel)
                             .font(.system(size: Typography.tiny))
+                            .foregroundStyle(SourceStyle.tint(item.source))
                         Text("·")
                         Text(item.timeText)
                             .font(.system(size: Typography.tiny))
                     }
+                    // 时间底色基线；上面两处已单独着色（SwiftUI 局部修饰符优先于外层）
                     .foregroundStyle(.tertiary)
                 }
             }

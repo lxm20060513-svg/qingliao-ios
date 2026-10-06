@@ -205,43 +205,63 @@ struct SessionsView: View {
     // 这里按原注释分段把视图块原样搬成独立 @ViewBuilder 属性 —— **纯搬运**：视图顺序、
     // 层级、条件分支、闭包、修饰符逐字未变，渲染结果与拆分前一致，只为把类型检查表达式打小。
 
+    /// v4.1.x（用户 2026-10-05 看对比稿拍板「方案 A + 图标 14」）：页头图标**合并成一整颗胶囊**——
+    /// 顺序 = 归档箱 / 多选（非空会话时）+ 新建。尺寸（图标 14 / 高 34 / 中心距 30 / 端部内边距 12）
+    /// 全在 HeaderPillGroup 里定义，这里只排 item。稿：/opt/data/scripts/ql_header_pill/mock/out/pill_iconsize.png
+    private var sessionsHeaderItems: [HeaderPillGroup.Item] {
+        var items: [HeaderPillGroup.Item] = []
+        if !sessions.isEmpty {
+            items.append(HeaderPillGroup.Item(
+                id: "archive",
+                systemName: showArchived ? "archivebox.circle.fill" : "archivebox.circle",
+                a11y: showArchived ? "返回会话列表" : "查看归档会话"
+            ) {
+                withAnimation(Motion.tap) {
+                    // v4.0.35：切视图必须清多选态——否则主列表勾 5 条切到归档箱，
+                    // 底栏仍显示「5 条」，删除的是此刻屏幕上看不见的那批会话（误删）
+                    editing = false
+                    selectedIds.removeAll()
+                    showArchived.toggle()
+                }
+            })
+            items.append(HeaderPillGroup.Item(
+                id: "multi",
+                systemName: editing ? "xmark.circle" : "checkmark.circle",   // 编辑态换形态，不再靠颜色区分
+                a11y: editing ? "退出多选" : "多选会话"
+            ) {
+                withAnimation(Motion.tap) {
+                    editing.toggle()
+                    if !editing { selectedIds.removeAll() }
+                }
+            })
+        }
+        // 新建会话（第三颗，任何态都在）——弹动仍由 plusBounceTick 驱动
+        items.append(HeaderPillGroup.Item(
+            id: "new",
+            systemName: "plus.circle", a11y: "新建会话", bounceTick: plusBounceTick
+        ) {
+            // v2.0.58：两步走新建——ChatView 观察到 pendingNewSession 后
+            // 先卸载列表再清数据（v2.0.44 的切tab+延迟在过渡期仍崩）
+            Haptics.tap()          // v3.4.29：触感补齐
+            plusBounceTick += 1
+            onOpenSession?()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                // v3.4.29：加号 = 等同 /new——本地新建后补发 /new，让 gateway 上下文一起重置
+                chat.requestNewSession(sendReset: true)
+            }
+        })
+        return items
+    }
+
     /// 页头（多选入口 + 新建）+ 会话搜索框
     @ViewBuilder
     private var sessionsHeaderBar: some View {
         // v2.0.87ad：多选编辑入口（非空会话时显示）
         // v4.1.x：标题随归档箱视图切换；trailing 加「归档箱」小图标（archivebox / tray.full）
+        // v4.0.61/62：三颗原先各写各的（字号 headline vs title、字重 medium vs semibold、外环图标 vs 无环）
+        // → 统一走 HeaderPillGroup 单入口（图标/尺寸/玻璃/命中区一处定义）
         PageHeader(title: showArchived ? "归档箱" : "会话",
-                   trailing: AnyView(HStack(spacing: HeaderPillIconButton.spacing) {
-            // v4.0.61（用户 2026-10-05）：右上角图标统一走 HeaderPillIconButton——
-            // 三颗原先各写各的（字号 headline vs title、字重 medium vs semibold、外环图标 vs 无环）
-            // v4.0.62（用户 2026-10-05 复测）：胶囊调小 + 图标统一「圆环家族」——
-            // 归档 archivebox.circle ↔ archivebox.circle.fill（描边↔实心；原 archivebox/tray.full 无圆环版，
-            // 且 tray.full.circle 不存在，故用同一符号的实心态区分两态）、多选 checkmark.circle ↔ xmark.circle
-            if !sessions.isEmpty {
-                HeaderPillIconButton(
-                    systemName: showArchived ? "archivebox.circle.fill" : "archivebox.circle",
-                    a11y: showArchived ? "返回会话列表" : "查看归档会话"
-                ) {
-                    withAnimation(Motion.tap) {
-                        // v4.0.35：切视图必须清多选态——否则主列表勾 5 条切到归档箱，
-                        // 底栏仍显示「5 条」，删除的是此刻屏幕上看不见的那批会话（误删）
-                        editing = false
-                        selectedIds.removeAll()
-                        showArchived.toggle()
-                    }
-                }
-                HeaderPillIconButton(
-                    systemName: editing ? "xmark.circle" : "checkmark.circle",   // 编辑态换形态，不再靠颜色区分
-                    a11y: editing ? "退出多选" : "多选会话"
-                ) {
-                    withAnimation(Motion.tap) {
-                        editing.toggle()
-                        if !editing { selectedIds.removeAll() }
-                    }
-                }
-            }
-            addButton
-        }))
+                   trailing: AnyView(HeaderPillGroup(items: sessionsHeaderItems)))
         // v3.4.25：会话搜索框（毛玻璃风格 glassListCard 与 App 列表卡一致；输入即本地过滤）
         HStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
@@ -515,22 +535,6 @@ struct SessionsView: View {
         ForEach(sortedSessions) { s in
             sessionCell(s)
                 .sessionListRow(vHalfGap: 4)   // 4×2 = 8pt（= 原 LazyVStack(spacing: 8)）
-        }
-    }
-
-    private var addButton: some View {
-        // v4.0.61：走统一的胶囊口径（尺寸/玻璃/命中区与同排两颗一致）；弹动仍由 plusBounceTick 驱动
-        // v4.0.62：图标随同排两颗统一「圆环家族」→ plus → plus.circle（裸字形与圆环混排正是用户点出的"不协调"）
-        HeaderPillIconButton(systemName: "plus.circle", a11y: "新建会话", bounceTick: plusBounceTick) {
-            // v2.0.58：两步走新建——ChatView 观察到 pendingNewSession 后
-            // 先卸载列表再清数据（v2.0.44 的切tab+延迟在过渡期仍崩）
-            Haptics.tap()          // v3.4.29：触感补齐
-            plusBounceTick += 1
-            onOpenSession?()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                // v3.4.29：加号 = 等同 /new——本地新建后补发 /new，让 gateway 上下文一起重置
-                chat.requestNewSession(sendReset: true)
-            }
         }
     }
 

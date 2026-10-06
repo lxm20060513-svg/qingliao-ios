@@ -1,8 +1,12 @@
-// MARK: - 页头图标胶囊真值表（v4.0.62 尺寸定稿 · v4.0.63 撤销会话页滚边玻璃 · 2026-10-05 用户真机复测拍板）
+// MARK: - 页头图标胶囊真值表（v4.1.x 合并胶囊 · 2026-10-05 用户看三档对比稿拍板「方案 A + 图标 14」）
 //
-// 口径（用户从渲染对比稿里拍板，图在 /opt/data/scripts/ql_header_pill/mock/out/）：
-//   尺寸 = **小二档**：图标 12pt + 横 11 / 纵 5 → 胶囊约 34×25pt（原 topBar 档：13 + 14/7 → 约 41×31）；
-//        同排间距 12 → 8。
+// 口径（用户从渲染对比稿里拍板，图在 /opt/data/scripts/ql_header_pill/mock/out/：
+//   merged_pill.png = 形状方案，pill_iconsize.png = 图标尺寸档）：
+//   · **多颗独立胶囊合并成一整颗**（v4.0.62 的两/三颗独立胶囊 → 一颗 HeaderPillGroup）；
+//   · 尺寸 = 图标 14pt（用户在 13/14/15 里选 14）+ 囊高 34pt + 图标中心距 30pt + 端部内边距 12pt
+//     （后三者按用户参考图逐像素量测的比例换算：0.878 / 0.355 × 胶囊高）；
+//   · ⚠️ 参考图那颗胶囊是纯白底压浅灰页（亮度差 11）；本仓页面底是纯白，白胶囊差 0 会隐形
+//     → **沿用玻璃底**（glassPillStroke），不要照搬白底（这条是照搬时的翻车点）。
 //   图标 = **圆环家族**（稿里的 B 组）：会话页 archivebox.circle / checkmark.circle / xmark.circle / plus.circle，
 //        聊天页 list.bullet.circle / ellipsis.circle。
 //        依据：这几个符号的位图画布实测**全 44px**，其余候选 39~53px 参差（archivebox 46 / checkmark 43 /
@@ -61,14 +65,30 @@ check("① 组件在位（会话页/聊天页页头图标只有它一个入口�
       !pill.isEmpty && !pillCode.isEmpty)
 
 // ── 1. 尺寸：小二档真源 ─────────────────────────────────────────
-check("① 尺寸真源：iconFont 12", pillCode.contains("static let iconFont: CGFloat = 12"))
-check("① 尺寸真源：hPad 11", pillCode.contains("static let hPad: CGFloat = 11"))
-check("① 尺寸真源：vPad 5", pillCode.contains("static let vPad: CGFloat = 5"))
-check("① 尺寸真源：spacing 8", pillCode.contains("static let spacing: CGFloat = 8"))
+check("① 尺寸真源：iconFont 14（v4.1.x 用户在三档稿里选 14；回退成 12 = 无声变小）",
+      pillCode.contains("static let iconFont: CGFloat = 14"))
+check("① 尺寸真源：囊高 height 34", pillCode.contains("static let height: CGFloat = 34"))
+check("① 尺寸真源：图标中心距 centerGap 30（= 0.878×囊高，照参考图比例）",
+      pillCode.contains("static let centerGap: CGFloat = 30"))
+check("① 尺寸真源：端部内边距 edgePad 12（= 0.355×囊高）",
+      pillCode.contains("static let edgePad: CGFloat = 12"))
+check("① 旧组件已废除：文件里不再有 struct HeaderPillIconButton（合并后单入口）",
+      !pillCode.contains("struct HeaderPillIconButton"))
 check("① 玻璃/描边走同一出口 glassPillStroke()（不新造玻璃写法）",
       pillCode.contains(".glassPillStroke()"))
-check("① 命中区 ≥44pt（34×25 → hitArea44(h: 5, v: 11) = 44×46，净外扩 0）",
-      pillCode.contains(".hitArea44(h: 5, v: 11)"))
+check("① 命中区：横向 = 中心距 30（h:8，与邻项相接不重叠）；纵向补满 44",
+      pillCode.contains(".hitArea44(h: Self.hitH, v: 5)")
+        && pillCode.contains("static let hitH: CGFloat = 8"))
+// v4.0.65 审查（严重）：纵向 44 的前提是 label 真的 34 高 —— HStack 的 .frame(height:)
+// **不拉伸子视图**，label 只有 Image 时仅 ≈17pt，v:5 只能补到 ≈27pt（旧实现 ≈49pt）。
+// 断言必须限定在 itemView 切片内，否则 .frame(height: Self.height) 会命中 HStack 那处 = 恒真。
+let itemViewSlice = { () -> String in
+    guard let a = pillCode.range(of: "private func itemView"),
+          let b = pillCode.range(of: ".accessibilityLabel(item.a11y)") else { return "" }
+    return String(pillCode[a.lowerBound..<b.lowerBound])
+}()
+check("① 命中区纵向真到 44：itemView 里 label 必须被 .frame(height: Self.height) 撑到囊高",
+      itemViewSlice.contains(".frame(height: Self.height)"))
 check("① 图标前景色 = Color.accentColor（原由 pill(.accent) 提供；不走 pill 后必须自己带，否则由蓝变黑/白）",
       pillCode.contains(".foregroundStyle(Color.accentColor)"))
 check("🚫 反向①：组件里又出现 .pill( 调用 → 判红（回退 = 胶囊涨回 41×31 大档）",
@@ -76,15 +96,17 @@ check("🚫 反向①：组件里又出现 .pill( 调用 → 判红（回退 = �
 
 // ── 2. 会话页三颗：同族 + 同间距 ────────────────────────────────
 let headerSlice = { () -> String in
-    guard let a = sessionsCode.range(of: "private var sessionsHeaderBar"),
-          let b = sessionsCode.range(of: "private var addButton") else { return "" }
+    guard let a = sessionsCode.range(of: "private var sessionsHeaderItems"),
+          let b = sessionsCode.range(of: "private var sessionsHeaderBar") else { return "" }
     return String(sessionsCode[a.lowerBound..<b.lowerBound])
 }()
 
-check("② 会话页右上三颗（归档 + 多选 + 新建）都走 HeaderPillIconButton",
-      sessionsCode.components(separatedBy: "HeaderPillIconButton(").count - 1 == 3)
-check("② 同排间距走单一真源（不再各写 12）",
-      sessionsCode.contains("HStack(spacing: HeaderPillIconButton.spacing)"))
+check("② 会话页三颗（归档 + 多选 + 新建）都走 HeaderPillGroup.Item",
+      sessionsCode.components(separatedBy: "HeaderPillGroup.Item(").count - 1 == 3)
+check("② 合并成一颗：页头只调一次 HeaderPillGroup（回退 = 又变回多颗独立胶囊）",
+      sessionsCode.components(separatedBy: "HeaderPillGroup(items:").count - 1 == 1
+        && sessionsCode.contains("HeaderPillGroup(items: sessionsHeaderItems)"))
+check("🚫 反向②′：会话页不得再引用旧组件 HeaderPillIconButton", !sessionsCode.contains("HeaderPillIconButton"))
 check("② 归档两态：archivebox.circle ↔ archivebox.circle.fill（描边 ↔ 实心）",
       sessionsCode.contains("\"archivebox.circle.fill\"") && sessionsCode.contains("\"archivebox.circle\""))
 check("② 多选两态：checkmark.circle ↔ xmark.circle",
@@ -119,10 +141,12 @@ check("④ 聊天页任务中心：checklist → list.bullet.circle",
       chatCode.contains("\"list.bullet.circle\"") && !chatCode.contains("\"checklist\""))
 check("④ 聊天页更多：ellipsis → ellipsis.circle",
       chatCode.contains("\"ellipsis.circle\"") && !chatCode.contains("\"ellipsis\", a11y"))
-check("④ 聊天页页头两颗同排间距走单一真源",
-      chatCode.contains("HStack(spacing: HeaderPillIconButton.spacing)"))
-check("④ 聊天页页头两颗都走 HeaderPillIconButton",
-      chatCode.components(separatedBy: "HeaderPillIconButton(").count - 1 >= 2)
+check("④ 聊天页两颗（任务中心 + 更多）都走 HeaderPillGroup.Item",
+      chatCode.components(separatedBy: "HeaderPillGroup.Item(").count - 1 == 2)
+check("④ 合并成一颗：页头只调一次 HeaderPillGroup",
+      chatCode.components(separatedBy: "HeaderPillGroup(items:").count - 1 == 1
+        && chatCode.contains("HeaderPillGroup(items: chatHeaderItems)"))
+check("🚫 反向④′：聊天页不得再引用旧组件 HeaderPillIconButton", !chatCode.contains("HeaderPillIconButton"))
 
 // ── 5. 滚边玻璃两页口径（生活试点 / 看板推广；会话页 v4.0.63 已退出）──
 check("⑤ 生活页页头在滚动视图上（v4.0.61 试点）",

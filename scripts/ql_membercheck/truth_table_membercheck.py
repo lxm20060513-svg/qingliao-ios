@@ -148,6 +148,11 @@ _MODIFIERS = {
 #           ② 系统/标准库符号（所在文件 import Darwin/Foundation/Glibc/UIKit，或 Swift with* 家族）
 _SRC_ALL = "\n".join(read(os.path.relpath(_f, ROOT)) for _f in ALL)
 _defined = set(re.findall(r"\bfunc\s+(\w+)\s*\(", _SRC_ALL))
+# v4.0.65：泛型函数定义（func foo<T>(…) / func foo<T: View>(…) / func foo<T, U>(…)）也算已定义。
+# 旧正则要求函数名后**紧跟 "("**，而泛型签名的名字后面是 "<"，于是这类函数的**调用处**
+# 被误判成「疑似未定义」（LifeBadges 的 badgeShell<C: View> 就这么白红过一次）。
+# 只补「泛型签名」这一种形态的识别，不放宽任何其它判定——匹配不到时行为与旧版逐字一致。
+_defined |= set(re.findall(r"\bfunc\s+(\w+)\s*<[^>]*>\s*\(", _SRC_ALL))
 _defined |= set(re.findall(r"\b(?:let|var)\s+(\w+)\s*[:=]", _SRC_ALL))
 _defined |= set(re.findall(r"\b(?:struct|enum|class|actor|protocol)\s+(\w+)", _SRC_ALL))
 _defined |= set(re.findall(r"\bcase\s+(\w+)", _SRC_ALL))
