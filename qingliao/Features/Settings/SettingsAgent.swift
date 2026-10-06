@@ -17,8 +17,6 @@ import UniformTypeIdentifiers
 struct AgentKeywordsSheet: View {
     @Environment(AuthStore.self) private var auth
     @Environment(\.dismiss) private var dismiss
-    /// v4.0.68：仅用于关键词胶囊底改品牌淡彩（原来纯白）
-    @Environment(\.colorScheme) private var scheme
     @State private var builtin: [String: [String]] = [:]
     @State private var custom: [String: [String]] = [:]
     @State private var activeList = "strong"
@@ -137,6 +135,10 @@ struct AgentKeywordsSheet: View {
 /// 自动换行标签流（简单实现：按行分组显示）
 private struct FlowText: View {
     let words: [String]
+    /// v4.0.68（审查修复）：标签流底色改品牌淡彩后需要取色相 —— 本类型是**独立 struct**，
+    /// 兄弟类型 AgentKeywordsSheet 的 @Environment 不会传进来，必须自己声明
+    /// （漏了 = `cannot find 'scheme' in scope`，而本机预检只有 -parse，查不出）。
+    @Environment(\.colorScheme) private var scheme
     init(_ words: [String]) { self.words = words }
 
     var body: some View {

@@ -244,5 +244,33 @@ if let r = srCode.range(of: "struct SettingRow") {
 let sysCode = stripCommentLines(src(settingsDir + "SettingsSystem.swift"))
 check("⑥ 行容器（设备与版本 Section）仍由 pastelCard 供底", sysCode.contains(".pastelCard()"))
 
+// MARK: - ⑦ v4.0.68（审查教训）：**变量作用域**级断言
+//   本批真出过 2 处阻断级编译错误：`EnvironmentGradient.pastelCardStyle(scheme)` 用了 scheme，
+//   但所在 struct（SettingsSearchBar / FlowText）**没有** `@Environment(\.colorScheme)` 声明
+//   —— 而本机预检只有 `-parse`，88 张表照旧全绿，结果会把编不过的包放行到 CI。
+//   口径：**谁用 scheme，谁那一段（最近的 struct 声明起）里就得声明它**（兄弟 struct 不算，
+//   函数形参不算——形参会把 scheme 写进签名，本表按 `(scheme)` 用法扫，故不受影响）。
+var scopeMiss: [String] = []
+var scopeFiles: [(String, String)] = settingsNames.filter { $0.hasSuffix(".swift") }.map { ($0, settingsDir + $0) }
+scopeFiles.append(("SessionsView.swift", "qingliao/Features/Sessions/SessionsView.swift"))
+for (name, path) in scopeFiles {
+    let code = stripCommentLines(src(path))
+    var curStruct = "<顶层>"
+    var declared = false
+    for line in code.components(separatedBy: "\n") {
+        let t = line.trimmingCharacters(in: .whitespaces)
+        if t.hasPrefix("struct ") || t.hasPrefix("private struct ") || t.hasPrefix("public struct ") {
+            curStruct = String(t.split(separator: "{")[0]).trimmingCharacters(in: .whitespaces)
+            declared = false
+        }
+        if line.contains("@Environment(\\.colorScheme)") { declared = true }
+        if line.contains("(scheme)") && !declared { scopeMiss.append("\(name)#\(curStruct)") }
+    }
+}
+check("⑦ 用 (scheme) 的每个 struct 都自己声明了 @Environment(\\.colorScheme)（实得：\(scopeMiss.isEmpty ? "0 处" : scopeMiss.joined(separator: ", "))）",
+      scopeMiss.isEmpty)
+check("⑦ 本表真的扫到了用法（防空真：以上断言不能因为一条都没扫到而恒绿）",
+      scopeFiles.count >= 8 && src(settingsDir + "SettingsAgent.swift").contains("(scheme)"))
+
 print("通过 \(passCount) / 失败 \(failCount)")
 if failCount > 0 { exit(1) }

@@ -476,7 +476,7 @@ struct SessionsView: View {
                 // v4.0.68（用户 2026-10-07 拍板）：固定会话（轻聊投递 / 轻聊主动）做成**两张并排卡**，
                 // 卡面对齐聊天首页卡（HomeCardFace 同款：24pt 图标片 + 名称 + 一行副标 + dashboardCard）。
                 // 它们原来是列表里的两行（带锁形图标 + 用途胶囊），混在普通会话里看不出是「功能壳」。
-                if !fixedChannelSessions.isEmpty {
+                if !fixedChannelSessions.isEmpty && !editing {
                     fixedChannelCards
                         .sessionListRow(vHalfGap: 5)
                 }
@@ -569,6 +569,10 @@ struct SessionsView: View {
                 FixedChannelCard(session: s, unread: chat.unread[s.id] ?? 0) {
                     open(s)
                 }
+                // v4.0.68（审查修复）：卡片必须有长按菜单 —— 与会话行共用同一份 `sessionRowMenu`。
+                // 否则固定会话在会话页的「清空会话内容」入口会随本次改版消失（v4.0.18 用户拍板要能清）。
+                // 菜单里已按固定会话排除置顶/归档/重命名/删除，两处口径一致，别在卡片里再抄一份。
+                .contextMenu { sessionRowMenu(s) }
             }
         }
     }
@@ -810,13 +814,126 @@ struct SessionsView: View {
     }
 
     /// v3.0.51：会话 cell（SessionRow + 长按菜单）——拆辅助函数，防嵌套 ForEach type-check 超时
+    /// v4.0.68（审查修复）：会话行长按菜单**单一真源**。
+    ///
+    /// 原先只内联在 `sessionCell` 里；本版把固定会话（轻聊投递 / 轻聊主动）改成顶部并排卡后，
+    /// 卡片若没有菜单，**「清空会话内容」入口就凭空消失**（v4.0.18 用户拍板：这两个会话也要能清）
+    /// —— 所以抽成这个 func，会话行与并排卡共用同一份。
+    /// ⚠️ 菜单里已按固定会话做过排除（置顶/归档/重命名/删除不给），两处共用这套判断，别在卡片那边再抄一份。
+    @ViewBuilder
+    private func sessionRowMenu(_ s: ChatSession) -> some View {
+        // v4.0.20（#4）：固定会话恒置顶（rank 写死 3）→ 不给「置顶/取消置顶」，
+        // 免得用户点了没反应（或以为置顶失效）
+        if !isFixedSession(s.id) {
+            Button {
+                togglePin(s)
+            } label: {
+                Label(pinnedIDs.contains(s.id) ? "取消置顶" : "置顶", systemImage: pinnedIDs.contains(s.id) ? "pin.slash" : "pin")
+            }
+        }
+        Button {
+            toggleFav(s)
+        } label: {
+            Label(favIDs.contains(s.id) ? "取消收藏" : "收藏", systemImage: favIDs.contains(s.id) ? "star.slash" : "star")
+        }
+        // v4.1.x：归档（与右滑同一套 toggleArchive，不另写第二份状态写逻辑）
+        // v4.0.35：固定会话不给归档入口（同重命名/删除口径：不给点了会报错的按钮；
+        // toggleArchive 内另有同款拦截兜底）
+        if !isFixedSession(s.id) {
+            Button {
+                toggleArchive(s)
+            } label: {
+                Label(archivedIDs.contains(s.id) ? "取消归档" : "归档",
+                      systemImage: archivedIDs.contains(s.id) ? "tray.and.arrow.up" : "archivebox")
+            }
+        }
+        // v4.0.x：固定会话（投递壳 / 轻聊主动）标题锁定 → 不给「重命名」入口。
+        // 后端只锁自动命名（SessionAutoName 闸门），用户手动改名是另一条路，
+        // 不护住就会把「轻聊投递」「轻聊主动」改名成别的，固定会话就找不到了。
+        if s.id != ChatStore.deliverySessionId && s.id != ChatStore.proactiveSessionId {
+            Button {
+                renameTarget = s
+                renameText = s.title
+            } label: {
+                Label("重命名", systemImage: "pencil")
+            }
+        }
+        Menu("移动到…") {
+            Button("无分类") {
+                categoryStore.assignSession(s.id, to: nil)
+            }
+            ForEach(categoryStore.categories) { cat in
+                Button {
+                    categoryStore.assignSession(s.id, to: cat.id)
+                } label: {
+                    Label(cat.name, systemImage: cat.icon)
+                }
+            }
+            Divider()
+            Button("新建分类…") {
+                addCategoryForSession = s.id
+                newCategoryName = ""
+                showAddCategory = true
+            }
+            // v3.9.32：能建也得能删（此前 removeCategory 零调用 = 分类只进不出）
+            if !categoryStore.categories.isEmpty {
+                Menu("删除分类") {
+                    ForEach(categoryStore.categories) { cat in
+                        Button(role: .destructive) {
+                            deleteCategoryTarget = cat
+                        } label: {
+                            Label(cat.name, systemImage: "trash")
+                        }
+                    }
+                }
+            }
+        }
+        Menu("标签") {
+            ForEach(tagStore.allTags, id: \.self) { t in
+                Button {
+                    tagStore.toggle(t, on: s.id)
+                } label: {
+                    let has = tagStore.tags(for: s.id).contains(t)
+                    Label(has ? "\(t)  ✓" : t, systemImage: has ? "checkmark.circle.fill" : "circle")
+                }
+            }
+            Divider()
+            Button {
+                tagTarget = s
+                newTagName = ""
+                showNewTag = true
+            } label: {
+                Label("新建标签", systemImage: "plus")
+            }
+        }
+        // v4.1.x：清空会话内容（清消息、留会话与标题）——放在「删除会话」之前，
+        // 两项都是 destructive，删除仍排最后（视觉与操作风险递增）。
+        // v4.0.18：固定会话（投递壳 / 轻聊主动）**也给入口**（用户拍板：这两个会话也要能清；
+        // 删除仍不给——后端 _PROTECTED_IDS 拒删，入口必须可用）。
+        Button(role: .destructive) {
+            confirmClear = s
+        } label: {
+            Label("清空会话内容", systemImage: "eraser")
+        }
+        // v4.0.x：固定会话（投递壳 / 轻聊主动）不可删除 → 直接不给「删除会话」这个入口，
+        // 而不是给一个点了会报错的按钮（所有可见 UI 入口都必须可用）。
+        if s.id != ChatStore.deliverySessionId && s.id != ChatStore.proactiveSessionId {
+            Button(role: .destructive) {
+                confirmDelete = s
+            } label: {
+                Label("删除会话", systemImage: "trash")
+            }
+        }
+    
+    }
+
     @ViewBuilder
     private func sessionCell(_ s: ChatSession) -> some View {
         SessionRow(session: s,
                    pinned: pinnedIDs.contains(s.id),
                    faved: favIDs.contains(s.id),
                    tags: tagStore.tags(for: s.id),
-                   showCheck: editing,
+                   showCheck: editing && !isFixedSession(s.id),
                    checked: selectedIds.contains(s.id),
                    unread: chat.unread[s.id] ?? 0,
                    categoryName: categoryStore.categoryForSession(s.id)?.name,
@@ -824,7 +941,7 @@ struct SessionsView: View {
                    runningForeground: isForegroundRunning(s),
                    runningBackground: isBackgroundRunning(s),
                    isFixed: isFixedSession(s.id)) {
-            if editing {
+            if editing && !isFixedSession(s.id) {
                 toggleSelect(s.id)
             } else {
                 open(s)   // v3.9.33：进会话统一入口（含 v3.9.32 markRead）——远端命中行复用同一路径
@@ -839,110 +956,7 @@ struct SessionsView: View {
         //    实测（1179px 宽 · 393pt 屏）：agent 卡右缘 1137px = 14pt 边距（= Spacing.xxl 设计值）；
         //    会话卡右缘 1117px = 20.7pt；行内头像左缘 100px（未缩放应在 84px）→ 正是 0.965 缩放（0.965x 的卡边距 = 6.9pt/侧）。
         //    想恢复滚动层次感只有一条路：不要 List 外壳（改回 ScrollView + LazyVStack）——别只把这一行加回来。
-        .contextMenu {
-            // v4.0.20（#4）：固定会话恒置顶（rank 写死 3）→ 不给「置顶/取消置顶」，
-            // 免得用户点了没反应（或以为置顶失效）
-            if !isFixedSession(s.id) {
-                Button {
-                    togglePin(s)
-                } label: {
-                    Label(pinnedIDs.contains(s.id) ? "取消置顶" : "置顶", systemImage: pinnedIDs.contains(s.id) ? "pin.slash" : "pin")
-                }
-            }
-            Button {
-                toggleFav(s)
-            } label: {
-                Label(favIDs.contains(s.id) ? "取消收藏" : "收藏", systemImage: favIDs.contains(s.id) ? "star.slash" : "star")
-            }
-            // v4.1.x：归档（与右滑同一套 toggleArchive，不另写第二份状态写逻辑）
-            // v4.0.35：固定会话不给归档入口（同重命名/删除口径：不给点了会报错的按钮；
-            // toggleArchive 内另有同款拦截兜底）
-            if !isFixedSession(s.id) {
-                Button {
-                    toggleArchive(s)
-                } label: {
-                    Label(archivedIDs.contains(s.id) ? "取消归档" : "归档",
-                          systemImage: archivedIDs.contains(s.id) ? "tray.and.arrow.up" : "archivebox")
-                }
-            }
-            // v4.0.x：固定会话（投递壳 / 轻聊主动）标题锁定 → 不给「重命名」入口。
-            // 后端只锁自动命名（SessionAutoName 闸门），用户手动改名是另一条路，
-            // 不护住就会把「轻聊投递」「轻聊主动」改名成别的，固定会话就找不到了。
-            if s.id != ChatStore.deliverySessionId && s.id != ChatStore.proactiveSessionId {
-                Button {
-                    renameTarget = s
-                    renameText = s.title
-                } label: {
-                    Label("重命名", systemImage: "pencil")
-                }
-            }
-            Menu("移动到…") {
-                Button("无分类") {
-                    categoryStore.assignSession(s.id, to: nil)
-                }
-                ForEach(categoryStore.categories) { cat in
-                    Button {
-                        categoryStore.assignSession(s.id, to: cat.id)
-                    } label: {
-                        Label(cat.name, systemImage: cat.icon)
-                    }
-                }
-                Divider()
-                Button("新建分类…") {
-                    addCategoryForSession = s.id
-                    newCategoryName = ""
-                    showAddCategory = true
-                }
-                // v3.9.32：能建也得能删（此前 removeCategory 零调用 = 分类只进不出）
-                if !categoryStore.categories.isEmpty {
-                    Menu("删除分类") {
-                        ForEach(categoryStore.categories) { cat in
-                            Button(role: .destructive) {
-                                deleteCategoryTarget = cat
-                            } label: {
-                                Label(cat.name, systemImage: "trash")
-                            }
-                        }
-                    }
-                }
-            }
-            Menu("标签") {
-                ForEach(tagStore.allTags, id: \.self) { t in
-                    Button {
-                        tagStore.toggle(t, on: s.id)
-                    } label: {
-                        let has = tagStore.tags(for: s.id).contains(t)
-                        Label(has ? "\(t)  ✓" : t, systemImage: has ? "checkmark.circle.fill" : "circle")
-                    }
-                }
-                Divider()
-                Button {
-                    tagTarget = s
-                    newTagName = ""
-                    showNewTag = true
-                } label: {
-                    Label("新建标签", systemImage: "plus")
-                }
-            }
-            // v4.1.x：清空会话内容（清消息、留会话与标题）——放在「删除会话」之前，
-            // 两项都是 destructive，删除仍排最后（视觉与操作风险递增）。
-            // v4.0.18：固定会话（投递壳 / 轻聊主动）**也给入口**（用户拍板：这两个会话也要能清；
-            // 删除仍不给——后端 _PROTECTED_IDS 拒删，入口必须可用）。
-            Button(role: .destructive) {
-                confirmClear = s
-            } label: {
-                Label("清空会话内容", systemImage: "eraser")
-            }
-            // v4.0.x：固定会话（投递壳 / 轻聊主动）不可删除 → 直接不给「删除会话」这个入口，
-            // 而不是给一个点了会报错的按钮（所有可见 UI 入口都必须可用）。
-            if s.id != ChatStore.deliverySessionId && s.id != ChatStore.proactiveSessionId {
-                Button(role: .destructive) {
-                    confirmDelete = s
-                } label: {
-                    Label("删除会话", systemImage: "trash")
-                }
-            }
-        }
+        .contextMenu { sessionRowMenu(s) }
         // v4.1.x：右滑归档（leading 边）——本地状态，会话不删、消息不动，只从主列表隐藏。
         // 已归档的会话（归档箱视图里）同一位置变成「取消归档」。
         .swipeActions(edge: .leading, allowsFullSwipe: true) {

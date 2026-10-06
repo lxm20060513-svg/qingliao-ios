@@ -159,6 +159,17 @@ check("contextMenu 清空入口对固定会话可见（不含固定会话排除�
       "清空会话内容" in s_sess)
 check("contextMenu 删除入口仍对固定会话隐藏（两处排除判断：改名+删除）",
       s_sess.count("if s.id != ChatStore.deliverySessionId && s.id != ChatStore.proactiveSessionId") >= 2)
+# v4.0.68：固定会话改成顶部并排卡 —— 长按菜单现在由**卡片**承载。
+#   只断言「字符串还在 sessionCell 里」是假绿（会话行对固定会话已不再渲染）；必须钉卡片这条路。
+check("v4.0.68：并排卡挂同一份 sessionRowMenu（清空入口在卡片上也可达）",
+      ".contextMenu { sessionRowMenu(s) }" in s_sess)
+check("v4.0.68：长按菜单单一真源（confirmClear 赋值点唯一，卡片不另抄一份）",
+      s_sess.count("confirmClear = s") == 1)
+check("v4.0.68：多选态不渲染并排卡（不可勾选的卡不许留在屏上）",
+      "!fixedChannelSessions.isEmpty && !editing" in s_sess)
+check("v4.0.68：固定会话在编辑态不当勾选目标（showCheck 与 onTap 双闸）",
+      "showCheck: editing && !isFixedSession(s.id)" in s_sess
+      and "if editing && !isFixedSession(s.id) {" in s_sess)
 check("clearContent 不再拦固定会话（v4.0.18 反转）",
       "固定会话，不能清空" not in s_sess, "SessionsView 清空闸门未放开")
 rn = re.search(r'if s\.id != ChatStore\.deliverySessionId.*?renameText = s\.title', s_sess, re.DOTALL)

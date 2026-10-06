@@ -143,7 +143,7 @@ check("长按菜单有「清空会话内容」入口（清消息、留会话与�
 check("入口由「打开确认弹窗」驱动，不在 contextMenu 关闭瞬间改数据（同 delete 的 v2.0.57 口径）",
       menu.contains("confirmClear = s"))
 check("清空入口是 destructive（与删除同级，不可误触）",
-      menu.contains("Button(role: .destructive) {\n                confirmClear = s"))
+      menu.contains("Button(role: .destructive) {\n            confirmClear = s"))
 let clearIdx = menu.range(of: "清空会话内容")?.lowerBound
 let deleteIdx = menu.range(of: "Label(\"删除会话\"")?.lowerBound
 check("「清空会话内容」排在「删除会话」**之前**（风险递增，两项都是 destructive）",
@@ -151,8 +151,14 @@ check("「清空会话内容」排在「删除会话」**之前**（风险递增
 // v4.0.18 反转：固定会话（投递壳 / 轻聊主动）**也给清空入口**（用户拍板：这两个会话也要能清；
 // 删除仍不给入口）。清空入口不得再按固定会话排除。
 check("清空入口对固定会话可见（清空按钮前无固定会话排除判断）",
-      menu.contains("Button(role: .destructive) {\n                confirmClear = s") &&
-      !menu.contains("if s.id != ChatStore.deliverySessionId && s.id != ChatStore.proactiveSessionId {\n                Button(role: .destructive) {\n                    confirmClear = s"))
+      menu.contains("Button(role: .destructive) {\n            confirmClear = s") &&
+      !menu.contains("if s.id != ChatStore.deliverySessionId && s.id != ChatStore.proactiveSessionId {\n            Button(role: .destructive) {\n                confirmClear = s"))
+// v4.0.68：固定会话改成顶部**并排卡**后，卡片成了唯一入口 —— 卡片不挂菜单 = 清空入口随改版消失
+//（审查实锤过一次）。另外：菜单必须仍是**单一真源**，卡片不许另抄一份。
+check("v4.0.68：并排卡挂同一份 sessionRowMenu（清空入口不在改版里丢）",
+      viewCode.components(separatedBy: ".contextMenu { sessionRowMenu(s) }").count - 1 == 2)
+check("v4.0.68：长按菜单是单一真源（confirmClear 赋值点唯一）",
+      viewCode.components(separatedBy: "confirmClear = s").count - 1 == 1)
 
 // —— 确认弹窗：独立文案，明说「会话与标题保留」（不是复用删除弹窗） ——
 check("清空有独立的确认弹窗（不与删除共用一个 alert）",
