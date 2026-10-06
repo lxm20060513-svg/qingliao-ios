@@ -103,8 +103,8 @@ check("工具不留在第一层（附件/相机/模型都不在 messageRow 段�
       !messageRowSlice.contains("attachButtons") && !messageRowSlice.contains("modelButton"))
 
 // ── 2. 附件/相机两个入口本体仍在（没被两层化顺手删掉） ──────
-check("附件按钮（paperclip）仍在", inputBarSrc.contains("Image(systemName: \"paperclip\")"))
-check("相机按钮仍在", inputBarSrc.contains("Image(systemName: \"camera\")"))
+check("附件按钮（paperclip）仍在", inputBarSrc.contains("attachCapsule(icon: \"paperclip\""))
+check("相机按钮仍在", inputBarSrc.contains("attachCapsule(icon: \"camera\""))
 check("发送按钮仍在", inputBarSrc.contains("Image(systemName: \"arrow.up\")"))
 
 // ── 2b. 收起态只显第一层（v3.9.66，用户做上一轮评估里的方案 1）────────────────────
@@ -303,44 +303,54 @@ check("fullInputBar 及折叠分组内没有容器级 Capsule 描边/玻璃（�
               && !slice.contains("Capsule().strokeBorder")
       }())
 
-// ── 3d. 第二层附件/相机尺寸（v3.9.65 变小 → v3.9.75 按用户要求加大一点）────────────
+// ── 3d. 第二层附件/相机尺寸（v3.9.65 变小 → v3.9.75 按用户要求加大一点；v4.0.67 渐变主交互色）────
 // v3.9.65：视觉面 32×30 → 22×22，第二层 minHeight 42 → 34，容器最小总高 92 → 84。
 // v3.9.75：用户「展开态的附件和相机图标加大一点」→ 视觉面 22 → 26、字形 subhead(13) → body(15)，
 //          minHeight 34 → **38**，containerMinHeight 84 → **88**（仍不回 42：只大一点，不回两层同高）。
 // 命中区不受影响：外扩量 11 → 9，26+9×2 = 44 仍是 HIG 最小可点尺寸。
-// 第一层 42、发送键 32×32、两层间距 8 三项**未动**（用户只点了第二层）。
-check("附件钮视觉面 26×26（v3.9.75：22 → 26）",
-      inputBarSrc.contains("Image(systemName: \"paperclip\")\n                    .font(.system(size: Typography.body, weight: .medium))\n                    .foregroundStyle(.secondary)\n                    .frame(width: 26, height: 26)"))
-check("相机钮视觉面 26×26（v3.9.75：22 → 26）",
-      inputBarSrc.contains("Image(systemName: \"camera\")\n                    .font(.system(size: Typography.body, weight: .medium))\n                    .foregroundStyle(.secondary)\n                    .frame(width: 26, height: 26)"))
+// v4.0.67：两枚按钮收进 attachCapsule(icon:action:) 单一出口，换蓝紫主交互色
+//          （底色 = userBubbleColors 首色 × Tint.subtle、描边 = 同色 × Tint.faint、符号 = 末色；
+//           透明度一律走 Tint 令牌，不写字面量）；视觉面/命中区不变。
+//          ⚠️ 旁边「思考档位 / 自动朗读」两枚胶囊**保持中性灰次级**（有意的层级差，见 ChatInputBar 注释）——
+//             同排只统一几何，不统一色调。
+check("附件/相机两枚入口仍在（attachCapsule 调用点各一）",
+      inputBarSrc.contains("attachCapsule(icon: \"paperclip\"")
+      && inputBarSrc.contains("attachCapsule(icon: \"camera\""))
+check("添加胶囊视觉面 26×26（v3.9.75 规格，v4.0.67 收进 attachCapsule 后仍在）",
+      inputBarSrc.contains("Image(systemName: icon)\n                .font(.system(size: Typography.body, weight: .medium))\n                .foregroundStyle(tint1)\n                .frame(width: 26, height: 26)"))
+check("添加胶囊换主交互色：淡底 + 同色描边（userBubbleColors 同源，透明度走 Tint 令牌）",
+      inputBarSrc.contains("EnvironmentGradient.userBubbleColors(scheme)[0]")
+      && inputBarSrc.contains("EnvironmentGradient.userBubbleColors(scheme)[1]")
+      && inputBarSrc.contains("tint0.opacity(Tint.subtle), in: Capsule()")
+      && inputBarSrc.contains("Capsule().strokeBorder(tint0.opacity(Tint.faint), lineWidth: 0.8)"))
 // 计数必须限定在 attachButtons 段内：别处（转写取消 xmark）本来就是 26×26 + 外扩 9，全文件计数会误报。
-check("附件/相机视觉面在 attachButtons 段内各一处 26×26（两处 = 一对按钮，防漏改/防多改）",
+check("attachButtons 段内恰两枚 attachCapsule 调用（一对按钮，防漏改/防多改）",
       {
           guard let a = inputBarSrc.range(of: "private var attachButtons: some View") else { return false }
           let body = String(inputBarSrc[a.lowerBound..<inputBarSrc.endIndex])
           guard let end = body.range(of: "\n    }\n") else { return false }
           let slice = String(body[body.startIndex..<end.upperBound])
-          return slice.components(separatedBy: ".frame(width: 26, height: 26)").count - 1 == 2
+          return slice.components(separatedBy: "attachCapsule(icon:").count - 1 == 2
       }())
-check("旧视觉面 32×30 与 22×22 清零（attachButtons 里两代旧尺寸都不回潮）",
+check("旧视觉面 32×30 与 22×22 清零（attachCapsule 内两代旧尺寸都不回潮）",
       !inputBarSrc.contains(".frame(width: 32, height: 30)")
       && {
-          guard let a = inputBarSrc.range(of: "private var attachButtons: some View") else { return false }
+          guard let a = inputBarSrc.range(of: "private func attachCapsule") else { return false }
           let body = String(inputBarSrc[a.lowerBound..<inputBarSrc.endIndex])
           guard let end = body.range(of: "\n    }\n") else { return false }
           return !String(body[body.startIndex..<end.upperBound]).contains(".frame(width: 22, height: 22)")
       }())
-check("命中区仍 44×44：附件外扩 9（26+9×2=44，HIG 最小可点尺寸不变）",
+check("命中区仍 44×44：添加胶囊外扩 9（26+9×2=44，HIG 最小可点尺寸不变）",
       inputBarSrc.contains(".hitArea44(h: 9, v: 9)"))
-check("附件/相机按钮级胶囊形态保留（改尺寸不动二元控件口径 in: Capsule()）",
-      inputBarSrc.contains("Image(systemName: \"paperclip\")\n                    .font(.system(size: Typography.body, weight: .medium))\n                    .foregroundStyle(.secondary)\n                    .frame(width: 26, height: 26)\n                    // v3.4.26：附件/相机纳入胶囊语义——低透明外圈（次级操作，弱于实底发送钮）\n                    .background(Color.primary.opacity(Tint.faint), in: Capsule())"))
-check("附件/相机命中区外扩各一处 9（段内计数互证：两处按钮都扩到 44）",
+check("添加胶囊次级胶囊形态保留（in: Capsule() 二元控件口径不动）",
+      inputBarSrc.contains("Image(systemName: icon)\n                .font(.system(size: Typography.body, weight: .medium))\n                .foregroundStyle(tint1)\n                .frame(width: 26, height: 26)\n                .background(tint0.opacity(Tint.subtle), in: Capsule())"))
+check("attachCapsule 命中区外扩恰一处 9（单一出口收口后全文件不再有第二份按钮级 26×26+9 组合）",
       {
-          guard let a = inputBarSrc.range(of: "private var attachButtons: some View") else { return false }
+          guard let a = inputBarSrc.range(of: "private func attachCapsule") else { return false }
           let body = String(inputBarSrc[a.lowerBound..<inputBarSrc.endIndex])
           guard let end = body.range(of: "\n    }\n") else { return false }
           return String(body[body.startIndex..<end.upperBound])
-              .components(separatedBy: ".hitArea44(h: 9, v: 9)").count - 1 == 2
+              .components(separatedBy: ".hitArea44(h: 9, v: 9)").count - 1 == 1
       }())
 check("第二层行高常量升到 38（toolRowMinHeight，v3.9.75）",
       inputBarSrc.contains("static let toolRowMinHeight: CGFloat = 38"))

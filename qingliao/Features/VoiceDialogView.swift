@@ -59,9 +59,11 @@ struct VoiceDialogView: View {
     var body: some View {
         ZStack {
             // v3.9.77：**跟随系统明暗**（原实现按深色稿写死了深底 + .environment(.colorScheme, .dark)，
-            // 浅色模式下整页仍是黑的）。现在是：系统底 + 一片 accent 柔光（深色 0.22 / 浅色 0.14），
+            // 浅色模式下整页仍是黑的）。现在是：一片 accent 柔光（深色 0.22 / 浅色 0.14），
             // 两套主题都保住「科幻感 · 轻盈」，对比度各自调过。
-            Color(.systemBackground).ignoresSafeArea()
+            // v4.0.67 P5：底色由「系统底」换成主题环境渐变页底（EnvironmentGlowLayers 自带白/黑兜底
+            // + 三团光晕，明暗自适应），accent 柔光/涟漪按原口径叠在它上面 —— 观感与全站其它页同底。
+            EnvironmentGlowLayers(scheme: colorScheme)
             RadialGradient(colors: [Color.accentColor.opacity(isDark ? 0.22 : 0.14), .clear],
                            center: .center, startRadius: 0, endRadius: 420)
                 .ignoresSafeArea()

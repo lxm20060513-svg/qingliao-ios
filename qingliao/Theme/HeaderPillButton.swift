@@ -60,6 +60,14 @@ struct HeaderPillGroup: View {
     static let edgePad: CGFloat = 12
     /// 图标之间净空 = 中心距 − 图标字号（14 → 16pt）
     static var innerGap: CGFloat { centerGap - iconFont }
+    /// 红点直径 **7pt**（与旧手写角标同档）。描边走 `strokeBorder`（内描边）→ 外径仍是 7。
+    static let badgeDot: CGFloat = 7
+    /// 红点相对**图标槽位右上角**的偏移。
+    /// ⚠️ 槽位顶 == 囊顶（HStack 与子项同高 34、垂直居中）⇒ **偏移的 y 取负就是把红点顶出胶囊外**。
+    /// 原值 `y: -3` 让红点上半骑在囊外（用户 2026-10-06 真机报「右上角任务中心红点超出胶囊了」）。
+    /// 现取值：纵向 2 → 红点占 `[2, 9]`，完整落在囊内、贴住图标上沿；
+    /// 横向右缘距囊右缘 `edgePad(12) − 5 = 7pt`，也在囊内（红点在最左那颗上，轴向右侧还有余量）。
+    static let badgeOffset = CGSize(width: 5, height: 2)
     /// 单颗图标的横向命中外扩：中心距 30 − 图标 14 → 每侧 8，两两**相接不重叠**。
     /// ⚠️ 合并的固有代价：横向命中区 30pt（合并前每颗独立胶囊可给到 44pt）；
     ///    纵向仍补满 44pt。若将来嫌小，只能把 centerGap 一并放大（胶囊会变宽）。
@@ -95,9 +103,9 @@ struct HeaderPillGroup: View {
                     if item.badge {
                         Circle()
                             .fill(Color.red)
-                            .frame(width: 7, height: 7)
+                            .frame(width: Self.badgeDot, height: Self.badgeDot)
                             .overlay(Circle().strokeBorder(Color(uiColor: .systemBackground), lineWidth: 1))
-                            .offset(x: 5, y: -3)
+                            .offset(x: Self.badgeOffset.width, y: Self.badgeOffset.height)
                     }
                 }
                 .contentShape(Rectangle())

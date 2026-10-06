@@ -15,6 +15,8 @@ struct LifeView: View {
 
     @Environment(AuthStore.self) private var auth
     @Environment(\.horizontalSizeClass) private var hSize
+    // v4.0.67 P3 收尾：页底环境渐变取色用（浅深各一套）
+    @Environment(\.colorScheme) private var colorSchemeEnv
 
     @State private var life = LifeCardsData()
     @State private var lifeLoading = false
@@ -96,6 +98,8 @@ struct LifeView: View {
         // v3.5.x：生活卡片设置页（股票 / 资讯 / 快递）
         .background(lifeCold1())
         .background(lifeCold2())
+        // v4.0.67 P3 收尾：页底接主题环境渐变（三团弥散光晕，浅深各一套）——与聊天/会话/设置页同底
+        .background(EnvironmentGlowLayers(scheme: colorSchemeEnv))
     }
 
     /// 深度治理：行为型深层修饰器下沉背景层（.background 不影响布局，语义等价）
@@ -150,7 +154,7 @@ struct LifeView: View {
         }
         .padding(.horizontal, Spacing.xl)
         .padding(.vertical, Spacing.md)
-        .dashboardCard()
+        .pastelCard()
         .contentShape(Rectangle())
         .tapButton { showSectionEditor = true }
     }

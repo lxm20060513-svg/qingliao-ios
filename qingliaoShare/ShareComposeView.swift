@@ -27,8 +27,10 @@ struct ShareComposeView: View {
         static let body: CGFloat = 15
         static let caption: CGFloat = 13
     }
-    /// 主按钮颜色：与主 App 的强调色同族（扩展里不引 Theme，颜色只此一处）
-    private let accent = Color(red: 0.36, green: 0.62, blue: 1.0)
+    /// 主按钮颜色：与主 App 的强调色同族（扩展里编不到 Theme，颜色只此一处）
+    /// v4.0.67 P5：对齐主题「蓝紫主交互色」亮色首档 #4DA3FF
+    /// （与 Theme/EnvironmentGradient.swift 的 userBubbleColors(.light) 首色同值，改主色时两处一起改）
+    private let accent = Color(red: 0x4D / 255, green: 0xA3 / 255, blue: 0xFF / 255)
 
     var body: some View {
         VStack(alignment: .leading, spacing: Layout.gap) {

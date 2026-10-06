@@ -226,7 +226,7 @@ struct BackendUpdateSheet: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
-        .glassListCard()
+        .pastelCard()
     }
 
     private var statusTitle: String {
@@ -319,7 +319,7 @@ struct BackendUpdateSheet: View {
             }
         }
         .padding(14)
-        .glassListCard()
+        .pastelCard()
     }
 
     @ViewBuilder private var logCard: some View {
@@ -333,7 +333,7 @@ struct BackendUpdateSheet: View {
                 .lineLimit(12)
         }
         .padding(14)
-        .glassListCard()
+        .pastelCard()
     }
 }
 

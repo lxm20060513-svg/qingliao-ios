@@ -129,6 +129,7 @@ struct SettingsView: View {
     @State var searchScrollTarget: String?   // 结果里「滚到分组看」的锚点（sec-account / sec-ai / sec-appearance）
     @AppStorage(PetKeys.style) var petStyle: PetStyle = .liquid
     @AppStorage(PetKeys.face) var petFace: PetFace = .calm
+    @Environment(\.colorScheme) private var colorSchemeEnv   // v4.0.67：环境渐变页底深浅自适应
     var body: some View {
         VStack(spacing: 0) {
             PageHeader(title: "设置")
@@ -175,6 +176,12 @@ struct SettingsView: View {
         .background(settingsCold6())
         .background(settingsCold7())
         .background(settingsCold8())
+        // v4.0.67 P4：设置页页底铺环境渐变（C 口径，与聊天页同源单层）——
+        //   列表卡已换 pastelCard 渐变卡，页底同步彩化；只铺一层不叠团。
+        //   ⚠️ 必须挂**链尾**（= 垫在所有 cold 层之下）：本仓口径是「先挂的 background 画得更靠前」，
+        //   聊天页/生活页也都是链尾（chatColdChrome13 / lifeCold2 之后）。cold 层今天全是 Color.clear，
+        //   挂错位置今天看不出差别——将来哪个 cold 里塞进可见内容，光晕就会被整块盖死。
+        .background(EnvironmentGlowLayers(scheme: colorSchemeEnv))
     }
 
     /// 深度治理：行为型深层修饰器下沉背景层（.background 不影响布局，语义等价）
@@ -468,7 +475,7 @@ extension SettingsView {
                     Text("未通过系统 Face ID 验证，App 锁不可用。")
                 }
         }
-        .glassListCard()
+        .pastelCard()
     }
 
     @ViewBuilder var connectionSection: some View {
@@ -508,7 +515,7 @@ extension SettingsView {
             Divider().padding(.leading, Spacing.rowDividerInset)
             localModelToggle
         }
-        .glassListCard()
+        .pastelCard()
     }
 
     @ViewBuilder var localModelToggle: some View {
@@ -621,7 +628,7 @@ extension SettingsView {
                     Task { _ = try? await auth.json("/api/push/settings", method: "POST", body: ["pushWeixin": new]) }
                 }
         }
-        .glassListCard()
+        .pastelCard()
     }
 
     /// v3.9.56：智能路由「就地展开」参数区。
@@ -767,7 +774,7 @@ extension SettingsView {
                        value: "上传目录里的文件", chevron: true)
                 .tapButton { showFilesManager = true }
         }
-        .glassListCard()
+        .pastelCard()
     }
 
     @ViewBuilder var agentSection: some View {
@@ -808,7 +815,7 @@ extension SettingsView {
                        value: agentRuleCount > 0 ? "\(agentRuleCount) 条规则" : "暂无", chevron: true)
                 .tapButton { showAgentMemory = true }
         }
-        .glassListCard()
+        .pastelCard()
     }
 
     @ViewBuilder var appearanceSection: some View {
@@ -839,7 +846,7 @@ extension SettingsView {
             // v3.x review fix：showAppearanceOptions 死代码块（深浅色 chips/输入框流光/Siri 发光滑条/
             // AI 输出行高）永不显示（唯一写点恒置 false）——已删除，统一由 AppearanceSheet 管理
         }
-        .glassListCard()
+        .pastelCard()
     }
 
     // v4.0.6：卡通宠物大头像入口（设置页顶部居中）。
@@ -886,7 +893,7 @@ extension SettingsView {
             SettingRow(icon: "info.circle.fill", iconColor: .gray, title: "关于轻聊", chevron: true)
                 .tapButton { showAbout = true }
         }
-        .glassListCard()
+        .pastelCard()
     }
 
     @ViewBuilder var logoutButton: some View {

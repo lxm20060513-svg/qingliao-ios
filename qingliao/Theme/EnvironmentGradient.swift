@@ -32,21 +32,20 @@ enum EnvironmentGradient {
         }
     }
 
+    /// 主交互色对（发送键 / 添加胶囊等「实底小圆钮」用）：与用户气泡同一套蓝→紫，
+    /// 拆成 [Color] 是因为发送键的渐变动画按色数组插值（sendColors 三态切换）。
+    static func userBubbleColors(_ scheme: ColorScheme) -> [Color] {
+        scheme == .dark
+            ? [Color(red: 0x3B / 255, green: 0x82 / 255, blue: 0xE0 / 255),
+               Color(red: 0x6A / 255, green: 0x4F / 255, blue: 0xD8 / 255)]
+            : [Color(red: 0x4D / 255, green: 0xA3 / 255, blue: 0xFF / 255),
+               Color(red: 0x7A / 255, green: 0x5C / 255, blue: 0xFF / 255)]
+    }
+
     /// 用户气泡渐变（A 方案：蓝→紫，稿 aUser 逐字）
     static func userBubbleGradient(_ scheme: ColorScheme) -> LinearGradient {
-        if scheme == .dark {
-            // 稿 aUser 暗色版：#3B82E0 → #6A4FD8
-            LinearGradient(colors: [
-                Color(red: 0x3B / 255, green: 0x82 / 255, blue: 0xE0 / 255),
-                Color(red: 0x6A / 255, green: 0x4F / 255, blue: 0xD8 / 255),
-            ], startPoint: .topLeading, endPoint: .bottomTrailing)
-        } else {
-            // 稿 aUser 亮色版：#4DA3FF → #7A5CFF
-            LinearGradient(colors: [
-                Color(red: 0x4D / 255, green: 0xA3 / 255, blue: 0xFF / 255),
-                Color(red: 0x7A / 255, green: 0x5C / 255, blue: 0xFF / 255),
-            ], startPoint: .topLeading, endPoint: .bottomTrailing)
-        }
+        LinearGradient(colors: userBubbleColors(scheme),
+                       startPoint: .topLeading, endPoint: .bottomTrailing)
     }
 
     /// 紫调柔影（淡彩卡压在彩底上的层次影，浅色可感知、深色物理不可见仍保留同参数）

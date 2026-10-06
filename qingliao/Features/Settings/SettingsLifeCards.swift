@@ -20,7 +20,7 @@ import UniformTypeIdentifiers
 // 约定：
 //   · 每次改动立即整体保存；保存成功后用返回值刷新本地状态（presets 同步刷新）
 //   · 失败显示红色小字，绝不静默吞掉
-//   · 视觉沿用设置页定稿：SectionHeader 分组 + glassListCard 容器 + 0.8pt 描边 +
+//   · 视觉沿用设置页定稿：SectionHeader 分组 + pastelCard 渐变卡容器 + 0.8pt 描边 +
 //     Capsule 胶囊按钮 + tertiary 次要文字（不引入新风格/新配色）
 //   · 网络一律走 AuthStore（自动带 X-Auth-Token，蜂窝/中继分流由它负责）
 
@@ -199,7 +199,7 @@ struct LifeCardsSettingsView: View {
             }
             footerButton("添加股票", icon: "plus.circle.fill") { showStockSearch = true }
         }
-        .glassListCard()
+        .pastelCard()
     }
 
     private func stockRow(_ i: Int) -> some View {
@@ -248,7 +248,7 @@ struct LifeCardsSettingsView: View {
             }
             if showRssCatalog { rssAddArea }
         }
-        .glassListCard()
+        .pastelCard()
     }
 
     private func rssRow(_ i: Int) -> some View {
@@ -359,7 +359,7 @@ struct LifeCardsSettingsView: View {
             }
             addPackageArea
         }
-        .glassListCard()
+        .pastelCard()
 
         SectionHeader("快递数据源")
         VStack(alignment: .leading, spacing: 10) {
@@ -370,7 +370,7 @@ struct LifeCardsSettingsView: View {
         }
         .padding(.vertical, Spacing.xl)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .glassListCard()
+        .pastelCard()
     }
 
     private func packageRow(_ i: Int) -> some View {
@@ -522,7 +522,7 @@ struct LifeCardsSettingsView: View {
                 }
             }
         }
-        .glassListCard()
+        .pastelCard()
 
         Text("周报与快递提醒由后端定时任务推送，App 关着也能收到；关掉开关即停止推送。")
             .font(.system(size: Typography.caption))
@@ -883,7 +883,7 @@ struct StockSearchSheet: View {
                     }
                 }
             }
-            .glassListCard()
+            .pastelCard()
             .padding(.horizontal, Spacing.section)
             .padding(.top, Spacing.xl)
         }
@@ -1022,7 +1022,7 @@ struct LifeHeaderEditor: View {
 // 「到底定到了几点」再点创建——否则一句话理解偏了，用户要等到「该响的时候没响」才发现。
 // 所以这里把 summary 用胶囊显式摆出来，解析失败也把可读原因原样显示（不静默）。
 //
-// 视觉沿用全站口径：SectionHeader + glassListCard 分组（与设置页同款）、间距/圆角/字号走
+// 视觉沿用全站口径：SectionHeader + pastelCard 渐变卡分组（与设置页同款）、间距/圆角/字号走
 // Spacing / Radius / Typography 令牌、胶囊走 Pill();本文件不引入新的魔法数。
 
 struct QuickReminderSheet: View {
@@ -1113,7 +1113,7 @@ struct QuickReminderSheet: View {
         }
         .padding(.horizontal, Spacing.xxl)
         .padding(.vertical, Spacing.xxl)
-        .glassListCard()
+        .pastelCard()
     }
 
     /// 解析结果 / 失败原因（用户确认「定到了几点」的那一行）
@@ -1196,7 +1196,7 @@ struct QuickReminderSheet: View {
         }
         .padding(.horizontal, Spacing.xxl)
         .padding(.vertical, Spacing.xxl)
-        .dashboardCard()
+        .pastelCard()
         .padding(.top, Spacing.xxl)
     }
 
@@ -1220,7 +1220,7 @@ struct QuickReminderSheet: View {
                     .padding(.horizontal, Spacing.xxl)
                     .padding(.vertical, Spacing.lg)
             }
-            .glassListCard()
+            .pastelCard()
         }
     }
 
@@ -1248,7 +1248,7 @@ struct QuickReminderSheet: View {
             .padding(.horizontal, Spacing.xxl)
             .padding(.vertical, Spacing.lg)
         }
-        .glassListCard()
+        .pastelCard()
     }
 
     private var emptyHint: some View {
@@ -1266,7 +1266,7 @@ struct QuickReminderSheet: View {
         .frame(maxWidth: .infinity)
         .padding(.vertical, Spacing.section)
         .padding(.horizontal, Spacing.xxl)
-        .dashboardCard()
+        .pastelCard()
     }
 
     /// 单条提醒行（长按菜单 / 右侧按钮都能删）

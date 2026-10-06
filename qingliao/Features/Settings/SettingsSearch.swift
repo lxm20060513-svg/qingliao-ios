@@ -73,7 +73,7 @@ struct SettingsSearchList: View {
                         .tapButton { onOpen(entry) }
                 }
             }
-            .glassListCard()
+            .pastelCard()
             Text("共 \(hits.count) 项")
                 .font(.system(size: Typography.caption))
                 .foregroundStyle(.tertiary)

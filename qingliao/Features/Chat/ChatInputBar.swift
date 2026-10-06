@@ -74,6 +74,7 @@ struct ChatInputBar: View {
     /// 正常录音时输入框保持干净（识别文本 + 脉动红点）。
     var recordingStalled: Bool = false
     @Environment(KeyboardObserver.self) private var kbEnv
+    @Environment(\.colorScheme) private var scheme   // v4.0.67：发送键主交互色深浅自适应
     // v3.4.28：横屏限宽
     @Environment(\.horizontalSizeClass) private var hSizeInput
     @State private var pressKeyboardUp = false
@@ -113,11 +114,12 @@ struct ChatInputBar: View {
 
     // 发送按钮配色三态：语音模式=Siri 彩、空文本=淡灰、有字=蓝紫渐变
     // v3.4.25：+第四态——上下文使用率超 80% 时有字状态变橙（轻提醒，不阻断发送）
+    // v4.0.67：有字态换主题蓝→紫（EnvironmentGradient.userBubbleColors，与用户气泡同源）
     private var sendColors: [Color] {
         if voiceMode { return [.blue, .indigo, .pink] }
         if text.isEmpty { return [Color(uiColor: .systemGray4), Color(uiColor: .systemGray3)] }
         if contextUsage > 0.8 { return [.orange, .yellow.opacity(0.9)] }
-        return [.blue, .indigo]
+        return EnvironmentGradient.userBubbleColors(scheme)
     }
 
     // 发送触发：一次 tick 同时驱动图标弹动与按钮关键帧（长按转文字路径不走这里，不弹反馈）
@@ -311,37 +313,36 @@ struct ChatInputBar: View {
     /// 命中区外扩量随之 11 → 9（26+9×2 = 44，HIG 最小可点尺寸仍成立、间距零变化）。
     private var attachButtons: some View {
         HStack(spacing: 8) {
-            Button(action: onPickAttachment) {
-                Image(systemName: "paperclip")
-                    .font(.system(size: Typography.body, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 26, height: 26)
-                    // v3.4.26：附件/相机纳入胶囊语义——低透明外圈（次级操作，弱于实底发送钮）
-                    .background(Color.primary.opacity(Tint.faint), in: Capsule())
-                    .overlay(Capsule().strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8))
-            }
-            .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
-            // v3.9.75：命中区 44×44（视觉 26×26 → 外扩 9）
-            .hitArea44(h: 9, v: 9)
-
-            // v2.0.38：拍照输入
-            Button(action: onCamera) {
-                Image(systemName: "camera")
-                    .font(.system(size: Typography.body, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 26, height: 26)
-                    .background(Color.primary.opacity(Tint.faint), in: Capsule())
-                    .overlay(Capsule().strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8))
-            }
-            .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
-            // v3.9.75：命中区 44×44（视觉 26×26 → 外扩 9）
-            .hitArea44(h: 9, v: 9)
+            attachCapsule(icon: "paperclip", action: onPickAttachment)
+            attachCapsule(icon: "camera", action: onCamera)
         }
     }
 
+    /// v4.0.67：附件/相机「添加胶囊」统一一枚出口——蓝紫主交互色**淡底 + 同色描边**
+    /// （底色取 EnvironmentGradient.userBubbleColors 首色、符号取末色；与发送键/用户气泡同源）。
+    /// 次级层次保留：底与描边都压淡（Tint 令牌），弱于实底渐变发送钮。视觉 26×26、命中区 44 不变。
+    /// 底/描边透明度走 Tint 令牌（subtle/faint），不写字面量——色彩令牌真值表有全仓扫。
+    private func attachCapsule(icon: String, action: @escaping () -> Void) -> some View {
+        let tint0 = EnvironmentGradient.userBubbleColors(scheme)[0]
+        let tint1 = EnvironmentGradient.userBubbleColors(scheme)[1]
+        return Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: Typography.body, weight: .medium))
+                .foregroundStyle(tint1)
+                .frame(width: 26, height: 26)
+                .background(tint0.opacity(Tint.subtle), in: Capsule())
+                .overlay(Capsule().strokeBorder(tint0.opacity(Tint.faint), lineWidth: 0.8))
+        }
+        .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
+        // 命中区 44×44（视觉 26×26 → 外扩 9）
+        .hitArea44(h: 9, v: 9)
+    }
+
     /// v4.0.27：模型思考档位胶囊（从聊天页 header 迁入）。
-    /// 风格**逐值对齐**旁边附件/相机胶囊（attachButtons）：淡底 `Tint.faint` + 0.8pt 同色描边、
-    /// 字重 medium、命中区外扩 9——同排胶囊美观度统一；唯一差异是内容多一枚档位文字
+    /// 风格**逐值对齐**旁边附件/相机胶囊（attachButtons）的**尺寸层**：视觉面 26 高、字重 medium、
+    /// 命中区外扩 9——同排胶囊几何统一。色调层是有意的层级差：v4.0.67 起附件/相机胶囊换主交互色淡底，
+    /// 本胶囊保持中性 `Color.primary` 淡底 `Tint.faint` + 同色 0.8pt 描边（档位是次级工具，不抢主操作色；
+    /// 自动朗读胶囊同理）。唯一差异是内容多一枚档位文字
     /// （「低/中/高/不思考」必须可见，纯图标读不出档位）。骨架行高 26 与图标框同高 → 垂直不撑行
     /// （第二层行高仍由 toolRowMinHeight 38 收口）。`reasoningLevelTitle` 为空整块不渲染
     /// （与 modelButton 同一套门控，别的调用方零感知）。

@@ -73,6 +73,7 @@ struct SessionsView: View {
     @State private var newTagName = ""
     // v3.4.29：新建会话图标弹一下
     @State private var plusBounceTick = 0
+    @Environment(\.colorScheme) private var colorSchemeEnv   // v4.0.67：环境渐变页底深浅自适应
     var onOpenSession: (() -> Void)? = nil   // 切到聊天 tab
 
     private var isSearching: Bool { !searchText.trimmingCharacters(in: .whitespaces).isEmpty }
@@ -98,6 +99,9 @@ struct SessionsView: View {
                 sessionsListBody
             }
         }
+        // v4.0.67 P2：会话页页底铺环境渐变（C 口径，与聊天页同源单层）——
+        //   会话卡已换 pastelCard 渐变卡（玻璃卡压彩底发灰已退役），页底同步彩化。
+        .background(EnvironmentGlowLayers(scheme: colorSchemeEnv))
         .task { await load() }
         // v2.0.102：切回会话列表立即刷新（聊天里新建/重命名后列表即时更新，原只有 .task 首刷）
         .onAppear {
@@ -1489,17 +1493,10 @@ struct SessionRow: View {
         }
         .padding(.horizontal, Spacing.xxl)
         .padding(.vertical, Spacing.lg)
-        // v4.0.0（用户拍板）：会话卡玻璃化，**复用 dashboardCard()** ——
-        //   与意图动作卡 / 门锁卡完全同档（.glassEffect(.regular) + 白亮边 0.12/0.22 + 柔影 10/4，
-        //   圆角 16）。不新增第三套玻璃样式。
-        //
-        // ⚠️ 关键（v4.0.0 踩过的坑 F2）：**不要**写成
-        //     `.background(折射源).background(玻璃)` 两层 —— SwiftUI 里先挂的 background 画得更靠前，
-        //     不透明底色会把玻璃完全压死，页面观感与实色无差别。
-        //   dashboardCard() 内部是「内容 + 玻璃 + 描边 + 影」单链，玻璃在内容之下、内容之上无遮挡，
-        //   不存在这个次序问题，故直接套用即可。
-        .dashboardCard(cornerRadius: Radius.card)
-        .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+        // v4.0.67 P2：会话卡换淡彩渐变口径（P0 的 pastelCard modifier，与 AI 气泡/生活卡同档）——
+        //   底 = EnvironmentGradient.pastelCardStyle（粉白→蓝白，深色同构暗调）+ 紫调柔影 + Tint.line 描边。
+        //   v4.0.0 的玻璃 dashboardCard() 口径退役（聊天页已彩化，玻璃卡压在彩底上发灰）。
+        .pastelCard(cornerRadius: Radius.card)
         .contentShape(Rectangle())
         // 用 tap 手势而非 Button 包裹（Button 会与 swipeActions 滑动手势冲突，导致滑动删除失效）
         .onTapGesture { action() }
@@ -1657,9 +1654,8 @@ private struct RemoteHitRow: View {
         }
         .padding(.horizontal, Spacing.xxl)
         .padding(.vertical, Spacing.lg)
-        // v4.0.0：搜索命中行同样属会话列表的卡，与 SessionRow 走同一档玻璃（口径单源）。
-        .dashboardCard(cornerRadius: Radius.card)
-        .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+        // v4.0.67 P2：搜索命中行与 SessionRow 走同一档淡彩渐变（口径单源 pastelCard）。
+        .pastelCard(cornerRadius: Radius.card)
         .contentShape(Rectangle())
         // 与 SessionRow 一致用 tap 手势（Button 会与 swipeActions 冲突）
         .onTapGesture { onTap() }

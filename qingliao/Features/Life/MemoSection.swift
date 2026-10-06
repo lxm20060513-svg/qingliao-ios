@@ -9,7 +9,7 @@
 //   卡片长度铺满手机」）——
 //   · **堆叠取消**：原「主卡 + 2 层错位卡边」（layerInset/Drop 四个常量、stackedLayers、
 //     stackedLayerShape、stackBottomSpace）整块删除，页面上只有一张卡
-//   · **圆角/高度对齐「生活数据」各卡**：`.dashboardCard()`（Radius.card = 16 + 0.8pt 描边）
+//   · **圆角/高度对齐「生活数据」各卡**：`.pastelCard()`（Radius.card = 16 + 0.8pt 描边）
 //     + 卡高走 MemoCardMetrics.minHeight（与行情卡同口径），不再用便签形态的 Radius.inset(12)
 //   · 宽度：`.frame(maxWidth: .infinity)` 铺满内容区（左右各 14pt 页边距与其它卡齐平）
 //   · 只有 1 条时点卡片直接进详情（列表页是多余的一跳）；≥2 条才走「全部备忘」列表
@@ -18,7 +18,7 @@ import SwiftUI
 // MARK: - v3.9.33 页级单卡几何（对齐「生活数据」卡片，真机微调只改这一处）
 
 /// 用户定稿：「卡片复制生活数据卡片的圆角及高度，卡片长度铺满手机」
-/// 圆角由 `.dashboardCard()` 给（Radius.card = 16，与生活数据各卡同参）。
+/// 圆角由 `.pastelCard()` 给（Radius.card = 16，与生活数据各卡同参）。
 /// 高度用 **minHeight** 兜住而不是写死 height —— 两张卡内容结构不同，写死会在字号放大时裁切：
 ///   行情卡 LifeStockCard 实测算式：
 ///     上内边距 12 + 标题行 ≈15.5（subhead 13）+ 6 + 价格 ≈23.9（headline 20）+ 2 + 明细 ≈11.9（tiny 10）+ 下内边距 12 ≈ 83
@@ -344,10 +344,10 @@ private func memoLinkified(_ text: String) -> AttributedString {
 
 // MARK: - 备忘卡视觉（v3.9.17：抽成独立 struct——页级单卡 / 全部列表两处共用）
 //
-// v3.9.33：圆角与卡片底改走全站口径 `.dashboardCard()`（Radius.card 16 + Tint.line 0.8pt 描边），
+// v3.9.33：圆角与卡片底改走全站口径 `.pastelCard()`（Radius.card 16 + Tint.line 0.8pt 描边），
 //   原「便签形态 12 圆角 + 自绘不透明底」随堆叠卡边一起废弃（用户定稿：与生活数据卡一致）。
-//   置顶态仍有独立标记：主题色描边 + 一层淡色罩（只在这张卡上叠，不改 dashboardCard 本身）。
-//   ⚠️ 这层罩用 `.overlay`（叠在内容之上）而不是 `.background`：dashboardCard 的卡底是**不透明**的，
+//   置顶态仍有独立标记：主题色描边 + 一层淡色罩（只在这张卡上叠，不改 pastelCard 本身）。
+//   ⚠️ 这层罩用 `.overlay`（叠在内容之上）而不是 `.background`：pastelCard 的渐变底也要在罩层之下，不能被实色盖住，
 //   放到它下面会被整块遮住（等于没有）。不透明度很低（Tint.faint），对正文/元信息的观感影响可忽略，
 //   换来置顶卡一眼可辨——这是刻意选择，不是漏改。
 //
@@ -386,7 +386,7 @@ private struct MemoNoteCard: View {
         .frame(maxWidth: .infinity,
                minHeight: compact ? MemoCardMetrics.minHeight : 0,
                alignment: .topLeading)
-        .dashboardCard()
+        .pastelCard()
         // 置顶态罩层（见本 struct 上方注释：为什么不放 background）
         .overlay {
             if item.pinned {
@@ -405,7 +405,7 @@ private struct MemoNoteCard: View {
     private var metaRow: some View {
         // v3.9.35：方案 A「卡内第二层」——元信息收进淡色小底（对比稿 rgba(120,120,128,.06) 圆角 12），
         // 与行情卡「数值在上、明细收小底在下」同一读法；小底属卡内 chip，走 Radius.chip 档
-        //（护栏约定：共用卡组件内不出现 inset/field/hero 卡片级圆角，卡角唯一 = dashboardCard 16）
+        //（护栏约定：共用卡组件内不出现 inset/field/hero 卡片级圆角，卡角唯一 = pastelCard 16）
         // v3.9.35：Spacer 挪到背景外——原来 Spacer 在 HStack 里、background 挂整个 HStack，
         // 胶囊被撑满卡宽；现在背景只包住内容，胶囊随文字自适应，Spacer 只负责靠左
         //

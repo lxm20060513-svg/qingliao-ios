@@ -942,7 +942,12 @@ let speechClean = stripCommentLines(speechSrc)
 
 // 1) 语音对话页跟随系统明暗（原来按深色稿写死了深底 + .environment(\\.colorScheme, .dark)）
 check("语音页不再写死深色环境", !voiceClean.contains(".environment(\\.colorScheme, .dark)"))
-check("语音页底色走系统语义（Color(.systemBackground)）", voiceSrc.contains("Color(.systemBackground)"))
+// 🚨 v4.0.67 P5：底色口径从「系统底」升级成「主题环境渐变页底」（EnvironmentGlowLayers 自带白/黑兜底
+//    + 三团光晕，明暗自适应）—— 用户本轮的 A+C 主题迁移覆盖了 v3.9.77 的「系统底」实现选择，
+//    但**「跟随系统明暗」这个实质要求不变**（负断言那条仍在）→ 判据重钉到新形态，旧形态清零。
+check("语音页底色走主题环境渐变（明暗自适应）",
+      voiceClean.contains("EnvironmentGlowLayers(scheme: colorScheme)"))
+check("语音页旧的系统底形态清零（v4.0.67 P5 换底）", !voiceClean.contains("Color(.systemBackground)"))
 check("语音页文字走语义色（不再 foregroundStyle(.white) 硬写）", !voiceClean.contains("foregroundStyle(.white)"))
 check("柔光/涟漪强度按主题分档（isDark 判定存在）", voiceSrc.contains("private var isDark: Bool"))
 // 2) 球高光接近球心 —— 偏左上会让人眼觉得整球离开了涟漪中心（几何本来就同心）

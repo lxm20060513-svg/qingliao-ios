@@ -160,26 +160,27 @@ let ttsModelRowBody = slice(src("qingliao/Features/Settings/SettingsModels.swift
                             "Text(\"模型\")", "// 音色下拉")
 check("TTS 模型行切片取到且 Picker 钉单行", !ttsModelRowBody.isEmpty && ttsModelRowBody.contains(".lineLimit(1)"))
 
-// MARK: - 会话列表卡玻璃化（v4.0.0，用户拍板复用 dashboardCard）
+// MARK: - 会话列表卡淡彩渐变（v4.0.67 P2：dashboardCard 玻璃口径退役，换 P0 pastelCard）
 let sessSrc = src("qingliao/Features/Sessions/SessionsView.swift")
 let sessCode = stripComments(sessSrc)
-check("会话卡走 dashboardCard()（与意图卡/门锁卡同档，不新增第三套玻璃）",
-      sessCode.contains(".dashboardCard(cornerRadius: Radius.card)"))
-check("会话卡不再挂不透明 secondarySystemGroupedBackground（那会把玻璃压死）",
+check("会话卡走 pastelCard()（P0 淡彩渐变卡，与 AI 气泡/生活卡同档）",
+      sessCode.contains(".pastelCard(cornerRadius: Radius.card)"))
+check("会话卡不再挂不透明 secondarySystemGroupedBackground（那会把渐变压死）",
       !sessCode.contains("secondarySystemGroupedBackground"))
-// 反向：会话卡不许手搓 glassEffect（要改档位只能改 DashboardCardStyle 一处）
+// 反向：旧玻璃口径清零（dashboardCard 玻璃压在渐变彩底上发灰，不许回潮）
+check("会话卡旧玻璃口径 dashboardCard 清零（v4.0.67 退役）",
+      !sessCode.contains(".dashboardCard("))
+// 反向：会话卡不许手搓 glassEffect（要改档位只能改 PastelCard 一处）
 check("会话卡没有自己手搓 glassEffect（口径单源）",
       !sessCode.contains("glassEffect("))
-// 反向：F2 坑的真正形态是「实色底与玻璃同时出现在同一条修饰链上」——
-//   实色底会画在玻璃之上（先挂=background 画得更靠前），玻璃被完全压死。
-//   dashboardCard() 把玻璃/描边/影收在一处，故卡上不得再自行出现任何实色 background。
-// ⚠️ v4.0.x 修（原写法是空真、恒绿）：原来 slice(sessCode, "struct SessionRow", "// MARK: - v3.9.33")
-//   —— sessCode 已 stripComments，而结束锚点 "// MARK: …" 恰好被剥掉 → slice 恒返回 "" → 断言恒过（假绿）。
-//   改为锚在**代码文本**上，只盯会话卡自己的修饰链（.dashboardCard → .onTapGesture）：
+// 反向：F2 坑的真正形态是「实色底与卡底同时出现在同一条修饰链上」——
+//   实色底会画在卡底之上（先挂=background 画得更靠前），卡底被完全压死。
+//   pastelCard() 把渐变/描边/影收在一处，故卡上不得再自行出现任何实色 background。
+//   锚在**代码文本**上，只盯会话卡自己的修饰链（.pastelCard → .onTapGesture）：
 //   卡内分类胶囊/标签胶囊的 .background(…, in: Capsule()) 不属 F2 口径，本就不该进这一段。
-let sessCardChain = slice(sessCode, ".dashboardCard(cornerRadius: Radius.card)", ".onTapGesture { action() }")
+let sessCardChain = slice(sessCode, ".pastelCard(cornerRadius: Radius.card)", ".onTapGesture { action() }")
 check("会话卡修饰链切片非空（防再次空真）", !sessCardChain.isEmpty)
-check("会话卡修饰链上没有自行挂的实色 background（F2：实色底会压死玻璃）",
+check("会话卡修饰链上没有自行挂的实色 background（F2：实色底会压死渐变卡底）",
       !sessCardChain.contains(".background("))
 
 // MARK: - 设置页 v3.9.88 回退：单页平铺，无 8 大类二级页、无整页玻璃底

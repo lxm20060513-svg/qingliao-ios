@@ -181,6 +181,40 @@ check("🚫 反向⑦：看板 / 生活两页不许跟着关（用户只点了�
 check("🚫 反向⑦′：两页都不得改用 scrollEdgeEffectStyle（.automatic/.soft 会把模糊放回来；本仓口径是隐藏、不是换档）",
       !sessionsCode.contains("scrollEdgeEffectStyle") && !chatCode.contains("scrollEdgeEffectStyle"))
 
-// ── 8. 结果 ──────────────────────────────────────────────────
+// ── 8. 页头红点（任务中心「有未完成任务」角标）────────────────────
+// 用户 2026-10-06 真机报「右上角任务中心红点超出胶囊了」：badge overlay 挂在**图标槽位**上，
+// 而槽位顶 == 囊顶（HStack 与子项同高 34、垂直居中）⇒ 偏移的 y 取负就是把红点顶出囊外（原值 -3）。
+// 本组**从源码解析 badge 常量按算式判**，不钉字面串 —— 将来改尺寸档不误伤，只有真越界才红。
+func number(after key: String, in text: String) -> Double? {
+    guard let r = text.range(of: key) else { return nil }
+    let tail = text[r.upperBound...].drop { $0 == " " }
+    // 支持负号：负偏移是「真正要判红的形态」，不能因为解析失败而让哨兵断言顶包
+    let neg = tail.hasPrefix("-")
+    let body = neg ? tail.dropFirst() : tail
+    let digits = body.prefix { $0.isNumber || $0 == "." }
+    guard !digits.isEmpty else { return nil }
+    return Double((neg ? "-" : "") + digits)
+}
+let badgeDot = number(after: "static let badgeDot: CGFloat =", in: pillCode)
+let badgeOffsetLine = pillCode.split(separator: "\n")
+    .first { $0.contains("static let badgeOffset") }.map(String.init) ?? ""
+let badgeOffW = number(after: "width:", in: badgeOffsetLine)
+let badgeOffH = number(after: "height:", in: badgeOffsetLine)
+let pillHeightNum = number(after: "static let height: CGFloat =", in: pillCode)
+let edgePadNum = number(after: "static let edgePad: CGFloat =", in: pillCode)
+
+check("⑧ 红点几何真源在（badgeDot / badgeOffset 两常量都能解析出数值）",
+      badgeDot != nil && badgeOffW != nil && badgeOffH != nil
+        && pillHeightNum != nil && edgePadNum != nil)
+check("⑧ 红点完整落在囊内：0 ≤ offset.height 且 offset.height + dot ≤ 囊高（负值 = 骑在囊外，正是本轮缺陷形态）",
+      (badgeOffH ?? -1) >= 0
+        && (badgeOffH ?? 999) + (badgeDot ?? 999) <= (pillHeightNum ?? 0))
+check("⑧ 红点横向不越囊右缘：offset.width ≤ 端部内边距 edgePad",
+      (badgeOffW ?? 999) <= (edgePadNum ?? 0))
+check("⑧ 红点尺寸/偏移走真源常量（不再写裸 7 / 裸 offset 值）",
+      pillCode.contains(".frame(width: Self.badgeDot, height: Self.badgeDot)")
+        && pillCode.contains(".offset(x: Self.badgeOffset.width, y: Self.badgeOffset.height)"))
+
+// ── 9. 结果 ──────────────────────────────────────────────────
 print("页头图标胶囊真值表：\(passCount) 通过 / \(failCount) 失败")
 if failCount > 0 { exit(1) }

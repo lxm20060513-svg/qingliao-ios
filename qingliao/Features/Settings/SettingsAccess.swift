@@ -13,7 +13,7 @@ import UniformTypeIdentifiers
 // MARK: ===== 以下原为 Features/Settings/ConnSettingsView.swift =====
 
 // MARK: - v2.0.83c 连接设置二级页（服务器地址 / 测试连接 / 会话存储位置——从主设置页收进二级）
-// v2.0.83f：List 白底改毛玻璃卡片风格（与主设置页 glassListCard 一致）
+// v2.0.83f：List 白底改毛玻璃卡片风格（与主设置页 pastelCard 一致）
 
 struct ConnSettingsView: View {
     @Environment(AuthStore.self) private var auth
@@ -89,7 +89,7 @@ struct ConnSettingsView: View {
                                 .padding(.top, Spacing.xxs)
                         }
                     }
-                    .glassListCard()
+                    .pastelCard()
 
                     Text("存储")
                         .font(.system(size: Typography.subhead, weight: .semibold))
@@ -111,7 +111,7 @@ struct ConnSettingsView: View {
                                    title: "钉一钉存储", value: pinPathDisplay, chevron: true)
                             .onTapGesture { showPinPath = true }
                     }
-                    .glassListCard()
+                    .pastelCard()
                     Text("会话记录保存在 NAS 指定目录，Web 与 App 共用同一份")
                         .font(.system(size: Typography.tiny))
                         .foregroundStyle(.tertiary)

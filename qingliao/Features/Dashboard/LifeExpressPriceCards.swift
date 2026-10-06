@@ -6,7 +6,8 @@ import SwiftUI
 // 解析在 Core/LifeCards.swift（LifeExpressCard），这里只做渲染。
 //
 // 视觉口径（与 LifeCardsSection / LifeStockCard 同一套，别另立）：
-//   · 容器 .dashboardCard()（默认 16pt 圆角 + 0.8pt 描边），滚动层次用 .scrollDepth()
+//   · 容器 .pastelCard()（v4.0.67 P3：生活页各卡换淡彩渐变底；默认 Radius.card 16 + 0.8pt 描边），
+//     滚动层次用 .scrollDepth()
 //   · 胶囊一律走 Theme/Pill 的 .pill(.page)（不自己拼 Capsule + padding）
 //   · 内边距 Spacing / 字号 Typography / 浓淡 Tint / 行距 LineSpacing / 圆角 Radius / 动效 Motion；
 //     ⚠️ 栈间距（VStack/HStack spacing:）按全仓口径仍写字面值，不套 Spacing（见 Spacing.swift 第 4 条）
@@ -38,7 +39,7 @@ struct LifeExpressCardView: View {
         }
         .padding(Spacing.xl)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .dashboardCard()
+        .pastelCard()      // v4.0.67 P3：与同页其它生活卡同底
         .scrollDepth()
     }
 

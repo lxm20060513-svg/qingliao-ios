@@ -11,7 +11,7 @@
 //
 // 风格与「待办清单」栏目同源（TodoSection）：
 //   · 页级标题行（粗体 + 计数 + 右侧胶囊）在卡片外
-//   · 页面只放一张卡（.dashboardCard() 16 圆角 + 同高 83pt）
+//   · 页面只放一张卡（.pastelCard() 16 圆角 + 同高 83pt）
 //   · 1 个目标直达详情，≥2 个弹「全部目标」列表（半屏 sheet）
 //   · 空态 = 可点引导卡（同几何，空 ↔ 有内容不跳变）
 //
@@ -759,7 +759,7 @@ struct GoalRowCard: View {
         .frame(maxWidth: .infinity,
                minHeight: compact ? MemoCardMetrics.minHeight : nil,
                alignment: .leading)
-        .dashboardCard()
+        .pastelCard()
     }
 
     // MARK: v4.0.46：卡片步骤区只显示「当前进行中的那一步」

@@ -83,7 +83,7 @@ struct RecordReportSheet: View {
         }
         .padding(Spacing.xl)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .dashboardCard()
+        .pastelCard()
     }
 
     private func metric(_ label: String, _ value: String) -> some View {
@@ -124,7 +124,7 @@ struct RecordReportSheet: View {
         }
         .padding(Spacing.xl)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .dashboardCard()
+        .pastelCard()
     }
 
     // MARK: 分类占比（环图）
@@ -159,7 +159,7 @@ struct RecordReportSheet: View {
         }
         .padding(Spacing.xl)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .dashboardCard()
+        .pastelCard()
     }
 }
 

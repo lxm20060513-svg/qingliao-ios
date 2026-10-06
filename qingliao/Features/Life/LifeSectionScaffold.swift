@@ -79,7 +79,7 @@ struct LifeSectionHeader: View {
 
 // MARK: 空态引导卡
 
-/// 空态 = 可点引导卡：与页级单卡**同几何**（`.dashboardCard()` 16 圆角 + MemoCardMetrics.minHeight），
+/// 空态 = 可点引导卡：与页级单卡**同几何**（`.pastelCard()` 16 圆角 + MemoCardMetrics.minHeight），
 /// 所以「空态 ↔ 有内容」切换时页面不跳变。四个 Section 只差图标与两句文案。
 struct LifeEmptyStateCard: View {
     let icon: String
@@ -106,7 +106,7 @@ struct LifeEmptyStateCard: View {
             }
             .padding(Spacing.xl)
             .frame(maxWidth: .infinity, minHeight: MemoCardMetrics.minHeight, alignment: .leading)
-            .dashboardCard()
+            .pastelCard()
             .contentShape(Rectangle())
         }
         .buttonStyle(PressStyle())

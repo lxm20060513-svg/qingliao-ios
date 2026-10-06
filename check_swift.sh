@@ -1277,5 +1277,12 @@ echo "=== 87. 备忘/待办图标真值表（v4.0.65 · 用户拍板「待办走
 #     备忘方案 A 的元信息行保持灰（不许顺手染来源色）；待办时间保持灰基线不抢视觉。
 run_unit /tmp/test_life_badges scripts/ql_lists/truth_table_life_badges.swift
 
+echo "=== 88. 主题淡彩迁移真值表（v4.0.67 · 页底环境渐变铺全站 / 卡口径 pastelCard / P5 浮层换底）==="
+# 钉：页底只铺一层 EnvironmentGlowLayers（手刷系统底会盖死光晕）；彩底上的卡一律 pastelCard，
+#     生活页/设置页目录里旧玻璃口径（dashboardCard / glassListCard）清零；
+#     大爆炸/语音页换底但语音页 accent 柔光（v3.9.77「科幻感」）必须留着；
+#     分享扩展主色与主题蓝紫亮色首档同值（扩展编不到 Theme，只能字面写 → 最易漂移）。
+run_unit /tmp/test_themegrad scripts/ql_themegrad/truth_table_themegrad.swift
+
 [ $fail -eq 0 ] || { echo "❌ 有护栏失守"; exit 1; }
 exit 0

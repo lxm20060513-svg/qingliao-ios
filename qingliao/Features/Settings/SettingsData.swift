@@ -159,7 +159,7 @@ struct FilesManagerSheet: View {
         }
         .padding(.horizontal, Spacing.xxl)
         .padding(.vertical, Spacing.lg)
-        .glassListCard()
+        .pastelCard()
     }
 
     private func busyCard(_ text: String) -> some View {
@@ -170,7 +170,7 @@ struct FilesManagerSheet: View {
         }
         .padding(.horizontal, Spacing.xxl)
         .padding(.vertical, Spacing.lg)
-        .glassListCard()
+        .pastelCard()
     }
 
     @ViewBuilder
@@ -214,7 +214,7 @@ struct FilesManagerSheet: View {
         }
         .padding(.horizontal, Spacing.xxl)
         .padding(.vertical, Spacing.lg)
-        .glassListCard()
+        .pastelCard()
     }
 
     private var loadingView: some View {
@@ -232,7 +232,7 @@ struct FilesManagerSheet: View {
             Task { await load() }
         }
         .padding(.horizontal, Spacing.xxl)
-        .glassListCard()
+        .pastelCard()
     }
 
     private var emptyView: some View {
@@ -250,7 +250,7 @@ struct FilesManagerSheet: View {
         .frame(maxWidth: .infinity)
         .padding(.vertical, 30)
         .padding(.horizontal, Spacing.xxl)
-        .glassListCard()
+        .pastelCard()
     }
 
     /// 列表（拆成独立属性：行内含 4 个闭包，塞进上方 ViewBuilder 易触发 CI 类型检查超时）
@@ -267,7 +267,7 @@ struct FilesManagerSheet: View {
                 }
             }
         }
-        .glassListCard()
+        .pastelCard()
     }
 
     // MARK: 派生

@@ -3,7 +3,7 @@ import SwiftUI
 // MARK: - v3.9.71 记录分区（生活页，与「待办清单」并列）
 //
 // 定位：意图管道里数字类内容（金额 / 表读数）的落点，也是「随手记一笔」的手动入口。
-// 视觉口径照抄 TodoSection：页级标题行（标题 + 副标题 + 添加 pill）+ 单张 dashboardCard 页卡 + 空态同几何。
+// 视觉口径照抄 TodoSection：页级标题行（标题 + 副标题 + 添加 pill）+ 单张 pastelCard 页卡 + 空态同几何。
 // 生命周期照抄：`.task { await store.loadFromServer() }` —— 只跑一次，不做轮询（记录不需要 30s 刷新）。
 
 struct RecordSection: View {
@@ -164,7 +164,7 @@ struct RecordSection: View {
             }
             .padding(Spacing.xl)
             .frame(maxWidth: .infinity, minHeight: MemoCardMetrics.minHeight, alignment: .leading)
-            .dashboardCard()
+            .pastelCard()
             .contentShape(Rectangle())
         }
         .buttonStyle(PressStyle())
@@ -528,7 +528,7 @@ private struct RecordRowCard: View {
         }
         .padding(Spacing.xl)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .dashboardCard()
+        .pastelCard()
         .contentShape(Rectangle())
     }
 }
@@ -842,7 +842,7 @@ private struct RecordMonthSummary: View {
         }
         .padding(Spacing.xl)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .dashboardCard()
+        .pastelCard()
     }
 
     private func metric(_ label: String, _ value: String) -> some View {

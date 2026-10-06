@@ -1,7 +1,7 @@
 // MARK: - v4.0.46 待做池⑤ 生活页「习惯」栏目
 // 风格与「待办清单」栏目完全同源（LifeSectionHeader / LifeEmptyStateCard / LifeDeleteConfirm /
 // LifeNoteComposeSheet / MemoCardMetrics 全部复用同一份单一来源，不另造第二套几何）：
-//   · 页级标题行在卡片外；页面只放一张卡（`.dashboardCard()` 16 圆角 + MemoCardMetrics.minHeight 恒高）
+//   · 页级标题行在卡片外；页面只放一张卡（`.pastelCard()` 16 圆角 + MemoCardMetrics.minHeight 恒高）
 //   · 点卡片：1 个习惯直达详情，≥2 个弹「全部习惯」列表（半屏 sheet）
 //   · 空态 = 可点引导卡（与备忘/待办空态同几何，空 ↔ 有内容不跳变）
 // 功能：手动建习惯 / 每日打卡（幂等，同一天只记一次）/ 取消当天打卡 / 连续天数 /
@@ -137,7 +137,7 @@ struct HabitSection: View {
         .frame(maxWidth: .infinity,
                minHeight: compact ? MemoCardMetrics.minHeight : 0,
                alignment: .leading)
-        .dashboardCard()
+        .pastelCard()
         .contentShape(Rectangle())
     }
 
@@ -343,7 +343,7 @@ struct HabitSection: View {
                                 }
                                 .padding(Spacing.xl)
                                 .frame(maxWidth: .infinity, alignment: .topLeading)
-                                .dashboardCard()
+                                .pastelCard()
                                 .contentShape(Rectangle())
                             }
                             .buttonStyle(PressStyle())
@@ -395,7 +395,7 @@ struct HabitSection: View {
         }
         .padding(Spacing.xl)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .dashboardCard()
+        .pastelCard()
     }
 
     /// 14 个日期全标会挤 → 只在首/中/末三处标标签（其余留同高空白占位）

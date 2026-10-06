@@ -11,11 +11,13 @@ import UIKit
 //          同目录 LifeExpressPriceCards.swift）；后端 packages 为空时仍走占位小字，
 //          **不渲染空卡**。
 //
-// 与 DeviceCard / MeterCard / ServiceCard / PinCard 同一套卡片语言：
-//   .dashboardCard()（默认 圆角 16）+ Capsule 胶囊 + 0.8pt 描边（由 dashboardCard 提供）
+// 与 DeviceCard / MeterCard / ServiceCard / PinCard 同一套**几何**语言：默认圆角 16 + Capsule 胶囊 + 0.8pt 描边。
 //   ⚠️ 圆角约定（v3.8.1 用户要求「生活栏目卡片圆角跟看板一致」）：
-//      本文件所有卡片一律 .dashboardCard()（16）——真实卡片与空态/占位/提示条**都**是 16，
-//      看板同类元素也已同步为 16；不要再传 cornerRadius（除非是有意的高亮 hero 卡）
+//      本文件所有卡片一律 16 圆角——真实卡片与空态/占位/提示条**都**是 16；
+//      不要再传 cornerRadius（除非是有意的高亮 hero 卡）
+//   ⚠️ 卡底口径（v4.0.67 P3 用户 A+C 定稿）：本 section 渲染在**生活页内**（LifeView 的 visibleSections），
+//      必须跟同页备忘/待办/习惯/目标/记录各卡同底 → 全文件换 `.pastelCard()`（淡彩渐变底 + 紫调柔影）。
+//      看板页已不再承载本 section（见 LifeView 文件头），所以换底不会牵动看板卡（那边仍是 dashboardCard 玻璃底）。
 //   数值用 contentTransition(.numericText())，动效用 Motion 令牌，按压用 PressStyle()
 // 可折叠（@AppStorage 持久化）+ 手动刷新；数据源不可用时显示小字，不空白、不转圈卡住。
 
@@ -146,7 +148,7 @@ struct LifeCardsSection: View {
                 }
                 .padding(Spacing.xl)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .dashboardCard()   // v3.8.1：空态/占位块也统一 16（用户：都要一致）
+                .pastelCard()   // v4.0.67 P3：空态/占位块跟真卡同底（pastelCard 默认 Radius.card 16）
             }
         } else {
             // 行情：2 列网格（与 NAS 面板/模型使用量的栅格一致）
@@ -212,7 +214,7 @@ struct LifeCardsSection: View {
             }
             .padding(Spacing.xl)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .dashboardCard()   // v3.8.1：空态/占位块也统一 16（用户：都要一致）
+            .pastelCard()   // v4.0.67 P3：空态/占位块跟真卡同底（pastelCard 默认 Radius.card 16）
         }
     }
 
@@ -299,7 +301,7 @@ struct LifeCardsSection: View {
         }
         .padding(Spacing.xl)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .dashboardCard()   // v3.8.1：真实卡片圆角与看板 DeviceCard/MeterCard/ServiceCard 统一（默认 16）
+        .pastelCard()   // v4.0.67 P3：生活页真实卡换淡彩渐变底（Radius.card 16，几何不变）
     }
 
     /// v3.6.2：点击该条 → 就地展开正文（后端 AI 抓取+整理），不再跳转浏览器；再点一次收起。
@@ -467,7 +469,7 @@ struct LifeCardsSection: View {
         .padding(.horizontal, Spacing.xl)
         .padding(.vertical, Spacing.md)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .dashboardCard()   // v3.8.1：单行提示条也统一 16（用户：都要一致）
+        .pastelCard()   // v4.0.67 P3：单行提示条跟真卡同底（16）
     }
 
     private func noteRow(icon: String, text: String) -> some View {
@@ -520,7 +522,7 @@ struct LifeStockCard: View {
         }
         .padding(Spacing.xl)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .dashboardCard()   // v3.8.1：真实卡片圆角与看板统一（默认 16）
+        .pastelCard()   // v4.0.67 P3：行情卡换淡彩渐变底（与同页其它卡同底）
         .scrollDepth()     // v3.9.0：滚动层次感
     }
 

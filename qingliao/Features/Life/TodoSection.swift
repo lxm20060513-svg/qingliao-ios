@@ -1,7 +1,7 @@
 // MARK: - v3.9.35 生活页「待办清单」栏目
 // 风格与「备忘录」栏目完全同源：
 //   · 页级标题行（粗体 15pt + 计数 + 右侧「添加」淡色胶囊）在卡片外
-//   · 页面只放一张卡（`.dashboardCard()` 16 圆角 + 同高 83pt + 铺满），显示最上的一条
+//   · 页面只放一张卡（`.pastelCard()` 16 圆角 + 同高 83pt + 铺满），显示最上的一条
 //   · 点卡片：1 条直达详情，≥2 条弹「全部待办」列表（半屏 sheet）
 //   · 空态 = 可点引导卡（与备忘录空态同几何，空 ↔ 有内容不跳变）
 // 功能：聊天长按「加入待办」/ AI 回复勾选框自动收录 / 手动添加 / 勾选完成 / 编辑 / 删除（左滑+长按）
@@ -332,7 +332,7 @@ struct TodoSection: View {
                                 }
                                 .padding(Spacing.xl)
                                 .frame(maxWidth: .infinity, alignment: .topLeading)
-                                .dashboardCard()
+                                .pastelCard()
                                 .contentShape(Rectangle())
                             }
                             .buttonStyle(PressStyle())
@@ -449,7 +449,7 @@ private struct TodoRowCard: View {
         .frame(maxWidth: .infinity,
                minHeight: compact ? MemoCardMetrics.minHeight : 0,
                alignment: .topLeading)
-        .dashboardCard()
+        .pastelCard()
         .contentShape(Rectangle())
     }
 }

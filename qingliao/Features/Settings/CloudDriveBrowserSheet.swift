@@ -140,7 +140,7 @@ struct CloudDriveBrowserSheet: View {
         }
         .padding(.horizontal, Spacing.xxl)
         .padding(.vertical, Spacing.lg)
-        .glassListCard()
+        .pastelCard()
     }
 
     private func busyCard(_ text: String) -> some View {
@@ -151,7 +151,7 @@ struct CloudDriveBrowserSheet: View {
         }
         .padding(.horizontal, Spacing.xxl)
         .padding(.vertical, Spacing.lg)
-        .glassListCard()
+        .pastelCard()
     }
 
     @ViewBuilder
@@ -166,7 +166,7 @@ struct CloudDriveBrowserSheet: View {
         } else if entries.isEmpty, let err = errorText {
             ErrorStateView(title: "加载失败", detail: err) { Task { await load() } }
                 .padding(.horizontal, Spacing.xxl)
-                .glassListCard()
+                .pastelCard()
         } else if entries.isEmpty {
             emptyView
         } else {
@@ -199,7 +199,7 @@ struct CloudDriveBrowserSheet: View {
         }
         .padding(.horizontal, Spacing.xxl)
         .padding(.vertical, Spacing.lg)
-        .glassListCard()
+        .pastelCard()
     }
 
     private var emptyView: some View {
@@ -216,7 +216,7 @@ struct CloudDriveBrowserSheet: View {
         .frame(maxWidth: .infinity)
         .padding(.vertical, 30)
         .padding(.horizontal, Spacing.xxl)
-        .glassListCard()
+        .pastelCard()
     }
 
     private var entryList: some View {
@@ -228,7 +228,7 @@ struct CloudDriveBrowserSheet: View {
                 }
             }
         }
-        .glassListCard()
+        .pastelCard()
     }
 
     private func entryRow(_ e: CloudDriveEntry) -> some View {

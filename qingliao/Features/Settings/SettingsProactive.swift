@@ -122,7 +122,7 @@ struct ProactiveAgentSheet: View {
                 }
                 .padding(.horizontal, Spacing.xxl).padding(.vertical, Spacing.lg)
             }
-            .glassListCard()
+            .pastelCard()
         }
     }
 
@@ -161,7 +161,7 @@ struct ProactiveAgentSheet: View {
                            toggle: Binding(get: { cfg["todoCluster"] as? Bool ?? true },
                                           set: { patch(["todoCluster": $0]) }))
             }
-            .glassListCard()
+            .pastelCard()
         }
     }
 
@@ -237,7 +237,7 @@ struct ProactiveAgentSheet: View {
                         .padding(.horizontal, Spacing.xxl).padding(.bottom, Spacing.lg)
                 }
             }
-            .glassListCard()
+            .pastelCard()
         }
     }
 
@@ -339,7 +339,7 @@ struct ProactiveAgentSheet: View {
                     .font(.system(size: Typography.tiny)).foregroundStyle(.secondary)
                     .padding(.horizontal, Spacing.xxl).padding(.bottom, Spacing.lg)
             }
-            .glassListCard()
+            .pastelCard()
         }
     }
 
@@ -383,7 +383,7 @@ struct ProactiveAgentSheet: View {
                     .padding(.horizontal, Spacing.xxl).padding(.vertical, Spacing.lg)
                 }
             }
-            .glassListCard()
+            .pastelCard()
             if (state["quiet"] as? Bool) == true {
                 Text("🌙 当前处于静默时段，主动消息只入队不出声。")
                     .font(.system(size: Typography.tiny)).foregroundStyle(.secondary)
@@ -413,7 +413,7 @@ struct ProactiveAgentSheet: View {
                     .font(.system(size: Typography.tiny)).foregroundStyle(.secondary)
                     .padding(.horizontal, Spacing.xxl).padding(.bottom, Spacing.lg)
             }
-            .glassListCard()
+            .pastelCard()
         }
     }
 

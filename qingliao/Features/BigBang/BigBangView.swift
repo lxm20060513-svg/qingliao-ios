@@ -62,7 +62,9 @@ struct BigBangView: View {
     var body: some View {
         ZStack {
             // v2.0.86q：磨砂玻璃背景跟随主题（白天亮磨砂 / 晚上深色磨砂）
-            Rectangle().fill(.ultraThinMaterial).ignoresSafeArea()
+            // v4.0.67 P5：换成主题环境渐变页底（浅深各一套，EnvironmentGlowLayers 自带兜底色）——
+            // 全屏浮层与其它页同底；旧磨砂「透出下层资讯行」的效果随之取消（本页是全屏页，不再是磨砂浮层）。
+            EnvironmentGlowLayers(scheme: scheme)
 
             VStack(spacing: 0) {
                 // 头部

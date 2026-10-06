@@ -17,7 +17,7 @@ import UniformTypeIdentifiers
 // 与旧「崩溃日志」入口整合：原单独一行的「崩溃日志」已并入本页（本页底部「崩溃日志」分组
 // 提供查看/导出/复制，行为不变），避免两个功能重复又互相矛盾的入口。
 //
-// 视觉：沿用设置页定稿——SectionHeader 分组 + glassListCard 容器级 0.8pt 描边（不做行级描边）、
+// 视觉：沿用设置页定稿——SectionHeader 分组 + pastelCard 渐变卡容器级 0.8pt 描边（不做行级描边）、
 // 胶囊按钮、动效走 Theme/Motion 令牌。
 
 struct DiagnosticsView: View {
@@ -140,7 +140,7 @@ struct DiagnosticsView: View {
             SettingRow(icon: "gear.badge.checkmark", iconColor: .teal, title: "系统版本",
                        value: env.os.isEmpty ? "未知" : env.os)
         }
-        .glassListCard()
+        .pastelCard()
     }
 
     // MARK: 网络与后端
@@ -176,7 +176,7 @@ struct DiagnosticsView: View {
             }
             .buttonStyle(.plain)
         }
-        .glassListCard()
+        .pastelCard()
     }
 
     // MARK: 上报
@@ -255,7 +255,7 @@ struct DiagnosticsView: View {
             }
             .buttonStyle(.plain)
         }
-        .glassListCard()
+        .pastelCard()
     }
 
     // MARK: 上报计数文案（v3.9.10）
@@ -293,7 +293,7 @@ struct DiagnosticsView: View {
                 clearAllButton
             }
         }
-        .glassListCard()
+        .pastelCard()
     }
 
     /// v3.6.4：清除全部记录（本机）——危险操作，走二次确认
@@ -384,7 +384,7 @@ struct DiagnosticsView: View {
                        chevron: true)
                 .onTapGesture { showCrashSheet = true }
         }
-        .glassListCard()
+        .pastelCard()
     }
 
     // MARK: 隐私说明
@@ -400,7 +400,7 @@ struct DiagnosticsView: View {
         .foregroundStyle(.secondary)
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, Spacing.section).padding(.vertical, Spacing.xxl)
-        .glassListCard()
+        .pastelCard()
     }
 
     // MARK: 数据加载与动作
@@ -550,7 +550,7 @@ struct AppPermissionsSheet: View {
                 .foregroundStyle(.secondary)
         }
         .padding(Spacing.lg)
-        .glassListCard()
+        .pastelCard()
     }
 
     // MARK: 单项能力
@@ -590,7 +590,7 @@ struct AppPermissionsSheet: View {
             }
         }
         .padding(Spacing.lg)
-        .glassListCard()
+        .pastelCard()
     }
 
     /// 状态胶囊。未授权/已拒绝的点一下去授权或跳系统设置。
@@ -659,7 +659,7 @@ struct AppPermissionsSheet: View {
             .foregroundStyle(.secondary)
         }
         .padding(Spacing.lg)
-        .glassListCard()
+        .pastelCard()
     }
 
     // MARK: 刷新
