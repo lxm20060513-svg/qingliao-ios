@@ -304,9 +304,17 @@ check("⑧b 光团几何仍锚在屏幕坐标（3 团各带一次 ox/oy 平移�
 // 旧的低起点整页淡入（0.35/0.9/0.12）仍全部禁回——那才是「透白」根源；新淡入透出的是同款渐变。
 let cntOpacity = dockSrc.components(separatedBy: ".opacity(phase)").count - 1
 check("⑧c 切页/聊天页入场 = 原地淡入（.opacity(phase) 两处各一份）", cntOpacity >= 2)
-check("⑧c 淡入走 Motion.snap（0.20s 档，用户拍板 A 方案）",
-      dockSrc.components(separatedBy: "withAnimation(Motion.snap) { phase = 1 }").count - 1 >= 2
-      && !dockSrc.contains("withAnimation(Motion.settle) { phase = 1 }"))
+// v4.0.78（用户 2026-10-08「4.0.77 dock 栏 tap 切换太闪了，改为平滑过渡切换效果」，二选一取「柔滑滑入」）：
+// 旧形态两处病史：① 起点 phase = 0（全透明）→ 内容先整个消失再出现 = 「闪」的正源；
+// ② opacity 走 snap(0.20)、位移走 flow(0.28) 两条曲线不同步，叠在同一帧像抖了一下。
+// 新形态 = 起点 0.6 + 两段并成同一个 withAnimation(Motion.flow) 事务（同一曲线）。下面两条反向钉死旧形态。
+check("⑧c 入场 = 单曲线柔滑（opacity 与位移同一个 Motion.flow 事务，两处各一份）",
+      dockSrc.components(separatedBy: "withAnimation(Motion.flow) { phase = 1; dx = 0 }").count - 1 >= 2
+      && !dockSrc.contains("withAnimation(Motion.snap) { phase = 1 }")
+      && !dockSrc.contains("withAnimation(Motion.flow) { dx = 0 }"))
+check("⑧c 入场起点 0.6（不许回 0 全透明起跳），TabTransition 与聊天页两处一致",
+      dockSrc.components(separatedBy: "phase = 0.6").count - 1 >= 2
+      && !dockSrc.contains("phase = 0\n"))
 check("⑧c 低起点整页淡入不许回来（0.35/0.9/0.12 起手的老病，v4.0.73 起淡入透出的是同款渐变垫底）",
       !dockSrc.contains("opacity(0.35 + 0.65 * phase)")
       && !dockSrc.contains("opacity(0.9 + 0.1 * phase)")

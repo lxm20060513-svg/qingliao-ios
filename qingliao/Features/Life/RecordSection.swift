@@ -1,41 +1,30 @@
 import SwiftUI
+import Observation   // v4.0.78：三张卡点弹窗的浮层状态提到页级单例（@Observable，与 MemoSection 同构）
 
 // MARK: - v3.9.71 记录分区（生活页，与「待办清单」并列）
 //
 // 定位：意图管道里数字类内容（金额 / 表读数）的落点，也是「随手记一笔」的手动入口。
 // 视觉口径照抄 TodoSection：页级标题行（标题 + 副标题 + 添加 pill）+ 单张 pastelCard 页卡 + 空态同几何。
 // 生命周期照抄：`.task { await store.loadFromServer() }` —— 只跑一次，不做轮询（记录不需要 30s 刷新）。
+//
+// v4.0.78（用户 2026-10-08 原话「跟备忘录一样的全屏弹出」）：由卡片点击弹出的三张弹窗
+//（全部记录 / 详情·编辑 / 新建）从系统 sheet 改成**全屏毛玻璃浮层**，与 v4.0.77 备忘录同一套做法 ——
+// 开关提到页级单例 RecordGlassPresenter、浮层本体由 RecordGlassLayerHost 渲染（挂 LifeView 根 → 真正全屏）。
+// 🚨 本批**只改呈现层**：弹窗内容的字号 / 几何 / 文案一律不动（逐字平移）。
 
 struct RecordSection: View {
     @State private var store = RecordStore.shared
-    @State private var showAdd = false
-    @State private var showAll = false
-    @State private var draftTitle = ""
-    @State private var draftAmount = ""
-    @State private var draftUnit = "元"
-    @State private var pendingDelete: RecordItem?
-    /// v4.0.23：记录卡片 → 全部记录弹窗的 zoom 源命名空间（对齐备忘录/待办/目标：从卡片放大展开）
-    @Namespace private var recordZoomNS
-    /// v4.0.19 正在编辑的那一笔（候选池①：原来只能删了重记）
-    @State private var editing: RecordItem?
-    /// v4.0.19 候选池⑤：明细页的分类筛选（nil = 全部）
-    @State private var filterCategory: String?
-    /// v4.0.19 候选池⑦：设月预算的弹窗
-    @State private var showBudget = false
-    /// v4.0.19 候选池⑨：固定支出管理弹窗
-    @State private var showFixed = false
-    /// v4.0.19 候选池⑫：导出的 CSV 临时文件（nil = 还没生成/生成失败）
-    @State private var csvURL: URL?
-    @State private var showExport = false
+    /// v4.0.78：「全部记录 / 详情·编辑 / 新建」三张浮层的开关 + 页卡删除待确认提到**页级单例**——
+    /// 浮层本体不再挂在本 section 自己的树上（本 section 只是生活页滚动区的一行，
+    /// 浮层会被限制在卡片那一行的几何里）。详见文件底部 RecordGlassPresenter / RecordGlassLayerHost 顶部注释。
+    private var glass = RecordGlassPresenter.shared
+
+    // ⚠️ 以下弹窗仍是**系统 sheet**（用户点名要改的是「卡片点击弹出的」那套，工具弹窗不动）：
     /// v4.0.22 候选池⑪ App 入口：扫账单（拍照/选图 → 识别 → 确认入账）
     @State private var showBillScan = false
     /// 扫账单弹窗的「会话号」：每次打开自增，配合 `.id(...)` 强制换新实例
     /// （SwiftUI 会保留已 present 过视图的 @State，不换实例会带回上一张图/上一次金额）
     @State private var billScanSession = 0
-    /// v4.0.45 待做池④：生活数据可视化报表（折线趋势 + 分类环图，独立半屏页）
-    @State private var showReport = false
-
-    private let units = ["元", "度", "kWh"]
 
     var body: some View {
         root
@@ -57,11 +46,14 @@ struct RecordSection: View {
     }
 
     /// 删除确认框本体已收进 LifeDeleteConfirm（工作线 B：待办/目标/备忘弹窗内那份同款）
+    /// v4.0.78：pending 改读 `glass.pendingDelete`（提到页级单例，与浮层宿主同一真源）。
+    /// 「宿主页那份保留」——页卡长按「删除最新一条」仍在这里弹确认（alert 是窗口级，盖在毛玻璃浮层之上）；
+    /// 浮层内列表那份自带在 RecordAllListBody 里（= 与浮层内容同宿主，否则被浮层压住点不出来）。
     private func deleteConfirm<V: View>(on view: V) -> some View {
         view.modifier(LifeDeleteConfirm(
             title: "删除这条记录？",
-            pending: pendingDelete,
-            onCancel: { pendingDelete = nil },
+            pending: glass.pendingDelete,
+            onCancel: { glass.pendingDelete = nil },
             onDelete: { store.delete($0) },
             message: { $0.amountText }
         ))
@@ -74,7 +66,7 @@ struct RecordSection: View {
     private var pageHeader: some View {
         LifeSectionHeader(
             title: "记录",
-            subtitle: store.records.isEmpty ? nil : subtitleText,
+            subtitle: store.records.isEmpty ? nil : recordSubtitleText(store),
             subtitleLineLimit: 1,
             addAccessibilityLabel: "添加记录",
             onAdd: startAdd,
@@ -85,12 +77,6 @@ struct RecordSection: View {
                 showBillScan = true
             })
         )
-    }
-
-    private var subtitleText: String {
-        let t = store.monthTotal
-        guard t.count > 0 else { return "\(store.records.count) 条" }
-        return String(format: "本月 %.2f 元 · %d 条", t.amount, t.count)
     }
 
     // MARK: 空态引导卡（与待办空态同几何）
@@ -107,9 +93,14 @@ struct RecordSection: View {
     }
 
     /// 页级标题行、空态引导卡、卡片长按菜单三处共用这一个入口
+    /// v4.0.78：草稿改由 RecordAddBody 自己的 @State 持有，靠 addSession 换实例保证每次空白
+    /// （与 MemoSection.startAdd 同构）。
     private func startAdd() {
-        resetDraft()
-        showAdd = true
+        // v4.0.78：开新建前先把其它浮层收干净（三层浮层互斥）
+        glass.showAll = false
+        glass.detail = nil
+        glass.addSession += 1
+        glass.showAdd = true
     }
 
     // MARK: 单张页卡（本月合计 + 最近读数 + 最近 1 条）
@@ -117,7 +108,10 @@ struct RecordSection: View {
 
     private var topCard: some View {
         Button {
-            showAll = true
+            // v4.0.78：开列表前先把其它浮层收干净（三层浮层互斥）
+            glass.showAdd = false
+            glass.detail = nil
+            glass.showAll = true
         } label: {
             VStack(alignment: .leading, spacing: Spacing.md) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -170,7 +164,7 @@ struct RecordSection: View {
         .buttonStyle(PressStyle())
         .contextMenu {
             if let top = store.sorted.first {
-                Button(role: .destructive) { pendingDelete = top } label: {
+                Button(role: .destructive) { glass.pendingDelete = top } label: {
                     Label("删除最新一条", systemImage: "trash")
                 }
             }
@@ -178,8 +172,9 @@ struct RecordSection: View {
                 Label("添加记录", systemImage: "plus")
             }
         }
-        // v4.0.23：卡片即 zoom 源（点开「全部记录」时从这张卡放大展开，对齐备忘录/待办/目标卡片）
-        .matchedTransitionSource(id: "record-all", in: recordZoomNS)
+        // v4.0.78：`matchedTransitionSource` / `navigationTransition(.zoom)` 一并移除 —— 这三张弹窗
+        // 已从系统 sheet 改成同 ZStack 的毛玻璃浮层，浮层没有 navigationTransition 这条呈现链；
+        // 原「从卡片放大展开」的 zoom 转场随 sheet 一起退役（备忘录 v4.0.77 改浮层时同理）。
         .accessibilityLabel("记录，本月合计 \(String(format: "%.2f", store.monthTotal.amount)) 元，\(store.records.count) 条，点开查看全部")
     }
 
@@ -190,49 +185,195 @@ struct RecordSection: View {
         RecordCategoryBar(rows: Array(store.monthByCategory.prefix(3)),
                           total: store.monthTotal.amount)
     }
+}
 
-    // MARK: 全部记录（半屏 sheet，左滑删）
+// MARK: - v4.0.78 记录副标题（本 section 页头 + 全部记录浮层顶栏两处共用，单一来源）
+/// ⚠️ 文件级函数默认**非** MainActor 隔离 → 读 @MainActor 的 RecordStore 必须显式 `@MainActor`；
+/// 否则只有 CI Archive 会报 `call to main actor-isolated ... in a synchronous nonisolated context`
+/// （本机 `-parse` 查不出；仓内先例：MemoSection.swift 的 memoCardMenuItems）。
+@MainActor
+private func recordSubtitleText(_ store: RecordStore) -> String {
+    let t = store.monthTotal
+    guard t.count > 0 else { return "\(store.records.count) 条" }
+    return String(format: "本月 %.2f 元 · %d 条", t.amount, t.count)
+}
 
-    // MARK: 全部记录（半屏 sheet = 账本明细）
+// MARK: - v4.0.78 记录浮层的「页级宿主」
+//
+// 🚨 为什么单开一个宿主（用户 2026-10-08 原话：「跟备忘录一样的全屏弹出」）：
+//   先例是 v4.0.77 备忘录。原先把三张卡点弹窗挂在本 section 自己的 ZStack 里，而本 section 只是
+//   生活页滚动区（LifeView 的 LazyVStack）里的**一行** → 浮层几何被限制在这一行：轻纱只罩住卡片
+//   那一条、面板贴着卡片边缘长出、随列表滚走。浮层要「全屏」就必须挂在**页面根**、滚动区之外。
+// 做法：三个开关（showAll / detail / showAdd）提到页级单例 RecordGlassPresenter，本 section 只改状态；
+//   浮层本体由 RecordGlassLayerHost 渲染，挂载点 = LifeView body 最外层的 `.overlay`（见 LifeView）。
+//   视图树内顺序仍是：全部列表 < 详情 < 新建（后开的盖在前面）。
 
-    /// v4.0.19 候选池⑤⑥：明细页 = 顶部「本月进度 + 近 3 月趋势 + 近 7 天」+ 按日分组的账目。
-    /// 为什么要分组：一长串平铺的记录看不出「哪天花了多少」，而账本的心智本来就是按天翻。
-    /// 分组/小计口径全在 RecordKit.dayGroups（纯逻辑，本机真值表钉着），这里只摆位。
-    private var allSheet: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                sheetHeader
-                List {
-                    summaryRow
-                    if !categoryChips.isEmpty { chipsRow }
-                    ForEach(dayGroups) { g in
-                        Section {
-                            ForEach(g.items) { r in
-                                recordRow(r)
+@MainActor
+@Observable
+final class RecordGlassPresenter {
+    static let shared = RecordGlassPresenter()
+
+    /// 「全部记录」列表浮层
+    var showAll = false
+    /// 「新建记录」浮层
+    var showAdd = false
+    /// 详情·编辑浮层（nil = 不显示）
+    var detail: RecordItem?
+    /// 页卡删除二次确认（页卡长按「删除最新一条」置这里 → 由 RecordSection 的 LifeDeleteConfirm 呈现；
+    /// alert 是窗口级，盖在浮层之上）
+    var pendingDelete: RecordItem?
+    /// 新建浮层的会话序号：每次打开自增，配合 `.id()` 强制换新实例（保证每次都是空表单）
+    var addSession = 0
+    /// 编辑浮层的会话序号：每次打开自增，配合 `.id()` 换新实例（表单随条目预填、不复用上一条的 @State）
+    var editSession = 0
+    /// 「全部记录」的分类筛选（nil = 全部）。v4.0.78：从 RecordAllListBody 的 @State 提到这里 ——
+    /// 浮层内容由外层 `if glass.showAll` 门控，关门即销毁 @State → 关一次筛选就没了（基线是 section
+    /// @State，页面存活期内保持）；挂 presenter 与基线语义等价（页面销毁时随 reset() 清零）。
+    var filterCategory: String?
+
+    private init() {}
+
+    /// 🚨 宿主销毁时清状态 —— 单例不随视图树消失，页面被系统回收后重建、开关还是 true →
+    /// 回到生活页会「莫名又弹着上次那个浮层」。挂在 RecordGlassLayerHost 的 .onDisappear 上
+    /// （宿主与生活页同生共死）。
+    func reset() {
+        showAll = false
+        showAdd = false
+        detail = nil
+        pendingDelete = nil
+        addSession = 0
+        editSession = 0
+        filterCategory = nil
+    }
+}
+
+/// 记录浮层的页级宿主（挂 LifeView 根 → 全屏；轻纱盖住整页含页头）
+struct RecordGlassLayerHost: View {
+    private var glass = RecordGlassPresenter.shared
+    private var store = RecordStore.shared
+
+    var body: some View {
+        ZStack {
+            if glass.showAll {
+                MemoGlassOverlay(isPresented: Binding(
+                    get: { glass.showAll },
+                    set: { if !$0 { glass.showAll = false } }
+                )) {
+                    RecordAllListBody(
+                        store: store,
+                        onDone: { glass.showAll = false },
+                        onOpenDetail: { openDetailFromAll($0) }
+                    )
+                }
+            }
+            if let r = glass.detail {
+                MemoGlassOverlay(isPresented: Binding(
+                    get: { glass.detail != nil },
+                    set: { if !$0 { glass.detail = nil } }
+                )) {
+                    // 详情·编辑浮层内容（原 RecordEditSheet）：外壳改自绘顶栏（浮层里没有系统导航栏）。
+                    // 每次打开换新实例（.id）→ 表单随条目预填、不复用上一条的 @State。
+                    RecordEditSheet(item: r,
+                                    onSave: { title, amount, unit, category in
+                                        if store.update(r, title: title, amount: amount,
+                                                        unit: unit, category: category) {
+                                            Haptics.success()
+                                        }
+                                        glass.detail = nil
+                                    },
+                                    onCancel: { glass.detail = nil })
+                        .id(glass.editSession)
+                }
+            }
+            if glass.showAdd {
+                MemoGlassOverlay(isPresented: Binding(
+                    get: { glass.showAdd },
+                    set: { if !$0 { glass.showAdd = false } }
+                )) {
+                    // 新建浮层内容（原 RecordSection.addSheet）：外壳改自绘顶栏；每次打开换新实例（.id）。
+                    RecordAddBody(
+                        onSave: { title, amount, unit in
+                            if store.add(kind: amount == nil ? "note" : (unit == "元" ? "amount" : "meter"),
+                                         title: title, amount: amount,
+                                         unit: amount == nil ? "" : unit, source: "manual") != nil {
+                                Haptics.success()
                             }
-                            .onDelete { offsets in deleteInGroup(g, offsets) }
-                        } header: {
-                            dayHeader(g)
+                            glass.showAdd = false
+                        },
+                        onCancel: { glass.showAdd = false })
+                        .id(glass.addSession)
+                }
+            }
+        }
+        // 🚨 宿主销毁即清状态 —— 页面重建后不会「莫名又弹上次那个浮层」（见 RecordGlassPresenter.reset）
+        .onDisappear { glass.reset() }
+    }
+
+    /// 从列表点一条 → **同帧**换成详情浮层（v4.0.78：浮层硬切、无退场动画，原 500ms 缓冲只剩延迟，已删）；
+    /// 每次自增 `editSession` 让 RecordEditSheet 换新实例（表单随条目预填、不复用上一条 @State）。
+    private func openDetailFromAll(_ r: RecordItem) {
+        // v4.0.78：同帧换状态（原 500ms 错峰为等系统 sheet 退场动画；浮层硬切无退场 →
+        // 延迟 + in-flight Task 窗口一起删，理由同 TodoSection.openDetailFromAll）
+        glass.showAll = false
+        glass.showAdd = false
+        glass.editSession += 1
+        glass.detail = r
+    }
+}
+
+// MARK: - v4.0.78 「全部记录」浮层内容（原 allSheet 的 NavigationStack 内主体，逐字平移）
+//
+// 回调由宿主注入（浮层收起 / 打开详情）；删除二次确认、工具弹窗（预算 / 导出 / 报表 / 固定支出）
+// 仍挂本主体**自己这棵树上**（浮层盖在生活页上，宿主层的 alert/sheet 会被压住——与原 sheet 时代同理由）。
+
+struct RecordAllListBody: View {
+    let store: RecordStore
+    let onDone: () -> Void
+    let onOpenDetail: (RecordItem) -> Void
+
+    /// v4.0.19 候选池⑤：明细页的分类筛选（nil = 全部）——v4.0.78 已提到 `RecordGlassPresenter.filterCategory`
+    /// （原 section/本 body 的 @State 会被浮层开关销毁，导致「关一次筛选就没了」）
+    private var glass: RecordGlassPresenter { .shared }
+    /// 列表内左滑 / 长按删除的二次确认（挂浮层内容内部；宿主那份被浮层盖住点不出来）
+    @State private var pendingDeleteInList: RecordItem?
+    // ⚠️ 以下四张工具弹窗仍是**系统 sheet**（用户点名要改的是「卡片点击弹出的」那套）——
+    //    它们的触发点都在本浮层内容里，故随内容一并放在这里，行为不动。
+    @State private var showBudget = false
+    @State private var showFixed = false
+    @State private var csvURL: URL?
+    @State private var showExport = false
+    @State private var showReport = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            sheetHeader
+            List {
+                summaryRow
+                if !categoryChips.isEmpty { chipsRow }
+                ForEach(dayGroups) { g in
+                    Section {
+                        ForEach(g.items) { r in
+                            recordRow(r)
                         }
+                        .onDelete { offsets in deleteInGroup(g, offsets) }
+                    } header: {
+                        dayHeader(g)
                     }
-                    if dayGroups.isEmpty { emptyListRow }
                 }
-                .listStyle(.plain)
-                .scrollContentBackground(.hidden)
+                if dayGroups.isEmpty { emptyListRow }
             }
-            .toolbar(.hidden, for: .navigationBar)
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
         }
-        // v4.0.23：与备忘录/待办/目标对齐 —— 半屏 detents + 从卡片放大展开（原来这里是全屏升起）
-        .presentationDetents([.medium, .large])
-        .navigationTransition(.zoom(sourceID: "record-all", in: recordZoomNS))
-        .sheet(item: $editing, onDismiss: { editing = nil }) { item in
-            RecordEditSheet(item: item) { title, amount, unit, category in
-                if store.update(item, title: title, amount: amount, unit: unit, category: category) {
-                    Haptics.success()
-                }
-            }
-        }
-        // 预算弹窗必须挂在这个 sheet 自己这棵树上（SR35：宿主级 sheet 在弹窗之上呈现不出来）
+        .modifier(LifeDeleteConfirm(
+            title: "删除这条记录？",
+            pending: pendingDeleteInList,
+            onCancel: { pendingDeleteInList = nil },
+            onDelete: { store.delete($0) },
+            message: { $0.amountText }
+        ))
+        // 工具弹窗（系统 sheet，不动）：必须挂在本浮层内容自己这棵树上
+        //（SR35：宿主级 sheet 在弹窗之上呈现不出来）
         .sheet(isPresented: $showBudget) {
             RecordBudgetSheet(current: store.monthBudget) { store.setBudget($0) }
         }
@@ -260,7 +401,7 @@ struct RecordSection: View {
         HStack(spacing: 8) {
             Text("全部记录")
                 .font(.system(size: Typography.title, weight: .semibold))
-            Text(subtitleText)
+            Text(recordSubtitleText(store))
                 .font(.system(size: Typography.caption))
                 .foregroundStyle(.secondary)
             Spacer(minLength: 0)
@@ -284,7 +425,7 @@ struct RecordSection: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("导出账本 CSV")
-            MiniCapsule(title: "完成", accent: true) { showAll = false }
+            MiniCapsule(title: "完成", accent: true) { onDone() }
         }
         .padding(.horizontal, Spacing.section)
         .padding(.top, Spacing.xl)
@@ -333,9 +474,9 @@ struct RecordSection: View {
     }
 
     private func chip(_ value: String?, _ title: String) -> some View {
-        let on = filterCategory == value
+        let on = glass.filterCategory == value
         return Button {
-            filterCategory = value
+            glass.filterCategory = value
             Haptics.selection()
         } label: {
             HStack(spacing: 4) {
@@ -359,7 +500,7 @@ struct RecordSection: View {
     /// 明细页的行集合：按筛选条件过滤后交给 RecordKit 分组（分组内部会重排，顺序不依赖这里）
     private var dayGroups: [DayGroup] {
         let list: [RecordItem]
-        if let c = filterCategory {
+        if let c = glass.filterCategory {
             list = store.records.filter { $0.category == c }
         } else {
             list = store.records
@@ -397,12 +538,12 @@ struct RecordSection: View {
         RecordRowCard(item: r)
             .contentShape(Rectangle())
             // 点按 = 编辑这一笔（用 onTapGesture 而不是包 Button：Button 会跟 List 的左滑删抢手势）
-            .onTapGesture { editing = r }
+            .onTapGesture { onOpenDetail(r) }
             .contextMenu {
-                Button { editing = r } label: {
+                Button { onOpenDetail(r) } label: {
                     Label("编辑", systemImage: "pencil")
                 }
-                Button(role: .destructive) { pendingDelete = r } label: {
+                Button(role: .destructive) { pendingDeleteInList = r } label: {
                     Label("删除", systemImage: "trash")
                 }
             }
@@ -419,11 +560,11 @@ struct RecordSection: View {
             for i in offsets where i < g.items.count { store.delete(g.items[i]) }
             return
         }
-        pendingDelete = g.items[idx]
+        pendingDeleteInList = g.items[idx]
     }
 
     private var emptyListRow: some View {
-        Text(filterCategory == nil ? "还没有记录" : "这个分类还没有记录")
+        Text(glass.filterCategory == nil ? "还没有记录" : "这个分类还没有记录")
             .font(.system(size: Typography.subhead))
             .foregroundStyle(.tertiary)
             .frame(maxWidth: .infinity, alignment: .center)
@@ -431,26 +572,47 @@ struct RecordSection: View {
             .listRowSeparator(.hidden)
             .listRowBackground(Color.clear)
     }
+}
 
-    // MARK: 新建（外壳照抄待办新建：取消/保存 toolbar + medium/large）
+// MARK: - v4.0.78 「新建记录」浮层内容（原 RecordSection.addSheet，逐字平移 + 外壳改自绘顶栏）
+//
+// 正文（标题 / 数值 / 单位）由本视图自己的 @State 持有；宿主靠 addSession 换实例保证每次打开空白
+//（与 LifeNoteComposeSheet 的浮层形态同款）。
 
-    private var addSheet: some View {
-        NavigationStack {
+struct RecordAddBody: View {
+    let onSave: (_ title: String, _ amount: Double?, _ unit: String) -> Void
+    let onCancel: () -> Void
+
+    @State private var title = ""
+    @State private var amount = ""
+    @State private var unit = "元"
+
+    private let units = ["元", "度", "kWh"]
+
+    /// 空 / 非法 → nil（= 纯文字记录形态，与保存口径一致；与原 saveDraft 的解析逐字相同）
+    private var parsedAmount: Double? {
+        Double(amount.replacingOccurrences(of: ",", with: "")
+            .trimmingCharacters(in: .whitespaces))
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            topBar
             VStack(spacing: Spacing.md) {
-                TextField("名称（如 超市 / 电表）", text: $draftTitle)
+                TextField("名称（如 超市 / 电表）", text: $title)
                     .font(.system(size: Typography.title))
                     .padding(Spacing.xl)
                     .background(Color(uiColor: .secondarySystemGroupedBackground),
                                 in: RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
 
                 HStack(spacing: Spacing.md) {
-                    TextField("数值", text: $draftAmount)
+                    TextField("数值", text: $amount)
                         .font(.system(size: Typography.title))
                         .keyboardType(.decimalPad)
                         .padding(Spacing.xl)
                         .background(Color(uiColor: .secondarySystemGroupedBackground),
                                     in: RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
-                    Picker("单位", selection: $draftUnit) {
+                    Picker("单位", selection: $unit) {
                         ForEach(units, id: \.self) { Text($0).tag($0) }
                     }
                     .pickerStyle(.segmented)
@@ -460,39 +622,26 @@ struct RecordSection: View {
             }
             .padding(.horizontal, Spacing.section)
             .padding(.top, Spacing.md)
-            .navigationTitle("新建记录")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") { showAdd = false }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("保存") {
-                        saveDraft()
-                    }
-                    .disabled(draftTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
-            }
         }
-        .presentationDetents([.medium, .large])
     }
 
-    // MARK: 动作
-
-    private func resetDraft() {
-        draftTitle = ""
-        draftAmount = ""
-        draftUnit = "元"
-    }
-
-    private func saveDraft() {
-        let value = Double(draftAmount.replacingOccurrences(of: ",", with: "")
-            .trimmingCharacters(in: .whitespaces))
-        let item = store.add(kind: value == nil ? "note" : (draftUnit == "元" ? "amount" : "meter"),
-                             title: draftTitle, amount: value, unit: value == nil ? "" : draftUnit,
-                             source: "manual")
-        if item != nil { Haptics.success() }
-        showAdd = false
+    /// 浮层形态自绘顶栏（左「取消」/ 右「保存」accent，标题居中——与 MemoDetailSheet.topBar 同款口径）
+    private var topBar: some View {
+        HStack(spacing: 8) {
+            MiniCapsule(title: "取消") { onCancel() }
+            Spacer(minLength: 0)
+            MiniCapsule(title: "保存", accent: true) { onSave(title, parsedAmount, unit) }
+                .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
+        .padding(.horizontal, Spacing.section)
+        .padding(.top, Spacing.xl)
+        .padding(.bottom, Spacing.sm)
+        .overlay {
+            Text("新建记录")
+                .font(.system(size: Typography.headline, weight: .semibold))
+                .foregroundStyle(.primary)
+                .allowsHitTesting(false)
+        }
     }
 }
 
@@ -534,13 +683,20 @@ private struct RecordRowCard: View {
 }
 
 /// v4.0.19 编辑已记的一笔（候选池①）：金额 / 事项 / 单位 / 分类。
-/// 几何照抄同文件的新建 sheet（同一批 TextField 样式），差别只有预填 + 保存走 store.update。
+/// 几何照抄同文件的新建/编辑 body（同一批 TextField 样式），差别只有预填 + 保存走 store.update。
 /// 「删除」不在这里 —— 它仍在列表的长按菜单上，编辑弹窗只负责改。
-private struct RecordEditSheet: View {
+///
+/// v4.0.78：从系统 sheet 改成**毛玻璃浮层内容**（与 MemoDetailSheet 同形）——
+///   · 外层 NavigationStack / toolbar / presentationDetents 去掉（浮层里没有系统导航栏可挂）；
+///   · 顶栏照备忘录口径自绘（左「取消」/ 右「保存」accent 小胶囊）；
+///   · 收起不再走 `@Environment(\.dismiss)`（浮层没有系统 dismiss 环境）→ 宿主注入 onCancel。
+///   字段区 / 校验（parsedAmount、numberText、catOptions）逐字保留。
+struct RecordEditSheet: View {
     let item: RecordItem
     let onSave: (_ title: String, _ amount: Double?, _ unit: String, _ category: String) -> Void
+    /// v4.0.78：浮层收起（宿主注入；保存成功后宿主也会收）
+    let onCancel: () -> Void
 
-    @Environment(\.dismiss) private var dismiss
     @State private var title: String
     @State private var amount: String
     @State private var unit: String
@@ -548,9 +704,11 @@ private struct RecordEditSheet: View {
 
     private let units = ["元", "度", "kWh"]
 
-    init(item: RecordItem, onSave: @escaping (String, Double?, String, String) -> Void) {
+    init(item: RecordItem, onSave: @escaping (String, Double?, String, String) -> Void,
+         onCancel: @escaping () -> Void) {
         self.item = item
         self.onSave = onSave
+        self.onCancel = onCancel
         _title = State(initialValue: item.title)
         _amount = State(initialValue: item.amount.map { RecordEditSheet.numberText($0) } ?? "")
         _unit = State(initialValue: item.unit.isEmpty ? "元" : item.unit)
@@ -575,7 +733,8 @@ private struct RecordEditSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
+        VStack(spacing: 0) {
+            topBar
             VStack(spacing: Spacing.md) {
                 TextField("名称（如 超市 / 电表）", text: $title)
                     .font(.system(size: Typography.title))
@@ -614,22 +773,28 @@ private struct RecordEditSheet: View {
             }
             .padding(.horizontal, Spacing.section)
             .padding(.top, Spacing.md)
-            .navigationTitle("编辑记录")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("保存") {
-                        onSave(title, parsedAmount, unit, category)
-                        dismiss()
-                    }
-                    .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
-            }
         }
-        .presentationDetents([.medium, .large])
+    }
+
+    /// v4.0.78：浮层形态自绘顶栏（左「取消」/ 右「保存」accent，标题居中——与 MemoDetailSheet.topBar 同款）
+    private var topBar: some View {
+        HStack(spacing: 8) {
+            MiniCapsule(title: "取消") { onCancel() }
+            Spacer(minLength: 0)
+            MiniCapsule(title: "保存", accent: true) {
+                onSave(title, parsedAmount, unit, category)
+            }
+            .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
+        .padding(.horizontal, Spacing.section)
+        .padding(.top, Spacing.xl)
+        .padding(.bottom, Spacing.sm)
+        .overlay {
+            Text("编辑记录")
+                .font(.system(size: Typography.headline, weight: .semibold))
+                .foregroundStyle(.primary)
+                .allowsHitTesting(false)
+        }
     }
 
     /// 空 / 非法 → nil（= 这条本来就没有金额，回到「纯文字记录」形态，与新建口径一致）
@@ -892,6 +1057,7 @@ private struct RecordTrendBars: View {
 
 /// v4.0.19 候选池⑦：设月预算（留空 / 0 = 不设预算）。
 /// 几何照抄同文件的新建/编辑 sheet，差别是只有一个金额输入 + 「0 = 清除」的口径写在副标题里。
+/// ⚠️ v4.0.78：仍是**系统 sheet**（工具弹窗，不动）——挂载点见 RecordAllListBody。
 private struct RecordBudgetSheet: View {
     let current: Double
     let onSave: (Double) -> Void
@@ -949,6 +1115,7 @@ private struct RecordBudgetSheet: View {
 
 /// v4.0.19 候选池⑨：固定支出管理（房租 / 宽带 / 订阅 —— 到日子自动记一笔）
 /// 直接读 store（@Observable）：增删/开关后列表要立刻刷新，走闭包传值的话 sheet 里那份副本不会更新。
+/// ⚠️ v4.0.78：仍是**系统 sheet**（工具弹窗，不动）——挂载点见 RecordAllListBody。
 private struct FixedExpenseSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var store = RecordStore.shared
@@ -1071,13 +1238,12 @@ extension RecordSection {
             }
     }
 
-    /// 折叠组 2（3 条修饰器）：三张弹窗（新建 / 全部记录 / 扫账单）
+    /// 折叠组 2（1 条修饰器）：扫账单弹窗。
+    /// v4.0.78：原「新建 / 全部记录 / 扫账单」三张 sheet 里，新建与全部记录两套已改成页级毛玻璃浮层
+    ///（见 RecordGlassLayerHost），本组只剩扫账单仍是系统 sheet。
     @MainActor
     private func applyRecordSectionBodySheets<C: View>(to content: C) -> some View {
         content
-            .sheet(isPresented: $showAdd) { addSheet }
-            // 删除确认框必须挂在弹窗自己这棵树上（SR35：宿主级 alert 在弹窗之上呈现不出来）
-            .sheet(isPresented: $showAll) { deleteConfirm(on: allSheet) }
             // v4.0.22 候选池⑪：扫账单（自身带 detents，内容不含实色底 —— 与全站弹窗口径一致）
             // ⚠️ `.id(billScanSession)` 是刚需：SwiftUI 会**保留已 present 过视图的状态**，
             // 不换实例的话「扫一次 → 关掉 → 再扫」会带着上一张图/上一次金额回来（与 Memo/Todo 同源坑）。

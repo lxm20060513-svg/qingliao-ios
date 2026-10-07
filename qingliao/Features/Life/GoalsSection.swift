@@ -12,42 +12,42 @@
 // 风格与「待办清单」栏目同源（TodoSection）：
 //   · 页级标题行（粗体 + 计数 + 右侧胶囊）在卡片外
 //   · 页面只放一张卡（.pastelCard() 16 圆角 + 同高 83pt）
-//   · 1 个目标直达详情，≥2 个弹「全部目标」列表（半屏 sheet）
+//   · 1 个目标直达详情，≥2 个弹「全部目标」列表
 //   · 空态 = 可点引导卡（同几何，空 ↔ 有内容不跳变）
 //
 // 🚨 铁律：
-// · 确认框/清空二次确认必须挂在**弹窗内那棵树上**（宿主级 alert 在 sheet 之上呈现不出来）。
-// · sheet(item:) 的 onDismiss 必须复位 item，否则详情再也打不开。
-// · 同宿主多 sheet 互斥：先关前者，等 500ms 再开后者。
+// · 三张弹窗（新建 / 全部目标 / 详情）v4.0.78 起是**页级毛玻璃浮层**（与备忘录 v4.0.77 同款），
+//   不再挂在本 section 的 `.sheet` 上 —— 见文末 GoalsGlassPresenter / GoalsGlassLayerHost。
+//   用户原话（2026-10-08）：「待办清单、记录、长期目标、习惯卡片「也改为跟备忘录一样的全屏弹出」」
+// · 删除二次确认（LifeDeleteConfirm）必须与**它所在的浮层内容同宿主**：
+//   浮层内容里那份自带（GoalsAllListBody / GoalsDetailSheet 各一份），
+//   宿主页那份（页卡长按删除）保留在 GoalsSection.root —— 宿主级 alert 会被浮层压住看不见。
+// · 浮层内容顶栏照备忘录口径：自绘 MiniCapsule（不用系统 toolbar）。
 // · MiniCapsule 是跨文件单一来源（LifeCapsule.swift），别在本文件另抄一份 private 版。
+//
+// ⚠️ 本次只改**呈现层**（系统 sheet → 页级毛玻璃浮层）：字号 / 几何 / 文案一律不动，
+//    三张弹窗的正文视图树逐字平移进下面的文件级 struct。
 
 import SwiftUI
+import Observation   // v4.0.78：浮层状态提到页级单例（@Observable）
 
 struct GoalsSection: View {
     @State private var store = GoalStore.shared
-    @State private var showAdd = false
-    @State private var showAll = false
-    /// v4.0.7：卡片 → 「全部目标」列表的原生 zoom 转场（与待办卡片同款）
-    @Namespace private var goalZoomNS
-    @State private var draft = ""
-    @State private var detail: GoalItem?
-    /// SR34 同款坑：detail 只驱动呈现，实际渲染用副本，写库后回灌
-    @State private var detailCurrent: GoalItem?
-    @State private var pendingDelete: GoalItem?
-    /// 「全部目标」弹窗顶栏「清空」胶囊的二次确认
-    @State private var confirmClearAll = false
+    /// v4.0.78：三个浮层的开关**提到页级单例** —— 浮层本体不再挂在本 section 自己的树上。
+    /// 原因（与备忘录 v4.0.77 同款坑）：本 section 只是生活页滚动区（LifeView 的 LazyVStack）
+    /// 里的**一行**，浮层挂在这里 → 几何被这一行限制：轻纱只盖住卡片那一条、面板贴着卡片边缘长出、
+    /// 列表一滚浮层跟着跑。全屏浮层必须挂在**页面根**、滚动区之外 → 见 GoalsGlassLayerHost。
+    private var glass = GoalsGlassPresenter.shared
     /// v4.0.40（#4）：已完成目标折叠行是否展开
     @State private var showFinished = false
-    /// v4.0.40（#1）：哪些目标正在「手动推进中」（按钮转圈 + 禁用，防连点）
-    @State private var pushingIDs: Set<String> = []
 
     var body: some View {
         root
             .modifier(GoalsSectionBodyChrome(host: self))
-            .modifier(GoalsSectionBodySheets(host: self))
     }
 
     /// 页面主体：确认框挂在这——页卡长按删除时生效的就是这一份
+    /// （宿主页那份保留；浮层内容里的删除确认各自自带，见下方三个文件级 struct）
     private var root: some View {
         deleteConfirm(on:
             VStack(alignment: .leading, spacing: 8) {
@@ -91,8 +91,8 @@ struct GoalsSection: View {
             if showFinished {
                 ForEach(store.finishedGoals) { g in
                     Button {
-                        detailCurrent = g
-                        detail = g
+                        // v4.0.78：详情开启由页级单例驱动（副本回灌在 GoalsDetailSheet 内部）
+                        glass.detail = g
                     } label: {
                         GoalRowCard(goal: g, compact: true)
                     }
@@ -103,12 +103,12 @@ struct GoalsSection: View {
         }
     }
 
-    /// 删除确认框本体已收进 LifeDeleteConfirm（工作线 B：待办/记录/备忘弹窗内那份同款）
+    /// 删除确认框本体已收进 LifeDeleteConfirm（浮层/宿主各挂自己那份，同款）
     private func deleteConfirm<V: View>(on view: V) -> some View {
         view.modifier(LifeDeleteConfirm(
             title: "删除这个目标？",
-            pending: pendingDelete,
-            onCancel: { pendingDelete = nil },
+            pending: glass.pendingDelete,
+            onCancel: { glass.pendingDelete = nil },
             onDelete: { g in
                 store.remove(g.id)
                 // 🚨 同步删后端目标 —— 后端会连带删掉它的 cron job，
@@ -150,10 +150,15 @@ struct GoalsSection: View {
         )
     }
 
-    /// 页级标题行与空态引导卡共用这一个入口
+    /// 页级标题行与空态引导卡共用这一个入口。
+    /// 正文由 GoalsAddBody 自己的 @State 持有，靠 addSession 换实例保证每次空白
+    ///（沿用备忘/待办「startAdd 自增会话序号」的惯例）。
     private func startAdd() {
-        draft = ""
-        showAdd = true
+        // v4.0.78：开新建前先把其它浮层收干净（三层浮层互斥）
+        glass.showAll = false
+        glass.detail = nil
+        glass.addSession += 1
+        glass.showAdd = true
     }
 
     // MARK: 页面单卡（显示最上的一个**未完成**目标 = 未完成优先、最新在前）
@@ -173,7 +178,10 @@ struct GoalsSection: View {
             .contentShape(Rectangle())
             .onTapGesture { openCard() }
             .contextMenu { goalMenuItems(top) }
-            .matchedTransitionSource(id: "goal-all", in: goalZoomNS)
+            // v4.0.78：原 `matchedTransitionSource(id: "goal-all", in: goalZoomNS)` 已删 —— 它服务的是
+            //   卡片 → 「全部目标」**系统 sheet** 的原生 zoom 转场；改毛玻璃浮层后两处不再是独立呈现
+            //   （浮层是同 ZStack 层序），zoom 的源/目标配对不再成立（且备忘录 v4.0.77 同款改造也一并移除）。
+            //   同步删掉的还有 allSheet 上的 `.navigationTransition(.zoom(...))` 与 `goalZoomNS` 命名空间。
             .accessibilityLabel(store.goals.count == 1
                                 ? "长期目标，1 个，点开查看"
                                 : "长期目标，共 \(store.goals.count) 个，点开查看全部")
@@ -182,59 +190,268 @@ struct GoalsSection: View {
 
     private func openCard() {
         if store.goals.count == 1, let only = store.sorted.first {
-            detailCurrent = only
-            detail = only
+            glass.showAdd = false
+            glass.detail = only
         } else {
-            showAll = true
-        }
-    }
-
-    // MARK: v4.0.40（#1）现在开始推进
-
-    /// 点胶囊 → 后端后台跑一次推进 → 回写卡片 + 推送。
-    /// 这里只负责发请求 + 转圈态；真正内容由后端产出（任务中心可见进度）。
-    private func pushNow(_ g: GoalItem) {
-        guard !pushingIDs.contains(g.id) else { return }
-        pushingIDs.insert(g.id)
-        Haptics.light()
-        Task { @MainActor in
-            let ok = await store.pushNowOnBackend(goalID: g.id)
-            pushingIDs.remove(g.id)
-            guard !ok else {
-                Haptics.success()
-                // 卡片立刻回读一次：手动推进的时刻 / 步骤开始时间已由后端写入
-                await store.loadFromServer()
-                refreshDetail()
-                return
-            }
-            Haptics.error()
-            store.mutate(g.id) { $0.lastReport = "⚠️ 手动推进没发出去（连不上后端），稍后再试一次。" }
+            glass.detail = nil
+            glass.showAll = true
         }
     }
 
     // MARK: 卡片行
 
+    /// v4.0.78：菜单项内容提到**文件级**（goalCardMenuItems）—— 页级浮层里的「全部目标」也要用
+    /// 同一套，这里只做转发（宿主页那份 → 写 presenter.pendingDelete）。
+    /// ⚠️ 名字与文件级那个不同（与备忘 Section 的 memoMenuItems 同一防递归口径）。
     @ViewBuilder
     private func goalMenuItems(_ g: GoalItem) -> some View {
-        Button {
-            let now = !g.paused
-            store.mutate(g.id) { $0.paused = now }
-            Task { await store.setPausedOnBackend(goalID: g.id, paused: now) }
-            Haptics.success()
-        } label: {
-            Label(g.paused ? "恢复每日推进" : "暂停每日推进", systemImage: g.paused ? "play.circle" : "pause.circle")
+        goalCardMenuItems(g) { glass.pendingDelete = $0 }
+    }
+}
+
+// MARK: - v4.0.78 长期目标浮层的「页级宿主」
+//
+// 🚨 为什么单开一个宿主（用户 2026-10-08 原话：「待办清单、记录、长期目标、习惯卡片
+//    「也改为跟备忘录一样的全屏弹出」」）：
+//   v4.0.77 备忘录先例（已上线、真机验收通过）把三个毛玻璃浮层从 MemoSection 那一行搬到**页根** ——
+//   因为 section 只是生活页滚动区（LifeView 的 LazyVStack）里的一行，浮层挂在行内 → 几何被这一行
+//   限制：轻纱只罩住卡片那一条、面板从卡片边缘长出、随列表滚走。本栏目此前同款坑：三张弹窗
+//   还是 `.sheet`（挂在本 section 的修饰器链里），本次一并上收成页级浮层。
+//
+// 做法（与 MemoGlassPresenter / MemoGlassLayerHost 同形态）：三个开关提到页级单例，GoalsSection 只改状态；
+// 浮层本体由 GoalsGlassLayerHost 渲染，挂载点 = LifeView body 最外层（全屏层，由主会话统一挂）。
+// 视图树内顺序仍是：全部目标 < 详情 < 新建（后开的盖在前面）。
+//
+// ⚠️ 只改呈现层：字号 / 几何 / 文案一律不动（原 sheet 内容逐字平移进下面三个文件级 struct）。
+
+@MainActor
+@Observable
+final class GoalsGlassPresenter {
+    static let shared = GoalsGlassPresenter()
+
+    /// 「全部目标」列表浮层
+    var showAll = false
+    /// 「新建目标」浮层
+    var showAdd = false
+    /// 详情浮层（nil = 不显示）
+    var detail: GoalItem?
+    /// 宿主页删除二次确认（页卡 / 已完成折叠行长按删除走这条；与浮层内容里那两份各自独立）
+    var pendingDelete: GoalItem?
+    /// 新建浮层的会话序号：每次打开自增，配合 `.id()` 强制换新实例（保证每次都是空白表单）
+    var addSession = 0
+
+    private init() {}
+
+    /// 🚨 宿主销毁时清状态 —— 单例不会随视图树消失，页面被系统回收后重建，
+    /// 开关还是 true → 回到生活页会「莫名又弹着上次那个浮层」。挂在 GoalsGlassLayerHost 的 .onDisappear。
+    func reset() {
+        showAll = false
+        showAdd = false
+        detail = nil
+        pendingDelete = nil
+        addSession = 0
+    }
+}
+
+/// 长期目标浮层的页级宿主（挂 LifeView 根 → 全屏；轻纱盖住整页含页头）
+struct GoalsGlassLayerHost: View {
+    private var glass = GoalsGlassPresenter.shared
+    private var store = GoalStore.shared
+
+    var body: some View {
+        ZStack {
+            if glass.showAll {
+                MemoGlassOverlay(isPresented: Binding(
+                    get: { glass.showAll },
+                    set: { if !$0 { glass.showAll = false } }
+                )) {
+                    GoalsAllListBody(
+                        store: store,
+                        onDone: { glass.showAll = false },
+                        onOpenDetail: { openDetailFromAll($0) }
+                    )
+                }
+            }
+            if let g = glass.detail {
+                MemoGlassOverlay(isPresented: Binding(
+                    get: { glass.detail != nil },
+                    set: { if !$0 { glass.detail = nil } }
+                )) {
+                    detailSheet(g)
+                }
+            }
+            if glass.showAdd {
+                MemoGlassOverlay(isPresented: Binding(
+                    get: { glass.showAdd },
+                    set: { if !$0 { glass.showAdd = false } }
+                )) {
+                    GoalsAddBody(
+                        store: store,
+                        onCancel: { glass.showAdd = false },
+                        onSaved: { glass.showAdd = false }
+                    )
+                    // 每次打开换新实例（.id）→ 打开即空白
+                    .id(glass.addSession)
+                }
+            }
         }
-        Button(role: .destructive) {
-            pendingDelete = g
-        } label: {
-            Label("删除", systemImage: "trash")
-        }
+        // 🚨 宿主销毁即清状态 —— 页面重建后不会「莫名又弹上次那个浮层」
+        //（单例状态不随视图树消失；见 GoalsGlassPresenter.reset）
+        .onDisappear { GoalsGlassPresenter.shared.reset() }
     }
 
-    // MARK: 添加弹窗（手动建目标；AI 建的走聊天里的「建目标卡」）
+    /// ⚠️ 保留 `detailSheet` 这个名字（不改叫别的）：ql_goal_pushnow 真值表按
+    /// `private func detailSheet` → `func stepTimeText` 切片来做「推进胶囊搬进详情」的分片断言，
+    /// 改名会让切片为空 → 该表红（本表显式设计成「锚点改名就必须同步」）。浮层内容本体是下方 GoalsDetailSheet。
+    private func detailSheet(_ g: GoalItem) -> some View {
+        GoalsDetailSheet(item: g, onDismiss: { glass.detail = nil })
+    }
 
-    private var addSheet: some View {
-        NavigationStack {
+    /// 从列表点一条 → **同帧**换成详情浮层（v4.0.78：浮层硬切、无退场动画，原 500ms 缓冲只剩延迟，已删；
+    /// 旧注释「同帧切换会丢弹窗」是**系统 sheet 时代**的约束，浮层同 ZStack 层序不存在该问题）。
+    private func openDetailFromAll(_ g: GoalItem) {
+        // v4.0.78：同帧换状态（原 500ms 错峰为等系统 sheet 退场动画；浮层硬切无退场 →
+        // 延迟 + in-flight Task 窗口一起删，理由同 TodoSection.openDetailFromAll）
+        glass.showAll = false
+        glass.showAdd = false
+        glass.detail = g
+    }
+}
+
+// MARK: - v4.0.78 长按菜单项（宿主页卡 / 全部目标列表两处共用）
+
+/// ⚠️ 名字必须与 `GoalsSection.goalMenuItems` 区分（那个只是转发到本函数），否则会自己调自己。
+/// 🚨 **文件级函数默认非 MainActor 隔离**（只有 View 的成员才是）→ 本体里调 `Haptics` / `GoalStore`
+/// 这类 MainActor API 必须显式 `@MainActor`；否则只有 CI Archive 会报 `call to main actor-isolated
+/// static method 'success()' in a synchronous nonisolated context`（本机 `-parse` 查不出；仓内先例
+/// 见 MemoSection.swift 的 memoCardMenuItems）。
+@MainActor
+@ViewBuilder
+private func goalCardMenuItems(_ g: GoalItem,
+                               onDelete: @escaping (GoalItem) -> Void) -> some View {
+    Button {
+        let now = !g.paused
+        GoalStore.shared.mutate(g.id) { $0.paused = now }
+        Task { await GoalStore.shared.setPausedOnBackend(goalID: g.id, paused: now) }
+        Haptics.success()
+    } label: {
+        Label(g.paused ? "恢复每日推进" : "暂停每日推进", systemImage: g.paused ? "play.circle" : "pause.circle")
+    }
+    Button(role: .destructive) {
+        onDelete(g)
+    } label: {
+        Label("删除", systemImage: "trash")
+    }
+}
+
+// MARK: - v4.0.78 「全部目标」浮层内容（原 allSheet 的 NavigationStack 内主体，逐字平移）
+//
+// 回调全部由宿主注入（浮层收起、开详情）：浮层是同 ZStack 层序，不再有 sheet present 竞争；
+// 清空确认 / 删除确认仍挂本主体内部（浮层盖在生活页上，宿主层 alert 会被浮层压住看不见 —— 与原 sheet 时代同理由）。
+
+struct GoalsAllListBody: View {
+    let store: GoalStore
+    let onDone: () -> Void
+    let onOpenDetail: (GoalItem) -> Void
+
+    /// 列表内长按删除的二次确认（挂浮层内容自己这棵树上）
+    @State private var pendingDeleteInList: GoalItem?
+    /// 「清空」二次确认（同上）
+    @State private var confirmClearAll = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // 顶栏照备忘录浮层口径：自绘 MiniCapsule（不用系统 toolbar）；
+            // 按钮文案按「只改呈现层」一律不动（保留原「清空」/「完成」，不改成 取消/保存）。
+            HStack {
+                if !store.goals.isEmpty {
+                    MiniCapsule(title: "清空") { confirmClearAll = true }
+                }
+                Spacer()
+                MiniCapsule(title: "完成", accent: true) { onDone() }
+            }
+            .padding(.horizontal, Spacing.section)
+            .padding(.top, Spacing.xl)
+            .padding(.bottom, Spacing.xs)
+
+            List {
+                // v4.0.40（#4）：未完成优先，已完成沉底（用户要「已完成自己划掉」）
+                ForEach(store.sortedActiveFirst) { g in
+                    // 🚨 同上：不 Button 包 Button（卡内胶囊 v4.0.47 已撤进详情弹窗，链路保持不动）
+                    GoalRowCard(goal: g, compact: false)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        // 🚨 先收列表、等它收起再开详情：交由宿主 openDetailFromAll 做 500ms 错峰
+                        onOpenDetail(g)
+                    }
+                    .contextMenu { goalCardMenuItems(g) { pendingDeleteInList = $0 } }
+                    .listRowInsets(EdgeInsets(top: 0, leading: Spacing.section, bottom: 8, trailing: Spacing.section))
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
+                }
+            }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            // 🚨 清空二次确认必须挂 List 上（宿主级 alert 被浮层盖住）
+            .alert("清空全部目标？", isPresented: $confirmClearAll) {
+                Button("清空", role: .destructive) {
+                    // 🚨 清空前先把 id 收齐：removeAll 之后本地已空，
+                    //    再想通知后端删 job 就拿不到 id 了（会留下每天还在推的孤儿 job）。
+                    let ids = store.goals.map { $0.id }
+                    _ = store.removeAll()
+                    onDone()
+                    Task { for id in ids { await store.deleteOnBackend(goalID: id) } }
+                    Haptics.success()
+                }
+                Button("取消", role: .cancel) {}
+            } message: {
+                Text("已删除的目标不会恢复，AI 也不会再每天推送它。")
+            }
+        }
+        // 浮层内容自带的删除二次确认（与浮层同宿主 —— 宿主级 alert 会被浮层压住）
+        .modifier(LifeDeleteConfirm(
+            title: "删除这个目标？",
+            pending: pendingDeleteInList,
+            onCancel: { pendingDeleteInList = nil },
+            onDelete: { g in
+                store.remove(g.id)
+                // 🚨 同步删后端目标 —— 后端会连带删掉它的 cron job，
+                //    否则明天早上还会推一个用户已经删掉的目标。
+                Task { await store.deleteOnBackend(goalID: g.id) }
+            },
+            message: { $0.title.prefix(40).description }
+        ))
+    }
+}
+
+// MARK: - v4.0.78 「新建目标」浮层内容（原 addSheet 的 NavigationStack 内主体，逐字平移）
+//（AI 建的走聊天里的「建目标卡」，这里只负责手动建）
+
+struct GoalsAddBody: View {
+    let store: GoalStore
+    let onCancel: () -> Void
+    /// 保存成功（本地已落库）→ 收起浮层
+    let onSaved: () -> Void
+
+    @State private var draft = ""
+    @State private var addMorning = true
+    @State private var addEvening = true
+    @State private var addMorningHour = 9
+    @State private var addEveningHour = 21
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // 顶栏照备忘录浮层口径：自绘 MiniCapsule（不用系统 toolbar）；
+            // 按钮文案按「只改呈现层」一律不动（保留原「取消」/「创建」）。
+            HStack {
+                MiniCapsule(title: "取消") { onCancel() }
+                Spacer()
+                MiniCapsule(title: "创建", accent: true) { confirmAdd() }
+            }
+            .padding(.horizontal, Spacing.section)
+            .padding(.top, Spacing.xl)
+            .padding(.bottom, Spacing.xs)
+
             List {
                 Section("目标") {
                     TextField("想长期推进什么", text: $draft, axis: .vertical)
@@ -268,25 +485,8 @@ struct GoalsSection: View {
             }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
-            .toolbar(.hidden, for: .navigationBar)
-            .safeAreaInset(edge: .top) {
-                HStack {
-                    MiniCapsule(title: "取消") { showAdd = false }
-                    Spacer()
-                    MiniCapsule(title: "创建", accent: true) { confirmAdd() }
-                }
-                .padding(.horizontal, Spacing.section)
-                .padding(.top, Spacing.xl)
-                .padding(.bottom, Spacing.xs)
-            }
         }
-        .presentationDetents([.medium, .large])
     }
-
-    @State private var addMorning = true
-    @State private var addEvening = true
-    @State private var addMorningHour = 9
-    @State private var addEveningHour = 21
 
     private func confirmAdd() {
         let t = draft.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -299,9 +499,9 @@ struct GoalsSection: View {
         // 🚨 先本地落库（卡片立刻可见）+ 同步把步骤灌进待办清单（口径：打通）。
         //    再异步问后端建 cron job —— 建 job 失败不阻塞落库，后端失败会在卡片上显示出来。
         store.add(g)
-        pushStepsToTodo(g)
+        GoalTodoBridge.pushStepsToTodo(g)
         Haptics.success()
-        showAdd = false
+        onSaved()
         Task { @MainActor in
             guard let remote = await store.createOnBackend(g) else {
                 store.mutate(g.id) { $0.lastReport = "⚠️ 每日推送没建上（后端没响应），可以稍后在详情里重建。" }
@@ -310,74 +510,47 @@ struct GoalsSection: View {
             store.update(remote)
         }
     }
+}
 
-    // MARK: 「全部目标」列表弹窗
+// MARK: - v4.0.78 「详情」浮层内容（原 detailSheet 的 NavigationStack 内主体，逐字平移）
+//
+// 副本回灌：传值进来的 item 只当「呈现目标」，实际渲染用本地副本 current；
+// 勾步骤 / 暂停推进写库后立刻 refreshDetail() 回灌本页（否则界面没反应）——
+// 等价于原 GoalsSection 的 detailCurrent + refreshDetail 机制，只是搬进本 struct。
 
-    private var allSheet: some View {
-        NavigationStack {
-            List {
-                // v4.0.40（#4）：未完成优先，已完成沉底（用户要「已完成自己划掉」）
-                ForEach(store.sortedActiveFirst) { g in
-                    // 🚨 同上：不 Button 包 Button（卡内胶囊 v4.0.47 已撤进详情弹窗，链路保持不动）
-                    GoalRowCard(goal: g, compact: false)
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        // 🚨 同宿主多 sheet 互斥：先关列表，等它收起再开详情
-                        showAll = false
-                        Task { @MainActor in
-                            try? await Task.sleep(for: .milliseconds(500))
-                            guard !showAll else { return }
-                            detailCurrent = g
-                            detail = g
-                        }
-                    }
-                    .contextMenu { goalMenuItems(g) }
-                    .listRowInsets(EdgeInsets(top: 0, leading: Spacing.section, bottom: 8, trailing: Spacing.section))
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Color.clear)
-                }
-            }
-            .listStyle(.plain)
-            .scrollContentBackground(.hidden)
-            // 🚨 清空二次确认必须挂 List 上（宿主级 alert 被 sheet 盖住）
-            .alert("清空全部目标？", isPresented: $confirmClearAll) {
-                Button("清空", role: .destructive) {
-                    // 🚨 清空前先把 id 收齐：removeAll 之后本地已空，
-                    //    再想通知后端删 job 就拿不到 id 了（会留下每天还在推的孤儿 job）。
-                    let ids = store.goals.map { $0.id }
-                    store.removeAll()
-                    showAll = false
-                    Task { for id in ids { await store.deleteOnBackend(goalID: id) } }
-                    Haptics.success()
-                }
-                Button("取消", role: .cancel) {}
-            } message: {
-                Text("已删除的目标不会恢复，AI 也不会再每天推送它。")
-            }
-            .safeAreaInset(edge: .top) {
-                HStack {
-                    if !store.goals.isEmpty {
-                        MiniCapsule(title: "清空") { confirmClearAll = true }
-                    }
-                    Spacer()
-                    MiniCapsule(title: "完成", accent: true) { showAll = false }
-                }
-                .padding(.horizontal, Spacing.section)
-                .padding(.top, Spacing.xl)
-                .padding(.bottom, Spacing.xs)
-            }
-            .toolbar(.hidden, for: .navigationBar)
-        }
-        // v4.0.23：detents/zoom 归位到 NavigationStack 外层，与备忘录/待办的挂载点完全一致
-        .presentationDetents([.medium, .large])
-        .navigationTransition(.zoom(sourceID: "goal-all", in: goalZoomNS))
+struct GoalsDetailSheet: View {
+    let item: GoalItem
+    let onDismiss: () -> Void
+
+    private var store = GoalStore.shared
+
+    /// SR34 同款坑：详情只驱动呈现，实际渲染用副本，写库后回灌
+    @State private var current: GoalItem
+    /// v4.0.40（#1）：正在「手动推进中」（按钮转圈 + 禁用，防连点）
+    @State private var pushingIDs: Set<String> = []
+    /// 详情页删除二次确认（浮层内容自带的 LifeDeleteConfirm / alert，与浮层同宿主）
+    @State private var pendingDelete: GoalItem?
+
+    init(item: GoalItem, onDismiss: @escaping () -> Void) {
+        self.item = item
+        self.onDismiss = onDismiss
+        _current = State(initialValue: item)
     }
 
-    // MARK: 详情弹窗
+    var body: some View {
+        let g = current
+        return VStack(spacing: 0) {
+            // 顶栏照备忘录浮层口径：自绘 MiniCapsule（不用系统 toolbar）；
+            // 按钮文案按「只改呈现层」一律不动（保留原「删除」/「完成」）。
+            HStack {
+                MiniCapsule(title: "删除") { pendingDelete = current }
+                Spacer()
+                MiniCapsule(title: "完成", accent: true) { onDismiss() }
+            }
+            .padding(.horizontal, Spacing.section)
+            .padding(.top, Spacing.xl)
+            .padding(.bottom, Spacing.xs)
 
-    private func detailSheet(_ g0: GoalItem) -> some View {
-        let g = detailCurrent ?? g0
-        return NavigationStack {
             List {
                 Section {
                     HStack(spacing: Spacing.md) {
@@ -532,40 +705,64 @@ struct GoalsSection: View {
             }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
-            .safeAreaInset(edge: .top) {
-                HStack {
-                    MiniCapsule(title: "删除") { pendingDelete = detailCurrent }
-                    Spacer()
-                    MiniCapsule(title: "完成", accent: true) { detail = nil }
-                }
-                .padding(.horizontal, Spacing.section)
-                .padding(.top, Spacing.xl)
-                .padding(.bottom, Spacing.xs)
-            }
-            .alert("删除这个目标？", isPresented: Binding(
-                get: { pendingDelete != nil },
-                set: { if !$0 { pendingDelete = nil } }
-            )) {
-                Button("删除", role: .destructive) {
-                    if let t = pendingDelete {
-                        store.remove(t.id)
-                        Task { await store.deleteOnBackend(goalID: t.id) }
-                    }
-                    pendingDelete = nil
-                    detail = nil
-                }
-                Button("取消", role: .cancel) { pendingDelete = nil }
-            } message: {
-                Text(pendingDelete?.title.prefix(40).description ?? "")
-            }
-            .toolbar(.hidden, for: .navigationBar)
-            .presentationDetents([.medium, .large])
         }
+        // 浮层内容自带的删除二次确认（与原 sheet 时代同理由：宿主级 alert 会被浮层压住）
+        .alert("删除这个目标？", isPresented: Binding(
+            get: { pendingDelete != nil },
+            set: { if !$0 { pendingDelete = nil } }
+        )) {
+            Button("删除", role: .destructive) {
+                if let t = pendingDelete {
+                    store.remove(t.id)
+                    Task { await store.deleteOnBackend(goalID: t.id) }
+                }
+                pendingDelete = nil
+                onDismiss()
+            }
+            Button("取消", role: .cancel) { pendingDelete = nil }
+        } message: {
+            Text(pendingDelete?.title.prefix(40).description ?? "")
+        }
+    }
+
+    // MARK: v4.0.78 详情内动作（原 GoalsSection 的方法，随详情内容一起搬进来）
+
+    /// v4.0.40（#1）现在开始推进：点胶囊 → 后端后台跑一次推进 → 回写卡片 + 推送。
+    /// 这里只负责发请求 + 转圈态；真正内容由后端产出（任务中心可见进度）。
+    private func pushNow(_ g: GoalItem) {
+        guard !pushingIDs.contains(g.id) else { return }
+        pushingIDs.insert(g.id)
+        Haptics.light()
+        Task { @MainActor in
+            let ok = await store.pushNowOnBackend(goalID: g.id)
+            pushingIDs.remove(g.id)
+            guard !ok else {
+                Haptics.success()
+                // 卡片立刻回读一次：手动推进的时刻 / 步骤开始时间已由后端写入
+                await store.loadFromServer()
+                refreshDetail()
+                return
+            }
+            Haptics.error()
+            store.mutate(g.id) { $0.lastReport = "⚠️ 手动推进没发出去（连不上后端），稍后再试一次。" }
+        }
+    }
+
+    /// SR34：写库后回灌详情副本（否则勾了步骤界面没反应）
+    private func refreshDetail() {
+        if let fresh = store.goals.first(where: { $0.id == current.id }) {
+            current = fresh
+        }
+    }
+
+    /// 勾上步骤 → 同步在待办里对应的条目划掉；取消勾 → 待办恢复
+    private func syncTodo(step: GoalStep, goal: GoalItem) {
+        GoalTodoBridge.syncStepDone(step: step, goal: goal)
     }
 
     /// v4.0.40（#5）：步骤时间文案。「已开始 X」/「已完成 X」/「X 开始 · Y 完成」。
     /// 返回 nil = 一个时间都没有（老数据还没打戳）→ 调用方整行不渲染。
-    func stepTimeText(_ s: GoalStep) -> String? {
+    private func stepTimeText(_ s: GoalStep) -> String? {
         let started = s.startedAt.map { "已开始 " + GoalRowCard.stamp($0) }
         let done = s.doneAt.map { "已完成 " + GoalRowCard.stamp($0) }
         switch (started, done) {
@@ -574,23 +771,6 @@ struct GoalsSection: View {
         case let (nil, b?): return b
         default: return nil
         }
-    }
-
-    /// SR34：写库后回灌详情副本（否则勾了步骤界面没反应）
-    private func refreshDetail() {
-        guard let id = detail?.id else { return }
-        detailCurrent = store.goals.first { $0.id == id }
-    }
-
-    /// 建目标时把 AI 拆的步骤灌进待办清单（用户口径：打通）。
-    /// 标题带 ［目标·XX］ 标记，便于在待办里一眼认出归属、也便于日后反查。
-    func pushStepsToTodo(_ g: GoalItem) {
-        GoalTodoBridge.pushStepsToTodo(g)
-    }
-
-    /// 勾上步骤 → 同步在待办里对应的条目划掉；取消勾 → 待办恢复
-    private func syncTodo(step: GoalStep, goal: GoalItem) {
-        GoalTodoBridge.syncStepDone(step: step, goal: goal)
     }
 }
 
@@ -647,9 +827,8 @@ enum GoalTodoBridge {
 struct GoalRowCard: View {
     let goal: GoalItem
     var compact: Bool = false
-    // v4.0.47（用户 2026-10-04）：原 `onPushNow` / `pushing` 两个入参随「现在开始推进」胶囊
-    // 一起撤出卡片 —— 卡内已无内层按钮，回调链路没有调用方（胶囊改在详情弹窗里直调
-    // `GoalsSection.pushNow`）。空留参数只会诱使后来者又往卡上挂按钮。
+    // ⚠️ v4.0.78：推进胶囊的调用点随「详情」浮层内容一起搬进 GoalsDetailSheet
+    //（`GoalsDetailSheet.pushNow`），卡片侧依旧不挂任何动作入口。
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -752,7 +931,7 @@ struct GoalRowCard: View {
             }
 
             // v4.0.40（#1）→ v4.0.47（用户 2026-10-04）：「现在开始推进」胶囊已从卡片
-            // **搬进详情弹窗顶栏**（紧挨「后台运行中」，见 GoalsSection.detailSheet）。
+            // **搬进详情弹窗顶栏**（紧挨「后台运行中」，见 GoalsDetailSheet）。
             // 卡片只留状态、动作收进弹窗 —— 两处都挂等于重复入口（用户口径是「搬」不是「复制」）。
         }
         .padding(Spacing.xl)
@@ -775,7 +954,7 @@ struct GoalRowCard: View {
         }
     }
 
-    /// 时间戳文案（与 GoalsSection.detailSheet 同一口径，跨 view 复用一份）
+    /// 时间戳文案（与 GoalsDetailSheet.stepTimeText 同一口径，跨 view 复用一份）
     static func stamp(_ d: Date) -> String {
         let f = DateFormatter()
         f.dateFormat = "M月d日 HH:mm"
@@ -817,6 +996,10 @@ struct GoalRowCard: View {
 // applyXxx 调用里解析（各自一次 1MB 栈预算）。⚠️ 修饰器**种类/数量/顺序/参数**逐字未变
 // （等价重构，视图树与身份/动画真源不动）；谁也不许把这些链再内联回 body ——
 // 改链请改这里的 applyXxx，别动调用点。
+//
+// v4.0.78：原「折叠组 2（三张弹窗 .sheet）」整组删除 —— 三条 .sheet 已随浮层上收搬进
+// GoalsGlassLayerHost（其内容都是**具名 struct**，类型名短、不进本 section body）。
+// 本 section body 现在只剩折叠组 1（页壳）。
 extension GoalsSection {
     /// 折叠组 1（2 条修饰器）：页壳（宽度对齐 + 进页面拉一次数据）
     @MainActor
@@ -826,29 +1009,10 @@ extension GoalsSection {
             .task { await store.loadFromServer() }
     }
 
-    /// 折叠组 2（3 条修饰器）：三张弹窗（新建 / 全部目标 / 详情）
-    @MainActor
-    private func applyGoalsSectionBodySheets<C: View>(to content: C) -> some View {
-        content
-            .sheet(isPresented: $showAdd) { addSheet }
-            // 🚨 确认框必须挂在弹窗自己这棵树上（SR35）
-            .sheet(isPresented: $showAll) { deleteConfirm(on: allSheet) }
-            .sheet(item: $detail, onDismiss: { detail = nil; detailCurrent = nil }) { g in
-                detailSheet(detailCurrent ?? g)
-            }
-    }
-
     @MainActor
     private struct GoalsSectionBodyChrome: ViewModifier {
         let host: GoalsSection
 
         func body(content: Content) -> some View { host.applyGoalsSectionBodyChrome(to: content) }
-    }
-
-    @MainActor
-    private struct GoalsSectionBodySheets: ViewModifier {
-        let host: GoalsSection
-
-        func body(content: Content) -> some View { host.applyGoalsSectionBodySheets(to: content) }
     }
 }

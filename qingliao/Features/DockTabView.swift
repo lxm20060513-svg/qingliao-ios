@@ -537,10 +537,15 @@ struct DockTabView: View {
 // 页面连页底一起动，顶部安全区那一条在动画期间露缝（垫底层与页底两层渐变叠加在缝边缘仍可辨）。
 // 拍板方案 A：**页底渐变彻底退出动画、常驻不动**——垫底层本来就是静态渐变，页面淡入时
 // 透出的是同款渐变，机制上不可能再露白。切页 = 内容原地淡入（Motion.snap 0.20s，用户选 A）。
+// v4.0.78（用户 2026-10-08「4.0.77 dock 栏 tap 切换太闪了，改为平滑过渡切换效果」，二选一取「柔滑滑入」）：
+// 原地淡入的**起点 0 全透明**才是「闪」的正源（内容先整个消失再出现）；叠加 opacity 走 snap(0.20)、
+// 位移走 flow(0.28) 两条曲线不同步。改法 = 起点抬到 0.6 + 两段并成**单条 Motion.flow**（同一事务同一曲线），
+// 22pt 方向微滑保留（幅度已按 4.0.75 定稿，不动）。页底/垫底渐变照旧完全不参与动画。
 private struct TabTransitionModifier: ViewModifier {
     let tab: DockTab
     @Binding var selected: DockTab
-    /// 1 = 常态；0 = 全透明起点。赋值不加动画 → 起点态是瞬变的。
+    /// 1 = 常态；0.6 = 入场起点（v4.0.78 起不再用 0 —— 0 起跳 = 内容先整个消失再出现，就是用户报的「太闪」）。
+    /// 赋值不加动画 → 起点态是瞬变的。
     /// 淡入的是**页面内容**；页面自身的页底渐变淡入时透出 ZStack 里那层静态垫底渐变（同款），肉眼无感。
     @State private var phase: CGFloat = 1
     /// v4.0.x：方向性微滑——入场瞬间内容从来源侧滑到位（微信同款语言，只 x 轴）。
@@ -568,7 +573,8 @@ private struct TabTransitionModifier: ViewModifier {
     private func enter(from old: DockTab?) {
         seq &+= 1
         let mySeq = seq
-        phase = 0
+        // v4.0.78：起点 0 → 0.6（不再全透明）。位移保留 22pt 方向微滑，观感 = 「轻轻滑进来 + 渐显」。
+        phase = 0.6
         if let old, old != tab {
             // 新页在旧页右侧 → 内容从右滑入；左侧同理。同页刷新（old == tab）不滑。
             dx = (tab.slotIndex > old.slotIndex) ? 22 : -22
@@ -578,8 +584,11 @@ private struct TabTransitionModifier: ViewModifier {
         Task {
             try? await Task.sleep(for: .seconds(0.01))
             guard mySeq == seq else { return }
-            withAnimation(Motion.snap) { phase = 1 }
-            withAnimation(Motion.flow) { dx = 0 }
+            // v4.0.78（用户 2026-10-08「4.0.77 dock 栏 tap 切换太闪了，改为平滑过渡切换效果」）：
+            // ① 起点不再全透明（0 → 0.6，见 phase 声明处）；
+            // ② 两条动画合并成**同一条曲线** —— 原来是 opacity 走 snap(0.20) 而位移走 flow(0.28)，
+            //    两种节奏叠在同一帧上就是「闪一下」的观感（快的那条先把内容拉回来、慢的那条还在挪）。
+            withAnimation(Motion.flow) { phase = 1; dx = 0 }
         }
     }
 }
@@ -603,6 +612,7 @@ extension View {
 // 相位/seq 手法与 TabTransitionModifier 完全同款。
 private struct ChatZoomEntryModifier: ViewModifier {
     @Binding var selected: DockTab
+    /// 与 TabTransitionModifier 同款：1 = 常态，0.6 = 入场起点（v4.0.78 起不再用 0，理由见那边注释）
     @State private var phase: CGFloat = 1
     /// v4.0.x：与 TabTransitionModifier 同款方向性微滑（chat 槽位 2，两侧来源都能判向）
     /// v4.0.75：与 TabTransitionModifier 同步 6pt→22pt（两处口径一致，别只改一边）
@@ -630,7 +640,8 @@ private struct ChatZoomEntryModifier: ViewModifier {
     private func enter(from old: DockTab?) {
         seq &+= 1
         let mySeq = seq
-        phase = 0
+        // v4.0.78：与 TabTransitionModifier 完全同款（起点 0.6 + 单曲线 flow），两处口径一致，别只改一边。
+        phase = 0.6
         if let old, old != .chat {
             dx = (DockTab.chat.slotIndex > old.slotIndex) ? 22 : -22
         } else {
@@ -639,8 +650,11 @@ private struct ChatZoomEntryModifier: ViewModifier {
         Task {
             try? await Task.sleep(for: .seconds(0.01))
             guard mySeq == seq else { return }
-            withAnimation(Motion.snap) { phase = 1 }
-            withAnimation(Motion.flow) { dx = 0 }
+            // v4.0.78（用户 2026-10-08「4.0.77 dock 栏 tap 切换太闪了，改为平滑过渡切换效果」）：
+            // ① 起点不再全透明（0 → 0.6，见 phase 声明处）；
+            // ② 两条动画合并成**同一条曲线** —— 原来是 opacity 走 snap(0.20) 而位移走 flow(0.28)，
+            //    两种节奏叠在同一帧上就是「闪一下」的观感（快的那条先把内容拉回来、慢的那条还在挪）。
+            withAnimation(Motion.flow) { phase = 1; dx = 0 }
         }
     }
 }

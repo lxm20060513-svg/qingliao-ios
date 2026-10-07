@@ -306,8 +306,15 @@ enum HabitTruthTable {
         check("源级：HabitSection 不自行按 Calendar 归日（口径收在 HabitKit）",
               !sectionCode.contains("calendar.date(byAdding"))
         positives += 1
+        // v4.0.78：打卡入口从 View 的 `store` 属性（@State store = HabitStore.shared）迁到**文件级**
+        // toggleHabit（宿主菜单 + 浮层列表共用一份，自由函数里拿不到 View 的属性）→ 判据放宽成
+        // 「store. / HabitStore.shared.」两形态都认；强度不变：仍必须真的走 checkIn/undo（不许自己改 days）。
+        // 迁移自证：把 checkIn 调用删掉 → 本项必须转红。
+        let callsStore: (String) -> Bool = { m in
+            sectionCode.contains("store." + m + "(") || sectionCode.contains("HabitStore.shared." + m + "(")
+        }
         check("源级：HabitSection 走 store.checkIn / store.undo",
-              sectionCode.contains("store.checkIn(") && sectionCode.contains("store.undo("))
+              callsStore("checkIn") && callsStore("undo"))
         positives += 1
         check("源级：HabitSection 用 HabitStore.shared",
               sectionCode.contains("HabitStore.shared"))

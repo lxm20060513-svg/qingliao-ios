@@ -107,6 +107,17 @@ struct LifeView: View {
         // 这里在滚动区之外、页头之上 → 轻纱盖住整页、面板从屏底长出。开关状态见 MemoGlassPresenter。
         // 用 AnyView 收类型名（本页与 MemoSection 同属「启动链 demangler」事故家族，别把宿主类型名内联进 body）
         .overlay { AnyView(MemoGlassLayerHost()) }
+        // 🚨 v4.0.78：把**待办 / 习惯 / 长期目标 / 记录**四张卡片的弹窗（全部列表 · 详情 · 新建）也收编到
+        // 页级毛玻璃浮层（用户 2026-10-08：「把待办清单，记录，长期目标也都改为跟备忘录一样的全屏弹出」
+        // +「还有习惯卡片也改成一样的全屏弹出」）——口径与备忘录 4.0.77 完全一致：开关在各自的页级单例
+        // （XxxGlassPresenter.shared），内容在各自 section 文件里提升出的文件级 struct，宿主只在这里挂一层。
+        // ⚠️ 宿主必须挂在**整页最外层**（滚动区之外）。挂回 section 那一行里 = 几何被行限制，
+        // 又变回「只在卡片大小内弹」（4.0.76 备忘录的原坑，勿回退）。
+        // AnyView 收类型名：本页属「启动链 demangler」事故家族，别把宿主类型名内联进 body（见 ql_typestack 护栏）。
+        .overlay { AnyView(TodoGlassLayerHost()) }
+        .overlay { AnyView(HabitGlassLayerHost()) }
+        .overlay { AnyView(GoalsGlassLayerHost()) }
+        .overlay { AnyView(RecordGlassLayerHost()) }
         // v3.5.x：生活卡片设置页（股票 / 资讯 / 快递）
         .background(lifeCold1())
         .background(lifeCold2())

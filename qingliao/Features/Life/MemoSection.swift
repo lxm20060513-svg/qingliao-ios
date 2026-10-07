@@ -38,8 +38,8 @@ struct MemoSection: View {
     /// 浮层本体不再挂在本 section 自己的 ZStack 里（本 section 只是生活页滚动区的一行，
     /// 浮层会被限制在卡片那一行的几何里）。详见 MemoGlassPresenter / MemoGlassLayerHost 顶部注释。
     private var glass = MemoGlassPresenter.shared
-    /// v3.9.20：卡片 → 「全部备忘」列表的原生 zoom 转场（同看板卡片 / 资讯→大爆炸那套）
-    @Namespace private var memoZoomNS
+    /// v4.0.78：`@Namespace memoZoomNS` + 页卡的 `.matchedTransitionSource` 已删（4.0.77 改页级浮层时漏删的
+    /// 死代码：zoom 转场依赖系统 sheet 的呈现链，浮层没有这条链）。
 
     var body: some View {
         ZStack {
@@ -110,8 +110,6 @@ struct MemoSection: View {
             }
             .buttonStyle(PressStyle())
             .contextMenu { memoMenuItems(top, onDelete: { glass.pendingDelete = $0 }) }
-            // v3.9.20：卡片即 zoom 源（≥2 条点开「全部备忘」时从这张卡放大展开）
-            .matchedTransitionSource(id: "memo-all", in: memoZoomNS)
             .accessibilityLabel(store.sorted.count == 1
                                 ? "备忘录，1 条，点开查看"
                                 : "备忘录，共 \(store.sorted.count) 条，点开查看全部")
