@@ -128,49 +128,49 @@ struct MessageBlockView: View {
         Button {
             onCopy()
         } label: {
-            Label { Text("复制") } icon: { Image(uiImage: MenuIconTile.glyph("doc.on.doc", .blue)) }
+            Label { Text("复制") } icon: { Image(uiImage: MenuIconTile.small("doc.on.doc", .blue)) }
         }
         Button {
             onQuote()
         } label: {
-            Label { Text("引用") } icon: { Image(uiImage: MenuIconTile.glyph("quote.opening", .blue)) }
+            Label { Text("引用") } icon: { Image(uiImage: MenuIconTile.small("quote.opening", .blue)) }
         }
         Button {
             onShare()
         } label: {
-            Label { Text("分享") } icon: { Image(uiImage: MenuIconTile.glyph("square.and.arrow.up", .blue)) }
+            Label { Text("分享") } icon: { Image(uiImage: MenuIconTile.small("square.and.arrow.up", .blue)) }
         }
         // v3.3.0：多选合并转发入口
         Button {
             onMultiSelect()
         } label: {
-            Label { Text("多选") } icon: { Image(uiImage: MenuIconTile.glyph("checkmark.circle", .teal)) }
+            Label { Text("多选") } icon: { Image(uiImage: MenuIconTile.small("checkmark.circle", .teal)) }
         }
         Button {
             onBigBang(blockPlainText)
         } label: {
-            Label { Text("大爆炸") } icon: { Image(uiImage: MenuIconTile.glyph("burst", .teal)) }
+            Label { Text("大爆炸") } icon: { Image(uiImage: MenuIconTile.small("burst", .teal)) }
         }
         // v3.9.86：长回复阅读（半屏 sheet 放大 + 章节大纲）——传当前段落文字
         if let onRead = onRead {
             Button {
                 onRead(blockPlainText)
             } label: {
-                Label { Text("全屏阅读") } icon: { Image(uiImage: MenuIconTile.glyph("text.book.closed", .teal)) }
+                Label { Text("全屏阅读") } icon: { Image(uiImage: MenuIconTile.small("text.book.closed", .teal)) }
             }
         }
         if let onRegenerate {
             Button {
                 onRegenerate()
             } label: {
-                Label { Text("重新生成") } icon: { Image(uiImage: MenuIconTile.glyph("arrow.clockwise", .orange)) }
+                Label { Text("重新生成") } icon: { Image(uiImage: MenuIconTile.small("arrow.clockwise", .orange)) }
             }
         }
         if let onWithdraw {
             Button {
                 onWithdraw()
             } label: {
-                Label { Text("撤回") } icon: { Image(uiImage: MenuIconTile.glyph("arrow.uturn.backward", .orange)) }
+                Label { Text("撤回") } icon: { Image(uiImage: MenuIconTile.small("arrow.uturn.backward", .orange)) }
             }
         }
         // v3.0.74：钉一钉（钉到看板）——传当前段落文字
@@ -178,7 +178,7 @@ struct MessageBlockView: View {
             Button {
                 onPin(blockPlainText)
             } label: {
-                Label { Text("钉一钉") } icon: { Image(uiImage: MenuIconTile.glyph("pin", .indigo)) }
+                Label { Text("钉一钉") } icon: { Image(uiImage: MenuIconTile.small("pin", .indigo)) }
             }
         }
         // v3.7.0：加入备忘录——传当前段落文字
@@ -186,7 +186,7 @@ struct MessageBlockView: View {
             Button {
                 onMemo(blockPlainText)
             } label: {
-                Label { Text("存备忘录") } icon: { Image(uiImage: MenuIconTile.glyph("note.text", .purple)) }
+                Label { Text("存备忘录") } icon: { Image(uiImage: MenuIconTile.small("note.text", .purple)) }
             }
         }
         // v3.9.35：加入待办——传当前段落文字
@@ -194,7 +194,7 @@ struct MessageBlockView: View {
             Button {
                 onTodo(blockPlainText)
             } label: {
-                Label { Text("加入待办") } icon: { Image(uiImage: MenuIconTile.glyph("checklist", .purple)) }
+                Label { Text("加入待办") } icon: { Image(uiImage: MenuIconTile.small("checklist", .purple)) }
             }
         }
         // v4.0.25：存为长期目标——把这段内容直接建成长期目标（首行当标题、后端自动拆步骤）
@@ -202,19 +202,19 @@ struct MessageBlockView: View {
             Button {
                 onGoal(blockPlainText)
             } label: {
-                Label { Text("存为长期目标") } icon: { Image(uiImage: MenuIconTile.glyph("target", .purple)) }
+                Label { Text("存为长期目标") } icon: { Image(uiImage: MenuIconTile.small("target", .purple)) }
             }
         }
         // v3.9.32：提醒我——一句话定时提醒（本地 UNCalendarNotificationTrigger，App 关了也响）
         Button {
             requestRemind()
         } label: {
-            Label { Text("提醒我") } icon: { Image(uiImage: MenuIconTile.glyph("bell.badge", .orange)) }
+            Label { Text("提醒我") } icon: { Image(uiImage: MenuIconTile.small("bell.badge", .orange)) }
         }
         Button(role: .destructive) {
             onDelete()
         } label: {
-            Label { Text("删除") } icon: { Image(uiImage: MenuIconTile.glyph("trash", .red)) }
+            Label { Text("删除") } icon: { Image(uiImage: MenuIconTile.small("trash", .red)) }
         }
     }
 

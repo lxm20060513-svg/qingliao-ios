@@ -30,7 +30,11 @@ final class BrowserLiveCenter: ObservableObject {
     @Published var activeSession: BrowserLiveSession?
 
     /// 从 AI 消息文本解析直播标记：[[browser_live:site|url]]（不用 Regex 字面量，工具链兼容）
-    static func parseMarker(in text: String) -> BrowserLiveSession? {
+    /// 🚨 v4.0.77：**nonisolated** —— 后台落库链（ChatStore.normalizeBrowserLiveMarkers，nonisolated）
+    /// 也要拿它判标记，「@MainActor 类的 static 方法在 nonisolated 里同步调」在 Swift 6 是**编译错**
+    /// （只读审查用最小复现定死；本地 check_swift.sh 只 parse 语法，查不出来，只有 CI Archive 会炸）。
+    /// 纯函数、不碰 @Published 状态 → 从任何线程调都安全。
+    nonisolated static func parseMarker(in text: String) -> BrowserLiveSession? {
         let head = "[[browser_live:"
         guard let h = text.range(of: head) else { return nil }
         // Substring.firstIndex(of:) 只收 Character，"]]"/"|" 这类多字符串必须走 range(of:)

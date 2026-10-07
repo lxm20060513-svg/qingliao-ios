@@ -102,6 +102,11 @@ struct LifeView: View {
                 PageHeader(title: "生活", subtitle: "行情 · 资讯 · 快递 · 价格")
             }
         }
+        // 🚨 v4.0.77：备忘录三个毛玻璃浮层挂**整页最外层**（用户实报「点卡片只在现有卡片大小内弹，
+        // 我要那种全屏弹出那种」）——浮层不能再挂在 MemoSection 那一行里（滚动区内，几何被行限制）。
+        // 这里在滚动区之外、页头之上 → 轻纱盖住整页、面板从屏底长出。开关状态见 MemoGlassPresenter。
+        // 用 AnyView 收类型名（本页与 MemoSection 同属「启动链 demangler」事故家族，别把宿主类型名内联进 body）
+        .overlay { AnyView(MemoGlassLayerHost()) }
         // v3.5.x：生活卡片设置页（股票 / 资讯 / 快递）
         .background(lifeCold1())
         .background(lifeCold2())

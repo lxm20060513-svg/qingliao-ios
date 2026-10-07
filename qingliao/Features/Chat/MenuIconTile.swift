@@ -8,11 +8,13 @@
 //     （UIAction(image:) 认这个开关，见 ql-ui 记录里的 exchangetuts 实测）。
 //     所以这里在本地把「圆角色块 + 白符号」画成一张位图交给系统。
 //
-//  两档渲染：
+//  三档渲染（v4.0.77 起）：
 //   · tile(...)  —— 26pt 圆角色块（r=8）+ 15pt 白符号。给 UIKit 菜单用（SelectableTextLabel 的气泡菜单）。
-//   · glyph(...) —— 只有彩色符号、底色透明。给 SwiftUI 的 `.contextMenu`（代码块/表格块）用：
-//                  iOS 的 SwiftUI contextMenu 对自定义位图染色不可控（社区实测 iOS/macOS 行为不一致），
-//                  这一档万一被当 template 染色，退化成「单色符号」＝ 与改动前一模一样，绝不会出现黑方块。
+//   · small(...) —— **20pt 缩小版**圆角色块（r=6）+ 11.5pt 白符号。给 SwiftUI `.contextMenu` 用：
+//                  用户 2026-10-08 口径「长按 AI 输出气泡弹出的菜单，每个功能图标采用缩小版的圆角图标，
+//                  而不是现在这种简洁风格图标」——原先那一档是 glyph（只有彩色符号、无底色块）。
+//   · glyph(...) —— 只有彩色符号、底色透明。留给「不要色块」的 SwiftUI 菜单兜底：被 template 染色
+//                  也只是退化成单色符号（与改动前一模一样），绝不会出现黑方块。
 //
 //  颜色用**固定色值**（不用 systemBlue 这类动态色）：位图是烘死的，动态色会在深色/浅色下被烘成同一份，
 //  而固定色在两种菜单底色上都成立，也就不必关心烘焙时的 trait。
@@ -45,6 +47,12 @@ enum MenuIconTile {
     private static let side: CGFloat = 26
     private static let corner: CGFloat = 8
     private static let glyphPoint: CGFloat = 15
+    /// v4.0.77：**缩小版**参数（SwiftUI 长按气泡菜单用）
+    private static let smallSide: CGFloat = 20
+    private static let smallCorner: CGFloat = 6
+    private static let smallGlyphPoint: CGFloat = 11.5
+    /// 缩小版符号的 alpha —— 见 `small(...)` 注释里的「染色兜底」
+    private static let smallGlyphAlpha: CGFloat = 0.8
 
     /// 彩色圆角块 + 白符号（UIKit 菜单项用）
     static func tile(_ symbol: String, _ tint: MenuIconTint) -> UIImage? {
@@ -59,6 +67,35 @@ enum MenuIconTile {
             ctx.cgContext.setFillColor(color.cgColor)
             ctx.cgContext.fill(rect)
             drawGlyph(symbol, in: rect, color: .white)
+        }
+        return image.withRenderingMode(.alwaysOriginal)
+    }
+
+    /// v4.0.77：**缩小版圆角图标**（20pt 色块，r=6，11.5pt 白符号）——长按 AI 气泡菜单用。
+    /// 用户口径：「每个功能图标采用缩小版的圆角图标，而不是现在这种简洁风格图标」
+    /// （此前那一档是 `glyph`＝只有彩色符号、没有色块，看着比 UIKit 菜单里的圆角色块「简」一档）。
+    ///
+    /// 为什么符号用 0.8 alpha 而不是纯白：SwiftUI 的 `.contextMenu` 对位图染色行为不稳定
+    /// （见文件头说明）。原样渲染时 0.8 白叠在饱和色块上肉眼与纯白无异；**万一**被当 template 染色，
+    /// 色块变成菜单文字色，但符号仍留 0.2 的 alpha 差 → 还能看清符号，不会退化成「一个空方块」。
+    static func small(_ symbol: String, _ tint: MenuIconTint) -> UIImage {
+        let color = tint.uiColor
+        let rect = CGRect(origin: .zero, size: CGSize(width: smallSide, height: smallSide))
+        let image = UIGraphicsImageRenderer(size: rect.size).image { ctx in
+            ctx.cgContext.addPath(CGPath(roundedRect: rect, cornerWidth: smallCorner, cornerHeight: smallCorner, transform: nil))
+            ctx.cgContext.clip()
+            ctx.cgContext.setFillColor(color.cgColor)
+            ctx.cgContext.fill(rect)
+            guard let glyph = UIImage(systemName: symbol,
+                                      withConfiguration: UIImage.SymbolConfiguration(pointSize: smallGlyphPoint,
+                                                                                     weight: .semibold))?
+                .withTintColor(UIColor.white.withAlphaComponent(smallGlyphAlpha), renderingMode: .alwaysOriginal)
+            else { return }
+            let size = glyph.size
+            glyph.draw(in: CGRect(x: rect.midX - size.width / 2,
+                                  y: rect.midY - size.height / 2,
+                                  width: size.width,
+                                  height: size.height))
         }
         return image.withRenderingMode(.alwaysOriginal)
     }

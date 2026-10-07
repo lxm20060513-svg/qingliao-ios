@@ -99,43 +99,8 @@ struct TaskCenterView: View {
                     }
                 }
             }
-            // v4.0.76：任务操作改**锚定浮层**（从被点行位置弹出、点空白收回；原居中 confirmationDialog）
-            .overlay {
-                if let item = actionItem {
-                    // 兜底：行 frame 未量到（极端滚动时序）时弹屏幕中下，不弹左上角
-                    let fallback = CGRect(x: UIScreen.main.bounds.midX - 90, y: UIScreen.main.bounds.height * 0.55,
-                                          width: 180, height: 44)
-                    AnchorMenuOverlay(anchorFrame: rowFrames[item.id] ?? fallback,
-                                      items: [
-                                          AnchorMenuItem(id: "copy", title: "复制内容", icon: "doc.on.doc", color: .blue),
-                                          AnchorMenuItem(id: "toggle", title: item.completed ? "标记为未完成" : "标记完成",
-                                                         icon: item.completed ? "circle" : "checkmark.circle", color: .orange),
-                                          AnchorMenuItem(id: "send", title: "发送到当前会话", icon: "paperplane.fill", color: .indigo),
-                                          AnchorMenuItem(id: "detail", title: "查看详情", icon: "info.circle", color: .teal),
-                                      ],
-                                      title: "任务操作",
-                                      onPick: { m in
-                                          actionItem = nil
-                                          switch m.id {
-                                          case "copy":
-                                              UIPasteboard.general.string = item.text
-                                          case "toggle":
-                                              store.setCompleted(item.id, !item.completed)
-                                          case "send":
-                                              sendToCurrentSession(item)
-                                          case "detail":
-                                              // v3.9.32：先收菜单再开 alert（同帧 present 会被吞，0.3s 错峰沿用）
-                                              Task {
-                                                  try? await Task.sleep(for: .seconds(0.3))
-                                                  detailItem = item
-                                              }
-                                          default:
-                                              break
-                                          }
-                                      },
-                                      onClose: { actionItem = nil })
-                }
-            }
+            // 🚨 v4.0.77：任务操作浮层**挪到 NavigationStack 之外**（原挂在内容 VStack 上：轻纱只罩住
+            // 内容区、导航栏在罩外，与聊天/看板两处锚定菜单口径不一致）。见 taskActionMenuLayer。
             // v3.9.32：任务详情
             .alert("任务详情", isPresented: Binding(get: { detailItem != nil }, set: { if !$0 { detailItem = nil } })) {
                 Button("复制内容") {
@@ -148,6 +113,47 @@ struct TaskCenterView: View {
                     Text(taskDetailText(it))
                 }
             }
+        }
+        // 🚨 v4.0.77：锚定菜单浮层挂 NavigationStack **之外**（整页最外层）——轻纱盖住导航栏，四个调用点同口径。
+        .overlay { taskActionMenuLayer }
+    }
+
+    /// v4.0.77：任务操作锚定菜单（胶囊规格见 AnchorMenuOverlay；挂载点见 body 最外层）。
+    @ViewBuilder
+    private var taskActionMenuLayer: some View {
+        if let item = actionItem {
+            // 兜底：行 frame 未量到（极端滚动时序）时弹屏幕中下，不弹左上角
+            let fallback = CGRect(x: UIScreen.main.bounds.midX - 90, y: UIScreen.main.bounds.height * 0.55,
+                                  width: 180, height: 44)
+            AnchorMenuOverlay(anchorFrame: rowFrames[item.id] ?? fallback,
+                              items: [
+                                  AnchorMenuItem(id: "copy", title: "复制内容", icon: "doc.on.doc", color: .blue),
+                                  AnchorMenuItem(id: "toggle", title: item.completed ? "标记为未完成" : "标记完成",
+                                                 icon: item.completed ? "circle" : "checkmark.circle", color: .orange),
+                                  AnchorMenuItem(id: "send", title: "发送到当前会话", icon: "paperplane.fill", color: .indigo),
+                                  AnchorMenuItem(id: "detail", title: "查看详情", icon: "info.circle", color: .teal),
+                              ],
+                              title: "任务操作",
+                              onPick: { m in
+                                  actionItem = nil
+                                  switch m.id {
+                                  case "copy":
+                                      UIPasteboard.general.string = item.text
+                                  case "toggle":
+                                      store.setCompleted(item.id, !item.completed)
+                                  case "send":
+                                      sendToCurrentSession(item)
+                                  case "detail":
+                                      // v3.9.32：先收菜单再开 alert（同帧 present 会被吞，0.3s 错峰沿用）
+                                      Task {
+                                          try? await Task.sleep(for: .seconds(0.3))
+                                          detailItem = item
+                                      }
+                                  default:
+                                      break
+                                  }
+                              },
+                              onClose: { actionItem = nil })
         }
     }
 

@@ -139,7 +139,12 @@ final class ChatStore {
     private(set) var awayLandedTick = 0
 
     func noteAwayLandedReply(sessionId sid: String, text: String) {
-        awayLandedReplies[sid] = text
+        // v4.0.77：迟到回复同样先归一化（剥直播标记 + 弹卡）—— 4.0.76 把原文塞进账本，
+        // 补回内存后又是一行标记代码（同族根因，见 normalizeBrowserLiveMarkers 注释）。
+        let normalized = Self.normalizeBrowserLiveMarkers(
+            in: ChatMessage(role: "assistant", content: text, timestamp: Date().timeIntervalSince1970 * 1000)
+        )
+        awayLandedReplies[sid] = normalized
         awayLandedTick &+= 1
     }
 
@@ -676,8 +681,12 @@ final class ChatStore {
     private func browserLiveMarkerLanded(_ m: ChatMessage) {
         guard m.role == "assistant",
               let s = BrowserLiveCenter.parseMarker(in: m.content) else { return }
-        // Center 是 @MainActor：从（可能非主线程的）落库路径切回主线程再写
-        Task { @MainActor in BrowserLiveCenter.shared.activeSession = s }
+        // v4.0.77：加**时效闸**（与 normalizeBrowserLiveMarkers 同一判据）—— 免得从服务端恢复的
+        // 老会话里一条旧标记又把早已结束的直播卡弹出来。
+        if ChatStore.isFreshBrowserLiveMarker(m) {
+            // Center 是 @MainActor：从（可能非主线程的）落库路径切回主线程再写
+            Task { @MainActor in BrowserLiveCenter.shared.activeSession = s }
+        }
         // v4.0.75：标记已在气泡里当原文展示过一轮（流式期无法拦截），落库后从正文剥掉，
         // 呈现交给流内直播卡。就地改 + bump 落库，刷新后气泡仍是干净正文。
         if let idx = messages.firstIndex(where: { $0.id == m.id }) {
@@ -689,7 +698,9 @@ final class ChatStore {
     /// v4.0.75：剥掉 [[browser_live:site|url]] 标记（含前后多余空行），正文其余部分原样保留
     /// v4.0.76 审查⑦：不逆向拼串 replace（parseMarker 会 trim site/url，拼回去匹配不到带空格原文），
     /// 直接用 range(of:) 定位起点到 "]]" 终点整段切除，与 parseMarker 同一套定位。
-    static func stripBrowserLiveMarker(_ text: String) -> String {
+    /// v4.0.77：**nonisolated** —— 落库链（appendMessageToOwnedSession）与显示层（气泡/流式）都要用，
+    /// 不能挂在主线程隔离上。
+    nonisolated static func stripBrowserLiveMarker(_ text: String) -> String {
         let head = "[[browser_live:"
         guard let h = text.range(of: head),
               let tail = text[h.upperBound...].range(of: "]]") else { return text }
@@ -697,6 +708,39 @@ final class ChatStore {
         // 标记独占一行时留下空行 → 收敛多空行为单空行
         while out.contains("\n\n\n") { out = out.replacingOccurrences(of: "\n\n\n", with: "\n\n") }
         return out.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// v4.0.77：带**便宜门控**的剥除 —— 显示层每个气泡、流式每一帧都会问一次，
+    /// 先 contains（O(n) 但极快、无分配）挡掉绝大多数消息，再动字符串。
+    nonisolated static func strippingBrowserLiveMarker(_ text: String) -> String {
+        guard text.contains("[[browser_live:") else { return text }
+        return stripBrowserLiveMarker(text)
+    }
+
+    /// v4.0.77：这个标记还「新鲜」到值得弹直播卡吗（10 分钟闸）。
+    /// 直播只活约 5 分钟（watch 侧自动结束），历史消息里的旧标记不该再弹卡 ——
+    /// 否则一开老会话就冒出一张早就结束的直播卡，还得等它 404 一轮才消失。
+    /// 无时间戳按新鲜处理（落库/移交/补回三条路都是刚落地，时间戳必在）。
+    nonisolated static func isFreshBrowserLiveMarker(_ m: ChatMessage, now: Date = Date()) -> Bool {
+        guard let ts = m.timestamp else { return true }
+        return now.timeIntervalSince1970 * 1000 - ts < 600_000
+    }
+
+    /// 🚨 v4.0.77（用户实报「卡片不显示，显示一串代码」的**根因收口**）：
+    /// 4.0.76 只在 `upsertAssistant` 的两个插入分支做「剥标记 + 弹卡」，而 AI 回复还有两条落地路
+    /// 绕过了它 —— **移交后台落库**（BackgroundStreamRunner → appendMessageToOwnedSession，直写服务端）
+    /// 与 **迟到回复补回**（noteAwayLandedReply → patchAwayLanded）。这两条路上标记原样进正文/进服务端，
+    /// 重开会话从服务端拉回来就是一行 `[[browser_live:site|url]]`，直播卡也不出。
+    /// 现在把归一化做成**任何落地点都过一遍**的纯函数：剥正文（永远）+ 弹卡（仅新鲜时）。
+    /// nonisolated：弹卡内部自己切主线程（Center 是 @MainActor）。
+    nonisolated static func normalizeBrowserLiveMarkers(in msg: ChatMessage) -> String {
+        guard msg.role == "assistant" else { return msg.content }
+        let clean = strippingBrowserLiveMarker(msg.content)   // 无标记 → 原样返回，零改动
+        guard clean != msg.content else { return msg.content }
+        if isFreshBrowserLiveMarker(msg), let sess = BrowserLiveCenter.parseMarker(in: msg.content) {
+            Task { @MainActor in BrowserLiveCenter.shared.activeSession = sess }
+        }
+        return clean
     }
 
     /// v4.0.25 确认制：本条回复真落库后，把其中的待办候选挂账（等用户在确认卡上勾选加入）。
@@ -955,6 +999,13 @@ final class ChatStore {
             await prev.value   // 等前一个写完成（FIFO）
             guard let self,
                   let snap = await self.fetchSessionSnapshot(sessionId: sid, auth: auth) else { return .targetMissing }
+            // v4.0.77：写服务端**之前**做直播标记归一化（剥正文 + 按时效弹卡）。本函数是「移交后台」
+            // 回复的唯一落库口，4.0.76 漏在这里 → 标记被永久写进服务端，之后怎么拉都是那行代码
+            // （用户实报「卡片不显示，显示一串代码」）。归一化用局部遮蔽改**同一个 msg**：
+            // 下面那道链内复检与 msgs.append 读的仍是同一份文本 —— 别把归一化挪到「复检之后、append 之前」，
+            // 那会破坏 2026-10-05 双投事故立下的「判定数据 = 写入数据」口径（pushdedup 真值表 ②/⑧ 钉着）。
+            var msg = msg
+            msg.content = Self.normalizeBrowserLiveMarkers(in: msg)
             // 🚨 链内复检：判定与写入必须用**同一份**数据（见函数头注释，2026-10-05 双投事故）
             if Self.isAlreadyInSession(msg.content, in: snap.messages, dedup: dedup) { return .duplicate }
             var msgs = snap.messages
@@ -1053,7 +1104,9 @@ final class ChatStore {
 
     /// 查重用的规范化：剥掉截断省略号 `…` + 压掉全部空白差异（换行/多空格 → 单空格）
     private static func normalizeForDedup(_ s: String) -> String {
-        s.replacingOccurrences(of: "…", with: "")
+        // v4.0.77：两侧都剥掉直播标记 —— 落库侧存的是剥过标记的文本（见 appendMessageToOwnedSession），
+        // 若比的是带标记的原文，同一条回复会被判成「不同」→ 双投。
+        strippingBrowserLiveMarker(s).replacingOccurrences(of: "…", with: "")
             .split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
     }
 

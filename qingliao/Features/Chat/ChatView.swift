@@ -1005,6 +1005,40 @@ struct ChatView: View {
         // 挂在整页最底层（垫在所有 coldChrome 之下，消息区/输入区都透出彩底）；
         // 纯视觉层：不改布局、不拦手势（GlowBlob 全部 allowsHitTesting(false)）。
         .background(EnvironmentGlowLayers(scheme: colorSchemeEnv))
+        // 🚨 v4.0.77：锚定弹出菜单挂在**整页最外层**（用户实报「三点菜单落到聊天内容页下面去了」）。
+        // 这里是最外圈 —— 浮层压在消息列表/输入栏之上；锚点坐标是 .global，浮层自身满屏 → 换算即恒等。
+        .overlay { chatAnchorMenuLayer }
+    }
+
+    /// v4.0.77：聊天页的两个锚定菜单浮层（三点操作菜单 / 思考档位）。
+    /// 两者互斥（各自按钮点开时另一个必已被收起），同挂一处便于与其它页「对齐」——四个调用点
+    /// 都用同一个 AnchorMenuOverlay（胶囊规格见该文件），这里只管挂载层级。
+    @ViewBuilder
+    private var chatAnchorMenuLayer: some View {
+        // 思考档位：从输入栏档位胶囊处弹出、点空白收回
+        if showReasoningPicker {
+            AnchorMenuOverlay(anchorFrame: reasoningAnchor,
+                              items: ReasoningLevel.allCases.map { lv in
+                                  AnchorMenuItem(id: lv.rawValue,
+                                                 title: "\(lv == reasoningLevel ? "✓ " : "")\(lv.title) · \(lv.detail)",
+                                                 icon: lv.symbol,
+                                                 color: lv == reasoningLevel ? .accentColor : .primary)
+                              },
+                              title: "模型思考档位",
+                              onPick: { item in
+                                  reasoningLevelRaw = item.id
+                                  showReasoningPicker = false
+                              },
+                              onClose: { showReasoningPicker = false })
+        }
+        // 聊天操作菜单：从三点按钮处弹出、点空白收回
+        if showMoreMenu {
+            AnchorMenuOverlay(anchorFrame: moreMenuAnchor,
+                              items: chatActionMenuItems,
+                              title: "上下文：约 \(chat.contextInfo.tokens) tokens · \(chat.contextInfo.count) 条",
+                              onPick: { handleChatActionMenuPick($0) },
+                              onClose: { showMoreMenu = false })
+        }
     }
 
     /// v4.0.51c：行为型深层修饰器下沉背景层（.background 不影响布局）
@@ -1159,6 +1193,12 @@ struct ChatView: View {
         // 收起时只清本地镜像，Center 源由宿主 onClose 回调统一清（防重建重弹）。
         .onReceive(BrowserLiveCenter.shared.$activeSession) { s in
             if let s { browserLiveSession = s }
+        }
+        // 🚨 v4.0.77：首帧**补一次同步** —— 直播卡可能在聊天页不在前台时激活（移交后台的回复落地、
+        // 推消息注入），那次发布本页可能没收到（或收到后视图重建又清掉）→ 回到聊天页只见正文不见卡。
+        // 读一次 Center 源即可；源与镜像是同一份，不会覆盖刚手动发起的会话。
+        .onAppear {
+            if let s = BrowserLiveCenter.shared.activeSession { browserLiveSession = s }
         }
     }
 
@@ -1456,34 +1496,10 @@ struct ChatView: View {
         .onChange(of: thisSessionStreaming) { was, now in
             if was && !now { petCelebrate += 1 }
         }
-        // v4.0.76：思考档位改**锚定浮层**（从输入栏档位胶囊处弹出、点空白收回；原居中 confirmationDialog）
-        .overlay {
-            if showReasoningPicker {
-                AnchorMenuOverlay(anchorFrame: reasoningAnchor,
-                                  items: ReasoningLevel.allCases.map { lv in
-                                      AnchorMenuItem(id: lv.rawValue,
-                                                     title: "\(lv == reasoningLevel ? "✓ " : "")\(lv.title) · \(lv.detail)",
-                                                     icon: lv.symbol,
-                                                     color: lv == reasoningLevel ? .accentColor : .primary)
-                                  },
-                                  title: "模型思考档位",
-                                  onPick: { item in
-                                      reasoningLevelRaw = item.id
-                                      showReasoningPicker = false
-                                  },
-                                  onClose: { showReasoningPicker = false })
-            }
-        }
-        // v4.0.76：聊天操作菜单改**锚定浮层**（从三点按钮处弹出、点空白收回；原居中 confirmationDialog）
-        .overlay {
-            if showMoreMenu {
-                AnchorMenuOverlay(anchorFrame: moreMenuAnchor,
-                                  items: chatActionMenuItems,
-                                  title: "上下文：约 \(chat.contextInfo.tokens) tokens · \(chat.contextInfo.count) 条",
-                                  onPick: { handleChatActionMenuPick($0) },
-                                  onClose: { showMoreMenu = false })
-            }
-        }
+        // 🚨 v4.0.77（用户实报「三点菜单弹出落到聊天内容页下面去了」）：两个锚定浮层**从 header 挪走**。
+        // 原来挂在本 header 上 —— header 是 body 那个 VStack 的**第一行**，`.overlay` 的层序跟同级兄弟一致：
+        // 后画的兄弟（消息列表 / 输入栏）压在上面 → 菜单被聊天内容盖住。
+        // 现在统一挂到整页最外层（chatBodyChrome7 的 .overlay，见 chatAnchorMenuLayer）。
         // v3.4.24：任务中心全屏页（header 三个点旁的常驻入口）
         .fullScreenCover(isPresented: $showTaskCenter) {
             TaskCenterView()

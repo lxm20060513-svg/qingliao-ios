@@ -14,6 +14,7 @@
 //   · 宽度：`.frame(maxWidth: .infinity)` 铺满内容区（左右各 14pt 页边距与其它卡齐平）
 //   · 只有 1 条时点卡片直接进详情（列表页是多余的一跳）；≥2 条才走「全部备忘」列表
 import SwiftUI
+import Observation   // v4.0.77：浮层状态提到页级单例（@Observable）
 
 // MARK: - v3.9.33 页级单卡几何（对齐「生活数据」卡片，真机微调只改这一处）
 
@@ -33,18 +34,12 @@ enum MemoCardMetrics {   // v3.9.35：private 去掉——TodoSection 复用同�
 
 struct MemoSection: View {
     @State private var store = MemoStore.shared
-    @State private var showAdd = false
-    @State private var showAll = false
+    /// v4.0.77：三个浮层的开关（全部列表 / 详情 / 新建）**提到页级单例**——
+    /// 浮层本体不再挂在本 section 自己的 ZStack 里（本 section 只是生活页滚动区的一行，
+    /// 浮层会被限制在卡片那一行的几何里）。详见 MemoGlassPresenter / MemoGlassLayerHost 顶部注释。
+    private var glass = MemoGlassPresenter.shared
     /// v3.9.20：卡片 → 「全部备忘」列表的原生 zoom 转场（同看板卡片 / 资讯→大爆炸那套）
     @Namespace private var memoZoomNS
-    /// 新建弹窗的会话序号：每次打开自增，配合 `.id(addSession)` 强制换新实例（见 addSheet 注释）
-    @State private var addSession = 0
-    @State private var detail: MemoItem?
-    @State private var pendingDelete: MemoItem?
-    /// v3.9.38：列表内左滑删除的二次确认（确认框挂在弹窗内部——宿主那个会在 sheet 之上被盖住）
-    @State private var pendingDeleteInList: MemoItem?
-    /// v3.9.110：「全部备忘」弹窗顶栏「清空」胶囊的二次确认（同上，挂在弹窗内部）
-    @State private var confirmClearAll = false
 
     var body: some View {
         ZStack {
@@ -58,51 +53,16 @@ struct MemoSection: View {
                 }
             }
             .modifier(MemoSectionBodyChrome(host: self))
-            // v4.0.76：三个弹窗改毛玻璃浮层后，sheet 链只剩宿主删除确认一条（挂这里）
-            .modifier(MemoSectionBodySheets(host: self))
+            // 🚨 v4.0.77 只读审查（中）：删除确认框**跟着浮层上收到页级宿主**了
+            // （原来挂在这一行上 → 行被 LazyVStack 回收时「点了删除没反应」）→ 见 MemoGlassLayerHost。
 
-            // v4.0.76 毛玻璃浮层组（原三条 sheet 全部改自绘浮层，规格见 MemoGlassOverlay）：
-            // 层序：全部列表 < 详情（从列表进详情时盖在列表上）< 新建。互斥由原「同宿主只能 present
-            // 一个」的既有约束自然保持（openCard/openDetailFromAll 都是先收再开）。
-            if showAll {
-                MemoGlassOverlay(isPresented: $showAll) {
-                    MemoAllListBody(
-                        store: store,
-                        onDone: { showAll = false },
-                        onClear: { },   // v4.0.76 审查⑤：触发改由 MemoAllListBody 内部 listConfirmClear 直接驱动（MiniCapsule「清空」处）
-                        onOpenDetail: { openDetailFromAll($0) },
-                        onDeleteInList: { pendingDeleteInList = $0 },
-                        onConfirmClear: {
-                            store.removeAll()
-                            showAll = false
-                            Haptics.success()
-                        },
-                        menuFor: { m, del, snd in
-                            AnyView(memoMenuItems(m, onDelete: del, onSend: snd))
-                        },
-                        onSendToAI: { sendToAI($0) }
-                    )
-                }
-            }
-            if let m = detail {
-                MemoGlassOverlay(isPresented: Binding(
-                    get: { detail != nil },
-                    set: { if !$0 { detail = nil } }
-                )) {
-                    MemoDetailSheet(item: m, onDelete: { item in
-                        detail = nil
-                        Task { @MainActor in
-                            try? await Task.sleep(for: .milliseconds(350))
-                            pendingDelete = item
-                        }
-                    }, onDismiss: { detail = nil })
-                }
-            }
-            if showAdd {
-                MemoGlassOverlay(isPresented: $showAdd) {
-                    addSheet.id(addSession)
-                }
-            }
+            // 🚨 v4.0.77：三个毛玻璃浮层**搬出本 section**（用户实报「备忘录卡片现在点击只在现有
+            // 卡片大小内弹，我是要那种全屏弹出那种」）——本 section 只是生活页滚动区（LifeView 的
+            // LazyVStack）里的**一行**，浮层挂在这里 → 几何被限制在这一行里：轻纱只盖住卡片那一条、
+            // 面板贴着卡片边缘长出、列表一滚浮层跟着跑。
+            // 现在：开关在 MemoGlassPresenter（页级单例，本 section 只改状态），
+            //      浮层本体由 MemoGlassLayerHost 渲染、挂在 **LifeView body 最外层**（真正的全屏层）。
+            //      ↓ 见本文件底部 MemoGlassPresenter / MemoGlassLayerHost
         }
     }
 
@@ -134,8 +94,8 @@ struct MemoSection: View {
     /// 页级标题行与空态引导卡共用这一个入口（正文改由 LifeNoteComposeSheet 自己的 @State 持有，
     /// 靠 addSession 换实例保证每次空白）
     private func startAdd() {
-        addSession += 1
-        showAdd = true
+        glass.addSession += 1
+        glass.showAdd = true
     }
 
     // MARK: 单卡（v3.9.33：页面上只有这一张卡——原 2 层错位卡边整块删除）
@@ -149,7 +109,7 @@ struct MemoSection: View {
                 MemoNoteCard(item: top, compact: true)
             }
             .buttonStyle(PressStyle())
-            .contextMenu { memoMenuItems(top, onDelete: { pendingDelete = $0 }) }
+            .contextMenu { memoMenuItems(top, onDelete: { glass.pendingDelete = $0 }) }
             // v3.9.20：卡片即 zoom 源（≥2 条点开「全部备忘」时从这张卡放大展开）
             .matchedTransitionSource(id: "memo-all", in: memoZoomNS)
             .accessibilityLabel(store.sorted.count == 1
@@ -163,9 +123,9 @@ struct MemoSection: View {
     ///（原因见 openDetailFromAll 的长注释），所以这里必须二选一，绝不能两个都置真。
     private func openCard() {
         if store.sorted.count == 1, let only = store.sorted.first {
-            detail = only
+            glass.detail = only
         } else {
-            showAll = true
+            glass.showAll = true
         }
     }
 
@@ -178,10 +138,10 @@ struct MemoSection: View {
     /// （v4.0.76 起浮层是同 ZStack 的层序关系，不再有 sheet 的 present 竞争；
     /// 但保留 500ms 缓冲让列表收起动画播完，观感与老路径一致）
     private func afterAllDismissed(_ action: @escaping () -> Void) {
-        showAll = false
+        glass.showAll = false
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(500))
-            guard !showAll else { return }   // 期间用户又点开了列表 → 放弃这次动作
+            guard !glass.showAll else { return }   // 期间用户又点开了列表 → 放弃这次动作
             action()
         }
     }
@@ -196,68 +156,204 @@ struct MemoSection: View {
     /// 若日后仍想要那个转场，正确做法是把 detail 这个 sheet **挂到 allSheet 的内容视图内部**（分层宿主），
     /// 而不是让两个 sheet 共用一个宿主。
     private func openDetailFromAll(_ m: MemoItem) {
-        afterAllDismissed { detail = m }
+        afterAllDismissed { glass.detail = m }
     }
 
     // MARK: 长按菜单（卡片 / 列表两处共用）
 
     /// v3.9.17：带回调——「全部备忘」列表里触发的删除/发消息必须先收掉 sheet（同帧 present 会丢），
     /// 卡片上的长按则直接执行
+    /// v4.0.77：菜单项内容提到**文件级**（memoCardMenuItems）——页级浮层宿主也要用同一套，
+    /// 这里只做转发。⚠️ 名字必须与文件级那个不同，否则就是自己调自己（无限递归）。
     @ViewBuilder
     private func memoMenuItems(_ m: MemoItem,
                                onDelete: @escaping (MemoItem) -> Void,
                                onSend: ((MemoItem) -> Void)? = nil) -> some View {
-        Button {
-            store.togglePin(m)
-            Haptics.success()
-        } label: {
-            Label(m.pinned ? "取消置顶" : "置顶", systemImage: m.pinned ? "pin.slash" : "pin")
-        }
-        Button {
-            if let onSend { onSend(m) } else { sendToAI(m) }
-        } label: {
-            Label("发给 AI", systemImage: "paperplane")
-        }
-        Button {
-            UIPasteboard.general.string = m.content
-            Haptics.success()
-        } label: {
-            Label("复制", systemImage: "doc.on.doc")
-        }
-        Button(role: .destructive) {
-            onDelete(m)
-        } label: {
-            Label("删除", systemImage: "trash")
-        }
+        memoCardMenuItems(m, onDelete: onDelete, onSend: onSend)
     }
 
-    /// v3.9.14：把备忘内容作为一条用户消息发给 AI，并切回聊天页。
-    /// 备忘存下来只能复制粘贴没意义——能直接接着办才是轻聊备忘录区别于系统备忘录的地方。
-    private func sendToAI(_ m: MemoItem) {
-        NotificationCenter.default.post(name: .qingliaoMemoSend, object: m.content)
-        Haptics.success()
-    }
+    /// v3.9.14：把备忘内容作为一条用户消息发给 AI，并切回聊天页（转发到文件级 memoSendToAI）。
+    private func sendToAI(_ m: MemoItem) { memoSendToAI(m) }
 
     // MARK: 新增
 
-    /// 外壳已收进 LifeNoteComposeSheet（工作线 B：与待办那份同款），只差占位符与标题。
-    /// v4.0.76：原 sheet 外壳由毛玻璃浮层替代——LifeNoteComposeSheet 自带的系统弹窗底
-    /// （若其内部有 presentationDetents 等）不再适用，直接用它内容主体。
-    @ViewBuilder
-    private var addSheet: some View {
-        LifeNoteComposeSheet(
-            title: "新建备忘",
-            placeholder: "写点什么…",
-            onSave: { text in
-                if store.add(content: text, source: "manual") {
-                    Haptics.success()
-                }
-                showAdd = false
-            },
-            onCancel: { showAdd = false },
-            formSheet: false   // v4.0.76：毛玻璃浮层形态（自绘顶栏）
-        )
+    // v4.0.77：原 addSheet（新建浮层的内容）已搬到页级宿主 MemoGlassLayerHost —— 见本文件底部。
+}
+
+// MARK: - v4.0.77 备忘录浮层的「页级宿主」
+//
+// 🚨 为什么单开一个宿主（用户 2026-10-08 实报）：
+//    「备忘录卡片现在点击只在现有卡片大小内弹，我是要那种全屏弹出那种」
+// 4.0.76 把三个毛玻璃浮层挂在 MemoSection 自己的 ZStack 里，而 MemoSection 只是生活页滚动区
+// 里的一行 → 浮层几何被限制在这一行：轻纱只罩住卡片那一条、面板从卡片边缘长出、随列表滚走。
+// 浮层要「全屏」就必须挂在**页面根**、滚动区之外。
+//
+// 做法：三个开关（showAll / detail / showAdd）提到页级单例 MemoGlassPresenter，MemoSection 只改状态；
+// 浮层本体由本 struct 渲染，挂载点 = LifeView body 最外层的 `.overlay`（全屏层）。
+// 视图树内顺序仍是：全部列表 < 详情 < 新建（后开的盖在前面）。
+
+@MainActor
+@Observable
+final class MemoGlassPresenter {
+    static let shared = MemoGlassPresenter()
+
+    /// 「全部备忘」列表浮层
+    var showAll = false
+    /// 「新建备忘」浮层
+    var showAdd = false
+    /// 详情浮层（nil = 不显示）
+    var detail: MemoItem?
+    /// 宿主删除二次确认（浮层内的「删除」先收浮层、错峰 350ms 再置这里 → 由 MemoSection 的
+    /// LifeDeleteConfirm 呈现；alert 是窗口级，盖在浮层之上）
+    var pendingDelete: MemoItem?
+    /// 新建浮层的会话序号：每次打开自增，配合 `.id()` 强制换新实例（保证每次都是空编辑器）
+    var addSession = 0
+
+    private init() {}
+
+    /// 🚨 v4.0.77 只读审查（中）：**宿主销毁时清状态** —— 单例不会随视图树消失，页面被系统回收后
+    /// 重建，开关还是 true → 回到生活页会「莫名又弹着上次那个浮层」。挂在 MemoGlassLayerHost
+    /// 的 .onDisappear 上（宿主与生活页同生共死）。
+    func reset() {
+        showAll = false
+        showAdd = false
+        detail = nil
+        pendingDelete = nil
+        addSession = 0
     }
+}
+
+/// 备忘录浮层的页级宿主（挂 LifeView 根 → 全屏；轻纱盖住整页含页头）
+struct MemoGlassLayerHost: View {
+    private var glass = MemoGlassPresenter.shared
+    private var store = MemoStore.shared
+
+    var body: some View {
+        ZStack {
+            if glass.showAll {
+                MemoGlassOverlay(isPresented: Binding(
+                    get: { glass.showAll },
+                    set: { if !$0 { glass.showAll = false } }
+                )) {
+                    MemoAllListBody(
+                        store: store,
+                        onDone: { glass.showAll = false },
+                        onClear: { },   // v4.0.76 审查⑤：触发由 MemoAllListBody 内部 listConfirmClear 直接驱动（MiniCapsule「清空」处）
+                        onOpenDetail: { openDetailFromAll($0) },
+                        onDeleteInList: { _ in },   // 列表内左滑删除由 MemoAllListBody 自己的确认框管
+                        onConfirmClear: {
+                            store.removeAll()
+                            glass.showAll = false
+                            Haptics.success()
+                        },
+                        menuFor: { m, del, snd in
+                            AnyView(memoCardMenuItems(m, onDelete: del, onSend: snd))
+                        },
+                        onSendToAI: { memoSendToAI($0) }
+                    )
+                }
+            }
+            if let m = glass.detail {
+                MemoGlassOverlay(isPresented: Binding(
+                    get: { glass.detail != nil },
+                    set: { if !$0 { glass.detail = nil } }
+                )) {
+                    MemoDetailSheet(item: m, onDelete: { item in
+                        glass.detail = nil
+                        Task { @MainActor in
+                            try? await Task.sleep(for: .milliseconds(350))
+                            glass.pendingDelete = item
+                        }
+                    }, onDismiss: { glass.detail = nil })
+                }
+            }
+            if glass.showAdd {
+                MemoGlassOverlay(isPresented: Binding(
+                    get: { glass.showAdd },
+                    set: { if !$0 { glass.showAdd = false } }
+                )) {
+                    // 新建浮层内容（原 MemoSection.addSheet）：外壳已收进 LifeNoteComposeSheet，
+                    // 这里只差占位符与标题；每次打开换新实例（.id）→ 打开即空白。
+                    LifeNoteComposeSheet(
+                        title: "新建备忘",
+                        placeholder: "写点什么…",
+                        onSave: { text in
+                            if store.add(content: text, source: "manual") {
+                                Haptics.success()
+                            }
+                            glass.showAdd = false
+                        },
+                        onCancel: { glass.showAdd = false },
+                        formSheet: false   // v4.0.76：毛玻璃浮层形态（自绘顶栏）
+                    )
+                    .id(glass.addSession)
+                }
+            }
+        }
+        // 🚨 v4.0.77 只读审查（中）：宿主销毁即清状态 —— 页面重建后不会「莫名又弹上次那个浮层」
+        // （单例状态不随视图树消失；见 MemoGlassPresenter.reset）
+        .onDisappear { glass.reset() }
+        // 🚨 v4.0.77 只读审查（中）：**删除确认框必须与浮层同宿主**。原来它挂在 MemoSection 那一行
+        // （生活页滚动区里的 LazyVStack 行），而浮层已上收到本宿主 —— 全屏详情里点「删除」要靠一行
+        // 可能被 LazyVStack 回收的视图去弹 alert，行不在时表现为「点了删除没反应」。现在跟着浮层上收。
+        // alert 是窗口级 → 盖在毛玻璃浮层之上（与旧版观感一致）。
+        .modifier(LifeDeleteConfirm(
+            title: "删除这条备忘？",
+            pending: glass.pendingDelete,
+            onCancel: { glass.pendingDelete = nil },
+            onDelete: { store.delete($0) },
+            message: { $0.content.prefix(40).description }
+        ))
+    }
+
+    /// v3.9.17 → v3.9.21 真机回归后定稿：从列表点一条必须**先收列表、等收起动画播完再开详情**
+    /// （同帧直接切会丢弹窗；v4.0.76 起浮层是同 ZStack 层序，仍保留 500ms 缓冲以保持同一观感）。
+    private func openDetailFromAll(_ m: MemoItem) {
+        glass.showAll = false
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(500))
+            guard !glass.showAll else { return }   // 期间用户又点开了列表 → 放弃这次动作
+            glass.detail = m
+        }
+    }
+}
+
+// MARK: - v4.0.77 长按菜单项（卡片 / 全部列表 / 页级浮层三处共用）
+
+/// ⚠️ 名字必须与 `MemoSection.memoMenuItems` 区分（那个只是转发到本函数），否则会自己调自己。
+@ViewBuilder
+private func memoCardMenuItems(_ m: MemoItem,
+                               onDelete: @escaping (MemoItem) -> Void,
+                               onSend: ((MemoItem) -> Void)? = nil) -> some View {
+    Button {
+        MemoStore.shared.togglePin(m)
+        Haptics.success()
+    } label: {
+        Label(m.pinned ? "取消置顶" : "置顶", systemImage: m.pinned ? "pin.slash" : "pin")
+    }
+    Button {
+        if let onSend { onSend(m) } else { memoSendToAI(m) }
+    } label: {
+        Label("发给 AI", systemImage: "paperplane")
+    }
+    Button {
+        UIPasteboard.general.string = m.content
+        Haptics.success()
+    } label: {
+        Label("复制", systemImage: "doc.on.doc")
+    }
+    Button(role: .destructive) {
+        onDelete(m)
+    } label: {
+        Label("删除", systemImage: "trash")
+    }
+}
+
+/// v3.9.14：把备忘内容作为一条用户消息发给 AI，并切回聊天页。
+/// 备忘存下来只能复制粘贴没意义——能直接接着办才是轻聊备忘录区别于系统备忘录的地方。
+private func memoSendToAI(_ m: MemoItem) {
+    NotificationCenter.default.post(name: .qingliaoMemoSend, object: m.content)
+    Haptics.success()
 }
 
 // MARK: - 备忘正文链接识别（点链接跳系统浏览器）
@@ -655,21 +751,6 @@ extension MemoSection {
     }
 
     /// 折叠组 2（1 条修饰器）：宿主删除确认。
-    /// v4.0.76：新建/全部/详情三条 .sheet 已全部改成毛玻璃浮层（见 body 的 ZStack 顶层），
-    /// 这里只剩 LifeDeleteConfirm 一条。原 sheet 链的 onDismiss 复位职责由浮层 Binding 的
-    /// set(false) 分支接管。
-    @MainActor
-    private func applyMemoSectionBodySheets<C: View>(to content: C) -> some View {
-        content
-            .modifier(LifeDeleteConfirm(
-                title: "删除这条备忘？",
-                pending: pendingDelete,
-                onCancel: { pendingDelete = nil },
-                onDelete: { store.delete($0) },
-                message: { $0.content.prefix(40).description }
-            ))
-    }
-
     @MainActor
     private struct MemoSectionBodyChrome: ViewModifier {
         let host: MemoSection
@@ -677,10 +758,4 @@ extension MemoSection {
         func body(content: Content) -> some View { host.applyMemoSectionBodyChrome(to: content) }
     }
 
-    @MainActor
-    private struct MemoSectionBodySheets: ViewModifier {
-        let host: MemoSection
-
-        func body(content: Content) -> some View { host.applyMemoSectionBodySheets(to: content) }
-    }
 }

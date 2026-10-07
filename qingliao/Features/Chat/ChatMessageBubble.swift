@@ -197,7 +197,7 @@ struct MessageBubble: View {
             UIPasteboard.general.string = displayContent   // v3.7.0：与渲染一致（老消息不再复制到进度行）
             Haptics.success()   // v3.4.25：复制成功触感
         } label: {
-            Label { Text("复制") } icon: { Image(uiImage: MenuIconTile.glyph("doc.on.doc", .blue)) }
+            Label { Text("复制") } icon: { Image(uiImage: MenuIconTile.small("doc.on.doc", .blue)) }
         }
         // v3.4.25：AI 回复中的地点一键开地图——从消息文本提取地址/地名，跳苹果地图（通用）；
         // 装了高德则优先高德（国内 POI 更准）。提取不到地址（无中文地名特征）时不显示此项
@@ -205,36 +205,36 @@ struct MessageBubble: View {
             Button {
                 Self.openInMaps(address: addr)
             } label: {
-                Label { Text("在地图中打开「\(addr)」") } icon: { Image(uiImage: MenuIconTile.glyph("mappin.and.ellipse", .teal)) }
+                Label { Text("在地图中打开「\(addr)」") } icon: { Image(uiImage: MenuIconTile.small("mappin.and.ellipse", .teal)) }
             }
         }
         Button {
             onQuote()
         } label: {
-            Label { Text("引用") } icon: { Image(uiImage: MenuIconTile.glyph("quote.opening", .blue)) }
+            Label { Text("引用") } icon: { Image(uiImage: MenuIconTile.small("quote.opening", .blue)) }
         }
         Button {
             onShare()
         } label: {
-            Label { Text("分享") } icon: { Image(uiImage: MenuIconTile.glyph("square.and.arrow.up", .blue)) }
+            Label { Text("分享") } icon: { Image(uiImage: MenuIconTile.small("square.and.arrow.up", .blue)) }
         }
         // v3.3.0：多选合并转发入口（图片/文件卡片长按菜单）
         Button {
             onMultiSelect()
         } label: {
-            Label { Text("多选") } icon: { Image(uiImage: MenuIconTile.glyph("checkmark.circle", .teal)) }
+            Label { Text("多选") } icon: { Image(uiImage: MenuIconTile.small("checkmark.circle", .teal)) }
         }
         Button {
             onBigBang(displayContent)
         } label: {
-            Label { Text("大爆炸") } icon: { Image(uiImage: MenuIconTile.glyph("burst", .teal)) }
+            Label { Text("大爆炸") } icon: { Image(uiImage: MenuIconTile.small("burst", .teal)) }
         }
         // v3.7.0：加入备忘录（整条气泡内容）
         if let onMemo {
             Button {
                 onMemo(displayContent)
             } label: {
-                Label { Text("存备忘录") } icon: { Image(uiImage: MenuIconTile.glyph("note.text", .purple)) }
+                Label { Text("存备忘录") } icon: { Image(uiImage: MenuIconTile.small("note.text", .purple)) }
             }
         }
         // v4.0.25：存为长期目标（整条气泡内容）
@@ -242,7 +242,7 @@ struct MessageBubble: View {
             Button {
                 onGoal(displayContent)
             } label: {
-                Label { Text("存为长期目标") } icon: { Image(uiImage: MenuIconTile.glyph("target", .purple)) }
+                Label { Text("存为长期目标") } icon: { Image(uiImage: MenuIconTile.small("target", .purple)) }
             }
         }
         // v3.9.35：加入待办（整条气泡内容）
@@ -250,7 +250,7 @@ struct MessageBubble: View {
             Button {
                 onTodo(displayContent)
             } label: {
-                Label { Text("加入待办") } icon: { Image(uiImage: MenuIconTile.glyph("checklist", .purple)) }
+                Label { Text("加入待办") } icon: { Image(uiImage: MenuIconTile.small("checklist", .purple)) }
             }
         }
         // v3.9.32：提醒我（整条气泡内容 → 本地定时提醒面板）
@@ -258,27 +258,27 @@ struct MessageBubble: View {
             Button {
                 onRemind(displayContent)
             } label: {
-                Label { Text("提醒我") } icon: { Image(uiImage: MenuIconTile.glyph("bell.badge", .orange)) }
+                Label { Text("提醒我") } icon: { Image(uiImage: MenuIconTile.small("bell.badge", .orange)) }
             }
         }
         if !message.isUser {
             Button {
                 onRegenerate()
             } label: {
-                Label { Text("重新生成") } icon: { Image(uiImage: MenuIconTile.glyph("arrow.clockwise", .orange)) }
+                Label { Text("重新生成") } icon: { Image(uiImage: MenuIconTile.small("arrow.clockwise", .orange)) }
             }
         }
         if canWithdraw {
             Button {
                 onWithdraw()
             } label: {
-                Label { Text("撤回") } icon: { Image(uiImage: MenuIconTile.glyph("arrow.uturn.backward", .orange)) }
+                Label { Text("撤回") } icon: { Image(uiImage: MenuIconTile.small("arrow.uturn.backward", .orange)) }
             }
         }
         Button(role: .destructive) {
             onDelete()
         } label: {
-            Label { Text("删除") } icon: { Image(uiImage: MenuIconTile.glyph("trash", .red)) }
+            Label { Text("删除") } icon: { Image(uiImage: MenuIconTile.small("trash", .red)) }
         }
     }
 
@@ -812,7 +812,15 @@ struct MessageBubble: View {
     /// 流式中不过滤：一是后端 stream_api v3.7.0 起已不再注入进度行，二是流式每帧求值（省一次 O(n) 扫描）。
     private var displayContent: String {
         if message.isUser || streamingText { return message.content }
-        return Self.strippingProgressLines(message.content)
+        // v4.0.77：[[browser_live:…]] 标记的**显示期兜底**（与下面进度行同一个位置、同一个理由）——
+        // 落库侧已归一化（ChatStore.normalizeBrowserLiveMarkers），这一层兜的是「服务端已经存着
+        // 4.0.76 时期被写脏的正文」：标记绝不再以原文形态出现在气泡/复制/大爆炸里。
+        return Self.strippingProgressLines(Self.strippingBrowserLiveMarker(message.content))
+    }
+
+    /// v4.0.77：直播标记的显示期剥除（定位逻辑与 ChatStore 共用，判据只有一份）
+    static func strippingBrowserLiveMarker(_ text: String) -> String {
+        ChatStore.strippingBrowserLiveMarker(text)
     }
 
     /// v3.7.0：剥掉后端 v3.6.1/v3.6.4 注入的进度行（「🔧 工具名…」完成时补「 ✅」「💭 处理中 Ns」）。

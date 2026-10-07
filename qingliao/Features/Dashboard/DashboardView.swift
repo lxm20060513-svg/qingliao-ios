@@ -172,6 +172,8 @@ struct DashboardView: View {
         //   用户 2026-10-07 真机反馈「各个 tab 的渐变背景渲染还有问题」。
         //   纯视觉层：垫在整页最底层，卡片/毛玻璃透出彩底；不改布局、不拦手势。
         .background(EnvironmentGlowLayers(scheme: scheme))
+        // 🚨 v4.0.77：锚定菜单浮层挂**整页最外层**（原挂在「已隐藏 N 个模型服务」行上，层序被后续卡片盖住）。
+        .overlay { dashboardAnchorMenuLayer }
         // v2.0.96b：切回看板立即刷新（对话里生成场景后看板即时联动）
         // v2.0.102：单一刷新入口（.task 首刷+轮询）——修并发双刷/旧响应覆盖
         // v3.4.26：通知 → isActive 参数直传生命周期驱动——
@@ -179,6 +181,29 @@ struct DashboardView: View {
         //   离开 = task 取消（sleep 中断）→ 隐藏页零轮询不抢帧；切回 = task 重启自动首刷（等效原 Refresh 通知）
         .task(id: isActive) {
             await dashboardTask()
+        }
+    }
+
+    // MARK: - v4.0.77 锚定菜单浮层（挂整页最外层）
+
+    /// 恢复已隐藏模型服务 → 锚定浮层（从「已隐藏 N 个模型服务」条处弹出、点空白收回）。
+    /// 由 body 最外层的 `.overlay` 挂载（不能挂在被点那一行上 —— 层序会被后面的卡片盖住）。
+    @ViewBuilder
+    private var dashboardAnchorMenuLayer: some View {
+        if showUsageRestore {
+            AnchorMenuOverlay(
+                anchorFrame: usageRestoreAnchor,
+                items: Array(hiddenUsageProviders).sorted().map { p in
+                    AnchorMenuItem(id: p, title: p, icon: "eye", color: .blue)
+                } + [AnchorMenuItem(id: "__all", title: "恢复全部", icon: "arrow.counterclockwise", color: .orange)],
+                title: "恢复已隐藏的模型服务",
+                onPick: { item in
+                    showUsageRestore = false
+                    if item.id == "__all" { hiddenUsageRaw = "" }
+                    else { unhideUsageProvider(item.id) }
+                },
+                onClose: { showUsageRestore = false }
+            )
         }
     }
 
@@ -1247,24 +1272,9 @@ struct DashboardView: View {
         .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: {
             usageRestoreAnchor = $0
         }
-        // v4.0.76：恢复已隐藏模型服务 → 锚定浮层（从「已隐藏 N 个模型服务」条处弹出、点空白收回）
-        .overlay {
-            if showUsageRestore {
-                AnchorMenuOverlay(
-                    anchorFrame: usageRestoreAnchor,
-                    items: Array(hiddenUsageProviders).sorted().map { p in
-                        AnchorMenuItem(id: p, title: p, icon: "eye", color: .blue)
-                    } + [AnchorMenuItem(id: "__all", title: "恢复全部", icon: "arrow.counterclockwise", color: .orange)],
-                    title: "恢复已隐藏的模型服务",
-                    onPick: { item in
-                        showUsageRestore = false
-                        if item.id == "__all" { hiddenUsageRaw = "" }
-                        else { unhideUsageProvider(item.id) }
-                    },
-                    onClose: { showUsageRestore = false }
-                )
-            }
-        }
+        // 🚨 v4.0.77：恢复菜单浮层**从这里挪到整页最外层**（与聊天页三点菜单同族问题）——
+        // 挂在「已隐藏 N 个模型服务」这一行上时，`.overlay` 的层序跟同级兄弟一致：后面的看板卡片
+        // 压在上面 → 菜单被卡片盖住，轻纱也只罩住一行。见 dashboardAnchorMenuLayer + body 最外层 .overlay。
     }
 
     /// v3.9.40（#15）：栏目 → 视图。

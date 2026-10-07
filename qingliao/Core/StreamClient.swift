@@ -186,7 +186,13 @@ final class StreamClient {
 
     /// UI 渲染应读取的内容——平滑层激活（smoothTask 在跑）时=smoothedContent，
     /// 否则（云端路径/已收尾）=content 全文。兜底永不为空，落库/恢复零影响。
-    var displayContent: String { smoothTask != nil ? smoothedContent : content }
+    var displayContent: String {
+        let raw = smoothTask != nil ? smoothedContent : content
+        // v4.0.77：流式期就把 [[browser_live:…]] 标记挡掉（带 contains 便宜门控）。
+        // 4.0.75/76 只在**落库**时剥，长任务里那行标记会顶在气泡里挂很久 ——
+        // 用户实报「卡片不显示，显示一串代码」的现场就是这行字。
+        return ChatStore.strippingBrowserLiveMarker(raw)
+    }
 
     /// v3.9.39（C）：按 **Unicode 码点**计长度，和后端切片单位对齐。
     ///
