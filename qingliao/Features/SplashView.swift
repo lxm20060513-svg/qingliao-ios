@@ -32,9 +32,10 @@ struct SplashView: View {
                     Image("AboutLogo")
                         .resizable()
                         .scaledToFit()
-                        .frame(width: 132, height: 132)
+                        .frame(width: 96, height: 96)
                         .shadow(color: Color.blue.opacity(0.35), radius: 18, y: 6)
                 }
+                // v4.0.76：logo 整体调小（用户反馈三处统一口径，见 LoginView）
                 .scaleEffect(appeared ? 1 : 0.72)
                 .opacity(appeared ? 1 : 0)
 

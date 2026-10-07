@@ -94,6 +94,8 @@ struct ChatView: View {
     // v3.9.17：AI 生成物 QuickLook 预览的本地文件（下载落临时目录后交给 QuickLook）
     @State var quickLookURL: URL?
     @State var showMoreMenu = false
+    /// v4.0.76：三点菜单锚定弹出——「更多」按钮的全局 frame（AnchorMenuOverlay 弹出位置）
+    @State var moreMenuAnchor: CGRect = .zero
     // v3.9.14：工具进度卡展开状态——生成中强制展开，答完默认收起（用户反馈这几行别一直摊着）
     @State var toolStepsExpanded = false
     // v3.4.24：任务中心全屏页（header 常驻小图标入口，原 DockTabView 全局 overlay 已移除）
@@ -284,6 +286,8 @@ struct ChatView: View {
     /// v3.9.9 收口：用户主动「停止生成」（输入栏 / 灵动岛）→ 本轮不自动朗读（别把残句念一遍）
     @State private var suppressAutoReadOnce = false
     @State private var showReasoningPicker = false
+    /// v4.0.76：思考档位菜单锚定弹出——输入栏「思考档位」胶囊的全局 frame
+    @State private var reasoningAnchor: CGRect = .zero
     /// v4.0.31：header 中央宠物的「回答完成」庆祝触发器（本会话流结束那一刻 +1，v4.0.27 口径回归）
     @State private var petCelebrate = 0
     /// v3.9.48：输入栏展开态右下角的模型快选面板
@@ -487,17 +491,8 @@ struct ChatView: View {
         SpeechManager.shared.speak(text, id: msg.id)
     }
 
-    /// 档位选择内容抽离（避免 Xcode type-check 超时，与 chatActionDialogContent 同理）
-    @ViewBuilder
-    private var reasoningPickerContent: some View {
-        ForEach(ReasoningLevel.allCases) { level in
-            // v3.6.5：当前档位加 ✓ 前缀（弹窗里看不出哪个在生效）
-            Button("\(level == reasoningLevel ? "✓ " : "")\(level.title) · \(level.detail)") {
-                reasoningLevelRaw = level.rawValue
-            }
-        }
-        Button("取消", role: .cancel) {}
-    }
+    // v4.0.76：原 reasoningPickerContent（档位 dialog 内容）已随 confirmationDialog 一并移除——
+    // 档位菜单改锚定浮层，数据直接在 overlay 处从 ReasoningLevel.allCases 映射。
 
     @ViewBuilder
     private var headerTrailingItems: some View {
@@ -518,7 +513,9 @@ struct ChatView: View {
                                  badge: taskStore.uncompleted > 0) {
                 showTaskCenter = true
             },
-            HeaderPillGroup.Item(id: "more", systemName: "ellipsis.circle", a11y: "更多") {
+            HeaderPillGroup.Item(id: "more", systemName: "ellipsis.circle", a11y: "更多",
+                                 anchorOut: { moreMenuAnchor = $0 }) {
+                // v4.0.76：菜单从三点按钮处弹出（锚定浮层替代居中 confirmationDialog）
                 showMoreMenu = true
             },
         ]
@@ -527,17 +524,30 @@ struct ChatView: View {
     /// v3.3.0：confirmationDialog 内容抽离（原内联 Menu+8个Button 过长致 Xcode26
     /// type-check 超时——508行报 "unable to type-check in reasonable time"）。
     /// 抽成独立 @ViewBuilder 属性给 type-checker 更小的表达式单元。
-    @ViewBuilder
-    private var chatActionDialogContent: some View {
-        Button("导出会话记录") {
+    /// v4.0.76：改**数据驱动**（AnchorMenuOverlay 吃 [AnchorMenuItem]）——顺序/文案与原
+    /// dialog 一一对应；「取消」由浮层「点空白收回」取代，不再单列。
+    private var chatActionMenuItems: [AnchorMenuItem] {
+        [
+            AnchorMenuItem(id: "export", title: "导出会话记录", icon: "square.and.arrow.up.on.square", color: .blue),
+            AnchorMenuItem(id: "shareCard", title: "分享会话卡片", icon: "photo.on.rectangle", color: .blue),
+            AnchorMenuItem(id: "multiSelect", title: "多选合并发送", icon: "checkmark.circle", color: .teal),
+            AnchorMenuItem(id: "compress", title: "压缩上下文（保留最近 20 条）", icon: "arrow.down.right.and.arrow.up.left", color: .orange),
+            AnchorMenuItem(id: "summarize", title: "AI 总结会话", icon: "text.badge.starlight", color: .indigo),
+            AnchorMenuItem(id: "toc", title: "章节列表", icon: "list.bullet", color: .teal),
+            AnchorMenuItem(id: "clear", title: "清空本会话消息", icon: "trash", destructive: true),
+        ]
+    }
+
+    /// v4.0.76：锚定菜单动作分发（与原 chatActionDialogContent 各 Button 体逐条等价搬运）
+    private func handleChatActionMenuPick(_ item: AnchorMenuItem) {
+        showMoreMenu = false
+        switch item.id {
+        case "export":
             showExportSheet = true
-        }
-        // v2.0.92：会话分享卡片（渲染精美图片 → 系统分享/微信）
-        Button("分享会话卡片") {
+        case "shareCard":
             shareSessionCard()
-        }
-        // v3.3.0：多选合并发送（勾选多条 → 合并成一张卡片图片 → 系统分享/微信）
-        Button("多选合并发送") {
+        case "multiSelect":
+            // v3.3.0：多选合并发送（勾选多条 → 合并成一张卡片图片 → 系统分享/微信）
             if thisSessionStreaming {   // v3.9.41：本会话在收流才拦（A 在跑不该让 B 不能多选）
                 selectBlocked = true
             } else {
@@ -545,50 +555,52 @@ struct ChatView: View {
                 selectedMsgIDs.removeAll()
                 withAnimation(Motion.snap) { selectMode = true }
             }
-        }
-        // v2.0.43：上下文信息并入 dialog message（不再是空 action 按钮）
-        Button("压缩上下文（保留最近 20 条）") {
+        case "compress":
+            // v2.0.43：上下文信息并入 dialog message（不再是空 action 按钮）
             if chat.compressContext() {
                 Task { await chat.saveToServer(auth: auth) }
             }
-        }
-        // v2.0.116：AI 总结会话（走正常流式，AI 回复要点总结）
-        Button("AI 总结会话") {
+        case "summarize":
+            // v2.0.116：AI 总结会话（走正常流式，AI 回复要点总结）
             summarizeSession()
-        }
-        // v3.0.27：章节列表（纯静态展示，不做滚动导航）
-        Button("章节列表") {
+        case "toc":
+            // v3.0.27：章节列表（纯静态展示，不做滚动导航）
             showTOCSheet = true
+        case "clear":
+            clearMessagesFromMenu()
+        default:
+            break
         }
-        Button("清空本会话消息", role: .destructive) {
-            // v4.0.18：固定会话（投递壳 / 轻聊主动）**允许**清空（用户拍板：这两个会话也要能清）。
-            // 后端配套：投递壳本就走 _CLIENT_WINS_IDS（v3.9.72 内容以客户端为准）；
-            // 主动会话由 merge_sessions 空数组特判采纳（显式清空意图，非空快照仍以 NAS 为准防丢回复）。
-            // 本会话正在收流 → 拦（流式回复结束后的落库写会把刚清空的会话又写满）。
-            if thisSessionStreaming {
-                clearBlockedHint = "AI 正在回复，等回复结束后再清空"
-                return
-            }
-            // v2.0.40：两步走清空——先切欢迎页分支（列表立即卸载，数据未动），
-            // 下一帧再清数据。列表销毁与数据清空完全错开，杜绝同帧崩溃。
-            clearing = true
-            // SR5：原实现在 clearMessages **之前**就 Task{saveToServer}，写的是清空前的全量快照
-            // （后端同 id 整会话覆盖 → 白写），而清空后的空数组又被 writeSessionSnapshot 的
-            // 「空即跳过」护栏挡掉 → NAS 上历史原封不动，重启/换设备后「清空的消息又复活」。
-            // v4.0.15：发空写之前先排空在途写链（防旧快照在空写之后落地盖回）。
-            let sid = chat.sessionId
-            let ttl = chat.title
-            Task {
-                await chat.flushPendingWrites()
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
-                    withAnimation(nil) { chat.clearMessages() }
-                    clearing = false
-                    Task { await chat.saveToServer(auth: auth, sessionId: sid, messages: [],
-                                                   title: ttl, allowEmpty: true) }
-                }
+    }
+
+    /// v4.0.76：「清空本会话消息」动作体（原 chatActionDialogContent 里 destructive Button 的 body）
+    private func clearMessagesFromMenu() {
+        // v4.0.18：固定会话（投递壳 / 轻聊主动）**允许**清空（用户拍板：这两个会话也要能清）。
+        // 后端配套：投递壳本就走 _CLIENT_WINS_IDS（v3.9.72 内容以客户端为准）；
+        // 主动会话由 merge_sessions 空数组特判采纳（显式清空意图，非空快照仍以 NAS 为准防丢回复）。
+        // 本会话正在收流 → 拦（流式回复结束后的落库写会把刚清空的会话又写满）。
+        if thisSessionStreaming {
+            clearBlockedHint = "AI 正在回复，等回复结束后再清空"
+            return
+        }
+        // v2.0.40：两步走清空——先切欢迎页分支（列表立即卸载，数据未动），下一帧再清数据。
+        // 列表销毁与数据清空完全错开，杜绝同帧崩溃。
+        clearing = true
+        // SR5：原实现在 clearMessages **之前**就 Task{saveToServer}，写的是清空前的全量快照
+        // （后端同 id 整会话覆盖 → 白写），而清空后的空数组又被 writeSessionSnapshot 的
+        // 「空即跳过」护栏挡掉 → NAS 上历史原封不动，重启/换设备后「清空的消息又复活」。
+        // v4.0.15：发空写之前先排空在途写链（防旧快照在空写之后落地盖回）。
+        let sid = chat.sessionId
+        let ttl = chat.title
+        Task {
+            await chat.flushPendingWrites()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                withAnimation(nil) { chat.clearMessages() }
+                clearing = false
+                Task { await chat.saveToServer(auth: auth, sessionId: sid, messages: [],
+                                               title: ttl, allowEmpty: true) }
             }
         }
-        Button("取消", role: .cancel) {}
     }
 
     /// v3.3.0：输入区抽离——原 body 内 if selectMode/else(ChatInputBar 17参+多closure) 内联
@@ -596,7 +608,12 @@ struct ChatView: View {
     /// 抽成独立属性给 type-checker 更小的表达式单元。
     @ViewBuilder
     private var inputArea: some View {
-        if chat.isDeliverySession {
+        if selectMode {
+            // v4.0.76：合并操作条**优先于**投递只读提示——多选合并是只读操作（渲染成图分享，
+            // 不往会话写），投递会话里长按「多选」也能正常进（原顺序下进了勾选态却没有
+            // 操作条，卡死无法退出 = 用户报的「无法多选」）。消息列表写入另有 guard 拦着。
+            mergeSelectBar
+        } else if chat.isDeliverySession {
             // v3.9.85：投递会话只读——cron/system 投递详情只收不发（此前输入栏照常可打字，发了也白发）。
             // 不给输入框只压一条提示：用户不会误以为能回复；高度与输入栏对齐(50)避免底部跳动。
             HStack(spacing: 8) {
@@ -612,8 +629,6 @@ struct ChatView: View {
             .padding(.horizontal, Spacing.md)
             .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             .padding(.horizontal, Spacing.md)
-        } else if selectMode {
-            mergeSelectBar
         } else {
             ChatInputBar(text: $inputText,
                      focused: $inputFocus,
@@ -679,6 +694,7 @@ struct ChatView: View {
                     reasoningLevelIcon: reasoningLevel.symbol,
                     reasoningLevelTitle: reasoningLevel.title,
                     onPickReasoning: { showReasoningPicker = true },
+                    onReasoningAnchor: { reasoningAnchor = $0 },   // v4.0.76：锚定菜单锚点
                     // v4.0.36：朗读胶囊同样迁入工具层（紧挨思考档位）——同一套「传展示值 + 回调」
                     // ⚠️ 实参序必须 = ChatInputBar 存储属性声明序（autoReadIcon 声明在 onPickReasoning 之后）
                     autoReadIcon: "speaker.wave.2.fill",
@@ -1125,13 +1141,11 @@ struct ChatView: View {
     }
 
     /// v4.0.51c：行为型深层修饰器下沉背景层（.background 不影响布局）
-    /// v4.0.x：浏览器实时画面（watch 直播）两个 sheet 独立成组（每冷组 ≤4 条修饰器护栏）
+    /// v4.0.75：直播窗从 sheet 改成**消息流内嵌卡**（用户拍板「Muse 那种」选项 2）——
+    /// 这里只剩发起面板（手动入口）一个 sheet；直播卡的呈现/收起都在 messageList 里，
+    /// 由 browserLiveSession 驱动（点 × 置 nil 即收起，轮询随视图销毁自动停）。
     private func chatColdChrome14() -> some View {
         Color.clear
-        // v4.0.x：AI 报浏览器直播标记 → 自动拉起实时画面弹窗
-        .onReceive(BrowserLiveCenter.shared.$activeSession) { s in
-            if let s { browserLiveSession = s }
-        }
         // 发起面板（手动入口）
         .sheet(isPresented: $showBrowserLive) {
             AnyView(BrowserLivePromptView { site, url in
@@ -1141,14 +1155,18 @@ struct ChatView: View {
             .presentationDetents([.medium])
             )
         }
-        // 直播窗：sheet(item:) 单入口（v4.0.74 审查修复——isPresented Binding 版与 prompt sheet
-        // 同链时 marker 同时落下会静默互顶；item 版 SwiftUI 自动排队呈现，无此问题）
-        .sheet(item: $browserLiveSession, onDismiss: {
-            BrowserLiveCenter.shared.activeSession = nil   // 清源，防重建重弹
-        }) { s in
-            AnyView(BrowserLiveView(session: s, auth: auth)
-                .interactiveDismissDisabled())
+        // AI 报直播标记 / 手动发起 → 消息流里的直播卡出现（Center 是源、这里是镜像）。
+        // 收起时只清本地镜像，Center 源由宿主 onClose 回调统一清（防重建重弹）。
+        .onReceive(BrowserLiveCenter.shared.$activeSession) { s in
+            if let s { browserLiveSession = s }
         }
+    }
+
+    /// v4.0.75：收起消息流里的直播卡（点 ×）。镜像与 Center 源一起清，
+    /// 同帧只动状态、不碰轮询——轮询挂在卡视图的 .task 上，视图移除自动取消。
+    private func closeBrowserLive() {
+        browserLiveSession = nil
+        BrowserLiveCenter.shared.activeSession = nil
     }
 
     /// v4.0.51c：行为型深层修饰器下沉背景层（.background 不影响布局）
@@ -1438,13 +1456,33 @@ struct ChatView: View {
         .onChange(of: thisSessionStreaming) { was, now in
             if was && !now { petCelebrate += 1 }
         }
-        .confirmationDialog("模型思考档位", isPresented: $showReasoningPicker, titleVisibility: .visible) {
-            reasoningPickerContent
+        // v4.0.76：思考档位改**锚定浮层**（从输入栏档位胶囊处弹出、点空白收回；原居中 confirmationDialog）
+        .overlay {
+            if showReasoningPicker {
+                AnchorMenuOverlay(anchorFrame: reasoningAnchor,
+                                  items: ReasoningLevel.allCases.map { lv in
+                                      AnchorMenuItem(id: lv.rawValue,
+                                                     title: "\(lv == reasoningLevel ? "✓ " : "")\(lv.title) · \(lv.detail)",
+                                                     icon: lv.symbol,
+                                                     color: lv == reasoningLevel ? .accentColor : .primary)
+                                  },
+                                  title: "模型思考档位",
+                                  onPick: { item in
+                                      reasoningLevelRaw = item.id
+                                      showReasoningPicker = false
+                                  },
+                                  onClose: { showReasoningPicker = false })
+            }
         }
-        .confirmationDialog("聊天操作", isPresented: $showMoreMenu, titleVisibility: .visible) {
-            chatActionDialogContent
-        } message: {
-            Text("上下文：约 \(chat.contextInfo.tokens) tokens · \(chat.contextInfo.count) 条")
+        // v4.0.76：聊天操作菜单改**锚定浮层**（从三点按钮处弹出、点空白收回；原居中 confirmationDialog）
+        .overlay {
+            if showMoreMenu {
+                AnchorMenuOverlay(anchorFrame: moreMenuAnchor,
+                                  items: chatActionMenuItems,
+                                  title: "上下文：约 \(chat.contextInfo.tokens) tokens · \(chat.contextInfo.count) 条",
+                                  onPick: { handleChatActionMenuPick($0) },
+                                  onClose: { showMoreMenu = false })
+            }
         }
         // v3.4.24：任务中心全屏页（header 三个点旁的常驻入口）
         .fullScreenCover(isPresented: $showTaskCenter) {
@@ -3070,6 +3108,11 @@ struct ChatView: View {
                     // messageList 的类型名里（~210 字符）；折后名字里只剩组名。id/transition 仍作用在
                     // 同一个 welcomeView 上（身份真源与浮现过渡语义不变）。
                     .modifier(WelcomeBranchChrome(host: self))
+                    // v4.0.75：空会话（欢迎页态）手动发起直播 → 卡也贴在欢迎页下方，否则「点了没反应」
+                    if let s = browserLiveSession {
+                        BrowserLiveView(session: s, auth: auth, onClose: closeBrowserLive)
+                            .padding(.horizontal, 6)
+                    }
             } else {
             ScrollViewReader { proxy in
                 // v3.9.58c：把 proxy 挂到 @State，供引用块跳转等非 onChange 路径滚动定位。
@@ -3123,6 +3166,11 @@ struct ChatView: View {
                                 streamingBubble
                             }
                         }
+                    }
+                    // v4.0.75：浏览器直播卡（Muse 式）——画面嵌在消息流末尾，聊天照常可打字指挥；
+                    // 点 × 走 closeBrowserLive()（镜像 + Center 源一起清，防 onReceive 重建重弹）。
+                    if let s = browserLiveSession {
+                        BrowserLiveView(session: s, auth: auth, onClose: closeBrowserLive)
                     }
                     // v3.9.27：气泡变长——消息区左右 padding 12→6（气泡 maxWidth 369 联动）
                     // v4.0.48：三条 padding（水平 6 / 上 md / 下 md）合并成一条 —— 类型名少两层，

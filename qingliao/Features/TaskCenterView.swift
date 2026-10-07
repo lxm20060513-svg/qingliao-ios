@@ -11,6 +11,9 @@ struct TaskCenterView: View {
     @State private var store = TaskCenterStore.shared
     @State private var filter: TaskFilter = .all
     @State private var actionItem: TaskCenterItem?
+    /// v4.0.76：每行实时 frame 字典（List 复用行，锚点按任务 id 取）。
+    /// v4.0.76 审查⑧：行 frame 未量到时兜底屏幕中下方，不弹左上角（原死状态 actionAnchor 已删）
+    @State private var rowFrames: [String: CGRect] = [:]
     @State private var detailItem: TaskCenterItem?   // v3.9.32：任务详情（原「查看详情」是个空按钮）
     @State private var sending = false
     // v3.4.23：进行中任务（后端 /api/agent/tasks/active——AI 干活中的流式任务 + 后台作业；v3.4.25 改别名路径过 lucky 反代）
@@ -55,6 +58,9 @@ struct TaskCenterView: View {
                                 ForEach(activeOnlyTasks) { item in
                                     TaskRow(item: item)
                                         .contentShape(Rectangle())
+                                        // v4.0.76：每行实时上报全局 frame（锚定菜单从被点行位置弹出）
+                                        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) }
+                                            action: { rowFrames[item.id] = $0 }
                                         .onTapGesture { actionItem = item }
                                 }
                                 .onDelete { idx in
@@ -93,35 +99,41 @@ struct TaskCenterView: View {
                     }
                 }
             }
-            .confirmationDialog(
-                "任务操作",
-                isPresented: Binding(get: { actionItem != nil }, set: { if !$0 { actionItem = nil } }),
-                titleVisibility: .visible
-            ) {
+            // v4.0.76：任务操作改**锚定浮层**（从被点行位置弹出、点空白收回；原居中 confirmationDialog）
+            .overlay {
                 if let item = actionItem {
-                    Button("复制内容") {
-                        UIPasteboard.general.string = item.text
-                        actionItem = nil
-                    }
-                    Button(item.completed ? "标记为未完成" : "标记完成") {
-                        store.setCompleted(item.id, !item.completed)
-                        actionItem = nil
-                    }
-                    Button("发送到当前会话") {
-                        sendToCurrentSession(item)
-                        actionItem = nil
-                    }
-                    // v3.9.32：查看详情——原为空实现且带破坏性红色样式（点了什么都不发生）。
-                    // 先收 confirmationDialog 再开 alert（同帧 present 会被吞，与删除会话同一手法）。
-                    Button("查看详情") {
-                        let it = item
-                        actionItem = nil
-                        Task {
-                            try? await Task.sleep(for: .seconds(0.3))
-                            detailItem = it
-                        }
-                    }
-                    Button("取消", role: .cancel) { actionItem = nil }
+                    // 兜底：行 frame 未量到（极端滚动时序）时弹屏幕中下，不弹左上角
+                    let fallback = CGRect(x: UIScreen.main.bounds.midX - 90, y: UIScreen.main.bounds.height * 0.55,
+                                          width: 180, height: 44)
+                    AnchorMenuOverlay(anchorFrame: rowFrames[item.id] ?? fallback,
+                                      items: [
+                                          AnchorMenuItem(id: "copy", title: "复制内容", icon: "doc.on.doc", color: .blue),
+                                          AnchorMenuItem(id: "toggle", title: item.completed ? "标记为未完成" : "标记完成",
+                                                         icon: item.completed ? "circle" : "checkmark.circle", color: .orange),
+                                          AnchorMenuItem(id: "send", title: "发送到当前会话", icon: "paperplane.fill", color: .indigo),
+                                          AnchorMenuItem(id: "detail", title: "查看详情", icon: "info.circle", color: .teal),
+                                      ],
+                                      title: "任务操作",
+                                      onPick: { m in
+                                          actionItem = nil
+                                          switch m.id {
+                                          case "copy":
+                                              UIPasteboard.general.string = item.text
+                                          case "toggle":
+                                              store.setCompleted(item.id, !item.completed)
+                                          case "send":
+                                              sendToCurrentSession(item)
+                                          case "detail":
+                                              // v3.9.32：先收菜单再开 alert（同帧 present 会被吞，0.3s 错峰沿用）
+                                              Task {
+                                                  try? await Task.sleep(for: .seconds(0.3))
+                                                  detailItem = item
+                                              }
+                                          default:
+                                              break
+                                          }
+                                      },
+                                      onClose: { actionItem = nil })
                 }
             }
             // v3.9.32：任务详情

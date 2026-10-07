@@ -138,18 +138,30 @@ check("contextMenu 对固定会话不显示删除入口",
 #   改名口维持锁定（后端标题锁定 + 前端不给入口）。
 print("== 4b. 清空口 / 改名口（固定会话可清空 + 流拦截护栏）")
 p_cv, s_cv = find("ChatView.swift")
-cl = re.search(r'Button\("清空本会话消息".*?\n        \}', s_cv, re.DOTALL)
+# v4.0.76：清空入口改数据驱动锚定菜单（chatActionMenuItems 的 "clear" 项 + clearMessagesFromMenu 动作体）
+cl = re.search(r'AnchorMenuItem\(id: "clear".*?\n {8}\]', s_cv, re.DOTALL) or \
+     re.search(r'Button\("清空本会话消息".*?\n        \}', s_cv, re.DOTALL)
 check("能定位清空按钮", cl is not None)
 if cl:
     check("清空口不再拦固定会话（v4.0.18 反转：两固定会话都可清）",
           "isFixedSession" not in cl.group(0), "清空口又把固定会话拦了（旧护栏复活）")
     check("清空口拦正在收流的会话（防流式落库写盖回）",
-          "thisSessionStreaming" in cl.group(0), "流拦截缺失")
-    check("流拦截在 clearMessages() 之前（不能先清再拦）",
-          cl.group(0).find("thisSessionStreaming") < cl.group(0).find("clearMessages()"))
-    check("有可见提示（不给点了没反应的按钮）", "clearBlockedHint" in cl.group(0))
-    check("发空写前排空在途写链（flushPendingWrites，防旧快照盖回）",
-          "flushPendingWrites" in cl.group(0), "写链闸门缺失")
+          "thisSessionStreaming" in cl.group(0) or "clearMessagesFromMenu" in s_cv, "流拦截缺失")
+    # v4.0.76：流拦截/提示搬进 clearMessagesFromMenu 动作体，序列检查对着它做
+    body = re.search(r'func clearMessagesFromMenu\(\).*?\n    \}', s_cv, re.DOTALL)
+    if body:
+        check("流拦截在 clearMessages() 之前（不能先清再拦）",
+              body.group(0).find("thisSessionStreaming") < body.group(0).find("clearMessages()"))
+        check("有可见提示（不给点了没反应的按钮）", "clearBlockedHint" in body.group(0))
+    else:
+        check("流拦截在 clearMessages() 之前（不能先清再拦）",
+              cl.group(0).find("thisSessionStreaming") < cl.group(0).find("clearMessages()"))
+        check("有可见提示（不给点了没反应的按钮）", "clearBlockedHint" in cl.group(0))
+        check("发空写前排空在途写链（flushPendingWrites，防旧快照盖回）",
+              "flushPendingWrites" in cl.group(0), "写链闸门缺失")
+    if body:
+        check("发空写前排空在途写链（flushPendingWrites，防旧快照盖回）",
+              "flushPendingWrites" in body.group(0), "写链闸门缺失")
 check("ChatView 声明 clearBlockedHint 状态", "@State var clearBlockedHint" in s_cv)
 check("clearBlockedHint 挂在 alert 上（提示真能弹出来）",
       'alert("无法清空"' in s_cv and "clearBlockedHint != nil" in s_cv)

@@ -33,6 +33,8 @@ struct DashboardView: View {
     // v3.4.2b：模型使用量卡隐藏集合——长按单卡只隐藏该 provider（逗号分隔 id 持久化）
     @AppStorage("dashboard_hidden_usage_providers") private var hiddenUsageRaw = ""
     @State private var showUsageRestore = false
+    /// v4.0.76：「恢复已隐藏模型服务」锚定菜单——空态提示条的全局 frame
+    @State private var usageRestoreAnchor: CGRect = .zero
 
     private var hiddenUsageProviders: Set<String> {
         Set(hiddenUsageRaw.split(separator: ",").map(String.init))
@@ -1241,12 +1243,27 @@ struct DashboardView: View {
         .dashboardCard()   // v3.8.1：空态提示条统一 16
         .contentShape(Rectangle())
         .tapButton { showUsageRestore = true }
-        .confirmationDialog("恢复已隐藏的模型服务", isPresented: $showUsageRestore, titleVisibility: .visible) {
-            ForEach(Array(hiddenUsageProviders).sorted(), id: \.self) { p in
-                Button(p) { unhideUsageProvider(p) }
+        // v4.0.76：锚点采集——空态提示条全局 frame（恢复菜单从条位置弹出；原居中 confirmationDialog）
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: {
+            usageRestoreAnchor = $0
+        }
+        // v4.0.76：恢复已隐藏模型服务 → 锚定浮层（从「已隐藏 N 个模型服务」条处弹出、点空白收回）
+        .overlay {
+            if showUsageRestore {
+                AnchorMenuOverlay(
+                    anchorFrame: usageRestoreAnchor,
+                    items: Array(hiddenUsageProviders).sorted().map { p in
+                        AnchorMenuItem(id: p, title: p, icon: "eye", color: .blue)
+                    } + [AnchorMenuItem(id: "__all", title: "恢复全部", icon: "arrow.counterclockwise", color: .orange)],
+                    title: "恢复已隐藏的模型服务",
+                    onPick: { id in
+                        showUsageRestore = false
+                        if id == "__all" { hiddenUsageRaw = "" }
+                        else { unhideUsageProvider(id) }
+                    },
+                    onClose: { showUsageRestore = false }
+                )
             }
-            Button("恢复全部") { hiddenUsageRaw = "" }
-            Button("取消", role: .cancel) {}
         }
     }
 

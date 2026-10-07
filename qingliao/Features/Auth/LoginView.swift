@@ -133,19 +133,20 @@ struct LoginView: View {
     /// Logo + 应用名 + 副标题
     /// v3.9.46：照 SplashView 的 hero 配方升级——图标背后加一层主色光晕、图标本体带蓝色投影，
     /// 原来是一个 52pt 无底无影的扁平符号，白底下显得小且「浮不住」
+    /// v4.0.76：logo 整体调小（108→76；开屏 132→96、关于页 76→56，三处统一口径——用户反馈三处都偏大）
     @ViewBuilder
     private var loginLogoBlock: some View {
         VStack(spacing: 10) {
             ZStack {
                 Circle()
                     .fill(Color.blue.opacity(Tint.subtle))
-                    .frame(width: 128, height: 128)
+                    .frame(width: 92, height: 92)
                     .blur(radius: 26)
                 // v4.0.x：logo 换正式图标资产（与 AppIcon 同款）
                 Image("AboutLogo")
                     .resizable()
                     .scaledToFit()
-                    .frame(width: 108, height: 108)
+                    .frame(width: 76, height: 76)
                     .shadow(color: Color.blue.opacity(0.3), radius: 14, y: 5)
             }
             VStack(spacing: 6) {

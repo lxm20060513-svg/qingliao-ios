@@ -44,6 +44,9 @@ enum Motion {
     /// 过冲幅度刻意压得很小（约 3~4%），只到「弹了一下」的观感，不会像弹窗 emerge 那样夸张。
     static var enter: Animation { .spring(response: 0.20, dampingFraction: 0.72) }
 
+    /// v4.0.76：锚定菜单入场（AnchorMenuOverlay 专用，审查意见：入场动画走 Motion 真源不裸写 spring）
+    static var anchorMenu: Animation { .spring(response: 0.38, dampingFraction: 0.78) }
+
     /// 用户发送气泡的位移量（pt，配合上面的过冲读作「弹上来」）
     static let bubbleRise: CGFloat = 12
 

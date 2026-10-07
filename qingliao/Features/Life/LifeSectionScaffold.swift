@@ -153,49 +153,86 @@ struct LifeDeleteConfirm<Item>: ViewModifier {
 /// ⚠️ 正文由本视图自己的 @State 持有，而 SwiftUI 会**保留已 present 过视图的状态** → 调用方
 /// 必须靠 `.id(...)` 换实例来保证每次打开是空白（生活页两个调用方都是 `startAdd()` 自增一个
 /// 会话序号，见 MemoSection / TodoSection 注释）。原来正文是宿主 @State，靠显式 `draft = ""` 复位。
+///
+/// v4.0.76：备忘录的新建改走毛玻璃浮层（MemoGlassOverlay）——系统 toolbar 在浮层里没有
+/// 导航栏可挂 → 自绘顶栏（与 MemoDetailSheet.topBar 同款小胶囊）；`formSheet` 参数默认 true
+/// 保持旧 sheet 行为（待办仍用），false = 浮层内容形态（备忘录用）。
 struct LifeNoteComposeSheet: View {
     let title: String
     let placeholder: String
     let onSave: (String) -> Void
     let onCancel: () -> Void
+    /// true = 系统 sheet 形态（NavigationStack + toolbar）；false = 毛玻璃浮层内容形态（自绘顶栏）
+    var formSheet: Bool = true
 
     @State private var text = ""
 
+    /// 共用正文区（两种形态同一份）
+    private var editorBody: some View {
+        VStack(spacing: 0) {
+            TextEditor(text: $text)
+                .font(.system(size: Typography.title))
+                .scrollContentBackground(.hidden)
+                .padding(Spacing.xl)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .background(Color(uiColor: .secondarySystemGroupedBackground),
+                            in: RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
+                .overlay(alignment: .topLeading) {
+                    if text.isEmpty {
+                        Text(placeholder)
+                            .font(.system(size: Typography.title))
+                            .foregroundStyle(.tertiary)
+                            .padding(.horizontal, Spacing.section)
+                            .padding(.vertical, 20)
+                            .allowsHitTesting(false)
+                    }
+                }
+                .padding(.horizontal, Spacing.section)
+                .padding(.top, Spacing.md)
+        }
+    }
+
+    /// 浮层形态的自绘顶栏（取消/保存小胶囊，标题居中——与 MemoDetailSheet.topBar 同款读法）
+    private var overlayTopBar: some View {
+        HStack(spacing: 8) {
+            MiniCapsule(title: "取消") { onCancel() }
+            Spacer(minLength: 0)
+            MiniCapsule(title: "保存", accent: true) { onSave(text) }
+                .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
+        .padding(.horizontal, Spacing.section)
+        .padding(.top, Spacing.xl)
+        .padding(.bottom, Spacing.sm)
+        .overlay {
+            Text(title)
+                .font(.system(size: Typography.headline, weight: .semibold))
+                .foregroundStyle(.primary)
+                .allowsHitTesting(false)
+        }
+    }
+
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                TextEditor(text: $text)
-                    .font(.system(size: Typography.title))
-                    .scrollContentBackground(.hidden)
-                    .padding(Spacing.xl)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                    .background(Color(uiColor: .secondarySystemGroupedBackground),
-                                in: RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
-                    .overlay(alignment: .topLeading) {
-                        if text.isEmpty {
-                            Text(placeholder)
-                                .font(.system(size: Typography.title))
-                                .foregroundStyle(.tertiary)
-                                .padding(.horizontal, Spacing.section)
-                                .padding(.vertical, 20)
-                                .allowsHitTesting(false)
+        if formSheet {
+            NavigationStack {
+                editorBody
+                    .navigationTitle(title)
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("取消", action: onCancel)
+                        }
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("保存") { onSave(text) }
+                                .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         }
                     }
-                    .padding(.horizontal, Spacing.section)
-                    .padding(.top, Spacing.md)
             }
-            .navigationTitle(title)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("取消", action: onCancel)
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("保存") { onSave(text) }
-                        .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
+            .presentationDetents([.medium, .large])
+        } else {
+            VStack(spacing: 0) {
+                overlayTopBar
+                editorBody
             }
         }
-        .presentationDetents([.medium, .large])
     }
 }

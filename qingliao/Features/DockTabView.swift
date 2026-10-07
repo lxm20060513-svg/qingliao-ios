@@ -543,8 +543,10 @@ private struct TabTransitionModifier: ViewModifier {
     /// 1 = 常态；0 = 全透明起点。赋值不加动画 → 起点态是瞬变的。
     /// 淡入的是**页面内容**；页面自身的页底渐变淡入时透出 ZStack 里那层静态垫底渐变（同款），肉眼无感。
     @State private var phase: CGFloat = 1
-    /// v4.0.x：方向性微滑——入场瞬间内容从来源侧 6pt 滑到位（微信同款语言，只 x 轴）。
-    /// 0 = 常态；入场起点 = ±6（右切换页 → 从右往左滑入）。护栏只钉 y 轴上浮/缩放，x 轴微滑不在禁区。
+    /// v4.0.x：方向性微滑——入场瞬间内容从来源侧滑到位（微信同款语言，只 x 轴）。
+    /// 0 = 常态；入场起点 = ±N（右切换页 → 从右往左滑入）。护栏只钉 y 轴上浮/缩放，x 轴微滑不在禁区。
+    /// v4.0.75：6pt→22pt——4.0.74 真机报「切页动画没生效」：6pt 在手机上肉眼不可见 ≈ 硬切
+    /// （4.0.73→74 此文件零改动，观感问题不是回归）。x 轴平移不碰页底/安全区，放大无露白风险。
     @State private var dx: CGFloat = 0
     @State private var seq = 0
 
@@ -562,14 +564,14 @@ private struct TabTransitionModifier: ViewModifier {
     }
 
     /// 相位瞬归 0（不加动画）→ 下一拍 withAnimation 到 1。seq 防 0.01s 窗口内连点/快切互踩。
-    /// v4.0.x：起点 = 来源侧 6pt；动画走 smooth（比 snap 更无硬边），到位无回弹。
+    /// v4.0.x：起点 = 来源侧滑动；动画走 smooth（比 snap 更无硬边），到位无回弹。
     private func enter(from old: DockTab?) {
         seq &+= 1
         let mySeq = seq
         phase = 0
         if let old, old != tab {
-            // 新页在旧页右侧 → 内容从右 6pt 滑入；左侧同理。同页刷新（old == tab）不滑。
-            dx = (tab.slotIndex > old.slotIndex) ? 6 : -6
+            // 新页在旧页右侧 → 内容从右滑入；左侧同理。同页刷新（old == tab）不滑。
+            dx = (tab.slotIndex > old.slotIndex) ? 22 : -22
         } else {
             dx = 0
         }
@@ -603,6 +605,7 @@ private struct ChatZoomEntryModifier: ViewModifier {
     @Binding var selected: DockTab
     @State private var phase: CGFloat = 1
     /// v4.0.x：与 TabTransitionModifier 同款方向性微滑（chat 槽位 2，两侧来源都能判向）
+    /// v4.0.75：与 TabTransitionModifier 同步 6pt→22pt（两处口径一致，别只改一边）
     @State private var dx: CGFloat = 0
     @State private var seq = 0
 
@@ -629,7 +632,7 @@ private struct ChatZoomEntryModifier: ViewModifier {
         let mySeq = seq
         phase = 0
         if let old, old != .chat {
-            dx = (DockTab.chat.slotIndex > old.slotIndex) ? 6 : -6
+            dx = (DockTab.chat.slotIndex > old.slotIndex) ? 22 : -22
         } else {
             dx = 0
         }

@@ -199,10 +199,11 @@ struct AboutView: View {
     var body: some View {
         VStack(spacing: 14) {
             // v2.0.34：关于页换新图标（淡青底微笑气泡，与 AppIcon 同款）
+            // v4.0.76：logo 调小（76→56，与开屏/登录页同一轮统一口径）
             Image("AboutLogo")
                 .resizable()
                 .scaledToFit()
-                .frame(width: 76, height: 76)
+                .frame(width: 56, height: 56)
                 .shadow(color: .black.opacity(0.15), radius: 6, y: 3)
 
             // v4.0.70：更名 Qimo（用户 2026-10-07 拍板）——中文语境写全名「Qimo（轻聊）」，英文名 Qimo

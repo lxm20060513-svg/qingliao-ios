@@ -47,17 +47,63 @@ struct MemoSection: View {
     @State private var confirmClearAll = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            // v3.9.17：标题行在卡片外（原来是卡片内的图标 + 灰字 + 计数胶囊）
-            pageHeader
-            if store.memos.isEmpty {
-                emptyTap
-            } else {
-                memoCard
+        ZStack {
+            VStack(alignment: .leading, spacing: 8) {
+                // v3.9.17：标题行在卡片外（原来是卡片内的图标 + 灰字 + 计数胶囊）
+                pageHeader
+                if store.memos.isEmpty {
+                    emptyTap
+                } else {
+                    memoCard
+                }
+            }
+            .modifier(MemoSectionBodyChrome(host: self))
+            // v4.0.76：三个弹窗改毛玻璃浮层后，sheet 链只剩宿主删除确认一条（挂这里）
+            .modifier(MemoSectionBodySheets(host: self))
+
+            // v4.0.76 毛玻璃浮层组（原三条 sheet 全部改自绘浮层，规格见 MemoGlassOverlay）：
+            // 层序：全部列表 < 详情（从列表进详情时盖在列表上）< 新建。互斥由原「同宿主只能 present
+            // 一个」的既有约束自然保持（openCard/openDetailFromAll 都是先收再开）。
+            if showAll {
+                MemoGlassOverlay(isPresented: $showAll) {
+                    MemoAllListBody(
+                        store: store,
+                        onDone: { showAll = false },
+                        onClear: { _ = listConfirmClear },   // v4.0.76 审查⑤：占位——真正触发在 MiniCapsule 处写 listConfirmClear
+                        onOpenDetail: { openDetailFromAll($0) },
+                        onDeleteInList: { pendingDeleteInList = $0 },
+                        onConfirmClear: {
+                            store.removeAll()
+                            showAll = false
+                            Haptics.success()
+                        },
+                        menuFor: { m, del, snd in
+                            AnyView(memoMenuItems(m, onDelete: del, onSend: snd))
+                        },
+                        onSendToAI: { sendToAI($0) }
+                    )
+                }
+            }
+            if let m = detail {
+                MemoGlassOverlay(isPresented: Binding(
+                    get: { detail != nil },
+                    set: { if !$0 { detail = nil } }
+                )) {
+                    MemoDetailSheet(item: m, onDelete: { item in
+                        detail = nil
+                        Task { @MainActor in
+                            try? await Task.sleep(for: .milliseconds(350))
+                            pendingDelete = item
+                        }
+                    }, onDismiss: { detail = nil })
+                }
+            }
+            if showAdd {
+                MemoGlassOverlay(isPresented: $showAdd) {
+                    addSheet.id(addSession)
+                }
             }
         }
-        .modifier(MemoSectionBodyChrome(host: self))
-        .modifier(MemoSectionBodySheets(host: self))
     }
 
     // MARK: 页级标题行（v3.9.17：与「生活数据」同款——标题在卡片外，右侧放宽/实心胶囊）
@@ -123,98 +169,14 @@ struct MemoSection: View {
         }
     }
 
-    // MARK: 全部备忘列表（v3.9.17，半屏 sheet）
-
-    private var allSheet: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                // v3.9.18：顶栏同样自绘（系统那版「完成」胶囊偏大）
-                HStack(spacing: 8) {
-                    // v3.9.19：13pt → 17pt（原来偏小）；v3.9.22 详情页标题单独加到 20pt，
-                    // 列表这里保持 17pt —— 列表是密集行，标题再大反而压迫内容
-                    Text("全部备忘")
-                        .font(.system(size: Typography.title, weight: .semibold))
-                    Text("\(store.sorted.count) 条")
-                        .font(.system(size: Typography.caption))
-                        .foregroundStyle(.secondary)
-                    Spacer(minLength: 0)
-                    // v3.9.110：清空胶囊（与「完成」同排、左侧）——确认框挂在弹窗内，见下方 List
-                    if !store.sorted.isEmpty {
-                        MiniCapsule(title: "清空") { confirmClearAll = true }
-                    }
-                    MiniCapsule(title: "完成", accent: true) { showAll = false }
-                }
-                .padding(.horizontal, Spacing.section)
-                .padding(.top, Spacing.xl)
-                .padding(.bottom, Spacing.md)
-                // v3.9.38：容器由 ScrollView + VStack 换成 List（与「全部待办」同一套行容器）——
-                // ① zoom 转场放大落点＝卡片几何（行内边距/隐藏分隔线/透明行底，看上去仍是卡片）
-                // ② 左滑删除走系统手势（原来只能在长按菜单里删）
-                List {
-                    ForEach(store.sorted) { m in
-                        Button {
-                            openDetailFromAll(m)
-                        } label: {
-                            MemoNoteCard(item: m)
-                        }
-                        .buttonStyle(PressStyle())
-                        .contextMenu {
-                            memoMenuItems(m,
-                                          onDelete: { item in afterAllDismissed { pendingDelete = item } },
-                                          onSend: { item in afterAllDismissed { sendToAI(item) } })
-                        }
-                        .listRowInsets(EdgeInsets(top: 0, leading: Spacing.section,
-                                                  bottom: 8, trailing: Spacing.section))
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(Color.clear)
-                    }
-                    // v3.9.38：左滑删除。确认框挂在弹窗内部（宿主那个被 sheet 盖住），
-                    // 确认后原地删掉——不收起弹窗（与长按菜单走 afterAllDismissed 的老路径不同）
-                    .onDelete { offsets in
-                        guard let first = offsets.first, store.sorted.indices.contains(first) else { return }
-                        pendingDeleteInList = store.sorted[first]
-                    }
-                    // v3.9.17：列表打开期间备忘被删空（远端合并等）不会只剩一个空面板
-                    if store.sorted.isEmpty {
-                        Text("还没有备忘")
-                            .font(.system(size: Typography.subhead))
-                            .foregroundStyle(.tertiary)
-                            .padding(.vertical, 20)
-                            .listRowSeparator(.hidden)
-                            .listRowBackground(Color.clear)
-                    }
-                }
-                .listStyle(.plain)
-                .scrollContentBackground(.hidden)
-                // v3.9.110：「清空」二次确认（挂在 List 上与下面那个单条删除 alert 分层，避免互相顶掉）
-                .alert("清空全部备忘？", isPresented: $confirmClearAll) {
-                    Button("清空 \(store.sorted.count) 条", role: .destructive) {
-                        store.removeAll()
-                        showAll = false          // 清空后收起弹窗 → 生活页回到空态引导卡
-                        Haptics.success()
-                    }
-                    Button("取消", role: .cancel) { confirmClearAll = false }
-                } message: {
-                    Text("将删除全部 \(store.sorted.count) 条备忘（含置顶），删除后不可恢复。")
-                }
-            }
-            .toolbar(.hidden, for: .navigationBar)
-            // v3.9.38：弹窗内的删除确认（与宿主那个同口径：说清删的是哪条、删后不可恢复）。
-            // 挂在弹窗内部是因为宿主那个 alert 在 sheet 之上会被盖住。
-            .modifier(LifeDeleteConfirm(
-                title: "删除这条备忘？",
-                pending: pendingDeleteInList,
-                onCancel: { pendingDeleteInList = nil },
-                onDelete: { store.delete($0) },
-                message: { $0.content.prefix(40).description }
-            ))
-        }
-        .presentationDetents([.medium, .large])
-        .navigationTransition(.zoom(sourceID: "memo-all", in: memoZoomNS))   // v3.9.20：从备忘录卡片放大展开
-    }
+    // MARK: 全部备忘列表（v3.9.17 半屏 sheet → v4.0.76 毛玻璃浮层内容）
+    //
+    // 主体抽成 MemoAllListBody（下方独立 struct）：原 allSheet 的 NavigationStack 外壳由
+    // MemoGlassOverlay 替代，回调全部上提由宿主闭包注入（浮层收起、清空确认、开详情、删除）。
 
     /// v3.9.17：先收掉「全部备忘」列表，等它 dismiss 完再执行动作
-    /// （列表里的详情/删除/发消息都在 sheet 之上触发，同帧 present 会丢弹窗）
+    /// （v4.0.76 起浮层是同 ZStack 的层序关系，不再有 sheet 的 present 竞争；
+    /// 但保留 500ms 缓冲让列表收起动画播完，观感与老路径一致）
     private func afterAllDismissed(_ action: @escaping () -> Void) {
         showAll = false
         Task { @MainActor in
@@ -278,7 +240,10 @@ struct MemoSection: View {
 
     // MARK: 新增
 
-    /// 外壳已收进 LifeNoteComposeSheet（工作线 B：与待办那份同款），只差占位符与标题
+    /// 外壳已收进 LifeNoteComposeSheet（工作线 B：与待办那份同款），只差占位符与标题。
+    /// v4.0.76：原 sheet 外壳由毛玻璃浮层替代——LifeNoteComposeSheet 自带的系统弹窗底
+    /// （若其内部有 presentationDetents 等）不再适用，直接用它内容主体。
+    @ViewBuilder
     private var addSheet: some View {
         LifeNoteComposeSheet(
             title: "新建备忘",
@@ -289,7 +254,8 @@ struct MemoSection: View {
                 }
                 showAdd = false
             },
-            onCancel: { showAdd = false }
+            onCancel: { showAdd = false },
+            formSheet: false   // v4.0.76：毛玻璃浮层形态（自绘顶栏）
         )
     }
 }
@@ -439,34 +405,132 @@ private struct MemoNoteCard: View {
     }
 }
 
+// MARK: - v4.0.76 「全部备忘」浮层内容（原 allSheet 的 NavigationStack 内主体，逐字平移）
+//
+// 回调全部由宿主注入：浮层是同 ZStack 层序，不再有 sheet present 竞争；删除确认/清空确认
+// 仍挂本主体内部（浮层盖在生活页上，宿主层的 alert 会被浮层压住看不见——与原 sheet 时代同理由）。
+
+struct MemoAllListBody: View {
+    let store: MemoStore
+    let onDone: () -> Void
+    /// 清空入口（v4.0.76 起占位：触发改由内部 listConfirmClear 直接驱动，见 MiniCapsule「清空」）
+    let onClear: () -> Void
+    let onOpenDetail: (MemoItem) -> Void
+    let onDeleteInList: (MemoItem) -> Void
+    let onConfirmClear: () -> Void
+    /// 长按菜单内容（宿主 memoMenuItems + afterAllDismissed 包装，闭包注入）
+    let menuFor: (MemoItem,
+                  @escaping (MemoItem) -> Void,
+                  @escaping (MemoItem) -> Void) -> AnyView
+
+    /// v3.9.38：列表内左滑删除的二次确认（挂浮层内部，宿主那个被浮层盖住）
+    @State private var pendingDeleteInList: MemoItem?
+    /// v3.9.110：清空二次确认（同上）
+    @State private var confirmClearAll = false
+    /// v4.0.76 审查⑤：顶栏「清空」胶囊触发入口（宿主 onClear 回调经它写进本内部状态；
+    /// 直接暴露 Binding 语义更糊，用「闭包置内部 @State」保状态私有）
+    @State private var listConfirmClear = false
+    /// 「发给 AI」桥（宿主 sendToAI：发通知 + 震动）
+    let onSendToAI: (MemoItem) -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // v3.9.18：顶栏自绘（系统那版「完成」胶囊偏大）
+            HStack(spacing: 8) {
+                Text("全部备忘")
+                    .font(.system(size: Typography.title, weight: .semibold))
+                Text("\(store.sorted.count) 条")
+                    .font(.system(size: Typography.caption))
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+                if !store.sorted.isEmpty {
+                    MiniCapsule(title: "清空") { listConfirmClear = true }
+                }
+                MiniCapsule(title: "完成", accent: true) { onDone() }
+            }
+            .padding(.horizontal, Spacing.section)
+            .padding(.top, Spacing.xl)
+            .padding(.bottom, Spacing.md)
+            // v3.9.38：List 行容器（左滑删除走系统手势）
+            List {
+                ForEach(store.sorted) { m in
+                    Button {
+                        onOpenDetail(m)
+                    } label: {
+                        MemoNoteCard(item: m)
+                    }
+                    .buttonStyle(PressStyle())
+                    .contextMenu {
+                        // 删除走浮层内确认（浮层还开着时宿主 alert 被盖住）；发 AI 直接走宿主老路径
+                        menuFor(m, { item in pendingDeleteInList = item }, { item in onSendToAI(item) })
+                    }
+                    .listRowInsets(EdgeInsets(top: 0, leading: Spacing.section,
+                                              bottom: 8, trailing: Spacing.section))
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
+                }
+                .onDelete { offsets in
+                    guard let first = offsets.first, store.sorted.indices.contains(first) else { return }
+                    pendingDeleteInList = store.sorted[first]
+                }
+                if store.sorted.isEmpty {
+                    Text("还没有备忘")
+                        .font(.system(size: Typography.subhead))
+                        .foregroundStyle(.tertiary)
+                        .padding(.vertical, 20)
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
+                }
+            }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .alert("清空全部备忘？", isPresented: $confirmClearAll) {
+                Button("清空 \(store.sorted.count) 条", role: .destructive) { onConfirmClear() }
+                Button("取消", role: .cancel) { confirmClearAll = false }
+            } message: {
+                Text("将删除全部 \(store.sorted.count) 条备忘（含置顶），删除后不可恢复。")
+            }
+        }
+        .modifier(LifeDeleteConfirm(
+            title: "删除这条备忘？",
+            pending: pendingDeleteInList,
+            onCancel: { pendingDeleteInList = nil },
+            onDelete: { store.delete($0) },
+            message: { $0.content.prefix(40).description }
+        ))
+    }
+}
+
 // MARK: - 放大查看 / 编辑（点卡片进入）
 
 private struct MemoDetailSheet: View {
     let item: MemoItem
     var onDelete: (MemoItem) -> Void
+    /// v4.0.76：浮层收起（原 sheet 的 dismiss——浮层里没有系统 dismiss 环境，宿主注入）
+    var onDismiss: () -> Void
 
-    @Environment(\.dismiss) private var dismiss
     /// v3.9.14：本地副本——编辑/置顶后要立刻反映在本页（item 是传值进来的）
     @State private var current: MemoItem
     @State private var editing = false
     @State private var editText = ""
     @State private var copied = false
 
-    init(item: MemoItem, onDelete: @escaping (MemoItem) -> Void) {
+    init(item: MemoItem, onDelete: @escaping (MemoItem) -> Void, onDismiss: @escaping () -> Void) {
         self.item = item
         self.onDelete = onDelete
+        self.onDismiss = onDismiss
         _current = State(initialValue: item)
     }
 
     private var store = MemoStore.shared
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                // v3.9.18：顶栏自绘——iOS 26 系统导航栏渲染的玻璃胶囊偏大（用户反馈「关闭/编辑/复制
-                // 胶囊太大，小一点更协调」），改成与全站一致的小胶囊（tiny 字号 + h10/v5），尺寸可控
-                topBar
-                ScrollView {
+        // v4.0.76：原 NavigationStack + sheet 外壳由毛玻璃浮层（MemoGlassOverlay）替代——
+        // 内容主体原样保留；dismiss（关闭胶囊）走浮层的 Binding：浮层内容里没有系统 dismiss
+        // 可用，改由宿主注入的 onDismiss 闭包（body 里 detail = nil → 浮层收起动画）。
+        VStack(spacing: 0) {
+            topBar
+            ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     if editing {
                         // v3.9.14：补上编辑（MemoStore.update 早就写好了，一直没入口）
@@ -511,15 +575,11 @@ private struct MemoDetailSheet: View {
                 }
                 .padding(18)
             }
-            }
-            // v3.9.18：系统导航栏已由自绘 topBar 取代（iOS 26 的玻璃胶囊偏大）
-            .toolbar(.hidden, for: .navigationBar)
-            // 编辑态禁止下滑关闭：不然手一滑草稿就没了，且没有任何提示
-            .interactiveDismissDisabled(editing)
+            // v4.0.76：编辑态浮层内没有系统下滑手势，草稿天然安全（interactiveDismissDisabled 随 sheet 一并移除）
         }
     }
 
-    // MARK: v3.9.18 顶栏（自绘，替掉 iOS 26 系统导航栏那套偏大的玻璃胶囊）
+    // MARK: v3.9.18 顶栏（自绘；v4.0.76 起浮层内也用它，「关闭」走 onDismiss）
 
     private var topBar: some View {
         HStack(spacing: 8) {
@@ -529,7 +589,7 @@ private struct MemoDetailSheet: View {
                 MiniCapsule(title: "保存", accent: true) { saveEdit() }
                     .disabled(editText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             } else {
-                MiniCapsule(title: "关闭") { dismiss() }
+                MiniCapsule(title: "关闭") { onDismiss() }
                 Spacer(minLength: 0)
                 MiniCapsule(title: "编辑") {
                     editText = current.content
@@ -594,29 +654,13 @@ extension MemoSection {
             .task { await store.loadFromServer() }
     }
 
-    /// 折叠组 2（4 条修饰器）：四段弹窗链（新建 / 全部备忘 / 详情 / 宿主删除确认）
+    /// 折叠组 2（1 条修饰器）：宿主删除确认。
+    /// v4.0.76：新建/全部/详情三条 .sheet 已全部改成毛玻璃浮层（见 body 的 ZStack 顶层），
+    /// 这里只剩 LifeDeleteConfirm 一条。原 sheet 链的 onDismiss 复位职责由浮层 Binding 的
+    /// set(false) 分支接管。
     @MainActor
     private func applyMemoSectionBodySheets<C: View>(to content: C) -> some View {
         content
-            .sheet(isPresented: $showAdd) { addSheet.id(addSession) }
-            // v3.9.17：点卡片 → 全部备忘列表
-            .sheet(isPresented: $showAll) { allSheet }
-            // v3.9.17：onDismiss 复位——若某次 present 被别的 sheet 挡掉，detail 会一直非 nil，
-            // 之后「换一条」就不再触发 .sheet(item:)，详情再也打不开
-            // ⚠️ `.id(addSession)` 是刚需：新建弹窗的正文现在由 LifeNoteComposeSheet 自己的 @State 持有，
-            // 而 SwiftUI 会保留已 present 过视图的状态 → 不换 id 的话，第二次打开会带出上次的残留正文。
-            // 每次 startAdd 自增一次 → 每次打开都是全新实例（等价于原先显式 `draft = ""`）。
-            .sheet(item: $detail, onDismiss: { detail = nil }) { m in
-                MemoDetailSheet(item: m, onDelete: { item in
-                    detail = nil
-                    // 等 detail sheet 完全 dismiss 再弹确认框（同一帧里同时 present 会丢弹窗）
-                    Task { @MainActor in
-                        try? await Task.sleep(for: .milliseconds(350))
-                        pendingDelete = item
-                    }
-                })
-                .presentationDetents([.medium, .large])
-            }
             .modifier(LifeDeleteConfirm(
                 title: "删除这条备忘？",
                 pending: pendingDelete,

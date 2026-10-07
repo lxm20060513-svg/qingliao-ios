@@ -671,13 +671,32 @@ final class ChatStore {
         browserLiveMarkerLanded(m)   // v4.0.x：AI 报浏览器直播标记 → 弹实时画面
     }
 
-    /// v4.0.x：AI 回复里带 [[browser_live:site|url]] 标记 → 通知中心弹实时画面弹窗。
+    /// v4.0.x：AI 回复里带 [[browser_live:site|url]] 标记 → 消息流出实时画面卡（v4.0.75 起流内卡）。
     /// 只在两个插入分支尾部调用（与 stageTodoCandidates 同口径，查重早退不弹）。
     private func browserLiveMarkerLanded(_ m: ChatMessage) {
         guard m.role == "assistant",
               let s = BrowserLiveCenter.parseMarker(in: m.content) else { return }
         // Center 是 @MainActor：从（可能非主线程的）落库路径切回主线程再写
         Task { @MainActor in BrowserLiveCenter.shared.activeSession = s }
+        // v4.0.75：标记已在气泡里当原文展示过一轮（流式期无法拦截），落库后从正文剥掉，
+        // 呈现交给流内直播卡。就地改 + bump 落库，刷新后气泡仍是干净正文。
+        if let idx = messages.firstIndex(where: { $0.id == m.id }) {
+            messages[idx].content = stripBrowserLiveMarker(messages[idx].content)
+            messageRev &+= 1
+        }
+    }
+
+    /// v4.0.75：剥掉 [[browser_live:site|url]] 标记（含前后多余空行），正文其余部分原样保留
+    /// v4.0.76 审查⑦：不逆向拼串 replace（parseMarker 会 trim site/url，拼回去匹配不到带空格原文），
+    /// 直接用 range(of:) 定位起点到 "]]" 终点整段切除，与 parseMarker 同一套定位。
+    static func stripBrowserLiveMarker(_ text: String) -> String {
+        let head = "[[browser_live:"
+        guard let h = text.range(of: head),
+              let tail = text[h.upperBound...].range(of: "]]") else { return text }
+        var out = text.replacingCharacters(in: h.lowerBound..<tail.upperBound, with: "")
+        // 标记独占一行时留下空行 → 收敛多空行为单空行
+        while out.contains("\n\n\n") { out = out.replacingOccurrences(of: "\n\n\n", with: "\n\n") }
+        return out.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// v4.0.25 确认制：本条回复真落库后，把其中的待办候选挂账（等用户在确认卡上勾选加入）。

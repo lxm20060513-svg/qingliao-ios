@@ -763,8 +763,10 @@ check("调用点传展示值 + 回调（实参序 = 声明序：recordingLevel �
 check("header 旧思考胶囊清零（reasoningPill / localReasoningPill 不复存在）",
       !chatViewSrc.contains("private var reasoningPill: some View")
       && !chatViewSrc.contains("localReasoningPill"))
-check("档位弹窗仍由 ChatView 持有（confirmationDialog 不动）",
-      chatViewSrc.contains(".confirmationDialog(\"模型思考档位\", isPresented: $showReasoningPicker"))
+check("档位弹窗仍由 ChatView 持有（v4.0.76 起锚定浮层，非 confirmationDialog）",
+      chatViewSrc.contains("if showReasoningPicker")
+      && chatViewSrc.contains("AnchorMenuOverlay(anchorFrame: reasoningAnchor")
+      && !chatViewSrc.contains(".confirmationDialog(\"模型思考档位\""))
 
 // ── v4.0.36 朗读胶囊迁入工具层（用户：胶囊移动到对话框展开态底部模型思考档位旁边，
 //            图标风格对齐模型思考档位胶囊） ──

@@ -100,6 +100,8 @@ struct ChatInputBar: View {
     var reasoningLevelIcon: String = ""
     var reasoningLevelTitle: String = ""
     var onPickReasoning: () -> Void = {}
+    /// v4.0.76：思考档位锚定菜单——胶囊全局 frame 上报（追加在本组末尾，不动实参序）
+    var onReasoningAnchor: (CGRect) -> Void = { _ in }
     /// v4.0.36：自动朗读胶囊（从聊天页 header 迁入工具层，紧挨思考档位）。
     /// 与 reasoningButton 同一套门控：`autoReadIcon` 为空 = 整块不渲染（别的调用方零感知）。
     /// ⚠️ 追加在 `onPickReasoning` 之后：调用点走成员初始化器且按声明序传参，插在中间会错位。
@@ -368,6 +370,10 @@ struct ChatInputBar: View {
             // 视觉高 26（与附件/相机同档）→ 命中区外扩 9 到 44；横向本就 >44
             .hitArea44(h: 9, v: 9)
             .accessibilityLabel("模型思考档位，当前\(reasoningLevelTitle)")
+            // v4.0.76：锚定菜单——实时上报胶囊全局 frame（弹菜单从胶囊位置出）
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: {
+                onReasoningAnchor($0)
+            }
         }
     }
 

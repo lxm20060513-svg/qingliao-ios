@@ -42,6 +42,10 @@ struct HeaderPillGroup: View {
         var badge: Bool = false
         /// 需要弹动反馈的入口（新建会话）传自增的 tick；不需要的保持 0
         var bounceTick: Int = 0
+        /// v4.0.76：锚定弹出菜单——需要从本图标处弹菜单的项（聊天页「更多」），把按钮的
+        /// 全局 frame 通过它报给宿主（nil = 不需要锚点，轻点直走 action）。
+        /// ⚠️ 声明序必须在 action 之前：调用点把 anchorOut 写在括号实参、action 走尾闭包。
+        var anchorOut: ((CGRect) -> Void)? = nil
         let action: () -> Void
     }
 
@@ -86,7 +90,7 @@ struct HeaderPillGroup: View {
     }
 
     private func itemView(_ item: Item) -> some View {
-        Button(action: item.action) {
+        return Button(action: item.action) {
             Image(systemName: item.systemName)
                 .symbolEffect(.bounce, value: item.bounceTick)
                 .font(.system(size: Self.iconFont, weight: .semibold))
@@ -111,6 +115,14 @@ struct HeaderPillGroup: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        // v4.0.76：锚点采集——按钮在全局坐标系的 frame（变化即刷新，旋转/布局漂移不弹错位）。
+        // 轻点不另发上报：onGeometryChange 已随布局持续刷新 anchorOut，tap 时值必是最新的
+        // （也不能用局部 var 中转——escaping 闭包捕获可变局部在 Swift 6 必炸，v4.0.76 审查实抓）。
+        .onGeometryChange(for: CGRect.self) { proxy in
+            proxy.frame(in: .global)
+        } action: { f in
+            item.anchorOut?(f)
+        }
         // 命中区：横向 14 + 2×8 = 30（= 中心距，与邻项相接不重叠）、
         // 纵向 34（上面 `.frame(height: Self.height)` 撑出来的 label 高）+ 2×5 = 44
         .hitArea44(h: Self.hitH, v: 5)

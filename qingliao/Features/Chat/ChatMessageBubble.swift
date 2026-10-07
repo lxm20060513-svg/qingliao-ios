@@ -189,13 +189,15 @@ struct MessageBubble: View {
     }
 
     /// v2.0.125：图片/文件卡片的长按菜单（文字区由 UITextView 编辑菜单接管，不再走这里）
+    /// v4.0.76：图标对齐用户气泡菜单（v4.0.70 方案 C 彩色圆角块 + 白符号）——原来这里
+    /// 是裸 SF Symbol 黑白图标，与用户气泡/文字段的 tile 色块图标两副面孔。
     @ViewBuilder
     private var cardMenu: some View {
         Button {
             UIPasteboard.general.string = displayContent   // v3.7.0：与渲染一致（老消息不再复制到进度行）
             Haptics.success()   // v3.4.25：复制成功触感
         } label: {
-            Label("复制", systemImage: "doc.on.doc")
+            Label { Text("复制") } icon: { Image(uiImage: MenuIconTile.glyph("doc.on.doc", .blue)) }
         }
         // v3.4.25：AI 回复中的地点一键开地图——从消息文本提取地址/地名，跳苹果地图（通用）；
         // 装了高德则优先高德（国内 POI 更准）。提取不到地址（无中文地名特征）时不显示此项
@@ -203,36 +205,36 @@ struct MessageBubble: View {
             Button {
                 Self.openInMaps(address: addr)
             } label: {
-                Label("在地图中打开「\(addr)」", systemImage: "mappin.and.ellipse")
+                Label { Text("在地图中打开「\(addr)」") } icon: { Image(uiImage: MenuIconTile.glyph("mappin.and.ellipse", .teal)) }
             }
         }
         Button {
             onQuote()
         } label: {
-            Label("引用", systemImage: "quote.opening")
+            Label { Text("引用") } icon: { Image(uiImage: MenuIconTile.glyph("quote.opening", .blue)) }
         }
         Button {
             onShare()
         } label: {
-            Label("分享", systemImage: "square.and.arrow.up")
+            Label { Text("分享") } icon: { Image(uiImage: MenuIconTile.glyph("square.and.arrow.up", .blue)) }
         }
         // v3.3.0：多选合并转发入口（图片/文件卡片长按菜单）
         Button {
             onMultiSelect()
         } label: {
-            Label("多选", systemImage: "checkmark.circle")
+            Label { Text("多选") } icon: { Image(uiImage: MenuIconTile.glyph("checkmark.circle", .teal)) }
         }
         Button {
             onBigBang(displayContent)
         } label: {
-            Label("大爆炸", systemImage: "burst.fill")
+            Label { Text("大爆炸") } icon: { Image(uiImage: MenuIconTile.glyph("burst", .teal)) }
         }
         // v3.7.0：加入备忘录（整条气泡内容）
         if let onMemo {
             Button {
                 onMemo(displayContent)
             } label: {
-                Label("存备忘录", systemImage: "note.text")
+                Label { Text("存备忘录") } icon: { Image(uiImage: MenuIconTile.glyph("note.text", .purple)) }
             }
         }
         // v4.0.25：存为长期目标（整条气泡内容）
@@ -240,7 +242,7 @@ struct MessageBubble: View {
             Button {
                 onGoal(displayContent)
             } label: {
-                Label("存为长期目标", systemImage: "target")
+                Label { Text("存为长期目标") } icon: { Image(uiImage: MenuIconTile.glyph("target", .purple)) }
             }
         }
         // v3.9.35：加入待办（整条气泡内容）
@@ -248,7 +250,7 @@ struct MessageBubble: View {
             Button {
                 onTodo(displayContent)
             } label: {
-                Label("加入待办", systemImage: "checklist")
+                Label { Text("加入待办") } icon: { Image(uiImage: MenuIconTile.glyph("checklist", .purple)) }
             }
         }
         // v3.9.32：提醒我（整条气泡内容 → 本地定时提醒面板）
@@ -256,27 +258,27 @@ struct MessageBubble: View {
             Button {
                 onRemind(displayContent)
             } label: {
-                Label("提醒我", systemImage: "bell.badge.fill")
+                Label { Text("提醒我") } icon: { Image(uiImage: MenuIconTile.glyph("bell.badge", .orange)) }
             }
         }
         if !message.isUser {
             Button {
                 onRegenerate()
             } label: {
-                Label("重新生成", systemImage: "arrow.clockwise")
+                Label { Text("重新生成") } icon: { Image(uiImage: MenuIconTile.glyph("arrow.clockwise", .orange)) }
             }
         }
         if canWithdraw {
             Button {
                 onWithdraw()
             } label: {
-                Label("撤回", systemImage: "arrow.uturn.backward")
+                Label { Text("撤回") } icon: { Image(uiImage: MenuIconTile.glyph("arrow.uturn.backward", .orange)) }
             }
         }
         Button(role: .destructive) {
             onDelete()
         } label: {
-            Label("删除", systemImage: "trash")
+            Label { Text("删除") } icon: { Image(uiImage: MenuIconTile.glyph("trash", .red)) }
         }
     }
 
