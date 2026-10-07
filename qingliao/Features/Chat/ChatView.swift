@@ -3169,8 +3169,12 @@ struct ChatView: View {
                     }
                     // v4.0.75：浏览器直播卡（Muse 式）——画面嵌在消息流末尾，聊天照常可打字指挥；
                     // 点 × 走 closeBrowserLive()（镜像 + Center 源一起清，防 onReceive 重建重弹）。
-                    if let s = browserLiveSession {
-                        BrowserLiveView(session: s, auth: auth, onClose: closeBrowserLive)
+                    // v4.0.76 CI 实抓：直播卡的 if 与下面的 .padding 之间隔了 LazyVStack 其它成员，
+                    // .padding 落不到 if 表达式上（instance member 'padding' cannot be used on type 'View'）→ 括回 Group。
+                    Group {
+                        if let s = browserLiveSession {
+                            BrowserLiveView(session: s, auth: auth, onClose: closeBrowserLive)
+                        }
                     }
                     // v3.9.27：气泡变长——消息区左右 padding 12→6（气泡 maxWidth 369 联动）
                     // v4.0.48：三条 padding（水平 6 / 上 md / 下 md）合并成一条 —— 类型名少两层，

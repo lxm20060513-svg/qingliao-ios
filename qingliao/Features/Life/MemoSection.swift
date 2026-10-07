@@ -69,7 +69,7 @@ struct MemoSection: View {
                     MemoAllListBody(
                         store: store,
                         onDone: { showAll = false },
-                        onClear: { _ = listConfirmClear },   // v4.0.76 审查⑤：占位——真正触发在 MiniCapsule 处写 listConfirmClear
+                        onClear: { },   // v4.0.76 审查⑤：触发改由 MemoAllListBody 内部 listConfirmClear 直接驱动（MiniCapsule「清空」处）
                         onOpenDetail: { openDetailFromAll($0) },
                         onDeleteInList: { pendingDeleteInList = $0 },
                         onConfirmClear: {

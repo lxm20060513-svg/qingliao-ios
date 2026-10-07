@@ -681,7 +681,7 @@ final class ChatStore {
         // v4.0.75：标记已在气泡里当原文展示过一轮（流式期无法拦截），落库后从正文剥掉，
         // 呈现交给流内直播卡。就地改 + bump 落库，刷新后气泡仍是干净正文。
         if let idx = messages.firstIndex(where: { $0.id == m.id }) {
-            messages[idx].content = stripBrowserLiveMarker(messages[idx].content)
+            messages[idx].content = ChatStore.stripBrowserLiveMarker(messages[idx].content)
             messageRev &+= 1
         }
     }

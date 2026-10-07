@@ -1256,10 +1256,10 @@ struct DashboardView: View {
                         AnchorMenuItem(id: p, title: p, icon: "eye", color: .blue)
                     } + [AnchorMenuItem(id: "__all", title: "恢复全部", icon: "arrow.counterclockwise", color: .orange)],
                     title: "恢复已隐藏的模型服务",
-                    onPick: { id in
+                    onPick: { item in
                         showUsageRestore = false
-                        if id == "__all" { hiddenUsageRaw = "" }
-                        else { unhideUsageProvider(id) }
+                        if item.id == "__all" { hiddenUsageRaw = "" }
+                        else { unhideUsageProvider(item.id) }
                     },
                     onClose: { showUsageRestore = false }
                 )
