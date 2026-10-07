@@ -1,0 +1,5 @@
+/* v4.0.70：轻聊正式更名 Qimo（用户 2026-10-07 拍板：中文仍叫「轻聊」，英文叫 Qimo）。
+   基准 Info.plist 的 CFBundleDisplayName 保持「轻聊」，所以中文设备不受影响；
+   本文件只覆盖 en —— 英文设备的桌面图标名显示为 Qimo。
+   ⚠️ 键名必须是 CFBundleDisplayName：改名只认这个键，改 CFBundleName 不会动桌面图标。 */
+"CFBundleDisplayName" = "Qimo";

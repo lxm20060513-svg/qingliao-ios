@@ -895,7 +895,7 @@ extension SettingsView {
     @ViewBuilder var aboutSection: some View {
         SectionHeader("关于")
         VStack(spacing: 0) {
-            SettingRow(icon: "info.circle.fill", iconColor: .gray, title: "关于轻聊", chevron: true)
+            SettingRow(icon: "info.circle.fill", iconColor: .gray, title: "关于 Qimo（轻聊）", chevron: true)
                 .tapButton { showAbout = true }
         }
         .pastelCard()

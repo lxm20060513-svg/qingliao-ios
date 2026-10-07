@@ -1,0 +1,3 @@
+/* v4.0.70：显式钉住中文设备的桌面图标名 = 轻聊（与基准 Info.plist 一致）。
+   作用是防止以后有人把基准 CFBundleDisplayName 直接改成 Qimo 时，中文名被一起带走。 */
+"CFBundleDisplayName" = "轻聊";

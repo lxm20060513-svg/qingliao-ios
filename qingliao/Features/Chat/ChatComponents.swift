@@ -128,49 +128,49 @@ struct MessageBlockView: View {
         Button {
             onCopy()
         } label: {
-            Label("复制", systemImage: "doc.on.doc")
+            Label { Text("复制") } icon: { Image(uiImage: MenuIconTile.glyph("doc.on.doc", .blue)) }
         }
         Button {
             onQuote()
         } label: {
-            Label("引用", systemImage: "quote.opening")
+            Label { Text("引用") } icon: { Image(uiImage: MenuIconTile.glyph("quote.opening", .blue)) }
         }
         Button {
             onShare()
         } label: {
-            Label("分享", systemImage: "square.and.arrow.up")
+            Label { Text("分享") } icon: { Image(uiImage: MenuIconTile.glyph("square.and.arrow.up", .blue)) }
         }
         // v3.3.0：多选合并转发入口
         Button {
             onMultiSelect()
         } label: {
-            Label("多选", systemImage: "checkmark.circle")
+            Label { Text("多选") } icon: { Image(uiImage: MenuIconTile.glyph("checkmark.circle", .teal)) }
         }
         Button {
             onBigBang(blockPlainText)
         } label: {
-            Label("大爆炸", systemImage: "burst.fill")
+            Label { Text("大爆炸") } icon: { Image(uiImage: MenuIconTile.glyph("burst", .teal)) }
         }
         // v3.9.86：长回复阅读（半屏 sheet 放大 + 章节大纲）——传当前段落文字
         if let onRead = onRead {
             Button {
                 onRead(blockPlainText)
             } label: {
-                Label("全屏阅读", systemImage: "text.book.closed")
+                Label { Text("全屏阅读") } icon: { Image(uiImage: MenuIconTile.glyph("text.book.closed", .teal)) }
             }
         }
         if let onRegenerate {
             Button {
                 onRegenerate()
             } label: {
-                Label("重新生成", systemImage: "arrow.clockwise")
+                Label { Text("重新生成") } icon: { Image(uiImage: MenuIconTile.glyph("arrow.clockwise", .orange)) }
             }
         }
         if let onWithdraw {
             Button {
                 onWithdraw()
             } label: {
-                Label("撤回", systemImage: "arrow.uturn.backward")
+                Label { Text("撤回") } icon: { Image(uiImage: MenuIconTile.glyph("arrow.uturn.backward", .orange)) }
             }
         }
         // v3.0.74：钉一钉（钉到看板）——传当前段落文字
@@ -178,7 +178,7 @@ struct MessageBlockView: View {
             Button {
                 onPin(blockPlainText)
             } label: {
-                Label("钉一钉", systemImage: "pin.fill")
+                Label { Text("钉一钉") } icon: { Image(uiImage: MenuIconTile.glyph("pin", .indigo)) }
             }
         }
         // v3.7.0：加入备忘录——传当前段落文字
@@ -186,7 +186,7 @@ struct MessageBlockView: View {
             Button {
                 onMemo(blockPlainText)
             } label: {
-                Label("存备忘录", systemImage: "note.text")
+                Label { Text("存备忘录") } icon: { Image(uiImage: MenuIconTile.glyph("note.text", .purple)) }
             }
         }
         // v3.9.35：加入待办——传当前段落文字
@@ -194,7 +194,7 @@ struct MessageBlockView: View {
             Button {
                 onTodo(blockPlainText)
             } label: {
-                Label("加入待办", systemImage: "checklist")
+                Label { Text("加入待办") } icon: { Image(uiImage: MenuIconTile.glyph("checklist", .purple)) }
             }
         }
         // v4.0.25：存为长期目标——把这段内容直接建成长期目标（首行当标题、后端自动拆步骤）
@@ -202,19 +202,19 @@ struct MessageBlockView: View {
             Button {
                 onGoal(blockPlainText)
             } label: {
-                Label("存为长期目标", systemImage: "target")
+                Label { Text("存为长期目标") } icon: { Image(uiImage: MenuIconTile.glyph("target", .purple)) }
             }
         }
         // v3.9.32：提醒我——一句话定时提醒（本地 UNCalendarNotificationTrigger，App 关了也响）
         Button {
             requestRemind()
         } label: {
-            Label("提醒我", systemImage: "bell.badge.fill")
+            Label { Text("提醒我") } icon: { Image(uiImage: MenuIconTile.glyph("bell.badge", .orange)) }
         }
         Button(role: .destructive) {
             onDelete()
         } label: {
-            Label("删除", systemImage: "trash")
+            Label { Text("删除") } icon: { Image(uiImage: MenuIconTile.glyph("trash", .red)) }
         }
     }
 

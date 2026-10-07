@@ -40,10 +40,12 @@ struct SplashView: View {
 
                 // 标题
                 VStack(spacing: 6) {
-                    Text("轻聊")
+                    // v4.0.70：轻聊正式更名 Qimo（用户 2026-10-07 拍板）——中文语境写全名「Qimo（轻聊）」，
+                    // 英文名 Qimo；桌面图标名走本地化（中文仍「轻聊」/ 英文「Qimo」，见 qingliao/en.lproj/InfoPlist.strings）
+                    Text("Qimo（轻聊）")
                         .font(.system(size: 34, weight: .bold))
                         .foregroundStyle(.primary)
-                    Text("QINGLIAO · AI Agent")
+                    Text("AI AGENT")
                         .font(.system(size: Typography.subhead, weight: .medium))
                         .foregroundStyle(.secondary)
                         .tracking(3)

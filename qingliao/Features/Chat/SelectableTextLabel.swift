@@ -251,7 +251,7 @@ struct SelectableTextLabel: UIViewRepresentable {
             // 有实际选区 → 复制选中文本；无选区（长按空白/未选中）→ 复制整段。
             let hasSelection = range.length != 0 && textView.selectedTextRange != nil
             children.append(UIAction(title: hasSelection ? "复制选中" : "复制",
-                                     image: UIImage(systemName: "doc.on.doc")) { _ in
+                                     image: MenuIconTile.tile("doc.on.doc", .blue)) { _ in
                 if hasSelection {
                     // 复制当前选中文本（精确选区）
                     if let selected = textView.selectedTextRange,
@@ -266,20 +266,20 @@ struct SelectableTextLabel: UIViewRepresentable {
                 }
             })
             // v3.0.2：始终提供「复制整段」（AI 长回复整段复制）
-            children.append(UIAction(title: "复制整段", image: UIImage(systemName: "doc.on.doc.fill")) { _ in
+            children.append(UIAction(title: "复制整段", image: MenuIconTile.tile("doc.on.clipboard", .blue)) { _ in
                 self.parent.onCopy()
             })
-            children.append(UIAction(title: "引用", image: UIImage(systemName: "quote.opening")) { _ in
+            children.append(UIAction(title: "引用", image: MenuIconTile.tile("quote.opening", .blue)) { _ in
                 self.parent.onQuote()
             })
-            children.append(UIAction(title: "分享", image: UIImage(systemName: "square.and.arrow.up")) { _ in
+            children.append(UIAction(title: "分享", image: MenuIconTile.tile("square.and.arrow.up", .blue)) { _ in
                 self.parent.onShare()
             })
             // v3.3.0：多选合并转发入口
-            children.append(UIAction(title: "多选", image: UIImage(systemName: "checkmark.circle")) { _ in
+            children.append(UIAction(title: "多选", image: MenuIconTile.tile("checkmark.circle", .teal)) { _ in
                 self.parent.onMultiSelect()
             })
-            children.append(UIAction(title: "大爆炸", image: UIImage(systemName: "burst.fill")) { _ in
+            children.append(UIAction(title: "大爆炸", image: MenuIconTile.tile("burst", .teal)) { _ in
                 // v3.0.x：气泡级炸开——先选中文字则炸选区，否则炸当前气泡整段
                 if hasSelection, let sel = textView.selectedTextRange,
                    let t = textView.text(in: sel), !t.isEmpty {
@@ -291,7 +291,7 @@ struct SelectableTextLabel: UIViewRepresentable {
 
             // v3.9.86：长回复阅读（长按整段/选中片段都进；sheet 内正文通栏 + 章节大纲）
             if let onRead = parent.onRead {
-                children.append(UIAction(title: "全屏阅读", image: UIImage(systemName: "text.book.closed")) { _ in
+                children.append(UIAction(title: "全屏阅读", image: MenuIconTile.tile("text.book.closed", .teal)) { _ in
                     if hasSelection, let sel = textView.selectedTextRange,
                        let t = textView.text(in: sel), !t.isEmpty {
                         onRead(t)
@@ -304,7 +304,7 @@ struct SelectableTextLabel: UIViewRepresentable {
             // v3.7.0：加入备忘录——有选区存选中片段，无选区存整段（与「复制」同款选区判定）
             if let onMemo = parent.onMemo {
                 children.append(UIAction(title: hasSelection ? "存备忘录（选中）" : "存备忘录",
-                                         image: UIImage(systemName: "note.text")) { _ in
+                                         image: MenuIconTile.tile("note.text", .purple)) { _ in
                     if hasSelection, let sel = textView.selectedTextRange,
                        let t = textView.text(in: sel), !t.isEmpty {
                         onMemo(t)
@@ -317,7 +317,7 @@ struct SelectableTextLabel: UIViewRepresentable {
             // v4.0.25：存为长期目标——有选区存选中片段，无选区存整段（与「存备忘录」同款判定）
             if let onGoal = parent.onGoal {
                 children.append(UIAction(title: hasSelection ? "存为长期目标（选中）" : "存为长期目标",
-                                         image: UIImage(systemName: "target")) { _ in
+                                         image: MenuIconTile.tile("target", .purple)) { _ in
                     if hasSelection, let sel = textView.selectedTextRange,
                        let t = textView.text(in: sel), !t.isEmpty {
                         onGoal(t)
@@ -331,23 +331,23 @@ struct SelectableTextLabel: UIViewRepresentable {
             // （原 v2.0.127 选中手柄功能：系统原生长按已有文本选择手柄，无需重复入口）
 
             if let onRegenerate = parent.onRegenerate {
-                children.append(UIAction(title: "重新生成", image: UIImage(systemName: "arrow.clockwise")) { _ in
+                children.append(UIAction(title: "重新生成", image: MenuIconTile.tile("arrow.clockwise", .orange)) { _ in
                     onRegenerate()
                 })
             }
             if let onWithdraw = parent.onWithdraw {
-                children.append(UIAction(title: "撤回", image: UIImage(systemName: "arrow.uturn.backward")) { _ in
+                children.append(UIAction(title: "撤回", image: MenuIconTile.tile("arrow.uturn.backward", .orange)) { _ in
                     onWithdraw()
                 })
             }
             // v4.0.44 待做池 3：编辑已发消息（改口重答）。只在「最后一条 user 消息」上出现
             //（ChatView 传非 nil）；AI 回答的菜单里永远没有这一项——用户没打过那段字。
             if let onEdit = parent.onEdit {
-                children.append(UIAction(title: "编辑", image: UIImage(systemName: "pencil")) { _ in
+                children.append(UIAction(title: "编辑", image: MenuIconTile.tile("pencil", .orange)) { _ in
                     onEdit()
                 })
             }
-            children.append(UIAction(title: "删除", image: UIImage(systemName: "trash"), attributes: .destructive) { _ in
+            children.append(UIAction(title: "删除", image: MenuIconTile.tile("trash", .red), attributes: .destructive) { _ in
                 self.parent.onDelete()
             })
             return UIMenu(children: children)

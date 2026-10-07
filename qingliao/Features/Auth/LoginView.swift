@@ -149,7 +149,7 @@ struct LoginView: View {
                     .shadow(color: Color.blue.opacity(0.3), radius: 14, y: 5)
             }
             VStack(spacing: 6) {
-                Text("轻聊")
+                Text("Qimo（轻聊）")   // v4.0.70：更名 Qimo，中文语境保留副名（英文名 Qimo）
                     .font(.system(size: Typography.display, weight: .bold))
                 Text("家庭 NAS 上的 AI 助手")
                     .font(.system(size: Typography.subhead))

@@ -35,6 +35,26 @@ enum Motion {
     /// 持续型（呼吸 / 流光收尾），不加回弹
     static var flow: Animation { .smooth(duration: 0.28) }
 
+    /// 会话卡 → 聊天页的整页展开（v4.0.70）
+    ///
+    /// 为什么换掉原来的 `settle`（snappy 0.30）：那是「卡片/面板进入」的节奏，收得又急又平，
+    /// 整页从会话卡大小一帧绷到全屏，看不出「展开」的过程（用户 2026-10-07 真机：
+    /// 「聊天页展开动画不好看，换一个灵动有动画感的」）。
+    /// 这里要的是**看得见落点**的展开：response 拉到 0.46s、dampingFraction 0.80（留约 2~3% 过冲），
+    /// 页面像弹开一样铺满屏幕，落定时轻轻顿一下 —— 过冲刻意压小，弹的是「展开的收尾」而不是整屏晃。
+    /// 配合 `ChatZoomEntryModifier` 里那段 opacity 0.12 → 1：先是一层淡淡的影子，再落到实，
+    /// 这样就不会让人盯着被压扁的文字看完整段动画（那正是「生硬」的主要来源）。
+    static var unfold: Animation { .spring(response: 0.46, dampingFraction: 0.80) }
+
+    /// dock 切页（v4.0.70）
+    ///
+    /// 原用 `settle`（snappy 0.30，纯收束、无回弹）：切页只有「缩放 4% + 下移 10pt」一路收进去，
+    /// 四页共用同一条曲线时观感偏硬（用户 2026-10-07：dock 优化「切页动效分层」）。
+    /// 这里换 spring(response 0.32 / dampingFraction 0.86)：比 unfold 快一档（切页要跟手，
+    /// 不能像整页展开那样 0.46s），留约 1~2% 过冲让落点「顿」一下；配合 TabTransitionModifier
+    /// 里的 opacity 0.35 → 1 淡入，页面就不是「整块硬切上来」而是「浮上来的」。
+    static var tabSwitch: Animation { .spring(response: 0.32, dampingFraction: 0.86) }
+
     /// 新消息气泡上滑入位（y:8→0 + opacity 0→1，v3.9.31）
     ///
     /// v4.0.39：dampingFraction 0.8 → 0.72（**轻微过冲**）。这是本轮唯一一次全局改动 enter 的理由：

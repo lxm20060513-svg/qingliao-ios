@@ -508,6 +508,25 @@ struct SessionsView: View {
         // v3.9.30：删除/刷新后列表项淡出与位置移动过渡（数组替换不再生硬跳变）
         .animation(Motion.settle, value: sortedSessions.map(\.id))
         .scrollPosition($scrollPos)
+        // v4.0.70（#6）：点「已选中的会话 tab」= 回顶 / 跳第一条未读（微信口径；用户 2026-10-07 拍板）。
+        // 广播方在 DockTabView 的槽位重击层（只对会话槽生效，别的槽触摸照旧给系统 tab item），这里只消费。
+        // API 用 iOS 18 `ScrollPosition` 自带的方法（scrollTo(edge:) / scrollTo(id:anchor:)），
+        // 与 List 上既有的 `.scrollPosition($scrollPos)` 同一套绑定。
+        // ⚠️ 目标池必须与**当前真正渲染出来的行**同源 —— 用 visibleSessions（与多选/全选同一口径）：
+        //    非搜索态已剔除固定会话（它们在顶部并排卡里，不是列表行）、搜索态 = 本地命中集合。
+        //    早前取 sortedSessions 时：搜索态或第一条未读恰是轻聊投递/主动 → scrollTo(id:) 找不到目标，静默不动。
+        //      （v4.0.70 只读审查指出；口径收在 visibleSessions 一处，避免两处判据漂移。）
+        //    因为目标池 == 渲染集合，走到 id 分支时目标必定在列表里；池里没有未读（含搜索零命中）一律落到
+        //    else 的「回顶」——两种分支都不存在「点了没反应」（跳到别处的风险由 API 层兜，见下）。
+        .onReceive(NotificationCenter.default.publisher(for: .qingliaoDockRetap)) { note in
+            guard let raw = note.userInfo?["tab"] as? String,
+                  raw == DockTab.sessions.rawValue else { return }
+            if let firstUnread = visibleSessions.first(where: { (chat.unread[$0.id] ?? 0) > 0 }) {
+                withAnimation(Motion.settle) { scrollPos.scrollTo(id: firstUnread.id, anchor: .center) }
+            } else {
+                withAnimation(Motion.settle) { scrollPos.scrollTo(edge: .top) }
+            }
+        }
         // v4.0.69：「会话 → 聊天」转场的**容器参照系** —— 点卡时用它把卡片的全局矩形换算成相对中心的
         // 缩放/位移（见 Core/ChatEntryZoom.swift）。只记矩形、不改布局；List 自身尺寸在滚动中不变，
         // 所以这个 onGeometryChange 实际上只在旋转 / 键盘变化时回调，不会带来每帧开销。

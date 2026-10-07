@@ -100,8 +100,13 @@ struct EnvironmentGlowLayers: View {
             }
             .frame(width: w, height: h)
             .clipped()
-            .ignoresSafeArea()
         }
+        // v4.0.70 修：`ignoresSafeArea` 必须挂在 **GeometryReader 本身** 上。
+        // 挂在里面那个已 `.frame(w,h)` 钉死的子视图上等于没挂：尺寸/裁剪都按安全区矩形算，
+        // 于是状态栏 59pt 与底部 home indicator 34pt 露白（用户 2026-10-07 真机反馈
+        // 「聊天首页右上角没有被渐变底色填充」——右上角正是桃粉团的落点，露白最扎眼）。
+        // 挂到 GeometryReader 上后 geo.size = 整屏，光团百分比也回到定稿稿的「全页」基准。
+        .ignoresSafeArea()
     }
 }
 

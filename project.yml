@@ -36,10 +36,18 @@ targets:
         CFBundleDisplayName: 轻聊
         # 声明支持简体中文——系统组件（相机/分享面板/系统弹窗）界面语言跟随此列表，否则显示英文
         CFBundleDevelopmentRegion: zh_CN
+        # v4.0.70：加 en —— 英文设备的桌面图标名走 qingliao/en.lproj/InfoPlist.strings = Qimo；
+        # 中文设备仍是基准值「轻聊」（用户 2026-10-07 拍板：中文仍叫轻聊，英文叫 Qimo）
+        # ⚠️ 已知取舍（v4.0.70 审查指出，不是漏改）：两个扩展 target（qingliaoWidget:180 /
+        #    qingliaoShare:218）的 CFBundleDisplayName 仍是「轻聊」、也没有各自 .lproj ——
+        #    英文设备上主屏图标 = Qimo，但小组件库 / 分享面板里仍显示「轻聊」。
+        #    本次刻意只改主 App（用户口径「只改 App」）；要统一时给两个扩展各加 en + zh-Hans 的
+        #    InfoPlist.strings（并各自声明 CFBundleLocalizations）。
         CFBundleLocalizations:
           - zh-Hans
-        CFBundleShortVersionString: "4.0.69"
-        CFBundleVersion: "626"
+          - en
+        CFBundleShortVersionString: "4.0.70"
+        CFBundleVersion: "627"
         UILaunchScreen: {}
         # v3.9.83：SCENE 生命周期 + 声明自己的 scene delegate。
         # SwiftUI 进程本就是 scene-based，而系统把「桌面图标长按项被点」**只发给 scene delegate**，
@@ -149,8 +157,8 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.qingliao.app2
         INFOPLIST_KEY_CFBundleDisplayName: 轻聊
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-        MARKETING_VERSION: "4.0.69"
-        CURRENT_PROJECT_VERSION: "626"
+        MARKETING_VERSION: "4.0.70"
+        CURRENT_PROJECT_VERSION: "627"
         ENABLE_PREVIEWS: YES
         CODE_SIGNING_ALLOWED: "NO"
 
@@ -177,15 +185,15 @@ targets:
         CFBundleDisplayName: 轻聊
         CFBundlePackageType: XPC!
         # 扩展与宿主版本号必须一致（XcodeGen 对未声明的键默认写 1.0/1，会让 .appex 自报 1.0(1)）
-        CFBundleShortVersionString: "4.0.69"
-        CFBundleVersion: "626"
+        CFBundleShortVersionString: "4.0.70"
+        CFBundleVersion: "627"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.qingliao.app2.widget
-        MARKETING_VERSION: "4.0.69"
-        CURRENT_PROJECT_VERSION: "626"
+        MARKETING_VERSION: "4.0.70"
+        CURRENT_PROJECT_VERSION: "627"
         CODE_SIGNING_ALLOWED: "NO"
         CODE_SIGNING_REQUIRED: "NO"
         SKIP_INSTALL: YES
@@ -215,8 +223,8 @@ targets:
         CFBundleDisplayName: 轻聊
         CFBundlePackageType: XPC!
         # 扩展与宿主版本号必须一致（XcodeGen 对未声明的键默认写 1.0/1，会让 .appex 自报 1.0(1)）
-        CFBundleShortVersionString: "4.0.69"
-        CFBundleVersion: "626"
+        CFBundleShortVersionString: "4.0.70"
+        CFBundleVersion: "627"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.share-services
           # 不用 storyboard：直接挂 VC 类（本仓没有 MainInterface.storyboard，少一份要同步的资源）
@@ -237,8 +245,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.qingliao.app2.share
-        MARKETING_VERSION: "4.0.69"
-        CURRENT_PROJECT_VERSION: "626"
+        MARKETING_VERSION: "4.0.70"
+        CURRENT_PROJECT_VERSION: "627"
         CODE_SIGNING_ALLOWED: "NO"
         CODE_SIGNING_REQUIRED: "NO"
         SKIP_INSTALL: YES

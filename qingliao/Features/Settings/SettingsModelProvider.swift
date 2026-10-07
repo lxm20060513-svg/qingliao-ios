@@ -205,7 +205,8 @@ struct AboutView: View {
                 .frame(width: 76, height: 76)
                 .shadow(color: .black.opacity(0.15), radius: 6, y: 3)
 
-            Text("轻聊")
+            // v4.0.70：更名 Qimo（用户 2026-10-07 拍板）——中文语境写全名「Qimo（轻聊）」，英文名 Qimo
+            Text("Qimo（轻聊）")
                 .font(.system(size: Typography.titleXL, weight: .bold))
             Text("Version \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "3.0")")
                 .font(.system(size: Typography.subhead))
@@ -215,9 +216,9 @@ struct AboutView: View {
 
             VStack(alignment: .leading, spacing: 10) {
                 // v3.0.8：项目版本说明（iOS 客户端版本）
-                aboutRow("项目版本", "轻聊 · iOS 客户端 v\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?")")
+                aboutRow("项目版本", "Qimo（轻聊）· iOS 客户端 v\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?")")
                 // v3.0.3：统一介绍框架 —— 云端直连已于 v3.9.28 整体移除，本页只剩本地 AI 一种形态
-                aboutRow("产品", "轻聊 —— 面向家庭的 AI 智能助手，SwiftUI 原生客户端，连接自家 NAS 上的 Hermes Agent，数据本地保存。")
+                aboutRow("产品", "Qimo（轻聊）—— 面向家庭的 AI 智能助手，SwiftUI 原生客户端，连接自家 NAS 上的 Hermes Agent，数据本地保存。")
                 appModeRow()
                 aboutRow("功能", "流式对话 · 语音对话 · 图片理解 · 知识库检索 · 会话同步 · NAS 面板 · Docker 管理 · 智能家居 · 定时任务")
                 aboutRow("模型", "DeepSeek V4 / Kimi / StepFun 多模型聚合（OpenCode Go + 官方 API）")
