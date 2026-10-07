@@ -321,6 +321,11 @@ struct MemoGlassLayerHost: View {
 // MARK: - v4.0.77 长按菜单项（卡片 / 全部列表 / 页级浮层三处共用）
 
 /// ⚠️ 名字必须与 `MemoSection.memoMenuItems` 区分（那个只是转发到本函数），否则会自己调自己。
+/// 🚨 **文件级函数默认非 MainActor 隔离**（只有 View 的成员才是）→ 本体里调 `Haptics`/`MemoStore`
+/// 这类 MainActor API 必须显式 `@MainActor`；否则只有 CI Archive 会报 `call to main actor-isolated
+/// static method 'success()' in a synchronous nonisolated context`（本机 `-parse` 查不出；仓内先例：
+/// ImageCache.swift 的全局函数都带 `@MainActor`）。
+@MainActor
 @ViewBuilder
 private func memoCardMenuItems(_ m: MemoItem,
                                onDelete: @escaping (MemoItem) -> Void,
@@ -351,6 +356,7 @@ private func memoCardMenuItems(_ m: MemoItem,
 
 /// v3.9.14：把备忘内容作为一条用户消息发给 AI，并切回聊天页。
 /// 备忘存下来只能复制粘贴没意义——能直接接着办才是轻聊备忘录区别于系统备忘录的地方。
+@MainActor
 private func memoSendToAI(_ m: MemoItem) {
     NotificationCenter.default.post(name: .qingliaoMemoSend, object: m.content)
     Haptics.success()
