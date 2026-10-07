@@ -26,12 +26,6 @@ extension Notification.Name {
     // v4.0.1：分享接收（ShareIntake，在 Core 层摸不到 DockTabView 的 selected）投递前，
     // 先请宿主把聊天页切进视图树 —— 载荷的落点全是 ChatView 挂的 onReceive，人不在就落空。
     static let qingliaoOpenChat = Notification.Name("qingliao_open_chat")
-    // v4.0.70：点「已选中的**会话**标签」= 回顶 / 跳未读（微信口径）。
-    // 广播方 = DockTabView 的槽位重击层（**只对会话槽**生效，其余槽触摸照旧给系统 tab item）；
-    // 消费方 = 会话页 SessionsView（List 的 scrollPos）。生活/看板/设置三页**暂无消费方**，
-    // 所以广播方干脆不为它们挂层（v4.0.70 审查指出：挂了层却没人消费 = 白吞触摸）。
-    // object 不带内容；userInfo["tab"] = DockTab.rawValue（消费方据此过滤）。
-    static let qingliaoDockRetap = Notification.Name("qingliao_dock_retap")
 }
 
 // MARK: - v2.0.60 通知点击直达会话（AppDelegate 捕获通知点击 → 存 sessionId）

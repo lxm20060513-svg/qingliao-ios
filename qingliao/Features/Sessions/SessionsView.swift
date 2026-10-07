@@ -16,10 +16,6 @@ struct SessionsView: View {
     @State private var isLoading = false
     @State private var errorText: String?
     @State private var scrollPos = ScrollPosition()
-    /// v4.0.69：会话 → 聊天 空间连续转场（见 Core/ChatEntryZoom.swift）。这里只存**会话页容器矩形**，
-    /// 点卡时用它把「卡片全局矩形」换算成相对中心的缩放/位移参数 —— 换算必须在点击那一刻完成，
-    /// 不能等聊天页自己量到几何（那时已经换页了）。
-    @State private var zoomContainerFrame: CGRect = .zero
     // v4.0.69：顶部并排卡（轻聊投递 / 轻聊主动）的长按目标存在 `FixedCardMenuTarget.shared`，
     // **刻意不用 @State** —— 长按期间改 @State 会重建 body、可能打断正在弹出的系统菜单，见 fixedChannelCards 注释。
     @State private var deleteError: String?
@@ -508,31 +504,6 @@ struct SessionsView: View {
         // v3.9.30：删除/刷新后列表项淡出与位置移动过渡（数组替换不再生硬跳变）
         .animation(Motion.settle, value: sortedSessions.map(\.id))
         .scrollPosition($scrollPos)
-        // v4.0.70（#6）：点「已选中的会话 tab」= 回顶 / 跳第一条未读（微信口径；用户 2026-10-07 拍板）。
-        // 广播方在 DockTabView 的槽位重击层（只对会话槽生效，别的槽触摸照旧给系统 tab item），这里只消费。
-        // API 用 iOS 18 `ScrollPosition` 自带的方法（scrollTo(edge:) / scrollTo(id:anchor:)），
-        // 与 List 上既有的 `.scrollPosition($scrollPos)` 同一套绑定。
-        // ⚠️ 目标池必须与**当前真正渲染出来的行**同源 —— 用 visibleSessions（与多选/全选同一口径）：
-        //    非搜索态已剔除固定会话（它们在顶部并排卡里，不是列表行）、搜索态 = 本地命中集合。
-        //    早前取 sortedSessions 时：搜索态或第一条未读恰是轻聊投递/主动 → scrollTo(id:) 找不到目标，静默不动。
-        //      （v4.0.70 只读审查指出；口径收在 visibleSessions 一处，避免两处判据漂移。）
-        //    因为目标池 == 渲染集合，走到 id 分支时目标必定在列表里；池里没有未读（含搜索零命中）一律落到
-        //    else 的「回顶」——两种分支都不存在「点了没反应」（跳到别处的风险由 API 层兜，见下）。
-        .onReceive(NotificationCenter.default.publisher(for: .qingliaoDockRetap)) { note in
-            guard let raw = note.userInfo?["tab"] as? String,
-                  raw == DockTab.sessions.rawValue else { return }
-            if let firstUnread = visibleSessions.first(where: { (chat.unread[$0.id] ?? 0) > 0 }) {
-                withAnimation(Motion.settle) { scrollPos.scrollTo(id: firstUnread.id, anchor: .center) }
-            } else {
-                withAnimation(Motion.settle) { scrollPos.scrollTo(edge: .top) }
-            }
-        }
-        // v4.0.69：「会话 → 聊天」转场的**容器参照系** —— 点卡时用它把卡片的全局矩形换算成相对中心的
-        // 缩放/位移（见 Core/ChatEntryZoom.swift）。只记矩形、不改布局；List 自身尺寸在滚动中不变，
-        // 所以这个 onGeometryChange 实际上只在旋转 / 键盘变化时回调，不会带来每帧开销。
-        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { r in
-            zoomContainerFrame = r
-        }
         // v4.0.64（用户 2026-10-05 真机复测：会话页 + 聊天页都取消「滚边玻璃」）：
         // iOS 26 自动给 List / ScrollView 加**滚动边缘效果**（内容滚到标签栏 / 状态栏旁被模糊 + 变暗）。
         // 本页与聊天页消息区一并关掉；看板 / 生活两页不动（用户只点了这两页）。
@@ -615,11 +586,6 @@ struct SessionsView: View {
                     LongPressGesture(minimumDuration: 0.05)
                         .onEnded { _ in FixedCardMenuTarget.shared.id = s.id }
                 )
-                // v4.0.69：并排卡也把全局矩形登记给转场层 —— 顶部这两张（轻聊投递 / 轻聊主动）是
-                // 「点卡 → 展开」最常用的入口，漏了它们就等于最该有动画的那一下没动画。
-                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { r in
-                    ChatEntryZoom.shared.record(sessionId: s.id, rect: r)
-                }
             }
         }
         // 菜单挂在行上（cell 级宿主就在这一层）。内容由 FixedCardMenuTarget 决定 → 长按哪张就是哪张；
@@ -833,10 +799,6 @@ struct SessionsView: View {
         chat.markRead(s.id, upTo: s.lastTime)   // v4.0.15：带上会话最后消息时间做基线，防时钟差导致角标复亮；v3.9.32：打开会话即已读（此前 markRead 全仓零调用，红点会永久挂着）
         chat.load(s)
         Haptics.tap()         // v3.4.29：进入会话触感
-        // v4.0.69：给「会话 → 聊天」的空间连续转场记下起点（必须在 onOpenSession 之前 —— 那一下就把
-        // selected 改成 .chat，聊天页的 onChange 会立刻取走参数）。没登记过几何的入口（搜索命中/远端命中）
-        // 会取到 nil = 不播动画，退化成原来的硬切，绝不会影响跳转本身。
-        ChatEntryZoom.shared.begin(sessionId: s.id, container: zoomContainerFrame)
         onOpenSession?()
     }
 
@@ -1007,11 +969,6 @@ struct SessionsView: View {
             } else {
                 open(s)   // v3.9.33：进会话统一入口（含 v3.9.32 markRead）——远端命中行复用同一路径
             }
-        }
-        // v4.0.69：把这张卡的**全局矩形**静默登记给「会话 → 聊天」转场层（写引用类型，不触发本页重算）。
-        // 滚动中每帧都会回调一次 —— 这正是它不能用 @State 存的原因。
-        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { r in
-            ChatEntryZoom.shared.record(sessionId: s.id, rect: r)
         }
         // 🚨 不要在这里挂 .scrollDepth()（v4.0.21 会话列表改 List 后实测有害，2026-10-05 移除）：
         //    `.scrollTransition` 只在 ScrollView/LazyVStack 里按元素位置算 identity（看板/生活卡片仍在用，正常）；
@@ -1838,7 +1795,6 @@ private extension View {
 /// 记下命中的卡 id，菜单内容弹出时据此分发（见 `SessionsView.fixedChannelCards`）。
 ///
 /// 刻意用引用类型而不是 `@State`：长按期间改 `@State` 会重建 body，可能打断正在弹出的系统菜单。
-/// 与 `ChatEntryZoom` 同一手法（静默写，不参与 SwiftUI 依赖追踪）。
 ///
 /// - Note: `@unchecked Sendable` + 不标 `@MainActor` 是**故意的**：只在主线程（视图 body / 手势闭包）
 ///   读写；而手势闭包在 Swift 6 下到底继承哪种隔离随 SwiftUI 版本变化，标成 Sendable 两边都编得过。

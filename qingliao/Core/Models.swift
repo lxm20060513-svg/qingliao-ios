@@ -28,9 +28,6 @@ enum UserDefaultsKey {
     /// v3.9.9：待发队列 key 提升到这里做唯一常量——原来 ChatView 里是 private static 常量、
     /// DockTabView 兜底清理处是**硬编码字面量**，只改一边就会静默失效（清不掉队列）。只读审查指出。
     static let pendingQueue = "qingliao_pending_queue"
-    /// v4.0.70：dock 顺序串（4 个非球槽的排列，chat 恒在 index 2）——DockTabView 读、SettingsCommon
-    /// 的 DockOrderEditor 写，同一病（硬编码字面量两处，只改一边静默失效），同样提升为唯一常量。
-    static let dockOrder = "qingliao_dock_order"
 }
 
 // MARK: - 聊天消息（content 可能是纯文本或数组，手动解析最稳）

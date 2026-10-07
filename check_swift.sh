@@ -1284,56 +1284,37 @@ echo "=== 88. 主题淡彩迁移真值表（v4.0.67 · 页底环境渐变铺全�
 #     分享扩展主色与主题蓝紫亮色首档同值（扩展编不到 Theme，只能字面写 → 最易漂移）。
 run_unit /tmp/test_themegrad scripts/ql_themegrad/truth_table_themegrad.swift
 
-echo "=== 89. dock 优化真值表（v4.0.70 · 用户 2026-10-07 拍板：做 3/4/5/6/7/9）==="
-# 钉：#9 顺序串只含 4 个非球槽（混进 chat = 球跑位）、必须留兜底（坏值回出厂序）；
-#     #7 两个角标各守自己的口径（会话 = 未读条数汇总 · 生活 = 今天新增且未勾掉），#5 0 就不挂；
-#     #6 重击层只盖当前选中槽、只发通知（滚动消费在会话页），chat 槽不挂；
-#     #3 接缝层只加在**页面侧**（碰系统 tab bar 是 v3.9.46/47 判死的红线）；
-#     #4 切页令牌必须是 tabSwitch + 淡入（溜回 settle / 裸位移即回归）。
+echo "=== 89. dock 回退真值表（v4.0.72 · 用户 2026-10-07 拍板：整体回退 4.0.69）==="
+# 钉：v4.0.72 整体回退到 4.0.69 形态（用户 2026-10-07 拍板「dock 恢复到 4.0.69」）——
+#     v4.0.70 的 6 项（顺序自定义/角标/重击回顶/接缝线/tabSwitch+淡入/ChatEntryZoom unfold）全部不许回来；
+#     切页入场回到 v4.0.69 口径（Motion.settle + 0.96 缩放 + 10pt 上浮，无整页淡入）；
+#     白闪根治 = TabView 底下垫静态 EnvironmentGlowLayers（缩放露环=渐变而非窗口白底）。
 SSV=qingliao/Features/Sessions/SessionsView.swift
 SCS=qingliao/Features/Settings/SettingsCommon.swift
 MDL=qingliao/Core/Models.swift
 
-ck "dock 顺序①：出厂串 = 会话/生活/看板/设置" 'static let defaultDockOrderRaw = "sessions,life,dashboard,settings"' "$DT"
-ck "dock 顺序②：可换位集合只含 4 个非球槽" 'static let orderableTabs: \[DockTab\] = \[\.sessions, \.life, \.dashboard, \.settings\]' "$DT"
-ckNot "dock 顺序③：出厂串里不许出现 chat（球位靠第 3 槽硬编码，混进串里球就跑）" 'defaultDockOrderRaw = "[^"]*chat' "$DT"
-ckNot "dock 顺序③′：可换位集合里不许出现 chat" 'orderableTabs: \[DockTab\] = \[[^]]*\.chat' "$DT"
-ck "dock 顺序④：坏值有兜底（sanitizedOrder 补齐/去重回出厂序）" 'static func sanitizedOrder' "$DT"
-ck "dock 槽位①：第 1 槽取自顺序串" 'dockPage\(dockOrderTabs\[0\]\)' "$DT"
-ck "dock 槽位②：第 5 槽取自顺序串" 'dockPage\(dockOrderTabs\[3\]\)' "$DT"
-ck "dock 槽位③：chat 仍插在第 3 位（球位不变）" '^                chatTab$' "$DT"
-ck "dock 顺序⑤：外观页有入口（Dock 顺序 Section）" 'Section\("Dock 顺序"\)' "$SCS"
-ck "dock 顺序⑥：编辑器写回同一个 key（走唯一常量，不写字面量）" '@AppStorage\(UserDefaultsKey\.dockOrder\)' "$SCS"
-ck "dock 顺序⑥′：读方（DockTabView）也用同一常量" '@AppStorage\(UserDefaultsKey\.dockOrder\)' "$DT"
-ck "dock 顺序⑥″：key 字面量只在 UserDefaultsKey 里出现一次（唯一真源）" 'static let dockOrder = "qingliao_dock_order"' "$MDL"
-ckNot "dock 顺序⑦：读方不许再出现硬编码 key（只改一边 = 静默失效，同 pendingQueue 的病）" '@AppStorage\("qingliao_dock_order"\)' "$DT"
-ckNot "dock 顺序⑦′：写方同上" '@AppStorage\("qingliao_dock_order"\)' "$SCS"
-# 断言形态刻意只钉「取用形态」而不是裸字面量 —— ckNot 是 grep -E 全文件、不过滤注释，
-# 钉裸字面量会把**说明注释**里的迁移记录也算成失败（v4.0.70 第三路审查指出）。
-ckNot "dock 顺序⑦″：不许绕过常量直接用 string(forKey:)/set(forKey:)" 'forKey: "qingliao_dock_order"' "$DT"
-ckNot "dock 顺序⑦‴：写方同上" 'forKey: "qingliao_dock_order"' "$SCS"
-ck "角标#7①：会话槽 = 未读条数汇总（与列表角标同源 ChatStore.unread）" 'private var sessionsBadge: Int \{ chat\.unread\.values\.reduce\(0, \+\) \}' "$DT"
-ck "角标#7②：生活槽 = 今天新增且未勾掉的待办" 'cal\.isDateInToday\(\$0\.createdAt\)' "$DT"
-ck "角标#5：0 不挂（自己判 > 0，不赌 .badge(Int) 对 0 的处理）" 'badge > 0 \? Text\(' "$DT"
-# v4.0.70 审查修正①：命中层只对**会话槽**生效 —— 全仓只有会话页挂了消费方，
-# 别的槽挂层 = 白吞触摸 + 白响触感（旧断言锚在 `selected != .chat {` 上，该串全文件 8 处，
-# 删掉重击层那条也照样绿 = 假绿）。改用命中层独有的上下文串。
-ck "重击#6①：命中层只对会话槽生效" 'showVoiceDialog, selected == \.sessions \{' "$DT"
-ckNot "重击#6①′：不许对全部非 chat 槽挂层（白吞触摸的回归）" 'showVoiceDialog, selected != \.chat \{' "$DT"
-ck "重击#6②：只发通知，滚动消费在会话页" 'NotificationCenter\.default\.post\(name: \.qingliaoDockRetap' "$DT"
-ck "重击#6③：会话页有未读跳第一条、没有才回顶" 'scrollPos\.scrollTo\(id: firstUnread\.id, anchor: \.center\)' "$SSV"
-# v4.0.70 审查修正②：目标池必须与**当前真正渲染的行**同源（visibleSessions：非搜索态已剔除固定会话、
-# 搜索态 = 本地命中）。取 sortedSessions 时：搜索态 或 第一条未读恰是轻聊投递/主动
-# （它们渲染在顶部并排卡里、不是列表行）→ scrollTo(id:) 找不到目标，静默不动。
-ck "重击#6⑤：跳未读的目标池与渲染行严格同源（visibleSessions）" 'visibleSessions\.first\(where: \{ \(chat\.unread\[\$0\.id\] \?\? 0\) > 0 \}\)' "$SSV"
-ckNot "重击#6⑤′：不许退回 sortedSessions 取目标（找不到行 = 静默失效）" 'sortedSessions\.first\(where: \{ \(chat\.unread\[\$0\.id\] \?\? 0\) > 0 \}\)' "$SSV"
-ck "重击#6④：会话页无未读时回顶（edge: .top）" 'scrollPos\.scrollTo\(edge: \.top\)' "$SSV"
-ck "接缝#3①：渐隐 + 发丝线层存在" 'private struct DockSeamOverlay' "$DT"
-ckNotIn "接缝#3②：不许碰系统 tab bar 外观（v3.9.46/47 红线）" 'private struct DockSeamOverlay' 'UITabBar' "$DT"
-ck "切页#4①：换 tabSwitch spring 令牌" 'withAnimation\(Motion\.tabSwitch\) \{ phase = 1 \}' "$DT"
-ckNot "切页#4②：不许回到 0.35 起手的整页淡入（整页透明 = 页底一起透白 → 用户 2026-10-07「先白底再填渐变」）" '\.opacity\(0\.35 \+ 0\.65 \* phase\)' "$DT"
-ck "切页#4②：淡入起手 ≥0.9（留轻微淡入，但不再透出窗口白底）" '\.opacity\(0\.9 \+ 0\.1 \* phase\)' "$DT"
-ckNot "切页#4③：别溜回旧 settle 令牌（回归）" 'withAnimation\(Motion\.settle\) \{ phase = 1 \}' "$DT"
+ckNot "回退①：dock 顺序自定义已拆（出厂串不许回来）" 'defaultDockOrderRaw' "$DT"
+ckNot "回退②：可换位集合已拆" 'orderableTabs' "$DT"
+ckNot "回退③：sanitizedOrder 兜底已拆" 'sanitizedOrder' "$DT"
+ckNot "回退④：外观页 Dock 顺序入口已拆" 'Section\("Dock 顺序"\)' "$SCS"
+ckNot "回退⑤：dockOrder key 已从模型删除" 'static let dockOrder = "qingliao_dock_order"' "$MDL"
+ckNot "回退⑥：槽位角标已拆" 'sessionsBadge' "$DT"
+ckNot "回退⑦：重击回顶通知已拆（dock 侧）" 'qingliaoDockRetap' "$DT"
+ckNot "回退⑧：重击回顶消费已拆（会话页侧）" 'qingliaoDockRetap' "$SSV"
+ckNot "回退⑨：接缝线层已拆" 'DockSeamOverlay' "$DT"
+ckNot "回退⑩：tabSwitch 令牌已删（Motion 里不许再出现）" 'tabSwitch' "qingliao/Theme/Motion.swift"
+ckNot "回退⑪：unfold 令牌已删" 'static let unfold' "qingliao/Theme/Motion.swift"
+ckNot "回退⑫：ChatEntryZoom 机制文件已删" 'ChatEntryZoom' "$DT"
+ckNot "回退⑬：会话页无 ChatEntryZoom 残留" 'ChatEntryZoom' "$SSV"
+ckNot "回退⑭：整页淡入不许回来（0.35 起手的老病）" '\.opacity\(0\.35 \+ 0\.65 \* phase\)' "$DT"
+ckNot "回退⑮：0.9 淡入（v4.0.71 未根治版）也不许回来" '\.opacity\(0\.9 \+ 0\.1 \* phase\)' "$DT"
+cnt=$(grep -cE 'withAnimation\(Motion\.settle\) \{ phase = 1 \}' "$DT"); [ "$cnt" -ge 2 ] \
+  || { echo "❌ 回退⑯：切页入场 settle 应在两处 modifier 各一份（实得 $cnt）"; fail=1; }
+ck "回退⑰：TabView 底下垫了静态渐变底（切页缩放露环=渐变，根治「先白后切」）" 'EnvironmentGlowLayers\(scheme: colorScheme\)' "$DT"
+ln=$(grep -n 'EnvironmentGlowLayers(scheme: colorScheme)' "$DT" | head -1 | cut -d: -f1); [ -n "$ln" ] \
+  || { echo "❌ 回退⑰：垫底渐变层不存在"; fail=1; }
+if [ -n "$ln" ]; then win=$(sed -n "${ln},$((ln+3))p" "$DT"); case "$win" in *allowsHitTesting\(false\)*) ;; \
+  *) echo "❌ 回退⑱：垫底层(第 $ln 行起3行内)缺 allowsHitTesting(false)"; fail=1;; esac; fi
 
 [ $fail -eq 0 ] || { echo "❌ 有护栏失守"; exit 1; }
 exit 0

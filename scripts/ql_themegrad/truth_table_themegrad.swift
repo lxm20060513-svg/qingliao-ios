@@ -285,11 +285,8 @@ check("⑦ 本表真的扫到了用法（防空真：以上断言不能因为一
 //   c) 整页淡入起手过透（0.35 / 0.12）→ 页底跟着一起透明，等于把白底透出来 = 同症状的浓淡部分。
 //   三条都只钉「形态」，不钉具体数值（8% / 0.9 这类可调参不进断言，调参不该报红）。
 let dockSrc = stripCommentLines(src("qingliao/Features/DockTabView.swift"))
-check("⑧a 聊天页入场不再用「半径 0 的圆角矩形」当不裁（会裁掉页底溢出安全区那段）",
-      !dockSrc.contains("RoundedRectangle(cornerRadius: spec == nil ? 0")
-      && dockSrc.contains("clipShape(ZoomEntryClip(radius:"))
-check("⑧a 「半径 ≤0 = 不裁」真的落在形状实现里（防假绿：换回普通 RoundedRectangle 即红）",
-      dockSrc.contains("rect.insetBy(dx: -4000, dy: -4000)"))
+check("⑧a 聊天页「从会话卡展开」机制已整体移除（v4.0.72 拍板；裁剪壳会切掉页底溢出安全区那段）",
+      !dockSrc.contains("ZoomEntryClip") && !dockSrc.contains("clipShape(radius:"))
 // ⑧b 三条**必须成组看**（v4.0.71 首版只有「放大 + 平移」两条 → 把「画布没重新居中」的错实现判成绿：
 //     实测那样三团光团整体偏移 ≈2×overscan ≈16% 屏宽、右上桃粉直接出屏。发版前审查抓到，补第 2 条。
 //     归一化：剥注释 + 去掉空白，免得被缩进/换行/说明性注释喂饱（同文件别处用的 themeSrc 没剥注释）。
@@ -303,11 +300,19 @@ check("⑧b 放大后的画布**重新居中**到窗口（漏它 = 三团光团�
       themeFlat.contains(".offset(x:-ox,y:-oy)") || themeFlat.contains(".position(x:w/2,y:h/2)"))
 check("⑧b 光团几何仍锚在屏幕坐标（3 团各带一次 ox/oy 平移；须与上一条成对才成立）",
       occ(themeFlat, "+ox") == 3 && occ(themeFlat, "+oy") == 3)
-check("⑧c 切页淡入起手已抬离 0.35（整页连同页底一起透白的老写法）",
+check("⑧c 切页/聊天页入场已无整页淡入（淡入=透白根源，v4.0.72 只保留缩放+上浮）",
       !dockSrc.contains("opacity(0.35 + 0.65 * phase)")
-      && dockSrc.contains("opacity(0.9 + 0.1 * phase)"))
-check("⑧c 聊天页入场淡入起手已抬离 0.12",
-      !dockSrc.contains("opacity(spec == nil ? 1 : 0.12)"))
+      && !dockSrc.contains("opacity(0.9 + 0.1 * phase)")
+      && !dockSrc.contains("opacity(spec == nil ? 1 : 0.12)")
+      && !dockSrc.contains(".opacity(phase"))
+// ⑧c 切片断言：allowsHitTesting 必须落在垫底层声明后 3 行窗口内（全文件存在性会被 OrbHitLayer 等喂饱=假绿）
+if let r = dockSrc.range(of: "EnvironmentGlowLayers(scheme: colorScheme)") {
+    let tail = dockSrc[r.lowerBound...].prefix(200)
+    check("⑧c TabView 垫底渐变层且不吃点击（窗口内断言，防存在性假绿）",
+          tail.contains(".ignoresSafeArea()") && tail.contains(".allowsHitTesting(false)"))
+} else {
+    check("⑧c TabView 垫底渐变层且不吃点击（窗口内断言，防存在性假绿）", false)
+}
 
 print("通过 \(passCount) / 失败 \(failCount)")
 if failCount > 0 { exit(1) }

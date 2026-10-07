@@ -68,7 +68,7 @@ struct EnvironmentGlowLayers: View {
             let w = geo.size.width
             let h = geo.size.height
             // v4.0.71：**页底过扫描**。页底此前与屏幕严格同大，于是被任何「整页缩放/位移」的过渡
-            //   掀开边角——切页入场正是 scale 0.96 + 下移 10pt（DockTabView 的 tabSwitch），
+            //   掀开边角——切页入场正是 scale 0.96 + 下移 10pt（DockTabView 的切页入场），
             //   动画期间四周那几 pt 露出窗口白底，看起来像「先白底再填渐变」
             //   （用户 2026-10-07 真机反馈「其他界面切换以后顶部才会填充渐变色，先白底再填渐变」）。
             //   作画区每边放大 `overscan`，**但光团几何仍按屏幕坐标 w/h 计算**并整体平移 (ox, oy)

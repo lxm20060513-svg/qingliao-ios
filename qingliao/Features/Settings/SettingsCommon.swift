@@ -870,49 +870,6 @@ struct NewTaskSheet: View {
 
 // MARK: ===== 以下原为 Features/Settings/AppearanceSheet.swift =====
 
-// MARK: - v4.0.70（#9）Dock 顺序编辑器
-
-/// 只做「换位」：4 个非球槽各一对上/下箭头。
-/// 为什么不用拖拽排序：外观页是 Form 里的一个 Section，套 List + onMove 要另起 EditMode，
-/// 为 4 项引入整套拖拽（还要防与 Form 手势打架）不划算 —— 箭头点两下就到。
-/// 写法与「看板卡片编辑器」BoardCardEditor.shownRow 同款（arrow.up / arrow.down + swapAt + 写回逗号串），
-/// 保持同一个仓里同一个交互只有一种长相。
-private struct DockOrderEditor: View {
-    // v4.0.70：写回同一个 key（UserDefaultsKey.dockOrder 唯一常量，读方在 DockTabView）
-    @AppStorage(UserDefaultsKey.dockOrder) private var orderRaw = DockTab.defaultDockOrderRaw
-
-    var body: some View {
-        let tabs = DockTab.sanitizedOrder(orderRaw)
-        ForEach(Array(tabs.enumerated()), id: \.element.id) { idx, tab in
-            HStack(spacing: 10) {
-                Image(systemName: tab.icon)
-                    .foregroundStyle(Color.accentColor)
-                    .frame(width: 24)
-                Text(tab.title)
-                Spacer()
-                Button { move(idx, by: -1) } label: { Image(systemName: "arrow.up") }
-                    .disabled(idx == 0)
-                    .accessibilityLabel("上移 \(tab.title)")
-                Button { move(idx, by: 1) } label: { Image(systemName: "arrow.down") }
-                    .disabled(idx == tabs.count - 1)
-                    .accessibilityLabel("下移 \(tab.title)")
-            }
-            // Form/List 内按钮默认会被染色并抢走整行点击（同 BoardCardEditor）
-            .buttonStyle(.borderless)
-        }
-    }
-
-    /// 只交换相邻两项后整串写回：不重排没动的槽位（同 BoardCardEditor.move 的语义）
-    private func move(_ idx: Int, by delta: Int) {
-        var tabs = DockTab.sanitizedOrder(orderRaw)
-        let j = idx + delta
-        guard tabs.indices.contains(idx), tabs.indices.contains(j) else { return }
-        tabs.swapAt(idx, j)
-        orderRaw = tabs.map(\.rawValue).joined(separator: ",")
-        Haptics.tap()
-    }
-}
-
 // v3.9.28：外观设置弹窗——从 CloudSettingsView 拆出独立文件（云端模式移除时误删，
 // 但设置页「外观」入口仍在引用 → 灵动岛/流光/字体/行高/天气城市开关全丢了）。
 struct AppearanceSheet: View {
@@ -971,15 +928,6 @@ struct AppearanceSheet: View {
                         .onChange(of: liveActivityOn) { _, on in
                             if !on { Task { @MainActor in await LiveActivityManager.shared.end() } }
                         }
-                }
-                // v4.0.70（#9）：dock 图标顺序 —— 用户 2026-10-07 拍板「做 3/4/5/6/7/9」。
-                // ⚠️ 只能换位、不能增减：智慧球必须留在正中间（球心几何按第 3 槽硬编码，见 DockTabView），
-                //    所以这里恒是 4 个非球槽的排列；key 与 DockTabView 共用（UserDefaultsKey.dockOrder）。
-                Section("Dock 顺序") {
-                    DockOrderEditor()
-                    Text("智慧球固定居中，这里只调左右四个图标的位置。")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
                 }
                 // v3.9.94：启动会话（用户拍板「设置里面增加启动会话设置……放在外观设置里」）
                 // ⚠️ 这段 UI 是**补的入口**，不是新功能：判定逻辑在 LaunchSession.swift 早就有，
