@@ -693,7 +693,10 @@ private struct TabTransitionModifier: ViewModifier {
             .offset(y: 10 * (1 - phase))                         // v4.0.69：从下方 10pt 浮起
             // v4.0.70（#4）：补一层淡入。原来只有「缩放 + 位移」，四页共用一条纯收束曲线，
             // 整页像"硬切"上来；0.35 起手（不是 0：全透明起手会看到页面在闪）→ 落定时刚好接到实。
-            .opacity(0.35 + 0.65 * phase)
+            // v4.0.71 修：起手 0.35 → **0.9**。整页淡入会把**页底渐变也一起变透明**，
+            //   而窗口底是纯白 → 动画期间整屏发白，用户 2026-10-07 真机反馈「先白底再填渐变」。
+            //   抬到 0.9 后仍有轻微淡入，但不再透出白底（几何露白由页底过扫描兜住，见 EnvironmentGradient）。
+            .opacity(0.9 + 0.1 * phase)
             .onAppear { enter() }
             .onChange(of: selected) { _, newVal in
                 guard newVal == tab else { return }              // 离场不反向播（见头注）
@@ -728,6 +731,37 @@ extension View {
 // 为什么单独立一个 ViewModifier 而不是往 body 那条巨型链上挂带闭包的东西：见上面 OrbMenuFromPetModifier
 // 的注释（CI run #571 实测 `unable to type-check this expression in reasonable time`）。这里参数很少，
 // 但同样守住「不往 body 链加东西」这条线 —— 只挂在 chatTab 这个计算属性里。
+/// v4.0.71：聊天页入场裁剪形状。**半径 ≤ 0 时返回远超自身 frame 的路径 = 不裁**。
+///
+/// 为什么需要它：v4.0.69 起这里挂的是 `RoundedRectangle(cornerRadius: spec == nil ? 0 : Radius.card)`，
+/// 而**半径 0 的圆角矩形照样会按页框裁一刀** —— 页底环境渐变靠 `.ignoresSafeArea()` 溢出到
+/// 状态栏 59pt / home indicator 34pt 的那部分被整块切掉，于是聊天页成了**唯一**顶部常驻白条的
+/// tab（另外四页没有这层裁剪，同款页底能铺满：全仓 `DockTabView` 只有这一处 `clipShape`）。
+/// 用户 2026-10-07 真机反馈「聊天界面 header 上面部分都是白底，跟聊天框内断层」。
+///
+/// ⚠️ 不能用 `if spec == nil { content } else { content.clipShape(...) }` 那种分支写法：
+/// 那会改视图类型 → ChatView 整棵重建（滚动位置、输入态、@State 全丢）。
+/// 只能把「裁不裁」参数化进形状本身（等价于 `RoundedRectangle` 的半径语义，但半径 0 时不裁）。
+private struct ZoomEntryClip: Shape {
+    var radius: CGFloat
+
+    /// 自定义 Shape 的默认 animatableData 是 `EmptyAnimatableData` → **半径不会被插值**，
+    /// 入场动画里圆角会从 `Radius.card` 瞬跳到 0；改前的 `RoundedRectangle(cornerRadius:)` 是
+    /// 可动画量（cornerRadius 就是它的 animatableData）。补这一行零风险恢复平滑收回。
+    var animatableData: CGFloat {
+        get { radius }
+        set { radius = newValue }
+    }
+
+    func path(in rect: CGRect) -> Path {
+        guard radius > 0.01 else {
+            // 「不裁」= 裁剪路径放到 4000pt 之外，等效回到 SwiftUI 默认的「不裁子视图溢出」
+            return Path(rect.insetBy(dx: -4000, dy: -4000))
+        }
+        return Path(roundedRect: rect, cornerRadius: radius, style: .continuous)
+    }
+}
+
 private struct ChatZoomEntryModifier: ViewModifier {
     @Binding var selected: DockTab
     /// 非 nil = 正处在「起点态」（整页被缩到会话卡大小）；动画归零 = 展开完成
@@ -744,9 +778,13 @@ private struct ChatZoomEntryModifier: ViewModifier {
             .offset(x: spec?.dx ?? 0, y: spec?.dy ?? 0)
             // v4.0.70：展开的同时淡入（0.12 → 1）。整页从卡片大小绷到全屏时，先是一层很淡的影子再落到实——
             // 用户反馈的「不好看」主要来自这段里盯着被压扁的小字看；淡入之后视线只跟着「展开」走。
-            .opacity(spec == nil ? 1 : 0.12)
-            // 起点圆角跟会话卡一致，展开时收回到 0 —— 不然压缩态是直角矩形，跟卡片对不上
-            .clipShape(RoundedRectangle(cornerRadius: spec == nil ? 0 : Radius.card, style: .continuous))
+            // v4.0.71 修：0.12 → **0.9**（同 TabTransitionModifier）。0.12 起手时整屏近乎透明，
+            //   窗口白底直接透出来（「先白底再填渐变」的加重项）；0.9 保留淡入感、不再透白。
+            .opacity(spec == nil ? 1 : 0.9)
+            // 起点圆角跟会话卡一致，展开时收回到 0 —— 不然压缩态是直角矩形，跟卡片对不上。
+            // v4.0.71 修：形状换成 ZoomEntryClip —— 半径 0 的圆角矩形**照样按页框裁一刀**，
+            //   会把页底渐变溢出安全区的那部分切掉 → 聊天页顶部常驻白条（详见 ZoomEntryClip 注释）。
+            .clipShape(ZoomEntryClip(radius: spec == nil ? 0 : Radius.card))
             .onChange(of: selected) { _, newVal in
                 guard newVal == .chat else {
                     spec = nil   // 离开聊天页：立刻复位（无动画），下次入场从头演

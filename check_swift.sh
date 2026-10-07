@@ -1331,7 +1331,8 @@ ck "重击#6④：会话页无未读时回顶（edge: .top）" 'scrollPos\.scrol
 ck "接缝#3①：渐隐 + 发丝线层存在" 'private struct DockSeamOverlay' "$DT"
 ckNotIn "接缝#3②：不许碰系统 tab bar 外观（v3.9.46/47 红线）" 'private struct DockSeamOverlay' 'UITabBar' "$DT"
 ck "切页#4①：换 tabSwitch spring 令牌" 'withAnimation\(Motion\.tabSwitch\) \{ phase = 1 \}' "$DT"
-ck "切页#4②：补淡入（0.35 → 1）" '\.opacity\(0\.35 \+ 0\.65 \* phase\)' "$DT"
+ckNot "切页#4②：不许回到 0.35 起手的整页淡入（整页透明 = 页底一起透白 → 用户 2026-10-07「先白底再填渐变」）" '\.opacity\(0\.35 \+ 0\.65 \* phase\)' "$DT"
+ck "切页#4②：淡入起手 ≥0.9（留轻微淡入，但不再透出窗口白底）" '\.opacity\(0\.9 \+ 0\.1 \* phase\)' "$DT"
 ckNot "切页#4③：别溜回旧 settle 令牌（回归）" 'withAnimation\(Motion\.settle\) \{ phase = 1 \}' "$DT"
 
 [ $fail -eq 0 ] || { echo "❌ 有护栏失守"; exit 1; }

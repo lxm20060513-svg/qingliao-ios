@@ -46,19 +46,23 @@ func occ(_ s: String, _ needle: String) -> Int {
     s.components(separatedBy: needle).count - 1
 }
 
-// MARK: - ① 页底单源：四个主页面各挂一层环境渐变
-let pageFiles: [(String, String)] = [
-    ("聊天页", "qingliao/Features/Chat/ChatView.swift"),
-    ("会话页", "qingliao/Features/Sessions/SessionsView.swift"),
-    ("生活页", "qingliao/Features/Life/LifeView.swift"),
-    ("设置页", "qingliao/Features/Settings/SettingsCore.swift"),
+// MARK: - ① 页底单源：五个主页面各挂一层环境渐变
+//   v4.0.71：补**看板页**（用户 2026-10-07「各个 tab 的渐变背景渲染还有问题」——看板是唯一漏迁的 tab）。
+//   第三列 = 该文件自己的 colorScheme 环境变量名：DashboardView 历史上用 `scheme`（v3.0.9 就有的同名量），
+//   其余四页统一 `colorSchemeEnv` —— 别为了整齐去改 DashboardView 的量名（会连带 20+ 处调用点）。
+let pageFiles: [(String, String, String)] = [
+    ("聊天页", "qingliao/Features/Chat/ChatView.swift", "colorSchemeEnv"),
+    ("会话页", "qingliao/Features/Sessions/SessionsView.swift", "colorSchemeEnv"),
+    ("生活页", "qingliao/Features/Life/LifeView.swift", "colorSchemeEnv"),
+    ("设置页", "qingliao/Features/Settings/SettingsCore.swift", "colorSchemeEnv"),
+    ("看板页", "qingliao/Features/Dashboard/DashboardView.swift", "scheme"),
 ]
-for (name, path) in pageFiles {
+for (name, path, envVar) in pageFiles {
     let raw = src(path)
     check("\(name)源可读（空了下面两条是空真）", !raw.isEmpty)
     let code = stripCommentLines(raw)
     check("① \(name)页底挂主题环境渐变",
-          code.contains(".background(EnvironmentGlowLayers(scheme: colorSchemeEnv))"))
+          code.contains(".background(EnvironmentGlowLayers(scheme: \(envVar)))"))
     // 负断言：旧「手刷系统底/白底」会把光晕压死（P1 铺底时同类坑）
     check("① \(name)不再手刷系统底/白底（会盖住光晕）",
           !code.contains("Color(.systemBackground)") && !code.contains(".background(Color.white"))
@@ -271,6 +275,39 @@ check("⑦ 用 (scheme) 的每个 struct 都自己声明了 @Environment(\\.colo
       scopeMiss.isEmpty)
 check("⑦ 本表真的扫到了用法（防空真：以上断言不能因为一条都没扫到而恒绿）",
       scopeFiles.count >= 8 && src(settingsDir + "SettingsAgent.swift").contains("(scheme)"))
+
+// MARK: - ⑧ v4.0.71：页底「铺满屏幕」三条护栏
+//   用户 2026-10-07 真机反馈「各个 tab 的渐变背景渲染还有问题」= 三个独立成因，各配一条负断言：
+//   a) 聊天页入场裁剪把**半径 0 的圆角矩形**当「不裁」用，其实照样按页框裁 → 页底溢出安全区那
+//      59pt/34pt 被切掉 = 顶部常驻白条（其余四页没这层裁剪，同款页底能铺满）；
+//   b) 页底与屏幕严格同大 → 任何「整页缩放/位移」的过渡（切页 scale 0.96 + 下移 10pt）都会掀开
+//      边角露出窗口白底 = 「先白底再填渐变」的几何部分；
+//   c) 整页淡入起手过透（0.35 / 0.12）→ 页底跟着一起透明，等于把白底透出来 = 同症状的浓淡部分。
+//   三条都只钉「形态」，不钉具体数值（8% / 0.9 这类可调参不进断言，调参不该报红）。
+let dockSrc = stripCommentLines(src("qingliao/Features/DockTabView.swift"))
+check("⑧a 聊天页入场不再用「半径 0 的圆角矩形」当不裁（会裁掉页底溢出安全区那段）",
+      !dockSrc.contains("RoundedRectangle(cornerRadius: spec == nil ? 0")
+      && dockSrc.contains("clipShape(ZoomEntryClip(radius:"))
+check("⑧a 「半径 ≤0 = 不裁」真的落在形状实现里（防假绿：换回普通 RoundedRectangle 即红）",
+      dockSrc.contains("rect.insetBy(dx: -4000, dy: -4000)"))
+// ⑧b 三条**必须成组看**（v4.0.71 首版只有「放大 + 平移」两条 → 把「画布没重新居中」的错实现判成绿：
+//     实测那样三团光团整体偏移 ≈2×overscan ≈16% 屏宽、右上桃粉直接出屏。发版前审查抓到，补第 2 条。
+//     归一化：剥注释 + 去掉空白，免得被缩进/换行/说明性注释喂饱（同文件别处用的 themeSrc 没剥注释）。
+let themeFlat = stripCommentLines(themeSrc)
+    .replacingOccurrences(of: " ", with: "")
+    .replacingOccurrences(of: "\n", with: "")
+check("⑧b 页底画布真的放大了（frame 用 W/H，不再与屏幕严格等大）",
+      themeFlat.contains(".frame(width:W,height:H)")
+      && !themeFlat.contains(".frame(width:w,height:h)"))
+check("⑧b 放大后的画布**重新居中**到窗口（漏它 = 三团光团整体偏移 ≈16% 屏宽）",
+      themeFlat.contains(".offset(x:-ox,y:-oy)") || themeFlat.contains(".position(x:w/2,y:h/2)"))
+check("⑧b 光团几何仍锚在屏幕坐标（3 团各带一次 ox/oy 平移；须与上一条成对才成立）",
+      occ(themeFlat, "+ox") == 3 && occ(themeFlat, "+oy") == 3)
+check("⑧c 切页淡入起手已抬离 0.35（整页连同页底一起透白的老写法）",
+      !dockSrc.contains("opacity(0.35 + 0.65 * phase)")
+      && dockSrc.contains("opacity(0.9 + 0.1 * phase)"))
+check("⑧c 聊天页入场淡入起手已抬离 0.12",
+      !dockSrc.contains("opacity(spec == nil ? 1 : 0.12)"))
 
 print("通过 \(passCount) / 失败 \(failCount)")
 if failCount > 0 { exit(1) }

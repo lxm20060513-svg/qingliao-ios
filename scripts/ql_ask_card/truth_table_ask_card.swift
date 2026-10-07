@@ -16,6 +16,9 @@
 //   ① 路由镜像：投递壳短路只吃 reply/progress/agent，**question 一律落成卡**
 //   ② iOS 接线：InboxStore 短路条件带 question 豁免；question 分支不 markDone；答案走 /api/inbox/answer
 //   ③ 后端接线（NAS 源码，本机没挂载时明确跳过）：push 放行 question；投递壳只 append cron/system
+//   ④ 问题卡回执四态（v4.0.46）
+//   ⑤ 卡里带图 + 刷新（v4.0.71 方案 A「整宽画面 + 工具条」）：题干 MEDIA 行进图块、刷新只走端上换帧、
+//      点图开全屏、共用图片加载器不许误伤气泡图那条路
 
 import Foundation
 
@@ -165,6 +168,93 @@ if !beRaw.isEmpty {
     ok(be.contains("\"taken\": (not found)"), "answer 端点回传 taken")
     ok(be.contains("_archive(hit, \"mark_done\")"), "mark_done 的归档原因就是 mark_done（回执才认得出）")
 }
+
+// ── ⑤ 卡里带图 + 刷新（v4.0.71：用户从三方案对比稿拍板**方案 A「整宽画面 + 工具条」**）──
+//   每条都对应一种「改坏了 App 会以某种方式坏掉」：卡底退回玻璃 / 正文漏出容器路径 /
+//   刷新变成再问 AI 一轮 / 只换 URL 不换 identity 导致拿到缓存旧图 / 误伤气泡图那条老路。
+print("── ⑤ 卡里带图 + 刷新（v4.0.71）──")
+ok(card.contains(".pastelCard()"), "卡底走当前全站口径 pastelCard")
+ok(!card.contains(".dashboardCard()"), "不许退回旧玻璃档（v4.0.68 拍板：彩底上的卡一律淡彩）")
+ok(card.contains("if let screenURL { screenBlock(screenURL) }"),
+   "题干带 MEDIA 行才嵌画面块（没路径不画空框）")
+ok(card.contains("fillAspect: 1.6"), "画面按 1280×800 铺满卡宽（写死宽度在 SE 上会溢出被裁）")
+ok(card.contains("Text(bodyText)") && !card.contains("Text(questionBody)"),
+   "正文用摘掉 MEDIA 行的 bodyText（容器路径不能当正文念给用户看）")
+ok(!card.contains("UIPasteboard.general.string = questionBody"),
+   "「复制题干」也用摘干净的正文（复制出容器路径 = 把内部路径露给用户）")
+ok(card.contains("t.hasPrefix(\"MEDIA:\")") && card.contains("components(separatedBy: \"\\n\")"),
+   "只认**独立成行**的 MEDIA（正文里顺嘴提一句 MEDIA: 不该被吃掉）")
+ok(card.contains("screenNonce += 1"), "刷新只递增 nonce（端上就地换帧）")
+ok(card.contains("u + \"&r=\\(screenNonce)\""),
+   "刷新地址带 cache-buster（不带就是拉 N 端缓存里那张旧图 = 刷新没反应）")
+ok(card.contains(".id(screenNonce)"),
+   "换 identity 逼图片视图重拉（只换 URL 不换 identity = @State 留着旧图，永远刷新不了）")
+ok(!card.contains("onAnswer(\"刷新"), "刷新**不许**走 onAnswer（那就成了「再问 AI 一轮」= 另一套语义）")
+ok(card.contains("fullScreenCover(isPresented: $showScreen)") && card.contains("ImageViewer(images:"),
+   "点图开全屏复用 ImageViewer（原生缩放 + 存相册，二维码才看得清）")
+ok(card.contains("guard screenImage != nil else { return }"),
+   "图没载入时点图不响应（弹个空白全屏比不响应更差）")
+let bubble = strip(read(repo + "/qingliao/Features/Chat/ChatMessageBubble.swift"), "//")
+ok(bubble.contains("var fillAspect: CGFloat? = nil"),
+   "AIImageView 有「铺满档」参数（默认 nil → 气泡图行为逐字不变）")
+ok(bubble.contains("var onLoaded: ((UIImage) -> Void)? = nil"), "AIImageView 能回吐 UIImage（点图全屏要用）")
+ok(bubble.contains("onLoaded?(img)"),
+   "回吐挂在 revealImage 出口（缓存命中那条路也走它，漏了 = 「有时点不开」的偶发 bug）")
+ok(bubble.contains("private struct ImageBox: ViewModifier"), "尺寸口径收在唯一出口 ImageBox")
+ok(bubble.contains(".frame(maxWidth: 240, maxHeight: 240)"), "气泡图历史档 240×240 上限还在（别误伤在用功能）")
+ok(bubble.contains("SkeletonBlock(width: 240, height: 120"), "气泡图骨架档原样保留")
+ok(bubble.contains(".aspectRatio(a, contentMode: .fit)"), "铺满档靠 aspectRatio 撑尺寸（定宽会溢出）")
+let b64Rules: [String] = ["replacingOccurrences(of: \"+\", with: \"-\")",
+                          "replacingOccurrences(of: \"/\", with: \"_\")",
+                          "replacingOccurrences(of: \"=\", with: \"\")"]
+ok(b64Rules.allSatisfy { bubble.contains($0) }, "expandMediaMarks 的三条 base64url 替换在（AI 发图那条路）")
+ok(b64Rules.allSatisfy { card.contains($0) },
+   "卡里 mediaURL 的三条替换同口径（不一致 = 同一张图 AI 发得出、卡里 404）")
+ok(card.contains("/api/stream/media?p="), "卡里也走免鉴权媒体端点（后端零改动）")
+
+// ── ⑥ v4.0.71：**就地改字段**必须喊聊天页重建可见窗口 ──
+//    用户原话（2026-10-07）：*「我选了某个答案后选择框不会变，必须我切到其他 tap 再切回，
+//    选择框才会变成我选的答案」*
+//    机制：聊天页消息列表吃的是 `visibleMessagesCache`（`ChatMessage` 的**快照**数组），
+//    只在 `messages.count` 或 `messages.last?.id` 变化时重建 —— 而作答是**就地改字段**
+//    （`questionAnswer`），这两项都不变 → 行渲染的还是旧快照，界面纹丝不动；
+//    切页会把列表重建一遍，所以才「切回来就变了」（= 症状的指纹）。
+//    口径：ChatStore 每个「就地写字段」的入口收尾自增 `messageRev`；ChatView 挂一条
+//    `.onChange(of: chat.messageRev)` 重建一次可见窗口。增删消息（count/id 变）不走这条。
+func sliceBetween(_ src: String, from: String, to: String) -> String {
+    guard let r = src.range(of: from) else { return "" }
+    let rest = src[r.upperBound...]
+    guard let e = rest.range(of: to) else { return String(rest) }
+    return String(rest[..<e.lowerBound])
+}
+let store = strip(read(repo + "/qingliao/Core/ChatStore.swift"), "//")
+ok(store.contains("private(set) var messageRev = 0"), "⑥ ChatStore 有「就地改字段」计数器 messageRev")
+let revBumps = store.components(separatedBy: "messageRev &+= 1").count - 1
+ok(revBumps >= 13, "⑥ 就地写入自增点齐了（实得 \(revBumps) 处，期望 ≥13：作答/回退/回执/过期/反馈/候选×2/清候选 + 气泡失败/复位/改口/折叠/还原）")
+let inPlaceMutators: [(String, String)] = [
+    ("func markQuestionAnswered(messageId: String, answer: String)", "作答落地"),
+    ("func markQuestionFailed(messageId: String, reason: String)", "作答失败回退"),
+    ("func markQuestionAcked(messageId: String)", "AI 回执"),
+    ("func markQuestionExpired(messageId: String)", "过期清理"),
+    ("func markProactiveVerdict(messageId: String, verdict: String)", "主动反馈"),
+    // 审查补的 5 处（同为「就地改字段、count 不变」，漏了就是同款「切页才追上」）：
+    ("func markFailed(id: String)", "气泡失败标记（Agent 失败分支后面没有 append/refresh）"),
+    ("func clearFailed(id: String)", "失败标记复位（重试成功）"),
+    ("func updateUserText(id: String, newText: String)", "改口正文"),
+    ("func foldRepliesAfterUser(_ anchorID: String)", "折叠旧回答"),
+    ("func unfoldReplies(_ snapshots: [ChatMessage])", "重答失败还原"),
+]
+for (sig, name) in inPlaceMutators {
+    let body = sliceBetween(store, from: sig, to: "\n    func ")
+    ok(body.contains("messageRev &+= 1"),
+       "⑥ \(name) 就地写字段后自增 messageRev（漏了 = 界面停在旧快照，得切页才追上）")
+}
+let chatViewStripped = strip(read(repo + "/qingliao/Features/Chat/ChatView.swift"), "//")
+let revObserver = sliceBetween(chatViewStripped, from: ".onChange(of: chat.messageRev)",
+                               to: ".onChange(of:")
+ok(!revObserver.isEmpty, "⑥ 聊天页挂了 .onChange(of: chat.messageRev)（没挂 = 计数器白加）")
+ok(revObserver.contains("refreshVisibleMessages()"),
+   "⑥ 该 onChange 里真的调了 refreshVisibleMessages（挂了但没接 = 假绿）")
 
 print("\n通过 \(pass) 项，失败 \(fail) 项")
 exit(fail == 0 ? 0 : 1)

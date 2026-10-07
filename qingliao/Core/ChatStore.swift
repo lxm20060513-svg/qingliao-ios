@@ -30,6 +30,18 @@ final class ChatStore {
 
     var sessionId: String
     var messages: [ChatMessage] = []
+    /// v4.0.71：**就地改字段**的消息变更计数（作答 / 失败回退 / 回执 / 过期 / 主动反馈 / 追问候选…）。
+    ///
+    /// 为什么需要：聊天页消息列表吃的是 `visibleMessagesCache`（`ChatMessage` 的**快照**数组），
+    /// 它只在 `messages.count` 或 `messages.last?.id` 变化时重建 —— 于是「原地改某条消息的字段」
+    /// 这类变更在界面上**不会自己出现**，要等别的动作顺带重建缓存。
+    /// 用户 2026-10-07 真机反馈「选了某个答案后选择框不会变，必须切到其他 tab 再切回」正是这条：
+    /// 那张卡就在最后一条消息上，就地改 `questionAnswer`，count 与 last?.id 都不变 → 不重建。
+    ///
+    /// 口径：凡**就地改已有消息的字段**（不是增删消息），改完 `messageRev &+= 1`；
+    /// 聊天页挂一条 `.onChange(of: chat.messageRev)` 重建一次可见窗口（O(可见条数)，很轻）。
+    /// 流式 tick 不走这里（它改的是流式缓冲，不是 messages 里的既有字段）→ 不引入高频重建。
+    private(set) var messageRev = 0
     var title = ""
     /// v3.4.29：最近一次从会话列表加载进来的会话——供欢迎页「继续上次」入口一键回归（内存态，无需持久化）
     private(set) var lastLoadedSession: ChatSession?
@@ -467,6 +479,7 @@ final class ChatStore {
         guard let i = messages.firstIndex(where: { $0.id == messageId }) else { return }
         messages[i].questionAnswer = answer
         messages[i].questionError = nil   // 成功即清错（重试成功那次要把上一轮的红字抹掉）
+        messageRev &+= 1                  // v4.0.71：就地改字段（count 不变）→ 喊聊天页重建可见窗口
     }
 
     /// 作答**没送到**（后端 200+ok:false / 网络错）→ 回退到待答态并在卡上留下原因。
@@ -476,6 +489,7 @@ final class ChatStore {
         guard let i = messages.firstIndex(where: { $0.id == messageId }) else { return }
         messages[i].questionAnswer = nil
         messages[i].questionError = reason
+        messageRev &+= 1                  // v4.0.71：就地改字段 → 喊聊天页重建（失败态/重试入口即时可见）
     }
 
     /// v4.0.46：问题卡**回执** —— AI 侧已把答案取走（用户报「选完卡不确定回复完成没」）。
@@ -485,6 +499,7 @@ final class ChatStore {
         guard !messages[i].questionAcked else { return }
         messages[i].questionAcked = true
         messages[i].questionExpired = false
+        messageRev &+= 1                  // v4.0.71：就地改字段 → 喊聊天页重建（「AI 已收到」回执即时可见）
     }
 
     /// v4.0.46：回执的另一半 —— 条目确实从队列消失了，但原因是**过期清理**（24h 没人确认），
@@ -494,6 +509,7 @@ final class ChatStore {
         guard !messages[i].questionExpired else { return }
         messages[i].questionExpired = true
         messages[i].questionAcked = false   // 与 acked 互斥：卡头 acked 优先，留着它会把「已过期」盖成假回执
+        messageRev &+= 1                    // v4.0.71：就地改字段 → 喊聊天页重建（过期态即时可见）
     }
 
     /// v4.0.11：读某条消息的主动反馈终态（供 InboxStore 提交前做幂等闸门）
@@ -507,6 +523,7 @@ final class ChatStore {
         guard let i = messages.firstIndex(where: { $0.id == messageId }) else { return }
         guard (messages[i].proactiveVerdict ?? "").isEmpty else { return }
         messages[i].proactiveVerdict = verdict
+        messageRev &+= 1                  // v4.0.71：就地改字段 → 喊聊天页重建（「有用/没用」态即时可见）
     }
 
     /// v4.0.42 待做池 ①：把后端生成的追问候选挂到**刚落地的那条 assistant 消息**上。
@@ -535,9 +552,11 @@ final class ChatStore {
         let cleaned = FollowUpSuggest.parseQuestions(questions)
         guard FollowUpSuggest.shouldRender(cleaned) else {
             messages[idx].suggestions = nil
+            messageRev &+= 1     // v4.0.71：就地改字段 → 喊聊天页重建（候选区即时消失）
             return
         }
         messages[idx].suggestions = cleaned
+        messageRev &+= 1         // v4.0.71：同上（候选区即时出现；此前要等下一次缓存重建才看得见）
     }
 
     /// v4.0.42：清掉该轮的候选区（新一轮提问 / 切会话时调用，口径：上一批别留着误导）
@@ -549,6 +568,7 @@ final class ChatStore {
         for i in (anchorIdx + 1)..<regionEnd where messages[i].role == "assistant" {
             messages[i].suggestions = nil
         }
+        messageRev &+= 1             // v4.0.71：就地清字段（count 不变）→ 喊聊天页重建
     }
 
     /// 流式结束后落库 assistant 消息（与最后一条相同则跳过，防重复）
@@ -660,6 +680,8 @@ final class ChatStore {
     func markFailed(id: String) {
         if let idx = messages.firstIndex(where: { $0.id == id }) {
             messages[idx].failed = true
+            messageRev &+= 1     // v4.0.71：就地改字段 → 喊聊天页重建（Agent 失败分支后面没有 append/refresh，
+                                 //   不重建则 ❗/重试按钮要等下一次无关重建才现身 = 同款「切页才追上」）
         }
     }
 
@@ -670,6 +692,7 @@ final class ChatStore {
     func clearFailed(id: String) {
         guard let idx = messages.firstIndex(where: { $0.id == id }), messages[idx].failed else { return }
         messages[idx].failed = false
+        messageRev &+= 1     // v4.0.71：就地改字段 → 喊聊天页重建（重试成功后 ❗/重试按钮要立刻消失）
     }
 
     /// 发送请求用的历史消息（payload 形态）
@@ -1178,6 +1201,7 @@ final class ChatStore {
         guard let i = messages.firstIndex(where: { $0.isUser && $0.id == id }),
               messages[i].content != newText else { return false }
         messages[i].content = newText
+        messageRev &+= 1             // v4.0.71：就地改字段 → 喊聊天页重建（改口后正文立刻换新）
         return true
     }
 
@@ -1193,6 +1217,7 @@ final class ChatStore {
             // 旧候选区随旧回答一起收走：候选是「接着旧原文问」的引导，留着点下去是旧问题的延伸
             messages[i].suggestions = nil
         }
+        messageRev &+= 1     // v4.0.71：就地改字段（count 不变）→ 喊聊天页重建，否则「已修改」标记/候选消失要等切页才追上
         return snap
     }
 
@@ -1204,6 +1229,7 @@ final class ChatStore {
             guard let i = messages.firstIndex(where: { $0.id == s.id }) else { continue }
             messages[i] = s
         }
+        messageRev &+= 1     // v4.0.71：就地还原（整条替换、count 不变）→ 喊聊天页重建
     }
 
     // MARK: - v3.9.90 会话自动命名（用户拍板 3a：首条消息后起一次名；手动改过名字的不再自动改）

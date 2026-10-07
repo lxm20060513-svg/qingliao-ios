@@ -4736,6 +4736,14 @@ extension ChatView {
             .onChange(of: chat.messages.last?.id ?? "") { _, _ in
                 refreshVisibleMessages()
             }
+            // v4.0.71：**就地改字段**的变更（作答 / 失败回退 / 回执 / 过期 / 主动反馈 / 追问候选）
+            // 不改 count、也不改 last?.id，上面两条判据扫不到 → 界面停在旧快照上不动。
+            // 用户 2026-10-07 真机反馈：「选了某个答案后选择框不会变，必须切到其他 tab 再切回」
+            // —— 切页会把列表重建一遍，所以才「追上」了。计数由 ChatStore 的就地写入口自增
+            // （见 ChatStore.messageRev 注释），这里只负责重建一次可见窗口。
+            .onChange(of: chat.messageRev) { _, _ in
+                refreshVisibleMessages()
+            }
             .onChange(of: chat.pendingNewSession) { _, pending in
                 guard pending else { return }
                 clearing = true

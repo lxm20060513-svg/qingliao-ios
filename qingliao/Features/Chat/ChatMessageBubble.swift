@@ -1274,39 +1274,58 @@ struct AIImageView: View {
     let url: String
     // v3.4.25：显示宽度(pt)——≥100KB 大图 dataURL 按此宽度下采样解码（512/1024 档），默认 240（气泡图上限）
     var displayWidthPT: CGFloat = 240
+    /// v4.0.71：**铺满可用宽 + 定比例**（问题卡里的「浏览器画面」用）。给了比例 → 盒子 = 可用宽 × (1/比例)，
+    /// 窄屏自动收窄（写成定宽在 SE 上会溢出、被两端裁掉）；不给 = 历史行为（气泡图 240×240 上限）。
+    var fillAspect: CGFloat? = nil
+    /// v4.0.71：图就位时把 UIImage 回吐给宿主（问题卡「点图看大图」要拿它喂 ImageViewer）。
+    /// 不给 = 无需回吐 → 历史调用方逐字不变。
+    var onLoaded: ((UIImage) -> Void)? = nil
     @State private var image: UIImage?
     @State private var failed = false
     /// v4.0.x：图片就位时淡入（骨架换真图不硬跳）。「减弱动态效果」下直接落图。
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        if url.hasPrefix("data:image/") {
-            // base64 data URL → 本地解码（复用 ImageCache）；v3.4.25：按显示宽度下采样
-            if let img = dataURLImage(url, displayWidthPT: displayWidthPT) {
+        Group {
+            if url.hasPrefix("data:image/") {
+                // base64 data URL → 本地解码（复用 ImageCache）；v3.4.25：按显示宽度下采样
+                if let img = dataURLImage(url, displayWidthPT: displayWidthPT) {
+                    Image(uiImage: img)
+                        .resizable()
+                        .scaledToFill()
+                } else {
+                    placeholder
+                }
+            } else if let img = image {
                 Image(uiImage: img)
                     .resizable()
                     .scaledToFill()
-                    .frame(maxWidth: 240, maxHeight: 240)
-                    .clipShape(RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
-            } else {
+                    // v4.0.x：骨架换真图走淡入（配合 revealImage 的 withAnimation），不硬跳
+                    .transition(.opacity)
+            } else if failed {
                 placeholder
+            } else {
+                skeleton
             }
-        } else if let img = image {
-            Image(uiImage: img)
-                .resizable()
-                .scaledToFill()
-                .frame(maxWidth: 240, maxHeight: 240)
-                .clipShape(RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
-                // v4.0.x：骨架换真图走淡入（配合 revealImage 的 withAnimation），不硬跳
-                .transition(.opacity)
-        } else if failed {
-            placeholder
-        } else {
-            // v4.0.x：裸转圈（240×120 白块）→ 骨架屏。
-            // 转圈只说「在等」，骨架还说「等来的东西长在这、有这么大」——这正是 Theme/Skeleton.swift
-            // 建立时定下的用法（首次加载占位，同圆角 Radius.inset 换入不跳版）。
+        }
+        // v4.0.71：尺寸口径收进一个出口 —— 图/骨架/占位三支只能在「盒子」处定尺寸，
+        // 各写一份的话换档时必漂移（改一处不改另一处 = 图换入时跳版）。
+        .modifier(ImageBox(fillAspect: fillAspect))
+    }
+
+    /// 首次加载占位。v4.0.x：裸转圈（240×120 白块）→ 骨架屏 —— 转圈只说「在等」，
+    /// 骨架还说「等来的东西长在这、有这么大」，正是 Theme/Skeleton.swift 建立时定下的用法。
+    @ViewBuilder
+    private var skeleton: some View {
+        if fillAspect == nil {
             SkeletonBlock(width: 240, height: 120, cornerRadius: Radius.inset)
                 .task { await loadRemote() }
+        } else {
+            // 铺满档：骨架与盒子同尺寸（否则真图换入时尺寸跳版）
+            GeometryReader { g in
+                SkeletonBlock(width: g.size.width, height: g.size.height, cornerRadius: Radius.inset)
+            }
+            .task { await loadRemote() }
         }
     }
 
@@ -1352,6 +1371,9 @@ struct AIImageView: View {
     /// 缓存命中是最快路径（骨架几乎没出现过），直接落图反而更稳，不给它加动画。
     @MainActor
     private func revealImage(_ img: UIImage, animated: Bool) {
+        // v4.0.71：宿主可能要这张图（问题卡「点图开全屏」）——两条出口都回吐，
+        // 漏掉缓存这条就是「缓存命中时点不开、冷启动才点得开」的偶发 bug。
+        onLoaded?(img)
         guard animated, !reduceMotion else {
             image = img
             return
@@ -1370,6 +1392,28 @@ struct AIImageView: View {
         }
         .frame(width: 200, height: 100)
         .background(Color.black.opacity(0.04), in: RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
+    }
+}
+
+/// v4.0.71：AIImageView 的尺寸出口（「盒子」只在这里定义一处）。
+/// - `fillAspect == nil` → 历史档：240×240 上限 + 圆角 12（气泡图，逐字保持原行为）。
+/// - 给了比例 → 铺满档：`Color.clear` 撑出「可用宽 × (1/比例)」的盒子，图裁进盒子
+///   （问题卡里的浏览器画面；窄屏自动收窄，不会溢出被裁）。
+private struct ImageBox: ViewModifier {
+    let fillAspect: CGFloat?
+
+    func body(content: Content) -> some View {
+        if let a = fillAspect {
+            Color.clear
+                .aspectRatio(a, contentMode: .fit)
+                .overlay {
+                    content.clipShape(RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
+                }
+        } else {
+            content
+                .frame(maxWidth: 240, maxHeight: 240)
+                .clipShape(RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
+        }
     }
 }
 

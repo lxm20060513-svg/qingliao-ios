@@ -67,6 +67,21 @@ struct EnvironmentGlowLayers: View {
         GeometryReader { geo in
             let w = geo.size.width
             let h = geo.size.height
+            // v4.0.71：**页底过扫描**。页底此前与屏幕严格同大，于是被任何「整页缩放/位移」的过渡
+            //   掀开边角——切页入场正是 scale 0.96 + 下移 10pt（DockTabView 的 tabSwitch），
+            //   动画期间四周那几 pt 露出窗口白底，看起来像「先白底再填渐变」
+            //   （用户 2026-10-07 真机反馈「其他界面切换以后顶部才会填充渐变色，先白底再填渐变」）。
+            //   作画区每边放大 `overscan`，**但光团几何仍按屏幕坐标 w/h 计算**并整体平移 (ox, oy)
+            //   —— 与定稿稿逐像素一致，多出来的余量只用来给过渡吃。
+            //   ⚠️ 光团中心那对 `+ (ox, oy)` 与画布的「重新居中」（下面 `.offset(-ox,-oy)`）是**一对**：
+            //     少任何一半，三团都会整体偏移 ≈2×overscan（≈16% 屏宽，右上桃粉直接出屏）。
+            //     v4.0.71 首版就是漏了居中那一半，被发版前审查抓到。
+            //   余量下限：0.96 缩放（竖向各 2%×屏高 ≈ 17pt）+ 10pt 下移 ≈ 27pt；8% ≈ 68pt，留足。
+            let overscan: CGFloat = 0.08
+            let W = w * (1 + overscan * 2)
+            let H = h * (1 + overscan * 2)
+            let ox = (W - w) / 2
+            let oy = (H - h) / 2
             ZStack {
                 // 底色：浅色纯白 / 深色纯黑（稿 page 的兜底色）
                 (scheme == .dark ? Color.black : Color.white)
@@ -77,7 +92,7 @@ struct EnvironmentGlowLayers: View {
                              ? Color(red: 150 / 255, green: 60 / 255, blue: 110 / 255)
                              : Color(red: 1, green: 180 / 255, blue: 214 / 255),
                          opacity: scheme == .dark ? 0.35 : 0.38,
-                         center: CGPoint(x: w * 0.85, y: h * -0.05),
+                         center: CGPoint(x: w * 0.85 + ox, y: h * -0.05 + oy),
                          radius: CGSize(width: w * 0.60, height: h * 0.30))
 
                 // 团 2：天蓝 · 左侧（light rgba(150,200,255,.34) at -10%,30% 110%×55%；
@@ -86,7 +101,7 @@ struct EnvironmentGlowLayers: View {
                              ? Color(red: 40 / 255, green: 90 / 255, blue: 160 / 255)
                              : Color(red: 150 / 255, green: 200 / 255, blue: 255 / 255),
                          opacity: scheme == .dark ? 0.35 : 0.34,
-                         center: CGPoint(x: w * -0.10, y: h * 0.30),
+                         center: CGPoint(x: w * -0.10 + ox, y: h * 0.30 + oy),
                          radius: CGSize(width: w * 0.55, height: h * 0.275))
 
                 // 团 3：薄荷 · 底部（light rgba(190,240,200,.36) at 60%,108% 120%×55%；
@@ -95,10 +110,15 @@ struct EnvironmentGlowLayers: View {
                              ? Color(red: 40 / 255, green: 120 / 255, blue: 70 / 255)
                              : Color(red: 190 / 255, green: 240 / 255, blue: 200 / 255),
                          opacity: scheme == .dark ? 0.30 : 0.36,
-                         center: CGPoint(x: w * 0.60, y: h * 1.08),
+                         center: CGPoint(x: w * 0.60 + ox, y: h * 1.08 + oy),
                          radius: CGSize(width: w * 0.60, height: h * 0.275))
             }
-            .frame(width: w, height: h)
+            .frame(width: W, height: H)
+            // 🚨 放大后的画布**必须重新居中到窗口**再裁：GeometryReader 把内容摆在左上角、
+            //    `.frame` 又把自己的子视图居中——不抵消这两层，三团光团会整体右移/下移
+            //    ≈2×overscan（≈16% 屏宽），右上那团桃粉直接跑出屏幕（v4.0.71 审查实抓）。
+            //    有了它，光团中心的 `+ ox / + oy` 才真正等价于「仍按屏幕坐标」。
+            .offset(x: -ox, y: -oy)
             .clipped()
         }
         // v4.0.70 修：`ignoresSafeArea` 必须挂在 **GeometryReader 本身** 上。

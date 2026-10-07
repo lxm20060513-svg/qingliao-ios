@@ -165,6 +165,11 @@ struct DashboardView: View {
             .modifier(DashboardScrollChrome(host: self))
             .modifier(DashboardDialogChrome(host: self))
         }
+        // v4.0.71：页底接主题环境渐变（与聊天/会话/生活/设置四页同源同法）——
+        //   看板是唯一没接页底的 tab（`EnvironmentGlowLayers` 此前全仓 6 处都不含 Dashboard），
+        //   用户 2026-10-07 真机反馈「各个 tab 的渐变背景渲染还有问题」。
+        //   纯视觉层：垫在整页最底层，卡片/毛玻璃透出彩底；不改布局、不拦手势。
+        .background(EnvironmentGlowLayers(scheme: scheme))
         // v2.0.96b：切回看板立即刷新（对话里生成场景后看板即时联动）
         // v2.0.102：单一刷新入口（.task 首刷+轮询）——修并发双刷/旧响应覆盖
         // v3.4.26：通知 → isActive 参数直传生命周期驱动——
