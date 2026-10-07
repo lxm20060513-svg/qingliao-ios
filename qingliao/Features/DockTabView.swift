@@ -3,6 +3,9 @@ import CoreLocation
 import UIKit
 
 enum DockTab: String, CaseIterable, Identifiable {
+    // v4.0.x：dock 槽位序（切页方向性微滑按此判左右）
+    var slotIndex: Int { Self.allCases.firstIndex(of: self) ?? 0 }
+
     // v4.0.69（用户 2026-10-07 拍板）：dock 顺序 = 会话 → 生活 → 智慧球 → 看板 → 设置。
     // ⚠️ 智慧球必须留在第 3 槽：DockOrbOverlay / 烟花原点按 slotIndex: 2 硬编码算几何
     //    （行号会漂移，直接按 slotIndex: 2 全文搜），球心取真实槽位按钮中心。
@@ -540,6 +543,9 @@ private struct TabTransitionModifier: ViewModifier {
     /// 1 = 常态；0 = 全透明起点。赋值不加动画 → 起点态是瞬变的。
     /// 淡入的是**页面内容**；页面自身的页底渐变淡入时透出 ZStack 里那层静态垫底渐变（同款），肉眼无感。
     @State private var phase: CGFloat = 1
+    /// v4.0.x：方向性微滑——入场瞬间内容从来源侧 6pt 滑到位（微信同款语言，只 x 轴）。
+    /// 0 = 常态；入场起点 = ±6（右切换页 → 从右往左滑入）。护栏只钉 y 轴上浮/缩放，x 轴微滑不在禁区。
+    @State private var dx: CGFloat = 0
     @State private var seq = 0
 
     func body(content: Content) -> some View {
@@ -547,22 +553,31 @@ private struct TabTransitionModifier: ViewModifier {
             .tag(tab)
             .tabItem { Label(tab.title, systemImage: tab.icon) }
             .opacity(phase)                                      // v4.0.73：原地淡入（方案 A），不再缩放/位移
-            .onAppear { enter() }
-            .onChange(of: selected) { _, newVal in
+            .offset(x: dx)                                       // v4.0.x：方向性微滑（见头注）
+            .onAppear { enter(from: nil) }
+            .onChange(of: selected) { oldVal, newVal in
                 guard newVal == tab else { return }              // 离场不反向播（见头注）
-                enter()
+                enter(from: oldVal)
             }
     }
 
     /// 相位瞬归 0（不加动画）→ 下一拍 withAnimation 到 1。seq 防 0.01s 窗口内连点/快切互踩。
-    private func enter() {
+    /// v4.0.x：起点 = 来源侧 6pt；动画走 smooth（比 snap 更无硬边），到位无回弹。
+    private func enter(from old: DockTab?) {
         seq &+= 1
         let mySeq = seq
         phase = 0
+        if let old, old != tab {
+            // 新页在旧页右侧 → 内容从右 6pt 滑入；左侧同理。同页刷新（old == tab）不滑。
+            dx = (tab.slotIndex > old.slotIndex) ? 6 : -6
+        } else {
+            dx = 0
+        }
         Task {
             try? await Task.sleep(for: .seconds(0.01))
             guard mySeq == seq else { return }
             withAnimation(Motion.snap) { phase = 1 }
+            withAnimation(Motion.flow) { dx = 0 }
         }
     }
 }
@@ -587,31 +602,42 @@ extension View {
 private struct ChatZoomEntryModifier: ViewModifier {
     @Binding var selected: DockTab
     @State private var phase: CGFloat = 1
+    /// v4.0.x：与 TabTransitionModifier 同款方向性微滑（chat 槽位 2，两侧来源都能判向）
+    @State private var dx: CGFloat = 0
     @State private var seq = 0
 
     func body(content: Content) -> some View {
         content
             .opacity(phase)                                      // 与 TabTransitionModifier 同款：原地淡入
-            .onAppear { enter() }
-            .onChange(of: selected) { _, newVal in
+            .offset(x: dx)                                       // v4.0.x：方向性微滑
+            .onAppear { enter(from: nil) }
+            .onChange(of: selected) { oldVal, newVal in
                 guard newVal == .chat else {
                     phase = 1   // 离场不反向播：起点态留给下次入场
+                    dx = 0
                     seq &+= 1
                     return
                 }
-                enter()
+                enter(from: oldVal)
             }
     }
 
     /// 相位瞬归 0（不加动画）→ 下一拍 withAnimation 到 1。seq 防 0.01s 窗口内连点/快切互踩。
-    private func enter() {
+    /// v4.0.x：与 TabTransitionModifier 完全同款的方向滑。
+    private func enter(from old: DockTab?) {
         seq &+= 1
         let mySeq = seq
         phase = 0
+        if let old, old != .chat {
+            dx = (DockTab.chat.slotIndex > old.slotIndex) ? 6 : -6
+        } else {
+            dx = 0
+        }
         Task {
             try? await Task.sleep(for: .seconds(0.01))
             guard mySeq == seq else { return }
             withAnimation(Motion.snap) { phase = 1 }
+            withAnimation(Motion.flow) { dx = 0 }
         }
     }
 }

@@ -128,6 +128,9 @@ struct ChatView: View {
     @State var showAttachmentMenu = false
     // v2.0.96：Hermes 捷径面板（官方斜杠命令）
     @State var showHermesShortcut = false
+    // v4.0.x：浏览器实时画面弹窗（watch 直播）
+    @State var showBrowserLive = false
+    @State var browserLiveSession: BrowserLiveSession?
     // 大爆炸（BigBang）文本炸开
     @State var bigBangPayload: BigBangPayload?
     @State var showPhotoPicker = false
@@ -770,6 +773,8 @@ struct ChatView: View {
                 menuButton("bolt.fill", "指令", Color.orange, idx: 2) { showQuickPrompts = true }
                 // v3.9.28：云端模式移除，Hermes 捷径恒显示（v3.0.6 的按模式隐藏随之作废）
                 menuButton("sparkles", "Hermes 捷径", Color.purple, idx: 3) { showHermesShortcut = true }
+                // v4.0.x：浏览器实时画面（watch 模式直播弹窗；手动输入站点即时观看）
+                menuButton("desktopcomputer", "浏览器", Color.teal, idx: 4) { showBrowserLive = true }
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, Spacing.xl)
@@ -979,6 +984,7 @@ struct ChatView: View {
         content
         .background(chatColdChrome12())
         .background(chatColdChrome13())
+        .background(chatColdChrome14())
         // v4.0.66 A+C 定稿：环境渐变页底——白/黑底上三团弥散光晕（桃粉右上/天蓝左侧/薄荷底部），
         // 挂在整页最底层（垫在所有 coldChrome 之下，消息区/输入区都透出彩底）；
         // 纯视觉层：不改布局、不拦手势（GlowBlob 全部 allowsHitTesting(false)）。
@@ -1116,6 +1122,33 @@ struct ChatView: View {
             )
         }
         // v2.0.96：Hermes 捷径面板（官方斜杠命令，点击填充输入框）
+    }
+
+    /// v4.0.51c：行为型深层修饰器下沉背景层（.background 不影响布局）
+    /// v4.0.x：浏览器实时画面（watch 直播）两个 sheet 独立成组（每冷组 ≤4 条修饰器护栏）
+    private func chatColdChrome14() -> some View {
+        Color.clear
+        // v4.0.x：AI 报浏览器直播标记 → 自动拉起实时画面弹窗
+        .onReceive(BrowserLiveCenter.shared.$activeSession) { s in
+            if let s { browserLiveSession = s }
+        }
+        // 发起面板（手动入口）
+        .sheet(isPresented: $showBrowserLive) {
+            AnyView(BrowserLivePromptView { site, url in
+                showBrowserLive = false
+                browserLiveSession = BrowserLiveSession(site: site, url: url, ts: Date())
+            }
+            .presentationDetents([.medium])
+            )
+        }
+        // 直播窗：sheet(item:) 单入口（v4.0.74 审查修复——isPresented Binding 版与 prompt sheet
+        // 同链时 marker 同时落下会静默互顶；item 版 SwiftUI 自动排队呈现，无此问题）
+        .sheet(item: $browserLiveSession, onDismiss: {
+            BrowserLiveCenter.shared.activeSession = nil   // 清源，防重建重弹
+        }) { s in
+            AnyView(BrowserLiveView(session: s, auth: auth)
+                .interactiveDismissDisabled())
+        }
     }
 
     /// v4.0.51c：行为型深层修饰器下沉背景层（.background 不影响布局）

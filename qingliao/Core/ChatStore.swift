@@ -637,6 +637,7 @@ final class ChatStore {
             }
             noteAssistantLanded(m)   // v3.9.9：本轮回答真正落库 → 触发自动朗读（哪怕它插在数组中段）
             stageTodoCandidates(m)   // v4.0.25：确认落库后才挂候选账（消息 id 真实存在）
+            browserLiveMarkerLanded(m)   // v4.0.x：AI 报浏览器直播标记 → 弹实时画面
             return
         }
         // —— 无锚点：原末尾语义（兼容无发起消息的调用方）——
@@ -667,6 +668,16 @@ final class ChatStore {
         }
         noteAssistantLanded(m)   // v3.9.9：同上
         stageTodoCandidates(m)   // v4.0.25：确认落库后才挂候选账
+        browserLiveMarkerLanded(m)   // v4.0.x：AI 报浏览器直播标记 → 弹实时画面
+    }
+
+    /// v4.0.x：AI 回复里带 [[browser_live:site|url]] 标记 → 通知中心弹实时画面弹窗。
+    /// 只在两个插入分支尾部调用（与 stageTodoCandidates 同口径，查重早退不弹）。
+    private func browserLiveMarkerLanded(_ m: ChatMessage) {
+        guard m.role == "assistant",
+              let s = BrowserLiveCenter.parseMarker(in: m.content) else { return }
+        // Center 是 @MainActor：从（可能非主线程的）落库路径切回主线程再写
+        Task { @MainActor in BrowserLiveCenter.shared.activeSession = s }
     }
 
     /// v4.0.25 确认制：本条回复真落库后，把其中的待办候选挂账（等用户在确认卡上勾选加入）。
