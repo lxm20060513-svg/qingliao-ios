@@ -26,10 +26,12 @@ final class BrowserLiveCenter: ObservableObject {
     /// 从 AI 消息文本解析直播标记：[[browser_live:site|url]]（不用 Regex 字面量，工具链兼容）
     static func parseMarker(in text: String) -> BrowserLiveSession? {
         let head = "[[browser_live:"
-        guard let h = text.range(of: head), let bar = text[h.upperBound...].firstIndex(of: "|"),
-              let tail = text[bar...].firstIndex(of: "]]") else { return nil }
-        let site = String(text[h.upperBound..<bar]).trimmingCharacters(in: .whitespaces)
-        let url = String(text[text.index(after: bar)..<tail]).trimmingCharacters(in: .whitespaces)
+        guard let h = text.range(of: head) else { return nil }
+        // Substring.firstIndex(of:) 只收 Character，"]]"/"|" 这类多字符串必须走 range(of:)
+        guard let bar = text[h.upperBound...].range(of: "|"),
+              let tail = text[bar.upperBound...].range(of: "]]") else { return nil }
+        let site = String(text[h.upperBound..<bar.lowerBound]).trimmingCharacters(in: .whitespaces)
+        let url = String(text[bar.upperBound..<tail.lowerBound]).trimmingCharacters(in: .whitespaces)
         guard !site.isEmpty, !url.isEmpty else { return nil }
         return BrowserLiveSession(site: site, url: url, ts: Date())
     }
