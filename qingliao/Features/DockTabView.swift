@@ -518,25 +518,27 @@ struct DockTabView: View {
     }
 }
 
-// MARK: - Tab 切换过渡动画（放大 + 从下方轻浮，保留原生玻璃 tab bar）
+// MARK: - Tab 切换过渡动画（原地淡入，页底渐变常驻不动）
 //
 // v4.0.69（用户 2026-10-07：「dock 上各个 tap 的切换过渡很生硬，加入全局转场动画」）：
 // 原来只有 `scaleEffect(0.985)` 这一档 —— 1.5% 的幅度真机上几乎看不出来，观感 ≈ 硬切。
-// 现在给新页补上「4% 放大 + 从下方 10pt 浮起」，时长 snap(0.20) → settle(0.30)。
+// 曾用「4% 放大 + 从下方 10pt 浮起」。
 // 仍然**不接管 tab 切换本身**（换页还是 TabView 原生），只做新页入场 —— 手势、tab bar 玻璃、
-// 无障碍、系统返回全都不动。⚠️ 视觉口径与聊天页的 `ChatZoomEntryModifier` 通用入场保持一致
-// （同样 0.96 / 10pt），别只改一边。
+// 无障碍、系统返回全都不动。
 // 相位（phase）而不是布尔 appeared 的原因（v4.0.69 审查）：`appeared = (newVal == tab)` 会让**离场**
 // 那页也跟着播一遍「缩回 + 下沉」的反向动画（换页没有过渡叠加窗口 = 白算一帧），而且下次切回来时
 // 起点态已经被消耗掉、没有入场可演。这里离场不动相位，只在「刚被选中」时把相位瞬归 0 再动画到 1。
 // `seq` 防 0.01s 窗口内的连点 / 快速切换：早先那次的归零 Task 醒来会把新一次的起点态提前抹掉。
-// v4.0.72（用户 2026-10-07 拍板「dock 恢复 4.0.69」）：撤掉 v4.0.70 的回弹曲线与整页淡入
-// （淡入 = 页底跟着变透明 = 窗口白底透出来的「先白底再填渐变」，0.9 起手也只是缓解），
-// 回到 4.0.69 定稿：scale 0.96 + 下移 10pt + Motion.settle，无淡入。
+// v4.0.72（用户 2026-10-07 拍板「dock 恢复 4.0.69」）：撤掉 v4.0.70 的回弹曲线与整页淡入。
+// v4.0.73（用户 2026-10-07 真机复测：4.0.72 垫底后顶部安全区仍先白一下）：缩放/上浮**整页**动 =
+// 页面连页底一起动，顶部安全区那一条在动画期间露缝（垫底层与页底两层渐变叠加在缝边缘仍可辨）。
+// 拍板方案 A：**页底渐变彻底退出动画、常驻不动**——垫底层本来就是静态渐变，页面淡入时
+// 透出的是同款渐变，机制上不可能再露白。切页 = 内容原地淡入（Motion.snap 0.20s，用户选 A）。
 private struct TabTransitionModifier: ViewModifier {
     let tab: DockTab
     @Binding var selected: DockTab
-    /// 1 = 常态；0 = 起点态（0.96 缩放 + 下移 10pt）。赋值不加动画 → 起点态是瞬变的
+    /// 1 = 常态；0 = 全透明起点。赋值不加动画 → 起点态是瞬变的。
+    /// 淡入的是**页面内容**；页面自身的页底渐变淡入时透出 ZStack 里那层静态垫底渐变（同款），肉眼无感。
     @State private var phase: CGFloat = 1
     @State private var seq = 0
 
@@ -544,8 +546,7 @@ private struct TabTransitionModifier: ViewModifier {
         content
             .tag(tab)
             .tabItem { Label(tab.title, systemImage: tab.icon) }
-            .scaleEffect(0.96 + 0.04 * phase, anchor: .center)   // v4.0.69：0.985(1.5%) → 0.96(4%)
-            .offset(y: 10 * (1 - phase))                         // v4.0.69：从下方 10pt 浮起
+            .opacity(phase)                                      // v4.0.73：原地淡入（方案 A），不再缩放/位移
             .onAppear { enter() }
             .onChange(of: selected) { _, newVal in
                 guard newVal == tab else { return }              // 离场不反向播（见头注）
@@ -561,7 +562,7 @@ private struct TabTransitionModifier: ViewModifier {
         Task {
             try? await Task.sleep(for: .seconds(0.01))
             guard mySeq == seq else { return }
-            withAnimation(Motion.settle) { phase = 1 }
+            withAnimation(Motion.snap) { phase = 1 }
         }
     }
 }
@@ -578,11 +579,11 @@ extension View {
     }
 }
 
-// v4.0.72：聊天页入场 = 与其它四个 tab 同款的轻量入场（轻微放大 + 从下方浮起），没有整页淡入。
-// 历史：v4.0.69 这里曾是「整页从会话卡位置放大展开」（拆掉的机制，勿再接回）；
-// 用户 2026-10-07 真机拍板「转场太 low」→ 整体移除该机制：①整页被压扁缩放观感差；②缩放+位移会掀开
-// 页底渐变边角、整页淡入又会透出窗口白底（「先白底再填渐变」）。无障碍、系统返回全都不动。
-// 相位/seq 手法与 TabTransitionModifier 完全同款（两处口径一致，别只改一边）。
+// v4.0.72：聊天页入场 = 与其它四个 tab 同款的轻量入场。「从会话卡展开」已整体移除（勿再接回）；
+// 用户 2026-10-07 真机拍板「转场太 low」→ 整体移除该机制。
+// v4.0.73（方案 A 拍板）：与 TabTransitionModifier 同步改**原地淡入**——缩放/上浮整页动会掀开
+// 顶部安全区那一条（4.0.72 真机复测仍先白一下）。两处口径一致，别只改一边。
+// 相位/seq 手法与 TabTransitionModifier 完全同款。
 private struct ChatZoomEntryModifier: ViewModifier {
     @Binding var selected: DockTab
     @State private var phase: CGFloat = 1
@@ -590,8 +591,7 @@ private struct ChatZoomEntryModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .scaleEffect(0.96 + 0.04 * phase, anchor: .center)   // 与 TabTransitionModifier 同款
-            .offset(y: 10 * (1 - phase))                         // 从下方 10pt 浮起
+            .opacity(phase)                                      // 与 TabTransitionModifier 同款：原地淡入
             .onAppear { enter() }
             .onChange(of: selected) { _, newVal in
                 guard newVal == .chat else {
@@ -611,7 +611,7 @@ private struct ChatZoomEntryModifier: ViewModifier {
         Task {
             try? await Task.sleep(for: .seconds(0.01))
             guard mySeq == seq else { return }
-            withAnimation(Motion.settle) { phase = 1 }
+            withAnimation(Motion.snap) { phase = 1 }
         }
     }
 }

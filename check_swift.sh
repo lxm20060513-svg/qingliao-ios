@@ -1287,7 +1287,7 @@ run_unit /tmp/test_themegrad scripts/ql_themegrad/truth_table_themegrad.swift
 echo "=== 89. dock 回退真值表（v4.0.72 · 用户 2026-10-07 拍板：整体回退 4.0.69）==="
 # 钉：v4.0.72 整体回退到 4.0.69 形态（用户 2026-10-07 拍板「dock 恢复到 4.0.69」）——
 #     v4.0.70 的 6 项（顺序自定义/角标/重击回顶/接缝线/tabSwitch+淡入/ChatEntryZoom unfold）全部不许回来；
-#     切页入场回到 v4.0.69 口径（Motion.settle + 0.96 缩放 + 10pt 上浮，无整页淡入）；
+#     v4.0.73 起切页入场 = 内容原地淡入（Motion.snap，无缩放/上浮/无低起点淡入；页底渐变常驻不动）。
 #     白闪根治 = TabView 底下垫静态 EnvironmentGlowLayers（缩放露环=渐变而非窗口白底）。
 SSV=qingliao/Features/Sessions/SessionsView.swift
 SCS=qingliao/Features/Settings/SettingsCommon.swift
@@ -1308,8 +1308,13 @@ ckNot "回退⑫：ChatEntryZoom 机制文件已删" 'ChatEntryZoom' "$DT"
 ckNot "回退⑬：会话页无 ChatEntryZoom 残留" 'ChatEntryZoom' "$SSV"
 ckNot "回退⑭：整页淡入不许回来（0.35 起手的老病）" '\.opacity\(0\.35 \+ 0\.65 \* phase\)' "$DT"
 ckNot "回退⑮：0.9 淡入（v4.0.71 未根治版）也不许回来" '\.opacity\(0\.9 \+ 0\.1 \* phase\)' "$DT"
-cnt=$(grep -cE 'withAnimation\(Motion\.settle\) \{ phase = 1 \}' "$DT"); [ "$cnt" -ge 2 ] \
-  || { echo "❌ 回退⑯：切页入场 settle 应在两处 modifier 各一份（实得 $cnt）"; fail=1; }
+# v4.0.73（方案 A 拍板）：切页入场 = 内容原地淡入（Motion.snap 0.20s），缩放/上浮不许回来
+cnt=$(grep -cE 'withAnimation\(Motion\.snap\) \{ phase = 1 \}' "$DT"); [ "$cnt" -ge 2 ] \
+  || { echo "❌ 回退⑯：切页入场 snap 淡入应在两处 modifier 各一份（实得 $cnt）"; fail=1; }
+ckNot "回退⑯b：整页缩放入场（0.96 那套）不许回来" 'scaleEffect\(0\.96 \+ 0\.04 \* phase' "$DT"
+ckNot "回退⑯c：整页上浮（10pt 那条）不许回来" 'offset\(y: 10 \* \(1 - phase' "$DT"
+cnt=$(grep -cE '^\s*\.opacity\(phase\)' "$DT"); [ "$cnt" -ge 2 ] \
+  || { echo "❌ 回退⑯d：原地淡入 .opacity(phase) 应在两处 modifier 各一份（实得 $cnt）"; fail=1; }
 ck "回退⑰：TabView 底下垫了静态渐变底（切页缩放露环=渐变，根治「先白后切」）" 'EnvironmentGlowLayers\(scheme: colorScheme\)' "$DT"
 ln=$(grep -n 'EnvironmentGlowLayers(scheme: colorScheme)' "$DT" | head -1 | cut -d: -f1); [ -n "$ln" ] \
   || { echo "❌ 回退⑰：垫底渐变层不存在"; fail=1; }

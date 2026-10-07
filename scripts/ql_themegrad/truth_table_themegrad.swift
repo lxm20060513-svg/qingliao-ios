@@ -300,11 +300,17 @@ check("⑧b 放大后的画布**重新居中**到窗口（漏它 = 三团光团�
       themeFlat.contains(".offset(x:-ox,y:-oy)") || themeFlat.contains(".position(x:w/2,y:h/2)"))
 check("⑧b 光团几何仍锚在屏幕坐标（3 团各带一次 ox/oy 平移；须与上一条成对才成立）",
       occ(themeFlat, "+ox") == 3 && occ(themeFlat, "+oy") == 3)
-check("⑧c 切页/聊天页入场已无整页淡入（淡入=透白根源，v4.0.72 只保留缩放+上浮）",
+// v4.0.73（方案 A）：切页入场改为**内容原地淡入** `.opacity(phase)`（页底渐变常驻不动 = 静态垫底渐变托底），
+// 旧的低起点整页淡入（0.35/0.9/0.12）仍全部禁回——那才是「透白」根源；新淡入透出的是同款渐变。
+let cntOpacity = dockSrc.components(separatedBy: ".opacity(phase)").count - 1
+check("⑧c 切页/聊天页入场 = 原地淡入（.opacity(phase) 两处各一份）", cntOpacity >= 2)
+check("⑧c 淡入走 Motion.snap（0.20s 档，用户拍板 A 方案）",
+      dockSrc.components(separatedBy: "withAnimation(Motion.snap) { phase = 1 }").count - 1 >= 2
+      && !dockSrc.contains("withAnimation(Motion.settle) { phase = 1 }"))
+check("⑧c 低起点整页淡入不许回来（0.35/0.9/0.12 起手的老病，v4.0.73 起淡入透出的是同款渐变垫底）",
       !dockSrc.contains("opacity(0.35 + 0.65 * phase)")
       && !dockSrc.contains("opacity(0.9 + 0.1 * phase)")
-      && !dockSrc.contains("opacity(spec == nil ? 1 : 0.12)")
-      && !dockSrc.contains(".opacity(phase"))
+      && !dockSrc.contains("opacity(spec == nil ? 1 : 0.12)"))
 // ⑧c 切片断言：allowsHitTesting 必须落在垫底层声明后 3 行窗口内（全文件存在性会被 OrbHitLayer 等喂饱=假绿）
 if let r = dockSrc.range(of: "EnvironmentGlowLayers(scheme: colorScheme)") {
     let tail = dockSrc[r.lowerBound...].prefix(200)
