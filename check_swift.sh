@@ -792,7 +792,7 @@ echo "=== 49. 首页「方块卡片」真值表（v4.0.10 · 111 项）==="
 rm -rf /tmp/ql_homecards_main && mkdir -p /tmp/ql_homecards_main
 cp scripts/ql_chat_home/truth_table_homecards.swift /tmp/ql_homecards_main/main.swift
 run_unit /tmp/test_homecards -swift-version 6 /tmp/ql_homecards_main/main.swift \
-    qingliao/Core/HomeCardOrder.swift
+    qingliao/Core/HomeCardOrder.swift qingliao/Core/WorkbenchScope.swift
 
 echo "=== 50. 智慧球菜单胶囊几何真值表（v4.0.x）==="
 # 事故：v3.9.96 把最上排改成 3 列时，center() 的列位算式写成
@@ -1357,6 +1357,22 @@ rm -rf /tmp/ql_verdict_main && mkdir -p /tmp/ql_verdict_main
 cp scripts/ql_verdict/truth_table_verdict.swift /tmp/ql_verdict_main/main.swift
 run_unit6 /tmp/test_verdict /tmp/ql_verdict_main/main.swift qingliao/Core/WorkbenchVerdict.swift | tee /tmp/tt_verdict.log
 grep -q '0 失败' /tmp/tt_verdict.log || fail=1
+
+echo "=== 93. P2 入口收敛真值表（工作模式各页目录口径 · 首页卡收敛）==="
+# 表在仓内 scripts/ql_workbench/truth_table_workbench.swift（纯 Foundation，编生产逻辑
+# qingliao/Core/WorkbenchScope.swift + qingliao/Core/HomeCardOrder.swift）。
+# 钉死的口径：① 工作模式首屏 = 快捷四张（继续上次会话 / 今日待办 / 天气 / 记一笔）
+# ② 其余 12 张是**默认收起**不是删除（收起 ∪ 快捷 = 全部可拖拽 16 张，都在卡片库里）
+# ③ 工作模式目录不含空槽位（条目 12），且「缺失 kind 自动补尾」不许把它补回首屏
+# ④ 老用户存过 off/order 一律听用户的（条目 11 配置不丢）⑤ 生活模式零变更（默认 .life、
+# 目录/默认档/渲染列表逐字等于历史；DockTabView.swift 全篇不知道模式存在）
+# ⑥ 口径声明写入点全 App 只有 WorkbenchRoot.init 一处、读取集中在三处（不许散落）。
+# ⚠️ 多文件编译时只有 main.swift 允许顶层代码 → 先复制成 main.swift（同第 4/92 段的做法）。
+rm -rf /tmp/ql_workbench_main && mkdir -p /tmp/ql_workbench_main
+cp scripts/ql_workbench/truth_table_workbench.swift /tmp/ql_workbench_main/main.swift
+run_unit6 /tmp/test_workbench /tmp/ql_workbench_main/main.swift \
+    qingliao/Core/WorkbenchScope.swift qingliao/Core/HomeCardOrder.swift | tee /tmp/tt_workbench.log
+grep -q '0 失败' /tmp/tt_workbench.log || fail=1
 
 [ $fail -eq 0 ] || { echo "❌ 有护栏失守"; exit 1; }
 exit 0

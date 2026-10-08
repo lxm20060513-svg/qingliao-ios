@@ -41,6 +41,13 @@ struct UIModeRoot: View {
 /// 单独立成类型（而不是在 `UIModeRoot` 里传参数）是为了让「工作模式到底改了什么」
 /// 在 `git diff` 里落成**一个文件**，评审与回退都好做。
 struct WorkbenchRoot: View {
+    /// P2：工作模式壳在**构造时**声明自己的口径（全 App 唯一写入点，真值表钉住）。
+    /// 放在 init 而不是 body：`HomeCardsGrid` 等视图的渲染列表是 `@State` 初值（init 期求值），
+    /// 那时 body 还没跑、Environment 还读不到 —— 见 Core/WorkbenchScope.swift 文件头。
+    init() {
+        WorkbenchScope.adopt(.work)
+    }
+
     var body: some View {
         DockTabView()
             // P1 首屏结论条：挂在工作模式壳的顶部（`safeAreaInset` 把页面内容整体下移，不盖住任何页头）。
