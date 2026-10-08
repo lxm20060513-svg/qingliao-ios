@@ -21,13 +21,11 @@ import UIKit
 //   改为回调 `onTranslated` → 宿主弹 `TranslateSheet`（形态照 `QuickCaptureSheet` 抄）。
 //   原来的「译文卡 + 限高 220 + 复制/换一张/发给AI」整套随之搬进那个文件；本层只剩 选图/识别/翻译中/失败。
 //
-// 几何：球心一律走 `DockOrbOverlay.orbCenterGlobal`（与可见球 / 长按菜单严格同源），
-//       绝不在本文件里自己算等分（v3.9.59 的命中圈错位就是这么来的）。
+// 几何：球心一律走 `DockOrbOverlay.floatingOrbCenter`（与可见球 / 长按菜单严格同源），
+//       绝不在本文件里自己算（v3.9.59 的命中圈错位就是这么来的）。
 
 struct OrbIdentifyOverlay: View {
     var barHeight: CGFloat
-    var slotIndex: Int = 2
-    var slotCount: Int = 5
     /// 「问 AI」交回宿主（宿主负责 post 通知 + 切聊天页；本层碰不到聊天流）
     var onAskAI: (String) -> Void
     /// v3.9.82：拿到译文立刻交回宿主弹「译文弹窗」（与 AI 速记同一形态）——本层不再渲染译文
@@ -154,7 +152,7 @@ struct OrbIdentifyOverlay: View {
     /// 球心（global → 本层局部）。同源 + 兜底同一个默认条高，别各自写一份。
     private func absoluteBallCenter(in g: CGRect) -> CGPoint {
         let barH = barHeight > 1 ? barHeight : DockOrbOverlay.fallbackBarHeight
-        let c = DockOrbOverlay.orbCenterGlobal(slotIndex: slotIndex, slotCount: slotCount, barHeight: barH)
+        let c = DockOrbOverlay.floatingOrbCenter(barHeight: barH)
         return CGPoint(x: c.x - g.minX, y: c.y - g.minY)
     }
 

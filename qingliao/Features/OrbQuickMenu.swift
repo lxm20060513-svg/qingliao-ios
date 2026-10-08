@@ -183,13 +183,11 @@ enum OrbQuickMenuAnchor: Equatable {
 // MARK: - 球命中层（轻点切聊天页 + 长按弹菜单）
 //
 // DockOrbOverlay 整层 allowsHitTesting(false)（触摸穿透给系统 tab item）；本层只盖住球体
-// 一小块（68pt 圆），轻点 = 手动 `selected = .chat`（DockTabView.onChange 里的触感/烟花照旧
+// 一小块（80pt 圆 = 球外框 64 + 16 余量），轻点 = 手动 `selected = .chat`（DockTabView.onChange 里的触感/烟花照旧
 // 触发，与「点系统 tab item」同语义），长按 = 弹快捷菜单。
 
 struct OrbHitLayer: View {
     var barHeight: CGFloat
-    var slotIndex: Int = 2
-    var slotCount: Int = 5
     var onTap: () -> Void
     var onLongPress: () -> Void
 
@@ -197,14 +195,11 @@ struct OrbHitLayer: View {
         GeometryReader { geo in
             let g = geo.frame(in: .global)
             let barH = barHeight > 1 ? barHeight : DockOrbOverlay.fallbackBarHeight
-            // v3.9.59：球心**必须**走 DockOrbOverlay.orbCenterGlobal（与可见球同源）。
-            // 命中圈自己算一份等分几何会错位：DockOrbOverlay 的 x 优先取真实槽位按钮中心
-            // （iOS 26 玻璃 tab bar 内容有内缩，等分估算与真实中心不重合）→ 圈偏了 = 按球没反应。
-            let c = DockOrbOverlay.orbCenterGlobal(slotIndex: slotIndex,
-                                                   slotCount: slotCount,
-                                                   barHeight: barH)
+            // v3.9.59：球心**必须**走 DockOrbOverlay.floatingOrbCenter（与可见球同源）。
+            // 命中圈自己算一份几何会错位 → 圈偏了 = 按球没反应（本仓最隐蔽的一类 bug）。
+            let c = DockOrbOverlay.floatingOrbCenter(barHeight: barH)
             Color.clear
-                .frame(width: 68, height: 68)
+                .frame(width: 80, height: 80)
                 .contentShape(Circle())
                 .gesture(
                     ExclusiveGesture(
@@ -221,15 +216,13 @@ struct OrbHitLayer: View {
 
 struct OrbQuickMenuOverlay: View {
     var barHeight: CGFloat
-    var slotIndex: Int = 2
-    var slotCount: Int = 5
     /// v3.9.78：菜单层要在材质模糊**之上**重画一颗「锚点球」，状态与 dock 那颗同源
     ///（流式转动 / 未读亮点 / 失败压暗）—— 不传就永远是一颗「空闲」球，与背后真实状态打架。
     var thinking: Bool = false
     var unseen: Bool = false
     var failed: Bool = false
     /// v3.9.78：「长按宠物 = 长按智慧球同一套菜单」→ 宠物发起时传它的**全局中心与尺寸**；
-    /// nil = dock 智慧球（原口径一字未改，dock 那条路仍走 DockOrbOverlay.orbCenterGlobal）。
+    /// nil = 常驻浮动智慧球（dock 那条路走 DockOrbOverlay.floatingOrbCenter）。
     var petAnchor: OrbPetAnchor? = nil
     var onAction: (OrbQuickAction) -> Void
     var onClose: () -> Void
@@ -238,10 +231,8 @@ struct OrbQuickMenuOverlay: View {
         GeometryReader { geo in
             let g = geo.frame(in: .global)
             let barH = barHeight > 1 ? barHeight : DockOrbOverlay.fallbackBarHeight
-            // 同 OrbHitLayer：球心走 DockOrbOverlay.orbCenterGlobal，与可见球严格同源
-            let c = petAnchor?.center ?? DockOrbOverlay.orbCenterGlobal(slotIndex: slotIndex,
-                                                                      slotCount: slotCount,
-                                                                      barHeight: barH)
+            // 同 OrbHitLayer：球心走 DockOrbOverlay.floatingOrbCenter，与可见球严格同源
+            let c = petAnchor?.center ?? DockOrbOverlay.floatingOrbCenter(barHeight: barH)
             OrbQuickMenuLayer(ballCenter: CGPoint(x: c.x - g.minX, y: c.y - g.minY),
                               anchor: petAnchor.map { OrbQuickMenuAnchor.pet(size: $0.size) } ?? .dockOrb,
                               thinking: thinking,

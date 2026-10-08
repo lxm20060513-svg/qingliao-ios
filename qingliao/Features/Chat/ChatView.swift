@@ -1247,21 +1247,13 @@ struct ChatView: View {
                 .scrollContentBackground(.hidden)
             )
         }
-        // v4.0.29：首页「备忘速记」卡 → 备忘卡片（复用生活页 MemoSection，弹窗里直接看/记）
-        .sheet(isPresented: $showHomeMemoBrowser) {
-            AnyView(NavigationStack {
-                ScrollView {
-                    MemoSection()
-                        .padding(.horizontal, Spacing.section)
-                }
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("完成") { showHomeMemoBrowser = false }
-                    }
-                }
-            }
-            .presentationDetents([.large])
-            )
+        // v4.0.29：首页「备忘速记」卡 → 速记面板；v4.0.79：不再复用生活页 `MemoSection` 浏览页
+        //（v4.0.77 备忘录三张弹窗上收成 LifeView 页根的毛玻璃浮层后，宿主不在这棵 sheet 里 →
+        //  在弹窗里点新增/详情「没反应」，且状态残留为真，回生活页会莫名弹出那张浮层）。
+        // 改走与智慧球「AI 速记」同一个 `QuickCaptureSheet`（DockTabView 先例）：写库路径单一、无旁路。
+        // onDismiss 复位：本仓踩过「sheet 被别的 sheet 挡掉后 item 一直非 nil，之后再也弹不出来」。
+        .sheet(item: $homeQuickCapture, onDismiss: { homeQuickCapture = nil }) { mode in
+            QuickCaptureSheet(mode: mode)
         }
         // v4.0.29：首页「云盘」卡 → 云盘浏览（复用设置页 CloudDriveSettingsSheet 的列表 + 浏览器）
         .sheet(isPresented: $showHomeCloudDrive) {
@@ -2285,7 +2277,7 @@ struct ChatView: View {
                     reminderSeedText = ""
                     showQuickReminder = true             // 复用既有提醒面板（可直接新建）
                 case .memo:
-                    showHomeMemoBrowser = true           // 复用备忘录浏览页
+                    homeQuickCapture = .memo               // v4.0.79：改走速记面板（原复用备忘录浏览页，浮层宿主不在这棵树里）
                 case .cloud:
                     showHomeCloudDrive = true            // 复用云盘浏览
                 default:
@@ -2306,7 +2298,8 @@ struct ChatView: View {
     //    （grep 全文件 0 个呈现点）→ 天气卡轻点「没反应」。呈现补在 homeCardsGrid 的视图链上。
     @State private var showHomeWeather = false
     // v4.0.29：新卡弹窗宿主（备忘录 / 云盘）
-    @State private var showHomeMemoBrowser = false
+    /// v4.0.79：首页「备忘速记」卡 → 速记输入面板（`.memo` = AI 速记；原 `showHomeMemoBrowser` 已删）
+    @State private var homeQuickCapture: QuickCaptureMode?
     @State private var showHomeCloudDrive = false
 
 

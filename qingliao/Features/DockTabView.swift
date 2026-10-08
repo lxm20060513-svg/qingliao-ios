@@ -788,9 +788,7 @@ private extension DockTabView {
     @ViewBuilder
     var orbMenuOverlay: some View {
         OrbQuickMenuOverlay(barHeight: dockBarHeight,
-                            slotIndex: 2,
-                            slotCount: dockSlotCount,
-                            // v3.9.78：锚点球与 dock 那颗同状态（菜单开着时球仍在原位可见）
+                            // v3.9.78：锚点球与常驻浮动球同状态（菜单开着时球仍在原位可见）
                             thinking: stream.isStreaming,
                             unseen: orbUnseen,
                             failed: orbFailed,
@@ -865,11 +863,9 @@ extension DockTabView {
             // allowsHitTesting(false) 让触摸穿透给下层系统 tab item（点球 = 系统切页）。
             .overlay {
                 if orbInDock {
-                    // 聊天槽位序号 = 2（会话0 / 生活1 / 聊天2 / 看板3 / 设置4）
-                    // thinking: AI 流式回答中球切 orbits 旋转——原聊天页智能球的行为在 dock 槽位保留
-                    DockOrbOverlay(slotIndex: 2,
-                                   slotCount: dockSlotCount,
-                                   thinking: stream.isStreaming,
+                    // v4.0.79：球不再绑槽位 —— 常驻浮在 dock 上方居中（几何全在 DockOrbOverlay.floatingOrbCenter）
+                    // thinking: AI 流式回答中球切 orbits 旋转——原聊天页智能球的行为在浮动球上保留
+                    DockOrbOverlay(thinking: stream.isStreaming,
                                    unseen: orbUnseen,
                                    failed: orbFailed,
                                    measuredBarHeight: $dockBarHeight)
@@ -879,8 +875,6 @@ extension DockTabView {
                     //   长按 = 弹快捷菜单。菜单开着时本层不显示（菜单层自己接管全部交互）。
                     if !showOrbMenu && !showIdentify && !showVoiceDialog {
                         OrbHitLayer(barHeight: dockBarHeight,
-                                    slotIndex: 2,
-                                    slotCount: dockSlotCount,
                                     // v3.9.59：轻点复用「点系统 tab item」的语义——已在聊天页时 selected 不变、
                                     // onChange 不触发，触感与清提示会整体丢失（原先这层是系统 tab item 的按压反馈）。
                                     // 🚨 v4.0.54（用户 2026-10-05）：**回退 v4.0.47 的「轻点 = 回聊天首页（新建会话）」** ——
@@ -929,8 +923,6 @@ extension DockTabView {
             .overlay {
                 if showIdentify {
                     OrbIdentifyOverlay(barHeight: dockBarHeight,
-                                       slotIndex: 2,
-                                       slotCount: dockSlotCount,
                                        onAskAI: { askAI($0) },
                                        // v3.9.82：译文交回宿主弹 TranslateSheet（形态照 AI 速记弹窗）。
                                        // 同帧收浮层 + present：浮层是 overlay（不是 presentation），
@@ -1007,8 +999,8 @@ extension DockTabView {
             // v3.6.2：全屏粒子爆发（点 dock 智能球触发；纯视觉，不挡交互）
             .overlay {
                 if showDockBurst {
-                    FullScreenBurst(originFromBottom: DockOrbOverlay.ballCenterFromBottom(barHeight: dockBarHeight,
-                                                                                        index: 2, count: dockSlotCount))
+                    // v4.0.79：烟花原点与浮动球心同源（不再传槽位号——球已经在屏幕水平中线上）
+                    FullScreenBurst(originFromBottom: DockOrbOverlay.floatingBallCenterFromBottom(barHeight: dockBarHeight))
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .allowsHitTesting(false)
                         .transition(.opacity)

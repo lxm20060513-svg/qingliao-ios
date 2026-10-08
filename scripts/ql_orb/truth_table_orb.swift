@@ -267,10 +267,14 @@ check("菜单锚点画法只留宠物（v3.9.82：不是「按宠物弹出一颗
 check("锚点尺寸仍走单一真源（dock → DockOrbOverlay.defaultBallSize / 宠物 → 自己的尺寸）",
       menuSrc.contains("return DockOrbOverlay.defaultBallSize"))
 check("宠物只覆盖锚点中心，几何原点与坐标换算不变",
-      menuSrc.contains("let c = petAnchor?.center ?? DockOrbOverlay.orbCenterGlobal(slotIndex: slotIndex,")
+      menuSrc.contains("let c = petAnchor?.center ?? DockOrbOverlay.floatingOrbCenter(barHeight: barH)")
       && menuSrc.contains("ballCenter: CGPoint(x: c.x - g.minX, y: c.y - g.minY)"))
-check("dock 侧仍走 slotCenter/等分几何（没被宠物改动动到）",
-      menuSrc.contains("slotIndex: slotIndex,\n                                                   slotCount: slotCount,"))
+// v4.0.79：球从 dock 槽位摘出、浮在 dock 上方 → 全仓都不该再有「读槽位坐标 / 手算等分」的几何
+//（旧口径 slotCenterGlobal + width*(i+0.5)/n 已整块退役；留一处就是两套几何 → 球按不到）。
+check("球心只走单一出口（全仓无槽位坐标读取、无手算等分）",
+      !menuSrc.contains("slotCenterGlobal")
+      && !menuSrc.contains("geo.size.width *")
+      && !effectsSrc.contains("static func slotCenterGlobal"))
 check("动作分发单一真源：聊天页没有复制 handleOrbAction",
       dockSrc.contains("onReceive(NotificationCenter.default.publisher(for: .qingliaoOrbMenuFromPet))")
       && !chatSrc.contains("handleOrbAction("))
@@ -332,11 +336,11 @@ check("dock 侧锚点刷新切片切得出（空了本条就是空真）", !anch
 check("dock 侧只在菜单开着时更新锚点（关着丢弃，且**不打开**菜单）",
       anchorRefreshSlice.contains("guard showOrbMenu, !blocked else { return }")
       && !anchorRefreshSlice.contains("showOrbMenu = true"))
-// ── v3.9.79b：烟花原点不再写死槽位号（审查「可优化」第 3 条）──
-check("烟花原点槽位透传（dock 传 index/count，ChatEffects 不再写死 2/5）",
-      dockSrc.contains("ballCenterFromBottom(barHeight: dockBarHeight,")
-      && dockSrc.contains("index: 2, count: dockSlotCount)")
-      && !effectsSrc.contains("contentCenterDrop(index: 2, count: 5)"))
+// ── v4.0.79：球浮到 dock 上方后，烟花原点不再需要槽位号（球恒在屏幕水平中线上）──
+check("烟花原点与浮动球心同源（不再传槽位号，旧接口已退役）",
+      dockSrc.contains("floatingBallCenterFromBottom(barHeight: dockBarHeight")
+      && !effectsSrc.contains("static func ballCenterFromBottom(")
+      && effectsSrc.contains("return barH + floatingGap + ballSize / 2"))
 // ── v3.9.82：译文改弹窗后，这条护栏跟着搬（译文卡整套搬进 Features/TranslateSheet.swift）──
 // 旧断言钉的是 restartTranslate 里的「已复制」复位 —— 那段状态随译文卡一起走了。
 // 现在钉「浮层不再持有复制反馈状态」（两处状态各管各 = 迟早漂移）；弹窗侧由
