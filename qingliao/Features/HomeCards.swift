@@ -624,7 +624,7 @@ struct HomeCardsGrid: View {
         case .nextReminder:
             onOpenSheet(.nextReminder)          // 打开提醒面板（可直接新建）
         case .memo:
-            onOpenSheet(.memo)                  // 打开备忘录页
+            onOpenSheet(.memo)                  // 打开速记面板（QuickCaptureSheet；v4.0.80 起不再开备忘录浏览页）
         case .express:
             onOpenLife()                        // 快递详情在生活页
         case .stock:

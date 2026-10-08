@@ -14,7 +14,8 @@ struct FullScreenBurst: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var spawn = Date()
     /// v3.6.2：粒子发射原点距屏幕底部距离——原写死 136 = 聊天页输入栏智能球位置；
-    /// 智能球迁到 dock 槽位后由 DockOrbOverlay 的几何定位给出（见 body 内 geoCenterY）
+    /// v4.0.80：智能球浮在 dock 上方后，原点一律由 DockOrbOverlay.floatingBallCenterFromBottom 给出
+    ///（与可见球心同一条公式，差一个底部安全区）——别再写死。
     var originFromBottom: CGFloat = 136
 
     var body: some View {
@@ -226,17 +227,18 @@ private struct OrbNoticeDot: View {
 }
 
 
-// MARK: - v3.6.2 dock 槽位智能球（系统 tab item 的自定义替身）
+// MARK: - v3.6.2 智能球浮层（v4.0.80 起：浮在 dock 上方，不再占槽位）
 //
-// 背景：iOS 26 原生 TabView 的 tab item 只接受系统图标 + 文字（官方未提供自定义视图 API）。
-// 因此聊天槽位的 item 置为不可见（Text("")，无图标无文字），整颗球由本层自绘并居中于该槽位。
+// 背景：iOS 26 原生 TabView 的 tab item 只接受系统图标 + 文字（官方未提供自定义视图 API），
+// 早期做法是把聊天槽 item 置空、由本层在槽位上自绘一颗球。
+// v4.0.80（用户拍板）：球从槽位摘出、常驻浮在 dock 上方居中，聊天槽交还系统 item；本层只画浮球。
 // 本层必须 .allowsHitTesting(false)：触摸要穿透给下层的系统 tab item（点球 = 系统切页，行为不变）。
 struct DockOrbOverlay: View {
     /// v3.9.78：球体外框边长**单一真源** —— 常驻球与长按菜单里重画的「锚点球」必须同尺寸；
     /// 改尺寸只动这一处（菜单层引用本常量，别再各写一个数字）。
-    /// v3.6.3：36 → 44；v3.6.4：44 → 50；v3.6.5：50 → 52；**v4.0.79：52 → 64（用户拍板）**
+    /// v3.6.3：36 → 44；v3.6.4：44 → 50；v3.6.5：50 → 52；**v4.0.80：52 → 64（用户拍板）**
     static let defaultBallSize: CGFloat = 64
-    /// v4.0.79：球底与 dock 顶边之间的固定呼吸 —— 球从槽位摘出、常驻浮在 dock 上方
+    /// v4.0.80：球底与 dock 顶边之间的固定呼吸 —— 球从槽位摘出、常驻浮在 dock 上方
     static let floatingGap: CGFloat = 6
     /// 外框（含光晕）边长；球体 ≈ size × 0.783 —— 64 时球体 ≈ 50pt
     var ballSize: CGFloat = DockOrbOverlay.defaultBallSize
@@ -259,7 +261,7 @@ struct DockOrbOverlay: View {
     ///          纵向跑偏；改为优先读真实 UITabBar 高度（`slotBarHeight()`），本值只在读不到时兜底。
     static let fallbackBarHeight: CGFloat = 49
 
-    /// v4.0.79 已整块删除：`dockContentCenterDrop`(6.3) / `slotContentDrop` / `contentCenterDrop` 这一套
+    /// v4.0.80 已整块删除：`dockContentCenterDrop`(6.3) / `slotContentDrop` / `contentCenterDrop` 这一套
     /// 「dock 内容中心差值」——那是球**嵌在槽位里**时用来把球心对到 dock 内容中心的；球改成浮在 dock
     /// **上方**之后，基准变成「dock 顶边 + 呼吸 + 球半径」，这套差值整体失去意义（横屏/竖屏的分支也没了）。
     /// ⚠️ 别再把它请回来：球的位置只由 `floatingOrbCenter` 一处决定。
@@ -277,7 +279,7 @@ struct DockOrbOverlay: View {
             // v3.9.33：bar 高改用实测值（放大字体下会变高）；实测与兜底走**同一条公式**，
             //          两条路径坐标系一致（窗口底 − 安全区 − bar高/2 + 实测差值）→ 读不到也不会跳变
             let barH = measuredBarHeight > 1 ? measuredBarHeight : DockOrbOverlay.fallbackBarHeight
-            // v4.0.79：球从 dock 槽位摘出 → 常驻浮在 dock 上方、水平居中。
+            // v4.0.80：球从 dock 槽位摘出 → 常驻浮在 dock 上方、水平居中。
             // 球心必须走 floatingOrbCenter（命中层 / 长按菜单 / 识别浮层 / 烟花原点共用同一出口，
             // 谁都不许自己算一份——五处错一处就是「球看着在那儿、按上去没反应」）。
             // 本层只做「window 坐标 → 叠加层坐标」的换算。
@@ -355,7 +357,7 @@ struct DockOrbOverlay: View {
     /// 球心到**叠加层底部**的距离（DockTabView 的烟花原点用；与 BurstCanvas 的 `h - originFromBottom`
     /// 同一坐标系，h = 叠加层高）。⚠️ 叠加层底 ≠ 窗口底（差一个底部安全区）。
     ///
-    /// v4.0.79：球浮在 dock 上方 → 距叠加层底 = dock 高 + 呼吸 + 球半径，**与 `floatingOrbCenter` 同源**
+    /// v4.0.80：球浮在 dock 上方 → 距叠加层底 = dock 高 + 呼吸 + 球半径，**与 `floatingOrbCenter` 同源**
     ///（floatingOrbCenter 的 y 从窗口底起算，两者相差恰好一个底部安全区；改口径时两处必须一起动）。
     /// v3.9.33：bar 高不再是常量——宿主把实测值传进来（放大字体下 tab bar 变高，原点要跟着球动）。
     /// v3.9.79b 的教训照旧适用：口径改了**务必全仓 grep**——烟花原点与可见球错位是最隐蔽的一类
@@ -381,7 +383,7 @@ struct DockOrbOverlay: View {
             .first?.coordinateSpace.bounds.width ?? 0
     }
 
-    /// v4.0.79：浮动球的**唯一几何出口**（window 坐标）——可见球 / 命中层 / 长按菜单 / 识别浮层 /
+    /// v4.0.80：浮动球的**唯一几何出口**（window 坐标）——可见球 / 命中层 / 长按菜单 / 识别浮层 /
     /// 烟花原点全部走这一个函数，任何一处都**不许**自己算（五处错一处 = 球看着在那儿、按上去没反应；
     /// 本仓已踩过两次：v3.9.59 命中圈错位、v3.9.79 转屏后差 6.3pt）。
     ///

@@ -412,7 +412,7 @@ struct OrbQuickMenuLayer: View {
     ///    只保留一个跳转画面」）：**球版画法整段删掉**，不管从 dock 智慧球还是聊天页宠物进来，
     ///    这里画的一律是 `PetAvatar`（宠物那套）。别再按锚点类型分两种画法——「长按球弹出一颗球、
     ///    长按宠物弹出一只宠物」就是用户要去掉的那两套画面。
-    ///    中心仍严格同源：`ballCenter`（= `DockOrbOverlay.orbCenterGlobal`，菜单/命中层/可见球共用）；
+    ///    中心仍严格同源：`ballCenter`（= `DockOrbOverlay.floatingOrbCenter`，菜单/命中层/可见球共用）；
     ///    状态直传 thinking（流式时表情跟着变）。
     /// 它盖在材质**之上**，所以背后那块糊掉的只是同一位置的重影，不会看出两层。
     ///

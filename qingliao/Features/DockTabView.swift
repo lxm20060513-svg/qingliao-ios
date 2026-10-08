@@ -7,8 +7,9 @@ enum DockTab: String, CaseIterable, Identifiable {
     var slotIndex: Int { Self.allCases.firstIndex(of: self) ?? 0 }
 
     // v4.0.69（用户 2026-10-07 拍板）：dock 顺序 = 会话 → 生活 → 智慧球 → 看板 → 设置。
-    // ⚠️ 智慧球必须留在第 3 槽：DockOrbOverlay / 烟花原点按 slotIndex: 2 硬编码算几何
-    //    （行号会漂移，直接按 slotIndex: 2 全文搜），球心取真实槽位按钮中心。
+    // v4.0.80：智慧球已从 dock 槽位摘出、常驻浮在 dock 上方居中 —— 几何与槽位号无关，
+    //    唯一出口 = DockOrbOverlay.floatingOrbCenter（Features/Chat/ChatEffects.swift）。
+    //    slotIndex 只剩「切页微滑方向」一个用途（Task 3 计划动态化；行号漂移时全文搜 slotIndex）。
     //    （v4.0.70 曾加过「Dock 顺序自定义」，用户 2026-10-07 拍板整体回退到 4.0.69 形态，勿再接回。）
     // （enum 声明序与 TabView 内声明序一致，便于对照；TabView 顺序由视图插入序决定）
     // v4.0.x：dock 图标换 B 组（用户选定）：看板 chart.pie / 生活 heart / 设置 gearshape（空心）；
@@ -89,6 +90,7 @@ struct DockTabView: View {
     /// v3.6.2：聊天槽位用智能球替身——仅 iPhone（iPad 保持系统图标原样）
     private var orbInDock: Bool { hSize != .regular }
     /// dock 槽位数（5：会话/生活/聊天/看板/设置）
+    /// TODO(Task 3)：槽位动态化后本常量只剩「五个 tab 的默认口径」；当前已无消费者（球与槽位已解耦）。
     private var dockSlotCount: Int { 5 }
     /// v3.9.33：这页的回复是否正摆在用户眼前 = 聊天 tab **且**当前会话就是刚收尾的那条流。
     /// 只看 `selected == .chat` 会漏报——人在聊天页看会话 B 时，会话 A 的回复落地也该提示。
@@ -185,8 +187,8 @@ struct DockTabView: View {
                 // v4.0.72：与其它四页同款轻量入场（轻微放大 + 从下方浮起；「从会话卡展开」已整体移除）。
                 .chatZoomEntry(selected: $selected)
                 .tag(DockTab.chat)
-                // 槽位视觉为空（球由 DockOrbOverlay 绘制）→ 补无障碍标签，VoiceOver 仍读得出「聊天」
-                .tabItem { Text("").accessibilityLabel("聊天") }
+                // v4.0.80：球已摘出槽位、浮在 dock 上方 → 聊天槽交还系统 item（与其它四页同款图标 + 文字）
+                .tabItem { Label(DockTab.chat.title, systemImage: DockTab.chat.icon) }
         }
     }
 
@@ -863,7 +865,7 @@ extension DockTabView {
             // allowsHitTesting(false) 让触摸穿透给下层系统 tab item（点球 = 系统切页）。
             .overlay {
                 if orbInDock {
-                    // v4.0.79：球不再绑槽位 —— 常驻浮在 dock 上方居中（几何全在 DockOrbOverlay.floatingOrbCenter）
+                    // v4.0.80：球不再绑槽位 —— 常驻浮在 dock 上方居中（几何全在 DockOrbOverlay.floatingOrbCenter）
                     // thinking: AI 流式回答中球切 orbits 旋转——原聊天页智能球的行为在浮动球上保留
                     DockOrbOverlay(thinking: stream.isStreaming,
                                    unseen: orbUnseen,
@@ -999,7 +1001,7 @@ extension DockTabView {
             // v3.6.2：全屏粒子爆发（点 dock 智能球触发；纯视觉，不挡交互）
             .overlay {
                 if showDockBurst {
-                    // v4.0.79：烟花原点与浮动球心同源（不再传槽位号——球已经在屏幕水平中线上）
+                    // v4.0.80：烟花原点与浮动球心同源（不再传槽位号——球已经在屏幕水平中线上）
                     FullScreenBurst(originFromBottom: DockOrbOverlay.floatingBallCenterFromBottom(barHeight: dockBarHeight))
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .allowsHitTesting(false)

@@ -181,7 +181,7 @@ struct UIModeRootTruthTable {
               caseNames(dockSrc, "enum DockTab: String", "var id: String")
                 == ["sessions", "life", "chat", "dashboard", "settings"])
         positives += 1
-        check("智慧球固定第 3 槽（slotIndex 2 硬编码几何的前提）",
+        check("dock 槽位序第 3 项为 chat（切页微滑方向判据；几何已与槽位号无关）",
               caseNames(dockSrc, "enum DockTab: String", "var id: String")[2] == "chat")
         let cards = caseNames(cardSrc, "enum HomeCardKind: String", "/// 默认展示顺序")
         positives += 1

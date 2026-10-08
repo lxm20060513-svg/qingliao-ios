@@ -1,4 +1,4 @@
-# 智慧球从 dock 摘出 · 改动清单（v4.0.79 草案）
+# 智慧球从 dock 摘出 · 改动清单（v4.0.80 草案）
 
 **目标：** 把智慧球从 dock 第 3 槽摘出来，浮在 dock 上方居中（球外框 64）；聊天页默认「球态」（点球展开输入框）；设置里新增「显示智慧球」+ 逐个 tab 显隐开关（聊天不可藏，最少剩 1 槽）。
 
@@ -144,6 +144,6 @@ Task 1 → 2（球位置，可单独装机看）→ 3 + 4（tab 显隐 + 设置�
 **验证（2026-10-08）**
 - `ql ios check`（语法 + switch 穷尽性 + 源护栏）：**全绿**（首轮 4 条哨兵类 ❌ 已修：`DockOrbOverlay(slotIndex: 2` 哨兵 → `DockOrbOverlay(thinking: stream.isStreaming`；`between()` 不含起始串，切片非空断言改 `!menuCall.isEmpty`）。
 - `ql test`：`ql_orb` 107/0 ✅ · `ql_dock` 55/0 ✅（新增改 3 条：球心公式 / 烟花原点签名 / 槽位号退役）。
-- ⚠️ 另有 9 条红**与本次改动无文件交集**，不是本次造成：`ql_v937`(3) 读的正是 `ChatView.swift`——该文件被**另一会话**在途改（首页备忘速记卡 → `QuickCaptureSheet`，同为 v4.0.79）；`ql_memo`(5) 读 `Features/Life/MemoSection.swift` + 共享卡片组件；`ql_ask_card`(1) 读 `InboxStore` / `ChatQuestionCard` / 后端。
+- ⚠️ 另有 9 条红**与本次改动无文件交集**，不是本次造成：`ql_v937`(3) 读的正是 `ChatView.swift`——该文件被**另一会话**在途改（首页备忘速记卡 → `QuickCaptureSheet`，同为 v4.0.80）；`ql_memo`(5) 读 `Features/Life/MemoSection.swift` + 共享卡片组件；`ql_ask_card`(1) 读 `InboxStore` / `ChatQuestionCard` / 后端。
 
 **待办**：Task 3 → 4 → 5 → 6 → 7（等用户定：先出包验 Task 1+2，还是连 Task 3+4 一起）。

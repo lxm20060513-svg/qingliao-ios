@@ -80,7 +80,7 @@ struct ChatView: View {
     @State var inputText = ""
     @FocusState var inputFocus: Bool
     /// v4.0.80（P4 冷启动 · 条目 17）：三页冷启动引导的「一个动作」把示例指令投递到这里，
-    /// 由 chatColdChrome5 的 onChange 取走填进输入框（取走即清，不重灌；**不碰焦点**）。
+    /// 由 chatColdChrome15 的 onChange / onAppear 取走填进输入框（取走即清，不重灌；**不碰焦点**）。
     @State var seedBox = ComposerSeedBox.shared
     @State var sentOK = false
     @State var serverOnline: Bool?   // 服务器连接状态（真实绿点）
@@ -1269,7 +1269,7 @@ struct ChatView: View {
                 .scrollContentBackground(.hidden)
             )
         }
-        // v4.0.29：首页「备忘速记」卡 → 速记面板；v4.0.79：不再复用生活页 `MemoSection` 浏览页
+        // v4.0.29：首页「备忘速记」卡 → 速记面板；v4.0.80：不再复用生活页 `MemoSection` 浏览页
         //（v4.0.77 备忘录三张弹窗上收成 LifeView 页根的毛玻璃浮层后，宿主不在这棵 sheet 里 →
         //  在弹窗里点新增/详情「没反应」，且状态残留为真，回生活页会莫名弹出那张浮层）。
         // 改走与智慧球「AI 速记」同一个 `QuickCaptureSheet`（DockTabView 先例）：写库路径单一、无旁路。
@@ -2299,7 +2299,7 @@ struct ChatView: View {
                     reminderSeedText = ""
                     showQuickReminder = true             // 复用既有提醒面板（可直接新建）
                 case .memo:
-                    homeQuickCapture = .memo               // v4.0.79：改走速记面板（原复用备忘录浏览页，浮层宿主不在这棵树里）
+                    homeQuickCapture = .memo               // v4.0.80：改走速记面板（原复用备忘录浏览页，浮层宿主不在这棵树里）
                 case .cloud:
                     showHomeCloudDrive = true            // 复用云盘浏览
                 default:
@@ -2320,7 +2320,7 @@ struct ChatView: View {
     //    （grep 全文件 0 个呈现点）→ 天气卡轻点「没反应」。呈现补在 homeCardsGrid 的视图链上。
     @State private var showHomeWeather = false
     // v4.0.29：新卡弹窗宿主（备忘录 / 云盘）
-    /// v4.0.79：首页「备忘速记」卡 → 速记输入面板（`.memo` = AI 速记；原 `showHomeMemoBrowser` 已删）
+    /// v4.0.80：首页「备忘速记」卡 → 速记输入面板（`.memo` = AI 速记；原 `showHomeMemoBrowser` 已删）
     @State private var homeQuickCapture: QuickCaptureMode?
     @State private var showHomeCloudDrive = false
 

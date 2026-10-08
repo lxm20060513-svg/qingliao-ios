@@ -269,7 +269,7 @@ check("锚点尺寸仍走单一真源（dock → DockOrbOverlay.defaultBallSize 
 check("宠物只覆盖锚点中心，几何原点与坐标换算不变",
       menuSrc.contains("let c = petAnchor?.center ?? DockOrbOverlay.floatingOrbCenter(barHeight: barH)")
       && menuSrc.contains("ballCenter: CGPoint(x: c.x - g.minX, y: c.y - g.minY)"))
-// v4.0.79：球从 dock 槽位摘出、浮在 dock 上方 → 全仓都不该再有「读槽位坐标 / 手算等分」的几何
+// v4.0.80：球从 dock 槽位摘出、浮在 dock 上方 → 全仓都不该再有「读槽位坐标 / 手算等分」的几何
 //（旧口径 slotCenterGlobal + width*(i+0.5)/n 已整块退役；留一处就是两套几何 → 球按不到）。
 check("球心只走单一出口（全仓无槽位坐标读取、无手算等分）",
       !menuSrc.contains("slotCenterGlobal")
@@ -336,7 +336,7 @@ check("dock 侧锚点刷新切片切得出（空了本条就是空真）", !anch
 check("dock 侧只在菜单开着时更新锚点（关着丢弃，且**不打开**菜单）",
       anchorRefreshSlice.contains("guard showOrbMenu, !blocked else { return }")
       && !anchorRefreshSlice.contains("showOrbMenu = true"))
-// ── v4.0.79：球浮到 dock 上方后，烟花原点不再需要槽位号（球恒在屏幕水平中线上）──
+// ── v4.0.80：球浮到 dock 上方后，烟花原点不再需要槽位号（球恒在屏幕水平中线上）──
 check("烟花原点与浮动球心同源（不再传槽位号，旧接口已退役）",
       dockSrc.contains("floatingBallCenterFromBottom(barHeight: dockBarHeight")
       && !effectsSrc.contains("static func ballCenterFromBottom(")
