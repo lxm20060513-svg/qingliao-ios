@@ -11,6 +11,7 @@ import Observation
 ///   · 取走即清（`take`），避免每次 body 重算都重灌一遍；
 ///   · **不动焦点**：调用方不要顺手 `inputFocus = true`（键盘已开保持、未开不弹）；
 ///   · 只存文本，不替用户发送 —— 用户还能改，动作是「开始」，不是「替他决定」。
+@MainActor
 @Observable
 final class ComposerSeedBox {
     static let shared = ComposerSeedBox()

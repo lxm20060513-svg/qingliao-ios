@@ -147,7 +147,7 @@ struct VerdictBar: View {
             VerdictStepsSheet(steps: store.todaySteps)
         case .nightList:
             VerdictNightSheet(items: store.nightItems,
-                              total: store.state.counts.nightTotal ?? 0,
+                              total: WorkbenchVerdict.counts(store.state)?.nightTotal ?? 0,
                               offline: WorkbenchVerdict.isOffline(store.state))
         }
     }

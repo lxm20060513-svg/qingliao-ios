@@ -165,6 +165,16 @@ enum WorkbenchVerdict {
         }
     }
 
+    /// 汇总数字（`.loading` → nil：还没数可给）。
+    /// 视图要单取某一格（下钻里要把话说准）走这里，别自己 switch `State`。
+    static func counts(_ state: State) -> Counts? {
+        switch state {
+        case .loading:        return nil
+        case .ready(let c):   return c
+        case .offline(let c): return c
+        }
+    }
+
     static func isOffline(_ state: State) -> Bool {
         if case .offline = state { return true }
         return false
