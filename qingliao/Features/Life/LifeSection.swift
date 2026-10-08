@@ -27,17 +27,26 @@ enum LifeSection: String, CaseIterable, Identifiable {
 }
 
 // v3.9.85：生活页板块编辑器——与看板 BoardCardEditorSheet 同款交互（↑↓ 调序 / 隐藏 / 恢复）
+//
+// v4.0.80（P2 条目 8）：编辑器只服务**本口径目录**里的板块（`catalog` 由调用方从
+//   `WorkbenchLayout.lifeSectionCatalogRaws` 取，本视图不判模式）。工作模式目录里没有
+//   「定时任务 / 生活数据」→ 不列出来（列出来等于暗示用户能在本模式把移出的板块调回来）。
+//   但**目录外的老配置必须原样留串**（`WorkbenchLayout.mergeLifeSectionPersist`）——
+//   否则在工作模式里动一下排序，切回生活模式就发现那两个板块的显隐/位置被抹了（条目 11 同款口径）。
 struct LifeSectionEditorSheet: View {
     @AppStorage("life_section_order") private var orderRaw = ""
     @AppStorage("life_section_hidden") private var hiddenRaw = ""
     @Environment(\.dismiss) private var dismiss
     @State private var shown: [LifeSection] = []
     @State private var hiddenList: [LifeSection] = []
+    /// 本口径下的板块目录（rawValue）；目录外的一律不进本编辑器
+    private let catalog: [String]
 
-    init(visible: [LifeSection], hidden: [LifeSection]) {
+    init(visible: [LifeSection], hidden: [LifeSection], catalog: [String]) {
         var seen = Set<LifeSection>()
         _shown = State(initialValue: visible.filter { seen.insert($0).inserted })
         _hiddenList = State(initialValue: hidden.filter { seen.insert($0).inserted })
+        self.catalog = catalog
     }
 
     var body: some View {
@@ -106,10 +115,15 @@ struct LifeSectionEditorSheet: View {
         // ⚠️ 2026-09-30（同类风险审计）：顺序串必须写**全量**（shown + 隐藏项），
         // 只写 shown 会把隐藏项从顺序里彻底抹掉 → 之后「显示」恢复时它被 orderedSections
         // 补到列表最末，用户排好的位置被重置。口径对标 BoardCardEditorSheet.persist（SR13）。
-        let full = (shown + hiddenList).reduce(into: [LifeSection]()) { acc, s in
-            if !acc.contains(s) { acc.append(s) }
-        }
-        orderRaw = full.map(\.rawValue).joined(separator: ",")
-        hiddenRaw = hiddenList.map(\.rawValue).joined(separator: ",")
+        // v4.0.80：写回统一走 WorkbenchLayout.mergeLifeSectionPersist —— 在上一句的基础上再补一条
+        // **目录外老条目原样留串**（工作模式下「定时任务 / 生活数据」不在目录里，不许被顺手写掉）。
+        let merged = WorkbenchLayout.mergeLifeSectionPersist(
+            catalog: catalog,
+            shown: shown.map(\.rawValue),
+            hidden: hiddenList.map(\.rawValue),
+            prevOrder: WorkbenchLayout.parseRaws(orderRaw),
+            prevHidden: WorkbenchLayout.parseRaws(hiddenRaw))
+        orderRaw = merged.order
+        hiddenRaw = merged.hidden
     }
 }

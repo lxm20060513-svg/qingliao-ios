@@ -2,12 +2,19 @@ import SwiftUI
 
 // MARK: - 生活页（v3.6.2：原看板「生活数据」栏目整体迁入独立 tab）
 //
-// 内容 = 股票行情 + 博客/资讯 + 快递真卡片（v3.9.32；未配置时退化为引导小字），
-// 全部来自 LifeCardsSection（后端 /api/life/cards，配置页 LifeCardsSettingsView）。看板不再承载这部分。
+// 内容 = 我的东西（备忘 / 待办 / 习惯 / 长期目标 / 记录）+ 行情资讯快递
+// （LifeCardsSection，后端 /api/life/cards，配置页 LifeCardsSettingsView）。
 //
-// 数据加载照看板同款约定：
-//   · 独立异步 + 8s UI 兜底 + 失败降级为卡片内小字（不空白、不转圈卡住）
-//   · 轮询收在本页生命周期内（isActive 直传，切走 = task 取消即停，隐藏页零轮询）
+// v4.0.80（P2 条目 8「生活页移出」）：**工作模式下本页只留「我的东西」** ——
+//   「定时任务」与「生活数据」这两个板块被移出，落点在看板（条目 9「看板收进」：挂载点见
+//   DashboardView 里按 `WorkbenchLayout.dashboardHostedLifeSectionRaws` 渲染的那一块）。
+//   · 目录口径全在 `Core/WorkbenchScope.swift`，本页**不写任何模式判断**；
+//   · 生活模式读到的目录 = 全量，逐字等于历史行为（真值表正反两面钉着）；
+//   · 两个板块的**渲染分支一行没删**（下面 switch 里还在）——工作模式只是目录里没有它们，
+//     所以切回生活模式不需要任何「恢复」动作；
+//   · 数据加载（/api/life/cards 拉取与排队刷新、资讯正文、删股票、30s 轮询）随视图一起下沉到
+//     `LifeCardsBlock`（生活页与工作模式看板共用同一份实现，理由见该文件头），
+//     本页只保留板块顺序 / 编辑器入口 / 页级毛玻璃宿主。
 
 struct LifeView: View {
     /// 是否当前选中（由 DockTabView 直传 selected == .life）
@@ -18,25 +25,23 @@ struct LifeView: View {
     // v4.0.67 P3 收尾：页底环境渐变取色用（浅深各一套）
     @Environment(\.colorScheme) private var colorSchemeEnv
 
-    @State private var life = LifeCardsData()
-    @State private var lifeLoading = false
-    /// v4.0.69（用户报「博客资讯的刷新胶囊点击无法强制刷新」）：排队中的「用户点刷新」标记。
-    /// 与 `loadLife(queued:)` 配套 —— 在途时点击不再被静默丢弃，而是排队补发；这个标记防重复排队叠请求。
-    @State private var freshQueued = false
-    @State private var lifeError = ""
-    @State private var showLifeSettings = false
+    /// 生活数据（行情/资讯/快递）的加载与展开态 —— 组件化宿主，本页与工作模式看板共用一份实现
+    @State private var lifeCards = LifeCardsStore()
     // v3.9.85：板块自定义（排序 + 隐藏）——抄看板 dashboard_card_order 模式
     @AppStorage("life_section_order") private var sectionOrderRaw = ""
     @AppStorage("life_section_hidden") private var sectionHiddenRaw = ""
     @State private var showSectionEditor = false
 
-    /// 已存顺序在前；串里没出现的（新增板块）按默认顺序补后面
+    /// 本口径下的板块目录（工作模式不含移出的两个，见文件头）。全量真源永远是 LifeSection.allCases。
+    private var catalogRaws: [String] {
+        WorkbenchLayout.lifeSectionCatalogRaws(WorkbenchScope.launched,
+                                               allRaws: LifeSection.allCases.map { $0.rawValue })
+    }
+
+    /// 已存顺序在前；串里没出现的（新增板块）按本口径目录补后面
     private var orderedSections: [LifeSection] {
-        var seen = Set<LifeSection>()
-        let saved = sectionOrderRaw.split(separator: ",")
-            .compactMap { LifeSection(rawValue: String($0)) }
-            .filter { seen.insert($0).inserted }
-        return saved + LifeSection.allCases.filter { !seen.contains($0) }
+        WorkbenchLayout.resolveLifeSectionOrder(order: sectionOrderRaw, catalog: catalogRaws)
+            .compactMap { LifeSection(rawValue: $0) }
     }
     private var hiddenSections: Set<LifeSection> {
         Set(sectionHiddenRaw.split(separator: ",").compactMap { LifeSection(rawValue: String($0)) })
@@ -45,17 +50,33 @@ struct LifeView: View {
         let h = hiddenSections
         return orderedSections.filter { !h.contains($0) }
     }
-    // v3.6.2：资讯展开态（同时只展开一条）+ 正文状态缓存
-    @State private var expandedEntryID: String?
-    @State private var articles: [String: LifeArticleState] = [:]
-    // v3.7.0：资讯正文长按「大爆炸」全屏炸开载荷
-    @State private var bigBangPayload: BigBangPayload?
-    @Namespace private var zoomNS   // v3.9.0：资讯行 → 大爆炸 的 zoom 转场
+    /// 编辑器里的「已隐藏」列表：只列**本口径目录内**的板块（目录外的在本模式里根本不存在，
+    /// 列出来等于暗示用户能在本模式把移出的板块调回来；它们的配置由 persist 的目录外保留逻辑兜住）
+    private var hiddenEditableSections: [LifeSection] {
+        let h = hiddenSections
+        return orderedSections.filter { h.contains($0) }
+    }
+
+    /// 冷启动判定（P4 条目 17）：工作模式下这页「我的东西」一样都没有 → 出引导卡。
+    /// 口径：只读既有单例 store 的数组（**不新增请求、不改任何数据**）；生活模式由
+    /// `WorkbenchOnboard.guide` 里的闸门兜住（返回 nil，生活页一字不动）。
+    private var lifeIsEmpty: Bool {
+        MemoStore.shared.memos.isEmpty
+            && TodoStore.shared.todos.isEmpty
+            && HabitStore.shared.habits.isEmpty
+            && GoalStore.shared.goals.isEmpty
+            && RecordStore.shared.records.isEmpty
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 10) {
+                    // v4.0.80（P4 冷启动 · 条目 17/18）：工作模式 + 这页还什么都没有 → 一句话 + 一个动作
+                    // （替掉「空卡与 --」）。判定输入由本页给（lifeIsEmpty），文案/闸门在 Core/WorkbenchOnboard.swift。
+                    if let guide = WorkbenchOnboard.guide(for: .life, empty: lifeIsEmpty) {
+                        OnboardGuideCard(guide: guide)
+                    }
                     // v3.9.85：按用户自定义顺序渲染，隐藏的板块不出现
                     ForEach(visibleSections) { section in
                         switch section {
@@ -65,21 +86,9 @@ struct LifeView: View {
                         case .goals: GoalsSection()   // v4.0.7：长期目标
                         case .record: RecordSection()
                         case .automations: AutomationsSection(isActive: isActive)
-                        case .lifeCards: LifeCardsSection(data: life,
-                                                          loading: lifeLoading,
-                                                          error: lifeError,
-                                                          zoomNS: zoomNS,   // v3.9.0：非闭包实参必须在闭包实参之前（实参序红线）
-                                                          onDeleteStock: { st in Task { await deleteStock(st) } },
-                                                          onAddStock: { showLifeSettings = true },
-                                                          // v4.0.69：queued: true = 在途也不丢点击（排队补发），
-                                                          // 见 LifeView.loadLife 注释（用户报「刷新胶囊点击无法强制刷新」）
-                                                          onRefresh: { Task { await loadLife(fresh: true, queued: true) } },
-                                                          articleStates: articles,
-                                                          onOpenArticle: { e in openArticle(e) },
-                                                          expandedArticleID: expandedEntryID,
-                                                          onBigBang: { text, sourceID in
-                                                              bigBangPayload = BigBangPayload(text: text, sourceID: sourceID)
-                                                          })
+                        // v4.0.80：数据/展开/大爆炸/设置页接线全部收在 LifeCardsBlock 内
+                        // （工作模式下这个分支不会出现 —— 该板块已移出到看板，见文件头）
+                        case .lifeCards: LifeCardsBlock(store: lifeCards, isActive: isActive)
                         }
                     }
                     // v3.9.85：底部「自定义板块」入口（与看板 cardEditorEntry 同款低调样式，用户 2026-09-26 拍板）
@@ -92,7 +101,12 @@ struct LifeView: View {
             }
             // v4.0.69（审查）：下拉的语义本来就是「用户显式要最新」，走 queued 通道 ——
             // 原来 `await loadLife()` 是 queued=false，撞上 30s 轮询在途时直接 return，spin 一下什么也没发生。
-            .refreshable { await loadLife(fresh: true, queued: true) }
+            // v4.0.80：数据加载随视图下沉到 LifeCardsBlock（store 由本页持有，所以这里还能 await 到真正结束）；
+            // 该板块不在本口径目录里时（工作模式）不白跑一次请求。
+            .refreshable {
+                guard visibleSections.contains(.lifeCards) else { return }
+                await lifeCards.load(auth: auth, fresh: true, queued: true)
+            }
             // v4.0.61（试点页）：页头从 VStack 第一行改成挂在滚动视图上的系统 **safeAreaBar**（iOS 26 新 API：
             // 「把自定义栏交给系统按栏处理」）—— 滚动时内容在页头下沿走系统级模糊/渐隐，
             // 而不是「自绘头 + 内容在下面硬切」。系统会替它处理安全区与边缘效果。
@@ -118,48 +132,21 @@ struct LifeView: View {
         .overlay { AnyView(HabitGlassLayerHost()) }
         .overlay { AnyView(GoalsGlassLayerHost()) }
         .overlay { AnyView(RecordGlassLayerHost()) }
-        // v3.5.x：生活卡片设置页（股票 / 资讯 / 快递）
-        .background(lifeCold1())
-        .background(lifeCold2())
+        .background(lifeCold())
         // v4.0.67 P3 收尾：页底接主题环境渐变（三团弥散光晕，浅深各一套）——与聊天/会话/设置页同底
         .background(EnvironmentGlowLayers(scheme: colorSchemeEnv))
     }
 
     /// 深度治理：行为型深层修饰器下沉背景层（.background 不影响布局，语义等价）
-    private func lifeCold1() -> some View {
+    /// v4.0.80：生活卡片设置页 / 大爆炸全屏 / 数据轮询均已随视图下沉到 LifeCardsBlock，这里只剩板块编辑器。
+    private func lifeCold() -> some View {
         Color.clear
-        .sheet(isPresented: $showLifeSettings) {
-            LifeCardsSettingsView()
-                .presentationDetents([.medium, .large])
-        }
-        // v3.9.85：板块自定义（排序 + 隐藏）
+        // v3.9.85：板块自定义（排序 + 隐藏）——工作模式下目录被收窄（条目 8）：编辑器只列本口径
+        // 目录内的板块；目录外（移出的那两个）的老配置由 WorkbenchLayout.mergeLifeSectionPersist 保住
         .sheet(isPresented: $showSectionEditor) {
-            LifeSectionEditorSheet(visible: visibleSections, hidden: Array(hiddenSections))
-        }
-        // v3.7.0：资讯正文长按「大爆炸」→ 全屏炸开选词
-    }
-
-    /// 深度治理：行为型深层修饰器下沉背景层（.background 不影响布局，语义等价）
-    private func lifeCold2() -> some View {
-        Color.clear
-        .fullScreenCover(item: $bigBangPayload) { payload in
-            // v3.9.0：zoom 转场——从被长按的资讯行"生长"出来
-            if payload.sourceID.isEmpty {
-                BigBangView(text: payload.text)
-            } else {
-                BigBangView(text: payload.text)
-                    .navigationTransition(.zoom(sourceID: payload.sourceID, in: zoomNS))
-            }
-        }
-        // v3.4.26 同款生命周期：选中即首刷 + 30s 轮询；离开 = task 取消即停
-        .task(id: isActive) {
-            guard isActive else { return }
-            await loadLife()
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(30))
-                if Task.isCancelled { return }   // 切走（task 取消）后不再多发一次请求
-                await loadLife()
-            }
+            LifeSectionEditorSheet(visible: visibleSections,
+                                   hidden: hiddenEditableSections,
+                                   catalog: catalogRaws)
         }
     }
 
@@ -169,8 +156,11 @@ struct LifeView: View {
             Image(systemName: "square.and.pencil")
                 .font(.system(size: Typography.caption))
                 .foregroundStyle(.tertiary)
-            Text(hiddenSections.isEmpty ? "自定义板块（排序 / 隐藏）"
-                                    : "自定义板块 · 已隐藏 \(hiddenSections.count) 个板块")
+            // v4.0.80：计数只算本口径目录内的隐藏项（工作模式里那两个移出板块不进目录，
+            // 否则会出现「已隐藏 2 个板块」但列表里找不到的怪状态）
+            Text(hiddenEditableSections.isEmpty
+                 ? "自定义板块（排序 / 隐藏）"
+                 : "自定义板块 · 已隐藏 " + String(hiddenEditableSections.count) + " 个板块")
                 .font(.system(size: Typography.subhead))
                 .foregroundStyle(.tertiary)
             Spacer()
@@ -180,115 +170,5 @@ struct LifeView: View {
         .pastelCard()
         .contentShape(Rectangle())
         .tapButton { showSectionEditor = true }
-    }
-
-    // MARK: - 数据（自 DashboardView 原样迁入）
-
-    /// 生活数据（/api/life/cards）
-    /// 独立异步路径：失败/超时只降级为卡片内小字，不阻塞页面其它内容；
-    /// 8 秒 UI 兜底（后端已把上游收口在 ~7s 内）避免转圈卡住。
-    /// - Parameter fresh: true = 带 ?fresh=1 强制绕过后端缓存（股票 60s / RSS 900s TTL）
-    /// - Parameter queued: true = 「用户显式点刷新」通道。v4.0.69（用户报「博客资讯的刷新胶囊点击无法强制刷新」）：
-    ///   闸门期间原来是 `guard ... else { return }` —— **静默丢弃**。30s 轮询 + 最长 8s 请求意味着点刷新
-    ///   有相当概率撞上在途窗口，用户看到的就是「点了没反应」。现在在途时**不丢点击**：等在途结束后
-    ///   自动补发这一次 fresh 请求（最多等 10s，`freshQueued` 防重复排队）。
-    private func loadLife(fresh: Bool = false, queued: Bool = false) async {
-        // v4.0.69（审查）：本次调用是不是「排队后补发的那一发」—— 决定结束时要不要放开 freshQueued
-        var queuedFresh = false
-        if lifeLoading {
-            guard queued else { return }
-            if freshQueued { return }        // 已经欠着一发补发 → 合并，不叠加
-            freshQueued = true
-            var waited: Double = 0
-            while lifeLoading && waited < 10 {
-                try? await Task.sleep(for: .seconds(0.2))
-                waited += 0.2
-            }
-            if lifeLoading { freshQueued = false; lifeError = "正在刷新，请稍后再试"; return }
-            queuedFresh = true
-        }
-        // 复位必须落在**函数级**作用域：原先写在 if 块里，而 defer 在所属花括号退出时就执行了，
-        // 等于只覆盖「等待在途结束」这一段 —— 补发的那次请求在途时再点刷新又会排一个（点几次发几次）。
-        // 只在本次是补发者时复位，免得别人的排队被这次提前返回顺手清掉。
-        defer { if queuedFresh { freshQueued = false } }
-        lifeLoading = true
-        let guardTask = Task {
-            try? await Task.sleep(for: .seconds(8))
-            // v3.9.41（SR39）：兜底只做「显示超时」，**不能**顺手把 lifeLoading 置回 false——
-            // 那等于在请求还在飞的时候自己解掉了在途闸门：下一轮 30s 轮询立刻与之并发，
-            // 两份响应先后覆盖 life / lifeError（晚回来的旧那份反而赢）。闸门只由下面的 defer 释放。
-            if !Task.isCancelled {
-                lifeError = "获取超时"
-            }
-        }
-        defer {
-            guardTask.cancel()
-            lifeLoading = false
-        }
-        if let j = await auth.jsonOrLog(fresh ? "/api/life/cards?fresh=1" : "/api/life/cards") {
-            life = LifeCardsData.parse(j)
-            lifeError = life.error
-        } else {
-            lifeError = "获取失败（后端未接线或网络不可用）"
-        }
-    }
-
-    // MARK: - v3.6.2 资讯：点击展开正文（后端 AI 抓取整理）
-
-    /// 点击某条资讯：展开（首次触发拉取）/ 收起；失败态再点一次 = 重试
-    private func openArticle(_ e: LifeRssEntry) {
-        if expandedEntryID == e.id {
-            if case .some(.failed) = articles[e.id] {
-                articles[e.id] = .loading
-                Task { await loadArticle(e) }
-            } else {
-                expandedEntryID = nil
-            }
-            return
-        }
-        expandedEntryID = e.id
-        if case .some(.loading) = articles[e.id] { return }
-        if case .some(.loaded) = articles[e.id] { return }
-        articles[e.id] = .loading
-        Task { await loadArticle(e) }
-    }
-
-    /// 拉正文：POST /api/life/article（后端抓 HTML + 模型整理，按 URL 缓存 6h）
-    private func loadArticle(_ e: LifeRssEntry) async {
-        guard !e.link.isEmpty else {
-            articles[e.id] = .failed("这条资讯没有链接")
-            return
-        }
-        // 超时放宽到 45s：后端要抓网页 + 模型整理（实测冷缓存 ~7s，蜂窝直连默认 10s 会误报失败）
-        let j = await auth.jsonOrLog("/api/life/article", method: "POST",
-                                     body: ["url": e.link, "title": e.title], timeout: 45)
-        guard let j, (j["ok"] as? Bool) == true else {
-            let msg = (j?["error"] as? String) ?? "拉取失败（网络或后端不可用）"
-            articles[e.id] = .failed(msg)
-            return
-        }
-        articles[e.id] = .loaded(LifeArticle.parse(j))
-    }
-
-    /// 长按「删除这张卡片」——配置里去掉该股票后立即重拉 /api/life/cards
-    private func deleteStock(_ s: LifeStock) async {
-        guard let cfgJ = await auth.jsonOrLog("/api/life/config"),
-              let cfgDict = cfgJ["config"] as? [String: Any] else {
-            lifeError = "读取生活卡片配置失败"
-            return
-        }
-        var cfg = LifeConfig.parse(cfgDict)
-        let market = s.id.split(separator: ".").first.map { String($0) } ?? ""
-        cfg.stocks.removeAll { $0.code == s.code && (market.isEmpty || $0.market == market) }
-        guard let j = await auth.jsonOrLog("/api/life/config", method: "POST", body: ["config": cfg.json]) else {
-            lifeError = "删除失败：网络或后端不可用"
-            return
-        }
-        if (j["ok"] as? Bool) == false {
-            lifeError = (j["error"] as? String) ?? "删除失败"
-            return
-        }
-        lifeError = ""
-        await loadLife()
     }
 }

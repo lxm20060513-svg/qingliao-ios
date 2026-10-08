@@ -847,11 +847,19 @@ struct HomeCardEditorSheet: View {
     var onChange: () -> Void
     @Environment(\.dismiss) private var dismiss
 
+    /// 本口径的目录里有没有「空槽位」（工作模式没有 → 尾部说明不再提它，免得用户找不到）
+    private var showsEmptySlot: Bool {
+        WorkbenchLayout.homeCardCatalog(WorkbenchScope.launched).contains(.custom)
+    }
+
     var body: some View {
         NavigationStack {
             List {
                 Section {
-                    ForEach(HomeCardKind.catalogOrder, id: \.self) { k in
+                    // P2：列表按**本口径的目录**出（工作模式没有「空槽位」这条 —— 条目 12）。
+                    // 若继续用 HomeCardKind.catalogOrder，工作模式会列出一条永远不渲染的空槽位，
+                    // 用户打开它却看不见任何变化（真值表钉住：这里不许再出现 catalogOrder）。
+                    ForEach(WorkbenchLayout.homeCardCatalog(WorkbenchScope.launched), id: \.self) { k in
                         Toggle(isOn: Binding(
                             get: { !off.contains(k) },
                             set: { newVal in
@@ -865,7 +873,9 @@ struct HomeCardEditorSheet: View {
                 } header: {
                     Text("首页显示哪些卡片")
                 } footer: {
-                    Text("关掉的卡片不留空位；重新打开会回到原来的位置。在首页长按卡片可拖动排序。「空槽位」是添加快捷卡的入口，也可关掉，随时用这里重新打开。")
+                    Text(showsEmptySlot
+                         ? "关掉的卡片不留空位；重新打开会回到原来的位置。在首页长按卡片可拖动排序。「空槽位」是添加快捷卡的入口，也可关掉，随时用这里重新打开。"
+                         : "关掉的卡片不留空位；重新打开会回到原来的位置。在首页长按卡片可拖动排序。")
                 }
             }
             .navigationTitle("自定义首页卡片")

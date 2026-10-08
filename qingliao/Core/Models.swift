@@ -657,6 +657,21 @@ struct TokenUsage {
 
     let today: Window
     let month: Window
+    /// P3-16（v4.0.79）：近 7 个自然日的每日总量 —— 后端只读聚合口按北京时区切好日随同一个响应下发。
+    /// 老后端没有这个键 → 空数组（趋势条整条不出现，卡片与历史逐字一致，不算错）。
+    let daily: [Daily]
+
+    /// 一天的用量（`key` = "yyyy-MM-dd"）
+    struct Daily {
+        let key: String
+        let total: Int
+    }
+
+    init(today: Window, month: Window, daily: [Daily] = []) {
+        self.today = today
+        self.month = month
+        self.daily = daily
+    }
 
     /// token 数 → M 文本（3.5 亿 → "353.6M"）；一位小数足够，且 <0.1M 也不会显示成 0M
     static func mText(_ n: Int) -> String {
@@ -667,7 +682,22 @@ struct TokenUsage {
         guard (j["ok"] as? Bool) == true,
               let t = j["today"] as? [String: Any],
               let m = j["month"] as? [String: Any] else { return nil }
-        return TokenUsage(today: window(t), month: window(m))
+        return TokenUsage(today: window(t), month: window(m), daily: daily(j["daily"]))
+    }
+
+    /// 每日序列容错：只认 {key:"yyyy-MM-dd", total:数字} 的项，坏项跳过
+    /// （趋势条宁可少一天，也不许把坏值画成柱子）。
+    private static func daily(_ any: Any?) -> [Daily] {
+        guard let rows = any as? [[String: Any]] else { return [] }
+        return rows.compactMap { row in
+            guard let key = row["key"] as? String, key.count == 10 else { return nil }
+            let n: Int
+            if let v = row["total"] as? Int { n = v }
+            else if let v = row["total"] as? Double { n = Int(v) }
+            else if let v = row["total"] as? NSNumber { n = v.intValue }
+            else { return nil }
+            return Daily(key: key, total: max(0, n))
+        }
     }
 
     /// 数值字段容错：后端 SQLite 的 SUM 可能回 int，也可能回 float/NSNumber

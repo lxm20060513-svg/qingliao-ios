@@ -792,7 +792,7 @@ echo "=== 49. 首页「方块卡片」真值表（v4.0.10 · 111 项）==="
 rm -rf /tmp/ql_homecards_main && mkdir -p /tmp/ql_homecards_main
 cp scripts/ql_chat_home/truth_table_homecards.swift /tmp/ql_homecards_main/main.swift
 run_unit /tmp/test_homecards -swift-version 6 /tmp/ql_homecards_main/main.swift \
-    qingliao/Core/HomeCardOrder.swift
+    qingliao/Core/HomeCardOrder.swift qingliao/Core/WorkbenchScope.swift
 
 echo "=== 50. 智慧球菜单胶囊几何真值表（v4.0.x）==="
 # 事故：v3.9.96 把最上排改成 3 列时，center() 的列位算式写成
@@ -1326,6 +1326,81 @@ ln=$(grep -n 'EnvironmentGlowLayers(scheme: colorScheme)' "$DT" | head -1 | cut 
   || { echo "❌ 回退⑰：垫底渐变层不存在"; fail=1; }
 if [ -n "$ln" ]; then win=$(sed -n "${ln},$((ln+3))p" "$DT"); case "$win" in *allowsHitTesting\(false\)*) ;; \
   *) echo "❌ 回退⑱：垫底层(第 $ln 行起3行内)缺 allowsHitTesting(false)"; fail=1;; esac; fi
+
+echo "=== 90. 界面模式真值表（P0-1 工作台改造 v2 · 工作模式/生活模式 + 重启生效）==="
+# 表在仓内 scripts/ql_uimode/truth_table_uimode.swift（纯 Foundation，编译真源 Core/UIMode.swift）。
+# 钉死的口径：① 恰好两个模式 ② 键唯一真源 ql_ui_mode（别处不许再有裸字面量）
+# ③ 缺省必是生活模式（= 老用户界面不变的地基）④ 脏值/坏串一律回落，不许卡「未知模式」
+# ⑤ 键真被设置页那一行 + 弹窗 + 搜索路由挂上（编译不报但功能静默消失那一类）
+# ⑥ 不做热切换（不 import SwiftUI、不发通知、设置页不许自己按模式分流）⑦ 行尾如实标「重启后生效」。
+run_unit6 /tmp/test_uimode scripts/ql_uimode/truth_table_uimode.swift qingliao/Core/UIMode.swift | tee /tmp/tt_uimode.log
+grep -q '0 失败' /tmp/tt_uimode.log || fail=1
+
+echo "=== 91. 启动分流 / 命名消歧 / 生活模式基线真值表（P0-2·P0-3·P0-4 工作台改造 v2）==="
+# 表在仓内 scripts/ql_uimode_root/truth_table_uimode_root.swift（纯 Foundation，扫全仓源码）。
+# 钉死的口径：① 全 App 唯一分流点 UIModeRoot（扫全仓：launchedWith 仅 1 处、无按当前值散判）
+# ② 生活模式零变更（life 分支裸 DockTabView()、DockTabView.swift 全篇不出现 UIMode）
+# ③ 生活模式基线不被工作模式改造打乱（首页 17 卡顺序 / 生活页 7 板块 / dock 5 槽·智慧球第 3 槽）
+# ④ 命名消歧：「当前模式」→「AI 运行模式」，与 P0-1 的「界面模式」不再撞名。
+run_unit6 /tmp/test_uimode_root scripts/ql_uimode_root/truth_table_uimode_root.swift qingliao/Core/UIMode.swift | tee /tmp/tt_uimode_root.log
+grep -q '0 失败' /tmp/tt_uimode_root.log || fail=1
+
+echo "=== 92. 首屏结论条真值表（P1 工作台改造 v2 · 三槽 / 空态 / 断网 / 「昨夜」窗口）==="
+# 表在仓内 scripts/ql_verdict/truth_table_verdict.swift（纯 Foundation，编生产逻辑 qingliao/Core/WorkbenchVerdict.swift）。
+# 钉死的口径：① 三槽顺序固定（待你处理 · 目标今日步 · 昨夜任务）② **永不显示 0、也不显示 `--`**
+# ③ 「昨夜」= 昨天 20:00 → 今天 09:00，且现在没到 09:00 时右端收到「现在」（不许统计到未来）
+# ④ 断网只降级「昨夜任务」一槽（本地两项照常报数，不许整条消失）
+# ⑤ 脏数据一律不猜：ok/total 缺失 → 读不到，坏条目跳过，负数钳 0
+# ⑥ 文案唯一真源（界面不许再抄槽位名）、读口全 App 只一处、只挂工作模式壳（生活模式不知道它存在）。
+# ⚠️ 多文件编译时只有 main.swift 允许顶层代码 → 先把表复制成 main.swift（同第 4 段的做法）。
+rm -rf /tmp/ql_verdict_main && mkdir -p /tmp/ql_verdict_main
+cp scripts/ql_verdict/truth_table_verdict.swift /tmp/ql_verdict_main/main.swift
+run_unit6 /tmp/test_verdict /tmp/ql_verdict_main/main.swift qingliao/Core/WorkbenchVerdict.swift | tee /tmp/tt_verdict.log
+grep -q '0 失败' /tmp/tt_verdict.log || fail=1
+
+echo "=== 93. P2 入口收敛真值表（工作模式各页目录口径 · 首页卡收敛）==="
+# 表在仓内 scripts/ql_workbench/truth_table_workbench.swift（纯 Foundation，编生产逻辑
+# qingliao/Core/WorkbenchScope.swift + qingliao/Core/HomeCardOrder.swift）。
+# 钉死的口径：① 工作模式首屏 = 快捷四张（继续上次会话 / 今日待办 / 天气 / 记一笔）
+# ② 其余 12 张是**默认收起**不是删除（收起 ∪ 快捷 = 全部可拖拽 16 张，都在卡片库里）
+# ③ 工作模式目录不含空槽位（条目 12），且「缺失 kind 自动补尾」不许把它补回首屏
+# ④ 老用户存过 off/order 一律听用户的（条目 11 配置不丢）⑤ 生活模式零变更（默认 .life、
+# 目录/默认档/渲染列表逐字等于历史；DockTabView.swift 全篇不知道模式存在）
+# ⑥ 口径声明写入点全 App 只有 WorkbenchRoot.init 一处、读取集中在三处（不许散落）。
+# ⚠️ 多文件编译时只有 main.swift 允许顶层代码 → 先复制成 main.swift（同第 4/92 段的做法）。
+rm -rf /tmp/ql_workbench_main && mkdir -p /tmp/ql_workbench_main
+cp scripts/ql_workbench/truth_table_workbench.swift /tmp/ql_workbench_main/main.swift
+run_unit6 /tmp/test_workbench /tmp/ql_workbench_main/main.swift \
+    qingliao/Core/WorkbenchScope.swift qingliao/Core/HomeCardOrder.swift | tee /tmp/tt_workbench.log
+grep -q '0 失败' /tmp/tt_workbench.log || fail=1
+
+echo "=== 94. P3 深度真值表（工作模式 · 停滞 / 断签 / 失败原因 / 用量趋势）==="
+# 表在仓内 scripts/ql_insight/truth_table_insight.swift（纯 Foundation，编生产逻辑
+# qingliao/Core/WorkbenchInsight.swift + WorkbenchScope.swift + HabitKit.swift）。
+# 钉死的口径：① 阈值与文案同源（阈值=3 天、断签下限=历史最好 2 天；界面不许自己再写一遍）
+# ② 不许谎报：停滞排除「cron 每天汇报」、断签不含今天（今天还没结束）、失败原因取不到就整行不出现
+# ③ 生活模式零变更（四项深度在工作模式才生效：结论条不多行、目标卡不多徽标、习惯卡不多段、用量卡不多趋势条）
+# ④ 接线不许漏：四处视图改动各自必须走 WorkbenchInsight（视图里不许自己算比例/天数/话术）。
+# ⚠️ 多文件编译时只有 main.swift 允许顶层代码 → 先复制成 main.swift（同第 4/92/93 段的做法）。
+rm -rf /tmp/ql_insight_main && mkdir -p /tmp/ql_insight_main
+cp scripts/ql_insight/truth_table_insight.swift /tmp/ql_insight_main/main.swift
+run_unit6 /tmp/test_insight /tmp/ql_insight_main/main.swift \
+    qingliao/Core/WorkbenchInsight.swift qingliao/Core/WorkbenchScope.swift \
+    qingliao/Core/HabitKit.swift qingliao/Core/HomeCardOrder.swift | tee /tmp/tt_insight.log
+grep -q '0 失败' /tmp/tt_insight.log || fail=1
+
+echo "=== 95. P4 冷启动真值表（工作模式 · 三页一句话 + 一个动作 / 空态口径统一）==="
+# 表在仓内 scripts/ql_onboard/truth_table_onboard.swift（纯 Foundation，编生产逻辑
+# qingliao/Core/WorkbenchOnboard.swift + WorkbenchScope.swift + HomeCardOrder.swift）。
+# 钉死的口径：① 三页各有且只有一张卡（少一页 = 那页仍是空白）② 文案说清「这页围着什么事转」，
+# 不许「暂无 / -- / 0」占位 ③ 动作落点 = 把示例指令投进输入框（跨页切到会话页），**绝不自动弹键盘**
+# ④ 生活模式零变更 ⑤ 文案只此一处（视图再抄一份必判红）。
+rm -rf /tmp/ql_onboard_main && mkdir -p /tmp/ql_onboard_main
+cp scripts/ql_onboard/truth_table_onboard.swift /tmp/ql_onboard_main/main.swift
+run_unit6 /tmp/test_onboard /tmp/ql_onboard_main/main.swift \
+    qingliao/Core/WorkbenchOnboard.swift qingliao/Core/WorkbenchScope.swift \
+    qingliao/Core/HomeCardOrder.swift | tee /tmp/tt_onboard.log
+grep -q '0 失败' /tmp/tt_onboard.log || fail=1
 
 [ $fail -eq 0 ] || { echo "❌ 有护栏失守"; exit 1; }
 exit 0

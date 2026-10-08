@@ -63,6 +63,11 @@ enum HabitKit {
         habit.days.contains(dayKey(date, calendar: calendar))
     }
 
+    /// 习惯已打卡的日键集合。
+    /// 为什么要这个透传口：视图层不许直接摸 `habit.days`（口径收在本文件 —— 预检 ql_habit 段
+    /// 有「HabitSection 不直接操作 habit.days」的源级断言），要原始日键就只能走这里。
+    static func dayKeys(_ habit: HabitItem) -> Set<String> { habit.days }
+
     // MARK: - 打卡 / 取消（幂等）
 
     /// 打卡：同一天重复打卡**只记一次**（已是该日成员则原样返回）。
