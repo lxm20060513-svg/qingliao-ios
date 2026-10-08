@@ -20,6 +20,7 @@ struct VerdictBar: View {
         VStack(spacing: Spacing.sm) {
             chipsRow
             hintRow
+            stallRow
         }
         .padding(.horizontal, Spacing.lg)
         .padding(.vertical, Spacing.sm)
@@ -98,6 +99,32 @@ struct VerdictBar: View {
                         .foregroundStyle(Color.accentColor)
                 }
             }
+        }
+    }
+
+    /// P3-13：目标停滞告警 —— 只在真有停滞目标时多出这一行（没有时整行不存在，首屏与 P1 逐字一致）。
+    /// 文案/阈值都在 `WorkbenchInsight`，生活模式它回 nil；点一下去生活页处理。
+    @ViewBuilder private var stallRow: some View {
+        if let text = WorkbenchInsight.stallHint(store.stalledGoalCount) {
+            Button {
+                QingliaoRouteHandoff.request(.life)
+            } label: {
+                HStack(spacing: Spacing.sm) {
+                    Image(systemName: "clock.badge.exclamationmark")
+                        .font(.caption)
+                        .foregroundStyle(Color.orange)
+                    Text(text)
+                        .font(.footnote)
+                        .foregroundStyle(Color.orange)
+                        .lineLimit(1)
+                    Spacer(minLength: Spacing.sm)
+                    Text("去看看")
+                        .font(.footnote.weight(.medium))
+                        .foregroundStyle(Color.accentColor)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
         }
     }
 
@@ -182,6 +209,14 @@ struct VerdictNightSheet: View {
                                 Text(VerdictBarFormat.time(t.at))
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
+                                // P3-15：失败原因下钻 —— 后端把留档 `## Error` 段洗成一行随明细下发；
+                                // 老后端/留档里没有 Error 段 → nil，这行整体不存在（不写「未知错误」充数）。
+                                if let why = WorkbenchInsight.failureReason(t.reason) {
+                                    Text(why)
+                                        .font(.caption)
+                                        .foregroundStyle(Color.orange)
+                                        .lineLimit(2)
+                                }
                             }
                         }
                     }

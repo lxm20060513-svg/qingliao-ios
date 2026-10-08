@@ -11,9 +11,17 @@ struct TokenUsageCard: View {
     @State private var showResetConfirm = false
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            column(title: "今日", icon: "calendar", window: usage.today, color: .blue)
-            column(title: "本月", icon: "calendar.badge.clock", window: usage.month, color: .indigo)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 10) {
+                column(title: "今日", icon: "calendar", window: usage.today, color: .blue)
+                column(title: "本月", icon: "calendar.badge.clock", window: usage.month, color: .indigo)
+            }
+            // P3-16（v4.0.79）：趋势条 —— 复用同一份用量数据（后端按日聚合 state.db），不加任何录入。
+            // 工作模式专属：WorkbenchInsight 在生活模式回 nil → 这条整体不存在（卡片与历史一致）。
+            if let trend = WorkbenchInsight.usageTrend(
+                usage.daily.map { WorkbenchInsight.UsageDay(key: $0.key, total: $0.total) }) {
+                trendStrip(trend)
+            }
         }
         .onLongPressGesture(minimumDuration: 0.5) {
             guard onReset != nil else { return }
@@ -24,6 +32,48 @@ struct TokenUsageCard: View {
             Button("重置统计", role: .destructive) { onReset?() }
             Button("取消", role: .cancel) {}
         }
+    }
+
+    /// 近 7 天柱条：比例/标签/峰值话术全部来自 `WorkbenchInsight`（这里只画）
+    @ViewBuilder
+    private func trendStrip(_ trend: WorkbenchInsight.UsageTrend) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 5) {
+                Image(systemName: "chart.bar.fill")
+                    .font(.system(size: Typography.tiny, weight: .medium))
+                    .foregroundStyle(.teal)
+                Text("近 \(trend.bars.count) 天")
+                    .font(.system(size: Typography.tiny, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 6)
+                Text(trend.note)
+                    .font(.system(size: Typography.tiny))
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+            }
+            HStack(alignment: .bottom, spacing: 6) {
+                ForEach(Array(trend.bars.enumerated()), id: \.offset) { _, bar in
+                    VStack(spacing: 3) {
+                        ZStack(alignment: .bottom) {
+                            Capsule().fill(Color(uiColor: .systemGray6))
+                            Capsule()
+                                .fill(bar.isToday ? Color.teal : Color.teal.opacity(0.45))
+                                .frame(height: max(2, 34 * bar.ratio))
+                        }
+                        .frame(height: 34)
+                        Text(bar.label)
+                            .font(.system(size: Typography.tiny))
+                            .foregroundStyle(bar.isToday ? Color.teal : Color.secondary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+            }
+        }
+        .padding(Spacing.xl)
+        .dashboardCard()
     }
 
     @ViewBuilder

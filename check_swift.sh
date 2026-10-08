@@ -1374,5 +1374,20 @@ run_unit6 /tmp/test_workbench /tmp/ql_workbench_main/main.swift \
     qingliao/Core/WorkbenchScope.swift qingliao/Core/HomeCardOrder.swift | tee /tmp/tt_workbench.log
 grep -q '0 失败' /tmp/tt_workbench.log || fail=1
 
+echo "=== 94. P3 深度真值表（工作模式 · 停滞 / 断签 / 失败原因 / 用量趋势）==="
+# 表在仓内 scripts/ql_insight/truth_table_insight.swift（纯 Foundation，编生产逻辑
+# qingliao/Core/WorkbenchInsight.swift + WorkbenchScope.swift + HabitKit.swift）。
+# 钉死的口径：① 阈值与文案同源（阈值=3 天、断签下限=历史最好 2 天；界面不许自己再写一遍）
+# ② 不许谎报：停滞排除「cron 每天汇报」、断签不含今天（今天还没结束）、失败原因取不到就整行不出现
+# ③ 生活模式零变更（四项深度在工作模式才生效：结论条不多行、目标卡不多徽标、习惯卡不多段、用量卡不多趋势条）
+# ④ 接线不许漏：四处视图改动各自必须走 WorkbenchInsight（视图里不许自己算比例/天数/话术）。
+# ⚠️ 多文件编译时只有 main.swift 允许顶层代码 → 先复制成 main.swift（同第 4/92/93 段的做法）。
+rm -rf /tmp/ql_insight_main && mkdir -p /tmp/ql_insight_main
+cp scripts/ql_insight/truth_table_insight.swift /tmp/ql_insight_main/main.swift
+run_unit6 /tmp/test_insight /tmp/ql_insight_main/main.swift \
+    qingliao/Core/WorkbenchInsight.swift qingliao/Core/WorkbenchScope.swift \
+    qingliao/Core/HabitKit.swift qingliao/Core/HomeCardOrder.swift | tee /tmp/tt_insight.log
+grep -q '0 失败' /tmp/tt_insight.log || fail=1
+
 [ $fail -eq 0 ] || { echo "❌ 有护栏失守"; exit 1; }
 exit 0

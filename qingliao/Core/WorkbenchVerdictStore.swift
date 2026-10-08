@@ -23,6 +23,10 @@ final class WorkbenchVerdictStore {
     /// 下钻用：昨夜任务明细
     private(set) var nightItems: [WorkbenchVerdict.NightTask] = []
 
+    /// P3-13：停滞（> `WorkbenchInsight.stallThresholdDays` 天没真推进）的目标个数。
+    /// 口径/阈值都在 `WorkbenchInsight`，这里只回答「有几个」 —— 结论条靠它决定多不多那一行。
+    private(set) var stalledGoalCount: Int = 0
+
     struct TodayStep: Identifiable, Equatable {
         var id: String
         var goal: String
@@ -47,6 +51,8 @@ final class WorkbenchVerdictStore {
         // 本地两项：同步取（都在内存里，无 IO）
         pendingItems = TaskCenterStore.shared.tasks.filter { !$0.completed }
         todaySteps = Self.todaySteps(now: now, calendar: cal)
+        // P3-13：停滞目标个数 —— 本地算，断网也在（结论条那行不该因为网络失败就消失）
+        stalledGoalCount = Self.stalledGoalCount(now: now, calendar: cal)
         let local = WorkbenchVerdict.Counts(pending: pendingItems.count,
                                            todaySteps: todaySteps.count)
 
@@ -54,7 +60,6 @@ final class WorkbenchVerdictStore {
             let json = try await auth.json("/api/agent/tasks/night", method: "GET")
             guard let parsed = WorkbenchVerdict.parseNight(json) else { throw VerdictError.badPayload }
             nightItems = parsed.items
-            everLoaded = true
             state = .ready(WorkbenchVerdict.Counts(pending: local.pending,
                                                   todaySteps: local.todaySteps,
                                                   nightTotal: parsed.total,
@@ -78,5 +83,13 @@ final class WorkbenchVerdictStore {
             }
         }
         .sorted { $0.at > $1.at }
+    }
+
+    /// 纯逻辑（P3-13）：有多少个目标处在「停滞」状态。
+    /// 判定与阈值全在 `WorkbenchInsight`（别处不许再算一遍），这里只做「目标集合 → 个数」。
+    static func stalledGoalCount(now: Date, calendar: Calendar) -> Int {
+        GoalStore.shared.goals.filter { goal in
+            WorkbenchInsight.stallDays(goal.insightProgress, now: now, calendar: calendar) != nil
+        }.count
     }
 }

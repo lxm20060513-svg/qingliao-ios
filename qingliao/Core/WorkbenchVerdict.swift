@@ -207,11 +207,14 @@ enum WorkbenchVerdict {
     // MARK: - 后端只读聚合口的解析
 
     /// 昨夜的一条任务
+    /// `reason` = P3-15 失败原因下钻：后端只读聚合口把留档 `## Error` 段洗成一行下发；
+    /// 老后端没有这个键 → nil（列表照旧只显示「失败」，绝不假装有原因）。
     struct NightTask: Equatable, Identifiable {
         var id: String
         var title: String
         var failed: Bool
         var at: Date
+        var reason: String? = nil
     }
 
     /// 解析 `GET /api/agent/tasks/night` 的返回体。
@@ -228,8 +231,10 @@ enum WorkbenchVerdict {
                   let ts = doubleValue(raw["at"]) else { continue }
             let id = (raw["id"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "\(ts)-\(items.count)"
             let status = (raw["status"] as? String) ?? ""
+            // P3-15：失败原因可选下发（非字符串 / 空串一律当「没有原因」）
+            let reason = (raw["reason"] as? String).flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
             items.append(NightTask(id: id, title: title, failed: status == "error" || status == "failed",
-                                   at: Date(timeIntervalSince1970: ts)))
+                                   at: Date(timeIntervalSince1970: ts), reason: reason))
         }
         items.sort { $0.at > $1.at }
         return (max(0, total), max(0, failed), items)
