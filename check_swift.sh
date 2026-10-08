@@ -1345,5 +1345,18 @@ echo "=== 91. 启动分流 / 命名消歧 / 生活模式基线真值表（P0-2·
 run_unit6 /tmp/test_uimode_root scripts/ql_uimode_root/truth_table_uimode_root.swift qingliao/Core/UIMode.swift | tee /tmp/tt_uimode_root.log
 grep -q '0 失败' /tmp/tt_uimode_root.log || fail=1
 
+echo "=== 92. 首屏结论条真值表（P1 工作台改造 v2 · 三槽 / 空态 / 断网 / 「昨夜」窗口）==="
+# 表在仓内 scripts/ql_verdict/truth_table_verdict.swift（纯 Foundation，编生产逻辑 qingliao/Core/WorkbenchVerdict.swift）。
+# 钉死的口径：① 三槽顺序固定（待你处理 · 目标今日步 · 昨夜任务）② **永不显示 0、也不显示 `--`**
+# ③ 「昨夜」= 昨天 20:00 → 今天 09:00，且现在没到 09:00 时右端收到「现在」（不许统计到未来）
+# ④ 断网只降级「昨夜任务」一槽（本地两项照常报数，不许整条消失）
+# ⑤ 脏数据一律不猜：ok/total 缺失 → 读不到，坏条目跳过，负数钳 0
+# ⑥ 文案唯一真源（界面不许再抄槽位名）、读口全 App 只一处、只挂工作模式壳（生活模式不知道它存在）。
+# ⚠️ 多文件编译时只有 main.swift 允许顶层代码 → 先把表复制成 main.swift（同第 4 段的做法）。
+rm -rf /tmp/ql_verdict_main && mkdir -p /tmp/ql_verdict_main
+cp scripts/ql_verdict/truth_table_verdict.swift /tmp/ql_verdict_main/main.swift
+run_unit6 /tmp/test_verdict /tmp/ql_verdict_main/main.swift qingliao/Core/WorkbenchVerdict.swift | tee /tmp/tt_verdict.log
+grep -q '0 失败' /tmp/tt_verdict.log || fail=1
+
 [ $fail -eq 0 ] || { echo "❌ 有护栏失守"; exit 1; }
 exit 0

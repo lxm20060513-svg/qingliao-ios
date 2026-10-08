@@ -43,5 +43,10 @@ struct UIModeRoot: View {
 struct WorkbenchRoot: View {
     var body: some View {
         DockTabView()
+            // P1 首屏结论条：挂在工作模式壳的顶部（`safeAreaInset` 把页面内容整体下移，不盖住任何页头）。
+            // 只在**这里**出现 —— 生活模式那条路径不经过 WorkbenchRoot，所以生活模式一行都没变。
+            .safeAreaInset(edge: .top, spacing: 0) {
+                VerdictBar()
+            }
     }
 }
