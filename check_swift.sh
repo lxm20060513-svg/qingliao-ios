@@ -1327,5 +1327,14 @@ ln=$(grep -n 'EnvironmentGlowLayers(scheme: colorScheme)' "$DT" | head -1 | cut 
 if [ -n "$ln" ]; then win=$(sed -n "${ln},$((ln+3))p" "$DT"); case "$win" in *allowsHitTesting\(false\)*) ;; \
   *) echo "❌ 回退⑱：垫底层(第 $ln 行起3行内)缺 allowsHitTesting(false)"; fail=1;; esac; fi
 
+echo "=== 90. 界面模式真值表（P0-1 工作台改造 v2 · 工作模式/生活模式 + 重启生效）==="
+# 表在仓内 scripts/ql_uimode/truth_table_uimode.swift（纯 Foundation，编译真源 Core/UIMode.swift）。
+# 钉死的口径：① 恰好两个模式 ② 键唯一真源 ql_ui_mode（别处不许再有裸字面量）
+# ③ 缺省必是生活模式（= 老用户界面不变的地基）④ 脏值/坏串一律回落，不许卡「未知模式」
+# ⑤ 键真被设置页那一行 + 弹窗 + 搜索路由挂上（编译不报但功能静默消失那一类）
+# ⑥ 不做热切换（不 import SwiftUI、不发通知、不在 P0-1 做启动分流）⑦ 行尾如实标「重启后生效」。
+run_unit6 /tmp/test_uimode scripts/ql_uimode/truth_table_uimode.swift qingliao/Core/UIMode.swift | tee /tmp/tt_uimode.log
+grep -q '0 失败' /tmp/tt_uimode.log || fail=1
+
 [ $fail -eq 0 ] || { echo "❌ 有护栏失守"; exit 1; }
 exit 0
