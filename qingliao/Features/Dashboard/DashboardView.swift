@@ -80,6 +80,8 @@ struct DashboardView: View {
     /// v3.9.41（SR39）：refresh() 的在途闸门（见该方法内注释）
     @State private var refreshing = false
     @State private var scrollPos = ScrollPosition()
+    /// P2 条目 9：工作模式看板就地挂载的「生活数据」block 的数据源（生活模式全程不用它）
+    @State private var hostedLifeCards = LifeCardsStore()
 
     @State private var activeSheet: DashboardSheet?
     // v3.9.25：天气弹窗是否真的开过 —— 关灯/空调/磁盘/docker 弹窗时不该顺带重取天气
@@ -134,6 +136,9 @@ struct DashboardView: View {
                             // v4.0.50：量高→位移→放大→阴影→层级 5 条链折成具名组（见本文件末 applyDashboardCardChrome）
                             .modifier(DashboardCardChrome(host: self, card: card))
                     }
+                    // P2 条目 9（工作模式「看板收进」）：从生活页移出的板块就地挂载在自定义入口之前。
+                    // 生活模式下这一段整个不渲染（口径函数返回空）→ 看板逐字等于历史行为。
+                    hostedLifeSectionBlock
                     cardEditorEntry
                 }
                 .padding(.horizontal, Spacing.xxl)
@@ -1298,6 +1303,17 @@ struct DashboardView: View {
     }
 
     /// v3.9.40（#15）：底部「自定义卡片」入口（与用量恢复行同款低调样式）
+    /// P2 条目 9（工作模式）：看板就地挂载从生活页移出的板块。
+    /// 为什么不加进 BoardCard 卡片库：BoardCard 目录是**两个模式共用**的，加卡等于生活模式的看板
+    /// 也多一张（条目 9 后半「删掉与生活页重复的板块」正好相反）。所以这里是**原地挂载同一份实现**
+    /// （LifeCardsBlock，与生活页共用），既不进卡片库、也不参与拖动/显隐。
+    @ViewBuilder
+    private var hostedLifeSectionBlock: some View {
+        if WorkbenchLayout.dashboardHostsLifeSection(WorkbenchLayout.lifeCardsRaw, scope: WorkbenchScope.launched) {
+            LifeCardsBlock(store: hostedLifeCards, isActive: isActive)
+        }
+    }
+
     private var cardEditorEntry: some View {
         HStack(spacing: 6) {
             Image(systemName: "square.and.pencil")

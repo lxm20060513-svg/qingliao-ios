@@ -197,9 +197,11 @@ check("D3 resetForTesting 生产代码 0 处调用（它是给本表隔离用例
       swiftFiles().filter {
           $0 != "qingliao/Core/WorkbenchScope.swift" && code(read($0)).contains("resetForTesting()")
       }.isEmpty)
-check("D4 口径读取集中在两处（HomeCardOrder 读路径 / HomeCards 编辑器），别处 0 处", {
+check("D4 口径读取集中在四处（首页卡两条路径 + 生活页目录 + 看板挂载点），别处 0 处", {
     let allowed: Set<String> = ["qingliao/Core/HomeCardOrder.swift",
-                                "qingliao/Features/HomeCards.swift"]
+                                "qingliao/Features/HomeCards.swift",
+                                "qingliao/Features/Life/LifeView.swift",
+                                "qingliao/Features/Dashboard/DashboardView.swift"]
     let hits = Set(swiftFiles().filter { code(read($0)).contains("WorkbenchScope.launched") })
     return hits == allowed
 }())
@@ -221,6 +223,160 @@ check("D9 卡片默认档的键字面量仍只在 HomeCardOrder.swift（单一�
 check("D10 默认档按口径分流这件事只写在 WorkbenchLayout（HomeCardStore 不自己写默认档）",
       code(cardSrc).contains("WorkbenchLayout.homeCardDefaultOff(WorkbenchScope.launched)")
         && code(scopeSrc).contains("case .work: return workDefaultOff"))
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 第 2 批（P2 条目 8 + 9）新增：生活页移出 / 看板收进。两件事必须**同批**落地 ——
+// 只移出而不收进，工作模式下「定时任务 / 生活数据」两个入口就失联了（清单第 2 批的红线）。
+// ─────────────────────────────────────────────────────────────────────────────
+
+let lifeViewSrc = code(read("qingliao/Features/Life/LifeView.swift"))
+let boardSrc = code(read("qingliao/Features/Dashboard/DashboardView.swift"))
+
+check("D11 生活页目录走口径函数（移出前的内联 LifeSection.allCases 实现不许留）",
+      lifeViewSrc.contains("WorkbenchLayout.lifeSectionCatalogRaws(WorkbenchScope.launched")
+        && lifeViewSrc.contains("WorkbenchLayout.resolveLifeSectionOrder(order: sectionOrderRaw")
+        && !lifeViewSrc.contains("return saved + LifeSection.allCases"))
+check("D12 看板挂载点只问口径函数（看板里不许自己判模式）",
+      boardSrc.contains("WorkbenchLayout.dashboardHostsLifeSection(")
+        && !boardSrc.contains("WorkbenchScope.launched == .work")
+        && !boardSrc.contains("UIMode.current"))
+check("D13 看板收进没动 BoardCard 卡片库（加卡 = 生活模式的看板也多一张）",
+      !code(read("qingliao/Core/BoardCardOrder.swift")).contains("lifeCards")
+        && !code(read("qingliao/Core/BoardCardOrder.swift")).contains("生活数据"))
+check("D14 两个移出板块的渲染分支还在（切回生活模式不需要任何恢复动作）",
+      lifeViewSrc.contains("case .automations: AutomationsSection(isActive: isActive)")
+        && lifeViewSrc.contains("case .lifeCards: LifeCardsBlock(store: lifeCards, isActive: isActive)"))
+check("D15 板块编辑器按本口径目录出 + 写回走合并口径（不再无条件写全量）", {
+    let sheet = code(read("qingliao/Features/Life/LifeSection.swift"))
+    return sheet.contains("init(visible: [LifeSection], hidden: [LifeSection], catalog: [String])")
+        && sheet.contains("WorkbenchLayout.mergeLifeSectionPersist(")
+        && !sheet.contains("orderRaw = full.map")
+}())
+
+print("=== E. 生活页板块口径（P2 条目 8：定时任务 / 生活数据 移出生活页）===")
+// 板块 rawValue 的**真源 = LifeSection.swift 源码本身**（直接解析，不在这里抄一份 7 项清单 ——
+// 抄一份就是第二个真源，将来给生活页加板块会悄悄漏出目录）。解析不到 → allRaws 空 → 下面全红。
+let allRaws: [String] = {
+    let body = slice(code(read("qingliao/Features/Life/LifeSection.swift")),
+                     "enum LifeSection: String", "\n}")
+    return body.split(separator: "\n").compactMap { line in
+        let t = line.trimmingCharacters(in: .whitespaces)
+        guard t.hasPrefix("case "), !t.hasPrefix("case .") else { return nil }
+        let name = String(t.dropFirst("case ".count))
+        let cut = name.firstIndex { $0 == " " || $0 == "\t" || $0 == "/" } ?? name.endIndex
+        let v = String(name[..<cut])
+        return v.isEmpty ? nil : v
+    }
+}()
+let workCatalog = WorkbenchLayout.lifeSectionCatalogRaws(.work, allRaws: allRaws)
+let lifeCatalog = WorkbenchLayout.lifeSectionCatalogRaws(.life, allRaws: allRaws)
+
+check("E1 源码解析出 7 个板块（解析不到=空数组，与 E2 一起兜住假绿）",
+      allRaws == ["memo", "todo", "habit", "goals", "record", "automations", "lifeCards"])
+check("E2 移出常量与源码逐字对齐（枚举改名/加板块而口径没跟 = 红）",
+      WorkbenchLayout.automationsRaw == "automations" && WorkbenchLayout.lifeCardsRaw == "lifeCards"
+        && allRaws.contains(WorkbenchLayout.automationsRaw) && allRaws.contains(WorkbenchLayout.lifeCardsRaw)
+        && WorkbenchLayout.workMovedLifeSectionRaws == ["automations", "lifeCards"])
+check("E3 工作口径目录 = 全量 − 移出两个（5 项，顺序 = 目录序）",
+      workCatalog == ["memo", "todo", "habit", "goals", "record"]
+        && !workCatalog.contains(WorkbenchLayout.automationsRaw)
+        && !workCatalog.contains(WorkbenchLayout.lifeCardsRaw))
+check("E4 生活口径目录 = 全量原样（历史口径，一个都不少）",
+      lifeCatalog == allRaws && lifeCatalog.count == 7)
+check("E5 反例：两套目录必须不同（差集恰好 = 移出那两个），否则条目 8 等于没做",
+      Set(workCatalog) != Set(lifeCatalog)
+        && Set(lifeCatalog).subtracting(Set(workCatalog)) == Set(WorkbenchLayout.workMovedLifeSectionRaws))
+check("E6 工作口径顺序归一化：目录外的键被丢、缺的按目录序补尾", {
+    let got = WorkbenchLayout.resolveLifeSectionOrder(order: "lifeCards,goals,habit", catalog: workCatalog)
+    return got == ["goals", "habit"] + ["memo", "todo", "record"]
+}())
+check("E7 生活口径顺序归一化逐字 = 移出前旧实现（已存顺序在前 + 全量补尾 + 保序去重）", {
+    let raw = "habit,todo,unknown,habit"
+    let got = WorkbenchLayout.resolveLifeSectionOrder(order: raw, catalog: lifeCatalog)
+    var seen = Set<String>()
+    let saved = raw.split(separator: ",").map(String.init).filter { allRaws.contains($0) }
+        .filter { seen.insert($0).inserted }
+    return got == saved + allRaws.filter { !seen.contains($0) } && got.count == 7
+}())
+check("E8 两个移出板块在生活口径目录里必须还在（切回生活模式照样出现）",
+      lifeCatalog.contains("automations") && lifeCatalog.contains("lifeCards"))
+
+print("=== F. 看板收进（P2 条目 9：移出的板块在工作模式看板有落点）===")
+check("F1 生活模式的看板一个都不多收（生活模式零变更）",
+      WorkbenchLayout.dashboardHostedLifeSectionRaws(.life).isEmpty)
+check("F2 工作模式看板收进「生活数据」",
+      WorkbenchLayout.dashboardHostedLifeSectionRaws(.work) == ["lifeCards"])
+check("F3 移出集合 = 看板收进 ∪ 已在看板（定时任务由看板「自动化」卡承载），两集合不相交且都非空", {
+    let moved = Set(WorkbenchLayout.workMovedLifeSectionRaws)
+    let hosted = Set(WorkbenchLayout.dashboardHostedLifeSectionRaws(.work))
+    let already = Set(WorkbenchLayout.workMovedAlreadyOnDashboard)
+    return hosted.isDisjoint(with: already) && !hosted.isEmpty && !already.isEmpty
+        && hosted.union(already) == moved
+}())
+check("F4 挂载判定按口径走（life=false / work=true）",
+      !WorkbenchLayout.dashboardHostsLifeSection("lifeCards", scope: .life)
+        && WorkbenchLayout.dashboardHostsLifeSection("lifeCards", scope: .work))
+check("F5 定时任务只有一个口：看板「自动化」卡与生活页「定时任务」卡读同一端点",
+      boardSrc.contains("/api/automations/list")
+        && code(read("qingliao/Features/Life/AutomationsSection.swift")).contains("/api/automations/list"))
+check("F6 生活数据只有一个实现：LifeCardsSection 只在 LifeCardsBlock 里被实例化", {
+    Set(swiftFiles().filter { code(read($0)).contains("LifeCardsSection(") })
+        == ["qingliao/Features/Life/LifeCardsBlock.swift"]
+}())
+check("F7 同一个 LifeCardsBlock 被生活页与看板各挂一次（复用，不是第二套界面）", {
+    Set(swiftFiles().filter { code(read($0)).contains("LifeCardsBlock(") })
+        == ["qingliao/Features/Life/LifeView.swift", "qingliao/Features/Dashboard/DashboardView.swift"]
+}())
+
+print("=== G. 板块配置不丢（条目 11 同款口径：工作模式动过排序/显隐，切回生活模式老配置仍在）===")
+let prevOrderFull = ["memo", "todo", "habit", "goals", "record", "automations", "lifeCards"]
+let workShown = ["record", "memo", "todo", "habit"]
+
+check("G1 工作模式写回：目录外的老条目原样留在顺序串里", {
+    let m = WorkbenchLayout.mergeLifeSectionPersist(catalog: workCatalog, shown: workShown,
+                                                    hidden: [], prevOrder: prevOrderFull, prevHidden: [])
+    let order = WorkbenchLayout.parseRaws(m.order)
+    return order.contains("automations") && order.contains("lifeCards")
+        && Array(order.prefix(4)) == ["record", "memo", "todo", "habit"]
+}())
+check("G2 老用户隐藏过的移出板块不许被工作模式写回抹掉", {
+    let m = WorkbenchLayout.mergeLifeSectionPersist(catalog: workCatalog, shown: workShown,
+                                                    hidden: [], prevOrder: prevOrderFull,
+                                                    prevHidden: ["lifeCards"])
+    return WorkbenchLayout.parseRaws(m.hidden) == ["lifeCards"]
+}())
+check("G3 幂等：同一份状态连写两次串不变（编辑器每按一次都会写回）", {
+    let m1 = WorkbenchLayout.mergeLifeSectionPersist(catalog: workCatalog, shown: workShown,
+                                                     hidden: ["goals"], prevOrder: prevOrderFull,
+                                                     prevHidden: ["lifeCards"])
+    let m2 = WorkbenchLayout.mergeLifeSectionPersist(catalog: workCatalog, shown: workShown,
+                                                     hidden: ["goals"],
+                                                     prevOrder: WorkbenchLayout.parseRaws(m1.order),
+                                                     prevHidden: WorkbenchLayout.parseRaws(m1.hidden))
+    return m1.order == m2.order && m1.hidden == m2.hidden
+}())
+check("G4 目录内的排序 / 隐藏照常生效（写回串 = shown + hidden 在前）", {
+    let m = WorkbenchLayout.mergeLifeSectionPersist(catalog: workCatalog, shown: ["record", "memo"],
+                                                    hidden: ["todo"], prevOrder: [], prevHidden: [])
+    let order = WorkbenchLayout.parseRaws(m.order)
+    return Array(order.prefix(3)) == ["record", "memo", "todo"]
+        && WorkbenchLayout.parseRaws(m.hidden) == ["todo"]
+}())
+check("G5 切回生活模式：那两个板块仍在（老配置不丢的最终表现）", {
+    let m = WorkbenchLayout.mergeLifeSectionPersist(catalog: workCatalog, shown: workShown,
+                                                    hidden: [], prevOrder: prevOrderFull, prevHidden: [])
+    let lifeOrder = WorkbenchLayout.resolveLifeSectionOrder(order: m.order, catalog: lifeCatalog)
+    return lifeOrder.contains("automations") && lifeOrder.contains("lifeCards") && lifeOrder.count == 7
+}())
+check("G6 目录外条目的**相对顺序**也保住了（串里没被丢 = 不是靠 resolve 补尾救命）", {
+    // 老用户把两个移出板块排在中间：写回串的尾部必须按它们的原相对顺序留着，
+    // 而不是干脆消失（消失后靠 resolve 补尾也能"出现"，但那是假象 —— 顺序信息已经没了）
+    let prev = ["memo", "lifeCards", "todo", "automations", "habit", "goals", "record"]
+    let m = WorkbenchLayout.mergeLifeSectionPersist(catalog: workCatalog, shown: workShown,
+                                                    hidden: [], prevOrder: prev, prevHidden: [])
+    let tail = Array(WorkbenchLayout.parseRaws(m.order).suffix(2))
+    return tail == ["lifeCards", "automations"]
+}())
 
 print("\n——— 汇总 ———")
 print("共 \(total) 条断言 · \(failures) 失败")
