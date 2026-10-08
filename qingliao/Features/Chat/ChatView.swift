@@ -79,6 +79,9 @@ struct ChatView: View {
 
     @State var inputText = ""
     @FocusState var inputFocus: Bool
+    /// v4.0.80（P4 冷启动 · 条目 17）：三页冷启动引导的「一个动作」把示例指令投递到这里，
+    /// 由 chatColdChrome5 的 onChange 取走填进输入框（取走即清，不重灌；**不碰焦点**）。
+    @State var seedBox = ComposerSeedBox.shared
     @State var sentOK = false
     @State var serverOnline: Bool?   // 服务器连接状态（真实绿点）
     // v3.5.1：AI 正在输入 状态——服务器侧真相兜底（App 重开/离开聊天页后仍能显示）
@@ -1001,6 +1004,7 @@ struct ChatView: View {
         .background(chatColdChrome12())
         .background(chatColdChrome13())
         .background(chatColdChrome14())
+        .background(chatColdChrome15())
         // v4.0.66 A+C 定稿：环境渐变页底——白/黑底上三团弥散光晕（桃粉右上/天蓝左侧/薄荷底部），
         // 挂在整页最底层（垫在所有 coldChrome 之下，消息区/输入区都透出彩底）；
         // 纯视觉层：不改布局、不拦手势（GlowBlob 全部 allowsHitTesting(false)）。
@@ -1199,6 +1203,24 @@ struct ChatView: View {
         // 读一次 Center 源即可；源与镜像是同一份，不会覆盖刚手动发起的会话。
         .onAppear {
             if let s = BrowserLiveCenter.shared.activeSession { browserLiveSession = s }
+        }
+    }
+
+    /// v4.0.80（P4 冷启动 · 条目 17）：冷启动引导那一键的落点 —— 生活页/看板页点了
+    /// 「先建一个目标 / 先建一个场景」后会切到会话页并把示例指令投在这儿，本行取走填框。
+    /// 取走即清（take）→ 不会因为 body 重算重复灌；**不设 inputFocus**（键盘已开保持、未开不弹）。
+    /// 单独一组：chatColdChrome5 已有 4 条行为型修饰器（上限 4，ql_typestack ③‴ 钉着）。
+    private func chatColdChrome15() -> some View {
+        Color.clear
+        .onChange(of: seedBox.text) { _, _ in
+            guard let seed = seedBox.take() else { return }
+            inputText = seed
+        }
+        // 落树兜底：别的页点引导卡时若会话页还没进树，`.onChange` 不会为「已发生的变更」补发
+        // → 示例指令会滞留在投递位（观感＝点了没反应）。进树/回到本页时再取一次（取走即清，幂等）。
+        .onAppear {
+            guard let seed = seedBox.take() else { return }
+            inputText = seed
         }
     }
 
@@ -2492,6 +2514,13 @@ struct ChatView: View {
             Text(welcomeSubtitle)
                 .font(.system(size: Typography.subhead))
                 .foregroundStyle(.secondary)
+            // v4.0.80（P4 冷启动 · 条目 17/18）：工作模式第 1 天（本页没消息）给一句话 + 一个动作 ——
+            // 替掉「空卡与 --」那种占位。文案/闸门在 Core/WorkbenchOnboard.swift，生活模式返回 nil。
+            if let guide = WorkbenchOnboard.guide(for: .chat, empty: chat.messages.isEmpty) {
+                OnboardGuideCard(guide: guide)
+                    .padding(.top, 14)
+                    .padding(.horizontal, Spacing.xl)
+            }
         }
         .padding(.top, 18)
     }

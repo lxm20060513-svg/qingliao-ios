@@ -57,10 +57,26 @@ struct LifeView: View {
         return orderedSections.filter { h.contains($0) }
     }
 
+    /// 冷启动判定（P4 条目 17）：工作模式下这页「我的东西」一样都没有 → 出引导卡。
+    /// 口径：只读既有单例 store 的数组（**不新增请求、不改任何数据**）；生活模式由
+    /// `WorkbenchOnboard.guide` 里的闸门兜住（返回 nil，生活页一字不动）。
+    private var lifeIsEmpty: Bool {
+        MemoStore.shared.memos.isEmpty
+            && TodoStore.shared.todos.isEmpty
+            && HabitStore.shared.habits.isEmpty
+            && GoalStore.shared.goals.isEmpty
+            && RecordStore.shared.records.isEmpty
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 10) {
+                    // v4.0.80（P4 冷启动 · 条目 17/18）：工作模式 + 这页还什么都没有 → 一句话 + 一个动作
+                    // （替掉「空卡与 --」）。判定输入由本页给（lifeIsEmpty），文案/闸门在 Core/WorkbenchOnboard.swift。
+                    if let guide = WorkbenchOnboard.guide(for: .life, empty: lifeIsEmpty) {
+                        OnboardGuideCard(guide: guide)
+                    }
                     // v3.9.85：按用户自定义顺序渲染，隐藏的板块不出现
                     ForEach(visibleSections) { section in
                         switch section {

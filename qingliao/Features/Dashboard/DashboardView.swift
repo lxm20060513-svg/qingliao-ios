@@ -126,6 +126,12 @@ struct DashboardView: View {
                 // v2.0.133f：VStack → LazyVStack——TabView 切页动画期间看板全量卡片一次性布局是切页卡顿主因，
                 // 懒加载后只渲染可见卡片（与 v2.0.132 ChatView 消息列表同款方案；看板无批量移除路径，安全）
                 LazyVStack(alignment: .leading, spacing: BoardCardOrder.sectionSpacing) {
+                    // v4.0.80（P4 冷启动 · 条目 17/18）：工作模式 + 场景与自动化都还没有 → 一句话 + 一个动作。
+                    // 文案/闸门在 Core/WorkbenchOnboard.swift（生活模式返回 nil，看板一字不动）。
+                    if let guide = WorkbenchOnboard.guide(for: .board,
+                                                          empty: scenes.isEmpty && automations.isEmpty) {
+                        OnboardGuideCard(guide: guide)
+                    }
                     // v3.9.40（#15）：10 个栏目由写死顺序改为按用户自定义顺序渲染（可隐藏）
                     // v4.0.20：每个栏目量高（列高不等 → 落位几何必须喂实测高度）+ 拖动中的
                     //          位移/放大/阴影反馈。

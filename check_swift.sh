@@ -1389,5 +1389,18 @@ run_unit6 /tmp/test_insight /tmp/ql_insight_main/main.swift \
     qingliao/Core/HabitKit.swift qingliao/Core/HomeCardOrder.swift | tee /tmp/tt_insight.log
 grep -q '0 失败' /tmp/tt_insight.log || fail=1
 
+echo "=== 95. P4 冷启动真值表（工作模式 · 三页一句话 + 一个动作 / 空态口径统一）==="
+# 表在仓内 scripts/ql_onboard/truth_table_onboard.swift（纯 Foundation，编生产逻辑
+# qingliao/Core/WorkbenchOnboard.swift + WorkbenchScope.swift + HomeCardOrder.swift）。
+# 钉死的口径：① 三页各有且只有一张卡（少一页 = 那页仍是空白）② 文案说清「这页围着什么事转」，
+# 不许「暂无 / -- / 0」占位 ③ 动作落点 = 把示例指令投进输入框（跨页切到会话页），**绝不自动弹键盘**
+# ④ 生活模式零变更 ⑤ 文案只此一处（视图再抄一份必判红）。
+rm -rf /tmp/ql_onboard_main && mkdir -p /tmp/ql_onboard_main
+cp scripts/ql_onboard/truth_table_onboard.swift /tmp/ql_onboard_main/main.swift
+run_unit6 /tmp/test_onboard /tmp/ql_onboard_main/main.swift \
+    qingliao/Core/WorkbenchOnboard.swift qingliao/Core/WorkbenchScope.swift \
+    qingliao/Core/HomeCardOrder.swift | tee /tmp/tt_onboard.log
+grep -q '0 失败' /tmp/tt_onboard.log || fail=1
+
 [ $fail -eq 0 ] || { echo "❌ 有护栏失守"; exit 1; }
 exit 0
