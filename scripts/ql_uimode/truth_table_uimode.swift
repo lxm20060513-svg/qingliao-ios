@@ -9,7 +9,8 @@
 //      **脏值必须回落**（老版本遗留串、手改坏都不许让 App 卡在「未知模式」）/ needsRestart 语义。
 //   ② **源级接线**（编译不报、功能静默消失那一类）：设置页那一行 + 弹窗 + 搜索路由真的挂上了；
 //      键只有一个真源（两处硬编码只改一边 = 静默失效，v4.0.71 dockOrder 的教训）；
-//      并反向钉住「不做热切换」——不 import SwiftUI、不发通知、不提前做启动分流（那是 P0-2）。
+//      并反向钉住「不做热切换」——不 import SwiftUI、不发通知、设置页不许自己按模式分流
+//      （启动分流是 P0-2，已在 `Core/UIModeRoot.swift` 单点落地，见护栏 `ql_uimode_root`）。
 
 import Foundation
 
@@ -180,7 +181,7 @@ struct UIModeTruthTable {
         check("反例：弹窗里不许按裸串判模式（\"work\" / \"life\" 只从枚举取）",
               !sheetSrc.contains("\"work\"") && !sheetSrc.contains("\"life\""))
         negatives += 1
-        check("反例：P0-1 不做启动分流（SettingsCore 不许出现 UIMode.work 分支，那是 P0-2）",
+        check("反例：设置页不许自己按模式分流（分流只在 UIModeRoot 单点，SettingsCore 不许出现 UIMode.work）",
               !coreSrc.contains("UIMode.work"))
         negatives += 1
         check("反例：UIModeSheet 不许自己落 UserDefaults（写盘只走 UIMode.current 一个口）",

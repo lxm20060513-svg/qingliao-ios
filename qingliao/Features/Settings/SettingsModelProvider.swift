@@ -283,17 +283,25 @@ struct AboutView: View {
         }
     }
 
-    /// v3.0.3：当前模式行（v3.9.28 云端直连移除后恒为本地 AI）
+    /// v3.0.3：AI 运行模式行（v3.9.28 云端直连移除后恒为本地 AI）
+    ///
+    /// P0-3（工作台改造 v2 第 28 项）**改名消歧**：本行原文案是「当前模式」，
+    /// 而 P0-1 起设置页多了「界面模式」（工作模式 / 生活模式）—— 两个「模式」并排，
+    /// 用户必然把它们当成同一件事（一个说的是 AI 跑在哪，一个说的是界面长什么样）。
+    /// 改成「AI 运行模式」；标题变长（4 → 6 字）撑破 aboutRow 的 44pt 标题列，
+    /// 所以本行单独传 `titleWidth`（与页内 `Hermes Agent` 那行的 68 同款口径）。
     private func appModeRow() -> some View {
-        aboutRow("当前模式", "本地 AI —— 连接自家 NAS 上的 Hermes Agent，对话/读图/语音/知识库/智能家居全掌控。")
+        aboutRow("AI 运行模式", "本地 AI —— 连接自家 NAS 上的 Hermes Agent，对话/读图/语音/知识库/智能家居全掌控。",
+                 titleWidth: 78)
     }
 
-    private func aboutRow(_ title: String, _ content: String) -> some View {
+    private func aboutRow(_ title: String, _ content: String, titleWidth: CGFloat = 44) -> some View {
         HStack(alignment: .top, spacing: 10) {
             Text(title)
                 .font(.system(size: Typography.subhead, weight: .semibold))
                 .foregroundStyle(.secondary)
-                .frame(width: 44, alignment: .leading)
+                .frame(width: titleWidth, alignment: .leading)
+                .fixedSize(horizontal: true, vertical: false)   // 标题永不被压缩折行（宽度已按最长标题给足）
             Text(content)
                 .font(.system(size: Typography.subhead))
                 .foregroundStyle(.primary)

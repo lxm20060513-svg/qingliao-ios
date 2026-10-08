@@ -1332,9 +1332,18 @@ echo "=== 90. 界面模式真值表（P0-1 工作台改造 v2 · 工作模式/�
 # 钉死的口径：① 恰好两个模式 ② 键唯一真源 ql_ui_mode（别处不许再有裸字面量）
 # ③ 缺省必是生活模式（= 老用户界面不变的地基）④ 脏值/坏串一律回落，不许卡「未知模式」
 # ⑤ 键真被设置页那一行 + 弹窗 + 搜索路由挂上（编译不报但功能静默消失那一类）
-# ⑥ 不做热切换（不 import SwiftUI、不发通知、不在 P0-1 做启动分流）⑦ 行尾如实标「重启后生效」。
+# ⑥ 不做热切换（不 import SwiftUI、不发通知、设置页不许自己按模式分流）⑦ 行尾如实标「重启后生效」。
 run_unit6 /tmp/test_uimode scripts/ql_uimode/truth_table_uimode.swift qingliao/Core/UIMode.swift | tee /tmp/tt_uimode.log
 grep -q '0 失败' /tmp/tt_uimode.log || fail=1
+
+echo "=== 91. 启动分流 / 命名消歧 / 生活模式基线真值表（P0-2·P0-3·P0-4 工作台改造 v2）==="
+# 表在仓内 scripts/ql_uimode_root/truth_table_uimode_root.swift（纯 Foundation，扫全仓源码）。
+# 钉死的口径：① 全 App 唯一分流点 UIModeRoot（扫全仓：launchedWith 仅 1 处、无按当前值散判）
+# ② 生活模式零变更（life 分支裸 DockTabView()、DockTabView.swift 全篇不出现 UIMode）
+# ③ 生活模式基线不被工作模式改造打乱（首页 17 卡顺序 / 生活页 7 板块 / dock 5 槽·智慧球第 3 槽）
+# ④ 命名消歧：「当前模式」→「AI 运行模式」，与 P0-1 的「界面模式」不再撞名。
+run_unit6 /tmp/test_uimode_root scripts/ql_uimode_root/truth_table_uimode_root.swift qingliao/Core/UIMode.swift | tee /tmp/tt_uimode_root.log
+grep -q '0 失败' /tmp/tt_uimode_root.log || fail=1
 
 [ $fail -eq 0 ] || { echo "❌ 有护栏失守"; exit 1; }
 exit 0
