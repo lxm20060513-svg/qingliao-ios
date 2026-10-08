@@ -177,11 +177,7 @@ struct RootView: View {
             // allowsHitTesting(false)：那 0.95s 里半透明的登录卡片不再吃点击，避免误触输入框弹键盘。
             let loggedIn = auth.isLoggedIn
             if loggedIn {
-                // P0-2（工作台改造 v2）：根视图改走**唯一分流点** `UIModeRoot` ——
-                // 它按启动时读到的界面模式决定渲染 `DockTabView()`（生活模式，原路径零变更）
-                // 还是 `WorkbenchRoot()`（工作模式）。这里**不许**再出现 `if UIMode…`：
-                // 全 App 的分流只此一处（见 `Core/UIModeRoot.swift`，护栏 `ql_uimode_root`）。
-                UIModeRoot()
+                DockTabView()
             }
             if !loggedIn || loginHandoff {
                 LoginView(revealed: !showSplash)

@@ -822,26 +822,6 @@ enum GoalTodoBridge {
     }
 }
 
-// MARK: - P3-13：目标 → 停滞判定的输入（唯一映射点）
-//
-// 判定逻辑在 `WorkbenchInsight`（纯逻辑、可 Linux 编跑），它只收**值**；
-// `GoalItem` 是带 SwiftUI 的文件里的类型，所以「字段 → 输入」这层翻译**只在这里写一次**
-// —— 卡片、结论条都调这一处，别处再抄一份字段名，改口径时必漏。
-extension GoalItem {
-    var insightProgress: WorkbenchInsight.GoalProgress {
-        WorkbenchInsight.GoalProgress(
-            createdAt: createdAt,
-            // 完成判定必须与全 App 同一口径（`GoalStore.isFinished` = 步骤全勾）：
-            // 后端 `finishedAt` 只是辅助展示、不参与判定 —— 用它会让结论条报「停滞」而目标卡
-            // 上没有任何徽标，两处自相矛盾（谎报）。
-            finished: isFinished,
-            paused: paused,
-            manualPushAt: manualPushAt,
-            stepStartedAt: steps.compactMap(\.startedAt),
-            stepDoneAt: steps.compactMap(\.doneAt))
-    }
-}
-
 // MARK: - 目标行卡片
 
 struct GoalRowCard: View {
@@ -885,22 +865,6 @@ struct GoalRowCard: View {
                     Text(goal.scheduleText(now: Date()))
                         .font(.system(size: Typography.caption))
                         .foregroundStyle(.tertiary)
-                        .lineLimit(1)
-                }
-            }
-
-            // v4.0.79（P3-13 深度）：停滞告警 —— 「在跑」不等于「在推进」：cron 天天汇报、
-            // 目标却 N 天没真动过时，这里出一行橙字。阈值/文案在 `WorkbenchInsight`（工作模式专属；
-            // 生活模式下它直接回 nil → 本行整体不存在，生活页一字不动）。
-            if !compact, !goal.isFinished,
-               let stall = WorkbenchInsight.stallBadge(goal.insightProgress, now: Date()) {
-                HStack(spacing: 4) {
-                    Image(systemName: "clock.badge.exclamationmark")
-                        .font(.system(size: Typography.caption))
-                        .foregroundStyle(Color.orange)
-                    Text(stall)
-                        .font(.system(size: Typography.caption, weight: .medium))
-                        .foregroundStyle(Color.orange)
                         .lineLimit(1)
                 }
             }

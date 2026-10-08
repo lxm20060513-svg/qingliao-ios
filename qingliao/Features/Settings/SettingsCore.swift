@@ -53,11 +53,6 @@ struct SettingsView: View {
     //         这里与弹窗都不许再写死项数。
     @State var showHomeShortcuts = false
     @AppStorage(HomeShortcutStore.defaultsKey) var homeShortcutsRaw = ""
-    // P0-1 界面模式（工作台改造 checklist v2 · 模式地基）：工作模式 / 生活模式。
-    // 键的单一真源在 Core/UIMode.swift；这里用 @AppStorage 是为了「弹窗里改完 → 行尾立刻变」，
-    // 读的仍是同一个键（不会与写盘两处漂移）。
-    @AppStorage(UIMode.defaultsKey) var uiModeRaw = UIMode.fallback.rawValue
-    @State var showUIMode = false
     @State var scrollPos = ScrollPosition()
     @State var showModelSheet = false
     @State var showWechatChannel = false   // v3.0.19：微信窗通道模型设置
@@ -185,8 +180,6 @@ struct SettingsView: View {
         .background(settingsCold6())
         .background(settingsCold7())
         .background(settingsCold8())
-        // P0-1：界面模式弹窗（单开一组，见 settingsCold9 注释）
-        .background(settingsCold9())
         // v4.0.67 P4：设置页页底铺环境渐变（C 口径，与聊天页同源单层）——
         //   列表卡已换 pastelCard 渐变卡，页底同步彩化；只铺一层不叠团。
         //   ⚠️ 必须挂**链尾**（= 垫在所有 cold 层之下）：本仓口径是「先挂的 background 画得更靠前」，
@@ -397,17 +390,6 @@ struct SettingsView: View {
         }
     }
 
-    /// P0-1：界面模式弹窗（工作模式 / 生活模式）。
-    /// ⚠️ 必须**单开一组**冷组：settingsCold1…8 每组的顶层修饰器都已到 4 条上限
-    /// （ql_typestack ③⁗ 钉着 1…4），再往任何一组里加第 5 条就会红。
-    private func settingsCold9() -> some View {
-        Color.clear
-        .sheet(isPresented: $showUIMode) {
-            UIModeSheet()
-                .presentationDetents([.medium])
-        }
-    }
-
     // MARK: - v4.0.22 设置页搜索
 
     /// 搜索结果点开：弹窗类直接开对应弹窗，开关类滚到所属分组（清空查询后各分组就在下面）。
@@ -452,7 +434,6 @@ struct SettingsView: View {
         case "agentKeywords": showAgentKeywords = true
         case "agentMemory": showAgentMemory = true
         case "appearance": showAppearance = true
-        case "uiMode": showUIMode = true   // P0-1 界面模式（工作模式 / 生活模式）
         case "pet": showPetStudio = true
         case "homeShortcuts": showHomeShortcuts = true
         case "about": showAbout = true
@@ -841,22 +822,9 @@ extension SettingsView {
         .pastelCard()
     }
 
-    /// P0-1：界面模式行尾值。改过但还没重启时如实标注（重启后自然消失）。
-    private var uiModeValue: String {
-        let mode = UIMode(rawValue: uiModeRaw) ?? UIMode.fallback
-        return UIMode.needsRestart ? "\(mode.title)（重启后生效）" : mode.title
-    }
-
     @ViewBuilder var appearanceSection: some View {
         SectionHeader("外观与显示")
         VStack(spacing: 0) {
-            // P0-1 界面模式（工作台改造 v2 模式地基）：**生活模式 = 现在这套 UI（冻结基线）**，
-            // 工作模式 = 收敛后的工作台（P1 起逐步落地）。切换在弹窗里做，**重启 App 生效**。
-            // 改过没重启时行尾如实标「重启后生效」——不然用户切完界面没变，只会以为开关坏了。
-            SettingRow(icon: "rectangle.2.swap", iconColor: .blue, title: "界面模式",
-                       value: uiModeValue, chevron: true)
-                .tapButton { showUIMode = true }
-            Divider().padding(.leading, Spacing.rowDividerInset)
             SettingRow(icon: "circle.lefthalf.filled", iconColor: .purple, title: "外观", value: appearanceName, chevron: true)
                 .tapButton { withAnimation(Motion.snap) { showAppearance = true } }
             // v4.0.6：宠物配置行（顶部大头像是主入口，这里是滚动后的兜底入口，同一个 sheet）

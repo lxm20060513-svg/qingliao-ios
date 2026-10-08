@@ -79,9 +79,6 @@ struct ChatView: View {
 
     @State var inputText = ""
     @FocusState var inputFocus: Bool
-    /// v4.0.80（P4 冷启动 · 条目 17）：三页冷启动引导的「一个动作」把示例指令投递到这里，
-    /// 由 chatColdChrome15 的 onChange / onAppear 取走填进输入框（取走即清，不重灌；**不碰焦点**）。
-    @State var seedBox = ComposerSeedBox.shared
     @State var sentOK = false
     @State var serverOnline: Bool?   // 服务器连接状态（真实绿点）
     // v3.5.1：AI 正在输入 状态——服务器侧真相兜底（App 重开/离开聊天页后仍能显示）
@@ -1004,7 +1001,6 @@ struct ChatView: View {
         .background(chatColdChrome12())
         .background(chatColdChrome13())
         .background(chatColdChrome14())
-        .background(chatColdChrome15())
         // v4.0.66 A+C 定稿：环境渐变页底——白/黑底上三团弥散光晕（桃粉右上/天蓝左侧/薄荷底部），
         // 挂在整页最底层（垫在所有 coldChrome 之下，消息区/输入区都透出彩底）；
         // 纯视觉层：不改布局、不拦手势（GlowBlob 全部 allowsHitTesting(false)）。
@@ -1206,24 +1202,6 @@ struct ChatView: View {
         }
     }
 
-    /// v4.0.80（P4 冷启动 · 条目 17）：冷启动引导那一键的落点 —— 生活页/看板页点了
-    /// 「先建一个目标 / 先建一个场景」后会切到会话页并把示例指令投在这儿，本行取走填框。
-    /// 取走即清（take）→ 不会因为 body 重算重复灌；**不设 inputFocus**（键盘已开保持、未开不弹）。
-    /// 单独一组：chatColdChrome5 已有 4 条行为型修饰器（上限 4，ql_typestack ③‴ 钉着）。
-    private func chatColdChrome15() -> some View {
-        Color.clear
-        .onChange(of: seedBox.text) { _, _ in
-            guard let seed = seedBox.take() else { return }
-            inputText = seed
-        }
-        // 落树兜底：别的页点引导卡时若会话页还没进树，`.onChange` 不会为「已发生的变更」补发
-        // → 示例指令会滞留在投递位（观感＝点了没反应）。进树/回到本页时再取一次（取走即清，幂等）。
-        .onAppear {
-            guard let seed = seedBox.take() else { return }
-            inputText = seed
-        }
-    }
-
     /// v4.0.75：收起消息流里的直播卡（点 ×）。镜像与 Center 源一起清，
     /// 同帧只动状态、不碰轮询——轮询挂在卡视图的 .task 上，视图移除自动取消。
     private func closeBrowserLive() {
@@ -1269,13 +1247,21 @@ struct ChatView: View {
                 .scrollContentBackground(.hidden)
             )
         }
-        // v4.0.29：首页「备忘速记」卡 → 速记面板；v4.0.80：不再复用生活页 `MemoSection` 浏览页
-        //（v4.0.77 备忘录三张弹窗上收成 LifeView 页根的毛玻璃浮层后，宿主不在这棵 sheet 里 →
-        //  在弹窗里点新增/详情「没反应」，且状态残留为真，回生活页会莫名弹出那张浮层）。
-        // 改走与智慧球「AI 速记」同一个 `QuickCaptureSheet`（DockTabView 先例）：写库路径单一、无旁路。
-        // onDismiss 复位：本仓踩过「sheet 被别的 sheet 挡掉后 item 一直非 nil，之后再也弹不出来」。
-        .sheet(item: $homeQuickCapture, onDismiss: { homeQuickCapture = nil }) { mode in
-            QuickCaptureSheet(mode: mode)
+        // v4.0.29：首页「备忘速记」卡 → 备忘卡片（复用生活页 MemoSection，弹窗里直接看/记）
+        .sheet(isPresented: $showHomeMemoBrowser) {
+            AnyView(NavigationStack {
+                ScrollView {
+                    MemoSection()
+                        .padding(.horizontal, Spacing.section)
+                }
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("完成") { showHomeMemoBrowser = false }
+                    }
+                }
+            }
+            .presentationDetents([.large])
+            )
         }
         // v4.0.29：首页「云盘」卡 → 云盘浏览（复用设置页 CloudDriveSettingsSheet 的列表 + 浏览器）
         .sheet(isPresented: $showHomeCloudDrive) {
@@ -2299,7 +2285,7 @@ struct ChatView: View {
                     reminderSeedText = ""
                     showQuickReminder = true             // 复用既有提醒面板（可直接新建）
                 case .memo:
-                    homeQuickCapture = .memo               // v4.0.80：改走速记面板（原复用备忘录浏览页，浮层宿主不在这棵树里）
+                    showHomeMemoBrowser = true           // 复用备忘录浏览页
                 case .cloud:
                     showHomeCloudDrive = true            // 复用云盘浏览
                 default:
@@ -2320,8 +2306,7 @@ struct ChatView: View {
     //    （grep 全文件 0 个呈现点）→ 天气卡轻点「没反应」。呈现补在 homeCardsGrid 的视图链上。
     @State private var showHomeWeather = false
     // v4.0.29：新卡弹窗宿主（备忘录 / 云盘）
-    /// v4.0.80：首页「备忘速记」卡 → 速记输入面板（`.memo` = AI 速记；原 `showHomeMemoBrowser` 已删）
-    @State private var homeQuickCapture: QuickCaptureMode?
+    @State private var showHomeMemoBrowser = false
     @State private var showHomeCloudDrive = false
 
 
@@ -2507,13 +2492,6 @@ struct ChatView: View {
             Text(welcomeSubtitle)
                 .font(.system(size: Typography.subhead))
                 .foregroundStyle(.secondary)
-            // v4.0.80（P4 冷启动 · 条目 17/18）：工作模式第 1 天（本页没消息）给一句话 + 一个动作 ——
-            // 替掉「空卡与 --」那种占位。文案/闸门在 Core/WorkbenchOnboard.swift，生活模式返回 nil。
-            if let guide = WorkbenchOnboard.guide(for: .chat, empty: chat.messages.isEmpty) {
-                OnboardGuideCard(guide: guide)
-                    .padding(.top, 14)
-                    .padding(.horizontal, Spacing.xl)
-            }
         }
         .padding(.top, 18)
     }

@@ -111,9 +111,6 @@ enum SettingsSearchIndex {
               keywords: ["agent 记忆", "规则", "记忆"]),
 
         // ── 外观与显示 ──
-        // P0-1 界面模式（工作模式 / 生活模式）：排在分组最前，与设置页那一行的位置一致
-        .init(route: "uiMode", title: "界面模式", icon: "rectangle.2.swap", group: "外观与显示",
-              keywords: ["界面", "模式", "工作模式", "生活模式", "工作台", "切换"]),
         .init(route: "appearance", title: "外观", icon: "circle.lefthalf.filled", group: "外观与显示",
               keywords: ["主题", "深浅色", "暗黑", "行高", "流光"]),
         .init(route: "pet", title: "AI形象", icon: "face.smiling.inverse", group: "外观与显示",

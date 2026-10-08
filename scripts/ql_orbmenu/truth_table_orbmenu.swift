@@ -35,36 +35,35 @@ check("DockTabView.swift 源可读", !dockSrc.isEmpty)
 check("ChatView.swift 源可读", !chatViewSrc.isEmpty)
 check("ChatEffects.swift 源可读", !chatEffectsSrc.isEmpty)
 
-// ── 0. 浮动球心几何单一真源（可见球 / 命中圈 / 菜单弧心 / 识别浮层 / 烟花原点必须同源） ─────
-// v4.0.80（用户拍板「把智慧球从 dock 摘出来、浮在 dock 上方」）：球**不再绑槽位**——
-// 旧口径（x 取真实槽位按钮中心 + y 走 dock 内容中心差值）整套退役，收成一个出口：
-//   x = 窗口宽 / 2；y = 窗口底 − 安全区 − 真实 dock 高 − 呼吸 − 球半径。
-// 为什么仍必须是单一真源：五处消费者各算一份就是「球看着在那儿、按上去没反应」
-//（v3.9.59 命中圈错位、v3.9.79 转屏差 6.3pt 两笔旧账都是这么来的）。
-check("ChatEffects 提供浮动球心 floatingOrbCenter", chatEffectsSrc.contains("static func floatingOrbCenter("))
-check("浮动球心 x 走窗口居中（不再读槽位、不再手算等分）",
-      chatEffectsSrc.contains("return CGPoint(x: keyWindowWidth / 2, y: y)")
-      && !chatEffectsSrc.contains("geo.size.width * (CGFloat(slotIndex) + 0.5)"))
-check("浮动球心 y = dock 顶边上溯（bar 高 + 呼吸 + 球半径，单条公式）",
-      chatEffectsSrc.contains("let y = keyWindowHeight - keyWindowSafeBottom - barH - floatingGap - ballSize / 2"))
-check("呼吸与球径是命名常量（散落的魔法数 = 两套几何的起点）",
-      chatEffectsSrc.contains("static let floatingGap: CGFloat = 6")
-      && chatEffectsSrc.contains("static let defaultBallSize: CGFloat = 64"))
-// 旧「dock 内容中心差值」一族（dockContentCenterDrop / slotContentDrop / contentCenterDrop / slotCenterGlobal）
-// 在球浮起来之后整体失去意义 —— 留一个就是两套几何，必须清零；缓存态同样不许再出现。
-check("旧内容差值一族已整块退役（留一个都是两套几何）",
-      !chatEffectsSrc.contains("static func contentCenterDrop")
-      && !chatEffectsSrc.contains("static func slotContentDrop")
-      && !chatEffectsSrc.contains("dockContentCenterDrop: CGFloat")
-      && !chatEffectsSrc.contains("static func slotCenterGlobal")
+// ── 0. 球心几何单一真源（命中圈 / 菜单弧心 / 可见球必须同源） ─────
+// 背景：DockOrbOverlay 的球心 x 优先取**真实槽位按钮中心**（slotCenterGlobal），y 是几何定位；
+// 命中层若自己写一份 width*(i+0.5)/n 等分估算，iOS 26 玻璃 tab bar 内容内缩时圈就偏 → 按球没反应。
+check("ChatEffects 提供全局球心 orbCenterGlobal", chatEffectsSrc.contains("static func orbCenterGlobal("))
+check("orbCenterGlobal 的 x 优先真实槽位中心", chatEffectsSrc.contains("slotCenterGlobal(index: slotIndex, count: slotCount)?.x"))
+check("orbCenterGlobal 的 y 与可见球同一条几何公式（内容差值同源，别各写一份）",
+      chatEffectsSrc.contains("let drop = contentCenterDrop(index: slotIndex, count: slotCount)")
+      && chatEffectsSrc.contains("keyWindowHeight - keyWindowSafeBottom - barH / 2 + drop"))
+// v3.9.79（用户横屏报修「智慧球在 dock 里上下没居中」）：内容差值必须**按当前朝向实测**，
+// 写死的 6.3 只是竖屏量出来的兜底值 —— 横屏 tab bar 紧凑形态下差值≈0。
+check("dock 内容差值按朝向实测（6.3 只当兜底）",
+      chatEffectsSrc.contains("static func slotContentDrop(index: Int, count: Int) -> CGFloat?")
+      && chatEffectsSrc.contains("static func contentCenterDrop(index: Int = 2, count: Int = 5) -> CGFloat")
+      && chatEffectsSrc.contains("if let d = slotContentDrop(index: index, count: count) { return d }")
+      && chatEffectsSrc.contains("let shortScreen = keyWindow?.traitCollection.verticalSizeClass == .compact"))
+// 审查① 实测指出：可见球曾用 @State liveDrop 缓存，命中层走实时值 → 转屏后 0.15s 窗口内差 6.3pt
+// =「球看着在那儿、按上去没反应」。口径固定为：**五处几何全部调同一个 contentCenterDrop，任何一处都不许缓存**。
+check("几何差值单一出口：可见球 / 球心 / 烟花原点都走 contentCenterDrop，且源里不许再有缓存状态",
+      chatEffectsSrc.contains("let drop = DockOrbOverlay.contentCenterDrop(index: slotIndex, count: slotCount)")
+      && chatEffectsSrc.contains("let drop = contentCenterDrop(index: slotIndex, count: slotCount)")
+      && chatEffectsSrc.contains("barHeight / 2 - contentCenterDrop(index: index, count: count)")
       && !chatEffectsSrc.contains("@State private var liveDrop")
-      && !chatEffectsSrc.contains("latestDrop"))
-check("命中层走 floatingOrbCenter", orbMenuSrc.contains("DockOrbOverlay.floatingOrbCenter(barHeight: barH)"))
+      && !chatEffectsSrc.contains("latestDrop")
+      && !chatEffectsSrc.contains("barH / 2 + dockContentCenterDrop"))
+check("命中层走 orbCenterGlobal", orbMenuSrc.contains("DockOrbOverlay.orbCenterGlobal(slotIndex: slotIndex"))
 check("命中层 + 菜单层两处共用（出现 2 次）",
-      orbMenuSrc.components(separatedBy: "DockOrbOverlay.floatingOrbCenter(").count - 1 == 2)
+      orbMenuSrc.components(separatedBy: "DockOrbOverlay.orbCenterGlobal(").count - 1 == 2)
 check("旧的手算等分几何已清零", !orbMenuSrc.contains("geo.size.width * (CGFloat(slotIndex) + 0.5)"))
-check("DockOrbOverlay 仍是唯一几何源（body 的 position 走浮动球心）",
-      chatEffectsSrc.contains("let c = DockOrbOverlay.floatingOrbCenter(ballSize: ballSize, barHeight: barH)"))
+check("DockOrbOverlay 仍是唯一几何源（body 里 position 用 target）", chatEffectsSrc.contains("target: CGPoint = CGPoint(x: liveCenter.map { $0.x - g.minX }" ))
 
 // ── 1. 手势接线（ExclusiveGesture 口径，长按优先） ─────────────
 check("球命中层存在", orbMenuSrc.contains("struct OrbHitLayer: View"))
@@ -115,7 +114,7 @@ check("减弱动态效果：装饰性扩散环不渲染", orbMenuSrc.contains("i
 // ⚠️ 断言必须**切片**：整文件 grep ".allowsHitTesting(false)" 会被 FullScreenBurst 那处（烟花层，
 // DockTabView 里同款串）假绿——删掉球层那一处，断言照样通过。只查球 overlay 那一段。
 let orbOverlaySlice: String = {
-    guard let a = dockSrc.range(of: "DockOrbOverlay(thinking: stream.isStreaming"),
+    guard let a = dockSrc.range(of: "DockOrbOverlay(slotIndex: 2"),
           let b = dockSrc.range(of: "长按球快捷菜单浮层", range: a.upperBound..<dockSrc.endIndex)
     else { return "" }
     return String(dockSrc[a.lowerBound..<b.lowerBound])
@@ -620,8 +619,8 @@ check("背景走材质虚化（用户拍板「虚化背景」）", identifySrc.c
 check("虚化层补 contentShape（否则空白点不到 = 收不起来）",
       identifySrc.contains(".contentShape(Rectangle())"))
 // ③ 几何同源：扫描环与卡片位置都用球心真源，别自己算等分
-check("扫描环/卡片位置走 floatingOrbCenter（与可见球严格同源）",
-      identifySrc.contains("DockOrbOverlay.floatingOrbCenter(barHeight: barH)"))
+check("扫描环/卡片位置走 orbCenterGlobal（与可见球严格同源）",
+      identifySrc.contains("DockOrbOverlay.orbCenterGlobal(slotIndex: slotIndex"))
 // ④ 相机两道闸：可用性 + ignoresSafeArea（后者是 v3.9.75 顶部黑边的修复）
 check("相机先查可用性（无相机设备 present 会抛异常）",
       identifySrc.contains("UIImagePickerController.isSourceTypeAvailable(.camera)"))
@@ -1104,7 +1103,7 @@ check("逐字进度只在前进时写（next != 当前值）", speechClean.conta
 // v3.9.78 追加：锚点做成参数（`.dockOrb` / `.pet(size:)`），原来的 `private var ball` 改名 `anchorObject`。
 // 🚨 v3.9.82 口径（用户 2026-09-27：「长按智慧球跳转画面改为长按卡通宠物跳转画面，只保留一个跳转画面」）：
 //    **画法只留宠物这一套** —— 球版分支（SiriBallView + fps 分档 + unseen/failed 三态）整段删掉，
-//    dock 入口也画宠物；尺寸按**位置**走（常驻浮动球 64 = `defaultBallSize` / 宠物 96，不然会盖住 tab 图标）。
+//    dock 入口也画宠物；尺寸按**位置**走（dock 槽位 52 = `defaultBallSize` / 宠物 96，不然会盖住 tab 图标）。
 //    下面按**新形态**钉：谁把球版分支加回来，「只画宠物」这条就红。
 let orbBall = between(orbClean, "private var anchorObject: some View", "private func pillOffset")
 check("锚点切片取到（切空了下面就是空真）", !orbBall.isEmpty)
@@ -1129,7 +1128,7 @@ check("锚点宠物吃用户当前选的形态（PetAvatar 不带 styleOverride�
       orbBall.contains("PetAvatar(size: anchorSize, state: thinking ? .thinking : .idle)")
       && !orbBall.contains("styleOverride:"))
 check("宠物锚点只覆盖中心（几何换算同源：petAnchor.center → ballCenter，不在聊天页另算一套）",
-      orbClean.contains("let c = petAnchor?.center ?? DockOrbOverlay.floatingOrbCenter(barHeight: barH)")
+      orbClean.contains("let c = petAnchor?.center ?? DockOrbOverlay.orbCenterGlobal(slotIndex: slotIndex,")
       && orbClean.contains("ballCenter: CGPoint(x: c.x - g.minX, y: c.y - g.minY)"))
 // v3.9.80：dock 球贴屏底向上绽放；宠物在上半屏整组落到宠物下方
 // （用户 2026-09-25 截图：「这个界面胶囊弹出放在卡通宠物下方」）。方向只在 pillsBelow 一处判定。
@@ -1170,14 +1169,14 @@ check("Overlay → Layer 三态透传接线完整",
 let menuCall = between(stripCommentLines(dockSrc),
                        "OrbQuickMenuOverlay(barHeight: dockBarHeight",
                        "onClose: { showOrbMenu = false })")
-check("DockTabView 调用点切片取到（切片空了下面几条就是空真）", !menuCall.isEmpty)
+check("DockTabView 调用点切片取到", menuCall.contains("slotCount: dockSlotCount"))
 check("DockTabView 把三态传进菜单（球在原位也跟随真实状态）",
       menuCall.contains("thinking: stream.isStreaming")
       && menuCall.contains("unseen: orbUnseen")
       && menuCall.contains("failed: orbFailed"))
 // 尺寸单一真源：dock 侧不再写字面量、菜单层也不许自己写一个
 check("球尺寸单一真源在 DockOrbOverlay（dock 侧改引用常量）",
-      chatEffectsSrc.contains("static let defaultBallSize: CGFloat = 64")
+      chatEffectsSrc.contains("static let defaultBallSize: CGFloat = 52")
       && chatEffectsSrc.contains("var ballSize: CGFloat = DockOrbOverlay.defaultBallSize"))
 check("菜单层不再出现写死的球尺寸字面量", !orbClean.contains("size: 52"))
 

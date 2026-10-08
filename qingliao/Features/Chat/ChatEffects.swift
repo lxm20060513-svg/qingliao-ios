@@ -14,8 +14,7 @@ struct FullScreenBurst: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var spawn = Date()
     /// v3.6.2：粒子发射原点距屏幕底部距离——原写死 136 = 聊天页输入栏智能球位置；
-    /// v4.0.80：智能球浮在 dock 上方后，原点一律由 DockOrbOverlay.floatingBallCenterFromBottom 给出
-    ///（与可见球心同一条公式，差一个底部安全区）——别再写死。
+    /// 智能球迁到 dock 槽位后由 DockOrbOverlay 的几何定位给出（见 body 内 geoCenterY）
     var originFromBottom: CGFloat = 136
 
     var body: some View {
@@ -227,20 +226,21 @@ private struct OrbNoticeDot: View {
 }
 
 
-// MARK: - v3.6.2 智能球浮层（v4.0.80 起：浮在 dock 上方，不再占槽位）
+// MARK: - v3.6.2 dock 槽位智能球（系统 tab item 的自定义替身）
 //
-// 背景：iOS 26 原生 TabView 的 tab item 只接受系统图标 + 文字（官方未提供自定义视图 API），
-// 早期做法是把聊天槽 item 置空、由本层在槽位上自绘一颗球。
-// v4.0.80（用户拍板）：球从槽位摘出、常驻浮在 dock 上方居中，聊天槽交还系统 item；本层只画浮球。
+// 背景：iOS 26 原生 TabView 的 tab item 只接受系统图标 + 文字（官方未提供自定义视图 API）。
+// 因此聊天槽位的 item 置为不可见（Text("")，无图标无文字），整颗球由本层自绘并居中于该槽位。
 // 本层必须 .allowsHitTesting(false)：触摸要穿透给下层的系统 tab item（点球 = 系统切页，行为不变）。
 struct DockOrbOverlay: View {
-    /// v3.9.78：球体外框边长**单一真源** —— 常驻球与长按菜单里重画的「锚点球」必须同尺寸；
-    /// 改尺寸只动这一处（菜单层引用本常量，别再各写一个数字）。
-    /// v3.6.3：36 → 44；v3.6.4：44 → 50；v3.6.5：50 → 52；**v4.0.80：52 → 64（用户拍板）**
-    static let defaultBallSize: CGFloat = 64
-    /// v4.0.80：球底与 dock 顶边之间的固定呼吸 —— 球从槽位摘出、常驻浮在 dock 上方
-    static let floatingGap: CGFloat = 6
-    /// 外框（含光晕）边长；球体 ≈ size × 0.783 —— 64 时球体 ≈ 50pt
+    /// 目标槽位序号（本地：会话0 / 看板1 / 聊天2 / 生活3 / 设置4）
+    var slotIndex: Int = 2
+    /// dock 槽位总数（当前 5：会话/看板/聊天/生活/设置）
+    var slotCount: Int = 5
+    /// v3.9.78：球体外框边长**单一真源** —— dock 常驻球与长按菜单里重画的「锚点球」必须同尺寸；
+    /// 改尺寸只动这一处（菜单层引用本常量，别再各写一个 52）。
+    static let defaultBallSize: CGFloat = 52
+    /// 外框（含光晕）边长；球体 ≈ size × 0.783 —— 52 时球体 ≈ 41pt
+    /// v3.6.3：36 → 44；v3.6.4：44 → 50；v3.6.5：50 → 52（用户指定）
     var ballSize: CGFloat = DockOrbOverlay.defaultBallSize
     /// 装机微调预留：正值下移
     var verticalNudge: CGFloat = 0
@@ -253,7 +253,9 @@ struct DockOrbOverlay: View {
     /// v3.9.33：实测系统 tab bar 高度回写给宿主（烟花原点与球心同源；读不到时保持 fallbackBarHeight）
     @Binding var measuredBarHeight: CGFloat
 
-    /// v3.6.3：回前台/转屏后 dock 高度会变 → 重读真实 bar 高（球的纵向位置跟着它走）
+    /// v3.6.3：系统 tab bar 真实槽位中心（window 坐标）。读得到就用它，读不到回退等分估算
+    @State private var liveCenter: CGPoint?
+    /// v3.6.3：回前台/转屏后 frame 会变 → 重读真实槽位
     @Environment(\.scenePhase) private var scenePhase
 
     /// iOS 26 原生 tab bar 高度**兜底值**（不含底部安全区）。
@@ -261,10 +263,15 @@ struct DockOrbOverlay: View {
     ///          纵向跑偏；改为优先读真实 UITabBar 高度（`slotBarHeight()`），本值只在读不到时兜底。
     static let fallbackBarHeight: CGFloat = 49
 
-    /// v4.0.80 已整块删除：`dockContentCenterDrop`(6.3) / `slotContentDrop` / `contentCenterDrop` 这一套
-    /// 「dock 内容中心差值」——那是球**嵌在槽位里**时用来把球心对到 dock 内容中心的；球改成浮在 dock
-    /// **上方**之后，基准变成「dock 顶边 + 呼吸 + 球半径」，这套差值整体失去意义（横屏/竖屏的分支也没了）。
-    /// ⚠️ 别再把它请回来：球的位置只由 `floatingOrbCenter` 一处决定。
+    /// v3.6.5 实测：dock 内容（图标 + 文字整块）中心比 UITabBar 几何中心低约 6.3pt。
+    /// 装机截图 @3x（1179×2556 = 393×852pt）像素测量：球心 793.5pt（= tab bar 几何中心）
+    /// vs 槽位内容中心 799.8pt → 球比内容偏上 6.3pt，用户报「没在 dock 上下居中」。
+    /// 即 iOS 26 玻璃 tab bar 的 bounds 中心高于其内容中心（内容在 tab bar 内并非垂直居中）。
+    ///
+    /// ⚠️ v3.9.79：这是**竖屏**量出来的常量，只当兜底用 —— 横屏 tab bar 是紧凑形态（无文字、图标居中），
+    /// 差值≈0，继续写死 6.3 就是用户 2026-09-25 报的「横屏下智慧球在 dock 里上下没居中」。
+    /// 实际取值一律走 `slotContentDrop(...)`（按当前朝向实测），读不到才落回本常量。
+    static let dockContentCenterDrop: CGFloat = 6.3
 
     var body: some View {
         GeometryReader { geo in
@@ -279,38 +286,63 @@ struct DockOrbOverlay: View {
             // v3.9.33：bar 高改用实测值（放大字体下会变高）；实测与兜底走**同一条公式**，
             //          两条路径坐标系一致（窗口底 − 安全区 − bar高/2 + 实测差值）→ 读不到也不会跳变
             let barH = measuredBarHeight > 1 ? measuredBarHeight : DockOrbOverlay.fallbackBarHeight
-            // v4.0.80：球从 dock 槽位摘出 → 常驻浮在 dock 上方、水平居中。
-            // 球心必须走 floatingOrbCenter（命中层 / 长按菜单 / 识别浮层 / 烟花原点共用同一出口，
-            // 谁都不许自己算一份——五处错一处就是「球看着在那儿、按上去没反应」）。
-            // 本层只做「window 坐标 → 叠加层坐标」的换算。
-            let c = DockOrbOverlay.floatingOrbCenter(ballSize: ballSize, barHeight: barH)
-            let target = CGPoint(x: c.x - g.minX, y: c.y - g.minY + verticalNudge)
+            // v3.9.79：内容差值**与命中层/菜单/浮层逐字同源**（都调 contentCenterDrop）。
+            // ⚠️ 曾用 @State liveDrop 缓存实测值：转屏后 0.15s 窗口内球用旧朝向值、命中层用新值，
+            //    差最多 6.3pt → 正是本仓最怕的「球看着在那儿、按上去没反应」（审查① 实测指出）。
+            let drop = DockOrbOverlay.contentCenterDrop(index: slotIndex, count: slotCount)
+            let geoCenterY = DockOrbOverlay.keyWindowHeight - DockOrbOverlay.keyWindowSafeBottom
+                             - barH / 2 + drop
+            let fallbackX = geo.size.width * (CGFloat(slotIndex) + 0.5) / CGFloat(slotCount)
+            // ⚠️ ViewBuilder 内只能用表达式：`let x: T` + if/else 赋值会被当作条件视图
+            //（CI 报 "type '()' cannot conform to 'View'"）→ 用 map/?? 表达式写
+            let target: CGPoint = CGPoint(x: liveCenter.map { $0.x - g.minX } ?? fallbackX,
+                                          y: geoCenterY - g.minY + verticalNudge)
             // 空闲呼吸 15fps / 思考旋转 30fps —— dock 常驻视图按状态降帧
             SiriBallView(thinking: thinking, size: ballSize, fps: thinking ? 30 : 15,
                          unseen: unseen, failed: failed)
                 .frame(width: ballSize, height: ballSize)
                 .position(x: target.x, y: target.y)
         }
-        .task { await refreshMeasuredBarHeight() }
+        .task { await refreshLiveCenter() }
         .onReceive(NotificationCenter.default.publisher(for: UIDevice.orientationDidChangeNotification)) { _ in
-            Task { await refreshMeasuredBarHeight() }
+            Task { await refreshLiveCenter() }
         }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active { Task { await refreshMeasuredBarHeight() } }
+            if phase == .active { Task { await refreshLiveCenter() } }
         }
     }
 
-    /// 读系统真实 dock 高度：首帧布局未落定、转屏/放大字体/后台恢复后会读到旧值，
+    /// 读系统真实槽位：首帧布局未落定、转屏/后台恢复后会读到旧值，
     /// 故连读 3 次、每次覆盖，取最后一次有效值（不再「首成功即定」而锁死旧 frame）
     @MainActor
-    private func refreshMeasuredBarHeight() async {
+    private func refreshLiveCenter() async {
+        var latest: CGPoint?
+        // v3.9.33：同一轮里一并取真实 bar 高（放大字体/转屏/回前台后都会变；读不到就保持兜底值）
         var latestBarH: CGFloat = 0
         for delay in [0.15, 0.6, 1.6] {
             try? await Task.sleep(for: .seconds(delay))
             if Task.isCancelled { return }        // 视图已消失 → 别再写 @State
+            if let c = DockOrbOverlay.slotCenterGlobal(index: slotIndex, count: slotCount) { latest = c }
             if let h = DockOrbOverlay.slotBarHeight() { latestBarH = h }
         }
+        if let latest, latest != liveCenter { liveCenter = latest }
         if latestBarH > 1, abs(latestBarH - measuredBarHeight) > 0.5 { measuredBarHeight = latestBarH }
+    }
+
+    /// 系统 tab bar 第 index 个按钮的中心（window 坐标）。读不到 / 数量对不上 → nil（调用方回退）
+    @MainActor
+    static func slotCenterGlobal(index: Int, count: Int) -> CGPoint? {
+        guard let window = keyWindow, let tabBar = findTabBar(in: window) else { return nil }
+        var found: [UIView] = []
+        collectTabButtons(in: tabBar, into: &found)
+        // 数量必须与槽位数一致才敢用，否则宁可回退（避免误取别的槽位）
+        guard found.count == count, index >= 0, index < found.count else { return nil }
+        let b = found.sorted { $0.frame.minX < $1.frame.minX }[index]
+        let br = b.convert(b.bounds, to: nil)     // to: nil = window 坐标
+        guard br.width > 1, br.height > 1 else { return nil }
+        // v3.6.5：本函数只取 **x** 用于水平对准槽位；y 已改由 DockOrbOverlay 的几何定位给出
+        //（不取按钮/tab bar 的 bounds 中心——两者中心是否相等无法在本地证实，见 body 注释）。
+        return CGPoint(x: br.midX, y: br.midY)
     }
 
     /// v3.9.33：系统 tab bar 的**实际高度**（不含底部安全区）。放大字体下玻璃 tab bar 会变高，
@@ -328,6 +360,65 @@ struct DockOrbOverlay: View {
         let h = effectiveBottom - r.minY
         guard h > 20, h < 120 else { return nil }               // 离谱值宁可回退（防误取别的视图）
         return h
+    }
+
+    /// v3.9.79：dock **内容中心**（图标 + 文字整块的并集中心）与 tab bar 几何中心的**实测**差值。
+    ///
+    /// 为什么必须实测：`dockContentCenterDrop`(6.3) 是**竖屏** @3x 截图量出来的；横屏 tab bar 是紧凑形态
+    /// （无文字、图标居中）→ 内容中心≈bar 中心，差值≈0，继续写死 6.3 就会「球在 dock 里上下没居中」
+    /// （用户 2026-09-25 横屏报修的就是这个）。
+    /// 取值顺序：① 按钮内 UIImageView / UILabel 叶子视图的并集中心 − bar 几何中心（与当年量 6.3 的口径一致）；
+    /// ② 认不出版本差异 → 按钮自身明显小于 bar 时用按钮中心；③ 都拿不到 → nil（调用方回退 6.3，旧行为逐字一致）。
+    @MainActor
+    static func slotContentDrop(index: Int, count: Int) -> CGFloat? {
+        guard let window = keyWindow, let tabBar = findTabBar(in: window) else { return nil }
+        let barRect = tabBar.convert(tabBar.bounds, to: nil)
+        guard barRect.height > 8 else { return nil }
+        var found: [UIView] = []
+        collectTabButtons(in: tabBar, into: &found)
+        guard found.count == count, index >= 0, index < found.count else { return nil }
+        let button = found.sorted { $0.frame.minX < $1.frame.minX }[index]
+        var box: CGRect?
+        for sub in button.subviews {
+            for leaf in sub.subviews.isEmpty ? [sub] : sub.subviews {
+                guard leaf is UIImageView || leaf is UILabel, !leaf.isHidden, leaf.alpha > 0.01 else { continue }
+                let r = leaf.convert(leaf.bounds, to: nil)
+                guard r.height > 1, r.width > 1, r.height < barRect.height else { continue }
+                box = box.map { $0.union(r) } ?? r
+            }
+        }
+        if box == nil {
+            let br = button.convert(button.bounds, to: nil)
+            if br.height > 1, br.height < barRect.height - 2 { box = br }   // 撑满 bar 的容器不算「内容」
+        }
+        guard let content = box, content.height > 4 else { return nil }
+        let drop = content.midY - barRect.midY
+        guard drop > -20, drop < 20 else { return nil }        // 离谱值宁可回退（防误取别的视图）
+        return drop
+    }
+
+    /// 几何取值的统一出口：实测差值，读不到才落回兜底。
+    /// ⚠️ **可见球 / 命中层 / 长按菜单 / 识别浮层 / 烟花原点全部走这一个函数** —— 别在任何一处缓存或另写 fallback
+    ///    （转屏后两条路差 6.3pt = 「球看着在那儿、按上去没反应」，审查① 实测指出）。
+    /// 兜底按朝向给：横屏（矮屏）tab bar 是紧凑形态，内容中心≈bar 中心 → 0 才是横屏真值；
+    /// 落回竖屏量出来的 6.3 等于「修好的 bug 静默复活」（审查② B2）。
+    @MainActor
+    static func contentCenterDrop(index: Int = 2, count: Int = 5) -> CGFloat {
+        if let d = slotContentDrop(index: index, count: count) { return d }
+        let shortScreen = keyWindow?.traitCollection.verticalSizeClass == .compact
+        return shortScreen ? 0 : dockContentCenterDrop
+    }
+
+    /// 递归收集 tab 按钮：iOS 26 玻璃 tab bar 可能把按钮放进中间容器，只扫直接子视图会漏掉（改进空转）
+    @MainActor
+    private static func collectTabButtons(in view: UIView, into out: inout [UIView]) {
+        for sub in view.subviews {
+            if String(describing: type(of: sub)).contains("TabBarButton") {
+                out.append(sub)
+            } else if !sub.subviews.isEmpty {
+                collectTabButtons(in: sub, into: &out)
+            }
+        }
     }
 
     @MainActor
@@ -356,17 +447,18 @@ struct DockOrbOverlay: View {
 
     /// 球心到**叠加层底部**的距离（DockTabView 的烟花原点用；与 BurstCanvas 的 `h - originFromBottom`
     /// 同一坐标系，h = 叠加层高）。⚠️ 叠加层底 ≠ 窗口底（差一个底部安全区）。
-    ///
-    /// v4.0.80：球浮在 dock 上方 → 距叠加层底 = dock 高 + 呼吸 + 球半径，**与 `floatingOrbCenter` 同源**
-    ///（floatingOrbCenter 的 y 从窗口底起算，两者相差恰好一个底部安全区；改口径时两处必须一起动）。
-    /// v3.9.33：bar 高不再是常量——宿主把实测值传进来（放大字体下 tab bar 变高，原点要跟着球动）。
-    /// v3.9.79b 的教训照旧适用：口径改了**务必全仓 grep**——烟花原点与可见球错位是最隐蔽的一类
-    ///（删除本函数会连带 DockTabView 编译失败，v3.6.5 首发 CI #468 实录）。
+    /// v3.6.5：改为与球实际位置同源的几何口径 —— (屏高−安全区−tabBar高/2+drop) 距叠加层底
+    ///         = tabBar高/2 − drop（v3.6.4 用 tab bar 几何中心时是 24.5pt，差 6.3pt）。
+    /// v3.9.33：bar 高不再是常量——宿主把实测值传进来（放大字体下 tab bar 变高，原点要跟着球动）；
+    ///          默认参数 = 兜底 bar 高（读不到实测值时与原行为逐字一致）。
+    /// v3.9.79：drop 也改走 `contentCenterDrop(...)`（原来还减竖屏常量 6.3 → 横屏烟花从球心上方 6.3pt 炸开，审查② B1）。
+    /// v3.9.79b：槽位号/槽位数改为**透传**（原来写死 2/5）——dock 的球是第 2 槽共 5 槽，槽位数改了而这里没改，
+    ///           烟花原点会静默落回兜底常量、与可见球错位（审查第二轮「可优化」第 3 条）。
+    /// 删除本函数会连带 DockTabView 编译失败（v3.6.5 首发 CI #468 实录）→ 改口径时务必全仓 grep。
     @MainActor
-    static func floatingBallCenterFromBottom(barHeight: CGFloat = fallbackBarHeight,
-                                            ballSize: CGFloat = defaultBallSize) -> CGFloat {
-        let barH = barHeight > 1 ? barHeight : fallbackBarHeight
-        return barH + floatingGap + ballSize / 2
+    static func ballCenterFromBottom(barHeight: CGFloat = fallbackBarHeight,
+                                     index: Int = 2, count: Int = 5) -> CGFloat {
+        barHeight / 2 - contentCenterDrop(index: index, count: count)
     }
 
     /// 读 key window 底部安全区（不依赖叠加层自身的 safeAreaInsets——叠加层会被 tab bar 吃掉安全区）
@@ -383,19 +475,21 @@ struct DockOrbOverlay: View {
             .first?.coordinateSpace.bounds.width ?? 0
     }
 
-    /// v4.0.80：浮动球的**唯一几何出口**（window 坐标）——可见球 / 命中层 / 长按菜单 / 识别浮层 /
-    /// 烟花原点全部走这一个函数，任何一处都**不许**自己算（五处错一处 = 球看着在那儿、按上去没反应；
-    /// 本仓已踩过两次：v3.9.59 命中圈错位、v3.9.79 转屏后差 6.3pt）。
+    /// v3.9.59：智能球的**全局球心**（window 坐标）——球命中层 / 长按菜单浮层与本层共用同一套几何，
+    /// 禁止各自算一份（命中圈与可见球错位是这类浮层最隐蔽的 bug：球看着在那儿，手指按上去没反应）。
     ///
-    /// 口径（球已不绑槽位、也不再读 dock 内容中心）：
-    ///   x = 窗口宽 / 2 —— 水平居中，与槽位数量无关（tab 隐藏几个都一样）；
-    ///   y = 窗口底 − 底部安全区 − 真实 dock 高 − 呼吸 `floatingGap` − 球半径
-    ///       → 球**底边**恒定落在 dock 顶边上方 `floatingGap` 处。
+    /// 与 body 的 target 完全同源：
+    ///   x → 优先真实槽位按钮中心（`slotCenterGlobal`，读不到才回退等分估算）；
+    ///   y → 几何定位（窗口底 − 底部安全区 − bar高/2 + 实测 6.3pt 差值）。
+    /// ⚠️ 不要把 y 改成「按钮 bounds 中心」：那条路已在 v3.6.5 装机实测里被否掉（球会偏上 6.3pt）。
     @MainActor
-    static func floatingOrbCenter(ballSize: CGFloat = defaultBallSize,
-                                  barHeight: CGFloat = fallbackBarHeight) -> CGPoint {
+    static func orbCenterGlobal(slotIndex: Int = 2, slotCount: Int = 5, barHeight: CGFloat) -> CGPoint {
         let barH = barHeight > 1 ? barHeight : fallbackBarHeight
-        let y = keyWindowHeight - keyWindowSafeBottom - barH - floatingGap - ballSize / 2
-        return CGPoint(x: keyWindowWidth / 2, y: y)
+        // v3.9.79：与可见球同源 —— 内容差值也按当前朝向实测（横屏≈0，写死 6.3 球会偏下）
+        let drop = contentCenterDrop(index: slotIndex, count: slotCount)
+        let y = keyWindowHeight - keyWindowSafeBottom - barH / 2 + drop
+        let x = slotCenterGlobal(index: slotIndex, count: slotCount)?.x
+                ?? keyWindowWidth * (CGFloat(slotIndex) + 0.5) / CGFloat(slotCount)
+        return CGPoint(x: x, y: y)
     }
 }

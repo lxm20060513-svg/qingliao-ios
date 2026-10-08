@@ -61,20 +61,12 @@ enum HomeCardOrder {
     /// - Parameters:
     ///   - rawOrder: 逗号分隔的 kind 串（可空 / 可含未知项 / 可重复）
     ///   - rawOff:   逗号分隔的「关掉」kind 串（空串 = 没关任何一张；v4.0.9 起 `custom` 也可在里面）
-    ///   - catalog:  目录（缺省 = 全量 `catalogOrder`，历史口径不改）。
-    ///               ⚠️ P2 工作模式传 `WorkbenchLayout.homeCardCatalog(.work)`（不含空槽位）：
-    ///               「缺失 kind 自动补尾」必须按**本口径的目录**补，否则空槽位会被补回工作模式首屏。
-    static func resolve(order rawOrder: String,
-                        off rawOff: String,
-                        catalog: [HomeCardKind] = HomeCardKind.catalogOrder) -> [HomeCardKind] {
+    static func resolve(order rawOrder: String, off rawOff: String) -> [HomeCardKind] {
         let off = parse(rawOff)
         let seen = parse(rawOrder)
         var out: [HomeCardKind] = []
-        // ⚠️ 按**本口径的目录**过滤，而不是只认「字符串合不合法」：
-        // 用户存的顺序串是上一套口径写下的（生活模式一定会把 `custom` 写进串尾）。
-        // 只过滤目录外的项，工作模式才不会把空槽位从老配置里漏回首屏（真值表 C6 抓过）。
-        for k in seen where catalog.contains(k) && !out.contains(k) { out.append(k) }
-        for k in catalog where !out.contains(k) { out.append(k) } // 补全新卡（按本口径目录）
+        for k in seen where !out.contains(k) { out.append(k) }                     // 去重 + 丢未知
+        for k in HomeCardKind.catalogOrder where !out.contains(k) { out.append(k) } // 补全新卡
         return atLeastOne(out.filter { !off.contains($0) })
     }
 
@@ -276,10 +268,7 @@ enum HomeCardStore {
         // ⚠️ 必须区分「键不存在」与「键存在但为空串」：前者 = 从没动过开关 → 默认档；
         // 后者 = 用户把卡片全开了 → 听用户的（哨兵口径，丢了这两行的区别就是首屏口径错乱）。
         let stored = UserDefaults.standard.string(forKey: offKey)
-        // P2：默认档按口径取（工作模式 = 快捷四张之外全收；生活模式 = 历史档，逐字不变）。
-        // 用户**存过**则一律听用户的 —— 「老用户配置不丢」（P2 条目 11）。
-        let fallback = WorkbenchLayout.homeCardDefaultOff(WorkbenchScope.launched)
-        let raw = HomeCardOrder.parse(stored ?? HomeCardOrder.encode(fallback))
+        let raw = HomeCardOrder.parse(stored ?? HomeCardOrder.encode(defaultOff))
         let kept = HomeCardKind.draggable.filter { !raw.contains($0) }
         return kept.isEmpty ? raw.filter { $0 != .resume } : raw
     }
@@ -287,24 +276,17 @@ enum HomeCardStore {
     /// 完整顺序（catalog 全量，**含被关掉的卡**）—— 拖拽写回的 oldFull 必须用它：
     /// 关掉的卡才能留在原槽、重开回原位。⚠️ 若拿「已过滤的渲染列表」当 oldFull，
     /// 用户新开一张卡后它不在 full 里 → 开了却看不见（真值表钉住）。
-    /// P2：目录按口径取（工作模式不含空槽位 → 空槽位不会出现在 full 里，也就写不进顺序串）。
     static var fullOrder: [HomeCardKind] {
-        HomeCardOrder.resolve(order: UserDefaults.standard.string(forKey: orderKey) ?? "",
-                              off: "",
-                              catalog: WorkbenchLayout.homeCardCatalog(WorkbenchScope.launched))
+        HomeCardOrder.resolve(order: UserDefaults.standard.string(forKey: orderKey) ?? "", off: "")
     }
 
     /// 当前渲染列表（= 完整顺序 - 被关掉的；空槽位可见时钉在末尾）
     /// ⚠️ v4.0.9：空槽位被关掉时**不再补回**（旧实现无条件 `base + [.custom]`，等于把 off 里的
     /// custom 无视掉 —— 那正是「固定的空槽位关不掉」的真正根因）。
-    /// P2：工作模式的目录里**没有**空槽位（条目 12）→ 这里直接回落 base，不再补 custom。
     static var kinds: [HomeCardKind] {
-        let catalog = WorkbenchLayout.homeCardCatalog(WorkbenchScope.launched)
         let base = HomeCardOrder.resolve(
             order: UserDefaults.standard.string(forKey: orderKey) ?? "",
-            off: HomeCardOrder.encode(off),
-            catalog: catalog)
-        guard catalog.contains(.custom) else { return base }
+            off: HomeCardOrder.encode(off))
         if off.contains(.custom) { return base }
         return base.contains(.custom) ? base : base + [.custom]
     }
