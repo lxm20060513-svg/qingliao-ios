@@ -197,12 +197,13 @@ check("D3 resetForTesting 生产代码 0 处调用（它是给本表隔离用例
       swiftFiles().filter {
           $0 != "qingliao/Core/WorkbenchScope.swift" && code(read($0)).contains("resetForTesting()")
       }.isEmpty)
-check("D4 口径读取集中在五处（首页卡两条路径 + 生活页目录 + 看板挂载点 + P3 深度口径文件），别处 0 处", {
+check("D4 口径读取集中在六处（首页卡两条路径 + 生活页目录 + 看板挂载点 + P3 深度口径文件 + P4 冷启动口径文件），别处 0 处", {
     let allowed: Set<String> = ["qingliao/Core/HomeCardOrder.swift",
                                 "qingliao/Features/HomeCards.swift",
                                 "qingliao/Features/Life/LifeView.swift",
                                 "qingliao/Features/Dashboard/DashboardView.swift",
-                                "qingliao/Core/WorkbenchInsight.swift"]
+                                "qingliao/Core/WorkbenchInsight.swift",
+                                "qingliao/Core/WorkbenchOnboard.swift"]
     let hits = Set(swiftFiles().filter { code(read($0)).contains("WorkbenchScope.launched") })
     return hits == allowed
 }())

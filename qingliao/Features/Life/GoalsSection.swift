@@ -831,7 +831,10 @@ extension GoalItem {
     var insightProgress: WorkbenchInsight.GoalProgress {
         WorkbenchInsight.GoalProgress(
             createdAt: createdAt,
-            finished: finishedAt != nil,
+            // 完成判定必须与全 App 同一口径（`GoalStore.isFinished` = 步骤全勾）：
+            // 后端 `finishedAt` 只是辅助展示、不参与判定 —— 用它会让结论条报「停滞」而目标卡
+            // 上没有任何徽标，两处自相矛盾（谎报）。
+            finished: isFinished,
             paused: paused,
             manualPushAt: manualPushAt,
             stepStartedAt: steps.compactMap(\.startedAt),

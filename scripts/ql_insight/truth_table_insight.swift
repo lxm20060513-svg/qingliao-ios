@@ -281,8 +281,9 @@ func t18() -> Bool {
         && goalsSrc.contains("WorkbenchInsight.stallBadge(goal.insightProgress")
 }
 check("E2 目标卡：走唯一映射 `insightProgress`（不是自己拼字段）+ 徽标来自 WorkbenchInsight", t18())
-check("E3 习惯卡：断签文案来自 WorkbenchInsight（视图里不许有自己的天数话术）",
-      habitSrc.contains("WorkbenchInsight.habitBreakBadge(dayKeys: h.days")
+check("E3 习惯卡：断签文案来自 WorkbenchInsight（视图里不许有自己的天数话术；原始日键走 HabitKit 透传口）",
+      habitSrc.contains("WorkbenchInsight.habitBreakBadge(dayKeys: HabitKit.dayKeys(h)")
+        && !habitSrc.contains(".days")
         && !habitSrc.contains("断了 \\(gap"))
 func t16() -> Bool {
     let seg = barSrc.range(of: "private var stallRow")
@@ -300,6 +301,7 @@ func t17() -> Bool {
                                 "qingliao/Features/HomeCards.swift",
                                 "qingliao/Features/Life/LifeView.swift",
                                 "qingliao/Features/Dashboard/DashboardView.swift",
+                                "qingliao/Core/WorkbenchOnboard.swift",
                                 INSIGHT]
     let hits = Set(swiftFiles().filter { code(read($0)).contains("WorkbenchScope.launched") })
     return hits == allowed

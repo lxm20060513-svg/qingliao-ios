@@ -384,7 +384,7 @@ struct HabitRowCard: View {
                 .font(.system(size: Typography.tiny))
             // v4.0.79（P3-14 深度）：断签提示 —— 打卡连续中断时才多这一段（口径：断满 ≥1 整天
             // 且历史最好连续 ≥2 天；今天还没结束不算「今天漏了」）。工作模式专属，生活模式回 nil。
-            if let brk = WorkbenchInsight.habitBreakBadge(dayKeys: h.days, today: today) {
+            if let brk = WorkbenchInsight.habitBreakBadge(dayKeys: HabitKit.dayKeys(h), today: today) {
                 Text("·")
                     .font(.system(size: Typography.tiny))
                     .foregroundStyle(.tertiary)

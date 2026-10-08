@@ -147,6 +147,7 @@ struct VerdictBar: View {
             VerdictStepsSheet(steps: store.todaySteps)
         case .nightList:
             VerdictNightSheet(items: store.nightItems,
+                              total: store.state.counts.nightTotal ?? 0,
                               offline: WorkbenchVerdict.isOffline(store.state))
         }
     }
@@ -190,6 +191,8 @@ struct VerdictStepsSheet: View {
 struct VerdictNightSheet: View {
     @Environment(\.dismiss) private var dismiss
     let items: [WorkbenchVerdict.NightTask]
+    /// 汇总条数（`counts.nightTotal`）——只在「有汇总、没明细」时用来把话说准。
+    let total: Int
     let offline: Bool
 
     var body: some View {
@@ -198,7 +201,10 @@ struct VerdictNightSheet: View {
                 if offline {
                     VerdictEmptyNote(text: WorkbenchVerdict.offlineHint)
                 } else if items.isEmpty {
-                    VerdictEmptyNote(text: "昨晚后台没有跑过任务。")
+                    // 汇总说跑了 N 条、明细却空 → 直说「明细没读到」，不要报成「没跑过」（谎报）。
+                    VerdictEmptyNote(text: total > 0
+                        ? "昨夜跑了 \(total) 条，明细没读到（后端只回了汇总）。"
+                        : "昨晚后台没有跑过任务。")
                 } else {
                     List(items) { t in
                         HStack(spacing: Spacing.sm) {
