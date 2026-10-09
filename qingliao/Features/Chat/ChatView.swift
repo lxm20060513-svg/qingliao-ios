@@ -1043,7 +1043,9 @@ struct ChatView: View {
                             dx: value.translation.width,
                             dy: value.translation.height
                         ) else { return }
-                        Haptics.tap()
+                        // v4.0.83（用户 2026-10-09：「聊天页滑动返回不需要有震动感，丝滑切换就行」）：
+                        // 这里原有一发 Haptics.tap()，已去掉 —— 边缘返回属于「丝滑」类交互，
+                        // 中途一震反而把连续感切断（长按/点击类才要「明显」的触感，见本仓触感口径）。
                         onBack()
                     }
             )

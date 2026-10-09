@@ -54,8 +54,12 @@ struct SelectableTextLabel: UIViewRepresentable {
     // v4.0.25：存为长期目标（长按菜单）——传当前段落/选中片段
     var onGoal: ((String) -> Void)? = nil
     /// v4.0.81：宿主改用「长按 → 锚定胶囊菜单」（ChatView 的 bubbleMenuItems）时，本视图降级为
-    /// **纯渲染**：isSelectable / isUserInteractionEnabled 全关，触摸穿透给外层 SwiftUI 长按手势
-    /// —— 否则 UITextView 原生编辑菜单与自绘菜单两套并存（用户口径「都要对齐」）。
+    /// **纯渲染**：关掉 isSelectable，让 UITextView 的原生编辑菜单/拖选不再出现
+    /// —— 否则原生菜单与自绘胶囊两套并存（用户口径「都要对齐」）。
+    /// ⚠️ v4.0.82 修正（重要）：**isUserInteractionEnabled 不再跟着关**。v4.0.81 把它设成 false 后，
+    /// 这个 UIView 连 SwiftUI 的命中测试一起退出，挂在外层的 `.bubbleLongPress` 永远收不到长按
+    /// —— 这正是用户报「聊天页我输出的内容气泡长按菜单失效」的根因（AI 短消息走 SwiftUI Text 所以没事）。
+    /// 现在恒为 true，长按由本视图内部的 UILongPressGestureRecognizer 自持，经 `onLongPress` 回宿主。
     /// ⚠️ 代价（用户拍板接受的置换）：该路径失去拖动选中、失去 .link 点击。
     /// 默认 true = 原行为不变（LongReplySheet 阅读页仍走原生菜单 + 可拖选）。
     var interactionEnabled: Bool = true

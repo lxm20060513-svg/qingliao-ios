@@ -723,32 +723,42 @@ let quickMenuRouteSlice = between(dockSrc, "if QingliaoDeepLink.nonTabRoutes.con
 check("快捷菜单路由切片取到（切片空了本条就是空真）", !quickMenuRouteSlice.isEmpty)
 check("快捷菜单路由不再把锚点钉死在 dock（改为向宠物请求锚点）",
       quickMenuRouteSlice.contains("requestOrbMenuAtPetAnchor()")
-      && quickMenuRouteSlice.contains("openOrbMenuAtDockSlot()"))
+      // v4.0.83 口径升级：这条入口**不再有** dock 槽位落点（落点改会话页的常驻宠物锚点）。
+      // ⚠️ 判定前必须 strip 注释：新加的说明文字里会引到那个旧函数名，而注释里的字面量不该参与判定。
+      && !stripCommentLines(quickMenuRouteSlice).contains("openOrbMenuAtDockSlot()"))
 // 🚨 切页与弹菜单同轮 = 菜单被 onChange(of: selected) 收掉（审查 P0）。这条是**位置**约束：
 //    「切过页」那个分支的函数体内必须出现 Task 延后，同步弹只能落在 `else` 分支里。
 //    （旧版本写成析取 `!A || B`，A 失效也不影响判定 → 假绿，已改）
-let afterTabSwitchSlice = between(dockSrc, "let wasOnChat = selected == .chat",
+//
+// ⚠️ v4.0.83 口径升级（用户 2026-10-09：「现版本轻聊快捷菜单布局偏出屏幕」「打开快捷菜单弹出的画面
+//    要等同于长按聊天首页卡通宠物触发弹出的画面」）：落点从**聊天页**改到**会话页（= 聊天首页）**。
+//    聊天页欢迎页只在空会话时渲染，会话一有消息锚点就没了 → 只能退回 dock 槽位（胶囊从屏幕底部朝上冒，
+//    就是用户报的那个画面）；会话页宠物在首页头里**常驻** → 锚点必得。
+//    于是原来「有消息退 dock 槽位 / 空会话走宠物握手」的二选一**整块消失**：两条路都只走宠物握手。
+//    唯一保留的时序约束不变：切页与弹菜单必须错开一轮。
+let afterTabSwitchSlice = between(dockSrc, "let onChatHome = (selected == .chat && showSessionHome)",
                                   "guard var tab = DockTab(rawValue: route.rawValue)")
 check("切页后的分支切片取到（切片空了本条就是空真）", !afterTabSwitchSlice.isEmpty)
-let cutBranchRaw = stripCommentLines(afterTabSwitchSlice.components(separatedBy: "if !wasOnChat {").last ?? "")
-let elseBranchRaw = stripCommentLines(afterTabSwitchSlice.components(separatedBy: "} else if !chat.messages.isEmpty {").last ?? "")
-// 「切过页」分支里两个落点都**必须在 Task 之后**才出现 —— 同轮调用就会被 onChange 收掉。
-// 只查「分支体内含有这两个词」不行：把它们挪到 Task 外面（切页同轮）照样全绿，那正是这个 P0 的形态。
+let cutBranchRaw = stripCommentLines(afterTabSwitchSlice.components(separatedBy: "if !onChatHome {").last ?? "")
+let elseBranchRaw = stripCommentLines(afterTabSwitchSlice.components(separatedBy: "} else {").last ?? "")
+// 「切过页」分支里落点**必须在 Task 之后**才出现 —— 同轮调用就会被 onChange 收掉。
+// 只查「分支体内含有这个词」不行：把它挪到 Task 外面（切页同轮）照样全绿，那正是这个 P0 的形态。
 func firstIndex(_ hay: String, _ needle: String) -> Int? {
     guard let r = hay.range(of: needle) else { return nil }
     return hay.distance(from: hay.startIndex, to: r.lowerBound)
 }
 let taskAt = firstIndex(cutBranchRaw, "Task { @MainActor in")
-let slotAt = firstIndex(cutBranchRaw, "openOrbMenuAtDockSlot()")
 let petAt = firstIndex(cutBranchRaw, "requestOrbMenuAtPetAnchor()")
 check("切过页分支的落点在延后之前不许出现（同轮 = 被 onChange 收掉）",
-      taskAt != nil && slotAt != nil && petAt != nil
-      && slotAt! > taskAt! && petAt! > taskAt!)
-check("切过页分支的延后仍要覆盖两种情况（有消息退 dock 槽位 / 空会话走宠物握手）",
-      cutBranchRaw.contains("if chat.messages.isEmpty"))
-check("同步弹只能落在「本来就在聊天页」的 else 分支里",
+      taskAt != nil && petAt != nil && petAt! > taskAt!)
+check("切过页分支的落点 = 切聊天首页 + 宠物握手（v4.0.83 起不再有 dock 槽位落点）",
+      cutBranchRaw.contains("selected = .chat")
+      && cutBranchRaw.contains("showSessionHome = true")   // 🚨 落点必须是「聊天首页」态；写 .sessions 会渲染空白页
+      && !cutBranchRaw.contains("selected = .sessions")
+      && !cutBranchRaw.contains("openOrbMenuAtDockSlot()"))
+check("同步弹只能落在「本来就在聊天首页」的 else 分支里",
       !elseBranchRaw.contains("selected = .chat")
-      && elseBranchRaw.contains("openOrbMenuAtDockSlot()")
+      && elseBranchRaw.contains("requestOrbMenuAtPetAnchor()")
       && !elseBranchRaw.contains("Task { @MainActor in"))
 check("两个落点都带菜单已开互斥（防止把已开着的宠物锚点菜单拽回 dock 槽位）",
       dockSrc.contains("private func openOrbMenuAtDockSlot() {\n        guard !showOrbMenu else { return }")

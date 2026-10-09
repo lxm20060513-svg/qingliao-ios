@@ -157,8 +157,8 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.qingliao.app2
         INFOPLIST_KEY_CFBundleDisplayName: 轻聊
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-        MARKETING_VERSION: "4.0.82"
-        CURRENT_PROJECT_VERSION: "638"
+        MARKETING_VERSION: "4.0.83"
+        CURRENT_PROJECT_VERSION: "639"
         ENABLE_PREVIEWS: YES
         CODE_SIGNING_ALLOWED: "NO"
 
@@ -192,8 +192,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.qingliao.app2.widget
-        MARKETING_VERSION: "4.0.82"
-        CURRENT_PROJECT_VERSION: "638"
+        MARKETING_VERSION: "4.0.83"
+        CURRENT_PROJECT_VERSION: "639"
         CODE_SIGNING_ALLOWED: "NO"
         CODE_SIGNING_REQUIRED: "NO"
         SKIP_INSTALL: YES
@@ -245,8 +245,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.qingliao.app2.share
-        MARKETING_VERSION: "4.0.82"
-        CURRENT_PROJECT_VERSION: "638"
+        MARKETING_VERSION: "4.0.83"
+        CURRENT_PROJECT_VERSION: "639"
         CODE_SIGNING_ALLOWED: "NO"
         CODE_SIGNING_REQUIRED: "NO"
         SKIP_INSTALL: YES

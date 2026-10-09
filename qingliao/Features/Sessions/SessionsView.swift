@@ -624,6 +624,22 @@ struct SessionsView: View {
     /// 与聊天页欢迎区同源，差别只在本页把「首页」摆在会话列表顶部。
     /// Q1=3 带来的硬约束：球没了，快捷入口只剩「长按宠物」，所以这里的宠物**必须**接回那条锚点通知，
     /// 且**自带锚点**（不走 ChatView 应答那条来路 —— 本页 ChatView 根本不在树上，发了会哑火）。
+    /// v4.0.83：「报告宠物锚点 + 一声长按触感」—— 与 `ChatView.replyOrbMenuAnchor` 同款。
+    /// 两边发的是**同一条**通知 `.qingliaoOpenOrbMenuAtPet`，dock 侧合流到同一个消费点（`openMenuAtPetAnchor`），
+    /// 动作分发不复制。
+    /// ⚠️ 前提订正：移动端布局里本页（`showSessionHome == true`）与 `ChatView` 是 `.chat` tag 下的
+    /// **if/else 互斥分支**（DockTabView:201-209）→ 任一时刻只有一只宠物在树上，正常路径下不会有第二个应答者。
+    /// `OrbPetAnchorRegistry.consumePendingRequest()` 的先到先得因此是**纵深防御**（不是常规去重手段）；
+    /// iPad 分栏分支（DockTabView:189）用 `showHero` 默认 false 渲染本页，那里压根没有宠物。
+    /// 别按「两页同时挂树」这个错误前提去改逻辑。
+    private func replyOrbMenuAnchor(center: CGPoint) {
+        Haptics.press()       // 与长按宠物同一触感（不是 .tap）
+        NotificationCenter.default.post(
+            name: .qingliaoOpenOrbMenuAtPet,
+            object: nil,
+            userInfo: OrbPetAnchor(center: center, size: 96).userInfo)
+    }
+
     @ViewBuilder
     private var homeHero: some View {
         VStack(spacing: Spacing.lg) {
@@ -665,6 +681,25 @@ struct SessionsView: View {
                     )
                 )
                 .accessibilityLabel("轻点抚摸，长按打开快捷菜单")
+                // v4.0.83（用户 2026-10-09：「打开快捷菜单弹出的画面要等同于长按聊天首页卡通宠物」）：
+                // 本页宠物也承担**锚点应答**。为什么是这里：会话页（聊天首页）的宠物在**首页头**里常驻 ——
+                // 不像聊天页欢迎页只在空会话时才渲染。所以「打开轻聊快捷菜单」这类 App 外入口把落点改到本页后，
+                // 锚点**必然**拿得到（原来落到聊天页，会话有消息时只能退回底部栏锚点，胶囊从屏幕底部朝上冒 ——
+                // 用户报的「布局偏出屏幕」就是那个画面）。
+                // 去重靠 OrbPetAnchorRegistry.consumePendingRequest()（先到先得：后到的应答者拿到 false 直接返回）
+                // → 与聊天页欢迎页宠物同时挂树时不会双弹菜单、不会双震。
+                .onReceive(NotificationCenter.default.publisher(for: .qingliaoRequestPetAnchor)) { _ in
+                    guard heroPetCenter != .zero, OrbPetAnchorRegistry.consumePendingRequest() else { return }
+                    replyOrbMenuAnchor(center: heroPetCenter)
+                }
+                .onChange(of: heroPetCenter) { _, center in
+                    // 补发：请求发出时本视图还没挂树（刚切到本页）→ 那次请求没人听，这里中心刚就位时补上。
+                    // ⚠️ 顺序同 ChatView：`center != .zero` 必须写在 `publish()` 前面 —— publish 先消费后返回，
+                    //    中心为零也被消费掉就再没人应答了（快捷指令彻底静默）。
+                    if center != .zero, OrbPetAnchorRegistry.publish() {
+                        replyOrbMenuAnchor(center: center)
+                    }
+                }
             Text(heroQuote)
                 .font(.system(size: Typography.title, weight: .semibold))
                 .foregroundStyle(.primary)
@@ -693,7 +728,11 @@ struct SessionsView: View {
             fixedChannels: fixedChannelSessions,
             // v4.0.82：任务中心卡 → 直接打开 TaskCenterView（与聊天页 header 那颗入口同参；
             // 轻点的 Haptics 由 HomeCardsGrid 的 Button 统一给，这里不重复震）
-            onOpenTaskCenter: { showTaskCenterCard = true }
+            onOpenTaskCenter: { showTaskCenterCard = true },
+            // v4.0.83（用户：「快捷卡片栏位左右对齐会话栏宽度」）：本页 homeHero 在 List 行里，
+            // 行 inset 已是 Spacing.xxl(14)（= 下面会话行的同一个值）→ 网格不再自加 16，
+            // 卡片左右边界与会话行严格对齐。理由与反例见 HomeCardsGrid.inset 的注释。
+            inset: 0
         )
     }
 

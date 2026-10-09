@@ -191,26 +191,28 @@ if let s = dockCode.range(of: "private func applyRoute("),
     check("非 tab 分支排在 tab 映射之前（顺序反了 = 静默落空）",
           nonTab != nil && tabMap != nil && nonTab!.lowerBound < tabMap!.lowerBound)
     let beforeTabMap = String(applyBody[applyBody.startIndex..<(tabMap?.lowerBound ?? applyBody.endIndex)])
-    // ⚠️ v4.0.x：这条口径已改 —— 快捷菜单**现在会切到聊天页**（宠物锚点只有 ChatView 有）。
-    // 旧断言查的是 `selected = tab`（tab 映射那行的字面量），新代码写的是 `selected = .chat` → 查不到 = 空真。
-    // 现在钉的真正约束是「切页与弹菜单不许在同一轮」：切过页的**全部**路径都走 milliseconds(400) 延后请求
-    // （与「会话有没有消息」正交，两支都要延），否则 onChange(of: selected) 会在同一帧把刚弹的菜单收掉。
+    // ⚠️ v4.0.83 口径升级（用户 2026-10-09：「现版本轻聊快捷菜单布局偏出屏幕」「打开快捷菜单弹出的画面要
+    // 等同于长按聊天首页卡通宠物」）：落点从**对话页**改到**聊天首页**（`.chat` tag 下的 `showSessionHome` 态）
+    // —— 对话页的欢迎页只在空会话时渲染，会话一有消息锚点就没了；聊天首页的宠物在首页头**常驻** → 锚点必得。
+    // 于是「有消息退 dock 槽位 / 空会话走宠物握手」的二选一**整块消失**，这条入口只剩**一个**落点
+    // `requestOrbMenuAtPetAnchor()`。
+    // 🚨 落点写法必须是 `selected = .chat` + `showSessionHome = true` —— 写 `selected = .sessions` 会渲染空白页
+    //    （`.sessions` 不在 `dockRenderTabs` 里，本文件 :502-509 有同款口径）。
+    // 钉的真正约束仍是「切页与弹菜单不许在同一轮」：切过页的路径要走 milliseconds(400) 延后请求，
+    // 否则 onChange(of: selected) 会在同一帧把刚弹的菜单收掉。
     let tabSwitchSlice = stripCommentLines(
-        String(beforeTabMap.components(separatedBy: "let wasOnChat = selected == .chat").last ?? ""))
+        String(beforeTabMap.components(separatedBy: "let onChatHome = (selected == .chat && showSessionHome)").last ?? ""))
     func firstIndex(_ hay: String, _ needle: String) -> Int? {
         guard let r = hay.range(of: needle) else { return nil }
         return hay.distance(from: hay.startIndex, to: r.lowerBound)
     }
     let taskAt = firstIndex(tabSwitchSlice, "Task { @MainActor in")
-    let slotAt = firstIndex(tabSwitchSlice, "openOrbMenuAtDockSlot()")
     let petAt = firstIndex(tabSwitchSlice, "requestOrbMenuAtPetAnchor()")
     check("切页后弹菜单必须延到下一轮（onChange(of: selected) 会同帧收掉菜单）",
-          taskAt != nil && slotAt != nil && petAt != nil
-          && slotAt! > taskAt! && petAt! > taskAt!)
-    check("弹菜单的落点只有两个具名方法（不许再散落裸 showOrbMenu = true）",
-          applyBody.contains("openOrbMenuAtDockSlot()")
-          && applyBody.contains("requestOrbMenuAtPetAnchor()")
-          && !applyBody.contains("showOrbMenu = true"))
+          taskAt != nil && petAt != nil && petAt! > taskAt!)
+    check("弹菜单的落点只有具名方法（v4.0.83 起只剩宠物握手一个落点，不许裸 showOrbMenu = true）",
+          stripCommentLines(applyBody).contains("requestOrbMenuAtPetAnchor()")
+          && !stripCommentLines(applyBody).contains("showOrbMenu = true"))
 } else {
     check("找得到 applyRoute 函数体（applyRoute → handleShareURL）", false)
 }

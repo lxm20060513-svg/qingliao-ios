@@ -400,6 +400,13 @@ struct HomeCardsGrid: View {
     /// 带默认空实现：与 `fixedChannels` 同款口径，不传的宿主不会编译不过（那份宿主本就不渲染卡片首页）。
     var onOpenTaskCenter: () -> Void = {}
 
+    /// v4.0.83（用户 2026-10-09：「聊天页快捷卡片栏位左右请对齐会话栏宽度」）：
+    /// 本网格自己的横向留白。默认 16 服务于「宿主没有额外 inset」的场景（聊天页欢迎区）；
+    /// ⚠️ 会话页把 homeHero 铺在 **List 行**里，行的 listRowInsets 已经是 `Spacing.xxl`(14)
+    /// （与普通会话行同一个值、同一个 SessionListRowChrome）——那时再自加 16 = 卡片比会话行
+    /// 多缩进 16pt，就是用户看到的「没对齐」。宿主按场景传（会话页传 0）。
+    var inset: CGFloat = Spacing.section
+
     /// 完整顺序（catalog 全量，含被关掉的）—— 写回的唯一真源。
     /// ⚠️ 必须用 fullOrder（全量）而不是 kinds（渲染列表）：否则新开的卡不在 full 里 → 开了看不见。
     @State private var full: [HomeCardKind] = HomeCardStore.fullOrder
@@ -473,7 +480,7 @@ struct HomeCardsGrid: View {
             }
             .frame(height: rows.isEmpty ? 0 : CGFloat(rows.count) * (cardHeight + gap) - gap)
         }
-        .padding(.horizontal, Spacing.section)
+        .padding(.horizontal, inset)
         .task { await data.load(auth: auth) }
         .task(id: off.count) { await data.loadOnDemand(auth: auth) }   // 开新卡 → 补拉它的数
         .sheet(isPresented: $showEditor) {

@@ -233,10 +233,14 @@ struct CloudDriveBrowserSheet: View {
 
     private func entryRow(_ e: CloudDriveEntry) -> some View {
         HStack(spacing: Spacing.lg) {
+            // v4.0.83（用户：「app 里面小图标请统一用圆角多彩图标统一风格」）：
+            // 行首图标统一成「圆角色块 + 白符号」（与 SettingRow / 首页卡片同款：28pt + Radius.icon）。
             Image(systemName: e.isDir ? "folder.fill" : iconFor(e.name))
-                .font(.system(size: Typography.subhead))
-                .foregroundStyle(e.isDir ? Color.teal : Color.secondary)
-                .frame(width: 28)
+                .font(.system(size: Typography.subhead, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 28, height: 28)
+                .background(e.isDir ? Color.teal : Color.indigo,
+                            in: RoundedRectangle(cornerRadius: Radius.icon, style: .continuous))
             VStack(alignment: .leading, spacing: Spacing.xxs) {
                 Text(e.name)
                     .font(.system(size: Typography.body))

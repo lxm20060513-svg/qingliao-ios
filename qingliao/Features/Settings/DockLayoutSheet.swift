@@ -51,14 +51,28 @@ struct DockLayoutSheet: View {
         }
     }
 
+    /// v4.0.83（用户：「app 里面小图标统一圆角多彩」）：dock 各档行首色块的配色真源。
+    /// 与底部栏语义对齐：会话=蓝 / 生活=粉 / 聊天=青 / 看板=橙 / 设置=灰。
+    private func rowTint(_ tab: DockTab) -> Color {
+        switch tab {
+        case .sessions:  return .blue
+        case .life:      return .pink
+        case .chat:      return .teal
+        case .dashboard: return .orange
+        case .settings:  return .gray
+        }
+    }
+
     /// 一行：图标 + 名称 + 升降序箭头 + 显隐开关（设置页 = 「必显示」）
     @ViewBuilder
     private func row(tab: DockTab, idx: Int) -> some View {
         HStack(spacing: Spacing.md) {
+            // v4.0.83（用户：「app 里面小图标统一圆角多彩」）：行首图标与全站列表行同款色块（28 + Radius.icon）
             Image(systemName: tab.icon)
-                .font(.system(size: Typography.body))
-                .foregroundStyle(.secondary)
-                .frame(width: 24)
+                .font(.system(size: Typography.subhead, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 28, height: 28)
+                .background(rowTint(tab), in: RoundedRectangle(cornerRadius: Radius.icon, style: .continuous))
             Text(tab.title)
                 .font(.system(size: Typography.body))
             Spacer(minLength: Spacing.sm)

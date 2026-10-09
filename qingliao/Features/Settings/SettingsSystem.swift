@@ -534,8 +534,14 @@ struct AppPermissionsSheet: View {
     private var masterCard: some View {
         VStack(alignment: .leading, spacing: Spacing.sm) {
             HStack {
+                // v4.0.83（用户：「app 里面小图标统一圆角多彩」）：总闸卡片头部图标也统一成「圆角色块 + 白符号」，
+                // 与同文件其余行图标（:158/:199/:245/:323）同款。
                 Image(systemName: "brain.head.profile")
-                    .foregroundStyle(Color.accentColor)
+                    .font(.system(size: Typography.subhead, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 28, height: 28)
+                    .background(Color.accentColor,
+                                in: RoundedRectangle(cornerRadius: Radius.icon, style: .continuous))
                 Text("允许 AI 操作我的数据")
                     .font(.system(size: Typography.subhead, weight: .semibold))
                 Spacer()
@@ -560,9 +566,14 @@ struct AppPermissionsSheet: View {
         let st = states[cap] ?? .notDetermined
         VStack(alignment: .leading, spacing: Spacing.sm) {
             HStack(spacing: 12) {
+                // v4.0.83（用户：「app 里面小图标统一圆角多彩」）：能力行图标也统一成「圆角色块 + 白符号」。
+                // 可被 AI 操作 → 强调色块（与右侧状态徽标同一语义）；不可操作 → 灰块（弱化但保持同一形状语言）。
                 Image(systemName: cap.sfSymbol)
-                    .foregroundStyle(cap.aiControllable ? Color.accentColor : .secondary)
-                    .frame(width: 22)
+                    .font(.system(size: Typography.subhead, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 28, height: 28)
+                    .background(cap.aiControllable ? Color.accentColor : Color.gray,
+                                in: RoundedRectangle(cornerRadius: Radius.icon, style: .continuous))
                 Text(cap.displayName)
                     .font(.system(size: Typography.subhead, weight: .semibold))
                 Spacer()

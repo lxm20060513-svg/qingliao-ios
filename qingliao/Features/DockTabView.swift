@@ -476,25 +476,28 @@ struct DockTabView: View {
             // 宠物**不在屏**时退回 dock 槽位锚点弹（那张画面里也画宠物，v3.9.82「只保留一个跳转画面」口径）：
             //   ① 会话已有消息 → 欢迎页压根不渲染，等下去也没用，直接弹；
             //   ② 空会话但欢迎页迟迟不上报（横屏/键盘等边缘态）→ 握手超时后兜底弹，不让用户看到「点了没反应」。
-            let wasOnChat = selected == .chat
-            // 🚨 切页与弹菜单**必须错开一轮**，与「会话有没有消息」正交：
-            //    `selected` 的变更会在 `onChange(of: selected)` 里执行「if showOrbMenu { showOrbMenu = false }」，
-            //    同一轮里先写 true 再写 false → SwiftUI 只渲染最终值 false → 菜单一次都不出现
-            //    （症状：空会话/有消息两种情况都是「只跳页不弹菜单」）。
-            //    所以：切过页的**全部**路径都延到下一轮；本来就在聊天页的同步弹（那里没有这次写入）。
-            if !wasOnChat {
+            // v4.0.83（用户 2026-10-09：「现版本轻聊快捷菜单布局偏出屏幕」「打开快捷菜单弹出的画面要
+            // 等同于长按聊天首页卡通宠物触发弹出的画面」）：**落点 = 会话首页**（`.chat` tag 下的
+            // `showSessionHome` 态 —— 就是「会话列表 + 机器人 + 每日一言 + 卡片」那一屏，本仓俗称聊天首页）。
+            // 原来落对话页：会话已有消息时欢迎页压根不渲染 → 锚点拿不到 → 退回 `openOrbMenuAtDockSlot()`
+            // （锚在底部栏、胶囊朝上冒），用户看到的就是那个「从屏幕底部弹出来」的错误画面。
+            // 会话首页的宠物在首页头里**常驻**（与有没有消息无关）→ 锚点必得，画面与长按会话页宠物完全同一条。
+            // 🚨 落点**不是** `selected = .sessions`：`.sessions` 不在 `dockRenderTabs` 里
+            //    （`DockLayoutKit.allRaw` 只有 chat/life/dashboard/settings，见下方 :502-509 同款口径：
+            //    会话路由一律折成 `.chat` + showSessionHome）→ 选中它会渲染**空白页**。
+            let onChatHome = (selected == .chat && showSessionHome)
+            // 🚨 切页与弹菜单**必须错开一轮**（原口径保留）：`selected` 的变更会在 `onChange(of: selected)` 里
+            //    执行「if showOrbMenu { showOrbMenu = false }」，同一轮里先写 true 再写 false → SwiftUI 只渲染
+            //    最终值 false → 菜单一次都不出现（症状：只跳页不弹菜单）。所以切过页的路径延到下一轮；
+            //    本来就在会话首页的直接同步弹（没有这次写入）。
+            if !onChatHome {
                 skipBurstOnce()
                 selected = .chat
+                showSessionHome = true
                 Task { @MainActor in
                     try? await Task.sleep(for: .milliseconds(400))   // 让切页与 onChange(of: selected) 先落定
-                    if chat.messages.isEmpty {
-                        requestOrbMenuAtPetAnchor()
-                    } else {
-                        openOrbMenuAtDockSlot()   // 宠物不在屏（欢迎页不渲染）→ 退回 dock 槽位
-                    }
+                    requestOrbMenuAtPetAnchor()
                 }
-            } else if !chat.messages.isEmpty {
-                openOrbMenuAtDockSlot()
             } else {
                 requestOrbMenuAtPetAnchor()
             }

@@ -1,5 +1,6 @@
 // MARK: - 图片大图查看器（从 ChatComponents.swift 拆出）
 import SwiftUI
+import Photos
 
 // MARK: - v2.0.36 图片大图查看器（双击/捏合缩放 + 保存相册）
 
@@ -39,6 +40,12 @@ struct ImageViewer: View {
     let images: [UIImage]
     @State var index: Int
     @Environment(\.dismiss) private var dismiss
+    /// v4.0.83（用户 2026-10-09：「AI 发送的图片保存到相册功能不生效」）：
+    /// 原实现 `UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)` —— 不申请授权、completion 传 nil。
+    /// 用户此前若拒过相册权限（或系统不给弹框），该调用**静默失败**：点了没反应、相册里也没有，
+    /// 从用户视角就是「功能不生效」。现在保存结果一律给可见提示。
+    @State private var albumTip: String?
+    @State private var savingToAlbum = false
 
     var body: some View {
         ZStack {
@@ -76,9 +83,9 @@ struct ImageViewer: View {
                 }
                 Spacer()
                 Button {
-                    UIImageWriteToSavedPhotosAlbum(images[index], nil, nil, nil)
+                    saveToAlbum()
                 } label: {
-                    Label("保存到相册", systemImage: "square.and.arrow.down")
+                    Label(savingToAlbum ? "保存中…" : "保存到相册", systemImage: "square.and.arrow.down")
                         .font(.system(size: Typography.body, weight: .medium))
                         .foregroundStyle(.white)
                         .padding(.horizontal, 18)
@@ -91,6 +98,56 @@ struct ImageViewer: View {
                 .a11yGlass(.regular.interactive(), in: Capsule(), stroke: .clear, fallback: Color.black.opacity(0.9))
                 .padding(.bottom, 44)
             }
+            // v4.0.83：保存结果提示 —— 成功/失败都必须看得见（本仓口径：静默失败 = 用户眼里的「功能不生效」）
+            if let albumTip {
+                Text(albumTip)
+                    .font(.system(size: Typography.subhead, weight: .medium))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, Spacing.section)
+                    .padding(.vertical, Spacing.md)
+                    .a11yGlass(.regular, in: Capsule(), stroke: .clear, fallback: Color.black.opacity(0.85))
+                    .padding(.horizontal, Spacing.xl)
+                    .padding(.bottom, 108)            // 让开下面那颗「保存到相册」
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                    .transition(.opacity)
+                    .allowsHitTesting(false)
+            }
+        }
+        .animation(Motion.settle, value: albumTip)
+    }
+
+    /// v4.0.83：把当前页图片存进相册。
+    ///
+    /// 修的三处（用户报「保存到相册不生效」）：
+    ///   ① **没有授权**：老 API 在「权限曾被拒/未决定」时会静默失败 → 现在先按 `.addOnly` 请求授权
+    ///      （写相册只需这个，不必索取读权限，弹框文案也更轻）；
+    ///   ② **没有回调**：completion 传 nil 时成功失败都无感知 → 现在成功/失败都给提示；
+    ///   ③ 该老 API 走同步写盘，大图会卡一下 → 改走 PHPhotoLibrary 的异步写入（见 AlbumSaver）。
+    private func saveToAlbum() {
+        guard !savingToAlbum else { return }
+        savingToAlbum = true
+        let image = images[index]
+        Task {
+            do {
+                try await AlbumSaver.save(image)
+                Haptics.success()
+                albumTip = "已存入相册"
+            } catch AlbumSaver.Failure.denied {
+                Haptics.error()
+                albumTip = "没有相册权限：「设置 → 隐私与安全性 → 照片 → 轻聊」里选「添加照片」"
+            } catch AlbumSaver.Failure.restricted {
+                // v4.0.83：系统级限制（家长控制 / MDM 描述文件）用户自己改不了 → 不引导去设置，免得白折腾
+                Haptics.error()
+                albumTip = "相册访问被系统限制，暂时无法保存"
+            } catch {
+                Haptics.error()
+                albumTip = "保存失败：\(error.localizedDescription)"
+            }
+            savingToAlbum = false
+            // 2.6s 后自动收起（不长期挡住看图）
+            try? await Task.sleep(for: .seconds(2.6))
+            albumTip = nil
         }
     }
 }
@@ -184,6 +241,58 @@ struct ImageViewerPage: View {
         let m = maxOffset(size: container, scale: scale)
         offset = CGSize(width: max(-m.width, min(m.width, offset.width)),
                         height: max(-m.height, min(m.height, offset.height)))
+    }
+}
+
+// MARK: - v4.0.83 相册写入助手（界面侧「保存到相册」的唯一写入口）
+
+/// 为什么单独抽一层：`PHPhotoLibrary.performChanges` 的变更块由 Photos 在**自己的后台队列**回调，
+/// 闭包字面量若写在 `@MainActor` 上下文里会继承 MainActor 隔离 → 框架在后台队列上做隔离检查 → SIGTRAP
+/// （v4.0.57 删相册真机必崩，符号化栈与详细推导见 Core/AgentActionExecutor.swift 的相册段头注）。
+/// 解 = 把字面量放进 `nonisolated` 函数（不继承隔离，编译器也就不插那个检查）。
+/// 护栏：scripts/check_framework_callback_isolation.py（RISKY 名单含 performChanges）。
+///
+/// 与 AgentActionExecutor.savePhoto 的关系：那条是 **AI 动作路径**（含 mutationGuard 确认闸与撤销），
+/// 本条是 **界面路径**（用户点按钮，同步给提示）。底层写盘写法两条一致，改一处记得看另一处。
+enum AlbumSaver {
+    /// ⚠️ 实现 `LocalizedError`：否则 `error.localizedDescription` 落到通用 catch 只会显示「(Failure error 2.)」这类占位。
+    /// `restricted` 单列：家长控制 / MDM 描述文件限制时用户**自己改不了**，提示不能说「去设置里打开权限」。
+    enum Failure: Error, LocalizedError {
+        case denied, restricted, encode
+
+        var errorDescription: String? {
+            switch self {
+            case .denied:     return "没有相册权限"
+            case .restricted: return "相册访问被系统限制"
+            case .encode:     return "图片编码失败"
+            }
+        }
+    }
+
+    /// 存一张图到相册。成功即返回；失败抛 Failure 或 Photos 的原始错误。
+    static func save(_ image: UIImage) async throws {
+        // 只请求 .addOnly：写相册不需要读权限（别用 .readWrite 索要多余权限）
+        let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
+        switch status {
+        case .authorized, .limited:
+            break
+        case .restricted:
+            throw Failure.restricted     // 系统限制，用户改不了 → 提示层要区别对待
+        default:
+            throw Failure.denied         // .denied / .notDetermined（刚被拒）
+        }
+        guard let data = image.jpegData(compressionQuality: 0.95) ?? image.pngData() else {
+            throw Failure.encode
+        }
+        try await write(data)
+    }
+
+    /// ⚠️ 必须 nonisolated（原因见本 enum 头注；护栏脚本按这个关键字判定）
+    private nonisolated static func write(_ data: Data) async throws {
+        try await PHPhotoLibrary.shared().performChanges {
+            let req = PHAssetCreationRequest.forAsset()
+            req.addResource(with: .photo, data: data, options: nil)
+        }
     }
 }
 
