@@ -228,31 +228,13 @@ struct GoalsSection: View {
 
 @MainActor
 @Observable
-final class GoalsGlassPresenter {
+/// 目标浮层状态（v4.0.86 瘦身①：字段与 reset 收进 LifeGlassPresenterBase，本类只剩空壳；
+/// 宿主销毁时清状态的护栏挂在 GoalsGlassLayerHost 的 .onDisappear，语义不变）
+@MainActor
+@Observable
+final class GoalsGlassPresenter: LifeGlassPresenterBase<GoalItem> {
     static let shared = GoalsGlassPresenter()
-
-    /// 「全部目标」列表浮层
-    var showAll = false
-    /// 「新建目标」浮层
-    var showAdd = false
-    /// 详情浮层（nil = 不显示）
-    var detail: GoalItem?
-    /// 宿主页删除二次确认（页卡 / 已完成折叠行长按删除走这条；与浮层内容里那两份各自独立）
-    var pendingDelete: GoalItem?
-    /// 新建浮层的会话序号：每次打开自增，配合 `.id()` 强制换新实例（保证每次都是空白表单）
-    var addSession = 0
-
     private init() {}
-
-    /// 🚨 宿主销毁时清状态 —— 单例不会随视图树消失，页面被系统回收后重建，
-    /// 开关还是 true → 回到生活页会「莫名又弹着上次那个浮层」。挂在 GoalsGlassLayerHost 的 .onDisappear。
-    func reset() {
-        showAll = false
-        showAdd = false
-        detail = nil
-        pendingDelete = nil
-        addSession = 0
-    }
 }
 
 /// 长期目标浮层的页级宿主（挂 LifeView 根 → 全屏；轻纱盖住整页含页头）

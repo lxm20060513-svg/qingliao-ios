@@ -15,7 +15,7 @@ struct SessionsView: View {
     @State private var sessions: [ChatSession] = []
     @State private var isLoading = false
     @State private var errorText: String?
-    @State private var scrollPos = ScrollPosition()
+    @State private var scrollPos = ScrollPosition()   // v4.0.86 滑动优化后已无消费者（挂件已摘），暂留声明；无引用后可删
     // v4.0.81：顶部「两张并排卡」行已退役 —— 固定会话（轻聊投递 / 轻聊主动）回到普通会话行渲染，
     // 清空入口走行菜单 `sessionRowMenu(s)`（对固定会话隐藏删除/改名、保留清空）。
     @State private var deleteError: String?
@@ -567,7 +567,9 @@ struct SessionsView: View {
         .animation(Motion.emerge, value: filteredSessions.isEmpty)
         // v3.9.30：删除/刷新后列表项淡出与位置移动过渡（数组替换不再生硬跳变）
         .animation(Motion.settle, value: sortedSessions.map(\.id))
-        .scrollPosition($scrollPos)
+        // v4.0.86 滑动优化（用户 2026-10-09：「聊天首页的卡片滑动流畅性也同等优化」）：
+        // scrollPos 全文件无读无写（无 scrollTo 调用方），此挂件在滚动中每帧写绑定
+        // → ScrollPosition 无 Equatable 无法比对跳过 → 每帧 invalidate 整页 body → 滑动掉帧。摘掉。
         // v4.0.64（用户 2026-10-05 真机复测：会话页 + 聊天页都取消「滚边玻璃」）：
         // iOS 26 自动给 List / ScrollView 加**滚动边缘效果**（内容滚到标签栏 / 状态栏旁被模糊 + 变暗）。
         // 本页与聊天页消息区一并关掉；看板 / 生活两页不动（用户只点了这两页）。

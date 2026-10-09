@@ -47,6 +47,12 @@ struct ImageViewer: View {
     @State private var albumTip: String?
     @State private var savingToAlbum = false
 
+    /// v4.0.86：图内二维码（用户 2026-10-09：「AI 发送的二维码要能长按识别跳 App」——微信式）
+    /// nil = 还没识别过 / 没检出；非 nil = 检出了（isQR 才弹识别条）
+    @State private var qrResult: QRCodeScanner.Result?
+    @State private var qrTip: String?
+    @State private var scanning = false
+
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
@@ -54,9 +60,18 @@ struct ImageViewer: View {
                 ForEach(0..<images.count, id: \.self) { i in
                     ImageViewerPage(image: images[i])
                         .tag(i)
+                        // v4.0.86：长按识别二维码（挂在每页上，翻页后 index 变、识别跟随当前页）
+                        .onLongPressGesture(minimumDuration: 0.35) {
+                            scanQR(at: i)
+                        }
                 }
             }
             .tabViewStyle(.page(indexDisplayMode: images.count > 1 ? .automatic : .never))
+            .onChange(of: index) { _, _ in
+                // 翻页清掉上一页的识别结果（提示条别串页）
+                qrResult = nil
+                qrTip = nil
+            }
             VStack {
                 HStack {
                     if images.count > 1 {
@@ -113,8 +128,111 @@ struct ImageViewer: View {
                     .transition(.opacity)
                     .allowsHitTesting(false)
             }
+            // v4.0.86：识别条（微信式）—— 检出二维码 → 底部弹「识别图中二维码」；纯文本码 → 文本+复制
+            if let qr = qrResult, qr.isQR, let payload = qr.payloadString {
+                HStack(spacing: Spacing.md) {
+                    Image(systemName: "qrcode.viewfinder")
+                        .font(.system(size: Typography.headline))
+                        .foregroundStyle(.white)
+                    Text("识别图中二维码")
+                        .font(.system(size: Typography.body, weight: .medium))
+                        .foregroundStyle(.white)
+                    Spacer(minLength: Spacing.xs)
+                    Button {
+                        openQR(payload)
+                    } label: {
+                        Text("识别").pill(.primary, tone: .accent)
+                    }
+                    .buttonStyle(PressStyle(scale: 0.96))
+                }
+                .padding(.horizontal, Spacing.xxl)
+                .padding(.vertical, Spacing.lg)
+                .a11yGlass(.regular.interactive(), in: Capsule(), stroke: .clear, fallback: Color.black.opacity(0.9))
+                .padding(.horizontal, Spacing.xl)
+                .padding(.bottom, 108)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                .transition(.opacity)
+            }
+            // v4.0.86：扫码结果提示（打开回执 / 纯文本码 / 没检出）
+            if let qrTip {
+                Text(qrTip)
+                    .font(.system(size: Typography.subhead, weight: .medium))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(3)
+                    .padding(.horizontal, Spacing.section)
+                    .padding(.vertical, Spacing.md)
+                    .a11yGlass(.regular, in: Capsule(), stroke: .clear, fallback: Color.black.opacity(0.85))
+                    .padding(.horizontal, Spacing.xl)
+                    .padding(.bottom, 108)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                    .transition(.opacity)
+                    .allowsHitTesting(false)
+            }
         }
         .animation(Motion.settle, value: albumTip)
+        .animation(Motion.settle, value: qrResult)
+        .animation(Motion.settle, value: qrTip)
+    }
+
+    // MARK: - v4.0.86 长按识别二维码
+
+    /// 后台识别第 i 页图片。非阻断：识别中再长按直接忽略（scanning 闸）。
+    ///
+    /// ⚠️ Swift 6 实参序/并发口径（逐字沿用 IntentExtractor.scanImage 的实踩结论，-parse 查不出）：
+    /// `UIImage` 非 Sendable，@Sendable 闭包直接捕获编译不过 →
+    /// `nonisolated(unsafe)` 一次性交出（交出后主线程不再触碰），Vision 的同步 perform()
+    /// 在全局队列跑，结果经 continuation 收回主 actor。
+    private func scanQR(at i: Int) {
+        guard !scanning else { return }
+        scanning = true
+        Haptics.tap()
+        // v4.0.86（审查 P1-2）：冷却期别静默吞长按——先给「识别中…」，识别结果回来即被覆盖/清除
+        qrTip = "识别中…"
+        let image = images[i]
+        nonisolated(unsafe) let img = image
+        Task {
+            let result = await withCheckedContinuation { (cont: CheckedContinuation<QRCodeScanner.Result?, Never>) in
+                DispatchQueue.global(qos: .userInitiated).async {
+                    cont.resume(returning: QRCodeScanner.detect(in: img))
+                }
+            }
+            qrResult = result
+            // v4.0.86（审查 P1-1）：提示条件从「没检出/非QR」收窄为「识别条不会出现」——
+            // 检出二维码但 payload 是二进制（payloadString==nil）时识别条出不来，
+            // 旧条件会让这种码完全静默。现在：无 payload 或非 QR 都给提示。
+            let barWillShow = (result?.isQR == true && result?.payloadString != nil)
+            if barWillShow {
+                // 识别条出现 → 收掉「识别中…」，别让它常驻
+                qrTip = nil
+            } else {
+                // 没检出 / 检出的是一维码（商品条码，跳不了 App）：轻提示一下就收
+                //（别让用户猜长按有没有生效）。isQR 的那档走识别条，不进这里。
+                qrTip = "未识别到二维码"
+                try? await Task.sleep(for: .seconds(1.6))
+                if qrTip == "未识别到二维码" { qrTip = nil }
+            }
+            scanning = false
+        }
+    }
+
+    /// 点「识别」：URL 码跳对应 App（装了才跳，网页码落 Safari）；纯文本码弹内容+复制。
+    private func openQR(_ payload: String) {
+        Task {
+            switch await QRCodeScanner.open(payload) {
+            case .openedURL:
+                Haptics.success()
+                qrTip = nil
+                qrResult = nil
+            case .text(let txt):
+                UIPasteboard.general.string = txt
+                Haptics.success()
+                qrTip = "码内容已复制：\n\(txt)"
+                qrResult = nil
+                try? await Task.sleep(for: .seconds(2.6))
+                if qrTip?.hasPrefix("码内容已复制") == true { qrTip = nil }
+            }
+        }
     }
 
     /// v4.0.83：把当前页图片存进相册。

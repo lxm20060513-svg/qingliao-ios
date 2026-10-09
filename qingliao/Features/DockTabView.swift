@@ -343,16 +343,43 @@ struct DockTabView: View {
         identifyPhoto = nil
         switch action.id {
         case 0:   // 新建会话
-            // v3.9.59：已在聊天页 = selected 不变、不会放烟花，白置标志会吞掉紧接着的一次真点击烟花
-            if selected != .chat { skipBurstOnce() }
-            selected = .chat
-            chat.requestNewSession()
+            // v4.0.86（bugfix）：**必须落在对话页**。v4.0.81 合并 tab 后，聊天 tag 有两态
+            // （会话首页 ↔ 对话页）；v4.0.83 起快捷菜单的弹出位就在**会话首页**之上 ——
+            // 此时 selected 已是 .chat、showSessionHome=true 渲染的是 SessionsView，
+            // ChatView 不在视图树：requestNewSession 置的 pendingNewSession 没有任何
+            // onChange 挂着消费 → 症状就是「点了没反应」（用户 2026-10-09 真机报障）。
+            // 修复对齐 askAI 同款范式：先切进对话页（showSessionHome=false）；不在对话页
+            // 时还要错开一拍（转场落定 ChatView 进树、onChange 挂上）再置位，否则照丢。
+            if selected != .chat || showSessionHome {
+                skipBurstOnce()
+                selected = .chat
+                showSessionHome = false
+                Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(0.35))
+                    chat.requestNewSession()
+                }
+            } else {
+                // 已在对话页：同步走原路（v3.9.59：不切页不放烟花，也不延迟）
+                chat.requestNewSession()
+            }
         case 1:   // AI 速记
             quickCapture = .memo
         case 2:   // 语音输入
-            if selected != .chat { skipBurstOnce() }
-            selected = .chat
-            NotificationCenter.default.post(name: .qingliaoOrbVoiceInput, object: nil)
+            // v4.0.86（bugfix）：与 case 0 同根 —— 从会话首页/其它 tab 进来时 ChatView
+            // 不在树（或转场未落定），同步 post 的 .qingliaoOrbVoiceInput 没人收 → 失效。
+            // 对齐 askAI 的 0.35s 闸：先切对话页，落定后再 post（ChatView 内部还有一层
+            // 0.35s 才进语音模式，语义不变）。已在对话页则同步 post，原速不变。
+            if selected != .chat || showSessionHome {
+                skipBurstOnce()
+                selected = .chat
+                showSessionHome = false
+                Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(0.35))
+                    NotificationCenter.default.post(name: .qingliaoOrbVoiceInput, object: nil)
+                }
+            } else {
+                NotificationCenter.default.post(name: .qingliaoOrbVoiceInput, object: nil)
+            }
         case 3:   // 今日待办
             quickCapture = .todo
         case 4:   // AI 识别（v3.9.76）
@@ -365,8 +392,11 @@ struct DockTabView: View {
             //   「全念」走 ChatView 的 assistantLandedToken（自动朗读的触发点）。
             //   两者都只在 ChatView **在视图树里**才生效；而智慧球在任意 tab 都在，
             //   用户在会话/看板/生活页长按球进来说话，不切页就会「消息静默消失 + 一句也不念」。
-            if selected != .chat { skipBurstOnce() }
+            if selected != .chat || showSessionHome { skipBurstOnce() }
             selected = .chat
+            // v4.0.86：从会话首页进来也要切到对话页（showSessionHome=false）——
+            // 全念/发送两条命脉都挂在 ChatView 上，停着首页=ChatView 不在树（同 case 0/2 根因）。
+            showSessionHome = false
             showVoiceDialog = true
         case 6:   // 会话纪要（v4.0.x 新胶囊）
             // 🚨 必须先让聊天页进视图树（与 case 2/4/7 同款闸）：纪要整理完那张卡由
@@ -375,8 +405,10 @@ struct DockTabView: View {
             //    静默消失（备忘存了、卡没了，用户只看到「整理完成」）。
             //    顺带的好处：dismiss 纪要页出来就是聊天页，刚落的那张卡就在眼前。
             // 全屏页而非 sheet：纪要正文要占满整屏读，页内自带 dismiss（与语音对话页同一口径）。
-            if selected != .chat { skipBurstOnce() }
+            if selected != .chat || showSessionHome { skipBurstOnce() }
             selected = .chat
+            // v4.0.86：同 case 5 —— 从会话首页进来也切到对话页，纪要卡唯一接收方 ChatView 才在树里。
+            showSessionHome = false
             showMinutes = true
         case 7:   // 拍照识别（v4.0.x 新胶囊）
             // 无摄像头设备（模拟器 / 部分无相机 iPad）present .camera 会抛 NSInvalidArgumentException

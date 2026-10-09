@@ -192,6 +192,21 @@ ok(card.contains(".id(screenNonce)"),
 ok(!card.contains("onAnswer(\"刷新"), "刷新**不许**走 onAnswer（那就成了「再问 AI 一轮」= 另一套语义）")
 ok(card.contains("fullScreenCover(isPresented: $showScreen)") && card.contains("ImageViewer(images:"),
    "点图开全屏复用 ImageViewer（原生缩放 + 存相册，二维码才看得清）")
+// ── v4.0.86 长按识别图中二维码（用户 2026-10-09：AI 发的二维码要能长按跳对应 App，微信式）──
+let viewer = strip(read(repo + "/qingliao/Features/Chat/ChatImageViewer.swift"), "//")
+ok(viewer.contains("QRCodeScanner.detect(in:") && viewer.contains("onLongPressGesture"),
+   "看图器长按触发图内二维码识别（微信式：长按→识别条→跳 App）")
+ok(viewer.contains("识别图中二维码"),
+   "检出二维码弹「识别图中二维码」提示条（不静默）")
+ok(read(repo + "/qingliao/Core/QRCodeScanner.swift").contains("canOpenURL"),
+   "跳转走 canOpenURL 闸：装了对应 App（weixin/alipays…）才跳，网页码落 Safari，纯文本码落复制")
+// v4.0.86（审查 P0 回归护栏）：canOpenURL 白名单必须含二维码跳 App 的三条 scheme ——
+// iOS 9 起不在白名单的 scheme canOpenURL 恒 false，缺了 = 跳 App 主路径静默失效
+let projYml = read(repo + "/project.yml")
+for scheme in ["weixin", "alipay", "alipays"] {
+    ok(projYml.contains("\n          - \(scheme)\n"),
+       "LSApplicationQueriesSchemes 白名单含 \(scheme)（缺失 = 二维码跳 App 恒失败）")
+}
 ok(card.contains("guard screenImage != nil else { return }"),
    "图没载入时点图不响应（弹个空白全屏比不响应更差）")
 let bubble = strip(read(repo + "/qingliao/Features/Chat/ChatMessageBubble.swift"), "//")

@@ -103,7 +103,7 @@ struct QingliaoLiveActivityWidget: Widget {
 
     /// 展开态底部：会话标题 + 状态行（+ 进行中显示「停止生成」按钮）
     private func expandedBottom(state: QingliaoActivityAttributes.ContentState) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 7) {
             Text(state.sessionTitle.isEmpty ? "轻聊" : state.sessionTitle)
                 .font(.system(size: 15, weight: .semibold))
                 .lineLimit(1)
@@ -121,8 +121,9 @@ struct QingliaoLiveActivityWidget: Widget {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 4)
-        .padding(.top, 2)
+        // v4.0.86 精致化：水平 4→2、顶部 2→4 —— 标题离上缘呼吸感多 2pt，整块与岛圆角遮罩的安全边更匀
+        .padding(.horizontal, 2)
+        .padding(.top, 4)
         // v3.9.72（用户：展开态能不能改玻璃背景）：岛内背景归系统黑底，Apple 的
         // `activityBackgroundTint` 官方口径只管「Lock Screen 上的实时活动」；材质/glassEffect 又要采样
         // 背景（挂件进程拿不到）。所以玻璃观感只能在岛内**自绘**——见 expandedGlass。
@@ -130,9 +131,9 @@ struct QingliaoLiveActivityWidget: Widget {
     }
 
     /// v3.9.72：展开态底部区域的玻璃底衬（**自绘**）。
-    /// 两层静态图层堆出玻璃观感：
-    ///   ① 上缘亮边高光（顶部 10pt 白 0.12 渐隐）——玻璃接受环境光的亮边
-    ///   ② 内侧柔光（白 0.05 向下渐隐）——光在玻璃里漫射
+    /// 两层静态图层堆出玻璃观感（v4.0.86 精致化降档：0.12→0.05 / 0.05→0.03，纯黑底上原值是肉眼可见的泛白发亮横条）：
+    ///   ① 上缘亮边高光（顶部 10pt 白 0.05 渐隐）——玻璃接受环境光的亮边
+    ///   ② 内侧柔光（白 0.03 向下渐隐）——光在玻璃里漫射
     /// 🚨 **刻意不画描边**（v3.9.72 审查修正）：横幅 bannerGlass 能用 `RoundedRectangle(radius: 10)`
     /// 是因为它铺满锁屏横幅**整张卡**（卡面圆角就是 10）；岛内 `.bottom` 只是岛的一块**区域**，
     /// 外面还有系统自己的大圆角遮罩——在这里画 radius 10 的小圆角描边，真机上更可能看到
@@ -142,11 +143,14 @@ struct QingliaoLiveActivityWidget: Widget {
     /// （挂件进程拿不到背景采样，会整块不渲染 —— 见停止按钮那次真机事故）。
     private var expandedGlass: some View {
         ZStack {
-            LinearGradient(colors: [Color.white.opacity(0.12), Color.clear],
+            // v4.0.86 展开态精致化（用户 2026-10-09：「岛上的横幅背景丑」→ 拍板纯黑极简方向）：
+            // 原顶部白 0.12 高光带在系统纯黑底上是一肉眼可见的「泛白发亮横条」，正是丑感主源。
+            // 降到 0.05/0.03：只保留「玻璃有厚度」的光暗示，肉眼读作纯黑，不抢内容。
+            LinearGradient(colors: [Color.white.opacity(0.05), Color.clear],
                            startPoint: .top, endPoint: .bottom)
                 .frame(height: 10)
                 .frame(maxHeight: .infinity, alignment: .top)
-            LinearGradient(colors: [Color.white.opacity(0.05), Color.clear],
+            LinearGradient(colors: [Color.white.opacity(0.03), Color.clear],
                            startPoint: .top, endPoint: .bottom)
         }
         .allowsHitTesting(false)
@@ -170,7 +174,8 @@ struct QingliaoLiveActivityWidget: Widget {
                 // 进程拿不到。**结论：岛内不碰 glassEffect**，玻璃感靠静态图层自绘。
                 .background {
                     ZStack {
-                        Capsule().fill(OrbPalette.accent.opacity(0.22))
+                        // v4.0.86 精致化：底 0.22→0.14（幽灵化，不再糊一团蓝），描边 0.28→0.4 补回轮廓
+                        Capsule().fill(OrbPalette.accent.opacity(0.14))
                         // 顶部亮边：上缘渐隐高光（玻璃接受环境光的亮边，与锁屏横幅 bannerGlass 同口径）
                         Capsule()
                             .fill(LinearGradient(stops: [
@@ -180,7 +185,7 @@ struct QingliaoLiveActivityWidget: Widget {
                             ], startPoint: .top, endPoint: .bottom))
                     }
                 }
-                .overlay(Capsule().strokeBorder(OrbPalette.accent.opacity(0.28), lineWidth: 0.8))
+                .overlay(Capsule().strokeBorder(OrbPalette.accent.opacity(0.4), lineWidth: 0.8))
                 .foregroundStyle(OrbPalette.accent)
         }
         .buttonStyle(.plain)
@@ -213,7 +218,8 @@ struct QingliaoLiveActivityWidget: Widget {
         let shuttle: CGFloat = half <= 1 ? CGFloat(half) : CGFloat(2 - half)
         return ZStack(alignment: .leading) {
             // 底条：极淡，保证小黑底上也看得见条的形状
-            Capsule().fill(Color.white.opacity(0.16))
+            // v4.0.86 精致化：0.16→0.10 —— 纯黑底上原 0.16 偏灰发闷，降后未推进段更黑、推进段更跳
+            Capsule().fill(Color.white.opacity(0.10))
             // 已推进部分：淡蓝 → 蓝 → 紫（完成态全绿 / 失败态红）
             Capsule()
                 .fill(LinearGradient(colors: [OrbPalette.highlight, OrbPalette.mid, tint],

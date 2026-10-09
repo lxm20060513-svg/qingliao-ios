@@ -194,33 +194,12 @@ struct MemoSection: View {
 
 @MainActor
 @Observable
-final class MemoGlassPresenter {
+/// 备忘录浮层状态（v4.0.86 瘦身①：字段与 reset 收进 LifeGlassPresenterBase，本类只剩空壳）
+@MainActor
+@Observable
+final class MemoGlassPresenter: LifeGlassPresenterBase<MemoItem> {
     static let shared = MemoGlassPresenter()
-
-    /// 「全部备忘」列表浮层
-    var showAll = false
-    /// 「新建备忘」浮层
-    var showAdd = false
-    /// 详情浮层（nil = 不显示）
-    var detail: MemoItem?
-    /// 宿主删除二次确认（浮层内的「删除」先收浮层、错峰 350ms 再置这里 → 由 MemoSection 的
-    /// LifeDeleteConfirm 呈现；alert 是窗口级，盖在浮层之上）
-    var pendingDelete: MemoItem?
-    /// 新建浮层的会话序号：每次打开自增，配合 `.id()` 强制换新实例（保证每次都是空编辑器）
-    var addSession = 0
-
     private init() {}
-
-    /// 🚨 v4.0.77 只读审查（中）：**宿主销毁时清状态** —— 单例不会随视图树消失，页面被系统回收后
-    /// 重建，开关还是 true → 回到生活页会「莫名又弹着上次那个浮层」。挂在 MemoGlassLayerHost
-    /// 的 .onDisappear 上（宿主与生活页同生共死）。
-    func reset() {
-        showAll = false
-        showAdd = false
-        detail = nil
-        pendingDelete = nil
-        addSession = 0
-    }
 }
 
 /// 备忘录浮层的页级宿主（挂 LifeView 根 → 全屏；轻纱盖住整页含页头）

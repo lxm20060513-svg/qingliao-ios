@@ -67,7 +67,7 @@ struct CloudDriveBrowserSheet: View {
             ScrollView {
                 VStack(spacing: Spacing.xl) {
                     headerCard
-                    if let busy = busyText { busyCard(busy) }
+                    if let busy = busyText { RemoteBusyCard(text: busy) }
                     content
                 }
                 .padding(Spacing.xxl)
@@ -143,26 +143,10 @@ struct CloudDriveBrowserSheet: View {
         .pastelCard()
     }
 
-    private func busyCard(_ text: String) -> some View {
-        HStack(spacing: Spacing.md) {
-            ProgressView().tint(.secondary)
-            Text(text).font(.system(size: Typography.subhead)).foregroundStyle(.secondary)
-            Spacer()
-        }
-        .padding(.horizontal, Spacing.xxl)
-        .padding(.vertical, Spacing.lg)
-        .pastelCard()
-    }
-
     @ViewBuilder
     private var content: some View {
         if loading && entries.isEmpty {
-            HStack(spacing: Spacing.md) {
-                ProgressView().tint(.secondary)
-                Text("加载中…").font(.system(size: Typography.subhead)).foregroundStyle(.secondary)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 40)
+            RemoteLoadingView()
         } else if entries.isEmpty, let err = errorText {
             ErrorStateView(title: "加载失败", detail: err) { Task { await load() } }
                 .padding(.horizontal, Spacing.xxl)
@@ -171,52 +155,14 @@ struct CloudDriveBrowserSheet: View {
             emptyView
         } else {
             // 刷新失败不覆盖已加载列表，只挂一条可重试提示
-            if let err = errorText { refreshFailedNotice(err) }
+            if let err = errorText { RemoteRefreshFailedNotice(message: err) { Task { await load() } } }
             entryList
         }
     }
 
-    private func refreshFailedNotice(_ message: String) -> some View {
-        HStack(spacing: Spacing.md) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: Typography.subhead))
-                .foregroundStyle(.orange)
-            VStack(alignment: .leading, spacing: Spacing.xxs) {
-                Text("刷新失败").font(.system(size: Typography.subhead, weight: .semibold))
-                Text(message)
-                    .font(.system(size: Typography.caption))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-            }
-            Spacer(minLength: Spacing.xs)
-            Button {
-                Haptics.tap()
-                Task { await load() }
-            } label: {
-                Text("重试").pill(.primary, tone: .accent)
-            }
-            .buttonStyle(PressStyle(scale: 0.96))
-        }
-        .padding(.horizontal, Spacing.xxl)
-        .padding(.vertical, Spacing.lg)
-        .pastelCard()
-    }
-
     private var emptyView: some View {
-        VStack(spacing: Spacing.md) {
-            Image(systemName: "tray")
-                .font(.system(size: Typography.display))
-                .foregroundStyle(.tertiary)
-            Text("这个目录是空的")
-                .font(.system(size: Typography.body, weight: .medium))
-            Text("下拉可刷新")
-                .font(.system(size: Typography.caption))
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 30)
-        .padding(.horizontal, Spacing.xxl)
-        .pastelCard()
+        RemoteEmptyView(title: "这个目录是空的",
+                        subtitle: "下拉可刷新")
     }
 
     private var entryList: some View {

@@ -488,9 +488,10 @@ final class InboxStore {
         }
         // 非 reply（定时/后台/系统事件）不注入会话气泡，进任务中心列表
         if taskType != "reply" {
+            // v4.0.86（任务中心②）：把归属会话存进任务卡 —— 菜单「打开来源会话」的数据来源
             TaskCenterStore.shared.add(TaskCenterItem(
                 id: id, text: text, taskType: taskType,
-                sourceTaskId: sourceTaskId))
+                sourceTaskId: sourceTaskId, sessionId: sessionId))
             NotificationHelper.notify(title: "轻聊 · 任务", body: text, sessionId: chat.sessionId,
                                       sound: false)   // #10：定时/后台任务走静默，别抢前台对话铃声
             await markDone(id, auth: auth)
@@ -671,11 +672,17 @@ struct TaskCenterItem: Identifiable, Codable, Equatable {
     let sourceTaskId: String?   // 用于跳原文/去重
     let createdAt: TimeInterval
     var completed: Bool
+    /// v4.0.86（任务中心②）：这条推送归属的会话 —— 菜单「打开来源会话」用。
+    /// 后端 inbox_api.push 早已下发（v4.0.21），此前 App 没存这个字段，点任务回不去来源会话。
+    /// 老持久化数据无此键 → nil → 菜单不出这一项（Codable optional 自带向后兼容）。
+    var sessionId: String?
 
     init(id: String, text: String, taskType: String, sourceTaskId: String? = nil,
-         createdAt: TimeInterval = Date().timeIntervalSince1970, completed: Bool = false) {
+         createdAt: TimeInterval = Date().timeIntervalSince1970, completed: Bool = false,
+         sessionId: String? = nil) {
         self.id = id; self.text = text; self.taskType = taskType
         self.sourceTaskId = sourceTaskId; self.createdAt = createdAt; self.completed = completed
+        self.sessionId = sessionId
     }
 }
 

@@ -174,33 +174,9 @@ struct HabitSection: View {
 
 @MainActor
 @Observable
-final class HabitGlassPresenter {
+final class HabitGlassPresenter: LifeGlassPresenterBase<HabitItem> {
     static let shared = HabitGlassPresenter()
-
-    /// 「全部习惯」列表浮层
-    var showAll = false
-    /// 「新建习惯」浮层
-    var showAdd = false
-    /// 详情浮层（nil = 不显示；承载的即 store 里的当前副本，取代旧 detailCurrent）
-    var detail: HabitItem?
-    /// 宿主（页卡）删除二次确认：页卡长按「删除」→ 置这里 → 由 HabitGlassLayerHost 的
-    /// LifeDeleteConfirm 呈现（alert 是窗口级，盖在浮层之上）。
-    var pendingDelete: HabitItem?
-    /// 新建浮层的会话序号：每次打开自增，配合 `.id()` 强制换新实例（保证每次都是空编辑器）
-    var addSession = 0
-
     private init() {}
-
-    /// 宿主销毁时清状态 —— 单例不会随视图树消失，页面被系统回收后重建，开关还是 true →
-    /// 回到生活页会「莫名又弹着上次那个浮层」。挂在 HabitGlassLayerHost 的 .onDisappear 上
-    /// （宿主与生活页同生共死）。同 MemoGlassPresenter.reset()。
-    func reset() {
-        showAll = false
-        showAdd = false
-        detail = nil
-        pendingDelete = nil
-        addSession = 0
-    }
 }
 
 /// 习惯浮层的页级宿主（挂 LifeView 根 → 全屏；轻纱盖住整页含页头）

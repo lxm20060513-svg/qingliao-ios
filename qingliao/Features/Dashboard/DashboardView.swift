@@ -79,7 +79,7 @@ struct DashboardView: View {
     @State private var clashBusy = false
     /// v3.9.41（SR39）：refresh() 的在途闸门（见该方法内注释）
     @State private var refreshing = false
-    @State private var scrollPos = ScrollPosition()
+    @State private var scrollPos = ScrollPosition()   // v4.0.86 滑动优化后已无消费者，见 applyDashboardScrollChrome 注释；暂留声明防外部引用（grep 无外部引用后可删）
 
     @State private var activeSheet: DashboardSheet?
     // v3.9.25：天气弹窗是否真的开过 —— 关灯/空调/磁盘/docker 弹窗时不该顺带重取天气
@@ -1471,7 +1471,9 @@ extension DashboardView {
     @MainActor
     private func applyDashboardScrollChrome<C: View>(to content: C) -> some View {
         content
-            .scrollPosition($scrollPos)
+            // v4.0.86 滑动优化：摘掉 `.scrollPosition($scrollPos)` 挂件 —— scrollPos 全文件无读无写
+            //（无任何 scrollTo 调用方），而 ScrollPosition 是无 Equatable 的 struct，滚动中绑定每帧写入
+            // → 无法比对跳过 → 每帧 invalidate 整页 body（与看板 onGeometryChange 无条件写 @State 同族）。
             // v2.0.86h：Dock 滑动隐藏已删除（从未生效，手动开关替代）
             .refreshable {
                 await refresh()
@@ -1574,8 +1576,13 @@ extension DashboardView {
         content
             // ⚠️ onGeometryChange 必须排在 .offset 之前 —— 它量的是栏目**自然高度**，
             //    拖动位移不该污染高度（否则落位会拿自己算自己）。
+            //    v4.0.86 滑动优化：**等值守卫**。滚动时每张新进屏的卡都会触发一次上报，
+            //    原来无条件写 @State 字典 → 值没变也 invalidate 整个 body（12 个 AnyView
+            //    全量重跑）→ 滚动掉帧。守卫后只有高度真变了才写（拖动排序依赖它，语义不变）。
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { h in
-                sectionHeights[card] = h
+                if sectionHeights[card] != h {
+                    sectionHeights[card] = h
+                }
             }
             .offset(y: dragCard == card ? dragOffsetY : 0)
             .scaleEffect(dragCard == card ? 1.01 : 1)

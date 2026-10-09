@@ -19,9 +19,13 @@ struct TaskCenterView: View {
     // v3.4.23：进行中任务（后端 /api/agent/tasks/active——AI 干活中的流式任务 + 后台作业；v3.4.25 改别名路径过 lucky 反代）
     @State private var activeTasks: [AuthStore.ActiveTask] = []
     @State private var activeTimer: Timer?
+    // v4.0.86（任务中心③）：历史任务（后端 /api/tasks/history —— done/error 的后台作业，bgjobs.json 真源）
+    @State private var historyTasks: [AuthStore.ActiveTask] = []
+    // v4.0.86（任务中心①）：停止确认弹窗（避免误触杀任务）
+    @State private var stopTarget: AuthStore.ActiveTask?
 
     enum TaskFilter: String, CaseIterable, Identifiable {
-        case all = "全部", active = "进行中", cron = "任务", system = "通知"
+        case all = "全部", active = "进行中", cron = "任务", system = "通知", history = "历史"
         var id: String { rawValue }
     }
 
@@ -38,8 +42,10 @@ struct TaskCenterView: View {
                 .padding(.horizontal)
                 .padding(.top, Spacing.md)
 
-                // v3.4.23：显示条件 = 进行中任务非空 或 未完成任务非空
-                if activeTasks.isEmpty && activeOnlyTasks.isEmpty {
+                // v3.4.23：显示条件 = 进行中任务非空 或 未完成任务非空（v4.0.86：历史页除外——历史空也给空态）
+                if filter == .history {
+                    historyList
+                } else if activeTasks.isEmpty && activeOnlyTasks.isEmpty {
                     emptyState
                 } else {
                     List {
@@ -49,6 +55,14 @@ struct TaskCenterView: View {
                                 Section("⏳ 进行中") {
                                     ForEach(activeTasks) { t in
                                         ActiveTaskRow(task: t)
+                                            // v4.0.86（任务中心①）：行点击 → 停止确认（仅 kind=stream；
+                                            // bg 作业后端无 cancel 端点，不提供停止）
+                                            .contentShape(Rectangle())
+                                            .onTapGesture {
+                                                if t.kind == "stream", t.status == "running" {
+                                                    stopTarget = t
+                                                }
+                                            }
                                     }
                                 }
                             }
@@ -78,6 +92,17 @@ struct TaskCenterView: View {
             .onDisappear {
                 activeTimer?.invalidate()
                 activeTimer = nil
+            }
+            // v4.0.86（任务中心①）：停止确认 —— 确认后才真打 /api/stream/{id}/stop
+            .alert("停止这个任务？", isPresented: Binding(get: { stopTarget != nil },
+                                                      set: { if !$0 { stopTarget = nil } })) {
+                Button("停止", role: .destructive) {
+                    if let t = stopTarget { stopTask(t) }
+                    stopTarget = nil
+                }
+                Button("取消", role: .cancel) { stopTarget = nil }
+            } message: {
+                if let t = stopTarget { Text("「\(t.title)」将被中断，已生成的部分内容会保留。") }
             }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -132,7 +157,7 @@ struct TaskCenterView: View {
                                                  icon: item.completed ? "circle" : "checkmark.circle", color: .orange),
                                   AnchorMenuItem(id: "send", title: "发送到当前会话", icon: "paperplane.fill", color: .indigo),
                                   AnchorMenuItem(id: "detail", title: "查看详情", icon: "info.circle", color: .teal),
-                              ],
+                              ] + (item.sessionId.flatMap { $0.isEmpty ? nil : [AnchorMenuItem(id: "open", title: "打开来源会话", icon: "bubble.left.and.bubble.right.fill", color: .green)] } ?? []),
                               title: "任务操作",
                               onPick: { m in
                                   actionItem = nil
@@ -148,6 +173,14 @@ struct TaskCenterView: View {
                                       Task {
                                           try? await Task.sleep(for: .seconds(0.3))
                                           detailItem = item
+                                      }
+                                  case "open":
+                                      // v4.0.86（任务中心②）：跳回这条推送归属的会话。
+                                      // 复用通知点开同一条深链（DockTabView .task 消费 qingliao_open_session →
+                                      // loadById → 切聊天 tab）；先 dismiss 本页，深链才轮得到处理。
+                                      if let sid = item.sessionId, !sid.isEmpty {
+                                          UserDefaults.standard.set(sid, forKey: "qingliao_open_session")
+                                          dismiss()
                                       }
                                   default:
                                       break
@@ -201,6 +234,48 @@ struct TaskCenterView: View {
         }
         activeTimer = t
         Task { @MainActor in
+            activeTasks = await auth.fetchActiveTasks()
+        }
+        // v4.0.86（任务中心③）：历史只进页时拉一次（历史是静态结果，不必轮询）
+        Task { @MainActor in
+            historyTasks = await auth.fetchTaskHistory()
+        }
+    }
+
+    // MARK: - v4.0.86（任务中心③）：历史分区
+    @ViewBuilder
+    private var historyList: some View {
+        if historyTasks.isEmpty {
+            emptyState
+        } else {
+            List {
+                Section {
+                    ForEach(historyTasks) { t in
+                        VStack(alignment: .leading, spacing: 4) {
+                            ActiveTaskRow(task: t)
+                            // ③：失败原因 / 结果摘要（后端 result 截 2000 字，这里再限 4 行）
+                            if !t.result.isEmpty {
+                                Text(t.result)
+                                    .font(.caption)
+                                    .foregroundStyle(t.status == "error" ? Color.red : Color.secondary)
+                                    .lineLimit(4)
+                            }
+                        }
+                    }
+                }
+            }
+            .listStyle(.plain)
+            .refreshable {
+                historyTasks = await auth.fetchTaskHistory()
+            }
+        }
+    }
+
+    // MARK: - v4.0.86（任务中心①）：停止进行中的流式任务（复用聊天页同一条 stop 链路）
+    private func stopTask(_ t: AuthStore.ActiveTask) {
+        Task { @MainActor in
+            await auth.streamStop(taskId: t.id)
+            // 停完立刻刷新，别等下一轮 2s
             activeTasks = await auth.fetchActiveTasks()
         }
     }
@@ -264,8 +339,14 @@ private struct ActiveTaskRow: View {
                 // 只是任务中心不再渲染 —— 要恢复就把 PlanStepList 那段拿回来（见 git 历史 v4.0.54 前）。
             }
             Spacer()
-            ProgressView()
-                .controlSize(.small)
+            // v4.0.86（任务中心③）：只有 running 才转圈；历史行（done/error）出状态图标
+            if task.status == "running" {
+                ProgressView()
+                    .controlSize(.small)
+            } else {
+                Image(systemName: task.status == "error" ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+                    .foregroundStyle(task.status == "error" ? Color.orange : Color.green)
+            }
         }
         .padding(.vertical, Spacing.xs)
     }

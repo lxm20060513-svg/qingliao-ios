@@ -176,7 +176,7 @@ check("下载失败带 HTTP 状态与网络类型",
 check("列表失败给整块错误态 + 重试",
       browCode.contains("ErrorStateView(title: \"加载失败\""))
 check("刷新失败不覆盖已加载列表，只挂可重试提示",
-      browCode.contains("refreshFailedNotice") && browCode.contains("加载中…"))
+      browCode.contains("RemoteRefreshFailedNotice") && (browCode.contains("RemoteLoadingView") || browCode.contains("加载中…")))
 check("加载代际守卫（晚到的旧请求结论丢弃）",
       browCode.contains("let seq = loadSeq + 1") && browCode.contains("guard loadSeq == seq else { return }"))
 check("下载失败弹可见 alert", browCode.contains("alertText = \"下载失败"))

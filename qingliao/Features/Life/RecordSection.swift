@@ -218,20 +218,13 @@ private func recordSubtitleText(_ store: RecordStore) -> String {
 
 @MainActor
 @Observable
-final class RecordGlassPresenter {
+/// 记录浮层状态（v4.0.86 瘦身①：公共字段与 reset 收进 LifeGlassPresenterBase；
+/// 记录特有的 editSession / filterCategory 留在本类，reset 时一并清）
+@MainActor
+@Observable
+final class RecordGlassPresenter: LifeGlassPresenterBase<RecordItem> {
     static let shared = RecordGlassPresenter()
 
-    /// 「全部记录」列表浮层
-    var showAll = false
-    /// 「新建记录」浮层
-    var showAdd = false
-    /// 详情·编辑浮层（nil = 不显示）
-    var detail: RecordItem?
-    /// 页卡删除二次确认（页卡长按「删除最新一条」置这里 → 由 RecordSection 的 LifeDeleteConfirm 呈现；
-    /// alert 是窗口级，盖在浮层之上）
-    var pendingDelete: RecordItem?
-    /// 新建浮层的会话序号：每次打开自增，配合 `.id()` 强制换新实例（保证每次都是空表单）
-    var addSession = 0
     /// 编辑浮层的会话序号：每次打开自增，配合 `.id()` 换新实例（表单随条目预填、不复用上一条的 @State）
     var editSession = 0
     /// 「全部记录」的分类筛选（nil = 全部）。v4.0.78：从 RecordAllListBody 的 @State 提到这里 ——
@@ -241,15 +234,8 @@ final class RecordGlassPresenter {
 
     private init() {}
 
-    /// 🚨 宿主销毁时清状态 —— 单例不随视图树消失，页面被系统回收后重建、开关还是 true →
-    /// 回到生活页会「莫名又弹着上次那个浮层」。挂在 RecordGlassLayerHost 的 .onDisappear 上
-    /// （宿主与生活页同生共死）。
-    func reset() {
-        showAll = false
-        showAdd = false
-        detail = nil
-        pendingDelete = nil
-        addSession = 0
+    override func reset() {
+        super.reset()
         editSession = 0
         filterCategory = nil
     }

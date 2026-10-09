@@ -169,33 +169,12 @@ struct TodoSection: View {
 
 @MainActor
 @Observable
-final class TodoGlassPresenter {
+/// 待办浮层状态（v4.0.86 瘦身①：字段与 reset 收进 LifeGlassPresenterBase，本类只剩空壳）
+@MainActor
+@Observable
+final class TodoGlassPresenter: LifeGlassPresenterBase<TodoItem> {
     static let shared = TodoGlassPresenter()
-
-    /// 「全部待办」列表浮层
-    var showAll = false
-    /// 「新建待办」浮层
-    var showAdd = false
-    /// 详情浮层（nil = 不显示）
-    var detail: TodoItem?
-    /// 宿主（页卡）删除二次确认：页卡长按「删除」置这里 → 由 TodoSection 的 LifeDeleteConfirm 呈现。
-    /// ⚠️ 浮层内列表的删除不走这里（浮层盖住时宿主 alert 看不见），由 TodoAllListBody 自带的一份管。
-    var pendingDelete: TodoItem?
-    /// 新建浮层的会话序号：每次打开自增，配合 `.id()` 强制换新实例（保证每次都是空编辑器）
-    var addSession = 0
-
     private init() {}
-
-    /// 宿主销毁时清状态 —— 单例不会随视图树消失，页面被系统回收后重建、开关还是 true →
-    /// 回到生活页会「莫名又弹着上次那个浮层」。挂在 TodoGlassLayerHost 的 .onDisappear 上
-    /// （宿主与生活页同生共死）。（与 MemoGlassPresenter.reset 同款护栏）
-    func reset() {
-        showAll = false
-        showAdd = false
-        detail = nil
-        pendingDelete = nil
-        addSession = 0
-    }
 }
 
 /// 待办浮层的页级宿主（挂 LifeView 根 → 全屏；轻纱盖住整页含页头）

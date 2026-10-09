@@ -64,7 +64,7 @@ struct FilesManagerSheet: View {
             ScrollView {
                 VStack(spacing: Spacing.xl) {
                     headerCard
-                    if let busy = busyText { busyCard(busy) }
+                    if let busy = busyText { RemoteBusyCard(text: busy) }
                     content
                 }
                 .padding(Spacing.xxl)
@@ -162,21 +162,10 @@ struct FilesManagerSheet: View {
         .pastelCard()
     }
 
-    private func busyCard(_ text: String) -> some View {
-        HStack(spacing: Spacing.md) {
-            ProgressView().tint(.secondary)
-            Text(text).font(.system(size: Typography.subhead)).foregroundStyle(.secondary)
-            Spacer()
-        }
-        .padding(.horizontal, Spacing.xxl)
-        .padding(.vertical, Spacing.lg)
-        .pastelCard()
-    }
-
     @ViewBuilder
     private var content: some View {
         if loading && entries.isEmpty {
-            loadingView
+            RemoteLoadingView()
         } else if entries.isEmpty, let err = errorText {
             // 没有任何内容可显示 → 整块错误态（带重试）
             errorView(err)
@@ -185,45 +174,9 @@ struct FilesManagerSheet: View {
         } else {
             // v3.9.38：列表已有内容时，刷新失败**不覆盖列表**（原来整块被错误态顶掉，
             // 用户看到的就是「一下拉刷新就提示加载失败」），只在列表上方挂一条可重试的提示
-            if let err = errorText { refreshFailedNotice(err) }
+            if let err = errorText { RemoteRefreshFailedNotice(message: err) { Task { await load() } } }
             entryList
         }
-    }
-
-    /// v3.9.38：刷新失败的轻提示（列表已有内容时的降级形态，不吞掉已加载的列表）
-    private func refreshFailedNotice(_ message: String) -> some View {
-        HStack(spacing: Spacing.md) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: Typography.subhead))
-                .foregroundStyle(.orange)
-            VStack(alignment: .leading, spacing: Spacing.xxs) {
-                Text("刷新失败").font(.system(size: Typography.subhead, weight: .semibold))
-                Text(message)
-                    .font(.system(size: Typography.caption))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-            }
-            Spacer(minLength: Spacing.xs)
-            Button {
-                Haptics.tap()
-                Task { await load() }
-            } label: {
-                Text("重试").pill(.primary, tone: .accent)
-            }
-            .buttonStyle(PressStyle(scale: 0.96))
-        }
-        .padding(.horizontal, Spacing.xxl)
-        .padding(.vertical, Spacing.lg)
-        .pastelCard()
-    }
-
-    private var loadingView: some View {
-        HStack(spacing: Spacing.md) {
-            ProgressView().tint(.secondary)
-            Text("加载中…").font(.system(size: Typography.subhead)).foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 40)
     }
 
     private func errorView(_ message: String) -> some View {
@@ -236,21 +189,8 @@ struct FilesManagerSheet: View {
     }
 
     private var emptyView: some View {
-        VStack(spacing: Spacing.md) {
-            Image(systemName: "tray")
-                .font(.system(size: Typography.display))
-                .foregroundStyle(.tertiary)
-            Text("这里还没有文件")
-                .font(.system(size: Typography.body, weight: .medium))
-            Text("聊天里发送的图片/文档会上传到这里\n下拉可刷新")
-                .font(.system(size: Typography.caption))
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 30)
-        .padding(.horizontal, Spacing.xxl)
-        .pastelCard()
+        RemoteEmptyView(title: "这里还没有文件",
+                        subtitle: "聊天里发送的图片/文档会上传到这里\n下拉可刷新")
     }
 
     /// 列表（拆成独立属性：行内含 4 个闭包，塞进上方 ViewBuilder 易触发 CI 类型检查超时）

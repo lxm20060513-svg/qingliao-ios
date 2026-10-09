@@ -646,6 +646,33 @@ final class AuthStore {
         let plan: [ActiveTaskPlan.Step]
         /// v4.0.37：后端全量步数（`planSeq`）。比 `plan.count` 大 → 任务中心出「更早的 N 步未列出」。
         let planSeq: Int
+        /// v4.0.86（任务中心③）：历史任务的收尾结果 / 失败原因（active 任务恒空串）
+        var result: String = ""
+    }
+
+    /// v4.0.86（任务中心③）：历史任务列表 —— done/error 的后台作业（bgjobs.json 真源，重启不丢）。
+    /// 老后端无此端点 → 404/解析失败 → 空数组，任务中心历史页显示空态，不报错。
+    func fetchTaskHistory() async -> [ActiveTask] {
+        guard !token.isEmpty else { return [] }
+        do {
+            let json = try await self.json("/api/tasks/history?limit=100", method: "GET")
+            guard let arr = json["tasks"] as? [[String: Any]] else { return [] }
+            return arr.compactMap { d in
+                guard let jid = d["jobId"] as? String, !jid.isEmpty else { return nil }
+                return ActiveTask(
+                    id: jid,
+                    kind: d["kind"] as? String ?? "bg",
+                    title: d["title"] as? String ?? "",
+                    detail: d["detail"] as? String ?? "",
+                    status: d["status"] as? String ?? "done",
+                    createdAt: (d["createdAt"] as? Double) ?? (d["createdAt"] as? TimeInterval) ?? 0,
+                    plan: [],
+                    planSeq: 0,
+                    result: d["result"] as? String ?? "")
+            }
+        } catch {
+            return []
+        }
     }
 
     func fetchActiveTasks() async -> [ActiveTask] {

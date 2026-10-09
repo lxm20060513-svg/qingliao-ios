@@ -128,6 +128,16 @@ check("通知名已注册（定义在 ChatAppDelegate.swift，不在 ChatView.sw
       chatDelegateSrc.contains("static let qingliaoOrbVoiceInput = Notification.Name(\"qingliao_orb_voice_input\")")
       && !chatViewSrc.contains("static let qingliaoOrbVoiceInput"))
 
+// ── 2b. v4.0.86 bugfix 护栏：胶囊必须落对话页（用户 2026-10-09 报「新建会话/语音输入失效」） ──
+// 根因：v4.0.83 起菜单弹在会话首页（showSessionHome=true）之上，此时 selected 已是 .chat，
+// ChatView 不在视图树 → case 0 置的 pendingNewSession 无人消费、case 2 的通知无人收。
+// 防回归：case 0/2/5/6 必须带 showSessionHome 收拢（同款判据 `selected != .chat || showSessionHome`）。
+check("v4.0.86 防回归：新建会话/语音输入胶囊先落对话页（ChatView 必须在树）",
+      dockSrc.contains("if selected != .chat || showSessionHome {") )
+check("v4.0.86 防回归：语音对话/会话纪要同样收 showSessionHome（全念与纪要卡的接收方都在 ChatView）",
+      dockSrc.contains("showSessionHome = false\n            showVoiceDialog = true")
+      && dockSrc.contains("showSessionHome = false\n            showMinutes = true"))
+
 // ── 3. 菜单层形态（A+C 方案定稿护栏） ─────────────────────────
 check("菜单浮层挂在 DockTabView", dockSrc.contains("OrbQuickMenuOverlay(barHeight: dockBarHeight"))
 check("速记弹窗 sheet(item:) 挂载", dockSrc.contains(".sheet(item: $quickCapture,"))   // 后面还跟着 onDismiss 复位
@@ -501,10 +511,10 @@ func stripCommentLines(_ s: String) -> String {
 }
 check("停止按钮切片可切出（切片空了本条就是空真）", !stopBtnSlice.isEmpty)
 check("停止按钮不再调用 glassEffect（岛内不渲染）", !stripCommentLines(stopBtnSlice).contains("glassEffect"))
-check("停止按钮走自绘淡底（accent 0.22）", stopBtnSlice.contains("OrbPalette.accent.opacity(0.22)"))
+check("停止按钮走自绘淡底（v4.0.86 精致化 0.14）", stopBtnSlice.contains("OrbPalette.accent.opacity(0.14)"))
 check("停止按钮带顶部亮边高光", stopBtnSlice.contains("LinearGradient(stops:"))
-check("停止按钮描边与 pill(.accent) 同参（accent 0.28 / 0.8pt）",
-      stopBtnSlice.contains("Capsule().strokeBorder(OrbPalette.accent.opacity(0.28), lineWidth: 0.8)"))
+check("停止按钮幽灵化描边（accent 0.4 / 0.8pt，v4.0.86 底变淡后描边补轮廓）",
+      stopBtnSlice.contains("Capsule().strokeBorder(OrbPalette.accent.opacity(0.4), lineWidth: 0.8)"))
 
 // ⑥ v3.9.72 展开态底部玻璃底衬（自绘：activityBackgroundTint 官方只管锁屏横幅，岛内无材质接口）
 check("展开态底部有自绘玻璃底衬定义", widgetSrc.contains("private var expandedGlass"))
@@ -521,7 +531,7 @@ let expandedGlassSlice: String = {
     return String(widgetSrc[a.lowerBound..<b.lowerBound])
 }()
 check("底衬切片可切出（空了就是空真）", !expandedGlassSlice.isEmpty)
-check("底衬只做上缘高光（白 0.12 渐隐）", expandedGlassSlice.contains("Color.white.opacity(0.12), Color.clear"))
+check("底衬只做上缘高光（v4.0.86 精致化降到 0.05：纯黑底上 0.12 是肉眼可见的泛白发亮横条）", expandedGlassSlice.contains("Color.white.opacity(0.05), Color.clear"))
 check("底衬不画小圆角描边（审查：与系统大圆角错位）",
       !stripCommentLines(expandedGlassSlice).contains("strokeBorder")
       && !stripCommentLines(expandedGlassSlice).contains("RoundedRectangle"))

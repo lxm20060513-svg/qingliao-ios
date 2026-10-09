@@ -120,42 +120,7 @@ struct ModelSheet: View {
     @State private var voiceHintText = ""
 
     /// v2.0.131：opencode 同步模型显示名映射（无映射的用 id 本身）
-    private let opencodeNames: [String: String] = [
-        "deepseek-v4-flash": "DeepSeek V4 Flash",
-        "deepseek-v4-pro": "DeepSeek V4 Pro",
-        "kimi-k3": "Kimi K3",
-        "kimi-k2.7-code": "Kimi K2.7 Code",
-        "kimi-k2.6": "Kimi K2.6",
-        "kimi-k2.5": "Kimi K2.5",
-        "glm-5.3": "GLM 5.3",
-        "glm-5.2": "GLM 5.2",
-        "glm-5.1": "GLM 5.1",
-        "glm-5": "GLM 5",
-        "qwen3.8-max": "Qwen3.8 Max",
-        "qwen3.7-max": "Qwen3.7 Max",
-        "qwen3.7-plus": "Qwen3.7 Plus",
-        "qwen3.6-plus": "Qwen3.6 Plus",
-        "qwen3.5-plus": "Qwen3.5 Plus",
-        "minimax-m3": "MiniMax M3",
-        "minimax-m2.7": "MiniMax M2.7",
-        "minimax-m2.5": "MiniMax M2.5",
-        "mimo-v2.5-pro": "MiMo V2.5 Pro",
-        "mimo-v2.5": "MiMo V2.5",
-        "mimo-v2-pro": "MiMo V2 Pro",
-        "mimo-v2-omni": "MiMo V2 Omni",
-        "gpt-5.6-luna": "GPT-5.6 Luna",
-        "grok-4.5": "Grok 4.5",
-    ]
-
     /// v3.0.4：SenseNova（商汤）模型显示名映射
-    private let sensenovaNames: [String: String] = [
-        "sensenova-6.8-flash-lite": "SenseNova 6.8 Flash Lite",
-        "sensenova-6.7-flash-lite": "SenseNova 6.7 Flash Lite",
-        "sensenova-u1-fast": "SenseNova U1 Fast",
-        "deepseek-v4-flash": "DeepSeek V4 Flash",
-        "glm-5.2": "GLM 5.2",
-    ]
-
     var body: some View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 10) {
@@ -319,7 +284,7 @@ struct ModelSheet: View {
     private var builtinProviderGroups: some View {
         if !opencodeAppleModels.isEmpty {
             // v2.0.140：第二组 opencode 订阅（apple），同名模型按 provider 区分勾选
-            groupSection("opencode（apple）", models: opencodeAppleModels.map { ($0, opencodeNames[$0] ?? $0, "opencode-apple") },
+            groupSection("opencode（apple）", models: opencodeAppleModels.map { ($0, opencodeModelNames[$0] ?? $0, "opencode-apple") },
                          onRefresh: { refreshSingleProvider("opencode-apple") },
                          refreshing: refreshingProviders.contains("opencode-apple"))
         }
@@ -336,7 +301,7 @@ struct ModelSheet: View {
         }
         // v3.0.4：SenseNova（商汤）订阅模型分组
         if !sensenovaModels.isEmpty {
-            groupSection("sensenova（商汤）", models: sensenovaModels.map { ($0, sensenovaNames[$0] ?? $0, "sensenova") },
+            groupSection("sensenova（商汤）", models: sensenovaModels.map { ($0, sensenovaModelNames[$0] ?? $0, "sensenova") },
                          onRefresh: { refreshSingleProvider("sensenova") },
                          refreshing: refreshingProviders.contains("sensenova"))
         }
@@ -694,8 +659,8 @@ struct ModelSheet: View {
     /// v3.0.4：provider 内模型显示名（复用现有映射，未知用 id）
     private func providerModelDisplayName(_ pid: String, _ model: String) -> String {
         switch pid {
-        case "opencode", "opencode-apple": return opencodeNames[model] ?? model
-        case "sensenova": return sensenovaNames[model] ?? model
+        case "opencode", "opencode-apple": return opencodeModelNames[model] ?? model
+        case "sensenova": return sensenovaModelNames[model] ?? model
         default: return model
         }
     }
