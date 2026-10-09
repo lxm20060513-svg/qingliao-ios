@@ -94,6 +94,13 @@ struct SessionsView: View {
     private var isSearching: Bool { !searchText.trimmingCharacters(in: .whitespaces).isEmpty }
 
     var body: some View {
+        // v4.0.81（CI 修）：原 body = 「VStack + 20 个 alert/sheet 修饰符」一条超长表达式 →
+        //   CI Archive 报 `unable to type-check this expression in reasonable time`（SessionsView.swift:96:25）。
+        //   拆两段：bodyCore（骨架）/ bodyChrome（交互与弹窗）。**纯搬运**，顺序/分支/闭包逐字未变。
+        bodyChrome
+    }
+
+    private var bodyCore: some View {
         VStack(spacing: 0) {
             // v4.0.63（用户 2026-10-05）：**取消滚边玻璃** —— 页头回退为「VStack 第一行 + 固定版式」，
             // v4.0.62 的 `.safeAreaBar(edge: .top)` 整段撤除（用户真机复测否决；看板 / 生活两页不动）。
@@ -135,6 +142,10 @@ struct SessionsView: View {
                 Button("完成") { focused = false }
             }
         }
+    }
+
+    private var bodyChrome: some View {
+        bodyCore
         .alert("删除失败", isPresented: Binding(get: { deleteError != nil }, set: { if !$0 { deleteError = nil } })) {
             Button("好", role: .cancel) { deleteError = nil }
         } message: {

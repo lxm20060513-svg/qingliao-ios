@@ -5275,6 +5275,7 @@ struct ChatBubbleMenuTarget {
 
 /// 气泡行级锚点台账。**故意不是 ObservableObject**：滚动时每帧都会刷新 frame，
 /// 写进 @State 会让整页 body 反复失效（同源教训见 ChatView「滚动容器可视高度」注释）。
+@MainActor   // v4.0.81（CI 修）：`static let shared` 在 Swift 6 严格并发下要求类型 Sendable 或隔离到 MainActor
 final class ChatBubbleAnchorStore {
     static let shared = ChatBubbleAnchorStore()
     private var frames: [String: CGRect] = [:]
