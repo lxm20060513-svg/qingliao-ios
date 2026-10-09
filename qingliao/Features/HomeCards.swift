@@ -29,6 +29,15 @@
 //     首页卡片是唯一调用方，它手里才有 ChatStore 与 sheet 态；自造 Notification 会出现
 //     「通知发出去了但没人监听」的哑火路径。
 //
+//  v4.0.81（用户：「最多4张自定义卡片，现有的轻聊投递和轻聊主动卡片合入聊天页自定义卡片范围」）：
+//   · 新增 `delivery`（轻聊投递）/ `proactive`（轻聊主动）两张**固定会话卡**：不自己拉网络，
+//     由宿主经 `fixedChannels` 注入 ChatSession；宿主没给对应会话时**不渲染**（连空壳都不给）。
+//     轻点复用既有 `onResume(session)` 打开该会话 —— 不新增闭包、不动调用点。
+//   · 「开启的卡」硬上限 4 张：**上限单一真源在 Core/HomeCardOrder.swift**（`capped` +
+//     `maxEnabledCards`）；这里只调它，别在视图里再写一个 4。空槽位 `custom` 不占额度。
+//   · 卡面（图标/色值）对齐会话页 FixedChannelCard：投递 = `tray.and.arrow.down.fill` + teal，
+//     主动 = `sparkles` + orange（跨页同一张脸，符号名全部复用仓内既有，不自造）。
+//
 
 import SwiftUI
 import UIKit   // v4.0.29：剪贴板卡读 UIPasteboard（轻点那一刻才读）
@@ -379,6 +388,12 @@ struct HomeCardsGrid: View {
     var onOpenBoard: () -> Void
     /// v4.0.29：打开弹窗的通用通道（备忘录 / 提醒面板 / 云盘浏览等由 ChatView 挂 sheet）
     var onOpenSheet: (HomeCardKind) -> Void
+    /// v4.0.81：宿主注入的**固定会话池**（轻聊投递 / 轻聊主动两张卡的数据来源）。
+    /// 为什么带默认值 `[]`：新参数不给默认值会让既有调用点编译不过；不传固定会话池时那两张卡直接不渲染。
+    /// ⚠️ v4.0.81 实测：合并后的「聊天」tab 首页走 SessionsView(showHero:)，它在 :654 传了固定会话池
+    /// → 两张卡在**聊天首页**正常渲染；ChatView 里那份 homeCardsGrid 不传（那里不做卡片首页）→ 该宿主不渲染。
+    /// 只按 id 认会话（`ChatStore.deliverySessionId` / `proactiveSessionId`），不按标题。
+    var fixedChannels: [ChatSession] = []
 
     /// 完整顺序（catalog 全量，含被关掉的）—— 写回的唯一真源。
     /// ⚠️ 必须用 fullOrder（全量）而不是 kinds（渲染列表）：否则新开的卡不在 full 里 → 开了看不见。
@@ -398,8 +413,33 @@ struct HomeCardsGrid: View {
     private let gap = HomeCardStore.gap
     private let cardHeight = HomeCardStore.cardHeight
 
-    /// 渲染用列表 = 完整顺序去掉被关的
-    private var visible: [HomeCardKind] { full.filter { !off.contains($0) } }
+    /// 渲染用列表：
+    ///   ① 完整顺序去掉被关的；
+    ///   ② v4.0.81：再去掉「宿主没注入对应固定会话」的 delivery/proactive（找不到会话 → 不渲染，不许空壳）；
+    ///   ③ v4.0.81：最后上「最多 4 张」硬上限（单一真源 = HomeCardOrder.capped，4 格含空槽位（自定义槽钉尾，超额时先被截））。
+    /// 顺序即优先级：上限截尾时先保留用户排在前面的卡。
+    private var visible: [HomeCardKind] {
+        let on = full.filter { !off.contains($0) }
+        let available = on.filter { k in
+            switch k {
+            case .delivery, .proactive: return fixedSession(for: k) != nil
+            default: return true
+            }
+        }
+        return HomeCardOrder.capped(available)
+    }
+
+    /// v4.0.81：按固定会话 **id** 从宿主注入的池子里取会话（不按标题认 —— 标题可被改）。
+    /// 只对 delivery/proactive 有意义；其余 kind 返回 nil。
+    private func fixedSession(for kind: HomeCardKind) -> ChatSession? {
+        let id: String
+        switch kind {
+        case .delivery:  id = ChatStore.deliverySessionId
+        case .proactive: id = ChatStore.proactiveSessionId
+        default: return nil
+        }
+        return fixedChannels.first { $0.id == id }
+    }
 
     /// 参与拖拽的（空槽位不参与）
     private var draggable: [HomeCardKind] { visible.filter { $0 != .custom } }
@@ -475,7 +515,8 @@ struct HomeCardsGrid: View {
                 emptySlot
             } else {
                 Button { Haptics.tap(); tap(kind) } label: {
-                    HomeCardFace(kind: kind, data: data)
+                    // v4.0.81：投递/主动两卡把宿主注入的会话传进卡面（取最后一条消息当副标）
+                    HomeCardFace(kind: kind, data: data, fixedSession: fixedSession(for: kind))
                 }
                 .buttonStyle(PressStyle())
             }
@@ -639,6 +680,10 @@ struct HomeCardsGrid: View {
             onOpenLife()                        // 目标在生活页
         case .clipboard:
             tapClipboard()
+        // ── v4.0.81 固定会话卡：轻点打开该固定会话（复用既有 onResume，不新增闭包/不改调用点）──
+        // 会话由宿主注入，理论上到这里一定有（visible 已把无会话的卡滤掉），这里再兜一道空值守卫。
+        case .delivery, .proactive:
+            if let s = fixedSession(for: kind) { onResume(s) }
         case .custom:
             showEditor = true
         }
@@ -662,6 +707,9 @@ struct HomeCardsGrid: View {
 struct HomeCardFace: View {
     let kind: HomeCardKind
     let data: HomeCardData
+    /// v4.0.81：delivery/proactive 两张固定会话卡的会话（由宿主注入），其余 kind 为 nil。
+    /// 传会话而不是预先算好的字符串 —— 副标要「最后一条消息」，在卡面里取最直接。
+    var fixedSession: ChatSession? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
@@ -713,6 +761,9 @@ struct HomeCardFace: View {
         case .cloud: return "cloud.fill"
         case .goal: return "flag.checkered"
         case .clipboard: return "doc.on.clipboard.fill"
+        // v4.0.81：固定会话卡 —— 符号名与会话页 FixedChannelCard 一致（复用，不自造）
+        case .delivery: return "tray.and.arrow.down.fill"
+        case .proactive: return "sparkles"
         case .custom: return "plus"
         }
     }
@@ -736,6 +787,9 @@ struct HomeCardFace: View {
         case .cloud: return .teal
         case .goal: return .orange
         case .clipboard: return .indigo
+        // v4.0.81：固定会话卡色值同会话页 FixedChannelCard（投递 teal / 主动 orange）
+        case .delivery: return .teal
+        case .proactive: return .orange
         case .custom: return .gray
         }
     }
@@ -759,6 +813,9 @@ struct HomeCardFace: View {
         case .cloud: return "云盘"
         case .goal: return "今日目标"
         case .clipboard: return "剪贴板"
+        // v4.0.81：固定会话卡标题与会话页一致（投递壳 / 主动会话）
+        case .delivery: return "轻聊投递"
+        case .proactive: return "轻聊主动"
         case .custom: return "空槽位"
         }
     }
@@ -834,9 +891,28 @@ struct HomeCardFace: View {
             return "\(data.goalTotal) 个目标 · 下一步 \(data.goalNextTitle)"
         case .clipboard:
             return "点一下发给 AI 处理"
+        // ── v4.0.81 固定会话卡（副标 = 最后一条消息摘要，取不到退回同款「点一下…」兜底）──
+        case .delivery, .proactive:
+            return channelSubtitle
         case .custom:
             return "点这里添加"
         }
+    }
+
+    /// v4.0.81：固定会话卡的副标 —— 会话最后一条消息的摘要。
+    /// 取不到会话 / 会话没有消息 → 退回兜底文案（卡面永不空着，风格同其余卡「点一下…」）。
+    /// ⚠️ 卡面副标**恒单行**：把消息里的换行压成空格（否则换行会让 text 以空行开头/被折行），
+    ///    超长交给外层 `lineLimit(1)` 截断 —— 卡高恒定是硬口径，别在这里加 fixedSize。
+    private var channelSubtitle: String {
+        guard let s = fixedSession else { return fallbackChannelSubtitle }
+        let one = s.lastMessageText
+            .replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return one.isEmpty ? fallbackChannelSubtitle : one
+    }
+
+    private var fallbackChannelSubtitle: String {
+        kind == .delivery ? "点一下查看投递内容" : "点一下看看它说了什么"
     }
 }
 
@@ -865,7 +941,7 @@ struct HomeCardEditorSheet: View {
                 } header: {
                     Text("首页显示哪些卡片")
                 } footer: {
-                    Text("关掉的卡片不留空位；重新打开会回到原来的位置。在首页长按卡片可拖动排序。「空槽位」是添加快捷卡的入口，也可关掉，随时用这里重新打开。")
+                    Text("首页最多显示 4 张（含「自定义」入口）；关掉的卡片不留空位；重新打开会回到原来的位置。在首页长按卡片可拖动排序。「空槽位」是添加快捷卡的入口，也可关掉，随时用这里重新打开。")
                 }
             }
             .navigationTitle("自定义首页卡片")
@@ -901,6 +977,9 @@ enum HomeCardLabels {
         case .cloud: return "云盘"
         case .goal: return "今日目标"
         case .clipboard: return "剪贴板"
+        // v4.0.81：固定会话卡文案（标题与会话页「轻聊投递 / 轻聊主动」一致）
+        case .delivery: return "轻聊投递"
+        case .proactive: return "轻聊主动"
         case .custom: return "空槽位"
         }
     }
@@ -924,6 +1003,9 @@ enum HomeCardLabels {
         case .cloud: return "cloud.fill"
         case .goal: return "flag.checkered"
         case .clipboard: return "doc.on.clipboard.fill"
+        // v4.0.81：固定会话卡符号（与 HomeCardFace / 会话页 FixedChannelCard 同参）
+        case .delivery: return "tray.and.arrow.down.fill"
+        case .proactive: return "sparkles"
         case .custom: return "plus"
         }
     }

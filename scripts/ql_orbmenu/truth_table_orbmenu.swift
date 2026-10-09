@@ -69,11 +69,15 @@ check("DockOrbOverlay 仍是唯一几何源（body 里 position 用 target）", 
 check("球命中层存在", orbMenuSrc.contains("struct OrbHitLayer: View"))
 check("长按+轻点用 ExclusiveGesture（分开挂会补认 tap，v2.0.107 实踩）",
       orbMenuSrc.contains("ExclusiveGesture(") && orbMenuSrc.contains("LongPressGesture(minimumDuration: 0.45)"))
-check("DockTabView 挂了球命中层", dockSrc.contains("OrbHitLayer(barHeight: dockBarHeight"))
-// v3.9.76：条件扩成「菜单 / 识别浮层 / 语音对话页都不在」——三层都要模态接管，缺一个就是两层抢触摸
-check("菜单开着时命中层隐藏（菜单层模态接管）",
-      dockSrc.contains("if !showOrbMenu && !showIdentify && !showVoiceDialog {") && dockSrc.contains("OrbHitLayer"))
-check("长按触感 press", dockSrc.contains("Haptics.press()") )
+// ── v4.0.81（用户口径 Q1=3）：dock 上的可见球 + 命中层 + 长按球触感**整块移除** ──
+// 唯一的长按入口 = 卡通宠物；菜单浮层与 9 个动作分发仍在（第 3 节 / 第 ⑪ 节继续钉）。
+// 反判据：谁把球层/命中层/长按球触感加回 dock，立刻判红（那套形态会被用户否掉）。
+check("v4.0.81 反判据：DockTabView 不许再挂球命中层（球已从 dock 移除）",
+      !dockSrc.contains("OrbHitLayer(barHeight: dockBarHeight"))
+check("v4.0.81 反判据：dock 不再有长按球的触感（唯一长按入口 = 宠物）",
+      !dockSrc.contains("Haptics.press()"))
+check("v4.0.81 反判据：旧「菜单开着时隐藏命中层」的模态接管条件不许回来",
+      !dockSrc.contains("if !showOrbMenu && !showIdentify && !showVoiceDialog {"))
 
 // ── 2. 四个动作复用既有入口 ──────────────────────────────────
 check("新建会话走 requestNewSession（两步走，勿直接清数据）",
@@ -113,17 +117,11 @@ check("减弱动态效果：装饰性扩散环不渲染", orbMenuSrc.contains("i
 // ── 4. 视觉层不抢事件（穿透铁律不被破坏） ─────────────────────
 // ⚠️ 断言必须**切片**：整文件 grep ".allowsHitTesting(false)" 会被 FullScreenBurst 那处（烟花层，
 // DockTabView 里同款串）假绿——删掉球层那一处，断言照样通过。只查球 overlay 那一段。
-let orbOverlaySlice: String = {
-    guard let a = dockSrc.range(of: "DockOrbOverlay(slotIndex: 2"),
-          let b = dockSrc.range(of: "长按球快捷菜单浮层", range: a.upperBound..<dockSrc.endIndex)
-    else { return "" }
-    return String(dockSrc[a.lowerBound..<b.lowerBound])
-}()
-check("球 overlay 片段可截取（哨兵：截不到就是文件结构变了，护栏要跟着改）", !orbOverlaySlice.isEmpty)
-check("可见球层仍 allowsHitTesting(false)（球面触摸归命中层/系统 tab item）",
-      orbOverlaySlice.contains(".allowsHitTesting(false)"))
-check("命中层挂在可见球之后（同 overlay 内后挂者在上，才拿得到触摸）",
-      orbOverlaySlice.contains("OrbHitLayer(barHeight: dockBarHeight"))
+// ── v4.0.81：dock 自绘球层 + 命中层整块删除 → 原「球 overlay 切片」三连（哨兵/穿透/挂序）退役。
+//   穿透铁律本身没废：菜单/识别/语音三层浮层仍必须 `.allowsHitTesting(false)` 之外的模态接管
+//   （第 3 节钉遮罩与穿透，第 ⑪ 节钉 9 个呈现位态收口），这里只钉「球层不许回来」。
+check("v4.0.81：dock 不许再出现写死槽位的自绘球层（旧 HitLayer 同生同死）",
+      !dockSrc.contains("DockOrbOverlay(slotIndex: 2"))
 
 // ── 5. 纯计算回归：胶囊落点几何（v3.9.60 两排 → v3.9.76 两排各 3 颗 → v4.0.x 三排 → v3.9.96 三排 9 颗）──
 // 镜像 OrbQuickMenuLayout（第 7 节 ③ 用源护栏钉住字面量，源改了这里必须同步改）
@@ -366,10 +364,14 @@ check("切页时收起菜单", dockSrc.contains("if showOrbMenu { showOrbMenu = 
 //   已在聊天页时只补触感 + 清提示。新建会话留在长按菜单 case 0 与「会话 tab 的 + 号」。
 //   🚨 dockSrc 是**原样源码**（本表未剥注释）：断言一律用「带花括号/正则」的代码形态，
 //      否则改天有人在注释里抄一句旧写法就假绿（v3.9.77 复审踩过同款）。
-check("轻点球 = 只切页（else 支整段钉死，保留当前会话）",
-      dockSrc.range(of: #"else\s*\{\s*selected = \.chat\s*\}"#, options: .regularExpression) != nil)
-check("已在聊天页时只补触感 + 清提示",
-      dockSrc.range(of: #"Haptics\.tap\(\);\s*clearOrbNotice\(\)"#, options: .regularExpression) != nil)
+// v4.0.81：球删了 → 「轻点球」这个交互本身不存在了，语义上移给系统 tab item（`.tabItem { Label(...) }`，
+//   SwiftUI 自己切页 = 只切页、不新建会话、不放烟花）。正判据钉「聊天 tab 仍是系统 tab item」，
+//   反判据钉「原来的自定义 onTap 支路与 clearOrbNotice 都不许回来」。
+check("v4.0.81：点「聊天」tab = 系统 tab item 只切页（球已删，不许自造 onTap 支路）",
+      dockSrc.contains(".tabItem { Label(DockTab.chat.title, systemImage: DockTab.chat.icon) }")
+      && dockSrc.range(of: #"else\s*\{\s*selected = \.chat\s*\}"#, options: .regularExpression) == nil)
+check("v4.0.81：球的「轻点补触感 + 清提示」随球退役（不许回归）",
+      !stripCommentLines(dockSrc).contains("clearOrbNotice"))
 // 🔑 复审加固（2026-10-05）：反向钉「onTap 块内不得再新建会话」——正向只 contains 旧形态
 //   会漏掉「两个支路只删一支」的半回退；窗口从 onTap 起算，只覆盖该闭包本身（注释在 onTap 之前，不入窗）。
 check("🔑 轻点球的 onTap 块内不得再新建会话（v4.0.47 口径已回退，改回即红）",
@@ -679,8 +681,10 @@ check("形象只此一份（不许复制第二套手势）＋续聊长条卡/建
 // ⑪ v4.0.x 快捷指令「打开轻聊快捷菜单」也跳**长按卡通宠物那套画面**（用户 2026-09-28 提的）
 // 改之前那条入口锚在 dock 智慧球上（orbMenuPetAnchor = nil）——与 v3.9.82「只保留一个跳转画面」矛盾。
 // 锚点只有 ChatView 有（dock 拿不到宠物几何），所以走「dock 请求 → 宠物应答」握手，两条来路合流到一个消费点。
+// ⚠️ v4.0.81：尾锚从 `guard let tab` 改成 `guard var tab` —— 深链要按「会话/聊天」两个 tab
+//   写 `showSessionHome` 双态，`tab` 必须可写。锚点不改 → 切片全空 → 下面 9 项全假绿/判红。
 let quickMenuRouteSlice = between(dockSrc, "if QingliaoDeepLink.nonTabRoutes.contains(route)",
-                                  "guard let tab = DockTab(rawValue: route.rawValue)")
+                                  "guard var tab = DockTab(rawValue: route.rawValue)")
 check("快捷菜单路由切片取到（切片空了本条就是空真）", !quickMenuRouteSlice.isEmpty)
 check("快捷菜单路由不再把锚点钉死在 dock（改为向宠物请求锚点）",
       quickMenuRouteSlice.contains("requestOrbMenuAtPetAnchor()")
@@ -689,7 +693,7 @@ check("快捷菜单路由不再把锚点钉死在 dock（改为向宠物请求�
 //    「切过页」那个分支的函数体内必须出现 Task 延后，同步弹只能落在 `else` 分支里。
 //    （旧版本写成析取 `!A || B`，A 失效也不影响判定 → 假绿，已改）
 let afterTabSwitchSlice = between(dockSrc, "let wasOnChat = selected == .chat",
-                                  "guard let tab = DockTab(rawValue: route.rawValue)")
+                                  "guard var tab = DockTab(rawValue: route.rawValue)")
 check("切页后的分支切片取到（切片空了本条就是空真）", !afterTabSwitchSlice.isEmpty)
 let cutBranchRaw = stripCommentLines(afterTabSwitchSlice.components(separatedBy: "if !wasOnChat {").last ?? "")
 let elseBranchRaw = stripCommentLines(afterTabSwitchSlice.components(separatedBy: "} else if !chat.messages.isEmpty {").last ?? "")
@@ -837,8 +841,9 @@ check("DockTabView 分发「语音对话」胶囊", dockSrc.contains("showVoiceD
 check("切页时两个新层都收起（不留浮在新页面上的死层），识别浮层连载荷一起清",
       dockSrc.contains("if showIdentify { showIdentify = false; identifyPhoto = nil }")
       && dockSrc.contains("if showVoiceDialog { showVoiceDialog = false }"))
-check("识别浮层开着时摘掉球命中层（不许两层同时吃触摸）",
-      dockSrc.contains("if !showOrbMenu && !showIdentify && !showVoiceDialog {"))
+check("v4.0.81：dock 已无自绘球层 → 「识别浮层开着时摘掉球命中层」随球退役；反判据钉住球层不许回来",
+      !dockSrc.contains("if !showOrbMenu && !showIdentify && !showVoiceDialog {")
+      && !dockSrc.contains("OrbHitLayer(barHeight: dockBarHeight"))
 
 // ⑨‴ v3.9.82：handleOrbAction 的统一收口必须清掉**全部**呈现位态 —— 桌面快捷方式是绕过菜单命中层的第二入口
 //      且能在任意时刻进来，漏清一个就是「点了没反应」（sheet 压住新开的浮层）。本批新增「译文弹窗」时正好漏过一次，
@@ -1170,10 +1175,10 @@ let menuCall = between(stripCommentLines(dockSrc),
                        "OrbQuickMenuOverlay(barHeight: dockBarHeight",
                        "onClose: { showOrbMenu = false })")
 check("DockTabView 调用点切片取到", menuCall.contains("slotCount: dockSlotCount"))
-check("DockTabView 把三态传进菜单（球在原位也跟随真实状态）",
+check("DockTabView 把流态传进菜单（v4.0.81：球与它的未查看/失败两态已删，只剩流态）",
       menuCall.contains("thinking: stream.isStreaming")
-      && menuCall.contains("unseen: orbUnseen")
-      && menuCall.contains("failed: orbFailed"))
+      && !menuCall.contains("unseen:")
+      && !menuCall.contains("failed:"))
 // 尺寸单一真源：dock 侧不再写字面量、菜单层也不许自己写一个
 check("球尺寸单一真源在 DockOrbOverlay（dock 侧改引用常量）",
       chatEffectsSrc.contains("static let defaultBallSize: CGFloat = 52")

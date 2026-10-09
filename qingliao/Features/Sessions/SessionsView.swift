@@ -16,8 +16,8 @@ struct SessionsView: View {
     @State private var isLoading = false
     @State private var errorText: String?
     @State private var scrollPos = ScrollPosition()
-    // v4.0.69：顶部并排卡（轻聊投递 / 轻聊主动）的长按目标存在 `FixedCardMenuTarget.shared`，
-    // **刻意不用 @State** —— 长按期间改 @State 会重建 body、可能打断正在弹出的系统菜单，见 fixedChannelCards 注释。
+    // v4.0.81：顶部「两张并排卡」行已退役 —— 固定会话（轻聊投递 / 轻聊主动）回到普通会话行渲染，
+    // 清空入口走行菜单 `sessionRowMenu(s)`（对固定会话隐藏删除/改名、保留清空）。
     @State private var deleteError: String?
     // v2.0.36：搜索 + 置顶
     @State private var searchText = ""
@@ -75,8 +75,21 @@ struct SessionsView: View {
     @State private var newTagName = ""
     // v3.4.29：新建会话图标弹一下
     @State private var plusBounceTick = 0
+    // v4.0.81 首页头状态（v4.0.81：卡通机器人 / 每日一言 / 卡片弹窗宿主）
+    @State private var heroPat = 0
+    @State private var heroQuote = WelcomeQuotes.pick()
+    @State private var heroPetCenter: CGPoint = .zero
+    @State private var heroWeather = false
+    @State private var heroReminder = false
+    @State private var heroMemo = false
+    @State private var heroCloud = false
     @Environment(\.colorScheme) private var colorSchemeEnv   // v4.0.67：环境渐变页底深浅自适应
     var onOpenSession: (() -> Void)? = nil   // 切到聊天 tab
+    /// v4.0.81：显示「聊天首页头」（卡通机器人 + 每日一言 + ≤4 张自定义卡片）。
+    /// 只有「聊天」tab 的首页传 true；iPad 双栏那份会话列表不传（双栏里聊天页自带欢迎页）。
+    var showHero: Bool = false
+    /// v4.0.81：首页卡片「问 AI 一句话」的落点（由 DockTabView 注入，与球菜单的 askAI 同一通道）
+    var onAskAI: ((String) -> Void)? = nil
 
     private var isSearching: Bool { !searchText.trimmingCharacters(in: .whitespaces).isEmpty }
 
@@ -201,6 +214,35 @@ struct SessionsView: View {
                 }
             }
             Button("取消", role: .cancel) {}
+        }
+        // v4.0.81：首页卡片要用的四个弹窗（全部复用既有视图，不在本页新造一套；
+        // 与聊天页 showHomeWeather/showHomeMemoBrowser/showHomeCloudDrive 同源同视图形态）
+        .sheet(isPresented: $heroWeather) {
+            WeatherSheet(mode: .local)
+                .presentationDetents([.large])
+        }
+        .sheet(isPresented: $heroReminder) {
+            QuickReminderSheet(presetText: "")
+                .presentationDetents([.medium, .large])
+                .scrollContentBackground(.hidden)
+        }
+        .sheet(isPresented: $heroMemo) {
+            NavigationStack {
+                ScrollView {
+                    MemoSection()
+                        .padding(.horizontal, Spacing.section)
+                }
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("完成") { heroMemo = false }
+                    }
+                }
+            }
+            .presentationDetents([.large])
+        }
+        .sheet(isPresented: $heroCloud) {
+            CloudDriveSettingsSheet()
+                .presentationDetents([.large])
         }
     }
 
@@ -469,8 +511,12 @@ struct SessionsView: View {
                 // v3.9.33：搜索结果区（本地优先，本地零命中再补远端全史搜索）
                 searchResultsArea
             } else {
-                BotCard()
-                    .sessionListRow(vHalfGap: 5)   // 5×2 = 10pt（= 原外层 LazyVStack(spacing: 10)）
+                // v4.0.81：聊天 tab 首页头（卡通机器人 + 每日一言 + ≤4 张自定义卡片）。
+                // 原此处是 BotCard（轻聊 agent 框）—— 用户口径「去掉」，且不再用单独的 agent 入口卡。
+                if showHero {
+                    homeHero
+                        .sessionListRow(vHalfGap: 5)
+                }
                 // v4.0.20（#9）：后台推进常驻浮条 —— 退出聊天页后仍能看到「后台还在跑」，
                 // 点一下直接跳回那条会话（此前一离开聊天页就完全失去线索）
                 backgroundRunningBar
@@ -478,10 +524,10 @@ struct SessionsView: View {
                 // v4.0.68（用户 2026-10-07 拍板）：固定会话（轻聊投递 / 轻聊主动）做成**两张并排卡**，
                 // 卡面对齐聊天首页卡（HomeCardFace 同款：24pt 图标片 + 名称 + 一行副标 + dashboardCard）。
                 // 它们原来是列表里的两行（带锁形图标 + 用途胶囊），混在普通会话里看不出是「功能壳」。
-                if !fixedChannelSessions.isEmpty && !editing {
-                    fixedChannelCards
-                        .sessionListRow(vHalfGap: 5)
-                }
+                // v4.0.81：固定会话（轻聊投递 / 轻聊主动）**不再单独占一行** —— 用户口径：
+                // 它们并入首页自定义卡片范围（HomeCardKind.delivery / .proactive，仍然最多 4 张）。
+                // 「清空这两个壳会话内容」的入口不丢：聊天页三点菜单里的「清空本会话消息」同口径可清
+                //（v4.0.18 用户要求保留的正是这条路径）。
                 if sessions.isEmpty {
                     sessionsEmptyState
                         .sessionListRow(vHalfGap: 5)
@@ -545,12 +591,69 @@ struct SessionsView: View {
     @ViewBuilder
     private var sessionsListStack: some View {
         // v3.3.0：bot 模式已移除，会话列表不再按 bot 分组，直接平铺
-        // v4.0.68：固定会话（轻聊投递/轻聊主动）已上移到顶部并排卡（fixedChannelCards），
-        // 这里必须**过滤掉**——否则同一个会话会渲染两次（用户拍板口径：并排卡之后列表不再重复出现）。
-        ForEach(sortedSessions.filter { !isFixedSession($0.id) }) { s in
+        // v4.0.81：顶部「两张并排卡」行退役 → 固定会话（轻聊投递/轻聊主动）**回到普通会话行**渲染，
+        // 这里**不再过滤**：过滤是并排卡时代的产物，留着会让固定会话在列表里彻底消失，
+        // 而「清空会话内容」的唯一入口（行菜单 sessionRowMenu）就在那条行上 → 能力失联。
+        ForEach(sortedSessions) { s in
             sessionCell(s)
                 .sessionListRow(vHalfGap: 4)   // 4×2 = 8pt（= 原 LazyVStack(spacing: 8)）
         }
+    }
+
+    // MARK: - v4.0.81 聊天 tab 首页头（卡通机器人 / 每日一言 / 自定义卡片）
+
+    /// 首页头三件（PetAvatar / WelcomeQuotes / HomeCardsGrid）**全是既有组件**，本页不新造一套 ——
+    /// 与聊天页欢迎区同源，差别只在本页把「首页」摆在会话列表顶部。
+    /// Q1=3 带来的硬约束：球没了，快捷入口只剩「长按宠物」，所以这里的宠物**必须**接回那条锚点通知，
+    /// 且**自带锚点**（不走 ChatView 应答那条来路 —— 本页 ChatView 根本不在树上，发了会哑火）。
+    @ViewBuilder
+    private var homeHero: some View {
+        VStack(spacing: Spacing.lg) {
+            PetAvatar(size: 96, state: .idle, patTrigger: heroPat)
+                .frame(width: 96, height: 96)
+                .onGeometryChange(for: CGPoint.self) { proxy in
+                    let r = proxy.frame(in: .global)
+                    return CGPoint(x: r.midX, y: r.midY)
+                } action: { heroPetCenter = $0 }
+                .onTapGesture {
+                    heroPat += 1
+                    Haptics.tap()
+                }
+                .onLongPressGesture {
+                    guard heroPetCenter != .zero else { return }
+                    Haptics.tap()
+                    NotificationCenter.default.post(name: .qingliaoOrbMenuFromPet,
+                                                    object: nil,
+                                                    userInfo: OrbPetAnchor(center: heroPetCenter, size: 96).userInfo)
+                }
+                .accessibilityLabel("轻点抚摸，长按打开快捷菜单")
+            Text(heroQuote)
+                .font(.system(size: Typography.title, weight: .semibold))
+                .foregroundStyle(.primary)
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, Spacing.md)
+        // 卡片：动作全部落到既有通道（onResume = 本页 open；onAsk = DockTabView 注入的 askAI；
+        // 生活/看板走跨 tab 路由；天气/备忘录/云盘/提醒四个弹窗挂在本页 body 上，见其挂载处注释）
+        HomeCardsGrid(
+            resumeSession: nil,
+            onResume: { open($0) },
+            onAsk: { onAskAI?($0) },
+            onOpenLife: { QingliaoRouteHandoff.request(.life) },
+            onOpenWeather: { heroWeather = true },
+            onOpenBoard: { QingliaoRouteHandoff.request(.dashboard) },
+            onOpenSheet: { kind in
+                switch kind {
+                case .nextReminder: heroReminder = true
+                case .memo:         heroMemo = true
+                case .cloud:        heroCloud = true
+                default:            break
+                }
+            },
+            fixedChannels: fixedChannelSessions
+        )
     }
 
     // MARK: - v4.0.68 固定会话并排卡（轻聊投递 / 轻聊主动）
@@ -561,43 +664,6 @@ struct SessionsView: View {
         guard !showArchived else { return [] }
         return [ChatStore.deliverySessionId, ChatStore.proactiveSessionId]
             .compactMap { id in sessions.first { $0.id == id } }
-    }
-
-    /// 两张并排卡（各占一半宽；只有一张存在时它自然铺满整行）
-    @ViewBuilder
-    private var fixedChannelCards: some View {
-        HStack(spacing: 8) {
-            ForEach(fixedChannelSessions) { s in
-                FixedChannelCard(session: s, unread: chat.unread[s.id] ?? 0) {
-                    open(s)
-                }
-                // v4.0.68（审查修复）：卡片必须有长按菜单 —— 与会话行共用同一份 `sessionRowMenu`。
-                // 否则固定会话在会话页的「清空会话内容」入口会随本次改版消失（v4.0.18 用户拍板要能清）。
-                // 菜单里已按固定会话排除置顶/归档/重命名/删除，两处口径一致，别在卡片里再抄一份。
-                // v4.0.69（用户 2026-10-07 报「轻聊投递和轻聊主动长按是同时选中两张卡，需要对每张卡能长按」）：
-                // 原先 `.contextMenu` 挂在每张卡上，但两张卡同处一个 List 行 —— 系统会把行内子视图的
-                // contextMenu 提升成 cell 级宿主（UICollectionViewCell 的 contextMenu interaction），
-                // 于是长按任一张都只弹第一个菜单、整行一起抬起。改为：行级只留一个菜单，内容按
-                // 「按下瞬间命中的那张卡」生成。
-                // 用 simultaneousGesture 而非 onLongPressGesture：前者不参与手势竞争，不会把卡片的
-                // 点按吃掉（卡片主操作是「点开进聊天」）；目标写进引用类型而不是 @State，是为了不重建
-                // body —— 长按期间重建会打断正在弹出的系统菜单。
-                .simultaneousGesture(
-                    LongPressGesture(minimumDuration: 0.05)
-                        .onEnded { _ in FixedCardMenuTarget.shared.id = s.id }
-                )
-            }
-        }
-        // 菜单挂在行上（cell 级宿主就在这一层）。内容由 FixedCardMenuTarget 决定 → 长按哪张就是哪张；
-        // 兜底给第一张：菜单内容为空时系统什么都不弹 = 长按「像坏了」，比给错目标更糟。
-        .contextMenu {
-            if let id = FixedCardMenuTarget.shared.id,
-               let s = fixedChannelSessions.first(where: { $0.id == id }) {
-                sessionRowMenu(s)
-            } else if let s = fixedChannelSessions.first {
-                sessionRowMenu(s)
-            }
-        }
     }
 
     // MARK: - v2.0.36 搜索 / 置顶
@@ -631,15 +697,22 @@ struct SessionsView: View {
     /// v3.9.39：**屏幕上真正渲染出来、能被勾选**的会话——与 sessionsListBody 的分支严格同源
     /// （非搜索态 = sortedSessions；搜索态本地命中 = filteredSessions；本地零命中时的远端命中
     /// 只有能对回本地列表的那批会画成 sessionCell，RemoteHitRow 没有勾选框）。
-    /// 多选栏的全选/取消全选必须走这里，不能用 sortedSessions。
+    /// 多选栏的全选/取消全选/「N 条」计数必须走这里，不能用 sortedSessions。
+    /// ⚠️ v4.0.81（审查修）：这里**过滤掉固定会话** —— 列表渲染自 v4.0.81 起不再过滤它们
+    ///   （回到普通会话行渲染），但多选栏算上它们就会让「N 条」比实际能删的条数多 2。
     private var visibleSessions: [ChatSession] {
-        // v4.0.68：固定会话（轻聊投递/轻聊主动）已不渲染成列表行（改顶部并排卡），
-        // 多选/全选不能把它们算进来 —— 它们本来也删不掉（后端 _PROTECTED_IDS 硬拒）。
-        guard isSearching else { return sortedSessions.filter { !isFixedSession($0.id) } }
-        if !filteredSessions.isEmpty { return filteredSessions }
-        // v4.0.35：远端兜底命中同样遵守当前视图的归档口径（与 remoteHitsList 同判据）
-        return remoteHits.compactMap { localSession(id: $0.id) }
-            .filter { showArchived ? archivedIDs.contains($0.id) : !archivedIDs.contains($0.id) }
+        let base: [ChatSession]
+        if !isSearching {
+            base = sortedSessions
+        } else if !filteredSessions.isEmpty {
+            base = filteredSessions
+        } else {
+            // v4.0.35：远端兜底命中同样遵守当前视图的归档口径（与 remoteHitsList 同判据）
+            base = remoteHits.compactMap { localSession(id: $0.id) }
+                .filter { showArchived ? archivedIDs.contains($0.id) : !archivedIDs.contains($0.id) }
+        }
+        // 固定会话不可勾选（showCheck/onTap 双闸）、也删不掉（后端 _PROTECTED_IDS 硬拒）→ 一律不入多选口径。
+        return base.filter { !isFixedSession($0.id) }
     }
 
     private var visibleSessionIDs: Set<String> { Set(visibleSessions.map(\.id)) }
@@ -1327,71 +1400,6 @@ struct SessionsView: View {
 
 }
 
-// MARK: - 机器人卡
-
-struct BotCard: View {
-    @Environment(AuthStore.self) private var auth
-    @State private var online: Bool?
-    // v2.0.50：模型/提供商动态读取（设置切换后实时刷新）
-    @AppStorage("qingliao_model") private var modelName = "deepseek-v4-flash"
-    @AppStorage("qingliao_provider") private var provider = "opencode"
-    // 当前模型显示
-    // v3.0.20：Agent 模型自定义——配置了独立模型时显示 agent 模型（v3.4.12：开关已移除，恒开启）
-    private var displayModel: String {
-        // v3.4.12：Agent 开关已移除（后端恒走 Hermes agent），配置了独立模型即显示
-        let agentModel = UserDefaults.standard.string(forKey: UserDefaultsKey.agentModel) ?? ""
-        if !agentModel.isEmpty {
-            return "\(provider)/\(agentModel)"
-        }
-        return "\(provider)/\(modelName)"
-    }
-
-    var body: some View {
-        HStack(spacing: 12) {
-            ZStack {
-                Circle()
-                    .fill(LinearGradient(colors: [.blue, .indigo], startPoint: .topLeading, endPoint: .bottomTrailing))
-                Image(systemName: "brain.head.profile")
-                    .font(.system(size: Typography.title, weight: .medium))
-                    .foregroundStyle(.white)
-            }
-            .frame(width: 40, height: 40)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text("轻聊 agent")
-                    .font(.system(size: Typography.body, weight: .semibold))
-                // v2.0.50：模型名动态显示（之前硬编码，设置切模型不刷新）
-                Text(displayModel)
-                    .font(.system(size: Typography.caption, design: .monospaced))
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-            HStack(spacing: 4) {
-                Circle()
-                    .fill(online == true ? Color.green : (online == false ? Color.red : Color.gray))
-                    .frame(width: 6, height: 6)
-                Text(online == true ? "在线" : (online == false ? "离线" : "检测中"))
-                    .font(.system(size: Typography.tiny))
-                    .foregroundStyle(online == true ? Color.green : (online == false ? Color.red : Color.secondary))
-            }
-        }
-        .padding(Spacing.xl)
-        .background(
-            LinearGradient(colors: [Color.blue.opacity(Tint.subtle), Color.indigo.opacity(Tint.faint)],
-                           startPoint: .topLeading, endPoint: .bottomTrailing),
-            in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
-                .strokeBorder(Color.blue.opacity(Tint.strong), lineWidth: 0.8)
-        )
-        .task {
-            // 真实连接状态
-            let r = await auth.testConnection(server: auth.serverURL)
-            online = r.hasPrefix("✅")
-        }
-    }
-}
 
 // MARK: - 会话行
 
@@ -1564,7 +1572,7 @@ struct SessionRow: View {
         .padding(.horizontal, Spacing.xxl)
         .padding(.vertical, Spacing.lg)
         // v4.0.67 P2：会话卡换淡彩渐变口径（P0 的 pastelCard modifier，与 AI 气泡/生活卡同档）——
-        //   底 = EnvironmentGradient.pastelCardStyle（粉白→蓝白，深色同构暗调）+ 紫调柔影 + Tint.line 描边。
+        //   底 = GlassEdgeSurface（v4.0.81 方案3：玻璃材质 + 半透明叠层 + 1pt 渐变厚边 + 加重柔影）。
         //   v4.0.0 的玻璃 dashboardCard() 口径退役（聊天页已彩化，玻璃卡压在彩底上发灰）。
         .pastelCard(cornerRadius: Radius.card)
         .contentShape(Rectangle())
@@ -1792,18 +1800,6 @@ private extension View {
 
 /// 顶部两张并排卡（轻聊投递 / 轻聊主动）同处一个 List 行，系统会把行内子视图的 `.contextMenu`
 /// 提升成 **cell 级唯一宿主** —— 长按任一张都只弹第一个菜单、整行一起抬起。这里在「按下」的瞬间
-/// 记下命中的卡 id，菜单内容弹出时据此分发（见 `SessionsView.fixedChannelCards`）。
-///
-/// 刻意用引用类型而不是 `@State`：长按期间改 `@State` 会重建 body，可能打断正在弹出的系统菜单。
-///
-/// - Note: `@unchecked Sendable` + 不标 `@MainActor` 是**故意的**：只在主线程（视图 body / 手势闭包）
-///   读写；而手势闭包在 Swift 6 下到底继承哪种隔离随 SwiftUI 版本变化，标成 Sendable 两边都编得过。
-final class FixedCardMenuTarget: @unchecked Sendable {
-    static let shared = FixedCardMenuTarget()
-    private init() {}
-    var id: String?
-}
-
 // MARK: - v4.0.68 固定会话并排卡（轻聊投递 / 轻聊主动）
 
 /// 会话页顶部「两张并排卡」里的单卡（用户 2026-10-07 拍板：位置=列表首行并排，卡面=名称+用途+时间+未读）。

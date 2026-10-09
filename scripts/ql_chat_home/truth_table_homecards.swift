@@ -76,17 +76,17 @@ check("check_swift.sh 源可读", !gate.isEmpty)
 check("Pill.swift 源可读（栏目头/聊天页头两档口径都在它里面）", !pill.isEmpty)
 
 // ── ① 目录与默认档 ─────────────────────────────────────────────
-check("卡片种类 17 类（v4.0.29 加十张新卡：mail/resume/todo/weather/expense/agentTip + nextReminder/memo/express/stock/kb/scene/device/cloud/goal/clipboard + custom）",
-      HomeCardKind.allCases.count == 17)
+check("卡片种类 19 类（v4.0.29 十张新卡 + v4.0.81 两种固定会话卡 delivery/proactive：mail/resume/todo/weather/expense/agentTip + nextReminder/memo/express/stock/kb/scene/device/cloud/goal/clipboard + delivery/proactive + custom）",
+      HomeCardKind.allCases.count == 19)
 check("catalogOrder == allCases（默认顺序 = 目录顺序，不另写一份数组）",
       HomeCardKind.catalogOrder == HomeCardKind.allCases)
-check("可拖拽 16 张、空槽位不进拖拽流",
-      HomeCardKind.draggable.count == 16 && !HomeCardKind.draggable.contains(.custom))
-check("默认关掉 = 老三张 + 十张新卡（v4.0.29：新卡不挤占老用户首屏）",
-      HomeCardStore.defaultOff == [.todo, .weather, .expense, .nextReminder, .memo, .express, .stock, .kb, .scene, .device, .cloud, .goal, .clipboard])
-check("默认档下首屏仍 4 张 = [mail, resume, agentTip, custom]（新卡默认关、不挤占首屏）",
+check("可拖拽 18 张（19 − 空槽位）、空槽位不进拖拽流",
+      HomeCardKind.draggable.count == 18 && !HomeCardKind.draggable.contains(.custom))
+check("默认关掉 = 老三张 + 十张新卡 + agentTip/resume（v4.0.29 新卡不挤占首屏；v4.0.81 resume 因与会话列表重叠一并默认收起）",
+      HomeCardStore.defaultOff == [.todo, .weather, .expense, .agentTip, .resume, .nextReminder, .memo, .express, .stock, .kb, .scene, .device, .cloud, .goal, .clipboard])
+check("默认档首屏 = [mail, delivery, proactive, custom]（v4.0.81 口径 2：邮件 + 投递 + 主动 + 空槽位，正好 4 格）",
       HomeCardOrder.resolve(order: "", off: HomeCardOrder.encode(HomeCardStore.defaultOff))
-        == [.mail, .resume, .agentTip, .custom])
+        == [.mail, .delivery, .proactive, .custom])
 
 // ── ② 顺序串容错（parse / encode / resolve） ────────────────────
 check("parse 空串 → 空列表", HomeCardOrder.parse("").isEmpty)
@@ -99,12 +99,12 @@ check("encode 往返：encode → parse 恒等",
 check("encode 空列表写空串（「顺序」没有全关语义，不写哨兵）",
       HomeCardOrder.encode([]) == "")
 check("resolve 去重：重复 kind 只留一次",
-      HomeCardOrder.resolve(order: "mail,mail,mail", off: "").count == 17)
+      HomeCardOrder.resolve(order: "mail,mail,mail", off: "").count == 19)
 check("resolve 补齐新卡：顺序串只有 resume → 首项 resume + 其余按 catalog 排尾",
       HomeCardOrder.resolve(order: "resume", off: "") == [.resume] + HomeCardKind.catalogOrder.filter { $0 != .resume })
-check("resolve 未知项不影响补全：\"zzz,mail\" → 17 项且首项 mail",
+check("resolve 未知项不影响补全：\"zzz,mail\" → 19 项且首项 mail",
       HomeCardOrder.resolve(order: "zzz,mail", off: "").first == .mail
-        && HomeCardOrder.resolve(order: "zzz,mail", off: "").count == 17)
+        && HomeCardOrder.resolve(order: "zzz,mail", off: "").count == 19)
 check("resolve 过滤被关的卡", !HomeCardOrder.resolve(order: "", off: "todo,weather").contains(.todo))
 check("resolve 只在「列表为空」时兜底；全关时剩下的 custom 不算数 → 开关侧必须自己拒关最后一张真卡",
       HomeCardOrder.resolve(order: "", off: HomeCardOrder.encode(HomeCardKind.draggable)) == [.custom])
@@ -177,25 +177,26 @@ check("rows 五张 → 3 行（2+2+1），末行补 nil",
       HomeCardOrder.rows([.mail, .resume, .todo, .weather, .expense])
         == [[.mail, .resume], [.todo, .weather], [.expense, nil]])
 check("rows 元素守恒：拍平非 nil 数 == 输入数",
-      HomeCardOrder.rows(HomeCardKind.catalogOrder).flatMap { $0 }.compactMap { $0 }.count == 17)
+      HomeCardOrder.rows(HomeCardKind.catalogOrder).flatMap { $0 }.compactMap { $0 }.count == 19)
 check("rows columns <= 0 → 空（不许死循环）",
       HomeCardOrder.rows([.mail, .resume], columns: 0).isEmpty)
 
 // ── ⑥ 写回保位（关掉的卡必须留在原槽） ─────────────────────────
 let offDefault = HomeCardStore.defaultOff
-let visibleDefault: [HomeCardKind] = [.mail, .resume, .agentTip, .custom]
+let visibleDefault: [HomeCardKind] = [.mail, .delivery, .proactive, .custom]
 check("写回：关掉的卡逐个留在原槽（默认档下结果 == catalog 原序）",
       HomeCardOrder.mergeVisible(oldFull: HomeCardKind.catalogOrder,
                                  newVisible: visibleDefault,
                                  off: offDefault) == HomeCardKind.catalogOrder)
 let mergedSwapped = HomeCardOrder.mergeVisible(oldFull: HomeCardKind.catalogOrder,
-                                               newVisible: [.resume, .mail, .agentTip, .custom],
+                                               newVisible: [.delivery, .mail, .proactive, .custom],
                                                off: offDefault)
-check("写回：可见卡换位（resume/mail 对调）后，被关的三张仍在原槽 3/4/5 位、新卡按 catalog 排尾",
-      mergedSwapped == [.resume, .mail, .todo, .weather, .expense, .agentTip, .nextReminder, .memo, .express, .stock, .kb, .scene, .device, .cloud, .goal, .clipboard, .custom])
+check("写回：可见卡换位（delivery 与 mail 对调，两张都在开启态）后，被关的卡仍钉在原槽、两张可见卡在各自槽位内对调",
+      mergedSwapped == [.delivery, .resume, .todo, .weather, .expense, .agentTip, .nextReminder, .memo, .express, .stock, .kb, .scene, .device, .cloud, .goal, .clipboard, .mail, .proactive, .custom]
+        && mergedSwapped != HomeCardKind.catalogOrder)
 check("写回后重新打开 todo → 精确回到第 3 位（不是排到末尾）",
       HomeCardOrder.resolve(order: HomeCardOrder.encode(mergedSwapped), off: "weather,expense") ==
-        [.resume, .mail, .todo, .agentTip, .nextReminder, .memo, .express, .stock, .kb, .scene, .device, .cloud, .goal, .clipboard, .custom])
+        [.delivery, .resume, .todo, .agentTip, .nextReminder, .memo, .express, .stock, .kb, .scene, .device, .cloud, .goal, .clipboard, .mail, .proactive, .custom])
 check("写回：oldFull 之外的新卡（升版加卡）补到末尾",
       HomeCardOrder.mergeVisible(oldFull: [.mail, .resume],
                                  newVisible: [.resume, .mail, .todo],
@@ -203,7 +204,7 @@ check("写回：oldFull 之外的新卡（升版加卡）补到末尾",
 check("写回长度守恒（可见卡少于槽位的边界不崩）",
       HomeCardOrder.mergeVisible(oldFull: HomeCardKind.catalogOrder,
                                  newVisible: [.mail],
-                                 off: []).count == 17)
+                                 off: []).count == 19)
 
 // ── ⑦ 持久化键 / 版式常量（单一真源） ───────────────────────────
 check("UserDefaults 键字面量全仓只在 HomeCardOrder.swift（grep 单一真源）",
@@ -226,10 +227,10 @@ ud.removeObject(forKey: HomeCardStore.orderKey)
 ud.removeObject(forKey: HomeCardStore.offKey)
 check("首次使用（键都不存在）：off == 默认档三张 —— 否则面板显示「三张默认关掉的卡是开的」，与首页对不上",
       HomeCardStore.off == HomeCardStore.defaultOff)
-check("首次使用：渲染仍 4 张 = [mail, resume, agentTip, custom]（新卡默认关）",
-      HomeCardStore.kinds == [.mail, .resume, .agentTip, .custom])
-check("完整顺序恒为 catalog 全量 17 张（拖拽写回拿它当 oldFull，关掉的卡才留得住）",
-      HomeCardStore.fullOrder.count == 17 && Set(HomeCardStore.fullOrder) == Set(HomeCardKind.allCases))
+check("首次使用：渲染 = [mail, delivery, proactive, custom]（v4.0.81 默认档 4 格，走 capped）",
+      HomeCardStore.kinds == [.mail, .delivery, .proactive, .custom])
+check("完整顺序恒为 catalog 全量 19 张（拖拽写回拿它当 oldFull，关掉的卡才留得住）",
+      HomeCardStore.fullOrder.count == 19 && Set(HomeCardStore.fullOrder) == Set(HomeCardKind.allCases))
 
 ud.set("todo,weather,expense,custom,zzz_kind", forKey: HomeCardStore.offKey)
 check("脏 off 串：未知项丢弃 + 空槽位照用户意思保留在 off（v4.0.9 起它可关）",
@@ -239,21 +240,22 @@ check("脏数据把 16 张真卡全关 → 兜底放回 resume（与 setEnabled 
       HomeCardStore.off == HomeCardKind.draggable.filter { $0 != .resume })
 
 ud.set("", forKey: HomeCardStore.offKey)
-check("动过开关（键存在空串）→ 完全听用户的，不回灌默认档",
-      HomeCardStore.off.isEmpty && HomeCardStore.kinds.count == 17)
+check("动过开关（键存在空串）→ 完全听用户的，不回灌默认档（kinds 再走 4 格上限）",
+      HomeCardStore.off.isEmpty && HomeCardStore.kinds == [.mail, .resume, .todo, .weather])
 
 ud.set(HomeCardOrder.encode(HomeCardStore.defaultOff), forKey: HomeCardStore.offKey)
 ud.set(HomeCardOrder.encode(HomeCardOrder.setEnabled(HomeCardStore.off, .todo, on: true)),
        forKey: HomeCardStore.offKey)
 check("模拟开一张默认关掉的卡：它真的出现在渲染列表里（fullOrder 是全量才不会「开了看不见」）",
       HomeCardStore.kinds.contains(.todo))
-check("开卡不把它挪到末尾（顺序串保留原槽位）",
-      HomeCardStore.kinds == [.mail, .resume, .todo, .agentTip, .custom])
+check("开卡按目录序插回原位（不是排到末尾）；⚠️ v4.0.81：开第 5 张会顶掉末尾的空槽位（4 格含空槽位、按序截尾）",
+      HomeCardStore.kinds == [.mail, .todo, .delivery, .proactive])
 
 ud.set(HomeCardOrder.encode([.custom]), forKey: HomeCardStore.offKey)
 check("🚨 空槽位关掉 → 不再被无条件补回（旧实现 `kinds` 末尾恒补 custom = 关不掉的真根因）",
       HomeCardStore.off == [.custom]
-        && HomeCardStore.kinds == HomeCardKind.catalogOrder.filter { $0 != .custom })
+        && !HomeCardOrder.resolve(order: "", off: HomeCardOrder.encode([.custom])).contains(.custom)
+        && !HomeCardStore.kinds.contains(.custom))
 check("空槽位关掉后仍有「添加卡片」入口：页头「自定义」胶囊恒在（不失联）",
       flat(stripCommentLines(cards)).contains(".sectionHeaderPill()")
         && flat(stripCommentLines(cards)).contains("HomeCardEditorSheet(off:$off)"))
@@ -313,10 +315,24 @@ check("视图状态与读取路径同源：full = HomeCardStore.fullOrder、off 
 check("行高/间距取自 HomeCardStore（不在视图里写死 84 / 9）",
       flat(stripCommentLines(cards)).contains("privateletcardHeight=HomeCardStore.cardHeight")
         && flat(stripCommentLines(cards)).contains("privateletgap=HomeCardStore.gap"))
-check("空槽位可见时仍钉在末尾（kinds 末尾补 custom）",
-      flat(stripCommentLines(coreSrc)).contains("returnbase.contains(.custom)?base:base+[.custom]"))
-check("🚨 kinds 必须先让 off 说话：关掉的空槽位不许被补回",
-      flat(stripCommentLines(coreSrc)).contains("ifoff.contains(.custom){returnbase}"))
+check("空槽位可见时仍钉在末尾（kinds 先算 visible 再补 custom，末尾钉尾口径不变）",
+      flat(stripCommentLines(coreSrc)).contains("base.contains(.custom)?base:base+[.custom]"))
+check("🚨 kinds 必须先让 off 说话：关掉的空槽位不许被补回（v4.0.81 换成 visible 三元，off 仍是第一判据）",
+      flat(stripCommentLines(coreSrc)).contains("letvisible=off.contains(.custom)?base:"))
+
+// ── ⑨ v4.0.81 四格上限（口径 2：4 格**含**空槽位；上限单一真源 = maxEnabledCards / capped） ──
+check("上限单一真源：maxEnabledCards == 4 且 capped 就是 prefix(limit)",
+      HomeCardOrder.maxEnabledCards == 4
+        && HomeCardOrder.capped(HomeCardKind.catalogOrder) == Array(HomeCardKind.catalogOrder.prefix(4)))
+check("超额按当前顺序截尾（顺序即优先级，不另排一套）",
+      HomeCardOrder.capped([.delivery, .mail, .proactive, .resume, .custom]) == [.delivery, .mail, .proactive, .resume])
+check("空槽位钉尾 → 4 张实卡 + 开空槽时被截掉的是空槽位它自己（实卡优先级更高）",
+      HomeCardOrder.capped([.mail, .delivery, .proactive, .resume, .custom]) == [.mail, .delivery, .proactive, .resume]
+        && HomeCardOrder.capped([.custom] + HomeCardKind.draggable).first == .custom)
+check("🚨 上限只有两处消费者、且都调 capped（读取路径 kinds + 渲染路径 visible），别在别处再截一份",
+      flat(stripCommentLines(coreSrc)).contains("returnHomeCardOrder.capped(visible)")
+        && flat(stripCommentLines(cards)).contains("returnHomeCardOrder.capped(available)")
+        && flat(stripCommentLines(coreSrc)).contains("staticletmaxEnabledCards=4"))
 check("setEnabled 不再给空槽位开小灶（旧守卫已删）",
       !flat(stripCommentLines(coreSrc)).contains("guardkind!=.customelse{returnoff}"))
 check("面板不再禁用空槽位开关（v4.0.9：用户要求可关）",

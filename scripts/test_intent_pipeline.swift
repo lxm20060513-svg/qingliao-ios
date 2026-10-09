@@ -437,8 +437,9 @@ check("意图卡外观切片可切出（空了后面全是空真）", !barCardSl
 let cardClean = stripComments(barCardSlice)
 // 🚨 v4.0.0：意图动作卡已从 overlayGlassCard 切到 dashboardCard（= 门锁卡同款原生玻璃，
 //   真机报「浅色对话底上 ultraThin 看着像实心白卡」）。投影也跟着收进 DashboardCardStyle 的
-//   柔影 10/4 —— 它是**看板卡片浮在页面之上**的档，投影由该口径自带，调用点不再叠一层
-//   （叠两层阴影只会让下投影更重，与看板其它卡片不一致）。
+//   柔影 —— v4.0.81 方案3 起，影与描边统一由 `GlassEdgeSurface` 带（参数 = EnvironmentGradient.cardShadow
+//   单一真源：浅 黑 0.10 / 深 黑 0.60，r22/y8；旧档是 DashboardCardStyle 自带的 10/4），
+//   调用点仍不许叠第二层（叠两层只会让下投影更重，与看板其它卡片不一致）。
 // 护栏意图从「投影写在调用点」改成「投影没被顺手抹掉」：两种形态都算过，只是不许回到「卡片没有投影」。
 check("意图卡走看板玻璃口径 .dashboardCard()（门锁卡同款，v4.0.0）",
       cardClean.contains(".dashboardCard()"))
@@ -450,9 +451,21 @@ check("调用点不再自己画圆角/材质（单一口径只在 DashboardCardS
       !cardClean.contains("RoundedRectangle(cornerRadius:"))
 let lgRaw = (try? String(contentsOfFile: "qingliao/Theme/LiquidGlass.swift", encoding: .utf8)) ?? ""
 check("读得到玻璃口径源文件（路径没被挪）", !lgRaw.isEmpty)
-check("卡片投影收在看板口径里（DashboardCardStyle 自带柔影 10/4，调用点不叠第二层）",
+// v4.0.81 方案3：断言跟到新出口。切片必须先切到下一个 MARK —— 直接拿 `.last!` 会一路捞到文件后半
+// GlassEdgeSurface 的本体定义，而那句 `.modifier(GlassEdgeSurface(...))` 就在里面 = 自己证明自己（空真）。
+let dashSeg = (lgRaw.components(separatedBy: "struct DashboardCardStyle").last ?? "")
+    .components(separatedBy: "// MARK: - v3.9.47").first ?? ""
+check("卡片投影收在看板口径里（v4.0.81：影由 GlassEdgeSurface 带，调用点不叠第二层）",
       !cardClean.contains(".shadow(")
-      && lgRaw.components(separatedBy: "struct DashboardCardStyle").last!.contains(".shadow(color: .black.opacity(0.12), radius: 10, y: 4)"))
+      && dashSeg.contains(".modifier(GlassEdgeSurface(cornerRadius: cornerRadius, fill: false))"))
+// 新口径的影不许被顺手抹掉：出口里真挂了影 + 两条参数真源还在（三条一起才叫「卡片有投影」）
+let envRaw = (try? String(contentsOfFile: "qingliao/Theme/EnvironmentGradient.swift", encoding: .utf8)) ?? ""
+check("v4.0.81 卡面真源在 EnvironmentGradient（cardShadow / cardEdgeGradient / cardGlassFill）",
+      envRaw.contains("static func cardShadow")
+      && envRaw.contains("static func cardEdgeGradient")
+      && envRaw.contains("static func cardGlassFill"))
+check("v4.0.81 出口真的挂了柔影（GlassEdgeSurface 里的 .shadow 不是摆设）",
+      lgRaw.contains(".shadow(color: shadow ? s.color : .clear"))
 
 print("\n———————————————")
 print(failures == 0 ? "✅ 全部通过 \(total)/\(total)" : "❌ 失败 \(failures)/\(total)")

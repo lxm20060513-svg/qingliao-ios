@@ -21,6 +21,13 @@
 //  ⚠️ 顺序串里的未知 kind 一律丢弃（老版本删卡/改名不会让老用户首页崩掉）；
 //     缺失的 kind 自动补到末尾并保持 catalog 默认先后 —— 升级加新卡不必重置用户排序。
 //
+//  ⚠️ v4.0.81（用户原话：「最多4张自定义卡片，现有的轻聊投递和轻聊主动卡片合入聊天页自定义卡片范围」）：
+//  1) 新增两种**固定会话卡** `delivery`（轻聊投递）/ `proactive`（轻聊主动）。它们不自己拉网络，
+//     数据（ChatSession）由宿主注入 —— 找不到对应会话就**不渲染**（见 HomeCards.swift 的 visible）。
+//  2) 「开启的卡」硬上限 **4 张**：**上限单一真源在此**（`HomeCardOrder.maxEnabledCards` +
+//     `HomeCardOrder.capped`），HomeCardStore.kinds 与 HomeCardsGrid.visible 都调它，别在别处再截一次。
+///     ⚠️ v4.0.81（用户 2026-10-09 拍板）：这 4 个额度**含**空槽位 `custom` ——
+///     首页网格最多 4 **格**（实卡 + 「自定义」入口一起数）。
 
 import Foundation
 
@@ -43,6 +50,10 @@ enum HomeCardKind: String, CaseIterable {
     case cloud        // 云盘（/api/agent/clouddrive/drives）
     case goal         // 今日目标（GoalStore）
     case clipboard    // 剪贴板（轻点那一刻才读，不在渲染期读 —— 避免首页弹系统粘贴提示）
+    // v4.0.81：两个**固定会话**壳合入首页卡（不自己拉网络，ChatSession 由宿主注入）。
+    // 图标/色值刻意对齐会话页 FixedChannelCard（投递=落格+teal、主动=火花+orange）—— 跨页同一张脸。
+    case delivery     // 轻聊投递（固定会话 id = ChatStore.deliverySessionId，只装不答）
+    case proactive    // 轻聊主动（固定会话 id = ChatStore.proactiveSessionId，可回复）
     case custom       // 空槽位 → 打开卡片库添加（钉在末尾、不参与拖拽；可关，关掉即不渲染）
 
     /// 默认展示顺序（= 目录顺序，拖拽前 / 新用户口径）
@@ -79,6 +90,23 @@ enum HomeCardOrder {
     /// 序列化成 UserDefaults 串（空列表写空串，不写哨兵 —— 「顺序」没有全关语义）
     static func encode(_ kinds: [HomeCardKind]) -> String {
         kinds.map(\.rawValue).joined(separator: ",")
+    }
+
+    // MARK: - 数量上限（v4.0.81：最多 4 张开启的卡）
+
+    /// 「最多 4 张自定义卡片」的额度单一真源（用户 2026-10-09 定）。
+    static let maxEnabledCards = 4
+
+    /// 把「开启的卡」截断为最多 `limit` 张 —— **上限单一真源在此**，读取路径（HomeCardStore.kinds）
+    /// 与渲染路径（HomeCardsGrid.visible）都调它，别在别处再截一份（改上限只改这一个常量）。
+    ///
+    /// 口径（v4.0.81 用户拍板版）：
+    ///   · **含空槽位**：`custom`（「点这里添加」）与实卡一起数 4 格 —— 注意它钉在末尾，
+    ///     所以「4 张实卡 + 开空槽位」时会被截掉的是空槽位本身（实卡优先级更高）；
+    ///     页头「自定义」胶囊恒在 → 空槽位被截也不失联（v4.0.9 口径）。
+    ///   · 超额按**当前顺序截尾**：用户拖到前面的优先保留（顺序即优先级，不另排一套）。
+    static func capped(_ kinds: [HomeCardKind], limit: Int = maxEnabledCards) -> [HomeCardKind] {
+        Array(kinds.prefix(limit))
     }
 
     // MARK: - 编辑操作（拖拽换位 / 开关）
@@ -287,17 +315,32 @@ enum HomeCardStore {
         let base = HomeCardOrder.resolve(
             order: UserDefaults.standard.string(forKey: orderKey) ?? "",
             off: HomeCardOrder.encode(off))
-        if off.contains(.custom) { return base }
-        return base.contains(.custom) ? base : base + [.custom]
+        // 先按 v4.0.9 口径定出「空槽位该不该在末尾」，再上 4 张硬上限：
+        //   · 空槽位在 off 里 → 用户关掉了，不补回；否则补到末尾（钉尾口径不变）
+        let visible = off.contains(.custom) ? base : (base.contains(.custom) ? base : base + [.custom])
+        // v4.0.81：读取路径的 4 张硬上限（上限单一真源 = HomeCardOrder.maxEnabledCards / capped）
+        return HomeCardOrder.capped(visible)
     }
 
     /// 默认关掉的卡（= 收起进「自定义」里的）
     /// 为什么不全开：全量 2 列行数太多，竖屏首页塞不下，会把宠物与问候语挤没。
-    /// 首屏（继续上次 / 新邮件 / agent 推荐）覆盖 80% 的开屏意图，其余按需打开。
     /// v4.0.29：十张新卡**默认全关**（卡片目录到 17 项，新卡不挤占老用户首屏；
     /// resolve 的「缺失 kind 自动补尾」保证老用户升级后排序不重置，想要哪张自己来「自定义」开）。
+    ///
+    /// ⚠️ v4.0.81 重定默认档（配合「最多 4 张」硬上限）——默认**开**的判定：
+    ///   · 硬上限是 4 张，且新卡 `delivery`/`proactive` 必须在默认档里；老默认三张真卡
+    ///     （mail / resume / agentTip）加上这两张就是 5 张 → 必须再砍一张。
+    ///   · 砍 **agentTip**：它与新的 `proactive`（轻聊主动）语义重叠（都是 AI 主动开口），
+    ///     留 mail（查询新邮件，独立动作）与 resume（继续上次会话，且是 atLeastOne 兜底）价值更高。
+    ///   · 结论（v4.0.81 用户拍板「4 格含空槽位」后的最终档）：
+    ///     默认开 = [mail, delivery, proactive] + `custom` 空槽位 = **正好 4 格**。
+    ///   · 因此再砍一张：砍 **resume**（继续上次会话）—— 合并后「聊天」tab 首页下方就是会话列表，
+    ///     点会话即继续，这张卡与列表功能重叠度最高（mail 是独立动作，留下）。
+    ///   · 只影响「从没动过开关」的新装用户；老用户 off 键已存在 → 完全听用户的（见 `off` 哨兵口径）。
     static let defaultOff: [HomeCardKind] = [
         .todo, .weather, .expense,
+        .agentTip,
+        .resume,   // v4.0.81：与合并后的会话列表重叠 → 默认收起（用户可自行开）
         .nextReminder, .memo, .express, .stock, .kb, .scene, .device, .cloud, .goal, .clipboard,
     ]
 

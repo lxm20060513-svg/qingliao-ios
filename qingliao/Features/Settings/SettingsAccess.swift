@@ -348,8 +348,9 @@ struct SecretsView: View {
                 // （同行有 .pill(.primary) 主按钮作为视觉主体），去掉会失去分隔感。
                 // v4.0.68（用户 2026-10-07「设置页又有白底又有渐变底」）：原来这里是
                 // Color(uiColor: .systemBackground)（纯白），是设置区最后几块白面之一 ——
-                // 改用品牌淡彩（分隔感由色调差保留，不再是纯白块）。
-                .background(EnvironmentGradient.pastelCardStyle(scheme))
+                // v4.0.81 方案3：淡彩真源退役 → 改玻璃面的半透明叠层（同 `cardGlassFill` 单一真源；
+                // 这里是压在同一张卡里的行底，不再铺 material，免得玻璃叠玻璃）。
+                .background(EnvironmentGradient.cardGlassFill(scheme))
             } else {
                 content
             }
@@ -406,7 +407,7 @@ struct SecretsView: View {
                 Text(toast)
                     .font(.system(size: Typography.subhead))
                     .padding(.horizontal, Spacing.section).padding(.vertical, Spacing.md)
-                    .background(EnvironmentGradient.pastelCardStyle(scheme), in: Capsule())
+                    .background(EnvironmentGradient.cardGlassFill(scheme), in: Capsule())
                     .padding(.bottom, 20)
                     .transition(.opacity)
             }

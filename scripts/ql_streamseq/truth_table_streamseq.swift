@@ -79,9 +79,11 @@ check("v4.0.x·开跑自增数与 isStreaming = true 处数一致（实得 \(nea
       nearCount == incCount)
 
 // ── ④ 观察端：两处 UI 都改看序号 ────────────────────────────────────
-check("v4.0.x·DockTabView 球失败态观察 startSeq（观察 isStreaming 会被同帧续发吞边沿 → 球整轮压暗）",
-      dockCode.contains(".onChange(of: stream.startSeq)")
-      && dockCode.contains("orbFailed = false"))
+// v4.0.81：球整块退役（D 口径）→ 「球失败态观察」随之退役：DockTabView 里
+//   原 `.onChange(of: stream.startSeq) { orbFailed = false }` 已删除。
+//   反判据：球相关符号不许半截回归（要么整功能连护栏一起回来，要么别出现）。
+check("v4.0.81：球失败态观察已随去球退役（orbFailed / orbUnseen 不许回归）",
+      !dockCode.contains("orbFailed") && !dockCode.contains("orbUnseen"))
 check("v4.0.x·ChatView 工具卡收起观察 startSeq（否则上一轮展开态带进新一轮）",
       chatCode.contains(".onChange(of: stream.startSeq)")
       && chatCode.contains("toolStepsExpanded = false"))
@@ -92,17 +94,15 @@ check("v4.0.x·两处都不再观察 isStreaming（反向断言：回退即红�
 // ── ⑤ 原有交互口径没被顺手改坏 ──────────────────────────────────────
 check("v4.0.x·工具卡收起仍带会话归属判定（A 起流不该收 B 里手动展开的卡）",
       chatCode.contains("if thisSessionStreaming { toolStepsExpanded = false }"))
-let orbStartWin = dockCode.range(of: ".onChange(of: stream.startSeq)")
-    .map { String(dockCode[$0.upperBound...].prefix(160)) } ?? ""
-check("v4.0.x·球失败态观察闭包只清 orbFailed，不动 orbUnseen（「未查看」要保留：排队续发不该吞掉它）",
-      orbStartWin.contains("orbFailed = false") && !orbStartWin.contains("orbUnseen = false"))
+// v4.0.81：上条「闭包只清 orbFailed、不动 orbUnseen」的断言对象（球的 startSeq 观察）已随去球删除 → 整块退役。
 
 // ── ⑥ 两条同帧顺序依赖（v4.0.x 只读审查回流，必修）──────────────────
 // 坑：`finishSeq` 与 `startSeq` 可能落在同一次视图更新里（开跑即失败 / 失败后同帧续发），
 //     两个闭包都跑，最终 orbFailed 取决于派发顺序 → 判据必须看 isStreaming 的**最终值**。
-let finishWin = sliceToNextOnChange(dockCode, from: ".onChange(of: stream.finishSeq)")
-check("v4.0.x·收尾观察端判据顺序无关（`lastFinishFailed, !stream.isStreaming`；只看 lastFinishFailed 会随派发顺序飘）",
-      finishWin.contains("stream.lastFinishFailed, !stream.isStreaming"))
+// v4.0.81：同族退役 —— 球的**收尾**观察（`.onChange(of: stream.finishSeq)` + `lastFinishFailed`）已随去球删除，
+//   原「判据顺序无关」断言失去断言对象 → 留反判据防球机制回潮。
+check("v4.0.81：球的收尾观察已随去球退役（lastFinishFailed 的球观察不许回归）",
+      !dockCode.contains("lastFinishFailed"))
 // 坑：`suppressAutoReadOnce` 复位是**开跑语义**，挂在 aiBusy 闭包里会被同帧续发吞掉
 //     （v3.9.9 想修的病换了条路径复现）。
 let busyWin = sliceToNextOnChange(chatCode, from: ".onChange(of: aiBusy")

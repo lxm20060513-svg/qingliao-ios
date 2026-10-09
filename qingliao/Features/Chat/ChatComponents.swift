@@ -73,6 +73,17 @@ struct MessageBlockView: View {
     var useSwiftUIText = false
     // v3.0.41 性能：流式输出中超长文本渲染优化——纯 Text 渲染（跳过 markdown 解析/AttributedString 转换）
     var streaming: Bool = false
+    /// v4.0.81：长按本段 → 交由宿主弹出**锚定胶囊菜单**（与右上角三点菜单同一组件）。
+    /// 传本段纯文本（旧段级菜单口径不变：大爆炸/钉一钉/存备忘录/待办/目标/提醒我/全屏阅读
+    /// 都吃这段文字）；nil = 不挂手势（动作卡刻意无菜单）。
+    /// ⚠️ 声明序铁律：本参数排在最末，调用点也传在最末（见技能 swiftui-param-order）。
+    var onLongPressMenu: ((String) -> Void)? = nil
+
+    /// 本段的长按动作（nil = 不挂手势）。用 `bubbleLongPress` 挂：整块替换 6 处 `.contextMenu`。
+    private var longPressAction: (() -> Void)? {
+        guard let onLongPressMenu else { return nil }
+        return { onLongPressMenu(blockPlainText) }
+    }
 
     // v3.0.2 性能：缓存 markdown 渲染结果——流式每段更新 parent.messages 会触发子视图重算，
     // 若每次 body 都 MarkdownRenderer.render() 重新解析，长文本/流式下是滚动+更新卡顿主因。
@@ -264,14 +275,18 @@ struct MessageBlockView: View {
                     Text(aligned)
                         .font(.system(size: CGFloat(fontSize)))
                         .lineSpacing(aiLineSpacing)
-                        .textSelection(.enabled)
+                        // v4.0.81：长按 → 锚定胶囊菜单（原 `.textSelection(.enabled)` 与系统编辑菜单退役：
+                        // 用户口径「所有长按菜单都要对齐」）
+                        .bubbleLongPress(longPressAction)
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 } else {
                     Text(text)
                         .font(.system(size: CGFloat(fontSize)))
                         .lineSpacing(aiLineSpacing)
-                        .textSelection(.enabled)
+                        // v4.0.81：长按 → 锚定胶囊菜单（原 `.textSelection(.enabled)` 与系统编辑菜单退役：
+                        // 用户口径「所有长按菜单都要对齐」）
+                        .bubbleLongPress(longPressAction)
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -283,10 +298,9 @@ struct MessageBlockView: View {
                 Text(cachedRenderText(text))
                     .font(.system(size: CGFloat(fontSize)))
                     .lineSpacing(aiLineSpacing)
-                    .textSelection(.enabled)
+                    .bubbleLongPress(longPressAction)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .contextMenu { bubbleMenu }
                     .environment(\.openURL, OpenURLAction { url in
                         UIApplication.shared.open(url)
                         return .handled
@@ -314,20 +328,23 @@ struct MessageBlockView: View {
                     onRead: onRead,          // v3.9.86：长回复阅读（长按文字菜单）
                     onMultiSelect: onMultiSelect,
                     onMemo: onMemo,
-                    onGoal: onGoal
+                    onGoal: onGoal,
+                    // v4.0.81：超长文本(>6000字)也换「长按 → 锚定胶囊菜单」（弃原生编辑菜单）
+                    interactionEnabled: false
                 )
+                .bubbleLongPress(longPressAction)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         case .image(let url):
             // v2.0.128：AI 直接发图 —— URL 用 AsyncImage，data URL 本地解码；点击打开大图
             AIImageView(url: url)
                 .onTapGesture { onImageTap(url) }
-                .contextMenu { bubbleMenu }
+                .bubbleLongPress(longPressAction)
         case .file(let url, let name):
             // v3.9.17：AI 生成物（后端 /api/stream/media 已放开 pdf/md/csv/txt/json/log）
             // 拆成独立小 View —— 这个 switch 所在的 ViewBuilder 已很深，内联塞卡片易触发 type-check 超时
             AIFileCard(name: name) { onFileTap(url, name) }
-                .contextMenu { bubbleMenu }
+                .bubbleLongPress(longPressAction)
         case .code(let text, let lang):
             // v2.0.36：代码块加复制按钮（右上角）；v3.4.x 语法高亮（已知语言按 token 着色）
             VStack(alignment: .leading, spacing: 6) {
@@ -347,12 +364,12 @@ struct MessageBlockView: View {
                     if let lang, SyntaxHighlighter.supports(lang) {
                         Text(AttributedString(SyntaxHighlighter.highlight(text, language: lang,
                                                                          baseSize: max(12, CGFloat(fontSize)))))
-                            .textSelection(.enabled)
+                            // v4.0.81：长按手势挂在外层「代码块」容器上（内层再挂会双份触发）
                             .padding(.bottom, Spacing.xs)
                     } else {
                         Text(text)
                             .font(.system(size: max(12, CGFloat(fontSize)), design: .monospaced))
-                            .textSelection(.enabled)
+                            // v4.0.81：长按手势挂在外层「代码块」容器上（内层再挂会双份触发）
                             .padding(.bottom, Spacing.xs)
                     }
                 }
@@ -361,20 +378,38 @@ struct MessageBlockView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Color.black.opacity(0.06))
             .clipShape(RoundedRectangle(cornerRadius: Radius.icon, style: .continuous))
-            .contextMenu { bubbleMenu }
+            .bubbleLongPress(longPressAction)
         case .table(let rows):
             // v2.0.87d：markdown 表格渲染（表头加粗 + 斑马纹 + 横向滚动）
             MarkdownTableView(rows: rows)
-                .contextMenu { bubbleMenu }
+                .bubbleLongPress(longPressAction)
         case .agentCard(let card):
             // v3.5.0：Agent 结果卡片（```ql-card 围栏）——单卡玻璃 + 0.8pt 描边，长按菜单同其他段
             AgentResultCard(card: card, onContinueStep: onContinueStep)
-                .contextMenu { bubbleMenu }
+                .bubbleLongPress(longPressAction)
         case .action(let action):
             // v3.9.95：AI 本地动作卡（```ql-action 围栏）
             // 刻意**不给** contextMenu：动作卡上的长按菜单会出现"复制 JSON"这类无意义项，
             // 且用户可能从菜单误以为能撤销 —— 撤销只走卡片上那个 5 秒胶囊。
             AgentActionCard(action: action)
+        }
+    }
+}
+
+// MARK: - v4.0.81 长按 → 锚定胶囊菜单（替代 .contextMenu）
+
+/// 把「长按气泡/文字段 → 弹出右上角三点菜单同款胶囊」收敛成一个挂法。
+/// - 传 nil = **不挂手势**（动作卡刻意无菜单；同时保证 `onLongPressMenu` 未接线时行为不变）
+/// - 0.42s / 22pt：比系统 contextMenu 略短，且允许小幅移动（滚动/横滑仍能接管 → 不挡列表滑动）
+/// 设计记录：整块替换 6 处 `.contextMenu { bubbleMenu }` 与 5 处 `.textSelection(.enabled)`；
+/// 手势只挂一层（嵌套会双份触发，代码块那处已收在外层容器）。
+extension View {
+    @ViewBuilder
+    func bubbleLongPress(_ action: (() -> Void)?) -> some View {
+        if let action {
+            onLongPressGesture(minimumDuration: 0.42, maximumDistance: 22, perform: action)
+        } else {
+            self
         }
     }
 }
@@ -697,7 +732,8 @@ private struct MarkdownTableView: View {
             .clipShape(RoundedRectangle(cornerRadius: Radius.chip, style: .continuous))
             .padding(.vertical, Spacing.xxs)
         }
-        .textSelection(.enabled)
+        // v4.0.81：表格内文字不再单独开系统选择菜单（长按由外层「表格块」统一走锚定胶囊菜单，
+        // 否则一按两套菜单并存 —— 原 `.textSelection(.enabled)` 退役）
         .sheet(isPresented: $showShare) {
             if let csvURL {
                 ActivityShareSheet(items: [csvURL])

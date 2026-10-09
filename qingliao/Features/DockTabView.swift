@@ -3,9 +3,6 @@ import CoreLocation
 import UIKit
 
 enum DockTab: String, CaseIterable, Identifiable {
-    // v4.0.x：dock 槽位序（切页方向性微滑按此判左右）
-    var slotIndex: Int { Self.allCases.firstIndex(of: self) ?? 0 }
-
     // v4.0.69（用户 2026-10-07 拍板）：dock 顺序 = 会话 → 生活 → 智慧球 → 看板 → 设置。
     // ⚠️ 智慧球必须留在第 3 槽：DockOrbOverlay / 烟花原点按 slotIndex: 2 硬编码算几何
     //    （行号会漂移，直接按 slotIndex: 2 全文搜），球心取真实槽位按钮中心。
@@ -14,6 +11,18 @@ enum DockTab: String, CaseIterable, Identifiable {
     // v4.0.x：dock 图标换 B 组（用户选定）：看板 chart.pie / 生活 heart / 设置 gearshape（空心）；
     // 会话 clock 保留。语义直白风，每个图标一眼看出页面用途；智慧球槽位（chat）不受影响。
     case sessions, life, chat, dashboard, settings
+
+    // v4.0.81：dock 槽位序（切页方向性微滑按此判左右）—— 按**实际渲染的 4 档**排，不是 enum 声明序。
+    //   v4.0.81 起 dock 只渲染 聊天/生活/看板/设置，而 enum 里仍留着 .sessions（深链兜底、不占槽位）
+    //   → 沿用 allCases 首序会让 chat(2)/life(1) 判反方向（审查实抓）。
+    var slotIndex: Int {
+        switch self {
+        case .chat, .sessions: return 0   // 会话页已并入「聊天」，同一槽位
+        case .life: return 1
+        case .dashboard: return 2
+        case .settings: return 3
+        }
+    }
 
     var id: String { rawValue }
 
@@ -47,11 +56,11 @@ struct DockTabView: View {
     @AppStorage("qingliao_dock_burst") private var dockBurstOn = true
     /// v3.6.2：分享/深链等「程序化切到聊天页」跳过烟花（烟花的语义是「点了 dock 智能球」）
     @State private var skipNextBurst = false
-    /// v3.9.33：球第三态「刚答完未查看」——AI 收尾时用户不在这页
-    @State private var orbUnseen = false
-    /// v3.9.33：球错误态——上一次请求真失败（用户主动停止不算），进聊天页即清
-    @State private var orbFailed = false
-    /// v3.9.33：实测 dock bar 高度（DockOrbOverlay 回写）——烟花原点与球心同源，别各算一套
+    /// v4.0.81：聊天 tab 内「会话首页 ↔ 对话页」双态。
+    /// true = 首页（机器人 + 一言 + ≤4 卡片 + 会话列表，即原会话页那套），false = 对话页。
+    @State private var showSessionHome = true
+    /// dock bar 高度（菜单/识别浮层定位用）。v4.0.81 起球没了 → 不再有实测回写，
+    /// 始终走 DockOrbOverlay.fallbackBarHeight 这个常量（菜单锚点精度由它兜底）。
     @State private var dockBarHeight: CGFloat = DockOrbOverlay.fallbackBarHeight
     /// v3.9.59（攒版）：长按智慧球 → 快捷菜单（新建会话 / AI 速记 / 语音输入 / 今日待办）
     @State private var showOrbMenu = false
@@ -86,10 +95,12 @@ struct DockTabView: View {
     @Environment(\.horizontalSizeClass) private var hSize
     @Environment(\.colorScheme) private var colorScheme
 
-    /// v3.6.2：聊天槽位用智能球替身——仅 iPhone（iPad 保持系统图标原样）
-    private var orbInDock: Bool { hSize != .regular }
-    /// dock 槽位数（5：会话/生活/聊天/看板/设置）
-    private var dockSlotCount: Int { 5 }
+    // v4.0.81：槽位的智能球连同 `orbInDock` 判据整块移除（用户口径 Q1=3：球的入口只留长按宠物）。
+    // 菜单/识别/录音三个浮层的**兜底锚点**仍按 dock 槽位几何算，故保留槽位数与聊天槽位序号。
+    /// dock 槽位数（4：聊天/生活/看板/设置 —— v4.0.81 起会话 tab 并入聊天）
+    private var dockSlotCount: Int { 4 }
+    /// 聊天槽位序号（4 档里排第 0 个）
+    private var chatSlotIndex: Int { 0 }
     /// v3.9.33：这页的回复是否正摆在用户眼前 = 聊天 tab **且**当前会话就是刚收尾的那条流。
     /// 只看 `selected == .chat` 会漏报——人在聊天页看会话 B 时，会话 A 的回复落地也该提示。
     private var chatVisible: Bool {
@@ -114,15 +125,9 @@ struct DockTabView: View {
 
 
             TabView(selection: $selected) {
-                // v4.0.69（用户 2026-10-07 拍板 dock 顺序：会话 → 生活 → 智慧球 → 看板 → 设置）
-                SessionsView(onOpenSession: {
-                    if selected != .chat { skipBurstOnce() }
-                    selected = .chat
-                })
-                    .tabTransition(for: .sessions, selected: $selected)
-                // v3.6.2：生活页（原看板「生活数据」栏目迁入）
-                LifeView(isActive: selected == .life)
-                    .tabTransition(for: .life, selected: $selected)
+                // v4.0.81（用户口径 Q2=2）：会话 tab 撤掉、并入「聊天」→ dock 由 5 档缩成 **4 档**：
+                // 聊天（首页 = 会话列表 + 机器人 + 一言 + ≤4 卡片）→ 生活 → 看板 → 设置。
+                // 聊天提到首位（原会话位）；其余三页的顺序与各自修饰器一字未改。
                 chatTab
                 // v3.4.26：isActive 参数直传（selected==.dashboard），替代 qingliaoDashboardLeave/Refresh 通知——
                 // 轮询暂停/恢复收进 DashboardView 自身生命周期，去隐式耦合
@@ -156,7 +161,7 @@ struct DockTabView: View {
 
     // MARK: - v3.6.2 聊天 tab（两态，见 chatTab）
 
-    /// 聊天槽位（两态：`orbInDock` 就是 `hSize != .regular`，两者互补 → 原先的第三分支永不执行，已删）：
+    /// 聊天槽位（v4.0.81 起两态合一：iPhone 上是「首页 ↔ 对话页」双态宿主，iPad 宽屏仍是会话+聊天双栏）：
     ///   · iPad 宽屏：会话 + 聊天双栏，系统 message 图标
     ///   · iPhone：item 置空、无文字，整颗智能球由 DockOrbOverlay 居中绘制
     ///
@@ -181,20 +186,26 @@ struct DockTabView: View {
             .tag(DockTab.chat)
             .tabItem { Label(DockTab.chat.title, systemImage: DockTab.chat.icon) }
         } else {
-            ChatView()
-                // v4.0.72：与其它四页同款轻量入场（轻微放大 + 从下方浮起；「从会话卡展开」已整体移除）。
-                .chatZoomEntry(selected: $selected)
-                .tag(DockTab.chat)
-                // 槽位视觉为空（球由 DockOrbOverlay 绘制）→ 补无障碍标签，VoiceOver 仍读得出「聊天」
-                .tabItem { Text("").accessibilityLabel("聊天") }
+            // v4.0.81：合并「聊天」tab —— 一页两态（会话首页 ↔ 对话页）。
+            // 首页 = 会话页那套能力面原样复用（搜索/归档箱/分类/标签/多选批量删/远端全史搜索一字未改），
+            // 顶部多出「机器人 + 每日一言 + ≤4 张自定义卡片」的首页头（showHero: true）。
+            Group {
+                if showSessionHome {
+                    // 实参序 = 声明序（onOpenSession → showHero → onAskAI），CI 参数序检查才过
+                    SessionsView(onOpenSession: { withAnimation(Motion.tap) { showSessionHome = false } },
+                                 showHero: true,
+                                 onAskAI: { askAI($0) })
+                } else {
+                    ChatView(onBackToHome: { withAnimation(Motion.tap) { showSessionHome = true } })
+                }
+            }
+            .chatZoomEntry(selected: $selected)
+            .tag(DockTab.chat)
+            .tabItem { Label(DockTab.chat.title, systemImage: DockTab.chat.icon) }
         }
     }
 
-    /// v3.9.33：清掉球上的「未查看 / 失败」提示（进聊天页 = 回复已在眼前）
-    private func clearOrbNotice() {
-        orbUnseen = false
-        orbFailed = false
-    }
+    // v4.0.81：原 clearOrbNotice()（清球上未查看/失败提示）随球一起删除 —— 球没了，两态无处显示。
 
     /// 程序化切页前调用：本次切到聊天页不放烟花（0.6s 内未消费则自动复位，避免标志残留吞掉下一次真点击）
     private func skipBurstOnce() {
@@ -221,6 +232,8 @@ struct DockTabView: View {
         identifyPhoto = nil
         if selected != .chat { skipBurstOnce() }
         selected = .chat
+        // v4.0.81：合并 tab 后「问 AI」必须落在**对话页**（首页只是列表，进不去这条提问）
+        showSessionHome = false
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(0.35))
             NotificationCenter.default.post(name: .qingliaoTaskSend, object: text)
@@ -443,7 +456,15 @@ struct DockTabView: View {
             }
             return
         }
-        guard let tab = DockTab(rawValue: route.rawValue) else { return }
+        guard var tab = DockTab(rawValue: route.rawValue) else { return }
+        // v4.0.81：会话 tab 已并入「聊天」→ 深链/快捷指令里的「会话」落到聊天**首页**（会话列表）；
+        // 明确指定「聊天」则进**对话页**。两处口径必须成对改，别只改一边。
+        if tab == .sessions {
+            showSessionHome = true
+            tab = .chat
+        } else if tab == .chat {
+            showSessionHome = false
+        }
         if selected != tab { skipBurstOnce() }
         selected = tab
     }
@@ -788,12 +809,11 @@ private extension DockTabView {
     @ViewBuilder
     var orbMenuOverlay: some View {
         OrbQuickMenuOverlay(barHeight: dockBarHeight,
-                            slotIndex: 2,
+                            slotIndex: chatSlotIndex,
                             slotCount: dockSlotCount,
-                            // v3.9.78：锚点球与 dock 那颗同状态（菜单开着时球仍在原位可见）
+                            // v4.0.81：dock 那颗球已移除 → 菜单锚点球不再同步「未查看 / 失败」两态
+                            //（两态 state 已删，见 state 区注释）；流式转动保留。
                             thinking: stream.isStreaming,
-                            unseen: orbUnseen,
-                            failed: orbFailed,
                             petAnchor: orbMenuPetAnchor,
                             onAction: { handleOrbAction($0) },
                             onClose: { showOrbMenu = false })
@@ -823,84 +843,20 @@ extension DockTabView {
                 // 留着它们会浮在新页面上（此时球命中层已被条件摘掉，收不起来就成死层）
                 if showIdentify { showIdentify = false; identifyPhoto = nil }
                 if showVoiceDialog { showVoiceDialog = false }
-                // v3.9.33：切到聊天页 = 回复已在眼前 → 清掉球上的「未查看 / 失败」提示
-                if newVal == .chat { clearOrbNotice() }
-                // v3.6.2：点 dock 智能球（= 切到聊天页）→ 放烟花，保留原智能球的点击特效
-                if orbInDock, newVal == .chat {
+                // v3.6.2：点 dock 聊天槽位（= 切到聊天页）→ 放烟花，保留原智能球的点击特效
+                // v4.0.81：球没了，「清未查看/失败提示」那半句随之删除（提示态已不存在）；
+                // 烟花保留（用户要的正是「点聊天 = 放一束花」这个反馈）
+                if newVal == .chat {
                     if skipNextBurst { skipNextBurst = false } else { fireDockBurst() }
                 }
             }
-            // v3.9.33：球第三态 + 错误态——AI 收尾时用户不在这页 =「刚答完未查看」；真失败则压暗。
-            // 用户主动停止/取消不算失败（StreamClient.lastFailed 统一判定，见 finish(userInitiated:)）；
-            // 在聊天页里收尾不置位：错误气泡/回复本身就在眼前，置位会让球一直暗着。
-            // ⚠️ 收尾判定用 `finishSeq`（只增不减）观察，**不能观察 `isStreaming` 的变化**：
-            // finish() 里 isStreaming=false 后同步回调 onFinished，排队续发（sendQueued → start()）会在
-            // 同一帧把它设回 true → onChange 看到 old/new 都是 true，整轮收尾被静默跳过（失败不压暗、
-            // 「未查看」也不亮）。序号只增，收尾一定被观察到一次。
-            .onChange(of: stream.finishSeq) { _, _ in
-                // v4.0.x（审查指出的顺序依赖，必修）：`finishSeq` 与 `startSeq` 可能落在**同一次视图更新**里
-                // （开跑即失败、或失败后同帧排队续发），两个闭包都会跑，最终 `orbFailed` 就取决于派发顺序。
-                // 判据改成看 `isStreaming` 的**最终值**，与顺序无关：
-                //   同帧已续发（isStreaming 已回到 true）→ 本轮在跑，别为上一轮压暗；
-                //   同帧开跑即失败（isStreaming 停在 false）→ 照常压暗。
-                if stream.lastFinishFailed, !stream.isStreaming {
-                    orbFailed = !chatVisible
-                    orbUnseen = false
-                } else if stream.lastFinishFailed {
-                    orbFailed = false
-                } else {
-                    orbUnseen = !chatVisible
-                    orbFailed = false
-                }
-            }
-            // 新流开跑 = 上一轮的失败提示收掉（否则球会一直暗着）；「未查看」保留（排队消息自动续发不该吞掉它）
-            // v4.0.x：这里原来观察 `isStreaming`，撞的正是上面注释写的那个缝——上一轮失败后的
-            // **排队自动续发**（finish 同帧 start）把 false→true 吞掉，onChange 看到 old/new 都是 true，
-            // 失败态清不掉 → 球在整轮新回答期间一直压暗。改成只增的 `startSeq`，每次开跑必被观察到一次。
-            .onChange(of: stream.startSeq) { _, _ in
-                orbFailed = false
-            }
-            // v3.6.2：dock 聊天槽位智能球——系统 tab item 只能放系统图标（iOS 26 无自定义视图 API），
-            // 故该槽位 item 置为空（无图标无文字），球由本叠加层自绘并居中于槽位；
-            // allowsHitTesting(false) 让触摸穿透给下层系统 tab item（点球 = 系统切页）。
-            .overlay {
-                if orbInDock {
-                    // 聊天槽位序号 = 2（会话0 / 生活1 / 聊天2 / 看板3 / 设置4）
-                    // thinking: AI 流式回答中球切 orbits 旋转——原聊天页智能球的行为在 dock 槽位保留
-                    DockOrbOverlay(slotIndex: 2,
-                                   slotCount: dockSlotCount,
-                                   thinking: stream.isStreaming,
-                                   unseen: orbUnseen,
-                                   failed: orbFailed,
-                                   measuredBarHeight: $dockBarHeight)
-                        .allowsHitTesting(false)
-                    // v3.9.59：球命中层——只盖住球体一小块（68pt 圆）：
-                    //   轻点 = 手动切聊天页（onChange 的触感/清提示/烟花照旧走一遍），
-                    //   长按 = 弹快捷菜单。菜单开着时本层不显示（菜单层自己接管全部交互）。
-                    if !showOrbMenu && !showIdentify && !showVoiceDialog {
-                        OrbHitLayer(barHeight: dockBarHeight,
-                                    slotIndex: 2,
-                                    slotCount: dockSlotCount,
-                                    // v3.9.59：轻点复用「点系统 tab item」的语义——已在聊天页时 selected 不变、
-                                    // onChange 不触发，触感与清提示会整体丢失（原先这层是系统 tab item 的按压反馈）。
-                                    // 🚨 v4.0.54（用户 2026-10-05）：**回退 v4.0.47 的「轻点 = 回聊天首页（新建会话）」** ——
-                                    //   用户实报「每次点击智慧球就打开新会话」，正在看的会话被顶掉 → 要回退到原口径：
-                                    //   轻点只切到聊天页、**保留当前会话**；已在聊天页时只补触感 + 清提示。
-                                    //   新建会话仍留在长按菜单 case 0（`chat.requestNewSession()`，两步走清屏），
-                                    //   以及「会话 tab 的 + 号」，本层不再自己新建。
-                                    onTap: {
-                                        // 触感分工：切页那一支的 Haptics.tap() 由 onChange(of: selected)
-                                        // 统一给（同现状），别在这里再响一次
-                                        if selected == .chat { Haptics.tap(); clearOrbNotice() }
-                                        else { selected = .chat }
-                                    },
-                                    onLongPress: {
-                                        Haptics.press()
-                                        showOrbMenu = true
-                                    })
-                    }
-                }
-            }
+            // v4.0.81：原先这里挂两条 onChange 维护「球上未查看 / 失败」两态（v3.9.33 的球第三态）。
+            // 球移除 → 两态无处可显示，整块删除（含 v4.0.x 那条「finishSeq 与 startSeq 同帧」的顺序
+            // 依赖修复）。若日后要做「刚答完」提示，请改成 tab bar 徽标或通知，别再复活球。
+            // v4.0.81（用户口径 Q1=3）：dock 槽位那颗**自绘智能球整块移除** —— 连同它的命中层
+            // （OrbHitLayer：轻点切页 + 长按弹菜单）。球的 9 个快捷入口不再有 dock 入口，
+            // 唯一入口 = **长按宠物**（聊天首页头的机器人 / 聊天页欢迎页的宠物，都发
+            // `.qingliaoOrbMenuFromPet` 自带锚点）。菜单/识别/录音三个浮层本身全部保留。
             // v3.9.59：长按球快捷菜单浮层（最顶层，模态——轻纱吃掉空白点击收起）
             .overlay {
                 if showOrbMenu { orbMenuOverlay }
@@ -929,7 +885,7 @@ extension DockTabView {
             .overlay {
                 if showIdentify {
                     OrbIdentifyOverlay(barHeight: dockBarHeight,
-                                       slotIndex: 2,
+                                       slotIndex: chatSlotIndex,
                                        slotCount: dockSlotCount,
                                        onAskAI: { askAI($0) },
                                        // v3.9.82：译文交回宿主弹 TranslateSheet（形态照 AI 速记弹窗）。
@@ -1007,8 +963,9 @@ extension DockTabView {
             // v3.6.2：全屏粒子爆发（点 dock 智能球触发；纯视觉，不挡交互）
             .overlay {
                 if showDockBurst {
+                    // v4.0.81：球已移除 → 烟花原点取**聊天槽位**中心（槽位数 4 档，见 chatSlotIndex）
                     FullScreenBurst(originFromBottom: DockOrbOverlay.ballCenterFromBottom(barHeight: dockBarHeight,
-                                                                                        index: 2, count: dockSlotCount))
+                                                                                        index: chatSlotIndex, count: dockSlotCount))
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .allowsHitTesting(false)
                         .transition(.opacity)

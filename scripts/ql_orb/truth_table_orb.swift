@@ -333,10 +333,48 @@ check("dock 侧只在菜单开着时更新锚点（关着丢弃，且**不打开
       anchorRefreshSlice.contains("guard showOrbMenu, !blocked else { return }")
       && !anchorRefreshSlice.contains("showOrbMenu = true"))
 // ── v3.9.79b：烟花原点不再写死槽位号（审查「可优化」第 3 条）──
-check("烟花原点槽位透传（dock 传 index/count，ChatEffects 不再写死 2/5）",
+check("烟花原点槽位透传（dock 传槽位变量，ChatEffects 不再写死 2/5；v4.0.81 起槽位号改 chatSlotIndex）",
       dockSrc.contains("ballCenterFromBottom(barHeight: dockBarHeight,")
-      && dockSrc.contains("index: 2, count: dockSlotCount)")
+      && dockSrc.contains("index: chatSlotIndex, count: dockSlotCount)")
       && !effectsSrc.contains("contentCenterDrop(index: 2, count: 5)"))
+// ── v4.0.81（用户口径 Q1=3 / Q2=2）：dock 那颗智能球**整块移除**，「聊天」tab 与会话页合并 ──
+// 正判据：球没了、命中层没了、两态没了，但**菜单与 9 个入口的兜底层必须还在**（少一个就是误删功能）；
+// 反判据：任何人把可见球 / 命中层 / 两态 / 会话 tab 子视图加回来，本条立刻判红。
+let sessionsPath = "/opt/data/qingliao_ios/qingliao/Features/Sessions/SessionsView.swift"
+let sessionsSrc = (try? String(contentsOfFile: sessionsPath, encoding: .utf8)) ?? ""
+check("v4.0.81 去球：dock 不再渲染可见球与命中层（DockOrbOverlay(slotIndex: / OrbHitLayer(barHeight: 均不得出现）",
+      !dockSrc.contains("DockOrbOverlay(slotIndex:")
+      && !dockSrc.contains("OrbHitLayer(barHeight:"))
+// 只看**代码**（剔掉整行注释）：注释里为了说明「这套口径已退役」必然要提到旧符号名，
+// 若拿全文匹配，正判据会被自己的注释判红（v4.0.81 首跑实测踩到）。
+func codeOnly(_ s: String) -> String {
+    s.split(separator: "\n", omittingEmptySubsequences: false)
+        .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+        .joined(separator: "\n")
+}
+check("v4.0.81 去球：球的两态（orbUnseen / orbFailed）与 clearOrbNotice 已从**代码**里删干净",
+      !codeOnly(dockSrc).contains("orbUnseen") && !codeOnly(dockSrc).contains("orbFailed")
+      && !codeOnly(dockSrc).contains("clearOrbNotice()"))
+check("v4.0.81 去球不误伤：快捷菜单浮层 + 9 入口分发仍在（长按宠物仍是唯一入口）",
+      dockSrc.contains("OrbQuickMenuOverlay(barHeight: dockBarHeight,")
+      && dockSrc.contains("func handleOrbAction(")
+      && dockSrc.contains("showSessionHome = false"))
+check("v4.0.81 合并 tab：dock 4 档（dockSlotCount = 4）+ 聊天 0 号槽 + 会话 tab 不再挂 TabView 子视图",
+      dockSrc.contains("private var dockSlotCount: Int { 4 }")
+      && dockSrc.contains("private var chatSlotIndex: Int { 0 }")
+      && !dockSrc.contains(".tabTransition(for: .sessions")
+      && dockSrc.contains("showSessionHome"))
+check("v4.0.81 合并 tab：深链「会话」落到聊天首页（.sessions → .chat + showSessionHome = true）",
+      dockSrc.contains("if tab == .sessions {")
+      && !dockSrc.contains("private var orbInDock"))
+check("v4.0.81 首页头：会话页顶部三件都是既有真源（PetAvatar / WelcomeQuotes / HomeCardsGrid），且 showHero 默认关",
+      sessionsSrc.contains("var showHero: Bool = false")
+      && sessionsSrc.contains("PetAvatar(size: 96, state: .idle, patTrigger: heroPat)")
+      && sessionsSrc.contains("WelcomeQuotes.pick()")
+      && sessionsSrc.contains("HomeCardsGrid(")
+      && sessionsSrc.contains("showHero {"))
+check("v4.0.81 去 agent 框：会话页 **代码**里 BotCard 已删干净（类型与调用点都不许回来）",
+      !codeOnly(sessionsSrc).contains("BotCard"))
 // ── v3.9.82：译文改弹窗后，这条护栏跟着搬（译文卡整套搬进 Features/TranslateSheet.swift）──
 // 旧断言钉的是 restartTranslate 里的「已复制」复位 —— 那段状态随译文卡一起走了。
 // 现在钉「浮层不再持有复制反馈状态」（两处状态各管各 = 迟早漂移）；弹窗侧由

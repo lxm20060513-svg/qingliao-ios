@@ -181,15 +181,21 @@ check("会话行旧玻璃口径 dashboardCard 清零（v4.0.67 退役；v4.0.68 
       occ(sessCode, ".dashboardCard(") == occ(fixedCardBody, ".dashboardCard("))
 
 // v4.0.68：固定会话（轻聊投递/轻聊主动）改**顶部并排卡**——三件事一起钉死：
-//   ① 并排卡确实渲染在列表顶部；② 普通列表行**过滤掉**固定会话（否则同一会话出现两次）；
-//   ③ 多选/全选的口径（visibleSessions）同步过滤，别把不可删的固定会话算进去。
-check("固定会话并排卡渲染在 List 顶部（fixedChannelCards）",
-      sessCode.contains("fixedChannelCards")
-      && sessCode.contains("if !fixedChannelSessions.isEmpty"))
-check("普通列表行过滤掉固定会话（同会话不重复出现）",
-      sessCode.contains("ForEach(sortedSessions.filter { !isFixedSession($0.id) })"))
-check("多选口径 visibleSessions 同步过滤固定会话",
-      sessCode.contains("return sortedSessions.filter { !isFixedSession($0.id) }"))
+//   ① 并排卡行已退役（v4.0.81）；② 普通列表行**不再过滤**固定会话（回到普通行渲染，清空入口在行菜单）；
+//   ③ 多选/全选的口径（visibleSessions）**要**过滤，别把不可删/不可勾的固定会话算进「N 条」。
+// ── v4.0.81（用户 D 口径）：固定会话（轻聊投递/轻聊主动）的**并排卡行退役** ——
+//   两张卡改成首页自定义卡片范围内的卡（HomeCardsGrid 注入 fixedChannels + 4 格硬上限），
+//   会话列表里仍过滤掉固定会话（同一会话不重复出现）。
+//   反判据：并排卡行/它的容器不许回来（回来即红 —— 用户已拍板改成首页卡）。
+check("v4.0.81：固定会话并排卡行已退役 → 改走首页卡片（容器与旧行都不许回归）",
+      !sessCode.contains("fixedChannelCards")
+      && !sessCode.contains("if !fixedChannelSessions.isEmpty")
+      && sessCode.contains("isFixedSession"))
+check("v4.0.81：固定会话回到普通会话行渲染（并排卡行退役后不再过滤 —— 清空入口在行菜单上）",
+      sessCode.contains("ForEach(sortedSessions)")
+      && !sessCode.contains("ForEach(sortedSessions.filter { !isFixedSession($0.id) })"))
+check("v4.0.81（审查修）：多选/全选口径 visibleSessions **必须**过滤固定会话 —— 列表不过滤（回到普通行），但多选栏算上它们会让「N 条」比可删条数多 2",
+      sessCode.contains("return base.filter { !isFixedSession($0.id) }"))
 check("固定会话并排卡高度钉死 HomeCardStore.cardHeight（两张并排不许自适应高低不齐）",
       fixedCardBody.contains(".frame(height: HomeCardStore.cardHeight)"))
 // 反向：会话卡不许手搓 glassEffect（要改档位只能改 PastelCard 一处）

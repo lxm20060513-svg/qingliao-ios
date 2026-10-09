@@ -84,19 +84,24 @@ struct DashboardCardStyle: ViewModifier {
     //   两层柔影（近层收边界 1px/6%、远层撑浮起 16px/5%），对应对比稿
     //   box-shadow: 0 1px 2px rgba(0,0,0,.06), 0 6px 16px rgba(0,0,0,.05)。
     //   深色下柔影物理不可见（纯黑底），层次仍由 Tint.line 描边承担——与对比稿结论一致。
-    @Environment(\.colorScheme) private var scheme
+    // v4.0.81 方案3：影与描边交给 GlassEdgeSurface（浅 黑 0.10/r22/y8 · 深 黑 0.60/r22/y8 + 1pt 渐变厚边），
+    //   本 struct 不再自己取色，故去掉不再使用的 scheme 环境值。
 
     func body(content: Content) -> some View {
         content
-            // v3.9.83（用户拍板）：卡底改「长按智慧球功能胶囊」同款原生玻璃
+            // v3.9.83（用户拍板）：卡底走「长按智慧球功能胶囊」同款原生玻璃
             //（OrbQuickMenu.swift:398 口径 = glassEffect + 白 0.8pt 描边浅 0.12/深 0.22 + 单层柔影）。
             // 🚨 矩形卡必须显式 in: RoundedRectangle（裸 glassEffect 默认 Capsule，会渲染成大弧度胶囊蒙版）。
             // 卡不是可点元素本体（可点性在卡内 Button 上），走静态卡口径不加 .interactive()。
-            // 圆角仍 16（用户明确 16，非胶囊档）；GlassCard 的 shadow 档（14/5）比胶囊重，取胶囊档 10/4。
+            // 圆角仍 16（用户明确 16，非胶囊档）。
             // v4.0.61：走无障碍玻璃出口（描边原为白亮边 0.12/0.22，逐字搬到出口参数里）
+            // v4.0.81 方案3：**边与影交给全站唯一出口**。原来那条 0.8pt 白亮边压不住玻璃卡
+            //   （用户从对比稿挑的「玻璃厚边」就是靠 1pt 渐变边 + 顶部内高光撑厚度），
+            //   故 a11yGlass 的描边改传 `.clear`（同 glassPageBackground 的写法），
+            //   由 GlassEdgeSurface 补 1pt 渐变厚边 + 内高光 + 加重柔影；卡体仍是原生玻璃，不动。
             .a11yGlass(.regular, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous),
-                       stroke: Color.white.opacity(scheme == .dark ? 0.22 : 0.12))
-            .shadow(color: .black.opacity(0.12), radius: 10, y: 4)
+                       stroke: .clear)
+            .modifier(GlassEdgeSurface(cornerRadius: cornerRadius, fill: false))
     }
 }
 
@@ -317,62 +322,115 @@ extension View {
     }
 
     /// v4.0.68（用户 2026-10-07 拍板「卡底统一成品牌淡色系，含搜索框一起换」）：
-    /// **淡彩填充**——同一份淡彩真源（`EnvironmentGradient.pastelCardStyle`），**不带投影**。
+    /// **玻璃填充**——同一份真源（`GlassEdgeSurface` / `EnvironmentGradient.cardGlassFill`），**不带投影**。
     /// 给搜索框 / 输入框 / 胶囊 / 内嵌小块用（只有"卡"才需要浮起来，输入框不需要）。
+    /// ⚠️ 名字里的 "pastel" 是 v4.0.66 淡彩时代的遗留，v4.0.81 方案3 起口径 = 玻璃面（同 `pastelCard`）。
     /// 见 `PastelFill`（描边口径写在那里）。
     func pastelFill(cornerRadius: CGFloat, stroke: Bool = true) -> some View {
         modifier(PastelFill(cornerRadius: cornerRadius, stroke: stroke))
     }
 }
 
-// MARK: - v4.0.66 A+C 定稿：淡彩渐变卡（A 方案口径）
-//
-// 底 = EnvironmentGradient.pastelCardStyle（粉白→蓝白渐变，深色同构暗调）；
-// 影 = 紫调柔影（浅色可感知，压在环境渐变彩底上出层次）；描边走 Tint.line（0.8pt 深浅自适应）。
-// 与 glassListCard 的区别：那是有色底上的低调列表卡，这是页底彩化后的主卡片形态。
-
-struct PastelCard: ViewModifier {
-    var cornerRadius: CGFloat = Radius.card
-    @Environment(\.colorScheme) private var scheme
-
-    func body(content: Content) -> some View {
-        content
-            .background(EnvironmentGradient.pastelCardStyle(scheme),
-                        in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .strokeBorder(Tint.line(scheme), lineWidth: 0.8)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-            .shadow(color: EnvironmentGradient.pastelShadow(scheme: scheme), radius: 10, y: 4)
+extension View {
+    /// 玻璃厚边卡的**柔影**（v4.0.81 方案3 单一真源，参数在 EnvironmentGradient.cardShadow）。
+    /// 气泡这类「影的开关由状态决定」的调用点用它，避免三处各写一遍 radius/y（写歪就出层次差）。
+    func glassCardShadow(_ scheme: ColorScheme, enabled: Bool = true) -> some View {
+        let s = EnvironmentGradient.cardShadow(scheme: scheme)
+        return shadow(color: enabled ? s.color : .clear,
+                      radius: enabled ? s.radius : 0,
+                      y: enabled ? s.y : 0)
     }
 }
 
-// MARK: - v4.0.68：淡彩填充（设置区统一出口，不带投影）
+// MARK: - v4.0.81 方案3「玻璃厚边」卡面出口（全站唯一真源）
+//
+// 由头：用户 2026-10-09 从四列对比稿拍板方案3 —— 彩收进页底（EnvironmentGradient 页底带色 +
+// 三团光晕降浓），卡面全站转玻璃：
+//   · 底 = `.ultraThinMaterial` + 半透明叠层（EnvironmentGradient.cardGlassFill）；
+//   · 边 = **1pt 渐变厚边**（cardEdgeGradient，左上高光→右下渐隐）+ 顶部内高光（cardTopHighlight）；
+//   · 影 = 加重柔影（cardShadow，浅 0.10/r22/y8 · 深 0.60/r22/y8）。
+// 「厚度」全在边上：叠层本身接近白，单看只是软白卡，有了渐变边才有玻璃的立体感。
+//
+// 覆盖：pastelCard（84 处）/ pastelFill（26 处）/ dashboardCard（37 处，只换边与影，卡体仍是原生
+// 玻璃 `a11yGlass`，见 ql_orbmenu 护栏）/ AI 气泡（2 处）。
+//
+// ⚠️ 名字里的 "pastel" 是历史（v4.0.66 A+C 淡彩渐变卡），口径已整块换掉；改名的改动面 110+ 处、
+//    本机无编译器（编不编得过要 CI 才知道），故沿用旧名只换口径 —— 与 v4.0.67 `dashboardCard`
+//    名不变、只换卡底是同一种做法。
+// ⚠️ 材质而非 glassEffect：稿上就是 backdrop blur + rgba 叠层，与 overlayGlassCard / frostedCard
+//    同一条路；系统开「降低透明度」时 material 会自己转厚，本出口再把叠层换成系统实底（双保险）。
+// ⚠️ `strokeBorder` 只存在于 `InsettableShape` —— 这里用具体类型 RoundedRectangle，不走泛型。
+struct GlassEdgeSurface: ViewModifier {
+    var cornerRadius: CGFloat = Radius.card
+    /// 铺不铺玻璃底（dashboardCard 已由 a11yGlass 铺玻璃 → 传 false 只补边与影）
+    var fill: Bool = true
+    /// 1pt 渐变厚边 + 顶部内高光（调用点已自带描边的传 false，别叠两层）
+    var edge: Bool = true
+    var shadow: Bool = true
 
-/// 与 `pastelCard` **同一份**淡彩真源（粉白→蓝白渐变，深色同构暗调），只去掉投影。
+    @Environment(\.colorScheme) private var scheme
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    private var shape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+    }
+
+    func body(content: Content) -> some View {
+        let s = EnvironmentGradient.cardShadow(scheme: scheme)
+        return content
+            .background {
+                if fill {
+                    shape.fill(.ultraThinMaterial)
+                        .overlay {
+                            shape.fill(reduceTransparency
+                                       ? AnyShapeStyle(Color(uiColor: .secondarySystemGroupedBackground))
+                                       : AnyShapeStyle(EnvironmentGradient.cardGlassFill(scheme)))
+                        }
+                }
+            }
+            .overlay {
+                if edge {
+                    shape.strokeBorder(EnvironmentGradient.cardEdgeGradient(scheme), lineWidth: 1)
+                }
+            }
+            .overlay {
+                if edge {
+                    shape.strokeBorder(EnvironmentGradient.cardTopHighlight(scheme), lineWidth: 1)
+                }
+            }
+            .clipShape(shape)
+            .shadow(color: shadow ? s.color : .clear,
+                    radius: shadow ? s.radius : 0,
+                    y: shadow ? s.y : 0)
+    }
+}
+
+/// 玻璃厚边卡（全站卡片主口径，v4.0.81 方案3）
+struct PastelCard: ViewModifier {
+    var cornerRadius: CGFloat = Radius.card
+
+    func body(content: Content) -> some View {
+        content.modifier(GlassEdgeSurface(cornerRadius: cornerRadius))
+    }
+}
+
+// MARK: - v4.0.68：玻璃填充（设置区统一出口，不带投影；v4.0.81 方案3 起口径 = 玻璃厚边同源）
+
+/// 与 `pastelCard` **同一份**真源（`GlassEdgeSurface`），只去掉投影。
 ///
-/// 用途：设置区那些压在淡彩卡上的**非卡**面——搜索框、输入框、胶囊、内嵌小块。
+/// 用途：设置区那些压在玻璃卡上的**非卡**面——搜索框、输入框、胶囊、内嵌小块。
 /// 它们原来是 `Color(uiColor: .secondarySystemGroupedBackground)`（纯白不透明）：
 /// 页底与卡片都彩化后，那几块白就是用户报的「又有白底又有渐变底，不协调」。
 ///
-/// **描边默认开**（`Tint.line` 0.8pt）：压在淡彩卡上的输入框，只换底不描边，
-/// 边界会糊进卡片渐变里（= 输入框看不出边界）。调用点已经自带描边的传 `stroke: false`，别叠两层。
+/// **描边默认开**（1pt 渐变厚边）：压在玻璃卡上的输入框，只换底不描边，
+/// 边界会糊进卡面里（= 输入框看不出边界）。调用点已经自带描边的传 `stroke: false`，别叠两层。
 struct PastelFill: ViewModifier {
     var cornerRadius: CGFloat
     var stroke: Bool = true
-    @Environment(\.colorScheme) private var scheme
 
     func body(content: Content) -> some View {
-        content
-            .background(EnvironmentGradient.pastelCardStyle(scheme),
-                        in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-            .overlay {
-                if stroke {
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .strokeBorder(Tint.line(scheme), lineWidth: 0.8)
-                }
-            }
+        content.modifier(GlassEdgeSurface(cornerRadius: cornerRadius,
+                                          fill: true, edge: stroke, shadow: false))
     }
 }
 
@@ -380,6 +438,8 @@ struct PastelFill: ViewModifier {
 
 struct PageHeader: View {
     let title: String
+    /// v4.0.81：标题左侧的可选内容（聊天页放「返回会话列表」按钮）。纯加法：不传即与原来完全一致。
+    var leading: AnyView? = nil
     var subtitle: String? = nil
     var trailing: AnyView? = nil
     /// v4.0.31：标题行**正中**的可选内容（聊天页放会动的宠物）。
@@ -395,9 +455,11 @@ struct PageHeader: View {
 
     /// 显式 init：避免复杂调用处 memberwise init 推断导致类型检查超时
     init(title: String, subtitle: String? = nil, trailing: AnyView? = nil,
+         leading: AnyView? = nil,
          centerView: AnyView? = nil,
          showStatus: Bool = false, statusColor: Color = .green, busy: Bool = false) {
         self.title = title
+        self.leading = leading
         self.subtitle = subtitle
         self.trailing = trailing
         self.centerView = centerView
@@ -409,6 +471,10 @@ struct PageHeader: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             HStack {
+                if let leading {
+                    leading
+                    Spacer().frame(width: 6)   // v4.0.81：返回键与标题的固定间距（不靠 HStack 默认 spacing）
+                }
                 Text(title)
                     .font(.system(size: Typography.titleXL, weight: .bold))
                     .accessibilityAddTraits(.isHeader)   // v3.9.19：VoiceOver 转子按标题跳转

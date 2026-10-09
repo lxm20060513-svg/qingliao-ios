@@ -44,20 +44,40 @@ struct AnchorMenuOverlay: View {
     /// 胶囊间距（比原行间距 2 大一档：胶囊之间要留出各自的玻璃边）
     private static let pillGap: CGFloat = 8
     private static let maxW: CGFloat = 300
+    private static let minColW: CGFloat = 176
+    /// v4.0.81：项数 **超过** 此值 → 两列（长按气泡菜单最多 16 项，单列 ≈ 590pt：
+    /// 一屏占满还会顶到输入栏；≤8 项的旧调用点（三点菜单 / 思考档位）仍单列，观感零变化）
+    private static let twoColThreshold = 8
     private static let anchorGap: CGFloat = 8   // 菜单与锚点的净距
     /// 标题行（caption + 上间距）占位高
     private static let titleH: CGFloat = 26
 
-    /// 宽度按最长标题估算（中文 ≈ 17pt/字 + 图标 22 + padding 24），上限 300。
+    /// 列数（见 twoColThreshold）
+    private var columnCount: Int { items.count > Self.twoColThreshold ? 2 : 1 }
+
+    /// 单列目标宽：按**全体**最长标题估算（中文 ≈ 17pt/字 + 图标 22 + padding 24），上限 300。
     /// **全体同宽**——统一宽度就是用户要的「对齐」。
-    private var menuWidth: CGFloat {
+    private var idealColWidth: CGFloat {
         let longest = items.map(\.title.count).max() ?? 6
-        return min(Self.maxW, max(176, CGFloat(longest) * 17 + 46))
+        return min(Self.maxW, max(Self.minColW, CGFloat(longest) * 17 + 46))
     }
 
-    private var menuHeight: CGFloat {
-        CGFloat(items.count) * Self.pillHeight
-            + CGFloat(max(items.count - 1, 0)) * Self.pillGap
+    /// 一列里放哪几项：**按行铺**（左 1/右 2、左 3/右 4 …）——视觉上每行两颗读起来顺，
+    /// 项数落单时最后一项落在左列（重量感更稳）。
+    private func columnItems(_ col: Int, cols: Int) -> [AnchorMenuItem] {
+        let rowCount = rows(cols: cols)
+        return (0..<rowCount).compactMap { r in
+            let i = r * cols + col
+            return i < items.count ? items[i] : nil
+        }
+    }
+
+    private func rows(cols: Int) -> Int { (items.count + cols - 1) / cols }
+
+    private func panelHeight(cols: Int) -> CGFloat {
+        let r = rows(cols: cols)
+        return CGFloat(r) * Self.pillHeight
+            + CGFloat(max(r - 1, 0)) * Self.pillGap
             + (title.isEmpty ? 0 : Self.titleH)
     }
 
@@ -68,9 +88,16 @@ struct AnchorMenuOverlay: View {
             let g = geo.frame(in: .global)
             let localAnchor = CGRect(x: anchorFrame.minX - g.minX, y: anchorFrame.minY - g.minY,
                                      width: anchorFrame.width, height: anchorFrame.height)
-            let menuH = menuHeight
+            // v4.0.81：两列支持（>8 项）——列宽按屏宽二次收窄（左右各留 10pt），保证不越界
+            let cols = columnCount
+            let raw = idealColWidth
+            let colW = cols == 1
+                ? raw
+                : max(120, min(raw, (geo.size.width - 20 - Self.pillGap) / 2))
+            let menuW = colW * CGFloat(cols) + Self.pillGap * CGFloat(cols - 1)
+            let menuH = panelHeight(cols: cols)
             let below = localAnchor.maxY + Self.anchorGap + menuH < geo.size.height
-            let ox = min(max(localAnchor.midX - menuWidth / 2, 10), max(geo.size.width - menuWidth - 10, 10))
+            let ox = min(max(localAnchor.midX - menuW / 2, 10), max(geo.size.width - menuW - 10, 10))
             let oy = below ? localAnchor.maxY + Self.anchorGap
                            : max(localAnchor.minY - Self.anchorGap - menuH, 10)
             ZStack(alignment: .topLeading) {
@@ -84,9 +111,9 @@ struct AnchorMenuOverlay: View {
                 .contentShape(Rectangle())
                 .onTapGesture(perform: close)
 
-                menuPanel
-                    .frame(width: menuWidth)
-                    .position(x: ox + menuWidth / 2,
+                menuPanel(cols: cols, colWidth: colW)
+                    .frame(width: menuW)
+                    .position(x: ox + menuW / 2,
                               y: reduceMotion ? oy + menuH / 2
                                               : (shown ? oy + menuH / 2 : anchorY(inBelow: below)))
             }
@@ -110,9 +137,9 @@ struct AnchorMenuOverlay: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) { onClose() }
     }
 
-    // MARK: 菜单面板（v4.0.77：正文 = 一列玻璃胶囊，本体不再垫底）
+    // MARK: 菜单面板（v4.0.77：正文 = 玻璃胶囊，本体不再垫底；v4.0.81：>8 项两列）
 
-    private var menuPanel: some View {
+    private func menuPanel(cols: Int, colWidth: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: Self.pillGap) {
             if !title.isEmpty {
                 Text(title)
@@ -123,22 +150,32 @@ struct AnchorMenuOverlay: View {
                     // v4.0.77 只读审查（低）：标题左缘与胶囊左缘对齐（原来 padding 4 比胶囊的 Spacing.xl
                     // 小 8pt，视觉上标题向左外挂 —— 用户本轮口径「同步检查所有的，都要对齐」）
                     .padding(.horizontal, Spacing.xl)
-                    .frame(width: menuWidth, alignment: .leading)
+                    .frame(width: colWidth * CGFloat(cols) + Self.pillGap * CGFloat(cols - 1),
+                           alignment: .leading)
                     .opacity(shown ? 1 : 0)
             }
-            ForEach(Array(items.enumerated()), id: \.element.id) { idx, item in
-                pill(item)
-                    // 错峰绽放（与 OrbQuickMenu 同款观感：从锚点侧逐颗落位）
-                    .opacity(shown ? 1 : 0)
-                    .scaleEffect(shown ? 1 : 0.92, anchor: .top)
-                    .animation(reduceMotion ? nil
-                               : .spring(response: 0.36, dampingFraction: 0.8).delay(Double(idx) * 0.03),
-                               value: shown)
+            HStack(alignment: .top, spacing: Self.pillGap) {
+                ForEach(0..<cols, id: \.self) { c in
+                    let column = columnItems(c, cols: cols)
+                    VStack(alignment: .leading, spacing: Self.pillGap) {
+                        ForEach(Array(column.enumerated()), id: \.element.id) { r, item in
+                            pill(item, width: colWidth)
+                                // 错峰绽放（与 OrbQuickMenu 同款观感：从锚点侧逐颗落位）
+                                // 顺序按「行」数：同一行的左右两颗几乎同时落位
+                                .opacity(shown ? 1 : 0)
+                                .scaleEffect(shown ? 1 : 0.92, anchor: .top)
+                                .animation(reduceMotion ? nil
+                                           : .spring(response: 0.36, dampingFraction: 0.8)
+                                                .delay(Double(r * cols + c) * 0.03),
+                                           value: shown)
+                        }
+                    }
+                }
             }
         }
     }
 
-    private func pill(_ item: AnchorMenuItem) -> some View {
+    private func pill(_ item: AnchorMenuItem, width: CGFloat) -> some View {
         let fg = item.destructive ? Color.red : item.color
         return Button {
             guard !item.disabled else { return }
@@ -159,7 +196,7 @@ struct AnchorMenuOverlay: View {
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, Spacing.xl)
-            .frame(width: menuWidth, height: Self.pillHeight, alignment: .leading)
+            .frame(width: width, height: Self.pillHeight, alignment: .leading)
             // 玻璃挂在 padding 之后（OrbQuickMenu / dock 胶囊同口径）；可点元素必须 .regular.interactive()
             .a11yGlass(.regular.interactive(), in: Capsule(),
                        stroke: Color.white.opacity(scheme == .dark ? 0.22 : 0.12))

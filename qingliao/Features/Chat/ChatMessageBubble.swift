@@ -155,6 +155,16 @@ struct MessageBubble: View {
     /// ⚠️ 声明序铁律：本参数必须排在 streamingText **之后** —— StreamingBubbleView 的调用点
     ///    是按声明序传标签实参（streamingAvatar: → streamingText: → 本参数），挪位即编译失败。
     var streamingSweep: Bool = false
+    /// v4.0.81：长按气泡（文字 / 图片 / 文件卡 / 代码块 / 表格 / agent 卡）→ 交由宿主 ChatView
+    /// 弹出**锚定胶囊菜单**（与右上角三点菜单同一组件、同一排布）。传整条消息文本。
+    /// ⚠️ 声明序铁律：本参数排在最末，调用点也传在最末（见技能 swiftui-param-order）。
+    var onLongPressMenu: ((String) -> Void)? = nil
+
+    /// 卡片区的长按动作（nil = 不挂手势）。`displayContent` 与渲染一致（老消息不含进度行）。
+    private var longPressAction: (() -> Void)? {
+        guard let onLongPressMenu else { return nil }
+        return { onLongPressMenu(displayContent) }
+    }
     // v2.0.38：聊天字体大小（设置页可调，实时生效）
     @AppStorage("qingliao_font_size") private var fontSize = 15.0   // v2.0.87r：默认15号
     // v2.0.128：AI 输出行高（设置页滑条，实时生效）
@@ -180,7 +190,11 @@ struct MessageBubble: View {
     }
 
     /// v2.0.125：撤回条件（自己的消息 + 10 秒内 + 未撤回 + 未失败），菜单项按此显隐
-    private var canWithdraw: Bool {
+    private var canWithdraw: Bool { Self.canWithdraw(message) }
+
+    /// v4.0.81（审查修）：撤回条件提成**静态判据** —— 长按菜单（ChatView.bubbleMenuItems）与气泡按钮
+    /// 共用同一份口径，免得新菜单漏守卫（同一批就漏过一次：对 AI 回复也能点「撤回」）。
+    static func canWithdraw(_ message: ChatMessage) -> Bool {
         if message.isUser, !message.withdrawn, !message.failed,
            let ts = message.timestamp {
             return Date().timeIntervalSince1970 - ts / 1000 < 10
@@ -377,20 +391,33 @@ struct MessageBubble: View {
                                       ? AnyShapeStyle(userBubbleColor)
                                       : AnyShapeStyle(EnvironmentGradient.userBubbleGradient(scheme)))
                         } else {
-                            // v4.0.66 A+C：AI 气泡换淡彩渐变卡底（A 方案口径），撤回/编辑占位仍走原灰。
-                            // 高亮态保留原 aiBubbleColor（搜索定位语义色不动）。
+                            // v4.0.81 方案3：AI 气泡换**玻璃厚边**（与全站卡片同一出口）——
+                            // 材质底 + 半透明叠层 + 1pt 渐变厚边，色值全走 EnvironmentGradient 真源。
+                            // 撤回/编辑占位仍走原灰；高亮态保留原 aiBubbleColor（搜索定位语义色不动）。
                             RoundedRectangle(cornerRadius: Radius.field, style: .continuous)
                                 .fill(isHighlighted
                                       ? AnyShapeStyle(aiBubbleColor)
-                                      : AnyShapeStyle(EnvironmentGradient.pastelCardStyle(scheme)))
+                                      : AnyShapeStyle(Material.ultraThinMaterial))
+                                .overlay {
+                                    if !isHighlighted {
+                                        RoundedRectangle(cornerRadius: Radius.field, style: .continuous)
+                                            .fill(EnvironmentGradient.cardGlassFill(scheme))
+                                    }
+                                }
+                                .overlay {
+                                    if !isHighlighted {
+                                        RoundedRectangle(cornerRadius: Radius.field, style: .continuous)
+                                            .strokeBorder(EnvironmentGradient.cardEdgeGradient(scheme),
+                                                          lineWidth: 1)
+                                    }
+                                }
                         }
                     }
                 )
-                // v4.0.66 A+C：淡彩气泡压在环境渐变彩底上的紫调柔影（只挂 AI 气泡；用户气泡渐变
-                // 自带饱和度，不加影保持轻量）。纯视觉层。
-                .shadow(color: (!message.isUser && !message.withdrawn && !isMultiBubbleAI)
-                            ? EnvironmentGradient.pastelShadow(scheme: scheme) : .clear,
-                        radius: 10, y: 4)
+                // v4.0.81 方案3：柔影走全站单一真源（浅 黑 0.10/r22/y8 · 深 黑 0.60/r22/y8）。
+                // 只挂 AI 气泡；用户气泡渐变自带饱和度，不加影保持轻量。纯视觉层。
+                .glassCardShadow(scheme,
+                                 enabled: !message.isUser && !message.withdrawn && !isMultiBubbleAI)
                 // v2.0.43 搜索定位高亮边框
                 // v3.4.25：错误占位 → 红描边分层（错误一眼可辨，不再与正常回复同观感）
                 .overlay(
@@ -502,7 +529,7 @@ struct MessageBubble: View {
                     .clipShape(RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
                     .zoomSource(id: message.id, ns: zoomNS)   // v3.4.29：zoom 转场源
                     .onTapGesture { onImageTap() }
-                    .contextMenu { cardMenu }
+                    .bubbleLongPress(longPressAction)
             } else if let uiImg = dataURLImage(img, displayWidthPT: AdaptiveLayout.chatImageMax(hSize)) {
                 // v3.4.25：传气泡显示宽度 → ≥100KB 大图按 512/1024 档位下采样解码（内存不随原图像素放大）
                 Image(uiImage: uiImg)
@@ -514,7 +541,7 @@ struct MessageBubble: View {
                     // v2.0.36：点击查看大图
                     .onTapGesture { onImageTap() }
                     // v2.0.125：图片长按菜单（原气泡级菜单移到这里，不抢占文字长按）
-                    .contextMenu { cardMenu }
+                    .bubbleLongPress(longPressAction)
             }
         }
     }
@@ -538,7 +565,7 @@ struct MessageBubble: View {
         if let file = parseFileMessage(message.content) {
             FileMessageCard(file: file)
                 // v2.0.125：文件卡片长按菜单（原气泡级菜单移到这里）
-                .contextMenu { cardMenu }
+                .bubbleLongPress(longPressAction)
         } else {
             // v2.0.125：UITextView 渲染 —— 长按弹菜单（复制/引用/分享/大爆炸/选择文本/撤回/删除）
             SelectableTextLabel(
@@ -558,8 +585,12 @@ struct MessageBubble: View {
                 onEdit: onEdit,   // v4.0.44 待做池 3：编辑已发消息（声明序紧贴 onWithdraw）
                 onMultiSelect: onMultiSelect,
                 onMemo: onMemo,
-                onGoal: onGoal
+                onGoal: onGoal,
+                // v4.0.81：用户文字气泡也换「长按 → 锚定胶囊菜单」（弃 UITextView 原生编辑菜单 + 拖动选中）
+                interactionEnabled: false
             )
+            // v4.0.81：长按动作挂在表示层（interactionEnabled=false 已让触摸穿透到这一层）
+            .bubbleLongPress(longPressAction)
         }
     }
 
@@ -605,7 +636,8 @@ struct MessageBubble: View {
                                         onMultiSelect: onMultiSelect,   // v3.3.0：多选合并转发
                                         onContinueStep: onContinueStep,   // v3.9.74 P2.6：plan 卡继续下一步
                                         useSwiftUIText: true,
-                                        streaming: streamingText)   // v3.0.41 性能：流式中纯 Text 渲染（跳过 markdown 解析）
+                                        streaming: streamingText,   // v3.0.41 性能：流式中纯 Text 渲染（跳过 markdown 解析）
+                                        onLongPressMenu: onLongPressMenu)   // v4.0.81：长按段 → 锚定胶囊菜单
                     }
                 }
         }
@@ -1094,20 +1126,32 @@ struct MessageBubble: View {
                                 onMultiSelect: onMultiSelect,   // v3.3.0：多选合并转发
                                 onContinueStep: onContinueStep,   // v3.9.74 P2.6：plan 卡继续下一步
                                 useSwiftUIText: true,
-                                streaming: false)
+                                streaming: false,
+                                onLongPressMenu: onLongPressMenu)   // v4.0.81：长按段 → 锚定胶囊菜单
             }
         }
         .padding(.horizontal, Spacing.xl)
         .padding(.vertical, Spacing.md)
         .background(
-            // v4.0.66 A+C：多气泡段落的每段底同步换淡彩渐变（与主气泡同口径）
+            // v4.0.81 方案3：多气泡段落的每段底同步换玻璃厚边（与主气泡同口径）
             RoundedRectangle(cornerRadius: Radius.field, style: .continuous)
                 .fill(isHighlighted
                       ? AnyShapeStyle(aiBubbleColor)
-                      : AnyShapeStyle(EnvironmentGradient.pastelCardStyle(scheme)))
+                      : AnyShapeStyle(Material.ultraThinMaterial))
+                .overlay {
+                    if !isHighlighted {
+                        RoundedRectangle(cornerRadius: Radius.field, style: .continuous)
+                            .fill(EnvironmentGradient.cardGlassFill(scheme))
+                    }
+                }
+                .overlay {
+                    if !isHighlighted {
+                        RoundedRectangle(cornerRadius: Radius.field, style: .continuous)
+                            .strokeBorder(EnvironmentGradient.cardEdgeGradient(scheme), lineWidth: 1)
+                    }
+                }
         )
-        .shadow(color: isHighlighted ? .clear : EnvironmentGradient.pastelShadow(scheme: scheme),
-                radius: 10, y: 4)
+        .glassCardShadow(scheme, enabled: !isHighlighted)
         .frame(maxWidth: AdaptiveLayout.bubbleMaxWidth(hSize), alignment: .leading)
     }
 

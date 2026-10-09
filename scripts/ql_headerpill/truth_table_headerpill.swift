@@ -137,8 +137,15 @@ check("🚫 反向③″：页头**载体**也只此一处（改个属性名重�
       sessionsCode.components(separatedBy: "PageHeader(").count - 1 == 1)
 
 // ── 4. 聊天页两颗：同族 + 同间距 ────────────────────────────────
-check("④ 聊天页任务中心：checklist → list.bullet.circle",
-      chatCode.contains("\"list.bullet.circle\"") && !chatCode.contains("\"checklist\""))
+// v4.0.81（审查修）：这两条的「不许出现 checklist」原来扫**整个 ChatView** —— 本批新增的
+//   「加入待办」长按菜单项合法使用 `checklist`，会把它误判成回退 → 收窄到页头图标项本体
+//   （chatHeaderItems）；切片取不到（属性被改名/删掉）时为空串 → 判红，保险方向正确。
+let chatHeaderSlice: String = {
+    guard let r = chatCode.range(of: "private var chatHeaderItems") else { return "" }
+    return String(chatCode[r.lowerBound...].prefix(900))
+}()
+check("④ 聊天页任务中心：checklist → list.bullet.circle（只看页头项本体；菜单/卡片里的 checklist 不算）",
+      chatHeaderSlice.contains("\"list.bullet.circle\"") && !chatHeaderSlice.contains("\"checklist\""))
 check("④ 聊天页更多：ellipsis → ellipsis.circle",
       chatCode.contains("\"ellipsis.circle\"") && !chatCode.contains("\"ellipsis\", a11y"))
 check("④ 聊天页两颗（任务中心 + 更多）都走 HeaderPillGroup.Item",

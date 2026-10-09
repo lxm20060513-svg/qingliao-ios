@@ -159,10 +159,11 @@ check("清空入口对固定会话可见（清空按钮前无固定会话排除�
 // 两张卡同处一个 List 行 → 系统把行内子视图的 `.contextMenu` 提升成 **cell 级唯一宿主**，
 // 挂在每张卡上只会保留第一个菜单、且长按任一位置整行一起抬起。改成「行级一个菜单 + 按下时记录命中的卡」
 // （FixedCardMenuTarget）来分发 —— 断言随实现换轨，仍钉住「清空入口在并排卡这条路上可达」。
-check("v4.0.69：并排卡所在行挂 sessionRowMenu（清空入口在卡片这条路上仍可达）",
-      viewCode.contains("FixedCardMenuTarget.shared.id = s.id") &&
-      viewCode.contains("if let id = FixedCardMenuTarget.shared.id,") &&
-      viewCode.contains("sessionRowMenu(s)"))
+// v4.0.81：并排卡行退役 → 固定会话回到普通会话行渲染，清空入口走**行菜单** sessionRowMenu(s)。
+// 反判据：并排卡时代的分发器（Shared 单例）不许回归 —— 它存在的唯一理由是「两张卡共享一行菜单」。
+check("v4.0.81：固定会话的清空入口走会话行菜单（并排卡分发器不许回归）",
+      viewCode.contains("sessionRowMenu(s)")
+      && !viewCode.contains("FixedCardMenuTarget"))
 check("v4.0.68：长按菜单是单一真源（confirmClear 赋值点唯一）",
       viewCode.components(separatedBy: "confirmClear = s").count - 1 == 1)
 
@@ -335,11 +336,14 @@ let listStack = slice(viewCode, "private var sessionsListStack: some View", "pri
 check("会话行容器切片非空（护栏不许空真）", !listStack.isEmpty)
 // v4.0.68：固定会话（轻聊投递/轻聊主动）已上移到顶部并排卡 → 这里多了 filter，
 // 口径不变：会话行仍是**直接**铺进 List，且不套任何 LazyVStack。
-check("会话行直接铺进 List（ForEach(sortedSessions…)，不再套 LazyVStack",
-      listStack.contains("ForEach(sortedSessions.filter { !isFixedSession($0.id) })")
+check("会话行直接铺进 List（ForEach(sortedSessions)，不再套 LazyVStack",
+      listStack.contains("ForEach(sortedSessions)")
       && !listStack.contains("LazyVStack"))
-check("v4.0.68：会话行过滤掉固定会话（顶部并排卡之后，同一会话不许在列表里再出现一次）",
-      listStack.contains("filter { !isFixedSession($0.id) }"))
+// v4.0.81：并排卡行退役 → 固定会话回到**普通会话行**渲染，列表过滤随之取消。
+//   过滤是并排卡时代的产物：留着它会让固定会话在列表里彻底消失，
+//   而「清空会话内容」的唯一入口（行菜单 sessionRowMenu）就在那条行上 → 能力失联。
+check("v4.0.81：固定会话不被列表过滤（并排卡行退役后同一会话只此一处）",
+      !listStack.contains("filter { !isFixedSession($0.id) }"))
 check("会话行带 List 行样式（.sessionListRow）", listStack.contains(".sessionListRow("))
 
 let searchArea = slice(viewCode, "private var searchResultsArea: some View", "private var remoteNoticeText")
@@ -368,8 +372,8 @@ let badBodySlice = slice(badBackToScroll, "private var sessionsListBody: some Vi
 check("🚫 反向①：容器改回 ScrollView+LazyVStack（左滑又静默失效）→ 判红",
       !badBodySlice.isEmpty && listBody.contains("List {") && !badBodySlice.contains("List {"))
 
-let badStack = viewCode.replacingOccurrences(of: "ForEach(sortedSessions.filter { !isFixedSession($0.id) })",
-                                             with: "LazyVStack { ForEach(sortedSessions.filter { !isFixedSession($0.id) })")
+let badStack = viewCode.replacingOccurrences(of: "ForEach(sortedSessions)",
+                                             with: "LazyVStack { ForEach(sortedSessions))")
 let badStackSlice = slice(badStack, "private var sessionsListStack: some View", "private var sortedSessions")
 check("🚫 反向②：会话行又套回 LazyVStack → 判红",
       !badStackSlice.isEmpty && !listStack.contains("LazyVStack") && badStackSlice.contains("LazyVStack"))

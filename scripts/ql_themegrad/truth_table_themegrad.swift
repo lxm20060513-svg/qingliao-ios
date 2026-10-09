@@ -176,39 +176,47 @@ check("④ 分享扩展主色 = 主题蓝紫亮色首档 #4DA3FF（与 userBubbl
 check("④ 旧的散装蓝已清零（0.36/0.62/1.0）",
       !stripCommentLines(shareSrc).contains("green: 0.62, blue: 1.0"))
 
-// MARK: - ⑤ 主题取值单源（页底光晕与淡彩卡底色值不许就地手改）
+// MARK: - ⑤ 主题取值单源（页底光晕与卡面底色值不许就地手改）
 let themeSrc = src("qingliao/Theme/EnvironmentGradient.swift")
 check("⑤ 主题源可读", !themeSrc.isEmpty)
-check("⑤ 深色淡彩卡底走暗调版（不是简单调透明度）",
-      themeSrc.contains("Color(red: 36 / 255, green: 31 / 255, blue: 51 / 255)"))
+// v4.0.81 方案3：卡底口径整块换玻璃面（cardGlassFill）。断言**意图不变** —— 深色卡面必须是
+// 「专门调过的暗调色」，不是把浅色白面掉透明度糊上去；只把取值跟到新真源（dark = 30/30/40 @0.62）。
+check("⑤ 深色卡面走专门暗调（不是简单调透明度；cardGlassFill dark = 30/30/40 @0.62）",
+      themeSrc.contains("Color(red: 30 / 255, green: 30 / 255, blue: 40 / 255).opacity(0.62)"))
 check("⑤ 页底三团光晕齐（桃粉/天蓝/薄荷各一团）",
       occ(themeSrc, "GlowBlob(tint:") == 3)
 // 🚨 原写法 `!themeSrc.contains("opacity: 0.4")` 是弱断言（把 0.38 改成 0.42/0.55/0.9 照样绿）。
 //    改成真的解析：扫**代码行**（剥注释）里所有含 opacity 的小数字面量（三团光晕写成
 //    `opacity: scheme == .dark ? 0.35 : 0.38,`，一行两值），逐个判 ≤ 0.38。
-// ⚠️ 只取「opacity」**之后**那段（不是整行）：`Color(red: 0.42, green: 0.36, blue: 0.72).opacity(0.10)`
+//    ⚠️ 只取「opacity」**之后**那段（不是整行）：`Color(red: 0.42, green: 0.36, blue: 0.72).opacity(0.10)`
 //    整行取数会把配色分量 0.72 当成透明度（实测踩过：报「最大值 0.72」的假红）。
-let glowOpacityVals: [Double] = stripCommentLines(themeSrc).split(separator: "\n")
-    .flatMap { line -> [Double] in
-        guard line.contains("opacity") else { return [] }
-        let tail = line.components(separatedBy: "opacity").dropFirst().joined(separator: "")
-        var vals: [Double] = []; var cur = ""
-        for ch in tail {
-            if ch.isNumber || ch == "." { cur.append(ch) }
-            else { if let d = Double(cur) { vals.append(d) }; cur = "" }
-        }
-        if let d = Double(cur) { vals.append(d) }
-        return vals
+// 🚨 v4.0.81 方案3 再修一次**范围**：红线本意只管**页底光晕**（它直接压在正文底下，浓了毁对比度）。
+//    卡面叠层/顶部高光/柔影是压在**卡内**的（30/30/40@0.62、白@0.95、黑@0.60），不归这条管；
+//    旧全文件扫描会把它们连同 `(Color.black.opacity(0.60), 22, 8)` 里的 radius 22 一起当成透明度
+//    → 报「实测最大值 22.0」的假红。口径：只取 `opacity: scheme == .dark ? X : Y` 形态的行（= 三团光晕）。
+let glowLines = stripCommentLines(themeSrc).split(separator: "\n")
+    .filter { $0.contains("opacity:") && $0.contains("scheme == .dark") }
+    .map(String.init)
+check("⑤ 光晕透明度行恰好 3 条（空了=空真，多捞=把卡面/影算进来了）", glowLines.count == 3)
+let glowOpacityVals: [Double] = glowLines.flatMap { line -> [Double] in
+    let tail = line.components(separatedBy: "opacity:").dropFirst().joined(separator: "")
+    var vals: [Double] = []; var cur = ""
+    for ch in tail {
+        if ch.isNumber || ch == "." { cur.append(ch) }
+        else { if let d = Double(cur) { vals.append(d) }; cur = "" }
     }
-check("⑤ 光晕/柔影透明度取值解析到了（空了下面就是空真）", !glowOpacityVals.isEmpty)
-check("⑤ 每处透明度都不超 0.38（正文对比度红线；实测最大值 \(glowOpacityVals.max() ?? -1)）",
+    if let d = Double(cur) { vals.append(d) }
+    return vals
+}
+check("⑤ 光晕透明度取值解析到了（空了下面就是空真）", !glowOpacityVals.isEmpty)
+check("⑤ 每处光晕透明度都不超 0.38（正文对比度红线；实测最大值 \(glowOpacityVals.max() ?? -1)）",
       (glowOpacityVals.max() ?? 1) <= 0.38)
-
 // MARK: - ⑥ v4.0.68 设置区「纯白面」清零（用户 2026-10-07：「设置页又有白底又有渐变底，不协调」）
 //   口径：设置页（Features/Settings 全目录）不许再有**纯白填充面**——
 //   `secondarySystemGroupedBackground`（分组白：搜索框/形象卡/输入框/列表行底）与
 //   `Color(uiColor: .systemBackground)`（系统白：页内块底）一并清零。
-//   统一出口：`pastelFill(cornerRadius:)`（同一份淡彩真源 + 0.8pt 描边、不带投影；见 LiquidGlass）。
+//   统一出口：`pastelFill(cornerRadius:)`（v4.0.81 方案3 起 = 同一份玻璃真源 `GlassEdgeSurface`
+//   + 1pt 渐变厚边、不带投影；见 LiquidGlass）。
 //   ⚠️ 不误伤 `Color.white`：那是**前景色**（图标/文字画在彩色底上），本表按 token 判。
 let settingsDir = "qingliao/Features/Settings/"
 let settingsNames = (try? FileManager.default.contentsOfDirectory(atPath: settingsDir)) ?? []
@@ -228,8 +236,10 @@ check("⑥ 设置区纯白填充面清零（实得 \(whiteFills.count) 处：\(w
 let lg68 = src("qingliao/Theme/LiquidGlass.swift")
 check("⑥ pastelFill 出口在 Theme（淡彩填充·不带投影）",
       lg68.contains("func pastelFill(cornerRadius: CGFloat, stroke: Bool = true)"))
-check("⑥ PastelFill 实现带描边开关（压在同色淡彩卡上，只换底不描边会糊掉边界）",
-      lg68.contains("struct PastelFill: ViewModifier") && lg68.contains("if stroke {"))
+check("⑥ PastelFill 实现带描边开关（压在同色卡面上，只换底不描边会糊掉边界）",
+      lg68.contains("struct PastelFill: ViewModifier")
+      && lg68.contains("fill: true, edge: stroke, shadow: false")
+      && lg68.contains("if edge {"))
 check("⑥ 设置区 pastelFill 调用点 ≥ 20（实得 \(pastelFillCalls)）", pastelFillCalls >= 20)
 
 // 反向：SettingRow（共用行组件）自己不再涂料——外层已是 pastelCard，行再涂白就是那块「白底」。
@@ -327,6 +337,52 @@ if let r = dockSrc.range(of: "EnvironmentGlowLayers(scheme: colorScheme)") {
 } else {
     check("⑧c TabView 垫底渐变层且不吃点击（窗口内断言，防存在性假绿）", false)
 }
+
+// MARK: - ⑨ v4.0.81 方案3「玻璃厚边」（用户 2026-10-09 从四列对比稿拍板）
+//   口径：彩收进页底（页底带色 + 三团光晕降浓），卡面全站转玻璃 —— 材质底 + 半透明叠层 +
+//   1pt 渐变厚边 + 顶部内高光 + 加重柔影。色值逐字取自对比稿 ql_uimock/gen_beautify.py 的
+//   light.cols[3] / dark.cols[3]。
+//   变异自证（本段任一条都能自证）：把 EnvironmentGradient 里 pageBase 换成 Color.white、
+//   或把某团 opacity 改回 0.38、或把 GlassEdgeSurface 的 cardEdgeGradient 描边删掉、
+//   或把任一调用点改回 pastelCardStyle → 本段对应条必红（实测已做）。
+let envSrc = src("qingliao/Theme/EnvironmentGradient.swift")
+let envClean = stripCommentLines(envSrc)
+check("⑨ 页底兜底色 = pageBase（浅 #FAFAFC / 深 #12121A，不再是纯白/纯黑）",
+      envClean.contains("EnvironmentGradient.pageBase(scheme)")
+      && envSrc.contains("Color(red: 0xFA / 255, green: 0xFA / 255, blue: 0xFC / 255)")
+      && envSrc.contains("Color(red: 0x12 / 255, green: 0x12 / 255, blue: 0x1A / 255)"))
+check("⑨ 三团光晕降浓到方案3 值（浅 .26/.24/.22 · 深 .22/.24/.20）",
+      envSrc.contains("opacity: scheme == .dark ? 0.22 : 0.26")
+      && envSrc.contains("opacity: scheme == .dark ? 0.24 : 0.24")
+      && envSrc.contains("opacity: scheme == .dark ? 0.20 : 0.22"))
+check("⑨ 旧光晕浓度不许回潮（.35/.38、.35/.34、.30/.36 那三档老值）",
+      !envSrc.contains("? 0.35 : 0.38") && !envSrc.contains("? 0.35 : 0.34")
+      && !envSrc.contains("? 0.30 : 0.36"))
+let lgSrc9 = src("qingliao/Theme/LiquidGlass.swift")
+let lgClean9 = stripCommentLines(lgSrc9)
+check("⑨ 卡面出口 = GlassEdgeSurface（材质 + 叠层 + 1pt 渐变厚边 + 顶部内高光）",
+      lgClean9.contains("struct GlassEdgeSurface")
+      && lgSrc9.contains("shape.fill(.ultraThinMaterial)")
+      && lgSrc9.contains("strokeBorder(EnvironmentGradient.cardEdgeGradient(scheme), lineWidth: 1)")
+      && lgSrc9.contains("strokeBorder(EnvironmentGradient.cardTopHighlight(scheme), lineWidth: 1)"))
+check("⑨ 三个卡修饰符全走该出口（pastelCard / pastelFill / dashboardCard）",
+      lgClean9.contains(".modifier(GlassEdgeSurface(cornerRadius: cornerRadius))")
+      && lgClean9.contains("fill: true, edge: stroke, shadow: false")
+      && lgClean9.contains("GlassEdgeSurface(cornerRadius: cornerRadius, fill: false)"))
+check("⑨ 降低透明度时叠层转系统实底（无障碍护栏，不许只留材质）",
+      lgSrc9.contains("accessibilityReduceTransparency")
+      && lgSrc9.contains("Color(uiColor: .secondarySystemGroupedBackground)"))
+// 旧淡彩真源整块退役：Features 全目录扫描（注释里的不算 —— 本仓注释习惯写清旧形态）
+var oldPastel = ""
+if let en = FileManager.default.enumerator(atPath: "qingliao/Features") {
+    for case let rel as String in en where rel.hasSuffix(".swift") {
+        let code = stripCommentLines(src("qingliao/Features/\(rel)"))
+        if code.contains("pastelCardStyle") || code.contains("pastelShadow") { oldPastel += "\(rel) " }
+    }
+}
+check("⑨ 旧淡彩真源清零（Features 下 pastelCardStyle / pastelShadow 零残留；残留：\(oldPastel)）",
+      oldPastel.isEmpty
+      && !envClean.contains("func pastelCardStyle") && !envClean.contains("func pastelShadow"))
 
 print("通过 \(passCount) / 失败 \(failCount)")
 if failCount > 0 { exit(1) }

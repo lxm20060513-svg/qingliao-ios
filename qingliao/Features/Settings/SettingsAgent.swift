@@ -151,7 +151,7 @@ private struct FlowText: View {
                             .font(.system(size: Typography.subhead))
                             .padding(.horizontal, Spacing.md)
                             .padding(.vertical, Spacing.xs)
-                            .background(EnvironmentGradient.pastelCardStyle(scheme), in: Capsule())
+                            .background(EnvironmentGradient.cardGlassFill(scheme), in: Capsule())
                     }
                     Spacer()
                 }

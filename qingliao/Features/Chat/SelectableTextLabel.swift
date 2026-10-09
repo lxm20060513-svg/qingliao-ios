@@ -53,6 +53,12 @@ struct SelectableTextLabel: UIViewRepresentable {
     var onMemo: ((String) -> Void)? = nil
     // v4.0.25：存为长期目标（长按菜单）——传当前段落/选中片段
     var onGoal: ((String) -> Void)? = nil
+    /// v4.0.81：宿主改用「长按 → 锚定胶囊菜单」（ChatView 的 bubbleMenuItems）时，本视图降级为
+    /// **纯渲染**：isSelectable / isUserInteractionEnabled 全关，触摸穿透给外层 SwiftUI 长按手势
+    /// —— 否则 UITextView 原生编辑菜单与自绘菜单两套并存（用户口径「都要对齐」）。
+    /// ⚠️ 代价（用户拍板接受的置换）：该路径失去拖动选中、失去 .link 点击。
+    /// 默认 true = 原行为不变（LongReplySheet 阅读页仍走原生菜单 + 可拖选）。
+    var interactionEnabled: Bool = true
 
     // v3.0.13：布局跟踪——SwiftUI 只在 observed 属性变化时调 updateUIView，气泡在展开/折叠动画
     // 期间宽度渐进变化时 updateUIView 可能不重进，导致 UITextView 的 NSTextContainer 锁在动画起始的
@@ -78,7 +84,9 @@ struct SelectableTextLabel: UIViewRepresentable {
     func makeUIView(context: Context) -> UITextView {
         let tv = TrackingTextView()
         tv.isEditable = false
-        tv.isSelectable = true
+        // v4.0.81：interactionEnabled=false → 纯渲染（触摸穿透给外层 SwiftUI 长按手势）
+        tv.isSelectable = interactionEnabled
+        tv.isUserInteractionEnabled = interactionEnabled
         tv.isScrollEnabled = false
         tv.backgroundColor = .clear
         tv.textContainerInset = .zero
@@ -86,7 +94,8 @@ struct SelectableTextLabel: UIViewRepresentable {
         tv.textContainer.widthTracksTextView = true
         tv.delegate = context.coordinator
         // v3.4.28：识别链接（.link 属性文字可点）——点击由 shouldInteractWith 接管统一开 Safari
-        tv.dataDetectorTypes = [.link]
+        // v4.0.81：纯渲染模式下不再识别链接（点了也没人接）
+        tv.dataDetectorTypes = interactionEnabled ? [.link] : []
         // 尺寸行为与 SwiftUI Text 一致：短文本气泡窄、长文本换行不撑爆
         //（hugging required → 按内容宽；compression low → 超宽时压缩换行）
         tv.setContentHuggingPriority(.required, for: .horizontal)

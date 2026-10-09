@@ -96,6 +96,11 @@ struct ChatView: View {
     @State var showMoreMenu = false
     /// v4.0.76：三点菜单锚定弹出——「更多」按钮的全局 frame（AnchorMenuOverlay 弹出位置）
     @State var moreMenuAnchor: CGRect = .zero
+    /// v4.0.81：长按气泡/文字段的锚定菜单目标（锚点由 ChatBubbleAnchorStore 量好，见该类型注释）
+    @State var bubbleMenuTarget: ChatBubbleMenuTarget?
+    /// v4.0.81：返回「会话列表」（只有 iPhone 上「聊天」tab 的首页宿主会传 —— 那一 tab 现在
+    /// 把会话列表与聊天页合成一页，需要有路回列表；iPad 双栏 / 其它入口不传即完全不渲染返回键）。
+    var onBackToHome: (() -> Void)? = nil
     // v3.9.14：工具进度卡展开状态——生成中强制展开，答完默认收起（用户反馈这几行别一直摊着）
     @State var toolStepsExpanded = false
     // v3.4.24：任务中心全屏页（header 常驻小图标入口，原 DockTabView 全局 overlay 已移除）
@@ -1039,6 +1044,14 @@ struct ChatView: View {
                               onPick: { handleChatActionMenuPick($0) },
                               onClose: { showMoreMenu = false })
         }
+        // v4.0.81：长按气泡 → 锚定胶囊菜单（与三点菜单同一浮层组件、同一挂载点）
+        if let t = bubbleMenuTarget {
+            AnchorMenuOverlay(anchorFrame: t.anchor,
+                              items: bubbleMenuItems(for: t.message, text: t.text),
+                              title: t.message.isUser ? "你的消息" : "AI 回复",
+                              onPick: { handleBubbleMenuPick($0, message: t.message, text: t.text) },
+                              onClose: { bubbleMenuTarget = nil })
+        }
     }
 
     /// v4.0.51c：行为型深层修饰器下沉背景层（.background 不影响布局）
@@ -1479,12 +1492,29 @@ struct ChatView: View {
         !aiBusy && generationFailed
     }
 
+    /// v4.0.81：返回「会话列表」的圆形玻璃按钮（与 header 里其它胶囊同材质；只在合并首页宿主里出现）
+    private var chatBackButton: some View {
+        Button {
+            Haptics.tap()
+            onBackToHome?()
+        } label: {
+            Image(systemName: "chevron.left")
+                .font(.system(size: Typography.body, weight: .semibold))
+                .frame(width: 34, height: 34)
+                .background(.ultraThinMaterial, in: Circle())
+        }
+        .buttonStyle(PressStyle())
+        .accessibilityLabel("返回会话列表")
+    }
+
     /// 页头 + 思考档位/聊天操作弹窗 + 任务中心全屏页
     @ViewBuilder
     private var chatHeaderBar: some View {
         PageHeader(title: "聊天",
                    subtitle: headerSubtitle,
                    trailing: AnyView(headerTrailingItems),
+                   // v4.0.81：返回会话列表（合并「聊天」tab 后从对话回首页的唯一入口；nil 即不渲染）
+                   leading: onBackToHome == nil ? nil : AnyView(chatBackButton),
                    // v4.0.68：设置里可整体关掉（`petHeaderOn`）—— 关掉 = 这一格不渲染、
                    // header 回到「没有 centerView」的原样（与空会话态同一形态，不留空占位）。
                    centerView: (petHeaderOn && !chat.messages.isEmpty) ? AnyView(chatHeaderPet) : nil,
@@ -2606,6 +2636,118 @@ struct ChatView: View {
             .matchedTransitionSource(id: "bb-" + entry.msg.id, in: zoomNS)   // v3.9.1：独立 id 空间——气泡内图片用的是 msg.id，同 id 会让 zoom 取源不确定
     }
 
+    // MARK: - v4.0.81 长按气泡 → 锚定胶囊菜单（单一真源）
+
+    /// 打开「长按」锚定菜单。锚点取该条气泡**最近一次布局**的全局 frame（行级量测，见
+    /// chatMessageBubble 上挂的 onGeometryChange）——所以同一会话里每段文字/图片各有自己的位置。
+    /// 与另两个锚定浮层互斥（同屏只允许一个锚定菜单，开新的先清旧的）。
+    func openBubbleMenu(for msg: ChatMessage, text: String) {
+        showMoreMenu = false
+        showReasoningPicker = false
+        let anchor = ChatBubbleAnchorStore.shared.rect(for: msg.id) ?? moreMenuAnchor
+        Haptics.tap()
+        bubbleMenuTarget = ChatBubbleMenuTarget(id: msg.id, anchor: anchor, text: text, message: msg)
+    }
+
+    /// v4.0.81：长按菜单**单一真源** —— 此前入口散在 6 处 `.contextMenu` + 5 处 `.textSelection` 里，
+    /// 各套顺序/文案还不一致（用户口径：所有长按菜单都对齐三点菜单的胶囊形态）。
+    /// 图标与配色逐条取自原两套菜单（不自造 SF Symbol 名，避免符号不存在），顺序 = 复制/地图/引用/分享/
+    /// 多选/大爆炸/全屏阅读/钉一钉/备忘录/待办/目标/提醒/重新生成/编辑/撤回/删除。
+    /// 动作卡（plan 卡 / 问题卡 / 工具步骤卡）刻意**不挂**长按菜单 —— 卡自带操作按钮，加了会打架。
+    private func bubbleMenuItems(for msg: ChatMessage, text: String) -> [AnchorMenuItem] {
+        var items: [AnchorMenuItem] = [
+            AnchorMenuItem(id: "copy", title: "复制", icon: "doc.on.doc", color: .blue),
+        ]
+        // 地址跳转（原 AI 气泡专属项，现所有气泡统一）：提取不到中文地名特征时不显示
+        if let addr = MessageBubble.extractAddress(from: msg.content) {
+            items.append(AnchorMenuItem(id: "map", title: "在地图中打开「\(addr)」",
+                                        icon: "mappin.and.ellipse", color: .teal))
+        }
+        items.append(AnchorMenuItem(id: "quote", title: "引用", icon: "quote.opening", color: .blue))
+        items.append(AnchorMenuItem(id: "share", title: "分享", icon: "square.and.arrow.up", color: .blue))
+        items.append(AnchorMenuItem(id: "multi", title: "多选", icon: "checkmark.circle", color: .teal))
+        items.append(AnchorMenuItem(id: "bigbang", title: "大爆炸", icon: "burst", color: .teal))
+        items.append(AnchorMenuItem(id: "read", title: "全屏阅读", icon: "text.book.closed", color: .teal))
+        items.append(AnchorMenuItem(id: "pin", title: "钉一钉", icon: "pin", color: .indigo))
+        items.append(AnchorMenuItem(id: "memo", title: "存备忘录", icon: "note.text", color: .purple))
+        items.append(AnchorMenuItem(id: "todo", title: "加入待办", icon: "checklist", color: .purple))
+        items.append(AnchorMenuItem(id: "goal", title: "存为长期目标", icon: "target", color: .purple))
+        items.append(AnchorMenuItem(id: "remind", title: "提醒我", icon: "bell.badge", color: .orange))
+        // v4.0.81（审查修）：守卫沿用旧 cardMenu —— 「重新生成」只对 AI 消息给。
+        // 对用户消息点它会走 regenerate(at:) → removeSubrange(idx...)，把该消息及其后全部删掉（破坏性）。
+        if !msg.isUser {
+            items.append(AnchorMenuItem(id: "regenerate", title: "重新生成", icon: "arrow.clockwise", color: .orange))
+        }
+        if editAction(msg) != nil {   // 只有可改口的消息才给「编辑」（v4.0.44 待做池 3 同口径）
+            items.append(AnchorMenuItem(id: "edit", title: "编辑", icon: "pencil", color: .orange))
+        }
+        // v4.0.81（审查修）：守卫沿用旧气泡菜单 —— 只对「自己的消息且 10 秒内」给「撤回」。
+        // 无守卫时对 AI 回复点撤回会把 AI 消息置成「已撤回」（withdrawMessage 无闸）。
+        if MessageBubble.canWithdraw(msg) {
+            items.append(AnchorMenuItem(id: "withdraw", title: "撤回", icon: "arrow.uturn.backward", color: .orange))
+        }
+        items.append(AnchorMenuItem(id: "delete", title: "删除", icon: "trash", color: .red, destructive: true))
+        return items
+    }
+
+    /// v4.0.81：长按菜单动作分发 —— 每个 case 与原先对应气泡菜单里那个 Button 的 body 逐条等价
+    /// （搬运，不改行为；文案/触感沿用原实现：复制走 UIPasteboard + Haptics.success()）。
+    private func handleBubbleMenuPick(_ item: AnchorMenuItem, message msg: ChatMessage, text: String) {
+        bubbleMenuTarget = nil
+        switch item.id {
+        case "copy":
+            UIPasteboard.general.string = text
+            Haptics.success()
+        case "map":
+            if let addr = MessageBubble.extractAddress(from: msg.content) {
+                MessageBubble.openInMaps(address: addr)
+            }
+        case "quote":
+            quotedMessage = msg
+            inputFocus = true
+        case "share":
+            shareMessage(msg)
+        case "multi":
+            if thisSessionStreaming {
+                selectBlocked = true
+            } else {
+                inputFocus = false
+                selectedMsgIDs.removeAll()
+                selectedMsgIDs.insert(msg.id)
+                withAnimation(Motion.snap) { selectMode = true }
+            }
+        case "bigbang":
+            bigBangPayload = BigBangPayload(text: text, sourceID: "bb-" + msg.id)
+        case "read":
+            let head = text.split(separator: "\n").first.map(String.init) ?? "长回复"
+            longReplyPayload = LongReplyPayload(id: "rd-" + msg.id,
+                                                text: text,
+                                                title: head.count > 18 ? String(head.prefix(18)) + "…" : head)
+        case "pin":
+            pinStore.add(content: text, sourceSessionId: chat.sessionId, sourceRole: msg.role)
+            Haptics.notify(.success)
+        case "memo":
+            if MemoStore.shared.add(content: text, source: "chat") { Haptics.notify(.success) }
+        case "todo":
+            if TodoStore.shared.add(content: text, source: "chat") { Haptics.notify(.success) }
+        case "goal":
+            saveAsGoal(text: text)
+        case "remind":
+            reminderSeedText = text
+            showQuickReminder = true
+        case "regenerate":
+            regenerate(at: msg.id)
+        case "edit":
+            editAction(msg)?()
+        case "withdraw":
+            withdrawMessage(msg)
+        case "delete":
+            deleteMessage(msg)
+        default:
+            break
+        }
+    }
+
     /// v3.0.51：单条消息气泡构造——拆独立方法（防消息列表 ForEach 内 type-check 超时）
     @ViewBuilder
     private func chatMessageBubble(_ msg: ChatMessage) -> some View {
@@ -2703,6 +2845,14 @@ struct ChatView: View {
             //（后端按采纳/忽略比自适应抬降置信度阈值 = 主动 Agent 唯一的学习信号）
             Task { await inbox.sendProactiveFeedback(messageId: msg.id,
                                                       proactiveId: pid, verdict: verdict) }
+        } onLongPressMenu: { text in
+            // v4.0.81：长按（文字/图片/文件卡/代码块/表格/agent 卡）→ 右上角三点菜单同款胶囊
+            openBubbleMenu(for: msg, text: text)
+        }
+        // v4.0.81：行级锚点。存**引用类型** store 不写 @State —— 滚动每帧都会刷新，
+        // 写 @State 会让整页 body 反复失效（v3.9.x 同源教训）。
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { rect in
+            ChatBubbleAnchorStore.shared.set(msg.id, rect)
         }
     }
 
@@ -5109,4 +5259,26 @@ extension ChatView {
             .transition(.opacity.combined(with: .scale(scale: 0.97)))   // v3.9.30：欢迎页浮现过渡
     }
 
+}
+
+// MARK: - v4.0.81 长按菜单的锚定目标与锚点台账
+
+/// 长按某个气泡行时弹出的锚定菜单目标（值类型，塞进 @State 触发一次重绘即可）。
+struct ChatBubbleMenuTarget {
+    let id: String
+    /// 该气泡行的全局 frame（菜单按它定位；取不到时回落到三点菜单锚点）
+    let anchor: CGRect
+    /// 该行要操作的文本（整条气泡 / 选中那一段 / 代码正文，由气泡侧传入）
+    let text: String
+    let message: ChatMessage
+}
+
+/// 气泡行级锚点台账。**故意不是 ObservableObject**：滚动时每帧都会刷新 frame，
+/// 写进 @State 会让整页 body 反复失效（同源教训见 ChatView「滚动容器可视高度」注释）。
+final class ChatBubbleAnchorStore {
+    static let shared = ChatBubbleAnchorStore()
+    private var frames: [String: CGRect] = [:]
+    private init() {}
+    func set(_ id: String, _ rect: CGRect) { frames[id] = rect }
+    func rect(for id: String) -> CGRect? { frames[id] }
 }

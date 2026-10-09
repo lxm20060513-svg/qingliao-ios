@@ -173,13 +173,13 @@ check("contextMenu 删除入口仍对固定会话隐藏（两处排除判断：�
       s_sess.count("if s.id != ChatStore.deliverySessionId && s.id != ChatStore.proactiveSessionId") >= 2)
 # v4.0.68：固定会话改成顶部并排卡 —— 长按菜单现在由**卡片**承载。
 #   只断言「字符串还在 sessionCell 里」是假绿（会话行对固定会话已不再渲染）；必须钉卡片这条路。
-check("v4.0.69：并排卡所在行的菜单按按下目标分发（清空入口在卡片这条路上仍可达）",
-      "FixedCardMenuTarget.shared.id = s.id" in s_sess
-      and "if let id = FixedCardMenuTarget.shared.id," in s_sess)
+check("v4.0.81：固定会话的清空入口改走会话行菜单（并排卡分发器不许回归）",
+      "sessionRowMenu(s)" in s_sess
+      and "FixedCardMenuTarget" not in s_sess)
 check("v4.0.68：长按菜单单一真源（confirmClear 赋值点唯一，卡片不另抄一份）",
       s_sess.count("confirmClear = s") == 1)
-check("v4.0.68：多选态不渲染并排卡（不可勾选的卡不许留在屏上）",
-      "!fixedChannelSessions.isEmpty && !editing" in s_sess)
+check("v4.0.81：并排卡行退役 → 「多选态不渲染并排卡」随之退役（编辑态不可勾选仍由双闸保证）",
+      "!fixedChannelSessions.isEmpty && !editing" not in s_sess)
 check("v4.0.68：固定会话在编辑态不当勾选目标（showCheck 与 onTap 双闸）",
       "showCheck: editing && !isFixedSession(s.id)" in s_sess
       and "if editing && !isFixedSession(s.id) {" in s_sess)

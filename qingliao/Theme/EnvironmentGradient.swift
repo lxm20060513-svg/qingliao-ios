@@ -6,7 +6,8 @@ import SwiftUI
 //   · C 的「环境渐变页底」：白/黑页底上三团 radial 弥散光晕（桃粉右上 / 天蓝左侧 / 薄荷底部），
 //     全站每页一个 modifier 铺底，浅深色各一套取值（色值逐字取自定稿稿 ql_uimock/gen_ac.py 的
 //     light.page / dark.page，勿手调）；
-//   · A 的「淡彩渐变卡」：AI 气泡/生活卡换淡彩渐变底 + 紫调柔影，见本文件 pastelCardStyle。
+//   · A 的「淡彩渐变卡」：AI 气泡/生活卡换淡彩渐变底 + 紫调柔影 —— **v4.0.81 方案3 起整块退役**，
+//     改「玻璃厚边」（见下方 cardGlassFill / cardEdgeGradient / cardShadow）与 LiquidGlass.GlassEdgeSurface。
 //
 // 设计约束：
 //   · 每团光晕 opacity ≤ 0.38：压在白底上是「空气感」，正文对比度不受影响（A11y 红线）；
@@ -15,21 +16,51 @@ import SwiftUI
 
 enum EnvironmentGradient {
 
-    /// AI 气泡 / 淡彩渐变卡底（A 方案口径，浅深色各一套）
-    static func pastelCardStyle(_ scheme: ColorScheme) -> LinearGradient {
-        if scheme == .dark {
-            // 暗调：紫→蓝的深底渐变（稿 aCard2 暗色版同构：36,31,51 → 24,36,52）
-            LinearGradient(colors: [
-                Color(red: 36 / 255, green: 31 / 255, blue: 51 / 255),
-                Color(red: 24 / 255, green: 36 / 255, blue: 52 / 255),
-            ], startPoint: .topLeading, endPoint: .bottomTrailing)
-        } else {
-            // 亮调：粉白→蓝白淡彩（稿 aCard2 亮色版逐字：243,239,255 → 234,246,255）
-            LinearGradient(colors: [
-                Color(red: 243 / 255, green: 239 / 255, blue: 255 / 255),
-                Color(red: 234 / 255, green: 246 / 255, blue: 255 / 255),
-            ], startPoint: .topLeading, endPoint: .bottomTrailing)
-        }
+    // MARK: - v4.0.81 方案3「玻璃厚边」（用户 2026-10-09 从四列对比稿拍板）
+    //
+    // 口径：**彩收进页底**（页底带色 + 三团光晕降浓），**卡面全站转玻璃**——
+    //   · 底 = `ultraThinMaterial` + 半透明叠层（浅 白 0.55 / 深 30,30,40 0.62）；
+    //   · 边 = 1pt 渐变厚边（左上高光 → 右下渐隐）+ 顶部内高光（inset 0 1px 0）；
+    //   · 影 = 加重的柔影（深色重做：层次靠影 + 描边，不再靠底色差）。
+    // 色值**逐字取自对比稿** `ql_uimock/gen_beautify.py` 的 light.cols[3] / dark.cols[3]（勿手调）；
+    // 与旧口径（v4.0.66 A+C 淡彩渐变卡 `pastelCardStyle` / 紫调 `pastelShadow`）的区别：
+    // 那套是「渐变实底 + 0.8pt 灰描边 + 轻影」，已整块退役（护栏钉「不得再出现」）。
+
+    /// 卡玻璃底的**半透明叠层**（材质层由调用点铺 `.ultraThinMaterial`，两者合起来才是稿上的卡面）
+    static func cardGlassFill(_ scheme: ColorScheme) -> Color {
+        scheme == .dark
+            ? Color(red: 30 / 255, green: 30 / 255, blue: 40 / 255).opacity(0.62)
+            : Color.white.opacity(0.55)
+    }
+
+    /// 1pt **渐变厚边**（稿 gradbd：135° 左上高光 → 右下渐隐）——方案3 的视觉主角，
+    /// 有了它卡才有「厚度」；浅色下缘收到黑 0.06 收边界，深色下缘几乎全透（靠影撑）。
+    static func cardEdgeGradient(_ scheme: ColorScheme) -> LinearGradient {
+        scheme == .dark
+            ? LinearGradient(colors: [Color.white.opacity(0.30), Color.white.opacity(0.02)],
+                             startPoint: .topLeading, endPoint: .bottomTrailing)
+            : LinearGradient(colors: [Color.white.opacity(0.95), Color.black.opacity(0.06)],
+                             startPoint: .topLeading, endPoint: .bottomTrailing)
+    }
+
+    /// 顶部**内高光**（稿 inset 0 1px 0）：只亮上缘，纵向 22% 处归零 —— 玻璃「光从上打下来」的暗示。
+    static func cardTopHighlight(_ scheme: ColorScheme) -> LinearGradient {
+        LinearGradient(colors: [Color.white.opacity(scheme == .dark ? 0.10 : 0.60), .clear],
+                       startPoint: .top, endPoint: UnitPoint(x: 0.5, y: 0.22))
+    }
+
+    /// 玻璃卡柔影（稿 cardshadow 0 8px 22px）：浅 黑 0.10 / 深 黑 0.60（深色提亮页底后必须加重影才浮得起来）。
+    static func cardShadow(scheme: ColorScheme) -> (color: Color, radius: CGFloat, y: CGFloat) {
+        scheme == .dark
+            ? (Color.black.opacity(0.60), 22, 8)
+            : (Color.black.opacity(0.10), 22, 8)
+    }
+
+    /// 页底兜底色（稿 page）：浅 #FAFAFC（微偏冷中性，不是纯白）/ 深 #12121A（提亮带色，不是纯黑）。
+    static func pageBase(_ scheme: ColorScheme) -> Color {
+        scheme == .dark
+            ? Color(red: 0x12 / 255, green: 0x12 / 255, blue: 0x1A / 255)
+            : Color(red: 0xFA / 255, green: 0xFA / 255, blue: 0xFC / 255)
     }
 
     /// 主交互色对（发送键 / 添加胶囊等「实底小圆钮」用）：与用户气泡同一套蓝→紫，
@@ -48,12 +79,6 @@ enum EnvironmentGradient {
                        startPoint: .topLeading, endPoint: .bottomTrailing)
     }
 
-    /// 紫调柔影（淡彩卡压在彩底上的层次影，浅色可感知、深色物理不可见仍保留同参数）
-    static func pastelShadow(scheme: ColorScheme) -> Color {
-        scheme == .dark
-            ? Color.black.opacity(0.28)
-            : Color(red: 0.42, green: 0.36, blue: 0.72).opacity(0.10)
-    }
 }
 
 // MARK: - 页底三团弥散光晕（radial 光斑层，纯视觉层零布局影响）
@@ -83,33 +108,31 @@ struct EnvironmentGlowLayers: View {
             let ox = (W - w) / 2
             let oy = (H - h) / 2
             ZStack {
-                // 底色：浅色纯白 / 深色纯黑（稿 page 的兜底色）
-                (scheme == .dark ? Color.black : Color.white)
+                // 底色：浅 #FAFAFC / 深 #12121A（v4.0.81 方案3 稿 page 兜底色，走单一真源）
+                EnvironmentGradient.pageBase(scheme)
 
-                // 团 1：桃粉 · 右上（稿 light 团1 rgba(255,180,214,.38) at 85%,-5% 120%×60%；
-                //                    dark 团1 rgba(150,60,110,.35)）
+                // 团 1：桃粉 · 右上（v4.0.81 方案3 降浓：稿 light 团1 rgba(255,180,214,.26)
+                //                    dark 团1 rgba(150,60,110,.22)；旧值 .38/.35）
                 GlowBlob(tint: scheme == .dark
                              ? Color(red: 150 / 255, green: 60 / 255, blue: 110 / 255)
                              : Color(red: 1, green: 180 / 255, blue: 214 / 255),
-                         opacity: scheme == .dark ? 0.35 : 0.38,
+                         opacity: scheme == .dark ? 0.22 : 0.26,
                          center: CGPoint(x: w * 0.85 + ox, y: h * -0.05 + oy),
                          radius: CGSize(width: w * 0.60, height: h * 0.30))
 
-                // 团 2：天蓝 · 左侧（light rgba(150,200,255,.34) at -10%,30% 110%×55%；
-                //                    dark rgba(40,90,160,.35)）
+                // 团 2：天蓝 · 左侧（v4.0.81 方案3 降浓：稿 rgba(150,200,255,.24) / dark rgba(40,90,160,.24)；旧 .34/.35）
                 GlowBlob(tint: scheme == .dark
                              ? Color(red: 40 / 255, green: 90 / 255, blue: 160 / 255)
                              : Color(red: 150 / 255, green: 200 / 255, blue: 255 / 255),
-                         opacity: scheme == .dark ? 0.35 : 0.34,
+                         opacity: scheme == .dark ? 0.24 : 0.24,
                          center: CGPoint(x: w * -0.10 + ox, y: h * 0.30 + oy),
                          radius: CGSize(width: w * 0.55, height: h * 0.275))
 
-                // 团 3：薄荷 · 底部（light rgba(190,240,200,.36) at 60%,108% 120%×55%；
-                //                    dark rgba(40,120,70,.30)）
+                // 团 3：薄荷 · 底部（v4.0.81 方案3 降浓：稿 rgba(190,240,200,.22) / dark rgba(40,120,70,.20)；旧 .36/.30）
                 GlowBlob(tint: scheme == .dark
                              ? Color(red: 40 / 255, green: 120 / 255, blue: 70 / 255)
                              : Color(red: 190 / 255, green: 240 / 255, blue: 200 / 255),
-                         opacity: scheme == .dark ? 0.30 : 0.36,
+                         opacity: scheme == .dark ? 0.20 : 0.22,
                          center: CGPoint(x: w * 0.60 + ox, y: h * 1.08 + oy),
                          radius: CGSize(width: w * 0.60, height: h * 0.275))
             }
