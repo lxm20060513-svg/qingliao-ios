@@ -981,7 +981,14 @@ struct HomeShortcutSheet: View {
             Label {
                 Text(a.title).font(.system(size: Typography.body))
             } icon: {
-                Image(systemName: a.icon).foregroundStyle(a.color)
+                // v4.0.83 追加（用户真机反馈：「设置页桌面快捷方式设置里面的图标没有白色圆角化」）：
+                // 行首图标统一「28pt 圆角色块 + 白符号」，与设置页其余行（SettingsSystem :158/:199/:245/:323
+                // 以及「允许 AI 操作我的数据」总闸卡片头）同款。原来只给符号 tint（裸符号），风格不一致。
+                Image(systemName: a.icon)
+                    .font(.system(size: Typography.subhead, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 28, height: 28)
+                    .background(a.color, in: RoundedRectangle(cornerRadius: Radius.icon, style: .continuous))
             }
         }
         .qingliaoSwitch(hideLabel: false)
