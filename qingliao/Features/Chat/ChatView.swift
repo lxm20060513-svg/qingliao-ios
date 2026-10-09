@@ -1013,6 +1013,41 @@ struct ChatView: View {
         // 🚨 v4.0.77：锚定弹出菜单挂在**整页最外层**（用户实报「三点菜单落到聊天内容页下面去了」）。
         // 这里是最外圈 —— 浮层压在消息列表/输入栏之上；锚点坐标是 .global，浮层自身满屏 → 换算即恒等。
         .overlay { chatAnchorMenuLayer }
+        // v4.0.82（用户 2026-10-09「在聊天内容页增加边缘手势返回会话页功能」）：
+        // 左缘右滑 = 返回会话列表。挂在**整页最外圈**（与上面浮层同一层级的容器上），
+        // 判定纯逻辑在 Core/ChatEdgeBackKit.swift（阈值单一真源，真值表 + 源护栏见
+        // scripts/ql_dock/truth_table_dock.swift：护栏钉「挂载点在 + 判定只走 Kit」）。
+        // 宿主只在这条链上挂一次；iPad 双栏 / 独立聊天页时 onBackToHome == nil → 手势空转。
+        .modifier(ChatEdgeBackModifier(onBack: onBackToHome))
+    }
+
+    /// v4.0.82：聊天内容页「左缘右滑 → 返回会话列表」的手势壳（判定见 Core/ChatEdgeBackKit.swift）。
+    ///
+    /// 为什么是 `simultaneousGesture` 而不是 `.gesture`：后者会把手势优先级压过系统滚动，
+    /// 消息区的纵向滚动当场被抢（两端抢识别只能二选一）。这里只「同时听」——
+    /// 纵向滚动照旧（③ 方向纯度挡掉），气泡长按/轻点也不受影响（判定要求位移 70pt）。
+    ///
+    /// 为什么不做跟手位移：聊天页是 TabView 一档 + 输入栏常驻，跟手要把整页 translate 起来，
+    /// 与输入栏材质/键盘避让互相打架（收益小、回归面大）。滑到位即触发返回，动画由宿主
+    /// （合并首页的 withAnimation）统一做。
+    private struct ChatEdgeBackModifier: ViewModifier {
+        let onBack: (() -> Void)?
+
+        func body(content: Content) -> some View {
+            content.simultaneousGesture(
+                DragGesture(minimumDistance: 20, coordinateSpace: .global)
+                    .onEnded { value in
+                        guard let onBack else { return }
+                        guard ChatEdgeBackKit.shouldGoBack(
+                            startX: value.startLocation.x,
+                            dx: value.translation.width,
+                            dy: value.translation.height
+                        ) else { return }
+                        Haptics.tap()
+                        onBack()
+                    }
+            )
+        }
     }
 
     /// v4.0.77：聊天页的两个锚定菜单浮层（三点操作菜单 / 思考档位）。
@@ -2476,12 +2511,15 @@ struct ChatView: View {
         )
     }
 
-    /// v4.0.31：header 宠物的手势层 —— 与欢迎页那只完全同款（拍板 2A）：
-    ///   轻点 = 抚摸（petPat +1）+ 聚焦输入框；长按 = 发 .qingliaoOrbMenuFromPet（DockTabView 合流消费，
-    ///   动作分发单一真源）。⚠️ ql_orbmenu 护栏钉着「ChatView 里 .qingliaoOrbMenuFromPet 恰一次」——
-    ///   为不破坏「手势只此一份」，header 宠物**不发第二条通知**：长按只做本地按压反馈，
-    ///   快捷菜单走欢迎页那条长按链（header 与欢迎页不同时在屏，锚点天然正确）。
-    ///   备查：曾评估给 header 宠物挂独立锚点+第二发声明，护栏会红且复制第二套手势，弃。
+    /// header 宠物（有消息时的聊天页顶部那只）的手势层 —— **只有轻点**：轻点 = 抚摸（petPat +1）。
+    /// ⚠️ 长按**刻意不接**（2026-10-09 用户拍板 2「保持现状」）：
+    ///   · 长按入口**只**在两只大宠物上 —— 聊天首页头（SessionsView.homeHero）与聊天页欢迎页宠物，
+    ///     两只都自带锚点 + 命中层（见 ql_orbmenu 的「宠物命中层」段）；
+    ///   · 曾评估给 header 挂独立锚点 + 第二发 .qingliaoOrbMenuFromPet 声明：与 ql_orbmenu
+    ///     「ChatView 里该通知恰一次」的护栏冲突（等于复制第二套手势 / 发声点），已弃；
+    ///   · header 与欢迎页不同时在屏（有消息才显示 header），入口不重叠，用户明确不需要它也能长按。
+    ///   ⚠️ 这段注释以前写成「长按 = 发通知」（与实际代码不符），排查「长按宠物失效」时会误导人 ——
+    ///      改口径时请同步改这里（ql_orbmenu 有对应反判据）。
     private var chatHeaderPet: some View {
         petHeaderBadge
             .contentShape(Rectangle())

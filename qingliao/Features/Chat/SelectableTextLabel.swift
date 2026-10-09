@@ -59,6 +59,11 @@ struct SelectableTextLabel: UIViewRepresentable {
     /// ⚠️ 代价（用户拍板接受的置换）：该路径失去拖动选中、失去 .link 点击。
     /// 默认 true = 原行为不变（LongReplySheet 阅读页仍走原生菜单 + 可拖选）。
     var interactionEnabled: Bool = true
+    /// v4.0.82：宿主长按回调（锚定胶囊菜单）。**必须走这里，不能靠外层 SwiftUI 手势**——
+    /// 纯渲染模式下 UITextView 退出命中测试后，SwiftUI 的 onLongPressGesture 同样命中不到，
+    /// 这就是 4.0.81 用户文字气泡长按无反应的根因。改为在 UITextView 上直接挂
+    /// UILongPressGestureRecognizer，闭包经 Coordinator 回宿主，与 isSelectable 无关。
+    var onLongPress: (() -> Void)? = nil
 
     // v3.0.13：布局跟踪——SwiftUI 只在 observed 属性变化时调 updateUIView，气泡在展开/折叠动画
     // 期间宽度渐进变化时 updateUIView 可能不重进，导致 UITextView 的 NSTextContainer 锁在动画起始的
@@ -86,7 +91,11 @@ struct SelectableTextLabel: UIViewRepresentable {
         tv.isEditable = false
         // v4.0.81：interactionEnabled=false → 纯渲染（触摸穿透给外层 SwiftUI 长按手势）
         tv.isSelectable = interactionEnabled
-        tv.isUserInteractionEnabled = interactionEnabled
+        // v4.0.82：**始终可交互**。纯渲染（interactionEnabled=false）只关 isSelectable ——
+        // isSelectable=false 时 UITextView 既不弹原生编辑菜单也不能拖选，对外仍是「纯渲染」；
+        // 而 isUserInteractionEnabled=false 会让整个视图退出命中测试，连外层的 SwiftUI 长按手势
+        // 也一并命中不到（4.0.81 用户文字气泡长按失效根因）。长按改为本层自挂识别器（见下）。
+        tv.isUserInteractionEnabled = true
         tv.isScrollEnabled = false
         tv.backgroundColor = .clear
         tv.textContainerInset = .zero
@@ -96,6 +105,17 @@ struct SelectableTextLabel: UIViewRepresentable {
         // v3.4.28：识别链接（.link 属性文字可点）——点击由 shouldInteractWith 接管统一开 Safari
         // v4.0.81：纯渲染模式下不再识别链接（点了也没人接）
         tv.dataDetectorTypes = interactionEnabled ? [.link] : []
+        // v4.0.82：纯渲染模式的长按识别器（与系统编辑菜单路径互斥：interactionEnabled=true 时不挂，
+        // 否则两套菜单并存）。闭包经 Coordinator.parent 每帧取最新，不锁死在首帧。
+        if !interactionEnabled {
+            let lp = UILongPressGestureRecognizer(
+                target: context.coordinator,
+                action: #selector(Coordinator.handleLongPress(_:)))
+            lp.minimumPressDuration = 0.42   // 与 bubbleLongPress 同一阈值，手感不变
+            lp.allowableMovement = 22
+            lp.cancelsTouchesInView = false
+            tv.addGestureRecognizer(lp)
+        }
         // 尺寸行为与 SwiftUI Text 一致：短文本气泡窄、长文本换行不撑爆
         //（hugging required → 按内容宽；compression low → 超宽时压缩换行）
         tv.setContentHuggingPriority(.required, for: .horizontal)
@@ -217,6 +237,13 @@ struct SelectableTextLabel: UIViewRepresentable {
         // v2.0.132：上次渲染的内容指纹（文本长度|行距|颜色），未变则跳过重建
         var lastKey = ""
         init(parent: SelectableTextLabel) { self.parent = parent }
+
+        /// v4.0.82：纯渲染模式的长按（识别器在 makeUIView 挂在 UITextView 上）。
+        /// 只认 .began：一次长按只弹一次菜单，抬起不重复触发。
+        @objc func handleLongPress(_ g: UILongPressGestureRecognizer) {
+            guard g.state == .began else { return }
+            parent.onLongPress?()
+        }
 
         // v3.4.28：链接点击统一开浏览器（不让 UITextView 弹内嵌 SFSafari 预览）
         func textView(_ textView: UITextView,

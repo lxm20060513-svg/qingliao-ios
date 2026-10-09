@@ -587,10 +587,10 @@ struct MessageBubble: View {
                 onMemo: onMemo,
                 onGoal: onGoal,
                 // v4.0.81：用户文字气泡也换「长按 → 锚定胶囊菜单」（弃 UITextView 原生编辑菜单 + 拖动选中）
-                interactionEnabled: false
+                interactionEnabled: false,
+                // v4.0.82：长按必须挂在 UITextView 本层（纯渲染视图退出命中测试，外层 SwiftUI 手势收不到）
+                onLongPress: longPressAction
             )
-            // v4.0.81：长按动作挂在表示层（interactionEnabled=false 已让触摸穿透到这一层）
-            .bubbleLongPress(longPressAction)
         }
     }
 

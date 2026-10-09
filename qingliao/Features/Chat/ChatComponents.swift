@@ -330,9 +330,10 @@ struct MessageBlockView: View {
                     onMemo: onMemo,
                     onGoal: onGoal,
                     // v4.0.81：超长文本(>6000字)也换「长按 → 锚定胶囊菜单」（弃原生编辑菜单）
-                    interactionEnabled: false
+                    interactionEnabled: false,
+                    // v4.0.82：长按挂在 UITextView 本层（同上：纯渲染视图命中不到外层手势）
+                    onLongPress: longPressAction
                 )
-                .bubbleLongPress(longPressAction)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         case .image(let url):

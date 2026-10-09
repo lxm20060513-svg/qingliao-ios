@@ -64,10 +64,18 @@ check("源文件可读（SessionsView / ChatView / ChatStore / InboxStore）",
 let sessClean = stripCommentLines(sess)
 check("SessionsView 无投递会话特判（isDeliverySession 已清零）",
       !sessClean.contains("isDeliverySession"))
-check("SessionsView 无任务中心 state（showTaskCenter 已清零）",
-      !sessClean.contains("showTaskCenter"))
-check("SessionsView 不再 present 任务中心（TaskCenterView 已清零）",
-      !sessClean.contains("TaskCenterView"))
+// v4.0.82：任务中心卡（首页快捷卡片）给会话页新增了一个**卡片入口**（`showTaskCenterCard`
+// → fullScreenCover 里的 TaskCenterView），原先「会话页任何地方都不许出现 showTaskCenter / TaskCenterView」
+// 的裸符号清零断言会误伤它。保留原意图（**会话点击不许分流到任务中心**）改钉三处：
+//   ①不再有常驻分流 state（showTaskCenter 本体 / Sheet 变体）；
+//   ②TaskCenterView 全页只允许出现**一处**（就是卡片入口那个）；
+//   ③真正的分流检测力由下面 `open(_:)` 切片那两条承担（open 里出现 showTaskCenter/TaskCenterView 即红）。
+check("SessionsView 无任务中心分流 state（showTaskCenter 常驻 state 已清零）",
+      !sessClean.contains("showTaskCenter = true")      // 旧分流写法
+      && !sessClean.contains("showTaskCenterSheet")     // Sheet 变体
+      && !sessClean.contains("$showTaskCenter)"))       // 常驻 state 被 present（$showTaskCenterCard) 不命中）
+check("SessionsView 的任务中心只在卡片入口一处 present（v4.0.82；会话点击分流见下面 open(_:) 两条）",
+      sessClean.components(separatedBy: "TaskCenterView()").count - 1 == 1)
 
 let openBody = between(sess, "private func open(_ s: ChatSession) {", "@ViewBuilder")
 check("open(_:) 函数体切片取到（锚点没改名）", !openBody.isEmpty)

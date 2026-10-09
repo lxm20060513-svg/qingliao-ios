@@ -83,9 +83,11 @@ struct SessionsView: View {
     @State private var heroReminder = false
     @State private var heroMemo = false
     @State private var heroCloud = false
+    /// v4.0.82：任务中心卡（首页快捷卡片）的落点 —— 复用聊天页那颗入口的同一个 TaskCenterView
+    @State private var showTaskCenterCard = false
     @Environment(\.colorScheme) private var colorSchemeEnv   // v4.0.67：环境渐变页底深浅自适应
     var onOpenSession: (() -> Void)? = nil   // 切到聊天 tab
-    /// v4.0.81：显示「聊天首页头」（卡通机器人 + 每日一言 + ≤4 张自定义卡片）。
+    /// v4.0.81：显示「聊天首页头」（卡通机器人 + 每日一言 + ≤8 张自定义卡片）。
     /// 只有「聊天」tab 的首页传 true；iPad 双栏那份会话列表不传（双栏里聊天页自带欢迎页）。
     var showHero: Bool = false
     /// v4.0.81：首页卡片「问 AI 一句话」的落点（由 DockTabView 注入，与球菜单的 askAI 同一通道）
@@ -254,6 +256,11 @@ struct SessionsView: View {
         .sheet(isPresented: $heroCloud) {
             CloudDriveSettingsSheet()
                 .presentationDetents([.large])
+        }
+        // v4.0.82：任务中心卡 —— 全屏页，与聊天页 showTaskCenter 同一个 TaskCenterView
+        //（⚠️ 用 fullScreenCover 而不是再挂一个 sheet：既对齐聊天页那颗入口的形态，也躲开「同一宿主多 sheet 互斥」那个坑）
+        .fullScreenCover(isPresented: $showTaskCenterCard) {
+            TaskCenterView()
         }
     }
 
@@ -522,7 +529,7 @@ struct SessionsView: View {
                 // v3.9.33：搜索结果区（本地优先，本地零命中再补远端全史搜索）
                 searchResultsArea
             } else {
-                // v4.0.81：聊天 tab 首页头（卡通机器人 + 每日一言 + ≤4 张自定义卡片）。
+                // v4.0.81：聊天 tab 首页头（卡通机器人 + 每日一言 + ≤8 张自定义卡片）。
                 // 原此处是 BotCard（轻聊 agent 框）—— 用户口径「去掉」，且不再用单独的 agent 入口卡。
                 if showHero {
                     homeHero
@@ -536,7 +543,7 @@ struct SessionsView: View {
                 // 卡面对齐聊天首页卡（HomeCardFace 同款：24pt 图标片 + 名称 + 一行副标 + dashboardCard）。
                 // 它们原来是列表里的两行（带锁形图标 + 用途胶囊），混在普通会话里看不出是「功能壳」。
                 // v4.0.81：固定会话（轻聊投递 / 轻聊主动）**不再单独占一行** —— 用户口径：
-                // 它们并入首页自定义卡片范围（HomeCardKind.delivery / .proactive，仍然最多 4 张）。
+                // 它们并入首页自定义卡片范围（HomeCardKind.delivery / .proactive，仍然最多 8 张）。
                 // 「清空这两个壳会话内容」的入口不丢：聊天页三点菜单里的「清空本会话消息」同口径可清
                 //（v4.0.18 用户要求保留的正是这条路径）。
                 if sessions.isEmpty {
@@ -622,21 +629,41 @@ struct SessionsView: View {
         VStack(spacing: Spacing.lg) {
             PetAvatar(size: 96, state: .idle, patTrigger: heroPat)
                 .frame(width: 96, height: 96)
+                // 🚨 v4.0.82 修（真机报「长按卡通宠物触发快捷菜单失效」）：PetAvatar **内部**是
+                // `.allowsHitTesting(false)`（宠物只是画出来的像素，不接收触摸；见 PetAvatar 源里那一行）
+                // → 外层若不自己铺命中层，轻点与长按**全部收不到**，宠物等于装饰画。
+                // v4.0.81 新写本页时漏了这一步（ChatView 那只一直有，见其「透明扩边 overlay」口径）——
+                // 球已从 dock 移除，长按宠物是快捷菜单**唯一**入口，漏这一层 = 入口彻底消失。
+                .overlay {
+                    // 同 ChatView 口径：走动位移会溢出 96×96 框，横向各扩 18pt 兜住（纵向颠步仅 3pt，不扩）
+                    Color.clear
+                        .frame(width: 96 + 18 * 2, height: 96)
+                        .contentShape(Rectangle())
+                }
+                .contentShape(Rectangle())   // 本体 96×96 也命中（双保险，同 ChatView）
                 .onGeometryChange(for: CGPoint.self) { proxy in
                     let r = proxy.frame(in: .global)
                     return CGPoint(x: r.midX, y: r.midY)
                 } action: { heroPetCenter = $0 }
-                .onTapGesture {
-                    heroPat += 1
-                    Haptics.tap()
-                }
-                .onLongPressGesture {
-                    guard heroPetCenter != .zero else { return }
-                    Haptics.tap()
-                    NotificationCenter.default.post(name: .qingliaoOrbMenuFromPet,
-                                                    object: nil,
-                                                    userInfo: OrbPetAnchor(center: heroPetCenter, size: 96).userInfo)
-                }
+                // v4.0.82：改成与 ChatView 欢迎页宠物**完全同款**的手势（ExclusiveGesture）——
+                // 原来分开挂 onTapGesture + onLongPressGesture，长按抬手会补认一次 tap
+                //（v2.0.107 在 ChatView 实踩过：键盘被多聚焦一次），两处口径统一。
+                // 触感也从 .tap() 改成 .press()（与长按智慧球 / 长按欢迎页宠物同一触感，用户要的是「明显」）。
+                .gesture(
+                    ExclusiveGesture(
+                        LongPressGesture(minimumDuration: 0.45).onEnded { _ in
+                            guard heroPetCenter != .zero else { return }
+                            Haptics.press()
+                            NotificationCenter.default.post(name: .qingliaoOrbMenuFromPet,
+                                                            object: nil,
+                                                            userInfo: OrbPetAnchor(center: heroPetCenter, size: 96).userInfo)
+                        },
+                        TapGesture().onEnded {
+                            heroPat += 1
+                            Haptics.tap()
+                        }
+                    )
+                )
                 .accessibilityLabel("轻点抚摸，长按打开快捷菜单")
             Text(heroQuote)
                 .font(.system(size: Typography.title, weight: .semibold))
@@ -663,7 +690,10 @@ struct SessionsView: View {
                 default:            break
                 }
             },
-            fixedChannels: fixedChannelSessions
+            fixedChannels: fixedChannelSessions,
+            // v4.0.82：任务中心卡 → 直接打开 TaskCenterView（与聊天页 header 那颗入口同参；
+            // 轻点的 Haptics 由 HomeCardsGrid 的 Button 统一给，这里不重复震）
+            onOpenTaskCenter: { showTaskCenterCard = true }
         )
     }
 
@@ -683,10 +713,15 @@ struct SessionsView: View {
     ///
     /// v4.1.x：归档的会话从主列表隐藏（归档箱视图反过来只显示已归档的）。
     /// 过滤放在排序前，归档会话不参与任何列表排序。
+    /// v4.0.82（2026-10-09 用户口径：「轻聊投递和轻聊主动这两条固定会话删掉」→ 选定「只从会话列表移除」）：
+    /// 主列表过滤掉这两个固定会话 —— 它们不再占会话行。**不是**删会话本身：后端 `_PROTECTED_IDS`
+    /// 照旧锁着，首页那两张卡（`HomeCardKind.delivery` / `.proactive`，数据来自 `fixedChannelSessions`
+    /// 注入）与 cron 投递 / AI 主动开口两条通道全不受影响（内容仍落库、仍能点卡进会话看）。
+    /// ⚠️ 只过滤主列表（含基于它的本地搜索命中）；归档箱本就看不到它们（不可归档）。
     private var sortedSessions: [ChatSession] {
         let base = showArchived
             ? sessions.filter { archivedIDs.contains($0.id) }
-            : sessions.filter { !archivedIDs.contains($0.id) }
+            : sessions.filter { !archivedIDs.contains($0.id) && !isFixedSession($0.id) }
         return base.sorted {
             let a = rank($0.id), b = rank($1.id)
             if a != b { return a > b }
@@ -709,8 +744,9 @@ struct SessionsView: View {
     /// （非搜索态 = sortedSessions；搜索态本地命中 = filteredSessions；本地零命中时的远端命中
     /// 只有能对回本地列表的那批会画成 sessionCell，RemoteHitRow 没有勾选框）。
     /// 多选栏的全选/取消全选/「N 条」计数必须走这里，不能用 sortedSessions。
-    /// ⚠️ v4.0.81（审查修）：这里**过滤掉固定会话** —— 列表渲染自 v4.0.81 起不再过滤它们
-    ///   （回到普通会话行渲染），但多选栏算上它们就会让「N 条」比实际能删的条数多 2。
+    /// ⚠️ v4.0.81（审查修）+ v4.0.82：这里**过滤掉固定会话**。v4.0.81 时列表还会渲染它们
+    ///   （当时只为防多选栏「N 条」比实际能删的多 2）；v4.0.82 起主列表本身就不显示了
+    ///   （见 sortedSessions），这层过滤只剩**远端兜底搜索**那一路还需要。
     private var visibleSessions: [ChatSession] {
         let base: [ChatSession]
         if !isSearching {
@@ -1085,7 +1121,9 @@ struct SessionsView: View {
     }
 
     private func rank(_ id: String) -> Int {
-        if isFixedSession(id) { return 3 }   // v4.0.20（#4）：固定会话恒置顶，用户手动置顶的排它之下
+        // v4.0.20（#4）：固定会话恒置顶，用户手动置顶的排它之下。
+        // v4.0.82：主列表已不再渲染它们（见 sortedSessions）→ 这支现在只对远端兜底搜索命中有意义，留着不碍事。
+        if isFixedSession(id) { return 3 }
         if pinnedIDs.contains(id) { return 2 }
         if favIDs.contains(id) { return 1 }
         return 0

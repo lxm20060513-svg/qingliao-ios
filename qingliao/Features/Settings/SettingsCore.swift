@@ -70,6 +70,8 @@ struct SettingsView: View {
     @State var showCloudDrive = false
     // v3.5.x：生活卡片设置（股票 / 资讯 / 快递）
     @State var showLifeCards = false
+    /// v4.0.82：Dock 栏设置（顺序 / 隐藏）—— 用户 2026-10-09 要求
+    @State var showDockLayout = false
     // v3.9.32：一句话本地定时提醒 / 文件管理
     @State var showQuickReminder = false
     @State var showFilesManager = false
@@ -180,6 +182,7 @@ struct SettingsView: View {
         .background(settingsCold6())
         .background(settingsCold7())
         .background(settingsCold8())
+        .background(settingsCold9())
         // v4.0.67 P4：设置页页底铺环境渐变（C 口径，与聊天页同源单层）——
         //   列表卡已换 pastelCard 渐变卡，页底同步彩化；只铺一层不叠团。
         //   ⚠️ 必须挂**链尾**（= 垫在所有 cold 层之下）：本仓口径是「先挂的 background 画得更靠前」，
@@ -387,6 +390,17 @@ struct SettingsView: View {
             await loadCounts()
             await loadLocalStatus()   // v-review fix：进入设置页即以后端 /api/local/status 校准本地模型开关
             await loadTypesafeRouting()   // v3.9.56：进设置页即读后端真实路由开关/熔断状态
+        }
+    }
+
+    /// v4.0.82：Dock 栏设置（顺序 / 隐藏）的弹出宿主。
+    /// ⚠️ 为什么不并进 settingsCold5：那组顶层已有 4 条深层修饰器，而本仓口径是**每组 ≤4**
+    ///    （类型栈深度真值表 ③⁗ 钉死：多一条就把宿主类型深度推回爆栈危险区），故单开一组。
+    private func settingsCold9() -> some View {
+        Color.clear
+        .sheet(isPresented: $showDockLayout) {
+            DockLayoutSheet()
+                .presentationDetents([.medium, .large])
         }
     }
 
@@ -822,6 +836,19 @@ extension SettingsView {
         .pastelCard()
     }
 
+    /// v4.0.82：Dock 栏那行的行尾摘要 —— 读同一对 UserDefaults 键（@AppStorage 跨视图同键自动同步，
+    /// 在 DockLayoutSheet 里改完回到这一行立即刷新）。中文页面名在视图层取（DockTab.title）。
+    private var dockLayoutSummary: String {
+        let orderRaw = UserDefaults.standard.string(forKey: UserDefaultsKey.dockOrder) ?? DockLayoutKit.defaultOrderRaw
+        let hiddenRaw = UserDefaults.standard.string(forKey: UserDefaultsKey.dockHidden) ?? ""
+        let visible = DockLayoutKit.visibleRaw(orderRaw: orderRaw, hiddenRaw: hiddenRaw)
+            .compactMap { DockTab(rawValue: $0)?.title }
+        let hiddenNames = DockLayoutKit.sanitizedHidden(hiddenRaw).compactMap { DockTab(rawValue: $0)?.title }
+        return hiddenNames.isEmpty
+            ? "\(visible.count) 档 · \(visible.joined(separator: "/"))"
+            : "\(visible.count) 档 · 隐藏 \(hiddenNames.joined(separator: "/"))"
+    }
+
     @ViewBuilder var appearanceSection: some View {
         SectionHeader("外观与显示")
         VStack(spacing: 0) {
@@ -849,6 +876,12 @@ extension SettingsView {
                        value: "已选 \(HomeShortcutStore.ids(from: homeShortcutsRaw).count)/\(HomeShortcut.maxCount)",
                        chevron: true)
                 .tapButton { showHomeShortcuts = true }
+            // v4.0.82（用户 2026-10-09）：「设置里面增加 dock 栏设置，聊天、生活、看板、设置页可以调整顺序，
+            // 可以隐藏某一页，唯独设置页不能隐藏」。行尾摘要 = 当前档数 + 隐藏项（改完立即刷新）。
+            // 真源：Core/DockLayoutKit.swift（顺序串 / 隐藏串），本行只做入口。
+            SettingRow(icon: "dock.rectangle", iconColor: .blue, title: "Dock 栏",
+                       value: dockLayoutSummary, chevron: true)
+                .tapButton { showDockLayout = true }
             // v3.x review fix：showAppearanceOptions 死代码块（深浅色 chips/输入框流光/Siri 发光滑条/
             // AI 输出行高）永不显示（唯一写点恒置 false）——已删除，统一由 AppearanceSheet 管理
         }

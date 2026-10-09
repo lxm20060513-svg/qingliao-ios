@@ -33,7 +33,7 @@
 //   · 新增 `delivery`（轻聊投递）/ `proactive`（轻聊主动）两张**固定会话卡**：不自己拉网络，
 //     由宿主经 `fixedChannels` 注入 ChatSession；宿主没给对应会话时**不渲染**（连空壳都不给）。
 //     轻点复用既有 `onResume(session)` 打开该会话 —— 不新增闭包、不动调用点。
-//   · 「开启的卡」硬上限 4 张：**上限单一真源在 Core/HomeCardOrder.swift**（`capped` +
+//   · 「开启的卡」硬上限 8 张：**上限单一真源在 Core/HomeCardOrder.swift**（`capped` +
 //     `maxEnabledCards`）；这里只调它，别在视图里再写一个 4。空槽位 `custom` 不占额度。
 //   · 卡面（图标/色值）对齐会话页 FixedChannelCard：投递 = `tray.and.arrow.down.fill` + teal，
 //     主动 = `sparkles` + orange（跨页同一张脸，符号名全部复用仓内既有，不自造）。
@@ -395,6 +395,11 @@ struct HomeCardsGrid: View {
     /// 只按 id 认会话（`ChatStore.deliverySessionId` / `proactiveSessionId`），不按标题。
     var fixedChannels: [ChatSession] = []
 
+    /// v4.0.82（用户 2026-10-09：「快捷卡片增加任务中心卡片，直接跳转目前的任务中心」）：
+    /// 打开任务中心 —— 复用聊天页 header 那颗入口的**同一个 TaskCenterView**（宿主负责 present）。
+    /// 带默认空实现：与 `fixedChannels` 同款口径，不传的宿主不会编译不过（那份宿主本就不渲染卡片首页）。
+    var onOpenTaskCenter: () -> Void = {}
+
     /// 完整顺序（catalog 全量，含被关掉的）—— 写回的唯一真源。
     /// ⚠️ 必须用 fullOrder（全量）而不是 kinds（渲染列表）：否则新开的卡不在 full 里 → 开了看不见。
     @State private var full: [HomeCardKind] = HomeCardStore.fullOrder
@@ -416,7 +421,7 @@ struct HomeCardsGrid: View {
     /// 渲染用列表：
     ///   ① 完整顺序去掉被关的；
     ///   ② v4.0.81：再去掉「宿主没注入对应固定会话」的 delivery/proactive（找不到会话 → 不渲染，不许空壳）；
-    ///   ③ v4.0.81：最后上「最多 4 张」硬上限（单一真源 = HomeCardOrder.capped，4 格含空槽位（自定义槽钉尾，超额时先被截））。
+    ///   ③ v4.0.82：最后上「最多 8 张」硬上限（单一真源 = HomeCardOrder.capped，8 格含空槽位（自定义槽钉尾，超额时先被截））。
     /// 顺序即优先级：上限截尾时先保留用户排在前面的卡。
     private var visible: [HomeCardKind] {
         let on = full.filter { !off.contains($0) }
@@ -684,6 +689,9 @@ struct HomeCardsGrid: View {
         // 会话由宿主注入，理论上到这里一定有（visible 已把无会话的卡滤掉），这里再兜一道空值守卫。
         case .delivery, .proactive:
             if let s = fixedSession(for: kind) { onResume(s) }
+        // ── v4.0.82：任务中心卡（纯跳转，自己不取数）──
+        case .taskCenter:
+            onOpenTaskCenter()
         case .custom:
             showEditor = true
         }
@@ -764,35 +772,13 @@ struct HomeCardFace: View {
         // v4.0.81：固定会话卡 —— 符号名与会话页 FixedChannelCard 一致（复用，不自造）
         case .delivery: return "tray.and.arrow.down.fill"
         case .proactive: return "sparkles"
+        case .taskCenter: return "checklist"
         case .custom: return "plus"
         }
     }
 
-    private var tint: Color {
-        switch kind {
-        case .mail: return .blue
-        case .resume: return .indigo
-        case .todo: return .green
-        case .weather: return .teal
-        case .expense: return .orange
-        case .agentTip: return .purple
-        // v4.0.29 十张新卡
-        case .nextReminder: return .red
-        case .memo: return .yellow
-        case .express: return .brown
-        case .stock: return .mint
-        case .kb: return .cyan
-        case .scene: return .blue
-        case .device: return .gray
-        case .cloud: return .teal
-        case .goal: return .orange
-        case .clipboard: return .indigo
-        // v4.0.81：固定会话卡色值同会话页 FixedChannelCard（投递 teal / 主动 orange）
-        case .delivery: return .teal
-        case .proactive: return .orange
-        case .custom: return .gray
-        }
-    }
+    /// v4.0.82：色值单一真源搬到 HomeCardLabels.tint（卡片库弹窗与卡面共用同一套圆角多彩图标配色）
+    private var tint: Color { HomeCardLabels.tint(kind) }
 
     private var title: String {
         switch kind {
@@ -816,6 +802,7 @@ struct HomeCardFace: View {
         // v4.0.81：固定会话卡标题与会话页一致（投递壳 / 主动会话）
         case .delivery: return "轻聊投递"
         case .proactive: return "轻聊主动"
+        case .taskCenter: return "任务中心"
         case .custom: return "空槽位"
         }
     }
@@ -894,6 +881,9 @@ struct HomeCardFace: View {
         // ── v4.0.81 固定会话卡（副标 = 最后一条消息摘要，取不到退回同款「点一下…」兜底）──
         case .delivery, .proactive:
             return channelSubtitle
+        // ── v4.0.82：任务中心（静态副标 —— 它是入口卡，卡面不拉任务数据）──
+        case .taskCenter:
+            return "点一下看进行中的任务"
         case .custom:
             return "点这里添加"
         }
@@ -934,14 +924,14 @@ struct HomeCardEditorSheet: View {
                                 off = HomeCardOrder.setEnabled(off, k, on: newVal)
                                 onChange()
                             })) {
-                            Label(HomeCardLabels.name(k), systemImage: HomeCardLabels.icon(k))
+                            HomeCardLibraryRow(kind: k)
                         }
                         .qingliaoSwitch(hideLabel: false)
                     }
                 } header: {
                     Text("首页显示哪些卡片")
                 } footer: {
-                    Text("首页最多显示 4 张（含「自定义」入口）；关掉的卡片不留空位；重新打开会回到原来的位置。在首页长按卡片可拖动排序。「空槽位」是添加快捷卡的入口，也可关掉，随时用这里重新打开。")
+                    Text("首页最多显示 8 张（含「自定义」入口）；关掉的卡片不留空位；重新打开会回到原来的位置。在首页长按卡片可拖动排序。「空槽位」是添加快捷卡的入口，也可关掉，随时用这里重新打开。")
                 }
             }
             .navigationTitle("自定义首页卡片")
@@ -951,6 +941,26 @@ struct HomeCardEditorSheet: View {
                     Button("完成") { dismiss() }
                 }
             }
+        }
+    }
+}
+
+/// v4.0.82（用户需求「统一各个卡片图标为圆角多彩图标」）：卡片库弹窗的每行图标改为与首页卡面
+/// `HomeCardFace` **同款**的圆角色块 + 白符号，配色取单一真源 `HomeCardLabels.tint`。
+/// 此前这里是裸 `Label(systemImage:)`——系统单色符号、.fill/非 .fill 混排，与首页卡面是两套观感。
+private struct HomeCardLibraryRow: View {
+    let kind: HomeCardKind
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: HomeCardLabels.icon(kind))
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.white)
+                // 比卡面（24pt/r7）各放大 2pt / 0.5：列表行图标要与文字行高协调，圆角等比跟手
+                .frame(width: 26, height: 26)
+                .background(HomeCardLabels.tint(kind),
+                            in: RoundedRectangle(cornerRadius: 7.5, style: .continuous))
+            Text(HomeCardLabels.name(kind))
         }
     }
 }
@@ -980,7 +990,37 @@ enum HomeCardLabels {
         // v4.0.81：固定会话卡文案（标题与会话页「轻聊投递 / 轻聊主动」一致）
         case .delivery: return "轻聊投递"
         case .proactive: return "轻聊主动"
+        case .taskCenter: return "任务中心"
         case .custom: return "空槽位"
+        }
+    }
+
+    /// v4.0.82：卡片主色（**单一真源**）——首页卡面 HomeCardFace 与卡片库弹窗 HomeCardEditorSheet
+    /// 的「圆角多彩图标」必须同色，否则同一个卡片在两处颜色不一致（用户口径：弹窗图标统一为圆角多彩）。
+    static func tint(_ k: HomeCardKind) -> Color {
+        switch k {
+        case .mail: return .blue
+        case .resume: return .indigo
+        case .todo: return .green
+        case .weather: return .teal
+        case .expense: return .orange
+        case .agentTip: return .purple
+        // v4.0.29 十张新卡
+        case .nextReminder: return .red
+        case .memo: return .yellow
+        case .express: return .brown
+        case .stock: return .mint
+        case .kb: return .cyan
+        case .scene: return .blue
+        case .device: return .gray
+        case .cloud: return .teal
+        case .goal: return .orange
+        case .clipboard: return .indigo
+        // v4.0.81：固定会话卡色值同会话页 FixedChannelCard（投递 teal / 主动 orange）
+        case .delivery: return .teal
+        case .proactive: return .orange
+        case .taskCenter: return .pink
+        case .custom: return .gray
         }
     }
 
@@ -1006,6 +1046,7 @@ enum HomeCardLabels {
         // v4.0.81：固定会话卡符号（与 HomeCardFace / 会话页 FixedChannelCard 同参）
         case .delivery: return "tray.and.arrow.down.fill"
         case .proactive: return "sparkles"
+        case .taskCenter: return "checklist"
         case .custom: return "plus"
         }
     }

@@ -1,15 +1,17 @@
 import Foundation
 
 /// v4.0.34（用户拍板）：聊天首页空态副标题由硬编码「我能帮你查资料、写代码、执行自动化任务」
-/// 改为**随机一言**——正能量短句 / 鸡汤 / 古诗词（带出处）/ 生活感悟混池，每次进入随机抽一条。
+/// 改为**随机一言**——正能量短句 / 鸡汤 / 古诗词（带出处）/ 生活感悟 / 英文格言混池，每次进入随机抽一条。
 ///
 /// 口径：
-///   · 数据单一真源在本文件，ChatView 只调 `WelcomeQuotes.pick()`，别在视图里内联数组；
+///   · 数据单一真源在本文件，ChatView / SessionsView 只调 `WelcomeQuotes.pick()`，别在视图里内联数组；
 ///   · 抽签只在本页空态展示，**有消息时仍显示「随时继续刚才的话题」**（那是状态提示，不是文案）；
 ///   · 诗词类必须自带出处（`— 出处`），避免来路不明的假诗；
-///   · 全部条目控制在 22 字内、单行为主，避免欢迎页副标题折行把形象与输入栏挤扁。
+///   · v4.0.82（用户需求）：扩池到 145 条 + 新增英文收录。英文池只收**无需出处的通识格言/谚语**
+///     （英文名言的中文译法/归属极易出错，宁可不标出处也不写错作者）；
+///   · 长度硬口径：中文正文 ≤ 14 字、英文 ≤ 44 字符（副标题单行，折行会挤扁首页形象与输入栏）。
 enum WelcomeQuotes {
-    /// 正能量 / 鸡汤 / 行动向（占比约一半，首页基调偏积极）
+    /// 正能量 / 鸡汤 / 行动向（占比约三分之一，首页基调偏积极）
     static let brightLines: [String] = [
         "今天也要好好吃饭好好睡觉",
         "慢慢来，比较快",
@@ -30,10 +32,41 @@ enum WelcomeQuotes {
         "认真生活的人，运气不会太差",
         "与其焦虑，不如动手做一点",
         "值得的事，都需要一点耐心",
-        "别忘了抬头看看天"
+        "别忘了抬头看看天",
+        // v4.0.82 扩充
+        "今天只做一件重要的事",
+        "先做最难的，剩下的都轻松",
+        "一步一步，走完就是胜利",
+        "你的节奏，就是最好的节奏",
+        "把手头的事做好，就是进步",
+        "别怕慢，就怕站",
+        "每天多懂一点，就是复利",
+        "认真做小事的人，不会被辜负",
+        "想做的事，今天就开个头",
+        "与其纠结，不如先做十分钟",
+        "反复做对的事，好运自然来",
+        "专注是稀缺能力，练它",
+        "状态不好就做简单的事",
+        "完成比完美更值得庆祝",
+        "明天的你，会感谢今天的坚持",
+        "一点一点来，别着急",
+        "把注意力放在能改变的事上",
+        "做好今天，就是最好的规划",
+        "慢一点没关系，别停下",
+        "你有你的时区，不必比较",
+        "难题拆开就不难了",
+        "时间会奖励持续的人",
+        "允许自己慢慢变好",
+        "每一次坚持都算数",
+        "把目标写下来，就完成一半",
+        "先开始，再优化",
+        "保持在场，就有机会",
+        "行动是最快的解压",
+        "每天进步一点点，一年后就不同",
+        "不为难自己，也不放弃自己"
     ]
 
-    /// 古诗词（自带出处）
+    /// 古诗词 / 典籍（自带出处）
     static let poemLines: [String] = [
         "长风破浪会有时 — 李白",
         "山重水复疑无路，柳暗花明又一村 — 陆游",
@@ -46,7 +79,35 @@ enum WelcomeQuotes {
         "莫愁前路无知己，天下谁人不识君 — 高适",
         "行到水穷处，坐看云起时 — 王维",
         "纸上得来终觉浅，绝知此事要躬行 — 陆游",
-        "天行健，君子以自强不息 — 周易"
+        "天行健，君子以自强不息 — 周易",
+        // v4.0.82 扩充（全部核对过出处，正文 ≤ 14 字）
+        "少壮不努力，老大徒伤悲 — 汉乐府",
+        "业精于勤，荒于嬉 — 韩愈",
+        "锲而不舍，金石可镂 — 荀子",
+        "沉舟侧畔千帆过，病树前头万木春 — 刘禹锡",
+        "会挽雕弓如满月，西北望，射天狼 — 苏轼",
+        "一蓑烟雨任平生 — 苏轼",
+        "天生我材必有用，千金散尽还复来 — 李白",
+        "不飞则已，一飞冲天 — 史记",
+        "有志者事竟成 — 后汉书",
+        "精诚所至，金石为开 — 后汉书",
+        "道虽迩，不行不至 — 荀子",
+        "老骥伏枥，志在千里 — 曹操",
+        "绳锯木断，水滴石穿 — 鹤林玉露",
+        "千磨万击还坚劲，任尔东西南北风 — 郑燮",
+        "博观而约取，厚积而薄发 — 苏轼",
+        "行远自迩，登高自卑 — 礼记",
+        "士不可以不弘毅，任重而道远 — 论语",
+        "逝者如斯夫，不舍昼夜 — 论语",
+        "天将降大任于是人也 — 孟子",
+        "穷则独善其身，达则兼济天下 — 孟子",
+        "三人行，必有我师焉 — 论语",
+        "工欲善其事，必先利其器 — 论语",
+        "岁寒，然后知松柏之后凋也 — 论语",
+        "直挂云帆济沧海 — 李白",
+        "采菊东篱下，悠然见南山 — 陶渊明",
+        "云无心以出岫，鸟倦飞而知还 — 陶渊明",
+        "不畏浮云遮望眼，自缘身在最高层 — 王安石"
     ]
 
     /// 生活感悟 / 轻哲思
@@ -60,12 +121,74 @@ enum WelcomeQuotes {
         "允许一切发生，也允许自己慢下来",
         "别人的节奏是别人的，你有你的",
         "心里有秩序，生活就不乱",
-        "最好的安排，是把今天过好"
+        "最好的安排，是把今天过好",
+        // v4.0.82 扩充
+        "日子是过出来的，不是想出来的",
+        "忙的时候做事，闲的时候读书",
+        "把生活过简单，把心思放当下",
+        "心里有事，就先写下来",
+        "情绪来了，先让它待一会",
+        "不必都懂，够用就好",
+        "慢下来，才能看清方向",
+        "有些答案，睡一觉就有了",
+        "不比较，就不会慌",
+        "世界很吵，你要有自己的静",
+        "好好吃饭，是顶级自律",
+        "整理房间，也是整理心情",
+        "允许无意义的时间存在",
+        "生活不需要时刻高效",
+        "对自己宽容一点，路会更长"
+    ]
+
+    /// v4.0.82：英文格言 / 谚语（用户需求「增加英文收录」）。
+    /// 全部为通识短句，**刻意不标作者**——英文名言的中文转引归属常出错，写错不如不写；
+    /// 长度 ≤ 44 字符（约合中文 22 字宽），保证副标题单行。
+    static let englishLines: [String] = [
+        "Stay hungry, stay foolish.",
+        "Done is better than perfect.",
+        "Talk is cheap. Show me the code.",
+        "Keep it simple.",
+        "Less, but better.",
+        "Progress, not perfection.",
+        "Small steps every day.",
+        "One step at a time.",
+        "Start where you are.",
+        "Slow is smooth, and smooth is fast.",
+        "Make it work, make it right, make it fast.",
+        "Simplicity is the ultimate sophistication.",
+        "Good things take time.",
+        "Rest is part of the work.",
+        "Little by little, one travels far.",
+        "Fall seven times, stand up eight.",
+        "Well begun is half done.",
+        "The obstacle is the way.",
+        "This too shall pass.",
+        "Comparison is the thief of joy.",
+        "What you seek is seeking you.",
+        "Do less, then obsess.",
+        "Breathe, then choose.",
+        "Plan less, build more.",
+        "Ship early, ship often.",
+        "Ship it, then improve it.",
+        "Make it work first.",
+        "Think, then type.",
+        "Write it down, or lose it.",
+        "Measure twice, cut once.",
+        "First, solve the problem.",
+        "The best code is no code.",
+        "Make it simple, but significant.",
+        "Quiet minds go far.",
+        "Enough is a feast.",
+        "Be where your feet are.",
+        "We become what we repeatedly do.",
+        "Action beats anxiety.",
+        "Tomorrow is another day.",
+        "Mood follows action."
     ]
 
     /// 随机抽一条（每次调用独立取样，允许同一页内多次进入拿到不同句）
     static func pick() -> String {
-        let all = brightLines + poemLines + calmLines
+        let all = brightLines + poemLines + calmLines + englishLines
         return all.randomElement() ?? "今天也要好好吃饭好好睡觉"
     }
 }

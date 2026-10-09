@@ -3,26 +3,21 @@ import CoreLocation
 import UIKit
 
 enum DockTab: String, CaseIterable, Identifiable {
-    // v4.0.69（用户 2026-10-07 拍板）：dock 顺序 = 会话 → 生活 → 智慧球 → 看板 → 设置。
-    // ⚠️ 智慧球必须留在第 3 槽：DockOrbOverlay / 烟花原点按 slotIndex: 2 硬编码算几何
-    //    （行号会漂移，直接按 slotIndex: 2 全文搜），球心取真实槽位按钮中心。
-    //    （v4.0.70 曾加过「Dock 顺序自定义」，用户 2026-10-07 拍板整体回退到 4.0.69 形态，勿再接回。）
-    // （enum 声明序与 TabView 内声明序一致，便于对照；TabView 顺序由视图插入序决定）
+    // v4.0.82（用户 2026-10-09：「设置里面增加 dock 栏设置，聊天、生活、看板、设置页可以调整顺序，
+    // 可以隐藏某一页，唯独设置页不能隐藏」）：dock 顺序与显隐改为**用户可配** ——
+    // 真源 = `Core/DockLayoutKit.swift`（纯逻辑）+ UserDefaults 两个串（UserDefaultsKey.dockOrder / dockHidden）。
+    //   · 顺序：4 档任意排列（出厂序 chat,life,dashboard,settings）；
+    //   · 隐藏：除设置页外都可隐藏（`DockLayoutKit.canHide`，唯一闸门）；
+    //   · 本文件**不再写死档序**：渲染走 `dockRenderTabs`（= DockLayoutKit.visible 的结论）。
+    // ⚠️ 历史：v4.0.70 做过一版「Dock 顺序自定义」，那是 **5 槽时代**（智慧球恒居中、几何按 slotIndex: 2 硬编码），
+    //    整批随 v4.0.72 回退；v4.0.81 起球已移出 dock（只由长按宠物调用）→ 已无「球必须居中」的约束，
+    //    当初那套「球不许离开 index 2」的限制**不要照搬**（v4.0.82 起 4 档可真正任意排）。
     // v4.0.x：dock 图标换 B 组（用户选定）：看板 chart.pie / 生活 heart / 设置 gearshape（空心）；
     // 会话 clock 保留。语义直白风，每个图标一眼看出页面用途；智慧球槽位（chat）不受影响。
     case sessions, life, chat, dashboard, settings
 
-    // v4.0.81：dock 槽位序（切页方向性微滑按此判左右）—— 按**实际渲染的 4 档**排，不是 enum 声明序。
-    //   v4.0.81 起 dock 只渲染 聊天/生活/看板/设置，而 enum 里仍留着 .sessions（深链兜底、不占槽位）
-    //   → 沿用 allCases 首序会让 chat(2)/life(1) 判反方向（审查实抓）。
-    var slotIndex: Int {
-        switch self {
-        case .chat, .sessions: return 0   // 会话页已并入「聊天」，同一槽位
-        case .life: return 1
-        case .dashboard: return 2
-        case .settings: return 3
-        }
-    }
+    // ⚠️ v4.0.82：原来的 `slotIndex`（写死 0..3）已删除 —— 顺序与显隐可配后槽位不再是常量，
+    //    槽位序号唯一真源 = `DockLayoutKit.slotIndex(of:in:)`（视图侧由 `dockRenderTabs` 派生）。
 
     var id: String { rawValue }
 
@@ -57,8 +52,16 @@ struct DockTabView: View {
     /// v3.6.2：分享/深链等「程序化切到聊天页」跳过烟花（烟花的语义是「点了 dock 智能球」）
     @State private var skipNextBurst = false
     /// v4.0.81：聊天 tab 内「会话首页 ↔ 对话页」双态。
-    /// true = 首页（机器人 + 一言 + ≤4 卡片 + 会话列表，即原会话页那套），false = 对话页。
+    /// true = 首页（机器人 + 一言 + ≤8 卡片 + 会话列表，即原会话页那套），false = 对话页。
     @State private var showSessionHome = true
+    /// v4.0.82：dock 顺序串（4 档 rawValue 的排列）—— 设置 → 外观与显示 →「Dock 栏」写，这里读。
+    /// 坏值净化在 DockLayoutKit.sanitizedOrder（渲染期只读结论，不在这里做校验）。
+    @AppStorage(UserDefaultsKey.dockOrder) private var dockOrderRaw = DockLayoutKit.defaultOrderRaw
+    /// v4.0.82：被隐藏的档（rawValue 逗号串）。设置页**永远不在其中**（DockLayoutKit.canHide 是唯一闸门）。
+    @AppStorage(UserDefaultsKey.dockHidden) private var dockHiddenRaw = ""
+    /// v4.0.82：被隐藏的档被深链/首页卡片点到时**临时插回**渲染（不写回配置）——
+    /// 「隐藏」只是不在 dock 上常驻，不丢功能；用户切到任一常驻档即自动清空（见 DockTabChrome1）。
+    @State private var forcedTabs: Set<DockTab> = []
     /// dock bar 高度（菜单/识别浮层定位用）。v4.0.81 起球没了 → 不再有实测回写，
     /// 始终走 DockOrbOverlay.fallbackBarHeight 这个常量（菜单锚点精度由它兜底）。
     @State private var dockBarHeight: CGFloat = DockOrbOverlay.fallbackBarHeight
@@ -97,10 +100,26 @@ struct DockTabView: View {
 
     // v4.0.81：槽位的智能球连同 `orbInDock` 判据整块移除（用户口径 Q1=3：球的入口只留长按宠物）。
     // 菜单/识别/录音三个浮层的**兜底锚点**仍按 dock 槽位几何算，故保留槽位数与聊天槽位序号。
-    /// dock 槽位数（4：聊天/生活/看板/设置 —— v4.0.81 起会话 tab 并入聊天）
-    private var dockSlotCount: Int { 4 }
-    /// 聊天槽位序号（4 档里排第 0 个）
-    private var chatSlotIndex: Int { 0 }
+    // MARK: - v4.0.82 dock 档位（数据驱动：顺序 / 隐藏都可配）
+
+    /// 实际渲染的档位 = 顺序 − 隐藏（+ 临时插回的），顺序即渲染序。
+    /// ⚠️ TabView 与所有槽位几何都读它 —— **不许**再出现写死的档数/档序（v4.0.70 那版翻车就是硬编码几何）。
+    private var dockRenderTabs: [DockTab] {
+        DockLayoutKit.visible(order: DockLayoutKit.sanitizedOrder(dockOrderRaw),
+                              hidden: DockLayoutKit.sanitizedHidden(dockHiddenRaw),
+                              forcing: forcedTabs.map(\.rawValue))
+            .compactMap { DockTab(rawValue: $0) }
+    }
+
+    /// v4.0.82：渲染档位的组合串（顺序 + 显隐的指纹）—— 供 TabView 的 `.id` 与「配置变更后兜底切页」共用
+    private var dockRenderKey: String { dockRenderTabs.map(\.rawValue).joined(separator: ",") }
+
+    /// dock 槽位数 = 实际渲染的档数（隐藏/换序后自动收窄；不再是常量 4）
+    private var dockSlotCount: Int { dockRenderTabs.count }
+    /// 聊天槽位序号（浮层锚点 / 烟花原点按它算）。聊天页被隐藏时退 0（锚到第一格，不会锚到屏外）。
+    private var chatSlotIndex: Int {
+        DockLayoutKit.slotIndex(of: DockTab.chat.rawValue, in: dockRenderTabs.map(\.rawValue))
+    }
     /// v3.9.33：这页的回复是否正摆在用户眼前 = 聊天 tab **且**当前会话就是刚收尾的那条流。
     /// 只看 `selected == .chat` 会漏报——人在聊天页看会话 B 时，会话 A 的回复落地也该提示。
     private var chatVisible: Bool {
@@ -125,27 +144,17 @@ struct DockTabView: View {
 
 
             TabView(selection: $selected) {
-                // v4.0.81（用户口径 Q2=2）：会话 tab 撤掉、并入「聊天」→ dock 由 5 档缩成 **4 档**：
-                // 聊天（首页 = 会话列表 + 机器人 + 一言 + ≤4 卡片）→ 生活 → 看板 → 设置。
-                // 聊天提到首位（原会话位）；其余三页的顺序与各自修饰器一字未改。
-                chatTab
-                // v3.4.26：isActive 参数直传（selected==.dashboard），替代 qingliaoDashboardLeave/Refresh 通知——
-                // 轮询暂停/恢复收进 DashboardView 自身生命周期，去隐式耦合
-                DashboardView(isActive: selected == .dashboard)
-                    .tabTransition(for: .dashboard, selected: $selected)
-                // v4.0.0：设置页大类 → 明细的二级页需要 NavigationStack 才有返回栈
-                // （TabView 里裸放 NavigationLink 点了不推、也不显示返回键）。
-                // 只包设置 tab —— 其他 tab 的层级结构一行不动。
-                NavigationStack {
-                    SettingsView()
-                        // 🚨 审查 F7：iOS 26 的 NavigationStack 在无 navigationTitle 时仍保留
-                        //   导航栏占位 → 顶部多一段空白/空返回槽。本页用自绘 PageHeader（不占系统栏），
-                        //   故显式藏掉。参考同仓同款：RecordSection:236 / MemoSection:235 / TodoSection:224。
-                        //   二级页仍要系统侧滑返回，但它的 PageHeader 已自绘返回键，不靠系统栏。
-                        .toolbar(.hidden, for: .navigationBar)
+                // v4.0.82：dock 档位改为**数据驱动**（顺序可调 + 可隐藏；设置 → 外观与显示 →「Dock 栏」）。
+                // 原来静态四块（聊天/生活/看板/设置）一字未改地搬进了 `dockPage(_:)`，只是改成按
+                // `dockRenderTabs` 渲染 —— 档序与显隐由 DockLayoutKit 定，本文件不再写死。
+                // 🚨 生活页仍在这条链路上（v4.0.81 它被误删过一次 → 真机少一页；护栏：ql_dock 表「四档渲染齐」）。
+                ForEach(dockRenderTabs, id: \.self) { tab in
+                    dockPage(tab)
                 }
-                    .tabTransition(for: .settings, selected: $selected)
             }
+            // v4.0.82：顺序/显隐变更 → `.id` 变化触发一次重建，系统 tab bar 才会立即重排
+            //（iOS 26 上仅靠 ForEach 的增量变化，tab bar 的格子不会即时刷新）
+            .id(dockRenderKey)
             // v4.0.49x：启动链折叠（防 demangler 栈溢出）——原 24 条顶层修饰器按序折进 4 个具名分组，
             // body 这里只留 4 个 .modifier(…) 泛型调用。事故/手法同 ChatView.v4.0.49：
             // 巨型链把 body 编译后类型名撑到 2574 字符（全 App 最长），Swift 运行时按嵌套层数递归
@@ -188,7 +197,7 @@ struct DockTabView: View {
         } else {
             // v4.0.81：合并「聊天」tab —— 一页两态（会话首页 ↔ 对话页）。
             // 首页 = 会话页那套能力面原样复用（搜索/归档箱/分类/标签/多选批量删/远端全史搜索一字未改），
-            // 顶部多出「机器人 + 每日一言 + ≤4 张自定义卡片」的首页头（showHero: true）。
+            // 顶部多出「机器人 + 每日一言 + ≤8 张自定义卡片」的首页头（showHero: true）。
             Group {
                 if showSessionHome {
                     // 实参序 = 声明序（onOpenSession → showHero → onAskAI），CI 参数序检查才过
@@ -199,7 +208,7 @@ struct DockTabView: View {
                     ChatView(onBackToHome: { withAnimation(Motion.tap) { showSessionHome = true } })
                 }
             }
-            .chatZoomEntry(selected: $selected)
+            .chatZoomEntry(selected: $selected, order: dockRenderTabs)
             .tag(DockTab.chat)
             .tabItem { Label(DockTab.chat.title, systemImage: DockTab.chat.icon) }
         }
@@ -219,6 +228,41 @@ struct DockTabView: View {
         guard dockBurstOn else { return }
         showDockBurst = true
         Task { try? await Task.sleep(for: .seconds(1.55)); showDockBurst = false }
+    }
+
+    // MARK: - v4.0.82 dock 档位页面（原 body 里的静态四块整块搬来，参数一字未改）
+
+    /// 一档的页面内容。⚠️ `.tag` / `.tabItem` 由 `.tabTransition(...)` 内部挂（见 TabTransitionModifier）——
+    /// 除 chatTab（它自带）外，每一档都**必须**套 `.tabTransition`，否则那一档在 dock 上没有图标。
+    @ViewBuilder
+    private func dockPage(_ tab: DockTab) -> some View {
+        switch tab {
+        case .chat:
+            chatTab
+        case .life:
+            LifeView(isActive: selected == .life)
+                .tabTransition(for: .life, selected: $selected, order: dockRenderTabs)
+        case .dashboard:
+            // v3.4.26：isActive 参数直传（selected==.dashboard），替代 qingliaoDashboardLeave/Refresh 通知 ——
+            // 轮询暂停/恢复收进 DashboardView 自身生命周期，去隐式耦合
+            DashboardView(isActive: selected == .dashboard)
+                .tabTransition(for: .dashboard, selected: $selected, order: dockRenderTabs)
+        case .settings:
+            // v4.0.0：设置页大类 → 明细的二级页需要 NavigationStack 才有返回栈
+            //（TabView 里裸放 NavigationLink 点了不推、也不显示返回键）。只包设置 tab —— 其他 tab 的层级结构一行不动。
+            NavigationStack {
+                SettingsView()
+                    // 🚨 审查 F7：iOS 26 的 NavigationStack 在无 navigationTitle 时仍保留导航栏占位
+                    //   → 顶部多一段空白/空返回槽。本页用自绘 PageHeader（不占系统栏），故显式藏掉。
+                    //   参考同仓同款：RecordSection:236 / MemoSection:235 / TodoSection:224。
+                    //   二级页仍要系统侧滑返回，但它的 PageHeader 已自绘返回键，不靠系统栏。
+                    .toolbar(.hidden, for: .navigationBar)
+            }
+                .tabTransition(for: .settings, selected: $selected, order: dockRenderTabs)
+        case .sessions:
+            // v4.0.81：会话页已并入「聊天」，enum 里留这一档只为深链兜底（不占 dock 槽位、永不进渲染列表）
+            EmptyView()
+        }
     }
 
     // MARK: - v3.9.59 长按智慧球快捷菜单
@@ -466,6 +510,10 @@ struct DockTabView: View {
             showSessionHome = false
         }
         if selected != tab { skipBurstOnce() }
+        // v4.0.82：目标页被用户隐藏了 → **临时插回**渲染（不写回配置）。
+        // 「隐藏」只意味着不在 dock 上常驻，不丢功能：深链 / 首页卡片（如生活页的待办卡）点到它仍能到达；
+        // 用户切到任一常驻档时自动清掉（见 DockTabChrome1 的 onChange(of: selected)）。
+        if !dockRenderTabs.contains(tab) { forcedTabs.insert(tab) }
         selected = tab
     }
 
@@ -565,6 +613,8 @@ struct DockTabView: View {
 private struct TabTransitionModifier: ViewModifier {
     let tab: DockTab
     @Binding var selected: DockTab
+    /// v4.0.82：当前渲染档序（判方向性微滑用）—— 顺序/隐藏可配后，不能再读写死的 `DockTab.slotIndex`
+    let order: [DockTab]
     /// 1 = 常态；0.6 = 入场起点（v4.0.78 起不再用 0 —— 0 起跳 = 内容先整个消失再出现，就是用户报的「太闪」）。
     /// 赋值不加动画 → 起点态是瞬变的。
     /// 淡入的是**页面内容**；页面自身的页底渐变淡入时透出 ZStack 里那层静态垫底渐变（同款），肉眼无感。
@@ -598,7 +648,10 @@ private struct TabTransitionModifier: ViewModifier {
         phase = 0.6
         if let old, old != tab {
             // 新页在旧页右侧 → 内容从右滑入；左侧同理。同页刷新（old == tab）不滑。
-            dx = (tab.slotIndex > old.slotIndex) ? 22 : -22
+            // v4.0.82：按**当前渲染档序**判左右（order 由宿主 dockPage 传入 = dockRenderTabs）
+            let myIdx = order.firstIndex(of: tab) ?? 0
+            let oldIdx = order.firstIndex(of: old) ?? 0
+            dx = (myIdx > oldIdx) ? 22 : -22
         } else {
             dx = 0
         }
@@ -615,14 +668,16 @@ private struct TabTransitionModifier: ViewModifier {
 }
 
 extension View {
-    func chatZoomEntry(selected: Binding<DockTab>) -> some View {
-        modifier(ChatZoomEntryModifier(selected: selected))
+    /// v4.0.82：多一个 `order`（同 tabTransition）
+    func chatZoomEntry(selected: Binding<DockTab>, order: [DockTab]) -> some View {
+        modifier(ChatZoomEntryModifier(selected: selected, order: order))
     }
 }
 
 extension View {
-    func tabTransition(for tab: DockTab, selected: Binding<DockTab>) -> some View {
-        modifier(TabTransitionModifier(tab: tab, selected: selected))
+    /// v4.0.82：多一个 `order`（当前渲染档序）—— 方向性微滑按它判左右，别再用写死的槽位序号。
+    func tabTransition(for tab: DockTab, selected: Binding<DockTab>, order: [DockTab]) -> some View {
+        modifier(TabTransitionModifier(tab: tab, selected: selected, order: order))
     }
 }
 
@@ -633,6 +688,8 @@ extension View {
 // 相位/seq 手法与 TabTransitionModifier 完全同款。
 private struct ChatZoomEntryModifier: ViewModifier {
     @Binding var selected: DockTab
+    /// v4.0.82：同 TabTransitionModifier —— 当前渲染档序（判方向用）
+    let order: [DockTab]
     /// 与 TabTransitionModifier 同款：1 = 常态，0.6 = 入场起点（v4.0.78 起不再用 0，理由见那边注释）
     @State private var phase: CGFloat = 1
     /// v4.0.x：与 TabTransitionModifier 同款方向性微滑（chat 槽位 2，两侧来源都能判向）
@@ -664,7 +721,10 @@ private struct ChatZoomEntryModifier: ViewModifier {
         // v4.0.78：与 TabTransitionModifier 完全同款（起点 0.6 + 单曲线 flow），两处口径一致，别只改一边。
         phase = 0.6
         if let old, old != .chat {
-            dx = (DockTab.chat.slotIndex > old.slotIndex) ? 22 : -22
+            // v4.0.82：与 TabTransitionModifier 同款，按当前渲染档序判左右
+            let myIdx = order.firstIndex(of: .chat) ?? 0
+            let oldIdx = order.firstIndex(of: old) ?? 0
+            dx = (myIdx > oldIdx) ? 22 : -22
         } else {
             dx = 0
         }
@@ -849,6 +909,14 @@ extension DockTabView {
                 if newVal == .chat {
                     if skipNextBurst { skipNextBurst = false } else { fireDockBurst() }
                 }
+                // v4.0.82：临时插回的隐藏档（forcedTabs）—— 用户切到任一**常驻**档即清空，
+                // 配置（UserDefaults 的隐藏串）全程不被改动；目标页本身就是被插回的那档时保留（见 applyRoute）。
+                if !forcedTabs.contains(newVal) { forcedTabs.removeAll() }
+            }
+            // v4.0.82：dock 顺序/隐藏变更后（组合串变即观察），若当前所在档已被摘掉（用户在设置里隐藏了当前页）
+            // → 兜底切到第一个可见档：绝不让 selected 停在渲染列表里不存在的档上（那会渲染空白页）。
+            .onChange(of: dockRenderKey) { _, _ in
+                if !dockRenderTabs.contains(selected) { selected = dockRenderTabs.first ?? .settings }
             }
             // v4.0.81：原先这里挂两条 onChange 维护「球上未查看 / 失败」两态（v3.9.33 的球第三态）。
             // 球移除 → 两态无处可显示，整块删除（含 v4.0.x 那条「finishSeq 与 startSeq 同帧」的顺序

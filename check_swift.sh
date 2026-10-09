@@ -794,6 +794,12 @@ cp scripts/ql_chat_home/truth_table_homecards.swift /tmp/ql_homecards_main/main.
 run_unit /tmp/test_homecards -swift-version 6 /tmp/ql_homecards_main/main.swift \
     qingliao/Core/HomeCardOrder.swift
 
+echo "=== 50b. Dock 栏顺序/隐藏真值表（v4.0.82：用户可配 dock 档序 + 隐藏，设置页恒不可隐藏）==="
+rm -rf /tmp/ql_docklayout_main && mkdir -p /tmp/ql_docklayout_main
+cp scripts/ql_docklayout/truth_table_docklayout.swift /tmp/ql_docklayout_main/main.swift
+run_unit /tmp/test_docklayout -swift-version 6 /tmp/ql_docklayout_main/main.swift \
+    qingliao/Core/DockLayoutKit.swift
+
 echo "=== 50. 智慧球菜单胶囊几何真值表（v4.0.x）==="
 # 事故：v3.9.96 把最上排改成 3 列时，center() 的列位算式写成
 #   CGFloat(i >= 6 ? i - 7 : i % 3) - 1 —— 外面那个 -1 把 6/7/8 映射成 −2/−1/0，
@@ -1295,7 +1301,11 @@ MDL=qingliao/Core/Models.swift
 
 ckNot "回退①：dock 顺序自定义已拆（出厂串不许回来）" 'defaultDockOrderRaw' "$DT"
 ckNot "回退②：可换位集合已拆" 'orderableTabs' "$DT"
-ckNot "回退③：sanitizedOrder 兜底已拆" 'sanitizedOrder' "$DT"
+# v4.0.82（用户 2026-10-09 拍板）：Dock 栏顺序/隐藏**重新可配**（设置页 DockLayoutSheet）→
+# v4.0.72「顺序自定义必须不存在」的口径**反转**：现在要求取序**必须**经 DockLayoutKit 净化，
+# 且净化器兜底必须在（脏串一律回出厂序，宁可回默认也不许悄悄少一格，见 ql_docklayout ①）。
+ck "回退③（v4.0.82 口径反转）：Dock 顺序经 DockLayoutKit.sanitizedOrder 净化后取用" \
+   'DockLayoutKit\.sanitizedOrder\(' "$DT"
 ckNot "回退④：外观页 Dock 顺序入口已拆" 'Section\("Dock 顺序"\)' "$SCS"
 ckNot "回退⑤：dockOrder key 已从模型删除" 'static let dockOrder = "qingliao_dock_order"' "$MDL"
 ckNot "回退⑥：槽位角标已拆" 'sessionsBadge' "$DT"

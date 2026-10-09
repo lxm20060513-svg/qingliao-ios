@@ -190,6 +190,19 @@ check("改名口对固定会话不显示入口", rn is not None, "护栏未抓�
 check("renameTarget 赋值点唯一（没有第二个漏护的改名入口）",
       s_sess.count("renameTarget = s") == 1)
 
+# ═══ 4c. v4.0.82：固定会话不再出现在会话列表 ═══
+# 用户口径（2026-10-09）：「轻聊投递和轻聊主动这两条固定会话删掉」→ 追问后选定
+# **「只从会话列表移除」**：列表不出现这两条，首页那两张卡与后端投递通道都保留。
+print("== 4c. v4.0.82 列表移除固定会话（通道与卡片都保留，别把移除做成删除）")
+check("主列表 sortedSessions 过滤掉两个固定会话",
+      "!archivedIDs.contains($0.id) && !isFixedSession($0.id)" in s_sess)
+check("首页卡片的数据源 fixedChannelSessions 仍在（移除列表 ≠ 砍卡/砍通道）",
+      "private var fixedChannelSessions" in s_sess and "fixedChannels: fixedChannelSessions" in s_sess)
+check("多选口径仍过滤固定会话（双保险，别只靠主列表那一处）",
+      "return base.filter { !isFixedSession($0.id) }" in s_sess)
+check("🚫 会话列表不得改回「渲染全部会话」（v4.0.81 旧形态）",
+      s_sess.count("sessions.filter { !archivedIDs.contains($0.id) }") == 0)
+
 # ═══ 5. 标题锁定 / 自动命名闸门覆盖两个固定会话 ═══
 print("== 5. 标题锁定（自动命名闸门覆盖两个固定会话）")
 p_nm, s_nm = find("SessionAutoName.swift")
@@ -258,6 +271,13 @@ try:
               seg is not None and "loadById" in seg.group(0), "护栏未抓到")
     else:
         check("🚫 反向C：注入内混入 loadById 后判红", False, "未能定位函数")
+    # 事故 D：主列表又放行固定会话（v4.0.81 旧形态回归）
+    bad4 = s_sess.replace("!archivedIDs.contains($0.id) && !isFixedSession($0.id)",
+                          "!archivedIDs.contains($0.id)", 1)
+    check("🚫 反向D：主列表放行固定会话后 4c 段判红",
+          bad4 != s_sess and "!archivedIDs.contains($0.id) && !isFixedSession($0.id)" not in bad4,
+          "未能注入")
+
 finally:
     # 本表从不落盘，SHOTS 仅用于确认未被意外改动
     for p, s in SHOTS.items():

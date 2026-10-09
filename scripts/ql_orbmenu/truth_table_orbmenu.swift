@@ -35,6 +35,41 @@ check("DockTabView.swift 源可读", !dockSrc.isEmpty)
 check("ChatView.swift 源可读", !chatViewSrc.isEmpty)
 check("ChatEffects.swift 源可读", !chatEffectsSrc.isEmpty)
 
+// ── v4.0.82：宠物长按「唯一入口」的命中层（真机事故：漏一层 → 长按全哑）─────
+// 事故：v4.0.81 新写聊天首页（SessionsView.homeHero）宠物时漏了 contentShape ——
+// PetAvatar **内部**是 `.allowsHitTesting(false)`（宠物只是画出来的像素，不接收触摸），
+// 外层不自己铺命中层，轻点与长按**全部收不到**；而此时球已从 dock 移除 →
+// 「长按宠物弹快捷菜单」这条**唯一**入口彻底消失（用户报「长按卡通宠物触发快捷菜单功能失效」）。
+// ⚠️ 判定用「挂点后 2000 字符切片」而不是全文 contains：别处的 contentShape 不许替它蒙混过关。
+let sessionsSrc = src("Features/Sessions/SessionsView.swift")
+let petAvatarSrc = src("Features/Chat/PetAvatar.swift")
+check("前提：PetAvatar 内部仍是 allowsHitTesting(false)（所以宿主必须自己铺命中层）",
+      petAvatarSrc.contains(".allowsHitTesting(false)"))
+let heroAnchor = sessionsSrc.range(of: "PetAvatar(size: 96, state: .idle, patTrigger: heroPat)")
+let heroPetBlock = heroAnchor.map { String(sessionsSrc[$0.lowerBound...].prefix(2000)) } ?? ""
+check("聊天首页宠物自带命中层（缺它 = 长按/轻点全哑）",
+      !heroPetBlock.isEmpty && heroPetBlock.contains("contentShape(Rectangle())"))
+check("聊天首页宠物长按走 ExclusiveGesture + 发 .qingliaoOrbMenuFromPet（与欢迎页同款）",
+      heroPetBlock.contains("ExclusiveGesture(") && heroPetBlock.contains(".qingliaoOrbMenuFromPet"))
+let welcomeAnchor = chatViewSrc.range(of: "PetAvatar(size: 96,")
+let welcomePetBlock = welcomeAnchor.map { String(chatViewSrc[$0.lowerBound...].prefix(2000)) } ?? ""
+check("聊天欢迎页宠物也自带命中层（一直有，重构里别丢）",
+      !welcomePetBlock.isEmpty && welcomePetBlock.contains("contentShape(Rectangle())"))
+// 2026-10-09 用户拍板 2（保持现状）：header 宠物**只有轻点** —— 不许给它补长按 / 第二发通知。
+// ⚠️ 切片从**函数声明**起（跳过前面的文档注释：注释里会提通知名，按全文判会假红）
+let headerAnchor = chatViewSrc.range(of: "private var chatHeaderPet: some View {")
+let headerPetBlock = headerAnchor.map { String(chatViewSrc[$0.lowerBound...].prefix(300)) } ?? ""
+check("聊天页 header 宠物只有轻点（拍板 2：不许接长按、不许发第二发通知）",
+      !headerPetBlock.isEmpty
+      && headerPetBlock.contains(".onTapGesture")
+      && !headerPetBlock.contains("onLongPressGesture")
+      && !headerPetBlock.contains("ExclusiveGesture")
+      && !headerPetBlock.contains(".qingliaoOrbMenuFromPet"))
+
+check("长按宠物那条通知的锚点尺寸口径一致（两处都是 96，菜单几何按它算）",
+      sessionsSrc.contains("OrbPetAnchor(center: heroPetCenter, size: 96)")
+      && chatViewSrc.contains("OrbPetAnchor(center: petGlobalCenter, size: 96)"))
+
 // ── 0. 球心几何单一真源（命中圈 / 菜单弧心 / 可见球必须同源） ─────
 // 背景：DockOrbOverlay 的球心 x 优先取**真实槽位按钮中心**（slotCenterGlobal），y 是几何定位；
 // 命中层若自己写一份 width*(i+0.5)/n 等分估算，iOS 26 玻璃 tab bar 内容内缩时圈就偏 → 按球没反应。

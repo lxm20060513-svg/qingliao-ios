@@ -359,9 +359,11 @@ check("v4.0.81 去球不误伤：快捷菜单浮层 + 9 入口分发仍在（长
       dockSrc.contains("OrbQuickMenuOverlay(barHeight: dockBarHeight,")
       && dockSrc.contains("func handleOrbAction(")
       && dockSrc.contains("showSessionHome = false"))
-check("v4.0.81 合并 tab：dock 4 档（dockSlotCount = 4）+ 聊天 0 号槽 + 会话 tab 不再挂 TabView 子视图",
-      dockSrc.contains("private var dockSlotCount: Int { 4 }")
-      && dockSrc.contains("private var chatSlotIndex: Int { 0 }")
+check("v4.0.82 dock 档序/显隐可配：槽位数与聊天槽序号都由 DockLayoutKit 派生（不许再写死 4 / 0）+ 会话 tab 不再挂 TabView 子视图",
+      dockSrc.contains("private var dockSlotCount: Int { dockRenderTabs.count }")
+      && dockSrc.contains("DockLayoutKit.slotIndex(of: DockTab.chat.rawValue")
+      && !dockSrc.contains("dockSlotCount: Int { 4 }")
+      && !dockSrc.contains("chatSlotIndex: Int { 0 }")
       && !dockSrc.contains(".tabTransition(for: .sessions")
       && dockSrc.contains("showSessionHome"))
 check("v4.0.81 合并 tab：深链「会话」落到聊天首页（.sessions → .chat + showSessionHome = true）",

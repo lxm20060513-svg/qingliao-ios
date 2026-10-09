@@ -28,6 +28,10 @@ enum UserDefaultsKey {
     /// v3.9.9：待发队列 key 提升到这里做唯一常量——原来 ChatView 里是 private static 常量、
     /// DockTabView 兜底清理处是**硬编码字面量**，只改一边就会静默失效（清不掉队列）。只读审查指出。
     static let pendingQueue = "qingliao_pending_queue"
+    // v4.0.82（用户 2026-10-09）：dock 栏顺序与隐藏 —— 真源 = Core/DockLayoutKit.swift，
+    // 这里只放键名；净化（坏值回出厂序 / 设置页永不可隐藏）都在那边，别在视图里另写判断。
+    static let dockOrder  = "qingliao_dock_order"
+    static let dockHidden = "qingliao_dock_hidden"
 }
 
 // MARK: - 聊天消息（content 可能是纯文本或数组，手动解析最稳）
