@@ -24,6 +24,34 @@ enum LifeSection: String, CaseIterable, Identifiable {
         case .lifeCards: return "生活数据"
         }
     }
+
+    /// 页级标题行行首图标（v4.0.84 方案 B①）—— 标题行不再是一行裸文字，一眼能分辨板块。
+    /// 符号刻意复用各板块**空态卡**的同一个符号（备忘/待办/习惯/目标/记录五处同源），
+    /// 免得同一板块在标题行与空态卡上长两个符号。
+    var icon: String {
+        switch self {
+        case .memo: return "square.and.pencil"
+        case .todo: return "checklist"
+        case .habit: return "checkmark.seal"
+        case .goals: return "target"
+        case .record: return "sum"
+        case .automations: return "clock.arrow.circlepath"
+        case .lifeCards: return "chart.line.uptrend.xyaxis"
+        }
+    }
+
+    /// 图标底色（与 icon 同处一份映射；取各板块语义色，深浅模式由系统色自适应）
+    var tint: Color {
+        switch self {
+        case .memo: return .pink
+        case .todo: return .blue
+        case .habit: return .green
+        case .goals: return .purple
+        case .record: return .teal
+        case .automations: return .indigo
+        case .lifeCards: return .orange
+        }
+    }
 }
 
 // v3.9.85：生活页板块编辑器——与看板 BoardCardEditorSheet 同款交互（↑↓ 调序 / 隐藏 / 恢复）

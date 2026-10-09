@@ -53,10 +53,22 @@ struct LifeCardsSection: View {
     private let rssBatchSize = 3
     @State private var rssBatch = 0
 
+    /// v4.0.84 拍 4 的减动效出口（开「减弱动态效果」时骨架直接换内容，不留过程）
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             header
-            if expanded { content }
+            // v4.0.84 拍 4：骨架 → 内容不再硬切。套 Group 是为了能给「if」整体挂 animation
+            //（修饰符不能直接接在 if 语句上）。
+            // 🚨 驱动值必须同时覆盖 data.loaded 与 loading 两个边界：骨架的显隐判据其实是
+            //    `!data.loaded && loading`（见 content 里那个 if），只拿 loading 当 value 时，
+            //    若「数据到了」与「loading 归假」落在不同更新帧，骨架→内容就是硬切（无报错）。
+            //    2026-10-09 发版前审查抓到。
+            Group {
+                if expanded { content.transition(.opacity) }
+            }
+            .animation(reduceMotion ? nil : Motion.settle, value: !data.loaded && loading)
         }
         // v4.0.61 审查 8：条目换了一批（刷新 / 轮询 / 换股票）就回到第 1 批——
         // 否则用户点过「下一批」后会永远停在上次页码、跳过新到的第 1 批
@@ -67,6 +79,12 @@ struct LifeCardsSection: View {
 
     private var header: some View {
         HStack(spacing: 8) {
+            // v4.0.84 方案 B①：行首图标底（与生活页各板块标题行同款）。
+            // 几何走 BadgeShell 同一处；符号/色取 LifeSection.lifeCards 的映射（本行就是该板块的内容）
+            Image(systemName: LifeSection.lifeCards.icon)
+                .font(.system(size: 20 * 0.5, weight: .semibold))
+                .foregroundStyle(.white)
+                .modifier(BadgeShell(size: 20, color: LifeSection.lifeCards.tint))
             // v3.9.37：栏目标题「生活数据」→「股票」（用户要求；本标题行下面紧跟的是行情卡网格）
             Text("股票")
                 .font(.system(size: Typography.body, weight: .bold))
@@ -133,8 +151,11 @@ struct LifeCardsSection: View {
                         SkeletonBlock(width: 200, height: 10)
                     }
                 }
+                // v4.0.84 拍 4：骨架淡出（驱动在 body 的 .animation(Motion.settle, value: loading)）
+                .transition(.opacity)
             } else {
                 noteCard(icon: "chart.line.uptrend.xyaxis", text: "暂无数据 · 点刷新")
+                    .transition(.opacity)
             }
         } else if !data.hasContent {
             // v3.9.32：一条行情/资讯都没有时——快递有真数据就先渲染真卡（不空白），
@@ -149,7 +170,7 @@ struct LifeCardsSection: View {
                     noteRow(icon: "exclamationmark.triangle", text: degradeText)
                     ForEach(data.placeholders) { p in placeholderRow(p) }
                 }
-                .padding(Spacing.xl)
+                .padding(Spacing.section)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .pastelCard()   // v4.0.67 P3：空态/占位块跟真卡同底（pastelCard 默认 Radius.card 16）
             }
@@ -215,7 +236,7 @@ struct LifeCardsSection: View {
             VStack(alignment: .leading, spacing: 6) {
                 ForEach(data.placeholders) { p in placeholderRow(p) }
             }
-            .padding(Spacing.xl)
+            .padding(Spacing.section)
             .frame(maxWidth: .infinity, alignment: .leading)
             .pastelCard()   // v4.0.67 P3：空态/占位块跟真卡同底（pastelCard 默认 Radius.card 16）
         }
@@ -233,6 +254,12 @@ struct LifeCardsSection: View {
     /// 与 header（「股票」）同款：粗体 15pt 标题 + Spacer + 淡色胶囊 + 折叠箭头
     private var rssHeader: some View {
         HStack(spacing: 8) {
+            // v4.0.84 方案 B①：与「股票」行同款图标底。资讯不是 LifeSection，符号/色就地写死
+            // （与各板块空态卡里 icon:/title: 就地写字面量同一惯例）
+            Image(systemName: "newspaper")
+                .font(.system(size: 20 * 0.5, weight: .semibold))
+                .foregroundStyle(.white)
+                .modifier(BadgeShell(size: 20, color: .indigo))
             Text("博客/资讯")
                 .font(.system(size: Typography.body, weight: .bold))
             Spacer(minLength: 0)
@@ -303,7 +330,7 @@ struct LifeCardsSection: View {
                 }
             }
         }
-        .padding(Spacing.xl)
+        .padding(Spacing.section)
         .frame(maxWidth: .infinity, alignment: .leading)
         .pastelCard()   // v4.0.67 P3：生活页真实卡换淡彩渐变底（Radius.card 16，几何不变）
     }
@@ -524,7 +551,7 @@ struct LifeStockCard: View {
                 .minimumScaleFactor(0.7)
                 .padding(.top, Spacing.xxs)
         }
-        .padding(Spacing.xl)
+        .padding(Spacing.section)
         .frame(maxWidth: .infinity, alignment: .leading)
         .pastelCard()   // v4.0.67 P3：行情卡换淡彩渐变底（与同页其它卡同底）
         .scrollDepth()     // v3.9.0：滚动层次感

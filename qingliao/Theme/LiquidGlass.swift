@@ -220,11 +220,22 @@ struct OverlayGlassCard: ViewModifier {
 // 数值收在这一处：原来只有会话列表手写 0.965/0.75，现在看板/生活卡片复用同一档。
 
 struct ScrollDepth: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     func body(content: Content) -> some View {
-        content.scrollTransition(.interactive, axis: .vertical) { view, phase in
-            view
-                .scaleEffect(phase.isIdentity ? 1 : 0.965)
-                .opacity(phase.isIdentity ? 1 : 0.75)
+        // v4.0.84：补减动效出口 —— 系统开「减弱动态效果」时**不挂** scrollTransition，
+        // 卡片停在终态（等比、全不透明）。这一档原来只看外观、不看系统开关，开了减动效的用户
+        // 在会话/看板/生活三处仍被缩放淡入（finesse-ui motion §0 第③条：terminal state 必须是
+        // composed still，不是「把动效关小」）。同时 v4.0.84 起生活页也正式挂上本档 ——
+        // 上面那句「看板/生活卡片复用同一档」此前只对看板成立。
+        if reduceMotion {
+            content
+        } else {
+            content.scrollTransition(.interactive, axis: .vertical) { view, phase in
+                view
+                    .scaleEffect(phase.isIdentity ? 1 : 0.965)
+                    .opacity(phase.isIdentity ? 1 : 0.75)
+            }
         }
     }
 }

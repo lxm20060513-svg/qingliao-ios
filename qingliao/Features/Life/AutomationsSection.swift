@@ -25,10 +25,14 @@ struct AutomationsSection: View {
         Group {
             if !items.isEmpty {
                 VStack(alignment: .leading, spacing: Spacing.sm) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "alarm")
-                            .font(.system(size: Typography.subhead, weight: .semibold))
-                            .foregroundStyle(Color.accentColor)
+                    HStack(spacing: 8) {
+                        // v4.0.84 方案 B① 补齐：另外 6 个板块标题行都有行首图标底，独这里漏挂
+                        //（连带让 LifeSection.automations 的 icon/tint 成了死映射 —— 2026-10-09 审查抓到）。
+                        // 符号/几何与别处同源：取 LifeSection 映射 + BadgeShell（几何只此一处）。
+                        Image(systemName: LifeSection.automations.icon)
+                            .font(.system(size: 20 * 0.5, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .modifier(BadgeShell(size: 20, color: LifeSection.automations.tint))
                         Text("我帮你定的提醒 · \(items.count)")
                             .font(.system(size: Typography.subhead, weight: .semibold))
                             .foregroundStyle(.primary)

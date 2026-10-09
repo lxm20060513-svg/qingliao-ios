@@ -76,7 +76,9 @@ struct MemoSection: View {
             subtitle: store.memos.isEmpty ? nil : "\(store.memos.count) 条",
             subtitleLineLimit: nil,
             addAccessibilityLabel: "添加备忘录",
-            onAdd: startAdd
+            onAdd: startAdd,
+            sectionIcon: LifeSection.memo.icon,
+            sectionIconTint: LifeSection.memo.tint
         )
     }
 
@@ -87,7 +89,8 @@ struct MemoSection: View {
             icon: "square.and.pencil",
             title: "记点什么",
             subtitle: "聊天里长按消息、大爆炸选词，都能存进来",
-            onTap: startAdd
+            onTap: startAdd,
+            ctaTitle: "＋ 写一条"
         )
     }
 
@@ -299,7 +302,7 @@ struct MemoGlassLayerHost: View {
             title: "删除这条备忘？",
             pending: glass.pendingDelete,
             onCancel: { glass.pendingDelete = nil },
-            onDelete: { store.delete($0) },
+            onDelete: { withAnimation(Motion.snap) { store.delete($0) } },
             message: { $0.content.prefix(40).description }
         ))
     }
@@ -448,7 +451,7 @@ private struct MemoNoteCard: View {
                 metaRow
             }
         }
-        .padding(Spacing.xl)
+        .padding(Spacing.section)
         .frame(maxWidth: .infinity,
                minHeight: compact ? MemoCardMetrics.minHeight : 0,
                alignment: .topLeading)
@@ -595,7 +598,7 @@ struct MemoAllListBody: View {
             title: "删除这条备忘？",
             pending: pendingDeleteInList,
             onCancel: { pendingDeleteInList = nil },
-            onDelete: { store.delete($0) },
+            onDelete: { withAnimation(Motion.snap) { store.delete($0) } },
             message: { $0.content.prefix(40).description }
         ))
     }

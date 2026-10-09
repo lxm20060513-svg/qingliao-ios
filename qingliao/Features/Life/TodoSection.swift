@@ -61,7 +61,7 @@ struct TodoSection: View {
             title: "删除这条待办？",
             pending: glass.pendingDelete,
             onCancel: { glass.pendingDelete = nil },
-            onDelete: { store.delete($0) },
+            onDelete: { withAnimation(Motion.snap) { store.delete($0) } },
             message: { $0.content.prefix(40).description }
         ))
     }
@@ -75,7 +75,9 @@ struct TodoSection: View {
             subtitle: store.todos.isEmpty ? nil : pendingSubtitle,
             subtitleLineLimit: nil,
             addAccessibilityLabel: "添加待办",
-            onAdd: startAdd
+            onAdd: startAdd,
+            sectionIcon: LifeSection.todo.icon,
+            sectionIconTint: LifeSection.todo.tint
         )
     }
 
@@ -90,7 +92,8 @@ struct TodoSection: View {
             icon: "checklist",
             title: "有什么要做的",
             subtitle: "聊天长按加入待办，AI 给出的清单会自动收进来",
-            onTap: startAdd
+            onTap: startAdd,
+            ctaTitle: "＋ 记一条"
         )
     }
 
@@ -284,7 +287,8 @@ struct TodoGlassLayerHost: View {
 @ViewBuilder
 private func todoCardMenuItems(_ t: TodoItem, onDelete: @escaping (TodoItem) -> Void) -> some View {
     Button {
-        TodoStore.shared.toggleDone(t)
+        // v4.0.84 拍 3：勾选是「行状态变化」（Motion.snap 口径），原来是硬切
+        withAnimation(Motion.snap) { TodoStore.shared.toggleDone(t) }
         Haptics.success()
     } label: {
         Label(t.done ? "标为待办" : "完成", systemImage: t.done ? "circle" : "checkmark.circle.fill")
@@ -413,7 +417,7 @@ struct TodoAllListBody: View {
             title: "删除这条待办？",
             pending: pendingDeleteInList,
             onCancel: { pendingDeleteInList = nil },
-            onDelete: { store.delete($0) },
+            onDelete: { withAnimation(Motion.snap) { store.delete($0) } },
             message: { $0.content.prefix(40).description }
         ))
     }
@@ -476,7 +480,8 @@ struct TodoDetailSheet: View {
                     VStack(alignment: .leading, spacing: 14) {
                         // 大勾选圆 + 内容：整卡可点切换完成态（待办的核心交互前置到详情）
                         Button {
-                            store.toggleDone(current)
+                            // v4.0.84 拍 3：同上 —— 勾选态过渡（行状态变化）
+                            withAnimation(Motion.snap) { store.toggleDone(current) }
                             refreshDetail()   // SR34：勾选态必须立刻反映在本页
                             Haptics.success()
                         } label: {
@@ -612,7 +617,7 @@ private struct TodoRowCard: View {
             }
             if compact { Spacer(minLength: 0) }
         }
-        .padding(Spacing.xl)
+        .padding(Spacing.section)
         .frame(maxWidth: .infinity,
                minHeight: compact ? MemoCardMetrics.minHeight : 0,
                alignment: .topLeading)

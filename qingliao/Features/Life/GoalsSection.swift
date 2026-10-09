@@ -128,7 +128,9 @@ struct GoalsSection: View {
             subtitle: store.goals.isEmpty ? nil : activeSubtitle,
             subtitleLineLimit: nil,
             addAccessibilityLabel: "添加长期目标",
-            onAdd: startAdd
+            onAdd: startAdd,
+            sectionIcon: LifeSection.goals.icon,
+            sectionIconTint: LifeSection.goals.tint
         )
     }
 
@@ -146,7 +148,8 @@ struct GoalsSection: View {
             icon: "target",
             title: "有个想长期推进的事",
             subtitle: "跟 AI 说「我在筹备 XX」，它会拆成步骤并每天推你一步",
-            onTap: startAdd
+            onTap: startAdd,
+            ctaTitle: "＋ 建目标"
         )
     }
 
@@ -934,7 +937,7 @@ struct GoalRowCard: View {
             // **搬进详情弹窗顶栏**（紧挨「后台运行中」，见 GoalsDetailSheet）。
             // 卡片只留状态、动作收进弹窗 —— 两处都挂等于重复入口（用户口径是「搬」不是「复制」）。
         }
-        .padding(Spacing.xl)
+        .padding(Spacing.section)
         .frame(maxWidth: .infinity,
                minHeight: compact ? MemoCardMetrics.minHeight : nil,
                alignment: .leading)

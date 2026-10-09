@@ -75,7 +75,9 @@ struct RecordSection: View {
             secondaryAction: (title: "扫账单", action: {
                 billScanSession += 1
                 showBillScan = true
-            })
+            }),
+            sectionIcon: LifeSection.record.icon,
+            sectionIconTint: LifeSection.record.tint
         )
     }
 
@@ -88,7 +90,8 @@ struct RecordSection: View {
             // v3.9.71 审查：原文案承诺"复制金额会自动认出来"，但剪贴板探测器**只认链接**
             // （数字类 pattern 误报率太高，刻意不做），所以那句话是空头承诺。改成可达路径。
             subtitle: "截图里的金额/读数可在聊天页点「识别」后记到这里",
-            onTap: startAdd
+            onTap: startAdd,
+            ctaTitle: "＋ 记一笔"
         )
     }
 
@@ -114,14 +117,20 @@ struct RecordSection: View {
             glass.showAll = true
         } label: {
             VStack(alignment: .leading, spacing: Spacing.md) {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                // v4.0.84 方案 B③：金额从「与标签同排的 17pt」提成「独立一行 24pt 数字 + 小字单位」。
+                // 原来「本月合计」与「最近读数 / 明细行」全挤在 12–13pt 一档，金额不成为焦点。
+                VStack(alignment: .leading, spacing: 2) {
                     Text("本月合计")
                         .font(.system(size: Typography.caption))
                         .foregroundStyle(.secondary)
-                    Spacer(minLength: 0)
-                    Text(String(format: "%.2f 元", store.monthTotal.amount))
-                        .font(.system(size: Typography.title, weight: .semibold))
-                        .monospacedDigit()
+                    HStack(alignment: .firstTextBaseline, spacing: 4) {
+                        Text(String(format: "%.2f", store.monthTotal.amount))
+                            .font(.system(size: Typography.titleXL, weight: .bold))
+                            .monospacedDigit()
+                        Text("元")
+                            .font(.system(size: Typography.subhead, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 if let meter = store.latestMeter, let v = meter.amount {
                     HStack(spacing: 6) {
@@ -156,7 +165,7 @@ struct RecordSection: View {
                         .foregroundStyle(.tertiary)
                 }
             }
-            .padding(Spacing.xl)
+            .padding(Spacing.section)
             .frame(maxWidth: .infinity, minHeight: MemoCardMetrics.minHeight, alignment: .leading)
             .pastelCard()
             .contentShape(Rectangle())
@@ -865,8 +874,10 @@ private struct RecordCategoryBar: View {
                     }
                 }
             }
-            .frame(height: 6)
-            HStack(spacing: 10) {
+            // v4.0.84 方案 B④：条高 6 → 8；图例从「左挤一堆 + 右侧留白」改成「每项等分铺满 +
+            // 百分比加粗」——原来三个百分比是 12pt tertiary，读起来像脚注，占比信息基本没被看见。
+            .frame(height: 8)
+            HStack(spacing: Spacing.lg) {
                 ForEach(rows) { r in
                     HStack(spacing: 4) {
                         Circle()
@@ -876,12 +887,11 @@ private struct RecordCategoryBar: View {
                             .font(.system(size: Typography.caption))
                             .foregroundStyle(.secondary)
                         Text(String(format: "%.0f%%", r.amount / max(total, 0.0001) * 100))
-                            .font(.system(size: Typography.caption))
-                            .foregroundStyle(.tertiary)
+                            .font(.system(size: Typography.caption, weight: .semibold))
                             .monospacedDigit()
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                Spacer(minLength: 0)
             }
         }
     }

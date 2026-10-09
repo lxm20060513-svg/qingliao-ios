@@ -37,7 +37,7 @@ struct LifeExpressCardView: View {
                 LifeCardNoteRow(icon: "wifi.exclamationmark", text: card.error)
             }
         }
-        .padding(Spacing.xl)
+        .padding(Spacing.section)
         .frame(maxWidth: .infinity, alignment: .leading)
         .pastelCard()      // v4.0.67 P3：与同页其它生活卡同底
         .scrollDepth()

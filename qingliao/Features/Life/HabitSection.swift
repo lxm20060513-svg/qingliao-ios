@@ -82,7 +82,9 @@ struct HabitSection: View {
             subtitle: store.habits.isEmpty ? nil : headerSubtitle,
             subtitleLineLimit: nil,
             addAccessibilityLabel: "添加习惯",
-            onAdd: startAdd
+            onAdd: startAdd,
+            sectionIcon: LifeSection.habit.icon,
+            sectionIconTint: LifeSection.habit.tint
         )
     }
 
@@ -95,7 +97,8 @@ struct HabitSection: View {
             icon: "checkmark.seal",
             title: "养成一个习惯",
             subtitle: "每天打卡，连续天数漏一天就归零",
-            onTap: startAdd
+            onTap: startAdd,
+            ctaTitle: "＋ 建一个"
         )
     }
 
@@ -354,7 +357,7 @@ struct HabitRowCard: View {
                 streakLine
             }
         }
-        .padding(Spacing.xl)
+        .padding(Spacing.section)
         .frame(maxWidth: .infinity,
                minHeight: compact ? MemoCardMetrics.minHeight : 0,
                alignment: .leading)

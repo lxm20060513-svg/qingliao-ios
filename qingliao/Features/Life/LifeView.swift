@@ -29,6 +29,9 @@ struct LifeView: View {
     @AppStorage("life_section_order") private var sectionOrderRaw = ""
     @AppStorage("life_section_hidden") private var sectionHiddenRaw = ""
     @State private var showSectionEditor = false
+    // v4.0.84 拍 1：入场开关。🚨 必须由本视图持有 —— 本视图不会被 LazyVStack 回收，
+    // 行内 modifier 自己的 @State 会随行回收被重置 → 每次滚回来重放一遍入场（见 Theme/StaggerAppear.swift 头注）
+    @State private var introReady = false
 
     /// 已存顺序在前；串里没出现的（新增板块）按默认顺序补后面
     private var orderedSections: [LifeSection] {
@@ -57,33 +60,15 @@ struct LifeView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 10) {
                     // v3.9.85：按用户自定义顺序渲染，隐藏的板块不出现
-                    ForEach(visibleSections) { section in
-                        switch section {
-                        case .memo: MemoSection()
-                        case .todo: TodoSection()
-                        case .habit: HabitSection()   // v4.0.46：习惯打卡
-                        case .goals: GoalsSection()   // v4.0.7：长期目标
-                        case .record: RecordSection()
-                        case .automations: AutomationsSection(isActive: isActive)
-                        case .lifeCards: LifeCardsSection(data: life,
-                                                          loading: lifeLoading,
-                                                          error: lifeError,
-                                                          zoomNS: zoomNS,   // v3.9.0：非闭包实参必须在闭包实参之前（实参序红线）
-                                                          onDeleteStock: { st in Task { await deleteStock(st) } },
-                                                          onAddStock: { showLifeSettings = true },
-                                                          // v4.0.69：queued: true = 在途也不丢点击（排队补发），
-                                                          // 见 LifeView.loadLife 注释（用户报「刷新胶囊点击无法强制刷新」）
-                                                          onRefresh: { Task { await loadLife(fresh: true, queued: true) } },
-                                                          articleStates: articles,
-                                                          onOpenArticle: { e in openArticle(e) },
-                                                          expandedArticleID: expandedEntryID,
-                                                          onBigBang: { text, sourceID in
-                                                              bigBangPayload = BigBangPayload(text: text, sourceID: sourceID)
-                                                          })
-                        }
+                    // v4.0.84：本行要挂入场错峰与滚动层次 → switch 提成 sectionBody（见下）；
+                    // 内联 switch 上加不了修饰符，也别整段塞回 body（本页属「启动链 demangler」事故家族）
+                    ForEach(Array(visibleSections.enumerated()), id: \.element) { idx, section in
+                        sectionRow(section, index: idx)   // 拍 1 + 拍 2（见下方 sectionRow）
                     }
                     // v3.9.85：底部「自定义板块」入口（与看板 cardEditorEntry 同款低调样式，用户 2026-09-26 拍板）
                     sectionEditorEntry
+                        .staggerAppear(visibleSections.count, ready: introReady)
+                        .scrollDepth()
                 }
                 .padding(.horizontal, Spacing.xxl)
                 .padding(.bottom, 100)
@@ -92,6 +77,9 @@ struct LifeView: View {
             }
             // v4.0.69（审查）：下拉的语义本来就是「用户显式要最新」，走 queued 通道 ——
             // 原来 `await loadLife()` 是 queued=false，撞上 30s 轮询在途时直接 return，spin 一下什么也没发生。
+            // v4.0.84 拍 1：一次性置真入场开关（本视图不被回收，所以只播一次；
+            // 之后滚进视口才建出来的板块直接落终态，不重放、不延迟）
+            .onAppear { introReady = true }
             .refreshable { await loadLife(fresh: true, queued: true) }
             // v4.0.61（试点页）：页头从 VStack 第一行改成挂在滚动视图上的系统 **safeAreaBar**（iOS 26 新 API：
             // 「把自定义栏交给系统按栏处理」）—— 滚动时内容在页头下沿走系统级模糊/渐隐，
@@ -123,6 +111,56 @@ struct LifeView: View {
         .background(lifeCold2())
         // v4.0.67 P3 收尾：页底接主题环境渐变（三团弥散光晕，浅深各一套）——与聊天/会话/设置页同底
         .background(EnvironmentGlowLayers(scheme: colorSchemeEnv))
+    }
+
+    /// 板块正文（v4.0.84：从 ForEach 内联 switch 提成独立方法 —— 每行要挂入场错峰与滚动层次，
+    /// 内联 switch 上没法直接加修饰符）。
+    /// ⚠️ 提出来顺手也治了本页的 body 深度：LifeView.body 是「VStack + ScrollView + LazyVStack +
+    ///    7 个板块 switch + 5 层 .overlay」的重型 body，本页属「启动链 demangler」事故家族，
+    ///    别再把这段塞回去。
+    @ViewBuilder
+    /// v4.0.84 拍 1 + 拍 2：板块行 = 入场错峰 + 滚动层次。
+    ///
+    /// ⚠️ `.lifeCards` 故意**跳过**外层 `.scrollDepth()`：该板块内部逐卡已挂 scrollDepth
+    ///（股票/资讯卡 LifeCardsSection、快递卡 LifeExpressPriceCards，与看板同款）。
+    /// 同一滚动容器里叠两层 scrollTransition，缩放=0.965²≈0.931、不透明度=0.75²≈0.56 ——
+    /// 比看板明显更缩更暗，恰好与「与看板对齐的滚动层次」的初衷相反（2026-10-09 发版前审查实测）。
+    @ViewBuilder
+    private func sectionRow(_ section: LifeSection, index: Int) -> some View {
+        if section == .lifeCards {
+            sectionBody(section)
+                .staggerAppear(index, ready: introReady)
+        } else {
+            sectionBody(section)
+                .staggerAppear(index, ready: introReady)
+                .scrollDepth()
+        }
+    }
+
+    private func sectionBody(_ section: LifeSection) -> some View {
+        switch section {
+        case .memo: MemoSection()
+        case .todo: TodoSection()
+        case .habit: HabitSection()   // v4.0.46：习惯打卡
+        case .goals: GoalsSection()   // v4.0.7：长期目标
+        case .record: RecordSection()
+        case .automations: AutomationsSection(isActive: isActive)
+        case .lifeCards: LifeCardsSection(data: life,
+                                          loading: lifeLoading,
+                                          error: lifeError,
+                                          zoomNS: zoomNS,   // v3.9.0：非闭包实参必须在闭包实参之前（实参序红线）
+                                          onDeleteStock: { st in Task { await deleteStock(st) } },
+                                          onAddStock: { showLifeSettings = true },
+                                          // v4.0.69：queued: true = 在途也不丢点击（排队补发），
+                                          // 见 LifeView.loadLife 注释（用户报「刷新胶囊点击无法强制刷新」）
+                                          onRefresh: { Task { await loadLife(fresh: true, queued: true) } },
+                                          articleStates: articles,
+                                          onOpenArticle: { e in openArticle(e) },
+                                          expandedArticleID: expandedEntryID,
+                                          onBigBang: { text, sourceID in
+                                              bigBangPayload = BigBangPayload(text: text, sourceID: sourceID)
+                                          })
+        }
     }
 
     /// 深度治理：行为型深层修饰器下沉背景层（.background 不影响布局，语义等价）

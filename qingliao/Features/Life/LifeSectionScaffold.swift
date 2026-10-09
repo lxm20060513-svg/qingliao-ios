@@ -38,9 +38,23 @@ struct LifeSectionHeader: View {
     /// 记录区专用（v4.0.22 「扫账单」）：可选的次要动作，排在「添加」左边。
     /// nil = 不显示（备忘/待办/目标三处不传，观感零变化）。
     var secondaryAction: (title: String, action: () -> Void)? = nil
+    /// 行首图标底符号（v4.0.84 方案 B①）：nil = 不显示。
+    /// 与 sectionIconTint 成对传，缺一不显示 —— 免得出现「有色块没符号」的半截形态。
+    var sectionIcon: String? = nil
+    /// 行首图标底色；与 sectionIcon 成对传
+    var sectionIconTint: Color? = nil
 
     var body: some View {
         HStack(spacing: 8) {
+            if let sectionIcon, let sectionIconTint {
+                // v4.0.84 方案 B①：边长 20 是本仓的第三档
+                //（列表行 36 / 记录分类卡自报），几何仍只此一处 —— 走 BadgeShell，
+                // 别在这里手写 cornerRadius（LifeBadges.swift 头注：「迟早漂移」）。
+                Image(systemName: sectionIcon)
+                    .font(.system(size: 20 * 0.5, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .modifier(BadgeShell(size: 20, color: sectionIconTint))
+            }
             Text(title)
                 .font(.system(size: Typography.body, weight: .bold))
             if let subtitle {
@@ -86,6 +100,15 @@ struct LifeEmptyStateCard: View {
     let title: String
     let subtitle: String
     let onTap: () -> Void
+    /// 卡内主操作提示（v4.0.84 方案 B⑤）：nil = 不显示。
+    ///
+    /// ⚠️ 刻意**不是 Button**：整张卡已经是一个 Button（onTap），卡内再嵌按钮既抢点、
+    /// 又会让 VoiceOver 读两个同义元素。这里只是一颗「淡色胶囊」样式的提示，点它 = 点整卡。
+    /// 作用是把「猜这张卡能不能点」变成「看得见出口」。
+    ///
+    /// ⚠️ 放在**行内右侧**而不是标题下方：本卡与页级单卡同几何是 v3.9.33 定下的口径
+    ///（「空态 ↔ 有内容」切换时页面不跳变），往下加一行会把空态撑高、把那条口径破掉。
+    var ctaTitle: String? = nil
 
     var body: some View {
         Button(action: onTap) {
@@ -103,8 +126,11 @@ struct LifeEmptyStateCard: View {
                         .lineLimit(1)
                 }
                 Spacer(minLength: 0)
+                if let ctaTitle {
+                    Text(ctaTitle).pill(.page)
+                }
             }
-            .padding(Spacing.xl)
+            .padding(Spacing.section)
             .frame(maxWidth: .infinity, minHeight: MemoCardMetrics.minHeight, alignment: .leading)
             .pastelCard()
             .contentShape(Rectangle())
