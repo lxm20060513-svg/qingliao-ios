@@ -317,14 +317,23 @@ check("⑧c 切页/聊天页入场 = 原地淡入（.opacity(phase) 两处各一
 // v4.0.78（用户 2026-10-08「4.0.77 dock 栏 tap 切换太闪了，改为平滑过渡切换效果」，二选一取「柔滑滑入」）：
 // 旧形态两处病史：① 起点 phase = 0（全透明）→ 内容先整个消失再出现 = 「闪」的正源；
 // ② opacity 走 snap(0.20)、位移走 flow(0.28) 两条曲线不同步，叠在同一帧像抖了一下。
-// 新形态 = 起点 0.6 + 两段并成同一个 withAnimation(Motion.flow) 事务（同一曲线）。下面两条反向钉死旧形态。
-check("⑧c 入场 = 单曲线柔滑（opacity 与位移同一个 Motion.flow 事务，两处各一份）",
-      dockSrc.components(separatedBy: "withAnimation(Motion.flow) { phase = 1; dx = 0 }").count - 1 >= 2
+// **v4.0.85（用户 2026-10-09「整个 app 各个页面切换还是太生硬了」「一点动画都没有」）**：0.78 那套
+//（起点 0.6 / 位移 22pt / flow 0.28s）真机观感 ≈ 硬切 → 起点 **0.75**、位移 **60pt**（Motion.pageSlideShift）、
+// 曲线换 **Motion.pageSlide**（0.38 弹簧轻过冲）。下面几条钉**现行**形态，并把 0.78 那套一并反向钉死
+//（否则「悄悄退回旧口径」两头都不红）。shell 侧同一口径另有一份：check_swift.sh「回退⑯ / ⑯f / ⑯g / ⑯h」组。
+check("⑧c 入场 = 单曲线柔滑（opacity 与位移同一个 Motion.pageSlide 事务，两处各一份）",
+      dockSrc.components(separatedBy: "withAnimation(Motion.pageSlide) { phase = 1; dx = 0 }").count - 1 >= 2
       && !dockSrc.contains("withAnimation(Motion.snap) { phase = 1 }")
+      && !dockSrc.contains("withAnimation(Motion.flow) { phase = 1; dx = 0 }")
       && !dockSrc.contains("withAnimation(Motion.flow) { dx = 0 }"))
-check("⑧c 入场起点 0.6（不许回 0 全透明起跳），TabTransition 与聊天页两处一致",
-      dockSrc.components(separatedBy: "phase = 0.6").count - 1 >= 2
+check("⑧c 入场起点 0.75（不许回 0 全透明起跳，也不许退回 0.6），TabTransition 与聊天页两处一致",
+      dockSrc.components(separatedBy: "phase = 0.75").count - 1 >= 2
+      && !dockSrc.contains("phase = 0.6")
       && !dockSrc.contains("phase = 0\n"))
+check("⑧c 位移走单一常量 Motion.pageSlideShift = 60（两处共用同一个，防只改一边 / 退回字面量 22）",
+      dockSrc.components(separatedBy: "Motion.pageSlideShift").count - 1 >= 4
+      && !dockSrc.contains("? 22 : -22")
+      && src("qingliao/Theme/Motion.swift").contains("static let pageSlideShift: CGFloat = 60"))
 check("⑧c 低起点整页淡入不许回来（0.35/0.9/0.12 起手的老病，v4.0.73 起淡入透出的是同款渐变垫底）",
       !dockSrc.contains("opacity(0.35 + 0.65 * phase)")
       && !dockSrc.contains("opacity(0.9 + 0.1 * phase)")

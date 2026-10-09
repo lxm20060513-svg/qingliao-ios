@@ -47,6 +47,16 @@ enum Motion {
     /// v4.0.76：锚定菜单入场（AnchorMenuOverlay 专用，审查意见：入场动画走 Motion 真源不裸写 spring）
     static var anchorMenu: Animation { .spring(response: 0.38, dampingFraction: 0.78) }
 
+    /// v4.0.85：dock 切页入场（新页横向滑入 + 渐显）—— 用户 2026-10-09「整个 app 各个页面切换还是太生硬了 /
+    /// 一点动画都没有」。原口径 = Motion.flow(0.28s smooth) + 22pt + 起点 0.6：历轮为躲「闪 / 露白」把幅度
+    /// 一路压小，真机观感≈硬切。本轮加重：0.38s + 轻微过冲（0.8 阻尼 ≈ 到位轻弹一下），位移见 pageSlideShift。
+    /// ⚠️ 起点与位移的字面量同时钉在 check_swift.sh 的「回退⑯」组，改这里必须同步改那组断言。
+    static var pageSlide: Animation { .spring(response: 0.38, dampingFraction: 0.80) }
+
+    /// dock 切页入场的横向位移量（pt）。**两处 modifier 共用同一个常量** —— 免得两边各写一个字面量、
+    /// 只改一边（v4.0.75 吃过「6pt 太细 = 肉眼不可见」的亏；22 → 60 的理由同源：要看得出来）。
+    static let pageSlideShift: CGFloat = 60
+
     /// 用户发送气泡的位移量（pt，配合上面的过冲读作「弹上来」）
     static let bubbleRise: CGFloat = 12
 

@@ -181,11 +181,61 @@ check("标题行图标底不手写 cornerRadius（几何只此一处 = BadgeShel
       !iconSlice.isEmpty && !iconSlice.contains("cornerRadius"))
 // 原写法用 `!scaffold.contains("Button(action: { })")` 当负断言：那个字面量全仓不存在，
 // 任何输入下都成立 = 零鉴别力（2026-10-09 审查抓到）。改成**切片**断言，空切片判红。
-let ctaSlice = slice(scaffold, from: "if let ctaTitle {", to: ".padding(Spacing.section)")
-check("空态卡 CTA 是纯文本胶囊、不是卡内第二个 Button（整卡已是 Button：抢点 + VoiceOver 双读）",
-      ctaSlice.contains("Text(ctaTitle).pill(.page)") && !ctaSlice.contains("Button"))
-check("空态卡 CTA 在行内右侧（下移会撑高空态、破掉「与页级单卡同几何」的 v3.9.33 口径）",
-      squashPad(scaffold).contains("Spacer(minLength: 0)\nif let ctaTitle {"))
+//
+// v4.0.85（用户 2026-10-09 真机截图圈出「＋ 记一条 / ＋ 建一个 / ＋ 建目标」三颗要求删掉）：
+//   卡内 CTA 胶囊整体移除 —— 栏目头 LifeSectionHeader 本来就有一颗「添加」胶囊，卡内同一张卡再放一颗 = 同屏同一件事两个入口。
+//   旧的两条正向断言（纯文本胶囊 / 行内右侧）随之下线，换成**反向**断言：组件本体与五个调用点都不得再现。
+//   判定对象必须过 stripCommentLines —— 组件里那段「为什么删掉」的说明注释本身写着 ctaTitle 这个名字（本仓老坑）。
+let ctaFiles = [
+    "qingliao/Features/Life/LifeSectionScaffold.swift",   // 组件本体（属性声明 + 渲染分支）
+    "qingliao/Features/Life/MemoSection.swift",           // 「＋ 写一条」
+    "qingliao/Features/Life/TodoSection.swift",           // 「＋ 记一条」
+    "qingliao/Features/Life/HabitSection.swift",          // 「＋ 建一个」
+    "qingliao/Features/Life/GoalsSection.swift",          // 「＋ 建目标」
+    "qingliao/Features/Life/RecordSection.swift",         // 「＋ 记一笔」
+]
+check("空态卡 CTA 移除面文件都可读（路径漂移别静默变绿）",
+      ctaFiles.allSatisfy { !src($0).isEmpty })
+let ctaLeft = ctaFiles.filter { stripCommentLines(src($0)).contains("ctaTitle") }
+check("空态卡内 CTA 胶囊已移除（栏目头已有添加胶囊，同屏不重复）· 残留：\(ctaLeft)",
+      ctaLeft.isEmpty)
+
+// 看板栏目头行首图标底（v4.0.85 · 用户 2026-10-09「看板页的各个标题头都加上圆角多彩图标」）：
+//   与生活页板块头（本节上面那条 B①）同款 20pt BadgeShell。符号 / 配色这对**必须同改**，
+//   而 `enum BoardCard` 住在纯 Foundation 的 Core/BoardCardOrder.swift（放不了 Color）
+//   → 映射另立一份 Features/Dashboard/BoardCardStyle.swift，本组断言就是防它俩各改一半。
+let dashSrc = src("qingliao/Features/Dashboard/DashboardView.swift")
+let dashHead = slice(stripCommentLines(dashSrc), from: "private func sectionTitle(",
+                     to: ".simultaneousGesture(boardDragGesture(card))")
+check("看板栏目头切片可取（端点名变了会静默变空，先钉一道）", !dashHead.isEmpty)
+check("看板栏目头行首图标底走 BadgeShell 20pt（几何只此一处 · 别手写圆角）",
+      dashHead.contains(".modifier(BadgeShell(size: 20, color: card.tint))"))
+check("看板栏目头符号读 card.icon（不许在栏目头里内联符号名 · 单一真源）",
+      dashHead.contains("Image(systemName: card.icon)"))
+let boardStyle = src("qingliao/Features/Dashboard/BoardCardStyle.swift")
+let boardIconPairs = [("suggestion", "lightbulb.fill"), ("home", "house.fill"), ("scenes", "wand.and.stars"),
+                      ("automations", "gearshape.fill"), ("rules", "slider.horizontal.3"),
+                      ("nas", "externaldrive.fill"), ("usage", "dollarsign.circle.fill"),
+                      ("tokens", "chart.bar.fill"), ("diagnose", "stethoscope"),
+                      ("router", "network"), ("pin", "pin.fill"), ("connectors", "link")]
+let boardTintPairs = [("suggestion", "yellow"), ("home", "orange"), ("scenes", "purple"),
+                      ("automations", "blue"), ("rules", "brown"), ("nas", "teal"),
+                      ("usage", "green"), ("tokens", "mint"), ("diagnose", "red"),
+                      ("router", "indigo"), ("pin", "pink"), ("connectors", "cyan")]
+check("看板图标/配色真源文件可读（路径漂移别静默变绿）", !boardStyle.isEmpty)
+let missIcon = boardIconPairs.filter { !boardStyle.contains("case .\($0.0): return \"\($0.1)\"") }.map { $0.0 }
+check("看板 12 个栏目行首符号齐备（缺的：\(missIcon)）", missIcon.isEmpty)
+let missTint = boardTintPairs.filter { !boardStyle.contains("case .\($0.0): return .\($0.1)") }.map { $0.0 }
+check("看板 12 个栏目行首底色齐备（缺的：\(missTint)）", missTint.isEmpty)
+// 「多彩」= 12 条取值互不相同 —— 这一点由上面两条**值表**保证（重复值必然同时缺另一条），
+// 所以不再另写一条 Set.count == 12 的断言：那种断言在本表里恒真、零鉴别力（审查口径）。
+// 真正有鉴别力的是下一条：两个 switch 各 12 条且**不许有 default** ——
+// 将来加第 13 个栏目时，`default:` 会把新栏目静默吞掉（编译不报、真机上白画一块），
+// 这里钉死「必须显式补两条映射」。
+let boardStyleCode = stripCommentLines(boardStyle)
+check("看板图标/配色两个 switch 各 12 条、且都不许有 default（新栏目必须显式补映射）",
+      boardStyleCode.components(separatedBy: "case .").count - 1 == 24
+        && !boardStyleCode.contains("default:"))
 
 // 六处卡族内边距统一 Spacing.section（16）；回退成 Spacing.xl（12）即红
 let cardPads: [(String, String)] = [

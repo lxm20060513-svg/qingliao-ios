@@ -1320,13 +1320,23 @@ ckNot "回退⑭：整页淡入不许回来（0.35 起手的老病）" '\.opacit
 ckNot "回退⑮：0.9 淡入（v4.0.71 未根治版）也不许回来" '\.opacity\(0\.9 \+ 0\.1 \* phase\)' "$DT"
 # v4.0.73（方案 A 拍板）= 内容原地淡入（Motion.snap 0.20s）→ **v4.0.78 改柔滑滑入**：
 # 用户真机反馈「dock 栏 tap 切换太闪了」（根因：opacity 走 snap 0.20s、位移走 flow 0.28s，两条曲线不同拍
-# 又都从 phase=0 起手 = 内容先整个消失再出现）→ 现行 = 起点 phase **0.6** + 两段并成**同一个**
-# withAnimation(Motion.flow) { phase = 1; dx = 0 }（22pt 方向微滑保留）。缩放/上浮/整页淡入仍不许回来。
-cnt=$(grep -cF 'withAnimation(Motion.flow) { phase = 1; dx = 0 }' "$DT"); [ "$cnt" -ge 2 ] \
-  || { echo "❌ 回退⑯：切页入场应为同一个 withAnimation(Motion.flow) { phase = 1; dx = 0 }，两处 modifier 各一份（实得 $cnt）"; fail=1; }
+# 又都从 phase=0 起手 = 内容先整个消失再出现）。
+# **v4.0.85（用户 2026-10-09「整个 app 各个页面切换还是太生硬了」「一点动画都没有」）**：
+# v4.0.78 那套（起点 0.6 / 位移 22pt / flow 0.28s smooth）真机观感 ≈ 硬切 → 整体加重：
+# 起点 **0.75**、位移 **60pt**（走 Motion.pageSlideShift，两处 modifier 共用同一个常量，免得各改一边）、
+# 曲线 **Motion.pageSlide**（0.38 弹簧轻过冲）。起点、位移、曲线三处两两成对，别只改一边。
+# 禁令不变：起点不许回 0（全透明起手 = 先消失再出现 = 「闪」）、缩放 / y 轴上浮 / 整页淡入不许回来。
+cnt=$(grep -cF 'withAnimation(Motion.pageSlide) { phase = 1; dx = 0 }' "$DT"); [ "$cnt" -ge 2 ] \
+  || { echo "❌ 回退⑯：切页入场应为同一个 withAnimation(Motion.pageSlide) { phase = 1; dx = 0 }，两处 modifier 各一份（实得 $cnt）"; fail=1; }
+cnt=$(grep -cF 'dx = (myIdx > oldIdx) ? Motion.pageSlideShift : -Motion.pageSlideShift' "$DT"); [ "$cnt" -ge 2 ] \
+  || { echo "❌ 回退⑯f：切页方向微滑应走 Motion.pageSlideShift（两处 modifier 各一份，实得 $cnt）"; fail=1; }
+cnt=$(grep -cF 'static let pageSlideShift: CGFloat = 60' qingliao/Theme/Motion.swift); [ "$cnt" -ge 1 ] \
+  || { echo "❌ 回退⑯g：切页位移常量应为 Motion.pageSlideShift = 60（实得 $cnt）"; fail=1; }
+cnt=$(grep -cF 'static var pageSlide: Animation { .spring(response: 0.38, dampingFraction: 0.80) }' qingliao/Theme/Motion.swift); [ "$cnt" -ge 1 ] \
+  || { echo "❌ 回退⑯h：切页曲线令牌应为 Motion.pageSlide（0.38 / 0.80，实得 $cnt）"; fail=1; }
 ckNot "回退⑯a：旧 snap 起手（phase 从 0 开始，实测会闪）不许回来" 'withAnimation\(Motion\.snap\) \{ phase = 1 \}' "$DT"
-cnt=$(grep -cE 'phase = 0\.6$' "$DT"); [ "$cnt" -ge 2 ] \
-  || { echo "❌ 回退⑯e：切页入场起点应为 phase = 0.6（两处 modifier 各一份，实得 $cnt）"; fail=1; }
+cnt=$(grep -cE 'phase = 0\.75$' "$DT"); [ "$cnt" -ge 2 ] \
+  || { echo "❌ 回退⑯e：切页入场起点应为 phase = 0.75（两处 modifier 各一份，实得 $cnt）"; fail=1; }
 ckNot "回退⑯b：整页缩放入场（0.96 那套）不许回来" 'scaleEffect\(0\.96 \+ 0\.04 \* phase' "$DT"
 ckNot "回退⑯c：整页上浮（10pt 那条）不许回来" 'offset\(y: 10 \* \(1 - phase' "$DT"
 cnt=$(grep -cE '^\s*\.opacity\(phase\)' "$DT"); [ "$cnt" -ge 2 ] \

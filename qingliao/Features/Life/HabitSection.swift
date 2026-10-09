@@ -97,8 +97,7 @@ struct HabitSection: View {
             icon: "checkmark.seal",
             title: "养成一个习惯",
             subtitle: "每天打卡，连续天数漏一天就归零",
-            onTap: startAdd,
-            ctaTitle: "＋ 建一个"
+            onTap: startAdd
         )
     }
 

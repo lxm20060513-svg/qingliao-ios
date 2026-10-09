@@ -1195,6 +1195,13 @@ struct DashboardView: View {
     ///    TokenUsageCard 的「重置」长按），若把拖动挂在整块栏目上，那些既有长按会被拖动会话吃掉。
     private func sectionTitle(_ s: String, card: BoardCard) -> some View {
         HStack(spacing: Spacing.sm) {
+            // v4.0.85：行首图标底（与生活页板块头 v4.0.84 方案 B① 同款：20pt BadgeShell + 白符号）。
+            // 符号 / 配色只读 BoardCardStyle.swift 那一份（card.icon / card.tint），别在这里内联；
+            // 几何走 BadgeShell —— 别手写 cornerRadius（LifeBadges.swift 头注：「迟早漂移」）。
+            Image(systemName: card.icon)
+                .font(.system(size: 20 * 0.5, weight: .semibold))
+                .foregroundStyle(.white)
+                .modifier(BadgeShell(size: 20, color: card.tint))
             Text(s)
                 .font(.system(size: Typography.body, weight: .bold))
             Spacer(minLength: 0)

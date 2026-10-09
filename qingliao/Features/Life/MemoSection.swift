@@ -89,8 +89,7 @@ struct MemoSection: View {
             icon: "square.and.pencil",
             title: "记点什么",
             subtitle: "聊天里长按消息、大爆炸选词，都能存进来",
-            onTap: startAdd,
-            ctaTitle: "＋ 写一条"
+            onTap: startAdd
         )
     }
 

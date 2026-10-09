@@ -90,8 +90,7 @@ struct RecordSection: View {
             // v3.9.71 审查：原文案承诺"复制金额会自动认出来"，但剪贴板探测器**只认链接**
             // （数字类 pattern 误报率太高，刻意不做），所以那句话是空头承诺。改成可达路径。
             subtitle: "截图里的金额/读数可在聊天页点「识别」后记到这里",
-            onTap: startAdd,
-            ctaTitle: "＋ 记一笔"
+            onTap: startAdd
         )
     }
 

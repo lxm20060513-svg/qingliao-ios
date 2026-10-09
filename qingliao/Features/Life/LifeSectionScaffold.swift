@@ -100,15 +100,10 @@ struct LifeEmptyStateCard: View {
     let title: String
     let subtitle: String
     let onTap: () -> Void
-    /// 卡内主操作提示（v4.0.84 方案 B⑤）：nil = 不显示。
-    ///
-    /// ⚠️ 刻意**不是 Button**：整张卡已经是一个 Button（onTap），卡内再嵌按钮既抢点、
-    /// 又会让 VoiceOver 读两个同义元素。这里只是一颗「淡色胶囊」样式的提示，点它 = 点整卡。
-    /// 作用是把「猜这张卡能不能点」变成「看得见出口」。
-    ///
-    /// ⚠️ 放在**行内右侧**而不是标题下方：本卡与页级单卡同几何是 v3.9.33 定下的口径
-    ///（「空态 ↔ 有内容」切换时页面不跳变），往下加一行会把空态撑高、把那条口径破掉。
-    var ctaTitle: String? = nil
+    // 🚫 卡内 CTA 胶囊（v4.0.84 方案 B⑤ 的「＋ 记一条 / ＋ 建一个 / ＋ 建目标 / ＋ 写一条 / ＋ 记一笔」）
+    //    已在 v4.0.85 整体移除：栏目头 LifeSectionHeader 本来就有一颗「添加」胶囊，
+    //    卡内同行再放一颗 CTA = 同屏同一件事两个入口（用户 2026-10-09 真机截图圈出三颗要求删掉）。
+    //    真值表 ql_uitokens 已反向钉死（组件与五个调用点都不得再现）。整卡仍是可点入口（onTap）。
 
     var body: some View {
         Button(action: onTap) {
@@ -126,9 +121,6 @@ struct LifeEmptyStateCard: View {
                         .lineLimit(1)
                 }
                 Spacer(minLength: 0)
-                if let ctaTitle {
-                    Text(ctaTitle).pill(.page)
-                }
             }
             .padding(Spacing.section)
             .frame(maxWidth: .infinity, minHeight: MemoCardMetrics.minHeight, alignment: .leading)

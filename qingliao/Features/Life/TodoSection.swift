@@ -95,8 +95,7 @@ struct TodoSection: View {
             icon: "checklist",
             title: "有什么要做的",
             subtitle: "聊天长按加入待办，AI 给出的清单会自动收进来",
-            onTap: startAdd,
-            ctaTitle: "＋ 记一条"
+            onTap: startAdd
         )
     }
 

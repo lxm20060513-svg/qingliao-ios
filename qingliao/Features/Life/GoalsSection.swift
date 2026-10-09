@@ -148,8 +148,7 @@ struct GoalsSection: View {
             icon: "target",
             title: "有个想长期推进的事",
             subtitle: "跟 AI 说「我在筹备 XX」，它会拆成步骤并每天推你一步",
-            onTap: startAdd,
-            ctaTitle: "＋ 建目标"
+            onTap: startAdd
         )
     }
 
