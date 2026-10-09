@@ -226,8 +226,6 @@ struct GoalsSection: View {
 //
 // ⚠️ 只改呈现层：字号 / 几何 / 文案一律不动（原 sheet 内容逐字平移进下面三个文件级 struct）。
 
-@MainActor
-@Observable
 /// 目标浮层状态（v4.0.86 瘦身①：字段与 reset 收进 LifeGlassPresenterBase，本类只剩空壳；
 /// 宿主销毁时清状态的护栏挂在 GoalsGlassLayerHost 的 .onDisappear，语义不变）
 @MainActor

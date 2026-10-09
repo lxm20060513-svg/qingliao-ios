@@ -216,8 +216,6 @@ private func recordSubtitleText(_ store: RecordStore) -> String {
 //   浮层本体由 RecordGlassLayerHost 渲染，挂载点 = LifeView body 最外层的 `.overlay`（见 LifeView）。
 //   视图树内顺序仍是：全部列表 < 详情 < 新建（后开的盖在前面）。
 
-@MainActor
-@Observable
 /// 记录浮层状态（v4.0.86 瘦身①：公共字段与 reset 收进 LifeGlassPresenterBase；
 /// 记录特有的 editSession / filterCategory 留在本类，reset 时一并清）
 @MainActor

@@ -192,8 +192,6 @@ struct MemoSection: View {
 // 浮层本体由本 struct 渲染，挂载点 = LifeView body 最外层的 `.overlay`（全屏层）。
 // 视图树内顺序仍是：全部列表 < 详情 < 新建（后开的盖在前面）。
 
-@MainActor
-@Observable
 /// 备忘录浮层状态（v4.0.86 瘦身①：字段与 reset 收进 LifeGlassPresenterBase，本类只剩空壳）
 @MainActor
 @Observable
