@@ -230,7 +230,7 @@ final class RecordGlassPresenter: LifeGlassPresenterBase<RecordItem> {
     /// @State，页面存活期内保持）；挂 presenter 与基线语义等价（页面销毁时随 reset() 清零）。
     var filterCategory: String?
 
-    private init() {}
+    override private init() {}
 
     override func reset() {
         super.reset()

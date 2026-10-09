@@ -176,7 +176,7 @@ struct HabitSection: View {
 @Observable
 final class HabitGlassPresenter: LifeGlassPresenterBase<HabitItem> {
     static let shared = HabitGlassPresenter()
-    private init() {}
+    override private init() {}
 }
 
 /// 习惯浮层的页级宿主（挂 LifeView 根 → 全屏；轻纱盖住整页含页头）

@@ -232,7 +232,7 @@ struct GoalsSection: View {
 @Observable
 final class GoalsGlassPresenter: LifeGlassPresenterBase<GoalItem> {
     static let shared = GoalsGlassPresenter()
-    private init() {}
+    override private init() {}
 }
 
 /// 长期目标浮层的页级宿主（挂 LifeView 根 → 全屏；轻纱盖住整页含页头）

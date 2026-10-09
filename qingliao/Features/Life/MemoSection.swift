@@ -197,7 +197,7 @@ struct MemoSection: View {
 @Observable
 final class MemoGlassPresenter: LifeGlassPresenterBase<MemoItem> {
     static let shared = MemoGlassPresenter()
-    private init() {}
+    override private init() {}
 }
 
 /// 备忘录浮层的页级宿主（挂 LifeView 根 → 全屏；轻纱盖住整页含页头）

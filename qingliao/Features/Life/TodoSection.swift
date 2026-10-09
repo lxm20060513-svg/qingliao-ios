@@ -172,7 +172,7 @@ struct TodoSection: View {
 @Observable
 final class TodoGlassPresenter: LifeGlassPresenterBase<TodoItem> {
     static let shared = TodoGlassPresenter()
-    private init() {}
+    override private init() {}
 }
 
 /// 待办浮层的页级宿主（挂 LifeView 根 → 全屏；轻纱盖住整页含页头）
