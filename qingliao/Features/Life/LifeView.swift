@@ -113,12 +113,6 @@ struct LifeView: View {
         .background(EnvironmentGlowLayers(scheme: colorSchemeEnv))
     }
 
-    /// 板块正文（v4.0.84：从 ForEach 内联 switch 提成独立方法 —— 每行要挂入场错峰与滚动层次，
-    /// 内联 switch 上没法直接加修饰符）。
-    /// ⚠️ 提出来顺手也治了本页的 body 深度：LifeView.body 是「VStack + ScrollView + LazyVStack +
-    ///    7 个板块 switch + 5 层 .overlay」的重型 body，本页属「启动链 demangler」事故家族，
-    ///    别再把这段塞回去。
-    @ViewBuilder
     /// v4.0.84 拍 1 + 拍 2：板块行 = 入场错峰 + 滚动层次。
     ///
     /// ⚠️ `.lifeCards` 故意**跳过**外层 `.scrollDepth()`：该板块内部逐卡已挂 scrollDepth
@@ -137,6 +131,16 @@ struct LifeView: View {
         }
     }
 
+    /// 板块正文（v4.0.84：从 ForEach 内联 switch 提成独立方法 —— 每行要挂入场错峰与滚动层次，
+    /// 内联 switch 上没法直接加修饰符）。
+    /// ⚠️ 提出来顺手也治了本页的 body 深度：LifeView.body 是「VStack + ScrollView + LazyVStack +
+    ///    7 个板块 switch + 5 层 .overlay」的重型 body，本页属「启动链 demangler」事故家族，
+    ///    别再把这段塞回去。
+    ///
+    /// ⚠️ 这个 `@ViewBuilder` 必须**紧贴函数**：2026-10-09 CI 实踩 —— 中间夹进另一个声明时，
+    ///    属性会挂到那个声明上，本函数丢掉 @ViewBuilder，7 个不同板块类型立刻报
+    ///    「branches have mismatching types」（本机 `-parse` 全绿、只有 CI 能抓）。
+    @ViewBuilder
     private func sectionBody(_ section: LifeSection) -> some View {
         switch section {
         case .memo: MemoSection()

@@ -61,7 +61,10 @@ struct TodoSection: View {
             title: "删除这条待办？",
             pending: glass.pendingDelete,
             onCancel: { glass.pendingDelete = nil },
-            onDelete: { withAnimation(Motion.snap) { store.delete($0) } },
+            // ⚠️ 外层闭包必须命名参数：withAnimation 的闭包是零参，
+            //    直接把 `$0` 写进内层会悬空 —— 2026-10-09 CI 报
+            //    「contextual closure type '() throws -> Void' expects 0 arguments, but 1 was used」（本机 -parse 全绿）。
+            onDelete: { item in withAnimation(Motion.snap) { store.delete(item) } },
             message: { $0.content.prefix(40).description }
         ))
     }
@@ -417,7 +420,10 @@ struct TodoAllListBody: View {
             title: "删除这条待办？",
             pending: pendingDeleteInList,
             onCancel: { pendingDeleteInList = nil },
-            onDelete: { withAnimation(Motion.snap) { store.delete($0) } },
+            // ⚠️ 外层闭包必须命名参数：withAnimation 的闭包是零参，
+            //    直接把 `$0` 写进内层会悬空 —— 2026-10-09 CI 报
+            //    「contextual closure type '() throws -> Void' expects 0 arguments, but 1 was used」（本机 -parse 全绿）。
+            onDelete: { item in withAnimation(Motion.snap) { store.delete(item) } },
             message: { $0.content.prefix(40).description }
         ))
     }

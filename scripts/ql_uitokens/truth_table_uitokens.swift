@@ -145,6 +145,23 @@ check("生活页板块行挂了入场错峰 + 滚动层次（此前生活页 .sc
 // scrollTransition → 缩放 0.965²≈0.931、不透明度 0.75²≈0.56，比看板更缩更暗（与初衷相反）
 check("lifeCards 板块不叠两层 scrollDepth（外层跳过）",
       squashPad(lifeView).contains("if section == .lifeCards {"))
+// 🚨 2026-10-09 CI run #725 实踩（本机 `-parse` 全绿、只有 CI 报得出来）：
+//    把 sectionRow 插到 sectionBody 的 @ViewBuilder **之后** → 两个属性都挂到 sectionRow 上
+//    （`only one result builder attribute can be attached to a declaration`），
+//    sectionBody 反而丢掉 @ViewBuilder → 7 个板块立刻 `branches have mismatching types`（一次报 6 条）。
+//    所以这里钉的是**位置关系**（排版即语义），不能只钉函数名存在。
+//    本地复现脚本：cache/scratch/repro840/（Foundation-only 最小样例，报错与 CI 逐字一致）。
+check("sectionBody 的 @ViewBuilder 必须紧贴函数（中间夹进别的声明只有 CI 报得出来）",
+      lifeView.contains("@ViewBuilder\n    private func sectionBody(_"))
+check("不许出现相邻的两个 @ViewBuilder（同一声明挂两个 result builder 属性）",
+      !lifeView.contains("@ViewBuilder\n    @ViewBuilder"))
+// 同轮 CI 另一类：拍 3 用 withAnimation 包删除时把 `$0` 写进了内层零参闭包 →
+//   外层 `LifeDeleteConfirm.onDelete` 的闭包没命名参数，`$0` 悬空。
+//   CI 报 `contextual closure type '() throws -> Void' expects 0 arguments, but 1 was used in closure body`。
+let deleteWrapFiles = ["qingliao/Features/Life/MemoSection.swift", "qingliao/Features/Life/TodoSection.swift"]
+check("拍 3 删除动画的外层闭包必须命名参数（withAnimation 闭包零参，$0 悬空）",
+      deleteWrapFiles.allSatisfy { src($0).contains("onDelete: { item in withAnimation(Motion.snap) { store.delete(item) } }") }
+        && deleteWrapFiles.allSatisfy { !src($0).contains("withAnimation(Motion.snap) { store.delete($0) }") })
 check("板块 switch 已提成 sectionBody（内联 switch 上面挂不了修饰符）",
       lifeView.contains("private func sectionBody(_ section: LifeSection)"))
 
