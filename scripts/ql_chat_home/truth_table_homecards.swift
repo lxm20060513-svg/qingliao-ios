@@ -388,6 +388,13 @@ check("记忆语境：无合规条目 → nil（退回池内短句）；有 → 
       HomeCardTipKit.memoryLine(entries: []) == nil
         && HomeCardTipKit.subtitle(memory: nil, pool: "看看钱花在哪") == "看看钱花在哪"
         && HomeCardTipKit.subtitle(memory: "用户常住深圳", pool: "看看钱花在哪") == "记得：用户常住深圳")
+// v4.0.89 真上下文卡面（待跟进/反思日记上卡）：ellipsisLine 单行截断口径
+check("真上下文：超长条目截到 max 加省略号（title 恒单行）",
+      HomeCardTipKit.ellipsisLine("这是一条特别长的待跟进内容超过了十个字", max: 10) == "这是一条特别长的待跟…")
+check("真上下文：含换行的条目掐到第一个换行再截（不折行）",
+      HomeCardTipKit.ellipsisLine("第一行\n第二行很长", max: 10) == "第一行")
+check("真上下文：短条目原样、首尾空白修剪",
+      HomeCardTipKit.ellipsisLine("  该续费了  ", max: 10) == "该续费了")
 check("🚨 卡面副标题恒单行（lineLimit(1)、无 .fixedSize 竖直撑开）——双行会撑破 84pt 卡高",
       flat(stripCommentLines(cards)).contains("Text(subtitle).font(.system(size:Typography.tiny)).foregroundStyle(.secondary).lineLimit(1)")
         && !flat(stripCommentLines(cards)).contains("fixedSize(horizontal:false,vertical:true)"))

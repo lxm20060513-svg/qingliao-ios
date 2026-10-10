@@ -262,6 +262,17 @@ enum HomeCardTipKit {
         guard let m = memory else { return pool }
         return memoryPrefix + m
     }
+
+    /// v4.0.89：真上下文卡面的单行截断口径（title 用；超长折行会重演 v4.0.10 坏形）。
+    /// 含换行的条目直接掐到第一个换行再截，保证卡面恒单行。
+    static func ellipsisLine(_ text: String, max: Int) -> String {
+        var t = text
+        if let nl = t.firstIndex(of: "\n") {
+            t = String(t[..<nl])
+        }
+        t = t.trimmingCharacters(in: .whitespaces)
+        return t.count > max ? String(t.prefix(max)) + "…" : t
+    }
 }
 
 // MARK: - 持久化键（单一真源，视图与真值表共用同一份字符串）

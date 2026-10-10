@@ -307,9 +307,46 @@ final class HomeCardData {
         weatherCity = s.city
     }
 
-    /// agent 主动推荐：本地建议池打底 + 记忆里的偏好当上下文。
+    /// agent 主动推荐：真上下文优先，本地建议池兜底。
     /// 为什么不让模型在线生成这张卡：首页是「打开就能用」的地方，出一张空卡/转圈卡比朴素建议更糟。
+    /// v4.0.89 三级优先（都失败/都没有才落回池子，卡面永不空）：
+    ///   ① 后端待跟进池里有「到期未勾销」的条目 → 「该跟进 X · 点一下去处理」；
+    ///   ② 反思日记已到点(journalHour)还没答 → 把当天问题搬上卡面；
+    ///   ③ 本地建议池（原行为，含记忆语境副标题）。
+    /// 数据源 = /api/agent/proactive/state 一个端点（followup.pending + journal 段，后端已下发），
+    /// 拉不到就静默走 ③ —— 主动推荐卡不允许因为后端抖动变空/变慢感。
     private static func loadTip(auth: AuthStore) async -> HomeCardTip {
+        if let st = try? await auth.json("/api/agent/proactive/state") {
+            // ① 待跟进：只挑 due=true（已到期且还有追问额度）里 dueAt 最早的那条
+            if let fu = st["followup"] as? [String: Any],
+               let pending = fu["pending"] as? [[String: Any]] {
+                if let due = pending
+                    .filter({ ($0["due"] as? Bool) == true })
+                    .min(by: { ($0["dueAt"] as? Int ?? 0) < ($1["dueAt"] as? Int ?? 0) }),
+                   let text = (due["text"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !text.isEmpty {
+                    let head = HomeCardTipKit.ellipsisLine(text, max: 10)
+                    return HomeCardTip(
+                        title: "该跟进：\(head)",
+                        subtitle: "到期未处理 · 点一下去处理",
+                        prompt: "帮我处理一下之前记的这件事：\(text)")
+                }
+            }
+            // ② 反思日记：开关开着、已到点、还没答 → 把问句搬上卡面
+            if let jr = st["journal"] as? [String: Any],
+               (jr["enable"] as? Bool) == true,
+               (jr["asked"] as? Bool) == true,
+               (jr["answered"] as? Bool) == false,
+               let q = (jr["question"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !q.isEmpty {
+                let head = HomeCardTipKit.ellipsisLine(q, max: 10)
+                return HomeCardTip(
+                    title: head,
+                    subtitle: "今天的反思还没答 · 点一下回答",
+                    prompt: q)
+            }
+        }
+        // ③ 本地池兜底（原行为）
         var entries: [String] = []
         if let j = try? await auth.json("/api/memory/list") {
             entries = j["entries"] as? [String] ?? []
