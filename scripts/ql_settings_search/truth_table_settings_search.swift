@@ -141,7 +141,7 @@ struct SettingsSearchTruthTable {
         // ── 4. 匹配规则 ──
         let model = SettingsSearchIndex.match("模型")
         positives += 1
-        check("「模型」命中 4 项（模型管理/微信通道模型/Agent 模型/管理模型），当前 \(model.count)",
+        check("「模型」命中 4 项（模型管理/Hermes 主模型/Agent 模型/管理模型），当前 \(model.count)",
               model.count == 4)
         positives += 1
         check("「模型」首条是「模型管理」（按设置页从上到下的顺序）", model.first?.title == "模型管理")

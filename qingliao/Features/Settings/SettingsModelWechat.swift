@@ -1,10 +1,12 @@
 // 本文件原为 Features/Settings/SettingsModels.swift 的物理拆分（纯搬运，UI 与行为零改动）。
-// 上游文件保留 ModelSheet / provider 缓存 / 自定义模型组；本文件承载 微信通道模型设置 + provider key 自检提示行。
+// 上游文件保留 ModelSheet / provider 缓存 / 自定义模型组；本文件承载 Hermes 主模型设置 + provider key 自检提示行。
 
 import Foundation
 import SwiftUI
 
-// MARK: - v3.0.19 微信通道模型设置（方案B：读写 Hermes wechat-profile，微信通道专属模型）
+// MARK: - Hermes 主模型写入口（原「微信通道模型」页）
+// 2026-10-10 语义更正：wechat-profile 已于 2026-09-09 删除，本页写的其实是 Hermes 全局主模型
+// （微信通道/定时任务/后台任务共用）—— 不再是「只影响微信通道」。
 
 struct WechatChannelSheet: View {
     @Environment(AuthStore.self) private var auth
@@ -28,12 +30,12 @@ struct WechatChannelSheet: View {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 6) {
                         Circle().fill(loaded ? Color.green : Color.orange).frame(width: 7, height: 7)
-                        Text("当前微信通道模型")
+                        Text("当前 Hermes 主模型")
                             .font(.system(size: Typography.caption)).foregroundStyle(.secondary)
                     }
                     Text(currentModel)
                         .font(.system(size: Typography.body, weight: .semibold))
-                    Text("设置后重启 Hermes 生效（约 10-30 秒），只影响微信通道，其他通道不受影响。")
+                    Text("这是 Hermes 全局主模型：微信、定时任务、后台任务都用它；轻聊 App 对话用的是「模型管理」里选的模型。保存后重启 Hermes 生效（约 10-30 秒）。")
                         .font(.system(size: Typography.tiny))
                         .foregroundStyle(.tertiary)
                 }
@@ -132,7 +134,7 @@ struct WechatChannelSheet: View {
             }
         }
         .padding(Spacing.xxl)
-        .navigationTitle("微信通道模型")
+        .navigationTitle("Hermes 主模型")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
@@ -148,7 +150,7 @@ struct WechatChannelSheet: View {
         }
     }
 
-    /// 拉当前微信通道模型 + 全部 provider 模型列表
+    /// 拉当前 Hermes 主模型 + 全部 provider 模型列表
     /// v3.0.35：①缓存优先（打开即有列表，不转圈）②两个请求 async let 并发（原串行，channel/model 挂起会拖死 providers）
     private func load() async {
         // 1) 立即展示缓存
@@ -162,7 +164,7 @@ struct WechatChannelSheet: View {
         _ = await (cm, pl)
     }
 
-    /// 拉当前微信通道模型（独立失败不影响模型列表）
+    /// 拉当前 Hermes 主模型（独立失败不影响模型列表）
     private func loadChannelModel() async {
         if let j = try? await auth.json("/api/channel/model") {
             currentModel = (j["model"] as? String) ?? "未设置"
@@ -198,7 +200,7 @@ struct WechatChannelSheet: View {
         }
     }
 
-    /// 保存微信通道模型（POST /api/channel/model → 后端改 wechat-profile + 重启 gateway）
+    /// 保存 Hermes 主模型（POST /api/channel/model → 后端改主 config.yaml 的 model 段 + 重启 gateway）
     private func saveModel(provider: String, model: String) {
         guard !saving else { return }
         saving = true
@@ -212,7 +214,7 @@ struct WechatChannelSheet: View {
                     currentModel = model
                     currentProvider = provider
                     UserDefaults.standard.set(model, forKey: "qingliao_wechat_channel_model")
-                    saveResult = "✅ 已设置：\(model)（gateway 重启后生效，约 10-30 秒）"
+                    saveResult = "✅ 已设置：\(model)（Hermes 全局主模型 · gateway 重启后生效，约 10-30 秒）"
                 } else {
                     saveResult = "⚠️ 设置失败：\(j["error"] as? String ?? "未知错误")"
                 }

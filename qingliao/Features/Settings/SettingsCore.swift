@@ -519,7 +519,7 @@ extension SettingsView {
                 .tapButton { showModelSheet = true }
             Divider().padding(.leading, Spacing.rowDividerInset)
             SettingRow(icon: "bubble.left.and.bubble.right.fill", iconColor: .blue,
-                       title: "微信通道模型", value: wechatChannelModel, chevron: true)
+                       title: "Hermes 主模型", value: wechatChannelModel, chevron: true)
                 .tapButton { showWechatChannel = true }
             Divider().padding(.leading, Spacing.rowDividerInset)
             SettingRow(icon: "house.fill", iconColor: .purple, title: "HA 设置", chevron: true)
@@ -1115,7 +1115,7 @@ extension SettingsView {
         UserDefaults.standard.string(forKey: "qingliao_model") ?? "deepseek-v4-flash"
     }
 
-    // v3.0.19：微信通道当前模型（UserDefaults 缓存，进弹窗时刷新）
+    // v3.0.19：Hermes 主模型（原「微信通道模型」；UserDefaults 缓存，进弹窗时刷新）
     var wechatChannelModel: String {
         UserDefaults.standard.string(forKey: "qingliao_wechat_channel_model") ?? "跟随默认"
     }

@@ -11,7 +11,7 @@ import SwiftUI
 // v3.0.28 重构：原先「App 本地视觉模型」与「微信通道视觉模型」是两份独立配置，
 // 现在统一为一份「共享视觉模型」——在下方模型列表点选打勾即同时写入：
 //   1) App 本地（CloudConfig，App 内发图走 effectiveVisionModel）
-//   2) 微信通道（后端 /api/channel/vision-model → wechat-profile auxiliary.vision，Hermes 微信通道用）
+//   2) Hermes 侧（后端 /api/channel/vision-model → 主 config 的 auxiliary.vision，Hermes 全部通道用）
 // 选择动作 = 直接在对应模型后面点选打勾（checkmark），无需额外按钮。
 
 struct VisionModelSheet: View {
@@ -91,7 +91,7 @@ struct VisionModelSheet: View {
                             Image(systemName: "checkmark.seal.fill")
                                 .font(.system(size: Typography.subhead))
                                 .foregroundStyle(.purple)
-                            Text("共享视觉模型（App + 微信通道）")
+                            Text("共享视觉模型（App + Hermes）")
                                 .font(.system(size: Typography.subhead, weight: .medium))
                             Spacer()
                             if syncing {
@@ -101,7 +101,7 @@ struct VisionModelSheet: View {
                         Text(sharedVisionDisplay)
                             .font(.system(size: Typography.subhead))
                             .foregroundStyle(.secondary)
-                        Text("点选下方任一模型即设置：App 内发图 与 微信通道收图 共用的视觉模型（写入 wechat-profile，改完自动重启 gateway）。")
+                        Text("点选下方任一模型即设置：App 内发图 与 Hermes 各通道收图 共用的视觉模型（写入 Hermes 主配置 auxiliary.vision，改完自动重启 gateway）。")
                             .font(.system(size: Typography.tiny))
                             .foregroundStyle(.tertiary)
                         if let syncResult {
