@@ -136,7 +136,93 @@ check("失败计数非 0 但未熔断 → 如实显示次数（用户能看到�
       TypesafeBreaker(json: ["open": false, "fails": 1])!.statusText(TypesafeRouting.fallback)
         == "正常 · 连续失败 1 次（连续 3 次失败自动暂停 5 分钟）")
 
-// MARK: - 4. 文案常量（写进 UI，改了要同步这里）
+// MARK: - 4. 判定后端（typesafe / custom / local）
+
+print("— 判定后端 —")
+check("缺 backend → 兜底 typesafe（老后端仍可用）",
+      TypesafeRouting(json: ["enabled": true])?.backend == "typesafe")
+check("backend=custom 解析成功", TypesafeRouting(json: ["enabled": true, "backend": "custom"])?.backend == "custom")
+check("backend=local 解析成功", TypesafeRouting(json: ["enabled": true, "backend": "local"])?.backend == "local")
+check("backend 未知值 → 兜底 typesafe（不露原始英文串）",
+      TypesafeRouting(json: ["enabled": true, "backend": "gpt"])?.backend == "typesafe")
+check("backend 大小写/空格容错 → custom", TypesafeRouting.normBackend(" Custom ") == "custom")
+check("fallback 的 backend 是 typesafe", TypesafeRouting.fallback.backend == "typesafe")
+check("文案：typesafe → TypeSafe 云端", TypesafeRouting.fallback.backendText == "TypeSafe 云端")
+check("文案：custom → 自定义模型",
+      TypesafeRouting(json: ["enabled": true, "backend": "custom"])!.backendText == "自定义模型")
+check("文案：local → 本机模型",
+      TypesafeRouting(json: ["enabled": true, "backend": "local"])!.backendText == "本机模型")
+
+// MARK: - 5. 自定义判定模型（GET/POST /api/agent/typesafe/model）
+
+print("— 自定义判定模型解析 —")
+let modelEmptyJSON: [String: Any] = ["ok": true, "custom": ["base_url": "", "model": "",
+                                                           "api_key": "未配置", "configured": false,
+                                                           "timeout_ms": 4000]]
+let modelReadyJSON: [String: Any] = ["ok": true, "custom": ["base_url": "https://open.bigmodel.cn/api/paas/v4",
+                                                           "model": "glm-4.7-flash", "api_key": "abcd1234…cdef",
+                                                           "configured": true, "timeout_ms": 4000]]
+check("空配置解析成功", TypesafeModel(json: modelEmptyJSON) != nil)
+check("空配置 = empty 同参", TypesafeModel(json: modelEmptyJSON) == TypesafeModel.empty)
+check("已配置：地址/模型/掩码/configured/timeout 全对",
+      TypesafeModel(json: modelReadyJSON) == TypesafeModel(baseURL: "https://open.bigmodel.cn/api/paas/v4",
+                                                          model: "glm-4.7-flash", apiKeyMasked: "abcd1234…cdef",
+                                                          configured: true, timeoutMs: 4000))
+check("custom 段缺失 → 解析失败（不拿兜底冒充后端）", TypesafeModel(json: ["ok": true]) == nil)
+check("api_key 缺失 → 「未配置」", TypesafeModel(json: ["custom": ["base_url": "x"]])?.apiKeyMasked == "未配置")
+check("configured 缺失 → false（拿不到确认就当没配好）",
+      TypesafeModel(json: ["custom": ["base_url": "x", "model": "y"]])?.configured == false)
+
+print("— 自定义判定模型文案 —")
+check("全空 → 提示填三项",
+      TypesafeModel.empty.statusText == "未配置：填接口地址、模型名、API Key 三项后点保存")
+check("有地址+模型无 key → 提示缺 key（说清会回退关键词规则）",
+      TypesafeModel(json: ["custom": ["base_url": "https://x/v1", "model": "m", "configured": false]])!
+        .statusText == "还缺 API Key（没有 key 判不了，会回退关键词规则）")
+check("有 key 无地址 → 提示缺地址",
+      TypesafeModel(json: ["custom": ["model": "m", "api_key": "aa…zz", "configured": true]])!
+        .statusText == "还缺接口地址")
+check("有 key 有地址无模型 → 提示缺模型名",
+      TypesafeModel(json: ["custom": ["base_url": "https://x/v1", "api_key": "aa…zz", "configured": true]])!
+        .statusText == "还缺模型名")
+check("三项齐全 → 已配置 + 模型名 + 掩码",
+      TypesafeModel(json: modelReadyJSON)!.statusText == "已配置 · glm-4.7-flash · Key abcd1234…cdef")
+check("ready：三项齐全才 true", TypesafeModel(json: modelReadyJSON)!.ready)
+check("ready：空配置 false", !TypesafeModel.empty.ready)
+// MARK: - 5b. 本机模型（后端 local 段）
+
+print("— 本机模型解析 —")
+let localJSON: [String: Any] = ["ok": true, "local": ["url": "http://192.168.31.40:11434",
+                                                      "model": "qwen3:0.6b", "timeout_ms": 15000,
+                                                      "keep_alive": "60m"]]
+check("local 段解析成功",
+      TypesafeLocalModel(json: localJSON) == TypesafeLocalModel(url: "http://192.168.31.40:11434",
+                                                                model: "qwen3:0.6b"))
+check("local 段缺失 → 解析失败（保留上一次的值）", TypesafeLocalModel(json: ["ok": true]) == nil)
+check("url 缺失 → 空串（不崩）", TypesafeLocalModel(json: ["local": ["model": "m"]])?.url == "")
+check("状态行：模型 + 地址都给出来",
+      TypesafeLocalModel(json: localJSON)!.statusText == "本机模型 · qwen3:0.6b · http://192.168.31.40:11434")
+check("状态行：只有模型 → 不带地址尾巴",
+      TypesafeLocalModel(json: ["local": ["model": "m"]])!.statusText == "本机模型 · m")
+check("状态行：空模型 → 如实说未配置", TypesafeLocalModel.empty.statusText == "本机模型未配置")
+check("ready：有模型名即 true", TypesafeLocalModel(json: localJSON)!.ready)
+check("ready：空配置 false", !TypesafeLocalModel.empty.ready)
+
+print("— 测试结果解析 —")
+let probeJSON: [String: Any] = ["ok": false, "test": [
+    ["text": "帮我把这个文件转成 PDF", "ok": true, "needs_action": true, "ms": 320],
+    ["text": "你好呀", "ok": false, "error": "HTTPError: HTTP Error 401"],
+], "custom": ["base_url": "https://x/v1", "model": "m", "api_key": "aa…zz", "configured": true]]
+let probes = TypesafeProbe.list(probeJSON)
+check("两条样例都解析出来", probes.count == 2)
+check("成功行文案带判定结论与耗时",
+      probes.first?.line == "✅ 判要干活 · 「帮我把这个文件转成 PDF」 · 320ms")
+check("失败行文案带上游原话（不吞错）",
+      probes.last?.line == "❌ 「你好呀」失败：HTTPError: HTTP Error 401")
+check("test 段缺失 → 空数组（页面不显示假结果）", TypesafeProbe.list(["ok": true]).isEmpty)
+check("单条结构不全（缺 ok）→ 跳过，不崩", TypesafeProbe.list(["test": [["text": "x"]]]).isEmpty)
+
+// MARK: - 6. 文案常量（写进 UI，改了要同步这里）
 
 print("— 常量 —")
 check("底部说明：任何异常都回退现状（不能让用户以为会影响回复）",

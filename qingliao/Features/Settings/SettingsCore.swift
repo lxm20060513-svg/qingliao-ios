@@ -118,6 +118,15 @@ struct SettingsView: View {
     @State var tsSyncing = false   // 读回来时抑制回声 POST（同 localModelSyncing 口径）
     @State var tsBusy = false
     @State var tsError = ""
+    // v4.0.87：判定模型可自配（TypeSafe 云端 / 自定义 OpenAI 兼容模型）
+    @State var tsModel = TypesafeModel.empty
+    @State var tsLocal = TypesafeLocalModel.empty
+    @State var tsDraftURL = ""
+    @State var tsDraftModel = ""
+    @State var tsDraftKey = ""
+    @State var tsModelBusy = false
+    @State var tsModelNote = ""
+    @State var tsProbes: [TypesafeProbe] = []
     // v2.0.88：Face ID 登录开关（关闭后删除 Keychain 凭据，登录页不再显示快捷按钮）
     @AppStorage("qingliao_faceid_login") var faceIDLogin = true
     @State var faceIDAuthFailed = false   // v2.0.89f：开关打开时系统授权失败提示
@@ -390,6 +399,7 @@ struct SettingsView: View {
             await loadCounts()
             await loadLocalStatus()   // v-review fix：进入设置页即以后端 /api/local/status 校准本地模型开关
             await loadTypesafeRouting()   // v3.9.56：进设置页即读后端真实路由开关/熔断状态
+            await loadTypesafeModel()     // v4.0.87：一并读判定模型配置（自定义模型三项）
         }
     }
 
@@ -671,6 +681,53 @@ extension SettingsView {
         // 后端被 CLI 设成 mode=off 时如实说明（App 里设不出这一档，但读得到）
         if tsRouting.mode == "off" {
             tsParamNote(TypesafeRouting.modeOffHint, warn: true)
+        }
+
+        Divider().padding(.leading, Spacing.rowDividerInset)
+
+        // 判定模型（v4.0.87）：用哪个模型来判。三档 —— TypeSafe 云端（默认，Jev）/
+        // 自定义模型（自填 OpenAI 兼容模型：key 存后端、接口只回掩码）/ 本机模型
+        // （NAS 上的 ollama 小模型：不联网、零成本）。换供应商自己填，不必等 App 发版。
+        HStack(spacing: Spacing.md) {
+            Text("判定模型").font(.system(size: Typography.body))
+            Spacer(minLength: Spacing.md)
+            tsCapsule("TypeSafe 云端", on: tsRouting.backend == "typesafe") {
+                Task { await saveTypesafeRouting(["backend": "typesafe"]) }
+            }
+            tsCapsule("自定义模型", on: tsRouting.backend == "custom") {
+                Task { await saveTypesafeRouting(["backend": "custom"]) }
+            }
+            tsCapsule("本机模型", on: tsRouting.backend == "local") {
+                Task { await saveTypesafeRouting(["backend": "local"]) }
+            }
+        }
+        .padding(.horizontal, Spacing.section)
+        .padding(.vertical, Spacing.lg)
+
+        if tsRouting.backend == "custom" {
+            tsCustomModelFields
+        } else if tsRouting.backend == "local" {
+            tsParamNote(tsLocal.statusText, warn: !tsLocal.ready)
+            tsParamNote("跑在 NAS 上：不联网、零成本；判定约 4 秒（比云端慢），判不了会自动回退", warn: false)
+        } else {
+            tsParamNote("云端判定（TypeSafe Jev）· 判定失败自动回退，聊天不受影响", warn: false)
+        }
+
+        // 「测试」三档通用：后端拿**当前判定模型**真跑两条样例（一条该干活 / 一条纯闲聊），
+        // 结果与耗时逐条显示；失败把上游原话带回来（401 / 地址不通 / 输出解析不了），不吞错。
+        HStack(spacing: Spacing.md) {
+            tsCapsule("测试", on: false) { Task { await testTypesafeModel() } }
+                .disabled(tsModelBusy)
+                .opacity(tsModelBusy ? 0.45 : 1)
+            if tsModelBusy { ProgressView().controlSize(.small) }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, Spacing.section)
+        .padding(.vertical, Spacing.lg)
+
+        if !tsModelNote.isEmpty { tsParamNote(tsModelNote, warn: true) }
+        ForEach(tsProbes, id: \.self) { p in
+            tsParamNote(p.line, warn: !p.ok)
         }
 
         Divider().padding(.leading, Spacing.rowDividerInset)
@@ -1177,6 +1234,156 @@ extension SettingsView {
             tsError = "保存失败，请检查连接"
             await loadTypesafeRouting()
         }
+    }
+
+    /// 读自定义判定模型配置（进设置页 / 保存后刷新）
+    func loadTypesafeModel() async {
+        guard let j = try? await auth.json("/api/agent/typesafe/model") else { return }
+        applyTypesafeModel(j)
+    }
+
+    /// 只接管「后端现状」那一半：草稿框填当前值、key 框清空
+    /// —— 后端只给掩码，把掩码填回输入框会被当成新 key 又提交一次，所以永不回填 key。
+    func applyTypesafeModel(_ j: [String: Any]) {
+        if let l = TypesafeLocalModel(json: j) { tsLocal = l }   // 本机模型档的状态行
+        guard let m = TypesafeModel(json: j) else { return }
+        tsModel = m
+        tsDraftURL = m.baseURL
+        tsDraftModel = m.model
+        tsDraftKey = ""
+        tsModelNote = ""
+    }
+
+    /// 保存（部分字段补丁）：key 框空 = 不改，填了才覆盖；失败绝不留下假状态
+    func saveTypesafeModel() async {
+        guard !tsModelBusy else { return }
+        tsModelBusy = true
+        defer { tsModelBusy = false }
+        var body: [String: Any] = ["base_url": tsDraftURL, "model": tsDraftModel]
+        if !tsDraftKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            body["api_key"] = tsDraftKey
+        }
+        do {
+            let j = try await auth.json("/api/agent/typesafe/model", method: "POST", body: body)
+            if (j["ok"] as? Bool) == false {
+                tsModelNote = (j["error"] as? String) ?? "保存失败"
+            } else {
+                applyTypesafeModel(j)
+                tsProbes = []
+            }
+        } catch {
+            tsModelNote = "保存失败，请检查连接"
+        }
+    }
+
+    /// 清除 Key（后端 api_key 传空串 = 清空）。地址/模型名保留，换 key 时只需重填 key
+    func clearTypesafeModelKey() async {
+        guard !tsModelBusy else { return }
+        tsModelBusy = true
+        defer { tsModelBusy = false }
+        do {
+            let j = try await auth.json("/api/agent/typesafe/model", method: "POST", body: ["api_key": ""])
+            if (j["ok"] as? Bool) == false {
+                tsModelNote = (j["error"] as? String) ?? "清除失败"
+            } else {
+                applyTypesafeModel(j)
+                tsProbes = []
+            }
+        } catch {
+            tsModelNote = "清除失败，请检查连接"
+        }
+    }
+
+    /// 测试：后端拿当前配置真调用两条样例（该干活 / 纯闲聊），结果逐条显示
+    /// —— 不留占位按钮：ok=false 时把上游原话（401/地址不通/输出解析不了）原样带出来
+    func testTypesafeModel() async {
+        guard !tsModelBusy else { return }
+        tsModelBusy = true
+        defer { tsModelBusy = false }
+        do {
+            // 自定义档：带上草稿一起提交再测（测的就是眼前这份，不会「填了新 key 却测了个旧的」）；
+            // 别的档不带这些字段 —— 带空串会把已存的自定义配置清掉。
+            var body: [String: Any] = ["test": true]
+            if tsRouting.backend == "custom" {
+                // 空字段一律省略（= 后端语义「不改」）：草稿可能还没加载完（backend 先到、
+                // 模型配置后到），此时若带上空串会把已存的地址/模型名清掉。
+                if !tsDraftURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    body["base_url"] = tsDraftURL
+                }
+                if !tsDraftModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    body["model"] = tsDraftModel
+                }
+                if !tsDraftKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    body["api_key"] = tsDraftKey
+                }
+            }
+            let j = try await auth.json("/api/agent/typesafe/model", method: "POST", body: body)
+            applyTypesafeModel(j)
+            tsProbes = TypesafeProbe.list(j)
+            if tsProbes.isEmpty { tsModelNote = "测试没返回结果，请检查配置后重试" }
+        } catch {
+            tsModelNote = "测试失败，请检查连接"
+        }
+    }
+
+    /// 草稿够不够保存（地址 + 模型名；key 可后补，但没 key 判不了）
+    var tsDraftCanSave: Bool {
+        let u = tsDraftURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let m = tsDraftModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !u.isEmpty && !m.isEmpty
+    }
+
+    /// 输入行形态：接口地址走 URL 键盘；密钥走 SecureField
+    enum TsFieldKind { case url, plain, secret }
+
+    @ViewBuilder func tsModelField(_ title: String, text: Binding<String>,
+                                   placeholder: String, kind: TsFieldKind) -> some View {
+        HStack(spacing: Spacing.md) {
+            Text(title).font(.system(size: Typography.body))
+            Spacer(minLength: Spacing.md)
+            Group {
+                if kind == .secret {
+                    SecureField(placeholder, text: text)
+                } else {
+                    TextField(placeholder, text: text)
+                }
+            }
+            .font(.system(size: Typography.body))
+            .multilineTextAlignment(.trailing)
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+            .keyboardType(kind == .url ? .URL : .default)
+            .frame(maxWidth: 210)
+        }
+        .padding(.horizontal, Spacing.section)
+        .padding(.vertical, Spacing.md)
+    }
+
+    /// v4.0.87：自定义判定模型的三行输入 + 保存/测试/清 Key + 结果逐条显示
+    @ViewBuilder var tsCustomModelFields: some View {
+        tsModelField("接口地址", text: $tsDraftURL, placeholder: "https://…/v1", kind: .url)
+        tsModelField("模型名", text: $tsDraftModel, placeholder: "如 glm-4.7-flash", kind: .plain)
+        tsModelField("API Key", text: $tsDraftKey,
+                     placeholder: tsModel.configured ? "已配置，改了就覆盖" : "粘贴你的 key",
+                     kind: .secret)
+
+        HStack(spacing: Spacing.md) {
+            // 保存按钮看草稿：三项填够才亮（key 可后补，但没 key 判不了）
+            tsCapsule("保存", on: false) { Task { await saveTypesafeModel() } }
+                .disabled(!tsDraftCanSave || tsModelBusy)
+                .opacity(tsDraftCanSave ? 1 : 0.45)
+            if tsModel.configured {
+                tsCapsule("清除 Key", on: false) { Task { await clearTypesafeModelKey() } }
+                    .disabled(tsModelBusy)
+                    .opacity(tsModelBusy ? 0.45 : 1)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, Spacing.section)
+        .padding(.vertical, Spacing.lg)
+
+        tsParamNote(tsModel.statusText, warn: !tsModel.ready)
+        tsParamNote("点「测试」会先把当前填写保存下来（所以测的就是这份配置）", warn: false)
     }
 
     /// 参数区小胶囊。选中 = 主题色淡底 + 同色文字 + 0.8pt 同色细描边；未选中 = 中性淡底
