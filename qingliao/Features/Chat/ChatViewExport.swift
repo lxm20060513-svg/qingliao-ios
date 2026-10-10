@@ -271,7 +271,7 @@ extension ChatView {
                     showSentOK()
                     // v2.0.36：App 退后台时 AI 回复完成发本地通知
                     if UIApplication.shared.applicationState != .active {
-                        NotificationHelper.notify(title: "轻聊", body: "AI 回复完成，点击查看",
+                        NotificationHelper.notify(kind: .reply, body: "AI 回复完成，点击查看",
                                                   sessionId: chat.sessionId)
                     }
                 }

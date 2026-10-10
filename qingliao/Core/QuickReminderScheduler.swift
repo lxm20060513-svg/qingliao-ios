@@ -198,8 +198,13 @@ final class QuickReminderStore {
     @discardableResult
     private func schedule(_ item: QuickReminder) async -> String? {
         let content = UNMutableNotificationContent()
-        content.title = "轻聊提醒"
-        content.body = item.notificationBody
+        // v4.0.91：标题走统一前缀（【轻聊·提醒】），副标题放关键值（「每天 07:30」这类时间文案），
+        // 正文只放提醒文案 —— 快捷指令自动化可以按「标题含『轻聊·提醒』」筛出定时提醒。
+        let copy = QingliaoNotifyCopy.compose(.reminder, detail: item.timeText,
+                                              body: item.notificationBody)
+        content.title = copy.title
+        if let sub = copy.subtitle { content.subtitle = sub }
+        content.body = copy.body
         content.sound = .default
         content.threadIdentifier = "qingliao_reminder"
         content.userInfo = ["qingliao_reminder": item.id]

@@ -143,7 +143,10 @@ enum QingliaoIntentClient {
 /// `dialog:` 的类型是 `IntentDialog`，字符串字面量靠 `ExpressibleByStringLiteral` 隐式转换；
 /// 运行时 String 必须显式构造：`LocalizedStringResource.init(stringLiteral:)`
 /// → `IntentDialog.init(LocalizedStringResource)`（两个 init 都在 Apple 文档里核过）。
-private func qlDialog(_ text: String) -> IntentDialog {
+///
+/// v4.0.91：从 `private` 放开到模块内 —— 划词动作（QingliaoTextIntents.swift）与实体动作
+/// （QingliaoEntities.swift）在不同的文件里，各自再抄一份构造写法就等着两处漂移。
+func qlDialog(_ text: String) -> IntentDialog {
     IntentDialog(LocalizedStringResource(stringLiteral: text))
 }
 
@@ -249,14 +252,24 @@ struct AddMemoIntent: AppIntent {
     @Parameter(title: "优先级", description: "留空按「普通」处理")
     var priority: MemoPriority?
 
+    /// v4.0.91（划词场景）：把「这段资料哪来的」一起记下来。
+    /// 快捷指令里可接「获取网页地址」/「获取标题」/「获取当前 App」，Safari 划词就能带上出处。
+    /// ⚠️ 来源**拼进正文**而不是塞 `MemoItem.source`：`sourceLabel` 只认
+    /// chat/ai/orb/intent/manual 五个值，塞别的会渲染成「手记」（备忘页信息反而丢），
+    /// 所以宁可显式写成正文最后一行。
+    @Parameter(title: "来源", description: "这条备忘从哪来（可接「获取网页地址」/「获取标题」），留空不记")
+    var source: String?
+
     static var parameterSummary: some ParameterSummary {
         Summary("记到轻聊备忘录 \(\.$content)")
     }
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        let text = content.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return .result(dialog: "内容是空的，没记") }
+        let raw = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !raw.isEmpty else { return .result(dialog: "内容是空的，没记") }
+        let src = (source ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = src.isEmpty ? raw : raw + "\n\n—— 来自 \(src)"
 
         // v3.9.41（SR33）：`MemoStore.auth` 已从 weak 改强引用——原注释说「局部常量活到函数结束
         // 就够」并不成立：写 NAS 是 save() 里的 Task.detached，perform() 一返回就没有任何强引用

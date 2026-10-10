@@ -92,6 +92,27 @@ run_unit /tmp/test_launch_session -swift-version 6 \
 echo "=== 5c. 宠物动画真值表（v4.0.0 走动搞怪 + 镜像/位移顺序坑）==="
 run_unit /tmp/test_pet -swift-version 6 scripts/ql_pet/truth_table_pet.swift
 
+echo "=== 5d. 通知文案规范化真值表（v4.0.91 · iOS 27 快捷指令可判别前缀）==="
+# 编的是**生产源码** qingliao/Core/QingliaoNotifyCopy.swift（纯 Foundation，Linux 可编）——
+# 不是测试里的镜像实现。这一层是「快捷指令按通知标题筛类别」的契约：
+# 前缀改一个字，用户在自动化里写的「标题包含『轻聊·提醒』」就静默失效（界面看不出异常）。
+# ⚠️ run_unit6（Swift 6 口径）：表里 ck() 标了 @MainActor —— 顶层全局变量在 Swift 6 下是
+#    MainActor 隔离的，非隔离函数改不了它（本地实测：main actor-isolated var 'pass' can not
+#    be mutated from a nonisolated context）。别把 @MainActor 去掉。
+rm -rf /tmp/ql_notifycopy_main && mkdir -p /tmp/ql_notifycopy_main
+cp scripts/ql_notifycopy/test_notifycopy.swift /tmp/ql_notifycopy_main/main.swift
+run_unit6 /tmp/test_notifycopy /tmp/ql_notifycopy_main/main.swift \
+    qingliao/Core/QingliaoNotifyCopy.swift
+# 结构契约（分类表只有一份 / 11 个弹通知点一个不漏 / 老标题写法无残留）——单文件口径，直接编跑
+run_unit /tmp/tt_notifycopy scripts/ql_notifycopy/truth_table_notifycopy.swift
+
+echo "=== 5e. iOS 27 快捷指令联动动作源码契约（v4.0.91 · AppEntity + 划词）==="
+# AppIntents 在本机（Linux，无 iOS SDK）**编不了** → 本地只能 `swiftc -parse`（步骤 1）。
+# 这条把「真机能不能认出来」的硬约束钉在源码文本上：实体完整性（defaultQuery/EntityQuery 方法）、
+# 三条隔离纪律（查询不触网 / 走 MainActor.run / 不占 Siri 短语名额）、划词参数必须是 String。
+# 漏一条的症状是「Archive 过了、真机 Siri 里看不见这个动作」—— 那要 20 分钟一轮 CI 才发现。
+run_unit /tmp/tt_ios27 scripts/ql_ios27/truth_table_ios27_intents.swift
+
 # v4.0.58 会走路的小脚 —— 纯几何体检（本机是 Linux，跑不了 SwiftUI 渲染：
 # 把「脚露在体外多少 pt / 步幅多少 pt / 会不会出画布 / 两脚会不会重叠」算出来钉住。
 # 常量从 PetPainter.swift 现读，源码改写法即红）

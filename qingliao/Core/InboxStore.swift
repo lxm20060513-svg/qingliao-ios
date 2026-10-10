@@ -311,7 +311,8 @@ final class InboxStore {
             //      **与会话能否回复无关** —— 所以投递壳里弹卡也不影响作答。
             if sid == ChatStore.deliverySessionId {
                 if taskType == "reply" {
-                    NotificationHelper.notify(title: "轻聊 · 推送", body: text, sessionId: sid)
+                    NotificationHelper.notify(kind: QingliaoNotifyKind.fromTaskType(taskType),
+                                              body: text, sessionId: sid)
                 }
                 await markDone(id, auth: auth)
                 return
@@ -346,9 +347,11 @@ final class InboxStore {
                 lastInjectedCount += 1
                 // 通知口径与各分支既有规则一致：reply 弹横幅、question 弹「需要你确认」、progress 静默
                 if taskType == "reply" {
-                    NotificationHelper.notify(title: "轻聊 · 推送", body: notifyBody, sessionId: sid)
+                    NotificationHelper.notify(kind: QingliaoNotifyKind.fromTaskType(taskType),
+                                              body: notifyBody, sessionId: sid)
                 } else if taskType == "question" {
-                    NotificationHelper.notify(title: "轻聊 · AI 需要你确认", body: notifyBody, sessionId: sid)
+                    NotificationHelper.notify(kind: QingliaoNotifyKind.fromTaskType(taskType),
+                                              body: notifyBody, detail: "需要你确认", sessionId: sid)
                 }
                 // question 刻意不 markDone（卡要一直留着让用户随时能答，见下面对应分支的说明）
                 if taskType != "question" { await markDone(id, auth: auth) }
@@ -378,7 +381,7 @@ final class InboxStore {
         //   agent 消息只弹通知不注入（quiet: 静默时段本来也不会有，但手动 run 兜底）。
         if chat.isDeliverySession, taskType == "reply" || taskType == "progress" || taskType == "agent" {
             if taskType == "reply" || taskType == "agent" {
-                NotificationHelper.notify(title: taskType == "agent" ? "轻聊 · 主动" : "轻聊 · 推送",
+                NotificationHelper.notify(kind: QingliaoNotifyKind.fromTaskType(taskType),
                                           body: text, sessionId: chat.sessionId)
             }
             await markDone(id, auth: auth)
@@ -403,8 +406,8 @@ final class InboxStore {
             qmsg.questionOptions = parts.options.isEmpty ? nil : parts.options
             chat.append(qmsg)
             lastInjectedCount += 1
-            NotificationHelper.notify(title: "轻聊 · AI 需要你确认", body: parts.body,
-                                      sessionId: chat.sessionId)
+            NotificationHelper.notify(kind: QingliaoNotifyKind.fromTaskType(taskType), body: parts.body,
+                                      detail: "需要你确认", sessionId: chat.sessionId)
             return
         }
         // v4.0.11：主动 Agent 消息（后端 proactive_agent 投的 task_type=agent）→
@@ -418,8 +421,8 @@ final class InboxStore {
         //   ① 不走 reply 去重（InboxDedup 是给「AI 回复双投」用的；主动消息与 AI 回复
         //      是两套不同来源，共用双向包含判据会把「你刚问的和你刚被主动提醒的
         //      话题相近」误判成重复 → 主动消息被吞。主动消息带 proactiveId 天然唯一）。
-        //   ② 弹通知标题写「轻聊 · 主动」而非「轻聊 · 推送」——用户能一眼分清
-        //      这是 AI 主动开口，不是自己发问的回复。
+        //   ② 弹通知标题走「主动」类别（v4.0.91 起统一由 QingliaoNotifyKind.fromTaskType
+        //      给出 →【轻聊·主动】），用户一眼分清这是 AI 主动开口，不是自己发问的回复。
         //   ③ 注入目标固定 → 即使用户正停在别的会话，主动消息也只会进「轻聊主动」，
         //      不会打断当前对话（这正是本次要修的核心）。
         // isPush=true：留在会话展示但 historyPayload 会滤掉它 → 不进模型上下文。
@@ -430,7 +433,7 @@ final class InboxStore {
             amsg.pushKind = "agent"
             amsg.proactiveId = sourceTaskId?.isEmpty == false ? sourceTaskId : id
             injectToProactiveSession(amsg)
-            NotificationHelper.notify(title: "轻聊 · 主动", body: text,
+            NotificationHelper.notify(kind: QingliaoNotifyKind.fromTaskType(taskType), body: text,
                                       sessionId: ChatStore.proactiveSessionId)
             await markDone(id, auth: auth)
             return
@@ -492,7 +495,8 @@ final class InboxStore {
             TaskCenterStore.shared.add(TaskCenterItem(
                 id: id, text: text, taskType: taskType,
                 sourceTaskId: sourceTaskId, sessionId: sessionId))
-            NotificationHelper.notify(title: "轻聊 · 任务", body: text, sessionId: chat.sessionId,
+            NotificationHelper.notify(kind: QingliaoNotifyKind.fromTaskType(taskType), body: text,
+                                      sessionId: chat.sessionId,
                                       sound: false)   // #10：定时/后台任务走静默，别抢前台对话铃声
             await markDone(id, auth: auth)
             return
@@ -528,7 +532,8 @@ final class InboxStore {
             if chat.appendPushReplyIfNew(msg) {
                 lastInjectedCount += 1
                 // 弹本地通知（侧载无 APNs，用本地通知横幅兜底；App 前台也弹）
-                NotificationHelper.notify(title: "轻聊 · 推送", body: text, sessionId: chat.sessionId)
+                NotificationHelper.notify(kind: QingliaoNotifyKind.fromTaskType(taskType),
+                                          body: text, sessionId: chat.sessionId)
             }
         }
         await markDone(id, auth: auth)

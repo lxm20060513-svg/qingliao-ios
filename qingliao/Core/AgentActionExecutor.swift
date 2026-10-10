@@ -381,9 +381,13 @@ enum AgentActionExecutor {
             return .failed(reason)
         }
         let body = action.param("body") ?? action.param("message") ?? "（无内容）"
+        // v4.0.91：标题固定前缀【轻聊·提醒】（AI 发的是"提醒用户"这件事），
+        // AI 自己起的标题降级到副标题（关键值）—— 自动化按前缀筛，不靠正文猜。
+        let copy = QingliaoNotifyCopy.compose(.reminder, detail: action.param("title"), body: body)
         let content = UNMutableNotificationContent()
-        content.title = action.param("title") ?? "轻聊"
-        content.body = body
+        content.title = copy.title
+        if let sub = copy.subtitle { content.subtitle = sub }
+        content.body = copy.body
         content.sound = .default
         // 用即时 trigger：1 秒后（UNTimeIntervalNotificationTrigger 最小 0.01）
         let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
