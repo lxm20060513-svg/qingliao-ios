@@ -60,10 +60,23 @@ check("AuthStore 解出全量步数键 toolSeq（与后端响应键同名）",
 // 旧写法 `[[String: Any]], Double, Int) {` 在追加 `[String]` 后必然假红，且与本意无关。
 check("streamPoll 元组已带上 memoAdded（v4.0.120 追加位）",
       authSrc.contains("let memoAdded = j[\"memoAdded\"] as? [String] ?? []")
-      && authSrc.contains("toolSeq, memoAdded)"))
+      && authSrc.contains("toolSeq, memoAdded, reasoning)"))
 check("调用方同步解构出 memoAdded（漏了就是忘了接 UI）",
-      streamSrc.contains("toolSeqIn, memoIn) = try await auth.streamPoll")
+      streamSrc.contains("toolSeqIn, memoIn, reasoningIn) = try await auth.streamPoll")
       && streamSrc.contains("!memoDismissed.contains($0)"))
+// v4.0.90 思考流透传：同样只守「新字段两端都接上」——后端键名同名 + 出现在返回值里 + 调用方解构。
+check("streamPoll 已解出 reasoning 思考流键（v4.0.90 追加位）",
+      authSrc.contains("let reasoning = j[\"reasoning\"] as? String ?? \"\"")
+      && authSrc.contains("memoAdded, reasoning)"))
+check("调用方同步解构出 reasoningIn（漏了 = 思考气泡没数据源）",
+      streamSrc.contains("memoIn, reasoningIn) = try await auth.streamPoll")
+      && streamSrc.contains("if reasoningIn != streamReasoning { streamReasoning = reasoningIn }"))
+check("StreamClient 思考流状态位 + 随流复位（同 toolSeq 生命周期）",
+      streamSrc.contains("var streamReasoning: String = \"\"")
+      && streamSrc.contains("toolStartedAt = 0\n        streamReasoning = \"\""))
+check("思考气泡只在非空时渲染（老后端无键 → 不出现，优雅退化）",
+      chatViewSrc.contains("if !stream.streamReasoning.isEmpty {")
+      && chatViewSrc.contains("ReasoningPeekRow(text: stream.streamReasoning)"))
 
 // ── 2. StreamClient：状态位 + 清零 + 同步 + 口径 ────────────────
 check("StreamClient 有全量步数状态位 toolSeq",

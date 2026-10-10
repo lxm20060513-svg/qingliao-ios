@@ -67,6 +67,7 @@ final class StreamClient {
         toolSpansSig = ""
         toolSeq = 0
         toolStartedAt = 0
+        streamReasoning = ""   // v4.0.90：思考摘要流与本流同生命周期
         // v4.0.120：「已记住」与工具进度同生命周期——切会话/起新流后同一句话再次被记住，
         // 属于**该弹的新事件**，不能被上一流压掉。
         memoAdded = []
@@ -89,6 +90,11 @@ final class StreamClient {
     /// 位置与 toolNames/toolSeq 一致：否则切会话后上一代在途 poll 会把旧流的记忆写进新流。
     /// 与工具进度同生命周期，`resetToolProgress()` 里清空。
     private(set) var memoAdded: [String] = []
+
+    /// v4.0.90：模型思考摘要流（后端透传的 reasoning 增量累积，尾部 2000 字符）。
+    /// 思考气泡在「三点行」里实时展示它的尾部；流结束/切会话由 resetToolProgress() 统一清空。
+    /// 老后端无 reasoning 键 → 恒空串 → 思考气泡不渲染（优雅退化）。
+    private(set) var streamReasoning: String = ""
 
     /// v4.0.x 流式分段朗读：启用条件（自动朗读开 + 朗读引擎未接管过本消息）。
     /// 只读 UserDefaults：ChatView 的落库边沿朗读在同一条件下触发，两处口径一致；
@@ -414,7 +420,7 @@ final class StreamClient {
             return   // 网络恢复 → 本轮直接返回，下一轮按正常间隔续流
         }
         do {
-            let (c, done, st, err, agent, piggyback, toolsIn, spansIn, lastToolAtIn, toolSeqIn, memoIn) = try await auth.streamPoll(taskId: taskId, offset: offset)
+            let (c, done, st, err, agent, piggyback, toolsIn, spansIn, lastToolAtIn, toolSeqIn, memoIn, reasoningIn) = try await auth.streamPoll(taskId: taskId, offset: offset)
             guard generation == self.generation else { return }   // v3.0.50：旧代轮询丢弃
             // v3.9.17：工具进度——只在变化时写入，避免每 0.15s 轮询都触发视图重建。
             // 位置必须在旧代 guard **之后**：否则切会话/起新流后，上一代在途 poll 返回时
@@ -450,6 +456,9 @@ final class StreamClient {
                 let fresh = memoIn.filter { !memoAdded.contains($0) && !memoDismissed.contains($0) }
                 if !fresh.isEmpty { memoAdded.append(contentsOf: fresh) }
             }
+            // v4.0.90：思考摘要流——只在变化时写入（同 toolNames 口径）。
+            // 位置在旧代 guard 之后：切会话后上一代在途 poll 不得把旧流思考写进新流。
+            if reasoningIn != streamReasoning { streamReasoning = reasoningIn }
             if agent { isAgent = true }   // v2.0.96b：Agent 回复标记
             failCount = 0
             // v3.4.23：搭载投递消费——poll 响应里捎带的收件箱消息立即注入任务中心/会话，
@@ -620,6 +629,10 @@ final class StreamClient {
         stopPolling()
         stopSmooth()   // v3.4.20：平滑层收尾（剩余内容一次性补齐）
         clearPersisted()
+        // v4.0.91 审查修复：收尾即清思考流——渲染门在「同会话后段 remoteBusy（probeRemoteBusy 探到
+        // 服务器在途任务）」时会重开，不复位就会把上一轮的思考残留当成本轮思考展示。
+        // 只清单流字段，不走 resetToolProgress()（工具步展示在收尾后仍需保留）。
+        streamReasoning = ""
         endBgTask()   // v3.0.81：结束后台任务
         onFinished?(success, error)
         onFinished = nil

@@ -907,7 +907,6 @@ struct ChatView: View {
         }
     }
 
-
     var body: some View {
         chatBodyChrome7(
         chatBodyChrome6(
@@ -1745,7 +1744,6 @@ struct ChatView: View {
     /// v3.8.1 修复：① 只认「能被 MapLocationParser 认成位置」的链接，不再"有内容就提示"；
     ///             ② 已处理版本号跨启动保留，同一份内容不再每次进 App 都提示。
 
-
     private func checkMapClipboard() async {
         guard !showClipboardBanner, !showIntentClipboardBanner else { return }
         // v3.9.1：先取本版号——探测是 await（有窗口期），期间用户换了剪贴板内容时不能把"新内容"记成已处理
@@ -2375,7 +2373,6 @@ struct ChatView: View {
     // v4.0.29：新卡弹窗宿主（备忘录 / 云盘）
     @State private var showHomeMemoBrowser = false
     @State private var showHomeCloudDrive = false
-
 
     // v2.0.111：欢迎页独立于 ScrollView——不再受滚动容器背景/裁剪影响，logo 永远完整显示
     private var welcomeView: some View {
@@ -3368,6 +3365,11 @@ struct ChatView: View {
                                 // maxWidth 无穷的 frame 拉满（普通气泡靠这个贴边），三点气泡被居中挂在中轴
                                 //（真机截图实报）。与 messageRow 同款 `.frame(maxWidth: .infinity, alignment: .leading)`。
                                 thinkingIndicatorRow
+                                // v4.0.90：思考摘要气泡——后端 reasoning 流非空才渲染（老后端恒空=不出现）。
+                                // 展示尾部 120 字符、可点进「思考过程」全文页（折叠口径见 ReasoningSheet）。
+                                if !stream.streamReasoning.isEmpty {
+                                    ReasoningPeekRow(text: stream.streamReasoning)
+                                }
                             } else {
                                 streamingBubble
                             }
@@ -3487,6 +3489,27 @@ struct ChatView: View {
             .padding(.vertical, Spacing.sm)
     }
 
+    /// v4.0.90：思考过程全文页——展示本轮 reasoning 全量文本（只读、可复制）。
+    struct ReasoningSheet: View {
+        let text: String
+        var body: some View {
+            NavigationStack {
+                ScrollView {
+                    Text(text)
+                        .font(.system(size: Typography.subhead))
+                        .foregroundStyle(.secondary)
+                        .lineSpacing(4)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, Spacing.section)
+                        .padding(.vertical, Spacing.md)
+                }
+                .navigationTitle("思考过程")
+                .navigationBarTitleDisplayMode(.inline)
+            }
+        }
+    }
+
     /// v2.0.60：跨天日期分隔线（灰色胶囊，微信式）
     private func dateDivider(_ ts: Double) -> some View {
         let d = Date(timeIntervalSince1970: ts / 1000)
@@ -3533,6 +3556,49 @@ struct ChatView: View {
             withAnimation(Motion.tap) { action() }
         } else {
             action()
+        }
+    }
+
+    /// v4.0.90：思考摘要行——流式思考期间在三点行下方实时展示模型思考流的尾部。
+    /// 数据源 = 后端 reasoning 流（StreamClient.streamReasoning），0.15s 高频轮询增量到达；
+    /// 「💭 思考中」+ 尾部 120 字符，点击进 ReasoningSheet 看全文。老后端 reasoning 恒空 → 本行不渲染。
+    /// 刷新由 StreamClient（@Observable）属性变更驱动 body 重算，无需 .id 强刷。
+    struct ReasoningPeekRow: View {
+        let text: String
+        /// v4.0.90：全文页开关自持——sheet 挂在行内而不挂 ChatView 主链，
+        /// 避免给宿主 body 再添一条修饰器（类型深度护栏 chatColdChrome7 实报超限）。
+        @State private var showFull = false
+        /// 尾部 120 字符（码点口径，与后端 offset 同源）
+        private var tail: String {
+            String(text.suffix(120))
+        }
+        var body: some View {
+            Button { showFull = true } label: {
+                HStack(alignment: .top, spacing: Spacing.sm) {
+                    Text("💭")
+                        .font(.system(size: Typography.subhead))
+                    Text(tail)
+                        .font(.system(size: Typography.subhead))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: Typography.caption))
+                        .foregroundStyle(.tertiary)
+                }
+                .padding(.horizontal, Spacing.section)
+                .padding(.vertical, Spacing.sm)
+            }
+            .buttonStyle(.plain)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityLabel("查看思考过程")
+            .sheet(isPresented: $showFull) {
+                AnyView(ReasoningSheet(text: text)
+                    .presentationDetents([.medium, .large])
+                    .scrollContentBackground(.hidden)
+                )
+            }
         }
     }
 

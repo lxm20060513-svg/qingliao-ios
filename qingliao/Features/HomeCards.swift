@@ -409,6 +409,8 @@ struct HomeCardTip: Equatable {
 
 struct HomeCardsGrid: View {
     @Environment(AuthStore.self) private var auth
+    /// v4.0.89+：投递/主动卡的未读角标读 ChatStore.unread（宿主注入，两处挂载点都有）
+    @Environment(ChatStore.self) private var chat
 
     // ↓ ChatView 注入的执行通道（本组件不自造路由，见文件头口径 4）
     /// 有可续的上一会话时给出来，轻点「继续上次会话」用
@@ -623,6 +625,9 @@ struct HomeCardsGrid: View {
         .buttonStyle(PressStyle())
     }
 
+    /// v4.0.89+（用户：「轻聊投递卡片和轻聊主动卡片不显示消息数量角标」→ 加回）：
+    /// 投递/主动两卡角标口径与会话页未读角标 SessionRow.unreadBadge 一致（红底数字、≥100 显示 99+），
+    /// 数据读宿主注入会话对应的 ChatStore.unread；找不到会话（卡未渲染）时不出角标。
     private func badge(_ kind: HomeCardKind) -> String? {
         switch kind {
         case .mail:
@@ -630,6 +635,10 @@ struct HomeCardsGrid: View {
             return n > 99 ? "99+" : "\(n)"
         case .todo:
             return data.todoOpen > 0 ? "\(data.todoOpen)" : nil
+        case .delivery, .proactive:
+            guard let s = fixedSession(for: kind),
+                  let n = chat.unread[s.id], n > 0 else { return nil }
+            return n >= 100 ? "99+" : "\(n)"
         default:
             return nil
         }

@@ -97,8 +97,8 @@ final class BackgroundStreamRunner {
                 guard let self, let entry = self.running[sid] else { return }
                 let myGen = entry.gen
                 do {
-                    // 11 元组末位 memoAdded 后台暂不消费（前台 ChatView 已处理），占位保持对齐
-                    let (c, done, st, err, agent, piggyback, _, _, _, _, _) =
+                    // 12 元组末两位 memoAdded/reasoning 后台暂不消费（前台 ChatView 已处理），占位保持对齐
+                    let (c, done, st, err, agent, piggyback, _, _, _, _, _, _) =
                         try await auth.streamPoll(taskId: entry.taskId, offset: entry.offset)
                     // 2026-09-30 审查：撤销后重新移交会建**新** entry，此时 sid 仍存在但已是别人，
                     // 在途回包不得落笔（否则 offset/content 串任务，旧 loop 还会把新条目 finish 掉）

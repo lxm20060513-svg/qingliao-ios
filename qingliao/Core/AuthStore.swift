@@ -699,7 +699,7 @@ final class AuthStore {
         }
     }
 
-    func streamPoll(taskId: String, offset: Int) async throws -> (String, Bool, String, String, Bool, [[String: Any]], [String], [[String: Any]], Double, Int, [String]) {
+    func streamPoll(taskId: String, offset: Int) async throws -> (String, Bool, String, String, Bool, [[String: Any]], [String], [[String: Any]], Double, Int, [String], String) {
         let (data, code): (Data, Int)
         // v2.0.116 fix：轮询也带 X-Auth-Token（后端 do_GET 统一鉴权）
         if NetworkMonitor.shared.isCellular {
@@ -745,7 +745,10 @@ final class AuthStore {
         // v4.0.120：本流**本次新记住**的条目（后端 memoAdded）。老后端无此键=空数组 → 不弹气泡。
         // 与 toolNames/toolSeq 同为「纯增量、整流只增不减」，幂等重发无害。
         let memoAdded = j["memoAdded"] as? [String] ?? []
-        return (content, done, status, error, agent, inbox, toolNames, toolSpans, lastToolAt, toolSeq, memoAdded)
+        // v4.0.90：模型思考摘要流（后端 reasoning_summary 增量累积）。老后端无此键 = 空串 →
+        // 思考气泡不渲染（优雅退化，与 v4.0.89 及之前行为完全一致）。
+        let reasoning = j["reasoning"] as? String ?? ""
+        return (content, done, status, error, agent, inbox, toolNames, toolSpans, lastToolAt, toolSeq, memoAdded, reasoning)
     }
 
     /// v3.0.31：流式任务恢复——qingliao 服务重启后内存任务丢失（poll 404），

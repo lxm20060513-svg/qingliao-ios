@@ -470,5 +470,29 @@ check("护栏：空态副标题走随机一言（v4.0.34 硬编码功能清单�
 check("护栏：有消息时仍是状态提示「随时继续刚才的话题」",
       chat.contains("\"随时继续刚才的话题\""))
 
+// ── ⑩ v4.0.89+ 投递/主动卡未读角标（用户：「轻聊投递卡片和轻聊主动卡片不显示消息数量角标」→ 加回）──
+check("🚨 badge 四分支齐全：mail / todo / delivery+proactive / default（投递/主动不许再漏进 default 返 nil）",
+      {
+          let body = flat(stripCommentLines(fnBody("private func badge", cards)))
+          return body.contains("case.mail:")
+              && body.contains("case.todo:")
+              && body.contains("case.delivery,.proactive:")
+              && body.contains("default:")
+      }())
+check("🚨 投递/主动角标数据源 = fixedSession + chat.unread（与会话页 FixedChannelCard 同源，不另造计数）",
+      {
+          let body = flat(stripCommentLines(fnBody("private func badge", cards)))
+          return body.contains("fixedSession(for:kind)")
+              && body.contains("chat.unread[s.id]")
+      }())
+check("🚨 投递/主动角标 99+ 封顶走 n>=100（与 mail 分支的 n>99 区分开，别被同文件旧串喂饱）+ 零未读不出",
+      {
+          let body = flat(stripCommentLines(fnBody("private func badge", cards)))
+          return body.contains("n>=100?\"99+\"")
+              && body.contains("chat.unread[s.id],n>0")
+      }())
+check("🚨 HomeCardsGrid 挂 @Environment(ChatStore.self)（角标的数据通道，两处宿主都已注入）",
+      flat(stripCommentLines(cards)).contains("@Environment(ChatStore.self)privatevarchat"))
+
 print(fail == 0 ? "✅ ql_chat_home 真值表 \(pass) 项全过" : "❌ 失败 \(fail) / 通过 \(pass)")
 if fail > 0 { exit(1) }
