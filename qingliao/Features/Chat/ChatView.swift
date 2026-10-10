@@ -861,16 +861,10 @@ struct ChatView: View {
                                     expanded: toolStepsExpanded) {
                     withAnimation(Motion.snap) { toolStepsExpanded.toggle() }   // v3.9.19：裸动画收口到令牌（原 .easeOut(0.18)）
                 }
-                // v3.9.81：摘要行下面固定一行进度小字（用户 2026-09-27 要求：任务中心的进度口径同步到聊天页）。
-                // 收起/展开都显示——它才是"跑到哪了"的那一行。包在 TimelineView 里走秒：「静默 N 秒」
-                // 不刷新会像卡死；只包这一行（摘要行与明细不受 1s tick 影响）。文案口径见 StreamProgressText。
-                if stream.isStreaming {
-                    TimelineView(.periodic(from: .now, by: 1)) { _ in
-                        if let note = stream.progressNote {
-                            ToolProgressNote(text: note)
-                        }
-                    }
-                }
+                // v3.9.81 的进度小字（文案 `StreamProgressText` + 视图 `ToolProgressNote`）已于 2026-10-11 撤掉：
+                // 用户真机看过后说「这个工具运行代码的小字…不需要了」。**只撤视图层** ——
+                // 模型层 progressNote 与文案层 `StreamProgressText` 原样保留（任务中心「进行中」那行仍由后端供），
+                // 要恢复就把这段（isStreaming + TimelineView 走秒 + 那一行）拿回来，口径与断言都还在。
                 if toolStepsExpanded {
                     // v3.9.58：TimelineView 每 1s 重算——running 行的「已等 Ns」需要走秒，
                     // 轮询 tick（0.15-0.8s 不定）驱动会让秒数跳变；只在展开明细时包住这一小段，

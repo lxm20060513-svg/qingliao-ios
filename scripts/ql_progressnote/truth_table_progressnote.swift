@@ -12,6 +12,11 @@
 //   文案 = **2b**：去掉「第 N 步」前缀（摘要行就写着「N 步工具调用」，小字再报一次步数是重复；
 //   工具名照旧显示，看的还是「在干什么」）；时机 = 流式进行中显示，收尾即隐藏。
 //
+// ⚠️ 2026-10-11 口径反转（用户真机，本条覆盖上面那条 09-27 拍板）：他说「这个工具运行代码的小字…不需要了」
+//   → 聊天页那行小字**已撤**（只撤视图层：ToolProgressNote 与 ChatView 调用点删除；模型层 progressNote /
+//   文案层 StreamProgressText 一行未删，留作恢复点）。第 2b 段因此是**反向断言**；上半段（两端同口径 /
+//   App 侧文案形态 / 算式镜像）**原样保留** —— 任务中心仍吃后端那行，护栏继续生效。
+//
 // 护栏三件事：
 //   1. **两端同口径**：直接读后端 stream_api.py —— 格式串 / 尾部长度 / 静默分档 / 空白折叠
 //      必须仍与 App 侧的 StreamProgressText 一致（任一端改了这里就红）；
@@ -125,31 +130,21 @@ let pollWrite = sNoComment.contains("content += c") &&
     sNoComment.range(of: "content \\+= c(?:\\s*\\n\\s*contentGrowAt =)", options: .regularExpression) != nil
 check("poll 追加内容后刷新锚点（漏了 → 静默永远 0 秒）", pollWrite)
 
-// ChatView：插在摘要行之后、明细之前；1s 走秒；独立 struct（防 CI 类型检查超时）
-check("有独立 ToolProgressNote struct（在 ChatToolStepCards.swift，不内联进深 ViewBuilder）",
-      toolCardsSrc.contains("struct ToolProgressNote: View {"))
-check("小字用同款小字令牌（Typography.caption + .tertiary）",
-      toolCardsSrc.contains("Typography.caption") && toolCardsSrc.contains(".foregroundStyle(.tertiary)"))
-// 单行会把「最近：…」尾部截掉（整行约 100 字）——必须允许两行
-check("允许两行（lineLimit(2)），单行会截掉「最近」尾部",
-      toolCardsSrc.contains(".lineLimit(2)") && !toolCardsSrc.contains(".lineLimit(1)"))
-if let r = chatSrc.range(of: "private var toolStepCards: some View {") {
-    let body = String(chatSrc[r.lowerBound...])
-    let iSummary = body.range(of: "ToolStepsSummaryRow(count: stream.toolSteps,")?.lowerBound
-    let iNote = body.range(of: "ToolProgressNote(text: note)")?.lowerBound
-    let iExpand = body.range(of: "if toolStepsExpanded {")?.lowerBound
-    check("位置：ToolProgressNote 在摘要行之后",
-          iSummary != nil && iNote != nil && iSummary! < iNote!)
-    check("位置：ToolProgressNote 在展开明细之前（位置口径 = 摘要行下面固定一行）",
-          iNote != nil && iExpand != nil && iNote! < iExpand!)
-    let seg = (iSummary != nil && iNote != nil) ? String(body[iSummary!..<iNote!]) : ""
-    check("门控：只在流式进行中显示（if stream.isStreaming）", seg.contains("if stream.isStreaming"))
-    check("「静默 N 秒」1s 走秒（TimelineView periodic 1）",
-          seg.contains("TimelineView(.periodic(from: .now, by: 1))"))
-} else {
-    check("toolStepCards 源可定位", false)
-}
-// 原子性：不碰既定口径（收起硬钳 / 摘要行步数 / 答完折叠）
+// ── 2b. 聊天页**不再渲染**这行小字（2026-10-11 用户真机口径反转）────────────────
+// 用户原话（配截图，红圈就点在那行「工具：运行代码」上）：「这个工具运行代码的小字…不需要了」。
+// 处置：**只撤视图层** —— `ToolProgressNote` struct 与 ChatView 的调用点一并删除；模型层
+// （StreamClient.progressNote）与文案层（StreamProgressText）一行未删，任务中心「进行中」
+// 那行仍由后端 `_stream_progress_detail` 供（那才是它原本的落点）。要恢复聊天页这行，把
+// 视图层那几行拿回来即可 —— 本表上半段的文案形态断言与第 3 段算式镜像都还在，回归即有护栏。
+check("聊天页不再有 ToolProgressNote struct（视图层已撤；若有意恢复请连同本段一起改回正向断言）",
+      !stripCommentLines(toolCardsSrc).contains("struct ToolProgressNote"))
+check("ChatView 不再渲染进度小字（调用点与 stream.progressNote 都没了）",
+      !stripCommentLines(chatSrc).contains("ToolProgressNote(text:") &&
+      !stripCommentLines(chatSrc).contains("stream.progressNote"))
+// 恢复点必须在位：模型层/文案层一行未删（上面第 1、2 段全绿即证 + 这两条兜底）
+check("恢复点：StreamClient.progressNote 出口仍在", sNoComment.contains("var progressNote: String? {"))
+check("恢复点：StreamProgressText 文案算式仍在", noteSrc.contains("static func line(content: String, toolName: String,"))
+// 原子性：没误伤同卡片的其它口径（摘要行步数 / 答完折叠 / 1s 走秒仍服务于明细）
 check("未改摘要行步数口径（仍读 stream.toolSteps）",
       chatSrc.contains("ToolStepsSummaryRow(count: stream.toolSteps,"))
 check("未改答完折叠口径（toolStepsExpanded 仍在）", chatSrc.contains("toolStepsExpanded"))

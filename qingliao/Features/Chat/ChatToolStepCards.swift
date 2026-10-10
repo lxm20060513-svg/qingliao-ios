@@ -82,28 +82,9 @@ struct ToolStepsTruncationNote: View {
     }
 }
 
-/// v3.9.81：工具卡摘要行**下面**那行进度小字——与任务中心「进行中」卡片同一口径
-/// （`第 N 步 工具 · N 字 · 静默 X · 最近：…`，文案与算式全在 `StreamProgressText`，这里只管样子）。
-///
-/// 用户 2026-09-27 真机要求：任务中心能看到「跑到哪了」，聊天页也要同步显示同一行小字（也是小字）。
-/// 抽成独立 struct 而不是内联进 `toolStepCards`：那处 ViewBuilder 已经很深，内联插值在 CI 上踩过
-/// 「Unable to type-check this expression in reasonable time」（本文件多处同类抽法）。
-struct ToolProgressNote: View {
-    let text: String
-
-    var body: some View {
-        Text(text)
-            .font(.system(size: Typography.caption))
-            .foregroundStyle(.tertiary)
-            // 允许两行：整行约 100 字（含「最近：」尾部 40 字），单行会把最有用的尾部截掉
-            .lineLimit(2)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            // 左内嵌与摘要行卡内文字对齐（外层 toolStepCards 已有 44 的 AI 头像位）
-            .padding(.horizontal, Spacing.xl)
-            .padding(.top, Spacing.xs)
-            .accessibilityLabel("AI 进度：\(text)")
-    }
-}
+// v3.9.81 的 `ToolProgressNote`（摘要行**下面**那行进度小字）已于 2026-10-11 按用户真机口径撤掉：
+// 他说「这个工具运行代码的小字…不需要了」。**只撤视图层** —— 模型层 progressNote 与文案层
+// `StreamProgressText` 原样保留（任务中心「进行中」那行仍由后端供），恢复点见 `scripts/ql_progressnote/`。
 
 /// v3.9.14：工具进度卡**答完后收起**成的那一行（用户反馈：这些别答完还一直摊在对话里）。
 /// 生成中仍然逐条展开（能看到 AI 正在干什么），答完折叠成「N 步工具调用」，点开可看明细。

@@ -34,7 +34,11 @@ struct TodoEntity: AppEntity {
         TypeDisplayRepresentation(name: "轻聊待办")
     }
 
-    static var defaultQuery = TodoEntityQuery()
+    /// `static let` 而非 `static var`：Swift 6 严格并发下可变静态存储属性报
+    /// 「'defaultQuery' is not concurrency-safe because it is nonisolated global shared mutable state」，
+    /// 本机 `-parse` 全绿、只有 CI Archive 挂（v4.0.91 实踩，run #736）。
+    /// 协议要求是 `{ get }`，`let` 即满足；查询结构体无存储属性（隐式 Sendable）。
+    static let defaultQuery = TodoEntityQuery()
 
     var id: String
 
@@ -100,7 +104,8 @@ struct MemoEntity: AppEntity {
         TypeDisplayRepresentation(name: "轻聊备忘")
     }
 
-    static var defaultQuery = MemoEntityQuery()
+    /// 同 TodoEntity：必须 `static let`（Swift 6 严格并发）。
+    static let defaultQuery = MemoEntityQuery()
 
     var id: String
 
@@ -168,7 +173,8 @@ struct GoalEntity: AppEntity {
         TypeDisplayRepresentation(name: "轻聊长期目标")
     }
 
-    static var defaultQuery = GoalEntityQuery()
+    /// 同 TodoEntity：必须 `static let`（Swift 6 严格并发）。
+    static let defaultQuery = GoalEntityQuery()
 
     var id: String
 

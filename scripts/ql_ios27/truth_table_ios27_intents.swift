@@ -45,8 +45,16 @@ for e in ["TodoEntity", "MemoEntity", "GoalEntity"] {
     ck("\(e) 存在且是 AppEntity", ent.contains("struct \(e): AppEntity"))
     ck("\(e) 有 typeDisplayRepresentation（Siri 里显示什么）", ent.contains("TypeDisplayRepresentation(name:"))
 }
-ck("三个实体各自声明 defaultQuery", ent.components(separatedBy: "static var defaultQuery = ").count - 1 == 3,
-   "实得 \(ent.components(separatedBy: "static var defaultQuery = ").count - 1) 处")
+// v4.0.91 口径改正：原先这里钉的是 `static var defaultQuery = `（3 处）—— 那条断言把**编译不过**的写法
+// 钉成了标准答案：Swift 6 严格并发下可变静态存储属性报「not concurrency-safe because it is
+// nonisolated global shared mutable state」，本机 `-parse` 全绿、只有 CI Archive 挂（run #736）。
+// 现钉 `static let`（协议要求是 `{ get }`，let 即满足；查询结构体无存储属性 = 隐式 Sendable），
+// 并补一条负断言防旧写法回流。
+ck("三个实体各自声明 defaultQuery（static let）", ent.components(separatedBy: "static let defaultQuery = ").count - 1 == 3,
+   "实得 \(ent.components(separatedBy: "static let defaultQuery = ").count - 1) 处")
+ck("无 static var defaultQuery（Swift 6 严格并发下 CI Archive 必挂）",
+   ent.components(separatedBy: "static var defaultQuery").count - 1 == 0,
+   "实得 \(ent.components(separatedBy: "static var defaultQuery").count - 1) 处")
 for q in ["TodoEntityQuery", "MemoEntityQuery", "GoalEntityQuery"] {
     ck("\(q) 存在", ent.contains("struct \(q): EntityQuery"))
     ck("\(q) 支持按名搜索（EntityStringQuery）", ent.contains("struct \(q): EntityQuery, EntityStringQuery, EnumerableEntityQuery"))
