@@ -114,8 +114,9 @@ struct RecordSection: View {
         glass.showAdd = true
     }
 
-    // MARK: 单张页卡（本月合计 + 最近读数 + 最近 1 条）
+    // MARK: 单张页卡（本月合计 + 最近读数）
     // v4.0.62（用户 2026-10-05 真机）：3→2 后再收成 1 条，其余仍进「全部记录」弹窗
+    // v4.0.99（用户 2026-10-12）：卡面那「最近 1 条」也撤掉 —— 记录全在展开区里看
 
     private var topCard: some View {
         Button {
@@ -154,28 +155,9 @@ struct RecordSection: View {
                 if !store.monthByCategory.isEmpty {
                     categoryBreakdown
                 }
-                // v4.0.98：展开态下这一截（最近 1 条 +「还有 N 条」）由卡下方那串内部行卡接管，
-                // 不这么切的话第一条会同时以「文字行」和「行卡」出现两次。
-                if !recordExpanded {
-                    Divider().opacity(0.4)
-                    ForEach(Array(store.sorted.prefix(1))) { r in
-                        HStack(spacing: 8) {
-                            Text(r.title)
-                                .font(.system(size: Typography.subhead))
-                                .lineLimit(1)
-                            Spacer(minLength: 0)
-                            Text(r.amountText)
-                                .font(.system(size: Typography.subhead))
-                                .foregroundStyle(.secondary)
-                                .monospacedDigit()
-                        }
-                    }
-                    if store.records.count > 1 {
-                        Text("还有 \(store.records.count - 1) 条")
-                            .font(.system(size: Typography.caption))
-                            .foregroundStyle(.tertiary)
-                    }
-                }
+                // v4.0.99（用户 2026-10-12「记录卡片首页去掉最新一条记录，全部放在展开条目里」）：
+                // 卡面不再画「最近 1 条 + 还有 N 条」那一截 —— 记录一律只看**展开区**里的行卡。
+                // 卡面只剩读数（本月合计 / 最近读数 / 分类占比），首屏更干净、也不再和展开区重复第一条。
             }
             .padding(Spacing.section)
             .frame(maxWidth: .infinity, minHeight: MemoCardMetrics.minHeight, alignment: .leading)
@@ -249,6 +231,11 @@ struct RecordSection: View {
             .buttonStyle(PressStyle())
             .pastelCard(cornerRadius: 22)
         }
+        // v4.0.99（用户 2026-10-12「app 整体做视觉对齐」）：展开区统一的左右内缩 10 + 顶部 8 ——
+        // 与 TodoSection / GoalsSection / HabitSection 三处展开区**逐字同值**，
+        // 生活页四张卡点开后的内容缩进因此对齐（原来只有记录这张是齐平页边的）。
+        .padding(.horizontal, 10)
+        .padding(.top, 8)
     }
 
     /// v4.0.19 本月分类占比（候选池②的可视部分）。

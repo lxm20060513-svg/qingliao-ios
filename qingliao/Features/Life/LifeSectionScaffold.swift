@@ -282,3 +282,33 @@ struct LifeNoteComposeSheet: View {
         }
     }
 }
+
+// MARK: - v4.0.99 展开区共用的勾选圈（单一来源）
+//
+// 用户 2026-10-12「app 整体做视觉对齐」：待办 / 长期目标两张卡点开后都在卡下列一行行的条目，
+// 勾选控件必须是**同一枚**。谁在各自文件里再画一枚（尺寸/描边/勾号各差一点），
+// 两张卡展开后就会长得不一样 —— 而且不会报错，只有用户能看出「歪了」。
+// 所以提成非 private 的跨文件单一来源（同 LifeCapsule.swift 顶部那条规矩）。
+struct LifeCheckCircle: View {
+    let done: Bool
+    var size: CGFloat = 24
+    /// 勾上之后的填充色（待办 = 绿、长期目标 = 主题色；底色/描边/勾号一律共用）
+    var tint: Color = .green
+
+    var body: some View {
+        Circle()
+            .fill(done ? tint : Color.primary.opacity(0.10))
+            .overlay {
+                Circle()
+                    .strokeBorder(done ? Color.clear : Color.primary.opacity(0.30), lineWidth: 1.4)
+            }
+            .overlay {
+                if done {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: size * 0.44, weight: .bold))
+                        .foregroundStyle(.white)
+                }
+            }
+            .frame(width: size, height: size)
+    }
+}

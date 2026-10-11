@@ -46,6 +46,12 @@ struct HabitSection: View {
     @State private var dayTicker = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
     @Environment(\.scenePhase) private var scenePhase
 
+    /// v4.0.99（用户 2026-10-12「习惯卡片点击不弹窗，改成跟待办清单一样的卡片展开显示」）：
+    /// 页卡点开 = **就地向下展开全部习惯行卡**（点行 = 打卡），不再开「全部习惯」浮层。
+    /// 浮层入口不丢 —— 挪到展开区底部那行「全部习惯」（`glass.showAll = true`）。
+    /// 与待办 / 长期目标两张卡同一套交互（`todoExpanded` / `expandedGoalID` 逐条同构）。
+    @State private var habitExpanded = false
+
     var body: some View {
         root
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -56,6 +62,11 @@ struct HabitSection: View {
             // 回前台补一次：后台常驻跨夜再回来时，ticker 未必及时触发
             .onChange(of: scenePhase) { _, phase in
                 if phase == .active, !Calendar.current.isDateInToday(today) { today = Date() }
+            }
+            // v4.0.99：习惯被删空时复位展开态（与记录 / 目标两张卡同款）—— 否则删光后再新建第一个
+            // 习惯，它以「已展开」形态凭空出现（用户没点过任何东西）。
+            .onChange(of: store.habits.isEmpty) { _, empty in
+                if empty { habitExpanded = false }
             }
             // 🚨 v4.0.78：原来挂在这里的三条 `.sheet`（新建 / 全部列表 / 详情）已删除。
             // 三个浮层改由页级宿主 HabitGlassLayerHost 渲染（挂 LifeView 根 → 全屏）。
@@ -120,8 +131,17 @@ struct HabitSection: View {
                 // v4.0.97（用户 2026-10-11「习惯卡片做成上图的样式」）：页卡由**行卡**换成
                 // **圆环 + 三行指标**的统计卡。原 HabitRowCard(compact: true) 口径作废；
                 // 列表行 HabitRowCard(compact: false) 不受影响，仍是原来的行卡。
-                HabitProgressCard(stats: stats)
-                    .onTapGesture { openTop(top) }
+                //
+                // v4.0.99（用户 2026-10-12「习惯卡片点击不弹窗，改成跟待办一样的卡片展开显示」）：
+                // 点卡从「开全部习惯浮层 / 单条直接进详情」改成**就地向下展开**（Button + PressStyle，
+                // 与待办/目标卡同一套按压反馈与读屏口径 —— 原来是裸 onTapGesture）。
+                VStack(alignment: .leading, spacing: 0) {
+                    Button {
+                        toggleExpand()
+                    } label: {
+                        HabitProgressCard(stats: stats)
+                    }
+                    .buttonStyle(PressStyle())
                     .contextMenu {
                         HabitMenuItems(h: top, today: today,
                                        onView: { openDetailFromCard($0) },
@@ -130,22 +150,84 @@ struct HabitSection: View {
                                        // 「最近更新那条」，两者不同一条 → 页卡不挂「删除」（详情页里仍可删）
                                        showsDelete: false)
                     }
-                    .accessibilityLabel("习惯统计，近 7 天完成 \(stats.done) / \(stats.total)，点开查看")
+                    .accessibilityLabel(habitExpanded
+                                        ? "习惯统计，已展开，点一下收起"
+                                        : "习惯统计，近 7 天完成 \(stats.done) / \(stats.total)，点一下展开")
+
+                    if habitExpanded {
+                        habitExpandList(store.sorted)
+                    }
+                }
             }
         }
     }
 
-    /// 点页卡：只有 1 个时「全部习惯」列表是多余的一跳 → 直接进详情（原 openTop 语义不变）。
-    /// v4.0.78：原 fromList:false 分支把 detailCurrent 设为 store 里的**当前**副本再开详情；
-    /// 现在 presenter.detail 直接承载这个「当前副本」（不再需要单独的 detailCurrent 渲染快照）。
-    private func openTop(_ h: HabitItem) {
-        if store.sorted.count == 1 {
-            openDetailFromCard(h)
-        } else {
-            glass.showAdd = false
-            glass.detail = nil
-            glass.showAll = true
+    /// 点页卡：展开 / 收起 —— 逐条错峰弹出见 habitExpandList（与待办 / 目标卡同口径）
+    private func toggleExpand() {
+        withAnimation(Motion.settle) { habitExpanded.toggle() }
+        Haptics.tap()
+    }
+
+    // MARK: v4.0.99 页卡「点击向下展开」的习惯行列表（与 TodoExpandList 同几何）
+
+    /// 展开区：全部习惯逐条弹出（每条错峰 55ms），**点行 = 打卡/取消打卡**（与待办同理，
+    /// 行的主操作就是打勾）；行卡复用「全部习惯」浮层那张 `HabitRowCard`（`checkAsButton: false`
+    /// —— 整行已是 Button，内层再套一枚会抢点击），长按菜单补「查看 / 打卡」。
+    /// 底部「全部习惯 N 个 ›」= 原「点卡直接开」的那个浮层入口（不丢）。
+    private func habitExpandList(_ habits: [HabitItem]) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(Array(habits.enumerated()), id: \.element.id) { idx, h in
+                Button {
+                    toggleHabit(h, today: today)
+                } label: {
+                    HabitRowCard(h: h, today: today, checkAsButton: false)
+                }
+                .buttonStyle(PressStyle())
+                .contextMenu {
+                    HabitMenuItems(h: h, today: today,
+                                   onView: { openDetailFromCard($0) },
+                                   onDelete: { glass.pendingDelete = $0 })
+                }
+                .transition(.asymmetric(
+                    insertion: .offset(y: -14).combined(with: .opacity)
+                        .combined(with: .scale(scale: 0.97, anchor: .top)),
+                    removal: .opacity
+                ).animation(Motion.settle.delay(Double(idx) * 0.055)))
+            }
+
+            // 只有一条时「全部习惯」是多余的一跳（展开区里已经把它画全了）→ 不显示这行。
+            if habits.count > 1 {
+                Button {
+                    openAllHabits()
+                } label: {
+                    HStack(spacing: 6) {
+                        Text("全部习惯")
+                            .font(.system(size: Typography.subhead, weight: .medium))
+                        Spacer(minLength: 0)
+                        Text("\(habits.count) 个")
+                            .font(.system(size: Typography.caption))
+                            .foregroundStyle(.tertiary)
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: Typography.caption, weight: .semibold))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(PressStyle())
+                .pastelCard(cornerRadius: 18)
+            }
         }
+        .padding(.horizontal, 10)
+        .padding(.top, 8)
+    }
+
+    /// 开「全部习惯」浮层（展开区底部那行入口走这里；三层浮层互斥口径同其它入口）
+    private func openAllHabits() {
+        glass.showAdd = false
+        glass.detail = nil
+        glass.showAll = true
     }
 
     /// 从页卡/页卡菜单开详情（原 openDetail(fromList: false) 的等价物）：直接置 presenter.detail。
@@ -440,6 +522,10 @@ private struct HabitProgressCard: View {
 struct HabitRowCard: View {
     let h: HabitItem
     let today: Date
+    /// v4.0.99：整行被外层包成 Button 时（页卡展开区 —— 点行 = 打卡），内层这枚 Button 会与外层
+    /// 抢点击/读屏重复；那边传 `false` → 勾选圈退成纯图形，动作由外层行 Button 承接。
+    /// ⚠️ 新形参一律追加在尾部 + 给默认值（SwiftUI 实参序 = 声明序，仓内有 CI 护栏）。
+    var checkAsButton: Bool = true
 
     /// 计算属性（非存储属性）→ 不进 memberwise init，也不触发「私有存储属性降级 init 访问级别」那条规则
     private var store: HabitStore { HabitStore.shared }
@@ -465,18 +551,28 @@ struct HabitRowCard: View {
         .contentShape(Rectangle())
     }
 
+    @ViewBuilder
     private var checkCircle: some View {
         let done = store.isDone(h, on: today)
-        return Button {
-            toggleHabit(h, today: today)
-        } label: {
-            Image(systemName: done ? "checkmark.circle.fill" : "circle")
-                .font(.system(size: 26, weight: .medium))
-                .foregroundStyle(done ? Color.green : Color.secondary.opacity(0.4))
-                .contentShape(Rectangle())
+        if checkAsButton {
+            Button {
+                toggleHabit(h, today: today)
+            } label: {
+                mark(done)
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel(done ? "取消今日打卡" : "今日打卡")
+        } else {
+            mark(done)
+                .accessibilityHidden(true)
         }
-        .buttonStyle(.borderless)
-        .accessibilityLabel(done ? "取消今日打卡" : "今日打卡")
+    }
+
+    /// v4.0.99（用户 2026-10-12「app 整体做视觉对齐」）：勾选圈统一走跨文件单一来源
+    /// `LifeCheckCircle`（与待办 / 长期目标展开区同一枚），不再各画各的 SF Symbol。
+    private func mark(_ done: Bool) -> some View {
+        LifeCheckCircle(done: done, size: 26, tint: .green)
+            .contentShape(Rectangle())
     }
 
     private var streakLine: some View {
@@ -666,9 +762,9 @@ private struct HabitDetailSheet: View {
                             refreshCurrent()
                         } label: {
                             HStack(alignment: .top, spacing: 12) {
-                                Image(systemName: store.isDone(current, on: today) ? "checkmark.circle.fill" : "circle")
-                                    .font(.system(size: 26, weight: .medium))
-                                    .foregroundStyle(store.isDone(current, on: today) ? Color.green : Color.secondary.opacity(0.4))
+                                // v4.0.99（用户 2026-10-12「app 整体做视觉对齐」）：与 HabitRowCard
+                                // 的勾选圈同一枚（26pt 档），不再自绘 SF Symbol。
+                                LifeCheckCircle(done: store.isDone(current, on: today), size: 26, tint: .green)
                                 VStack(alignment: .leading, spacing: 10) {
                                     Text(current.title)
                                         .font(.system(size: Typography.headline))

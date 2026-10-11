@@ -53,21 +53,13 @@ struct TodoSection: View {
                 }
             }
         )
-        // v4.0.97「勾选联动」第三处：完成度越高，本栏目上方越绿（与卡底那半共用 completionTint）。
-        //
-        // v4.0.98 修（用户 2026-10-11「记录卡片底色被串了」）：原来这里是
-        // `.frame(height: 260)` + `.offset(y: -150)` —— 故意往上溢出 150pt 去接页顶光晕区。
-        // 但栏目在 LazyVStack 里是**一行行按顺序画的**，后画的行的 background 会盖在上一行之上，
-        // 于是这层绿直接糊在正上方「记录」栏目那张玻璃卡上（玻璃半透 → 整张记录卡泛绿，
-        // 越靠上越绿；实拍 G-R 从 +12 渐到 +6）。改成从本栏目顶边起、**只在自己这一行内**
-        // 往下衰减：染色照旧，越界清零。
-        .background(alignment: .top) {
-            LinearGradient(colors: [Color.green.opacity(completionTint), .clear],
-                           startPoint: .top, endPoint: .bottom)
-                .frame(height: 110)
-                .allowsHitTesting(false)
-                .animation(Motion.settle, value: completionTint)
-        }
+        // v4.0.99（用户 2026-10-12「待办清单卡片底色串到了标题栏」）：
+        // 这里原来那层 `.background(alignment: .top) { LinearGradient(...).frame(height: 110) }`
+        // 从**本栏目的最顶边**（= 页级标题行「待办清单 ／ 添加」那一行）就开始铺绿 ——
+        // 玻璃标题栏半透，于是绿色直接串到标题栏上（用户截图：标题行一层淡青绿）。
+        // 直接撤掉这层环境光晕：染色只留在**卡片自己内部**（TodoProgressCard 里那层
+        // `Color.green.opacity(tint)` 圆角底），标题栏恢复干净。
+        // ⚠️ completionTint 仍是「完成度 → 染色强度」的单一真源（卡底那份照用，别删）。
         .confirmationDialog("清理已完成的待办？", isPresented: $confirmClearCompleted, titleVisibility: .visible) {
             Button("清理已完成", role: .destructive) {
                 withAnimation(Motion.settle) { store.clearCompleted() }
@@ -536,9 +528,9 @@ struct TodoDetailSheet: View {
                             Haptics.success()
                         } label: {
                             HStack(alignment: .top, spacing: 12) {
-                                Image(systemName: current.done ? "checkmark.circle.fill" : "circle")
-                                    .font(.system(size: 26, weight: .medium))
-                                    .foregroundStyle(current.done ? Color.green : Color.secondary.opacity(0.4))
+                                // v4.0.99（用户 2026-10-12「app 整体做视觉对齐」）：与展开区/习惯行卡
+                                // 同一枚勾选圈（26pt 档），不再自绘 SF Symbol。
+                                LifeCheckCircle(done: current.done, size: 26, tint: .green)
                                 VStack(alignment: .leading, spacing: 10) {
                                     Text(current.content)
                                         .font(.system(size: Typography.headline))
@@ -685,49 +677,66 @@ private struct TodoRowCard: View {
 // 取代原来的「全部待办」浮层入口（用户选 1：浮层不要了）。
 // ⚠️ 展开后卡内那条要收起来 —— 否则和列表里同一条重复，看着像多了一条（对比稿里实测的坑）。
 
-/// 进度环（联动①：弧长随完成度前进）
+/// 进度环（v4.0.99：**三重同心环** —— 外绿 / 中紫 / 内橙，用户 2026-10-12 口径）
+///
+/// 三圈同源同进度（待办只有一个完成度指标），所以三层弧长恒等。
+/// **几何（v4.0.99 审查修正）**：`Circle().stroke(...)` 是**居中**描边 —— 环的可见色带在直径上是
+/// `[D − 线宽, D + 线宽]`（D = frame 边长），所以「每往里一圈缩多少」必须按**半径**算：
+/// 缩一个 `lineWidth` 只够让开自己这条描边、相邻两圈的色带**正好相切**（渲染出来是一整条
+/// 三色粗环，「三重」根本分不出层次）→ 必须再让出一个缝。
+/// 本文件口径：线宽 6、缝 3 → `insetStep = 9`，三圈路径直径 70 / 52 / 34，
+/// 可见色带直径 外 [64,76] · 中 [46,58] · 内 [28,40]，**圈间留白 6pt**、环心空 28pt。
+/// 底色轨**用各自的颜色 0.18**（不是统一的灰）—— 这样任何时候都能看见「橙紫绿」三层，
+/// 零进度时也不会退化成一枚灰环。
 private struct TodoProgressRing: View {
     let progress: Double
     var size: CGFloat = 70
-    var lineWidth: CGFloat = 8
+    /// v4.0.99：8 → 6（三圈要挤进同一个外径里）
+    var lineWidth: CGFloat = 6
+
+    /// 相邻两圈之间的**径向留白**（直径上的空隙 = 2×它）。0 就是三环相切成一条粗带。
+    private var ringGap: CGFloat { 3 }
+
+    /// 每往里一层，环路径的**半径**缩这么多 = 让开本圈描边（线宽）+ 一圈缝。
+    /// ⚠️ 写成 `lineWidth` 会让相邻色带正好相切（审查实抓）；写成 `lineWidth * 2` 则环心只剩 6pt。
+    private var insetStep: CGFloat { lineWidth + ringGap }
 
     var body: some View {
         ZStack {
-            Circle().stroke(Color.primary.opacity(0.12), lineWidth: lineWidth)
-            Circle()
-                // v4.0.97 审查（low）：理由同 GoalsSection 的进度环 —— 零进度别靠极值糊过去，
-                // .round 线帽会在环顶留一颗 lineWidth 直径的假点。
-                .trim(from: 0, to: min(1, max(0, progress)))
-                .stroke(Color.green, style: StrokeStyle(lineWidth: lineWidth,
-                                                        lineCap: progress > 0 ? .round : .butt))
-                .rotationEffect(.degrees(-90))
+            ring(Color.green, inset: 0)                 // 外环：绿
+            ring(Color.purple, inset: insetStep)        // 中环：紫
+            ring(Color.orange, inset: insetStep * 2)    // 内环：橙
         }
         .frame(width: size, height: size)
         .animation(Motion.settle, value: progress)
         .accessibilityHidden(true)
     }
+
+    /// 单圈 = 底色轨 + 进度弧（零进度别靠极值糊过去：`.round` 线帽会在环顶留一颗假点 → 走 butt）
+    private func ring(_ color: Color, inset: CGFloat) -> some View {
+        ZStack {
+            Circle().stroke(color.opacity(0.18), lineWidth: lineWidth)
+            Circle()
+                .trim(from: 0, to: min(1, max(0, progress)))
+                .stroke(color, style: StrokeStyle(lineWidth: lineWidth,
+                                                  lineCap: progress > 0 ? .round : .butt))
+                .rotationEffect(.degrees(-90))
+        }
+        .frame(width: size - inset * 2, height: size - inset * 2)
+    }
 }
 
 /// 24pt 圆形勾选框（v4.0.98 用户口径：从 30pt 圆角方改成**圆形**并把尺寸缩小一档）
+///
+/// v4.0.99（用户 2026-10-12「app 整体做视觉对齐」）：几何搬进**跨文件单一来源** `LifeCheckCircle`
+///（LifeSectionScaffold.swift），本类型退成薄壳 —— 待办展开区与「长期目标」展开区共用同一枚，
+/// 两处尺寸/描边/勾号不会再各走各的。名字保留，调用点不动。
 private struct TodoCheckBox: View {
     let done: Bool
     var size: CGFloat = 24
 
     var body: some View {
-        Circle()
-            .fill(done ? Color.green : Color.primary.opacity(0.10))
-            .overlay {
-                Circle()
-                    .strokeBorder(done ? Color.clear : Color.primary.opacity(0.30), lineWidth: 1.4)
-            }
-            .overlay {
-                if done {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: size * 0.44, weight: .bold))
-                        .foregroundStyle(.white)
-                }
-            }
-            .frame(width: size, height: size)
+        LifeCheckCircle(done: done, size: size, tint: .green)
     }
 }
 

@@ -81,8 +81,12 @@ check("② 展开态视图存在（private var recordCardExpandList）",
       rsCode.contains("private var recordCardExpandList"))
 check("② 展开态挂在页卡下方（root 里 if recordExpanded { recordCardExpandList }）",
       rootSlice.contains("if recordExpanded { recordCardExpandList }"))
-check("② 收起态那一截（最近 1 条 +「还有 N 条」）只在未展开时画（否则第一条出现两次）",
-      rsCode.contains("if !recordExpanded {"))
+// v4.0.99（用户 2026-10-12「记录卡片首页去掉最新一条记录，全部放在展开条目里」）：
+// 口径**翻转** —— 收起来那一截（最近 1 条 +「还有 N 条」）整块删除，断言从「只在未展开时画」
+// 翻成「不许再回来」，否则旧口径会被护栏一路保回来（本轮实跑正是这一条红）。
+check("🚫 反向②：卡面不许再画「最近 1 条 / 还有 N 条」（用户 2026-10-12 点名去掉；记录一律看展开条目）",
+      !rsCode.contains("if !recordExpanded {")
+      && !rsCode.contains("还有 \\(store.records.count - 1) 条"))
 
 // ── ③ 内部行卡复用浮层同一张（不许第二套行样式） ──────────────────────────
 check("③ 展开态内部行卡 = RecordRowCard(item: r)（与「全部记录」浮层同一张）",

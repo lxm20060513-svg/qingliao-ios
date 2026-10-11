@@ -39,8 +39,15 @@ struct GoalsSection: View {
     /// 列表一滚浮层跟着跑。全屏浮层必须挂在**页面根**、滚动区之外 → 见 GoalsGlassLayerHost。
     private var glass = GoalsGlassPresenter.shared
 
-    // v4.0.98：`showFinished`（已完成折叠行）与 `goalExpanded`（卡下逐条弹出）两个 @State
-    // 随各自那条就地展开路径一起删除 —— 现在页面上只剩「圆环卡 → 全部目标浮层」这一条入口。
+    /// v4.0.99（用户 2026-10-12「习惯卡片和长期目标卡片点击不弹窗，改成跟待办清单一样的卡片展开显示」）：
+    /// 页卡点开 = **就地向下展开步骤列表**（与待办卡同一套交互），不再直接开「全部目标」浮层。
+    /// 浮层入口不丢 —— 挪到展开区底部那行「全部目标」（`glass.showAll = true`）。
+    ///
+    /// ⚠️ **存 id 不存 Bool**（v4.0.99 审查 P1）：展开区画的是「当前主目标」的步骤，而主目标是
+    /// `mainList.first` —— 勾掉它的**最后一步**会让该目标 `isFinished` 变真、`activeGoals` 重算、
+    /// `mainList.first` 换成下一条。只用一个 Bool 的话，展开区会**静默切到另一条目标的步骤上**
+    /// （用户没点过任何东西，面前的内容却换了）。绑 id 后：主目标一换，条件不成立 → 自动收起。
+    @State private var expandedGoalID: String?
 
     var body: some View {
         root
@@ -62,26 +69,18 @@ struct GoalsSection: View {
                 }
             }
         )
-        // v4.0.97「勾选联动」第三处：主目标推进得越多，本栏目上方越浓（色 = 主题色）。
-        //
-        // v4.0.98 同待办卡的修法（用户 2026-10-11「记录卡片底色被串了」）：原来 `.frame(height: 260)`
-        // + `.offset(y: -150)` 往上溢出，会糊在正上方「习惯」栏目那张玻璃卡上（同一类串色）。
-        // 改成只在**自己这一行内**往下衰减，越界清零。
-        .background(alignment: .top) {
-            LinearGradient(colors: [Color.accentColor.opacity(goalTopTint), .clear],
-                           startPoint: .top, endPoint: .bottom)
-                .frame(height: 110)
-                .allowsHitTesting(false)
-                .animation(Motion.settle, value: goalTopTint)
-        }
+        // v4.0.99（用户 2026-10-12「长期目标卡片底色串到了标题栏」）：
+        // 与待办卡同款修法 —— 撤掉 `.background(alignment: .top) { LinearGradient(...).frame(height: 110) }`
+        // 那层环境光晕（它从本栏目最顶边起铺，玻璃标题行半透 → 主题色直接串到「长期目标」标题栏上）。
+        // 染色只留在卡片自己内部（GoalProgressCard 里那层 `Color.accentColor.opacity(tint)` 圆角底）。
+        // ⚠️ goalTint 仍是「完成度 → 染色强度」的单一真源（卡底那份照用，别删）。
     }
 
-    /// 主目标的完成度染色强度（页顶与卡底共用这一个真源）
-    private var goalTopTint: Double {
-        mainList.first.map(goalTint) ?? 0
-    }
+    // v4.0.99：`goalTopTint`（栏目上方环境光晕的染色强度）随那层 `.background(alignment: .top)`
+    // 一起删除 —— 用户 2026-10-12 点名「底色串到标题栏」，整层撤掉后它已无任何消费者。
+    // 卡底那份染色走的是 `goalTint(top)`（见 topCard），与它无关，别被旧注释误导。
 
-    /// 0 步完成 → 不染；全部完成 → 最浓
+    /// 单条目标的完成度染色强度（**卡底**那层 `Color.accentColor.opacity(tint)` 的真源）
     private func goalTint(_ goal: GoalItem) -> Double {
         guard !goal.steps.isEmpty else { return 0 }
         let r = goal.progressRatio
@@ -159,32 +158,134 @@ struct GoalsSection: View {
 
     // MARK: 页面单卡 = 圆环卡（v4.0.97）
 
-    /// v4.0.98（用户 2026-10-11：「长期目标卡片点击直接转到全部目标卡片，不再展开已完成卡片」）：
-    /// 点这张卡 = **直接开「全部目标」浮层**。卡下逐条弹出步骤（原 GoalExpandList）与页面上那条
-    /// 「已完成 N 个」折叠行（原 finishedFold）两条就地展开路径一并退休 —— 步骤勾选、已完成目标
-    /// 都在浮层里；卡本身只剩「环 + x/y + 标题」这套读数（下段「下一步」也已删，同待办卡）。
+    /// v4.0.99（用户 2026-10-12「长期目标卡片点击不弹窗，改成跟待办清单一样的卡片展开显示」）：
+    /// 点这张卡 = **就地向下展开步骤列表**（复用与待办展开区同一套几何），再点叠回。
+    /// 卡本身只剩「环（含百分比）+ x/y + 标题」这套读数；展开态底部保留「全部目标」浮层入口
+    /// （步骤勾选在卡下就地做，已完成的目标仍进浮层看）。
     @ViewBuilder
     private var topCard: some View {
         if let top = mainList.first {
-            GoalProgressCard(
-                goal: top,
-                tint: goalTint(top),
-                onTapCard: openAllGoals
-            )
-            .contextMenu { goalMenuItems(top) }
-            .accessibilityLabel("长期目标，\(top.doneCount)/\(top.steps.count) 步，点一下看全部目标")
+            VStack(alignment: .leading, spacing: 0) {
+                GoalProgressCard(
+                    goal: top,
+                    tint: goalTint(top),
+                    onTapCard: toggleExpand
+                )
+                .contextMenu { goalMenuItems(top) }
+                .accessibilityLabel(expandedGoalID == top.id
+                                    ? "长期目标，已展开，点一下收起"
+                                    : "长期目标，\(top.doneCount)/\(top.steps.count) 步，点一下展开")
+
+                // 绑 id 渲染：主目标换成另一条时（勾完最后一步 → 该目标 isFinished → activeGoals 重算）
+                // 条件不成立，展开区自动收起，不会把「已展开」漂到另一条目标上。
+                if expandedGoalID == top.id {
+                    goalExpandList(top)
+                }
+            }
         }
     }
 
-    /// 点圆环卡：直接开「全部目标」浮层（先收详情 —— 三层浮层互斥口径同其它入口）
+    /// 点圆环卡：展开 / 收起 —— 逐条错峰弹出见 goalExpandList（与待办卡 toggleExpand 同口径）
+    private func toggleExpand() {
+        guard let id = mainList.first?.id else { return }
+        withAnimation(Motion.settle) { expandedGoalID = (expandedGoalID == id) ? nil : id }
+        Haptics.tap()
+    }
+
+    /// 开「全部目标」浮层（展开区底部那行入口走这里；先收详情 —— 三层浮层互斥口径同其它入口）
     private func openAllGoals() {
         glass.detail = nil
         glass.showAll = true
         Haptics.tap()
     }
 
-    // v4.0.98：原 `toggleStep(_:_:)`（卡内勾那一步）随下段「下一步」一起删除 ——
-    // 步骤勾选现在只在「全部目标」浮层里（那边直接调 store.toggleStep，见 GoalsAllListBody）。
+    // MARK: v4.0.99 页卡「点击向下展开」的步骤列表（与 TodoExpandList 同几何）
+
+    /// 展开区：主目标的全部步骤逐条弹出（每条错峰 55ms，位移 + 淡入 + 轻缩放）。
+    /// 勾一步 = 写库 + 回灌详情副本 + 同步待办（与 GoalsDetailSheet 里那套逐条同源）。
+    /// 底部「全部目标 N 个 ›」= 原「点卡直接开」的那个浮层入口（不丢）。
+    private func goalExpandList(_ top: GoalItem) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(Array(top.steps.enumerated()), id: \.element.id) { idx, s in
+                // 包 Button + PressStyle：这里不在 List 里，裸 onTapGesture 没有按压反馈、
+                // 读屏也不当它是按钮（与 RecordSection 展开区同一条口径）
+                Button {
+                    toggleStep(goalID: top.id, step: s)
+                } label: {
+                    HStack(alignment: .top, spacing: 11) {
+                        // 与待办展开区同一枚勾选圈（视觉对齐单一来源 LifeCheckCircle）
+                        LifeCheckCircle(done: s.done, tint: Color.accentColor)
+                        VStack(alignment: .leading, spacing: 3) {
+                            HStack(alignment: .firstTextBaseline, spacing: 5) {
+                                Text("第\(idx + 1)步")
+                                    .font(.system(size: 10.5, weight: .semibold))
+                                    .foregroundStyle(.tertiary)
+                                    .monospacedDigit()
+                                Text(s.title)
+                                    .font(.system(size: 14.5))
+                                    .foregroundStyle(s.done ? Color.secondary : Color.primary)
+                                    .strikethrough(s.done, color: .secondary)
+                                    .multilineTextAlignment(.leading)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            if s.todoLinked {
+                                Text("已同步到待办")
+                                    .font(.system(size: 10.5))
+                                    .foregroundStyle(.tertiary)
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(PressStyle())
+                .pastelCard(cornerRadius: 18)
+                .transition(.asymmetric(
+                    insertion: .offset(y: -14).combined(with: .opacity)
+                        .combined(with: .scale(scale: 0.97, anchor: .top)),
+                    removal: .opacity
+                ).animation(Motion.settle.delay(Double(idx) * 0.055)))
+            }
+
+            // 原「点卡直接开全部目标」挪到这行 —— 步骤在卡下就地勾，全部目标（含已完成）进浮层。
+            Button {
+                openAllGoals()
+            } label: {
+                HStack(spacing: 6) {
+                    Text("全部目标")
+                        .font(.system(size: Typography.subhead, weight: .medium))
+                    Spacer(minLength: 0)
+                    Text("\(store.goals.count) 个")
+                        .font(.system(size: Typography.caption))
+                        .foregroundStyle(.tertiary)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: Typography.caption, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(PressStyle())
+            .pastelCard(cornerRadius: 18)
+        }
+        .padding(.horizontal, 10)
+        .padding(.top, 8)
+    }
+
+    /// 勾掉展开区里的一步：写库 → 重取那一步喂同步待办。
+    /// （详情浮层那份是同三步的 `store.toggleStep` + `refreshDetail()` + `syncTodo` —— 展开区
+    ///  **直读 store**（mainList → top.steps），不存在详情副本，故不需要 refreshDetail；
+    ///  这是 v4.0.99 审查指出「注释说三步、代码两步」后按实际实现改正的说明。）
+    private func toggleStep(goalID: String, step: GoalStep) {
+        store.toggleStep(goalID: goalID, stepID: step.id)
+        let g = store.goals.first { $0.id == goalID }
+        if let fresh = g?.steps.first(where: { $0.id == step.id }), let goal = g {
+            GoalTodoBridge.syncStepDone(step: fresh, goal: goal)
+        }
+        Haptics.success()
+    }
 
     // MARK: 卡片行
 
@@ -581,9 +682,11 @@ struct GoalsDetailSheet: View {
                                 Haptics.success()
                             } label: {
                                 HStack(spacing: Spacing.sm) {
-                                    Image(systemName: s.done ? "checkmark.circle.fill" : "circle")
-                                        .font(.system(size: Typography.body))
-                                        .foregroundStyle(s.done ? Color.accentColor : .secondary)
+                                    // v4.0.99（用户 2026-10-12「app 整体做视觉对齐」）：详情页这条步骤
+                                    // 与**卡下展开区**是同一步、同一勾选控件 → 统一走 LifeCheckCircle
+                                    //（原来这里自绘 SF Symbol，同一步在两处长得不一样）。
+                                    LifeCheckCircle(done: s.done, size: 18, tint: Color.accentColor)
+                                        .padding(.top, 2)
                                     VStack(alignment: .leading, spacing: 2) {
                                         HStack(alignment: .firstTextBaseline, spacing: 4) {
                                             // v4.0.44（用户第⑥条）：显式「第N步」，一眼看出完成顺序
@@ -800,11 +903,20 @@ enum GoalTodoBridge {
 // ⚠️ 展开后卡内那步要收起来 —— 否则和列表里同一步重复。
 // ⚠️「全部目标」浮层入口挪到展开区底部（原来是点卡直接开），别弄丢这个入口。
 
-/// 目标进度环（弧长随步骤完成比前进）
+/// 目标进度环（弧长随步骤完成比前进；v4.0.99 起环内显示完成百分比）
+///
+/// v4.0.99（用户 2026-10-12「长期目标卡片圆环中间显示进度完成百分比」）：与习惯环同款 ——
+/// 环心一枚 18pt 粗体百分比。三张进度卡里现在有两张环心有读数（目标 / 习惯），待办那张是三色环
+/// （芯被三层占满，读数在环右侧的 x/y 上）。
 private struct GoalProgressRing: View {
     let progress: Double
     var size: CGFloat = 70
     var lineWidth: CGFloat = 8
+
+    /// 与 HabitProgressRing.percentText 逐字同口径（0…100 取整、越界钳住）
+    private var percentText: String {
+        "\(Int((min(1, max(0, progress)) * 100).rounded()))%"
+    }
 
     var body: some View {
         ZStack {
@@ -817,6 +929,10 @@ private struct GoalProgressRing: View {
                 .stroke(Color.accentColor, style: StrokeStyle(lineWidth: lineWidth,
                                                               lineCap: progress > 0 ? .round : .butt))
                 .rotationEffect(.degrees(-90))
+            Text(percentText)
+                .font(.system(size: 18, weight: .bold))
+                .foregroundStyle(.primary)
+                .contentTransition(.numericText(value: min(1, max(0, progress)) * 100))
         }
         .frame(width: size, height: size)
         .animation(Motion.settle, value: progress)
@@ -1061,12 +1177,17 @@ struct GoalRowCard: View {
 // GoalsGlassLayerHost（其内容都是**具名 struct**，类型名短、不进本 section body）。
 // 本 section body 现在只剩折叠组 1（页壳）。
 extension GoalsSection {
-    /// 折叠组 1（2 条修饰器）：页壳（宽度对齐 + 进页面拉一次数据）
+    /// 折叠组 1（3 条修饰器）：页壳（宽度对齐 + 进页面拉一次数据 + 目标删空后复位展开态）
     @MainActor
     private func applyGoalsSectionBodyChrome<C: View>(to content: C) -> some View {
         content
             .frame(maxWidth: .infinity, alignment: .leading)
             .task { await store.loadFromServer() }
+            // v4.0.99：目标被删空时复位展开态（与记录卡 `store.records.isEmpty` 那份同款）——
+            // 否则清空后再新建第一个目标，它以「已展开」形态凭空出现（用户没点过任何东西）。
+            .onChange(of: store.goals.isEmpty) { _, empty in
+                if empty { expandedGoalID = nil }
+            }
     }
 
     @MainActor

@@ -74,7 +74,11 @@ if let a = src.range(of: "if compact, !goal.isFinished, let s = goal.nextStep"),
 print("── ② 详情页：全量步骤清单不许被误伤 ──")
 ok(src.contains("ForEach(Array(g.steps.enumerated()), id: \\.element.id)"),
    "详情页仍遍历全部步骤（enumerated，身份稳定）")
-ok(count("checkmark.circle.fill") >= 1, "详情页已完成步骤仍打勾")
+// v4.0.99（用户 2026-10-12「app 整体做视觉对齐」）：详情页步骤行与卡下展开区是**同一步、同一控件**，
+// 统一走 LifeCheckCircle —— 旧的自绘 SF Symbol 勾选圈作废，断言改成钉新形态 + 负断言防旧写法回流。
+ok(src.contains("LifeCheckCircle(done: s.done, size: 18, tint: Color.accentColor)"),
+   "详情页已完成步骤仍打勾（改用与展开区同一枚 LifeCheckCircle）")
+ok(!src.contains("checkmark.circle.fill"), "详情页不再自绘 SF Symbol 勾选圈（旧形态，已统一）")
 ok(src.contains(".strikethrough(s.done)"), "详情页已完成步骤仍划掉")
 ok(src.contains("Text(\"第\\(idx + 1)步\")"), "详情页步骤仍带「第N步」序号")
 

@@ -337,6 +337,31 @@ enum HabitTruthTable {
         check("源级：标题行走 LifeSectionHeader",
               sectionCode.contains("LifeSectionHeader("))
 
+        // ── v4.0.99 页卡「点击不弹窗，改成跟待办一样的卡片展开显示」（用户 2026-10-12）──
+        // 旧口径（点卡 = 开「全部习惯」浮层 / 单条直接进详情，见已退役的 openTop）作废：
+        // 点卡 = 就地展开；浮层入口挪到展开区底部那行 —— 不许丢。
+        positives += 1
+        check("源级：页卡有就地展开态 @State（habitExpanded）",
+              sectionCode.contains("@State private var habitExpanded = false"))
+        positives += 1
+        check("源级：点卡 = 就地展开/收起（withAnimation(Motion.settle) + toggle + 展开区挂在卡下）",
+              sectionCode.contains("withAnimation(Motion.settle) { habitExpanded.toggle() }")
+              && sectionCode.contains("if habitExpanded {"))
+        negatives += 1
+        check("源级：点卡不再走裸 onTapGesture / 直接开浮层（openTop 口径已退役）",
+              !sectionCode.contains(".onTapGesture { openTop("))
+        positives += 1
+        check("源级：展开区逐条复用 HabitRowCard（checkAsButton: false —— 整行已是 Button）",
+              sectionCode.contains("private func habitExpandList(")
+              && sectionCode.contains("HabitRowCard(h: h, today: today, checkAsButton: false)"))
+        positives += 1
+        check("源级：展开区底部保留「全部习惯」浮层入口（openAllHabits → glass.showAll = true）",
+              sectionCode.contains("private func openAllHabits()")
+              && sectionCode.contains("glass.showAll = true"))
+        negatives += 1
+        check("源级：删空后复位展开态（与记录/目标两张卡同款，否则新建第一条以已展开形态凭空出现）",
+              sectionCode.contains("if empty { habitExpanded = false }"))
+
         // ── v4.0.97 行为断言（审查：新统计此前只有源级字符串断言，口径改坏 CI 仍绿）──
         // 真跑 HabitKit.cardStats，钉死：窗口 = 含今天的连续 7 个日键、取整、streak 取 max、空态。
         let v97Cal = fixedCalendar()

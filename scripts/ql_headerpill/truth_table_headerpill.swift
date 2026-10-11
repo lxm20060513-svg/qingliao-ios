@@ -165,15 +165,20 @@ check("⑤ 看板页页头在滚动视图上（v4.0.62 推广）",
 check("🚫 反向⑤：看板页不许把 PageHeader 挪回 VStack 第一行（回退 = 滚边玻璃整页失效）",
       !code(dashboard).contains("VStack(spacing: 0) {\n            PageHeader"))
 
-// ── 6. 记录卡片首页只显示一条（用户第 4 条）────────────────────
-check("⑥ 单张页卡只取最近 1 条（prefix(1)）",
-      recordCode.contains("prefix(1)") && !recordCode.contains("prefix(2)"))
-check("⑥ 「还有 N 条」计数同口径（count > 1 / count - 1）",
-      recordCode.contains("store.records.count > 1")
-        && recordCode.contains("store.records.count - 1")
-        && !recordCode.contains("store.records.count - 2"))
-check("🚫 反向⑥：两处不得各改一处（> 1 与 - 1 必须同时，不然会显示「还有 0 条」）",
-      recordCode.contains("count > 1") && recordCode.contains("count - 1"))
+// ── 6. 记录卡卡面**不再**显示任何一条记录（v4.0.99 口径翻转）────────────────
+// 沿革：v4.0.62（用户 2026-10-05 第 4 条）卡面只留最近 1 条 +「还有 N 条」；
+//       v4.0.98（2026-10-11）加就地展开、收起态仍留那一条；
+//       **v4.0.99（用户 2026-10-12「记录卡片首页去掉最新一条记录，全部放在展开条目里」）卡面那条也撤掉**。
+// 旧断言（`prefix(1)` / `count - 1`）随口径作废 —— 但**不删检测力**：翻成「旧形态不许回来」。
+// （同一处代码被多张表从不同角度钉着：records 卡另有 ql_record / ql_life_align 两张，改口径要三处同改。）
+check("🚫 反向⑥：卡面不许再取最近 1 条（prefix(1) / prefix(2)）—— 记录一律看展开条目",
+      !recordCode.contains("prefix(1)") && !recordCode.contains("prefix(2)"))
+check("🚫 反向⑥：卡面不许再出现「还有 N 条」那种字面量计数（count > 1 / count - 1）",
+      !recordCode.contains("store.records.count > 1")
+        && !recordCode.contains("store.records.count - 1"))
+check("⑥ 展开区那一截仍按 RecordCardExpand.maxRows 截断（上限单一真源，不许写死数字）",
+      recordCode.contains("prefix(RecordCardExpand.maxRows)")
+        && recordCode.contains("store.records.count > RecordCardExpand.maxRows"))
 
 // ── 7. 滚边玻璃②：会话页 / 聊天页关闭**滚动边缘效果**（用户 2026-10-05 复测第 2 条）──
 // 真源 = iOS 26 系统 `scrollEdgeEffectHidden(_:for:)`（内容滚到标签栏 / 状态栏旁被模糊 + 变暗）。
