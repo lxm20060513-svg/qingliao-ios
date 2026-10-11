@@ -74,9 +74,65 @@ check("调用方同步解构出 reasoningIn（漏了 = 思考气泡没数据源�
 check("StreamClient 思考流状态位 + 随流复位（同 toolSeq 生命周期）",
       streamSrc.contains("var streamReasoning: String = \"\"")
       && streamSrc.contains("toolStartedAt = 0\n        streamReasoning = \"\""))
+// v4.0.94（用户 2026-10-11 真机口径）：「把模型思考过程吐出小字放到工具调用胶囊下面」+「那个 ☁️ 图标用
+// 多彩圆角美化一下」。原断言只钉「一行 if + 调用」的形态 —— 位置一改就假红，而它真正该守的是
+// **位置关系**（在工具卡之后、三点行之前）+ **单处挂载** + **行首图标形态**，故按位置重写。
+// 索引一律在 messageList 切片内取：toolStepCards / thinkingIndicatorRow 的**定义**都在它之前（848 / 3222），
+// 全文里搜会先命中的是定义而不是渲染点，那样位置断言会静默失效。
+let chatCode = stripCommentLines(chatViewSrc)
+let messageListCode: String = {
+    guard let r = chatCode.range(of: "private var messageList: some View {") else { return "" }
+    return String(chatCode[r.lowerBound...])
+}()
+let reasonIdx = messageListCode.range(of: "ReasoningPeekRow(text: stream.streamReasoning)")?.lowerBound
+let toolCardIdx = messageListCode.range(of: "toolStepCards")?.lowerBound
+let threeDotIdx = messageListCode.range(of: "thinkingIndicatorRow")?.lowerBound
 check("思考气泡只在非空时渲染（老后端无键 → 不出现，优雅退化）",
-      chatViewSrc.contains("if !stream.streamReasoning.isEmpty {")
-      && chatViewSrc.contains("ReasoningPeekRow(text: stream.streamReasoning)"))
+      chatCode.contains("!stream.streamReasoning.isEmpty")
+      && chatCode.contains("ReasoningPeekRow(text: stream.streamReasoning)"))
+check("messageList 切片可读（空了下面两条位置断言就是空真）", !messageListCode.isEmpty)
+check("思考小字落在「工具调用胶囊」正下方（toolStepCards 之后、三点行之前）",
+      reasonIdx != nil && toolCardIdx != nil && threeDotIdx != nil
+      && reasonIdx! > toolCardIdx! && reasonIdx! < threeDotIdx!)
+check("思考小字只挂载一处（两处挂载 = 真机两份小字）",
+      chatCode.components(separatedBy: "ReasoningPeekRow(text: stream.streamReasoning)").count - 1 == 1)
+// v4.0.94：图标四条断言一律**限定在 `ReasoningIconTile` 切片内**（审查建议 ②）——
+// 全文 contains 时，日后别处新增任一 20pt frame 就能把「色块改成 18pt」喂成绿。
+// 切片按花括号配平取（锚到 struct 头、数到配对闭合 `}`），不依赖下一个声明的位置。
+let iconTileCode: String = {
+    guard let r = chatCode.range(of: "struct ReasoningIconTile: View") else { return "" }
+    var depth = 0, started = false, end = r.upperBound
+    var i = r.upperBound
+    while i < chatCode.endIndex {
+        let c = chatCode[i]
+        if c == "{" { depth += 1; started = true }
+        else if c == "}" {
+            depth -= 1
+            if started && depth == 0 { end = chatCode.index(after: i); break }
+        }
+        i = chatCode.index(after: i)
+    }
+    return String(chatCode[r.lowerBound..<end])
+}()
+check("思考行行首图标 = 多彩圆角色块（💭 emoji 已退役）",
+      chatCode.contains("ReasoningIconTile()")
+      && !chatCode.contains("Text(\"💭\")"))
+check("图标色块切片可读（空了下面三条断言就是空真）",
+      !iconTileCode.isEmpty && iconTileCode.count < 900)
+check("圆角色块几何单一出口（20 / r6 / 11.5，与长按菜单 MenuIconTile.small 同口径）",
+      iconTileCode.contains(".frame(width: 20, height: 20)")
+      && iconTileCode.contains("cornerRadius: 6, style: .continuous")
+      && iconTileCode.contains(".font(.system(size: 11.5, weight: .semibold))"))
+// v4.0.94 定稿：用户 2026-10-11 看四版对比稿拍板**第 3 版「靛底 + 白大脑」**
+//（首版曾按我推荐的「渐变 + 白云」落地，已被拍板覆盖 —— 断言把云和渐变都钉成不许回来）。
+// 负断言只查 ChatView.swift：HomeCards 的天气卡/云卡也用 cloud.fill，那是别处的合法用法。
+check("思考行行首图标符号 = 白大脑（用户拍板第 3 版）",
+      iconTileCode.contains("Image(systemName: \"brain.fill\")")
+      && !chatCode.contains("Image(systemName: \"cloud.fill\")"))
+check("图标底色 = 靛且直取真源（Color(uiColor: MenuIconTint.indigo.uiColor)，不许抄 RGB 字面量）",
+      iconTileCode.contains("Color(uiColor: MenuIconTint.indigo.uiColor)")
+      && !iconTileCode.contains("Color(red:")
+      && iconTileCode.contains(".background(Self.tileTint, in: RoundedRectangle(cornerRadius: 6, style: .continuous))"))
 
 // ── 2. StreamClient：状态位 + 清零 + 同步 + 口径 ────────────────
 check("StreamClient 有全量步数状态位 toolSeq",

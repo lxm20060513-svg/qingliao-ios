@@ -3340,6 +3340,17 @@ struct ChatView: View {
                                                                     messageRow(entry: entry)
                                                                 }
                         toolStepCards
+                        // v4.0.94（用户 2026-10-11 真机口径：「把模型思考过程吐出小字放到工具调用胶囊下面」）：
+                        // 思考摘要行从三点行**下方**上移到工具调用区之后：toolStepCards 是
+                        // `VStack { ToolStepsSummaryRow; if toolStepsExpanded { …明细… } }`，
+                        // 所以**折叠态紧贴胶囊正下方**，点开明细时落在明细列表下方（仍在整块工具区内）。
+                        // 渲染门与原处**逐条一致**（本会话在途 + 思考期 + 后端非空），只换位置：
+                        // 顺序变成「工具调用胶囊 → 思考小字 → 三点气泡/流式气泡」。
+                        if (thisSessionStreaming || remoteBusy),
+                           !stream.streamReasoning.isEmpty,
+                           (!thisSessionStreaming || stream.content.isEmpty) {
+                            ReasoningPeekRow(text: stream.streamReasoning)
+                        }
                         // v3.9.39 A1：按会话收窄——stream 是 App 级单例，本仓另四处
                         // （aiBusy / liveActivityCanStop / toolStepCards / DockTabView:chatVisible）
                         // 都带 `currentStreamSessionId == chat.sessionId`，只这一处漏了 →
@@ -3368,11 +3379,9 @@ struct ChatView: View {
                                 // maxWidth 无穷的 frame 拉满（普通气泡靠这个贴边），三点气泡被居中挂在中轴
                                 //（真机截图实报）。与 messageRow 同款 `.frame(maxWidth: .infinity, alignment: .leading)`。
                                 thinkingIndicatorRow
-                                // v4.0.90：思考摘要气泡——后端 reasoning 流非空才渲染（老后端恒空=不出现）。
-                                // 展示尾部 120 字符、可点进「思考过程」全文页（折叠口径见 ReasoningSheet）。
-                                if !stream.streamReasoning.isEmpty {
-                                    ReasoningPeekRow(text: stream.streamReasoning)
-                                }
+                                // v4.0.90 的思考摘要行（💭 + reason 尾部）已按 v4.0.94 口径
+                                // 上移到工具卡正下方（本文件 messageList 里 toolStepCards 之后），
+                                // 此处不再重复渲染 —— 同一行两处挂载会让真机出现两份思考小字。
                             } else {
                                 streamingBubble
                             }
@@ -3562,9 +3571,11 @@ struct ChatView: View {
         }
     }
 
-    /// v4.0.90：思考摘要行——流式思考期间在三点行下方实时展示模型思考流的尾部。
+    /// v4.0.90：思考摘要行——流式思考期间展示模型思考流的尾部。
+    /// v4.0.94（用户 2026-10-11 两条口径）：① 本行上移到「工具调用胶囊」正下方（挂载点在 messageList）；
+    ///   ② 行首图标由 💭 emoji 换成多彩圆角色块（见 ReasoningIconTile）。
     /// 数据源 = 后端 reasoning 流（StreamClient.streamReasoning），0.15s 高频轮询增量到达；
-    /// 「💭 思考中」+ 尾部 120 字符，点击进 ReasoningSheet 看全文。老后端 reasoning 恒空 → 本行不渲染。
+    /// 尾部 120 字符，点击进 ReasoningSheet 看全文。老后端 reasoning 恒空 → 本行不渲染。
     /// 刷新由 StreamClient（@Observable）属性变更驱动 body 重算，无需 .id 强刷。
     struct ReasoningPeekRow: View {
         let text: String
@@ -3578,8 +3589,9 @@ struct ChatView: View {
         var body: some View {
             Button { showFull = true } label: {
                 HStack(alignment: .top, spacing: Spacing.sm) {
-                    Text("💭")
-                        .font(.system(size: Typography.subhead))
+                    ReasoningIconTile()
+                        // v4.0.94：13pt 正文首行中线比行顶低约 2pt，色块上移 2 才与首行文字视觉居中
+                        .offset(y: -2)
                     Text(tail)
                         .font(.system(size: Typography.subhead))
                         .foregroundStyle(.secondary)
@@ -3602,6 +3614,28 @@ struct ChatView: View {
                     .scrollContentBackground(.hidden)
                 )
             }
+        }
+    }
+
+    /// v4.0.94（用户 2026-10-11 口径「模型思考那个 ☁️ 图标用多彩圆角美化一下」）：
+    /// 思考行行首图标 = **20pt 圆角色块 + 11.5pt 白符号**。
+    /// · 几何照长按气泡菜单的 MenuIconTile.small（边长 20 / 圆角 6 / 符号 11.5）；
+    ///   白度这里**保持纯白**——菜单那版用 white@0.8 是 UIImage 染色兜底，不是视觉口径；
+    /// · **符号与配色由用户 2026-10-11 看四版对比稿拍板第 3 版** = 靛底 + 白大脑
+    ///   （对比稿生成在开发机 /opt/data/scripts/ql_uimock/mock/reasonicon_light.png，未入仓）；
+    /// · 色值**直取**长按菜单色块真源 `MenuIconTint.indigo`（不抄字面量：哪天调靛色，这里跟着走）；
+    /// · 换样式只改这里：符号名、tint、尺寸各一处。
+    struct ReasoningIconTile: View {
+        /// 靛 #5856D6（固定值口径，深浅两套模式同一份色）
+        private static let tileTint = Color(uiColor: MenuIconTint.indigo.uiColor)
+        var body: some View {
+            Image(systemName: "brain.fill")
+                .font(.system(size: 11.5, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 20, height: 20)
+                .background(Self.tileTint, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                // 行内已有「查看思考过程」标签，图标不重复播报
+                .accessibilityHidden(true)
         }
     }
 
