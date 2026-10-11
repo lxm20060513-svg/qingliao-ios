@@ -83,6 +83,8 @@ struct SessionsView: View {
     @State private var heroReminder = false
     @State private var heroMemo = false
     @State private var heroCloud = false
+    /// v4.0.93：取件码卡的弹窗（与聊天页 showHomePickup 同视图 PickupCodeSheet）
+    @State private var heroPickup = false
     /// v4.0.82：任务中心卡（首页快捷卡片）的落点 —— 复用聊天页那颗入口的同一个 TaskCenterView
     @State private var showTaskCenterCard = false
     @Environment(\.colorScheme) private var colorSchemeEnv   // v4.0.67：环境渐变页底深浅自适应
@@ -256,6 +258,11 @@ struct SessionsView: View {
         .sheet(isPresented: $heroCloud) {
             CloudDriveSettingsSheet()
                 .presentationDetents([.large])
+        }
+        // v4.0.93：取件码卡 → 取件码弹窗（与聊天页共用同一份 PickupCodeSheet）
+        .sheet(isPresented: $heroPickup) {
+            PickupCodeSheet()
+                .presentationDetents([.medium, .large])
         }
         // v4.0.82：任务中心卡 —— 全屏页，与聊天页 showTaskCenter 同一个 TaskCenterView
         //（⚠️ 用 fullScreenCover 而不是再挂一个 sheet：既对齐聊天页那颗入口的形态，也躲开「同一宿主多 sheet 互斥」那个坑）
@@ -724,6 +731,8 @@ struct SessionsView: View {
                 case .nextReminder: heroReminder = true
                 case .memo:         heroMemo = true
                 case .cloud:        heroCloud = true
+                // v4.0.93：取件码卡 → 取件码弹窗（大号码 + 复制 + 已取件）
+                case .pickup:       heroPickup = true
                 default:            break
                 }
             },

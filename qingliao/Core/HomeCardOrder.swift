@@ -57,6 +57,8 @@ enum HomeCardKind: String, CaseIterable {
     case proactive    // 轻聊主动（固定会话 id = ChatStore.proactiveSessionId，可回复）
     // ── v4.0.82（用户 2026-10-09：「快捷卡片增加任务中心卡片，直接跳转目前的任务中心」）──
     case taskCenter   // 任务中心（纯入口卡：轻点打开 TaskCenterView 全屏页，卡面不拉网络数据）
+    // ── v4.0.93（用户 2026-10-11：「app 聊天首页增加取件码卡片，卡片上可以显示取件码，点开弹窗取件码」）──
+    case pickup       // 取件码（数据源 = 本地 TodoStore：v4.0.92 快捷指令把短信取件码记进待办；零后端改动）
     case custom       // 空槽位 → 打开卡片库添加（钉在末尾、不参与拖拽；可关，关掉即不渲染）
 
     /// 默认展示顺序（= 目录顺序，拖拽前 / 新用户口径）
@@ -360,6 +362,10 @@ enum HomeCardStore {
         .nextReminder, .memo, .express, .stock, .kb, .scene, .device, .cloud, .goal, .clipboard,
         // v4.0.82：新卡默认关（v4.0.29 口径：新卡不挤占老用户首屏），要它自己到「自定义」里开
         .taskCenter,
+        // v4.0.93：取件码卡同样默认关（它只对「收快递的人」有用；默认档仍是 4 格口径不变）。
+        // ⚠️ 老用户 off 键已存在 → 完全听用户的：这张卡会以「开」出现在首页末尾（resolve 补尾），
+        //    由用户自己在「自定义」里决定留不留 —— 这是既有升版加卡口径，别为它改。
+        .pickup,
     ]
 
     /// 写回（order 必须含被关掉的卡，否则重开后位置会漂）

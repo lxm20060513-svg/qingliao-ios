@@ -76,14 +76,14 @@ check("check_swift.sh 源可读", !gate.isEmpty)
 check("Pill.swift 源可读（栏目头/聊天页头两档口径都在它里面）", !pill.isEmpty)
 
 // ── ① 目录与默认档 ─────────────────────────────────────────────
-check("卡片种类 20 类（v4.0.29 十张新卡 + v4.0.81 两种固定会话卡 + v4.0.82 任务中心卡：mail/resume/todo/weather/expense/agentTip + nextReminder/memo/express/stock/kb/scene/device/cloud/goal/clipboard + delivery/proactive + taskCenter + custom）",
-      HomeCardKind.allCases.count == 20)
+check("卡片种类 21 类（v4.0.29 十张新卡 + v4.0.81 两种固定会话卡 + v4.0.82 任务中心卡 + v4.0.93 取件码卡：mail/resume/todo/weather/expense/agentTip + nextReminder/memo/express/stock/kb/scene/device/cloud/goal/clipboard + delivery/proactive + taskCenter + pickup + custom）",
+      HomeCardKind.allCases.count == 21)
 check("catalogOrder == allCases（默认顺序 = 目录顺序，不另写一份数组）",
       HomeCardKind.catalogOrder == HomeCardKind.allCases)
-check("可拖拽 19 张（20 − 空槽位）、空槽位不进拖拽流",
-      HomeCardKind.draggable.count == 19 && !HomeCardKind.draggable.contains(.custom))
-check("默认关掉 = 老三张 + 十张新卡 + agentTip/resume（v4.0.29 新卡不挤占首屏；v4.0.81 resume 因与会话列表重叠一并默认收起）",
-      HomeCardStore.defaultOff == [.todo, .weather, .expense, .agentTip, .resume, .nextReminder, .memo, .express, .stock, .kb, .scene, .device, .cloud, .goal, .clipboard, .taskCenter])
+check("可拖拽 20 张（21 − 空槽位）、空槽位不进拖拽流",
+      HomeCardKind.draggable.count == 20 && !HomeCardKind.draggable.contains(.custom))
+check("默认关掉 = 老三张 + 十张新卡 + agentTip/resume + v4.0.82 任务中心 + v4.0.93 取件码（新卡不挤占首屏）",
+      HomeCardStore.defaultOff == [.todo, .weather, .expense, .agentTip, .resume, .nextReminder, .memo, .express, .stock, .kb, .scene, .device, .cloud, .goal, .clipboard, .taskCenter, .pickup])
 check("v4.0.82：任务中心卡是纯入口 —— 默认关，且不在默认档前 8 格（默认档仍是 4 格）",
       HomeCardStore.defaultOff.contains(.taskCenter)
       && !Array(HomeCardKind.catalogOrder.prefix(8)).contains(.taskCenter))
@@ -102,12 +102,12 @@ check("encode 往返：encode → parse 恒等",
 check("encode 空列表写空串（「顺序」没有全关语义，不写哨兵）",
       HomeCardOrder.encode([]) == "")
 check("resolve 去重：重复 kind 只留一次",
-      HomeCardOrder.resolve(order: "mail,mail,mail", off: "").count == 20)
+      HomeCardOrder.resolve(order: "mail,mail,mail", off: "").count == 21)
 check("resolve 补齐新卡：顺序串只有 resume → 首项 resume + 其余按 catalog 排尾",
       HomeCardOrder.resolve(order: "resume", off: "") == [.resume] + HomeCardKind.catalogOrder.filter { $0 != .resume })
-check("resolve 未知项不影响补全：\"zzz,mail\" → 20 项且首项 mail",
+check("resolve 未知项不影响补全：\"zzz,mail\" → 21 项且首项 mail",
       HomeCardOrder.resolve(order: "zzz,mail", off: "").first == .mail
-        && HomeCardOrder.resolve(order: "zzz,mail", off: "").count == 20)
+        && HomeCardOrder.resolve(order: "zzz,mail", off: "").count == 21)
 check("resolve 过滤被关的卡", !HomeCardOrder.resolve(order: "", off: "todo,weather").contains(.todo))
 check("resolve 只在「列表为空」时兜底；全关时剩下的 custom 不算数 → 开关侧必须自己拒关最后一张真卡",
       HomeCardOrder.resolve(order: "", off: HomeCardOrder.encode(HomeCardKind.draggable)) == [.custom])
@@ -180,7 +180,7 @@ check("rows 五张 → 3 行（2+2+1），末行补 nil",
       HomeCardOrder.rows([.mail, .resume, .todo, .weather, .expense])
         == [[.mail, .resume], [.todo, .weather], [.expense, nil]])
 check("rows 元素守恒：拍平非 nil 数 == 输入数",
-      HomeCardOrder.rows(HomeCardKind.catalogOrder).flatMap { $0 }.compactMap { $0 }.count == 20)
+      HomeCardOrder.rows(HomeCardKind.catalogOrder).flatMap { $0 }.compactMap { $0 }.count == 21)
 check("rows columns <= 0 → 空（不许死循环）",
       HomeCardOrder.rows([.mail, .resume], columns: 0).isEmpty)
 
@@ -195,11 +195,11 @@ let mergedSwapped = HomeCardOrder.mergeVisible(oldFull: HomeCardKind.catalogOrde
                                                newVisible: [.delivery, .mail, .proactive, .custom],
                                                off: offDefault)
 check("写回：可见卡换位（delivery 与 mail 对调，两张都在开启态）后，被关的卡仍钉在原槽、两张可见卡在各自槽位内对调",
-      mergedSwapped == [.delivery, .resume, .todo, .weather, .expense, .agentTip, .nextReminder, .memo, .express, .stock, .kb, .scene, .device, .cloud, .goal, .clipboard, .mail, .proactive, .taskCenter, .custom]
+      mergedSwapped == [.delivery, .resume, .todo, .weather, .expense, .agentTip, .nextReminder, .memo, .express, .stock, .kb, .scene, .device, .cloud, .goal, .clipboard, .mail, .proactive, .taskCenter, .pickup, .custom]
         && mergedSwapped != HomeCardKind.catalogOrder)
 check("写回后重新打开 todo → 精确回到第 3 位（不是排到末尾）",
       HomeCardOrder.resolve(order: HomeCardOrder.encode(mergedSwapped), off: "weather,expense") ==
-        [.delivery, .resume, .todo, .agentTip, .nextReminder, .memo, .express, .stock, .kb, .scene, .device, .cloud, .goal, .clipboard, .mail, .proactive, .taskCenter, .custom])
+        [.delivery, .resume, .todo, .agentTip, .nextReminder, .memo, .express, .stock, .kb, .scene, .device, .cloud, .goal, .clipboard, .mail, .proactive, .taskCenter, .pickup, .custom])
 check("写回：oldFull 之外的新卡（升版加卡）补到末尾",
       HomeCardOrder.mergeVisible(oldFull: [.mail, .resume],
                                  newVisible: [.resume, .mail, .todo],
@@ -207,7 +207,7 @@ check("写回：oldFull 之外的新卡（升版加卡）补到末尾",
 check("写回长度守恒（可见卡少于槽位的边界不崩）",
       HomeCardOrder.mergeVisible(oldFull: HomeCardKind.catalogOrder,
                                  newVisible: [.mail],
-                                 off: []).count == 20)
+                                 off: []).count == 21)
 
 // ── ⑦ 持久化键 / 版式常量（单一真源） ───────────────────────────
 check("UserDefaults 键字面量全仓只在 HomeCardOrder.swift（grep 单一真源）",
@@ -232,8 +232,8 @@ check("首次使用（键都不存在）：off == 默认档三张 —— 否则�
       HomeCardStore.off == HomeCardStore.defaultOff)
 check("首次使用：渲染 = [mail, delivery, proactive, custom]（v4.0.81 默认档 4 格，走 capped）",
       HomeCardStore.kinds == [.mail, .delivery, .proactive, .custom])
-check("完整顺序恒为 catalog 全量 20 张（拖拽写回拿它当 oldFull，关掉的卡才留得住）",
-      HomeCardStore.fullOrder.count == 20 && Set(HomeCardStore.fullOrder) == Set(HomeCardKind.allCases))
+check("完整顺序恒为 catalog 全量 21 张（拖拽写回拿它当 oldFull，关掉的卡才留得住）",
+      HomeCardStore.fullOrder.count == 21 && Set(HomeCardStore.fullOrder) == Set(HomeCardKind.allCases))
 
 ud.set("todo,weather,expense,custom,zzz_kind", forKey: HomeCardStore.offKey)
 check("脏 off 串：未知项丢弃 + 空槽位照用户意思保留在 off（v4.0.9 起它可关）",
@@ -493,6 +493,100 @@ check("🚨 投递/主动角标 99+ 封顶走 n>=100（与 mail 分支的 n>99 �
       }())
 check("🚨 HomeCardsGrid 挂 @Environment(ChatStore.self)（角标的数据通道，两处宿主都已注入）",
       flat(stripCommentLines(cards)).contains("@Environment(ChatStore.self)privatevarchat"))
+
+// ── ⑬ v4.0.93 取件码卡（用户：「app 聊天首页增加取件码卡片，卡片上可以显示取件码，点开弹窗取件码」）──
+//  数据源 = 本地 TodoStore（v4.0.92 快捷指令把短信取件码记进待办），零后端改动。
+check("取件码卡在目录里 + 默认关（默认档仍是 4 格：mail/delivery/proactive/custom）",
+      HomeCardKind.allCases.contains(.pickup)
+        && HomeCardStore.defaultOff.contains(.pickup)
+        && HomeCardOrder.resolve(order: "", off: HomeCardOrder.encode(HomeCardStore.defaultOff))
+            == [.mail, .delivery, .proactive, .custom])
+check("取件码卡可拖拽排序（不是空槽位那种钉尾卡）",
+      HomeCardKind.draggable.contains(.pickup))
+// 认码：只从原文里摘（宁缺勿错 —— 错码会让用户白跑一趟快递柜）
+check("提炼格式解出码 + 详情（取件码 A1234 · 丰巢 · 3号柜）",
+      PickupCodeKit.make(todoId: "t1", content: "取件码 A1234 · 丰巢 · 3号柜")
+        == PickupCode(todoId: "t1", code: "A1234", detail: "丰巢 · 3号柜", rawLine: "取件码 A1234 · 丰巢 · 3号柜"))
+check("短信原文也认码（取件码123456 → 123456），但没分隔符就不编详情",
+      PickupCodeKit.make(todoId: "t2", content: "取件码123456，请及时到丰巢取件")?.code == "123456"
+        && PickupCodeKit.make(todoId: "t2", content: "取件码123456，请及时到丰巢取件")?.detail == "")
+check("🚨 只从原文里摘：解出的码必须是原文子串（不许拼接/补位）",
+      {
+          let raw = "您的快件已到菜鸟驿站，取件码 8F3K2，请凭码取件"
+          guard let code = PickupCodeKit.make(todoId: "t3", content: raw)?.code else { return false }
+          return raw.contains(code)
+      }())
+check("🚨 没有「取件码」锚点 → 不认（普通待办不会被误判成取件码）",
+      PickupCodeKit.make(todoId: "t4", content: "买牛奶 · 明天记得带伞") == nil
+        && PickupCodeKit.make(todoId: "t5", content: "取快递") == nil)
+check("🚨 码太短（<3）不认", PickupCodeKit.make(todoId: "t6", content: "取件码 12") == nil)
+check("🚨 码太长（>20，快递单号那种）不认",
+      PickupCodeKit.make(todoId: "t7", content: "取件码 1234567890123456789012") == nil)
+check("码长边界：3 与 20 都认（别写成开区间）",
+      PickupCodeKit.code(in: "取件码 ABC") == "ABC"
+        && PickupCodeKit.code(in: "取件码 " + String(repeating: "9", count: 20)) == String(repeating: "9", count: 20))
+check("连字符算码字符（有的柜码长这样：8-1234）",
+      PickupCodeKit.code(in: "取件码 8-1234 请及时取") == "8-1234")
+check("锚点只认「取件码」三字：写「取件凭证 1234」不认（不做同义词扩展）",
+      PickupCodeKit.make(todoId: "t8", content: "取件凭证 1234") == nil)
+check("详情只在有分隔符（· / ｜ / |）时出现，最多 2 段、每段 ≤ 12 字",
+      PickupCodeKit.detail(in: "取件码 A1 · 丰巢 · 3号柜", code: "A1") == "丰巢 · 3号柜"
+        && PickupCodeKit.detail(in: "取件码 A1 · 一句话特别长的说明超过十二个字了", code: "A1") == ""
+        && PickupCodeKit.detail(in: "取件码 A1 · 丰巢 · 3号柜 · 多出来的一段", code: "A1") == "丰巢 · 3号柜")
+check("清单：解不出码的待办不进清单，顺序保持传入顺序（最新在最前）",
+      PickupCodeKit.list([(id: "a", content: "取件码 999 · 菜鸟驿站"), (id: "b", content: "买牛奶"), (id: "c", content: "取件码 888")])
+        .map { $0.code } == ["999", "888"])
+check("卡面主行 = 码本身（用户原话「卡片上可以显示取件码」）；一条都没有时退回卡名",
+      PickupCodeKit.cardTitle(PickupCodeKit.list([(id: "a", content: "取件码 999")])) == "999"
+        && PickupCodeKit.cardTitle([]) == "取件码")
+check("卡面副行：单条报详情 → 多条报条数 → 空态给引导（恒单行文案）",
+      PickupCodeKit.cardSubtitle(PickupCodeKit.list([(id: "a", content: "取件码 999 · 菜鸟驿站 · 2号柜")])) == "菜鸟驿站 · 2号柜"
+        && PickupCodeKit.cardSubtitle(PickupCodeKit.list([(id: "a", content: "取件码 999"), (id: "c", content: "取件码 888")])) == "等 2 个取件码 · 点开看"
+        && PickupCodeKit.cardSubtitle([]) == "收到取件码短信自动进来")
+// 接线：卡面 / 宿主 / 弹窗三处真的接上了（不是只加了个枚举）
+let pickupSheet = src("qingliao/Features/Life/PickupCodeSheet.swift")
+let sessionsSrc = src("qingliao/Features/Sessions/SessionsView.swift")
+check("PickupCodeSheet.swift 源可读（新文件没进仓就白搭）", !pickupSheet.isEmpty)
+check("🚨 卡面数据源 = 本地待办（零后端改动）：cards 调 PickupCodeKit.list + 直读 TodoStore.shared.sorted",
+      flat(stripCommentLines(cards)).contains("PickupCodeKit.list(TodoStore.shared.sorted")
+        && flat(stripCommentLines(cards)).contains("PickupCodeKit.cardTitle(pickupItems)")
+        && flat(stripCommentLines(cards)).contains("PickupCodeKit.cardSubtitle(pickupItems)"))
+check("轻点走既有弹窗通道 onOpenSheet(.pickup)，没自造路由",
+      flat(stripCommentLines(cards)).contains("case.pickup:onOpenSheet(.pickup)"))
+check("两个宿主都挂了弹窗（聊天页 showHomePickup / 会话页 heroPickup → PickupCodeSheet）",
+      flat(stripCommentLines(chat)).contains(".sheet(isPresented:$showHomePickup){PickupCodeSheet()")
+        && flat(stripCommentLines(sessionsSrc)).contains(".sheet(isPresented:$heroPickup){PickupCodeSheet()"))
+check("弹窗动作只有一个真源：复制写剪贴板 + 已取件走 TodoStore.toggleDone（不自己改数组）",
+      flat(stripCommentLines(pickupSheet)).contains("UIPasteboard.general.string=item.code")
+        && flat(stripCommentLines(pickupSheet)).contains("TodoStore.shared.toggleDone(todo)")
+        && !flat(stripCommentLines(pickupSheet)).contains("todos.removeAll"))
+check("🚨 弹窗与卡面解析口径同源（都调 PickupCodeKit.list(…sorted)，视图里不许另写一套正则）",
+      flat(stripCommentLines(pickupSheet)).contains("PickupCodeKit.list(TodoStore.shared.sorted")
+        && !flat(stripCommentLines(pickupSheet)).contains(".range(of:"))
+
+// ── 护栏补强（审查发现的三处空档：表漏同步不被拦、宿主分派行零断言、detail 切错位置）──
+// 1) 新增一类卡时 name/icon/tint 三张表必须都补 —— 本批阻断正是漏在 icon（且本机 swiftc -parse 抓不到）
+check("🚨 HomeCardLabels 三表覆盖全部 kind（name/icon/tint 缺任一 case → 本批就是漏 icon 编译错）",
+      {
+          let nb = flat(stripCommentLines(fnBody("static func name", cards)))
+          let ib = flat(stripCommentLines(fnBody("static func icon", cards)))
+          let tb = flat(stripCommentLines(fnBody("static func tint", cards)))
+          return HomeCardKind.allCases.allSatisfy { k in
+              let token = "case.\(k):"
+              return nb.contains(token) && ib.contains(token) && tb.contains(token)
+          }
+          // 反向：穷尽性不许被 default 兜掉（否则漏 case 也能全绿）
+          && !nb.contains("default:") && !ib.contains("default:") && !tb.contains("default:")
+      }())
+// 2) 两个宿主的分派行（只有 .sheet 声明、删掉分派 → 点卡无反应，表会假绿）
+check("🚨 两宿主的分派行都在（case .pickup → 置 sheet 状态；删掉这两行点卡就无反应）",
+      flat(stripCommentLines(chat)).contains("case.pickup:showHomePickup=true")
+        && flat(stripCommentLines(sessionsSrc)).contains("case.pickup:heroPickup=true"))
+// 3) detail 反例：码字符在锚点前先出现时，不许把锚点前的说明当成详情
+check("🚨 detail 从锚点之后定位：码在锚点前先出现时不许带错前缀；空码 → 空串",
+      PickupCodeKit.detail(in: "订单 123 取件码 123 · 丰巢", code: "123") == "丰巢"
+        && PickupCodeKit.detail(in: "A1234 到 3 号柜，取件码 A1234 · 丰巢", code: "A1234") == "丰巢"
+        && PickupCodeKit.detail(in: "取件码 A1 · 丰巢", code: "") == "")
 
 print(fail == 0 ? "✅ ql_chat_home 真值表 \(pass) 项全过" : "❌ 失败 \(fail) / 通过 \(pass)")
 if fail > 0 { exit(1) }

@@ -745,6 +745,9 @@ struct HomeCardsGrid: View {
         // ── v4.0.82：任务中心卡（纯跳转，自己不取数）──
         case .taskCenter:
             onOpenTaskCenter()
+        // ── v4.0.93：取件码卡 → 取件码弹窗（大号码 + 复制 + 已取件；码在弹窗里直读本地待办）──
+        case .pickup:
+            onOpenSheet(.pickup)
         case .custom:
             showEditor = true
         }
@@ -803,30 +806,13 @@ struct HomeCardFace: View {
         .dashboardCard(cornerRadius: Radius.card)
     }
 
+    /// v4.0.93：符号**单一真源**收口到 HomeCardLabels.icon（与下方 838 行 tint 同款口径）——
+    /// 卡面 / 取件码弹窗 / 卡片库共用一张表；唯独天气要按实时数据取符号，留作特例。
+    /// 这样以后加一类卡只要真源表补上就两处同步，不会再出现「卡面补了、别处漏了」的编译错。
     private var icon: String {
         switch kind {
-        case .mail: return "envelope.fill"
-        case .resume: return "arrow.uturn.backward.circle.fill"
-        case .todo: return "checkmark.circle.fill"
         case .weather: return data.weatherTemp == nil ? "cloud.fill" : WeatherCode.symbol(data.weatherCode)
-        case .expense: return "yensign.circle.fill"
-        case .agentTip: return "sparkles"
-        // v4.0.29 十张新卡
-        case .nextReminder: return "bell.badge.fill"
-        case .memo: return "note.text"
-        case .express: return "shippingbox.fill"
-        case .stock: return "chart.line.uptrend.xyaxis"
-        case .kb: return "books.vertical.fill"
-        case .scene: return "house.fill"
-        case .device: return "cpu.fill"
-        case .cloud: return "cloud.fill"
-        case .goal: return "flag.checkered"
-        case .clipboard: return "doc.on.clipboard.fill"
-        // v4.0.81：固定会话卡 —— 符号名与会话页 FixedChannelCard 一致（复用，不自造）
-        case .delivery: return "tray.and.arrow.down.fill"
-        case .proactive: return "sparkles"
-        case .taskCenter: return "checklist"
-        case .custom: return "plus"
+        default: return HomeCardLabels.icon(kind)
         }
     }
 
@@ -856,6 +842,9 @@ struct HomeCardFace: View {
         case .delivery: return "轻聊投递"
         case .proactive: return "轻聊主动"
         case .taskCenter: return "任务中心"
+        // v4.0.93：取件码 —— 卡面**直接显示码**（用户原话「卡片上可以显示取件码」）；
+        // 一条都没有时退回卡名，不让卡面空着
+        case .pickup: return PickupCodeKit.cardTitle(pickupItems)
         case .custom: return "空槽位"
         }
     }
@@ -937,9 +926,24 @@ struct HomeCardFace: View {
         // ── v4.0.82：任务中心（静态副标 —— 它是入口卡，卡面不拉任务数据）──
         case .taskCenter:
             return "点一下看进行中的任务"
+        // ── v4.0.93：取件码（副标 = 快递公司 · 地点；多条报条数；空态给一句引导。恒单行）──
+        case .pickup:
+            return PickupCodeKit.cardSubtitle(pickupItems)
         case .custom:
             return "点这里添加"
         }
+    }
+
+    /// v4.0.93：取件码卡的实时数据 —— **本地待办**里「未完成 + 能解出码」的条目。
+    /// 为什么不走 HomeCardData：那是「一屏打一趟网络」的取数槽（.task 只拉一次），而待办随时会变
+    /// （AI 提取 / 快捷指令 / 弹窗里勾掉）→ 这里直读 @Observable 的 TodoStore：待办一变卡面自己重算，
+    /// 零后端改动、零轮询。
+    private var pickupItems: [PickupCode] {
+        // 顺序真源 = TodoStore.sorted（未完成优先 + 最后修改倒序）：裸 todos 只在 add/loadFromServer
+        // 之后近似倒序，update()/toggleDone() 不重排 → 改过一条老待办后卡面主码会取错那条。
+        PickupCodeKit.list(TodoStore.shared.sorted
+            .filter { !$0.done }
+            .map { (id: $0.id, content: $0.content) })
     }
 
     /// v4.0.81：固定会话卡的副标 —— 会话最后一条消息的摘要。
@@ -1044,6 +1048,7 @@ enum HomeCardLabels {
         case .delivery: return "轻聊投递"
         case .proactive: return "轻聊主动"
         case .taskCenter: return "任务中心"
+        case .pickup: return "取件码"
         case .custom: return "空槽位"
         }
     }
@@ -1073,6 +1078,8 @@ enum HomeCardLabels {
         case .delivery: return .teal
         case .proactive: return .orange
         case .taskCenter: return .pink
+        // v4.0.93：取件码 —— 用仓库既有的 amber 系「快递/取件」观感，与快递在途（brown）区分开
+        case .pickup: return .yellow
         case .custom: return .gray
         }
     }
@@ -1100,6 +1107,8 @@ enum HomeCardLabels {
         case .delivery: return "tray.and.arrow.down.fill"
         case .proactive: return "sparkles"
         case .taskCenter: return "checklist"
+        // v4.0.93：取件码（本批曾漏这一处 → 非穷尽 switch 编译错；与卡面必须是同一枚符号）
+        case .pickup: return "qrcode.viewfinder"
         case .custom: return "plus"
         }
     }

@@ -1324,6 +1324,11 @@ struct ChatView: View {
                 .scrollContentBackground(.hidden)
             )
         }
+        // v4.0.93：首页「取件码」卡 → 取件码弹窗（与 SessionsView 共用同一份 PickupCodeSheet）
+        .sheet(isPresented: $showHomePickup) {
+            PickupCodeSheet()
+                .presentationDetents([.medium, .large])
+        }
         // v3.9.86：长回复阅读（长按气泡「全屏阅读」）。detents 与全站输入弹窗同档（medium/large）——
         // 沿用现有档位不新增宿主，大爆炸的 fullScreenCover 不动，避免 zoom 转场源 id 打架。
     }
@@ -2347,6 +2352,8 @@ struct ChatView: View {
                     showHomeMemoBrowser = true           // 复用备忘录浏览页
                 case .cloud:
                     showHomeCloudDrive = true            // 复用云盘浏览
+                case .pickup:
+                    showHomePickup = true                // v4.0.93：取件码弹窗（复用同一份 PickupCodeSheet）
                 default:
                     break
                 }
@@ -2367,6 +2374,8 @@ struct ChatView: View {
     // v4.0.29：新卡弹窗宿主（备忘录 / 云盘）
     @State private var showHomeMemoBrowser = false
     @State private var showHomeCloudDrive = false
+    /// v4.0.93：取件码卡的弹窗（数据源 = 本地待办，视图与首页/会话页宿主共用 PickupCodeSheet）
+    @State private var showHomePickup = false
 
     // v2.0.111：欢迎页独立于 ScrollView——不再受滚动容器背景/裁剪影响，logo 永远完整显示
     private var welcomeView: some View {

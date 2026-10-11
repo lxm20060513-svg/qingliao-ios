@@ -798,7 +798,7 @@ echo "=== 48. AI 中途追问「问题卡」真值表（v3.9.110）==="
 #   落地再发网络；两端题干格式（iOS splitQuestion ↔ 后端 OPT_SEP_LINE）必须一致。
 run_unit /tmp/test_askquestion scripts/ql_askquestion/truth_table_askquestion.swift
 
-echo "=== 49. 首页「方块卡片」真值表（v4.0.10 · 111 项）==="
+echo "=== 49. 首页「方块卡片」真值表（v4.0.10 起 · 153 项 · v4.0.93 补取件码段）==="
 # 多文件编译：被测真源是**纯 Foundation** 的 HomeCardOrder.swift（无 SwiftUI 依赖），
 # 直接编真实实现而不是照抄一份镜像 → 不存在「表与实现漂移」这个洞。
 # 多文件时只有 main.swift 允许顶层代码（第 4 步同口径），故先 cp 成 main.swift。
@@ -810,10 +810,15 @@ echo "=== 49. 首页「方块卡片」真值表（v4.0.10 · 111 项）==="
 #   只压高度，且聊天页那两枚不许跟着变），三条都配真机报修图/原话；
 #   v4.0.10 再加**总开关**（用户要求）：设置「外观与显示」里一行「首页快捷卡片」，关掉 = 整块不渲染
 #   且不留空占位；键缺失 = 开（老用户行为不变），默认值走 HomeCardStore.enabledDefault 单一真源。
+#   v4.0.93（用户：「app 聊天首页增加取件码卡片，卡片上可以显示取件码，点开弹窗取件码」）：
+#   新增 ⑬ 段 —— 编译列表加 PickupCodeKit.swift（纯 Foundation 的取件码解析，视图里不许另写一套），
+#   并补三处护栏：HomeCardLabels 三表覆盖全部 kind（本批阻断就是漏 icon）／两宿主分派行／
+#   detail 必须从「取件码」锚点之后定位。数据源 = 本地 TodoStore.sorted，零后端改动。
 rm -rf /tmp/ql_homecards_main && mkdir -p /tmp/ql_homecards_main
 cp scripts/ql_chat_home/truth_table_homecards.swift /tmp/ql_homecards_main/main.swift
 run_unit /tmp/test_homecards -swift-version 6 /tmp/ql_homecards_main/main.swift \
-    qingliao/Core/HomeCardOrder.swift
+    qingliao/Core/HomeCardOrder.swift \
+    qingliao/Core/PickupCodeKit.swift
 
 echo "=== 50b. Dock 栏顺序/隐藏真值表（v4.0.82：用户可配 dock 档序 + 隐藏，设置页恒不可隐藏）==="
 rm -rf /tmp/ql_docklayout_main && mkdir -p /tmp/ql_docklayout_main
