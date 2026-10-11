@@ -1206,15 +1206,6 @@ struct GoalRowCard: View {
     // （v4.0.45 这里列最近 3 条已完成 + 折叠计数 → 卡片被撑大，用户 2026-10-04 明确要求撤掉；
     //   已完成步骤在详情页的完整清单里看）
 
-    /// v4.0.20（#5）：健康点配色
-    private func healthColor(_ h: GoalSchedule.Health) -> Color {
-        switch h {
-        case .running:  return .green
-        case .paused:   return .secondary
-        case .detached: return .orange
-        }
-    }
-
     /// 时间戳文案（与 GoalsDetailSheet.stepTimeText 同一口径，跨 view 复用一份）
     static func stamp(_ d: Date) -> String {
         let f = DateFormatter()
@@ -1275,5 +1266,19 @@ extension GoalsSection {
         let host: GoalsSection
 
         func body(content: Content) -> some View { host.applyGoalsSectionBodyChrome(to: content) }
+    }
+}
+
+// MARK: - 健康点配色（文件级真源，本文件所有卡片共用一份）
+
+/// v4.0.20（#5）健康点配色。**v4.0.97 从 `GoalRowCard` 的 private 成员提为文件级**：
+/// 本批新加的页级卡 `GoalProgressCard` 也要画这颗点，而类型内 private 跨类型访问不到
+///（本机 `swiftc -parse` 对「成员不存在」一律放行 → 预检全绿，只有 CI Archive 报
+/// `cannot find 'healthColor' in scope`）。放文件顶层后各卡片共用同一份配色，不新增第二真源。
+private func healthColor(_ h: GoalSchedule.Health) -> Color {
+    switch h {
+    case .running:  return .green
+    case .paused:   return .secondary
+    case .detached: return .orange
     }
 }
