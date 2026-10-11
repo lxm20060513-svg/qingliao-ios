@@ -4,7 +4,7 @@ import Foundation
 // MARK: - 划词类动作（v4.0.91 · 配合 iOS 27 快捷指令的「获取所选文字 / 获取屏幕上有什么」）
 //
 // 场景：任意 App（微信 / Safari / 邮件 / 公众号）里选中一段文字 → 交给轻聊。
-// 两条入口，**都不新增 Siri 短语**（每 App 最多 10 条 App Shortcuts，本仓已用 9 条）：
+// 两条入口，**都不新增 Siri 短语**（每 App 最多 10 条 App Shortcuts，本仓 10 条已用满）：
 //   · 快捷指令：「获取所选文字」/「获取屏幕上有什么」→ 把文本喂进下面的 `文字` 参数
 //     （String 参数能吃系统的任意文本输入源：所选文字、剪贴板、上一步的输出）
 //   · 共享表单：分享扩展本来就收纯文本（project.yml 里 NSExtensionActivationSupportsText），

@@ -132,3 +132,106 @@ enum QingliaoRouteHandoff {
     /// intent 侧只投 route 名（String），App 侧不必再认识第二种表示。
     static func route(named name: String) -> QingliaoDeepLink.Route? { QingliaoDeepLink.Route(rawValue: name) }
 }
+
+
+// MARK: - 待办提炼（v4.0.92 · 取件码自动进待办）
+
+/// 「记到轻聊待办」里那句 AI 提炼 —— 把一条短信压成一行待办。
+///
+/// 为什么抽成纯函数放这里、而不是写在 `AddTodoIntent` 里：`AppIntents.swift` 本机编不了
+/// （`import AppIntents`），而「多行折叠 / 去围栏 / 去清单符号 / 长度上限」全是**本机可验的逻辑**
+/// —— 落在只依赖 Foundation 的文件里，`scripts/ql_intents/truth_table_intents.swift` 就能编真源断言。
+///
+/// 口径只有一条：**只压缩，不新增**。提炼出来的取件码若与原文对不上，用户按它去快递柜就是白跑一趟，
+/// 所以提示词里明写「只许用原文里有的信息」，调用侧还有「提炼失败一律回退原文」兜底。
+enum QingliaoExtract {
+
+    /// 送进模型的原文上限（一条短信的量级；再长就不是这个场景了）
+    static let textLimit = 600
+
+    /// 提炼结果上限：生活页待办本来就是一行
+    static let lineLimit = 80
+
+    /// 提炼指令（纯函数）
+    static func todoPrompt(_ text: String) -> String {
+        let body = String(text.trimmingCharacters(in: .whitespacesAndNewlines).prefix(textLimit))
+        return """
+        下面是我收到的一条短信（也可能是一段文字），请把它压成一行待办：
+        1. 快递取件类：保留取件码、快递公司、取件地点（含柜号/门牌），写成「取件码 XXX · 快递公司 · 地点」
+        2. 其它类：压成一行能一眼看懂的待办
+        3. 只许用原文里有的信息，不许编造、不许补建议、不许改数字
+        只输出这一行本身：不要解释、不要编号、不要 markdown。
+        【内容】
+        \(body)
+        """
+    }
+
+    /// 把模型的回答收成一行待办；收不出内容就返回空串（调用方回退原文 —— 宁可行长，不许不记）
+    static func tidyTodoLine(_ answer: String, _ limit: Int = lineLimit) -> String {
+        var parts: [String] = []
+        for raw in answer.components(separatedBy: .newlines) {
+            if raw.trimmingCharacters(in: .whitespaces).isEmpty { continue }
+            if raw.trimmingCharacters(in: .whitespaces).hasPrefix("```") { continue }
+            let s = stripWrappingQuotes(stripEmphasisMarkers(stripLeadingMarker(raw)))
+            if !s.isEmpty { parts.append(s) }
+        }
+        var out = stripWrappingQuotes(collapseSpaces(parts.joined(separator: " · ")))
+        guard !out.isEmpty else { return "" }
+        if out.count > limit { out = String(out.prefix(limit)) + "…" }
+        return out
+    }
+
+    /// 去掉行首清单符号：`- ` / `* ` / `• ` / `#` / `1. ` / `2、` / `3)`
+    static func stripLeadingMarker(_ line: String) -> String {
+        var s = line.trimmingCharacters(in: .whitespaces)
+        while let first = s.first, "-*•#".contains(first) {
+            s = String(s.dropFirst()).trimmingCharacters(in: .whitespaces)
+        }
+        let digits = s.prefix { $0.isNumber }
+        if !digits.isEmpty {
+            let rest = s.dropFirst(digits.count)
+            if let sep = rest.first, ".、)．".contains(sep) {
+                s = String(rest.dropFirst())
+            }
+        }
+        return s.trimmingCharacters(in: .whitespaces)
+    }
+
+    /// 去掉**首尾**的 markdown 强调符号：模型爱把答案写成 **这样**，
+    /// 只去首尾、正文里的 `*` 一律不动（别把用户的内容改坏）
+    static func stripEmphasisMarkers(_ s: String) -> String {
+        var t = s.trimmingCharacters(in: .whitespaces)
+        while let first = t.first, "*#_".contains(first) { t = String(t.dropFirst()) }
+        while let last = t.last, "*#_".contains(last) { t = String(t.dropLast()) }
+        return t.trimmingCharacters(in: .whitespaces)
+    }
+
+    /// 去掉包裹的引号 / 书名号（模型爱把整句答案裹一层）
+    static func stripWrappingQuotes(_ s: String) -> String {
+        let pairs: [(Character, Character)] = [("「", "」"), ("『", "』"), ("“", "”"), ("\"", "\""), ("'", "'")]
+        var t = s.trimmingCharacters(in: .whitespaces)
+        for (l, r) in pairs where t.count >= 2 {
+            if t.first == l, t.last == r {
+                t = String(t.dropFirst().dropLast()).trimmingCharacters(in: .whitespaces)
+            }
+        }
+        return t
+    }
+
+    /// 连续空白（含全角空格）压成一个半角空格
+    static func collapseSpaces(_ s: String) -> String {
+        var out = ""
+        var lastSpace = false
+        for ch in s {
+            let isSpace = ch == " " || ch == "\t" || ch == "\u{3000}"
+            if isSpace {
+                if !lastSpace { out.append(" ") }
+                lastSpace = true
+            } else {
+                out.append(ch)
+                lastSpace = false
+            }
+        }
+        return out.trimmingCharacters(in: .whitespaces)
+    }
+}

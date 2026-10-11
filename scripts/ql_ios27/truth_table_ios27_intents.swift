@@ -98,13 +98,58 @@ ck("查询方法没有直接标 @MainActor（会与协议的非隔离要求打�
 ck("没有把 store 实例带出 MainActor 闭包（只取值副本）",
    !ent.contains("-> TodoStore") && !ent.contains("-> MemoStore") && !ent.contains("-> GoalStore"))
 
-// ②-3 不占 Siri 短语名额：本 App 已用 9/10
+// ②-3 Siri 短语名额：v4.0.92 起 **10/10 用满**（最后 1 个给了「记到轻聊待办」，用户 2026-10-11 拍板：
+//      取件码短信自动进待办那条链路要能直接喊）。此后新增动作**一律不许**再加速度短语 ——
+//      上限就是 10，抢名额的后果是把既有的口令挤掉（已发布的短语是用户的肌肉记忆）。
 let phrases = intents.components(separatedBy: "AppShortcut(").count - 1
-ck("App Shortcuts 仍是 9 条（上限 10，加实体不需要动它）", phrases == 9, "实得 \(phrases)")
+ck("App Shortcuts 已用满 10 条（上限 10；此后新动作只做「快捷指令里可见」，不许再占短语）", phrases == 10, "实得 \(phrases)")
 for added in ["AskAboutTextIntent", "ListTodosIntent", "ToggleTodoIntent", "SearchMemosIntent", "ListGoalsIntent"] {
-    ck("新动作 \(added) 没占用 Siri 短语（出现在 AppShortcut 里就是越界）",
-       !intents.contains("AppShortcut(\(added)"))
+    ck("新动作 \(added) 没占用 Siri 短语（锚点必须是真能命中的 intent: X() —— 旧写法 AppShortcut(X 恒真、等于没查）",
+       !intents.contains("intent: \(added)()"))
 }
+
+// MARK: - 2.5 记到待办（v4.0.92 · 取件码短信自动进待办）
+
+// 用户场景：快捷指令自动化「收到含取件码的短信」→ 本条动作一步把码记进生活页待办。
+// 本表只能核源码契约（本机编不了 AppIntents）；纯逻辑（提炼提示词 / 多行折叠 / 回退口径）
+// 在 scripts/ql_intents 表里直接调 `QingliaoExtract` 真源验。
+// ⚠️ 断言一律先切到本条 intent 的函数体再匹配：整文件 `intents.contains("timeout: 30")` 这种宽锚点
+//    会被别的 intent 或 `timeout: 300` 顶上（审查抓到的假绿隐患）。
+let addTodo = slice(intents, from: "struct AddTodoIntent: AppIntent", to: "// MARK: - 动作 3")
+ck("AddTodoIntent 切片非空（空切片会让下面几条全假绿）", addTodo.count > 800)
+ck("AddTodoIntent 存在", intents.contains("struct AddTodoIntent: AppIntent"))
+ck("内容参数是 String（短信正文 / 上一步输出都只能喂文本）",
+   addTodo.contains(#"@Parameter(title: "内容""#) && addTodo.contains("var content: String"))
+ck("每条待办都进生活页待办清单（store.add(content:source:)）",
+   addTodo.contains(#"store.add(content: text, source: "shortcut")"#))
+ck("有「让 AI 提炼」开关（Bool 参数；Siri 可追问，默认开）",
+   addTodo.contains(#"@Parameter(title: "让 AI 提炼""#) && addTodo.contains("var refine: Bool"))
+ck("提炼提示词复用 QingliaoExtract（不在这条 intent 里手写第二份提示词）",
+   addTodo.contains("QingliaoExtract.todoPrompt("))
+ck("提炼超时 30s（自动化触发路径上不许卡 oneShot 默认的 120s）", addTodo.contains("timeout: 30)"))
+ck("提炼失败回退原文（refined 只在收出一行时才置位）",
+   addTodo.contains("var refined = false") && addTodo.contains("if !line.isEmpty {"))
+ck("提炼走 try? 吞错（不许因为提炼失败就抛出去、把待办丢了）",
+   addTodo.contains("if let answer = try? await QingliaoIntentClient.oneShot("))
+ck("写 NAS 前挂最新 auth（只落本地 = 换设备就没了）", addTodo.contains("store.attach(auth: auth)"))
+// parameterSummary 的键路径插值漏了那个反斜杠 = **编译期**失败（本机没 SDK 编不了，只能钉文本）。
+// 正确写法与仓内另外 8 处逐字节一致：写错时 CI 的 Archive 会直接红，而本地任何表都拦不住。
+ck("parameterSummary 是键路径插值（不是少一个反斜杠的错写法）",
+   addTodo.contains(#"Summary("记到轻聊待办 \(\.$content)")"#))
+ck("去重命中时改口（同内容 5 分钟内不重复记，别回一句像刚落了一条的假话）",
+   addTodo.contains("已在待办里（刚记过，没重复记）"))
+
+let todoSrc = read("qingliao/Core/TodoStore.swift")
+ck("TodoStore 认 shortcut 来源（缺分支会渲染成「手动」，用户看不出是自动化记的）",
+   todoSrc.contains(#"case "shortcut": return "快捷指令""#)
+   && todoSrc.contains(#"case "shortcut": return "wand.and.stars""#))
+ck("TodoStore 认 goal 来源（目标步骤灌进来的待办原先是「手动」，同类漏分支）",
+   todoSrc.contains(#"case "goal": return "目标""#) && todoSrc.contains(#"case "goal": return "flag""#))
+let styleSrc = read("qingliao/Core/SourceStyle.swift")
+ck("配色表给 shortcut / goal 各一支（不写就落「未知来源」灰，标签与颜色对不上）",
+   styleSrc.contains(#"case "shortcut":"#) && styleSrc.contains(#"case "goal":"#))
+ck("第 10 条 Siri 短语给了「记到轻聊待办」（刻意占用，名额已满）",
+   intents.contains("intent: AddTodoIntent(),"))
 
 // MARK: - 3. 动作本身（标题/描述/参数）
 

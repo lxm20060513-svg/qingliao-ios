@@ -17,6 +17,9 @@ enum SourceStyle {
         case "orb":             return .teal     // 智能球
         case "bigbang":         return .indigo   // 选词
         case "meeting":         return .orange   // 会议纪要
+        case "goal":            return .orange   // 目标（v4.0.92：目标步骤灌进待办，与生活页目标区同色）
+        case "shortcut":        return .indigo   // 快捷指令 / 自动化（v4.0.92：与「选词」共靛 —— 色板六色
+                                                // 已是全部家当，同为「工具」语义宁可共用，不许落「未知来源」灰）
         default:                return .gray     // 手记 / 手动 / 未知来源
         }
     }

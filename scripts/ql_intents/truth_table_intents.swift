@@ -256,6 +256,42 @@ check("译文「换一张」重开浮层前清 identifyPhoto（否则老照片�
 check("applyRoute 已在目标页时不白置烟花标志",
       dockCode.contains("if selected != tab { skipBurstOnce() }"))
 
+// MARK: ⑧ 待办提炼（v4.0.92 · 取件码短信自动进待办）
+
+// 直接调生产真源 `QingliaoExtract`（本表与 QingliaoIntentSupport.swift 同编译）。
+// 口径两条：**只压缩不新增**（提炼出的取件码若与原文对不上，用户按它去快递柜就白跑一趟）；
+// **收不出一行就回退原文**（返回空串是给调用方的信号，不是「记一条空的」）。
+let expressSMS = "【丰巢】您的快递已到丰巢智能柜，取件码 A1234，请于 24 小时内到 3 号柜取件。"
+
+check("提炼提示词把原文放进【内容】段（插值断掉 = 模型拿不到原文只能瞎编）",
+      QingliaoExtract.todoPrompt(expressSMS).contains(expressSMS))
+check("提示词点明取件码场景与「不许编造」（只压缩不新增的唯一保障）",
+      QingliaoExtract.todoPrompt(expressSMS).contains("取件码")
+      && QingliaoExtract.todoPrompt(expressSMS).contains("不许编造"))
+check("提示词按 textLimit 截断超长原文（一条短信的量级，别把上下文塞爆）",
+      !QingliaoExtract.todoPrompt(String(repeating: "啊", count: 5000))
+          .contains(String(repeating: "啊", count: QingliaoExtract.textLimit + 50)))
+check("单行回答原样收下",
+      QingliaoExtract.tidyTodoLine("取件码 A1234 · 丰巢 · 3 号柜") == "取件码 A1234 · 丰巢 · 3 号柜")
+check("多行回答折成一行（待办行在生活页本来就一行）",
+      QingliaoExtract.tidyTodoLine("取件码 A1234\n丰巢快递柜\n3 号柜") == "取件码 A1234 · 丰巢快递柜 · 3 号柜")
+check("去掉代码围栏行（模型爱包一层 ```）",
+      QingliaoExtract.tidyTodoLine("```\n取件码 A1234\n```") == "取件码 A1234")
+check("去掉清单符号（- / * / 1. / 2、）",
+      QingliaoExtract.tidyTodoLine("- 取件码 A1234\n1. 丰巢\n2、3 号柜") == "取件码 A1234 · 丰巢 · 3 号柜")
+check("去掉包裹引号（模型爱把整句裹一层）",
+      QingliaoExtract.tidyTodoLine("「取件码 A1234」") == "取件码 A1234")
+check("超长回答截断并带省略号",
+      QingliaoExtract.tidyTodoLine(String(repeating: "字", count: 200)).count == QingliaoExtract.lineLimit + 1)
+check("答空返回空串（调用方据此回退原文，而不是记一条空待办）",
+      QingliaoExtract.tidyTodoLine("  \n\n```\n") == "")
+
+
+check("去掉首尾的 markdown 强调符号（模型爱加粗，别让 ** 记进用户待办）",
+      QingliaoExtract.tidyTodoLine("**取件码 A1234 · 丰巢**") == "取件码 A1234 · 丰巢")
+check("强调符号只去首尾（正文中间那个 * 是用户的，不许动）",
+      QingliaoExtract.tidyTodoLine("取件码 A1234* 备用") == "取件码 A1234* 备用")
+
 // MARK: 收尾
 
 ud.removeObject(forKey: QingliaoRouteHandoff.defaultsKey)

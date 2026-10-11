@@ -25,7 +25,8 @@ import Foundation
 //     `onOpenURL` 用 —— 两个入口各管一段，不是二选一，也别互相顶替。
 //
 // ⚠️ App Shortcuts **每个 App 最多 10 条**，超了是**构建期**失败（appintentsmetadataprocessor 报
-//    "Found N App Shortcuts, but each app may have at most 10"）。本文件现在 9 条 —— 加速捷前先数。
+//    "Found N App Shortcuts, but each app may have at most 10"）。本文件现在 **10 条 = 上限已满**（v4.0.92 把最后 1 个给了「记到轻聊待办」）——
+//    此后新增动作一律不许再加速度短语，只做「快捷指令 App 里可见的动作」。
 
 // MARK: - 无 UI 客户端（与 App 内同一套 token / 服务器地址 / 后端接口）
 
@@ -255,7 +256,8 @@ struct AddMemoIntent: AppIntent {
     /// v4.0.91（划词场景）：把「这段资料哪来的」一起记下来。
     /// 快捷指令里可接「获取网页地址」/「获取标题」/「获取当前 App」，Safari 划词就能带上出处。
     /// ⚠️ 来源**拼进正文**而不是塞 `MemoItem.source`：`sourceLabel` 只认
-    /// chat/ai/orb/intent/manual 五个值，塞别的会渲染成「手记」（备忘页信息反而丢），
+    /// chat/bigbang/orb/intent/meeting 五个值（真源见 MemoStore.sourceLabel —— 早先这里写成
+    /// chat/ai/orb/intent/manual 是错的：MemoStore 没有 ai、也没有显式 manual），塞别的会渲染成「手记」，
     /// 所以宁可显式写成正文最后一行。
     @Parameter(title: "来源", description: "这条备忘从哪来（可接「获取网页地址」/「获取标题」），留空不记")
     var source: String?
@@ -293,6 +295,78 @@ struct AddMemoIntent: AppIntent {
             store.togglePin(first)
         }
         return .result(dialog: priority == .pinned ? "已记到轻聊备忘录并置顶" : "已记到轻聊备忘录")
+    }
+}
+
+// MARK: - 动作 2b：记到待办（写 · v4.0.92 取件码场景）
+
+/// 用户场景（2026-10-11）：短信里的取件码自动进待办。
+///
+/// 之前只有「记到备忘录」：自动化里能记，但落进的是备忘录（要自己去生活页翻），不是能勾掉的待办。
+/// 加上这条之后，快捷指令自动化一步到底：收到含「取件码」的短信 → 记到轻聊待办。
+///
+/// 三个取舍，别顺手改回去：
+///  · 「让 AI 提炼」是**可选参数**（默认开）：取件码短信原文是一大段（凭 XX 号到 XX 柜取件…），
+///    落进待办要的是「取件码 A1234 · 丰巢 · 3 号柜」这一行。提炼链路任何一步失败
+///    （没登录 / 没网 / 模型答空 / 超时）**一律回退原文** —— 记下来是硬承诺，提炼只是加分项，
+///    宁可行长一点也不许不记。
+///  · 超时给 30s（不是 `oneShot` 默认的 120s）：这条跑在自动化触发路径上，卡 120s 等于自动化挂住。
+///  · source 传 "shortcut"：`TodoItem.sourceLabel/sourceIcon` **已有**该分支（渲染成「快捷指令」）。
+///    这与 AddMemoIntent 那边「MemoStore 没有该分支、只好沿用 manual」的处境不同，别照搬那边的注释。
+struct AddTodoIntent: AppIntent {
+
+    static var title: LocalizedStringResource { "记到轻聊待办" }
+
+    static var description: IntentDescription {
+        IntentDescription("把一句话记进轻聊的待办清单（生活页）；打开「让 AI 提炼」会把短信压成一行，例如取件码")
+    }
+
+    @Parameter(title: "内容", description: "要记的事，可接短信正文 / 「获取所选文字」/ 上一步的输出")
+    var content: String
+
+    @Parameter(title: "让 AI 提炼", description: "打开则先让轻聊压成一行（取件码 · 快递公司 · 地点）；提炼失败就照原文记", default: true)
+    var refine: Bool
+
+    static var parameterSummary: some ParameterSummary {
+        Summary("记到轻聊待办 \(\.$content)")
+    }
+
+    @MainActor
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        let raw = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !raw.isEmpty else { return .result(dialog: "内容是空的，没记") }
+
+        // 与 AddMemoIntent / ToggleTodoIntent 同规矩：写 NAS 前挂最新 auth
+        //（不挂只落本地，用户以为记上了，换设备就没了）
+        let auth = try? QingliaoIntentClient.auth()
+        let store = TodoStore.shared
+        if let auth { store.attach(auth: auth) }
+
+        var text = raw
+        var refined = false
+        if refine, let auth {
+            // 提炼是加分项：这里**只 catch 不抛**，任何失败都静默回退原文，绝不因为提炼失败就不记
+            if let answer = try? await QingliaoIntentClient.oneShot(
+                QingliaoExtract.todoPrompt(raw), auth: auth, timeout: 30) {
+                let line = QingliaoExtract.tidyTodoLine(answer)
+                if !line.isEmpty {
+                    text = line
+                    refined = true
+                }
+            }
+        }
+
+        // 去重是 TodoStore 的职责（同内容 5 分钟内不重复，且命中时同样返回 true）→「真新增」
+        // 只能拿首条 id 比对：自动化同一条短信被触发两次时，别回一句像刚落了一条的假话。
+        let idBefore = store.todos.first?.id
+        guard store.add(content: text, source: "shortcut") else {
+            return .result(dialog: "没记成功")   // 空内容
+        }
+        let head = QingliaoAIReply.shorten(text, limit: 24)
+        guard store.todos.first?.id != idBefore else {
+            return .result(dialog: qlDialog("已在待办里（刚记过，没重复记）：" + head))
+        }
+        return .result(dialog: qlDialog("已记到轻聊待办" + (refined ? "（AI 提炼）" : "") + "：" + head))
     }
 }
 
@@ -407,6 +481,9 @@ struct OpenQuickActionsIntent: AppIntent {
 //  · 短语里**不要**引用自由文本参数：String / 数字 / 日期没有有限取值集，Siri 无法匹配
 //    （只有 AppEnum / AppEntity / 带 displayName 的 Bool 可以）。所以下面的短语都不带参数 ——
 //    Siri 会按参数标题追问「问题是什么？」，这正是"不打开 App 也能用"的关键一步。
+//  · 名额上限 10 条：v4.0.92 把最后 1 个给了「记到轻聊待办」（用户 2026-10-11 拍板，取件码短信
+//    自动进待办那条链路要能直接喊）。**现在 10/10 用满** —— 之后新增动作一律**不许**再加速度短语，
+//    只做「快捷指令 App 里可见的动作」；本文件的这一句与 ql_ios27 真值表里的条数断言同源，别只改一边。
 
 struct QingliaoAppShortcuts: AppShortcutsProvider {
 
@@ -491,6 +568,17 @@ struct QingliaoAppShortcuts: AppShortcutsProvider {
                 ],
                 shortTitle: "快捷菜单",
                 systemImageName: "hand.tap"
+            )
+            // 第 10 条 = 上限（v4.0.92）：短语刻意避开备忘录那条「记到轻聊」与「轻聊记一笔」，
+            // 否则同族短语互抢，「帮我记一下」这类口语会落到哪条全看 Siri 索引排序。
+            AppShortcut(
+                intent: AddTodoIntent(),
+                phrases: [
+                    "\(.applicationName)加个待办",
+                    "\(.applicationName)待办加一条",
+                ],
+                shortTitle: "记到待办",
+                systemImageName: "checklist"
             )
     }
 }

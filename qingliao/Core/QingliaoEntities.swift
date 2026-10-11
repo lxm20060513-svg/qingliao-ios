@@ -17,7 +17,7 @@ import Foundation
 //   2. **查询方法不能标 @MainActor**（`EntityQuery` 的成员是非隔离的），而 store 是
 //      `@MainActor` 的 → 一律 `await MainActor.run { }` 在主线程取一份**值类型副本**再出闭包。
 //      别把 store 实例带出去（那就成了跨隔离域持有主线程对象）。
-//   3. **实体不占 Siri 短语名额**。每 App 最多 10 条 App Shortcuts（本仓已用 9 条），
+//   3. **实体不占 Siri 短语名额**。每 App 最多 10 条 App Shortcuts（本仓 10 条已用满，2026-10-11 起），
 //      而 AppEntity 只是类型声明 —— 加实体不需要动 AppShortcutsProvider。
 //
 // ⚠️ 本文件 import AppIntents（本机 Linux 没有 iOS SDK，**编不了**）→ 只能靠

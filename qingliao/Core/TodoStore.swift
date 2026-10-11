@@ -16,7 +16,8 @@ struct TodoItem: Identifiable, Codable, Equatable, Sendable {
     var content: String
     var done: Bool
     var createdAt: Date
-    /// 来源标签：chat（聊天气泡长按）/ ai（AI 回复自动提取）/ manual（生活页手写）
+    /// 来源标签真源（改值必须同时改 sourceLabel/sourceIcon 的分支，缺分支会静默渲染成「手动」）：
+    /// chat 聊天 / ai AI 提取 / orb 智能球 / intent 识别 / shortcut 快捷指令（v4.0.92）/ goal 目标步骤 / manual 手写
     var source: String
     var updatedAt: Date
 
@@ -53,6 +54,11 @@ struct TodoItem: Identifiable, Codable, Equatable, Sendable {
         case "ai": return "AI"
         case "orb": return "智能球"   // v3.9.59：dock 智慧球长按 → 今日待办
         case "intent": return "识别"   // v3.9.71：意图管道（识别出来的内容一键加待办）
+        // v4.0.92：快捷指令 / 自动化（取件码短信自动进待办）；缺这一支就会渲染成「手动」，
+        // 用户就看不出这条是自动化记进来的
+        case "shortcut": return "快捷指令"
+        // v4.0.92（审查抓到的同类漏分支）：目标建卡时灌进来的步骤一直落 default → 用户看到「手动」
+        case "goal": return "目标"
         default: return "手动"
         }
     }
@@ -63,6 +69,8 @@ struct TodoItem: Identifiable, Codable, Equatable, Sendable {
         case "ai": return "sparkles"
         case "orb": return "circle.dashed"   // v3.9.59：智能球来源
         case "intent": return "sparkles"     // v3.9.71：识别来源
+        case "shortcut": return "wand.and.stars"   // v4.0.92：快捷指令来源
+        case "goal": return "flag"                 // v4.0.92：目标步骤来源
         default: return "square.and.pencil"
         }
     }
