@@ -561,7 +561,7 @@ final class AuthStore {
 
     /// 流式启动：蜂窝 → relay POST /r/stream/start/{uid}；Wi-Fi → 直连 POST /api/stream/start
     func streamStart(sessionId: String, model: String, provider: String,
-                     messages: [[String: Any]]) async throws -> String {
+                     messages: [[String: Any]], resumeFrom: String? = nil) async throws -> String {
         // v2.0.98：Agent 能力随 streamStart 上报（默认开）
         // v3.2.1 双保险：key 缺失时 bool(forKey:) 返回 false 会误发 false 到后端（设置页显示"开"却请求不带 Agent）。
         // v3.4.12：设置页「Agent 智能回复」开关已移除——后端主链路 v3.4.8 起所有聊天恒走 Hermes agent
@@ -577,6 +577,9 @@ final class AuthStore {
             // 后端译成 Hermes 按次思考配置 model_options.reasoning，只影响轻聊请求
             "reasoning": ReasoningLevel.current.payload
         ]
+        // v4.0.96（第三档·从断点继续）：只把父流 id 交给服务端，断点上下文由后端从磁盘重建
+        //（App 不传 messages/上下文 → 换设备、重装 App 也能续）
+        if let rf = resumeFrom, !rf.isEmpty { payload["resumeFrom"] = rf }
         let bodyData = try JSONSerialization.data(withJSONObject: payload)
         // v2.0.116 fix：流式请求必须带 X-Auth-Token（鉴权收紧后无 token 恒 401；
         // 原只带 Content-Type——AUTO_LOGIN 时代被免鉴权掩盖）
@@ -767,6 +770,8 @@ final class AuthStore {
         let outcome: String
         let plan: [ActiveTaskPlan.Step]
         let planSeq: Int
+        /// v4.0.96（第三档·从断点继续）：该父流已被续到哪条流（空 = 未续过 → 可续）。
+        let resumedBy: String
     }
 
     func streamRecover(sessionId: String) async throws -> RecoverResult {
@@ -784,8 +789,11 @@ final class AuthStore {
         let outcome = j["outcome"] as? String ?? ""
         let plan = ActiveTaskPlan.parse(j["plan"])
         let planSeq = (j["planSeq"] as? Int) ?? (j["planSeq"] as? Double).map(Int.init) ?? 0
+        // v4.0.96（第三档·从断点继续）：父流被续到哪条（老后端无该键 → 空串 = 未续过）
+        let resumedBy = j["resumedBy"] as? String ?? ""
         return RecoverResult(taskId: tid, content: content, done: done, status: status,
-                             error: error, outcome: outcome, plan: plan, planSeq: planSeq)
+                             error: error, outcome: outcome, plan: plan, planSeq: planSeq,
+                             resumedBy: resumedBy)
     }
 
     /// 流式停止：蜂窝 → CFStream 直连 POST（免弹窗）；Wi-Fi → 直连

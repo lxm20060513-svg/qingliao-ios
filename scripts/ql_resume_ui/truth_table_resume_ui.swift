@@ -135,6 +135,49 @@ enum ResumeUITruthTable {
             stripComments(read("qingliao/Features/Chat/SendQueueBar.swift"))
                 .contains("SendQueueOverview.summary(rows.count)"))
 
+        // ---------- D. v4.0.96（第三档·从断点继续） ----------
+        pos("D1 中断+未续过 → 可续（出「继续完成」）",
+            ResumeInfo.canResume(outcome: "outcome_unknown", resumedBy: ""))
+        neg("D2 中断+已续过 → 不可续（防重复起任务）",
+            !ResumeInfo.canResume(outcome: "outcome_unknown", resumedBy: "abc123"))
+        neg("D3 非中断任务 → 不可续（零误伤）", !ResumeInfo.canResume(outcome: "", resumedBy: ""))
+        neg("D4 nil outcome/resumedBy → 不可续", !ResumeInfo.canResume(outcome: nil, resumedBy: nil))
+        pos("D5 按钮文案带已完成步数", ResumeInfo.resumeTitle(doneSteps: 51).contains("51"))
+        neg("D6 0 步文案不编数（不出现「0 步」）", !ResumeInfo.resumeTitle(doneSteps: 0).contains("0 步"))
+        pos("D7 已续跑标记文案非空", !ResumeInfo.resumedNote.isEmpty)
+
+        pos("D8 AuthStore payload 带 resumeFrom 键", asrc.contains("payload[\"resumeFrom\"] = rf"))
+        pos("D9 streamRecover 解析 resumedBy", asrc.contains("j[\"resumedBy\"]"))
+        pos("D10 RecoverResult 带 resumedBy 字段", asrc.contains("let resumedBy: String"))
+        pos("D11 StreamClient start 透传 resumeFrom 给 AuthStore", sc.contains("resumeFrom: resumeFrom)"))
+        pos("D12 resume() 不重发历史（messages 传空数组）",
+            sc.contains("func resume(auth: AuthStore") && sc.contains("messages: [], resumeFrom: parent"))
+        pos("D13 armResume 只认 outcome_unknown（非中断清空、不武装）",
+            sc.contains("guard ResumeInfo.isUnknown(outcome) else {")
+                && sc.contains("resumeOutcome = \"\"; resumeResumedBy = \"\""))
+        pos("D14 开跑清中断状态（防拿到上一轮的父 id）", sc.contains("resumeTaskId = \"\""))
+        pos("D15 resumeBlocked 由后端 resumedBy 决定", sc.contains("resumeBlocked = !resumedBy.isEmpty"))
+        pos("D16 ChatView 接线 onResume", cv.contains("onResume:"))
+        pos("D17 ChatView resumeInterrupted 走 stream.resume",
+            cv.contains("func resumeInterrupted()") && cv.contains("stream.resume(auth:"))
+        // 🚨 D18 是本批审查挖出的 P0 的护栏：首版只加了 onResume 参数、**没写渲染视图**，
+        // 按钮永不出现，而子串断言（D16）完全查不出「传了但没渲染」。这条必须断言到 Button。
+        pos("D18 「继续完成」按钮真的渲染了（防『传了但没渲染』）",
+            stripComments(read("qingliao/Features/Chat/ChatToolStepCards.swift"))
+                .contains("Button(action: onResume)"))
+        let _toolSrc = stripComments(read("qingliao/Features/Chat/ChatToolStepCards.swift"))
+        pos("D18b 已续跑灰字也渲染（resumeBlocked 时不留空白）",
+            _toolSrc.contains("let note = resumedNote"))
+        let _rtp = sc.range(of: "func resetToolProgress()").map {
+            String(sc[$0.upperBound...].prefix(900))
+        } ?? ""
+        pos("D19 resetToolProgress 复位中断状态（切会话不串父流 id）",
+            _rtp.contains("resumeTaskId = \"\""))
+        pos("D20 续跑起流失败要复原可续状态（否则按钮凭空消失）",
+            sc.contains("if taskId.isEmpty && !isStreaming"))
+        pos("D21 视图判定走 canResumeNow 单一真源（防两份判定漂移）",
+            cv.contains("stream.canResumeNow") && sc.contains("var canResumeNow"))
+
         print("")
         print(failures == 0 ? "🎉 全部通过（0 失败）" : "❌ \(failures) 个失败")
         print("结果：正例 \(positives) / 反例 \(negatives) / \(failures) 失败")

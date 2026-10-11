@@ -56,6 +56,23 @@ final class StreamClient {
     /// v3.9.80：摘要行显示的实际步数。老后端无 `toolSeq`（=0）时回落可数到的条数，不显示假数。
     var toolSteps: Int { max(toolSeq, toolNames.count) }
 
+    // MARK: - v4.0.96（第三档·从断点继续）
+    /// 可续跑的中断父流 id（空 = 没有可续的中断任务）。只在 recover 认出中断任务时写入。
+    var resumeTaskId = ""
+    /// 中断时已完成步数（「继续完成（已完成 N 步）」按钮文案用）。
+    var resumeStep = 0
+    /// 父流已被续过（后端 resumedBy 非空）→ 不出按钮（防重复起任务）。
+    var resumeBlocked = false
+    /// 中断判定用：中断时后端给的 outcome（空 = 非中断；只认 outcome_unknown）。
+    var resumeOutcome = ""
+    /// 中断判定用：后端父子对账写的 resumedBy 原值（空 = 未续过）。
+    var resumeResumedBy = ""
+    /// 能否给「继续完成」按钮 —— **单一真源**：一律走 ResumeInfo.canResume，
+    /// 视图里别再自写一份条件（本批首版就是这么漂移的，审查 P2-4）。
+    var canResumeNow: Bool {
+        ResumeInfo.canResume(outcome: resumeOutcome, resumedBy: resumeResumedBy)
+    }
+
     /// v3.9.80：工具进度**四件套的单一复位入口**（工具名 / 耗时 / 真实步数 / 起算时刻）。
     ///
     /// 为什么收成一处：之前三处口径不一 —— `start()` 清四件、切会话（ChatView）只清三件
@@ -72,6 +89,13 @@ final class StreamClient {
         // 属于**该弹的新事件**，不能被上一流压掉。
         memoAdded = []
         memoDismissed = []
+        // v4.0.96（第三档·从断点继续）：中断可续状态与流同生命周期 → 切会话必须在这里复位，
+        // 否则下一会话会继承上一会话的中断父流 id（跨会话误续）。
+        resumeTaskId = ""
+        resumeStep = 0
+        resumeBlocked = false
+        resumeOutcome = ""
+        resumeResumedBy = ""
     }
     /// v3.9.58：已完成工具步骤的耗时（后端 [{n:中文名, s:秒}] 的解包）。
     /// 只增不改（后端保证追加序、与 toolNames 同长同序），App 按下标取耗时：
@@ -258,7 +282,7 @@ final class StreamClient {
 
     /// 启动流式请求
     func start(auth: AuthStore, sessionId: String, model: String, provider: String,
-               messages: [[String: Any]],
+               messages: [[String: Any]], resumeFrom: String? = nil,
                onFinished: ((Bool, String) -> Void)? = nil) async {
         stopPolling()
         generation += 1   // v3.0.50：废除在途旧轮询代
@@ -282,6 +306,13 @@ final class StreamClient {
         errorMessage = ""
         lastFailed = false   // v3.9.33：新流清掉上一轮的失败标记（否则新问题一开始球就是暗的）
         isAgent = false
+        // v4.0.96（第三档·从断点继续）：新一轮开跑 → 清上一轮的中断可续状态
+        //（resume() 已先取走 parent id，这里清空不影响本次续跑；**续跑失败由 resume() 复原**）
+        resumeTaskId = ""
+        resumeStep = 0
+        resumeBlocked = false
+        resumeOutcome = ""
+        resumeResumedBy = ""
         self.onFinished = onFinished
 
         // 记录当前流式会话（relay uid 推导用）
@@ -289,7 +320,8 @@ final class StreamClient {
 
         do {
             let tid = try await auth.streamStart(sessionId: sessionId, model: model,
-                                                 provider: provider, messages: messages)
+                                                 provider: provider, messages: messages,
+                                                 resumeFrom: resumeFrom)
             taskId = tid
             startPolling(auth: auth)
             // v3.0.81：注册后台任务，延长 iOS 挂起前的存活时间（最多 ~30s）
@@ -303,6 +335,35 @@ final class StreamClient {
             finish(success: false, error: APIError.unauthorized.localizedDescription)
         } catch {
             finish(success: false, error: "启动失败：\(error.localizedDescription)")
+        }
+    }
+
+    // MARK: - v4.0.96（第三档·从断点继续）
+
+    /// 从中断处继续：只把父流 id 交给服务端，断点上下文（原始消息 + 已完成步 + 已生成正文）
+    /// 由后端从磁盘重建 —— App **不重发历史**（messages 传空数组）。
+    ///
+    /// 与「重新生成」的区别：重新生成 = 从头发一遍原请求；继续完成 = 让 agent 接着做完剩下的。
+    /// ⚠️ 前提（与后端设计同源）：工具执行在 Hermes 侧，轻聊手里只有「工具名 + 耗时」，
+    /// 所以这是一轮**全新的运行**（靠提示里的「已完成的部分不要重做」压制重复），
+    /// 不是真正的「从第 k 步接着执行」——文案不许写成「无重复」。
+    func resume(auth: AuthStore, sessionId: String, model: String, provider: String,
+                onFinished: ((Bool, String) -> Void)? = nil) async {
+        let parent = resumeTaskId
+        let step = resumeStep
+        let outcome = resumeOutcome
+        let resumedBy = resumeResumedBy
+        guard !parent.isEmpty, !resumeBlocked else { return }
+        await start(auth: auth, sessionId: sessionId, model: model, provider: provider,
+                    messages: [], resumeFrom: parent, onFinished: onFinished)
+        // 🚨 起流失败（401/网络/后端 400）时 start 已清空可续状态 → 按钮凭空消失、只剩
+        // 「重新生成」，而父流并未被服务端消耗、本可再续（审查 P1）。判据：未真正接管。
+        if taskId.isEmpty && !isStreaming {
+            resumeTaskId = parent
+            resumeStep = step
+            resumeBlocked = false
+            resumeOutcome = outcome
+            resumeResumedBy = resumedBy
         }
     }
 
@@ -550,6 +611,26 @@ final class StreamClient {
     ///   ② 另一条**仍在途**的任务（done=false 且 status=streaming）：在途内容必然属于本轮，采纳安全。
     /// 其余（异任务且已完成）一律不采纳：本地流还活着就忽略并继续轮询；本地任务已确认失效
     /// （poll 404 → localTaskGone=true）则直接收尾报错，让用户重发——绝不复活旧答案。
+    /// v4.0.96（第三档·从断点继续）：认出中断任务 → 记下可续跑的父流 id、步数、是否已被续过。
+    /// 只认 `outcome_unknown`（后端磁盘兜底/reconcile 打的标）；非中断一律不武装（零行为变化）。
+    private func armResume(taskId: String?, outcome: String?, plan: [ActiveTaskPlan.Step],
+                           planSeq: Int, resumedBy: String) {
+        guard ResumeInfo.isUnknown(outcome) else {
+            // 非中断 → 清干净：别把上一轮的中断武装残留到本轮普通失败上（跨轮误续）
+            resumeTaskId = ""; resumeStep = 0; resumeBlocked = false
+            resumeOutcome = ""; resumeResumedBy = ""
+            return
+        }
+        let raw = taskId ?? ""
+        let tid = raw.isEmpty ? self.taskId : raw
+        guard !tid.isEmpty else { return }
+        resumeTaskId = tid
+        resumeStep = ResumeInfo.doneSteps(plan: plan, planSeq: planSeq)
+        resumeBlocked = !resumedBy.isEmpty
+        resumeOutcome = outcome ?? ""
+        resumeResumedBy = resumedBy
+    }
+
     private func tryRecover(auth: AuthStore, localTaskGone: Bool = false) async -> Bool {
         do {
             let r = try await auth.streamRecover(sessionId: auth.currentStreamSessionId)
@@ -568,7 +649,12 @@ final class StreamClient {
                     // 没采纳 → 把「普通失败路径那一次 recover 机会」还回去（v3.5.2 code review：
                     // 原实现把"忽略"也当"已接管"消费掉，弱网下会白丢本轮唯一一次续流机会）
                     recoverFailTried = false
-                    if localTaskGone { finish(success: false, error: interruptedNote ?? "连接中断，请重试") }
+                    if localTaskGone {
+                        // v4.0.96（第三档·从断点继续）：中断任务 → 武装「继续完成」
+                        armResume(taskId: tid, outcome: r.outcome, plan: r.plan,
+                                  planSeq: r.planSeq, resumedBy: r.resumedBy)
+                        finish(success: false, error: interruptedNote ?? "连接中断，请重试")
+                    }
                     return true
                 }
                 // 采纳：换 taskId
@@ -589,6 +675,9 @@ final class StreamClient {
                 }
                 if done {
                     // 待做池⑥：中断任务用断点提示（含已完成步数），普通任务保持原 error。
+                    // v4.0.96（第三档·从断点继续）：同上武装「继续完成」（已续过 → resumeBlocked）
+                    armResume(taskId: tid, outcome: r.outcome, plan: r.plan,
+                              planSeq: r.planSeq, resumedBy: r.resumedBy)
                     finish(success: st != "error", error: interruptedNote ?? err)
                 }
                 return true

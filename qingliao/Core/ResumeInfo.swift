@@ -36,4 +36,21 @@ enum ResumeInfo {
         }
         return "任务中断（服务重启或异常）：结果未知，未自动重放"
     }
+
+    // MARK: - v4.0.96（第三档·从断点继续）
+
+    /// 能否给「继续完成」按钮：是中断任务，且**从未续跑过**。
+    /// `resumedBy` 非空 = 后端父子对账已把这条父流标成「被谁续过」→ 再给按钮会重复起任务。
+    /// 老后端无该键 → 空串 → 与旧行为一致（中断任务照旧可续）。
+    static func canResume(outcome: String?, resumedBy: String?) -> Bool {
+        isUnknown(outcome) && (resumedBy ?? "").isEmpty
+    }
+
+    /// 「继续完成」按钮文案（带已完成步数，让用户知道从哪接着做）。
+    static func resumeTitle(doneSteps: Int) -> String {
+        doneSteps > 0 ? "继续完成（已完成 \(doneSteps) 步）" : "继续完成"
+    }
+
+    /// 已续跑标记文案（后端 `resumedBy` 非空时的灰字，替代按钮 —— 防重复点击）。
+    static let resumedNote = "已续跑"
 }

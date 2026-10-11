@@ -888,7 +888,14 @@ struct ChatView: View {
                                                 ? stream.runningElapsed() : nil,
                                             // v3.9.58b：失败收尾的最后一步 → 带「重试」（重新生成该回复）
                                             onRetry: (!stream.isStreaming && isLast && !stream.errorMessage.isEmpty)
-                                                ? { retryLastGeneration() } : nil)
+                                                ? { retryLastGeneration() } : nil,
+                                            // v4.0.96（第三档·从断点继续）：中断任务（服务重启掐断）→ 出「继续完成」
+                                            // 判定走 StreamClient.canResumeNow（单一真源 → ResumeInfo.canResume）
+                                            onResume: (!stream.isStreaming && isLast && !stream.errorMessage.isEmpty
+                                                       && stream.canResumeNow)
+                                                ? { resumeInterrupted() } : nil,
+                                            resumeTitle: ResumeInfo.resumeTitle(doneSteps: stream.resumeStep),
+                                            resumedNote: stream.resumeBlocked ? ResumeInfo.resumedNote : nil)
                             }
                         }
                     }
@@ -4750,6 +4757,56 @@ struct ChatView: View {
                        !stream.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         showSentOK()
                         // v3.1.9 fix：云端模式流式完成同样触发快拉（与本地模式一致）
+                        InboxStore.shared.triggerFastPoll()
+                    }
+                    Task { await chat.saveToServer(auth: auth) }
+                } else {
+                    landAwayReply(body, agent: stream.isAgent,
+                                  snapshot: startMsgs, sid: startSid, title: startTitle)
+                }
+            }
+        }
+    }
+
+    // MARK: - v4.0.96（第三档·从断点继续）
+
+    /// 中断任务「继续完成」：只把父流 id 交给服务端，断点上下文由后端从磁盘重建
+    ///（原始消息 + 已完成步 + 已生成正文），App 不重发历史。
+    /// 与「重新生成」的区别：重新生成 = 从头发一遍原请求；继续完成 = 接着把剩下的做完。
+    func resumeInterrupted() {
+        guard !stream.isStreaming else { return }
+        let parent = stream.resumeTaskId
+        guard !parent.isEmpty, !stream.resumeBlocked else { return }
+        // 锚点：原任务的最后一条 user 消息（本轮回复落在它之后）
+        let anchorUserID = chat.messages.last(where: { $0.isUser })?.id
+        // v4.0.96：与 regenerate 同口径 —— 先摘掉这一轮已落库的收尾气泡（那条 ⚠️ 中断提示），
+        // 否则「中断提示 + 续跑结果」会在同一轮并列成两条 assistant（真机上像重复回复，审查 P2-1）。
+        if let a = anchorUserID, let idx = chat.messages.firstIndex(where: { $0.id == a }),
+           chat.messages[(idx + 1)...].contains(where: { !$0.isUser }) {
+            chat.messages.removeSubrange((idx + 1)...)
+        }
+        let (useModel, useProvider) = resolveModel(hasImage: false)
+        let startSid = chat.sessionId
+        let startMsgs = chat.messages
+        let startTitle = chat.title
+        Haptics.tap()
+        Task {
+            stream.pendingUserMsgId = anchorUserID
+            await stream.resume(auth: auth, sessionId: startSid, model: useModel,
+                                provider: useProvider) { success, error in
+                let body: String
+                if !success {
+                    body = stream.content.isEmpty ? "⚠️ \(error)" : stream.content + "\n\n⚠️ \(error)"
+                } else if stream.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    body = Self.emptyReplyNote
+                } else {
+                    body = stream.content
+                }
+                if chat.sessionId == startSid {
+                    chat.upsertAssistant(body, agent: stream.isAgent, afterUserID: anchorUserID)
+                    if success,
+                       !stream.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        showSentOK()
                         InboxStore.shared.triggerFastPoll()
                     }
                     Task { await chat.saveToServer(auth: auth) }

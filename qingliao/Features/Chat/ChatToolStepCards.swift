@@ -12,6 +12,13 @@ struct ToolStepRow: View {
     var elapsed: Int? = nil
     /// v3.9.58b：重新生成回调（nil=不显示按钮；仅 unresolved 且是最后一步时传入）
     var onRetry: (() -> Void)? = nil
+    /// v4.0.96（第三档·从断点继续）：中断任务「继续完成」回调（nil=不显示）。
+    /// 与 onRetry 的区别：重新生成 = 从头发一遍原请求；继续完成 = 让 agent 接着做完剩下的。
+    var onResume: (() -> Void)? = nil
+    /// 「继续完成」按钮文案（含已完成步数）。
+    var resumeTitle: String = "继续完成"
+    /// v4.0.96：已续跑标记（非 nil → 以灰字替代按钮，防重复起任务）。
+    var resumedNote: String? = nil
     var body: some View {
         HStack(spacing: 8) {
             if running {
@@ -52,6 +59,30 @@ struct ToolStepRow: View {
                 }
                 .buttonStyle(PressStyle())
                 .accessibilityLabel("重新生成回复")
+            }
+            // v4.0.96（第三档·从断点继续）：中断任务 → 「继续完成」（服务端按父流 id 重建断点）。
+            // 🚨 这段必须与上面的 onRetry 一样**真的渲染**：本批首版只加了参数、漏了视图，
+            // 按钮从未出现（两路审查的 P0），而本地预检/真值表都查不出「传了但没渲染」。
+            if unresolved, let onResume {
+                Button(action: onResume) {
+                    Label(resumeTitle, systemImage: "play.circle")
+                        .font(.system(size: Typography.caption, weight: .medium))
+                        .foregroundStyle(Color.accentColor)
+                        .padding(.horizontal, Spacing.md)
+                        .padding(.vertical, Spacing.xxs)
+                        .background(Color.accentColor.opacity(Tint.subtle), in: Capsule())
+                }
+                .buttonStyle(PressStyle())
+                .accessibilityLabel(resumeTitle)
+            } else if unresolved, let note = resumedNote {
+                // 已续跑过（后端 resumedBy 非空）→ 灰字替代按钮，防重复起任务
+                HStack(spacing: Spacing.xs) {
+                    Image(systemName: "play.circle")
+                        .font(.system(size: Typography.caption))
+                    Text(note)
+                        .font(.system(size: Typography.caption))
+                }
+                .foregroundStyle(.tertiary)
             }
         }
         .padding(.horizontal, Spacing.xl)
