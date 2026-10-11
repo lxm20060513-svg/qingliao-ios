@@ -137,9 +137,12 @@ check("配置读取走 UserDefaultsKey 两键（AppStorage 同键跨视图同步
       && dockView.contains("@AppStorage(UserDefaultsKey.dockHidden)")
       && models.contains("static let dockOrder  = \"qingliao_dock_order\"")
       && models.contains("static let dockHidden = \"qingliao_dock_hidden\""))
-check("微滑方向按当前渲染档序判（order 形参），不再读写死的 slotIndex",
-      dockView.contains("let myIdx = order.firstIndex(of: tab) ?? 0")
-      && dockView.contains("let myIdx = order.firstIndex(of: .chat) ?? 0"))
+// v4.0.97：切页入场改**圆形扩散**，横向微滑（dx / myIdx 方向判）连同 `order` 形参一并撤掉 ——
+// 扩散圆心由宿主 `dockRevealCenter` 按**当前渲染档序**定位被点的槽位（dockRenderTabs.firstIndex），
+// 仍然不碰写死的 slotIndex（下一条断言继续钉这点）。
+check("扩散圆心按当前渲染档序定位槽位，不读写死的 slotIndex",
+      dockView.contains("private func dockRevealCenter(_ tab: DockTab) -> CGPoint")
+      && dockView.contains("dockRenderTabs.firstIndex(of: tab) ?? 0"))
 check("深链/卡片点到被隐藏的页 → 临时插回（forcedTabs.insert）",
       dockView.contains("if !dockRenderTabs.contains(tab) { forcedTabs.insert(tab) }"))
 check("切到常驻档即清空 forcedTabs（隐藏恢复，配置不被动过）",

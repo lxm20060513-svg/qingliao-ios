@@ -323,14 +323,59 @@ enum HabitTruthTable {
 
         // 生活页几何单一来源
         positives += 1
-        check("源级：页级单卡走 MemoCardMetrics.minHeight（单一几何来源）",
-              sectionCode.contains("MemoCardMetrics.minHeight"))
+        // v4.0.97：页级单卡由**行卡**换成 **HabitProgressCard**（圆环 + 三行指标，用户 2026-10-11
+        // 「习惯卡片做成上图的样式」），行卡只剩「全部列表」一处消费者 → `compact` 形参与
+        // MemoCardMetrics 兜底一并撤掉。页卡几何改由 HabitProgressCard 自己定（比待办/目标卡的环大一档）。
+        check("源级：页级单卡 = HabitProgressCard（圆环 + 三行指标），不再走行卡几何",
+              sectionCode.contains("HabitProgressCard(")
+              && sectionCode.contains("HabitProgressRing(progress: stats.rate)")
+              && !sectionCode.contains("HabitRowCard(h: top"))
         positives += 1
         check("源级：空态走 LifeEmptyStateCard",
               sectionCode.contains("LifeEmptyStateCard("))
         positives += 1
         check("源级：标题行走 LifeSectionHeader",
               sectionCode.contains("LifeSectionHeader("))
+
+        // ── v4.0.97 行为断言（审查：新统计此前只有源级字符串断言，口径改坏 CI 仍绿）──
+        // 真跑 HabitKit.cardStats，钉死：窗口 = 含今天的连续 7 个日键、取整、streak 取 max、空态。
+        let v97Cal = fixedCalendar()
+        let v97Today = date(2026, 10, 11, 12, 0, v97Cal)
+        // 6 个习惯，各自「昨天起往前 6 天」打过卡（今天故意不打 → 顺带验「今天未打卡从昨天数」）
+        var v97Six: [HabitItem] = []
+        for i in 0..<6 {
+            var h = HabitItem(title: "习惯\(i)")
+            for off in 1...6 {
+                if let d = v97Cal.date(byAdding: .day, value: -off, to: v97Today) {
+                    h.days.insert(HabitKit.dayKey(d, calendar: v97Cal))
+                }
+            }
+            v97Six.append(h)
+        }
+        let v97Stats = HabitKit.cardStats(v97Six, today: v97Today, days: 7, calendar: v97Cal)
+        check("行为：近 7 天窗口 = 6 习惯 × 7 天 = 42（不重不漏）",
+              v97Stats.total == 42)
+        positives += 1
+        check("行为：42 里命中 36 → 完成率取整 86%（与行②同源，参考图那个数）",
+              v97Stats.done == 36 && Int((v97Stats.rate * 100).rounded()) == 86)
+        positives += 1
+        check("行为：环与行②恒同源（rate == done / total）",
+              v97Stats.rate == Double(v97Stats.done) / Double(v97Stats.total))
+        positives += 1
+        check("行为：今天未打卡 → 连续天数从昨天起算（6，不谎报 7）",
+              v97Stats.streak == 6)
+        positives += 1
+        // 窗口外的打卡不许计进来：再往前推一天（第 7 天前）补一次打卡 → done 不动
+        var v97Out = v97Six
+        if let d7 = v97Cal.date(byAdding: .day, value: -7, to: v97Today) {
+            v97Out[0].days.insert(HabitKit.dayKey(d7, calendar: v97Cal))
+        }
+        check("行为：窗口外（第 7 天前）的打卡不计入 —— 窗口边界不多不少",
+              HabitKit.cardStats(v97Out, today: v97Today, days: 7, calendar: v97Cal).done == 36)
+        negatives += 1
+        check("行为：空列表 → .empty（rate 0，不 NaN 不崩）",
+              HabitKit.cardStats([], today: v97Today, calendar: v97Cal) == .empty)
+        negatives += 1
 
         // Store 走 SyncedStore FIFO 写链 + NAS 文件双写
         positives += 1

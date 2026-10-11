@@ -26,7 +26,14 @@ struct MiniCapsule: View {
         Button(action: action) {
             // v3.9.19：走 .pill(.topBar) 口径；原 accent 分支是实色底，改为口径内的淡底（与全站一致）
             // v3.9.22：.topBar 档字号 tiny(10) → subhead(13)，用户反馈这些小胶囊文字偏小
+            // v4.0.97（用户 2026-10-11 真机报障「清理已完成又分行了」）：文字一律**单行**
+            //（lineLimit(1) + minimumScaleFactor 兜底），与 SettingsCore.tsCapsule / AnchorMenuOverlay
+            // 同一口径。成因不是宽度不够，而是 HStack 里中文 Text 是「可折行」的灵活子视图 ——
+            // 顶栏一行同时挂「清理已完成 / 清空 / 完成」三枚时，SwiftUI 先折最长那枚，而不是先压
+            // 它前面的 Spacer(minLength: 0)。钉死单行 = 把压缩权交还给 Spacer，胶囊不再变形。
             Text(title)
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
                 .pill(size, tone: accent ? .accent : .neutral)
                 .contentShape(Capsule())
         }

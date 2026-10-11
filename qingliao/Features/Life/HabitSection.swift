@@ -114,17 +114,24 @@ struct HabitSection: View {
 
     @ViewBuilder
     private var topCard: some View {
-        if let top = store.sorted.first {
-            // v4.0.78：行卡渲染抽成文件级 HabitRowCard（页卡 / 全部列表两处共用一份几何，同 MemoNoteCard），
-            // 打卡圆的值走本 section 自己的 today（宿主那份）。
-            HabitRowCard(h: top, today: today, compact: true)
-                .onTapGesture { openTop(top) }
-                .contextMenu {
-                    HabitMenuItems(h: top, today: today,
-                                   onView: { openDetailFromCard($0) },
-                                   onDelete: { glass.pendingDelete = $0 })
-                }
-                .accessibilityLabel("习惯 \(top.title)，\(habitStreakText(top, today: today))，点开查看")
+        let stats = HabitKit.cardStats(store.sorted, today: today)
+        return Group {
+            if let top = store.sorted.first {
+                // v4.0.97（用户 2026-10-11「习惯卡片做成上图的样式」）：页卡由**行卡**换成
+                // **圆环 + 三行指标**的统计卡。原 HabitRowCard(compact: true) 口径作废；
+                // 列表行 HabitRowCard(compact: false) 不受影响，仍是原来的行卡。
+                HabitProgressCard(stats: stats)
+                    .onTapGesture { openTop(top) }
+                    .contextMenu {
+                        HabitMenuItems(h: top, today: today,
+                                       onView: { openDetailFromCard($0) },
+                                       onDelete: { glass.pendingDelete = $0 },
+                                       // v4.0.97（用户 2026-10-11 选 1:1）：卡面是聚合指标、菜单作用在
+                                       // 「最近更新那条」，两者不同一条 → 页卡不挂「删除」（详情页里仍可删）
+                                       showsDelete: false)
+                    }
+                    .accessibilityLabel("习惯统计，近 7 天完成 \(stats.done) / \(stats.total)，点开查看")
+            }
         }
     }
 
@@ -264,6 +271,11 @@ private struct HabitMenuItems: View {
     let today: Date
     let onView: (HabitItem) -> Void
     let onDelete: (HabitItem) -> Void
+    /// v4.0.97（用户 2026-10-11 选「1:1」）：页卡卡面是**聚合**指标（近 7 天完成率 / 最长连续 /
+    /// 「XX 最多」），而本菜单作用于 `store.sorted.first`「最近更新那条」—— 两个目标不是同一条，
+    /// 用户看到卡面写着「愉悦最多」、长按删除却删掉了另一条。**所以页卡不挂「删除」**
+    ///（删除仍可从「查看」进的详情页里做，入口不丢）；列表行是逐条渲染的，照常显示。
+    var showsDelete: Bool = true
 
     var body: some View {
         Button {
@@ -277,10 +289,12 @@ private struct HabitMenuItems: View {
         } label: {
             Label("查看", systemImage: "eye")
         }
-        Button(role: .destructive) {
-            onDelete(h)
-        } label: {
-            Label("删除", systemImage: "trash")
+        if showsDelete {
+            Button(role: .destructive) {
+                onDelete(h)
+            } label: {
+                Label("删除", systemImage: "trash")
+            }
         }
     }
 }
@@ -304,17 +318,121 @@ private func habitStreakText(_ h: HabitItem, today: Date) -> String {
     return s > 0 ? "连续 \(s) 天 · 今天还没打卡" : "今天还没打卡"
 }
 
+// MARK: - v4.0.97 习惯页卡：圆环 + 三行指标（用户 2026-10-11「习惯卡片做成上图的样式」）
+//
+// 参考图口径：左「粗圆环 + 环内百分比」，右三行「小圆底图标 + 主值 + 副标」。
+// 数据全部来自已有模型（HabitItem.days），零后端改动；**归日与窗口计算收在 HabitKit.cardStats**
+//（视图层自己不碰 days、不碰 Calendar —— 第 72 段源级护栏）。口径：
+//   环   = 近 7 天完成率 = done / (习惯数 × 7)
+//   行① = 当前最长连续天数（所有习惯取 max；口径 HabitKit.currentStreak，「漏一天归零」）
+//   行② = 近 7 天完成次数 / 应完成次数 —— **与环同源**（36/42 → 86%，两个数字必须自洽）
+//   行③ = 累计打卡次数最多的习惯（≈ 参考图「愉悦最多」那一格的位置）
+//
+// ⚠️ 行②与环同源是刻意的：参考图里 36/42 = 85.7% ≈ 86%，两个数字对得上才不会显假。
+// ⚠️ 打卡入口不在这张卡上（参考图也没有）—— 点卡仍走原 openTop（全部习惯 / 直接进详情），
+//    打卡在行卡（HabitRowCard）与详情页里做。
+
+/// 页卡圆环：弧长 = 近 7 天完成率，环内百分比（与目标/待办卡同款几何，尺寸更大）
+/// v4.0.97 尺寸口径（用户「卡片要加大一点」后定）：环 **104** / 线宽 11 / 环内 26pt，
+/// 三行间距 11、图标圆 30、主值 16pt、副标 12pt，卡内边距 20 —— 比待办/目标卡的环（70 / 8）明显大一档。
+private struct HabitProgressRing: View {
+    let progress: Double
+    var size: CGFloat = 104
+    var lineWidth: CGFloat = 11
+
+    private var percentText: String {
+        "\(Int((min(1, max(0, progress)) * 100).rounded()))%"
+    }
+
+    var body: some View {
+        ZStack {
+            Circle().stroke(Color.primary.opacity(0.10), lineWidth: lineWidth)
+            Circle()
+                .trim(from: 0, to: min(1, max(0.0001, progress)))
+                .stroke(Color.accentColor, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+            Text(percentText)
+                .font(.system(size: 26, weight: .bold))
+                .foregroundStyle(.primary)
+                .contentTransition(.numericText(value: min(1, max(0, progress)) * 100))
+        }
+        .frame(width: size, height: size)
+        .animation(Motion.settle, value: progress)
+        .accessibilityHidden(true)
+    }
+}
+
+/// 页卡右侧的一行：小圆底图标 + 主值 + 副标（参考图那一列）
+private struct HabitMetricRow: View {
+    let icon: String
+    let value: String
+    let caption: String
+
+    var body: some View {
+        HStack(spacing: 10) {
+            ZStack {
+                Circle()
+                    .fill(Color.primary.opacity(0.08))
+                    .frame(width: 30, height: 30)
+                Image(systemName: icon)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+            VStack(alignment: .leading, spacing: 1) {
+                Text(value)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
+                Text(caption)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 0)
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// 习惯页卡：左环 + 右三行（用户 2026-10-11 给的样式）
+private struct HabitProgressCard: View {
+    let stats: HabitCardStats
+
+    private var streakValue: String {
+        stats.streak > 0 ? "\(stats.streak) 天" : "还没开始"
+    }
+    private var topValue: String {
+        stats.topTitle.isEmpty ? "还没有习惯" : "\(stats.topTitle) 最多"
+    }
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 20) {
+            HabitProgressRing(progress: stats.rate)
+            VStack(alignment: .leading, spacing: 11) {
+                HabitMetricRow(icon: "flame.fill", value: streakValue, caption: "连续记录")
+                HabitMetricRow(icon: "calendar", value: "\(stats.done) / \(stats.total)", caption: "近 7 天完成")
+                HabitMetricRow(icon: "chart.bar.fill", value: topValue, caption: "打卡次数最多")
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .pastelCard(cornerRadius: 26)
+        .contentShape(Rectangle())
+    }
+}
+
 // MARK: - v4.0.78 习惯行卡（页级单卡 / 全部列表行共用；原 HabitSection.habitCard 逐字平移）
 //
-// 差异走 compact（与旧实现一致）：
-//   compact = true   页级单卡：标题 2 行 + 卡高兜底到「生活数据」行情卡同高（MemoCardMetrics）
-//   compact = false  全部列表行：标题 3 行 + 自然高度
+// v4.0.97：页级单卡已换成 HabitProgressCard（圆环 + 三行指标），行卡只剩「全部列表」一处消费者 →
+// 原先区分页级/列表的 `compact` 形参连同它那两个分支（标题行数 / 卡高兜底到行情卡同高）一并撤掉。
 // 时间逻辑：today 由调用方注入（页卡 = 宿主 today；列表 = HabitAllListBody 自己的 today）。
 
 struct HabitRowCard: View {
     let h: HabitItem
     let today: Date
-    var compact: Bool = false
 
     /// 计算属性（非存储属性）→ 不进 memberwise init，也不触发「私有存储属性降级 init 访问级别」那条规则
     private var store: HabitStore { HabitStore.shared }
@@ -326,7 +444,7 @@ struct HabitRowCard: View {
                 Text(h.title)
                     .font(.system(size: Typography.body))
                     .foregroundStyle(.primary)
-                    .lineLimit(compact ? MemoCardMetrics.lineLimit : 3)
+                    .lineLimit(3)
                     .multilineTextAlignment(.leading)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 streakLine
@@ -334,7 +452,7 @@ struct HabitRowCard: View {
         }
         .padding(Spacing.section)
         .frame(maxWidth: .infinity,
-               minHeight: compact ? MemoCardMetrics.minHeight : 0,
+               minHeight: 0,
                alignment: .leading)
         .pastelCard()
         .contentShape(Rectangle())
@@ -430,7 +548,7 @@ struct HabitAllListBody: View {
             .padding(.bottom, Spacing.md)
             List {
                 ForEach(store.sorted) { h in
-                    HabitRowCard(h: h, today: today, compact: false)
+                    HabitRowCard(h: h, today: today)
                         .onTapGesture { onOpenDetail(h) }
                         .contextMenu {
                             // 查看 → 走宿主 onOpenDetail（先收列表再开详情，与行点击同一条路）；

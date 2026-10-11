@@ -310,30 +310,37 @@ check("⑧b 放大后的画布**重新居中**到窗口（漏它 = 三团光团�
       themeFlat.contains(".offset(x:-ox,y:-oy)") || themeFlat.contains(".position(x:w/2,y:h/2)"))
 check("⑧b 光团几何仍锚在屏幕坐标（3 团各带一次 ox/oy 平移；须与上一条成对才成立）",
       occ(themeFlat, "+ox") == 3 && occ(themeFlat, "+oy") == 3)
-// v4.0.73（方案 A）：切页入场改为**内容原地淡入** `.opacity(phase)`（页底渐变常驻不动 = 静态垫底渐变托底），
-// 旧的低起点整页淡入（0.35/0.9/0.12）仍全部禁回——那才是「透白」根源；新淡入透出的是同款渐变。
-let cntOpacity = dockSrc.components(separatedBy: ".opacity(phase)").count - 1
-check("⑧c 切页/聊天页入场 = 原地淡入（.opacity(phase) 两处各一份）", cntOpacity >= 2)
-// v4.0.78（用户 2026-10-08「4.0.77 dock 栏 tap 切换太闪了，改为平滑过渡切换效果」，二选一取「柔滑滑入」）：
-// 旧形态两处病史：① 起点 phase = 0（全透明）→ 内容先整个消失再出现 = 「闪」的正源；
-// ② opacity 走 snap(0.20)、位移走 flow(0.28) 两条曲线不同步，叠在同一帧像抖了一下。
-// **v4.0.85（用户 2026-10-09「整个 app 各个页面切换还是太生硬了」「一点动画都没有」）**：0.78 那套
-//（起点 0.6 / 位移 22pt / flow 0.28s）真机观感 ≈ 硬切 → 起点 **0.75**、位移 **60pt**（Motion.pageSlideShift）、
-// 曲线换 **Motion.pageSlide**（0.38 弹簧轻过冲）。下面几条钉**现行**形态，并把 0.78 那套一并反向钉死
-//（否则「悄悄退回旧口径」两头都不红）。shell 侧同一口径另有一份：check_swift.sh「回退⑯ / ⑯f / ⑯g / ⑯h」组。
-check("⑧c 入场 = 单曲线柔滑（opacity 与位移同一个 Motion.pageSlide 事务，两处各一份）",
-      dockSrc.components(separatedBy: "withAnimation(Motion.pageSlide) { phase = 1; dx = 0 }").count - 1 >= 2
+// v4.0.73（方案 A）：切页入场改为**内容原地淡入** → v4.0.78 柔滑滑入 → v4.0.85 加重（0.75 / 60pt / pageSlide）。
+// 旧的低起点整页淡入（0.35/0.9/0.12）全程禁回——那才是「透白」根源。
+// **v4.0.97（用户 2026-10-11「dock 栏 tap 页切换采用圆形扩散转场特效：点击底部 tap，新页面就从手指按下的
+// 位置向外扩散直到铺满整个屏幕」）**：淡入 + 横向微滑**整条换掉** → **圆形扩散** —— 新页走可动画裁剪形状
+// `RevealCircleShape`，半径 0 → Motion.pageRevealMaxRadius(1200)，曲线 Motion.pageReveal(.smooth 0.42)。
+// 圆外露的是 TabView 垫底的同款渐变（回退⑰），所以「先白一下」那个老病不会复发。
+// shell 侧同一口径另有一份：check_swift.sh「回退⑯ / ⑯e / ⑯g / ⑯h / ⑯i / ⑯j」组。
+check("⑧c 切页/聊天页入场 = 圆形扩散（clipShape(RevealCircleShape…) 两处各一份）",
+      dockSrc.components(separatedBy: "clipShape(RevealCircleShape(center: localCenter, radius: revealRadius))").count - 1 >= 2)
+// v4.0.97 审查（medium）：`RevealCircleShape` 的 path 落在**页面自己的坐标系**里，而 grow 的圆心
+// 是按 **window 坐标**算的 —— 两者差一个页面原点（页面在安全区内，竖屏 iPhone 顶部 ≈59pt）。
+// 必须经 `localCenter` 把原点减掉，否则扩散圆整体偏下一整个状态栏高度，「从手指按下的位置扩散」不成立。
+check("⑧d 圆心必须做 window → 页面坐标换算（两处各一份）",
+      dockSrc.components(separatedBy: "private var localCenter: CGPoint {").count - 1 >= 2
+      && dockSrc.components(separatedBy: "CGPoint(x: revealCenter.x - pageOrigin.x, y: revealCenter.y - pageOrigin.y)").count - 1 >= 2)
+check("⑧d 负断言：不许再把 window 坐标直接喂给 clipShape",
+      !dockSrc.contains("clipShape(RevealCircleShape(center: revealCenter,"))
+check("⑧c 入场 = 单曲线（半径与曲线同一个 Motion.pageReveal 事务，两处各一份；pageSlide/snap/flow 那几套不许回来）",
+      dockSrc.components(separatedBy: "withAnimation(Motion.pageReveal) { revealRadius = Motion.pageRevealMaxRadius }").count - 1 >= 2
+      && !dockSrc.contains("withAnimation(Motion.pageSlide)")
       && !dockSrc.contains("withAnimation(Motion.snap) { phase = 1 }")
       && !dockSrc.contains("withAnimation(Motion.flow) { phase = 1; dx = 0 }")
       && !dockSrc.contains("withAnimation(Motion.flow) { dx = 0 }"))
-check("⑧c 入场起点 0.75（不许回 0 全透明起跳，也不许退回 0.6），TabTransition 与聊天页两处一致",
-      dockSrc.components(separatedBy: "phase = 0.75").count - 1 >= 2
+check("⑧c 入场起点 = 扩散半径归 0（两处一致；phase 起点 0.6/0.75 连同 dx 微滑一起撤）",
+      dockSrc.components(separatedBy: "revealRadius = 0").count - 1 >= 2
       && !dockSrc.contains("phase = 0.6")
-      && !dockSrc.contains("phase = 0\n"))
-check("⑧c 位移走单一常量 Motion.pageSlideShift = 60（两处共用同一个，防只改一边 / 退回字面量 22）",
-      dockSrc.components(separatedBy: "Motion.pageSlideShift").count - 1 >= 4
-      && !dockSrc.contains("? 22 : -22")
-      && src("qingliao/Theme/Motion.swift").contains("static let pageSlideShift: CGFloat = 60"))
+      && !dockSrc.contains("phase = 0.75")
+      && !dockSrc.contains("dx = 0"))
+check("⑧c 扩散半径走单一常量 Motion.pageRevealMaxRadius = 1200（两处共用，防只改一边）",
+      dockSrc.components(separatedBy: "Motion.pageRevealMaxRadius").count - 1 >= 4
+      && src("qingliao/Theme/Motion.swift").contains("static let pageRevealMaxRadius: CGFloat = 1200"))
 check("⑧c 低起点整页淡入不许回来（0.35/0.9/0.12 起手的老病，v4.0.73 起淡入透出的是同款渐变垫底）",
       !dockSrc.contains("opacity(0.35 + 0.65 * phase)")
       && !dockSrc.contains("opacity(0.9 + 0.1 * phase)")

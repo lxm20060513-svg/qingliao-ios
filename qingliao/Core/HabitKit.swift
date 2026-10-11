@@ -170,3 +170,49 @@ enum HabitKit {
         return calendar.date(from: comp)
     }
 }
+
+// MARK: - v4.0.97 习惯页卡统计（口径收在 Kit）
+//
+// 用户 2026-10-11「习惯卡片做成上图的样式」—— 页卡要「圆环 + 三行指标」，数字在这里一次算好。
+// 🚨 归日 / 近 N 天窗口 / 连续天数**全部收在本文件**：视图层不许自己 Calendar 归日、也不许直接摸
+//    `habit.days`（第 72 段真值表有两条源级护栏钉着这点，v4.0.97 落码时挨过一次红）。
+
+/// 习惯页卡统计快照（视图层只渲染，不重算）
+struct HabitCardStats: Equatable {
+    /// 近 N 天打卡次数
+    var done: Int
+    /// 近 N 天应打卡次数（习惯数 × 窗口天数）
+    var total: Int
+    /// 当前最长连续天数（所有习惯取 max）
+    var streak: Int
+    /// 累计打卡次数最多的习惯标题（无习惯时为空串）
+    var topTitle: String
+
+    /// 窗口完成率（0…1；无应打卡次数时为 0）
+    var rate: Double { total > 0 ? Double(done) / Double(total) : 0 }
+
+    static let empty = HabitCardStats(done: 0, total: 0, streak: 0, topTitle: "")
+}
+
+extension HabitKit {
+
+    /// 近 `days` 天（含今天）的页卡统计。
+    /// ⚠️ 空列表分支是**防御性**的：视图侧 `HabitSection.root` 在 `store.habits.isEmpty` 时走
+    /// `LifeEmptyStateCard`，根本不渲染这张卡（v4.0.97 审查指出原注释与事实不符）。
+    /// ⚠️ 行②与环**同源**（done / total）—— 参考图里 36/42 = 85.7% ≈ 86%，两个数字对得上才不显假。
+    static func cardStats(_ habits: [HabitItem], today: Date,
+                          days: Int = 7, calendar: Calendar = .current) -> HabitCardStats {
+        guard !habits.isEmpty else { return .empty }
+        var keys = Set<String>()
+        for offset in 0..<days {
+            if let d = calendar.date(byAdding: .day, value: -offset, to: today) {
+                keys.insert(dayKey(d, calendar: calendar))
+            }
+        }
+        let done = habits.reduce(0) { $0 + $1.days.intersection(keys).count }
+        let streak = habits.map { currentStreak($0, today: today, calendar: calendar) }.max() ?? 0
+        let top = habits.max { $0.days.count < $1.days.count }
+        return HabitCardStats(done: done, total: habits.count * keys.count,
+                              streak: streak, topTitle: top?.title ?? "")
+    }
+}

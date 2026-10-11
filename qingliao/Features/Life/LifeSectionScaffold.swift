@@ -16,9 +16,11 @@ import SwiftUI
 //   · LifeNoteComposeSheet   ← 备忘/待办两份 addSheet（TextEditor 外壳，差占位符与标题）
 //
 // 刻意**没有**收进来的：
-//   · openCard()（备忘录/待办/目标各一份）：1 条直达详情、≥2 条弹列表的骨架相同，但直达分支
-//     要写的 state 各不相同（待办多 editDraft/detailEditing，目标多 detailCurrent，备忘录只置 detail），
-//     抽出来要传 3~4 个 inout 闭包，收益低于可读性损失 → 保留各自实现。
+//   · 页级卡的点击（备忘录/待办/目标各一份）：1 条直达详情、≥2 条原位展开的骨架相同，但直达分支
+//     要写的 state 各不相同（待办多 editDraft/detailEditing，目标多 detailCurrent），抽出来要传
+//     3~4 个 inout 闭包，收益低于可读性损失 → 保留各自实现。
+//     ⚠️ v4.0.97 起口径分叉：**备忘录不再是 openCard()** —— 页级卡换成彩色叠卡，点卡 = toggleExpand
+//     （层层展开 / 整齐叠回）；待办与目标仍是「页级圆环卡 + 卡下展开列表」。
 //   · 记录的新建弹窗：三字段 + Picker 单位，与 TextEditor 外壳完全不同构 → 不动。
 //   · 卡片/行卡（MemoNoteCard / TodoRowCard / GoalRowCard / RecordRowCard）：结构各不相同，
 //     只有「外层几何」相同，已由 LifeEmptyStateCard 与各 Section 自己的 topCard 各自承担。

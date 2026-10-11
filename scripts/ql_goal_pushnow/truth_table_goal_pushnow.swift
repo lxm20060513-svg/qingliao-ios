@@ -216,7 +216,11 @@ ok(gsec.contains("Text(\"\\(a) 个进行中 · \\(f) 个已完成\")") || gsec.c
 // 🚨 Button 套 Button：卡片外层若还是 Button，点胶囊会变成打开详情
 ok(!gsec.contains("GoalRowCard(goal: top, compact: true)\n            .buttonStyle"),
    "#1 主卡不是 Button 包裹（否则胶囊点不动）")
-ok(gsec.contains(".onTapGesture { openCard() }"), "#1 主卡用 onTapGesture 承接点击")
+// v4.0.97（用户 2026-10-11「长期目标卡片也按这个效果来做」）：主卡换成**圆环卡**，
+// 点击由卡内并列的两个 Button 承接（上段 onTapCard 展开 / 下段勾步骤），不再走 onTapGesture + openCard。
+// 旧口径（onTapGesture 承接点击）随之作废；「卡内 Button 不许嵌套」这个老坑的断言（上一条）不变。
+ok(gsec.contains("GoalProgressCard(") && gsec.contains("onTapCard: toggleExpand"),
+   "#1 主卡 = 圆环卡，点它展开（v4.0.97 取代 onTapGesture 开浮层）")
 
 // ── ③ 后端侧接线 ────────────────────────────────────────────────
 print("── ②③④⑤ 后端接线 ──")

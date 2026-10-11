@@ -1346,27 +1346,34 @@ ckNot "回退⑭：整页淡入不许回来（0.35 起手的老病）" '\.opacit
 ckNot "回退⑮：0.9 淡入（v4.0.71 未根治版）也不许回来" '\.opacity\(0\.9 \+ 0\.1 \* phase\)' "$DT"
 # v4.0.73（方案 A 拍板）= 内容原地淡入（Motion.snap 0.20s）→ **v4.0.78 改柔滑滑入**：
 # 用户真机反馈「dock 栏 tap 切换太闪了」（根因：opacity 走 snap 0.20s、位移走 flow 0.28s，两条曲线不同拍
-# 又都从 phase=0 起手 = 内容先整个消失再出现）。
-# **v4.0.85（用户 2026-10-09「整个 app 各个页面切换还是太生硬了」「一点动画都没有」）**：
-# v4.0.78 那套（起点 0.6 / 位移 22pt / flow 0.28s smooth）真机观感 ≈ 硬切 → 整体加重：
-# 起点 **0.75**、位移 **60pt**（走 Motion.pageSlideShift，两处 modifier 共用同一个常量，免得各改一边）、
-# 曲线 **Motion.pageSlide**（0.38 弹簧轻过冲）。起点、位移、曲线三处两两成对，别只改一边。
-# 禁令不变：起点不许回 0（全透明起手 = 先消失再出现 = 「闪」）、缩放 / y 轴上浮 / 整页淡入不许回来。
-cnt=$(grep -cF 'withAnimation(Motion.pageSlide) { phase = 1; dx = 0 }' "$DT"); [ "$cnt" -ge 2 ] \
-  || { echo "❌ 回退⑯：切页入场应为同一个 withAnimation(Motion.pageSlide) { phase = 1; dx = 0 }，两处 modifier 各一份（实得 $cnt）"; fail=1; }
-cnt=$(grep -cF 'dx = (myIdx > oldIdx) ? Motion.pageSlideShift : -Motion.pageSlideShift' "$DT"); [ "$cnt" -ge 2 ] \
-  || { echo "❌ 回退⑯f：切页方向微滑应走 Motion.pageSlideShift（两处 modifier 各一份，实得 $cnt）"; fail=1; }
-cnt=$(grep -cF 'static let pageSlideShift: CGFloat = 60' qingliao/Theme/Motion.swift); [ "$cnt" -ge 1 ] \
-  || { echo "❌ 回退⑯g：切页位移常量应为 Motion.pageSlideShift = 60（实得 $cnt）"; fail=1; }
-cnt=$(grep -cF 'static var pageSlide: Animation { .spring(response: 0.38, dampingFraction: 0.80) }' qingliao/Theme/Motion.swift); [ "$cnt" -ge 1 ] \
-  || { echo "❌ 回退⑯h：切页曲线令牌应为 Motion.pageSlide（0.38 / 0.80，实得 $cnt）"; fail=1; }
+# 又都从 phase=0 起手 = 内容先整个消失再出现）→ **v4.0.85** 整体加重（起点 0.75 / 位移 60pt / pageSlide 弹簧，
+# 历轮为躲「闪 / 露白」一路压到 ≈硬切）。
+# **v4.0.97（用户 2026-10-11「dock 栏 tap 页切换采用圆形扩散转场特效：点击底部 tap，新页面就从手指
+# 按下的位置向外扩散直到铺满整个屏幕」）**：淡入 + 横向微滑**整条换掉** → 圆形扩散 ——
+# 新页走可动画裁剪形状 `RevealCircleShape`，半径 0 → Motion.pageRevealMaxRadius(1200)、曲线 Motion.pageReveal。
+# 半径 / 曲线 / 起点三处与 ChatZoomEntryModifier 逐字成对，别只改一边。
+# 圆外不露白的理由：TabView 底下常驻同款 `EnvironmentGlowLayers` 垫底（回退⑰），半径 0 那一拍整屏看到的就是
+# 这层渐变 = 与页底逐帧一致 —— v4.0.73~0.85 反复治的「先白一下」不会复发。
+# 禁令不变：整页缩放（0.96 那套）/ y 轴上浮 / 低起点整页淡入（0.35 起手）一概不许回来。
+cnt=$(grep -cF 'withAnimation(Motion.pageReveal) { revealRadius = Motion.pageRevealMaxRadius }' "$DT"); [ "$cnt" -ge 2 ] \
+  || { echo "❌ 回退⑯：切页入场应为同一个 withAnimation(Motion.pageReveal) { revealRadius = Motion.pageRevealMaxRadius }，两处 modifier 各一份（实得 $cnt）"; fail=1; }
+cnt=$(grep -cF 'clipShape(RevealCircleShape(center: localCenter, radius: revealRadius))' "$DT"); [ "$cnt" -ge 2 ] \
+  || { echo "❌ 回退⑯i：圆形扩散应走 RevealCircleShape 裁剪（两处 modifier 各一份，实得 $cnt）"; fail=1; }
+# v4.0.97 审查（medium）：shape 的 path 在**页面局部坐标系**里，圆心却是 window 坐标 →
+# 必须经 localCenter 减掉页面原点（安全区 ≈59pt），否则整圆偏下一个状态栏。
+cnt=$(grep -cF 'CGPoint(x: revealCenter.x - pageOrigin.x, y: revealCenter.y - pageOrigin.y)' "$DT"); [ "$cnt" -ge 2 ] \
+  || { echo "❌ 回退⑯i2：圆心必须做 window → 页面坐标换算（实得 $cnt）"; fail=1; }
+cnt=$(grep -cF 'revealRadius = 0' "$DT"); [ "$cnt" -ge 2 ] \
+  || { echo "❌ 回退⑯e：切页入场起点应为扩散半径归 0（两处 modifier 各一份，实得 $cnt）"; fail=1; }
+cnt=$(grep -cF 'static let pageRevealMaxRadius: CGFloat = 1200' qingliao/Theme/Motion.swift); [ "$cnt" -ge 1 ] \
+  || { echo "❌ 回退⑯g：扩散圆最大半径应为 Motion.pageRevealMaxRadius = 1200（实得 $cnt）"; fail=1; }
+cnt=$(grep -cF 'static var pageReveal: Animation { .smooth(duration: 0.42) }' qingliao/Theme/Motion.swift); [ "$cnt" -ge 1 ] \
+  || { echo "❌ 回退⑯h：切页曲线令牌应为 Motion.pageReveal（.smooth 0.42，实得 $cnt）"; fail=1; }
 ckNot "回退⑯a：旧 snap 起手（phase 从 0 开始，实测会闪）不许回来" 'withAnimation\(Motion\.snap\) \{ phase = 1 \}' "$DT"
-cnt=$(grep -cE 'phase = 0\.75$' "$DT"); [ "$cnt" -ge 2 ] \
-  || { echo "❌ 回退⑯e：切页入场起点应为 phase = 0.75（两处 modifier 各一份，实得 $cnt）"; fail=1; }
 ckNot "回退⑯b：整页缩放入场（0.96 那套）不许回来" 'scaleEffect\(0\.96 \+ 0\.04 \* phase' "$DT"
 ckNot "回退⑯c：整页上浮（10pt 那条）不许回来" 'offset\(y: 10 \* \(1 - phase' "$DT"
-cnt=$(grep -cE '^\s*\.opacity\(phase\)' "$DT"); [ "$cnt" -ge 2 ] \
-  || { echo "❌ 回退⑯d：原地淡入 .opacity(phase) 应在两处 modifier 各一份（实得 $cnt）"; fail=1; }
+ckNot "回退⑯d：原地淡入 .opacity(phase) 不许回来（v4.0.97 起入场是圆形扩散，不再改整页透明度）" '^[[:space:]]*\.opacity\(phase\)' "$DT"
+ckNot "回退⑯j：横向微滑（pageSlideShift / dx 那套）不许回来（v4.0.97 已整条换掉）" 'Motion\.pageSlideShift' "$DT"
 ck "回退⑰：TabView 底下垫了静态渐变底（切页缩放露环=渐变，根治「先白后切」）" 'EnvironmentGlowLayers\(scheme: colorScheme\)' "$DT"
 ln=$(grep -n 'EnvironmentGlowLayers(scheme: colorScheme)' "$DT" | head -1 | cut -d: -f1); [ -n "$ln" ] \
   || { echo "❌ 回退⑰：垫底渐变层不存在"; fail=1; }

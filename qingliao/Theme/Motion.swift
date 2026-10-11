@@ -47,15 +47,16 @@ enum Motion {
     /// v4.0.76：锚定菜单入场（AnchorMenuOverlay 专用，审查意见：入场动画走 Motion 真源不裸写 spring）
     static var anchorMenu: Animation { .spring(response: 0.38, dampingFraction: 0.78) }
 
-    /// v4.0.85：dock 切页入场（新页横向滑入 + 渐显）—— 用户 2026-10-09「整个 app 各个页面切换还是太生硬了 /
-    /// 一点动画都没有」。原口径 = Motion.flow(0.28s smooth) + 22pt + 起点 0.6：历轮为躲「闪 / 露白」把幅度
-    /// 一路压小，真机观感≈硬切。本轮加重：0.38s + 轻微过冲（0.8 阻尼 ≈ 到位轻弹一下），位移见 pageSlideShift。
-    /// ⚠️ 起点与位移的字面量同时钉在 check_swift.sh 的「回退⑯」组，改这里必须同步改那组断言。
-    static var pageSlide: Animation { .spring(response: 0.38, dampingFraction: 0.80) }
+    /// v4.0.97：dock 切页**圆形扩散**入场（用户 2026-10-11：「dock 栏 tap 页切换采用圆形扩散转场特效：
+    /// 点击底部 tap，新页面就从手指按下的位置向外扩散直到铺满整个屏幕」）—— 取代 v4.0.85 的
+    /// 「横向滑入 + 渐显」（那套历轮为躲「闪 / 露白」一路压小到 ≈硬切；用户既点名要扩散，就整条换掉）。
+    /// 曲线取 .smooth(0.42)：扩散要有「扫过去」的行程感 —— 过短 = 硬切，过长 = 拖沓。
+    /// ⚠️ 曲线与半径的字面量同时钉在 check_swift.sh 的「回退⑯」组与 ql_themegrad ⑧c，改这里必须同步改那两处。
+    static var pageReveal: Animation { .smooth(duration: 0.42) }
 
-    /// dock 切页入场的横向位移量（pt）。**两处 modifier 共用同一个常量** —— 免得两边各写一个字面量、
-    /// 只改一边（v4.0.75 吃过「6pt 太细 = 肉眼不可见」的亏；22 → 60 的理由同源：要看得出来）。
-    static let pageSlideShift: CGFloat = 60
+    /// 扩散圆的最大半径（pt）：必须 ≥「屏幕最远角到圆心」的距离（15 Pro Max 底部槽位 ≈ 874pt），
+    /// 取 1200 兜住全部机型与横屏。**两处 modifier 共用同一个常量**，别各写一个字面量。
+    static let pageRevealMaxRadius: CGFloat = 1200
 
     /// 用户发送气泡的位移量（pt，配合上面的过冲读作「弹上来」）
     static let bubbleRise: CGFloat = 12

@@ -34,6 +34,11 @@ enum MemoCardMetrics {   // v3.9.35：private 去掉——TodoSection 复用同�
 
 struct MemoSection: View {
     @State private var store = MemoStore.shared
+    /// v4.0.97（用户 2026-10-11「点开后层层打开、再点一下整齐叠回」）：叠卡展开态
+    @State private var memoExpanded = false
+    /// v4.0.97：「清空」二次确认 —— 原来只在「全部备忘」浮层里，浮层入口被叠卡展开取代后
+    /// 挪到卡下，与待办卡展开列表底部那排同口径
+    @State private var confirmClearAll = false
     /// v4.0.77：三个浮层的开关（全部列表 / 详情 / 新建）**提到页级单例**——
     /// 浮层本体不再挂在本 section 自己的 ZStack 里（本 section 只是生活页滚动区的一行，
     /// 浮层会被限制在卡片那一行的几何里）。详见 MemoGlassPresenter / MemoGlassLayerHost 顶部注释。
@@ -63,6 +68,21 @@ struct MemoSection: View {
             // 现在：开关在 MemoGlassPresenter（页级单例，本 section 只改状态），
             //      浮层本体由 MemoGlassLayerHost 渲染、挂在 **LifeView body 最外层**（真正的全屏层）。
             //      ↓ 见本文件底部 MemoGlassPresenter / MemoGlassLayerHost
+        }
+        // v4.0.97：「清空」的二次确认（原来在 MemoAllListBody 内部，浮层入口退休后挪到这里）。
+        // 展开态时这一行必然在屏（原地展开，不会滚走），所以挂本 section 上不会被 LazyVStack 回收。
+        .alert("清空全部备忘？", isPresented: $confirmClearAll) {
+            Button("清空", role: .destructive) {
+                withAnimation(Motion.settle) { store.removeAll() }
+                // v4.0.97 审查（中）：与待办卡「清空」同口径复位展开态。不清的话，清空后
+                // `memoExpanded` 仍是 true，用户下次攒到 ≥2 条时叠卡会**以已展开的形态凭空挂载**
+                //（没点过任何东西，第一次点它反倒是「叠回」）。
+                memoExpanded = false
+                Haptics.success()
+            }
+            Button("取消", role: .cancel) { }
+        } message: {
+            Text("共 \(store.memos.count) 条，清空后不可恢复。")
         }
     }
 
@@ -102,31 +122,43 @@ struct MemoSection: View {
 
     // MARK: 单卡（v3.9.33：页面上只有这一张卡——原 2 层错位卡边整块删除）
 
+    /// v4.0.97（用户 2026-10-11「叠卡展开、每张卡片不同颜色」+「点开后层层打开、再点一下整齐叠回」）：
+    /// 页级卡＝**彩色叠卡**（最近 4 条叠成一层，最新一条在最下、完整露出），点一下在原位层层打开、
+    /// 再点一下整齐叠回；只有 1 条时不叠（保持原来的单卡，用户口径）。
+    /// 原来 ≥2 条时点卡打开「全部备忘」浮层 —— 那条入口随叠卡展开退休（与待办卡同口径）。
     @ViewBuilder
     private var memoCard: some View {
-        if let top = store.sorted.first {
+        let items = store.sorted
+        if items.count == 1, let only = items.first {
             Button {
-                openCard()
+                glass.detail = only
             } label: {
-                MemoNoteCard(item: top, compact: true)
+                MemoNoteCard(item: only, compact: true)
             }
             .buttonStyle(PressStyle())
-            .contextMenu { memoMenuItems(top, onDelete: { glass.pendingDelete = $0 }) }
-            .accessibilityLabel(store.sorted.count == 1
-                                ? "备忘录，1 条，点开查看"
-                                : "备忘录，共 \(store.sorted.count) 条，点开查看全部")
+            .contextMenu { memoMenuItems(only, onDelete: { glass.pendingDelete = $0 }) }
+            .accessibilityLabel("备忘录，1 条，点开查看")
+        } else if !items.isEmpty {
+            MemoStackCard(
+                items: items,
+                expanded: memoExpanded,
+                onToggle: toggleExpand,
+                onOpenDetail: { glass.detail = $0 },
+                onDelete: { glass.pendingDelete = $0 },
+                onSendToAI: { memoSendToAI($0) },
+                onClearAll: { confirmClearAll = true }
+            )
+            .accessibilityLabel(memoExpanded
+                                ? "备忘录，已展开，点一下叠回"
+                                : "备忘录，共 \(items.count) 条，点一下展开")
         }
     }
 
-    /// 点卡片：只有 1 条时「全部备忘」列表是多余的一跳 → 直接进详情。
-    /// ⚠️ 新增 / 全部列表 / 详情三个 sheet 共用 MemoSection 这一个宿主，同时只能 present 一个
-    ///（原因见 openDetailFromAll 的长注释），所以这里必须二选一，绝不能两个都置真。
-    private func openCard() {
-        if store.sorted.count == 1, let only = store.sorted.first {
-            glass.detail = only
-        } else {
-            glass.showAll = true
-        }
+    /// 点叠卡：展开 / 叠回 —— 「层层打开」由 MemoStackCard 自己把每一层的 offset 拉开（同一 ZStack
+    /// 只改步距，天然是层层展开而不是「长出一个列表」）；曲线与触感同待办卡（Motion.settle + tap）。
+    private func toggleExpand() {
+        withAnimation(Motion.settle) { memoExpanded.toggle() }
+        Haptics.tap()
     }
 
     // MARK: 全部备忘列表（v3.9.17 半屏 sheet → v4.0.76 毛玻璃浮层内容）
@@ -207,6 +239,10 @@ struct MemoGlassLayerHost: View {
 
     var body: some View {
         ZStack {
+            // ⚠️ v4.0.97：≥2 条时点卡改成**原位叠卡展开**后，「全部备忘」列表这条入口就没人再
+            // `showAll = true` 了 → 本分支连同 MemoAllListBody / afterAllDismissed / openDetailFromAll
+            // 目前**不可达**。刻意先留着不动（待办卡 TodoGlassLayerHost 里同一处也是这个状态）——
+            // 要清就两处一起清，别只清一边（只清一边会让「同构两卡」在代码结构上分叉）。
             if glass.showAll {
                 MemoGlassOverlay(isPresented: Binding(
                     get: { glass.showAll },
@@ -484,6 +520,211 @@ private struct MemoNoteCard: View {
             .foregroundStyle(.tertiary)
             Spacer(minLength: 0)
         }
+    }
+}
+
+// MARK: - v4.0.97 备忘录「叠卡展开」（用户 2026-10-11 三审定稿）
+//
+// 口径（定稿，改动前先看台账「备忘录卡片美化」条）：
+//   · 叠 4 张｜卡高 100pt｜正文 16pt / 最多 2 行｜meta 贴卡底｜内边距 14
+//   · 露出的边 = 38pt（= 内边距 14 + 一行正文 22，保证露出的那一行完整可读）
+//   · 圆角 22（**全站其它卡仍是 Radius.card 16** —— 它是全站唯一的彩色卡，用户单独拍过）
+//   · 卡色自上而下 淡紫 / 黄绿 / 黑 / 白；**最前端（完整露出）那张是白**、黑在第三层
+//   · 只有 1 条时不叠（走原单卡）；超 4 条时先叠最近 4 条，展开态其余继续往下排
+// 稿（开发机留档，**不在本仓**）：`/opt/data/scripts/ql_memostack/mock/memostack_{light,dark}.png`，
+// 生成器 = 同目录 `gen_memostack.py`，其中 `BOARD` 的 12 组 RGB 是下面 lightSkins / darkSkins 的
+// 唯一出处 —— **改色先改稿再同步这里**，别只改一边（本仓没有真值表兜这 12 组色）。
+
+/// 叠卡几何（单一真源：本文件内只此一处写死这些数）
+private enum MemoStackMetrics {
+    /// 叠的层数上限
+    static let maxStacked = 4
+    /// 卡高（定稿）
+    static let cardHeight: CGFloat = 100
+    /// 收起态层间露出（= 内边距 14 + 一行正文 22）
+    static let revealStep: CGFloat = 38
+    /// 展开态层间缝（整卡 100 + 12）
+    static let openGap: CGFloat = 12
+    /// 内边距（与露出一行正文的口径同源：14 + 22 = 38）
+    static let innerPadding: CGFloat = 14
+    /// 页卡圆角 22
+    static let cornerRadius: CGFloat = 22
+}
+
+/// 一张叠卡的配色：卡底 / 描边 / 正文 / meta
+private struct MemoStackSkin {
+    let bg: Color
+    let border: Color
+    let text: Color
+    let meta: Color
+}
+
+/// 四色卡面（下标 = 深度：**0 = 最前 / 最新那张**，数字越大越往上、越靠后）
+private enum MemoStackSkins {
+    /// 浅色：白 / 黑 / 黄绿 / 淡紫（自上而下看就是 淡紫 → 黄绿 → 黑 → 白）
+    static let lightSkins: [MemoStackSkin] = [
+        MemoStackSkin(bg: Color(.sRGB, red: 1.0000, green: 1.0000, blue: 1.0000, opacity: 1),
+                      border: Color(.sRGB, red: 0.8902, green: 0.8902, blue: 0.9098, opacity: 1),
+                      text: Color(.sRGB, red: 0.1098, green: 0.1098, blue: 0.1176, opacity: 1),
+                      meta: Color(.sRGB, red: 0.1098, green: 0.1098, blue: 0.1176, opacity: 0.50)),
+        MemoStackSkin(bg: Color(.sRGB, red: 0.1098, green: 0.1098, blue: 0.1176, opacity: 1),
+                      border: Color(.sRGB, red: 0.1098, green: 0.1098, blue: 0.1176, opacity: 1),
+                      text: Color(.sRGB, red: 1.0000, green: 1.0000, blue: 1.0000, opacity: 1),
+                      meta: Color(.sRGB, red: 1.0000, green: 1.0000, blue: 1.0000, opacity: 0.62)),
+        MemoStackSkin(bg: Color(.sRGB, red: 0.8039, green: 0.9137, blue: 0.4196, opacity: 1),
+                      border: Color(.sRGB, red: 0.7098, green: 0.8392, blue: 0.3059, opacity: 1),
+                      text: Color(.sRGB, red: 0.1098, green: 0.1098, blue: 0.1176, opacity: 1),
+                      meta: Color(.sRGB, red: 0.1098, green: 0.1098, blue: 0.1176, opacity: 0.55)),
+        MemoStackSkin(bg: Color(.sRGB, red: 0.7882, green: 0.7216, blue: 0.9412, opacity: 1),
+                      border: Color(.sRGB, red: 0.7059, green: 0.6196, blue: 0.9098, opacity: 1),
+                      text: Color(.sRGB, red: 0.1098, green: 0.1098, blue: 0.1176, opacity: 1),
+                      meta: Color(.sRGB, red: 0.1098, green: 0.1098, blue: 0.1176, opacity: 0.55)),
+    ]
+    /// 深色：黑与黄绿都提亮过（稿里注明「免得与页底糊在一起」）
+    static let darkSkins: [MemoStackSkin] = [
+        MemoStackSkin(bg: Color(.sRGB, red: 0.9137, green: 0.9137, blue: 0.9373, opacity: 1),
+                      border: Color(.sRGB, red: 1.0000, green: 1.0000, blue: 1.0000, opacity: 1),
+                      text: Color(.sRGB, red: 0.1098, green: 0.1098, blue: 0.1176, opacity: 1),
+                      meta: Color(.sRGB, red: 0.1098, green: 0.1098, blue: 0.1176, opacity: 0.50)),
+        MemoStackSkin(bg: Color(.sRGB, red: 0.1216, green: 0.1216, blue: 0.1451, opacity: 1),
+                      border: Color(.sRGB, red: 0.4314, green: 0.4314, blue: 0.4706, opacity: 1),
+                      text: Color(.sRGB, red: 1.0000, green: 1.0000, blue: 1.0000, opacity: 1),
+                      meta: Color(.sRGB, red: 1.0000, green: 1.0000, blue: 1.0000, opacity: 0.62)),
+        MemoStackSkin(bg: Color(.sRGB, red: 0.3529, green: 0.4196, blue: 0.1569, opacity: 1),
+                      border: Color(.sRGB, red: 0.4784, green: 0.5608, blue: 0.2196, opacity: 1),
+                      text: Color(.sRGB, red: 1.0000, green: 1.0000, blue: 1.0000, opacity: 1),
+                      meta: Color(.sRGB, red: 1.0000, green: 1.0000, blue: 1.0000, opacity: 0.66)),
+        MemoStackSkin(bg: Color(.sRGB, red: 0.3059, green: 0.2549, blue: 0.5765, opacity: 1),
+                      border: Color(.sRGB, red: 0.4196, green: 0.3569, blue: 0.7686, opacity: 1),
+                      text: Color(.sRGB, red: 1.0000, green: 1.0000, blue: 1.0000, opacity: 1),
+                      meta: Color(.sRGB, red: 1.0000, green: 1.0000, blue: 1.0000, opacity: 0.66)),
+    ]
+    /// 取色：色板只有 4 档，**展开态第 5 条起一律沿用最上那档（淡紫）**。
+    /// ⚠️ 不要改成取模循环（v4.0.97 审查，中）：循环会让 idx0（最前、完整露出的那张 = 白）
+    /// 与 idx4 撞成同一个白 —— 一头一尾同色反而看不出「叠」的层次。收起态恒取 0…3，不受影响。
+    static func skin(_ depth: Int, dark: Bool) -> MemoStackSkin {
+        let list = dark ? darkSkins : lightSkins
+        return list[min(max(depth, 0), list.count - 1)]
+    }
+}
+
+/// 彩色叠卡：收起态 = 最近 4 张各露 38pt；展开态 = 每张完整显示 + 12pt 缝。
+///
+/// 「层层打开 / 整齐叠回」的实现要点：**两层共用同一个 ZStack，只改每层的步距** ——
+/// 收起步距 38、展开步距 112，配合容器高度一起插值，视觉上就是卡片一张张散开/收拢，
+/// 而不是「收起态一张卡 + 展开态另长一个列表」（后者做不出用户要的层层感）。
+///
+/// ⚠️ 卡片本体用 `onTapGesture` 而不是 Button：卡内右下角那枚「详情」是真 Button，
+/// SwiftUI 里 Button 套 Button 会让内层点不中（整卡被外层吞掉）。
+private struct MemoStackCard: View {
+    let items: [MemoItem]
+    let expanded: Bool
+    let onToggle: () -> Void
+    let onOpenDetail: (MemoItem) -> Void
+    let onDelete: (MemoItem) -> Void
+    let onSendToAI: (MemoItem) -> Void
+    let onClearAll: () -> Void
+
+    @Environment(\.colorScheme) private var scheme
+
+    /// 收起态只叠最近 4 条；展开态全量铺开（第 5 条起继续按深度循环取色）
+    private var shown: [MemoItem] {
+        expanded ? items : Array(items.prefix(MemoStackMetrics.maxStacked))
+    }
+    private var step: CGFloat {
+        expanded ? MemoStackMetrics.cardHeight + MemoStackMetrics.openGap
+                 : MemoStackMetrics.revealStep
+    }
+    private var stackHeight: CGFloat {
+        MemoStackMetrics.cardHeight + CGFloat(max(shown.count - 1, 0)) * step
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ZStack(alignment: .top) {
+                ForEach(Array(shown.enumerated()), id: \.element.id) { idx, item in
+                    card(item, depth: idx)
+                        // 最新一条（idx 0）在最下、完整露出；越往后越往上，只露顶部一条
+                        .offset(y: CGFloat(shown.count - 1 - idx) * step)
+                        .zIndex(Double(shown.count - idx))
+                }
+            }
+            .frame(height: stackHeight, alignment: .top)
+
+            // 批量操作：原来在「全部备忘」浮层顶栏（浮层入口退休后挪到卡下，与待办卡同位置）
+            if expanded, items.count > 1 {
+                Button(action: onClearAll) {
+                    Text("清空")
+                        .font(.system(size: Typography.subhead))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                }
+                .buttonStyle(PressStyle())
+                .pastelFill(cornerRadius: Radius.chip)
+                .padding(.top, 4)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .animation(Motion.settle, value: expanded)
+    }
+
+    @ViewBuilder
+    private func card(_ item: MemoItem, depth: Int) -> some View {
+        let skin = MemoStackSkins.skin(depth, dark: scheme == .dark)
+        VStack(alignment: .leading, spacing: 0) {
+            Text(item.content)
+                .font(.system(size: 16))
+                .foregroundStyle(skin.text)
+                .lineLimit(2)
+                .multilineTextAlignment(.leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Spacer(minLength: 0)
+            // meta 贴卡底（与单卡「数值在上、明细在下」同一读法）
+            HStack(spacing: Spacing.sm) {
+                Text(item.timeText)
+                    .font(.system(size: Typography.caption))
+                    .foregroundStyle(skin.meta)
+                Spacer(minLength: 0)
+                if expanded {
+                    // 卡片本体是「点一下叠回」，详情留这枚显式入口（原来在浮层列表里点条目进详情）
+                    Button {
+                        onOpenDetail(item)
+                    } label: {
+                        Text("详情")
+                            .font(.system(size: Typography.caption))
+                            .foregroundStyle(skin.text)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 4)
+                            .background(Capsule().fill(skin.text.opacity(0.12)))
+                            .contentShape(Capsule())
+                    }
+                    .buttonStyle(PressStyle())
+                    .accessibilityLabel("查看这条备忘的详情")
+                }
+            }
+        }
+        .padding(MemoStackMetrics.innerPadding)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .frame(height: MemoStackMetrics.cardHeight, alignment: .top)
+        // 卡底必须**不透明**：半透明底会把后面那张透出来（稿上实测糊成一团）
+        .background(
+            RoundedRectangle(cornerRadius: MemoStackMetrics.cornerRadius, style: .continuous)
+                .fill(skin.bg)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: MemoStackMetrics.cornerRadius, style: .continuous)
+                .strokeBorder(skin.border, lineWidth: 0.8)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture { onToggle() }
+        // v4.0.97 审查（低）：卡身刻意用 onTapGesture（给卡内那枚真 Button「详情」让路，
+        // Button 套 Button 内层点不中），代价是丢掉 Button 语义 —— VoiceOver 双击展不开
+        //（同批的待办/目标页卡都是真 Button）。这里手工把语义补回来。
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction { onToggle() }
+        .contextMenu { memoCardMenuItems(item, onDelete: onDelete, onSend: onSendToAI) }
+        .accessibilityLabel("\(item.content)，\(expanded ? "点一下叠回" : "点一下展开清单")")
     }
 }
 

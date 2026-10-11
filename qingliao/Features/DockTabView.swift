@@ -45,6 +45,10 @@ enum DockTab: String, CaseIterable, Identifiable {
 
 struct DockTabView: View {
     @State private var selected: DockTab = .chat
+
+    /// v4.0.97：本次切页的**圆形扩散圆心**（window 坐标）= 被点那一档 dock 槽位的中心，
+    /// 也就是用户「手指按下的位置」。由 `onChange(of: selected)` 刷新、传给两处转场 modifier。
+    @State private var revealCenter: CGPoint = CGPoint(x: 0, y: 0)
     // v3.6.2：dock 智能球点击 → 全屏粒子爆发（原由聊天页智能球展开触发，球迁到 dock 后跟随迁移）
     @State private var showDockBurst = false
     /// v4.0.7：烟花粒子特效开关（设置 → 外观 → 交互；与「输入框流光」同一排）。默认开，关掉后点球不放烟花。
@@ -155,6 +159,12 @@ struct DockTabView: View {
             // v4.0.82：顺序/显隐变更 → `.id` 变化触发一次重建，系统 tab bar 才会立即重排
             //（iOS 26 上仅靠 ForEach 的增量变化，tab bar 的格子不会即时刷新）
             .id(dockRenderKey)
+            // v4.0.97 审查（low）：`revealCenter` 原本只在 `onChange(of: selected)` 里赋值 ——
+            // 冷启动时 selected 本来就是 .chat、从不变化 → 圆心停在 (0,0)，首屏会用**页面左上角**
+            // 当圆心播一遍扩散（目前被 0.6s 启动图挡着，但 Dock 顺序/显隐变更触发 `.id` 重建时
+            // 也会露出来）。这里补初始化 + 重建后刷新。
+            .onAppear { revealCenter = dockRevealCenter(selected) }
+            .onChange(of: dockRenderKey) { _, _ in revealCenter = dockRevealCenter(selected) }
             // v4.0.49x：启动链折叠（防 demangler 栈溢出）——原 24 条顶层修饰器按序折进 4 个具名分组，
             // body 这里只留 4 个 .modifier(…) 泛型调用。事故/手法同 ChatView.v4.0.49：
             // 巨型链把 body 编译后类型名撑到 2574 字符（全 App 最长），Swift 运行时按嵌套层数递归
@@ -208,13 +218,26 @@ struct DockTabView: View {
                     ChatView(onBackToHome: { withAnimation(Motion.tap) { showSessionHome = true } })
                 }
             }
-            .chatZoomEntry(selected: $selected, order: dockRenderTabs)
+            .chatZoomEntry(selected: $selected, revealCenter: revealCenter)
             .tag(DockTab.chat)
             .tabItem { Label(DockTab.chat.title, systemImage: DockTab.chat.icon) }
         }
     }
 
     // v4.0.81：原 clearOrbNotice()（清球上未查看/失败提示）随球一起删除 —— 球没了，两态无处显示。
+
+    /// v4.0.97：圆形扩散的圆心 = 被点那一档 dock 槽位的中心（= 用户手指按下的位置）。
+    /// x 取系统 tab bar 里那个按钮的真实中心（读不到就按槽位等分估算，算式与 DockOrbOverlay 同源）；
+    /// y 取 tab bar 的几何中线（`slotCenterGlobal` 的 y 是按钮中心、口径不同，这里只借它的 x）。
+    private func dockRevealCenter(_ tab: DockTab) -> CGPoint {
+        let count = max(1, dockRenderTabs.count)
+        let idx = max(0, dockRenderTabs.firstIndex(of: tab) ?? 0)
+        let x = DockOrbOverlay.slotCenterGlobal(index: idx, count: count)?.x
+            ?? DockOrbOverlay.keyWindowWidth * (CGFloat(idx) + 0.5) / CGFloat(count)
+        let y = DockOrbOverlay.keyWindowHeight - DockOrbOverlay.keyWindowSafeBottom
+            - DockOrbOverlay.fallbackBarHeight / 2
+        return CGPoint(x: x, y: y)
+    }
 
     /// 程序化切页前调用：本次切到聊天页不放烟花（0.6s 内未消费则自动复位，避免标志残留吞掉下一次真点击）
     private func skipBurstOnce() {
@@ -241,12 +264,12 @@ struct DockTabView: View {
             chatTab
         case .life:
             LifeView(isActive: selected == .life)
-                .tabTransition(for: .life, selected: $selected, order: dockRenderTabs)
+                .tabTransition(for: .life, selected: $selected, revealCenter: revealCenter)
         case .dashboard:
             // v3.4.26：isActive 参数直传（selected==.dashboard），替代 qingliaoDashboardLeave/Refresh 通知 ——
             // 轮询暂停/恢复收进 DashboardView 自身生命周期，去隐式耦合
             DashboardView(isActive: selected == .dashboard)
-                .tabTransition(for: .dashboard, selected: $selected, order: dockRenderTabs)
+                .tabTransition(for: .dashboard, selected: $selected, revealCenter: revealCenter)
         case .settings:
             // v4.0.0：设置页大类 → 明细的二级页需要 NavigationStack 才有返回栈
             //（TabView 里裸放 NavigationLink 点了不推、也不显示返回键）。只包设置 tab —— 其他 tab 的层级结构一行不动。
@@ -258,7 +281,7 @@ struct DockTabView: View {
                     //   二级页仍要系统侧滑返回，但它的 PageHeader 已自绘返回键，不靠系统栏。
                     .toolbar(.hidden, for: .navigationBar)
             }
-                .tabTransition(for: .settings, selected: $selected, order: dockRenderTabs)
+                .tabTransition(for: .settings, selected: $selected, revealCenter: revealCenter)
         case .sessions:
             // v4.0.81：会话页已并入「聊天」，enum 里留这一档只为深链兜底（不占 dock 槽位、永不进渲染列表）
             EmptyView()
@@ -637,149 +660,168 @@ struct DockTabView: View {
 // 起点态已经被消耗掉、没有入场可演。这里离场不动相位，只在「刚被选中」时把相位瞬归 0 再动画到 1。
 // `seq` 防 0.01s 窗口内的连点 / 快速切换：早先那次的归零 Task 醒来会把新一次的起点态提前抹掉。
 // v4.0.72（用户 2026-10-07 拍板「dock 恢复 4.0.69」）：撤掉 v4.0.70 的回弹曲线与整页淡入。
-// v4.0.73（用户 2026-10-07 真机复测：4.0.72 垫底后顶部安全区仍先白一下）：缩放/上浮**整页**动 =
-// 页面连页底一起动，顶部安全区那一条在动画期间露缝（垫底层与页底两层渐变叠加在缝边缘仍可辨）。
-// 拍板方案 A：**页底渐变彻底退出动画、常驻不动**——垫底层本来就是静态渐变，页面淡入时
-// 透出的是同款渐变，机制上不可能再露白。切页 = 内容原地淡入（Motion.snap 0.20s，用户选 A）。
-// v4.0.78（用户 2026-10-08「4.0.77 dock 栏 tap 切换太闪了，改为平滑过渡切换效果」，二选一取「柔滑滑入」）：
-// 原地淡入的**起点 0 全透明**才是「闪」的正源（内容先整个消失再出现）；叠加 opacity 走 snap(0.20)、
-// 位移走 flow(0.28) 两条曲线不同步。改法 = 起点抬到 0.6 + 两段并成**单条 Motion.flow**（同一事务同一曲线），
-// 22pt 方向微滑保留（幅度已按 4.0.75 定稿，不动）。页底/垫底渐变照旧完全不参与动画。
-// v4.0.85（用户 2026-10-09「整个 app 各个页面切换还是太生硬了」「一点动画都没有」）：幅度再次加重 ——
-// 起点 0.6 → 0.75、位移 22 → 60pt（Motion.pageSlideShift）、曲线 flow(0.28 smooth) → pageSlide(0.38 弹簧轻过冲)。
-// 判据：22pt / 0.28s / 起点 60% 透明这套是历轮为躲「太闪 / 露白」一路压小的结果，真机观感 ≈ 硬切。
-// 禁令仍然有效：**起点不许回 0**（全透明起手 = 内容先整个消失再出现，正是 4.0.78 报的「太闪」）、
-// 缩放 / y 轴上浮 / 整页淡入（0.35 起手那套）一概不许回来；页底与垫底渐变照旧完全不参与动画。
-// 🚨 起点、位移、曲线三处口径与 ChatZoomEntryModifier 必须逐字一致，别只改一边。
+/// v4.0.97：dock 切页「圆形扩散」用的裁剪形状 —— 圆心固定、半径可动画（animatableData 走 CGFloat）。
+/// 常态半径 = Motion.pageRevealMaxRadius（圆大到盖住整屏，等同不裁剪）；入场那一拍 0 → max。
+/// ⚠️ 圆心是 **window 坐标**，与页面坐标原点一致（TabView 铺满全屏）；这里故意忽略入参 rect。
+struct RevealCircleShape: Shape {
+    var center: CGPoint
+    var radius: CGFloat
+
+    var animatableData: CGFloat {
+        get { radius }
+        set { radius = newValue }
+    }
+
+    func path(in rect: CGRect) -> Path {
+        let r = max(0, radius)
+        return Path(ellipseIn: CGRect(x: center.x - r, y: center.y - r,
+                                      width: r * 2, height: r * 2))
+    }
+}
+
+// v4.0.97（用户 2026-10-11：「dock 栏 tap 页切换采用圆形扩散转场特效：点击底部 tap，
+// 新页面就从手指按下的位置向外扩散直到铺满整个屏幕」）：切页入场 = **圆形扩散** ——
+// 新页用一个半径可动画的裁剪形状 `RevealCircleShape` 从点击槽位向外铺开，半径 0 →
+// Motion.pageRevealMaxRadius(1200)，曲线 Motion.pageReveal(.smooth 0.42)。
+// 圆心 = 被点那一档 dock 槽位的中心（x 取系统 tab bar 里那个按钮的真实中心，读不到按槽位等分估算；
+// y 取 tab bar 几何中线）—— 与球心 / 烟花同属一套 dock 几何（DockOrbOverlay）。
+//
+// 为什么圆外不露白：TabView 底下常驻一层同款 `EnvironmentGlowLayers` 垫底（v4.0.72 回退⑰），
+// 半径 0 的那一拍整屏看到的就是这层渐变 = 与页底逐帧一致 → 不存在 v4.0.73~0.85 反复治的「先白一下」。
+//
+// 历史沿革（都在这一条上改过，别回退）：
+//   v4.0.73 方案 A：页底渐变彻底退出动画 → 整页缩放/上浮会掀开顶部安全区那一条（真机复测「先白一下」）。
+//   v4.0.78：原地淡入起点 0（全透明）才是「太闪」的正源 → 起点抬到 0.6，并成**单条** withAnimation。
+//   v4.0.85：幅度加重（起点 0.75 / 位移 60pt / pageSlide 0.38 弹簧）—— 历轮为躲「闪/露白」一路压到 ≈硬切。
+//   v4.0.97：用户点名要圆形扩散 → 淡入与横向微滑**整条换掉**（phase / dx / pageSlideShift 全撤）。
+// 禁令仍然有效：整页缩放入场（0.96 那套）/ 整页 y 轴上浮 / 低起点整页淡入（0.35 起手）一概不许回来。
+// 🚨 曲线、最大半径、起点（0）三处口径与 ChatZoomEntryModifier 必须逐字一致，别只改一边。
 private struct TabTransitionModifier: ViewModifier {
     let tab: DockTab
     @Binding var selected: DockTab
-    /// v4.0.82：当前渲染档序（判方向性微滑用）—— 顺序/隐藏可配后，不能再读写死的 `DockTab.slotIndex`
-    let order: [DockTab]
-    /// 1 = 常态；0.75 = 入场起点（v4.0.78 起不再用 0 —— 0 起跳 = 内容先整个消失再出现，就是用户报的「太闪」；
-    /// v4.0.85 由 0.6 抬到 0.75：0.6 那档真机上几乎看不出在淡入）。
-    /// 赋值不加动画 → 起点态是瞬变的。
-    /// 淡入的是**页面内容**；页面自身的页底渐变淡入时透出 ZStack 里那层静态垫底渐变（同款），肉眼无感。
-    @State private var phase: CGFloat = 1
-    /// v4.0.x：方向性微滑——入场瞬间内容从来源侧滑到位（微信同款语言，只 x 轴）。
-    /// 0 = 常态；入场起点 = ±N（右切换页 → 从右往左滑入）。护栏只钉 y 轴上浮/缩放，x 轴微滑不在禁区。
-    /// v4.0.85：22pt→60pt（走 Motion.pageSlideShift）——22pt 配 0.28s 真机仍≈硬切，用户 2026-10-09 再报。
-    /// v4.0.75：6pt→22pt——4.0.74 真机报「切页动画没生效」：6pt 在手机上肉眼不可见 ≈ 硬切
-    /// （4.0.73→74 此文件零改动，观感问题不是回归）。x 轴平移不碰页底/安全区，放大无露白风险。
-    @State private var dx: CGFloat = 0
+    /// v4.0.97：本次入场的圆形扩散圆心（window 坐标；宿主按被点的槽位算好传进来）
+    let revealCenter: CGPoint
+    /// 扩散圆半径：入场起点 = 0（圆缩在点击点，页面被裁得只剩垫底的同款渐变），
+    /// 到位 = Motion.pageRevealMaxRadius（铺满整屏）。起点赋值**不加动画** → 起点态是瞬变的。
+    @State private var revealRadius: CGFloat = Motion.pageRevealMaxRadius
+    /// v4.0.97 审查（medium）：`RevealCircleShape` 的 path 落在这个**页面自己的坐标系**里
+    ///（rect = 页面 bounds），而 `revealCenter` 是按 **window 坐标**算的 —— 页面在安全区内，
+    /// 竖屏 iPhone 上两者差一个顶部安全区（≈59pt）、横屏还差左右安全区。直接用会让扩散圆整体
+    /// 偏下一整个状态栏高度（"从手指按下的位置扩散"就不成立）。这里实测本页的全局原点做换算
+    ///（本仓既有惯例：ChatEffects / OrbQuickMenu 也是用 `frame(in: .global)` 换算）。
+    @State private var pageOrigin: CGPoint = .zero
     @State private var seq = 0
 
     func body(content: Content) -> some View {
         content
             .tag(tab)
             .tabItem { Label(tab.title, systemImage: tab.icon) }
-            .opacity(phase)                                      // v4.0.73：原地淡入（方案 A），不再缩放/位移
-            .offset(x: dx)                                       // v4.0.x：方向性微滑（见头注）
-            .onAppear { enter(from: nil) }
-            .onChange(of: selected) { oldVal, newVal in
+            // v4.0.97 审查（medium）：实测本页的全局原点，供下面的圆心换算用。
+            .background(
+                GeometryReader { proxy in
+                    Color.clear
+                        .onAppear { pageOrigin = proxy.frame(in: .global).origin }
+                        .onChange(of: proxy.frame(in: .global).origin) { _, new in pageOrigin = new }
+                }
+            )
+            // v4.0.97：圆形扩散走**可动画的裁剪形状**（不是 mask）—— 常态半径 = 全屏，等于不裁；
+            // 入场那一拍把半径从 0 弹到 max，圆就从手指按下的位置扫开。
+            .clipShape(RevealCircleShape(center: localCenter, radius: revealRadius))
+            .onAppear { enter() }
+            .onChange(of: selected) { _, newVal in
                 guard newVal == tab else { return }              // 离场不反向播（见头注）
-                enter(from: oldVal)
+                enter()
             }
     }
 
-    /// 相位瞬归 0（不加动画）→ 下一拍 withAnimation 到 1。seq 防 0.01s 窗口内连点/快切互踩。
-    /// v4.0.x：起点 = 来源侧滑动；动画走 smooth（比 snap 更无硬边），到位无回弹。
-    private func enter(from old: DockTab?) {
+    /// window 坐标 → 本页局部坐标（`pageOrigin` 由上面那层 GeometryReader 实测）
+    private var localCenter: CGPoint {
+        CGPoint(x: revealCenter.x - pageOrigin.x, y: revealCenter.y - pageOrigin.y)
+    }
+
+    /// 半径瞬归 0（不加动画）→ 下一拍 withAnimation 到 max。seq 防 0.01s 窗口内连点/快切互踩。
+    private func enter() {
         seq &+= 1
         let mySeq = seq
-        // v4.0.85：起点 0.6 → 0.75、位移 22 → 60pt、曲线 flow → pageSlide（三处与 ChatZoomEntryModifier 逐字一致）。
-        // v4.0.78：起点 0 → 0.6（不再全透明）。本次只调幅度，**没有**把起点退回 0。
-        phase = 0.75
-        if let old, old != tab {
-            // 新页在旧页右侧 → 内容从右滑入；左侧同理。同页刷新（old == tab）不滑。
-            // v4.0.82：按**当前渲染档序**判左右（order 由宿主 dockPage 传入 = dockRenderTabs）
-            let myIdx = order.firstIndex(of: tab) ?? 0
-            let oldIdx = order.firstIndex(of: old) ?? 0
-            dx = (myIdx > oldIdx) ? Motion.pageSlideShift : -Motion.pageSlideShift
-        } else {
-            dx = 0
-        }
+        revealRadius = 0
         Task {
             try? await Task.sleep(for: .seconds(0.01))
             guard mySeq == seq else { return }
-            // v4.0.78：两条动画并成**同一条曲线**（opacity 走 snap(0.20)、位移走 flow(0.28)，两条不同拍
-            // 叠在同一帧上就是「闪一下」）；v4.0.85：曲线由 flow(0.28) 换成 pageSlide(0.38 弹簧轻过冲)，
-            // 仍是**一处** withAnimation 同时改 phase 与 dx —— 别拆成两条（拆开 = 又回到不同拍的老病）。
-            withAnimation(Motion.pageSlide) { phase = 1; dx = 0 }
+            withAnimation(Motion.pageReveal) { revealRadius = Motion.pageRevealMaxRadius }
         }
     }
 }
 
 extension View {
     /// v4.0.82：多一个 `order`（同 tabTransition）
-    func chatZoomEntry(selected: Binding<DockTab>, order: [DockTab]) -> some View {
-        modifier(ChatZoomEntryModifier(selected: selected, order: order))
+    func chatZoomEntry(selected: Binding<DockTab>,
+                       revealCenter: CGPoint) -> some View {
+        modifier(ChatZoomEntryModifier(selected: selected,
+                                       revealCenter: revealCenter))
     }
 }
 
 extension View {
     /// v4.0.82：多一个 `order`（当前渲染档序）—— 方向性微滑按它判左右，别再用写死的槽位序号。
-    func tabTransition(for tab: DockTab, selected: Binding<DockTab>, order: [DockTab]) -> some View {
-        modifier(TabTransitionModifier(tab: tab, selected: selected, order: order))
+    func tabTransition(for tab: DockTab, selected: Binding<DockTab>,
+                       revealCenter: CGPoint) -> some View {
+        modifier(TabTransitionModifier(tab: tab, selected: selected,
+                                       revealCenter: revealCenter))
     }
 }
 
-// v4.0.72：聊天页入场 = 与其它四个 tab 同款的轻量入场。「从会话卡展开」已整体移除（勿再接回）；
-// 用户 2026-10-07 真机拍板「转场太 low」→ 整体移除该机制。
-// v4.0.85：与 TabTransitionModifier 完全同步加重（起点 0.75 / 位移 60pt / pageSlide 0.38 弹簧轻过冲），
-// 两处逐字一致，别只改一边（真机观感必须同一套）。
-// v4.0.73（方案 A 拍板）：与 TabTransitionModifier 同步改**原地淡入**——缩放/上浮整页动会掀开
-// 顶部安全区那一条（4.0.72 真机复测仍先白一下）。两处口径一致，别只改一边。
-// 相位/seq 手法与 TabTransitionModifier 完全同款。
+// v4.0.72：聊天页入场 —— 与 TabTransitionModifier 同宗。当年独立成型的理由：聊天页是
+// NavigationStack，push 进来的详情页会把它**整页**带走（`.navigationDestination` 之外的呈现），
+// 用同一个 modifier 会给「详情返回」也播一遍入场 —— 所以这里的触发条件只认 `.chat`。
+//
+// v4.0.97（同 TabTransitionModifier）：淡入 + 横向微滑整条换掉 → **圆形扩散**（RevealCircleShape）。
+// 圆心同源（宿主按被点的 dock 槽位算好传进来）。曲线、最大半径、起点三处与 TabTransitionModifier 逐字一致。
 private struct ChatZoomEntryModifier: ViewModifier {
     @Binding var selected: DockTab
-    /// v4.0.82：同 TabTransitionModifier —— 当前渲染档序（判方向用）
-    let order: [DockTab]
-    /// 与 TabTransitionModifier 同款：1 = 常态，0.75 = 入场起点（v4.0.78 起不再用 0；v4.0.85 由 0.6 抬到 0.75）
-    @State private var phase: CGFloat = 1
-    /// v4.0.x：与 TabTransitionModifier 同款方向性微滑（chat 槽位 2，两侧来源都能判向）
-    /// v4.0.85：与 TabTransitionModifier 同步 22pt→60pt（走 Motion.pageSlideShift；两处口径一致，别只改一边）
-    @State private var dx: CGFloat = 0
+    /// v4.0.97：圆形扩散圆心（window 坐标）
+    let revealCenter: CGPoint
+    /// 同 TabTransitionModifier：常态 = 全屏半径，入场起点 = 0
+    @State private var revealRadius: CGFloat = Motion.pageRevealMaxRadius
+    /// 同 TabTransitionModifier：本页全局原点（圆心换算用）
+    @State private var pageOrigin: CGPoint = .zero
     @State private var seq = 0
 
     func body(content: Content) -> some View {
         content
-            .opacity(phase)                                      // 与 TabTransitionModifier 同款：原地淡入
-            .offset(x: dx)                                       // v4.0.x：方向性微滑
-            .onAppear { enter(from: nil) }
-            .onChange(of: selected) { oldVal, newVal in
+            .background(
+                GeometryReader { proxy in
+                    Color.clear
+                        .onAppear { pageOrigin = proxy.frame(in: .global).origin }
+                        .onChange(of: proxy.frame(in: .global).origin) { _, new in pageOrigin = new }
+                }
+            )
+            .clipShape(RevealCircleShape(center: localCenter, radius: revealRadius))
+            .onAppear { enter() }
+            .onChange(of: selected) { _, newVal in
                 guard newVal == .chat else {
-                    phase = 1   // 离场不反向播：起点态留给下次入场
-                    dx = 0
+                    // 离场不反向播：半径直接归位（瞬变），下次入场再从 0 起
                     seq &+= 1
+                    revealRadius = Motion.pageRevealMaxRadius
                     return
                 }
-                enter(from: oldVal)
+                enter()
             }
     }
 
-    /// 相位瞬归 0（不加动画）→ 下一拍 withAnimation 到 1。seq 防 0.01s 窗口内连点/快切互踩。
-    /// v4.0.x：与 TabTransitionModifier 完全同款的方向滑。
-    private func enter(from old: DockTab?) {
+    /// window 坐标 → 本页局部坐标（同 TabTransitionModifier）
+    private var localCenter: CGPoint {
+        CGPoint(x: revealCenter.x - pageOrigin.x, y: revealCenter.y - pageOrigin.y)
+    }
+
+    /// 同 TabTransitionModifier：半径瞬归 0 → 下一拍 withAnimation 到 max
+    private func enter() {
         seq &+= 1
         let mySeq = seq
-        // v4.0.85：与 TabTransitionModifier 完全同款（起点 0.75 + 单曲线 pageSlide + 60pt），两处一致，别只改一边。
-        // v4.0.78：与 TabTransitionModifier 完全同款（起点 0.6 + 单曲线 flow），本次只调幅度，起点没退回 0。
-        phase = 0.75
-        if let old, old != .chat {
-            // v4.0.82：与 TabTransitionModifier 同款，按当前渲染档序判左右
-            let myIdx = order.firstIndex(of: .chat) ?? 0
-            let oldIdx = order.firstIndex(of: old) ?? 0
-            dx = (myIdx > oldIdx) ? Motion.pageSlideShift : -Motion.pageSlideShift
-        } else {
-            dx = 0
-        }
+        revealRadius = 0
         Task {
             try? await Task.sleep(for: .seconds(0.01))
             guard mySeq == seq else { return }
-            // v4.0.78：与 TabTransitionModifier 同款 —— 两条动画并成**同一条曲线**（不同拍 = 「闪一下」）；
-            // v4.0.85：曲线由 flow(0.28) 换成 pageSlide(0.38 弹簧轻过冲)，两处逐字一致，别只改一边。
-            withAnimation(Motion.pageSlide) { phase = 1; dx = 0 }
+            withAnimation(Motion.pageReveal) { revealRadius = Motion.pageRevealMaxRadius }
         }
     }
 }
@@ -956,6 +998,9 @@ extension DockTabView {
                 // v4.0.82：临时插回的隐藏档（forcedTabs）—— 用户切到任一**常驻**档即清空，
                 // 配置（UserDefaults 的隐藏串）全程不被改动；目标页本身就是被插回的那档时保留（见 applyRoute）。
                 if !forcedTabs.contains(newVal) { forcedTabs.removeAll() }
+                // v4.0.97：刷新圆形扩散圆心 —— 与 selected 同轮落到 @State；转场 modifier 下一帧
+                // 才开始把半径从 0 长大（半径 0 时圆不可见），所以这里不要求严格同帧。
+                revealCenter = dockRevealCenter(newVal)
             }
             // v4.0.82：dock 顺序/隐藏变更后（组合串变即观察），若当前所在档已被摘掉（用户在设置里隐藏了当前页）
             // → 兜底切到第一个可见档：绝不让 selected 停在渲染列表里不存在的档上（那会渲染空白页）。

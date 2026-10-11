@@ -23,6 +23,13 @@ struct TodoSection: View {
     /// 浮层本体不再挂在本 section 自己的视图树上（本 section 只是生活页滚动区的一行，
     /// 浮层会被限制在卡片那一行的几何里）。详见文件底部 TodoGlassPresenter / TodoGlassLayerHost。
     private var glass = TodoGlassPresenter.shared
+
+    /// v4.0.97（用户 2026-10-11 拍板）：页级卡点开 → 待办在卡下**一条条弹出**（取代原来的「全部待办」浮层入口）；
+    /// 展开区底部的「清理已完成 / 清空」保留原语义，仍走二次确认。
+    @State private var todoExpanded = false
+    @State private var confirmClearCompleted = false
+    @State private var confirmClearAll = false
+
     // v4.0.78：@Namespace todoZoomNS 随 .sheet / .navigationTransition(.zoom) 一并删除
     //（zoom 依赖 sheet / fullScreenCover 容器，浮层没有那个容器可挂；备忘录改浮层时同样移除）。
     // v4.0.78：原 addSession / detail / detailCurrent / pendingDelete / confirmClearAll /
@@ -46,6 +53,43 @@ struct TodoSection: View {
                 }
             }
         )
+        // v4.0.97「勾选联动」第三处的页顶那一半：完成度越高，栏目上方越绿
+        //（往上溢出 150pt 接到页顶光晕区；卡底那半在 TodoProgressCard 里）
+        .background(alignment: .top) {
+            LinearGradient(colors: [Color.green.opacity(completionTint), .clear],
+                           startPoint: .top, endPoint: .bottom)
+                .frame(height: 260)
+                .offset(y: -150)
+                .allowsHitTesting(false)
+                .animation(Motion.settle, value: completionTint)
+        }
+        .confirmationDialog("清理已完成的待办？", isPresented: $confirmClearCompleted, titleVisibility: .visible) {
+            Button("清理已完成", role: .destructive) {
+                withAnimation(Motion.settle) { store.clearCompleted() }
+                // v4.0.97 审查（medium）：与下面「清空」同口径复位展开态。原来只有清空复位 ——
+                // 清理把列表清空后圆环卡整块消失、`todoExpanded` 却仍是 true，用户再新增一条时
+                // 它以「已展开」的形态凭空出现（没点过任何东西）。
+                todoExpanded = false
+                Haptics.success()
+            }
+            Button("取消", role: .cancel) {}
+        }
+        .confirmationDialog("清空全部待办？", isPresented: $confirmClearAll, titleVisibility: .visible) {
+            Button("清空", role: .destructive) {
+                withAnimation(Motion.settle) { store.removeAll() }
+                todoExpanded = false
+                Haptics.success()
+            }
+            Button("取消", role: .cancel) {}
+        }
+    }
+
+    /// 完成度染色强度：0 项完成 → 不染；全完成 → 最浓（页顶与卡底共用这一个真源）
+    private var completionTint: Double {
+        let total = store.todos.count
+        guard total > 0 else { return 0 }
+        let done = total - store.pendingCount
+        return done == 0 ? 0 : (done >= total ? 0.24 : 0.11)
     }
 
     /// v3.9.41（SR35）：删除确认框本体，宿主与「全部待办」浮层各挂一次。
@@ -109,38 +153,57 @@ struct TodoSection: View {
         glass.showAdd = true
     }
 
-    // MARK: 页面单卡（显示列表最上的一条 = 未完成优先、最新在前）
+    // MARK: 页面单卡 = 圆环卡（v4.0.97）
 
+    /// 勾选联动的三处都由 `store` 变化 + withAnimation(Motion.settle) 驱动：
+    /// ① 环弧长 ② x/y 数字滚动（contentTransition(.numericText)）③ 卡底 + 栏目上方背景泛绿。
+    ///
+    /// v4.0.97：原来这张卡是 `TodoRowCard(compact:)`（只显示最近一条），点它开「全部待办」浮层；
+    /// 现在换成圆环卡 + 点开在卡下逐条弹出（用户 2026-10-11：「点击圆环卡片时候待办卡片一条条
+    /// 从圆环卡片下弹出来在圆环卡片下面，弹出来时候有动画效果」+ 选 1「浮层不要了」）。
     @ViewBuilder
     private var topCard: some View {
-        if let top = store.sorted.first {
-            Button {
-                openCard()
-            } label: {
-                TodoRowCard(item: top, compact: true)
+        let items = store.sorted
+        if let next = items.first(where: { !$0.done }) ?? items.first {
+            VStack(alignment: .leading, spacing: 0) {
+                TodoProgressCard(
+                    next: next,
+                    doneCount: store.todos.count - store.pendingCount,
+                    total: store.todos.count,
+                    tint: completionTint,
+                    expanded: todoExpanded,
+                    onToggleNext: { toggleDone(next) },
+                    onTapCard: toggleExpand
+                )
+                .contextMenu { todoCardMenuItems(next, onDelete: { glass.pendingDelete = $0 }) }
+                .accessibilityLabel(todoExpanded
+                                    ? "待办清单，已展开，点一下收起"
+                                    : "待办清单，共 \(items.count) 项，点一下展开")
+
+                if todoExpanded {
+                    TodoExpandList(
+                        items: items,
+                        onToggle: { toggleDone($0) },
+                        onOpenDetail: { glass.detail = $0 },
+                        onDelete: { glass.pendingDelete = $0 },
+                        onClearCompleted: { confirmClearCompleted = true },
+                        onClearAll: { confirmClearAll = true }
+                    )
+                }
             }
-            .buttonStyle(PressStyle())
-            .contextMenu { todoCardMenuItems(top, onDelete: { glass.pendingDelete = $0 }) }
-            // v4.0.78：原 v3.9.37 的 `.matchedTransitionSource(id: "todo-all", in: todoZoomNS)`（zoom 源）
-            // 随三张 sheet 一并删除——zoom 转场依赖 sheet / fullScreenCover 容器，浮层没有该容器；
-            // 备忘录 4.0.77 改浮层时同样移除了 zoom。
-            .accessibilityLabel(store.sorted.count == 1
-                                ? "待办清单，1 项，点开查看"
-                                : "待办清单，共 \(store.sorted.count) 项，点开查看全部")
         }
     }
 
-    /// 点卡片：只有 1 条时「全部待办」列表是多余的一跳 → 直接进详情；
-    /// ≥2 条才开「全部待办」列表。原先是写 editDraft / detailEditing / detailCurrent / detail
-    /// 四个 @State，现在只改页级单例的两个开关：详情 struct 自己从 item 派生副本与编辑态。
-    private func openCard() {
-        if store.sorted.count == 1, let only = store.sorted.first {
-            glass.showAdd = false
-            glass.detail = only
-        } else {
-            glass.detail = nil
-            glass.showAll = true
-        }
+    /// 点圆环卡（勾选行以外）：展开 / 收起 —— 逐条错峰弹出见 TodoExpandList
+    private func toggleExpand() {
+        withAnimation(Motion.settle) { todoExpanded.toggle() }
+        Haptics.tap()
+    }
+
+    /// 勾掉一条：环、数字、卡底与页顶背景一起动（和列表重排同一条时间轴，避免两段动画打架）
+    private func toggleDone(_ item: TodoItem) {
+        withAnimation(Motion.settle) { store.toggleDone(item) }
+        Haptics.success()
     }
 
     // MARK: 全部待办列表 / 详情 / 新增
@@ -605,6 +668,212 @@ private struct TodoRowCard: View {
                alignment: .topLeading)
         .pastelCard()
         .contentShape(Rectangle())
+    }
+}
+
+// MARK: - v4.0.97 圆环卡 + 卡下逐条弹出（用户 2026-10-11 拍板）
+//
+// 页级卡从「只显示最近一条的单卡」换成**圆环卡**：环 + x/y + 卡内可直接勾的那条。
+// 勾掉一条 → 三处一起变：① 环弧长 ② x/y 数字滚动（contentTransition(.numericText)）
+// ③ 卡底 + 栏目上方背景泛绿（强度真源 = TodoSection.completionTint）。
+// 点卡片（勾选行以外）→ 待办在卡下**一条条弹出**（每条错峰 55ms），再点叠回；
+// 取代原来的「全部待办」浮层入口（用户选 1：浮层不要了）。
+// ⚠️ 展开后卡内那条要收起来 —— 否则和列表里同一条重复，看着像多了一条（对比稿里实测的坑）。
+
+/// 进度环（联动①：弧长随完成度前进）
+private struct TodoProgressRing: View {
+    let progress: Double
+    var size: CGFloat = 70
+    var lineWidth: CGFloat = 8
+
+    var body: some View {
+        ZStack {
+            Circle().stroke(Color.primary.opacity(0.12), lineWidth: lineWidth)
+            Circle()
+                // v4.0.97 审查（low）：理由同 GoalsSection 的进度环 —— 零进度别靠极值糊过去，
+                // .round 线帽会在环顶留一颗 lineWidth 直径的假点。
+                .trim(from: 0, to: min(1, max(0, progress)))
+                .stroke(Color.green, style: StrokeStyle(lineWidth: lineWidth,
+                                                        lineCap: progress > 0 ? .round : .butt))
+                .rotationEffect(.degrees(-90))
+        }
+        .frame(width: size, height: size)
+        .animation(Motion.settle, value: progress)
+        .accessibilityHidden(true)
+    }
+}
+
+/// 30pt 勾选框：卡内那条与弹出的条目共用同一款，避免两套勾选样式
+private struct TodoCheckBox: View {
+    let done: Bool
+    var size: CGFloat = 30
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: 9, style: .continuous)
+            .fill(done ? Color.green : Color.primary.opacity(0.10))
+            .overlay {
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .strokeBorder(done ? Color.clear : Color.primary.opacity(0.30), lineWidth: 1.4)
+            }
+            .overlay {
+                if done {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: size * 0.44, weight: .bold))
+                        .foregroundStyle(.white)
+                }
+            }
+            .frame(width: size, height: size)
+    }
+}
+
+/// 圆环卡：上段（环 + x/y + 小字，点它展开）＋ 下段（下一条未完成，点它直接勾）
+private struct TodoProgressCard: View {
+    let next: TodoItem
+    let doneCount: Int
+    let total: Int
+    let tint: Double
+    let expanded: Bool
+    let onToggleNext: () -> Void
+    let onTapCard: () -> Void
+
+    private var progress: Double { total > 0 ? Double(doneCount) / Double(total) : 0 }
+    private var subText: String { doneCount >= total ? "今天全部完成" : "还剩 \(total - doneCount) 项" }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Button(action: onTapCard) {
+                HStack(spacing: 17) {
+                    TodoProgressRing(progress: progress)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("今日完成")
+                            .font(.system(size: Typography.caption, weight: .semibold))
+                            .tracking(1.1)
+                            .foregroundStyle(.secondary)
+                        HStack(alignment: .firstTextBaseline, spacing: 0) {
+                            // 联动②：数字滚动更新
+                            Text("\(doneCount)")
+                                .font(.system(size: 38, weight: .bold))
+                                .foregroundStyle(.primary)
+                                .contentTransition(.numericText(value: Double(doneCount)))
+                            Text("/\(total)")
+                                .font(.system(size: 20, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                        }
+                        Text(subText)
+                            .font(.system(size: 12.5))
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 18)
+                .padding(.top, 17)
+                .padding(.bottom, 15)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(PressStyle())
+
+            if !expanded {
+                Rectangle()
+                    .fill(Color.primary.opacity(0.08))
+                    .frame(height: 1)
+                Button(action: onToggleNext) {
+                    HStack(spacing: 11) {
+                        TodoCheckBox(done: next.done)
+                        Text(next.content)
+                            .font(.system(size: 14.5))
+                            .strikethrough(next.done, color: .secondary)
+                            .foregroundStyle(next.done ? Color.secondary : Color.primary)
+                            .lineLimit(1)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 13)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(PressStyle())
+                .accessibilityLabel(next.done ? "\(next.content)，已完成，点一下取消完成" : "\(next.content)，点一下完成")
+            }
+        }
+        .background {
+            RoundedRectangle(cornerRadius: 26, style: .continuous)
+                .fill(Color.green.opacity(tint))
+        }
+        .pastelCard(cornerRadius: 26)
+        .animation(Motion.settle, value: expanded)
+    }
+}
+
+/// 卡下逐条弹出的待办列表：窄于圆环卡（左右内缩 10pt），像从卡里长出来
+private struct TodoExpandList: View {
+    let items: [TodoItem]
+    let onToggle: (TodoItem) -> Void
+    let onOpenDetail: (TodoItem) -> Void
+    let onDelete: (TodoItem) -> Void
+    let onClearCompleted: () -> Void
+    let onClearAll: () -> Void
+
+    private var hasCompleted: Bool { items.contains { $0.done } }
+
+    var body: some View {
+        VStack(spacing: 8) {
+            ForEach(Array(items.enumerated()), id: \.element.id) { idx, item in
+                Button {
+                    onToggle(item)
+                } label: {
+                    HStack(alignment: .top, spacing: 11) {
+                        TodoCheckBox(done: item.done)
+                        Text(item.content)
+                            .font(.system(size: 14.5))
+                            .strikethrough(item.done, color: .secondary)
+                            .foregroundStyle(item.done ? Color.secondary : Color.primary)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(PressStyle())
+                .pastelCard(cornerRadius: 18)
+                .contextMenu {
+                    Button { onOpenDetail(item) } label: { Label("详情", systemImage: "info.circle") }
+                    todoCardMenuItems(item, onDelete: { _ in onDelete(item) })
+                }
+                // 逐条错峰弹出：每条延迟 55ms，位移 + 淡入 + 轻微缩放（收起时整体淡出）
+                .transition(.asymmetric(
+                    insertion: .offset(y: -14).combined(with: .opacity)
+                        .combined(with: .scale(scale: 0.97, anchor: .top)),
+                    removal: .opacity
+                ).animation(Motion.settle.delay(Double(idx) * 0.055)))
+            }
+
+            // v4.0.97：原来的「清理已完成 / 清空」在「全部待办」浮层里，浮层入口撤掉后挪到这
+            //（语义与二次确认不变；没东西可清时不显示）
+            if hasCompleted || items.count > 1 {
+                HStack(spacing: Spacing.md) {
+                    if hasCompleted {
+                        clearButton("清理已完成", action: onClearCompleted)
+                    }
+                    clearButton("清空", action: onClearAll)
+                }
+                .padding(.top, 4)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.top, 8)
+    }
+
+    private func clearButton(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: Typography.subhead))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+        }
+        .buttonStyle(PressStyle())
+        .pastelFill(cornerRadius: Radius.chip)
     }
 }
 
