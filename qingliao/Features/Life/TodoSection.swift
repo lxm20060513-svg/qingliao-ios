@@ -53,13 +53,18 @@ struct TodoSection: View {
                 }
             }
         )
-        // v4.0.97「勾选联动」第三处的页顶那一半：完成度越高，栏目上方越绿
-        //（往上溢出 150pt 接到页顶光晕区；卡底那半在 TodoProgressCard 里）
+        // v4.0.97「勾选联动」第三处：完成度越高，本栏目上方越绿（与卡底那半共用 completionTint）。
+        //
+        // v4.0.98 修（用户 2026-10-11「记录卡片底色被串了」）：原来这里是
+        // `.frame(height: 260)` + `.offset(y: -150)` —— 故意往上溢出 150pt 去接页顶光晕区。
+        // 但栏目在 LazyVStack 里是**一行行按顺序画的**，后画的行的 background 会盖在上一行之上，
+        // 于是这层绿直接糊在正上方「记录」栏目那张玻璃卡上（玻璃半透 → 整张记录卡泛绿，
+        // 越靠上越绿；实拍 G-R 从 +12 渐到 +6）。改成从本栏目顶边起、**只在自己这一行内**
+        // 往下衰减：染色照旧，越界清零。
         .background(alignment: .top) {
             LinearGradient(colors: [Color.green.opacity(completionTint), .clear],
                            startPoint: .top, endPoint: .bottom)
-                .frame(height: 260)
-                .offset(y: -150)
+                .frame(height: 110)
                 .allowsHitTesting(false)
                 .animation(Motion.settle, value: completionTint)
         }
@@ -161,18 +166,18 @@ struct TodoSection: View {
     /// v4.0.97：原来这张卡是 `TodoRowCard(compact:)`（只显示最近一条），点它开「全部待办」浮层；
     /// 现在换成圆环卡 + 点开在卡下逐条弹出（用户 2026-10-11：「点击圆环卡片时候待办卡片一条条
     /// 从圆环卡片下弹出来在圆环卡片下面，弹出来时候有动画效果」+ 选 1「浮层不要了」）。
+    ///
+    /// v4.0.98（用户 2026-10-11「待办清单卡片首页不再显示最后一条待办」）：卡底那条「下一条」
+    /// 连同 `next` / `onToggleNext` / `expanded` 三个入参一并删除 —— 卡只报数，勾选一律走卡下列表。
     @ViewBuilder
     private var topCard: some View {
         let items = store.sorted
         if let next = items.first(where: { !$0.done }) ?? items.first {
             VStack(alignment: .leading, spacing: 0) {
                 TodoProgressCard(
-                    next: next,
                     doneCount: store.todos.count - store.pendingCount,
                     total: store.todos.count,
                     tint: completionTint,
-                    expanded: todoExpanded,
-                    onToggleNext: { toggleDone(next) },
                     onTapCard: toggleExpand
                 )
                 .contextMenu { todoCardMenuItems(next, onDelete: { glass.pendingDelete = $0 }) }
@@ -703,16 +708,16 @@ private struct TodoProgressRing: View {
     }
 }
 
-/// 30pt 勾选框：卡内那条与弹出的条目共用同一款，避免两套勾选样式
+/// 24pt 圆形勾选框（v4.0.98 用户口径：从 30pt 圆角方改成**圆形**并把尺寸缩小一档）
 private struct TodoCheckBox: View {
     let done: Bool
-    var size: CGFloat = 30
+    var size: CGFloat = 24
 
     var body: some View {
-        RoundedRectangle(cornerRadius: 9, style: .continuous)
+        Circle()
             .fill(done ? Color.green : Color.primary.opacity(0.10))
             .overlay {
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                Circle()
                     .strokeBorder(done ? Color.clear : Color.primary.opacity(0.30), lineWidth: 1.4)
             }
             .overlay {
@@ -726,80 +731,58 @@ private struct TodoCheckBox: View {
     }
 }
 
-/// 圆环卡：上段（环 + x/y + 小字，点它展开）＋ 下段（下一条未完成，点它直接勾）
+/// 圆环卡：只有上段（环 + x/y + 小字），点它展开卡下列表。
+///
+/// v4.0.98（用户 2026-10-11：「待办清单卡片首页不再显示最后一条待办」）：原来卡底还有一条
+/// 「下一条未完成」可直接勾 —— 已删。首页这张卡只报数（环 + x/y），要勾的条目一律在卡下弹出
+/// 的那份列表里点（勾选图标同款，见 TodoCheckBox）。
 private struct TodoProgressCard: View {
-    let next: TodoItem
     let doneCount: Int
     let total: Int
     let tint: Double
-    let expanded: Bool
-    let onToggleNext: () -> Void
     let onTapCard: () -> Void
 
     private var progress: Double { total > 0 ? Double(doneCount) / Double(total) : 0 }
     private var subText: String { doneCount >= total ? "今天全部完成" : "还剩 \(total - doneCount) 项" }
 
     var body: some View {
-        VStack(spacing: 0) {
-            Button(action: onTapCard) {
-                HStack(spacing: 17) {
-                    TodoProgressRing(progress: progress)
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text("今日完成")
-                            .font(.system(size: Typography.caption, weight: .semibold))
-                            .tracking(1.1)
-                            .foregroundStyle(.secondary)
-                        HStack(alignment: .firstTextBaseline, spacing: 0) {
-                            // 联动②：数字滚动更新
-                            Text("\(doneCount)")
-                                .font(.system(size: 38, weight: .bold))
-                                .foregroundStyle(.primary)
-                                .contentTransition(.numericText(value: Double(doneCount)))
-                            Text("/\(total)")
-                                .font(.system(size: 20, weight: .semibold))
-                                .foregroundStyle(.secondary)
-                        }
-                        Text(subText)
-                            .font(.system(size: 12.5))
+        Button(action: onTapCard) {
+            HStack(spacing: 17) {
+                TodoProgressRing(progress: progress)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("今日完成")
+                        .font(.system(size: Typography.caption, weight: .semibold))
+                        .tracking(1.1)
+                        .foregroundStyle(.secondary)
+                    HStack(alignment: .firstTextBaseline, spacing: 0) {
+                        // 联动②：数字滚动更新
+                        Text("\(doneCount)")
+                            .font(.system(size: 38, weight: .bold))
+                            .foregroundStyle(.primary)
+                            .contentTransition(.numericText(value: Double(doneCount)))
+                        Text("/\(total)")
+                            .font(.system(size: 20, weight: .semibold))
                             .foregroundStyle(.secondary)
                     }
-                    Spacer(minLength: 0)
+                    Text(subText)
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(.secondary)
                 }
-                .padding(.horizontal, 18)
-                .padding(.top, 17)
-                .padding(.bottom, 15)
-                .contentShape(Rectangle())
+                Spacer(minLength: 0)
             }
-            .buttonStyle(PressStyle())
-
-            if !expanded {
-                Rectangle()
-                    .fill(Color.primary.opacity(0.08))
-                    .frame(height: 1)
-                Button(action: onToggleNext) {
-                    HStack(spacing: 11) {
-                        TodoCheckBox(done: next.done)
-                        Text(next.content)
-                            .font(.system(size: 14.5))
-                            .strikethrough(next.done, color: .secondary)
-                            .foregroundStyle(next.done ? Color.secondary : Color.primary)
-                            .lineLimit(1)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .padding(.horizontal, 18)
-                    .padding(.vertical, 13)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(PressStyle())
-                .accessibilityLabel(next.done ? "\(next.content)，已完成，点一下取消完成" : "\(next.content)，点一下完成")
-            }
+            .padding(.horizontal, 18)
+            .padding(.top, 17)
+            .padding(.bottom, 15)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(PressStyle())
+        // v4.0.98：三张进度卡同挂 MemoCardMetrics.progressCardMinHeight（「一样大」的构造性保证）
+        .frame(maxWidth: .infinity, minHeight: MemoCardMetrics.progressCardMinHeight, alignment: .leading)
         .background {
             RoundedRectangle(cornerRadius: 26, style: .continuous)
                 .fill(Color.green.opacity(tint))
         }
         .pastelCard(cornerRadius: 26)
-        .animation(Motion.settle, value: expanded)
     }
 }
 

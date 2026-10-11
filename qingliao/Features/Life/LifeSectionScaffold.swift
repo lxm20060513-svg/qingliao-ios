@@ -185,11 +185,37 @@ struct LifeNoteComposeSheet: View {
     /// true = 系统 sheet 形态（NavigationStack + toolbar）；false = 毛玻璃浮层内容形态（自绘顶栏）
     var formSheet: Bool = true
 
+    /// v4.0.98（用户 2026-10-11「备忘录卡片内容分主题和详细内容」）：**备忘专用** —— 正文上方多一个
+    /// 单行「主题」输入框（这里的值是占位文案）。给 nil（默认）＝ 原来的单输入框一套，
+    /// 待办/习惯那边一行都不用改；主题留空由 Store 兜底取正文第一行。
+    var titleFieldPlaceholder: String? = nil
+    /// 带主题的保存回调（只有开了主题框的调用方给）。没给 → 退回老的 `onSave(正文)`。
+    var onSaveWithTitle: ((String, String) -> Void)? = nil
+
     @State private var text = ""
+    /// 主题草稿（**独立字段**，不从正文第一行抽 —— 用户 2026-10-11 明确口径）
+    @State private var headline = ""
+
+    /// 保存出口：有主题框回传（主题, 正文），否则老路子回传正文
+    private func commit() {
+        if let onSaveWithTitle { onSaveWithTitle(headline, text) } else { onSave(text) }
+    }
 
     /// 共用正文区（两种形态同一份）
     private var editorBody: some View {
         VStack(spacing: 0) {
+            if let titleFieldPlaceholder {
+                TextField(titleFieldPlaceholder, text: $headline)
+                    .font(.system(size: Typography.title))
+                    .textFieldStyle(.plain)
+                    .submitLabel(.next)
+                    .padding(.horizontal, Spacing.xl)
+                    .padding(.vertical, 14)
+                    .background(Color(uiColor: .secondarySystemGroupedBackground),
+                                in: RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
+                    .padding(.horizontal, Spacing.section)
+                    .padding(.top, Spacing.md)
+            }
             TextEditor(text: $text)
                 .font(.system(size: Typography.title))
                 .scrollContentBackground(.hidden)
@@ -217,7 +243,7 @@ struct LifeNoteComposeSheet: View {
         HStack(spacing: 8) {
             MiniCapsule(title: "取消") { onCancel() }
             Spacer(minLength: 0)
-            MiniCapsule(title: "保存", accent: true) { onSave(text) }
+            MiniCapsule(title: "保存", accent: true) { commit() }
                 .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
         .padding(.horizontal, Spacing.section)
@@ -242,7 +268,7 @@ struct LifeNoteComposeSheet: View {
                             Button("取消", action: onCancel)
                         }
                         ToolbarItem(placement: .confirmationAction) {
-                            Button("保存") { onSave(text) }
+                            Button("保存") { commit() }
                                 .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         }
                     }

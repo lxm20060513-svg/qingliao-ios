@@ -332,13 +332,17 @@ private func habitStreakText(_ h: HabitItem, today: Date) -> String {
 // ⚠️ 打卡入口不在这张卡上（参考图也没有）—— 点卡仍走原 openTop（全部习惯 / 直接进详情），
 //    打卡在行卡（HabitRowCard）与详情页里做。
 
-/// 页卡圆环：弧长 = 近 7 天完成率，环内百分比（与目标/待办卡同款几何，尺寸更大）
-/// v4.0.97 尺寸口径（用户「卡片要加大一点」后定）：环 **104** / 线宽 11 / 环内 26pt，
-/// 三行间距 11、图标圆 30、主值 16pt、副标 12pt，卡内边距 20 —— 比待办/目标卡的环（70 / 8）明显大一档。
+/// 页卡圆环：弧长 = 近 7 天完成率，环内百分比
+/// v4.0.98 尺寸口径（用户 2026-10-11「长期目标，待办事项，习惯卡尺寸改为一样大小」）：
+/// 环 **70 / 线宽 8**（与 TodoProgressRing / GoalProgressRing 同款）、环内 18pt；
+/// 卡内边距 h18 / top17 / bottom15、HStack 间距 17、圆角 26 —— 与另两张进度卡**逐项相同**，
+/// 三张卡外框因此等高（内容 78pt + 内边距 32pt = 110pt）。
+/// ⚠️ 三行指标走**单行制**（图标 + 主值 + 副标 同行，行高 22 / 行距 6 → 3×22 + 2×6 = 78）：
+///    两行制（主值压副标）三行要 85pt 以上，卡会比另两张高一截 —— 用户点名的就是「一样大」。
 private struct HabitProgressRing: View {
     let progress: Double
-    var size: CGFloat = 104
-    var lineWidth: CGFloat = 11
+    var size: CGFloat = 70
+    var lineWidth: CGFloat = 8
 
     private var percentText: String {
         "\(Int((min(1, max(0, progress)) * 100).rounded()))%"
@@ -346,13 +350,16 @@ private struct HabitProgressRing: View {
 
     var body: some View {
         ZStack {
-            Circle().stroke(Color.primary.opacity(0.10), lineWidth: lineWidth)
+            // v4.0.98：底环 0.10 → 0.12、零进度不吃 .round 线帽 —— 与待办/目标环逐字同口径
+            //（原来 0% 时环顶会留一颗 lineWidth 直径的假点）
+            Circle().stroke(Color.primary.opacity(0.12), lineWidth: lineWidth)
             Circle()
-                .trim(from: 0, to: min(1, max(0.0001, progress)))
-                .stroke(Color.accentColor, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+                .trim(from: 0, to: min(1, max(0, progress)))
+                .stroke(Color.accentColor, style: StrokeStyle(lineWidth: lineWidth,
+                                                              lineCap: progress > 0 ? .round : .butt))
                 .rotationEffect(.degrees(-90))
             Text(percentText)
-                .font(.system(size: 26, weight: .bold))
+                .font(.system(size: 18, weight: .bold))
                 .foregroundStyle(.primary)
                 .contentTransition(.numericText(value: min(1, max(0, progress)) * 100))
         }
@@ -369,26 +376,24 @@ private struct HabitMetricRow: View {
     let caption: String
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 6) {
             ZStack {
                 Circle()
                     .fill(Color.primary.opacity(0.08))
-                    .frame(width: 30, height: 30)
+                    .frame(width: 22, height: 22)
                 Image(systemName: icon)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(.secondary)
             }
-            VStack(alignment: .leading, spacing: 1) {
-                Text(value)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.85)
-                Text(caption)
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
+            Text(value)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+            Text(caption)
+                .font(.system(size: 10.5))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
             Spacer(minLength: 0)
         }
         .accessibilityElement(children: .combine)
@@ -407,18 +412,20 @@ private struct HabitProgressCard: View {
     }
 
     var body: some View {
-        HStack(alignment: .center, spacing: 20) {
+        HStack(alignment: .center, spacing: 17) {
             HabitProgressRing(progress: stats.rate)
-            VStack(alignment: .leading, spacing: 11) {
+            VStack(alignment: .leading, spacing: 6) {
                 HabitMetricRow(icon: "flame.fill", value: streakValue, caption: "连续记录")
                 HabitMetricRow(icon: "calendar", value: "\(stats.done) / \(stats.total)", caption: "近 7 天完成")
                 HabitMetricRow(icon: "chart.bar.fill", value: topValue, caption: "打卡次数最多")
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 20)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 18)
+        .padding(.top, 17)
+        .padding(.bottom, 15)
+        // v4.0.98：三张进度卡同挂 MemoCardMetrics.progressCardMinHeight（「一样大」的构造性保证）
+        .frame(maxWidth: .infinity, minHeight: MemoCardMetrics.progressCardMinHeight, alignment: .leading)
         .pastelCard(cornerRadius: 26)
         .contentShape(Rectangle())
     }

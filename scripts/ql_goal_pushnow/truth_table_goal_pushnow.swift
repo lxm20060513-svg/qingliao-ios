@@ -205,8 +205,11 @@ ok(!gsec.contains("healthLabel(goal.scheduleHealth)).pill(.topBar)")
    "🔑 旧 13pt 玻璃档清零（留着 = 两枚口径仍不一致）")
 ok(gsec.contains("Text(\"已完成\").pill(.page)"),
    "#2 同位置的「已完成」一起降档（否则同一位置两枚大小不一）")
-ok(gsec.contains("已完成 \\(store.finishedGoals.count) 个"), "#4 已完成折叠行")
-ok(gsec.contains("var finishedFold: some View"), "#4 折叠行有实现")
+// v4.0.98（用户 2026-10-11「长期目标卡片点击直接转到全部目标卡片，不再展开已完成卡片」）：
+// 「已完成 N 个」折叠行（finishedFold）整条退役 —— 断言从「有实现」翻成「不许再回来」，
+// 否则旧口径会被护栏一路保回来（本轮实跑正是这三条红）。
+ok(!gsec.contains("已完成 \\(store.finishedGoals.count) 个"), "#4 已完成折叠行已删（不再就地展开）")
+ok(!gsec.contains("var finishedFold"), "#4 折叠行实现已删干净")
 ok(gsec.contains("store.sortedActiveFirst"), "#4 列表用未完成优先排序")
 ok(gsec.contains("开始于 "), "#5 卡片显示开始时间")
 ok(gsec.contains("if let t = stepTimeText(s)"), "#5 步骤时间无戳时不渲染")
@@ -219,8 +222,10 @@ ok(!gsec.contains("GoalRowCard(goal: top, compact: true)\n            .buttonSty
 // v4.0.97（用户 2026-10-11「长期目标卡片也按这个效果来做」）：主卡换成**圆环卡**，
 // 点击由卡内并列的两个 Button 承接（上段 onTapCard 展开 / 下段勾步骤），不再走 onTapGesture + openCard。
 // 旧口径（onTapGesture 承接点击）随之作废；「卡内 Button 不许嵌套」这个老坑的断言（上一条）不变。
-ok(gsec.contains("GoalProgressCard(") && gsec.contains("onTapCard: toggleExpand"),
-   "#1 主卡 = 圆环卡，点它展开（v4.0.97 取代 onTapGesture 开浮层）")
+// v4.0.98：主卡回调由 toggleExpand 换成 openAllGoals —— 点卡**直接进「全部目标」浮层**，
+// 不再就地展开已完成（用户 2026-10-11 原话）。
+ok(gsec.contains("GoalProgressCard(") && gsec.contains("onTapCard: openAllGoals"),
+   "#1 主卡 = 圆环卡，点它直接进「全部目标」（v4.0.98 取代就地展开）")
 
 // ── ③ 后端侧接线 ────────────────────────────────────────────────
 print("── ②③④⑤ 后端接线 ──")

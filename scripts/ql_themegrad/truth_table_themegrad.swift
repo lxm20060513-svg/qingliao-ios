@@ -314,7 +314,7 @@ check("⑧b 光团几何仍锚在屏幕坐标（3 团各带一次 ox/oy 平移�
 // 旧的低起点整页淡入（0.35/0.9/0.12）全程禁回——那才是「透白」根源。
 // **v4.0.97（用户 2026-10-11「dock 栏 tap 页切换采用圆形扩散转场特效：点击底部 tap，新页面就从手指按下的
 // 位置向外扩散直到铺满整个屏幕」）**：淡入 + 横向微滑**整条换掉** → **圆形扩散** —— 新页走可动画裁剪形状
-// `RevealCircleShape`，半径 0 → Motion.pageRevealMaxRadius(1200)，曲线 Motion.pageReveal(.smooth 0.42)。
+// `RevealCircleShape`，半径 0 → Motion.pageRevealMaxRadius(1200)，曲线 Motion.pageReveal(.smooth 0.60，v4.0.98 放慢)。
 // 圆外露的是 TabView 垫底的同款渐变（回退⑰），所以「先白一下」那个老病不会复发。
 // shell 侧同一口径另有一份：check_swift.sh「回退⑯ / ⑯e / ⑯g / ⑯h / ⑯i / ⑯j」组。
 check("⑧c 切页/聊天页入场 = 圆形扩散（clipShape(RevealCircleShape…) 两处各一份）",

@@ -25,6 +25,8 @@ struct RecordSection: View {
     /// 扫账单弹窗的「会话号」：每次打开自增，配合 `.id(...)` 强制换新实例
     /// （SwiftUI 会保留已 present 过视图的 @State，不换实例会带回上一张图/上一次金额）
     @State private var billScanSession = 0
+    /// v4.0.98：记录页卡「点击向下展开内部行卡」的展开态（用户 2026-10-11）
+    @State private var recordExpanded = false
 
     var body: some View {
         root
@@ -40,9 +42,16 @@ struct RecordSection: View {
                     emptyTap
                 } else {
                     topCard
+                    // v4.0.98：点页卡就地向下展开的内部行卡 +「全部记录」入口
+                    if recordExpanded { recordCardExpandList }
                 }
             }
         )
+        // v4.0.98 审查（P2）：与 TodoSection 同口径复位 —— 记录被删空后顶卡整块换成空态引导卡，
+        // `recordExpanded` 若不复位，用户下次新增第一条时它会以「已展开」的形态凭空出现（没点过任何东西）。
+        .onChange(of: store.records.isEmpty) { _, empty in
+            if empty { recordExpanded = false }
+        }
     }
 
     /// 删除确认框本体已收进 LifeDeleteConfirm（工作线 B：待办/目标/备忘弹窗内那份同款）
@@ -110,10 +119,10 @@ struct RecordSection: View {
 
     private var topCard: some View {
         Button {
-            // v4.0.78：开列表前先把其它浮层收干净（三层浮层互斥）
-            glass.showAdd = false
-            glass.detail = nil
-            glass.showAll = true
+            // v4.0.98（用户 2026-10-11「记录卡片也改为点击向下展开内部卡片」）：点卡＝**就地向下展开**
+            // 内部行卡（对标备忘录叠卡），不再直接开全屏「全部记录」浮层；
+            // 浮层入口不丢 —— 展开态底部那行「全部记录」仍走原来那套（含三层浮层互斥的收口）。
+            withAnimation(Motion.settle) { recordExpanded.toggle() }
         } label: {
             VStack(alignment: .leading, spacing: Spacing.md) {
                 // v4.0.84 方案 B③：金额从「与标签同排的 17pt」提成「独立一行 24pt 数字 + 小字单位」。
@@ -145,28 +154,34 @@ struct RecordSection: View {
                 if !store.monthByCategory.isEmpty {
                     categoryBreakdown
                 }
-                Divider().opacity(0.4)
-                ForEach(Array(store.sorted.prefix(1))) { r in
-                    HStack(spacing: 8) {
-                        Text(r.title)
-                            .font(.system(size: Typography.subhead))
-                            .lineLimit(1)
-                        Spacer(minLength: 0)
-                        Text(r.amountText)
-                            .font(.system(size: Typography.subhead))
-                            .foregroundStyle(.secondary)
-                            .monospacedDigit()
+                // v4.0.98：展开态下这一截（最近 1 条 +「还有 N 条」）由卡下方那串内部行卡接管，
+                // 不这么切的话第一条会同时以「文字行」和「行卡」出现两次。
+                if !recordExpanded {
+                    Divider().opacity(0.4)
+                    ForEach(Array(store.sorted.prefix(1))) { r in
+                        HStack(spacing: 8) {
+                            Text(r.title)
+                                .font(.system(size: Typography.subhead))
+                                .lineLimit(1)
+                            Spacer(minLength: 0)
+                            Text(r.amountText)
+                                .font(.system(size: Typography.subhead))
+                                .foregroundStyle(.secondary)
+                                .monospacedDigit()
+                        }
                     }
-                }
-                if store.records.count > 1 {
-                    Text("还有 \(store.records.count - 1) 条")
-                        .font(.system(size: Typography.caption))
-                        .foregroundStyle(.tertiary)
+                    if store.records.count > 1 {
+                        Text("还有 \(store.records.count - 1) 条")
+                            .font(.system(size: Typography.caption))
+                            .foregroundStyle(.tertiary)
+                    }
                 }
             }
             .padding(Spacing.section)
             .frame(maxWidth: .infinity, minHeight: MemoCardMetrics.minHeight, alignment: .leading)
-            .pastelCard()
+            // v4.0.98 用户 2026-10-11「记录卡片也改成 22 的圆角」：从全局默认 Radius.card(16)
+            // 提到 22（只动记录页卡这一张，不动 Radius.card 本身 —— 那会连带设置页/会话页所有卡）
+            .pastelCard(cornerRadius: 22)
             .contentShape(Rectangle())
         }
         .buttonStyle(PressStyle())
@@ -183,7 +198,57 @@ struct RecordSection: View {
         // v4.0.78：`matchedTransitionSource` / `navigationTransition(.zoom)` 一并移除 —— 这三张弹窗
         // 已从系统 sheet 改成同 ZStack 的毛玻璃浮层，浮层没有 navigationTransition 这条呈现链；
         // 原「从卡片放大展开」的 zoom 转场随 sheet 一起退役（备忘录 v4.0.77 改浮层时同理）。
-        .accessibilityLabel("记录，本月合计 \(String(format: "%.2f", store.monthTotal.amount)) 元，\(store.records.count) 条，点开查看全部")
+        .accessibilityLabel("记录，本月合计 \(String(format: "%.2f", store.monthTotal.amount)) 元，\(store.records.count) 条，\(recordExpanded ? "点一下收起" : "点一下展开明细")")
+    }
+
+    // MARK: v4.0.98 页卡「点击向下展开」的内部行卡
+    /// 用户 2026-10-11「记录卡片也改为点击向下展开内部卡片」：点页卡就地向下展开，
+    /// 内部行卡**复用「全部记录」浮层同一张 `RecordRowCard`**（两处外观天然一致，不另维护第二套行样式）。
+    /// 单次最多画 `RecordCardExpand.maxRows` 条（再多会把卡撑到屏幕外），其余走底部「全部记录」入口。
+    private var recordCardExpandList: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(Array(store.sorted.prefix(RecordCardExpand.maxRows))) { r in
+                // 包 Button（不是 onTapGesture）：这几行不在 List 里 —— 浮层那份必须用 onTapGesture
+                // 躲左滑删手势，这里包 Button 才有按压反馈、读屏也才当它是按钮（v4.0.98 审查 P2）。
+                Button {
+                    glass.showAdd = false
+                    glass.editSession += 1
+                    glass.detail = r
+                } label: {
+                    RecordRowCard(item: r)
+                }
+                .buttonStyle(PressStyle())
+            }
+            if store.records.count > RecordCardExpand.maxRows {
+                Text("还有 \(store.records.count - RecordCardExpand.maxRows) 条，点下面「全部记录」看全")
+                    .font(.system(size: Typography.caption))
+                    .foregroundStyle(.tertiary)
+                    .padding(.leading, 2)
+            }
+            Button {
+                // 原页卡的点击行为原样搬到这里（三层浮层互斥的收口一并不动）
+                glass.showAdd = false
+                glass.detail = nil
+                glass.showAll = true
+            } label: {
+                HStack(spacing: 6) {
+                    Text("全部记录")
+                        .font(.system(size: Typography.subhead, weight: .medium))
+                    Spacer(minLength: 0)
+                    Text("\(store.records.count) 条")
+                        .font(.system(size: Typography.caption))
+                        .foregroundStyle(.tertiary)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: Typography.caption, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                }
+                .padding(.horizontal, Spacing.section)
+                .padding(.vertical, Spacing.md)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(PressStyle())
+            .pastelCard(cornerRadius: 22)
+        }
     }
 
     /// v4.0.19 本月分类占比（候选池②的可视部分）。
@@ -193,6 +258,11 @@ struct RecordSection: View {
         RecordCategoryBar(rows: Array(store.monthByCategory.prefix(3)),
                           total: store.monthTotal.amount)
     }
+}
+
+/// v4.0.98 记录页卡展开态一次画几条内部行卡（够看「最近几笔」；再多去底部「全部记录」浮层看）
+private enum RecordCardExpand {
+    static let maxRows = 6
 }
 
 // MARK: - v4.0.78 记录副标题（本 section 页头 + 全部记录浮层顶栏两处共用，单一来源）
@@ -669,7 +739,8 @@ private struct RecordRowCard: View {
         }
         .padding(Spacing.xl)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .pastelCard()
+        // v4.0.98 用户 2026-10-11「记录详情浮层里的行卡、月度统计卡一起改 22」
+        .pastelCard(cornerRadius: 22)
         .contentShape(Rectangle())
     }
 }
@@ -1000,7 +1071,8 @@ private struct RecordMonthSummary: View {
         }
         .padding(Spacing.xl)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .pastelCard()
+        // v4.0.98 用户 2026-10-11「记录详情浮层里的行卡、月度统计卡一起改 22」
+        .pastelCard(cornerRadius: 22)
     }
 
     private func metric(_ label: String, _ value: String) -> some View {

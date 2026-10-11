@@ -151,5 +151,32 @@ check("⑤ 记录分类卡与来源色块**共用同一几何出口**（Category
 check("🚫 反向⑤′：RecordSection 不得自带第二份色块几何（cornerRadius 各写一份 = 漂移源）",
       !code(src(root + "Features/Life/RecordSection.swift")).contains("cornerRadius: size * 0.305"))
 
+// ── ⑥ v4.0.98 三张进度卡「一样大」= 构造性保证（用户 2026-10-11） ──────────
+// 口径：待办 / 长期目标 / 习惯三张进度卡同挂 `MemoCardMetrics.progressCardMinHeight`（下限 110pt）。
+// 只对齐内边距不够 —— 另两张是文本撑高，字号/字体度量一调就漂 ±1~3pt（v4.0.98 审查 P2）；
+// 用 minHeight 而不是死高：长标题/长内容仍可撑高，不会被裁掉。
+let memoStoreCode = code(src(root + "Core/MemoStore.swift"))
+let goalsCode = code(src(root + "Features/Life/GoalsSection.swift"))
+let habitCode = code(src(root + "Features/Life/HabitSection.swift"))
+check("⑥ 下限常量只有一处真源（MemoCardMetrics.progressCardMinHeight = 110）",
+      msCode.contains("static let progressCardMinHeight: CGFloat = 110"))
+check("⑥ 三张进度卡都挂同一个下限令牌",
+      [tsCode, goalsCode, habitCode].allSatisfy {
+          $0.contains(".frame(maxWidth: .infinity, minHeight: MemoCardMetrics.progressCardMinHeight, alignment: .leading)")
+      })
+check("🚫 反向⑥：三张卡不许各自写死 110（各写一份 = 下次改一处漏两处）",
+      !([tsCode, goalsCode, habitCode].contains { $0.contains("minHeight: 110") }))
+
+// ── ⑦ v4.0.98 备忘：被主题吃掉的那一行不许在正文里再出现一次 ────────────────
+// 用户 2026-10-11 给备忘加独立「主题」字段（老备忘自动取正文第一行）。口径：正文第一条非空行
+// 与 `displayTitle` 逐字相同时摘掉它 —— 否则多行老备忘在卡上/详情页把首行画两遍（v4.0.98 审查 P1 实抓）。
+check("⑦ bodyText 摘掉被主题吃掉的那一行（首行与 displayTitle 比对 → removeSubrange）",
+      memoStoreCode.contains("lines.removeSubrange(0...i)")
+      && memoStoreCode.contains("== displayTitle {"))
+check("🚫 反向⑦：不许回到「只有整段完全相等才 nil」的老写法（多行老备忘 = 首行画两遍）",
+      !memoStoreCode.contains("text == displayTitle ? nil : text"))
+check("⑦ 详情页正文画的是 bodyText（nil 时回退整段 content），不是裸 content",
+      msCode.contains("memoLinkified(current.bodyText ?? current.content)"))
+
 print("备忘/待办图标真值表：\(passCount) 通过 / \(failCount) 失败")
 exit(failCount == 0 ? 0 : 1)

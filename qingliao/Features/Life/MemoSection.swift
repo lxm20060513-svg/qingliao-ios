@@ -30,6 +30,12 @@ enum MemoCardMetrics {   // v3.9.35：private 去掉——TodoSection 复用同�
     static let minHeight: CGFloat = 83
     /// 页级单卡正文行数上限
     static let lineLimit = 2
+    /// v4.0.98（用户 2026-10-11「长期目标，待办事项，习惯卡尺寸改为一样大小」）：
+    /// 三张进度卡（待办 / 长期目标 / 习惯）外框的**下限**高度。
+    /// 只对齐内边距是不够的 —— 另两张是文本撑高（字号/字体度量一调就漂 ±1~3pt），
+    /// 习惯卡是三行指标撑（3×22 + 2×6 + 32 = 110）。挂同一个下限把「一样大」变成构造性保证；
+    /// 用 minHeight 而不是死高：长标题/长内容仍可撑高，不会被裁掉。
+    static let progressCardMinHeight: CGFloat = 110
 }
 
 struct MemoSection: View {
@@ -287,17 +293,20 @@ struct MemoGlassLayerHost: View {
                 )) {
                     // 新建浮层内容（原 MemoSection.addSheet）：外壳已收进 LifeNoteComposeSheet，
                     // 这里只差占位符与标题；每次打开换新实例（.id）→ 打开即空白。
+                    // v4.0.98：多一个「主题」输入框（备忘专有），保存回传（主题, 正文）。
                     LifeNoteComposeSheet(
                         title: "新建备忘",
                         placeholder: "写点什么…",
-                        onSave: { text in
-                            if store.add(content: text, source: "manual") {
+                        onSave: { _ in },
+                        onCancel: { glass.showAdd = false },
+                        formSheet: false,   // v4.0.76：毛玻璃浮层形态（自绘顶栏）
+                        titleFieldPlaceholder: "主题（可空，默认取正文第一行）",
+                        onSaveWithTitle: { headline, text in
+                            if store.add(title: headline, content: text, source: "manual") {
                                 Haptics.success()
                             }
                             glass.showAdd = false
-                        },
-                        onCancel: { glass.showAdd = false },
-                        formSheet: false   // v4.0.76：毛玻璃浮层形态（自绘顶栏）
+                        }
                     )
                     .id(glass.addSession)
                 }
@@ -561,8 +570,13 @@ private struct MemoStackSkin {
 
 /// 四色卡面（下标 = 深度：**0 = 最前 / 最新那张**，数字越大越往上、越靠后）
 private enum MemoStackSkins {
-    /// 浅色：白 / 黑 / 黄绿 / 淡紫（自上而下看就是 淡紫 → 黄绿 → 黑 → 白）
+    /// 浅色：淡紫 / 白 / 黑 / 黄绿（下标 0 = 最前、完整露出的那张 —— v4.0.98 起**最前 = 淡紫**，
+    /// 用户 2026-10-11：「第一张卡片为紫色」。自上而下看就是 黄绿 → 黑 → 白 → 淡紫）
     static let lightSkins: [MemoStackSkin] = [
+        MemoStackSkin(bg: Color(.sRGB, red: 0.7882, green: 0.7216, blue: 0.9412, opacity: 1),
+                      border: Color(.sRGB, red: 0.7059, green: 0.6196, blue: 0.9098, opacity: 1),
+                      text: Color(.sRGB, red: 0.1098, green: 0.1098, blue: 0.1176, opacity: 1),
+                      meta: Color(.sRGB, red: 0.1098, green: 0.1098, blue: 0.1176, opacity: 0.55)),
         MemoStackSkin(bg: Color(.sRGB, red: 1.0000, green: 1.0000, blue: 1.0000, opacity: 1),
                       border: Color(.sRGB, red: 0.8902, green: 0.8902, blue: 0.9098, opacity: 1),
                       text: Color(.sRGB, red: 0.1098, green: 0.1098, blue: 0.1176, opacity: 1),
@@ -575,13 +589,14 @@ private enum MemoStackSkins {
                       border: Color(.sRGB, red: 0.7098, green: 0.8392, blue: 0.3059, opacity: 1),
                       text: Color(.sRGB, red: 0.1098, green: 0.1098, blue: 0.1176, opacity: 1),
                       meta: Color(.sRGB, red: 0.1098, green: 0.1098, blue: 0.1176, opacity: 0.55)),
-        MemoStackSkin(bg: Color(.sRGB, red: 0.7882, green: 0.7216, blue: 0.9412, opacity: 1),
-                      border: Color(.sRGB, red: 0.7059, green: 0.6196, blue: 0.9098, opacity: 1),
-                      text: Color(.sRGB, red: 0.1098, green: 0.1098, blue: 0.1176, opacity: 1),
-                      meta: Color(.sRGB, red: 0.1098, green: 0.1098, blue: 0.1176, opacity: 0.55)),
     ]
-    /// 深色：黑与黄绿都提亮过（稿里注明「免得与页底糊在一起」）
+    /// 深色：深紫 / 灰白 / 黑 / 黄绿（下标 0 = 最前那张。v4.0.98 起 0 档从「灰白」换成「深紫」——
+    /// 与浅色同一口径；黑与黄绿都提亮过：稿里注明「免得与页底糊在一起」）
     static let darkSkins: [MemoStackSkin] = [
+        MemoStackSkin(bg: Color(.sRGB, red: 0.3059, green: 0.2549, blue: 0.5765, opacity: 1),
+                      border: Color(.sRGB, red: 0.4196, green: 0.3569, blue: 0.7686, opacity: 1),
+                      text: Color(.sRGB, red: 1.0000, green: 1.0000, blue: 1.0000, opacity: 1),
+                      meta: Color(.sRGB, red: 1.0000, green: 1.0000, blue: 1.0000, opacity: 0.66)),
         MemoStackSkin(bg: Color(.sRGB, red: 0.9137, green: 0.9137, blue: 0.9373, opacity: 1),
                       border: Color(.sRGB, red: 1.0000, green: 1.0000, blue: 1.0000, opacity: 1),
                       text: Color(.sRGB, red: 0.1098, green: 0.1098, blue: 0.1176, opacity: 1),
@@ -594,14 +609,10 @@ private enum MemoStackSkins {
                       border: Color(.sRGB, red: 0.4784, green: 0.5608, blue: 0.2196, opacity: 1),
                       text: Color(.sRGB, red: 1.0000, green: 1.0000, blue: 1.0000, opacity: 1),
                       meta: Color(.sRGB, red: 1.0000, green: 1.0000, blue: 1.0000, opacity: 0.66)),
-        MemoStackSkin(bg: Color(.sRGB, red: 0.3059, green: 0.2549, blue: 0.5765, opacity: 1),
-                      border: Color(.sRGB, red: 0.4196, green: 0.3569, blue: 0.7686, opacity: 1),
-                      text: Color(.sRGB, red: 1.0000, green: 1.0000, blue: 1.0000, opacity: 1),
-                      meta: Color(.sRGB, red: 1.0000, green: 1.0000, blue: 1.0000, opacity: 0.66)),
     ]
-    /// 取色：色板只有 4 档，**展开态第 5 条起一律沿用最上那档（淡紫）**。
-    /// ⚠️ 不要改成取模循环（v4.0.97 审查，中）：循环会让 idx0（最前、完整露出的那张 = 白）
-    /// 与 idx4 撞成同一个白 —— 一头一尾同色反而看不出「叠」的层次。收起态恒取 0…3，不受影响。
+    /// 取色：色板只有 4 档，**展开态第 5 条起一律沿用最上那档（黄绿）**。
+    /// ⚠️ 不要改成取模循环（v4.0.97 审查，中）：循环会让 idx0（最前、完整露出的那张 = 淡紫）
+    /// 与 idx4 撞成同一个色 —— 一头一尾同色反而看不出「叠」的层次。收起态恒取 0…3，不受影响。
     static func skin(_ depth: Int, dark: Bool) -> MemoStackSkin {
         let list = dark ? darkSkins : lightSkins
         return list[min(max(depth, 0), list.count - 1)]
@@ -672,35 +683,50 @@ private struct MemoStackCard: View {
     @ViewBuilder
     private func card(_ item: MemoItem, depth: Int) -> some View {
         let skin = MemoStackSkins.skin(depth, dark: scheme == .dark)
+        // v4.0.98（用户 2026-10-11「备忘录卡片内容分主题和详细内容」）：
+        // 折叠态里只有**最前那张**完整露出，后面几张只露顶部 38pt 的一条 —— 那一条只画"主题"，
+        // 否则半截详细内容从缝里漏出来，叠卡层次就糊了。展开态每张都完整显示：主题 + 详细内容。
+        let showsBody = expanded || depth == 0
         VStack(alignment: .leading, spacing: 0) {
-            Text(item.content)
-                .font(.system(size: 16))
+            Text(item.displayTitle)
+                .font(.system(size: 16, weight: .semibold))
                 .foregroundStyle(skin.text)
-                .lineLimit(2)
+                .lineLimit(1)
                 .multilineTextAlignment(.leading)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.bottom, item.bodyText != nil && showsBody ? 6 : 0)
+            if showsBody, let body = item.bodyText {
+                Text(body)
+                    .font(.system(size: 14))
+                    .foregroundStyle(skin.text.opacity(0.72))
+                    .lineLimit(expanded ? 3 : 2)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
             Spacer(minLength: 0)
-            // meta 贴卡底（与单卡「数值在上、明细在下」同一读法）
-            HStack(spacing: Spacing.sm) {
-                Text(item.timeText)
-                    .font(.system(size: Typography.caption))
-                    .foregroundStyle(skin.meta)
-                Spacer(minLength: 0)
-                if expanded {
-                    // 卡片本体是「点一下叠回」，详情留这枚显式入口（原来在浮层列表里点条目进详情）
-                    Button {
-                        onOpenDetail(item)
-                    } label: {
-                        Text("详情")
-                            .font(.system(size: Typography.caption))
-                            .foregroundStyle(skin.text)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 4)
-                            .background(Capsule().fill(skin.text.opacity(0.12)))
-                            .contentShape(Capsule())
+            // meta 贴卡底（与单卡「数值在上、明细在下」同一读法）；折叠态的后几张只露主题，不画 meta
+            if showsBody {
+                HStack(spacing: Spacing.sm) {
+                    Text(item.timeText)
+                        .font(.system(size: Typography.caption))
+                        .foregroundStyle(skin.meta)
+                    Spacer(minLength: 0)
+                    if expanded {
+                        // 卡片本体是「点一下叠回」，详情留这枚显式入口（原来在浮层列表里点条目进详情）
+                        Button {
+                            onOpenDetail(item)
+                        } label: {
+                            Text("详情")
+                                .font(.system(size: Typography.caption))
+                                .foregroundStyle(skin.text)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 4)
+                                .background(Capsule().fill(skin.text.opacity(0.12)))
+                                .contentShape(Capsule())
+                        }
+                        .buttonStyle(PressStyle())
+                        .accessibilityLabel("查看这条备忘的详情")
                     }
-                    .buttonStyle(PressStyle())
-                    .accessibilityLabel("查看这条备忘的详情")
                 }
             }
         }
@@ -724,7 +750,7 @@ private struct MemoStackCard: View {
         .accessibilityAddTraits(.isButton)
         .accessibilityAction { onToggle() }
         .contextMenu { memoCardMenuItems(item, onDelete: onDelete, onSend: onSendToAI) }
-        .accessibilityLabel("\(item.content)，\(expanded ? "点一下叠回" : "点一下展开清单")")
+        .accessibilityLabel("\(item.displayTitle)，\(expanded ? "点一下叠回" : "点一下展开清单")")
     }
 }
 
@@ -839,6 +865,8 @@ private struct MemoDetailSheet: View {
     @State private var current: MemoItem
     @State private var editing = false
     @State private var editText = ""
+    /// v4.0.98：主题草稿（编辑态与正文一起改；留空 = 回到「取正文第一行」兜底）
+    @State private var editTitle = ""
     @State private var copied = false
 
     init(item: MemoItem, onDelete: @escaping (MemoItem) -> Void, onDismiss: @escaping () -> Void) {
@@ -860,21 +888,42 @@ private struct MemoDetailSheet: View {
                 VStack(alignment: .leading, spacing: 12) {
                     if editing {
                         // v3.9.14：补上编辑（MemoStore.update 早就写好了，一直没入口）
-                        TextEditor(text: $editText)
-                            .font(.system(size: Typography.body))
-                            .lineSpacing(LineSpacing.long)
-                            .scrollContentBackground(.hidden)
-                            .frame(minHeight: 220, alignment: .topLeading)
-                            .padding(Spacing.lg)
-                            .background(Color(uiColor: .secondarySystemGroupedBackground),
-                                        in: RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
+                        // v4.0.98：主题与正文分两个框（简与繁分层，与卡片同一口径）
+                        VStack(alignment: .leading, spacing: 10) {
+                            TextField("主题（可空，默认取正文第一行）", text: $editTitle)
+                                .font(.system(size: Typography.body))
+                                .textFieldStyle(.plain)
+                                .padding(.horizontal, Spacing.lg)
+                                .padding(.vertical, 12)
+                                .background(Color(uiColor: .secondarySystemGroupedBackground),
+                                            in: RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
+                            TextEditor(text: $editText)
+                                .font(.system(size: Typography.body))
+                                .lineSpacing(LineSpacing.long)
+                                .scrollContentBackground(.hidden)
+                                .frame(minHeight: 200, alignment: .topLeading)
+                                .padding(Spacing.lg)
+                                .background(Color(uiColor: .secondarySystemGroupedBackground),
+                                            in: RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
+                        }
                     } else {
+                        // v4.0.98：主题单独一行（小一号、灰）。正文与主题完全相同时不重复画
+                        //（老备忘只有一行正文 → 主题就是这一行，见 MemoItem.bodyText）
+                        if current.bodyText != nil {
+                            Text(current.displayTitle)
+                                .font(.system(size: Typography.body, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
                         // v3.9.9x：正文里的链接要能识别并点开（原来纯 Text(String)，URL 只是灰字）
                         // memoLinkified 用 NSDataDetector 扫出 URL 手动挂 .link（SwiftUI 不会自动认）
                         // → 显示为主题色下划线，.textSelection 仍可长按选中复制；
                         // .environment(\.openURL) 接管点击 → UIApplication.open 直接跳系统浏览器
                         // （不弹内嵌 SFSafari 预览）。非 http(s)（如 tel:/mailto:）也交给系统处理。
-                        Text(memoLinkified(current.content))
+                        // v4.0.98 审查（P1）：正文画 **bodyText**（已摘掉被主题吃掉的那一行），
+                        // 否则多行老备忘在详情页也是首行画两遍；bodyText 为 nil（单行正文）时回退整段 content。
+                        Text(memoLinkified(current.bodyText ?? current.content))
                             .font(.system(size: Typography.headline))
                             .lineSpacing(LineSpacing.long)
                             .foregroundStyle(.primary)
@@ -919,6 +968,7 @@ private struct MemoDetailSheet: View {
                 Spacer(minLength: 0)
                 MiniCapsule(title: "编辑") {
                     editText = current.content
+                    editTitle = current.title
                     editing = true
                 }
                 MiniCapsule(title: copied ? "已复制" : "复制") {
@@ -947,10 +997,14 @@ private struct MemoDetailSheet: View {
     private func saveEdit() {
         let text = editText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
-        store.update(current, content: text)
-        // 只有内容真变了才动本地副本的时间：store.update 在内容未变时什么都不做，
+        let headline = editTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        // v4.0.98：主题留空 → 与 Store 同一口径，回到「正文第一行」
+        let newTitle = headline.isEmpty ? MemoItem.firstLine(text) : headline
+        store.update(current, title: headline, content: text)
+        // 只有内容/主题真变了才动本地副本的时间：store.update 在都没变时什么都不做，
         // 这里若无条件改，详情页会显示"刚刚"而存储里没变（两处时间分叉）
-        if current.content != text {
+        if current.content != text || current.title != newTitle {
+            current.title = newTitle
             current.content = text
             current.updatedAt = Date()
         }

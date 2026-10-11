@@ -10,6 +10,10 @@ import SwiftUI
 
 struct MemoItem: Identifiable, Codable, Equatable, Sendable {
     var id: String
+    /// v4.0.98（用户 2026-10-11「备忘录卡片内容分主题和详细内容」）：**主题** —— 卡片上那行标题。
+    /// 老备忘的 JSON 里没有这个键 → 手写解码走 decodeIfPresent，兜底取**正文第一行**
+    /// （`firstLine`），等于零迁移：老数据一进来就有主题，不会因为缺键整条丢掉。
+    var title: String
     var content: String
     var createdAt: Date
     /// 来源标签：chat（聊天气泡）/ bigbang（大爆炸选词）/ manual（生活页手写）
@@ -21,10 +25,12 @@ struct MemoItem: Identifiable, Codable, Equatable, Sendable {
     /// 于是「内容改了但 createdAt 没变」的本地条目会被远端旧内容覆盖回去（编辑等于白改）。
     var updatedAt: Date
 
-    init(id: String = UUID().uuidString, content: String,
+    init(id: String = UUID().uuidString, title: String? = nil, content: String,
          createdAt: Date = Date(), source: String = "manual",
          pinned: Bool = false, updatedAt: Date? = nil) {
         self.id = id
+        self.title = title.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            ?? MemoItem.firstLine(content)
         self.content = content
         self.createdAt = createdAt
         self.source = source
@@ -39,6 +45,8 @@ struct MemoItem: Identifiable, Codable, Equatable, Sendable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(String.self, forKey: .id)
         content = try c.decode(String.self, forKey: .content)
+        // v4.0.98：title 是后加的键（老数据没有）→ decodeIfPresent + 正文第一行兜底
+        title = try c.decodeIfPresent(String.self, forKey: .title) ?? MemoItem.firstLine(content)
         createdAt = try c.decode(Date.self, forKey: .createdAt)
         source = try c.decodeIfPresent(String.self, forKey: .source) ?? "manual"
         pinned = try c.decodeIfPresent(Bool.self, forKey: .pinned) ?? false
@@ -47,7 +55,38 @@ struct MemoItem: Identifiable, Codable, Equatable, Sendable {
 
     /// 显式声明：解码是手写的、编码走合成，写出来避免歧义
     private enum CodingKeys: String, CodingKey {
-        case id, content, createdAt, source, pinned, updatedAt
+        case id, title, content, createdAt, source, pinned, updatedAt
+    }
+
+    /// 主题兜底：正文第一条**非空**行（全空 → 返回正文本身）。纯函数，真值表可直接断言。
+    static func firstLine(_ text: String) -> String {
+        for raw in text.split(separator: "\n", omittingEmptySubsequences: false) {
+            let line = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !line.isEmpty { return line }
+        }
+        return text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// 卡上那行标题：主题为空时现算正文第一行（老数据/外部入口没给主题也不至于空着）
+    var displayTitle: String {
+        let t = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !t.isEmpty { return t }
+        return MemoItem.firstLine(content)
+    }
+
+    /// 卡上那段详细内容：**被主题吃掉的那一行（连同它前面的空行）不再重复出现**；没有剩余 → nil。
+    /// 为什么要有这条：主题为空时主题现算正文第一条非空行（老备忘、外部入口都不给主题），
+    /// 若正文再照原样画一遍，那一行会在卡上出现两次 —— v4.0.98 审查 P1 实抓：
+    /// 多行老备忘（主题留空）卡上会「买菜」画两遍（16 semibold 一行 + 14 一行），详情页同理。
+    /// 口径：正文第一条非空行与 `displayTitle` 逐字相同时摘掉它；剩下的 trims 后为空 → nil（只显示主题）。
+    var bodyText: String? {
+        var lines = content.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        if let i = lines.firstIndex(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }),
+           lines[i].trimmingCharacters(in: .whitespacesAndNewlines) == displayTitle {
+            lines.removeSubrange(0...i)
+        }
+        let rest = lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        return rest.isEmpty ? nil : rest
     }
 
     /// 排序与合并用的时间基准
@@ -155,9 +194,10 @@ final class MemoStore {
 
     // MARK: - CRUD
 
-    /// 新增（最新的排最前）
+    /// 新增（最新的排最前）。v4.0.98：多一个**主题**入参（备忘录用）；主题留空 → 取正文第一行。
+    /// 其余入口（聊天/大爆炸/智能球/识别/会议纪要/快捷指令）不改调用写法：不传主题即走兜底。
     @discardableResult
-    func add(content: String, source: String = "manual") -> Bool {
+    func add(title: String = "", content: String, source: String = "manual") -> Bool {
         let text = content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return false }
         // 同内容去重：连点两次不产生两条一样的备忘（5 分钟内）
@@ -165,7 +205,9 @@ final class MemoStore {
            Date().timeIntervalSince(first.createdAt) < 300 {
             return true
         }
-        memos.insert(MemoItem(content: text, source: source, updatedAt: Date()), at: 0)
+        let headline = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        memos.insert(MemoItem(title: headline.isEmpty ? nil : headline, content: text,
+                              source: source, updatedAt: Date()), at: 0)
         save()
         return true
     }
@@ -186,11 +228,15 @@ final class MemoStore {
         return n
     }
 
-    func update(_ item: MemoItem, content: String) {
+    /// 编辑保存。v4.0.98：主题与正文一起改（主题留空 → 重新取正文第一行）。
+    /// 两者都没变就别动 updatedAt（否则每次打开编辑页保存都会把这条顶到最前）。
+    func update(_ item: MemoItem, title: String, content: String) {
         let text = content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, let idx = memos.firstIndex(where: { $0.id == item.id }) else { return }
-        // v3.9.14：内容没变就别动 updatedAt（否则每次打开编辑页保存都会把这条顶到最前）
-        guard memos[idx].content != text else { return }
+        let headline = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let newTitle = headline.isEmpty ? MemoItem.firstLine(text) : headline
+        guard memos[idx].content != text || memos[idx].title != newTitle else { return }
+        memos[idx].title = newTitle
         memos[idx].content = text
         memos[idx].updatedAt = Date()
         save()
@@ -276,8 +322,8 @@ final class MemoStore {
         for r in remote { remoteByID[r.id] = r }
         let changed = merged.count != remote.count || merged.contains { m in
             guard let r = remoteByID[m.id] else { return true }   // 本地独有 → 回写补齐
-            return m.content != r.content || m.pinned != r.pinned || m.source != r.source
-                || Int(m.updatedAt.timeIntervalSince1970) != Int(r.updatedAt.timeIntervalSince1970)
+            return m.title != r.title || m.content != r.content || m.pinned != r.pinned || m.source != r.source
+                || Int(m.updatedAt.timeIntervalSince1970) != Int(r.updatedAt.timeIntervalSince1970)   // v4.0.98：主题也要比
         }
         memos = merged
         if changed { save() }   // 本地有远端没有/内容更新 → 回写一次补齐 NAS

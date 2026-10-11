@@ -1303,6 +1303,13 @@ echo "=== 86. 记录分类图标真值表（v4.0.65 · 用户看对比稿拍板�
 #     空分类也画色块（否则有/无图标行左边缘参差）；「全部」胶囊不配图标；Picker 不得回退裸 Text(c).tag(c)。
 run_unit /tmp/test_record_icons scripts/ql_record/truth_table_record_icons.swift
 
+echo "=== 90. 记录页卡真值表（v4.0.98 · 用户 2026-10-11：点卡就地向下展开内部卡片 + 三处圆角 22）==="
+# 钉：点页卡 = 就地展开（不许再弹全屏「全部记录」；入口挪到展开态底部那行，仍在）；内部行卡复用浮层同一张
+#     RecordRowCard（另写一套 = 同一条记录两处长得不一样）；收起态那一截只在未展开时画（否则第一条出现两次）；
+#     页卡/详情行卡/月度统计卡三处圆角 22，且 Radius.card 全局默认仍是 16（改它=连带设置页/会话页所有卡）。
+# 与第 86 段（分类图标）同读 RecordSection.swift —— 改这张卡时两段一起看。
+run_unit /tmp/test_record_card scripts/ql_record/truth_table_record_card.swift
+
 echo "=== 87. 备忘/待办图标真值表（v4.0.65 · 用户拍板「待办走 B / 备忘走 A」）==="
 # 钉：来源→颜色只有 SourceStyle 一个出口（另写一份 = 同一来源在待办页/备忘页长出两种色）；
 #     页级单卡不许跟着放大（用户 v3.9.37 明确要求备忘单卡「连图标也不要」）；
@@ -1367,8 +1374,8 @@ cnt=$(grep -cF 'revealRadius = 0' "$DT"); [ "$cnt" -ge 2 ] \
   || { echo "❌ 回退⑯e：切页入场起点应为扩散半径归 0（两处 modifier 各一份，实得 $cnt）"; fail=1; }
 cnt=$(grep -cF 'static let pageRevealMaxRadius: CGFloat = 1200' qingliao/Theme/Motion.swift); [ "$cnt" -ge 1 ] \
   || { echo "❌ 回退⑯g：扩散圆最大半径应为 Motion.pageRevealMaxRadius = 1200（实得 $cnt）"; fail=1; }
-cnt=$(grep -cF 'static var pageReveal: Animation { .smooth(duration: 0.42) }' qingliao/Theme/Motion.swift); [ "$cnt" -ge 1 ] \
-  || { echo "❌ 回退⑯h：切页曲线令牌应为 Motion.pageReveal（.smooth 0.42，实得 $cnt）"; fail=1; }
+cnt=$(grep -cF 'static var pageReveal: Animation { .smooth(duration: 0.60) }' qingliao/Theme/Motion.swift); [ "$cnt" -ge 1 ] \
+  || { echo "❌ 回退⑯h：切页曲线令牌应为 Motion.pageReveal（.smooth 0.60，v4.0.98 用户要求放慢，实得 $cnt）"; fail=1; }
 ckNot "回退⑯a：旧 snap 起手（phase 从 0 开始，实测会闪）不许回来" 'withAnimation\(Motion\.snap\) \{ phase = 1 \}' "$DT"
 ckNot "回退⑯b：整页缩放入场（0.96 那套）不许回来" 'scaleEffect\(0\.96 \+ 0\.04 \* phase' "$DT"
 ckNot "回退⑯c：整页上浮（10pt 那条）不许回来" 'offset\(y: 10 \* \(1 - phase' "$DT"
