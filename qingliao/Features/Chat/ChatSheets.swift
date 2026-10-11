@@ -7,30 +7,14 @@ struct HermesShortcutSheet: View {
     var onPick: (String) -> Void
     @Environment(\.dismiss) private var dismiss
 
-    // 官方命令（hermes-agent 文档）：命令 + 中文功能注释
+    // v4.0.121（2026-10-11）：只保留轻聊里**真正生效**的两条——后端 stream_api._worker 就地应答，
+    // 不调用模型（实测 0.01s、toolSeq=0）。其余 Hermes CLI 命令（/model /skills /cron /memory…）
+    // 在轻聊里不生效：api_server 侧没有斜杠命令拦截，点了只是把文本发给模型自由发挥
+    // （线上实测 /new 被当普通消息跑出 71 步工具 / 23.5 分钟），属「可见入口不可用」，已下线。
+    // 等价功能都在 App 内：模型→设置·模型管理，记忆→设置·AI 记忆，技能→技能页，定时→任务中心。
     private let items: [(cmd: String, desc: String)] = [
-        ("/help", "查看全部可用命令"),
         ("/new", "开启全新会话（清空上下文）"),
-        ("/model deepseek-v4-flash", "切换模型（如 deepseek-v4-flash）"),
-        ("/compress", "压缩当前上下文，节省 token"),
-        ("/memory", "查看与管理 AI 记忆"),
-        ("/skills", "浏览、搜索、安装技能"),
-        ("/skill <名称>", "加载指定技能到当前会话"),
-        ("/cron", "定时任务管理（查看/创建/暂停）"),
-        ("/voice on", "开启语音对话模式"),
-        ("/voice off", "关闭语音模式"),
-        ("/undo", "撤销上一轮对话"),
-        ("/title <名称>", "给当前会话命名"),
-        ("/usage", "查看 Token 用量统计"),
-        ("/status", "查看会话与系统状态"),
-        ("/personality <名称>", "切换 AI 人格"),
-        ("/reasoning high", "设置思考深度（none/low/medium/high）"),
-        ("/background <任务>", "后台运行长任务（不阻塞对话）"),
-        ("/queue <任务>", "排队等待下一轮处理"),
-        ("/fast", "切换优先快速处理"),
-        ("/resume <名称>", "恢复历史会话"),
-        ("/sethome", "把当前聊天设为默认投递位置"),
-        ("/update", "更新 Hermes 到最新版"),
+        ("/help", "查看轻聊里可用的指令"),
     ]
 
     var body: some View {

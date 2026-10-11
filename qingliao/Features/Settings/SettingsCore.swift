@@ -688,17 +688,24 @@ extension SettingsView {
         // 判定模型（v4.0.87）：用哪个模型来判。三档 —— TypeSafe 云端（默认，Jev）/
         // 自定义模型（自填 OpenAI 兼容模型：key 存后端、接口只回掩码）/ 本机模型
         // （NAS 上的 ollama 小模型：不联网、零成本）。换供应商自己填，不必等 App 发版。
-        HStack(spacing: Spacing.md) {
+        // v4.0.121（2026-10-11 用户报「胶囊文字换行了，视觉不统一」+ 选定方案 1）：原来标签与三枚
+        // 挤一行，标签 60 + 三枚 111/99/84 + 间距 ≈ 378pt > 一行可用 361pt（真机 393 − 左右各 16）
+        // ⇒ SwiftUI 把最长的两枚压成两行。改「标签独占一行 + 三枚等宽」：每枚 115pt、字号 13 不变、
+        // 全部单行。几何可复算（393pt 屏）：一行可用 361pt（393 − 左右各 16）；标签独占一行后
+        // 三枚各 115pt（115×3 + 间距 8×2 = 361）；最长文案「TypeSafe 云端」13pt 实排 87.8pt
+        // < 等宽档可用 95pt（115 − 内衬 10×2）。（渲染稿脚本是本机运维工具，不随仓分发。）
+        VStack(alignment: .leading, spacing: Spacing.md) {
             Text("判定模型").font(.system(size: Typography.body))
-            Spacer(minLength: Spacing.md)
-            tsCapsule("TypeSafe 云端", on: tsRouting.backend == "typesafe") {
-                Task { await saveTypesafeRouting(["backend": "typesafe"]) }
-            }
-            tsCapsule("自定义模型", on: tsRouting.backend == "custom") {
-                Task { await saveTypesafeRouting(["backend": "custom"]) }
-            }
-            tsCapsule("本机模型", on: tsRouting.backend == "local") {
-                Task { await saveTypesafeRouting(["backend": "local"]) }
+            HStack(spacing: Spacing.md) {
+                tsCapsule("TypeSafe 云端", on: tsRouting.backend == "typesafe", fill: true) {
+                    Task { await saveTypesafeRouting(["backend": "typesafe"]) }
+                }
+                tsCapsule("自定义模型", on: tsRouting.backend == "custom", fill: true) {
+                    Task { await saveTypesafeRouting(["backend": "custom"]) }
+                }
+                tsCapsule("本机模型", on: tsRouting.backend == "local", fill: true) {
+                    Task { await saveTypesafeRouting(["backend": "local"]) }
+                }
             }
         }
         .padding(.horizontal, Spacing.section)
@@ -1388,13 +1395,22 @@ extension SettingsView {
 
     /// 参数区小胶囊。选中 = 主题色淡底 + 同色文字 + 0.8pt 同色细描边；未选中 = 中性淡底
     /// —— 走 v3.9.35「三件套」口径，不用实色胶囊（用户明确否决过实色）。
-    func tsCapsule(_ title: String, on: Bool, action: @escaping () -> Void) -> some View {
+    /// v4.0.121：文字一律**单行**（`lineLimit(1)` + `minimumScaleFactor` 兜底）—— 胶囊靠换行去
+    /// 适配窄屏就是「同排高低不齐」的成因；`fill = true` 时同排胶囊**等宽**（判定模型三档用它）。
+    /// ⚠️ 等宽档横内衬收到 `Spacing.lg`(10)：三枚各 115pt 时最长文案「TypeSafe 云端」13pt 实排
+    /// **87.8pt**（真机字体 Noto CJK 实测，见本机运维脚本 mock/gen_judgemodel_caps.py，不随仓分发），
+    /// 内衬 12×2 只剩 3.2pt 余量 —— 任何一边字体度量差一点就会**只让这一枚**触发缩字，
+    /// 把「视觉不统一」以更隐蔽的形式带回来；收到 10 留 7.2pt。非等宽档保持 `Spacing.xl`(12) 不动。
+    func tsCapsule(_ title: String, on: Bool, fill: Bool = false, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
                 .font(.system(size: Typography.subhead, weight: .semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
                 .foregroundStyle(on ? Color.accentColor : Color.primary)
-                .padding(.horizontal, Spacing.xl)
+                .padding(.horizontal, fill ? Spacing.lg : Spacing.xl)
                 .padding(.vertical, Spacing.sm)
+                .frame(maxWidth: fill ? .infinity : nil)
                 .background(on ? Color.accentColor.opacity(Tint.subtle) : Color.primary.opacity(Tint.faint),
                             in: Capsule())
                 .overlay(Capsule().strokeBorder(on ? Color.accentColor.opacity(0.28)

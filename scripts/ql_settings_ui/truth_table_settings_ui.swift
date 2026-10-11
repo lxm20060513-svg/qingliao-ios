@@ -332,5 +332,26 @@ check("全仓扫到顶栏「完成」\(doneLeft) 处在左位 + 键盘工具条 
 check("🚨 弹窗顶栏「完成」一律放左（cancellationAction）；在右侧的：\(doneMisplaced.joined(separator: " / "))",
       doneRight == 0)
 
+// MARK: - v4.0.121 判定模型胶囊排布（2026-10-11 用户报「胶囊文字换行了，视觉不统一」→ 选定方案 1）
+// 口径：① 标签独占一行、三枚胶囊另起一行；② 三枚走 `fill: true` 等宽；③ 胶囊文字一律单行
+//   （lineLimit(1) + minimumScaleFactor 兜底）——靠换行去适配窄屏就是「同排高低不齐」的成因。
+// 几何真源（可复算，393pt 屏）：一行可用 361pt；三枚各 115pt（115×3 + 间距 8×2 = 361）；等宽档横内衬
+//   Spacing.lg(10) ⇒ 可用 95pt > 最长文案「TypeSafe 云端」13pt 实排 87.8pt（留 7.2pt 余量）。
+//   ⚠️ 渲染稿脚本是本机运维工具（/opt/data/scripts/ql_settings_ui/mock/），**不随仓分发**，别在仓内找。
+let coreSrc = stripComments(src("qingliao/Features/Settings/SettingsCore.swift"))
+let judgeRow = slice(coreSrc, "Text(\"判定模型\")", ".padding(.horizontal, Spacing.section)")
+let capsuleFn = slice(coreSrc, "func tsCapsule(", "buttonStyle(PressStyle())")
+check("判定模型行切片取到且长度合理（空了下面的断言等于空真）", !judgeRow.isEmpty && judgeRow.count < 1200)
+check("判定模型三枚胶囊都走 fill: true（同排等宽）", occ(judgeRow, "fill: true") == 3)
+check("🚨 判定模型行旧形态清零：标签不再与三枚挤一行（不得再现 Spacer(minLength: Spacing.md)）",
+      !judgeRow.contains("Spacer(minLength: Spacing.md)"))
+check("tsCapsule 切片取到且长度合理", !capsuleFn.isEmpty && capsuleFn.count < 1400)
+check("tsCapsule 文字强制单行 + 缩字号兜底（换行 = 同排高低不齐）",
+      capsuleFn.contains(".lineLimit(1)") && capsuleFn.contains("minimumScaleFactor(0.85)"))
+check("tsCapsule 等宽由 fill 参数控制（默认不动其它调用点）",
+      capsuleFn.contains("maxWidth: fill ? .infinity : nil"))
+check("🚨 等宽档横内衬收到 Spacing.lg（最长文案留 7.2pt 余量，防「只缩那一枚」回归）",
+      capsuleFn.contains("padding(.horizontal, fill ? Spacing.lg : Spacing.xl)"))
+
 print("设置页间距口径真值表：\(passCount) 通过 / \(failCount) 失败")
 if failCount > 0 { exit(1) }
