@@ -1448,5 +1448,23 @@ echo "=== 94. 弹窗 zoom 配对真值表（v4.0.102 · 用户 2026-10-12「看�
 python3 scripts/ql_zoom_pair/truth_table_zoom_pair.py 2>&1 | tee /tmp/tt_zoompair.log
 grep -q '✅ ALL PASS' /tmp/tt_zoompair.log || fail=1
 
+echo "=== 95. 聊天输入框草稿真值表（v4.0.103 待做池 #5 · 按会话记 / 发送才清）==="
+# 口径（用户 2026-10-13 拍板）：输入框正文按会话持久化，切会话 / 杀后台回来仍在；确认发送才清。
+# 事故面：草稿链路的退化**全是静默的** —— 输入栏改回 `text: $inputText` 直绑、别处新添一行
+#   `inputText = x` 绕过写入口、清空时机挪成「点发送就清」……编译过、-parse 过、其它 60+ 张表
+#   照旧全绿，只有用户装机后才发现「打的字又没了 / 切回来草稿变成上一个会话的」。故钉死。
+# 分工：test_draft 真跑生产源码 ChatDraftStore 的行为（按会话隔离 / 重载仍在 / 清空落盘 / 容量上限 / 节流）；
+#   truth_table_draft 钉接线形态（写入口唯一 + 四个时机 + 键单一真源 + 直写白名单 + 先存后取顺序 + 落盘节流）。
+# ⚠️ 扫描面 = `qingliao/Features/Chat/*.swift` **全目录**（第一版只扫 ChatView.swift，漏了同类型的
+#   ChatViewVoice.swift → 语音定稿那处直写全程假绿；只读审查才发现，故扫描面本身也加断言）。
+# ⚠️ 替身 keyconf.swift 只给 UserDefaultsKey.chatDrafts 一个常量（Models.swift 带 SwiftUI，Linux 编不了）；
+#   真值表会读 Models.swift 与替身逐字比对键字面量，两处漂移即红。
+rm -rf /tmp/ql_draft_main && mkdir -p /tmp/ql_draft_main
+cp scripts/ql_draft/test_draft.swift /tmp/ql_draft_main/main.swift
+cp scripts/ql_draft/keyconf.swift /tmp/ql_draft_main/keyconf.swift
+run_unit6 /tmp/test_ql_draft /tmp/ql_draft_main/main.swift /tmp/ql_draft_main/keyconf.swift \
+    qingliao/Core/ChatDraftStore.swift
+run_unit6 /tmp/tt_draft scripts/ql_draft/truth_table_draft.swift
+
 [ $fail -eq 0 ] || { echo "❌ 有护栏失守"; exit 1; }
 exit 0

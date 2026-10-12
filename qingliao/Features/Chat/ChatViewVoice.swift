@@ -43,7 +43,12 @@ extension ChatView {
                 voiceTooShort = true
                 NSLog("[VOICE] 未识别到内容 \(voiceDiag)")
             } else {
-                inputText = text
+                // v4.0.103 待做池 #5：**必须走写入口** —— 语音定稿这一次文本变化不经过
+                // ChatView.swift 的 liveText 观察（那边守卫是 `voiceMode || liveSpeech.isRunning`，
+                // 而 exitVoiceMode 第 20 行已把 voiceMode 置 false、performStop 里 isRunning 也先落，
+                // 定稿这次恒被 return）。原来这里直写 inputText = 盘上永远是最后一次**中间结果**
+                // ——「录完音直接杀后台」回来是缺尾缺标点的半句。别再改回直写。
+                setInputText(text)
                 Haptics.notify(.success)
             }
         }
@@ -88,7 +93,8 @@ extension ChatView {
         let token = voiceStartToken
         Task {
             // 实时文本回填：进入前输入框的内容作为基线，识别的字接在后面
-            liveSpeech.onTextChange = { text in inputText = text }
+            // v4.0.103 待做池 #5：中间结果也走写入口（同文件另一处直写已改 —— 见 exitVoiceMode 注释）
+            liveSpeech.onTextChange = { text in setInputText(text) }
             // 运行期错误（结果流中断等）：收起语音 UI + 弹窗说明，别让用户卡在"录音中"
             liveSpeech.onError = { message in
                 voiceMode = false

@@ -444,6 +444,14 @@ struct ChatView: View {
     /// v4.0.11：从 body 的 `.task` 里提出来的启动期逻辑（见 body 处注释：编译器类型检查超时）。
     /// 纯等价搬移，逐行顺序与原先一致，零行为变化。
     private func bootstrapChat() async {
+        // v4.0.103 待做池 #5：冷启动把本会话的草稿取回输入框 ——
+        // 会话身份在**首帧之前**就定好了，`onChange(of: chat.sessionId)` 冷启动不触发
+        // （见本文件「冷启动时 sessionId 在首帧之前就定好了，onChange 根本不会触发」），
+        // 所以「杀后台回来草稿还在」这条只能在这里补。
+        // guard isEmpty：只有输入框确实空着才回填，绝不覆盖已在屏上的正文。
+        if inputText.isEmpty {
+            inputText = ChatDraftStore.shared.draft(for: chat.sessionId)
+        }
         // v3.0.51 A2 fix：初始化可见消息缓存（首次渲染不为空）
         refreshVisibleMessages()
         // v3.4.29：先用上次结果填充状态点——首屏不再闪"检测中"灰点（后台校验回来再纠正）
@@ -611,6 +619,34 @@ struct ChatView: View {
     /// v3.3.0：输入区抽离——原 body 内 if selectMode/else(ChatInputBar 17参+多closure) 内联
     /// 过长是压垮 Xcode26 type-check 的"最后一根稻草"（v3.2.4 能过因 body 没这么重）。
     /// 抽成独立属性给 type-checker 更小的表达式单元。
+    /// v4.0.103 待做池 #5：输入框正文的**唯一写入口**。
+    /// 打字（TextField binding）与程序化填充（语音转写 / 快捷指令 / Hermes 捷径）都从这里走，
+    /// 保证「草稿落盘」没有旁路 —— 任何 `inputText = …` 直写都会绕过草稿，
+    /// 由 ql_draft 真值表钉住全仓只剩白名单那几处。
+    /// - Parameter clearingDraft: true = 确认发送那一刻（清空正文 + 清掉该会话草稿）
+    /// ⚠️ **必须保持 internal（不带 private）**：语音转写实现在 `Features/Chat/ChatViewVoice.swift`
+    ///    （同一类型的另一个文件），`private` 成员跨文件不可见 —— 一旦有人给它加回 `private`，
+    ///    那边就只能退回直写 `inputText`，草稿又会出现旁路（真值表会红）。
+    func setInputText(_ text: String, clearingDraft: Bool = false) {
+        inputText = text
+        if clearingDraft {
+            ChatDraftStore.shared.clear(for: chat.sessionId)
+        } else {
+            ChatDraftStore.shared.set(text, for: chat.sessionId)
+        }
+    }
+
+    /// v4.0.103 待做池 #5：输入框的双向绑定 —— `set` 里顺带落草稿。
+    /// 为什么不给 body 再挂一个 `.onChange(of: inputText)`：这条 body 链已贴类型检查阈值
+    /// （多挂带闭包的修饰符会直接 Archive 失败，CI #608 先例），且 binding 的 set 本来就是
+    /// 「键盘每次输入都会走」的唯一钩子。**别改回 `$inputText` 直绑**（那会绕过草稿）。
+    private var inputTextDraftBinding: Binding<String> {
+        Binding(
+            get: { inputText },
+            set: { newValue in setInputText(newValue) }
+        )
+    }
+
     @ViewBuilder
     private var inputArea: some View {
         if selectMode {
@@ -635,7 +671,7 @@ struct ChatView: View {
             .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             .padding(.horizontal, Spacing.md)
         } else {
-            ChatInputBar(text: $inputText,
+            ChatInputBar(text: inputTextDraftBinding,
                      focused: $inputFocus,
                      streaming: thisSessionStreaming,   // v3.9.41：按会话收窄（原来 B 会话会因 A 在跑而长出红色「停止」，一点就掐掉 A 的回答）
                      onSend: { send() },
@@ -1194,7 +1230,7 @@ struct ChatView: View {
             // v3.9.9：守卫与录音行同口径（voiceMode 或识别器在跑），否则会出现
             // "红点行有字、输入框里没字"的分裂状态
             guard voiceMode || liveSpeech.isRunning else { return }
-            inputText = newValue
+            setInputText(newValue)
         }
         .photosPicker(isPresented: $showPhotoPicker, selection: $photoItem, matching: .images)
         // v2.0.38：拍照输入（拍完进图片预览条，确认后发送）
@@ -1215,7 +1251,7 @@ struct ChatView: View {
         // v2.0.43：快捷指令面板（点击填充输入框）
         .sheet(isPresented: $showQuickPrompts) {
             AnyView(QuickPromptSheet(onPick: { prompt in
-                inputText = prompt
+                setInputText(prompt)
                 showAttachmentMenu = false
             }, includeKB: true)   // v3.9.28：知识库恒显示（原按云端/本地分流，云端已移除）
             .presentationDetents([.medium, .large])
@@ -1264,7 +1300,7 @@ struct ChatView: View {
         Color.clear
         .sheet(isPresented: $showHermesShortcut) {
             AnyView(HermesShortcutSheet { cmd in
-                inputText = cmd
+                setInputText(cmd)
                 showAttachmentMenu = false
             }
             .presentationDetents([.medium, .large])
@@ -2333,6 +2369,8 @@ struct ChatView: View {
             },
             onAsk: { q in
                 Haptics.tap()
+                // v4.0.103 待做池 #5：白名单——这条是「点一下就发」的立即发送路径
+                // （send() 里立刻清空），刻意不落草稿；改它之前先看 ql_draft 真值表的直写白名单。
                 inputText = q
                 send()
             },
@@ -3665,7 +3703,8 @@ struct ChatView: View {
     ///   调用方（send()）传 true；预检有计数断言钉住「全仓只允许那 2 处传 true」。
     private func sendPendingNow(_ p: (text: String, imageData: String?), allowExpense: Bool = true) {
         pendingSend = nil
-        inputText = ""   // v2.0.102：确认发送才清空（取消保留草稿）
+        // v4.0.103 待做池 #5：确认发送才清空（取消保留草稿，v2.0.102 口径不变）——现在连草稿一起清。
+        setInputText("", clearingDraft: true)
         pendingImage = nil
         pendingImageData = nil
         if p.imageData != nil {
@@ -3753,7 +3792,8 @@ struct ChatView: View {
             showLongContextAlert = true
             return
         }
-        inputText = ""
+        // v4.0.103 待做池 #5：确认发送才清空（直发路径）——连该会话草稿一起清。
+        setInputText("", clearingDraft: true)
         pendingImage = nil
         pendingImageData = nil
         if img != nil {
@@ -5149,6 +5189,17 @@ extension ChatView {
             // ScrollView 走）——两步走清空/新建会话/整组替换消息（ChatStore.load 新旧条数相同）
             // 时可见缓存仍能重建，根治「空态后首条消息错显上一会话缓存行」
             .onChange(of: chat.sessionId) { prior, _ in
+                // v4.0.103 待做池 #5：草稿按会话记 —— 先把**刚离开这个会话**的正文落档，
+                // 再把目标会话那份取回输入框（微信同款：切会话各自的草稿都还在）。
+                // 「先存后取」的顺序错了就是「切回来草稿变成上一个会话的」；
+                // 直写 inputText 是刻意的：store 里已有该值，不必再过一次写入口。
+                if prior != chat.sessionId {
+                    ChatDraftStore.shared.set(inputText, for: prior)
+                    // 立刻落盘：草稿写入有 0.4s 节流（见 ChatDraftStore.defaultCoalesceWindow），
+                    // 「切走之后马上被系统回收」不能等那 0.4s。
+                    ChatDraftStore.shared.flush()
+                    inputText = ChatDraftStore.shared.draft(for: chat.sessionId)
+                }
                 // v3.9.41（SR60）：切会话 ≠ 取消发送。原来这里走 clearPendingQueue()（内存 + 盘一起清），
                 // 于是「A 会话里排队、切去 B」= 无条件把 A 的待发吞掉，且盘上那份也一起没了。
                 // 现在只丢「刚离开的这个会话」的排队项；其余留在盘上，回到那个会话或下次启动再补发。
@@ -5262,6 +5313,9 @@ extension ChatView {
             // v3.7.0：回前台时重探一次（用户刚在地图里「拷贝」→ 切回轻聊即出现胶囊）
             .onChange(of: scenePhase) { _, phase in
                 if phase == .active { Task { await checkMapClipboard() } }
+                // v4.0.103 待做池 #5：离开前台就落草稿 —— 写盘做了 0.4s 节流，而进入后台
+                // 正是「系统随时可能回收本进程」的那一刻（inactive 也落：通知中心 / 来电横幅只到 inactive）。
+                else { ChatDraftStore.shared.flush() }
             }
             // v3.8.0：灵动岛 / 锁屏实时活动——AI 开始时亮起、结束时收起（本地驱动，侧载免费签名可用）
             // initial: true：冷启动时先结算一次（服务端还在回复的场景由 remoteBusy 探针随后触发 true）

@@ -32,6 +32,9 @@ enum UserDefaultsKey {
     // 这里只放键名；净化（坏值回出厂序 / 设置页永不可隐藏）都在那边，别在视图里另写判断。
     static let dockOrder  = "qingliao_dock_order"
     static let dockHidden = "qingliao_dock_hidden"
+    // v4.0.103 待做池 #5：聊天输入框草稿（sid -> 正文）。
+    // 真源与唯一写入口 = Core/ChatDraftStore.swift；视图里不许自己拼这个键名。
+    static let chatDrafts = "qingliao_chat_drafts"
 }
 
 // MARK: - 聊天消息（content 可能是纯文本或数组，手动解析最稳）
