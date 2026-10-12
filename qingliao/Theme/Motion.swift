@@ -29,6 +29,16 @@ enum Motion {
     /// 卡片 / 面板进入、列表插入
     static var settle: Animation { .snappy(duration: 0.30) }
 
+    /// 生活页卡片「点一下弹开」的展开 / 收起曲线（v4.0.100 用户 2026-10-12「点击弹开动画也再丝滑一点」）。
+    ///
+    /// 与通用 `settle` 的区别 = **更长 + 更无回弹**：卡片展开是「一整块内容从卡下长出来」，
+    /// settle（.snappy 0.30）那点加速度读作「顶一下」，拉到 0.38 的 .smooth 读作「丝滑地滑出来」。
+    /// ⚠️ **只给生活页四张卡（待办 / 习惯 / 记录 / 备忘）的展开 + 两处逐条错峰用**。
+    /// 别图省事把 `settle` 全局改慢 —— 它同时驱动聊天流式气泡生长（ChatMessageBubble 的
+    /// `.animation(Motion.settle, value: stream.displayContent)`），慢下来会让流式文字读作卡顿。
+    /// 两处语义本就不同（卡片弹开 vs 内容生长），所以是两个令牌，不是一处。
+    static var cardExpand: Animation { .smooth(duration: 0.38) }
+
     /// 大块浮现（弹窗、浮层、空态），带轻微回弹
     static var emerge: Animation { .bouncy(duration: 0.42, extraBounce: 0.08) }
 
@@ -50,10 +60,11 @@ enum Motion {
     /// v4.0.97：dock 切页**圆形扩散**入场（用户 2026-10-11：「dock 栏 tap 页切换采用圆形扩散转场特效：
     /// 点击底部 tap，新页面就从手指按下的位置向外扩散直到铺满整个屏幕」）—— 取代 v4.0.85 的
     /// 「横向滑入 + 渐显」（那套历轮为躲「闪 / 露白」一路压小到 ≈硬切；用户既点名要扩散，就整条换掉）。
-    /// 曲线取 .smooth(0.60)（v4.0.98 用户 2026-10-11「dock 栏切页的圆形扩散转场放慢一点」，原 0.42）：
-    /// 扩散要有「扫过去」的行程感 —— 过短 = 硬切，过长 = 拖沓。
+    /// 曲线取 .smooth(0.75)：0.42（v4.0.97 初版）→ 0.60（v4.0.98 用户「放慢一点」）
+    /// → **0.75（用户 2026-10-12「速度再放慢一点」）**。扩散要有「扫过去」的行程感 ——
+    /// 过短 = 硬切，过长 = 拖沓；再往上加（≥0.9）就该先问用户，别一路摊成慢动作。
     /// ⚠️ 曲线与半径的字面量同时钉在 check_swift.sh 的「回退⑯」组与 ql_themegrad ⑧c，改这里必须同步改那两处。
-    static var pageReveal: Animation { .smooth(duration: 0.60) }
+    static var pageReveal: Animation { .smooth(duration: 0.75) }
 
     /// 扩散圆的最大半径（pt）：必须 ≥「屏幕最远角到圆心」的距离（15 Pro Max 底部槽位 ≈ 874pt），
     /// 取 1200 兜住全部机型与横屏。**两处 modifier 共用同一个常量**，别各写一个字面量。

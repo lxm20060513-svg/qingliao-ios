@@ -2,7 +2,8 @@
 //
 // 口径（用户原话：「记录卡片也改为点击向下展开内部卡片」「记录卡片也改成 22 的圆角」
 //       后来追加「记录详情浮层里的行卡、月度统计卡一起改 22」）：
-//   · 点页卡 = **就地向下展开**（`withAnimation(Motion.settle) { recordExpanded.toggle() }`），
+//   · 点页卡 = **就地向下展开**（`withAnimation(Motion.cardExpand) { recordExpanded.toggle() }`，
+//     v4.0.100 起曲线由通用 settle 换成卡片专用的 cardExpand —— 用户「点击弹开动画再丝滑一点」），
 //     不再直接开全屏「全部记录」浮层；浮层入口不丢 —— 挪到展开态底部那行「全部记录」
 //     （`glass.showAll = true`，三层浮层互斥的收口一并保留）。
 //   · 展开态的内部行卡**复用「全部记录」浮层同一张 `RecordRowCard`**。谁在这里另写一套行样式，
@@ -71,8 +72,8 @@ check("⓪ root 切片收边正常", !rootSlice.isEmpty && rootSlice.count < 200
 // ── ① 点卡 = 就地向下展开（不再弹全屏浮层） ────────────────────────────────
 check("① 页卡存在展开态 @State（recordExpanded）",
       rsCode.contains("@State private var recordExpanded = false"))
-check("① 点卡 = 就地展开/收起（withAnimation(Motion.settle) + toggle）",
-      topCardSlice.contains("withAnimation(Motion.settle) { recordExpanded.toggle() }"))
+check("① 点卡 = 就地展开/收起（withAnimation(Motion.cardExpand) + toggle）",
+      topCardSlice.contains("withAnimation(Motion.cardExpand) { recordExpanded.toggle() }"))
 check("🚫 反向①：页卡按钮里不许再直接开「全部记录」浮层（点卡弹全屏 = 用户点名改掉的那一步）",
       !topCardSlice.contains("glass.showAll = true"))
 

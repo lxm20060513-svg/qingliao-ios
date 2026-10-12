@@ -618,6 +618,8 @@ struct MessageBubble: View {
             VStack(alignment: .leading, spacing: 6) {
                     ForEach(0..<contentBlocks.count, id: \.self) { i in
                         MessageBlockView(block: contentBlocks[i],
+                                        messageId: message.id,   // v4.0.100：动作卡回执写回这条消息
+                                        streamingHost: streamingText,   // v4.0.100：流式临时气泡没有归宿 → 动作卡不给可点胶囊
                                         onCopy: { UIPasteboard.general.string = displayContent; Haptics.success() },   // v3.9.30：复制触感
                                         onQuote: onQuote,
                                         onShare: onShare,
@@ -1108,6 +1110,8 @@ struct MessageBubble: View {
             let pb = Self.blocksCached(for: para, serverURL: serverURL, streaming: false)
             ForEach(0..<pb.count, id: \.self) { i in
                 MessageBlockView(block: pb[i],
+                                messageId: message.id,   // v4.0.100：动作卡回执写回这条消息
+                                streamingHost: streaming,   // v4.0.100：aiParagraphBubble 的 streaming = 本气泡是否还在流式中
                                 onCopy: { UIPasteboard.general.string = para; Haptics.success() },   // v3.9.30：复制触感
                                 onQuote: onQuote,
                                 onShare: onShare,

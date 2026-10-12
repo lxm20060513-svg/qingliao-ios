@@ -290,8 +290,15 @@ struct LifeNoteComposeSheet: View {
 // 两张卡展开后就会长得不一样 —— 而且不会报错，只有用户能看出「歪了」。
 // 所以提成非 private 的跨文件单一来源（同 LifeCapsule.swift 顶部那条规矩）。
 struct LifeCheckCircle: View {
+    /// 🚨 **唯一尺寸真源**（v4.0.100 用户 2026-10-12「待办清单的勾选圆再变小一点，其他卡片的
+    /// 勾选圆大小也一并对齐」）：v4.0.99 时是 24 / 26 / 18 三档混用（待办展开区 24、习惯行卡与
+    /// 两处详情大勾 26、目标步骤行 18）—— 同一枚圈在不同卡上肉眼可辨地不一样大，用户点名对齐。
+    /// 统一到 **20**（比原待办那档小一点，且 ≤ 原最大档）。**各处调用一律不传 `size`**，
+    /// 以后改尺寸只改这一个数；谁再在调用点写死 size，就是又开了第二处真源。
+    static let defaultSize: CGFloat = 20
+
     let done: Bool
-    var size: CGFloat = 24
+    var size: CGFloat = LifeCheckCircle.defaultSize
     /// 勾上之后的填充色（待办 = 绿、长期目标 = 主题色；底色/描边/勾号一律共用）
     var tint: Color = .green
 

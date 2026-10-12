@@ -1310,14 +1310,30 @@ echo "=== 90. 记录页卡真值表（v4.0.98 · 用户 2026-10-11：点卡就�
 # 与第 86 段（分类图标）同读 RecordSection.swift —— 改这张卡时两段一起看。
 run_unit /tmp/test_record_card scripts/ql_record/truth_table_record_card.swift
 
-echo "=== 91. 生活页四卡交互/视觉对齐真值表（v4.0.99 · 用户 2026-10-12 六条要求）==="
+echo "=== 91. 生活页四卡交互/视觉对齐真值表（v4.0.100 · 用户 2026-10-12 六条要求）==="
 # 钉：记录卡面不再画「最近 1 条」（全在展开条目里）；待办/长期目标栏目**不许再有栏目级环境光晕**
 #     （根因：那层 LinearGradient 从栏目最顶边铺 → 玻璃标题行半透，底色串到标题栏）；
 #     待办环 = 三重同心环（外绿/中紫/内橙，底色轨各用自色，外径仍 70、线宽 6）；
-#     目标环环心显示百分比（与习惯环逐字同口径）；习惯/长期目标点卡 = **就地展开**（不弹浮层，
-#     入口挪到展开区底部那行）；四处展开区 10/8 同值；勾选圈只有 LifeCheckCircle 一个出口。
+#     目标环环心显示百分比（与习惯环逐字同口径）；**长期目标点卡 = 直接开「全部目标」浮层（v4.0.100
+#     回到 v4.0.98 形态，卡下不再逐条弹出步骤）**；习惯点卡仍 = **就地展开**（入口在展开区底部那行）；
+#     三处展开区（待办/习惯/记录）10/8 同值；勾选圈只有 LifeCheckCircle 一个出口、尺寸只有
+#     `LifeCheckCircle.defaultSize` 一处真源（v4.0.100 由 24/26/18 三档统一到 20）；
+#     卡片弹开曲线走专用 `Motion.cardExpand`（不是把通用 settle 改慢 —— 那会拖累聊天流式生长）。
 #     这些都是静默错（点卡又弹浮层 / 底色轨退回灰 / 光晕加回来串色），不报错，只等用户下次吐槽。
 run_unit /tmp/test_life_align scripts/ql_life_align/truth_table_life_align.swift
+
+echo "=== 92. 动作卡执行回执真值表（v4.0.100 · 用户 2026-10-12「执行完的动作卡下次打开还是未执行」）==="
+# 钉：动作卡的执行态**必须落库**（ChatMessage.actionOutcomes，键 = AgentAction.stateKey）。
+#     原先只是视图级 @State phase → 重启/切会话/消息重建全丢：只读卡每次重进都重跑一遍，
+#     写/删卡的「执行」胶囊重新长出来 —— **用户再点一次就是第二个日程、第二个目标**（静默重复副作用，
+#     不报错，只等用户发现多了件事）。三条口径：成功落回执 / 失败**不落**（授权后要能重试）/
+#     撤销**抹掉**（撤销=这件事没有发生）。反例还钉了：回执不许进 historyPayload（模型上下文）
+#     也不许进 ChatMessage.id（进了每执行一次都换 id）。
+# ⚠️ 编进来的是**生产源码** AgentAction.swift（stateKey 真跑，不是镜像实现）；
+#    多文件时顶层代码必须收进 @main（同 5a 的坑）。
+run_unit6 /tmp/test_action_receipt \
+    qingliao/Core/AgentAction.swift scripts/shims/AppCapabilityShim.swift \
+    scripts/ql_action_receipt/truth_table_action_receipt.swift
 
 echo "=== 87. 备忘/待办图标真值表（v4.0.65 · 用户拍板「待办走 B / 备忘走 A」）==="
 # 钉：来源→颜色只有 SourceStyle 一个出口（另写一份 = 同一来源在待办页/备忘页长出两种色）；
@@ -1383,8 +1399,8 @@ cnt=$(grep -cF 'revealRadius = 0' "$DT"); [ "$cnt" -ge 2 ] \
   || { echo "❌ 回退⑯e：切页入场起点应为扩散半径归 0（两处 modifier 各一份，实得 $cnt）"; fail=1; }
 cnt=$(grep -cF 'static let pageRevealMaxRadius: CGFloat = 1200' qingliao/Theme/Motion.swift); [ "$cnt" -ge 1 ] \
   || { echo "❌ 回退⑯g：扩散圆最大半径应为 Motion.pageRevealMaxRadius = 1200（实得 $cnt）"; fail=1; }
-cnt=$(grep -cF 'static var pageReveal: Animation { .smooth(duration: 0.60) }' qingliao/Theme/Motion.swift); [ "$cnt" -ge 1 ] \
-  || { echo "❌ 回退⑯h：切页曲线令牌应为 Motion.pageReveal（.smooth 0.60，v4.0.98 用户要求放慢，实得 $cnt）"; fail=1; }
+cnt=$(grep -cF 'static var pageReveal: Animation { .smooth(duration: 0.75) }' qingliao/Theme/Motion.swift); [ "$cnt" -ge 1 ] \
+  || { echo "❌ 回退⑯h：切页曲线令牌应为 Motion.pageReveal（.smooth 0.75，v4.0.98→v4.0.100 用户两次要求放慢，实得 $cnt）"; fail=1; }
 ckNot "回退⑯a：旧 snap 起手（phase 从 0 开始，实测会闪）不许回来" 'withAnimation\(Motion\.snap\) \{ phase = 1 \}' "$DT"
 ckNot "回退⑯b：整页缩放入场（0.96 那套）不许回来" 'scaleEffect\(0\.96 \+ 0\.04 \* phase' "$DT"
 ckNot "回退⑯c：整页上浮（10pt 那条）不许回来" 'offset\(y: 10 \* \(1 - phase' "$DT"

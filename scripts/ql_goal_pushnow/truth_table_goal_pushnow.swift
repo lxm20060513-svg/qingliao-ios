@@ -219,23 +219,22 @@ ok(gsec.contains("Text(\"\\(a) 个进行中 · \\(f) 个已完成\")") || gsec.c
 // 🚨 Button 套 Button：卡片外层若还是 Button，点胶囊会变成打开详情
 ok(!gsec.contains("GoalRowCard(goal: top, compact: true)\n            .buttonStyle"),
    "#1 主卡不是 Button 包裹（否则胶囊点不动）")
-// v4.0.97（用户 2026-10-11「长期目标卡片也按这个效果来做」）：主卡换成**圆环卡**，
-// 点击由卡内并列的两个 Button 承接（上段 onTapCard 展开 / 下段勾步骤），不再走 onTapGesture + openCard。
-// 旧口径（onTapGesture 承接点击）随之作废；「卡内 Button 不许嵌套」这个老坑的断言（上一条）不变。
-// v4.0.99（用户 2026-10-12「长期目标卡片点击不弹窗，改成跟待办清单一样的卡片展开显示」）：
-// 口径**再翻转** —— 点卡回到**就地展开**（`onTapCard: toggleExpand`），
-// 「全部目标」浮层入口挪到展开区底部那行（`openAllGoals`）。v4.0.98 那条「点卡直接进浮层」作废。
-ok(gsec.contains("GoalProgressCard(") && gsec.contains("onTapCard: toggleExpand"),
-   "#1 主卡 = 圆环卡，点它就地下展开步骤（v4.0.99 翻转；浮层入口挪到展开区底部）")
-ok(gsec.contains("private func toggleExpand()")
-   && gsec.contains("withAnimation(Motion.settle) { expandedGoalID = (expandedGoalID == id) ? nil : id }"),
-   "#1 点卡 = 就地展开/收起（与待办卡 toggleExpand 同口径）")
-// v4.0.99 审查 P1：展开态必须绑**目标 id** —— 勾完主目标最后一步会让 activeGoals 重算、
-// mainList.first 换成下一条；只用一个 Bool 的话展开区会静默切到另一条目标的步骤上。
-ok(gsec.contains("@State private var expandedGoalID: String?")
-   && gsec.contains("if expandedGoalID == top.id {"),
-   "#1 展开态绑目标 id（主目标一换自动收起，不漂到另一条）")
-ok(gsec.contains("openAllGoals()"), "🚫 反向：浮层入口不许丢（挪到展开区底部那行，别顺手删了）")
+// v4.0.97（用户 2026-10-11「长期目标卡片也按这个效果来做」）：主卡换成**圆环卡**。
+// v4.0.99（2026-10-12）一度改成「点卡就地展开步骤」；
+// v4.0.100（用户 2026-10-12「长期目标卡片点击直接弹出全部目标里面的卡片，不再弹出步骤卡片」）：
+// 口径**再翻转回**点卡直接进「全部目标」浮层 —— v4.0.99 那套就地展开（toggleExpand /
+// expandedGoalID / goalExpandList）整条作废，本表断言随之反向（旧形态一冒头就判红）。
+// 「卡内 Button 不许嵌套」这个老坑的断言（上一条）不变。
+ok(gsec.contains("GoalProgressCard(") && gsec.contains("onTapCard: openAllGoals"),
+   "#1 主卡 = 圆环卡，点它**直接开「全部目标」浮层**（v4.0.100 回到 v4.0.98 形态）")
+ok(!gsec.contains("expandedGoalID") && !gsec.contains("toggleExpand")
+   && !gsec.contains("goalExpandList"),
+   "🚫 反向：卡下就地展开那套清零（v4.0.99 形态已被用户 2026-10-12 推翻）")
+ok(gsec.contains("private func openAllGoals()") && gsec.contains("glass.showAll = true"),
+   "#1 浮层入口仍是「点卡」（openAllGoals → glass.showAll = true），别顺手删了")
+ok(gsec.contains("onOpenDetail: { openDetailFromAll($0) }")
+   && gsec.contains("GoalsDetailSheet(item: g, onDismiss: { glass.detail = nil })"),
+   "#1 浮层里点一条目标仍能进详情 —— 步骤勾选入口没丢，只是换到浮层里")
 
 // ── ③ 后端侧接线 ────────────────────────────────────────────────
 print("── ②③④⑤ 后端接线 ──")

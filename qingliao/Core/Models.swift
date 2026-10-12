@@ -71,6 +71,14 @@ struct ChatMessage: Identifiable, Equatable, Sendable {
     ///   taken=true + 其它原因（*_stale_24h…） → 不是被取走而是过期清理（**不许报假回执**）
     /// ⚠️ 刻意**不落库**（不进 messagesPayload / asPayload）：一次性回执，重启后再查一遍即知，
     ///    落库只会让状态卡在旧快照上——真值在后端队列，不在这里。
+    /// v4.0.100：AI 动作卡（```ql-action）的**执行回执** —— 键 = `AgentAction.stateKey`，
+    /// 值 = 终态（卡上那句结果文案）。
+    /// 用户报「已经执行完的动作卡，下次打开还是显示未执行的状态」：原先执行态只是
+    /// AgentActionCard 的视图级 @State，任何一次重启 / 切会话 / 消息重建都会丢 ——
+    /// 写 / 删动作的「执行」胶囊重新长出来，**再点一次就建出第二个日程／第二个目标**。
+    /// 落库口径同 questionAnswer（messagesPayload 写 / parse 读回）；**不进 id 计算**
+    /// （回执不是消息身份的一部分，进 id 会让每次执行都当「新消息」→ 插入动画重播、行身份漂移）。
+    var actionOutcomes: [String: AgentActionOutcome]?
     var questionAcked: Bool = false      // AI 已取走答案 → 卡头「AI 已收到」
     var questionExpired: Bool = false    // 条目因过期被清理 → 卡头「卡片已过期」
     /// v4.0.42 待做池 ①：提问推荐「猜你想问」候选——挂在这条 assistant 消息上。
@@ -179,6 +187,16 @@ struct ChatMessage: Identifiable, Equatable, Sendable {
         msg.questionId = d["questionId"] as? String
         msg.questionOptions = d["questionOptions"] as? [String]
         msg.questionAnswer = d["questionAnswer"] as? String
+        // v4.0.100：读回动作卡执行回执（重启 / 切会话后执行过的卡不再回落成「未执行」）。
+        // 容错：形状不对 / 文案为空一律当没执行过 —— 宁可让用户重跑一次，也别画一张说不出结果的卡。
+        if let raw = d["actionOutcomes"] as? [String: [String: Any]] {
+            var ao: [String: AgentActionOutcome] = [:]
+            for (k, v) in raw {
+                guard let m = v["message"] as? String, !m.isEmpty else { continue }
+                ao[k] = AgentActionOutcome(failed: v["failed"] as? Bool ?? false, message: m)
+            }
+            msg.actionOutcomes = ao.isEmpty ? nil : ao
+        }
         // v4.0.42：候选**刻意不落库**（messagesPayload 不写 suggestions）——
         // 它是一次性引导，重启/重进会话后重新生成即可；落库会让整会话 payload 变大，
         // 且「换一批」后的旧候选会被当成历史内容长期留存。

@@ -11,13 +11,32 @@ import SwiftUI
 //   ① 执行中禁用重复点击（用户狂点会建出三个事件 —— 这真会发生）
 //   ② 失败必须出声：写/删失败红字+震动；**只读失败不震动**（多半是"没授权"，读数据时突然震很惊悚）
 //   ③ 状态**就地回填同一张卡**，不另起消息（否则动作卡会把聊天流刷屏）
+//   ④ v4.0.100：终态**必须落库**（`ChatMessage.actionOutcomes`，键 = `AgentAction.stateKey`）。
+//      用户报「已经执行完的动作卡，下次打开还是显示未执行的状态」—— 原先 phase 只是视图级 @State，
+//      重启 / 切会话 / 消息重建全丢，写删动作的「执行」胶囊重新长出来，再点一次就是第二个日程。
+//      两条配套口径（v4.0.100 审查补的，别再翻）：
+//        · **只读卡不落回执** —— 回执 =「副作用已经发生过了」的凭证，只读卡没有副作用；
+//          而它的结果常带时效（「今天 14:00 有空」），冻住会让隔天翻到还写着「今天」。
+//        · **流式临时气泡里的卡不给可点胶囊** —— 那条消息不在 `store.messages` 里，回执无处可落，
+//          点下去静默失败、落地后胶囊重生（同一个 bug 的流式版本）。
 
 struct AgentActionCard: View {
     let action: AgentAction
+    /// v4.0.100：回执落点 —— 这张卡所属消息的 id（读写 `ChatStore.actionOutcomes`）。
+    /// 空串 = 无宿主（预览 / 单测渲染），行为退化成改动前：状态只在内存里。
+    var messageId: String = ""
+    /// v4.0.100：这张卡渲染在**流式临时气泡**里（每帧新建的 ChatMessage，不在 `store.messages` 里）。
+    /// 它没有「归宿」——回执要写回的那条消息根本不存在，于是流式期间点「执行」= 回执静默写不进 →
+    /// 回复落地后卡片重建、「执行」胶囊重生 → 用户再点一次就是第二个日程（正是本批要根治的那条报障）。
+    /// 故流式期间**不给可点胶囊、也不自动跑**，等这条回复真正落库后卡片再按正常路径执行。
+    var streamingHost = false
 
     /// 登录态：`mail.send` 这类「必须走后端」的动作要它。根视图已 `.environment(auth)` 全树注入
     /// （同 ChatView / IntentActionBar 的取法），别再往卡片里显式传参。
     @Environment(AuthStore.self) private var auth
+    /// v4.0.100：执行回执的**真源在会话里**，不在卡片自己的生命周期里。
+    /// 视图级 @State 一重启就没了 —— 那正是用户报的「执行完了下次打开还是未执行」。
+    @Environment(ChatStore.self) private var store
 
     private enum Phase: Equatable {
         case idle
@@ -47,6 +66,19 @@ struct AgentActionCard: View {
         .padding(Spacing.lg)
         .glassListCard()
         .task {
+            // v4.0.100：流式临时气泡里的卡一律不动作 —— 回执无处可落（见 streamingHost）。
+            // 不认回执、不自动跑，等回复落库后卡片重建再走正常路径。
+            guard !streamingHost else { return }
+            if let o = storedOutcome {
+                applyStored(o)
+                return
+            }
+            // v4.0.100：**先认回执再决定跑不跑**。
+            //   ① 认到了 → 直接回到终态：执行过的卡不再回落成「未执行」。
+            //   ② 没认到 → 老行为（只读自动跑）。
+            // 只读卡不落回执（见 persist）→ 它们每次重进会话照旧重跑一次，结果永远新鲜；
+            // 这条回执管的是**有副作用**的动作：别让它重生出可点胶囊、再点一次就是第二个日程。
+            // ⚠️ 顺序不能反：反了就会「先跑一遍再把结果盖掉」——写/删卡更糟，胶囊已经重新长出来了。
             if autoRuns { await execute() }
         }
         .task(id: undoDeadline) {
@@ -131,6 +163,9 @@ struct AgentActionCard: View {
     @ViewBuilder
     private var controls: some View {
         switch phase {
+        case .idle where streamingHost:
+            // v4.0.100：流式期间不给可点胶囊（回执写不进 = 落地后胶囊重生、再点就是第二个日程）
+            Text("回复生成中…").font(.system(size: Typography.caption)).foregroundStyle(.secondary)
         case .idle where autoRuns:
             ProgressView().controlSize(.small)     // .task 正在自动跑
         case .idle:
@@ -162,6 +197,9 @@ struct AgentActionCard: View {
                         await u()
                         undo = nil; undoDeadline = nil
                         phase = .done("已撤销")
+                        // v4.0.100：撤销 = 这件事**没有发生** → 回执抹掉。
+                        // 留着会被一条「已执行」冻住，而用户按撤销往往正是想重来一次。
+                        forgetOutcome()
                         Haptics.success()
                     }
                 } label: {
@@ -223,12 +261,51 @@ struct AgentActionCard: View {
             undo = u
             undoDeadline = u == nil ? nil : Date().addingTimeInterval(5)
             phase = .done(msg)
+            persist(msg)
         case .doneNoUndo(let msg):
             if loud { Haptics.success() }
             phase = .done(msg)
+            persist(msg)
         case .failed(let msg):
             if loud { Haptics.error() }
             phase = .failed(msg)
+            // **失败刻意不落回执**：失败 = 「这次没成」，不是「这件事做过了」。
+            // 冻住会让用户去系统里授权之后再回来，卡片变成一具点不动的尸体。
+            // 重进会话回到「未执行」= 天然的重试入口，正是我们要的。
         }
+    }
+
+    // MARK: v4.0.100 回执读写
+
+    /// 本卡已落库的回执（nil = 从未成功执行过）
+    private var storedOutcome: AgentActionOutcome? {
+        guard !messageId.isEmpty else { return nil }
+        return store.actionOutcome(messageId: messageId, key: action.stateKey)
+    }
+
+    /// 把回执还原成卡上的终态
+    private func applyStored(_ o: AgentActionOutcome) {
+        phase = o.failed ? .failed(o.message) : .done(o.message)
+    }
+
+    /// 成功终态落库。**先同步写内存再落盘**：写回执会 bump messageRev 触发页面重建，
+    /// 万一重建让这张卡重新走一遍 .task，此刻回执必须已经在 store 里了，
+    /// 否则卡片会闪回「未执行」（甚至对只读卡再跑一次）。
+    private func persist(_ msg: String) {
+        guard !messageId.isEmpty else { return }
+        // v4.0.100：**只读卡不落回执**。回执的语义是「这次副作用已经发生过了」——
+        // 只读卡没有副作用，不需要凭证；而它的结果文案常带时效（「今天 14:00 有空」），
+        // 冻住会让隔天再翻到这条消息时卡上还写着「今天」。只读卡保持每次重跑，结果永远新鲜。
+        guard !autoRuns else { return }
+        let o = AgentActionOutcome(failed: false, message: msg)
+        guard store.markActionOutcome(messageId: messageId, key: action.stateKey, outcome: o) else { return }
+        Task { await store.saveToServer(auth: auth) }
+    }
+
+    /// 撤销 → 抹掉回执（并落库，否则本地抹了、后端那份重启又回来）
+    private func forgetOutcome() {
+        guard !messageId.isEmpty else { return }
+        guard store.clearActionOutcome(messageId: messageId, key: action.stateKey) else { return }
+        Task { await store.saveToServer(auth: auth) }
     }
 }

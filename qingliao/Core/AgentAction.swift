@@ -154,6 +154,25 @@ struct AgentAction: Equatable, Sendable {
         return (v?.isEmpty ?? true) ? nil : v
     }
 
+    /// v4.0.100：这张卡在会话里的**稳定身份** —— 落库回执（`ChatMessage.actionOutcomes`）的键。
+    ///
+    /// 取「动作名 + 参数」，**刻意不含 summary**：summary 只是给用户看的提议文案，
+    /// AI 换个措辞（甚至只改了标点）不该让回执失配、把卡片打回「未执行」。
+    /// 参数按 key 排序后再拼 → 后端换一次序列化顺序也算同一个动作（JSON 键序本就不保证）。
+    /// 纯确定性哈希，不引 String.hashValue（后者带进程随机种子，跨启动会漂 —— 同 ChatMessage.id 的教训）。
+    var stateKey: String {
+        // v4.0.100：**长度前缀编码**（`4:title4:开会`），不用 `k=v&` 拼接 ——
+        // 值里含 `=` / `&` 时不同参数集能拼成同一串（{"a":"b&c=d"} 与 {"a":"b","c":"d"}），
+        // 哈希后同键 → 一张卡的回执挂到另一张卡上。键序已排序，无需靠分隔符定界。
+        let body = kind.rawValue + "|" + params.keys.sorted().map { k -> String in
+            let v = params[k] ?? ""
+            return "\(k.utf8.count):\(k)\(v.utf8.count):\(v)"
+        }.joined()
+        var h: UInt64 = 5381
+        for b in body.utf8 { h = h &* 33 &+ UInt64(b) }
+        return kind.rawValue + "#" + String(h, radix: 16)
+    }
+
     /// ISO8601 解析。**不接受本地化日期串**（"明天 3 点" 这类靠后端解析成 ISO 传来，
     /// App 端不再猜 —— 猜时区是最容易出错的地方）。
     static func isoDate(_ raw: String) -> Date? {
@@ -186,6 +205,27 @@ struct AgentAction: Equatable, Sendable {
         }
         return AgentAction(kind: kind, params: params, summary: obj["summary"] as? String)
     }
+}
+
+// MARK: - v4.0.100 执行回执（落库形态）
+
+/// 动作卡**执行回执**。用户报「已经执行完的动作卡，下次打开还是显示未执行的状态」。
+///
+/// 原先执行态只是 `AgentActionCard` 的视图级 `@State phase` —— 重启 / 切会话 / 消息重建全丢，
+/// 于是写 / 删动作的「执行」胶囊会重新长出来，**用户再点一次就建出第二个日程、第二个目标**
+/// （重复副作用；AgentActionCard 文件头那句「用户狂点会建出三个事件 —— 这真会发生」）。
+/// 现在随 `ChatMessage.actionOutcomes` 落库（键 = `AgentAction.stateKey`），重启后仍认得出。
+///
+/// 只有**成功**才落回执（见 AgentActionCard.persist 的三条口径）：
+/// 失败 = 「这次没成」不是「这件事做过了」—— 冻住会让用户授权后再也点不动；
+/// 撤销 = 「这件事没有发生」—— 回执要**抹掉**，否则重启后被一条「已执行」冻住。
+///
+/// 撤销闭包（那 5 秒）**刻意不落库**：它是本会话内的时间窗，重启后重放一个 undo 反而危险。
+struct AgentActionOutcome: Equatable, Sendable {
+    /// 失败标记（回执只存成功态，这个字段留给将来；当前恒为 false）
+    var failed: Bool
+    /// 卡上那句结果文案（与执行后 `phase` 的文案逐字一致）
+    var message: String
 }
 
 // MARK: - 围栏解析

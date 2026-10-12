@@ -49,7 +49,8 @@ struct HabitSection: View {
     /// v4.0.99（用户 2026-10-12「习惯卡片点击不弹窗，改成跟待办清单一样的卡片展开显示」）：
     /// 页卡点开 = **就地向下展开全部习惯行卡**（点行 = 打卡），不再开「全部习惯」浮层。
     /// 浮层入口不丢 —— 挪到展开区底部那行「全部习惯」（`glass.showAll = true`）。
-    /// 与待办 / 长期目标两张卡同一套交互（`todoExpanded` / `expandedGoalID` 逐条同构）。
+    /// 与待办卡同一套交互（`todoExpanded` 同构）；**长期目标卡 v4.0.100 已改为点卡直接开浮层**，
+    /// 不再与习惯同构 —— 别拿习惯去「对齐」目标（这一处分叉是用户 2026-10-12 点名要的）。
     @State private var habitExpanded = false
 
     var body: some View {
@@ -162,9 +163,10 @@ struct HabitSection: View {
         }
     }
 
-    /// 点页卡：展开 / 收起 —— 逐条错峰弹出见 habitExpandList（与待办 / 目标卡同口径）
+    /// 点页卡：展开 / 收起 —— 逐条错峰弹出见 habitExpandList（与待办卡同口径）
+    /// v4.0.100：曲线 `settle` → `cardExpand`（用户「点击弹开动画再丝滑一点」）。
     private func toggleExpand() {
-        withAnimation(Motion.settle) { habitExpanded.toggle() }
+        withAnimation(Motion.cardExpand) { habitExpanded.toggle() }
         Haptics.tap()
     }
 
@@ -192,7 +194,7 @@ struct HabitSection: View {
                     insertion: .offset(y: -14).combined(with: .opacity)
                         .combined(with: .scale(scale: 0.97, anchor: .top)),
                     removal: .opacity
-                ).animation(Motion.settle.delay(Double(idx) * 0.055)))
+                ).animation(Motion.cardExpand.delay(Double(idx) * 0.055)))
             }
 
             // 只有一条时「全部习惯」是多余的一跳（展开区里已经把它画全了）→ 不显示这行。
@@ -571,7 +573,8 @@ struct HabitRowCard: View {
     /// v4.0.99（用户 2026-10-12「app 整体做视觉对齐」）：勾选圈统一走跨文件单一来源
     /// `LifeCheckCircle`（与待办 / 长期目标展开区同一枚），不再各画各的 SF Symbol。
     private func mark(_ done: Bool) -> some View {
-        LifeCheckCircle(done: done, size: 26, tint: .green)
+        // v4.0.100：不传 size —— 尺寸真源收在 LifeCheckCircle.defaultSize（20）。
+        LifeCheckCircle(done: done, tint: .green)
             .contentShape(Rectangle())
     }
 
@@ -762,9 +765,9 @@ private struct HabitDetailSheet: View {
                             refreshCurrent()
                         } label: {
                             HStack(alignment: .top, spacing: 12) {
-                                // v4.0.99（用户 2026-10-12「app 整体做视觉对齐」）：与 HabitRowCard
-                                // 的勾选圈同一枚（26pt 档），不再自绘 SF Symbol。
-                                LifeCheckCircle(done: store.isDone(current, on: today), size: 26, tint: .green)
+                                // v4.0.99：与 HabitRowCard 的勾选圈同一枚，不再自绘 SF Symbol。
+                                // v4.0.100：不传 size —— 尺寸真源收在 LifeCheckCircle.defaultSize（20）。
+                                LifeCheckCircle(done: store.isDone(current, on: today), tint: .green)
                                 VStack(alignment: .leading, spacing: 10) {
                                     Text(current.title)
                                         .font(.system(size: Typography.headline))

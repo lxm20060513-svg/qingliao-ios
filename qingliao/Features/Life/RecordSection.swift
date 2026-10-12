@@ -123,7 +123,8 @@ struct RecordSection: View {
             // v4.0.98（用户 2026-10-11「记录卡片也改为点击向下展开内部卡片」）：点卡＝**就地向下展开**
             // 内部行卡（对标备忘录叠卡），不再直接开全屏「全部记录」浮层；
             // 浮层入口不丢 —— 展开态底部那行「全部记录」仍走原来那套（含三层浮层互斥的收口）。
-            withAnimation(Motion.settle) { recordExpanded.toggle() }
+            // v4.0.100：曲线 `settle` → `cardExpand`（用户「点击弹开动画再丝滑一点」）。
+            withAnimation(Motion.cardExpand) { recordExpanded.toggle() }
         } label: {
             VStack(alignment: .leading, spacing: Spacing.md) {
                 // v4.0.84 方案 B③：金额从「与标签同排的 17pt」提成「独立一行 24pt 数字 + 小字单位」。

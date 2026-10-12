@@ -192,8 +192,9 @@ struct TodoSection: View {
     }
 
     /// 点圆环卡（勾选行以外）：展开 / 收起 —— 逐条错峰弹出见 TodoExpandList
+    /// v4.0.100：曲线 `settle` → `cardExpand`（用户「点击弹开动画再丝滑一点」）。
     private func toggleExpand() {
-        withAnimation(Motion.settle) { todoExpanded.toggle() }
+        withAnimation(Motion.cardExpand) { todoExpanded.toggle() }
         Haptics.tap()
     }
 
@@ -528,9 +529,9 @@ struct TodoDetailSheet: View {
                             Haptics.success()
                         } label: {
                             HStack(alignment: .top, spacing: 12) {
-                                // v4.0.99（用户 2026-10-12「app 整体做视觉对齐」）：与展开区/习惯行卡
-                                // 同一枚勾选圈（26pt 档），不再自绘 SF Symbol。
-                                LifeCheckCircle(done: current.done, size: 26, tint: .green)
+                                // v4.0.99：与展开区/习惯行卡同一枚勾选圈，不再自绘 SF Symbol。
+                                // v4.0.100：**不传 size** —— 尺寸真源收在 LifeCheckCircle.defaultSize（20）。
+                                LifeCheckCircle(done: current.done, tint: .green)
                                 VStack(alignment: .leading, spacing: 10) {
                                     Text(current.content)
                                         .font(.system(size: Typography.headline))
@@ -733,10 +734,10 @@ private struct TodoProgressRing: View {
 /// 两处尺寸/描边/勾号不会再各走各的。名字保留，调用点不动。
 private struct TodoCheckBox: View {
     let done: Bool
-    var size: CGFloat = 24
 
     var body: some View {
-        LifeCheckCircle(done: done, size: size, tint: .green)
+        // v4.0.100：尺寸不再从这里透传 —— 唯一真源 LifeCheckCircle.defaultSize（20）。
+        LifeCheckCircle(done: done, tint: .green)
     }
 }
 
@@ -837,7 +838,7 @@ private struct TodoExpandList: View {
                     insertion: .offset(y: -14).combined(with: .opacity)
                         .combined(with: .scale(scale: 0.97, anchor: .top)),
                     removal: .opacity
-                ).animation(Motion.settle.delay(Double(idx) * 0.055)))
+                ).animation(Motion.cardExpand.delay(Double(idx) * 0.055)))
             }
 
             // v4.0.97：原来的「清理已完成 / 清空」在「全部待办」浮层里，浮层入口撤掉后挪到这

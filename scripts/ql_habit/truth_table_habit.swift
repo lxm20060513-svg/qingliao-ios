@@ -344,8 +344,8 @@ enum HabitTruthTable {
         check("源级：页卡有就地展开态 @State（habitExpanded）",
               sectionCode.contains("@State private var habitExpanded = false"))
         positives += 1
-        check("源级：点卡 = 就地展开/收起（withAnimation(Motion.settle) + toggle + 展开区挂在卡下）",
-              sectionCode.contains("withAnimation(Motion.settle) { habitExpanded.toggle() }")
+        check("源级：点卡 = 就地展开/收起（withAnimation(Motion.cardExpand) + toggle + 展开区挂在卡下）",
+              sectionCode.contains("withAnimation(Motion.cardExpand) { habitExpanded.toggle() }")
               && sectionCode.contains("if habitExpanded {"))
         negatives += 1
         check("源级：点卡不再走裸 onTapGesture / 直接开浮层（openTop 口径已退役）",

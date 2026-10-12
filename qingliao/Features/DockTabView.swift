@@ -682,7 +682,7 @@ struct RevealCircleShape: Shape {
 // v4.0.97（用户 2026-10-11：「dock 栏 tap 页切换采用圆形扩散转场特效：点击底部 tap，
 // 新页面就从手指按下的位置向外扩散直到铺满整个屏幕」）：切页入场 = **圆形扩散** ——
 // 新页用一个半径可动画的裁剪形状 `RevealCircleShape` 从点击槽位向外铺开，半径 0 →
-// Motion.pageRevealMaxRadius(1200)，曲线 Motion.pageReveal(.smooth 0.60，v4.0.98 放慢)。
+// Motion.pageRevealMaxRadius(1200)，曲线 Motion.pageReveal(.smooth 0.75，0.42 → 0.60 → 0.75 逐轮放慢)。
 // 圆心 = 被点那一档 dock 槽位的中心（x 取系统 tab bar 里那个按钮的真实中心，读不到按槽位等分估算；
 // y 取 tab bar 几何中线）—— 与球心 / 烟花同属一套 dock 几何（DockOrbOverlay）。
 //

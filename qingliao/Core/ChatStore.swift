@@ -477,6 +477,48 @@ final class ChatStore {
         }
     }
 
+    // MARK: v4.0.100 动作卡执行回执（用户报「执行完的动作卡下次打开还是未执行」）
+
+    /// 读某张动作卡的回执（nil = 从未成功执行过 → 卡上是「未执行」）。
+    /// 键用 `AgentAction.stateKey`：同一段 AI 文本重复解析必然得到同一个键，
+    /// 于是重启 / 切会话 / 流式重渲染都挂得住。
+    func actionOutcome(messageId: String, key: String) -> AgentActionOutcome? {
+        guard let m = messages.first(where: { $0.id == messageId }) else { return nil }
+        return m.actionOutcomes?[key]
+    }
+
+    /// 动作卡**执行成功** → 就地写回执。幂等（同值不重复重建）。
+    /// 只改内存，落库交给调用方 `saveToServer` —— 与 markQuestionAnswered 同一节奏，
+    /// 避免在这里偷偷起一个 async 落库任务与会话保存链打架。
+    /// - Returns: 这条消息在 store 里、且现在持有该回执（**同值也算 true**）；
+    ///   `false` 只表示「消息不在 store」（流式临时气泡）。
+    @discardableResult
+    func markActionOutcome(messageId: String, key: String, outcome: AgentActionOutcome) -> Bool {
+        guard let i = messages.firstIndex(where: { $0.id == messageId }) else { return false }
+        var ao = messages[i].actionOutcomes ?? [:]
+        // v4.0.100：同值也返回 true —— 调用方（AgentActionCard.persist）把它读作
+        // 「有归宿、可以落库」，而不是「不用落库」。false 的语义收窄成「消息不在 store」。
+        // 否则首次 saveToServer 失败/被防抖吃掉时：内存里写着回执、后端什么都没有，
+        // 之后再无补写机会 → 重启后胶囊回来，用户再点就是第二个日程。
+        guard ao[key] != outcome else { return true }
+        ao[key] = outcome
+        messages[i].actionOutcomes = ao
+        messageRev &+= 1                  // v4.0.71：就地改字段（count 不变）→ 喊聊天页重建
+        return true
+    }
+
+    /// 动作卡**被撤销** → 把回执抹掉。撤销的语义是「这件事没有发生」：
+    /// 回执留着会在重启后被一条「已执行」冻住，而用户按撤销往往正是想重来一次。
+    @discardableResult
+    func clearActionOutcome(messageId: String, key: String) -> Bool {
+        guard let i = messages.firstIndex(where: { $0.id == messageId }),
+              var ao = messages[i].actionOutcomes, ao[key] != nil else { return false }
+        ao.removeValue(forKey: key)
+        messages[i].actionOutcomes = ao.isEmpty ? nil : ao
+        messageRev &+= 1
+        return true
+    }
+
     /// v3.9.110：把会话里某条问题卡就地标记为已答（卡片切「已回答」态 + 显示答案留痕）。
     /// 只改内存，落库交给调用方（InboxStore 随后 saveToServer）——与注入路径同一节奏，
     /// 避免在这里偷偷起一个 async 落库任务与会话保存链打架。
@@ -1164,6 +1206,11 @@ final class ChatStore {
                 p["questionId"] = q
                 if let o = m.questionOptions, !o.isEmpty { p["questionOptions"] = o }
                 if let a = m.questionAnswer, !a.isEmpty { p["questionAnswer"] = a }
+            }
+            // v4.0.100：动作卡执行回执落库——**不落库就等于没做**：重启/切会话后写、删动作的
+            // 「执行」胶囊会重新长出来，用户再点一次就是第二个日程／第二个目标（重复副作用）。
+            if let ao = m.actionOutcomes, !ao.isEmpty {
+                p["actionOutcomes"] = ao.mapValues { ["failed": $0.failed, "message": $0.message] }
             }
             // v3.4.x：持久化引用原文（重启/切会话后气泡仍渲染）
             if let q = m.quotedText, !q.isEmpty { p["quotedText"] = q }

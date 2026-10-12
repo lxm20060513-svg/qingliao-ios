@@ -161,9 +161,10 @@ struct MemoSection: View {
     }
 
     /// 点叠卡：展开 / 叠回 —— 「层层打开」由 MemoStackCard 自己把每一层的 offset 拉开（同一 ZStack
-    /// 只改步距，天然是层层展开而不是「长出一个列表」）；曲线与触感同待办卡（Motion.settle + tap）。
+    /// 只改步距，天然是层层展开而不是「长出一个列表」）；曲线与触感同待办卡
+    /// （v4.0.100 起 = Motion.cardExpand + tap，四张生活卡同一档）。
     private func toggleExpand() {
-        withAnimation(Motion.settle) { memoExpanded.toggle() }
+        withAnimation(Motion.cardExpand) { memoExpanded.toggle() }
         Haptics.tap()
     }
 
@@ -677,7 +678,7 @@ private struct MemoStackCard: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .animation(Motion.settle, value: expanded)
+        .animation(Motion.cardExpand, value: expanded)
     }
 
     @ViewBuilder

@@ -35,6 +35,12 @@ struct MessageContentBlock: Identifiable {
 ///           点选后文字从手按位置选中、出现原生拖动手柄可自由拖动；代码块/表格保留 SwiftUI 菜单。
 struct MessageBlockView: View {
     let block: MessageContentBlock
+    /// v4.0.100：所属消息 id —— 动作卡的执行回执要写回**这条消息**（`ChatStore.actionOutcomes`）。
+    /// 空串 = 无宿主（不该发生；渲染动作卡的两条路径都传了）。
+    var messageId: String = ""
+    /// v4.0.100：这条消息还只是**流式临时气泡**（每帧新建、不在 `store.messages` 里）→ 动作卡没有归宿。
+    /// 透传给 `AgentActionCard`：流式期间不给可点胶囊（回执写不进 = 落地后胶囊重生、再点就是第二个日程）。
+    var streamingHost = false
     // v2.0.38：聊天字体大小（与 MessageBubble 同源）
     @AppStorage("qingliao_font_size") private var fontSize = 15.0   // v2.0.87r：默认15号
     // v2.0.128：AI 输出行高（设置页滑条控制，0-6；默认 1.0 紧凑）
@@ -392,7 +398,7 @@ struct MessageBlockView: View {
             // v3.9.95：AI 本地动作卡（```ql-action 围栏）
             // 刻意**不给** contextMenu：动作卡上的长按菜单会出现"复制 JSON"这类无意义项，
             // 且用户可能从菜单误以为能撤销 —— 撤销只走卡片上那个 5 秒胶囊。
-            AgentActionCard(action: action)
+            AgentActionCard(action: action, messageId: messageId, streamingHost: streamingHost)
         }
     }
 }
