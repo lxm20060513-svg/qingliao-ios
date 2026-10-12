@@ -119,8 +119,11 @@ for k in ["imap_host", "imap_port", "imap_security", "smtp_host", "smtp_port",
 }
 
 // ── 4. 可移除 + 可新增：三条路径都在 ────────────────────────────
+// v4.0.102：二次确认从 confirmationDialog 改为**锚定浮层**（锚在被滑那一行；系统动作表在 iPhone 上
+// 固定从屏幕底部升起，锚不到行）→ 断言跟着改成「swipeActions + AnchorMenuOverlay + 行上报 frame」。
 check("列表提供删除（swipeActions + 二次确认）",
-      mailCode.contains("swipeActions(edge: .trailing)") && mailCode.contains("confirmationDialog"))
+      mailCode.contains("swipeActions(edge: .trailing)") && mailCode.contains("AnchorMenuOverlay(")
+      && mailCode.contains("mailRowFrames[a.email] = rect"))
 check("删除动作调 DELETE", mailCode.contains("method: \"DELETE\""))
 check("列表提供新增（右上角 + 按钮）",
       mailCode.contains("Button { editTarget = .add } label: { Image(systemName: \"plus\") }")

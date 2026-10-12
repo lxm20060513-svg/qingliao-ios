@@ -142,6 +142,8 @@ struct ClashSheet: View {
     // v3.9.41（SR36）：关闭 Clash 是「root SSH 进路由器 kill 进程」级别的动作，原先一点即发
     // （RouterPanel 全文一个 confirmationDialog 都没有）→ 手滑就把全家代理断了。改成先确认。
     @State private var confirmStop = false
+    /// v4.0.102：锚定浮层的锚点帧（「关闭 Clash」按钮的全局 frame）。单触发点 → 单变量即可。
+    @State private var stopAnchor: CGRect = .zero
 
     var body: some View {
         VStack(spacing: 14) {
@@ -210,20 +212,36 @@ struct ClashSheet: View {
                 }
                 .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
                 .disabled(busy)
+                // v4.0.102：报帧给宿主（浮层锚在这颗「关闭 Clash」按钮上）
+                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { stopAnchor = $0 }
             }
             Spacer()
         }
         .padding(18)
         .padding(.top, Spacing.sm)
-        // SR36：关闭 Clash 的二次确认（弹窗只有 240pt，动作面板浮在表面上不影响布局）
-        .confirmationDialog("关闭 Clash 代理？", isPresented: $confirmStop, titleVisibility: .visible) {
-            Button("关闭 Clash", role: .destructive) {
-                dismiss()
-                Task { try? await Task.sleep(for: .seconds(0.3)); onStop() }
-            }
-            Button("取消", role: .cancel) { }
-        } message: {
-            Text("后端会 SSH 进路由器停掉 Clash 进程，所有走代理的流量立刻回到直连。")
+        // v4.0.102（用户 2026-10-12「方案 2：全改」）：关闭 Clash 确认 → 锚定浮层。
+        // 原系统 confirmationDialog 在 iPhone 上固定从屏幕底部升起、锚不到「关闭 Clash」这颗按钮。
+        // 与本仓其它 sheet 同口径：浮层抽成独立属性 + AnyView 包裹（不把浮层类型并进 body 类型栈）。
+        // onPick 沿用既有形态：**先清状态、再判 item.id**（「取消」也走 onPick，靠已清状态收场）。
+        .overlay { AnyView(stopConfirmOverlay) }
+    }
+
+    @ViewBuilder
+    private var stopConfirmOverlay: some View {
+        if confirmStop {
+            AnchorMenuOverlay(anchorFrame: stopAnchor,
+                              items: [AnchorMenuItem(id: "stop", title: "关闭 Clash", icon: "stop.fill", color: .red, destructive: true),
+                                      AnchorMenuItem(id: "cancel", title: "取消")],
+                              title: "关闭 Clash 代理？",
+                              message: "后端会 SSH 进路由器停掉 Clash 进程，所有走代理的流量立刻回到直连。",
+                              onPick: { item in
+                                  confirmStop = false
+                                  if item.id == "stop" {
+                                      dismiss()
+                                      Task { try? await Task.sleep(for: .seconds(0.3)); onStop() }
+                                  }
+                              },
+                              onClose: { confirmStop = false })
         }
     }
 }

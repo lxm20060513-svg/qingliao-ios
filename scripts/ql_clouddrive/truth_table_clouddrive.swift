@@ -143,7 +143,8 @@ check("空地址/空授权码不允许提交（canSave）",
 
 // ── 6. 可解绑 + 可新增：三条路径都在 ───────────────────────────
 check("列表提供解绑（swipeActions + 二次确认）",
-      setCode.contains("swipeActions(edge: .trailing)") && setCode.contains("confirmationDialog"))
+      setCode.contains("swipeActions(edge: .trailing)") && setCode.contains("AnchorMenuOverlay(")
+      && setCode.contains("driveRowFrames[d.id] = rect"))
 check("解绑文案说清是解绑不是删文件", setCode.contains("解绑网盘？"))
 check("列表提供新增（右上角 + 与底部按钮两处）",
       setCode.contains("Button { showAdd = true } label: { Image(systemName: \"plus\") }")

@@ -275,7 +275,12 @@ if let f = try? String(contentsOfFile: repo + "/qingliao/Features/Settings/Setti
         let body: String = { if let e = idx(b0, "\n    }") { return String(b0.prefix(e)) }; return b0 }()
         let top8 = body.split(separator: "\n").map(String.init).filter { $0.hasPrefix("        .") }
         // v4.0.67：允许环境渐变页底 EnvironmentGlowLayers（纯视觉层 background，同属下沉口径）
-        let bad = top8.filter { !$0.contains(".background(settingsCold") && !$0.contains(".background(EnvironmentGlowLayers") }
+        // v4.0.102：再放行一条 —— 退出登录的**锚定确认浮层**（`.overlay { AnyView(…) }`）。
+        // 只认「内容已被 AnyView 切断内联」的形态；裸写 `.overlay { …浮层… }` 仍判红（那才真把类型内联进 body）。
+        let bad = top8.filter {
+            !$0.contains(".background(settingsCold") && !$0.contains(".background(EnvironmentGlowLayers")
+            && !$0.contains(".overlay { AnyView(")
+        }
         ok(bad.isEmpty, "③⁗ 负断言：设置页 body 顶层非 background 链 \(bad.count) 条（应 0，回退 = 深度回升到 200 层）")
         _ = top8
     }

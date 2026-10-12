@@ -454,8 +454,17 @@ private struct HabitProgressRing: View {
 }
 
 /// 页卡右侧的一行：小圆底图标 + 主值 + 副标（参考图那一列）
+///
+/// v4.0.102（用户 2026-10-12 真机截图圈定「这三行的图标改成彩色」）：
+/// 圆底由 `Color.primary.opacity(0.08)` 灰底 + `.secondary` 灰符号 → **语义实色底 + 白符号**，
+/// 与看板栏目头（`BoardCardStyle`）、设置页行首色块、列表行 `BadgeShell` 同一口径
+/// （那几处都是「实色底 + 白符号」，不再新造第二种彩色写法）。
+/// ⚠️ `tint` 由**调用方**给，不在这里按 icon 再建一份映射 —— 三行是同一种语义的三种指标，
+///    配色归页卡（`HabitProgressCard`），组件只管画。
 private struct HabitMetricRow: View {
     let icon: String
+    /// 圆底实色（v4.0.102；深浅模式由系统色自适应）
+    let tint: Color
     let value: String
     let caption: String
 
@@ -463,11 +472,11 @@ private struct HabitMetricRow: View {
         HStack(spacing: 6) {
             ZStack {
                 Circle()
-                    .fill(Color.primary.opacity(0.08))
+                    .fill(tint)
                     .frame(width: 22, height: 22)
                 Image(systemName: icon)
                     .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.white)
             }
             Text(value)
                 .font(.system(size: 13, weight: .semibold))
@@ -499,9 +508,11 @@ private struct HabitProgressCard: View {
         HStack(alignment: .center, spacing: 17) {
             HabitProgressRing(progress: stats.rate)
             VStack(alignment: .leading, spacing: 6) {
-                HabitMetricRow(icon: "flame.fill", value: streakValue, caption: "连续记录")
-                HabitMetricRow(icon: "calendar", value: "\(stats.done) / \(stats.total)", caption: "近 7 天完成")
-                HabitMetricRow(icon: "chart.bar.fill", value: topValue, caption: "打卡次数最多")
+                // v4.0.102：三行各取语义色（火焰橙 / 日历蓝 / 统计绿），且**三色互不相同** ——
+                // 三行同色等于又退回一片同色，白改（同 `BoardCard.tint` 的注释口径）。
+                HabitMetricRow(icon: "flame.fill", tint: .orange, value: streakValue, caption: "连续记录")
+                HabitMetricRow(icon: "calendar", tint: .blue, value: "\(stats.done) / \(stats.total)", caption: "近 7 天完成")
+                HabitMetricRow(icon: "chart.bar.fill", tint: .green, value: topValue, caption: "打卡次数最多")
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -549,7 +560,9 @@ struct HabitRowCard: View {
         .frame(maxWidth: .infinity,
                minHeight: 0,
                alignment: .leading)
-        .pastelCard()
+        // v4.0.102（用户 2026-10-12 真机截图圈定「回国倒计时」行卡）：圆角 16(默认 Radius.card) → 22。
+        // 取 `Radius.hero`（= 22）而不是写字面量 —— 用户给的是精确值，而它正好落在既有令牌档上。
+        .pastelCard(cornerRadius: Radius.hero)
         .contentShape(Rectangle())
     }
 

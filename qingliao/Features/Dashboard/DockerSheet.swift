@@ -12,6 +12,12 @@ struct DockerSheet: View {
     @State private var busy = false
     @FocusState private var focused: Bool
     @State private var confirmTarget: DockerContainer?
+    // v4.0.102（用户 2026-10-12「方案 2：全改」）：4 处系统 confirmationDialog → 锚定浮层的锚点帧。
+    // 🚨 必须**按 id 存字典**：容器卡在 ForEach 里，用单个 @State 只会保留最后一次布局的那张。
+    // 触发点全在同一张卡片上（长按菜单删容器 / 单击停·启 / 卡内「升级」按钮、长按菜单删镜像），
+    // 所以一张卡一个帧就够，不必逐按钮采。
+    @State private var containerFrames: [String: CGRect] = [:]
+    @State private var imageFrames: [String: CGRect] = [:]
     @State private var confirmAction: (name: String, act: String)?   // v2.0.113：停止/重启确认
     // v2.0.87：升级确认
     @State private var confirmUpgrade: DockerContainer?
@@ -68,13 +74,15 @@ struct DockerSheet: View {
                                      onUpgrade: { confirmUpgrade = $0 },
                                      updates: updates,
                                      busy: anyBusy,
-                                     loadError: loadError)
+                                     loadError: loadError,
+                                     onCardFrame: { name, rect in containerFrames[name] = rect })
                     // ===== v2.0.86 镜像管理（v2.0.86i：拆子视图）=====
                     ImageSection(images: images,
                                  onRefresh: { await loadImages() },
                                  onDelete: { confirmImage = $0 },
                                  busy: anyBusy,
-                                 loadError: imagesError)
+                                 loadError: imagesError,
+                                 onCardFrame: { id, rect in imageFrames[id] = rect })
                     // ===== 新建部署（v2.0.86j：拆子视图；v2.0.87h：移到末尾）=====
                     // v3.9.41（SR37）：不再把 message 传进部署卡——结果统一渲染在页面顶部横幅
                     DeploySection(name: $name, yaml: $yaml,
@@ -94,64 +102,66 @@ struct DockerSheet: View {
                     Button("完成") { focused = false }
                 }
             }
-            .confirmationDialog("删除容器？", isPresented: .init(
-                get: { confirmTarget != nil },
-                set: { if !$0 { confirmTarget = nil } }
-            ), presenting: confirmTarget) { c in
-                Button("删除", role: .destructive) {
-                    let target = c
-                    confirmTarget = nil
-                    Task { await action(target.name, "rm") }
+            // v4.0.102（用户 2026-10-12「方案 2：全改」）：Docker 管理 4 处系统确认框 → 锚定浮层。
+            // 合并成**单个** .overlay + 内部分支：四处各写一个 .overlay 会把 4 份类型全内联进 body
+            // 类型栈（本仓 ql_typestack ③⁗ 钉的就是这个）。同一时刻只有一个确认态非 nil，分支互斥。
+            // 🚨 onPick 沿用本仓既有形态：**先清状态、再判 item.id** ——「取消」也走 onPick，
+            //    靠已清的状态收场；写成 `guard item.id == "del" else { return }` 会让取消点不动浮层。
+            .overlay {
+                if let c = confirmTarget {
+                    AnchorMenuOverlay(anchorFrame: containerFrames[c.name] ?? .zero,
+                                      items: [AnchorMenuItem(id: "del", title: "删除", icon: "trash", color: .red, destructive: true),
+                                              AnchorMenuItem(id: "cancel", title: "取消")],
+                                      title: "删除容器？",
+                                      message: c.isComposeProject
+                                          ? "将移除容器「\(c.name)」（配置目录保留，可重新部署）"
+                                          : "⚠️「\(c.name)」不是 Docker 管理项目创建的容器，删除后不可恢复，请确认！",
+                                      onPick: { item in
+                                          let target = c
+                                          confirmTarget = nil
+                                          if item.id == "del" { Task { await action(target.name, "rm") } }
+                                      },
+                                      onClose: { confirmTarget = nil })
+                } else if let ca = confirmAction {
+                    AnchorMenuOverlay(anchorFrame: containerFrames[ca.name] ?? .zero,
+                                      items: [AnchorMenuItem(id: "go", title: ca.act == "restart" ? "重启" : "停止",
+                                                             icon: "arrow.clockwise", color: .orange, destructive: true),
+                                              AnchorMenuItem(id: "cancel", title: "取消")],
+                                      title: ca.act == "restart" ? "重启容器？" : "停止容器？",
+                                      message: "将\(ca.act == "restart" ? "重启" : "停止")容器「\(ca.name)」，确认继续？",
+                                      onPick: { item in
+                                          let target = ca
+                                          confirmAction = nil
+                                          if item.id == "go" { Task { await action(target.name, target.act) } }
+                                      },
+                                      onClose: { confirmAction = nil })
+                } else if let img = confirmImage {
+                    AnchorMenuOverlay(anchorFrame: imageFrames[img.id] ?? .zero,
+                                      items: [AnchorMenuItem(id: "del", title: "删除", icon: "trash", color: .red, destructive: true),
+                                              AnchorMenuItem(id: "cancel", title: "取消")],
+                                      title: "删除镜像？",
+                                      message: "删除镜像「\(img.name)」？\n若仍有容器使用会删除失败",
+                                      onPick: { item in
+                                          let target = img
+                                          confirmImage = nil
+                                          if item.id == "del" { Task { await rmImage(target.id) } }
+                                      },
+                                      onClose: { confirmImage = nil })
+                } else if let c = confirmUpgrade {
+                    AnchorMenuOverlay(anchorFrame: containerFrames[c.name] ?? .zero,
+                                      items: [AnchorMenuItem(id: "go", title: upgrading ? "升级中…" : "升级",
+                                                             icon: "arrow.down.circle", color: .accentColor, disabled: upgrading),
+                                              AnchorMenuItem(id: "cancel", title: "取消")],
+                                      title: "升级容器？",
+                                      message: "将拉取「\(c.name)」最新镜像并重建容器（约需 1-5 分钟，视镜像大小）",
+                                      onPick: { item in
+                                          guard !upgrading else { return }
+                                          let target = c
+                                          confirmUpgrade = nil
+                                          if item.id == "go" { Task { await upgradeContainer(target) } }
+                                      },
+                                      onClose: { confirmUpgrade = nil })
                 }
-                Button("取消", role: .cancel) { confirmTarget = nil }
-            } message: { c in
-                Text(c.isComposeProject
-                     ? "将移除容器「\(c.name)」（配置目录保留，可重新部署）"
-                     : "⚠️「\(c.name)」不是 Docker 管理项目创建的容器，删除后不可恢复，请确认！")
-            }
-            // v2.0.113：停止/重启确认（防误触）
-            .confirmationDialog(confirmAction?.act == "restart" ? "重启容器？" : "停止容器？",
-                                isPresented: .init(
-                                    get: { confirmAction != nil },
-                                    set: { if !$0 { confirmAction = nil } }
-                                ), presenting: confirmAction) { ca in
-                Button(ca.act == "restart" ? "重启" : "停止", role: .destructive) {
-                    let target = ca
-                    confirmAction = nil
-                    Task { await action(target.name, target.act) }
-                }
-                Button("取消", role: .cancel) { confirmAction = nil }
-            } message: { ca in
-                Text("将\(ca.act == "restart" ? "重启" : "停止")容器「\(ca.name)」，确认继续？")
-            }
-            // v2.0.86：镜像删除确认
-            .confirmationDialog("删除镜像？", isPresented: .init(
-                get: { confirmImage != nil },
-                set: { if !$0 { confirmImage = nil } }
-            ), presenting: confirmImage) { img in
-                Button("删除", role: .destructive) {
-                    let target = img
-                    confirmImage = nil
-                    Task { await rmImage(target.id) }
-                }
-                Button("取消", role: .cancel) { confirmImage = nil }
-            } message: { img in
-                Text("删除镜像「\(img.name)」？\n若仍有容器使用会删除失败")
-            }
-            // v2.0.87：升级确认弹窗
-            .confirmationDialog("升级容器？", isPresented: .init(
-                get: { confirmUpgrade != nil },
-                set: { if !$0 { confirmUpgrade = nil } }
-            ), presenting: confirmUpgrade) { c in
-                Button(upgrading ? "升级中…" : "升级") {
-                    let target = c
-                    confirmUpgrade = nil
-                    Task { await upgradeContainer(target) }
-                }
-                .disabled(upgrading)
-                Button("取消", role: .cancel) { confirmUpgrade = nil }
-            } message: { c in
-                Text("将拉取「\(c.name)」最新镜像并重建容器（约需 1-5 分钟，视镜像大小）")
             }
             .task { await load(); await loadImages(); await loadUpdates() }
         }
@@ -387,6 +397,8 @@ private struct ContainerSection: View {
     var updates: [String: Bool] = [:]   // v2.0.87p：容器名 → 有更新
     var busy: Bool = false              // v3.9.1：拉取中（骨架屏判据——原写 if containers.isEmpty && busy 时本结构体内没有 busy，编译不过）
     var loadError: String? = nil        // v3.9.41（SR37）：拉取失败态（区别于「真的没有容器」）
+    /// v4.0.102：把每张容器卡的全局 frame 报给宿主，供锚定浮层定位（声明序末位 = 调用点末位）
+    var onCardFrame: (String, CGRect) -> Void = { _, _ in }
 
     /// 请求在飞时禁点，避免连点并发 POST（失败态下仍允许操作：卡片是上次成功的数据，点了会有明确回执）
     private var allowActions: Bool { !busy }
@@ -446,6 +458,8 @@ private struct ContainerSection: View {
                                     GridItem(.flexible(), spacing: 10)], spacing: 10) {
                     ForEach(containers) { c in
                         DockerContainerCard(container: c, hasUpdate: updates[c.name] == true, onUpgrade: { onUpgrade(c) })
+                            // v4.0.102：报帧给宿主（长按删除 / 单击停启 / 卡内升级 三处触发共用这张卡的 frame）
+                            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { onCardFrame(c.name, $0) }
                             .onTapGesture {
                                 guard allowActions else { return }   // v3.9.41（SR37）
                                 Haptics.medium()
@@ -496,6 +510,8 @@ private struct ImageSection: View {
     var onDelete: (DockerImage) -> Void
     var busy: Bool = false          // v3.9.41（SR37）
     var loadError: String? = nil    // v3.9.41（SR37）
+    /// v4.0.102：把每张镜像卡的全局 frame 报给宿主（同 ContainerSection）
+    var onCardFrame: (String, CGRect) -> Void = { _, _ in }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -538,6 +554,8 @@ private struct ImageSection: View {
                                     GridItem(.flexible(), spacing: 10)], spacing: 10) {
                     ForEach(images) { img in
                         DockerImageCard(image: img)
+                            // v4.0.102：报帧给宿主（长按菜单「删除镜像」的锚点）
+                            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { onCardFrame(img.id, $0) }
                             .contextMenu {
                                 Button(role: .destructive) {
                                     Haptics.rigid()

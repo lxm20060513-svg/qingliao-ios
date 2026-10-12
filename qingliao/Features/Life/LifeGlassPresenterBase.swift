@@ -14,6 +14,15 @@ import SwiftUI
 //     外部调用点（glass.showAll 等）一个字都不用改。
 //   · 泛型参数只用于 `detail: Item?` 的类型，不引入任何行为。
 
+/// v4.0.102：生活页栏目内「危险动作」确认的种类（各 Section 自己解释语义并执行动作）。
+/// 与 `LifeGlassPresenterBase.confirmKind` 配套 —— 由页级 GlassLayerHost 渲染成锚定浮层。
+enum LifeConfirmKind: Sendable {
+    /// 清理已完成（仅待办）
+    case clearCompleted
+    /// 清空全部（待办 / 长期目标）
+    case clearAll
+}
+
 @MainActor
 @Observable
 class LifeGlassPresenterBase<Item: Sendable> {
@@ -29,6 +38,14 @@ class LifeGlassPresenterBase<Item: Sendable> {
     /// 新建浮层的会话序号：每次打开自增，配合 `.id()` 强制换新实例（保证每次都是空编辑器）
     var addSession = 0
 
+    /// v4.0.102：栏目内「危险动作」的**锚定确认浮层**（nil = 不显示）。
+    /// 由头：待办的「清理已完成 / 清空全部」原来是 confirmationDialog —— iPhone 上系统动作表
+    /// 固定从屏幕底部升起、锚不到被点的胶囊；而栏目自己挂浮层会被后面的 Section 盖住
+    /// （v4.0.77 教训）→ 状态提到页级单例，浮层由各 GlassLayerHost（挂在生活页根）呈现。
+    var confirmKind: LifeConfirmKind?
+    /// 上面那个确认浮层的锚点（被点的胶囊按钮的全局 frame）
+    var confirmAnchor: CGRect = .zero
+
     init() {}
 
     /// 宿主销毁时清状态 —— 单例不会随视图树消失，页面被系统回收后重建、开关还是 true →
@@ -40,5 +57,7 @@ class LifeGlassPresenterBase<Item: Sendable> {
         detail = nil
         pendingDelete = nil
         addSession = 0
+        confirmKind = nil
+        confirmAnchor = .zero
     }
 }

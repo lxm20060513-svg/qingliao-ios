@@ -341,6 +341,9 @@ struct MemoryView: View {
     @State private var message: (ok: Bool, text: String)? = nil
     @State private var busy = false
     @State private var confirmDelete: String?   // v2.0.102：删除确认（记忆不可恢复）
+    /// v4.0.102：记忆行的全局 frame（按记忆正文存）—— 删除确认浮层从**被删那一行**的位置长出
+    /// （原走 confirmationDialog，iPhone 上系统固定从屏幕底部升起；按 id 存字典避免 ForEach 互相覆盖）
+    @State private var memRowFrames: [String: CGRect] = [:]
     // v3.9.40（#19）：就地编辑——editing 存**原条目**（非空即弹窗打开），editText 是输入框内容
     @State private var editing: String?
     @State private var editText = ""
@@ -465,6 +468,11 @@ struct MemoryView: View {
                                 .padding(.horizontal, Spacing.xl)
                                 .padding(.vertical, Spacing.lg)
                                 .pastelFill(cornerRadius: Radius.inset)
+                                // v4.0.102：锚点采集 —— 删除确认浮层从**这一行**的位置长出
+                                //（按正文存字典：ForEach 里单变量只会留下最后布局的那一行）
+                                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { rect in
+                                    memRowFrames[item.text] = rect
+                                }
                             }
                         }
                     }
@@ -474,19 +482,25 @@ struct MemoryView: View {
             }
             .navigationTitle("AI 记忆")
             .navigationBarTitleDisplayMode(.inline)
-            // v2.0.102：删除确认（记忆不可恢复）
-            .confirmationDialog("删除这条记忆？", isPresented: Binding(get: { confirmDelete != nil },
-                                                                      set: { if !$0 { confirmDelete = nil } }),
-                                titleVisibility: .visible) {
-                Button("删除", role: .destructive) {
-                    if let e = confirmDelete {
-                        Task { await remove(e) }
-                    }
-                    confirmDelete = nil
+            // v4.0.102：删除确认（记忆不可恢复）—— 从 confirmationDialog 改为**锚定浮层**（锚在被删那一行）
+            .overlay {
+                if let e = confirmDelete {
+                    AnchorMenuOverlay(
+                        anchorFrame: memRowFrames[e] ?? .zero,
+                        items: [
+                            AnchorMenuItem(id: "del", title: "删除", icon: "trash",
+                                           color: .red, destructive: true),
+                            AnchorMenuItem(id: "cancel", title: "取消", icon: "xmark", color: .gray),
+                        ],
+                        title: "删除这条记忆？",
+                        message: "将删除「\(e)」，此操作不可恢复",
+                        onPick: { item in
+                            confirmDelete = nil
+                            if item.id == "del" { Task { await remove(e) } }
+                        },
+                        onClose: { confirmDelete = nil }
+                    )
                 }
-                Button("取消", role: .cancel) { confirmDelete = nil }
-            } message: {
-                Text("将删除「\(confirmDelete ?? "")」，此操作不可恢复")
             }
             // v3.9.40（#19）：就地编辑记忆
             .alert("编辑这条记忆", isPresented: Binding(get: { editing != nil },

@@ -37,6 +37,9 @@ struct ServiceControlSheet: View {
     @State private var info: String
     @State private var running: Bool?   // 真实运行状态
     @State private var showStopConfirm = false
+    /// v4.0.102：锚定浮层的锚点帧（「停止服务」按钮的全局 frame）。
+    /// 单触发点 → 单个变量即可（放 ForEach 里才必须按 id 存字典）。
+    @State private var stopAnchor: CGRect = .zero
 
     init(service: QLServiceKind) {
         self.service = service
@@ -54,6 +57,29 @@ struct ServiceControlSheet: View {
             serviceStopCard
 
             Spacer()
+        }
+        // v4.0.102（用户 2026-10-12「方案 2：全改」）：停止服务确认 → 锚定浮层。
+        // 原系统 confirmationDialog 在 iPhone 上固定从屏幕底部升起、锚不到「停止服务」这颗按钮。
+        // ⚠️ 浮层必须挂 **body 根**：留在 serviceStopCard 里会被后续内容盖住（v4.0.77 教训）。
+        .overlay { AnyView(stopConfirmOverlay) }
+    }
+
+    /// v4.0.102：停止服务确认浮层。
+    /// 抽成独立属性 + AnyView 包裹：直接内联会把浮层类型并进 body 类型栈（本仓 ql_typestack ③⁗ 钉的就是它）。
+    /// onPick 沿用本仓既有形态：**先清状态、再判 item.id**（「取消」也走 onPick，靠已清状态收场）。
+    @ViewBuilder
+    private var stopConfirmOverlay: some View {
+        if showStopConfirm {
+            AnchorMenuOverlay(anchorFrame: stopAnchor,
+                              items: [AnchorMenuItem(id: "stop", title: "停止服务", icon: "stop.fill", color: .red, destructive: true),
+                                      AnchorMenuItem(id: "cancel", title: "取消")],
+                              title: "停止服务？",
+                              message: "停止后轻聊将完全不可用，需在 NAS 上手动启动。",
+                              onPick: { item in
+                                  showStopConfirm = false
+                                  if item.id == "stop" { stopService() }
+                              },
+                              onClose: { showStopConfirm = false })
         }
     }
 
@@ -213,12 +239,8 @@ struct ServiceControlSheet: View {
     .buttonStyle(PressStyle())   // v3.4.29：统一按压反馈
     .padding(.horizontal, Spacing.section)
     .padding(.top, Spacing.lg)
-    .confirmationDialog("停止后轻聊将完全不可用，需在 NAS 上手动启动", isPresented: $showStopConfirm, titleVisibility: .visible) {
-        Button("停止服务", role: .destructive) {
-            stopService()
-        }
-        Button("取消", role: .cancel) {}
-    }
+    // v4.0.102：报帧给宿主（浮层锚在这颗「停止服务」按钮上）
+    .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { stopAnchor = $0 }
     }
     }
 

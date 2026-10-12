@@ -31,6 +31,12 @@ struct AnchorMenuOverlay: View {
     let anchorFrame: CGRect
     let items: [AnchorMenuItem]
     var title: String = ""
+    /// v4.0.102：可选**说明文字**（多行 caption，渲染在标题下方）。
+    /// 由来：危险动作确认（布防/撤防、执行危险场景、重置用量）原走系统 confirmationDialog 的
+    /// `message:` 承载「明示后果」；改用锚定浮层后这段说明同样必须在场，所以给浮层补这一档。
+    /// 默认空串 —— 现有调用点（聊天页三点菜单/思考档位/长按气泡、任务中心行菜单、看板恢复菜单）观感零变化。
+    /// ⚠️ 实参序 = 声明序：新调用点写 (anchorFrame:items:title:message:onPick:onClose:)。
+    var message: String = ""
     var onPick: (AnchorMenuItem) -> Void
     var onClose: () -> Void
 
@@ -74,11 +80,28 @@ struct AnchorMenuOverlay: View {
 
     private func rows(cols: Int) -> Int { (items.count + cols - 1) / cols }
 
-    private func panelHeight(cols: Int) -> CGFloat {
+    /// v4.0.102（审查修订）：说明文字**行高** —— 真值 = Typography.caption(11pt) × 1.35 中文行高 ≈ 15。
+    /// ⚠️ 早先按「caption ≈13pt / 行高 17」估，可 13 是 `subhead`、不是 caption：系统性高估 ≈40%，
+    ///    会把「其实装得下」的浮层误判成装不下而翻到按钮上方（长文案如退出登录、带记忆/文档正文的确认尤其明显）。
+    private static let msgLineH: CGFloat = 15
+
+    /// 说明文字占几行：按菜单实宽估（中文 caption 11pt/字，+1pt 字距留余量）
+    private func messageLines(width: CGFloat) -> Int {
+        guard !message.isEmpty else { return 0 }
+        let perLine = max(6, Int(width / (Typography.caption + 1)))
+        return max(1, (message.count + perLine - 1) / perLine)
+    }
+
+    private func panelHeight(cols: Int, colW: CGFloat) -> CGFloat {
         let r = rows(cols: cols)
+        let menuW = colW * CGFloat(cols) + Self.pillGap * CGFloat(cols - 1)
+        let msgH = message.isEmpty
+            ? 0
+            : CGFloat(messageLines(width: menuW - Spacing.xl * 2)) * Self.msgLineH + 6
         return CGFloat(r) * Self.pillHeight
             + CGFloat(max(r - 1, 0)) * Self.pillGap
             + (title.isEmpty ? 0 : Self.titleH)
+            + msgH
     }
 
     var body: some View {
@@ -95,7 +118,7 @@ struct AnchorMenuOverlay: View {
                 ? raw
                 : max(120, min(raw, (geo.size.width - 20 - Self.pillGap) / 2))
             let menuW = colW * CGFloat(cols) + Self.pillGap * CGFloat(cols - 1)
-            let menuH = panelHeight(cols: cols)
+            let menuH = panelHeight(cols: cols, colW: colW)
             let below = localAnchor.maxY + Self.anchorGap + menuH < geo.size.height
             let ox = min(max(localAnchor.midX - menuW / 2, 10), max(geo.size.width - menuW - 10, 10))
             let oy = below ? localAnchor.maxY + Self.anchorGap
@@ -149,6 +172,17 @@ struct AnchorMenuOverlay: View {
                     .minimumScaleFactor(0.85)
                     // v4.0.77 只读审查（低）：标题左缘与胶囊左缘对齐（原来 padding 4 比胶囊的 Spacing.xl
                     // 小 8pt，视觉上标题向左外挂 —— 用户本轮口径「同步检查所有的，都要对齐」）
+                    .padding(.horizontal, Spacing.xl)
+                    .frame(width: colWidth * CGFloat(cols) + Self.pillGap * CGFloat(cols - 1),
+                           alignment: .leading)
+                    .opacity(shown ? 1 : 0)
+            }
+            // v4.0.102：说明文字（危险动作的「明示后果」）—— 与标题同左缘、同宽，自动换行
+            if !message.isEmpty {
+                Text(message)
+                    .font(.system(size: Typography.caption))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, Spacing.xl)
                     .frame(width: colWidth * CGFloat(cols) + Self.pillGap * CGFloat(cols - 1),
                            alignment: .leading)

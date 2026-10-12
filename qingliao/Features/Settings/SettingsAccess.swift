@@ -759,6 +759,9 @@ struct MCPSettingsSheet: View {
     @State private var feedback: String?
     // v3.5.0 review：删除走二次确认（服务删除会触发 hermes 重启，防误触）
     @State private var pendingDelete: MCPServerItem?
+    /// v4.0.102：已配置服务行的全局 frame（按 id 存）—— 删除确认浮层从**被滑那一行**的位置长出
+    /// （原走 confirmationDialog，iPhone 上系统固定从屏幕底部升起；ForEach 里单变量只会留下最后一行）
+    @State private var mcpRowFrames: [String: CGRect] = [:]
 
     var body: some View {
         NavigationStack {
@@ -805,15 +808,26 @@ struct MCPSettingsSheet: View {
                 .presentationDetents([.medium, .large])
                 .scrollContentBackground(.hidden)
             }
-            .confirmationDialog("删除 \(pendingDelete?.id ?? "")？将触发 Hermes 重启（约 30 秒）",
-                                isPresented: Binding(get: { pendingDelete != nil },
-                                                     set: { if !$0 { pendingDelete = nil } }),
-                                titleVisibility: .visible) {
-                Button("删除", role: .destructive) {
-                    if let s = pendingDelete { Task { await delete(s.id) } }
-                    pendingDelete = nil
+            // v4.0.102：删除二次确认（服务删除会触发 hermes 重启，防误触）—— 从 confirmationDialog
+            // 改为**锚定浮层**（锚在被滑那一行；iPhone 上系统动作表固定从屏幕底部升起，锚不到行）
+            .overlay {
+                if let s = pendingDelete {
+                    AnchorMenuOverlay(
+                        anchorFrame: mcpRowFrames[s.id] ?? .zero,
+                        items: [
+                            AnchorMenuItem(id: "del", title: "删除", icon: "trash",
+                                           color: .red, destructive: true),
+                            AnchorMenuItem(id: "cancel", title: "取消", icon: "xmark", color: .gray),
+                        ],
+                        title: "删除 \(s.id)？",
+                        message: "将触发 Hermes 重启（约 30 秒）。",
+                        onPick: { item in
+                            pendingDelete = nil
+                            if item.id == "del" { Task { await delete(s.id) } }
+                        },
+                        onClose: { pendingDelete = nil }
+                    )
                 }
-                Button("取消", role: .cancel) { pendingDelete = nil }
             }
             .task { await load() }
         }
@@ -841,7 +855,12 @@ struct MCPSettingsSheet: View {
                             .foregroundStyle(s.enabled ? Color.green : Color.secondary)
                     }
                     Spacer()
-                    // 删除（二次确认走 confirmationDialog）
+                    // 删除（二次确认已改锚定浮层，见 body 末尾的 .overlay）
+                }
+                // v4.0.102：锚点采集 —— 删除确认浮层从**被滑的那一行**的位置长出
+                // （按 id 存字典：ForEach 里单变量只会留下最后布局的那一行）
+                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { rect in
+                    mcpRowFrames[s.id] = rect
                 }
                 .swipeActions(edge: .trailing) {
                     Button(role: .destructive) {
@@ -1159,6 +1178,8 @@ struct KBView: View {
     @State private var message: (ok: Bool, text: String)?
     @State private var busy = false
     @State private var confirmDelete: String?   // v2.0.102：删除确认（文档不可恢复）
+    /// v4.0.102：文档行的全局 frame（按文档名存）—— 删除确认浮层从**被删那一行**的位置长出
+    @State private var kbRowFrames: [String: CGRect] = [:]
 
     var body: some View {
         NavigationStack {
@@ -1201,6 +1222,11 @@ struct KBView: View {
                               chunks: doc.chunks,
                               size: doc.size,
                               onDelete: { name in confirmDelete = name })   // v2.0.102：先确认再删
+                            // v4.0.102：锚点采集 —— 删除确认浮层从**被删那一行**的位置长出
+                            //（按文档名存字典：ForEach 里单变量只会留下最后布局的那一行）
+                            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { rect in
+                                kbRowFrames[doc.name] = rect
+                            }
                     }
                 }
 
@@ -1214,19 +1240,25 @@ struct KBView: View {
             }
             .navigationTitle("知识库")
             .navigationBarTitleDisplayMode(.inline)
-            // v2.0.102：删除确认（文档不可恢复）
-            .confirmationDialog("删除文档？", isPresented: Binding(get: { confirmDelete != nil },
-                                                                   set: { if !$0 { confirmDelete = nil } }),
-                                titleVisibility: .visible) {
-                Button("删除", role: .destructive) {
-                    if let name = confirmDelete {
-                        Task { await deleteDoc(name) }
-                    }
-                    confirmDelete = nil
+            // v4.0.102：删除确认（文档不可恢复）—— 从 confirmationDialog 改为**锚定浮层**（锚在被删那一行）
+            .overlay {
+                if let name = confirmDelete {
+                    AnchorMenuOverlay(
+                        anchorFrame: kbRowFrames[name] ?? .zero,
+                        items: [
+                            AnchorMenuItem(id: "del", title: "删除", icon: "trash",
+                                           color: .red, destructive: true),
+                            AnchorMenuItem(id: "cancel", title: "取消", icon: "xmark", color: .gray),
+                        ],
+                        title: "删除文档？",
+                        message: "将删除「\(name)」，此操作不可恢复",
+                        onPick: { item in
+                            confirmDelete = nil
+                            if item.id == "del" { Task { await deleteDoc(name) } }
+                        },
+                        onClose: { confirmDelete = nil }
+                    )
                 }
-                Button("取消", role: .cancel) { confirmDelete = nil }
-            } message: {
-                Text("将删除「\(confirmDelete ?? "")」，此操作不可恢复")
             }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

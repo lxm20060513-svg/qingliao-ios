@@ -25,8 +25,11 @@ import SwiftUI
 //   2. 胶囊/圆形状的 `Capsule()` 与 `cornerRadius: 0` 覆写（必须方角时）——语义不是圆角尺度。
 //
 // 用 static let（CGFloat 是值类型，Swift 6 严格并发无全局状态告警问题；与 Typography 同）。
-// 件数基线（收口前实测，用于回归断言）：icon 29 · chip 16 · inset 56 · field 15 · card 38 · hero 10
+// 件数基线（收口前实测，用于回归断言）：icon 29 · chip 16 · inset 56 · field 15 · card 38 · hero 12
 // ⚠️ 调整档位或做新一轮替换后，必须同步更新这组基线（断言脚本属本机运维工具，不随仓库分发）。
+// v4.0.102：hero 10 → 12 —— 生活页展开区两张**行卡**（HabitRowCard、GoalRowCard）按用户口径
+//           从 Radius.card(16) 升到 Radius.hero(22)。语义分层注释里 hero 本指大面板，
+//           行卡借用是本次的刻意例外（同栏目口径：圆环页卡 26 / 展开区行卡 22 / 其余默认 16）。
 
 enum Radius {
     /// 图标底板 / 代码块 / 表格 / 缩略图

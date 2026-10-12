@@ -58,6 +58,9 @@ struct SettingsView: View {
     @State var showWechatChannel = false   // v3.0.19：微信窗通道模型设置
     @State var showAbout = false
     @State var confirmLogout = false   // v3.0.5 review fix：退出登录二次确认（与云端一致）
+    /// v4.0.102：退出登录确认浮层的锚点（那个红色胶囊按钮的 frame）—— 从按钮位置长出。
+    /// 原走 confirmationDialog，iPhone 上系统固定从屏幕底部升起（用户 2026-10-12 报看板同款问题，一并统一）。
+    @State var logoutAnchor: CGRect = .zero
     @State var secretCount = 0
     @State var showHASettings = false
     // v3.5.0：MCP 工具服务管理弹窗
@@ -183,6 +186,10 @@ struct SettingsView: View {
             }
             .scrollPosition($scrollPos)
         }
+        // v4.0.102：退出登录的确认浮层 —— 挂在**整页最外层**（锚在「退出登录」按钮上）。
+        // 原走 confirmationDialog，iPhone 上系统固定从屏幕底部升起，锚不到按钮。
+        // ⚠️ 内容经 AnyView 包裹：body 顶层链节参与类型栈深度计算（真值表 ③⁗ 的负断言盯着这一条）
+        .overlay { AnyView(logoutConfirmOverlay) }
         .background(settingsCold1())
         .background(settingsCold2())
         .background(settingsCold3())
@@ -1014,13 +1021,40 @@ extension SettingsView {
             .background(Color.red.opacity(0.35), in: Capsule())
         }
         .buttonStyle(.plain)
-        .confirmationDialog("退出登录？", isPresented: $confirmLogout, titleVisibility: .visible) {
-            Button("退出登录", role: .destructive) { auth.logout() }
-            Button("取消", role: .cancel) {}
-        } message: {
-            Text("退出后回到登录页，可切换本地 AI / 云端 AI 模式。云端配置（API Key）仍保留在手机本地。")
-        }
+        // v4.0.102：锚点采集 —— 退出登录的确认浮层从这个按钮的位置长出。
+        // 浮层挂 body 根 VStack 的 .overlay（见 SettingsView.body）—— 挂这里会被同页其它分组盖住。
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { logoutAnchor = $0 }
         .padding(.top, Spacing.xxs)
+    }
+
+    /// v4.0.102：退出登录的确认浮层（锚在「退出登录」按钮上）。
+    /// 由头：原走 confirmationDialog，iPhone 上系统固定从屏幕底部升起、锚不到按钮。
+    /// ⚠️ 独立成一个 `AnyView` 属性 —— 直接写进 body 顶层的 `.overlay { … }` 会把浮层类型
+    /// 内联进 SettingsView.body 的类型栈（真值表 ③⁗ 的负断言就是防这个的）。
+    @ViewBuilder private var logoutConfirmOverlay: some View {
+        if confirmLogout {
+            AnchorMenuOverlay(
+                anchorFrame: logoutAnchor,
+                items: [
+                    AnchorMenuItem(id: "logout", title: "退出登录",
+                                   icon: "rectangle.portrait.and.arrow.right",
+                                   color: .red, destructive: true),
+                    AnchorMenuItem(id: "cancel", title: "取消", icon: "xmark", color: .gray),
+                ],
+                title: "退出登录？",
+                // v4.0.102（用户 2026-10-12：「退出登陆弹窗卡片文案该改改了，方案都变了」）：
+                // 旧文案还在说「可切换本地 AI / 云端 AI 模式、云端 API Key 保留在手机本地」——
+                // **v3.9.28 云端直连已整体移除**（现在只剩本地 AI 一种形态，见 SettingsModelProvider），
+                // 这句早就不成立了。按 `AuthStore.logout()` 的真实行为重写：只清 token（Keychain + defaults）
+                // 与 logged 标记，`qingliao_server` / `qingliao_user` / 模型 / 外观等键**都不动**。
+                message: "退出后回到登录页，本机登录凭据会清除；服务器地址、模型与外观设置保留。下次登录需重新输入密码。",
+                onPick: { item in
+                    confirmLogout = false
+                    if item.id == "logout" { auth.logout() }
+                },
+                onClose: { confirmLogout = false }
+            )
+        }
     }
 }
 

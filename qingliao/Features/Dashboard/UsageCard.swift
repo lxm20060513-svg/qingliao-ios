@@ -7,23 +7,27 @@ import SwiftUI
 /// 拆出来是为了让用户看得见大头在哪，而不是把 3 亿藏起来。
 struct TokenUsageCard: View {
     let usage: TokenUsage
-    var onReset: (() -> Void)? = nil   // v3.9.85：长按重置（nil=不启用）
-    @State private var showResetConfirm = false
+    /// v3.9.85：长按重置（nil=不启用）
+    /// v4.0.102：回调带上**卡片自身的全局 frame** —— 重置确认的浮层从这张卡的位置长出
+    /// （原走 confirmationDialog，iPhone 上系统固定从屏幕底部升起，用户 2026-10-12 报「没跟着卡片位置弹出」）。
+    /// 锚点必须报给**宿主页最外层**去挂浮层：挂在本卡片的 overlay 上会被滚动里后面的卡片盖住（v4.0.77 教训）。
+    var onReset: ((CGRect) -> Void)? = nil
+    @State private var cardFrame: CGRect = .zero
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             column(title: "今日", icon: "calendar", window: usage.today, color: .blue)
             column(title: "本月", icon: "calendar.badge.clock", window: usage.month, color: .indigo)
         }
+        // v4.0.102：锚点采集 —— 重置确认浮层从**这张卡**的位置长出（浮层由宿主页最外层挂）
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { cardFrame = $0 }
         .onLongPressGesture(minimumDuration: 0.5) {
             guard onReset != nil else { return }
             Haptics.medium()
-            showResetConfirm = true
+            onReset?(cardFrame)
         }
-        .confirmationDialog("重置 token 用量统计？\n从现在起重新累计，今日/本月旧账清零。", isPresented: $showResetConfirm, titleVisibility: .visible) {
-            Button("重置统计", role: .destructive) { onReset?() }
-            Button("取消", role: .cancel) {}
-        }
+        // v4.0.102：原 `.confirmationDialog("重置 token 用量统计？…")` 已删 —— 改由宿主
+        // （DashboardView.dashboardAnchorMenuLayer）挂锚定浮层，从卡片位置长出。
     }
 
     @ViewBuilder

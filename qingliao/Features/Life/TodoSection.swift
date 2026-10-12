@@ -27,8 +27,8 @@ struct TodoSection: View {
     /// v4.0.97（用户 2026-10-11 拍板）：页级卡点开 → 待办在卡下**一条条弹出**（取代原来的「全部待办」浮层入口）；
     /// 展开区底部的「清理已完成 / 清空」保留原语义，仍走二次确认。
     @State private var todoExpanded = false
-    @State private var confirmClearCompleted = false
-    @State private var confirmClearAll = false
+    // v4.0.102：confirmClearCompleted / confirmClearAll 两个 @State 已删 —— 确认浮层改走
+    //     TodoGlassPresenter.confirmKind（页级宿主渲染），不再需要本视图内的 Bool 开关。
 
     // v4.0.78：@Namespace todoZoomNS 随 .sheet / .navigationTransition(.zoom) 一并删除
     //（zoom 依赖 sheet / fullScreenCover 容器，浮层没有那个容器可挂；备忘录改浮层时同样移除）。
@@ -60,24 +60,13 @@ struct TodoSection: View {
         // 直接撤掉这层环境光晕：染色只留在**卡片自己内部**（TodoProgressCard 里那层
         // `Color.green.opacity(tint)` 圆角底），标题栏恢复干净。
         // ⚠️ completionTint 仍是「完成度 → 染色强度」的单一真源（卡底那份照用，别删）。
-        .confirmationDialog("清理已完成的待办？", isPresented: $confirmClearCompleted, titleVisibility: .visible) {
-            Button("清理已完成", role: .destructive) {
-                withAnimation(Motion.settle) { store.clearCompleted() }
-                // v4.0.97 审查（medium）：与下面「清空」同口径复位展开态。原来只有清空复位 ——
-                // 清理把列表清空后圆环卡整块消失、`todoExpanded` 却仍是 true，用户再新增一条时
-                // 它以「已展开」的形态凭空出现（没点过任何东西）。
-                todoExpanded = false
-                Haptics.success()
-            }
-            Button("取消", role: .cancel) {}
-        }
-        .confirmationDialog("清空全部待办？", isPresented: $confirmClearAll, titleVisibility: .visible) {
-            Button("清空", role: .destructive) {
-                withAnimation(Motion.settle) { store.removeAll() }
-                todoExpanded = false
-                Haptics.success()
-            }
-            Button("取消", role: .cancel) {}
+        // v4.0.102：「清理已完成 / 清空全部」的二次确认 —— 从 confirmationDialog 改为**页级锚定浮层**
+        // （用户 2026-10-12 报同款：系统动作表在 iPhone 上固定从屏幕底部升起，锚不到被点的胶囊）。
+        // 栏目自己挂浮层会被后面的 Section 盖住（v4.0.77 教训）→ 状态提到 TodoGlassPresenter，
+        // 浮层由 TodoGlassLayerHost（挂在生活页根）渲染，见 LifeGlassPresenterBase.confirmKind。
+        // 展开态复位改由「列表被清空」兜底（原来在按钮动作里顺手写 todoExpanded = false）。
+        .onChange(of: store.todos.isEmpty) { _, isEmpty in
+            if isEmpty { todoExpanded = false }
         }
     }
 
@@ -183,8 +172,14 @@ struct TodoSection: View {
                         onToggle: { toggleDone($0) },
                         onOpenDetail: { glass.detail = $0 },
                         onDelete: { glass.pendingDelete = $0 },
-                        onClearCompleted: { confirmClearCompleted = true },
-                        onClearAll: { confirmClearAll = true }
+                        onClearCompleted: { rect in
+                            glass.confirmAnchor = rect
+                            glass.confirmKind = .clearCompleted
+                        },
+                        onClearAll: { rect in
+                            glass.confirmAnchor = rect
+                            glass.confirmKind = .clearAll
+                        }
                     )
                 }
             }
@@ -297,6 +292,36 @@ struct TodoGlassLayerHost: View {
                     )
                     .id(glass.addSession)
                 }
+            }
+            // v4.0.102：「清理已完成 / 清空全部」的**锚定确认浮层**（锚在被点的胶囊按钮上）。
+            // 挂在 ZStack 最上层 —— 与其它浮层同层，不会像栏目内浮层那样被后面的 Section 盖住（v4.0.77 教训）。
+            if let kind = glass.confirmKind {
+                AnchorMenuOverlay(
+                    anchorFrame: glass.confirmAnchor,
+                    items: [
+                        AnchorMenuItem(id: "go",
+                                       title: kind == .clearAll ? "清空" : "清理已完成",
+                                       icon: "trash", color: .red, destructive: true),
+                        AnchorMenuItem(id: "cancel", title: "取消", icon: "xmark", color: .gray),
+                    ],
+                    title: kind == .clearAll ? "清空全部待办？" : "清理已完成的待办？",
+                    message: kind == .clearAll
+                        ? "将删除全部待办，此操作不可恢复。"
+                        : "将删除所有已完成的待办，此操作不可恢复。",
+                    onPick: { item in
+                        let k = glass.confirmKind
+                        glass.confirmKind = nil
+                        guard item.id == "go", let k else { return }
+                        switch k {
+                        case .clearCompleted:
+                            withAnimation(Motion.settle) { store.clearCompleted() }
+                        case .clearAll:
+                            withAnimation(Motion.settle) { store.removeAll() }
+                        }
+                        Haptics.success()
+                    },
+                    onClose: { glass.confirmKind = nil }
+                )
             }
         }
         // 宿主销毁即清状态 —— 页面重建后不会「莫名又弹上次那个浮层」（见 TodoGlassPresenter.reset）
@@ -802,8 +827,16 @@ private struct TodoExpandList: View {
     let onToggle: (TodoItem) -> Void
     let onOpenDetail: (TodoItem) -> Void
     let onDelete: (TodoItem) -> Void
-    let onClearCompleted: () -> Void
-    let onClearAll: () -> Void
+    /// v4.0.102：回调带上**按钮条的全局 frame** ——「清理/清空」的确认浮层从这一条按钮的位置长出
+    ///（原走 confirmationDialog，iPhone 上系统固定从屏幕底部升起；栏目又挂不了浮层，见 GlassPresenterBase.confirmKind 注释）
+    let onClearCompleted: (CGRect) -> Void
+    let onClearAll: (CGRect) -> Void
+    @State private var clearButtonsFrame: CGRect = .zero
+    /// v4.0.102（审查修订）：**逐按钮**帧——浮层要长在「被点的那颗」胶囊上。
+    /// 原来只有上面那个整行 HStack 的 frame，点「清理已完成」浮层会出现在两颗按钮中间。
+    /// 🚨 必须按 title 存字典：两颗按钮在同一 ForEach/同级，单个变量只会留最后布局的那张。
+    /// `clearButtonsFrame` 保留作首次布局前的兜底。
+    @State private var clearButtonFrames: [String: CGRect] = [:]
 
     private var hasCompleted: Bool { items.contains { $0.done } }
 
@@ -851,19 +884,26 @@ private struct TodoExpandList: View {
                     clearButton("清空", action: onClearAll)
                 }
                 .padding(.top, 4)
+                // v4.0.102：锚点采集 —— 确认浮层从这一条按钮的位置长出
+                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { clearButtonsFrame = $0 }
             }
         }
         .padding(.horizontal, 10)
         .padding(.top, 8)
     }
 
-    private func clearButton(_ title: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
+    private func clearButton(_ title: String, action: @escaping (CGRect) -> Void) -> some View {
+        // v4.0.102（审查修订）：传「被点的那颗按钮」的帧 —— `clearButtonFrames[title]` 由 label 内的
+        // Text 采集（与 GoalsSection 同一形态）；首次布局前字典尚空时退回整行 frame 兜底。
+        Button { action(clearButtonFrames[title] ?? clearButtonsFrame) } label: {
             Text(title)
                 .font(.system(size: Typography.subhead))
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
+                // v4.0.102：逐按钮采帧（挂 label 的 Text 上 —— 锚在整行 HStack 上会让
+                // 「清理已完成」的浮层长到两颗按钮中间）
+                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { clearButtonFrames[title] = $0 }
         }
         .buttonStyle(PressStyle())
         .pastelFill(cornerRadius: Radius.chip)

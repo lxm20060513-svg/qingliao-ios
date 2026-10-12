@@ -115,6 +115,14 @@ struct DashboardView: View {
     // v3.9.46：安防卡点击布防/撤防。confirmArmTarget 走 confirmationDialog（危险动作既有方言，
     // 同「执行场景」「停止服务」）；alarmBusy 是下发在途闸门；alarmError 是失败回执。
     @State private var confirmArmTarget: Bool?
+    /// v4.0.102：安防卡的全局 frame —— 布防/撤防确认从**这张卡的位置**长出
+    /// （原走 confirmationDialog，iPhone 上系统固定从屏幕底部升起，用户 2026-10-12 报「没跟着卡片位置弹出」）
+    @State private var armAnchor: CGRect = .zero
+    /// v4.0.102：场景卡的全局 frame（按场景 id 存）—— 危险场景确认从**被点那张卡**的位置长出
+    @State private var sceneFrames: [String: CGRect] = [:]
+    /// v4.0.102：token 用量卡长按重置的确认 —— 锚点卡 frame + 是否在弹（浮层见 dashboardAnchorMenuLayer）
+    @State private var usageResetAnchor: CGRect = .zero
+    @State private var showUsageResetConfirm = false
     @State private var alarmBusy = false
     @State private var alarmError = ""
 
@@ -203,6 +211,68 @@ struct DashboardView: View {
                     else { unhideUsageProvider(item.id) }
                 },
                 onClose: { showUsageRestore = false }
+            )
+        }
+
+        // v4.0.102：安防卡布防/撤防确认 —— 锚到**安防卡**（原走 confirmationDialog，iPhone 上
+        // 系统固定从屏幕底部升起，锚不到卡片；用户 2026-10-12 报「撤防卡片的弹窗没跟着卡片位置弹出」）。
+        // 后果说明由浮层的 message 档承载；「取消」= 点空白也能收回（浮层自身行为）。
+        if confirmArmTarget != nil {
+            AnchorMenuOverlay(
+                anchorFrame: armAnchor,
+                items: [
+                    AnchorMenuItem(id: "arm",
+                                   title: confirmArmTarget == true ? "确认布防" : "确认撤防",
+                                   icon: confirmArmTarget == true ? "shield.lefthalf.filled" : "shield.slash",
+                                   color: confirmArmTarget == true ? .green : .red,
+                                   destructive: confirmArmTarget != true),
+                    AnchorMenuItem(id: "cancel", title: "取消", icon: "xmark", color: .gray),
+                ],
+                title: "确认变更安防状态？",
+                message: armDialogMessage,
+                onPick: { item in
+                    let target = confirmArmTarget
+                    confirmArmTarget = nil
+                    if item.id == "arm", let t = target { applyArm(t) }
+                },
+                onClose: { confirmArmTarget = nil }
+            )
+        }
+
+        // v4.0.102：危险场景执行确认 —— 锚到**被点那张场景卡**（锚点按 id 取，见 sceneFrames）
+        if let s = confirmSceneRun {
+            AnchorMenuOverlay(
+                anchorFrame: sceneFrames[s.id] ?? .zero,
+                items: [
+                    AnchorMenuItem(id: "run", title: "执行", icon: "play.fill", color: .orange),
+                    AnchorMenuItem(id: "cancel", title: "取消", icon: "xmark", color: .gray),
+                ],
+                title: "确认执行场景？",
+                message: "场景「\(s.name)」包含安全相关动作（布防/离家/断电），执行后可能改变家庭安防状态。",
+                onPick: { item in
+                    confirmSceneRun = nil
+                    if item.id == "run" { executeScene(s) }
+                },
+                onClose: { confirmSceneRun = nil }
+            )
+        }
+
+        // v4.0.102：token 用量卡长按 → 重置确认 —— 锚到**那张用量卡**（原 confirmationDialog 从底部升起）
+        if showUsageResetConfirm {
+            AnchorMenuOverlay(
+                anchorFrame: usageResetAnchor,
+                items: [
+                    AnchorMenuItem(id: "reset", title: "重置统计", icon: "arrow.counterclockwise",
+                                   color: .red, destructive: true),
+                    AnchorMenuItem(id: "cancel", title: "取消", icon: "xmark", color: .gray),
+                ],
+                title: "重置 token 用量统计？",
+                message: "从现在起重新累计，今日/本月旧账清零。",
+                onPick: { item in
+                    showUsageResetConfirm = false
+                    if item.id == "reset" { Task { await resetTokenUsage() } }
+                },
+                onClose: { showUsageResetConfirm = false }
             )
         }
     }
@@ -298,6 +368,10 @@ struct DashboardView: View {
             DeviceCard(name: "安防", icon: "shield.fill", value: haAlarm,
                        sub: alarmSub, status: haAlarmArmed ? .on : .warn)
                 .tapButton { requestArm(!haAlarmArmed) }
+                // v4.0.102：锚点采集 —— 布防/撤防确认浮层从**这张卡**的位置长出（见 dashboardAnchorMenuLayer）
+                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: {
+                    armAnchor = $0
+                }
             DeviceCard(name: "温度", icon: "thermometer", value: haTemp,
                        sub: "室内温度 · 点击看各房间", status: .on)
                 .tapButton { activeSheet = .temps }
@@ -346,6 +420,11 @@ struct DashboardView: View {
                                sub: "点击执行 · 长按删除",
                                status: .on)
                         .tapButton { runScene(s) }
+                        // v4.0.102：锚点采集 —— 危险场景的确认浮层从**被点那张卡**的位置长出。
+                        // 用字典按 id 存：ForEach 里每张卡都在刷 onGeometryChange，单变量只会留最后布局的那张。
+                        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { rect in
+                            sceneFrames[s.id] = rect
+                        }
                         .contextMenu {
                             Button(role: .destructive) {
                                 deleteScene(s)
@@ -528,7 +607,12 @@ struct DashboardView: View {
     private var tokenUsageBlock: some View {
         sectionTitle("token 用量", card: .tokens)
         if let u = tokenUsage {
-            TokenUsageCard(usage: u, onReset: { Task { await resetTokenUsage() } })
+            // v4.0.102：长按重置的确认从**这张卡**的位置长出 —— 卡片把自身 frame 报上来，
+            // 浮层挂在整页最外层（见 dashboardAnchorMenuLayer）。原走 confirmationDialog，从底部升起。
+            TokenUsageCard(usage: u, onReset: { anchor in
+                usageResetAnchor = anchor
+                showUsageResetConfirm = true
+            })
         } else if !tokenUsageError.isEmpty {
             Text(tokenUsageError)
                 .font(.system(size: Typography.subhead))
@@ -838,18 +922,9 @@ struct DashboardView: View {
         }
     }
 
-    /// confirmationDialog 的按钮单独抽出来：动态按钮塞进 body 大表达式里撞过类型检查超时
-    /// （见 usageRestoreRow / ChatView.chatActionDialogContent 的同款处理）
-    @ViewBuilder
-    private var armDialogButtons: some View {
-        Button(confirmArmTarget == true ? "确认布防" : "确认撤防",
-               role: confirmArmTarget == true ? nil : .destructive) {
-            if let t = confirmArmTarget { applyArm(t) }
-            confirmArmTarget = nil
-        }
-        Button("取消", role: .cancel) { confirmArmTarget = nil }
-    }
-
+    // v4.0.102：安防确认的按钮原为 confirmationDialog 的内容（armDialogButtons），
+    // 改锚定浮层后直接写进 dashboardAnchorMenuLayer 的 items —— 那里不再是「挤进 body 大表达式的
+    // 动态按钮」，类型检查超时的顾虑不存在，故删掉这个抽出来的 @ViewBuilder。
     private var armDialogMessage: String {
         confirmArmTarget == true
             ? "网关进入警戒模式后，门窗被打开会立即告警。"
@@ -1132,6 +1207,13 @@ struct DashboardView: View {
             .padding(.vertical, Spacing.md)
         }
         .buttonStyle(.plain)
+        // v4.0.102：补上 zoom 源 —— 盘完 13 个弹窗，只有这一处是「目标侧有 zoom、源侧没挂」。
+        // `navigationTransition(.zoom(sourceID:in:))` 在**源缺失**时是**静默失效**：不报编译错、
+        // 不打运行日志，观感就是「别的卡都从卡片位置长出来，只有这张从屏幕正中冒出」
+        // （用户 2026-10-12 报障「有些卡片的弹窗没跟着卡片位置弹出」）。
+        // ⚠️ 源 id 必须与目标侧 line ~1413 的 sourceID **逐字一致**（都是 DashboardSheet.connectorPanel.id）；
+        //    新增弹窗入口时，源与目标要成对加，别只加一头。
+        .matchedTransitionSource(id: DashboardSheet.connectorPanel.id, in: sheetZoomNS)
     }
 
     /// 门锁相关实体：门锁本体（bacn01）+ lock 域 + 门磁一类含 door_lock 的实体。
@@ -1537,30 +1619,14 @@ extension DashboardView {
             } message: {
                 Text(sceneResult)
             }
-            // v2.0.113：危险场景执行确认（布防/离家/断电类防误触）
-            .confirmationDialog("确认执行场景？",
-                                isPresented: Binding(get: { confirmSceneRun != nil },
-                                                     set: { if !$0 { confirmSceneRun = nil } }),
-                                titleVisibility: .visible) {
-                Button("执行") {
-                    if let s = confirmSceneRun {
-                        executeScene(s)
-                    }
-                    confirmSceneRun = nil
-                }
-                Button("取消", role: .cancel) { confirmSceneRun = nil }
-            } message: {
-                Text("场景「\(confirmSceneRun?.name ?? "")」包含安全相关动作（布防/离家/断电），执行后可能改变家庭安防状态。")
-            }
-            // v3.9.46：安防卡点击布防/撤防的确认（同一套危险动作方言：confirmationDialog + 明示后果）
-            .confirmationDialog("确认变更安防状态？",
-                                isPresented: Binding(get: { confirmArmTarget != nil },
-                                                     set: { if !$0 { confirmArmTarget = nil } }),
-                                titleVisibility: .visible) {
-                armDialogButtons
-            } message: {
-                Text(armDialogMessage)
-            }
+            // v4.0.102：危险场景执行确认（布防/离家/断电类防误触）—— 同安防卡，从 confirmationDialog
+            // 改为锚定浮层（iPhone 上系统动作表固定从屏幕底部升起，锚不到被点那张场景卡）。
+            // 锚点 = sceneFrames[s.id]（被点那张场景卡的 frame），浮层见 dashboardAnchorMenuLayer。
+            // v4.0.102：安防卡点击布防/撤防的确认 —— 从 confirmationDialog **改为锚定浮层**。
+            // 由头：iPhone 上 confirmationDialog 是系统从**屏幕底部**升起的动作表，锚不到触发卡片，
+            // 用户 2026-10-12 报「看板有些卡片的弹窗没跟着卡片位置弹出，而是统一居中弹出」。
+            // 浮层挂在 dashboardAnchorMenuLayer（整页最外层 —— 挂卡片上会被后面的卡片盖住，见 v4.0.77 教训），
+            // 锚点 = armAnchor（安防卡 frame），「明示后果」那行字改由浮层的 message 档承载。
             // v3.9.46：布防/撤防的失败回执（原来这类写操作失败只会被 catch 吞掉）
             .alert("安防操作", isPresented: Binding(get: { !alarmError.isEmpty },
                                                     set: { if !$0 { alarmError = "" } })) {

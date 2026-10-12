@@ -54,6 +54,9 @@ struct FilesManagerSheet: View {
     @State private var viewerPayload: ImageViewPayload?
     @State private var renameTarget: RemoteFileEntry?
     @State private var deleteTarget: RemoteFileEntry?
+    /// v4.0.102：被删那一行的全局 frame —— 删除确认从**行的位置**长出
+    /// （原走 confirmationDialog，iPhone 上系统固定从屏幕底部升起，锚不到行）
+    @State private var deleteAnchor: CGRect = .zero
     @State private var shareItems: [Any] = []
     @State private var showShare = false
 
@@ -77,19 +80,33 @@ struct FilesManagerSheet: View {
                     Button("完成") { dismiss() }
                 }
             }
-            // 删除二次确认（目录会被后端递归删除，文案必须说清）
-            .confirmationDialog("删除？", isPresented: deleteDialogOn, presenting: deleteTarget) { e in
-                Button("删除", role: .destructive) {
-                    let target = e
-                    deleteTarget = nil
-                    Haptics.press()
-                    Task { await performDelete(target) }
+            // v4.0.102：删除二次确认（目录会被后端递归删除，文案必须说清）—— 从 confirmationDialog
+            // **改为锚定浮层**：iPhone 上系统动作表固定从屏幕底部升起，锚不到被删那一行（用户 2026-10-12 报同款）。
+            // 浮层挂在 sheet 内容层（这里就是本 sheet 的最外层），不会被列表行盖住。
+            .overlay {
+                if let e = deleteTarget {
+                    AnchorMenuOverlay(
+                        anchorFrame: deleteAnchor,
+                        items: [
+                            AnchorMenuItem(id: "del", title: "删除", icon: "trash",
+                                           color: .red, destructive: true),
+                            AnchorMenuItem(id: "cancel", title: "取消", icon: "xmark", color: .gray),
+                        ],
+                        title: "删除？",
+                        message: e.isDir
+                            ? "将删除文件夹「\(e.name)」及其中全部内容，删除后不可恢复。"
+                            : "将删除「\(e.name)」，删除后不可恢复。",
+                        onPick: { item in
+                            let target = deleteTarget
+                            deleteTarget = nil
+                            if item.id == "del", let t = target {
+                                Haptics.press()
+                                Task { await performDelete(t) }
+                            }
+                        },
+                        onClose: { deleteTarget = nil }
+                    )
                 }
-                Button("取消", role: .cancel) { deleteTarget = nil }
-            } message: { e in
-                Text(e.isDir
-                     ? "将删除文件夹「\(e.name)」及其中全部内容，删除后不可恢复。"
-                     : "将删除「\(e.name)」，删除后不可恢复。")
             }
             .alert("操作未完成", isPresented: alertOn) {
                 Button("好的", role: .cancel) { alertText = nil }
@@ -203,7 +220,10 @@ struct FilesManagerSheet: View {
                                     onOpen: { open(e) },
                                     onShare: { share(e) },
                                     onRename: { rename(e) },
-                                    onDelete: { deleteTarget = e })
+                                    onDelete: { rect in
+                                        deleteAnchor = rect
+                                        deleteTarget = e
+                                    })
                 }
             }
         }
@@ -223,9 +243,8 @@ struct FilesManagerSheet: View {
         return uploadDir.isEmpty ? "读取中…" : uploadDir
     }
 
-    private var deleteDialogOn: Binding<Bool> {
-        Binding(get: { deleteTarget != nil }, set: { if !$0 { deleteTarget = nil } })
-    }
+    // v4.0.102：`deleteDialogOn`（confirmationDialog 的 isPresented Binding）已随锚定浮层改造删除 ——
+    // 浮层的显隐由 `if let e = deleteTarget` 直接决定，不再需要 Bool 桥。
 
     private var alertOn: Binding<Bool> {
         Binding(get: { alertText != nil }, set: { if !$0 { alertText = nil } })
@@ -452,7 +471,10 @@ private struct FilesManagerRow: View {
     var onOpen: () -> Void
     var onShare: () -> Void
     var onRename: () -> Void
-    var onDelete: () -> Void
+    /// v4.0.102：回调带上**本行自身的全局 frame** —— 删除确认浮层从被删那一行的位置长出
+    /// （原走 confirmationDialog，iPhone 上系统固定从屏幕底部升起，锚不到行）
+    var onDelete: (CGRect) -> Void
+    @State private var rowFrame: CGRect = .zero
 
     var body: some View {
         HStack(spacing: Spacing.xl) {
@@ -483,7 +505,7 @@ private struct FilesManagerRow: View {
                 }
                 Button { onShare() } label: { Label("分享", systemImage: "square.and.arrow.up") }
                 Button { onRename() } label: { Label("重命名", systemImage: "pencil") }
-                Button(role: .destructive) { onDelete() } label: { Label("删除", systemImage: "trash") }
+                Button(role: .destructive) { onDelete(rowFrame) } label: { Label("删除", systemImage: "trash") }
             } label: {
                 Image(systemName: "ellipsis.circle")
                     .font(.system(size: Typography.title))
@@ -494,6 +516,8 @@ private struct FilesManagerRow: View {
         }
         .padding(.horizontal, Spacing.xxl)
         .padding(.vertical, Spacing.lg)
+        // v4.0.102：锚点采集 —— 删除确认浮层从**这一行**的位置长出
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { rowFrame = $0 }
         // v4.0.68：这行原来是 Color(uiColor: .secondarySystemGroupedBackground)（纯白面），
         // 但本行是 pastelCard 列表里的一行 —— 自己再涂料只会把卡面盖白。行底交给外层卡片。
     }
@@ -654,6 +678,9 @@ struct HistorySheet: View {
     @State private var editMode = EditMode.inactive
     @State private var selected = Set<String>()   // 多选删除（按 id）
     @State private var showClearConfirm = false   // 全部清除确认
+    /// v4.0.102：清除确认浮层的锚点（工具栏「⋯」菜单按钮的 frame）—— 从被点的按钮位置长出，
+    /// 原走 confirmationDialog，iPhone 上系统固定从屏幕底部升起
+    @State private var clearAnchor: CGRect = .zero
     @State private var deleteError: String?   // v-review fix：滑动删除失败提示
 
     var body: some View {
@@ -753,6 +780,8 @@ struct HistorySheet: View {
                             }
                         } label: {
                             Image(systemName: "ellipsis.circle")
+                                // v4.0.102：锚点采集 —— 全部清除的确认浮层从这个「⋯」按钮的位置长出
+                                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { clearAnchor = $0 }
                         }
                     } else {
                         // v3.9.35：刷新改回系统裸按钮——与「完成」同款系统玻璃胶囊
@@ -760,20 +789,34 @@ struct HistorySheet: View {
                     }
                 }
             }
-            .confirmationDialog("全部清除执行历史？", isPresented: $showClearConfirm, titleVisibility: .visible) {
-                Button("全部清除", role: .destructive) {
-                    Task {
-                        if let j = try? await auth.json("/api/history", method: "DELETE"),
-                           let list = j["history"] as? [[String: Any]] {
-                            items = list.map { HistoryItem($0) }
-                        }
-                        selected.removeAll()
-                        editMode = .inactive
-                    }
+            // v4.0.102：全部清除的二次确认 —— 从 confirmationDialog 改为**锚定浮层**（锚在工具栏「⋯」按钮上）。
+            // 由头同看板批次：iPhone 上系统动作表固定从屏幕底部升起，锚不到被点的元素。
+            .overlay {
+                if showClearConfirm {
+                    AnchorMenuOverlay(
+                        anchorFrame: clearAnchor,
+                        items: [
+                            AnchorMenuItem(id: "clear", title: "全部清除", icon: "trash.slash",
+                                           color: .red, destructive: true),
+                            AnchorMenuItem(id: "cancel", title: "取消", icon: "xmark", color: .gray),
+                        ],
+                        title: "全部清除执行历史？",
+                        message: "此操作不可恢复，确定删除全部执行记录？",
+                        onPick: { item in
+                            showClearConfirm = false
+                            guard item.id == "clear" else { return }
+                            Task {
+                                if let j = try? await auth.json("/api/history", method: "DELETE"),
+                                   let list = j["history"] as? [[String: Any]] {
+                                    items = list.map { HistoryItem($0) }
+                                }
+                                selected.removeAll()
+                                editMode = .inactive
+                            }
+                        },
+                        onClose: { showClearConfirm = false }
+                    )
                 }
-                Button("取消", role: .cancel) {}
-            } message: {
-                Text("此操作不可恢复，确定删除全部执行记录？")
             }
             .task { await load() }
             // v-review fix：滑动删除失败提示

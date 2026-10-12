@@ -81,6 +81,9 @@ struct MailSettingsSheet: View {
     // 而且本地 -parse 与真值表都查不出。现统一用 editTarget 枚举：nil = 无表单，.add = 新增。
     @State private var editTarget: MailEditTarget?
     @State private var pendingDelete: MailAccountItem?
+    /// v4.0.102：邮箱行的全局 frame（按邮箱存）—— 删除确认浮层从**被滑那一行**的位置长出
+    /// （原走 confirmationDialog，iPhone 上系统固定从屏幕底部升起；按 id 存避免 ForEach 互相覆盖）
+    @State private var mailRowFrames: [String: CGRect] = [:]
 
     var body: some View {
         NavigationStack {
@@ -128,15 +131,26 @@ struct MailSettingsSheet: View {
                 .presentationDetents([.medium, .large])
                 .scrollContentBackground(.hidden)
             }
-            .confirmationDialog("删除 \(pendingDelete?.email ?? "")？该邮箱的授权码会一并删除",
-                                isPresented: Binding(get: { pendingDelete != nil },
-                                                     set: { if !$0 { pendingDelete = nil } }),
-                                titleVisibility: .visible) {
-                Button("删除", role: .destructive) {
-                    if let a = pendingDelete { Task { await delete(a) } }
-                    pendingDelete = nil
+            // v4.0.102：删除二次确认 —— 从 confirmationDialog 改为**锚定浮层**（锚在被滑那一行；
+            // iPhone 上系统动作表固定从屏幕底部升起，锚不到行）
+            .overlay {
+                if let a = pendingDelete {
+                    AnchorMenuOverlay(
+                        anchorFrame: mailRowFrames[a.email] ?? .zero,
+                        items: [
+                            AnchorMenuItem(id: "del", title: "删除", icon: "trash",
+                                           color: .red, destructive: true),
+                            AnchorMenuItem(id: "cancel", title: "取消", icon: "xmark", color: .gray),
+                        ],
+                        title: "删除 \(a.email)？",
+                        message: "该邮箱的授权码会一并删除。",
+                        onPick: { item in
+                            pendingDelete = nil
+                            if item.id == "del" { Task { await delete(a) } }
+                        },
+                        onClose: { pendingDelete = nil }
+                    )
                 }
-                Button("取消", role: .cancel) { pendingDelete = nil }
             }
             .task { await load() }
         }
@@ -151,6 +165,11 @@ struct MailSettingsSheet: View {
             }
             ForEach(accounts) { a in
                 row(a)
+                    // v4.0.102：锚点采集 —— 删除确认浮层从**这一行**的位置长出
+                    //（按邮箱存字典：ForEach 里单变量只会留下最后布局的那一行）
+                    .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { rect in
+                        mailRowFrames[a.email] = rect
+                    }
             }
         }
     }

@@ -49,7 +49,7 @@ struct WeatherSheet: View {
             Button("取消", role: .cancel) {}
             Button("保存") { saveCity() }
         } message: {
-            Text("留空则用服务端默认城市（云端模式需填写城市）")
+            Text("留空则用服务端默认城市")   // v4.0.102：去掉「（云端模式需填写城市）」—— v3.9.28 云端直连已移除，该形态不存在了
         }
     }
 

@@ -243,8 +243,8 @@ ok(!slice(gsec, from: "private struct GoalExpandList", to: "private func goalCar
 ok(gsec.contains("onOpenDetail: { openDetail($0) }")
    && gsec.contains("GoalsDetailSheet(item: g, onDismiss: { glass.detail = nil })"),
    "#1 展开区里点一条目标仍能进详情 —— 步骤勾选入口没丢，只是换到展开区里进")
-ok(gsec.contains("confirmationDialog(\"清空全部目标？\"") && gsec.contains("private func openDetail("),
-   "#1 清空入口挪回栏目页根（二次确认 + 后端删 job 的语义没丢）")
+ok(gsec.contains("glass.confirmKind = .clearAll") && gsec.contains("private func openDetail("),
+   "#1 清空入口挪回栏目页根（浮层确认走页级宿主 + 后端删 job 的语义没丢）")
 
 // ── ③ 后端侧接线 ────────────────────────────────────────────────
 print("── ②③④⑤ 后端接线 ──")

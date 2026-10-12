@@ -1425,5 +1425,28 @@ ln=$(grep -n 'EnvironmentGlowLayers(scheme: colorScheme)' "$DT" | head -1 | cut 
 if [ -n "$ln" ]; then win=$(sed -n "${ln},$((ln+3))p" "$DT"); case "$win" in *allowsHitTesting\(false\)*) ;; \
   *) echo "❌ 回退⑱：垫底层(第 $ln 行起3行内)缺 allowsHitTesting(false)"; fail=1;; esac; fi
 
+echo "=== 93c. 全仓确认框收敛真值表（v4.0.102 · 用户 2026-10-12「方案 2：全改」）==="
+# 口径：iPhone 上 confirmationDialog 固定从屏幕底部升起、锚不到触发元素 → **危险/破坏性动作的确认**
+#   一律走 AnchorMenuOverlay 锚定浮层（「从哪点从哪弹」）；`.alert`（居中模态、非底部升起）按
+#   v4.0.76 口径**刻意保留**，不算残留。
+# 事故面：改造后若有人图省事把某处写回 confirmationDialog，会静默退化成「从底部升起」——
+#   没有编译错、没有运行日志、其它断言也全绿，人眼回归必漏，只能代码级钉。
+# 本表钉两件事：① live confirmationDialog 必须为 0（注释里的历史说明不算）② 浮层调用点不许被删空。
+cd_live=$(grep -rn 'confirmationDialog' qingliao/ --include=*.swift | grep -v ':[0-9]*:[[:space:]]*//' | wc -l | tr -d ' ')
+[ "$cd_live" -eq 0 ] \
+  || { echo "❌ 回退㊾：全仓不应再有 live confirmationDialog（破坏性确认应全走 AnchorMenuOverlay；.alert 口径外不算，实得 $cd_live）"; fail=1; }
+anchor_calls=$(grep -rn 'AnchorMenuOverlay(' qingliao/ --include=*.swift | grep -v ':[0-9]*:[[:space:]]*//' | wc -l | tr -d ' ')
+[ "$anchor_calls" -ge 19 ] \
+  || { echo "❌ 回退㊿：锚定浮层调用点数量异常（全仓应 ≥19 处，实得 $anchor_calls）"; fail=1; }
+
+echo "=== 94. 弹窗 zoom 配对真值表（v4.0.102 · 用户 2026-10-12「看板页有些卡片的弹窗没跟着卡片位置弹出，统一居中」）==="
+# 事故：连接器卡只挂了**目标侧** navigationTransition(.zoom(sourceID: DashboardSheet.connectorPanel.id…))，
+#   源侧漏挂 .matchedTransitionSource(id: DashboardSheet.connectorPanel.id…)。
+#   机制：zoom 靠「屏上有个视图挂着同名 id」定位起点；源缺失 / 源与目标 id 差一个字 / 命名空间混用，
+#   **都不报编译错、不打运行日志**，只是退化成普通弹出（从屏幕正中冒）—— 人眼回归必漏，只能代码级钉。
+# 本表钉三件事：① 目标↔源成对（缺一头即红）② 同一命名空间 ③ 含反向自证（源 id 改错必须判红）。
+python3 scripts/ql_zoom_pair/truth_table_zoom_pair.py 2>&1 | tee /tmp/tt_zoompair.log
+grep -q '✅ ALL PASS' /tmp/tt_zoompair.log || fail=1
+
 [ $fail -eq 0 ] || { echo "❌ 有护栏失守"; exit 1; }
 exit 0

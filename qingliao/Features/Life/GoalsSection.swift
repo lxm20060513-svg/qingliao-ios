@@ -54,7 +54,8 @@ struct GoalsSection: View {
     ///   内容那半句才是「全部目标里面的卡片」。
     @State private var goalsExpanded = false
     /// 「清空」二次确认（原挂在「全部目标」浮层内部；浮层入口撤掉后挪回本栏目，语义/文案不变）
-    @State private var confirmClearAll = false
+    // v4.0.102：confirmClearAll 这个 @State 已删 —— 确认浮层改走 GoalsGlassPresenter.confirmKind
+    //     （页级宿主渲染），不再需要本视图内的 Bool 开关。
 
     var body: some View {
         root
@@ -84,21 +85,10 @@ struct GoalsSection: View {
         //
         // v4.0.101：展开区里的「清空」（原在「全部目标」浮层顶栏）挪回本栏目 ——
         // 与待办卡同款：二次确认挂页根，破坏性动作 + 文案语义逐字不变（浮层已无入口）。
-        .confirmationDialog("清空全部目标？", isPresented: $confirmClearAll, titleVisibility: .visible) {
-            Button("清空", role: .destructive) {
-                // 🚨 清空前先把 id 收齐：removeAll 之后本地已空，
-                //    再想通知后端删 job 就拿不到 id 了（会留下每天还在推的孤儿 job）。
-                let ids = store.goals.map { $0.id }
-                withAnimation(Motion.settle) { _ = store.removeAll() }
-                // 与待办同口径：删空后展开态要复位，否则下次新增目标会「凭空已展开」
-                goalsExpanded = false
-                Task { for id in ids { await store.deleteOnBackend(goalID: id) } }
-                Haptics.success()
-            }
-            Button("取消", role: .cancel) {}
-        } message: {
-            Text("已删除的目标不会恢复，AI 也不会再每天推送它。")
-        }
+        // v4.0.102：「清空全部目标」的二次确认 —— 从 confirmationDialog 改为**页级锚定浮层**
+        //（用户 2026-10-12 报同款：系统动作表在 iPhone 上固定从屏幕底部升起，锚不到被点的胶囊）。
+        // 动作本体（先收 id 再删、通知后端删 job）挪到 GoalsGlassLayerHost 的浮层 onPick；
+        // 展开态复位已有本视图的 `.onChange(of: store.goals.isEmpty)` 兜底，不再在这里写。
         // 目标被删空（含详情浮层里删、长按删除）→ 收起展开态（同待办「清空后复位」口径）
         .onChange(of: store.goals.isEmpty) { _, isEmpty in
             if isEmpty { goalsExpanded = false }
@@ -210,7 +200,10 @@ struct GoalsSection: View {
                         items: store.sortedActiveFirst,
                         onOpenDetail: { openDetail($0) },
                         onDelete: { glass.pendingDelete = $0 },
-                        onClearAll: { confirmClearAll = true }
+                        onClearAll: { rect in
+                            glass.confirmAnchor = rect
+                            glass.confirmKind = .clearAll
+                        }
                     )
                 }
             }
@@ -298,6 +291,31 @@ struct GoalsGlassLayerHost: View {
                     .id(glass.addSession)
                 }
             }
+            // v4.0.102：「清空全部目标」的**锚定确认浮层**（锚在被点的「清空」胶囊上）。
+            // 挂在 ZStack 最上层 —— 与其它浮层同层，不会像栏目内浮层那样被别的 Section 盖住（v4.0.77 教训）。
+            if glass.confirmKind == .clearAll {
+                AnchorMenuOverlay(
+                    anchorFrame: glass.confirmAnchor,
+                    items: [
+                        AnchorMenuItem(id: "go", title: "清空", icon: "trash",
+                                       color: .red, destructive: true),
+                        AnchorMenuItem(id: "cancel", title: "取消", icon: "xmark", color: .gray),
+                    ],
+                    title: "清空全部目标？",
+                    message: "已删除的目标不会恢复，AI 也不会再每天推送它。",
+                    onPick: { item in
+                        glass.confirmKind = nil
+                        guard item.id == "go" else { return }
+                        // 🚨 清空前先把 id 收齐：removeAll 之后本地已空，
+                        //    再想通知后端删 job 就拿不到 id 了（会留下每天还在推的孤儿 job）。
+                        let ids = store.goals.map { $0.id }
+                        withAnimation(Motion.settle) { _ = store.removeAll() }
+                        Task { for id in ids { await store.deleteOnBackend(goalID: id) } }
+                        Haptics.success()
+                    },
+                    onClose: { glass.confirmKind = nil }
+                )
+            }
         }
         // 🚨 宿主销毁即清状态 —— 页面重建后不会「莫名又弹上次那个浮层」
         //（单例状态不随视图树消失；见 GoalsGlassPresenter.reset）
@@ -326,7 +344,10 @@ private struct GoalExpandList: View {
     let items: [GoalItem]
     let onOpenDetail: (GoalItem) -> Void
     let onDelete: (GoalItem) -> Void
-    let onClearAll: () -> Void
+    /// v4.0.102：回调带上**「清空」按钮的全局 frame** —— 确认浮层从这颗按钮的位置长出
+    ///（原走 confirmationDialog，iPhone 上系统固定从屏幕底部升起；栏目自己又挂不了浮层）
+    let onClearAll: (CGRect) -> Void
+    @State private var clearButtonFrame: CGRect = .zero
 
     var body: some View {
         VStack(spacing: 8) {
@@ -350,12 +371,14 @@ private struct GoalExpandList: View {
             // 原「全部目标」浮层顶栏那颗「清空」——浮层入口撤掉后挪到这（语义与二次确认不变；
             // 只剩一条目标时不显示：那一条用卡片长按菜单删，别给两个等价入口）
             if items.count > 1 {
-                Button(action: onClearAll) {
+                Button { onClearAll(clearButtonFrame) } label: {
                     Text("清空")
                         .font(.system(size: Typography.subhead))
                         .foregroundStyle(.secondary)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)
+                        // v4.0.102：锚点采集 —— 确认浮层从这颗按钮的位置长出
+                        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { clearButtonFrame = $0 }
                 }
                 .buttonStyle(PressStyle())
                 .pastelFill(cornerRadius: Radius.chip)
@@ -798,8 +821,11 @@ enum GoalTodoBridge {
 
 // MARK: - v4.0.97 目标圆环卡（v4.0.101 点卡 = 卡下逐条弹出目标卡）
 //
-// 卡本身 = 圆环（弧长 = 步骤完成比，环心百分比）+ x/y + 标题 + 开始时间；色用主题色
-//（accentColor，与 GoalRowCard 的进度条同色），染色强度真源 = GoalsSection.goalTint。
+// 卡本身 = 圆环（弧长 = 步骤完成比，环心百分比）+ x/y + 标题 + 开始时间。
+// v4.0.102（审查修订）：**色分层，两处刻意不同，别当漏改**——
+//   · 圆环 = 橙（目标栏目语义色；原来跟全局 accentColor，与习惯绿／记录 的环同屏相邻时糊成一片）
+//   · 行卡内进度条（GoalRowCard）= 主题色 accentColor（用户口径只点了「圆环」，未要求整卡换色）
+//   卡底染色强度真源 = GoalsSection.goalTint。
 // ⚠️「全部目标」浮层入口 = **已撤**（v4.0.101，用户真机「不是弹窗显示」）；点这张卡 =
 //    在卡下逐条弹出目标卡（`GoalExpandList`）。别再改回浮层，也别把 v4.0.99 那套
 //    「卡下弹步骤」拿回来 —— 展开区的内容口径 = 目标卡，不是步骤。
@@ -827,7 +853,10 @@ private struct GoalProgressRing: View {
                 // 线帽会把那段≈0 的路径画成一个 lineWidth 直径的圆点 —— 0%（明确「不染」的那个态）
                 // 环顶就多出一颗假点。零进度走空路径 + butt 线帽。
                 .trim(from: 0, to: min(1, max(0, progress)))
-                .stroke(Color.accentColor, style: StrokeStyle(lineWidth: lineWidth,
+                // v4.0.102（用户 2026-10-12）：「长期目标卡片圆环」改**橙色** —— 原来跟全局
+                // accentColor 走，与习惯（绿）／记录 的进度环同屏相邻时颜色糊在一起；橙也是
+                // 目标栏目自己的语义色（页级卡底那份 `Color.accentColor.opacity(tint)` 不动）。
+                .stroke(Color.orange, style: StrokeStyle(lineWidth: lineWidth,
                                                               lineCap: progress > 0 ? .round : .butt))
                 .rotationEffect(.degrees(-90))
             Text(percentText)
@@ -1024,7 +1053,9 @@ struct GoalRowCard: View {
         .frame(maxWidth: .infinity,
                minHeight: compact ? MemoCardMetrics.minHeight : nil,
                alignment: .leading)
-        .pastelCard()
+        // v4.0.102（用户 2026-10-12 真机截图圈定「微信公众号涨粉100」目标卡）：圆角 16(默认 Radius.card) → 22。
+        // 取 `Radius.hero`（= 22）而不是写字面量 —— 用户给的是精确值，而它正好落在既有令牌档上。
+        .pastelCard(cornerRadius: Radius.hero)
     }
 
     // MARK: v4.0.46：卡片步骤区只显示「当前进行中的那一步」

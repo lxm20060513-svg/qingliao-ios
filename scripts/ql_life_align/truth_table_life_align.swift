@@ -153,8 +153,8 @@ check("🚫 反向⑤：目标侧「全部目标」浮层入口/内容清零（�
 check("⑤ 目标展开区弹的是**目标卡**（GoalRowCard），不是步骤行",
       goalExpand.contains("GoalRowCard(goal: g, compact: false)")
       && !goalExpand.contains("toggleStep"))
-check("⑤ 目标展开区底部「清空」入口不丢（原浮层顶栏那颗，确认挂 GoalsSection 页根）",
-      goalExpand.contains("onClearAll") && goalsCode.contains("confirmationDialog(\"清空全部目标？\""))
+check("⑤ 目标展开区底部「清空」入口不丢（原浮层顶栏那颗，确认浮层走页级宿主 GoalsGlassLayerHost）",
+      goalExpand.contains("onClearAll") && goalsCode.contains("glass.confirmKind = .clearAll"))
 check("⑤ 步骤勾选入口不丢（展开区点一条目标 → 详情里仍是 store.toggleStep + 同步待办两步）",
       goalsCode.contains("onOpenDetail: { openDetail($0) }")
       && goalsCode.contains("store.toggleStep(goalID: g.id, stepID: s.id)")
@@ -253,6 +253,47 @@ check("🚫 反向⑥：三张详情浮层不许再自绘 SF Symbol 勾选圈（
       && !habitCode.contains("Image(systemName: store.isDone(current, on: today) ? \"checkmark.circle.fill\" : \"circle\")"))
 check("🚫 反向⑥：展开区行卡 / 浮层入口行不许用裸 onTapGesture（无按压反馈、读屏不当按钮）",
       !habitExpand.contains("onTapGesture") && !recordExpand.contains("onTapGesture"))
+
+// ── ⑥c 展开区行卡圆角 = 22（用户 2026-10-12 真机截图圈定的两张卡）────────────────
+// 原话：「画红线标注的两张卡片圆角改22」——截图上红线下划的是**展开区里的行卡**
+// （习惯栏目的「回国倒计时7天」行卡 + 长期目标栏目的「微信公众号涨粉100」卡），
+// 上面那张圆环统计卡（26，上一条⑥钉着）不在点名范围内，两档是**有意分叉**、别去「对齐」。
+// 行卡原来是默认 `.pastelCard()`（= Radius.card 16），与同栏目页卡 26 摆在一起弧度差得明显。
+// 用户给的是精确值 22，正好落在既有令牌 `Radius.hero` 上 → 取令牌、不写字面量。
+let habitRowCard = slice(habitCode, "struct HabitRowCard", "struct HabitAddBody")
+let goalRowCard = slice(goalsCode, "struct GoalRowCard", "extension GoalsSection")
+check("⑥c 两张行卡切片可取（端点名变了会静默变空，先钉一道）",
+      !habitRowCard.isEmpty && !goalRowCard.isEmpty
+      && habitRowCard.count > 200 && goalRowCard.count > 200)
+check("⑥c 习惯行卡 / 目标卡圆角都是 22（`.pastelCard(cornerRadius: Radius.hero)`）",
+      habitRowCard.contains(".pastelCard(cornerRadius: Radius.hero)")
+      && goalRowCard.contains(".pastelCard(cornerRadius: Radius.hero)"))
+check("🚫 反向⑥c：这两张卡不许退回默认 `.pastelCard()`（= 16，本轮用户点名的就是它）",
+      !habitRowCard.contains(".pastelCard()") && !goalRowCard.contains(".pastelCard()"))
+check("⑥c 圆角令牌真值 Radius.hero == 22（令牌被改这两张卡会跟着漂，用户点名要的就是这个数）",
+      src("qingliao/Theme/Radius.swift").contains("static let hero: CGFloat = 22"))
+
+// ── ⑦ 习惯页卡三行指标的图标改「彩色」（用户 2026-10-12 真机截图圈定）──────────────
+// 原话：「红圈中的图标改成彩色」—— 圈住的是习惯圆环卡右侧那三行（火焰 / 日历 / 柱状图）。
+// 原实现是 **灰底圆 + 灰符号**（`Color.primary.opacity(0.08)` + `.foregroundStyle(.secondary)`），
+// 改成语义实色底 + 白符号，口径与看板栏目头（`BoardCardStyle`）/ 设置页行首色块 /
+// 列表行 `BadgeShell` 一致（那几处都是实色底 + 白符号，不新造第二种彩色写法）。
+// ⚠️ `tint` 由**调用方**（页卡）给，组件内不再建第二份 icon→color 映射；三行取三种颜色
+// —— 三行同色等于又退回一片同色（同 `BoardCard.tint` 的「12 栏目取 12 色」口径）。
+let habitMetricRow = slice(habitCode, "struct HabitMetricRow", "struct HabitProgressCard")
+let habitProgressCard = slice(habitCode, "struct HabitProgressCard", "struct HabitRowCard")
+check("⑦ 三行指标 / 页卡切片可取（端点改名会静默变空，先钉一道）",
+      habitMetricRow.count > 200 && habitProgressCard.count > 200)
+check("⑦ 图标圆底吃传入色（`.fill(tint)`）、符号转白（`.foregroundStyle(.white)`）",
+      habitMetricRow.contains(".fill(tint)")
+      && habitMetricRow.contains(".foregroundStyle(.white)"))
+check("🚫 反向⑦：图标圆底不许退回灰底（`Color.primary.opacity(0.08)` = 用户点名的旧形态）",
+      !habitMetricRow.contains("Color.primary.opacity(0.08)"))
+check("⑦ 三行分别是 橙(火焰) / 蓝(日历) / 绿(柱状图)，且恰好三行（不多不少）",
+      habitProgressCard.contains("HabitMetricRow(icon: \"flame.fill\", tint: .orange,")
+      && habitProgressCard.contains("HabitMetricRow(icon: \"calendar\", tint: .blue,")
+      && habitProgressCard.contains("HabitMetricRow(icon: \"chart.bar.fill\", tint: .green,")
+      && countOf("HabitMetricRow(", in: habitProgressCard) == 3)
 
 print("生活页四卡对齐真值表：\(passCount) 通过 / \(failCount) 失败")
 exit(failCount == 0 ? 0 : 1)

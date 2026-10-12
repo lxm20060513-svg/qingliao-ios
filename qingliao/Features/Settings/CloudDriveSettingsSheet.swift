@@ -47,6 +47,9 @@ struct CloudDriveSettingsSheet: View {
     @State private var feedback: String?
     @State private var showAdd = false
     @State private var pendingDelete: CloudDriveItem?
+    /// v4.0.102：网盘行的全局 frame（按 id 存）—— 解绑确认浮层从**被滑那一行**的位置长出
+    /// （原走 confirmationDialog，iPhone 上系统固定从屏幕底部升起；按 id 存避免 ForEach 互相覆盖）
+    @State private var driveRowFrames: [String: CGRect] = [:]
     /// 点行进网盘文件浏览（设置 → 文件管理 之外的第二个浏览入口）
     @State private var browsingDrive: CloudDriveItem?
 
@@ -91,15 +94,26 @@ struct CloudDriveSettingsSheet: View {
                     .presentationDetents([.medium, .large])
                     .scrollContentBackground(.hidden)
             }
-            .confirmationDialog(removeDialogTitle,
-                                isPresented: Binding(get: { pendingDelete != nil },
-                                                     set: { if !$0 { pendingDelete = nil } }),
-                                titleVisibility: .visible) {
-                Button("解绑", role: .destructive) {
-                    if let d = pendingDelete { Task { await remove(d) } }
-                    pendingDelete = nil
+            // v4.0.102：解绑二次确认 —— 从 confirmationDialog 改为**锚定浮层**（锚在被滑那一行；
+            // iPhone 上系统动作表固定从屏幕底部升起，锚不到行）
+            .overlay {
+                if let d = pendingDelete {
+                    AnchorMenuOverlay(
+                        anchorFrame: driveRowFrames[d.id] ?? .zero,
+                        items: [
+                            AnchorMenuItem(id: "unbind", title: "解绑", icon: "trash",
+                                           color: .red, destructive: true),
+                            AnchorMenuItem(id: "cancel", title: "取消", icon: "xmark", color: .gray),
+                        ],
+                        title: removeDialogTitle,
+                        message: "解绑后需重新授权才能再访问该网盘。",
+                        onPick: { item in
+                            pendingDelete = nil
+                            if item.id == "unbind" { Task { await remove(d) } }
+                        },
+                        onClose: { pendingDelete = nil }
+                    )
                 }
-                Button("取消", role: .cancel) { pendingDelete = nil }
             }
             // 点行进网盘文件浏览（与新增表单入口互斥可达才安全；onDismiss 必须复位 item，
             // 否则某次 present 被别的弹层吞掉后 item 卡非 nil → 之后点行再也打不开浏览页）
@@ -125,6 +139,11 @@ struct CloudDriveSettingsSheet: View {
             }
             ForEach(drives) { d in
                 row(d)
+                    // v4.0.102：锚点采集 —— 解绑确认浮层从**这一行**的位置长出
+                    //（按 id 存字典：ForEach 里单变量只会留下最后布局的那一行）
+                    .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { rect in
+                        driveRowFrames[d.id] = rect
+                    }
             }
         }
     }
