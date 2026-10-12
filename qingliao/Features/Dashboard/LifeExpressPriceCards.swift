@@ -23,11 +23,17 @@ struct LifeExpressCardView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            LifeCardHeaderRow(icon: "shippingbox",
-                              title: card.title.isEmpty ? "快递" : card.title,
-                              countText: card.countText,
-                              flagText: flagText,
-                              flagColor: flagColor)
+            // v4.0.101（用户 2026-10-12 选 2️⃣「卡内那行『快递』撤掉，只留页级标题行」）：
+            // 页级标题行已经给了 shippingbox 图标 + 粗体「快递」，卡内**不再重复**这一遍；
+            // 但**件数胶囊与右侧状态小字留着** —— 那是页级没有的信息（去掉等于丢状态）。
+            // 两样都空时整行不渲染，免得在卡顶留一条空行把卡片撑高。
+            if !card.countText.isEmpty || !flagText.isEmpty {
+                LifeCardHeaderRow(icon: "",
+                                  title: "",
+                                  countText: card.countText,
+                                  flagText: flagText,
+                                  flagColor: flagColor)
+            }
             ForEach(card.packages) { p in
                 LifeExpressRow(pkg: p)
                 if p.id != card.packages.last?.id { Divider().opacity(0.4) }
@@ -115,6 +121,9 @@ struct LifeExpressRow: View {
 // MARK: 共用小件
 
 /// 卡片首行：图标 + 标题 + 计数胶囊 + 右侧状态小字
+/// ⚠️ `title` 传空串时**图标与标题一起不渲染**（v4.0.101：快递卡内不再重复页级标题，
+///    只留计数胶囊 + 状态小字；空串若照样渲染 `Image(systemName: "")`/`Text("")`，
+///    HStack 的 spacing 会把卡顶撑出一条空档）。
 struct LifeCardHeaderRow: View {
     let icon: String
     let title: String
@@ -124,12 +133,14 @@ struct LifeCardHeaderRow: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            Image(systemName: icon)
-                .font(.system(size: Typography.caption, weight: .semibold))
-                .foregroundStyle(.secondary)
-            Text(title)
-                .font(.system(size: Typography.body, weight: .bold))
-                .lineLimit(1)
+            if !title.isEmpty {
+                Image(systemName: icon)
+                    .font(.system(size: Typography.caption, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                Text(title)
+                    .font(.system(size: Typography.body, weight: .bold))
+                    .lineLimit(1)
+            }
             if !countText.isEmpty {
                 Text(countText).pill(.page, tone: .neutral)
             }

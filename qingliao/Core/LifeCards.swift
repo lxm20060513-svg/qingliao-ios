@@ -276,6 +276,10 @@ struct LifeCardsData {
     }
 
     /// v3.9.32：是否有快递真卡片（用于「一条生活卡片都没配」的判定）
+    /// ⚠️ 2026-10-12（v4.0.101 拆卡后审查）：**当前视图层已无消费者** —— 拆成三个 struct 后
+    /// 股票走 `hasContent`、快递走 `data.express != nil` / `placeholders`。这里保留是因为
+    /// `scripts/ql_life_noprice/guard_price_removed.py` 钉着它（防价格字段随快递数据偷偷回来，
+    /// 见第 7 节「hasLifeCards 只看 express」）。别把它当成「整块生活卡有无」的真源 —— 它只判快递。
     var hasLifeCards: Bool {
         express?.hasPackages ?? false
     }

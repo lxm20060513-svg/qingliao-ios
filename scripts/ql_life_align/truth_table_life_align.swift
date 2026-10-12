@@ -15,12 +15,13 @@
 //   · **③的坑**：三圈共用同一个 progress（待办只有一个完成度指标），但**底色轨必须各用自己的颜色**
 //     （统一灰 → 零进度时看不见「橙紫绿」三层，退化成一枚灰环）。外径仍是 70（与目标/习惯环同外径
 //     → 三张卡等高）；线宽 8→6 才塞得下三圈。
-//   · **⑤的口径**（v4.0.100 起**目标与习惯分叉**）：
-//     **长期目标** = 点卡**直接开「全部目标」浮层**（用户 2026-10-12「长期目标卡片点击直接弹出
-//     全部目标里面的卡片，不再弹出步骤卡片」）—— v4.0.99 那套卡下就地展开已退休，目标侧不再有展开区；
-//     **习惯** = 仍是就地展开，浮层入口在展开区底部那行「全部习惯」。
-//     ⚠️ 别拿目标侧去「对齐」习惯侧：这一处分叉是用户点名要的，不是漏改。
-//   · **⑥的落点**：三张卡展开区（待办 / 习惯 / 记录）的左右内缩 / 顶部间距逐字同值（10 / 8）；
+//   · **⑤的口径**（v4.0.101 起**目标与习惯又合流**，「不弹窗」这半句一直是用户点名要的）：
+//     **长期目标** = 点卡**在卡下逐条弹出目标卡**（用户 2026-10-12 真机「这个卡片不是弹窗显示，
+//     是点击长期目标任务卡时候从长期任务卡下方弹出，跟待办清单卡片弹出方式一样」）——
+//     「全部目标」浮层 v4.0.100 一度回潮，v4.0.101 撤掉；展开区内容是**目标卡**不是步骤行；
+//     **习惯** = 也是就地展开（浮层入口在展开区底部那行「全部习惯」，习惯侧没变）。
+//     ⚠️ 目标侧**别再开「全部目标」浮层**（用户真机点名「不是弹窗」），也别把展开内容换成步骤行。
+//   · **⑥的落点**：四处展开区（待办 / 目标 / 习惯 / 记录）的左右内缩 / 顶部间距逐字同值（10 / 8）；
 //     勾选圈只有 `LifeCheckCircle` 一个出口（谁在各自文件里再画一枚，两处会长得不一样，而且不报错）。
 //
 // 为什么值得钉：这些都是**静默**错 —— 点卡又变回弹浮层、底色轨退回灰、百分比环被删、
@@ -87,18 +88,20 @@ let goalsRoot = slice(goalsCode, "private var root: some View", "private func go
 let todoRing = slice(todoCode, "private struct TodoProgressRing", "private struct TodoCheckBox")
 let goalRing = slice(goalsCode, "private struct GoalProgressRing", "private struct GoalProgressCard")
 let habitRing = slice(habitCode, "private struct HabitProgressRing", "private struct HabitMetricRow")
-// v4.0.100：长期目标「卡下逐条弹出」整体退休（点卡直接开「全部目标」浮层）——
-// 该切片随 `goalExpandList` 一起删除；目标侧改由 `goalsCode` 级**反向断言**盯着（出现即红）。
+// v4.0.101：长期目标侧重新有「卡下逐条弹出」展开区（内容 = 目标卡，与待办同形态），
+// 切片回到本表监控范围；浮层形态（GoalsAllListBody / glass.showAll）改由 goalsCode 级反向断言盯着。
+let goalExpand = slice(goalsCode, "private struct GoalExpandList", "private func goalCardMenuItems")
 let habitExpand = slice(habitCode, "private func habitExpandList", "private func openAllHabits")
 let recordExpand = slice(recordCode, "private var recordCardExpandList", "private var categoryBreakdown")
 
 // ── ⓪ 切片自身收边正常（否则下面所有基于切片的断言都是假的）──────────────
-check("⓪ 切片收边正常：三处 root / 三个环 / 两处展开区（目标侧已无展开区）都取到了边界",
+check("⓪ 切片收边正常：三处 root / 三个环 / 四处展开区都取到了边界",
       !todoRoot.isEmpty && todoRoot.count < 2000
       && !goalsRoot.isEmpty && goalsRoot.count < 2000
       && !todoRing.isEmpty && todoRing.count < 2500
       && !goalRing.isEmpty && goalRing.count < 2500
       && !habitRing.isEmpty && habitRing.count < 2500
+      && !goalExpand.isEmpty && goalExpand.count < 3500
       && !habitExpand.isEmpty && habitExpand.count < 3500
       && !recordExpand.isEmpty && recordExpand.count < 5000)
 
@@ -139,16 +142,22 @@ check("④ 环心字号 18 粗体（与习惯环同一档，用户要「一样�
       goalRing.contains(".font(.system(size: 18, weight: .bold))")
       && habitRing.contains(".font(.system(size: 18, weight: .bold))"))
 
-// ── ⑤ 习惯 / 长期目标：点卡就地展开（不再弹浮层），浮层入口不丢 ──────────
-check("⑤ v4.0.100：长期目标点卡 = **直接开「全部目标」浮层**（用户「不再弹出步骤卡片」）",
-      goalsCode.contains("onTapCard: openAllGoals")
-      && goalsCode.contains("private func openAllGoals()")
-      && goalsCode.contains("glass.showAll = true"))
-check("🚫 反向⑤：卡下就地展开那套清零（expandedGoalID / toggleExpand / goalExpandList 三处一起）",
-      !goalsCode.contains("expandedGoalID") && !goalsCode.contains("toggleExpand")
-      && !goalsCode.contains("goalExpandList"))
-check("⑤ 步骤勾选入口不丢（浮层点一条目标 → 详情里仍是 store.toggleStep + 同步待办两步）",
-      goalsCode.contains("store.toggleStep(goalID: g.id, stepID: s.id)")
+// ── ⑤ 习惯 / 长期目标：点卡就地展开（不再弹浮层）────────────────────────
+check("⑤ v4.0.101：长期目标点卡 = **卡下逐条弹出目标卡**（用户真机「不是弹窗显示…跟待办清单卡片弹出方式一样」）",
+      goalsCode.contains("onTapCard: toggleExpand")
+      && goalsCode.contains("withAnimation(Motion.cardExpand) { goalsExpanded.toggle() }")
+      && goalsCode.contains("if goalsExpanded {"))
+check("🚫 反向⑤：目标侧「全部目标」浮层入口/内容清零（用户真机点名「不是弹窗」）",
+      !goalsCode.contains("openAllGoals") && !goalsCode.contains("glass.showAll = true")
+      && !goalsCode.contains("GoalsAllListBody"))
+check("⑤ 目标展开区弹的是**目标卡**（GoalRowCard），不是步骤行",
+      goalExpand.contains("GoalRowCard(goal: g, compact: false)")
+      && !goalExpand.contains("toggleStep"))
+check("⑤ 目标展开区底部「清空」入口不丢（原浮层顶栏那颗，确认挂 GoalsSection 页根）",
+      goalExpand.contains("onClearAll") && goalsCode.contains("confirmationDialog(\"清空全部目标？\""))
+check("⑤ 步骤勾选入口不丢（展开区点一条目标 → 详情里仍是 store.toggleStep + 同步待办两步）",
+      goalsCode.contains("onOpenDetail: { openDetail($0) }")
+      && goalsCode.contains("store.toggleStep(goalID: g.id, stepID: s.id)")
       && goalsCode.contains("GoalTodoBridge.syncStepDone(step: step, goal: goal)"))
 
 check("⑤ 习惯有就地展开态 @State（habitExpanded）",
@@ -162,9 +171,10 @@ check("⑤ 习惯展开区点行 = 打卡（复用 toggleHabit，不自己改 da
       habitExpand.contains("toggleHabit(h, today: today)"))
 check("⑤ 习惯浮层入口不丢（展开区底部「全部习惯」→ openAllHabits → glass.showAll = true）",
       habitExpand.contains("openAllHabits()") && habitCode.contains("glass.showAll = true"))
-check("⑤ 习惯 / 记录两张卡仍挂「删空复位展开态」（目标侧 v4.0.100 已无展开态，不在此列）",
+check("⑤ 习惯 / 目标 / 记录三张卡仍挂「删空复位展开态」（目标侧 v4.0.101 展开态回来了）",
       habitCode.contains("if empty { habitExpanded = false }")
-      && recordCode.contains("if empty { recordExpanded = false }"))
+      && recordCode.contains("if empty { recordExpanded = false }")
+      && goalsCode.contains("if isEmpty { goalsExpanded = false }"))
 
 // ── ① 记录卡面不再画「最近 1 条」────────────────────────────────────────────
 check("🚫 反向①：记录卡面不许再画「最近 1 条 / 还有 N 条」（用户 2026-10-12 点名去掉）",
@@ -176,12 +186,14 @@ check("① 展开区仍复用 RecordRowCard + 保留「全部记录」浮层入�
       recordExpand.contains("RecordRowCard(item: r)") && recordExpand.contains("glass.showAll = true"))
 
 // ── ⑥ 视觉对齐：展开区几何同值 + 勾选圈单一来源 ───────────────────────────
-check("⑥ 三处展开区（待办 / 习惯 / 记录）左右内缩 / 顶部间距逐字同值（10 / 8）",
+check("⑥ 四处展开区（待办 / 目标 / 习惯 / 记录）左右内缩 / 顶部间距逐字同值（10 / 8）",
       countOf(".padding(.horizontal, 10)\n        .padding(.top, 8)", in: todoCode) >= 1
+      && countOf(".padding(.horizontal, 10)\n        .padding(.top, 8)", in: goalsCode) >= 1
       && countOf(".padding(.horizontal, 10)\n        .padding(.top, 8)", in: habitCode) >= 1
       && countOf(".padding(.horizontal, 10)\n        .padding(.top, 8)", in: recordCode) >= 1)
-check("⑥ 两处展开区行距都是 8（VStack(alignment: .leading, spacing: 8)）",
-      habitExpand.contains("VStack(alignment: .leading, spacing: 8)")
+check("⑥ 展开区行距都是 8（待办/目标 VStack(spacing: 8)；习惯/记录 VStack(alignment: .leading, spacing: 8)）",
+      goalExpand.contains("VStack(spacing: 8)")
+      && habitExpand.contains("VStack(alignment: .leading, spacing: 8)")
       && recordExpand.contains("VStack(alignment: .leading, spacing: 8)"))
 check("⑥ 勾选圈只有一个出口 LifeCheckCircle（跨文件单一来源，收在 LifeSectionScaffold）",
       scaffold.contains("struct LifeCheckCircle: View")
@@ -221,9 +233,11 @@ check("🚫 反向⑥b：调用点一律不许再写死 size（三档混用就�
 // ── ⑤c 卡片「点一下弹开」曲线（用户 2026-10-12「点击弹开动画也再丝滑一点」）──
 // 四张生活卡展开走专用 cardExpand；**不能**靠把通用 settle 改慢来实现 ——
 // settle 同时驱动聊天流式气泡生长（ChatMessageBubble），慢下来流式文字读作卡顿。
-check("⑤c 卡片展开走专用曲线 Motion.cardExpand（生活页四卡 + 两处逐条错峰）",
-      [todoCode, habitCode, recordCode, memoCode].allSatisfy { $0.contains("Motion.cardExpand") }
-      && todoCode.contains("Motion.cardExpand.delay") && habitCode.contains("Motion.cardExpand.delay"))
+check("⑤c 卡片展开走专用曲线 Motion.cardExpand（生活页四卡 + 三处逐条错峰）",
+      [todoCode, goalsCode, habitCode, recordCode, memoCode].allSatisfy { $0.contains("Motion.cardExpand") }
+      && todoCode.contains("Motion.cardExpand.delay")
+      && goalsCode.contains("Motion.cardExpand.delay")
+      && habitCode.contains("Motion.cardExpand.delay"))
 check("🚫 反向⑤c：备忘卡不许退回通用 settle（v4.0.100 起四卡同一档；此前备忘卡漏在护栏外）",
       memoCode.contains("withAnimation(Motion.cardExpand) { memoExpanded.toggle() }")
       && !memoCode.contains("withAnimation(Motion.settle) { memoExpanded")

@@ -220,21 +220,31 @@ ok(gsec.contains("Text(\"\\(a) 个进行中 · \\(f) 个已完成\")") || gsec.c
 ok(!gsec.contains("GoalRowCard(goal: top, compact: true)\n            .buttonStyle"),
    "#1 主卡不是 Button 包裹（否则胶囊点不动）")
 // v4.0.97（用户 2026-10-11「长期目标卡片也按这个效果来做」）：主卡换成**圆环卡**。
-// v4.0.99（2026-10-12）一度改成「点卡就地展开步骤」；
-// v4.0.100（用户 2026-10-12「长期目标卡片点击直接弹出全部目标里面的卡片，不再弹出步骤卡片」）：
-// 口径**再翻转回**点卡直接进「全部目标」浮层 —— v4.0.99 那套就地展开（toggleExpand /
-// expandedGoalID / goalExpandList）整条作废，本表断言随之反向（旧形态一冒头就判红）。
+// v4.0.99（2026-10-12）一度改成「点卡就地展开**步骤**」；
+// v4.0.100（2026-10-12）一度翻回「点卡**直接开「全部目标」浮层**」；
+// v4.0.101（用户 2026-10-12 真机原话「这个卡片不是弹窗显示，是点击长期目标任务卡时候从长期任务卡
+// 下方弹出，跟待办清单卡片弹出方式一样」）：**卡下就地展开**（与待办清单卡同款），
+// 展开内容 = 全部目标那些**卡片**（不是步骤行、也不再开浮层）—— 本表定在这一版：
+// 浮层形态、步骤行形态谁冒头都判红。
 // 「卡内 Button 不许嵌套」这个老坑的断言（上一条）不变。
-ok(gsec.contains("GoalProgressCard(") && gsec.contains("onTapCard: openAllGoals"),
-   "#1 主卡 = 圆环卡，点它**直接开「全部目标」浮层**（v4.0.100 回到 v4.0.98 形态）")
-ok(!gsec.contains("expandedGoalID") && !gsec.contains("toggleExpand")
-   && !gsec.contains("goalExpandList"),
-   "🚫 反向：卡下就地展开那套清零（v4.0.99 形态已被用户 2026-10-12 推翻）")
-ok(gsec.contains("private func openAllGoals()") && gsec.contains("glass.showAll = true"),
-   "#1 浮层入口仍是「点卡」（openAllGoals → glass.showAll = true），别顺手删了")
-ok(gsec.contains("onOpenDetail: { openDetailFromAll($0) }")
+ok(gsec.contains("GoalProgressCard(") && gsec.contains("onTapCard: toggleExpand"),
+   "#1 主卡 = 圆环卡，点它 = **卡下就地展开**（v4.0.101，跟待办清单卡同款）")
+ok(gsec.contains("withAnimation(Motion.cardExpand) { goalsExpanded.toggle() }")
+   && gsec.contains("if goalsExpanded {"),
+   "#1 展开态 + 弹开曲线（与待办 toggleExpand 同一条 Motion.cardExpand）")
+ok(!gsec.contains("openAllGoals") && !gsec.contains("glass.showAll = true")
+   && !gsec.contains("GoalsAllListBody"),
+   "🚫 反向：「全部目标」浮层入口与内容清零（用户真机点名「不是弹窗显示」）")
+ok(gsec.contains("private struct GoalExpandList") && gsec.contains("GoalRowCard(goal: g, compact: false)"),
+   "#1 展开区逐条弹的是**目标卡**（原浮层那份列表搬来），不是步骤行")
+ok(!slice(gsec, from: "private struct GoalExpandList", to: "private func goalCardMenuItems")
+      .contains("toggleStep"),
+   "🚫 反向：展开区不许再变成步骤卡（v4.0.99 形态，用户 2026-10-12 已推翻）")
+ok(gsec.contains("onOpenDetail: { openDetail($0) }")
    && gsec.contains("GoalsDetailSheet(item: g, onDismiss: { glass.detail = nil })"),
-   "#1 浮层里点一条目标仍能进详情 —— 步骤勾选入口没丢，只是换到浮层里")
+   "#1 展开区里点一条目标仍能进详情 —— 步骤勾选入口没丢，只是换到展开区里进")
+ok(gsec.contains("confirmationDialog(\"清空全部目标？\"") && gsec.contains("private func openDetail("),
+   "#1 清空入口挪回栏目页根（二次确认 + 后端删 job 的语义没丢）")
 
 // ── ③ 后端侧接线 ────────────────────────────────────────────────
 print("── ②③④⑤ 后端接线 ──")

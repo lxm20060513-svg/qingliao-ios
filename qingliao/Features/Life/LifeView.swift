@@ -3,7 +3,9 @@ import SwiftUI
 // MARK: - 生活页（v3.6.2：原看板「生活数据」栏目整体迁入独立 tab）
 //
 // 内容 = 股票行情 + 博客/资讯 + 快递真卡片（v3.9.32；未配置时退化为引导小字），
-// 全部来自 LifeCardsSection（后端 /api/life/cards，配置页 LifeCardsSettingsView）。看板不再承载这部分。
+// v4.0.101 起三者**各自成板块**（LifeStocksSection / LifeRssSection / LifeExpressSection，
+// 见 Features/Dashboard/LifeCardsSection.swift），同吃一份后端 /api/life/cards
+//（配置页 LifeCardsSettingsView）。看板不再承载这部分。
 //
 // 数据加载照看板同款约定：
 //   · 独立异步 + 8s UI 兜底 + 失败降级为卡片内小字（不空白、不转圈卡住）
@@ -28,6 +30,8 @@ struct LifeView: View {
     // v3.9.85：板块自定义（排序 + 隐藏）——抄看板 dashboard_card_order 模式
     @AppStorage("life_section_order") private var sectionOrderRaw = ""
     @AppStorage("life_section_hidden") private var sectionHiddenRaw = ""
+    /// v4.0.101 一次性迁移标记（见 migrateLifeSplitOnce）
+    @AppStorage("life_section_split_migrated") private var lifeSplitMigrated = false
     @State private var showSectionEditor = false
     // v4.0.84 拍 1：入场开关。🚨 必须由本视图持有 —— 本视图不会被 LazyVStack 回收，
     // 行内 modifier 自己的 @State 会随行回收被重置 → 每次滚回来重放一遍入场（见 Theme/StaggerAppear.swift 头注）
@@ -39,7 +43,24 @@ struct LifeView: View {
         let saved = sectionOrderRaw.split(separator: ",")
             .compactMap { LifeSection(rawValue: String($0)) }
             .filter { seen.insert($0).inserted }
-        return saved + LifeSection.allCases.filter { !seen.contains($0) }
+        // v4.0.101：股票/资讯/快递是**同一次拆出来的三张卡**。老用户存的顺序串里只有拆前的
+        // rawValue（lifeCards），按 allCases 顺序把新 case 补到最末的话，资讯/快递会跑到
+        // 「定时任务」后面 —— 用户会以为「资讯和快递没了」。所以补位时贴着它们的同族邻居
+        // .lifeCards 放（rss → 其后一位，express → 再后一位），拆出来的三张始终相邻。
+        // 没存过顺序串（新装）走的就是 allCases 顺序，本来就连着，无需插入。
+        var merged = saved
+        for s in LifeSection.allCases where !seen.contains(s) {
+            guard let anchor = merged.firstIndex(of: .lifeCards) else {
+                merged.append(s)   // 连股票都没排进来（异常串）→ 退回原来的「补到末尾」
+                continue
+            }
+            switch s {
+            case .rss: merged.insert(s, at: anchor + 1)
+            case .express: merged.insert(s, at: min(anchor + 2, merged.count))
+            default: merged.append(s)
+            }
+        }
+        return merged
     }
     private var hiddenSections: Set<LifeSection> {
         Set(sectionHiddenRaw.split(separator: ",").compactMap { LifeSection(rawValue: String($0)) })
@@ -47,6 +68,24 @@ struct LifeView: View {
     private var visibleSections: [LifeSection] {
         let h = hiddenSections
         return orderedSections.filter { !h.contains($0) }
+    }
+
+    // v4.0.101（审查发现）：拆卡前 `.lifeCards` 一个 case = **整块「生活数据」**（行情+资讯+快递）。
+    // 老用户把它隐藏时 `life_section_hidden` 里只有 "lifeCards"；拆开后 .lifeCards 只代表股票，
+    // 于是「三样都不想看」的老意图只剩股票生效，资讯/快递升级后重新冒出来。
+    // 顺序串做了补位兜底（见 orderedSections），隐藏串这里补上同一件事。
+    // ⚠️ 用**一次性标记**而不是「读到 lifeCards 就补」：否则用户日后单独取消隐藏资讯/快递、
+    //    却仍留着股票隐藏时，每次冷启动又会被重新藏回去（这坑正是审查点出来的）。
+    // 折叠态**不迁移**：新板块默认展开属其自身默认状态，用户收一次即可（不是数据丢失）。
+    private func migrateLifeSplitOnce() {
+        guard !lifeSplitMigrated else { return }
+        lifeSplitMigrated = true
+        let hidden = Set(sectionHiddenRaw.split(separator: ",").map(String.init))
+        guard hidden.contains(LifeSection.lifeCards.rawValue) else { return }
+        let merged = hidden.union([LifeSection.rss.rawValue, LifeSection.express.rawValue])
+        // 按 allCases 顺序写回，保持串的可读性与既有的稳定排序口径
+        sectionHiddenRaw = LifeSection.allCases.map(\.rawValue).filter { merged.contains($0) }
+            .joined(separator: ",")
     }
     // v3.6.2：资讯展开态（同时只展开一条）+ 正文状态缓存
     @State private var expandedEntryID: String?
@@ -79,7 +118,10 @@ struct LifeView: View {
             // 原来 `await loadLife()` 是 queued=false，撞上 30s 轮询在途时直接 return，spin 一下什么也没发生。
             // v4.0.84 拍 1：一次性置真入场开关（本视图不被回收，所以只播一次；
             // 之后滚进视口才建出来的板块直接落终态，不重放、不延迟）
-            .onAppear { introReady = true }
+            .onAppear {
+                introReady = true
+                migrateLifeSplitOnce()   // v4.0.101：老用户隐藏串语义迁移（一次性，见该函数注释）
+            }
             .refreshable { await loadLife(fresh: true, queued: true) }
             // v4.0.61（试点页）：页头从 VStack 第一行改成挂在滚动视图上的系统 **safeAreaBar**（iOS 26 新 API：
             // 「把自定义栏交给系统按栏处理」）—— 滚动时内容在页头下沿走系统级模糊/渐隐，
@@ -115,13 +157,14 @@ struct LifeView: View {
 
     /// v4.0.84 拍 1 + 拍 2：板块行 = 入场错峰 + 滚动层次。
     ///
-    /// ⚠️ `.lifeCards` 故意**跳过**外层 `.scrollDepth()`：该板块内部逐卡已挂 scrollDepth
+    /// ⚠️ 股票 / 博客·资讯 / 快递三个板块（v4.0.101 拆开，见 LifeSection.skipsOuterScrollDepth）
+    /// 故意**跳过**外层 `.scrollDepth()`：它们内部逐卡已挂 scrollDepth
     ///（股票/资讯卡 LifeCardsSection、快递卡 LifeExpressPriceCards，与看板同款）。
     /// 同一滚动容器里叠两层 scrollTransition，缩放=0.965²≈0.931、不透明度=0.75²≈0.56 ——
     /// 比看板明显更缩更暗，恰好与「与看板对齐的滚动层次」的初衷相反（2026-10-09 发版前审查实测）。
     @ViewBuilder
     private func sectionRow(_ section: LifeSection, index: Int) -> some View {
-        if section == .lifeCards {
+        if section.skipsOuterScrollDepth {
             sectionBody(section)
                 .staggerAppear(index, ready: introReady)
         } else {
@@ -149,21 +192,31 @@ struct LifeView: View {
         case .goals: GoalsSection()   // v4.0.7：长期目标
         case .record: RecordSection()
         case .automations: AutomationsSection(isActive: isActive)
-        case .lifeCards: LifeCardsSection(data: life,
+        case .lifeCards: LifeStocksSection(data: life,
+                                           loading: lifeLoading,
+                                           error: lifeError,
+                                           onDeleteStock: { st in Task { await deleteStock(st) } },
+                                           onAddStock: { showLifeSettings = true },
+                                           // v4.0.69：queued: true = 在途也不丢点击（排队补发），
+                                           // 见 LifeView.loadLife 注释（用户报「刷新胶囊点击无法强制刷新」）
+                                           onRefresh: { Task { await loadLife(fresh: true, queued: true) } })
+        // v4.0.101（用户 2026-10-12「把股票，博客/资讯，快递单独拆开」）：资讯独立成一板块
+        case .rss: LifeRssSection(data: life,
+                                  loading: lifeLoading,
+                                  error: lifeError,
+                                  zoomNS: zoomNS,   // v3.9.0：非闭包实参必须在闭包实参之前（实参序红线）
+                                  expandedArticleID: expandedEntryID,
+                                  articleStates: articles,
+                                  onRefresh: { Task { await loadLife(fresh: true, queued: true) } },
+                                  onOpenArticle: { e in openArticle(e) },
+                                  onBigBang: { text, sourceID in
+                                      bigBangPayload = BigBangPayload(text: text, sourceID: sourceID)
+                                  })
+        // v4.0.101：快递独立成一板块（拆前跟着「股票」那颗折叠键一起收）
+        case .express: LifeExpressSection(data: life,
                                           loading: lifeLoading,
                                           error: lifeError,
-                                          zoomNS: zoomNS,   // v3.9.0：非闭包实参必须在闭包实参之前（实参序红线）
-                                          onDeleteStock: { st in Task { await deleteStock(st) } },
-                                          onAddStock: { showLifeSettings = true },
-                                          // v4.0.69：queued: true = 在途也不丢点击（排队补发），
-                                          // 见 LifeView.loadLife 注释（用户报「刷新胶囊点击无法强制刷新」）
-                                          onRefresh: { Task { await loadLife(fresh: true, queued: true) } },
-                                          articleStates: articles,
-                                          onOpenArticle: { e in openArticle(e) },
-                                          expandedArticleID: expandedEntryID,
-                                          onBigBang: { text, sourceID in
-                                              bigBangPayload = BigBangPayload(text: text, sourceID: sourceID)
-                                          })
+                                          onRefresh: { Task { await loadLife(fresh: true, queued: true) } })
         }
     }
 

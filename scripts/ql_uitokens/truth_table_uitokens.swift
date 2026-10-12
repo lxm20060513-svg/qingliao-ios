@@ -127,7 +127,9 @@ check("入场态由宿主持有：modifier 只收 ready，不许自持 @State + 
         && !stagger.contains(".onAppear { shown = true }"))
 check("宿主一次性置真 ready（LifeView 不被 LazyVStack 回收 → 只播一次）",
       src("qingliao/Features/Life/LifeView.swift").contains("@State private var introReady = false")
-        && src("qingliao/Features/Life/LifeView.swift").contains(".onAppear { introReady = true }"))
+        // v4.0.101：这里改成块形式（同一 onAppear 里多跑一次老用户隐藏串迁移 migrateLifeSplitOnce），
+        // 断言跟着放宽成「块里置真 introReady」，不然改码必假红
+        && src("qingliao/Features/Life/LifeView.swift").contains(".onAppear {\n                introReady = true"))
 check("入场动效走 Motion 令牌，不裸写时长曲线",
       stagger.contains("Motion.emerge") && !stagger.contains(".easeOut(") && !stagger.contains(".spring("))
 check("入场有减动效出口（reduceMotion → animation(nil)：状态变化瞬间到位 = composed still）",
@@ -143,8 +145,12 @@ check("生活页板块行挂了入场错峰 + 滚动层次（此前生活页 .sc
       lifeView.contains(".staggerAppear(index, ready: introReady)") && lifeView.contains(".scrollDepth()"))
 // 2026-10-09 审查：lifeCards 板块内部逐卡已挂 scrollDepth（与看板同款），外层再挂一层会叠两次
 // scrollTransition → 缩放 0.965²≈0.931、不透明度 0.75²≈0.56，比看板更缩更暗（与初衷相反）
-check("lifeCards 板块不叠两层 scrollDepth（外层跳过）",
-      squashPad(lifeView).contains("if section == .lifeCards {"))
+// v4.0.101（用户 2026-10-12「把股票，博客/资讯，快递单独拆开」）：该板块拆成三个平级板块
+//（股票/资讯/快递），跳过外层 scrollDepth 的判断收敛到 LifeSection.skipsOuterScrollDepth 单一出口
+check("股票/资讯/快递三个板块不叠两层 scrollDepth（外层跳过，判断收在 LifeSection.skipsOuterScrollDepth）",
+      squashPad(lifeView).contains("if section.skipsOuterScrollDepth {")
+        && squashPad(src("qingliao/Features/Life/LifeSection.swift"))
+            .contains("self == .lifeCards || self == .rss || self == .express"))
 // 🚨 2026-10-09 CI run #725 实踩（本机 `-parse` 全绿、只有 CI 报得出来）：
 //    把 sectionRow 插到 sectionBody 的 @ViewBuilder **之后** → 两个属性都挂到 sectionRow 上
 //    （`only one result builder attribute can be attached to a declaration`），
@@ -261,9 +267,14 @@ let secSrc = src("qingliao/Features/Life/LifeSection.swift")
 let needIcons = ["case .memo: return \"square.and.pencil\"", "case .todo: return \"checklist\"",
                  "case .habit: return \"checkmark.seal\"", "case .goals: return \"target\"",
                  "case .record: return \"sum\"", "case .automations: return \"clock.arrow.circlepath\"",
-                 "case .lifeCards: return \"chart.line.uptrend.xyaxis\""]
-check("LifeSection 七个板块 icon 映射齐全（标题行图标的单一真源）",
+                 "case .lifeCards: return \"chart.line.uptrend.xyaxis\"",
+                 // v4.0.101：股票/资讯/快递拆成三个平级板块，新增两个 case 的图标映射
+                 "case .rss: return \"newspaper\"", "case .express: return \"shippingbox\""]
+check("LifeSection 九个板块 icon 映射齐全（标题行图标的单一真源）",
       needIcons.allSatisfy { secSrc.contains($0) })
+check("LifeSection 九个板块 title 映射齐全（v4.0.101 拆板块：股票/博客·资讯/快递各占一个）",
+      ["case .lifeCards: return \"股票\"", "case .rss: return \"博客/资讯\"",
+       "case .express: return \"快递\""].allSatisfy { secSrc.contains($0) })
 check("LifeSection tint 映射只有一处（不许在调用点各写各的色）",
       secSrc.components(separatedBy: "var tint: Color").count - 1 == 1)
 // 上面那条只数 LifeSection.swift 本文件，防不住「调用点各写各的色」→ 逐调用点扫

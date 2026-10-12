@@ -9,7 +9,15 @@ enum LifeSection: String, CaseIterable, Identifiable {
     case goals       // v4.0.7 长期目标（AI 建目标 + cron 每天推进）
     case record      // 记录
     case automations // 定时任务
-    case lifeCards   // 生活数据（行情/资讯/快递/价格）
+    // v4.0.101（用户 2026-10-12「把股票，博客/资讯，快递单独拆开」）：
+    // 原来这三样挤在同一个 case（.lifeCards）里，共用一个标题行、一颗折叠键；
+    // 现在拆成三个平级 case —— 各自成板块，能单独排序 / 单独隐藏 / 单独折叠。
+    // ⚠️ `.lifeCards` 的 rawValue **故意不改名**：`life_section_order` / `life_section_hidden`
+    //    两个 AppStorage 串存的是 rawValue，改名会让老用户排好的位置和隐藏项失效；
+    //    它现在只承载「股票（行情）」那一段。
+    case lifeCards   // 股票（行情卡网格；原「生活数据」，v4.0.101 拆出资讯与快递）
+    case rss         // v4.0.101 博客/资讯（原 .lifeCards 里的资讯段）
+    case express     // v4.0.101 快递（原 .lifeCards 里的快递段）
 
     var id: String { rawValue }
 
@@ -21,13 +29,17 @@ enum LifeSection: String, CaseIterable, Identifiable {
         case .goals: return "长期目标"
         case .record: return "记录"
         case .automations: return "定时任务"
-        case .lifeCards: return "生活数据"
+        case .lifeCards: return "股票"
+        case .rss: return "博客/资讯"
+        case .express: return "快递"
         }
     }
 
     /// 页级标题行行首图标（v4.0.84 方案 B①）—— 标题行不再是一行裸文字，一眼能分辨板块。
     /// 符号刻意复用各板块**空态卡**的同一个符号（备忘/待办/习惯/目标/记录五处同源），
     /// 免得同一板块在标题行与空态卡上长两个符号。
+    /// v4.0.101：`rss` / `express` 两个新板块同理——符号取各自卡面用的那个
+    ///（资讯 newspaper；快递 shippingbox，见 LifeExpressCardView 的卡头）。
     var icon: String {
         switch self {
         case .memo: return "square.and.pencil"
@@ -37,6 +49,8 @@ enum LifeSection: String, CaseIterable, Identifiable {
         case .record: return "sum"
         case .automations: return "clock.arrow.circlepath"
         case .lifeCards: return "chart.line.uptrend.xyaxis"
+        case .rss: return "newspaper"
+        case .express: return "shippingbox"
         }
     }
 
@@ -50,7 +64,20 @@ enum LifeSection: String, CaseIterable, Identifiable {
         case .record: return .teal
         case .automations: return .indigo
         case .lifeCards: return .orange
+        case .rss: return .indigo   // v4.0.101：与拆前资讯标题行的图标底同色
+        case .express: return .brown
         }
+    }
+
+    /// v4.0.101：这一板块**内部有滚动层次**（股票格 `.scrollDepth()`、快递真卡
+    /// `LifeExpressCardView` 也挂了），所以 LifeView.sectionRow 的外层滚动层次要**跳过**它，
+    /// 否则同一滚动容器里叠两层 scrollTransition（缩放 0.965²≈0.931、不透明度 0.75²≈0.56），
+    /// 比看板明显更缩更暗。拆成三张卡后由本属性统一出口，别在三处各写一遍判断。
+    /// ⚠️ 事实核对（2026-10-12 审查）：资讯长卡 `rssCard` **没有**内部 `.scrollDepth()`
+    /// （拆前也没有，行为未变），别把本注释当成「三张卡都有」的真源；哪天要给资讯补层次，
+    /// 改的是 `rssCard` 而不是这里。
+    var skipsOuterScrollDepth: Bool {
+        self == .lifeCards || self == .rss || self == .express
     }
 }
 
@@ -126,7 +153,14 @@ struct LifeSectionEditorSheet: View {
 
     private func restore(_ s: LifeSection) {
         hiddenList.removeAll { $0 == s }
-        shown.append(s)
+        // v4.0.101（审查补）：恢复隐藏板块时也要贴着同族邻居放 —— orderedSections 的补位规则
+        // （新 case 必须紧邻 .lifeCards）在恢复路径上同样成立，否则用户看到的是
+        // 「资讯/快递从股票旁边消失、跑到定时任务下面」，同一个诉求两套口径。
+        if let i = shown.firstIndex(of: .lifeCards), s == .rss || s == .express {
+            shown.insert(s, at: min(i + (s == .express ? 2 : 1), shown.count))
+        } else {
+            shown.append(s)
+        }
         persist()
     }
 

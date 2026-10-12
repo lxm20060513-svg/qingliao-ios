@@ -16,12 +16,14 @@
 //   · 空态 = 可点引导卡（同几何，空 ↔ 有内容不跳变）
 //
 // 🚨 铁律：
-// · 三张弹窗（新建 / 全部目标 / 详情）v4.0.78 起是**页级毛玻璃浮层**（与备忘录 v4.0.77 同款），
+// · 两张弹窗（新建 / 详情）v4.0.78 起是**页级毛玻璃浮层**（与备忘录 v4.0.77 同款），
 //   不再挂在本 section 的 `.sheet` 上 —— 见文末 GoalsGlassPresenter / GoalsGlassLayerHost。
 //   用户原话（2026-10-08）：「待办清单、记录、长期目标、习惯卡片「也改为跟备忘录一样的全屏弹出」」
+//   ⚠️ v4.0.101：「全部目标」浮层已撤（点页卡改为卡下就地展开，见 GoalExpandList），
+//   本栏目只剩「新建 / 详情」两张浮层。
 // · 删除二次确认（LifeDeleteConfirm）必须与**它所在的浮层内容同宿主**：
-//   浮层内容里那份自带（GoalsAllListBody / GoalsDetailSheet 各一份），
-//   宿主页那份（页卡长按删除）保留在 GoalsSection.root —— 宿主级 alert 会被浮层压住看不见。
+//   浮层内容里那份自带（GoalsDetailSheet 一份），
+//   宿主页那份（页卡与展开区行长按删除）保留在 GoalsSection.root —— 宿主级 alert 会被浮层压住看不见。
 // · 浮层内容顶栏照备忘录口径：自绘 MiniCapsule（不用系统 toolbar）。
 // · MiniCapsule 是跨文件单一来源（LifeCapsule.swift），别在本文件另抄一份 private 版。
 //
@@ -39,15 +41,20 @@ struct GoalsSection: View {
     /// 列表一滚浮层跟着跑。全屏浮层必须挂在**页面根**、滚动区之外 → 见 GoalsGlassLayerHost。
     private var glass = GoalsGlassPresenter.shared
 
-    /// v4.0.100（用户 2026-10-12「长期目标卡片点击直接弹出全部目标里面的卡片，不再弹出步骤卡片」）：
-    /// 点页卡 = **直接开「全部目标」浮层**（回到 v4.0.98 那条入口），卡下**不再**逐条弹出步骤。
-    /// v4.0.99 那套就地展开（`expandedGoalID` / `toggleExpand` / `goalExpandList`）整条退休；
-    /// 步骤勾选没丢 —— 从浮层里点目标行 → 详情浮层 `GoalsDetailSheet` 做（那边勾一步仍是
-    /// `store.toggleStep` + `GoalTodoBridge.syncStepDone` 两步写库 + 同步待办）。
+    /// v4.0.101（用户 2026-10-12 真机纠正原话：「这个卡片不是弹窗显示，是点击长期目标任务卡时候
+    /// 从长期任务卡下方弹出，跟待办清单卡片弹出方式一样」）：
+    /// 点页卡 = **在卡下逐条弹出「全部目标」那些卡片**（`GoalExpandList`），**不再开「全部目标」浮层**；
+    /// 展开区里点一条 → 详情浮层 `GoalsDetailSheet`（步骤勾选仍走 `store.toggleStep` +
+    /// `GoalTodoBridge.syncStepDone`，功能没少，只是入口换了地方）。
     ///
-    /// ⚠️ 别再顺手把展开态加回来：v4.0.99 的展开区画的是「当前主目标」的步骤，而主目标是
-    /// `mainList.first` —— 勾掉它最后一步会让 `activeGoals` 重算、首位换人，展开区会**静默换内容**。
-    /// 真要就地展开必须绑 id（v4.0.99 那版做法），别用一个 Bool 顶上。
+    /// ⚠️ 口径翻转史（四翻，只认用户最近一次原话）：
+    ///   v4.0.98 浮层 → v4.0.99 卡下弹步骤 → v4.0.100 浮层（把「直接展开弹出全部目标里面的卡片」
+    ///   读成了「开浮层」）→ **v4.0.101 卡下弹「全部卡片」**（本次，用户真机点名「不是弹窗」）。
+    ///   别再翻回去：用户 ⑤ 号要求从 v4.0.99 起就是「不弹窗，跟待办清单一样的卡片展开显示」，
+    ///   内容那半句才是「全部目标里面的卡片」。
+    @State private var goalsExpanded = false
+    /// 「清空」二次确认（原挂在「全部目标」浮层内部；浮层入口撤掉后挪回本栏目，语义/文案不变）
+    @State private var confirmClearAll = false
 
     var body: some View {
         root
@@ -74,6 +81,28 @@ struct GoalsSection: View {
         // 那层环境光晕（它从本栏目最顶边起铺，玻璃标题行半透 → 主题色直接串到「长期目标」标题栏上）。
         // 染色只留在卡片自己内部（GoalProgressCard 里那层 `Color.accentColor.opacity(tint)` 圆角底）。
         // ⚠️ goalTint 仍是「完成度 → 染色强度」的单一真源（卡底那份照用，别删）。
+        //
+        // v4.0.101：展开区里的「清空」（原在「全部目标」浮层顶栏）挪回本栏目 ——
+        // 与待办卡同款：二次确认挂页根，破坏性动作 + 文案语义逐字不变（浮层已无入口）。
+        .confirmationDialog("清空全部目标？", isPresented: $confirmClearAll, titleVisibility: .visible) {
+            Button("清空", role: .destructive) {
+                // 🚨 清空前先把 id 收齐：removeAll 之后本地已空，
+                //    再想通知后端删 job 就拿不到 id 了（会留下每天还在推的孤儿 job）。
+                let ids = store.goals.map { $0.id }
+                withAnimation(Motion.settle) { _ = store.removeAll() }
+                // 与待办同口径：删空后展开态要复位，否则下次新增目标会「凭空已展开」
+                goalsExpanded = false
+                Task { for id in ids { await store.deleteOnBackend(goalID: id) } }
+                Haptics.success()
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("已删除的目标不会恢复，AI 也不会再每天推送它。")
+        }
+        // 目标被删空（含详情浮层里删、长按删除）→ 收起展开态（同待办「清空后复位」口径）
+        .onChange(of: store.goals.isEmpty) { _, isEmpty in
+            if isEmpty { goalsExpanded = false }
+        }
     }
 
     // v4.0.99：`goalTopTint`（栏目上方环境光晕的染色强度）随那层 `.background(alignment: .top)`
@@ -142,8 +171,8 @@ struct GoalsSection: View {
     /// 正文由 GoalsAddBody 自己的 @State 持有，靠 addSession 换实例保证每次空白
     ///（沿用备忘/待办「startAdd 自增会话序号」的惯例）。
     private func startAdd() {
-        // v4.0.78：开新建前先把其它浮层收干净（三层浮层互斥）
-        glass.showAll = false
+        // v4.0.78：开新建前先把其它浮层收干净（两层浮层互斥）
+        // v4.0.101：`showAll` 那条随「全部目标」浮层入口一起退休（本栏目已无该浮层）
         glass.detail = nil
         glass.addSession += 1
         glass.showAdd = true
@@ -158,34 +187,50 @@ struct GoalsSection: View {
 
     // MARK: 页面单卡 = 圆环卡（v4.0.97）
 
-    /// v4.0.100（用户 2026-10-12「长期目标卡片点击直接弹出全部目标里面的卡片，不再弹出步骤卡片」）：
-    /// 点这张卡 = **直接开「全部目标」浮层**（里面的列表就是各条目标的 `GoalRowCard`），
-    /// 卡下不再弹出步骤卡 —— 回到 v4.0.98 那条入口，v4.0.99 的 `toggleExpand` 已删。
+    /// v4.0.101（用户 2026-10-12 真机原话「不是弹窗显示，是点击长期目标任务卡时候从长期任务卡下方
+    /// 弹出，跟待办清单卡片弹出方式一样」）：点这张圆环卡 = **在卡下逐条弹出目标卡**
+    /// （`GoalExpandList`，内容 = 全部目标 = 原浮层里那份列表），**不再开「全部目标」浮层**。
+    /// 卡下弹的是**目标卡**、不是步骤卡（v4.0.99 那套弹步骤的形态仍在退役状态，别拿回来）。
     @ViewBuilder
     private var topCard: some View {
         if let top = mainList.first {
-            GoalProgressCard(
-                goal: top,
-                tint: goalTint(top),
-                onTapCard: openAllGoals
-            )
-            .contextMenu { goalMenuItems(top) }
-            .accessibilityLabel("长期目标，\(top.doneCount)/\(top.steps.count) 步，点一下看全部目标")
+            VStack(alignment: .leading, spacing: 0) {
+                GoalProgressCard(
+                    goal: top,
+                    tint: goalTint(top),
+                    onTapCard: toggleExpand
+                )
+                .contextMenu { goalMenuItems(top) }
+                .accessibilityLabel(goalsExpanded
+                                    ? "长期目标，已展开，点一下收起"
+                                    : "长期目标，共 \(store.goals.count) 个，点一下展开")
+
+                if goalsExpanded {
+                    GoalExpandList(
+                        items: store.sortedActiveFirst,
+                        onOpenDetail: { openDetail($0) },
+                        onDelete: { glass.pendingDelete = $0 },
+                        onClearAll: { confirmClearAll = true }
+                    )
+                }
+            }
         }
     }
 
-    /// 点圆环卡 = 直接开「全部目标」浮层（先收详情 —— 三层浮层互斥口径同其它入口）。
-    /// 卡下那行「全部目标 N 个 ›」入口随展开区一起退休，这里就是**唯一**的页卡入口。
-    private func openAllGoals() {
-        glass.detail = nil
-        glass.showAll = true
+    /// 点圆环卡（勾选行以外）：展开 / 收起 —— 逐条错峰弹出见 GoalExpandList
+    /// （曲线与待办 `TodoSection.toggleExpand` 同一枚 `Motion.cardExpand`）
+    private func toggleExpand() {
+        withAnimation(Motion.cardExpand) { goalsExpanded.toggle() }
         Haptics.tap()
     }
 
-    // v4.0.100：卡下逐条弹出的步骤区（原 `goalExpandList`）与它的勾步骤入口（原
-    // `toggleStep(_:_:)`）随点卡口径一起退休 —— 页面只剩「圆环卡 → 全部目标浮层」这一条入口
-    // （回到 v4.0.98 形态）。步骤勾选在浮层里：点目标行 → GoalsDetailSheet（那份里面是
-    // `store.toggleStep` + `GoalTodoBridge.syncStepDone`，功能没少，只是入口换了地方）。
+    /// 展开区里点一条目标 → 详情浮层（先收新建，三层浮层互斥口径同其它入口）。
+    /// v4.0.100 的 `openAllGoals` / `openDetailFromAll` 随浮层入口一起退休。
+    private func openDetail(_ g: GoalItem) {
+        glass.showAdd = false
+        glass.detail = g
+        Haptics.tap()
+    }
 
     // MARK: 卡片行
 
@@ -229,18 +274,8 @@ struct GoalsGlassLayerHost: View {
 
     var body: some View {
         ZStack {
-            if glass.showAll {
-                MemoGlassOverlay(isPresented: Binding(
-                    get: { glass.showAll },
-                    set: { if !$0 { glass.showAll = false } }
-                )) {
-                    GoalsAllListBody(
-                        store: store,
-                        onDone: { glass.showAll = false },
-                        onOpenDetail: { openDetailFromAll($0) }
-                    )
-                }
-            }
+            // v4.0.101：「全部目标」浮层分支随入口一起删除（点页卡改为卡下就地展开）。
+            // `LifeGlassPresenterBase.showAll` 仍留给习惯/记录/备忘用，目标侧不再读它。
             if let g = glass.detail {
                 MemoGlassOverlay(isPresented: Binding(
                     get: { glass.detail != nil },
@@ -275,19 +310,64 @@ struct GoalsGlassLayerHost: View {
     private func detailSheet(_ g: GoalItem) -> some View {
         GoalsDetailSheet(item: g, onDismiss: { glass.detail = nil })
     }
+}
 
-    /// 从列表点一条 → **同帧**换成详情浮层（v4.0.78：浮层硬切、无退场动画，原 500ms 缓冲只剩延迟，已删；
-    /// 旧注释「同帧切换会丢弹窗」是**系统 sheet 时代**的约束，浮层同 ZStack 层序不存在该问题）。
-    private func openDetailFromAll(_ g: GoalItem) {
-        // v4.0.78：同帧换状态（原 500ms 错峰为等系统 sheet 退场动画；浮层硬切无退场 →
-        // 延迟 + in-flight Task 窗口一起删，理由同 TodoSection.openDetailFromAll）
-        glass.showAll = false
-        glass.showAdd = false
-        glass.detail = g
+// MARK: - v4.0.101 目标卡下逐条弹出的展开区（与待办 `TodoExpandList` 同一形态）
+//
+// 用户 2026-10-12 真机原话：「这个卡片不是弹窗显示，是点击长期目标任务卡时候从长期任务卡下方
+// 弹出，跟待办清单卡片弹出方式一样」——即 **⑤「不弹窗，跟待办清单一样的卡片展开显示」** +
+// 「展开出来的是全部目标那些卡片」。
+//
+// 逐条错峰参数与 `TodoExpandList` 逐字同值（55ms / 位移 −14 / 缩 0.97 / 顶对齐），
+// 曲线同用 `Motion.cardExpand`（v4.0.100 用户点名「弹开动画丝滑一点」那一档）。
+// 内容 = `GoalRowCard(compact: false)`（原「全部目标」浮层里那份列表，逐字搬来）。
+// 底部「清空」= 原浮层顶栏那颗（二次确认已挪到 GoalsSection 页根）。
+private struct GoalExpandList: View {
+    let items: [GoalItem]
+    let onOpenDetail: (GoalItem) -> Void
+    let onDelete: (GoalItem) -> Void
+    let onClearAll: () -> Void
+
+    var body: some View {
+        VStack(spacing: 8) {
+            ForEach(Array(items.enumerated()), id: \.element.id) { idx, g in
+                // 🚨 不 Button 包 Button（卡内胶囊 v4.0.47 已撤进详情弹窗，链路保持不动）；
+                // 行卡走 Button + PressStyle（与待办展开区同款：有按压反馈、读屏读作按钮）
+                Button { onOpenDetail(g) } label: {
+                    GoalRowCard(goal: g, compact: false)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(PressStyle())
+                .contextMenu { goalCardMenuItems(g, onDelete: { onDelete($0) }) }
+                // 逐条错峰弹出：与待办展开区同参数（每条延迟 55ms）
+                .transition(.asymmetric(
+                    insertion: .offset(y: -14).combined(with: .opacity)
+                        .combined(with: .scale(scale: 0.97, anchor: .top)),
+                    removal: .opacity
+                ).animation(Motion.cardExpand.delay(Double(idx) * 0.055)))
+            }
+
+            // 原「全部目标」浮层顶栏那颗「清空」——浮层入口撤掉后挪到这（语义与二次确认不变；
+            // 只剩一条目标时不显示：那一条用卡片长按菜单删，别给两个等价入口）
+            if items.count > 1 {
+                Button(action: onClearAll) {
+                    Text("清空")
+                        .font(.system(size: Typography.subhead))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                }
+                .buttonStyle(PressStyle())
+                .pastelFill(cornerRadius: Radius.chip)
+                .padding(.top, 4)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.top, 8)
     }
 }
 
-// MARK: - v4.0.78 长按菜单项（宿主页卡 / 全部目标列表两处共用）
+// MARK: - v4.0.78 长按菜单项（宿主页卡 / 展开区行两处共用）
 
 /// ⚠️ 名字必须与 `GoalsSection.goalMenuItems` 区分（那个只是转发到本函数），否则会自己调自己。
 /// 🚨 **文件级函数默认非 MainActor 隔离**（只有 View 的成员才是）→ 本体里调 `Haptics` / `GoalStore`
@@ -310,86 +390,6 @@ private func goalCardMenuItems(_ g: GoalItem,
         onDelete(g)
     } label: {
         Label("删除", systemImage: "trash")
-    }
-}
-
-// MARK: - v4.0.78 「全部目标」浮层内容（原 allSheet 的 NavigationStack 内主体，逐字平移）
-//
-// 回调全部由宿主注入（浮层收起、开详情）：浮层是同 ZStack 层序，不再有 sheet present 竞争；
-// 清空确认 / 删除确认仍挂本主体内部（浮层盖在生活页上，宿主层 alert 会被浮层压住看不见 —— 与原 sheet 时代同理由）。
-
-struct GoalsAllListBody: View {
-    let store: GoalStore
-    let onDone: () -> Void
-    let onOpenDetail: (GoalItem) -> Void
-
-    /// 列表内长按删除的二次确认（挂浮层内容自己这棵树上）
-    @State private var pendingDeleteInList: GoalItem?
-    /// 「清空」二次确认（同上）
-    @State private var confirmClearAll = false
-
-    var body: some View {
-        VStack(spacing: 0) {
-            // 顶栏照备忘录浮层口径：自绘 MiniCapsule（不用系统 toolbar）；
-            // 按钮文案按「只改呈现层」一律不动（保留原「清空」/「完成」，不改成 取消/保存）。
-            HStack {
-                if !store.goals.isEmpty {
-                    MiniCapsule(title: "清空") { confirmClearAll = true }
-                }
-                Spacer()
-                MiniCapsule(title: "完成", accent: true) { onDone() }
-            }
-            .padding(.horizontal, Spacing.section)
-            .padding(.top, Spacing.xl)
-            .padding(.bottom, Spacing.xs)
-
-            List {
-                // v4.0.40（#4）：未完成优先，已完成沉底（用户要「已完成自己划掉」）
-                ForEach(store.sortedActiveFirst) { g in
-                    // 🚨 同上：不 Button 包 Button（卡内胶囊 v4.0.47 已撤进详情弹窗，链路保持不动）
-                    GoalRowCard(goal: g, compact: false)
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        // 🚨 先收列表、等它收起再开详情：交由宿主 openDetailFromAll 做 500ms 错峰
-                        onOpenDetail(g)
-                    }
-                    .contextMenu { goalCardMenuItems(g) { pendingDeleteInList = $0 } }
-                    .listRowInsets(EdgeInsets(top: 0, leading: Spacing.section, bottom: 8, trailing: Spacing.section))
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Color.clear)
-                }
-            }
-            .listStyle(.plain)
-            .scrollContentBackground(.hidden)
-            // 🚨 清空二次确认必须挂 List 上（宿主级 alert 被浮层盖住）
-            .alert("清空全部目标？", isPresented: $confirmClearAll) {
-                Button("清空", role: .destructive) {
-                    // 🚨 清空前先把 id 收齐：removeAll 之后本地已空，
-                    //    再想通知后端删 job 就拿不到 id 了（会留下每天还在推的孤儿 job）。
-                    let ids = store.goals.map { $0.id }
-                    _ = store.removeAll()
-                    onDone()
-                    Task { for id in ids { await store.deleteOnBackend(goalID: id) } }
-                    Haptics.success()
-                }
-                Button("取消", role: .cancel) {}
-            } message: {
-                Text("已删除的目标不会恢复，AI 也不会再每天推送它。")
-            }
-        }
-        // 浮层内容自带的删除二次确认（与浮层同宿主 —— 宿主级 alert 会被浮层压住）
-        .modifier(LifeDeleteConfirm(
-            title: "删除这个目标？",
-            pending: pendingDeleteInList,
-            onCancel: { pendingDeleteInList = nil },
-            onDelete: { g in
-                store.remove(g.id)
-                // 🚨 同步删后端目标 —— 后端会连带删掉它的 cron job，
-                //    否则明天早上还会推一个用户已经删掉的目标。
-                Task { await store.deleteOnBackend(goalID: g.id) }
-            },
-            message: { $0.title.prefix(40).description }
-        ))
     }
 }
 
@@ -796,12 +796,13 @@ enum GoalTodoBridge {
 
 // MARK: - 目标行卡片
 
-// MARK: - v4.0.97 目标圆环卡（v4.0.100 起点卡直接进「全部目标」浮层）
+// MARK: - v4.0.97 目标圆环卡（v4.0.101 点卡 = 卡下逐条弹出目标卡）
 //
 // 卡本身 = 圆环（弧长 = 步骤完成比，环心百分比）+ x/y + 标题 + 开始时间；色用主题色
 //（accentColor，与 GoalRowCard 的进度条同色），染色强度真源 = GoalsSection.goalTint。
-// ⚠️「全部目标」浮层入口 = **点这张卡**（v4.0.100 回到 v4.0.98 形态）——
-// 别再改回 v4.0.99 那套「卡下逐条弹出步骤」（用户 2026-10-12 已推翻）。
+// ⚠️「全部目标」浮层入口 = **已撤**（v4.0.101，用户真机「不是弹窗显示」）；点这张卡 =
+//    在卡下逐条弹出目标卡（`GoalExpandList`）。别再改回浮层，也别把 v4.0.99 那套
+//    「卡下弹步骤」拿回来 —— 展开区的内容口径 = 目标卡，不是步骤。
 
 /// 目标进度环（弧长随步骤完成比前进；v4.0.99 起环内显示完成百分比）
 ///
