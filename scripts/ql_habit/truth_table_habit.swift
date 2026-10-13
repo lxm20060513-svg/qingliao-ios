@@ -62,6 +62,8 @@ enum HabitTruthTable {
         sectionC_边界与曲线(cal)
         sectionD_反例()
         sectionE_源级接线()
+        sectionF_计量维度(cal)
+        sectionG_专注计时(cal)
         let total = positives + negatives
         let ratio = total == 0 ? 0 : Double(negatives) / Double(total)
         check("反例 ≥ 四分之一（正例 \(positives) / 反例 \(negatives) / 占比 \(Int(ratio * 100))%）",
@@ -351,9 +353,13 @@ enum HabitTruthTable {
         check("源级：点卡不再走裸 onTapGesture / 直接开浮层（openTop 口径已退役）",
               !sectionCode.contains(".onTapGesture { openTop("))
         positives += 1
+        // v4.0.104：展开区调用点多了尾部形参 onOpenFocus（专注计时入口）→ 断言改成
+        // 「有 checkAsButton: false 的 HabitRowCard 调用」+「展开区走 tapHabit 分流」，
+        // 免得以后每次加尾部形参都要改这条锚（断言钉的是形态，不是那一整行的逐字文本）。
         check("源级：展开区逐条复用 HabitRowCard（checkAsButton: false —— 整行已是 Button）",
               sectionCode.contains("private func habitExpandList(")
-              && sectionCode.contains("HabitRowCard(h: h, today: today, checkAsButton: false)"))
+              && sectionCode.contains("HabitRowCard(h: h, today: today, checkAsButton: false,")
+              && sectionCode.contains("tapHabit(h, today: today)"))
         positives += 1
         check("源级：展开区底部保留「全部习惯」浮层入口（openAllHabits → glass.showAll = true）",
               sectionCode.contains("private func openAllHabits()")
@@ -429,4 +435,236 @@ enum HabitTruthTable {
         check("源级：App 只 attach 一次 HabitStore（不重复挂）",
               appCode.components(separatedBy: "HabitStore.shared.attach").count == 2)
     }
+
+    // MARK: - F. 计量维度（v4.0.104 待做池⑫）
+
+    static func sectionF_计量维度(_ cal: Calendar) {
+        print("\n=== F. 计量维度（量/时长 · 老数据零迁移 · 不污染连续天数）===")
+        let today = date(2026, 10, 13, 12, 0, cal)
+
+        // ── 老数据零迁移：手写一份「只有 v4.0.46 字段」的 JSON（ISO8601 日期）真解码 ──
+        let legacyJSON = """
+        [{"id":"old-1","title":"旧习惯","createdAt":"2026-10-01T03:00:00Z",
+          "updatedAt":"2026-10-12T03:00:00Z","days":["2026-10-12"]}]
+        """
+        let dec = JSONDecoder()
+        dec.dateDecodingStrategy = .iso8601
+        let legacy = (try? dec.decode([HabitItem].self, from: Data(legacyJSON.utf8))) ?? []
+        positives += 1
+        check("迁移：旧 JSON（无 metric/target/unit/progress）能解码，条数 1", legacy.count == 1)
+        positives += 1
+        check("迁移：缺键回落 = 二值（metric nil / target nil / progress 空 / isMetric false）",
+              legacy.first?.metric == nil && legacy.first?.target == nil
+              && (legacy.first?.progress.isEmpty ?? false) && (legacy.first?.isMetric == false))
+        positives += 1
+        check("迁移：旧数据的打卡判定与打卡动作逐字不变",
+              HabitKit.isDone(legacy[0], on: date(2026, 10, 12, 12, 0, cal), calendar: cal)
+              && HabitKit.checkingIn(legacy[0], on: today, calendar: cal).days.contains("2026-10-13"))
+        negatives += 1
+        check("迁移反例：旧数据不被误判成计量（isMetric 必须 false）", legacy[0].isMetric == false)
+
+        // ── 计量习惯：达标才算完成；超额照实 ──
+        var water = HabitItem(title: "喝水", metric: .amount, target: 8, unit: "杯")
+        water = HabitKit.settingProgress(3, for: water, on: today, calendar: cal)
+        positives += 1
+        check("计量：3/8 未达标 → isDone false", !HabitKit.isDone(water, on: today, calendar: cal))
+        water = HabitKit.settingProgress(8, for: water, on: today, calendar: cal)
+        positives += 1
+        check("计量：到 8/8 → isDone true", HabitKit.isDone(water, on: today, calendar: cal))
+        water = HabitKit.settingProgress(9, for: water, on: today, calendar: cal)
+        positives += 1
+        check("计量：超额 9/8 仍算达标、进度比例封顶 1",
+              HabitKit.isDone(water, on: today, calendar: cal)
+              && HabitKit.progressFraction(water, on: today, calendar: cal) == 1)
+        positives += 1
+        check("计量：单一真源 —— 达标后 days 里不被冗余写（仍为空）", water.days.isEmpty)
+
+        // ── 未填目标 = 不是计量（防「永远判不成完成」静默污染统计）──
+        let noTarget = HabitItem(title: "半成品", metric: .amount, target: 0, unit: "次")
+        let halfBuilt = HabitItem(title: "没填目标", metric: .duration, target: nil)
+        negatives += 1
+        check("反例：metric 有但 target=0/nil → isMetric false（不参与达标判定）",
+              !noTarget.isMetric && !halfBuilt.isMetric)
+        negatives += 1
+        check("反例：二值习惯加量 = 无操作（不会被量维度改坏）",
+              HabitKit.adding(5, to: HabitItem(title: "跑步", days: []), on: today, calendar: cal).progress.isEmpty)
+        positives += 1
+        check("兜底：metric 有但目标无效 → 退回二值形态，打卡圈照常可用（不至于变成永远完不成的习惯）",
+              HabitKit.checkingIn(noTarget, on: today, calendar: cal).days.contains("2026-10-13"))
+
+        // ── 打卡圈对计量习惯无效（否则点一下就伪造达标）──
+        negatives += 1
+        check("反例：计量习惯 checkingIn 原样返回（不伪造达标、不写 days）",
+              HabitKit.checkingIn(water, on: today, calendar: cal).days.isEmpty)
+
+        // ── 加量 / 撤销 / 夹值 ──
+        var run = HabitItem(title: "阅读", metric: .amount, target: 30, unit: "页")
+        run = HabitKit.adding(10, to: run, on: today, calendar: cal)
+        run = HabitKit.adding(10, to: run, on: today, calendar: cal)
+        positives += 1
+        check("计量：累加 10+10 → 20/30，未达标", HabitKit.dayProgress(run, on: today, calendar: cal) == 20
+              && !HabitKit.isDone(run, on: today, calendar: cal))
+        run = HabitKit.adding(-50, to: run, on: today, calendar: cal)
+        positives += 1
+        check("计量：负加量夹到 0（不会出现负进度）",
+              HabitKit.dayProgress(run, on: today, calendar: cal) == 0)
+        run = HabitKit.undoing(run, on: today, calendar: cal)
+        negatives += 1
+        check("计量：undoing = 当天清零（而不是从 days 里删）", run.progress.isEmpty && run.days.isEmpty)
+
+        // ── 连续天数口径不被量维度污染（同一 isDone 判定，漏一天照旧归零）──
+        var streakHabit = HabitItem(title: "冥想", metric: .duration, target: 10, unit: "分钟")
+        for off in 1...3 {
+            if let d = cal.date(byAdding: .day, value: -off, to: today) {
+                streakHabit = HabitKit.settingProgress(10, for: streakHabit, on: d, calendar: cal)
+            }
+        }
+        positives += 1
+        check("口径：计量习惯今天未达标 → 连续天数从昨天数（3，不谎报）",
+              HabitKit.currentStreak(streakHabit, today: today, calendar: cal) == 3)
+        // 中间漏一天（前天只到 5/10 未达标）→ 连续区被打断
+        var gapHabit = streakHabit
+        if let d2 = cal.date(byAdding: .day, value: -2, to: today) {
+            gapHabit = HabitKit.settingProgress(5, for: gapHabit, on: d2, calendar: cal)
+        }
+        positives += 1
+        check("口径：计量习惯「量没到」= 当天未达标 → 连续天数归零（与二值同口径）",
+              HabitKit.currentStreak(gapHabit, today: today, calendar: cal) == 1)
+
+        // ── 页卡统计（原实现直读 days，计量习惯会被静默少算 —— 本轮收口）──
+        var mix = HabitItem(title: "二值习惯")
+        mix = HabitKit.checkingIn(mix, on: today, calendar: cal)
+        let metricDone = HabitKit.settingProgress(8, for: water, on: today, calendar: cal)
+        let stats = HabitKit.cardStats([mix, metricDone], today: today, days: 7, calendar: cal)
+        positives += 1
+        check("统计：二值 + 计量各达标 1 天 → done = 2（不是 1）", stats.done == 2)
+        positives += 1
+        check("统计：total 仍 = 习惯数 × 窗口天数", stats.total == 14)
+        // topTitle 必须用「累计达标天数」判：给计量习惯再补一天达标，它就该胜出
+        var water2 = metricDone
+        if let y = cal.date(byAdding: .day, value: -1, to: today) {
+            water2 = HabitKit.settingProgress(8, for: water2, on: y, calendar: cal)
+        }
+        let stats2 = HabitKit.cardStats([mix, water2], today: today, days: 7, calendar: cal)
+        positives += 1
+        check("统计：topTitle 用「累计达标天数」判（计量习惯 2 天 > 二值 1 天 → 它胜出）",
+              stats2.topTitle == "喝水")
+        positives += 1
+        check("统计：doneDayCount 计量 = 达标日数（不达标的日子不算）",
+              HabitKit.doneDayCount(metricDone) == 1 && HabitKit.doneDayCount(mix) == 1)
+
+        // ── 文案 / 数字去尾零 ──
+        let water3 = HabitKit.settingProgress(3, for: water, on: today, calendar: cal)
+        positives += 1
+        check("文案：3/8 杯", HabitKit.progressText(water3, on: today, calendar: cal) == "3/8 杯")
+        positives += 1
+        check("文案：达标 → 已完成", HabitKit.progressText(metricDone, on: today, calendar: cal) == "已完成")
+        positives += 1
+        check("文案：7.5 显示 7.5（不出现 7.5000 / 8.0 这种假精度）",
+              HabitKit.numberText(7.5) == "7.5" && HabitKit.numberText(8) == "8"
+              && HabitKit.numberText(0.25) == "0.25")
+        positives += 1
+        check("单位：duration 缺 unit 时回落「分钟」",
+              HabitItem(title: "专注", metric: .duration, target: 30).unitText == "分钟")
+        negatives += 1
+        check("反例：二值习惯 progressText 为空串（圈由视图画，不显示 0/0）",
+              HabitKit.progressText(mix, on: today, calendar: cal).isEmpty)
+
+        // ── 曲线点带 value（计量习惯能看到部分进度）──
+        var curve = HabitItem(title: "曲线", metric: .amount, target: 4, unit: "杯")
+        curve = HabitKit.settingProgress(1, for: curve, on: today, calendar: cal)
+        let pts = HabitKit.lastNDays(curve, days: 3, today: today, calendar: cal)
+        positives += 1
+        check("曲线：近 3 天升序、缺天 value = 0、今天 value = 0.25",
+              pts.count == 3 && pts[0].value == 0 && pts[2].value == 0.25)
+        negatives += 1
+        check("曲线反例：二值习惯的 value 只能是 0/1（不出现分数）",
+              HabitKit.lastNDays(mix, days: 3, today: today, calendar: cal).allSatisfy { $0.value == 0 || $0.value == 1 })
+
+        // ── 归日：计量进度也按本地日（23:59 与次日 00:01 分属两天）──
+        var edge = HabitItem(title: "跨日", metric: .amount, target: 2, unit: "次")
+        edge = HabitKit.settingProgress(1, for: edge,
+                                        on: date(2026, 10, 13, 23, 59, cal), calendar: cal)
+        edge = HabitKit.settingProgress(1, for: edge,
+                                        on: date(2026, 10, 14, 0, 1, cal), calendar: cal)
+        positives += 1
+        check("归日：计量进度按本地日切分（两天各 1，不并到一天）",
+              edge.progress.count == 2 && HabitKit.progressValue(edge, key: "2026-10-13") == 1
+              && HabitKit.progressValue(edge, key: "2026-10-14") == 1)
+    }
+
+    // MARK: - G. 专注计时（v4.0.104 待做池⑫ · 番茄钟）
+
+    static func sectionG_专注计时(_ cal: Calendar) {
+        print("\n=== G. 专注计时（剩余现算 · 归日=开始那天 · 记录整分钟）===")
+        let t0 = date(2026, 10, 13, 9, 0, cal)
+        let s = FocusSession(habitId: "h1", startedAt: t0, plannedMinutes: 25)
+
+        positives += 1
+        check("专注：结束时刻 = 开始 + 计划分钟", s.endsAt == t0.addingTimeInterval(25 * 60))
+        positives += 1
+        check("专注：刚开始时剩余 = 1500 秒", HabitKit.focusRemaining(s, now: t0) == 1500)
+        positives += 1
+        check("专注：不做逐秒累加 —— 同一会话隔 10 分钟问，剩余少 600 秒（切后台也不停表）",
+              HabitKit.focusRemaining(s, now: t0.addingTimeInterval(600)) == 900)
+        positives += 1
+        check("专注：剩余向上取整（剩 0.4s 显示 1 秒，不会 00:00 但没到点）",
+              HabitKit.focusRemaining(s, now: t0.addingTimeInterval(1499.6)) == 1)
+        positives += 1
+        check("专注：到点/超时剩余恒 0（不出现负倒计时）",
+              HabitKit.focusRemaining(s, now: s.endsAt) == 0
+              && HabitKit.focusRemaining(s, now: s.endsAt.addingTimeInterval(999)) == 0)
+
+        // ── 记录分钟数 ──
+        positives += 1
+        check("专注：到点 → 记计划分钟", HabitKit.focusRecordMinutes(s, now: s.endsAt) == 25)
+        positives += 1
+        check("专注：超时后才回来 → 仍只记计划分钟（不因挂后台多记）",
+              HabitKit.focusRecordMinutes(s, now: s.endsAt.addingTimeInterval(3600)) == 25)
+        positives += 1
+        check("专注：提前结束 → 记已过整分钟（3 分 30 秒 → 3）",
+              HabitKit.focusRecordMinutes(s, now: t0.addingTimeInterval(210)) == 3
+              && HabitKit.focusRecordMinutes(s, now: t0.addingTimeInterval(210)) == 3)
+        negatives += 1
+        check("专注反例：不到 1 分钟就退出 → 记 0（不许留下假进度）",
+              HabitKit.focusRecordMinutes(s, now: t0.addingTimeInterval(59)) == 0)
+        positives += 1
+        check("专注：已过分钟下取整（59 秒 = 0 分钟）",
+              HabitKit.focusElapsedMinutes(s, now: t0.addingTimeInterval(59)) == 0
+              && HabitKit.focusElapsedMinutes(s, now: t0.addingTimeInterval(60)) == 1)
+
+        // ── 归日 = 开始那一刻（跨零点不许劈成两天）──
+        let lateNight = FocusSession(habitId: "h1", startedAt: date(2026, 10, 13, 23, 50, cal),
+                                     plannedMinutes: 25)
+        positives += 1
+        check("归日：23:50 开始 25 分钟 → 记给 10-13（开始那天，不劈两天）",
+              HabitKit.focusDayKey(lateNight, calendar: cal) == "2026-10-13"
+              && lateNight.endsAt > date(2026, 10, 14, 0, 0, cal))
+        negatives += 1
+        check("归日反例：不许归到结束那天的日键",
+              HabitKit.focusDayKey(lateNight, calendar: cal) != "2026-10-14")
+
+        // ── 时钟文案 ──
+        positives += 1
+        check("文案：1499 → 24:59 / 0 → 00:00 / 3723 → 1:02:03",
+              HabitKit.focusClock(1499) == "24:59" && HabitKit.focusClock(0) == "00:00"
+              && HabitKit.focusClock(3723) == "1:02:03")
+        negatives += 1
+        check("文案反例：负数秒不崩、显示 00:00", HabitKit.focusClock(-5) == "00:00")
+        positives += 1
+        check("预设：标准番茄 25 在档位里且档位非空", HabitKit.focusPresets.contains(25)
+              && HabitKit.focusPresets.allSatisfy { $0 > 0 })
+
+        // ── 步长（点一下加多少）：必须 > 0，否则「点一下毫无反应」而表只钉数值会漏掉哑掉 ──
+        positives += 1
+        check("步长：量维度 1、时长维度 5，且都 > 0",
+              HabitKit.metricStep(HabitItem(title: "水", metric: .amount, target: 8)) == 1
+              && HabitKit.metricStep(HabitItem(title: "专注", metric: .duration, target: 25)) == 5)
+        negatives += 1
+        check("步长反例：任何形态的步长都不许为 0 / 负",
+              HabitKit.metricStep(HabitItem(title: "空")) > 0
+              && HabitKit.metricStep(HabitItem(title: "目标无效", metric: .amount, target: 0)) > 0)
+    }
+
+
 }

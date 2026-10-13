@@ -35,6 +35,9 @@ enum UserDefaultsKey {
     // v4.0.103 待做池 #5：聊天输入框草稿（sid -> 正文）。
     // 真源与唯一写入口 = Core/ChatDraftStore.swift；视图里不许自己拼这个键名。
     static let chatDrafts = "qingliao_chat_drafts"
+    // v4.0.104：进行中的专注计时会话（习惯番茄钟）。存的是 FocusSession 的 JSON Data
+    // （习惯 id + 开始时刻 + 计划分钟），剩余时间一律现算 —— 杀 App 也不丢进度。
+    static let focusSession = "qingliao_focus_session"
 }
 
 // MARK: - 聊天消息（content 可能是纯文本或数组，手动解析最稳）

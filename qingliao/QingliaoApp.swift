@@ -51,6 +51,25 @@ struct QingliaoApp: App {
                     RecordStore.shared.attach(auth: auth)   // v3.9.71：记录（NAS 双写）
                     GoalStore.shared.attach(auth: auth)     // v4.0.7：长期目标（NAS 双写）
                     HabitStore.shared.attach(auth: auth)    // v4.0.46：习惯打卡（NAS 双写）
+                    // v4.0.104：专注计时（番茄钟）落账 —— 记进对应习惯在**开始那天**的当日量。
+                    // 冷启动时若这一轮在杀 App 期间已经到点，attach 会立刻补账（不静默丢一次专注）。
+                    // 量本身仍由 HabitStore 写（单一写入口），本 store 只管会话与计时。
+                    FocusTimerStore.shared.attach { habitId, startedAt, minutes in
+                        guard let h = HabitStore.shared.habits.first(where: { $0.id == habitId })
+                        else { return }   // 习惯已被删 → 无处可记（只在没有落点时才放弃）
+                        if !(h.isMetric && h.metric == .duration) {
+                            // 专注期间用户把它退回二值/量维度 → 若直接 addAmount 会被 isMetric 判掉、
+                            // 这轮分钟**静默消失**。开始专注时 UI 已明示会设成时长习惯，这里把承诺兑现：
+                            // 补成时长维度（目标取本次分钟数），再把分钟记进开始那天。
+                            HabitStore.shared.updateMetric(h, metric: .duration,
+                                                           target: max(1, Double(minutes)), unit: "分钟")
+                            guard let refreshed = HabitStore.shared.habits.first(where: { $0.id == habitId })
+                            else { return }
+                            HabitStore.shared.addAmount(Double(minutes), to: refreshed, on: startedAt)
+                            return
+                        }
+                        HabitStore.shared.addAmount(Double(minutes), to: h, on: startedAt)
+                    }
                     InboxStore.shared.attach(auth: auth, chat: chat, stream: stream)
                     InboxStore.shared.startPolling()
                     // v3.1.5：启动自动加载上次会话消息（解决 App 重启后"忘记上下文"）
@@ -69,6 +88,9 @@ struct QingliaoApp: App {
                 }
                 // v2.0.61：App 进后台时持久化流式状态（杀后台可恢复）
                 .onChange(of: scenePhase) { _, phase in
+                    // v4.0.104：专注计时立刻对表 —— 挂起期间每秒节拍不跑，剩余时间由 now 现算纠正，
+                    // 并在「回来时早已到点」的情况下当场收尾落账（不靠后台任务续命）。
+                    FocusTimerStore.shared.refresh()
                     if phase == .background {
                         // v3.9.39 A1：标记必须写**流归属**的会话，不是当前显示的会话。
                         // 切会话不停流（既定设计：切回原会话时接回），所以「在 B 页把 App 划掉」时

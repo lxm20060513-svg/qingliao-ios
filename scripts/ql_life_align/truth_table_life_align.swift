@@ -167,8 +167,12 @@ check("⑤ 习惯点卡 = 就地展开（Button + toggleExpand + withAnimation(M
       && habitCode.contains("if habitExpanded {"))
 check("🚫 反向⑤：习惯点卡不许再走裸 onTapGesture / 直接开浮层",
       !habitCode.contains(".onTapGesture { openTop("))
-check("⑤ 习惯展开区点行 = 打卡（复用 toggleHabit，不自己改 days）",
-      habitExpand.contains("toggleHabit(h, today: today)"))
+// v4.0.104：展开区点行改走 tapHabit 分流（二值=打卡 / 计量=加一笔 / 专注中=回计时器）。
+// 原意必须保住：点行**不许自己拼数据**（days/progress 都不许出现），只能经 store + Kit 口径。
+check("⑤ 习惯展开区点行 = tapHabit 分流（二值仍复用 toggleHabit，不自己改 days）",
+      habitExpand.contains("tapHabit(h, today: today)")
+      && !habitExpand.contains(".days")
+      && !habitExpand.contains("progress["))
 check("⑤ 习惯浮层入口不丢（展开区底部「全部习惯」→ openAllHabits → glass.showAll = true）",
       habitExpand.contains("openAllHabits()") && habitCode.contains("glass.showAll = true"))
 check("⑤ 习惯 / 目标 / 记录三张卡仍挂「删空复位展开态」（目标侧 v4.0.101 展开态回来了）",

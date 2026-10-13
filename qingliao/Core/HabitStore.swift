@@ -102,6 +102,82 @@ final class HabitStore {
         return HabitKit.isDone(cur, on: day)
     }
 
+    // MARK: - 计量维度（v4.0.104 待做池⑫）
+
+    /// 新建计量习惯（量 / 时长）。target 必须 > 0，否则退回二值形态（与 isMetric 同一口径）。
+    /// 时长维度单位固定「分钟」，可接专注计时自动累计。
+    @discardableResult
+    func addMetric(title: String, metric: HabitMetric, target: Double, unit: String) -> Bool {
+        let text = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, target > 0 else { return false }
+        if let first = habits.first, first.title == text,
+           Date().timeIntervalSince(first.createdAt) < 300 {
+            return true
+        }
+        let u = metric == .duration ? "分钟" : unit.trimmingCharacters(in: .whitespacesAndNewlines)
+        habits.insert(HabitItem(title: text, updatedAt: Date(), metric: metric,
+                                target: target, unit: u), at: 0)
+        save()
+        return true
+    }
+
+    /// 改计量设置（目标 / 单位 / 维度）。也用于把二值习惯**升级**成计量（此时 target 必填）。
+    func updateMetric(_ item: HabitItem, metric: HabitMetric, target: Double, unit: String) {
+        guard target > 0, let idx = habits.firstIndex(where: { $0.id == item.id }) else { return }
+        let u = metric == .duration ? "分钟" : unit.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard habits[idx].metric != metric || habits[idx].target != target || habits[idx].unit != u
+        else { return }
+        habits[idx].metric = metric
+        habits[idx].target = target
+        habits[idx].unit = u
+        habits[idx].updatedAt = Date()
+        save()
+    }
+
+    /// 退回二值形态（metric = nil）。⚠️ **progress 保留不删**：万一用户点错还能改回来，
+    /// 数据本身不再参与判定（isMetric = false → isDone 回到 days 口径）。
+    func clearMetric(_ item: HabitItem) {
+        guard let idx = habits.firstIndex(where: { $0.id == item.id }) else { return }
+        guard habits[idx].metric != nil else { return }
+        habits[idx].metric = nil
+        habits[idx].target = nil
+        habits[idx].unit = nil
+        habits[idx].updatedAt = Date()
+        save()
+    }
+
+    /// 加量（可负）；返回是否真的变化了
+    @discardableResult
+    func addAmount(_ amount: Double, to item: HabitItem, on day: Date = Date()) -> Bool {
+        guard let idx = habits.firstIndex(where: { $0.id == item.id }) else { return false }
+        var next = HabitKit.adding(amount, to: habits[idx], on: day)
+        // ⚠️ updatedAt 必须是「此刻」而不是被写的那天（专注落账的 day = 会话开始时刻）：
+        //    同步合并按 updatedAt 取较新，用过去时刻会让本地刚记的量被远端旧快照盖掉。
+        next.updatedAt = Date()
+        guard next != habits[idx] else { return false }
+        habits[idx] = next
+        save()
+        return true
+    }
+
+    /// 直接设值（进度条拖动 / 详情页输入框）
+    @discardableResult
+    func setProgress(_ value: Double, for item: HabitItem, on day: Date = Date()) -> Bool {
+        guard let idx = habits.firstIndex(where: { $0.id == item.id }) else { return false }
+        var next = HabitKit.settingProgress(value, for: habits[idx], on: day)
+        next.updatedAt = Date()   // 同上：同步合并看 updatedAt，不能用过去时刻
+        guard next != habits[idx] else { return false }
+        habits[idx] = next
+        save()
+        return true
+    }
+
+    /// 以 store 里的**当前**副本为准取当日进度（视图传进来的可能是旧快照）
+    func progress(_ item: HabitItem, on day: Date = Date()) -> Double {
+        guard let cur = habits.first(where: { $0.id == item.id }) else { return 0 }
+        return HabitKit.dayProgress(cur, on: day)
+    }
+
     /// 今日已打卡个数（页级副标题用）
     var todayDoneCount: Int {
         let today = Date()
@@ -154,7 +230,11 @@ final class HabitStore {
         for h in remote { remoteByID[h.id] = h }
         let changed = merged.count != remote.count || merged.contains { h in
             guard let r = remoteByID[h.id] else { return true }
+            // ⚠️ 计量字段与 progress 必须一起比：只比 title/days 时，计量习惯的「只在本地记的量」
+            //    永远判成「没变化」→ 不写 NAS，下次拉取被旧快照盖掉（与当年 days 的坑同型）。
             return h.title != r.title || h.days != r.days
+                || h.metric != r.metric || h.target != r.target || h.unit != r.unit
+                || h.progress != r.progress
                 || Int(h.updatedAt.timeIntervalSince1970) != Int(r.updatedAt.timeIntervalSince1970)
         }
         habits = merged

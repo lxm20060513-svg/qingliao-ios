@@ -180,9 +180,10 @@ struct HabitSection: View {
         VStack(alignment: .leading, spacing: 8) {
             ForEach(Array(habits.enumerated()), id: \.element.id) { idx, h in
                 Button {
-                    toggleHabit(h, today: today)
+                    tapHabit(h, today: today)
                 } label: {
-                    HabitRowCard(h: h, today: today, checkAsButton: false)
+                    HabitRowCard(h: h, today: today, checkAsButton: false,
+                                 onOpenFocus: { FocusGlassPresenter.shared.open(habitId: h.id) })
                 }
                 .buttonStyle(PressStyle())
                 .contextMenu {
@@ -296,6 +297,16 @@ struct HabitGlassLayerHost: View {
                     HabitDetailSheet(item: h, onDismiss: { glass.detail = nil })
                 }
             }
+            // v4.0.104：专注计时浮层（第四层；与本文件其它三层同形 → 全屏毛玻璃）。
+            // 状态在 FocusGlassPresenter（本文件自己的页级单例），没去动共享的 LifeGlassPresenterBase。
+            if let fid = FocusGlassPresenter.shared.habitId {
+                MemoGlassOverlay(isPresented: Binding(
+                    get: { FocusGlassPresenter.shared.habitId != nil },
+                    set: { if !$0 { FocusGlassPresenter.shared.habitId = nil } }
+                )) {
+                    FocusTimerBody(habitId: fid, onClose: { FocusGlassPresenter.shared.close() })
+                }
+            }
             if glass.showAdd {
                 MemoGlassOverlay(isPresented: Binding(
                     get: { glass.showAdd },
@@ -312,7 +323,10 @@ struct HabitGlassLayerHost: View {
             }
         }
         // 🚨 宿主销毁即清状态 —— 页面重建后不会「莫名又弹上次那个浮层」（见 HabitGlassPresenter.reset）
-        .onDisappear { HabitGlassPresenter.shared.reset() }
+        .onDisappear {
+            HabitGlassPresenter.shared.reset()
+            FocusGlassPresenter.shared.reset()   // v4.0.104：专注计时浮层同理，别在页面重建后弹回来
+        }
         // 🚨 删除确认框**与浮层同宿主**：页卡那份原来挂在 HabitSection 的 root 上（生活页滚动区里的
         // LazyVStack 行），而行可能被 LazyVStack 回收 → 「点了删除没反应」。现在跟着浮层上收到本宿主
         // （页卡长按删除 → presenter.pendingDelete）。列表里那份由 HabitAllListBody 自带（见其内部
@@ -362,11 +376,22 @@ private struct HabitMenuItems: View {
     var showsDelete: Bool = true
 
     var body: some View {
-        Button {
-            toggleHabit(h, today: today)
-        } label: {
-            Label(HabitStore.shared.isDone(h, on: today) ? "取消今日打卡" : "今日打卡",
-                  systemImage: HabitStore.shared.isDone(h, on: today) ? "arrow.uturn.backward" : "checkmark.circle.fill")
+        if h.isMetric {
+            // v4.0.104：计量习惯走打卡是**空操作**（checkingIn 有 !isMetric 守卫）→ 菜单里换成加一笔，
+            // 否则菜单项点了毫无反馈、文案与行为不符。
+            Button {
+                if HabitStore.shared.addAmount(HabitKit.metricStep(h), to: h) { Haptics.light() }
+            } label: {
+                Label("加一笔（+\(HabitKit.numberText(HabitKit.metricStep(h)))\(h.unitText)）",
+                      systemImage: "plus.circle.fill")
+            }
+        } else {
+            Button {
+                toggleHabit(h, today: today)
+            } label: {
+                Label(HabitStore.shared.isDone(h, on: today) ? "取消今日打卡" : "今日打卡",
+                      systemImage: HabitStore.shared.isDone(h, on: today) ? "arrow.uturn.backward" : "checkmark.circle.fill")
+            }
         }
         Button {
             onView(h)
@@ -391,6 +416,23 @@ private func toggleHabit(_ h: HabitItem, today: Date) {
     } else if HabitStore.shared.checkIn(h) {
         Haptics.success()
     }
+}
+
+/// v4.0.104：点一行的**分流** —— 二值 = 打卡/取消（逐字不变）；计量 = 加一个步长（点一下记一笔，
+/// 与待办同构）；正在为它专注 = 回到计时器（否则展开区点「专注中」的行会把量又加一笔，人会懵）。
+@MainActor
+private func tapHabit(_ h: HabitItem, today: Date) {
+    if FocusTimerStore.shared.session?.habitId == h.id {
+        FocusGlassPresenter.shared.open(habitId: h.id)
+        return
+    }
+    if h.isMetric {
+        if HabitStore.shared.addAmount(HabitKit.metricStep(h), to: h, on: today) {
+            Haptics.light()
+        }
+        return
+    }
+    toggleHabit(h, today: today)
 }
 
 /// 「连续 N 天 · 今日已打卡 / 今天还没打卡」文案（原 HabitSection.streakText 逐字平移，文案不动）。
@@ -539,13 +581,18 @@ struct HabitRowCard: View {
     /// 抢点击/读屏重复；那边传 `false` → 勾选圈退成纯图形，动作由外层行 Button 承接。
     /// ⚠️ 新形参一律追加在尾部 + 给默认值（SwiftUI 实参序 = 声明序，仓内有 CI 护栏）。
     var checkAsButton: Bool = true
+    /// v4.0.104：点「专注中」胶囊 → 打开计时器浮层（行卡不自己持 presenter，由调用方给）。
+    /// ⚠️ 形参一律追加在尾部 + 给默认值（SwiftUI 实参序 = 声明序，仓内有 CI 护栏）。
+    var onOpenFocus: (() -> Void)? = nil
 
     /// 计算属性（非存储属性）→ 不进 memberwise init，也不触发「私有存储属性降级 init 访问级别」那条规则
     private var store: HabitStore { HabitStore.shared }
+    /// v4.0.104：专注计时（读它就能每秒刷新剩余时间的胶囊）
+    private var focus: FocusTimerStore { FocusTimerStore.shared }
 
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
-            checkCircle
+            leftSlot
             VStack(alignment: .leading, spacing: 5) {
                 Text(h.title)
                     .font(.system(size: Typography.body))
@@ -553,7 +600,8 @@ struct HabitRowCard: View {
                     .lineLimit(3)
                     .multilineTextAlignment(.leading)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                streakLine
+                if h.isMetric { metricLine } else { streakLine }
+                if focus.session?.habitId == h.id { focusChip }
             }
         }
         .padding(Spacing.section)
@@ -564,6 +612,99 @@ struct HabitRowCard: View {
         // 取 `Radius.hero`（= 22）而不是写字面量 —— 用户给的是精确值，而它正好落在既有令牌档上。
         .pastelCard(cornerRadius: Radius.hero)
         .contentShape(Rectangle())
+    }
+
+    /// v4.0.104：二值习惯 = 原勾选圈（行为逐字不变）；计量习惯 = 进度环（点行/点它都加一个步长）
+    @ViewBuilder
+    private var leftSlot: some View {
+        if h.isMetric { metricRing } else { checkCircle }
+    }
+
+    /// 计量进度环（小号；百分比取整，环内显示）。与页卡那只大环同语言，不再自造第二套形状语言。
+    private var metricRing: some View {
+        let frac = HabitKit.progressFraction(h, on: today)
+        let done = store.isDone(h, on: today)
+        return ZStack {
+            Circle().stroke(Color.secondary.opacity(0.18), lineWidth: 3)
+            if frac > 0 {
+                Circle()
+                    .trim(from: 0, to: min(1, frac))
+                    .stroke(done ? Color.green : Color.green.opacity(0.75),
+                            style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+            }
+            Text("\(Int((min(1, frac) * 100).rounded()))")
+                .font(.system(size: Typography.tiny, weight: .semibold))
+                .foregroundStyle(done ? Color.green : Color.secondary)
+        }
+        .frame(width: 30, height: 30)
+        .accessibilityLabel(HabitKit.progressText(h, on: today))
+    }
+
+    /// 计量行：进度文案 + 连续天数 + 细进度条；右侧加减只在「本行没被外层包成 Button」时给
+    /// （包成 Button 的那处，整行点击已经是「加一笔」，再塞内层按钮会和外层抢点击 —— 仓内既有口径）
+    private var metricLine: some View {
+        let done = store.isDone(h, on: today)
+        let s = HabitKit.currentStreak(h, today: today)
+        let text = s > 0
+            ? "\(HabitKit.progressText(h, on: today)) · 连续 \(s) 天"
+            : HabitKit.progressText(h, on: today)
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Image(systemName: "chart.bar.fill")
+                    .font(.system(size: Typography.tiny))
+                Text(text)
+                    .font(.system(size: Typography.tiny))
+                Spacer(minLength: 0)
+                if checkAsButton { stepButtons }
+            }
+            .foregroundStyle(done ? Color.orange : Color.secondary)
+            MetricProgressBar(fraction: HabitKit.progressFraction(h, on: today))
+        }
+    }
+
+    private var stepButtons: some View {
+        HStack(spacing: 12) {
+            Button {
+                adjust(-1)
+            } label: {
+                Image(systemName: "minus.circle").font(.system(size: 17))
+            }
+            .buttonStyle(.borderless)
+            .disabled(store.progress(h, on: today) <= 0)
+            .accessibilityLabel("减少")
+
+            Button {
+                adjust(1)
+            } label: {
+                Image(systemName: "plus.circle.fill").font(.system(size: 17))
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel("加一笔")
+        }
+        .foregroundStyle(Color.green)
+    }
+
+    private func adjust(_ sign: Double) {
+        if store.addAmount(HabitKit.metricStep(h) * sign, to: h, on: today) {
+            Haptics.light()
+        }
+    }
+
+    /// 正在专注的提示胶囊（每秒跟着 FocusTimerStore 现算的剩余时间刷新）
+    private var focusChip: some View {
+        HStack(spacing: 5) {
+            Image(systemName: "timer").font(.system(size: Typography.tiny))
+            Text("专注中 \(HabitKit.focusClock(focus.remaining))")
+                .font(.system(size: Typography.tiny, weight: .medium))
+        }
+        .foregroundStyle(Color.green)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(Color.green.opacity(0.12), in: Capsule())
+        .contentShape(Capsule())
+        .onTapGesture { onOpenFocus?() }
+        .accessibilityLabel("专注中，点击打开计时器")
     }
 
     @ViewBuilder
@@ -667,7 +808,8 @@ struct HabitAllListBody: View {
             .padding(.bottom, Spacing.md)
             List {
                 ForEach(store.sorted) { h in
-                    HabitRowCard(h: h, today: today)
+                    HabitRowCard(h: h, today: today,
+                                 onOpenFocus: { FocusGlassPresenter.shared.open(habitId: h.id) })
                         .onTapGesture { onOpenDetail(h) }
                         .contextMenu {
                             // 查看 → 走宿主 onOpenDetail（先收列表再开详情，与行点击同一条路）；
@@ -737,6 +879,11 @@ private struct HabitDetailSheet: View {
     @State private var today = Date()
     @State private var dayTicker = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
     @Environment(\.scenePhase) private var scenePhase
+    /// v4.0.104 计量设置的内联编辑器（不另开浮层：详情页里就地改，与「编辑标题」同款就地形态）
+    @State private var metricEditing = false
+    @State private var metricDraftKind: HabitMetric = .amount
+    @State private var metricDraftTarget = ""
+    @State private var metricDraftUnit = ""
 
     private var store = HabitStore.shared
 
@@ -773,6 +920,10 @@ private struct HabitDetailSheet: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 14) {
                         // 打卡大按钮 + 标题 + 连续/最长（核心交互前置到详情）
+                        // v4.0.104：计量习惯不走打卡按钮（点圈对它是空操作）→ 换成进度卡（含加减 / 专注入口）
+                        if current.isMetric {
+                            metricDetailCard
+                        } else {
                         Button {
                             toggleHabit(current, today: today)
                             refreshCurrent()
@@ -798,8 +949,11 @@ private struct HabitDetailSheet: View {
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(PressStyle())
+                        }
+                        metricSettingsBlock
+                        if !current.isMetric { binaryFocusEntry }
                         dayCurve(current)
-                        if !store.isDone(current, on: today) {
+                        if !current.isMetric && !store.isDone(current, on: today) {
                             Text("今天还没打卡 · 点上面的圆即可打卡")
                                 .font(.system(size: Typography.caption))
                                 .foregroundStyle(.tertiary)
@@ -816,6 +970,239 @@ private struct HabitDetailSheet: View {
         .onChange(of: scenePhase) { _, phase in
             if phase == .active, !Calendar.current.isDateInToday(today) { today = Date() }
         }
+        // v4.0.104：专注浮层是从详情页开的，关掉后必须刷新详情快照 —— 详情读的是 @State `current`，
+        // 不刷就会继续显示「专注前」的进度与连续天数（审查实测出的过期数据）。
+        .onChange(of: FocusGlassPresenter.shared.habitId) { _, fid in
+            if fid == nil { refreshCurrent() }
+        }
+    }
+
+    // MARK: v4.0.104 计量（量 / 时长）—— 详情页的进度卡 + 设置区
+
+    /// 计量习惯的详情进度卡（替掉打卡大按钮那一块；点一下 = 加一个步长）
+    private var metricDetailCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(current.title)
+                .font(.system(size: Typography.headline))
+                .multilineTextAlignment(.leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Text(detailStreakText(current))
+                .font(.system(size: Typography.caption))
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: 10) {
+                Text(HabitKit.progressText(current, on: today))
+                    .font(.system(size: Typography.subhead, weight: .medium))
+                MetricProgressBar(fraction: HabitKit.progressFraction(current, on: today))
+            }
+            HStack(spacing: 10) {
+                stepButton(sign: -1, icon: "minus.circle", label: "减少")
+                stepButton(sign: 1, icon: "plus.circle.fill", label: "加一笔")
+                Spacer(minLength: 0)
+                // v4.0.104：**量维度也能开专注**（原先把入口卡在 .duration 上，量维度摸不到番茄钟，
+                // 浮层里那段「自动升级为时长」也就成了死代码）。二值习惯的入口见 binaryFocusEntry。
+                Button {
+                    FocusGlassPresenter.shared.open(habitId: current.id)
+                } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: "timer").font(.system(size: Typography.tiny))
+                            Text("专注").font(.system(size: Typography.caption, weight: .medium))
+                        }
+                        .foregroundStyle(Color.green)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 7)
+                        .background(Color.green.opacity(0.12), in: Capsule())
+                        .contentShape(Capsule())
+                    }
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel("开始专注计时")
+            }
+        }
+        .padding(Spacing.xl)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .pastelCard()
+    }
+
+    /// v4.0.104：二值习惯的专注入口（计量习惯走进度卡里那个按钮）。
+    /// 任何习惯都能开番茄钟；二值/量维度开始前，浮层里已明示「开始后会把该习惯设成时长习惯」。
+    private var binaryFocusEntry: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "timer")
+                .font(.system(size: Typography.caption))
+                .foregroundStyle(Color.green)
+            Text("用番茄钟专注（开始后该习惯会设为时长习惯）")
+                .font(.system(size: Typography.caption))
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 0)
+            Button {
+                FocusGlassPresenter.shared.open(habitId: current.id)
+            } label: {
+                Text("专注")
+                    .font(.system(size: Typography.caption, weight: .medium))
+                    .foregroundStyle(Color.green)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 7)
+                    .background(Color.green.opacity(Tint.subtle), in: Capsule())
+                    .contentShape(Capsule())
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel("开始专注计时")
+        }
+        .padding(Spacing.xl)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .pastelCard()
+    }
+
+    private func stepButton(sign: Double, icon: String, label: String) -> some View {
+        Button {
+            if store.addAmount(HabitKit.metricStep(current) * sign, to: current, on: today) {
+                Haptics.light()
+                refreshCurrent()
+            }
+        } label: {
+            Image(systemName: icon).font(.system(size: 20))
+        }
+        .buttonStyle(.borderless)
+        .foregroundStyle(Color.green)
+        .disabled(sign < 0 && store.progress(current, on: today) <= 0)
+        .accessibilityLabel(label)
+    }
+
+    /// 计量设置区：显示当前维度与目标；可改目标 / 退回二值。二值习惯从这里的「设为可计量」升级。
+    private var metricSettingsBlock: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Text("计量")
+                    .font(.system(size: Typography.subhead, weight: .medium))
+                Spacer(minLength: 0)
+                Text(current.isMetric
+                     ? "\(current.metric == .duration ? "时长" : "量") · 目标 \(HabitKit.numberText(current.target ?? 0))\(current.unitText)"
+                     : "二值（只记打卡）")
+                    .font(.system(size: Typography.caption))
+                    .foregroundStyle(.secondary)
+            }
+            if metricEditing {
+                metricEditor
+            } else {
+                HStack(spacing: 10) {
+                    Button {
+                        beginMetricEditing()
+                    } label: {
+                        Text(current.metric == nil ? "设为可计量" : "改目标")
+                            .font(.system(size: Typography.caption, weight: .medium))
+                            .foregroundStyle(Color.accentColor)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 7)
+                            .background(Color.accentColor.opacity(0.12), in: Capsule())
+                            .contentShape(Capsule())
+                    }
+                    .buttonStyle(.borderless)
+                    if current.metric != nil {
+                        Button {
+                            store.clearMetric(current)
+                            refreshCurrent()
+                            Haptics.light()
+                        } label: {
+                            Text("退回二值")
+                                .font(.system(size: Typography.caption))
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 7)
+                                .background(Color.secondary.opacity(Tint.subtle), in: Capsule())
+                                .contentShape(Capsule())
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                }
+                if current.metric != nil {
+                    Text("换维度后，按另一种口径记过的历史不计入连续天数（数据不删，改回去就回来）。")
+                        .font(.system(size: Typography.tiny))
+                        .foregroundStyle(.tertiary)
+                }
+            }
+        }
+        .padding(Spacing.xl)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .pastelCard()
+    }
+
+    private var metricEditor: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Picker("维度", selection: $metricDraftKind) {
+                Text("量（杯/页/次…）").tag(HabitMetric.amount)
+                Text("时长（分钟）").tag(HabitMetric.duration)
+            }
+            .pickerStyle(.segmented)
+            HStack(spacing: 8) {
+                Text("目标")
+                    .font(.system(size: Typography.caption))
+                    .foregroundStyle(.secondary)
+                TextField("8", text: $metricDraftTarget)
+                    .keyboardType(.decimalPad)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(maxWidth: 90)
+                if metricDraftKind == .amount {
+                    TextField("单位（如 杯）", text: $metricDraftUnit)
+                        .textFieldStyle(.roundedBorder)
+                }
+            }
+            Text(metricDraftKind == .duration
+                 ? "时长维度的单位固定「分钟」，可在详情页点「专注」用番茄钟自动累计。"
+                 : "到「目标」才算当天达标（达标才计入连续天数）。")
+                .font(.system(size: Typography.tiny))
+                .foregroundStyle(.tertiary)
+            HStack(spacing: 10) {
+                Button {
+                    saveMetric()
+                } label: {
+                    Text("保存")
+                        .font(.system(size: Typography.caption, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 7)
+                        .background(metricDraftValid ? Color.green : Color.gray, in: Capsule())
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.borderless)
+                .disabled(!metricDraftValid)
+                Button {
+                    metricEditing = false
+                } label: {
+                    Text("取消")
+                        .font(.system(size: Typography.caption))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 7)
+                        .background(Color.secondary.opacity(Tint.subtle), in: Capsule())
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.borderless)
+            }
+        }
+        .padding(.top, 4)
+    }
+
+    private var metricDraftValid: Bool {
+        (Double(metricDraftTarget.replacingOccurrences(of: ",", with: ".")) ?? 0) > 0
+    }
+
+    private func beginMetricEditing() {
+        metricDraftKind = current.metric ?? .amount
+        if let t = current.target, t > 0 {
+            metricDraftTarget = HabitKit.numberText(t)
+        } else {
+            metricDraftTarget = current.metric == .duration ? "25" : "8"
+        }
+        metricDraftUnit = current.unit ?? ""
+        metricEditing = true
+    }
+
+    private func saveMetric() {
+        guard let v = Double(metricDraftTarget.replacingOccurrences(of: ",", with: ".")), v > 0 else { return }
+        store.updateMetric(current, metric: metricDraftKind, target: v, unit: metricDraftUnit)
+        refreshCurrent()
+        metricEditing = false
+        Haptics.success()
     }
 
     // MARK: 顶栏（自绘；口径照备忘录 MemoDetailSheet.topBar：小胶囊 + 居中标题）

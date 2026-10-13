@@ -1099,7 +1099,7 @@ strip_comments qingliao/Features/Life/RecordSection.swift | grep -q '\.sheet(isP
 strip_comments qingliao/Features/Life/RecordSection.swift | grep -q 'accessibilityLabel("数据报表")' \
   || { echo "❌ 报表入口缺可访问标签（待做池④）"; fail=1; }
 
-echo "=== 72. 习惯打卡真值表（v4.0.46 待做池 5 · 每天一次 + 不可补签 / 本地日归日 / 漏一天归零 / 曲线）==="
+echo "=== 72. 习惯打卡真值表（v4.0.46 待做池⑤ · v4.0.104 扩计量维度 · 每天一次 / 不可补签 / 本地日归日）==="
 # 口径（**用户 2026-10-04 在 App 选项卡拍板**，见台账待做池⑤）：每天一次 + **不可补签**，
 # 连续天数=连续自然日、漏一天归零；频次不做「每周 N 次」。
 # A–D 段**真编译真跑** qingliao/Core/HabitKit.swift（纯 Foundation，与实现同一份文件 →
@@ -1465,6 +1465,23 @@ cp scripts/ql_draft/keyconf.swift /tmp/ql_draft_main/keyconf.swift
 run_unit6 /tmp/test_ql_draft /tmp/ql_draft_main/main.swift /tmp/ql_draft_main/keyconf.swift \
     qingliao/Core/ChatDraftStore.swift
 run_unit6 /tmp/tt_draft scripts/ql_draft/truth_table_draft.swift
+
+echo "=== 96. 专注计时（番茄钟）真值表（v4.0.104 待做池⑫ · 剩余现算 / 杀 App 不丢 / 记录整分钟）==="
+# 口径（用户 2026-10-13 拍板开 #12：习惯支持「量/时长」+ 新增专注计时，专注时长记进当天习惯）。
+# 事故面：这功能的退化**全是静默的** —— 剩余改成逐秒递减（一挂起就停表，人眼只看到「回来还剩 12:30」）、
+#   会话不落盘（切后台被系统杀掉 → 这一轮白干）、归日挪到结束那天（23:50 那轮把时长劈给两天）、
+#   回调没接线时把「到点」那轮直接丢掉、提前结束按计划分钟记（没专注却记满）。
+#   以上编译过、-parse 过、其它 65+ 张表照旧全绿，只有装机后才发现，故钉死。
+# 分工：sectionA/B **真跑**生产源码 FocusTimerStore（会话持久化 / 挂起对表 / 到点落账 / 提前结束 /
+#   放弃不记 / 冷启动补账 / 垃圾数据不崩）；sectionC 用剥注释的源级断言钉 App 接线与 UI 入口形态。
+# ⚠️ 本机工具链的 libswiftObservation.so 有一个未解析符号（swift::threading::fatal 没被 libswiftCore
+#   导出）→ 直接编 @Observable 的类会**链接失败**。obs_shim.cpp 提供一个行为等价的实现（打印 + abort），
+#   只为让状态机能在本地真跑；iOS 侧走 Xcode 自带 runtime，不受影响（详见该文件顶部注释）。
+rm -f /tmp/ql_obs_shim.o
+g++ -c -O1 -o /tmp/ql_obs_shim.o scripts/ql_focus/obs_shim.cpp > /tmp/ql_obs_shim.log 2>&1 \
+  || { echo "❌ 第 96 段垫片编译失败（g++ 不可用？）"; tail -5 /tmp/ql_obs_shim.log; fail=1; }
+run_unit6 /tmp/tt_focus scripts/ql_focus/truth_table_focus.swift scripts/ql_focus/keyconf.swift \
+    qingliao/Core/HabitKit.swift qingliao/Core/FocusTimerStore.swift /tmp/ql_obs_shim.o
 
 [ $fail -eq 0 ] || { echo "❌ 有护栏失守"; exit 1; }
 exit 0
