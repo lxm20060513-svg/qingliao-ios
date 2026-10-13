@@ -289,9 +289,15 @@ if let f = try? String(contentsOfFile: repo + "/qingliao/Features/Settings/Setti
 // 依据：v4.0.52 实测设置页 body 仍 155 层（超告警线）—— 深度来自 9 个 section 属性被内联进
 // VStack 元组类型。AnyView 切断内联（静态页无性能顾虑），预期降到约 60 层。
 if let f = try? String(contentsOfFile: repo + "/qingliao/Features/Settings/SettingsCore.swift", encoding: .utf8) {
-    for w in ["petStudioBanner", "connectionSection", "dataSection", "agentSection", "aboutSection", "logoutButton",
-              "accountSection.id(\"sec-account\")", "aiSection.id(\"sec-ai\")", "appearanceSection.id(\"sec-appearance\")"] {
-        ok(f.contains("AnyView(" + w + ")"), "③⁵ 设置页 \(w) 已 AnyView 包裹（未包 = 类型内联进 VStack，深度回升 155 层）")
+    // v4.1.0 方案C：组改 FoldSection 承载（Agent 并入 AI、关于并入通用），守卫意图不变 ——
+    // body 顶层每个条目都必须被 AnyView 切断类型内联（防 4.0.47 启动栈溢出复发）
+    for w in ["AnyView(petStudioBanner)", "AnyView(logoutButton)",
+              "AnyView(accountSection.id(\"sec-account\")",
+              "AnyView(FoldSection(title: \"连接与模型\"", "AnyView(FoldSection(title: \"AI 与 Agent\"",
+              "AnyView(FoldSection(title: \"数据与工具\"", "AnyView(FoldSection(title: \"通用\"",
+              ".id(\"sec-ai\")", ".id(\"sec-appearance\")"] {
+        ok(f.contains(w),
+           "③⁵ 设置页 \(w) 已 AnyView 包裹（未包 = 类型内联进 VStack，深度回升 155 层）")
     }
 }
 print("  —— 类型栈深度真值表：\(pass) 通过 / \(fail) 失败")

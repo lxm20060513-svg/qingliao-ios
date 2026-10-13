@@ -305,21 +305,32 @@ struct PasswordSheet: View {
 
 struct SectionHeader: View {
     let title: String
-    init(_ title: String) { self.title = title }
+    var count: Int? = nil   // v4.1.0 方案C降噪：组标题升页级大标题 + 右侧「N 项」
+    init(_ title: String, count: Int? = nil) {
+        self.title = title
+        self.count = count
+    }
     var body: some View {
-        Text(title)
-            .font(.system(size: Typography.subhead, weight: .semibold))
-            .foregroundStyle(.tertiary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, Spacing.sheetInset)
-            .padding(.top, Spacing.xxl)
-            .padding(.bottom, Spacing.xs)
+        HStack(spacing: Spacing.sm) {
+            Text(title)
+                .font(.system(size: Typography.title, weight: .bold))
+                .foregroundStyle(.primary)
+            if let count {
+                Text("\(count) 项")
+                    .font(.system(size: Typography.caption, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, Spacing.sheetInset)
+        .padding(.top, Spacing.xxl)
+        .padding(.bottom, Spacing.xs)
     }
 }
 
 struct SettingRow: View {
     let icon: String
-    let iconColor: Color
+    let iconColor: Color   // 已废弃（v4.1.0 mono 口径）：不再上色，保留参数兼容旧调用
     let title: String
     var value: String? = nil
     var chevron: Bool = false
@@ -328,11 +339,12 @@ struct SettingRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
+            // v4.1.0 方案C降噪：9 色图标统一 accent 淡底单色（iconColor 参数保留兼容旧调用，不再上色）
             Image(systemName: icon)
                 .font(.system(size: Typography.subhead, weight: .semibold))
-                .foregroundStyle(.white)
+                .foregroundStyle(Color.accentColor)
                 .frame(width: 28, height: 28)
-                .background(iconColor, in: RoundedRectangle(cornerRadius: Radius.icon, style: .continuous))
+                .background(Color.accentColor.opacity(Tint.subtle), in: RoundedRectangle(cornerRadius: Radius.icon, style: .continuous))
             Text(title)
                 .font(.system(size: Typography.body))
                 .foregroundStyle(.primary)
@@ -360,6 +372,44 @@ struct SettingRow: View {
         // v4.0.68：这行原来是 Color(uiColor: .secondarySystemGroupedBackground)（纯白面），
         // 压在已彩化的外层 pastelCard 上就是用户报的那块「白底」→ 行底交给外层卡片，不再自己涂料。
         .contentShape(Rectangle())
+    }
+}
+
+// v4.1.0 方案C收纳：折叠分组 —— 折叠时一行摘要卡（组名 + N 项 + chevron），展开时 = SectionHeader + 内容。
+// 每组展开状态由宿主 @AppStorage 记忆（默认只展开「账号与安全」）。
+struct FoldSection<Content: View>: View {
+    let title: String
+    var count: Int
+    @Binding var isFolded: Bool
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        if isFolded {
+            Button {
+                withAnimation(Motion.snap) { isFolded = false }
+            } label: {
+                HStack(spacing: Spacing.sm) {
+                    Text(title)
+                        .font(.system(size: Typography.body, weight: .semibold))
+                        .foregroundStyle(.primary)
+                    Spacer(minLength: Spacing.md)
+                    Text("\(count) 项")
+                        .font(.system(size: Typography.subhead))
+                        .foregroundStyle(.tertiary)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: Typography.caption, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                }
+                .padding(.horizontal, Spacing.xxl)
+                .padding(.vertical, Spacing.lg)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .pastelCard()
+        } else {
+            SectionHeader(title, count: count)
+            content()
+        }
     }
 }
 

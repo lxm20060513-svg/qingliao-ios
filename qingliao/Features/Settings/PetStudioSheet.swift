@@ -26,7 +26,7 @@ struct PetStudioSheet: View {
     // v4.0.6：常态表情 + 行为动作勾选集
     @AppStorage(PetKeys.face) private var petFace: PetFace = .calm
     @AppStorage(PetKeys.quirks) private var quirksRaw: String = ""
-    /// v4.0.69（用户 2026-10-07）：「聊天页宠物」开关**从设置页「外观与显示」搬进本页**（用户：跟形象相关的
+    /// v4.0.69（用户 2026-10-07）：「聊天页宠物」开关**从设置页「通用」（改名前「外观与显示」）搬进本页**（用户：跟形象相关的
     /// 设置收进 AI 形象）。键不变（PetKeys.headerVisible，单一真源）→ 聊天页 header 立刻跟着变；
     /// key 不存在 = 开（老用户升级后行为不变）。
     @AppStorage(PetKeys.headerVisible) private var headerOn = true
@@ -149,7 +149,7 @@ struct PetStudioSheet: View {
                         .foregroundStyle(.secondary)
                 }
 
-                // MARK: 聊天页显示（v4.0.69：从设置页「外观与显示」搬来 —— 用户 2026-10-07 要求放这儿）
+                // MARK: 聊天页显示（v4.0.69：从设置页「通用」，时名「外观与显示」，搬来 —— 用户 2026-10-07 要求放这儿）
                 Section {
                     Toggle("聊天页宠物", isOn: $headerOn)
                         .qingliaoSwitch(hideLabel: false)

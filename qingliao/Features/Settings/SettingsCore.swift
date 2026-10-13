@@ -149,6 +149,13 @@ struct SettingsView: View {
     // v4.0.22：设置页搜索（顶部搜索框 + 结果区；索引见 Core/SettingsSearchIndex.swift）
     @State var settingsQuery = ""
     @State var searchScrollTarget: String?   // 结果里「滚到分组看」的锚点（sec-account / sec-ai / sec-appearance）
+    // v4.1.0 方案C收纳：分组折叠状态（@AppStorage 记忆上次选择；默认只展开「账号与安全」）。
+    // key 豁免 UserDefaultsKey 常量表：纯视图私有 UI 态（单点读写、无跨文件共享），非功能配置。
+    @AppStorage("settings.fold.conn") var connFolded = true
+    @AppStorage("settings.fold.aiagent") var aiAgentFolded = true
+    @AppStorage("settings.fold.data") var dataFolded = true
+    @AppStorage("settings.fold.general") var generalFolded = true
+    @State var showTSRoutingParams = false   // 智能路由「判定模式与参数」二级页
     @AppStorage(PetKeys.style) var petStyle: PetStyle = .liquid
     @AppStorage(PetKeys.face) var petFace: PetFace = .calm
     @Environment(\.colorScheme) private var colorSchemeEnv   // v4.0.67：环境渐变页底深浅自适应
@@ -168,17 +175,25 @@ struct SettingsView: View {
                         // v4.0.6：卡通宠物大头像（设置页顶部，点进去自定义）
                         AnyView(petStudioBanner)
                         AnyView(accountSection.id("sec-account"))
-                        AnyView(connectionSection)
-                        AnyView(aiSection.id("sec-ai"))
-                        AnyView(dataSection)
-                        AnyView(agentSection)
-                        AnyView(appearanceSection.id("sec-appearance"))
-                        AnyView(aboutSection)
+                        // v4.1.0 方案C收纳：除账号外全部折叠成摘要行；8 组重排 5 组
+                        AnyView(FoldSection(title: "连接与模型", count: localModelOn ? 10 : 9, isFolded: $connFolded) { connectionSection })
+                        AnyView(FoldSection(title: "AI 与 Agent", count: 12, isFolded: $aiAgentFolded) { aiSection }.id("sec-ai"))
+                        AnyView(FoldSection(title: "数据与工具", count: 10, isFolded: $dataFolded) { dataSection })
+                        AnyView(FoldSection(title: "通用", count: 7, isFolded: $generalFolded) { appearanceSection }.id("sec-appearance"))
                         AnyView(logoutButton)
                     }
                     .onChange(of: searchScrollTarget) { _, target in
                         guard let target else { return }
-                        withAnimation(Motion.snap) { proxy.scrollTo(target, anchor: .top) }
+                        // v4.1.0：分组默认折叠后，搜索命中要先展开目标组，滚过去才不是一行摘要
+                        // 展开与滚动放同一动画事务：展开有过渡，scrollTo 在同一次布局提交里解析新高度
+                        withAnimation(Motion.snap) {
+                            switch target {
+                            case "sec-ai": aiAgentFolded = false
+                            case "sec-appearance": generalFolded = false
+                            default: break
+                            }
+                            proxy.scrollTo(target, anchor: .top)
+                        }
                         searchScrollTarget = nil
                     }
                     .padding(.horizontal, Spacing.xxl)
@@ -349,6 +364,10 @@ struct SettingsView: View {
     // 按既有治理手法拆组：新 sheet 下沉到 settingsCold10。
     private func settingsCold10() -> some View {
         Color.clear
+        // v4.1.0（方案C）：智能路由「判定模式与参数」二级页（行为型修饰器下沉背景层口径）
+        .sheet(isPresented: $showTSRoutingParams) {
+            tsRoutingParamsSheet
+        }
         // v4.0.104 待做池 #11：剪贴板历史（只在你主动读取时记录 / 只存本机）
         .sheet(isPresented: $showClipboardHistory) {
             ClipboardHistorySheet()
@@ -513,7 +532,7 @@ struct SettingsView: View {
 extension SettingsView {
 
     @ViewBuilder var accountSection: some View {
-        SectionHeader("账号与安全")
+        SectionHeader("账号与安全", count: 4)
         VStack(spacing: 0) {
             SettingRow(icon: "person.crop.circle.fill", iconColor: .blue, title: auth.username, value: "已登录")
             Divider().padding(.leading, Spacing.rowDividerInset)
@@ -544,12 +563,12 @@ extension SettingsView {
     }
 
     @ViewBuilder var connectionSection: some View {
-        SectionHeader("连接与模型")
+        // v4.1.0：组头由 FoldSection 统一渲染（折叠 = 一行摘要 / 展开 = 大标题 + N 项）
         VStack(spacing: 0) {
             SettingRow(icon: "globe.asia.australia.fill", iconColor: .green, title: "连接设置", chevron: true)
                 .tapButton { showConnSettings = true }
             Divider().padding(.leading, Spacing.rowDividerInset)
-            // v4.0.15：后端一键更新（落后自动挂橙点提示；详见 BackendUpdate.swift）
+            // v4.0.15：后端一键更新（落后提示靠行尾 value 文字；v4.1.0 mono 后 iconColor 不再上色。详见 BackendUpdate.swift）
             BackendUpdateRow()
             Divider().padding(.leading, Spacing.rowDividerInset)
             SettingRow(icon: "cpu.fill", iconColor: .orange, title: "模型管理", value: currentModel, chevron: true)
@@ -587,9 +606,9 @@ extension SettingsView {
         HStack(spacing: 12) {
             Image(systemName: "cpu")
                 .font(.system(size: Typography.subhead, weight: .semibold))
-                .foregroundStyle(.white)
+                .foregroundStyle(Color.accentColor)
                 .frame(width: 28, height: 28)
-                .background(Color.indigo, in: RoundedRectangle(cornerRadius: Radius.icon, style: .continuous))
+                .background(Color.accentColor.opacity(Tint.subtle), in: RoundedRectangle(cornerRadius: Radius.icon, style: .continuous))
             VStack(alignment: .leading, spacing: Spacing.xxs) {
                 Text("本地模型").font(.system(size: Typography.body, weight: .medium))
                 Text(localStatusText).font(.system(size: Typography.caption)).foregroundStyle(.tertiary).lineLimit(1)
@@ -617,17 +636,16 @@ extension SettingsView {
         .padding(.horizontal, Spacing.xxl).padding(.vertical, Spacing.sm)
         if localModelOn {
             Divider().padding(.leading, Spacing.rowDividerInset)
-            SettingRow(icon: "shippingbox.fill", iconColor: .indigo, title: "管理模型",
-                       value: "已装列表 / 拉取新模型", chevron: true)
+            SettingRow(icon: "shippingbox.fill", iconColor: .indigo, title: "管理模型", chevron: true)
                 .tapButton { showLocalModels = true }
             Divider().padding(.leading, Spacing.rowDividerInset)
             Button { Task { await checkLocalUpdate() } } label: {
                 HStack(spacing: 12) {
                     Image(systemName: "arrow.triangle.2.circlepath")
                         .font(.system(size: Typography.subhead, weight: .semibold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(Color.accentColor)
                         .frame(width: 28, height: 28)
-                        .background(Color.teal, in: RoundedRectangle(cornerRadius: Radius.icon, style: .continuous))
+                        .background(Color.accentColor.opacity(Tint.subtle), in: RoundedRectangle(cornerRadius: Radius.icon, style: .continuous))
                     VStack(alignment: .leading, spacing: Spacing.xxs) {
                         Text("检查模型更新").font(.system(size: Typography.body, weight: .medium))
                         Text(localUpdateText).font(.system(size: Typography.caption)).foregroundStyle(.tertiary)
@@ -642,9 +660,9 @@ extension SettingsView {
     }
 
     @ViewBuilder var aiSection: some View {
-        SectionHeader("AI 智能")
+        // v4.1.0：组头由 FoldSection 统一渲染（折叠 = 一行摘要 / 展开 = 大标题 + N 项）
         VStack(spacing: 0) {
-            SettingRow(icon: "books.vertical.fill", iconColor: .green, title: "知识库", value: "文档检索问答", chevron: true)
+            SettingRow(icon: "books.vertical.fill", iconColor: .green, title: "知识库", chevron: true)
                 .tapButton { showKB = true }
             Divider().padding(.leading, Spacing.rowDividerInset)
             SettingRow(icon: "brain.head.profile", iconColor: .pink, title: "AI 记忆", value: "\(memoryCount) 条", chevron: true)
@@ -656,7 +674,7 @@ extension SettingsView {
             Divider().padding(.leading, Spacing.rowDividerInset)
             // v3.0.81：上下文自动管理
             toggleRow(icon: "arrow.down.circle.fill", iconColor: .purple,
-                      title: "上下文自动压缩", subtitle: "token超限时AI摘要压缩历史消息", isOn: $contextAutoCompress)
+                      title: "上下文自动压缩", isOn: $contextAutoCompress)
                 .onChange(of: contextAutoCompress) { _, new in
                     UserDefaults.standard.set(new, forKey: "qingliao_context_auto_compress")
                 }
@@ -679,25 +697,80 @@ extension SettingsView {
                 }
             }
             Divider().padding(.leading, Spacing.rowDividerInset)
-            // v3.9.56：智能路由（TypeSafe 判定开关）——用户 2026-09-21 拍板「开关 + 就地展开」方案。
-            // 后端为真源：开关/模式/阈值改动当场写后端（免重启即时生效），本地不存一份。
+            // v4.1.0（方案C，用户 2026-10-14 确认）：参数收二级页，推翻 v3.9.56 的「开关+就地展开」。
+            // 行内只留：开关 + 「判定模式与参数」入口。后端仍为真源，改动当场写后端。
             toggleRow(icon: "arrow.triangle.branch", iconColor: .purple,
-                      title: "智能路由", subtitle: tsRouting.subtitleText, isOn: tsEnabledBinding)
-            if tsRouting.enabled {
-                tsRoutingParams
-            }
+                      title: "智能路由", isOn: tsEnabledBinding)
+            Divider().padding(.leading, Spacing.rowDividerInset)
+            SettingRow(icon: "slider.horizontal.3", iconColor: .purple, title: "判定模式与参数",
+                       value: !tsRouting.enabled ? "已关闭"
+                              : tsRouting.mode == "off" ? "已开启 · 判定模式关闭"
+                              : "\(tsRouting.modeText) · 已开启", chevron: true)
+                .tapButton { showTSRoutingParams = true }
             Divider().padding(.leading, Spacing.rowDividerInset)
             toggleRow(icon: "message.badge.filled.fill", iconColor: .green,
-                      title: "微信推送", subtitle: "自动化执行结果推送到微信", isOn: $pushWeixin)
+                      title: "微信推送", isOn: $pushWeixin)
                 .onChange(of: pushWeixin) { _, new in
                     Task { _ = try? await auth.json("/api/push/settings", method: "POST", body: ["pushWeixin": new]) }
                 }
+            // v4.1.0：Agent 设置并入「AI 与 Agent」组（原独立「Agent 设置」组取消）
+            Divider().padding(.leading, Spacing.rowDividerInset)
+            SettingRow(icon: "bolt.horizontal.circle.fill", iconColor: .orange, title: "主动 Agent", chevron: true)
+                .tapButton { showProactive = true }
+            Divider().padding(.leading, Spacing.rowDividerInset)
+            SettingRow(icon: "cpu.fill", iconColor: .indigo, title: "Agent 模型",
+                       value: agentModel.isEmpty ? "跟随主模型" : agentModel, chevron: true)
+                .tapButton { showAgentModelSheet = true }
+            Divider().padding(.leading, Spacing.rowDividerInset)
+            SettingRow(icon: "questionmark.circle.fill", iconColor: .gray, title: "使用说明", chevron: false)
+                .tapButton { withAnimation(Motion.snap) { showAgentHelp.toggle() } }
+            if showAgentHelp {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Agent 回复恒走 Hermes 智能体：查磁盘/内存、控制设备等自动调用工具")
+                    Text("▸ 直接问：查磁盘/内存/温度、控制设备、执行场景，自动调用工具回复")
+                    Text("▸ 记忆规则：说「以后XX都用agent」，下次同类问题直接 Agent 处理")
+                    Text("▸ 复杂任务（联网搜索/写脚本/操作文件）自动转交 Hermes 执行")
+                    Text("▸ 普通聊天走 Hermes（带 AI 记忆）；Agent 只参考轻聊记忆与规则")
+                }
+                .font(.system(size: Typography.subhead)).foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, Spacing.xxl).padding(.bottom, Spacing.xl)
+            }
+            Divider().padding(.leading, Spacing.rowDividerInset)
+            SettingRow(icon: "text.badge.plus", iconColor: .orange, title: "Agent 关键词", chevron: true)
+                .tapButton { showAgentKeywords = true }
+            Divider().padding(.leading, Spacing.rowDividerInset)
+            SettingRow(icon: "brain.head.profile", iconColor: .purple, title: "Agent 记忆",
+                       value: agentRuleCount > 0 ? "\(agentRuleCount) 条规则" : "暂无", chevron: true)
+                .tapButton { showAgentMemory = true }
         }
         .pastelCard()
     }
 
-    /// v3.9.56：智能路由「就地展开」参数区。
-    /// 沿用「上下文自动压缩 → 压缩阈值」的既有展开形态（Divider + 行），不新增 sheet / 文件。
+    /// v4.1.0（方案C）：智能路由参数二级页 —— 参数不再就地展开，行内入口「判定模式与参数」拉起本 sheet。
+    @ViewBuilder var tsRoutingParamsSheet: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 0) {
+                    tsRoutingParams
+                }
+                .pastelCard()
+                .padding(.horizontal, Spacing.xxl)
+                .padding(.top, Spacing.md)
+                .padding(.bottom, Spacing.section)
+                .frame(maxWidth: .infinity)
+            }
+            .navigationTitle("智能路由 · 判定与参数")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("完成") { showTSRoutingParams = false }
+                }
+            }
+        }
+    }
+
+    /// v3.9.56：智能路由参数区（原「就地展开」，v4.1.0 起由上方二级页承载）。
     @ViewBuilder var tsRoutingParams: some View {
         Divider().padding(.leading, Spacing.rowDividerInset)
 
@@ -857,7 +930,7 @@ extension SettingsView {
     }
 
     @ViewBuilder var dataSection: some View {
-        SectionHeader("数据与自动化")
+        // v4.1.0：组头由 FoldSection 统一渲染；组名改「数据与工具」
         VStack(spacing: 0) {
             SettingRow(icon: "key.fill", iconColor: .teal, title: "密码管理", value: "\(secretCount) 条凭据", chevron: true)
                 .tapButton { showSecrets = true }
@@ -865,8 +938,7 @@ extension SettingsView {
             SettingRow(icon: "clock.badge.fill", iconColor: .red, title: "定时任务", chevron: true)
                 .tapButton { showTasks = true }
             Divider().padding(.leading, Spacing.rowDividerInset)
-            SettingRow(icon: "clock.arrow.circlepath", iconColor: .orange, title: "执行历史",
-                       value: "自动化/场景执行记录", chevron: true)
+            SettingRow(icon: "clock.arrow.circlepath", iconColor: .orange, title: "执行历史", chevron: true)
                 .tapButton { showHistory = true }
             Divider().padding(.leading, Spacing.rowDividerInset)
             SettingRow(icon: "doc.text.fill", iconColor: .orange, title: "日志", chevron: true)
@@ -874,75 +946,29 @@ extension SettingsView {
             // v3.6.0：崩溃日志入口整合为「诊断」页（App 自身诊断 + 崩溃/卡顿自上报）
             Divider().padding(.leading, Spacing.rowDividerInset)
             SettingRow(icon: "stethoscope", iconColor: .red, title: "诊断",
-                       value: CrashReporter.hasPendingLog() ? "有待查看" : "设备/网络/崩溃记录",
+                       value: CrashReporter.hasPendingLog() ? "有待查看" : nil,
                        chevron: true)
                 .tapButton { showDiagnostics = true }
             // v3.5.x：生活卡片设置（股票 / 资讯 / 快递）
             Divider().padding(.leading, Spacing.rowDividerInset)
-            SettingRow(icon: "rectangle.grid.2x2", iconColor: .green, title: "生活卡片",
-                       value: "股票 / 资讯 / 快递", chevron: true)
+            SettingRow(icon: "rectangle.grid.2x2", iconColor: .green, title: "生活卡片", chevron: true)
                 .tapButton { showLifeCards = true }
             Divider().padding(.leading, Spacing.rowDividerInset)
             // v3.9.32：一句话本地定时提醒（与上面「定时任务」不同：纯本地系统通知，App 不在也响）
-            SettingRow(icon: "bell.badge.fill", iconColor: .pink, title: "定时提醒",
-                       value: "一句话定时间", chevron: true)
+            SettingRow(icon: "bell.badge.fill", iconColor: .pink, title: "定时提醒", chevron: true)
                 .tapButton { showQuickReminder = true }
             Divider().padding(.leading, Spacing.rowDividerInset)
             // v3.9.32：文件管理（上传目录浏览：预览 / 分享 / 重命名 / 删除）
-            SettingRow(icon: "folder.fill", iconColor: .indigo, title: "文件管理",
-                       value: "上传目录里的文件", chevron: true)
+            SettingRow(icon: "folder.fill", iconColor: .indigo, title: "文件管理", chevron: true)
                 .tapButton { showFilesManager = true }
             Divider().padding(.leading, Spacing.rowDividerInset)
             // v4.0.104 待做池 #11：剪贴板历史（只在你主动读取时记录 / 只存本机 / 一键入待办）
-            SettingRow(icon: "doc.on.clipboard", iconColor: .blue, title: "剪贴板历史",
-                       value: "本地回看 · 一键入待办", chevron: true)
+            SettingRow(icon: "doc.on.clipboard", iconColor: .blue, title: "剪贴板历史", chevron: true)
                 .tapButton { showClipboardHistory = true }
             Divider().padding(.leading, Spacing.rowDividerInset)
             // #24：技能库（后端 /api/agent/skills 六端；沉淀入口在此页顶部）
-            SettingRow(icon: "books.vertical.fill", iconColor: .purple, title: "技能库",
-                       value: "技能包 · 沉淀为技能", chevron: true)
+            SettingRow(icon: "books.vertical.fill", iconColor: .purple, title: "技能库", chevron: true)
                 .tapButton { showSkillsLibrary = true }
-        }
-        .pastelCard()
-    }
-
-    @ViewBuilder var agentSection: some View {
-        // v3.4.12：移除「Agent 智能回复」开关——后端主链路（STREAM_HERMES_SESSION=1）v3.4.8 起
-        // 所有聊天恒走 Hermes agent 工具循环，开关已无实权（只影响日志/回退路径），移除 UI 防误导；
-        // Agent 模型/关键词/记忆入口保留（模型仍影响 resolveModel 选型，关键词/记忆管理后端端点仍活）。
-        SectionHeader("Agent 设置")
-        VStack(spacing: 0) {
-            // v4.0.11：主动 Agent 入口（放最前——这是「AI 会自己开口」的总闸，用户第一眼要看它）
-            SettingRow(icon: "bolt.horizontal.circle.fill", iconColor: .orange, title: "主动 Agent",
-                       value: "AI 主动开口 · 预算/静默/复盘", chevron: true)
-                .tapButton { showProactive = true }
-            Divider().padding(.leading, Spacing.rowDividerInset)
-            // v3.0.20：Agent 模型自定义（可单独指定 Agent 使用的模型，不依赖主模型）
-            SettingRow(icon: "cpu.fill", iconColor: .indigo, title: "Agent 模型",
-                       value: agentModel.isEmpty ? "跟随主模型" : agentModel, chevron: true)
-                .tapButton { showAgentModelSheet = true }
-            Divider().padding(.leading, Spacing.rowDividerInset)
-            SettingRow(icon: "questionmark.circle.fill", iconColor: .gray, title: "使用说明", chevron: false)
-                .tapButton { withAnimation(Motion.snap) { showAgentHelp.toggle() } }
-            if showAgentHelp {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Agent 回复恒走 Hermes 智能体：查磁盘/内存、控制设备等自动调用工具")
-                    Text("▸ 直接问：查磁盘/内存/温度、控制设备、执行场景，自动调用工具回复")
-                    Text("▸ 记忆规则：说「以后XX都用agent」，下次同类问题直接 Agent 处理")
-                    Text("▸ 复杂任务（联网搜索/写脚本/操作文件）自动转交 Hermes 执行")
-                    Text("▸ 普通聊天走 Hermes（带 AI 记忆）；Agent 只参考轻聊记忆与规则")
-                }
-                .font(.system(size: Typography.subhead)).foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, Spacing.xxl).padding(.bottom, Spacing.xl)
-            }
-            Divider().padding(.leading, Spacing.rowDividerInset)
-            SettingRow(icon: "text.badge.plus", iconColor: .orange, title: "Agent 关键词", value: "分流匹配词管理", chevron: true)
-                .tapButton { showAgentKeywords = true }
-            Divider().padding(.leading, Spacing.rowDividerInset)
-            SettingRow(icon: "brain.head.profile", iconColor: .purple, title: "Agent 记忆",
-                       value: agentRuleCount > 0 ? "\(agentRuleCount) 条规则" : "暂无", chevron: true)
-                .tapButton { showAgentMemory = true }
         }
         .pastelCard()
     }
@@ -961,7 +987,7 @@ extension SettingsView {
     }
 
     @ViewBuilder var appearanceSection: some View {
-        SectionHeader("外观与显示")
+        // v4.1.0：组头由 FoldSection 统一渲染（组名改「通用」）
         VStack(spacing: 0) {
             SettingRow(icon: "circle.lefthalf.filled", iconColor: .purple, title: "外观", value: appearanceName, chevron: true)
                 .tapButton { withAnimation(Motion.snap) { showAppearance = true } }
@@ -995,6 +1021,10 @@ extension SettingsView {
                 .tapButton { showDockLayout = true }
             // v3.x review fix：showAppearanceOptions 死代码块（深浅色 chips/输入框流光/Siri 发光滑条/
             // AI 输出行高）永不显示（唯一写点恒置 false）——已删除，统一由 AppearanceSheet 管理
+            // v4.1.0：「关于」并入「通用」组（原独立「关于」组取消）
+            Divider().padding(.leading, Spacing.rowDividerInset)
+            SettingRow(icon: "info.circle.fill", iconColor: .gray, title: "关于 Qimo（轻聊）", chevron: true)
+                .tapButton { showAbout = true }
         }
         .pastelCard()
     }
@@ -1034,15 +1064,6 @@ extension SettingsView {
     private var petSummary: String {
         let on = PetKeys.enabledQuirks().count
         return "\(petStyle.name) · \(petFace.name)脸 · 动作 \(on)/\(Quirk.pool.count)"
-    }
-
-    @ViewBuilder var aboutSection: some View {
-        SectionHeader("关于")
-        VStack(spacing: 0) {
-            SettingRow(icon: "info.circle.fill", iconColor: .gray, title: "关于 Qimo（轻聊）", chevron: true)
-                .tapButton { showAbout = true }
-        }
-        .pastelCard()
     }
 
     @ViewBuilder var logoutButton: some View {
@@ -1104,13 +1125,15 @@ extension SettingsView {
 
 extension SettingsView {
 
+    // iconColor 已废弃（v4.1.0 mono 口径）：不再上色，保留参数兼容旧调用
     func toggleRow(icon: String, iconColor: Color, title: String, subtitle: String? = nil, isOn: Binding<Bool>) -> some View {
         HStack(spacing: 12) {
+            // v4.1.0 方案C降噪：与 SettingRow 同口径，图标统一 accent 淡底单色
             Image(systemName: icon)
                 .font(.system(size: Typography.subhead, weight: .semibold))
-                .foregroundStyle(.white)
+                .foregroundStyle(Color.accentColor)
                 .frame(width: 28, height: 28)
-                .background(iconColor, in: RoundedRectangle(cornerRadius: Radius.icon, style: .continuous))
+                .background(Color.accentColor.opacity(Tint.subtle), in: RoundedRectangle(cornerRadius: Radius.icon, style: .continuous))
             if let subtitle {
                 VStack(alignment: .leading, spacing: Spacing.xxs) {
                     Text(title).font(.system(size: Typography.body, weight: .medium))

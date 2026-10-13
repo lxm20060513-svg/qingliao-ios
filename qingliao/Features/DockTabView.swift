@@ -58,7 +58,7 @@ struct DockTabView: View {
     /// v4.0.81：聊天 tab 内「会话首页 ↔ 对话页」双态。
     /// true = 首页（机器人 + 一言 + ≤8 卡片 + 会话列表，即原会话页那套），false = 对话页。
     @State private var showSessionHome = true
-    /// v4.0.82：dock 顺序串（4 档 rawValue 的排列）—— 设置 → 外观与显示 →「Dock 栏」写，这里读。
+    /// v4.0.82：dock 顺序串（4 档 rawValue 的排列）—— 设置 → 通用 →「Dock 栏」写，这里读。
     /// 坏值净化在 DockLayoutKit.sanitizedOrder（渲染期只读结论，不在这里做校验）。
     @AppStorage(UserDefaultsKey.dockOrder) private var dockOrderRaw = DockLayoutKit.defaultOrderRaw
     /// v4.0.82：被隐藏的档（rawValue 逗号串）。设置页**永远不在其中**（DockLayoutKit.canHide 是唯一闸门）。
@@ -148,7 +148,7 @@ struct DockTabView: View {
 
 
             TabView(selection: $selected) {
-                // v4.0.82：dock 档位改为**数据驱动**（顺序可调 + 可隐藏；设置 → 外观与显示 →「Dock 栏」）。
+                // v4.0.82：dock 档位改为**数据驱动**（顺序可调 + 可隐藏；设置 → 通用 →「Dock 栏」）。
                 // 原来静态四块（聊天/生活/看板/设置）一字未改地搬进了 `dockPage(_:)`，只是改成按
                 // `dockRenderTabs` 渲染 —— 档序与显隐由 DockLayoutKit 定，本文件不再写死。
                 // 🚨 生活页仍在这条链路上（v4.0.81 它被误删过一次 → 真机少一页；护栏：ql_dock 表「四档渲染齐」）。

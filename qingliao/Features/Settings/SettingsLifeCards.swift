@@ -1355,7 +1355,7 @@ struct QuickReminderSheet: View {
 // 有 5 种形态（result / metrics / list / table / status）。但用户在聊天里只能「碰运气」遇到，
 // 没有任何地方能看到「AI 能出什么样的卡」。
 //
-// 本页把 5 种形态各用样例数据渲染一张，入口在 设置 → AI 智能 → 能力示例。
+// 本页把 5 种形态各用样例数据渲染一张，入口在 设置 → AI 与 Agent → 能力示例。
 // **零后端**：AgentCard 是普通 struct（memberwise init），样例数据在 App 内直接构造，
 // 不走 Hermes、不改后端 schema；渲染**直接复用聊天里的 AgentResultCard**——
 // 所见即聊天里所得，不做「演示专用样式」（否则展示与真实渲染会漂移）。

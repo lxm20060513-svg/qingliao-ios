@@ -68,8 +68,8 @@ struct SettingsSearchTruthTable {
               })
         positives += 1
         check("分组名只用设置页那几类（拼错 = 结果行副标题显示野分组）",
-              Set(entries.map(\.group)).isSubset(of: ["账号与安全", "连接与模型", "AI 智能",
-                                                      "数据与自动化", "Agent 设置", "外观与显示", "关于"]))
+              Set(entries.map(\.group)).isSubset(of: ["账号与安全", "连接与模型", "AI 与 Agent",
+                                                      "数据与工具", "通用"]))
 
         // ── 2. 路由真值：每条 route 都要在 SettingsCore.openSearchEntry 里被处理，且**落到对的目的地** ──
         // ⚠️ 只断言 `case "x":` 出现过是不够的（审查实测）：把 `case "pet": showPetStudio = true`
