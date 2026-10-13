@@ -1216,8 +1216,7 @@ struct ChatView: View {
                               items: bubbleMenuItems(for: t.message, text: t.text),
                               title: t.message.isUser ? "你的消息" : "AI 回复",
                               onPick: { handleBubbleMenuPick($0, message: t.message, text: t.text) },
-                              onClose: { bubbleMenuTarget = nil },
-                              preview: t.preview)
+                              onClose: { bubbleMenuTarget = nil })
         }
     }
 
@@ -2821,13 +2820,12 @@ struct ChatView: View {
     /// 打开「长按」锚定菜单。锚点取该条气泡**最近一次布局**的全局 frame（行级量测，见
     /// chatMessageBubble 上挂的 onGeometryChange）——所以同一会话里每段文字/图片各有自己的位置。
     /// 与另两个锚定浮层互斥（同屏只允许一个锚定菜单，开新的先清旧的）。
-    func openBubbleMenu(for msg: ChatMessage, text: String, preview: AnyView? = nil) {
+    func openBubbleMenu(for msg: ChatMessage, text: String) {
         showMoreMenu = false
         showReasoningPicker = false
         let anchor = ChatBubbleAnchorStore.shared.rect(for: msg.id) ?? moreMenuAnchor
         Haptics.tap()
-        bubbleMenuTarget = ChatBubbleMenuTarget(id: msg.id, anchor: anchor, text: text,
-                                                message: msg, preview: preview)
+        bubbleMenuTarget = ChatBubbleMenuTarget(id: msg.id, anchor: anchor, text: text, message: msg)
     }
 
     /// v4.0.81：长按菜单**单一真源** —— 此前入口散在 6 处 `.contextMenu` + 5 处 `.textSelection` 里，
@@ -2929,22 +2927,12 @@ struct ChatView: View {
         }
     }
 
-    /// v4.0.105：长按菜单的「抬起预览」构造 —— 与气泡本体**同一份构建产物**（不挂量测/手势钩子，
-    /// 故不会二次写 ChatBubbleAnchorStore、也不抢按）。
-    /// ⚠️ 真值表 scripts/ql_reading/truth_table_reading.swift ⑦ 用 `.last` 取本文件最后一次气泡构造
-    /// （MessageBubble 后紧跟左括号）出现处作锚点、校验其后实参序，而长按预览用的函数名是它的后缀子串 ——
-    /// 故本函数必须定义在气泡本体之前，调用点也不得再拼出那串子串（否则锚点被挪走、护栏转红）。
-    private func bubbleLiftPreview(_ msg: ChatMessage) -> AnyView {
-        // 抬起预览要和「被锚定的那块」逐像素对齐：锚点 rect 量的是
-        // chatMessageBubble + followUpSuggestionsRow（追问候选区；无候选时它整体不渲染、不占位），
-        // 日期/时间分隔线是同层兄弟、不在 rect 内，故预览也不带它们。
-        AnyView(
-            VStack(spacing: 0) {
-                chatMessageBubble(msg)
-                followUpSuggestionsRow(msg)
-            }
-        )
-    }
+    // v4.0.106：v4.0.105 的 `bubbleLiftPreview(_:)`（长按「抬起预览」的构造）已随该效果**整体移除**
+    // —— 用户装包真机拍板「这不是我想要的效果，还是把背景模糊化，只保留胶囊菜单」。
+    // 长按不再复制一份气泡，故这里刻意留空（别再把这份构建产物加回来）。
+    // ⚠️ 真值表 scripts/ql_reading/truth_table_reading.swift ⑦ 用 `.last` 取本文件最后一次
+    // `MessageBubble(`（后紧跟左括号）出现处作锚点、校验其后实参序 —— 本区域新增的任何构造
+    // 都不得再拼出该子串，否则锚点被挪走、护栏转红。
 
     /// v3.0.51：单条消息气泡构造——拆独立方法（防消息列表 ForEach 内 type-check 超时）
     @ViewBuilder
@@ -3049,9 +3037,8 @@ struct ChatView: View {
                                                       proactiveId: pid, verdict: verdict) }
         } onLongPressMenu: { text in
             // v4.0.81：长按（文字/图片/文件卡/代码块/表格/agent 卡）→ 右上角三点菜单同款胶囊
-            // v4.0.105：同时把该气泡的**同一份构建产物**作为抬起预览交给浮层（不挂量测/手势钩子，
-            // 故不会二次写 ChatBubbleAnchorStore，也不会抢按）。
-            openBubbleMenu(for: msg, text: text, preview: bubbleLiftPreview(msg))
+            // v4.0.106：内容不再「微缩 → 抬起」（用户真机拍板只留背景模糊 + 胶囊菜单）
+            openBubbleMenu(for: msg, text: text)
         }
         // v4.0.81：行级锚点。存**引用类型** store 不写 @State —— 滚动每帧都会刷新，
         // 写 @State 会让整页 body 反复失效（v3.9.x 同源教训）。
@@ -5659,9 +5646,6 @@ struct ChatBubbleMenuTarget {
     /// 该行要操作的文本（整条气泡 / 选中那一段 / 代码正文，由气泡侧传入）
     let text: String
     let message: ChatMessage
-    /// v4.0.105：长按抬起的预览内容（原气泡的同一份构建产物，不挂任何量测/手势钩子）——
-    /// 由 AnchorMenuOverlay 画在轻纱上方并按「微缩 → 抬起」演出（用户口径：长按内容先微缩再抬起）。
-    var preview: AnyView? = nil
 }
 
 /// 气泡行级锚点台账。**故意不是 ObservableObject**：滚动时每帧都会刷新 frame，

@@ -4,9 +4,11 @@ import SwiftUI
 
 /// 全局锚定菜单宿主（单例）。
 ///
-/// 用户口径（2026-10-13）：「长按内容时先**把所选内容微缩再抬起**，背景**高斯模糊变暗**，下方**弹簧
-/// 弹出胶囊式菜单**，并覆盖到 app 全局相同行为」。演出本身在 `AnchorMenuOverlay`（传 `preview:` 即
-/// 「微缩 → 抬起」），本文件负责**把长按入口统一收成一条出口**。
+/// 用户口径（2026-10-13）：「长按出**胶囊式菜单**、背景**模糊变暗**，并覆盖到 app 全局相同行为」。
+/// ⚠️ 同轮里那句「长按内容先把所选内容微缩再抬起」**已被用户装包真机推翻**（v4.0.106：
+/// 「这不是我想要的效果，还是把背景模糊化，只保留胶囊菜单」）—— 内容现在**原位不动**，
+/// 不再有抬起预览（`AnchorMenuOverlay` 的 `preview:` 形参已整体删除，别再加回来）。
+/// 演出本身在 `AnchorMenuOverlay`，本文件负责**把长按入口统一收成一条出口**。
 ///
 /// 🚨 为什么必须是「单例 + 根视图渲染」，而不是行内 `.overlay`：
 ///   浮层要铺在**整屏**上 —— ① 要判「内容下方放不放得下」（否则菜单会被顶到屏幕外）；
@@ -24,7 +26,7 @@ import SwiftUI
 final class AnchorMenuPresenter: ObservableObject {
     static let shared = AnchorMenuPresenter()
 
-    /// 一次呈现请求（锚点全局 rect + 项 + 文案 + 抬起预览 + 选中回调）
+    /// 一次呈现请求（锚点全局 rect + 项 + 文案 + 选中回调）
     struct Request: Identifiable {
         let id = UUID()
         /// 锚点在**全局坐标系**的矩形（触发行的 frame）
@@ -32,8 +34,6 @@ final class AnchorMenuPresenter: ObservableObject {
         let items: [AnchorMenuItem]
         var title: String = ""
         var message: String = ""
-        /// 抬起预览（= 触发行自身；nil 则不做微缩抬起，观感回到 v4.0.104）
-        var preview: AnyView?
         let onPick: (AnchorMenuItem) -> Void
     }
 
@@ -98,7 +98,6 @@ struct AnchorLongPressMenuModifier: ViewModifier {
                           items: items,
                           title: title,
                           message: message,
-                          preview: AnyView(content),
                           onPick: onPick)
                 )
             }
@@ -155,8 +154,7 @@ struct AnchorMenuHostLayer: View {
                                       presenter.dismiss()
                                       req.onPick(item)
                                   },
-                                  onClose: { presenter.dismiss() },
-                                  preview: req.preview)
+                                  onClose: { presenter.dismiss() })
             }
         }
         .onAppear { presenter.mount(token) }

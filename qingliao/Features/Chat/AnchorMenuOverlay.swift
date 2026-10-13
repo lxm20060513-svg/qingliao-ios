@@ -12,6 +12,11 @@
 //      `.overlay` 的层序落在同级兄弟（消息列表 / 输入栏）之下 → 菜单被压在聊天内容页下面
 //      （用户实报「三点菜单弹出落到聊天内容页下面去了」）。调用点一律挂到该页最外层 chrome。
 //
+//  🚨 v4.0.106（用户装包真机拍板）：**v4.0.105 的「抬起预览」整体移除** ——
+//  原文：「这不是我想要的效果，还是把背景模糊化，只保留胶囊菜单」。
+//  长按后内容原位不动，只留整屏轻纱（`.ultraThinMaterial` + 压暗）+ 胶囊菜单。
+//  别再给本组件加 `preview:` 形参或微缩/抬起/投影演出。
+//
 
 import SwiftUI
 
@@ -39,19 +44,15 @@ struct AnchorMenuOverlay: View {
     var message: String = ""
     var onPick: (AnchorMenuItem) -> Void
     var onClose: () -> Void
-    /// v4.0.105：**被长按内容的「抬起预览」**（可选）。传了它 → 落地用户口径「长按内容时先将所选
-    /// 内容微缩再抬起」：
-    ///   ① 微缩：预览初始态 = Motion.pressScale(0.96)（触发长按那一刻内容已被按下）；
-    ///   ② 抬起：0.12s 后起跳 → Motion.liftScale(1.02) + 上移 Motion.liftRise(10pt) + 投影；
-    ///      预览画在轻纱**之上**（轻纱只压住页面其余部分），菜单锚点随之改到**抬起后**的底边下方 6pt；
-    ///   ③ 菜单落位：比抬起再晚一拍起跳，逐颗错峰（与既有口径同款）。
-    /// 不传 → 观感回到 v4.0.104（内容原位、菜单锚在原锚点），27 个旧调用点零行为变化。
-    /// ⚠️ 实参序 = 声明序：带预览的调用点写 (anchorFrame:items:title:message:onPick:onClose:preview:)。
-    var preview: AnyView? = nil
+
+    /// 🚨 v4.0.106：v4.0.105 的「抬起预览」（`preview: AnyView?` 形参 + 微缩/抬起/投影演出）
+    /// **整体移除** —— 用户装包真机看到后拍板：「这不是我想要的效果，还是把背景模糊化，只保留胶囊菜单」。
+    /// 现行口径（不要再加回来）：长按后内容**原位不动**，只留整屏轻纱（模糊 + 压暗）+ 胶囊菜单；
+    /// 没有微缩、没有抬起、没有投影、没有菜单落位延后。
+    /// 连带移除：`ChatView.bubbleLiftPreview` / `ChatBubbleMenuTarget.preview` /
+    /// `AnchorMenuPresenter.Request.preview` / `Motion.menuLift·pressDown·pressScale·liftScale·liftRise`。
 
     @State private var shown = false
-    /// v4.0.105：抬起拍是否已落位（false = 微缩态，true = 抬起态）
-    @State private var lifted = false
     @Environment(\.colorScheme) private var scheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -70,9 +71,10 @@ struct AnchorMenuOverlay: View {
     private static let twoColThreshold = 8
     /// v4.0.105：8 → 6（确认稿几何：菜单顶边 = 抬起后内容底边 + 6pt）
     private static let anchorGap: CGFloat = 6   // 菜单与锚点的净距
-    /// v4.0.105：轻纱压暗档（0.10 → 0.18）—— 用户口径「背景高斯模糊变暗」，模糊沿用超薄材质。
-    /// 压得更暗，抬起的内容才浮得出来（像素判据：抬起面亮度 vs 周围轻纱 ≈ +27 档）。
-    private static let scrimDim: Double = 0.18
+    /// v4.0.105：轻纱压暗档临时提到 0.18（当时为「抬起预览」服务）。
+    /// 🚨 v4.0.106（用户装包真机拍板）：抬起预览整体移除 + 「**调淡回 4.0.104 的观感**」⇒ 回到 **0.10**。
+    /// 现行观感 = 整屏超薄材质模糊 + 轻压暗（0.10），内容原位不动，只有胶囊菜单。
+    private static let scrimDim: Double = 0.10
     /// 标题行（caption + 上间距）占位高
     private static let titleH: CGFloat = 26
 
@@ -137,12 +139,9 @@ struct AnchorMenuOverlay: View {
                 : max(120, min(raw, (geo.size.width - 20 - Self.pillGap) / 2))
             let menuW = colW * CGFloat(cols) + Self.pillGap * CGFloat(cols - 1)
             let menuH = panelHeight(cols: cols, colW: colW)
-            // v4.0.105：抬起预览在场时，菜单锚到**抬起后**的矩形 —— 底边上移 liftRise，
-            // 并加回 2% 缩放带来的半高增量（缩放以中心为轴，底边只涨一半）。
-            let liftRise = preview == nil ? 0 : Motion.liftRise
-            let liftGrow = preview == nil ? 0 : localAnchor.height * (Motion.liftScale - 1) / 2
-            let anchorTopY = localAnchor.minY - liftRise
-            let anchorBottomY = localAnchor.maxY - liftRise + liftGrow
+            // v4.0.106：抬起预览移除后，菜单锚点恒为**内容原位**的矩形（不再有位移/缩放补偿）。
+            let anchorTopY = localAnchor.minY
+            let anchorBottomY = localAnchor.maxY
             let below = anchorBottomY + Self.anchorGap + menuH < geo.size.height
             let ox = min(max(localAnchor.midX - menuW / 2, 10), max(geo.size.width - menuW - 10, 10))
             let oy = below ? anchorBottomY + Self.anchorGap
@@ -158,43 +157,19 @@ struct AnchorMenuOverlay: View {
                 .contentShape(Rectangle())
                 .onTapGesture(perform: close)
 
-                // v4.0.105：抬起预览 —— 画在轻纱之上（z 序 = 声明序，故置于轻纱之后、菜单之前），
-                // 不接管触摸（点空白仍是收回菜单）。
-                // 显式绑定（不用 if let 简写，避免成员简写在不同工具链版本上的歧义）
-                if let liftPreview = preview {
-                    liftPreview
-                        .frame(width: localAnchor.width, height: localAnchor.height)
-                        .scaleEffect(lifted ? Motion.liftScale : Motion.pressScale)
-                        .offset(y: lifted ? -Motion.liftRise : 0)
-                        .shadow(color: Color.black.opacity(lifted ? 0.28 : 0), radius: 30, y: 14)
-                        .shadow(color: Color.black.opacity(lifted ? 0.14 : 0), radius: 8, y: 3)
-                        .position(x: localAnchor.midX, y: localAnchor.midY)
-                        .opacity(shown ? 1 : 0)
-                        .allowsHitTesting(false)
-                }
-
                 menuPanel(cols: cols, colWidth: colW)
                     .frame(width: menuW)
                     .position(x: ox + menuW / 2,
                               y: reduceMotion ? oy + menuH / 2
                                               : (shown ? oy + menuH / 2
-                                                       : anchorY(inBelow: below, lift: liftRise)))
+                                                       : anchorY(inBelow: below)))
             }
             .onAppear {
                 if reduceMotion {
-                    // 减动效：直接落终态（内容已在抬起位、菜单在屏），不播微缩/抬起/错峰
-                    lifted = true
+                    // 减动效：直接落终态（菜单在屏），不播逐颗错峰
                     shown = true
                 } else {
-                    // ③ 菜单落位：带预览时比抬起晚一拍起跳（① 微缩 → ② 抬起 → ③ 落位）
-                    withAnimation(preview == nil ? Motion.anchorMenu
-                                                 : Motion.anchorMenu.delay(0.24)) { shown = true }
-                    if preview != nil {
-                        // ② 抬起拍：0.12s 后起跳（① 的微缩由预览初始态承接，见 preview 注释）
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
-                            withAnimation(Motion.menuLift) { lifted = true }
-                        }
-                    }
+                    withAnimation(Motion.anchorMenu) { shown = true }
                 }
             }
         }
@@ -203,16 +178,13 @@ struct AnchorMenuOverlay: View {
     /// 收起方向：从锚点缩回（below 时回锚点下方点，朝上时回锚点上方点）
     /// 注意：本函数在 body 的 GeometryReader 闭包内被调用，用的 localAnchor 同一套换算——
     /// 这里收的是 global 原值，仅为动画起点误差 ±几 pt 可接受；如需精确可把 localAnchor 透传进来。
-    private func anchorY(inBelow below: Bool, lift: CGFloat) -> CGFloat {
-        below ? anchorFrame.maxY + 4 - lift : anchorFrame.minY - 4 - lift
+    private func anchorY(inBelow below: Bool) -> CGFloat {
+        below ? anchorFrame.maxY + 4 : anchorFrame.minY - 4
     }
 
     private func close() {
-        // v4.0.105：内容与菜单同时收（预览回落到微缩态 → 卸载时由父层消失）
-        withAnimation(Motion.settle) {
-            shown = false
-            lifted = false
-        }
+        // v4.0.106：只有菜单一层（抬起预览已移除），收起就是 shown 归零
+        withAnimation(Motion.settle) { shown = false }
         // 等收场动画播完再卸载（视图卸载由父层 isPresented 控制，这里只报出去）
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) { onClose() }
     }
