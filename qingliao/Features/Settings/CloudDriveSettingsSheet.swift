@@ -119,6 +119,7 @@ struct CloudDriveSettingsSheet: View {
             // 否则某次 present 被别的弹层吞掉后 item 卡非 nil → 之后点行再也打不开浏览页）
             .sheet(item: $browsingDrive, onDismiss: { browsingDrive = nil }) { d in
                 CloudDriveBrowserSheet(drive: d)
+                    .anchorMenuHost()   // v4.0.105：sheet 内长按站点需要本层宿主（根层 zIndex 4 画不到 sheet 之上）
                     .presentationDetents([.medium, .large])
             }
             .task { await load() }

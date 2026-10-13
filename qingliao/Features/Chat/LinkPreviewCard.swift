@@ -34,12 +34,15 @@ struct LinkPreviewCard: View {
             .padding(2)
             .accessibilityLabel("关闭链接预览")
         }
-        .contextMenu {
-            Button { onRelink() } label: {
-                Label("重新抓取预览", systemImage: "arrow.triangle.2.circlepath")
-            }
-            Button(role: .destructive) { onDismiss() } label: {
-                Label("关闭预览", systemImage: "xmark")
+        // v4.0.105：系统 .contextMenu → 全局同款锚定胶囊菜单（微缩抬起 + 轻纱模糊变暗 + 弹簧错峰）
+        .anchorLongPressMenu(items: linkPreviewMenuList(), title: "链接") { item in
+            switch item.id {
+            case "relink":
+                onRelink()
+            case "dismiss":
+                onDismiss()
+            default:
+                break
             }
         }
     }
@@ -99,4 +102,12 @@ struct LinkPreviewCard: View {
             UIApplication.shared.open(u)
         }
     }
+}
+
+// MARK: - v4.0.105 链接预览卡长按菜单的数组版项（原 `.contextMenu` 的 `Button` 逐条等价）
+private func linkPreviewMenuList() -> [AnchorMenuItem] {
+    [
+        AnchorMenuItem(id: "relink", title: "重新抓取预览", icon: "arrow.triangle.2.circlepath"),
+        AnchorMenuItem(id: "dismiss", title: "关闭预览", icon: "xmark", destructive: true),
+    ]
 }

@@ -152,11 +152,13 @@ struct LifeStocksSection: View {
     private func stockCell(_ s: LifeStock) -> some View {
         LifeStockCard(stock: s)
             .contentShape(Rectangle())
-            .contextMenu {
-                Button(role: .destructive) {
+            // v4.0.105：系统 .contextMenu → 全局同款锚定胶囊菜单（微缩抬起 + 轻纱模糊变暗 + 弹簧错峰）
+            .anchorLongPressMenu(items: stockCardMenuList(), title: "行情卡片") { item in
+                switch item.id {
+                case "delete":
                     onDeleteStock(s)
-                } label: {
-                    Label("删除这张卡片", systemImage: "trash")
+                default:
+                    break
                 }
             }
     }
@@ -443,26 +445,22 @@ struct LifeRssSection: View {
         .buttonStyle(PressStyle())
         .matchedTransitionSource(id: e.id, in: zoomNS)   // v3.9.0：长按大爆炸时从这一行 zoom 展开
         // v3.7.0：长按弹出菜单（复制整段 / 大爆炸 / 发给 AI）——正文已加载则作用于正文，否则退化为标题
-        .contextMenu {
-            Button {
+        // v4.0.105：系统 .contextMenu → 全局同款锚定胶囊菜单（微缩抬起 + 轻纱模糊变暗 + 弹簧错峰）
+        .anchorLongPressMenu(items: rssRowMenuList(), title: "资讯") { item in
+            switch item.id {
+            case "copy":
                 UIPasteboard.general.string = articleMenuText(e)
                 Haptics.success()
-            } label: {
-                Label("复制整段", systemImage: "doc.on.doc")
-            }
-            Button {
+            case "bigbang":
                 onBigBang(articleMenuText(e), e.id)   // v3.9.0：带上资讯行 id
-            } label: {
-                Label("大爆炸", systemImage: "burst.fill")
-            }
-            // v3.9.30：对齐备忘录「发给 AI」体验——资讯内容直接作为用户消息发给 AI 并切回聊天页。
-            // 复用 qingliaoMemoSend 通知链（DockTabView 切页 + ChatView sendCore 已就绪）；
-            // 资讯行在生活页主体（非 sheet 之内）→ 无需 afterAllDismissed。
-            Button {
+            case "sendai":
+                // v3.9.30：对齐备忘录「发给 AI」体验——资讯内容直接作为用户消息发给 AI 并切回聊天页。
+                // 复用 qingliaoMemoSend 通知链（DockTabView 切页 + ChatView sendCore 已就绪）；
+                // 资讯行在生活页主体（非 sheet 之内）→ 无需 afterAllDismissed。
                 Haptics.success()
                 NotificationCenter.default.post(name: .qingliaoMemoSend, object: articleMenuText(e))
-            } label: {
-                Label("发给 AI", systemImage: "paperplane")
+            default:
+                break
             }
         }
     }
@@ -688,3 +686,27 @@ struct LifeStockCard: View {
 
 // v3.9.59：股票走势线已按用户要求移除（卡面回到 v3.9.57 前的纯行情展示）。
 // 历史实现见 git log（StockSparkline + /api/life/stock/history 拉取，v3.9.58 引入）。
+
+// MARK: - v4.0.105 生活板块长按菜单项（系统 .contextMenu → 全局锚定胶囊菜单）
+//
+// 用户口径（2026-10-13）：「长按内容时先把所选内容微缩再抬起，背景高斯模糊变暗，下方弹簧弹出
+// 胶囊式菜单，并覆盖到 app 全局相同行为」。本文件两处长按入口统一走 `anchorLongPressMenu`
+// （一行式修饰器 + 全局宿主，见 Chat/AnchorMenuHost.swift）。
+//
+// 项与图标语义**逐条对齐**原 `Button`（标题 / 图标 / destructive 一致、顺序一致），
+// 动作仍由调用点的 onPick 分发（逐字搬原 Button 里的代码）。
+// 文件级函数默认非 MainActor 隔离 —— 这里只构造纯值（无 store / Haptics 调用），无需显式标注。
+
+/// 行情卡长按：删除这张卡片（原 `.contextMenu` 里唯一那项）
+private func stockCardMenuList() -> [AnchorMenuItem] {
+    [AnchorMenuItem(id: "delete", title: "删除这张卡片", icon: "trash", destructive: true)]
+}
+
+/// 资讯行长按：复制整段 / 大爆炸 / 发给 AI（顺序与原 `Button` 版一致）
+private func rssRowMenuList() -> [AnchorMenuItem] {
+    [
+        AnchorMenuItem(id: "copy", title: "复制整段", icon: "doc.on.doc"),
+        AnchorMenuItem(id: "bigbang", title: "大爆炸", icon: "burst.fill"),
+        AnchorMenuItem(id: "sendai", title: "发给 AI", icon: "paperplane"),
+    ]
+}

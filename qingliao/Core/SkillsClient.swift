@@ -56,11 +56,13 @@ struct SkillItem: Codable, Equatable, Identifiable {
     let mtime: Double
     let enabled: Bool
     let path: String
+    /// v4.0.105 技能来源（后端 source 字段）：generated / installed / system / unknown
+    let source: String
 
     var id: String { name }
 
     private enum C: String, CodingKey {
-        case name, category, title, description, size, mtime, enabled, path
+        case name, category, title, description, size, mtime, enabled, path, source
     }
 
     init(from decoder: Decoder) throws {
@@ -77,13 +79,54 @@ struct SkillItem: Codable, Equatable, Identifiable {
         enabled = (try? c.decode(Bool.self, forKey: .enabled))
             ?? ((try? c.decode(Int.self, forKey: .enabled)).map { $0 != 0 } ?? false)
         path = (try? c.decode(String.self, forKey: .path)) ?? ""
+        // v4.0.105 来源：缺失/空/未知取值一律落 unknown（绝不因缺字段崩，也不瞎归类）
+        let rawSource = ((try? c.decode(String.self, forKey: .source)) ?? "").lowercased()
+        source = rawSource.isEmpty ? "unknown" : rawSource
     }
 
     init(name: String, category: String = "", title: String = "", description: String = "",
-         size: Int = 0, mtime: Double = 0, enabled: Bool = true, path: String = "") {
+         size: Int = 0, mtime: Double = 0, enabled: Bool = true, path: String = "",
+         source: String = "unknown") {
         self.name = name; self.category = category; self.title = title
         self.description = description; self.size = size; self.mtime = mtime
-        self.enabled = enabled; self.path = path
+        self.enabled = enabled; self.path = path; self.source = source
+    }
+}
+
+/// v4.0.105 技能来源四类（与后端 `source` 字段同值；顺序 = 用户拍板「未定垫底」）
+enum SkillSourceKind: String, CaseIterable {
+    case generated, installed, system, unknown
+
+    /// 段标题（用户原话口径：我使用过程中生成的技能 / 我安装的技能 / 系统技能）
+    var title: String {
+        switch self {
+        case .generated: return "我生成的"
+        case .installed: return "我安装的"
+        case .system: return "系统"
+        case .unknown: return "未定"
+        }
+    }
+
+    /// 分组顺序（拍板 1-1：未定垫底，便于长按批量纠正）
+    var order: Int { SkillSourceKind.allCases.firstIndex(of: self) ?? SkillSourceKind.allCases.count }
+
+    /// 认不出的取值一律当未定（不瞎归类）
+    static func of(_ item: SkillItem) -> SkillSourceKind {
+        SkillSourceKind(rawValue: item.source) ?? .unknown
+    }
+}
+
+/// v4.0.105 技能库分组（空组由视图层裁掉，这里保序全出）
+struct SkillGroup: Identifiable {
+    let kind: SkillSourceKind
+    let items: [SkillItem]
+    var id: String { kind.rawValue }
+
+    /// 四段全出（含空组），按 order 升序
+    static func group(_ list: [SkillItem]) -> [SkillGroup] {
+        SkillSourceKind.allCases
+            .sorted { $0.order < $1.order }
+            .map { k in SkillGroup(kind: k, items: list.filter { SkillSourceKind.of($0) == k }) }
     }
 }
 
@@ -130,6 +173,13 @@ struct SkillRestoreResult: Equatable {
     let path: String
 }
 
+/// v4.0.105 人工纠错的回执（cleared=true 表示撤销纠正）
+struct SkillSourceResult: Equatable {
+    let name: String
+    let source: String
+    let cleared: Bool
+}
+
 struct SkillsClient {
     /// 端点字面量单一真源（见文件头 ①）
     static let basePath = "/api/agent/skills"
@@ -138,6 +188,8 @@ struct SkillsClient {
     static let savePath = "/api/agent/skills/save"
     static let togglePath = "/api/agent/skills/toggle"
     static let restorePath = "/api/agent/skills/restore"
+    /// v4.0.105 纠错入口：只写后端**覆盖清单**（不动自动判定清单）
+    static let sourcePath = "/api/agent/skills/source"
 
     let transport: SkillsTransport
 
@@ -311,6 +363,19 @@ struct SkillsClient {
         return SkillRestoreResult(name: env.name ?? name, path: env.path ?? "")
     }
 
+    /// v4.0.105 人工纠错：设置某技能的来源（source 传 nil → 撤销纠正，回落到自动判定）。
+    func setSource(name: String, source: String?) async throws -> SkillSourceResult {
+        let data = try await send("POST", Self.sourcePath, ["name": name, "source": source ?? ""])
+        guard let env = try? JSONDecoder().decode(SourceEnvelope.self, from: data) else {
+            throw SkillsError.decode
+        }
+        guard env.ok else { throw SkillsError.backend(env.error ?? "") }
+        let src = (env.source ?? "unknown").lowercased()
+        return SkillSourceResult(name: env.name ?? name,
+                                 source: src.isEmpty ? "unknown" : src,
+                                 cleared: env.cleared ?? false)
+    }
+
     // MARK: - 内部
 
     private static func q(_ s: String) -> String {
@@ -403,6 +468,20 @@ private struct ToggleEnvelope: Decodable {
     }
 }
 
+private struct SourceEnvelope: Decodable {
+    let ok: Bool
+    let error: String?
+    let name: String?
+    let source: String?
+    let cleared: Bool?
+    init(from d: Decoder) throws {
+        let c = try d.container(keyedBy: K.self)
+        ok = K.flexBool(c, .ok); error = K.flexString(c, .error)
+        name = K.flexString(c, .name); source = K.flexString(c, .source)
+        cleared = K.flexBoolOpt(c, .cleared)
+    }
+}
+
 private struct DeleteEnvelope: Decodable {
     let ok: Bool
     let error: String?
@@ -431,6 +510,7 @@ private struct RestoreEnvelope: Decodable {
 private enum K: String, CodingKey {
     case ok, error, skills, name, enabled, size, content, content_len
     case draft, draft_len, category, path, trash_path, recoverable
+    case source, cleared          // v4.0.105 纠错入口
 }
 
 private extension K {

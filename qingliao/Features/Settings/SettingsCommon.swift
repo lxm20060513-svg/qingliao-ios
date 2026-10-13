@@ -550,18 +550,17 @@ struct TasksView: View {
                             .padding(.horizontal, Spacing.xxl)
                             .padding(.vertical, Spacing.lg)
                             // 长按：编辑 / 删除
-                            .contextMenu {
-                                // v3.9.40（#17）：编辑任务名/Cron/提示词（PATCH 依赖 unified_router
-                                // 补上的 do_PATCH，之前 501）
-                                Button {
+                            // v4.0.105：系统 .contextMenu → 全局同款锚定胶囊菜单（微缩抬起 + 轻纱模糊变暗 + 弹簧错峰）
+                            .anchorLongPressMenu(items: scheduledTaskMenuList(), title: "定时任务") { item in
+                                switch item.id {
+                                case "edit":
+                                    // v3.9.40（#17）：编辑任务名/Cron/提示词（PATCH 依赖 unified_router
+                                    // 补上的 do_PATCH，之前 501）
                                     editingTask = t
-                                } label: {
-                                    Label("编辑任务", systemImage: "square.and.pencil")
-                                }
-                                Button(role: .destructive) {
+                                case "delete":
                                     deleteTask(t)
-                                } label: {
-                                    Label("删除任务", systemImage: "trash")
+                                default:
+                                    break
                                 }
                             }
                             Divider().padding(.leading, Spacing.rowDividerInsetWide)
@@ -1122,4 +1121,12 @@ struct AppearanceSheet: View {
         }
         .padding(.vertical, Spacing.xxs)
     }
+}
+
+// MARK: - v4.0.105 定时任务行长按菜单的数组版项（原 `.contextMenu` 的 `Button` 逐条等价）
+private func scheduledTaskMenuList() -> [AnchorMenuItem] {
+    [
+        AnchorMenuItem(id: "edit", title: "编辑任务", icon: "square.and.pencil"),
+        AnchorMenuItem(id: "delete", title: "删除任务", icon: "trash", destructive: true),
+    ]
 }

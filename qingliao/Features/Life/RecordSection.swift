@@ -168,14 +168,16 @@ struct RecordSection: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(PressStyle())
-        .contextMenu {
-            if let top = store.sorted.first {
-                Button(role: .destructive) { glass.pendingDelete = top } label: {
-                    Label("删除最新一条", systemImage: "trash")
-                }
-            }
-            Button { startAdd() } label: {
-                Label("添加记录", systemImage: "plus")
+        // v4.0.105：系统 .contextMenu → 全局同款锚定胶囊菜单（微缩抬起 + 轻纱模糊变暗 + 弹簧错峰）
+        .anchorLongPressMenu(items: recordPageMenuList(store.sorted.first), title: "记录") { item in
+            switch item.id {
+            case "deleteLatest":
+                // 删除最新一条（无记录时该项不列，见 recordPageMenuList）
+                if let top = store.sorted.first { glass.pendingDelete = top }
+            case "add":
+                startAdd()
+            default:
+                break
             }
         }
         // v4.0.78：`matchedTransitionSource` / `navigationTransition(.zoom)` 一并移除 —— 这三张弹窗
@@ -246,6 +248,29 @@ struct RecordSection: View {
         RecordCategoryBar(rows: Array(store.monthByCategory.prefix(3)),
                           total: store.monthTotal.amount)
     }
+}
+
+// MARK: - v4.0.105 长按菜单项（页卡 / 明细行两处，原为行内 `.contextMenu` 的 `Button`）
+
+/// v4.0.105：记录页卡菜单的**数组版**（锚定胶囊菜单要 `[AnchorMenuItem]`）。无记录时不出
+/// 「删除最新一条」（与原 `if let top = store.sorted.first` 的项可见性逐条对齐）。
+private func recordPageMenuList(_ top: RecordItem?) -> [AnchorMenuItem] {
+    var items: [AnchorMenuItem] = []
+    if top != nil {
+        items.append(AnchorMenuItem(id: "deleteLatest",
+                                    title: "删除最新一条",
+                                    icon: "trash", destructive: true))
+    }
+    items.append(AnchorMenuItem(id: "add", title: "添加记录", icon: "plus"))
+    return items
+}
+
+/// v4.0.105：记录明细行（「全部记录」浮层内）菜单的**数组版**，项与图标语义逐条对齐原 `Button`。
+private func recordRowMenuList() -> [AnchorMenuItem] {
+    [
+        AnchorMenuItem(id: "edit", title: "编辑", icon: "pencil"),
+        AnchorMenuItem(id: "delete", title: "删除", icon: "trash", destructive: true),
+    ]
 }
 
 /// v4.0.98 记录页卡展开态一次画几条内部行卡（够看「最近几笔」；再多去底部「全部记录」浮层看）
@@ -589,12 +614,15 @@ struct RecordAllListBody: View {
             .contentShape(Rectangle())
             // 点按 = 编辑这一笔（用 onTapGesture 而不是包 Button：Button 会跟 List 的左滑删抢手势）
             .onTapGesture { onOpenDetail(r) }
-            .contextMenu {
-                Button { onOpenDetail(r) } label: {
-                    Label("编辑", systemImage: "pencil")
-                }
-                Button(role: .destructive) { pendingDeleteInList = r } label: {
-                    Label("删除", systemImage: "trash")
+            // v4.0.105：系统 .contextMenu → 全局同款锚定胶囊菜单（微缩抬起 + 轻纱模糊变暗 + 弹簧错峰）
+            .anchorLongPressMenu(items: recordRowMenuList(), title: "记录") { item in
+                switch item.id {
+                case "edit":
+                    onOpenDetail(r)
+                case "delete":
+                    pendingDeleteInList = r
+                default:
+                    break
                 }
             }
             .listRowInsets(EdgeInsets(top: 0, leading: Spacing.section,

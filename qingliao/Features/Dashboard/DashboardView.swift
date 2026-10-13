@@ -425,11 +425,13 @@ struct DashboardView: View {
                         .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { rect in
                             sceneFrames[s.id] = rect
                         }
-                        .contextMenu {
-                            Button(role: .destructive) {
+                        // v4.0.105：系统 .contextMenu → 全局同款锚定胶囊菜单（微缩抬起 + 轻纱模糊变暗 + 弹簧错峰）
+                        .anchorLongPressMenu(items: sceneCardMenuList(), title: "场景") { item in
+                            switch item.id {
+                            case "delete":
                                 deleteScene(s)
-                            } label: {
-                                Label("删除场景", systemImage: "trash")
+                            default:
+                                break
                             }
                         }
                 }
@@ -482,11 +484,13 @@ struct DashboardView: View {
                                    status: .on)
                             .opacity(remain <= 0 ? 0.35 : 1)
                     }
-                    .contextMenu {
-                        Button(role: .destructive) {
+                    // v4.0.105：系统 .contextMenu → 全局同款锚定胶囊菜单（微缩抬起 + 轻纱模糊变暗 + 弹簧错峰）
+                    .anchorLongPressMenu(items: automationCardMenuList(), title: "自动化") { item in
+                        switch item.id {
+                        case "cancel":
                             cancelAutomation(a)
-                        } label: {
-                            Label("取消自动化", systemImage: "xmark.circle")
+                        default:
+                            break
                         }
                     }
                 }
@@ -586,11 +590,13 @@ struct DashboardView: View {
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
                     ForEach(visible) { u in
                         UsageCard(usage: u)
-                            .contextMenu {
-                                Button(role: .destructive) {
+                            // v4.0.105：系统 .contextMenu → 全局同款锚定胶囊菜单（微缩抬起 + 轻纱模糊变暗 + 弹簧错峰）
+                            .anchorLongPressMenu(items: usageCardMenuList(), title: "用量卡片") { item in
+                                switch item.id {
+                                case "hide":
                                     hideUsageProvider(u.id)
-                                } label: {
-                                    Label("隐藏此卡片", systemImage: "eye.slash")
+                                default:
+                                    break
                                 }
                             }
                     }
@@ -1434,6 +1440,7 @@ struct DashboardView: View {
                 .navigationTransition(.zoom(sourceID: DashboardSheet.disks.id, in: sheetZoomNS))   // v3.9.0
         case .docker:
             DockerSheet()
+                .anchorMenuHost()   // v4.0.105：sheet 内长按站点需要本层宿主（根层 zIndex 4 画不到 sheet 之上）
                 .presentationDetents([.medium, .large])
                 .navigationTransition(.zoom(sourceID: DashboardSheet.docker.id, in: sheetZoomNS))   // v3.9.0
         // v3.9.46：三张设备详情弹窗（统一 BoardSheetHeader 头部、统一 medium/large detents、
@@ -1579,6 +1586,7 @@ extension DashboardView {
                         .presentationDetents([.medium, .large])
                 case .lifeCards:
                     LifeCardsSettingsView()
+                        .anchorMenuHost()   // v4.0.105：sheet 内长按站点需要本层宿主（根层 zIndex 4 画不到 sheet 之上）
                         .presentationDetents([.medium, .large])
                 // v4.0.x 第 3 项：接入中心一页新增两个直达口（邮件 / 网盘）。
                 // 复用设置页里那同一份 sheet，**不新做一套 UI**（用户口径：
@@ -1674,4 +1682,29 @@ extension DashboardView {
 
         func body(content: Content) -> some View { host.applyDashboardCardChrome(to: content, card: card) }
     }
+}
+
+// MARK: - v4.0.105 看板长按菜单项（系统 .contextMenu → 全局锚定胶囊菜单）
+//
+// 用户口径（2026-10-13）：「长按内容时先把所选内容微缩再抬起，背景高斯模糊变暗，下方弹簧弹出
+// 胶囊式菜单，并覆盖到 app 全局相同行为」。本文件三处长按入口统一走 `anchorLongPressMenu`
+// （一行式修饰器 + 全局宿主，见 Chat/AnchorMenuHost.swift）。
+//
+// 项与图标语义**逐条对齐**原 `Button(role: .destructive)`（标题 / 图标 / destructive 一致），
+// 动作仍由调用点的 onPick 分发（逐字搬原 Button 里的代码）。
+// 文件级函数默认非 MainActor 隔离 —— 这里只构造纯值（无 store / Haptics 调用），无需显式标注。
+
+/// 场景卡长按：删除场景（原 `.contextMenu` 里唯一那项）
+private func sceneCardMenuList() -> [AnchorMenuItem] {
+    [AnchorMenuItem(id: "delete", title: "删除场景", icon: "trash", destructive: true)]
+}
+
+/// 自动化卡长按：取消自动化
+private func automationCardMenuList() -> [AnchorMenuItem] {
+    [AnchorMenuItem(id: "cancel", title: "取消自动化", icon: "xmark.circle", destructive: true)]
+}
+
+/// 用量卡长按：隐藏此卡片
+private func usageCardMenuList() -> [AnchorMenuItem] {
+    [AnchorMenuItem(id: "hide", title: "隐藏此卡片", icon: "eye.slash", destructive: true)]
 }

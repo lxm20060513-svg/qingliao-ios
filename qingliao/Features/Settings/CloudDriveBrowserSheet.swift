@@ -208,10 +208,15 @@ struct CloudDriveBrowserSheet: View {
         .padding(.vertical, Spacing.lg)
         .contentShape(Rectangle())
         .onTapGesture { tap(e) }
-        .contextMenu {
-            if !e.isDir {
-                Button { preview(e) } label: { Label("预览", systemImage: "eye") }
-                Button { share(e) } label: { Label("分享", systemImage: "square.and.arrow.up") }
+        // v4.0.105：系统 .contextMenu → 全局同款锚定胶囊菜单（微缩抬起 + 轻纱模糊变暗 + 弹簧错峰）
+        .anchorLongPressMenu(items: cloudDriveEntryMenuList(e), title: "网盘文件") { item in
+            switch item.id {
+            case "preview":
+                preview(e)
+            case "share":
+                share(e)
+            default:
+                break
             }
         }
     }
@@ -400,4 +405,16 @@ struct CloudDriveBrowserSheet: View {
     private var alertOn: Binding<Bool> {
         Binding(get: { alertText != nil }, set: { if !$0 { alertText = nil } })
     }
+}
+
+// MARK: - v4.0.105 网盘文件行长按菜单的数组版项（原 `.contextMenu` 的 `Button` 逐条等价）
+//
+// 原 `.contextMenu` 只在**文件**（非目录）时给项 —— 目录返回空数组，`.anchorLongPressMenu`
+// 对空数组不弹菜单（与原行为等价：目录长按无菜单）。
+private func cloudDriveEntryMenuList(_ e: CloudDriveEntry) -> [AnchorMenuItem] {
+    guard !e.isDir else { return [] }
+    return [
+        AnchorMenuItem(id: "preview", title: "预览", icon: "eye"),
+        AnchorMenuItem(id: "share", title: "分享", icon: "square.and.arrow.up"),
+    ]
 }

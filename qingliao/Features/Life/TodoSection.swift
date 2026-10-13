@@ -161,7 +161,22 @@ struct TodoSection: View {
                     tint: completionTint,
                     onTapCard: toggleExpand
                 )
-                .contextMenu { todoCardMenuItems(next, onDelete: { glass.pendingDelete = $0 }) }
+                // v4.0.105：系统 .contextMenu → 全局同款锚定胶囊菜单（微缩抬起 + 轻纱模糊变暗 + 弹簧错峰）
+                .anchorLongPressMenu(items: todoCardMenuList(next), title: "待办") { item in
+                    switch item.id {
+                    case "toggle":
+                        // v4.0.84 拍 3：勾选是「行状态变化」（Motion.snap 口径），原来是硬切
+                        withAnimation(Motion.snap) { TodoStore.shared.toggleDone(next) }
+                        Haptics.success()
+                    case "copy":
+                        UIPasteboard.general.string = next.content
+                        Haptics.success()
+                    case "delete":
+                        glass.pendingDelete = next
+                    default:
+                        break
+                    }
+                }
                 .accessibilityLabel(todoExpanded
                                     ? "待办清单，已展开，点一下收起"
                                     : "待办清单，共 \(items.count) 项，点一下展开")
@@ -371,6 +386,25 @@ private func todoCardMenuItems(_ t: TodoItem, onDelete: @escaping (TodoItem) -> 
     }
 }
 
+/// v4.0.105：`todoCardMenuItems` 的**数组版** —— 锚定胶囊菜单要 `[AnchorMenuItem]`（用户口径
+/// 「覆盖到 app 全局相同行为」）。项与图标语义逐条对齐原 `Button` 版（含 destructive 档）。
+/// 原 `Button` 版保留：另有调用点（当日卡 / 浮层顶栏）仍在系统菜单里用。
+private func todoCardMenuList(_ t: TodoItem) -> [AnchorMenuItem] {
+    [
+        AnchorMenuItem(id: "toggle",
+                       title: t.done ? "标为待办" : "完成",
+                       icon: t.done ? "circle" : "checkmark.circle.fill"),
+        AnchorMenuItem(id: "copy", title: "复制", icon: "doc.on.doc"),
+        AnchorMenuItem(id: "delete", title: "删除", icon: "trash", destructive: true),
+    ]
+}
+
+/// v4.0.105：**卡下列表行**的数组版 —— 在原三项前多一条「详情」（原行内 `.contextMenu` 把
+/// 「详情」`Button` 与 `todoCardMenuItems` 两段合在一起，这里逐条对齐）。
+private func todoExpandMenuList(_ t: TodoItem) -> [AnchorMenuItem] {
+    [AnchorMenuItem(id: "detail", title: "详情", icon: "info.circle")] + todoCardMenuList(t)
+}
+
 // MARK: - v4.0.78 「全部待办」浮层内容（原 allSheet 的 NavigationStack 内主体，逐字平移）
 //
 // 外壳由 MemoGlassOverlay 替代（去 NavigationStack / presentationDetents / navigationTransition）。
@@ -428,7 +462,22 @@ struct TodoAllListBody: View {
                         TodoRowCard(item: t)
                     }
                     .buttonStyle(PressStyle())
-                    .contextMenu { todoCardMenuItems(t, onDelete: { pendingDeleteInList = $0 }) }
+                    // v4.0.105：系统 .contextMenu → 全局同款锚定胶囊菜单（微缩抬起 + 轻纱模糊变暗 + 弹簧错峰）
+                .anchorLongPressMenu(items: todoCardMenuList(t), title: "待办") { item in
+                    switch item.id {
+                    case "toggle":
+                        // v4.0.84 拍 3：勾选是「行状态变化」（Motion.snap 口径），原来是硬切
+                        withAnimation(Motion.snap) { TodoStore.shared.toggleDone(t) }
+                        Haptics.success()
+                    case "copy":
+                        UIPasteboard.general.string = t.content
+                        Haptics.success()
+                    case "delete":
+                        pendingDeleteInList = t
+                    default:
+                        break
+                    }
+                }
                     // v3.9.38：行容器口径与「全部备忘」逐项一致（卡片几何 + 无分隔线 + 透明行底）
                     .listRowInsets(EdgeInsets(top: 0, leading: Spacing.section,
                                               bottom: 8, trailing: Spacing.section))
@@ -862,9 +911,23 @@ private struct TodoExpandList: View {
                 }
                 .buttonStyle(PressStyle())
                 .pastelCard(cornerRadius: 18)
-                .contextMenu {
-                    Button { onOpenDetail(item) } label: { Label("详情", systemImage: "info.circle") }
-                    todoCardMenuItems(item, onDelete: { _ in onDelete(item) })
+                // v4.0.105：系统 .contextMenu → 全局同款锚定胶囊菜单（微缩抬起 + 轻纱模糊变暗 + 弹簧错峰）
+                .anchorLongPressMenu(items: todoExpandMenuList(item), title: "待办") { menuItem in
+                    switch menuItem.id {
+                    case "detail":
+                        onOpenDetail(item)
+                    case "toggle":
+                        // v4.0.84 拍 3：勾选是「行状态变化」（Motion.snap 口径），原来是硬切
+                        withAnimation(Motion.snap) { TodoStore.shared.toggleDone(item) }
+                        Haptics.success()
+                    case "copy":
+                        UIPasteboard.general.string = item.content
+                        Haptics.success()
+                    case "delete":
+                        onDelete(item)
+                    default:
+                        break
+                    }
                 }
                 // 逐条错峰弹出：每条延迟 55ms，位移 + 淡入 + 轻微缩放（收起时整体淡出）
                 .transition(.asymmetric(

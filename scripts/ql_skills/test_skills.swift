@@ -204,6 +204,52 @@ struct SkillsBehaviorTests {
         ck("delete 走 DELETE /api/agent/skills?name=… 且 name 被编码",
            seen.contains { $0.0 == "DELETE" && $0.1.hasPrefix("/api/agent/skills?name=") && $0.1.contains("my%20name") })
 
+        // ── 12. v4.0.105 来源分组 + 纠错入口 ──
+        //    退化全静默：source 缺字段不许崩、认不出的不许瞎归类、分组顺序错=用户看到的分类就乱。
+        let srcJSON = """
+        {"ok":true,"skills":[
+          {"name":"a-gen","title":"甲","source":"generated"},
+          {"name":"b-ins","title":"乙","source":"installed"},
+          {"name":"c-sys","title":"丙","source":"system"},
+          {"name":"d-unk","title":"丁","source":"unknown"},
+          {"name":"e-missing","title":"戊"},
+          {"name":"f-weird","title":"己","source":"GENERATED-ish"}
+        ]}
+        """
+        do {
+            let items = try await fake(srcJSON).list()
+            ck("来源：source 缺席 → unknown（不崩也不瞎归类）",
+               items.first { $0.name == "e-missing" }?.source == "unknown")
+            ck("来源：认不出的取值落 unknown",
+               items.first { $0.name == "f-weird" }.map { SkillSourceKind.of($0) } == .unknown)
+            ck("来源：正常取值原样保留",
+               items.first { $0.name == "b-ins" }?.source == "installed")
+            let groups = SkillGroup.group(items)
+            ck("分组：四段齐 + 顺序 = 我生成的→我安装的→系统→未定（未定垫底）",
+               groups.map { $0.kind } == [.generated, .installed, .system, .unknown])
+            ck("分组：每条只落一段（无重复无丢失）",
+               groups.reduce(0) { $0 + $1.items.count } == items.count)
+            ck("分组：未定段 = 显式 unknown + 缺席 + 认不出（三条）",
+               groups.last?.items.map { $0.name }.sorted() == ["d-unk", "e-missing", "f-weird"])
+        } catch { ck("来源列表解码不该抛", false, "\(error)") }
+
+        nonisolated(unsafe) var srcSeen: [(String, String, String)] = []
+        let srcClient = SkillsClient { m, p, b in
+            srcSeen.append((m, p, b.flatMap { String(data: $0, encoding: .utf8) } ?? ""))
+            return (data("{\"ok\":true,\"name\":\"a-gen\",\"source\":\"system\",\"cleared\":false}"), 200)
+        }
+        do {
+            let r = try await srcClient.setSource(name: "a-gen", source: "system")
+            ck("纠错：走 POST /api/agent/skills/source 且 body 带 name/source",
+               srcSeen.contains { $0.0 == "POST" && $0.1 == "/api/agent/skills/source"
+                   && $0.2.contains("\"name\":\"a-gen\"") && $0.2.contains("\"source\":\"system\"") })
+            ck("纠错：回执解析 name/source/cleared",
+               r.name == "a-gen" && r.source == "system" && r.cleared == false)
+            _ = try await srcClient.setSource(name: "a-gen", source: nil)
+            ck("撤销纠正：source 传空串（后端据此删覆盖键 → 回落自动判定）",
+               srcSeen.last?.2.contains("\"source\":\"\"") == true)
+        } catch { ck("纠错不该抛", false, "\(error)") }
+
         print("—— 行为表：\(pass) 通过 / \(fail) 失败 ——")
         if fail > 0 { exit(1) }
     }

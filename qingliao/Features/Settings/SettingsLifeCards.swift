@@ -221,9 +221,13 @@ struct LifeCardsSettingsView: View {
         .padding(.horizontal, Spacing.xxl)
         .padding(.vertical, Spacing.md)
         .contentShape(Rectangle())
-        .contextMenu {
-            Button(role: .destructive) { removeStock(i) } label: {
-                Label("删除这张卡片", systemImage: "trash")
+        // v4.0.105：系统 .contextMenu → 全局同款锚定胶囊菜单（微缩抬起 + 轻纱模糊变暗 + 弹簧错峰）
+        .anchorLongPressMenu(items: stockCardMenuList(), title: "股票") { item in
+            switch item.id {
+            case "delete":
+                removeStock(i)
+            default:
+                break
             }
         }
     }
@@ -270,9 +274,13 @@ struct LifeCardsSettingsView: View {
         .padding(.horizontal, Spacing.xxl)
         .padding(.vertical, Spacing.md)
         .contentShape(Rectangle())
-        .contextMenu {
-            Button(role: .destructive) { removeRss(i) } label: {
-                Label("删除这个源", systemImage: "trash")
+        // v4.0.105：系统 .contextMenu → 全局同款锚定胶囊菜单（微缩抬起 + 轻纱模糊变暗 + 弹簧错峰）
+        .anchorLongPressMenu(items: rssSourceMenuList(), title: "资讯源") { item in
+            switch item.id {
+            case "delete":
+                removeRss(i)
+            default:
+                break
             }
         }
     }
@@ -393,9 +401,13 @@ struct LifeCardsSettingsView: View {
         .padding(.horizontal, Spacing.xxl)
         .padding(.vertical, Spacing.md)
         .contentShape(Rectangle())
-        .contextMenu {
-            Button(role: .destructive) { removePackage(i) } label: {
-                Label("删除这个单号", systemImage: "trash")
+        // v4.0.105：系统 .contextMenu → 全局同款锚定胶囊菜单（微缩抬起 + 轻纱模糊变暗 + 弹簧错峰）
+        .anchorLongPressMenu(items: packageMenuList(), title: "快递") { item in
+            switch item.id {
+            case "delete":
+                removePackage(i)
+            default:
+                break
             }
         }
     }
@@ -1297,11 +1309,13 @@ struct QuickReminderSheet: View {
         }
         .padding(.horizontal, Spacing.xxl)
         .padding(.vertical, Spacing.lg)
-        .contextMenu {
-            Button(role: .destructive) {
+        // v4.0.105：系统 .contextMenu → 全局同款锚定胶囊菜单（微缩抬起 + 轻纱模糊变暗 + 弹簧错峰）
+        .anchorLongPressMenu(items: quickReminderMenuList(), title: "提醒") { item in
+            switch item.id {
+            case "delete":
                 Task { await delete(item) }
-            } label: {
-                Label("删除提醒", systemImage: "trash")
+            default:
+                break
             }
         }
     }
@@ -1586,4 +1600,29 @@ struct CardGallerySheet: View {
             )
         ),
     ]
+}
+
+// MARK: - v4.0.105 锚定胶囊菜单的数组版项（原 `.contextMenu` 的 `Button` 逐条等价）
+//
+// 用户口径「覆盖到 app 全局相同行为」：把系统 `.contextMenu` 换成一行式 `.anchorLongPressMenu`。
+// 项/图标/destructive 语义与原先的 `Button` 逐条对齐，动作仍在 onPick 的 switch 里逐字搬。
+
+/// 股票行（`stockRow`）
+private func stockCardMenuList() -> [AnchorMenuItem] {
+    [AnchorMenuItem(id: "delete", title: "删除这张卡片", icon: "trash", destructive: true)]
+}
+
+/// 资讯源行（`rssRow`）
+private func rssSourceMenuList() -> [AnchorMenuItem] {
+    [AnchorMenuItem(id: "delete", title: "删除这个源", icon: "trash", destructive: true)]
+}
+
+/// 快递单号行（`packageRow`）
+private func packageMenuList() -> [AnchorMenuItem] {
+    [AnchorMenuItem(id: "delete", title: "删除这个单号", icon: "trash", destructive: true)]
+}
+
+/// 快捷提醒行
+private func quickReminderMenuList() -> [AnchorMenuItem] {
+    [AnchorMenuItem(id: "delete", title: "删除提醒", icon: "trash", destructive: true)]
 }

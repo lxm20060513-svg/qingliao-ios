@@ -238,6 +238,7 @@ struct SessionsView: View {
         }
         .sheet(isPresented: $heroReminder) {
             QuickReminderSheet(presetText: "")
+                .anchorMenuHost()   // v4.0.105：sheet 内长按站点需要本层宿主（根层 zIndex 4 画不到 sheet 之上）
                 .presentationDetents([.medium, .large])
                 .scrollContentBackground(.hidden)
         }
@@ -1149,6 +1150,11 @@ struct SessionsView: View {
         //    实测（1179px 宽 · 393pt 屏）：agent 卡右缘 1137px = 14pt 边距（= Spacing.xxl 设计值）；
         //    会话卡右缘 1117px = 20.7pt；行内头像左缘 100px（未缩放应在 84px）→ 正是 0.965 缩放（0.965x 的卡边距 = 6.9pt/侧）。
         //    想恢复滚动层次感只有一条路：不要 List 外壳（改回 ScrollView + LazyVStack）——别只把这一行加回来。
+        // v4.0.105：此处**故意保留系统 .contextMenu**（用户 2026-10-13 拍板「这 5 处保留系统菜单」）。
+        // 原因：sessionRowMenu 里含 `Menu("移动到…")` **二级菜单**，锚定胶囊菜单目前没有二级 ——
+        // 硬换成 .anchorLongPressMenu 会把「移动到分类」整条丢掉（宁留系统样式，不许丢功能）。
+        // 另：本行菜单被 scripts/ql_fixed_session 与 scripts/ql_sessions 的真值表钉着（固定会话不给
+        // 删除/改名/归档、清空入口可见），换写法要同步改护栏，收益不抵风险。
         .contextMenu { sessionRowMenu(s) }
         // v4.1.x：右滑归档（leading 边）——本地状态，会话不删、消息不动，只从主列表隐藏。
         // 已归档的会话（归档箱视图里）同一位置变成「取消归档」。

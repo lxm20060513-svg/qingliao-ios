@@ -143,13 +143,18 @@ struct HabitSection: View {
                         HabitProgressCard(stats: stats)
                     }
                     .buttonStyle(PressStyle())
-                    .contextMenu {
-                        HabitMenuItems(h: top, today: today,
-                                       onView: { openDetailFromCard($0) },
-                                       onDelete: { glass.pendingDelete = $0 },
-                                       // v4.0.97（用户 2026-10-11 选 1:1）：卡面是聚合指标、菜单作用在
-                                       // 「最近更新那条」，两者不同一条 → 页卡不挂「删除」（详情页里仍可删）
-                                       showsDelete: false)
+                    // v4.0.105：系统 .contextMenu → 全局同款锚定胶囊菜单（微缩抬起 + 轻纱模糊变暗 + 弹簧错峰）
+                    .anchorLongPressMenu(items: habitMenuList(top, today: today, showsDelete: false), title: "习惯") { item in
+                        switch item.id {
+                        case "amount":
+                            if HabitStore.shared.addAmount(HabitKit.metricStep(top), to: top) { Haptics.light() }
+                        case "check":
+                            toggleHabit(top, today: today)
+                        case "view":
+                            openDetailFromCard(top)
+                        default:
+                            break
+                        }
                     }
                     .accessibilityLabel(habitExpanded
                                         ? "习惯统计，已展开，点一下收起"
@@ -186,10 +191,20 @@ struct HabitSection: View {
                                  onOpenFocus: { FocusGlassPresenter.shared.open(habitId: h.id) })
                 }
                 .buttonStyle(PressStyle())
-                .contextMenu {
-                    HabitMenuItems(h: h, today: today,
-                                   onView: { openDetailFromCard($0) },
-                                   onDelete: { glass.pendingDelete = $0 })
+                // v4.0.105：系统 .contextMenu → 全局同款锚定胶囊菜单（微缩抬起 + 轻纱模糊变暗 + 弹簧错峰）
+                .anchorLongPressMenu(items: habitMenuList(h, today: today), title: "习惯") { item in
+                    switch item.id {
+                    case "amount":
+                        if HabitStore.shared.addAmount(HabitKit.metricStep(h), to: h) { Haptics.light() }
+                    case "check":
+                        toggleHabit(h, today: today)
+                    case "view":
+                        openDetailFromCard(h)
+                    case "delete":
+                        glass.pendingDelete = h
+                    default:
+                        break
+                    }
                 }
                 .transition(.asymmetric(
                     insertion: .offset(y: -14).combined(with: .opacity)
@@ -406,6 +421,31 @@ private struct HabitMenuItems: View {
             }
         }
     }
+}
+
+/// v4.0.105：`HabitMenuItems` 的**数组版** —— 锚定胶囊菜单要 `[AnchorMenuItem]`（用户口径
+/// 「覆盖到 app 全局相同行为」）。项与图标/文案语义逐条对齐原 `Button` 版（计量习惯 = 加一笔；
+/// 二值习惯 = 打卡/取消；`showsDelete == false` 时不列删除 —— 页卡口径，与 `HabitMenuItems` 同）。
+/// 🚨 **文件级函数默认非 MainActor 隔离** → 读 `HabitStore` / `HabitKit` 这类 MainActor API 必须显式 `@MainActor`。
+@MainActor
+private func habitMenuList(_ h: HabitItem, today: Date, showsDelete: Bool = true) -> [AnchorMenuItem] {
+    var items: [AnchorMenuItem] = []
+    if h.isMetric {
+        // v4.0.104：计量习惯走打卡是空操作 → 菜单里换成加一笔（与原 Button 版逐字同文案）
+        items.append(AnchorMenuItem(id: "amount",
+                                    title: "加一笔（+\(HabitKit.numberText(HabitKit.metricStep(h)))\(h.unitText)）",
+                                    icon: "plus.circle.fill"))
+    } else {
+        let done = HabitStore.shared.isDone(h, on: today)
+        items.append(AnchorMenuItem(id: "check",
+                                    title: done ? "取消今日打卡" : "今日打卡",
+                                    icon: done ? "arrow.uturn.backward" : "checkmark.circle.fill"))
+    }
+    items.append(AnchorMenuItem(id: "view", title: "查看", icon: "eye"))
+    if showsDelete {
+        items.append(AnchorMenuItem(id: "delete", title: "删除", icon: "trash", destructive: true))
+    }
+    return items
 }
 /// 打卡/取消打卡（幂等；原 HabitSection.toggle 逐字平移）。
 /// 打卡走 store 的默认 day（= Date()），展示用 today 判断——与原实现一致（口径不动）。
@@ -811,12 +851,22 @@ struct HabitAllListBody: View {
                     HabitRowCard(h: h, today: today,
                                  onOpenFocus: { FocusGlassPresenter.shared.open(habitId: h.id) })
                         .onTapGesture { onOpenDetail(h) }
-                        .contextMenu {
+                        // v4.0.105：系统 .contextMenu → 全局同款锚定胶囊菜单（微缩抬起 + 轻纱模糊变暗 + 弹簧错峰）
+                        .anchorLongPressMenu(items: habitMenuList(h, today: today), title: "习惯") { item in
+                            switch item.id {
+                            case "amount":
+                                if HabitStore.shared.addAmount(HabitKit.metricStep(h), to: h) { Haptics.light() }
+                            case "check":
+                                toggleHabit(h, today: today)
                             // 查看 → 走宿主 onOpenDetail（先收列表再开详情，与行点击同一条路）；
                             // 删除 → 走本列表自带的确认框（浮层还开着时宿主 alert 会被盖住）
-                            HabitMenuItems(h: h, today: today,
-                                           onView: { onOpenDetail($0) },
-                                           onDelete: { pendingDeleteInList = $0 })
+                            case "view":
+                                onOpenDetail(h)
+                            case "delete":
+                                pendingDeleteInList = h
+                            default:
+                                break
+                            }
                         }
                         .listRowInsets(EdgeInsets(top: 0, leading: Spacing.section,
                                                   bottom: 8, trailing: Spacing.section))

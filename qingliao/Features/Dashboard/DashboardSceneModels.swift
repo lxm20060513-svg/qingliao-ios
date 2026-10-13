@@ -39,8 +39,14 @@ struct RuleRow: View {
         }
         .padding(.vertical, Spacing.xxs)
         .contentShape(Rectangle())
-        .contextMenu {
-            Button(role: .destructive) { onDelete() } label: { Label("删除规则", systemImage: "trash") }
+        // v4.0.105：系统 .contextMenu → 全局同款锚定胶囊菜单（微缩抬起 + 轻纱模糊变暗 + 弹簧错峰）
+        .anchorLongPressMenu(items: ruleRowMenuList(), title: "自动规则") { item in
+            switch item.id {
+            case "delete":
+                onDelete()
+            default:
+                break
+            }
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(item.name)，\(item.enabled ? "已启用" : "已停用")，条件 \(item.summary)")
@@ -71,6 +77,16 @@ struct AutomationItem: Identifiable {
         remaining = (d["remaining"] as? Int) ?? 0
         runAt = Date(timeIntervalSince1970: ((d["run_at"] as? Double) ?? 0))
     }
+}
+
+// MARK: - v4.0.105 自动规则行长按菜单项（系统 .contextMenu → 全局锚定胶囊菜单）
+//
+// 项与图标语义逐条对齐原 `Button(role: .destructive)`；动作仍由调用点的 onPick 分发。
+// 文件级函数默认非 MainActor 隔离 —— 这里只构造纯值，无需显式标注。
+
+/// 自动规则行长按：删除规则（原 `.contextMenu` 里唯一那项）
+private func ruleRowMenuList() -> [AnchorMenuItem] {
+    [AnchorMenuItem(id: "delete", title: "删除规则", icon: "trash", destructive: true)]
 }
 
 // MARK: - 磁盘磁贴（与 DeviceCard/MeterCard 同款 HomeKit 卡片风格）

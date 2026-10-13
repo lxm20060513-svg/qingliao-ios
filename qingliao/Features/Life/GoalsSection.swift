@@ -190,7 +190,28 @@ struct GoalsSection: View {
                     tint: goalTint(top),
                     onTapCard: toggleExpand
                 )
-                .contextMenu { goalMenuItems(top) }
+                // v4.0.105：系统 .contextMenu → 全局同款锚定胶囊菜单（微缩抬起 + 轻纱模糊变暗 + 弹簧错峰）
+                .anchorLongPressMenu(items: goalMenuList(top), title: "目标") { item in
+                    switch item.id {
+                    case "edit":
+                        // v4.0.104（#16a）：编辑入口 —— 打开编辑浮层前先收掉详情/新建（单例状态不互叠）
+                        let p = GoalsGlassPresenter.shared
+                        p.showEdit = top
+                        p.editSession += 1
+                        p.detail = nil
+                        p.showAdd = false
+                        Haptics.tap()
+                    case "pause":
+                        let now = !top.paused
+                        GoalStore.shared.mutate(top.id) { $0.paused = now }
+                        Task { await GoalStore.shared.setPausedOnBackend(goalID: top.id, paused: now) }
+                        Haptics.success()
+                    case "delete":
+                        glass.pendingDelete = top
+                    default:
+                        break
+                    }
+                }
                 .accessibilityLabel(goalsExpanded
                                     ? "长期目标，已展开，点一下收起"
                                     : "长期目标，共 \(store.goals.count) 个，点一下展开")
@@ -386,7 +407,28 @@ private struct GoalExpandList: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(PressStyle())
-                .contextMenu { goalCardMenuItems(g, onDelete: { onDelete($0) }) }
+                // v4.0.105：系统 .contextMenu → 全局同款锚定胶囊菜单（微缩抬起 + 轻纱模糊变暗 + 弹簧错峰）
+                .anchorLongPressMenu(items: goalMenuList(g), title: "目标") { item in
+                    switch item.id {
+                    case "edit":
+                        // v4.0.104（#16a）：编辑入口 —— 打开编辑浮层前先收掉详情/新建（单例状态不互叠）
+                        let p = GoalsGlassPresenter.shared
+                        p.showEdit = g
+                        p.editSession += 1
+                        p.detail = nil
+                        p.showAdd = false
+                        Haptics.tap()
+                    case "pause":
+                        let now = !g.paused
+                        GoalStore.shared.mutate(g.id) { $0.paused = now }
+                        Task { await GoalStore.shared.setPausedOnBackend(goalID: g.id, paused: now) }
+                        Haptics.success()
+                    case "delete":
+                        onDelete(g)
+                    default:
+                        break
+                    }
+                }
                 // 逐条错峰弹出：与待办展开区同参数（每条延迟 55ms）
                 .transition(.asymmetric(
                     insertion: .offset(y: -14).combined(with: .opacity)
@@ -453,6 +495,19 @@ private func goalCardMenuItems(_ g: GoalItem,
     } label: {
         Label("删除", systemImage: "trash")
     }
+}
+
+/// v4.0.105：`goalCardMenuItems` 的**数组版** —— 锚定胶囊菜单要 `[AnchorMenuItem]`（用户口径
+/// 「覆盖到 app 全局相同行为」）。项与图标/文案语义逐条对齐原 `Button` 版（含暂停/恢复文案图标切换
+/// + destructive 档）。原 `Button` 版保留：另有调用点仍在系统菜单里用。
+private func goalMenuList(_ g: GoalItem) -> [AnchorMenuItem] {
+    [
+        AnchorMenuItem(id: "edit", title: "编辑", icon: "pencil"),
+        AnchorMenuItem(id: "pause",
+                       title: g.paused ? "恢复每日推进" : "暂停每日推进",
+                       icon: g.paused ? "play.circle" : "pause.circle"),
+        AnchorMenuItem(id: "delete", title: "删除", icon: "trash", destructive: true),
+    ]
 }
 
 // MARK: - v4.0.78 「新建目标」浮层内容（原 addSheet 的 NavigationStack 内主体，逐字平移）

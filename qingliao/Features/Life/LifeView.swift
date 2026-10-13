@@ -225,6 +225,7 @@ struct LifeView: View {
         Color.clear
         .sheet(isPresented: $showLifeSettings) {
             LifeCardsSettingsView()
+                .anchorMenuHost()   // v4.0.105：sheet 内长按站点需要本层宿主（根层 zIndex 4 画不到 sheet 之上）
                 .presentationDetents([.medium, .large])
         }
         // v3.9.85：板块自定义（排序 + 隐藏）

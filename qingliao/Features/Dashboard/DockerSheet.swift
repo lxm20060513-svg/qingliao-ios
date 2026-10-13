@@ -466,12 +466,14 @@ private struct ContainerSection: View {
                                 let act = c.status.contains("Up") ? "stop" : "start"
                                 Task { await onAction(c, act) }
                             }
-                            .contextMenu {
-                                Button(role: .destructive) {
+                            // v4.0.105：系统 .contextMenu → 全局同款锚定胶囊菜单（微缩抬起 + 轻纱模糊变暗 + 弹簧错峰）
+                            .anchorLongPressMenu(items: containerCardMenuList(), title: "容器") { item in
+                                switch item.id {
+                                case "delete":
                                     Haptics.rigid()
                                     onDelete(c)
-                                } label: {
-                                    Label("删除容器", systemImage: "trash")
+                                default:
+                                    break
                                 }
                             }
                     }
@@ -556,12 +558,14 @@ private struct ImageSection: View {
                         DockerImageCard(image: img)
                             // v4.0.102：报帧给宿主（长按菜单「删除镜像」的锚点）
                             .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { onCardFrame(img.id, $0) }
-                            .contextMenu {
-                                Button(role: .destructive) {
+                            // v4.0.105：系统 .contextMenu → 全局同款锚定胶囊菜单（微缩抬起 + 轻纱模糊变暗 + 弹簧错峰）
+                            .anchorLongPressMenu(items: imageCardMenuList(), title: "镜像") { item in
+                                switch item.id {
+                                case "delete":
                                     Haptics.rigid()
                                     onDelete(img)
-                                } label: {
-                                    Label("删除镜像", systemImage: "trash")
+                                default:
+                                    break
                                 }
                             }
                     }
@@ -736,4 +740,28 @@ extension DockerSheet {
             updates = (j["updates"] as? [String: Bool]) ?? [:]
         }
     }
+}
+
+// MARK: - v4.0.105 Docker 卡片长按菜单项（系统 .contextMenu → 全局锚定胶囊菜单）
+//
+// 用户口径（2026-10-13）：「长按内容时先把所选内容微缩再抬起，背景高斯模糊变暗，下方弹簧弹出
+// 胶囊式菜单，并覆盖到 app 全局相同行为」。容器卡 / 镜像卡两处长按入口统一走
+// `anchorLongPressMenu`（一行式修饰器 + 全局宿主，见 Chat/AnchorMenuHost.swift）。
+//
+// 项与图标语义**逐条对齐**原 `Button(role: .destructive)`（标题 / 图标 / destructive 一致），
+// 动作仍由调用点的 onPick 分发（逐字搬原 Button 里的代码，含 Haptics.rigid()）。
+// 文件级函数默认非 MainActor 隔离 —— 这里只构造纯值（无 store / Haptics 调用），无需显式标注。
+//
+// ✅ 本页（DockerSheet）由 `.sheet` 呈现 —— 根层宿主（zIndex 4）画不到 sheet 之上，
+//    已在**呈现点**补挂一层宿主：`DashboardView` 的 `case .docker: DockerSheet().anchorMenuHost()`。
+//    多层宿主「最内层优先」，故不会与根层重复画（见 Chat/AnchorMenuHost.swift）。
+
+/// 容器卡长按：删除容器（原 `.contextMenu` 里唯一那项）
+private func containerCardMenuList() -> [AnchorMenuItem] {
+    [AnchorMenuItem(id: "delete", title: "删除容器", icon: "trash", destructive: true)]
+}
+
+/// 镜像卡长按：删除镜像
+private func imageCardMenuList() -> [AnchorMenuItem] {
+    [AnchorMenuItem(id: "delete", title: "删除镜像", icon: "trash", destructive: true)]
 }

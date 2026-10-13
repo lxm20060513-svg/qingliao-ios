@@ -246,6 +246,7 @@ struct MessageBlockView: View {
         blockContent
             .sheet(isPresented: $showReminderSheet) {
                 QuickReminderSheet(presetText: reminderSeed)
+                    .anchorMenuHost()   // v4.0.105：sheet 内长按站点需要本层宿主（根层 zIndex 4 画不到 sheet 之上）
                     .presentationDetents([.medium, .large])
             }
     }

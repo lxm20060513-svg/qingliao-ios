@@ -242,6 +242,7 @@ struct SettingsView: View {
         Color.clear
         .sheet(isPresented: $showTasks) {
             TasksView()
+                .anchorMenuHost()   // v4.0.105：sheet 内长按站点需要本层宿主（根层 zIndex 4 画不到 sheet 之上）
                 .presentationDetents([.medium, .large])
         }
         .sheet(isPresented: $showLogs) {
@@ -329,11 +330,13 @@ struct SettingsView: View {
         // v3.5.x：生活卡片设置页（股票 / 资讯 / 快递）
         .sheet(isPresented: $showLifeCards) {
             LifeCardsSettingsView()
+                .anchorMenuHost()   // v4.0.105：sheet 内长按站点需要本层宿主（根层 zIndex 4 画不到 sheet 之上）
                 .presentationDetents([.medium, .large])
         }
         // v3.9.32：定时提醒（纯本地 UNCalendarNotificationTrigger，无后端依赖）
         .sheet(isPresented: $showQuickReminder) {
             QuickReminderSheet()
+                .anchorMenuHost()   // v4.0.105：sheet 内长按站点需要本层宿主（根层 zIndex 4 画不到 sheet 之上）
                 .presentationDetents([.medium, .large])
                 .scrollContentBackground(.hidden)
         }
@@ -357,6 +360,7 @@ struct SettingsView: View {
             SkillsLibrarySheet()
                 .presentationDetents([.medium, .large])
                 .scrollContentBackground(.hidden)
+                .anchorMenuHost()   // v4.0.105：sheet 内长按站点需要本层宿主（根层 zIndex 4 画不到 sheet 之上）
         }
     }
 

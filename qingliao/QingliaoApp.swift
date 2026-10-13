@@ -216,6 +216,12 @@ struct RootView: View {
                 .transition(.opacity)
             }
 
+            // v4.0.105：锚定长按菜单的**全局宿主**（`.anchorLongPressMenu` 的渲染落点）。
+            // 必须挂在根视图整屏层：浮层要判「内容下方放不放得下」、要盖住底部 dock/输入栏。
+            // zIndex 4：压在页面(0~2)之上，App 锁(5)/过期横幅(6)/启动动画(10) 之下。
+            AnchorMenuHostLayer()
+                .zIndex(4)
+
             // v3.9.32：登录过期横幅（401 统一收敛点 AuthStore.sessionExpired 置位后显示）
             SessionExpiredBanner()
                 .zIndex(6)

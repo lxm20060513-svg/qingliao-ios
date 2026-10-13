@@ -221,6 +221,9 @@ struct ChatQuestionCard: View {
             }
         }
         .accessibilityElement(children: .combine)
+        // v4.0.105：此处**故意保留系统 .contextMenu**（用户同日拍板保留；且
+        // scripts/check_action_capabilities.py:311 就钉着 `'.contextMenu { questionCardMenu }' 在场` ——
+        // 换成锚定胶囊菜单会让该护栏转红，属故意不换，不是漏改）。
         .contextMenu { questionCardMenu }
     }
 

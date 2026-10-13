@@ -142,7 +142,24 @@ struct MemoSection: View {
                 MemoNoteCard(item: only, compact: true)
             }
             .buttonStyle(PressStyle())
-            .contextMenu { memoMenuItems(only, onDelete: { glass.pendingDelete = $0 }) }
+            // v4.0.105：系统 .contextMenu → 全局同款锚定胶囊菜单（微缩抬起 + 轻纱模糊变暗 + 弹簧错峰）
+            .anchorLongPressMenu(items: memoCardMenuList(only), title: "备忘") { item in
+                switch item.id {
+                case "pin":
+                    MemoStore.shared.togglePin(only)
+                    Haptics.success()
+                case "send":
+                    // 原 onSend == nil → memoCardMenuItems 回退到 memoSendToAI
+                    memoSendToAI(only)
+                case "copy":
+                    UIPasteboard.general.string = only.content
+                    Haptics.success()
+                case "delete":
+                    glass.pendingDelete = only
+                default:
+                    break
+                }
+            }
             .accessibilityLabel("备忘录，1 条，点开查看")
         } else if !items.isEmpty {
             MemoStackCard(
@@ -378,6 +395,20 @@ private func memoCardMenuItems(_ m: MemoItem,
     } label: {
         Label("删除", systemImage: "trash")
     }
+}
+
+/// v4.0.105：`memoCardMenuItems` 的**数组版** —— 锚定胶囊菜单要 `[AnchorMenuItem]`（用户口径
+/// 「覆盖到 app 全局相同行为」）。项与图标语义逐条对齐原 `Button` 版（含置顶态图标切换 + destructive 档）。
+/// ⚠️ `onSend` 为 nil 时原版回退 `memoSendToAI` —— 回退动作由调用点的 onPick 承担（此处只列项）。
+private func memoCardMenuList(_ m: MemoItem) -> [AnchorMenuItem] {
+    [
+        AnchorMenuItem(id: "pin",
+                       title: m.pinned ? "取消置顶" : "置顶",
+                       icon: m.pinned ? "pin.slash" : "pin"),
+        AnchorMenuItem(id: "send", title: "发给 AI", icon: "paperplane"),
+        AnchorMenuItem(id: "copy", title: "复制", icon: "doc.on.doc"),
+        AnchorMenuItem(id: "delete", title: "删除", icon: "trash", destructive: true),
+    ]
 }
 
 /// v3.9.14：把备忘内容作为一条用户消息发给 AI，并切回聊天页。
@@ -750,7 +781,23 @@ private struct MemoStackCard: View {
         //（同批的待办/目标页卡都是真 Button）。这里手工把语义补回来。
         .accessibilityAddTraits(.isButton)
         .accessibilityAction { onToggle() }
-        .contextMenu { memoCardMenuItems(item, onDelete: onDelete, onSend: onSendToAI) }
+        // v4.0.105：系统 .contextMenu → 全局同款锚定胶囊菜单（微缩抬起 + 轻纱模糊变暗 + 弹簧错峰）
+        .anchorLongPressMenu(items: memoCardMenuList(item), title: "备忘") { menuItem in
+            switch menuItem.id {
+            case "pin":
+                MemoStore.shared.togglePin(item)
+                Haptics.success()
+            case "send":
+                onSendToAI(item)
+            case "copy":
+                UIPasteboard.general.string = item.content
+                Haptics.success()
+            case "delete":
+                onDelete(item)
+            default:
+                break
+            }
+        }
         .accessibilityLabel("\(item.displayTitle)，\(expanded ? "点一下叠回" : "点一下展开清单")")
     }
 }
@@ -810,9 +857,23 @@ struct MemoAllListBody: View {
                         MemoNoteCard(item: m)
                     }
                     .buttonStyle(PressStyle())
-                    .contextMenu {
-                        // 删除走浮层内确认（浮层还开着时宿主 alert 被盖住）；发 AI 直接走宿主老路径
-                        menuFor(m, { item in pendingDeleteInList = item }, { item in onSendToAI(item) })
+                    // v4.0.105：系统 .contextMenu → 全局同款锚定胶囊菜单（微缩抬起 + 轻纱模糊变暗 + 弹簧错峰）
+                    .anchorLongPressMenu(items: memoCardMenuList(m), title: "备忘") { menuItem in
+                        switch menuItem.id {
+                        case "pin":
+                            MemoStore.shared.togglePin(m)
+                            Haptics.success()
+                        case "send":
+                            onSendToAI(m)
+                        case "copy":
+                            UIPasteboard.general.string = m.content
+                            Haptics.success()
+                        case "delete":
+                            // 删除走浮层内确认（浮层还开着时宿主 alert 被盖住）
+                            pendingDeleteInList = m
+                        default:
+                            break
+                        }
                     }
                     .listRowInsets(EdgeInsets(top: 0, leading: Spacing.section,
                                               bottom: 8, trailing: Spacing.section))

@@ -57,6 +57,19 @@ enum Motion {
     /// v4.0.76：锚定菜单入场（AnchorMenuOverlay 专用，审查意见：入场动画走 Motion 真源不裸写 spring）
     static var anchorMenu: Animation { .spring(response: 0.38, dampingFraction: 0.78) }
 
+    /// v4.0.105：长按菜单「抬起」拍 —— 用户口径「长按内容时先将所选内容微缩再抬起」。
+    /// 起跳比 anchorMenu 略快、回弹同档（抬起要有「被拿起」的果断感，但落位不抖）。
+    static var menuLift: Animation { .spring(response: 0.34, dampingFraction: 0.78) }
+
+    /// v4.0.105：长按菜单「微缩」拍（按下期，很短、无回弹）。
+    static var pressDown: Animation { .easeOut(duration: 0.12) }
+
+    /// v4.0.105：长按抬起的几何真源（AnchorMenuOverlay 与内容侧共用，避免各写一份字面量）。
+    /// 微缩比例 = 被长按内容按下时的缩放；抬起比例 + 位移 = 抬起终态。
+    static let pressScale: CGFloat = 0.96
+    static let liftScale: CGFloat = 1.02
+    static let liftRise: CGFloat = 10
+
     /// v4.0.97：dock 切页**圆形扩散**入场（用户 2026-10-11：「dock 栏 tap 页切换采用圆形扩散转场特效：
     /// 点击底部 tap，新页面就从手指按下的位置向外扩散直到铺满整个屏幕」）—— 取代 v4.0.85 的
     /// 「横向滑入 + 渐显」（那套历轮为躲「闪 / 露白」一路压小到 ≈硬切；用户既点名要扩散，就整条换掉）。

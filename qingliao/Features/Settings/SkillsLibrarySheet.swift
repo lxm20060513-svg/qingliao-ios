@@ -82,6 +82,9 @@ struct SkillsLibrarySheet: View {
         }
     }
 
+    /// v4.0.105 四段分组（我生成的 → 我安装的 → 系统 → 未定垫底）
+    private var grouped: [SkillGroup] { SkillGroup.group(filtered) }
+
     var body: some View {
         NavigationStack {
             Form {
@@ -167,9 +170,22 @@ struct SkillsLibrarySheet: View {
                     .foregroundStyle(.secondary)
             }
         } else {
-            Section("技能（\(filtered.count)）") {
-                ForEach(filtered) { item in
-                    row(item)
+            // v4.0.105：按来源四段分开（用户口径）+ 未定段提示长按纠正；空组不渲染
+            ForEach(grouped) { g in
+                if !g.items.isEmpty {
+                    Section {
+                        ForEach(g.items) { item in
+                            row(item)
+                        }
+                    } header: {
+                        HStack(spacing: Spacing.sm) {
+                            Text("\(g.kind.title)（\(g.items.count)）")
+                            if g.kind == .unknown {
+                                Spacer(minLength: 8)
+                                Text("长按一行可纠正来源")
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -184,6 +200,7 @@ struct SkillsLibrarySheet: View {
                     .lineLimit(1)
                 statusPill(item.enabled)
                 Spacer(minLength: 8)
+                sourceChip(SkillSourceKind.of(item))   // v4.0.105 来源标签（分组之外再给逐行反馈）
                 Button {
                     menuItem = item
                 } label: {
@@ -210,6 +227,12 @@ struct SkillsLibrarySheet: View {
                     .truncationMode(.tail)
             }
         }
+        // v4.0.105：长按一行 → 复用**全局长按菜单**（同一套锚定胶囊）纠正来源；
+        // 「…」菜单保持「查看 / 停用 / 删除」不变，两个入口各管一摊，互不抢。
+        .anchorLongPressMenu(items: correctionItems(item),
+                             title: item.title.isEmpty ? item.name : item.title,
+                             message: "当前来源：\(SkillSourceKind.of(item).title) · 纠正只写覆盖清单（不动自动判定）",
+                             onPick: { pick in Task { await correct(item, pick: pick.id) } })
         .swipeActions(edge: .trailing) {
             Button(role: .destructive) {
                 askDelete(item, anchor: .zero)
@@ -232,6 +255,60 @@ struct SkillsLibrarySheet: View {
             .padding(.vertical, Spacing.xxs)
             .background((on ? Color.green : Color.gray).opacity(0.15),
                         in: Capsule(style: .continuous))
+    }
+
+    /// v4.0.105 来源色（放视图层：SkillsClient.swift 必须能被真值表独立编译，不能引 SwiftUI 的 Color）
+    private func sourceTint(_ kind: SkillSourceKind) -> Color {
+        switch kind {
+        case .generated: return .blue
+        case .installed: return .green
+        case .system: return .gray
+        case .unknown: return .orange
+        }
+    }
+
+    /// v4.0.105 来源标签
+    private func sourceChip(_ kind: SkillSourceKind) -> some View {
+        Text(kind.title)
+            .font(.system(size: Typography.tiny, weight: .semibold))
+            .foregroundStyle(sourceTint(kind))
+            .padding(.horizontal, Spacing.sm)
+            .padding(.vertical, Spacing.xxs)
+            // 彩色淡底一律 0.15（全仓口径，护栏把 0.14 清零；与本页 statusPill 同值）
+            .background(sourceTint(kind).opacity(0.15), in: Capsule(style: .continuous))
+            .lineLimit(1)
+            .fixedSize()
+    }
+
+    /// v4.0.105 纠错菜单：三颗「标为…」+ 第 4 颗「撤销纠正」（拍板 2-1）
+    private func correctionItems(_ item: SkillItem) -> [AnchorMenuItem] {
+        let cur = SkillSourceKind.of(item)
+        var out: [AnchorMenuItem] = []
+        for k in [SkillSourceKind.generated, .installed, .system] {
+            out.append(AnchorMenuItem(id: k.rawValue,
+                                      title: "标为「\(k.title)」",
+                                      icon: k == cur ? "checkmark.circle.fill" : "circle",
+                                      color: sourceTint(k),
+                                      disabled: k == cur))
+        }
+        out.append(AnchorMenuItem(id: "reset", title: "撤销纠正（恢复自动判定）",
+                                  icon: "arrow.uturn.backward", color: .gray))
+        return out
+    }
+
+    /// v4.0.105 提交纠正（pick=reset → 撤销）；成功后回读刷新，分组与标签同步变动
+    private func correct(_ item: SkillItem, pick: String) async {
+        do {
+            let r = try await client.setSource(name: item.name, source: pick == "reset" ? nil : pick)
+            let label = SkillSourceKind(rawValue: r.source)?.title ?? r.source
+            toast = r.cleared ? "已撤销纠正：\(item.name)（自动判定为「\(label)」）"
+                              : "已标为「\(label)」：\(item.name)"
+            await reload()
+        } catch let e as SkillsError {
+            toast = "纠正失败：\(e.message)"
+        } catch {
+            toast = "纠正失败：\(error)"
+        }
     }
 
     // MARK: - 浮层
