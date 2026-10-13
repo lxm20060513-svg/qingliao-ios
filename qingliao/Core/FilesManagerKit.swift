@@ -198,4 +198,81 @@ enum RemoteFiles {
         guard NetworkMonitor.shared.isCellular else { return true }
         return bytes <= cellularSafeBytes
     }
+
+    // MARK: 共享下载入口（单一真源：设置页「文件」与聊天「AI 成品文件卡」共用）
+
+    /// 失败文案（原 SettingsData 私有 `filesFailureReason`，随 #17 收归此处，**文案一字不改**）：
+    /// REST 非 2xx 时 auth.request/json 会抛 APIError，后端的 error 原文拿不到 → 按状态码给原因。
+    static func failureReason(_ error: Error) -> String {
+        guard let api = error as? APIError else { return error.localizedDescription }
+        switch api {
+        case .unauthorized: return "登录已过期，请重新登录后重试"
+        case .badURL: return "服务器地址无效"
+        case .badResponse, .badResponseDetail: return "服务器响应异常"
+        case .badJSON: return "服务器响应无法解析"
+        case .timeout, .timeoutDetail: return "请求超时，请检查网络"
+        case .relayCancelled: return "请求已取消"
+        case .server(403): return "没有权限操作该文件（路径超出允许范围）"
+        case .server(404): return "文件不存在，可能已被删除"
+        case .server(500): return "服务器处理失败，请稍后重试"
+        case .server(let code): return "服务器返回 \(code)"
+        }
+    }
+
+    /// 数据落本地临时目录（文件名净化：防后端下发的名字带路径分隔符写到别处）
+    /// 收归共享（原 SettingsData 私有 `writeTemp`，净化语义原样）；落 `temporaryDirectory/files_manager`，
+    /// 覆盖同名旧文件防临时目录堆积。
+    static func writeTemp(_ data: Data, name: String) -> URL? {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("files_manager", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let dst = dir.appendingPathComponent(safeLocalName(name))
+        try? FileManager.default.removeItem(at: dst)   // 覆盖同名旧临时文件，防临时目录堆积
+        do {
+            try data.write(to: dst, options: .atomic)
+            return dst
+        } catch {
+            return nil
+        }
+    }
+
+    /// 共享下载入口：走 auth.downloadFile（WiFi 直连 / 蜂窝 relay，自动带 X-Auth-Token），
+    /// 2xx 且非空 → success；否则 `Haptics.error()` + 失败文案（与设置页「文件」逐字一致）。
+    @MainActor
+    static func fetchData(_ auth: AuthStore, path: String, cellular: Bool) async -> Result<Data, String> {
+        let q = "/api/files/download?path=" + queryEncoded(path)
+        do {
+            let (data, code) = try await auth.downloadFile(q)
+            if (200..<300).contains(code), !data.isEmpty { return .success(data) }
+            Haptics.error()
+            if code == 404 {
+                return .failure("文件不存在，可能已被删除" + (cellular ? "（当前为蜂窝网络）" : ""))
+            } else if code == 403 {
+                return .failure("该文件不允许下载")
+            } else {
+                return .failure("下载失败（HTTP \(code)）"
+                    + (cellular ? "，蜂窝网络受限，建议连 WiFi 重试" : ""))
+            }
+        } catch {
+            Haptics.error()
+            return .failure("下载失败：" + failureReason(error)
+                + (cellular ? "（蜂窝网络受限，建议连 WiFi 重试）" : ""))
+        }
+    }
+
+    /// 共享下载 + 落盘入口：下载成功 → 净化文件名后落 `temporaryDirectory/files_manager`，
+    /// 返回本地 URL 供 QuickLook 预览；任一环节失败**透传文案**（含空数据 / 写盘失败）。
+    @MainActor
+    static func fetchToTemp(_ auth: AuthStore, path: String, name: String) async -> Result<URL, String> {
+        let cellular = NetworkMonitor.shared.isCellular
+        switch await fetchData(auth, path: path, cellular: cellular) {
+        case .failure(let reason):
+            return .failure(reason)
+        case .success(let data):
+            guard let url = writeTemp(data, name: name) else {
+                Haptics.error()
+                return .failure("本地临时文件写入失败，无法预览（可尝试分享）")
+            }
+            return .success(url)
+        }
+    }
 }

@@ -257,7 +257,17 @@ struct GoalsSection: View {
 @Observable
 final class GoalsGlassPresenter: LifeGlassPresenterBase<GoalItem> {
     static let shared = GoalsGlassPresenter()
+    /// v4.0.104（#16a）：「编辑目标」浮层（nil = 不显示）
+    var showEdit: GoalItem?
+    /// 编辑浮层的会话序号：每次打开自增 + `.id()` 强制换新实例 → 打开即预填该目标当前值
+    var editSession = 0
     override private init() {}
+
+    /// 宿主销毁时清状态（单例不随视图树消失；不清会「回到生活页又弹着上次那个编辑框」）
+    override func reset() {
+        super.reset()
+        showEdit = nil
+    }
 }
 
 /// 长期目标浮层的页级宿主（挂 LifeView 根 → 全屏；轻纱盖住整页含页头）
@@ -289,6 +299,23 @@ struct GoalsGlassLayerHost: View {
                     )
                     // 每次打开换新实例（.id）→ 打开即空白
                     .id(glass.addSession)
+                }
+            }
+            // v4.0.104（#16a）：编辑目标浮层 —— 复用同一份表单（GoalsAddBody 的 editing 入参），
+            // 不另起一套编辑界面（两套表单必然漂移）。
+            if let editing = glass.showEdit {
+                MemoGlassOverlay(isPresented: Binding(
+                    get: { glass.showEdit != nil },
+                    set: { if !$0 { glass.showEdit = nil } }
+                )) {
+                    GoalsAddBody(
+                        store: store,
+                        editing: editing,
+                        onCancel: { glass.showEdit = nil },
+                        onSaved: { glass.showEdit = nil }
+                    )
+                    // 每次打开换新实例 → 打开即预填该目标当前值
+                    .id(glass.editSession)
                 }
             }
             // v4.0.102：「清空全部目标」的**锚定确认浮层**（锚在被点的「清空」胶囊上）。
@@ -401,6 +428,18 @@ private struct GoalExpandList: View {
 @ViewBuilder
 private func goalCardMenuItems(_ g: GoalItem,
                                onDelete: @escaping (GoalItem) -> Void) -> some View {
+    // v4.0.104（#16a）：编辑入口 —— 本函数是页卡与展开区行**共用**的菜单，两处都能改。
+    // 打开编辑浮层前先收掉详情/新建（单例状态不互叠，与既有浮层口径一致）。
+    Button {
+        let p = GoalsGlassPresenter.shared
+        p.showEdit = g
+        p.editSession += 1
+        p.detail = nil
+        p.showAdd = false
+        Haptics.tap()
+    } label: {
+        Label("编辑", systemImage: "pencil")
+    }
     Button {
         let now = !g.paused
         GoalStore.shared.mutate(g.id) { $0.paused = now }
@@ -421,15 +460,33 @@ private func goalCardMenuItems(_ g: GoalItem,
 
 struct GoalsAddBody: View {
     let store: GoalStore
+    /// v4.0.104（#16a）：非 nil = **编辑模式**（预填该目标当前值，保存走 PATCH 同一路由）。
+    /// 刻意不另起一套编辑表单 —— 两套表单必然漂移（时刻区间/开关文案/落库口径）。
+    var editing: GoalItem? = nil
     let onCancel: () -> Void
     /// 保存成功（本地已落库）→ 收起浮层
     let onSaved: () -> Void
 
-    @State private var draft = ""
-    @State private var addMorning = true
-    @State private var addEvening = true
-    @State private var addMorningHour = 9
-    @State private var addEveningHour = 21
+    @State private var draft: String
+    @State private var addMorning: Bool
+    @State private var addEvening: Bool
+    @State private var addMorningHour: Int
+    @State private var addEveningHour: Int
+
+    init(store: GoalStore,
+         editing: GoalItem? = nil,
+         onCancel: @escaping () -> Void,
+         onSaved: @escaping () -> Void) {
+        self.store = store
+        self.editing = editing
+        self.onCancel = onCancel
+        self.onSaved = onSaved
+        _draft = State(initialValue: editing?.title ?? "")
+        _addMorning = State(initialValue: editing?.morningEnabled ?? true)
+        _addEvening = State(initialValue: editing?.eveningEnabled ?? true)
+        _addMorningHour = State(initialValue: editing?.morningHour ?? 9)
+        _addEveningHour = State(initialValue: editing?.eveningHour ?? 21)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -438,7 +495,7 @@ struct GoalsAddBody: View {
             HStack {
                 MiniCapsule(title: "取消") { onCancel() }
                 Spacer()
-                MiniCapsule(title: "创建", accent: true) { confirmAdd() }
+                MiniCapsule(title: editing == nil ? "创建" : "保存", accent: true) { confirmAdd() }
             }
             .padding(.horizontal, Spacing.section)
             .padding(.top, Spacing.xl)
@@ -483,6 +540,11 @@ struct GoalsAddBody: View {
     private func confirmAdd() {
         let t = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !t.isEmpty else { return }
+        // v4.0.104（#16a）：编辑模式走另一条落库路径（本地改 → 异步推后端）
+        if let target = editing {
+            confirmEdit(target, title: t)
+            return
+        }
         let g = GoalItem(title: t,
                          morningEnabled: addMorning,
                          eveningEnabled: addEvening,
@@ -500,6 +562,42 @@ struct GoalsAddBody: View {
                 return
             }
             store.update(remote)
+        }
+    }
+
+    /// v4.0.104（#16a）：编辑保存 —— 与新建同一顺序：**先本地落库**（卡片立刻可见）+ 再异步推后端；
+    /// 没改动就直接收起（别白发一次请求、别白盖 updatedAt）。
+    private func confirmEdit(_ target: GoalItem, title: String) {
+        guard GoalEditKit.hasChanges(currentTitle: target.title,
+                                     currentMorningEnabled: target.morningEnabled,
+                                     currentEveningEnabled: target.eveningEnabled,
+                                     currentMorningHour: target.morningHour,
+                                     currentEveningHour: target.eveningHour,
+                                     title: title,
+                                     morningEnabled: addMorning,
+                                     eveningEnabled: addEvening,
+                                     morningHour: addMorningHour,
+                                     eveningHour: addEveningHour) else {
+            onSaved()
+            return
+        }
+        store.mutate(target.id) { g in
+            g.title = title
+            g.morningEnabled = addMorning
+            g.eveningEnabled = addEvening
+            g.morningHour = GoalEditKit.clampMorning(addMorningHour)
+            g.eveningHour = GoalEditKit.clampEvening(addEveningHour)
+        }
+        Haptics.success()
+        onSaved()
+        Task { @MainActor in
+            let ok = await store.updateOnBackend(goalID: target.id, title: title,
+                                                 morningEnabled: addMorning, eveningEnabled: addEvening,
+                                                 morningHour: addMorningHour, eveningHour: addEveningHour)
+            guard !ok else { return }
+            store.mutate(target.id) {
+                $0.lastReport = "⚠️ 刚才的修改没同步给后台（后端没响应），每天两段推送还是旧的，稍后再改一次让它重新同步。"
+            }
         }
     }
 }

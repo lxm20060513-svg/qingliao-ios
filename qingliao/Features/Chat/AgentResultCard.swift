@@ -20,6 +20,18 @@ struct AgentResultCard: View {
             if !card.items.isEmpty { listSection }
             if planInteractive { planFooter }
             if let table = card.table { AgentCardTable(rows: tableRows(table)) }
+            // v4.0.104（#25）：可交互表单段（在表格之后、页脚之前 —— 交互控件是卡的「收尾动作」）。
+            // 独立小 View 承载，避免把 7 个段挤进同一个 body 触发 type-check 超时。
+            if let form = card.form {
+                AgentCardFormSection(form: form, title: card.title ?? "",
+                                     seed: cardSeed, onSubmit: onCardSubmit)
+            }
+            // #17：AI 成品文件段（与 form 段并列、互斥 —— 老卡没有 file 段即零回归）。
+            // 独立小 View 承载（卡片自查 AuthStore，无需跨层回调），避免把 8 个段挤进同一个 body
+            // 触发 type-check 超时。
+            if let file = card.file {
+                AgentCardFileSection(file: file)
+            }
             if let footer = card.footer, !footer.isEmpty {
                 Text(footer)
                     .font(.system(size: Typography.tiny))
@@ -82,6 +94,8 @@ struct AgentResultCard: View {
         case .plan:    return "list.clipboard.fill"   // v3.9.58：任务计划卡（步骤完成度语义）
         case .table:   return "tablecells"
         case .status:  return "dot.radiowaves.left.and.right"
+        case .form:    return "square.and.pencil"   // v4.0.104（#25）：可交互表单卡
+        case .file:    return "doc.fill"             // #17：AI 成品文件卡
         }
     }
 
@@ -158,6 +172,16 @@ struct AgentResultCard: View {
 
     /// v3.9.74 P2.6：「继续下一步」回调——把下一个未完成步骤作为用户消息发回聊天。nil = 只读（画廊预览）
     var onContinueStep: ((String) -> Void)? = nil
+
+    /// v4.0.104（#25）：表单卡提交回调——卡内填/选后合成的文本作为用户消息发回聊天。
+    /// nil = 只读降级（画廊预览/导出等无宿主路径），与 onContinueStep 同一门控口径。
+    /// ⚠️ 声明位置紧跟 onContinueStep，调用点也传在同一位（实参序 = 声明序，见技能 swiftui-param-order）。
+    var onCardSubmit: ((String) -> Void)? = nil
+
+    /// v4.0.104（#25）：本卡所属消息 id —— 表单回执的**消息维度**隔离键。
+    /// 只靠标题+字段名会让跨会话/同会话两张同类卡共用一个回执（第二张一进去就显示「已提交」）。
+    /// ⚠️ 声明位置紧跟 onCardSubmit，调用点也传在同一位（实参序 = 声明序）。
+    var cardSeed: String = ""
 
     /// 本卡步骤勾选进度（进度持久化按卡片指纹隔离；勾选本身不回传 AI）
     @State private var completedSteps: Set<Int> = []

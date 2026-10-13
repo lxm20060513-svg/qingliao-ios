@@ -762,6 +762,9 @@ struct HomeCardsGrid: View {
             return
         }
         Haptics.tap()
+        // v4.0.104 待做池 #11：用户主动点这一刻顺手入库（**不新增任何读取** —— 复用上面已读到的
+        // 同一段文本；太长时 record 自会拒收，与发给 AI 的 2000 上限同口径）。
+        ClipboardHistoryStore.shared.record(text, source: "首页卡")
         onAsk("帮我看看剪贴板里这段内容：\n\(text)")
     }
 }

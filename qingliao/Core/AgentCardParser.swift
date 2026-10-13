@@ -24,6 +24,13 @@ struct AgentCard: Equatable, Sendable {
         /// v3.9.58：多步任务计划卡 —— 语义上强调「步骤有先后、状态是完成度」；
         /// 渲染复用 items 段（标题+副标题+状态胶囊），只是头部图标换 checklist 高亮款。
         case plan
+        /// v4.0.104（#25）：可交互表单卡 —— 用户在卡内填/选，点提交把填写内容合成一条
+        /// 用户消息发回会话（走既有 sendCore 全链路，不新开动作执行面）。
+        case form
+        /// #17：AI 成品文件卡 —— AI 生成的文件（Word/Excel/PPT/PDF/图片，落后端只读别名根
+        /// office/ 下）在聊天里出一张卡，点「查看」下载 + QuickLook 预览。
+        /// 渲染只认 file 段（与 form 同级、互斥），头部图标换文档款。
+        case file
 
         static func parse(_ raw: String?) -> Kind {
             guard let raw, let k = Kind(rawValue: raw.trimmingCharacters(in: .whitespaces).lowercased()) else {
@@ -87,6 +94,159 @@ struct AgentCard: Equatable, Sendable {
         let rows: [[String]]
     }
 
+    /// v4.0.104（#25）：可交互表单的一个字段。
+    /// 类型只用三种（text/number/choice）—— 未知写法一律回落 text，宁可退化成输入框也别丢字段。
+    struct FormField: Equatable, Sendable {
+
+        enum Kind: String, Equatable, Sendable {
+            case text, number, choice
+
+            /// 容错解析：未知类型 → text；`choice` 但没有可选项 → text（否则用户点不了任何东西）
+            static func parse(_ raw: String?, options: [String]) -> Kind {
+                switch (raw ?? "").trimmingCharacters(in: .whitespaces).lowercased() {
+                case "number", "num", "int", "decimal", "float", "数字", "数值":
+                    return .number
+                case "choice", "choose", "select", "picker", "radio", "options", "单选", "选择", "选项":
+                    return options.isEmpty ? .text : .choice
+                default:
+                    return .text
+                }
+            }
+        }
+
+        let key: String            // 模板占位符名（无 key 时回落 label）
+        let label: String          // 给用户看的字段名（也为空 → 该字段被丢弃）
+        let kind: Kind
+        let placeholder: String?
+        let unit: String?          // number 字段的单位（「元」「分钟」），仅展示用
+        let options: [String]      // kind == .choice 时的可选项（保序）
+        let defaultValue: String?
+        let required: Bool
+    }
+
+    /// v4.0.104（#25）：可交互表单段。
+    ///
+    /// 设计口径（改动务必保持）：
+    ///   ① **提交 = 合成一条用户消息**（由视图经宿主回调交给 sendCore），App 不直接执行任何动作
+    ///      —— 天然复用既有动作白名单与权限闸门，不新开执行面；
+    ///   ② 合成是**纯逻辑**（可在无 UI 环境单测）：模板 `{key}` 替换，未填的用字段默认值；
+    ///      无模板时自动拼「（表单）label=值」，空值字段跳过；
+    ///   ③ 无字段 / 字段全无名 / 段不是对象 → `nil`（卡片照旧只读渲染，零回归）；
+    ///   ④ 合成结果有长度上限，防止一次提交塞爆上下文。
+    struct Form: Equatable, Sendable {
+
+        /// 合成文本上限（超长填写值截断）
+        static let maxComposedLength = 4000
+
+        let fields: [FormField]
+        let submitLabel: String
+        /// 回传模板（含 `{key}` 占位符）；nil → 自动合成
+        let template: String?
+
+        /// 字段的有效值：用户填的 → 字段默认值 → 空（都做 trim，空格不算填写）
+        func value(_ field: FormField, in values: [String: String]) -> String {
+            (values[field.key] ?? field.defaultValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        /// 还差哪些必填项（视图据此禁用提交按钮并提示；空串/纯空格算未填）
+        func missingRequired(values: [String: String]) -> [String] {
+            fields.filter { $0.required && value($0, in: values).isEmpty }.map(\.label)
+        }
+
+        /// 内容签名（**不含用户填的值**）：提交回执的隔离依据之一。
+        /// ⚠️ 光靠「标题 + 字段 key」不够：同标题同 key、label/单位/选项/模板不同的两张卡会被判成同一张
+        ///    → 第二张一进去就显示「已提交」、输入框永不出现（审查实测 fpA==fpB）。
+        var signature: String {
+            var parts: [String] = []
+            for f in fields {
+                parts.append([f.key, f.label, f.kind.rawValue, f.unit ?? "",
+                              f.options.joined(separator: ","), f.defaultValue ?? "",
+                              f.required ? "1" : "0"].joined(separator: "\u{1F}"))
+            }
+            parts.append(template ?? "")
+            return parts.joined(separator: "\u{1E}")
+        }
+
+        /// 单遍渲染：只在**模板原文**上找 `{key}` 并替换成字段值，**绝不再扫已插入的值**。
+        /// 逐字段 `replacingOccurrences` 会把「用户填的值里恰好含 {另一个字段key}」也吃掉（审查实测串味：
+        /// 姓名填 `{city}` + 城市填「北京」→ 输出「姓名：北京」）。
+        static func render(template: String, fields: [FormField], values: [String: String]) -> String {
+            var byKey: [String: FormField] = [:]
+            for f in fields where byKey[f.key] == nil { byKey[f.key] = f }   // 重复 key 取先出现的
+            var out = ""
+            out.reserveCapacity(template.count)
+            var i = template.startIndex
+            while i < template.endIndex {
+                if template[i] == "{",
+                   let close = template[i...].firstIndex(of: "}") {
+                    let key = String(template[template.index(after: i)..<close])
+                    if let f = byKey[key] {
+                        out += (values[f.key] ?? f.defaultValue ?? "")
+                            .trimmingCharacters(in: .whitespacesAndNewlines)
+                        i = template.index(after: close)
+                        continue
+                    }
+                }
+                out.append(template[i])
+                i = template.index(after: i)
+            }
+            return out
+        }
+
+        /// 合成回传文本（提交的唯一出口）
+        func compose(values: [String: String]) -> String {
+            var out: String
+            if let template, !template.isEmpty {
+                out = Self.render(template: template, fields: fields, values: values)
+            } else {
+                let parts = fields.compactMap { f -> String? in
+                    let v = value(f, in: values)
+                    return v.isEmpty ? nil : "\(f.label)=\(v)"
+                }
+                out = parts.isEmpty ? "" : "（表单）" + parts.joined(separator: "；")
+            }
+            return out.count > Self.maxComposedLength ? String(out.prefix(Self.maxComposedLength)) : out
+        }
+    }
+
+    /// #17：AI 成品文件段（与 form 同级、互斥的可选段）。
+    ///
+    /// 设计口径（改动务必保持）：
+    ///   ① **path 必填**（相对后端允许根的路径，本批只有 `office/` 这一条别名根）；
+    ///      **缺 path / path 为空 → 整段丢弃**（退化成普通只读卡，绝不出「查看」按钮、绝不崩）；
+    ///   ② name 缺省用 path 的最后一段；kind 缺省由 name 扩展名推断；
+    ///   ③ size 缺省 0（未知 → 卡上不显示大小）；
+    ///   ④ kind 只认 docx/xlsx/pptx/pdf/image/other，未知值一律 other。
+    struct File: Equatable, Sendable {
+
+        enum Kind: String, Equatable, Sendable {
+            case docx, xlsx, pptx, pdf, image, other
+
+            /// 容错解析：只认白名单，未知值一律 other（不许退回 nil 丢字段）
+            static func parse(_ raw: String?) -> Kind {
+                Kind(rawValue: (raw ?? "").trimmingCharacters(in: .whitespaces).lowercased()) ?? .other
+            }
+
+            /// 由文件名扩展名推断（kind 缺省时用）；认不出的扩展名 → other
+            static func infer(fromName name: String) -> Kind {
+                switch (name as NSString).pathExtension.lowercased() {
+                case "docx", "doc": return .docx
+                case "xlsx", "xls": return .xlsx
+                case "pptx", "ppt": return .pptx
+                case "pdf": return .pdf
+                case "png", "jpg", "jpeg", "gif", "webp", "bmp", "heic", "heif", "tiff", "ico":
+                    return .image
+                default: return .other
+                }
+            }
+        }
+
+        let path: String
+        let name: String
+        let kind: Kind
+        let size: Int
+    }
+
     let kind: Kind
     let title: String?
     let subtitle: String?
@@ -96,13 +256,17 @@ struct AgentCard: Equatable, Sendable {
     let items: [Item]
     let table: Table?
     let footer: String?
+    /// v4.0.104（#25）：可交互表单段（nil = 只读卡，行为与旧版逐字一致）
+    let form: Form?
+    /// #17：AI 成品文件段（nil = 无文件段，行为与旧版逐字一致）
+    let file: File?
 
     /// 无任何可渲染内容 → 调用方按纯文本处理（不给用户空白卡）
     var isEmpty: Bool {
         let hasTitle = !(title ?? "").isEmpty
         let hasStatus = !(status?.text ?? "").isEmpty
         return !hasTitle && !hasStatus && fields.isEmpty && metrics.isEmpty
-            && items.isEmpty && table == nil && (footer ?? "").isEmpty
+            && items.isEmpty && table == nil && (footer ?? "").isEmpty && form == nil && file == nil
     }
 
     /// 纯文本降级：复制 / 大爆炸 / 朗读 / 导出用（卡片内容不丢字）
@@ -131,6 +295,19 @@ struct AgentCard: Equatable, Sendable {
             for row in t.rows { lines.append(row.joined(separator: " | ")) }
         }
         if let footer, !footer.isEmpty { lines.append(footer) }
+        // v4.0.104（#25）：表单段也要落进纯文本 —— 只读降级/复制/导出时字段名不能丢
+        if let form {
+            for f in form.fields {
+                var line = "· \(f.label)"
+                if let d = f.defaultValue, !d.isEmpty { line += "：\(d)" }
+                lines.append(line)
+            }
+            if !form.submitLabel.isEmpty { lines.append("（\(form.submitLabel)）") }
+        }
+        // #17：成品文件段也要落进纯文本 —— 只读降级/复制/导出时文件名不能丢
+        if let file {
+            lines.append("文件：\(file.name)")
+        }
         return lines.joined(separator: "\n")
     }
 
@@ -202,6 +379,51 @@ struct AgentCard: Equatable, Sendable {
             return build(dict)
         }()
 
+        // v4.0.104（#25）：可交互表单段（无字段/字段全无名/段不是对象 → nil，退化成只读卡）
+        let form: Form? = {
+            guard let fd = dict["form"] as? [String: Any] else {
+                // 容错：`"form"` 也可能是数组（模型把字段直接摊开写）→ 当成 fields 用
+                if let arr = dict["form"] as? [Any] {
+                    let fields = AgentCard.parseFields(arr)
+                    return fields.isEmpty ? nil : Form(fields: fields, submitLabel: "提交", template: nil)
+                }
+                return nil
+            }
+            let fields = AgentCard.parseFields(fd["fields"] as? [Any] ?? [])
+            guard !fields.isEmpty else { return nil }
+
+            // submit 两种写法：{"label":"算一下","template":"…"}（标准）或 "算一下"（只给按钮文案）
+            var submitLabel = "提交"
+            var template: String?
+            if let sd = fd["submit"] as? [String: Any] {
+                if let l = str(sd["label"]) ?? str(sd["text"]), !l.isEmpty { submitLabel = l }
+                template = str(sd["template"]) ?? str(sd["prompt"])
+            } else if let s = str(fd["submit"]), !s.isEmpty {
+                submitLabel = s
+            }
+            return Form(fields: fields, submitLabel: submitLabel, template: template)
+        }()
+
+        // #17：AI 成品文件段（缺 path / path 为空 → nil，退化成普通只读卡；绝不出「查看」按钮）
+        let file: File? = {
+            guard let fd = dict["file"] as? [String: Any] else { return nil }
+            let path = (str(fd["path"]) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !path.isEmpty else { return nil }   // 容错口径：缺 path → 整段丢弃（不崩、不空壳）
+            let rawName = (str(fd["name"]) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            // name 缺省 → path 最后一段（相对路径只按 "/" 切，与本仓 FilesManagerKit.safeLocalName 同口径）
+            // 取最后一个**非空**片段：`office/` 这种以斜杠结尾的 path 用 separatedBy.last 会拿到空串
+            // → 卡面标题空白 + plainText 出「文件：」空行（独立审查抓到的边界，size 0 时更明显）
+            let lastSegment = path.components(separatedBy: "/").filter { !$0.isEmpty }.last ?? ""
+            let name = rawName.isEmpty ? (lastSegment.isEmpty ? "文件" : lastSegment) : rawName
+            let kind: File.Kind = {
+                let raw = (str(fd["kind"]) ?? "").trimmingCharacters(in: .whitespaces)
+                // kind 给了但不在白名单 → other（不回落推断）；缺省 → 由扩展名推断
+                return raw.isEmpty ? File.Kind.infer(fromName: name) : File.Kind.parse(raw)
+            }()
+            let size = max(0, Int(str(fd["size"]) ?? "") ?? 0)   // 缺省 / 脏值 → 0（未知，不显示大小）
+            return File(path: path, name: name, kind: kind, size: size)
+        }()
+
         let card = AgentCard(
             kind: Kind.parse(str(dict["type"])),
             title: str(dict["title"]),
@@ -211,9 +433,45 @@ struct AgentCard: Equatable, Sendable {
             metrics: metrics,
             items: items,
             table: table,
-            footer: str(dict["footer"])
+            footer: str(dict["footer"]),
+            form: form,
+            file: file
         )
         return card.isEmpty ? nil : card
+    }
+
+    /// 表单字段数组解析（容错口径：字段名取 label/key/name 之一；两者皆空 → 丢弃该字段）
+    private static func parseFields(_ raw: [Any]) -> [FormField] {
+        // key 去重：视图用 ForEach(id: \.key)，重复 id 是 SwiftUI 未定义行为（可能只渲染一个）；
+        // 模板占位符也必须各自独立 → 重复的往后加序号（key2、key3…），保留字段不丢
+        var seen = Set<String>()
+        return raw.compactMap { item -> FormField? in
+            guard let d = item as? [String: Any] else { return nil }
+            let label = str(d["label"]) ?? str(d["key"]) ?? str(d["name"]) ?? ""
+            var key = str(d["key"]) ?? str(d["name"]) ?? label
+            guard !key.isEmpty || !label.isEmpty else { return nil }
+            if seen.contains(key) {
+                var n = 2
+                while seen.contains("\(key)\(n)") { n += 1 }
+                key = "\(key)\(n)"
+            }
+            seen.insert(key)
+            let options = (d["options"] as? [Any] ?? []).compactMap { str($0) }
+            // required 用 str() 统一归一（JSON 布尔在 Linux corelibs 上 as? Bool 不稳，
+            // str() 已把布尔转成「是/否」）
+            let reqRaw = (str(d["required"]) ?? "").lowercased()
+            let required = reqRaw == "是" || reqRaw == "true" || reqRaw == "1"
+            return FormField(
+                key: key,
+                label: label.isEmpty ? key : label,
+                kind: FormField.Kind.parse(str(d["type"]) ?? str(d["kind"]), options: options),
+                placeholder: str(d["placeholder"]) ?? str(d["hint"]),
+                unit: str(d["unit"]),
+                options: options,
+                defaultValue: str(d["default"]) ?? str(d["value"]),
+                required: required
+            )
+        }
     }
 
     /// 任意 JSON 标量/数组 → 字符串（字符串原样；数字去尾零；布尔「是/否」；数组用「、」连接）。

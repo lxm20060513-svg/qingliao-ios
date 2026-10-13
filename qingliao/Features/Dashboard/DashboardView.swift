@@ -757,19 +757,16 @@ struct DashboardView: View {
         }
     }
 
-    /// v3.9.82：token 用量（今日/本月，单位 M）——后端 /api/nas/token-usage 读 Hermes state.db
+    /// v3.9.82：token 用量（今日/本月，单位 M）—— 端点/解析走 `UsageFetcher` 单一真源
+    /// （#3：`/usage` 命令与这张卡读同一份数据，路径字面量全仓只此一处）
     private func loadTokenUsage() async {
-        guard let j = await auth.jsonOrLog("/api/nas/token-usage") else {
-            tokenUsageError = "token 用量查询失败"
-            return
-        }
-        if let u = TokenUsage.parse(j) {
+        switch await UsageFetcher.fetchTokenUsage(auth: auth) {
+        case .success(let u):
             tokenUsage = u
             tokenUsageError = ""
-        } else if let e = j["error"] as? String, !e.isEmpty {
-            tokenUsageError = e
-        } else {
-            tokenUsageError = "token 用量暂不可用"
+        case .failure(let f):
+            // 文案与 v3.9.82 一致：后端给 error 字段就显示真因，结构不符才说「暂不可用」
+            tokenUsageError = f.message
         }
     }
 

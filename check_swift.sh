@@ -13,6 +13,10 @@ export LD_LIBRARY_PATH=/opt/data/swift-libs
 # （2026-09-24 实测：终端里（有 TZ）全绿、从 Python subprocess 里（无 TZ）红 3 条）。
 # 这类"看起来像回归的环境抖动"最耗人，所以在脚本里钉死，不依赖调用方。
 export TZ=Asia/Shanghai
+# 🚨 v4.0.104：21 个真值表都用 `env["QL_REPO"] ?? cwd` 定位仓库根 —— 调用方若残留一个指向
+# 别处（或已不存在）的 QL_REPO，表就读错树：轻则哨兵红（像回归），最坏读到旧镜像产出**假绿**。
+# 这里钉死成「本脚本所在目录」，不再信任调用方环境。
+export QL_REPO="$(pwd)"
 SWIFT=/opt/data/swift-toolchain/swift-6.0.3-RELEASE-ubuntu24.04/usr/bin
 
 # 编译并运行一个单元测试可执行文件：run_unit <产物路径> <swiftc 参数...>
@@ -1482,6 +1486,96 @@ g++ -c -O1 -o /tmp/ql_obs_shim.o scripts/ql_focus/obs_shim.cpp > /tmp/ql_obs_shi
   || { echo "❌ 第 96 段垫片编译失败（g++ 不可用？）"; tail -5 /tmp/ql_obs_shim.log; fail=1; }
 run_unit6 /tmp/tt_focus scripts/ql_focus/truth_table_focus.swift scripts/ql_focus/keyconf.swift \
     qingliao/Core/HabitKit.swift qingliao/Core/FocusTimerStore.swift /tmp/ql_obs_shim.o
+
+echo "=== 97. 可交互表单卡真值表（v4.0.104 待做池 #25 · 卡内提交 / 降级只读 / 提交幂等）==="
+# 口径（台账待做池 #25 原文）：ql-card 支持「卡片内提交 / 算数」；卡片动作必须**走既有白名单**、
+#   不可用时**降级只读**、反复提交**幂等**。
+# 事故面（全静默，装机才发现）：提交回调没接上（卡永远只读，用户以为 AI 不会问话）、
+#   视图自己拼合成文本（与解析层口径分叉）、先回调后落账（提交瞬间杀 App 丢回执 → 重进能再提交一遍）、
+#   视图自读写 UserDefaults（单一真源破）、只读分支排到交互分支之前（有回调也点不了）、
+#   视图直接执行动作（绕过白名单与权限闸门）。
+# 分工：test_cardform **真跑**回执存储（指纹 / 幂等覆盖 / 卡间隔离 / 容量淘汰 / 一键清空）；
+#   truth_table_cardform 用剥注释的源级断言钉协议、空卡判定、分支与实参顺序、宿主接线。
+mkdir -p /tmp/ql_cardform_main
+cp scripts/ql_cardform/test_cardform.swift /tmp/ql_cardform_main/main.swift
+run_unit6 /tmp/test_cardform qingliao/Core/AgentCardParser.swift qingliao/Core/CardFormStore.swift \
+    /tmp/ql_cardform_main/main.swift
+run_unit /tmp/tt_cardform scripts/ql_cardform/truth_table_cardform.swift
+
+echo "=== 98. 目标可编辑真值表（v4.0.104 待做池 #16a · 建完能改 / 复用同一份表单 / 推后端）==="
+# 口径：目标建完就改不了（标题 + 早/晚提醒开关与时刻本该能改；后端 goal_module.goals_update 早支持）。
+# 事故面（全静默）：① 另起一套编辑表单 → 与新建的时刻区间/落库口径分叉；② 表单能选 13 点、
+#   payload 按别的区间裁 → 用户以为改了其实后端收到别的值；③ 只改本地不推后端 → 每天两段推送还是旧的；
+#   ④ 推失败静默 → 用户毫无提示；⑤ 编辑入口顶掉「暂停/删除」；⑥ 没改动也发请求 → 白盖 updatedAt。
+# 分工：test_goal_edit **真跑**纯逻辑（区间/钳位/payload 键集/是否真改动）；truth_table_goal_edit
+#   源级钉「复用同一份表单、区间逐字一致、入口顺序、先本地后异步、推失败有提示」。
+mkdir -p /tmp/ql_goal_edit_main
+cp scripts/ql_goal_edit/test_goal_edit.swift /tmp/ql_goal_edit_main/main.swift
+run_unit6 /tmp/test_goal_edit qingliao/Core/GoalEditKit.swift /tmp/ql_goal_edit_main/main.swift
+run_unit /tmp/tt_goal_edit scripts/ql_goal_edit/truth_table_goal_edit.swift
+
+echo "=== 99. AI 成品文件卡真值表（#17 · 文件段解析 / 容错丢弃 / 共享下载 / QuickLook）==="
+# 口径（协议已与后端约定，不要改字段名）：ql-card JSON 里与 form 同级、互斥的可选段 file：
+#   {"type":"file","title":"周报.docx","file":{"path":"office/周报.docx","name":"周报.docx","kind":"docx","size":36765}}
+#   path 必填（相对后端允许根的路径，本批只有 `office/` 这一条别名根）；name 缺省用 path 最后一段；
+#   kind 缺省由 name 扩展名推断（只认 docx/xlsx/pptx/pdf/image/other，未知一律 other）；size 缺省 0（未知不显示）。
+#   **缺 path / path 为空 → 整段丢弃**（退化成普通只读卡，绝不能崩、不能出「查看」按钮）。
+# 事故面（全静默，装机才发现）：解析没收 file 段（卡永远不出现）、缺 path 没丢（空壳按钮/空路径下载）、
+#   下载 URL 在视图里再拼一次（与共享入口分叉，query 编码/别名根前缀漂移）、卡片自写 UserDefaults、
+#   漏 `import QuickLook`（本地 -parse 不报、CI Archive 才炸）。
+# 分工：**行为测试**并入 §97 的 test_cardform（真跑生产源码 AgentCardParser：file 段解析 / 缺 path 丢弃 /
+#   kind 归一化 / plainText 含文件名）；本段 truth_table_file 用剥注释的源级断言钉解析结构、缺 path 丢弃、
+#   下载路径单一真源、共享入口（RemoteFiles.fetchData/fetchToTemp）、QuickLook import 与接线形态。
+run_unit /tmp/tt_file scripts/ql_file/truth_table_file.swift
+
+echo "=== 100. 斜杠命令层真值表（#3 · 解析单一真源 / 未知命令不发 LLM / 面板 overlay 常驻）==="
+# 口径（方案 .hermes/plans/2026-10-05_235848-qingliao-slash-commands.md）：v1 六条命令
+#   /new /model /stop /usage /记一笔 /help，全部复用 App 既有能力（零后端改动、零新依赖）。
+# 事故面（全静默，装机才发现）：① 后端 api_server **没有命令分发** → 命令层只能 App 侧拦输入；
+#   拦截一旦从 send() 顶部挪走/被别的分支抢先，命令文本就被当普通消息发给模型（污染上下文 / 复读源）；
+#   ② 未知命令（/foobar）返回 nil → 同样直通 LLM；③ 命令注册表被复制成第二份（面板/帮助卡各写一份）
+#   → 加命令只改一处，两条清单必然漂移；④ 面板改回 `if 命令模式 { … }` 插进输入栏 VStack 子节点
+#   → 改 TextField 父级/兄弟集合 → 键盘弹一下又收回（本仓老坑）；⑤ /usage 端点/解析在视图里再写一遍
+#   → 与看板分叉；⑥ 命令卡绕过 isPush → 卡 JSON 进 historyPayload（模型把自己的卡读进上下文）。
+# 分工：test_slash **真跑**生产源码 Core/SlashCommands.swift（解析容错 / 六条命令 / 面板过滤 / 金额抽取）；
+#   truth_table_slash 用剥注释的源级断言钉注册表单一真源、send() 顶部拦截、面板 overlay 常驻、
+#   逐条命令复用既有能力、/usage 单一真源、记账同口径与 isPush 落卡。
+# ⚠️ cwd 必须 = 仓库根（真值表里全是相对路径，漂移会静默全绿 → 前置哨兵会报红）。
+rm -rf /tmp/ql_slash_main && mkdir -p /tmp/ql_slash_main
+cp scripts/ql_slash/test_slash.swift /tmp/ql_slash_main/main.swift
+run_unit6 /tmp/test_ql_slash qingliao/Core/SlashCommands.swift /tmp/ql_slash_main/main.swift
+run_unit /tmp/tt_slash scripts/ql_slash/truth_table_slash.swift
+
+echo "=== 101. 剪贴板历史真值表（v4.0.104 待做池 #11 · 只在主动动作时读 / 唯一写入口 / 一键入待办走 RecordStore）==="
+# 口径：iOS **禁止**后台监听剪贴板；程序化读 UIPasteboard.general.string 会弹系统「允许粘贴」提示。
+#   所以本项沿用既有口径（HomeCards 剪贴板卡注释）：**只在用户主动动作的那一刻读，绝不轮询、绝不在 body/渲染期读**。
+# 事故面（全静默，装机才发现）：① 某处读挪进 body → 每次开首页/进设置弹系统「粘贴」提示；
+#   ② 视图自己拼键名 / 自己写 UserDefaults → 绕过唯一写入口，两处真源漂移；
+#   ③ 入待办自己拼落库（不走 RecordStore）→ 与账本/生活页口径分叉；
+#   ④ 上限常量改名/改值 → 容量兜底失效；⑤ 设置页只加行没挂 .sheet → 点了没反应。
+# 分工：test_clipboard **真跑**生产源码 ClipboardHistoryStore（空串/trim/去重/上限 100 淘汰最旧/超长拒收/
+#   清空/删单条/关开关不动库/remove 不存在 id 不崩/重载仍在/坏条容错）；
+#   truth_table_clipboard 用剥注释的源级断言钉键单一真源、唯一写入口、只在用户动作函数体内读、入待办走 RecordStore、设置页入口与挂 sheet、上限常量逐字。
+# ⚠️ cwd 必须 = 仓库根（真值表里全是相对路径，漂移会静默全绿 → 前置哨兵会报红）。
+rm -rf /tmp/ql_clipboard_main && mkdir -p /tmp/ql_clipboard_main
+cp scripts/ql_clipboard/test_clipboard.swift /tmp/ql_clipboard_main/main.swift
+run_unit6 /tmp/test_clipboard qingliao/Core/ClipboardHistoryStore.swift /tmp/ql_clipboard_main/main.swift
+run_unit /tmp/tt_clipboard scripts/ql_clipboard/truth_table_clipboard.swift
+
+echo "=== 102. 技能库真值表（#24 · 六端封装 / 别名前缀 / 走现成封装 / 启停软删可撤销 / 沉淀为技能）==="
+# 口径：后端六端统一走**别名前缀 `/api/agent/skills`** —— 蜂窝 relay 白名单只放行 `/api/agent`，
+#   写死 `/api/skills` 在 Wi-Fi 下看着能过、一到蜂窝就整片死（用户报「蜂窝里技能库打不开」）。
+#   传输层抽成可注入闭包，默认注入 App 现成封装 auth.request（自动 Wi-Fi/蜂窝分流 + X-Auth-Token + 假 401 自愈）。
+# 事故面（全静默）：① 端点漂移/裸 /api/skills → 蜂窝死；② 自己拼 URL / 自己读 token → 绕过分流必挂；
+#   ③ 缺字段/ok:false 解码崩或当成功 → 整页白屏/假成功；④ 删除二次确认用 confirmationDialog → 底部升起锚不到；
+#   ⑤ 设置页入口或 .sheet 漏挂 → 点不开；⑥ 搜索索引漏条 → 肉眼可见却搜不到；
+#   ⑦ 后端 save 要求 frontmatter 的 name 与保存名一致 → 不对齐一存就 400。
+# 分工：test_skills **真跑**生产源码 SkillsClient（假传输：正常/空/缺字段/ok:false/HTTP500/超时/name 校验/
+#   frontmatter 对齐/恢复）；truth_table_skills 源级钉端点前缀、走现成封装、不读 token、body 不发请求、
+#   AnchorMenuOverlay 二次确认、MarkdownRenderer 详情、设置页入口与挂 sheet、搜索索引、§102 注册。
+# ⚠️ cwd 必须 = 仓库根（真值表里全是相对路径，漂移会静默全绿 → 前置哨兵会报红）。
+run_unit6 /tmp/test_skills -parse-as-library qingliao/Core/SkillsClient.swift scripts/ql_skills/test_skills.swift
+run_unit /tmp/tt_skills scripts/ql_skills/truth_table_skills.swift
 
 [ $fail -eq 0 ] || { echo "❌ 有护栏失守"; exit 1; }
 exit 0

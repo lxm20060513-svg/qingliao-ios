@@ -97,6 +97,11 @@ enum SettingsSearchIndex {
               keywords: ["提醒", "闹钟", "定时提醒"]),
         .init(route: "filesManager", title: "文件管理", icon: "folder.fill", group: "数据与自动化",
               keywords: ["文件", "上传", "下载", "管理"]),
+        .init(route: "clipboardHistory", title: "剪贴板历史", icon: "doc.on.clipboard", group: "数据与自动化",
+              keywords: ["剪贴板", "粘贴板", "复制", "历史"]),
+        // #24：技能库（后端 /api/agent/skills 六端；「沉淀为技能」入口在此页顶部）
+        .init(route: "skillsLibrary", title: "技能库", icon: "books.vertical.fill", group: "数据与自动化",
+              keywords: ["技能", "技能库", "skill", "沉淀", "技能包"]),
 
         // ── Agent 设置 ──
         .init(route: "proactive", title: "主动 Agent", icon: "bolt.horizontal.circle.fill", group: "Agent 设置",

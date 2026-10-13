@@ -647,6 +647,94 @@ struct ChatView: View {
         )
     }
 
+    // MARK: - #3 斜杠命令层（命令解析真源在 Core/SlashCommands.swift）
+
+    /// 面板是否可见 / 当前前缀（含 `/`）。
+    /// 触发口径 **单一真源** = `SlashParser.panelPrefix`（以 `/` 开头且不含空白）；语音态不渲染面板。
+    /// 不主动收/弹键盘：这里只读状态，不碰 `inputFocus`。
+    private var slashPanelPrefix: String {
+        guard !voiceMode else { return "" }
+        return SlashParser.panelPrefix(inputText) ?? ""
+    }
+    private var slashPanelVisible: Bool { !slashPanelPrefix.isEmpty }
+
+    /// 面板点选：只**填入**命令文本（无参补 `/xxx`、带参补 `/记一笔 `），执行仍走 send() 的唯一拦截口。
+    private func pickSlashCommand(_ cmd: SlashCommand) {
+        setInputText(cmd.fillTemplate)
+    }
+
+    /// 命令派发（**只被 send() 顶部的拦截调用**）。六个 case 穷尽、无 default ——
+    /// 新增命令必须同时进 `SlashCommand` 与这里，否则 `ql ios check` 的 switch 穷尽性会红。
+    private func runSlashCommand(_ cmd: SlashCommand, arg: String) {
+        switch cmd {
+        case .new:
+            // 复用「新建会话」唯一入口（DockTabView 注释同口径）：两步走清屏 + 流移交后台，
+            // 当前会话的回答不死（BackgroundStreamRunner 接着落库）。**不直接 newSession()** ——
+            // 那会在流式期清空 messages 造成串话/丢流（见 ChatStore.pendingNewSession 注释）。
+            chat.requestNewSession()
+        case .model:
+            // 复用输入栏模型胶囊同一条路径（ComposerModelSheet）。
+            showComposerModel = true
+        case .stop:
+            // 与输入栏停止键同口径：清本会话队列 + 抑制本轮朗读 + 停流。
+            clearPendingQueue()
+            suppressAutoReadOnce = true
+            stream.stop(auth: auth)
+        case .usage:
+            runUsageCommand()
+        case .expense:
+            runExpenseCommand(arg)
+        case .help:
+            appendSlashCard(SlashCardKit.helpText())
+        }
+    }
+
+    /// `/usage`：拉同一份数据（`UsageFetcher` 单一真源），插一张只读卡（不是跳 Dashboard）。
+    private func runUsageCommand() {
+        Task { @MainActor in
+            switch await UsageFetcher.fetchTokenUsage(auth: auth) {
+            case .success(let u):
+                appendSlashCard(SlashCardKit.usageText(u))
+            case .failure(let f):
+                // 失败原因也走单一真源（与看板同一套文案），不自己编一句
+                appendSlashCard(SlashCardKit.noticeText(f.message))
+            }
+        }
+    }
+
+    /// `/记一笔 35 咖啡`：首个数字=金额，其余=用途；与 OrbQuickMenu 同一落库口径（RecordStore.addDetailed，
+    /// kind=amount / unit=元 / 分类走 ChatRecordKit 词表）。解析不出数字 → 本地提示卡、**不落库**。
+    private func runExpenseCommand(_ arg: String) {
+        guard let parts = SlashParser.expenseParts(arg), parts.amount > 0 else {
+            appendSlashCard(SlashCardKit.noticeText("没识别到金额，试试「/记一笔 35 咖啡」"))
+            return
+        }
+        let title = parts.item.isEmpty ? "记一笔" : parts.item
+        let category = ChatRecordKit.category(for: title)
+        guard let added = RecordStore.shared.addDetailed(kind: "amount", title: title,
+                                                         amount: parts.amount, unit: "元",
+                                                         note: "分类：\(category)｜来源：斜杠命令",
+                                                         source: "slash") else {
+            appendSlashCard(SlashCardKit.noticeText("没记上，稍后再试"))
+            return
+        }
+        appendSlashCard(ChatRecordKit.cardText(title: added.item.title,
+                                               amount: added.item.amount ?? parts.amount,
+                                               unit: "元", category: category, raw: arg))
+    }
+
+    /// 把一张本地卡落进当前会话：assistant + **isPush** 消息，内容是 ```ql-card 围栏（由既有
+    /// AgentCardParser → AgentResultCard 渲染）。isPush 让 `historyPayload` 滤掉它 → 卡片 JSON
+    /// **不进模型上下文**（命令不污染对话、不被复读），跨重启仍保留（与记账卡同口径）。
+    private func appendSlashCard(_ card: String) {
+        guard !card.isEmpty else { return }
+        guard !chat.isDeliverySession else { return }   // 投递会话只读：不往里写卡
+        var msg = ChatMessage.local(role: "assistant", content: card)
+        msg.isPush = true                        // 走「不进模型上下文」的过滤（historyPayload 滤 isPush）
+        msg.pushKind = PushKind.localOnly        // 但**不出**来源角标：本地卡不是推送（v4.0.104）
+        chat.append(msg)
+    }
+
     @ViewBuilder
     private var inputArea: some View {
         if selectMode {
@@ -740,7 +828,12 @@ struct ChatView: View {
                     // ⚠️ 实参序必须 = ChatInputBar 存储属性声明序（autoReadIcon 声明在 onPickReasoning 之后）
                     autoReadIcon: "speaker.wave.2.fill",
                     autoReadOn: autoReadReply,
-                    onToggleAutoRead: { toggleAutoRead() })
+                    onToggleAutoRead: { toggleAutoRead() },
+                    // #3 斜杠命令面板（overlay 常驻层）：可见性/前缀/点选回调
+                    // ⚠️ 实参序必须 = ChatInputBar 存储属性声明序（追加在 onToggleAutoRead 之后）
+                    slashPanelVisible: slashPanelVisible,
+                    slashPanelPrefix: slashPanelPrefix,
+                    onPickSlash: { pickSlashCommand($0) })
                     // v2.0.129：球态输入框 —— 绑定会话 id，切会话重建复位（展开态在切会话后回球态）
                     .id(chat.sessionId)
                     // v2.0.135：消费输入栏区域的点击，防冒泡到消息区 ZStack 根手势误收键盘
@@ -2920,6 +3013,10 @@ struct ChatView: View {
         } onContinueStep: { step in
             // v3.9.74 P2.6：plan 卡「继续下一步」——下一未完成步骤原样发回（走 sendCore 全链路：落库/排队/流式互斥全复用）
             sendCore(text: step, imageData: nil)
+        } onCardSubmit: { text in
+            // v4.0.104（#25）：表单卡提交——卡内合成文本原样发回（同一 sendCore 全链路：
+            // 落库/排队/流式互斥/权限闸门全复用；App 不直接执行任何动作）
+            sendCore(text: text, imageData: nil)
         } onAnswerQuestion: { answer in
             // v3.9.110：问题卡作答 —— 交后端（AI 侧 ask_user.py 的长轮询正等这个答案）
             // + 就地切「已回答」态并落库。整条链路收在 InboxStore.answerQuestion 一处。
@@ -3734,6 +3831,21 @@ struct ChatView: View {
     }
 
     func send() {
+        // #3 斜杠命令层：**最顶部**拦截。命中命令 → 清空输入框（连草稿）→ 本地执行 → 直接 return；
+        // 未注册命令（/foobar）同样不发 LLM，插提示卡。
+        // ⚠️ 必须在任何 `sendCore` / SendQueue / `SpeechManager.stop()` 之前 —— 命令一旦进发送链路
+        //    就会被当普通消息发给模型（后端 api_server 端点零命令分发，见方案 §一）。
+        if let (cmd, arg) = SlashParser.parse(inputText) {
+            if let cmd {
+                setInputText("", clearingDraft: true)
+                runSlashCommand(cmd, arg: arg)
+            } else {
+                // 未注册命令（/foobar）：**保留原文**（不清输入框、不清草稿）+ 卡上给自救出口。
+                // 审查抓到的误伤：原先这里也 clearingDraft: true，用户原话被销毁且没有回头发送的路径。
+                appendSlashCard(SlashCardKit.unknownCommandText())
+            }
+            return
+        }
         // v3.9.9 收口：新的一轮开始 → 先停掉上一轮朗读（v3.9.8 原有行为，上一版被我删掉了）。
         // 注意**不能**挂到 `aiBusy` 变 true 上无脑停：aiBusy = 本机流 ‖ 云端流 ‖ 服务器探针，
         // 切会话/探针抖动都会跳变，会把用户手动点的朗读掐断；挂在"用户真的发起新一轮"这个点最准。

@@ -396,6 +396,37 @@ final class GoalStore {
                                  body: ["id": goalID, "paused": paused])
     }
 
+    /// v4.0.104（#16a）：把「编辑」结果推给后端（标题 / 早间晚间的开关与时刻）。
+    /// 同一路由 PATCH /api/life/goal（后端 goal_module.goals_update 字段级更新）。
+    /// 返回 false = 请求没走通（调用方在卡片上给「没同步上」提示，本地改动保留）。
+    @discardableResult
+    func updateOnBackend(goalID: String, title: String,
+                         morningEnabled: Bool, eveningEnabled: Bool,
+                         morningHour: Int, eveningHour: Int) async -> Bool {
+        guard let auth else { return false }
+        let body = GoalEditKit.payload(id: goalID, title: title,
+                                       morningEnabled: morningEnabled, eveningEnabled: eveningEnabled,
+                                       morningHour: morningHour, eveningHour: eveningHour)
+        guard let j = try? await auth.json("/api/life/goal", method: "PATCH", body: body),
+              (j["ok"] as? Bool) == true else { return false }
+        // 后端可能规范化字段（标题截断 200 字、时刻被夹回区间）→ 把它的版本回灌本地，
+        // 否则卡片显示的和实际生效的会不一致（用户以为改了 25 点）
+        if let remote = j["goal"] as? [String: Any] {
+            mutate(goalID) { g in
+                if let t = remote["title"] as? String, !t.isEmpty { g.title = t }
+                if let v = remote["morningEnabled"] as? Bool { g.morningEnabled = v }
+                if let v = remote["eveningEnabled"] as? Bool { g.eveningEnabled = v }
+                if let v = remote["morningHour"] as? Int { g.morningHour = v }
+                if let v = remote["eveningHour"] as? Int { g.eveningHour = v }
+                if let v = remote["paused"] as? Bool { g.paused = v }
+                if let ids = remote["cronJobIDs"] as? [String], let first = ids.first, !first.isEmpty {
+                    g.cronJobID = first
+                }
+            }
+        }
+        return true
+    }
+
     /// 删目标 —— 后端负责连带删掉它的 cron job（否则明天还会推一个已删目标）
     func deleteOnBackend(goalID: String) async {
         guard let auth else { return }

@@ -74,6 +74,9 @@ struct MessageBlockView: View {
     var onMultiSelect: () -> Void = {}
     // v3.9.74 P2.6：plan 卡「继续下一步」——把下一未完成步骤发回聊天（nil = 只读）
     var onContinueStep: ((String) -> Void)? = nil
+    // v4.0.104（#25）：表单卡提交——卡内填/选后合成的文本发回聊天（nil = 只读降级）
+    // ⚠️ 声明序紧跟 onContinueStep，调用点实参也传在同一位（实参序 = 声明序）
+    var onCardSubmit: ((String) -> Void)? = nil
     // v3.0.17：流式输出中用 SwiftUI Text 渲染（UITextView 在流式高频更新下有锁旧窄布局/字体缩放 bug 家族，
     // 见 references/ui-textview-layout-shrink.md；流式中无需长按菜单，落库后恢复 SelectableTextLabel）
     var useSwiftUIText = false
@@ -392,7 +395,8 @@ struct MessageBlockView: View {
                 .bubbleLongPress(longPressAction)
         case .agentCard(let card):
             // v3.5.0：Agent 结果卡片（```ql-card 围栏）——单卡玻璃 + 0.8pt 描边，长按菜单同其他段
-            AgentResultCard(card: card, onContinueStep: onContinueStep)
+            AgentResultCard(card: card, onContinueStep: onContinueStep, onCardSubmit: onCardSubmit,
+                            cardSeed: messageId)   // v4.0.104（#25）：回执按消息隔离，防跨卡误判已提交
                 .bubbleLongPress(longPressAction)
         case .action(let action):
             // v3.9.95：AI 本地动作卡（```ql-action 围栏）

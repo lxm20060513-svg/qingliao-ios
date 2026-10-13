@@ -35,6 +35,12 @@ enum UserDefaultsKey {
     // v4.0.103 待做池 #5：聊天输入框草稿（sid -> 正文）。
     // 真源与唯一写入口 = Core/ChatDraftStore.swift；视图里不许自己拼这个键名。
     static let chatDrafts = "qingliao_chat_drafts"
+    // v4.0.104 待做池 #11：剪贴板历史（本地回看 / 一键入待办）。
+    // 真源与唯一写入口 = Core/ClipboardHistoryStore.swift；视图里不许自己拼这两个键名。
+    // ⚠️ 能力边界：iOS 禁止后台监听剪贴板，只允许在用户主动动作的那一刻读 —— 见该文件顶部注释。
+    static let clipboardHistory = "qingliao_clipboard_history"
+    /// 剪贴板历史总开关（默认开）。单独成键（不塞进历史表）→ 「关掉」不必先把历史读完再写回。
+    static let clipboardHistoryEnabled = "qingliao_clipboard_history_enabled"
     // v4.0.104：进行中的专注计时会话（习惯番茄钟）。存的是 FocusSession 的 JSON Data
     // （习惯 id + 开始时刻 + 计划分钟），剩余时间一律现算 —— 杀 App 也不丢进度。
     static let focusSession = "qingliao_focus_session"

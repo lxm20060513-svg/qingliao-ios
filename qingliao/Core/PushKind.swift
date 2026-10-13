@@ -34,9 +34,18 @@ enum PushKind {
         }
     }
 
-    /// 是否需要在气泡上出角标：问题卡自带卡面、普通用户消息不出。
-    static func showsTag(role: String, isPush: Bool, questionId: String?) -> Bool {
+    /// v4.0.104：**本地卡**（斜杠命令回执等纯本机生成的卡）专用来源标记。
+    /// 这类卡借 `isPush` 走「不进模型上下文」的过滤，但**不该**在气泡上出「你问的」这类
+    /// 来源角标 —— 那个角标是给推送消息区分「前台问的 / 定时 / 主动」用的，本地卡不是推送。
+    /// ⚠️ 取值只在本机用（App 侧本地卡标记），与后端推送的 `task_type` 取值域**互斥** ——
+    /// 服务端永远不会推送 `"local"`，所以不会误吞真实推送的来源角标。
+    static let localOnly = "local"
+
+    /// 是否需要在气泡上出角标：问题卡自带卡面、普通用户消息不出、**本地卡也不出**。
+    static func showsTag(role: String, isPush: Bool, questionId: String?,
+                         pushKind: String? = nil) -> Bool {
         guard isPush, role == "assistant" else { return false }
+        if pushKind == localOnly { return false }   // 本地卡：说出来源没意义（不是推送）
         return questionId == nil || questionId!.isEmpty
     }
 }

@@ -112,10 +112,13 @@ ck("语音两处都走写入口（exitVoiceMode 定稿 + onTextChange 中间结�
    hits(voiceSrc, "setInputText(") == 2 && voiceSrc.contains("setInputText(text)"))
 
 let entryCalls = hits(chatAll, "setInputText(")
-ck("写入口调用点 9 处（定义 1 + binding 1 + 语音 2 + 快捷指令 1 + Hermes 捷径 1 + 发送清空 2 …），实得 \(entryCalls)",
-   entryCalls == 9)
+ck("写入口调用点 11 处（定义 1 + binding 1 + 语音 2 + 快捷指令 1 + Hermes 捷径 1 + 面板点选 1 + 发送清空 3），实得 \(entryCalls)",
+   entryCalls == 11)
 ck("快捷指令填充落草稿", chatView.contains("setInputText(prompt)"))
 ck("Hermes 捷径填充落草稿", chatView.contains("setInputText(cmd)"))
+// v4.0.104 #3：斜杠命令面板点选只**填入**命令文本（执行仍走 send() 唯一拦截口），填入也必须过写入口
+// —— 直写 inputText 会绕过草稿：点了命令填上字、切走再回来就没了（与语音定稿同一个 P1 类）。
+ck("面板点选命令走写入口（不是直写 inputText）", chatView.contains("setInputText(cmd.fillTemplate)"))
 
 // ── D. 四个时机 ─────────────────────────────────────────────────
 let switchSlice = slice(from: ".onChange(of: chat.sessionId) { prior, _ in",
@@ -145,7 +148,40 @@ let flushCalls = hits(chatAll, "ChatDraftStore.shared.flush()")
 ck("flush 调用点恰好 2 处（切会话 + 离开前台）—— 治「flush() 是死代码」，实得 \(flushCalls)", flushCalls == 2)
 
 let clearCalls = hits(chatView, "setInputText(\"\", clearingDraft: true)")
-ck("「确认发送才清」恰好 2 处（sendPendingNow + send 直发，弹窗取消不清）", clearCalls == 2, "实得 \(clearCalls)")
+// v4.0.104 #3 起是 3 处：sendPendingNow（长上下文弹窗确认的后半程）+ send 直发 + 斜杠命令**命中**。
+// 为什么不能只数个数（本表踩过）：个数对不上只会让后来人顺手把数字改大，方向性错误照旧放过 ——
+// 所以三处逐个对上号，另加一条「未知命令支必须不清」的反向断言。
+ck("「确认发送才清」恰好 3 处（sendPendingNow + send 直发 + 斜杠命令命中）", clearCalls == 3, "实得 \(clearCalls)")
+let spnSlice = slice(from: "private func sendPendingNow(", to: "func send() {", in: chatView)
+ck("清点①：sendPendingNow 段定位成功", !spnSlice.isEmpty)
+ck("清点①：sendPendingNow 里清（弹窗点「确认发送」才走到这）", spnSlice.contains("setInputText(\"\", clearingDraft: true)"))
+let sendSlice = slice(from: "func send() {", to: "func sendCore(", in: chatView)
+ck("send() 段定位成功（含斜杠拦截 + 直发清空）", !sendSlice.isEmpty)
+ck("清点②③：send() 段内恰好 2 处清（斜杠命中 + 直发，多一处就是漏了确认闸）",
+   hits(sendSlice, "setInputText(\"\", clearingDraft: true)") == 2,
+   "实得 \(hits(sendSlice, "setInputText(\"\", clearingDraft: true)"))")
+let slashSlice = slice(from: "if let (cmd, arg) = SlashParser.parse(inputText) {", to: "if chat.messages.count > 60 {", in: chatView)
+ck("斜杠拦截段定位成功", !slashSlice.isEmpty)
+ck("清点③：斜杠段内恰好 1 处清（只有「命令命中」那支）",
+   hits(slashSlice, "setInputText(\"\", clearingDraft: true)") == 1,
+   "实得 \(hits(slashSlice, "setInputText(\"\", clearingDraft: true)"))")
+// 反向：未知命令支（/foobar）必须**保留原文** —— 审查抓到的误伤是「原话被销毁且没有回头发送的路径」
+// 光看「appendSlashCard 之后」不够：往 else 支的**前面**插一处 clearingDraft 照样看不见
+// （变异实测抓到的洞）→ 改成把「命中支」与「else 支」两侧分别切出来钉。
+let hitBranch = slice(from: "if let cmd {", to: "runSlashCommand(cmd, arg: arg)", in: chatView)
+ck("清点③：清的那支是「命令命中」分支（if let cmd → runSlashCommand）",
+   !hitBranch.isEmpty && hitBranch.contains("setInputText(\"\", clearingDraft: true)"))
+let elseBranch = slice(from: "runSlashCommand(cmd, arg: arg)", to: "appendSlashCard(SlashCardKit.unknownCommandText())", in: chatView)
+ck("未知命令支不清草稿（命中支之后、appendSlashCard 之前无 clearingDraft）",
+   !elseBranch.isEmpty && !elseBranch.contains("clearingDraft: true"))
+if let r = slashSlice.range(of: "appendSlashCard(SlashCardKit.unknownCommandText())") {
+    let after = String(slashSlice[r.upperBound...])
+    ck("未知命令支不清草稿（appendSlashCard 之后无 clearingDraft）", !after.contains("clearingDraft: true"))
+    ck("未知命令支在清那支**之后**（先清后 appendSlashCard = 分支搞反了）",
+       slashSlice.range(of: "setInputText(\"\", clearingDraft: true)")!.lowerBound < r.lowerBound)
+} else {
+    ck("未知命令支不清草稿", false, "appendSlashCard 锚点缺失（被删了？自救出口不能省）")
+}
 
 // ── E. 落盘节流（只读审查 P2：每敲一键整表重建 + 整键写盘） ──────
 ck("节流窗口常量在场（defaultCoalesceWindow = 0.4，取舍写在它的注释里）",

@@ -78,6 +78,10 @@ struct SettingsView: View {
     // v3.9.32：一句话本地定时提醒 / 文件管理
     @State var showQuickReminder = false
     @State var showFilesManager = false
+    // v4.0.104 待做池 #11：剪贴板历史（本地回看 / 一键入待办）
+    @State var showClipboardHistory = false
+    // #24：技能库（列表/搜索/查看/启停/软删 + 把一段对话沉淀成技能）
+    @State var showSkillsLibrary = false
     // v3.0.17：聊天字体大小从一级菜单移除（外观二级菜单持有），fontSize 声明一并清理
     // v3.0.9：外观下天气城市已移除（天气城市设定在看板 WeatherBadge 点按处），相关状态一并清理
     // v2.0.101：Agent 使用说明内联展开
@@ -199,6 +203,7 @@ struct SettingsView: View {
         .background(settingsCold7())
         .background(settingsCold8())
         .background(settingsCold9())
+        .background(settingsCold10())
         // v4.0.67 P4：设置页页底铺环境渐变（C 口径，与聊天页同源单层）——
         //   列表卡已换 pastelCard 渐变卡，页底同步彩化；只铺一层不叠团。
         //   ⚠️ 必须挂**链尾**（= 垫在所有 cold 层之下）：本仓口径是「先挂的 background 画得更靠前」，
@@ -336,6 +341,25 @@ struct SettingsView: View {
     }
 
     /// 深度治理：行为型深层修饰器下沉背景层（.background 不影响布局，语义等价）
+    // v4.0.104：v4.0.104 批次的 #11/#24 各加了一个 sheet，把 settingsCold6 顶层从 4 条顶到 6 条
+    // （§77 类型栈深度护栏当场拦下：顶层 >4 会让 SwiftUI 类型推断膨胀，4.0.47 的真机启动闪退就是这个原因）。
+    // 按既有治理手法拆组：新 sheet 下沉到 settingsCold10。
+    private func settingsCold10() -> some View {
+        Color.clear
+        // v4.0.104 待做池 #11：剪贴板历史（只在你主动读取时记录 / 只存本机）
+        .sheet(isPresented: $showClipboardHistory) {
+            ClipboardHistorySheet()
+                .presentationDetents([.medium, .large])
+                .scrollContentBackground(.hidden)
+        }
+        // v4.0.104 待做池 #24：技能库（弹窗尺寸与同页其它 sheet 一致）
+        .sheet(isPresented: $showSkillsLibrary) {
+            SkillsLibrarySheet()
+                .presentationDetents([.medium, .large])
+                .scrollContentBackground(.hidden)
+        }
+    }
+
     private func settingsCold6() -> some View {
         Color.clear
         .sheet(isPresented: $showFilesManager) {
@@ -456,6 +480,8 @@ struct SettingsView: View {
         case "lifeCards": showLifeCards = true
         case "quickReminder": showQuickReminder = true
         case "filesManager": showFilesManager = true
+        case "clipboardHistory": showClipboardHistory = true
+        case "skillsLibrary": showSkillsLibrary = true
         case "proactive": showProactive = true
         case "agentModel": showAgentModelSheet = true
         case "agentHelp":
@@ -862,6 +888,16 @@ extension SettingsView {
             SettingRow(icon: "folder.fill", iconColor: .indigo, title: "文件管理",
                        value: "上传目录里的文件", chevron: true)
                 .tapButton { showFilesManager = true }
+            Divider().padding(.leading, Spacing.rowDividerInset)
+            // v4.0.104 待做池 #11：剪贴板历史（只在你主动读取时记录 / 只存本机 / 一键入待办）
+            SettingRow(icon: "doc.on.clipboard", iconColor: .blue, title: "剪贴板历史",
+                       value: "本地回看 · 一键入待办", chevron: true)
+                .tapButton { showClipboardHistory = true }
+            Divider().padding(.leading, Spacing.rowDividerInset)
+            // #24：技能库（后端 /api/agent/skills 六端；沉淀入口在此页顶部）
+            SettingRow(icon: "books.vertical.fill", iconColor: .purple, title: "技能库",
+                       value: "技能包 · 沉淀为技能", chevron: true)
+                .tapButton { showSkillsLibrary = true }
         }
         .pastelCard()
     }

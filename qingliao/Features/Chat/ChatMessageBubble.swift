@@ -140,9 +140,13 @@ struct MessageBubble: View {
     var onMultiSelect: () -> Void = {}
     // v3.9.74 P2.6：plan 卡「继续下一步」——下一未完成步骤作为用户消息发回（nil = 只读）
     var onContinueStep: ((String) -> Void)? = nil
+    /// v4.0.104（#25）：表单卡提交回调（传卡内合成文本）。nil = 只读渲染 —— 无宿主回调的路径
+    /// （会话导出/预览/卡片画廊）自动退回只读（同 onContinueStep 的门控口径）。
+    /// ⚠️ 声明位置紧跟 onContinueStep 且调用点也传在同一位（实参序 = 声明序，见技能 swiftui-param-order）。
+    var onCardSubmit: ((String) -> Void)? = nil
     /// v3.9.110：问题卡作答回调（传用户答案原文）。nil = 只读渲染 —— 会话导出/预览等
     /// 没有宿主回调的路径自动退回只读（同 onContinueStep 的门控口径）。
-    /// ⚠️ 声明位置必须紧跟 onContinueStep 且调用点也传在同一位（实参序 = 声明序，见技能 swiftui-param-order）。
+    /// ⚠️ 声明位置必须紧跟 onCardSubmit 且调用点也传在同一位（实参序 = 声明序，见技能 swiftui-param-order）。
     var onAnswerQuestion: ((String) -> Void)? = nil
     // v4.0.11：主动 Agent 消息的「有用/没用」反馈（传 verdict: adopted/ignored）。
     // nil = 只读渲染（无宿主回调的路径不显示反馈条）。
@@ -637,6 +641,7 @@ struct MessageBubble: View {
                                         onFileTap: { url, name in onFileTap(url, name) },   // v3.9.17：AI 生成物预览
                                         onMultiSelect: onMultiSelect,   // v3.3.0：多选合并转发
                                         onContinueStep: onContinueStep,   // v3.9.74 P2.6：plan 卡继续下一步
+                                        onCardSubmit: onCardSubmit,   // v4.0.104（#25）：表单卡提交回传
                                         useSwiftUIText: true,
                                         streaming: streamingText,   // v3.0.41 性能：流式中纯 Text 渲染（跳过 markdown 解析）
                                         onLongPressMenu: onLongPressMenu)   // v4.0.81：长按段 → 锚定胶囊菜单
@@ -764,7 +769,8 @@ struct MessageBubble: View {
     @ViewBuilder
     private var bubblePushTag: some View {
         if PushKind.showsTag(role: message.role, isPush: message.isPush,
-                             questionId: message.questionId) {
+                             questionId: message.questionId,
+                             pushKind: message.pushKind) {
             let style = PushKind.style(for: message.pushKind)
             let tint = pushKindColor(style.colorKey)
             HStack(spacing: 4) {
@@ -1129,6 +1135,7 @@ struct MessageBubble: View {
                                 onFileTap: { url, name in onFileTap(url, name) },   // v3.9.17：AI 生成物预览
                                 onMultiSelect: onMultiSelect,   // v3.3.0：多选合并转发
                                 onContinueStep: onContinueStep,   // v3.9.74 P2.6：plan 卡继续下一步
+                                onCardSubmit: onCardSubmit,   // v4.0.104（#25）：表单卡提交回传
                                 useSwiftUIText: true,
                                 streaming: false,
                                 onLongPressMenu: onLongPressMenu)   // v4.0.81：长按段 → 锚定胶囊菜单

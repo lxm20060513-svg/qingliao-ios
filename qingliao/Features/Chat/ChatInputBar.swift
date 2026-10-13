@@ -108,6 +108,14 @@ struct ChatInputBar: View {
     var autoReadIcon: String = ""
     var autoReadOn: Bool = false
     var onToggleAutoRead: () -> Void = {}
+    /// #3 斜杠命令面板：可见性 + 当前前缀（含 `/`）+ 点选回调，由 ChatView 以 inputText/voiceMode 驱动。
+    /// ⚠️ 面板挂在 `.overlay` **常驻层级**、只改 opacity/offset —— 绝不用 `if slashPanelVisible { … }`
+    ///   把面板插进输入栏 VStack 子节点：那会改 TextField 父级/兄弟集合 → 键盘弹一下又收回（老坑，见
+    ///   fullInputBar / toolLayerExpanded 注释）。真值表 ql_slash 钉住「必须 overlay 常驻」。
+    /// ⚠️ 追加在 `onToggleAutoRead` 之后：调用点走成员初始化器且按声明序传参，插在中间会错位。
+    var slashPanelVisible: Bool = false
+    var slashPanelPrefix: String = ""
+    var onPickSlash: (SlashCommand) -> Void = { _ in }
     // v3.4.29：发送动作图标弹一下（symbolEffect 驱动，无自定义动画开销）
     // v3.9.42：同一个 tick 兼作发送键关键帧的 trigger（原来另有一个 sendScale + 两段 withAnimation）
     @State private var sendBounceTick = 0
@@ -717,6 +725,30 @@ extension ChatInputBar {
                 }
             }
             .padding(.horizontal, 18)   // v2.0.87aw：输入框宽度收窄（12→18）
+            // #3 斜杠命令面板：挂在**输入栏容器**上的 `.overlay` 常驻层（不是 `if` 插 VStack 子节点）
+            // —— 上对齐（见下行 732 段说明）：overlay 顶边对齐宿主顶边 + 向上位移「面板高 + 间距」，
+            //    面板底边恒等于宿主顶边 − 间距；显隐只动 opacity/offset。
+            // 放在本组（而非再往 fullInputBar 父链挂）：父链保持 3 个具名组不变，
+            // 不改 `fullInputBar` 的 mangled 类型名长度（防 demangler 栈溢出，见文件末尾注释）。
+            // 上对齐（**不是** .bottom）：overlay 自身高度=面板高度，按 .top 锚在宿主顶边后上移
+            // 「面板高 + 间距」，底边就恒等于宿主顶边 − 间距 —— 与宿主高度、与匹配条数无关。
+            // 用 .bottom 时宿主底边减位移，单条（44pt）会落进输入栏内约 18pt 压住输入框行（独立审查实测）。
+            .overlay(alignment: .top) { slashCommandLayer }
+    }
+
+    /// #3 斜杠命令面板层：`overlay` **常驻**（不在任何 `if` 分支里），靠 opacity/offset 显隐。
+    /// 高度按匹配条数算（`SlashCommandPanel.height`，上限 200 滚动），底边贴在输入栏上缘之上
+    /// （`offset` 负值 = 往上移）。隐藏态只淡出、不下树 —— 输入栏结构恒定，键盘零抖动。
+    @ViewBuilder
+    private var slashCommandLayer: some View {
+        let count = SlashParser.matches(prefix: slashPanelPrefix).count
+        SlashCommandPanel(prefix: slashPanelPrefix, onPick: onPickSlash)
+            .opacity(slashPanelVisible ? 1 : 0)
+            .offset(y: slashPanelVisible
+                    ? -(SlashCommandPanel.height(itemCount: count) + Spacing.md)
+                    : -Spacing.md)
+            .allowsHitTesting(slashPanelVisible)
+            .animation(Motion.snap, value: slashPanelVisible)
     }
 
     @MainActor

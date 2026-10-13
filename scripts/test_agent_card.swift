@@ -344,7 +344,139 @@ enum AgentCardTestMain {
     // ⑤ 外层未闭合（流式中间帧）→ 不改写、不出卡、原文逐字
     let fourUnclosed = "````ql-card\n```json\n{\"title\":\"半截\"}\n```"
     expectSingleText("四反引号未闭合原文保留", fourUnclosed)
+
+    // MARK: - 可交互表单段（v4.0.104 #25：卡片内提交 / 算数）
+
+    // ① 正例：三字段（number 带单位+必填+默认 · number · choice 无 key 回落 label）
+    let formJSON = """
+    {"type":"form","title":"ROI 试算","subtitle":"填完点提交",
+     "form":{"fields":[
+       {"key":"amount","label":"月投入","type":"number","unit":"元","required":true,"default":"3000"},
+       {"key":"years","label":"年限","type":"number","default":"10"},
+       {"label":"风格","type":"choice","options":["稳健","平衡","激进"],"default":"平衡"}],
+      "submit":{"label":"算一下","template":"按我填的算：月投入 {amount} 元 / {years} 年 / 风格{风格}"}},
+     "footer":"结果我会出成卡片"}
+    """
+    let formCard = cardOf(AgentCardParser.parse("```ql-card\n\(formJSON)\n```"), 0)
+    check("表单卡：kind 解析为 form", formCard?.kind == .form)
+    check("表单卡：三字段都在", formCard?.form?.fields.count == 3)
+    check("表单卡：number 字段带单位/必填/默认值",
+          formCard?.form?.fields.first?.kind == .number
+          && formCard?.form?.fields.first?.unit == "元"
+          && formCard?.form?.fields.first?.required == true
+          && formCard?.form?.fields.first?.defaultValue == "3000")
+    check("表单卡：无 key 的字段回落用 label 当 key（模板占位符才对得上）",
+          formCard?.form?.fields.last?.key == "风格")
+    check("表单卡：choice 选项保序", formCard?.form?.fields.last?.options == ["稳健", "平衡", "激进"])
+    check("表单卡：提交按钮文案", formCard?.form?.submitLabel == "算一下")
+    check("表单卡：其它段（footer）照旧渲染", formCard?.footer == "结果我会出成卡片")
+
+    // ② 模板合成：用户填的值优先，未填的用默认值
+    let filled = formCard?.form?.compose(values: ["amount": "5000", "years": "20", "风格": "激进"]) ?? ""
+    check("合成：填了的用填的值", filled == "按我填的算：月投入 5000 元 / 20 年 / 风格激进")
+    let defaulted = formCard?.form?.compose(values: [:]) ?? ""
+    check("合成：全未填则用字段默认值", defaulted == "按我填的算：月投入 3000 元 / 10 年 / 风格平衡")
+
+    // ③ 必填校验：空值算未填（给视图禁用提交用）
+    check("必填校验：空的必填项被点名",
+          formCard?.form?.missingRequired(values: ["amount": "", "years": "20"]) == ["月投入"])
+    check("必填校验：填了就不点名",
+          formCard?.form?.missingRequired(values: ["amount": "5000"]) == [])
+
+    // ④ 无模板 → 自动合成（label=值，跳空值），保证 AI 收到可读上下文
+    let noTemplate = """
+    {"type":"form","form":{"fields":[
+       {"key":"amount","label":"月投入","type":"number"},
+       {"key":"note","label":"备注","type":"text"}]}}
+    """
+    let nt = cardOf(AgentCardParser.parse("```ql-card\n\(noTemplate)\n```"), 0)?.form
+    check("合成：无模板时自动拼 label=值", nt?.compose(values: ["amount": "5000", "note": "试试"]) == "（表单）月投入=5000；备注=试试")
+    check("合成：空值字段被跳过", nt?.compose(values: ["amount": "5000", "note": ""]) == "（表单）月投入=5000")
+    check("合成：全空 → 空串（调用方据此不发消息）", nt?.compose(values: [:]) == "")
+    check("缺省提交按钮文案", nt?.submitLabel == "提交")
+
+    // ⑤ 反例：form 段是垃圾（字符串 / 空 fields / 字段全无 key-label）→ 不吞其它段、无表单
+    let junkForm = """
+    {"title":"垃圾表单段","footer":"尾巴还在","form":"这不是对象"}
+    """
+    let jf = cardOf(AgentCardParser.parse("```ql-card\n\(junkForm)\n```"), 0)
+    check("反例：form 段非对象 → 无表单但卡片照出", jf?.form == nil && jf?.title == "垃圾表单段" && jf?.footer == "尾巴还在")
+    let emptyFields = """
+    {"title":"空字段","form":{"fields":[]}}
+    """
+    check("反例：fields 为空 → 无表单（不画空卡）",
+          cardOf(AgentCardParser.parse("```ql-card\n\(emptyFields)\n```"), 0)?.form == nil)
+    let noName = """
+    {"title":"字段没名字","form":{"fields":[{"type":"text","value":"x"}]}}
+    """
+    check("反例：字段 key/label 全空 → 丢弃该字段（无可用字段即无表单）",
+          cardOf(AgentCardParser.parse("```ql-card\n\(noName)\n```"), 0)?.form == nil)
+
+    // ⑥ 容错：未知类型回落 text；choice 无 options 也回落 text（否则用户点不了任何东西）
+    let looseTypes = """
+    {"type":"form","form":{"fields":[
+       {"key":"a","label":"A","type":"date"},
+       {"key":"b","label":"B","type":"choice","options":[]}]}}
+    """
+    let lt = cardOf(AgentCardParser.parse("```ql-card\n\(looseTypes)\n```"), 0)?.form
+    check("容错：未知字段类型回落 text", lt?.fields.first?.kind == .text)
+    check("容错：choice 无选项回落 text", lt?.fields.last?.kind == .text)
+
+    // ⑦ 只读降级时内容不丢：plainText 必须带字段名（复制/导出/朗读都走它）
+    check("plainText 含表单字段名（复制不丢字）", formCard?.plainText.contains("月投入") == true)
+
+    // ⑧ 只有表单段（无标题）也算有内容 —— 否则整张卡被当空卡吞掉
+    let onlyForm = """
+    {"form":{"fields":[{"key":"a","label":"A","type":"text"}]}}
+    """
+    check("只有表单段 → 不算空卡",
+          cardOf(AgentCardParser.parse("```ql-card\n\(onlyForm)\n```"), 0) != nil)
+
+    // ⑩ 防串味（审查实测缺陷）：用户填的值里含「{另一个字段key}」时不许被再替换一轮
+    let crossJSON = """
+    {"type":"form","form":{"fields":[
+       {"key":"name","label":"姓名","type":"text"},
+       {"key":"city","label":"城市","type":"text"}],
+      "submit":{"template":"姓名：{name}，城市：{city}"}}}
+    """
+    let crossForm = cardOf(AgentCardParser.parse("```ql-card\n\(crossJSON)\n```"), 0)?.form
+    let crossOut = crossForm?.compose(values: ["name": "{city}", "city": "北京"]) ?? ""
+    check("防串味：值里的 {city} 不被第二遍替换（单遍渲染）", crossOut == "姓名：{city}，城市：北京")
+    check("防串味：正常值照常替换", crossForm?.compose(values: ["name": "小王", "city": "北京"]) == "姓名：小王，城市：北京")
+    check("防串味：模板里未知占位符原样保留（不猜不吞）",
+          crossForm?.compose(values: ["name": "甲", "city": "乙"]) == "姓名：甲，城市：乙")
+
+    // ⑪ 字段 key 去重（ForEach(id: \.key) 重复 id 是未定义行为）
+    let dupJSON = """
+    {"type":"form","form":{"fields":[
+       {"label":"金额","type":"number"},
+       {"label":"金额","type":"number"}]}}
+    """
+    let dupFields = cardOf(AgentCardParser.parse("```ql-card\n\(dupJSON)\n```"), 0)?.form?.fields
+    check("key 去重：两个同名字段都保留（不丢第二个）", dupFields?.count == 2)
+    check("key 去重：第二个 key 加序号，互不相同", dupFields?.first?.key == "金额" && dupFields?.last?.key == "金额2")
+
+    // ⑫ 内容签名：同标题同 key、内容不同的两张卡必须分得开（审查实测 fpA==fpB 的口径事故）
+    let sigA = cardOf(AgentCardParser.parse("```ql-card\n\(formJSON)\n```"), 0)?.form?.signature ?? ""
+    let sigVariant = """
+    {"type":"form","title":"ROI 试算","subtitle":"填完点提交",
+     "form":{"fields":[
+       {"key":"amount","label":"月投入","type":"number","unit":"万元","required":true,"default":"3000"},
+       {"key":"years","label":"年限","type":"number","default":"10"},
+       {"label":"风格","type":"choice","options":["稳健","平衡","激进"],"default":"平衡"}],
+      "submit":{"label":"算一下","template":"按我填的算：月投入 {amount} 元 / {years} 年 / 风格{风格}"}}}
+    """
+    let sigB = cardOf(AgentCardParser.parse("```ql-card\n\(sigVariant)\n```"), 0)?.form?.signature ?? ""
+    check("内容签名：同字段 key 但单位不同 → 签名不同", sigA != sigB && !sigA.isEmpty)
+    check("内容签名：同一张卡两次签名一致（稳定）", sigA == (cardOf(AgentCardParser.parse("```ql-card\n\(formJSON)\n```"), 0)?.form?.signature ?? ""))
+    check("内容签名：不含用户填的值（签名是卡片属性，不是提交状态）", !sigA.contains("5000"))
+
+    // ⑨ 上限保护：单个超长填写值不得把合成文本撑爆（防一次提交塞爆上下文）
+    let huge = String(repeating: "字", count: 6000)
+    let composedHuge = formCard?.form?.compose(values: ["amount": huge, "years": "1"]) ?? ""
+    check("合成：超长值被截断到上限内（≤4000 字符）", composedHuge.count <= 4000)
     }
+
 
     static func main() {
         runAllTests()

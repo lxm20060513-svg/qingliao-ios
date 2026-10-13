@@ -48,7 +48,12 @@ struct SettingsSearchTruthTable {
         positives += 1
         // 精确钉死条数（不是 ≥30）：整条连同 route 一起被删时，下面的路由核验不会红 —— 只有条数能兜住。
         // 新增设置行时必须同步加索引 + 改这里的数（有意的摩擦：漏了就是「肉眼可见却搜不到」）。
-        check("索引条数与设置页对齐（当前 \(entries.count)，期望 39）", entries.count == 39)
+        check("索引条数与设置页对齐（当前 \(entries.count)，期望 41）", entries.count == 41)
+        positives += 1
+        // #24：新增「技能库」行时同步加的索引（漏了就是肉眼可见却搜不到）
+        check("新增的「技能库」行搜得到（#24）",
+              SettingsSearchIndex.match("技能").contains { $0.title == "技能库" }
+              && SettingsSearchIndex.match("skill").contains { $0.title == "技能库" })
         positives += 1
         // v4.0.68：新增「聊天页宠物」开关行时同步加的索引（漏了就是肉眼可见却搜不到）
         check("新增的「聊天页宠物」行搜得到（v4.0.68）",
@@ -97,7 +102,9 @@ struct SettingsSearchTruthTable {
             ("cardGallery", "showCardGallery"), ("secrets", "showSecrets"), ("tasks", "showTasks"),
             ("history", "showHistory"), ("logs", "showLogs"), ("diagnostics", "showDiagnostics"),
             ("pinPath", "connOpenPinPath"), ("lifeCards", "showLifeCards"), ("quickReminder", "showQuickReminder"),
-            ("filesManager", "showFilesManager"), ("proactive", "showProactive"),
+            ("filesManager", "showFilesManager"), ("clipboardHistory", "showClipboardHistory"),
+            ("skillsLibrary", "showSkillsLibrary"),
+            ("proactive", "showProactive"),
             ("agentModel", "showAgentModelSheet"), ("agentHelp", "showAgentHelp"),
             ("agentKeywords", "showAgentKeywords"), ("agentMemory", "showAgentMemory"),
             ("appearance", "showAppearance"), ("pet", "showPetStudio"),

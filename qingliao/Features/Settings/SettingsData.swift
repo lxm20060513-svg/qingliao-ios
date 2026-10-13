@@ -288,7 +288,7 @@ struct FilesManagerSheet: View {
             guard seq == loadSeq else { return }
             loading = false
             if Self.isCancellation(error) { return }   // 被取消（关弹窗/回收刷新控件）不是失败
-            errorText = filesFailureReason(error)
+            errorText = RemoteFiles.failureReason(error)
         }
     }
 
@@ -336,7 +336,7 @@ struct FilesManagerSheet: View {
             viewerPayload = ImageViewPayload(images: [img], index: 0)
             return
         }
-        guard let url = writeTemp(data, name: e.name) else {
+        guard let url = RemoteFiles.writeTemp(data, name: e.name) else {
             await MainActor.run { Haptics.error() }
             alertText = "本地临时文件写入失败，无法预览（可尝试分享）"
             return
@@ -366,7 +366,7 @@ struct FilesManagerSheet: View {
     private func prepareShare(_ e: RemoteFileEntry) async {
         defer { busyText = nil }
         guard let data = await download(e) else { return }
-        guard let url = writeTemp(data, name: e.name) else {
+        guard let url = RemoteFiles.writeTemp(data, name: e.name) else {
             await MainActor.run { Haptics.error() }
             alertText = "本地临时文件写入失败，无法分享"
             return
@@ -397,7 +397,7 @@ struct FilesManagerSheet: View {
             }
         } catch {
             await MainActor.run { Haptics.error() }
-            alertText = "删除失败：" + filesFailureReason(error)
+            alertText = "删除失败：" + RemoteFiles.failureReason(error)
         }
     }
 
@@ -405,64 +405,22 @@ struct FilesManagerSheet: View {
 
     /// 下载一个条目（上传目录内的文件匿名可读，但走 auth.downloadFile 统一分流：
     /// WiFi 直连 URLSession / 蜂窝 relay，并带上 X-Auth-Token）
+    /// #17：网络 + 失败文案收归 `RemoteFiles.fetchData` 共享实现（设置页「文件」与聊天成品文件卡同一真源，
+    /// 行为逐字不变：仍是 `alertText = 失败文案`）。
     @MainActor
     private func download(_ e: RemoteFileEntry) async -> Data? {
-        let q = "/api/files/download?path=" + RemoteFiles.queryEncoded(e.path)
-        let cellular = NetworkMonitor.shared.isCellular
-        do {
-            let (data, code) = try await auth.downloadFile(q)
-            if (200..<300).contains(code), !data.isEmpty { return data }
-            await MainActor.run { Haptics.error() }
-            if code == 404 {
-                alertText = "文件不存在，可能已被删除" + (cellular ? "（当前为蜂窝网络）" : "")
-            } else if code == 403 {
-                alertText = "该文件不允许下载"
-            } else {
-                alertText = "下载失败（HTTP \(code)）"
-                    + (cellular ? "，蜂窝网络受限，建议连 WiFi 重试" : "")
-            }
-            return nil
-        } catch {
-            await MainActor.run { Haptics.error() }
-            alertText = "下载失败：" + filesFailureReason(error)
-                + (cellular ? "（蜂窝网络受限，建议连 WiFi 重试）" : "")
-            return nil
-        }
-    }
-
-    /// 数据落本地临时目录（文件名净化：防后端下发的名字带路径分隔符写到别处）
-    private func writeTemp(_ data: Data, name: String) -> URL? {
-        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("files_manager", isDirectory: true)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let dst = dir.appendingPathComponent(RemoteFiles.safeLocalName(name))
-        try? FileManager.default.removeItem(at: dst)   // 覆盖同名旧临时文件，防临时目录堆积
-        do {
-            try data.write(to: dst, options: .atomic)
-            return dst
-        } catch {
+        switch await RemoteFiles.fetchData(auth, path: e.path, cellular: NetworkMonitor.shared.isCellular) {
+        case .success(let data):
+            return data
+        case .failure(let reason):
+            alertText = reason
             return nil
         }
     }
 
 }
 
-// MARK: - 错误文案（REST 非 2xx 时 auth.request/json 会抛 APIError，后端的 error 原文拿不到 → 按状态码给原因）
-
-private func filesFailureReason(_ error: Error) -> String {
-    guard let api = error as? APIError else { return error.localizedDescription }
-    switch api {
-    case .unauthorized: return "登录已过期，请重新登录后重试"
-    case .badURL: return "服务器地址无效"
-    case .badResponse, .badResponseDetail: return "服务器响应异常"
-    case .badJSON: return "服务器响应无法解析"
-    case .timeout, .timeoutDetail: return "请求超时，请检查网络"
-    case .relayCancelled: return "请求已取消"
-    case .server(403): return "没有权限操作该文件（路径超出允许范围）"
-    case .server(404): return "文件不存在，可能已被删除"
-    case .server(500): return "服务器处理失败，请稍后重试"
-    case .server(let code): return "服务器返回 \(code)"
-    }
-}
+// MARK: - 错误文案（v4.0.104 #17 起收归共享实现 `RemoteFiles.failureReason`，此处不再自带一份）
 
 // MARK: - 条目行（独立小 struct：不塞进上方 ViewBuilder，避免 CI 类型检查超时）
 
@@ -659,7 +617,7 @@ private struct FileRenameSheet: View {
                 }
             } catch {
                 await MainActor.run { Haptics.error() }
-                errorText = "重命名失败：" + filesFailureReason(error)
+                errorText = "重命名失败：" + RemoteFiles.failureReason(error)
             }
         }
     }

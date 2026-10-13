@@ -45,15 +45,24 @@ final class HangWatchdog: @unchecked Sendable {
     private static let maxReportChars = 1800
     /// 单次卡顿采样轮数 / 采样间隔
     private static let sampleRounds = 3
-    private static let sampleGapMs = 150
+    private static let sampleGapMs = 50
     /// 单条样本最多帧数（从栈顶往下取）
     private static let maxFramesPerSample = 12
     /// 监控线程心跳间隔
-    private static let tickMs = 250
+    ///
+    /// v4.0.x：250ms → 100ms。采样只在「首次发现 busy ≥ 阈值」的那一拍才启动，而实际卡顿集中在
+    /// 400~1000ms：250ms 一拍时，400ms 的卡顿要等到第 2 拍（500ms）才可能被看到，主线程往往已恢复
+    /// （busySinceNs 已清零）→ 这一段的样本全被丢弃。实测 <600ms 卡顿采样成功率仅 1%、600~1500ms 20%。
+    private static let tickMs = 100
     /// 同一繁忙段的采样冷却（跑一次够用，别持续抓栈）
     private static let reportCooldownNs: UInt64 = 5_000_000_000
-    /// 面包屑条数上限
-    private static let maxBreadcrumbs = 16
+    /// 面包屑条数上限（预算优先给采样栈，见 renderReport）
+    private static let maxBreadcrumbs = 8
+    /// 样本写回时「本段刚结束」的认领宽限窗口
+    ///
+    /// 采样本身要 ~150ms（见 sampleGapMs），短卡顿常在样本写回前就恢复；只要「结束的正是本次采样的
+    /// 那一段」，窗口内仍认领，否则 400~1000ms 这批主力卡顿永远拿不到栈。
+    private static let sampleClaimGraceNs: UInt64 = 500_000_000
 
     // MARK: 状态（observer = 主线程写；监控线程读；均由 lock 保护，临界区只有几条赋值）
 
@@ -75,6 +84,14 @@ final class HangWatchdog: @unchecked Sendable {
     /// （甚至进入下一条卡顿）→ 旧样本会挂到新的卡顿上。样本带上采样时的代次，只认同一代。
     private var burstId: UInt64 = 0
     private var samplesBurstId: UInt64 = 0
+    /// 本段结束时刻与结束段的代次（样本写回的「刚结束」宽限判定用）
+    private var burstEndNs: UInt64 = 0
+    private var endedBurstId: UInt64 = 0
+    /// 正在采样的段代次。主线程结算时若发现本段正在被采样，就不自己上报（那会拿到一条空栈），
+    /// 改把上报「移交」给监控线程：它写回样本后补报，样本才不白采。
+    private var samplingBurstId: UInt64 = 0
+    private var pendingReportMs = 0
+    private var pendingReportBurstId: UInt64 = 0
     /// v3.9.10：完全死锁兜底是否已上报（一段繁忙只报一次；繁忙段结束时复位）
     private var deadlockReported = false
     /// v3.9.10：连续繁忙超过该时长仍未恢复 → 判定「主线程不会回来了」，由监控线程直接入队
@@ -161,6 +178,14 @@ final class HangWatchdog: @unchecked Sendable {
         busySinceNs = 0
         samples = []
         sampledThisBurst = false
+        // v4.0.x：停用/重开时复位采样闸门 —— 若在采样进行中被 stop()，sampling 会永久停在 true，
+        // 重新 start() 后 tick 的 due 永远为假（整只狗静默失效），而 UI 开关仍显示「已开启」。
+        sampling = false
+        samplingBurstId = 0
+        pendingReportMs = 0
+        pendingReportBurstId = 0
+        burstEndNs = 0
+        endedBurstId = 0
         lock.unlock()
     }
 
@@ -177,7 +202,17 @@ final class HangWatchdog: @unchecked Sendable {
             samples = []
             burstId &+= 1          // 新一段开始（旧样本即便后到也不会被认领）
             deadlockReported = false
+            // 上一段遗留的「移交上报」：若监控线程的写回没赶上宽限窗口，这里用空栈兜底上报 ——
+            // 宁可栈不完整，也不能把这条卡顿整条丢掉（下一段的写回不会认领它了）。
+            let orphanMs = pendingReportMs
+            pendingReportMs = 0
+            pendingReportBurstId = 0
             lock.unlock()
+            if orphanMs > 0 {
+                let stack = renderReport(durationMs: orphanMs, samples: [], crumbs: [])
+                report(durationMs: orphanMs, stack: stack)
+                NSLog("[DIAG] 主线程卡顿 \(orphanMs)ms（样本未及时写回，空栈兜底）已记录")
+            }
         case .beforeWaiting:
             // v3.9.10：影子状态自愈——inForeground 靠 4 个通知维护，一旦错过一次
             // didBecomeActive/willEnterForeground（例如注册时机不当），它会永久停在「非前台」，
@@ -199,15 +234,28 @@ final class HangWatchdog: @unchecked Sendable {
             let fg = inForeground
             let thr = thresholdMs
             busySinceNs = 0
+            if hasBurst {
+                // 记下本段结束点：监控线程写回样本时靠它判「本段刚结束」（宽限窗口内仍认领）
+                burstEndNs = now
+                endedBurstId = burstId
+            }
             sampledThisBurst = false
             // v3.9.10 fix：先把「这段是否已由死锁兜底上报过」取出来再清零。
             // 否则主流路径会在恢复后又补一条（真死锁常十几秒，早过了 5s 冷却）→ 同源卡顿两条。
             let wasReportedByDeadlock = deadlockReported
             deadlockReported = false
+            // v4.0.x：监控线程正在采本段 → 此刻样本还没写回，直接上报只会得到一条 runloopRecovery
+            // 空栈（这正是 400~1000ms 卡顿日志「没有诊断价值」的根因）。把上报移交给监控线程。
+            let handOffToMonitor = (sampling && samplingBurstId == burstId
+                                    && busy >= UInt64(max(50, thr)) * 1_000_000)
+            if handOffToMonitor {
+                pendingReportMs = Int(busy / 1_000_000)
+                pendingReportBurstId = burstId
+            }
             lock.unlock()
             // applicationState 必须主线程读（observer 回调即在主线程）
             let active = fg && (UIApplication.shared.applicationState == .active)
-            if active && hasBurst && !wasReportedByDeadlock {
+            if active && hasBurst && !wasReportedByDeadlock && !handOffToMonitor {
                 checkStall(busy, threshold: thr, now: now)
             }
         default:
@@ -237,10 +285,15 @@ final class HangWatchdog: @unchecked Sendable {
         lock.unlock()
 
         let stack = renderReport(durationMs: ms, samples: got, crumbs: crumbs)
+        report(durationMs: ms, stack: stack)
+        NSLog("[DIAG] 检测到主线程卡顿 \(ms)ms（采样 \(got.count) 条）已记录")
+    }
+
+    /// 统一上报出口（主线程与监控线程都走这里）：刷新环境 → 入队 → 补传
+    private func report(durationMs: Int, stack: String) {
         Task { @MainActor in
             DiagnosticsEnv.refresh()
-            DiagnosticsStore.recordHang(durationMs: ms, stack: stack)
-            NSLog("[DIAG] 检测到主线程卡顿 \(ms)ms（采样 \(got.count) 条）已记录")
+            DiagnosticsStore.recordHang(durationMs: durationMs, stack: stack)
             await DiagnosticsUploader.flushPending()
         }
     }
@@ -267,6 +320,7 @@ final class HangWatchdog: @unchecked Sendable {
         if due {
             sampling = true
             sampledThisBurst = true
+            samplingBurstId = burstId
         }
         let sampledBurst = burstId
         // v3.9.10 fix（审查抓到的自伤）：死锁兜底**不能挂在 due 后面**——due 要求
@@ -285,18 +339,55 @@ final class HangWatchdog: @unchecked Sendable {
                 if i < Self.sampleRounds - 1 { usleep(UInt32(Self.sampleGapMs) * 1000) }
             }
         }
+        let writeBackNs = nowNs()
         lock.lock()
         // v3.9.10：写回前必须仍是「同一段且仍然繁忙」——采样耗时 ~300ms，这期间主线程可能已经
         // 结束这一段（甚至进入下一段）。旧样本（往往已是空闲 mach_msg_trap）挂到新卡顿上就是假栈。
         let sameBurst = (busySinceNs != 0 && burstId == sampledBurst)
-        if sameBurst && !out.isEmpty {
-            if samples.isEmpty { samples = out } else { samples.append(contentsOf: out) }
+        // v4.0.x：本段刚结束（宽限窗口内、且结束的就是本次采样的那一段）也认领 —— 否则短卡顿
+        // 采样完主线程已恢复，样本全被丢弃。代次比对保证绝不会把「上一段的栈」挂到新卡顿上。
+        let justEnded = (busySinceNs == 0 && endedBurstId == sampledBurst && burstEndNs != 0
+                         && (writeBackNs &- burstEndNs) <= Self.sampleClaimGraceNs)
+        let claim = (sameBurst || justEnded)
+        if claim && !out.isEmpty {
+            if samplesBurstId == sampledBurst {
+                samples.append(contentsOf: out)      // 同一段的第 2+ 轮写回：累积
+            } else {
+                samples = out                        // 跨段一律替换，防旧栈混入
+            }
             samplesBurstId = sampledBurst
+        }
+        // 过期的移交（主线程已进入新段）直接作废
+        if pendingReportMs > 0 && pendingReportBurstId != sampledBurst {
+            pendingReportMs = 0
+            pendingReportBurstId = 0
+        }
+        // 主线程把这条卡顿的上报移交了过来（它结算时样本还没写回）→ 由监控线程带真栈补报
+        var handoffMs = 0
+        if claim && pendingReportMs > 0 && pendingReportBurstId == sampledBurst {
+            handoffMs = pendingReportMs
+            pendingReportMs = 0
+            pendingReportBurstId = 0
         }
         sampling = false
         lock.unlock()
-        // due 路径要求同一段仍繁忙；stuckDue 路径（主线程已不回来）自然允许段未结束
-        guard sameBurst || (stuckDue && busy != 0) else { return }
+        // due 路径要求同一段（仍繁忙或刚结束）；stuckDue 路径（主线程已不回来）自然允许段未结束
+        guard claim || (stuckDue && busy != 0) else { return }
+
+        if handoffMs > 0 {
+            let nowR = nowNs()
+            lock.lock()
+            let cooldownPassed = (nowR &- lastReportNs) > Self.reportCooldownNs
+            if cooldownPassed { lastReportNs = nowR }
+            let got = samples
+            let crumbs = breadcrumbs
+            samples = []
+            lock.unlock()
+            guard cooldownPassed else { return }
+            let stack = renderReport(durationMs: handoffMs, samples: got, crumbs: crumbs)
+            report(durationMs: handoffMs, stack: stack)
+            NSLog("[DIAG] 主线程卡顿 \(handoffMs)ms（采样 \(got.count) 条，由监控线程带真栈补报）已记录")
+        }
 
         // v3.9.10：**完全死锁兜底**。主线程若永不回到 RunLoop，observer 的 beforeWaiting 永不触发，
         // checkStall 也就永远不会执行（即 v3.6.x 的「完全死锁无法上报」）。可此刻监控线程手里已经
@@ -455,26 +546,48 @@ final class HangWatchdog: @unchecked Sendable {
     private func renderReport(durationMs: Int, samples: [String], crumbs: [String]) -> String {
         // v3.9.10 fix：samples 为空时下面会退化成 Thread.callStackSymbols（= observer→handle→checkStall
         // 这条**上报链自己**的栈），标成 mainThreadSample 会把行号噪声当卡顿点（v3.6.0 曾因此误读整批日志）
-        var lines: [String] = [
+        let head: [String] = [
             samples.isEmpty
                 ? "stackSource=runloopRecovery rounds=0（兜底：这是恢复点栈，不是卡死帧，不能用于定位卡顿点）"
                 : "stackSource=mainThreadSample rounds=\(samples.count)",
             "state=active threshold=\(thresholdMs)ms duration=\(durationMs)ms",
         ]
-        if !crumbs.isEmpty {
-            lines.append("--- crumbs ---")
-            lines.append(contentsOf: crumbs)
-        }
+        var samplesBlock: [String] = []
         if samples.isEmpty {
             // 采样失败时的兜底：说清这是「恢复点的 RunLoop 栈」，不能当卡死点用
-            lines.append("--- 采样失败：以下为恢复点 RunLoop 栈，仅用于确认看门狗工作正常 ---")
-            lines.append(Thread.callStackSymbols.prefix(24).joined(separator: "\n"))
+            samplesBlock.append("--- 采样失败：以下为恢复点 RunLoop 栈，仅用于确认看门狗工作正常 ---")
+            samplesBlock.append(Thread.callStackSymbols.prefix(24).joined(separator: "\n"))
         } else {
             for (i, s) in samples.enumerated() {
-                lines.append("--- sample \(i + 1) ---")
-                lines.append(s)
+                samplesBlock.append("--- sample \(i + 1) ---")
+                samplesBlock.append(s)
             }
         }
+        // v4.0.x：预算按优先级分配 —— 采样栈是定位卡顿的唯一证据，**先砍面包屑，绝不砍 sample**。
+        // 旧写法是对整份文本 prefix(1800)：crumbs 满 16 条时会把后面的 sample 段整段吃掉
+        //（实测 126 条成功采样里 20 条栈长 ≥1700、12 条明确带「(截断)」，其中不少只剩 crumbs）。
+        var lines = head
+        let coreCount = (head + samplesBlock).joined(separator: "\n").count
+        let crumbBudget = Self.maxReportChars - coreCount - 32
+        if !crumbs.isEmpty {
+            if crumbBudget > 40 {
+                var kept: [String] = ["--- crumbs ---"]
+                var used = 0
+                for c in crumbs {
+                    if used + c.count + 1 > crumbBudget { break }
+                    kept.append(c)
+                    used += c.count + 1
+                }
+                if kept.count > 1 {
+                    lines.append(contentsOf: kept)
+                } else {
+                    lines.append("--- crumbs 省略（预算优先留给采样栈）---")
+                }
+            } else {
+                lines.append("--- crumbs 省略（预算优先留给采样栈）---")
+            }
+        }
+        lines.append(contentsOf: samplesBlock)
         var out = lines.joined(separator: "\n")
         if out.count > Self.maxReportChars {
             out = String(out.prefix(Self.maxReportChars)) + "…(截断)"

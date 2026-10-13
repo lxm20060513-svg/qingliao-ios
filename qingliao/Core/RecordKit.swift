@@ -526,6 +526,8 @@ enum RecordKit {
         case "manual": return "手动"
         case "fixed": return "固定支出"
         case "bill": return "扫账单"
+        case "slash": return "斜杠命令"        // #3：/记一笔 落库的来源
+        case "clipboard": return "剪贴板"      // #11：剪贴板历史「入待办」落库的来源
         default: return source.isEmpty ? "手动" : source
         }
     }

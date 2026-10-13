@@ -39,6 +39,7 @@ let bubbleSrc   = src("Features/Chat/ChatMessageBubble.swift")
 let inboxSrc    = src("Core/InboxStore.swift")
 let chatSrc     = src("Core/ChatStore.swift")
 let modelsSrc   = src("Core/Models.swift")
+let chatViewSrc = src("Features/Chat/ChatView.swift")
 
 // ── 1. 纯逻辑映射在位 ────────────────────────────────────────────
 check("PushKind.swift 存在且不是空壳", pushKindSrc.count > 800)
@@ -83,7 +84,16 @@ check("色系有 UI 映射点（colorKey → Color）", bubbleCode.contains("fun
 check("硬编码「🔔 推送」清零（旧单一蓝色角标已移除）",
       !bubbleCode.contains("🔔 推送"))
 check("旧单一蓝色写死 `Color.blue` 的胶囊角标不再出现",
-      !bubbleCode.contains("Text(\"🔔") )
+      !bubbleCode.contains("Text(\"🔔\")"))
+
+// ── 3b. v4.0.104：本地卡不出来源角标（斜杠命令回执；审查抓到「你问的」误标） ──
+check("本地卡标记存在（PushKind.localOnly）", pushKindSrc.contains("static let localOnly = \"local\""))
+check("本地卡被 showsTag 放行不出角标", pushKindSrc.contains("if pushKind == localOnly { return false }"))
+check("气泡把 pushKind 一并交给 showsTag（否则本地卡仍出「你问的」）",
+      bubbleCode.contains("pushKind: message.pushKind)"))
+check("斜杠命令卡标记为本地卡（isPush 照样 true：过滤上下文用）",
+      chatViewSrc.contains("msg.pushKind = PushKind.localOnly")
+      && chatViewSrc.contains("msg.isPush = true"))
 
 // ── 4. 映射镜像（与 PushKind.style 同口径；改口径这里必红） ──────
 func mirrorStyle(_ kind: String?) -> (String, String) {
