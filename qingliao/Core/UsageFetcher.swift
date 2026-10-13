@@ -15,7 +15,9 @@ enum UsageFetcher {
 
     /// 失败原因（**文案单一真源**）：看板与 `/usage` 都显示这里给的 message，别再各自编一套。
     /// 三种情形逐字沿用看板 v3.9.82 原有口径 —— 网络失败 / 后端 `error` 字段（真因）/ 结构不符。
-    enum Failure: Equatable {
+    /// ⚠️ 必须 `: Error`：`Result<TokenUsage, Failure>` 的 Failure 有 `Error` 约束
+    ///（漏了本机 `-parse` 查不出，CI Archive 才报「cannot infer contextual base in reference to member 'request'」这类级联错）。
+    enum Failure: Error, Equatable {
         case request            // 请求失败（断网、401、超时…）
         case backend(String)    // 后端给了 error 字段：把它当提示（如「state.db 不存在」）
         case unparsable         // 200 但结构不符（后端改了口径）

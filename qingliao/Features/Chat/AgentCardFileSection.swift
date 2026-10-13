@@ -145,7 +145,7 @@ struct AgentCardFileSection: View {
             quickLookURL = url
             phase = .idle
         case .failure(let reason):
-            phase = .failed(reason)
+            phase = .failed(reason.message)
         }
     }
 }

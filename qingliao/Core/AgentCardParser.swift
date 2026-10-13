@@ -257,9 +257,12 @@ struct AgentCard: Equatable, Sendable {
     let table: Table?
     let footer: String?
     /// v4.0.104（#25）：可交互表单段（nil = 只读卡，行为与旧版逐字一致）
-    let form: Form?
+    /// ⚠️ 必须 `var` + 默认值，两个都不能少：`let x: T? = nil` 会**整个从 memberwise init 里消失**
+    ///（调用方显式传 `form:` 会报 extra argument），而默认值不给 → 全仓只给老字段的 6 个调用点
+    /// 全报 `missing arguments for parameters 'form', 'file'`。本机 `-parse` 查不出，只有 CI Archive 才炸。
+    var form: Form? = nil
     /// #17：AI 成品文件段（nil = 无文件段，行为与旧版逐字一致）
-    let file: File?
+    var file: File? = nil
 
     /// 无任何可渲染内容 → 调用方按纯文本处理（不给用户空白卡）
     var isEmpty: Bool {

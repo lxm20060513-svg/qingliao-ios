@@ -65,6 +65,16 @@ struct FocusTimerBody: View {
     let habitId: String
     let onClose: () -> Void
 
+    /// 显式 internal init（v4.0.104 修 CI 编译错）：合成 memberwise init 在 CI 上被报成
+    /// `'FocusTimerBody' initializer is inaccessible due to 'private' protection level`
+    ///（调用点在 HabitSection.swift 打开浮层处）。本机 `-parse` 查不出，只有 CI 的 Archive 才炸 ——
+    /// 显式写出与合成版**逐字同义**（同参数、同默认值），但访问级别确定为 internal，不再随合成规则变。
+    /// 结构体里那两个单例引用是 `private var`（不走 memberwise），`@State private var selected` 自带默认值。
+    init(habitId: String, onClose: @escaping () -> Void) {
+        self.habitId = habitId
+        self.onClose = onClose
+    }
+
     private var focus = FocusTimerStore.shared
     private var store = HabitStore.shared
     /// 选中的预设分钟（默认沿用 presenter 记住的档）

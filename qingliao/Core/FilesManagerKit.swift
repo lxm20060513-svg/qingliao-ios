@@ -49,6 +49,16 @@ enum FilePreviewKind: Equatable {
     case unsupported
 }
 
+/// 远程文件下载的失败载体：`.message` 就是**失败文案单一真源**（调用方只读它，不再各自编文案）。
+///
+/// 为什么不是 `Result<Data, String>`：`Result` 的 Failure 有 `Error` 约束，而 `String` 不是 `Error`
+///（`extension String: Error` 属跨模块追溯 conformance，Swift 6 要 `@retroactive`，不干净）。
+/// 这个错本机 `-parse` 查不出，只有 CI 的 Archive 才炸。
+struct RemoteFileFailure: Error, Equatable {
+    let message: String
+    init(_ message: String) { self.message = message }
+}
+
 enum RemoteFiles {
 
     // MARK: 常量
@@ -238,31 +248,31 @@ enum RemoteFiles {
     /// 共享下载入口：走 auth.downloadFile（WiFi 直连 / 蜂窝 relay，自动带 X-Auth-Token），
     /// 2xx 且非空 → success；否则 `Haptics.error()` + 失败文案（与设置页「文件」逐字一致）。
     @MainActor
-    static func fetchData(_ auth: AuthStore, path: String, cellular: Bool) async -> Result<Data, String> {
+    static func fetchData(_ auth: AuthStore, path: String, cellular: Bool) async -> Result<Data, RemoteFileFailure> {
         let q = "/api/files/download?path=" + queryEncoded(path)
         do {
             let (data, code) = try await auth.downloadFile(q)
             if (200..<300).contains(code), !data.isEmpty { return .success(data) }
             Haptics.error()
             if code == 404 {
-                return .failure("文件不存在，可能已被删除" + (cellular ? "（当前为蜂窝网络）" : ""))
+                return .failure(RemoteFileFailure("文件不存在，可能已被删除" + (cellular ? "（当前为蜂窝网络）" : "")))
             } else if code == 403 {
-                return .failure("该文件不允许下载")
+                return .failure(RemoteFileFailure("该文件不允许下载"))
             } else {
-                return .failure("下载失败（HTTP \(code)）"
-                    + (cellular ? "，蜂窝网络受限，建议连 WiFi 重试" : ""))
+                return .failure(RemoteFileFailure("下载失败（HTTP \(code)）"
+                    + (cellular ? "，蜂窝网络受限，建议连 WiFi 重试" : "")))
             }
         } catch {
             Haptics.error()
-            return .failure("下载失败：" + failureReason(error)
-                + (cellular ? "（蜂窝网络受限，建议连 WiFi 重试）" : ""))
+            return .failure(RemoteFileFailure("下载失败：" + failureReason(error)
+                + (cellular ? "（蜂窝网络受限，建议连 WiFi 重试）" : "")))
         }
     }
 
     /// 共享下载 + 落盘入口：下载成功 → 净化文件名后落 `temporaryDirectory/files_manager`，
     /// 返回本地 URL 供 QuickLook 预览；任一环节失败**透传文案**（含空数据 / 写盘失败）。
     @MainActor
-    static func fetchToTemp(_ auth: AuthStore, path: String, name: String) async -> Result<URL, String> {
+    static func fetchToTemp(_ auth: AuthStore, path: String, name: String) async -> Result<URL, RemoteFileFailure> {
         let cellular = NetworkMonitor.shared.isCellular
         switch await fetchData(auth, path: path, cellular: cellular) {
         case .failure(let reason):
@@ -270,7 +280,7 @@ enum RemoteFiles {
         case .success(let data):
             guard let url = writeTemp(data, name: name) else {
                 Haptics.error()
-                return .failure("本地临时文件写入失败，无法预览（可尝试分享）")
+                return .failure(RemoteFileFailure("本地临时文件写入失败，无法预览（可尝试分享）"))
             }
             return .success(url)
         }

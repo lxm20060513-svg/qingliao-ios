@@ -413,7 +413,7 @@ struct FilesManagerSheet: View {
         case .success(let data):
             return data
         case .failure(let reason):
-            alertText = reason
+            alertText = reason.message
             return nil
         }
     }
