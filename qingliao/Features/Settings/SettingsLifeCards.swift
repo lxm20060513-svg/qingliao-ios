@@ -1310,8 +1310,10 @@ struct QuickReminderSheet: View {
         .padding(.horizontal, Spacing.xxl)
         .padding(.vertical, Spacing.lg)
         // v4.0.105：系统 .contextMenu → 全局同款锚定胶囊菜单（微缩抬起 + 轻纱模糊变暗 + 弹簧错峰）
-        .anchorLongPressMenu(items: quickReminderMenuList(), title: "提醒") { item in
-            switch item.id {
+        // ⚠️ 闭包参数名不能叫 item：会遮蔽本行的 item（QuickReminder），CI Archive 报
+        //   cannot convert value of type 'AnchorMenuItem' to expected argument type 'QuickReminder'
+        .anchorLongPressMenu(items: quickReminderMenuList(), title: "提醒") { pick in
+            switch pick.id {
             case "delete":
                 Task { await delete(item) }
             default:
