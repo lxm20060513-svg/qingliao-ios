@@ -144,9 +144,11 @@ struct LifeView: View {
         // ⚠️ 宿主必须挂在**整页最外层**（滚动区之外）。挂回 section 那一行里 = 几何被行限制，
         // 又变回「只在卡片大小内弹」（4.0.76 备忘录的原坑，勿回退）。
         // AnyView 收类型名：本页属「启动链 demangler」事故家族，别把宿主类型名内联进 body（见 ql_typestack 护栏）。
+        // ⚠️ v4.0.109：**长期目标**整块搬进工作区（用户「长期目标从生活页搬进工作区」），
+        //    它的 `GoalsGlassLayerHost` 随 `GoalsSection` 一起迁到 `WorkspaceView` 页根挂载（本页已无该栏目）。
+        //    本页只剩**待办 / 习惯 / 记录**三张。
         .overlay { AnyView(TodoGlassLayerHost()) }
         .overlay { AnyView(HabitGlassLayerHost()) }
-        .overlay { AnyView(GoalsGlassLayerHost()) }
         .overlay { AnyView(RecordGlassLayerHost()) }
         // v3.5.x：生活卡片设置页（股票 / 资讯 / 快递）
         .background(lifeCold1())
@@ -189,7 +191,8 @@ struct LifeView: View {
         case .memo: MemoSection()
         case .todo: TodoSection()
         case .habit: HabitSection()   // v4.0.46：习惯打卡
-        case .goals: GoalsSection()   // v4.0.7：长期目标
+        // v4.0.109：`.goals`（长期目标）整块搬进工作区 —— 用户「长期目标从生活页搬进工作区」。
+        // 该板块已不在生活页渲染，`LifeSection` 里对应 case 一并删除（含「自定义板块」列表项）。
         case .record: RecordSection()
         case .automations: AutomationsSection(isActive: isActive)
         case .lifeCards: LifeStocksSection(data: life,

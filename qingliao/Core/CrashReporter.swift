@@ -219,6 +219,13 @@ enum CrashReporter {
     ///         新口不可用时回退旧口 /api/logs/crash（老后端兜底，不出现「升级后崩溃上报全丢」）。
     @MainActor
     static func flushPending(auth: AuthStore) async {
+        // v4.0.110：诊断模式关闭 = 这条**自动**链路整体不走（不入队、不自动上报）。
+        // 本地崩溃文件保留——用户重新打开后，下次启动会照常补传；诊断页的「立即上报」
+        // 是用户主动路径（直走 DiagnosticsUploader.flushPending），不受本开关影响。
+        guard DiagnosticsMode.isEnabled() else {
+            DiagnosticsUploader.attach(auth: auth)
+            return
+        }
         // v3.9.10 fix ①：**先落盘，再联网**。原来顺序是「await 联网补传（可能数秒）→ 再读文件入队」，
         // 这个窗口期里若又崩一次：新崩溃覆盖 crash_pending.json，而上一条既没进队列也没留在磁盘
         // → 启动即崩的崩溃循环里，每一条崩溃都会这样丢掉（服务端永远收不到，正是历史遗留的疑点）。

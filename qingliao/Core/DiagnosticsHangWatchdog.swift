@@ -3,6 +3,21 @@ import Darwin
 import Dispatch
 import UIKit
 
+// MARK: - v4.0.110 诊断模式主开关（设置页「诊断」行行尾开关）
+// 关 = 不采卡顿（看门狗停）+ 启动时崩溃/卡顿不再自动入队上报；诊断页内查看历史 /
+// 手动「立即上报」不受影响（用户主动路径）。键字面量只在此处
+// （仓规：持久化 key 字面量只准出现在 Core 常量定义处，同 keyEnabled）。
+// 顶层 enum：CrashReporter / 设置页都要读，不挂在 HangWatchdog 名下。
+enum DiagnosticsMode {
+    static let keyEnabled = "qingliao_diag_mode"
+
+    static func isEnabled() -> Bool {
+        let d = UserDefaults.standard
+        if d.object(forKey: keyEnabled) == nil { return true }   // 默认开
+        return d.bool(forKey: keyEnabled)
+    }
+}
+
 // MARK: - 主线程卡顿看门狗（v3.6.1：RunLoop 计时 + 独立线程抓真实栈 + 前台门控）
 //
 // v3.6.0 的问题（上线后实测，日志见后端 data/diag/reports.jsonl）：
@@ -108,6 +123,8 @@ final class HangWatchdog: @unchecked Sendable {
     // MARK: 设置
 
     static func isEnabled() -> Bool {
+        // v4.0.110：主开关关 = 看门狗一并停（refreshSettings 会据此走 stop()）
+        if !DiagnosticsMode.isEnabled() { return false }
         let d = UserDefaults.standard
         if d.object(forKey: keyEnabled) == nil { return true }   // 默认开
         return d.bool(forKey: keyEnabled)

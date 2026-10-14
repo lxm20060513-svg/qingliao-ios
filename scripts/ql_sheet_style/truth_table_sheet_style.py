@@ -57,7 +57,8 @@ SRC = {p: open(p, encoding="utf-8").read() for p in ALL}
 print("== 1. 弹窗内容不许自带 systemBackground/systemGroupedBackground 实色底")
 # ⚠️ 盲区修复（v4.0.x，审查 2 抓出）：原正则只认 `Color(uiColor: .systemGroupedBackground)`，
 #    漏掉 SwiftUI 里同样常见、语义完全等价的无包装写法 `Color(.systemGroupedBackground)`。
-#    真实漏网案例：Features/Dashboard/ConnectorPanelSheet.swift 的 easedBackground 属性 ——
+#    真实漏网案例（该文件已于 v4.0.109 随「连接器」栏目退役，写法盲区本身仍由本表覆盖）：
+#    Features/Dashboard/ConnectorPanelSheet.swift 的 easedBackground 属性 ——
 #    宿主是 sheet，却挂 Color(.systemGroupedBackground).ignoresSafeArea()，
 #    正是本表要抓的形态，但因为少了个 `uiColor:` 字面量而系统性漏检。
 #    教训：正则断言本身也有盲区，必须用反向注入持续验证（见第 4 段）。
@@ -152,16 +153,18 @@ try:
                 hit_b = True
         check("🚫 反向B：弹窗内容带回实色底会被第 1 段判红", hit_b, "护栏未抓到实色底回归")
     # —— 事故 C（v4.0.x 新增，针对刚修的正则盲区）：Dashboard 目录里用**无 uiColor 包装**
-    #    的等价写法挂 sheet 实色底。锚点选 ConnectorPanelSheet —— 它本来就是本轮
-    #    真实漏网的案例（宿主是 DashboardView.swift 的 .sheet），用它当反向锚点最贴真。
+    #    的等价写法挂 sheet 实色底。原锚点用 ConnectorPanelSheet（本轮真实漏网案例，宿主是
+    #    DashboardView.swift 的 .sheet）；该文件已于 v4.0.109 随「连接器」栏目退役，
+    #    锚点改挂**同目录、同宿主族**的 DockerSheet.swift —— 形态与口吻不变
+    #    （Dashboard 目录 + 无 uiColor 包装的 Color(.systemGroupedBackground) 写法）。
     #    这条同时锁住两个曾失守的点：写法变体漏检 + 反向锚点只覆盖 Settings 目录。
-    CONNECTOR_PATH = os.path.join(QINGLIAO, "Features", "Dashboard", "ConnectorPanelSheet.swift")
-    _orig_conn = open(CONNECTOR_PATH, encoding="utf-8").read()
+    DOCKER_PATH = os.path.join(QINGLIAO, "Features", "Dashboard", "DockerSheet.swift")
+    _orig_conn = open(DOCKER_PATH, encoding="utf-8").read()
     try:
         bad_conn = _orig_conn.replace(
-            ".navigationTitle(\"连接器\")",
+            ".navigationTitle(\"Docker 管理\")",
             ".background(Color(.systemGroupedBackground).ignoresSafeArea())\n"
-            "            .navigationTitle(\"连接器\")", 1)
+            "            .navigationTitle(\"Docker 管理\")", 1)
         if bad_conn == _orig_conn:
             restored = False
             print("   ⚠️ 未能注入事故C（源码形态与预期不符，跳过该条自证）")
@@ -176,7 +179,7 @@ try:
             check("🚫 反向C：无 uiColor 包装写法 + Dashboard 目录也会判红（正则盲区已补）",
                   hit_c, "护栏仍漏检 Color(.systemGroupedBackground) 写法")
     finally:
-        open(CONNECTOR_PATH, "w", encoding="utf-8").write(_orig_conn)
+        open(DOCKER_PATH, "w", encoding="utf-8").write(_orig_conn)
 finally:
     open(CORE_PATH, "w", encoding="utf-8").write(_orig_core)
     open(PROACTIVE_PATH, "w", encoding="utf-8").write(_orig_proactive)

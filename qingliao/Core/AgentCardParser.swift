@@ -408,8 +408,20 @@ struct AgentCard: Equatable, Sendable {
         }()
 
         // #17：AI 成品文件段（缺 path / path 为空 → nil，退化成普通只读卡；绝不出「查看」按钮）
+        // v4.0.110：AI 会把 path/name/kind **平铺在卡顶层**（实测：轻聊使用手册卡
+        // `{"type":"file","title":…,"path":"office/…","name":…,"kind":"docx"}`），原实现只认
+        // file 子对象 → file=nil → 卡渲染成纯结果壳、零点击入口（用户报「点卡片无法查看也没法下载」）。
+        // 容错：无 file 子对象时回落顶层平铺字段（file 子对象优先）；仍缺 path → nil（口径不变）。
+        // 顶层回落**仅限 type=file 的卡**：status/result 等卡顶层即使恰有 path 字段也不会被误判成文件段。
         let file: File? = {
-            guard let fd = dict["file"] as? [String: Any] else { return nil }
+            let fd: [String: Any]
+            if let sub = dict["file"] as? [String: Any] {
+                fd = sub
+            } else if Kind.parse(str(dict["type"]) ?? "") == .file {
+                fd = dict
+            } else {
+                fd = [:]
+            }
             let path = (str(fd["path"]) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             guard !path.isEmpty else { return nil }   // 容错口径：缺 path → 整段丢弃（不崩、不空壳）
             let rawName = (str(fd["name"]) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)

@@ -24,7 +24,11 @@ import Foundation
 
 /// 看板栏目（唯一定义处；标题/取数/排序都按这个 id 分发）
 enum BoardCard: String, CaseIterable, Identifiable {
-    case suggestion, home, scenes, automations, rules, nas, usage, tokens, diagnose, router, pin, connectors
+    // v4.0.109：用户要求「删掉看板页的连接器栏目」——原 `connectors`（接入中心一页）整块退役：
+    //   面板本体 ConnectorPanelSheet.swift 一并删除（它只由本栏目进入，留着就是死代码）。
+    //   老用户 `dashboard_card_order` / `dashboard_hidden_cards` 串里残留的 "connectors"
+    //   由 parse() 当未知键丢弃 —— 其余栏目的顺序/隐藏状态原样保留，不需要迁移。
+    case suggestion, home, scenes, automations, rules, nas, usage, tokens, diagnose, router, pin
 
     var id: String { rawValue }
 
@@ -42,7 +46,6 @@ enum BoardCard: String, CaseIterable, Identifiable {
         case .diagnose: return "设备体检"
         case .router: return "路由器"
         case .pin: return "钉一钉"
-        case .connectors: return "连接器"
         }
     }
 }

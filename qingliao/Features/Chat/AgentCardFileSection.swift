@@ -63,6 +63,11 @@ struct AgentCardFileSection: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.secondary.opacity(Tint.faint),
                     in: RoundedRectangle(cornerRadius: Radius.icon, style: .continuous))
+        // v4.0.110：整卡可点（AI 侧文案承诺「点开卡片即可查看或下载」，但原实现只有右上角
+        // 小「查看」按钮可点、卡面点了没反应 = 用户报「点卡片无法查看也没法下载」）。
+        // 与「查看」按钮同走 open()（在飞闸门在 open 内，重复点不会叠请求）。
+        .contentShape(Rectangle())
+        .onTapGesture { open() }
         .quickLookPreview($quickLookURL)
     }
 

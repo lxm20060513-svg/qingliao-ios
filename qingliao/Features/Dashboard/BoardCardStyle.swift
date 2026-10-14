@@ -3,7 +3,8 @@ import SwiftUI
 // v4.0.85：看板栏目标题行的行首图标（口径与生活页板块头 v4.0.84 方案 B① 同款）。
 //
 // 用户 2026-10-09 真机口径：「看板页的各个标题头，像设备体检，智能家居，NAS 面板，模型使用量，
-// token 用量，路由器都加上圆角多彩图标」—— 12 个栏目一律加（只加被点名的那几个会在同页留下一半裸文字）。
+// token 用量，路由器都加上圆角多彩图标」—— 当时 12 个栏目一律加（只加被点名的那几个会在同页留下一半裸文字）。
+// v4.0.109：用户要求删掉「连接器」栏目（见 Core/BoardCardOrder.swift 注释），本表相应收成 11 条。
 //
 // 为什么单开一个文件：`enum BoardCard` 住在 Core/BoardCardOrder.swift（**纯 Foundation**，
 // 看板真值表 scripts/ql_board 直接编译它，混 SwiftUI 依赖就编不过）—— 那里放不了 `Color`。
@@ -20,7 +21,7 @@ extension BoardCard {
     var icon: String {
         switch self {
         case .suggestion: return "lightbulb.fill"          // 建议 → 灯泡
-        case .home: return "house.fill"                    // 智能家居（同 ConnectorPanelSheet 的家居映射）
+        case .home: return "house.fill"                    // 智能家居（同智能家居卡的既有映射）
         case .scenes: return "wand.and.stars"              // 场景 → 魔法棒
         case .automations: return "gearshape.fill"         // 自动化 → 齿轮
         case .rules: return "slider.horizontal.3"          // 规则 → 阈值滑杆
@@ -30,12 +31,11 @@ extension BoardCard {
         case .diagnose: return "stethoscope"               // 设备体检（同「诊断」既有映射）
         case .router: return "network"                     // 路由器 → 网络
         case .pin: return "pin.fill"                       // 钉一钉（同「钉一钉存储」既有映射）
-        case .connectors: return "link"                    // 连接器 → 接入
         }
     }
 
     /// 栏目头行首底色（与 icon 同处一份映射；取各栏目语义色，深浅模式由系统色自适应）
-    /// ⚠️ 12 个栏目取 12 种不同颜色（真值表 ql_uitokens 钉了「去重后仍是 12 种」）——
+    /// ⚠️ 11 个栏目取 11 种不同颜色（真值表 ql_uitokens 钉了「去重后仍是 11 种」）——
     ///    同页多个栏目用同一个颜色 = 又退回「一片同色的色块墙」，等于白加。
     var tint: Color {
         switch self {
@@ -50,7 +50,6 @@ extension BoardCard {
         case .diagnose: return .red
         case .router: return .indigo
         case .pin: return .pink
-        case .connectors: return .cyan
         }
     }
 }

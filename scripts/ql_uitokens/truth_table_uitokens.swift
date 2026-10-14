@@ -10,9 +10,11 @@
 // 计划全文：`/opt/data/scripts/qingliao_docs/design-plans/agent-card-status-icon-tint.md`
 //
 // ⚠️ 本表**扫全仓**（`qingliao/Features` 逐文件）：v3.9.80 先把 Agent 卡头部图标底从字面 0.14 收成 `Tint.subtle`，
-//   随后用户拍板「顺带收口」同 role 另两处（`SessionsView` 的 tag 胶囊底、`ConnectorPanelSheet` 的 tint 色块底），
+//   随后用户拍板「顺带收口」同 role 另一处（`SessionsView` 的 tag 胶囊底），
 //   于是负断言从「只扫一个文件」升级成「扫 Features 目录」。
-//   唯一豁免：`ConnectorPanelSheet.swift` 的 `.white.opacity(0.14)` 是**深色描边**，
+//   （当轮一并收口的第三处是 `ConnectorPanelSheet` 的 tint 色块底；该文件已于 v4.0.109
+//    「删掉看板页的连接器栏目」时整块删除 → 2b 段随之从两条收成一条。）
+//   唯一豁免：**深色描边**类的字面值（`.white.opacity(0.14)` + 0.8 细描边），
 //   Tint.swift:15 明文「深浅色各自取值由调用点决定（浅色 0.08 / 深色 0.14~0.22）」→ 不算违规。
 
 import Foundation
@@ -55,12 +57,12 @@ check("旧字面形态清零：本文件不再有 tone/tag 色底的字面 opaci
 check("SessionsView 的 tag 胶囊底走 Tint.subtle（原先字面 0.14）",
       src("qingliao/Features/Sessions/SessionsView.swift")
         .contains(".background(tagColor(t).opacity(Tint.subtle), in: Capsule())"))
-check("ConnectorPanelSheet 的 tint 色块底走 Tint.subtle（原先字面 0.14）",
-      src("qingliao/Features/Dashboard/ConnectorPanelSheet.swift")
-        .contains(".background(tint.opacity(Tint.subtle), in: RoundedRectangle(cornerRadius: 11))"))
-check("深色描边保留 0.14（Tint.swift 明文允许调用点自定深浅取值，不属违规）",
-      src("qingliao/Features/Dashboard/ConnectorPanelSheet.swift")
-        .contains(".strokeBorder(.white.opacity(0.14), lineWidth: 0.8)"))
+// v4.0.109：连接器面板随「连接器」栏目退役 → 上面那两条（tint 色块底收口 / 深色描边豁免）
+//   的被测文件已不存在。不删成空格子，翻成**反向断言**：文件若复活即红。
+// ⚠️ 用 fileExists 负向形态（不是 src(...).isEmpty）：守卫 check_guard_coverage.py
+//   只把「主动读取」算断链，fileExists 的路径本就该不存在 —— 与 PhotoAskView 已删断言同款。
+check("连接器面板已退役（v4.0.109 删「连接器」栏目）：ConnectorPanelSheet.swift 不复存在",
+      !FileManager.default.fileExists(atPath: "qingliao/Features/Dashboard/ConnectorPanelSheet.swift"))
 
 // ── 2c. 全仓扫描：彩色淡底不许再有字面 0.14 ────────────────────────
 let featDir = "qingliao/Features"
@@ -223,24 +225,25 @@ let boardIconPairs = [("suggestion", "lightbulb.fill"), ("home", "house.fill"), 
                       ("automations", "gearshape.fill"), ("rules", "slider.horizontal.3"),
                       ("nas", "externaldrive.fill"), ("usage", "dollarsign.circle.fill"),
                       ("tokens", "chart.bar.fill"), ("diagnose", "stethoscope"),
-                      ("router", "network"), ("pin", "pin.fill"), ("connectors", "link")]
+                      ("router", "network"), ("pin", "pin.fill")]
 let boardTintPairs = [("suggestion", "yellow"), ("home", "orange"), ("scenes", "purple"),
                       ("automations", "blue"), ("rules", "brown"), ("nas", "teal"),
                       ("usage", "green"), ("tokens", "mint"), ("diagnose", "red"),
-                      ("router", "indigo"), ("pin", "pink"), ("connectors", "cyan")]
+                      ("router", "indigo"), ("pin", "pink")]
 check("看板图标/配色真源文件可读（路径漂移别静默变绿）", !boardStyle.isEmpty)
 let missIcon = boardIconPairs.filter { !boardStyle.contains("case .\($0.0): return \"\($0.1)\"") }.map { $0.0 }
-check("看板 12 个栏目行首符号齐备（缺的：\(missIcon)）", missIcon.isEmpty)
+check("看板 11 个栏目行首符号齐备（缺的：\(missIcon)）", missIcon.isEmpty)
 let missTint = boardTintPairs.filter { !boardStyle.contains("case .\($0.0): return .\($0.1)") }.map { $0.0 }
-check("看板 12 个栏目行首底色齐备（缺的：\(missTint)）", missTint.isEmpty)
-// 「多彩」= 12 条取值互不相同 —— 这一点由上面两条**值表**保证（重复值必然同时缺另一条），
-// 所以不再另写一条 Set.count == 12 的断言：那种断言在本表里恒真、零鉴别力（审查口径）。
-// 真正有鉴别力的是下一条：两个 switch 各 12 条且**不许有 default** ——
-// 将来加第 13 个栏目时，`default:` 会把新栏目静默吞掉（编译不报、真机上白画一块），
+check("看板 11 个栏目行首底色齐备（缺的：\(missTint)）", missTint.isEmpty)
+// 「多彩」= 11 条取值互不相同 —— 这一点由上面两条**值表**保证（重复值必然同时缺另一条），
+// 所以不再另写一条 Set.count == 11 的断言：那种断言在本表里恒真、零鉴别力（审查口径）。
+// 真正有鉴别力的是下一条：两个 switch 各 11 条且**不许有 default** ——
+// 将来加第 12 个栏目时，`default:` 会把新栏目静默吞掉（编译不报、真机上白画一块），
 // 这里钉死「必须显式补两条映射」。
+// ⚠️ 计数随栏目数走：v4.0.109 删掉 connectors（12 → 11）后 24 → 22。
 let boardStyleCode = stripCommentLines(boardStyle)
-check("看板图标/配色两个 switch 各 12 条、且都不许有 default（新栏目必须显式补映射）",
-      boardStyleCode.components(separatedBy: "case .").count - 1 == 24
+check("看板图标/配色两个 switch 各 11 条、且都不许有 default（新栏目必须显式补映射）",
+      boardStyleCode.components(separatedBy: "case .").count - 1 == 22
         && !boardStyleCode.contains("default:"))
 
 // 六处卡族内边距统一 Spacing.section（16）；回退成 Spacing.xl（12）即红
@@ -265,24 +268,36 @@ check("六处卡族内边距统一 Spacing.section（回退的：\(padReverted)�
 // 板块图标 / 色映射单一真源
 let secSrc = src("qingliao/Features/Life/LifeSection.swift")
 let needIcons = ["case .memo: return \"square.and.pencil\"", "case .todo: return \"checklist\"",
-                 "case .habit: return \"checkmark.seal\"", "case .goals: return \"target\"",
+                 "case .habit: return \"checkmark.seal\"",
+                 // v4.0.109：`.goals`（长期目标）整块搬进工作区，该 case 已从 LifeSection 删除
+                 //（图标/色映射随板块走 → GoalsSection.headerIcon / headerTint，见本文件下面的断言）
                  "case .record: return \"sum\"", "case .automations: return \"clock.arrow.circlepath\"",
                  "case .lifeCards: return \"chart.line.uptrend.xyaxis\"",
                  // v4.0.101：股票/资讯/快递拆成三个平级板块，新增两个 case 的图标映射
                  "case .rss: return \"newspaper\"", "case .express: return \"shippingbox\""]
-check("LifeSection 九个板块 icon 映射齐全（标题行图标的单一真源）",
+check("LifeSection 八个板块 icon 映射齐全（标题行图标的单一真源）",
       needIcons.allSatisfy { secSrc.contains($0) })
-check("LifeSection 九个板块 title 映射齐全（v4.0.101 拆板块：股票/博客·资讯/快递各占一个）",
+check("LifeSection 八个板块 title 映射齐全（v4.0.101 拆板块：股票/博客·资讯/快递各占一个）",
       ["case .lifeCards: return \"股票\"", "case .rss: return \"博客/资讯\"",
        "case .express: return \"快递\""].allSatisfy { secSrc.contains($0) })
 check("LifeSection tint 映射只有一处（不许在调用点各写各的色）",
       secSrc.components(separatedBy: "var tint: Color").count - 1 == 1)
 // 上面那条只数 LifeSection.swift 本文件，防不住「调用点各写各的色」→ 逐调用点扫
+// v4.0.109：GoalsSection 已从这份清单移出（长期目标搬进工作区，不再读 LifeSection 映射）——
+// 它的符号/色由板块自持，另见下面两条断言。
 let iconCallSites = ["qingliao/Features/Life/MemoSection.swift", "qingliao/Features/Life/TodoSection.swift",
-                     "qingliao/Features/Life/HabitSection.swift", "qingliao/Features/Life/GoalsSection.swift",
+                     "qingliao/Features/Life/HabitSection.swift",
                      "qingliao/Features/Life/RecordSection.swift"]
 let tintDrifted = iconCallSites.filter { !src($0).contains("sectionIconTint: LifeSection.") }
-check("五个板块的图标底色一律取 LifeSection 映射（漂移的：\(tintDrifted)）", tintDrifted.isEmpty)
+check("四个板块的图标底色一律取 LifeSection 映射（漂移的：\(tintDrifted)）", tintDrifted.isEmpty)
+// v4.0.109：长期目标搬走后它的图标/配色不再来自 LifeSection —— 钉住「自持常量 + 值与原映射逐字一致」，
+// 防有人顺手换个符号/换个色（那会让「同一板块在两处长两张脸」或与知识库撞图标）。
+let goalSrc = src("qingliao/Features/Life/GoalsSection.swift")
+check("GoalsSection 的图标/配色走自持常量，且与原映射逐字一致（target / purple）",
+      goalSrc.contains("sectionIcon: GoalsSection.headerIcon")
+        && goalSrc.contains("sectionIconTint: GoalsSection.headerTint")
+        && goalSrc.contains("static let headerIcon = \"target\"")
+        && goalSrc.contains("static let headerTint = Color.purple"))
 // 定义好却没人消费 = 死映射（2026-10-09 审查抓到 automations 就是这么漏的）
 check("七个板块映射都至少被一处引用（automations 标题行已接上 icon/tint）",
       src("qingliao/Features/Life/AutomationsSection.swift").contains("LifeSection.automations.icon")

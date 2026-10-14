@@ -9,7 +9,8 @@ import SwiftUI
 //         点击不再弹窗」）——enum 少两个 case，下面的 `.sheet(item:)` switch 同步少两个分支。
 //         ⚠️ 新增/删除 case 时两处一起改，穷尽性才会被 CI 那道检查抓住。
 enum DashboardSheet: String, Identifiable {
-    case lights, climate, service, serviceHermes, disks, docker, weather, connectorPanel
+    // v4.0.109：connectorPanel（连接器面板）随看板「连接器」栏目一起退役，见下方退役说明。
+    case lights, climate, service, serviceHermes, disks, docker, weather
     case lock, temps, doorbell
     var id: String { rawValue }
 }
@@ -1167,57 +1168,12 @@ struct DashboardView: View {
             && !["offline", "unknown"].contains(st)
     }
 
-    /// v3.9.74 P1.5 连接器面板：可用实体总数（与 isAvailable 同口径，只读已轮询数据零新请求）
-    private var haAvailableCount: Int {
-        haEntities.filter(isAvailable).count
-    }
-
-    /// v3.9.74 P1.5：连接器面板关闭后要接着弹的设置页（防 sheet 叠 sheet，dismiss 后再弹）
-    @State private var pendingSheetAfterPanel: AfterPanelSheet?
-    // v3.9.74c：面板关闭后真正呈现在弹的设置页（与 pending 意图分开，防 dismiss/present 同帧抖动）
-    @State private var presentedAfterPanel: AfterPanelSheet?
-    enum AfterPanelSheet: String, Identifiable {
-        case mcp, lifeCards, mail, cloudDrive
-        var id: String { rawValue }
-    }
-
-    /// v3.9.74 P1.5 连接器面板（Muse 借鉴）：MCP 工具 + 智能家居 + 生活卡片 收拢总览。
-    /// 不重复实现功能，状态总览 + 直达入口：点卡片 → 面板关闭 → 再弹对应设置页。
-    @ViewBuilder
-    private var connectorsBlock: some View {
-        sectionTitle("连接器", card: .connectors)
-        // 与钉一钉同款「始终显示 + 低调提示」形态
-        Button {
-            activeSheet = .connectorPanel
-        } label: {
-            HStack(spacing: Spacing.md) {
-                Image(systemName: "rectangle.connected.to.line.2")
-                    .font(.system(size: Typography.title))
-                    .foregroundStyle(.teal)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("MCP 工具 · 智能家居 · 生活卡片")
-                        .font(.system(size: Typography.body, weight: .semibold))
-                        .foregroundStyle(.primary)
-                    Text("AI 已接入的数字生活总览与入口")
-                        .font(.system(size: Typography.caption))
-                        .foregroundStyle(.tertiary)
-                }
-                Spacer()
-                Image(systemName: "chevron.right")
-                    .font(.system(size: Typography.caption))
-                    .foregroundStyle(.tertiary)
-            }
-            .padding(.vertical, Spacing.md)
-        }
-        .buttonStyle(.plain)
-        // v4.0.102：补上 zoom 源 —— 盘完 13 个弹窗，只有这一处是「目标侧有 zoom、源侧没挂」。
-        // `navigationTransition(.zoom(sourceID:in:))` 在**源缺失**时是**静默失效**：不报编译错、
-        // 不打运行日志，观感就是「别的卡都从卡片位置长出来，只有这张从屏幕正中冒出」
-        // （用户 2026-10-12 报障「有些卡片的弹窗没跟着卡片位置弹出」）。
-        // ⚠️ 源 id 必须与目标侧 line ~1413 的 sourceID **逐字一致**（都是 DashboardSheet.connectorPanel.id）；
-        //    新增弹窗入口时，源与目标要成对加，别只加一头。
-        .matchedTransitionSource(id: DashboardSheet.connectorPanel.id, in: sheetZoomNS)
-    }
+    // v4.0.109：用户要求「删掉看板页的连接器栏目」→ 栏目 + 面板（ConnectorPanelSheet）整块退役。
+    //   连带删除：connectorsBlock / DashboardSheet.connectorPanel / haAvailableCount（唯一消费者）
+    //   / AfterPanelSheet + pendingSheetAfterPanel + presentedAfterPanel（面板里那套「关面板再弹设置页」的二段跳转）。
+    //   面板里的六类接入（邮件 / 网盘 / 日历与提醒 / MCP / 智能家居 / 生活卡片）在**设置页各有入口**
+    //   （邮件开关在 MailSettingsSheet、日历/提醒在「权限与 AI 操控」、MCP/生活卡/网盘在设置里），
+    //   能力不丢，只是不再从看板进入。
 
     /// 门锁相关实体：门锁本体（bacn01）+ lock 域 + 门磁一类含 door_lock 的实体。
     /// v3.9.54：再叠一层 `isAvailable` —— 离线的实体不进弹窗（用户点名）。
@@ -1385,7 +1341,6 @@ struct DashboardView: View {
         case .diagnose:    return AnyView(diagnoseBlock)
         case .router:      return AnyView(routerBlock)
         case .pin:         return AnyView(pinBlock)
-        case .connectors:  return AnyView(connectorsBlock)
         }
     }
 
@@ -1483,24 +1438,10 @@ struct DashboardView: View {
                 .presentationDragIndicator(.visible)
                 .onAppear { weatherSheetShown = true }
                 .navigationTransition(.zoom(sourceID: DashboardSheet.weather.id, in: sheetZoomNS))
-        case .connectorPanel:
-            // v3.9.74 P1.5 连接器面板：MCP + 智能家居 + 生活卡 收拢总览（Muse 借鉴）。
-            // 面板内跳转走本页已有 sheet 机制；MCP/生活卡设置弹窗在面板 dismiss 后弹出（防 sheet 叠 sheet）。
-            ConnectorPanelSheet(
-                onOpenMCP: { activeSheet = nil; pendingSheetAfterPanel = .mcp },
-                onOpenLifeCards: { activeSheet = nil; pendingSheetAfterPanel = .lifeCards },
-                onOpenMail: { activeSheet = nil; pendingSheetAfterPanel = .mail },
-                onOpenCloudDrive: { activeSheet = nil; pendingSheetAfterPanel = .cloudDrive },
-                haCount: haAvailableCount,
-                sceneCount: scenes.count,
-                automationCount: automations.count,
-                ruleCount: rules.count)
-                .presentationDetents([.medium, .large])
-                .navigationTransition(.zoom(sourceID: DashboardSheet.connectorPanel.id, in: sheetZoomNS))
         }
     }
 
-    /// 看板 sheet 关闭后的收尾：刷新天气徽章 / 消费面板跳转意图
+    /// 看板 sheet 关闭后的收尾：刷新天气徽章
     private func dashboardSheetDismiss() {
         // v3.9.25：只在**天气弹窗**关闭后刷新徽章（弹窗内换城市写 UserDefaults，此处重读）。
         // 早先无条件刷新 → 关灯/空调/磁盘/docker 弹窗也各多打一次 /api/weather，
@@ -1508,12 +1449,6 @@ struct DashboardView: View {
         if weatherSheetShown {
             weatherSheetShown = false
             Task { await loadWeatherWithCity() }
-        }
-        // v3.9.74c P1.5：连接器面板关闭（dismiss 已完成）后再弹 MCP/生活卡设置页。
-        // 回调只关面板+记意图；这里消费意图，async 一帧错开 dismiss 收尾，防 present 请求被静默吞。
-        if let p = pendingSheetAfterPanel {
-            pendingSheetAfterPanel = nil
-            DispatchQueue.main.async { presentedAfterPanel = p }
         }
     }
 
@@ -1576,28 +1511,6 @@ extension DashboardView {
                 // 看板同一张卡片渲染两遍，且 ForEach(id: \.element) 重复 id（SwiftUI 直接告警/错位）。
                 BoardCardEditorSheet(all: visibleCards,
                                      hidden: orderedCards.filter { hiddenCards.contains($0) })
-            }
-            // v3.9.74 P1.5：连接器面板里点「MCP 工具服务」「生活卡片」→ 面板关闭后再弹对应设置页
-            // （呈现由上面 onDismiss 消费 pendingSheetAfterPanel 驱动；sheet(item:) 随置 nil 关闭）
-            .sheet(item: $presentedAfterPanel) { target in
-                switch target {
-                case .mcp:
-                    MCPSettingsSheet()
-                        .presentationDetents([.medium, .large])
-                case .lifeCards:
-                    LifeCardsSettingsView()
-                        .anchorMenuHost()   // v4.0.105：sheet 内长按站点需要本层宿主（根层 zIndex 4 画不到 sheet 之上）
-                        .presentationDetents([.medium, .large])
-                // v4.0.x 第 3 项：接入中心一页新增两个直达口（邮件 / 网盘）。
-                // 复用设置页里那同一份 sheet，**不新做一套 UI**（用户口径：
-                // 同一个功能只能有一个界面，双模式/双入口各做一套=埋雷）。
-                case .mail:
-                    MailSettingsSheet()
-                        .presentationDetents([.medium, .large])
-                case .cloudDrive:
-                    CloudDriveSettingsSheet()
-                        .presentationDetents([.medium, .large])
-                }
             }
     }
 

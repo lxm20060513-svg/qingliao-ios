@@ -47,6 +47,8 @@ struct DiagnosticsView: View {
     // 卡顿检测开关 / 阈值（与 HangWatchdog 同键）
     @AppStorage(HangWatchdog.keyEnabled) private var hangEnabled = true
     @AppStorage(HangWatchdog.keyThreshold) private var hangThreshold = HangWatchdog.defaultThresholdMs
+    // v4.0.110：诊断模式主开关（与设置页「诊断」行同一真源键；关 = 页内展示降级说明）
+    @AppStorage(DiagnosticsMode.keyEnabled) private var diagMode = true
 
     var body: some View {
         NavigationStack {
@@ -183,6 +185,15 @@ struct DiagnosticsView: View {
 
     @ViewBuilder private var reportSection: some View {
         SectionHeader("上报")
+        // v4.0.110：诊断模式主开关（与设置页「诊断」行同一真源键）。
+        // 关 = 不采卡顿（看门狗停）+ 崩溃/卡顿不自动上报；页内查看与「立即上报」仍可用。
+        SettingRow(icon: "stethoscope", iconColor: .red, title: "诊断模式",
+                   value: diagMode ? "已开启" : "已关闭",
+                   toggle: $diagMode)
+            .onChange(of: diagMode) { _, _ in
+                HangWatchdog.shared.refreshSettings()
+            }
+        Divider().padding(.leading, Spacing.rowDividerInset)
         VStack(spacing: 0) {
             SettingRow(icon: "tray.full.fill", iconColor: .purple, title: "待上报记录",
                        value: pendingText)
@@ -219,9 +230,10 @@ struct DiagnosticsView: View {
             .disabled(uploading)
             Divider().padding(.leading, Spacing.rowDividerInset)
             SettingRow(icon: "gauge.with.dots.needle.67percent", iconColor: .red, title: "卡顿检测",
-                       value: hangEnabled ? "阈值 \(hangThreshold)ms" : "已关闭",
+                       value: !diagMode ? "诊断模式已关闭"
+                              : (hangEnabled ? "阈值 \(hangThreshold)ms" : "已关闭"),
                        toggle: $hangEnabled)
-            if hangEnabled {
+            if hangEnabled && diagMode {
                 Divider().padding(.leading, Spacing.rowDividerInset)
                 HStack(spacing: 10) {
                     Text("卡顿阈值").font(.system(size: Typography.body))

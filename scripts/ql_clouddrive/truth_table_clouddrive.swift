@@ -3,7 +3,8 @@
 // 背景：网盘接入走后端 clouddrive_api（装官方 skill 包 + 授权码 → 调网盘 CLI），
 // App 端只做「接入管理 + 文件浏览」两件事。
 // 这张表盯四类「本地预检查不出、出了就功能全废或违背用户口径」的东西：
-//   ① 位置口径：用户明确要求「网盘接入放设置里，不放连接器卡片」→ 连接器面板不得出现网盘
+//   ① 位置口径：用户明确要求「网盘接入放设置里」→ 看板侧一个网盘入口都不许有
+//      （原「连接器面板」这个载体已随 v4.0.109 删栏目整块退役，口径改钉在看板页本身）
 //   ② 安全边界：技能地址/授权码明文绝不落 App、列表绝不回显
 //   ③ 后端契约：路径/方法/字段名与 clouddrive_api.py 严格对齐（写错 = 静默 200+ok:false）
 //   ④ 浏览页护栏：fid 栈（网盘无路径概念）、蜂窝大文件闸、失败可见不静默
@@ -58,34 +59,35 @@ let setCode = stripComments(setSrc)
 let browSrc = src("qingliao/Features/Settings/CloudDriveBrowserSheet.swift")
 let browCode = stripComments(browSrc)
 let coreSrc = stripComments(src("qingliao/Features/Settings/SettingsCore.swift"))
-let connSrc = stripComments(src("qingliao/Features/Dashboard/ConnectorPanelSheet.swift"))
+// v4.0.109：看板侧位置口径的参照物从面板改成看板页本身（连接器面板已随「连接器」栏目退役）
+let boardSrc = stripComments(src("qingliao/Features/Dashboard/DashboardView.swift"))
 
 // ── 1. 源可读（空了后面全是空真） ─────────────────────────────
 check("CloudDriveSettingsSheet.swift 源可读", !setSrc.isEmpty)
 check("CloudDriveBrowserSheet.swift 源可读", !browSrc.isEmpty)
 check("SettingsCore.swift 源可读", !coreSrc.isEmpty)
-check("ConnectorPanelSheet.swift 源可读", !connSrc.isEmpty)
+check("DashboardView.swift 源可读（看板侧位置口径的参照物）", !boardSrc.isEmpty)
+// ⚠️ 负向断言用 fileExists（不是 src(...).isEmpty）：守卫 check_guard_coverage.py
+//   只把「主动读取」算断链，fileExists 的路径本就该不存在。
+check("连接器面板已退役（v4.0.109）：ConnectorPanelSheet.swift 不复存在",
+      !FileManager.default.fileExists(atPath: "qingliao/Features/Dashboard/ConnectorPanelSheet.swift"))
 
 // ── 2. 位置口径（用户明确要求）：网盘在设置，不在连接器卡片 ──────
 check("设置里有「网盘接入」入口行",
       coreSrc.contains("title: \"网盘接入\"") && coreSrc.contains("showCloudDrive = true"))
 check("入口图标与配色唯一（externaldrive.fill + .teal）",
       coreSrc.contains("icon: \"externaldrive.fill\", iconColor: .teal, title: \"网盘接入\""))
-// 🚨 2026-10-01 决策变更（v4.0.x 七项待办第 3 项「接入中心一页」）：
-// 原口径是「网盘只在设置、不进连接器面板」——那是**因为当时连接器面板只有状态总览、没有直达口**，
-// 网盘管理页塞进看板是重复实现。**第 3 项改变了这个前提**：接入中心变成"一页看全自己接了什么，
-// 点卡片直达既有设置页"，即卡片只做**状态总览 + 入口**，管理逻辑仍只有 CloudDriveSettingsSheet 一份。
-// 所以旧断言从「面板里不许出现网盘」改为「面板里只许出现状态卡 + 入口，不许再实现一份管理逻辑」：
-// 钉的是**不重复实现**这条真风险，而不是钉死某个字不许出现。详见 ql_connector 真值表第 ④ 组
-// （复用同一份 CloudDriveSettingsSheet，全仓两处宿主、无二套 UI）。
-check("连接器面板的网盘卡只做状态+入口，不复制管理逻辑（不重复实现）",
-      connSrc.contains("网盘接入")
-      && connSrc.contains("onOpenCloudDrive")
-      && !connSrc.contains("CloudDriveBrowserSheet")
-      && !connSrc.contains("/api/agent/clouddrive/add")
-      && !connSrc.contains("/api/agent/clouddrive/remove"))
-check("连接器面板仍含 MCP / 智能家居 / 生活卡片三类",
-      connSrc.contains("mcpCard") && connSrc.contains("smartHomeCard") && connSrc.contains("lifeCardsCard"))
+// 🚨 v4.0.109（用户要求「删掉看板页的连接器栏目」）：接入中心那一页整块退役 ——
+// 「面板的网盘卡只做状态+入口」这条口径的**载体本身已不存在**（文件已删），
+// 于是翻成更硬的一条：**看板侧不许再出现任何网盘入口/管理逻辑**。
+// 网盘接入只有设置页一个入口、一份 UI（CloudDriveSettingsSheet），
+// 钉的是「不重复实现 / 不从看板复活入口」这条真风险（原面板口径的历史见 git 记录）。
+check("看板侧无网盘入口（网盘只在设置页；连接器面板已退役）",
+      !boardSrc.contains("CloudDriveSettingsSheet")
+      && !boardSrc.contains("CloudDriveBrowserSheet")
+      && !boardSrc.contains("onOpenCloudDrive")
+      && !boardSrc.contains("/api/agent/clouddrive/add")
+      && !boardSrc.contains("/api/agent/clouddrive/remove"))
 
 // ── 3. 安全边界：技能地址/授权码明文不落 App、不回显 ────────────
 check("没有 @AppStorage 存授权码", !setCode.contains("@AppStorage"))

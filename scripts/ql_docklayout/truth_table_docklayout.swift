@@ -146,8 +146,14 @@ check("工作区档的 title / icon 真存在（公文包 briefcase —— 用�
       dockView.contains("case .workspace: \"工作区\"") && dockView.contains("case .workspace: \"briefcase\""))
 check("★ workspace 的页面真挂上了（dockPage 有分支 + 套 tabTransition，漏挂则该档没图标）",
       dockView.contains("case .workspace:")
-      && dockView.contains("WorkspaceView(isActive: selected == .workspace)")
+      && dockView.contains("WorkspaceView(isActive: selected == .workspace,")
       && dockView.contains(".tabTransition(for: .workspace, selected: $selected, revealCenter: revealCenter)"))
+// v4.0.109：「待你处理」点进会话的回调必须在宿主真接上 —— 漏了的话会话装进了 ChatStore
+// 但用户停在原地（页不切、也不退出会话首页），症状 =「点了没反应」。
+check("★ 工作区「待你处理」跳转回调真接上（切聊天 tab + 落到对话页）",
+      dockView.contains("onOpenSession: {")
+      && dockView.contains("showSessionHome = false")
+      && dockView.contains("selected = .chat"))
 check("TabView 按配置渲染（ForEach(dockRenderTabs)），不是写死的静态四块",
       dockView.contains("ForEach(dockRenderTabs, id: \\.self) { tab in")
       && dockView.contains("private func dockPage(_ tab: DockTab) -> some View"))

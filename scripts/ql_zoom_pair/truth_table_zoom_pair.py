@@ -4,10 +4,13 @@
 弹窗 zoom 配对真值表 —— 钉死「卡片 → 详情弹窗」的源/目标必须成对。
 
 事故（用户 2026-10-12 报障）：「看板页有些卡片的点击的弹窗位置没跟着卡片位置弹出，
-而是统一居中弹出」。根因：连接器卡（DashboardView.connectorsBlock）只挂了**目标侧**
-  navigationTransition(.zoom(sourceID: DashboardSheet.connectorPanel.id, in: sheetZoomNS))
+而是统一居中弹出」。根因：那张卡只挂了**目标侧**
+  navigationTransition(.zoom(sourceID: DashboardSheet.<case>.id, in: sheetZoomNS))
 源侧没挂
-  matchedTransitionSource(id: DashboardSheet.connectorPanel.id, in: sheetZoomNS)
+  matchedTransitionSource(id: DashboardSheet.<case>.id, in: sheetZoomNS)
+（当时报障的正是「连接器」卡；该卡已于 v4.0.109 随该栏目一并退役 —— 本表覆盖的是**全族**配对，
+ 不依赖任何单张卡在场，故只需把第 4 段自证锚点换到仍在的一对上。）
+
 
 机制（为什么必须代码级钉）：zoom 转场靠「屏上有个视图挂着同名 id」定位放大起点。
 源缺失、或源/目标 id 差一个字、或屏上没有源，**都不报编译错、不打运行日志**，
@@ -192,18 +195,21 @@ check("目标展开区把「清空」frame 报给宿主（onClearAll: (CGRect) -
       "onClearAll: (CGRect) -> Void" in goals_src and "clearButtonFrame" in goals_src)
 
 print("")
-print("== 4. 反向自证（把连接器卡的源删掉 → 第 1 段必须判红）")
-INJECT = "\n        .matchedTransitionSource(id: DashboardSheet.connectorPanel.id, in: sheetZoomNS)\n"
+print("== 4. 反向自证（把一对里的源 id 改错 → 第 1 段必须判红）")
+# v4.0.109：原锚点（连接器卡的源）随「连接器」栏目退役 → 改挂天气徽章那条源
+#   （唯一一条 weather 源，目标在 sheetContent 的 .weather 分支，成对在场）。
+#   ⚠️ 锚点必须挑「源与目标都还在」的一对：若挑只剩目标的那对，变异后 m_missing 恒为空 → 自证假绿。
+INJECT = ".matchedTransitionSource(id: DashboardSheet.weather.id, in: sheetZoomNS)"
 if INJECT not in src:
-    print("   ⚠️ 未能注入（连接器卡的源源码形态变了，去更新本段自证片段）")
+    print("   ⚠️ 未能注入（天气徽章源的源码形态变了，去更新本段自证片段）")
     check("反向自证片段仍能命中源码", False, "源码形态变了，护栏本身要跟着改")
 else:
-    mutated = src.replace(INJECT, "\n        .matchedTransitionSource(id: DashboardSheet.licensePlatePanel.id, in: sheetZoomNS)\n")
+    mutated = src.replace(INJECT, ".matchedTransitionSource(id: DashboardSheet.licensePlatePanel.id, in: sheetZoomNS)")
     m_srcs, m_tgts = pairs(mutated)
     m_missing = {c for c, _ in m_tgts} - {c for c, _ in m_srcs}
     check(
         "🚫 反向：源 id 与目标不一致时被第 1 段判红",
-        "connectorPanel" in m_missing,
+        "weather" in m_missing,
         "护栏没抓到「源/目标 id 不一致」这个静默失效形态",
     )
 check("反向自证未改动源码（纯字符串比对，不写文件）", read_source() == src)

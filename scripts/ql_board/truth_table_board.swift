@@ -68,17 +68,19 @@ let dashFlat = flat(stripCommentLines(dash))
 let editorFlat = flat(stripCommentLines(editor))
 
 // ── ① 目录与标题 ────────────────────────────────────────────────
-check("栏目 12 类（suggestion/home/scenes/automations/rules/nas/usage/tokens/diagnose/router/pin/connectors）",
-      BoardCard.allCases.count == 12)
+// v4.0.109：用户要求删掉「连接器」栏目（connectors）→ 12 类收成 11 类。
+//   反向自证：把 connectors 加回 BoardCardOrder 会让这两条当场判红（计数不符）。
+check("栏目 11 类（suggestion/home/scenes/automations/rules/nas/usage/tokens/diagnose/router/pin）",
+      BoardCard.allCases.count == 11)
 check("rawValue 与 case 名一致（id 唯一）",
-      Set(BoardCard.allCases.map(\.id)).count == 12 && BoardCard.nas.rawValue == "nas")
+      Set(BoardCard.allCases.map(\.id)).count == 11 && BoardCard.nas.rawValue == "nas")
 check("title 逐项对齐（标题即用户看到的那行）",
       BoardCard.suggestion.title == "智能建议" && BoardCard.home.title == "智能家居"
         && BoardCard.scenes.title == "智慧场景" && BoardCard.automations.title == "自动化"
         && BoardCard.rules.title == "自动规则" && BoardCard.nas.title == "NAS 面板"
         && BoardCard.usage.title == "模型使用量" && BoardCard.tokens.title == "token 用量"
         && BoardCard.diagnose.title == "设备体检" && BoardCard.router.title == "路由器"
-        && BoardCard.pin.title == "钉一钉" && BoardCard.connectors.title == "连接器")
+        && BoardCard.pin.title == "钉一钉")
 
 // ── ② 顺序串容错（parse / encode / resolve） ────────────────────
 check("parse 空串 → 空列表", BoardCardOrder.parse("").isEmpty)
@@ -90,18 +92,25 @@ check("encode 往返：encode → parse 恒等（保序）",
       BoardCardOrder.parse(BoardCardOrder.encode([.tokens, .nas, .pin])) == [.tokens, .nas, .pin])
 check("encode 空列表写空串（「顺序」没有全空语义，不写哨兵）",
       BoardCardOrder.encode([]) == "")
-check("resolve 空串 → 全部 12 项、按 catalog 默认先后",
-      BoardCardOrder.resolve(order: "") == BoardCard.allCases && BoardCardOrder.resolve(order: "").count == 12)
+check("resolve 空串 → 全部 11 项、按 catalog 默认先后",
+      BoardCardOrder.resolve(order: "") == BoardCard.allCases && BoardCardOrder.resolve(order: "").count == 11)
 check("resolve 去重：重复 key 只留一次",
-      BoardCardOrder.resolve(order: "usage,usage,usage").count == 12
+      BoardCardOrder.resolve(order: "usage,usage,usage").count == 11
         && BoardCardOrder.resolve(order: "usage,usage,usage").first == .usage)
 check("resolve 补齐升级新增：串里只有 nas → 首项 nas + 其余按 catalog 排尾",
       BoardCardOrder.resolve(order: "nas") == [.nas] + BoardCard.allCases.filter { $0 != .nas })
-check("resolve 未知项被丢且不影响补全：\"zzz,nas\" → 12 项且首项 nas",
-      BoardCardOrder.resolve(order: "zzz,nas").count == 12
+check("resolve 未知项被丢且不影响补全：\"zzz,nas\" → 11 项且首项 nas",
+      BoardCardOrder.resolve(order: "zzz,nas").count == 11
         && BoardCardOrder.resolve(order: "zzz,nas").first == .nas)
+// v4.0.109：样例三连换成仍在的栏目（原样例含已删的 connectors）
 check("resolve 保留用户顺序（不是重排回 catalog）",
-      BoardCardOrder.resolve(order: "pin,connectors,router")[0...2] == [.pin, .connectors, .router])
+      BoardCardOrder.resolve(order: "pin,tokens,router")[0...2] == [.pin, .tokens, .router])
+// v4.0.109 新增：老用户串里残留的 "connectors"（栏目已删）必须被当未知键丢弃，
+//   且**不影响其余栏目的顺序/补全** —— 升级不迁移、不重排。
+check("已删栏目 connectors 在旧顺序串里被丢弃、其余原序（老用户免迁移）",
+      BoardCardOrder.resolve(order: "pin,connectors,router").prefix(2) == [.pin, .router]
+        && BoardCardOrder.resolve(order: "pin,connectors,router").count == 11
+        && BoardCardOrder.parse("nas,connectors") == [.nas])
 
 // ── ③ 拖拽落位几何（竖排 · 不等高 · 按中心线） ──────────────────
 let hs = [60.0, 300.0, 120.0]          // 三个不等高栏目：参考偏移 offsets=[0,70,380]，中心=[30,220,440]
@@ -162,7 +171,7 @@ check("元素守恒：mergeVisible 结果 = oldFull ∪ newVisible（一个不�
                                       newVisible: BoardCard.allCases.reversed(),
                                       hidden: [])) == Set(BoardCard.allCases))
 
-// ── ⑥ 落位 → 落盘 端到端不变量（12 × 12 全枚举） ────────────────
+// ── ⑥ 落位 → 落盘 端到端不变量（11 × 11 全枚举） ────────────────
 var e2eOK = true
 for kind in BoardCard.allCases {
     for target in 0..<BoardCard.allCases.count {
@@ -170,11 +179,11 @@ for kind in BoardCard.allCases {
         let moved = BoardCardOrder.move(visible, kind: kind, to: target)
         let full = BoardCardOrder.mergeVisible(oldFull: visible, newVisible: moved, hidden: [])
         let roundTrip = BoardCardOrder.resolve(order: BoardCardOrder.encode(full))
-        // 落盘串解析回来必须等于换位结果、且 12 项一个不丢
-        if roundTrip != moved || roundTrip.count != 12 || roundTrip[target] != kind { e2eOK = false }
+        // 落盘串解析回来必须等于换位结果、且 11 项一个不丢
+        if roundTrip != moved || roundTrip.count != 11 || roundTrip[target] != kind { e2eOK = false }
     }
 }
-check("🚨 端到端：任意栏目拖到任意位 → move→merge→encode→resolve 恒等于换位结果、12 项守恒、落点即该栏目",
+check("🚨 端到端：任意栏目拖到任意位 → move→merge→encode→resolve 恒等于换位结果、11 项守恒、落点即该栏目",
       e2eOK)
 
 // ── ⑦ 手势口径 ──────────────────────────────────────────────────
@@ -239,7 +248,7 @@ check("🚨 既有长按没被吃：TokenUsageCard 的「重置」长按原地�
         && !dashFlat.contains("boardDragGesture") == false)  // 拖动只挂栏目头
 // ⚠️ 本条的坑：dashFlat 是「全去空白」的源码，**字符串字面量里的空格也被删了**
 //   （"NAS 面板" → "NAS面板"）。所以期望串必须同样去空白，否则带空格的标题永远匹配不上（假红）。
-check("12 个 sectionTitle 调用点全部带上 card:（漏一个 = 那一栏目拖不动）",
+check("11 个 sectionTitle 调用点全部带上 card:（漏一个 = 那一栏目拖不动）",
       BoardCard.allCases.allSatisfy { c in
           let want = "sectionTitle(\"\(c.title)\",card:.\(c.rawValue))".filter { !$0.isWhitespace }
           return dashFlat.contains(want)
@@ -248,7 +257,7 @@ check("🚨 不留旧签名 sectionTitle(\"…\") 无 card 的调用（编译期
       {
           var seen = 0
           for c in BoardCard.allCases where !dashFlat.contains("sectionTitle(\"\(c.title)\")") { seen += 1 }
-          return seen == 12
+          return seen == 11
       }())
 check("长按门槛/阈值有注释讲清取舍（防止后人无脑调小）",
       coreSrc.contains("longPressSeconds") && coreSrc.contains("moveThreshold"))

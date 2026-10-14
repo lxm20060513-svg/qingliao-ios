@@ -34,6 +34,12 @@ import SwiftUI
 import Observation   // v4.0.78：浮层状态提到页级单例（@Observable）
 
 struct GoalsSection: View {
+    /// 栏目头行首图标（符号 + 配色）——v4.0.109：长期目标从生活页**整块搬进工作区**，
+    /// 生活页那边对应的 `goals` case 已删（生活页不再有这一板块），映射改由本栏目自持。
+    /// 值与原映射逐字一致（target / purple），别改成别的符号或色（真值表 ql_uitokens 钉着）。
+    static let headerIcon = "target"
+    static let headerTint = Color.purple
+
     @State private var store = GoalStore.shared
     /// v4.0.78：三个浮层的开关**提到页级单例** —— 浮层本体不再挂在本 section 自己的树上。
     /// 原因（与备忘录 v4.0.77 同款坑）：本 section 只是生活页滚动区（LifeView 的 LazyVStack）
@@ -134,8 +140,8 @@ struct GoalsSection: View {
             subtitleLineLimit: nil,
             addAccessibilityLabel: "添加长期目标",
             onAdd: startAdd,
-            sectionIcon: LifeSection.goals.icon,
-            sectionIconTint: LifeSection.goals.tint
+            sectionIcon: GoalsSection.headerIcon,
+            sectionIconTint: GoalsSection.headerTint
         )
     }
 

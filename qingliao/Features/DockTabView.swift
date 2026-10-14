@@ -278,7 +278,18 @@ struct DockTabView: View {
         case .workspace:
             // v4.0.108：工作区（「AI 替我干的活」聚合页）。
             // ⚠️ 与其余档同款必须套 .tabTransition —— 漏挂这一档在 dock 上就没图标（真值表口径）。
-            WorkspaceView(isActive: selected == .workspace)
+            // v4.0.109：「待你处理」点进会话的回调 —— 会话**已由工作区装进 ChatStore**（`chat.loadById`），
+            // 这里只负责切到聊天 tab 并让它落到**对话页**（showSessionHome = false）——
+            // 与 `SessionsView` 点会话卡同一收口：本仓唯一的「进对话页」判据就是这一个 bool。
+            // 程序化切页照例 skipBurstOnce()（烟花语义是「点了 dock 智能球」，不该为跳转放）。
+            WorkspaceView(isActive: selected == .workspace,
+                          onOpenSession: {
+                              skipBurstOnce()
+                              withAnimation(Motion.tap) {
+                                  showSessionHome = false
+                                  selected = .chat
+                              }
+                          })
                 .tabTransition(for: .workspace, selected: $selected, revealCenter: revealCenter)
         case .settings:
             // v4.0.0：设置页大类 → 明细的二级页需要 NavigationStack 才有返回栈

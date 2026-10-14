@@ -190,15 +190,87 @@ check("⑥ 文件段类型图标与类型文案齐备（六种 kind 都有分支
 // 下载口 os.path.isfile 失败 → 只有真机点「查看」/QuickLook 才暴露。
 let ws = code(src("qingliao/Features/Workspace/WorkspaceView.swift"))
 check("⑦ 工作区页源可读（空了下面几条是空真）", !ws.isEmpty)
-check("⑦ 列表请求走别名根 requestPath", ws.contains("RemoteFiles.queryEncoded(requestPath)"))
+check("⑦ 列表请求走 POST 形态（蜂窝 GET 带 query 静默挂 · v4.0.110）",
+      ws.contains("auth.request(\"/api/files/list\",") && ws.contains("method: \"POST\"") && ws.contains("body: [\"path\": requestPath]"))
+check("⑦ 列表不许再用带 query 的 GET（回退即红线）",
+      !ws.contains("/api/files/list?path="))
 check("⑦ 条目 parent 传 requestPath（带别名前缀，预览/下载才不 404）",
       ws.contains("RemoteFiles.parseEntries(obj?[\"entries\"], parent: requestPath)"))
 check("⑦ 反例：条目 parent 不许传 currentPath（缺别名前缀 → 预览 404）",
       !ws.contains("parent: currentPath"))
 check("⑦ requestPath 由别名根拼出（office/ + 当前目录）",
       ws.contains("Self.artifactRoot + \"/\" + currentPath"))
-check("⑦ 只在激活时拉产物（不给 TabView 预建白跑请求）",
-      ws.contains(".task(id: isActive)") && ws.contains("isActive && entries.isEmpty"))
+check("⑦ 激活即拉产物（v4.0.110 改口径：每次激活都刷新，不再「仅空才拉」）",
+      ws.contains(".task(id: isActive)")
+      && ws.contains("guard isActive else { stopActivePolling(); return }")
+      && ws.contains("await load(keepOnFailure: true)"))
+// v4.0.110：进行中卡实时化（用户报「并没有实时显示进行中的任务」——首版只是静态入口卡）。
+// 钉四件事：① 2s 轮询拉 /api/agent/tasks/active（与 TaskCenterView 同一读路径）；
+// ② tab 切走 / 页面消失会停轮询；③ 卡面吃真实任务（标题 + 进度摘要 + 多任务计数），不再写死文案；
+// ④ 从任务中心回来（可能刚停了任务）立刻刷新，不等下一轮。
+check("⑦ 进行中卡实时轮询（2s 一轮 + 起手立即拉 + 切走即停）",
+      ws.contains("Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true)")
+      && ws.contains("activeTasks = await auth.fetchActiveTasks()")
+      && ws.contains("startActivePolling()")
+      && ws.contains(".onDisappear { stopActivePolling() }"))
+check("⑦ 进行中卡吃真实任务数据（标题/detail/计数；空态才落静态文案）",
+      ws.contains("if let first = activeTasks.first")
+      && ws.contains("activeCardSubtitle(first)")
+      && ws.contains("还有 \\(activeTasks.count - 1) 个")
+      && ws.contains("暂无进行中的任务，点开看任务中心"))
+check("⑦ 任务中心关闭即刷新卡面（onDismiss 立即拉一轮）",
+      ws.contains("fullScreenCover(isPresented: $showTaskCenter, onDismiss:"))
+// v4.0.110：卡面直接停任务（用户要求「任务卡需要有停止按钮」）。钉三件事：
+// ① 停止按钮只对可停任务亮（判据与任务中心同源：kind=stream 且 running；bg 作业后端无 cancel 端点）；
+// ② 确认走系统 alert（危险确认类口径，形态与 TaskCenterView 同款）；③ 停完立刻刷新卡面。
+check("⑦ 进行中卡停止按钮（判据同源 + alert 确认 + 停完即刷）",
+      ws.contains("first.kind == \"stream\", first.status == \"running\"")
+      && ws.contains("stop.circle.fill")
+      && ws.contains(".alert(\"停止这个任务？\"")
+      && ws.contains("await auth.streamStop(taskId: t.id)")
+      && ws.contains("@State private var stopTarget: AuthStore.ActiveTask?"))
+// v4.0.110：产物列表每次激活都刷新（原「仅 entries 为空才拉」= AI 新产物永不显示的根因）；
+// 静默刷新失败保留旧列表（keepOnFailure），别把用户正看到的产物顶没。
+check("⑦ 产物列表激活即刷新（keepOnFailure 保旧列表）",
+      ws.contains("await load(keepOnFailure: true)")
+      && ws.contains("private func load(keepOnFailure: Bool = false) async")
+      && !ws.contains("if entries.isEmpty { await load() }")
+      && ws.contains("if !keepOnFailure { entries = [] }"))
+// v4.0.110：文件卡整卡可点（AI 卡文案承诺「点开卡片即可查看或下载」，原实现只有右上角
+// 「查看」小按钮、点卡面没反应 = 用户报「点卡片无法查看也没法下载」）。钉：contentShape +
+// onTapGesture 走同一 open()（在飞闸门在 open 内）。
+let fsec = code(src("qingliao/Features/Chat/AgentCardFileSection.swift"))
+check("⑦ 文件卡整卡可点（onTapGesture 同走 open）",
+      fsec.contains(".contentShape(Rectangle())")
+      && fsec.contains(".onTapGesture { open() }")
+      && fsec.contains("guard phase != .preparing else { return }"))
+// v4.0.110：解析器吃**顶层平铺**的 file 卡（AI 实测形态 `{"type":"file","path":"office/…",…}`，
+// 原来只认 file 子对象 → file=nil → 卡渲染成纯结果壳、零点击入口 = 用户报「点不了」的真因）。
+// 钉：回落仅 type=file；file 子对象优先；缺 path 仍 nil。
+check("⑦ 解析器回落顶层平铺 file 字段（仅 type=file）",
+      parser.contains("else if Kind.parse(str(dict[\"type\"]) ?? \"\") == .file {")
+      && parser.contains("fd = dict")
+      && parser.contains("fd = [:]")
+      && parser.contains("guard !path.isEmpty else { return nil }"))
+// v4.0.110：空目录/失败态也要渲染 backRow——原实现这两个分支不给返回按钮，
+// 用户进空文件夹（如日期目录）就被困住（真机实报「点进去没有返回上一层按钮」）。
+check("⑦ 空态/失败态分支也渲染返回上一级行",
+      ws.contains("if !dirStack.isEmpty { backRow }")
+      && src("qingliao/Features/Workspace/WorkspaceView.swift").contains("// v4.0.110：空目录也要给 backRow")
+      && ws.components(separatedBy: "if !dirStack.isEmpty { backRow }").count - 1 >= 3)
+// v4.0.109：工作区新增「待你处理」（跨会话未答问题卡；解析逻辑在 Core/WorkspacePendingKit.swift）。
+// 钉住四件事：① 进页会拉待答卡；② 点卡 = 标已读 + 装会话 + 报宿主切页（三步缺一都是「点了没用」）；
+// ③ 没有待答卡时那一块**不渲染**（工作区不摆空壳）；④ 长期目标整块搬来（栏目 + 页级浮层宿主同页）。
+check("⑦ 待你处理：进页拉取 + 点卡标已读/装会话/报宿主切页 + 空态不占位",
+      ws.contains("await loadPending()")
+      && ws.contains("WorkspacePendingKit.parse(")
+      && ws.contains("chat.markRead(item.sessionId, upTo: item.time)")
+      && ws.contains("await chat.loadById(item.sessionId, auth: auth)")
+      && ws.contains("onOpenSession?()")
+      && ws.contains("if !pendingItems.isEmpty { pendingBoard }"))
+check("⑦ 长期目标整块搬进工作区（栏目 + 页级浮层宿主都在本页，宿主漏挂则浮层只在卡内弹）",
+      ws.contains("GoalsSection()")
+      && ws.contains(".overlay { AnyView(GoalsGlassLayerHost()) }"))
 
 print("AI 成品文件卡真值表：#17 \(passCount) 通过 / \(failCount) 失败")
 exit(failCount == 0 ? 0 : 1)

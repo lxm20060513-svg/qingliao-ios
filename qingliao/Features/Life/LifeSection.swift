@@ -6,7 +6,6 @@ enum LifeSection: String, CaseIterable, Identifiable {
     case memo        // 备忘录
     case todo        // 待办清单
     case habit       // v4.0.46 习惯打卡
-    case goals       // v4.0.7 长期目标（AI 建目标 + cron 每天推进）
     case record      // 记录
     case automations // 定时任务
     // v4.0.101（用户 2026-10-12「把股票，博客/资讯，快递单独拆开」）：
@@ -26,7 +25,6 @@ enum LifeSection: String, CaseIterable, Identifiable {
         case .memo: return "备忘录"
         case .todo: return "待办清单"
         case .habit: return "习惯"
-        case .goals: return "长期目标"
         case .record: return "记录"
         case .automations: return "定时任务"
         case .lifeCards: return "股票"
@@ -36,7 +34,8 @@ enum LifeSection: String, CaseIterable, Identifiable {
     }
 
     /// 页级标题行行首图标（v4.0.84 方案 B①）—— 标题行不再是一行裸文字，一眼能分辨板块。
-    /// 符号刻意复用各板块**空态卡**的同一个符号（备忘/待办/习惯/目标/记录五处同源），
+    /// 符号刻意复用各板块**空态卡**的同一个符号（备忘/待办/习惯/记录四处同源；长期目标 v4.0.109 已搬进工作区，
+    /// 它的图标映射随板块走了，见 GoalsSection.headerIcon），
     /// 免得同一板块在标题行与空态卡上长两个符号。
     /// v4.0.101：`rss` / `express` 两个新板块同理——符号取各自卡面用的那个
     ///（资讯 newspaper；快递 shippingbox，见 LifeExpressCardView 的卡头）。
@@ -45,7 +44,6 @@ enum LifeSection: String, CaseIterable, Identifiable {
         case .memo: return "square.and.pencil"
         case .todo: return "checklist"
         case .habit: return "checkmark.seal"
-        case .goals: return "target"
         case .record: return "sum"
         case .automations: return "clock.arrow.circlepath"
         case .lifeCards: return "chart.line.uptrend.xyaxis"
@@ -60,7 +58,6 @@ enum LifeSection: String, CaseIterable, Identifiable {
         case .memo: return .pink
         case .todo: return .blue
         case .habit: return .green
-        case .goals: return .purple
         case .record: return .teal
         case .automations: return .indigo
         case .lifeCards: return .orange

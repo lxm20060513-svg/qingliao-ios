@@ -346,20 +346,18 @@ else
   exit 1
 fi
 
-echo "=== 21a. 接入中心一页真值表（v4.0.x 第 3 项）==="
-# 纯 Python（读源文件做护栏）：口径是「邮件开关不许写成局部 PATCH」——
-# 后端 save_account → normalize() 会把没传的字段全写成空值，只 POST
-# {id, allow_direct_send} 会静默清空用户邮箱昵称/安全协议/默认标记。
-# ⚠️ 必须 exit 1 不能用 fail=1：本段在第 377 行 `fail=0` **之前**，
-# 那时 fail 还没初始化，写进去会被后面无条件重置抹掉 → 恒假绿。
-python3 scripts/ql_connector/truth_table_connector.py || exit 1
+# v4.0.109：原「21a. 接入中心一页真值表」（scripts/ql_connector/）随用户要求
+#   「删掉看板页的连接器栏目」整块退役 —— 面板 ConnectorPanelSheet.swift 已删，表没有被测对象了。
+#   该表里唯一还活着的一条口径 ——「邮件『允许 AI 直接发信』开关不许写成局部 PATCH
+#   （save_account 会把没传的字段写成空值）」—— 仍由 20b 的 ql_mail 表覆盖
+#   （它钉了提交/回显两份字段集合，含 allow_direct_send），护栏不丢。
 
 echo "=== 20b. 邮件接入设置页真值表（v4.0.x：安全边界/后端契约/接线）==="
 run_unit /tmp/test_mail scripts/ql_mail/truth_table_mail.swift
 
 echo "=== 20c. 网盘接入真值表（v4.0.x：位置口径/安全边界/后端契约/浏览护栏）==="
 # 单文件（读源文件做护栏，不 import 项目代码）→ run_unit 直接编跑。
-# 口径：①「网盘接入放设置、不放连接器卡片」是用户明确纠正过的位置，钉死防塞回；
+# 口径：①网盘接入只在设置页（连接器面板已于 v4.0.109 整块退役，钉死防从看板复活入口）；
 #      ②授权码/技能地址明文不落 App；③路径与 clouddrive_api.py 对齐；④浏览页 fid 栈与蜂窝闸。
 run_unit /tmp/test_clouddrive scripts/ql_clouddrive/truth_table_clouddrive.swift
 
@@ -1444,8 +1442,8 @@ anchor_calls=$(grep -rn 'AnchorMenuOverlay(' qingliao/ --include=*.swift | grep 
   || { echo "❌ 回退㊿：锚定浮层调用点数量异常（全仓应 ≥19 处，实得 $anchor_calls）"; fail=1; }
 
 echo "=== 94. 弹窗 zoom 配对真值表（v4.0.102 · 用户 2026-10-12「看板页有些卡片的弹窗没跟着卡片位置弹出，统一居中」）==="
-# 事故：连接器卡只挂了**目标侧** navigationTransition(.zoom(sourceID: DashboardSheet.connectorPanel.id…))，
-#   源侧漏挂 .matchedTransitionSource(id: DashboardSheet.connectorPanel.id…)。
+# 事故（当时报障的是连接器卡；该卡已于 v4.0.109 随「连接器」栏目退役，机制不变）：
+#   只挂**目标侧** navigationTransition(.zoom(sourceID: DashboardSheet.<case>.id…))，源侧漏挂 .matchedTransitionSource。
 #   机制：zoom 靠「屏上有个视图挂着同名 id」定位起点；源缺失 / 源与目标 id 差一个字 / 命名空间混用，
 #   **都不报编译错、不打运行日志**，只是退化成普通弹出（从屏幕正中冒）—— 人眼回归必漏，只能代码级钉。
 # 本表钉三件事：① 目标↔源成对（缺一头即红）② 同一命名空间 ③ 含反向自证（源 id 改错必须判红）。
@@ -1527,6 +1525,17 @@ echo "=== 99. AI 成品文件卡真值表（#17 · 文件段解析 / 容错丢�
 #   kind 归一化 / plainText 含文件名）；本段 truth_table_file 用剥注释的源级断言钉解析结构、缺 path 丢弃、
 #   下载路径单一真源、共享入口（RemoteFiles.fetchData/fetchToTemp）、QuickLook import 与接线形态。
 run_unit /tmp/tt_file scripts/ql_file/truth_table_file.swift
+
+echo "=== 99b. 工作区「待你处理」真值表（v4.0.109 · 跨会话未答问题卡聚合）==="
+# 被测：Core/WorkspacePendingKit.swift（纯逻辑，只 import Foundation）。
+# 事故面（**全静默**，装机才发现）：① 字段名与 Core/Models.swift 的 ChatMessage.parse 分叉
+#   → 工作区那一块永远空的（不报错、不红字）；② 已答的卡没滤掉（用户点进去发现早答过了）；
+#   ③ 同卡重复投递没去重（列表里同一件事出现两遍）；④ 正文没清洗（把「选项：要|不用」当问题显示）；
+#   ⑤ 时间单位搞错（毫秒当秒 →「14346 小时前」）；⑥ 逻辑层拖进 SwiftUI → 这张表再也编不过（护栏自毁）。
+# 本机无 Xcode SDK → 这张表是推 CI 前唯一能真跑这段解析的地方。
+rm -rf /tmp/ql_wspending_main && mkdir -p /tmp/ql_wspending_main
+cp scripts/ql_wspending/truth_table_wspending.swift /tmp/ql_wspending_main/main.swift
+run_unit6 /tmp/test_wspending /tmp/ql_wspending_main/main.swift qingliao/Core/WorkspacePendingKit.swift
 
 echo "=== 100. 斜杠命令层真值表（#3 · 解析单一真源 / 未知命令不发 LLM / 面板 overlay 常驻）==="
 # 口径（方案 .hermes/plans/2026-10-05_235848-qingliao-slash-commands.md）：v1 六条命令

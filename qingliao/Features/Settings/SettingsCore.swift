@@ -69,7 +69,7 @@ struct SettingsView: View {
     @State var showAppPermissions = false
     // v4.0.x：邮件接入（IMAP/SMTP 邮箱账号，AI 可收发邮件）
     @State var showMailSettings = false
-    // v4.0.x：网盘接入（夸克等官方 skill 包 + 授权码；用户口径=放设置，不进连接器面板）
+    // v4.0.x：网盘接入（夸克等官方 skill 包 + 授权码；用户口径=只放设置页，看板侧不设入口）
     @State var showCloudDrive = false
     // v3.5.x：生活卡片设置（股票 / 资讯 / 快递）
     @State var showLifeCards = false
@@ -137,6 +137,9 @@ struct SettingsView: View {
     // v2.0.88：Face ID 登录开关（关闭后删除 Keychain 凭据，登录页不再显示快捷按钮）
     @AppStorage("qingliao_faceid_login") var faceIDLogin = true
     @State var faceIDAuthFailed = false   // v2.0.89f：开关打开时系统授权失败提示
+    // v4.0.110：诊断模式主开关（真源 DiagnosticsMode.keyEnabled，默认开）。
+    // 关 = 不采卡顿（看门狗停）+ 崩溃/卡顿不再自动上报；诊断页查看/手动上报不受影响。
+    @AppStorage(DiagnosticsMode.keyEnabled) var diagMode = true
     // v2.0.92：App 锁开关（启动时 Face ID 验证）
     @AppStorage("qingliao_app_lock") var appLockOn = false
     @State var appLockAuthFailed = false
@@ -589,7 +592,7 @@ extension SettingsView {
             SettingRow(icon: "envelope.fill", iconColor: .blue, title: "邮件接入", chevron: true)
                 .tapButton { showMailSettings = true }
             Divider().padding(.leading, Spacing.rowDividerInset)
-            // v4.0.x：网盘接入（位置按用户要求放设置，不塞连接器面板）
+            // v4.0.x：网盘接入（位置按用户要求只放设置页，看板侧不设入口）
             SettingRow(icon: "externaldrive.fill", iconColor: .teal, title: "网盘接入", chevron: true)
                 .tapButton { showCloudDrive = true }
             Divider().padding(.leading, Spacing.rowDividerInset)
@@ -944,11 +947,16 @@ extension SettingsView {
             SettingRow(icon: "doc.text.fill", iconColor: .orange, title: "日志", chevron: true)
                 .tapButton { showLogs = true }
             // v3.6.0：崩溃日志入口整合为「诊断」页（App 自身诊断 + 崩溃/卡顿自上报）
+            // v4.0.110：行尾加「诊断模式」主开关——关 = 不采卡顿 + 崩溃/卡顿不自动上报
+            // （诊断页查看/手动上报不受影响）；开关与整行点击进页互不干扰（UISwitch 吃掉触点）。
             Divider().padding(.leading, Spacing.rowDividerInset)
             SettingRow(icon: "stethoscope", iconColor: .red, title: "诊断",
-                       value: CrashReporter.hasPendingLog() ? "有待查看" : nil,
-                       chevron: true)
+                       value: diagMode ? (CrashReporter.hasPendingLog() ? "有待查看" : nil) : "已关闭",
+                       chevron: true, toggle: $diagMode)
                 .tapButton { showDiagnostics = true }
+                .onChange(of: diagMode) { _, _ in
+                    HangWatchdog.shared.refreshSettings()
+                }
             // v3.5.x：生活卡片设置（股票 / 资讯 / 快递）
             Divider().padding(.leading, Spacing.rowDividerInset)
             SettingRow(icon: "rectangle.grid.2x2", iconColor: .green, title: "生活卡片", chevron: true)
