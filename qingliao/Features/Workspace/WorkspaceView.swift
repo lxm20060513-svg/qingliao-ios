@@ -513,30 +513,34 @@ struct WorkspaceView: View {
         if items != pendingItems { withAnimation(Motion.tap) { pendingItems = items } }
     }
 
-    // MARK: - v4.0.109 工具格（v4.0.x 起 4→6 格、两行 3+3）
+    // MARK: - v4.0.109 工具格（v4.0.x 起 4→6 格、**每行 4 格**排 4+2）
 
-    /// 工具入口两行 3+3。前三格是**既有能力换入口**（知识库 / 网盘文件 / MCP 工具服务），
-    /// 第四格 = 技能库；第五、六格 = 定时任务 / 邮件接入（v4.0.x 从设置页移入）。
-    /// ⚠️ 技能库刻意用 `sparkles`、不是设置页那颗 `books.vertical.fill`：本行四格**同屏**，
-    ///    与知识库同符号会分不开（同一个功能在设置页仍是书那颗，别去改那边）；
+    /// 工具入口**每行 4 格**（用户 2026-10-14 口径「按 4 个一行的图标排列」）：6 格排两行 4 + 2。
+    /// 六格依次 = 知识库 / 网盘文件 / MCP 工具服务 / 技能库 / 定时任务 / 邮件接入
+    /// （后两格 v4.0.x 从设置页移入）。
+    /// ⚠️ 4 列后每格宽（393 屏）= (393 − 页边距 18×2 − 卡内边距 16×2 − 格间距 6×3) ÷ 4 ≈ **76.75pt**
+    ///    （375 屏 ≈ 72.25pt）；标题最长的「MCP 工具」≈42pt @10pt，`toolCell` 的
+    ///    `.lineLimit(1) + .minimumScaleFactor(0.8)` 已兜住 —— 原 3+3 每格 ~104pt 是为旧口径（格更宽）。
+    /// ⚠️ **第二行只有 2 格 → 必须左对齐**：`LazyVGrid` 固定 4 列天然左起，别改成「两格各占半屏」的均分
+    ///    （那会让两行的格宽不一致，同屏两种观感）。将来加第 7、8 格时第二行自动补齐，不用再改布局。
+    /// ⚠️ 技能库刻意用 `sparkles`、不是设置页那颗 `books.vertical.fill`：与知识库**同一行**，
+    ///    同符号会分不开（同一个功能在设置页仍是书那颗，别去改那边）；
     ///    六格六色不撞（green / blue / teal / purple / red / blue）同样是为了同屏可分辨；
-    ///    ⚠️ 邮件接入的 blue 与网盘文件同色——两者都属「外部服务接入」，同色可接受（分处两行）。
+    ///    ⚠️ 邮件接入的 blue 与网盘文件同色——两者都属「外部服务接入」，且分处两行（网盘在第一行、邮件在第二行）。
     private var toolsBoard: some View {
         VStack(alignment: .leading, spacing: Spacing.md) {
             sectionTitle("工具")
-            // v4.0.x：4→6 格后单行会挤（375 屏每格 ~47pt、4 字标题缩到 8.8pt），改两行 3+3。
-            VStack(spacing: Spacing.md) {
-                HStack(spacing: Spacing.sm) {
-                    toolCell("知识库", symbol: "books.vertical.fill", tint: .green) { showKB = true }
-                    toolCell("网盘文件", symbol: "externaldrive.fill", tint: .blue) { showCloud = true }
-                    toolCell("MCP 工具", symbol: "puzzlepiece.extension.fill", tint: .teal) { showMCP = true }
-                }
-                HStack(spacing: Spacing.sm) {
-                    toolCell("技能库", symbol: "sparkles", tint: .purple) { showSkills = true }
-                    // v4.0.x：定时任务 / 邮件接入从设置页移入（色沿用设置页原色）
-                    toolCell("定时任务", symbol: "clock.badge.fill", tint: .red) { showTasks = true }
-                    toolCell("邮件接入", symbol: "envelope.fill", tint: .blue) { showMail = true }
-                }
+            // 每行 4 格 = `LazyVGrid` 固定 4 列 flexible（形态同 `SettingsCommon` 的三列格那处先例）。
+            // 原「两行 HStack 各 3 格」（每格 ~104pt）已按用户口径退役，别改回去。
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: Spacing.sm), count: 4),
+                      spacing: Spacing.md) {
+                toolCell("知识库", symbol: "books.vertical.fill", tint: .green) { showKB = true }
+                toolCell("网盘文件", symbol: "externaldrive.fill", tint: .blue) { showCloud = true }
+                toolCell("MCP 工具", symbol: "puzzlepiece.extension.fill", tint: .teal) { showMCP = true }
+                toolCell("技能库", symbol: "sparkles", tint: .purple) { showSkills = true }
+                // v4.0.x：定时任务 / 邮件接入从设置页移入（色沿用设置页原色）
+                toolCell("定时任务", symbol: "clock.badge.fill", tint: .red) { showTasks = true }
+                toolCell("邮件接入", symbol: "envelope.fill", tint: .blue) { showMail = true }
             }
             .padding(Spacing.section)
             .frame(maxWidth: .infinity)

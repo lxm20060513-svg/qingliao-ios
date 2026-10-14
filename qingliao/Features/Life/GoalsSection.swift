@@ -240,6 +240,9 @@ struct GoalsSection: View {
     /// 点圆环卡（勾选行以外）：展开 / 收起 —— 逐条错峰弹出见 GoalExpandList
     /// （曲线与待办 `TodoSection.toggleExpand` 同一枚 `Motion.cardExpand`）
     private func toggleExpand() {
+        // 长按刚出过菜单的那一下轻点要丢弃（高优先级长按后 Button 仍可能补送一次 tap，
+        // 会把刚弹出的菜单用展开区顶掉）—— 窗口与 `markLongPressFired()` 同源。
+        guard !AnchorMenuPresenter.shared.shouldDropTap() else { return }
         withAnimation(Motion.cardExpand) { goalsExpanded.toggle() }
         Haptics.tap()
     }
@@ -247,6 +250,8 @@ struct GoalsSection: View {
     /// 展开区里点一条目标 → 详情浮层（先收新建，三层浮层互斥口径同其它入口）。
     /// v4.0.100 的 `openAllGoals` / `openDetailFromAll` 随浮层入口一起退休。
     private func openDetail(_ g: GoalItem) {
+        // 同上：长按出菜单后紧跟的那一下轻点丢弃，别让详情浮层把菜单顶掉
+        guard !AnchorMenuPresenter.shared.shouldDropTap() else { return }
         glass.showAdd = false
         glass.detail = g
         Haptics.tap()
@@ -696,6 +701,17 @@ struct GoalsDetailSheet: View {
             HStack {
                 MiniCapsule(title: "删除") { pendingDelete = current }
                 Spacer()
+                // v4.0.x：详情里补「编辑」入口 —— 原来编辑只藏在卡片长按的胶囊菜单里，
+                // 用户从详情页翻遍也找不到编辑（真机报「长期目标任务卡片无法编辑」）。
+                // 开关与长按菜单的 edit 分支同一套：先立 showEdit 再收 detail（单例状态不互叠）。
+                MiniCapsule(title: "编辑") {
+                    let p = GoalsGlassPresenter.shared
+                    p.showEdit = current
+                    p.editSession += 1
+                    p.detail = nil
+                    p.showAdd = false
+                    Haptics.tap()
+                }
                 MiniCapsule(title: "完成", accent: true) { onDismiss() }
             }
             .padding(.horizontal, Spacing.section)

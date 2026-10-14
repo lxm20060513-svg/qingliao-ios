@@ -89,8 +89,6 @@ enum SettingsSearchIndex {
               keywords: ["提醒", "闹钟", "定时提醒"]),
         .init(route: "filesManager", title: "文件管理", icon: "folder.fill", group: "数据与工具",
               keywords: ["文件", "上传", "下载", "管理"]),
-        .init(route: "clipboardHistory", title: "剪贴板历史", icon: "doc.on.clipboard", group: "数据与工具",
-              keywords: ["剪贴板", "粘贴板", "复制", "历史"]),
 
         // ── Agent 设置 ──
         .init(route: "proactive", title: "主动 Agent", icon: "bolt.horizontal.circle.fill", group: "AI 与 Agent",

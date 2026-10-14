@@ -97,8 +97,8 @@ final class BackgroundStreamRunner {
                 guard let self, let entry = self.running[sid] else { return }
                 let myGen = entry.gen
                 do {
-                    // 12 元组末两位 memoAdded/reasoning 后台暂不消费（前台 ChatView 已处理），占位保持对齐
-                    let (c, done, st, err, agent, piggyback, _, _, _, _, _, _) =
+                    // 13 元组末位 notice（v4.0.112 阶段总结标记）；中段 memoAdded/reasoning 后台暂不消费
+                    let (c, done, st, err, agent, piggyback, _, _, _, _, _, _, noticeIn) =
                         try await auth.streamPoll(taskId: entry.taskId, offset: entry.offset)
                     // 2026-09-30 审查：撤销后重新移交会建**新** entry，此时 sid 仍存在但已是别人，
                     // 在途回包不得落笔（否则 offset/content 串任务，旧 loop 还会把新条目 finish 掉）
@@ -119,7 +119,7 @@ final class BackgroundStreamRunner {
                     if done {
                         guard self.running[sid]?.gen == myGen else { return }
                         await self.finish(sessionId: sid, success: st != "error", error: err,
-                                          agent: agent, auth: auth, chat: chat)
+                                          agent: agent, notice: noticeIn, auth: auth, chat: chat)
                         return
                     }
                 } catch APIError.unauthorized {
@@ -155,7 +155,7 @@ final class BackgroundStreamRunner {
     // MARK: - 收尾：落库 + 未读 + 通知
 
     private func finish(sessionId sid: String, success: Bool, error: String, agent: Bool,
-                        auth: AuthStore, chat: ChatStore) async {
+                        notice: String = "", auth: AuthStore, chat: ChatStore) async {
         guard let entry = running.removeValue(forKey: sid) else { return }
         tasks.removeValue(forKey: sid)
 
@@ -173,6 +173,8 @@ final class BackgroundStreamRunner {
         // `appendMessageToOwnedSession`：**链内重读服务端最新快照** → 同内容查重 → 追加 → 写。
         var m2 = ChatMessage.local(role: "assistant", content: body)
         m2.agent = agent
+        // v4.0.112：后台跑完的「阶段总结」同样带标记（否则 App 不在前台时这条总结落库后就冒充正常答完）
+        if !notice.isEmpty { m2.notice = notice }
         // ⚠️ 2026-09-30（发布前审查拦下，真数据破坏）：快照为空 = 拿不到被移交会话的历史
         // （流在 A 跑、用户切到 B 后在 B 点「+新建会话」→ ChatView 侧 startMsgs 为 []）。
         // 此时若照旧落库等于用「仅 1 条 assistant」整会话覆盖 → 被移交会话的历史全被抹掉。

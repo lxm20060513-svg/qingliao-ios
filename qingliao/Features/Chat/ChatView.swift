@@ -1355,7 +1355,8 @@ struct ChatView: View {
 
     /// v4.0.51c：行为型深层修饰器下沉背景层（.background 不影响布局）
     /// v4.0.75：直播窗从 sheet 改成**消息流内嵌卡**（用户拍板「Muse 那种」选项 2）——
-    /// 这里只剩发起面板（手动入口）一个 sheet；直播卡的呈现/收起都在 messageList 里，
+    /// v4.0.112：这里只剩**剪切板历史**一个 sheet（原浏览器直播发起面板已撤）；
+    /// 直播卡的呈现/收起都在 messageList 里，
     /// 由 browserLiveSession 驱动（点 × 置 nil 即收起，轮询随视图销毁自动停）。
     private func chatColdChrome14() -> some View {
         Color.clear
@@ -4175,11 +4176,13 @@ struct ChatView: View {
                     if success {
                         guard !body.isEmpty else { return }   // 空回复不落（提示语要落在眼前才有效）
                         landAwayReply(body, agent: stream.isAgent,
-                                      snapshot: startMsgs, sid: startSid, title: startTitle)
+                                      snapshot: startMsgs, sid: startSid, title: startTitle,
+                                      notice: stream.notice)
                     } else {
                         let note = "⚠️ " + Self.friendlyStreamError(error)
                         landAwayReply(body.isEmpty ? note : body + "\n\n" + note, agent: stream.isAgent,
-                                      snapshot: startMsgs, sid: startSid, title: startTitle)
+                                      snapshot: startMsgs, sid: startSid, title: startTitle,
+                                      notice: stream.notice)
                     }
                     return
                 }
@@ -4192,13 +4195,13 @@ struct ChatView: View {
                         chat.markFailed(id: msg.id)   // v2.0.59 失败标记 → 重试按钮
                         // v3.0.19：限流错误友好提示（sensenova 等免费额度 tpm 爆了 → 提示换路由）
                         let friendly = Self.friendlyStreamError(error)
-                        chat.upsertAssistant(stream.content.isEmpty ? "⚠️ \(friendly)" : stream.content + "\n\n⚠️ \(friendly)", agent: stream.isAgent, afterUserID: msg.id)
+                        chat.upsertAssistant(stream.content.isEmpty ? "⚠️ \(friendly)" : stream.content + "\n\n⚠️ \(friendly)", agent: stream.isAgent, afterUserID: msg.id, notice: stream.notice)
                     }
                 } else if stream.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     // v3.5.1：空回复 → 重试一次 / 明确提示（原来静默"已送达"，用户以为没发出去）
                     self.handleEmptyReply(for: msg)
                 } else {
-                    chat.upsertAssistant(stream.content, agent: stream.isAgent, afterUserID: msg.id)
+                    chat.upsertAssistant(stream.content, agent: stream.isAgent, afterUserID: msg.id, notice: stream.notice)
                     showSentOK()
                     // v4.0.42 待做池 ①：回答已落地 → **异步**拉追问候选（后端 0~3 条，空数组合法）。
                     // 必须在这之后（候选挂在刚落库的回答下面）；必须异步：多一次模型调用，
@@ -4240,11 +4243,16 @@ struct ChatView: View {
     /// 其他写者内容（收件箱推送 / 其他端）一起抹掉。`snapshot` 参数降级为**回落兜底**：
     /// 只有链内发现「服务端查不到该会话」时才用它（口径同 v4.0.21 注释：宁可回落，绝不丢消息）。
     func landAwayReply(_ text: String, agent: Bool, snapshot: [ChatMessage],
-                       sid: String, title: String) {
+                       sid: String, title: String, notice: String) {
         var m = ChatMessage(role: "assistant", content: text,
                             timestamp: Date().timeIntervalSince1970 * 1000)
         m.agent = agent
-        chat.noteAwayLandedReply(sessionId: sid, text: text)
+        // v4.0.112：「阶段总结」标记随这条回复一起落库 + 记账。
+        // 漏了它 = 「切走 / 移交后再回来」的收尾总结角标丢失（服务端从没收到过这个标记）。
+        // notice 刻意**不给默认值**：漏传即编译错，把全部落库调用点逼到台面上
+        //（另一处 `upsertAssistant` 带默认值，正是它漏传的静默口子）。
+        if !notice.isEmpty { m.notice = notice }
+        chat.noteAwayLandedReply(sessionId: sid, text: text, notice: notice)
         Task {
             // `dedup: .authoritativeReply` = 权威原文口径（见 ChatStore.OwnedAppendDedup）：
             // 只认「规范化后相等 / 新文本是已有文本的前缀」，不用推送侧宽口径 ——
@@ -4291,11 +4299,12 @@ struct ChatView: View {
                 body = stream.content.isEmpty ? "⚠️ \(err)" : stream.content + "\n\n⚠️ \(err)"
             }
             if chat.sessionId == startSid {
-                chat.upsertAssistant(body, agent: stream.isAgent, afterUserID: anchor)
+                chat.upsertAssistant(body, agent: stream.isAgent, afterUserID: anchor, notice: stream.notice)
                 Task { await chat.saveToServer(auth: auth) }
             } else {
                 landAwayReply(body, agent: stream.isAgent,
-                              snapshot: startMsgs, sid: startSid, title: startTitle)
+                              snapshot: startMsgs, sid: startSid, title: startTitle,
+                              notice: stream.notice)
             }
         }
     }
@@ -4400,11 +4409,12 @@ struct ChatView: View {
                 body = stream.content.isEmpty ? "⚠️ " + err : stream.content + "\n\n⚠️ " + err
             }
             if chat.sessionId == startSid {
-                chat.upsertAssistant(body, agent: stream.isAgent, afterUserID: anchor)
+                chat.upsertAssistant(body, agent: stream.isAgent, afterUserID: anchor, notice: stream.notice)
                 Task { await chat.saveToServer(auth: auth) }
             } else {
                 landAwayReply(body, agent: stream.isAgent,
-                              snapshot: startMsgs, sid: startSid, title: startTitle)
+                              snapshot: startMsgs, sid: startSid, title: startTitle,
+                              notice: stream.notice)
             }
         }
     }
@@ -4473,7 +4483,8 @@ struct ChatView: View {
                     if success,
                        !stream.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         landAwayReply(stream.content, agent: stream.isAgent,
-                                      snapshot: startMsgs, sid: startSid, title: startTitle)
+                                      snapshot: startMsgs, sid: startSid, title: startTitle,
+                                      notice: stream.notice)
                     }
                     return
                 }
@@ -4484,7 +4495,7 @@ struct ChatView: View {
                     } else {
                         chat.markFailed(id: msg.id)
                         let friendly = Self.friendlyStreamError(error)
-                        chat.upsertAssistant(stream.content.isEmpty ? "⚠️ \(friendly)" : stream.content + "\n\n⚠️ \(friendly)", agent: stream.isAgent, afterUserID: msg.id)
+                        chat.upsertAssistant(stream.content.isEmpty ? "⚠️ \(friendly)" : stream.content + "\n\n⚠️ \(friendly)", agent: stream.isAgent, afterUserID: msg.id, notice: stream.notice)
                     }
                 } else if stream.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     // v3.5.1：重试仍是空回复 → 明确提示
@@ -4494,7 +4505,7 @@ struct ChatView: View {
                     // SR20：自动重试复用同一条 user 消息（id 不变、不删除），成功时必须撤掉
                     // 标记失败那一帧挂上的 ❗——否则已送达的消息永久挂着「重试」，再点就是重发一遍。
                     chat.clearFailed(id: msg.id)
-                    chat.upsertAssistant(stream.content, agent: stream.isAgent, afterUserID: msg.id)
+                    chat.upsertAssistant(stream.content, agent: stream.isAgent, afterUserID: msg.id, notice: stream.notice)
                     showSentOK()
                     InboxStore.shared.triggerFastPoll()
                 }
@@ -4909,7 +4920,7 @@ struct ChatView: View {
                     body = stream.content
                 }
                 if chat.sessionId == startSid {
-                    chat.upsertAssistant(body, agent: stream.isAgent, afterUserID: anchorUserID)
+                    chat.upsertAssistant(body, agent: stream.isAgent, afterUserID: anchorUserID, notice: stream.notice)
                     if success,
                        !stream.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         showSentOK()
@@ -4919,7 +4930,8 @@ struct ChatView: View {
                     Task { await chat.saveToServer(auth: auth) }
                 } else {
                     landAwayReply(body, agent: stream.isAgent,
-                                  snapshot: startMsgs, sid: startSid, title: startTitle)
+                                  snapshot: startMsgs, sid: startSid, title: startTitle,
+                                  notice: stream.notice)
                 }
             }
         }
@@ -4960,7 +4972,7 @@ struct ChatView: View {
                     body = stream.content
                 }
                 if chat.sessionId == startSid {
-                    chat.upsertAssistant(body, agent: stream.isAgent, afterUserID: anchorUserID)
+                    chat.upsertAssistant(body, agent: stream.isAgent, afterUserID: anchorUserID, notice: stream.notice)
                     if success,
                        !stream.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         showSentOK()
@@ -4969,7 +4981,8 @@ struct ChatView: View {
                     Task { await chat.saveToServer(auth: auth) }
                 } else {
                     landAwayReply(body, agent: stream.isAgent,
-                                  snapshot: startMsgs, sid: startSid, title: startTitle)
+                                  snapshot: startMsgs, sid: startSid, title: startTitle,
+                                  notice: stream.notice)
                 }
             }
         }
@@ -5035,7 +5048,7 @@ struct ChatView: View {
                 }
                 if chat.sessionId == startSid {
                     if ok {
-                        chat.upsertAssistant(body, agent: stream.isAgent, afterUserID: anchorID)
+                        chat.upsertAssistant(body, agent: stream.isAgent, afterUserID: anchorID, notice: stream.notice)
                         showSentOK()
                         InboxStore.shared.triggerFastPoll()
                     } else {
@@ -5064,7 +5077,7 @@ struct ChatView: View {
                         if let i = snap.firstIndex(where: { $0.id == anchorID }) { snap[i] = msg }
                     }
                     landAwayReply(body, agent: stream.isAgent, snapshot: snap,
-                                  sid: startSid, title: startTitle)
+                                  sid: startSid, title: startTitle, notice: stream.notice)
                 }
             }
         }

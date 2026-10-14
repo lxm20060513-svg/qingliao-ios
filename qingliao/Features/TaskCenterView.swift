@@ -246,7 +246,15 @@ struct TaskCenterView: View {
     @ViewBuilder
     private var historyList: some View {
         if historyTasks.isEmpty {
-            emptyState
+            // v4.0.112（审查收口）：空态也要有刷新通路 —— 历史只在进页时拉一次
+            //（`startActivePolling` 不轮询历史），空态原先没挂杯子 ⇒ 后端补出记录后
+            // 用户不杀 App 永远看不到。口径①「杯子只挂滚动容器本体」⇒ 用 ScrollView 承载。
+            ScrollView {
+                emptyState.frame(minHeight: 380)
+            }
+            .pullRefreshCup {
+                historyTasks = await auth.fetchTaskHistory()
+            }
         } else {
             List {
                 Section {

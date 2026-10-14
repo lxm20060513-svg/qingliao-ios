@@ -69,8 +69,6 @@ struct SettingsView: View {
     // v3.9.32：一句话本地定时提醒 / 文件管理
     @State var showQuickReminder = false
     @State var showFilesManager = false
-    // v4.0.104 待做池 #11：剪贴板历史（本地回看 / 一键入待办）
-    @State var showClipboardHistory = false
     // v3.0.17：聊天字体大小从一级菜单移除（外观二级菜单持有），fontSize 声明一并清理
     // v3.0.9：外观下天气城市已移除（天气城市设定在看板 WeatherBadge 点按处），相关状态一并清理
     // v2.0.101：Agent 使用说明内联展开
@@ -331,12 +329,6 @@ struct SettingsView: View {
         .sheet(isPresented: $showTSRoutingParams) {
             tsRoutingParamsSheet
         }
-        // v4.0.104 待做池 #11：剪贴板历史（只在你主动读取时记录 / 只存本机）
-        .sheet(isPresented: $showClipboardHistory) {
-            ClipboardHistorySheet()
-                .presentationDetents([.medium, .large])
-                .scrollContentBackground(.hidden)
-        }
     }
 
     private func settingsCold6() -> some View {
@@ -454,7 +446,8 @@ struct SettingsView: View {
         case "lifeCards": showLifeCards = true
         case "quickReminder": showQuickReminder = true
         case "filesManager": showFilesManager = true
-        case "clipboardHistory": showClipboardHistory = true
+        // v4.0.x：("clipboardHistory", "showClipboardHistory") 随设置页入口一并撤
+        // （功能本体还在：聊天页附件面板「剪切板」用的仍是同一个 ClipboardHistorySheet）
         case "proactive": showProactive = true
         case "agentModel": showAgentModelSheet = true
         case "agentHelp":
@@ -881,13 +874,13 @@ extension SettingsView {
             // v4.0.110：行尾加「诊断模式」主开关——关 = 不采卡顿 + 崩溃/卡顿不自动上报
             // （诊断页查看/手动上报不受影响）；开关与整行点击进页互不干扰（UISwitch 吃掉触点）。
             Divider().padding(.leading, Spacing.rowDividerInset)
+            // v4.0.x：行尾那颗「诊断模式」开关按用户真机口径**撤掉**（2026-10-14「这个按钮拿掉吧」，
+            // 截图上它常态是灰的「已关闭」，看着像坏掉的控件）。开关本体不丢——诊断页内仍有一颗，
+            // 同一真源键 `DiagnosticsMode.keyEnabled`，只是不再占设置页这一行。
             SettingRow(icon: "stethoscope", iconColor: .red, title: "诊断",
                        value: diagMode ? (CrashReporter.hasPendingLog() ? "有待查看" : nil) : "已关闭",
-                       chevron: true, toggle: $diagMode)
+                       chevron: true)
                 .tapButton { showDiagnostics = true }
-                .onChange(of: diagMode) { _, _ in
-                    HangWatchdog.shared.refreshSettings()
-                }
             // v3.5.x：生活卡片设置（股票 / 资讯 / 快递）
             Divider().padding(.leading, Spacing.rowDividerInset)
             SettingRow(icon: "rectangle.grid.2x2", iconColor: .green, title: "生活卡片", chevron: true)
@@ -900,10 +893,9 @@ extension SettingsView {
             // v3.9.32：文件管理（上传目录浏览：预览 / 分享 / 重命名 / 删除）
             SettingRow(icon: "folder.fill", iconColor: .indigo, title: "文件管理", chevron: true)
                 .tapButton { showFilesManager = true }
-            Divider().padding(.leading, Spacing.rowDividerInset)
-            // v4.0.104 待做池 #11：剪贴板历史（只在你主动读取时记录 / 只存本机 / 一键入待办）
-            SettingRow(icon: "doc.on.clipboard", iconColor: .blue, title: "剪贴板历史", chevron: true)
-                .tapButton { showClipboardHistory = true }
+            // v4.0.x：设置页「剪贴板历史」行按用户口径撤（2026-10-14「设置里面的剪切板历史可以删掉了」）。
+            // 功能本体不动：聊天页附件面板第五格「剪切板」打开的还是同一个 ClipboardHistorySheet，
+            // 首页剪贴板卡入待办照旧 —— 只是不再从设置页进。
         }
         .pastelCard()
     }

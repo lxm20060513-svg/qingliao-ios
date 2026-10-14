@@ -38,6 +38,9 @@ final class StreamClient {
     /// 本次收尾是否真失败（与 finishSeq 成对写入，只在该序号变化时读它才有意义）
     private(set) var lastFinishFailed = false
     var isAgent = false        // v2.0.96b：Agent 回复标记（工具调用）
+    /// v4.0.112：本轮**没跑完**——到迭代上限，正文是模型的收尾总结（后端 notice="budget"）。
+    /// 与 isAgent 同为「整轮属性」，故同样只在变化时写入、开跑/移交时复位。
+    var notice = ""
     /// v3.9.58：流式健康度相位——弱网降频/退避重试对用户可见（不再静默"像卡死"）。
     /// - normal：一切正常（空轮降频到 0.8s 属正常长思考，不算异常）
     /// - retrying：连续网络失败退避中（failCount ≥ 2，正在指数退避重试）
@@ -306,6 +309,7 @@ final class StreamClient {
         errorMessage = ""
         lastFailed = false   // v3.9.33：新流清掉上一轮的失败标记（否则新问题一开始球就是暗的）
         isAgent = false
+        notice = ""   // v4.0.112：新一轮开跑 → 清掉上一轮的「阶段总结」标记（同 isAgent 口径）
         // v4.0.96（第三档·从断点继续）：新一轮开跑 → 清上一轮的中断可续状态
         //（resume() 已先取走 parent id，这里清空不影响本次续跑；**续跑失败由 resume() 复原**）
         resumeTaskId = ""
@@ -393,6 +397,7 @@ final class StreamClient {
         lastFailed = false
         lastFinishFailed = false
         isAgent = false
+        notice = ""   // v4.0.112：移交即整轮状态复位（真收尾边沿由后台跑流器负责，见下）
         taskId = ""        // 防 probe/recover 误认领已移交的任务
         // startSeq / finishSeq 都不动：detach 是「移交」不是「收尾」——
         // finishSeq 的两个观察端（DockTabView 球、RootView 灵动岛）会把这次当成真收尾处理：
@@ -481,7 +486,7 @@ final class StreamClient {
             return   // 网络恢复 → 本轮直接返回，下一轮按正常间隔续流
         }
         do {
-            let (c, done, st, err, agent, piggyback, toolsIn, spansIn, lastToolAtIn, toolSeqIn, memoIn, reasoningIn) = try await auth.streamPoll(taskId: taskId, offset: offset)
+            let (c, done, st, err, agent, piggyback, toolsIn, spansIn, lastToolAtIn, toolSeqIn, memoIn, reasoningIn, noticeIn) = try await auth.streamPoll(taskId: taskId, offset: offset)
             guard generation == self.generation else { return }   // v3.0.50：旧代轮询丢弃
             // v3.9.17：工具进度——只在变化时写入，避免每 0.15s 轮询都触发视图重建。
             // 位置必须在旧代 guard **之后**：否则切会话/起新流后，上一代在途 poll 返回时
@@ -521,6 +526,9 @@ final class StreamClient {
             // 位置在旧代 guard 之后：切会话后上一代在途 poll 不得把旧流思考写进新流。
             if reasoningIn != streamReasoning { streamReasoning = reasoningIn }
             if agent { isAgent = true }   // v2.0.96b：Agent 回复标记
+            // v4.0.112：本轮没跑完（到迭代上限、正文是收尾总结）→ 只在变化时写入（同 isAgent 口径，
+            // 位置同样在旧代 guard 之后，免得旧代在途 poll 把标记写进新流）。
+            if !noticeIn.isEmpty, noticeIn != notice { notice = noticeIn }
             failCount = 0
             // v3.4.23：搭载投递消费——poll 响应里捎带的收件箱消息立即注入任务中心/会话，
             // 不等 InboxStore 下一轮 5s 轮询（推送滞后根治的 App 侧半边）

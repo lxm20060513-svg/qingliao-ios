@@ -50,6 +50,24 @@ final class AnchorMenuPresenter: ObservableObject {
     func present(_ req: Request) { request = req }
     func dismiss() { request = nil }
 
+    /// 长按刚出过菜单的抑制窗口（用户 2026-10-14 真机报「长期目标任务卡片无法编辑」那批）。
+    /// 根因：目标卡本体就是个 `Button`（`GoalProgressCard` 内部、展开区行卡同样是 Button），
+    /// 挂在它**外层**的长按手势被 Button 内置手势吃掉 ⇒ 长按毫无反应，编译/预检全绿、只有手指能发现。
+    /// 修法：手势升为 `.highPriorityGesture`（长按赢过 Button 的 tap）。代价是松手那一瞬 Button
+    /// 仍可能补送一次轻点 ⇒「菜单刚弹出、详情/展开也顺手打开」把菜单顶掉。故出菜单时打一个短窗口，
+    /// 由被长按的卡片在自己的 tap **首行**读 `shouldDropTap()` 丢弃。
+    private(set) var suppressTapUntil: Date = .distantPast
+    func markLongPressFired() { suppressTapUntil = Date().addingTimeInterval(0.5) }
+    /// v4.0.112（审查收口）：**一次性消费** —— 命中即复位。
+    /// 原实现是全局 0.5s 窗口且读不清除：A 卡长按出菜单后 0.5s 内去点 B 卡会被静默吞掉
+    ///（「长按一张卡 → 紧接着点另一张」是极常见动作）。窗口本意只是吃掉**长按那一拍补送的 tap**，
+    /// 消费掉就该失效。
+    func shouldDropTap() -> Bool {
+        guard Date() < suppressTapUntil else { return false }
+        suppressTapUntil = .distantPast
+        return true
+    }
+
     func mount(_ token: UUID) {
         guard !hosts.contains(token) else { return }
         hosts.append(token)
@@ -89,18 +107,28 @@ struct AnchorLongPressMenuModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { rect = $0 }
-            .onLongPressGesture(minimumDuration: minimumDuration, maximumDistance: maximumDistance) {
-                // items 为空不弹（宁缺勿滥）：有些行是按状态动态给项的
-                guard !items.isEmpty else { return }
-                Haptics.tap()   // 触感补齐（与聊天页长按 / 系统菜单同款）
-                AnchorMenuPresenter.shared.present(
-                    .init(anchor: rect,
-                          items: items,
-                          title: title,
-                          message: message,
-                          onPick: onPick)
-                )
-            }
+            // 🚨 必须是 `.highPriorityGesture`，**不得退回 `.onLongPressGesture`**：
+            //    后者等价 `.gesture(...)` = 普通优先级，挂在 Button（长期目标卡 / 展开区行卡 /
+            //    待办行…）外层时会被 Button 内置手势整个吃掉 —— 长按全无反应，而编译、预检、
+            //    文档全绿，只有真机手指能发现（2026-10-14 用户报「长期目标任务卡片无法编辑」，
+            //    追问后答「长按卡片根本不出菜单」＝ 就是这条）。高优先级长按识别后 Button 的 tap
+            //    不再触发；轻点（<0.42s）时长按自行失败，Button 照常工作。
+            .highPriorityGesture(
+                LongPressGesture(minimumDuration: minimumDuration, maximumDistance: maximumDistance)
+                    .onEnded { _ in
+                        // items 为空不弹（宁缺勿滥）：有些行是按状态动态给项的
+                        guard !items.isEmpty else { return }
+                        Haptics.tap()   // 触感补齐（与聊天页长按 / 系统菜单同款）
+                        AnchorMenuPresenter.shared.markLongPressFired()
+                        AnchorMenuPresenter.shared.present(
+                            .init(anchor: rect,
+                                  items: items,
+                                  title: title,
+                                  message: message,
+                                  onPick: onPick)
+                        )
+                    }
+            )
     }
 }
 

@@ -39,6 +39,18 @@ func stripCommentLines(_ s: String) -> String {
 
 let streamSrc = src("Core/StreamClient.swift")
 let authSrc = src("Core/AuthStore.swift")
+
+/// v4.0.112（审查收口）：把「同一次解构」框起来再断言 —— 原来两条独立 `contains`
+/// 可以各自命中文件里**不同位置**，位序 / 成员失守照样绿。切片取最近一个 `let (`
+/// 到 `) = try await auth.streamPoll`；仍然**不认尾位**（下次再加字段不必改表），
+/// 但断言里的成员必须落在同一次解构里。
+func pollDeconstruct(_ src: String) -> String {
+    guard let b = src.range(of: ") = try await auth.streamPoll") else { return "" }
+    let head = src[src.startIndex..<b.lowerBound]
+    guard let a = head.range(of: "let (", options: .backwards) else { return "" }
+    return String(head[a.upperBound...])
+}
+let pollTuple = pollDeconstruct(streamSrc)
 let chatViewSrc = src("Features/Chat/ChatView.swift")
 // v4.0.x 工程治理拆分：工具卡的 4 个视图（ToolStepRow / ToolStepsTruncationNote / ToolProgressNote /
 // ToolStepsSummaryRow）已从 ChatView.swift 搬到 ChatToolStepCards.swift。断言「卡片长什么样」读新文件，
@@ -60,16 +72,21 @@ check("AuthStore 解出全量步数键 toolSeq（与后端响应键同名）",
 // 旧写法 `[[String: Any]], Double, Int) {` 在追加 `[String]` 后必然假红，且与本意无关。
 check("streamPoll 元组已带上 memoAdded（v4.0.120 追加位）",
       authSrc.contains("let memoAdded = j[\"memoAdded\"] as? [String] ?? []")
-      && authSrc.contains("toolSeq, memoAdded, reasoning)"))
+      && authSrc.contains("toolSeq, memoAdded, reasoning"))
+check("哨兵：解构切片取到（取不到 = 下面两条在空串上判绿）",
+      !pollTuple.isEmpty && pollTuple.count < 400)
 check("调用方同步解构出 memoAdded（漏了就是忘了接 UI）",
-      streamSrc.contains("toolSeqIn, memoIn, reasoningIn) = try await auth.streamPoll")
+      pollTuple.contains("toolSeqIn") && pollTuple.contains("memoIn")
       && streamSrc.contains("!memoDismissed.contains($0)"))
 // v4.0.90 思考流透传：同样只守「新字段两端都接上」——后端键名同名 + 出现在返回值里 + 调用方解构。
+// ⚠️ v4.0.112 又追加 `notice` 位（阶段总结标记）→ 再次印证：**只认前缀串、不认尾位**。
+//    本轮这 4 条就是被尾部闭括号钉死才假红（功能没问题、元组却长得不一样了）。
+//    「新字段是否两端接上」由 scripts/ql_notice/ 的表负责，这里不重复钉。
 check("streamPoll 已解出 reasoning 思考流键（v4.0.90 追加位）",
       authSrc.contains("let reasoning = j[\"reasoning\"] as? String ?? \"\"")
-      && authSrc.contains("memoAdded, reasoning)"))
+      && authSrc.contains("memoAdded, reasoning"))
 check("调用方同步解构出 reasoningIn（漏了 = 思考气泡没数据源）",
-      streamSrc.contains("memoIn, reasoningIn) = try await auth.streamPoll")
+      pollTuple.contains("memoIn") && pollTuple.contains("reasoningIn")
       && streamSrc.contains("if reasoningIn != streamReasoning { streamReasoning = reasoningIn }"))
 check("StreamClient 思考流状态位 + 随流复位（同 toolSeq 生命周期）",
       streamSrc.contains("var streamReasoning: String = \"\"")

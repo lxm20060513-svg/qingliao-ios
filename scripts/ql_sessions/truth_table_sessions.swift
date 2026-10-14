@@ -207,13 +207,16 @@ check("清数据必须延迟一帧（0.08s）执行，不能与切 tab 同帧（
 
 // —— 失败必须提示 + 成功才动内存 ——
 check("服务器未确认成功就不许动本地内存（清完又被下次 saveToServer 写回去 = 白做）",
-      clearFn.contains("guard synced else { await load(); return }"))
+      clearFn.contains("guard synced else { await load(force: true); return }"))
 check("失败文案有网络异常与服务器异常两态",
       clearFn.contains("清空未同步到服务器：") && clearFn.contains("清空未同步到服务器（服务器返回异常）"))
 check("该会话有后台流在跑时先撤（否则答案把刚清空的会话又写满）",
       clearFn.contains("BackgroundStreamRunner.shared.cancelForDeletedSession(sessionId: s.id, auth: auth)"))
-check("成功后整体刷新列表（不就地改 sessions，与 delete 同口径）",
-      clearFn.contains("await load()"))
+// v4.0.x（2026-10-14 真机报「清空了重新进会话内容还在」）：刷新必须是 **force** 版 ——
+// 非 force 会被 load() 里的 3 秒节流整个吞掉，而进会话的 `open(s)` 用的是**列表里那份快照**的
+// messages，于是「清空成功、点进去还是旧内容」（当时服务端真值已经是 0 条）。删除同口径修。
+check("成功后整体刷新列表（不就地改 sessions，与 delete 同口径；且必须绕 3s 节流）",
+      clearFn.contains("await load(force: true)"))
 // —— v4.0.15：清空前必须排空写链，否则在途旧快照把刚清掉的内容整会话盖回来 ——
 // 事故机制：clearContent 自己直发 merge（不进 saveWriteChain），而 ChatView 的防抖写
 // 可能已带着清空前的旧快照排在链里/在途 → 空写落地后旧快照后到 → 「清空了又全回来」。

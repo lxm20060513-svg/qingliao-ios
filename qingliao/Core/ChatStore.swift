@@ -137,20 +137,26 @@ final class ChatStore {
     /// token 只在本会话落库时自增（noteAssistantLanded），移交落库走的是本处 → 挂上去是**空操作**、
     /// 缺口照旧。单独一个序号，也避免把移交的回复误带进自动朗读链。
     private(set) var awayLandedTick = 0
+    /// v4.0.112：与 `awayLandedReplies` 配对的「阶段总结」标记账本（同键、同生命周期）。
+    private var awayLandedNotices: [String: String] = [:]
 
-    func noteAwayLandedReply(sessionId sid: String, text: String) {
+    func noteAwayLandedReply(sessionId sid: String, text: String, notice: String = "") {
         // v4.0.77：迟到回复同样先归一化（剥直播标记 + 弹卡）—— 4.0.76 把原文塞进账本，
         // 补回内存后又是一行标记代码（同族根因，见 normalizeBrowserLiveMarkers 注释）。
         let normalized = Self.normalizeBrowserLiveMarkers(
             in: ChatMessage(role: "assistant", content: text, timestamp: Date().timeIntervalSince1970 * 1000)
         )
         awayLandedReplies[sid] = normalized
+        // v4.0.112：标记随账本一起记 —— 服务端写失败时靠 `patchAwayLanded` 补回内存，
+        // 不记的话补回的那条永远没有「阶段总结」角标（而服务端也从没收到过）。
+        awayLandedNotices[sid] = notice
         awayLandedTick &+= 1
     }
 
     /// 快照里缺这条迟到回复就补到末尾（已有则只清记录，不重复插）
     private func patchAwayLanded(_ sid: String, _ msgs: [ChatMessage]) -> [ChatMessage] {
         guard let pending = awayLandedReplies.removeValue(forKey: sid) else { return msgs }
+        let notice = awayLandedNotices.removeValue(forKey: sid) ?? ""
         // v4.0.59（2026-10-05 只读审查 应改1 续修）：判据 = **任意长度精确相等**（`isSameAssistantText`，
         // 规范化后比、空白/换行不同也算）∪ 落库侧宽松口径（`hasSameAssistantContent`，>30 字）。
         // 🚨 只挂后者会漏短回复：它的 >30 门槛让「⚠️ 连接中断，请重试」这类已落库的短回复
@@ -160,8 +166,10 @@ final class ChatStore {
         // 反向失配（服务端其实没有这条）也一并消失：补回与落库现在问的是同一个问题。
         if Self.isReplyAlreadyLanded(pending, in: msgs) { return msgs }
         var patched = msgs
-        patched.append(ChatMessage(role: "assistant", content: pending,
-                                   timestamp: Date().timeIntervalSince1970 * 1000))
+        var back = ChatMessage(role: "assistant", content: pending,
+                               timestamp: Date().timeIntervalSince1970 * 1000)
+        if !notice.isEmpty { back.notice = notice }   // v4.0.112：补回时一并带上标记
+        patched.append(back)
         return patched
     }
 
@@ -348,6 +356,7 @@ final class ChatStore {
         saveTask?.cancel()
         saveTask = nil
         awayLandedReplies = [:]
+        awayLandedNotices = [:]
         unread = [:]
         // 🚨 v4.0.69：**这里不许再清 seenTimes**（已读基线），否则「退出重新登录后未读角标又全部出现」（用户报）。
         // 机制：`seenTimes = [:]` 只清了内存字典，而 `seenTimesLoaded` / `hasSeenBaseline` / UserDefaults 里的
@@ -628,7 +637,8 @@ final class ChatStore {
     ///          历史错位：13:40 的回答 13:43:41 才落库贴在"告诉我哪个版本"后；Hermes 侧
     ///          transcript 全程正常 = 模型无辜，纯 App 落库锚点缺陷）。带锚点时仅在该轮
     ///          回复区（锚点后、下一个 user 前）去重与插入，杜绝跨轮污染。
-    func upsertAssistant(_ text: String, agent: Bool = false, afterUserID: String? = nil) {
+    func upsertAssistant(_ text: String, agent: Bool = false, afterUserID: String? = nil,
+                         notice: String = "") {
         let ts = Date().timeIntervalSince1970 * 1000
         // v3.9.35：AI 回复落库时提取待办候选。
         // v4.0.25 确认制：不再静默落库（AI 每轮重复产出会灌噪音）——只 stage 候选，
@@ -678,6 +688,8 @@ final class ChatStore {
             // v4.0.25：复用函数头建的 pending（stageTodoCandidates 挂账用的 id 与落库消息一致）
             var m = pending
             m.agent = agent   // v2.0.96b：Agent 回复标记
+            // v4.0.112：阶段总结标记随落库一起带上（不落库 = 重启后这条总结又冒充正常答完）
+            if !notice.isEmpty { m.notice = notice }
             // v3.9.31：插入带上滑入位动画（append 同款；完成回调多为裸调用无动画上下文）
             withAnimation(Motion.enter) {
                 messages.insert(m, at: regionEnd)
@@ -709,6 +721,8 @@ final class ChatStore {
         }
         var m = pending
         m.agent = agent   // v2.0.96b：Agent 回复标记
+        // v4.0.112：阶段总结标记（口径同上）
+        if !notice.isEmpty { m.notice = notice }
         // v3.9.31：插入带上滑入位动画（append 同款）
         withAnimation(Motion.enter) {
             messages.append(m)
@@ -1195,6 +1209,11 @@ final class ChatStore {
             // 且它已被 historyPayload 挡在模型上下文之外，留着不污染）。
             if m.edited { p["edited"] = true }
             if m.isPush { p["isPush"] = true }
+            // v4.0.112：「阶段总结」标记落库 —— **不落库就等于没标记**：重启 / 切会话后
+            // 这条没跑完的收尾总结又冒充「正常答完」（教训同 withdrawn / edited，标记只留内存必丢）。
+            // ⚠️ 只进 messagesPayload（落库），**不进 asPayload**：它是给用户看的标记，
+            // 发回模型上下文没有任何意义（同 quotedText 之外的一众 UI 标记口径）。
+            if let nt = m.notice, !nt.isEmpty { p["notice"] = nt }
             // v4.0.20：推送来源一起落库——否则重启/切会话后角标退化成「你问的」（来源丢失）
             if let k = m.pushKind, !k.isEmpty { p["pushKind"] = k }
             // v4.0.11：主动 Agent 事件 id 落库——已反馈过的不能再点第二次（记 verdict）

@@ -373,6 +373,7 @@ struct MessageBubble: View {
                     bubbleDeliveryRow
                     bubbleSpeakButton
                     bubblePushTag
+                    bubbleNoticeTag
                     bubbleProactiveFeedback
                 }
                 .padding(.horizontal, isMultiBubbleAI ? 2 : 13)
@@ -783,6 +784,36 @@ struct MessageBubble: View {
                 .padding(.vertical, Spacing.xxs)
                 .background(tint.opacity(Tint.faint), in: Capsule())
                 .padding(.top, Spacing.xxs)
+        }
+    }
+
+    /// v4.0.112 「阶段总结」角标（本轮没跑完：到迭代上限，正文是模型的收尾总结）
+    ///
+    /// 不打这个标记，这条总结和「正常答完」长得一模一样 —— 用户分不出「我没跑完、先给你这些」
+    /// 和「这就是最终答案」。取值映射是纯逻辑 `MessageNotice.style(for:)`（真值表钉住），
+    /// 这里只管画；形态与 `bubblePushTag` 同款（同屏可能同时出现，形态必须一致）。
+    @ViewBuilder
+    private var bubbleNoticeTag: some View {
+        if let style = MessageNotice.style(for: message.notice) {
+            let tint = noticeTint(style.colorKey)
+            HStack(spacing: 4) {
+                Circle().fill(tint).frame(width: 5, height: 5)
+                Text(style.label)
+            }
+                .font(.system(size: Typography.tiny, weight: .semibold))
+                .foregroundStyle(tint)
+                .padding(.horizontal, Spacing.sm)
+                .padding(.vertical, Spacing.xxs)
+                .background(tint.opacity(Tint.faint), in: Capsule())
+                .padding(.top, Spacing.xxs)
+        }
+    }
+
+    /// colorKey → 色值（UI 层唯一映射点；`MessageNotice` 刻意不 import SwiftUI，好做纯逻辑真值表）
+    private func noticeTint(_ key: String) -> Color {
+        switch key {
+        case "orange": return .orange
+        default:       return .secondary
         }
     }
 

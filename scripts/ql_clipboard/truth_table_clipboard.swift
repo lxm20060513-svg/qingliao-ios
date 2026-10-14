@@ -189,12 +189,16 @@ ck("🚨 清空不用 confirmationDialog（iPhone 上固定从底部升起，锚
    !sheetSrc.contains("confirmationDialog"))
 
 // ── H. 设置页入口 + sheet 已挂 ─────────────────────────────────
-ck("设置页状态位 showClipboardHistory 声明在场", coreSrc.contains("@State var showClipboardHistory = false"))
-ck("设置页入口设置 showClipboardHistory = true", coreSrc.contains("showClipboardHistory = true"))
-ck("设置页入口文案「剪贴板历史」在场", coreSrc.contains("title: \"剪贴板历史\""))
-ck("🚨 设置页已挂 .sheet(isPresented: $showClipboardHistory)（只加行不挂 sheet = 点了没反应）",
-   coreSrc.contains(".sheet(isPresented: $showClipboardHistory)"))
-ck("sheet 弹的是 ClipboardHistorySheet()", coreSrc.contains("ClipboardHistorySheet()"))
+// v4.0.x（2026-10-14 用户口径「设置里面的剪切板历史可以删掉了」）：设置页那行**整体撤下**，
+// 断言反向钉死——防有人「顺手」把入口加回设置页（功能本体仍在聊天页附件面板，见下一条）。
+ck("🚨 设置页不得再有剪贴板历史入口（用户已撤，别加回来）",
+   !coreSrc.contains("showClipboardHistory") && !coreSrc.contains("剪贴板历史"))
+ck("🚨 设置页搜索路由也不得再留 clipboardHistory（留了 = 搜出来点了没反应）",
+   !coreSrc.contains("case \"clipboardHistory\""))
+// 功能本体（唯一视图）：聊天页附件面板第五格仍复用同一个 sheet
+let chatSrc = read("qingliao/Features/Chat/ChatView.swift")
+ck("🚨 功能本体还在：聊天页仍挂 ClipboardHistorySheet()（设置页撤了≠功能删了）",
+   chatSrc.contains("ClipboardHistorySheet()"))
 
 // ── I. 行为表在场（与本节互补自证）──────────────────────────────
 // ── 文案诚实性（v4.0.104 审查抓到：「入待办」会经账本同步到 NAS，原文案却写「不上传」）──

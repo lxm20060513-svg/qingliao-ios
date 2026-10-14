@@ -262,10 +262,11 @@ extension ChatView {
                 }
                 guard chat.sessionId == startSid else {
                     landAwayReply(body, agent: stream.isAgent,
-                                  snapshot: startMsgs, sid: startSid, title: startTitle)
+                                  snapshot: startMsgs, sid: startSid, title: startTitle,
+                                  notice: stream.notice)
                     return
                 }
-                chat.upsertAssistant(body, agent: stream.isAgent, afterUserID: m.id)
+                chat.upsertAssistant(body, agent: stream.isAgent, afterUserID: m.id, notice: stream.notice)
                 if success,
                    !stream.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     showSentOK()

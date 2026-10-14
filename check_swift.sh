@@ -358,8 +358,24 @@ run_unit /tmp/test_mail scripts/ql_mail/truth_table_mail.swift
 echo "=== 20b2. 自定义下拉刷新（液体杯子）真值表（v4.0.x：用户 2026-10-14 定案）==="
 # 钉：五页挂点/旧 API 已撤/核心机制（几何+相位+摇晃+@MainActor）/手感口径（medium 触觉、防重入、
 #     Motion 令牌回位）/设置类反例（本批范围外）。全是**静默失效**：挂错层、并存 .refreshable、
-#     漏 onScrollPhaseChange 都不报错，只有真机下拉才知道。
+#     下拉撞页面 3 秒节流（杯子照涨、数据不重拉）都不报错，只有真机下拉才知道。
 run_unit /tmp/test_refresh scripts/ql_refresh/truth_table_refresh.swift
+
+echo "=== 20b3. 长按锚定菜单手势优先级真值表（v4.0.x：用户 2026-10-14 报「目标卡长按不出菜单」）==="
+# 钉：手势必须 highPriorityGesture（普通优先级挂在 Button 外层 = 长按全无反应，编译/其它表全绿）、
+#     出菜单后打 tap 抑制窗口、被长按卡片的 tap 首行读它。纯真机才发现的一类静默失效。
+run_unit /tmp/test_longpress scripts/ql_longpress/truth_table_longpress.swift
+
+echo "=== 20b4. 蜂窝网络路径口径真值表（v4.0.x：用户 2026-10-14 报「蜂窝下载/预览」）==="
+# 钉：downloadFile 蜂窝必须先直连（CFStream 免弹窗）、失败才降级 relay；relay = ASWAS 弹窗通道。
+# 这类「特判走错路径」编译与真机日志都不报错，只有用户手指能发现。
+run_unit /tmp/test_netpath scripts/ql_netpath/truth_table_netpath.swift
+
+echo "=== 20b5. 定时任务推送通道真值表（v4.0.112：用户 2026-10-14「定时任务增加信息推送通道设置」）==="
+# 钉：App 只传 channel 四档（both/wechat/app/none），绝不自己拼 Hermes 的 deliver；
+#     新建/编辑两个请求体都要带 channel；老后端不下发该键时列表不显示假通道。
+#     三处真值（iOS CronChannel / cron_api.CHANNELS / ql_task_push.APP_PUSH_CHANNELS）必须逐字对齐。
+run_unit /tmp/test_cronchannel scripts/ql_cron_channel/truth_table_cron_channel.swift
 
 echo "=== 20c. 网盘接入真值表（v4.0.x：位置口径/安全边界/后端契约/浏览护栏）==="
 # 单文件（读源文件做护栏，不 import 项目代码）→ run_unit 直接编跑。
@@ -1591,6 +1607,23 @@ echo "=== 102. 技能库真值表（#24 · 六端封装 / 别名前缀 / 走现�
 # ⚠️ cwd 必须 = 仓库根（真值表里全是相对路径，漂移会静默全绿 → 前置哨兵会报红）。
 run_unit6 /tmp/test_skills -parse-as-library qingliao/Core/SkillsClient.swift scripts/ql_skills/test_skills.swift
 run_unit /tmp/tt_skills scripts/ql_skills/truth_table_skills.swift
+
+echo "=== 103. 阶段总结标记真值表（v4.0.112 · 没跑完的收尾总结不许冒充正常答完）==="
+# 口径：Hermes 打满迭代上限时会多写一版**收尾总结**，但它在 wire 上就是一段普通 assistant 正文 ——
+#   App 分不出它和「正常答完」，用户会把「我没跑完，先给你这些」当成最终答案。故全链带一个标记：
+#   Hermes `hermes.budget_exhausted` → 后端 `st["notice"]="budget"`（只记标记、不碰 content）
+#   → 轮询体多 `notice` 键 → App 落库/读回 → 气泡出「阶段总结」角标。
+# 事故面（全静默，编译过 / 预检绿，只有真机能看出来）：
+#   ① messagesPayload 漏写 notice → 重启 / 切会话后标记丢失，这条总结又冒充正常答完（同 withdrawn/edited 教训）；
+#   ② 新一轮不复位 → 上一轮的标记粘到下一轮的正常回答上（假警报）；③ 后台跑流器漏带 → 后台回的消息永无标记；
+#   ④ 角标视图写了却没挂进 normalBubbleBody → 用户永远看不到；⑤ 气泡里硬编码 "budget" → 取值真源分叉。
+# 分工：本表把 `MessageNotice` 编进来**真跑**（budget / nil / 空串 / 未知取值），其余用剥注释的源级断言钉
+#   接线形态（字段 / parse 读回 / 不进 id 与 asPayload / 落库 / 复位 / 后台透传 / 挂载点 / 版本号一致）。
+# ⚠️ cwd 必须 = 仓库根（真值表里全是相对路径，漂移会静默全绿 → 前置哨兵会报红）。
+# ⚠️ 多文件编译时顶层代码必须在名为 main.swift 的文件里（否则「expressions are not allowed at the top level」）。
+rm -rf /tmp/ql_notice_main && mkdir -p /tmp/ql_notice_main
+cp scripts/ql_notice/truth_table_notice.swift /tmp/ql_notice_main/main.swift
+run_unit6 /tmp/test_notice qingliao/Core/MessageNotice.swift /tmp/ql_notice_main/main.swift
 
 [ $fail -eq 0 ] || { echo "❌ 有护栏失守"; exit 1; }
 exit 0

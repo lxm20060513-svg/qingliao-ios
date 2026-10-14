@@ -108,8 +108,15 @@ if let b = awayBody {
             && b.distance(from: b.startIndex, to: iCall!) < b.distance(from: b.startIndex, to: iSnap!))
     check("② 负断言：无条件「Task { saveToServer(整份 msgs) }」旧写法已消失",
           !b.contains("Task { await chat.saveToServer(auth: auth, sessionId: sid, messages: msgs, title: title) }"))
+    // v4.0.112：登记调用多了 `notice:` 尾参 —— 原断言把整行（含尾括号）钉死，正当追加即假红。
+    // 按原意放宽到**前缀串**（守「这条登记还在同一条落库路径上」）；新字段的两端接线
+    // 由下面两条 + `scripts/ql_notice/` 的表钉，不靠这里认尾位。
     check("② 迟到回复登记仍在落库同一条路径上（进会话时补回，别漏）",
-          b.contains("chat.noteAwayLandedReply(sessionId: sid, text: text)"))
+          b.contains("chat.noteAwayLandedReply(sessionId: sid, text: text"))
+    check("② 迟到回复登记带上「阶段总结」标记位（漏传 = 补回那条丢角标）",
+          b.contains("chat.noteAwayLandedReply(sessionId: sid, text: text, notice: notice)"))
+    check("② 补回内存那条也带上标记（只登记不带 = 补回时角标丢失）",
+          chat.contains("if !notice.isEmpty { back.notice = notice }"))
 }
 
 // ── ③ 调用点：快照参数仍在（回落兜底要用），别被顺手删掉 ──

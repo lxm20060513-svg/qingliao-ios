@@ -390,14 +390,37 @@ final class AuthStore {
 
     /// 文件下载：Wi-Fi → URLSession 直连（二进制）；蜂窝 → Safari relay（带 query 直连挂，relay 可传小文件）
     /// v2.0.116 fix：带 X-Auth-Token（files_api 鉴权）
+    /// 🚨 蜂窝下**先直连、失败才降级 relay**，与 `request` 同口径（2026-10-14 修）。
+    /// 历史遗留：这里原本是「蜂窝 → **无条件** relay」，而 relay = ASWebAuthenticationSession
+    /// （Safari 进程 + 服务器 `/r` 中转，载荷走 URL），**每次调用必弹系统授权窗**且只适合小响应。
+    /// 后果：蜂窝下「下载 / 预览」必然表现成「弹窗 → 慢 → 失败」，同一台手机切 WiFi 立刻正常
+    /// （WiFi 走 directHTTP）。relay 通道历史记录里也被判定「只产弹窗不产结果」
+    /// （约 37h nginx 日志中 relay 载荷请求 0 条）。v4.0.60 统一网络口径时漏了本方法。
     func downloadFile(_ path: String) async throws -> (Data, Int) {
-        if NetworkMonitor.shared.isCellular {
-            return try await relay.relay(method: "GET", path: path,
-                                         headers: ["X-Auth-Token": token], body: nil, timeout: 30)
-        } else {
+        guard NetworkMonitor.shared.isCellular else {
             return try await directHTTP(method: "GET", path: path,
                                         headers: ["X-Auth-Token": token], body: nil)
         }
+        let headers = ["X-Auth-Token": token]
+        var result = (Data(), 0)
+        var directError: Error?
+        do {
+            result = try await relay.directRequest(method: "GET", path: path,
+                                                   headers: headers, body: nil, timeout: 30)
+        } catch {
+            directError = error
+        }
+        // 假 401（蜂窝直连偶发静默丢 X-Auth-Token）→ 直连重试一次，别为它弹授权窗
+        if directError == nil, result.1 == 401, !token.isEmpty, !sessionExpired {
+            if let again = try? await relay.directRequest(method: "GET", path: path,
+                                                          headers: headers, body: nil, timeout: 30) {
+                result = again
+            }
+        }
+        if directError == nil, (200..<300).contains(result.1) { return result }
+        // 直连真不通才降级 relay：下载/预览是用户主动点的，弹一次窗可接受（写操作同性质）
+        return try await relay.relay(method: "GET", path: path, headers: headers,
+                                     body: nil, timeout: 30)
     }
 
     /// v4.0.60：把一份快照推 NAS（`/api/files/pin_write`）——**只直连、不降级 relay**
@@ -702,7 +725,7 @@ final class AuthStore {
         }
     }
 
-    func streamPoll(taskId: String, offset: Int) async throws -> (String, Bool, String, String, Bool, [[String: Any]], [String], [[String: Any]], Double, Int, [String], String) {
+    func streamPoll(taskId: String, offset: Int) async throws -> (String, Bool, String, String, Bool, [[String: Any]], [String], [[String: Any]], Double, Int, [String], String, String) {
         let (data, code): (Data, Int)
         // v2.0.116 fix：轮询也带 X-Auth-Token（后端 do_GET 统一鉴权）
         if NetworkMonitor.shared.isCellular {
@@ -751,7 +774,10 @@ final class AuthStore {
         // v4.0.90：模型思考摘要流（后端 reasoning_summary 增量累积）。老后端无此键 = 空串 →
         // 思考气泡不渲染（优雅退化，与 v4.0.89 及之前行为完全一致）。
         let reasoning = j["reasoning"] as? String ?? ""
-        return (content, done, status, error, agent, inbox, toolNames, toolSpans, lastToolAt, toolSeq, memoAdded, reasoning)
+        // v4.0.112：本轮到迭代上限、正文是模型收尾总结（后端 `notice="budget"`）。
+        // 后端新键，老后端无此键 = 空串 → 不显示标记（优雅退化，与 v4.0.111 及之前行为一致）。
+        let notice = j["notice"] as? String ?? ""
+        return (content, done, status, error, agent, inbox, toolNames, toolSpans, lastToolAt, toolSeq, memoAdded, reasoning, notice)
     }
 
     /// v3.0.31：流式任务恢复——qingliao 服务重启后内存任务丢失（poll 404），

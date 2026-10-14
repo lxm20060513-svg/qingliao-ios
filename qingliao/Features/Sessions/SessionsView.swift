@@ -585,7 +585,10 @@ struct SessionsView: View {
         // v2.0.86h：Dock 滑动隐藏已删除（从未生效，手动开关替代）
         // v4.0.x：系统 .refreshable → 自绘液体杯子下拉刷新（用户定案）
         .pullRefreshCup {
-            if !isSearching { await load() }
+            // v4.0.112（审查收口）：必须带 `force` —— 进页面时 `load()` 已写过 `lastLoadAt`，
+            // 3 秒节流窗口内下拉会**直接 return**：杯子照常涨满 / 晃 / 回位，数据一个字节没重拉。
+            // 同文件删除 / 清空路径早已全走 `load(force: true)`，只有这条漏了（静默空转）。
+            if !isSearching { await load(force: true) }
         }
     }
 
@@ -1375,7 +1378,8 @@ struct SessionsView: View {
                     "sessions": [] as [Any], "deleted": idsCopy
                 ])
                 if (j["ok"] as? Bool) == true {
-                    await load()
+                    // 🚨 force：批量删除同理，不能等节流（否则被删的会话还挂在列表上）
+                    await load(force: true)
                     // v3.9.39：删掉的这批里含**当前正打开**的会话 → 走单条删除同一套两步新建。
                     // 少这一步 = chat 内存里仍留着该会话和全部消息，下一次 saveToServer 把它整体
                     // merge 回服务器，用户看到「删了又活着回来」。
@@ -1441,7 +1445,7 @@ struct SessionsView: View {
             } catch {
                 clearError = "清空未同步到服务器：\(error.localizedDescription)"
             }
-            guard synced else { await load(); return }
+            guard synced else { await load(force: true); return }
 
             await MainActor.run { Haptics.success() }
             // ③ 正在看的就是它 → 内存也得清，否则**下一次任何 saveToServer** 会把内存里的
@@ -1455,7 +1459,10 @@ struct SessionsView: View {
                     withAnimation(nil) { chat.clearMessages() }
                 }
             }
-            await load()
+            // 🚨 必须 force：3 秒节流会把这次刷新整个吞掉，而 `open(s)` 进会话用的是**列表里那份快照**的
+            //    messages —— 清空后立刻点进会话，看到的还是旧内容（用户 2026-10-14 报「清空后重新进
+            //    会话内容还在」；当时查服务端真值其实已是 0 条）。破坏性动作一律不等节流。
+            await load(force: true)
         }
     }
 
@@ -1485,7 +1492,8 @@ struct SessionsView: View {
                 let deletedCount = (j["deleted"] as? Int) ?? -1
                 if ok && deletedCount >= 0 {
                     await MainActor.run { Haptics.success() }   // v3.4.29：删除结果触感
-                    await load()
+                    // 🚨 force：删除是破坏性动作，绝不能被 3 秒节流吞掉（吞了 = 列表仍列出已删会话）
+                    await load(force: true)
                     if chat.sessionId == deletingId {
                         // v2.0.58：两步走新建（切 tab + requestNewSession，ChatView 先卸载列表再清数据）
                         onOpenSession?()
@@ -1495,11 +1503,11 @@ struct SessionsView: View {
                     }
                 } else {
                     deleteError = "删除未同步到服务器（服务器返回异常），请检查网络后重试"
-                    await load()
+                    await load(force: true)
                 }
             } catch {
                 deleteError = "删除未同步到服务器：\(error.localizedDescription)"
-                await load()
+                await load(force: true)
             }
         }
     }

@@ -35,6 +35,9 @@ struct PullRefreshCupModifier: ViewModifier {
     private let size: CGFloat = 26
     /// 回位曲线跑完的等待：必须 ≥ `Motion.settle` 时长，否则曲线后段（含弹回过冲）会被撤层，看着「闪一下不见」
     private let settleWait: UInt64 = 450_000_000
+    /// 刷新动作的兜底超时：action 若挂死（接口不返回 / 蜂窝下 CFStream 静默挂），
+    /// 到点强制把杯子收回去 —— 「一定会自己消失」的最后一道防线（见 `resetToIdle`）。
+    private let actionTimeout: UInt64 = 20_000_000_000
 
     @State private var pull: CGFloat = 0
     /// 滚动容器顶部 inset（指示器落点要算上它，见头注 ⑦）
@@ -85,7 +88,24 @@ struct PullRefreshCupModifier: ViewModifier {
                         .allowsHitTesting(false)
                 }
             }
-            .onDisappear { refreshTask?.cancel(); refreshTask = nil }
+            // ⚠️ 消失时必须**连状态一起复位**：原来是只 cancel、不动 phase ——
+            //    在刷新/回位途中切走 Tab 后，`phase` 永远停在 .refreshing/.finishing
+            //    ⇒ overlay 条件 `phase != .idle` 恒真 = 满杯挂在那页**再也不消失**，
+            //    且该页此后下拉全被第一道 guard 挡死（下拉刷新永久失效）。
+            .onDisappear {
+                refreshTask?.cancel()
+                refreshTask = nil
+                resetToIdle()
+            }
+    }
+
+    /// 唯一的复位出口（idle + 液面归零 + 解除 armed）——
+    /// **所有退出路径都必须走它**：正常刷完 / 刷新途中被取消 / 兜底超时。
+    /// 漏走任何一条 = 杯子停在那页再也不消失（用户 2026-10-14 报的那条）。
+    private func resetToIdle() {
+        phase = .idle
+        pull = 0
+        armed = false
     }
 
     private func beginRefresh() {
@@ -94,14 +114,20 @@ struct PullRefreshCupModifier: ViewModifier {
         sloshTick &+= 1                                       // 满杯晃一下
         refreshTask?.cancel()
         refreshTask = Task { @MainActor in
+            // 兜底看门狗：与刷新动作并行跑；action 挂死时到点强制复位（正常刷完时 phase 已变，它什么都不做）
+            let watchdog = Task { @MainActor in
+                try? await Task.sleep(nanoseconds: actionTimeout)
+                guard !Task.isCancelled else { return }
+                if phase == .refreshing { resetToIdle() }
+            }
             await action()
-            guard !Task.isCancelled else { return }
+            watchdog.cancel()
+            guard !Task.isCancelled else { resetToIdle(); return }
+            guard phase == .refreshing else { return }        // 已被看门狗兜底复位 → 不再演回位动画
             phase = .finishing
             withAnimation(Motion.settle) { pull = 0 }         // 弹性回位
             try? await Task.sleep(nanoseconds: settleWait)    // 等回位跑完再复位态
-            guard !Task.isCancelled else { return }
-            phase = .idle
-            armed = false
+            resetToIdle()
         }
     }
 }
@@ -122,19 +148,24 @@ private struct CupPullIndicator: View {
     let sloshTick: Int
 
     var body: some View {
+        // 造型口径（v4.0.x 用户 2026-10-14 从候选稿里挑的 B「实心马克杯」）：
+        //   杯身一层 0.07 极淡底纹（让杯子有「体」而不是只有线）＋ 描边 0.32 加重、线宽 1.4 略收，
+        //   液面单层渐变 0.35→0.62（比原来 0.12→0.22 浓得多，小尺寸下才看得出「有液体」），
+        //   把手加粗到 2.4、半径 0.26、开口 ±85°。数值刻意写成字面量：Tint 是**全库共用令牌**，
+        //   改令牌会波及卡片/分组等所有调用点。
         CupShape()
-            .stroke(Color.secondary.opacity(Tint.strong), lineWidth: 1.6)   // 杯身轮廓
+            .fill(Color.secondary.opacity(0.07))                            // B：杯身极淡底纹
+            .overlay {
+                CupShape().stroke(Color.secondary.opacity(0.32), lineWidth: 1.4)   // B：描边加重
+            }
             .overlay(alignment: .bottom) {
                 // 液面：底部对齐的高度条，被杯身形状裁掉溢出的部分
-                ZStack(alignment: .bottom) {
-                    tint.opacity(Tint.soft)
-                    LinearGradient(colors: [tint.opacity(Tint.subtle), tint.opacity(Tint.strong)],
-                                   startPoint: .bottom, endPoint: .top)
-                }
-                .frame(height: size * progress)
-                .clipShape(CupShape().inset(by: 1.2))                        // 略缩，别盖住轮廓线
+                LinearGradient(colors: [tint.opacity(0.35), tint.opacity(0.62)],
+                               startPoint: .bottom, endPoint: .top)         // B：液体更浓
+                    .frame(height: size * progress)
+                    .clipShape(CupShape().inset(by: 1.2))                    // 略缩，别盖住轮廓线
             }
-            .overlay { CupHandle().stroke(Color.secondary.opacity(Tint.strong), lineWidth: 1.6) }
+            .overlay { CupHandle().stroke(Color.secondary.opacity(0.32), lineWidth: 2.4) }   // B：把手更粗更实
             .frame(width: size * 0.86, height: size)
             .keyframeAnimator(initialValue: 0.0, trigger: sloshTick) { view, deg in
                 view.rotationEffect(.degrees(deg))
@@ -160,9 +191,9 @@ private struct CupShape: InsettableShape {
 
     func path(in rect: CGRect) -> Path {
         let r = rect.insetBy(dx: inset, dy: inset)
-        let topInset = r.width * 0.04                       // 顶部略宽
-        let bottomInset = r.width * 0.26                    // 底部收窄
-        let radius = r.width * 0.22                         // 底部圆角
+        let topInset = r.width * 0.08                       // B：顶部略宽（原 0.04）
+        let bottomInset = r.width * 0.18                    // B：底部收窄（原 0.26，收得少些更像马克杯）
+        let radius = r.width * 0.30                         // B：底部圆角（原 0.22）
         let tl = CGPoint(x: r.minX + topInset, y: r.minY)
         let tr = CGPoint(x: r.maxX - topInset, y: r.minY)
         let bl = CGPoint(x: r.minX + bottomInset, y: r.maxY - radius)
@@ -186,11 +217,11 @@ private struct CupShape: InsettableShape {
 private struct CupHandle: Shape {
     func path(in rect: CGRect) -> Path {
         var p = Path()
-        let cx = rect.maxX - rect.width * 0.13
-        let cy = rect.midY + rect.height * 0.04
-        let r = rect.width * 0.20
+        let cx = rect.maxX - rect.width * 0.10              // B：把手右移（原 0.13）
+        let cy = rect.midY + rect.height * 0.02             // B：略上提（原 0.04）
+        let r = rect.width * 0.26                           // B：更大（原 0.20）
         p.addArc(center: CGPoint(x: cx, y: cy), radius: r,
-                 startAngle: .degrees(-72), endAngle: .degrees(72), clockwise: false)
+                 startAngle: .degrees(-85), endAngle: .degrees(85), clockwise: false)   // B：开口更宽（原 ±72）
         return p
     }
 }

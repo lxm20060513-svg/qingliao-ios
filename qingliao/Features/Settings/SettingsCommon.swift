@@ -496,6 +496,36 @@ struct SessionLocSheet: View {
 
 // MARK: - 定时任务页
 
+/// v4.0.112（用户 2026-10-14「定时任务增加信息推送通道设置」）：任务结果的推送通道。
+///
+/// 通道其实是**两条独立的腿**——微信那条由 Hermes 的 `deliver` 决定，App 任务中心那条由
+/// `ql_task_push.py` 决定；用户只要一个选择，所以后端把它折成四档，一份记录写两处真值
+/// （`deliver` + `data/cron_channels.json`）。这里的 id 与后端 `cron_api.CHANNELS` **逐字对应**，
+/// 改一边必须改另一边。
+///
+/// ⚠️ 别把通道塞进 Hermes 的 `deliver` 当自造 token（如 `deliver="app"`）：Hermes 解析不到
+/// 任何投递目标 → 每次运行记 `last_delivery_error`、`last_status` 打成 `delivery_failed`，
+/// App 任务行会显示成失败。这就是「只推 App」得单独记一份开关的原因。
+struct CronChannel {
+    let id: String
+    let label: String
+
+    static let all: [CronChannel] = [
+        CronChannel(id: "both", label: "微信 + App"),
+        CronChannel(id: "wechat", label: "仅微信"),
+        CronChannel(id: "app", label: "仅 App"),
+        CronChannel(id: "none", label: "不推送"),
+    ]
+
+    /// 新建任务默认「微信 + App」= 改动前的老口径，不改变既有习惯
+    static let defaultID = "both"
+
+    /// 后端值 → 界面文案。认不出来时说「未知通道」，不硬套一个看起来正常的档位。
+    static func label(_ id: String) -> String {
+        all.first { $0.id == id }?.label ?? "未知通道"
+    }
+}
+
 struct CronTask: Identifiable {
     let id: String
     let name: String
@@ -503,10 +533,17 @@ struct CronTask: Identifiable {
     let prompt: String
     let enabled: Bool
     let nextRunAt: String?
+    /// v4.0.112：推送通道（both / wechat / app / none）。老后端不下发这个键 → nil，
+    /// 列表就不显示通道行（宁可少一行，也不要显示一个假通道）。
+    let channel: String?
 
     var nextRunText: String {
         guard let nextRunAt, !nextRunAt.isEmpty else { return "待定" }
         return nextRunAt
+    }
+
+    var channelLabel: String? {
+        channel.map { CronChannel.label($0) }
     }
 }
 
@@ -576,6 +613,16 @@ struct TasksView: View {
                                             .font(.system(size: Typography.tiny))
                                             .foregroundStyle(Color.secondary)
                                     }
+                                    // v4.0.112：推送通道（老后端不下发 channel → 这行不出现）
+                                    if let ch = t.channelLabel {
+                                        HStack(spacing: 3) {
+                                            Image(systemName: "paperplane.fill")
+                                                .font(.system(size: 8))
+                                            Text(ch)
+                                                .font(.system(size: Typography.tiny))
+                                        }
+                                        .foregroundStyle(.tertiary)
+                                    }
                                 }
                                 Spacer()
                                 // 启用/禁用切换
@@ -642,12 +689,13 @@ struct TasksView: View {
         // 关闭后重载：新建/编辑原先都要手动下拉刷新才看得到结果
         .sheet(isPresented: $showNewTask, onDismiss: { Task { await load() } }) {
             NewTaskSheet()
-                .presentationDetents([.medium])
+                // v4.0.112：多了「推送通道」一行，medium 会顶到保存按钮 → 允许上拉到 large
+                .presentationDetents([.medium, .large])
         }
         // v3.9.40（#17）：编辑既有任务
         .sheet(item: $editingTask, onDismiss: { Task { await load() } }) { t in
             NewTaskSheet(editing: t)
-                .presentationDetents([.medium])
+                .presentationDetents([.medium, .large])
         }
         }
     }
@@ -668,7 +716,8 @@ struct TasksView: View {
                                 cron: d["cron"] as? String ?? "",
                                 prompt: d["prompt"] as? String ?? "",
                                 enabled: (d["enabled"] as? Bool) ?? true,
-                                nextRunAt: d["next_run_at"] as? String)
+                                nextRunAt: d["next_run_at"] as? String,
+                                channel: d["channel"] as? String)
             }
             loadError = nil
         } catch {
@@ -817,6 +866,8 @@ struct NewTaskSheet: View {
     @State private var name = ""
     @State private var cron = "0 9 * * *"
     @State private var prompt = ""
+    /// v4.0.112：推送通道（both / wechat / app / none）——与后端 cron_api.CHANNELS 同集合
+    @State private var channel = CronChannel.defaultID
     @State private var saving = false
     @State private var errorText: String?
 
@@ -826,6 +877,8 @@ struct NewTaskSheet: View {
         _name = State(initialValue: editing?.name ?? "")
         _cron = State(initialValue: c.isEmpty ? "0 9 * * *" : c)
         _prompt = State(initialValue: editing?.prompt ?? "")
+        // 老后端不下发 channel（nil）→ 落到默认档，保存时会把通道显式写进去
+        _channel = State(initialValue: editing?.channel ?? CronChannel.defaultID)
     }
 
     var body: some View {
@@ -848,6 +901,23 @@ struct NewTaskSheet: View {
             TextField("Cron 表达式（如 0 9 * * *）", text: $cron)
                 .font(.system(size: Typography.subhead, design: .monospaced))
                 .textFieldStyle(.roundedBorder)
+            // v4.0.112：推送通道（四档单选）。放在 Cron 与提示词之间——「什么时候跑」定完
+            // 紧接着就是「跑完推哪儿」，与用户脑子里的顺序一致。
+            VStack(alignment: .leading, spacing: 6) {
+                Text("推送通道")
+                    .font(.system(size: Typography.caption))
+                    .foregroundStyle(.secondary)
+                HStack(spacing: 8) {
+                    ForEach(CronChannel.all, id: \.id) { c in
+                        MiniCapsule(title: c.label, accent: channel == c.id, size: .page) {
+                            channel = c.id
+                        }
+                    }
+                    Spacer(minLength: 0)
+                }
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("推送通道")
             TextEditor(text: $prompt)
                 .font(.system(size: Typography.subhead))
                 .frame(height: 110)
@@ -894,7 +964,8 @@ struct NewTaskSheet: View {
                 if let t = editing {
                     // PATCH 由 cron_api 原样转发 Hermes 的响应，没有统一 ok 字段 → 不带 error 即成功
                     let j = try await auth.json("/api/cron/tasks/\(t.id)", method: "PATCH",
-                                                body: ["name": name, "cron": cron, "prompt": prompt])
+                                                body: ["name": name, "cron": cron, "prompt": prompt,
+                                                       "channel": channel])
                     if let err = j["error"] as? String {
                         errorText = err
                     } else {
@@ -902,7 +973,7 @@ struct NewTaskSheet: View {
                     }
                 } else {
                     let j = try await auth.json("/api/cron/tasks", method: "POST", body: [
-                        "name": name, "cron": cron, "prompt": prompt
+                        "name": name, "cron": cron, "prompt": prompt, "channel": channel
                     ])
                     if (j["ok"] as? Bool) == true {
                         dismiss()

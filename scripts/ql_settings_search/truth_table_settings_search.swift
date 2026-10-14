@@ -48,7 +48,8 @@ struct SettingsSearchTruthTable {
         positives += 1
         // 精确钉死条数（不是 ≥30）：整条连同 route 一起被删时，下面的路由核验不会红 —— 只有条数能兜住。
         // 新增设置行时必须同步加索引 + 改这里的数（有意的摩擦：漏了就是「肉眼可见却搜不到」）。
-        check("索引条数与设置页对齐（当前 \(entries.count)，期望 35；v4.0.x 定时任务/邮件接入随入口迁工作台撤下）", entries.count == 35)
+        // 2026-10-14：34（35 → 34，设置页「剪贴板历史」行按用户口径撤下，索引同步撤）
+        check("索引条数与设置页对齐（当前 \(entries.count)，期望 34；v4.0.x 定时任务/邮件接入迁工作台、剪贴板历史撤）", entries.count == 34)
         // v4.1.x（旧口径已作废）：MCP/知识库/网盘/技能库四项入口整体移到工作区页，
         // 设置页搜索不允许再出这四项（残留 = 搜得到、点下去设置里没这行）。
         negatives += 6
@@ -106,7 +107,8 @@ struct SettingsSearchTruthTable {
             ("cardGallery", "showCardGallery"), ("secrets", "showSecrets"),
             ("history", "showHistory"), ("logs", "showLogs"), ("diagnostics", "showDiagnostics"),
             ("pinPath", "connOpenPinPath"), ("lifeCards", "showLifeCards"), ("quickReminder", "showQuickReminder"),
-            ("filesManager", "showFilesManager"), ("clipboardHistory", "showClipboardHistory"),
+            ("filesManager", "showFilesManager"),
+            // v4.0.x：("clipboardHistory", "showClipboardHistory") 随设置页入口撤下
             ("proactive", "showProactive"),
             ("agentModel", "showAgentModelSheet"), ("agentHelp", "showAgentHelp"),
             ("agentKeywords", "showAgentKeywords"), ("agentMemory", "showAgentMemory"),

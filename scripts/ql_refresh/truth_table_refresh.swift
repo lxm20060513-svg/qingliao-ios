@@ -7,7 +7,8 @@
 // 为什么必须有这张表（全是**静默失效**，编译过、真机才发现）：
 //   ① 组件挂错层（挂到内层 VStack/容器上）→ 拿不到滚动几何 → 下拉毫无反应，编译不报；
 //   ② 同一容器 `.refreshable` 与 `.pullRefreshCup` 并存 → 双触发 + 系统转圈与杯子同屏；
-//   ③ 少写 `.onScrollPhaseChange` → 永远不触发刷新（液面涨上去又弹回，看着像「没生效」）；
+//   ③ 松手判定走 **armed + 回弹几何**（实现口径见组件头注⑤）；**不许**引入 `onScrollPhaseChange`：
+//      全仓无先例、List 上是否发布相位无从静态确认 ⇒ 多一个未验证 API 的失效面。
 //   ④ 阈值/尺寸/触觉被改成字面量或漏 `Haptics.medium()` → 用户口径「震动要明显」失守（他真机必报）；
 //   ⑤ 刷新期间不锁态 → 连拉两次 = 同一个 load() 跑两遍（在途闸门在页面侧，双触发会绕过它）。
 // ⚠️ **必须 cwd = 仓库根**（下列路径是相对路径）。
@@ -42,6 +43,32 @@ func countOf(_ needle: String, in hay: String) -> Int {
     return hay.components(separatedBy: needle).count - 1
 }
 
+/// v4.0.112（审查收口）：花括号配对取块（与 ql_cron_channel 同一把尺）。
+/// ⚠️ 不能用「遇到下一个 12 空格缩进的 .」当块尾：`.onDisappear` 之后第一个这种行落在
+///    `CupPullIndicator.body` 的 `.fill(…)`（PullRefreshCup.swift:157 邻域），切出来的块
+///    会把 `resetToIdle()` 的**定义**一起圈进来 ⇒ 断言恒真（本表第一次就栽在这）。
+func body(_ text: String, from sig: String) -> String {
+    guard let r = text.range(of: sig) else { return "" }
+    var depth = 1
+    var started = true
+    var collected: [String] = []
+    for line in text[r.upperBound...].split(separator: "\n", omittingEmptySubsequences: false) {
+        collected.append(String(line))
+        var inStr = false
+        var esc = false
+        for ch in line {
+            if esc { esc = false; continue }
+            if ch == "\\" { esc = true; continue }
+            if ch == "\"" { inStr.toggle(); continue }
+            guard !inStr else { continue }
+            if ch == "{" { depth += 1; started = true }
+            if ch == "}" { depth -= 1 }
+        }
+        if started && depth <= 0 { break }
+    }
+    return collected.joined(separator: "\n")
+}
+
 let cupSrc = src("qingliao/Theme/PullRefreshCup.swift")
 let cupCode = code(cupSrc)
 
@@ -62,8 +89,27 @@ check("② 顶部 inset 单独投影（指示器落点要用，且不参与每�
 check("② 指示器落点算上 topInset（不算 = 杯子整段落进页头/状态栏背后）",
       cupCode.contains(".offset(y: travel)")
       && cupCode.contains("topInset + min(pull, trigger) * 0.55"))
-check("② 页面销毁取消刷新任务（不取消 = 卸载后仍在跑网络与写状态）",
-      cupCode.contains(".onDisappear { refreshTask?.cancel()"))
+// v4.0.x（2026-10-14 真机报「下拉刷新水杯不会自己消失」）：原来只断言「onDisappear 里有 cancel」，
+// 而**取消 ≠ 复位** —— 刷新/回位途中切走 Tab 后 phase 永久停在 refreshing/finishing，
+// overlay 条件 `phase != .idle` 恒真 = 满杯挂在那一页再也不消失，且该页此后下拉全被第一道 guard 挡死。
+// 故切片断言：onDisappear 块内既 cancel **又** 走唯一复位出口 resetToIdle。
+// v4.0.112（审查收口）：原切片用「下一个 12 空格缩进的 .」当块尾 —— 那个位置其实落在
+// `CupPullIndicator.body` 的 `.fill(…)` 上，把 `resetToIdle()` 的**定义**也圈了进来
+// ⇒ `contains("resetToIdle()")` 恒真，删掉调用照样全绿（正是本段要防的那条复发）。
+// 改用花括号配对，并加哨兵 + 计数，把「只认到定义」这条路彻底堵死。
+let cupDisappearBlock = body(cupCode, from: ".onDisappear {")
+check("② 切片哨兵：取到块且**不含** resetToIdle 定义（含了 = 断言退化成恒真）",
+      !cupDisappearBlock.isEmpty && !cupDisappearBlock.contains("private func resetToIdle"))
+check("② 页面销毁取消刷新任务 **并复位态**（只 cancel 不复位 = 杯子永久挂在那一页 + 该页下拉全废）",
+      cupDisappearBlock.contains("refreshTask?.cancel()")
+      && countOf("resetToIdle()", in: cupDisappearBlock) == 1)
+check("② 复位只有一条出口 resetToIdle（正常刷完/被取消/兜底超时都必须走它）",
+      countOf("private func resetToIdle()", in: cupCode) == 1
+      && cupCode.contains("phase = .idle\n        pull = 0"))
+check("② 取消路径也复位（Task 被取消直接 return 而不复位 = 同上那条复发）",
+      cupCode.contains("guard !Task.isCancelled else { resetToIdle(); return }"))
+check("② 兜底看门狗：action 挂死（网络静默挂）也一定会收回杯子",
+      cupCode.contains("actionTimeout") && cupCode.contains("if phase == .refreshing { resetToIdle() }"))
 check("② 回位等够曲线时长（短于曲线 = 弹回过冲段被撤层，看着「闪一下不见」）",
       cupCode.contains("settleWait: UInt64 = 450_000_000") && cupCode.contains("Task.sleep(nanoseconds: settleWait)"))
 check("② 完全归位才复位 armed（中途清会被松手回弹路径误清 → 拉满也不触发）",
@@ -86,7 +132,11 @@ check("③ 刷新/回位期间不吃新下拉（防重入）",
       cupCode.contains("guard phase == .idle || phase == .pulling else { return }"))
 check("④ 弹性回位走 Motion 令牌（不是字面 duration）",
       cupCode.contains("withAnimation(Motion.settle) { pull = 0 }"))
-check("④ 没拉够的缩回走 Motion 令牌", cupCode.contains("withAnimation(Motion.settle) { pull = 0 }"))
+// v4.0.112（审查收口）：原第二条与上一条**字面量完全相同**（复制粘贴），一次断言算两遍 ——
+// 且实为无意义：`Motion.settle` 全组件只有 1 处（回位），「缩回」走的是同一行代码。
+// 换成真能红的一条：液面推到满也走令牌（`Motion.enter`），删掉即红。
+check("④ 液面推到满走 Motion 令牌（Motion.enter，不是字面 duration）",
+      cupCode.contains("withAnimation(Motion.enter) { pull = trigger }"))
 check("④ 不写字面动画时长（withAnimation(.easeIn…)/duration: 之外的动画一律令牌）",
       !cupCode.contains("withAnimation(.ease")
       && !cupCode.contains("withAnimation(.linear")
@@ -95,7 +145,9 @@ check("④ 不写字面动画时长（withAnimation(.easeIn…)/duration: 之外
 // ── 4. 五页接入：挂点正确（滚动容器上）且旧 API 已撤 ──────────────
 // 每页 = (路径, 该页原 .refreshable 闭包体片段，用于认「这页挂的是滚动容器本体」)
 let pages: [(String, String)] = [
-    ("qingliao/Features/Sessions/SessionsView.swift", "if !isSearching { await load() }"),
+    // v4.0.112：必须 `load(force: true)` —— 进页面已写过 lastLoadAt，裸 load() 在 3 秒节流内
+    // 直接 return：杯子照涨、数据不重拉（审查抓到的静默空转）。
+    ("qingliao/Features/Sessions/SessionsView.swift", "if !isSearching { await load(force: true) }"),
     ("qingliao/Features/Workspace/WorkspaceView.swift", "await load(); await loadPending()"),
     ("qingliao/Features/Life/LifeView.swift", "await loadLife(fresh: true, queued: true)"),
     ("qingliao/Features/Dashboard/DashboardView.swift", "await refresh()"),

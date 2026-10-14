@@ -65,6 +65,12 @@ struct ChatMessage: Identifiable, Equatable, Sendable {
     /// 共同点=都不进模型上下文、都不算消息身份（不进 id 计算，flip 一下不会换 id）。
     var edited: Bool = false
     var agent: Bool = false        // v2.0.96b：Agent 回复标记（工具调用回复，显示标签）
+    /// v4.0.112：本轮到**迭代上限**、正文其实是模型的收尾总结（后端 `notice="budget"`，
+    /// 源头是 Hermes `/v1/responses` 的 `hermes.budget_exhausted` 加法字段）。
+    /// 为什么要它：不打标记这条总结就和「正常答完」长得一模一样，用户分不出「我没跑完，
+    /// 先给你这些」和「这就是最终答案」（用户 2026-10-14 口径）。
+    /// ⚠️ **不进 id 计算**（同 actionOutcomes 口径）：标记不是消息身份，进 id 会让翻转时插入动画重播。
+    var notice: String?
     var voiceCommand: Bool = false   // v3.0.19：语音指令触发（长按智能球，显示 🎤 标记）
     var isPush: Bool = false         // v3.0.82：Hermes 主动推送消息（本地收件箱注入，显示"推送"标签）
     /// v3.4.x 引用回复：长按消息「引用」后，该消息携带被引用的原文摘要（气泡内可视化引用块）。
@@ -187,6 +193,8 @@ struct ChatMessage: Identifiable, Equatable, Sendable {
                               imageDataURL: imageURL ?? imageURLFromBlocks)
         msg.isPush = isPush
         msg.agent = isAgent
+        // v4.0.112：读回「阶段总结」标记（重启/切会话后这条没跑完的总结仍带标记，不再冒充正常答完）
+        msg.notice = d["notice"] as? String
         // v3.4.x：读回引用原文（重启/切会话后仍显示）
         msg.quotedText = d["quotedText"] as? String
         // SR6：读回撤回标记（原来只写内存 → 重启后撤回失效，原文照旧显示并进上下文）
