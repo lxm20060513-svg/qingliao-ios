@@ -355,6 +355,14 @@ fi
 echo "=== 20b. 邮件接入设置页真值表（v4.0.x：安全边界/后端契约/接线）==="
 run_unit /tmp/test_mail scripts/ql_mail/truth_table_mail.swift
 
+echo "=== 20b1. 工作台·工具格真值表（v4.0.113：定时提醒/文件管理 设置页 → 工作台）==="
+# 钉：8 格逐格标题/图标/色（新增两格沿用设置页原色 pink/indigo）、8 个工具体的 sheet 挂载、
+#     新两格挂 workspaceCold1 且 detents 与设置页时代同口径、冷组顶层 ≤4（§77）、
+#     设置页四面零残留（入口行 / sheet / @State / 搜索 case）+ 搜索索引零残留（34 → 32）、
+#     功能本体（QuickReminderSheet / FilesManagerSheet / QuickReminderStore）仍在。
+# 全是**编译不报、手点才现**的坏法：只搬入口不搬 sheet = 点了没反应；搬了忘撤 = 两处并存。
+run_unit /tmp/tt_wstools scripts/ql_wstools/truth_table_wstools.swift
+
 echo "=== 20b2. 自定义下拉刷新（液体杯子）真值表（v4.0.x：用户 2026-10-14 定案）==="
 # 钉：五页挂点/旧 API 已撤/核心机制（几何+相位+摇晃+@MainActor）/手感口径（medium 触觉、防重入、
 #     Motion 令牌回位）/设置类反例（本批范围外）。全是**静默失效**：挂错层、并存 .refreshable、

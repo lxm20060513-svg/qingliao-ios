@@ -66,9 +66,9 @@ struct SettingsView: View {
     @State var showLifeCards = false
     /// v4.0.82：Dock 栏设置（顺序 / 隐藏）—— 用户 2026-10-09 要求
     @State var showDockLayout = false
-    // v3.9.32：一句话本地定时提醒 / 文件管理
-    @State var showQuickReminder = false
-    @State var showFilesManager = false
+    // v4.0.113：@State showQuickReminder / showFilesManager 随「定时提醒 / 文件管理」入口
+    // 一并从设置页撤走（用户 2026-10-15「把定时提醒和文件管理从设置移动到工作台的工具里」）。
+    // 两个功能本体一行未动，只在**工作台·工具格**挂同一批 sheet 打开。
     // v3.0.17：聊天字体大小从一级菜单移除（外观二级菜单持有），fontSize 声明一并清理
     // v3.0.9：外观下天气城市已移除（天气城市设定在看板 WeatherBadge 点按处），相关状态一并清理
     // v2.0.101：Agent 使用说明内联展开
@@ -309,14 +309,8 @@ struct SettingsView: View {
                 .anchorMenuHost()   // v4.0.105：sheet 内长按站点需要本层宿主（根层 zIndex 4 画不到 sheet 之上）
                 .presentationDetents([.medium, .large])
         }
-        // v3.9.32：定时提醒（纯本地 UNCalendarNotificationTrigger，无后端依赖）
-        .sheet(isPresented: $showQuickReminder) {
-            QuickReminderSheet()
-                .anchorMenuHost()   // v4.0.105：sheet 内长按站点需要本层宿主（根层 zIndex 4 画不到 sheet 之上）
-                .presentationDetents([.medium, .large])
-                .scrollContentBackground(.hidden)
-        }
-        // v3.9.32：文件管理（上传目录浏览：预览 / 分享 / 重命名 / 删除）
+        // v4.0.113：「定时提醒」sheet（原挂此处）随入口迁到工作台·工具格 ——
+        // 见 Features/Workspace/WorkspaceView.swift 的 workspaceCold1（同一个 QuickReminderSheet）。
     }
 
     /// 深度治理：行为型深层修饰器下沉背景层（.background 不影响布局，语义等价）
@@ -333,11 +327,8 @@ struct SettingsView: View {
 
     private func settingsCold6() -> some View {
         Color.clear
-        .sheet(isPresented: $showFilesManager) {
-            FilesManagerSheet()
-                .presentationDetents([.medium, .large])
-                .scrollContentBackground(.hidden)
-        }
+        // v4.0.113：「文件管理」sheet（原挂此处）随入口迁工作台·工具格 ——
+        // 见 Features/Workspace/WorkspaceView.swift 的 workspaceCold1（同一个 FilesManagerSheet）。
         // v4.0.11：主动 Agent（后端 proactive_agent 的唯一 UI 面）
         .sheet(isPresented: $showProactive) {
             ProactiveAgentSheet()
@@ -444,8 +435,8 @@ struct SettingsView: View {
             connOpenPinPath = true
             showConnSettings = true
         case "lifeCards": showLifeCards = true
-        case "quickReminder": showQuickReminder = true
-        case "filesManager": showFilesManager = true
+        // v4.0.113：("quickReminder", "showQuickReminder") / ("filesManager", "showFilesManager")
+        // 随两行入口迁工作台·工具格一并撤（索引条目同批删 → 搜不到、也就不可能点到空目的地）
         // v4.0.x：("clipboardHistory", "showClipboardHistory") 随设置页入口一并撤
         // （功能本体还在：聊天页附件面板「剪切板」用的仍是同一个 ClipboardHistorySheet）
         case "proactive": showProactive = true
@@ -885,14 +876,11 @@ extension SettingsView {
             Divider().padding(.leading, Spacing.rowDividerInset)
             SettingRow(icon: "rectangle.grid.2x2", iconColor: .green, title: "生活卡片", chevron: true)
                 .tapButton { showLifeCards = true }
-            Divider().padding(.leading, Spacing.rowDividerInset)
-            // v3.9.32：一句话本地定时提醒（与上面「定时任务」不同：纯本地系统通知，App 不在也响）
-            SettingRow(icon: "bell.badge.fill", iconColor: .pink, title: "定时提醒", chevron: true)
-                .tapButton { showQuickReminder = true }
-            Divider().padding(.leading, Spacing.rowDividerInset)
-            // v3.9.32：文件管理（上传目录浏览：预览 / 分享 / 重命名 / 删除）
-            SettingRow(icon: "folder.fill", iconColor: .indigo, title: "文件管理", chevron: true)
-                .tapButton { showFilesManager = true }
+            // v4.0.113：「定时提醒」「文件管理」两行入口按用户口径**整块撤下**（2026-10-15
+            // 「把定时提醒和文件管理从设置移动到工作台的工具里」）→ 生活卡片成为本组最后一行。
+            // 两行的分隔线随行一起删（首行删行不删 Divider、末行删 Divider 不删行）。
+            // 功能本体不动：同一批 sheet 现挂在工作台 `workspaceCold1`；
+            // 聊天页长按气泡「提醒我」用的仍是同一个 QuickReminderSheet。
             // v4.0.x：设置页「剪贴板历史」行按用户口径撤（2026-10-14「设置里面的剪切板历史可以删掉了」）。
             // 功能本体不动：聊天页附件面板第五格「剪切板」打开的还是同一个 ClipboardHistorySheet，
             // 首页剪贴板卡入待办照旧 —— 只是不再从设置页进。

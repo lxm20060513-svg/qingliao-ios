@@ -85,10 +85,9 @@ enum SettingsSearchIndex {
               keywords: ["钉一钉", "pin", "存储路径"]),
         .init(route: "lifeCards", title: "生活卡片", icon: "rectangle.grid.2x2", group: "数据与工具",
               keywords: ["生活卡片", "首页卡片", "卡片"]),
-        .init(route: "quickReminder", title: "定时提醒", icon: "bell.badge.fill", group: "数据与工具",
-              keywords: ["提醒", "闹钟", "定时提醒"]),
-        .init(route: "filesManager", title: "文件管理", icon: "folder.fill", group: "数据与工具",
-              keywords: ["文件", "上传", "下载", "管理"]),
+        // v4.0.113：("quickReminder", "定时提醒") / ("filesManager", "文件管理")
+        // 两条索引随设置页两行入口迁「工作台·工具格」一并删（34 → 32）——
+        // 入口搬走而索引留着 = 搜得到、点下去设置页里没这行（比「搜不到」更坏）。
 
         // ── Agent 设置 ──
         .init(route: "proactive", title: "主动 Agent", icon: "bolt.horizontal.circle.fill", group: "AI 与 Agent",

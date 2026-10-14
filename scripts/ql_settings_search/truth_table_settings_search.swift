@@ -49,12 +49,15 @@ struct SettingsSearchTruthTable {
         // 精确钉死条数（不是 ≥30）：整条连同 route 一起被删时，下面的路由核验不会红 —— 只有条数能兜住。
         // 新增设置行时必须同步加索引 + 改这里的数（有意的摩擦：漏了就是「肉眼可见却搜不到」）。
         // 2026-10-14：34（35 → 34，设置页「剪贴板历史」行按用户口径撤下，索引同步撤）
-        check("索引条数与设置页对齐（当前 \(entries.count)，期望 34；v4.0.x 定时任务/邮件接入迁工作台、剪贴板历史撤）", entries.count == 34)
+        // 2026-10-15：32（34 → 32，「定时提醒」「文件管理」两行入口迁工作台·工具格，索引同步撤）
+        check("索引条数与设置页对齐（当前 \(entries.count)，期望 32；v4.0.113 定时提醒/文件管理迁工作台·工具格）", entries.count == 32)
         // v4.1.x（旧口径已作废）：MCP/知识库/网盘/技能库四项入口整体移到工作区页，
         // 设置页搜索不允许再出这四项（残留 = 搜得到、点下去设置里没这行）。
-        negatives += 6
+        negatives += 8
         // v4.0.x 追加：定时任务 / 邮件接入（同一处置——入口搬到工作台工具格）
-        for gone in ["MCP 工具服务", "知识库", "网盘接入", "技能库", "定时任务", "邮件接入"] {
+        // v4.0.113 追加：定时提醒 / 文件管理（同上；色与图标沿用设置页原样，见 WorkspaceView 的 toolsBoard）
+        for gone in ["MCP 工具服务", "知识库", "网盘接入", "技能库", "定时任务", "邮件接入",
+                     "定时提醒", "文件管理"] {
             check("反例：设置搜索不再出现「\(gone)」（入口已移到工作台）",
                   !entries.contains { $0.title == gone })
         }
@@ -106,8 +109,9 @@ struct SettingsSearchTruthTable {
             ("localModels", "showLocalModels"), ("memory", "showMemory"),
             ("cardGallery", "showCardGallery"), ("secrets", "showSecrets"),
             ("history", "showHistory"), ("logs", "showLogs"), ("diagnostics", "showDiagnostics"),
-            ("pinPath", "connOpenPinPath"), ("lifeCards", "showLifeCards"), ("quickReminder", "showQuickReminder"),
-            ("filesManager", "showFilesManager"),
+            ("pinPath", "connOpenPinPath"), ("lifeCards", "showLifeCards"),
+            // v4.0.113：（"quickReminder", "showQuickReminder"）/（"filesManager", "showFilesManager"）
+            // 随两行入口迁工作台·工具格撤下（目的地改由 WorkspaceView 的 showReminder / showFiles 承载）
             // v4.0.x：("clipboardHistory", "showClipboardHistory") 随设置页入口撤下
             ("proactive", "showProactive"),
             ("agentModel", "showAgentModelSheet"), ("agentHelp", "showAgentHelp"),

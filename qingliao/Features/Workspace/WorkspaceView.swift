@@ -25,6 +25,15 @@ import QuickLook
 //      （走 `/api/sessions/list`，**零后端改动**）；没有待答卡时这一块**不渲染**（宁缺勿占位）；
 //   ④ 工具格 —— 知识库 / 网盘文件 / MCP 工具 / 技能库 / 定时任务 / 邮件接入（后两项 v4.0.x 从设置页移入；
 //      六格排两行 3+3，单行会挤到 8.8pt，图标见 `toolsBoard` 注释）。
+// v4.0.113（用户 2026-10-15「把定时提醒和文件管理从设置移动到工作台的工具里」）：
+//   ① 工具格 6 → **8 格**（每行 4 格 → 正好两行排满）：末尾补「定时提醒」(`bell.badge.fill` / pink)
+//      与「文件管理」(`folder.fill` / indigo) —— 色沿用设置页原来那两颗，用户认色不认位置；
+//   ② 两个 sheet（`QuickReminderSheet` / `FilesManagerSheet`）随入口从设置页`settingsCold*`
+//      迁到本页 `workspaceCold1`，`.medium/.large` 两档 detents 与设置页时代逐字同口径；
+//   ③ 设置页侧同批撤：两行 SettingRow（+ 分隔线）、两个 @State、两个 `openSearchEntry` case、
+//      两条搜索索引（34 → 32）—— 入口搬走而索引留着 = 「搜得到、点下去没这行」。
+//   功能本体一行未动：定时提醒仍是 `QuickReminderScheduler`（纯本地系统通知，App 不在也响），
+//   聊天页长按气泡「提醒我」用的还是同一个 `QuickReminderSheet`；文件管理仍是上传目录浏览。
 // 本页宁缺勿占位：没有实现的块**不摆空壳**。
 //
 // 视觉口径（用户 2026-10-14：「视觉上对齐其他 tap，卡片圆角统一 22」）——五条，逐条对着仓内既有页抄：
@@ -88,13 +97,15 @@ struct WorkspaceView: View {
     /// 最多露几行（超出的走页脚汇总）——工作区不是第二个待办中心，别把第一屏撑满
     private static let pendingMaxRows = 3
 
-    // MARK: v4.0.109 工具格入口（v4.0.x 起 6 个）
+    // MARK: v4.0.109 工具格入口（v4.0.113 起 8 个）
     @State private var showKB = false
     @State private var showSkills = false
     @State private var showTasks = false   // v4.0.x 从设置页移来的「定时任务」
     @State private var showMail = false    // v4.0.x 从设置页移来的「邮件接入」
     @State private var showCloud = false
     @State private var showMCP = false
+    @State private var showReminder = false // v4.0.113 从设置页移来的「定时提醒」
+    @State private var showFiles = false    // v4.0.113 从设置页移来的「文件管理」
 
     /// 当前目录（相对 office/ 根；空 = 根）
     private var currentPath: String { dirStack.joined(separator: "/") }
@@ -541,6 +552,11 @@ struct WorkspaceView: View {
                 // v4.0.x：定时任务 / 邮件接入从设置页移入（色沿用设置页原色）
                 toolCell("定时任务", symbol: "clock.badge.fill", tint: .red) { showTasks = true }
                 toolCell("邮件接入", symbol: "envelope.fill", tint: .blue) { showMail = true }
+                // v4.0.113：定时提醒 / 文件管理从设置页移入（色沿用设置页原色：pink / indigo）。
+                // 排到 8 格后每行 4 格 × 两行正好排满，格子尺寸与 v4.0.x 六格时逐点相同
+                // （`GridItem(.flexible())` 只是把行宽均分，与格数无关）。
+                toolCell("定时提醒", symbol: "bell.badge.fill", tint: .pink) { showReminder = true }
+                toolCell("文件管理", symbol: "folder.fill", tint: .indigo) { showFiles = true }
             }
             .padding(Spacing.section)
             .frame(maxWidth: .infinity)
@@ -586,6 +602,19 @@ struct WorkspaceView: View {
                     .scrollContentBackground(.hidden)
                     // 与设置页同一份口径：sheet 内长按站点需要本层宿主（根层 zIndex 画不到 sheet 之上）
                     .anchorMenuHost()
+            }
+            // v4.0.113：定时提醒 / 文件管理（原挂设置页 sheet 冷组，随工具格入口一起搬来）。
+            // 顶层 4 条是本层上限（§77 类型栈深度护栏口径），再加 sheet 请新开 workspaceCold3。
+            .sheet(isPresented: $showReminder) {
+                QuickReminderSheet()
+                    .anchorMenuHost()   // v4.0.105：sheet 内长按站点需要本层宿主（根层 zIndex 4 画不到 sheet 之上）
+                    .presentationDetents([.medium, .large])
+                    .scrollContentBackground(.hidden)
+            }
+            .sheet(isPresented: $showFiles) {
+                FilesManagerSheet()
+                    .presentationDetents([.medium, .large])
+                    .scrollContentBackground(.hidden)
             }
     }
 
