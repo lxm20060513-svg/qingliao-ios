@@ -56,6 +56,8 @@ let pageFiles: [(String, String, String)] = [
     ("生活页", "qingliao/Features/Life/LifeView.swift", "colorSchemeEnv"),
     ("设置页", "qingliao/Features/Settings/SettingsCore.swift", "colorSchemeEnv"),
     ("看板页", "qingliao/Features/Dashboard/DashboardView.swift", "scheme"),
+    // v4.0.108：新增「工作区」tab 页（dock 第 5 档）
+    ("工作区页", "qingliao/Features/Workspace/WorkspaceView.swift", "colorSchemeEnv"),
 ]
 for (name, path, envVar) in pageFiles {
     let raw = src(path)

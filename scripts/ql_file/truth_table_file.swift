@@ -184,5 +184,21 @@ check("⑥ 卡片自查登录态（@Environment(AuthStore.self)，不需要跨�
 check("⑥ 文件段类型图标与类型文案齐备（六种 kind 都有分支）",
       countOf("case .docx:", in: section) >= 1 && countOf("case .other:", in: section) >= 1)
 
+// MARK: ⑦ 工作区产物库取数口径（v4.0.108 · dock 第 5 档「工作区」）
+// 为什么值得钉：**列表能列、一点「查看」必 404** 这条本地预检与 CI 全绿（v4.0.108 审查实测）——
+// 条目 path 少了 `office/` 别名根前缀时，后端 resolve_path 会回落到 uploads/ 与 ROOT，
+// 下载口 os.path.isfile 失败 → 只有真机点「查看」/QuickLook 才暴露。
+let ws = code(src("qingliao/Features/Workspace/WorkspaceView.swift"))
+check("⑦ 工作区页源可读（空了下面几条是空真）", !ws.isEmpty)
+check("⑦ 列表请求走别名根 requestPath", ws.contains("RemoteFiles.queryEncoded(requestPath)"))
+check("⑦ 条目 parent 传 requestPath（带别名前缀，预览/下载才不 404）",
+      ws.contains("RemoteFiles.parseEntries(obj?[\"entries\"], parent: requestPath)"))
+check("⑦ 反例：条目 parent 不许传 currentPath（缺别名前缀 → 预览 404）",
+      !ws.contains("parent: currentPath"))
+check("⑦ requestPath 由别名根拼出（office/ + 当前目录）",
+      ws.contains("Self.artifactRoot + \"/\" + currentPath"))
+check("⑦ 只在激活时拉产物（不给 TabView 预建白跑请求）",
+      ws.contains(".task(id: isActive)") && ws.contains("isActive && entries.isEmpty"))
+
 print("AI 成品文件卡真值表：#17 \(passCount) 通过 / \(failCount) 失败")
 exit(failCount == 0 ? 0 : 1)

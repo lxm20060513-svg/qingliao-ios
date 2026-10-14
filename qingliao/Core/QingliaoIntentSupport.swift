@@ -25,8 +25,8 @@ enum QingliaoDeepLink {
     static let scheme = "qingliao"
 
     enum Route: String, CaseIterable {
-        // tab 页：必须与 DockTab 的 case 一字不差
-        case chat, sessions, dashboard, life, settings
+        // tab 页：必须与 DockTab 的 case 一字不差（v4.0.108 起含新增的 workspace「工作区」）
+        case chat, sessions, workspace, dashboard, life, settings
 
         /// 非 tab 路由：打开智慧球快捷动作菜单（8 颗胶囊），**不切页**。
         /// 🚨 加这个 case 会让 `applyRoute` 里的 `DockTab(rawValue:)` 落空（静默返回）——

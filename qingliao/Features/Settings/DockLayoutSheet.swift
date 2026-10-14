@@ -58,6 +58,7 @@ struct DockLayoutSheet: View {
         case .sessions:  return .blue
         case .life:      return .pink
         case .chat:      return .teal
+        case .workspace: return .indigo
         case .dashboard: return .orange
         case .settings:  return .gray
         }

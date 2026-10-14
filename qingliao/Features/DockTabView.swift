@@ -14,7 +14,10 @@ enum DockTab: String, CaseIterable, Identifiable {
     //    当初那套「球不许离开 index 2」的限制**不要照搬**（v4.0.82 起 4 档可真正任意排）。
     // v4.0.x：dock 图标换 B 组（用户选定）：看板 chart.pie / 生活 heart / 设置 gearshape（空心）；
     // 会话 clock 保留。语义直白风，每个图标一眼看出页面用途；智慧球槽位（chat）不受影响。
-    case sessions, life, chat, dashboard, settings
+    // v4.0.108（用户 2026-10-14「在 dock 加一个 tab 叫工作区」）：新增 `workspace` 档
+    // —— 第 5 档（出厂序里排第 3：chat,life,workspace,dashboard,settings，见 DockLayoutKit.allRaw）。
+    // 图标选定 = 公文包 `briefcase`（用户从 4 组候选里拍的第 1 组，语义直白：AI 替我干的活）。
+    case sessions, life, chat, workspace, dashboard, settings
 
     // ⚠️ v4.0.82：原来的 `slotIndex`（写死 0..3）已删除 —— 顺序与显隐可配后槽位不再是常量，
     //    槽位序号唯一真源 = `DockLayoutKit.slotIndex(of:in:)`（视图侧由 `dockRenderTabs` 派生）。
@@ -27,6 +30,7 @@ enum DockTab: String, CaseIterable, Identifiable {
         case .dashboard: "看板"
         case .chat: "聊天"
         case .life: "生活"
+        case .workspace: "工作区"
         case .settings: "设置"
         }
     }
@@ -37,6 +41,7 @@ enum DockTab: String, CaseIterable, Identifiable {
         case .dashboard: "chart.pie"
         case .chat: "message.fill"
         case .life: "heart"
+        case .workspace: "briefcase"
         case .settings: "gearshape"
         }
     }
@@ -270,6 +275,11 @@ struct DockTabView: View {
             // 轮询暂停/恢复收进 DashboardView 自身生命周期，去隐式耦合
             DashboardView(isActive: selected == .dashboard)
                 .tabTransition(for: .dashboard, selected: $selected, revealCenter: revealCenter)
+        case .workspace:
+            // v4.0.108：工作区（「AI 替我干的活」聚合页）。
+            // ⚠️ 与其余档同款必须套 .tabTransition —— 漏挂这一档在 dock 上就没图标（真值表口径）。
+            WorkspaceView(isActive: selected == .workspace)
+                .tabTransition(for: .workspace, selected: $selected, revealCenter: revealCenter)
         case .settings:
             // v4.0.0：设置页大类 → 明细的二级页需要 NavigationStack 才有返回栈
             //（TabView 里裸放 NavigationLink 点了不推、也不显示返回键）。只包设置 tab —— 其他 tab 的层级结构一行不动。

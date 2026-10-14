@@ -25,11 +25,19 @@ import SwiftUI
 //   2. 胶囊/圆形状的 `Capsule()` 与 `cornerRadius: 0` 覆写（必须方角时）——语义不是圆角尺度。
 //
 // 用 static let（CGFloat 是值类型，Swift 6 严格并发无全局状态告警问题；与 Typography 同）。
-// 件数基线（收口前实测，用于回归断言）：icon 29 · chip 16 · inset 56 · field 15 · card 38 · hero 12
+// 件数基线（v4.0.108 实测，用于回归断言）：icon 40 · chip 22 · inset 69 · field 29 · card 48 · hero 21
 // ⚠️ 调整档位或做新一轮替换后，必须同步更新这组基线（断言脚本属本机运维工具，不随仓库分发）。
+// ⚠️ 取值口径 = `python3 /opt/data/scripts/ql_ui/check_tokens.py -v` 的 Radius 分档计数（已剥注释行）；
+//    该脚本本体只查「引用是否有声明」，这行基线是给人看的活文档，别拿 grep 数注释里的名字来对。
 // v4.0.102：hero 10 → 12 —— 生活页展开区两张**行卡**（HabitRowCard、GoalRowCard）按用户口径
 //           从 Radius.card(16) 升到 Radius.hero(22)。语义分层注释里 hero 本指大面板，
 //           行卡借用是本次的刻意例外（同栏目口径：圆环页卡 26 / 展开区行卡 22 / 其余默认 16）。
+// v4.0.108：hero 12 → 21（六档同批同步为实测值）—— 新增「工作区」页按用户口径
+//           **卡片圆角统一 22**（进行中卡 / 目录行 / 产物行 / 返回上一级行 / 空态卡 / 加载·失败提示卡
+//           一律 hero；该页此前用裸 `RoundedRectangle(cornerRadius: Radius.icon/card)`），
+//           并把行首图标底改走全站 `BadgeShell`（几何只此一处，不再在这页手写 Radius.icon）。
+//           其余档位的涨幅（icon 29→40 / chip 16→22 / inset 56→69 / field 15→29 / card 38→48）
+//           系 v4.0.103–4.0.107 期间各页新增累积，本批未动那几档，只是把基线一并拉回实测。
 
 enum Radius {
     /// 图标底板 / 代码块 / 表格 / 缩略图

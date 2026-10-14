@@ -6,6 +6,11 @@ import Foundation
 // 用户口径（2026-10-09 原话）：「设置里面增加 dock 栏设置，聊天、生活、看板、设置页可以调整顺序，
 // 可以隐藏某一页，唯独设置页不能隐藏」。
 //
+// v4.0.108（用户 2026-10-14：「在 dock 加一个 tab 叫工作区」）—— **4 档 → 5 档**：
+//   出厂序 = chat,life,workspace,dashboard,settings（工作区排第 3，紧跟「生活」）。
+//   ⚠️ 本表所有期望值已整组翻成 5 档口径；**老用户已存的 4 档顺序串不迁移**（sanitizedOrder 把
+//      缺的档按出厂序补到末尾 = 工作区出现在 dock 最右），下面有一条专门的断言钉这个行为。
+//
 // 编译方式（纯源码，不混 SwiftUI —— 仓规）：
 //   swiftc -swift-version 6 main.swift qingliao/Core/DockLayoutKit.swift -o /tmp/tt
 // 本表覆盖两层：
@@ -32,26 +37,41 @@ func readSource(_ rel: String) -> String {
 }
 
 let A = DockLayoutKit.allRaw
-let D_ORDER = "chat,life,dashboard,settings"
+let D_ORDER = "chat,life,workspace,dashboard,settings"
+/// v4.0.108 之前的出厂序（老用户机器上存的就是这个值）
+let D_ORDER_LEGACY = "chat,life,dashboard,settings"
+
+print("== ⓿ allRaw 口径：5 档（v4.0.108 加「工作区」）")
+check("allRaw 恰好 5 档", A.count == 5)
+check("工作区排第 3（chat,life,workspace,dashboard,settings）",
+      A == ["chat", "life", "workspace", "dashboard", "settings"])
+check("defaultOrderRaw 与 allRaw 同序", DockLayoutKit.defaultOrderRaw == D_ORDER)
 
 print("== ① sanitizedOrder：顺序净化（坏串一律回出厂序，宁可回默认也不许悄悄少一格）")
 check("空串 → 出厂序", DockLayoutKit.sanitizedOrder("") == A)
 check("出厂序原样通过", DockLayoutKit.sanitizedOrder(D_ORDER) == A)
 check("设置页可前移（顺序自由：用户只说不能隐藏，没说不能移动）",
-      DockLayoutKit.sanitizedOrder("settings,chat,life,dashboard") == ["settings", "chat", "life", "dashboard"])
+      DockLayoutKit.sanitizedOrder("settings,chat,life,workspace,dashboard")
+        == ["settings", "chat", "life", "workspace", "dashboard"])
 check("任意排列都放行（倒序）",
-      DockLayoutKit.sanitizedOrder("settings,dashboard,life,chat") == ["settings", "dashboard", "life", "chat"])
+      DockLayoutKit.sanitizedOrder("settings,dashboard,workspace,life,chat")
+        == ["settings", "dashboard", "workspace", "life", "chat"])
 check("缺项按出厂序补到末尾",
-      DockLayoutKit.sanitizedOrder("life,chat") == ["life", "chat", "dashboard", "settings"])
+      DockLayoutKit.sanitizedOrder("life,chat") == ["life", "chat", "workspace", "dashboard", "settings"])
+check("★ 老用户已存的 4 档串（无 workspace）→ 工作区补到末尾，不写迁移代码",
+      DockLayoutKit.sanitizedOrder(D_ORDER_LEGACY)
+        == ["chat", "life", "dashboard", "settings", "workspace"])
 check("未知项剔除",
-      DockLayoutKit.sanitizedOrder("chat,zzz,life,dashboard,settings") == A)
+      DockLayoutKit.sanitizedOrder("chat,zzz,life,workspace,dashboard,settings") == A)
 check("重复项去重",
-      DockLayoutKit.sanitizedOrder("chat,chat,life,dashboard,settings") == A)
+      DockLayoutKit.sanitizedOrder("chat,chat,life,workspace,dashboard,settings") == A)
 check("全坏值 → 出厂序", DockLayoutKit.sanitizedOrder("zzz,qqq") == A)
 check("空白容错（trim）",
-      DockLayoutKit.sanitizedOrder(" chat , life , dashboard , settings ") == A)
-check("结果恒为 4 档",
-      ["", "zzz", D_ORDER, "settings,chat"].allSatisfy { DockLayoutKit.sanitizedOrder($0).count == 4 })
+      DockLayoutKit.sanitizedOrder(" chat , life , workspace , dashboard , settings ") == A)
+check("结果恒为 5 档",
+      ["", "zzz", D_ORDER, "settings,chat", D_ORDER_LEGACY].allSatisfy {
+          DockLayoutKit.sanitizedOrder($0).count == 5
+      })
 
 print("== ② sanitizedHidden：隐藏净化（★设置页永不可隐藏 = 唯一闸门）")
 check("空串 → 空集合", DockLayoutKit.sanitizedHidden("").isEmpty)
@@ -64,48 +84,50 @@ check("未知项剔除", DockLayoutKit.sanitizedHidden("zzz,life") == ["life"])
 check("重复去重", DockLayoutKit.sanitizedHidden("life,life") == ["life"])
 check("回显按出厂序（sanitizedHidden ≠ 写入序，便于相等判断）",
       DockLayoutKit.sanitizedHidden("dashboard,life") == ["life", "dashboard"])
-check("canHide：只有设置页是 false（其余三档都可隐藏）",
+check("canHide：只有设置页是 false（其余四档都可隐藏，含新增的工作区）",
       !DockLayoutKit.canHide(raw: "settings")
-      && ["chat", "life", "dashboard"].allSatisfy { DockLayoutKit.canHide(raw: $0) })
+      && ["chat", "life", "workspace", "dashboard"].allSatisfy { DockLayoutKit.canHide(raw: $0) })
 
 print("== ③ visible：渲染裁剪（顺序 − 隐藏；设置页兜底必须在列）")
-check("默认 = 4 档出厂序",
+check("默认 = 5 档出厂序",
       DockLayoutKit.visible(order: A, hidden: []) == A)
-check("隐藏生活页 → 3 档（槽位自动收窄）",
-      DockLayoutKit.visible(order: A, hidden: ["life"]) == ["chat", "dashboard", "settings"])
-check("隐藏生活 + 看板 → 2 档",
-      DockLayoutKit.visible(order: A, hidden: ["life", "dashboard"]) == ["chat", "settings"])
-check("★ 极限：隐藏聊天 + 生活 + 看板 → 只剩设置页（渲染列表永不为空）",
-      DockLayoutKit.visible(order: A, hidden: ["chat", "life", "dashboard"]) == ["settings"])
+check("隐藏生活页 → 4 档（槽位自动收窄）",
+      DockLayoutKit.visible(order: A, hidden: ["life"]) == ["chat", "workspace", "dashboard", "settings"])
+check("隐藏生活 + 看板 → 3 档",
+      DockLayoutKit.visible(order: A, hidden: ["life", "dashboard"]) == ["chat", "workspace", "settings"])
+check("★ 极限：隐藏聊天 + 生活 + 看板 + 工作区 → 只剩设置页（渲染列表永不为空）",
+      DockLayoutKit.visible(order: A, hidden: ["chat", "life", "workspace", "dashboard"]) == ["settings"])
 check("★ 坏数据（隐藏串含设置页）→ 设置页仍在列且位置不乱",
-      DockLayoutKit.visible(order: A, hidden: ["settings", "life"]) == ["chat", "dashboard", "settings"])
-check("换序 + 隐藏组合：order=settings,dashboard,life,chat 隐藏 life → 保序裁剪",
-      DockLayoutKit.visible(order: ["settings", "dashboard", "life", "chat"], hidden: ["life"])
-        == ["settings", "dashboard", "chat"])
+      DockLayoutKit.visible(order: A, hidden: ["settings", "life"]) == ["chat", "workspace", "dashboard", "settings"])
+check("换序 + 隐藏组合：order=settings,dashboard,life,chat,workspace 隐藏 life → 保序裁剪",
+      DockLayoutKit.visible(order: ["settings", "dashboard", "life", "chat", "workspace"], hidden: ["life"])
+        == ["settings", "dashboard", "chat", "workspace"])
 check("forcing：临时插回被隐藏的档 → 回到它**原本的**位置（不是追加到末尾）",
       DockLayoutKit.visible(order: A, hidden: ["life"], forcing: ["life"]) == A)
 check("forcing 只影响被强制的那档，其余隐藏照旧",
       DockLayoutKit.visible(order: A, hidden: ["life", "dashboard"], forcing: ["life"])
-        == ["chat", "life", "settings"])
+        == ["chat", "life", "workspace", "settings"])
 check("order 与 hidden 全空 → 仍给设置页（兜底不空屏）",
       DockLayoutKit.visible(order: [], hidden: []) == ["settings"])
 
 print("== ④ slotIndex：槽位序号（微滑方向 / 浮层锚点几何，禁止再写死）")
-check("默认序：chat=0 / life=1 / dashboard=2 / settings=3",
-      ["chat", "life", "dashboard", "settings"].enumerated().allSatisfy {
+check("默认序：chat=0 / life=1 / workspace=2 / dashboard=3 / settings=4",
+      ["chat", "life", "workspace", "dashboard", "settings"].enumerated().allSatisfy {
           DockLayoutKit.slotIndex(of: $0.element, in: A) == $0.offset
       })
 check("换序后序号跟着走（settings 前移 → settings=0 / chat=1）",
-      DockLayoutKit.slotIndex(of: "settings", in: ["settings", "chat", "life", "dashboard"]) == 0
-      && DockLayoutKit.slotIndex(of: "chat", in: ["settings", "chat", "life", "dashboard"]) == 1)
-check("★ 隐藏后自动收窄：隐藏 life → dashboard 由 2 变 1",
-      DockLayoutKit.slotIndex(of: "dashboard", in: DockLayoutKit.visible(order: A, hidden: ["life"])) == 1)
+      DockLayoutKit.slotIndex(of: "settings", in: ["settings", "chat", "life", "dashboard", "workspace"]) == 0
+      && DockLayoutKit.slotIndex(of: "chat", in: ["settings", "chat", "life", "dashboard", "workspace"]) == 1)
+check("★ 隐藏后自动收窄：隐藏 life → dashboard 由 3 变 2",
+      DockLayoutKit.slotIndex(of: "dashboard", in: DockLayoutKit.visible(order: A, hidden: ["life"])) == 2)
 check("不在列表 → 0（退第一格，不崩、不锚到屏外）",
       DockLayoutKit.slotIndex(of: "life", in: ["chat", "settings"]) == 0)
 
 print("== ⑤ encodeHidden：写回形态（按出厂序的规范串）")
 check("按出厂序规范", DockLayoutKit.encodeHidden(["dashboard", "life"]) == "life,dashboard")
 check("空集合 → 空串", DockLayoutKit.encodeHidden([]) == "")
+check("workspace 的规范串形态（排 life 之后、dashboard 之前）",
+      DockLayoutKit.encodeHidden(["dashboard", "workspace"]) == "workspace,dashboard")
 check("与 sanitizedHidden 往返一致",
       DockLayoutKit.sanitizedHidden(DockLayoutKit.encodeHidden(["dashboard", "life"])) == ["life", "dashboard"])
 check("visibleRaw 摘要路径与 visible 一致",
@@ -118,8 +140,14 @@ let sheet = readSource("Features/Settings/DockLayoutSheet.swift")
 let core = readSource("Features/Settings/SettingsCore.swift")
 let models = readSource("Core/Models.swift")
 
-check("DockTab 的 rawValue 四档与 allRaw 一致（映射靠 rawValue，错一个字符就整串失效）",
-      dockView.contains("case sessions, life, chat, dashboard, settings"))
+check("DockTab 的 rawValue 五档与 allRaw 一致（映射靠 rawValue，错一个字符就整串失效）",
+      dockView.contains("case sessions, life, chat, workspace, dashboard, settings"))
+check("工作区档的 title / icon 真存在（公文包 briefcase —— 用户 2026-10-14 拍定）",
+      dockView.contains("case .workspace: \"工作区\"") && dockView.contains("case .workspace: \"briefcase\""))
+check("★ workspace 的页面真挂上了（dockPage 有分支 + 套 tabTransition，漏挂则该档没图标）",
+      dockView.contains("case .workspace:")
+      && dockView.contains("WorkspaceView(isActive: selected == .workspace)")
+      && dockView.contains(".tabTransition(for: .workspace, selected: $selected, revealCenter: revealCenter)"))
 check("TabView 按配置渲染（ForEach(dockRenderTabs)），不是写死的静态四块",
       dockView.contains("ForEach(dockRenderTabs, id: \\.self) { tab in")
       && dockView.contains("private func dockPage(_ tab: DockTab) -> some View"))
@@ -160,6 +188,8 @@ check("DockLayoutSheet：升降序写回整串（move 里 swapAt + join）",
       sheet.contains("now.swapAt(i, i + delta)") && sheet.contains("orderRaw = now.joined(separator: \",\")"))
 check("DockLayoutSheet：隐藏写回走 encodeHidden（规范形态，别自己拼串）",
       sheet.contains("hiddenRaw = DockLayoutKit.encodeHidden(now)"))
+check("DockLayoutSheet：新增的 workspace 档有行首色块配色（rowTint 穷尽，漏一个色 CI 编译不过）",
+      sheet.contains("case .workspace: return .indigo"))
 
 print("\n通过 \(ok) 项，失败 \(fail) 项")
 if fail > 0 { exit(1) }

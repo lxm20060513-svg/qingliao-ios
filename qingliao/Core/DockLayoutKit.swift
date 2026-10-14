@@ -19,12 +19,16 @@ import Foundation
 ///    4 档可以真正任意排，当初那套「球不许离开 index 2」的限制不要再照搬过来。
 enum DockLayoutKit {
 
-    /// 可入 dock 的 4 档 rawValue（出厂序）。
+    /// 可入 dock 的 5 档 rawValue（出厂序）。
+    /// v4.0.108（用户 2026-10-14「在 dock 加一个 tab 叫工作区」）：「工作区」= 第 3 档 ——
+    /// 位置取 chat/life 之后、dashboard/settings 之前（「AI 替我干的活」紧跟「我的日常」）。
+    /// ⚠️ 老用户已存的 4 档顺序串**不需要迁移**：sanitizedOrder 会把缺的档按出厂序补到末尾
+    ///    （所以老用户装新版后「工作区」出现在 dock 最右，新装用户才拿到上面这个出厂位置）。
     /// ⚠️ 必须与 `DockTab` 的 rawValue 一致（表里有源码断言钉住）。
-    static let allRaw: [String] = ["chat", "life", "dashboard", "settings"]
+    static let allRaw: [String] = ["chat", "life", "workspace", "dashboard", "settings"]
 
     /// 出厂顺序串（`@AppStorage` 的初始值）
-    static let defaultOrderRaw = "chat,life,dashboard,settings"
+    static let defaultOrderRaw = "chat,life,workspace,dashboard,settings"
 
     /// 唯一不可隐藏的一档（用户口径①）
     static let unHidableRaw = "settings"

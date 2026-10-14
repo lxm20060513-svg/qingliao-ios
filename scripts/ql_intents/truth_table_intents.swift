@@ -136,16 +136,16 @@ check("白名单外的名字返回 nil", QingliaoRouteHandoff.consume() == nil)
 ud.set("dashboard", forKey: QingliaoRouteHandoff.defaultsKey)          // 老格式（无时间戳）也要能认
 check("无时间戳的老格式仍可消费", QingliaoRouteHandoff.consume() == .dashboard)
 check("route(named:) 白名单外为 nil", QingliaoRouteHandoff.route(named: "settings2") == nil)
-check("route(named:) 认得 6 个路由（5 个 tab 页 + 快捷菜单）",
-      ["chat", "sessions", "dashboard", "life", "settings", "quickActions"].allSatisfy { QingliaoRouteHandoff.route(named: $0) != nil })
+check("route(named:) 认得 7 个路由（6 个 tab 页 + 快捷菜单）",
+      ["chat", "sessions", "workspace", "dashboard", "life", "settings", "quickActions"].allSatisfy { QingliaoRouteHandoff.route(named: $0) != nil })
 NotificationCenter.default.removeObserver(token)
 
 // MARK: ⑤ Route ↔ DockTab 一一对应（两张表漂移 = 深链静默失效）
 
-check("Route 恰好 6 个 case（5 个 tab 页 + quickActions）", QingliaoDeepLink.Route.allCases.count == 6)
+check("Route 恰好 7 个 case（6 个 tab 页 + quickActions）", QingliaoDeepLink.Route.allCases.count == 7)
 let routeNames = Set(QingliaoDeepLink.Route.allCases.map(\.rawValue))
-check("Route rawValue 是 5 个 tab 页 + quickActions",
-      routeNames == ["chat", "sessions", "dashboard", "life", "settings", "quickActions"])
+check("Route rawValue 是 6 个 tab 页 + quickActions",
+      routeNames == ["chat", "sessions", "workspace", "dashboard", "life", "settings", "quickActions"])
 check("非 tab 白名单里的名字都在 Route 里（白名单不许写错名）",
       Set(QingliaoDeepLink.nonTabRoutes.map(\.rawValue)).isSubset(of: routeNames))
 // DockTab 的 case 列表（App 层 SwiftUI 类型，本机编不了 → 从源里取那一行）
