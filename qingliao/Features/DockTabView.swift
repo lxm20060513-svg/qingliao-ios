@@ -30,7 +30,7 @@ enum DockTab: String, CaseIterable, Identifiable {
         case .dashboard: "看板"
         case .chat: "聊天"
         case .life: "生活"
-        case .workspace: "工作区"
+        case .workspace: "工作台"   // v4.0.x 用户改名（原「工作区」，icon briefcase 不变）
         case .settings: "设置"
         }
     }

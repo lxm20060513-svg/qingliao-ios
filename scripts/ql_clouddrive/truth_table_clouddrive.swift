@@ -3,8 +3,9 @@
 // 背景：网盘接入走后端 clouddrive_api（装官方 skill 包 + 授权码 → 调网盘 CLI），
 // App 端只做「接入管理 + 文件浏览」两件事。
 // 这张表盯四类「本地预检查不出、出了就功能全废或违背用户口径」的东西：
-//   ① 位置口径：用户明确要求「网盘接入放设置里」→ 看板侧一个网盘入口都不许有
-//      （原「连接器面板」这个载体已随 v4.0.109 删栏目整块退役，口径改钉在看板页本身）
+//   ① 位置口径：v4.1.x 起设置页四件套入口（MCP/知识库/网盘/技能库）整体移到工作区页 ——
+//      旧口径「网盘接入放设置里」已作废；现钉「设置页无入口 + 工作区有入口 + 看板侧零入口」
+//      （看板连接器面板已随 v4.0.109 删栏目整块退役，口径钉在看板页本身）
 //   ② 安全边界：技能地址/授权码明文绝不落 App、列表绝不回显
 //   ③ 后端契约：路径/方法/字段名与 clouddrive_api.py 严格对齐（写错 = 静默 200+ok:false）
 //   ④ 浏览页护栏：fid 栈（网盘无路径概念）、蜂窝大文件闸、失败可见不静默
@@ -61,26 +62,30 @@ let browCode = stripComments(browSrc)
 let coreSrc = stripComments(src("qingliao/Features/Settings/SettingsCore.swift"))
 // v4.0.109：看板侧位置口径的参照物从面板改成看板页本身（连接器面板已随「连接器」栏目退役）
 let boardSrc = stripComments(src("qingliao/Features/Dashboard/DashboardView.swift"))
+// v4.1.x：网盘入口的新落点（工作区页工具四格）
+let wsSrc = stripComments(src("qingliao/Features/Workspace/WorkspaceView.swift"))
 
 // ── 1. 源可读（空了后面全是空真） ─────────────────────────────
 check("CloudDriveSettingsSheet.swift 源可读", !setSrc.isEmpty)
 check("CloudDriveBrowserSheet.swift 源可读", !browSrc.isEmpty)
 check("SettingsCore.swift 源可读", !coreSrc.isEmpty)
 check("DashboardView.swift 源可读（看板侧位置口径的参照物）", !boardSrc.isEmpty)
+check("WorkspaceView.swift 源可读（工作区侧入口参照物）", !wsSrc.isEmpty)
 // ⚠️ 负向断言用 fileExists（不是 src(...).isEmpty）：守卫 check_guard_coverage.py
 //   只把「主动读取」算断链，fileExists 的路径本就该不存在。
 check("连接器面板已退役（v4.0.109）：ConnectorPanelSheet.swift 不复存在",
       !FileManager.default.fileExists(atPath: "qingliao/Features/Dashboard/ConnectorPanelSheet.swift"))
 
-// ── 2. 位置口径（用户明确要求）：网盘在设置，不在连接器卡片 ──────
-check("设置里有「网盘接入」入口行",
-      coreSrc.contains("title: \"网盘接入\"") && coreSrc.contains("showCloudDrive = true"))
-check("入口图标与配色唯一（externaldrive.fill + .teal）",
-      coreSrc.contains("icon: \"externaldrive.fill\", iconColor: .teal, title: \"网盘接入\""))
+// ── 2. 位置口径（v4.1.x 用户要求，旧口径「只在设置页」已作废）：设置页无入口、工作区有 ──────
+check("设置页已无「网盘接入」入口（状态/入口行/路由全清）",
+      !coreSrc.contains("网盘接入") && !coreSrc.contains("showCloudDrive"))
+check("工作区有「网盘文件」入口行（toolCell → showCloud）",
+      wsSrc.contains("toolCell(\"网盘文件\"") && wsSrc.contains("showCloud = true"))
 // 🚨 v4.0.109（用户要求「删掉看板页的连接器栏目」）：接入中心那一页整块退役 ——
 // 「面板的网盘卡只做状态+入口」这条口径的**载体本身已不存在**（文件已删），
 // 于是翻成更硬的一条：**看板侧不许再出现任何网盘入口/管理逻辑**。
-// 网盘接入只有设置页一个入口、一份 UI（CloudDriveSettingsSheet），
+// v4.1.x 起网盘唯一入口 = 工作区页工具四格（设置页入口已随四件套迁移移除），
+// UI 仍是同一份 CloudDriveSettingsSheet（工作区挂 sheet，不重复实现），
 // 钉的是「不重复实现 / 不从看板复活入口」这条真风险（原面板口径的历史见 git 记录）。
 check("看板侧无网盘入口（网盘只在设置页；连接器面板已退役）",
       !boardSrc.contains("CloudDriveSettingsSheet")
@@ -204,11 +209,11 @@ check("圆角用 Radius 令牌",
       setCode.contains("cornerRadius: Radius.icon") && browCode.contains("cornerRadius: Radius.icon"))
 check("列表分隔线缩进走令牌", browCode.contains("Spacing.rowDividerInset"))
 
-// ── 12. 设置页接线完整性 ───────────────────────────────────────
-check("状态声明存在", coreSrc.contains("@State var showCloudDrive = false"))
-check("sheet 已挂载 CloudDriveSettingsSheet", coreSrc.contains("CloudDriveSettingsSheet()"))
-check("入口行后有分隔线（glassListCard 内行间分隔口径）",
-      slice(coreSrc, "title: \"网盘接入\"", "title: \"权限与 AI 操控\"").contains("Divider()"))
+// ── 12. 工作区接线完整性（v4.1.x：宿主从设置页换到工作区页）─────────
+check("工作区状态声明存在（@State private var showCloud）",
+      wsSrc.contains("@State private var showCloud = false"))
+check("sheet 挂在工作区背景层（workspaceCold2 挂 CloudDriveSettingsSheet）",
+      wsSrc.contains(".sheet(isPresented: $showCloud)") && wsSrc.contains("CloudDriveSettingsSheet()"))
 check("浏览页入口挂在网盘列表行上（点行进浏览）",
       setCode.contains(".onTapGesture { browsingDrive = d }")
       // 钉语义不钉字面：sheet(item:) 允许带 onDismiss 复位参数，关键是 item 挂载 + onDismiss 复位都在

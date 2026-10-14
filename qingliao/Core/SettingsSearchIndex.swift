@@ -53,20 +53,13 @@ enum SettingsSearchIndex {
               keywords: ["微信", "通道", "微信通道", "通道模型", "微信通道模型", "主模型", "全局", "hermes"]),
         .init(route: "ha", title: "HA 设置", icon: "house.fill", group: "连接与模型",
               keywords: ["智能家居", "home assistant", "家居", "设备"]),
-        .init(route: "mcp", title: "MCP 工具服务", icon: "puzzlepiece.extension.fill", group: "连接与模型",
-              keywords: ["mcp", "工具", "插件", "服务"]),
-        .init(route: "mail", title: "邮件接入", icon: "envelope.fill", group: "连接与模型",
-              keywords: ["邮箱", "邮件", "163"]),
-        .init(route: "cloudDrive", title: "网盘接入", icon: "externaldrive.fill", group: "连接与模型",
-              keywords: ["网盘", "云盘", "夸克", "上传"]),
+        // v4.0.x：「邮件接入」移到工作台·工具格，设置页入口与搜索词条一并撤（防搜到死路由）
         .init(route: "appPermissions", title: "权限与 AI 操控", icon: "lock.shield.fill", group: "连接与模型",
               keywords: ["权限", "授权", "ai 操控", "操控"]),
         .init(route: "localModels", title: "管理模型", icon: "shippingbox.fill", group: "连接与模型",
               keywords: ["本地模型", "下载模型", "ollama", "本地"]),
 
         // ── AI 智能 ──
-        .init(route: "kb", title: "知识库", icon: "books.vertical.fill", group: "AI 与 Agent",
-              keywords: ["知识库", "文档", "检索", "问答"]),
         .init(route: "memory", title: "AI 记忆", icon: "brain.head.profile", group: "AI 与 Agent",
               keywords: ["记忆", "长期记忆", "记住"]),
         .init(route: "cardGallery", title: "能力示例", icon: "rectangle.grid.2x2.fill", group: "AI 与 Agent",
@@ -81,8 +74,7 @@ enum SettingsSearchIndex {
         // ── 数据与自动化 ──
         .init(route: "secrets", title: "密码管理", icon: "key.fill", group: "数据与工具",
               keywords: ["凭据", "密码", "密钥", "账号"]),
-        .init(route: "tasks", title: "定时任务", icon: "clock.badge.fill", group: "数据与工具",
-              keywords: ["定时", "任务", "cron", "计划"]),
+        // v4.0.x：「定时任务」移到工作区·工具五格，设置页入口与搜索词条一并撤（防搜到死路由）
         .init(route: "history", title: "执行历史", icon: "clock.arrow.circlepath", group: "数据与工具",
               keywords: ["历史", "执行记录", "记录"]),
         .init(route: "logs", title: "日志", icon: "doc.text.fill", group: "数据与工具",
@@ -99,9 +91,6 @@ enum SettingsSearchIndex {
               keywords: ["文件", "上传", "下载", "管理"]),
         .init(route: "clipboardHistory", title: "剪贴板历史", icon: "doc.on.clipboard", group: "数据与工具",
               keywords: ["剪贴板", "粘贴板", "复制", "历史"]),
-        // #24：技能库（后端 /api/agent/skills 六端；「沉淀为技能」入口在此页顶部）
-        .init(route: "skillsLibrary", title: "技能库", icon: "books.vertical.fill", group: "数据与工具",
-              keywords: ["技能", "技能库", "skill", "沉淀", "技能包"]),
 
         // ── Agent 设置 ──
         .init(route: "proactive", title: "主动 Agent", icon: "bolt.horizontal.circle.fill", group: "AI 与 Agent",

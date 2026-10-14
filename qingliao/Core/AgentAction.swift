@@ -67,6 +67,7 @@ struct AgentAction: Equatable, Sendable {
         // v4.0.7 长期目标：AI 判定「我在筹备XX」→ 回建目标卡 → 用户点确认才建
         case goalCreate   = "goal.create"         // 建长期目标（写，必须点确认）
         case goalStepDone = "goal.step_done"      // 勾掉目标的一步（写）
+        case goalEdit     = "goal.edit"           // 编辑目标（标题/暂停/推进时刻，写）→ PATCH /api/life/goal
 
         var capability: AppCapability {
             switch self {
@@ -83,7 +84,7 @@ struct AgentAction: Equatable, Sendable {
             case .notify:      return .notifications
             case .mailSend:    return .mail
             // v4.0.7：目标归到 reminders 能力（复用「待办/提醒」这档已有授权，不新增能力位）
-            case .goalCreate, .goalStepDone: return .reminders
+            case .goalCreate, .goalStepDone, .goalEdit: return .reminders
             }
         }
 
@@ -101,7 +102,7 @@ struct AgentAction: Equatable, Sendable {
                 return .read
             case .calendarCreate, .calendarUpdate, .photoSave, .notify,
                  .reminderCreate, .contactsCreate, .clipboardWrite, .fileWrite, .mailSend,
-                 .goalCreate, .goalStepDone, .todoAdd:
+                 .goalCreate, .goalStepDone, .goalEdit, .todoAdd:
                 return .write
             case .calendarDelete, .photoDelete, .reminderDelete:
                 return .delete
@@ -135,6 +136,7 @@ struct AgentAction: Equatable, Sendable {
             case .mailSend:       return "发送邮件"
             case .goalCreate:     return "建长期目标"
             case .goalStepDone:   return "更新目标进度"
+        case .goalEdit:       return "编辑长期目标"
             }
         }
     }

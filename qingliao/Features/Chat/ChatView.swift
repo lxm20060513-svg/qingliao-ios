@@ -136,7 +136,7 @@ struct ChatView: View {
     // v2.0.96：Hermes 捷径面板（官方斜杠命令）
     @State var showHermesShortcut = false
     // v4.0.x：浏览器实时画面弹窗（watch 直播）
-    @State var showBrowserLive = false
+    @State var showClipboardHistory = false   // v4.0.x：附件面板第五格改剪切板历史（原浏览器直播入口撤）
     @State var browserLiveSession: BrowserLiveSession?
     // 大爆炸（BigBang）文本炸开
     @State var bigBangPayload: BigBangPayload?
@@ -923,8 +923,8 @@ struct ChatView: View {
                 menuButton("bolt.fill", "指令", Color.orange, idx: 2) { showQuickPrompts = true }
                 // v3.9.28：云端模式移除，Hermes 捷径恒显示（v3.0.6 的按模式隐藏随之作废）
                 menuButton("sparkles", "Hermes 捷径", Color.purple, idx: 3) { showHermesShortcut = true }
-                // v4.0.x：浏览器实时画面（watch 模式直播弹窗；手动输入站点即时观看）
-                menuButton("desktopcomputer", "浏览器", Color.teal, idx: 4) { showBrowserLive = true }
+                // v4.0.x：剪切板历史（原「浏览器」直播入口撤；消息流里的直播卡链路保留不动）
+                menuButton("doc.on.clipboard", "剪切板", Color.teal, idx: 4) { showClipboardHistory = true }
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, Spacing.xl)
@@ -1359,14 +1359,10 @@ struct ChatView: View {
     /// 由 browserLiveSession 驱动（点 × 置 nil 即收起，轮询随视图销毁自动停）。
     private func chatColdChrome14() -> some View {
         Color.clear
-        // 发起面板（手动入口）
-        .sheet(isPresented: $showBrowserLive) {
-            AnyView(BrowserLivePromptView { site, url in
-                showBrowserLive = false
-                browserLiveSession = BrowserLiveSession(site: site, url: url, ts: Date())
-            }
-            .presentationDetents([.medium])
-            )
+        // v4.0.x：剪切板历史弹窗（原浏览器直播发起面板撤；复用设置页同一 ClipboardHistorySheet）
+        .sheet(isPresented: $showClipboardHistory) {
+            ClipboardHistorySheet()
+                .presentationDetents([.medium, .large])
         }
         // AI 报直播标记 / 手动发起 → 消息流里的直播卡出现（Center 是源、这里是镜像）。
         // 收起时只清本地镜像，Center 源由宿主 onClose 回调统一清（防重建重弹）。

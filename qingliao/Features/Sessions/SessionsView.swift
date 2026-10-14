@@ -583,7 +583,8 @@ struct SessionsView: View {
         // 本页与聊天页消息区一并关掉；看板 / 生活两页不动（用户只点了这两页）。
         .scrollEdgeEffectHidden(true)
         // v2.0.86h：Dock 滑动隐藏已删除（从未生效，手动开关替代）
-        .refreshable {
+        // v4.0.x：系统 .refreshable → 自绘液体杯子下拉刷新（用户定案）
+        .pullRefreshCup {
             if !isSearching { await load() }
         }
     }

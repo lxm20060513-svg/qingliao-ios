@@ -125,6 +125,7 @@ struct RecordSection: View {
             // 浮层入口不丢 —— 展开态底部那行「全部记录」仍走原来那套（含三层浮层互斥的收口）。
             // v4.0.100：曲线 `settle` → `cardExpand`（用户「点击弹开动画再丝滑一点」）。
             withAnimation(Motion.cardExpand) { recordExpanded.toggle() }
+            Haptics.tap()   // 对齐其余四张生活卡（待办/习惯/目标/备忘录都是 cardExpand + tap）
         } label: {
             VStack(alignment: .leading, spacing: Spacing.md) {
                 // v4.0.84 方案 B③：金额从「与标签同排的 17pt」提成「独立一行 24pt 数字 + 小字单位」。

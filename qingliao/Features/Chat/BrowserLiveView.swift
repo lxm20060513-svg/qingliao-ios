@@ -47,52 +47,8 @@ final class BrowserLiveCenter: ObservableObject {
     }
 }
 
-/// 发起直播的输入面板（附件面板「浏览器」按钮 → 填 URL → 消息流里出直播卡）
-struct BrowserLivePromptView: View {
-    var onStart: (String, String) -> Void
-    @State private var urlText = ""
-    @Environment(\.dismiss) private var dismiss
-
-    /// 宽松归一化：无 scheme 补 https://；域名合法性交给 watch 里 goto 的报错
-    static func normalizeURL(_ raw: String) -> String? {
-        let t = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !t.isEmpty, !t.contains(" ") else { return nil }
-        if t.hasPrefix("http://") || t.hasPrefix("https://") { return t }
-        return "https://" + t
-    }
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section("观看浏览器实时画面") {
-                    TextField("网址，如 www.baidu.com", text: $urlText)
-                        .keyboardType(.URL)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                    Button("开始观看") {
-                        if let u = Self.normalizeURL(urlText) {
-                            let site = URL(string: u)?.host ?? u
-                            onStart(site, u)
-                        }
-                    }
-                    .disabled(Self.normalizeURL(urlText) == nil)
-                }
-                Section {
-                    Text("AI 操作浏览器时画面会出现在聊天消息里（约 1 秒一帧，仅 Wi-Fi 下可用），随时可以继续打字指挥。")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .navigationTitle("🖥 浏览器直播")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") { dismiss() }
-                }
-            }
-        }
-    }
-}
+// v4.0.x：手动发起面板（BrowserLivePromptView）已随附件面板入口更替移除；
+// 直播卡只保留「AI 推 [[browser_live:site|url]] 标记」这一条链路（消息流内出卡）。
 
 /// v4.0.75：消息流内的实时画面卡（Muse 式）。渲染与轮询一体：有图出图、连接中出骨架、
 /// 结束出收尾态；onClose（点 ×）由宿主传入——收起卡片 + 清 Center 源都在宿主回调里做。

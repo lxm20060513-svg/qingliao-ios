@@ -37,12 +37,9 @@ struct SettingsView: View {
     @State var showConnSettings = false
     @State var showPasswordSheet = false
     @State var showSecrets = false
-    // v2.0.81：知识库页面
-    @State var showKB = false
     // v2.0.87：AI 记忆
     @State var showMemory = false
     @State var memoryCount = 0
-    @State var showTasks = false
     @State var showLogs = false
     /// v4.0.61：搜索「钉一钉存储」直达——钉一钉存储行已搬进「连接设置」页（用户 2026-10-05），
     /// 本开关只负责「打开连接设置并让它自己把那颗 sheet 弹出来」，页内 UI 归 ConnSettingsView
@@ -63,14 +60,8 @@ struct SettingsView: View {
     @State var logoutAnchor: CGRect = .zero
     @State var secretCount = 0
     @State var showHASettings = false
-    // v3.5.0：MCP 工具服务管理弹窗
-    @State var showMCPSettings = false
     // v3.9.95：权限与 AI 操控（日历/相册/通知/HomeKit 的授权与 AI 开关）
     @State var showAppPermissions = false
-    // v4.0.x：邮件接入（IMAP/SMTP 邮箱账号，AI 可收发邮件）
-    @State var showMailSettings = false
-    // v4.0.x：网盘接入（夸克等官方 skill 包 + 授权码；用户口径=只放设置页，看板侧不设入口）
-    @State var showCloudDrive = false
     // v3.5.x：生活卡片设置（股票 / 资讯 / 快递）
     @State var showLifeCards = false
     /// v4.0.82：Dock 栏设置（顺序 / 隐藏）—— 用户 2026-10-09 要求
@@ -80,8 +71,6 @@ struct SettingsView: View {
     @State var showFilesManager = false
     // v4.0.104 待做池 #11：剪贴板历史（本地回看 / 一键入待办）
     @State var showClipboardHistory = false
-    // #24：技能库（列表/搜索/查看/启停/软删 + 把一段对话沉淀成技能）
-    @State var showSkillsLibrary = false
     // v3.0.17：聊天字体大小从一级菜单移除（外观二级菜单持有），fontSize 声明一并清理
     // v3.0.9：外观下天气城市已移除（天气城市设定在看板 WeatherBadge 点按处），相关状态一并清理
     // v2.0.101：Agent 使用说明内联展开
@@ -258,11 +247,6 @@ struct SettingsView: View {
     /// 深度治理：行为型深层修饰器下沉背景层（.background 不影响布局，语义等价）
     private func settingsCold2() -> some View {
         Color.clear
-        .sheet(isPresented: $showTasks) {
-            TasksView()
-                .anchorMenuHost()   // v4.0.105：sheet 内长按站点需要本层宿主（根层 zIndex 4 画不到 sheet 之上）
-                .presentationDetents([.medium, .large])
-        }
         .sheet(isPresented: $showLogs) {
             LogsView()
                 .presentationDetents([.medium, .large])
@@ -296,12 +280,6 @@ struct SettingsView: View {
             SecretsView()
                 .presentationDetents([.medium, .large])
         }
-        // v2.0.81：知识库
-        .sheet(isPresented: $showKB) {
-            KBView()
-                .presentationDetents([.medium, .large])
-                .scrollContentBackground(.hidden)
-        }
         // v2.0.87：AI 记忆
     }
 
@@ -316,29 +294,11 @@ struct SettingsView: View {
             HASettingsSheet()
                 .presentationDetents([.medium])
         }
-        // v3.5.0：MCP 工具服务管理
-        .sheet(isPresented: $showMCPSettings) {
-            MCPSettingsSheet()
-                .presentationDetents([.medium, .large])
-                .scrollContentBackground(.hidden)
-        }
-        // v4.0.x：邮件接入
-        .sheet(isPresented: $showMailSettings) {
-            MailSettingsSheet()
-                .presentationDetents([.medium, .large])
-                .scrollContentBackground(.hidden)
-        }
-        // v4.0.x：网盘接入
     }
 
     /// 深度治理：行为型深层修饰器下沉背景层（.background 不影响布局，语义等价）
     private func settingsCold5() -> some View {
         Color.clear
-        .sheet(isPresented: $showCloudDrive) {
-            CloudDriveSettingsSheet()
-                .presentationDetents([.medium, .large])
-                .scrollContentBackground(.hidden)
-        }
         // v3.9.95：权限与 AI 操控
         .sheet(isPresented: $showAppPermissions) {
             AppPermissionsSheet()
@@ -376,13 +336,6 @@ struct SettingsView: View {
             ClipboardHistorySheet()
                 .presentationDetents([.medium, .large])
                 .scrollContentBackground(.hidden)
-        }
-        // v4.0.104 待做池 #24：技能库（弹窗尺寸与同页其它 sheet 一致）
-        .sheet(isPresented: $showSkillsLibrary) {
-            SkillsLibrarySheet()
-                .presentationDetents([.medium, .large])
-                .scrollContentBackground(.hidden)
-                .anchorMenuHost()   // v4.0.105：sheet 内长按站点需要本层宿主（根层 zIndex 4 画不到 sheet 之上）
         }
     }
 
@@ -486,16 +439,11 @@ struct SettingsView: View {
         case "model": showModelSheet = true
         case "wechatChannel": showWechatChannel = true
         case "ha": showHASettings = true
-        case "mcp": showMCPSettings = true
-        case "mail": showMailSettings = true
-        case "cloudDrive": showCloudDrive = true
         case "appPermissions": showAppPermissions = true
         case "localModels": showLocalModels = true
-        case "kb": showKB = true
         case "memory": showMemory = true
         case "cardGallery": showCardGallery = true
         case "secrets": showSecrets = true
-        case "tasks": showTasks = true
         case "history": showHistory = true
         case "logs": showLogs = true
         case "diagnostics": showDiagnostics = true
@@ -507,7 +455,6 @@ struct SettingsView: View {
         case "quickReminder": showQuickReminder = true
         case "filesManager": showFilesManager = true
         case "clipboardHistory": showClipboardHistory = true
-        case "skillsLibrary": showSkillsLibrary = true
         case "proactive": showProactive = true
         case "agentModel": showAgentModelSheet = true
         case "agentHelp":
@@ -584,18 +531,7 @@ extension SettingsView {
             SettingRow(icon: "house.fill", iconColor: .purple, title: "HA 设置", chevron: true)
                 .tapButton { showHASettings = true }
             Divider().padding(.leading, Spacing.rowDividerInset)
-            // v3.5.0：MCP 工具服务（App 配 key → Hermes 原生 MCP 工具）
-            SettingRow(icon: "puzzlepiece.extension.fill", iconColor: .teal, title: "MCP 工具服务", chevron: true)
-                .tapButton { showMCPSettings = true }
-            Divider().padding(.leading, Spacing.rowDividerInset)
-            // v4.0.x：邮件接入（配一次邮箱，AI 就能收发邮件）
-            SettingRow(icon: "envelope.fill", iconColor: .blue, title: "邮件接入", chevron: true)
-                .tapButton { showMailSettings = true }
-            Divider().padding(.leading, Spacing.rowDividerInset)
-            // v4.0.x：网盘接入（位置按用户要求只放设置页，看板侧不设入口）
-            SettingRow(icon: "externaldrive.fill", iconColor: .teal, title: "网盘接入", chevron: true)
-                .tapButton { showCloudDrive = true }
-            Divider().padding(.leading, Spacing.rowDividerInset)
+            // v4.0.x：「邮件接入」移到工作台·工具格（用户指令；本页不再重复挂入口）
             // v3.9.95：权限与 AI 操控（授权状态 + 逐项「允许 AI 操作」开关 + 能力边界）
             SettingRow(icon: "lock.shield.fill", iconColor: .indigo, title: "权限与 AI 操控", chevron: true)
                 .tapButton { showAppPermissions = true }
@@ -665,9 +601,6 @@ extension SettingsView {
     @ViewBuilder var aiSection: some View {
         // v4.1.0：组头由 FoldSection 统一渲染（折叠 = 一行摘要 / 展开 = 大标题 + N 项）
         VStack(spacing: 0) {
-            SettingRow(icon: "books.vertical.fill", iconColor: .green, title: "知识库", chevron: true)
-                .tapButton { showKB = true }
-            Divider().padding(.leading, Spacing.rowDividerInset)
             SettingRow(icon: "brain.head.profile", iconColor: .pink, title: "AI 记忆", value: "\(memoryCount) 条", chevron: true)
                 .tapButton { showMemory = true }
             Divider().padding(.leading, Spacing.rowDividerInset)
@@ -938,9 +871,7 @@ extension SettingsView {
             SettingRow(icon: "key.fill", iconColor: .teal, title: "密码管理", value: "\(secretCount) 条凭据", chevron: true)
                 .tapButton { showSecrets = true }
             Divider().padding(.leading, Spacing.rowDividerInset)
-            SettingRow(icon: "clock.badge.fill", iconColor: .red, title: "定时任务", chevron: true)
-                .tapButton { showTasks = true }
-            Divider().padding(.leading, Spacing.rowDividerInset)
+            // v4.0.x：「定时任务」移到工作区·工具五格（用户指令；本页不再重复挂入口）
             SettingRow(icon: "clock.arrow.circlepath", iconColor: .orange, title: "执行历史", chevron: true)
                 .tapButton { showHistory = true }
             Divider().padding(.leading, Spacing.rowDividerInset)
@@ -973,10 +904,6 @@ extension SettingsView {
             // v4.0.104 待做池 #11：剪贴板历史（只在你主动读取时记录 / 只存本机 / 一键入待办）
             SettingRow(icon: "doc.on.clipboard", iconColor: .blue, title: "剪贴板历史", chevron: true)
                 .tapButton { showClipboardHistory = true }
-            Divider().padding(.leading, Spacing.rowDividerInset)
-            // #24：技能库（后端 /api/agent/skills 六端；沉淀入口在此页顶部）
-            SettingRow(icon: "books.vertical.fill", iconColor: .purple, title: "技能库", chevron: true)
-                .tapButton { showSkillsLibrary = true }
         }
         .pastelCard()
     }

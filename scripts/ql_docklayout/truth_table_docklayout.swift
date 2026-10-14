@@ -142,8 +142,8 @@ let models = readSource("Core/Models.swift")
 
 check("DockTab 的 rawValue 五档与 allRaw 一致（映射靠 rawValue，错一个字符就整串失效）",
       dockView.contains("case sessions, life, chat, workspace, dashboard, settings"))
-check("工作区档的 title / icon 真存在（公文包 briefcase —— 用户 2026-10-14 拍定）",
-      dockView.contains("case .workspace: \"工作区\"") && dockView.contains("case .workspace: \"briefcase\""))
+check("工作台档的 title / icon 真存在（公文包 briefcase —— 用户 2026-10-14 拍定；v4.0.x 文案工作区→工作台）",
+      dockView.contains("case .workspace: \"工作台\"") && dockView.contains("case .workspace: \"briefcase\""))
 check("★ workspace 的页面真挂上了（dockPage 有分支 + 套 tabTransition，漏挂则该档没图标）",
       dockView.contains("case .workspace:")
       && dockView.contains("WorkspaceView(isActive: selected == .workspace,")

@@ -17,13 +17,14 @@ import QuickLook
 //      实测 `/api/files/list?path=office` 可列）。走现成的 `RemoteFiles`（下载 / 落盘 / 失败文案单一真源）；
 //      子目录（office-mcp 会按日期建目录）可进入，顶部有返回上级。
 // v4.0.109（第二批 = 用户 2026-10-14 的四条：「工作区右上角的任务中心胶囊删掉」+
-// 「长期目标从生活页搬进工作区 +「待你处理」聚合 + 工具四格」）：
+// 「长期目标从生活页搬进工作台 +「待你处理」聚合 + 工具格」）：
 //   ① 页头右上「任务中心」胶囊**删除** —— 入口只留「进行中」那张卡（用户口径：那一颗多余）；
 //   ② 长期目标**整块搬进来**（`GoalsSection()` 原样复用，含它的页级浮层宿主 `GoalsGlassLayerHost`）；
 //      生活页对应板块**已拿掉**（`LifeSection.goals` case 一并删除，含「自定义板块」列表项）；
 //   ③ 「待你处理」聚合 —— AI 问过、我还没答的问题卡（跨会话），真源与解析见 `Core/WorkspacePendingKit.swift`
 //      （走 `/api/sessions/list`，**零后端改动**）；没有待答卡时这一块**不渲染**（宁缺勿占位）；
-//   ④ 工具四格 —— 知识库 / 网盘文件 / MCP 工具服务 / 技能库（四格四色不撞，图标见 `toolsBoard` 注释）。
+//   ④ 工具格 —— 知识库 / 网盘文件 / MCP 工具 / 技能库 / 定时任务 / 邮件接入（后两项 v4.0.x 从设置页移入；
+//      六格排两行 3+3，单行会挤到 8.8pt，图标见 `toolsBoard` 注释）。
 // 本页宁缺勿占位：没有实现的块**不摆空壳**。
 //
 // 视觉口径（用户 2026-10-14：「视觉上对齐其他 tap，卡片圆角统一 22」）——五条，逐条对着仓内既有页抄：
@@ -87,9 +88,11 @@ struct WorkspaceView: View {
     /// 最多露几行（超出的走页脚汇总）——工作区不是第二个待办中心，别把第一屏撑满
     private static let pendingMaxRows = 3
 
-    // MARK: v4.0.109 工具四格的四个入口
+    // MARK: v4.0.109 工具格入口（v4.0.x 起 6 个）
     @State private var showKB = false
     @State private var showSkills = false
+    @State private var showTasks = false   // v4.0.x 从设置页移来的「定时任务」
+    @State private var showMail = false    // v4.0.x 从设置页移来的「邮件接入」
     @State private var showCloud = false
     @State private var showMCP = false
 
@@ -122,7 +125,8 @@ struct WorkspaceView: View {
             .padding(.bottom, Spacing.section * 5)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .refreshable { await load(); await loadPending() }
+        // v4.0.x：系统 .refreshable → 自绘液体杯子下拉刷新（用户定案）
+        .pullRefreshCup { await load(); await loadPending() }
         .task(id: isActive) {
             guard isActive else { stopActivePolling(); return }
             // v4.0.110：每次激活都刷新产物（原「仅 entries 为空才拉」= AI 新产物永远不出现的根因：
@@ -156,13 +160,14 @@ struct WorkspaceView: View {
         // 口径见文件头「视觉口径」第 1 条；自绘标题行已整块退役，别再往滚动内容里塞回一行标题。
         // v4.0.109：右上「任务中心」胶囊已删（用户要求）——`PageHeader` 的 trailing 传空即可，别补别的按钮。
         .safeAreaBar(edge: .top) {
-            PageHeader(title: "工作区",
+            PageHeader(title: "工作台",
                        subtitle: "AI 替我干的活 · 产物 \(visibleFiles.count) 个")
         }
         // 页底：与聊天 / 会话 / 生活 / 看板 / 设置五页同源同法。纯视觉层：垫在整页最底层、
         // 卡片玻璃透出彩底；不改布局、不拦手势。
         .background(EnvironmentGlowLayers(scheme: colorSchemeEnv))
-        // v4.0.109：工具四格的四个 sheet 下沉背景层冷组（防主 body 类型栈膨胀；口径同设置页 settingsColdN）。
+        // v4.0.109：工具格的 sheet 下沉背景层冷组（防主 body 类型栈膨胀；口径同设置页 settingsColdN）。
+        // v4.0.x：4→6 格后已含定时任务/邮件接入两个 sheet。
         // 拆两组是因为「每组顶层修饰器 ≤4 条」的深度上限（见 ql_typestack 护栏）。
         .background(workspaceCold1())
         .background(workspaceCold2())
@@ -434,7 +439,9 @@ struct WorkspaceView: View {
                         .font(.system(size: Typography.tiny, weight: .semibold))
                         .lineLimit(1)
                 }
-                .glassPillStroke()
+                // v4.0.x：系统胶囊样式（.bordered 自带 Capsule 材质底），不再自绘玻璃描边
+                .buttonStyle(.bordered)
+                .controlSize(.small)
             }
         }
         .padding(Spacing.section)
@@ -506,21 +513,30 @@ struct WorkspaceView: View {
         if items != pendingItems { withAnimation(Motion.tap) { pendingItems = items } }
     }
 
-    // MARK: - v4.0.109 工具四格
+    // MARK: - v4.0.109 工具格（v4.0.x 起 4→6 格、两行 3+3）
 
-    /// 工具入口一行四格。前三格是**既有能力换入口**（知识库 / 网盘文件 / MCP 工具服务，设置里都有），
-    /// 第四格 = 技能库（AI 会的手艺清单）。
+    /// 工具入口两行 3+3。前三格是**既有能力换入口**（知识库 / 网盘文件 / MCP 工具服务），
+    /// 第四格 = 技能库；第五、六格 = 定时任务 / 邮件接入（v4.0.x 从设置页移入）。
     /// ⚠️ 技能库刻意用 `sparkles`、不是设置页那颗 `books.vertical.fill`：本行四格**同屏**，
     ///    与知识库同符号会分不开（同一个功能在设置页仍是书那颗，别去改那边）；
-    ///    四格四色（green / blue / teal / purple）同样是为了同屏可分辨。
+    ///    六格六色不撞（green / blue / teal / purple / red / blue）同样是为了同屏可分辨；
+    ///    ⚠️ 邮件接入的 blue 与网盘文件同色——两者都属「外部服务接入」，同色可接受（分处两行）。
     private var toolsBoard: some View {
         VStack(alignment: .leading, spacing: Spacing.md) {
             sectionTitle("工具")
-            HStack(spacing: Spacing.sm) {
-                toolCell("知识库", symbol: "books.vertical.fill", tint: .green) { showKB = true }
-                toolCell("网盘文件", symbol: "externaldrive.fill", tint: .blue) { showCloud = true }
-                toolCell("MCP 工具", symbol: "puzzlepiece.extension.fill", tint: .teal) { showMCP = true }
-                toolCell("技能库", symbol: "sparkles", tint: .purple) { showSkills = true }
+            // v4.0.x：4→6 格后单行会挤（375 屏每格 ~47pt、4 字标题缩到 8.8pt），改两行 3+3。
+            VStack(spacing: Spacing.md) {
+                HStack(spacing: Spacing.sm) {
+                    toolCell("知识库", symbol: "books.vertical.fill", tint: .green) { showKB = true }
+                    toolCell("网盘文件", symbol: "externaldrive.fill", tint: .blue) { showCloud = true }
+                    toolCell("MCP 工具", symbol: "puzzlepiece.extension.fill", tint: .teal) { showMCP = true }
+                }
+                HStack(spacing: Spacing.sm) {
+                    toolCell("技能库", symbol: "sparkles", tint: .purple) { showSkills = true }
+                    // v4.0.x：定时任务 / 邮件接入从设置页移入（色沿用设置页原色）
+                    toolCell("定时任务", symbol: "clock.badge.fill", tint: .red) { showTasks = true }
+                    toolCell("邮件接入", symbol: "envelope.fill", tint: .blue) { showMail = true }
+                }
             }
             .padding(Spacing.section)
             .frame(maxWidth: .infinity)
@@ -549,7 +565,7 @@ struct WorkspaceView: View {
         .buttonStyle(.plain)
     }
 
-    // MARK: - v4.0.109 工具四格的 sheet（背景层冷组）
+    // MARK: - 工具格的 sheet（背景层冷组）
 
     /// 行为型深层修饰器下沉背景层（`.background` 不影响布局，语义等价）——口径同设置页 `settingsColdN`。
     /// 拆两组是因为「每组顶层修饰器 ≤4 条」的深度上限（见 `ql_typestack` 护栏）。
@@ -578,6 +594,16 @@ struct WorkspaceView: View {
             }
             .sheet(isPresented: $showMCP) {
                 MCPSettingsSheet()
+                    .presentationDetents([.medium, .large])
+                    .scrollContentBackground(.hidden)
+            }
+            .sheet(isPresented: $showTasks) {
+                TasksView()
+                    .anchorMenuHost()   // v4.0.105：sheet 内长按站点需要本层宿主（根层 zIndex 4 画不到 sheet 之上）
+                    .presentationDetents([.medium, .large])
+            }
+            .sheet(isPresented: $showMail) {
+                MailSettingsSheet()
                     .presentationDetents([.medium, .large])
                     .scrollContentBackground(.hidden)
             }

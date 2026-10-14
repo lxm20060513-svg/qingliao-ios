@@ -122,7 +122,8 @@ struct LifeView: View {
                 introReady = true
                 migrateLifeSplitOnce()   // v4.0.101：老用户隐藏串语义迁移（一次性，见该函数注释）
             }
-            .refreshable { await loadLife(fresh: true, queued: true) }
+            // v4.0.x：系统 .refreshable → 自绘液体杯子下拉刷新（用户定案）
+            .pullRefreshCup { await loadLife(fresh: true, queued: true) }
             // v4.0.61（试点页）：页头从 VStack 第一行改成挂在滚动视图上的系统 **safeAreaBar**（iOS 26 新 API：
             // 「把自定义栏交给系统按栏处理」）—— 滚动时内容在页头下沿走系统级模糊/渐隐，
             // 而不是「自绘头 + 内容在下面硬切」。系统会替它处理安全区与边缘效果。

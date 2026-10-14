@@ -29,7 +29,7 @@ BE_COPY = os.path.join(os.path.dirname(ROOT), 'scripts', 'ql_be_deploy', 'stream
 CAPS = ['calendar', 'reminders', 'photos', 'contacts', 'location',
         'clipboard', 'files', 'notifications', 'mail', 'homekit', 'todoList', 'health']
 
-# ── 真值表：22 个动作 → (影响分级, 归属能力, prompt 里给模型看的动作名)
+# ── 真值表：25 个动作 → (影响分级, 归属能力, prompt 里给模型看的动作名)
 #     prompt 名 = rawValue，唯一例外是 notify（后端一直写作 notify）
 ACTIONS = [
     ('calendarCreate', 'calendar.create', 'write', 'calendar'),
@@ -55,6 +55,7 @@ ACTIONS = [
     # v4.0.7 长期目标：AI 判定「我在筹备XX」→ 回建目标卡 → 用户点确认才建
     ('goalCreate', 'goal.create', 'write', 'reminders'),
     ('goalStepDone', 'goal.step_done', 'write', 'reminders'),
+    ('goalEdit',     'goal.edit',      'write', 'reminders'),
     # v4.0.60 待办清单：AI 判定「记到待办/加到待办清单」→ 回待办卡 → 用户点确认才写轻聊待办
     ('todoAdd', 'todo.add', 'write', 'todoList'),
     # v4.0.60 健康（HealthKit 只读）：用户问睡眠/步数/心率 → 回只读卡自动执行
@@ -236,7 +237,7 @@ if os.path.exists(BE_COPY):
     # （stream_api.py：`+ (_GOAL_ACTION_DOC if _goal_auto_detect_enabled() else "")`）。
     # 所以：goal.* 允许只出现在那个（可能被门控掉的）常量里；**其余动作必须无条件在 QLACTION_PROMPT 里**。
     # 早先「两个常量直接拼起来查」会掩盖「开关关掉时 goal 动作压根没投递」这种假绿（2026-10-05 审查抓到）。
-    GOAL_GATED = {'goal.create', 'goal.step_done'}
+    GOAL_GATED = {'goal.create', 'goal.step_done', 'goal.edit'}
     missing = [n for n in ACT_NAMES
                if n != 'notify' and n not in prompt
                and not (n in GOAL_GATED and n in goaldoc)]
@@ -287,6 +288,25 @@ check('mail.send 与其它写动作同口径过 mutationGuard（漏 = 权限页�
 # 变成摆设，越权写入只有运行期才暴露（2026-10-05 审查抓）。
 check('todo.add 过 mutationGuard(.todoList)（漏 = 待办开关变摆设 + 越权写入）',
       'await AppPermissionKit.mutationGuard(.todoList)' in exsrc)
+
+# v4.0.x 审查抓（goal.edit 新动作）：三条都只能在 editGoal/markGoalStep **函数体内**判定 ——
+# 拿全文件子串判会被 createGoal 的同串命中，恒真 = 假绿。
+def _body(src, decl, span=4000):
+    i = src.find(decl)
+    return src[i:i + span] if i >= 0 else ''
+
+_edit = _body(exsrc, 'func editGoal(')
+_steps = _body(exsrc, 'func markGoalStep(')
+check('goal.edit 过 mutationGuard(.reminders)（漏 = 关掉「AI 操作·提醒事项」后 AI 照样改用户目标）',
+      _edit != '' and 'await AppPermissionKit.mutationGuard(.reminders)' in _edit)
+check('goal.edit 时刻钳位走 GoalEditKit 真源（自写 0-23 会与编辑表单分叉成三处不一致）',
+      'GoalEditKit.clampMorning(' in _edit and 'GoalEditKit.clampEvening(' in _edit)
+check('goal.edit 回灌后端规范化后的字段（只回灌标题/暂停 = 卡片显示与实际生效分叉）',
+      'g.morningHour = v' in _edit and 'g.eveningHour = v' in _edit)
+check('goal.step_done 的全量 doneStepIds 以远端真值为基准（拿本地快照当全量 = 把远端已完成步骤回退）',
+      'remoteDoneStepIDs(' in _steps)
+check('反例：勾步骤的 PATCH 不得退回 try? 静默吞错（界面显示已勾、服务器没落库）',
+      'try? await auth.json("/api/life/goal", method: "PATCH"' not in exsrc)
 
 inb = read('qingliao/Core/InboxStore.swift')
 check('作答必须查后端 ok（漏 = 200+ok:false 被当成功，卡面停在「已回答」而 AI 一直等）',

@@ -340,6 +340,18 @@ final class GoalStore {
     // 🚨 口径：建 job 失败**不阻塞**本地落库 —— 目标卡片照常出现，用户能在详情里看到
     // 「没建上每日推送」并重试。宁可少推，不可让用户以为建好了其实没有。
 
+    /// v4.0.x：拉**远端真值**下某目标已完成的步骤 id 集合。
+    ///
+    /// 为什么要它：`PATCH /api/life/goal` 的 `doneStepIds` 是**全量覆盖**语义（不在集合里的已完成
+    /// 步骤会被后端改回未完成）。本地 `goals` 只是本机快照，后台 cron 推进 / 别的设备勾选都会让远端领先
+    /// → 拿本地集合当全量发会把远端刚完成的步骤回退。AI 勾步骤前先用它取基准。
+    /// 拉不到返回 nil（调用方退回本地快照，不比不改更差）。
+    func remoteDoneStepIDs(goalID: String) async -> [String]? {
+        guard let remote = await SyncedStore.readRemote([GoalItem].self, auth: auth, path: filePath),
+              let g = remote.first(where: { $0.id == goalID }) else { return nil }
+        return g.steps.filter { $0.done }.map { $0.id }
+    }
+
     /// 建目标并让后端把每日 cron job 建上。返回后端回的 goal（含 cronJobID），失败返回 nil。
     @discardableResult
     func createOnBackend(_ goal: GoalItem) async -> GoalItem? {

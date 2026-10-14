@@ -48,12 +48,15 @@ struct SettingsSearchTruthTable {
         positives += 1
         // 精确钉死条数（不是 ≥30）：整条连同 route 一起被删时，下面的路由核验不会红 —— 只有条数能兜住。
         // 新增设置行时必须同步加索引 + 改这里的数（有意的摩擦：漏了就是「肉眼可见却搜不到」）。
-        check("索引条数与设置页对齐（当前 \(entries.count)，期望 41）", entries.count == 41)
-        positives += 1
-        // #24：新增「技能库」行时同步加的索引（漏了就是肉眼可见却搜不到）
-        check("新增的「技能库」行搜得到（#24）",
-              SettingsSearchIndex.match("技能").contains { $0.title == "技能库" }
-              && SettingsSearchIndex.match("skill").contains { $0.title == "技能库" })
+        check("索引条数与设置页对齐（当前 \(entries.count)，期望 35；v4.0.x 定时任务/邮件接入随入口迁工作台撤下）", entries.count == 35)
+        // v4.1.x（旧口径已作废）：MCP/知识库/网盘/技能库四项入口整体移到工作区页，
+        // 设置页搜索不允许再出这四项（残留 = 搜得到、点下去设置里没这行）。
+        negatives += 6
+        // v4.0.x 追加：定时任务 / 邮件接入（同一处置——入口搬到工作台工具格）
+        for gone in ["MCP 工具服务", "知识库", "网盘接入", "技能库", "定时任务", "邮件接入"] {
+            check("反例：设置搜索不再出现「\(gone)」（入口已移到工作台）",
+                  !entries.contains { $0.title == gone })
+        }
         positives += 1
         // v4.0.68：新增「聊天页宠物」开关行时同步加的索引（漏了就是肉眼可见却搜不到）
         check("新增的「聊天页宠物」行搜得到（v4.0.68）",
@@ -96,14 +99,14 @@ struct SettingsSearchTruthTable {
         // route → 期望目的地（弹窗类=showX；sec:* 类=滚动锚点），与 SettingsSearchIndex 文件头约定一一对应
         let targets: [(String, String)] = [
             ("password", "showPasswordSheet"), ("conn", "showConnSettings"), ("model", "showModelSheet"),
-            ("wechatChannel", "showWechatChannel"), ("ha", "showHASettings"), ("mcp", "showMCPSettings"),
-            ("mail", "showMailSettings"), ("cloudDrive", "showCloudDrive"), ("appPermissions", "showAppPermissions"),
-            ("localModels", "showLocalModels"), ("kb", "showKB"), ("memory", "showMemory"),
-            ("cardGallery", "showCardGallery"), ("secrets", "showSecrets"), ("tasks", "showTasks"),
+            ("wechatChannel", "showWechatChannel"), ("ha", "showHASettings"),
+            // v4.0.x：("mail", "showMailSettings") 随邮件接入入口迁工作台撤下
+            ("appPermissions", "showAppPermissions"),
+            ("localModels", "showLocalModels"), ("memory", "showMemory"),
+            ("cardGallery", "showCardGallery"), ("secrets", "showSecrets"),
             ("history", "showHistory"), ("logs", "showLogs"), ("diagnostics", "showDiagnostics"),
             ("pinPath", "connOpenPinPath"), ("lifeCards", "showLifeCards"), ("quickReminder", "showQuickReminder"),
             ("filesManager", "showFilesManager"), ("clipboardHistory", "showClipboardHistory"),
-            ("skillsLibrary", "showSkillsLibrary"),
             ("proactive", "showProactive"),
             ("agentModel", "showAgentModelSheet"), ("agentHelp", "showAgentHelp"),
             ("agentKeywords", "showAgentKeywords"), ("agentMemory", "showAgentMemory"),
@@ -162,8 +165,12 @@ struct SettingsSearchTruthTable {
               !multi.contains { $0.title == "AI 记忆" })
 
         positives += 1
-        check("大小写不敏感：mcp 与 MCP 结果一致",
-              SettingsSearchIndex.match("mcp").map(\.id) == SettingsSearchIndex.match("MCP").map(\.id))
+        check("大小写不敏感：model 与 MODEL 结果一致",
+              SettingsSearchIndex.match("model").map(\.id) == SettingsSearchIndex.match("MODEL").map(\.id))
+        negatives += 1
+        check("反例：搜「知识库」「网盘」「MCP」「技能」→ 空（设置页已无这四项）",
+              SettingsSearchIndex.match("知识库").isEmpty && SettingsSearchIndex.match("网盘").isEmpty
+              && SettingsSearchIndex.match("MCP").isEmpty && SettingsSearchIndex.match("技能").isEmpty)
         positives += 1
         check("英文别名：face id 能搜到「Face ID 登录」（关键词里有 faceid）",
               SettingsSearchIndex.match("face id").contains { $0.title == "Face ID 登录" })
@@ -171,14 +178,14 @@ struct SettingsSearchTruthTable {
         // ── 5. 用户最可能搜的词都要能落到某个设置项（聚合断言，缺失时打印是谁）──
         let expected: [(String, String)] = [
             ("记忆", "AI 记忆"), ("推送", "微信推送"), ("震动", "震动反馈"),
-            ("网盘", "网盘接入"), ("定时", "定时任务"), ("密码", "密码管理"),
+            ("密码", "密码管理"),
             ("宠物", "AI形象"), ("日志", "日志"), ("更新", "关于轻聊"),
         ]
         let misses = expected.filter { pair in
             !SettingsSearchIndex.match(pair.0).contains { $0.title == pair.1 }
         }
         positives += 1
-        check("9 个常用词都能落到目标设置项"
+        check("8 个常用词都能落到目标设置项"
               + (misses.isEmpty ? "" : "（缺失：\(misses.map { "\($0.0)→\($0.1)" }.joined(separator: ", "))）"),
               misses.isEmpty)
 
@@ -200,8 +207,7 @@ struct SettingsSearchTruthTable {
         notContains("密码", "App 锁", "搜「密码」不把「App 锁」带出来（该搜「锁」）")
         notContains("推送", "定时提醒", "搜「推送」不把「定时提醒」带出来")
         notContains("震动", "首页快捷卡片", "搜「震动」不把「首页快捷卡片」带出来（同组但不同事）")
-        notContains("记忆", "知识库", "搜「记忆」不把「知识库」带出来")
-        notContains("网盘", "邮件接入", "搜「网盘」不把「邮件接入」带出来")
+        notContains("邮件", "诊断", "搜「邮件」不把「诊断」带出来")
         notContains("更新", "诊断", "搜「更新」不把「诊断」带出来")
         notContains("宠物", "AI 记忆", "搜「宠物」不把「AI 记忆」带出来")
 

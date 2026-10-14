@@ -355,9 +355,15 @@ fi
 echo "=== 20b. 邮件接入设置页真值表（v4.0.x：安全边界/后端契约/接线）==="
 run_unit /tmp/test_mail scripts/ql_mail/truth_table_mail.swift
 
+echo "=== 20b2. 自定义下拉刷新（液体杯子）真值表（v4.0.x：用户 2026-10-14 定案）==="
+# 钉：五页挂点/旧 API 已撤/核心机制（几何+相位+摇晃+@MainActor）/手感口径（medium 触觉、防重入、
+#     Motion 令牌回位）/设置类反例（本批范围外）。全是**静默失效**：挂错层、并存 .refreshable、
+#     漏 onScrollPhaseChange 都不报错，只有真机下拉才知道。
+run_unit /tmp/test_refresh scripts/ql_refresh/truth_table_refresh.swift
+
 echo "=== 20c. 网盘接入真值表（v4.0.x：位置口径/安全边界/后端契约/浏览护栏）==="
 # 单文件（读源文件做护栏，不 import 项目代码）→ run_unit 直接编跑。
-# 口径：①网盘接入只在设置页（连接器面板已于 v4.0.109 整块退役，钉死防从看板复活入口）；
+# 口径：①网盘入口只在工作区页（v4.1.x 起设置页四件套入口移除；看板连接器面板 v4.0.109 已退役）；
 #      ②授权码/技能地址明文不落 App；③路径与 clouddrive_api.py 对齐；④浏览页 fid 栈与蜂窝闸。
 run_unit /tmp/test_clouddrive scripts/ql_clouddrive/truth_table_clouddrive.swift
 

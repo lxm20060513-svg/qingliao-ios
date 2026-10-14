@@ -130,6 +130,7 @@ struct AgentActionCard: View {
         case .mailSend:       return "envelope.fill"
         case .goalCreate:     return "target"
         case .goalStepDone:   return "checkmark.seal.fill"
+        case .goalEdit:       return "pencil.line"
         case .healthQuery:    return "heart.text.square"
         }
     }

@@ -58,6 +58,8 @@ enum AgentActionExecutor {
         // v4.0.7 长期目标：AI 判定「我在筹备XX」→ 用户点确认 → 建目标 + 拆步骤进待办
         case .goalCreate:     return await createGoal(action, auth: auth)
         case .goalStepDone:   return await markGoalStep(action, auth: auth)
+        // v4.0.x AI 自主编辑：改名/暂停恢复/改推进时刻（后端 goals_update 会同步对账 cron job）
+        case .goalEdit:       return await editGoal(action, auth: auth)
         // v4.0.57 轻聊待办清单：写 TodoStore（App 内数据），不经二级分派文件
         case .todoAdd:        return await addTodo(action)
         // v4.0.60 健康数据（HealthKit 只读）：本地执行，经二级分派文件（同第二批能力口径）
@@ -534,11 +536,109 @@ enum AgentActionExecutor {
         }
         // 步骤同步进待办清单：勾了就在待办里划掉
         await MainActor.run { GoalTodoBridge.syncStepDone(goalID: gid, stepID: sid) }
-        // 后端只暴露 PATCH /api/life/goal（已实测），步骤态随目标一起带回去
+        // 后端 goals_update 只认 doneStepIds（全量集合）；body 键 stepId/stepDone 后端不读 =
+        // 静默不落库（服务器侧 goals.json 不更新，下轮 cron 推进还按旧进度走）。发全量勾选集合。
         if let auth {
-            _ = try? await auth.json("/api/life/goal", method: "PATCH",
-                                     body: ["id": gid, "stepId": sid, "stepDone": done])
+            // 🚨 doneStepIds 是**全量覆盖**语义：后端会把「不在集合里的已完成步骤」改回未完成。
+            // 本地 goals 只是本机快照 —— 后台 cron 推进/别的设备勾选都会让远端领先，
+            // 直接发本地集合 = 把远端刚完成的步骤**回退成未完成**（连带 GoalTodoBridge 的待办状态一起错）。
+            // 正解：先取远端真值作基准，再叠加本次 sid 的勾/取消。
+            var doneIDs: [String]
+            if let remote = await GoalStore.shared.remoteDoneStepIDs(goalID: gid) {
+                doneIDs = remote
+            } else {
+                doneIDs = await MainActor.run {
+                    GoalStore.shared.goals.first(where: { $0.id == gid })?
+                        .steps.filter { $0.done }.map { $0.id } ?? []
+                }
+            }
+            if done {
+                if !doneIDs.contains(sid) { doneIDs.append(sid) }
+            } else {
+                doneIDs.removeAll { $0 == sid }
+            }
+            do {
+                _ = try await auth.json("/api/life/goal", method: "PATCH",
+                                        body: ["id": gid, "doneStepIds": doneIDs])
+            } catch {
+                // 口径 ③「失败必须出声」：原来 try? 静默吞掉 = 界面显示已勾、服务器没落库，
+                // 下轮 cron 还按旧进度推进（本批修的正是这一类静默分叉）。
+                return .doneNoUndo(message: (done ? "已勾掉这一步" : "已恢复这一步")
+                                   + "（远端同步失败，稍后可重试）")
+            }
         }
         return .doneNoUndo(message: done ? "已勾掉这一步" : "已恢复这一步")
+    }
+
+    /// v4.0.x goal.edit：改标题/暂停恢复/推进时刻/早晚开关 → PATCH /api/life/goal。
+    /// 后端 goals_update 会同步对账 cron job（暂停=真停推送、改时刻=真改 schedule）。
+    private static func editGoal(_ action: AgentAction, auth: AuthStore?) async -> Outcome {
+        // 口径 ①：所有写/删动作必须过统一闸门（与 createGoal / markGoalStep 一致）——
+        // 少了它，「允许 AI 操作·提醒事项」关掉或 App 不在前台时，AI 照样能改/暂停用户的长期目标。
+        if let reason = await AppPermissionKit.mutationGuard(.reminders) { return .failed(reason) }
+        guard let gid = action.param("goalId") else { return .failed("缺目标 ID（goalId）") }
+        var body: [String: Any] = ["id": gid]
+        var changed: [String] = []
+        if let t = action.param("title")?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty {
+            body["title"] = t; changed.append("标题")
+        }
+        if let p = action.param("paused") {
+            body["paused"] = p != "false"
+            changed.append(p != "false" ? "已暂停推进" : "已恢复推进")
+        }
+        // 钳位走 App 编辑表单的**同一份真源** GoalEditKit（早 6-12 / 晚 18-23）。
+        // 原来这里自写 0-23，与表单分叉：AI 说「早推改 20 点」后端照收 → 用户再打开编辑表单会被夹回 12 点，
+        // 卡上显示 20、表单 12、实际生效 20 = 三处不一致。
+        if let h = action.param("morningHour"), let n = Int(h) {
+            let v = GoalEditKit.clampMorning(n)
+            body["morningHour"] = v
+            changed.append("早间时刻→\(v) 点")
+        }
+        if let h = action.param("eveningHour"), let n = Int(h) {
+            let v = GoalEditKit.clampEvening(n)
+            body["eveningHour"] = v
+            changed.append("晚间时刻→\(v) 点")
+        }
+        for key in ["morningEnabled", "eveningEnabled"] {
+            if let v = action.param(key) {
+                body[key] = v != "false"
+                changed.append(key == "morningEnabled" ? (v != "false" ? "开启早推" : "关闭早推")
+                                                       : (v != "false" ? "开启晚推" : "关闭晚推"))
+            }
+        }
+        if changed.isEmpty { return .failed("没给任何要改的字段（title/paused/morningHour/eveningHour/…）") }
+        guard let auth else { return .failed("未登录，改不了云端目标") }
+        do {
+            let j = try await auth.json("/api/life/goal", method: "PATCH", body: body)
+            // 云端成功才落本地（标题/暂停），并刷新对应待办
+            // 云端成功才落本地。回灌清单与 GoalStore.updateOnBackend **逐项对齐**：
+            // 后端会规范化（标题截断 200 字、时刻夹回区间），只回灌标题/暂停会让卡片显示与实际生效分叉。
+            if let goal = j["goal"] as? [String: Any] {
+                let newTitle = goal["title"] as? String
+                let paused = goal["paused"] as? Bool
+                let mOn = goal["morningEnabled"] as? Bool
+                let eOn = goal["eveningEnabled"] as? Bool
+                let mHour = goal["morningHour"] as? Int
+                let eHour = goal["eveningHour"] as? Int
+                let jobIDs = goal["cronJobIDs"] as? [String]
+                await MainActor.run {
+                    GoalStore.shared.mutate(gid) { g in
+                        if let t = newTitle, !t.isEmpty { g.title = t }
+                        if let p = paused { g.paused = p }
+                        if let v = mOn { g.morningEnabled = v }
+                        if let v = eOn { g.eveningEnabled = v }
+                        if let v = mHour { g.morningHour = v }
+                        if let v = eHour { g.eveningHour = v }
+                        if let ids = jobIDs, let first = ids.first, !first.isEmpty { g.cronJobID = first }
+                    }
+                }
+            }
+            let errs = (j["jobErrs"] as? [Any])?.count ?? 0
+            var msg = "已更新目标：" + changed.joined(separator: "、")
+            if errs > 0 { msg += "（后台推进计划对账失败 \(errs) 项，可稍后在目标卡里重试）" }
+            return .doneNoUndo(message: msg)
+        } catch {
+            return .failed("更新失败：\(error.localizedDescription)")
+        }
     }
 }

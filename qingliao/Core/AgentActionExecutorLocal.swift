@@ -40,7 +40,7 @@ extension AgentActionExecutor {
         // 其余动作不走这条路（编译期就能发现漏接：这里只列本地那 11 个）
         case .calendarCreate, .calendarUpdate, .calendarDelete, .calendarFree, .calendarToday,
              .photoSave, .photoDelete, .notify, .mailSend,
-             .goalCreate, .goalStepDone,
+             .goalCreate, .goalStepDone, .goalEdit,
              .todoAdd:
             // mail.send / goal.create / goal.step_done 需要登录态（auth）走后端，
             // 由 run(_:auth:) 直接分派 —— 别在这里另起入口

@@ -1496,7 +1496,8 @@ extension DashboardView {
             //（无任何 scrollTo 调用方），而 ScrollPosition 是无 Equatable 的 struct，滚动中绑定每帧写入
             // → 无法比对跳过 → 每帧 invalidate 整页 body（与看板 onGeometryChange 无条件写 @State 同族）。
             // v2.0.86h：Dock 滑动隐藏已删除（从未生效，手动开关替代）
-            .refreshable {
+            // v4.0.x：系统 .refreshable → 自绘液体杯子下拉刷新（用户定案）
+            .pullRefreshCup {
                 await refresh()
             }
             .sheet(item: $activeSheet, onDismiss: dashboardSheetDismiss) { s in

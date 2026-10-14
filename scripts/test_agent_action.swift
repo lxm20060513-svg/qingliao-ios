@@ -122,6 +122,7 @@ let table: [(AgentAction.Kind, AgentAction.Kind.Impact, String)] = [
     (.mailSend,       .write,  "mail"),
     (.goalCreate,     .write,  "reminders"),
     (.goalStepDone,   .write,  "reminders"),
+    (.goalEdit,       .write,  "reminders"),   // v4.0.x 编辑目标（改标题/暂停/推进时刻）
     (.todoAdd,        .write,  "todoList"),
     (.healthQuery,    .read,   "health"),
 ]
@@ -181,10 +182,10 @@ check("contacts.search 是只读", AgentAction.Kind.contactsSearch.impact == .re
 // v3.9.110 审查修：改用 allCases，别再手写列表——扩容时手写那份必然漏（本轮就漏了 mailSend，
 // 「动作名互不重复」这条负断言的覆盖面比真值表少一项，是典型的假绿夹具）。
 let allKinds: [AgentAction.Kind] = AgentAction.Kind.allCases
-check("动作总数 24（v4.0.60 加 todo.add / health.query）", allKinds.count == 24)
+check("动作总数 25（v4.0.x 加 goal.edit）", allKinds.count == 25)
 // MARK: - v4.0.7 长期目标动作
-let goalActions: [AgentAction.Kind] = [.goalCreate, .goalStepDone]
-check("goal 动作数 2", goalActions.count == 2)
+let goalActions: [AgentAction.Kind] = [.goalCreate, .goalStepDone, .goalEdit]
+check("goal 动作数 3", goalActions.count == 3)
 for k in goalActions {
     check("\(k.rawValue) 归类为写操作", k.impact == .write)
     check("\(k.rawValue) 归 reminders 能力", k.capability == .reminders)
@@ -192,6 +193,11 @@ for k in goalActions {
 }
 check("goal.create 是写（必须点确认）", AgentAction.Kind.goalCreate.impact == .write)
 check("goal.step_done 是写", AgentAction.Kind.goalStepDone.impact == .write)
+check("goal.edit 是写", AgentAction.Kind.goalEdit.impact == .write)
+if let a = AgentAction.parse(json: #"{"action":"goal.edit","params":{"goalId":"g1","paused":"true","title":"新名字"},"summary":"暂停并改名"}"#) {
+    check("解析 goal.edit", a.kind == .goalEdit)
+    check("goal.edit 带参数", a.param("goalId") == "g1" && a.param("paused") == "true")
+} else { check("解析 goal.edit", false) }
 if let a = AgentAction.parse(json: #"{"action":"goal.create","params":{"title":"秋季新品","steps":"[\"定产品线\",\"备货5000\"]"},"summary":"建长期目标"}"#) {
     check("解析 goal.create", a.kind == .goalCreate)
     check("解析出标题", a.param("title") == "秋季新品")

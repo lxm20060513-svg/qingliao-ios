@@ -66,6 +66,8 @@ func slice(_ s: String, _ a: String, _ b: String) -> String {
 let mailSrc = src("qingliao/Features/Settings/MailSettingsSheet.swift")
 let mailCode = stripComments(mailSrc)
 let coreSrc = stripComments(src("qingliao/Features/Settings/SettingsCore.swift"))
+// v4.0.x：邮件接入入口从设置页移到工作台·工具格（用户指令）——接线断言改钉工作台页
+let wsSrc = stripComments(src("qingliao/Features/Workspace/WorkspaceView.swift"))
 
 // ── 1. 源可读（空了后面全是空真） ─────────────────────────────
 check("MailSettingsSheet.swift 源可读", !mailSrc.isEmpty)
@@ -143,14 +145,17 @@ check("直发开关文案写明默认关闭是推荐", toggleSec.contains("关�
 check("@State allowDirectSend 初值为 false（不预授权）",
       mailCode.contains("@State private var allowDirectSend = false"))
 
-// ── 7. 设置页接线：入口行 + sheet 挂载 ─────────────────────────
-check("设置页有「邮件接入」入口行",
-      coreSrc.contains("title: \"邮件接入\"") && coreSrc.contains("showMailSettings = true"))
+// ── 7. 工作台接线：工具格入口 + sheet 挂载 ─────────────────────
+// v4.0.x：入口从设置页迁到工作台工具格（六格两行 3+3 的第二行末格）
+check("工作台有「邮件接入」工具格入口",
+      wsSrc.contains("toolCell(\"邮件接入\", symbol: \"envelope.fill\", tint: .blue) { showMail = true }"))
 check("入口图标与配色唯一（envelope.fill + .blue，不再造第二个）",
-      coreSrc.contains("icon: \"envelope.fill\", iconColor: .blue, title: \"邮件接入\""))
-check("sheet 已挂载 MailSettingsSheet", coreSrc.contains("MailSettingsSheet()"))
-check("入口行后有分隔线（glassListCard 内行间分隔口径）",
-      slice(coreSrc, "title: \"邮件接入\"", "title: \"权限与 AI 操控\"").contains("Divider()"))
+      wsSrc.contains("symbol: \"envelope.fill\", tint: .blue"))
+check("sheet 已挂载 MailSettingsSheet", wsSrc.contains("MailSettingsSheet()"))
+check("sheet 走两档 detents + 透明底（与设置页时代同口径）",
+      slice(wsSrc, "MailSettingsSheet()", "}").contains(".presentationDetents([.medium, .large])"))
+check("反例：设置页不再有「邮件接入」入口行（迁走即不许复活）",
+      !coreSrc.contains("title: \"邮件接入\""))
 
 // ── 8. 令牌口径：字号走 Typography、间距走 Spacing，不写字面量 ──
 check("不写字面字号", !mailCode.contains("font(.system(size: 1") && !mailCode.contains("font(.system(size: 9"))

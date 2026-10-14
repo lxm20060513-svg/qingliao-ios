@@ -189,6 +189,19 @@ check("① 记录展开区仍在（记录一律看展开条目）",
 check("① 展开区仍复用 RecordRowCard + 保留「全部记录」浮层入口",
       recordExpand.contains("RecordRowCard(item: r)") && recordExpand.contains("glass.showAll = true"))
 
+// ── ⑤+ 点卡反馈对齐：五张生活卡「点卡展开」一律 cardExpand + Haptics.tap() ──
+// v4.0.x（用户真机：「记录卡片点击无震动反馈，没对齐其他」）——记录卡此前漏了 tap，
+// 另四张一直都有；钉成五卡同断言，以后新增生活卡漏震动会直接红。
+check("⑤+ 五张生活卡点卡展开 = withAnimation(Motion.cardExpand) + Haptics.tap() 全对齐",
+      todoCode.contains("withAnimation(Motion.cardExpand) { todoExpanded.toggle() }")
+      && goalsCode.contains("withAnimation(Motion.cardExpand) { goalsExpanded.toggle() }")
+      && habitCode.contains("withAnimation(Motion.cardExpand) { habitExpanded.toggle() }")
+      && recordCode.contains("withAnimation(Motion.cardExpand) { recordExpanded.toggle() }")
+      && memoCode.contains("withAnimation(Motion.cardExpand) { memoExpanded.toggle() }")
+      && todoCode.contains("Haptics.tap()") && goalsCode.contains("Haptics.tap()")
+      && habitCode.contains("Haptics.tap()") && recordCode.contains("Haptics.tap()")
+      && memoCode.contains("Haptics.tap()"))
+
 // ── ⑥ 视觉对齐：展开区几何同值 + 勾选圈单一来源 ───────────────────────────
 check("⑥ 四处展开区（待办 / 目标 / 习惯 / 记录）左右内缩 / 顶部间距逐字同值（10 / 8）",
       countOf(".padding(.horizontal, 10)\n        .padding(.top, 8)", in: todoCode) >= 1

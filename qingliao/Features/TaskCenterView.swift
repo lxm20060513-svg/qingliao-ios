@@ -265,7 +265,8 @@ struct TaskCenterView: View {
                 }
             }
             .listStyle(.plain)
-            .refreshable {
+            // v4.0.x：系统 .refreshable → 自绘液体杯子下拉刷新（用户定案）
+            .pullRefreshCup {
                 historyTasks = await auth.fetchTaskHistory()
             }
         }

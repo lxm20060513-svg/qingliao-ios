@@ -69,6 +69,7 @@ func closureBody(_ src: String, _ decl: String) -> String {
 let clientSrc = read("qingliao/Core/SkillsClient.swift")
 let sheetSrc = read("qingliao/Features/Settings/SkillsLibrarySheet.swift")
 let coreSrc = read("qingliao/Features/Settings/SettingsCore.swift")
+let wsSrc = read("qingliao/Features/Workspace/WorkspaceView.swift")
 let indexSrc = read("qingliao/Core/SettingsSearchIndex.swift")
 let authSrc = read("qingliao/Core/AuthStore.swift")
 let checkSrc = read("check_swift.sh")
@@ -132,20 +133,14 @@ ck("反例：SkillsLibrarySheet 不用 confirmationDialog", !sheetCode.contains(
 // ── 6. 详情复用仓内 MarkdownRenderer ──
 ck("详情复用 MarkdownRenderer（与消息气泡同一套）", sheetCode.contains("MarkdownRenderer."))
 
-// ── 7. 设置页入口 + 挂 sheet + 搜索索引 + 目的地 ──
-ck("设置页加了 @State showSkillsLibrary", coreSrc.contains("@State var showSkillsLibrary = false"))
-ck("设置页入口行「技能库」存在",
-   coreSrc.contains("title: \"技能库\"") && coreSrc.contains("showSkillsLibrary = true"))
-ck("设置页挂了 .sheet(isPresented: $showSkillsLibrary)",
-   coreSrc.contains(".sheet(isPresented: $showSkillsLibrary)"))
-// v4.0.104 审查 S1（独立变异 M3b 抓到）：只断言「文件里有这个 .sheet」不够 —— 摘掉 body 的
-// `.background(settingsCold10())`（sheet 还在但宿主没挂）时全表仍全绿 =「点了没反应」零告警。
-// 故把 **宿主函数体 + body 挂载** 一并钉住。
-ck("哨兵：切得出 settingsCold10() 函数体", { let b = closureBody(coreSrc, "func settingsCold10("); return !b.isEmpty }())
-ck("技能库 sheet 在 settingsCold10() 体内（宿主对得上）",
-   closureBody(coreSrc, "func settingsCold10(").contains(".sheet(isPresented: $showSkillsLibrary)"))
-ck("settingsCold10() 被 body 挂上（只定义不挂 = 点了没反应）",
-   coreSrc.contains(".background(settingsCold10())"))
+// ── 7. 入口位置（v4.1.x 用户要求，旧口径「设置页入口」已作废）：只在工作区页 ──
+ck("设置页已无技能库入口（状态/入口行/路由/索引全清）",
+   !coreSrc.contains("showSkillsLibrary") && !coreSrc.contains("技能库"))
+ck("工作区有「技能库」入口行（toolCell → showSkills）",
+   wsSrc.contains("toolCell(\"技能库\"") && wsSrc.contains("showSkills = true"))
+ck("工作区挂了 .sheet(isPresented: $showSkills) + SkillsLibrarySheet（只定义不挂 = 点了没反应）",
+   wsSrc.contains(".sheet(isPresented: $showSkills)") && wsSrc.contains("SkillsLibrarySheet()"))
+ck("哨兵：工作区源可读（空了上面两条就是空真）", !wsSrc.isEmpty)
 // 删除提示不得无条件承诺「可撤销」（后端 recoverable:false 时是假承诺）。
 // ⚠️ 只钉「体内出现过 recoverable」是**半条命**：写反成 `if !res.recoverable` 照样绿
 // （v4.0.104 修复复查独立变异 M7 实测假绿）→ 必须把**两支各自钉住**（本会话既有教训）。
@@ -158,11 +153,8 @@ ck("分支② 无副本 → 明说不可撤销 + 清掉撤销目标",
    deleteBody.contains("不可撤销") && deleteBody.contains("undoTarget = nil"))
 ck("反例：不许把条件写反成 !res.recoverable（写反 = 真承诺假、假承诺真）",
    !deleteBody.contains("if !res.recoverable"))
-ck("openSearchEntry 有 skillsLibrary 分支",
-   coreSrc.contains("case \"skillsLibrary\": showSkillsLibrary = true"))
-ck("搜索索引含 skillsLibrary 路由", indexSrc.contains("route: \"skillsLibrary\""))
-ck("搜索索引关键字含 技能/沉淀/skill",
-   indexSrc.contains("[\"技能\", \"技能库\", \"skill\", \"沉淀\", \"技能包\"]"))
+ck("搜索索引已无 skillsLibrary 路由（设置搜索不出「技能库」）",
+   !indexSrc.contains("route: \"skillsLibrary\""))
 
 // ── 8. frontmatter name 对齐（后端强校验兜底）──
 ck("SkillsClient 提供 rewriteFrontmatterName", clientCode.contains("func rewriteFrontmatterName"))

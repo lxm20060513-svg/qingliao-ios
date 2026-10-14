@@ -67,10 +67,10 @@ MUTATIONS = [
      "qingliao/Core/SkillsClient.swift",
      'guard env.ok else { throw SkillsError.backend(env.error ?? "") }\n        return env.skills ?? []',
      'return env.skills ?? []', "test"),
-    ("删掉 openSearchEntry 的 skillsLibrary 分支",
-     "qingliao/Features/Settings/SettingsCore.swift",
-     'case "skillsLibrary": showSkillsLibrary = true\n',
-     '', "tt"),
+    ("工作区技能库 sheet 挂载被摘（入口移到工作区后的新宿主护栏）",
+     "qingliao/Features/Workspace/WorkspaceView.swift",
+     '.sheet(isPresented: $showSkills) {',
+     '.sheet(isPresented: .constant(false)) {  // mutated', "tt"),
 ]
 
 fails = 0

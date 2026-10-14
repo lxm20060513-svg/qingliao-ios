@@ -7,13 +7,17 @@ struct HermesShortcutSheet: View {
     var onPick: (String) -> Void
     @Environment(\.dismiss) private var dismiss
 
-    // v4.0.121（2026-10-11）：只保留轻聊里**真正生效**的两条——后端 stream_api._worker 就地应答，
+    // v4.0.121（2026-10-11）：只保留轻聊里**真正生效**的命令——后端 stream_api._worker 就地应答，
     // 不调用模型（实测 0.01s、toolSeq=0）。其余 Hermes CLI 命令（/model /skills /cron /memory…）
     // 在轻聊里不生效：api_server 侧没有斜杠命令拦截，点了只是把文本发给模型自由发挥
     // （线上实测 /new 被当普通消息跑出 71 步工具 / 23.5 分钟），属「可见入口不可用」，已下线。
-    // 等价功能都在 App 内：模型→设置·模型管理，记忆→设置·AI 记忆，技能→技能页，定时→任务中心。
+    // v4.0.x：新增 /status（会话速览）、/usage（token 用量）——同为后端就地应答，零模型往返。
+    // 等价功能都在 App 内：模型→设置·模型管理，记忆→设置·AI 记忆，技能→工作台·技能库，
+    // 定时任务→工作台·定时任务（v4.0.x 从设置页移入工作台工具格；「任务中心」入口 v4.0.109 已删）。
     private let items: [(cmd: String, desc: String)] = [
         ("/new", "开启全新会话（清空上下文）"),
+        ("/status", "当前会话速览（会话号/历史条数/工具开关）"),
+        ("/usage", "Token 用量（今日/本月，读 NAS 账本）"),
         ("/help", "查看轻聊里可用的指令"),
     ]
 
