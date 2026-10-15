@@ -76,6 +76,20 @@ final class StreamClient {
         ResumeInfo.canResume(outcome: resumeOutcome, resumedBy: resumeResumedBy)
     }
 
+    // MARK: - v4.1.x（插话暂停-恢复）
+    /// 本流被插话挂起中（后端 `paused`）——父流在等插话流收尾后自动接回。
+    private(set) var isPausedStream = false
+    /// 哪条插话流把本流挂起的（后端 `pausedBy`）。
+    private(set) var pausedBy = ""
+    /// 本流是从哪条暂停流插话起的（后端 `pausedResumeOf`）。
+    private(set) var pausedResumeOf = ""
+    /// App 发起插话时记下的父流 id（外显「正在插话」用；后端键 pausedResumeOf 同源）。
+    private(set) var pausedParentTaskId = ""
+    /// 父流被挂起时已完成步数（后端 `paused.step`）。
+    private(set) var pausedParentStep = 0
+    /// 本插话流收尾后，父流被服务端自动接回成的新流 id（后端 `resumedChild`，空 = 未接回）。
+    private(set) var resumedChild = ""
+
     /// v3.9.80：工具进度**四件套的单一复位入口**（工具名 / 耗时 / 真实步数 / 起算时刻）。
     ///
     /// 为什么收成一处：之前三处口径不一 —— `start()` 清四件、切会话（ChatView）只清三件
@@ -283,12 +297,32 @@ final class StreamClient {
         smoothedContent = content
     }
 
-    /// 启动流式请求
+    /// 启动流式请求。
+    ///
+    /// v4.1.x：返回**是否真的接管了一条流**（`true` = 已拿到 taskId 并进入轮询）。
+    /// 插话失败（老后端 404 / 开关关 501 / 父流不允许暂停 400 / 网络）时返回 false，
+    /// 调用方据此**静默退回排队老路**，不落错误气泡（用户点的是一次抢占，不是一次提问失败）。
+    /// v4.1.x（插话暂停-恢复）：插话流已由调用方**先起好了**（ChatView 先走 HTTP，
+    /// 失败就根本不进 start → 父流的轮询与正文一字节未动）。start 这里只负责接管 + 复位状态。
+    struct InterjectHandoff {
+        /// 被挂起的父流 id
+        let parentTaskId: String
+        /// 已起好的插话流 id
+        let childTaskId: String
+        /// 父流挂起时已完成步数（状态行文案用）
+        let parentStep: Int
+    }
+
+    @discardableResult
     func start(auth: AuthStore, sessionId: String, model: String, provider: String,
                messages: [[String: Any]], resumeFrom: String? = nil,
-               onFinished: ((Bool, String) -> Void)? = nil) async {
+               interject: InterjectHandoff? = nil,
+               onFinished: ((Bool, String) -> Void)? = nil) async -> Bool {
         stopPolling()
         generation += 1   // v3.0.50：废除在途旧轮询代
+        // v4.1.x：新流尚未拿到 id —— 必须清空，否则「起流失败」与「上一轮成功的流」分不开
+        //（插话失败要据此静默退排队，不能靠残留的旧 id 误判成「已起来了」）
+        taskId = ""
         content = ""
         contentGrowAt = 0     // v3.9.81：新流重置静默锚点（还没吐字 → 文案是「工具：…/思考中」）
         resetToolProgress()   // v3.9.80：工具四件套统一复位（原先这里手写四行，别处漏写）
@@ -317,28 +351,46 @@ final class StreamClient {
         resumeBlocked = false
         resumeOutcome = ""
         resumeResumedBy = ""
+        // v4.1.x：插话态与本流同生命周期（新流一律复位，防上一轮的暂停/接回标记串到这一轮）
+        isPausedStream = false
+        pausedBy = ""
+        pausedResumeOf = ""
+        pausedParentTaskId = interject?.parentTaskId ?? ""
+        pausedParentStep = interject?.parentStep ?? 0
+        resumedChild = ""
         self.onFinished = onFinished
 
         // 记录当前流式会话（relay uid 推导用）
         auth.currentStreamSessionId = sessionId
 
         do {
-            let tid = try await auth.streamStart(sessionId: sessionId, model: model,
+            let tid: String
+            if let ij = interject {
+                // v4.1.x 插话：服务端那边已经挂起父流（保留断点）+ 起好本流，这里只接管
+                tid = ij.childTaskId
+                NSLog("[INTERJECT] 接管插话流 \(tid)（父 \(ij.parentTaskId) 已暂停，已完成 \(ij.parentStep) 步）")
+            } else {
+                tid = try await auth.streamStart(sessionId: sessionId, model: model,
                                                  provider: provider, messages: messages,
                                                  resumeFrom: resumeFrom)
+            }
             taskId = tid
             startPolling(auth: auth)
             // v3.0.81：注册后台任务，延长 iOS 挂起前的存活时间（最多 ~30s）
             beginBgTask()
+            return true
         } catch APIError.relayCancelled {
             finish(success: false, error: "已取消", userInitiated: true)   // v3.9.33：relay 授权被取消 = 用户行为
+            return false
         } catch APIError.unauthorized {
             // v3.9.33：token 过期/被吊销（streamStart 401）→ 不再报「启动失败：…」这类无处可去的文案，
             // 统一收敛点已在 AuthStore 置位，这里立刻收尾并如实告知需要重新登录
             auth.markSessionExpired()
             finish(success: false, error: APIError.unauthorized.localizedDescription)
+            return false
         } catch {
             finish(success: false, error: "启动失败：\(error.localizedDescription)")
+            return false
         }
     }
 
@@ -486,8 +538,14 @@ final class StreamClient {
             return   // 网络恢复 → 本轮直接返回，下一轮按正常间隔续流
         }
         do {
-            let (c, done, st, err, agent, piggyback, toolsIn, spansIn, lastToolAtIn, toolSeqIn, memoIn, reasoningIn, noticeIn) = try await auth.streamPoll(taskId: taskId, offset: offset)
+            let (c, done, st, err, agent, piggyback, toolsIn, spansIn, lastToolAtIn, toolSeqIn, memoIn, reasoningIn, noticeIn,
+                 pausedIn, pausedByIn, pausedResumeOfIn, resumedChildIn) = try await auth.streamPoll(taskId: taskId, offset: offset)
             guard generation == self.generation else { return }   // v3.0.50：旧代轮询丢弃
+            // v4.1.x（插话暂停-恢复）：四个纯增量键，同上「只在变化时写入」，位置同样在旧代 guard 之后
+            if pausedIn != isPausedStream { isPausedStream = pausedIn }
+            if pausedByIn != pausedBy { pausedBy = pausedByIn }
+            if pausedResumeOfIn != pausedResumeOf { pausedResumeOf = pausedResumeOfIn }
+            if resumedChildIn != resumedChild { resumedChild = resumedChildIn }
             // v3.9.17：工具进度——只在变化时写入，避免每 0.15s 轮询都触发视图重建。
             // 位置必须在旧代 guard **之后**：否则切会话/起新流后，上一代在途 poll 返回时
             // 会把旧任务的工具名写进新流（同函数内 agent/failCount/piggyback 全在 guard 之后）

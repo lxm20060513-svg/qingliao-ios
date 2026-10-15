@@ -213,29 +213,30 @@ struct HabitSection: View {
                 ).animation(Motion.cardExpand.delay(Double(idx) * 0.055)))
             }
 
-            // 只有一条时「全部习惯」是多余的一跳（展开区里已经把它画全了）→ 不显示这行。
-            if habits.count > 1 {
-                Button {
-                    openAllHabits()
-                } label: {
-                    HStack(spacing: 6) {
-                        Text("全部习惯")
-                            .font(.system(size: Typography.subhead, weight: .medium))
-                        Spacer(minLength: 0)
-                        Text("\(habits.count) 个")
-                            .font(.system(size: Typography.caption))
-                            .foregroundStyle(.tertiary)
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: Typography.caption, weight: .semibold))
-                            .foregroundStyle(.tertiary)
-                    }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 12)
-                    .contentShape(Rectangle())
+            // v4.0.115（用户 2026-10-15「习惯卡片如果只有一个，点击以后底部是没有全部习惯入口的」）：
+            // 原判据 `if habits.count > 1` 作废 —— 当时以为「只剩一条时这行是多余的一跳」，
+            // 其实它是**进「全部习惯」浮层的唯一入口**（新建 / 详情 / 管理都在浮层里）：
+            // 藏掉 = 只剩一个习惯时用户彻底进不去那个浮层。故恒定渲染，不按条数隐藏。
+            Button {
+                openAllHabits()
+            } label: {
+                HStack(spacing: 6) {
+                    Text("全部习惯")
+                        .font(.system(size: Typography.subhead, weight: .medium))
+                    Spacer(minLength: 0)
+                    Text("\(habits.count) 个")
+                        .font(.system(size: Typography.caption))
+                        .foregroundStyle(.tertiary)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: Typography.caption, weight: .semibold))
+                        .foregroundStyle(.tertiary)
                 }
-                .buttonStyle(PressStyle())
-                .pastelCard(cornerRadius: 18)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .contentShape(Rectangle())
             }
+            .buttonStyle(PressStyle())
+            .pastelCard(cornerRadius: 18)
         }
         .padding(.horizontal, 10)
         .padding(.top, 8)

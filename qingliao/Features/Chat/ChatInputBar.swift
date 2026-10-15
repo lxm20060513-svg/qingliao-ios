@@ -47,6 +47,14 @@ struct ChatInputBar: View {
     var streaming: Bool
     var onSend: () -> Void
     var onStop: () -> Void = {}
+    /// v4.1.x（插话暂停-恢复）：本会话正在跑流时的「⚡插话」入口。
+    /// 点它 = 把正在跑的那条流**按下暂停**（保留断点现场），本条消息立刻抢答；
+    /// 不点它就仍走老的排队路径 —— 入口是独立的，不改发送键语义。
+    /// nil（默认）= 不给这个入口（宿主没接或不支持时，按钮不出现）。
+    var onInterject: (() -> Void)? = nil
+    /// v4.1.x：插话状态行文案（空 = 不显示）。放在输入框正上方：
+    /// 「原任务已暂停（已完成 N 步）· 插话中」/「原任务已接续」。
+    var interjectNote: String = ""
     var onPickAttachment: () -> Void = {}
     var onCamera: () -> Void = {}   // v2.0.38 拍照输入
     // 语音输入（按住说话）—— v3.9.28 云端模式移除后仅剩 isRecording 态，
@@ -141,10 +149,29 @@ struct ChatInputBar: View {
 
     // v3.6.2：智能球已迁至 dock 聊天槽位，输入栏不再有"球态"——恒为完整输入栏
     var body: some View {
-        fullInputBar
-            // v3.4.28：横屏限宽居中（竖屏 .infinity 不变）
-            .frame(maxWidth: AdaptiveLayout.contentMaxWidth(hSizeInput))
-            .frame(maxWidth: .infinity)
+        VStack(spacing: 6) {
+            // v4.1.x（插话暂停-恢复）：插话状态行——只在插话/接回期间出现（空串=不渲染，
+            // 常态输入栏的布局与视觉零变化）。放在输入框**上方**而不是塞进输入框内部，
+            // 是为了不动 fullInputBar 那条已经很敏感的类型检查链。
+            if !interjectNote.isEmpty {
+                HStack(spacing: Spacing.sm) {
+                    Image(systemName: "bolt.fill")
+                        .font(.system(size: Typography.caption))
+                        .foregroundStyle(Color.orange)
+                    Text(interjectNote)
+                        .font(.system(size: Typography.caption))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, Spacing.sm)
+                .transition(.opacity)
+            }
+            fullInputBar
+                // v3.4.28：横屏限宽居中（竖屏 .infinity 不变）
+                .frame(maxWidth: AdaptiveLayout.contentMaxWidth(hSizeInput))
+                .frame(maxWidth: .infinity)
+        }
     }
 
     /// v3.9.53（真机 497 后用户拍板：「输入框样式还是改回 3.9.46 版本的样式吧，现在的不行，
@@ -526,10 +553,33 @@ struct ChatInputBar: View {
         }
     }
 
+    /// v4.1.x：⚡能不能点——有实打实的文字（纯空白不算）才让插话。
+    private var canInterjectNow: Bool {
+        InterjectPolicy.canTapBolt(text: text)
+    }
+
     /// 右侧那一族：停止（流式时）+ 发送/转写按钮——v3.9.50 从 `fullInputBar` 拆出的纯拆分。
     /// 内部 `HStack(spacing: 8)` 与外层行距同参 → 拆前拆后视觉零差异。
     private var trailingButtons: some View {
         HStack(spacing: 8) {
+            // v4.1.x（插话暂停-恢复）：⚡插话键——**仅本会话正在跑流时**出现（streaming 由宿主按会话收窄，
+            // 别的会话在跑时不长这个键）。点它 = 暂停在跑的那条流 + 本条立刻抢答；不点就是排队。
+            // 无文字时置灰不可点（插话总得有话说）。
+            if streaming, let onInterject {
+                Button(action: onInterject) {
+                    Image(systemName: "bolt.fill")
+                        .font(.system(size: Typography.subhead, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 32, height: 32)
+                        // 橙胶囊（与停止红胶囊/发送胶囊同形，只换色 —— 用户喜欢多彩，不并成单色系）
+                        .background(Color.orange.opacity(canInterjectNow ? 0.9 : 0.35), in: Capsule())
+                }
+                .buttonStyle(PressStyle())
+                .disabled(!canInterjectNow)
+                // 命中区 44×44（视觉 32×32、间距零变化，与停止/发送键同口径）
+                .hitArea44(h: 6, v: 6)
+                .accessibilityLabel("插话：暂停当前回答，先答这句")
+            }
             // v2.0.88：AI 回答中也可继续发送（消息排队，答完自动逐条回）；
             // 停止按钮独立保留（取消当前回答 + 清空队列）
             if streaming {

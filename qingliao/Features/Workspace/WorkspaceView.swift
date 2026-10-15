@@ -58,6 +58,11 @@ struct WorkspaceView: View {
     /// 口径与 `SessionsView.onOpenSession` 一致：**本页只负责把会话装进 ChatStore**（`chat.loadById`），
     /// 「切 tab + 退出会话首页」由宿主 `DockTabView` 做（selected / showSessionHome 都在那边）。
     var onOpenSession: (() -> Void)? = nil
+    /// v4.0.115：工作台工具格「会议纪要」—— 交给宿主（DockTabView）走**与长按球菜单同一条路**
+    /// （先切聊天页再弹全屏页，实现见 DockTabView 的 openMinutesPage）。
+    /// 🚨 本页**不自己 present**：那条路上 ChatView 不在视图树，整理完那张卡由 MeetingMinutesView post、
+    /// 唯一接收方是 ChatView 的 onReceive → 卡静默丢失，而页内还显示「已放进会话」（v4.0.115 审查 P1）。
+    var onOpenMinutes: (() -> Void)? = nil
 
     @Environment(AuthStore.self) private var auth
     /// v4.0.109：待你处理点进会话 → 该会话标已读（口径同 `SessionsView.open`）
@@ -110,7 +115,7 @@ struct WorkspaceView: View {
     /// 最多露几行（超出的走页脚汇总）——工作区不是第二个待办中心，别把第一屏撑满
     private static let pendingMaxRows = 3
 
-    // MARK: v4.0.109 工具格入口（v4.0.113 起 8 个）
+    // MARK: v4.0.109 工具格入口（v4.0.115 起 9 个）
     @State private var showKB = false
     @State private var showSkills = false
     @State private var showTasks = false   // v4.0.x 从设置页移来的「定时任务」
@@ -195,7 +200,7 @@ struct WorkspaceView: View {
         .background(EnvironmentGlowLayers(scheme: colorSchemeEnv))
         // v4.0.109：工具格的 sheet 下沉背景层冷组（防主 body 类型栈膨胀；口径同设置页 settingsColdN）。
         // v4.0.x：4→6 格后已含定时任务/邮件接入两个 sheet。
-        // 拆两组是因为「每组顶层修饰器 ≤4 条」的深度上限（见 ql_typestack 护栏）。
+        // 拆多组是因为「每组顶层修饰器 ≤4 条」的深度上限（见 scripts/ql_wstools/truth_table_wstools.swift）。
         .background(workspaceCold1())
         .background(workspaceCold2())
     }
@@ -738,6 +743,12 @@ struct WorkspaceView: View {
                 // （`GridItem(.flexible())` 只是把行宽均分，与格数无关）。
                 toolCell("定时提醒", symbol: "bell.badge.fill", tint: .pink) { showReminder = true }
                 toolCell("文件管理", symbol: "folder.fill", tint: .indigo) { showFiles = true }
+                // v4.0.115（用户 2026-10-15「会议纪要功能加入工作台的工具栏」）：第 9 格。
+                // 图标沿用长按宠物菜单里「会话纪要」那颗 `list.bullet.rectangle` —— 同一个功能两个入口，
+                // 符号一致用户才认得出是同一件事；色取 orange（前 8 格未用，同屏可分辨）。
+                // ⚠️ 9 格 = 4 + 4 + 1（第三行只一格，LazyVGrid 固定 4 列天然左对齐，不用改布局）。
+                // 🚨 不自己 present 纪要页：那条路 ChatView 不在树 → 卡静默丢失（理由见 onOpenMinutes 声明处）。
+                toolCell("会议纪要", symbol: "list.bullet.rectangle", tint: .orange) { onOpenMinutes?() }
             }
             .padding(Spacing.section)
             .frame(maxWidth: .infinity)

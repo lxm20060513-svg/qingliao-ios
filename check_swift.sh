@@ -685,7 +685,12 @@ ck "P1: handle(url:) 保留 loggedIn 兜底参数（不传 provider 也不崩）
 ckNot "ShareIntake 不再声称扩展会落盘 pending（该机制不存在）" \
    '扩展留在 pending 目录里的载荷补投进会话' "qingliao/QingliaoApp.swift"
 _n=$(grep 'allowExpense: true' "$CV" | grep -vc '^ *//')
-[ "$_n" = "2" ] && echo "✅ 只有输入栏 send() 那 2 处传 allowExpense: true（分享/任务/备忘/问AI 全部默认 false）" || { echo "❌ allowExpense: true 传点是 $_n 处（应 2），有人给非用户亲手路径开了记账闸"; fail=1; }
+# v4.1.x（插话）：第三处在 interjectSendCore —— ⚡路径同样是**用户亲手**敲的那句（条件是插话走不通、
+# 回落成普通发送），记账闸该开。只放行这一处，别处多一个照样红（居高临下的白名单，不是放宽阈值）。
+_ij=$(awk '/private func interjectSendCore/{f=1;next} f&&/^    \}$/{exit} f' "$CV" | grep -c 'allowExpense: true')
+[ "$_n" = "3" ] && [ "$_ij" = "1" ] \
+  && echo "✅ allowExpense: true 共 3 处 = send() 2 处 + 插话回落 1 处（分享/任务/备忘/问AI 全部默认 false）" \
+  || { echo "❌ allowExpense: true 传点 $_n 处（应 3，其中插话回落应 1、实为 $_ij），有人给非用户亲手路径开了记账闸"; fail=1; }
 [ $fail -eq 0 ] || { echo "❌ 第 33 段有护栏失守"; exit 1; }
 echo "✅ 两路复审 P0/P1 回归护栏全绿"
 
@@ -1641,6 +1646,21 @@ echo "=== 103. 阶段总结标记真值表（v4.0.112 · 没跑完的收尾总�
 rm -rf /tmp/ql_notice_main && mkdir -p /tmp/ql_notice_main
 cp scripts/ql_notice/truth_table_notice.swift /tmp/ql_notice_main/main.swift
 run_unit6 /tmp/test_notice qingliao/Core/MessageNotice.swift /tmp/ql_notice_main/main.swift
+
+echo "=== 104. 插话（暂停-恢复）真值表（v4.1.x · 只能插本会话那条流 / 起流失败退排队不丢消息）==="
+# 口径：输入栏 ⚡键 = 把本会话正在跑的那条流交给服务端挂起（保留断点现场），本条立刻抢答；
+#   原任务在插话流收尾后由服务端自动接回（接回是新任务，本页 6~12s 探针自动接回显示，无需额外代码）。
+# 事故面（编译过 / 预检绿，只有真机能看出来）：
+#   ① 忘了判「本会话」→ 在 B 会话点 ⚡ 掐掉 A 会话正在等的回答（同 v3.9.41 红色停止键那次的教训）；
+#   ② 起流失败（老后端 404 / 开关关 501 / 父流不允许 400）时按普通失败落错误气泡 → 消息看着发丢了，
+#      其实该静默退排队；③ 反过来「已起来后中途失败」也退排队 → 同一句被再排一遍 = 重发；
+#   ④ 轮询元组从 13 长到 17，三处解包漏改一处 → 静默串位（不报错、拿到的是隔壁字段）；
+#   ⑤ 声明序/实参序错位 → 本地查不出、CI Archive 才炸（swiftui-param-order 老账）。
+# 分工：InterjectPolicy 编进来**真跑**；接线形态用剥注释的源级断言钉。
+# ⚠️ cwd 必须 = 仓库根（真值表里全是相对路径，漂移会静默全绿 → 前置哨兵会报红）。
+rm -rf /tmp/ql_ij_main && mkdir -p /tmp/ql_ij_main
+cp scripts/ql_interject/truth_table_interject.swift /tmp/ql_ij_main/main.swift
+run_unit6 /tmp/test_interject qingliao/Core/InterjectPolicy.swift /tmp/ql_ij_main/main.swift
 
 [ $fail -eq 0 ] || { echo "❌ 有护栏失守"; exit 1; }
 exit 0

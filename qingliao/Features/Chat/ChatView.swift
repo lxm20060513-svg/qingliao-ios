@@ -735,6 +735,18 @@ struct ChatView: View {
         chat.append(msg)
     }
 
+    /// v4.0.115（审查⑤）：⚡键能不能出现 —— 判据与**发送时同源**（都走 InterjectPolicy.canInterject），
+    /// 不再让 ChatInputBar 自己按 `streaming` 猜。多出来的三条否：taskId 空 / 跑的是别的会话 /
+    /// 已有一条父流在等服务端接回（后端暂停栈只有 1 层，二次插话会顶掉上一条的接回信息）。
+    /// 单独提成属性：别在大 body 的调用点上堆长表达式（类型推断开销 + 可读性）。
+    private var canInterjectNow: Bool {
+        InterjectPolicy.canInterject(isStreaming: thisSessionStreaming,
+                                     taskId: stream.taskId,
+                                     streamSessionId: auth.currentStreamSessionId,
+                                     currentSessionId: chat.sessionId,
+                                     pausePending: !stream.pausedParentTaskId.isEmpty)
+    }
+
     @ViewBuilder
     private var inputArea: some View {
         if selectMode {
@@ -769,6 +781,13 @@ struct ChatView: View {
                          suppressAutoReadOnce = true   // v3.9.9 收口：主动停止 → 残句不念
                          stream.stop(auth: auth)
                      },
+                     // v4.1.x（插话暂停-恢复）：⚡键的实参序必须与 ChatInputBar 声明序一致
+                     //（streaming → onSend → onStop → onInterject → interjectNote → onPickAttachment）
+                     // v4.0.115（审查⑤）：⚡键的**出现条件 = 发送判据**（canInterjectNow 走同一份
+                     // InterjectPolicy）—— 判据不成立传 nil，ChatInputBar 的 `if streaming, let onInterject`
+                     // 直接不渲染，不再出现「键在、点下去却只是排队」。
+                     onInterject: canInterjectNow ? { send(interject: true) } : nil,
+                     interjectNote: interjectNote,
                      onPickAttachment: {
                          // v3.9.30：面板=大块浮现 → 展开走 emerge（带轻微回弹）；收起保持 settle 不带回弹
                          if showAttachmentMenu {
@@ -3836,7 +3855,10 @@ struct ChatView: View {
         return await chat.uploadImage(data, auth: auth) ?? img
     }
 
-    func send() {
+    /// v4.1.x（插话暂停-恢复）：`interject: true` = 从输入栏 ⚡键进来（抢占在跑的那条流）。
+    /// 除了最后一步的分流，前置流程（斜杠命令 / 引用注入 / 自动压缩 / 长上下文提醒 / 清输入框）
+    /// 与普通发送**逐字相同**——插话只是「发得更急」，不是另一套发送语义。
+    func send(interject: Bool = false) {
         // #3 斜杠命令层：**最顶部**拦截。命中命令 → 清空输入框（连草稿）→ 本地执行 → 直接 return；
         // 未注册命令（/foobar）同样不发 LLM，插提示卡。
         // ⚠️ 必须在任何 `sendCore` / SendQueue / `SpeechManager.stop()` 之前 —— 命令一旦进发送链路
@@ -3914,15 +3936,86 @@ struct ChatView: View {
         setInputText("", clearingDraft: true)
         pendingImage = nil
         pendingImageData = nil
+        // v4.1.x（插话）：分流放在**最后一行**——上面的斜杠命令 / 引用 / 压缩 / 长文分段 / 清空输入框
+        // 与普通发送完全共用。两个 sendCore 调用点保持**原文一个字都没动**（第 31 段记账闸
+        // 直接钉的就是这两行的字面量：用户亲手发送必须 allowExpense: true），插话只在外面套一层 if。
         if img != nil {
             // v3.0.37：图片持久化——base64 先上传 NAS 换 URL 再发送（旧消息/失败仍走 base64）
             Task {
                 let persisted = await persistImageIfNeeded(img)
-                sendCore(text: text, imageData: persisted, quotedText: quotedText, allowExpense: true)
+                if interject {
+                    interjectSendCore(text: text, imageData: persisted, quotedText: quotedText)
+                } else {
+                    sendCore(text: text, imageData: persisted, quotedText: quotedText, allowExpense: true)
+                }
             }
         } else {
-            sendCore(text: text, imageData: nil, quotedText: quotedText, allowExpense: true)
+            if interject {
+                interjectSendCore(text: text, imageData: nil, quotedText: quotedText)
+            } else {
+                sendCore(text: text, imageData: nil, quotedText: quotedText, allowExpense: true)
+            }
         }
+    }
+
+    /// v4.1.x：输入框上方的插话状态行文案（空 = 不显示）。
+    /// **只用本机确知的事实**：`pausedParentTaskId` 是 App 发起插话时自己写下的父流 id，
+    /// 只要插话流还在跑就成立；流一收尾即消失。刻意不写「原任务已接续」这类文案——
+    /// 接回是服务端异步做的，App 这一侧拿不到可靠信号，宁可不显示也不报不实状态。
+    private var interjectNote: String {
+        InterjectPolicy.note(streaming: thisSessionStreaming,
+                             pausedParentTaskId: stream.pausedParentTaskId,
+                             pausedParentStep: stream.pausedParentStep)
+    }
+
+    /// v4.1.x（插话暂停-恢复）：把本会话**正在跑的那条流**交给服务端挂起（保留断点现场），
+    /// 本条消息立刻抢答；原任务在插话流收尾后由服务端自动接回（接回后是新任务，本页的
+    /// 6~12s 探针会自动把它接回来继续显示，不需要额外代码）。
+    ///
+    /// 与「排队」的区别：排队 = 等前面整轮跑完（可能几分钟）；插话 = 立刻插队。
+    /// 条件不成立（流没在跑 / 跑的是别的会话 / 拿不到 taskId）→ **原样退回 sendCore**，
+    /// 与不点 ⚡键逐字同行为；插话请求本身失败也退排队（见 startStream 的失败分支）。
+    private func interjectSendCore(text: String, imageData: String?, quotedText: String?) {
+        let parent = stream.taskId
+        guard InterjectPolicy.canInterject(isStreaming: stream.isStreaming,
+                                           taskId: parent,
+                                           streamSessionId: auth.currentStreamSessionId,
+                                           currentSessionId: chat.sessionId,
+                                           pausePending: !stream.pausedParentTaskId.isEmpty) else {
+            NSLog("[INTERJECT] 条件不满足（无在跑的本会话流），回落普通发送")
+            sendCore(text: text, imageData: imageData, quotedText: quotedText, allowExpense: true)
+            return
+        }
+        // 上屏口径与普通发送同形：正常用户气泡（**不带**排队中角标——插话本来就是立刻发）
+        var msg = ChatMessage.local(role: "user", content: text, imageDataURL: imageData)
+        msg.quotedText = quotedText
+        withAnimation(Motion.settle) {
+            chat.append(msg)
+        }
+        // 一句话记账：与排队路径同口径（用户在等回答时发的这句照样进账本）
+        noteChatExpenseIfMatched(text: text, imageData: imageData)
+        Task { await chat.saveToServer(auth: auth) }
+        Haptics.tap()
+        startStream(for: msg, interjectPausedTaskId: parent)
+    }
+
+    /// v4.1.x：插话没起来（老后端 404 / 开关关 501 / 父流不允许暂停 400 / 网络）→
+    /// **静默退回排队老路**：已上屏的那条消息补上「排队中」标记 + 进队列落盘。
+    /// 用户点的是一次抢占，不是一次提问 —— 起不来也不该落一个错误气泡（消息一条都不能丢）。
+    private func interjectFallbackToQueue(_ msg: ChatMessage) {
+        NSLog("[INTERJECT] 起流失败 → 退回排队")
+        if let idx = chat.messages.firstIndex(where: { $0.id == msg.id }) {
+            chat.messages[idx].queued = true
+            refreshVisibleMessages()   // queued 是就地改（count 不变）→ 显式重建缓存
+        }
+        pendingQueue.append(PendingSend(text: msg.content, imageData: msg.imageDataURL,
+                                        sessionId: chat.sessionId))
+        persistPendingQueue()
+        // v4.0.115（审查③）：入队后必须补一次泵 —— 泵的既有触发点只有「流收尾 / 切会话 / 进聊天页」，
+        // 而插话 HTTP 超时是 25~30s，父流完全可能在这窗口里自然收尾（那一刻泵的是空队列）→ 这条消息
+        // 此后没有任何触发点，用户看到一条永久「排队中」。pumpPendingQueue 自带
+        // `guard !stream.isStreaming`，父流还在跑时是空操作，不会误发。
+        pumpPendingQueue()
     }
 
     /// v2.0.59：发送核心（send / 失败重试共用）
@@ -4128,7 +4221,9 @@ struct ChatView: View {
 
     /// v2.0.88：启动流式回答（消息已在列表；失败标记/回复完成/队列联动统一在这里）
     /// v2.0.102：记录发起会话——回答期间切换会话则丢弃结果（防跨会话污染）；完成回调释放 sendingLock
-    func startStream(for msg: ChatMessage) {
+    /// - Parameter interjectPausedTaskId: v4.1.x 插话专用——非空 = 把这条 id 的父流先挂起
+    ///   （服务端保留断点现场），本条立刻抢答。nil = 普通起流，行为与改动前逐字相同。
+    func startStream(for msg: ChatMessage, interjectPausedTaskId: String? = nil) {
         // v3.9.41（SR58）：接上看门狗面包屑（原先 HangWatchdog.breadcrumb 零调用点 → 上报里
         // 「卡顿前主线程干过什么」永远只有前后台切换两条）。只记动作名，不记内容/凭据。
         // 选这里：下面 historyPayload 会在主线程同步跑完整历史的净化与压缩，长会话最容易卡。
@@ -4149,13 +4244,41 @@ struct ChatView: View {
         let startTitle = chat.title
 
         Task {
+            // v4.0.115（审查②）：这条 Task 会**先写单例再发 HTTP**，失败路径必须把锚点还回去 ——
+            // 否则一条根本没起流的消息顶掉了仍在跑的父流的落库锚点（该窗口内退后台/被杀，恢复出来的
+            // 父流答案会挂到插话那条 user 消息上；新建会话移交也会带错 userMsgId）。
+            let prevPendingUserMsgId = stream.pendingUserMsgId
             stream.pendingUserMsgId = msg.id   // v3.3.3：记录发起 user 消息，恢复/延迟回调落库锚点
+            // v4.1.x（插话暂停-恢复）：**先走 HTTP 起插话流，成功了才动单例**。
+            // 顺序若反过来（先 start 再发 HTTP），失败时会留一地烂摊子：单例已被复位、父流的轮询被掐断、
+            // 屏幕上的半截回答被清空 —— 对老后端(404) / 开关关(501) 等于每点一次 ⚡ 就抖一次。
+            // 现在失败路径**一个字节都没碰**，只需静默退排队。
+            var handoff: StreamClient.InterjectHandoff? = nil
+            if let parent = interjectPausedTaskId {
+                do {
+                    let r = try await auth.streamInterject(pausedTaskId: parent, sessionId: startSid,
+                                                           model: useModel, provider: useProvider,
+                                                           messages: history)
+                    handoff = StreamClient.InterjectHandoff(parentTaskId: parent,
+                                                            childTaskId: r.taskId,
+                                                            parentStep: r.step)
+                } catch {
+                    NSLog("[INTERJECT] 起流失败，退回排队：\(error.localizedDescription)")
+                    stream.pendingUserMsgId = prevPendingUserMsgId   // v4.0.115：把父流的落库锚点还回去
+                    if InterjectPolicy.shouldFallbackToQueue(isInterject: true, started: false) {
+                        sendingLock = false
+                        interjectFallbackToQueue(msg)
+                    }
+                    return
+                }
+            }
             await stream.start(
                 auth: auth,
                 sessionId: chat.sessionId,
                 model: useModel,
                 provider: useProvider,
-                messages: history
+                messages: history,
+                interject: handoff
             ) { success, error in
                 sendingLock = false   // 无论结果，先释放发送锁
                 // v3.9.39 A1：原 `guard chat.sessionId == startSid else { return }` 一刀切丢弃，

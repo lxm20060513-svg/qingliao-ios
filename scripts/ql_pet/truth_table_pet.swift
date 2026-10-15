@@ -222,6 +222,13 @@ check("设置页顶部有宠物大头像入口", sc.contains("petStudioBanner") 
 check("头像直接用 PetAvatar(size:) 画，没套 frame 去缩（v3.9.78 报修口径）",
       sc.contains("PetAvatar(size: 96, state: .idle, keepDetail: true)")
       && !stripComments(sc).contains("PetAvatar(size: 96).frame"))
+// v4.0.115（用户 2026-10-15「设置页卡通宠物底部的背景款可以拿掉？观感上只要有卡通宠物，
+// 不需要再加个背景框」）：形象本已是完整主体，再铺卡底 = 「卡里再放一张卡」。钉住别补回来。
+// 切出 banner 片段再断言（`petSummary` 是紧接着的声明），免得别处的卡底误伤；stripComments 防注释误判。
+let petBannerPlug = stripComments(sc).components(separatedBy: "var petStudioBanner").last?
+    .components(separatedBy: "private var petSummary").first ?? ""
+check("设置页宠物入口不套卡底（只留宠物本体，v4.0.115 用户口径）",
+      !petBannerPlug.isEmpty && !petBannerPlug.contains("pastelCard"))
 check("自定义页提供形象/表情/动作/动画四组",
       psC.contains("\"形象\"") && psC.contains("\"常态表情\"")
       && psC.contains("\"行为动作\"") && psC.contains("\"动画\""))

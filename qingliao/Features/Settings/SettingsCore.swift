@@ -141,6 +141,9 @@ struct SettingsView: View {
     @State var searchScrollTarget: String?   // 结果里「滚到分组看」的锚点（sec-account / sec-ai / sec-appearance）
     // v4.1.0 方案C收纳：分组折叠状态（@AppStorage 记忆上次选择；默认只展开「账号与安全」）。
     // key 豁免 UserDefaultsKey 常量表：纯视图私有 UI 态（单点读写、无跨文件共享），非功能配置。
+    // v4.0.115：account 也纳入折叠（默认 false = 展开，保持「默认只展开账号与安全」的原口径）——
+    // 此前它是唯一没接折叠的分组，展开后没有任何收起入口。
+    @AppStorage("settings.fold.account") var accountFolded = false
     @AppStorage("settings.fold.conn") var connFolded = true
     @AppStorage("settings.fold.aiagent") var aiAgentFolded = true
     @AppStorage("settings.fold.data") var dataFolded = true
@@ -164,7 +167,12 @@ struct SettingsView: View {
                         }
                         // v4.0.6：卡通宠物大头像（设置页顶部，点进去自定义）
                         AnyView(petStudioBanner)
-                        AnyView(accountSection.id("sec-account"))
+                        // v4.0.115（用户报「账号与安全项无法折叠」——**确实是缺陷**）：
+                        // 此前账号组是唯一裸挂的分组（`accountSection.id(...)`，内部自带 SectionHeader），
+                        // 展开后没有任何收起入口，与另外 4 组（都有 chevron.up 可点收）不对称。
+                        // 现并入 FoldSection：标题行由它渲染，展开态点标题即可收起。
+                        // 默认 accountFolded = false（展开）→ 与原「默认只展开账号与安全」的外观光一致。
+                        AnyView(FoldSection(title: "账号与安全", count: 4, isFolded: $accountFolded) { accountSection }.id("sec-account"))
                         // v4.1.0 方案C收纳：除账号外全部折叠成摘要行；8 组重排 5 组
                         AnyView(FoldSection(title: "连接与模型", count: localModelOn ? 10 : 9, isFolded: $connFolded) { connectionSection })
                         AnyView(FoldSection(title: "AI 与 Agent", count: 12, isFolded: $aiAgentFolded) { aiSection }.id("sec-ai"))
@@ -178,6 +186,7 @@ struct SettingsView: View {
                         // 展开与滚动放同一动画事务：展开有过渡，scrollTo 在同一次布局提交里解析新高度
                         withAnimation(Motion.snap) {
                             switch target {
+                            case "sec-account": accountFolded = false
                             case "sec-ai": aiAgentFolded = false
                             case "sec-appearance": generalFolded = false
                             default: break
@@ -466,7 +475,7 @@ struct SettingsView: View {
 extension SettingsView {
 
     @ViewBuilder var accountSection: some View {
-        SectionHeader("账号与安全", count: 4)
+        // v4.0.115：组头（SectionHeader + 收起 chevron）由宿主 FoldSection 统一渲染，这里不再重复挂
         VStack(spacing: 0) {
             SettingRow(icon: "person.crop.circle.fill", iconColor: .blue, title: auth.username, value: "已登录")
             Divider().padding(.leading, Spacing.rowDividerInset)
@@ -967,9 +976,11 @@ extension SettingsView {
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, Spacing.md)
-            // v4.0.68（用户 2026-10-07 拍板「卡底统一成品牌淡色系」）：形象卡原本是「纯白 0.6」，
-            // 是设置页最后一块白 —— 换品牌淡彩卡（与下面分组卡同族）。
-            .pastelCard(cornerRadius: Radius.card)
+            // v4.0.115（用户 2026-10-15「设置页卡通宠物底部的背景款可以拿掉？观感上只要有卡通宠物，
+            // 不需要再加个背景框」）：**摘掉卡底**。v4.0.68 给它铺 `.pastelCard()` 是当年「设置页
+            // 最后一块白」的补救；但形象本身已是完整画面主体（圆体 + 附件 + 小脚），再套一层同色系
+            // 卡底 = 「卡里再放一张卡」。现口径：只留宠物本体 + 下方一行名称，直接站在页面底上。
+            // ⚠️ 别再补回来 —— 守卫 `ql_pet` 第 11 节有「设置页宠物入口不套卡底」一条。
         }
         .buttonStyle(.plain)
         .accessibilityLabel("卡通宠物：\(petSummary)")

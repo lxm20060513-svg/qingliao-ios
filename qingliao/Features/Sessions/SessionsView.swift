@@ -12,7 +12,15 @@ struct SessionsView: View {
     // 一旦被 body 读到，整张会话列表会跟着每个 token 重算一次。
     @Environment(StreamClient.self) private var stream
 
-    @State private var sessions: [ChatSession] = []
+    // v4.0.115（用户 2026-10-15「聊天页返回主页**还是**动效生硬」）：
+    // 本页在 DockTabView 的「会话首页 ↔ 对话页」双态里是 if/else 的一支 —— 进聊天时整只被销毁，
+    // @State 数组随之归零。于是每次返回：**滑动动画的头几帧列表是空的**，滑进来的是一张
+    // 「还没有会话」空态插画页，真内容再在动画途中「啪」地长出来。用户读到的「生硬」大半在这儿，
+    // 不在曲线（v4.0.114 只调了时长/方向，所以他说「还是」）。
+    // 对策：初值直接取自上次成功拉取的本地缓存快照（与冷启动同一份 key、同一套解析）。
+    // ⚠️ 这里会在建帧路径上**同步**取值，所以 `cacheSnapshot()` 必须命中进程内快照（见其注释：
+    //    本机实测最坏量级缓存解析一次 ~39ms，每次建帧都解 = 起手一顿，比空一帧更糟）。
+    @State private var sessions: [ChatSession] = SessionsView.cacheSnapshot()
     @State private var isLoading = false
     @State private var errorText: String?
     @State private var scrollPos = ScrollPosition()   // v4.0.86 滑动优化后已无消费者（挂件已摘），暂留声明；无引用后可删
@@ -1323,13 +1331,56 @@ struct SessionsView: View {
 
     private static let sessionCacheKey = "qingliao_sessions_cache"
 
+    /// v4.0.115：进程内解析快照 —— 缓存 JSON **只解一次**。
+    /// 为什么必须缓存：`sessions` 的默认值表达式**每次视图构造都会求值**（SwiftUI 只采用首帧那次
+    /// 的结果，但表达式照跑），而实测最坏量级缓存（100 会话 × 每会话 50 条，1.6MB）解析一次要
+    /// ~39ms —— 压在返回转场第一帧上就是「起手一顿」，比空一帧更糟。命中后返回同一份数组
+    /// （Swift 数组 COW，零拷贝）。⚠️ 只由本文件的加载/保存路径写入（见 setSnapshot），别在外头改。
+    private static nonisolated(unsafe) var snapshotMemo: [ChatSession] = []
+    /// v4.0.115（审查②）：命中判据必须是「**已经解析过**」，不能是「数组非空」——
+    /// 无缓存 / 顶层不是数组 / schema 漂移导致全条目被拒时，memo 写进去的是空数组，
+    /// 而空数组永远不命中 → 每次建帧都重解一次 1.6MB JSON（~39ms），正好是这个护栏要防的事。
+    private static nonisolated(unsafe) var snapshotLoaded = false
+    private static nonisolated(unsafe) let snapshotLock = NSLock()
+
+    /// v4.0.115：读本地缓存快照（**不改状态**）—— 供 `sessions` 的初值使用，
+    /// 保证「返回会话首页」的第一帧列表就是满的（理由见 `sessions` 声明处注释）。
+    static func cacheSnapshot() -> [ChatSession] {
+        snapshotLock.lock()
+        let loaded = snapshotLoaded
+        let memo = snapshotMemo
+        snapshotLock.unlock()
+        if loaded { return memo }
+
+        guard let data = UserDefaults.standard.data(forKey: sessionCacheKey),
+              let raw = try? JSONSerialization.jsonObject(with: data) as? [Any] else {
+            // 无缓存/缓存不是数组：也算「解析过」（结果就是空），别每次建帧重试一遍
+            Self.setSnapshot([])
+            return []
+        }
+        // 解码在锁外做（39ms 不占锁）
+        let parsed = raw.compactMap { ChatSession.parse($0 as? [String: Any] ?? [:]) }
+            .sorted { ($0.lastTime ?? 0) > ($1.lastTime ?? 0) }
+        Self.setSnapshot(parsed)
+        return parsed
+    }
+
+    /// 刷新进程内快照（加载/保存路径专用）
+    private static func setSnapshot(_ s: [ChatSession]) {
+        snapshotLock.lock()
+        snapshotMemo = s
+        snapshotLoaded = true
+        snapshotLock.unlock()
+    }
+
     /// 读本地缓存：从上次成功拉取的原始 JSON 还原会话列表。
     /// 失败/无缓存一律静默返回，不影响正常联网加载。（v3.9.28：云端模式已移除）
     private func loadFromSessionCache() {
-        guard let data = UserDefaults.standard.data(forKey: Self.sessionCacheKey),
-              let raw = try? JSONSerialization.jsonObject(with: data) as? [Any] else { return }
-        sessions = raw.compactMap { ChatSession.parse($0 as? [String: Any] ?? [:]) }
-            .sorted { ($0.lastTime ?? 0) > ($1.lastTime ?? 0) }
+        let cached = Self.cacheSnapshot()
+        guard !cached.isEmpty else { return }
+        // v4.0.115：返回会话首页时 `sessions` 初值已由 `cacheSnapshot()` 填好 ——
+        // 此处**不再整表重赋值**（同内容重赋值会让 List 空转一轮 diff），只补未读同步。
+        if sessions.isEmpty { sessions = cached }
         // v3.9.39：缓存每会话只留最近 50 条，而 merge 是整会话覆盖 → 标记列表非完整远端数据，
         // 改名等写路径据此暂不上传（无缓存时不走到这里，保留上一次网络结果的 true）。
         sessionsFromNetwork = false
@@ -1347,6 +1398,8 @@ struct SessionsView: View {
         }
         if let data = try? JSONSerialization.data(withJSONObject: limited) {
             UserDefaults.standard.set(data, forKey: Self.sessionCacheKey)
+            // v4.0.115：同步刷新内存快照 —— 下次返回首页直接命中，不必把刚存进去的 JSON 再解一遍
+            Self.setSnapshot(sessions)
         }
     }
 

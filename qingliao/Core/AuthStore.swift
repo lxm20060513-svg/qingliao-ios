@@ -656,6 +656,75 @@ final class AuthStore {
         return tid
     }
 
+    /// v4.1.x（插话暂停-恢复）：把本会话正在跑的父流**挂起** + 原子起一条插话流。
+    ///
+    /// 与 streamStart 的唯一差别：多带 `pausedTaskId`。服务端先按暂停键（保留断点现场：已完成步
+    /// + 已生成正文 + 原始消息），再起本流；本流收尾时服务端**自动**把父流接回来
+    /// （接回后的新流 id 由轮询键 `resumedChild` 下发，App 据此续看）。
+    /// 传输路径与错误口径**逐字对齐 streamStart**：蜂窝先直连、非 2xx 降级 relay 路径参数版；
+    /// 401 走统一收敛点；400 带后端真实原因（bad pausedTaskId / messages required / 父流状态不允许）。
+    func streamInterject(pausedTaskId: String, sessionId: String, model: String, provider: String,
+                         messages: [[String: Any]]) async throws -> (taskId: String, step: Int) {
+        // 与 streamStart 同参：Agent 恒开、思考档位随当前设置、pushEnabled=false
+        var payload: [String: Any] = [
+            "pausedTaskId": pausedTaskId,
+            "sessionId": sessionId,
+            "model": model,
+            "provider": provider,
+            "messages": messages,
+            "pushEnabled": false,
+            "agentEnabled": true,
+            "reasoning": ReasoningLevel.current.payload
+        ]
+        // 保险：显式给全键（缺 pausedTaskId 会被后端 400 挡下，不至于起成一条普通流）
+        if pausedTaskId.isEmpty { payload.removeValue(forKey: "pausedTaskId") }
+        let bodyData = try JSONSerialization.data(withJSONObject: payload)
+        let authHeaders = ["Content-Type": "application/json", "X-Auth-Token": token]
+        var data: Data = Data()
+        var code: Int = 0
+        if NetworkMonitor.shared.isCellular {
+            // 蜂窝：直连 POST 标准端点（免弹窗），非 2xx 降级 relay 路径参数版（body 编码进 URL 不丢）
+            do {
+                (data, code) = try await relay.directRequest(
+                    method: "POST", path: "/api/stream/interject",
+                    headers: authHeaders, body: bodyData, timeout: 25
+                )
+            } catch {
+                code = 0
+            }
+            if !(200..<300).contains(code) {
+                let uid = RelayIdentity.uid(for: sessionId)
+                (data, code) = try await relay.relay(
+                    method: "POST", path: "/r/stream/interject/\(uid)",
+                    headers: authHeaders,
+                    body: bodyData, timeout: 30
+                )
+            }
+        } else {
+            (data, code) = try await directHTTP(
+                method: "POST", path: "/api/stream/interject",
+                headers: authHeaders, body: bodyData
+            )
+        }
+        guard (200..<300).contains(code),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let tid = json["taskId"] as? String else {
+            if code == 401 {
+                markSessionExpired()
+                throw APIError.unauthorized
+            }
+            var errDetail = ""
+            if let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let msg = obj["error"] as? String {
+                errDetail = " — " + msg
+            }
+            throw APIError.badResponseDetail("stream interject fail (\(code))\(errDetail)")
+        }
+        // paused.step = 父流挂起时已完成步数（「⏸ 已暂停（已完成 N 步）」文案用）
+        let step = ((json["paused"] as? [String: Any])?["step"] as? Int) ?? 0
+        return (tid, step)
+    }
+
     /// 流式轮询：蜂窝 → 直连 GET /r/stream/poll/{uid}/{taskId}/{offset}（路径参数）；Wi-Fi → 直连 GET /api/stream/{taskId}?offset=N
 
     /// v3.4.23 任务中心：进行中任务
@@ -725,7 +794,7 @@ final class AuthStore {
         }
     }
 
-    func streamPoll(taskId: String, offset: Int) async throws -> (String, Bool, String, String, Bool, [[String: Any]], [String], [[String: Any]], Double, Int, [String], String, String) {
+    func streamPoll(taskId: String, offset: Int) async throws -> (String, Bool, String, String, Bool, [[String: Any]], [String], [[String: Any]], Double, Int, [String], String, String, Bool, String, String, String) {
         let (data, code): (Data, Int)
         // v2.0.116 fix：轮询也带 X-Auth-Token（后端 do_GET 统一鉴权）
         if NetworkMonitor.shared.isCellular {
@@ -777,7 +846,17 @@ final class AuthStore {
         // v4.0.112：本轮到迭代上限、正文是模型收尾总结（后端 `notice="budget"`）。
         // 后端新键，老后端无此键 = 空串 → 不显示标记（优雅退化，与 v4.0.111 及之前行为一致）。
         let notice = j["notice"] as? String ?? ""
-        return (content, done, status, error, agent, inbox, toolNames, toolSpans, lastToolAt, toolSeq, memoAdded, reasoning, notice)
+        // v4.1.x（插话暂停-恢复）：四个纯增量键，老后端无 → 默认值 = 与改动前逐字同行为。
+        //   paused        本流被插话挂起中（父流在等插话流收尾后自动接回）
+        //   pausedBy      哪条插话流把它挂起的（父流侧）
+        //   pausedResumeOf 本流是从哪条暂停流插话起的（插话流侧）
+        //   resumedChild  本插话流收尾后，父流被服务端自动接回成的新流 id
+        let pausedStream = j["paused"] as? Bool ?? false
+        let pausedBy = j["pausedBy"] as? String ?? ""
+        let pausedResumeOf = j["pausedResumeOf"] as? String ?? ""
+        let resumedChild = j["resumedChild"] as? String ?? ""
+        return (content, done, status, error, agent, inbox, toolNames, toolSpans, lastToolAt, toolSeq, memoAdded, reasoning, notice,
+                pausedStream, pausedBy, pausedResumeOf, resumedChild)
     }
 
     /// v3.0.31：流式任务恢复——qingliao 服务重启后内存任务丢失（poll 404），

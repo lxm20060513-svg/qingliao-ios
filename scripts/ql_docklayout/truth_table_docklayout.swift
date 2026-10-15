@@ -205,13 +205,72 @@ let motionSrc = readSource("Theme/Motion.swift")
 check("用页面级令牌 Motion.page 驱动两态切换（进入 + 返回两处都要）",
       dockView.contains("withAnimation(Motion.page) { showSessionHome = false }")
         && dockView.contains("withAnimation(Motion.page) { showSessionHome = true }"))
+// v4.0.115：工作台「待你处理」卡片进对话页走的是同一个跳转 —— 原先用 Motion.tap（控件曲线）驱动整页位移。
+let wsCallWindow = String((dockView.components(separatedBy: "WorkspaceView(isActive: selected == .workspace,").last ?? "").prefix(900))
+check("工作台进会话同用页面级令牌（原先 Motion.tap 整页位移 = 读作「啪一下」）",
+      wsCallWindow.contains("withAnimation(Motion.page)")
+        && !wsCallWindow.contains("withAnimation(Motion.tap)"))
 check("两分支各有方向感转场（列表 .leading / 聊天 .trailing）—— 少了就退回交叉淡化",
-      dockView.contains(".transition(.move(edge: .leading).combined(with: .opacity))")
-        && dockView.contains(".transition(.move(edge: .trailing).combined(with: .opacity))"))
+      dockView.contains(".transition(.move(edge: .leading))")
+        && dockView.contains(".transition(.move(edge: .trailing))"))
+// v4.0.115（用户「**还是**动效生硬」）：v4.0.114 的 `.combined(with: .opacity)` 是错的 ——
+// 横移叠淡入淡出，两页各淡各的，位移被稀释成「叠着闪一下」，方向感白给。必须是**纯位移**。
+check("🚫 两分支不许再叠 .opacity（交叉淡化会吃掉横移，v4.0.115 已摘）",
+      !dockView.contains(".transition(.move(edge: .leading).combined(with: .opacity))")
+        && !dockView.contains(".transition(.move(edge: .trailing).combined(with: .opacity))"))
 check("🚫 两态切换不许复活 Motion.tap（0.12 = 闪一下，本次修复的病根）",
       !dockView.contains("withAnimation(Motion.tap) { showSessionHome"))
 check("Motion.page 存在且是页面级时长（退回 0.12 级就是老毛病）",
-      motionSrc.contains("static var page: Animation { .snappy(duration: 0.34) }"))
+      motionSrc.contains("static var page: Animation { .smooth(duration: 0.34) }"))
+// v4.0.115：整屏位移不许用带回弹的弹簧（.snappy 收尾那点回弹读作到位时「顿一下」）。
+check("🚫 Motion.page 不许退回 .snappy（整页位移要无回弹的 .smooth）",
+      !motionSrc.contains("static var page: Animation { .snappy("))
+
+print("\n== Ⓞ 返回会话首页：滑进来那一帧必须**已经有内容**（v4.0.115 用户「还是动效生硬」）==")
+// 事故形态：SessionsView 是 if/else 的一支，进聊天时整只销毁、@State 数组归零；
+// 返回时头几帧列表为空 → 滑进来的是一张「还没有会话」空态插画页，内容再在动画途中长出来。
+// 用户读到的「生硬」大半在这儿（v4.0.114 只调了曲线与方向，所以他回「还是」）。
+// 判据 = 初值必须取自本地缓存快照（纯函数，不是空数组）。
+let sessionsSrc = readSource("Features/Sessions/SessionsView.swift")
+check("sessions 初值取自缓存快照 SessionsView.cacheSnapshot()（否则返回时那一帧是空态）",
+      sessionsSrc.contains("@State private var sessions: [ChatSession] = SessionsView.cacheSnapshot()"))
+check("cacheSnapshot() 真存在且从同一份缓存 key 解析",
+      sessionsSrc.contains("static func cacheSnapshot() -> [ChatSession]")
+        && sessionsSrc.contains("forKey: sessionCacheKey"))
+check("🚫 不许把初值改回空数组（病根原样复发）",
+      !sessionsSrc.contains("@State private var sessions: [ChatSession] = []"))
+// 默认值表达式每次建帧都求值 → 解析必须命中进程内快照（本机实测最坏量级 ~39ms/次，不能摊在建帧路径上）
+check("cacheSnapshot() 命中进程内快照 snapshotMemo（不是每次现解 JSON）",
+      sessionsSrc.contains("private static nonisolated(unsafe) var snapshotMemo: [ChatSession] = []")
+        && sessionsSrc.contains("private static nonisolated(unsafe) var snapshotLoaded = false")
+        && sessionsSrc.contains("if loaded { return memo }"))
+// v4.0.115（审查②）：命中判据曾是「数组非空」—— 无缓存/顶层不是数组/schema 漂移时 memo 写空数组，
+// 空数组永远不命中 → 每次建帧重解 1.6MB JSON（本机最坏 ~39ms），正好是这个护栏要防的事。
+check("🚫 不许拿「数组非空」当命中判据（空快照也要标记已解析）",
+      !sessionsSrc.contains("if !memo.isEmpty { return memo }"))
+
+print("\n== Ⓝ′ 纪要页入口：必须先把聊天页拉进视图树（两个入口共用一份实现）==")
+// v4.0.115 审查抓到的事故形态：工作台工具格自己 present 纪要页 → 那条路上 ChatView 不在视图树，
+// 整理完那张卡由 MeetingMinutesView post、唯一接收方 ChatView 的 onReceive 收不到 → 卡静默丢失，
+// 页内照旧显示「已放进会话」。修法 = 两个入口都走 openMinutesPage（先切聊天页再弹全屏页）。
+let wsSrc2 = readSource("Features/Workspace/WorkspaceView.swift")
+check("工作台「会议纪要」格走宿主回调 onOpenMinutes（不自己挂全屏页）",
+      wsSrc2.contains("var onOpenMinutes: (() -> Void)? = nil")
+        && wsSrc2.contains("{ onOpenMinutes?() }"))
+check("🚫 工作台不许自己挂纪要全屏页（ChatView 不在树 = 卡静默丢失 + 假「已放进会话」）",
+      !wsSrc2.contains(".fullScreenCover(isPresented: $showMinutes)"))
+check("两个入口共用一份实现：openMinutesPage 声明 1 次、被调 2 次（长按球 case 6 + 工作台回调）",
+      dockView.components(separatedBy: "private func openMinutesPage()").count - 1 == 1
+        && dockView.components(separatedBy: "openMinutesPage()").count - 1 == 3)
+let minsBody = String((dockView.components(separatedBy: "private func openMinutesPage()").last ?? "").prefix(700))
+if let a = minsBody.range(of: "selected = .chat"),
+   let b = minsBody.range(of: "showSessionHome = false"),
+   let c = minsBody.range(of: "showMinutes = true") {
+    check("openMinutesPage：先切聊天页（selected = .chat + showSessionHome = false）再弹纪要页",
+          a.lowerBound < c.lowerBound && b.lowerBound < c.lowerBound)
+} else {
+    check("openMinutesPage：三要素都在（缺 = 卡静默丢失的病根复发）", false)
+}
 
 print("\n通过 \(ok) 项，失败 \(fail) 项")
 if fail > 0 { exit(1) }

@@ -7,7 +7,13 @@
 //   ③ 撤了行忘撤搜索索引 → 搜得到、点下去设置页没这行（比「搜不到」更坏）；
 //   ④ 数错格数 / 写错标题 → 格子在、点了是别的东西；
 //   ⑤ 顺手把功能本体删掉 → 聊天页长按「提醒我」的 QuickReminderSheet 一起废。
-// 本表盯这五类，并把「8 格」钉死（加格减格都要显式改这里，防静默多/少一格）。
+// 本表盯这五类，并把「9 格」钉死（加格减格都要显式改这里，防静默多/少一格）。
+// v4.0.115 追加：第 9 格「会议纪要」（用户「会议纪要功能加入工作台的工具栏」）——
+//   🚨 它**不在本页 present**：纪要卡唯一接收方是 ChatView 的 onReceive，而 ChatView 只在聊天页
+//   那一支里 —— 工作台自己挂 fullScreenCover 的话，录完音整理好的卡 post 无人接、静默丢失，
+//   页内却照旧显示「已放进会话」（v4.0.115 发包前审查抓到的 P1）。
+//   本条格必须交给宿主回调 onOpenMinutes（= 长按球 case 6 同一条路）。
+//   坏法 = 只加格子没接线 → 点了毫无反应；或自己挂全屏页 → 卡静默丢失。
 //
 // 口径提醒（v3.9.87 实锤）：切片锚点必须取**代码行**，不能取 // MARK: 注释行
 // —— stripComments 会先剥掉整行注释，锚在注释上会让下面全部变空真恒绿。
@@ -74,14 +80,14 @@ check("工作台页源可读（空了下面全是空真）", !wsCode.isEmpty)
 check("设置页源可读", !coreCode.isEmpty)
 check("搜索索引源可读", !indexCode.isEmpty)
 
-// ── ① 工具格：恰好 8 格，标题逐个钉死 ──
+// ── ① 工具格：恰好 9 格，标题逐个钉死 ──
 let grid = slice(wsCode, "private var toolsBoard", "private func toolCell")
 check("切得出工具格区（切不出=下面几条在空转）", !grid.isEmpty)
 
 let cellTitles = ["知识库", "网盘文件", "MCP 工具", "技能库", "定时任务", "邮件接入",
-                  "定时提醒", "文件管理"]
-check("工具格恰好 8 个 toolCell（当前 \(occurrences(grid, "toolCell("))）",
-      occurrences(grid, "toolCell(") == 8)
+                  "定时提醒", "文件管理", "会议纪要"]
+check("工具格恰好 9 个 toolCell（当前 \(occurrences(grid, "toolCell("))）",
+      occurrences(grid, "toolCell(") == 9)
 for title in cellTitles {
     check("工具格有「\(title)」", grid.contains("toolCell(\"\(title)\""))
 }
@@ -96,7 +102,8 @@ check("两格排在末尾（用户可见顺序：新迁入的在最右）", mail
 check("4 列 LazyVGrid（v4.0.x 口径；别改回两行 HStack 各 3 格 = 每格被挤到 8.8pt）",
       grid.contains("count: 4") && !grid.contains("HStack") && !grid.contains("GridItem(.fixed"))
 
-// ── ② 接线：8 个格子各自都要有 sheet 挂载 + @State（少了就是「点了没反应」）──
+// ── ② 接线：每格都要有「@State + 呈现挂载」（少了就是「点了没反应」）──
+//    前 8 格走 sheet；第 9 格「会议纪要」走 fullScreenCover（正文要占满整屏读）。
 let flags = ["showKB", "showCloud", "showMCP", "showSkills", "showTasks", "showMail",
              "showReminder", "showFiles"]
 for flag in flags {
@@ -106,6 +113,12 @@ for flag in flags {
 }
 check("8 个工具体的 sheet 总数 = 8（多挂/漏挂都要显式改）",
       flags.reduce(0) { $0 + occurrences(wsCode, ".sheet(isPresented: $\($1))") } == 8)
+check("「会议纪要」格：走宿主回调 onOpenMinutes（声明 + 调用都在）",
+      wsCode.contains("var onOpenMinutes: (() -> Void)? = nil")
+      && wsCode.contains("{ onOpenMinutes?() }"))
+check("🚫 工作台不许自己挂纪要全屏页 / 自己存 showMinutes（ChatView 不在树 → 卡静默丢失 + 假「已放进会话」）",
+      !wsCode.contains(".fullScreenCover(isPresented: $showMinutes)")
+      && !wsCode.contains("private var showMinutes"))
 
 // ── ③ 新迁入两格挂在 workspaceCold1，且 detents 与设置页时代逐字同口径 ──
 let cold1 = slice(wsCode, "private func workspaceCold1", "private func workspaceCold2")
@@ -124,6 +137,13 @@ check("workspaceCold1 顶层 ≤4 条（当前 \(occurrences(cold1, ".sheet("))�
       !cold1.isEmpty && occurrences(cold1, ".sheet(") <= 4)
 check("workspaceCold2 顶层 ≤4 条（当前 \(occurrences(cold2, ".sheet("))）",
       !cold2.isEmpty && occurrences(cold2, ".sheet(") <= 4)
+check("🚫 工作台没有 cold3 之类的第二层呈现壳（纪要页呈现只有一个真源：DockTabView.openMinutesPage）",
+      !wsCode.contains("workspaceCold3")
+      && occurrences(wsCode, "private func workspaceCold") == 2)
+// v4.0.115 审查⑤：body 顶层的冷组挂载点原先没人数上限 —— 一路 background(workspaceColdN()) 加下去
+// 又会撞 §77 类型栈深度（4.0.47 真机启动闪退的形态）。钉住：body 顶层就这 2 组，别再加。
+check("body 顶层 background(workspaceCold…) 挂载点 ≤2（当前 \(occurrences(wsCode, ".background(workspaceCold")) 组）",
+      occurrences(wsCode, ".background(workspaceCold") <= 2)
 
 // ── ④ 设置页零残留（入口、sheet、@State、搜索 case 四面一处不留）──
 check("反例：设置页不再引用 showQuickReminder / showFilesManager（含 @State 与 case）",

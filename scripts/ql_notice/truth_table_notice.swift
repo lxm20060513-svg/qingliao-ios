@@ -150,7 +150,11 @@ ck("写库位置在 return 之前（不是写在死代码里）", orderedPair(pa
 // ── F. AuthStore：轮询解包 ──────────────────────────────────────
 ck("streamPoll 解析后端 notice 键（老后端无此键 = 空串，优雅退化）",
    authSrc.contains(#"let notice = j["notice"] as? String ?? """#))
-ck("streamPoll 返回元组末位带 notice（13 元组）", authSrc.contains("reasoning, notice)"))
+// v4.1.x（插话）：元组从 13 元扩到 17 元（末尾追加 paused/pausedBy/pausedResumeOf/resumedChild）
+// → 这里**不再钉「末位」**（末位会随每次扩元变化，钉它等于把「位置」当契约），
+// 只钉 notice 仍在返回元组里、且紧跟 reasoning（顺序约束仍有效）；
+// 元数三处一致由第 104 段（scripts/ql_interject/truth_table_interject.swift）统一钉。
+ck("streamPoll 返回元组里带 notice（紧跟 reasoning）", authSrc.contains("reasoning, notice,"))
 
 // ── G. StreamClient：复位 / 只在变化时写入 ──────────────────────
 ck("整轮 notice 属性在场", streamSrc.contains("var notice = \"\""))
@@ -161,7 +165,7 @@ ck("只在变化时写入（同 isAgent 口径，避免每轮 poll 触发无谓�
    streamSrc.contains("if !noticeIn.isEmpty, noticeIn != notice { notice = noticeIn }"))
 
 // ── H. 后台跑流器：App 不在前台时跑完的那条也要带标记 ────────────
-ck("后台解包 13 元组末位 noticeIn", bgSrc.contains("noticeIn"))
+ck("后台解包元组里带 noticeIn（解包顺序与 AuthStore 返回序一致）", bgSrc.contains("noticeIn"))
 ck("透传给落库函数", bgSrc.contains("notice: noticeIn"))
 ck("落库函数形参声明 notice", bgSrc.contains(#"notice: String = """#))
 ck("后台落库带上标记", bgSrc.contains("if !notice.isEmpty { m2.notice = notice }"))

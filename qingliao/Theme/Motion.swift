@@ -33,7 +33,11 @@ enum Motion {
     /// 小控件要的是"立刻响应"，但**整页位移**必须让眼睛看得见位移过程，0.12 读作「啪一下闪过去」。
     /// 故单开一枚：时长够看清横移、仍用 snappy 保持"跟手不飘"。
     /// ⚠️ 只给整页横移用，别挪去驱动小控件（那边的 0.12 是刻意快）。
-    static var page: Animation { .snappy(duration: 0.34) }
+    /// v4.0.115（用户「还是动效生硬」）：`.snappy` → **`.smooth`**。
+    /// snappy 是「快起 + 收尾一点点回弹」的弹簧，小控件上读作"跟手"，但**整屏位移**上
+    /// 那点回弹读作到位时「顿一下 / 顶一下」。.smooth 无回弹、首尾对称，读作「滑过去」。
+    /// ⚠️ 时长 0.34 不动（v4.0.114 定的：短于 0.3 读作闪、长于 0.4 读作拖沓）。
+    static var page: Animation { .smooth(duration: 0.34) }
 
     /// 卡片 / 面板进入、列表插入
     static var settle: Animation { .snappy(duration: 0.30) }

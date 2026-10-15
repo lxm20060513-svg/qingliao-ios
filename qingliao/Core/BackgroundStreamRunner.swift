@@ -98,7 +98,9 @@ final class BackgroundStreamRunner {
                 let myGen = entry.gen
                 do {
                     // 13 元组末位 notice（v4.0.112 阶段总结标记）；中段 memoAdded/reasoning 后台暂不消费
-                    let (c, done, st, err, agent, piggyback, _, _, _, _, _, _, noticeIn) =
+                    // 末 4 位（v4.1.x 插话暂停-恢复）后台暂不消费——后台流不参与插话，接回由前台/发起端负责
+                    let (c, done, st, err, agent, piggyback, _, _, _, _, _, _, noticeIn,
+                         _, _, _, _) =
                         try await auth.streamPoll(taskId: entry.taskId, offset: entry.offset)
                     // 2026-09-30 审查：撤销后重新移交会建**新** entry，此时 sid 仍存在但已是别人，
                     // 在途回包不得落笔（否则 offset/content 串任务，旧 loop 还会把新条目 finish 掉）

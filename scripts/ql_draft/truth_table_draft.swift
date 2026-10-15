@@ -152,10 +152,18 @@ let clearCalls = hits(chatView, "setInputText(\"\", clearingDraft: true)")
 // 为什么不能只数个数（本表踩过）：个数对不上只会让后来人顺手把数字改大，方向性错误照旧放过 ——
 // 所以三处逐个对上号，另加一条「未知命令支必须不清」的反向断言。
 ck("「确认发送才清」恰好 3 处（sendPendingNow + send 直发 + 斜杠命令命中）", clearCalls == 3, "实得 \(clearCalls)")
-let spnSlice = slice(from: "private func sendPendingNow(", to: "func send() {", in: chatView)
+// v4.1.x（插话）：`send()` 加了默认参数 → 签名变 `func send(interject: Bool = false) {`。
+// 签名是这两个切片的锚点，改名会让 sendPendingNow 的切片静默退化（slice 找不到 end 时取 4000 字符，
+// 反而「更宽」照样绿）——所以先把签名本身的唯一性钉住，再拿它当锚点。
+ck("send() 签名唯一且带插话参数（v4.1.x：⚡ 复用同一入口，不再另开一个发送函数）",
+   hits(chatView, "func send(interject: Bool = false) {") == 1,
+   "实得 \(hits(chatView, "func send(interject: Bool = false) {"))")
+let spnSlice = slice(from: "private func sendPendingNow(", to: "func send(interject: Bool = false) {", in: chatView)
 ck("清点①：sendPendingNow 段定位成功", !spnSlice.isEmpty)
 ck("清点①：sendPendingNow 里清（弹窗点「确认发送」才走到这）", spnSlice.contains("setInputText(\"\", clearingDraft: true)"))
-let sendSlice = slice(from: "func send() {", to: "func sendCore(", in: chatView)
+// 终点取 send() 的**下一个**函数 —— 插话这一版 send() 后面紧跟 interjectSendCore（它不清草稿，
+// 含在切片里不改变计数，但少截 130 行源码 = 变异更难藏）。
+let sendSlice = slice(from: "func send(interject: Bool = false) {", to: "private func interjectSendCore(", in: chatView)
 ck("send() 段定位成功（含斜杠拦截 + 直发清空）", !sendSlice.isEmpty)
 ck("清点②③：send() 段内恰好 2 处清（斜杠命中 + 直发，多一处就是漏了确认闸）",
    hits(sendSlice, "setInputText(\"\", clearingDraft: true)") == 2,

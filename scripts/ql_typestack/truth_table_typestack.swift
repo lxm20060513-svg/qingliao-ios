@@ -292,7 +292,9 @@ if let f = try? String(contentsOfFile: repo + "/qingliao/Features/Settings/Setti
     // v4.1.0 方案C：组改 FoldSection 承载（Agent 并入 AI、关于并入通用），守卫意图不变 ——
     // body 顶层每个条目都必须被 AnyView 切断类型内联（防 4.0.47 启动栈溢出复发）
     for w in ["AnyView(petStudioBanner)", "AnyView(logoutButton)",
-              "AnyView(accountSection.id(\"sec-account\")",
+              // v4.0.115：账号组也改由 FoldSection 承载（用户报「账号与安全项无法折叠」）——
+              // 守卫意图不变：该条目仍必须 AnyView 包裹 + 仍带 sec-account 滚动锚点
+              "AnyView(FoldSection(title: \"账号与安全\"", ".id(\"sec-account\")",
               "AnyView(FoldSection(title: \"连接与模型\"", "AnyView(FoldSection(title: \"AI 与 Agent\"",
               "AnyView(FoldSection(title: \"数据与工具\"", "AnyView(FoldSection(title: \"通用\"",
               ".id(\"sec-ai\")", ".id(\"sec-appearance\")"] {

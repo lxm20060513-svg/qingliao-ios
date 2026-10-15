@@ -286,8 +286,11 @@ check("点选只填入命令文本，执行仍走 send() 的唯一拦截口（�
 
 // MARK: - F. send() 顶部拦截（在其它分支之前 / 命令不发 LLM）
 
+// v4.1.x（插话）：send() 签名加了默认参数（`send(interject: Bool = false)`）——
+// 锚点必须跟着走，否则 onlyWhitespaceBetween 直接取不到锚 → 恒红（这条会响，是好事；
+// 同一轮改 `ql_draft` 时那边是静默退化，两种都要防）。
 check("⚠️ send() 的**第一句**就是命令拦截（前面只允许空白）",
-      onlyWhitespaceBetween(cv, "func send() {",
+      onlyWhitespaceBetween(cv, "func send(interject: Bool = false) {",
                             "if let (cmd, arg) = SlashParser.parse(inputText) {"))
 
 guard let sendBody = closureBody(cv, from: "if let (cmd, arg) = SlashParser.parse(inputText) {",

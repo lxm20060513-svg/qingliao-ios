@@ -136,7 +136,9 @@ check("v4.0.86 防回归：新建会话/语音输入胶囊先落对话页（Chat
       dockSrc.contains("if selected != .chat || showSessionHome {") )
 check("v4.0.86 防回归：语音对话/会话纪要同样收 showSessionHome（全念与纪要卡的接收方都在 ChatView）",
       dockSrc.contains("showSessionHome = false\n            showVoiceDialog = true")
-      && dockSrc.contains("showSessionHome = false\n            showMinutes = true"))
+      // v4.0.115：纪要那条搬进 openMinutesPage 了（工作台工具格是第二个入口，两个入口共用一份实现），
+      // 故「先切页」的判据改为钉那份实现被调用（实现体内部的先后次序由 ql_docklayout Ⓝ′ 钉）。
+      && dockSrc.contains("openMinutesPage()"))
 
 // ── 3. 菜单层形态（A+C 方案定稿护栏） ─────────────────────────
 check("菜单浮层挂在 DockTabView", dockSrc.contains("OrbQuickMenuOverlay(barHeight: dockBarHeight"))
@@ -1395,8 +1397,8 @@ let shareIntakeClean = stripCommentLines(shareIntakeSrc)
 check("护栏：ShareIntake.swift 源可读（读不到时下面的断言会指向错处）", !shareIntakeSrc.isEmpty)
 
 let case6 = between(dockClean, "case 6:", "case 7:")
-check("⑥ 会话纪要（case 6）先切聊天页再弹全屏页 —— 否则整理好的纪要卡静默消失", !case6.isEmpty &&
-      case6.contains("selected = .chat") && case6.contains("showMinutes = true"))
+check("⑥ 会话纪要（case 6）走 openMinutesPage（先切聊天页再弹全屏页的实现收在该函数）", !case6.isEmpty &&
+      case6.contains("openMinutesPage()"))
 let case8 = between(dockClean, "case 8:", "default:")
 check("⑧ 记一笔（case 8）走 quickCapture = .expense（同一 sheet 容器，复用 QuickCaptureSheet，不另起弹窗）",
       !case8.isEmpty && case8.contains("quickCapture = .expense"))

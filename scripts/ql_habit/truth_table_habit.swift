@@ -364,6 +364,12 @@ enum HabitTruthTable {
         check("源级：展开区底部保留「全部习惯」浮层入口（openAllHabits → glass.showAll = true）",
               sectionCode.contains("private func openAllHabits()")
               && sectionCode.contains("glass.showAll = true"))
+        // v4.0.115（用户 2026-10-15「习惯卡片如果只有一个，点击以后底部是没有全部习惯入口的」）：
+        // 展开区那行入口**不许按条数隐藏** —— 它是进「全部习惯」浮层的**唯一**入口（新建/详情/管理都在浮层里），
+        // 只剩一条时藏掉 = 用户彻底进不去那个浮层。病根就是原来那句 `if habits.count > 1 {`。
+        negatives += 1
+        check("源级：展开区「全部习惯」入口恒定渲染（不许再按条数隐藏）",
+              !sectionCode.contains("habits.count > 1"))
         negatives += 1
         check("源级：删空后复位展开态（与记录/目标两张卡同款，否则新建第一条以已展开形态凭空出现）",
               sectionCode.contains("if empty { habitExpanded = false }"))

@@ -222,11 +222,16 @@ struct DockTabView: View {
                         // v4.0.114（用户「聊天详情手势滑动返回过渡太生硬」）：返回时列表从**左边**滑回来
                         // （进入聊天时它反向滑向左边）—— 与下面聊天的移向凑成 push/pop 的观感。
                         // 此前两态都是默认的交叉淡化 + Motion.tap(0.12)，读作「啪一下闪过去」。
-                        .transition(.move(edge: .leading).combined(with: .opacity))
+                        // v4.0.115（用户「**还是**动效生硬」）：**摘掉 `.opacity`** ——
+                        // 「横移 + 淡入淡出」两页各淡各的，位移被稀释成「叠着闪一下」，
+                        // v4.0.114 想给的方向感等于白给。纯 .move 才是 push/pop 的原生观感
+                        // （两页正好左右拼满一屏，中途不留缝、不露底）。
+                        .transition(.move(edge: .leading))
                 } else {
                     ChatView(onBackToHome: { withAnimation(Motion.page) { showSessionHome = true } })
                         // 进入 = 从右边滑入；返回 = 向右滑出（与列表的移向配成一对）
-                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                        // 同上：进入 = 从右边滑入；返回 = 向右滑出（纯位移，不带淡入淡出）
+                        .transition(.move(edge: .trailing))
                 }
             }
             .chatZoomEntry(selected: $selected, revealCenter: revealCenter)
@@ -291,11 +296,15 @@ struct DockTabView: View {
             WorkspaceView(isActive: selected == .workspace,
                           onOpenSession: {
                               skipBurstOnce()
-                              withAnimation(Motion.tap) {
+                              // v4.0.115：与聊天页两态切换同款页面级令牌 —— 原先 Motion.tap（.snappy
+                              // 0.12）是拿控件曲线驱动整页位移，读作「啪一下」，正是本轮动效修复的病根。
+                              withAnimation(Motion.page) {
                                   showSessionHome = false
                                   selected = .chat
                               }
-                          })
+                          },
+                          // v4.0.115：工作台工具格「会议纪要」—— 与长按球 case 6 同一条路。
+                          onOpenMinutes: { openMinutesPage() })
                 .tabTransition(for: .workspace, selected: $selected, revealCenter: revealCenter)
         case .settings:
             // v4.0.0：设置页大类 → 明细的二级页需要 NavigationStack 才有返回栈
@@ -449,17 +458,8 @@ struct DockTabView: View {
             showSessionHome = false
             showVoiceDialog = true
         case 6:   // 会话纪要（v4.0.x 新胶囊）
-            // 🚨 必须先让聊天页进视图树（与 case 2/4/7 同款闸）：纪要整理完那张卡由
-            //    `MeetingMinutesView` post `.qingliaoMinutesCard`，**唯一接收方是 ChatView 的 onReceive**
-            //    —— 用户在生活页/看板页长按球进纪要、录完音整理好，卡片会因为 ChatView 不在树里而
-            //    静默消失（备忘存了、卡没了，用户只看到「整理完成」）。
-            //    顺带的好处：dismiss 纪要页出来就是聊天页，刚落的那张卡就在眼前。
-            // 全屏页而非 sheet：纪要正文要占满整屏读，页内自带 dismiss（与语音对话页同一口径）。
-            if selected != .chat || showSessionHome { skipBurstOnce() }
-            selected = .chat
-            // v4.0.86：同 case 5 —— 从会话首页进来也切到对话页，纪要卡唯一接收方 ChatView 才在树里。
-            showSessionHome = false
-            showMinutes = true
+            // v4.0.115：口径与实现收进 openMinutesPage（工作台工具格是第二个入口，两个入口共用一份）。
+            openMinutesPage()
         case 7:   // 拍照识别（v4.0.x 新胶囊）
             // 无摄像头设备（模拟器 / 部分无相机 iPad）present .camera 会抛 NSInvalidArgumentException
             // —— 与 OrbIdentifyOverlay.openCameraOrAlbum、ChatView 同一道闸，别在三处写出不同判据。
@@ -477,6 +477,22 @@ struct DockTabView: View {
         default:
             break
         }
+    }
+
+    /// v4.0.115：进「会议纪要」的**唯一实现**（长按球菜单 case 6 与工作台工具格共用）。
+    ///
+    /// 🚨 必须先让聊天页进视图树（与 case 2/4/7 同款闸）：纪要整理完那张卡由 `MeetingMinutesView`
+    /// post `.qingliaoMinutesCard`，**唯一接收方是 ChatView 的 onReceive** —— 用户在生活页/看板页/
+    /// 工作台进纪要、录完音整理好，卡片会因为 ChatView 不在树里而静默消失（备忘存了、卡没了，
+    /// 用户只看到「已放进会话」这句假话）。v4.0.115 审查实测：工作台工具格直接 present 就是这个坑。
+    /// 顺带的好处：dismiss 纪要页出来就是聊天页，刚落的那张卡就在眼前。
+    /// 全屏页而非 sheet：纪要正文要占满整屏读，页内自带 dismiss（与语音对话页同一口径）。
+    private func openMinutesPage() {
+        if selected != .chat || showSessionHome { skipBurstOnce() }
+        selected = .chat
+        // v4.0.86：从会话首页进来也切到对话页 —— 纪要卡唯一接收方 ChatView 才在树里。
+        showSessionHome = false
+        showMinutes = true
     }
 
     // MARK: - v4.0.x 拍照识别（长按菜单新胶囊 id 7）
