@@ -212,17 +212,35 @@ check("工作台进会话同用页面级令牌（原先 Motion.tap 整页位移 
         && !wsCallWindow.contains("withAnimation(Motion.tap)"))
 // v4.0.116（用户 2026-10-13「聊天页滑动返回聊天主页采用圆形扩散转场特效：新页面就从手指滑动位置向外
 // 扩散直到铺满整个屏幕」）：**返回方向**（对话页 → 会话首页）从「列表左滑进来」整条换成**圆形扩散** ——
-// 形状 / 曲线 / 最大半径与 dock 切页同一套（RevealCircleShape + Motion.pageReveal + pageRevealMaxRadius），
-// 差别只在圆心：切页取被点槽位中心，这里取**手势抬手位置**。
+// 形状 / 最大半径与 dock 切页同一套（RevealCircleShape + pageRevealMaxRadius）；
+// **曲线 v4.0.117 起分家**（切页 = pageReveal，返回 = sessionBackReveal，见下面那条），
+// 圆心也不同：切页取被点槽位中心，这里取**手势抬手位置**。
 // ⚠️ 旧口径（返回也是纯 move 的 push/pop）在返回这一侧**已作废**：整页横移与扩散同时演 = 位移把圆切碎，
 //    正是 v4.0.115 治过的病。离场侧（进对话页 = 列表左滑出 + 聊天右滑入）**一字未改**，下面钉住。
 check("返回方向 = 从手指位置圆形扩散（首页挂 sessionHomeReveal(center:)）",
       dockView.contains(".sessionHomeReveal(center: $homeRevealCenter)"))
 check("圆形扩散圆心 = 手势**抬手**位置（起手点被 edgeWidth 钉在左缘 24pt，看不出「从手指滑动位置扩散」）",
       readSource("Features/Chat/ChatView.swift").contains("onBack(value.location)"))
-check("返回的圆形扩散与 dock 切页共用同一套口令（半径归 0 → Motion.pageReveal 事务到 max）",
-      dockView.contains("revealRadius = 0")
-        && dockView.contains("withAnimation(Motion.pageReveal) { revealRadius = Motion.pageRevealMaxRadius }"))
+// 🚨 v4.0.117（用户 2026-10-15 真机拍板「滑动返回聊天主页的扩散就是太快，再慢一点」）：**曲线分家**。
+// 旧口径「返回与切页共用同一条 Motion.pageReveal」**已作废** —— 0.75 是用户为 **dock 切页**三轮调定的
+//（0.42 → 0.60 → 0.75），返回顺手共用 = 太快；而直接改 0.75 = 误伤在用的切页动效（用户口径「修复勿误伤在用功能」）。
+// 分家后同时钉三件：① 返回那份恰好一处（多一处 = 有人拿它顺手改了切页）② 切页两处仍在（别被返回带走）
+// ③ 返回那支 modifier 自己不许再出现 pageReveal（改回共用 = 用户报的「太快」复发）。
+let sessionBackCall = "withAnimation(Motion.sessionBackReveal) { revealRadius = Motion.pageRevealMaxRadius }"
+let pageRevealCall = "withAnimation(Motion.pageReveal) { revealRadius = Motion.pageRevealMaxRadius }"
+check("返回的圆形扩散走**返回专用**曲线 sessionBackReveal（恰好一处）+ 起点仍是半径归 0",
+      dockView.components(separatedBy: sessionBackCall).count - 1 == 1
+        && dockView.contains("revealRadius = 0"))
+check("切页两处仍是同一个 pageReveal 事务（没被返回那条顺手带走）",
+      dockView.components(separatedBy: pageRevealCall).count - 1 == 2)
+check("sessionBackReveal 令牌存在、且比切页的 0.75 慢（.smooth 1.10）",
+      motionSrc.contains("static var sessionBackReveal: Animation { .smooth(duration: 1.10) }"))
+// 切片自证：锚点取真代码行（注释行会被 strip 掉的写法在别处踩过），且先断言切片非空（否则下面那条是空真）
+let backSlice = String((dockView.components(separatedBy: "private struct SessionHomeRevealModifier").last ?? "")
+    .components(separatedBy: "MARK: - v3.9.78").first ?? "")
+check("切片取到（切片空了下面那条就是空真）", !backSlice.isEmpty)
+check("🚫 返回那支 modifier 里不许再出现 Motion.pageReveal（改回共用 = 「太快」复发）",
+      backSlice.contains("Motion.sessionBackReveal") && !backSlice.contains("Motion.pageReveal)"))
 check("🚫 首页入场不许再挂整页横移（须为 .identity：移了就是位移把扩散切碎）",
       dockView.contains(".transition(.asymmetric(insertion: .identity, removal: .move(edge: .leading)))"))
 check("🚫 返回时对话页不许再右滑（removal 已改 .identity；右滑 + 扩散会各演各的）",

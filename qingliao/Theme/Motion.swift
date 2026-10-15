@@ -85,13 +85,21 @@ enum Motion {
     /// ⚠️ 曲线与半径的字面量同时钉在 check_swift.sh 的「回退⑯」组与 ql_themegrad ⑧c，改这里必须同步改那两处。
     static var pageReveal: Animation { .smooth(duration: 0.75) }
 
+    /// 🚨 v4.0.117（用户 2026-10-15 真机反馈「滑动返回聊天主页的扩散**就是太快**」）：**返回那条链单独放慢**。
+    /// 口径：`pageReveal` 是**切页**那几处共用的（0.42→0.60→0.75 用户三轮调定，别动它，也别拿这枚去顶替）；
+    /// 滑动返回（对话页 → 会话首页，`SessionHomeRevealModifier`）自己一枚 `.smooth(1.10)`。
+    /// 为什么必须分家：返回的圆心在屏幕**左侧中部**（起手被左缘 24pt 钉住），到最远角的行程比切页长，
+    /// 同一条 0.75 读作「刷一下扫完」= 用户口径的「太快」；而切页的 0.75 是他自己拍板的，顺手改 = 误伤。
+    /// ⚠️ 字面量钉在 check_swift.sh「回退⑯」组（⑯k/⑯l）与 ql_docklayout 表，改这里同步改那两处。
+    static var sessionBackReveal: Animation { .smooth(duration: 1.10) }
+
     /// 扩散圆的最大半径（pt）：必须 ≥「屏幕最远角到圆心」的距离（15 Pro Max 底部槽位 ≈ 874pt），
     /// 取 1200 兜住全部机型与横屏。**两处 modifier 共用同一个常量**，别各写一个字面量。
     static let pageRevealMaxRadius: CGFloat = 1200
 
     /// v4.0.117：启动页圆形遮罩的扩散曲线（`.easeIn` = 用户要的「先慢后快」）。
-    /// ⚠️ **别拿 pageReveal 顶替**：那枚是 `.smooth`（首尾对称），语义是 dock 切页 / 滑动返回的匀速扫过；
-    /// 启动页这一拍用户明说「先慢后快」，两枚令牌各管一段，不是一处。
+    /// ⚠️ **别拿 pageReveal 顶替**：那枚是 `.smooth`（首尾对称），语义是 dock 切页的匀速扫过
+    ///（滑动返回另有一枚更慢的 `sessionBackReveal`）；启动页这一拍用户明说「先慢后快」，两枚令牌各管一段，不是一处。
     /// 时长 0.7 与 `SplashView.revealDuration` 必须同值（check_swift.sh 同钉两处）。
     static var launchReveal: Animation { .easeIn(duration: 0.7) }
 

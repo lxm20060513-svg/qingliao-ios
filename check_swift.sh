@@ -1449,12 +1449,15 @@ ckNot "回退⑮：0.9 淡入（v4.0.71 未根治版）也不许回来" '\.opaci
 # **v4.0.97（用户 2026-10-11「dock 栏 tap 页切换采用圆形扩散转场特效：点击底部 tap，新页面就从手指
 # 按下的位置向外扩散直到铺满整个屏幕」）**：淡入 + 横向微滑**整条换掉** → 圆形扩散 ——
 # 新页走可动画裁剪形状 `RevealCircleShape`，半径 0 → Motion.pageRevealMaxRadius(1200)、曲线 Motion.pageReveal。
-# 半径 / 曲线 / 起点三处与 ChatZoomEntryModifier 逐字成对，别只改一边。
+# 半径 / 起点两处与 ChatZoomEntryModifier 逐字成对，别只改一边。
+# 🚨 v4.0.117（用户 2026-10-15 真机「滑动返回聊天主页的扩散就是太快」）：**曲线这一项分家** ——
+# 切页（TabTransition / ChatZoom）仍是 Motion.pageReveal（.smooth 0.75，用户三轮拍定，别动）；
+# 滑动返回（SessionHomeReveal）单独走 Motion.sessionBackReveal（.smooth 1.10，见本组 ⑯k/⑯l）。
 # 圆外不露白的理由：TabView 底下常驻同款 `EnvironmentGlowLayers` 垫底（回退⑰），半径 0 那一拍整屏看到的就是
 # 这层渐变 = 与页底逐帧一致 —— v4.0.73~0.85 反复治的「先白一下」不会复发。
 # 禁令不变：整页缩放（0.96 那套）/ y 轴上浮 / 低起点整页淡入（0.35 起手）一概不许回来。
 cnt=$(grep -cF 'withAnimation(Motion.pageReveal) { revealRadius = Motion.pageRevealMaxRadius }' "$DT"); [ "$cnt" -ge 2 ] \
-  || { echo "❌ 回退⑯：切页入场应为同一个 withAnimation(Motion.pageReveal) { revealRadius = Motion.pageRevealMaxRadius }，两处 modifier 各一份（实得 $cnt）"; fail=1; }
+  || { echo "❌ 回退⑯：**切页**入场应为同一个 withAnimation(Motion.pageReveal) { revealRadius = Motion.pageRevealMaxRadius }（两处 modifier 各一份；返回那条另走 ⑯l，实得 $cnt）"; fail=1; }
 cnt=$(grep -cF 'clipShape(RevealCircleShape(center: localCenter, radius: revealRadius))' "$DT"); [ "$cnt" -ge 2 ] \
   || { echo "❌ 回退⑯i：圆形扩散应走 RevealCircleShape 裁剪（两处 modifier 各一份，实得 $cnt）"; fail=1; }
 # v4.0.97 审查（medium）：shape 的 path 在**页面局部坐标系**里，圆心却是 window 坐标 →
@@ -1467,6 +1470,14 @@ cnt=$(grep -cF 'static let pageRevealMaxRadius: CGFloat = 1200' qingliao/Theme/M
   || { echo "❌ 回退⑯g：扩散圆最大半径应为 Motion.pageRevealMaxRadius = 1200（实得 $cnt）"; fail=1; }
 cnt=$(grep -cF 'static var pageReveal: Animation { .smooth(duration: 0.75) }' qingliao/Theme/Motion.swift); [ "$cnt" -ge 1 ] \
   || { echo "❌ 回退⑯h：切页曲线令牌应为 Motion.pageReveal（.smooth 0.75，v4.0.98→v4.0.100 用户两次要求放慢，实得 $cnt）"; fail=1; }
+# v4.0.117（用户 2026-10-15 真机拍板「滑动返回的扩散就是太快，再慢一点」）：返回这条链**单独一枚更慢的曲线**。
+# 为什么不能直接改 pageReveal：0.75 是用户为 **dock 切页**三轮调定的（0.42→0.60→0.75），
+# 顺手加长 = 误伤已在用的切页动效（用户口径「修复勿误伤在用功能」）。
+cnt=$(grep -cF 'static var sessionBackReveal: Animation { .smooth(duration: 1.10) }' qingliao/Theme/Motion.swift); [ "$cnt" -ge 1 ] \
+  || { echo "❌ 回退⑯k：滑动返回专用曲线令牌应为 Motion.sessionBackReveal（.smooth 1.10，实得 $cnt）"; fail=1; }
+# 恰好一处（只有 SessionHomeRevealModifier 的 enter 该用它；多一处 = 有人拿它顺手改了切页那条）。
+cnt=$(grep -cF 'withAnimation(Motion.sessionBackReveal) { revealRadius = Motion.pageRevealMaxRadius }' "$DT"); [ "$cnt" -eq 1 ] \
+  || { echo "❌ 回退⑯l：滑动返回的圆形扩散应唯一走 Motion.sessionBackReveal（实得 $cnt）"; fail=1; }
 ckNot "回退⑯a：旧 snap 起手（phase 从 0 开始，实测会闪）不许回来" 'withAnimation\(Motion\.snap\) \{ phase = 1 \}' "$DT"
 ckNot "回退⑯b：整页缩放入场（0.96 那套）不许回来" 'scaleEffect\(0\.96 \+ 0\.04 \* phase' "$DT"
 ckNot "回退⑯c：整页上浮（10pt 那条）不许回来" 'offset\(y: 10 \* \(1 - phase' "$DT"

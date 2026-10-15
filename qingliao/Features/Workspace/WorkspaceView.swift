@@ -143,14 +143,22 @@ struct WorkspaceView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: Spacing.section) {
+            // v4.0.117（用户 2026-10-15「生活页这种上下滑动的动效能不能应用到所有页面」→ 拍板「加工作台」）：
+            // 五个块挂上生活页那一档滚动层次（`scrollDepth` ＝ 卡片进出视口时 scale 0.965 / opacity 0.75）。
+            // 🚨 容器由 `VStack` 改 **`LazyVStack`** 是**必要条件**、不是风格选择：`scrollDepth` 走的是
+            //    `scrollTransition`，只在 Lazy 容器里按元素位置算 identity；挂在非 Lazy 的 VStack 上 =
+            //    每块**恒为非 identity** → 五个块常驻缩小 + 半透明（与会话列表 List 那个坑同一病根，
+            //    `SessionsView.swift:1184` 有实测记录：卡比同屏未挂的卡窄 ~14pt）。改回 VStack = 复发。
+            // ⚠️ 只挂这**一层**：工具格内部不许再挂（同容器叠两层 → 0.965² ≈ 0.931 / 0.75² ≈ 0.56，比看板
+            //    明显更缩更暗，与「跟看板/生活页同一档层次」的初衷相反）。块数钉在 ql_uitokens 表，加块同步改。
+            LazyVStack(alignment: .leading, spacing: Spacing.section) {
                 // 待你处理排在最上：它是**唯一需要用户动手**的一块（有才显示，见 pendingBoard 注释）
-                if !pendingItems.isEmpty { pendingBoard }
-                activeCard
+                if !pendingItems.isEmpty { pendingBoard.scrollDepth() }
+                activeCard.scrollDepth()
                 // v4.0.109：长期目标整块从生活页搬来（原样复用 GoalsSection，未改它一行）
-                GoalsSection()
-                artifactBoard
-                toolsBoard
+                GoalsSection().scrollDepth()
+                artifactBoard.scrollDepth()
+                toolsBoard.scrollDepth()
             }
             .padding(.horizontal, Spacing.sheetInset)
             .padding(.top, Spacing.xxl)

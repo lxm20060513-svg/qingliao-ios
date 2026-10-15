@@ -274,7 +274,7 @@ check("⑦ 待你处理：进页拉取 + 点卡标已读/装会话/报宿主切�
       && ws.contains("chat.markRead(item.sessionId, upTo: item.time)")
       && ws.contains("await chat.loadById(item.sessionId, auth: auth)")
       && ws.contains("onOpenSession?()")
-      && ws.contains("if !pendingItems.isEmpty { pendingBoard }"))
+      && ws.contains("if !pendingItems.isEmpty { pendingBoard.scrollDepth() }"))
 check("⑦ 长期目标整块搬进工作区（栏目 + 页级浮层宿主都在本页，宿主漏挂则浮层只在卡内弹）",
       ws.contains("GoalsSection()")
       && ws.contains(".overlay { AnyView(GoalsGlassLayerHost()) }"))

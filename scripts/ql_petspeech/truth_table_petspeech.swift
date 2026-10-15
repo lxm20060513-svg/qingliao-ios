@@ -240,9 +240,10 @@ check("B14 常态嘴绘制保留（smile / bigSmile / smirkMouth / smallOpenMout
       && ppC.contains("smallOpenMouth(&ctx, s, 0.585, 0.028, 0.020, Pal.liquidInk)"))
 
 // B15 header 宠物是唯一接线点（欢迎页/缩略图共用同一 PetAvatar → 同一嘴型行为，零额外改动）
+// v4.0.117：header 宠物尺寸改 48（本 check 只认「走 PetAvatar + petHeaderBadge 这处接线」，尺寸值随之更新）
 check("B15 header 宠物仍走 PetAvatar（接线即生效，无需新增调用点）",
       cvC.contains("private var petHeaderBadge")
-      && cvC.contains("PetAvatar(size: 54,"))
+      && cvC.contains("PetAvatar(size: 48,"))
 
 // B16 编译口径：宠物只在 header（非空会话 + 设置里没关）挂 —— 欢迎页有 96pt 身份宠物，不受影响
 // v4.0.68：开关接入后改口径（空会话不挂 / 设置关掉也不挂），两处 call site 的断言同步到这里

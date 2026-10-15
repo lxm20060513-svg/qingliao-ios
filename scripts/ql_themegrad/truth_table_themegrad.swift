@@ -317,6 +317,8 @@ check("⑧b 光团几何仍锚在屏幕坐标（3 团各带一次 ox/oy 平移�
 // **v4.0.97（用户 2026-10-11「dock 栏 tap 页切换采用圆形扩散转场特效：点击底部 tap，新页面就从手指按下的
 // 位置向外扩散直到铺满整个屏幕」）**：淡入 + 横向微滑**整条换掉** → **圆形扩散** —— 新页走可动画裁剪形状
 // `RevealCircleShape`，半径 0 → Motion.pageRevealMaxRadius(1200)，曲线 Motion.pageReveal(.smooth 0.75，v4.0.98 → v4.0.100 两轮放慢)。
+// ⚠️ v4.0.117：**滑动返回**（对话页 → 会话首页）那条曲线已分家 → 单独走 Motion.sessionBackReveal(.smooth 1.10)；
+// 本组 ⑧c 的「两处」= **切页**那两处（返回那份的断言在 ql_docklayout 表）。
 // 圆外露的是 TabView 垫底的同款渐变（回退⑰），所以「先白一下」那个老病不会复发。
 // shell 侧同一口径另有一份：check_swift.sh「回退⑯ / ⑯e / ⑯g / ⑯h / ⑯i / ⑯j」组。
 check("⑧c 切页/聊天页入场 = 圆形扩散（clipShape(RevealCircleShape…) 两处各一份）",
@@ -329,13 +331,13 @@ check("⑧d 圆心必须做 window → 页面坐标换算（两处各一份）",
       && dockSrc.components(separatedBy: "CGPoint(x: revealCenter.x - pageOrigin.x, y: revealCenter.y - pageOrigin.y)").count - 1 >= 2)
 check("⑧d 负断言：不许再把 window 坐标直接喂给 clipShape",
       !dockSrc.contains("clipShape(RevealCircleShape(center: revealCenter,"))
-check("⑧c 入场 = 单曲线（半径与曲线同一个 Motion.pageReveal 事务，两处各一份；pageSlide/snap/flow 那几套不许回来）",
+check("⑧c 切页入场 = 单曲线（半径与曲线同一个 Motion.pageReveal 事务，两处各一份；返回那条另走 sessionBackReveal；pageSlide/snap/flow 那几套不许回来）",
       dockSrc.components(separatedBy: "withAnimation(Motion.pageReveal) { revealRadius = Motion.pageRevealMaxRadius }").count - 1 >= 2
       && !dockSrc.contains("withAnimation(Motion.pageSlide)")
       && !dockSrc.contains("withAnimation(Motion.snap) { phase = 1 }")
       && !dockSrc.contains("withAnimation(Motion.flow) { phase = 1; dx = 0 }")
       && !dockSrc.contains("withAnimation(Motion.flow) { dx = 0 }"))
-check("⑧c 入场起点 = 扩散半径归 0（两处一致；phase 起点 0.6/0.75 连同 dx 微滑一起撤）",
+check("⑧c 入场起点 = 扩散半径归 0（切页 + 返回三处一致；phase 起点 0.6/0.75 连同 dx 微滑一起撤）",
       dockSrc.components(separatedBy: "revealRadius = 0").count - 1 >= 2
       && !dockSrc.contains("phase = 0.6")
       && !dockSrc.contains("phase = 0.75")

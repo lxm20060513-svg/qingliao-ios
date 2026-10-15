@@ -1668,13 +1668,13 @@ struct ChatView: View {
     ///   **空闲** = `.idle`（呼吸、眨眼、随机微动作）
     ///   **回答完成** = `celebrateTrigger` +1 → 庆祝动作（欢呼/比心/鼓掌/挥手随机）+ 开心脸（方案 A：celebrateFace=.happy，播完回落）
     ///   **出错** = `.alert` + 默认脸 + 张望一次（方案 A：alertFaceOverride=.calm，张望由 PetAvatar 内驱动）
-    /// 54pt（v4.0.117 用户改规格「改成54pt」；此前 60pt 是 v4.0.36 的规格、62pt 更早）；
-    /// v4.0.32 起加 keepDetail 旁路简化阈值——54 < 76 本会被画成「头+眼+嘴」
+    /// 48pt（v4.0.117 用户改规格「改到 48」，此前 54 → 60pt（v4.0.36）→ 62pt 更早）；
+    /// v4.0.32 起加 keepDetail 旁路简化阈值——48 < 76 本会被画成「头+眼+嘴」
     /// （真机报修「header 宠物没有手」），现在完整细节照常画，
     /// 省电靠 state 映射（idle 只呼吸+眨眼+偶发微动作，无逐帧常驻）。
     /// 交互与欢迎页那只完全同款（拍板 2A）：轻点抚摸+聚焦输入框 / 长按快捷菜单（手势挂 overlay 命中层）。
     private var petHeaderBadge: some View {
-        PetAvatar(size: 54,
+        PetAvatar(size: 48,
                   state: aiBusy ? .thinking : (headerPetError ? .alert : .idle),
                   patTrigger: petPat,
                   celebrateTrigger: petCelebrate,

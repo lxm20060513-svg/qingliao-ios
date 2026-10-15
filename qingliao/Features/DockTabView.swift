@@ -242,9 +242,9 @@ struct DockTabView: View {
                         //
                         // 🚨 v4.0.116（用户 2026-10-13「聊天页滑动返回聊天主页采用圆形扩散转场特效：新页面
                         // 就从手指滑动位置向外扩散直到铺满整个屏幕」）：**返回方向**整条换成圆形扩散 ——
-                        // 形状 / 曲线 / 最大半径与 dock 切页（TabTransitionModifier、ChatZoomEntryModifier）
-                        // 共用同一套（`RevealCircleShape` + `Motion.pageReveal` + `Motion.pageRevealMaxRadius`），
-                        // 差别只在圆心：切页取被点槽位中心，这里取**手势抬手位置**。
+                        // 形状 / 最大半径与 dock 切页（TabTransitionModifier、ChatZoomEntryModifier）同一套
+                        //（`RevealCircleShape` + `Motion.pageRevealMaxRadius`）；**曲线 v4.0.117 起分家** ——
+                        // 见下方 `SessionHomeRevealModifier` 头注。
                         // 入场因此改成**瞬时**（`.identity`）：扩散由 `sessionHomeReveal` 的可动画裁剪自己演
                         // （半径 0 → max）。若这里仍留 `.move(edge: .leading)` 当入场，整页横移会与扩散
                         // 同时演 → 位移把圆切碎，正是 v4.0.115 治过的病。
@@ -934,9 +934,13 @@ private struct ChatZoomEntryModifier: ViewModifier {
 }
 
 // v4.0.116（用户 2026-10-13：「聊天页滑动返回聊天主页采用圆形扩散转场特效：新页面就从手指滑动位置
-// 向外扩散直到铺满整个屏幕」）—— 与 dock 切页（TabTransitionModifier / ChatZoomEntryModifier）**同一套**口径：
-// 同一个 `RevealCircleShape`、同一条曲线 `Motion.pageReveal`、同一个最大半径 `Motion.pageRevealMaxRadius`。
-// 唯一差别在**圆心来源**：切页取「被点的那一档 dock 槽位中心」，这里取「手势抬手位置」。
+// 向外扩散直到铺满整个屏幕」）—— 形状与 dock 切页（TabTransitionModifier / ChatZoomEntryModifier）**同一套**：
+// 同一个 `RevealCircleShape`、同一个最大半径 `Motion.pageRevealMaxRadius`。与切页有**两处**差别：
+//   ① 圆心来源：切页取「被点的那一档 dock 槽位中心」，这里取「手势抬手位置」；
+//   ② 🚨 曲线 v4.0.117 起**分家**：这里用 `Motion.sessionBackReveal`（.smooth 1.10），
+//      切页仍是 `Motion.pageReveal`（.smooth 0.75）。分家理由（用户 2026-10-15 真机口径）：
+//      返回的圆心被左缘 24pt 钉在屏幕左侧中部、到最远角的行程比切页长，共用 0.75 读作
+//      「刷一下扫完 = 太快」；而 0.75 是用户为切页三轮拍板的，顺手改 = 误伤在用动效。
 //
 // 为什么不用 onChange 触发（不像 TabTransitionModifier 那样盯 selected）：
 // 首页在宿主里是 `if/else` 的一支 —— 进对话页时整只销毁，返回时是**新建实例**，
@@ -991,7 +995,9 @@ private struct SessionHomeRevealModifier: ViewModifier {
         Task {
             try? await Task.sleep(for: .seconds(0.01))
             guard mySeq == seq else { return }
-            withAnimation(Motion.pageReveal) { revealRadius = Motion.pageRevealMaxRadius }
+            // v4.0.117：这条用**返回专用**曲线 `sessionBackReveal`（比切页的 pageReveal 慢）——
+            // 别顺手改回 pageReveal，那样返回又会「刷一下扫完」（用户 2026-10-15 真机口径）。
+            withAnimation(Motion.sessionBackReveal) { revealRadius = Motion.pageRevealMaxRadius }
         }
     }
 }
