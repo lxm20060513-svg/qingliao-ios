@@ -730,6 +730,10 @@ struct MCPServerItem: Identifiable {
     let url: String         // 已脱敏
     let hasKey: Bool
     let enabled: Bool
+    // v4.0.117：行图标（后端模板命中才有值；空串 = 交给 MCPRowStyle 按名兜底）
+    // ⚠️ 必须带默认值且排在声明序最后 —— 实参序 = 声明序，插在中间会让既有构造点编译失败
+    var icon: String = ""
+    var color: String = ""
 }
 
 struct MCPTemplate: Identifiable {
@@ -738,6 +742,77 @@ struct MCPTemplate: Identifiable {
     let desc: String
     let urlTemplate: String
     let keyHint: String
+    // v4.0.117：模板自带视觉标识（后端 MCP_TEMPLATES 下发）
+    var icon: String = ""
+    var color: String = ""
+}
+
+/// v4.0.117：MCP 服务行的图标 / 配色。
+/// 取值优先级：① 后端模板自带（`/api/mcp/servers` 的 icon/color）
+/// ② 按服务名关键字兜底 ③ 拼图块。
+/// 为什么必须有第 ② 层：后端只对「自己发出去的模板」负责，用户自填 URL 接进来的服务
+/// （office / 迅雷 / 浏览器 / 瑞幸…）后端一律给空串 —— 只靠后端会让它们继续共用同一枚
+/// 图标，等于没改。
+enum MCPRowStyle {
+    struct Row: Sendable {
+        let keys: [String]
+        let icon: String
+        let color: String
+    }
+
+    /// 关键字 → (SF Symbol, 颜色名)。**顺序敏感**，先命中先返回。
+    /// ⚠️ 关键字必须是「够长的辨识子串」：`ha` 会命中 chat、`map` 会命中 imap —— 短词一律别放。
+    static let table: [Row] = [
+        Row(keys: ["amap", "高德", "地图"], icon: "map.fill", color: "green"),
+        Row(keys: ["xunlei", "迅雷", "download"], icon: "arrow.down.circle.fill", color: "blue"),
+        Row(keys: ["office", "word", "excel", "ppt", "pdf", "文档"], icon: "doc.text.fill", color: "indigo"),
+        Row(keys: ["browser", "浏览器", "playwright"], icon: "safari.fill", color: "cyan"),
+        Row(keys: ["luckin", "瑞幸", "coffee", "咖啡"], icon: "mug.fill", color: "brown"),
+        Row(keys: ["wenyan", "文颜", "公众号"], icon: "doc.richtext.fill", color: "purple"),
+        Row(keys: ["homeassistant", "home-assistant", "家居"], icon: "house.fill", color: "orange"),
+        Row(keys: ["mail", "邮箱", "邮件"], icon: "envelope.fill", color: "blue"),
+        Row(keys: ["music", "音乐", "网易云"], icon: "music.note", color: "pink"),
+        Row(keys: ["weather", "天气"], icon: "cloud.sun.fill", color: "teal"),
+        Row(keys: ["stock", "股市", "行情"], icon: "chart.line.uptrend.xyaxis", color: "red"),
+        Row(keys: ["notion", "obsidian", "笔记"], icon: "note.text", color: "yellow"),
+    ]
+
+    /// 远端 icon 白名单 = 本表出现过的全部符号（后端当前会发的 `map.fill` 也在其中）。
+    /// v4.0.116（发版审查 P2）：远端是配置源，但仍是**远端输入** —— 非空但拼错的符号名会让
+    /// `Image(systemName:)` 渲染成一片空白色块，比落关键字兜底更糟。命中白名单才用，
+    /// 否则交给下面的关键字兜底。后端将来新增图标时在此登记（漏登记只会退化成兜底图标，
+    /// 不会出现空白，行为安全）。
+    static let knownRemoteIcons: Set<String> = Set(table.map(\.icon))
+
+    /// 解析一行最终用的 (icon, color)
+    static func style(id: String, remoteIcon: String, remoteColor: String) -> Row {
+        let ic = remoteIcon.trimmingCharacters(in: .whitespaces)
+        if !ic.isEmpty, knownRemoteIcons.contains(ic) {
+            let co = remoteColor.trimmingCharacters(in: .whitespaces)
+            return Row(keys: [], icon: ic, color: co.isEmpty ? "teal" : co)
+        }
+        let k = id.lowercased()
+        for r in table where r.keys.contains(where: { k.contains($0) }) { return r }
+        return Row(keys: [], icon: "puzzlepiece.extension.fill", color: "teal")
+    }
+
+    /// 颜色名 → SwiftUI Color（后端只传名字，不传 hex，避免颜色注入）
+    static func color(_ name: String) -> Color {
+        switch name.lowercased() {
+        case "green": return .green
+        case "blue": return .blue
+        case "indigo": return .indigo
+        case "cyan": return .cyan
+        case "brown": return .brown
+        case "purple": return .purple
+        case "orange": return .orange
+        case "pink": return .pink
+        case "red": return .red
+        case "yellow": return .yellow
+        case "mint": return .mint
+        default: return .teal
+        }
+    }
 }
 
 struct MCPSettingsSheet: View {
@@ -842,12 +917,14 @@ struct MCPSettingsSheet: View {
                     .foregroundStyle(.tertiary)
             }
             ForEach(servers) { s in
+                // v4.0.117：每行按「后端模板 > 按名兜底 > 拼图块」取自己的图标与配色
+                let st = MCPRowStyle.style(id: s.id, remoteIcon: s.icon, remoteColor: s.color)
                 HStack(spacing: 10) {
-                    Image(systemName: "puzzlepiece.extension.fill")
+                    Image(systemName: st.icon)
                         .font(.system(size: Typography.subhead, weight: .semibold))
                         .foregroundStyle(.white)
                         .frame(width: 28, height: 28)
-                        .background(Color.teal, in: RoundedRectangle(cornerRadius: Radius.icon, style: .continuous))
+                        .background(MCPRowStyle.color(st.color), in: RoundedRectangle(cornerRadius: Radius.icon, style: .continuous))
                     VStack(alignment: .leading, spacing: Spacing.xxs) {
                         Text(s.id).font(.system(size: Typography.body, weight: .medium))
                         Text(s.enabled ? "已启用" : "已停用")
@@ -910,7 +987,9 @@ struct MCPSettingsSheet: View {
                         id: name,
                         url: url["url"] as? String ?? "",
                         hasKey: url["has_key"] as? Bool ?? false,
-                        enabled: url["enabled"] as? Bool ?? true))
+                        enabled: url["enabled"] as? Bool ?? true,
+                        icon: url["icon"] as? String ?? "",
+                        color: url["color"] as? String ?? ""))
                 }
             }
             servers = arr.sorted { $0.id < $1.id }
@@ -922,7 +1001,9 @@ struct MCPSettingsSheet: View {
                         name: t["name"] as? String ?? "",
                         desc: t["desc"] as? String ?? "",
                         urlTemplate: t["url_template"] as? String ?? "",
-                        keyHint: t["key_hint"] as? String ?? ""))
+                        keyHint: t["key_hint"] as? String ?? "",
+                        icon: t["icon"] as? String ?? "",
+                        color: t["color"] as? String ?? ""))
                 }
             }
             templates = tps
@@ -993,7 +1074,17 @@ struct MCPAddSheet: View {
                         Button {
                             picked = t
                         } label: {
-                            HStack {
+                            HStack(spacing: 10) {
+                                // v4.0.116（发版审查 P1）：模板行原来只画 name/desc/勾选 —— 本批给
+                                // MCPTemplate 加的 icon/color 因此成了**死字段**：同一个服务在「从模板
+                                // 添加」列表里没图标、在「已启用」列表里却有，观感割裂。复用同一个出口，
+                                // 尺寸/圆角与 serverListSection 的服务行逐字一致。
+                                let st = MCPRowStyle.style(id: t.id, remoteIcon: t.icon, remoteColor: t.color)
+                                Image(systemName: st.icon)
+                                    .font(.system(size: Typography.subhead, weight: .semibold))
+                                    .foregroundStyle(.white)
+                                    .frame(width: 28, height: 28)
+                                    .background(MCPRowStyle.color(st.color), in: RoundedRectangle(cornerRadius: Radius.icon, style: .continuous))
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(t.name).font(.system(size: Typography.body, weight: .medium)).foregroundColor(.primary)
                                     Text(t.desc).font(.system(size: Typography.caption)).foregroundStyle(.secondary)

@@ -50,7 +50,7 @@ struct SettingsSearchTruthTable {
         // 新增设置行时必须同步加索引 + 改这里的数（有意的摩擦：漏了就是「肉眼可见却搜不到」）。
         // 2026-10-14：34（35 → 34，设置页「剪贴板历史」行按用户口径撤下，索引同步撤）
         // 2026-10-15：32（34 → 32，「定时提醒」「文件管理」两行入口迁工作台·工具格，索引同步撤）
-        check("索引条数与设置页对齐（当前 \(entries.count)，期望 32；v4.0.113 定时提醒/文件管理迁工作台·工具格）", entries.count == 32)
+        check("索引条数与设置页对齐（当前 \(entries.count)，期望 33；v4.0.113 定时提醒/文件管理迁工作台·工具格，v4.0.116 加「同步后端环境」）", entries.count == 33)
         // v4.1.x（旧口径已作废）：MCP/知识库/网盘/技能库四项入口整体移到工作区页，
         // 设置页搜索不允许再出这四项（残留 = 搜得到、点下去设置里没这行）。
         negatives += 8
@@ -118,6 +118,7 @@ struct SettingsSearchTruthTable {
             ("agentKeywords", "showAgentKeywords"), ("agentMemory", "showAgentMemory"),
             ("appearance", "showAppearance"), ("pet", "showPetStudio"),
             ("homeShortcuts", "showHomeShortcuts"), ("about", "showAbout"),
+            ("envSync", "showEnvSyncSheet"),   // v4.0.116：改密未成时的补同步入口
             ("sec:account", "sec-account"), ("sec:ai", "sec-ai"), ("sec:appearance", "sec-appearance"),
         ]
         let badTargets = targets.filter { route, dest in

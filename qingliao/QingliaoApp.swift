@@ -179,6 +179,11 @@ struct RootView: View {
     // v3.4.25：崩溃日志查看/导出弹窗（AlertSheet 内含 UIActivityViewController）
     @State private var showCrashLogSheet = false
     @State private var showSplash = true
+    /// v4.0.117：启动页「圆形遮罩铺满 → 首页各块次第上浮」的放行开关。
+    /// 初值 false = 首页各块先停在下方且全透明（`LaunchRiseBlock`），启动页遮罩铺满后由 `SplashView.onRevealed`
+    /// 翻真。**这一段是「2b 分拍式」的另一半**：圆没铺满之前首页不上浮，铺满之后才次第浮起。
+    /// 非启动路径（预览 / 未走 Splash 的入口）由 `.task` 里的兜底在 2.4s 内放行，不会停在空屏。
+    @State private var launchRise = false
     // v3.9.45：登录成功后的「卡片飞成首页」交接（④）。原来 isLoggedIn 一翻真假，if/else
     // 立刻把 LoginView 摘掉，登录卡片自己的退场演出还没起头就没了。这里让 LoginView 在多挂
     // 0.95s（正好覆盖它 .delay(0.2)+0.45 的退场动画）里演完再撤。
@@ -199,7 +204,8 @@ struct RootView: View {
             // allowsHitTesting(false)：那 0.95s 里半透明的登录卡片不再吃点击，避免误触输入框弹键盘。
             let loggedIn = auth.isLoggedIn
             if loggedIn {
-                DockTabView()
+                // v4.0.117：透传放行开关（首页各块次第上浮 + 冷启动跳过整页扩散）
+                DockTabView(launchRise: launchRise)
             }
             if !loggedIn || loginHandoff {
                 LoginView(revealed: !showSplash)
@@ -226,11 +232,17 @@ struct RootView: View {
             SessionExpiredBanner()
                 .zIndex(6)
 
-            // 启动动画：一次淡入后淡出
+            // v4.0.117：启动动画改成「Logo 呼吸 → 圆形遮罩扩散铺满 → 首页各块次第上浮」三拍（见 SplashView）。
+            // 撤除时机改由 `SplashView.onRevealed` 驱动（不再靠外面的定时器）：
+            // 回调来的时候遮罩半径已经铺满整个屏幕，**整层已被挖空** —— 撤掉零观感，
+            // 所以 transition 用 `.identity`，不再走老那套 `.opacity` 淡出（淡出会重启一次「先白后切」）。
             if showSplash {
-                SplashView()
-                    .transition(.opacity)
-                    .zIndex(10)
+                SplashView(onRevealed: {
+                    launchRise = true     // 放行首页各块次第上浮（2b：圆满之后才起浮）
+                    showSplash = false    // 洞已铺满，瞬时撤层无感
+                })
+                .transition(.identity)
+                .zIndex(10)
             }
 
             // v2.0.87bh：AI 回答时 Siri 边框发光（回退顶层 zIndex——下层方案被 DockTabView 背景盖住）
@@ -351,10 +363,13 @@ struct RootView: View {
             if auth.isLoggedIn {
                 ShareIntake.flushPending(loggedIn: true)
             }
-            // v3.4.29：Splash 由固定 1.6s 空等 → 最短 0.6s（保留品牌节奏）。
-            // 首屏内容全部来自本地数据（会话消息/AI 记忆），无需等网络
-            try? await Task.sleep(for: .seconds(0.6))
-            withAnimation(Motion.emerge) { showSplash = false }
+            // v4.0.117：Splash 的撤除改由 `SplashView.onRevealed` 驱动（呼吸 0.6s + 扩散 0.7s ≈ 1.3s，
+            // 见 SplashView 的三拍时间线），这里**不再**按固定时长抢撤 —— 老那行 0.6s 定时会把刚起头的
+            // 扩散拦腰截断。
+            // 留一条兜底：万一回调链断掉（极端的视图生命周期 / 后台降频），不允许首页**永远**停在未上浮状态。
+            try? await Task.sleep(for: .seconds(2.4))
+            if !launchRise { launchRise = true }
+            if showSplash { showSplash = false }
         }
         // v3.4.25：上次异常退出提示（毛玻璃风格低调弹窗，导出/忽略两键）
         .sheet(isPresented: $showCrashAlert) {

@@ -210,9 +210,30 @@ let wsCallWindow = String((dockView.components(separatedBy: "WorkspaceView(isAct
 check("工作台进会话同用页面级令牌（原先 Motion.tap 整页位移 = 读作「啪一下」）",
       wsCallWindow.contains("withAnimation(Motion.page)")
         && !wsCallWindow.contains("withAnimation(Motion.tap)"))
-check("两分支各有方向感转场（列表 .leading / 聊天 .trailing）—— 少了就退回交叉淡化",
-      dockView.contains(".transition(.move(edge: .leading))")
-        && dockView.contains(".transition(.move(edge: .trailing))"))
+// v4.0.116（用户 2026-10-13「聊天页滑动返回聊天主页采用圆形扩散转场特效：新页面就从手指滑动位置向外
+// 扩散直到铺满整个屏幕」）：**返回方向**（对话页 → 会话首页）从「列表左滑进来」整条换成**圆形扩散** ——
+// 形状 / 曲线 / 最大半径与 dock 切页同一套（RevealCircleShape + Motion.pageReveal + pageRevealMaxRadius），
+// 差别只在圆心：切页取被点槽位中心，这里取**手势抬手位置**。
+// ⚠️ 旧口径（返回也是纯 move 的 push/pop）在返回这一侧**已作废**：整页横移与扩散同时演 = 位移把圆切碎，
+//    正是 v4.0.115 治过的病。离场侧（进对话页 = 列表左滑出 + 聊天右滑入）**一字未改**，下面钉住。
+check("返回方向 = 从手指位置圆形扩散（首页挂 sessionHomeReveal(center:)）",
+      dockView.contains(".sessionHomeReveal(center: $homeRevealCenter)"))
+check("圆形扩散圆心 = 手势**抬手**位置（起手点被 edgeWidth 钉在左缘 24pt，看不出「从手指滑动位置扩散」）",
+      readSource("Features/Chat/ChatView.swift").contains("onBack(value.location)"))
+check("返回的圆形扩散与 dock 切页共用同一套口令（半径归 0 → Motion.pageReveal 事务到 max）",
+      dockView.contains("revealRadius = 0")
+        && dockView.contains("withAnimation(Motion.pageReveal) { revealRadius = Motion.pageRevealMaxRadius }"))
+check("🚫 首页入场不许再挂整页横移（须为 .identity：移了就是位移把扩散切碎）",
+      dockView.contains(".transition(.asymmetric(insertion: .identity, removal: .move(edge: .leading)))"))
+check("🚫 返回时对话页不许再右滑（removal 已改 .identity；右滑 + 扩散会各演各的）",
+      dockView.contains(".transition(.asymmetric(insertion: .move(edge: .trailing), removal: .identity))"))
+check("离场侧保留方向感（进对话页 = 列表左滑出 + 聊天右滑入）",
+      dockView.contains("removal: .move(edge: .leading)")
+        && dockView.contains("insertion: .move(edge: .trailing)"))
+check("圆心「取走即清空」：只有 backToSessionHome 写进去的那一次播扩散（切 tab / 冷启动 / 深链落首页不播 —— 那几条路外层 chatZoomEntry 已在播整页扩散）",
+      dockView.contains("private func backToSessionHome(at point: CGPoint?)")
+        && dockView.contains("guard let c = pendingCenter else { return }")
+        && dockView.contains("pendingCenter = nil"))
 // v4.0.115（用户「**还是**动效生硬」）：v4.0.114 的 `.combined(with: .opacity)` 是错的 ——
 // 横移叠淡入淡出，两页各淡各的，位移被稀释成「叠着闪一下」，方向感白给。必须是**纯位移**。
 check("🚫 两分支不许再叠 .opacity（交叉淡化会吃掉横移，v4.0.115 已摘）",

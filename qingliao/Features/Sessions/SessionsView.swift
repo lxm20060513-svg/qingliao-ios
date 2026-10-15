@@ -102,6 +102,10 @@ struct SessionsView: View {
     var showHero: Bool = false
     /// v4.0.81：首页卡片「问 AI 一句话」的落点（由 DockTabView 注入，与球菜单的 askAI 同一通道）
     var onAskAI: ((String) -> Void)? = nil
+    /// v4.0.117：启动页圆形遮罩铺满后，宿主放行本页各块次第上浮（见 SplashView / LaunchRiseBlock）。
+    /// 默认 true = 「已就位」：切 tab、从对话页返回、iPad 双栏这些路径都不进启动流程，一律直接显示。
+    /// ⚠️ 声明序 = 实参序（CI 参数序检查），新增参数一律往后排。
+    var launchRise: Bool = true
 
     private var isSearching: Bool { !searchText.trimmingCharacters(in: .whitespaces).isEmpty }
 
@@ -119,6 +123,11 @@ struct SessionsView: View {
             // 回退前：页头挂在滚动视图上，列表内容从页头下沿穿过并走系统级模糊；
             // 恢复：把下面这行 `sessionsHeaderBar` 移回列表支、挂 `.safeAreaBar(edge: .top) { sessionsHeaderBar }`。
             sessionsHeaderBar
+            // v4.0.116（发版审查 P2）：会话区的入场块挂**承载各支的外层**上，而不是只挂会话列表那一支 ——
+            // 首帧若落在骨架 / 错误态（新装、清空过、冷启动缓存为空），圆铺满后这些内容会硬切瞬现，
+            // 与「全程不硬切」口径相冲。三支互斥，共用同一个末块（写成「各支各挂一次」会被
+            // ql_launch 的「恰好 6 块 / 序号不重复」护栏判红：那两条是静态计数）。
+            Group {
             if isLoading && sessions.isEmpty {
                 sessionsLoadingSkeleton
             } else if let err = errorText, sessions.isEmpty {
@@ -132,6 +141,8 @@ struct SessionsView: View {
             } else {
                 sessionsListBody
             }
+            }
+            .launchRiseBlock(5, shown: launchRise)
         }
         // v4.0.67 P2：会话页页底铺环境渐变（C 口径，与聊天页同源单层）——
         //   会话卡已换 pastelCard 渐变卡（玻璃卡压彩底发灰已退役），页底同步彩化。
@@ -344,6 +355,8 @@ struct SessionsView: View {
         // → 统一走 HeaderPillGroup 单入口（图标/尺寸/玻璃/命中区一处定义）
         PageHeader(title: showArchived ? "归档箱" : "会话",
                    trailing: AnyView(HeaderPillGroup(items: sessionsHeaderItems)))
+        // v4.0.117：启动页入场第 0 块（页头）
+        .launchRiseBlock(0, shown: launchRise)
         // v3.4.25：会话搜索框（毛玻璃风格 glassListCard 与 App 列表卡一致；输入即本地过滤）
         HStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
@@ -373,6 +386,8 @@ struct SessionsView: View {
         .glassListCard()   // v3.4.25：毛玻璃风格（Theme/LiquidGlass.swift GlassListCard）
         .padding(.horizontal, Spacing.xxl)
         .padding(.bottom, Spacing.md)
+        // v4.0.117：启动页入场第 1 块（搜索框）
+        .launchRiseBlock(1, shown: launchRise)
 
         // v4.1.x：清空会话内容确认（先确认再动数据，同 delete 的两处保险口径）
         .alert("清空会话内容", isPresented: Binding(get: { confirmClear != nil }, set: { if !$0 { confirmClear = nil } })) {
@@ -630,6 +645,9 @@ struct SessionsView: View {
     /// `.swipeActions` 才生效（根因见 sessionsListBody 注释）；惰性由 List 承担。
     @ViewBuilder
     private var sessionsListStack: some View {
+        // v4.0.117：启动页入场第 5 块 —— 整栈包一层 Group 才能挂修饰器（ForEach 直接产多行）。
+        // 口径是「整栈作为一块」上浮，**不**逐行：行数随会话数变，逐行错峰会让后面每一拍的时序跟着数据漂。
+        Group {
         // v3.3.0：bot 模式已移除，会话列表不再按 bot 分组，直接平铺
         // v4.0.81：顶部「两张并排卡」行退役 → 固定会话（轻聊投递/轻聊主动）**回到普通会话行**渲染，
         // 这里**不再过滤**：过滤是并排卡时代的产物，留着会让固定会话在列表里彻底消失，
@@ -638,6 +656,8 @@ struct SessionsView: View {
             sessionCell(s)
                 .sessionListRow(vHalfGap: 4)   // 4×2 = 8pt（= 原 LazyVStack(spacing: 8)）
         }
+        }
+        // v4.0.116：入场块已提到 bodyCore 的外层（覆盖骨架 / 错误态 / 陈旧横幅各支），此处不再挂
     }
 
     // MARK: - v4.0.81 聊天 tab 首页头（卡通机器人 / 每日一言 / 自定义卡片）
@@ -703,6 +723,10 @@ struct SessionsView: View {
                     )
                 )
                 .accessibilityLabel("轻点抚摸，长按打开快捷菜单")
+                // v4.0.117：启动页入场第 2 块（宠物）。
+                // ⚠️ 挂在链尾：上面 .onGeometryChange 量到的 heroPetCenter 是布局位置，
+                //    入场那 2s 内本块若有 ≤18pt 偏移只影响长按菜单的锚点精度，不影响命中判定。
+                .launchRiseBlock(2, shown: launchRise)
                 // v4.0.83（用户 2026-10-09：「打开快捷菜单弹出的画面要等同于长按聊天首页卡通宠物」）：
                 // 本页宠物也承担**锚点应答**。为什么是这里：会话页（聊天首页）的宠物在**首页头**里常驻 ——
                 // 不像聊天页欢迎页只在空会话时才渲染。所以「打开轻聊快捷菜单」这类 App 外入口把落点改到本页后，
@@ -727,6 +751,8 @@ struct SessionsView: View {
                 .foregroundStyle(.primary)
                 .multilineTextAlignment(.center)
                 .lineLimit(2)
+                // v4.0.117：启动页入场第 3 块（每日一言）
+                .launchRiseBlock(3, shown: launchRise)
         }
         .frame(maxWidth: .infinity)
         .padding(.top, Spacing.md)
@@ -758,6 +784,8 @@ struct SessionsView: View {
             // 卡片左右边界与会话行严格对齐。理由与反例见 HomeCardsGrid.inset 的注释。
             inset: 0
         )
+        // v4.0.117：启动页入场第 4 块（自定义卡片行）
+        .launchRiseBlock(4, shown: launchRise)
     }
 
     // MARK: - v4.0.68 固定会话并排卡（轻聊投递 / 轻聊主动）

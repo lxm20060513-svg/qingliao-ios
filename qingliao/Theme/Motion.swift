@@ -89,6 +89,17 @@ enum Motion {
     /// 取 1200 兜住全部机型与横屏。**两处 modifier 共用同一个常量**，别各写一个字面量。
     static let pageRevealMaxRadius: CGFloat = 1200
 
+    /// v4.0.117：启动页圆形遮罩的扩散曲线（`.easeIn` = 用户要的「先慢后快」）。
+    /// ⚠️ **别拿 pageReveal 顶替**：那枚是 `.smooth`（首尾对称），语义是 dock 切页 / 滑动返回的匀速扫过；
+    /// 启动页这一拍用户明说「先慢后快」，两枚令牌各管一段，不是一处。
+    /// 时长 0.7 与 `SplashView.revealDuration` 必须同值（check_swift.sh 同钉两处）。
+    static var launchReveal: Animation { .easeIn(duration: 0.7) }
+
+    /// v4.0.117：首页各块次第上浮（`.smooth`，无回弹）。每块错峰 60ms、上浮 18pt 见
+    /// `SplashView.riseStagger` / `riseOffset`。⚠️ 这枚只管**块内**的位移曲线，
+    /// 整页级的入场仍是圆形扩散（回退⑯ 的禁令不变：整页缩放/上浮/低起点淡入都不许回来）。
+    static var launchRise: Animation { .smooth(duration: 0.40) }
+
     /// 用户发送气泡的位移量（pt，配合上面的过冲读作「弹上来」）
     static let bubbleRise: CGFloat = 12
 

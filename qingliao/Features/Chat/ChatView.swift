@@ -100,7 +100,10 @@ struct ChatView: View {
     @State var bubbleMenuTarget: ChatBubbleMenuTarget?
     /// v4.0.81：返回「会话列表」（只有 iPhone 上「聊天」tab 的首页宿主会传 —— 那一 tab 现在
     /// 把会话列表与聊天页合成一页，需要有路回列表；iPad 双栏 / 其它入口不传即完全不渲染返回键）。
-    var onBackToHome: (() -> Void)? = nil
+    /// v4.0.116：回调带**返回位置**（window 坐标）—— 宿主拿它当「首页圆形扩散」的圆心：
+    /// 滑动返回传**手势抬手位置**（用户口径「新页面就从手指滑动位置向外扩散」），
+    /// 页头返回按钮这条没有手指可依 → 传 nil，宿主兜底屏幕中心（两条路都有扩散，不会一条硬切一条扩散）。
+    var onBackToHome: ((CGPoint?) -> Void)? = nil
     // v3.9.14：工具进度卡展开状态——生成中强制展开，答完默认收起（用户反馈这几行别一直摊着）
     @State var toolStepsExpanded = false
     // v3.4.24：任务中心全屏页（header 常驻小图标入口，原 DockTabView 全局 overlay 已移除）
@@ -1179,7 +1182,9 @@ struct ChatView: View {
     /// 与输入栏材质/键盘避让互相打架（收益小、回归面大）。滑到位即触发返回，动画由宿主
     /// （合并首页的 withAnimation）统一做。
     private struct ChatEdgeBackModifier: ViewModifier {
-        let onBack: (() -> Void)?
+        /// v4.0.116：类型与 `ChatView.onBackToHome` 同源（`(CGPoint?) -> Void`）—— 直接透传，不做包装转换；
+        /// 这里**只传手势抬手位置**（`value.location`，`.global` 即 window 坐标），按钮路径的 nil 由宿主兜底。
+        let onBack: ((CGPoint?) -> Void)?
 
         func body(content: Content) -> some View {
             content.simultaneousGesture(
@@ -1194,7 +1199,10 @@ struct ChatView: View {
                         // v4.0.83（用户 2026-10-09：「聊天页滑动返回不需要有震动感，丝滑切换就行」）：
                         // 这里原有一发 Haptics.tap()，已去掉 —— 边缘返回属于「丝滑」类交互，
                         // 中途一震反而把连续感切断（长按/点击类才要「明显」的触感，见本仓触感口径）。
-                        onBack()
+                        // v4.0.116：把**抬手位置**交给宿主 —— 首页「圆形扩散」的圆心就是从这儿来的；
+                        // 用抬手点（不是起手点）：起手点被 `edgeWidth` 钉死在左缘 24pt 内，
+                        // 圆心永远贴边、看不出「从手指滑动位置扩散」。
+                        onBack(value.location)
                     }
             )
         }
@@ -1660,12 +1668,13 @@ struct ChatView: View {
     ///   **空闲** = `.idle`（呼吸、眨眼、随机微动作）
     ///   **回答完成** = `celebrateTrigger` +1 → 庆祝动作（欢呼/比心/鼓掌/挥手随机）+ 开心脸（方案 A：celebrateFace=.happy，播完回落）
     ///   **出错** = `.alert` + 默认脸 + 张望一次（方案 A：alertFaceOverride=.calm，张望由 PetAvatar 内驱动）
-    /// 60pt（v4.0.36 用户改规格，此前 62pt 是当年三档对比选定值）；v4.0.32 起加 keepDetail
-    /// 旁路简化阈值——60 < 76 本会被画成「头+眼+嘴」（真机报修「header 宠物没有手」），现在完整细节照常画，
+    /// 54pt（v4.0.117 用户改规格「改成54pt」；此前 60pt 是 v4.0.36 的规格、62pt 更早）；
+    /// v4.0.32 起加 keepDetail 旁路简化阈值——54 < 76 本会被画成「头+眼+嘴」
+    /// （真机报修「header 宠物没有手」），现在完整细节照常画，
     /// 省电靠 state 映射（idle 只呼吸+眨眼+偶发微动作，无逐帧常驻）。
     /// 交互与欢迎页那只完全同款（拍板 2A）：轻点抚摸+聚焦输入框 / 长按快捷菜单（手势挂 overlay 命中层）。
     private var petHeaderBadge: some View {
-        PetAvatar(size: 60,
+        PetAvatar(size: 54,
                   state: aiBusy ? .thinking : (headerPetError ? .alert : .idle),
                   patTrigger: petPat,
                   celebrateTrigger: petCelebrate,
@@ -1684,7 +1693,7 @@ struct ChatView: View {
     private var chatBackButton: some View {
         Button {
             Haptics.tap()
-            onBackToHome?()
+            onBackToHome?(nil)
         } label: {
             Image(systemName: "chevron.left")
                 .font(.system(size: Typography.body, weight: .semibold))

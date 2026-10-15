@@ -36,6 +36,7 @@ struct SettingsView: View {
     // v2.0.83c：连接设置二级页（服务器地址/测试连接/会话存储位置收进二级）
     @State var showConnSettings = false
     @State var showPasswordSheet = false
+    @State var showEnvSyncSheet = false   // v4.0.116：改密那次同步失败后的补同步入口
     @State var showSecrets = false
     // v2.0.87：AI 记忆
     @State var showMemory = false
@@ -254,6 +255,12 @@ struct SettingsView: View {
     /// 深度治理：行为型深层修饰器下沉背景层（.background 不影响布局，语义等价）
     private func settingsCold2() -> some View {
         Color.clear
+        .sheet(isPresented: $showEnvSyncSheet) {
+            // v4.0.116：独立的「同步后端环境」入口（改密那次没成时，用户仍能补同步，
+            // 否则只能重新登录、而 .env 里的密码副本会一直停留在旧值）
+            EnvSyncSheet()
+                .presentationDetents([.medium])
+        }
         .sheet(isPresented: $showLogs) {
             LogsView()
                 .presentationDetents([.medium, .large])
@@ -425,6 +432,7 @@ struct SettingsView: View {
         settingsQuery = ""
         switch entry.route {
         case "password": showPasswordSheet = true
+        case "envSync": showEnvSyncSheet = true
         case "conn":
             connOpenPinPath = false
             showConnSettings = true
@@ -481,6 +489,10 @@ extension SettingsView {
             Divider().padding(.leading, Spacing.rowDividerInset)
             SettingRow(icon: "key.horizontal.fill", iconColor: .gray, title: "修改密码", chevron: true)
                 .tapButton { showPasswordSheet = true }
+            Divider().padding(.leading, Spacing.rowDividerInset)
+            // v4.0.116：把当前密码补同步给后端（改密后那次没成 / 换部署后 .env 对不上时用）
+            SettingRow(icon: "lock.rotation", iconColor: .indigo, title: "同步后端环境", chevron: true)
+                .tapButton { showEnvSyncSheet = true }
             Divider().padding(.leading, Spacing.rowDividerInset)
             toggleRow(icon: "faceid", iconColor: .blue, title: "Face ID 登录", isOn: $faceIDLogin)
                 .onChange(of: faceIDLogin) { _, on in

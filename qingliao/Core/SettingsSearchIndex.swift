@@ -39,6 +39,8 @@ enum SettingsSearchIndex {
         // ── 账号与安全 ──
         .init(route: "password", title: "修改密码", icon: "key.horizontal.fill", group: "账号与安全",
               keywords: ["密码", "改密码", "登录密码"]),
+        .init(route: "envSync", title: "同步后端环境", icon: "lock.rotation", group: "账号与安全",
+              keywords: ["同步", "后端环境", "密码副本", "env", "ql_cred", "重新同步"]),
         .init(route: "sec:account", title: "Face ID 登录", icon: "faceid", group: "账号与安全",
               keywords: ["面容", "人脸", "解锁", "biometric"]),
         .init(route: "sec:account", title: "App 锁", icon: "lock.fill", group: "账号与安全",

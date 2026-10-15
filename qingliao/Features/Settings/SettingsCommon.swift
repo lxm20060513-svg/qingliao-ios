@@ -211,6 +211,10 @@ struct PasswordSheet: View {
     @State private var confirmPassword = ""   // v2.0.83c：新密码二次确认
     @State private var result: String?
     @State private var busy = false
+    // v4.0.116：改密后一键同步后端环境（宿主 .env / .ql_cred 副本）
+    @State private var supportsEnvSync = false   // 后端是否支持（老后端不弹，保持原行为）
+    @State private var showEnvSyncPrompt = false
+    @State private var pendingSyncPassword = ""  // 只在内存里留存，用于同步时自证身份
 
     var body: some View {
         NavigationStack {
@@ -260,7 +264,7 @@ struct PasswordSheet: View {
             if let r = result {
                 Text(r)
                     .font(.system(size: Typography.subhead))
-                    .foregroundStyle(r.contains("成功") ? Color.green : Color.red)
+                    .foregroundStyle((r.contains("成功") || r.contains("已同步")) ? Color.green : Color.red)
                     .padding(.top, Spacing.md)
             }
 
@@ -272,6 +276,16 @@ struct PasswordSheet: View {
             ToolbarItem(placement: .cancellationAction) {
                 Button("完成") { dismiss() }
             }
+        }
+        // v4.0.116：老后端没有该接口 → 探测失败就不弹窗，保持原「改完即登出」行为
+        .task {
+            if await auth.jsonOrLog("/api/auth/sync-env") != nil { supportsEnvSync = true }
+        }
+        .alert("同步后端环境？", isPresented: $showEnvSyncPrompt) {
+            Button("一键同步") { syncBackendEnv() }
+            Button("稍后", role: .cancel) { finishAfterChange() }
+        } message: {
+            Text("改密后，后端服务里的密码副本会过期（自动化规则等后台功能可能失效）。\n同步约需 15 秒，期间 App 会短暂失联，完成后请重新登录。")
         }
         }
     }
@@ -291,13 +305,187 @@ struct PasswordSheet: View {
                     "old": oldPassword, "new": newPassword
                 ])
                 if (j["ok"] as? Bool) ?? false {
-                    result = "✅ 修改成功，请重新登录"
-                    Task { try? await Task.sleep(for: .seconds(1.2)); auth.logout() }
+                    if supportsEnvSync {
+                        // v4.0.116：改密后后端 env 里的密码副本会过期 → 先问要不要一键同步
+                        result = "✅ 修改成功"
+                        pendingSyncPassword = newPassword
+                        showEnvSyncPrompt = true
+                    } else {
+                        result = "✅ 修改成功，请重新登录"
+                        Task { try? await Task.sleep(for: .seconds(1.2)); auth.logout() }
+                    }
                 } else {
                     result = "⚠️ " + ((j["error"] as? String) ?? "修改失败")
                 }
             } catch {
                 result = "❌ 修改失败，请检查当前密码"
+            }
+        }
+    }
+
+    /// 收尾：清掉内存里的密码，稍后登出（等弹窗/提示被看见）
+    private func finishAfterChange(after: Double = 1.0) {
+        pendingSyncPassword = ""
+        // v4.0.116 fix（发版审查 P2）：本批把明文驻留窗口从 ~1.2s 拉长到最长 ~120s，而原来只清
+        // pendingSyncPassword —— 三个输入框的状态会一直留到视图销毁。收尾连输入一并清掉。
+        oldPassword = ""
+        newPassword = ""
+        confirmPassword = ""
+        Task { try? await Task.sleep(for: .seconds(after)); auth.logout() }
+    }
+
+    /// v4.0.116：用新密码自证身份发起同步 → 轮询进度（容器重建期间连接失败 = 正在重启，继续轮）
+    private func syncBackendEnv() {
+        let pw = pendingSyncPassword
+        guard !pw.isEmpty, !busy else { finishAfterChange(); return }
+        busy = true
+        Task {
+            defer { busy = false }
+            result = "⏳ 正在同步后端环境…"
+            var started = false
+            do {
+                let j = try await auth.json("/api/auth/sync-env", method: "POST", body: ["password": pw])
+                started = (j["ok"] as? Bool) ?? false
+                if !started { result = "⚠️ " + ((j["error"] as? String) ?? "同步未能启动") }
+            } catch {
+                // v4.0.116 fix（发版审查 P1）：后端 `start_sync` 的**所有失败**都是 ok:false + HTTP 400
+                // （密码不正确／已有同步任务在进行中／本部署未暴露 compose 目录／启动 helper 失败），
+                // 而 auth.json 在解析 body 之前就按状态码抛 APIError.server(400) → 旧写法一律落进
+                // 「后端未支持自动同步」——把「启动失败」谎报成「不支持」，用户既看不到原因也以为功能不存在。
+                // 400 恰恰证明后端**支持**本功能（不支持是 404 落到 .server(404) 或网络层错误）。
+                if case APIError.server(let code) = error, code == 400 {
+                    result = "⚠️ 同步未能启动：这条链路本该由后端接管，可能是部署侧不具备条件；重新登录后可在设置页再触发一次"
+                } else {
+                    result = "ℹ️ 后端未支持自动同步，已跳过"
+                }
+            }
+            guard started else { finishAfterChange(after: 3.0); return }
+            pendingSyncPassword = ""     // 已送出，不再留存
+            result = "⏳ " + "正在改写宿主配置并重建后端（约 15 秒）…"
+            for _ in 0..<40 {
+                try? await Task.sleep(for: .seconds(3))
+                guard let j = await auth.jsonOrLog("/api/auth/sync-env") else { continue }
+                let st = (j["status"] as? String) ?? ""
+                if st == "done" { result = "✅ 后端环境已同步，请重新登录"; break }
+                if st == "failed" {
+                    result = "⚠️ 同步失败：" + ((j["error"] as? String) ?? "未知原因")
+                    break
+                }
+                result = "⏳ " + ((j["step"] as? String) ?? "同步中…")
+            }
+            // v4.0.116 fix（发版审查 P2）：本循环只轮 120s，而后端把超 600s 的 running 才归一化成
+            // failed —— 容器冷拉/镜像缺失等慢场景下，用户会拿着「同步中…」被直接登出、永远等不到结论。
+            // 耗尽时如实交代状态与后续动作，别让「还在转」的文案被登出吞掉。
+            if result.hasPrefix("⏳") {
+                result = "⏳ 同步仍在进行（后端最长约 10 分钟），稍后用新密码登录即可确认结果"
+            }
+            finishAfterChange(after: 2.5)   // 同步耗时长：结果多留一会儿再登出
+        }
+    }
+}
+
+// MARK: - 同步后端环境（v4.0.116：独立补同步入口）
+// 为什么需要它：改密后的同步只挂在 PasswordSheet 那一个分支里，一旦那一次没成
+// （旧密码已失效、或部署侧不具备重建条件），用户此时只能重新登录，就再也没有地方能
+// 触发第二次 —— 而宿主 .env / .ql_cred 里的密码副本仍是旧的，规则等后台功能会静默失效。
+// 这里用「当前登录密码」自证身份，任何时候都能补同步（同步接口幂等，且后端同时只允许一个任务）。
+struct EnvSyncSheet: View {
+    @Environment(AuthStore.self) private var auth
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var password = ""
+    @State private var result: String?
+    @State private var busy = false
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                Text("把当前登录密码同步给后端服务，更新宿主 .env / .ql_cred 里的密码副本（自动化规则等后台功能依赖它）。\n约需 15 秒，期间 App 会短暂失联。")
+                    .font(.system(size: Typography.subhead))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, Spacing.sheetInset)
+                    .padding(.top, Spacing.xxl)
+
+                SecureField("当前登录密码", text: $password)
+                    .font(.system(size: Typography.body))
+                    .padding(Spacing.xl)
+                    .pastelFill(cornerRadius: Radius.inset)
+                    .padding(.horizontal, Spacing.sheetInset)
+                    .padding(.top, Spacing.xl)
+
+                Button {
+                    runSync()
+                } label: {
+                    Text(busy ? "同步中..." : "开始同步")
+                        .font(.system(size: Typography.body, weight: .semibold))
+                        .frame(maxWidth: .infinity)
+                        .pill(.primary)
+                }
+                .buttonStyle(.plain)
+                .disabled(busy || password.isEmpty)
+                .padding(.horizontal, Spacing.sheetInset)
+                .padding(.top, Spacing.xl)
+
+                if let r = result {
+                    Text(r)
+                        .font(.system(size: Typography.subhead))
+                        .foregroundStyle(r.hasPrefix("✅") ? Color.green
+                                         : (r.hasPrefix("⏳") ? Color.secondary : Color.red))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, Spacing.sheetInset)
+                        .padding(.top, Spacing.md)
+                }
+
+                Spacer()
+            }
+            .navigationTitle("同步后端环境")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("完成") { dismiss() }
+                }
+            }
+        }
+    }
+
+    /// POST 自证身份 → 轮询进度（容器重建期间连接失败 = 正在重启，继续轮）
+    /// 判据与 PasswordSheet 保持一致：后端 start_sync 的失败一律是 ok:false + HTTP 400，
+    /// 而 auth.json 按状态码先抛且不带 body —— 所以 400 要读成「支持但启动失败」，不是「不支持」。
+    private func runSync() {
+        let pw = password
+        guard !pw.isEmpty, !busy else { return }
+        busy = true
+        Task {
+            defer { busy = false }
+            result = "⏳ 正在同步后端环境…"
+            var started = false
+            do {
+                let j = try await auth.json("/api/auth/sync-env", method: "POST", body: ["password": pw])
+                started = (j["ok"] as? Bool) ?? false
+                if !started { result = "⚠️ " + ((j["error"] as? String) ?? "同步未能启动") }
+            } catch {
+                if case APIError.server(let code) = error, code == 400 {
+                    result = "⚠️ 同步未能启动（密码不正确，或后端不具备重建条件）"
+                } else {
+                    result = "ℹ️ 后端未支持自动同步，已跳过"
+                }
+            }
+            guard started else { password = ""; return }
+            password = ""     // 已送出，不再留存明文
+            for _ in 0..<40 {
+                try? await Task.sleep(for: .seconds(3))
+                guard let j = await auth.jsonOrLog("/api/auth/sync-env") else { continue }
+                let st = (j["status"] as? String) ?? ""
+                if st == "done" { result = "✅ 后端环境已同步，请重新登录"; break }
+                if st == "failed" {
+                    result = "⚠️ 同步失败：" + ((j["error"] as? String) ?? "未知原因")
+                    break
+                }
+                result = "⏳ " + ((j["step"] as? String) ?? "同步中…")
+            }
+            if result?.hasPrefix("⏳") == true {
+                result = "⏳ 同步仍在进行（后端最长约 10 分钟），可稍后再进来查看结果"
             }
         }
     }

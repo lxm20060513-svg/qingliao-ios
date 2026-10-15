@@ -863,6 +863,22 @@ cp scripts/ql_docklayout/truth_table_docklayout.swift /tmp/ql_docklayout_main/ma
 run_unit /tmp/test_docklayout -swift-version 6 /tmp/ql_docklayout_main/main.swift \
     qingliao/Core/DockLayoutKit.swift
 
+echo "=== 50c. 启动页三拍转场真值表（v4.0.117：Logo 呼吸 → 圆形遮罩扩散铺满 → 首页各块次第上浮）==="
+# 用户 2026-10-15：启动页做成「拉开幕布」——呼吸一次 → 以 Logo 为圆心挖洞扩散 → 首页从圆里露出来 →
+#   首页各块自下而上次第浮起（每块 60ms）。四拍全靠时序串起来，被后人「顺手简化」不会有编译错也不崩，
+#   只能代码级钉（详见表头注释）。
+rm -rf /tmp/ql_launch_main && mkdir -p /tmp/ql_launch_main
+cp scripts/ql_launch/truth_table_launch.swift /tmp/ql_launch_main/main.swift
+run_unit /tmp/test_launch -swift-version 6 /tmp/ql_launch_main/main.swift
+
+echo "=== 50d. MCP 工具服务行图标真值表（v4.0.117：后端模板 icon + App 按名兜底映射）==="
+# 用户 2026-10-15：MCP 列表每行原先把拼图图标写死，所有服务长得一样。
+# 现为「后端模板自带 icon/color → 空则按服务名关键字兜底 → 拼图块」。
+# 表里拿**用户 NAS 上真实注册的 5 个 MCP**（browser-agent / luckin / office / wenyan /
+# xunlei-download）复刻匹配语义跑一遍 —— 关键字表被后人改窄/改错，这里当场红。
+# ⚠️ 表内 resolve() 标了 @MainActor（Swift 6 下顶层变量是 MainActor 隔离的），别去掉。
+run_unit6 /tmp/test_mcpicon scripts/ql_mcpicon/truth_table_mcpicon.swift
+
 echo "=== 50. 智慧球菜单胶囊几何真值表（v4.0.x）==="
 # 事故：v3.9.96 把最上排改成 3 列时，center() 的列位算式写成
 #   CGFloat(i >= 6 ? i - 7 : i % 3) - 1 —— 外面那个 -1 把 6/7/8 映射成 −2/−1/0，
