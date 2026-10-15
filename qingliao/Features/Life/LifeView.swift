@@ -25,6 +25,19 @@ struct LifeView: View {
     /// v4.0.69（用户报「博客资讯的刷新胶囊点击无法强制刷新」）：排队中的「用户点刷新」标记。
     /// 与 `loadLife(queued:)` 配套 —— 在途时点击不再被静默丢弃，而是排队补发；这个标记防重复排队叠请求。
     @State private var freshQueued = false
+    /// v4.0.114（用户「股票栏位的刷新和博客资讯栏位的刷新分开」）：**定向刷新**中的板块。
+    /// 空 = 无定向（首次加载 / 下拉刷新 / 全刷）→ 三块都按整页 loading 转；
+    /// 非空 = 只转这里面的板块，其余板块照常显示旧数据、不跟着转圈。
+    @State private var refreshTargets: Set<String> = []
+    /// v4.0.114（审查 P2）：排队期间**累计**的目标板块 —— 原写法 `if freshQueued { return }`
+    /// 会把后一次点击的 parts 直接丢掉（点股票 → 再点资讯，资讯那发被吞、胶囊也不转圈），
+    /// 正是 `queued` 通道要消灭的「点了没反应」。补发时用它覆盖本次 parts。
+    @State private var queuedParts: Set<String> = []
+    /// v4.0.114（复核 P1）：**持久**的「这次是哪几块被定向刷新」——
+    /// `refreshTargets` 与 `lifeLoading` 同生命周期释放（请求结束即清），等不到下一帧渲染，
+    /// 所以拿它做 `partError` 判据等于没改（定向下失败时下一帧 refreshTargets 已空、
+    /// 资讯/快递照样报同一条错）。这个在**请求结束时落定**，成功或整页回退时清空。
+    @State private var errorParts: Set<String> = []
     @State private var lifeError = ""
     @State private var showLifeSettings = false
     // v3.9.85：板块自定义（排序 + 隐藏）——抄看板 dashboard_card_order 模式
@@ -97,7 +110,9 @@ struct LifeView: View {
     var body: some View {
         VStack(spacing: 0) {
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 10) {
+                // v4.0.114：板块间距 10 → 16（= Spacing.section）。原先 10 比卡内留白（16–20）还窄，
+                // 8 个板块糊成一条、没有分组感；16 与卡内留白同档，板块之间才读得出「一块一块」。
+                LazyVStack(alignment: .leading, spacing: 16) {
                     // v3.9.85：按用户自定义顺序渲染，隐藏的板块不出现
                     // v4.0.84：本行要挂入场错峰与滚动层次 → switch 提成 sectionBody（见下）；
                     // 内联 switch 上加不了修饰符，也别整段塞回 body（本页属「启动链 demangler」事故家族）
@@ -197,30 +212,33 @@ struct LifeView: View {
         case .record: RecordSection()
         case .automations: AutomationsSection(isActive: isActive)
         case .lifeCards: LifeStocksSection(data: life,
-                                           loading: lifeLoading,
-                                           error: lifeError,
+                                           loading: partLoading("stock"),
+                                           error: partError("stock"),
                                            onDeleteStock: { st in Task { await deleteStock(st) } },
                                            onAddStock: { showLifeSettings = true },
                                            // v4.0.69：queued: true = 在途也不丢点击（排队补发），
                                            // 见 LifeView.loadLife 注释（用户报「刷新胶囊点击无法强制刷新」）
-                                           onRefresh: { Task { await loadLife(fresh: true, queued: true) } })
+                                           // v4.0.114：parts 定向 —— 只强刷股票，不再连资讯/快递一起重抓
+                                           onRefresh: { Task { await loadLife(fresh: true, queued: true, parts: ["stock"]) } })
         // v4.0.101（用户 2026-10-12「把股票，博客/资讯，快递单独拆开」）：资讯独立成一板块
         case .rss: LifeRssSection(data: life,
-                                  loading: lifeLoading,
-                                  error: lifeError,
+                                  loading: partLoading("rss"),
+                                  error: partError("rss"),
                                   zoomNS: zoomNS,   // v3.9.0：非闭包实参必须在闭包实参之前（实参序红线）
                                   expandedArticleID: expandedEntryID,
                                   articleStates: articles,
-                                  onRefresh: { Task { await loadLife(fresh: true, queued: true) } },
+                                  // v4.0.114：parts 定向 —— 只强刷资讯源，不再连股票/快递一起重抓
+                                  onRefresh: { Task { await loadLife(fresh: true, queued: true, parts: ["rss"]) } },
                                   onOpenArticle: { e in openArticle(e) },
                                   onBigBang: { text, sourceID in
                                       bigBangPayload = BigBangPayload(text: text, sourceID: sourceID)
                                   })
         // v4.0.101：快递独立成一板块（拆前跟着「股票」那颗折叠键一起收）
         case .express: LifeExpressSection(data: life,
-                                          loading: lifeLoading,
-                                          error: lifeError,
-                                          onRefresh: { Task { await loadLife(fresh: true, queued: true) } })
+                                          loading: partLoading("express"),
+                                          error: partError("express"),
+                                          // v4.0.114：parts 定向 —— 只强查快递单号
+                                          onRefresh: { Task { await loadLife(fresh: true, queued: true, parts: ["express"]) } })
         }
     }
 
@@ -292,11 +310,15 @@ struct LifeView: View {
     ///   闸门期间原来是 `guard ... else { return }` —— **静默丢弃**。30s 轮询 + 最长 8s 请求意味着点刷新
     ///   有相当概率撞上在途窗口，用户看到的就是「点了没反应」。现在在途时**不丢点击**：等在途结束后
     ///   自动补发这一次 fresh 请求（最多等 10s，`freshQueued` 防重复排队）。
-    private func loadLife(fresh: Bool = false, queued: Bool = false) async {
+    private func loadLife(fresh: Bool = false, queued: Bool = false, parts: [String] = []) async {
         // v4.0.69（审查）：本次调用是不是「排队后补发的那一发」—— 决定结束时要不要放开 freshQueued
         var queuedFresh = false
         if lifeLoading {
             guard queued else { return }
+            // v4.0.114（审查 P2）：在途期间**累计**目标板块，别再直接 return。
+            // 时序：30s 轮询在飞 → 点股票（parts=["stock"]）→ 再点资讯 → 原写法把第二发
+            // 静默丢掉，资讯既不重抓、胶囊也不转圈，用户看到的就是「点了没反应」。
+            queuedParts.formUnion(parts)
             if freshQueued { return }        // 已经欠着一发补发 → 合并，不叠加
             freshQueued = true
             var waited: Double = 0
@@ -304,7 +326,7 @@ struct LifeView: View {
                 try? await Task.sleep(for: .seconds(0.2))
                 waited += 0.2
             }
-            if lifeLoading { freshQueued = false; lifeError = "正在刷新，请稍后再试"; return }
+            if lifeLoading { freshQueued = false; queuedParts = []; lifeError = "正在刷新，请稍后再试"; return }
             queuedFresh = true
         }
         // 复位必须落在**函数级**作用域：原先写在 if 块里，而 defer 在所属花括号退出时就执行了，
@@ -312,6 +334,14 @@ struct LifeView: View {
         // 只在本次是补发者时复位，免得别人的排队被这次提前返回顺手清掉。
         defer { if queuedFresh { freshQueued = false } }
         lifeLoading = true
+        // v4.0.114：定向刷新 —— 只让目标板块转圈（其余板块保持旧数据，不跟着转）
+        // v4.0.114（复核 P2）：**只有补发者才消费队列** —— 原写法 `queuedParts.isEmpty ? Set(parts) : queuedParts`
+        // 在任何走到函数体的调用上都执行，30s 轮询若落在补发者 `Task.sleep(0.2)` 的窗口里，
+        // 会把这批目标「吃掉」并当成自己的定向集，补发者醒来发现队列已空 → 用户点的第二块
+        // 既没强刷、胶囊也不转圈（正是本补丁要消灭的「点了没反应」）。`queuedFresh` 是现成判据。
+        let effectiveParts: Set<String> = queuedFresh ? queuedParts : Set(parts)
+        queuedParts = []
+        if !effectiveParts.isEmpty { refreshTargets = effectiveParts }
         let guardTask = Task {
             try? await Task.sleep(for: .seconds(8))
             // v3.9.41（SR39）：兜底只做「显示超时」，**不能**顺手把 lifeLoading 置回 false——
@@ -324,13 +354,41 @@ struct LifeView: View {
         defer {
             guardTask.cancel()
             lifeLoading = false
+            refreshTargets = []      // v4.0.114：与 lifeLoading 同生命周期释放
         }
-        if let j = await auth.jsonOrLog(fresh ? "/api/life/cards?fresh=1" : "/api/life/cards") {
+        // v4.0.114：fresh 换成「板块名」口径，与后端 `_collect(parts=…)` 对齐 ——
+        //   fresh=1 → 全刷（下拉刷新 / 整页）；fresh=stock,rss → 只强刷这些板块，其余走后端缓存。
+        // 用 effectiveParts（排队补发时含累计目标），保证补发这一发真正打到用户点过的每个板块。
+        let effectiveList = effectiveParts.sorted()
+        let url = !fresh ? "/api/life/cards"
+            : (effectiveList.isEmpty ? "/api/life/cards?fresh=1"
+                                     : "/api/life/cards?fresh=" + effectiveList.joined(separator: ","))
+        if let j = await auth.jsonOrLog(url) {
             life = LifeCardsData.parse(j)
             lifeError = life.error
         } else {
             lifeError = "获取失败（后端未接线或网络不可用）"
         }
+        // v4.0.114（复核 P1）：请求结束时**落定**「这次是谁被定向」——
+        // 成功（无错）或整页口径（effectiveParts 为空）都清空，让三块回到共享一条错。
+        errorParts = (lifeError.isEmpty || effectiveParts.isEmpty) ? [] : effectiveParts
+    }
+
+    /// v4.0.114：板块级 loading —— 定向刷新时只有目标板块转圈；
+    /// 整页口径（首次加载 / 下拉 / 全刷）三块一起转。
+    private func partLoading(_ part: String) -> Bool {
+        refreshTargets.isEmpty ? lifeLoading : refreshTargets.contains(part)
+    }
+
+    /// v4.0.114（审查 P2 / 复核 P1）：板块级错误 —— 与 `partLoading` 同款分派。
+    /// loading 已按板块解耦而 error 没有：三张卡原来都吃同一条 `lifeError`，
+    /// 于是「只刷股票失败」会让资讯/快递的空卡也报同一条错（注释里那句「三张卡对同一次断网
+    /// 要一个说法」在拆块 + 定向刷新后已不成立）。非目标板块喂空串。
+    /// ⚠️ 判据必须是**持久**的 `errorParts`，不能拿 `refreshTargets` ——
+    /// 后者与 `lifeLoading` 同生命周期释放，请求一结束就空了，等不到下一帧渲染。
+    private func partError(_ part: String) -> String {
+        if errorParts.isEmpty { return lifeError }          // 整页口径：三块共享一条
+        return errorParts.contains(part) ? lifeError : ""    // 定向：只有目标板块吃这条错
     }
 
     // MARK: - v3.6.2 资讯：点击展开正文（后端 AI 抓取整理）

@@ -330,7 +330,7 @@ struct SectionHeader: View {
 
 struct SettingRow: View {
     let icon: String
-    let iconColor: Color   // 已废弃（v4.1.0 mono 口径）：不再上色，保留参数兼容旧调用
+    let iconColor: Color
     let title: String
     var value: String? = nil
     var chevron: Bool = false
@@ -339,12 +339,15 @@ struct SettingRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            // v4.1.0 方案C降噪：9 色图标统一 accent 淡底单色（iconColor 参数保留兼容旧调用，不再上色）
+            // v4.0.114（用户「设置页图标改回多彩圆角图标」）：**撤销** v4.1.0「方案C降噪」的 mono 口径——
+            // 那次把 9 色图标统一成 accent 淡底单色；用户明确要回多彩（他一贯反对为统一收敛成单色系）。
+            // 形态即 4.0.107 之前：实色圆角底 + 白符号。53 处调用的 iconColor 一直还在传，
+            // 所以只改这一个共用组件，设置页全部行一起恢复。
             Image(systemName: icon)
                 .font(.system(size: Typography.subhead, weight: .semibold))
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(.white)
                 .frame(width: 28, height: 28)
-                .background(Color.accentColor.opacity(Tint.subtle), in: RoundedRectangle(cornerRadius: Radius.icon, style: .continuous))
+                .background(iconColor, in: RoundedRectangle(cornerRadius: Radius.icon, style: .continuous))
             Text(title)
                 .font(.system(size: Typography.body))
                 .foregroundStyle(.primary)
@@ -384,32 +387,58 @@ struct FoldSection<Content: View>: View {
     @ViewBuilder var content: () -> Content
 
     var body: some View {
-        if isFolded {
-            Button {
-                withAnimation(Motion.snap) { isFolded = false }
-            } label: {
-                HStack(spacing: Spacing.sm) {
-                    Text(title)
-                        .font(.system(size: Typography.body, weight: .semibold))
-                        .foregroundStyle(.primary)
-                    Spacer(minLength: Spacing.md)
-                    Text("\(count) 项")
-                        .font(.system(size: Typography.subhead))
-                        .foregroundStyle(.tertiary)
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: Typography.caption, weight: .semibold))
-                        .foregroundStyle(.tertiary)
+        // v4.0.114（审查 P2）：垂直外边距提到 if/else **外层** —— 原先只加在折叠态，
+        // 展开/折叠来回切时该分组与相邻卡的间距会跳 12pt（本批刚为「过于紧凑」补的常量反成抖动源）。
+        Group {
+            if isFolded {
+                Button {
+                    withAnimation(Motion.snap) { isFolded = false }
+                } label: {
+                    HStack(spacing: Spacing.sm) {
+                        Text(title)
+                            .font(.system(size: Typography.body, weight: .semibold))
+                            .foregroundStyle(.primary)
+                        Spacer(minLength: Spacing.md)
+                        Text("\(count) 项")
+                            .font(.system(size: Typography.subhead))
+                            .foregroundStyle(.tertiary)
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: Typography.caption, weight: .semibold))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .padding(.horizontal, Spacing.xxl)
+                    .padding(.vertical, Spacing.lg)
+                    .contentShape(Rectangle())
                 }
-                .padding(.horizontal, Spacing.xxl)
-                .padding(.vertical, Spacing.lg)
-                .contentShape(Rectangle())
+                .buttonStyle(.plain)
+                .pastelCard()
+            } else {
+                // v4.0.114（用户「设置页展开后不能再折叠」——**确实是缺陷**）：展开态原来只有
+                // `SectionHeader`（纯展示标题）+ 内容，**没有任何收起入口**，展开了就回不去
+                // （4 个分组全展开要一路滚到底，想收只能退出重进）。
+                // 这里把标题行做成「点一下收起」，与折叠态的摘要行对称（那边点一下展开）。
+                // ⚠️ 不动共用的 `SectionHeader`（别处还在当纯标题用），只在外面套按钮 + 加一枚 chevron.up。
+                Button {
+                    withAnimation(Motion.snap) { isFolded = true }
+                } label: {
+                    HStack(spacing: Spacing.sm) {
+                        SectionHeader(title, count: count)
+                        Image(systemName: "chevron.up")
+                            .font(.system(size: Typography.caption, weight: .semibold))
+                            .foregroundStyle(.tertiary)
+                            .padding(.trailing, Spacing.sheetInset)
+                            .padding(.top, Spacing.xxl)   // 与 SectionHeader 的 top 内衬对齐
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                content()
             }
-            .buttonStyle(.plain)
-            .pastelCard()
-        } else {
-            SectionHeader(title, count: count)
-            content()
         }
+        // v4.0.114（用户「设置页折叠栏目位置过于紧凑」）：宿主是 VStack(spacing: 0)、卡片自身无外边距
+        // —— 4 个折叠摘要行原来**零间距贴成一整块**。补一圈垂直外边距（相邻卡之间 = 2×6 = 12pt）。
+        // 要更松/更紧只动这一个常量（Spacing.xs=4 / sm=6 / md=8 / xl=12）。
+        .padding(.vertical, Spacing.sm)
     }
 }
 

@@ -16,6 +16,13 @@ struct TaskCenterView: View {
     @State private var rowFrames: [String: CGRect] = [:]
     @State private var detailItem: TaskCenterItem?   // v3.9.32：任务详情（原「查看详情」是个空按钮）
     @State private var sending = false
+    /// v4.0.114（审查 P2）：「清理已完成」的二次确认（破坏性操作，原先直接删）。
+    /// v4.0.114（复核 P2）：改用 **AnchorMenuOverlay** 锚定浮层 —— 全仓 v4.0.102 已统一
+    /// 「二次确认一律走锚定浮层、不用 confirmationDialog」（后者在 iPhone 上从底部升起、
+    /// 锚不到触发按钮，仓内已废弃；先例见 SettingsData 的 HistorySheet「全部清除」）。
+    @State private var confirmClearCompleted = false
+    /// 锚点：工具栏「清理已完成」按钮在全局坐标系的矩形。
+    @State private var clearAnchor: CGRect = .zero
     // v3.4.23：进行中任务（后端 /api/agent/tasks/active——AI 干活中的流式任务 + 后台作业；v3.4.25 改别名路径过 lucky 反代）
     @State private var activeTasks: [AuthStore.ActiveTask] = []
     @State private var activeTimer: Timer?
@@ -120,7 +127,11 @@ struct TaskCenterView: View {
                 }
                 if store.tasks.contains(where: { $0.completed }) {
                     ToolbarItem(placement: .topBarTrailing) {
-                        Button("清理已完成") { store.clearCompleted() }
+                        // v4.0.114（审查 P2）：破坏性操作补二次确认 —— 全仓其它破坏性入口
+                        // （清空会话、删文件、删产物、停任务）都有确认，这里原来是唯一直接删的。
+                        // v4.0.114（复核 P2）：改用锚定浮层（见 @State 处注释），锚点由本按钮采集。
+                        Button("清理已完成") { confirmClearCompleted = true }
+                            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { clearAnchor = $0 }
                     }
                 }
             }
@@ -141,6 +152,33 @@ struct TaskCenterView: View {
         }
         // 🚨 v4.0.77：锚定菜单浮层挂 NavigationStack **之外**（整页最外层）——轻纱盖住导航栏，四个调用点同口径。
         .overlay { taskActionMenuLayer }
+        // v4.0.114：「清理已完成」的确认浮层 —— 同口径挂最外层（轻纱要盖住导航栏）。
+        .overlay { clearCompletedMenuLayer }
+    }
+
+    /// v4.0.114（审查 P2 + 复核 P2）：「清理已完成」的二次确认（破坏性操作）——
+    /// 锚定在工具栏按钮上，走仓内统一口径（v4.0.102：不用 confirmationDialog）。
+    @ViewBuilder
+    private var clearCompletedMenuLayer: some View {
+        if confirmClearCompleted {
+            // 兜底：工具栏按钮 frame 未量到时（首帧）弹屏幕中上，不弹左上角
+            let fallback = CGRect(x: UIScreen.main.bounds.midX + 40, y: 90, width: 120, height: 44)
+            AnchorMenuOverlay(anchorFrame: clearAnchor == .zero ? fallback : clearAnchor,
+                              items: [
+                                  AnchorMenuItem(id: "clear", title: "清理", icon: "trash", color: .red, destructive: true),
+                                  AnchorMenuItem(id: "cancel", title: "取消", icon: "xmark", color: .gray),
+                              ],
+                              title: "清理已完成的任务？",
+                              message: "已完成的任务会从列表移除，无法恢复。",
+                              onPick: { m in
+                                  confirmClearCompleted = false
+                                  if m.id == "clear" {
+                                      Haptics.press()
+                                      store.clearCompleted()
+                                  }
+                              },
+                              onClose: { confirmClearCompleted = false })
+        }
     }
 
     /// v4.0.77：任务操作锚定菜单（胶囊规格见 AnchorMenuOverlay；挂载点见 body 最外层）。

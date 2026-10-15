@@ -95,8 +95,20 @@ check("② 三张卡共用同一份数据源（拆的是渲染不是请求：三
         && view.contains("LifeExpressSection(data: life,"))
 check("②🚫 三张卡不许各自发请求（LifeCardsSection.swift 里不得出现网络调用）",
       !cards.contains("URLSession") && !cards.contains("apiFetch") && !cards.contains("await api"))
-check("② 三处刷新胶囊都走同一颗 loadLife(fresh: true, queued: true)（整块强制刷新）",
-      view.components(separatedBy: "await loadLife(fresh: true, queued: true)").count - 1 >= 3)
+// v4.0.114（用户「股票栏位的刷新和博客资讯栏位的刷新分开」）：口径从「三处都整块刷」改成
+// 「三处各刷各的板块」。反向也要钉住：不许退回「三处调用同一颗不带 parts 的整块刷新」。
+let _partHits = ["stock", "rss", "express"].filter {
+    view.contains("await loadLife(fresh: true, queued: true, parts: [\"\($0)\"])")
+}.count
+check("② 三处刷新胶囊各刷各的板块（loadLife(parts:) 三处定向，互不牵连）", _partHits == 3)
+check("② 三处板块级 loading 各自分派（partLoading(stock/rss/express)；否则点一处三处都转圈 = 没分开）",
+      view.contains("loading: partLoading(\"stock\")")
+        && view.contains("loading: partLoading(\"rss\")")
+        && view.contains("loading: partLoading(\"express\")"))
+check("② 下拉/整页刷新仍是全刷（走无 parts 的那一颗，fresh=1 语义不变、旧版 App 兼容）",
+      view.contains(".pullRefreshCup { await loadLife(fresh: true, queued: true) }"))
+check("②🚫 三处刷新不许退回「同一颗整块刷新」——退回即刷新解耦失效（旧断言 count-1 >= 3 正是回退态）",
+      view.components(separatedBy: "await loadLife(fresh: true, queued: true)").count - 1 <= 1)
 
 // ── ③ 折叠键：两颗沿用旧键，快递新增
 check("③ 股票沿用旧折叠键 dashboard_life_expanded（老用户折叠态不丢）",
@@ -183,8 +195,25 @@ check("④c 其它板块恢复仍是 append（别把这条特例扩散到全部�
       sec.contains("shown.append(s)"))
 
 // ── ⑦ 三张卡对「同一次断网」必须一个说法（审查补：拆后传输层错误只喂了股票一张）
-check("⑦ LifeView 把传输层错误喂给三张卡（error: lifeError 出现 3 次）",
-      sqView.components(separatedBy: "error:lifeError").count - 1 >= 3)
+// v4.0.114（复核 P1）：三块拆开后 error 也要跟着**定向**走 ——
+//   整页刷新：三块共享一条；定向刷新：只有目标板块吃这条错，非目标喂空串。
+//   否则「只刷股票失败」会让资讯/快递的空卡也报「获取失败（后端未接线或网络不可用）」。
+// ⚠️ 判据必须是**持久**的 `errorParts`：`refreshTargets` 与 `lifeLoading` 同生命周期释放
+//    （请求一结束即清），拿它当判据等不到下一帧渲染 = 改动前后行为逐字相同（复核实测抓出）。
+check("⑦ LifeView 把传输层错误喂给三张卡（error: partError(...) 出现 3 次）",
+      view.components(separatedBy: "error: partError(").count - 1 == 3)
+check("⑦ 定向刷新只有目标板块吃错（持久判据 errorParts，请求结束时落定）",
+      view.contains("@State private var errorParts: Set<String> = []")
+        && view.contains("if errorParts.isEmpty { return lifeError }")
+        && view.contains("return errorParts.contains(part) ? lifeError : \"\"")
+        && view.contains("errorParts = (lifeError.isEmpty || effectiveParts.isEmpty) ? [] : effectiveParts"))
+check("⑦🚫 不许拿 refreshTargets 当 error 判据（与 lifeLoading 同生命周期释放，等不到渲染帧）",
+      !view.contains("return refreshTargets.contains(part) ? lifeError"))
+check("⑦b 排队补发只消费自己的队列（30s 轮询不许截胡用户点的目标）",
+      view.contains("queuedParts.formUnion(parts)")
+        && view.contains("let effectiveParts: Set<String> = queuedFresh ? queuedParts : Set(parts)"))
+check("⑦b🚫 不许退回「队列非空就用队列」（轮询落在补发窗口里会把它吃掉，第二块点了没反应）",
+      !view.contains("queuedParts.isEmpty ? Set(parts) : queuedParts"))
 check("⑦ 快递降级不再写死空串（否则断网被说成「数据源未配置」）",
       cards.contains("lifeDegradeText(data, error: error, loading: loading)")
         && !cards.contains("lifeDegradeText(data, error: \"\", loading: loading)"))

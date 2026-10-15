@@ -1556,6 +1556,15 @@ echo "=== 99. AI 成品文件卡真值表（#17 · 文件段解析 / 容错丢�
 #   下载路径单一真源、共享入口（RemoteFiles.fetchData/fetchToTemp）、QuickLook import 与接线形态。
 run_unit /tmp/tt_file scripts/ql_file/truth_table_file.swift
 
+echo "=== 98b2. 任务中心真值表（v4.0.114：「清理已完成」二次确认）==="
+# 被测：Features/TaskCenterView.swift（Features **根目录**下，历史上只被语法检查覆盖）。
+# 由来：全仓破坏性动作一律二次确认，而「清理已完成」原先**直接删**（点一下已完成任务全没、无法恢复）。
+# 形态必须是 v4.0.102 全仓口径：**锚定浮层 AnchorMenuOverlay，不用 confirmationDialog**
+#（后者在 iPhone 上固定从底部升起、锚不到触发按钮，仓内已逐个搬走）；且浮层要挂
+# NavigationStack **之外**（整页最外层），轻纱才盖得住导航栏（v4.0.77 口径）。
+# 全是**编译不报、手点才现**的坏法：漏确认=误删；挂错层=轻纱盖不住导航栏；不采锚点=弹屏幕左上角。
+run_unit6 /tmp/tt_taskcenter scripts/ql_taskcenter/truth_table_taskcenter.swift
+
 echo "=== 99b. 工作区「待你处理」真值表（v4.0.109 · 跨会话未答问题卡聚合）==="
 # 被测：Core/WorkspacePendingKit.swift（纯逻辑，只 import Foundation）。
 # 事故面（**全静默**，装机才发现）：① 字段名与 Core/Models.swift 的 ChatMessage.parse 分叉

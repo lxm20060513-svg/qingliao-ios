@@ -191,15 +191,20 @@ check("⑥ 文件段类型图标与类型文案齐备（六种 kind 都有分支
 let ws = code(src("qingliao/Features/Workspace/WorkspaceView.swift"))
 check("⑦ 工作区页源可读（空了下面几条是空真）", !ws.isEmpty)
 check("⑦ 列表请求走 POST 形态（蜂窝 GET 带 query 静默挂 · v4.0.110）",
-      ws.contains("auth.request(\"/api/files/list\",") && ws.contains("method: \"POST\"") && ws.contains("body: [\"path\": requestPath]"))
+      ws.contains("auth.request(\"/api/files/list\",") && ws.contains("method: \"POST\"") && ws.contains("body: [\"path\": path]"))
 check("⑦ 列表不许再用带 query 的 GET（回退即红线）",
       !ws.contains("/api/files/list?path="))
-check("⑦ 条目 parent 传 requestPath（带别名前缀，预览/下载才不 404）",
-      ws.contains("RemoteFiles.parseEntries(obj?[\"entries\"], parent: requestPath)"))
+check("⑦ 条目 parent 必须带别名根前缀（fetchList 收 path；预览/下载才不 404）",
+      ws.contains("RemoteFiles.parseEntries(obj?[\"entries\"], parent: path)")
+      && ws.contains("private func fetchList(_ path: String) async -> FetchOutcome")
+      && ws.contains("await fetchList(requestPath)") && ws.contains("await fetchList(root)"))
 check("⑦ 反例：条目 parent 不许传 currentPath（缺别名前缀 → 预览 404）",
       !ws.contains("parent: currentPath"))
-check("⑦ requestPath 由别名根拼出（office/ + 当前目录）",
-      ws.contains("Self.artifactRoot + \"/\" + currentPath"))
+check("⑦ requestPath 由「当前根 + 目录」拼出（v4.0.114 起根可切换，不再是写死的 office）",
+      ws.contains("atRootLevel ? \"\" : (dirStack.isEmpty ? currentRoot : currentRoot + \"/\" + currentPath)"))
+check("⑦ 根层 = 两个别名根合并（office 文档 + artifacts 其它产物）",
+      ws.contains("private static let artifactRoots = [\"office\", \"artifacts\"]")
+      && ws.contains("for root in Self.artifactRoots {"))
 check("⑦ 激活即拉产物（v4.0.110 改口径：每次激活都刷新，不再「仅空才拉」）",
       ws.contains(".task(id: isActive)")
       && ws.contains("guard isActive else { stopActivePolling(); return }")
@@ -235,7 +240,9 @@ check("⑦ 产物列表激活即刷新（keepOnFailure 保旧列表）",
       ws.contains("await load(keepOnFailure: true)")
       && ws.contains("private func load(keepOnFailure: Bool = false) async")
       && !ws.contains("if entries.isEmpty { await load() }")
-      && ws.contains("if !keepOnFailure { entries = [] }"))
+      // v4.0.114（审查 P2）：失败清空虚线里补了 prunePicks()，且 keepOnFailure 时
+      // 不再「不清 entries 却设 failureText」（自相矛盾：列表还在、同时挂红字）。
+      && ws.contains("if !keepOnFailure {\n                    failureText = firstErr\n                    entries = []\n                    prunePicks()"))
 // v4.0.110：文件卡整卡可点（AI 卡文案承诺「点开卡片即可查看或下载」，原实现只有右上角
 // 「查看」小按钮、点卡面没反应 = 用户报「点卡片无法查看也没法下载」）。钉：contentShape +
 // onTapGesture 走同一 open()（在飞闸门在 open 内）。
@@ -255,9 +262,9 @@ check("⑦ 解析器回落顶层平铺 file 字段（仅 type=file）",
 // v4.0.110：空目录/失败态也要渲染 backRow——原实现这两个分支不给返回按钮，
 // 用户进空文件夹（如日期目录）就被困住（真机实报「点进去没有返回上一层按钮」）。
 check("⑦ 空态/失败态分支也渲染返回上一级行",
-      ws.contains("if !dirStack.isEmpty { backRow }")
+      ws.contains("if !atRootLevel { backRow }")
       && src("qingliao/Features/Workspace/WorkspaceView.swift").contains("// v4.0.110：空目录也要给 backRow")
-      && ws.components(separatedBy: "if !dirStack.isEmpty { backRow }").count - 1 >= 3)
+      && ws.components(separatedBy: "if !atRootLevel { backRow }").count - 1 >= 3)
 // v4.0.109：工作区新增「待你处理」（跨会话未答问题卡；解析逻辑在 Core/WorkspacePendingKit.swift）。
 // 钉住四件事：① 进页会拉待答卡；② 点卡 = 标已读 + 装会话 + 报宿主切页（三步缺一都是「点了没用」）；
 // ③ 没有待答卡时那一块**不渲染**（工作区不摆空壳）；④ 长期目标整块搬来（栏目 + 页级浮层宿主同页）。
@@ -271,6 +278,50 @@ check("⑦ 待你处理：进页拉取 + 点卡标已读/装会话/报宿主切�
 check("⑦ 长期目标整块搬进工作区（栏目 + 页级浮层宿主都在本页，宿主漏挂则浮层只在卡内弹）",
       ws.contains("GoalsSection()")
       && ws.contains(".overlay { AnyView(GoalsGlassLayerHost()) }"))
+
+// MARK: ⑧ 产物库删除（v4.0.114 · 用户「产物库内容也可以删除吧」）
+// 为什么值得钉：后端 `/api/files/delete` 是**真删**（目录 rmtree / 文件 os.remove，**无回收站**）。
+// 三处坏了都不报错：① 漏二次确认 → 点一下就没了；② 选择态没让位 → 点行=进目录，勾选全乱、
+// 删除打空；③ 失败项没剔干净 → 红字说失败、列表里却没了，用户以为删成功。
+check("⑧ 产物库单删入口（⋯ 菜单 → 确认；目录提示含内容）",
+      ws.contains("Label(\"删除\", systemImage: \"trash\")")
+      && ws.contains("deleteConfirmText = e.isDir ? \"删除「\\(e.name)」及其中的内容？\" : \"删除「\\(e.name)」？\"")
+      && ws.contains("@ViewBuilder\n    private func rowTrailing(_ e: RemoteFileEntry)"))
+check("⑧ 产物库选择态（选择/取消 + 勾选圈 + 删除(N)）",
+      ws.contains("@State private var selecting = false")
+      && ws.contains("@State private var picked: Set<String> = []")
+      && ws.contains("Text(picked.isEmpty ? \"删除\" : \"删除(\\(picked.count))\")")
+      && ws.contains("checkmark.circle.fill")
+      && ws.contains("Button(selecting ? \"取消\" : \"选择\")"))
+check("⑧ 选择态下左键让位（行点击 = 勾选，不进目录 / 不查看）",
+      ws.contains("if selecting { togglePick(d.path); return }")
+      && ws.contains(".onTapGesture { if selecting { togglePick(f.path) } }")
+      && ws.contains("if !selecting {")
+      // v4.0.114：点击区收到内容 HStack 内层后缩进 +4（原 16 → 现 20）
+      && ws.contains("if !selecting {\n                    Image(systemName: \"chevron.right\")"))
+// v4.0.114（复核 P2）：目录行的点击区收到左侧内容后，行尾那枚勾选圈掉出了命中区 ——
+// 选择态点圈没反应（内容区能点、产物行整行能点，两态口径不一致）。
+check("⑧ 选择态的勾选圈本身可点（拆点击区时别把行尾落在命中区外）",
+      ws.contains(".onTapGesture { togglePick(e.path) }")
+        && ws.contains("rowTrailing(d)")
+        && ws.contains(".accessibilityAddTraits(.isButton)\n        } else {"))
+check("⑧ 删除走 POST /api/files/delete（path 带别名根前缀，越界后端自会拒）",
+      ws.contains("auth.json(\"/api/files/delete\", method: \"POST\", body: [\"path\": e.path])"))
+check("🚫 不许无确认直删（真删无回收站）",
+      ws.contains(".alert(deleteConfirmText, isPresented: $confirmDelete)")
+      && ws.contains("Text(\"删除后无法恢复。\")")
+      && ws.contains("deleteConfirmText = \"删除 \\(targets.count) 项？\""))
+check("⑧ 删除失败不中断：成功的出列表、失败的留下列名",
+      ws.contains("failed.append(e.name)")
+      && ws.contains("entries.removeAll { $0.path == e.path }")
+      && ws.contains("项删除失败："))
+check("⑧ 回读后丢弃越目录勾选（防删到看不见的项）",
+      ws.contains("private func prunePicks()")
+      && ws.contains("picked = picked.intersection(Set(entries.map { $0.path }))")
+      && ws.components(separatedBy: "prunePicks()").count - 1 >= 3)
+check("🚫 换筛选不保留勾选（被筛掉的项还留着勾 = 打黑箱删）",
+      src("qingliao/Features/Workspace/WorkspaceView.swift").contains("// v4.0.114：换筛选就清勾选")
+      && ws.contains("filter = f"))
 
 print("AI 成品文件卡真值表：#17 \(passCount) 通过 / \(failCount) 失败")
 exit(failCount == 0 ? 0 : 1)

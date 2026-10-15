@@ -216,11 +216,17 @@ struct DockTabView: View {
             Group {
                 if showSessionHome {
                     // 实参序 = 声明序（onOpenSession → showHero → onAskAI），CI 参数序检查才过
-                    SessionsView(onOpenSession: { withAnimation(Motion.tap) { showSessionHome = false } },
+                    SessionsView(onOpenSession: { withAnimation(Motion.page) { showSessionHome = false } },
                                  showHero: true,
                                  onAskAI: { askAI($0) })
+                        // v4.0.114（用户「聊天详情手势滑动返回过渡太生硬」）：返回时列表从**左边**滑回来
+                        // （进入聊天时它反向滑向左边）—— 与下面聊天的移向凑成 push/pop 的观感。
+                        // 此前两态都是默认的交叉淡化 + Motion.tap(0.12)，读作「啪一下闪过去」。
+                        .transition(.move(edge: .leading).combined(with: .opacity))
                 } else {
-                    ChatView(onBackToHome: { withAnimation(Motion.tap) { showSessionHome = true } })
+                    ChatView(onBackToHome: { withAnimation(Motion.page) { showSessionHome = true } })
+                        // 进入 = 从右边滑入；返回 = 向右滑出（与列表的移向配成一对）
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
                 }
             }
             .chatZoomEntry(selected: $selected, revealCenter: revealCenter)

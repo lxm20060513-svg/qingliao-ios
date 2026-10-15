@@ -298,8 +298,10 @@ struct LifeRssSection: View {
     /// v3.9.17：资讯折叠键（拆块后沿用同一颗，老用户折叠态不丢）
     @AppStorage("dashboard_rss_expanded") private var rssExpanded = true
 
-    // v4.0.61：资讯分页（用户要求「刷新胶囊换成下一批胶囊」）——一批 3 条，纯本地翻页不发请求
-    private let rssBatchSize = 3
+    // v4.0.61：资讯分页（用户要求「刷新胶囊换成下一批胶囊」）——纯本地翻页不发请求
+    // v4.0.114（用户「资讯卡片一页显示10条」）：3 → 10。这是**本地翻页**的批大小 ——
+    // 「下一批」零请求，只是换 data.entries 的切片；后端一次给的条数不足 10 时，那批就那么多。
+    private let rssBatchSize = 10
     @State private var rssBatch = 0
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion

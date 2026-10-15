@@ -527,11 +527,12 @@ extension SettingsView {
 
     @ViewBuilder var localModelToggle: some View {
         HStack(spacing: 12) {
+            // v4.0.114：与「模型管理」同色（同属模型域），不再是 mono 淡底
             Image(systemName: "cpu")
                 .font(.system(size: Typography.subhead, weight: .semibold))
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(.white)
                 .frame(width: 28, height: 28)
-                .background(Color.accentColor.opacity(Tint.subtle), in: RoundedRectangle(cornerRadius: Radius.icon, style: .continuous))
+                .background(Color.orange, in: RoundedRectangle(cornerRadius: Radius.icon, style: .continuous))
             VStack(alignment: .leading, spacing: Spacing.xxs) {
                 Text("本地模型").font(.system(size: Typography.body, weight: .medium))
                 Text(localStatusText).font(.system(size: Typography.caption)).foregroundStyle(.tertiary).lineLimit(1)
@@ -564,11 +565,12 @@ extension SettingsView {
             Divider().padding(.leading, Spacing.rowDividerInset)
             Button { Task { await checkLocalUpdate() } } label: {
                 HStack(spacing: 12) {
+                    // v4.0.114：多彩口径（更新域用 teal，与「系统版本」同族）
                     Image(systemName: "arrow.triangle.2.circlepath")
                         .font(.system(size: Typography.subhead, weight: .semibold))
-                        .foregroundStyle(Color.accentColor)
+                        .foregroundStyle(.white)
                         .frame(width: 28, height: 28)
-                        .background(Color.accentColor.opacity(Tint.subtle), in: RoundedRectangle(cornerRadius: Radius.icon, style: .continuous))
+                        .background(Color.teal, in: RoundedRectangle(cornerRadius: Radius.icon, style: .continuous))
                     VStack(alignment: .leading, spacing: Spacing.xxs) {
                         Text("检查模型更新").font(.system(size: Typography.body, weight: .medium))
                         Text(localUpdateText).font(.system(size: Typography.caption)).foregroundStyle(.tertiary)
@@ -1040,15 +1042,14 @@ extension SettingsView {
 
 extension SettingsView {
 
-    // iconColor 已废弃（v4.1.0 mono 口径）：不再上色，保留参数兼容旧调用
+    // v4.0.114（用户「设置页图标改回多彩圆角图标」）：撤销 v4.1.0 mono 口径，iconColor 恢复上色
     func toggleRow(icon: String, iconColor: Color, title: String, subtitle: String? = nil, isOn: Binding<Bool>) -> some View {
         HStack(spacing: 12) {
-            // v4.1.0 方案C降噪：与 SettingRow 同口径，图标统一 accent 淡底单色
             Image(systemName: icon)
                 .font(.system(size: Typography.subhead, weight: .semibold))
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(.white)
                 .frame(width: 28, height: 28)
-                .background(Color.accentColor.opacity(Tint.subtle), in: RoundedRectangle(cornerRadius: Radius.icon, style: .continuous))
+                .background(iconColor, in: RoundedRectangle(cornerRadius: Radius.icon, style: .continuous))
             if let subtitle {
                 VStack(alignment: .leading, spacing: Spacing.xxs) {
                     Text(title).font(.system(size: Typography.body, weight: .medium))

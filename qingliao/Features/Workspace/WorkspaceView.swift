@@ -66,18 +66,31 @@ struct WorkspaceView: View {
     @Environment(\.colorScheme) private var colorSchemeEnv
 
     /// 产物根别名（后端 `QL_EXTRA_ROOTS` 的别名，勿改成绝对路径）
-    private static let artifactRoot = "office"
+    /// v4.0.114（用户「AI 生产的其他产物也要加到产物里」）：**单根 → 双根**。
+    ///   office    = AI 成品**文档**（office-mcp 写的 Word/Excel/PPT/PDF）
+    ///   artifacts = AI 的**其它产物**（截图/图/代码/数据/压缩包/音频…）
+    /// 根层把两个根**合并成一个列表**（用户不必知道东西落在哪个根），进子目录后只列当前那个根。
+    private static let artifactRoots = ["office", "artifacts"]
 
     // MARK: 产物库状态
     @State private var entries: [RemoteFileEntry] = []
-    /// 面包屑栈（相对 office/ 根的各层目录名；空 = 根）
+    /// 面包屑栈（相对**所在根**的各层目录名；空 = 该根顶层）
     @State private var dirStack: [String] = []
+    /// 当前所在的根别名；**空串 = 根层**（两根合并显示的那一层）
+    @State private var currentRoot = ""
     @State private var loading = false
     /// 列表级失败（拉不到目录）
     @State private var failureText = ""
     /// 动作级失败（下载/预览失败），与列表失败分开，免得盖掉已取到的列表
     @State private var actionError = ""
     @State private var filter: WorkspaceArtifactFilter = .all
+    // v4.0.114（用户「产物库内容也可以删除吧」·方案 3）：⋯ 单删 + 选择态批量。
+    // ⚠️ 后端 /api/files/delete 是**真删**（rmtree / os.remove，无回收站）→ 一律二次确认。
+    @State private var selecting = false
+    @State private var picked: Set<String> = []
+    @State private var deleteConfirmText = ""
+    @State private var confirmDelete = false
+    @State private var deleteTargets: [RemoteFileEntry] = []
     @State private var quickLookURL: URL?
     /// 正在下载的产物 path（在飞闸门：防狂点重复下载）
     @State private var preparingPath = ""
@@ -107,12 +120,15 @@ struct WorkspaceView: View {
     @State private var showReminder = false // v4.0.113 从设置页移来的「定时提醒」
     @State private var showFiles = false    // v4.0.113 从设置页移来的「文件管理」
 
-    /// 当前目录（相对 office/ 根；空 = 根）
+    /// 当前目录（相对**所在根**；空 = 该根顶层）
     private var currentPath: String { dirStack.joined(separator: "/") }
 
-    /// 请求用的路径参数（后端 resolve_path 认 `office/xxx` 别名形态）
+    /// 是否在根层（两根合并显示的那一层）
+    private var atRootLevel: Bool { currentRoot.isEmpty }
+
+    /// 请求用的路径参数（后端 resolve_path 认 `<别名>/xxx` 形态）；**根层返回空串 = 「拉全部根」**
     private var requestPath: String {
-        currentPath.isEmpty ? Self.artifactRoot : Self.artifactRoot + "/" + currentPath
+        atRootLevel ? "" : (dirStack.isEmpty ? currentRoot : currentRoot + "/" + currentPath)
     }
 
     private var visibleFiles: [RemoteFileEntry] {
@@ -291,7 +307,21 @@ struct WorkspaceView: View {
 
     private var artifactBoard: some View {
         VStack(alignment: .leading, spacing: Spacing.md) {
-            sectionTitle("产物")
+            HStack(spacing: Spacing.sm) {
+                sectionTitle("产物")
+                Spacer(minLength: Spacing.sm)
+                // v4.0.114：有产物才给「选择」（空目录摆一颗没用的按钮 = 占位）。
+                if !entries.isEmpty {
+                    Button(selecting ? "取消" : "选择") {
+                        Haptics.tap()
+                        selecting.toggle()
+                        if !selecting { picked = [] }
+                    }
+                    .font(.system(size: Typography.caption, weight: .semibold))
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Color.accentColor)
+                }
+            }
             filterBar
             if !actionError.isEmpty {
                 Text(actionError)
@@ -300,7 +330,42 @@ struct WorkspaceView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             artifactCard
+            if selecting { batchBar }
         }
+        // v4.0.114：单删与批删**共用一个 alert**（同一视图挂两个 .alert 在旧系统上只有最后一个生效，
+        // 与其赌版本不如只留一个）；文案随目标动态换。
+        .alert(deleteConfirmText, isPresented: $confirmDelete) {
+            Button("删除", role: .destructive) { Task { await deleteNow() } }
+            Button("取消", role: .cancel) { deleteTargets = [] }
+        } message: {
+            Text("删除后无法恢复。")
+        }
+    }
+
+    /// 选择态底部条（v4.0.114）：勾选计数 + 删除入口。
+    /// ⚠️ 选择态下**行点击 = 勾选**、不再进目录/查看（否则点一下误入目录、勾选全乱）。
+    private var batchBar: some View {
+        HStack(spacing: Spacing.sm) {
+            Text(picked.isEmpty ? "勾选要删除的产物" : "已选 \(picked.count) 项")
+                .font(.system(size: Typography.tiny))
+                .foregroundStyle(.secondary)
+            Spacer(minLength: Spacing.sm)
+            Button(role: .destructive) {
+                let targets = entries.filter { picked.contains($0.path) }
+                guard !targets.isEmpty else { return }
+                deleteTargets = targets
+                deleteConfirmText = "删除 \(targets.count) 项？"
+                confirmDelete = true
+            } label: {
+                Text(picked.isEmpty ? "删除" : "删除(\(picked.count))")
+                    .font(.system(size: Typography.tiny, weight: .semibold))
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+            .disabled(picked.isEmpty)
+        }
+        .padding(Spacing.section)
+        .pastelCard(cornerRadius: Radius.hero)
     }
 
     /// 分类筛选条。⚠️ 筛选 chip **不在** `PillSize` 三档口径内（Pill.swift 头注释明确排除），
@@ -312,6 +377,8 @@ struct WorkspaceView: View {
                     Button {
                         Haptics.tap()
                         filter = f
+                        // v4.0.114：换筛选就清勾选——被筛掉的项还留着勾，删除等于打黑箱。
+                        picked = []
                     } label: {
                         Text(f.rawValue)
                             .font(.system(size: Typography.caption, weight: .semibold))
@@ -336,19 +403,19 @@ struct WorkspaceView: View {
         } else if !failureText.isEmpty {
             // v4.0.110：失败态同样给 backRow（子目录拉取失败 ≠ 困死在该层）
             VStack(spacing: Spacing.sm) {
-                if !dirStack.isEmpty { backRow }
+                if !atRootLevel { backRow }
                 hint(failureText, tone: .red)
             }
         } else if visibleDirs.isEmpty && visibleFiles.isEmpty {
             // v4.0.110：空目录也要给 backRow——原实现空态分支不渲染返回按钮，
             // 用户进空文件夹（如日期目录）就被困住，只能杀页重来（真机实报）。
             VStack(spacing: Spacing.sm) {
-                if !dirStack.isEmpty { backRow }
+                if !atRootLevel { backRow }
                 emptyHint
             }
         } else {
             VStack(spacing: Spacing.sm) {
-                if !dirStack.isEmpty { backRow }
+                if !atRootLevel { backRow }
                 ForEach(visibleDirs) { d in dirRow(d) }
                 ForEach(visibleFiles) { f in artifactRow(f) }
             }
@@ -358,11 +425,11 @@ struct WorkspaceView: View {
     /// 空态：根目录空（AI 还没产出过）与子目录空分开说，别让用户以为坏了
     @ViewBuilder
     private var emptyHint: some View {
-        if currentPath.isEmpty {
+        if atRootLevel {
             VStack(spacing: Spacing.xs) {
-                Text("还没有 AI 生成的文档")
+                Text("还没有 AI 生成的产物")
                     .font(.system(size: Typography.subhead, weight: .medium))
-                Text("在聊天里让 AI 做一份 Word / Excel / PPT / PDF，成品会出现在这里")
+                Text("在聊天里让 AI 做文档、出图、跑数据，成品都会出现在这里")
                     .font(.system(size: Typography.tiny))
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -381,7 +448,11 @@ struct WorkspaceView: View {
     private var backRow: some View {
         Button {
             Haptics.tap()
-            if !dirStack.isEmpty { dirStack.removeLast() }
+            if !dirStack.isEmpty {
+                dirStack.removeLast()
+            } else {
+                currentRoot = ""        // v4.0.114：从某个根的顶层再退 → 回到「两根合并」的根层
+            }
             entries = []
             Task { await load() }
         } label: {
@@ -390,7 +461,7 @@ struct WorkspaceView: View {
                 Text("返回上一级")
                     .font(.system(size: Typography.subhead, weight: .medium))
                 Spacer(minLength: Spacing.sm)
-                Text(currentPath)
+                Text(requestPath)
                     .font(.system(size: Typography.tiny))
                     .lineLimit(1)
                     .truncationMode(.head)
@@ -403,13 +474,14 @@ struct WorkspaceView: View {
         .buttonStyle(.plain)
     }
 
+    /// 目录行。⚠️ v4.0.114 起**不再是 Button**：行尾要挂「⋯」菜单，而 SwiftUI 里 Button 套 Button
+    /// 的命中区域会打架（点 ⋯ 可能连带进目录）→ 改 HStack + contentShape + onTapGesture。
     private func dirRow(_ d: RemoteFileEntry) -> some View {
-        Button {
-            Haptics.tap()
-            dirStack.append(d.name)
-            entries = []
-            Task { await load() }
-        } label: {
+        HStack(spacing: Spacing.md) {
+            // v4.0.114（审查 P2）：点击区**只覆盖左侧内容**，不含行尾 ⋯ 菜单 ——
+            // 光把 Button 换成 onTapGesture 并没有消除与菜单的命中竞争（父级 contentShape(Rectangle())
+            // 仍把整行圈进去），只是换了对手。这里把 tap 收到内容 HStack 上，菜单独立在外。
+            // 顺带补上 Button 语义（改手势后 VoiceOver 会读不出「可进目录」）。
             HStack(spacing: Spacing.md) {
                 badge("folder.fill", tint: .orange)
                 Text(d.name)
@@ -417,15 +489,38 @@ struct WorkspaceView: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Spacer(minLength: Spacing.sm)
-                Image(systemName: "chevron.right")
-                    .font(.system(size: Typography.caption, weight: .semibold))
-                    .foregroundStyle(.tertiary)
+                if !selecting {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: Typography.caption, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                }
             }
-            .padding(Spacing.section)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .pastelCard(cornerRadius: Radius.hero)
+            .contentShape(Rectangle())
+            .onTapGesture { tapDir(d) }
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityLabel(d.name)
+            .accessibilityHint(selecting ? "轻点勾选" : "轻点进入文件夹")
+
+            rowTrailing(d)
         }
-        .buttonStyle(.plain)
+        .padding(Spacing.section)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .pastelCard(cornerRadius: Radius.hero)
+    }
+
+    /// 点目录：选择态 = 勾选，否则进目录。
+    private func tapDir(_ d: RemoteFileEntry) {
+        if selecting { togglePick(d.path); return }
+        Haptics.tap()
+        // v4.0.114：从 entry.path（形如 `artifacts/2026-10-15/xxx`）拆出**根与层**——
+        // 根层是两根合并的，此时光靠 d.name 已不知道进的是哪个根。
+        let comps = d.path.split(separator: "/").map(String.init)
+        currentRoot = comps.first ?? ""
+        dirStack = Array(comps.dropFirst())
+        entries = []
+        Task { await load() }
     }
 
     private func artifactRow(_ f: RemoteFileEntry) -> some View {
@@ -442,22 +537,105 @@ struct WorkspaceView: View {
                     .lineLimit(1)
             }
             Spacer(minLength: Spacing.sm)
-            if preparingPath == f.path {
-                ProgressView().controlSize(.small)
-            } else {
-                Button { open(f) } label: {
-                    Text("查看")
-                        .font(.system(size: Typography.tiny, weight: .semibold))
-                        .lineLimit(1)
+            if !selecting {
+                if preparingPath == f.path {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Button { open(f) } label: {
+                        Text("查看")
+                            .font(.system(size: Typography.tiny, weight: .semibold))
+                            .lineLimit(1)
+                    }
+                    // v4.0.x：系统胶囊样式（.bordered 自带 Capsule 材质底），不再自绘玻璃描边
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
                 }
-                // v4.0.x：系统胶囊样式（.bordered 自带 Capsule 材质底），不再自绘玻璃描边
-                .buttonStyle(.bordered)
-                .controlSize(.small)
             }
+            rowTrailing(f)
         }
         .padding(Spacing.section)
         .frame(maxWidth: .infinity, alignment: .leading)
         .pastelCard(cornerRadius: Radius.hero)
+        .contentShape(Rectangle())
+        .onTapGesture { if selecting { togglePick(f.path) } }
+    }
+
+    // MARK: - v4.0.114 删除（⋯ 单删 + 选择态批量）
+
+    /// 行尾：选择态 = 勾选圈；否则 = 「⋯」菜单（删除）。
+    /// ⚠️ 单删**也要二次确认**：后端是真删（无回收站），点错就没了。
+    @ViewBuilder
+    private func rowTrailing(_ e: RemoteFileEntry) -> some View {
+        if selecting {
+            // v4.0.114（复核 P2）：拆点击区时把行尾也一起排除在外了 —— 选择态点这枚勾选圈
+            // 没反应（内容区能点、`artifactRow` 整行能点，两态口径不一致）。补回命中 + VoiceOver 语义。
+            Image(systemName: picked.contains(e.path) ? "checkmark.circle.fill" : "circle")
+                .font(.system(size: Typography.title))
+                .foregroundStyle(picked.contains(e.path) ? Color.accentColor : Color.secondary.opacity(Tint.faint))
+                .padding(.leading, Spacing.xs)
+                .contentShape(Rectangle())
+                .onTapGesture { togglePick(e.path) }
+                .accessibilityLabel(picked.contains(e.path) ? "已勾选" : "未勾选")
+                .accessibilityAddTraits(.isButton)
+        } else {
+            Menu {
+                Button(role: .destructive) {
+                    deleteTargets = [e]
+                    deleteConfirmText = e.isDir ? "删除「\(e.name)」及其中的内容？" : "删除「\(e.name)」？"
+                    confirmDelete = true
+                } label: {
+                    Label("删除", systemImage: "trash")
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: Typography.subhead, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 30, height: 30)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private func togglePick(_ path: String) {
+        Haptics.tap()
+        if picked.contains(path) { picked.remove(path) } else { picked.insert(path) }
+    }
+
+    /// 回读后丢弃**不在当前目录**的勾选（v4.0.114）：进目录/切根后旧的勾选若留着，
+    /// 批量删除会打到用户已经看不见的条目上。
+    private func prunePicks() {
+        picked = picked.intersection(Set(entries.map { $0.path }))
+    }
+
+    /// 执行删除（单条 / 批量同一实现）。**中途失败不中断**：删掉的算删掉，失败项红字列出
+    /// （与设置页「文件管理」的批量删除同口径）。
+    private func deleteNow() async {
+        let targets = deleteTargets
+        deleteTargets = []
+        guard !targets.isEmpty else { return }
+        actionError = ""
+        var failed: [String] = []
+        for e in targets {
+            do {
+                let j = try await auth.json("/api/files/delete", method: "POST", body: ["path": e.path])
+                if (j["ok"] as? Bool) == true {
+                    entries.removeAll { $0.path == e.path }
+                    picked.remove(e.path)
+                } else {
+                    failed.append(e.name)
+                }
+            } catch {
+                failed.append(e.name)
+            }
+        }
+        if failed.isEmpty {
+            Haptics.tap()
+            if targets.count > 1 { selecting = false; picked = [] }
+        } else {
+            let head = failed.prefix(3).joined(separator: "、")
+            actionError = "\(failed.count) 项删除失败：\(head)\(failed.count > 3 ? " 等" : "")"
+        }
     }
 
     // MARK: - v4.0.109 待你处理
@@ -543,8 +721,11 @@ struct WorkspaceView: View {
             sectionTitle("工具")
             // 每行 4 格 = `LazyVGrid` 固定 4 列 flexible（形态同 `SettingsCommon` 的三列格那处先例）。
             // 原「两行 HStack 各 3 格」（每格 ~104pt）已按用户口径退役，别改回去。
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: Spacing.sm), count: 4),
-                      spacing: Spacing.md) {
+            // v4.0.114（用户「工具里上下行间距、图标左右间距都拉开点，保持视觉平衡」）：
+            // 左右 6 → 10（Spacing.lg）、上下 8 → 12（Spacing.xl）—— 行距 ≥ 列距，视觉上不歪。
+            // 每格因此窄约 3pt（375pt 屏 72.3 → 69.3），图标有 44pt 底、文字有 minimumScaleFactor 兜着。
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: Spacing.lg), count: 4),
+                      spacing: Spacing.xl) {
                 toolCell("知识库", symbol: "books.vertical.fill", tint: .green) { showKB = true }
                 toolCell("网盘文件", symbol: "externaldrive.fill", tint: .blue) { showCloud = true }
                 toolCell("MCP 工具", symbol: "puzzlepiece.extension.fill", tint: .teal) { showMCP = true }
@@ -692,38 +873,88 @@ struct WorkspaceView: View {
 
     // MARK: - 数据
 
-    /// 拉当前目录（走 files_api 的别名根；`entries` 复位由调用方负责，避免旧目录内容一闪）
+    /// 拉当前目录。**根层**（currentRoot 为空）把两个根各拉一次再合并；子目录只拉当前那一个根。
+    /// `entries` 复位由调用方负责，避免旧目录内容一闪。
     /// v4.0.110：keepOnFailure=true（静默刷新场景）失败时保留旧列表——别把用户正看到的产物顶没。
     @MainActor
     private func load(keepOnFailure: Bool = false) async {
         loading = true
         failureText = ""
+        if atRootLevel {
+            // v4.0.114：根层 = 两根合并。**一个根挂了不拖垮另一个** ——
+            // 只要有一个根拿到了就照常显示；全挂才报错（否则 artifacts 这种新目录一空就把 office 一起拖没）。
+            // v4.0.114（审查 P2）：判定不能用 `merged.isEmpty` ——「A 根正常返回**空目录**、B 根失败」
+            // 会把空目录误判成失败；改为按根计数，只有**所有**根都失败才算失败。
+            var merged: [RemoteFileEntry] = []
+            var okCount = 0
+            var firstErr = ""
+            for root in Self.artifactRoots {
+                switch await fetchList(root) {
+                case .ok(let list): okCount += 1; merged += list
+                case .fail(let msg): if firstErr.isEmpty { firstErr = msg }
+                }
+            }
+            if okCount == 0 {
+                // 全部根都失败。静默刷新（keepOnFailure）时不报错也不清列表 ——
+                // 旧写法「不清 entries 却仍设 failureText」自相矛盾（列表还在、同时挂红字）。
+                if !keepOnFailure {
+                    failureText = firstErr
+                    entries = []
+                    prunePicks()   // 审查 P2：失败清空后必须同步收勾，否则留下「已选 N 项」的死按钮
+                }
+            } else {
+                entries = Self.stableOrder(merged)
+                prunePicks()
+            }
+            loading = false
+            return
+        }
+        switch await fetchList(requestPath) {
+        case .ok(let list):
+            entries = list
+            prunePicks()
+        case .fail(let msg):
+            failureText = msg
+            if !keepOnFailure {
+                entries = []
+                prunePicks()   // 审查 P2：同上，失败清空必须同步收勾
+            }
+        }
+        loading = false
+    }
+
+    private enum FetchOutcome { case ok([RemoteFileEntry]); case fail(String) }
+
+    /// 拉一层目录（走 files_api 的别名根）。path 形如 `office` / `office/2026-10-15`。
+    private func fetchList(_ path: String) async -> FetchOutcome {
         do {
             // v4.0.110：改 POST 形态——蜂窝下「带 query 的 GET」直连会静默挂 10s 超时（v2.0.5 已知坑、
             // v4.0.60 后 GET 失败不降级 relay）→ 4G 下产物列表恒空（真机实报）。POST 蜂窝直连通、
             // 失败还有 relay 兜底。后端同批已支持 POST JSON {path}（GET 保留，向后兼容旧 App）。
             let (data, resp) = try await auth.request("/api/files/list",
                                                       method: "POST",
-                                                      body: ["path": requestPath])
+                                                      body: ["path": path])
             guard (200..<300).contains(resp.statusCode) else {
-                failureText = "取产物失败（HTTP \(resp.statusCode)）"
-                if !keepOnFailure { entries = [] }
-                loading = false
-                return
+                return .fail("取产物失败（HTTP \(resp.statusCode)）")
             }
             let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
-            // ⚠️ parent 必须传 requestPath（带 `office/` 别名根前缀），**不能传 currentPath**：
+            // ⚠️ parent 必须传带别名根前缀的 path（如 `office/xxx`），**不能传 currentPath**：
             //    parseEntries 拿 parent 拼出的 entry.path 会原样交给下载口
             //    （/api/files/download?path=…），而后端 resolve_path 只对 `office` / `office/xxx`
             //    走别名根，少了前缀会回落到 uploads/ 与 ROOT → 404「文件不存在」。
             //    （v4.0.108 审查抓出：本地预检与 CI 全绿、只有真机点「查看」才暴露。）
-            //    面包屑仍走 currentPath / dirStack，与本行无耦合。
-            entries = RemoteFiles.parseEntries(obj?["entries"], parent: requestPath)
-            loading = false
+            return .ok(RemoteFiles.parseEntries(obj?["entries"], parent: path))
         } catch {
-            failureText = RemoteFiles.failureReason(error)
-            if !keepOnFailure { entries = [] }
-            loading = false
+            return .fail(RemoteFiles.failureReason(error))
+        }
+    }
+
+    /// 合并后的稳定顺序：目录在前，各自按名称 —— 两个根混一起也得每次一样，
+    /// 否则刷新一次顺序就变（用户会以为列表「跳了」）。
+    private static func stableOrder(_ list: [RemoteFileEntry]) -> [RemoteFileEntry] {
+        list.sorted { a, b in
+            if a.isDir != b.isDir { return a.isDir }
+            return a.name.localizedStandardCompare(b.name) == .orderedAscending
         }
     }
 
@@ -752,6 +983,13 @@ enum WorkspaceArtifactFilter: String, CaseIterable, Identifiable {
     case ppt = "PPT"
     case pdf = "PDF"
     case image = "图片"
+    // v4.0.114（用户「AI 生产的其他产物也要加到产物里」）：产物不止文档 —— 补齐 AI 会产出的其它形态。
+    // 顺序=使用频率直觉：文档类在前（原有），其它在后。
+    case code = "代码"
+    case data = "数据"
+    case archive = "压缩包"
+    case audio = "音频"
+    case other = "其他"
 
     var id: String { rawValue }
 
@@ -765,6 +1003,16 @@ enum WorkspaceArtifactFilter: String, CaseIterable, Identifiable {
         case .ppt:   return ["ppt", "pptx", "key"].contains(e)
         case .pdf:   return e == "pdf"
         case .image: return RemoteFiles.imageExts.contains(e)
+        // v4.0.114：其它产物的归类。刻意**不抢**上面已收的扩展名
+        //（md/txt/rtf 归 Word 一族、csv 归 Excel —— 别在这里再收一遍，否则「全部」之外会重复出现）。
+        case .code:    return ["py", "swift", "js", "ts", "sh", "json", "yml", "yaml",
+                               "html", "css", "sql", "java", "c", "h", "cpp"].contains(e)
+        case .data:    return ["db", "sqlite", "parquet", "tsv", "xml", "log"].contains(e)
+        case .archive: return ["zip", "tar", "gz", "tgz", "bz2", "xz", "7z", "rar"].contains(e)
+        case .audio:   return ["mp3", "m4a", "wav", "aac", "flac", "ogg", "mp4", "mov"].contains(e)
+        case .other:   return !WorkspaceArtifactFilter.allCases.contains { f in
+            f != .other && f != .all && f.match(name)
+        }
         }
     }
 }

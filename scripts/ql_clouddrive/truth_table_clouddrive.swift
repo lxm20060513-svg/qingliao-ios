@@ -115,8 +115,9 @@ check("解绑走 POST /api/agent/clouddrive/remove",
       setCode.contains("\"/api/agent/clouddrive/remove\", method: \"POST\", body: [\"id\": d.id]"))
 check("接入走 POST /api/agent/clouddrive/add",
       setCode.contains("\"/api/agent/clouddrive/add\", method: \"POST\""))
-check("浏览列表走 /api/agent/clouddrive/list 且带 drive+fid",
-      browCode.contains("\"/api/agent/clouddrive/list?drive=") && browCode.contains("&fid="))
+check("浏览列表走 /api/agent/clouddrive/list 且带 drive+fid（v4.0.114 起走 POST body）",
+      browCode.contains("\"/api/agent/clouddrive/list\",")
+      && browCode.contains("body: [\"drive\": drive.id, \"fid\": fid])"))
 check("下载走 /api/agent/clouddrive/download 且带 drive+fid+name",
       browCode.contains("\"/api/agent/clouddrive/download?drive=")
       && browCode.contains("&fid=") && browCode.contains("&name="))
@@ -169,9 +170,10 @@ check("浏览页用 fid 栈而非路径串",
       && browCode.contains("stack.append(e.fid)") && browCode.contains("stack.removeLast()"))
 check("根目录 fid 固定 0", browCode.contains("private var currentFid: String { stack.last ?? \"0\" }"))
 check("根目录不显示「返回上级」", browCode.contains("private var canGoUp: Bool { stack.count > 1 }"))
-check("list 请求用 URL 编码（文件名/fid 可能含特殊字符）",
+// v4.0.114：list 改走 POST body 后不再拼 query → 改钉**仍在拼 query 的 download**（它要编码）
+check("download 用 URL 编码（fid/文件名可能含特殊字符）",
       browCode.contains("RemoteFiles.queryEncoded(drive.id)")
-      && browCode.contains("RemoteFiles.queryEncoded(fid)")
+      && browCode.contains("RemoteFiles.queryEncoded(e.fid)")
       && browCode.contains("RemoteFiles.queryEncoded(e.name)"))
 
 // ── 8. 蜂窝大文件闸（relay 受限会「点了没反应」） ───────────────
@@ -220,6 +222,24 @@ check("浏览页入口挂在网盘列表行上（点行进浏览）",
       && setCode.contains(".sheet(item: $browsingDrive")
       && setCode.contains("onDismiss: { browsingDrive = nil }")
       && setCode.contains("CloudDriveBrowserSheet(drive: d)"))
+
+// ── v4.0.114（用户「让弱网更稳」）：读接口必须走 POST ──────────────────────────
+// 事故形态：iOS 蜂窝直连「带 query 的 GET」会静默挂 10s 超时（AuthStore 里有实测定性），
+// 弱网下表现为列表恒空。files_api 的产物列表 v4.0.110 就改成了 POST 并备好后端分支，
+// 但 App 侧一直没接上（白备）。两处一起正反钉死，防下个人顺手写回 GET。
+let browserSrc = src("qingliao/Features/Settings/CloudDriveBrowserSheet.swift")
+check("网盘列表走 POST body（别回到 GET ?drive=&fid=）",
+      browserSrc.contains("auth.json(\"/api/agent/clouddrive/list\",")
+        && browserSrc.contains("method: \"POST\",")
+        && browserSrc.contains("body: [\"drive\": drive.id, \"fid\": fid])"))
+check("🚫 网盘列表不许再出现带 query 的 GET（弱网下会静默挂到超时；只钉真实调用，注释提及不算）",
+      !browserSrc.contains("auth.json(\"/api/agent/clouddrive/list?drive="))
+
+let filesSrc = src("qingliao/Features/Settings/SettingsData.swift")
+check("文件管理列表走 POST（后端 v4.0.110 就备好了分支，前端别再漏接）",
+      filesSrc.contains("auth.json(\"/api/files/list\", method: \"POST\", body: [\"path\": cwd])"))
+check("🚫 文件管理列表不许再出现 GET ?path=（同因；只钉真实调用，注释提及不算）",
+      !filesSrc.contains("auth.json(\"/api/files/list?path="))
 
 // ── 结果 ───────────────────────────────────────────────────────
 print("pass=\(passCount) fail=\(failCount)")

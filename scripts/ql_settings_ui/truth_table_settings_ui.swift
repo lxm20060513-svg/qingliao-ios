@@ -353,5 +353,65 @@ check("tsCapsule 等宽由 fill 参数控制（默认不动其它调用点）",
 check("🚨 等宽档横内衬收到 Spacing.lg（最长文案留 7.2pt 余量，防「只缩那一枚」回归）",
       capsuleFn.contains("padding(.horizontal, fill ? Spacing.lg : Spacing.xl)"))
 
+// MARK: 🎨 设置页图标多彩（v4.0.114 · 用户「设置页图标改回多彩圆角图标」）
+// 为什么值得钉：v4.1.0「方案C降噪」把 9 色图标统一成 accent 淡底单色（4.0.107 引入），
+// 用户明确要回**多彩**（他一贯反对为统一收敛成单色系）。这类回退不易察觉——单色也「不难看」，
+// 只是又变成一潭灰，而 53 处调用传的 iconColor 全被吞掉。
+let commonCode = stripComments(src("qingliao/Features/Settings/SettingsCommon.swift"))
+let COLORED_ROW = ".background(iconColor, in: RoundedRectangle(cornerRadius: Radius.icon, style: .continuous))"
+
+check("🎨 设置行图标 = 实色圆角底 + 白符号（多彩，非 mono 淡底）",
+      commonCode.contains("foregroundStyle(.white)") && commonCode.contains(COLORED_ROW)
+      && coreSrc.contains(COLORED_ROW))
+// ⚠️ 只钉「Radius.icon 圈内的 mono 淡底」：SettingsCommon 别处还有 7 处
+// foregroundStyle(Color.accentColor) 是**行尾小按钮**的合法用法，钉裸串会假红。
+check("🚫 不许再退回 accent 淡底单色图标（SettingRow / toggleRow 都算）",
+      !commonCode.contains("accentColor.opacity(Tint.subtle), in: RoundedRectangle(cornerRadius: Radius.icon")
+      && !coreSrc.contains("accentColor.opacity(Tint.subtle), in: RoundedRectangle(cornerRadius: Radius.icon"))
+// ⚠️ 这条必须读**原文**（src）而不是 stripComments 结果：要判的正是注释文字，
+// 用剥注释版会永远为真 = 假绿护栏（变异自证时当场抓到）。
+// ⚠️ 钉**旧口径的精确句式**，别钉「mono 口径」这种泛词：本文件新注释里就写着
+// 「撤销 v4.1.0『方案C降噪』的 mono 口径」来说明缘由，泛词会把它一起命中 = 假红。
+check("🎨 iconColor 不再标「已废弃」（恢复上色的前提）",
+      !src("qingliao/Features/Settings/SettingsCommon.swift").contains("let iconColor: Color   // 已废弃")
+      && !src("qingliao/Features/Settings/SettingsCore.swift").contains("// iconColor 已废弃（v4.1.0 mono 口径）"))
+check("🎨 调用方 6 色仍在传（全被 mono 吞掉 = 等于没多彩）",
+      coreSrc.contains("iconColor: .blue") && coreSrc.contains("iconColor: .green")
+      && coreSrc.contains("iconColor: .orange") && coreSrc.contains("iconColor: .purple")
+      && coreSrc.contains("iconColor: .indigo") && coreSrc.contains("iconColor: .teal"))
+
+// MARK: 🔽 折叠分组双向开合（v4.0.114 · 用户「设置页展开后不能再折叠」）
+// 为什么值得钉：折叠态一直是「点摘要行展开」，但展开态原来只有纯展示的 `SectionHeader`
+// ——**没有任何收起入口**，展开了就回不去（4 组全展开要一路滚到底）。这类缺失不报错、
+// 只是「用着别扭」，回退一次也不会有人发现，所以得钉死。
+check("🔽 折叠分组两个方向都有入口（折叠→展开 / 展开→收起）",
+      commonCode.contains("withAnimation(Motion.snap) { isFolded = false }")
+      && commonCode.contains("withAnimation(Motion.snap) { isFolded = true }"))
+// ⚠️ 原本还想钉「展开态是 Button 不是裸 SectionHeader」用 `.buttonStyle(.plain)` 计数 >= 2，
+// 但本文件别处也有 .buttonStyle(.plain)，变异（把展开态退回裸 SectionHeader）**测不出红**
+// —— 计数型弱护栏会给人「已经盯住了」的错觉，直接删掉不留。上面那两条已经足够：
+// 「isFolded = true 必须存在」+「chevron.up/down 都要在」。
+check("🔽 上下 chevron 都在（「可展开 / 可收起」的视觉线索）",
+      commonCode.contains("Image(systemName: \"chevron.up\")")
+      && commonCode.contains("Image(systemName: \"chevron.down\")"))
+// v4.0.114：折叠分组的垂直外边距必须落在 if/else **外层** ——
+// 只加在折叠态时，展开/折叠来回切会让该分组与相邻卡的间距跳 12pt（本批刚补的常量反成抖动源）。
+check("🔽 折叠分组外边距在 Group 外层（展开/折叠两态间距恒定，不跳 12pt）",
+      commonCode.contains("Group {\n            if isFolded {")
+      && commonCode.contains(".padding(.vertical, Spacing.sm)\n    }\n}"))
+
+// ── v4.0.114：产物库批量删除的确认与错误提示共用一条 alert ──────────────────
+// 为什么值得钉：后端 `/api/files/delete` 是**真删**（无回收站），而 `alertText` 是失败时
+// 唯一的可见反馈。同视图挂两条 `.alert` 在旧系统上只有最后一条生效，而「操作未完成」
+// 排在前面 → 批量删失败用户**毫无提示**、以为都删掉了。
+let sdCode = stripComments(src("\(settingsDir)/SettingsData.swift"))
+check("🔔 批量确认与错误提示共用一条 alert（文案按来源切）",
+      sdCode.contains("confirmBatchDelete ? \"删除 \\(picked.count) 项？\" : \"操作未完成\"")
+      && sdCode.contains("isPresented: alertPresented)"))
+check("🔔 关闭时**只清本次呈现的来源**（另一个存活，下一帧重新呈现）",
+      sdCode.contains("if confirmBatchDelete { confirmBatchDelete = false } else { alertText = nil }"))
+check("🔔🚫 不许退回两条 .alert 分挂（「操作未完成」会被吞，删失败无提示）",
+      !sdCode.contains("isPresented: $confirmBatchDelete)"))
+
 print("设置页间距口径真值表：\(passCount) 通过 / \(failCount) 失败")
 if failCount > 0 { exit(1) }

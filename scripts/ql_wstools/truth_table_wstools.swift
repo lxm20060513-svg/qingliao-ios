@@ -146,5 +146,66 @@ check("本体仍在：定时提醒仍走本地通知调度器（QuickReminderSto
       occurrences(src("qingliao/Core/NotificationHelper.swift"), "QuickReminderStore.shared.reconcile()") >= 1
       && src("qingliao/Features/Settings/SettingsLifeCards.swift").contains("QuickReminderStore.openSystemNotificationSettings()"))
 
+check("工具格间距：左右 Spacing.lg(10) / 上下 Spacing.xl(12)（v4.0.114 用户「都拉开点，保持视觉平衡」；退回 sm/md=6/8 就是又挤回去了）",
+      grid.contains("GridItem(.flexible(), spacing: Spacing.lg), count: 4)")
+        && grid.contains("spacing: Spacing.xl) {"))
+
+// ── v4.0.114（用户「文件管理增加批量删除」）──────────────────────────────────
+// 事故形态：只有单项删除 → 用户清一屏截图/旧包只能一个个点；加批量后又容易踩两个坑：
+// ① 选择态下左边还是「完成」（一点把弹窗关上，勾的全白勾）② 进子目录不清勾选（把上一层选中的东西删掉）。
+let dataSrc = src("qingliao/Features/Settings/SettingsData.swift")
+check("批量删除：选择态 + 已勾集合 + 「删除(N)」入口",
+      dataSrc.contains("@State private var selecting = false")
+        && dataSrc.contains("@State private var picked: Set<String> = []")
+        && dataSrc.contains("Text(picked.isEmpty ? \"删除\" : \"删除(\\(picked.count))\")"))
+check("批量删除：选择态下左键让位「取消」（别一点就关掉整个弹窗）",
+      dataSrc.contains("Button(\"取消\") { selectedExit() }"))
+check("批量删除：逐项调单删接口 + 失败不中断（收进提示，不整批回滚）",
+      dataSrc.contains("private func performBatchDelete() async")
+        && dataSrc.contains("for e in targets {")
+        && dataSrc.contains("failed.append(e.name"))
+check("批量删除：回读后丢弃不在当前目录的勾选（防把上一层选择带下来删）",
+      dataSrc.contains("picked = picked.intersection(Set(entries.map { $0.path }))"))
+check("v4.0.114（审查 P1）：批量确认与错误提示**共用一条 alert**（同视图挂两条 .alert 只有最后一条生效）",
+      dataSrc.contains("confirmBatchDelete ? \"删除 \\(picked.count) 项？\" : \"操作未完成\"")
+        && dataSrc.contains("isPresented: alertPresented)")
+        && dataSrc.contains("get: { alertText != nil || confirmBatchDelete }"))
+check("🚫 不许退回两条 .alert 分挂（「操作未完成」排在前面会被吞，批量删失败用户毫无提示）",
+      !dataSrc.contains("isPresented: $confirmBatchDelete)"))
+check("选择态下行的点击 = 勾选（不是打开），且「…」菜单收起",
+      dataSrc.contains("Button(action: selecting ? onTogglePick : onOpen)")
+        && dataSrc.contains("if !selecting {\n                Menu {"))
+
+// ── v4.0.114（用户「AI 生产的其他产物也要加到产物里」）──────────────────────
+// 事故形态：产物库只列 office 根（office-mcp 写的文档），AI 出的图/代码/数据全看不到。
+// 改双根后要防两件事：① 有人图省事写回单根；② 把 parent 换回 currentPath
+// （parseEntries 拼出的 path 少了根前缀 → 下载口 404「文件不存在」，v4.0.108 真机才暴露过的坑）。
+let wsSrc = src("qingliao/Features/Workspace/WorkspaceView.swift")
+check("产物库双根：office（AI 文档）+ artifacts（AI 其它产物）",
+      wsSrc.contains("private static let artifactRoots = [\"office\", \"artifacts\"]"))
+check("🚫 不许退回单根 artifactRoot（写回单根 = AI 其它产物又看不见了）",
+      !wsSrc.contains("private static let artifactRoot ="))
+check("产物库根层 = 两根合并，且**一个根挂了不拖垮另一个**",
+      wsSrc.contains("for root in Self.artifactRoots {")
+        && wsSrc.contains("case .ok(let list): okCount += 1; merged += list")
+        && wsSrc.contains("if okCount == 0 {"))
+check("v4.0.114（审查 P2）：按根计数判失败 —— 某根正常返回**空目录**不算失败，只有全挂才报错",
+      wsSrc.contains("var okCount = 0")
+        && wsSrc.contains("if !keepOnFailure {\n                    failureText = firstErr"))
+check("🚫 不许退回 merged.isEmpty 判失败（空目录会被误判成失败）",
+      !wsSrc.contains("if merged.isEmpty && !firstErr.isEmpty {"))
+check("产物库：进目录时从 entry.path 拆「根 + 层」（合并后光靠名字不知道进的是哪个根）",
+      wsSrc.contains("currentRoot = comps.first ?? \"\"")
+        && wsSrc.contains("dirStack = Array(comps.dropFirst())"))
+check("产物库：合并列表有稳定顺序（目录在前、按名）——否则刷新一次顺序就跳",
+      wsSrc.contains("private static func stableOrder")
+        && wsSrc.contains("if a.isDir != b.isDir { return a.isDir }"))
+check("产物库分类覆盖非文档产物（代码/数据/压缩包/音频/其他）",
+      wsSrc.contains("case code = \"代码\"") && wsSrc.contains("case data = \"数据\"")
+        && wsSrc.contains("case archive = \"压缩包\"") && wsSrc.contains("case audio = \"音频\"")
+        && wsSrc.contains("case other = \"其他\""))
+check("🚫 根层（两根合并）下不显示「返回上一级」（那层没有上级）",
+      wsSrc.contains("if !atRootLevel { backRow }"))
+
 print(failCount == 0 ? "\n🎉 工作台工具格真值表全部通过（\(passCount) 条）" : "\n❌ \(failCount) 个失败 / 共 \(passCount + failCount) 条")
 exit(failCount == 0 ? 0 : 1)

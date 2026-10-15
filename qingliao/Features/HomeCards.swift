@@ -92,6 +92,9 @@ final class HomeCardData {
     var goalTotal: Int = -1
     var goalDoneToday: Int = 0
     var goalNextTitle: String = ""
+    /// v4.0.114（用户「首页目标卡要能选显示哪个目标」）：置顶目标的标题（空 = 汇总显示）。
+    /// 置顶 id 存 UserDefaults("home.goalPinned")，由卡右上角的切换按钮选；目标被删/暂停会自动回落汇总。
+    var goalPinnedTitle: String = ""
 
     private var mailFetched = false
     private var weatherFetched = false
@@ -176,7 +179,16 @@ final class HomeCardData {
 
     /// 今日目标：本地 GoalStore 已同步，直接读（不打后端）
     private func loadGoalLocal() {
-        let goals = GoalStore.shared.goals.filter { !$0.paused }
+        var goals = GoalStore.shared.goals.filter { !$0.paused }
+        // v4.0.114：置顶某个目标 → 卡面只算它（后面所有统计自然只覆盖它一个）。
+        // 置顶 id 读了但目标已删/已暂停 → 静默回落汇总（不留死引用，也不用清 UserDefaults）。
+        let pinned = UserDefaults.standard.string(forKey: "home.goalPinned") ?? ""
+        if !pinned.isEmpty, let one = goals.first(where: { $0.id == pinned }) {
+            goals = [one]
+            goalPinnedTitle = one.title
+        } else {
+            goalPinnedTitle = ""
+        }
         guard !goals.isEmpty else { goalTotal = 0; return }
         goalTotal = goals.count
         // 「今日完成数」= 所有未暂停目标的步骤里 done=true 的条数；下一件 = 第一条未完成步骤
@@ -192,6 +204,9 @@ final class HomeCardData {
             }
         }
     }
+
+    /// v4.0.114：选完目标后让卡面重算 —— 只重跑本地那段，不打网络
+    func refreshGoal() { loadGoalLocal() }
 
     /// 下一提醒：本地 QuickReminderStore（scheduled 已按时间升序，first = 最近要响的）
     private func loadReminderLocal() {
@@ -459,6 +474,13 @@ struct HomeCardsGrid: View {
     /// 没有它，用户拖完卡片会顺手跳进那个会话/生活页（拖一次跳一次，比拖不动更烦）。
     @State private var suppressTapUntil: Date = .distantPast
     @State private var showEditor = false
+    /// v4.0.114（用户「首页目标卡要能选显示哪个目标」）：目标卡右上角切换钮选中的目标 id。
+    /// 空串 = 汇总显示（全部目标）。存 UserDefaults —— 卡面数据层（HomeCardData.loadGoalLocal）直读同一个键。
+    @AppStorage("home.goalPinned") private var goalPinnedID = ""
+    @State private var showGoalPicker = false
+
+    /// v4.0.114：可选目标（未暂停的，与卡面数据同源）
+    private var goalChoices: [GoalItem] { GoalStore.shared.goals.filter { !$0.paused } }
     @State private var cellSize: CGSize = .zero
 
     private let gap = HomeCardStore.gap
@@ -526,6 +548,11 @@ struct HomeCardsGrid: View {
             HomeCardEditorSheet(off: $off) { HomeCardStore.persist(order: full, off: off) }
                 .presentationDetents([.medium, .large])
         }
+        // v4.0.114（用户「首页目标卡要能选显示哪个目标」）：选完立刻重算卡面
+        .sheet(isPresented: $showGoalPicker) {
+            GoalPickerSheet(goals: goalChoices, pinned: $goalPinnedID) { data.refreshGoal() }
+                .presentationDetents([.medium, .large])
+        }
     }
 
     private var header: some View {
@@ -580,6 +607,24 @@ struct HomeCardsGrid: View {
                     .background(Color.red, in: Capsule())
                     .offset(x: 6, y: -6)
                     .allowsHitTesting(false)
+            }
+            // v4.0.114（用户「首页目标卡要能选显示哪个目标」）：只有「目标」卡、且可选项 ≥2 时才出这枚切换钮。
+            // 为什么不是**长按**：长按已被拖拽排序占用（LongPressGesture + DragGesture.sequenced），
+            // 两把手势抢同一个手势；改用点击钮，位置借「目标卡右上角」（badge 只给 mail/todo/两个会话卡，这里是空的）。
+            if kind == .goal, goalChoices.count >= 2 {
+                Button {
+                    Haptics.tap()
+                    showGoalPicker = true
+                } label: {
+                    Image(systemName: "arrow.triangle.2.circlepath")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(.white)
+                        .padding(4)
+                        .background(Color.accentColor, in: Circle())
+                }
+                .buttonStyle(.plain)
+                .offset(x: 6, y: -6)
+                .accessibilityLabel("选择首页显示的目标")
             }
         }
         .frame(maxWidth: .infinity)
@@ -839,7 +884,8 @@ struct HomeCardFace: View {
         case .scene: return "家庭场景"
         case .device: return "设备状态"
         case .cloud: return "云盘"
-        case .goal: return "今日目标"
+        // v4.0.114：置顶了某个目标 → 主标直接用它的标题（一眼看出是谁）；没置顶仍是「今日目标」
+        case .goal: return data.goalPinnedTitle.isEmpty ? "今日目标" : data.goalPinnedTitle
         case .clipboard: return "剪贴板"
         // v4.0.81：固定会话卡标题与会话页一致（投递壳 / 主动会话）
         case .delivery: return "轻聊投递"
@@ -919,6 +965,10 @@ struct HomeCardFace: View {
             return data.cloudName.isEmpty ? "\(data.cloudCount) 个盘已就绪" : "\(data.cloudName) 等 \(data.cloudCount) 个盘"
         case .goal:
             guard data.goalTotal > 0 else { return "还没有长期目标" }
+            // v4.0.114：置顶某个目标 → 副标只说它自己（不再带「N 个目标」前缀）
+            if !data.goalPinnedTitle.isEmpty {
+                return data.goalNextTitle.isEmpty ? "步骤全完成" : "下一步 \(data.goalNextTitle)"
+            }
             if data.goalNextTitle.isEmpty { return "\(data.goalTotal) 个目标 · 步骤全完成" }
             return "\(data.goalTotal) 个目标 · 下一步 \(data.goalNextTitle)"
         case .clipboard:
@@ -967,6 +1017,81 @@ struct HomeCardFace: View {
 }
 
 // MARK: - 自定义面板（开关）
+
+/// v4.0.114（用户「首页目标卡要能选显示哪个目标」）：目标选择弹窗 ——
+/// 选一个 → 首页「目标」卡就只显示它（主标 = 该目标标题，副标 = 它的下一步/进度）；「恢复汇总」清掉置顶。
+/// 为什么不用长按菜单：首页卡的长按已被**拖拽排序**占用（手势冲突），故从卡右上角的切换钮进入。
+struct GoalPickerSheet: View {
+    /// 可选项（未暂停的目标，与首页卡数据同源）
+    let goals: [GoalItem]
+    /// 置顶的目标 id（空串 = 汇总）。非闭包参数必须排在闭包型参数之前（实参序红线）。
+    @Binding var pinned: String
+    var onPicked: () -> Void = {}
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    ForEach(goals) { g in
+                        Button {
+                            pinned = g.id
+                            onPicked()
+                            dismiss()
+                        } label: {
+                            HStack(spacing: Spacing.md) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(g.title)
+                                        .font(.system(size: Typography.body, weight: .medium))
+                                        .foregroundStyle(.primary)
+                                        .lineLimit(2)
+                                    Text(progressLine(g))
+                                        .font(.system(size: Typography.tiny))
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer(minLength: Spacing.md)
+                                if g.id == pinned {
+                                    Image(systemName: "checkmark")
+                                        .font(.system(size: Typography.subhead, weight: .semibold))
+                                        .foregroundStyle(Color.accentColor)
+                                }
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                } header: {
+                    Text("首页的目标卡只显示选中的这一个")
+                } footer: {
+                    Text("轻点卡片仍然进生活页；这里只改卡片显示哪一条。")
+                }
+                if !pinned.isEmpty {
+                    Section {
+                        Button("恢复汇总显示（全部目标）") {
+                            pinned = ""
+                            onPicked()
+                            dismiss()
+                        }
+                    }
+                }
+            }
+            .navigationTitle("选择首页显示的目标")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("关闭") { dismiss() }
+                }
+            }
+        }
+    }
+
+    /// 「3/7 步完成」（没有步骤时给一句兜底，别显示 0/0）
+    private func progressLine(_ g: GoalItem) -> String {
+        guard !g.steps.isEmpty else { return "暂无步骤" }
+        return "\(g.steps.filter(\.done).count)/\(g.steps.count) 步完成"
+    }
+}
 
 struct HomeCardEditorSheet: View {
     @Binding var off: [HomeCardKind]

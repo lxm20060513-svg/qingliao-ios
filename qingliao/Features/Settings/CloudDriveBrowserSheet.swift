@@ -332,7 +332,12 @@ struct CloudDriveBrowserSheet: View {
         defer { if loadSeq == seq { loading = false } }
         let fid = currentFid
         do {
-            let d = try await auth.json("/api/agent/clouddrive/list?drive=\(RemoteFiles.queryEncoded(drive.id))&fid=\(RemoteFiles.queryEncoded(fid))")
+            // v4.0.114（用户「让弱网更稳」）：改 POST body —— 蜂窝直连「带 query 的 GET」会静默挂 10s
+            // 超时（AuthStore 里有实测定性；files_api 产物列表 v4.0.110 同因已改 POST）。
+            // 后端 GET 分支保留，旧客户端不受影响。别名前缀 /api/agent 不变（后端 do_POST 里有归一）。
+            let d = try await auth.json("/api/agent/clouddrive/list",
+                                        method: "POST",
+                                        body: ["drive": drive.id, "fid": fid])
             guard loadSeq == seq else { return }   // 晚到的旧代际结论丢弃
             guard let ok = d["ok"] as? Bool, ok else {
                 // 已有列表时不覆盖（保留用户正在看的内容），错误只追加可见提示

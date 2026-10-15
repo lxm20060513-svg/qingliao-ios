@@ -20,6 +20,7 @@ import UniformTypeIdentifiers
 //
 // ── 后端契约（NAS files_api.py 只读核实 2026-09-17；/api/files 经 unified_router 9127 转发）──
 //   GET  /api/files/config               → {"ok":true,"upload_dir":"<绝对路径>"}        （需鉴权）
+//   POST /api/files/list {path}           → 同上（v4.0.114 起 App 走这条：蜂窝下带 query 的 GET 会挂）
 //   GET  /api/files/list?path=<相对路径>  → {"cwd":"…","entries":[{"name","is_dir","size","mtime"}],
 //                                           "dir_count":N,"file_count":M}                （需鉴权）
 //   GET  /api/files/download?path=<相对>  → 原始字节（上传目录内文件匿名可读；隐藏/密钥类 403）
@@ -59,6 +60,11 @@ struct FilesManagerSheet: View {
     @State private var deleteAnchor: CGRect = .zero
     @State private var shareItems: [Any] = []
     @State private var showShare = false
+    /// v4.0.114（用户「文件管理增加批量删除」）：选择态 + 已勾集合。
+    /// 存 `path` 而不是整条 entry —— 回读后条目对象会换新，path 仍能对上。
+    @State private var selecting = false
+    @State private var picked: Set<String> = []
+    @State private var confirmBatchDelete = false
 
     // MARK: body
 
@@ -77,7 +83,26 @@ struct FilesManagerSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("完成") { dismiss() }
+                    // v4.0.114（批量删除）：选择态下左边这颗让位给「取消」——
+                    // 否则用户一点就把整个弹窗关掉，勾的全白勾。
+                    if selecting {
+                        Button("取消") { selectedExit() }
+                    } else {
+                        Button("完成") { dismiss() }
+                    }
+                }
+                // 批量删除入口：非选择态露「选择」，选择态露「删除(N)」（一项没勾就禁用）
+                ToolbarItem(placement: .topBarTrailing) {
+                    if selecting {
+                        Button(role: .destructive) {
+                            confirmBatchDelete = true
+                        } label: {
+                            Text(picked.isEmpty ? "删除" : "删除(\(picked.count))")
+                        }
+                        .disabled(picked.isEmpty)
+                    } else if !entries.isEmpty {
+                        Button("选择") { selectedEnter() }
+                    }
                 }
             }
             // v4.0.102：删除二次确认（目录会被后端递归删除，文案必须说清）—— 从 confirmationDialog
@@ -108,10 +133,25 @@ struct FilesManagerSheet: View {
                     )
                 }
             }
-            .alert("操作未完成", isPresented: alertOn) {
-                Button("好的", role: .cancel) { alertText = nil }
+            // v4.0.114（审查 P1）：**单条 alert 承载两种来源** —— 错误提示 与 批量删除确认。
+            // 同一视图挂两个 `.alert` 在旧系统上只有最后一个生效（与本批 WorkspaceView 的口径一致），
+            // 而「操作未完成」排在前面 → 一旦只认最后一个，批量删部分失败时用户会**毫无提示**、
+            // 以为全部删掉了（`alertText` 正是那条唯一可见反馈）。文案随来源动态切。
+            .alert(confirmBatchDelete ? "删除 \(picked.count) 项？" : "操作未完成",
+                   isPresented: alertPresented) {
+                if confirmBatchDelete {
+                    Button("取消", role: .cancel) {}
+                    Button("删除", role: .destructive) {
+                        Haptics.press()
+                        Task { await performBatchDelete() }
+                    }
+                } else {
+                    Button("好的", role: .cancel) { alertText = nil }
+                }
             } message: {
-                Text(alertText ?? "")
+                Text(confirmBatchDelete
+                     ? "删除后不可恢复。选中的文件夹会连同里面的全部内容一起删掉。"
+                     : (alertText ?? ""))
             }
         }
         .quickLookPreview($quickLookURL)
@@ -223,7 +263,10 @@ struct FilesManagerSheet: View {
                                     onDelete: { rect in
                                         deleteAnchor = rect
                                         deleteTarget = e
-                                    })
+                                    },
+                                    selecting: selecting,
+                                    isPicked: picked.contains(e.path),
+                                    onTogglePick: { togglePick(e) })
                 }
             }
         }
@@ -246,8 +289,20 @@ struct FilesManagerSheet: View {
     // v4.0.102：`deleteDialogOn`（confirmationDialog 的 isPresented Binding）已随锚定浮层改造删除 ——
     // 浮层的显隐由 `if let e = deleteTarget` 直接决定，不再需要 Bool 桥。
 
-    private var alertOn: Binding<Bool> {
-        Binding(get: { alertText != nil }, set: { if !$0 { alertText = nil } })
+    /// v4.0.114（审查 P1）：单条 alert 的呈现开关 —— 错误提示 与 批量确认 共用一条（见上面 `.alert`）。
+    /// 关闭时把两个来源都复位，避免残留导致下次误弹。
+    /// v4.0.114（审查 P1）：同视图**只挂一条** `.alert` —— 旧系统上挂两条只有最后一条生效，
+    /// 而「操作未完成」正是批量删失败时唯一的可见反馈，排在前面会被吞。这里按来源切文案与动作。
+    /// v4.0.114（复核 P2）：关闭时**只清本次呈现的那个来源** ——
+    /// 两个一起清会把弹窗期间并发的失败提示（打开/分享/下载失败）永久吞掉：用户点「取消」后
+    /// 那条提示再也不会重新呈现。留另一个存活，下一帧 getter 恒真会自动重新呈现。
+    private var alertPresented: Binding<Bool> {
+        Binding(
+            get: { alertText != nil || confirmBatchDelete },
+            set: { if !$0 {
+                if confirmBatchDelete { confirmBatchDelete = false } else { alertText = nil }
+            } }
+        )
     }
 
     // MARK: 列表
@@ -264,11 +319,10 @@ struct FilesManagerSheet: View {
         if uploadDir.isEmpty, let j = try? await auth.json("/api/files/config") {
             uploadDir = (j["upload_dir"] as? String) ?? ""
         }
-        let q = cwd.isEmpty
-            ? "/api/files/list"
-            : "/api/files/list?path=" + RemoteFiles.queryEncoded(cwd)
+        // v4.0.114（用户「让弱网更稳」）：改 POST —— 后端 v4.0.110 就备好了 POST 分支
+        //（原注释：iOS 蜂窝直连「带 query 的 GET」会静默挂 10s 超时），前端却一直还在用 GET ?path=。
         do {
-            let j = try await auth.json(q)
+            let j = try await auth.json("/api/files/list", method: "POST", body: ["path": cwd])
             guard seq == loadSeq else { return }      // 已有更新的一轮在跑/跑完 → 丢弃本次结果
             // 响应必须是 {"entries":[…]}; 形状不对按失败提示（不静默退化成"空目录"）
             // 用 `as?` 绑定数组（`obj["entries"]` 是 Any?，条件绑定直接拿到底层 [[String: Any]]）
@@ -278,6 +332,8 @@ struct FilesManagerSheet: View {
                 return
             }
             entries = RemoteFiles.parseEntries(rawEntries, parent: cwd)
+            // v4.0.114（批量删除）：进目录 / 回读后丢掉已不在当前目录的勾选 —— 否则会把「上一层的选择」带下来删
+            picked = picked.intersection(Set(entries.map { $0.path }))
             countText = RemoteFiles.countText(
                 dir: RemoteFiles.intValue(j["dir_count"]),
                 file: RemoteFiles.intValue(j["file_count"])
@@ -382,6 +438,60 @@ struct FilesManagerSheet: View {
         renameTarget = e
     }
 
+    // MARK: 批量删除（v4.0.114 用户「文件管理增加批量删除」）
+
+    private func selectedEnter() {
+        Haptics.tap()
+        selecting = true
+        picked = []
+    }
+
+    private func selectedExit() {
+        selecting = false
+        picked = []
+    }
+
+    private func togglePick(_ e: RemoteFileEntry) {
+        Haptics.tap()
+        if picked.contains(e.path) {
+            picked.remove(e.path)
+        } else {
+            picked.insert(e.path)
+        }
+    }
+
+    /// 逐个走单删接口（后端 /api/files/delete 一次认一个）。中途失败**不中断**：
+    /// 已删掉的算删掉，失败项收进提示 —— 比整体回滚更贴近用户预期（他不想「删了一半还全留着」）。
+    @MainActor
+    private func performBatchDelete() async {
+        let targets = entries.filter { picked.contains($0.path) }
+        guard !targets.isEmpty else { return }
+        busyText = "删除 \(targets.count) 项…"
+        defer { busyText = nil }
+        var failed: [String] = []
+        for e in targets {
+            do {
+                let j = try await auth.json("/api/files/delete", method: "POST", body: ["path": e.path])
+                if (j["ok"] as? Bool) != true {
+                    failed.append(e.name + "：" + ((j["error"] as? String) ?? "服务端未确认成功"))
+                }
+            } catch {
+                failed.append(e.name + "：" + RemoteFiles.failureReason(error))
+            }
+        }
+        if failed.isEmpty {
+            Haptics.success()
+        } else {
+            Haptics.error()
+            let head = failed.prefix(3).joined(separator: "\n")
+            alertText = "有 \(failed.count) 项没删掉：\n" + head
+                + (failed.count > 3 ? "\n…还有 \(failed.count - 3) 项" : "")
+        }
+        selecting = false
+        picked = []
+        await load()                                  // 成败都回读：删掉的不该还挂在列表上
+    }
+
     @MainActor
     private func performDelete(_ e: RemoteFileEntry) async {
         busyText = e.isDir ? "删除文件夹…" : "删除中…"
@@ -432,11 +542,20 @@ private struct FilesManagerRow: View {
     /// v4.0.102：回调带上**本行自身的全局 frame** —— 删除确认浮层从被删那一行的位置长出
     /// （原走 confirmationDialog，iPhone 上系统固定从屏幕底部升起，锚不到行）
     var onDelete: (CGRect) -> Void
+    /// v4.0.114（批量删除）：选择态下整行点击 = 勾选；右侧「…」菜单收起（避免误触单项删除）
+    var selecting: Bool
+    var isPicked: Bool
+    var onTogglePick: () -> Void
     @State private var rowFrame: CGRect = .zero
 
     var body: some View {
         HStack(spacing: Spacing.xl) {
-            Button(action: onOpen) {
+            if selecting {
+                Image(systemName: isPicked ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: Typography.title))
+                    .foregroundStyle(isPicked ? Color.accentColor : Color.secondary)
+            }
+            Button(action: selecting ? onTogglePick : onOpen) {
                 HStack(spacing: Spacing.xl) {
                     iconBlock
                     VStack(alignment: .leading, spacing: Spacing.xxs) {
@@ -457,19 +576,21 @@ private struct FilesManagerRow: View {
             }
             .buttonStyle(PressStyle(scale: 0.98))
 
-            Menu {
-                if !entry.isDir {
-                    Button { onOpen() } label: { Label("预览", systemImage: "eye") }
+            if !selecting {
+                Menu {
+                    if !entry.isDir {
+                        Button { onOpen() } label: { Label("预览", systemImage: "eye") }
+                    }
+                    Button { onShare() } label: { Label("分享", systemImage: "square.and.arrow.up") }
+                    Button { onRename() } label: { Label("重命名", systemImage: "pencil") }
+                    Button(role: .destructive) { onDelete(rowFrame) } label: { Label("删除", systemImage: "trash") }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                        .font(.system(size: Typography.title))
+                        .foregroundStyle(.tertiary)
+                        .frame(width: 32, height: 32)
+                        .contentShape(Rectangle())
                 }
-                Button { onShare() } label: { Label("分享", systemImage: "square.and.arrow.up") }
-                Button { onRename() } label: { Label("重命名", systemImage: "pencil") }
-                Button(role: .destructive) { onDelete(rowFrame) } label: { Label("删除", systemImage: "trash") }
-            } label: {
-                Image(systemName: "ellipsis.circle")
-                    .font(.system(size: Typography.title))
-                    .foregroundStyle(.tertiary)
-                    .frame(width: 32, height: 32)
-                    .contentShape(Rectangle())
             }
         }
         .padding(.horizontal, Spacing.xxl)

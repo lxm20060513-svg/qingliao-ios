@@ -197,5 +197,21 @@ check("DockLayoutSheet：隐藏写回走 encodeHidden（规范形态，别自己
 check("DockLayoutSheet：新增的 workspace 档有行首色块配色（rowTint 穷尽，漏一个色 CI 编译不过）",
       sheet.contains("case .workspace: return .indigo"))
 
+print("== Ⓝ 会话首页 ↔ 对话页：过渡必须是「看得见的横移」（v4.0.114 用户「聊天详情手势滑动返回过渡太生硬」）==")
+// 事故形态：整页切换套 Motion.tap（.snappy 0.12 —— 那枚令牌自称「按压/开关/小状态：几乎瞬时」），
+// 拿小控件曲线驱动整页位移 → 读作「啪一下闪过去」；且 if/else 默认交叉淡化、没有方向感。
+// 老毛病容易复发（下一个改聊天页的人顺手写回 tap），故正反两面都钉。
+let motionSrc = readSource("Theme/Motion.swift")
+check("用页面级令牌 Motion.page 驱动两态切换（进入 + 返回两处都要）",
+      dockView.contains("withAnimation(Motion.page) { showSessionHome = false }")
+        && dockView.contains("withAnimation(Motion.page) { showSessionHome = true }"))
+check("两分支各有方向感转场（列表 .leading / 聊天 .trailing）—— 少了就退回交叉淡化",
+      dockView.contains(".transition(.move(edge: .leading).combined(with: .opacity))")
+        && dockView.contains(".transition(.move(edge: .trailing).combined(with: .opacity))"))
+check("🚫 两态切换不许复活 Motion.tap（0.12 = 闪一下，本次修复的病根）",
+      !dockView.contains("withAnimation(Motion.tap) { showSessionHome"))
+check("Motion.page 存在且是页面级时长（退回 0.12 级就是老毛病）",
+      motionSrc.contains("static var page: Animation { .snappy(duration: 0.34) }"))
+
 print("\n通过 \(ok) 项，失败 \(fail) 项")
 if fail > 0 { exit(1) }

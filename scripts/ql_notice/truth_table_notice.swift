@@ -224,9 +224,20 @@ let noticeVers = Set(noticeRaw.split(separator: "\n").compactMap { line -> Strin
     guard let r = line.range(of: "v4.0.1") else { return nil }
     return String(line[r.lowerBound...].prefix(8))
 })
-ck("新增文件的注释版本号只允许「当前版 v\(curVer)」/「本批目标版 v\(nextVer)」"
-   + "（本批曾写成 v4.0.121；旧断言只查那一个字面量 = 写成 v4.0.999 也绿）",
-   !noticeVers.isEmpty && noticeVers.allSatisfy { $0 == "v" + curVer || $0 == "v" + nextVer })
+// v4.0.114（假红收口）：原写法白名单 = {当前版, 本批目标版}，只在「本批新增、且 project.yml 还没 bump」
+// 这一种时序下成立。**上批新增的文件**（MessageNotice 自己写的是 v4.0.112）一旦 bump 就必红，
+// 与它有没有写错毫无关系 —— 纯假红，且每次 bump 都会复发。
+// 改成**真比较**：注释版本号必须是已发布过的真实号（≤ 当前版）；未来号（v4.0.999 / v4.0.121）照样红。
+// 解析失败的串（如 v4.0.1x）由 count 相等这条挡住，不许被 compactMap 悄悄丢掉后误绿。
+let noticeVerNums = Set(noticeVers.compactMap { v -> Int? in
+    guard v.hasPrefix("v4.0.") else { return nil }
+    return Int(v.dropFirst(5))
+})
+let curMinor = Int(String(curVer.split(separator: ".").last ?? "")) ?? 0
+ck("MessageNotice 注释里的版本号必须是已发布过的真实号（≤ 当前版 v\(curVer)），不得写未来号"
+   + "（旧断言只查「不含 v4.0.121」= 写成 v4.0.999 照样绿）",
+   !noticeVers.isEmpty && noticeVerNums.count == noticeVers.count
+   && noticeVerNums.allSatisfy { $0 <= curMinor })
 ck("负断言：错的 v4.0.121 不得在本批源里复活",
    !noticeRaw.contains("v4.0.121") && !modelsRaw.contains("v4.0.121")
    && !streamSrc.contains("v4.0.121") && !bgSrc.contains("v4.0.121") && !storeSrc.contains("v4.0.121"))

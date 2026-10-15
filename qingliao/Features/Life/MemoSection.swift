@@ -570,7 +570,8 @@ private struct MemoNoteCard: View {
 //   · 叠 4 张｜卡高 100pt｜正文 16pt / 最多 2 行｜meta 贴卡底｜内边距 14
 //   · 露出的边 = 38pt（= 内边距 14 + 一行正文 22，保证露出的那一行完整可读）
 //   · 圆角 22（**全站其它卡仍是 Radius.card 16** —— 它是全站唯一的彩色卡，用户单独拍过）
-//   · 卡色自上而下 淡紫 / 黄绿 / 黑 / 白；**最前端（完整露出）那张是白**、黑在第三层
+//   · 卡色自上而下 黄绿 / 深紫 / 白 / 淡紫；**最前端（完整露出）那张是淡紫**、深紫在第二层
+//     （v4.0.114：原第二层是纯黑 #1C1C1E，已换深紫；层序以 v4.0.98 的「最前 = 淡紫」为准）
 //   · 只有 1 条时不叠（走原单卡）；超 4 条时先叠最近 4 条，展开态其余继续往下排
 // 稿（开发机留档，**不在本仓**）：`/opt/data/scripts/ql_memostack/mock/memostack_{light,dark}.png`，
 // 生成器 = 同目录 `gen_memostack.py`，其中 `BOARD` 的 12 组 RGB 是下面 lightSkins / darkSkins 的
@@ -613,10 +614,13 @@ private enum MemoStackSkins {
                       border: Color(.sRGB, red: 0.8902, green: 0.8902, blue: 0.9098, opacity: 1),
                       text: Color(.sRGB, red: 0.1098, green: 0.1098, blue: 0.1176, opacity: 1),
                       meta: Color(.sRGB, red: 0.1098, green: 0.1098, blue: 0.1176, opacity: 0.50)),
-        MemoStackSkin(bg: Color(.sRGB, red: 0.1098, green: 0.1098, blue: 0.1176, opacity: 1),
-                      border: Color(.sRGB, red: 0.1098, green: 0.1098, blue: 0.1176, opacity: 1),
+        // v4.0.114：黑 #1C1C1E → 深紫 #4E4193（用户「图标我喜欢多彩」取向下的可读性收口：
+        // 纯黑夹在淡紫与白之间反差过硬、一个人抢走整页视线；深紫保留「有一层是深的」的层次，
+        // 取自 darkSkins[0] 同一档，两模式口径一致。稿与色板表见 ql_memostack/mock/gen_memostack.py 的 BOARD。
+        MemoStackSkin(bg: Color(.sRGB, red: 0.3059, green: 0.2549, blue: 0.5765, opacity: 1),
+                      border: Color(.sRGB, red: 0.4196, green: 0.3569, blue: 0.7686, opacity: 1),
                       text: Color(.sRGB, red: 1.0000, green: 1.0000, blue: 1.0000, opacity: 1),
-                      meta: Color(.sRGB, red: 1.0000, green: 1.0000, blue: 1.0000, opacity: 0.62)),
+                      meta: Color(.sRGB, red: 1.0000, green: 1.0000, blue: 1.0000, opacity: 0.66)),
         MemoStackSkin(bg: Color(.sRGB, red: 0.8039, green: 0.9137, blue: 0.4196, opacity: 1),
                       border: Color(.sRGB, red: 0.7098, green: 0.8392, blue: 0.3059, opacity: 1),
                       text: Color(.sRGB, red: 0.1098, green: 0.1098, blue: 0.1176, opacity: 1),

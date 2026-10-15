@@ -588,5 +588,26 @@ check("🚨 detail 从锚点之后定位：码在锚点前先出现时不许带�
         && PickupCodeKit.detail(in: "A1234 到 3 号柜，取件码 A1234 · 丰巢", code: "A1234") == "丰巢"
         && PickupCodeKit.detail(in: "取件码 A1 · 丰巢", code: "") == "")
 
+// ── v4.0.114（用户「首页目标卡要能选显示哪个目标」）：首页「目标」卡可选只显示哪一条 ──
+// 全部在**剥注释**后的文本上匹配（本仓老坑：断言打在带注释的原文上 = 注释里写一句就假绿）。
+// 注意别套 `flat()`：那会把所有空白也删掉（`flat` = filter !isWhitespace），带空格的断言会全部假红。
+let goalSrc = stripCommentLines(cards)
+check("⑭ 置顶键两处同源：宿主 @AppStorage 与数据层 UserDefaults 读同一个键（写岔 = 选了不生效）",
+      goalSrc.contains("@AppStorage(\"home.goalPinned\")")
+        && goalSrc.contains("UserDefaults.standard.string(forKey: \"home.goalPinned\")"))
+check("⑭🚫 置顶键只许一处读数（再多一处 = 两个真源，早晚写岔）",
+      goalSrc.components(separatedBy: "forKey: \"home.goalPinned\"").count - 1 == 1)
+check("⑭ 目标卡有切换入口，且 ≥2 个可选项才出（1 个目标还出按钮 = 死按钮）",
+      goalSrc.contains("if kind == .goal, goalChoices.count >= 2 {")
+        && goalSrc.contains("showGoalPicker = true"))
+check("⑭ 置顶时主标用目标标题（写死「今日目标」= 看不出选的是哪条）",
+      goalSrc.contains("return data.goalPinnedTitle.isEmpty ? \"今日目标\" : data.goalPinnedTitle"))
+check("⑭ 置顶时副标只说该目标（不再带「N 个目标」前缀）",
+      goalSrc.contains("return data.goalNextTitle.isEmpty ? \"步骤全完成\" : \"下一步 \\(data.goalNextTitle)\""))
+check("⑭ 置顶目标被删/暂停 → 回落汇总（不留死引用）", goalSrc.contains("goalPinnedTitle = \"\""))
+check("⑭ 选完必须重算卡面（refreshGoal；漏了就是选了半天卡面不动）",
+      goalSrc.contains("{ data.refreshGoal() }")
+        && goalSrc.contains("func refreshGoal() { loadGoalLocal() }"))
+
 print(fail == 0 ? "✅ ql_chat_home 真值表 \(pass) 项全过" : "❌ 失败 \(fail) / 通过 \(pass)")
 if fail > 0 { exit(1) }
