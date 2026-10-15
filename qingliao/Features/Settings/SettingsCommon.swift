@@ -376,7 +376,7 @@ struct PasswordSheet: View {
             // v4.0.116 fix（发版审查 P2）：本循环只轮 120s，而后端把超 600s 的 running 才归一化成
             // failed —— 容器冷拉/镜像缺失等慢场景下，用户会拿着「同步中…」被直接登出、永远等不到结论。
             // 耗尽时如实交代状态与后续动作，别让「还在转」的文案被登出吞掉。
-            if result.hasPrefix("⏳") {
+            if result?.hasPrefix("⏳") == true {
                 result = "⏳ 同步仍在进行（后端最长约 10 分钟），稍后用新密码登录即可确认结果"
             }
             finishAfterChange(after: 2.5)   // 同步耗时长：结果多留一会儿再登出
