@@ -138,11 +138,15 @@ final class QingliaoAppDelegate: NSObject, UIApplicationDelegate,
     nonisolated static func handleAppRefresh(_ task: BGAppRefreshTask) {
         BackgroundWakeLog.record(.refreshTask)
         scheduleAppRefresh()                        // 先排下一次：本窗口随时可能被收回
-        let agg = BackgroundFetchAggregator(legs: 2) { ok in
+        let agg = BackgroundFetchAggregator(legs: 2) { r in
             // 收尾时顺手摘掉过期回调：`expirationHandler` 强引用 agg、completion 强引用 task
             // ⇒ 不摘就是一对互引（系统放掉 task 后这对对象仍不释放，每次唤醒漏一对）。
             task.expirationHandler = nil
-            task.setTaskCompleted(success: ok)
+            // ⚠️ 聚合器给的是 `UIBackgroundFetchResult`，而 `setTaskCompleted(success:)` **只认 Bool**
+            //    —— 直接传结果是 `cannot convert value of type 'UIBackgroundFetchResult' to expected
+            //    argument type 'Bool'`（本地 `-parse` 查不出、CI Archive 才炸，v4.0.118 实踩一轮）。
+            //    映射：有数据/空转都算成功，只有 failed 算失败（否则系统按失败降权调度，唤醒间隔越拉越长）。
+            task.setTaskCompleted(success: r != .failed)
         }
         task.expirationHandler = { agg.expire() }   // 收回窗口 → 立刻收尾（聚合器保证只回调一次）
         Task { @MainActor in

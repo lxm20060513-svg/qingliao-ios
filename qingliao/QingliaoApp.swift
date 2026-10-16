@@ -75,7 +75,7 @@ struct QingliaoApp: App {
                     // v4.0.118（推送及时性 ①）：拉 Hermes 侧时刻表 → 预排系统级通知。
                     // 后台唤醒时刻由 iOS 决定（②③ 已尽力压时延），而预排通知是系统闹钟：
                     // 到点必响，不依赖任何唤醒。冷启动 + 每次回前台各跑一次（见 ChatAppDelegate）。
-                    ScheduleStore.shared.attach(auth: auth)
+                    ScheduleStore.shared.attach(auth)
                     Task { await ScheduleStore.shared.refreshAndReconcile() }
                     // v3.1.5：启动自动加载上次会话消息（解决 App 重启后"忘记上下文"）
                     // v3.4.25：与上方轻初始化解耦后仍 await 收尾（根视图依赖会话内容渲染）

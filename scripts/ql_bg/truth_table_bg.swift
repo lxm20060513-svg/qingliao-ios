@@ -284,6 +284,9 @@ ck("未登录路径用 abandon，不用 finish（legs=2 时 finish 永远不会�
    refreshBody.contains("agg.abandon(.noData)") && !refreshBody.contains("agg.finish(.noData)"))
 ck("收尾时摘掉 expirationHandler（否则 task ⇄ agg 互引，每次唤醒漏一对）",
    refreshBody.contains("task.expirationHandler = nil"))
+ck("聚合结果映射成 Bool 再交系统（setTaskCompleted 只认 Bool；直接传结果 = CI cannot convert）",
+   refreshBody.contains("task.setTaskCompleted(success: r != .failed)")
+   && app.contains("completion: @escaping (UIBackgroundFetchResult) -> Void"))
 ck("早退路径也记台账（有来源没结果 = 「叫醒几次」统计失真）",
    app.contains("BackgroundWakeLog.record(.refreshTask, outcome: \"noData no-endpoint\")")
    && app.contains("BackgroundWakeLog.record(.fetch, outcome: \"noData no-endpoint\")")

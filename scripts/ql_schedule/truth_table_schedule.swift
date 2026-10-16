@@ -209,7 +209,12 @@ ck("threadIdentifier 固定（通知中心成组）", store.contains("threadIden
 ck("userInfo 用常量键（不写字面量）",
    store.contains("[SchedulePlanner.userInfoKey: item.id]") && !store.contains("\"qingliao_schedule\":"))
 
-ck("App 启动接线：ScheduleStore 注入 auth", app.contains("ScheduleStore.shared.attach(auth: auth)"))
+// ⚠️ 实参标签必须与声明**逐字一致**：声明是 `func attach(_ auth:)` ⇒ 调用点只能写 `attach(auth)`。
+//    本地 `-parse` 查不出，CI Archive 报 `extraneous argument label 'auth:'`（v4.0.118 真踩，一轮 20 分钟）。
+ck("App 启动接线：ScheduleStore 注入 auth（调用无标签，与声明 attach(_:) 一致）",
+   app.contains("ScheduleStore.shared.attach(auth)")
+   && !app.contains("ScheduleStore.shared.attach(auth:")   // 负断言只盯本行：别的 store 用 attach(auth: auth) 是合法的
+   && store.contains("func attach(_ auth: AuthStore)"))
 ck("App 启动接线：真拉了清单（attach 后必须调 refreshAndReconcile）",
    app.contains("ScheduleStore.shared.refreshAndReconcile()"))
 ck("回前台重排（scene 化进程的真入口链路里调）",
