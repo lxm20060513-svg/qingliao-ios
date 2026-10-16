@@ -35,9 +35,10 @@ struct OrbIdentifyOverlay: View {
     /// v3.9.82：「换一张」从译文弹窗回来时，直接以**翻译模式**起手（否则用户还得再点一次「AI 翻译」）
     var startInTranslateMode: Bool = false
     /// v4.0.x（2026-09-27 改口径）：长按菜单「拍照识别」——宿主拍完把照片交进来，**就地**让 AI 看图回答。
-    /// 与「AI 识别」**同一形态**（用户拍板：球上浮层卡 + 背景虚化 + 球心扫描环），差别只在起点与去向：
+    /// 与「AI 识别」**同一套 cardSlot 内容**，差别只在起点与去向：
     ///   · 起点：图已在手（用户刚拍的），不像 AI 识别要先选图；
     ///   · 去向：自由文本回答**就地出卡**，不进会话、不切聊天页、不落 ChatStore。
+    ///   · 呈现（2026-10-16 方案C 确认稿）：图已定 → 照片全屏铺底 + 底部玻璃面板；图未定 → 虚化 + 球上卡。
     /// nil（默认）= 原「AI 识别 / AI 翻译」流程一字不变。
     var photoAskImage: UIImage? = nil
     var onClose: () -> Void
@@ -75,6 +76,18 @@ struct OrbIdentifyOverlay: View {
     @State private var photoItem: PhotosPickerItem?
     @State private var appeared = false
     @State private var ringOut = false
+    /// v4.0.x 方案C「全屏沉浸」：当前铺底的照片（拍照识别带进的 / AI 识别刚选的）。
+    /// nil = 选图区，走老呈现（虚化 + 球心扫描环 + 球上方卡）；非 nil = 照片全屏铺底 + 底部玻璃面板。
+    @State private var displayImage: UIImage?
+    /// 铺底照片的来源标注（等待态左下小胶囊用；「重试」不传参 = 沿用上一次的来源）
+    @State private var photoSourceLabel: String?
+    /// 在途的看图请求（等待态「取消」要能掐掉，否则 120s 内既无可重选也无取消）
+    @State private var askTask: Task<Void, Never>?
+    /// 等待态不确定进度条的扫描位（时长不可知 → 光带来回扫表达「在跑」）
+    @State private var barSweep = false
+    /// 「复制」按下后的短暂确认态（胶囊文案变「已复制」1.6s）
+    @State private var copiedAnswer = false
+    @Environment(\.colorScheme) private var colorScheme
 
     /// 结果卡底边与球心之间留的呼吸（球半径 34 + 间距 26）
     private static let cardSpacing: CGFloat = 60
@@ -84,16 +97,24 @@ struct OrbIdentifyOverlay: View {
             let g = geo.frame(in: .global)
             let ball = absoluteBallCenter(in: g)
             ZStack {
-                backdrop
-                scanRings(center: ball)
-                // 卡片区：**底边对齐**到球上方 cardSpacing 处（用 alignment 而非 position 计算高度，
-                // 卡片内容高度交给 SwiftUI 自适应——动作条的动作数量会变，写死高度必然裁切）
-                cardSlot
-                    .frame(width: geo.size.width,
-                           height: max(0, ball.y - Self.cardSpacing),
-                           alignment: .bottom)
-                    .position(x: geo.size.width / 2,
-                              y: max(0, ball.y - Self.cardSpacing) / 2)
+                if let img = displayImage {
+                    // v4.0.x 方案C：图已定 → 照片全屏铺底，等待/回答/失败都收进底部玻璃面板
+                    // bottomInset：body 链 ignoresSafeArea 吃掉了安全区，底部要手动垫回去（审查 P1：
+                    // 面板不垫 = 动作胶囊压进 home indicator 遮挡区，底部按钮可点性受损）
+                    photoStage(img, size: geo.size, bottomInset: geo.safeAreaInsets.bottom)
+                } else {
+                    // 选图区：老呈现不动（虚化背景 + 球心扫描环 + 球上方卡）
+                    backdrop
+                    scanRings(center: ball)
+                    // 卡片区：**底边对齐**到球上方 cardSpacing 处（用 alignment 而非 position 计算高度，
+                    // 卡片内容高度交给 SwiftUI 自适应——动作条的动作数量会变，写死高度必然裁切）
+                    cardSlot
+                        .frame(width: geo.size.width,
+                               height: max(0, ball.y - Self.cardSpacing),
+                               alignment: .bottom)
+                        .position(x: geo.size.width / 2,
+                                  y: max(0, ball.y - Self.cardSpacing) / 2)
+                }
             }
             .frame(width: geo.size.width, height: geo.size.height)
         }
@@ -104,9 +125,11 @@ struct OrbIdentifyOverlay: View {
             Task { @MainActor in
                 if let data = try? await item.loadTransferable(type: Data.self),
                    let img = UIImage(data: data) {
-                    if photoAskMode { askPhoto(img) } else { recognize(img) }
+                    if photoAskMode { photoSourceLabel = PhotoAskKit.sourceAlbum; askPhoto(img) } else { recognize(img) }
                 } else {
-                    phase = .blank
+                    // 加载失败分叉（审查 P2）：photoAsk 模式下别让「老照片铺底 + 没认出内容」同框——
+                    // 用户刚选的新图没读出来，呈现成老图没认出是语义错位；退回选图区重新选。
+                    if photoAskMode { displayImage = nil; phase = .pick } else { phase = .blank }
                 }
                 // 复位：同一张图连选两次也要能再次触发（否则 onChange 不响 =「点了没反应」）
                 photoItem = nil
@@ -117,9 +140,16 @@ struct OrbIdentifyOverlay: View {
             // 内容默认仍受安全区约束 → 顶部露出宿主黑边（v3.9.75 用户实测报「系统相机顶部有黑边」）
             CameraPicker { img in
                 // v4.0.x：拍照识别模式（含卡里那颗「重拍」）走 askPhoto，别掉回「识别内容」那条链
+                //（⚠️ 这行是 ql_orbmenu 真值表的逐字锚点，别改写；来源胶囊在 openCameraOrAlbum 处标）
                 if photoAskMode { askPhoto(img) } else { recognize(img) }
             }
                 .ignoresSafeArea()
+        }
+        // 浮层任何方式收起（点空白 / 宿主 onClose / 收起图片出口外的路径）都掐掉在途请求，
+        // 与「取消」按钮同口径——不掐 = 在途看图请求白跑满 120s（审查 P2）
+        .onDisappear {
+            askTask?.cancel()
+            askTask = nil
         }
         .onAppear {
             // v3.9.79：每次进浮层都从「识别模式」起手（AI 翻译模式不留到下一次，免得下次拍照莫名其妙出译文）
@@ -129,17 +159,23 @@ struct OrbIdentifyOverlay: View {
             // ⚠️ 宿主关浮层时必须把照片清掉（`identifyPhoto = nil`），否则下一次点普通「AI 识别」
             //   会莫名其妙又对上一张老照片提问（本仓「状态没复位 = 点了没反应」那一类坑）。
             lastImage = nil            // 上一轮的重试原图不留到下一次
+            displayImage = nil         // 方案C：上一轮的全屏铺底照片也不留到下一次
+            photoSourceLabel = nil
             if let img = photoAskImage {
                 photoAskMode = true
+                photoSourceLabel = PhotoAskKit.sourceCamera   // 宿主带进来的 = 刚拍的
                 askPhoto(img)          // 内部会把 lastImage 设成这张（失败「重试」要用）——
-                                       // ⚠️ 这行必须排在上面那句之后，否则刚存的原图被当场清掉
+                                       // ⚠️ 这行必须排在上面「清 lastImage」之后，否则刚存的原图被当场清掉
             }
             if reduceMotion { appeared = true }
             else { withAnimation(.spring(response: 0.42, dampingFraction: 0.78)) { appeared = true } }
         }
-        .onChange(of: phase) { _, _ in
+        .onChange(of: phase) { _, newPhase in
             // 识别中 / 翻译中都算「忙」：环继续转（否则取字完到 AI 回译文这段环会突然停一下）
             if isBusy { startScanLoop() } else { ringOut = false }
+            // 方案C：等待态换不确定进度条扫描（全屏铺底下没有球心环可转）
+            if case .askingPhoto = newPhase { startBarSweep() }
+            copiedAnswer = false
         }
     }
 
@@ -197,6 +233,69 @@ struct OrbIdentifyOverlay: View {
         withAnimation(.easeOut(duration: 1.5).repeatForever(autoreverses: false)) { ringOut = true }
     }
 
+    // MARK: v4.0.x 方案C「全屏沉浸」看图台（2026-10-16 确认稿：照片全屏铺底 + 底部玻璃面板）
+    //
+    // 图已定 → 照片铺底（轻虚化，dark 下压暗一档保面板对比），等待/回答/失败收进底部面板；
+    // 图未定（选图区）→ 老呈现。两条呈现共用同一套 cardSlot 内容，形态不分叉。
+    // 点照片空白处 = 收起（与虚化背景「点空白即走」同口径）。
+
+    private func photoStage(_ img: UIImage, size: CGSize, bottomInset: CGFloat) -> some View {
+        ZStack(alignment: .bottom) {
+            Image(uiImage: img)
+                .resizable()
+                .scaledToFill()
+                .frame(width: size.width, height: size.height)
+                .clipped()
+                .blur(radius: reduceMotion ? 0 : 3)
+                .scaleEffect(reduceMotion ? 1 : 1.08)   // 吃掉 blur 贴边产生的透明毛边
+                .overlay(Color.black.opacity(colorScheme == .dark ? 0.22 : 0.06))
+                .contentShape(Rectangle())               // 不补 contentShape，空白处点不到 = 收不起来（本仓已知坑）
+                .onTapGesture(perform: onClose)
+            VStack(alignment: .leading, spacing: Spacing.md) {
+                // 来源小胶囊只在等待态显示（设计稿元素：区分拍照识别 / AI 识别选图两个入口）
+                if case .askingPhoto = phase, let src = photoSourceLabel {
+                    sourceChip(src)
+                }
+                cardSlot
+            }
+            // 几何按确认稿：面板左右 26 / 底 24 + 安全区垫底（24 从安全区底起算，不压 home indicator）
+            .padding(.horizontal, 26)
+            .padding(.bottom, 24 + bottomInset)
+        }
+        .opacity(appeared ? 1 : 0)
+    }
+
+    /// 「来自相机 / 来自相册」来源胶囊
+    private func sourceChip(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: Typography.caption))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, Spacing.md)
+            .padding(.vertical, Spacing.xs)
+            .background(.ultraThinMaterial, in: Capsule())
+    }
+
+    /// 等待态的不确定进度条：后端要跑工具循环，时长不可知 → 光带单向循环扫（减弱动态 = 静止半格）
+    private var scanBar: some View {
+        GeometryReader { gp in
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color.accentColor.opacity(0.15))
+                Capsule()
+                    .fill(Color.accentColor.opacity(0.85))
+                    .frame(width: max(24, gp.size.width * 0.42))
+                    .offset(x: barSweep ? gp.size.width * 0.62 : -gp.size.width * 0.12)
+            }
+        }
+        .frame(height: 6)
+        .clipped()
+    }
+
+    private func startBarSweep() {
+        guard !reduceMotion else { barSweep = true; return }
+        barSweep = false
+        withAnimation(.easeInOut(duration: 1.4).repeatForever(autoreverses: false)) { barSweep = true }
+    }
+
     // MARK: 球上方的操作区（四态）
 
     @ViewBuilder
@@ -229,8 +328,11 @@ struct OrbIdentifyOverlay: View {
 
     private var pickRow: some View {
         VStack(spacing: Spacing.lg) {
-            Text(translateMode ? "拍一张或选一张，AI 直接给你译文"
-                               : "拍一张或选一张，AI 认内容并给出可用动作")
+            // photoAsk 模式（取消回答后回到这里）专属文案：这轮选图仍走「看图回答」，不认翻译/动作条
+            //（审查 P2：通用文案 + AI 翻译胶囊在这模式下是「按钮承诺与实际路由不符」）
+            Text(photoAskMode ? "拍一张或选一张，AI 看图回答（不进会话）"
+                 : translateMode ? "拍一张或选一张，AI 直接给你译文"
+                 : "拍一张或选一张，AI 认内容并给出可用动作")
                 .font(.system(size: Typography.caption))
                 .foregroundStyle(.secondary)
             HStack(spacing: Spacing.xl) {
@@ -242,13 +344,16 @@ struct OrbIdentifyOverlay: View {
                 }
                 // v3.9.79（用户拍板）：「AI 翻译」——点它进翻译模式，再拍照/选图 → 直接出译文（不给动作条）。
                 // 翻译模式开着时这颗变「退出翻译」（accent = 特殊模式可见），错点一下就能退回识别。
-                if translateMode {
-                    Button { translateMode = false } label: {
-                        Label("退出翻译", systemImage: "xmark").pill(.primary, tone: .accent)
-                    }
-                } else {
-                    Button { translateMode = true } label: {
-                        Label("AI 翻译", systemImage: "character.book.closed").pill(.primary, tone: .neutral)
+                // photoAsk 模式不显示（onChange 里选图必走 askPhoto，翻译胶囊点了也翻不了）。
+                if !photoAskMode {
+                    if translateMode {
+                        Button { translateMode = false } label: {
+                            Label("退出翻译", systemImage: "xmark").pill(.primary, tone: .accent)
+                        }
+                    } else {
+                        Button { translateMode = true } label: {
+                            Label("AI 翻译", systemImage: "character.book.closed").pill(.primary, tone: .neutral)
+                        }
                     }
                 }
             }
@@ -351,25 +456,41 @@ struct OrbIdentifyOverlay: View {
         showPhotoPicker = true
     }
 
-    // MARK: v4.0.x「拍照识别」三段卡（用户拍板：形态与「AI 识别」同款 —— 球上浮层卡 + 虚化 + 球心扫描环）
+    // MARK: v4.0.x「拍照识别」三段卡（2026-10-16 方案C 确认稿：底部玻璃面板形态）
 
-    /// 照片已定，等 AI 看完回答（卡形/玻璃/投影与 `scanningCard` 完全同口径）
+    /// 照片已定，等 AI 看完回答：菊花 + 文案一行排布，下接扫描条 + 「取消」（120s 等待有了出口）
     private var askingPhotoCard: some View {
-        VStack(spacing: Spacing.md) {
-            ProgressView().controlSize(.large)
-            Text(PhotoAskKit.waitingTitle).font(.system(size: Typography.subhead))
-            Text(PhotoAskKit.waitingDetail).font(.system(size: Typography.caption)).foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: Spacing.md) {
+            HStack(spacing: Spacing.md) {
+                ProgressView().controlSize(.large)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(PhotoAskKit.waitingTitle).font(.system(size: Typography.subhead))
+                    Text(PhotoAskKit.waitingDetail)
+                        .font(.system(size: Typography.caption))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            scanBar
+            Button(action: cancelAsk) {
+                Text("取消").pill(.primary, tone: .neutral)
+            }
         }
         .padding(Spacing.xxl)
         .overlayGlassCard()
         .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
-        .padding(.bottom, Spacing.xl)
     }
 
     /// AI 的看图回答 —— **就地出卡**（用户 2026-09-27：「不发送当前对话框，直接在当页做」）。
-    /// 长回答卡内滚动限高：卡底边钉在球上方（`cardSpacing`），不夹紧的话长回答会把球顶出屏幕。
+    /// 方案C 面板：标题头声明「AI 的回答」，长回答卡内滚动限高 240（不限高会把面板顶出屏幕），
+    /// 动作 = 重拍 / 复制（剪贴板，不进会话）/ 收起图片（收掉全屏铺底回聊天）。
     private func photoAnswerCard(_ text: String) -> some View {
         VStack(alignment: .leading, spacing: Spacing.lg) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(PhotoAskKit.answerTitle).font(.system(size: Typography.subhead))
+                Text(PhotoAskKit.answerDetail)
+                    .font(.system(size: Typography.caption))
+                    .foregroundStyle(.secondary)
+            }
             ScrollView {
                 Text(text)
                     .font(.system(size: Typography.body))
@@ -382,32 +503,45 @@ struct OrbIdentifyOverlay: View {
                 Button { openCameraOrAlbum() } label: {
                     Text("重拍").pill(.primary, tone: .accent)
                 }
+                Button {
+                    UIPasteboard.general.string = text
+                    copiedAnswer = true
+                    Haptics.success()
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .seconds(1.6))
+                        copiedAnswer = false
+                    }
+                } label: {
+                    Text(copiedAnswer ? "已复制" : "复制").pill(.primary, tone: .neutral)
+                }
                 Button { onClose() } label: {
-                    Text("关闭").pill(.primary, tone: .neutral)
+                    Text("收起图片").pill(.primary, tone: .neutral)
                 }
             }
         }
         .padding(Spacing.xxl)
         .overlayGlassCard()
         .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
-        .padding(.bottom, Spacing.xl)
     }
 
-    /// 失败留在卡里（别静默退回选区）：真因可能是网络/后端没回/图没压好 —— 带真因 + 可重试
+    /// 失败留在卡里（别静默退回选区）：真因可能是网络/后端没回/图没压好 —— 红色徽标 + 真因 + 重试
     private func photoFailedCard(_ detail: String) -> some View {
-        VStack(spacing: Spacing.md) {
-            Text(PhotoAskKit.failureTitle).font(.system(size: Typography.subhead))
-            Text(detail).font(.system(size: Typography.caption)).foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
+        VStack(alignment: .leading, spacing: Spacing.md) {
+            HStack(spacing: Spacing.md) {
+                Image(systemName: "exclamationmark.circle.fill")
+                    .foregroundStyle(.red)
+                    .font(.system(size: 22))
+                Text(PhotoAskKit.failureTitle).font(.system(size: Typography.subhead))
+            }
+            Text(detail)
+                .font(.system(size: Typography.caption))
+                .foregroundStyle(.secondary)
             HStack(spacing: Spacing.xl) {
                 Button {
                     guard let img = lastImage else { phase = .pick; return }
-                    askPhoto(img)                     // 原图还在，直接重问一次
+                    askPhoto(img)                     // 原图还在，直接重问一次（来源胶囊沿用上一次）
                 } label: {
                     Text("重试").pill(.primary, tone: .accent)
-                }
-                Button { openCameraOrAlbum() } label: {
-                    Text("重拍").pill(.primary, tone: .neutral)
                 }
                 Button { onClose() } label: {
                     Text("关闭").pill(.primary, tone: .neutral)
@@ -417,22 +551,24 @@ struct OrbIdentifyOverlay: View {
         .padding(Spacing.xxl)
         .overlayGlassCard()
         .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
-        .padding(.bottom, Spacing.xl)
     }
 
     /// 「拍照识别」：把照片**就地**问 AI（非流式一问一答，与 AI 翻译同一条链，差别只在提示词与结果去向）。
     /// 图片走 base64 data URL（`ImageDownscale.dataURL`，与聊天页同一档压缩判据）——
     /// 图块构造仍只有 `ImageBlocks` 一个点，「绝不把自家 URL 交给上游」那条决策不受影响。
+    /// v4.0.x 方案C：请求存进 `askTask`（等待态「取消」能掐掉）；来源胶囊在各入口处先行标注。
     private func askPhoto(_ image: UIImage) {
         guard phase != .askingPhoto else { return }      // 防连点：等回答时再拍一张不叠第二次
         lastImage = image                                // 失败「重试」要用
+        displayImage = image                             // 方案C：图定即全屏铺底
         phase = .askingPhoto
         Haptics.tap()
-        Task { @MainActor in
+        askTask = Task { @MainActor in
             let dataURL = await ImageDownscale.dataURL(from: image,
                                                        maxSide: ImageDownscale.currentMaxSide,
                                                        quality: ImageDownscale.currentQuality)
             guard let dataURL else {
+                guard !Task.isCancelled else { return }  // 用户已取消：别把取消报成失败
                 phase = .photoFailed(PhotoAskKit.failureDetail(nil))
                 Haptics.press()
                 return
@@ -444,14 +580,25 @@ struct OrbIdentifyOverlay: View {
                                                                   timeout: PhotoAskKit.timeout)
                 // 空正文在这里不可达：`QingliaoIntentClient.oneShot` 已经先 `throw`
                 //（「轻聊没有返回内容」）→ 走下面的 catch 显示真因；别再加一个「空回答」分支当摆设。
+                guard !Task.isCancelled else { return }  // 回答回来前用户点了取消：丢弃，别顶掉选图区
                 let text = reply.trimmingCharacters(in: .whitespacesAndNewlines)
                 phase = .photoAnswer(text)
                 Haptics.success()
             } catch {
+                guard !Task.isCancelled else { return }  // 取消引发的取消型错误不算失败
                 phase = .photoFailed(PhotoAskKit.failureDetail(error))
                 Haptics.press()
             }
         }
+    }
+
+    /// 等待态「取消」：掐掉在途请求、收掉全屏铺底，回到选图区（浮层不关，可直接重拍/换一张）
+    private func cancelAsk() {
+        askTask?.cancel()
+        askTask = nil
+        displayImage = nil
+        photoSourceLabel = nil
+        phase = .pick
     }
 
     // MARK: 选图 / 识别
@@ -460,8 +607,10 @@ struct OrbIdentifyOverlay: View {
     /// —— 与 ChatView v3.0.86 同一道闸，别在两处写出不同判据。
     private func openCameraOrAlbum() {
         if UIImagePickerController.isSourceTypeAvailable(.camera) {
+            photoSourceLabel = PhotoAskKit.sourceCamera   // 方案C：来源胶囊在入口处标注（相机回调是逐字锚点，不动）
             showCamera = true
         } else {
+            photoSourceLabel = PhotoAskKit.sourceAlbum
             showPhotoPicker = true
         }
     }
@@ -469,6 +618,7 @@ struct OrbIdentifyOverlay: View {
     private func recognize(_ image: UIImage) {
         guard phase != .scanning, phase != .translating else { return }   // 防连点：忙时再拍一张不叠第二次
         let translating = translateMode               // 先取值
+        displayImage = image                          // 方案C：AI 识别/翻译选完图同样全屏铺底（两入口形态统一）
         phase = .scanning
         Haptics.tap()
         Task { @MainActor in

@@ -155,6 +155,32 @@ check("失败详情单行且截断 ≤80 字（长错误不许把卡片撑爆）
 check("压图失败（error == nil）也有话说",
       !PhotoAskKit.failureDetail(nil).isEmpty && PhotoAskKit.failureDetail(nil) != PhotoAskKit.failureTitle)
 
+// MARK: ②b 方案C「全屏沉浸」（2026-10-16 确认稿：照片全屏铺底 + 底部玻璃面板 + 等待可取消）
+
+check("方案C：图定即全屏铺底（askPhoto 里 displayImage = image；选图区仍走老呈现）",
+      askSlice.contains("displayImage = image"))
+check("方案C：全屏看图台存在（photoStage + 底部面板 26/24 几何 + 安全区垫底，不压 home indicator）",
+      overlayClean.contains("private func photoStage")
+      && overlayClean.contains(".padding(.horizontal, 26)")
+      && overlayClean.contains(".padding(.bottom, 24 + bottomInset)")
+      && overlayClean.contains("geo.safeAreaInsets.bottom"))
+let cancelSlice = between(overlayClean, "private func cancelAsk", "private func openCameraOrAlbum")
+check("方案C：「取消」能掐掉在途请求（cancelAsk 存在且 cancel askTask；不掐 = 120s 白等）",
+      !cancelSlice.isEmpty && cancelSlice.contains("askTask?.cancel()"))
+check("方案C：任意方式收层都掐请求（body 链 onDisappear cancel askTask；点空白/宿主关闭不走「取消」按钮）",
+      overlayClean.contains(".onDisappear {\n            askTask?.cancel()\n            askTask = nil\n        }"))
+check("方案C：photoAsk 模式的选图区有专属文案 + 隐藏 AI 翻译胶囊（该模式下选图必走看图回答，翻译胶囊点了也翻不了）",
+      overlayClean.contains("拍一张或选一张，AI 看图回答（不进会话）")
+      && overlayClean.contains("if !photoAskMode {"))
+check("方案C：选图加载失败按模式分叉（photoAsk 退回选图区清铺底；识别链维持 blank，别让老照片配「没认出内容」）",
+      overlayClean.contains("if photoAskMode { displayImage = nil; phase = .pick } else { phase = .blank }"))
+check("方案C：取消/在途请求都带 isCancelled 闸（取消后的回包/错误不许顶掉选图区或误报失败）",
+      photoRegion.components(separatedBy: "!Task.isCancelled").count - 1 >= 3)
+check("方案C：等待文案钉住确认稿（「AI 正在看图」，副题「看完即走」不变）",
+      PhotoAskKit.waitingTitle == "AI 正在看图" && PhotoAskKit.waitingDetail == "看完即走，不会发进会话")
+check("方案C：回答态带「复制」（剪贴板不是发送，仍不进会话）+「收起图片」出口",
+      photoRegion.contains("UIPasteboard.general.string") && photoRegion.contains("收起图片"))
+
 // MARK: ③ 不进会话（本次口径变更的核心）
 
 check("这条链不碰分享管道（旧口径：ShareRouter 入队发进当前会话）",
