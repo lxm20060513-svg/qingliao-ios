@@ -8,6 +8,8 @@ import SwiftUI
 // 同轮拍板（用户回「1b 2b 3b 4b」）：② 2b 分拍式（圆先铺满，圆满之后再浮起）· ③ 3b 启动页**只留 Logo**
 //   （删掉「Qimo（轻聊）/ AI AGENT」两行文字，Logo 落回屏幕正中）· ④ 4b 呼吸幅度 **+3%** · ① 1b 细粒度
 //   （hero 内部也拆块，落点见 SessionsView 的 launchRiseBlock）。
+// 补充（用户 2026-10-16 回「2」）：Logo 下方加回**一行**品牌字标「Qimo Agent」（版式 a：整组上下居中）。
+//   ⚠️ 加回的只是这一行**新**字标 —— 3b 删掉的那两行（「Qimo（轻聊）」「AI AGENT」）仍不许回来，护栏同钉。
 //
 // 三拍怎么落：
 //   ① 呼吸：Logo 自身 scale 1 → 1.03 → 1（0.3 张 + 0.3 收，两段 withAnimation 串联）。
@@ -18,8 +20,9 @@ import SwiftUI
 //      ⚠️ 别拿 Motion.pageReveal 顶替：那枚 `.smooth` 是首尾对称的，语义是 dock 切页 / 滑动返回的匀速扫过。
 //   ③ 铺满后回调 onRevealed：宿主撤掉本层（此时整层已被挖空，撤掉零观感）+ 放行首页各块次第上浮。
 //
-// 圆心：取 **Logo 中心**（用户口径「以 Logo 为圆心」）。3b 删掉文字后 Logo 恰好落在屏幕正中，
-//   但这里仍按**实测**中心走 —— 将来改版式（加回文字 / 改 Logo 尺寸）圆心自动跟随，不用手改常量。
+// 圆心：取 **Logo 中心**（用户口径「以 Logo 为圆心」）。3b 删掉文字时 Logo 恰好落在屏幕正中；
+//   本轮加回字标后是「Logo + 字标」整组居中，Logo 因此比屏幕正中高约 21pt ——
+//   这里仍按**实测**中心走（圆心自动跟随），不用手改常量。
 //   坐标口径与 DockTabView 的圆形扩散同源：window 坐标 − 本层全局原点。
 struct SplashView: View {
     /// 圆形遮罩铺满时回调（宿主据此撤层 + 放行首页上浮）。减弱动态效果下**立即**回调。
@@ -67,25 +70,35 @@ struct SplashView: View {
                     .offset(x: -150, y: 230)
             }
 
-            // v4.0.117（3b）：启动页**只留 Logo** —— 原「Qimo（轻聊）」标题与「AI AGENT」副标题按用户口径删除。
-            // 少了这两行垫高，Logo 落回屏幕正中，挖洞圆心随之居中。
+            // 用户 2026-10-16 回「2」：Logo 下方加回**一行**品牌字标「Qimo Agent」。
+            // 口径 = ② 品牌字标（Typography.headline = 20pt / semibold / 主色 / 字距 2）+ 版式 a（整组上下居中），
+            // 与 Logo 间距 14pt。于是 Logo 比屏幕正中高约 21pt，挖洞圆心自动跟随（下面仍是**实测** Logo 中心）。
+            // ⚠️ 3b 删掉的「Qimo（轻聊）」标题与「AI AGENT」副标题**不许回来**（ql_launch 表同钉）。
             // v4.0.x 起 logo 用正式图标资产（卡片叠层立体 Q，与 AppIcon 同款），这一处不变。
-            Image("AboutLogo")
-                .resizable()
-                .scaledToFit()
-                .frame(width: 96, height: 96)
-                .shadow(color: Color.blue.opacity(0.35), radius: 18, y: 6)
-                .scaleEffect(breath)
-                // 实测 Logo 中心（window 坐标）：挖洞圆心与它严格同点
-                .background(
-                    GeometryReader { proxy in
-                        Color.clear
-                            .onAppear { logoGlobal = SplashView.center(of: proxy.frame(in: .global)) }
-                            .onChange(of: proxy.frame(in: .global)) { _, new in
-                                logoGlobal = SplashView.center(of: new)
-                            }
-                    }
-                )
+            VStack(spacing: 14) {
+                Image("AboutLogo")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 96, height: 96)
+                    .shadow(color: Color.blue.opacity(0.35), radius: 18, y: 6)
+                    .scaleEffect(breath)
+                    // 实测 Logo 中心（window 坐标）：挖洞圆心与它严格同点
+                    .background(
+                        GeometryReader { proxy in
+                            Color.clear
+                                .onAppear { logoGlobal = SplashView.center(of: proxy.frame(in: .global)) }
+                                .onChange(of: proxy.frame(in: .global)) { _, new in
+                                    logoGlobal = SplashView.center(of: new)
+                                }
+                        }
+                    )
+
+                // 品牌字标（整组居中的下半截）：**不参与呼吸** —— 用户口径是「Logo 呼吸缩放」
+                Text("Qimo Agent")
+                    .font(.system(size: Typography.headline, weight: .semibold))
+                    .foregroundStyle(.primary)
+                    .tracking(2)
+            }
         }
         // 实测本层全局原点（供圆心换算，口径同 DockTabView 的 pageOrigin）
         .background(

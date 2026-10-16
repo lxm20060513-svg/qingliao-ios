@@ -1674,6 +1674,50 @@ rm -rf /tmp/ql_notice_main && mkdir -p /tmp/ql_notice_main
 cp scripts/ql_notice/truth_table_notice.swift /tmp/ql_notice_main/main.swift
 run_unit6 /tmp/test_notice qingliao/Core/MessageNotice.swift /tmp/ql_notice_main/main.swift
 
+echo "=== 106. 日程预排真值表（v4.0.118 · ① 已知时刻事件预排系统级通知）==="
+# 起因（用户 2026-10-16 拍板「123」三条一起做，这是第 ① 条）：后台唤醒时刻由 iOS 定（②③ 只能压时延），
+#   而 UNCalendarNotificationTrigger 是**系统闹钟** —— 到点必响：App 被杀 / 手机重启 / 从没打开过都照样响。
+#   链路：Hermes push_schedule.py（读 cron/jobs.json 展开 48h 时刻表）→ 后端 schedule_api.py（只存+校验）
+#   → App ScheduleStore（拉清单 → 按 SchedulePlanner 判据登记系统通知 → 清孤儿）。
+# 事故面（全静默：编译过、预检绿，只有真机或隔天才看得出来）：
+#   ① identifier 每次现造 → 重排变**新增**，同一条任务弹 N 遍；
+#   ② 不清孤儿 → 任务被删/时间被改后旧请求永远留在系统里继续响（用户以为任务没删掉）；
+#   ③ 前缀与用户自建提醒（quick_reminder_）混用 → 两边对账互删对方的通知；
+#   ④ 把过去时刻也排进去 → 一条永远不响的哑通知白占配额（iOS 每 App 上限 64 条挂起通知）；
+#   ⑤ 不设条数上限 → 排满 64 条，把用户自建提醒一起挤掉；
+#   ⑥ 拉不到时刻表就清空 → 断网一次把已排好的闹钟全拆了；
+#   ⑦ 启动时顺手申请权限 → 抢同一次系统弹窗，首条推送/提醒页那处回调拿到 false（v3.9.x 老账）；
+#   ⑧ 登记失败只打日志不上屏 → 「清单里有、到点没响」用户完全无从查起；
+#   ⑨ 路径写成 /api/schedule → 只有 9127 直连通，lucky/蜂窝 relay/nginx 三处全 404（实测已复核）。
+# 分工：SchedulePlanner + QingliaoNotifyCopy **编进来真跑**（解析/排期/identifier/孤儿/文案/类别/常量），
+#   接线形态用剥注释的源级断言钉住（ScheduleStore / QingliaoApp / ChatAppDelegate）。
+# ⚠️ cwd 必须 = 仓库根（表里全是相对路径）；⚠️ 多文件编译时顶层代码只能在 main.swift 里。
+rm -rf /tmp/ql_sched_main && mkdir -p /tmp/ql_sched_main
+cp scripts/ql_schedule/truth_table_schedule.swift /tmp/ql_sched_main/main.swift
+run_unit6 /tmp/test_sched qingliao/Core/SchedulePlanner.swift qingliao/Core/QingliaoNotifyCopy.swift /tmp/ql_sched_main/main.swift
+
+echo "=== 105. 推送及时性 & 后台保活真值表（v4.0.118 · ② 后台补拉收件箱 + ③ BGAppRefreshTask/唤醒台账）==="
+# 起因（用户 2026-10-16）：「如何提高轻聊本地推送的及时性和后台保活？」
+#   代码级事实：performFetch 原来**只查流式任务**（UserDefaults 有 qingliao_stream_pending 才动），
+#   Hermes 推进收件箱的消息（任务中心 / 告警 / 目标日报 / AI 追问）在 App 挂起期间一条都弹不出来 ——
+#   这就是"推送不及时"最大的洞。② 补收件箱腿；③ 换 BGAppRefreshTask + 记唤醒台账（把及时性变成可测数字）。
+# 事故面（全静默，编译过 / 预检绿，只有真机或隔天才看出来）：
+#   ① 退回「只有 stream pending 才动」→ 后台继续静默丢推送（表里有反例断言钉住）；
+#   ② identifier 不在 project.yml 的 BGTaskSchedulerPermittedIdentifiers 里 →
+#      BGTaskScheduler.register **抛异常**（真机冷启动崩，-parse 与 CI archive 都查不出）；
+#      且代码里再写一遍字面量 → 两处漂移后同样崩（表里既查逐字一致、也查代码只用常量）；
+#   ③ BGTask 回调在后台队列，方法体进 MainActor 隔离 = SIGTRAP（v3.9.4 通知回调同源坑）；
+#   ④ 忘记重排下一次 = 只响一次就断供（系统同时只保留一个未完成请求）；
+#   ⑤ 以 applicationDidEnterBackground 为入口 —— 本 App 是 scene 化进程，它**永不被调用**；
+#   ⑥ 两条腿各回调一次 completion（未定义行为）；⑦ 已消费键名各写一份 → 同一条推送弹两次；
+#   ⑧ 后台补拉不跳 progress / 不设上限 → 一次唤醒刷满通知中心，用户当成故障。
+# 分工：InboxBackgroundPlan / BackgroundWakeLog 编进来**真跑**（规则 + 台账格式/摘要），
+#   其余用剥注释的源级断言钉接线形态（含 project.yml 白名单逐字一致）。
+# ⚠️ cwd 必须 = 仓库根（表里全是相对路径）；⚠️ 多文件编译时顶层代码只能在 main.swift 里。
+rm -rf /tmp/ql_bg_main && mkdir -p /tmp/ql_bg_main
+cp scripts/ql_bg/truth_table_bg.swift /tmp/ql_bg_main/main.swift
+run_unit6 /tmp/test_bg qingliao/Core/BackgroundWake.swift qingliao/Core/InboxBackgroundPlan.swift /tmp/ql_bg_main/main.swift
+
 echo "=== 104. 插话（暂停-恢复）真值表（v4.1.x · 只能插本会话那条流 / 起流失败退排队不丢消息）==="
 # 口径：输入栏 ⚡键 = 把本会话正在跑的那条流交给服务端挂起（保留断点现场），本条立刻抢答；
 #   原任务在插话流收尾后由服务端自动接回（接回是新任务，本页 6~12s 探针自动接回显示，无需额外代码）。

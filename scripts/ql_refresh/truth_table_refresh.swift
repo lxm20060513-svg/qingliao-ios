@@ -124,6 +124,16 @@ check("② action 标 @MainActor（Swift 6 严格并发：非隔离闭包进 Tas
       cupCode.contains("var action: @MainActor () async -> Void")
       && cupCode.contains("action: @escaping @MainActor () async -> Void"))
 
+// ── 2.5 杯子停位（本轮：用户 2026-10-16 截图红圈标注「把刷新的水杯放到我红圈标注的位置」）──
+// 口径（全部实测自用户截图 1179×2556 @3x，不是观感）：红圈圆心绝对 y = 131.5pt、直径 41pt；
+//   圈住的是**页头栏下沿（≈115–123pt）与首卡上沿（151pt）之间那条空白带**。
+// 算式：字形中心 = 内容可见顶(T+I) + 45.8 − cupTopNudge ⇒ 44 时 ≈131pt（原 8 ⇒ ≈161pt，压在首卡标题上）。
+// 停位继续依赖 `topInset` 项：写死绝对 y 的话，页头高度/安全区一变（灵动岛机型、横屏）杯子就钻到页头背后。
+check("② 杯子停位常量 = 44（满拉时字形中心落在页头栏下方空白带 ≈131pt，用户红圈标定）",
+      cupCode.contains("private let cupTopNudge: CGFloat = 44"))
+check("② 反例：停位仍算 topInset（不许写死绝对 y —— 页头高度/安全区一变杯子就钻进页头背后）",
+      cupCode.contains("topInset + min(pull, trigger) * 0.55 - cupTopNudge"))
+
 // ── 3. 手感口径：震动 / 防重入 / 弹性回位 / 令牌 ─────────────────
 check("③ 达阈值给 medium 触觉（用户口径「震动要明显」）", cupCode.contains("Haptics.medium()"))
 check("③ 达阈只震一次（armed 闸门，防跟手期间连震）",

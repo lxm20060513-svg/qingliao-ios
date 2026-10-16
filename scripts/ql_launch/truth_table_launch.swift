@@ -9,6 +9,9 @@ import Foundation
 //   （每块间隔约 60ms，带淡入）；全程不出现白屏、不硬切」。
 // 同轮拍板：用户回「1b 2b 3b 4b」→ ② 分拍式（圆先铺满再浮起）③ 启动页只留 Logo（删两行文字）
 //   ④ 呼吸 +3% ① 细粒度（hero 内部拆块）。
+// 补充（2026-10-16 用户回「2」）：Logo 下加回**一行**字标「Qimo Agent」（20pt / semibold / 字距 2 /
+//   与 Logo 间距 14pt，整组上下居中）—— 3b 的「只留 Logo」升级为「Logo + 一行字标」，
+//   但那两行旧文字仍不许回来（见下方反例）。
 //
 // 本表是**纯源码护栏**（不混 SwiftUI —— 仓规：真值表只读源码/跑纯逻辑，不引 SwiftUI 编译）：
 //   事故面 = 这四拍全靠**时序**串起来，任何一拍被后人「顺手简化」（把分拍改回同步、把挖洞换成淡出、
@@ -155,7 +158,15 @@ check("两处时长同值：Motion.launchReveal 的 0.7 == SplashView.revealDura
 // ── 反例：不许回来 / 不许混用（≥ 三分之一）──────────────────────────────
 // ⚠️ 断言必须认**代码形态**（Text("…")）：本文件注释里就写着「AI AGENT」这个被删项的名字，
 //    裸 contains 会把注释当违规 —— 这类误伤会逼后人删掉解释性注释，比漏检更坏。
-check("🚫 启动页两行文字已删（3b：只留 Logo）",
+check("✅ 启动页 Logo 下方是唯一一行品牌字标「Qimo Agent」（20pt / semibold / 字距 2 / 间距 14）",
+      splash.contains("Text(\"Qimo Agent\")") &&
+      splash.contains("Image(\"AboutLogo\")") &&
+      splash.contains("Typography.headline, weight: .semibold") &&
+      splash.contains(".tracking(2)") &&
+      splash.contains("VStack(spacing: 14)") &&
+      // 顺序：VStack 里 Logo 在前、字标在后 → 字标落在 Logo **下方**（别被后人调成放在上面）
+      splash.range(of: "Image(\"AboutLogo\")")!.lowerBound < splash.range(of: "Text(\"Qimo Agent\")")!.lowerBound)
+check("🚫 3b 删掉的那两行旧文字不许回来（启动页不再有第二行文字）",
       !splash.contains("Text(\"Qimo（轻聊）\")") && !splash.contains("Text(\"AI AGENT\")"))
 check("🚫 老的整页淡入/缩放入场不许回来（appeared 那套）",
       !splash.contains("appeared"))

@@ -31,6 +31,10 @@ enum QingliaoNotifyKind: String, CaseIterable, Sendable {
     case inbox
     /// 系统事件：快递变动、股价到价、监控暂停（task_type=system）
     case alert
+    /// 预排的定时任务提醒（v4.0.118：Hermes 侧已知时刻的事件，App 提前排系统级通知）
+    /// —— 与 `.reminder`（用户自己设的「一句话提醒」）刻意分开：两边的
+    /// identifier 前缀与自动化筛选用途都不同，混一类会让快捷指令分不清来源。
+    case scheduled
 
     /// 标题前缀（固定、可判别）。⚠️ 改这里就是改自动化条件的契约，别随手动。
     var prefix: String {
@@ -41,6 +45,7 @@ enum QingliaoNotifyKind: String, CaseIterable, Sendable {
         case .confirm:   return "轻聊·待确认"
         case .inbox:     return "轻聊·投递"
         case .alert:     return "轻聊·告警"
+        case .scheduled: return "轻聊·定时"
         }
     }
 

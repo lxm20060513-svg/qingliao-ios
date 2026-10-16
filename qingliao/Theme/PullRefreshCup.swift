@@ -55,8 +55,15 @@ struct PullRefreshCupModifier: ViewModifier {
     private var liquid: CGFloat { (phase == .refreshing || phase == .finishing) ? 1 : progress }
     /// 前 10pt 渐显（不给的话杯子在首次下拉时整块「啪」地出现）
     private var fade: Double { min(1, Double(pull) / 10) }
-    /// v4.0.114：杯子整体上移量（pt）—— 用户「下拉刷新杯子位置靠上一点」，微调只动这一个常量
-    private let cupTopNudge: CGFloat = 8
+    /// 杯子整体上移量（pt）—— **微调只动这一个常量**。
+    /// v4.0.114：用户「下拉刷新杯子位置靠上一点」→ 8。
+    /// 本轮（2026-10-16 用户截图红圈标注「把刷新的水杯放到我红圈标注的位置」）：8 → 44。
+    ///   实测自用户截图（1179×2556 @3x）：红圈圆心绝对 y = **131.5pt**，圈住的是**页头栏下沿与首卡上沿之间那条空白带**
+    ///   （页头栏底 ≈115–123pt，备忘录卡上沿 151pt）。按 `travel` 算式，
+    ///   杯子字形中心 = 内容可见顶(T+I) + 45.8 − nudge ⇒ nudge = 44 时停在 ≈131pt；
+    ///   原值 8 ⇒ ≈161pt，正好压在首卡第一行标题上（用户要挪走的就是这个）。
+    ///   ⚠️ 真机若还差一两毫米：**只改这一个数**，别动 travel 的其它项（inset 项去掉杯子会钻到页头背后）。
+    private let cupTopNudge: CGFloat = 44
     /// 指示器下移量：乘 0.55 让它比手指慢半拍，松手时才有「送出去」的手感
     private var travel: CGFloat { topInset + min(pull, trigger) * 0.55 - cupTopNudge }
 

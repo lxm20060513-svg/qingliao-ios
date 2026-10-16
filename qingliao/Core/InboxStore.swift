@@ -28,7 +28,10 @@ final class InboxStore {
     /// v3.0.x fix：按插入顺序记录 id，用于清理时保留最近的而非按字典序（字典序会丢掉最近的 id）
     private var consumedOrder: [String] = []
     private var pollingTask: Task<Void, Never>?
-    private let consumedKey = "qingliao_inbox_consumed_ids"
+    /// ⚠️ 键名是**跨层单一真源**（`InboxKeys.consumedIds`）：后台唤醒补拉收件箱
+    /// （AppDelegate，非 MainActor 上下文）也要读这个集合判「前台已消费」。
+    /// 各写一份 → 漂移后同一条推送被弹两次（编译过、无日志，只能靠用户报障发现）。
+    private let consumedKey = InboxKeys.consumedIds
     /// v3.9.76（用户规则：进度要按时间前后推）：**按来源任务分组**的最后一条进度快照。
     /// 用途：迟到的旧快照（投递层重投导致）必须丢弃——见 `InboxProgressOrder`。
     /// 只存内存：App 重启后为空 → 重启后第一条进度无条件接受（本来也没有累积的旧快照要防），
@@ -48,7 +51,7 @@ final class InboxStore {
     private var fastPollRemaining = 0
 
     private init() {
-        let saved = UserDefaults.standard.stringArray(forKey: "qingliao_inbox_consumed_ids") ?? []
+        let saved = UserDefaults.standard.stringArray(forKey: InboxKeys.consumedIds) ?? []
         consumedIds = Set(saved)
         // 恢复插入顺序（字典序保存的旧数据无法精确恢复，用 sorted 兜底）
         consumedOrder = saved.isEmpty ? saved : Array(consumedIds).sorted()

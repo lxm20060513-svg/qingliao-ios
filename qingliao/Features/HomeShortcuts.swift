@@ -180,4 +180,18 @@ final class QingliaoSceneDelegate: NSObject, UIWindowSceneDelegate {
                      completionHandler: @escaping (Bool) -> Void) {
         completionHandler(HomeShortcutManager.handle(shortcutItem))
     }
+
+    /// v4.0.118：进后台 → 记台账 + 排下一次后台刷新（BGAppRefreshTask）。
+    /// ⚠️ 本 App 是 **scene 化**进程：`QingliaoAppDelegate.applicationDidEnterBackground`
+    /// **永远不会被调用**（v4.0.118 之前没人碰过后台刷新队列，这是"只响一次就断供"的隐患）。
+    /// 逻辑只在 AppDelegate 里写一份，这里只转发。
+    func sceneDidEnterBackground(_ scene: UIScene) {
+        QingliaoAppDelegate.didEnterBackground()
+    }
+
+    /// v4.0.118：回前台记一笔 —— 台账要能分清"系统叫醒的"和"用户自己打开 App 的"，
+    /// 否则会把"用户天天手动开"误读成"系统调度很勤快"。
+    func sceneWillEnterForeground(_ scene: UIScene) {
+        QingliaoAppDelegate.willEnterForeground()
+    }
 }
