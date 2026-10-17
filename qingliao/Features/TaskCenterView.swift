@@ -59,37 +59,9 @@ struct TaskCenterView: View {
                     List {
                         // v3.4.23：进行中分区（仅"全部/进行中"页显示；running 置顶实时刷新）
                         if filter == .all || filter == .active {
-                            if !activeTasks.isEmpty {
-                                Section("⏳ 进行中") {
-                                    ForEach(activeTasks) { t in
-                                        ActiveTaskRow(task: t)
-                                            // v4.0.86（任务中心①）：行点击 → 停止确认（仅 kind=stream；
-                                            // bg 作业后端无 cancel 端点，不提供停止）
-                                            .contentShape(Rectangle())
-                                            .onTapGesture {
-                                                if t.kind == "stream", t.status == "running" {
-                                                    stopTarget = t
-                                                }
-                                            }
-                                    }
-                                }
-                            }
+                            runningSection
                         }
-                        if !activeOnlyTasks.isEmpty {
-                            Section {
-                                ForEach(activeOnlyTasks) { item in
-                                    TaskRow(item: item)
-                                        .contentShape(Rectangle())
-                                        // v4.0.76：每行实时上报全局 frame（锚定菜单从被点行位置弹出）
-                                        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) }
-                                            action: { rowFrames[item.id] = $0 }
-                                        .onTapGesture { actionItem = item }
-                                }
-                                .onDelete { idx in
-                                    for i in idx { store.setCompleted(activeOnlyTasks[i].id, true) }
-                                }
-                            }
-                        }
+                        activeOnlySection
                     }
                     .listStyle(.plain)
                 }
@@ -292,8 +264,58 @@ struct TaskCenterView: View {
 
     /// v4.0.120（改善建议④）：状态过渡的判据 = 三个分区的 **id 集合**（只看增删，不看行内文本）。
     /// 显式返回类型 [String] 是**刻意**的：把推导钉在类型检查早期，避免 UI 表达式超时。
+    /// ⚠️ 三段**分别 map 再拼**：activeTasks / historyTasks 是 [AuthStore.ActiveTask]，而
+    ///    activeOnlyTasks 是 [TaskCenterItem] —— 数组元素类型不同，直接 `+` 编译不过（CI 实踩）。
     private var taskIdsSignature: [String] {
-        (activeTasks + activeOnlyTasks + historyTasks).map(\.id)
+        activeTasks.map(\.id) + historyTasks.map(\.id) + activeOnlyTasks.map(\.id)
+    }
+
+    // v3.4.23：进行中分区（仅"全部/进行中"页显示；running 置顶实时刷新）
+    /// 🚨 CI 实踩（v4.0.120 二轮 Archive 失败）：List > if > Section > ForEach > onTapGesture 的内联嵌套
+    /// 把 body 的类型检查拖爆（`unable to type-check this expression in reasonable time`，报在
+    /// `t.kind == "stream", t.status == "running"` 那行）。**拆成独立计算属性**后每层表达式都短，
+    /// 分区内部的结构改动不会再牵动整个 body 的推导。
+    @ViewBuilder
+    private var runningSection: some View {
+        if !activeTasks.isEmpty {
+            Section("⏳ 进行中") {
+                ForEach(activeTasks) { t in
+                    ActiveTaskRow(task: t)
+                        // v4.0.86（任务中心①）：行点击 → 停止确认（仅 kind=stream；
+                        // bg 作业后端无 cancel 端点，不提供停止）
+                        .contentShape(Rectangle())
+                        .onTapGesture { requestStop(t) }
+                }
+            }
+        }
+    }
+
+    /// v4.0.120：可点任务分区（收集箱里的非 reply 任务）。
+    @ViewBuilder
+    private var activeOnlySection: some View {
+        if !activeOnlyTasks.isEmpty {
+            Section {
+                ForEach(activeOnlyTasks) { item in
+                    TaskRow(item: item)
+                        .contentShape(Rectangle())
+                        // v4.0.76：每行实时上报全局 frame（锚定菜单从被点行位置弹出）
+                        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) }
+                            action: { rowFrames[item.id] = $0 }
+                        .onTapGesture { actionItem = item }
+                }
+                .onDelete { idx in
+                    for i in idx { store.setCompleted(activeOnlyTasks[i].id, true) }
+                }
+            }
+        }
+    }
+
+    /// 停止确认入口：条件判断**挪出 ViewBuilder**（在 ViewBuilder 里做 Optional 比较正是超时点）。
+    /// 两个比较各写一条显式 Bool，不给类型推导留余地。
+    private func requestStop(_ t: AuthStore.ActiveTask) {
+        let isStream: Bool = (t.kind == "stream")
+        let isRunning: Bool = (t.status == "running")
+        if isStream && isRunning { stopTarget = t }
     }
 
     // MARK: - v4.0.86（任务中心③）：历史分区
