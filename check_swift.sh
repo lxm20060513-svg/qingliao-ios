@@ -1852,6 +1852,14 @@ cnt=$(grep -nE '\.animation\([A-Za-z.]+, value: [a-zA-Z]+\.map\(' qingliao/Featu
 [ "$cnt" -eq 0 ] || { echo "❌ TaskCenterView 又把 map(\.id) 内联进 .animation —— 请走显式类型的 taskIdsSignature（$cnt 处）"; fail=1; }
 cnt=$(grep -cF 'private var taskIdsSignature: [String] {' qingliao/Features/TaskCenterView.swift | tr -d ' ')
 [ "$cnt" -eq 1 ] || { echo "❌ TaskCenterView 的过渡判据签名缺失（实得 $cnt）"; fail=1; }
+# ③ 修饰符不许挂在 if/else **语句**上（v4.0.120 第三轮 Archive 实踩）：三分支共同类型被推成存在类型
+#    `View` → `instance member 'animation' cannot be used on type 'View'`；本机 `-parse` 与全部真值表
+#    全绿、只有 Archive 报。判据/修法见脚本头注（收进 @ViewBuilder 计算属性或 Group 再挂）。
+IFCHAIN=$(python3 scripts/check_if_chain_modifier.py qingliao 2>&1 || true)
+case "$IFCHAIN" in
+  OK*) : ;;
+  *) echo "❌ 修饰符挂在 if/else 语句上（SwiftUI 编译不过，只有 Archive 报）→ 收进 @ViewBuilder 计算属性："; echo "$IFCHAIN"; fail=1 ;;
+esac
 
 [ $fail -eq 0 ] || { echo "❌ 有护栏失守"; exit 1; }
 exit 0

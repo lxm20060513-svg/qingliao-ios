@@ -50,30 +50,21 @@ struct TaskCenterView: View {
                 .padding(.top, Spacing.md)
 
                 // v3.4.23：显示条件 = 进行中任务非空 或 未完成任务非空（v4.0.86：历史页除外——历史空也给空态）
-                if filter == .history {
-                    historyList
-                } else if activeTasks.isEmpty && activeOnlyTasks.isEmpty {
-                    // v4.0.120：空态 ↔ 列表的交接用透明度（局部转场 —— 与禁令⑯d「整页低起点淡入」不是一回事）
-                    emptyState.transition(.opacity)
-                } else {
-                    List {
-                        // v3.4.23：进行中分区（仅"全部/进行中"页显示；running 置顶实时刷新）
-                        if filter == .all || filter == .active {
-                            runningSection
-                        }
-                        activeOnlySection
-                    }
-                    .listStyle(.plain)
-                }
-                // v4.0.120（改善建议④）：大页面补**状态过渡** —— 列表行增删 / 分区切换按现成令牌走
-                //（不新写裸曲线）。判据只看 **id 集合**：轮询每 2s 一次，id 没变就不触发动画，
-                // 行内文本（detail / elapsed）变化不会被带起来。
-                // 🚨 CI 实踩（v4.0.120 首轮 Archive 失败）：原来把三处 `map(\.id)` **内联**进
-                //    `.animation(_:value:)`，key path + 泛型重载叠加把 body 的类型检查拖爆
-                //    （`unable to type-check this expression in reasonable time`，报在 List 里第一个 if）。
-                //    改为单个**显式类型**的签名值（见 taskIdsSignature），推导只算一次。
-                .animation(Motion.settle, value: filter)
-                .animation(Motion.settle, value: taskIdsSignature)
+                // 🚨 CI 实踩（v4.0.120 第三轮 Archive 失败）：三分支**直接写在本处**、修饰符挂在 if/else
+                //    **语句**之后 → 编译器把三分支的共同类型推成存在类型 `View`，报
+                //    `instance member 'animation' cannot be used on type 'View'`（本地 `-parse` 全绿、
+                //    全部真值表也照不到，只有 Archive 报）。口径：**修饰符只能挂在具体视图表达式上**
+                //    → 三分支收进 `mainContent` 计算属性（同 runningSection 口径）。
+                mainContent
+                    // v4.0.120（改善建议④）：大页面补**状态过渡** —— 列表行增删 / 分区切换按现成令牌走
+                    //（不新写裸曲线）。判据只看 **id 集合**：轮询每 2s 一次，id 没变就不触发动画，
+                    // 行内文本（detail / elapsed）变化不会被带起来。
+                    // 🚨 CI 实踩（v4.0.120 首轮 Archive 失败）：原来把三处 `map(\.id)` **内联**进
+                    //    `.animation(_:value:)`，key path + 泛型重载叠加把 body 的类型检查拖爆
+                    //    （`unable to type-check this expression in reasonable time`，报在 List 里第一个 if）。
+                    //    改为单个**显式类型**的签名值（见 taskIdsSignature），推导只算一次。
+                    .animation(Motion.settle, value: filter)
+                    .animation(Motion.settle, value: taskIdsSignature)
             }
             .navigationTitle("任务中心")
             .navigationBarTitleDisplayMode(.inline)
@@ -268,6 +259,30 @@ struct TaskCenterView: View {
     ///    activeOnlyTasks 是 [TaskCenterItem] —— 数组元素类型不同，直接 `+` 编译不过（CI 实踩）。
     private var taskIdsSignature: [String] {
         activeTasks.map(\.id) + historyTasks.map(\.id) + activeOnlyTasks.map(\.id)
+    }
+
+    /// v4.0.120（改善建议④）：任务中心的三个显示分支（历史 / 空态 / 列表）。
+    /// 单独成属性是**刻意**的：`.animation` 这类修饰符挂在 `if/else` **语句**上编译不过
+    /// （三分支共同类型被推成存在类型 `View` → `cannot be used on type 'View'`），只能挂在
+    /// 具体视图表达式上。详见 body 里那段 CI 实踩注释。
+    @ViewBuilder
+    private var mainContent: some View {
+        // v3.4.23：显示条件 = 进行中任务非空 或 未完成任务非空（v4.0.86：历史页除外——历史空也给空态）
+        if filter == .history {
+            historyList
+        } else if activeTasks.isEmpty && activeOnlyTasks.isEmpty {
+            // v4.0.120：空态 ↔ 列表的交接用透明度（局部转场 —— 与禁令⑯d「整页低起点淡入」不是一回事）
+            emptyState.transition(.opacity)
+        } else {
+            List {
+                // v3.4.23：进行中分区（仅"全部/进行中"页显示；running 置顶实时刷新）
+                if filter == .all || filter == .active {
+                    runningSection
+                }
+                activeOnlySection
+            }
+            .listStyle(.plain)
+        }
     }
 
     // v3.4.23：进行中分区（仅"全部/进行中"页显示；running 置顶实时刷新）
