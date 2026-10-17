@@ -63,14 +63,15 @@ enum EnvironmentGradient {
             : Color(red: 0xFA / 255, green: 0xFA / 255, blue: 0xFC / 255)
     }
 
-    /// 主交互色对（发送键 / 添加胶囊等「实底小圆钮」用）：与用户气泡同一套蓝→紫，
-    /// 拆成 [Color] 是因为发送键的渐变动画按色数组插值（sendColors 三态切换）。
+    /// 主交互色对（发送键 / 添加胶囊等「实底小圆钮」用）：与用户气泡同一套色。
+    ///
+    /// 第 7 项整改（用户 2026-10-18「交互色（链接、选中、发送）收成一个品牌色」）：
+    /// 改造前是「蓝→紫」两支色相（与系统强调色并列，同屏三种「被选中」观感）→ 现统一取
+    /// `BrandColor.interactiveGradientColors`（**同一品牌色相的两端**）。
+    /// 拆成 [Color] 是因为发送键的渐变动画按色数组插值（sendColors 三态切换）——
+    /// 别把它改成单色，插值会退化成硬切。
     static func userBubbleColors(_ scheme: ColorScheme) -> [Color] {
-        scheme == .dark
-            ? [Color(red: 0x3B / 255, green: 0x82 / 255, blue: 0xE0 / 255),
-               Color(red: 0x6A / 255, green: 0x4F / 255, blue: 0xD8 / 255)]
-            : [Color(red: 0x4D / 255, green: 0xA3 / 255, blue: 0xFF / 255),
-               Color(red: 0x7A / 255, green: 0x5C / 255, blue: 0xFF / 255)]
+        BrandColor.interactiveGradientColors(scheme)
     }
 
     /// 用户气泡渐变（A 方案：蓝→紫，稿 aUser 逐字）

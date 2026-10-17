@@ -1446,34 +1446,36 @@ ckNot "回退⑮：0.9 淡入（v4.0.71 未根治版）也不许回来" '\.opaci
 # 用户真机反馈「dock 栏 tap 切换太闪了」（根因：opacity 走 snap 0.20s、位移走 flow 0.28s，两条曲线不同拍
 # 又都从 phase=0 起手 = 内容先整个消失再出现）→ **v4.0.85** 整体加重（起点 0.75 / 位移 60pt / pageSlide 弹簧，
 # 历轮为躲「闪 / 露白」一路压到 ≈硬切）。
-# **v4.0.97（用户 2026-10-11「dock 栏 tap 页切换采用圆形扩散转场特效：点击底部 tap，新页面就从手指
-# 按下的位置向外扩散直到铺满整个屏幕」）**：淡入 + 横向微滑**整条换掉** → 圆形扩散 ——
-# 新页走可动画裁剪形状 `RevealCircleShape`，半径 0 → Motion.pageRevealMaxRadius(1200)、曲线 Motion.pageReveal。
-# 半径 / 起点两处与 ChatZoomEntryModifier 逐字成对，别只改一边。
-# 🚨 v4.0.117（用户 2026-10-15 真机「滑动返回聊天主页的扩散就是太快」）：**曲线这一项分家** ——
-# 切页（TabTransition / ChatZoom）仍是 Motion.pageReveal（.smooth 0.75，用户三轮拍定，别动）；
-# 滑动返回（SessionHomeReveal）单独走 Motion.sessionBackReveal（.smooth 1.10，见本组 ⑯k/⑯l）。
-# 圆外不露白的理由：TabView 底下常驻同款 `EnvironmentGlowLayers` 垫底（回退⑰），半径 0 那一拍整屏看到的就是
+# 🚨 **v4.0.120（用户 2026-10-17「圆扩散只留启动页」）**：底栏切页整条换成**内容层定向滑入** ——
+# 新页内容按槽位方向位移进场（起点 ±Motion.pageEnterShift(28pt)，曲线 Motion.pageEnterSlide(.smooth 0.32)，
+# 方向按新旧槽位在 order 里的序号差判）。圆扩散只剩**两处**：滑动返回（SessionHomeReveal，见本组 ⑯k/⑯l）
+# 与启动页（SplashView 的 launchReveal）。
+# 曲线 / 位移 / 方向三处与 ChatZoomEntryModifier 逐字成对，别只改一边（ql_themegrad ⑧c、ql_docklayout 表同钉）。
+# 位移期间不露白的理由：TabView 底下常驻同款 `EnvironmentGlowLayers` 垫底（回退⑰）—— 那 28pt 露出的就是
 # 这层渐变 = 与页底逐帧一致 —— v4.0.73~0.85 反复治的「先白一下」不会复发。
-# 禁令不变：整页缩放（0.96 那套）/ y 轴上浮 / 低起点整页淡入（0.35 起手）一概不许回来。
-cnt=$(grep -cF 'withAnimation(Motion.pageReveal) { revealRadius = Motion.pageRevealMaxRadius }' "$DT"); [ "$cnt" -ge 2 ] \
-  || { echo "❌ 回退⑯：**切页**入场应为同一个 withAnimation(Motion.pageReveal) { revealRadius = Motion.pageRevealMaxRadius }（两处 modifier 各一份；返回那条另走 ⑯l，实得 $cnt）"; fail=1; }
-cnt=$(grep -cF 'clipShape(RevealCircleShape(center: localCenter, radius: revealRadius))' "$DT"); [ "$cnt" -ge 2 ] \
-  || { echo "❌ 回退⑯i：圆形扩散应走 RevealCircleShape 裁剪（两处 modifier 各一份，实得 $cnt）"; fail=1; }
+# 禁令不变：整页缩放（0.96 那套）/ y 轴上浮 / 低起点整页淡入（0.35 起手）/ 旧横向微滑（pageSlideShift）一概不许回来。
+cnt=$(grep -cF 'withAnimation(Motion.pageEnterSlide) { slideOffset = 0 }' "$DT"); [ "$cnt" -eq 2 ] \
+  || { echo "❌ 回退⑯：**切页**入场应为同一个 withAnimation(Motion.pageEnterSlide) { slideOffset = 0 }（两处 modifier 各一份，实得 $cnt）"; fail=1; }
+cnt=$(grep -cF 'direction(from: oldVal) * Motion.pageEnterShift' "$DT"); [ "$cnt" -eq 2 ] \
+  || { echo "❌ 回退⑯f：切页入场起点应为按槽位方向取的 ±Motion.pageEnterShift（两处 modifier 各一份，实得 $cnt）"; fail=1; }
+cnt=$(grep -cF 'clipShape(RevealCircleShape(center: localCenter, radius: revealRadius))' "$DT"); [ "$cnt" -eq 1 ] \
+  || { echo "❌ 回退⑯i：圆扩散裁剪只剩**返回**那一处（v4.0.120 起切页不再是扩散，实得 $cnt）"; fail=1; }
 # v4.0.97 审查（medium）：shape 的 path 在**页面局部坐标系**里，圆心却是 window 坐标 →
-# 必须经 localCenter 减掉页面原点（安全区 ≈59pt），否则整圆偏下一个状态栏。
-cnt=$(grep -cF 'CGPoint(x: revealCenter.x - pageOrigin.x, y: revealCenter.y - pageOrigin.y)' "$DT"); [ "$cnt" -ge 2 ] \
-  || { echo "❌ 回退⑯i2：圆心必须做 window → 页面坐标换算（实得 $cnt）"; fail=1; }
-cnt=$(grep -cF 'revealRadius = 0' "$DT"); [ "$cnt" -ge 2 ] \
-  || { echo "❌ 回退⑯e：切页入场起点应为扩散半径归 0（两处 modifier 各一份，实得 $cnt）"; fail=1; }
+# 必须经 localCenter 减掉页面原点（安全区 ≈59pt），否则整圆偏下一个状态栏。v4.0.120 起只剩返回那一处。
+cnt=$(grep -cF 'CGPoint(x: revealCenter.x - pageOrigin.x, y: revealCenter.y - pageOrigin.y)' "$DT"); [ "$cnt" -eq 1 ] \
+  || { echo "❌ 回退⑯i2：返回那支的圆心必须做 window → 页面坐标换算（实得 $cnt）"; fail=1; }
+cnt=$(grep -cF 'withAnimation(nil) { revealRadius = 0 }' "$DT"); [ "$cnt" -eq 1 ] \
+  || { echo "❌ 回退⑯e：返回扩散入场起点应为半径瞬归 0（withAnimation(nil)，恰好一处，实得 $cnt）"; fail=1; }
 cnt=$(grep -cF 'static let pageRevealMaxRadius: CGFloat = 1200' qingliao/Theme/Motion.swift); [ "$cnt" -ge 1 ] \
   || { echo "❌ 回退⑯g：扩散圆最大半径应为 Motion.pageRevealMaxRadius = 1200（实得 $cnt）"; fail=1; }
-cnt=$(grep -cF 'static var pageReveal: Animation { .smooth(duration: 0.75) }' qingliao/Theme/Motion.swift); [ "$cnt" -ge 1 ] \
-  || { echo "❌ 回退⑯h：切页曲线令牌应为 Motion.pageReveal（.smooth 0.75，v4.0.98→v4.0.100 用户两次要求放慢，实得 $cnt）"; fail=1; }
+ckNot "回退⑯h：pageReveal 令牌已退役（v4.0.120 切页改定向滑入后无人消费；扩散只留 launchReveal / sessionBackReveal）" 'static var pageReveal' "qingliao/Theme/Motion.swift"
+ckNot "回退⑯h2：切页那两处不许再走 pageReveal 圆扩散事务（返回那条走 ⑯l）" 'withAnimation\(Motion\.pageReveal\) \{ revealRadius' "$DT"
 # v4.0.117（用户 2026-10-15 真机拍板「滑动返回的扩散就是太快，再慢一点」）：返回这条链**单独一枚更慢的曲线**。
 # 为什么不能直接改 pageReveal：0.75 是用户为 **dock 切页**三轮调定的（0.42→0.60→0.75），
 # 顺手加长 = 误伤已在用的切页动效（用户口径「修复勿误伤在用功能」）。
-cnt=$(grep -cF 'static var sessionBackReveal: Animation { .smooth(duration: 1.10) }' qingliao/Theme/Motion.swift); [ "$cnt" -ge 1 ] \
+# 第 12 项（2026-10-18 特效总档）：令牌形态变为 tuned(.smooth(...)) —— 断言只钉**曲线 + 时长字面**，
+# 不再钉整行（否则「关档」包装一进来就误报；改时长或换曲线照样红）。
+cnt=$(grep -cF '.smooth(duration: 1.10)' qingliao/Theme/Motion.swift); [ "$cnt" -ge 1 ] \
   || { echo "❌ 回退⑯k：滑动返回专用曲线令牌应为 Motion.sessionBackReveal（.smooth 1.10，实得 $cnt）"; fail=1; }
 # 恰好一处（只有 SessionHomeRevealModifier 的 enter 该用它；多一处 = 有人拿它顺手改了切页那条）。
 cnt=$(grep -cF 'withAnimation(Motion.sessionBackReveal) { revealRadius = Motion.pageRevealMaxRadius }' "$DT"); [ "$cnt" -eq 1 ] \
@@ -1732,6 +1734,108 @@ echo "=== 104. 插话（暂停-恢复）真值表（v4.1.x · 只能插本会话
 rm -rf /tmp/ql_ij_main && mkdir -p /tmp/ql_ij_main
 cp scripts/ql_interject/truth_table_interject.swift /tmp/ql_ij_main/main.swift
 run_unit6 /tmp/test_interject qingliao/Core/InterjectPolicy.swift /tmp/ql_ij_main/main.swift
+
+echo "=== 105. 第 7–12 项 UI 打磨真值表（用户 2026-10-18 清单条目）==="
+# 事故面：这六项全是「观感统一」类改动 —— 编译过、预检绿、没有运行日志，只有真机才看得出，
+#   人眼回归必漏 ⇒ 只能代码级钉。任何一项被改回旧形态，本组立刻报红。
+# —— 第 7 项：交互色（链接/选中/发送）收成一支品牌色；分类色改固定表；深色图标底压一档彩度 ——
+cnt=$(grep -cF 'enum BrandColor' qingliao/Theme/Brand.swift | tr -d ' ')
+[ "$cnt" -eq 1 ] || { echo "❌ 第 7 项：品牌交互色单一真源 Theme/Brand.swift 不存在（实得 $cnt）"; fail=1; }
+cnt=$(grep -cF 'BrandColor.interactiveGradientColors(scheme)' qingliao/Theme/EnvironmentGradient.swift | tr -d ' ')
+[ "$cnt" -eq 1 ] || { echo "❌ 第 7 项：发送键/用户气泡应走 BrandColor.interactiveGradientColors（实得 $cnt）"; fail=1; }
+cnt=$(grep -cF 'if let c = fixed[name] { return c }' qingliao/Features/Life/RecordSection.swift | tr -d ' ')
+[ "$cnt" -eq 1 ] || { echo "❌ 第 7 项：分类色应先命中固定表再回落哈希（实得 $cnt）"; fail=1; }
+cnt=$(grep -cF 'static let darkSaturation: Double = 0.82' qingliao/Features/Life/LifeBadges.swift | tr -d ' ')
+cnt2=$(grep -cF '.saturation(scheme == .dark ? BadgeShell.darkSaturation : 1)' qingliao/Features/Life/LifeBadges.swift | tr -d ' ')
+{ [ "$cnt" -eq 1 ] && [ "$cnt2" -eq 1 ]; } || { echo "❌ 第 7 项：深色图标底未压彩度（常量实得 $cnt / 消费实得 $cnt2）"; fail=1; }
+# —— 第 8 项：彩色淡底 浅 0.15 / 深 0.22（新写法一律走 Tint.coloredFill，别再写裸 opacity(0.15)） ——
+cnt=$(grep -cF 'scheme == .dark ? strong : 0.15' qingliao/Theme/Tint.swift | tr -d ' ')
+[ "$cnt" -eq 1 ] || { echo "❌ 第 8 项：彩色淡底深色档不在 Tint.coloredFill（实得 $cnt）"; fail=1; }
+cnt=$(grep -rlF 'Tint.coloredFill(' qingliao/ --include=*.swift | wc -l | tr -d ' ')
+[ "$cnt" -ge 5 ] || { echo "❌ 第 8 项：彩色淡底调用点不足 5 个文件（实得 $cnt）—— 有人又写裸 opacity(0.15)"; fail=1; }
+# —— 第 9 项：状态图标走符号替换；未读/待办/用量计数走数字过渡 ——
+# ⚠️ 触发值必须挂**真正会变的量**（审查 P1 实测）：原先断言钉的是 `value: item.bounceTick`，
+#    而 bounceTick 只有「新建会话」那颗会自增、那颗 systemName 写死（符号不变）→ 断言绿、效果全站空转。
+# ⚠️ 第 12 项起本行同时带 `options:`（丰富档加长替换节奏）—— 断言匹配的是「挂 systemName」这个语义，
+#    形态上带 options 也算真挂；不带 options 的旧形态已不存在（改回旧形态会在下面第 12 项那段报红）。
+cnt=$(grep -cF '.symbolEffect(.replace, options: Motion.symbolReplaceOptions, value: item.systemName)' qingliao/Theme/HeaderPillButton.swift | tr -d ' ')
+[ "$cnt" -eq 1 ] || { echo "❌ 第 9 项：页头胶囊的符号替换没挂真正会变的量（应挂 systemName + 丰富档 options，实得 $cnt）"; fail=1; }
+cnt=$(grep -cF '.symbolEffect(.replace, value: item.bounceTick)' qingliao/Theme/HeaderPillButton.swift | tr -d ' ')
+[ "$cnt" -eq 0 ] || { echo "❌ 第 9 项：符号替换又被挂回恒 0 的 bounceTick（符号不变 = 空转）"; fail=1; }
+cnt=$(grep -cF '.symbolEffect(.bounce, value: item.bounceTick)' qingliao/Theme/HeaderPillButton.swift | tr -d ' ')
+[ "$cnt" -eq 1 ] || { echo "❌ 第 9 项：点击弹动反馈（bounce×tick）被删（实得 $cnt）—— 换 replace 不许误伤既有反馈"; fail=1; }
+# 负断言：栏头图标是常量，挂 replace 就是死代码（值不变、结构上不可能触发）→ 不许回来
+cnt=$(grep -cF 'symbolEffect(.replace, value: sectionIcon)' qingliao/Features/Life/LifeSectionScaffold.swift | tr -d ' ')
+[ "$cnt" -eq 0 ] || { echo "❌ 第 9 项：栏头又挂了常量值的符号替换（死代码）—— 要么删，要么让图标真随状态变"; fail=1; }
+cnt=$(grep -cF 'contentTransition(.numericText())' qingliao/Features/Sessions/SessionsView.swift | tr -d ' ')
+[ "$cnt" -ge 2 ] || { echo "❌ 第 9 项：未读角标未走数字过渡（两处，实得 $cnt）"; fail=1; }
+# —— 第 10 项：滚动景深补挂（容器必须惰性堆叠；挂 List 上会让整行常驻缩小变淡） ——
+cnt=$(grep -cF '.scrollDepth()' qingliao/Features/Chat/LongReplySheet.swift | tr -d ' ')
+[ "$cnt" -ge 1 ] || { echo "❌ 第 10 项：长回复页未挂滚动景深（实得 $cnt）"; fail=1; }
+# —— 第 11 项：自绘浮层节拍对齐备忘录（罩 Motion.flow / 面板 Motion.emerge，不再硬编码弹簧） ——
+cnt=$(grep -cF 'withAnimation(Motion.flow) { scrimOn = true }' qingliao/Features/OrbIdentifyOverlay.swift | tr -d ' ')
+[ "$cnt" -eq 1 ] || { echo "❌ 第 11 项：识别浮层的背景罩未走 Motion.flow（实得 $cnt）"; fail=1; }
+cnt=$(grep -cF 'withAnimation(.spring(response: 0.42, dampingFraction: 0.78)) { appeared = true }' qingliao/Features/OrbIdentifyOverlay.swift | tr -d ' ')
+[ "$cnt" -eq 0 ] || { echo "❌ 第 11 项：识别浮层仍在用硬编码弹簧入场（应走 Motion.emerge）"; fail=1; }
+cnt=$(grep -cF 'withAnimation(.spring(response: 0.42, dampingFraction: 0.72)) { shown = true }' qingliao/Features/OrbQuickMenu.swift | tr -d ' ')
+[ "$cnt" -eq 0 ] || { echo "❌ 第 11 项：智慧球菜单仍在用硬编码弹簧入场（应走 Motion.emerge）"; fail=1; }
+# —— 第 12 项：特效总档三选一（关 / 标准 / 丰富）+ 令牌层收敛点 + 设置页入口 ——
+for lv in 'case off' 'case standard' 'case rich'; do
+  cnt=$(grep -cF "$lv" qingliao/Core/EffectsLevel.swift | tr -d ' ')
+  [ "$cnt" -ge 1 ] || { echo "❌ 第 12 项：EffectsLevel 缺档 $lv"; fail=1; }
+done
+# 🚨 断言必须抽**函数体**，不能裸 grep（本轮实测踩坑）：同一串曾只出现在注释里，
+#    裸 `grep -cF` 照样返回 1 → 预检全绿，而 tuned 其实是恒等函数、整个「关」档空转（审查 P0）。
+tunedBody=$(awk '/private static func tuned\(/,/^    }/' qingliao/Theme/Motion.swift)
+case "$tunedBody" in
+  *'EffectsLevel.current.isOff ? .linear(duration: 0.001) : animation'*) : ;;
+  *) echo "❌ 第 12 项：Motion.tuned 没有真收敛（「关」档空转）—— 函数体里找不到零时长分支"; fail=1 ;;
+esac
+# 令牌漏包计数：每条 `static var X: Animation {` 都该套一次 tuned（+1 = tuned 自身的定义行）。
+# 审查 P1 实测：snap 当时是唯一漏包的一枚，却有 70+ 调用点，「关」档对它无效。
+cntDecl=$(grep -cE '^    static var [A-Za-z]+: Animation \{' qingliao/Theme/Motion.swift | tr -d ' ')
+cntTuned=$(grep -c 'tuned(' qingliao/Theme/Motion.swift | tr -d ' ')
+[ "$cntTuned" -eq $((cntDecl + 1)) ] || { echo "❌ 第 12 项：有令牌漏套 tuned（声明 $cntDecl 条 / tuned 命中 $cntTuned，应等于声明+1）"; fail=1; }
+cnt=$(grep -cF 'Section("动效特效")' qingliao/Features/Settings/SettingsCommon.swift | tr -d ' ')
+[ "$cnt" -eq 1 ] || { echo "❌ 第 12 项：外观设置里没有特效总档入口（实得 $cnt）"; fail=1; }
+cnt=$(grep -cF '@AppStorage(UserDefaultsKey.effectsLevel)' qingliao/Features/Settings/SettingsCommon.swift | tr -d ' ')
+[ "$cnt" -eq 1 ] || { echo "❌ 第 12 项：总档入口没绑 UserDefaultsKey.effectsLevel（实得 $cnt）"; fail=1; }
+# —— 第 7 项（本轮收口）：AccentColor 与 BrandColor 同源 ——
+# 由头：全站 200+ 处 .accentColor（链接 / 选中态 / 开关 / 光标）不可能逐处改调用点，
+#   只能让 colorset 与品牌色同值 —— 这一处一改，全部交互色自动收成一支。
+#   脱钩的后果与「收成一支」正好相反：发送键一支、链接与选中另一支，用户一眼看出两支色。
+cnt=$(grep -cF '"red" : "0.184"' qingliao/Assets.xcassets/AccentColor.colorset/Contents.json | tr -d ' ')
+cnt2=$(grep -cF '"red" : "0.357"' qingliao/Assets.xcassets/AccentColor.colorset/Contents.json | tr -d ' ')
+{ [ "$cnt" -eq 1 ] && [ "$cnt2" -eq 1 ]; } || { echo "❌ 第 7 项：AccentColor.colorset 与 BrandColor 脱钩（浅色命中 $cnt / 深色命中 $cnt2，各应 1）"; fail=1; }
+cnt=$(grep -cF '0x2F / 255' qingliao/Theme/Brand.swift | tr -d ' ')
+cnt2=$(grep -cF '0x5B / 255' qingliao/Theme/Brand.swift | tr -d ' ')
+{ [ "$cnt" -eq 1 ] && [ "$cnt2" -eq 1 ]; } || { echo "❌ 第 7 项：BrandColor 色值真源缺失（浅 $cnt / 深 $cnt2）—— Brand.swift 与 colorset 必须两处一起改"; fail=1; }
+# —— 第 9 项（本轮补）：用量 / 余额数字也走数字过渡（未读角标之外的第二类计数） ——
+cnt=$(grep -cF 'contentTransition(.numericText())' qingliao/Features/Dashboard/UsageCard.swift | tr -d ' ')
+[ "$cnt" -ge 2 ] || { echo "❌ 第 9 项：用量 / 余额数字未走数字过渡（实得 $cnt，应 ≥2）"; fail=1; }
+# —— 第 10 项（负断言）：滚动景深只补惰性堆叠页 ——
+# 转写流与聊天消息行同口径（只增、逐段重写）：挂上会让每段随位置常驻缩小变淡，读作闪。
+cnt=$(grep -cF '.scrollDepth()' qingliao/Features/Chat/MeetingMinutesView.swift | tr -d ' ')
+[ "$cnt" -eq 0 ] || { echo "❌ 第 10 项：会议转写流挂了滚动景深（与聊天消息行同口径，不许挂）"; fail=1; }
+# —— 第 11 项（本轮补）：面板入场几何收成 Motion 单一真源 + 智慧球菜单的罩拆相位 ——
+cnt=$(grep -cF 'static let panelEnterScale: CGFloat = 0.94' qingliao/Theme/Motion.swift | tr -d ' ')
+cnt2=$(grep -cF 'static let panelEnterRise: CGFloat = 24' qingliao/Theme/Motion.swift | tr -d ' ')
+{ [ "$cnt" -eq 1 ] && [ "$cnt2" -eq 1 ]; } || { echo "❌ 第 11 项：面板入场几何单一真源缺失（缩放 $cnt / 位移 $cnt2）"; fail=1; }
+cnt=$(grep -cF 'scaleEffect(panelOn ? 1 : Motion.panelEnterScale)' qingliao/Features/Life/MemoGlassOverlay.swift | tr -d ' ')
+cnt2=$(grep -cF 'offset(y: panelOn ? 0 : Motion.panelEnterRise)' qingliao/Features/Life/MemoGlassOverlay.swift | tr -d ' ')
+{ [ "$cnt" -eq 1 ] && [ "$cnt2" -eq 1 ]; } || { echo "❌ 第 11 项：备忘录浮层未引用几何真源（缩放 $cnt / 位移 $cnt2）—— 别回写字面量 0.94 / 24"; fail=1; }
+cnt=$(grep -cF 'withAnimation(Motion.flow) { scrimOn = true }' qingliao/Features/OrbQuickMenu.swift | tr -d ' ')
+[ "$cnt" -eq 1 ] || { echo "❌ 第 11 项：智慧球菜单的背景罩未拆相位（实得 $cnt，应与识别浮层同序）"; fail=1; }
+# 负断言：本菜单是**球心锚定型** —— 套 panelEnterRise 会让胶囊脱开锚点（豁免口径写在 Motion.swift）
+# ⚠️ 必须先剥注释再 grep：本文件注释里**刻意**写着 `Motion.panelEnterRise` 讲豁免口径，
+#    裸 grep 会被自己的注释判红（第 84 段的 scrollDepth 踩过同一个坑）。
+cnt=$(sed 's://.*::' qingliao/Features/OrbQuickMenu.swift | grep -cF 'Motion.panelEnterRise' | tr -d ' ')
+[ "$cnt" -eq 0 ] || { echo "❌ 第 11 项：球心锚定型浮层套了面板位移（胶囊会脱开锚点）—— 豁免见 Motion.swift"; fail=1; }
+# —— 第 12 项（本轮补）：丰富档只加长「切页 + 符号替换」两侧 ——
+cnt=$(grep -cF 'static var symbolReplaceOptions: SymbolEffectOptions' qingliao/Theme/Motion.swift | tr -d ' ')
+[ "$cnt" -eq 1 ] || { echo "❌ 第 12 项：丰富档的符号替换节奏真源缺失（实得 $cnt）"; fail=1; }
+cnt=$(grep -cF '.symbolEffect(.replace, options: Motion.symbolReplaceOptions, value: item.systemName)' qingliao/Theme/HeaderPillButton.swift | tr -d ' ')
+[ "$cnt" -eq 1 ] || { echo "❌ 第 12 项：页头胶囊的符号替换未接丰富档（实得 $cnt）"; fail=1; }
 
 [ $fail -eq 0 ] || { echo "❌ 有护栏失守"; exit 1; }
 exit 0

@@ -145,7 +145,7 @@ struct DashboardView: View {
                     }
                     cardEditorEntry
                 }
-                .padding(.horizontal, Spacing.xxl)
+                .padding(.horizontal, Spacing.pageInset)
                 .padding(.bottom, 100)
                 // v3.4.28：横屏限宽居中
                 .frame(maxWidth: .infinity)
@@ -341,7 +341,7 @@ struct DashboardView: View {
         .padding(Spacing.xl)
         .frame(maxWidth: .infinity, alignment: .leading)
         // v3.8.1：本来手写 background+描边、圆角 12 → 改用统一卡片样式（16），与看板/生活其它卡片对齐
-        .dashboardCard()
+        .pastelCard(cornerRadius: Radius.hero)
     }
 
     /// 智能家居设备栅格
@@ -411,7 +411,7 @@ struct DashboardView: View {
             }
             .padding(.horizontal, Spacing.xl)
             .padding(.vertical, Spacing.md)
-            .dashboardCard()   // v3.8.1：空态提示条统一 16
+            .pastelCard(cornerRadius: Radius.hero)   // v4.0.120：看板页卡统一淡彩卡 + 圆角 22
         } else {
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
                 ForEach(scenes) { s in
@@ -469,7 +469,7 @@ struct DashboardView: View {
             }
             .padding(.horizontal, Spacing.xl)
             .padding(.vertical, Spacing.md)
-            .dashboardCard()   // v3.8.1：空态提示条统一 16
+            .pastelCard(cornerRadius: Radius.hero)   // v4.0.120：看板页卡统一淡彩卡 + 圆角 22
         } else {
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
                 ForEach(automations) { a in
@@ -527,7 +527,7 @@ struct DashboardView: View {
                 }
             }
             .padding(Spacing.xl)
-            .dashboardCard()
+            .pastelCard(cornerRadius: Radius.hero)
         }
     }
 
@@ -1313,7 +1313,7 @@ struct DashboardView: View {
         }
         .padding(.horizontal, Spacing.xl)
         .padding(.vertical, Spacing.md)
-        .dashboardCard()   // v3.8.1：空态提示条统一 16
+        .pastelCard(cornerRadius: Radius.hero)   // v4.0.120：看板页卡统一淡彩卡 + 圆角 22
         .contentShape(Rectangle())
         .tapButton { showUsageRestore = true }
         // v4.0.76：锚点采集——空态提示条全局 frame（恢复菜单从条位置弹出；原居中 confirmationDialog）
@@ -1358,7 +1358,7 @@ struct DashboardView: View {
         }
         .padding(.horizontal, Spacing.xl)
         .padding(.vertical, Spacing.md)
-        .dashboardCard()
+        .pastelCard(cornerRadius: Radius.hero)
         .contentShape(Rectangle())
         .tapButton { showCardEditor = true }
     }

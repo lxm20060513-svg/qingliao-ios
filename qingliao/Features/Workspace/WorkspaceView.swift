@@ -160,7 +160,7 @@ struct WorkspaceView: View {
                 artifactBoard.scrollDepth()
                 toolsBoard.scrollDepth()
             }
-            .padding(.horizontal, Spacing.sheetInset)
+            .padding(.horizontal, Spacing.pageInset)
             .padding(.top, Spacing.xxl)
             .padding(.bottom, Spacing.section * 5)
             .frame(maxWidth: .infinity, alignment: .leading)

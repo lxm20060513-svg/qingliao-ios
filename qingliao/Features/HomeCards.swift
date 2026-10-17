@@ -455,11 +455,12 @@ struct HomeCardsGrid: View {
     var onOpenTaskCenter: () -> Void = {}
 
     /// v4.0.83（用户 2026-10-09：「聊天页快捷卡片栏位左右请对齐会话栏宽度」）：
-    /// 本网格自己的横向留白。默认 16 服务于「宿主没有额外 inset」的场景（聊天页欢迎区）；
-    /// ⚠️ 会话页把 homeHero 铺在 **List 行**里，行的 listRowInsets 已经是 `Spacing.xxl`(14)
-    /// （与普通会话行同一个值、同一个 SessionListRowChrome）——那时再自加 16 = 卡片比会话行
-    /// 多缩进 16pt，就是用户看到的「没对齐」。宿主按场景传（会话页传 0）。
-    var inset: CGFloat = Spacing.section
+    /// 本网格自己的横向留白。默认 `Spacing.pageInset`(18) 服务于「宿主没有额外 inset」的场景
+    /// （聊天页欢迎区 —— 第 6 项整改后与全站页边距同档）；
+    /// ⚠️ 会话页把 homeHero 铺在 **List 行**里，行的 listRowInsets 已经是 `Spacing.pageInset`(18)
+    /// （与普通会话行同一个值、同一个 SessionListRowChrome）——那时再自加就是「卡片比会话行多缩进」，
+    /// 就是用户当初报的「没对齐」。宿主按场景传（会话页传 0）。
+    var inset: CGFloat = Spacing.pageInset
 
     /// 完整顺序（catalog 全量，含被关掉的）—— 写回的唯一真源。
     /// ⚠️ 必须用 fullOrder（全量）而不是 kinds（渲染列表）：否则新开的卡不在 full 里 → 开了看不见。
@@ -851,7 +852,7 @@ struct HomeCardFace: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         // 兜底：万一以后有更长的内容，也只许在卡内截断，不许画到卡外（卡高恒定是硬口径）
         .clipped()
-        .dashboardCard(cornerRadius: Radius.card)
+        .pastelCard(cornerRadius: Radius.hero)
     }
 
     /// v4.0.93：符号**单一真源**收口到 HomeCardLabels.icon（与下方 838 行 tint 同款口径）——

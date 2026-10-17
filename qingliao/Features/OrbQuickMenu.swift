@@ -343,6 +343,11 @@ struct OrbQuickMenuLayer: View {
     var onClose: () -> Void
 
     @State private var shown = false
+    /// 第 11 项整改（用户 2026-10-18「模糊罩用 Motion.flow」）：**罩单独一个相位**。
+    /// 原实现罩与胶囊共用 `shown`（注释写的是「不新增状态源」），结果罩和面板同一条 emerge 曲线，
+    /// 读作「一起弹出来」；备忘录那套是「罩先缓慢糊上（flow），面板慢半拍浮起（emerge）」。
+    /// 拆相位只多这一个布尔，不动 `shown` 的既有语义（胶囊弹射、光晕、锚点形象仍看 `shown`）。
+    @State private var scrimOn = false
     /// v3.9.76（用户实测）：「点击胶囊有时候要点击好几次才跳转」。
     /// 一旦有一次点击真的被识别，就锁死——否则连点会起多个 0.16s 延迟任务，
     /// 动作互相打断（弹两次 sheet / 切两次页），观感就是"点了没反应"。
@@ -372,7 +377,7 @@ struct OrbQuickMenuLayer: View {
                 Color.black.opacity(0.10)      // 压暗一档，让胶囊与文字在模糊底上更立得住
             }
             .ignoresSafeArea()
-            .opacity(shown ? 1 : 0)            // 与菜单同节奏淡入淡出（沿用 shown，不新增状态源）
+            .opacity(scrimOn ? 1 : 0)          // 第 11 项：罩走自己的相位（Motion.flow，见 onAppear / dismissAnimated）
             .contentShape(Rectangle())
             .onTapGesture(perform: dismissAnimated)
 
@@ -385,8 +390,16 @@ struct OrbQuickMenuLayer: View {
             }
         }
         .onAppear {
-            if reduceMotion { shown = true }   // 减弱动态效果：不做弹簧入场，直接落位淡入
-            else { withAnimation(.spring(response: 0.42, dampingFraction: 0.72)) { shown = true } }
+            if reduceMotion { shown = true; scrimOn = true }   // 减弱动态效果：不做弹簧入场，直接落位淡入
+            // 第 11 项：入场曲线改用 `Motion.emerge` 令牌（与备忘录浮层同一支曲线）；
+            // 模糊罩另行走 `Motion.flow`（缓慢糊上，比面板慢半拍到位）—— 与 MemoGlassOverlay 同序。
+            // ⚠️ 几何豁免：本菜单的重心是智慧球，胶囊自锚点弹射，强套备忘录那套
+            // `Motion.panelEnterRise`（24pt 上浮）会脱开球心，故**只保留缩放语义、位移豁免**
+            // （豁免点在 check_swift.sh「第 105 组」有断言）。
+            else {
+                withAnimation(Motion.emerge) { shown = true }
+                withAnimation(Motion.flow) { scrimOn = true }
+            }
         }
     }
 
@@ -546,6 +559,8 @@ struct OrbQuickMenuLayer: View {
 
     private func dismissAnimated() {
         withAnimation(Motion.snap) { shown = false }
+        // 第 11 项：罩按自己的相位收（flow），与面板的 snap 分开——收场与入场同一套序
+        withAnimation(Motion.flow) { scrimOn = false }
         Task { try? await Task.sleep(for: .seconds(0.16)); onClose() }
     }
 }

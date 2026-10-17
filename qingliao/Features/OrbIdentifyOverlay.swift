@@ -75,6 +75,11 @@ struct OrbIdentifyOverlay: View {
     @State private var showPhotoPicker = false
     @State private var photoItem: PhotosPickerItem?
     @State private var appeared = false
+    /// 第 11 项整改（用户 2026-10-18「把其它自绘浮层对齐到备忘录那套」）：
+    /// 背景罩**独立相位** —— 罩走 `Motion.flow`（0.28s，先一步到位），
+    /// 卡片与球心涟漪仍走 `appeared`（`Motion.emerge` 浮起）。改造前罩与卡共用一个硬编码
+    /// `spring(0.42/0.78)`：罩和卡同时到场，读不出「背景先模糊、内容再浮起」的层次。
+    @State private var scrimOn = false
     @State private var ringOut = false
     /// v4.0.x 方案C「全屏沉浸」：当前铺底的照片（拍照识别带进的 / AI 识别刚选的）。
     /// nil = 选图区，走老呈现（虚化 + 球心扫描环 + 球上方卡）；非 nil = 照片全屏铺底 + 底部玻璃面板。
@@ -167,8 +172,13 @@ struct OrbIdentifyOverlay: View {
                 askPhoto(img)          // 内部会把 lastImage 设成这张（失败「重试」要用）——
                                        // ⚠️ 这行必须排在上面「清 lastImage」之后，否则刚存的原图被当场清掉
             }
-            if reduceMotion { appeared = true }
-            else { withAnimation(.spring(response: 0.42, dampingFraction: 0.78)) { appeared = true } }
+            // 第 11 项：节拍对齐备忘录毛玻璃浮层（MemoGlassOverlay）—— 罩 `Motion.flow`、
+            // 卡片 `Motion.emerge`。几何各自保留（本浮层的重心在智慧球，不强套 24pt 上浮，否则脱开球心）。
+            if reduceMotion { appeared = true; scrimOn = true }
+            else {
+                withAnimation(Motion.flow) { scrimOn = true }
+                withAnimation(Motion.emerge) { appeared = true }
+            }
         }
         .onChange(of: phase) { _, newPhase in
             // 识别中 / 翻译中都算「忙」：环继续转（否则取字完到 AI 回译文这段环会突然停一下）
@@ -201,7 +211,7 @@ struct OrbIdentifyOverlay: View {
             .fill(.ultraThinMaterial)
             .contentShape(Rectangle())          // 不补 contentShape，空白处点不到 = 收不起来（本仓已知坑）
             .onTapGesture(perform: onClose)
-            .opacity(appeared ? 1 : 0)
+            .opacity(scrimOn ? 1 : 0)     // 第 11 项：罩跟自己的相位（flow），不跟卡片的 emerge
     }
 
     // MARK: 球心扫描涟漪（变体 2 的「正在识别」语义）
@@ -279,7 +289,7 @@ struct OrbIdentifyOverlay: View {
     private var scanBar: some View {
         GeometryReader { gp in
             ZStack(alignment: .leading) {
-                Capsule().fill(Color.accentColor.opacity(0.15))
+                Capsule().fill(Color.accentColor.opacity(Tint.coloredFill(colorScheme)))
                 Capsule()
                     .fill(Color.accentColor.opacity(0.85))
                     .frame(width: max(24, gp.size.width * 0.42))

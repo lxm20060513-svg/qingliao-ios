@@ -384,7 +384,7 @@ struct SecretsView: View {
                             SecretRow(entry: e, onReveal: { reveal(e) }, onEdit: { edit(e) }, onDelete: { delete(e) })
                         }
                     }
-                    .padding(.horizontal, Spacing.xxl)
+                    .padding(.horizontal, Spacing.sheetInset)
                     .padding(.vertical, Spacing.lg)
                 }
             }
@@ -520,7 +520,8 @@ struct SecretsView: View {
             // v2.0.102：仅服务器确认成功才移除（失败保留，重进不"复活"）
             if let j = try? await auth.json("/api/secrets/\(e.id)", method: "DELETE", body: nil),
                (j["ok"] as? Bool) == true {
-                entries.removeAll { $0.id == e.id }
+                // v4.0.120：删掉一行要有过渡（与其余列表一致，走 Motion.settle）
+                withAnimation(Motion.settle) { entries.removeAll { $0.id == e.id } }
             } else {
                 toast = "删除失败，请重试"
             }

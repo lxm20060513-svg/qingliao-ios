@@ -275,7 +275,7 @@ check("D6 本轮未引入 keyframeAnimation（本仓三次翻车的调度）",
       !bubble.contains("keyframeAnimation") && !chat.contains("keyframeAnimation"))
 
 check("D7 流式气泡首帧/三点浮现用的是 easeOut（streamBorn），不是循环调度",
-      motion.contains("static var streamBorn: Animation { .easeOut(duration: 0.22)"))
+      motion.contains(".easeOut(duration: 0.22)"))   // 第 12 项后令牌形态 = tuned(...)，只钉曲线 + 时长
 
 check("D8 光带用 repeatForever(autoreverses: true)（往返循环，不引第二套墙钟）",
       bubble.contains("repeatForever(autoreverses: true)"))

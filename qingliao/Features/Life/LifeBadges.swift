@@ -16,6 +16,12 @@ import SwiftUI
 /// 会被 v3.9.113「裸函数调用都有定义」护栏误判成未定义（那条的定义正则不认泛型签名）。
 /// ViewModifier 是类型，不在它的射程内，也更贴 SwiftUI 习惯。
 struct BadgeShell: ViewModifier {
+    @Environment(\.colorScheme) private var scheme
+
+    /// 深色模式下图标底的彩度档（第 7 项）：一档 = ×0.82，只压饱和度、色相不动。
+    /// 单一真源 —— 同族色块（行首色块 / 分类色块）都读它，别在别处再写一个 0.82。
+    static let darkSaturation: Double = 0.82
+
     /// 边长（默认 36 = 生活卡族口径；记录分类卡 CategoryBadge 传自己的档）
     var size: CGFloat = 36
     let color: Color
@@ -23,6 +29,10 @@ struct BadgeShell: ViewModifier {
     func body(content: Content) -> some View {
         RoundedRectangle(cornerRadius: size * 0.305, style: .continuous)
             .fill(color)
+            // 第 7 项整改（用户 2026-10-18「图标底继续实色加白符号，只把深色模式下的彩度压一档，
+            // 色相不动」）：深色底上高饱和实色块会「跳」出界面，压一档彩度即回落（H 逐字不动）。
+            // 色块仍是**实色 + 白符号**，不是降低透明度的中性底（那会被读成「未完成」灰块）。
+            .saturation(scheme == .dark ? BadgeShell.darkSaturation : 1)
             .frame(width: size, height: size)
             .overlay { content }
             // 来源/状态在行内已有文字或独立语义，图标不重复播报

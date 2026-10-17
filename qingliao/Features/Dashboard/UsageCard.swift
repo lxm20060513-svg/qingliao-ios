@@ -46,6 +46,10 @@ struct TokenUsageCard: View {
                 .foregroundStyle(.primary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
+                // 第 9 项整改（用户 2026-10-18「用量计数走数字过渡」）：用量是**会跳变**的量
+                //（刷新 / 换 provider），原来直接换字读作「闪一下」，与未读角标/待办数的口径不一致。
+                .contentTransition(.numericText())
+                .animation(Motion.snap, value: window.totalM)
             Text("输入 \(window.inputM) · 输出 \(window.outputM)")
                 .font(.system(size: Typography.tiny))
                 .foregroundStyle(.secondary)
@@ -59,11 +63,12 @@ struct TokenUsageCard: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(Spacing.xl)
-        .dashboardCard()
+        .pastelCard(cornerRadius: Radius.hero)
     }
 }
 
 struct UsageCard: View {
+    @Environment(\.colorScheme) private var scheme
     let usage: ProviderUsage
 
     private var statusColor: Color {
@@ -114,7 +119,7 @@ struct UsageCard: View {
             HStack(spacing: 8) {
                 ZStack {
                     RoundedRectangle(cornerRadius: Radius.icon, style: .continuous)
-                        .fill(statusColor.opacity(0.15))
+                        .fill(statusColor.opacity(Tint.coloredFill(scheme)))
                     Image(systemName: icon)
                         .font(.system(size: Typography.subhead, weight: .medium))
                         .foregroundStyle(statusColor)
@@ -134,6 +139,9 @@ struct UsageCard: View {
                 .foregroundStyle(usage.unsupported ? Color.secondary : statusColor)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
+                // 第 9 项：余额数字同样走滚动（与上面 token 用量卡同口径）
+                .contentTransition(.numericText())
+                .animation(Motion.snap, value: usage.balanceText)
             // v3.0.36 plan（opencode）：月用量进度条
             if let pct = planPercent, usage.mode == "plan" {
                 GeometryReader { geo in
@@ -164,7 +172,7 @@ struct UsageCard: View {
                 .lineLimit(1)
         }
         .padding(Spacing.xl)
-        .dashboardCard()
+        .pastelCard(cornerRadius: Radius.hero)
     }
 }
 

@@ -163,8 +163,8 @@ check("TTS 模型行切片取到且 Picker 钉单行", !ttsModelRowBody.isEmpty 
 // MARK: - 会话列表卡淡彩渐变（v4.0.67 P2：dashboardCard 玻璃口径退役，换 P0 pastelCard）
 let sessSrc = src("qingliao/Features/Sessions/SessionsView.swift")
 let sessCode = stripComments(sessSrc)
-check("会话卡走 pastelCard()（P0 淡彩渐变卡，与 AI 气泡/生活卡同档）",
-      sessCode.contains(".pastelCard(cornerRadius: Radius.card)"))
+check("会话卡走 pastelCard()（P0 淡彩渐变卡，与 AI 气泡/生活卡同档；v4.0.120 圆角统一 Radius.hero 22）",
+      sessCode.contains(".pastelCard(cornerRadius: Radius.hero)"))
 check("会话卡不再挂不透明 secondarySystemGroupedBackground（那会把渐变压死）",
       !sessCode.contains("secondarySystemGroupedBackground"))
 // 反向：会话**行**旧玻璃口径清零（dashboardCard 玻璃压在渐变彩底上发灰，不许回潮）。
@@ -175,10 +175,10 @@ func occ(_ hay: String, _ needle: String) -> Int {
     hay.components(separatedBy: needle).count - 1
 }
 let fixedCardBody = slice(sessCode, "struct FixedChannelCard: View {", "private var accessibilityText: Text {")
-check("FixedChannelCard 段切片取到且含 dashboardCard（防空真）",
-      !fixedCardBody.isEmpty && fixedCardBody.contains(".dashboardCard("))
-check("会话行旧玻璃口径 dashboardCard 清零（v4.0.67 退役；v4.0.68 仅 FixedChannelCard 例外）",
-      occ(sessCode, ".dashboardCard(") == occ(fixedCardBody, ".dashboardCard("))
+check("FixedChannelCard 段切片取到且含 pastelCard(cornerRadius: Radius.hero)（防空真）",
+      !fixedCardBody.isEmpty && fixedCardBody.contains(".pastelCard(cornerRadius: Radius.hero)"))
+check("会话页 dashboardCard 玻璃口径全文件清零（v4.0.67 行口径退役；v4.0.120 FixedChannelCard 也并入 pastelCard）",
+      !sessCode.contains(".dashboardCard("))
 
 // v4.0.68：固定会话（轻聊投递/轻聊主动）改**顶部并排卡**——三件事一起钉死：
 //   ① 并排卡行已退役（v4.0.81）；② 普通列表行**不再过滤**固定会话（回到普通行渲染，清空入口在行菜单）；
@@ -206,7 +206,7 @@ check("会话卡没有自己手搓 glassEffect（口径单源）",
 //   pastelCard() 把渐变/描边/影收在一处，故卡上不得再自行出现任何实色 background。
 //   锚在**代码文本**上，只盯会话卡自己的修饰链（.pastelCard → .onTapGesture）：
 //   卡内分类胶囊/标签胶囊的 .background(…, in: Capsule()) 不属 F2 口径，本就不该进这一段。
-let sessCardChain = slice(sessCode, ".pastelCard(cornerRadius: Radius.card)", ".onTapGesture { action() }")
+let sessCardChain = slice(sessCode, ".pastelCard(cornerRadius: Radius.hero)", ".onTapGesture { action() }")
 check("会话卡修饰链切片非空（防再次空真）", !sessCardChain.isEmpty)
 check("会话卡修饰链上没有自行挂的实色 background（F2：实色底会压死渐变卡底）",
       !sessCardChain.contains(".background("))

@@ -31,7 +31,7 @@ struct MessageEditSheet: View {
                     SectionHeader("改口重答")
                     card
                 }
-                .padding(.horizontal, Spacing.xxl)
+                .padding(.horizontal, Spacing.sheetInset)
                 .padding(.bottom, Spacing.section)
             }
             .scrollDismissesKeyboard(.interactively)

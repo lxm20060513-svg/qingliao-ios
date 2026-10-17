@@ -62,8 +62,9 @@ struct MemoGlassOverlay<Content: View>: View {
                 )
                 .clipShape(RoundedRectangle(cornerRadius: Radius.hero, style: .continuous))
                 .shadow(color: .black.opacity(0.18), radius: 24, y: 8)
-                .scaleEffect(panelOn ? 1 : 0.94)
-                .offset(y: panelOn ? 0 : 24)
+                // 第 11 项：面板入场几何走 Motion 的单一真源（原为字面量 0.94 / 24；值不变，只是收口）
+                .scaleEffect(panelOn ? 1 : Motion.panelEnterScale)
+                .offset(y: panelOn ? 0 : Motion.panelEnterRise)
                 .opacity(panelOn ? 1 : 0)
                 .transition(.opacity)
             }

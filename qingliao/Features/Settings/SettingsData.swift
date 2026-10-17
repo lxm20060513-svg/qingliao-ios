@@ -827,7 +827,8 @@ struct HistorySheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button(editMode == .active ? "完成" : "编辑") {
-                        withAnimation {
+                        // v4.0.120（改善建议④）：裸曲线收口 —— 编辑模式切换按现成令牌走（snap 留给小控件，这里整列表行内出现用 settle）
+                        withAnimation(Motion.settle) {
                             if editMode == .active {
                                 selected.removeAll()
                                 editMode = .inactive
@@ -923,7 +924,8 @@ struct HistorySheet: View {
     private func deleteRows(_ offsets: IndexSet) {
         let ids = offsets.map { items[$0].id }
         let snapshot = items
-        items.remove(atOffsets: offsets)
+        // v4.0.120：列表行增删补过渡（插入/移除统一走 Motion.settle，不新写裸曲线）
+        withAnimation(Motion.settle) { items.remove(atOffsets: offsets) }
         Task {
             do {
                 let j = try await auth.json("/api/history?ids=\(ids.joined(separator: ","))", method: "DELETE")
@@ -943,8 +945,11 @@ struct HistorySheet: View {
     private func deleteSelected() {
         let ids = Array(selected)
         let snapshot = items
-        items.removeAll { ids.contains($0.id) }
-        selected.removeAll()
+        // v4.0.120：批量删除的整段变化走一次动画（勾选栏收起 + 行消失同一拍）
+        withAnimation(Motion.settle) {
+            items.removeAll { ids.contains($0.id) }
+            selected.removeAll()
+        }
         Task {
             do {
                 let j = try await auth.json("/api/history?ids=\(ids.joined(separator: ","))", method: "DELETE")

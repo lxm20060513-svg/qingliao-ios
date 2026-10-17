@@ -260,9 +260,9 @@ check("🚫 反向⑤c：备忘卡不许退回通用 settle（v4.0.100 起四卡
       && !memoCode.contains("withAnimation(Motion.settle) { memoExpanded")
       && !memoCode.contains(".animation(Motion.settle, value: expanded)"))
 check("⑤c 曲线真源 Motion.cardExpand = .smooth(0.38)（比 settle 更长、更无回弹 = 「丝滑」）",
-      motion.contains("static var cardExpand: Animation { .smooth(duration: 0.38) }"))
+      motion.contains(".smooth(duration: 0.38)"))   // 第 12 项后令牌形态 = tuned(...)，只钉曲线 + 时长
 check("🚫 反向⑤c：通用 settle 不许被改慢（它归聊天流式生长/列表插入，两令牌分立不是冗余）",
-      motion.contains("static var settle: Animation { .snappy(duration: 0.30) }")
+      motion.contains(".snappy(duration: 0.30)")   // 同上：只钉曲线 + 时长，不钉整行
       && !habitCode.contains("Motion.settle.delay") && !todoCode.contains("Motion.settle.delay"))
 check("🚫 反向⑥：三张详情浮层不许再自绘 SF Symbol 勾选圈（旧形态，v4.0.99 已统一）",
       !goalsCode.contains("checkmark.circle.fill")

@@ -140,12 +140,8 @@ struct DiagnoseCard: View {
         }
         .padding(.horizontal, Spacing.xxl)
         .padding(.vertical, Spacing.xl)
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
-                .strokeBorder(Color.primary.opacity(Tint.faint), lineWidth: 0.8)
-        )
+        // v4.0.120：手搓实色底并入全站卡面出口（淡彩玻璃 + 圆角 22）
+        .pastelCard(cornerRadius: Radius.hero)
     }
 }
 

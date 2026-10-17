@@ -43,7 +43,7 @@ struct ProactiveAgentSheet: View {
                     reviewCard
                     manualCard
                 }
-                .padding(.horizontal, Spacing.xl)
+                .padding(.horizontal, Spacing.sheetInset)
                 .padding(.vertical, Spacing.xl)
             }
             // v3.9.23 决策：弹窗背景一律不覆盖，让系统默认玻璃生效（勿再挂实色底）。

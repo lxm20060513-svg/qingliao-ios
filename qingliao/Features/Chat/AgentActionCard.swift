@@ -21,6 +21,7 @@ import SwiftUI
 //          点下去静默失败、落地后胶囊重生（同一个 bug 的流式版本）。
 
 struct AgentActionCard: View {
+    @Environment(\.colorScheme) private var scheme
     let action: AgentAction
     /// v4.0.100：回执落点 —— 这张卡所属消息的 id（读写 `ChatStore.actionOutcomes`）。
     /// 空串 = 无宿主（预览 / 单测渲染），行为退化成改动前：状态只在内存里。
@@ -148,7 +149,7 @@ struct AgentActionCard: View {
             .foregroundStyle(color)
             .padding(.horizontal, Spacing.sm)
             .padding(.vertical, 3)
-            .background(color.opacity(0.15), in: Capsule())
+            .background(color.opacity(Tint.coloredFill(scheme)), in: Capsule())
     }
 
     private var tint: Color {

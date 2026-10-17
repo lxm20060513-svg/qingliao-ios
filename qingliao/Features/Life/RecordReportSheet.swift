@@ -38,7 +38,7 @@ struct RecordReportSheet: View {
                         trendCard
                         categoryCard
                     }
-                    .padding(.horizontal, Spacing.section)
+                    .padding(.horizontal, Spacing.sheetInset)
                     .padding(.bottom, Spacing.xxl)
                 }
             }

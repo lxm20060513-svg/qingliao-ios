@@ -1236,6 +1236,9 @@ struct AppearanceSheet: View {
     // 但外观页一直没给入口 → 用户根本设不了，永远吃默认值 .auto + 15 分钟）。
     // ⚠️ 必须用 @AppStorage 直接绑 UserDefaultsKey.*，不要自己在 onChange 里写回去：
     //    ChatStore 读的就是这两个 key，绕一层就可能与真值表/预检断言脱钩。
+    // 第 12 项：特效总档（关 / 标准 / 丰富）。走 @AppStorage 直接绑 key ——
+    // EffectsLevel.current 读的就是它，绕一层会与预检断言脱钩。
+    @AppStorage(UserDefaultsKey.effectsLevel) private var effectsLevel = EffectsLevel.fallback.rawValue
     @AppStorage(UserDefaultsKey.launchSessionMode) private var launchSessionMode = LaunchSessionMode.auto.rawValue
     @AppStorage(UserDefaultsKey.launchSessionMins) private var launchSessionMins = Double(LaunchSessionMode.defaultIdleMinutes)
 
@@ -1265,6 +1268,25 @@ struct AppearanceSheet: View {
                         .onChange(of: liveActivityOn) { _, on in
                             if !on { Task { @MainActor in await LiveActivityManager.shared.end() } }
                         }
+                }
+                // 第 12 项整改（用户 2026-10-18「加一档三选：关 / 标准 / 丰富」）：
+                // 全站特效总档 —— 只作用于既有 14 枚 Motion 令牌（调用点 200+），**不新造第二套时钟**。
+                // ⚠️ 边界（审查复核实测，文案已按此写）：`.symbolEffect` 家族（15 处弹动/替换/脉动）、
+                //    7 处无参 `withAnimation`、循环动效（宠物呼吸 / 烟花粒子 / 输入框流光 / 扫描环）
+                //    都**不在本档内** —— 前两类是历史裸用法（列为待办，本版不动），后一类是用户明说的各自开关。
+                // ⚠️ 令牌是计算属性、读过即定值：切档后**已在屏且在冻结中的页面**要到下次 body 求值才换档，
+                //    返回/切页即重算 → 实测观感上「切完切页立刻生效」。别为此给根视图挂 `.id`（重建整树，代价大）。
+                // 键名真源：`Core/EffectsLevel.storageKey` → `UserDefaultsKey.effectsLevel`。
+                Section("动效特效") {
+                    HStack(spacing: 10) {
+                        ForEach(EffectsLevel.allCases) { lv in
+                            effectsOption(lv.label, value: lv)
+                        }
+                    }
+                    .padding(.vertical, Spacing.xs)
+                    Text(currentEffects.detail)
+                        .font(.system(size: Typography.caption))
+                        .foregroundStyle(.secondary)
                 }
                 // v3.9.94：启动会话（用户拍板「设置里面增加启动会话设置……放在外观设置里」）
                 // ⚠️ 这段 UI 是**补的入口**，不是新功能：判定逻辑在 LaunchSession.swift 早就有，
@@ -1402,6 +1424,33 @@ struct AppearanceSheet: View {
                 .background(
                     RoundedRectangle(cornerRadius: Radius.chip, style: .continuous)
                         .fill(appearance == value ? Color.accentColor : Color(uiColor: .systemGray5))
+                )
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// 第 12 项：当前特效档（读不到 / 存了非法值 → 标准档，观感零变化）
+    private var currentEffects: EffectsLevel {
+        EffectsLevel(rawValue: effectsLevel) ?? EffectsLevel.fallback
+    }
+
+    /// 第 12 项：特效总档选项（三选一）——与 appearanceOption / launchSessionOption 同一 idiom（选中高亮段）。
+    /// ⚠️ 实参序＝声明序（label: String, value: EffectsLevel），错位只有 CI Archive 报得出。
+    private func effectsOption(_ label: String, value: EffectsLevel) -> some View {
+        let selected = currentEffects == value
+        return Button {
+            effectsLevel = value.rawValue
+        } label: {
+            Text(label)
+                .font(.system(size: Typography.subhead, weight: selected ? .semibold : .medium))
+                .foregroundStyle(selected ? Color.white : Color.primary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, Spacing.md)
+                .background(
+                    RoundedRectangle(cornerRadius: Radius.chip, style: .continuous)
+                        .fill(selected ? Color.accentColor : Color(uiColor: .systemGray5))
                 )
         }
         .buttonStyle(.plain)

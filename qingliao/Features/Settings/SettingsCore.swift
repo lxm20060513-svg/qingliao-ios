@@ -196,7 +196,7 @@ struct SettingsView: View {
                         }
                         searchScrollTarget = nil
                     }
-                    .padding(.horizontal, Spacing.xxl)
+                    .padding(.horizontal, Spacing.pageInset)
                     .padding(.bottom, 100)
                     // v3.4.28：横屏限宽居中
                     .frame(maxWidth: .infinity)
@@ -698,7 +698,7 @@ extension SettingsView {
                     tsRoutingParams
                 }
                 .pastelCard()
-                .padding(.horizontal, Spacing.xxl)
+                .padding(.horizontal, Spacing.sheetInset)
                 .padding(.top, Spacing.md)
                 .padding(.bottom, Spacing.section)
                 .frame(maxWidth: .infinity)

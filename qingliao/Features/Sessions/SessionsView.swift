@@ -265,7 +265,7 @@ struct SessionsView: View {
             NavigationStack {
                 ScrollView {
                     MemoSection()
-                        .padding(.horizontal, Spacing.section)
+                        .padding(.horizontal, Spacing.sheetInset)
                 }
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
@@ -384,7 +384,7 @@ struct SessionsView: View {
         .padding(.horizontal, Spacing.xl)
         .padding(.vertical, Spacing.md)
         .glassListCard()   // v3.4.25：毛玻璃风格（Theme/LiquidGlass.swift GlassListCard）
-        .padding(.horizontal, Spacing.xxl)
+        .padding(.horizontal, Spacing.pageInset)
         .padding(.bottom, Spacing.md)
         // v4.0.117：启动页入场第 1 块（搜索框）
         .launchRiseBlock(1, shown: launchRise)
@@ -780,7 +780,7 @@ struct SessionsView: View {
             // 轻点的 Haptics 由 HomeCardsGrid 的 Button 统一给，这里不重复震）
             onOpenTaskCenter: { showTaskCenterCard = true },
             // v4.0.83（用户：「快捷卡片栏位左右对齐会话栏宽度」）：本页 homeHero 在 List 行里，
-            // 行 inset 已是 Spacing.xxl(14)（= 下面会话行的同一个值）→ 网格不再自加 16，
+            // 行 inset 已是 Spacing.pageInset(18)（= 下面会话行的同一个值）→ 网格不再自加 16，
             // 卡片左右边界与会话行严格对齐。理由与反例见 HomeCardsGrid.inset 的注释。
             inset: 0
         )
@@ -1724,6 +1724,9 @@ struct SessionRow: View {
                 // v3.9.85：实心红色数字角标（原 v3.9.32 红点）——对标微信：≥100 显示 99+
                 if unread > 0 && !showCheck {
                     Text(unread >= 100 ? "99+" : "\(unread)")
+                        // 第 9 项：未读数直接换字会「跳」，走数字过渡滚动。
+                        .contentTransition(.numericText())
+                        .animation(Motion.tap, value: unread)
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(.white)
                         .padding(.horizontal, 5)
@@ -1769,7 +1772,7 @@ struct SessionRow: View {
         // v4.0.67 P2：会话卡换淡彩渐变口径（P0 的 pastelCard modifier，与 AI 气泡/生活卡同档）——
         //   底 = GlassEdgeSurface（v4.0.81 方案3：玻璃材质 + 半透明叠层 + 1pt 渐变厚边 + 加重柔影）。
         //   v4.0.0 的玻璃 dashboardCard() 口径退役（聊天页已彩化，玻璃卡压在彩底上发灰）。
-        .pastelCard(cornerRadius: Radius.card)
+        .pastelCard(cornerRadius: Radius.hero)
         .contentShape(Rectangle())
         // 用 tap 手势而非 Button 包裹（Button 会与 swipeActions 滑动手势冲突，导致滑动删除失效）
         .onTapGesture { action() }
@@ -1928,7 +1931,7 @@ private struct RemoteHitRow: View {
         .padding(.horizontal, Spacing.xxl)
         .padding(.vertical, Spacing.lg)
         // v4.0.67 P2：搜索命中行与 SessionRow 走同一档淡彩渐变（口径单源 pastelCard）。
-        .pastelCard(cornerRadius: Radius.card)
+        .pastelCard(cornerRadius: Radius.hero)
         .contentShape(Rectangle())
         // 与 SessionRow 一致用 tap 手势（Button 会与 swipeActions 冲突）
         .onTapGesture { onTap() }
@@ -1942,7 +1945,8 @@ private struct RemoteHitRow: View {
 /// `vHalfGap` = 单侧垂直留白，**相邻两行相贴 = 2×vHalfGap**：
 ///   · 会话行 4 → 8pt（与改造前 `LazyVStack(spacing: 8)` 同值）
 ///   · 非会话行 5 → 10pt（与改造前外层 `LazyVStack(spacing: 10)` 同值）
-/// 左右取 `Spacing.xxl`(=14)，与改造前外层 `.padding(.horizontal, Spacing.xxl)` 同值。
+/// 左右取 `Spacing.pageInset`(=18)：第 6 项整改（页边距收敛到一档 18）后，会话页内容与会话页头
+/// (`PageHeader` 自身也是 18) 严格左对齐；收敛前这里写 `Spacing.xxl`(14)，比页头窄 4pt。
 /// 这三条是「换 List 但观感不变」的全部代价所在，收在此处单源，别在各调用点手写。
 private struct SessionListRowChrome: ViewModifier {
     let vHalfGap: CGFloat
@@ -1950,9 +1954,9 @@ private struct SessionListRowChrome: ViewModifier {
     func body(content: Content) -> some View {
         content
             .listRowInsets(EdgeInsets(top: vHalfGap,
-                                      leading: Spacing.xxl,
+                                      leading: Spacing.pageInset,
                                       bottom: vHalfGap,
-                                      trailing: Spacing.xxl))
+                                      trailing: Spacing.pageInset))
             .listRowSeparator(.hidden)          // 卡片自带玻璃底与描边，系统分隔线是多余的
             .listRowBackground(Color.clear)     // 不留系统行底，否则卡片后多一层底色
     }
@@ -2000,7 +2004,7 @@ private extension View {
 /// 会话页顶部「两张并排卡」里的单卡（用户 2026-10-07 拍板：位置=列表首行并排，卡面=名称+用途+时间+未读）。
 ///
 /// 卡面**刻意对齐聊天首页卡**（`HomeCardFace`）：24pt 圆角图标片 → 名称 → 一行副标，
-/// 外层同一个 `dashboardCard(cornerRadius: Radius.card)`、同 `HomeCardStore.cardHeight`(84)。
+/// 外层同一个 `pastelCard(cornerRadius: Radius.hero)`、同 `HomeCardStore.cardHeight`(84)。
 /// 只在首页卡基础上补两个会话页专有信息：**最后时间**（并进副标）与**未读红色数字角标**（右上角）。
 /// ⚠️ 高度不是自适应的：两张卡并排，任何一张被内容撑高都会高低不齐，所以写死 `cardHeight`。
 struct FixedChannelCard: View {
@@ -2052,7 +2056,7 @@ struct FixedChannelCard: View {
         .padding(.vertical, 9)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .clipped()
-        .dashboardCard(cornerRadius: Radius.card)
+        .pastelCard(cornerRadius: Radius.hero)
     }
 
     /// 副标：用途 + 最后时间（从未有消息时只有用途）
@@ -2063,6 +2067,8 @@ struct FixedChannelCard: View {
     /// 未读红色数字角标（口径同 SessionRow：≥100 显示 99+）
     private var unreadBadge: some View {
         Text(unread >= 100 ? "99+" : "\(unread)")
+            .contentTransition(.numericText())   // 第 9 项：数字过渡而非硬跳
+            .animation(Motion.tap, value: unread)
             .font(.system(size: 11, weight: .semibold))
             .foregroundStyle(.white)
             .padding(.horizontal, 5)

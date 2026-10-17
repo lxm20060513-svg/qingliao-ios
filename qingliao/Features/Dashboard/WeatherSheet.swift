@@ -87,7 +87,7 @@ struct WeatherSheet: View {
             .buttonStyle(PressStyle(scale: 0.94))
             .accessibilityLabel("切换天气城市")
         }
-        .padding(.horizontal, 20)
+        .padding(.horizontal, Spacing.sheetInset)
         .padding(.top, 18)
         .padding(.bottom, Spacing.xs)
     }
@@ -188,7 +188,7 @@ struct WeatherSheet: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(.horizontal, 20)
+        .padding(.horizontal, Spacing.sheetInset)
         .padding(.bottom, 30)   // 给页码点留位
     }
 

@@ -120,7 +120,7 @@ struct LifeCardsSettingsView: View {
                     expressSection
                     notifySection
                 }
-                .padding(.horizontal, Spacing.xxl)
+                .padding(.horizontal, Spacing.sheetInset)
                 .padding(.bottom, 60)
             }
             .navigationTitle("生活卡片")
@@ -749,7 +749,8 @@ struct LifeCardsSettingsView: View {
 
     private func removeStock(_ i: Int) {
         guard config.stocks.indices.contains(i) else { return }
-        config.stocks.remove(at: i)
+        // v4.0.120：行消失补过渡（Motion.settle）
+        withAnimation(Motion.settle) { config.stocks.remove(at: i) }
         Task { await persist() }
     }
 
@@ -1069,7 +1070,7 @@ struct QuickReminderSheet: View {
                         finishedCard
                     }
                 }
-                .padding(.horizontal, Spacing.xxl)
+                .padding(.horizontal, Spacing.sheetInset)
                 .padding(.bottom, Spacing.section)
             }
             .scrollDismissesKeyboard(.interactively)

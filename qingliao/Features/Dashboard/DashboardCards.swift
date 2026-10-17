@@ -34,7 +34,7 @@ struct DeviceCard: View {
                 .padding(.top, Spacing.xxs)
         }
         .padding(Spacing.xl)
-        .dashboardCard()
+        .pastelCard(cornerRadius: Radius.hero)
         .scrollDepth()   // v3.9.0：滚动层次感
     }
 
@@ -94,7 +94,7 @@ struct MeterCard: View {
         // v2.0.83：NAS 面板卡片等高（与 ServiceCard 同高，进度条自适应剩余空间）
         // v2.0.86b：卡片统一再矮一点
         .frame(height: 88, alignment: .top)
-        .dashboardCard()
+        .pastelCard(cornerRadius: Radius.hero)
         .scrollDepth()   // v3.9.0：滚动层次感
     }
 }
@@ -125,7 +125,7 @@ struct ServiceCard: View {
         // v2.0.83：NAS 面板卡片等高（与 MeterCard 同高）
         // v2.0.86b：卡片统一再矮一点
         .frame(height: 88, alignment: .top)
-        .dashboardCard()
+        .pastelCard(cornerRadius: Radius.hero)
         .scrollDepth()   // v3.9.0：滚动层次感
     }
 }

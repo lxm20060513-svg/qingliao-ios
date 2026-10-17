@@ -147,7 +147,7 @@ check("工作台档的 title / icon 真存在（公文包 briefcase —— 用�
 check("★ workspace 的页面真挂上了（dockPage 有分支 + 套 tabTransition，漏挂则该档没图标）",
       dockView.contains("case .workspace:")
       && dockView.contains("WorkspaceView(isActive: selected == .workspace,")
-      && dockView.contains(".tabTransition(for: .workspace, selected: $selected, revealCenter: revealCenter)"))
+      && dockView.contains(".tabTransition(for: .workspace, selected: $selected, order: dockRenderTabs)"))
 // v4.0.109：「待你处理」点进会话的回调必须在宿主真接上 —— 漏了的话会话装进了 ChatStore
 // 但用户停在原地（页不切、也不退出会话首页），症状 =「点了没反应」。
 check("★ 工作区「待你处理」跳转回调真接上（切聊天 tab + 落到对话页）",
@@ -171,12 +171,12 @@ check("配置读取走 UserDefaultsKey 两键（AppStorage 同键跨视图同步
       && dockView.contains("@AppStorage(UserDefaultsKey.dockHidden)")
       && models.contains("static let dockOrder  = \"qingliao_dock_order\"")
       && models.contains("static let dockHidden = \"qingliao_dock_hidden\""))
-// v4.0.97：切页入场改**圆形扩散**，横向微滑（dx / myIdx 方向判）连同 `order` 形参一并撤掉 ——
-// 扩散圆心由宿主 `dockRevealCenter` 按**当前渲染档序**定位被点的槽位（dockRenderTabs.firstIndex），
-// 仍然不碰写死的 slotIndex（下一条断言继续钉这点）。
-check("扩散圆心按当前渲染档序定位槽位，不读写死的 slotIndex",
-      dockView.contains("private func dockRevealCenter(_ tab: DockTab) -> CGPoint")
-      && dockView.contains("dockRenderTabs.firstIndex(of: tab) ?? 0"))
+// v4.0.120：切页入场改**内容层定向滑入**（用户 2026-10-17「圆扩散只留启动页」）—— 圆心 / `dockRevealCenter`
+// 整套退役；方向改按**渲染档序**判（`order` 形参 + firstIndex），仍然不碰写死的 slotIndex。
+check("定向滑入的方向按**渲染档序**判（order 形参 + firstIndex），不读写死的 slotIndex，且圆心那套已退役",
+      dockView.contains("let order: [DockTab]")
+      && dockView.contains("order.firstIndex(of: tab)")
+      && !dockView.contains("dockRevealCenter"))
 check("深链/卡片点到被隐藏的页 → 临时插回（forcedTabs.insert）",
       dockView.contains("if !dockRenderTabs.contains(tab) { forcedTabs.insert(tab) }"))
 check("切到常驻档即清空 forcedTabs（隐藏恢复，配置不被动过）",
@@ -222,19 +222,24 @@ check("返回方向 = 从手指位置圆形扩散（首页挂 sessionHomeReveal(
 check("圆形扩散圆心 = 手势**抬手**位置（起手点被 edgeWidth 钉在左缘 24pt，看不出「从手指滑动位置扩散」）",
       readSource("Features/Chat/ChatView.swift").contains("onBack(value.location)"))
 // 🚨 v4.0.117（用户 2026-10-15 真机拍板「滑动返回聊天主页的扩散就是太快，再慢一点」）：**曲线分家**。
-// 旧口径「返回与切页共用同一条 Motion.pageReveal」**已作废** —— 0.75 是用户为 **dock 切页**三轮调定的
-//（0.42 → 0.60 → 0.75），返回顺手共用 = 太快；而直接改 0.75 = 误伤在用的切页动效（用户口径「修复勿误伤在用功能」）。
-// 分家后同时钉三件：① 返回那份恰好一处（多一处 = 有人拿它顺手改了切页）② 切页两处仍在（别被返回带走）
-// ③ 返回那支 modifier 自己不许再出现 pageReveal（改回共用 = 用户报的「太快」复发）。
+// 🚨 v4.0.120（用户 2026-10-17「圆扩散只留启动页」）：**切页那一侧整条换掉** → 定向滑入。于是本段口径变成：
+// ① 返回那份恰好一处 ② **切页两处不许**再出现 pageReveal 圆扩散 ③ 返回那支 modifier 自己不许再出现 pageReveal。
+// 返回曲线仍是 sessionBackReveal（.smooth 1.10），一字未动。
 let sessionBackCall = "withAnimation(Motion.sessionBackReveal) { revealRadius = Motion.pageRevealMaxRadius }"
 let pageRevealCall = "withAnimation(Motion.pageReveal) { revealRadius = Motion.pageRevealMaxRadius }"
+let pageEnterCall = "withAnimation(Motion.pageEnterSlide) { slideOffset = 0 }"
 check("返回的圆形扩散走**返回专用**曲线 sessionBackReveal（恰好一处）+ 起点仍是半径归 0",
       dockView.components(separatedBy: sessionBackCall).count - 1 == 1
         && dockView.contains("revealRadius = 0"))
-check("切页两处仍是同一个 pageReveal 事务（没被返回那条顺手带走）",
-      dockView.components(separatedBy: pageRevealCall).count - 1 == 2)
+check("🚫 切页两处**不许**再走 pageReveal 圆扩散（v4.0.120 已整条换掉；扩散只留返回 + 启动页）",
+      dockView.components(separatedBy: pageRevealCall).count - 1 == 0)
+check("切页两处入场 = 同一个 pageEnterSlide 事务 + 起点 pageEnterShift（两处 modifier 各一份）",
+      dockView.components(separatedBy: pageEnterCall).count - 1 == 2
+        && dockView.components(separatedBy: "direction(from: oldVal) * Motion.pageEnterShift").count - 1 == 2)
+// 第 12 项（2026-10-18 特效总档）：令牌形态 = tuned(.smooth(...)) ⇒ 只钉**曲线 + 时长字面**，
+// 不钉整行（改时长 / 换曲线仍报红）。
 check("sessionBackReveal 令牌存在、且比切页的 0.75 慢（.smooth 1.10）",
-      motionSrc.contains("static var sessionBackReveal: Animation { .smooth(duration: 1.10) }"))
+      motionSrc.contains(".smooth(duration: 1.10)"))
 // 切片自证：锚点取真代码行（注释行会被 strip 掉的写法在别处踩过），且先断言切片非空（否则下面那条是空真）
 let backSlice = String((dockView.components(separatedBy: "private struct SessionHomeRevealModifier").last ?? "")
     .components(separatedBy: "MARK: - v3.9.78").first ?? "")
@@ -248,7 +253,7 @@ check("🚫 返回时对话页不许再右滑（removal 已改 .identity；右�
 check("离场侧保留方向感（进对话页 = 列表左滑出 + 聊天右滑入）",
       dockView.contains("removal: .move(edge: .leading)")
         && dockView.contains("insertion: .move(edge: .trailing)"))
-check("圆心「取走即清空」：只有 backToSessionHome 写进去的那一次播扩散（切 tab / 冷启动 / 深链落首页不播 —— 那几条路外层 chatZoomEntry 已在播整页扩散）",
+check("圆心「取走即清空」：只有 backToSessionHome 写进去的那一次播扩散（切 tab / 冷启动 / 深链落首页不播 —— 那些路外层 chatZoomEntry 有自己的整页入场）",
       dockView.contains("private func backToSessionHome(at point: CGPoint?)")
         && dockView.contains("guard let c = pendingCenter else { return }")
         && dockView.contains("pendingCenter = nil"))
@@ -260,10 +265,10 @@ check("🚫 两分支不许再叠 .opacity（交叉淡化会吃掉横移，v4.0.
 check("🚫 两态切换不许复活 Motion.tap（0.12 = 闪一下，本次修复的病根）",
       !dockView.contains("withAnimation(Motion.tap) { showSessionHome"))
 check("Motion.page 存在且是页面级时长（退回 0.12 级就是老毛病）",
-      motionSrc.contains("static var page: Animation { .smooth(duration: 0.34) }"))
+      motionSrc.contains(".smooth(duration: 0.34)"))
 // v4.0.115：整屏位移不许用带回弹的弹簧（.snappy 收尾那点回弹读作到位时「顿一下」）。
 check("🚫 Motion.page 不许退回 .snappy（整页位移要无回弹的 .smooth）",
-      !motionSrc.contains("static var page: Animation { .snappy("))
+      !motionSrc.contains(".snappy(duration: 0.34)"))
 
 print("\n== Ⓞ 返回会话首页：滑进来那一帧必须**已经有内容**（v4.0.115 用户「还是动效生硬」）==")
 // 事故形态：SessionsView 是 if/else 的一支，进聊天时整只销毁、@State 数组归零；

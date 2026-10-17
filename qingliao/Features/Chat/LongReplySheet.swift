@@ -128,6 +128,10 @@ struct LongReplySheet: View {
                                 })
                         }
                     }
+                    // 第 10 项整改（用户 2026-10-18「把滚动景深挂到还没挂、且容器是惰性堆叠的页，别挂到 List 上」）：
+                    // 长回复页原来没有滚动层次（全站只有看板 / 生活 / 工作区有）。容器本就是 LazyVStack
+                    // —— 前提已满足；挂 List 上会让整行常驻缩小变淡，所以这里只能挂在逐段卡片上。
+                    .scrollDepth()
                 }
             }
             .padding(.horizontal, Spacing.xl)

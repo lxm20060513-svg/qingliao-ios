@@ -124,7 +124,7 @@ struct LifeView: View {
                         .staggerAppear(visibleSections.count, ready: introReady)
                         .scrollDepth()
                 }
-                .padding(.horizontal, Spacing.xxl)
+                .padding(.horizontal, Spacing.pageInset)
                 .padding(.bottom, 100)
                 .frame(maxWidth: .infinity)
                 .frame(maxWidth: AdaptiveLayout.contentMaxWidth(hSize))

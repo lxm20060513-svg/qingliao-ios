@@ -92,6 +92,16 @@ struct HeaderPillGroup: View {
     private func itemView(_ item: Item) -> some View {
         return Button(action: item.action) {
             Image(systemName: item.systemName)
+                // 第 9 项整改（用户 2026-10-18「状态图标走符号替换」）：页头胶囊的图标在同一
+                // 位置上会换符号（菜单开合 / 未读出现），用 `.replace` 让新旧符号**交替**而不是原地弹一下
+                // —— 弹动看不出「换了图标」，交替才读得出状态变了。系统底栏那四颗（TabView）改不动，
+                // 页头胶囊是能落的一处（生活页栏头图标恒定，那边不加：值不变时 replace 是死代码）。
+                // 🚨 审查 P1：触发值必须挂**真正会变的量** —— `bounceTick` 只有「新建会话」那颗会自增，
+                //    而那颗 systemName 写死 plus.circle（符号不变、replace 无处可替）；真正会换符号的
+                //    （归档 / 编辑态）tick 恒 0 → 原来挂 tick 等于全站空转，还白丢了点击弹动。
+                //    故：replace 看 systemName，点击弹动另由 bounce 看 tick，两条各管一段。
+                // 第 12 项丰富档：替换节奏走单一真源（丰富档拉长，标准/关档 = 系统默认）
+                .symbolEffect(.replace, options: Motion.symbolReplaceOptions, value: item.systemName)
                 .symbolEffect(.bounce, value: item.bounceTick)
                 .font(.system(size: Self.iconFont, weight: .semibold))
                 // v4.0.62 审查（阻断级，本批自伤）：`glassPillStroke()` 只加玻璃 + 描边、

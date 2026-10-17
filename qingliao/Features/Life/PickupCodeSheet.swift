@@ -44,7 +44,7 @@ struct PickupCodeSheet: View {
                         }
                     }
                 }
-                .padding(.horizontal, Spacing.section)
+                .padding(.horizontal, Spacing.sheetInset)
                 .padding(.vertical, Spacing.lg)
             }
             .background(EnvironmentGradient.pageBase(scheme).ignoresSafeArea())

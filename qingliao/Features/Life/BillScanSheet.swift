@@ -47,7 +47,7 @@ struct BillScanSheet: View {
                     case .failed(let message): failedPane(message)
                     }
                 }
-                .padding(.horizontal, Spacing.section)
+                .padding(.horizontal, Spacing.sheetInset)
                 .padding(.top, Spacing.md)
                 .padding(.bottom, Spacing.xxl)
                 .frame(maxWidth: .infinity)

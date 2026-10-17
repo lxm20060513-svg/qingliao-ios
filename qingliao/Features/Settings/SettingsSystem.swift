@@ -61,7 +61,7 @@ struct DiagnosticsView: View {
                     crashLogSection
                     privacySection
                 }
-                .padding(.horizontal, Spacing.xxl)
+                .padding(.horizontal, Spacing.sheetInset)
                 .padding(.bottom, 30)
             }
             .navigationTitle("诊断")
@@ -510,6 +510,7 @@ struct DiagnosticsView: View {
 // 已拒绝后**不能**再弹系统框（iOS 只让请求一次），必须跳设置 —— 这是最常踩的坑。
 
 struct AppPermissionsSheet: View {
+    @Environment(\.colorScheme) private var scheme
     @Environment(\.dismiss) private var dismiss
 
     @State private var states: [AppCapability: PermissionState] = [:]
@@ -624,7 +625,7 @@ struct AppPermissionsSheet: View {
             .foregroundStyle(color(st))
             .padding(.horizontal, Spacing.sm)
             .padding(.vertical, 3)
-            .background(color(st).opacity(0.15), in: Capsule())
+            .background(color(st).opacity(Tint.coloredFill(scheme)), in: Capsule())
             .onTapGesture {
                 guard tappable else { return }
                 Haptics.tap()

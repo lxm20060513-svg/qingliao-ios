@@ -25,6 +25,16 @@ enum Tint {
     /// 深色模式加粗描边
     static let strong: CGFloat = 0.22
 
+    /// **彩色淡底**（非中性卡底，如状态胶囊 / 用量卡 / 分类淡底）的浓淡真源。
+    ///
+    /// 第 8 项整改（用户 2026-10-18「彩色淡底固定 0.15，深色下会糊 → 深色改用 0.22」）：
+    /// 浅色保持 0.15（v3.9.19 定的「彩色淡底字面口径」，statusPill / UsageCard 同款，不属四档但已拍板）；
+    /// 深色下同一个浓淡叠在深底上会糊成一片，故深色单独提到 strong(0.22)。
+    /// **新写的彩色淡底一律走这里**，别再写裸 `opacity(0.15)`（同屏两种写法，下一轮 grep 只找得到一半）。
+    static func coloredFill(_ scheme: ColorScheme) -> CGFloat {
+        scheme == .dark ? strong : 0.15
+    }
+
     /// 卡片描边色（浅色 faint 0.08 / 深色 soft 0.16），配合既有 0.8pt 线宽
     /// —— 深色取 soft 而非 strong：全库实现里深色描边常用 0.14~0.16（strong 0.22 是白色高光描边的档）
     static func line(_ scheme: ColorScheme) -> Color {

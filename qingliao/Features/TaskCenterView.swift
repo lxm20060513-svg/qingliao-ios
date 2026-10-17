@@ -53,7 +53,8 @@ struct TaskCenterView: View {
                 if filter == .history {
                     historyList
                 } else if activeTasks.isEmpty && activeOnlyTasks.isEmpty {
-                    emptyState
+                    // v4.0.120：空态 ↔ 列表的交接用透明度（局部转场 —— 与禁令⑯d「整页低起点淡入」不是一回事）
+                    emptyState.transition(.opacity)
                 } else {
                     List {
                         // v3.4.23：进行中分区（仅"全部/进行中"页显示；running 置顶实时刷新）
@@ -92,6 +93,13 @@ struct TaskCenterView: View {
                     }
                     .listStyle(.plain)
                 }
+                // v4.0.120（改善建议④）：大页面补**状态过渡** —— 列表行增删 / 分区切换按现成令牌走
+                //（插入用 Motion.settle，折叠用 Motion.snap，不新写裸曲线）。判据只看 **id 集合**：
+                // 轮询每 2s 一次，id 没变就不触发动画，行内文本（detail / elapsed）变化不会被带起来。
+                .animation(Motion.settle, value: filter)
+                .animation(Motion.settle, value: activeTasks.map(\.id))
+                .animation(Motion.settle, value: activeOnlyTasks.map(\.id))
+                .animation(Motion.settle, value: historyTasks.map(\.id))
             }
             .navigationTitle("任务中心")
             .navigationBarTitleDisplayMode(.inline)

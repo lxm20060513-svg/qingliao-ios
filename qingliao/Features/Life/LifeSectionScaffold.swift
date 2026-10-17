@@ -53,6 +53,10 @@ struct LifeSectionHeader: View {
                 //（列表行 36 / 记录分类卡自报），几何仍只此一处 —— 走 BadgeShell，
                 // 别在这里手写 cornerRadius（LifeBadges.swift 头注：「迟早漂移」）。
                 Image(systemName: sectionIcon)
+                    // 第 9 项：这里**故意不加** `.symbolEffect(.replace)`（审查 P2）：栏头图标是各页
+                    // 写死的常量，值永不变化 → replace 结构上不可能触发，挂上只是「这里已经有符号动效」
+                    // 的假象。要动效得让图标真随状态变（如记录空态 / 有数据的 fill 变体）再接 value。
+
                     .font(.system(size: 20 * 0.5, weight: .semibold))
                     .foregroundStyle(.white)
                     .modifier(BadgeShell(size: 20, color: sectionIconTint))

@@ -18,6 +18,9 @@ enum UserDefaultsKey {
     static let lastUsedAt = "qingliao_last_used_at"
     // v3.4.12：agentEnabled key 已移除——「Agent 智能回复」开关删除后无任何读取方
     // （AuthStore.streamStart 恒发 agentEnabled=true 走字面量，不再读 UserDefaults）
+    // 第 12 项（用户 2026-10-18「加一档三选：关 / 标准 / 丰富」）：全站特效总档。
+    // 字面量真源在 EffectsLevel.storageKey（Core/EffectsLevel.swift），这里只做键名登记。
+    static let effectsLevel = EffectsLevel.storageKey
     static let model   = "qingliao_model"
     static let provider = "qingliao_provider"
     static let agentModel   = "qingliao_agent_model"

@@ -1456,7 +1456,7 @@ struct ChatView: View {
             AnyView(NavigationStack {
                 ScrollView {
                     MemoSection()
-                        .padding(.horizontal, Spacing.section)
+                        .padding(.horizontal, Spacing.sheetInset)
                 }
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
@@ -3689,7 +3689,7 @@ struct ChatView: View {
                         .lineSpacing(4)
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, Spacing.section)
+                        .padding(.horizontal, Spacing.sheetInset)
                         .padding(.vertical, Spacing.md)
                 }
                 .navigationTitle("思考过程")

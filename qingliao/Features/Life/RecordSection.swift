@@ -912,6 +912,24 @@ struct CategoryBadge: View {
 enum RecordCategoryColor {
     static let palette: [Color] = [.orange, .blue, .green, .purple, .pink, .teal, .indigo, .brown]
 
+    /// 第 7 项整改（用户 2026-10-18「分类色改成固定表，居住和餐饮不要每次变色」）：
+    /// 含义明确的分类**固定一色**（改造前靠 djb2 落 palette —— 色相与含义无关，分类名改一个字就换色，
+    /// 「餐饮」这种一眼该认出的分类反而每次可能不同）。色相按生活语义分配，**仍保持多彩**。
+    /// ⚠️ 别名（居住→居家、其他→其它）在归一后共用同一色，口径与 `RecordKit.categoryIcon` 一致。
+    static let fixed: [String: Color] = [
+        "餐饮": .orange,
+        "交通": .blue,
+        "购物": .pink,
+        "居家": .indigo,   // 含别名「居住」
+        "医疗": .red,
+        "娱乐": .purple,
+        "学习": .teal,
+        "人情": .brown,
+        "日用": .green,
+        "通讯": .cyan,
+        "其它": .gray,     // 含别名「其他」；与未分类同色（都是兜底）
+    ]
+
     static func tint(_ category: String) -> Color {
         // v4.0.65 审查（一般）：图标侧已把「居住/居家」「其他/其它」当**同一分类**
         //（见 RecordKit.categoryIcon 的别名 case），配色侧必须**归一后再 hash** —— 否则同一概念
@@ -923,6 +941,9 @@ enum RecordCategoryColor {
         default: break
         }
         guard name != RecordKit.uncategorized else { return .gray }
+        // 固定表优先（含义明确的分类不随哈希漂移）；未收录的自定义分类仍回落 palette 哈希，
+        // 保证「新增分类有一支稳定色」，而不是一律变灰。
+        if let c = fixed[name] { return c }
         var h = 5381
         for u in name.unicodeScalars { h = (h &* 33) &+ Int(u.value) }
         return palette[abs(h) % palette.count]
@@ -1168,7 +1189,7 @@ private struct RecordBudgetSheet: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Spacer(minLength: 0)
             }
-            .padding(.horizontal, Spacing.section)
+            .padding(.horizontal, Spacing.sheetInset)
             .padding(.top, Spacing.md)
             .navigationTitle("月预算")
             .navigationBarTitleDisplayMode(.inline)

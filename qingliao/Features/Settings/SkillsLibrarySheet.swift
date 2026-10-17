@@ -15,6 +15,7 @@
 import SwiftUI
 
 struct SkillsLibrarySheet: View {
+    @Environment(\.colorScheme) private var scheme
     @Environment(AuthStore.self) private var auth
     @Environment(\.dismiss) private var dismiss
 
@@ -253,7 +254,7 @@ struct SkillsLibrarySheet: View {
             .foregroundStyle(on ? Color.green : Color.secondary)
             .padding(.horizontal, Spacing.sm)
             .padding(.vertical, Spacing.xxs)
-            .background((on ? Color.green : Color.gray).opacity(0.15),
+            .background((on ? Color.green : Color.gray).opacity(Tint.coloredFill(scheme)),
                         in: Capsule(style: .continuous))
     }
 
@@ -274,8 +275,8 @@ struct SkillsLibrarySheet: View {
             .foregroundStyle(sourceTint(kind))
             .padding(.horizontal, Spacing.sm)
             .padding(.vertical, Spacing.xxs)
-            // 彩色淡底一律 0.15（全仓口径，护栏把 0.14 清零；与本页 statusPill 同值）
-            .background(sourceTint(kind).opacity(0.15), in: Capsule(style: .continuous))
+            // 彩色淡底走 Tint.coloredFill（第 8 项：浅 0.15 / 深 0.22；护栏把裸 0.14 清零）
+            .background(sourceTint(kind).opacity(Tint.coloredFill(scheme)), in: Capsule(style: .continuous))
             .lineLimit(1)
             .fixedSize()
     }

@@ -82,7 +82,7 @@ struct HADeviceSheet: View {
                     lightCard(e)
                 }
             }
-            .padding(.horizontal, Spacing.section)
+            .padding(.horizontal, Spacing.sheetInset)
             .padding(.bottom, 20)
         }
     } else {
@@ -93,7 +93,7 @@ struct HADeviceSheet: View {
                     climateCard(e)
                 }
             }
-            .padding(.horizontal, Spacing.section)
+            .padding(.horizontal, Spacing.sheetInset)
             .padding(.bottom, 20)
         }
     }

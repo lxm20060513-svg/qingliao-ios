@@ -42,7 +42,7 @@ struct PinCard: View {
         }
         .padding(Spacing.xl)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .dashboardCard()   // v3.9.34 收口：原手搓 inset(12) 卡底并入全站卡口径（16 + Tint.line + 柔影）
+        .pastelCard(cornerRadius: Radius.hero)   // v4.0.120：并入全站卡面口径（淡彩玻璃 + 圆角 22）
         // v4.0.105：系统 .contextMenu → 全局同款锚定胶囊菜单（微缩抬起 + 轻纱模糊变暗 + 弹簧错峰）
         .anchorLongPressMenu(items: pinCardMenuList(canDelete: onDelete != nil), title: "钉一钉") { item in
             switch item.id {

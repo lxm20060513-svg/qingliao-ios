@@ -122,7 +122,8 @@ struct DockLayoutSheet: View {
                 } else if !now.contains(tab.rawValue) {
                     now.append(tab.rawValue)
                 }
-                hiddenRaw = DockLayoutKit.encodeHidden(now)
+                // v4.0.120：开关影响的是**可见档位**（图标出现/消失），补一拍过渡（小控件语义 → Motion.snap）
+                withAnimation(Motion.snap) { hiddenRaw = DockLayoutKit.encodeHidden(now) }
             }
         )
     }

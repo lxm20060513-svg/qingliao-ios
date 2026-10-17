@@ -71,6 +71,8 @@ struct BubbleTheme {
 // ⚠️ 圆角约定（v3.8.1 起，防回归）：
 //   · 卡片一律 **16**（dashboardCard() 默认值）：看板 DeviceCard/MeterCard/ServiceCard、智能建议卡、
 //     空态/提示条，生活股票格/资讯长卡/备忘录卡、提示条，云端看板统计卡 —— 用户要求"都要一致"
+//   · v4.0.120（用户拍板）：**看板页 + 会话首页的页内卡统一圆角 22（Radius.hero）+ 淡彩玻璃卡面**
+//     （原看板页 12 处 dashboardCard 玻璃 + 会话首页 3 处，一并并入 pastelCard 出口；弹窗内卡仍 16）
 //   · 唯一例外：看板空调高亮卡（渐变 + 投影 + 1pt 描边）刻意用 22，属 hero 卡，未拉平
 //   · 图标底板 / 分段控件等非卡片元素不受此约定（8/10/12/14 各自合适即可）
 //   改一侧就要同步另一侧，别让生活页看着比看板"方"（用户 2026-09-11 反馈）
@@ -506,7 +508,7 @@ struct PageHeader: View {
                 }
             }
         }
-        .padding(.horizontal, 18)
+        .padding(.horizontal, Spacing.pageInset)
         .padding(.top, Spacing.sm)
         .padding(.bottom, Spacing.md)
         // v4.0.31：标题行正中的宠物（纯叠加，不参与布局、不改 header 高度）

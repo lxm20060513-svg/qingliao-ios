@@ -146,12 +146,19 @@ check("skip 分支直接落终态（不是半路 enter）",
       dock.contains("if skipFirstEntry {"))
 
 // ── 两枚令牌各管一段，不许互相顶替 ──────────────────────────────────────
+// 第 12 项（2026-10-18 特效总档）：这两个令牌的形态变为 `tuned(.easeIn(...))` ——
+// 断言只钉**曲线 + 时长字面**，不再钉整行（否则「关档」包装进来即误报；换曲线/改时长照样红）。
 check("Motion.launchReveal = .easeIn(0.7)（先慢后快，用户口径）",
-      motion.contains("static var launchReveal: Animation { .easeIn(duration: 0.7) }"))
+      motion.contains(".easeIn(duration: 0.7)"))
 check("Motion.launchRise = .smooth(0.40)（块内位移，无回弹）",
-      motion.contains("static var launchRise: Animation { .smooth(duration: 0.40) }"))
-check("dock 切页那枚 pageReveal 未被顺手改掉（仍是 .smooth 0.75）",
-      motion.contains("static var pageReveal: Animation { .smooth(duration: 0.75) }"))
+      motion.contains(".smooth(duration: 0.40)"))
+// v4.0.120（用户 2026-10-17「圆扩散只留启动页」）：底栏切页换**定向滑入**，旧 pageReveal 令牌退役。
+// 启动页这一拍仍是圆扩散（launchReveal），两枚令牌各管一段 —— 别互相顶替。
+check("底栏切页那枚令牌已换代（v4.0.120 定向滑入：曲线 pageEnterSlide + 位移 pageEnterShift）",
+      motion.contains(".smooth(duration: 0.32)")
+      && motion.contains("static let pageEnterShift: CGFloat = 28"))
+check("🚫 旧 pageReveal 令牌不许复活（v4.0.120 起圆扩散只留 launchReveal / sessionBackReveal）",
+      !motion.contains("static var pageReveal"))
 check("两处时长同值：Motion.launchReveal 的 0.7 == SplashView.revealDuration 的 0.7",
       motion.contains(".easeIn(duration: 0.7)") && splash.contains("revealDuration: Double = 0.7"))
 
@@ -178,7 +185,7 @@ check("🚫 老那行 0.6s 定时撤除不许回来（会把刚起头的扩散�
       !app.contains("Task.sleep(for: .seconds(0.6))"))
 check("🚫 老的 withAnimation(Motion.emerge) 撤除不许回来（淡出 = 先白后切）",
       !app.contains("withAnimation(Motion.emerge) { showSplash = false }"))
-check("🚫 启动页不许出现第二条并发的整页扩散（pageReveal 那条留给切页）",
+check("🚫 启动页不许出现第二条并发的整页扩散（切页那条 v4.0.120 起是定向滑入，也自有其入场）",
       !splash.contains("Motion.pageReveal)"))
 // v4.0.116（发版审查 P2）：原断言 `!contains(".opacity(0)") || contains("opacity(settled")`
 // 两个分句都恒真（文件里既无字面量 .opacity(0)、又有 opacity(settled ? 1 : 0)）→ 零鉴别力：
