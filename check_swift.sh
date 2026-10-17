@@ -1758,8 +1758,11 @@ cnt=$(grep -rlF 'Tint.coloredFill(' qingliao/ --include=*.swift | wc -l | tr -d 
 #    而 bounceTick 只有「新建会话」那颗会自增、那颗 systemName 写死（符号不变）→ 断言绿、效果全站空转。
 # ⚠️ 第 12 项起本行同时带 `options:`（丰富档加长替换节奏）—— 断言匹配的是「挂 systemName」这个语义，
 #    形态上带 options 也算真挂；不带 options 的旧形态已不存在（改回旧形态会在下面第 12 项那段报红）。
-cnt=$(grep -cF '.symbolEffect(.replace, options: Motion.symbolReplaceOptions, value: item.systemName)' qingliao/Theme/HeaderPillButton.swift | tr -d ' ')
-[ "$cnt" -eq 1 ] || { echo "❌ 第 9 项：页头胶囊的符号替换没挂真正会变的量（应挂 systemName + 丰富档 options，实得 $cnt）"; fail=1; }
+# 形态=contentTransition（`.symbolEffect(_:options:value:)` 要求 DiscreteSymbolEffect，Replace 不符合，
+# CI 首轮 Archive 已实踩）+ 触发值仍是会变的 systemName（缺 animation 触发器 = 替换永不生效）。
+cnt=$(grep -cF '.contentTransition(.symbolEffect(.replace, options: Motion.symbolReplaceOptions))' qingliao/Theme/HeaderPillButton.swift | tr -d ' ')
+cnt2=$(grep -cF '.animation(Motion.snap, value: item.systemName)' qingliao/Theme/HeaderPillButton.swift | tr -d ' ')
+{ [ "$cnt" -eq 1 ] && [ "$cnt2" -eq 1 ]; } || { echo "❌ 第 9 项：页头胶囊的符号替换没挂真正会变的量（contentTransition $cnt / 触发 $cnt2，各应 1）"; fail=1; }
 cnt=$(grep -cF '.symbolEffect(.replace, value: item.bounceTick)' qingliao/Theme/HeaderPillButton.swift | tr -d ' ')
 [ "$cnt" -eq 0 ] || { echo "❌ 第 9 项：符号替换又被挂回恒 0 的 bounceTick（符号不变 = 空转）"; fail=1; }
 cnt=$(grep -cF '.symbolEffect(.bounce, value: item.bounceTick)' qingliao/Theme/HeaderPillButton.swift | tr -d ' ')
@@ -1834,8 +1837,21 @@ cnt=$(sed 's://.*::' qingliao/Features/OrbQuickMenu.swift | grep -cF 'Motion.pan
 # —— 第 12 项（本轮补）：丰富档只加长「切页 + 符号替换」两侧 ——
 cnt=$(grep -cF 'static var symbolReplaceOptions: SymbolEffectOptions' qingliao/Theme/Motion.swift | tr -d ' ')
 [ "$cnt" -eq 1 ] || { echo "❌ 第 12 项：丰富档的符号替换节奏真源缺失（实得 $cnt）"; fail=1; }
-cnt=$(grep -cF '.symbolEffect(.replace, options: Motion.symbolReplaceOptions, value: item.systemName)' qingliao/Theme/HeaderPillButton.swift | tr -d ' ')
+cnt=$(grep -cF '.contentTransition(.symbolEffect(.replace, options: Motion.symbolReplaceOptions))' qingliao/Theme/HeaderPillButton.swift | tr -d ' ')
 [ "$cnt" -eq 1 ] || { echo "❌ 第 12 项：页头胶囊的符号替换未接丰富档（实得 $cnt）"; fail=1; }
+# —— CI 首轮实踩的两种回退（各加一条负断言，防复发）——
+# ① 带 options 的 view modifier 形态编译不过（DiscreteSymbolEffect 约束）
+# ⚠️ 判据不能只数 `.symbolEffect(.replace, options:` —— 合法形态
+#    `.contentTransition(.symbolEffect(.replace, options: …))` 也含这个子串（曾自己判自己红）。
+#    正确口径：**每一次出现都必须带 contentTransition 前缀**。
+cntA=$(grep -cF '.symbolEffect(.replace, options:' qingliao/Theme/HeaderPillButton.swift | tr -d ' ')
+cntB=$(grep -cF '.contentTransition(.symbolEffect(.replace, options:' qingliao/Theme/HeaderPillButton.swift | tr -d ' ')
+[ "$cntA" -eq "$cntB" ] || { echo "❌ 页头胶囊用回裸 `.symbolEffect(.replace, options:...)` —— 该重载要求 DiscreteSymbolEffect，Replace 不满足，Archive 必挂（裸形态 $((cntA-cntB)) 处）"; fail=1; }
+# ② 把 map(\.id) 内联进 .animation(_:value:) 会把 body 类型检查拖爆（TaskCenterView 报过超时）
+cnt=$(grep -nE '\.animation\([A-Za-z.]+, value: [a-zA-Z]+\.map\(' qingliao/Features/TaskCenterView.swift | wc -l | tr -d ' ')
+[ "$cnt" -eq 0 ] || { echo "❌ TaskCenterView 又把 map(\.id) 内联进 .animation —— 请走显式类型的 taskIdsSignature（$cnt 处）"; fail=1; }
+cnt=$(grep -cF 'private var taskIdsSignature: [String] {' qingliao/Features/TaskCenterView.swift | tr -d ' ')
+[ "$cnt" -eq 1 ] || { echo "❌ TaskCenterView 的过渡判据签名缺失（实得 $cnt）"; fail=1; }
 
 [ $fail -eq 0 ] || { echo "❌ 有护栏失守"; exit 1; }
 exit 0

@@ -101,7 +101,13 @@ struct HeaderPillGroup: View {
                 //    （归档 / 编辑态）tick 恒 0 → 原来挂 tick 等于全站空转，还白丢了点击弹动。
                 //    故：replace 看 systemName，点击弹动另由 bounce 看 tick，两条各管一段。
                 // 第 12 项丰富档：替换节奏走单一真源（丰富档拉长，标准/关档 = 系统默认）
-                .symbolEffect(.replace, options: Motion.symbolReplaceOptions, value: item.systemName)
+                // 🚨 CI 实踩（v4.0.120 首轮 Archive 失败）：`.symbolEffect(_:options:value:)` 只接受
+                //    DiscreteSymbolEffect，而 ReplaceSymbolEffect 不是它 → 「options + value」编译不过。
+                //    Replace 属于 **contentTransition** 体系，options 要挂
+                //    `ContentTransition.symbolEffect(_:options:)`（约束是 ContentTransitionSymbolEffect
+                //    & SymbolEffect，Replace 符合），再由一条 animation 把「内容变化」包进事务触发。
+                .contentTransition(.symbolEffect(.replace, options: Motion.symbolReplaceOptions))
+                .animation(Motion.snap, value: item.systemName)
                 .symbolEffect(.bounce, value: item.bounceTick)
                 .font(.system(size: Self.iconFont, weight: .semibold))
                 // v4.0.62 审查（阻断级，本批自伤）：`glassPillStroke()` 只加玻璃 + 描边、

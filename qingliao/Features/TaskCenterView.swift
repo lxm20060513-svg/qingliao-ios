@@ -94,12 +94,14 @@ struct TaskCenterView: View {
                     .listStyle(.plain)
                 }
                 // v4.0.120（改善建议④）：大页面补**状态过渡** —— 列表行增删 / 分区切换按现成令牌走
-                //（插入用 Motion.settle，折叠用 Motion.snap，不新写裸曲线）。判据只看 **id 集合**：
-                // 轮询每 2s 一次，id 没变就不触发动画，行内文本（detail / elapsed）变化不会被带起来。
+                //（不新写裸曲线）。判据只看 **id 集合**：轮询每 2s 一次，id 没变就不触发动画，
+                // 行内文本（detail / elapsed）变化不会被带起来。
+                // 🚨 CI 实踩（v4.0.120 首轮 Archive 失败）：原来把三处 `map(\.id)` **内联**进
+                //    `.animation(_:value:)`，key path + 泛型重载叠加把 body 的类型检查拖爆
+                //    （`unable to type-check this expression in reasonable time`，报在 List 里第一个 if）。
+                //    改为单个**显式类型**的签名值（见 taskIdsSignature），推导只算一次。
                 .animation(Motion.settle, value: filter)
-                .animation(Motion.settle, value: activeTasks.map(\.id))
-                .animation(Motion.settle, value: activeOnlyTasks.map(\.id))
-                .animation(Motion.settle, value: historyTasks.map(\.id))
+                .animation(Motion.settle, value: taskIdsSignature)
             }
             .navigationTitle("任务中心")
             .navigationBarTitleDisplayMode(.inline)
@@ -286,6 +288,12 @@ struct TaskCenterView: View {
         Task { @MainActor in
             historyTasks = await auth.fetchTaskHistory()
         }
+    }
+
+    /// v4.0.120（改善建议④）：状态过渡的判据 = 三个分区的 **id 集合**（只看增删，不看行内文本）。
+    /// 显式返回类型 [String] 是**刻意**的：把推导钉在类型检查早期，避免 UI 表达式超时。
+    private var taskIdsSignature: [String] {
+        (activeTasks + activeOnlyTasks + historyTasks).map(\.id)
     }
 
     // MARK: - v4.0.86（任务中心③）：历史分区
