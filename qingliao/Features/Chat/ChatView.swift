@@ -100,10 +100,16 @@ struct ChatView: View {
     @State var bubbleMenuTarget: ChatBubbleMenuTarget?
     /// v4.0.81：返回「会话列表」（只有 iPhone 上「聊天」tab 的首页宿主会传 —— 那一 tab 现在
     /// 把会话列表与聊天页合成一页，需要有路回列表；iPad 双栏 / 其它入口不传即完全不渲染返回键）。
-    /// v4.0.116：回调带**返回位置**（window 坐标）—— 宿主拿它当「首页圆形扩散」的圆心：
-    /// 滑动返回传**手势抬手位置**（用户口径「新页面就从手指滑动位置向外扩散」），
-    /// 页头返回按钮这条没有手指可依 → 传 nil，宿主兜底屏幕中心（两条路都有扩散，不会一条硬切一条扩散）。
-    var onBackToHome: ((CGPoint?) -> Void)? = nil
+    /// v4.0.116：回调曾带**返回位置**当圆形扩散的圆心；🚨 v4.0.122（用户 2026-10-18 拍板
+    /// 「要跟手滑动返回」）起左缘手势改**跟手位移**（下面两个回调），这条路**只剩页头返回按钮**
+    /// 一个入口 → 没有手指可依，圆心由宿主兜底屏幕中心（扩散照旧演，别顺手撤）。
+    var onBackToHome: (() -> Void)? = nil
+    /// 🚨 v4.0.122：左缘右滑的**跟手过程**回调 —— 每帧给出已 clamp 的位移（pt），
+    /// 宿主拿它位移整页（对话页右移、会话首页从左侧露出来）。传 nil = 该宿主不做跟手
+    ///（iPad 双栏 / 独立聊天页），整条手势失效。
+    var onBackFollow: ((CGFloat) -> Void)? = nil
+    /// 🚨 v4.0.122：左缘右滑**松手**回调（true = 越过阈值 → 宿主收敛到返回；false = 回弹归位）。
+    var onBackFollowEnd: ((Bool) -> Void)? = nil
     // v3.9.14：工具进度卡展开状态——生成中强制展开，答完默认收起（用户反馈这几行别一直摊着）
     @State var toolStepsExpanded = false
     // v3.4.24：任务中心全屏页（header 常驻小图标入口，原 DockTabView 全局 overlay 已移除）
@@ -1167,44 +1173,81 @@ struct ChatView: View {
         // v4.0.82（用户 2026-10-09「在聊天内容页增加边缘手势返回会话页功能」）：
         // 左缘右滑 = 返回会话列表。挂在**整页最外圈**（与上面浮层同一层级的容器上），
         // 判定纯逻辑在 Core/ChatEdgeBackKit.swift（阈值单一真源，真值表 + 源护栏见
-        // scripts/ql_dock/truth_table_dock.swift：护栏钉「挂载点在 + 判定只走 Kit」）。
-        // 宿主只在这条链上挂一次；iPad 双栏 / 独立聊天页时 onBackToHome == nil → 手势空转。
-        .modifier(ChatEdgeBackModifier(onBack: onBackToHome))
+        // scripts/ql_docklayout/truth_table_docklayout.swift：护栏钉「挂载点在 + 判定只走 Kit」）。
+        // 宿主只在这条链上挂一次；iPad 双栏 / 独立聊天页时 onBackFollow == nil → 手势空转。
+        // 🚨 v4.0.122：手势壳**不再接 onBack**（页头返回按钮那条直连 onBackToHome，不走这条链 ——
+        // 留着那个参数会让人以为「按钮也走手势壳」，下次改动容易改错一侧）。
+        .modifier(ChatEdgeBackModifier(onFollow: onBackFollow,
+                                       onFollowEnd: onBackFollowEnd))
     }
 
     /// v4.0.82：聊天内容页「左缘右滑 → 返回会话列表」的手势壳（判定见 Core/ChatEdgeBackKit.swift）。
     ///
     /// 为什么是 `simultaneousGesture` 而不是 `.gesture`：后者会把手势优先级压过系统滚动，
     /// 消息区的纵向滚动当场被抢（两端抢识别只能二选一）。这里只「同时听」——
-    /// 纵向滚动照旧（③ 方向纯度挡掉），气泡长按/轻点也不受影响（判定要求位移 70pt）。
+    /// 纵向滚动照旧（方向纯度挡掉），气泡长按/轻点也不受影响（起手要落在左缘 24pt 内）。
     ///
-    /// 为什么不做跟手位移：聊天页是 TabView 一档 + 输入栏常驻，跟手要把整页 translate 起来，
-    /// 与输入栏材质/键盘避让互相打架（收益小、回归面大）。滑到位即触发返回，动画由宿主
-    /// （合并首页的 withAnimation）统一做。
+    /// 🚨 v4.0.122（用户 2026-10-18 对着参考截图拍板「要这种跟手滑动返回」）：**改成跟手**。
+    ///   老实现只挂 `onEnded`（抬手位移 ≥ 70pt 才跳转）：手指在滑、页面一动不动，松手才闪切。
+    ///   现在 `onChanged` 每帧把位移交给宿主去移整页 —— 页面贴着手指走、会话首页从左侧同步露出来；
+    ///   松手由 `onFollowEnd` 判「完成 / 回弹」。
+    ///   位移本身不在这里算（这里只判「认不认这条手势」）：clamp 与阈值都在 Kit，视图里不内联第二套。
     private struct ChatEdgeBackModifier: ViewModifier {
-        /// v4.0.116：类型与 `ChatView.onBackToHome` 同源（`(CGPoint?) -> Void`）—— 直接透传，不做包装转换；
-        /// 这里**只传手势抬手位置**（`value.location`，`.global` 即 window 坐标），按钮路径的 nil 由宿主兜底。
-        let onBack: ((CGPoint?) -> Void)?
+        /// 跟手过程：每帧位移（pt，已 clamp 到 0…屏宽）
+        let onFollow: ((CGFloat) -> Void)?
+        /// 松手：true = 越过阈值 → 完成返回；false = 回弹
+        let onFollowEnd: ((Bool) -> Void)?
+
+        /// 本轮已认领那条手势的**起手点**（nil = 本轮没认领）。
+        /// 为什么必须锁存：判定门（够横）只在起手头几帧能过，手指随后往下偏（|dy| 变大）再过门就失败
+        /// → 位移逐帧归 0 = 页面在手底下抖回去。
+        /// 为什么锁存的是**起手点**而不是一个 Bool：起手点在一次 DragGesture 内恒定、跨手势则不同 ——
+        /// 手势被打断时 `onEnded` 可能**压根不来**（来电 / 通知 / 进后台 / 视图被摘下），
+        /// 只靠 onEnded 清锁存 = 残留 → 下一轮**任意**拖动（哪怕中部竖直滚）都会跳过起手门与方向门。
+        /// 用「起手点变了」判新手势：既不用依赖 onEnded，也不会误伤「拖到一半手指停下再继续」（同一起手点）。
+        @State private var claimedStart: CGPoint? = nil
 
         func body(content: Content) -> some View {
             content.simultaneousGesture(
-                DragGesture(minimumDistance: 20, coordinateSpace: .global)
+                // minimumDistance 8 = 跟手起步门（ChatEdgeBackKit.followStart）：一动就跟，
+                // 别用 20 那种抬手距离（那会先僵一下，跟手的第一印象就没了）。
+                DragGesture(minimumDistance: 8, coordinateSpace: .global)
+                    .onChanged { value in
+                        guard let onFollow else { return }
+                        let dx = value.translation.width
+                        let dy = value.translation.height
+                        if let claimed = claimedStart, claimed != value.startLocation {
+                            // 换了手势 = 上一轮没走 onEnded（被打断）→ 把上一轮整个收干净：
+                            // 位移归 0 + 让宿主收掉垫底页与待办收敛任务（否则页面永久停在半路、
+                            // 垫底页永久在场），然后按**新手势**重新过门。
+                            claimedStart = nil
+                            onFollow(0)
+                            onFollowEnd?(false)
+                        }
+                        if claimedStart == nil {
+                            guard ChatEdgeBackKit.isEdgeStart(x: value.startLocation.x),
+                                  ChatEdgeBackKit.isHorizontal(dx: dx, dy: dy) else { return }
+                            claimedStart = value.startLocation
+                        }
+                        // 位移交给宿主裸写（那边**不能过动画事务**：过动画页面就落在手指后面）
+                        onFollow(ChatEdgeBackKit.followOffset(dx: dx,
+                                                              width: DockOrbOverlay.keyWindowWidth))
+                    }
                     .onEnded { value in
-                        guard let onBack else { return }
-                        guard ChatEdgeBackKit.shouldGoBack(
-                            startX: value.startLocation.x,
-                            dx: value.translation.width,
-                            dy: value.translation.height
-                        ) else { return }
                         // v4.0.83（用户 2026-10-09：「聊天页滑动返回不需要有震动感，丝滑切换就行」）：
-                        // 这里原有一发 Haptics.tap()，已去掉 —— 边缘返回属于「丝滑」类交互，
-                        // 中途一震反而把连续感切断（长按/点击类才要「明显」的触感，见本仓触感口径）。
-                        // v4.0.116：把**抬手位置**交给宿主 —— 首页「圆形扩散」的圆心就是从这儿来的；
-                        // 用抬手点（不是起手点）：起手点被 `edgeWidth` 钉死在左缘 24pt 内，
-                        // 圆心永远贴边、看不出「从手指滑动位置扩散」。
-                        onBack(value.location)
+                        // 这条链上没有触感（长按/点击类才要「明显」的触感，见本仓触感口径）。
+                        guard claimedStart != nil else { return }
+                        claimedStart = nil
+                        onFollowEnd?(ChatEdgeBackKit.shouldComplete(
+                            dx: value.translation.width,
+                            projectedEnd: value.predictedEndTranslation.width,
+                            width: DockOrbOverlay.keyWindowWidth
+                        ))
                     }
             )
+            // 🚨 v4.0.122：跟手期间禁掉页内滚动 —— simultaneousGesture 只「同时听」、不抢识别，
+            // 认领之后手指再带纵向分量（斜划）会「整页横移 + 消息列表纵向滚」同时发生（微信也是跟手期间列表不动）。
+            .scrollDisabled(claimedStart != nil)
         }
     }
 
@@ -1693,7 +1736,9 @@ struct ChatView: View {
     private var chatBackButton: some View {
         Button {
             Haptics.tap()
-            onBackToHome?(nil)
+            // v4.0.122：左缘手势改跟手位移后，这条路是**唯一**走圆形扩散的返回入口
+            //（无手指可依 → 宿主兜底屏幕中心当圆心）
+            onBackToHome?()
         } label: {
             Image(systemName: "chevron.left")
                 .font(.system(size: Typography.body, weight: .semibold))

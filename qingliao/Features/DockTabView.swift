@@ -63,11 +63,26 @@ struct DockTabView: View {
     @State private var showSessionHome = true
     /// v4.0.116（用户 2026-10-13「聊天页滑动返回聊天主页采用圆形扩散转场特效：新页面就从手指滑动位置
     /// 向外扩散直到铺满整个屏幕」）：返回聊天首页时**圆形扩散**的圆心（window 坐标）。
-    /// 由 `backToSessionHome(at:)` 写入 = 手势抬手位置（页头返回按钮那条传 nil → 屏幕中心兜底）。
+    /// 🚨 v4.0.122：左缘手势改**跟手位移**后，写它的**只剩页头返回按钮**（无手指可依 → 兜底屏幕中心）；
+    /// 跟手那条压根不写 → 保持 nil，首页的 modifier 直接不播扩散（它就是「被滑开露出来」的那一下）。
     /// **取走即清空**：首页侧的 modifier 在自己 `onAppear` 里消费一次并置回 nil ——
-    /// 于是只有「返回」这一条路径播扩散；冷启动 / 切 tab / 深链落首页时它是 nil，
-    /// 保持不播（那条路的外层 `chatZoomEntry` 已经在播整页扩散，两层叠着播会互相切）。
+    /// 于是只有「点页头返回按钮」这一条路径播扩散；冷启动 / 切 tab / 深链落首页时它是 nil，
+    /// 保持不播（那条路的外层 `chatZoomEntry` 已经在播定向滑入，两层叠着播会互相切）。
     @State private var homeRevealCenter: CGPoint? = nil
+    // MARK: - v4.0.122 左缘右滑**跟手**返回（用户 2026-10-18 对着参考截图拍板「要这种跟手滑动返回」）
+    //
+    // 口径：手指在左缘往右拖 → 对话页**贴着手指**整页右移、会话首页从左侧同步露出来（微信同款）；
+    //   松手：位移过半（或甩动预测终点过半）→ 收敛到返回，否则回弹归位。
+    // 为什么是两个状态位（而不是只用一个 offset）：跟手要的就是「两页同框」那一帧 ——
+    //   `backFollowLive` 管首页作为**垫底页**在不在场，`backFollowOffset` 管对话页被推走多远。
+    /// 对话页的跟手横移（pt）。0 = 常态；>0 = 跟手/收敛中。
+    /// ⚠️ 跟手帧必须**裸赋值**（不许进动画事务），只有收敛 / 回弹才走 `Motion.page`。
+    @State private var backFollowOffset: CGFloat = 0
+    /// 跟手/收敛期间首页要作为**垫底页**在场（滑开对话页露出来的就是它）。
+    /// 与 `showSessionHome` 分开：回弹收敛跑完之前不能卸，否则位移中途底下会空一下（露渐变垫底）。
+    @State private var backFollowLive = false
+    /// 收敛代次（与 `chatZoomEntry` 同款 seq 手法）：0.34s 窗口内再起手势 / 连甩不许互踩收尾。
+    @State private var backFollowSeq = 0
     /// v4.0.82：dock 顺序串（4 档 rawValue 的排列）—— 设置 → 通用 →「Dock 栏」写，这里读。
     /// 坏值净化在 DockLayoutKit.sanitizedOrder（渲染期只读结论，不在这里做校验）。
     @AppStorage(UserDefaultsKey.dockOrder) private var dockOrderRaw = DockLayoutKit.defaultOrderRaw
@@ -218,10 +233,18 @@ struct DockTabView: View {
             // v4.0.81：合并「聊天」tab —— 一页两态（会话首页 ↔ 对话页）。
             // 首页 = 会话页那套能力面原样复用（搜索/归档箱/分类/标签/多选批量删/远端全史搜索一字未改），
             // 顶部多出「机器人 + 每日一言 + ≤8 张自定义卡片」的首页头（showHero: true）。
-            Group {
-                if showSessionHome {
+            // 🚨 v4.0.122（用户 2026-10-18 拍板「要参考图这种跟手滑动返回」）：两态从 `if/else` 改成
+            // **ZStack 双页同框** —— 跟手必须有「两页同时在屏上」那一帧（对话页贴着手指右移、
+            // 会话首页从左侧同步露出来）；旧结构的 `if/else` 只留一页，位移一开底下就是空的（露垫底）。
+            // 两页的在场条件各自独立：首页 = `showSessionHome`（常态）**或** `backFollowLive`（跟手垫底页），
+            // 对话页 = `!showSessionHome`（跟手中它就在场，只是被位移推出屏外）。
+            ZStack {
+                if showSessionHome || backFollowLive {
                     // 实参序 = 声明序（onOpenSession → showHero → onAskAI），CI 参数序检查才过
-                    SessionsView(onOpenSession: { withAnimation(Motion.page) { showSessionHome = false } },
+                    // 🚨 v4.0.122：进对话页**必须**先 `resetBackFollow()` —— 跟手/回弹窗口里首页是垫底页、
+                    // 完全可点：这一下点击若不清跟手状态，0.4s 后那个收尾任务会把 `showSessionHome` 翻回 true
+                    // （用户看着像点了没反应，会话却已被 load + 标已读）；且残留位移会让对话页以非 0 位移插入。
+                    SessionsView(onOpenSession: { withAnimation(Motion.page) { resetBackFollow(); showSessionHome = false } },
                                  showHero: true,
                                  onAskAI: { askAI($0) },
                                  launchRise: launchRise)
@@ -246,11 +269,21 @@ struct DockTabView: View {
                         // 离场（进对话页）保持原样的左滑出，与 ChatView 的右滑入凑成 push 观感，一字未改。
                         .sessionHomeReveal(center: $homeRevealCenter)
                         .transition(.asymmetric(insertion: .identity, removal: .move(edge: .leading)))
-                } else {
-                    // v4.0.116：返回方向改圆形扩散后，对话页**离场不再右滑**（`.identity` 瞬时移出）——
-                    // 否则「向右滑出 + 圆扩散」两套动作同时演，观感是两页各演各的。
-                    // 入场仍是从右边滑入（用户没提进入方向，别顺手改）。
-                    ChatView(onBackToHome: { backToSessionHome(at: $0) })
+                }
+                // v4.0.116：返回方向改圆形扩散后，对话页**离场不再右滑**（`.identity` 瞬时移出）——
+                // 否则「向右滑出 + 圆扩散」两套动作同时演，观感是两页各演各的。
+                // 入场仍是从右边滑入（用户没提进入方向，别顺手改）。
+                //
+                // 🚨 v4.0.122：整页跟手位移挂在这里（`backFollowOffset`，含页头与输入栏 —— 微信那把也是整页走）。
+                // 跟手帧由 `backFollow(_:)` **裸赋值**（不许过动画事务：过动画页面就落在手指后面）；
+                // 收敛 / 回弹才走 `Motion.page`（与两态切换同一枚页面级令牌，时序不分家，见 ql_docklayout Ⓝ）。
+                if !showSessionHome {
+                    ChatView(onBackToHome: { backToSessionHome() },
+                             onBackFollow: { backFollow($0) },
+                             onBackFollowEnd: { backFollowEnd(complete: $0) })
+                        // 🚨 v4.0.122：位移只在「跟手/收敛/回弹在途」（`backFollowLive`）时生效 ——
+                        // 不跟手时恒 0，任何残留值（手势被打断那种）都不会落到别的路径上（结构护栏）。
+                        .offset(x: backFollowLive ? backFollowOffset : 0)
                         .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .identity))
                 }
             }
@@ -272,14 +305,83 @@ struct DockTabView: View {
         Task { try? await Task.sleep(for: .seconds(0.6)); skipNextBurst = false }
     }
 
-    /// v4.0.116：返回聊天首页的**唯一出口**（左缘右滑手势 / 页头返回按钮 共用一份实现）。
-    /// - Parameter point: 圆形扩散圆心（window 坐标）；nil = 没有手指可依（页头返回按钮那条）→
-    ///   兜底屏幕中心。两条路都必须写圆心 —— 只给手势写就是「一条扩散、一条硬切」的割裂感。
+    /// v4.0.116：返回聊天首页的**页头按钮唯一出口**。
+    /// 🚨 v4.0.122：左缘手势改**跟手位移**后不再走这里（那条由 `backFollow` / `backFollowEnd` 收口），
+    /// 所以这里只剩页头返回按钮一个入口 —— 它没有手指可依，圆心**兜底屏幕中心**（圆形扩散照旧演）。
     /// 页面级令牌仍是 `Motion.page`（两态切换的时长真源，见 ql_docklayout 表 Ⓝ）。
-    private func backToSessionHome(at point: CGPoint?) {
-        homeRevealCenter = point ?? CGPoint(x: DockOrbOverlay.keyWindowWidth / 2,
-                                           y: DockOrbOverlay.keyWindowHeight / 2)
+    private func backToSessionHome() {
+        // 🚨 v4.0.122：跟手 / 回弹在途时（首页已作为垫底页在屏上）走**同一条「完成」收敛**：
+        // ① 直接切态会把位移与残留圆心留在原地 —— 残圆心会被下一轮跟手新建的首页 onAppear 消费掉，
+        //    变成「位移 + 圆同时演」（切碎），正是 SessionHomeRevealModifier 头注声明要避免的病；
+        // ② 首页此刻已在树上，onAppear 不会再来 → 写圆心也没人消费（这一下本来就没有圆扩散）；
+        // ③ 直接硬切与其余路径割裂，收敛过去才是同一套时序。
+        if backFollowLive {
+            backFollowEnd(complete: true)
+            return
+        }
+        homeRevealCenter = CGPoint(x: DockOrbOverlay.keyWindowWidth / 2,
+                                   y: DockOrbOverlay.keyWindowHeight / 2)
         withAnimation(Motion.page) { showSessionHome = true }
+    }
+
+    // MARK: - v4.0.122 左缘右滑跟手返回的两个收口（手势壳在 ChatView.ChatEdgeBackModifier）
+
+    /// 把跟手状态整个收掉：位移归 0 + 卸垫底页 + 作废在途的收尾任务（seq 递增）。
+    /// 为什么必须有这条兜底：跟手状态原本只有「正常抬手」一个出口，手势被打断（`onEnded` 不来：
+    /// 来电 / 通知 / 进后台 / 视图被摘下）时会残留 —— 残留 = 对话页停在半路 + 首页一直当垫底页；
+    /// 且「点会话进对话页」这条路若不清，0.34s 收敛窗口里的那次点击会被收尾任务覆盖回去。
+    /// 手势侧的对称兜底在 ChatEdgeBackModifier（换手势就重过门 + 收回上一轮）。
+    private func resetBackFollow() {
+        backFollowSeq &+= 1
+        backFollowOffset = 0
+        backFollowLive = false
+    }
+
+    /// 跟手一帧：位移**裸写**（零动画事务 —— 过动画页面就落在手指后面），并让首页作为垫底页在场
+    /// （下一帧就是「两页同框」：对话页被推右、首页从左侧露出来）。
+    /// ⚠️ 每次递增 `backFollowSeq`：新一轮跟手必须作废上一轮收敛的收尾任务
+    ///（否则 0.34s 窗口内再甩一把，旧任务回来把位移/垫底页清掉 = 页面跳回原位）。
+    private func backFollow(_ dx: CGFloat) {
+        backFollowSeq &+= 1
+        if !backFollowLive { backFollowLive = true }
+        backFollowOffset = dx
+    }
+
+    /// 松手：`complete` = 越过阈值（位移过半 / 甩动预测过半）→ 收敛到返回；否则回弹归位。
+    /// 两条都要**等动画跑完**再收尾：回弹要在位移归 0 之后才卸垫底页（否则中途露垫底），
+    /// 完成要等对话页整个滑出屏才切态（否则切态那一帧会被看见）。
+    /// 延迟取 0.4s（`Motion.page` 是 .smooth 0.34，留一点裕量；早了会切在半路上）。
+    private func backFollowEnd(complete: Bool) {
+        backFollowSeq &+= 1
+        let mySeq = backFollowSeq
+        let width = DockOrbOverlay.keyWindowWidth
+        if complete {
+            // 收敛：位移继续走完剩下的路（同 `Motion.page`，与两态切换同一时序口径）
+            withAnimation(Motion.page) { backFollowOffset = width }
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(0.4))
+                guard mySeq == backFollowSeq else { return }
+                // 首页此刻**已经在屏上**（跟手铺开的那一帧就是它）→ 只翻状态，不写圆心（= 不播扩散）
+                showSessionHome = true
+                // 位移归零与卸垫底页放到**切态之后**：这一拍对话页已从树上摘掉（removal = .identity），
+                // 怎么改都看不见 —— 反过来的顺序会让它在归零那一帧闪回屏幕中央。
+                Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(0.05))
+                    guard mySeq == backFollowSeq else { return }
+                    backFollowOffset = 0
+                    backFollowLive = false
+                }
+            }
+        } else {
+            // 回弹：归位（同 `Motion.page`）
+            withAnimation(Motion.page) { backFollowOffset = 0 }
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(0.4))
+                guard mySeq == backFollowSeq else { return }
+                // 对话页此时已完全盖住首页 → 卸掉这层垫底页（不可见）
+                backFollowLive = false
+            }
+        }
     }
 
     /// 点 dock 智能球 → 烟花（约 1.55s 后移除特效层，与原型一致）
@@ -905,10 +1007,13 @@ private struct ChatZoomEntryModifier: ViewModifier {
 //      「刷一下扫完 = 太快」；而 0.75 是用户为切页三轮拍板的，顺手改 = 误伤在用动效。
 //
 // 为什么不用 onChange 触发（不像 TabTransitionModifier 那样盯 selected）：
-// 首页在宿主里是 `if/else` 的一支 —— 进对话页时整只销毁，返回时是**新建实例**，
-// 所以它只能靠 `onAppear` 播入场；而「切到聊天 tab / 冷启动落首页 / 深链落首页」同样会 onAppear
+// 首页在宿主里是 **ZStack 的垫底一支** —— 进对话页时整只销毁（`!showSessionHome` 只留对话页），
+// 返回时是**新建实例**，所以它只能靠 `onAppear` 播入场；而「切到聊天 tab / 冷启动落首页 / 深链落首页」同样会 onAppear
 // （那几条路的外层 `chatZoomEntry` 已经在播整页扩散，这里再播一次 = 两层圆各切各的）→
-// 圆心走 **Binding 取走即清空**：只有 `backToSessionHome(at:)` 写进去的那一次会播。
+// 圆心走 **Binding 取走即清空**：只有写进圆心的那一次（v4.0.122 起 = 只剩页头返回按钮）会播。
+// 🚨 v4.0.122：左缘**跟手**那条也会走进这一支（拖动一开始就把首页挂上来当垫底页 → onAppear），
+// 但它**不写圆心** → 下面 `guard let c = pendingCenter` 直接 return：首页就是「被滑开露出来」的那一下，
+// 不播扩散（跟手 + 扩散同时演 = 位移把圆切碎，正是 v4.0.115 治过的病）。
 private struct SessionHomeRevealModifier: ViewModifier {
     /// 待消费的圆心（宿主写、这里 onAppear 取走并置回 nil）
     @Binding var pendingCenter: CGPoint?

@@ -861,7 +861,8 @@ echo "=== 50b. Dock 栏顺序/隐藏真值表（v4.0.82：用户可配 dock 档�
 rm -rf /tmp/ql_docklayout_main && mkdir -p /tmp/ql_docklayout_main
 cp scripts/ql_docklayout/truth_table_docklayout.swift /tmp/ql_docklayout_main/main.swift
 run_unit /tmp/test_docklayout -swift-version 6 /tmp/ql_docklayout_main/main.swift \
-    qingliao/Core/DockLayoutKit.swift
+    qingliao/Core/DockLayoutKit.swift \
+    qingliao/Core/ChatEdgeBackKit.swift
 
 echo "=== 50c. 启动页三拍转场真值表（v4.0.117：Logo 呼吸 → 圆形遮罩扩散铺满 → 首页各块次第上浮）==="
 # 用户 2026-10-15：启动页做成「拉开幕布」——呼吸一次 → 以 Logo 为圆心挖洞扩散 → 首页从圆里露出来 →
@@ -1491,7 +1492,41 @@ ln=$(grep -n 'EnvironmentGlowLayers(scheme: colorScheme)' "$DT" | head -1 | cut 
 if [ -n "$ln" ]; then win=$(sed -n "${ln},$((ln+3))p" "$DT"); case "$win" in *allowsHitTesting\(false\)*) ;; \
   *) echo "❌ 回退⑱：垫底层(第 $ln 行起3行内)缺 allowsHitTesting(false)"; fail=1;; esac; fi
 
-echo "=== 93c. 全仓确认框收敛真值表（v4.0.102 · 用户 2026-10-12「方案 2：全改」）==="
+echo "=== 93c. 左缘右滑**跟手**返回（v4.0.122 · 用户 2026-10-18 对着参考截图拍板「要这种跟手滑动返回」）==="
+# 被换掉的老行为（就是本次要治的病）：起手在左缘 → 抬手位移 ≥ 70pt 就跳转，**页面本身不跟手** ——
+#   手指在滑、页面一动不动，松手才闪切。新口径 = 拖动中每帧位移整页（对话页贴着手指右移、
+#   会话首页从左侧同步露出来），松手按「位移过半 / 甩动预测终点过半」判完成或回弹（微信同款）。
+# 为什么代码级钉：这条链全是「时序 + 谁写状态」的口径，改错了不报错、不崩、其它断言全绿，
+#   只有真机手感能发现 —— 而本机无 iOS SDK，真机要等发版。判定的纯逻辑那半在 ql_docklayout 表
+#   Ⓟ 段用**编译真值**钉（ChatEdgeBackKit.swift 已加进那张表的编译行），这里钉挂载点与时序面。
+cnt=$(grep -cF '.offset(x: backFollowLive ? backFollowOffset : 0)' "$DT"); [ "$cnt" -eq 1 ] \
+  || { echo "❌ 回退⑲a：跟手位移应恰好挂一处 .offset(x: backFollowLive ? backFollowOffset : 0)（整页走，且不跟手恒 0，实得 $cnt）"; fail=1; }
+cnt=$(grep -cF 'withAnimation(Motion.page) { backFollowOffset = width }' "$DT"); [ "$cnt" -eq 1 ] \
+  || { echo "❌ 回退⑲b：松手**完成**应收敛到屏宽、且走页面级令牌 Motion.page（恰好一处，实得 $cnt）"; fail=1; }
+cnt=$(grep -cF 'withAnimation(Motion.page) { backFollowOffset = 0 }' "$DT"); [ "$cnt" -eq 1 ] \
+  || { echo "❌ 回退⑲c：松手**回弹**应归 0、且走页面级令牌 Motion.page（恰好一处，实得 $cnt）"; fail=1; }
+ck "回退⑲d：跟手帧必须是**裸赋值**（每帧贴手指；过动画事务就落在手指后面）" 'backFollowOffset = dx' "$DT"
+ckNot "回退⑲e：跟手帧不许进 withAnimation（回退⑲e 守的就是本次病根：页面不跟手）" 'withAnimation\(Motion\.(page|tap)\) \{ backFollowOffset = dx' "$DT"
+ck "回退⑲f：两态是 ZStack **双页同框**（跟手要「首页作为垫底页在场」那一帧）" 'if showSessionHome \|\| backFollowLive \{' "$DT"
+ckNot "回退⑲g：不许退回 if/else 单页结构（位移一开左侧露出的是渐变垫底 = 断层）" '^[[:space:]]*if showSessionHome \{' "$DT"
+ckNot "回退⑲h：手势那条不许再拿抬手位置当扩散圆心（跟手不等抬手；圆心只剩页头按钮那条）" 'onBack\(value\.location\)' qingliao/Features/Chat/ChatView.swift
+ckNot "回退⑲i：不许在 end 帧直接跳转（抬手才认 = 不跟手，老 shouldGoBack 病根）" 'ChatEdgeBackKit\.shouldGoBack' qingliao/Features/Chat/ChatView.swift
+cnt=$(grep -cF 'ChatEdgeBackKit.isEdgeStart(x: value.startLocation.x)' qingliao/Features/Chat/ChatView.swift); [ "$cnt" -eq 1 ] \
+  || { echo "❌ 回退⑲j：起手门必须走 Kit（isEdgeStart + 全局起手 x），恰好一处（实得 $cnt）"; fail=1; }
+cnt=$(grep -cF '@State private var claimedStart: CGPoint? = nil' qingliao/Features/Chat/ChatView.swift); [ "$cnt" -eq 1 ] \
+  || { echo "❌ 回退⑲k：跟手锁存必须是**起手点** claimedStart（有记忆性：手指一偏 |dy| 变大不逐帧归 0；又能判新手势，实得 $cnt）"; fail=1; }
+ckNot "回退⑲l：跟手帧不许自己 clamp / 算阈值（一律走 ChatEdgeBackKit，视图里不许内联第二套）" 'min\(max\(0, dx\)' qingliao/Features/Chat/ChatView.swift
+# 🚨 v4.0.122 审查补（独立评审抓的两个必修，2026-10-18 夜）：跟手状态原来只有「正常抬手」一个出口 ——
+#   手势被打断（onEnded 压根不来：来电/通知/进后台/视图被摘下）就会残留：页面停在半路、首页一直当垫底页，
+#   更狠的是残留锁存会让下一轮**任意**拖动都跳过起手门与方向门（把整页推走）。
+ckNot "回退⑲m：老 Bool 锁存不许复活（打断后残留 → 下一轮任意拖动跳过起手门与方向门）" 'private var following = false' qingliao/Features/Chat/ChatView.swift
+ck "回退⑲n：换手势必须收回上一轮（用起手点判新手势，不依赖 onEnded）" 'claimed != value.startLocation' qingliao/Features/Chat/ChatView.swift
+ck "回退⑲o：跟手期间禁掉页内滚动（simultaneousGesture 不抢识别，斜划会「整页横移 + 列表纵向滚」同时发生）" '\.scrollDisabled\(claimedStart != nil\)' qingliao/Features/Chat/ChatView.swift
+cnt=$(grep -cF 'withAnimation(Motion.page) { resetBackFollow(); showSessionHome = false }' "$DT"); [ "$cnt" -eq 1 ] \
+  || { echo "❌ 回退⑲p：进对话页收口必须先 resetBackFollow()（否则 0.4s 收尾任务把这次点击覆盖回去 = 点了没反应，实得 $cnt）"; fail=1; }
+ckNot "回退⑲q：手势壳不许再接 onBack（页头返回按钮那条直连 onBackToHome，别让人改错一侧）" 'ChatEdgeBackModifier\(onBack:' qingliao/Features/Chat/ChatView.swift
+
+echo "=== 93d. 全仓确认框收敛真值表（v4.0.102 · 用户 2026-10-12「方案 2：全改」）==="
 # 口径：iPhone 上 confirmationDialog 固定从屏幕底部升起、锚不到触发元素 → **危险/破坏性动作的确认**
 #   一律走 AnchorMenuOverlay 锚定浮层（「从哪点从哪弹」）；`.alert`（居中模态、非底部升起）按
 #   v4.0.76 口径**刻意保留**，不算残留。

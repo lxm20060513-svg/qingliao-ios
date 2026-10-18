@@ -202,8 +202,11 @@ print("== Ⓝ 会话首页 ↔ 对话页：过渡必须是「看得见的横移�
 // 拿小控件曲线驱动整页位移 → 读作「啪一下闪过去」；且 if/else 默认交叉淡化、没有方向感。
 // 老毛病容易复发（下一个改聊天页的人顺手写回 tap），故正反两面都钉。
 let motionSrc = readSource("Theme/Motion.swift")
-check("用页面级令牌 Motion.page 驱动两态切换（进入 + 返回两处都要）",
-      dockView.contains("withAnimation(Motion.page) { showSessionHome = false }")
+check("用页面级令牌 Motion.page 驱动两态切换（进入 + 返回按钮两处都要）",
+      // v4.0.122：进对话页那条收口里多了 resetBackFollow()（跟手窗口里的点击必须清跟手状态），
+      // 所以这里钉「同一条语句的两种写法」都能被认出，别把 reset 当成引进了第二套令牌。
+      (dockView.contains("withAnimation(Motion.page) { showSessionHome = false }")
+        || dockView.contains("withAnimation(Motion.page) { resetBackFollow(); showSessionHome = false }"))
         && dockView.contains("withAnimation(Motion.page) { showSessionHome = true }"))
 // v4.0.115：工作台「待你处理」卡片进对话页走的是同一个跳转 —— 原先用 Motion.tap（控件曲线）驱动整页位移。
 let wsCallWindow = String((dockView.components(separatedBy: "WorkspaceView(isActive: selected == .workspace,").last ?? "").prefix(900))
@@ -214,13 +217,58 @@ check("工作台进会话同用页面级令牌（原先 Motion.tap 整页位移 
 // 扩散直到铺满整个屏幕」）：**返回方向**（对话页 → 会话首页）从「列表左滑进来」整条换成**圆形扩散** ——
 // 形状 / 最大半径与 dock 切页同一套（RevealCircleShape + pageRevealMaxRadius）；
 // **曲线 v4.0.117 起分家**（切页 = pageReveal，返回 = sessionBackReveal，见下面那条），
-// 圆心也不同：切页取被点槽位中心，这里取**手势抬手位置**。
+// 圆心也不同：切页取被点槽位中心；返回这一侧 v4.0.122 起只剩**页头返回按钮**（兜底屏幕中心），
+// 左缘手势那条已换成跟手位移（不播扩散，见下面 Ⓟ 段与本节负断言）。
 // ⚠️ 旧口径（返回也是纯 move 的 push/pop）在返回这一侧**已作废**：整页横移与扩散同时演 = 位移把圆切碎，
 //    正是 v4.0.115 治过的病。离场侧（进对话页 = 列表左滑出 + 聊天右滑入）**一字未改**，下面钉住。
-check("返回方向 = 从手指位置圆形扩散（首页挂 sessionHomeReveal(center:)）",
+check("返回方向 = 首页挂 sessionHomeReveal(center:)（页头返回按钮那条的圆形扩散，仍在这一支）",
       dockView.contains(".sessionHomeReveal(center: $homeRevealCenter)"))
-check("圆形扩散圆心 = 手势**抬手**位置（起手点被 edgeWidth 钉在左缘 24pt，看不出「从手指滑动位置扩散」）",
-      readSource("Features/Chat/ChatView.swift").contains("onBack(value.location)"))
+// 🚨 v4.0.122（用户 2026-10-18 对着参考截图拍板「要这种跟手滑动返回」）：**左缘手势这条换成跟手位移** ——
+//   拖动时对话页贴着手指右移、会话首页从左侧同步露出来；松手按位移/甩动预测判完成或回弹。
+//   于是两条老口径当场作废（下面钉死，别让它们复活）：
+//     ① 圆心 = 手势**抬手**位置（`onBack(value.location)`）—— 跟手压根不等抬手；圆心只剩页头返回按钮那条
+//        （无手指可依 → 宿主兜底屏幕中心，扩散照旧演）；
+//     ② 判定 = 「抬手位移 ≥ 70pt 就跳转」（Kit 里的 shouldGoBack / minTranslation）—— 抬手才认 = 不跟手。
+//   纯逻辑那半在本表末尾「Ⓟ 跟手判定」段用**编译真值**钉（ChatEdgeBackKit.swift 已加进本表编译行）。
+check("🚫 手势那条不许再拿抬手位置当扩散圆心（跟手口径已作废 onBack(value.location)）",
+      !readSource("Features/Chat/ChatView.swift").contains("onBack(value.location)"))
+check("🚫 老口径 shouldGoBack / minTranslation 不许复活（抬手才认 = 不跟手，用户 2026-10-18 拍的板）",
+      !readSource("Core/ChatEdgeBackKit.swift").contains("func shouldGoBack")
+        && !readSource("Core/ChatEdgeBackKit.swift").contains("static let minTranslation")
+        && !readSource("Features/Chat/ChatView.swift").contains("ChatEdgeBackKit.shouldGoBack"))
+check("跟手位移挂载点 = 对话页整页 offset（恰好一处；且只在 backFollowLive 时生效 —— 不跟手恒 0）",
+      dockView.components(separatedBy: ".offset(x: backFollowLive ? backFollowOffset : 0)").count - 1 == 1
+        && readSource("Features/Chat/ChatView.swift").contains("ChatEdgeBackKit.followOffset(dx: dx,"))
+check("跟手收敛 / 回弹各一处、都走页面级令牌 Motion.page（不许引第二套时长）",
+      dockView.contains("withAnimation(Motion.page) { backFollowOffset = width }")
+        && dockView.contains("withAnimation(Motion.page) { backFollowOffset = 0 }"))
+check("🚫 跟手帧必须是裸赋值（过动画事务 = 页面落在手指后面）",
+      dockView.contains("backFollowOffset = dx")
+        && !dockView.contains("withAnimation(Motion.page) { backFollowOffset = dx }")
+        && !dockView.contains("withAnimation(Motion.tap) { backFollowOffset"))
+check("🚫 两态不许退回 if/else 单页结构（跟手要的就是「两页同框」那一帧）",
+      dockView.contains("if showSessionHome || backFollowLive {"))
+check("跟手有记忆性：认领后本轮不再逐帧过门（否则手指一偏 |dy| 变大 → 位移归 0 = 手底下抖回去）",
+      readSource("Features/Chat/ChatView.swift").contains("@State private var claimedStart: CGPoint? = nil")
+        && readSource("Features/Chat/ChatView.swift").contains("if claimedStart == nil {"))
+// 🚨 v4.0.122 审查补（2026-10-18 夜，独立评审抓的两个必修）：跟手状态多了两个**兜底出口** ——
+// 原来只有「正常抬手」一条路，手势被打断（`onEnded` 压根不来：来电/通知/进后台/视图被摘下）就会残留。
+// ① 手势侧：锁存改判**起手点**（一次 DragGesture 内恒定、跨手势必不同）→ 换手势就把上一轮收干净，
+//    不用依赖 onEnded；残留的老 Bool 锁存会让下一轮**任意**拖动都跳过起手门与方向门。
+// ② 宿主侧：进对话页必须先 `resetBackFollow()` —— 跟手/回弹窗口里首页是垫底页、完全可点，
+//    不清状态的话 0.4s 收尾任务会用 `showSessionHome = true` 把这次点击覆盖回去（点了没反应，会话还已被 load + 标已读）。
+check("🚫 老 Bool 锁存不许复活（打断后残留 = 下一轮任意拖动跳过起手门与方向门，把整页推走）",
+      !readSource("Features/Chat/ChatView.swift").contains("private var following = false"))
+check("跟手兜底①：换手势就收回上一轮（不依赖 onEnded）+ 跟手期间禁掉页内滚动",
+      readSource("Features/Chat/ChatView.swift").contains("claimed != value.startLocation")
+        && readSource("Features/Chat/ChatView.swift").contains("onFollowEnd?(false)")
+        && readSource("Features/Chat/ChatView.swift").contains(".scrollDisabled(claimedStart != nil)"))
+check("跟手兜底②：进对话页收口必须先 resetBackFollow()（宿主有这条函数：位移归 0 + 卸垫底页 + 作废待办）",
+      dockView.contains("withAnimation(Motion.page) { resetBackFollow(); showSessionHome = false }")
+        && dockView.contains("private func resetBackFollow()")
+        && dockView.contains("backFollowOffset = 0\n        backFollowLive = false"))
+check("🚫 手势壳不许再接 onBack（页头返回按钮那条直连 onBackToHome，不走手势壳，别让人改错一侧）",
+      !readSource("Features/Chat/ChatView.swift").contains("ChatEdgeBackModifier(onBack:"))
 // 🚨 v4.0.117（用户 2026-10-15 真机拍板「滑动返回聊天主页的扩散就是太快，再慢一点」）：**曲线分家**。
 // 🚨 v4.0.120（用户 2026-10-17「圆扩散只留启动页」）：**切页那一侧整条换掉** → 定向滑入。于是本段口径变成：
 // ① 返回那份恰好一处 ② **切页两处不许**再出现 pageReveal 圆扩散 ③ 返回那支 modifier 自己不许再出现 pageReveal。
@@ -253,8 +301,8 @@ check("🚫 返回时对话页不许再右滑（removal 已改 .identity；右�
 check("离场侧保留方向感（进对话页 = 列表左滑出 + 聊天右滑入）",
       dockView.contains("removal: .move(edge: .leading)")
         && dockView.contains("insertion: .move(edge: .trailing)"))
-check("圆心「取走即清空」：只有 backToSessionHome 写进去的那一次播扩散（切 tab / 冷启动 / 深链落首页不播 —— 那些路外层 chatZoomEntry 有自己的整页入场）",
-      dockView.contains("private func backToSessionHome(at point: CGPoint?)")
+check("圆心「取走即清空」：只有**页头返回按钮**那条播扩散（跟手不写圆心 = 不播；切 tab / 冷启动 / 深链落首页也不播 —— 那些路外层 chatZoomEntry 有自己的整页入场）",
+      dockView.contains("private func backToSessionHome()")
         && dockView.contains("guard let c = pendingCenter else { return }")
         && dockView.contains("pendingCenter = nil"))
 // v4.0.115（用户「**还是**动效生硬」）：v4.0.114 的 `.combined(with: .opacity)` 是错的 ——
@@ -315,6 +363,39 @@ if let a = minsBody.range(of: "selected = .chat"),
 } else {
     check("openMinutesPage：三要素都在（缺 = 卡静默丢失的病根复发）", false)
 }
+
+print("\n== Ⓟ 左缘右滑**跟手**返回的判定真值（v4.0.122；Kit 纯逻辑，本表编译跑真值）==")
+// 用户口径（2026-10-18，对着参考截图「拖到中途两页同框」那一帧拍板）：「要这种跟手滑动返回」。
+// 判定分三段：起手门（左缘）→ 认领门（够横，只过一次）→ 松手门（过半或甩过半）。
+// 阈值真源 = Core/ChatEdgeBackKit.swift（本表编译行已带上它，下面的数是**跑出来的**不是抄的）。
+check("起手门：左缘 24pt 内才算（24 在内、24.5 在外）",
+      ChatEdgeBackKit.isEdgeStart(x: 0) && ChatEdgeBackKit.isEdgeStart(x: 24)
+        && !ChatEdgeBackKit.isEdgeStart(x: 24.5))
+check("认领门够横：dx ≥ 8 且 dx ≥ |dy| × 1.8（纵向滚动 / 往上往下斜划都要被挡）",
+      ChatEdgeBackKit.isHorizontal(dx: 8, dy: 0)
+        && !ChatEdgeBackKit.isHorizontal(dx: 7.9, dy: 0)
+        && ChatEdgeBackKit.isHorizontal(dx: 36, dy: 20)
+        && !ChatEdgeBackKit.isHorizontal(dx: 36, dy: 21)
+        && !ChatEdgeBackKit.isHorizontal(dx: 36, dy: -21)
+        && !ChatEdgeBackKit.isHorizontal(dx: -40, dy: 0))
+check("跟手位移 clamp：回拉归 0、超屏宽归屏宽、宽度非法归 0（拖不出屏外 / 不出现负位移）",
+      ChatEdgeBackKit.followOffset(dx: -12, width: 390) == 0
+        && ChatEdgeBackKit.followOffset(dx: 100, width: 390) == 100
+        && ChatEdgeBackKit.followOffset(dx: 999, width: 390) == 390
+        && ChatEdgeBackKit.followOffset(dx: 50, width: 0) == 0)
+check("松手门（慢放）：位移过半即完成（195/390 边界含）、差 5pt 就回弹",
+      ChatEdgeBackKit.shouldComplete(dx: 195, projectedEnd: 195, width: 390)
+        && !ChatEdgeBackKit.shouldComplete(dx: 190, projectedEnd: 190, width: 390))
+check("松手门（轻甩）：位移没过半但甩动预测终点过半也算（微信同款：甩一把就翻页）",
+      ChatEdgeBackKit.shouldComplete(dx: 80, projectedEnd: 260, width: 390)
+        && !ChatEdgeBackKit.shouldComplete(dx: 80, projectedEnd: 190, width: 390))
+check("松手门兜底：dx ≤ 0 / 宽度非法一律不算完成（往回甩不许触发返回）",
+      !ChatEdgeBackKit.shouldComplete(dx: 0, projectedEnd: 999, width: 390)
+        && !ChatEdgeBackKit.shouldComplete(dx: -30, projectedEnd: 999, width: 390)
+        && !ChatEdgeBackKit.shouldComplete(dx: 200, projectedEnd: 999, width: 0))
+check("松手门取「同一枚阈值」= 屏宽 × completeRatio（0.5）；不许在这条链上再写死 70 之类的绝对值",
+      ChatEdgeBackKit.completeRatio == 0.5
+        && ChatEdgeBackKit.shouldComplete(dx: 390 * 0.5, projectedEnd: 0, width: 390))
 
 print("\n通过 \(ok) 项，失败 \(fail) 项")
 if fail > 0 { exit(1) }
