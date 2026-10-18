@@ -403,6 +403,9 @@ struct PetAvatar: View {
     private func playCelebrate() {
         guard animate else { return }
         let pool = Quirk.pool.filter { enabledQuirks.contains($0) }
+            // v4.0.121：无手脚形象（黑洞球）先把「靠手/脚演」的动作筛掉 —— 抽到它们等于
+            // 庆祝时宠物一动不动。判据单点在 Quirk.worksWithoutLimbs。
+            .filter { style.hasLimbs || $0.worksWithoutLimbs }
         // ⚠️ case 名以 PetModel.swift 为准：比心=heartHands、挥手=waveHello（不是 heart/wave）
         let festive = [Quirk.cheer, .heartHands, .clap, .waveHello].filter { pool.contains($0) }
         guard let q = festive.randomElement() ?? pool.randomElement() else {
@@ -448,6 +451,8 @@ struct PetAvatar: View {
             guard animate, !Task.isCancelled, state == .idle, !patting else { continue }
             // ⚠️ 每轮重算：勾选可能在本轮等待期间被改（设置页或 task id 重挂都会走到这）
             let pool = Quirk.pool.filter { enabledQuirks.contains($0) }
+                // v4.0.121：无手脚形象先把「靠手/脚演」的动作筛掉（抽到它们 = 静止 1.4~2.4 秒）
+                .filter { style.hasLimbs || $0.worksWithoutLimbs }
             guard let q = pool.randomElement() else { continue }
             let d = q.duration
             if q.isStroll {

@@ -43,6 +43,10 @@ enum PetStyle: String, CaseIterable, Identifiable {
     case liquid      // 液态小生物：蓝紫玻璃圆 + 两只小手
     case beast = "cat"   // 圆胖小兽：暖橙圆 + 两只圆耳（辨识度最高）
     case robot = "seal"  // 圆头小机器人：青绿金属圆 + 头顶天线
+    // v4.0.121（用户 2026-10-18 拍板「卡通宠物增加像 grok dot 那张的样式」）：
+    //    第 4 只 = 黑玻璃球 + 一圈细发丝光环、**没有手脚**；眼睛档位从效果稿 5 档里挑了
+    //    第 2 档「眼白 + 深瞳」。rawValue 用新串 "dot"（新加槽位，前三个老槽位一个都不动）。
+    case dot = "dot"
 
     var id: String { rawValue }
 
@@ -51,6 +55,7 @@ enum PetStyle: String, CaseIterable, Identifiable {
         case .liquid: return "液态小生物"
         case .beast: return "圆胖小兽"
         case .robot: return "圆头小机器人"
+        case .dot: return "黑洞球"
         }
     }
 
@@ -59,8 +64,15 @@ enum PetStyle: String, CaseIterable, Identifiable {
         case .liquid: return "蓝紫玻璃圆，两只玻璃小手"
         case .beast: return "暖橙圆胖，两只圆爪带肉垫"
         case .robot: return "青绿金属圆，天线 + 两只金属钳手"
+        case .dot: return "黑玻璃圆，一圈细发丝光环，无手脚"
         }
     }
+
+    /// 这一只有没有手脚。黑洞球（`.dot`）**没有** —— 手/腿绘制整段跳过；
+    /// 动作层照旧触发（球体仍会缩放/浮动/歪头），只是不会凭空长出手脚来。
+    /// 用途：① `PetPainter.draw` 的「合到身前的手补画」不再对无手形象做无用工；
+    ///       ② 后面若有「按形象筛动作」的需求，判据也用这一条，别到处写 `style != .dot`。
+    var hasLimbs: Bool { self != .dot }
 
     /// v3.9.79：当前用户选了哪只（`UserDefaults` 单一真源，与 `@AppStorage(PetKeys.style)` 同一个 key）。
     /// 实时活动管理器在启动/续更时读它，把风格随 `ContentState` 下发给挂件——
@@ -236,6 +248,23 @@ enum Quirk: String, CaseIterable, Identifiable, Equatable {
         switch self {
         case .waveHello, .clap, .heartHands, .cheer, .chinRest: return true
         default: return false
+        }
+    }
+
+    /// v4.0.121：**无手脚形象**（黑洞球 `.dot`）抽到也能演出观感的动作。
+    ///
+    /// 为什么需要它：动作池原来是「用户勾了谁就抽谁」，但手部动作（挥手/鼓掌/比心/托腮）
+    /// 的**全部看点都在手上**、腿部动作（踏步/踢腿/连踢）全部在腿上 —— 无手脚形象抽到它们
+    /// 就是**一整段静止**（1.4~2.4 秒啥也看不见，用户会当成卡住/开关坏了）。
+    /// 所以池子先用本判据把这类动作筛掉，再抽。
+    ///
+    /// ⚠️ `cheer`（举手欢呼）**算能演**：它同时在 `isHandAction` 里，但身体层有上跳 + 缩放，
+    /// 黑球欢呼时是「弹一下」—— 从观感上站得住，别顺手把它也筛掉（否则庆祝池会空）。
+    var worksWithoutLimbs: Bool {
+        switch self {
+        case .waveHello, .clap, .heartHands, .chinRest: return false   // 手部表达：无手 = 整段静止
+        case .march, .kick, .kickFlurry: return false                  // 腿部表达：无腿 = 只剩半截
+        default: return true                                           // 歪头/张望/扭动/伸懒腰/踱步/欢呼
         }
     }
 }

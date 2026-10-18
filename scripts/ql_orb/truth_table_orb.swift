@@ -161,8 +161,8 @@ check("不接死信号：欢迎页**代码**里不得出现 orbUnseen（本页�
       !stripComments(chatSrc).contains("orbUnseen"))
 check("思考态仍归 aiBusy（既有状态变量，不新增状态源）",
       chatSrc.contains("return aiBusy ? .thinking : .idle"))
-check("三只造型都有 alert 表情（不是只在组件加个角标）",
-      painterSrc.components(separatedBy: "case .alert:").count - 1 == 3)
+check("四种造型都有 alert 表情（不是只在组件加个角标；v4.0.121 起含第 4 只）",
+      stripComments(painterSrc).components(separatedBy: "case .alert:").count - 1 == 4)
 check("轻点挂抚摸触发器（petPat 自增 → 一次性反应；不进任何功能页）",
       chatSrc.contains("patTrigger: petPat") && chatSrc.contains("petPat += 1"))
 check("护栏：球上不再压气泡图标",
@@ -417,11 +417,16 @@ func enumLines(_ src: String, _ name: String) -> [String] {
 let styleCases = enumLines(petModelSrc, "PetStyle")
 // v4.0.1：三只改「圆胖小兽 / 圆头小机器人」，但**槽位 rawValue 故意不变**（cat / seal）——
 // 老用户 UserDefaults 与在跑的实时活动 ContentState.petStyle 靠它认人，改名=静默回第一格。
-check("三只形象齐备且顺序固定（liquid / beast / robot —— 设置页三格顺序跟着它）",
-      styleCases == ["liquid", "beast", "robot"], styleCases.joined(separator: "/"))
+// v4.0.121（用户 2026-10-18）：末尾追加第 4 只「黑洞球」（case dot）。
+//   **前 3 个槽位的顺序与 rawValue 一个字不动** —— 老设置靠 rawValue 认人，插队/改名 = 静默回落第一格。
+//   断言写成「前缀相等 + 末位是 dot」，这样以后再加槽位只需改尾部，前 3 只仍被钉死。
+check("形象槽位前 3 只顺序固定 + 第 4 只追加在末尾（liquid / beast / robot / dot）",
+      styleCases.prefix(3) == ["liquid", "beast", "robot"] && styleCases.last == "dot",
+      styleCases.joined(separator: "/"))
 check("槽位 rawValue 仍沿用旧的 cat / seal（改了会静默回落第一格：老设置与在跑的实时活动都认不出）",
-      styleCases.count == 3
-      && petModelSrc.contains("case beast = \"cat\"") && petModelSrc.contains("case robot = \"seal\""))
+      styleCases.count >= 3
+      && petModelSrc.contains("case beast = \"cat\"") && petModelSrc.contains("case robot = \"seal\"")
+      && petModelSrc.contains("case dot = \"dot\""))
 check("三只名字是圆形基形这一代（液态小生物 / 圆胖小兽 / 圆头小机器人）",
       petModelSrc.contains("return \"液态小生物\"") && petModelSrc.contains("return \"圆胖小兽\"")
       && petModelSrc.contains("return \"圆头小机器人\""))

@@ -73,8 +73,10 @@ for style, pattern in (
         half_w, half_h = float(m.group(1)), float(m.group(2))
     feet[style] = (half_w, half_h)
 
+# 有腿形象 = liquid / beast / robot **三只**（v4.0.121 起黑洞球 .dot 无腿、主形走内联渐变不走 shell()，
+# 它的体检在 ql_pet 真值表段 19）。这里只说「有腿的那三处半径」，别把 .dot 的缺席当成源码结构变了。
 if len(radii) != 3:
-    print("❌ 读到的 shell() 半径不是 3 只（源码结构变了？）")
+    print("❌ 读到的 shell() 半径不是 3 处（有腿形象 liquid/beast/robot 各一；黑洞球无腿、不进本体检）")
     sys.exit(1)
 
 styles = ["liquid", "beast", "robot"]

@@ -384,9 +384,9 @@ check("表情映射三参数在（方案 A：thinking=sleepy / alert=calm / cele
 check("思考托腮 + 出错张望在（PetAvatar 状态映射）",
       paAC.contains("withAnimation(.easeInOut(duration: 0.4)) { quirky = .chinRest }")
       && paAC.contains("playLookAround()"))
-check("PetPainter thinking 态吃 thinkingFace（三形态分派在）",
+check("PetPainter thinking 态吃 thinkingFace（四形态分派在，v4.0.121 起含第 4 只）",
       ppC.contains("var thinkingFace: PetFace? = nil")
-      && ppC.components(separatedBy: "thinkingFace == .sleepy").count - 1 == 3
+      && ppC.components(separatedBy: "thinkingFace == .sleepy").count - 1 == 4
       && paAC.contains("thinkingFace: state == .thinking ? (thinkingFaceOverride ?? face) : nil"))
 check("庆祝换脸限时回落在（celebrateFaceActive）",
       paAC.contains("@State private var celebrateFaceActive: PetFace? = nil")
@@ -503,5 +503,71 @@ check("设置页预览有代表性腿脚姿势（缩略图看得出在迈步/踢
       && avC.contains("case .march, .strollLeft, .strollRight: return (0.25, 0, -1)"))
 check("没有为腿引入逐帧驱动（仍是 withAnimation 段间插值，省电红线不变）",
       !avC.contains("TimelineView") && !avC.contains("CADisplayLink"))
+
+// MARK: - 19. v4.0.121 第 4 只 · 黑洞球（用户 2026-10-18 拍板「卡通宠物增加像 grok dot 那张的样式」）
+//
+// 造型口径：黑玻璃球 + 一圈细发丝光环、**没有手脚**；眼睛取效果稿 5 档里的第 2 档「眼白 + 深瞳」。
+// 与前 3 只不同的风险面，各钉一条：
+//   ①「无手脚」是**结构性**约束 → 单点判定 hasLimbs，手/腿函数对 .dot 直接 return（不许散落写 style != .dot）；
+//   ② 黑球上画深色细节会隐形 → 眼白/瞳/嘴/闭眼一律走亮色，不能沿用三只的深色 ink；
+//   ③ 造型要走同一套身体变换（呼吸/浮动/歪头），否则它会退化成一张贴纸。
+// 老三个槽位的 rawValue 一个字都不能动（已落 UserDefaults / 挂件 ContentState）：
+//   liquid 隐式 "liquid"、beast "cat"、robot "seal"（三个都不叫自己的 case 名 → 必须显式钉住）。
+check("PetStyle 有第 4 只（rawValue \"dot\"，前 3 个老槽位不动）",
+      pmC.contains("case dot = \"dot\"") && pmC.contains("case liquid")
+      && pmC.contains("case beast = \"cat\"") && pmC.contains("case robot = \"seal\""))
+check("第 4 只的名称/简介都补了（设置页文案不能漏）",
+      pmC.contains("case .dot: return \"黑洞球\"")
+      && pmC.contains("case .dot: return \"黑玻璃圆，一圈细发丝光环，无手脚\""))
+check("无手脚走单点判定 hasLimbs（身前补画的手也要过这道闸）",
+      pmC.contains("var hasLimbs: Bool { self != .dot }")
+      && ppC.contains("if style.hasLimbs && !simplify && handsInFront {"))
+check("draw 分派认得第 4 只（走 drawDot，不是掉进 default）",
+      ppC.contains("case .dot: drawDot(&ctx, s)"))
+// drawDot 段（到 paintDotFace 之前）：本段内**不得**出现 hand( / leg( 调用 —— 这才是「无手脚」的真不变量。
+// v4.0.121 审查修正：原来只钉 hand()/leg() 里那 3 处 `case .dot: return`，那是**不可达兜底**
+// （调用点已被 hasLimbs 闸门挡住）；谁在 drawDot 里补一句 leg(...)，护栏照样全绿而球会长出脚。
+let dotDrawSeg = ppC.components(separatedBy: "private func drawDot").last?
+    .components(separatedBy: "private func paintDotFace").first ?? ""
+check("第 4 只不画手脚（drawDot 段内不得出现 hand( / leg( 调用）",
+      !dotDrawSeg.isEmpty && !dotDrawSeg.contains("hand(") && !dotDrawSeg.contains("leg("))
+let dotCases = ppC.components(separatedBy: "case .dot:").dropFirst()
+    .filter { !$0.hasPrefix(" drawDot") }
+check("手/腿对第 4 只仍留 return 兜底（hand 1 处 + leg 2 处，防闸门被拆）",
+      dotCases.count >= 3 && dotCases.prefix(3).allSatisfy { $0.prefix(300).contains("return") })
+// 误用防线：`dotEyes` 是前三只的**深色**豆眼、`dotEye` 才是第 4 只的亮眼白 ——
+// 一字之差、参数还齐全，写错能编译通过而黑球上「脸上什么都没有」（本批正是要防「深色细节隐形」）。
+check("第 4 只不许误用前三只的深色豆眼 dotEyes（黑球上 = 隐形）",
+      !dotDrawSeg.contains("dotEyes("))
+check("第 4 只走同一套身体变换（呼吸/浮动/歪头跟着动，不是贴纸）",
+      dotDrawSeg.contains("withBodyTransforms(&ctx, s)"))
+check("第 4 只的球体是近黑玻璃球（Pal.dotCore 收尾，不是灰球）",
+      ppC.contains("Pal.dotCore") && ppC.contains("Pal.dotTop") && ppC.contains("Pal.dotEdge"))
+check("描边/柔光够亮（深色主题下黑球轮廓要托得出；v4.0.121 按用户拍板提亮一档）",
+      ppC.contains("static let dotEdge = Color(red: 0.40, green: 0.52, blue: 0.86)")
+      && ppC.contains("Pal.dotEdge.opacity(simplify ? 0.72 : 0.90)")
+      && ppC.contains("Pal.dotGlow.opacity(0.72)"))
+check("光环是细发丝（半径 0.448 + 线宽下限 0.7 / 系数 0.013），不是粗圆环",
+      ppC.contains("radius: 0.448 * s") && ppC.contains("lineWidth: max(0.7, 0.013 * s)"))
+check("眼睛是亮眼白 + 深瞳（黑球上画深色眼 = 隐形，萌感靠两点高光）",
+      ppC.contains("private func dotPupilEyes(") && ppC.contains("private func dotEye(")
+      && ppC.contains("Pal.dotPupil") && ppC.contains("Pal.dotEye"))
+check("第 4 只也接四态 + 四表情（不是只画一张脸）",
+      ppC.contains("private func paintDotFace(")
+      && ppC.components(separatedBy: "paintDotFace(&layer, s)").count - 1 == 1
+      && ppC.components(separatedBy: "dotPupilEyes(&ctx, s, closed:").count - 1 >= 4)
+check("设置页形象列表仍走 allCases（第 4 只自动出现在 AI形象页，不硬编码三只）",
+      psC.contains("ForEach(PetStyle.allCases)"))
+// v4.0.121（P1 修复）：无手脚形象抽到「靠手/脚演」的动作 = 一整段静止（用户会当成卡住）。
+// 三处一起钉：① 判据单点 ② 动作池两处都过筛 ③ 设置页把演不出来的行置灰（别让用户勾了没反应）。
+check("无手脚形象的动作筛选有单点判据（手部/腿部动作对它 = 整段静止，池子必须先筛）",
+      pmC.contains("var worksWithoutLimbs: Bool {")
+      && pmC.contains("case .waveHello, .clap, .heartHands, .chinRest: return false")
+      && pmC.contains("case .march, .kick, .kickFlurry: return false"))
+check("动作池两处都过这道筛（庆祝池 + 待机循环，漏一处 = 抽到手部动作时宠物静止）",
+      avC.components(separatedBy: ".filter { style.hasLimbs || $0.worksWithoutLimbs }").count - 1 >= 2)
+check("设置页把演不出来的动作置灰（点「试一下」看不到反应 = 用户会当成开关坏了）",
+      psC.contains("private func isMute(_ q: Quirk) -> Bool")
+      && psC.contains(".disabled(mute)"))
 
 report()

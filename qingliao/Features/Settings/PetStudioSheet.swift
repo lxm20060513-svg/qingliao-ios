@@ -236,8 +236,15 @@ struct PetStudioSheet: View {
 
     // MARK: - 行为动作行（v4.0.6）
 
+    /// v4.0.121：当前形象**演不出来**的动作（黑洞球无手脚 → 挥手/鼓掌/比心/托腮/踏步/踢腿/连踢）。
+    /// 动作池那边已由 `Quirk.worksWithoutLimbs` 筛掉，这里同步把行置灰 + 换提示文案 ——
+    /// 免得用户勾上、点「试一下」却什么都看不到（那才是真 bug 观感）。
+    private func isMute(_ q: Quirk) -> Bool { !petStyle.hasLimbs && !q.worksWithoutLimbs }
+
     private func quirkToggle(_ q: Quirk) -> some View {
         let on = enabled.contains(q)
+        let mute = isMute(q)
+        let hint = mute ? "黑洞球没有手脚，这类动作演不出来" : quirkHint(q)
         return HStack(spacing: Spacing.sm) {
             // ⚠️ v4.0.6：点击区只包左侧「勾选圈 + 文字」，**不**给整行挂 onTapGesture ——
             // 整行挂手势会跟右边的「试一下」Button 抢点击（谁生效取决于 SwiftUI 的命中仲裁，不可预期）。
@@ -252,7 +259,7 @@ struct PetStudioSheet: View {
                     Text(q.name)
                         .font(.system(size: Typography.body))
                         .foregroundStyle(.primary)
-                    Text(quirkHint(q))
+                    Text(hint)
                         .font(.system(size: Typography.caption))
                         .foregroundStyle(.secondary)
                 }
@@ -280,8 +287,11 @@ struct PetStudioSheet: View {
             .buttonStyle(.plain)
         }
         .frame(minHeight: 40)
+        // v4.0.121：无手脚形象演不出来的动作 → 置灰 + 连点都点不动（右侧「试一下」也一起禁）
+        .opacity(mute ? 0.45 : 1)
+        .disabled(mute)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("行为动作：\(q.name)，\(quirkHint(q))")
+        .accessibilityLabel("行为动作：\(q.name)，\(hint)")
         .accessibilityAddTraits(on ? [.isSelected] : [])
     }
 

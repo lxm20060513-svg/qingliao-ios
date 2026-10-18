@@ -170,6 +170,19 @@ struct PetPainter {
         static let botInk = Color(red: 0.05, green: 0.23, blue: 0.29)
         static let botLamp = Color(red: 0.22, green: 0.82, blue: 0.69)
 
+        // 4 · 黑洞球（v4.0.121，用户 2026-10-18 拍板）：黑玻璃球 + 蓝紫细发丝光环。
+        // 黑球在浅底/深底都成立，所以**不另做明暗两套色**（效果稿的 light/dark 两档取中间一支）。
+        static let dotTop = Color(red: 0.24, green: 0.26, blue: 0.39)    // 球体左上受光面
+        static let dotDeep = Color(red: 0.08, green: 0.08, blue: 0.12)
+        static let dotCore = Color(red: 0.02, green: 0.02, blue: 0.04)   // 球体主体（近黑）
+        static let dotEdge = Color(red: 0.40, green: 0.52, blue: 0.86)   // 描边（深色主题下靠它托出轮廓 → v4.0.121 提亮一档）
+        static let dotRingA = Color(red: 0.35, green: 0.62, blue: 0.92)  // 光环起点（青蓝）
+        static let dotRingB = Color(red: 0.62, green: 0.48, blue: 0.92)  // 光环终点（紫）
+        static let dotGlow = Color(red: 0.45, green: 0.70, blue: 0.98)   // 环/眼的外发光
+        static let dotEye = Color(red: 0.81, green: 0.91, blue: 1.00)    // 眼弧/嘴（亮青白）
+        static let dotPupil = Color(red: 0.04, green: 0.06, blue: 0.13)  // 瞳孔（眼白上的深点）
+        static let dotHighlight = Color(red: 0.79, green: 0.85, blue: 1.00)  // 底部反光弧
+
         static let blush = Color(red: 1.00, green: 0.56, blue: 0.65)
         static let sparkleWarm = Color(red: 1.00, green: 0.79, blue: 0.24)
         static let shadow = Color(red: 0.30, green: 0.36, blue: 0.45)
@@ -181,11 +194,12 @@ struct PetPainter {
         case .liquid: drawLiquid(&ctx, s)
         case .beast: drawBeast(&ctx, s)
         case .robot: drawRobot(&ctx, s)
+        case .dot: drawDot(&ctx, s)
         }
         // 🚨 v4.0.26：手合到**身前**时（鼓掌/比心/托腮）必须画在主形**之后**才看得见 ——
         //    画在主形之前的手会被圆整块盖住（实测露出 0%，用户复现「完全没看到手」）。
         //    体侧的手（贴身/挥手/欢呼）仍画在主形之前，根部被圆压住 = 从身后伸出来的观感。
-        if !simplify && handsInFront {
+        if style.hasLimbs && !simplify && handsInFront {
             hand(&ctx, s, handPose.left, side: -1)
             hand(&ctx, s, handPose.right, side: +1)
         }
@@ -287,6 +301,10 @@ struct PetPainter {
                 ctx.fill(rotated(rounded(c.x / s - 0.052, c.y / s - 0.007 + 0.017, 0.104, 0.014, 0.007, s), a, c, s),
                          with: .color(Pal.botTop.opacity(0.9)))
             }
+        case .dot:
+            // 第 4 只·黑洞球**没有手脚**（用户 2026-10-18 拍板「不需要手脚」）——
+            // 直接返回，不画任何手。动作层仍会触发（球体缩放/浮动），只是不产生手部变化。
+            return
         }
     }
 
@@ -340,6 +358,8 @@ struct PetPainter {
         case .robot:
             boneColor = Pal.botBottom
             foot = rounded(hipX - 0.074, footY - 0.032, 0.148, 0.064, 0.026, s)
+        case .dot:
+            return   // 第 4 只·黑洞球没有脚（同上）
         }
         ctx.fill(rotated(bone, phi, hip, s), with: .color(boneColor))
         ctx.fill(rotated(foot, phi, hip, s), with: .color(boneColor))
@@ -357,6 +377,8 @@ struct PetPainter {
         case .robot:
             ctx.fill(rotated(rounded(hipX - 0.050, footY - 0.026, 0.100, 0.014, 0.007, s), phi, hip, s),
                      with: .color(Pal.botTop.opacity(0.9)))
+        case .dot:
+            return   // 第 4 只·黑洞球没有脚（同上）
         }
     }
 
@@ -852,5 +874,159 @@ struct PetPainter {
                          _ cr: CGFloat, _ s: CGFloat) -> Path {
         let rect = CGRect(x: x * s, y: y * s, width: w * s, height: h * s)
         return Path(roundedRect: rect, cornerRadius: cr * s, style: .continuous)
+    }
+
+    // MARK: 4 · 黑洞球（Grok dot 风；v4.0.121 用户 2026-10-18 拍板）
+    //
+    // 定稿口径：黑玻璃球 + **一圈细发丝光环**、**没有手脚**；眼睛从效果稿 5 档里选了
+    // 第 2 档「眼白 + 深瞳」。几何全部照效果稿（scripts/ql_pet/mock/gen_pet_dot_eyes.py
+    // 的 100×100 归一化 → 本文件的 0…1）。
+    // 为什么亮眼 + 光环是这个形象的全部：黑球本身几乎不反光，辨识度**全靠光环与一双亮眼**，
+    // 所以小尺寸（simplify）也只丢柔光层，环线与眼睛一个都不删。
+    private func drawDot(_ ctx: inout GraphicsContext, _ s: CGFloat) {
+        withBodyTransforms(&ctx, s) { layer in
+            // 环外柔光：黑球在深色底上靠它把轮廓托出来（简化尺寸下丢掉）
+            if !simplify {
+                soft(&layer, radius: 0.05 * s) { l in
+                    l.fill(Path(ellipseIn: r(0.5, 0.5, 0.568, 0.568, s)),
+                           with: .radialGradient(
+                            Gradient(colors: [Pal.dotGlow.opacity(0.72), .clear]),
+                            center: p(0.5, 0.5, s), startRadius: 0.38 * s, endRadius: 0.568 * s))
+                }
+            }
+            // 细发丝光环：主体细线（青蓝→紫渐变）+ 外侧柔光，两层叠出「发丝」而不是「圆环」
+            var ring = Path()
+            ring.addArc(center: p(0.5, 0.5, s), radius: 0.448 * s,
+                        startAngle: .degrees(0), endAngle: .degrees(360), clockwise: false)
+            if !simplify {
+                soft(&layer, radius: 0.02 * s) { l in
+                    l.stroke(ring, with: .color(Pal.dotGlow.opacity(0.18)),
+                             style: StrokeStyle(lineWidth: 0.034 * s, lineCap: .round))
+                }
+            }
+            layer.stroke(ring, with: .linearGradient(
+                            Gradient(colors: [Pal.dotRingA, Pal.dotGlow, Pal.dotRingB]),
+                            startPoint: p(0.06, 0.06, s), endPoint: p(0.94, 0.94, s)),
+                         style: StrokeStyle(lineWidth: max(0.7, 0.013 * s), lineCap: .round))
+            // 主形：黑玻璃球（光源与三只同一处 0.36 / 0.28）
+            let body = Path(ellipseIn: r(0.5, 0.5, 0.40, 0.40, s))
+            layer.fill(body, with: .radialGradient(
+                Gradient(stops: [(0.0, Pal.dotTop), (0.46, Pal.dotDeep), (1.0, Pal.dotCore)]
+                    .map { Gradient.Stop(color: $0.1, location: $0.0) }),
+                center: p(0.36, 0.28, s), startRadius: 0, endRadius: 0.52 * s))
+            if !simplify {
+                // 顶部冷光高光（比三只弱得多：球是黑的，高光一大就变「灰球」）
+                soft(&layer, radius: 0.02 * s) { l in
+                    l.fill(rotated(Path(ellipseIn: r(0.37, 0.29, 0.15, 0.086, s)), -24, p(0.37, 0.29, s), s),
+                           with: .color(.white.opacity(0.20)))
+                }
+                // 底部反光弧（冷蓝，托出下缘）
+                var rim = Path()
+                rim.addArc(center: p(0.5, 0.5, s), radius: 0.36 * s,
+                           startAngle: .degrees(25), endAngle: .degrees(155), clockwise: false)
+                soft(&layer, radius: 0.015 * s) { l in
+                    l.stroke(rim, with: .color(Pal.dotHighlight.opacity(0.22)),
+                             style: StrokeStyle(lineWidth: 0.026 * s, lineCap: .round))
+                }
+            }
+            layer.stroke(body, with: .color(Pal.dotEdge.opacity(simplify ? 0.72 : 0.90)),
+                         lineWidth: max(1, 0.011 * s))
+            paintDotFace(&layer, s)
+        }
+        patSparkles(&ctx, s, Pal.dotGlow)
+    }
+
+    private func paintDotFace(_ ctx: inout GraphicsContext, _ s: CGFloat) {
+        switch state {
+        case .idle:
+            switch face {
+            case .calm:
+                dotPupilEyes(&ctx, s, closed: blink)
+                if !drawMouthIfSpeaking(&ctx, s, y: 0.584, ink: Pal.dotEye, maxHalf: 0.052, maxRy: 0.036) {
+                    smile(&ctx, s, 0.584, 0.054, 0.050, Pal.dotEye, 0.80, 0.019)
+                }
+            case .happy:
+                happyEyes(&ctx, s, 0.386, 0.614, 0.468, 0.074, Pal.dotEye)
+                if !drawMouthIfSpeaking(&ctx, s, y: 0.584, ink: Pal.dotEye, maxHalf: 0.058, maxRy: 0.040) {
+                    bigSmile(&ctx, s, 0.584, 0.054, 0.058, Pal.dotEye)
+                }
+            case .sleepy:
+                halfLiddedEyes(&ctx, s, 0.386, 0.614, 0.466, 0.074, 0.088, Pal.dotEye)
+                if !drawMouthIfSpeaking(&ctx, s, y: 0.590, ink: Pal.dotEye, maxHalf: 0.030, maxRy: 0.022) {
+                    smallOpenMouth(&ctx, s, 0.590, 0.030, 0.022, Pal.dotEye)
+                }
+            case .playful:
+                dotPupilEyes(&ctx, s, closed: false, winkRight: true)
+                if !drawMouthIfSpeaking(&ctx, s, y: 0.584, ink: Pal.dotEye, maxHalf: 0.050, maxRy: 0.034) {
+                    smirkMouth(&ctx, s, 0.584, 0.050, Pal.dotEye)
+                }
+            }
+            blushPair(&ctx, s, 0.30, 0.70, 0.560, 0.046, 0.026)
+        case .patting:
+            dotPupilEyes(&ctx, s, closed: true)
+            if !drawMouthIfSpeaking(&ctx, s, y: 0.578, ink: Pal.dotEye, maxHalf: 0.040, maxRy: 0.028) {
+                ctx.fill(Path(ellipseIn: r(0.50, 0.578, 0.040, 0.028, s)), with: .color(Pal.blush.opacity(0.9)))
+            }
+            blushPair(&ctx, s, 0.30, 0.70, 0.570, 0.050, 0.028)
+        case .thinking:
+            // 与三只同口径：thinkingFace == .sleepy 走困倦脸，nil 走平嘴呆脸
+            if thinkingFace == .sleepy {
+                halfLiddedEyes(&ctx, s, 0.386, 0.614, 0.466, 0.074, 0.088, Pal.dotEye)
+                if !drawMouthIfSpeaking(&ctx, s, y: 0.590, ink: Pal.dotEye, maxHalf: 0.030, maxRy: 0.022) {
+                    smallOpenMouth(&ctx, s, 0.590, 0.030, 0.022, Pal.dotEye)
+                }
+            } else {
+                dotPupilEyes(&ctx, s, closed: blink)
+                if !drawMouthIfSpeaking(&ctx, s, y: 0.590, ink: Pal.dotEye, maxHalf: 0.040, maxRy: 0.026) {
+                    flatMouth(&ctx, s, 0.590, 0.042, Pal.dotEye, 0.75)
+                }
+            }
+        case .alert:
+            dotPupilEyes(&ctx, s, closed: blink)
+            // 嘴用**亮色填充**（三只是深色填充，因为画在亮身体上；黑球上深色嘴会隐形）
+            if !drawMouthIfSpeaking(&ctx, s, y: 0.588, ink: Pal.dotEye, maxHalf: 0.028, maxRy: 0.034) {
+                ctx.fill(Path(ellipseIn: r(0.50, 0.588, 0.028, 0.034, s)), with: .color(Pal.dotEye.opacity(0.9)))
+            }
+        }
+    }
+
+    /// 第 4 只的眼：**眼白 + 深瞳**（效果稿第 2 档）。
+    /// 黑球上不能画「黑豆眼」—— 深色眼珠会整块沉进黑球里隐形，所以睁眼一律是
+    /// 亮眼白 + 深瞳 + 两点高光。`winkRight` = 俏皮的单眼眨（左眼睁、右眼一条亮弧）。
+    private func dotPupilEyes(_ ctx: inout GraphicsContext, _ s: CGFloat,
+                              closed: Bool, winkRight: Bool = false) {
+        dotEye(&ctx, s, 0.386, 0.466, closed: closed)
+        dotEye(&ctx, s, 0.614, 0.466, closed: closed || winkRight)
+    }
+
+    private func dotEye(_ ctx: inout GraphicsContext, _ s: CGFloat,
+                        _ cx: CGFloat, _ cy: CGFloat, closed: Bool) {
+        if closed {
+            // 闭眼 = 上弯亮弧（与笑眼同一套语汇；黑球上闭眼必须是亮的）
+            var arc = Path()
+            arc.move(to: p(cx - 0.062, cy + 0.014, s))
+            arc.addQuadCurve(to: p(cx + 0.062, cy + 0.014, s), control: p(cx, cy - 0.032, s))
+            ctx.stroke(arc, with: .color(Pal.dotEye),
+                       style: StrokeStyle(lineWidth: max(1, 0.016 * s), lineCap: .round))
+            return
+        }
+        if !simplify {
+            // 眼周冷光（效果稿的 eye glow）：黑球上的眼睛靠它「发光」
+            soft(&ctx, radius: 0.02 * s) { l in
+                l.fill(Path(ellipseIn: r(cx, cy, 0.104, 0.108, s)), with: .color(Pal.dotGlow.opacity(0.30)))
+            }
+        }
+        // 眼白：冷白渐变（光源偏左上 → 玻璃感）
+        ctx.fill(Path(ellipseIn: r(cx, cy, 0.074, 0.088, s)), with: .radialGradient(
+            Gradient(colors: [.white,
+                              Color(red: 0.94, green: 0.97, blue: 1.00),
+                              Color(red: 0.80, green: 0.87, blue: 0.96)]),
+            center: p(cx - 0.020, cy - 0.040, s), startRadius: 0, endRadius: 0.115 * s))
+        // 深瞳（略偏下）+ 两点高光（大点左上、小点右下，萌感来源）
+        ctx.fill(Path(ellipseIn: r(cx, cy + 0.014, 0.044, 0.044, s)), with: .color(Pal.dotPupil))
+        ctx.fill(Path(ellipseIn: r(cx - 0.017, cy - 0.008, 0.020, 0.020, s)), with: .color(.white.opacity(0.95)))
+        if !simplify {
+            ctx.fill(Path(ellipseIn: r(cx + 0.018, cy + 0.040, 0.010, 0.010, s)), with: .color(.white.opacity(0.70)))
+        }
     }
 }
