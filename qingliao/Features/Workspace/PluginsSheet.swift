@@ -468,7 +468,9 @@ struct PluginDetailSheet: View {
     @Environment(AuthStore.self) private var auth
     @Environment(\.dismiss) private var dismiss
     @State private var detail: PluginDetail?
-    @State private var error: String?
+    // ⚠️ 不能叫 `error`：`catch { }` 的隐式绑定就叫 error（let），赋值会报
+    // 「cannot assign to value: 'error' is immutable」（CI 实踩 4.0.124 首包）
+    @State private var errorText: String?
     @State private var loading = true
 
     private var client: PluginsClient {
@@ -497,7 +499,7 @@ struct PluginDetailSheet: View {
                 }
                 if loading {
                     Section { ProgressView() }
-                } else if let e = error {
+                } else if let e = errorText {
                     Section { Text(e).foregroundStyle(.red).font(.system(size: Typography.caption)) }
                 } else if let d = detail, !d.readme.isEmpty {
                     Section("README") {
@@ -517,8 +519,8 @@ struct PluginDetailSheet: View {
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("完成") { dismiss() } } }
             .task {
                 do { detail = try await client.detail(name: item.name) }
-                catch let e as PluginsError { error = e.message }
-                catch { error = "详情加载失败" }
+                catch let e as PluginsError { errorText = e.message }
+                catch { errorText = "详情加载失败" }
                 loading = false
             }
         }
