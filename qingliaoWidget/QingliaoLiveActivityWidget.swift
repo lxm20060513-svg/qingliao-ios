@@ -369,6 +369,13 @@ struct PetOrbView: View {
 
     private var style: PetStyle { PetStyle.from(styleRaw) }
 
+    /// v4.0.123：黑洞球外圈光晕的慢闪相位 —— **每拍推进一小步**（同呼吸的「每拍换向」口径）。
+    ///   实时活动没有连续帧源，硬做逐帧循环会被系统降频；这里让相位随 `spin` 缓推，
+    ///   挂件会重算 `body` 并重绘 Canvas → 光晕真的在「慢闪」，节奏与灵动岛本身的拍同步。
+    private var dotHaloPhase: Double {
+        style == .dot ? (spin / OrbBeat.spinStep / 24).truncatingRemainder(dividingBy: 1) : 0
+    }
+
     /// v4.0.6：常态表情随 `ContentState.petFace` 下发（同 petStyle 口径：挂件读不到主 App 的
     /// UserDefaults，只能吃下发值；挂件的 `done` 态就是 idle，此时画的就是用户选的脸）
     private var face: PetFace { PetFace.from(faceRaw) }
@@ -400,7 +407,9 @@ struct PetOrbView: View {
                        // 岛内尺寸 24 ~ 36pt 全在 76pt 简化阈值以下：只画头 + 眼 + 嘴。
                        // 这里显式写成尺寸判断（而不是靠 PetAvatar 的 76pt 阈值），是因为本视图
                        // 不经过 PetAvatar，别让「简化口径」变成第二处真源。
-                       simplify: size < PetKeys.simplifyBelow)
+                       simplify: size < PetKeys.simplifyBelow,
+                       // v4.0.123：黑洞球外圈光晕慢闪（灵动岛同一口径，其余三只恒 0）
+                       dotHaloPhase: dotHaloPhase)
                 .draw(&gc, size: canvasSize)
         }
         .frame(width: size, height: size)

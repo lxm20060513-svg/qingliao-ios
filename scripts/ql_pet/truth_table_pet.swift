@@ -491,7 +491,10 @@ check("踢腿有身体配合（后仰 -4 + 双手张开 0.45 配平）",
 check("切后台/关动画时腿复位（legPhase = nil + legKick = 0，防回前台腿僵在半空）",
       avC.contains("legPhase = nil\n                legKick = 0"))
 check("腿参数尾随传入 Canvas（挂件靠默认值零改动）",
-      avC.contains("legPhase: currentLegPhase,") && avC.contains("kickSide: currentKickSide)"))
+      avC.contains("kick: currentKick,")
+      && avC.contains("legPhase: currentLegPhase,")
+      && avC.contains("kickSide: currentKickSide,")
+      && avC.contains("dotHaloPhase: currentHaloPhase)"))
 check("挂件那条 PetPainter 调用没被腿参数动过（前缀仍与前文 ql_orbmenu 真值表一致）",
       lw.contains("PetPainter(style: style,") && !lw.contains("legPhase:"))
 check("设置页三条 hint 都在（加了 case 不补 = 只有 CI Archive 抓得到）",
@@ -546,7 +549,22 @@ check("第 4 只的球体是近黑玻璃球（Pal.dotCore 收尾，不是灰球�
 check("描边/柔光够亮（深色主题下黑球轮廓要托得出；v4.0.121 按用户拍板提亮一档）",
       ppC.contains("static let dotEdge = Color(red: 0.40, green: 0.52, blue: 0.86)")
       && ppC.contains("Pal.dotEdge.opacity(simplify ? 0.72 : 0.90)")
-      && ppC.contains("Pal.dotGlow.opacity(0.72)"))
+      // v4.0.123：环外那层柔光的光强改为**随 dotHaloPhase 起伏**（用户口径「外圈慢闪」），
+      //   所以原来那句写死的 `Pal.dotGlow.opacity(0.72)` 已不存在 —— 这里钉新口径的**下限**
+      //   （最低 0.42，仍高于旧写死值的一半，轮廓托得住；改回写死 0.72 = 慢闪失效）。
+      && ppC.contains("let haloAlpha = 0.42 + 0.30 * breathe"))
+check("外圈光晕是真圆且半径收在画布内（不再有方形底板外溢）",
+      !ppC.contains("0.568")
+      && ppC.contains("static let dotHaloOuter: CGFloat = 0.52")
+      && ppC.contains("static let dotHaloInner: CGFloat = 0.44"))
+check("光晕相位单点真源（PetPainter 存值 / PetAvatar 逐帧推 / 挂件随 spin 缓推）",
+      ppC.contains("var dotHaloPhase: Double = 0")
+      && avC.contains("dotHaloPhase = (dotHaloPhase + dt / period)")
+      && avC.contains("private var currentHaloPhase: Double")
+      && lw.contains("private var dotHaloPhase: Double")
+      // 其余三只不许跟着闪：相位有单点门控（PetAvatar 的 currentHaloPhase / 挂件同一判据）
+      && avC.contains("style == .dot ? dotHaloPhase : 0")
+      && lw.contains("style == .dot ? (spin / OrbBeat.spinStep / 24)"))
 check("光环是细发丝（半径 0.448 + 线宽下限 0.7 / 系数 0.013），不是粗圆环",
       ppC.contains("radius: 0.448 * s") && ppC.contains("lineWidth: max(0.7, 0.013 * s)"))
 check("眼睛是亮眼白 + 深瞳（黑球上画深色眼 = 隐形，萌感靠两点高光）",

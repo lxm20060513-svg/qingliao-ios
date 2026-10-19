@@ -118,6 +118,11 @@ struct PetPainter {
     /// 连踢换边时**先把 kick 归零再翻边**，避免 kickSide 插值路过 0 时两条腿同时半踢。
     var kickSide: CGFloat = -1
 
+    // ── v4.0.123：黑洞球光环「慢闪」相位（0…1，呼吸式起伏）──
+    // 只有 `.dot` 消费它：外圈光晕半径与透明度按相位推演 → 环外那层柔光「慢闪」，
+    // 细环线本身不缩（缩线会像「环在抖」）。由 PetAvatar 的 `dotHaloPhase` 逐帧驱动。
+    var dotHaloPhase: Double = 0
+
     /// v4.0.39：把形态原本的嘴**按开合度**画出来（三形态共用一套，保证嘴型节奏一致）。
     /// - 未在念（nil）→ 调用方照旧画自己的嘴，本函数返回 false。
     /// - 在念 → 画椭圆口型（ry 随开合度），返回 true（调用方跳过原嘴）。
@@ -182,6 +187,13 @@ struct PetPainter {
         static let dotEye = Color(red: 0.81, green: 0.91, blue: 1.00)    // 眼弧/嘴（亮青白）
         static let dotPupil = Color(red: 0.04, green: 0.06, blue: 0.13)  // 瞳孔（眼白上的深点）
         static let dotHighlight = Color(red: 0.79, green: 0.85, blue: 1.00)  // 底部反光弧
+        // v4.0.123：光环「慢闪」的**内外两层半径**（归一化）。
+        //   外层 0.52 = 柔光扩散外沿；内层 0.44 = 贴着细环那圈。
+        //   外两层半径由 PetAvatar 的 `dotHaloPhase` 逐帧驱动 → 光晕「呼吸式」起伏。
+        //   0.52 是呼吸**峰值**：略出画布半宽 0.5，但 `endRadius` 处 alpha=0（渐变第二色 `.clear`），
+        //   平滑消隐，不会像旧稿 0.568 那样留下方角外溢。
+        static let dotHaloOuter: CGFloat = 0.52
+        static let dotHaloInner: CGFloat = 0.44
 
         static let blush = Color(red: 1.00, green: 0.56, blue: 0.65)
         static let sparkleWarm = Color(red: 1.00, green: 0.79, blue: 0.24)
@@ -884,14 +896,27 @@ struct PetPainter {
     // 为什么亮眼 + 光环是这个形象的全部：黑球本身几乎不反光，辨识度**全靠光环与一双亮眼**，
     // 所以小尺寸（simplify）也只丢柔光层，环线与眼睛一个都不删。
     private func drawDot(_ ctx: inout GraphicsContext, _ s: CGFloat) {
+        // v4.0.123：**没有方形底板**（用户 2026-10-19「圆形外围还有一层方形的底板？可否拿掉改成
+        //   外圈慢闪的光晕」）—— 旧稿外圈柔光是**一整块填满画布的方形径向渐变**（`ellipseIn` 半径
+        //   0.568 > 画布半宽 0.5 → 方角外溢，真机上被读成「球底下垫了块方板」）。
+        //   现在改成**真圆**：半径收在画布内（呼吸峰值 0.52，`endRadius` 处 alpha=0 自然消隐，
+        //   不会再有方角外溢）+ 透明度按 `dotHaloPhase` 慢闪 → 只剩一圈圆形光晕。
+        //   细环线保持不变（缩线会像「环在抖」，闪的是它**外面那层光**）。
+        let halo = CGFloat(min(max(dotHaloPhase, 0), 1))          // 0…1
+        // 🚨 类型：`breathe` 显式收成 CGFloat —— `Pal.dotHalo*` 是 CGFloat，与 Double 直接相乘
+        //    在真机 Archive 上必报 `binary operator '*' cannot be applied to operands of type 'CGFloat' and 'Double'`
+        //    （本机 `-parse` 与全部真值表都放行，只有 CI 暴露；实测同构样例证实）。
+        let breathe = CGFloat(0.5 - 0.5 * cos(Double(halo) * 2 * .pi))   // 平滑往返 0→1→0（无跳变）
+        let haloOuter = Pal.dotHaloInner + (Pal.dotHaloOuter - Pal.dotHaloInner) * breathe
+        let haloAlpha = 0.42 + 0.30 * breathe                    // 光强随相位起伏（这就是「慢闪」）
         withBodyTransforms(&ctx, s) { layer in
             // 环外柔光：黑球在深色底上靠它把轮廓托出来（简化尺寸下丢掉）
             if !simplify {
                 soft(&layer, radius: 0.05 * s) { l in
-                    l.fill(Path(ellipseIn: r(0.5, 0.5, 0.568, 0.568, s)),
+                    l.fill(Path(ellipseIn: r(0.5, 0.5, haloOuter, haloOuter, s)),
                            with: .radialGradient(
-                            Gradient(colors: [Pal.dotGlow.opacity(0.72), .clear]),
-                            center: p(0.5, 0.5, s), startRadius: 0.38 * s, endRadius: 0.568 * s))
+                            Gradient(colors: [Pal.dotGlow.opacity(haloAlpha), .clear]),
+                            center: p(0.5, 0.5, s), startRadius: 0.38 * s, endRadius: haloOuter * s))
                 }
             }
             // 细发丝光环：主体细线（青蓝→紫渐变）+ 外侧柔光，两层叠出「发丝」而不是「圆环」
@@ -900,7 +925,7 @@ struct PetPainter {
                         startAngle: .degrees(0), endAngle: .degrees(360), clockwise: false)
             if !simplify {
                 soft(&layer, radius: 0.02 * s) { l in
-                    l.stroke(ring, with: .color(Pal.dotGlow.opacity(0.18)),
+                    l.stroke(ring, with: .color(Pal.dotGlow.opacity(0.18 + 0.10 * breathe)),
                              style: StrokeStyle(lineWidth: 0.034 * s, lineCap: .round))
                 }
             }

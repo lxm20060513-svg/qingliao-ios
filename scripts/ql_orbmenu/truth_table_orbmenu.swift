@@ -580,11 +580,17 @@ check("PetOrbView 切片可切出（空了本条就是空真）", !petOrbSlice.i
 // v4.0.6：PetPainter 加了 face 参数（常态表情），声明序变为 style→state→face→blink→simplify
 let iFace = petOrbSlice.range(of: "face: face,")
 let iBlink = petOrbSlice.range(of: "blink: false,")
-let iSimplify = petOrbSlice.range(of: "simplify: size < PetKeys.simplifyBelow)")
+let iSimplify = petOrbSlice.range(of: "simplify: size < PetKeys.simplifyBelow,")
 check("PetPainter 实参序 = 声明序（style→state→face→blink→simplify）",
       widgetSrc.contains("PetPainter(style: style,\n                       state: petState,\n                       face: face,\n                       blink: false,")
       && iFace != nil && iBlink != nil && iSimplify != nil
       && iFace!.lowerBound < iBlink!.lowerBound && iBlink!.lowerBound < iSimplify!.lowerBound)
+// v4.0.123：黑洞球外圈光晕慢闪相位（`dotHaloPhase` 是**尾随**新加的最后一个实参）。
+//   两个调用点（主 App PetAvatar / 挂件 PetOrbView）都必须真的传它 —— 漏一处 = 那一处光晕
+//   永远停在相位 0（不闪，且不报错、不崩，只有真机看得出「这个球不呼吸」）。
+check("两处 PetPainter 调用都传了 dotHaloPhase（漏一处 = 光晕不闪且不报错）",
+      petAvatarSrc.contains("dotHaloPhase: currentHaloPhase)")
+      && widgetSrc.contains("dotHaloPhase: dotHaloPhase)"))
 // v4.0.6：face 由 ContentState.petFace 下发（挂件读不到主 App 的 UserDefaults，免费签名无 App Groups）
 check("表情随 ContentState.petFace 下发（挂件也画用户选的脸）",
       widgetSrc.components(separatedBy: "faceRaw: context.state.petFace").count - 1 == 3

@@ -65,6 +65,15 @@ struct PetAvatar: View {
     /// 与 `quirky` 同生命周期：动作结束回 `.rest`（贴身），不动时恒为 `.rest`。
     @State private var quirkyHands: PetHandPose = .rest
 
+    // ── v4.0.123：黑洞球外圈光晕「慢闪」相位（0…1 往返）──
+    // ⚠️ 只有 `.dot` 消费它，其余三只恒为 0（PetPainter 里也只 drawDot 读）。
+    // 必须逐帧驱动 Canvas 重绘：光晕半径/透明度是画进 Canvas 的，纯 SwiftUI 变换改不动。
+    // 周期 3.6s = 用户口径「慢闪」（呼吸级，不是一闪一闪）。
+    @State private var dotHaloPhase: Double = 0
+
+    /// 当前光晕相位（非黑洞球恒 0）
+    private var currentHaloPhase: Double { style == .dot ? dotHaloPhase : 0 }
+
     /// 当前勾选的动作集合。⚠️ 本组件用 @AppStorage 拿到的是**非 optional String**，
     /// 「没设过」与「设成空串」在这里长得一样 —— 两种语义在 PetKeys.enabledQuirks 里
     /// 靠 UserDefaults.string(forKey:) 分开；这里只有在 key 真正缺失时才回全开。
@@ -289,7 +298,9 @@ struct PetAvatar: View {
                        // 靠默认值零改动；ql_orbmenu 真值表钉着挂件那条调用的字面量前缀）
                        legPhase: currentLegPhase,
                        kick: currentKick,
-                       kickSide: currentKickSide)
+                       kickSide: currentKickSide,
+                       // v4.0.123：黑洞球外圈光晕的慢闪相位（其余三只不消费）
+                       dotHaloPhase: currentHaloPhase)
                 .draw(&context, size: canvasSize)
         }
         .frame(width: drawSize, height: drawSize)
@@ -328,6 +339,9 @@ struct PetAvatar: View {
             }
         }
         .task(id: animate) { await blinkLoop() }
+        // v4.0.123：黑洞球外圈光晕慢闪 —— 逐帧推相位（只重绘 Canvas，与呼吸/眨眼同档成本）。
+        //   `id: animate` 保证「关掉/减弱动态」与后台时自动停（同 blinkLoop 口径）。
+        .task(id: animate) { await dotHaloLoop() }
         // v4.0.6：task id 里带上勾选串 —— 用户在设置页改了勾选，这一层必须重挂一次，
         // 否则循环还拿着旧池子，新勾的动作要等下次进聊天页才生效。
         .task(id: "\(animate)-\(quirksRaw)") { await quirkyLoop() }   // v3.9.85：灵动微动作
@@ -357,6 +371,24 @@ struct PetAvatar: View {
     private func startBreath() {
         breath = false
         withAnimation(.easeInOut(duration: 2.4).repeatForever(autoreverses: true)) { breath = true }
+    }
+
+    /// v4.0.123：黑洞球外圈光晕「慢闪」—— 3.6s 一个往返，逐帧推相位。
+    /// ⚠️ 只有黑洞球在播（其余三只的 `currentHaloPhase` 恒 0，画出来就是静止常态）。
+    /// 逐帧而非 `withAnimation`：光晕是画进 Canvas 的，要动就得逐帧重绘；
+    /// 与呼吸/眨眼同档成本（一次 Canvas 重绘），且受 `animate` 门控（关闭/减弱/后台全停）。
+    private func dotHaloLoop() async {
+        guard style == .dot else { return }
+        let period: Double = 3.6
+        var t = Date().timeIntervalSince1970
+        while !Task.isCancelled {
+            let now = Date().timeIntervalSince1970
+            let dt = now - t
+            t = now
+            guard animate, !Task.isCancelled else { return }
+            dotHaloPhase = (dotHaloPhase + dt / period).truncatingRemainder(dividingBy: 1)
+            try? await Task.sleep(for: .milliseconds(33))   // ≈30fps，与眨眼同档
+        }
     }
 
     /// 眨眼：3~7s 随机一次、每次 0.12s —— 制造「活着」的错觉，几乎零成本
