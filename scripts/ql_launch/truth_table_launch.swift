@@ -130,8 +130,9 @@ check("块序号不重复（同一序号出现两次 = 两块同拍，错峰失�
       (0...5).allSatisfy { sessions.components(separatedBy: ".launchRiseBlock(\($0), shown: launchRise)").count - 1 == 1 })
 check("launchRise 默认 true（切 tab / 从对话页返回 / iPad 双栏这些路径直接显示，不进启动流程）",
       sessions.contains("var launchRise: Bool = true") && dock.contains("var launchRise: Bool = true"))
-check("DockTabView 把开关透传给 SessionsView",
-      dock.contains("launchRise: launchRise)"))
+check("DockTabView 把开关透传给 SessionsView（launchRise 后接 isBackdrop，实参序=声明序）",
+      dock.contains("launchRise: launchRise,")
+      && dock.contains("isBackdrop: backFollowLive && !showSessionHome)"))
 check("块修饰器 reduceMotion 直接落终态（不播位移与淡入）",
       splash.contains("let settled = shown || reduceMotion"))
 check("块修饰器只做位移 + 淡入，**不**做缩放（整页缩放是回退⑯ 的禁令）",

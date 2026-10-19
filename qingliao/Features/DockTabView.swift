@@ -247,7 +247,9 @@ struct DockTabView: View {
                     SessionsView(onOpenSession: { withAnimation(Motion.page) { resetBackFollow(); showSessionHome = false } },
                                  showHero: true,
                                  onAskAI: { askAI($0) },
-                                 launchRise: launchRise)
+                                 launchRise: launchRise,
+                                 // v4.0.124：只有「跟手垫底」这一种在场不是正式首页 → 不触发 load 重活
+                                 isBackdrop: backFollowLive && !showSessionHome)
                         // v4.0.114（用户「聊天详情手势滑动返回过渡太生硬」）：返回时列表从**左边**滑回来
                         // （进入聊天时它反向滑向左边）—— 与下面聊天的移向凑成 push/pop 的观感。
                         // 此前两态都是默认的交叉淡化 + Motion.tap(0.12)，读作「啪一下闪过去」。
@@ -292,6 +294,11 @@ struct DockTabView: View {
             // v4.0.120：入场景由圆扩散改成**内容层定向滑入**（口径同 tabTransition，见 ChatZoomEntryModifier）。
             .chatZoomEntry(selected: $selected, order: dockRenderTabs,
                            skipFirstEntry: !launchRise)
+            // v4.0.124（用户 2026-10-19「聊天页详情页隐藏 dock」「滑动返回更顺」）：
+            // 对话页整页无底栏；跟手一开始就让底栏回来 —— 首页正从左侧露出，底栏跟着出现才是微信观感。
+            // 顺带治流畅性：tab bar 是液态玻璃层，页面位移时它每帧重采样背景，是跟手掉帧的大头，
+            // 隐藏后这段合成开销直接消失。iPad 双栏不隐藏（会话与对话同屏）。
+            .toolbar(showSessionHome || backFollowLive ? .visible : .hidden, for: .tabBar)
             .tag(DockTab.chat)
             .tabItem { Label(DockTab.chat.title, systemImage: DockTab.chat.icon) }
         }

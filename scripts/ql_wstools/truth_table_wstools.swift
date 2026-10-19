@@ -85,9 +85,13 @@ let grid = slice(wsCode, "private var toolsBoard", "private func toolCell")
 check("切得出工具格区（切不出=下面几条在空转）", !grid.isEmpty)
 
 let cellTitles = ["知识库", "网盘文件", "MCP 工具", "技能库", "定时任务", "邮件接入",
-                  "定时提醒", "文件管理", "会议纪要"]
-check("工具格恰好 9 个 toolCell（当前 \(occurrences(grid, "toolCell("))）",
-      occurrences(grid, "toolCell(") == 9)
+                  "定时提醒", "文件管理", "会议纪要", "Hermes 插件"]
+// v4.0.124：第 10 格「Hermes 插件」（用户「工作台工具里增加 hermes 插件功能」）。
+// 10 格 = 4 + 4 + 2，LazyVGrid 固定 4 列天然左对齐，布局口径不变。
+check("工具格恰好 10 个 toolCell（当前 \(occurrences(grid, "toolCell("))）",
+      occurrences(grid, "toolCell(") == 10)
+check("「Hermes 插件」格图标/色钉死（shippingbox.fill + mint，前 9 格未用色）",
+      grid.contains("toolCell(\"Hermes 插件\", symbol: \"shippingbox.fill\", tint: .mint)"))
 for title in cellTitles {
     check("工具格有「\(title)」", grid.contains("toolCell(\"\(title)\""))
 }
@@ -137,13 +141,19 @@ check("workspaceCold1 顶层 ≤4 条（当前 \(occurrences(cold1, ".sheet("))�
       !cold1.isEmpty && occurrences(cold1, ".sheet(") <= 4)
 check("workspaceCold2 顶层 ≤4 条（当前 \(occurrences(cold2, ".sheet("))）",
       !cold2.isEmpty && occurrences(cold2, ".sheet(") <= 4)
-check("🚫 工作台没有 cold3 之类的第二层呈现壳（纪要页呈现只有一个真源：DockTabView.openMinutesPage）",
-      !wsCode.contains("workspaceCold3")
-      && occurrences(wsCode, "private func workspaceCold") == 2)
+// v4.0.124：第 10 格新增「Hermes 插件」→ 允许第 3 组冷层，但**只准装工具格 sheet**：
+// 纪要页呈现仍只有一个真源（DockTabView.openMinutesPage），cold3 里出现 Minutes 一律判红。
+// 🚫 再加第 11 格时请合并 sheet 槽位，不许开 cold4（body 泛型层次继续涨就是 §77 的形态）。
+let cold3 = slice(wsCode, "private func workspaceCold3", "private func ")
+check("workspaceCold3 只承载工具格 sheet（≤4 条，且不得出现纪要页）",
+      !cold3.isEmpty && occurrences(cold3, ".sheet(") <= 4
+      && cold3.contains("PluginsSheet()") && !cold3.contains("Minutes"))
+check("🚫 工作台最多 3 组冷层（当前 \(occurrences(wsCode, "private func workspaceCold")) 组）",
+      occurrences(wsCode, "private func workspaceCold") == 3)
 // v4.0.115 审查⑤：body 顶层的冷组挂载点原先没人数上限 —— 一路 background(workspaceColdN()) 加下去
 // 又会撞 §77 类型栈深度（4.0.47 真机启动闪退的形态）。钉住：body 顶层就这 2 组，别再加。
-check("body 顶层 background(workspaceCold…) 挂载点 ≤2（当前 \(occurrences(wsCode, ".background(workspaceCold")) 组）",
-      occurrences(wsCode, ".background(workspaceCold") <= 2)
+check("body 顶层 background(workspaceCold…) 挂载点 == 3（v4.0.124 加第 3 组；再多就撞 §77）",
+      occurrences(wsCode, ".background(workspaceCold") == 3)
 
 // ── ④ 设置页零残留（入口、sheet、@State、搜索 case 四面一处不留）──
 check("反例：设置页不再引用 showQuickReminder / showFilesManager（含 @State 与 case）",

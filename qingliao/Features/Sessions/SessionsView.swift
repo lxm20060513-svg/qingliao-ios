@@ -106,6 +106,12 @@ struct SessionsView: View {
     /// 默认 true = 「已就位」：切 tab、从对话页返回、iPad 双栏这些路径都不进启动流程，一律直接显示。
     /// ⚠️ 声明序 = 实参序（CI 参数序检查），新增参数一律往后排。
     var launchRise: Bool = true
+    /// v4.0.124（用户「滑动返回聊天主页再顺一点」）：本页作为**左缘跟手返回的垫底页**在场时 = true。
+    /// 病根：跟手起手那一刻本页才插入，`.task` + `.onAppear` 会各拉一次 `load()` —— 网络与列表 diff
+    /// 正好落在拖动最需要帧率的头几帧。垫底页只需要把**已有缓存快照**（sessions 初值）画出来，
+    /// 数据等真正回到首页（isBackdrop 变 false）再刷，见下方 onChange。
+    /// ⚠️ 实参序 = 声明序：本参数必须排在最末（launchRise 之后），DockTabView 两处调用同步改。
+    var isBackdrop: Bool = false
 
     private var isSearching: Bool { !searchText.trimmingCharacters(in: .whitespaces).isEmpty }
 
@@ -147,12 +153,17 @@ struct SessionsView: View {
         // v4.0.67 P2：会话页页底铺环境渐变（C 口径，与聊天页同源单层）——
         //   会话卡已换 pastelCard 渐变卡（玻璃卡压彩底发灰已退役），页底同步彩化。
         .background(EnvironmentGlowLayers(scheme: colorSchemeEnv))
-        .task { await load() }
+        .task { if !isBackdrop { await load() } }
         // v2.0.102：切回会话列表立即刷新（聊天里新建/重命名后列表即时更新，原只有 .task 首刷）
         .onAppear {
             // v4.1.x：离开过本页就退出归档箱视图（避免下次进来还停在归档箱）
             showArchived = false
-            Task { await load() }
+            // v4.0.124：跟手垫底页不拉数据（见 isBackdrop 注释）
+            if !isBackdrop { Task { await load() } }
+        }
+        // v4.0.124：垫底页 → 正式首页（跟手收敛完成）补一次刷新，数据由这一次补齐。
+        .onChange(of: isBackdrop) { _, backdrop in
+            if !backdrop { Task { await load() } }
         }
         // v3.9.33：关键词变化 → 本地过滤即刻生效（无网络），远端全史搜索走 450ms 防抖
         .onChange(of: searchText) { _, newValue in

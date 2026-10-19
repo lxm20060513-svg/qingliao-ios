@@ -122,6 +122,8 @@ struct WorkspaceView: View {
     @State private var showMail = false    // v4.0.x 从设置页移来的「邮件接入」
     @State private var showCloud = false
     @State private var showMCP = false
+    // v4.0.124：第 10 格「Hermes 插件」（已安装 + 官方插件库）
+    @State private var showPlugins = false
     @State private var showReminder = false // v4.0.113 从设置页移来的「定时提醒」
     @State private var showFiles = false    // v4.0.113 从设置页移来的「文件管理」
 
@@ -211,6 +213,7 @@ struct WorkspaceView: View {
         // 拆多组是因为「每组顶层修饰器 ≤4 条」的深度上限（见 scripts/ql_wstools/truth_table_wstools.swift）。
         .background(workspaceCold1())
         .background(workspaceCold2())
+        .background(workspaceCold3())
     }
 
     // MARK: - 进行中
@@ -757,6 +760,10 @@ struct WorkspaceView: View {
                 // ⚠️ 9 格 = 4 + 4 + 1（第三行只一格，LazyVGrid 固定 4 列天然左对齐，不用改布局）。
                 // 🚨 不自己 present 纪要页：那条路 ChatView 不在树 → 卡静默丢失（理由见 onOpenMinutes 声明处）。
                 toolCell("会议纪要", symbol: "list.bullet.rectangle", tint: .orange) { onOpenMinutes?() }
+                // v4.0.124：第 10 格「Hermes 插件」——已安装（含手动装/桌面端）+ 官方插件库浏览/安装/启停。
+                // 图标 shippingbox（包裹 = 插件包），色 mint（前 9 格未用，同屏可分辨）。
+                // ⚠️ 10 格 = 4 + 4 + 2，LazyVGrid 固定 4 列天然左对齐，不用改布局。
+                toolCell("Hermes 插件", symbol: "shippingbox.fill", tint: .mint) { showPlugins = true }
             }
             .padding(Spacing.section)
             .frame(maxWidth: .infinity)
@@ -837,6 +844,17 @@ struct WorkspaceView: View {
             }
             .sheet(isPresented: $showMail) {
                 MailSettingsSheet()
+                    .presentationDetents([.medium, .large])
+                    .scrollContentBackground(.hidden)
+            }
+    }
+
+    /// v4.0.124：第 3 组 sheet 冷层——工具格到 10 格后新增「Hermes 插件」，
+    /// 前两组各已 4 条（每组顶层 ≤4 条是深度上限，见 truth_table_wstools.swift）。
+    private func workspaceCold3() -> some View {
+        Color.clear
+            .sheet(isPresented: $showPlugins) {
+                PluginsSheet()
                     .presentationDetents([.medium, .large])
                     .scrollContentBackground(.hidden)
             }

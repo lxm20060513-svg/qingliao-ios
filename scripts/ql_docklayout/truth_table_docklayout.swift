@@ -136,6 +136,7 @@ check("visibleRaw 摘要路径与 visible 一致",
 
 print("== ⑥ 源护栏：真挂载（逻辑对但没接上 = 用户看到的还是老 dock）")
 let dockView = readSource("Features/DockTabView.swift")
+let sessionsView = readSource("Features/Sessions/SessionsView.swift")
 let sheet = readSource("Features/Settings/DockLayoutSheet.swift")
 let core = readSource("Features/Settings/SettingsCore.swift")
 let models = readSource("Core/Models.swift")
@@ -396,6 +397,17 @@ check("松手门兜底：dx ≤ 0 / 宽度非法一律不算完成（往回甩�
 check("松手门取「同一枚阈值」= 屏宽 × completeRatio（0.5）；不许在这条链上再写死 70 之类的绝对值",
       ChatEdgeBackKit.completeRatio == 0.5
         && ChatEdgeBackKit.shouldComplete(dx: 390 * 0.5, projectedEnd: 0, width: 390))
+
+// ── ⑦ v4.0.124：对话页隐藏 dock（用户 2026-10-19）+ 垫底页不拉数据（滑动返回流畅性）──
+check("对话页隐藏 tab bar；跟手一开始就恢复（首页正露出，底栏跟着出现才是微信观感）",
+      dockView.contains(".toolbar(showSessionHome || backFollowLive ? .visible : .hidden, for: .tabBar)"))
+check("垫底页不触发 load（.task / .onAppear 双闸），收敛回首页后补刷一次",
+      sessionsView.contains("var isBackdrop: Bool = false")
+      && sessionsView.contains(".task { if !isBackdrop { await load() } }")
+      && sessionsView.contains("if !isBackdrop { Task { await load() } }")
+      && sessionsView.contains(".onChange(of: isBackdrop)"))
+check("isBackdrop 只在「跟手垫底」时为真（正式首页恒 false —— 否则首页会永不刷新）",
+      dockView.contains("isBackdrop: backFollowLive && !showSessionHome)"))
 
 print("\n通过 \(ok) 项，失败 \(fail) 项")
 if fail > 0 { exit(1) }
