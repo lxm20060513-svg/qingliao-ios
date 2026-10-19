@@ -189,6 +189,7 @@ struct PluginsClient {
     static let installPath = "/api/agent/plugins/install"
     static let statusPath = "/api/agent/plugins/install_status"
     static let togglePath = "/api/agent/plugins/toggle"
+    static let uninstallPath = "/api/agent/plugins/uninstall"
 
     let transport: PluginsTransport
     init(transport: @escaping PluginsTransport) { self.transport = transport }
@@ -239,11 +240,14 @@ struct PluginsClient {
     }
 
     /// 插件库（分页 + 搜索）。返回 (items, total, categories, 数据来源)
-    func catalog(query: String = "", offset: Int = 0, limit: Int = 30)
+    /// v4.0.126：补 category 参数 —— v4.0.124 只拼了 offset/limit/q，分类 chip 点了只是重拉全量首页，看起来「没生效」。
+    func catalog(query: String = "", category: String = "", offset: Int = 0, limit: Int = 30)
         async throws -> (items: [PluginCatalogItem], total: Int, categories: [String], source: String) {
         var path = Self.catalogPath + "?offset=\(offset)&limit=\(limit)"
         let q = query.trimmingCharacters(in: .whitespaces)
         if !q.isEmpty { path += "&q=" + Self.q(q) }
+        let cat = category.trimmingCharacters(in: .whitespaces)
+        if !cat.isEmpty { path += "&category=" + Self.q(cat) }
         let data = try await send("GET", path)
         let obj = try envelope(data)
         let raw = (obj["items"] as? [[String: Any]]) ?? []
@@ -296,6 +300,12 @@ struct PluginsClient {
         let data = try await send("POST", Self.togglePath, ["name": name, "enabled": enabled])
         let obj = try envelope(data)
         return (obj["enabled"] as? Bool) ?? enabled
+    }
+
+    /// v4.0.126：卸载 —— 后端摘 config 键 + `hermes plugins remove` + 重启网关（约 30 秒）
+    func uninstall(name: String) async throws {
+        let data = try await send("POST", Self.uninstallPath, ["name": name])
+        _ = try envelope(data)
     }
 
     private static func q(_ s: String) -> String {

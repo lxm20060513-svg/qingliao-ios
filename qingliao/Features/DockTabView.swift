@@ -192,15 +192,10 @@ struct DockTabView: View {
                 .allowsHitTesting(false)
 
 
-            TabView(selection: $selected) {
-                // v4.0.82：dock 档位改为**数据驱动**（顺序可调 + 可隐藏；设置 → 通用 →「Dock 栏」）。
-                // 原来静态四块（聊天/生活/看板/设置）一字未改地搬进了 `dockPage(_:)`，只是改成按
-                // `dockRenderTabs` 渲染 —— 档序与显隐由 DockLayoutKit 定，本文件不再写死。
-                // 🚨 生活页仍在这条链路上（v4.0.81 它被误删过一次 → 真机少一页；护栏：ql_dock 表「四档渲染齐」）。
-                ForEach(dockRenderTabs, id: \.self) { tab in
-                    dockPage(tab)
-                }
-            }
+            // v4.0.126：两种 dock 形态（设置 → 通用 →「Dock 栏」→ 滑动切换页面 开关）
+            //   · native（默认）：系统 TabView + iOS 26 液态玻璃 tab bar
+            //   · paging：page 分页（页面贴手指滑动切页）+ 自绘玻璃 dock
+            dockTabContainer
             // v4.0.82：顺序/显隐变更 → `.id` 变化触发一次重建，系统 tab bar 才会立即重排
             //（iOS 26 上仅靠 ForEach 的增量变化，tab bar 的格子不会即时刷新）
             .id(dockRenderKey)
@@ -216,6 +211,54 @@ struct DockTabView: View {
             .modifier(DockTabChrome3(host: self))
             .modifier(DockTabChrome4(host: self))
         }
+    }
+
+    // MARK: - v4.0.126 双 dock 形态
+
+    /// 是否启用「滑动切换页面」（page 分页 + 自绘 dock）。
+    /// 默认关：不动老用户的原生 tab bar 观感；开了才走 page 样式。
+    @AppStorage("qingliao_dock_paging") private var dockPaging = false
+
+    @ViewBuilder
+    private var dockTabContainer: some View {
+        if dockPaging {
+            // 🚨 系统 tab bar 在 page 样式下不渲染 → 底部必须由 DockPagingBar 兜底，
+            //    否则「开了滑动就没导航栏」（旧版 v3.0.63 也是自绘 dock）。
+            // 对话页（!showSessionHome）不给 dock：那一页底下是输入栏，dock 会压住它。
+            ZStack(alignment: .bottom) {
+                TabView(selection: $selected) {
+                    ForEach(dockRenderTabs, id: \.self) { tab in
+                        dockPage(tab)
+                    }
+                }
+                .tabViewStyle(.page(indexDisplayMode: .never))
+                // 每页底部让出一条 dock 高度，否则列表最后一项会被半透明 dock 压住
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    Color.clear.frame(height: dockShown ? 66 : 0)
+                }
+
+                if dockShown {
+                    DockPagingBar(selected: $selected, tabs: dockRenderTabs)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+            .animation(Motion.snap, value: dockShown)
+        } else {
+            TabView(selection: $selected) {
+                // v4.0.82：dock 档位改为**数据驱动**（顺序可调 + 可隐藏；设置 → 通用 →「Dock 栏」）。
+                // 原来静态四块（聊天/生活/看板/设置）一字未改地搬进了 `dockPage(_:)`，只是改成按
+                // `dockRenderTabs` 渲染 —— 档序与显隐由 DockLayoutKit 定，本文件不再写死。
+                // 🚨 生活页仍在这条链路上（v4.0.81 它被误删过一次 → 真机少一页；护栏：ql_dock 表「四档渲染齐」）。
+                ForEach(dockRenderTabs, id: \.self) { tab in
+                    dockPage(tab)
+                }
+            }
+        }
+    }
+
+    /// page 模式下 dock 是否在场：与系统 tab bar 的显隐口径一致（对话页 / 跟手垫底期间不显示）。
+    private var dockShown: Bool {
+        showSessionHome || backFollowLive
     }
 
     // MARK: - v3.6.2 聊天 tab（两态，见 chatTab）

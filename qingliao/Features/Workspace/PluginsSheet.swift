@@ -27,6 +27,7 @@ struct PluginsSheet: View {
     @State private var loading = true
     @State private var loadError: String?
     @State private var query = ""
+    @State private var searchTask: Task<Void, Never>?
     @State private var loadingMore = false
 
     @State private var toast = ""
@@ -40,6 +41,9 @@ struct PluginsSheet: View {
 
     // 详情
     @State private var detailItem: PluginItem?
+    // 卸载（v4.0.126）
+    @State private var confirmUninstall: PluginItem?
+    @State private var uninstallingName = ""
 
     private var client: PluginsClient {
         PluginsClient { method, path, bodyData in
@@ -90,12 +94,37 @@ struct PluginsSheet: View {
                 }
             }
             .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always),
-                        prompt: "搜索已安装插件")
+                        prompt: "搜索插件")
+            // v4.0.126：搜索词也要打后端（已安装区本地过滤 + 插件库走 ?q=），防抖 320ms 避免逐字打请求
+            .onChange(of: query) { _, _ in
+                searchTask?.cancel()
+                searchTask = Task {
+                    try? await Task.sleep(nanoseconds: 320_000_000)
+                    guard !Task.isCancelled else { return }
+                    await reloadCatalog(reset: true)
+                }
+            }
+            .onDisappear { searchTask?.cancel() }
             .refreshable { await reload() }
             .task { await reload() }
             .onDisappear { polling?.cancel() }
             .sheet(item: $detailItem) { item in
                 PluginDetailSheet(item: item)
+            }
+            // v4.0.126：卸载二次确认（删除不可逆，按钮用 destructive 红）
+            // 🚨 用 .alert 不用 .confirmationDialog：check_swift 护栏 ㊾ 禁止全仓 live confirmationDialog
+            //    （破坏性确认统一走 AnchorMenuOverlay；.alert 在该口径之外）。
+            .alert(
+                confirmUninstall.map { "卸载「\($0.name)」？" } ?? "卸载插件？",
+                isPresented: Binding(get: { confirmUninstall != nil },
+                                     set: { if !$0 { confirmUninstall = nil } })
+            ) {
+                Button("卸载", role: .destructive) {
+                    if let it = confirmUninstall { Task { await uninstall(it) } }
+                }
+                Button("取消", role: .cancel) { confirmUninstall = nil }
+            } message: {
+                Text("会删除插件目录并重启网关（约 30 秒）。插件库里随时可以重装。")
             }
         }
     }
@@ -182,6 +211,19 @@ struct PluginsSheet: View {
         }
         .contentShape(Rectangle())
         .onTapGesture { detailItem = item }
+        // v4.0.126：左滑卸载（Form/List 内 swipeActions 才生效）。二次确认在 confirmationDialog。
+        // allowsFullSwipe: false —— 删除类操作不做「一滑到底即执行」。
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            if item.manageable {
+                Button(role: .destructive) {
+                    confirmUninstall = item
+                } label: {
+                    Label(uninstallingName == item.name ? "卸载中" : "卸载",
+                          systemImage: "trash")
+                }
+                .disabled(!uninstallingName.isEmpty)
+            }
+        }
     }
 
     private func badgeIcon(_ item: PluginItem) -> some View {
@@ -370,7 +412,8 @@ struct PluginsSheet: View {
     private func reloadCatalog(reset: Bool) async {
         let offset = reset ? 0 : catalogItems.count
         do {
-            let r = try await client.catalog(query: "", offset: offset, limit: 30)
+            // v4.0.126：把搜索词与分类真正传给后端（旧版写死 query: "" 且不带 category → 两个筛选都没生效）
+            let r = try await client.catalog(query: query, category: categoryFilter, offset: offset, limit: 30)
             if reset {
                 catalogItems = r.items
             } else {
@@ -429,6 +472,23 @@ struct PluginsSheet: View {
                 installingName = ""
             }
         }
+    }
+
+    /// v4.0.126：卸载（后端摘 config 键 + 删目录 + 重启网关）
+    private func uninstall(_ item: PluginItem) async {
+        guard uninstallingName.isEmpty else { return }
+        uninstallingName = item.name
+        confirmUninstall = nil
+        do {
+            try await client.uninstall(name: item.name)
+            showToast("已卸载「\(item.name)」，网关重启后生效（约 30 秒）")
+            await reload()
+        } catch let e as PluginsError {
+            showToast(e.message)
+        } catch {
+            showToast("卸载失败，请稍后重试")
+        }
+        uninstallingName = ""
     }
 
     private func setEnabled(_ item: PluginItem, _ want: Bool) {

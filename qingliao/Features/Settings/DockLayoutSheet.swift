@@ -19,6 +19,8 @@ struct DockLayoutSheet: View {
     @Environment(\.dismiss) private var dismiss
     @AppStorage(UserDefaultsKey.dockOrder) private var orderRaw = DockLayoutKit.defaultOrderRaw
     @AppStorage(UserDefaultsKey.dockHidden) private var hiddenRaw = ""
+    /// v4.0.126：滑动切页开关。键名与 DockTabView 的 dockPaging **必须逐字一致**（跨视图同键自动同步）。
+    @AppStorage("qingliao_dock_paging") private var dockPaging = false
 
     /// 当前顺序（净化后的 4 档；坏串会被 DockLayoutKit 拉回出厂序）
     private var order: [DockTab] {
@@ -31,6 +33,23 @@ struct DockLayoutSheet: View {
     var body: some View {
         NavigationStack {
             List {
+                // v4.0.126：切换方式（原生 dock ↔ page 分页 + 自绘 dock）
+                Section {
+                    Toggle(isOn: $dockPaging) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("滑动切换页面")
+                            Text(dockPaging ? "左右滑动切到相邻页面（贴手指）" : "点按底部导航切换（原生玻璃栏）")
+                                .font(.system(size: Typography.tiny))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .qingliaoSwitch()
+                } header: {
+                    Text("切换方式")
+                } footer: {
+                    Text("开启：页面可左右滑动切换（跟手），底部换成自绘玻璃导航栏；关闭：用 iOS 26 原生导航栏，点按切页。切换后从第一页开始。")
+                }
+
                 Section {
                     ForEach(Array(order.enumerated()), id: \.element) { idx, tab in
                         row(tab: tab, idx: idx)
