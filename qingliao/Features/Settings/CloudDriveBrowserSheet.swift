@@ -161,8 +161,12 @@ struct CloudDriveBrowserSheet: View {
     }
 
     private var emptyView: some View {
-        RemoteEmptyView(title: "这个目录是空的",
-                        subtitle: "下拉可刷新")
+        // 百度开放接口只授权 /apps/bdpan 这一个应用目录，个人网盘文件不在授权范围内
+        // → 空目录是常态而不是故障，这里给一句说明，免得被当成「坏了」。
+        let shared = drive.id == "baidu-drive"
+        return RemoteEmptyView(
+            title: shared ? "共享目录是空的" : "这个目录是空的",
+            subtitle: shared ? "这里是与 AI 共享的应用目录，个人网盘文件不在这里" : "下拉可刷新")
     }
 
     private var entryList: some View {
