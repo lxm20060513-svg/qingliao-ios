@@ -1511,8 +1511,8 @@ ck "回退⑲f：两态是 ZStack **双页同框**（跟手要「首页作为垫
 ckNot "回退⑲g：不许退回 if/else 单页结构（位移一开左侧露出的是渐变垫底 = 断层）" '^[[:space:]]*if showSessionHome \{' "$DT"
 ckNot "回退⑲h：手势那条不许再拿抬手位置当扩散圆心（跟手不等抬手；圆心只剩页头按钮那条）" 'onBack\(value\.location\)' qingliao/Features/Chat/ChatView.swift
 ckNot "回退⑲i：不许在 end 帧直接跳转（抬手才认 = 不跟手，老 shouldGoBack 病根）" 'ChatEdgeBackKit\.shouldGoBack' qingliao/Features/Chat/ChatView.swift
-cnt=$(grep -cF 'ChatEdgeBackKit.isEdgeStart(x: value.startLocation.x)' qingliao/Features/Chat/ChatView.swift); [ "$cnt" -eq 1 ] \
-  || { echo "❌ 回退⑲j：起手门必须走 Kit（isEdgeStart + 全局起手 x），恰好一处（实得 $cnt）"; fail=1; }
+cnt=$(grep -cF 'ChatEdgeBackKit.isBackStart(x: value.startLocation.x)' qingliao/Features/Chat/ChatView.swift); [ "$cnt" -eq 1 ] \
+  || { echo "❌ 回退⑲j：起手门必须走 Kit（isBackStart + 全局起手 x，v4.0.125 起任意位置可起手），恰好一处（实得 $cnt）"; fail=1; }
 cnt=$(grep -cF '@State private var claimedStart: CGPoint? = nil' qingliao/Features/Chat/ChatView.swift); [ "$cnt" -eq 1 ] \
   || { echo "❌ 回退⑲k：跟手锁存必须是**起手点** claimedStart（有记忆性：手指一偏 |dy| 变大不逐帧归 0；又能判新手势，实得 $cnt）"; fail=1; }
 ckNot "回退⑲l：跟手帧不许自己 clamp / 算阈值（一律走 ChatEdgeBackKit，视图里不许内联第二套）" 'min\(max\(0, dx\)' qingliao/Features/Chat/ChatView.swift

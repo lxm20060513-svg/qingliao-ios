@@ -127,6 +127,21 @@ struct DockTabView: View {
     @Environment(\.horizontalSizeClass) private var hSize
     @Environment(\.colorScheme) private var colorScheme
 
+    // MARK: - v4.0.125 转场优先（用户 2026-10-19：tab 切换仍掉帧 / 返回首页仍掉帧）
+    //
+    // 根因（代码取证）：各页的 `.task(id: isActive)` 在**被切到的那一刻**就 `await load()` + 起轮询，
+    // 而这一刻正好是切页/返回动画的头几帧 —— 网络回调的 JSON 解码 + 列表 diff + 卡片重建全部挤在
+    // 同一个主线程帧预算里，转场自然掉帧。`isActive` 直传 `selected` 等于「动画与数据刷新同步开跑」。
+    //
+    // 治法：把「页面成为活跃」拆成两层 —— `selected` 管**渲染**（立即，保证转场有内容），
+    // `settledTab` 管**数据**（转场落定后才等于 selected）。延迟取 340ms：切页位移 Motion.pageEnterSlide
+    // 是 0.28s，留 60ms 余量；返回扩散虽 1.1s，但列表在 0.34s 后刷已经不砸动画头几帧了。
+    // 🚨 别把 isActive 改回 selected —— 那就是把动画和网络重新绑回同一帧。
+    @State private var settledTab: DockTab?
+    /// 返回首页专用：`showSessionHome` 一翻真 → 先置 false（SessionsView 当 backdrop 不刷），
+    /// 340ms 后置真才允许 `load()`（否则列表 diff 正好砸在圆扩散的前半段）。
+    @State private var homeSettled = true
+
     // v4.0.81：槽位的智能球连同 `orbInDock` 判据整块移除（用户口径 Q1=3：球的入口只留长按宠物）。
     // 菜单/识别/录音三个浮层的**兜底锚点**仍按 dock 槽位几何算，故保留槽位数与聊天槽位序号。
     // MARK: - v4.0.82 dock 档位（数据驱动：顺序 / 隐藏都可配）
@@ -249,7 +264,9 @@ struct DockTabView: View {
                                  onAskAI: { askAI($0) },
                                  launchRise: launchRise,
                                  // v4.0.124：只有「跟手垫底」这一种在场不是正式首页 → 不触发 load 重活
-                                 isBackdrop: backFollowLive && !showSessionHome)
+                                 // v4.0.125：返回扩散未落定（!homeSettled）也不刷 —— 列表 diff 砸在扩散帧里是
+                                 // 「返回首页掉帧」的另一半（前半是 clipShape 裁剪本身）。
+                                 isBackdrop: (backFollowLive && !showSessionHome) || !homeSettled)
                         // v4.0.114（用户「聊天详情手势滑动返回过渡太生硬」）：返回时列表从**左边**滑回来
                         // （进入聊天时它反向滑向左边）—— 与下面聊天的移向凑成 push/pop 的观感。
                         // 此前两态都是默认的交叉淡化 + Motion.tap(0.12)，读作「啪一下闪过去」。
@@ -292,6 +309,11 @@ struct DockTabView: View {
             // v4.0.117：冷启动（launchRise 还没放行 = 启动页正盖在上面）时本页**不播**入场 ——
             // 那一刻演入场的是启动页自己（SplashView），两层同演会各切各的。
             // v4.0.120：入场景由圆扩散改成**内容层定向滑入**（口径同 tabTransition，见 ChatZoomEntryModifier）。
+            // v4.0.125：转场落定后再放数据刷新（见上方 settledTab / homeSettled 注释）
+            .modifier(TransitionSettleModifier(selected: $selected,
+                                               settled: $settledTab,
+                                               showSessionHome: $showSessionHome,
+                                               homeSettled: $homeSettled))
             .chatZoomEntry(selected: $selected, order: dockRenderTabs,
                            skipFirstEntry: !launchRise)
             // v4.0.124（用户 2026-10-19「聊天页详情页隐藏 dock」「滑动返回更顺」）：
@@ -409,12 +431,12 @@ struct DockTabView: View {
         case .chat:
             chatTab
         case .life:
-            LifeView(isActive: selected == .life)
+            LifeView(isActive: settledTab == .life)
                 .tabTransition(for: .life, selected: $selected, order: dockRenderTabs)
         case .dashboard:
             // v3.4.26：isActive 参数直传（selected==.dashboard），替代 qingliaoDashboardLeave/Refresh 通知 ——
             // 轮询暂停/恢复收进 DashboardView 自身生命周期，去隐式耦合
-            DashboardView(isActive: selected == .dashboard)
+            DashboardView(isActive: settledTab == .dashboard)
                 .tabTransition(for: .dashboard, selected: $selected, order: dockRenderTabs)
         case .workspace:
             // v4.0.108：工作区（「AI 替我干的活」聚合页）。
@@ -423,7 +445,7 @@ struct DockTabView: View {
             // 这里只负责切到聊天 tab 并让它落到**对话页**（showSessionHome = false）——
             // 与 `SessionsView` 点会话卡同一收口：本仓唯一的「进对话页」判据就是这一个 bool。
             // 程序化切页照例 skipBurstOnce()（烟花语义是「点了 dock 智能球」，不该为跳转放）。
-            WorkspaceView(isActive: selected == .workspace,
+            WorkspaceView(isActive: settledTab == .workspace,
                           onOpenSession: {
                               skipBurstOnce()
                               // v4.0.115：与聊天页两态切换同款页面级令牌 —— 原先 Motion.tap（.snappy
@@ -837,6 +859,44 @@ struct DockTabView: View {
 /// 底栏切页已不再是扩散（改内容层定向滑入，见 TabTransitionModifier 头注），别把切页挂回来。
 /// 常态半径 = Motion.pageRevealMaxRadius（圆大到盖住整屏，等同不裁剪）；入场那一拍 0 → max。
 /// ⚠️ 圆心是 **window 坐标**，与页面坐标原点一致（TabView 铺满全屏）；这里故意忽略入参 rect。
+/// v4.0.125：转场优先 —— 把「页面成为活跃」拆成渲染（selected，立即）与数据（settled，转场后）。
+/// 头注在 DockTabView 的 `settledTab` / `homeSettled`。
+/// 独立成类型的原因与 ChatZoomEntryModifier 同宗：DockTabView.body 那条修饰符链再挂带闭包的
+/// `.onChange` 会把类型检查器撑爆（v4.0.108 CI 实测 `unable to type-check in reasonable time`）。
+private struct TransitionSettleModifier: ViewModifier {
+    @Binding var selected: DockTab
+    @Binding var settled: DockTab?
+    @Binding var showSessionHome: Bool
+    @Binding var homeSettled: Bool
+    /// 切页位移 Motion.pageEnterSlide 是 0.28s，留 60ms 余量
+    private let settleDelay: Duration = .milliseconds(340)
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear {
+                if settled == nil { settled = selected }
+            }
+            .onChange(of: selected) { _, newValue in
+                // 先撤掉旧档的活跃态（它的轮询立刻停），再等转场落定
+                settled = nil
+                Task { @MainActor in
+                    try? await Task.sleep(for: settleDelay)
+                    // 这 340ms 内又切走了 → 不把旧档置回活跃（否则离场页在后台偷偷 load）
+                    if selected == newValue { settled = newValue }
+                }
+            }
+            .onChange(of: showSessionHome) { _, home in
+                guard home else { return }
+                homeSettled = false
+                Task { @MainActor in
+                    try? await Task.sleep(for: settleDelay)
+                    // 直接赋值（别写成 `if showSessionHome { ... }` —— check_swift 的 ⑲g 护栏按行首匹配，会误判成退回 if/else 单页结构）
+                    homeSettled = showSessionHome
+                }
+            }
+    }
+}
+
 struct RevealCircleShape: Shape {
     var center: CGPoint
     var radius: CGFloat

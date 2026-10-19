@@ -147,7 +147,7 @@ check("工作台档的 title / icon 真存在（公文包 briefcase —— 用�
       dockView.contains("case .workspace: \"工作台\"") && dockView.contains("case .workspace: \"briefcase\""))
 check("★ workspace 的页面真挂上了（dockPage 有分支 + 套 tabTransition，漏挂则该档没图标）",
       dockView.contains("case .workspace:")
-      && dockView.contains("WorkspaceView(isActive: selected == .workspace,")
+      && dockView.contains("WorkspaceView(isActive: settledTab == .workspace,")
       && dockView.contains(".tabTransition(for: .workspace, selected: $selected, order: dockRenderTabs)"))
 // v4.0.109：「待你处理」点进会话的回调必须在宿主真接上 —— 漏了的话会话装进了 ChatStore
 // 但用户停在原地（页不切、也不退出会话首页），症状 =「点了没反应」。
@@ -210,7 +210,7 @@ check("用页面级令牌 Motion.page 驱动两态切换（进入 + 返回按钮
         || dockView.contains("withAnimation(Motion.page) { resetBackFollow(); showSessionHome = false }"))
         && dockView.contains("withAnimation(Motion.page) { showSessionHome = true }"))
 // v4.0.115：工作台「待你处理」卡片进对话页走的是同一个跳转 —— 原先用 Motion.tap（控件曲线）驱动整页位移。
-let wsCallWindow = String((dockView.components(separatedBy: "WorkspaceView(isActive: selected == .workspace,").last ?? "").prefix(900))
+let wsCallWindow = String((dockView.components(separatedBy: "WorkspaceView(isActive: settledTab == .workspace,").last ?? "").prefix(900))
 check("工作台进会话同用页面级令牌（原先 Motion.tap 整页位移 = 读作「啪一下」）",
       wsCallWindow.contains("withAnimation(Motion.page)")
         && !wsCallWindow.contains("withAnimation(Motion.tap)"))
@@ -369,7 +369,12 @@ print("\n== Ⓟ 左缘右滑**跟手**返回的判定真值（v4.0.122；Kit 纯
 // 用户口径（2026-10-18，对着参考截图「拖到中途两页同框」那一帧拍板）：「要这种跟手滑动返回」。
 // 判定分三段：起手门（左缘）→ 认领门（够横，只过一次）→ 松手门（过半或甩过半）。
 // 阈值真源 = Core/ChatEdgeBackKit.swift（本表编译行已带上它，下面的数是**跑出来的**不是抄的）。
-check("起手门：左缘 24pt 内才算（24 在内、24.5 在外）",
+// v4.0.125（用户 2026-10-19「聊天页增加任意界面右滑返回聊天首页」）：起手门放宽到**任意位置**。
+check("起手门：v4.0.125 起任意位置可起手（0 / 中部 / 右缘都算）",
+      ChatEdgeBackKit.isBackStart(x: 0) && ChatEdgeBackKit.isBackStart(x: 200)
+        && ChatEdgeBackKit.isBackStart(x: 390))
+// 旧左缘口径仍保留（单测 + 需要时一键切回）：24 在内、24.5 在外
+check("旧左缘口径仍可用（isEdgeStart：24 在内、24.5 在外）",
       ChatEdgeBackKit.isEdgeStart(x: 0) && ChatEdgeBackKit.isEdgeStart(x: 24)
         && !ChatEdgeBackKit.isEdgeStart(x: 24.5))
 check("认领门够横：dx ≥ 8 且 dx ≥ |dy| × 1.8（纵向滚动 / 往上往下斜划都要被挡）",
@@ -406,8 +411,20 @@ check("垫底页不触发 load（.task / .onAppear 双闸），收敛回首页�
       && sessionsView.contains(".task { if !isBackdrop { await load() } }")
       && sessionsView.contains("if !isBackdrop { Task { await load() } }")
       && sessionsView.contains(".onChange(of: isBackdrop)"))
-check("isBackdrop 只在「跟手垫底」时为真（正式首页恒 false —— 否则首页会永不刷新）",
-      dockView.contains("isBackdrop: backFollowLive && !showSessionHome)"))
+check("isBackdrop 只在「跟手垫底」或「返回扩散未落定」时为真（正式首页落定后必须 false —— 否则首页会永不刷新）",
+      dockView.contains("isBackdrop: (backFollowLive && !showSessionHome) || !homeSettled)"))
+// v4.0.125（用户 2026-10-19「tap 之间切换还是卡顿掉帧 / 聊天返回首页还是掉帧，从源头优化」）：
+// 转场优先 —— 渲染跟着 selected 立即走，数据刷新必须等 settledTab 落定（340ms）。
+// 缺任何一条都退回「动画与 load 抢同一帧」的老病。
+check("★ 转场优先：各页 isActive 读 settledTab（不许读 selected）",
+      dockView.contains("LifeView(isActive: settledTab == .life)")
+      && dockView.contains("DashboardView(isActive: settledTab == .dashboard)")
+      && dockView.contains("WorkspaceView(isActive: settledTab == .workspace,")
+      && !dockView.contains("isActive: selected =="))
+check("★ 转场优先：settle modifier 真挂上且延迟 ≥ 切页曲线（0.28s）",
+      dockView.contains(".modifier(TransitionSettleModifier(selected: $selected,")
+      && dockView.contains("private struct TransitionSettleModifier: ViewModifier")
+      && dockView.contains(".milliseconds(340)"))
 
 print("\n通过 \(ok) 项，失败 \(fail) 项")
 if fail > 0 { exit(1) }

@@ -1225,7 +1225,7 @@ struct ChatView: View {
                             onFollowEnd?(false)
                         }
                         if claimedStart == nil {
-                            guard ChatEdgeBackKit.isEdgeStart(x: value.startLocation.x),
+                            guard ChatEdgeBackKit.isBackStart(x: value.startLocation.x),
                                   ChatEdgeBackKit.isHorizontal(dx: dx, dy: dy) else { return }
                             claimedStart = value.startLocation
                         }

@@ -17,7 +17,7 @@
 //    松手才闪切。新口径 = **跟手**：每帧把位移交给宿主（整页右移、会话首页从左侧同步露出来），
 //    松手再按位移/甩动预测判「完成 or 回弹」（微信同款）。
 //  三件判定仍在，但门的位置变了：
-//    ① 起手在**左缘**（`edgeWidth`）—— 微信同款；手指从页面中部横向划动不该触发；
+//    ① 起手门 `isBackStart`：v4.0.125 起**任意位置**都算（用户 2026-10-19 口径）；旧口径是左缘 `edgeWidth`；
 //    ② 起手后头一帧就要「够横」（`isHorizontal`：位移 ≥ followStart 且 ≥ |dy| × horizontalBias）
 //       —— 挡纵向滚动与斜划；此后本轮不再重复过门（调用方记住 `following`，见 ChatEdgeBackModifier）；
 //    ③ 松手判完成（`shouldComplete`）：位移过半，**或**甩动预测终点过半（轻甩也翻页）。
@@ -28,7 +28,13 @@ import Foundation
 /// 左缘右滑跟手返回的判定与阈值（**唯一真源**：改阈值只改这里，别在视图里内联第二套）。
 enum ChatEdgeBackKit {
     /// 起手区宽度：手指必须落在屏幕左缘这条带内（pt）
+    /// v4.0.125：**默认不再使用**（见 `allowsAnywhereStart`）；保留给「只认左缘」的旧口径与单测。
     static let edgeWidth: CGFloat = 24
+    /// v4.0.125（用户 2026-10-19：「聊天页增加任意界面右滑返回聊天首页」）：
+    /// 起手不再限左缘 —— 对话页任意位置右滑都能跟手返回首页。
+    /// 安全性靠另外两道门：① `isHorizontal`（横向位移 ≥ 8pt 且 ≥ |dy| × 1.8）挡纵向滚动/斜划；
+    /// ② 跟手期间页内滚动被 `scrollDisabled` 关掉（见 ChatView）。别为了「更灵敏」把这两道门也拆了。
+    static let allowsAnywhereStart = true
     /// 跟手起手位移：横向右移 ≥ 它才认这条手势（pt）
     /// 🚨 这枚是**跟手**口径。旧值 70（`minTranslation`）是「抬手才发现自己该跳转」用的：
     ///    70pt 才起步 = 手指已滑出去一大截页面还没动，用户口径的「跟手」当场破功。
@@ -37,6 +43,9 @@ enum ChatEdgeBackKit {
     static let horizontalBias: CGFloat = 1.8
     /// 松手判完成：位移 ≥ 屏宽 × 它 → 返回；否则回弹（用户口径「松手过半即完成」）
     static let completeRatio: CGFloat = 0.5
+
+    /// v4.0.125：起手门（**视图唯一该调的入口**）——默认任意位置都算（见 `allowsAnywhereStart`）。
+    static func isBackStart(x: CGFloat) -> Bool { allowsAnywhereStart || isEdgeStart(x: x) }
 
     /// 起手是否落在左缘。
     /// 参数取手势的**全局**起手 x（`DragGesture.Value.startLocation.x`，`.global` 即 window 坐标）。
