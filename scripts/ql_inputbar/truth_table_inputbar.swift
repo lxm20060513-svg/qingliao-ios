@@ -475,12 +475,13 @@ check("常量与算式一致：容器垂直 padding 4（Spacing.xs，v3.9.67「�
 //   ②「输入框可以优化的精致一点视觉上更美观一点」
 //      —— 文字区与发送键之间补 0.8pt 淡分隔线（Tint.faint，全站描边口径），
 //         把「输入区」与「操作键」分成两个视觉组；命中区零影响（spacing 不变）。
-// v4.0.137（用户 2026-10-20「输入框能再下移就更好」）：底部呼吸 4pt 清零，
-//        胶囊底边贴齐安全区线。算式：收起态容器底到屏底 = ChatView 底部呼吸 0 + 容器自身总高 50（含自身 padding 4×2）
-//        = **50**（v3.9.68 口径是 4 + 50 = 54；v3.9.67 是 10 + 50 = 60）。
-let composerBottomMirror: Double = 0
-check("ChatView 底部呼吸已清零（v4.0.137：旧 4pt 呼吸行整行退场，输入区贴齐安全区线）",
-      !chatViewSrc.contains(".padding(.bottom, Spacing.xs)   // v3.0.67 起留隙口径不变"))
+// v4.0.137（用户 2026-10-20「输入框能再下移就更好」）：底部呼吸 4pt 清零，胶囊贴齐安全区线。
+// v4.0.138（用户 2026-10-21「原生模式输入框太靠下」）：**恢复 4pt 呼吸**（137 清零那版过头了）。
+//        算式：收起态容器底到屏底 = ChatView 底部呼吸 4 + 容器自身总高 50（含自身 padding 4×2）
+//        = **54**（v3.9.67 是 10 + 50 = 60；137 是 0 + 50 = 50）。
+let composerBottomMirror: Double = 4
+check("ChatView 底部呼吸 = Spacing.xs(4) 在位（v4.0.138：137 清零后用户真机「太靠下」，恢复 4pt）",
+      chatViewSrc.contains(".padding(.bottom, Spacing.xs)"))
 check("ChatView 旧底部呼吸 Spacing.lg(10) 清零（只此一处，别处留隙不混算）",
       !chatViewSrc.contains(".padding(.bottom, Spacing.lg)"))
 check("分隔线在位：第一层文字区与发送键之间（vh: 0.8，全站描边口径）",
@@ -498,8 +499,8 @@ check("分隔线是独立计算属性（不内联，避免 ViewBuilder 深层推
       inputBarSrc.contains("private var divider: some View"))
 check("第一层 HStack spacing 未动（仍 8：分隔线占 0 宽，间距口径不变）",
       messageRowSlice.contains("HStack(spacing: 8)"))
-check("算式：收起态容器底到屏底 = 0 + 50 = 50pt（v3.9.68 是 4 + 50 = 54；v3.9.67 是 10 + 50 = 60）",
-      abs(composerBottomMirror + collapsedContainerMirror - 50) < 0.2)
+check("算式：收起态容器底到屏底 = 4 + 50 = 54pt（v3.9.67 是 10 + 50 = 60；137 是 0 + 50 = 50）",
+      abs(composerBottomMirror + collapsedContainerMirror - 54) < 0.2)
 
 // MARK: - v4.0.x 录音电平反应点（voice-glow 位点：把识别器已算好的实时 RMS 接进输入栏）
 //
@@ -825,14 +826,16 @@ check("状态与动作仍留 ChatView（toggleAutoRead：关掉立刻闭嘴 + �
       && chatViewSrc.contains("if !autoReadReply { SpeechManager.shared.stop() }")
       && chatViewSrc.contains("Haptics.tap()"))
 
-// ── v4.0.136 composer 悬浮柔纱（对比稿 C「悬浮胶囊」）───────────────────────────
-//   133/134 的不透明垫层（纯色直垫 + 48pt 消缝带）整条退场：输入区改悬浮后，栏后必须能
-//   看见消息划过。钉四件事：
-//     ① 柔纱仍挂 chatComposerArea 自己的链上（不升 body 顶层）且仍吃底部安全区；
-//     ② 柔纱 = pageBase 三段 stops 渐变（全透 0 → 0.3 → 0.65；攒版压淡：0.55/0.94 降档），「单渐变+实色 VStack」
-//        旧形态清零（变异自证：把 0.65 那段改回实色直垫 → 本条必红；实测已做）；
-//     ③ 纱高走单一真源 ChatInputBarLayout.composerFadeHeight，常量镜像 100（用户「蒙板压淡压薄」攒版：150→100）；
-//     ④ 输入区迁到消息区的 safeAreaInset(.bottom)——VStack 兄弟旧位清零（「划过」的结构前提）。
+// ── v4.0.138 输入区定稿（用户连报五版「没改好」之后的口径）─────────────────────
+//   136 的「悬浮柔纱 + safeAreaInset」整条撤回：
+//     · 柔纱 = 用户五版都看见的那条「蒙板」→ **删除**，不许以任何 opacity 回来；
+//     · safeAreaInset 挂在 ScrollView 上会让键盘避让失效（输入框被键盘整块盖住）→ 回 VStack 兄弟位。
+//   钉四件事（三条负断言 + 一条结构断言）：
+//     ① chatComposerArea 链上不得有 .background(alignment: .bottom) 垫层；
+//     ② 柔纱三段渐变（pageBase 0 / 0.3 / 0.65）清零；
+//     ③ 不再用 composerFadeHeight 挂帧高（纱已删；常量留着不碍事，但不许再被消费）；
+//     ④ safeAreaInset(.bottom) { chatComposerArea } 清零 —— 输入区必须在 VStack 里。
+//   变异自证：把任一断言对应的代码加回去 → 本条必红。
 do {
     let composerSlice: String = {
         guard let a = chatViewSrc.range(of: "private var chatComposerArea") else { return "" }
@@ -841,21 +844,16 @@ do {
         return String(after[after.startIndex..<end.upperBound])
     }()
     let composerCode = stripCommentLines(norm(composerSlice))
-    check("垫层挂在 chatComposerArea 链上且仍吃底部安全区（.background(alignment: .bottom) + ignoresSafeArea(edges: .bottom)）",
-          composerCode.contains(".background(alignment: .bottom)")
-          && composerCode.contains(".ignoresSafeArea(edges: .bottom)"))
-    check("柔纱 = pageBase 三段 stops 渐变（全透 0 → 0.3 → 0.65），旧「单渐变+实色垫层」形态清零",
-          composerCode.contains("LinearGradient(stops: [")
-          && composerCode.contains("EnvironmentGradient.pageBase(colorSchemeEnv).opacity(0), location: 0)")
-          && composerCode.contains(".opacity(0.3), location: 0.42)")
-          && composerCode.contains(".opacity(0.65), location: 1)")
-          && !composerCode.contains("LinearGradient(colors:")
-          && !composerCode.contains("VStack(spacing: 0)"))
-    check("纱高定值走单一真源 composerFadeHeight（不随 composer 整高走），常量镜像 100",
-          composerCode.contains(".frame(height: ChatInputBarLayout.composerFadeHeight)")
-          && inputBarSrc.contains("static let composerFadeHeight: CGFloat = 100"))
-    check("输入区挂消息区 safeAreaInset(.bottom)（悬浮/划过的结构前提），VStack 兄弟旧位清零",
-          norm(chatViewSrc).contains(".safeAreaInset(edge: .bottom) { chatComposerArea }"))
+    check("输入区链上不得再有垫层（.background(alignment: .bottom) 清零）",
+          !composerCode.contains(".background(alignment: .bottom)"))
+    check("柔纱渐变清零（pageBase 三段 stops / 0.65 底段都不得出现）",
+          !composerCode.contains("LinearGradient(stops: [")
+          && !composerCode.contains(".opacity(0.65), location: 1)"))
+    check("composerFadeHeight 不再被输入区消费（纱高当帧高 = 蒙板复发）",
+          !composerCode.contains(".frame(height: ChatInputBarLayout.composerFadeHeight)"))
+    check("输入区回 VStack 兄弟位：safeAreaInset(.bottom) 清零（键盘避让失效的根因）",
+          !norm(chatViewSrc).contains(".safeAreaInset(edge: .bottom) { chatComposerArea }")
+          && norm(chatViewSrc).contains("chatComposerArea"))
 }
 
 print("输入栏两层化真值表：\(passCount) 通过 / \(failCount) 失败")

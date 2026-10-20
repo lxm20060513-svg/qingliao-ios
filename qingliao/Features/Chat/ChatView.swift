@@ -1080,17 +1080,9 @@ struct ChatView: View {
                 chatHeaderBar
                 chatStatusBannerStrip
                 chatTranscriptArea
-                // 🚨 v3.9.71 修复（用户截图报「输入法会遮住输入框」）：空态（欢迎页）在键盘弹起时把输入栏挤没了。
-                //   算法：欢迎页是不可滚动的定高内容（顶部留白 56 + 智能球 96 + 文案 + 4 芯片 + 快捷卡片网格；
-                //   v4.0.9 已删掉页脚那条「继续上次」长条卡 ≈ -64pt），
-                //   九宫格键盘 + 候选栏 ≈ 340pt，屏幕 852 − 键盘 340 − 头部 110 − 输入栏 58 ≈ **只剩 344pt**。
-                //   344 < 380 → VStack 压不动欢迎页，就只能把**输入栏挤到键盘后面**（截图即此）。
-                //   layoutPriority(1)：空间不足时**先挤上面的内容区**，输入栏必须完整可见。
-                //   配套：welcomeView 自己在键盘弹起时收缩（见那里的注释），否则会看到被截断的欢迎页。
-                // v4.0.136（用户拍板对比稿 C「悬浮胶囊」）：chatComposerArea 从 VStack 兄弟改为挂在
-                //   chatTranscriptArea 的 safeAreaInset(.bottom)——消息列表铺到屏幕底，内容从悬浮
-                //   输入栏**背后**滚过（「划过」成立），末帧仍能滚到栏上沿（inset 自动抬内容底边）。
-                //   layoutPriority(1) 的挤压语义由 safeAreaInset 天然保证：inset 高度独立于滚动内容。
+                // v4.0.138：输入区回到 VStack 兄弟位（136 的 safeAreaInset 让键盘避让失效，
+                // 见 chatTranscriptArea 尾部注释）。layoutPriority(1) 仍只挂输入栏那层。
+                chatComposerArea
             }
         )))))))
     }
@@ -1907,15 +1899,18 @@ struct ChatView: View {
                         .onTapGesture { exitVoiceMode() }
                 }
             }
+            // v4.0.138（用户 2026-10-21 真机「原生模式键盘弹起输入框被完全遮住」）：
+            // 撤回 v4.0.136 的 `.safeAreaInset(edge: .bottom)` —— safeAreaInset 挂在
+            // **ScrollView**（messageList）上时，键盘弹起后的 keyboard inset 会被 ScrollView
+            // 当成自身内容边距消费掉，inset 里的输入栏**不跟着上移** → 被键盘整块盖住
+            //（键盘避让在滚动视图上失效，是 safeAreaInset 的已知行为）。
+            // 输入区回到 v2.0～v4.0.135 的 VStack 兄弟位（见 body 里的 chatComposerArea），
+            // 键盘避让交回系统标准路径。代价：气泡不再从输入栏背后划过 —— 用户当前口径
+            //（去蒙板 / 键盘必须可用）优先于该观感。
             .overlay(alignment: .bottom) {
                 // v3.4.0：底部上拉拉取收件箱——拖动指示器 / 拉取中 spinner / 结果 toast
                 InboxPullLayer(state: inboxPull)
             }
-            // v4.0.136（对比稿 C「悬浮胶囊」）：输入区整体从 VStack 兄弟迁到消息区的底部安全区
-            // 插入层——消息流延长到屏幕底，气泡从输入栏背后滚过；输入栏本体与柔纱（见
-            // chatComposerArea）浮在内容之上。⚠️ 挂在本属性自己的链上，不挂 body 顶层——
-            // ql_typestack ③″ 钉死 body 顶层 0 条链式修饰器（首帧爆栈前科）。
-            .safeAreaInset(edge: .bottom) { chatComposerArea }
     }
 
     /// 图片预览条/附件面板/引用条/上下文条 + 输入区
@@ -1943,32 +1938,15 @@ struct ChatView: View {
         // 旧手动 offset（kb 高度 / 76）是为自定义 DockBar（内容铺到屏幕底再叠 dock）设计，原生 tab bar 下会双重叠加冒高，故移除。
         // v3.0.67：输入框与 dock / 键盘均留 10pt 呼吸（Round-1「贴键盘 0」已改主意为也要留隙）。
         // v3.9.68：用户原话「发送键上下到输入框都等高，所以底部要再往上收一点」——底部呼吸
-        // 由 Spacing.lg(10) 收到 **Spacing.xs(4)**（收起贴 dock / 弹键盘都收紧 6pt）。
-        // ⚠️ 只动这一个数：输入栏自身高度（v3.9.67 起 50）、水平 padding 都不动。
-        // v4.0.137（用户 2026-10-20「输入框能再下移就更好」）：底部呼吸 4pt 清零 —— 上面那行
-        // `.padding(.bottom, Spacing.xs)` 整行退场，胶囊底边从屏底上方 38pt 贴到安全区线 34pt，
-        // 原生 / 滑动两模式同变（护栏 ql_inputbar 的 composerBottomMirror 同步翻面 4→0）。
-        // v4.0.136（用户拍板对比稿 C「悬浮胶囊」）：133/134 的不透明垫层整条退场，改**悬浮柔纱**——
-        // 输入区整块透明，栏后垫一条定高「上全透 → 下渐实」渐变纱（纯视觉层，压在消息背后）：
-        // 气泡从纱后划过、贴近输入栏时被纱压淡但仍隐约可见；输入栏本体落在纱的下段，
-        // v4.0.132 的「旁边/底部两色」不复发（纱底端 ≈ 实色页底）。
-        // 攒版（用户「蒙板压淡压薄」）：中段 0.55→0.3、底段 0.94→0.65、高 150→100——
-        // 栏后内容透得清多了；收起态栏体（屏底 38–88pt）映射进纱的 location 0.12–0.62，
-        // 上半段有意近透、栏体下缘落 0.3–0.42 段，材质+阴影自兜可读性。⚠️ 定高不随 composer 走：
-        // 附件面板展开时 composer ≈380pt，按整高渐变会把输入栏泡进半透明段（133/134 同坑，
-        // 见 ChatInputBarLayout.composerFadeHeight 注释）。
-        // ⚠️ 挂在 chatComposerArea 自己的链上，不挂 body 顶层——ql_typestack ③″ 钉死
-        //    body 顶层 0 条链式修饰器（37 层内联链 = 195 层泛型嵌套 = 首帧爆栈前科）。
-        .background(alignment: .bottom) {
-            LinearGradient(stops: [
-                .init(color: EnvironmentGradient.pageBase(colorSchemeEnv).opacity(0),    location: 0),
-                .init(color: EnvironmentGradient.pageBase(colorSchemeEnv).opacity(0.3), location: 0.42),
-                .init(color: EnvironmentGradient.pageBase(colorSchemeEnv).opacity(0.65), location: 1)
-            ], startPoint: .top, endPoint: .bottom)
-                .frame(height: ChatInputBarLayout.composerFadeHeight)
-                .frame(maxHeight: .infinity, alignment: .bottom)
-                .ignoresSafeArea(edges: .bottom)
-        }
+        // 由 Spacing.lg(10) 收到 **Spacing.xs(4)**。
+        // v4.0.137 把它清零过（用户当时要「再下移」），v4.0.138 用户真机「原生模式输入框太靠下」
+        // → 恢复 4pt 呼吸。⚠️ 只动这一个数：输入栏自身高度（v3.9.67 起 50）、水平 padding 都不动。
+        .padding(.bottom, Spacing.xs)
+        // v4.0.138（用户 2026-10-21「滑动模式下输入框下方的蒙板没去掉」）：
+        // **整条柔纱渐变删除**（v4.0.133 不透明垫层 → v4.0.134 白边消缝 → v4.0.136 柔纱 0.3/0.65
+        // 一直是同一条视觉层）。用户要的是「去掉」，不是再压淡：输入区前后彻底透明，
+        // 胶囊下沿往下直达屏底只有页面背景，没有任何额外色带/蒙板。
+        // 🚨 别再以任何 opacity 加回来 —— 用户连报五版「蒙板还在」就是因为它一直在。
         // 🚨 v3.9.72（审查修正）：`layoutPriority(1)` 只挂**输入栏这一层**，不挂整个 chatComposerArea。
         // 整组里还有选图条/动作条/附件面板/引用条/上下文条（各自定高，合计 ≈380pt）：把整组抬到最高
         // 优先 = 键盘与动作条同开时输入栏本身仍会被顶出可见区，且空态欢迎页（非 ScrollView）被压到

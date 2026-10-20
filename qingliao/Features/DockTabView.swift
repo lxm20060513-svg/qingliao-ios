@@ -239,7 +239,7 @@ struct DockTabView: View {
                 // 纯色盖在光晕之上 → 上下差一档，接缝正好落在 dock 下沿，看起来就是一条白底栏。
                 // 改成**与页面同一个视图**（EnvironmentGlowLayers）铺在 TabView 上：同尺寸、同几何、
                 // 同色，接缝处逐像素连续。🚨 别再改回涂纯色；也别删（删了露出窗口白底，更白）。
-                .background(EnvironmentGlowLayers(scheme: colorScheme))
+                .background(EnvironmentGlowLayers(scheme: colorScheme).ignoresSafeArea())
                 // v4.0.133（用户 2026-10-20「dock 背面被白色填满，能不能一条 dock 悬浮」）：
                 // **删除**底部让位带（原 `.safeAreaInset(edge:.bottom){Color.clear.frame(height:66)}`）。
                 // 根因：让位带把每页 frame 截在 dock 上沿，页面内容滚不进 dock 区 → 胶囊玻璃
@@ -365,7 +365,12 @@ struct DockTabView: View {
                         // 胶囊 / 柔纱 / 消息流与原生模式同一几何；会话首页不放行（首页的 dock 就悬浮在
                         // 那条安全区带上，放行会把末行会话顶到 dock 底下）。
                         // 原生模式对话页 tab bar 本就隐藏，此修饰是同义冗余，观感零变化。
-                        .ignoresSafeArea(edges: .bottom)
+                        // v4.0.138（用户 2026-10-21「原生模式键盘弹起输入框被完全遮住」）：
+                        // 137 这条用的是默认 `regions: .all` —— 连 **.keyboard** 一起忽略了，
+                        // 键盘弹起时对话页整页不避让，输入栏被键盘盖住。
+                        // 改成 `.container`：只忽略容器底部安全区（保留 137 想要的「压到物理底边」），
+                        // 键盘安全区照常生效。
+                        .ignoresSafeArea(.container, edges: .bottom)
                         .offset(x: backFollowLive ? backFollowOffset : 0)
                         .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .identity))
                 }
