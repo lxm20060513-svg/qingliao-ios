@@ -1938,6 +1938,16 @@ struct ChatView: View {
         // 由 Spacing.lg(10) 收到 **Spacing.xs(4)**（收起贴 dock / 弹键盘都收紧 6pt）。
         // ⚠️ 只动这一个数：输入栏自身高度（v3.9.67 起 50）、水平 padding 都不动。
         .padding(.bottom, Spacing.xs)   // v3.0.67 起留隙口径不变，仅收紧数值；见上一行 v3.9.68 记录
+        // v4.0.133（用户真机圈注「聊天页输入框旁边跟底部不是一个色」）：
+        // 输入区是透明的，底下是全屏光晕层——团3 薄荷的浓端恰好落在输入栏**下方**的安全区
+        // 条带里，输入栏两侧却是同一团的渐隐尾，浓度差被安全区线切成两截 → 观感两个色。
+        // 垫一层页底纯色并吃掉底部安全区：输入区 → Home 条一条色（微信口径）。
+        // ⚠️ 挂在 chatComposerArea 自己的链上，不挂 body 顶层——ql_typestack ③″ 钉死
+        //    body 顶层 0 条链式修饰器（37 层内联链 = 195 层泛型嵌套 = 首帧爆栈前科）。
+        .background(alignment: .bottom) {
+            EnvironmentGradient.pageBase(colorSchemeEnv)
+                .ignoresSafeArea(edges: .bottom)
+        }
         // 🚨 v3.9.72（审查修正）：`layoutPriority(1)` 只挂**输入栏这一层**，不挂整个 chatComposerArea。
         // 整组里还有选图条/动作条/附件面板/引用条/上下文条（各自定高，合计 ≈380pt）：把整组抬到最高
         // 优先 = 键盘与动作条同开时输入栏本身仍会被顶出可见区，且空态欢迎页（非 ScrollView）被压到

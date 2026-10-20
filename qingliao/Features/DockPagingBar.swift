@@ -39,6 +39,8 @@ struct DockPagingBar: View {
     let tabs: [DockTab]
 
     @Environment(\.colorScheme) private var scheme
+    /// v4.0.133：选中胶囊的滑动命名空间 —— 胶囊在新旧档位间连续滑动（不再是旧格消/新格现）
+    @Namespace private var selNS
 
     /// dock 与底部安全区之间的留白。**负值 = 往安全区里压**（往屏幕底边走）。
     ///
@@ -84,7 +86,12 @@ struct DockPagingBar: View {
                     if selected == tab {
                         Capsule()
                             .fill(Color.accentColor.opacity(0.12))
-                            .animation(.easeInOut(duration: 0.22), value: selected)
+                            // v4.0.133（用户「dock 上的 tap 跟着页面滑动时候有点生硬」）：
+                            // 胶囊用 matchedGeometry 在新旧档位间**整块滑过去**；点按路径外层
+                            // withAnimation(Motion.page) 驱动，跟手滑页路径由下面 HStack 的
+                            // .animation(Motion.page, value: selected) 兜住 —— 两条路同一枚页面级令牌。
+                            // 🚨 别再给 Capsule 单挂 .animation：两处动画真源会互踩（插删帧各自演）。
+                            .matchedGeometryEffect(id: "dockSelCapsule", in: selNS)
                     }
                 }
                 .accessibilityLabel(tab.title)
@@ -94,6 +101,10 @@ struct DockPagingBar: View {
         .padding(.horizontal, 4)
         // 内容 52（图标 22 + 间距 3 + 文字 ≈12 + 内边距 16）+ 4 ≈ 60，留在 62 的框里不溢出
         .padding(.vertical, 4)
+        // v4.0.133：选中胶囊的滑动动画令牌（matchedGeometry 靠它驱动）——
+        // 点按路径外层是 withAnimation(Motion.page)，这里兜住**跟手滑页**那条（TabView 回写
+        // selected 不带动画事务，没有这行胶囊会瞬跳）。曲线与切页同源，观感才齐拍。
+        .animation(Motion.page, value: selected)
         // 底材：白毛玻璃（老版口径，绝不用 glassEffect —— 它会压灰）
         .background { glassBody }
         .clipShape(Capsule())

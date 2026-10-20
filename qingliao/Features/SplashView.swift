@@ -61,6 +61,8 @@ struct SplashView: View {
             Color(uiColor: .systemBackground).ignoresSafeArea()
 
             // 环境光晕（与 Dock 同款：蓝/靛/青底部光）
+            // v4.0.133：光晕层也吃满全屏 —— 否则停在底部安全区边界，Home 条上方留一条纯白带
+            //（2026-10-20 用户真机「开屏动画底部没填满」，像素剖面实测分界 ≈96% 屏高 = 安全区线）。
             ZStack {
                 Circle().fill(Color.blue.opacity(Tint.soft)).frame(width: 300, height: 300).blur(radius: 70)
                     .offset(y: 260)
@@ -69,6 +71,7 @@ struct SplashView: View {
                 Circle().fill(Color.cyan.opacity(Tint.faint)).frame(width: 220, height: 220).blur(radius: 55)
                     .offset(x: -150, y: 230)
             }
+            .ignoresSafeArea()
 
             // 用户 2026-10-16 回「2」：Logo 下方加回**一行**品牌字标「Qimo Agent」。
             // 口径 = ② 品牌字标（Typography.headline = 20pt / semibold / 主色 / 字距 2）+ 版式 a（整组上下居中），

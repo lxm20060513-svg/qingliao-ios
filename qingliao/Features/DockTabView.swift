@@ -126,6 +126,7 @@ struct DockTabView: View {
     @Environment(StreamClient.self) private var stream
     @Environment(\.horizontalSizeClass) private var hSize
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(KeyboardObserver.self) private var kb   // v4.0.133：键盘弹出即藏底栏（会话首页搜索）
 
     // MARK: - v4.0.125 转场优先（用户 2026-10-19：tab 切换仍掉帧 / 返回首页仍掉帧）
     //
@@ -239,10 +240,14 @@ struct DockTabView: View {
                 // 改成**与页面同一个视图**（EnvironmentGlowLayers）铺在 TabView 上：同尺寸、同几何、
                 // 同色，接缝处逐像素连续。🚨 别再改回涂纯色；也别删（删了露出窗口白底，更白）。
                 .background(EnvironmentGlowLayers(scheme: colorScheme))
-                // 每页底部让出一条 dock 高度，否则列表最后一项会被半透明 dock 压住
-                .safeAreaInset(edge: .bottom, spacing: 0) {
-                    Color.clear.frame(height: dockShown ? 66 : 0)
-                }
+                // v4.0.133（用户 2026-10-20「dock 背面被白色填满，能不能一条 dock 悬浮」）：
+                // **删除**底部让位带（原 `.safeAreaInset(edge:.bottom){Color.clear.frame(height:66)}`）。
+                // 根因：让位带把每页 frame 截在 dock 上沿，页面内容滚不进 dock 区 → 胶囊玻璃
+                // 后面采到的只有空底 = 「一条白带背着一颗 dock」。五页全部自带 ≥78pt 内容底部
+                // 让位（生活/看板/设置 100 · 工作台 80 · 会话列表 contentMargins 90），最后一项
+                // 不会被压住，让位带纯属重复兜底 → 删掉后内容直接从胶囊底下滚过 = 真悬浮。
+                // 🚨 别为了「防压内容」加回任何底部 inset/让位带：那等于回到白带；要加就让位
+                //   加到**各页滚动内容的 padding** 里（现状就是这么做的）。
 
                 if dockShown {
                     DockPagingBar(selected: $selected, tabs: dockRenderTabs)
@@ -264,8 +269,9 @@ struct DockTabView: View {
     }
 
     /// page 模式下 dock 是否在场：与系统 tab bar 的显隐口径一致（对话页 / 跟手垫底期间不显示）。
+    /// v4.0.133：会话首页键盘弹出时也藏（搜索框聚焦 → 底栏让位给键盘）；跟手返回不受键盘抑制。
     private var dockShown: Bool {
-        showSessionHome || backFollowLive
+        (showSessionHome && !kb.isVisible) || backFollowLive
     }
 
     // MARK: - v3.6.2 聊天 tab（两态，见 chatTab）
@@ -370,7 +376,9 @@ struct DockTabView: View {
             // 对话页整页无底栏；跟手一开始就让底栏回来 —— 首页正从左侧露出，底栏跟着出现才是微信观感。
             // 顺带治流畅性：tab bar 是液态玻璃层，页面位移时它每帧重采样背景，是跟手掉帧的大头，
             // 隐藏后这段合成开销直接消失。iPad 双栏不隐藏（会话与对话同屏）。
-            .toolbar(showSessionHome || backFollowLive ? .visible : .hidden, for: .tabBar)
+            // v4.0.133（用户 2026-10-20「键盘弹出 dock 都不隐藏」）：会话首页搜索聚焦（键盘在场）时
+            // 底栏一并藏掉，收键盘即回来；跟手返回（backFollowLive）不受键盘抑制，v4.0.124 口径原样保留。
+            .toolbar((showSessionHome && !kb.isVisible) || backFollowLive ? .visible : .hidden, for: .tabBar)
             .tag(DockTab.chat)
             .tabItem { Label(DockTab.chat.title, systemImage: DockTab.chat.icon) }
         }
@@ -1151,6 +1159,13 @@ private struct SessionHomeRevealModifier: ViewModifier {
                         .onChange(of: proxy.frame(in: .global).origin) { _, new in pageOrigin = new }
                 }
             )
+            // v4.0.133（用户「切回聊天首页整个 dock 隐藏 + 严重掉帧，从根源优化」）：
+            // **先拍平再裁**。首页是全仓材质最重的一页（hero 玻璃卡 + List + 多层 ultraThinMaterial），
+            // clipShape 直接罩在视图树上 = 裁剪通道下钻到每个材质分支，逐帧多次离屏合成；
+            // compositingGroup 把整页先合成**单层**纹理，裁剪只做一次遮罩 —— 且这枚 clipShape 是
+            // **常驻**的（常态半径 = 全屏，等同不裁但遮罩通道仍在跑），滚动/跟手每一帧都在付这笔钱。
+            // 🚨 位置必须在 clipShape **之前**（先拍平后裁）；挪到后面等于没拍平。
+            .compositingGroup()
             .clipShape(RevealCircleShape(center: localCenter, radius: revealRadius))
             .onAppear {
                 // 🚨 取走即清空：先绑局部变量再判 nil（别在 guard 里探一次、后面再取一次）

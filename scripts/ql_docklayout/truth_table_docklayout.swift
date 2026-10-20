@@ -136,6 +136,7 @@ check("visibleRaw 摘要路径与 visible 一致",
 
 print("== ⑥ 源护栏：真挂载（逻辑对但没接上 = 用户看到的还是老 dock）")
 let dockView = readSource("Features/DockTabView.swift")
+let pagingBarView = readSource("Features/DockPagingBar.swift")
 let sessionsView = readSource("Features/Sessions/SessionsView.swift")
 let sheet = readSource("Features/Settings/DockLayoutSheet.swift")
 let core = readSource("Features/Settings/SettingsCore.swift")
@@ -404,8 +405,33 @@ check("松手门取「同一枚阈值」= 屏宽 × completeRatio（0.5）；不
         && ChatEdgeBackKit.shouldComplete(dx: 390 * 0.5, projectedEnd: 0, width: 390))
 
 // ── ⑦ v4.0.124：对话页隐藏 dock（用户 2026-10-19）+ 垫底页不拉数据（滑动返回流畅性）──
-check("对话页隐藏 tab bar；跟手一开始就恢复（首页正露出，底栏跟着出现才是微信观感）",
-      dockView.contains(".toolbar(showSessionHome || backFollowLive ? .visible : .hidden, for: .tabBar)"))
+// v4.0.133（用户 2026-10-20「键盘弹出 dock 都不隐藏」）：会话首页键盘在场时底栏一并藏掉；
+// 键盘抑制只门首页（showSessionHome），不许门 backFollowLive（跟手一开始就要底栏回来）。
+check("对话页隐藏 tab bar；跟手一开始就恢复（首页正露出，底栏跟着出现才是微信观感）；首页键盘在场时也藏",
+      dockView.contains(".toolbar((showSessionHome && !kb.isVisible) || backFollowLive ? .visible : .hidden, for: .tabBar)")
+        && !dockView.contains("showSessionHome || backFollowLive ? .visible"))
+check("page 模式自绘 dock 同口径：dockShown 键盘抑制只门首页、不门跟手",
+      dockView.contains("private var dockShown: Bool {\n        (showSessionHome && !kb.isVisible) || backFollowLive\n    }"))
+// v4.0.133（用户 2026-10-20「dock 背面被白色填满，能不能一条 dock 悬浮」）：删 paging 分支的
+// 底部让位带 —— 它把页面 frame 截在 dock 上沿，玻璃后面只剩空底 = 白带。悬浮 = 内容从胶囊
+// 底下滚过；防压最后一项靠**各页滚动内容自带的 ≥78pt 底 padding**（见 DockTabView 内注释）。
+check("page 模式 dock 真悬浮：无底部让位带（safeAreaInset/Color.clear.frame 66 已删，反向钉死）",
+      !dockView.contains("Color.clear.frame(height: dockShown ? 66 : 0)")
+        && !dockView.contains("safeAreaInset(edge: .bottom, spacing: 0) {\n                    Color.clear"))
+// v4.0.133（用户「切回聊天首页严重掉帧」）：sessionHomeReveal 的常驻 clipShape 必须「先拍平再裁」——
+// 首页材质卡多，遮罩通道下钻材质分支会逐帧多次离屏合成（dock 卡顿肉眼可见的那一笔）。
+// 以及（用户「dock 上的 tap 跟手滑页生硬」）：选中胶囊 matchedGeometry 滑动 + 单一动画令牌 Motion.page。
+if let cg = dockView.range(of: ".compositingGroup()"),
+   let cs = dockView.range(of: ".clipShape(RevealCircleShape(center: localCenter, radius: revealRadius))") {
+    check("会话首页圆形扩散遮罩先拍平再裁（compositingGroup 在 clipShape 之前，顺序钉死）",
+          cg.lowerBound < cs.lowerBound)
+} else {
+    check("会话首页圆形扩散遮罩先拍平再裁（compositingGroup 在 clipShape 之前，顺序钉死）", false)
+}
+check("dock 选中胶囊滑动转场：matchedGeometry 命名空间 + Motion.page 单一动画令牌（无内联 easeInOut 残留）",
+      pagingBarView.contains("matchedGeometryEffect(id: \"dockSelCapsule\", in: selNS)")
+        && pagingBarView.contains(".animation(Motion.page, value: selected)")
+        && !pagingBarView.contains(".animation(.easeInOut(duration: 0.22), value: selected)"))
 check("垫底页不触发 load（.task / .onAppear 双闸），收敛回首页后补刷一次",
       sessionsView.contains("var isBackdrop: Bool = false")
       && sessionsView.contains(".task { if !isBackdrop { await load() } }")
