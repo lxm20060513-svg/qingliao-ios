@@ -259,7 +259,7 @@ check("两层高度都不是写死数字（写死会在放大字号时裁字）"
 //          平坦段重算：收起态 **50 − 20×2 = 10pt** / 展开态 **92 − 20×2 = 52pt**。
 //          仍走令牌不打魔法数（xs=4 是 8 档里最小档，「紧贴元素」语义与收起态吻合）。
 // v4.0.136：用户拍板对比稿 C「悬浮胶囊」——圆角 20 → **26**（收起态 50 被钳成满圆角胶囊，
-//          展开态 96 平坦段 44pt）；133/134 垫层退场改 150pt 悬浮柔纱；输入区迁 safeAreaInset。
+//          展开态 96 平坦段 44pt）；133/134 垫层退场改 150pt 悬浮柔纱（攒版压淡改 100，见 ③）；输入区迁 safeAreaInset。
 let containerShape = "RoundedRectangle(cornerRadius: ChatInputBarLayout.containerCornerRadius, style: .continuous)"
 // v4.0.61：玻璃统一经无障碍出口 a11yGlass（口径不变：仍 .regular + 同一个 containerCornerRadius 圆角矩形）
 check("外层玻璃容器走 containerCornerRadius(26) 圆角矩形（收起态=满圆角胶囊，v4.0.136）",
@@ -828,9 +828,9 @@ check("状态与动作仍留 ChatView（toggleAutoRead：关掉立刻闭嘴 + �
 //   133/134 的不透明垫层（纯色直垫 + 48pt 消缝带）整条退场：输入区改悬浮后，栏后必须能
 //   看见消息划过。钉四件事：
 //     ① 柔纱仍挂 chatComposerArea 自己的链上（不升 body 顶层）且仍吃底部安全区；
-//     ② 柔纱 = pageBase 三段 stops 渐变（全透 0 → 0.55 → 0.94 近实），「单渐变+实色 VStack」
-//        旧形态清零（变异自证：把 0.94 那段改回实色直垫 → 本条必红；实测已做）；
-//     ③ 纱高走单一真源 ChatInputBarLayout.composerFadeHeight，常量镜像 150；
+//     ② 柔纱 = pageBase 三段 stops 渐变（全透 0 → 0.3 → 0.65；攒版压淡：0.55/0.94 降档），「单渐变+实色 VStack」
+//        旧形态清零（变异自证：把 0.65 那段改回实色直垫 → 本条必红；实测已做）；
+//     ③ 纱高走单一真源 ChatInputBarLayout.composerFadeHeight，常量镜像 100（用户「蒙板压淡压薄」攒版：150→100）；
 //     ④ 输入区迁到消息区的 safeAreaInset(.bottom)——VStack 兄弟旧位清零（「划过」的结构前提）。
 do {
     let composerSlice: String = {
@@ -843,16 +843,16 @@ do {
     check("垫层挂在 chatComposerArea 链上且仍吃底部安全区（.background(alignment: .bottom) + ignoresSafeArea(edges: .bottom)）",
           composerCode.contains(".background(alignment: .bottom)")
           && composerCode.contains(".ignoresSafeArea(edges: .bottom)"))
-    check("柔纱 = pageBase 三段 stops 渐变（全透 0 → 0.55 → 0.94 近实），旧「单渐变+实色垫层」形态清零",
+    check("柔纱 = pageBase 三段 stops 渐变（全透 0 → 0.3 → 0.65），旧「单渐变+实色垫层」形态清零",
           composerCode.contains("LinearGradient(stops: [")
           && composerCode.contains("EnvironmentGradient.pageBase(colorSchemeEnv).opacity(0), location: 0)")
-          && composerCode.contains(".opacity(0.55), location: 0.42)")
-          && composerCode.contains(".opacity(0.94), location: 1)")
+          && composerCode.contains(".opacity(0.3), location: 0.42)")
+          && composerCode.contains(".opacity(0.65), location: 1)")
           && !composerCode.contains("LinearGradient(colors:")
           && !composerCode.contains("VStack(spacing: 0)"))
-    check("纱高定值走单一真源 composerFadeHeight（不随 composer 整高走），常量镜像 150",
+    check("纱高定值走单一真源 composerFadeHeight（不随 composer 整高走），常量镜像 100",
           composerCode.contains(".frame(height: ChatInputBarLayout.composerFadeHeight)")
-          && inputBarSrc.contains("static let composerFadeHeight: CGFloat = 150"))
+          && inputBarSrc.contains("static let composerFadeHeight: CGFloat = 100"))
     check("输入区挂消息区 safeAreaInset(.bottom)（悬浮/划过的结构前提），VStack 兄弟旧位清零",
           norm(chatViewSrc).contains(".safeAreaInset(edge: .bottom) { chatComposerArea }"))
 }

@@ -1947,9 +1947,12 @@ struct ChatView: View {
         // ⚠️ 只动这一个数：输入栏自身高度（v3.9.67 起 50）、水平 padding 都不动。
         .padding(.bottom, Spacing.xs)   // v3.0.67 起留隙口径不变，仅收紧数值；见上一行 v3.9.68 记录
         // v4.0.136（用户拍板对比稿 C「悬浮胶囊」）：133/134 的不透明垫层整条退场，改**悬浮柔纱**——
-        // 输入区整块透明，栏后垫一条定高「上全透 → 下 0.94 近实」渐变纱（纯视觉层，压在消息背后）：
-        // 气泡从纱后划过、贴近输入栏时被纱压淡但仍隐约可见；输入栏本体落在纱的下段（近实），
-        // v4.0.132 的「旁边/底部两色」不复发（纱底端 ≈ 实色页底）。⚠️ 定高 150 不随 composer 走：
+        // 输入区整块透明，栏后垫一条定高「上全透 → 下渐实」渐变纱（纯视觉层，压在消息背后）：
+        // 气泡从纱后划过、贴近输入栏时被纱压淡但仍隐约可见；输入栏本体落在纱的下段，
+        // v4.0.132 的「旁边/底部两色」不复发（纱底端 ≈ 实色页底）。
+        // 攒版（用户「蒙板压淡压薄」）：中段 0.55→0.3、底段 0.94→0.65、高 150→100——
+        // 栏后内容透得清多了；收起态栏体（屏底 38–88pt）映射进纱的 location 0.12–0.62，
+        // 上半段有意近透、栏体下缘落 0.3–0.42 段，材质+阴影自兜可读性。⚠️ 定高不随 composer 走：
         // 附件面板展开时 composer ≈380pt，按整高渐变会把输入栏泡进半透明段（133/134 同坑，
         // 见 ChatInputBarLayout.composerFadeHeight 注释）。
         // ⚠️ 挂在 chatComposerArea 自己的链上，不挂 body 顶层——ql_typestack ③″ 钉死
@@ -1957,8 +1960,8 @@ struct ChatView: View {
         .background(alignment: .bottom) {
             LinearGradient(stops: [
                 .init(color: EnvironmentGradient.pageBase(colorSchemeEnv).opacity(0),    location: 0),
-                .init(color: EnvironmentGradient.pageBase(colorSchemeEnv).opacity(0.55), location: 0.42),
-                .init(color: EnvironmentGradient.pageBase(colorSchemeEnv).opacity(0.94), location: 1)
+                .init(color: EnvironmentGradient.pageBase(colorSchemeEnv).opacity(0.3), location: 0.42),
+                .init(color: EnvironmentGradient.pageBase(colorSchemeEnv).opacity(0.65), location: 1)
             ], startPoint: .top, endPoint: .bottom)
                 .frame(height: ChatInputBarLayout.composerFadeHeight)
                 .frame(maxHeight: .infinity, alignment: .bottom)

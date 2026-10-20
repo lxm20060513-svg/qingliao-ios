@@ -39,13 +39,17 @@ enum ChatInputBarLayout {
     static let rowGap: CGFloat = Spacing.md
     /// 容器最小总高 = 42 + 8 + 38 = 88（读这个数的地方：注释算式、真值表镜像）
     static let containerMinHeight: CGFloat = 88
-    /// v4.0.136：composer **悬浮柔纱**高度（三段渐变「全透 → 0.55 → 0.94 近实」，见
+    /// v4.0.136：composer **悬浮柔纱**高度（三段渐变「全透 → 0.3 → 0.65」，见
     /// ChatView.chatComposerArea）。133/134 的不透明垫层+48pt 消缝带退场——输入区改悬浮后，
-    /// 栏后要能「看见消息划过」：纱上端全透，往下渐实，输入栏本体落在近实段。
-    /// 150pt 覆盖（收起态口径）：Home 条带 34 + 底呼吸 4 + 输入栏 50 + 栏顶上方 ~62pt 渐隐段。
+    /// 栏后要能「看见消息划过」：纱上端全透，往下渐实，输入栏本体落在下段。
+    /// 攒版（用户「这块蒙板压淡压薄」拍板）：150→100、峰段 0.94→0.65 / 中段 0.55→0.3——
+    /// 图片/气泡从栏后划过时透得清多了，仍留基本垫底防「两色」复发。
+    /// 100pt 覆盖（收起态口径）：Home 条带 34 + 底呼吸 4 + 输入栏 50 = 88，栏顶上方渐隐段仅 ~12pt。
+    /// 已知取舍：展开态栏体 134pt（Home 34+呼吸 4+容器 96）> 100，顶段 ~34pt 悬在纱外——
+    /// 胶囊自带材质+阴影兜底，属压淡拍板的预期观感；要盖满须纱高 ≥136 或展开态单独加高。
     /// 定高不随 composer 走：附件面板展开时 composer ≈380pt，按整高渐变会让输入栏本体
     /// 落进半透明段（133/134 同坑）。镜像：ql_inputbar 真值表。
-    static let composerFadeHeight: CGFloat = 150
+    static let composerFadeHeight: CGFloat = 100
 }
 
 struct ChatInputBar: View {
