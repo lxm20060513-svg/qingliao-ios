@@ -358,6 +358,14 @@ struct DockTabView: View {
                              onBackFollowEnd: { backFollowEnd(complete: $0) })
                         // 🚨 v4.0.122：位移只在「跟手/收敛/回弹在途」（`backFollowLive`）时生效 ——
                         // 不跟手时恒 0，任何残留值（手势被打断那种）都不会落到别的路径上（结构护栏）。
+                        // 🚨 v4.0.137（用户 2026-10-20「原生模式下是全透的，滑动模式请参考原生模式来修」）：
+                        // page 形态的 TabView 会把每页拦在底部安全区**内** —— 对话页压不到 home 条上：
+                        // 输入胶囊下露出一条空白垫底带、胶囊位置也比原生模式高出约 34pt（原生侧 tab bar
+                        // 隐藏即全透，正是用户截图要的效果）。这里只放行**对话页这一页**伸到物理底边，
+                        // 胶囊 / 柔纱 / 消息流与原生模式同一几何；会话首页不放行（首页的 dock 就悬浮在
+                        // 那条安全区带上，放行会把末行会话顶到 dock 底下）。
+                        // 原生模式对话页 tab bar 本就隐藏，此修饰是同义冗余，观感零变化。
+                        .ignoresSafeArea(edges: .bottom)
                         .offset(x: backFollowLive ? backFollowOffset : 0)
                         .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .identity))
                 }

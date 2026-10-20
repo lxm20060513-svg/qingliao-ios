@@ -181,6 +181,14 @@ check("定向滑入的方向按**渲染档序**判（order 形参 + firstIndex�
       && !dockView.contains("dockRevealCenter"))
 check("深链/卡片点到被隐藏的页 → 临时插回（forcedTabs.insert）",
       dockView.contains("if !dockRenderTabs.contains(tab) { forcedTabs.insert(tab) }"))
+// v4.0.137（用户 2026-10-20「原生模式下是全透的，滑动模式请参考原生模式来修」）：
+// page 形态的 TabView 把每页拦在底部安全区内 —— 对话页压不到 home 条上，胶囊下露一条空白垫底带、
+// 胶囊也比原生模式高 ~34pt。对话页单页 .ignoresSafeArea(edges: .bottom) 放行到物理底边，
+// 与原生模式（tab bar 隐藏即全透）同一几何；会话首页不放行（dock 悬浮在那条带上）。
+check("v4.0.137 page 形态对话页放行到底边（对齐原生全透；只挂对话页分支，首页不动）",
+      dockView.contains(".ignoresSafeArea(edges: .bottom)")
+      && dockView.contains("只放行**对话页这一页**伸到物理底边")
+      && dockView.contains("原生模式对话页 tab bar 本就隐藏"))
 check("切到常驻档即清空 forcedTabs（隐藏恢复，配置不被动过）",
       dockView.contains("if !forcedTabs.contains(newVal) { forcedTabs.removeAll() }"))
 check("隐藏了当前所在页 → 兜底切到第一个可见档（不允许停在已摘除的档上）",

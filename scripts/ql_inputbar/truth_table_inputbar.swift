@@ -475,11 +475,12 @@ check("常量与算式一致：容器垂直 padding 4（Spacing.xs，v3.9.67「�
 //   ②「输入框可以优化的精致一点视觉上更美观一点」
 //      —— 文字区与发送键之间补 0.8pt 淡分隔线（Tint.faint，全站描边口径），
 //         把「输入区」与「操作键」分成两个视觉组；命中区零影响（spacing 不变）。
-// 算式：收起态容器底到屏底 = ChatView 底部呼吸 4 + 容器自身总高 50（含自身 padding 4×2）
-//        = **54**（v3.9.67 口径是 10 + 50 = 60，本轮收紧 6pt）。
-let composerBottomMirror: Double = 4
-check("ChatView 底部呼吸收到 Spacing.xs(4)（v3.9.68 第 1 条：底部再往上收）",
-      chatViewSrc.contains(".padding(.bottom, Spacing.xs)   // v3.0.67 起留隙口径不变"))
+// v4.0.137（用户 2026-10-20「输入框能再下移就更好」）：底部呼吸 4pt 清零，
+//        胶囊底边贴齐安全区线。算式：收起态容器底到屏底 = ChatView 底部呼吸 0 + 容器自身总高 50（含自身 padding 4×2）
+//        = **50**（v3.9.68 口径是 4 + 50 = 54；v3.9.67 是 10 + 50 = 60）。
+let composerBottomMirror: Double = 0
+check("ChatView 底部呼吸已清零（v4.0.137：旧 4pt 呼吸行整行退场，输入区贴齐安全区线）",
+      !chatViewSrc.contains(".padding(.bottom, Spacing.xs)   // v3.0.67 起留隙口径不变"))
 check("ChatView 旧底部呼吸 Spacing.lg(10) 清零（只此一处，别处留隙不混算）",
       !chatViewSrc.contains(".padding(.bottom, Spacing.lg)"))
 check("分隔线在位：第一层文字区与发送键之间（vh: 0.8，全站描边口径）",
@@ -497,8 +498,8 @@ check("分隔线是独立计算属性（不内联，避免 ViewBuilder 深层推
       inputBarSrc.contains("private var divider: some View"))
 check("第一层 HStack spacing 未动（仍 8：分隔线占 0 宽，间距口径不变）",
       messageRowSlice.contains("HStack(spacing: 8)"))
-check("算式：收起态容器底到屏底 = 4 + 50 = 54pt（v3.9.67 是 10 + 50 = 60）",
-      abs(composerBottomMirror + collapsedContainerMirror - 54) < 0.2)
+check("算式：收起态容器底到屏底 = 0 + 50 = 50pt（v3.9.68 是 4 + 50 = 54；v3.9.67 是 10 + 50 = 60）",
+      abs(composerBottomMirror + collapsedContainerMirror - 50) < 0.2)
 
 // MARK: - v4.0.x 录音电平反应点（voice-glow 位点：把识别器已算好的实时 RMS 接进输入栏）
 //
