@@ -822,5 +822,31 @@ check("状态与动作仍留 ChatView（toggleAutoRead：关掉立刻闭嘴 + �
       && chatViewSrc.contains("if !autoReadReply { SpeechManager.shared.stop() }")
       && chatViewSrc.contains("Haptics.tap()"))
 
+// ── v4.0.134 composer 垫层（页底白边消缝）──────────────────────────────────────
+//   133 纯色垫层上缘与光晕渐变底之间有硬接缝（用户真机圈注「输入框底部有一块白边」）→
+//   顶部改 48pt 上透下实渐变 + 下方实色。钉三件事：
+//     ① 垫层仍挂 chatComposerArea 自己的链上（不升 body 顶层）且仍吃底部安全区；
+//     ② 垫层顶部必须是渐变过渡，纯色直垫的旧形态清零（含变异自证：把渐变改回纯色 pageBase
+//        直垫 → 本条必红；实测已做）；
+//     ③ 渐变带高度走单一真源 ChatInputBarLayout.composerFadeHeight，常量镜像 48。
+do {
+    let composerSlice: String = {
+        guard let a = chatViewSrc.range(of: "private var chatComposerArea") else { return "" }
+        let after = String(chatViewSrc[a.lowerBound...])
+        guard let end = after.range(of: "\n    }\n") else { return "" }
+        return String(after[after.startIndex..<end.upperBound])
+    }()
+    let composerCode = stripCommentLines(norm(composerSlice))
+    check("垫层挂在 chatComposerArea 链上且仍吃底部安全区（.background(alignment: .bottom) + ignoresSafeArea(edges: .bottom)）",
+          composerCode.contains(".background(alignment: .bottom)")
+          && composerCode.contains(".ignoresSafeArea(edges: .bottom)"))
+    check("垫层顶部 = pageBase 上透下实渐变（消 133 硬接缝），纯色直垫旧形态清零",
+          composerCode.contains("LinearGradient(colors: [EnvironmentGradient.pageBase(colorSchemeEnv).opacity(0), EnvironmentGradient.pageBase(colorSchemeEnv)]")
+          && !composerCode.contains("EnvironmentGradient.pageBase(colorSchemeEnv) .ignoresSafeArea(edges: .bottom)"))
+    check("渐变带定高走单一真源 composerFadeHeight（不随 composer 整高走），常量镜像 48",
+          composerCode.contains(".frame(height: ChatInputBarLayout.composerFadeHeight)")
+          && inputBarSrc.contains("static let composerFadeHeight: CGFloat = 48"))
+}
+
 print("输入栏两层化真值表：\(passCount) 通过 / \(failCount) 失败")
 if failCount > 0 { exit(1) }

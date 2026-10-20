@@ -39,6 +39,11 @@ enum ChatInputBarLayout {
     static let rowGap: CGFloat = Spacing.md
     /// 容器最小总高 = 42 + 8 + 38 = 88（读这个数的地方：注释算式、真值表镜像）
     static let containerMinHeight: CGFloat = 88
+    /// v4.0.134：composer 垫层（页底色 pageBase，见 ChatView.chatComposerArea）顶部的**渐变过渡带**高度。
+    /// 133 的纯色垫层上缘与光晕渐变底之间有硬接缝（用户真机圈注「输入框底部有一块白边」）→
+    /// 顶部改 48pt 上透下实渐变消缝。定高不随 composer 走：附件面板展开时 composer ≈380pt，
+    /// 按整高渐变会让输入栏本体落进半透明段。镜像：ql_inputbar 真值表。
+    static let composerFadeHeight: CGFloat = 48
 }
 
 struct ChatInputBar: View {

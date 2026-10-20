@@ -1942,11 +1942,24 @@ struct ChatView: View {
         // 输入区是透明的，底下是全屏光晕层——团3 薄荷的浓端恰好落在输入栏**下方**的安全区
         // 条带里，输入栏两侧却是同一团的渐隐尾，浓度差被安全区线切成两截 → 观感两个色。
         // 垫一层页底纯色并吃掉底部安全区：输入区 → Home 条一条色（微信口径）。
+        // v4.0.134（用户真机圈注「输入框底部有一块白边」，实机 = v4.0.133）：133 的**纯色**
+        // 垫层上缘与光晕渐变底之间是一条硬接缝——垫层近白（#FAFAFC）、上方是薄荷渐隐尾，
+        // 一条平色带贴在页底就被读成「白边」。改成「上方 48pt 上透下实渐变 + 下方实色」：
+        // 渐变带跨在 composer 上缘（向上溢出 48pt、压在消息列表底部，纯视觉层），
+        // 两种底色在带内互相过渡 → 无硬缝；输入栏本体与底部条带仍落在**实色段**，
+        // v4.0.132 的「旁边/底部两色」不复发。⚠️ 渐变带定高 48pt（不随 composer 高度走：
+        // 附件面板展开时 composer ≈380pt，若按整高渐变会让输入栏也落进半透明段）。
         // ⚠️ 挂在 chatComposerArea 自己的链上，不挂 body 顶层——ql_typestack ③″ 钉死
         //    body 顶层 0 条链式修饰器（37 层内联链 = 195 层泛型嵌套 = 首帧爆栈前科）。
         .background(alignment: .bottom) {
-            EnvironmentGradient.pageBase(colorSchemeEnv)
-                .ignoresSafeArea(edges: .bottom)
+            VStack(spacing: 0) {
+                LinearGradient(colors: [EnvironmentGradient.pageBase(colorSchemeEnv).opacity(0),
+                                        EnvironmentGradient.pageBase(colorSchemeEnv)],
+                               startPoint: .top, endPoint: .bottom)
+                    .frame(height: ChatInputBarLayout.composerFadeHeight)
+                EnvironmentGradient.pageBase(colorSchemeEnv)
+            }
+            .ignoresSafeArea(edges: .bottom)
         }
         // 🚨 v3.9.72（审查修正）：`layoutPriority(1)` 只挂**输入栏这一层**，不挂整个 chatComposerArea。
         // 整组里还有选图条/动作条/附件面板/引用条/上下文条（各自定高，合计 ≈380pt）：把整组抬到最高
