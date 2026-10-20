@@ -232,12 +232,13 @@ struct DockTabView: View {
                     }
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))
-                // v4.0.130（用户「滑动模式 dock 下面不要再有一层白色底栏」）：
-                // page 样式下每页内容被下面这条 safeAreaInset 截断，**截断后那 66pt + 底部安全区**
-                // 露的是宿主底色（窗口白），与页面 #FAFAFC 差一档 → 肉眼就是 dock 下方多一条白底栏。
-                // 这里把宿主底色钉成与页底同一真源（EnvironmentGradient.pageBase），
-                // 露出来的部分与页面完全同色，白色条带消失。🚨 别删：删了白条立刻回来。
-                .background(EnvironmentGradient.pageBase(colorScheme))
+                // v4.0.131（用户 2026-10-20 再次报「dock 下面还有一条白底」）：v4.0.130 这条兜底
+                // **本身**就是白条的原因 —— 它铺的是 `EnvironmentGradient.pageBase` **纯色**（#FAFAFC），
+                // 而上面每页铺的是「纯色 + 三团弥散光晕」，页底附近带着桃粉/天蓝的淡淡染色。
+                // 纯色盖在光晕之上 → 上下差一档，接缝正好落在 dock 下沿，看起来就是一条白底栏。
+                // 改成**与页面同一个视图**（EnvironmentGlowLayers）铺在 TabView 上：同尺寸、同几何、
+                // 同色，接缝处逐像素连续。🚨 别再改回涂纯色；也别删（删了露出窗口白底，更白）。
+                .background(EnvironmentGlowLayers(scheme: colorScheme))
                 // 每页底部让出一条 dock 高度，否则列表最后一项会被半透明 dock 压住
                 .safeAreaInset(edge: .bottom, spacing: 0) {
                     Color.clear.frame(height: dockShown ? 66 : 0)
