@@ -19,12 +19,12 @@ enum ChatInputBarLayout {
     /// v3.9.65 起用户明确「加到 18」→ v3.9.66 再明确「圆角加到 20」：**明确数值规格**，
     /// 不套令牌档位梯度（Radius 6 档：8/10/12/14/16/22，20 落在 card 16 与 hero 22 之间，
     /// 为它新开中间档会破坏语义层级体系）。
+    /// v4.0.136（用户拍板对比稿 C「悬浮胶囊」）：20 → **26**。收起态容器高 50（42+4×2），
+    /// 26 > 25（=高/2）→ SwiftUI 自动钳到 25，收起态即**满圆角胶囊**；展开态 96（88+4×2）
+    /// 平坦段 96 − 26×2 = **44pt**，弧顶不咬第一层文字。
     /// 落地形态 = 收进本 enum 做单一真源，四处（玻璃 in: / 聚焦蓝边 / 常态白边 / 流光）
     /// 全部引用它，仍是「不散落魔法数」；将来若要回 16 档只改这一处。
-    /// 平坦段算式（容器最小总高 − 圆角×2）：
-    ///   展开态 88（42+8+38）− 20×2 = **48pt**，平坦段充裕；
-    ///   收起态 66（42+24，第二层高与间距归 0）− 20×2 = **26pt**，弧顶仍不咬第一层文字。
-    static let containerCornerRadius: CGFloat = 20
+    static let containerCornerRadius: CGFloat = 26
     /// 第一层（消息输入层）最小高度
     static let messageRowMinHeight: CGFloat = 42
     /// 第二层（工具层）最小高度
@@ -39,11 +39,13 @@ enum ChatInputBarLayout {
     static let rowGap: CGFloat = Spacing.md
     /// 容器最小总高 = 42 + 8 + 38 = 88（读这个数的地方：注释算式、真值表镜像）
     static let containerMinHeight: CGFloat = 88
-    /// v4.0.134：composer 垫层（页底色 pageBase，见 ChatView.chatComposerArea）顶部的**渐变过渡带**高度。
-    /// 133 的纯色垫层上缘与光晕渐变底之间有硬接缝（用户真机圈注「输入框底部有一块白边」）→
-    /// 顶部改 48pt 上透下实渐变消缝。定高不随 composer 走：附件面板展开时 composer ≈380pt，
-    /// 按整高渐变会让输入栏本体落进半透明段。镜像：ql_inputbar 真值表。
-    static let composerFadeHeight: CGFloat = 48
+    /// v4.0.136：composer **悬浮柔纱**高度（三段渐变「全透 → 0.55 → 0.94 近实」，见
+    /// ChatView.chatComposerArea）。133/134 的不透明垫层+48pt 消缝带退场——输入区改悬浮后，
+    /// 栏后要能「看见消息划过」：纱上端全透，往下渐实，输入栏本体落在近实段。
+    /// 150pt 覆盖（收起态口径）：Home 条带 34 + 底呼吸 4 + 输入栏 50 + 栏顶上方 ~62pt 渐隐段。
+    /// 定高不随 composer 走：附件面板展开时 composer ≈380pt，按整高渐变会让输入栏本体
+    /// 落进半透明段（133/134 同坑）。镜像：ql_inputbar 真值表。
+    static let composerFadeHeight: CGFloat = 150
 }
 
 struct ChatInputBar: View {

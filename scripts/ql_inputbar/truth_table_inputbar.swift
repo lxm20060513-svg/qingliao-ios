@@ -159,12 +159,12 @@ check("常量未被顺手改：toolRowMinHeight 仍 38、messageRowMinHeight 仍
 check("发送键仍在第一层 trailingButtons（收起态无第二层也能发）",
       messageRowSlice.contains("trailingButtons"))
 
-// ── 2c. 容器圆角 18 → 20（v3.9.66，用户：「另外输入框圆角加到 20」）──────────────
-// 明确数值规格，不新开 Radius 令牌档（Radius 6 档 8/10/12/14/16/22，20 落在 card 与 hero 之间，
-// 为它新开中间档会破坏语义层级）——仍走 ChatInputBarLayout.containerCornerRadius 单一真源。
-// 圆角变大后平坦段同步收窄：收起态 58 − 20×2 = 18pt / 展开态 84 − 20×2 = 44pt。
-check("圆角常量 18 → 20（明确数值规格，不套令牌档）",
-      inputBarSrc.contains("static let containerCornerRadius: CGFloat = 20"))
+// ── 2c. 容器圆角 18 → 20（v3.9.66）→ 26（v4.0.136 对比稿 C「悬浮胶囊」）──────────
+// 明确数值规格，不新开 Radius 令牌档——仍走 ChatInputBarLayout.containerCornerRadius 单一真源。
+// v4.0.136：26 > 收起态高 50 的一半 → SwiftUI 钳到 25，收起态=满圆角胶囊；
+// 展开态 96 平坦段 96 − 26×2 = 44pt，弧顶不咬第一层文字。
+check("圆角常量 20 → 26（v4.0.136 悬浮胶囊，明确数值规格，不套令牌档）",
+      inputBarSrc.contains("static let containerCornerRadius: CGFloat = 26"))
 check("四处同形仍全部引用 containerCornerRadius（玻璃/蓝边/白边/流光）",
       inputBarSrc.components(separatedBy: "cornerRadius: ChatInputBarLayout.containerCornerRadius").count - 1 == 4)
 // 平坦段断言与算式镜像统一放在第 5 节（flatTopCollapsedMirror / flatTopMirror）——
@@ -258,14 +258,16 @@ check("两层高度都不是写死数字（写死会在放大字号时裁字）"
 //          展开态容器高 = 84 + 4×2 = **92**（containerMinHeight 84 语义=内容最小总高，不变）。
 //          平坦段重算：收起态 **50 − 20×2 = 10pt** / 展开态 **92 − 20×2 = 52pt**。
 //          仍走令牌不打魔法数（xs=4 是 8 档里最小档，「紧贴元素」语义与收起态吻合）。
+// v4.0.136：用户拍板对比稿 C「悬浮胶囊」——圆角 20 → **26**（收起态 50 被钳成满圆角胶囊，
+//          展开态 96 平坦段 44pt）；133/134 垫层退场改 150pt 悬浮柔纱；输入区迁 safeAreaInset。
 let containerShape = "RoundedRectangle(cornerRadius: ChatInputBarLayout.containerCornerRadius, style: .continuous)"
 // v4.0.61：玻璃统一经无障碍出口 a11yGlass（口径不变：仍 .regular + 同一个 containerCornerRadius 圆角矩形）
-check("外层玻璃容器走 containerCornerRadius(20) 圆角矩形（不再全圆角胶囊）",
+check("外层玻璃容器走 containerCornerRadius(26) 圆角矩形（收起态=满圆角胶囊，v4.0.136）",
       inputBarSrc.contains(".a11yGlass(.regular, in: \(containerShape),"))
 check("容器圆角走 Layout 单一真源常量，不是魔法数",
       inputBarSrc.contains("in: \(containerShape)"))
-check("圆角常量声明在位：containerCornerRadius: CGFloat = 20（v3.9.65 的 18 → v3.9.66 的 20）",
-      inputBarSrc.contains("static let containerCornerRadius: CGFloat = 20"))
+check("圆角常量声明在位：containerCornerRadius: CGFloat = 26（v3.9.66 的 20 → v4.0.136 的 26）",
+      inputBarSrc.contains("static let containerCornerRadius: CGFloat = 26"))
 // 旧写法清零：玻璃不再挂在 background{Shape} 宿主上（宿主 Shape 拦不住默认胶囊形态）
 check("旧写法清零：玻璃不挂 background{ Shape } 宿主（v3.9.62 椭圆玻璃病根）",
       !inputBarSrc.contains(".background {\n            RoundedRectangle(cornerRadius: Radius.field, style: .continuous)\n                .glassEffect()\n        }"))
@@ -394,10 +396,10 @@ enum ChatInputBarLayoutMirror {
     static let toolRowMinHeight: Double = 38
     static let rowGap: Double = 8
     static let containerMinHeight: Double = 88
-    /// v3.9.65 圆角 18（用户明确数值规格）→ **v3.9.66 圆角 20**（用户「输入框圆角加到 20」）。
-    /// 仍是明确数值规格、仍不套令牌档（Radius 6 档 8/10/12/14/16/22，20 落在 card 16 与
-    /// hero 22 之间且比 18 更靠近 hero，为它单独开档破坏更大）——镜像钉住改档必同步。
-    static let containerCornerRadius: Double = 20
+    /// v3.9.65 圆角 18 → v3.9.66 圆角 20 → **v4.0.136 圆角 26**（对比稿 C「悬浮胶囊」：
+    /// 收起态 50 被钳到 25 = 满圆角胶囊；展开态 96 平坦段 44pt）。
+    /// 仍是明确数值规格、仍不套令牌档——镜像钉住改档必同步。
+    static let containerCornerRadius: Double = 26
     /// v3.9.67：容器垂直 padding = **4（Spacing.xs）**（v3.9.66 是 Spacing.md=12）。
     /// 用户原话「收起态高度改为 50」→ 只动这一个数（水平 padding Spacing.lg=18 不动）。
     /// 镜像存在意义：源里改档 ≠ 镜像同步 → 第 5 节算式立刻红。
@@ -426,16 +428,16 @@ let collapsedContainerMirror = messageRowMirror + containerVPaddingMirror * 2   
 /// 占位仍在 → 那 22pt 是玻璃框内的空白，视觉上「输入框变大」且发送键/占位文字偏下。
 /// 修法 = 补 `.frame(height: 0)` 硬钳。本镜像断言旧形态算式 ≠ 50，作为勿回退的证据钉住。
 let brokenCollapsedMirror = messageRowMirror + toolRowVisualMirror + containerVPaddingMirror * 2   // 72（旧 bug）
-/// v3.9.67：圆角 20 下的两个平坦段 —— 收起态 50 − 20×2 = **10pt**（收窄但 > 0）；
-/// 展开态 92 − 20×2 = **52pt**（原 44 是拿 84 当容器高算的，实际容器含 padding）
-let flatTopMirror = containerMirror + containerVPaddingMirror * 2 - 2 * 20              // 52（展开态）
-let flatTopCollapsedMirror = collapsedContainerMirror - 2 * 20                          // 10（收起态）
+/// v4.0.136：圆角 26 下的两个平坦段 —— 展开态 96 − 26×2 = **44pt**（> 0，弧顶不咬文字）；
+/// 收起态 50 − 26×2 = **−2pt** → 半径被钳到高/2 = 25，收起态=满圆角胶囊（负值即胶囊的证据）
+let flatTopMirror = containerMirror + containerVPaddingMirror * 2 - 2 * 26              // 44（展开态）
+let flatTopCollapsedMirror = collapsedContainerMirror - 2 * 26                          // −2（收起态→胶囊）
 
 check("算式：第一层高 ≈42（12×2 + 17.9）", abs(messageRowMirror - 42) < 0.2)
 check("算式：第二层高 = 38（26 + 6×2，v3.9.75 图标加大后）", abs(toolRowMirror - 38) < 0.001)
 check("算式：展开态内容最小总高 ≈88（42+8+38，containerMinHeight 语义）", abs(containerMirror - 88) < 0.2)
-check("算式：展开态容器高 = 96（88 内容 + 垂直 padding 4×2，v3.9.67 起 padding 不变）", abs(flatTopMirror + 2 * 20 - 96) < 0.2)
-check("算式：展开态圆角 20 的上缘平坦段 = 56pt（96 − 20×2）", abs(flatTopMirror - 56) < 0.2)
+check("算式：展开态容器高 = 96（88 内容 + 垂直 padding 4×2，v3.9.67 起 padding 不变）", abs(flatTopMirror + 2 * 26 - 96) < 0.2)
+check("算式：展开态圆角 26 的上缘平坦段 = 44pt（96 − 26×2，v4.0.136）", abs(flatTopMirror - 44) < 0.2)
 check("算式：收起态容器高 = 50（42 + 4×2，v3.9.67 用户明确值）", abs(collapsedContainerMirror - 50) < 0.2)
 check("事故证据：旧 minHeight:0 形态算出的收起态容器 = 72 ≠ 50（v3.9.68「输入框被改这么大」根因，勿回退）",
       abs(brokenCollapsedMirror - 72) < 0.2 && abs(brokenCollapsedMirror - 50) > 20)
@@ -443,8 +445,8 @@ check("算式：收起态比展开态矮 46pt（96 − 50）",
       abs(expandedContainerMirror + containerVPaddingMirror * 2 - collapsedContainerMirror - 46) < 0.2)
 check("算式：收起态高度 > 第一层内容高（50 > 42，文字不被裁）",
       collapsedContainerMirror > messageRowMirror)
-check("算式：收起态圆角 20 的上缘平坦段 = 10pt（50 − 20×2，仍 > 0 弧顶不咬文字）",
-      abs(flatTopCollapsedMirror - 10) < 0.2)
+check("算式：收起态圆角 26 平坦段 = −2pt < 0 → 半径钳到 25 = 满圆角胶囊（v4.0.136 悬浮胶囊口径）",
+      flatTopCollapsedMirror < 0 && abs(flatTopCollapsedMirror + 2) < 0.2)
 check("常量与算式一致：rowGap == 8",
       abs(Double(ChatInputBarLayoutMirror.rowGap) - rowGapMirror) < 0.001)
 check("常量与算式一致：messageRowMinHeight == 42",
@@ -456,9 +458,9 @@ check("常量与算式一致：containerMinHeight == 88（不手改，改了算�
           - (ChatInputBarLayoutMirror.messageRowMinHeight
              + ChatInputBarLayoutMirror.rowGap
              + ChatInputBarLayoutMirror.toolRowMinHeight)) < 0.001)
-check("常量与算术一致：containerCornerRadius == 20（v3.9.66，18 → 20）且两个平坦段均 > 0",
-      abs(Double(ChatInputBarLayoutMirror.containerCornerRadius) - 20) < 0.001
-      && flatTopCollapsedMirror > 0 && flatTopMirror > 0)
+check("常量与算术一致：containerCornerRadius == 26（v4.0.136，20 → 26）且展开态平坦段 > 0",
+      abs(Double(ChatInputBarLayoutMirror.containerCornerRadius) - 26) < 0.001
+      && flatTopCollapsedMirror < 0 && flatTopMirror > 0)
 // v3.9.67：容器垂直 padding 与源串对齐的硬护栏（镜像数 4 = Spacing.xs）——
 // 源里若被改成别的档（如回 Spacing.md），收起态就不是 50，本表前面几条算式全红。
 check("常量与算式一致：容器垂直 padding 4（Spacing.xs，v3.9.67「收起态高度改为 50」）",
@@ -822,13 +824,14 @@ check("状态与动作仍留 ChatView（toggleAutoRead：关掉立刻闭嘴 + �
       && chatViewSrc.contains("if !autoReadReply { SpeechManager.shared.stop() }")
       && chatViewSrc.contains("Haptics.tap()"))
 
-// ── v4.0.134 composer 垫层（页底白边消缝）──────────────────────────────────────
-//   133 纯色垫层上缘与光晕渐变底之间有硬接缝（用户真机圈注「输入框底部有一块白边」）→
-//   顶部改 48pt 上透下实渐变 + 下方实色。钉三件事：
-//     ① 垫层仍挂 chatComposerArea 自己的链上（不升 body 顶层）且仍吃底部安全区；
-//     ② 垫层顶部必须是渐变过渡，纯色直垫的旧形态清零（含变异自证：把渐变改回纯色 pageBase
-//        直垫 → 本条必红；实测已做）；
-//     ③ 渐变带高度走单一真源 ChatInputBarLayout.composerFadeHeight，常量镜像 48。
+// ── v4.0.136 composer 悬浮柔纱（对比稿 C「悬浮胶囊」）───────────────────────────
+//   133/134 的不透明垫层（纯色直垫 + 48pt 消缝带）整条退场：输入区改悬浮后，栏后必须能
+//   看见消息划过。钉四件事：
+//     ① 柔纱仍挂 chatComposerArea 自己的链上（不升 body 顶层）且仍吃底部安全区；
+//     ② 柔纱 = pageBase 三段 stops 渐变（全透 0 → 0.55 → 0.94 近实），「单渐变+实色 VStack」
+//        旧形态清零（变异自证：把 0.94 那段改回实色直垫 → 本条必红；实测已做）；
+//     ③ 纱高走单一真源 ChatInputBarLayout.composerFadeHeight，常量镜像 150；
+//     ④ 输入区迁到消息区的 safeAreaInset(.bottom)——VStack 兄弟旧位清零（「划过」的结构前提）。
 do {
     let composerSlice: String = {
         guard let a = chatViewSrc.range(of: "private var chatComposerArea") else { return "" }
@@ -840,12 +843,18 @@ do {
     check("垫层挂在 chatComposerArea 链上且仍吃底部安全区（.background(alignment: .bottom) + ignoresSafeArea(edges: .bottom)）",
           composerCode.contains(".background(alignment: .bottom)")
           && composerCode.contains(".ignoresSafeArea(edges: .bottom)"))
-    check("垫层顶部 = pageBase 上透下实渐变（消 133 硬接缝），纯色直垫旧形态清零",
-          composerCode.contains("LinearGradient(colors: [EnvironmentGradient.pageBase(colorSchemeEnv).opacity(0), EnvironmentGradient.pageBase(colorSchemeEnv)]")
-          && !composerCode.contains("EnvironmentGradient.pageBase(colorSchemeEnv) .ignoresSafeArea(edges: .bottom)"))
-    check("渐变带定高走单一真源 composerFadeHeight（不随 composer 整高走），常量镜像 48",
+    check("柔纱 = pageBase 三段 stops 渐变（全透 0 → 0.55 → 0.94 近实），旧「单渐变+实色垫层」形态清零",
+          composerCode.contains("LinearGradient(stops: [")
+          && composerCode.contains("EnvironmentGradient.pageBase(colorSchemeEnv).opacity(0), location: 0)")
+          && composerCode.contains(".opacity(0.55), location: 0.42)")
+          && composerCode.contains(".opacity(0.94), location: 1)")
+          && !composerCode.contains("LinearGradient(colors:")
+          && !composerCode.contains("VStack(spacing: 0)"))
+    check("纱高定值走单一真源 composerFadeHeight（不随 composer 整高走），常量镜像 150",
           composerCode.contains(".frame(height: ChatInputBarLayout.composerFadeHeight)")
-          && inputBarSrc.contains("static let composerFadeHeight: CGFloat = 48"))
+          && inputBarSrc.contains("static let composerFadeHeight: CGFloat = 150"))
+    check("输入区挂消息区 safeAreaInset(.bottom)（悬浮/划过的结构前提），VStack 兄弟旧位清零",
+          norm(chatViewSrc).contains(".safeAreaInset(edge: .bottom) { chatComposerArea }"))
 }
 
 print("输入栏两层化真值表：\(passCount) 通过 / \(failCount) 失败")

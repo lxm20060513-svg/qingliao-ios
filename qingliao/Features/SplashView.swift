@@ -103,6 +103,12 @@ struct SplashView: View {
                     .tracking(2)
             }
         }
+        // 🚨 v4.0.135：整层先吃满全屏，mask 画布才跟着全屏 —— 根因修复（133 那轮只治了光晕层，没治到根）：
+        // mask 的画布 = 本层 bounds（原先停在安全区矩形），RevealHoleShape 的 Path(rect) 只画安全区 →
+        // 安全区外 mask alpha=0 → 启动页在 Home 条上方那条带整体透明（透出首页底），
+        // 真机像素剖面：蓝光晕止于 95.9% 屏高 = 778pt = 812−34（底部安全区线），133 加的光晕层
+        // ignoresSafeArea 画到了、却被 mask 抠掉。整层 expanded 后 pageOrigin 实测自动归 (0,0)，圆心换算不变。
+        .ignoresSafeArea() // v4.0.135：整层吃满 → mask 画布跟着全屏（必须在 .mask 之前）
         // 实测本层全局原点（供圆心换算，口径同 DockTabView 的 pageOrigin）
         .background(
             GeometryReader { proxy in

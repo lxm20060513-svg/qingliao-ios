@@ -75,6 +75,14 @@ check("挖洞靠 eoFill 才真挖得动（少了它圆和矩形同向 = 整层�
       splash.contains("FillStyle(eoFill: true)"))
 check("遮罩挂在启动页本层（mask），底下的首页因此一直渲染着（「不白屏」的根）",
       splash.contains(".mask(") && splash.contains("RevealHoleShape("))
+// v4.0.135：mask 画布 = 本层 bounds —— 整层不先吃满全屏，Path(rect) 只画安全区矩形，
+// 安全区外 mask alpha=0 → Home 条上方那条带整层透明（133 只给光晕层加 ignoresSafeArea 被 mask 抵消的真机教训）。
+if let a = splash.range(of: ".ignoresSafeArea() // v4.0.135"), let b = splash.range(of: ".mask(") {
+    check("🚨 整层吃满全屏的 ignoresSafeArea 在 .mask 之前（否则 mask 画布停在安全区，启动页底部透出首页底）",
+          a.lowerBound < b.lowerBound)
+} else {
+    check("🚨 整层吃满全屏的 ignoresSafeArea 在 .mask 之前（要素缺失：v4.0.135 锚点 或 .mask）", false)
+}
 check("半径起点 = 0（开场整层盖住，不会有半帧白屏/硬切）",
       splash.contains("@State private var revealRadius: CGFloat = 0"))
 check("半径终点 = Motion.pageRevealMaxRadius（与 dock 切页共用同一枚最大半径常量）",

@@ -1087,7 +1087,10 @@ struct ChatView: View {
                 //   344 < 380 → VStack 压不动欢迎页，就只能把**输入栏挤到键盘后面**（截图即此）。
                 //   layoutPriority(1)：空间不足时**先挤上面的内容区**，输入栏必须完整可见。
                 //   配套：welcomeView 自己在键盘弹起时收缩（见那里的注释），否则会看到被截断的欢迎页。
-                chatComposerArea
+                // v4.0.136（用户拍板对比稿 C「悬浮胶囊」）：chatComposerArea 从 VStack 兄弟改为挂在
+                //   chatTranscriptArea 的 safeAreaInset(.bottom)——消息列表铺到屏幕底，内容从悬浮
+                //   输入栏**背后**滚过（「划过」成立），末帧仍能滚到栏上沿（inset 自动抬内容底边）。
+                //   layoutPriority(1) 的挤压语义由 safeAreaInset 天然保证：inset 高度独立于滚动内容。
             }
         )))))))
     }
@@ -1908,6 +1911,11 @@ struct ChatView: View {
                 // v3.4.0：底部上拉拉取收件箱——拖动指示器 / 拉取中 spinner / 结果 toast
                 InboxPullLayer(state: inboxPull)
             }
+            // v4.0.136（对比稿 C「悬浮胶囊」）：输入区整体从 VStack 兄弟迁到消息区的底部安全区
+            // 插入层——消息流延长到屏幕底，气泡从输入栏背后滚过；输入栏本体与柔纱（见
+            // chatComposerArea）浮在内容之上。⚠️ 挂在本属性自己的链上，不挂 body 顶层——
+            // ql_typestack ③″ 钉死 body 顶层 0 条链式修饰器（首帧爆栈前科）。
+            .safeAreaInset(edge: .bottom) { chatComposerArea }
     }
 
     /// 图片预览条/附件面板/引用条/上下文条 + 输入区
@@ -1938,28 +1946,23 @@ struct ChatView: View {
         // 由 Spacing.lg(10) 收到 **Spacing.xs(4)**（收起贴 dock / 弹键盘都收紧 6pt）。
         // ⚠️ 只动这一个数：输入栏自身高度（v3.9.67 起 50）、水平 padding 都不动。
         .padding(.bottom, Spacing.xs)   // v3.0.67 起留隙口径不变，仅收紧数值；见上一行 v3.9.68 记录
-        // v4.0.133（用户真机圈注「聊天页输入框旁边跟底部不是一个色」）：
-        // 输入区是透明的，底下是全屏光晕层——团3 薄荷的浓端恰好落在输入栏**下方**的安全区
-        // 条带里，输入栏两侧却是同一团的渐隐尾，浓度差被安全区线切成两截 → 观感两个色。
-        // 垫一层页底纯色并吃掉底部安全区：输入区 → Home 条一条色（微信口径）。
-        // v4.0.134（用户真机圈注「输入框底部有一块白边」，实机 = v4.0.133）：133 的**纯色**
-        // 垫层上缘与光晕渐变底之间是一条硬接缝——垫层近白（#FAFAFC）、上方是薄荷渐隐尾，
-        // 一条平色带贴在页底就被读成「白边」。改成「上方 48pt 上透下实渐变 + 下方实色」：
-        // 渐变带跨在 composer 上缘（向上溢出 48pt、压在消息列表底部，纯视觉层），
-        // 两种底色在带内互相过渡 → 无硬缝；输入栏本体与底部条带仍落在**实色段**，
-        // v4.0.132 的「旁边/底部两色」不复发。⚠️ 渐变带定高 48pt（不随 composer 高度走：
-        // 附件面板展开时 composer ≈380pt，若按整高渐变会让输入栏也落进半透明段）。
+        // v4.0.136（用户拍板对比稿 C「悬浮胶囊」）：133/134 的不透明垫层整条退场，改**悬浮柔纱**——
+        // 输入区整块透明，栏后垫一条定高「上全透 → 下 0.94 近实」渐变纱（纯视觉层，压在消息背后）：
+        // 气泡从纱后划过、贴近输入栏时被纱压淡但仍隐约可见；输入栏本体落在纱的下段（近实），
+        // v4.0.132 的「旁边/底部两色」不复发（纱底端 ≈ 实色页底）。⚠️ 定高 150 不随 composer 走：
+        // 附件面板展开时 composer ≈380pt，按整高渐变会把输入栏泡进半透明段（133/134 同坑，
+        // 见 ChatInputBarLayout.composerFadeHeight 注释）。
         // ⚠️ 挂在 chatComposerArea 自己的链上，不挂 body 顶层——ql_typestack ③″ 钉死
         //    body 顶层 0 条链式修饰器（37 层内联链 = 195 层泛型嵌套 = 首帧爆栈前科）。
         .background(alignment: .bottom) {
-            VStack(spacing: 0) {
-                LinearGradient(colors: [EnvironmentGradient.pageBase(colorSchemeEnv).opacity(0),
-                                        EnvironmentGradient.pageBase(colorSchemeEnv)],
-                               startPoint: .top, endPoint: .bottom)
-                    .frame(height: ChatInputBarLayout.composerFadeHeight)
-                EnvironmentGradient.pageBase(colorSchemeEnv)
-            }
-            .ignoresSafeArea(edges: .bottom)
+            LinearGradient(stops: [
+                .init(color: EnvironmentGradient.pageBase(colorSchemeEnv).opacity(0),    location: 0),
+                .init(color: EnvironmentGradient.pageBase(colorSchemeEnv).opacity(0.55), location: 0.42),
+                .init(color: EnvironmentGradient.pageBase(colorSchemeEnv).opacity(0.94), location: 1)
+            ], startPoint: .top, endPoint: .bottom)
+                .frame(height: ChatInputBarLayout.composerFadeHeight)
+                .frame(maxHeight: .infinity, alignment: .bottom)
+                .ignoresSafeArea(edges: .bottom)
         }
         // 🚨 v3.9.72（审查修正）：`layoutPriority(1)` 只挂**输入栏这一层**，不挂整个 chatComposerArea。
         // 整组里还有选图条/动作条/附件面板/引用条/上下文条（各自定高，合计 ≈380pt）：把整组抬到最高
