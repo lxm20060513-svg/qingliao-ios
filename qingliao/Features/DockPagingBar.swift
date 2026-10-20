@@ -27,6 +27,12 @@ import SwiftUI
 ///     ③ 点按：缩放对象收窄到「图标+文字」（格宽/选中胶囊不再跟着胀），1.18 + 上抬 1.5pt + 压影，
 ///        spring response 0.22 / damping 0.62（旧 0.26/0.55 拖半拍）。
 ///     ④ 纵向落点走 `bottomGap`（见下）。
+///   · v4.0.132 用户拍板「方案 A · 磨砂 + 实心图标」（2026-10-20，对比稿四选一）：
+///     **只换质感，不动图标与交互** —— 实心图标、accent 12% 选中胶囊、DockIconPressStyle
+///     手感全部维持 v4.0.131 原样。玻璃四层简化成「均匀磨砂」：
+///     ① 材质 `.ultraThinMaterial` + ② 一层**均匀**白雾（不带任何上下渐变），
+///     ③ 折射亮线与三段描边**删除**，描边换成 0.8pt 单色淡线（浅色黑 0.08 / 深色白 0.14），
+///     ④ 双层影收成**单层柔影**。对比稿与近观条：scripts/ql_dockflat/mock/。
 ///   · 选中态 = accent 12% 胶囊。图标 22pt、文字 10pt semibold —— 老版原样，别再自创字号。
 struct DockPagingBar: View {
     @Binding var selected: DockTab
@@ -92,10 +98,8 @@ struct DockPagingBar: View {
         .background { glassBody }
         .clipShape(Capsule())
         .overlay { glassEdge }
-        // v4.0.131：双层影 —— 大范围柔影负责「浮起来」，1pt 紧贴影负责「贴住」，
-        // 单层影在近白页底上几乎看不见（旧版 0.10 / r12 / y5 就是被说「发平」的一半原因）。
-        .shadow(color: .black.opacity(scheme == .dark ? 0.45 : 0.14), radius: 16, x: 0, y: 6)
-        .shadow(color: .black.opacity(scheme == .dark ? 0.25 : 0.06), radius: 3, x: 0, y: 1)
+        // v4.0.132：双层影收成**单层柔影**（磨砂方案 A：浮起来即可，不再追求玻璃的「厚度感」）
+        .shadow(color: .black.opacity(scheme == .dark ? 0.32 : 0.10), radius: 16, x: 0, y: 6)
         .frame(height: 62)
         .padding(.horizontal, 16)
         .padding(.bottom, Self.bottomGap)
@@ -103,63 +107,26 @@ struct DockPagingBar: View {
         .accessibilityLabel("底部导航")
     }
 
-    // MARK: - 自绘玻璃
+    // MARK: - 均匀磨砂
 
-    /// v4.0.131（用户 2026-10-20「玻璃太白发平，不像毛玻璃」）——
-    /// 旧版把 0.62 的白铺满上半段、下缘又压 0.30 白，等于在近白的页底（#FAFAFC）上
-    /// 刷了一层**实心白药片**：没有面的层次、没有边、也没有透光，观感就是「一条白条」。
-    /// 现在按玻璃的四层来搭（全部仍是白色/极淡冷色叠加，**不引灰**、不碰 glassEffect 红线）：
-    ///   ① 材质层 `.ultraThinMaterial` —— 唯一负责「透」的一层，白叠得越少它越显；
-    ///   ② 面层：上 0.24 白 → 中段近乎透明（0.04）→ 底部一点冷蓝 0.10，做出「上薄下厚」的体积；
-    ///   ③ 折射亮线：只在最上面 20% 收一道 0.62 白（plusLighter），玻璃被光切到的那个高光沿；
-    ///   ④ 边界：外描边改为 白0.85(顶) → 白0.20(中) → 黑0.10(底) 的三段渐变，
-    ///      底缘那道深线是「玻璃厚度」的关键 —— 白底上只看白边的话永远糊成一片。
+    /// v4.0.132「方案 A · 磨砂」：**均匀薄雾**，与 v4.0.131 玻璃四层的分界 ——
+    ///   · 删「上 0.24 白 → 中透 → 底冷蓝」的面层渐变（上亮下透 = 立体感来源，磨砂不要）；
+    ///   · 删顶部 20% 折射亮线（plusLighter 高光沿 = 「玻璃感」来源，磨砂不要）；
+    ///   · 只留材质 + 一层**均匀**白雾：浅色白 0.16，深色白 0.06 —— 把材质调匀成一整片哑光，
+    ///     不引灰（白雾只加在白系上）、不碰 glassEffect 红线（🚨 v4.0.128 两次「颜色不协调」）。
     private var glassBody: some View {
         ZStack {
             Capsule().fill(.ultraThinMaterial)
-            // ② 面：上亮下透 + 一点点冷色收底
-            Capsule().fill(
-                LinearGradient(
-                    stops: scheme == .dark
-                        ? [.init(color: .white.opacity(0.10), location: 0),
-                           .init(color: .white.opacity(0.02), location: 0.5),
-                           .init(color: .black.opacity(0.12), location: 1)]
-                        : [.init(color: .white.opacity(0.24), location: 0),
-                           .init(color: .white.opacity(0.04), location: 0.45),
-                           .init(color: Color(red: 0.80, green: 0.86, blue: 1.0).opacity(0.10), location: 1)],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-            )
-            // ③ 折射亮线：窄窄一条，别铺半张脸
-            Capsule()
-                .fill(
-                    LinearGradient(
-                        stops: [.init(color: .white.opacity(scheme == .dark ? 0.14 : 0.62), location: 0),
-                                .init(color: .clear, location: 0.20)],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                )
-                .blendMode(.plusLighter)
+            Capsule().fill(.white.opacity(scheme == .dark ? 0.06 : 0.16))
         }
     }
 
-    /// 边缘：三段渐变描边（顶高光 → 中段弱 → 底缘深线），把玻璃的「倒角」立起来。
+    /// 边缘：0.8pt **单色**淡描边（浅色黑 0.08 / 深色白 0.14）——
+    /// 只负责把磨砂条从近白页底上勾出来，不再做三段渐变的「倒角厚度」。
     private var glassEdge: some View {
         Capsule().strokeBorder(
-            LinearGradient(
-                stops: scheme == .dark
-                    ? [.init(color: .white.opacity(0.26), location: 0),
-                       .init(color: .white.opacity(0.08), location: 0.55),
-                       .init(color: .black.opacity(0.35), location: 1)]
-                    : [.init(color: .white.opacity(0.85), location: 0),
-                       .init(color: .white.opacity(0.20), location: 0.55),
-                       .init(color: .black.opacity(0.10), location: 1)],
-                startPoint: .top,
-                endPoint: .bottom
-            ),
-            lineWidth: 1
+            scheme == .dark ? Color.white.opacity(0.14) : Color.black.opacity(0.08),
+            lineWidth: 0.8
         )
     }
 }
