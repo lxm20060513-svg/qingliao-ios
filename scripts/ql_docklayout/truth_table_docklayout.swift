@@ -192,6 +192,21 @@ check("v4.0.137/138 page 形态对话页放行到底边，且只忽略 container
       && !dockView.contains(".ignoresSafeArea(edges: .bottom)")
       && dockView.contains("只放行**对话页这一页**伸到物理底边")
       && dockView.contains("原生模式对话页 tab bar 本就隐藏"))
+// v4.0.140（用户 2026-10-21「那条空带不能像原生一样透明吗」）：真机两模式逐像素对比 =
+// 滑动模式整页高了 34pt（胶囊离底 78pt vs 原生 44pt），安全区线 y2454 以下是 TabView 兜底背景。
+// 根因是**页框**被截在安全区线上 —— 页内挂 ignore 只能扩被修饰视图自身的绘制范围（137 那版就是这么
+// 失效的），必须挂在 page 形态的 TabView 这一层。撤掉它 = 那条 34pt 空带 + 胶囊高 34pt 一起复发。
+let afterPageStyle = (dockView.components(separatedBy: ".tabViewStyle(.page(indexDisplayMode: .never))").last ?? "")
+let pageTabSlice = (afterPageStyle.components(separatedBy: ".background(EnvironmentGlowLayers").first ?? "")
+// 🚨 必须剔掉注释行再判：本段注释里就写着这个修饰符（解释根因用），直接 contains 会「注释也算绿」——
+// 变异自证时删掉真正的代码行仍然全绿，护栏假绿。
+let pageTabCode = pageTabSlice
+    .components(separatedBy: "\n")
+    .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+    .joined(separator: "\n")
+check("v4.0.140 page 形态 TabView **本层**放行到底边（页框铺到物理底边，页内挂 ignore 无效）",
+      !pageTabCode.isEmpty
+      && pageTabCode.contains(".ignoresSafeArea(.container, edges: .bottom)"))
 check("切到常驻档即清空 forcedTabs（隐藏恢复，配置不被动过）",
       dockView.contains("if !forcedTabs.contains(newVal) { forcedTabs.removeAll() }"))
 check("隐藏了当前所在页 → 兜底切到第一个可见档（不允许停在已摘除的档上）",
