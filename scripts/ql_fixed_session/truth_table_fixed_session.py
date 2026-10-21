@@ -81,10 +81,17 @@ check("isProactiveSession 按 proactiveSessionId 判定",
 check("有 isFixedSession 合并判定（都不可删）", "var isFixedSession" in s_chat)
 p_view, s_view = find("ChatView.swift")
 # 输入栏只读闸门必须**只**判投递壳（不能改成 isFixedSession，否则主动会话也不能回复）
-ro_guard = re.search(r"if chat\.is(FixedSession|ProactiveSession)\s*\{", s_view)
+# v4.0.143：输入栏闸门从 `else if chat.isDeliverySession { 提示条 } else { 输入栏 }` 改成
+# `} else if !chat.isDeliverySession { 输入栏 }`（用户要去掉提示胶囊）→ 匹配要同时兼容两种形态
+ro_guard = re.search(r"if\s+!?\s*chat\.is(FixedSession|ProactiveSession)", s_view)
 check("ChatView 输入栏只读闸门仍只判 isDeliverySession（主动会话可回复）",
       ro_guard is None, "发现改成 %s" % (ro_guard.group(0) if ro_guard else ""))
-check("ChatView 存在投递会话只读提示", "不支持回复" in s_view)
+# v4.0.143（用户 2026-10-21「投递详情页直接去掉投递会话·仅接收·不支持回复这个胶囊框」）：
+# 只读语义不变（输入栏闸门仍判 isDeliverySession），但底部**不再摆提示条**——
+# 用户觉得多余；这条从「必须有提示」反转成「必须没有提示」，并钉住输入区确实被拿掉。
+check("ChatView 投递会话不再渲染输入/提示区（用户要求去掉胶囊）", "不支持回复" not in s_view)
+check("ChatView 投递会话输入栏闸门仍在（只读语义不丢）",
+      "} else if !chat.isDeliverySession {" in s_view)
 
 # ═══ 3. 主动消息注入固定会话，不再注入当前会话 ═══
 print("== 3. 区分点③：agent 消息注入目标固定（核心修复）")
@@ -252,12 +259,12 @@ try:
         check("🚫 反向A：改回 chat.append 后第 3 段判红", red, "护栏未抓到")
 
     # 事故 B：只读闸门误扩到 isFixedSession（主动会话将不能回复）
-    bad2 = s_view.replace("if chat.isDeliverySession {", "if chat.isFixedSession {", 1)
+    bad2 = s_view.replace("} else if !chat.isDeliverySession {", "} else if !chat.isFixedSession {", 1)
     if bad2 == s_view:
         print("   ⚠️ 事故B 注入失败（形态不符）")
         check("🚫 反向B：只读闸门误扩后第 2 段判红", False, "未能注入")
     else:
-        g = re.search(r"if chat\.is(FixedSession|ProactiveSession)\s*\{", bad2)
+        g = re.search(r"if\s+!?\s*chat\.is(FixedSession|ProactiveSession)", bad2)
         check("🚫 反向B：只读闸门误扩后第 2 段判红", g is not None, "护栏未抓到")
 
     # 事故 C：注入函数里偷加 loadById（会清空用户正在看的对话）

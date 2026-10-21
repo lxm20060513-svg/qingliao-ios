@@ -767,23 +767,11 @@ struct ChatView: View {
             // 不往会话写），投递会话里长按「多选」也能正常进（原顺序下进了勾选态却没有
             // 操作条，卡死无法退出 = 用户报的「无法多选」）。消息列表写入另有 guard 拦着。
             mergeSelectBar
-        } else if chat.isDeliverySession {
-            // v3.9.85：投递会话只读——cron/system 投递详情只收不发（此前输入栏照常可打字，发了也白发）。
-            // 不给输入框只压一条提示：用户不会误以为能回复；高度与输入栏对齐(50)避免底部跳动。
-            HStack(spacing: 8) {
-                Image(systemName: "tray.full")
-                    .font(.system(size: Typography.subhead))
-                    .foregroundStyle(.secondary)
-                Text("投递会话 · 仅接收，不支持回复")
-                    .font(.system(size: Typography.subhead))
-                    .foregroundStyle(.secondary)
-                Spacer()
-            }
-            .frame(height: 50)
-            .padding(.horizontal, Spacing.md)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .padding(.horizontal, Spacing.md)
-        } else {
+        } else if !chat.isDeliverySession {
+            // v4.0.143（用户 2026-10-21「投递详情页直接去掉那条『投递会话 · 仅接收』的提示胶囊」）：
+            // 原来压一条 50pt 提示条解释「不能回复」，用户觉得多余 —— 只读会话底部**什么都不摆**。
+            // 只读语义不变：消息列表写入、记账卡、记账账号仍各有 `guard !chat.isDeliverySession` 拦着，
+            // 这里只省掉渲染。底部安全区 padding 挂在 VStack 上，去掉提示条不会让末条消息贴到 Home 条。
             ChatInputBar(text: inputTextDraftBinding,
                      focused: $inputFocus,
                      streaming: thisSessionStreaming,   // v3.9.41：按会话收窄（原来 B 会话会因 A 在跑而长出红色「停止」，一点就掐掉 A 的回答）

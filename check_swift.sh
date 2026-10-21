@@ -363,6 +363,12 @@ echo "=== 20b1. 工作台·工具格真值表（v4.0.113：定时提醒/文件�
 # 全是**编译不报、手点才现**的坏法：只搬入口不搬 sheet = 点了没反应；搬了忘撤 = 两处并存。
 run_unit /tmp/tt_wstools scripts/ql_wstools/truth_table_wstools.swift
 
+echo "=== 20b1b. 工作台·进行项目真值表（v4.0.143：项目维度 / 不编进度 / 失败保留旧快照）==="
+# 钉：挂点唯一且顺序对（进行中 → 进行项目 → 长期目标）/ 空态不摆空壳 / 拉取失败保留旧快照 /
+#    无清单不画进度条 / 只用 /api/agent/projects（lucky 白名单）/ 6 小时过期标记 / 完成按钮在左。
+# 全是编译不报、真机才现的坏法。
+run_unit /tmp/tt_projects scripts/ql_projects/truth_table_projects.swift
+
 echo "=== 20b2. 自定义下拉刷新（液体杯子）真值表（v4.0.x：用户 2026-10-14 定案）==="
 # 钉：五页挂点/旧 API 已撤/核心机制（几何+相位+摇晃+@MainActor）/手感口径（medium 触觉、防重入、
 #     Motion 令牌回位）/设置类反例（本批范围外）。全是**静默失效**：挂错层、并存 .refreshable、
@@ -1459,8 +1465,14 @@ cnt=$(grep -cF 'withAnimation(Motion.pageEnterSlide) { slideOffset = 0 }' "$DT")
   || { echo "❌ 回退⑯：**切页**入场应为同一个 withAnimation(Motion.pageEnterSlide) { slideOffset = 0 }（两处 modifier 各一份，实得 $cnt）"; fail=1; }
 cnt=$(grep -cF 'direction(from: oldVal) * Motion.pageEnterShift' "$DT"); [ "$cnt" -eq 2 ] \
   || { echo "❌ 回退⑯f：切页入场起点应为按槽位方向取的 ±Motion.pageEnterShift（两处 modifier 各一份，实得 $cnt）"; fail=1; }
-cnt=$(grep -cF 'clipShape(RevealCircleShape(center: localCenter, radius: revealRadius))' "$DT"); [ "$cnt" -eq 1 ] \
-  || { echo "❌ 回退⑯i：圆扩散裁剪只剩**返回**那一处（v4.0.120 起切页不再是扩散，实得 $cnt）"; fail=1; }
+# v4.0.143（用户「聊天页滑动返回主页掉帧非常严重，从根源修复」）：返回扩散从「常驻 clipShape +
+# compositingGroup」换成 RevealHoleMask overlay —— 旧裁剪必须归零，新遮罩必须恰一处。
+cnt=$(grep -cF 'RevealHoleMask(center: localCenter, radius: revealRadius)' "$DT"); [ "$cnt" -eq 1 ] \
+  || { echo "❌ 回退⑯i：返回扩散应为 RevealHoleMask overlay（轻量遮罩，实得 $cnt）"; fail=1; }
+cnt=$(grep -cF 'clipShape(RevealCircleShape(center: localCenter, radius: revealRadius))' "$DT"); [ "$cnt" -eq 0 ] \
+  || { echo "❌ 回退⑯i0：返回扩散不许再用常驻 clipShape（跟手每帧重合成 = 掉帧主因，实得 $cnt）"; fail=1; }
+cnt=$(grep -cF '.compositingGroup()' "$DT"); [ "$cnt" -eq 0 ] \
+  || { echo "❌ 回退⑯i1：会话首页不许再挂合成组（内容一动就整屏重栅格化，实得 $cnt）"; fail=1; }
 # v4.0.97 审查（medium）：shape 的 path 在**页面局部坐标系**里，圆心却是 window 坐标 →
 # 必须经 localCenter 减掉页面原点（安全区 ≈59pt），否则整圆偏下一个状态栏。v4.0.120 起只剩返回那一处。
 cnt=$(grep -cF 'CGPoint(x: revealCenter.x - pageOrigin.x, y: revealCenter.y - pageOrigin.y)' "$DT"); [ "$cnt" -eq 1 ] \

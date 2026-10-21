@@ -996,6 +996,36 @@ struct RevealCircleShape: Shape {
     }
 }
 
+/// v4.0.143（用户 2026-10-21「聊天页滑动返回主页掉帧非常严重」）：
+/// 返回扩散的**轻量遮罩** —— 铺一层与 TabView 常驻垫底同款的 `EnvironmentGlowLayers`，
+/// 中间用 even-odd 挖一个圆洞露出首页（洞半径随 `revealRadius` 长大）。
+///
+/// 视觉上与旧的 `clipShape(RevealCircleShape)` 等价（圆外都是那层渐变垫底），但代价完全不同：
+///   · 旧：裁剪挂在整页视图树上 → 必须 `compositingGroup` 先压成单层纹理 → 页面一移动就整屏重栅格化
+///   · 新：一个 Path + 一层渐变，逐帧只重画圆，列表与材质**不参与**
+/// 这条只在本页扩散（圆心非 nil）时存在，常态不渲染 —— 跟手/滚动零成本。
+private struct RevealHoleMask: View {
+    var center: CGPoint
+    var radius: CGFloat
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        GeometryReader { geo in
+            EnvironmentGlowLayers(scheme: scheme)
+                .mask {
+                    Path { p in
+                        p.addRect(CGRect(origin: .zero, size: geo.size))
+                        let r = max(0, radius)
+                        p.addEllipse(in: CGRect(x: center.x - r, y: center.y - r,
+                                                width: r * 2, height: r * 2))
+                    }
+                    .fill(style: FillStyle(eoFill: true))
+                }
+        }
+        .allowsHitTesting(false)
+    }
+}
+
 // v4.0.120（用户 2026-10-17：「底栏换页改成内容层按槽位方向定向滑入，圆扩散只留启动页」）：
 // 入场 = **内容层按槽位方向定向滑入** —— 新页内容从「新槽所在的那一侧」位移进场（起点 ±28pt → 落位 0），
 // 方向按**新旧槽位序号差**判（`order` 里 index 谁大），不写死左右。
@@ -1184,14 +1214,26 @@ private struct SessionHomeRevealModifier: ViewModifier {
                         .onChange(of: proxy.frame(in: .global).origin) { _, new in pageOrigin = new }
                 }
             )
-            // v4.0.133（用户「切回聊天首页整个 dock 隐藏 + 严重掉帧，从根源优化」）：
-            // **先拍平再裁**。首页是全仓材质最重的一页（hero 玻璃卡 + List + 多层 ultraThinMaterial），
-            // clipShape 直接罩在视图树上 = 裁剪通道下钻到每个材质分支，逐帧多次离屏合成；
-            // compositingGroup 把整页先合成**单层**纹理，裁剪只做一次遮罩 —— 且这枚 clipShape 是
-            // **常驻**的（常态半径 = 全屏，等同不裁但遮罩通道仍在跑），滚动/跟手每一帧都在付这笔钱。
-            // 🚨 位置必须在 clipShape **之前**（先拍平后裁）；挪到后面等于没拍平。
-            .compositingGroup()
-            .clipShape(RevealCircleShape(center: localCenter, radius: revealRadius))
+            // 🚨 v4.0.143（用户 2026-10-21「聊天页滑动返回主页掉帧非常严重，从根源修复」）：
+            // **正常态不挂任何合成/裁剪，扩散改成「渐变垫底挖洞」的轻量 overlay**。
+            //
+            // 旧实现（v4.0.133）是「合成组 + 常驻裁剪」：合成组把整页（hero 玻璃卡 +
+            // List + 多层 ultraThinMaterial）压成**单层纹理** —— 内容一动就得重合成整页。而返回手势
+            // 全程页面都在横移（跟手 offset 每帧变、两页同框），于是每帧重栅格化两块整屏，必掉帧；
+            // 更亏的是跟手路径**根本不播扩散**（`backFollowEnd` 只翻 `showSessionHome`，不写圆心，
+            // 见 DockTabView 注释「只翻状态，不写圆心（= 不播扩散）」），这枚合成组纯属白付。
+            // 常态半径 1200 也让遮罩通道常驻 —— 滚动列表时每秒都在为「等同不裁」付钱。
+            //
+            // 现在：content 上**没有任何**合成组/裁剪 → 跟手、滚动、列表惯性全部零额外成本。
+            // 扩散那一拍（页头按钮 / 程序化返回，圆心非 nil）才盖一层 `RevealHoleMask`：
+            // 填充是 TabView 底下那层同款 `EnvironmentGlowLayers`，中间用 even-odd 挖一个圆洞露出首页。
+            // 逐帧只重画一个 Path（不含列表/材质），与「圆外露垫底渐变」的既定观感逐像素一致。
+            .overlay {
+                // 半径撞到 max = 已铺满全屏 → 不再留这层（常态零成本）；0.5 容差防浮点卡在 1199.99
+                if revealRadius < Motion.pageRevealMaxRadius - 0.5 {
+                    RevealHoleMask(center: localCenter, radius: revealRadius)
+                }
+            }
             .onAppear {
                 // 🚨 取走即清空：先绑局部变量再判 nil（别在 guard 里探一次、后面再取一次）
                 guard let c = pendingCenter else { return }

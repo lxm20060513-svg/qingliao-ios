@@ -325,7 +325,9 @@ check("⑧c 切页/聊天页入场 = 定向滑入（同一个 pageEnterSlide 事
       && dockSrc.components(separatedBy: "direction(from: oldVal) * Motion.pageEnterShift").count - 1 == 2)
 check("⑧c 负断言：切页两处不许再走圆扩散（v4.0.120 反转；localCenter 圆心换算只剩返回那一处）",
       !dockSrc.contains("withAnimation(Motion.pageReveal) { revealRadius = Motion.pageRevealMaxRadius }")
-      && dockSrc.components(separatedBy: "clipShape(RevealCircleShape(center: localCenter, radius: revealRadius))").count - 1 == 1
+      // v4.0.143：返回扩散从 clipShape 改成 RevealHoleMask overlay——旧裁剪必须彻底消失
+      && dockSrc.components(separatedBy: "clipShape(RevealCircleShape(center: localCenter, radius: revealRadius))").count - 1 == 0
+      && dockSrc.components(separatedBy: "RevealHoleMask(center: localCenter, radius: revealRadius)").count - 1 == 1
       && dockSrc.components(separatedBy: "private var localCenter: CGPoint {").count - 1 == 1)
 check("⑧d 负断言：不许再把 window 坐标直接喂给 clipShape",
       !dockSrc.contains("clipShape(RevealCircleShape(center: revealCenter,"))

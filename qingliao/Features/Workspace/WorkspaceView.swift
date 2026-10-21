@@ -127,6 +127,11 @@ struct WorkspaceView: View {
     @State private var showReminder = false // v4.0.113 从设置页移来的「定时提醒」
     @State private var showFiles = false    // v4.0.113 从设置页移来的「文件管理」
 
+    // MARK: v4.0.143 栏目自定义（排序 + 隐藏）—— key 与生活页 life_section_* 同族
+    @AppStorage("workspace_section_order") private var sectionOrderRaw = ""
+    @AppStorage("workspace_section_hidden") private var sectionHiddenRaw = ""
+    @State private var showSectionEditor = false
+
     /// 当前目录（相对**所在根**；空 = 该根顶层）
     private var currentPath: String { dirStack.joined(separator: "/") }
 
@@ -143,24 +148,45 @@ struct WorkspaceView: View {
     }
     private var visibleDirs: [RemoteFileEntry] { entries.filter(\.isDir) }
 
+    // MARK: - v4.0.143 栏目顺序 / 显隐（口径逐条对齐生活页 LifeView.orderedSections）
+
+    /// 已存顺序在前；串里没出现的（新增栏目）按 allCases 补后面
+    private var orderedSections: [WorkspaceSection] {
+        var seen = Set<WorkspaceSection>()
+        let saved = sectionOrderRaw.split(separator: ",")
+            .compactMap { WorkspaceSection(rawValue: String($0)) }
+            .filter { seen.insert($0).inserted }
+        var merged = saved
+        for s in WorkspaceSection.allCases where !seen.contains(s) { merged.append(s) }
+        return merged
+    }
+    private var hiddenSections: Set<WorkspaceSection> {
+        Set(sectionHiddenRaw.split(separator: ",").compactMap { WorkspaceSection(rawValue: String($0)) })
+    }
+    private var visibleSections: [WorkspaceSection] {
+        let h = hiddenSections
+        return orderedSections.filter { !h.contains($0) }
+    }
+
     var body: some View {
         ScrollView {
             // v4.0.117（用户 2026-10-15「生活页这种上下滑动的动效能不能应用到所有页面」→ 拍板「加工作台」）：
-            // 五个块挂上生活页那一档滚动层次（`scrollDepth` ＝ 卡片进出视口时 scale 0.965 / opacity 0.75）。
+            // 六个块挂上生活页那一档滚动层次（`scrollDepth` ＝ 卡片进出视口时 scale 0.965 / opacity 0.75）。
             // 🚨 容器由 `VStack` 改 **`LazyVStack`** 是**必要条件**、不是风格选择：`scrollDepth` 走的是
             //    `scrollTransition`，只在 Lazy 容器里按元素位置算 identity；挂在非 Lazy 的 VStack 上 =
             //    每块**恒为非 identity** → 五个块常驻缩小 + 半透明（与会话列表 List 那个坑同一病根，
             //    `SessionsView.swift:1184` 有实测记录：卡比同屏未挂的卡窄 ~14pt）。改回 VStack = 复发。
             // ⚠️ 只挂这**一层**：工具格内部不许再挂（同容器叠两层 → 0.965² ≈ 0.931 / 0.75² ≈ 0.56，比看板
-            //    明显更缩更暗，与「跟看板/生活页同一档层次」的初衷相反）。块数钉在 ql_uitokens 表，加块同步改。
+            //    明显更缩更暗，与「跟看板/生活页同一档层次」的初衷相反）。块数钉在 ql_uitokens 表，加块同步改
+            //    （v4.0.143 加「进行项目」：5 → 6）。
             LazyVStack(alignment: .leading, spacing: Spacing.section) {
-                // 待你处理排在最上：它是**唯一需要用户动手**的一块（有才显示，见 pendingBoard 注释）
-                if !pendingItems.isEmpty { pendingBoard.scrollDepth() }
-                activeCard.scrollDepth()
-                // v4.0.109：长期目标整块从生活页搬来（原样复用 GoalsSection，未改它一行）
-                GoalsSection().scrollDepth()
-                artifactBoard.scrollDepth()
-                toolsBoard.scrollDepth()
+                // v4.0.143：按用户自定义顺序渲染（排序 / 隐藏；口径同生活页「自定义板块」）。
+                // 默认顺序 = WorkspaceSection.allCases：待你处理 → 进行中 → 进行项目 → 长期目标 → 产物库 → 工具格。
+                // 「待你处理」原先强行排最上，现在交给用户排（自定义优先；它仍是唯一需要动手的一块）。
+                ForEach(Array(visibleSections.enumerated()), id: \.element) { _, section in
+                    sectionBody(section)
+                }
+                sectionEditorEntry
             }
             .padding(.horizontal, Spacing.pageInset)
             .padding(.top, Spacing.xxl)
@@ -214,6 +240,50 @@ struct WorkspaceView: View {
         .background(workspaceCold1())
         .background(workspaceCold2())
         .background(workspaceCold3())
+    }
+
+    // MARK: - v4.0.143 栏目渲染
+
+    /// 栏目 → 视图。顺序由 visibleSections 定，这里只管映射；每块各挂一次滚动层次
+    /// （ql_uitokens 表按字面计数钉「恰好 6 处」，注释里别写带点括号的修饰器名，会被算进去）。
+    @ViewBuilder
+    private func sectionBody(_ section: WorkspaceSection) -> some View {
+        switch section {
+        case .pending:
+            // 有才显示：没有待答卡就整块不占位（与隐藏不同，这是数据态而非用户设置）
+            if !pendingItems.isEmpty { pendingBoard.scrollDepth() }
+        case .active:
+            activeCard.scrollDepth()
+        case .projects:
+            // 空态自己在 WorkspaceProjectsSection 里吞掉（EmptyView），不占版面
+            WorkspaceProjectsSection().scrollDepth()
+        case .goals:
+            // v4.0.109：长期目标整块从生活页搬来（原样复用 GoalsSection，未改它一行）
+            GoalsSection().scrollDepth()
+        case .artifacts:
+            artifactBoard.scrollDepth()
+        case .tools:
+            toolsBoard.scrollDepth()
+        }
+    }
+
+    /// v4.0.143：页底「自定义栏目」入口 —— 与生活页 sectionEditorEntry 同款低调样式
+    private var sectionEditorEntry: some View {
+        HStack(spacing: Spacing.sm) {
+            Image(systemName: "square.and.pencil")
+                .font(.system(size: Typography.caption))
+                .foregroundStyle(.tertiary)
+            Text(hiddenSections.isEmpty ? "自定义栏目（排序 / 隐藏）"
+                                        : "自定义栏目 · 已隐藏 \(hiddenSections.count) 个栏目")
+                .font(.system(size: Typography.subhead))
+                .foregroundStyle(.tertiary)
+            Spacer()
+        }
+        .padding(.horizontal, Spacing.xl)
+        .padding(.vertical, Spacing.md)
+        .pastelCard()
+        .contentShape(Rectangle())
+        .tapButton { showSectionEditor = true }
     }
 
     // MARK: - 进行中
@@ -541,7 +611,14 @@ struct WorkspaceView: View {
 
     private func artifactRow(_ f: RemoteFileEntry) -> some View {
         HStack(spacing: Spacing.md) {
-            badge(iconName(f.name), tint: .accentColor)
+            // v4.0.143（用户 2026-10-21「产物库加图片缩略图，现在只有文件名」）：
+            // 图片直接出真缩略图（带 token 下载 + 3x 下采样 + 进程内缓存，见 ArtifactThumbnail）；
+            // 其余类型仍走图标 badge —— 判定用 RemoteFiles.imageExts 这一处真源，不在行里另写扩展名表。
+            if RemoteFiles.imageExts.contains(RemoteFiles.ext(f.name)) {
+                ArtifactThumbnail(path: f.path)
+            } else {
+                badge(iconName(f.name), tint: .accentColor)
+            }
             VStack(alignment: .leading, spacing: Spacing.xxs) {
                 Text(f.name)
                     .font(.system(size: Typography.subhead, weight: .medium))
@@ -632,6 +709,8 @@ struct WorkspaceView: View {
         guard !targets.isEmpty else { return }
         actionError = ""
         var failed: [String] = []
+        var reason = ""   // v4.0.143：后端给的原因（只读挂载 / 权限）—— 原先只报「N 项失败」，
+                          // 用户完全不知道为什么，只能反复点（真机报「产物删除失败」就是这么来的）
         for e in targets {
             do {
                 let j = try await auth.json("/api/files/delete", method: "POST", body: ["path": e.path])
@@ -640,9 +719,11 @@ struct WorkspaceView: View {
                     picked.remove(e.path)
                 } else {
                     failed.append(e.name)
+                    if reason.isEmpty, let m = j["error"] as? String, !m.isEmpty { reason = m }
                 }
             } catch {
                 failed.append(e.name)
+                if reason.isEmpty { reason = "请求未送达或服务器无响应" }
             }
         }
         if failed.isEmpty {
@@ -651,6 +732,7 @@ struct WorkspaceView: View {
         } else {
             let head = failed.prefix(3).joined(separator: "、")
             actionError = "\(failed.count) 项删除失败：\(head)\(failed.count > 3 ? " 等" : "")"
+                + (reason.isEmpty ? "" : " · \(reason)")
         }
     }
 
@@ -857,6 +939,10 @@ struct WorkspaceView: View {
                 PluginsSheet()
                     .presentationDetents([.medium, .large])
                     .scrollContentBackground(.hidden)
+            }
+            // v4.0.143：栏目自定义（排序 + 隐藏）
+            .sheet(isPresented: $showSectionEditor) {
+                WorkspaceSectionEditorSheet(visible: visibleSections, hidden: Array(hiddenSections))
             }
     }
 

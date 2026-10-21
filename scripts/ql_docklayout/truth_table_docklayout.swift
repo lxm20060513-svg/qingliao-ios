@@ -444,16 +444,20 @@ check("page 模式自绘 dock 同口径：dockShown 键盘抑制只门首页、�
 check("page 模式 dock 真悬浮：无底部让位带（safeAreaInset/Color.clear.frame 66 已删，反向钉死）",
       !dockView.contains("Color.clear.frame(height: dockShown ? 66 : 0)")
         && !dockView.contains("safeAreaInset(edge: .bottom, spacing: 0) {\n                    Color.clear"))
-// v4.0.133（用户「切回聊天首页严重掉帧」）：sessionHomeReveal 的常驻 clipShape 必须「先拍平再裁」——
-// 首页材质卡多，遮罩通道下钻材质分支会逐帧多次离屏合成（dock 卡顿肉眼可见的那一笔）。
-// 以及（用户「dock 上的 tap 跟手滑页生硬」）：选中胶囊 matchedGeometry 滑动 + 单一动画令牌 Motion.page。
-if let cg = dockView.range(of: ".compositingGroup()"),
-   let cs = dockView.range(of: ".clipShape(RevealCircleShape(center: localCenter, radius: revealRadius))") {
-    check("会话首页圆形扩散遮罩先拍平再裁（compositingGroup 在 clipShape 之前，顺序钉死）",
-          cg.lowerBound < cs.lowerBound)
-} else {
-    check("会话首页圆形扩散遮罩先拍平再裁（compositingGroup 在 clipShape 之前，顺序钉死）", false)
-}
+// v4.0.143（用户 2026-10-21「聊天页滑动返回主页掉帧非常严重，从根源修复」）：
+// **撤掉 v4.0.133 的「先拍平再裁」**——合成组把整页压成单层纹理，而返回跟手时页面每帧横移
+// （offset 每帧变、两页同框）→ 每帧整屏重栅格化，正是掉帧主因；更亏的是跟手路径根本不播扩散
+// （backFollowEnd 只翻 showSessionHome、不写圆心），这枚合成组纯白付；常态半径 1200 还让遮罩常驻。
+// 新口径：常态零合成/零裁剪；扩散只用 RevealHoleMask（同款渐变垫底 + even-odd 挖洞）的轻量 overlay。
+check("会话首页返回扩散：常态不挂合成组/裁剪（跟手掉帧根治，负断言）",
+      !dockView.contains(".compositingGroup()")
+        && !dockView.contains(".clipShape(RevealCircleShape(center: localCenter, radius: revealRadius))"))
+check("会话首页返回扩散：改用 RevealHoleMask overlay，铺满即卸（常态零成本）",
+      dockView.contains("RevealHoleMask(center: localCenter, radius: revealRadius)")
+        && dockView.contains("if revealRadius < Motion.pageRevealMaxRadius - 0.5"))
+check("RevealHoleMask 用 even-odd 挖洞（不许再套一层裁剪/合成组）",
+      dockView.contains("private struct RevealHoleMask: View")
+        && dockView.contains("FillStyle(eoFill: true)"))
 check("dock 选中胶囊滑动转场：matchedGeometry 命名空间 + Motion.page 单一动画令牌（无内联 easeInOut 残留）",
       pagingBarView.contains("matchedGeometryEffect(id: \"dockSelCapsule\", in: selNS)")
         && pagingBarView.contains(".animation(Motion.page, value: selected)")

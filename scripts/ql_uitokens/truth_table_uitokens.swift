@@ -174,7 +174,7 @@ check("板块 switch 已提成 sectionBody（内联 switch 上面挂不了修饰
       lifeView.contains("private func sectionBody(_ section: LifeSection)"))
 
 // v4.0.117（用户 2026-10-15「生活页这种上下滑动的动效能不能应用到所有页面」→ 拍板「加工作台」）：
-// 工作台五个块（待你处理/进行中/长期目标/产物/工具格）挂同一档 .scrollDepth()。
+// 工作台六个块（待你处理/进行中/进行项目/长期目标/产物/工具格）挂同一档 .scrollDepth()。
 // 🚨 两条前置条件缺一不可（都是会话列表 List 那个坑的教训）：
 //   ① 容器必须是 LazyVStack —— scrollTransition 只在 Lazy 容器里按元素位置算 identity，
 //      挂非 Lazy 的 VStack = 每块恒非 identity → 五个块常驻 0.965 缩放 + 0.75 不透明；
@@ -183,8 +183,8 @@ let wsView = src("qingliao/Features/Workspace/WorkspaceView.swift")
 check("工作台滚动容器是 LazyVStack（退化成非 Lazy 的 VStack = 五个块恒 0.965/0.75）",
       wsView.contains("LazyVStack(alignment: .leading, spacing: Spacing.section)")
         && wsView.components(separatedBy: "VStack(alignment: .leading, spacing: Spacing.section)").count - 1 == 1)
-check("工作台五个块各挂一次 .scrollDepth()（恰好 5 处；多一处 = 工具格内部叠了第二层）",
-      wsView.components(separatedBy: ".scrollDepth()").count - 1 == 5)
+check("工作台六个块各挂一次 .scrollDepth()（恰好 6 处；多一处 = 工具格内部叠了第二层）",
+      wsView.components(separatedBy: ".scrollDepth()").count - 1 == 6)
 check("工作台「待你处理」行也挂（修饰符挂在行上，不是包在 if 外面）",
       wsView.contains("if !pendingItems.isEmpty { pendingBoard.scrollDepth() }"))
 
