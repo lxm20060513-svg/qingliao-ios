@@ -108,7 +108,13 @@ struct SplashView: View {
         // 安全区外 mask alpha=0 → 启动页在 Home 条上方那条带整体透明（透出首页底），
         // 真机像素剖面：蓝光晕止于 95.9% 屏高 = 778pt = 812−34（底部安全区线），133 加的光晕层
         // ignoresSafeArea 画到了、却被 mask 抠掉。整层 expanded 后 pageOrigin 实测自动归 (0,0)，圆心换算不变。
-        .ignoresSafeArea() // v4.0.135：整层吃满 → mask 画布跟着全屏（必须在 .mask 之前）
+        // 🚨 v4.0.139 根因：`.ignoresSafeArea()` 是**在已经量好尺寸之后**才生效的 ——
+        //    它不会把安全区矩形改回全屏，mask 的取景框（mask 画布 = 被遮层的 bounds）仍停在
+        //    安全区矩形：洞外那层不透明只画到安全区线，线下 alpha=0，于是透出宿主白底。
+        //    真机像素剖面：分界 2454/2556 = 778pt = 812−34（正好底部安全区线；红线就画在这）。
+        //    根治 = 在**宿主**把提案改成全屏（QingliaoApp 里 `SplashView(...).ignoresSafeArea()`），
+        //    本层才会以全屏 bounds 量尺寸，mask 画布跟着全屏。
+        .ignoresSafeArea() // 兜底：单独预览时也吃满（真机路径靠宿主那条）
         // 实测本层全局原点（供圆心换算，口径同 DockTabView 的 pageOrigin）
         .background(
             GeometryReader { proxy in

@@ -217,6 +217,10 @@ struct ChatView: View {
     // 🚨 v4.0.54：对齐口径由 `.bottom`（贴底）改为 **`.top`** —— 新会话第一条气泡在最上方，
     // 后面的往下堆、排满后往上翻（用户 2026-10-05 报障原话）。
     @State private var chatListViewportH: CGFloat = 0
+    /// v4.0.139：悬浮输入区的实测总高（含底部安全区 + 10pt 呼吸）——消息流底部留白与
+    /// 上拉指示器的落位都读它。初始 94 = 收起态（安全区 34 + 呼吸 10 + 输入栏 50），
+    /// 首帧未测量前也不会把最后一条压在栏下。
+    @State private var composerOverlayH: CGFloat = 94
     /// v3.9.78：欢迎页宠物的「抚摸」反应触发器（轻点自增 → PetAvatar 播一次 ≤1.2s 反应）
     @State private var petPat = 0
     /// v3.9.78：宠物在屏幕上的真实中心（长按弹菜单时当锚点用，胶囊从宠物身上绽放）
@@ -1079,10 +1083,12 @@ struct ChatView: View {
             VStack(spacing: 0) {
                 chatHeaderBar
                 chatStatusBannerStrip
-                chatTranscriptArea
-                // v4.0.138：输入区回到 VStack 兄弟位（136 的 safeAreaInset 让键盘避让失效，
-                // 见 chatTranscriptArea 尾部注释）。layoutPriority(1) 仍只挂输入栏那层。
-                chatComposerArea
+                // v4.0.139（用户：「两个模式都要输入框悬浮在聊天内容上面，内容能滑到栏下」）：
+                // 输入区不再占 VStack 兄弟位（≤v4.0.135）、也不挂 safeAreaInset（v4.0.136 键盘
+                // 被遮的病根）—— 改「ZStack 叠加」：消息流铺满整块舞台，输入栏浮在它上面。
+                // 键盘避让仍走系统标准路径（本结构没有任何 ignoresSafeArea(.keyboard)），
+                // 键盘弹起时舞台整体收缩，输入栏随底边上移，与 135 的兄弟位行为一致。
+                chatStage
             }
         )))))))
     }
@@ -1879,6 +1885,38 @@ struct ChatView: View {
     /// 还占掉消息区顶部一行、并让流式开始/结束时整条跳一下（插拔视图）。
     /// 现在话题延续交给长按球的「AI 识别 + 语音对话胶囊」和空会话的欢迎芯片。
     /// `welcomeSuggestions` 里的续聊分支、`continueChipsBar` 视图与调用点一并删除（无残留死代码）。
+    // MARK: - v4.0.139 悬浮输入舞台（内容在下 / 输入栏浮在上）
+    /// 聊天页唯一的结构出口：消息流铺满整块舞台，输入栏叠在它上面。
+    ///
+    /// · 为什么不用 safeAreaInset（v4.0.136 真机实踩）：它挂在 **ScrollView** 上时，
+    ///   键盘弹起后的 keyboard inset 会被滚动视图当成自身内容边距消费掉，inset 里的
+    ///   输入栏不跟着上移 → 被键盘整块盖住。ZStack 不动任何 safeArea 语义：系统键盘
+    ///   避让照常压缩舞台高度，输入栏贴底 = 贴键盘顶。
+    /// · 为什么整块 `.ignoresSafeArea(.container, edges: .bottom)`：原生模式（系统 tab bar
+    ///   隐藏）与滑动模式（page TabView 把页面拦在安全区内）的容器不同，页内统一压到物理
+    ///   底边、再把底部安全区手动补给输入栏（见 chatComposerArea），两种模式几何才一致。
+    ///   ⚠️ regions 必须显式 `.container`——默认 `.all` 连 keyboard 一起忽略（v4.0.137 实踩：
+    ///   键盘弹起整页不避让，输入栏被盖）。
+    @ViewBuilder
+    private var chatStage: some View {
+        ZStack(alignment: .bottom) {
+            chatTranscriptArea
+            // 🚨 必须显式 VStack：chatComposerArea 是 @ViewBuilder 多视图（选图条/动作条/面板/
+            // 引用条/上下文条/输入栏），直接摊进 ZStack 会被当成多个子视图**叠在同一位置**
+            // （VStack 里它们才是垂直兄弟）。少这层 = 附件面板与输入栏互相盖住。
+            VStack(spacing: 0) {
+                chatComposerArea
+            }
+        }
+        .ignoresSafeArea(.container, edges: .bottom)
+        .overlay(alignment: .bottom) {
+            // 上拉拉取收件箱的指示器：浮在输入栏上沿（原来挂消息区底部，消息区铺到屏底后
+            // 会被输入栏盖住）
+            InboxPullLayer(state: inboxPull)
+                .padding(.bottom, composerOverlayH)
+        }
+    }
+
     @ViewBuilder
     private var chatTranscriptArea: some View {
         messageList
@@ -1907,10 +1945,9 @@ struct ChatView: View {
             // 输入区回到 v2.0～v4.0.135 的 VStack 兄弟位（见 body 里的 chatComposerArea），
             // 键盘避让交回系统标准路径。代价：气泡不再从输入栏背后划过 —— 用户当前口径
             //（去蒙板 / 键盘必须可用）优先于该观感。
-            .overlay(alignment: .bottom) {
-                // v3.4.0：底部上拉拉取收件箱——拖动指示器 / 拉取中 spinner / 结果 toast
-                InboxPullLayer(state: inboxPull)
-            }
+            // v4.0.139：上拉指示器移到 chatStage（消息区铺到屏底，挂这里会被输入栏盖住）
+            // v4.0.139：内容底部留白 = 悬浮输入区实测高度（见 applyMessageListScroll1 的
+            // contentMargins）——最后一条能滚出到输入栏上沿，而非永远沉在栏后。
     }
 
     /// 图片预览条/附件面板/引用条/上下文条 + 输入区
@@ -1941,7 +1978,17 @@ struct ChatView: View {
         // 由 Spacing.lg(10) 收到 **Spacing.xs(4)**。
         // v4.0.137 把它清零过（用户当时要「再下移」），v4.0.138 用户真机「原生模式输入框太靠下」
         // → 恢复 4pt 呼吸。⚠️ 只动这一个数：输入栏自身高度（v3.9.67 起 50）、水平 padding 都不动。
-        .padding(.bottom, Spacing.xs)
+        // v4.0.139：悬浮后底部安全区由页内自己补（chatStage 已 ignoresSafeArea(.container)）。
+        // 读 key window 而不是 geo.safeAreaInsets——忽略安全区后本层读到的是 0。
+        // 呼吸 4 → Spacing.lg(10)：用户「原生模式聊天界面输入框需要上移」（4pt 贴 Home 条太死）。
+        // ⚠️ 安全区只在键盘**不在**时补：键盘弹起时舞台底边已被系统抬到键盘顶，
+        //    再补 34 就是「输入栏与键盘之间一条 34pt 空隙」（v2.0.140 用户红线标注过的老病）。
+        .padding(.bottom, (kb.isVisible ? 0 : DockOrbOverlay.keyWindowSafeBottom) + Spacing.lg)
+        // v4.0.139：实测输入区总高（含上面的安全区 padding）→ 消息流底部留白 +
+        // 收起态 ≈94 / 聚焦展开 ≈140，都由布局真实算出，不写死机型。
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { h in
+            if abs(h - composerOverlayH) > 0.5 { composerOverlayH = h }
+        }
         // v4.0.138（用户 2026-10-21「滑动模式下输入框下方的蒙板没去掉」）：
         // **整条柔纱渐变删除**（v4.0.133 不透明垫层 → v4.0.134 白边消缝 → v4.0.136 柔纱 0.3/0.65
         // 一直是同一条视觉层）。用户要的是「去掉」，不是再压淡：输入区前后彻底透明，
@@ -3640,7 +3687,10 @@ struct ChatView: View {
                     // （不影响上翻历史/加载更早/贴底检测）。
                     // 别再改回 .bottom —— ql_scrollpin 真值表已把 `.top` 钉住（其余「贴底」指的是
                     // 滚动贴底判定，与这里的对齐无关）。
-                    .frame(minHeight: chatListViewportH, alignment: .top)
+                    // v4.0.139：可视高度含悬浮输入区——minHeight 要扣掉底部留白
+                    // （contentMargins 的 composerOverlayH + 10），否则短会话凭空多出
+                    // 100pt 可滚空白，「上拉拉取」要先滚过那段空区才触发。
+                    .frame(minHeight: max(0, chatListViewportH - composerOverlayH - 10), alignment: .top)
                     .id("messages")   // v2.0.39：与欢迎页分支区分身份
                 }
             .modifier(MessageListScroll1(host: self, proxy: proxy))
@@ -5370,6 +5420,8 @@ extension ChatView {
                 .animation(Motion.settle, value: chat.messages.isEmpty)   // v3.9.30：驱动欢迎页/列表切换过渡
             // v2.0.111：消息区背景透明（ScrollView 默认白底遮住上方 logo/内容）
             .scrollContentBackground(.hidden)
+            // v4.0.139 的悬浮留白 contentMargins 挂在 Scroll2（本组已满 5 条修饰器的上限，
+            // 类型栈护栏 ③′ 要求每组 ≤5；挂哪一组都是同一个 ScrollView，语义不变）。
             // v2.0.86h：Dock 滑动隐藏已删除（从未生效，手动开关替代）
             // v2.0.43：搜索定位——滚动到命中消息并高亮 2 秒
             // v3.9.58c：proxy 写回 @State（引用块跳转用）；onAppear 只跑一次，不参与 body 重算
@@ -5397,6 +5449,11 @@ extension ChatView {
     @MainActor
     private func applyMessageListScroll2<C: View>(to content: C, proxy: ScrollViewProxy) -> some View {
         content
+            // v4.0.139：悬浮输入区 —— 内容底部留白。只在**滚动内容**侧让位（contentMargins
+            // 不吃键盘 inset、不改布局），所以「输入栏悬浮」与「键盘避让」可以同时成立
+            //（v4.0.136 的 safeAreaInset 就是栽在这条分界上）。留白 = 输入区实测高 + 10pt 呼吸，
+            // 最后一条能滚到输入栏上沿，而不是永远沉在栏后。
+            .contentMargins(.bottom, composerOverlayH + 10, for: .scrollContent)
             .onScrollGeometryChange(for: CGFloat.self) { geo in
                 let maxY = geo.contentSize.height - geo.containerSize.height
                 // v3.9.48 性能：投影**先夹 0 再取整**。onScrollGeometryChange 只在投影值变化时

@@ -77,11 +77,15 @@ check("遮罩挂在启动页本层（mask），底下的首页因此一直渲染
       splash.contains(".mask(") && splash.contains("RevealHoleShape("))
 // v4.0.135：mask 画布 = 本层 bounds —— 整层不先吃满全屏，Path(rect) 只画安全区矩形，
 // 安全区外 mask alpha=0 → Home 条上方那条带整层透明（133 只给光晕层加 ignoresSafeArea 被 mask 抵消的真机教训）。
-if let a = splash.range(of: ".ignoresSafeArea() // v4.0.135"), let b = splash.range(of: ".mask(") {
-    check("🚨 整层吃满全屏的 ignoresSafeArea 在 .mask 之前（否则 mask 画布停在安全区，启动页底部透出首页底）",
-          a.lowerBound < b.lowerBound)
+// v4.0.139：135 那条「整层 ignoresSafeArea」在真机**仍不够** —— ignoresSafeArea 只改提案，
+// 不改已经量好的 bounds，mask 画布照旧停在安全区线（用户截图那条红线正好压在线上：线上淡蓝、线下纯白）。
+// 根治 = 宿主给全屏提案（QingliaoApp 那条 check 钉）；本层这条只盯「.mask 之前确实还留着 ignoresSafeArea」。
+if let b = splash.range(of: "\n        .mask(") {
+    let head = splash[..<b.lowerBound]
+    check("🚨 本层 .mask 之前必须有 ignoresSafeArea + v4.0.139 根因锚点（否则画布停在安全区线，启动页底部透出白底）",
+          head.contains(".ignoresSafeArea() // 兜底") && head.contains("v4.0.139 根因"))
 } else {
-    check("🚨 整层吃满全屏的 ignoresSafeArea 在 .mask 之前（要素缺失：v4.0.135 锚点 或 .mask）", false)
+    check("🚨 本层 .mask 之前的 ignoresSafeArea 锚点缺失（要素缺失：v4.0.139 锚点 或 .mask）", false)
 }
 check("半径起点 = 0（开场整层盖住，不会有半帧白屏/硬切）",
       splash.contains("@State private var revealRadius: CGFloat = 0"))
@@ -117,6 +121,16 @@ check("在跑的延时任务带代际令牌（视图重建后老任务不许再�
 // ── 宿主：撤层时机 + 放行 + 兜底 ────────────────────────────────────────
 check("宿主由 onRevealed 驱动撤层（不再自己按固定时长抢撤）",
       app.contains("SplashView(onRevealed: {") && app.contains("showSplash = false"))
+// v4.0.139（用户「开屏动画不满屏·红线正好断在 Home 条上方」）：
+// mask 的画布 = 被遮层的 bounds；只在 SplashView **内部** ignoresSafeArea 是量完尺寸之后才生效，
+// 画布仍停在安全区矩形 → 线下 alpha=0、透出白底。必须在宿主给全屏提案。
+// 位置断言：从 `SplashView(onRevealed:` 到 `.zIndex(10)` 这一段里必须有 `.ignoresSafeArea()`。
+check("v4.0.139 开屏铺满：宿主对 SplashView 调 .ignoresSafeArea()（mask 画布才全屏）", {
+    guard let a = app.range(of: "SplashView(onRevealed: {") else { return false }
+    let after = app[a.lowerBound...]
+    guard let z = after.range(of: ".zIndex(10)") else { return false }
+    return String(after[..<z.lowerBound]).contains(".ignoresSafeArea()")
+}())
 check("回调里**同时**放行首页各块上浮",
       app.contains("launchRise = true"))
 check("撤层用 .identity（遮罩已铺满，整层被挖空 → 瞬时撤零观感；改回 .opacity 淡出会重启「先白后切」）",

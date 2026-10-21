@@ -826,15 +826,18 @@ check("状态与动作仍留 ChatView（toggleAutoRead：关掉立刻闭嘴 + �
       && chatViewSrc.contains("if !autoReadReply { SpeechManager.shared.stop() }")
       && chatViewSrc.contains("Haptics.tap()"))
 
-// ── v4.0.138 输入区定稿（用户连报五版「没改好」之后的口径）─────────────────────
-//   136 的「悬浮柔纱 + safeAreaInset」整条撤回：
-//     · 柔纱 = 用户五版都看见的那条「蒙板」→ **删除**，不许以任何 opacity 回来；
-//     · safeAreaInset 挂在 ScrollView 上会让键盘避让失效（输入框被键盘整块盖住）→ 回 VStack 兄弟位。
-//   钉四件事（三条负断言 + 一条结构断言）：
+// ── v4.0.139 悬浮输入区定稿（用户：「两个模式都要输入框悬浮在聊天内容上面」）────────
+//   136 的 safeAreaInset 路线**永久禁用**（挂在 ScrollView 上会吃掉 keyboard inset，输入栏被
+//   键盘整块盖住）；139 换成 ZStack 叠加：消息流铺满舞台、输入栏浮在它上面，键盘避让仍走
+//   系统标准路径（舞台没有任何 ignoresSafeArea(.keyboard)）。
+//   钉六件事（前三条负断言 + 后三条结构断言）：
 //     ① chatComposerArea 链上不得有 .background(alignment: .bottom) 垫层；
 //     ② 柔纱三段渐变（pageBase 0 / 0.3 / 0.65）清零；
 //     ③ 不再用 composerFadeHeight 挂帧高（纱已删；常量留着不碍事，但不许再被消费）；
-//     ④ safeAreaInset(.bottom) { chatComposerArea } 清零 —— 输入区必须在 VStack 里。
+//     ④ safeAreaInset(.bottom) { chatComposerArea } 清零 —— 输入区不得回到 safeAreaInset；
+//     ⑤ 结构 = chatStage 的 ZStack 同时含 chatTranscriptArea / chatComposerArea（悬浮本体）；
+//     ⑥ 舞台 ignoresSafeArea 必须显式 `.container`（默认 .all 连键盘一起忽略，v4.0.137 实踩）
+//        + 滚动内容留白 contentMargins(.bottom, composerOverlayH …) 在（最后一条能滚出栏上沿）。
 //   变异自证：把任一断言对应的代码加回去 → 本条必红。
 do {
     let composerSlice: String = {
@@ -851,9 +854,25 @@ do {
           && !composerCode.contains(".opacity(0.65), location: 1)"))
     check("composerFadeHeight 不再被输入区消费（纱高当帧高 = 蒙板复发）",
           !composerCode.contains(".frame(height: ChatInputBarLayout.composerFadeHeight)"))
-    check("输入区回 VStack 兄弟位：safeAreaInset(.bottom) 清零（键盘避让失效的根因）",
+    check("输入区不得回到 safeAreaInset（键盘避让失效的根因）",
           !norm(chatViewSrc).contains(".safeAreaInset(edge: .bottom) { chatComposerArea }")
           && norm(chatViewSrc).contains("chatComposerArea"))
+    let stageSlice: String = {
+        guard let a = chatViewSrc.range(of: "private var chatStage") else { return "" }
+        let after = String(chatViewSrc[a.lowerBound...])
+        guard let end = after.range(of: "\n    }\n") else { return "" }
+        return String(after[after.startIndex..<end.upperBound])
+    }()
+    let stageCode = stripCommentLines(norm(stageSlice))
+    check("悬浮结构：chatStage 的 ZStack 同时含消息流与输入区",
+          stageCode.contains("ZStack(alignment: .bottom) {")
+          && stageCode.contains("chatTranscriptArea")
+          && stageCode.contains("chatComposerArea"))
+    check("舞台 ignoresSafeArea 显式 .container（默认 .all 连键盘一起忽略）",
+          stageCode.contains(".ignoresSafeArea(.container, edges: .bottom)")
+          && !norm(chatViewSrc).contains(".ignoresSafeArea(.keyboard"))
+    check("悬浮留白：滚动内容 contentMargins(.bottom, composerOverlayH …) 在（最后一条能滚出栏上沿）",
+          norm(chatViewSrc).contains(".contentMargins(.bottom, composerOverlayH + 10, for: .scrollContent)"))
 }
 
 print("输入栏两层化真值表：\(passCount) 通过 / \(failCount) 失败")

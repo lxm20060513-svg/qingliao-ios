@@ -246,6 +246,12 @@ struct RootView: View {
                     launchRise = true     // 放行首页各块次第上浮（2b：圆满之后才起浮）
                     showSplash = false    // 洞已铺满，瞬时撤层无感
                 })
+                // 🚨 v4.0.139（用户「开屏动画不满屏·红线上下正好断在 Home 条上方」）：
+                //    必须**在宿主**忽略安全区。SplashView 内部那句 `.ignoresSafeArea()` 是量完尺寸
+                //    之后才生效的，改不动 `.mask` 的画布 —— 画布仍停在安全区矩形，洞外那层
+                //    只画到安全区线，线下 alpha=0（透出 TabView 白底）。放在这里，提案就是全屏，
+                //    SplashView 以全屏 bounds 量尺寸，mask 画布跟着全屏。
+                .ignoresSafeArea()
                 .transition(.identity)
                 .zIndex(10)
             }

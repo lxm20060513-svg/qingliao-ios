@@ -272,9 +272,23 @@ struct ScrollPinTruthTable {
         // （scrollPinState / ChatScrollPin.next），指的是「要不要跟随滚到底」，
         // 与这段布局对齐无关，别混为一谈。
         // 判定表达式抽成闭包：正例与反向自证**共用同一份**（别写成「替换后不含原串」那种恒真自证）
+        // v4.0.139：minHeight 由 `chatListViewportH` 改成扣掉悬浮输入区留白后的值
+        //（`max(0, chatListViewportH - composerOverlayH - 10)`）——可视高度已经含输入栏区域，
+        // 不扣就会让短会话凭空多出 ~104pt 可滚空白。对齐口径仍是 `.top`，本表要钉的就是这条。
         let topAligned: (String) -> Bool = { src in
-            src.contains(".frame(minHeight: chatListViewportH, alignment: .top)")
-                && !src.contains(".frame(minHeight: chatListViewportH, alignment: .bottom)")
+            let sq = src.split(whereSeparator: { $0.isWhitespace }).joined()
+            // 逐个 `.frame(minHeight:` 看它 120 字符内跟的是 .top 还是 .bottom（不能只看"全文含不含"：
+            // 反向自证是把 .bottom 形态**追加**在正例后面，全文匹配会同时命中两者）
+            var topCount = 0, bottomCount = 0
+            var rest = Substring(sq)
+            while let r = rest.range(of: ".frame(minHeight:") {
+                let tail = rest[r.lowerBound...]
+                let seg = tail.prefix(120)
+                if seg.contains("alignment:.top)") { topCount += 1 }
+                if seg.contains("alignment:.bottom)") { bottomCount += 1 }
+                rest = tail.dropFirst(1)
+            }
+            return topCount >= 1 && bottomCount == 0
         }
         check("B7b 不满一屏时列表内容顶对齐（首条气泡在最上，非贴底）", topAligned(chatView))
 
