@@ -50,12 +50,16 @@ extension Color {
 }
 
 struct WorkspaceProjectsSection: View {
-    @Environment(AuthStore.self) private var auth
+    /// v4.0.144：数据由父视图（WorkspaceView）统一拉好再传进来 —— 同「待你处理」的 pendingItems 口径。
+    /// 🚨 为什么不再自拉：自拉版把 task 回调挂在「Group + 空态 EmptyView」上，
+    /// SwiftUI 空态不会把任何节点插入渲染层 → `.task`/`onAppear` **永不触发** → 首屏永远空
+    /// → 整块永久消失（v4.0.143 真机实测「工作台没有进行项目」，后端 projects.json 有数据、接口 200）。
+    /// 父级 `if !projects.isEmpty` 门控后，本视图拿到的一定非空，也没有空态生命周期问题。
+    let projects: [QLProject]
+    let generatedAt: Int
+
     @Environment(\.colorScheme) private var scheme
 
-    @State private var projects: [QLProject] = []
-    @State private var generatedAt = 0
-    @State private var loaded = false
     @State private var detail: QLProject?
     @State private var showAll = false
 
@@ -70,19 +74,11 @@ struct WorkspaceProjectsSection: View {
     }
 
     var body: some View {
-        Group {
-            if projects.isEmpty {
-                // 空态不摆假卡片：加载完确实没项目就整块消失（工作台不留空壳）
-                EmptyView()
-            } else {
-                VStack(alignment: .leading, spacing: Spacing.md) {
-                    header
-                    rows
-                    if projects.count > Self.maxRows { allButton }
-                }
-            }
+        VStack(alignment: .leading, spacing: Spacing.md) {
+            header
+            rows
+            if projects.count > Self.maxRows { allButton }
         }
-        .task { await load() }
         .sheet(item: $detail) { p in
             NavigationStack { ProjectDetailView(project: p) }
         }
@@ -226,18 +222,7 @@ struct WorkspaceProjectsSection: View {
         .padding(.leading, 2)
     }
 
-    // MARK: - 数据
-
-    private func load() async {
-        let r = await auth.fetchProjects()
-        guard let r else {
-            loaded = true
-            return   // 失败保留旧快照，不把抖动显示成「一个项目都没有」
-        }
-        projects = r.projects
-        generatedAt = r.generatedAt
-        loaded = true
-    }
+    // MARK: - 数据（v4.0.144：拉取上移到 WorkspaceView.loadProjects，空态由父级门控）
 }
 
 // MARK: - 全部项目列表

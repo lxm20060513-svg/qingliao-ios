@@ -43,11 +43,11 @@ check("三份源码都读到（WorkspaceView \(ws.count) 字 / Section \(sec.cou
 
 // ── 1. 挂点：工作台里恰好一处，且夹在「进行中」与「长期目标」之间 ──
 check("工作台挂 WorkspaceProjectsSection 恰好 1 处",
-      occurrences(ws, "WorkspaceProjectsSection()") == 1)
+      occurrences(ws, "WorkspaceProjectsSection(projects: projects, generatedAt: projectsGeneratedAt)") == 1)
 check("挂点上挂了 .scrollDepth()（与其余块同档，漏挂 = 它不参与滚动层次）",
-      ws.contains("WorkspaceProjectsSection().scrollDepth()"))
+      ws.contains("WorkspaceProjectsSection(projects: projects, generatedAt: projectsGeneratedAt).scrollDepth()"))
 if let iActive = ws.range(of: "activeCard.scrollDepth()"),
-   let iProj = ws.range(of: "WorkspaceProjectsSection().scrollDepth()"),
+   let iProj = ws.range(of: "WorkspaceProjectsSection(projects: projects, generatedAt: projectsGeneratedAt).scrollDepth()"),
    let iGoal = ws.range(of: "GoalsSection().scrollDepth()") {
     check("顺序 = 进行中 → 进行项目 → 长期目标",
           iActive.lowerBound < iProj.lowerBound && iProj.lowerBound < iGoal.lowerBound)
@@ -55,13 +55,19 @@ if let iActive = ws.range(of: "activeCard.scrollDepth()"),
     check("顺序 = 进行中 → 进行项目 → 长期目标（三处挂点都得在）", false)
 }
 
-// ── 2. 空态：没有项目就整块消失，不留空壳卡片 ────────────────
-check("空态走 EmptyView（不留空壳）", sec.contains("if projects.isEmpty {") && sec.contains("EmptyView()"))
+// ── 2. 空态：没有项目就整块消失，不留空壳卡片 —— 且**不许**把生命周期押在 EmptyView 上 ──
+// 🚨 v4.0.143 真机事故：`.task` 挂在「Group + 空态 EmptyView」→ 空态不插入渲染节点 →
+//    回调永不触发 → 永远拉不到数据 → 整块永久消失（后端有数据、接口 200 也没用）。
+// 现行口径 = 父级 loadProjects() 拉数据 + `if !projects.isEmpty` 门控（同 pendingItems）。
+check("空态由父级门控（空就不进渲染树，不留空壳）",
+      ws.contains("if !projects.isEmpty {\n                WorkspaceProjectsSection("))
+check("🚫 卡片自己不再有 .task/load（生命周期不能再押在可能为空的视图上）",
+      !sec.contains(".task {") && !sec.contains("func load()"))
 
 // ── 3. 拉取失败保留旧快照（抖动不许显示成「一个项目都没有」） ──
 check("fetchProjects 失败返回 nil（客户端保留旧数据）",
       kit.contains("func fetchProjects() async -> (projects: [QLProject], generatedAt: Int)?")
-      && sec.contains("guard let r else {"))
+      && ws.contains("guard let r = await auth.fetchProjects() else { return }"))
 
 // ── 4. 进度：有清单才画，没清单不编百分比 ────────────────────
 check("进度块由 hasProgress 门控（无清单不画条）", sec.contains("if project.hasProgress { progressBlock }"))

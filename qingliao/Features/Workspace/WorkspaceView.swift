@@ -110,6 +110,14 @@ struct WorkspaceView: View {
     /// v4.0.110：卡面直接停任务（原口径「停止都在任务中心」→ 用户要求任务卡上就要有停止）
     @State private var stopTarget: AuthStore.ActiveTask?
 
+    // MARK: v4.0.144 进行项目（项目台账）—— 数据在本页拉，空态不进渲染树
+    /// 为什么由父级拉：v4.0.143 自拉版把 `.task` 挂在「Group + 空态 EmptyView」上，
+    /// SwiftUI 空态不插入任何节点 → `.task` 永不触发 → 永远拉不到数据 → 整块永久消失
+    /// （用户 2026-10-21「143 版工作台没有进行项目」的根因；后端有数据、接口 200）。
+    /// 现口径同 pendingItems：本页统一拉，`if !projects.isEmpty` 才把卡片放进 LazyVStack。
+    @State private var projects: [QLProject] = []
+    @State private var projectsGeneratedAt = 0
+
     // MARK: v4.0.109 待你处理（跨会话未答问题卡）
     @State private var pendingItems: [WorkspacePendingKit.Item] = []
     /// 最多露几行（超出的走页脚汇总）——工作区不是第二个待办中心，别把第一屏撑满
@@ -194,13 +202,14 @@ struct WorkspaceView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         // v4.0.x：系统 .refreshable → 自绘液体杯子下拉刷新（用户定案）
-        .pullRefreshCup { await load(); await loadPending() }
+        .pullRefreshCup { await load(); await loadPending(); await loadProjects() }
         .task(id: isActive) {
             guard isActive else { stopActivePolling(); return }
             // v4.0.110：每次激活都刷新产物（原「仅 entries 为空才拉」= AI 新产物永远不出现的根因：
             // 首次拉过之后列表非空，AI 再生成也永不重拉）。keepOnFailure：静默刷新失败保留旧列表。
             await load(keepOnFailure: true)
             await loadPending()   // 每次进页刷新待答卡：AI 可能刚问过新问题
+            await loadProjects()  // v4.0.144：进行项目（失败保留旧快照）
             startActivePolling()  // v4.0.110：进行中卡实时轮询（本页存活期间）
         }
         .onDisappear { stopActivePolling() }
@@ -255,8 +264,11 @@ struct WorkspaceView: View {
         case .active:
             activeCard.scrollDepth()
         case .projects:
-            // 空态自己在 WorkspaceProjectsSection 里吞掉（EmptyView），不占版面
-            WorkspaceProjectsSection().scrollDepth()
+            // v4.0.144：数据由本页 loadProjects() 拉；**空态在父级门控**（不进渲染树 = 不留空壳，
+            // 也不再把生命周期押在 EmptyView 上——那是 v4.0.143 整块消失的根因）。
+            if !projects.isEmpty {
+                WorkspaceProjectsSection(projects: projects, generatedAt: projectsGeneratedAt).scrollDepth()
+            }
         case .goals:
             // v4.0.109：长期目标整块从生活页搬来（原样复用 GoalsSection，未改它一行）
             GoalsSection().scrollDepth()
@@ -798,6 +810,19 @@ struct WorkspaceView: View {
         guard let j = try? await auth.json("/api/sessions/list") else { return }
         let items = WorkspacePendingKit.parse(j)
         if items != pendingItems { withAnimation(Motion.tap) { pendingItems = items } }
+    }
+
+    /// 拉「进行项目」台账。失败**静默保留旧快照**：网络抖一下不该显示成「一个项目都没有」。
+    /// 数据 = `GET /api/agent/projects`（lucky 白名单内），由 Hermes 侧采集器 6h 一轮同步。
+    @MainActor
+    private func loadProjects() async {
+        guard let r = await auth.fetchProjects() else { return }
+        if r.projects != projects || r.generatedAt != projectsGeneratedAt {
+            withAnimation(Motion.tap) {
+                projects = r.projects
+                projectsGeneratedAt = r.generatedAt
+            }
+        }
     }
 
     // MARK: - v4.0.109 工具格（v4.0.x 起 4→6 格、**每行 4 格**排 4+2）
