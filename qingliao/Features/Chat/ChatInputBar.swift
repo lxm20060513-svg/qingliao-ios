@@ -25,6 +25,10 @@ enum ChatInputBarLayout {
     /// 落地形态 = 收进本 enum 做单一真源，四处（玻璃 in: / 聚焦蓝边 / 常态白边 / 流光）
     /// 全部引用它，仍是「不散落魔法数」；将来若要回 16 档只改这一处。
     static let containerCornerRadius: CGFloat = 26
+    /// v4.0.141 磨砂底白雾档位（用户「增加磨砂质感」）——与 dock「方案 A 磨砂」同一档（浅 0.16 / 深 0.06）。
+    /// 垫在液态玻璃**下**的 ultraThinMaterial 上，把材质从「灰玻璃」提亮成奶白磨砂；深色模式雾更小，免得发灰。
+    static let frostHazeLight: Double = 0.16
+    static let frostHazeDark: Double = 0.06
     /// 第一层（消息输入层）最小高度
     static let messageRowMinHeight: CGFloat = 42
     /// 第二层（工具层）最小高度
@@ -722,6 +726,22 @@ extension ChatInputBar {
     @MainActor
     private func applyInputBarGlassChrome<C: View>(to content: C) -> some View {
         content
+            // v4.0.141（用户 2026-10-21「增加磨砂质感」）：磨砂底。
+            // 之前只有 `.glassEffect(.regular)` 一层液态玻璃 —— 它透的是背后的消息流/图片，观感是「清水玻璃」。
+            // 磨砂要的是「背后的东西被糊掉、只剩色块」，所以在玻璃**下**垫一层 ultraThinMaterial
+            // （系统材质自带高斯模糊 + 半透明底），玻璃折射的就不再是文字而是这层材质；
+            // 再叠一层淡白雾提亮（浅 frostHazeLight 0.16 / 深 frostHazeDark 0.06，与 dock「方案 A 磨砂」同档），
+            // 深色模式雾更小避免发灰。形状仍走 containerCornerRadius 单一真源，不新增第二份几何。
+            .background {
+                RoundedRectangle(cornerRadius: ChatInputBarLayout.containerCornerRadius, style: .continuous)
+                    .fill(.ultraThinMaterial)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: ChatInputBarLayout.containerCornerRadius, style: .continuous)
+                            .fill(Color.white.opacity(scheme == .dark
+                                                      ? ChatInputBarLayout.frostHazeDark
+                                                      : ChatInputBarLayout.frostHazeLight))
+                    }
+            }
             // v2.0.87e：原生液态玻璃输入栏（iOS 26+）
             // v3.9.62：玻璃形状 Capsule → 14pt 档圆角矩形（Radius.field，输入框档）。
             // v3.9.63：v3.9.62 的写法 `.background { RoundedRectangle(...).glassEffect() }` **不成立**——

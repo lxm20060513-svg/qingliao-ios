@@ -1983,7 +1983,9 @@ struct ChatView: View {
         // 呼吸 4 → Spacing.lg(10)：用户「原生模式聊天界面输入框需要上移」（4pt 贴 Home 条太死）。
         // ⚠️ 安全区只在键盘**不在**时补：键盘弹起时舞台底边已被系统抬到键盘顶，
         //    再补 34 就是「输入栏与键盘之间一条 34pt 空隙」（v2.0.140 用户红线标注过的老病）。
-        .padding(.bottom, (kb.isVisible ? 0 : DockOrbOverlay.keyWindowSafeBottom) + Spacing.lg)
+        // v4.0.141（用户 2026-10-21「输入胶囊离底高度改为 38」）：呼吸 10 → **Spacing.xs(4)**。
+        // 38 = 底部安全区 34 + 呼吸 4，用户给的是离屏底的绝对数，不是相对量；两模式共用本式故同步生效。
+        .padding(.bottom, (kb.isVisible ? 0 : DockOrbOverlay.keyWindowSafeBottom) + Spacing.xs)
         // v4.0.139：实测输入区总高（含上面的安全区 padding）→ 消息流底部留白 +
         // 收起态 ≈94 / 聚焦展开 ≈140，都由布局真实算出，不写死机型。
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { h in

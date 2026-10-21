@@ -165,8 +165,10 @@ check("发送键仍在第一层 trailingButtons（收起态无第二层也能发
 // 展开态 96 平坦段 96 − 26×2 = 44pt，弧顶不咬第一层文字。
 check("圆角常量 20 → 26（v4.0.136 悬浮胶囊，明确数值规格，不套令牌档）",
       inputBarSrc.contains("static let containerCornerRadius: CGFloat = 26"))
-check("四处同形仍全部引用 containerCornerRadius（玻璃/蓝边/白边/流光）",
-      inputBarSrc.components(separatedBy: "cornerRadius: ChatInputBarLayout.containerCornerRadius").count - 1 == 4)
+// v4.0.141：磨砂底 + 白雾 overlay 也走同一常量 → 4 → **6**（仍是"一处常量、不散落魔法数"的口径，
+// 只把计数跟着新几何一起抬，别把它当回退）。
+check("六处同形全部引用 containerCornerRadius（玻璃/蓝边/白边/流光 + 磨砂底/白雾）",
+      inputBarSrc.components(separatedBy: "cornerRadius: ChatInputBarLayout.containerCornerRadius").count - 1 == 6)
 // 平坦段断言与算式镜像统一放在第 5 节（flatTopCollapsedMirror / flatTopMirror）——
 // 顶层代码顺序执行，此处引用后面的 let 会「cannot find ... in scope」。
 
@@ -273,6 +275,41 @@ check("旧写法清零：玻璃不挂 background{ Shape } 宿主（v3.9.62 椭�
       !inputBarSrc.contains(".background {\n            RoundedRectangle(cornerRadius: Radius.field, style: .continuous)\n                .glassEffect()\n        }"))
 check("玻璃容器不再是 Capsule（旧胶囊形态清零）",
       !inputBarSrc.contains(".background { Capsule().glassEffect() }"))
+// MARK: - v4.0.141 磨砂质感（用户 2026-10-21「增加磨砂质感」）
+// 口径：磨砂 = 背后内容被糊掉、只剩色块。只靠 `.glassEffect(.regular)` 是「清水玻璃」（透得出文字/图片），
+// 所以在玻璃**下**垫 ultraThinMaterial（系统材质自带模糊）+ 一层淡白雾提亮，与 dock「方案 A 磨砂」同档。
+// ⚠️ 必须垫在玻璃下（代码序在前），垫在玻璃上就是一块白膜（盖住高光/折射，退回 v3.9.x「实心白卡」病）。
+let glassChromeSlice: String = {
+    guard let a = inputBarSrc.range(of: "private func applyInputBarGlassChrome") else { return "" }
+    let tail = inputBarSrc[a.lowerBound...]
+    guard let b = tail.range(of: "private func applyInputBarGlowChrome") else { return String(tail.prefix(5000)) }
+    return String(tail[..<b.lowerBound])
+}()
+let glassChromeCode = stripCommentLines(norm(glassChromeSlice))
+check("磨砂底在位：容器垫 `.fill(.ultraThinMaterial)`（v4.0.141）",
+      glassChromeCode.contains(".fill(.ultraThinMaterial)"))
+// norm 会把换行压成一个空格（`)\n  .fill` → `) .fill`），所以两侧都去空格再比，别被缩进骗成假红。
+let glassChromeTight = glassChromeCode.replacingOccurrences(of: " ", with: "")
+let containerShapeTight = containerShape.replacingOccurrences(of: " ", with: "")
+check("磨砂底形状与容器同形同圆角（走 containerCornerRadius，不新增第二份几何）",
+      glassChromeTight.contains("\(containerShapeTight).fill(.ultraThinMaterial)"))
+check("磨砂底在玻璃**下**（background 块出现在 .a11yGlass 之前，否则成白膜）", {
+    guard let bg = glassChromeCode.range(of: ".background {"),
+          let gl = glassChromeCode.range(of: ".a11yGlass(") else { return false }
+    return bg.lowerBound < gl.lowerBound
+}())
+check("磨砂白雾走 Layout 常量（浅 0.16 / 深 0.06，不散落魔法数）",
+      glassChromeCode.contains("ChatInputBarLayout.frostHazeDark")
+      && glassChromeCode.contains("ChatInputBarLayout.frostHazeLight")
+      && glassChromeCode.contains("scheme == .dark")
+      && inputBarSrc.contains("static let frostHazeLight: Double = 0.16")
+      && inputBarSrc.contains("static let frostHazeDark: Double = 0.06"))
+check("磨砂底折在折叠组内，未内联回 fullInputBar（防 demangler 栈溢出）", {
+    // fullInputBar 函数体 = applyInputBarFrameChrome 之前那一段；磨砂只能出现在折叠组里
+    let scope = norm(inputBarFoldScope(inputBarSrc) ?? "")
+    let head = scope.components(separatedBy: "private func applyInputBarFrameChrome").first ?? ""
+    return !head.contains("ultraThinMaterial") && scope.contains("ultraThinMaterial")
+}())
 // fullInputBar 体内四处不得再引用 Radius 令牌做容器圆角（18 已改走 Layout 常量）——
 // 排除范围只切 fullInputBar 函数体，注释里提到的历史档名不算回退。
 check("四处同形：fullInputBar 及折叠分组内圆角全部走 containerCornerRadius（不再引用 Radius 档）",
@@ -294,8 +331,8 @@ check("流光旧形态清零：流光本体不用 Capsule().fill(",
       !inputBarSrc.contains("Capsule().fill("))
 // 四处同盘互证：玻璃/聚焦蓝边/常态白边/流光使用同一个圆角常量，四处计数都 > 0
 // v3.9.65：四处引用从 Radius.card 换成 containerCornerRadius，计数口径同步换串。
-check("四处同形：容器圆弧全部引用 containerCornerRadius（玻璃/蓝边/白边/流光）",
-      inputBarSrc.components(separatedBy: "cornerRadius: ChatInputBarLayout.containerCornerRadius").count - 1 == 4)
+check("六处同形：容器圆弧全部引用 containerCornerRadius（玻璃/蓝边/白边/流光 + 磨砂底/白雾，v4.0.141）",
+      inputBarSrc.components(separatedBy: "cornerRadius: ChatInputBarLayout.containerCornerRadius").count - 1 == 6)
 // 排除式：fullInputBar 体内不得再出现容器级 Capsule。
 // ⚠️ 只排除「容器形态」串：发送/停止/附件钮的 `in: Capsule()` 是按钮级胶囊，属既定口径不动。
 check("fullInputBar 及折叠分组内没有容器级 Capsule 描边/玻璃（按钮级 in: Capsule() 不在此列）",
@@ -479,11 +516,14 @@ check("常量与算式一致：容器垂直 padding 4（Spacing.xs，v3.9.67「�
 // v4.0.138（用户 2026-10-21「原生模式输入框太靠下」）：**恢复 4pt 呼吸**（137 清零那版过头了）。
 //        算式：收起态容器底到屏底 = ChatView 底部呼吸 4 + 容器自身总高 50（含自身 padding 4×2）
 //        = **54**（v3.9.67 是 10 + 50 = 60；137 是 0 + 50 = 50）。
+// v4.0.141（用户 2026-10-21「输入胶囊离底高度改为 38」）：呼吸 10 → **4**，胶囊下沿离屏底 = 34 + 4 = **38**。
+//        算式：收起态容器底到屏底 = 安全区 34 + 呼吸 4 + 容器自身总高 50 = 88（含安全区）。
 let composerBottomMirror: Double = 4
-check("ChatView 底部呼吸 = Spacing.xs(4) 在位（v4.0.138：137 清零后用户真机「太靠下」，恢复 4pt）",
-      chatViewSrc.contains(".padding(.bottom, Spacing.xs)"))
-check("ChatView 旧底部呼吸 Spacing.lg(10) 清零（只此一处，别处留隙不混算）",
-      !chatViewSrc.contains(".padding(.bottom, Spacing.lg)"))
+let safeBottomMirror: Double = 34
+check("ChatView 底部呼吸 = Spacing.xs(4) 在位（v4.0.141：用户要求离底 38 = 安全区 34 + 4）",
+      chatViewSrc.contains("keyWindowSafeBottom) + Spacing.xs)"))
+check("ChatView 旧底部呼吸 + Spacing.lg(10) 清零（139/140 的离底 44 已作废，别处留隙不混算）",
+      !chatViewSrc.contains("keyWindowSafeBottom) + Spacing.lg)"))
 check("分隔线在位：第一层文字区与发送键之间（vh: 0.8，全站描边口径）",
       inputBarSrc.contains("            divider\n            trailingButtons"))
 check("分隔线命中区让渡（allowsHitTesting(false)，不抢发送键点击）",
@@ -499,8 +539,10 @@ check("分隔线是独立计算属性（不内联，避免 ViewBuilder 深层推
       inputBarSrc.contains("private var divider: some View"))
 check("第一层 HStack spacing 未动（仍 8：分隔线占 0 宽，间距口径不变）",
       messageRowSlice.contains("HStack(spacing: 8)"))
-check("算式：收起态容器底到屏底 = 4 + 50 = 54pt（v3.9.67 是 10 + 50 = 60；137 是 0 + 50 = 50）",
-      abs(composerBottomMirror + collapsedContainerMirror - 54) < 0.2)
+check("算式：胶囊下沿离屏底 = 34(安全区) + 4(呼吸) = 38pt（v4.0.141 用户明确值；139/140 是 44）",
+      abs(safeBottomMirror + composerBottomMirror - 38) < 0.2)
+check("算式：收起态容器底到屏底 = 34 + 4 + 50 = 88pt（含安全区；v3.9.67 是无安全区的 60）",
+      abs(safeBottomMirror + composerBottomMirror + collapsedContainerMirror - 88) < 0.2)
 
 // MARK: - v4.0.x 录音电平反应点（voice-glow 位点：把识别器已算好的实时 RMS 接进输入栏）
 //
