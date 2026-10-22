@@ -246,35 +246,36 @@ final class HealthStore {
 
     // MARK: - 查询实现（回调里只带 Sendable 值回来；execute 一律在闭包外）
 
-    private func quantityValues(_ id: HKQuantityTypeIdentifier,
-                                kind: HealthUnitKind,
-                                from: Date, to: Date,
-                                _ done: @escaping @Sendable ([Double]) -> Void) {
-        let q = HKSampleQuery(sampleType: HKQuantityType(id),
-                              predicate: HKQuery.predicateForSamples(withStart: from, end: to, options: []),
-                              limit: HKObjectQueryNoLimit,
-                              sortDescriptors: nil) { _, samples, _ in
-            let unit = healthUnit(kind)
-            let vals = (samples as? [HKQuantitySample])?.map { $0.quantity.doubleValue(for: unit) } ?? []
-            done(vals)
-        }
-        store.execute(q)
-    }
-
+    /// 求和：`HKStatisticsQuery` 让 HealthKit 在库内聚合（原实现把一年样本全取回 Swift 再 reduce，
+    /// 心率/步数这类高频类型一年几万条，纯属白搬内存）。
     private func sum(_ id: HKQuantityTypeIdentifier, kind: HealthUnitKind, from: Date, to: Date) async -> Double? {
         await withCheckedContinuation { cont in
-            quantityValues(id, kind: kind, from: from, to: to) { vals in
-                cont.resume(returning: vals.isEmpty ? nil : vals.reduce(0, +))
+            let q = HKStatisticsQuery(quantityType: HKQuantityType(id),
+                                      quantitySamplePredicate: HKQuery.predicateForSamples(withStart: from, end: to, options: []),
+                                      options: .cumulativeSum) { _, stats, _ in
+                let unit = healthUnit(kind)
+                cont.resume(returning: stats?.sumQuantity()?.doubleValue(for: unit))
             }
+            store.execute(q)
         }
     }
 
+    /// 平均/最小/最大：同样交 HealthKit 聚合（离散类型用 discrete* 选项）
     private func stats(_ id: HKQuantityTypeIdentifier, kind: HealthUnitKind, from: Date, to: Date) async -> (avg: Double, min: Double, max: Double)? {
         await withCheckedContinuation { cont in
-            quantityValues(id, kind: kind, from: from, to: to) { vals in
-                guard !vals.isEmpty else { cont.resume(returning: nil); return }
-                cont.resume(returning: (vals.reduce(0, +) / Double(vals.count), vals.min() ?? 0, vals.max() ?? 0))
+            let q = HKStatisticsQuery(quantityType: HKQuantityType(id),
+                                      quantitySamplePredicate: HKQuery.predicateForSamples(withStart: from, end: to, options: []),
+                                      options: [.discreteAverage, .discreteMin, .discreteMax]) { _, stats, _ in
+                let unit = healthUnit(kind)
+                guard let avg = stats?.averageQuantity()?.doubleValue(for: unit),
+                      let minV = stats?.minimumQuantity()?.doubleValue(for: unit),
+                      let maxV = stats?.maximumQuantity()?.doubleValue(for: unit) else {
+                    cont.resume(returning: nil)
+                    return
+                }
+                cont.resume(returning: (avg, minV, maxV))
             }
+            store.execute(q)
         }
     }
 

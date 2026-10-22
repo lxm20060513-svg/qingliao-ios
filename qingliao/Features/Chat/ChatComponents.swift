@@ -710,15 +710,6 @@ private struct MarkdownTableView: View {
     @State private var showShare = false
     @State private var csvURL: URL?
 
-    /// 每列统一宽度（按该列最长内容估宽，中文 12pt 约 13px/字）
-    private var colWidths: [CGFloat] {
-        guard let first = rows.first else { return [] }
-        return first.indices.map { c in
-            let maxLen = rows.map { $0.indices.contains(c) ? $0[c].count : 0 }.max() ?? 0
-            return max(56, min(CGFloat(maxLen) * 13 + 22, 160))
-        }
-    }
-
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             VStack(alignment: .leading, spacing: 0) {
@@ -754,25 +745,41 @@ private struct MarkdownTableView: View {
     }
 
     /// 表格本体（拆出独立计算属性：分享按钮加入后避免 body 嵌套超 type-check 阈值）
+    ///
+    /// v4.0.149：列宽交 `Grid` 按内容对齐。原实现按「字符数 × 13pt」估宽：
+    /// 纯 ASCII 列会高估约 2 倍（13pt 是中文单字宽），长列又统一硬钳 160pt 后被折成多行，
+    /// 而两处表格（本处 + AgentCardTable）各写一份估算，口径必然漂移。
+    /// 现在只给单列上限 220pt（超长折行），其余交给系统。
     private var tableGrid: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        Grid(alignment: .leading, horizontalSpacing: 0, verticalSpacing: 0) {
             ForEach(rows.indices, id: \.self) { r in
-                HStack(spacing: 0) {
+                GridRow(alignment: .top) {
                     ForEach(rows[r].indices, id: \.self) { c in
-                        Text(rows[r][c])
-                            .font(.system(size: Typography.subhead, weight: r == 0 ? .semibold : .regular))
-                            .foregroundStyle(r == 0 ? Color.primary : Color.secondary)
-                            .padding(.horizontal, Spacing.lg)
-                            .padding(.vertical, Spacing.sm)
-                            .frame(width: colWidths.indices.contains(c) ? colWidths[c] : 80, alignment: .leading)
-                            .background(r == 0
-                                        ? Color.accentColor.opacity(Tint.faint)
-                                        : (r % 2 == 0 ? Color.primary.opacity(Tint.faint) : Color.clear))
+                        cell(r, c)
                     }
                 }
-                Divider().overlay(Color.primary.opacity(Tint.faint))
             }
         }
+        // 横滚容器里宽度是无限提案：不加 fixedSize 列会被压扁成单字宽
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
+    /// 单元格（列对齐靠 GridRow 的列宽统一；分隔线与斑马纹仍按行自绘）
+    private func cell(_ r: Int, _ c: Int) -> some View {
+        Text(rows[r][c])
+            .font(.system(size: Typography.subhead, weight: r == 0 ? .semibold : .regular))
+            .foregroundStyle(r == 0 ? Color.primary : Color.secondary)
+            .padding(.horizontal, Spacing.lg)
+            .padding(.vertical, Spacing.sm)
+            .frame(maxWidth: 220, alignment: .leading)
+            .background(r == 0
+                        ? Color.accentColor.opacity(Tint.faint)
+                        : (r % 2 == 0 ? Color.primary.opacity(Tint.faint) : Color.clear))
+            .overlay(alignment: .bottom) {
+                Rectangle()
+                    .fill(Color.primary.opacity(Tint.faint))
+                    .frame(height: 0.5)
+            }
     }
 
 }

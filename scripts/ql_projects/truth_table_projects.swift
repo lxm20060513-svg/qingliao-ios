@@ -149,14 +149,19 @@ check("缩略图走 auth.downloadFile（自动带 X-Auth-Token / WiFi·蜂窝分
       thumbSrc.contains("try await auth.downloadFile(path)"))
 check("🚫 不用 AsyncImage 拼下载口（塞不进 header = 真机全灰）",
       !thumbSrc.contains("AsyncImage") && !thumbSrc.contains("/api/files/download"))
-check("3x 下采样（几十 MB 原图不许整张进内存）",
-      thumbSrc.contains("downscale(full, to: size * 3)")
-      && thumbSrc.contains("UIGraphicsImageRenderer(size: newSize"))
+// v4.0.149：缩略图改成 ImageIO 增量解码（原口径是 UIImage(data:) 全量解码后再缩，注释写着
+// 「原图不进内存」与事实相反）。断言改为钉「从原始字节直接解缩略图」，并反向钉住禁止全量解码。
+check("3x 缩略图走 ImageIO 增量解码（几十 MB 原图不许整张解码进内存）",
+      thumbSrc.contains("Self.downsample(data, to: size * 3)")
+      && thumbSrc.contains("CGImageSourceCreateThumbnailAtIndex")
+      && thumbSrc.contains("kCGImageSourceThumbnailMaxPixelSize"))
+check("🚫 不再用 UIImage(data:) 全量解码原图",
+      !thumbSrc.contains("UIImage(data: data)"))
 check("进程内缓存（滚动/重进目录不重复下载）",
       thumbSrc.contains("NSCache<NSString, UIImage>()")
       && thumbSrc.contains("Self.cache.object(forKey: path as NSString)"))
-check("非 200 不当成功图（后端 401/500 回 JSON，UIImage 解不出要显占位）",
-      thumbSrc.contains("(200..<300).contains(code), let full = UIImage(data: data)"))
+check("非 200 / 解不出缩略图都不当成功图（401/500 回 JSON 要显占位）",
+      thumbSrc.contains("(200..<300).contains(code), let thumb = Self.downsample(data,"))
 
 // ── 11. v4.0.145 手动刷新（用户「定时10分钟刷新，app加手动刷新按钮」）──
 // 这一组的坏法都编译不报：
@@ -177,6 +182,36 @@ check("点按钮真的 await onRefresh()（不是空壳动作）",
       sec.contains("await onRefresh()"))
 check("有在飞闸门（连点不重复发请求）",
       sec.contains("guard !isRefreshing else { return }") && sec.contains("isRefreshing = false"))
+
+// ── 12. v4.0.149 清单整块「滑掉」（用户 2026-10-22「已经完成的已经滑掉的就不用显示了」）──
+// 坏法全是编译不报、真机才现：
+//   ① 存布尔而不是「本批指纹」→ 台账换批次后清单永远不回来（用户以为功能坏了）；
+//   ② 指纹用 String.hashValue → 每进程随机种子，重启后收起状态时灵时不灵；
+//   ③ 视图自己写死 AppStorage key → 两处字面量，改一处漏一处；
+//   ④ 无条件画清单（门控漏掉 batchHidden）→ 收了又出来。
+let dismissKit = src("qingliao/Core/ProjectBatchDismissal.swift")
+check("「滑掉」状态机文件在（读不到 = 下面全是空真）", dismissKit.count > 1500)
+check("指纹走 djb2（跨启动稳定）", dismissKit.contains("(h &* 33) &+ UInt64(byte)"))
+check("🚫 不用 String.hashValue 当指纹（每进程随机种子）",
+      !dismissKit.contains("hashValue") && !sec.contains("hashValue"))
+check("AppStorage key 单一真源（Core 里定义，视图不写字面量）",
+      dismissKit.contains("static let storageKey = \"workspace_projects_hidden_batch\"")
+      && !sec.contains("\"workspace_projects_hidden_batch\""))
+check("视图按常量取 @AppStorage", sec.contains("@AppStorage(ProjectBatchDismissal.storageKey)"))
+check("收起判定 = 同一批指纹（换批次自动重新显示）",
+      dismissKit.contains("map(raw)[slug] == fingerprint"))
+check("详情页清单门控含 batchHidden（收了不许再画）",
+      sec.contains("if !project.batchItems.isEmpty && !batchHidden {")
+      && !sec.contains("if !project.batchItems.isEmpty { batchBlock }"))
+check("左滑手势：只跟手左滑 + 过 72pt 才认（竖向还给 ScrollView）",
+      sec.contains("batchDragX = min(0, g.translation.width)")
+      && sec.contains("g.translation.width <= -72")
+      && sec.contains("abs(g.translation.width) > abs(g.translation.height)"))
+check("收起 / 撤销都走 Core 的单一条目写入口",
+      sec.contains("ProjectBatchDismissal.hiding(hiddenBatchRaw")
+      && sec.contains("ProjectBatchDismissal.showing(hiddenBatchRaw, slug: project.slug)"))
+check("收起后给得出撤销（真在飞，不是空壳按钮）",
+      sec.contains("showBatchUndo = true") && sec.contains("Button(\"撤销\") { undoHideBatch() }"))
 
 print("工作台「进行项目」真值表：\(passCount) 通过 / \(failCount) 失败")
 if failCount > 0 { exit(1) }

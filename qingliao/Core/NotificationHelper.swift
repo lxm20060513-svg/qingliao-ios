@@ -4,14 +4,43 @@ import UserNotifications
 // MARK: - v2.0.36 本地通知（AI 回复完成提醒等）
 
 enum NotificationHelper {
-    /// v3.4.23：App 图标角标——跟随任务中心未读数（收到任务/推送时 +1，进任务中心查看清零）
+    // MARK: - v4.0.149 通知交互（原生 category / action / 时效等级）
+    //
+    // 为什么必须注册 category：iOS 的横幅只有挂了 category 才长出操作按钮（「完成」「10 分钟后」），
+    // 之前全仓 UNNotificationCategory/UNNotificationAction 0 命中 → 定时提醒只能「点开 App」一条路。
+    // identifier 只用 ASCII 稳定串，改串等于让**已排程**的旧通知失去按钮（改完调用 reconcile 会重注册）。
+    static let reminderCategory = "qingliao_reminder_actions"
+    static let actionReminderDone = "qingliao_reminder_done"
+    static let actionReminderSnooze = "qingliao_reminder_snooze"
+    /// 「10 分钟后再响」的分钟数（动作文案与逻辑同一真源）
+    static let snoozeMinutes = 10
+
+    /// 注册通知类别（幂等；每次启动调一次即可，系统侧是覆盖语义）
+    static func registerCategories() {
+        let done = UNNotificationAction(identifier: actionReminderDone,
+                                       title: "完成",
+                                       options: [])
+        let snooze = UNNotificationAction(identifier: actionReminderSnooze,
+                                          title: "\(snoozeMinutes) 分钟后",
+                                          options: [])
+        let reminder = UNNotificationCategory(identifier: reminderCategory,
+                                              actions: [done, snooze],
+                                              intentIdentifiers: [],
+                                              options: [])
+        UNUserNotificationCenter.current().setNotificationCategories([reminder])
+    }
+
+    /// App 图标角标——跟随任务中心未读数（收到任务/推送时 +1，进任务中心查看清零）
+    /// ⚠️ 必须与 requestAuth 里的 `.badge` 授权配对：没申请过 badge 权限时 `setBadgeCount` 全程静默失败
     static func setBadge(_ count: Int) {
         UNUserNotificationCenter.current().setBadgeCount(max(0, min(count, 99)))
     }
 
     /// App 启动时请求通知权限（记录结果，便于排查通知不弹的问题）
     static func requestAuth() {
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, error in
+        // 类别要先于任何通知注册（顺序反了 → 首次启动排的提醒没有按钮）
+        registerCategories()
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
             if let error { NSLog("[NOTIFY] auth error: \(error)") }
             if !granted { NSLog("[NOTIFY] ⚠️ 通知权限被拒绝，AI 回复完成提醒将不可用") }
         }

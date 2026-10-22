@@ -12,6 +12,8 @@
 // ⚠️ 只在**蜂窝**调用（WiFi 直连不受 body 限制，别白白降画质）。
 
 import UIKit
+import ImageIO
+import UniformTypeIdentifiers
 
 enum ImageDownscale {
     /// `data:image/...` → 下采样后的 data URL。
@@ -19,23 +21,24 @@ enum ImageDownscale {
     static func dataURL(_ s: String?, maxSide: CGFloat, quality: CGFloat) -> String? {
         guard let img = s, let comma = img.firstIndex(of: ","),
               img[..<comma].hasPrefix("data:image/"),
-              let bytes = Data(base64Encoded: String(img[img.index(after: comma)...])),
-              let ui = UIImage(data: bytes) else { return nil }
-        var w = ui.size.width
-        var h = ui.size.height
-        // 已小于档位就不放大小图（放大只会变糊 + 浪费字节）
-        if max(w, h) > maxSide {
-            let scale = maxSide / max(w, h)
-            w *= scale
-            h *= scale
-        }
-        guard w > 0, h > 0 else { return nil }
-        let renderer = UIGraphicsImageRenderer(size: CGSize(width: w, height: h))
-        let resized = renderer.image { _ in
-            ui.draw(in: CGRect(x: 0, y: 0, width: w, height: h))
-        }
-        guard let d = resized.jpegData(compressionQuality: quality) else { return nil }
-        return "data:image/jpeg;base64," + d.base64EncodedString()
+              let bytes = Data(base64Encoded: String(img[img.index(after: comma)...])) else { return nil }
+        // v4.0.149：改 ImageIO 增量解码 —— 原实现 `UIImage(data:)` 先把原图整张解成位图再缩放，
+        // 4000px 的图要走 ~60MB 峰值（发送链路上一次带上几张历史图就会顶到系统内存上限）。
+        // 现在直接按档位解缩略图，峰值 ≈ 目标尺寸；小于档位的图不会放大（与旧行为一致）。
+        let srcOptions = [kCGImageSourceShouldCache: false] as CFDictionary
+        guard let src = CGImageSourceCreateWithData(bytes as CFData, srcOptions) else { return nil }
+        let thumbOptions: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: max(1, maxSide),
+        ]
+        guard let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, thumbOptions as CFDictionary) else { return nil }
+        let out = NSMutableData()
+        guard let dest = CGImageDestinationCreateWithData(out, UTType.jpeg.identifier as CFString, 1, nil) else { return nil }
+        CGImageDestinationAddImage(dest, cg, [kCGImageDestinationLossyCompressionQuality: quality] as CFDictionary)
+        guard CGImageDestinationFinalize(dest) else { return nil }
+        return "data:image/jpeg;base64," + (out as Data).base64EncodedString()
     }
 
     /// 蜂窝直连档位（与 v3.0.53 定稿一致：480px / 0.45 ≈ 20KB）——统一从这里取，别各写各的数

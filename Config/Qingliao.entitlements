@@ -4,5 +4,8 @@
 <dict>
 	<key>com.apple.developer.healthkit</key>
 	<true/>
+	<!-- v4.0.149：定时提醒用 .timeSensitive 穿透专注模式（ad-hoc 签名下若系统不认，会静默降级成普通通知） -->
+	<key>com.apple.developer.usernotifications.time-sensitive</key>
+	<true/>
 </dict>
 </plist>

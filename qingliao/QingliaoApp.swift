@@ -153,6 +153,9 @@ struct QingliaoApp: App {
     init() {
         // v2.0.43：崩溃捕获（写本地文件），登录后由 RootView 上报
         CrashReporter.install()
+        // v4.0.149：再挂一条 MetricKit 通道（系统侧符号化崩溃/卡顿诊断 → 现有 diag 队列）。
+        // 只做补充：自研 handler 与看门狗负责「当场复现」，MetricKit 负责「次日复盘」。
+        MetricKitBridge.install()
         // v4.0.x：老设备一次性把压缩阈值从历史旧默认 4000 迁到 6000。
         // 必须在 App 起来就做——@AppStorage 只在键不存在时才用新默认值，键还在就照旧值渲染设置页。
         ContextTuning.migrateIfNeeded()
@@ -402,7 +405,6 @@ struct CrashAlertSheet: View {
     // v3.4.25：false = 设置页复用形态（无「忽略」键，点完成不删日志，防误删可回查）
     var allowDismiss: Bool = true
     @Environment(\.dismiss) private var dismiss
-    @State private var showExporter = false
     @State private var copied = false
 
     var body: some View {
@@ -452,9 +454,9 @@ struct CrashAlertSheet: View {
                     .font(.system(size: Typography.body, weight: .semibold))
                 }
                 .buttonStyle(.plain)
-                Button {
-                    showExporter = true
-                } label: {
+                // v4.0.149：原生 ShareLink 取代「.sheet + UIActivityViewController」——
+                // 少一个 representable、iPad 锚点与呈现层级交给系统（原先靠 .sheet 包一层）。
+                ShareLink(item: logText) {
                     HStack {
                         Spacer()
                         Label("导出日志", systemImage: "square.and.arrow.up")
@@ -485,10 +487,6 @@ struct CrashAlertSheet: View {
             Spacer()
         }
         .padding(18)
-        // v3.4.25：iOS 16+ 系统 UIActivityViewController 封装（AirDrop/备忘录/文件等全分享面板）
-        .sheet(isPresented: $showExporter) {
-            ActivityShareSheet(items: [logText])
-        }
     }
 
     /// 日志预览本体（两稿共用）：最多前 12 行，等宽小字。

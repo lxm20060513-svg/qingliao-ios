@@ -1,4 +1,5 @@
 import SwiftUI
+import Charts
 
 // MARK: - v4.0.45 待做池④：生活数据可视化报表
 //
@@ -12,10 +13,10 @@ import SwiftUI
 // 用的是同一套只算「元」的支出口径，**视图里一行业务聚合都不写**（否则图和列表会对不上，
 // 而且是那种"看着都合理"的错）。
 //
-// 为什么手绘 Path 而不引 Swift Charts：本机无 iOS SDK，只有 `swiftc -parse`（纯语法、不做
-// 类型检查），Charts 的 API 形态错只有 CI Archive 才炸（本仓反复踩过）。手绘只用最稳的
-// Path / GeometryReader 原语，把「本地查不出类型错」的风险压到最低。两块图都用 RecordKit
-// 的纯函数喂数，所以图本身逻辑也进了真值表（scripts/ql_report）。
+// v4.0.149：两张图改 Swift Charts（原为手绘 Path）。换的理由：手绘版没有坐标轴、没有点选、
+// 没有 VoiceOver 数值（只能看形状），且环图扇段角度是手算的。Charts 由系统排版/命中/无障碍，
+// 观感仍按原口径（隐藏坐标轴、渐变面积、内圈占比与线宽沿用定稿值）。
+// 数据口径不变：仍然只吃 RecordKit 的纯函数输出，视图里不做业务聚合（真值表照旧钉着）。
 
 struct RecordReportSheet: View {
     @State private var store = RecordStore.shared
@@ -172,14 +173,32 @@ private struct ExpenseLineChart: View {
     let series: [RecordKit.DayPoint]
 
     private let chartHeight: CGFloat = 120
-    private let pad: CGFloat = 6
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            GeometryReader { geo in
-                chart(in: geo.size)
+            Chart(series.indices, id: \.self) { i in
+                AreaMark(x: .value("第几天", i), y: .value("支出", series[i].expense))
+                    .interpolationMethod(.catmullRom)
+                    .foregroundStyle(LinearGradient(colors: [Color.accentColor.opacity(0.26),
+                                                             Color.accentColor.opacity(0.02)],
+                                                    startPoint: .top, endPoint: .bottom))
+                LineMark(x: .value("第几天", i), y: .value("支出", series[i].expense))
+                    .interpolationMethod(.catmullRom)
+                    .foregroundStyle(Color.accentColor)
+                    .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+                if series[i].expense > 0 {
+                    PointMark(x: .value("第几天", i), y: .value("支出", series[i].expense))
+                        .foregroundStyle(Color.accentColor)
+                        .symbolSize(18)
+                }
             }
+            // 观感沿用定稿：无轴、无图例；Y 轴顶到峰值（peak == 0 时给 1，绝不做除数）
+            .chartXAxis(.hidden)
+            .chartYAxis(.hidden)
+            .chartLegend(.hidden)
+            .chartYScale(domain: 0...max(RecordKit.seriesPeak(series), 1))
             .frame(height: chartHeight)
+            .accessibilityLabel("近 \(series.count) 天支出趋势")
             HStack {
                 if let first = series.first { Text(first.label) }
                 Spacer()
@@ -192,53 +211,6 @@ private struct ExpenseLineChart: View {
             .monospacedDigit()
         }
     }
-
-    @ViewBuilder
-    private func chart(in size: CGSize) -> some View {
-        let peak = RecordKit.seriesPeak(series)
-        let n = series.count
-        let stepX = n > 1 ? size.width / CGFloat(n - 1) : 0
-        let h = size.height
-        ZStack {
-            if n > 1 {
-                Path { p in
-                    p.move(to: CGPoint(x: 0, y: h))
-                    for i in series.indices {
-                        p.addLine(to: CGPoint(x: CGFloat(i) * stepX, y: yPos(series[i].expense, peak: peak, height: h)))
-                    }
-                    p.addLine(to: CGPoint(x: CGFloat(n - 1) * stepX, y: h))
-                    p.closeSubpath()
-                }
-                .fill(LinearGradient(colors: [Color.accentColor.opacity(0.26),
-                                              Color.accentColor.opacity(0.02)],
-                                     startPoint: .top, endPoint: .bottom))
-                Path { p in
-                    p.move(to: CGPoint(x: 0, y: yPos(series[0].expense, peak: peak, height: h)))
-                    for i in series.indices.dropFirst() {
-                        p.addLine(to: CGPoint(x: CGFloat(i) * stepX, y: yPos(series[i].expense, peak: peak, height: h)))
-                    }
-                }
-                .stroke(Color.accentColor,
-                        style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
-            }
-            ForEach(series.indices, id: \.self) { i in
-                if series[i].expense > 0 {
-                    Circle()
-                        .fill(Color.accentColor)
-                        .frame(width: 5, height: 5)
-                        .position(x: CGFloat(i) * stepX, y: yPos(series[i].expense, peak: peak, height: h))
-                }
-            }
-        }
-    }
-
-    /// 值 → Y 坐标（峰值归一，顶部留 pad）。peak == 0 时贴底，**绝不做除数**。
-    private func yPos(_ value: Double, peak: Double, height: CGFloat) -> CGFloat {
-        let usable = max(height - pad * 2, 1)
-        guard peak > 0 else { return height }
-        let ratio = min(max(value, 0) / peak, 1)
-        return pad + usable * CGFloat(1 - ratio)
-    }
 }
 
 // MARK: - 分类环图（纯 Path 手绘）
@@ -247,8 +219,7 @@ private struct ExpenseLineChart: View {
 private struct DonutSector: Identifiable {
     let id: String
     let category: String
-    let start: Double   // 度，-90 = 12 点方向
-    let end: Double
+    let amount: Double
 }
 
 private struct CategoryDonut: View {
@@ -261,14 +232,7 @@ private struct CategoryDonut: View {
     private var radius: CGFloat { size / 2 - lineWidth / 2 - 2 }
 
     private var sectors: [DonutSector] {
-        var out: [DonutSector] = []
-        var acc = -90.0
-        for t in totals where t.amount > 0 {
-            let span = t.amount / max(total, 0.0001) * 360
-            out.append(DonutSector(id: t.id, category: t.category, start: acc, end: acc + span))
-            acc += span
-        }
-        return out
+        totals.filter { $0.amount > 0 }.map { DonutSector(id: $0.id, category: $0.category, amount: $0.amount) }
     }
 
     var body: some View {
@@ -278,17 +242,15 @@ private struct CategoryDonut: View {
                     .stroke(Color.secondary.opacity(0.15), lineWidth: lineWidth)
                     .frame(width: radius * 2, height: radius * 2)
             } else {
-                ForEach(sectors) { s in
-                    Path { p in
-                        p.addArc(center: CGPoint(x: size / 2, y: size / 2),
-                                 radius: radius,
-                                 startAngle: .degrees(s.start),
-                                 endAngle: .degrees(s.end),
-                                 clockwise: false)
-                    }
-                    .stroke(RecordCategoryColor.tint(s.category),
-                            style: StrokeStyle(lineWidth: lineWidth, lineCap: .butt))
+                Chart(sectors) { s in
+                    SectorMark(angle: .value("金额", s.amount),
+                               innerRadius: .ratio(0.56),
+                               angularInset: 1.5)
+                        .foregroundStyle(RecordCategoryColor.tint(s.category))
                 }
+                .chartLegend(.hidden)
+                .frame(width: size, height: size)
+                .accessibilityLabel("本月分类占比")
             }
             VStack(spacing: 2) {
                 Text("本月")

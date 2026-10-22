@@ -35,26 +35,9 @@ struct LongReplySheet: View {
 
     @State private var showTOC = false
     @State private var memoSaved = false
-    @State private var shareItems: [Any] = []
-
-    /// v3.9.86：同宿主互斥铁律——本 sheet 已在屏上时再 present 分享面板会被静默吞掉
-    /// （链式 `.sheet` 两个同时为真只生效一个）。改走「先收阅读 sheet、下一轮 present 分享」。
-    /// 大纲抽屉是本 sheet **内部**的一层（不是第二个 sheet），所以不参与互斥。
-    private func presentShare() {
-        shareItems = [payload.text]
-        Task { @MainActor in
-            dismiss()
-            try? await Task.sleep(for: .milliseconds(450))
-            guard let root = UIApplication.shared.connectedScenes
-                .compactMap({ $0 as? UIWindowScene }).first?.windows.first?.rootViewController else { return }
-            let av = UIActivityViewController(activityItems: shareItems, applicationActivities: nil)
-            if let pop = av.popoverPresentationController {
-                pop.sourceView = root.view
-                pop.sourceRect = CGRect(x: root.view.bounds.midX, y: root.view.bounds.midY, width: 1, height: 1)
-            }
-            root.present(av, animated: true)
-        }
-    }
+    // v4.0.149：分享改原生 `ShareLink` —— 删掉了「先 dismiss、睡 450ms、再手挖 rootViewController
+    // present(UIActivityViewController)」这一整串。ShareLink 在 sheet 内直接呈现，iPad 锚点由系统管，
+    // 也不再有「同宿主两个 sheet 互斥被吞」的问题（v3.9.86 那套绕行一并作废）。
 
     /// 章节切分：按 markdown 标题逐条切（与「章节列表」同源）；无标题时整条作为一章，
     /// 保证纯段落长回复也能进阅读模式。
@@ -232,7 +215,10 @@ struct LongReplySheet: View {
                 UIPasteboard.general.string = payload.text
                 Haptics.success()
             }
-            actionPill("分享", "square.and.arrow.up") { presentShare() }
+            ShareLink(item: payload.text) {
+                pillLabel("分享", "square.and.arrow.up")
+            }
+            .buttonStyle(.plain)
             actionPill(speaking ? "停止" : "朗读", speaking ? "stop.fill" : "speaker.wave.2.fill") {
                 if speaking {
                     SpeechManager.shared.stop()
@@ -249,6 +235,16 @@ struct LongReplySheet: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
+    }
+
+    /// 胶囊外观（Button 与 ShareLink 共用同一份视觉，避免「同一种动作两种长相」）
+    private func pillLabel(_ title: String, _ icon: String) -> some View {
+        Label(title, systemImage: icon)
+            .font(.system(size: 13, weight: .medium))
+            .fixedSize()
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(Color.primary.opacity(Tint.subtle), in: Capsule())
     }
 
     private func actionPill(_ title: String, _ icon: String, action: @escaping () -> Void) -> some View {

@@ -103,10 +103,6 @@ enum MarkdownRenderer {
     }
 
     // MARK: - 预编译正则（避免每行重复创建 NSRegularExpression）
-    /// 行内语法：**加粗** `代码` *斜体* [链接](url)
-    private static let inlineRegex: NSRegularExpression? = {
-        try? NSRegularExpression(pattern: #"\*\*.+?\*\*|`[^`]+?`|\*[^*]+?\*|\[[^\]]+\]\([^)]+\)"#)
-    }()
     /// 有序列表行首：1. / 1、/ 12. 等
     private static let orderedListRegex: NSRegularExpression? = {
         try? NSRegularExpression(pattern: #"^\d+[\.、]\s"#)
@@ -121,45 +117,35 @@ enum MarkdownRenderer {
     // v4.0 fix：NSMutableAttributedString.append 是摊销 O(1)，替代 AttributedString += 的 O(n) 拷贝；
     // 首次渲染从 O(n²) 降为 O(n)（n = 行内文本字符数）
     private static func renderInline(_ text: String, _ font: UIFont, _ color: UIColor) -> AttributedString {
-        let ns = text as NSString
-        guard let re = inlineRegex else {
-            return styled(text, font, color)
-        }
+        // v4.0.149：行内语法交给系统 markdown 解析器（`AttributedString(markdown:)`）。
+        // 换掉原来「一条正则 + 手切区间」的实现，修掉三类确定性缺陷：
+        //   ① 不支持嵌套（`**粗 *斜***` 只认外层）；
+        //   ② 不认转义（正文里的 `\*` 会被当成斜体标记）；
+        //   ③ 正文里成对的星号（`a * b * c`）会被误判成斜体。
+        // 解析结果里的 `inlinePresentationIntent` 只用来定字体（粗/斜/等宽），配色与裸链识别仍走自家口径。
+        let options = AttributedString.MarkdownParsingOptions(
+            interpretedSyntax: .inlineOnlyPreservingWhitespace,
+            failurePolicy: .returnPartiallyParsedIfPossible)
+        let parsed = (try? AttributedString(markdown: text, options: options)) ?? AttributedString(text)
         let out = NSMutableAttributedString()
-        var pos = 0
-        for m in re.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
-            let r = m.range
-            if r.location > pos {
-                out.append(NSAttributedString(renderPlainWithLinks(ns.substring(with: NSRange(location: pos, length: r.location - pos)), font, color)))
+        for run in parsed.runs {
+            let slice = String(parsed[run.range].characters)
+            guard !slice.isEmpty else { continue }
+            if let url = run.link {
+                out.append(NSAttributedString(linkText(slice, url.absoluteString, font)))
+                continue
             }
-            let token = ns.substring(with: r)
-            if token.hasPrefix("**"), token.hasSuffix("**") {
-                out.append(NSAttributedString(string: String(token.dropFirst(2).dropLast(2)),
-                                              attributes: [.font: UIFont.systemFont(ofSize: font.pointSize, weight: .bold),
-                                                           .foregroundColor: color]))
-            } else if token.hasPrefix("`"), token.hasSuffix("`") {
-                out.append(NSAttributedString(string: String(token.dropFirst().dropLast()),
-                                              attributes: [.font: UIFont.monospacedSystemFont(ofSize: font.pointSize - 1, weight: .regular),
-                                                           .foregroundColor: color]))
-            } else if token.hasPrefix("*"), token.hasSuffix("*") {
-                out.append(NSAttributedString(string: String(token.dropFirst().dropLast()),
-                                              attributes: [.font: UIFont.italicSystemFont(ofSize: font.pointSize),
-                                                           .foregroundColor: color]))
-            } else if token.hasPrefix("[") {
-                // [text](url) → 蓝色 + .link 属性（v3.4.28：Text/UITextView 点击可开浏览器）
-                let body = String(token.dropFirst().dropLast())
-                if let close = body.range(of: "](") {
-                    let label = String(body[..<close.lowerBound])
-                    var urlStr = String(body[close.upperBound...])
-                    // 相对/无 scheme 的 url 补 https（防点击无效）
-                    if !urlStr.contains("://") { urlStr = "https://" + urlStr }
-                    out.append(NSAttributedString(linkText(label, urlStr, font)))
+            var f = font
+            if let intent = run.inlinePresentationIntent {
+                if intent.contains(.stronglyEmphasized) {
+                    f = UIFont.systemFont(ofSize: font.pointSize, weight: .bold)
+                } else if intent.contains(.emphasized) {
+                    f = UIFont.italicSystemFont(ofSize: font.pointSize)
+                } else if intent.contains(.code) || intent.contains(.keyboard) {
+                    f = UIFont.monospacedSystemFont(ofSize: font.pointSize - 1, weight: .regular)
                 }
             }
-            pos = r.location + r.length
-        }
-        if pos < ns.length {
-            out.append(NSAttributedString(renderPlainWithLinks(ns.substring(from: pos), font, color)))
+            out.append(NSAttributedString(renderPlainWithLinks(slice, f, color)))
         }
         return AttributedString(out)
     }

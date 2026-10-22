@@ -98,9 +98,14 @@ check("④ 大纲层走材质，不是 secondarySystemGrouped 实底",
 
 // MARK: 5. 同宿主互斥（分享）
 check("⑤ 分享不再挂第二个 .sheet（会被静默吞掉）", !sheetCode.contains("ActivityShareSheet"))
-check("⑤ 分享走「先 dismiss 再 present」", sheetCode.contains("dismiss()") && sheetCode.contains("UIActivityViewController"))
-check("⑤ 分享前有延时等 sheet 退场（同宿主铁律的既有口径）",
-      sheetCode.contains("milliseconds(450)"))
+// v4.0.149：分享改原生 ShareLink —— 原先「先 dismiss、睡 450ms、再手挖 rootViewController
+// present(UIActivityViewController)」的整套绕行作废（ShareLink 在 sheet 内直接呈现，
+// iPad 锚点与呈现层级都由系统管）。断言翻成：必须走 ShareLink，且不许再手挖 rootViewController。
+check("⑤ 分享走原生 ShareLink（不再手挖 rootViewController 弹面板）",
+      sheetCode.contains("ShareLink(item: payload.text)")
+      && !sheetCode.contains("rootViewController"))
+check("⑤ 分享前不再需要延时等 sheet 退场（ShareLink 不占第二个 sheet）",
+      !sheetCode.contains("milliseconds(450)"))
 
 // MARK: 6. 大纲是本 sheet 内部一层
 check("⑥ 大纲不新建 sheet（是覆盖层）", sheetCode.contains("tocOverlay"))

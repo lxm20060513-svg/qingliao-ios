@@ -5554,6 +5554,11 @@ extension ChatView {
     @MainActor
     private func applyMessageListScroll3<C: View>(to content: C, proxy: ScrollViewProxy) -> some View {
         content
+            // v4.0.149：原生初始锚定 —— 「进会话从头滑到底」的根因是首帧 LazyVStack 未布局，
+            // 手动 scrollTo 静默 no-op（v4.0.148 只能靠五拍重试兜）。这里让**布局层**保证初始位置，
+            // 只开 .initialOffset（不碰 .sizeChanges：用户上翻读历史时不能被内容长高拽走）。
+            // 五拍重试保留 —— 它兜的是「切会话时数据后到」，与本锚定不冲突。
+            .defaultScrollAnchor(.bottom, for: .initialOffset)
             .onChange(of: chat.messages.count) { oldCount, _ in
                 // v4.0.37：append（自己发出 / 回答落库）本来就意味着「要跟着看」——把贴底态一并复位。
                 // 否则上一轮遗留的 unpinned 会让随后整段流式的自动滚底全部熄火（真机「贴底没效果」的一支）。

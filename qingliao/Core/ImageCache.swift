@@ -194,7 +194,12 @@ private enum RemoteDiskCache {
     nonisolated(unsafe) private static var touchTimes: [String: Date] = [:]
     @discardableResult
     private static func touch(_ url: URL) -> Bool {
-        touchTimes[url.lastPathComponent] = Date()
+        let now = Date()
+        touchTimes[url.lastPathComponent] = now
+        // v4.0.149 修：以前只记内存表、从不改文件时间戳。重启后 touchTimes 清空 → lastAccess 回退到
+        // contentModificationDate（= 写入时刻，永不更新）→ 所谓 LRU 实际按**写入时间**淘汰（FIFO），
+        // 刚看过的图可能先被删。这里真写一次修改时间（一次 stat + setattr，可忽略）。
+        try? FileManager.default.setAttributes([.modificationDate: now], ofItemAtPath: url.path)
         return true
     }
 

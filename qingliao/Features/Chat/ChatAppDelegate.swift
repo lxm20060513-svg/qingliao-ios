@@ -289,6 +289,16 @@ final class QingliaoAppDelegate: NSObject, UIApplicationDelegate,
         if let sid = response.notification.request.content.userInfo["qingliao_session"] as? String {
             UserDefaults.standard.set(sid, forKey: "qingliao_open_session")
         }
+        // v4.0.149：横幅原生动作（「完成」/「10 分钟后」）——先回 completion（系统对回调有时限），
+        // 再回主线程改本地状态/重排通知。动作串与 NotificationHelper 同一真源。
+        let action = response.actionIdentifier
+        if action == NotificationHelper.actionReminderDone
+            || action == NotificationHelper.actionReminderSnooze {
+            let rid = response.notification.request.content.userInfo["qingliao_reminder"] as? String
+            Task { @MainActor in
+                await QuickReminderStore.shared.handleNotificationAction(action, reminderID: rid)
+            }
+        }
         completionHandler()
     }
 
@@ -304,7 +314,9 @@ final class QingliaoAppDelegate: NSObject, UIApplicationDelegate,
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
                                             willPresent notification: UNNotification,
                                             withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
-        completionHandler([.banner, .sound])
+        // v4.0.149：补 .list —— 只有 .banner 时前台响过即彻底消失（通知中心里查不到，错过就没了）。
+        // 仍然不给 .badge：角标由 NotificationHelper.setBadge 按未读数整体对账，系统再 +1 会双计数。
+        completionHandler([.banner, .list, .sound])
     }
 }
 

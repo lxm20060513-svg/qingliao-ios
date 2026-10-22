@@ -308,12 +308,39 @@ struct ProjectDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var scheme
 
+    /// v4.0.149（用户：「已经完成的已经滑掉的就不用显示了」）：左滑「清单」整块 → 收起本批清单。
+    /// 状态按 slug + 本批指纹存（见 ProjectBatchDismissal）：台账换批次 → 指纹变 → 清单自动回来。
+    @AppStorage(ProjectBatchDismissal.storageKey) private var hiddenBatchRaw = ""
+    @State private var batchDragX: CGFloat = 0
+    @State private var showBatchUndo = false
+
+    private var batchEntries: [ProjectBatchDismissal.Entry] {
+        project.batchItems.map { ProjectBatchDismissal.Entry(title: $0.title, done: $0.done) }
+    }
+
+    private var batchFingerprint: String {
+        ProjectBatchDismissal.fingerprint(batchEntries)
+    }
+
+    /// 本批清单是否已收起（只认「同一批」；清单内容一变就自动重新出现）
+    private var batchHidden: Bool {
+        ProjectBatchDismissal.isHidden(hiddenBatchRaw, slug: project.slug, fingerprint: batchFingerprint)
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Spacing.xxl) {
                 head
                 if project.hasProgress { progressBlock }
-                if !project.batchItems.isEmpty { batchBlock }
+                if !project.batchItems.isEmpty && !batchHidden {
+                    batchBlock
+                        .offset(x: batchDragX)
+                        .gesture(batchSwipe)
+                        .transition(.asymmetric(insertion: .opacity,
+                                                removal: .move(edge: .leading).combined(with: .opacity)))
+                        .accessibilityHint("左滑收起这批清单")
+                }
+                if showBatchUndo { batchUndoRow }
                 if !project.recentCommits.isEmpty { commitsBlock }
                 if !project.recentReleases.isEmpty { releasesBlock }
                 repoBlock
@@ -372,6 +399,58 @@ struct ProjectDetailView: View {
             .foregroundStyle(.secondary)
             .lineLimit(1)
         }
+    }
+
+    /// 左滑收起清单（v4.0.149）：只跟手左滑，过 72pt 才认；竖向手势一律还给 ScrollView
+    private var batchSwipe: some Gesture {
+        DragGesture(minimumDistance: 24)
+            .onChanged { g in
+                guard abs(g.translation.width) > abs(g.translation.height) else { return }
+                batchDragX = min(0, g.translation.width)
+            }
+            .onEnded { g in
+                let isHorizontal = abs(g.translation.width) > abs(g.translation.height)
+                if isHorizontal && g.translation.width <= -72 {
+                    hideBatch()
+                } else {
+                    withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) { batchDragX = 0 }
+                }
+            }
+    }
+
+    private func hideBatch() {
+        // 块马上被移出视图树，先归零：撤销 / 换批次后重新出现时不能带着旧位移
+        batchDragX = 0
+        withAnimation(.easeOut(duration: 0.22)) {
+            hiddenBatchRaw = ProjectBatchDismissal.hiding(hiddenBatchRaw,
+                                                          slug: project.slug,
+                                                          fingerprint: batchFingerprint)
+            showBatchUndo = true
+        }
+    }
+
+    private func undoHideBatch() {
+        withAnimation(.easeOut(duration: 0.22)) {
+            hiddenBatchRaw = ProjectBatchDismissal.showing(hiddenBatchRaw, slug: project.slug)
+            showBatchUndo = false
+        }
+    }
+
+    /// 收起后的撤销口：只在本页停留期间出现（离开再进来就只剩干净版面，不再常驻一行提示）
+    private var batchUndoRow: some View {
+        HStack(spacing: Spacing.sm) {
+            Image(systemName: "eye.slash")
+                .font(.system(size: 12, weight: .medium))
+            Text("这批清单已收起")
+                .font(.system(size: Typography.tiny))
+            Spacer(minLength: 0)
+            Button("撤销") { undoHideBatch() }
+                .font(.system(size: Typography.tiny, weight: .semibold))
+                .buttonStyle(.plain)
+                .foregroundStyle(Color(hexString: project.colorHex))
+        }
+        .foregroundStyle(.secondary)
+        .transition(.opacity)
     }
 
     private var batchBlock: some View {

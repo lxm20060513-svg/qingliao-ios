@@ -13,8 +13,8 @@
 //   · 就绪门槛：有支出的**不同日期数** ≥ reportMinDays(7) 才画趋势；否则引导卡（不出空图）
 //   · 同源对拍：窗口逐日合计 == 本月合计 == 分类占比合计（图表数字必须与列表同源）
 //   · 零值/单点不崩：空账本、单点、days=0 都不许除零、不许画假趋势
-//   · 源级：报表视图必须调 RecordKit 的纯函数喂数，**禁视图内二次聚合**；折线(addLine)与
-//     环图(addArc)都必须在；入口已接线。
+//   · 源级：报表视图必须调 RecordKit 的纯函数喂数，**禁视图内二次聚合**；折线(LineMark)与
+//     环图(SectorMark)都必须在（v4.0.149 起改 Swift Charts，手绘 addLine/addArc 退役）；入口已接线。
 //
 // A–D 段真编译真跑 qingliao/Core/RecordKit.swift（与实现同一份文件 → 没有表/实现漂移的洞）；
 // E 段用剥注释的源级断言钉接线（UI 测不到，靠源码形态兜底）。
@@ -275,8 +275,13 @@ enum ReportTruthTable {
         check("源级：禁视图内二次聚合（无 reduce / 无对 store.records 过滤求和）",
               !reportCode.contains(".reduce(") && !reportCode.contains("store.records.filter"))
         positives += 1
-        check("源级：折线与环图都真在画（addLine + addArc 都在）",
-              reportCode.contains("addLine(") && reportCode.contains("addArc("))
+        // v4.0.149：两张图改 Swift Charts —— 断言改为「真用 Charts 的 mark」，并反向钉住手绘退役
+        // （只写正向挡不住有人把 Path 手绘再塞回来，那会变成两套图并存）。
+        check("源级：折线走 LineMark、环图走 SectorMark（Swift Charts）",
+              reportCode.contains("LineMark(") && reportCode.contains("SectorMark(")
+              && reportCode.contains("AreaMark("))
+        check("源级：手绘 addLine/addArc 已退役（不许两套图画法并存）",
+              !reportCode.contains("addLine(") && !reportCode.contains("addArc("))
         positives += 1
         check("源级：入口已接线（.sheet(isPresented: $showReport) { RecordReportSheet() }）",
               sectionCode.contains(".sheet(isPresented: $showReport) { RecordReportSheet() }"))

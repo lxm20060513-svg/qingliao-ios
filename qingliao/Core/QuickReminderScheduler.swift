@@ -114,7 +114,8 @@ final class QuickReminderStore {
 
     private func requestAuthFromSystem() async -> Bool {
         await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
-            UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, error in
+            // v4.0.149：补 .badge —— NotificationHelper.setBadge 一直在设角标，没有这项授权等于全程静默失败
+            UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
                 if let error { NSLog("[REMIND] auth error: \(error)") }
                 cont.resume(returning: granted)
             }
@@ -207,6 +208,10 @@ final class QuickReminderStore {
         content.body = copy.body
         content.sound = .default
         content.threadIdentifier = "qingliao_reminder"
+        // v4.0.149：横幅原生操作（完成 / 10 分钟后）+ 时效等级（穿透专注模式）。
+        // 后者需要 Time Sensitive Notifications 能力；缺 entitlement 时系统会降级成普通通知，不会报错。
+        content.categoryIdentifier = NotificationHelper.reminderCategory
+        content.interruptionLevel = .timeSensitive
         content.userInfo = ["qingliao_reminder": item.id]
         let trigger = UNCalendarNotificationTrigger(dateMatching: item.triggerComponents,
                                                     repeats: item.rule.repeats)
@@ -226,6 +231,52 @@ final class QuickReminderStore {
                 }
             }
         }
+    }
+
+    // MARK: - 通知动作（v4.0.149：横幅上的「完成 / 10 分钟后」）
+
+    /// 系统回调分发：只有带 `qingliao_reminder` 的通知才处理（收件箱/回复类通知的点击不受影响）
+    func handleNotificationAction(_ actionIdentifier: String, reminderID: String?) async {
+        guard let id = reminderID, let item = items.first(where: { $0.id == id }) else { return }
+        switch actionIdentifier {
+        case NotificationHelper.actionReminderDone:
+            await markDone(item)
+        case NotificationHelper.actionReminderSnooze:
+            await snooze(item, minutes: NotificationHelper.snoozeMinutes)
+        default:
+            break   // 默认点击（打开 App）不改提醒状态
+        }
+    }
+
+    /// 「完成」：撤挂起 + 撤已弹出 + 标 fired。重复提醒也一并停 —— 用户点完成就是要它别再响。
+    private func markDone(_ item: QuickReminder) async {
+        let center = UNUserNotificationCenter.current()
+        center.removePendingNotificationRequests(withIdentifiers: [item.notificationIdentifier])
+        center.removeDeliveredNotifications(withIdentifiers: [item.notificationIdentifier])
+        if let i = items.firstIndex(where: { $0.id == item.id }) {
+            items[i].fired = true
+            save()
+        }
+        await refreshPendingCount()
+    }
+
+    /// 「10 分钟后」：本条改成一次性、推到 now+minutes 再登记（同 identifier = 替换，不堆叠）。
+    /// 重复提醒被延后一次后变一次性，是刻意取舍：横幅上叫「10 分钟后」，用户预期是一次。
+    private func snooze(_ item: QuickReminder, minutes: Int) async {
+        guard let i = items.firstIndex(where: { $0.id == item.id }) else { return }
+        items[i].fireDate = Date().addingTimeInterval(Double(max(1, minutes)) * 60)
+        items[i].rule = .once
+        items[i].fired = false
+        let updated = items[i]
+        UNUserNotificationCenter.current()
+            .removeDeliveredNotifications(withIdentifiers: [item.notificationIdentifier])
+        if let reason = await schedule(updated) {
+            lastScheduleError = reason
+        } else {
+            lastScheduleError = nil
+        }
+        save()
+        await refreshPendingCount()
     }
 
     /// 启动/进提醒页时对账（幂等，可反复调）：

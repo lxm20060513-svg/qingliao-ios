@@ -1,4 +1,5 @@
 import SwiftUI
+import ImageIO
 
 /// 产物库图片缩略图（v4.0.143）
 ///
@@ -10,7 +11,9 @@ import SwiftUI
 ///
 /// 三条口径（真值表钉死）：
 /// 1. **只给图片**：调用方用 `RemoteFiles.imageExts` 判定，非图片仍走图标 `badge`；
-/// 2. **下采样**：按显示尺寸 3x 解码，几十 MB 的原图不进内存（列表滚动会被系统杀）；
+/// 2. **下采样**：用 ImageIO 直接解出「显示尺寸 3x」的缩略图（`CGImageSourceCreateThumbnailAtIndex`），
+///    原图**不解码**——v4.0.149 修：此前写的是 `UIImage(data:)` 全量解码再缩，注释说「不进内存」与事实相反，
+///    产物库里几十 MB 的图一多就会把 App 撑爆；
 /// 3. **进程内缓存**：滚动/进出目录不重复下载（NSCache 自动回收）。
 struct ArtifactThumbnail: View {
     /// 产物相对路径（形如 `artifacts/2026-10-21/xxx.png`）——与文件下载接口同口径
@@ -59,11 +62,10 @@ struct ArtifactThumbnail: View {
         guard !path.isEmpty else { failed = true; return }
         do {
             let (data, code) = try await auth.downloadFile(path)
-            guard (200..<300).contains(code), let full = UIImage(data: data) else {
+            guard (200..<300).contains(code), let thumb = Self.downsample(data, to: size * 3) else {
                 failed = true
                 return
             }
-            let thumb = downscale(full, to: size * 3)   // @3x：给足屏幕像素，不放大原图
             Self.cache.setObject(thumb, forKey: path as NSString)
             image = thumb
         } catch {
@@ -71,16 +73,18 @@ struct ArtifactThumbnail: View {
         }
     }
 
-    /// 下采样到最长边 px（`UIGraphicsImageRenderer` 走 CoreGraphics，不额外持原图）
-    private func downscale(_ img: UIImage, to px: CGFloat) -> UIImage {
-        let longest = max(img.size.width, img.size.height)
-        guard longest > px, longest > 0 else { return img }
-        let scale = px / longest
-        let newSize = CGSize(width: max(1, img.size.width * scale), height: max(1, img.size.height * scale))
-        let format = UIGraphicsImageRendererFormat.default()
-        format.scale = 1
-        return UIGraphicsImageRenderer(size: newSize, format: format).image { _ in
-            img.draw(in: CGRect(origin: .zero, size: newSize))
-        }
+    /// 从**原始字节**直接解出缩略图（最长边 px）。走 ImageIO 增量解码：不产生全尺寸位图，
+    /// 峰值内存 ≈ 缩略图本身，而不是原图（4000px 原图 ≈ 60MB）。与 `ImageCache` 的缩略图口径一致。
+    private static func downsample(_ data: Data, to px: CGFloat) -> UIImage? {
+        let srcOptions = [kCGImageSourceShouldCache: false] as CFDictionary
+        guard let src = CGImageSourceCreateWithData(data as CFData, srcOptions) else { return nil }
+        let thumbOptions: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,   // 尊重 EXIF 方向
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: max(1, px),
+        ]
+        guard let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, thumbOptions as CFDictionary) else { return nil }
+        return UIImage(cgImage: cg)
     }
 }

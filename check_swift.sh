@@ -369,6 +369,17 @@ echo "=== 20b1b. 工作台·进行项目真值表（v4.0.143：项目维度 / �
 # 全是编译不报、真机才现的坏法。
 run_unit /tmp/tt_projects scripts/ql_projects/truth_table_projects.swift
 
+echo "=== 20b1c. 清单「滑掉」状态真值表（v4.0.149 · 指纹稳定 / 换批次自动回来 / 撤销只删自己）==="
+# 钉：djb2 指纹（跨启动稳定，禁 String.hashValue）/ 按本批指纹判收起 / 换批次自动重新显示 /
+#    多项目各自独立 / 脏 AppStorage 不炸。全是「重启才现、隔几天才现」的坏法 → 纯逻辑跑。
+rm -rf /tmp/ql_batch_main && mkdir -p /tmp/ql_batch_main
+cp scripts/ql_projects/test_batch_dismissal.swift /tmp/ql_batch_main/main.swift
+rm -f /tmp/test_batch_dismissal
+$SWIFT/swiftc -swift-version 6 -o /tmp/test_batch_dismissal /tmp/ql_batch_main/main.swift \
+    qingliao/Core/ProjectBatchDismissal.swift 2>&1 | head -10
+[ ${PIPESTATUS[0]} -eq 0 ] || { echo "❌ 清单滑掉真值表编译失败"; exit 1; }
+/tmp/test_batch_dismissal || exit 1
+
 echo "=== 20b2. 自定义下拉刷新（液体杯子）真值表（v4.0.x：用户 2026-10-14 定案）==="
 # 钉：五页挂点/旧 API 已撤/核心机制（几何+相位+摇晃+@MainActor）/手感口径（medium 触觉、防重入、
 #     Motion 令牌回位）/设置类反例（本批范围外）。全是**静默失效**：挂错层、并存 .refreshable、
