@@ -42,13 +42,22 @@ check("三份源码都读到（WorkspaceView \(ws.count) 字 / Section \(sec.cou
       ws.count > 5000 && sec.count > 5000 && kit.count > 2000)
 
 // ── 1. 挂点：工作台里恰好一处，且夹在「进行中」与「长期目标」之间 ──
+// 🚨 v4.0.145：挂点改成多行实参（新增 onRefresh 手动刷新）→ 断言一律落在「去空白后的形态」上，
+//    否则行数一变就假红（多行/单行只是排版，不是行为）。
+func norm(_ s: String) -> String {
+    s.replacingOccurrences(of: "\\s+", with: "", options: .regularExpression)
+}
+let wsN = norm(ws)
+let mountN = "WorkspaceProjectsSection(projects:projects,generatedAt:projectsGeneratedAt,onRefresh:{awaitloadProjects()}).scrollDepth()"
 check("工作台挂 WorkspaceProjectsSection 恰好 1 处",
-      occurrences(ws, "WorkspaceProjectsSection(projects: projects, generatedAt: projectsGeneratedAt)") == 1)
+      occurrences(wsN, "WorkspaceProjectsSection(projects:projects,generatedAt:projectsGeneratedAt") == 1)
 check("挂点上挂了 .scrollDepth()（与其余块同档，漏挂 = 它不参与滚动层次）",
-      ws.contains("WorkspaceProjectsSection(projects: projects, generatedAt: projectsGeneratedAt).scrollDepth()"))
-if let iActive = ws.range(of: "activeCard.scrollDepth()"),
-   let iProj = ws.range(of: "WorkspaceProjectsSection(projects: projects, generatedAt: projectsGeneratedAt).scrollDepth()"),
-   let iGoal = ws.range(of: "GoalsSection().scrollDepth()") {
+      wsN.contains(mountN))
+check("刷新按钮真接到父级 loadProjects()（传了但没接 = 点了没反应）",
+      wsN.contains("onRefresh:{awaitloadProjects()}"))
+if let iActive = wsN.range(of: "activeCard.scrollDepth()"),
+   let iProj = wsN.range(of: mountN),
+   let iGoal = wsN.range(of: "GoalsSection().scrollDepth()") {
     check("顺序 = 进行中 → 进行项目 → 长期目标",
           iActive.lowerBound < iProj.lowerBound && iProj.lowerBound < iGoal.lowerBound)
 } else {
@@ -148,6 +157,27 @@ check("进程内缓存（滚动/重进目录不重复下载）",
       && thumbSrc.contains("Self.cache.object(forKey: path as NSString)"))
 check("非 200 不当成功图（后端 401/500 回 JSON，UIImage 解不出要显占位）",
       thumbSrc.contains("(200..<300).contains(code), let full = UIImage(data: data)"))
+
+// ── 11. v4.0.145 手动刷新（用户「定时10分钟刷新，app加手动刷新按钮」）──
+// 这一组的坏法都编译不报：
+//   ① 只加参数不渲染按钮 → 功能 DOA（v4.0.96「继续完成」踩过同一个坑）；
+//   ② 接了 onRefresh 但父级传空闭包 → 点了转一圈、数据没动；
+//   ③ 没有在飞闸门 → 连点连发请求；
+//   ④ 用 repeatForever 转圈 → 请求结束动画停不下来。
+let iGen = sec.range(of: "let generatedAt: Int")
+let iRef = sec.range(of: "let onRefresh: () async -> Void")
+check("Section 声明 onRefresh（声明在 generatedAt 之后，实参序 = 声明序）",
+      iGen != nil && iRef != nil && iGen!.upperBound < iRef!.lowerBound)
+check("卡头真渲染刷新按钮（arrow.clockwise + 可点 + 读屏标签）",
+      sec.contains("Image(systemName: \"arrow.clockwise\")")
+      && sec.contains(".accessibilityLabel(\"刷新进行项目\")"))
+check("点按钮真的 await onRefresh()（不是空壳动作）",
+      sec.contains("await onRefresh()"))
+check("有在飞闸门（连点不重复发请求）",
+      sec.contains("guard !isRefreshing else { return }") && sec.contains("isRefreshing = false"))
+check("🚫 不用 repeatForever 转圈（请求结束动画停不下来）",
+      !sec.contains("repeatForever"))
+check("旋转是单次 +360°（一圈到位）", sec.contains("spin += 360"))
 
 print("工作台「进行项目」真值表：\(passCount) 通过 / \(failCount) 失败")
 if failCount > 0 { exit(1) }

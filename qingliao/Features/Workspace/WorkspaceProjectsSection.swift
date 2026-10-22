@@ -57,11 +57,18 @@ struct WorkspaceProjectsSection: View {
     /// 父级 `if !projects.isEmpty` 门控后，本视图拿到的一定非空，也没有空态生命周期问题。
     let projects: [QLProject]
     let generatedAt: Int
+    /// v4.0.145（用户：台账要能手动刷）：卡头刷新按钮 → 父级再拉一次 /api/agent/projects。
+    /// 声明顺序在 generatedAt 之后，**实参必须按同一顺序传**（SwiftUI 参数序 = 声明序，CI 才过）。
+    let onRefresh: () async -> Void
 
     @Environment(\.colorScheme) private var scheme
 
     @State private var detail: QLProject?
     @State private var showAll = false
+    /// 刷新中（在飞闸门：防连点重复请求）
+    @State private var isRefreshing = false
+    /// 图标旋转角度（每次点 +360°，一圈到位；不用无限循环动画，避免请求结束后停不下来）
+    @State private var spin: Double = 0
 
     /// 卡面最多露几行 —— 工作台不是项目看板，别把第一屏撑满（超出走「查看全部」）
     private static let maxRows = 4
@@ -107,6 +114,27 @@ struct WorkspaceProjectsSection: View {
                     .font(.system(size: Typography.tiny))
                     .foregroundStyle(.secondary)
             }
+            // v4.0.145：手动刷新（每 10 分钟有 cron 自动同步，这里是「马上要最新」的入口）
+            Button {
+                guard !isRefreshing else { return }
+                Haptics.tap()
+                isRefreshing = true
+                withAnimation(.easeInOut(duration: 0.55)) { spin += 360 }
+                Task {
+                    await onRefresh()
+                    isRefreshing = false
+                }
+            } label: {
+                Image(systemName: "arrow.clockwise")
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0x22C3B0))
+                    .rotationEffect(.degrees(spin))
+                    .opacity(isRefreshing ? 0.55 : 1)
+                    .frame(width: 30, height: 30)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("刷新进行项目")
         }
     }
 

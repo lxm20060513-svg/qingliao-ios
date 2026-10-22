@@ -267,7 +267,9 @@ struct WorkspaceView: View {
             // v4.0.144：数据由本页 loadProjects() 拉；**空态在父级门控**（不进渲染树 = 不留空壳，
             // 也不再把生命周期押在 EmptyView 上——那是 v4.0.143 整块消失的根因）。
             if !projects.isEmpty {
-                WorkspaceProjectsSection(projects: projects, generatedAt: projectsGeneratedAt).scrollDepth()
+                WorkspaceProjectsSection(projects: projects,
+                                         generatedAt: projectsGeneratedAt,
+                                         onRefresh: { await loadProjects() }).scrollDepth()
             }
         case .goals:
             // v4.0.109：长期目标整块从生活页搬来（原样复用 GoalsSection，未改它一行）
