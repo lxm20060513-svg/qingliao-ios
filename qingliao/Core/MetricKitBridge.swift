@@ -17,7 +17,10 @@ import MetricKit
 // 复用 DiagnosticsUploader 的补传与诊断页展示；用独立 kind 是为了不污染服务端的崩溃/卡顿统计
 // （同 recordSelfTest 用 selftest 的理由）。
 
-final class MetricKitBridge: NSObject, MXMetricManagerSubscriber {
+/// `@unchecked Sendable`：本类**无可变实例状态**（只有一个无状态的 static 单例 + 纯函数），
+/// 系统在任意线程回调 `didReceive` 也安全（DiagnosticsStore.enqueue 自身带锁）。
+/// 不标的话 Swift 6 会把 `static let shared` 判成「非 Sendable 类型共享可变状态」——CI 实测报过错。
+final class MetricKitBridge: NSObject, MXMetricManagerSubscriber, @unchecked Sendable {
     static let shared = MetricKitBridge()
 
     private static let maxStackChars = 6000

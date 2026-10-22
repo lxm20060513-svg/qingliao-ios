@@ -141,7 +141,7 @@ enum MarkdownRenderer {
                     f = UIFont.systemFont(ofSize: font.pointSize, weight: .bold)
                 } else if intent.contains(.emphasized) {
                     f = UIFont.italicSystemFont(ofSize: font.pointSize)
-                } else if intent.contains(.code) || intent.contains(.keyboard) {
+                } else if intent.contains(.code) {
                     f = UIFont.monospacedSystemFont(ofSize: font.pointSize - 1, weight: .regular)
                 }
             }
