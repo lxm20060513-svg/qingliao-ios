@@ -488,8 +488,15 @@ struct DockOrbOverlay: View {
         // v3.9.79：与可见球同源 —— 内容差值也按当前朝向实测（横屏≈0，写死 6.3 球会偏下）
         let drop = contentCenterDrop(index: slotIndex, count: slotCount)
         let y = keyWindowHeight - keyWindowSafeBottom - barH / 2 + drop
+        // v4.0.148（审查 P2）：回退要区分两种 dock —— 系统 tab 模式按整条等分；自绘 dock（滑动/分页）
+        // 的条长随档数收窄并居中，「整条等分」的锚点会偏（4 档最多 ≈42pt、3 档末格 ≈61pt），
+        // 故走 DockPagingBar 同源槽位几何。判据 = 有没有系统 UITabBar（自绘 dock 模式没有）。
+        let hasSystemBar = keyWindow.flatMap { findTabBar(in: $0) } != nil
         let x = slotCenterGlobal(index: slotIndex, count: slotCount)?.x
-                ?? keyWindowWidth * (CGFloat(slotIndex) + 0.5) / CGFloat(slotCount)
+                ?? (hasSystemBar
+                    ? keyWindowWidth * (CGFloat(slotIndex) + 0.5) / CGFloat(slotCount)
+                    : DockPagingBar.slotCenterX(index: slotIndex, count: slotCount,
+                                                screenWidth: keyWindowWidth))
         return CGPoint(x: x, y: y)
     }
 }

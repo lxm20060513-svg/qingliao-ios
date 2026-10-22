@@ -297,6 +297,25 @@ check("跟手兜底②：进对话页收口必须先 resetBackFollow()（宿主�
         && dockView.contains("backFollowOffset = 0\n        backFollowLive = false"))
 check("🚫 手势壳不许再接 onBack（页头返回按钮那条直连 onBackToHome，不走手势壳，别让人改错一侧）",
       !readSource("Features/Chat/ChatView.swift").contains("ChatEdgeBackModifier(onBack:"))
+// v4.0.148（用户 2026-10-22：「从这个界面（项目详情页 = NavigationStack 系统 pop）滑动返回上一级
+//   就挺流畅，把聊天页滑动返回聊天首页的滑动形式改成跟这个一样的形式」）：
+//   系统 interactive pop 的两页是**同向一起走**的 —— 被压住的上一页并不静止，它从左侧 30% 屏宽处
+//   滑回 0（视差），移动页左缘还有一道投影把两页分开。只动移动页（首页静止、被「揭开」）
+//   观感是「一张纸盖回去」，不是 pop —— 这正是本条要钉的形态。
+check("首页视差挂载点 = 会话首页整页 offset（恰好一处；不跟手恒 0，残留值落不到别的路径）",
+      dockView.components(separatedBy: ".offset(x: backFollowLive ? ChatEdgeBackKit.homeOffset(follow: backFollowOffset, width: DockOrbOverlay.keyWindowWidth) : 0)").count - 1 == 1)
+check("移动页左缘投影在场（系统 pop 的两页分隔：渐变条，不是整页 .shadow —— 后者每帧离屏栅格化）",
+      dockView.contains(".overlay(alignment: .leading) { chatBackEdgeShadow }")
+        && dockView.contains("LinearGradient(colors: [Color.black.opacity(0.18 * backFollowProgress), .clear]")
+        && !dockView.contains(".shadow(color: .black.opacity(0.18 * backFollowProgress)"))
+// 🚨 v4.0.148（审查 P1）：投影必须挂在 `.offset` **内层** —— `.offset` 是渲染位移、不改布局框，
+//   后挂的 overlay 按未位移的框对齐 ⇒ 条钉在屏幕左缘 0…16pt、移动页左缘反而没投影，返回收尾
+//   0.4s 里首页已全屏、投影最浓 → 屏左留一条暗带。只断「两条都存在」= 假绿（本仓最典型的
+//   「护栏钉住写法、钉不住行为」）→ 这里断**先后顺序**。
+let moveOffset = dockView.range(of: ".offset(x: backFollowLive ? backFollowOffset : 0)")
+let edgeShadow = dockView.range(of: ".overlay(alignment: .leading) { chatBackEdgeShadow }")
+check("移动页投影挂在 .offset 内层（overlay 在 offset **之前**；后挂 = 投影钉死在屏左缘）",
+      moveOffset != nil && edgeShadow != nil && edgeShadow!.upperBound <= moveOffset!.lowerBound)
 // 🚨 v4.0.117（用户 2026-10-15 真机拍板「滑动返回聊天主页的扩散就是太快，再慢一点」）：**曲线分家**。
 // 🚨 v4.0.120（用户 2026-10-17「圆扩散只留启动页」）：**切页那一侧整条换掉** → 定向滑入。于是本段口径变成：
 // ① 返回那份恰好一处 ② **切页两处不许**再出现 pageReveal 圆扩散 ③ 返回那支 modifier 自己不许再出现 pageReveal。
@@ -429,6 +448,20 @@ check("松手门兜底：dx ≤ 0 / 宽度非法一律不算完成（往回甩�
 check("松手门取「同一枚阈值」= 屏宽 × completeRatio（0.5）；不许在这条链上再写死 70 之类的绝对值",
       ChatEdgeBackKit.completeRatio == 0.5
         && ChatEdgeBackKit.shouldComplete(dx: 390 * 0.5, projectedEnd: 0, width: 390))
+// v4.0.148：首页视差真值（系统 pop 同形制）—— 0 → -0.3 宽；半程 → -0.15 宽；满程 → 0；越界/非法宽夹紧。
+check("首页视差真值：p=0 → -0.3 宽 / p=0.5 → -0.15 宽 / p=1 → 0 / 越界与非法宽夹紧",
+      abs(ChatEdgeBackKit.homeOffset(follow: 0, width: 390) - (-117)) < 0.001
+        && abs(ChatEdgeBackKit.homeOffset(follow: 195, width: 390) - (-58.5)) < 0.001
+        && ChatEdgeBackKit.homeOffset(follow: 390, width: 390) == 0
+        && ChatEdgeBackKit.homeOffset(follow: 999, width: 390) == 0
+        && ChatEdgeBackKit.homeOffset(follow: -40, width: 390) == -117
+        && ChatEdgeBackKit.homeOffset(follow: 100, width: 0) == 0)
+// 几何不变量：首页右缘（width + homeOffset）恒 ≥ 移动页左缘（follow）—— 两页之间全程不露垫底。
+// 这条比「数值对不对」更要紧：视差比例一大就会在两页间撕出一道缝（渐变垫底透出来 = 断层，v4.0.122 治过）。
+check("首页视差不许在两页间撕缝：p 全程 0…1 时 首页右缘 ≥ 移动页左缘",
+      stride(from: 0.0, through: 390.0, by: 26.0).allSatisfy { f in
+          390 + ChatEdgeBackKit.homeOffset(follow: f, width: 390) >= f
+      })
 
 // ── ⑦ v4.0.124：对话页隐藏 dock（用户 2026-10-19）+ 垫底页不拉数据（滑动返回流畅性）──
 // v4.0.133（用户 2026-10-20「键盘弹出 dock 都不隐藏」）：会话首页键盘在场时底栏一并藏掉；

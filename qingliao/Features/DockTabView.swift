@@ -355,6 +355,12 @@ struct DockTabView: View {
                         // 「先白一下」不会复发。
                         // 离场（进对话页）保持原样的左滑出，与 ChatView 的右滑入凑成 push 观感，一字未改。
                         .sessionHomeReveal(center: $homeRevealCenter)
+                        // 🚨 v4.0.148（用户 2026-10-22「聊天页滑动返回改成项目详情页那样」）：**首页视差**。
+                        // 系统 interactive pop 里被压住的上一页不是静止的 —— 它从左侧 30% 屏宽处同向滑回 0，
+                        // 与移动页 1:1 位移叠成视差；只动移动页读作「一张纸盖回去」，不是 pop。
+                        // 位移真值在 Core/ChatEdgeBackKit.homeOffset（p=0 → -0.3 宽、p=1 → 0），
+                        // 几何上两页右/左缘全程相接（推导见该函数注释）→ 不会露出垫底渐变。
+                        .offset(x: backFollowLive ? ChatEdgeBackKit.homeOffset(follow: backFollowOffset, width: DockOrbOverlay.keyWindowWidth) : 0)
                         .transition(.asymmetric(insertion: .identity, removal: .move(edge: .leading)))
                 }
                 // v4.0.116：返回方向改圆形扩散后，对话页**离场不再右滑**（`.identity` 瞬时移出）——
@@ -383,6 +389,15 @@ struct DockTabView: View {
                         // 改成 `.container`：只忽略容器底部安全区（保留 137 想要的「压到物理底边」），
                         // 键盘安全区照常生效。
                         .ignoresSafeArea(.container, edges: .bottom)
+                        // 🚨 v4.0.148（审查 P1）：投影必须挂在 `.offset` **内层**。
+                        // `.offset` 是渲染位移、不改布局框 —— 后挂的 overlay 按**未位移**的框对齐，
+                        // 于是条钉在屏幕左缘 0…16pt（压在首页上），移动页左缘反而没投影；且完成
+                        // 返回的 0.4s 收尾里 backFollowLive 仍为 true、p→1 投影最浓（0.18），首页已
+                        // 全屏 → 屏左会留一条 16pt 暗带。顺序 = overlay 先（跟页走）、offset 后。
+                        // 🚨 v4.0.148：系统 pop 里移动页左缘有一道投影把两页分开（用户点名要对齐那个形制）。
+                        // 用 16pt 渐变条、不用 `.shadow`：整页投影每帧离屏栅格化，是跟手掉帧的经典成因；
+                        // 明度随进度 p 淡入 —— 起手第一帧就挂一道硬阴影会被读作「闪一下」。
+                        .overlay(alignment: .leading) { chatBackEdgeShadow }
                         .offset(x: backFollowLive ? backFollowOffset : 0)
                         .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .identity))
                 }
@@ -447,6 +462,28 @@ struct DockTabView: View {
         backFollowSeq &+= 1
         backFollowOffset = 0
         backFollowLive = false
+    }
+
+    /// v4.0.148：跟手进度 0…1（移动页右移距离 ÷ 屏宽）—— 左缘投影的浓淡用它。
+    /// 视差那边不读它（真值在 ChatEdgeBackKit.homeOffset 里按同一比例算，视图里不建第二套比例）。
+    private var backFollowProgress: CGFloat {
+        let width = DockOrbOverlay.keyWindowWidth
+        guard width > 0 else { return 0 }
+        return min(max(backFollowOffset / width, 0), 1)
+    }
+
+    /// v4.0.148：移动页左缘的投影条（系统 interactive pop 同款，把两页分开）。
+    /// 只在跟手 / 收敛期间在场 —— 常态 `backFollowLive == false` 整块不渲染，零成本。
+    /// ⚠️ 别换成 `.shadow(...)`：整页投影每帧离屏栅格化，跟手时必掉帧（16pt 渐变条是同一观感的最便宜画法）。
+    @ViewBuilder
+    private var chatBackEdgeShadow: some View {
+        if backFollowLive {
+            LinearGradient(colors: [Color.black.opacity(0.18 * backFollowProgress), .clear],
+                           startPoint: .leading,
+                           endPoint: .trailing)
+                .frame(width: 16)
+                .allowsHitTesting(false)
+        }
     }
 
     /// 跟手一帧：位移**裸写**（零动画事务 —— 过动画页面就落在手指后面），并让首页作为垫底页在场
@@ -1211,7 +1248,13 @@ private struct SessionHomeRevealModifier: ViewModifier {
                 GeometryReader { proxy in
                     Color.clear
                         .onAppear { pageOrigin = proxy.frame(in: .global).origin }
-                        .onChange(of: proxy.frame(in: .global).origin) { _, new in pageOrigin = new }
+                        .onChange(of: proxy.frame(in: .global).origin) { _, new in
+                            // 🚨 v4.0.148（审查 P2）：只在扩散**进行中**跟读原点。
+                            // 常态下首页整页会跟着返回手势每帧位移（v4.0.148 视差），这条 onChange
+                            // 会逐帧写 @State → 整页 body 重算，正是 v4.0.143 在治的跟手掉帧；
+                            // 而圆心只在 enter() 那一刻要准，静止时首页原点恒为 (0,0)。
+                            if revealRadius < Motion.pageRevealMaxRadius - 0.5 { pageOrigin = new }
+                        }
                 }
             )
             // 🚨 v4.0.143（用户 2026-10-21「聊天页滑动返回主页掉帧非常严重，从根源修复」）：

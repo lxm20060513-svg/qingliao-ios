@@ -770,6 +770,21 @@ final class AuthStore {
         }
     }
 
+    /// v4.0.147（任务中心⑥）：清空历史（后端只清 done/error，running 不动）。
+    /// 返回清掉的条数；失败返回 -1（调用方据此提示，不静默成功）。
+    @discardableResult
+    func clearTaskHistory() async -> Int {
+        guard !token.isEmpty else { return -1 }
+        do {
+            let json = try await self.json("/api/tasks/history/clear", method: "POST", body: [:])
+            if let n = json["cleared"] as? Int { return n }
+            if let n = json["cleared"] as? Double { return Int(n) }
+            return -1
+        } catch {
+            return -1
+        }
+    }
+
     func fetchActiveTasks() async -> [ActiveTask] {
         guard !token.isEmpty else { return [] }
         do {

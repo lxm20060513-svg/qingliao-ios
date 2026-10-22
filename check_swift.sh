@@ -1537,6 +1537,35 @@ ck "回退⑲o：跟手期间禁掉页内滚动（simultaneousGesture 不抢识�
 cnt=$(grep -cF 'withAnimation(Motion.page) { resetBackFollow(); showSessionHome = false }' "$DT"); [ "$cnt" -eq 1 ] \
   || { echo "❌ 回退⑲p：进对话页收口必须先 resetBackFollow()（否则 0.4s 收尾任务把这次点击覆盖回去 = 点了没反应，实得 $cnt）"; fail=1; }
 ckNot "回退⑲q：手势壳不许再接 onBack（页头返回按钮那条直连 onBackToHome，别让人改错一侧）" 'ChatEdgeBackModifier\(onBack:' qingliao/Features/Chat/ChatView.swift
+# v4.0.148（用户 2026-10-22「从项目详情页滑回上一级挺流畅，聊天页改成一样的形式」）：
+#   系统 interactive pop 是**两页同框一起走** —— 被压住的上一页从左侧 30% 屏宽处视差滑回 0，
+#   移动页左缘还有一道投影把两页分开。只动移动页（首页静止被揭开）= 「一张纸盖回去」，不是 pop。
+cnt=$(grep -cF '.offset(x: backFollowLive ? ChatEdgeBackKit.homeOffset(follow: backFollowOffset, width: DockOrbOverlay.keyWindowWidth) : 0)' "$DT"); [ "$cnt" -eq 1 ] \
+  || { echo "❌ 回退⑲r：首页视差应恰好挂一处（系统 pop 同形制；两页同向一起走，实得 $cnt）"; fail=1; }
+ckNot "回退⑲s：视差比例不许内联在视图里（真值只在 ChatEdgeBackKit.homeOffset）" 'width \* 0\.3 \* \(1 -' "$DT"
+ck "回退⑲t：移动页左缘投影在场（系统 pop 的两页分隔）" 'chatBackEdgeShadow' "$DT"
+ckNot "回退⑲u：跟手投影不许改整页 \.shadow（每帧离屏栅格化 = 跟手掉帧）" '\.shadow\(color: \.black\.opacity\(0\.18 \* backFollowProgress\)' "$DT"
+
+echo "=== 93e. 自绘 dock 条长自适应档数（v4.0.148 · 用户 2026-10-22）==="
+# 用户原话：「滑动模式下 dock 条长度没有根据 tab 数量减少而自适应缩短」。
+# 机制：改造前每格 `frame(maxWidth: .infinity)` → HStack 吃满整条；隐藏几档只是每格变宽、
+#   整条长度不变（空胶囊）。纯几何退化不报错、不崩、其它断言全绿，只有真机看得出 → 代码级钉。
+PB=qingliao/Features/DockPagingBar.swift
+cnt=$(grep -cF '.frame(maxWidth: barMaxWidth)' "$PB"); [ "$cnt" -eq 1 ] \
+  || { echo "❌ 回退⑳a：整条宽上限必须由 barMaxWidth 单一真源给、且用 maxWidth（上限，不是死宽），恰好一处（实得 $cnt）"; fail=1; }
+ck "回退⑳b：条长算式读档数（cellWidth × max(1, tabs.count) + 内衬 × 2）" 'Self\.cellWidth \* CGFloat\(max\(1, tabs\.count\)\) \+ Self\.innerPadding \* 2' "$PB"
+ckNot "回退⑳c：dock 条不许再按「每格定宽 / 整条死宽」写第二套（同一秒两份算式必然漂移）" 'frame\((width: (barWidth|cellW)|width: cellW)\)' "$PB"
+# v4.0.148（审查 P2）：条长收窄居中后，「按整条等分」算锚点会偏（4 档最多 ≈42pt、3 档末格 ≈61pt）。
+#   锚点球飘到隔壁格 = 「球看着在那儿、按上去没反应」那类隐蔽 bug → 钉住锚点走同源几何。
+ck "回退⑳d：锚点槽位几何走 DockPagingBar.slotCenterX（与条长同源，不许在浮层里另写等分）" 'DockPagingBar\.slotCenterX\(index: slotIndex, count: slotCount,' qingliao/Features/Chat/ChatEffects.swift
+ck "回退⑳e：slotCenterX 几何读同一组常量（cellWidth/innerPadding/outerPadding）" 'min\(screenWidth - outerPadding \* 2, cellWidth \* n \+ innerPadding \* 2\)' "$PB"
+# v4.0.148（审查 P1）：投影必须挂在 `.offset` 内层（.offset 是渲染位移、不改布局框；后挂 overlay
+#   按未位移的框对齐 → 条钉在屏左缘、页左缘没投影、返回收尾留暗带）。按**行号先后**钉，不靠 contains。
+DP=qingliao/Features/DockTabView.swift
+ol=$(grep -nF '.overlay(alignment: .leading) { chatBackEdgeShadow }' "$DP" | cut -d: -f1 | head -1)
+mk=$(grep -nF '.offset(x: backFollowLive ? backFollowOffset : 0)' "$DP" | cut -d: -f1 | head -1)
+[ -n "$ol" ] && [ -n "$mk" ] && [ "$ol" -lt "$mk" ] \
+  || { echo "❌ 回退⑳f：移动页投影必须在 .offset **之前**（overlay 行 $ol / offset 行 $mk；后挂 = 投影钉死在屏左缘）"; fail=1; }
 
 echo "=== 93d. 全仓确认框收敛真值表（v4.0.102 · 用户 2026-10-12「方案 2：全改」）==="
 # 口径：iPhone 上 confirmationDialog 固定从屏幕底部升起、锚不到触发元素 → **危险/破坏性动作的确认**

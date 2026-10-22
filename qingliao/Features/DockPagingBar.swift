@@ -50,6 +50,50 @@ struct DockPagingBar: View {
     /// 🚨 纵向落点只认这一个常量：别再另加 `.offset(y:)`（两个位移真源必然漂移）。
     static let bottomGap: CGFloat = -8
 
+    /// 单格**理想**宽（v4.0.148：dock 条长度自适应档数 —— 用户 2026-10-22
+    /// 「滑动模式下 dock 条长度没有根据 tab 数量减少而自适应缩短」）。
+    ///
+    /// 为什么是这个数：改造前每格靠 `frame(maxWidth: .infinity)` 铺满整条（5 档 / 393pt 屏
+    /// ≈ (393 − 32 − 8) / 5 ≈ 70.6），所以 70 在 5 档时与旧观感**逐像素几乎一致**（差 3pt），
+    /// 档数少了就按格数收窄 —— 3 档 ≈ 218pt、4 档 ≈ 288pt，居中悬浮。
+    /// 窄屏放不下时按可用宽反算（375pt 屏 5 档 → 67pt/格），不溢出屏幕。
+    static let cellWidth: CGFloat = 70
+    /// HStack 左右内衬（胶囊内边距）
+    static let innerPadding: CGFloat = 4
+    /// 宿主两侧留白（与下面 `.padding(.horizontal, 16)` 同一枚数）
+    static let outerPadding: CGFloat = 16
+
+    /// 整条 dock 的**最大**宽度上限（= 档数 × 格宽 + 内衬 × 2）。
+    /// 机制：改造前 HStack 靠每格 `maxWidth: .infinity` 吃满整条；隐藏几档后只是每格变宽、
+    /// 整条长度一点没变（观感 =「几个宽图标 + 一条空胶囊」）。现在给整条一个**随档数走的
+    /// maxWidth 上限**：5 档 / 393pt 屏 = min(361, 358) ≈ 与旧观感同级（差 3pt），
+    /// 3 档 ≈ 218pt、4 档 ≈ 288pt，居中悬浮；窄屏放不下时仍是「铺满可用宽」而不是溢出
+    /// （`maxWidth` 是上限不是死宽，不需要读屏宽）。
+    /// 🚨 这是「条长」的唯一真源：别在宿主或按钮里再写一份宽度算式（两份必然漂移）。
+    private var barMaxWidth: CGFloat {
+        Self.cellWidth * CGFloat(max(1, tabs.count)) + Self.innerPadding * 2
+    }
+
+    // MARK: - 槽位几何（长按菜单锚点球 / 识别浮层 / 命中层共用同一份）
+
+    /// 自绘 dock 第 `index` 格的中心 x（window 坐标）。
+    ///
+    /// 🚨 v4.0.148（审查 P2）：条长改成随档数收窄并居中后，**「按整条等分」算锚点就偏了** ——
+    /// 4 档 / 393pt 屏实际格心 91.5 / 161.5 / 231.5 / 301.5，等分给 49.1 / 147.4 / 245.6 / 343.9
+    /// （最多偏 ≈42pt；3 档末格 ≈61pt）。锚点球会飘到隔壁格上，正是「球看着在那儿、按上去没反应」
+    /// 那类隐蔽 bug。所以锚点必须走这里（与 `barMaxWidth` 同源），别在浮层里再写一份等分。
+    ///
+    /// 几何：条宽 = min(可用宽, barMaxWidth)，整条居中 ⇒ 左侧 = (屏宽 − 条宽) / 2 + 内衬。
+    static func slotCenterX(index: Int, count: Int, screenWidth: CGFloat) -> CGFloat {
+        guard screenWidth > 0, count > 0 else { return 0 }
+        let n = CGFloat(count)
+        let barW = min(screenWidth - outerPadding * 2, cellWidth * n + innerPadding * 2)
+        guard barW > 0 else { return 0 }
+        let cell = (barW - innerPadding * 2) / n
+        let left = (screenWidth - barW) / 2 + innerPadding
+        return left + (CGFloat(index) + 0.5) * cell
+    }
+
     /// 未选中图标色：浅色下取 primary（黑），深色下自动翻白，不做灰度衰减。
     private var idleInk: Color { Color.primary }
 
@@ -98,7 +142,11 @@ struct DockPagingBar: View {
                 .accessibilityAddTraits(selected == tab ? [.isSelected] : [])
             }
         }
-        .padding(.horizontal, 4)
+        .padding(.horizontal, Self.innerPadding)
+        // v4.0.148：整条宽度上限随档数走（唯一真源 barMaxWidth）—— 胶囊 / 玻璃 / 影都挂在这层，
+        // 于是隐藏几档后整条**跟着缩短并居中**，不再是「几个宽格 + 一条空胶囊」。
+        // 🚨 必须是 maxWidth（上限）不是 width（死宽）：窄屏 / 大字号时才不会溢出屏幕。
+        .frame(maxWidth: barMaxWidth)
         // 内容 52（图标 22 + 间距 3 + 文字 ≈12 + 内边距 16）+ 4 ≈ 60，留在 62 的框里不溢出
         .padding(.vertical, 4)
         // v4.0.133：选中胶囊的滑动动画令牌（matchedGeometry 靠它驱动）——
@@ -112,7 +160,7 @@ struct DockPagingBar: View {
         // v4.0.132：双层影收成**单层柔影**（磨砂方案 A：浮起来即可，不再追求玻璃的「厚度感」）
         .shadow(color: .black.opacity(scheme == .dark ? 0.32 : 0.10), radius: 16, x: 0, y: 6)
         .frame(height: 62)
-        .padding(.horizontal, 16)
+        .padding(.horizontal, Self.outerPadding)
         .padding(.bottom, Self.bottomGap)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("底部导航")

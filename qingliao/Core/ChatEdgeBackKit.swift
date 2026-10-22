@@ -44,6 +44,29 @@ enum ChatEdgeBackKit {
     /// 松手判完成：位移 ≥ 屏宽 × 它 → 返回；否则回弹（用户口径「松手过半即完成」）
     static let completeRatio: CGFloat = 0.5
 
+    /// v4.0.148（用户 2026-10-22：「从项目详情页滑回上一级挺流畅，聊天页改成一样的形式」）：
+    /// **首页视差比** —— 与系统 push/pop 同一形制。
+    ///
+    /// 系统 interactive pop 的两页是同向一起走的：被压住的上一页并不静止，它从左侧
+    /// `-宽 × backParallax` 处滑回 0（约 1/3 屏），与移动页 1:1 的位移叠成视差；
+    /// 移动页左缘还有一道投影把两页分开。只动移动页（首页静止、被「揭开」）
+    /// 观感是「一张纸盖回去」，不是 pop —— 这正是本轮要改的那条。
+    static let backParallax: CGFloat = 0.3
+
+    /// 跟手过程中**首页**的横移（pt，≤ 0）。
+    /// - Parameters:
+    ///   - follow: 当前跟手位移（移动页右移的距离，0…width）
+    ///   - width: 屏宽
+    /// 真值：follow=0 → -0.3×width；follow=width/2 → -0.15×width；follow≥width → 0。
+    /// 几何不变量（为什么不露底）：首页右缘 = `width + homeOffset`，移动页左缘 = `follow`；
+    /// 代入 p=follow/width 得 `width·(1 - parallax·(1-p)) ≥ p·width` ⇔ `1 - 0.3 + 0.3p ≥ p` ⇔ `p ≤ 1`
+    /// → 全程恒成立，两页之间不会露出垫底。
+    static func homeOffset(follow: CGFloat, width: CGFloat) -> CGFloat {
+        guard width > 0 else { return 0 }
+        let p = min(max(follow / width, 0), 1)
+        return -width * backParallax * (1 - p)
+    }
+
     /// v4.0.125：起手门（**视图唯一该调的入口**）——默认任意位置都算（见 `allowsAnywhereStart`）。
     static func isBackStart(x: CGFloat) -> Bool { allowsAnywhereStart || isEdgeStart(x: x) }
 
