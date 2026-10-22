@@ -163,21 +163,20 @@ check("非 200 不当成功图（后端 401/500 回 JSON，UIImage 解不出要�
 //   ① 只加参数不渲染按钮 → 功能 DOA（v4.0.96「继续完成」踩过同一个坑）；
 //   ② 接了 onRefresh 但父级传空闭包 → 点了转一圈、数据没动；
 //   ③ 没有在飞闸门 → 连点连发请求；
-//   ④ 用 repeatForever 转圈 → 请求结束动画停不下来。
+//   ④ 自造图标按钮而不是走全站胶囊口径 → 同一种动作两种表达（v4.0.146 用户点名）。
 let iGen = sec.range(of: "let generatedAt: Int")
 let iRef = sec.range(of: "let onRefresh: () async -> Void")
 check("Section 声明 onRefresh（声明在 generatedAt 之后，实参序 = 声明序）",
       iGen != nil && iRef != nil && iGen!.upperBound < iRef!.lowerBound)
-check("卡头真渲染刷新按钮（arrow.clockwise + 可点 + 读屏标签）",
-      sec.contains("Image(systemName: \"arrow.clockwise\")")
+check("卡头刷新走全站胶囊口径（Text(刷新/刷新中).pill(.page)，不另造图标按钮）",
+      sec.contains("Text(isRefreshing ? \"刷新中\" : \"刷新\").pill(.page)")
       && sec.contains(".accessibilityLabel(\"刷新进行项目\")"))
+check("🚫 不再自造 arrow.clockwise 图标按钮（同一种动作两种表达 = 视觉噪音）",
+      !sec.contains("Image(systemName: \"arrow.clockwise\")"))
 check("点按钮真的 await onRefresh()（不是空壳动作）",
       sec.contains("await onRefresh()"))
 check("有在飞闸门（连点不重复发请求）",
       sec.contains("guard !isRefreshing else { return }") && sec.contains("isRefreshing = false"))
-check("🚫 不用 repeatForever 转圈（请求结束动画停不下来）",
-      !sec.contains("repeatForever"))
-check("旋转是单次 +360°（一圈到位）", sec.contains("spin += 360"))
 
 print("工作台「进行项目」真值表：\(passCount) 通过 / \(failCount) 失败")
 if failCount > 0 { exit(1) }

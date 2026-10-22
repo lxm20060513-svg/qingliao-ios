@@ -65,10 +65,8 @@ struct WorkspaceProjectsSection: View {
 
     @State private var detail: QLProject?
     @State private var showAll = false
-    /// 刷新中（在飞闸门：防连点重复请求）
+    /// 刷新中（在飞闸门：防连点重复请求；同时驱动胶囊文字「刷新」→「刷新中」）
     @State private var isRefreshing = false
-    /// 图标旋转角度（每次点 +360°，一圈到位；不用无限循环动画，避免请求结束后停不下来）
-    @State private var spin: Double = 0
 
     /// 卡面最多露几行 —— 工作台不是项目看板，别把第一屏撑满（超出走「查看全部」）
     private static let maxRows = 4
@@ -114,26 +112,22 @@ struct WorkspaceProjectsSection: View {
                     .font(.system(size: Typography.tiny))
                     .foregroundStyle(.secondary)
             }
-            // v4.0.145：手动刷新（每 10 分钟有 cron 自动同步，这里是「马上要最新」的入口）
+            // v4.0.146（用户：「为什么不是跟app其他地方一样的刷新胶囊，还要另外发明」）：
+            // 改回**全站统一口径** —— `Text("刷新").pill(.page)`，与「股票」栏目头那排胶囊、
+            // 首页「自定义」`sectionHeaderPill()` 同一套玻璃 + 描边 + 内边距；在途时文字变「刷新中」。
+            // ❌ 上一版自造的 24pt 图标按钮（arrow.clockwise + 旋转）已废弃：同一种动作用两种表达 = 视觉噪音。
             Button {
-                guard !isRefreshing else { return }
+                guard !isRefreshing else { return }   // 在飞闸门：连点不重复发请求
                 Haptics.tap()
                 isRefreshing = true
-                withAnimation(.easeInOut(duration: 0.55)) { spin += 360 }
                 Task {
                     await onRefresh()
                     isRefreshing = false
                 }
             } label: {
-                Image(systemName: "arrow.clockwise")
-                    .font(.system(size: 12.5, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x22C3B0))
-                    .rotationEffect(.degrees(spin))
-                    .opacity(isRefreshing ? 0.55 : 1)
-                    .frame(width: 30, height: 30)
-                    .contentShape(Rectangle())
+                Text(isRefreshing ? "刷新中" : "刷新").pill(.page)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(PressStyle())
             .accessibilityLabel("刷新进行项目")
         }
     }
