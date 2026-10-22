@@ -35,15 +35,23 @@ struct DockLayoutSheet: View {
             List {
                 // v4.0.126：切换方式（原生 dock ↔ page 分页 + 自绘 dock）
                 Section {
-                    Toggle(isOn: $dockPaging) {
+                    // 🚨 v4.0.149（用户 2026-10-22「设置里面 dock 栏切换方式胶囊没对齐其他胶囊位置」）：
+                    // 旧写法是 `Toggle(isOn:) { VStack(标题 + 副标题) }.qingliaoSwitch()` —— 默认 hideLabel
+                    // 会 `labelsHidden()`，开关失去行尾对齐（胶囊比下面「顺序与显示」各行靠左一截）。
+                    // 全仓「带标题 + 行尾开关」统一长相是 `HStack { 文案; Spacer; Toggle("") }`
+                    // （见 SettingsLifeCards 通知行、SettingsSystem 权限行）→ 这里对齐到那套写法，
+                    // 胶囊右缘与其它开关落在同一条线上。别改回 Toggle(isOn:){…} + labelsHidden。
+                    HStack(spacing: Spacing.md) {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("滑动切换页面")
                             Text(dockPaging ? "左右滑动切到相邻页面（贴手指）" : "点按底部导航切换（原生玻璃栏）")
                                 .font(.system(size: Typography.tiny))
                                 .foregroundStyle(.secondary)
                         }
+                        Spacer(minLength: Spacing.md)
+                        Toggle("", isOn: $dockPaging)
+                            .qingliaoSwitch()
                     }
-                    .qingliaoSwitch()
                 } header: {
                     Text("切换方式")
                 } footer: {

@@ -343,6 +343,49 @@ struct ScrollPinTruthTable {
               !b14Holds(squashedContentOld),
               negative: true)
 
+        // v4.0.148：进会话落点 —— 每次进聊天必须落在最新一条（用户 2026-10-22
+        // 「每次进去都要从头滑到最后」）。机制不是贴底：ChatView 在会话首页态会被
+        // 移出视图树，重新进树时消息早已装好 → count onChange 不触发；且首帧 LazyVStack
+        // 未布局 → scrollTo 静默 no-op。判据 = 两个入口都接 landOnLatest + 序号重试有作废闸。
+        func b16Holds(_ src: String) -> Bool {
+            src.components(separatedBy: "landOnLatest(").count - 1 >= 3
+                // v4.0.148 审查 P1：onAppear 落底前必须有「本会话已落过」的判据 —— 切回本 tab
+                // 会重触发 onAppear，没有它用户读历史时切一次 tab 就被拽回底部。
+                && src.contains("landedSessionId!=chat.sessionIdelse{return}landOnLatest(proxy:proxy)")
+                && src.contains("refreshVisibleMessages()landOnLatest()")
+        }
+        check("B16 进会话落点：onAppear（带同会话判据）与切会话两处都调 landOnLatest",
+              b16Holds(squashed))
+        func b17Holds(_ src: String) -> Bool {
+            src.contains("guardseq==landingSeqelse{return}")
+                && src.contains("staticletlandRetryDelays:[Double]")
+        }
+        check("B17 落底重试带序号作废闸（切走后不再往旧目标上滚）",
+              b17Holds(squashed))
+        let squashedNoLanding = squashed
+            .replacingOccurrences(of: "landOnLatest(", with: "noopLanding(")
+            .replacingOccurrences(of: "guardseq==landingSeqelse{return}", with: "")
+        check("B18 反向自证：落底入口/作废闸被删 → B16/B17 必红",
+              !b16Holds(squashedNoLanding) && !b17Holds(squashedNoLanding),
+              negative: true)
+
+        // v4.0.148 审查 P1：两条「把人从历史里拽回来」的缺陷。
+        // ① 重试窗口内用户已上翻（贴底态被几何回调翻成 unpinned）→ 后续各拍必须放掉（首拍无条件，
+        //    保证「进会话必落底」）；② 链式 `deadline: .now() + delay` 的 now 在上一拍触发时才求值 →
+        //    5 拍实际累计到 1.44s，必须有单一基准 `base`。
+        func b19Holds(_ src: String) -> Bool {
+            src.contains("guarddelay==0||scrollPinState.pinnedelse{return}")
+                && src.contains("deadline:base+delay")
+        }
+        check("B19 落底重试：首拍无条件、后续各拍只在仍贴底时补滚；且时限用单一基准 time",
+              b19Holds(squashed))
+        let squashedNoPinGate = squashed
+            .replacingOccurrences(of: "guarddelay==0||scrollPinState.pinnedelse{return}", with: "")
+            .replacingOccurrences(of: "deadline:base+delay", with: "deadline:.now()+delay")
+        check("B20 反向自证：去掉贴底闸 / 退回链式 .now() → B19 必红",
+              !b19Holds(squashedNoPinGate),
+              negative: true)
+
         // ── C. 结果 ──────────────────────────────────────────────────────
         let total = positives + negatives
         let ratio = total == 0 ? 0 : Double(negatives) / Double(total)

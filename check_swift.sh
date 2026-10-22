@@ -1511,12 +1511,15 @@ echo "=== 93c. 左缘右滑**跟手**返回（v4.0.122 · 用户 2026-10-18 对�
 # 为什么代码级钉：这条链全是「时序 + 谁写状态」的口径，改错了不报错、不崩、其它断言全绿，
 #   只有真机手感能发现 —— 而本机无 iOS SDK，真机要等发版。判定的纯逻辑那半在 ql_docklayout 表
 #   Ⓟ 段用**编译真值**钉（ChatEdgeBackKit.swift 已加进那张表的编译行），这里钉挂载点与时序面。
-cnt=$(grep -cF '.offset(x: backFollowLive ? backFollowOffset : 0)' "$DT"); [ "$cnt" -eq 1 ] \
-  || { echo "❌ 回退⑲a：跟手位移应恰好挂一处 .offset(x: backFollowLive ? backFollowOffset : 0)（整页走，且不跟手恒 0，实得 $cnt）"; fail=1; }
-cnt=$(grep -cF 'withAnimation(Motion.page) { backFollowOffset = width }' "$DT"); [ "$cnt" -eq 1 ] \
-  || { echo "❌ 回退⑲b：松手**完成**应收敛到屏宽、且走页面级令牌 Motion.page（恰好一处，实得 $cnt）"; fail=1; }
-cnt=$(grep -cF 'withAnimation(Motion.page) { backFollowOffset = 0 }' "$DT"); [ "$cnt" -eq 1 ] \
-  || { echo "❌ 回退⑲c：松手**回弹**应归 0、且走页面级令牌 Motion.page（恰好一处，实得 $cnt）"; fail=1; }
+# 🚨 v4.0.149（掉帧根治）：位移挂载点从 body 里的三元表达式搬进 ChatPageBackMotion（读 @Observable）。
+#   旧字符串 `.offset(x: backFollowLive ? backFollowOffset : 0)` 直接写在 DockTabView.body 里 —— 每帧一读
+#   就把整页 body 绑在逐帧状态上（见 ⑲v/⑲w）。钉「搬进修饰器后的那一处」+ 钉「body 里不许再直读」。
+cnt=$(grep -cF '.offset(x: follow.live ? follow.offset : 0)' "$DT"); [ "$cnt" -eq 1 ] \
+  || { echo "❌ 回退⑲a：跟手位移应恰好挂一处 .offset(x: follow.live ? follow.offset : 0)（整页走，且不跟手恒 0、只在修饰器里读，实得 $cnt）"; fail=1; }
+cnt=$(grep -cF 'withAnimation(Motion.sessionBackSettle) { backFollowOffset = width }' "$DT"); [ "$cnt" -eq 1 ] \
+  || { echo "❌ 回退⑲b：松手**完成**应收敛到屏宽、且走返回专用令牌 Motion.sessionBackSettle（恰好一处，实得 $cnt）"; fail=1; }
+cnt=$(grep -cF 'withAnimation(Motion.sessionBackSettle) { backFollowOffset = 0 }' "$DT"); [ "$cnt" -eq 1 ] \
+  || { echo "❌ 回退⑲c：松手**回弹**应归 0、且与收敛同一枚 Motion.sessionBackSettle（恰好一处，实得 $cnt）"; fail=1; }
 ck "回退⑲d：跟手帧必须是**裸赋值**（每帧贴手指；过动画事务就落在手指后面）" 'backFollowOffset = dx' "$DT"
 ckNot "回退⑲e：跟手帧不许进 withAnimation（回退⑲e 守的就是本次病根：页面不跟手）" 'withAnimation\(Motion\.(page|tap)\) \{ backFollowOffset = dx' "$DT"
 ck "回退⑲f：两态是 ZStack **双页同框**（跟手要「首页作为垫底页在场」那一帧）" 'if showSessionHome \|\| backFollowLive \{' "$DT"
@@ -1540,11 +1543,12 @@ ckNot "回退⑲q：手势壳不许再接 onBack（页头返回按钮那条直�
 # v4.0.148（用户 2026-10-22「从项目详情页滑回上一级挺流畅，聊天页改成一样的形式」）：
 #   系统 interactive pop 是**两页同框一起走** —— 被压住的上一页从左侧 30% 屏宽处视差滑回 0，
 #   移动页左缘还有一道投影把两页分开。只动移动页（首页静止被揭开）= 「一张纸盖回去」，不是 pop。
-cnt=$(grep -cF '.offset(x: backFollowLive ? ChatEdgeBackKit.homeOffset(follow: backFollowOffset, width: DockOrbOverlay.keyWindowWidth) : 0)' "$DT"); [ "$cnt" -eq 1 ] \
-  || { echo "❌ 回退⑲r：首页视差应恰好挂一处（系统 pop 同形制；两页同向一起走，实得 $cnt）"; fail=1; }
+cnt=$(grep -cF '.modifier(HomeParallaxOffset(follow: follow))' "$DT"); [ "$cnt" -eq 1 ] \
+  || { echo "❌ 回退⑲r：首页视差应恰好挂一处 HomeParallaxOffset（系统 pop 同形制；两页同向一起走，实得 $cnt）"; fail=1; }
+ck "回退⑲r2：视差真值只走 ChatEdgeBackKit.homeOffset（修饰器里读同一处）" 'ChatEdgeBackKit\.homeOffset\(follow: follow\.offset,' "$DT"
 ckNot "回退⑲s：视差比例不许内联在视图里（真值只在 ChatEdgeBackKit.homeOffset）" 'width \* 0\.3 \* \(1 -' "$DT"
-ck "回退⑲t：移动页左缘投影在场（系统 pop 的两页分隔）" 'chatBackEdgeShadow' "$DT"
-ckNot "回退⑲u：跟手投影不许改整页 \.shadow（每帧离屏栅格化 = 跟手掉帧）" '\.shadow\(color: \.black\.opacity\(0\.18 \* backFollowProgress\)' "$DT"
+ck "回退⑲t：移动页左缘投影在场（系统 pop 的两页分隔）" 'LinearGradient\(colors: \[Color\.black\.opacity\(0\.18 \* progress\), \.clear\]' "$DT"
+ckNot "回退⑲u：跟手投影不许改整页 \.shadow（每帧离屏栅格化 = 跟手掉帧）" '\.shadow\(color: \.black\.opacity\(0\.18 \* progress\)' "$DT"
 
 echo "=== 93e. 自绘 dock 条长自适应档数（v4.0.148 · 用户 2026-10-22）==="
 # 用户原话：「滑动模式下 dock 条长度没有根据 tab 数量减少而自适应缩短」。
@@ -1562,10 +1566,30 @@ ck "回退⑳e：slotCenterX 几何读同一组常量（cellWidth/innerPadding/o
 # v4.0.148（审查 P1）：投影必须挂在 `.offset` 内层（.offset 是渲染位移、不改布局框；后挂 overlay
 #   按未位移的框对齐 → 条钉在屏左缘、页左缘没投影、返回收尾留暗带）。按**行号先后**钉，不靠 contains。
 DP=qingliao/Features/DockTabView.swift
-ol=$(grep -nF '.overlay(alignment: .leading) { chatBackEdgeShadow }' "$DP" | cut -d: -f1 | head -1)
-mk=$(grep -nF '.offset(x: backFollowLive ? backFollowOffset : 0)' "$DP" | cut -d: -f1 | head -1)
+# v4.0.148（审查 P2）：别锚「文件里第一处同形 overlay」（通用写法，将来再挂一处就拿错行号照样绿）
+#   → 只认**紧跟 `if follow.live {` 的那一处**，即移动页投影本体。
+ol=$(awk 'prev ~ /\.overlay\(alignment: \.leading\) \{/ && $0 ~ /if follow\.live \{/ { print NR-1; exit } { prev=$0 }' "$DP")
+mk=$(grep -nF '.offset(x: follow.live ? follow.offset : 0)' "$DP" | cut -d: -f1 | head -1)
 [ -n "$ol" ] && [ -n "$mk" ] && [ "$ol" -lt "$mk" ] \
   || { echo "❌ 回退⑳f：移动页投影必须在 .offset **之前**（overlay 行 $ol / offset 行 $mk；后挂 = 投影钉死在屏左缘）"; fail=1; }
+
+# 🚨 v4.0.149（用户 2026-10-22「优化掉帧问题」）：跟手逐帧状态**必须**装在 @Observable 里，
+#   且任何「逐帧位移」都不许出现在 DockTabView.body 的表达式里。
+#   病因（真机「一拖就掉帧」的根）：@State 每帧一写 → 整棵 DockTabView.body 重算 → 传给
+#   SessionsView / ChatView 的闭包参数每帧都是新值 → 两个整页 body 跟着每帧重算
+#   （消息 LazyVStack diff 几百行 + 首页卡片材质重采样）。改回去不报错、不崩、其它断言全绿，只有真机手感能发现。
+ck "回退⑳g：逐帧跟手状态装在 @Observable（只让两个小修饰器重算，不牵动整页 body）" 'final class BackFollowMotionState' "$DT"
+ckNot "回退⑳h：逐帧位移不许退回 @State（每帧写 = 整个 DockTabView.body 重算 = 跟手掉帧根）" '@State private var backFollowOffset' "$DT"
+ckNot "回退⑳i：body 里不许直读逐帧位移（读一次 = 把整页 body 绑回逐帧状态）" 'offset\(x: backFollowLive \? backFollowOffset' "$DT"
+ck "回退⑳j：位移/投影都走 ChatPageBackMotion 单一修饰器（overlay 与 offset 同在，顺序不会被拆）" 'ChatPageBackMotion\(follow: follow\)' "$DT"
+
+# 🚨 v4.0.149（用户 2026-10-22「设置里面 dock 栏切换方式胶囊没对齐其他胶囊位置」）：
+# 带标题的开关必须写成 `HStack { 文案; Spacer; Toggle("") }`。写成 `Toggle(isOn:) { 自定义 label }`
+# 时自定义 label 撑出固有宽度 → 开关紧贴文案、不落行尾，胶囊和同页其他行差一截。
+# 这种偏差不报错、不崩、其它断言全绿，只有真机看得出 → 代码级钉。
+DS=qingliao/Features/Settings/DockLayoutSheet.swift
+ckNot "回退㉑a：带标题开关不许再用 Toggle(isOn:){…} + labelsHidden（自定义 label 撑宽 → 胶囊不落行尾）" 'Toggle\(isOn: \$dockPaging\)' "$DS"
+ck "回退㉑b：切换方式行必须是 HStack + Spacer + Toggle(\"\")（与全仓带标题开关同一长相）" 'Toggle\("", isOn: \$dockPaging\)' "$DS"
 
 echo "=== 93d. 全仓确认框收敛真值表（v4.0.102 · 用户 2026-10-12「方案 2：全改」）==="
 # 口径：iPhone 上 confirmationDialog 固定从屏幕底部升起、锚不到触发元素 → **危险/破坏性动作的确认**

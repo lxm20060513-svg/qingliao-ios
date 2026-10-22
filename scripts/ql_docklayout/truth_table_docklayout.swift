@@ -264,12 +264,20 @@ check("🚫 老口径 shouldGoBack / minTranslation 不许复活（抬手才认 
       !readSource("Core/ChatEdgeBackKit.swift").contains("func shouldGoBack")
         && !readSource("Core/ChatEdgeBackKit.swift").contains("static let minTranslation")
         && !readSource("Features/Chat/ChatView.swift").contains("ChatEdgeBackKit.shouldGoBack"))
-check("跟手位移挂载点 = 对话页整页 offset（恰好一处；且只在 backFollowLive 时生效 —— 不跟手恒 0）",
-      dockView.components(separatedBy: ".offset(x: backFollowLive ? backFollowOffset : 0)").count - 1 == 1
+// 🚨 v4.0.149（掉帧根治）：位移挂载点从 body 表达式搬进 ChatPageBackMotion（修饰器读 @Observable）。
+//   旧写法写在 DockTabView.body 里 → 每帧读逐帧状态 = 整页 body 每帧重算 = 跟手掉帧的根。
+check("跟手位移挂载点 = 对话页整页 offset（恰好一处、在 ChatPageBackMotion 里；不跟手恒 0）",
+      dockView.components(separatedBy: ".offset(x: follow.live ? follow.offset : 0)").count - 1 == 1
+        && dockView.contains("ChatPageBackMotion(follow: follow)")
         && readSource("Features/Chat/ChatView.swift").contains("ChatEdgeBackKit.followOffset(dx: dx,"))
-check("跟手收敛 / 回弹各一处、都走页面级令牌 Motion.page（不许引第二套时长）",
-      dockView.contains("withAnimation(Motion.page) { backFollowOffset = width }")
-        && dockView.contains("withAnimation(Motion.page) { backFollowOffset = 0 }"))
+check("🚫 逐帧位移不许再回 @State / 不许在 body 里直读（每帧写 = 整棵 body 重算 = 掉帧）",
+      !dockView.contains("@State private var backFollowOffset")
+        && !dockView.contains("offset(x: backFollowLive ? backFollowOffset")
+        && dockView.contains("final class BackFollowMotionState"))
+check("跟手收敛 / 回弹各一处、都走返回专用令牌 Motion.sessionBackSettle（慢而软，同一枚不许分家）",
+      dockView.contains("withAnimation(Motion.sessionBackSettle) { backFollowOffset = width }")
+        && dockView.contains("withAnimation(Motion.sessionBackSettle) { backFollowOffset = 0 }")
+        && !dockView.contains("withAnimation(Motion.page) { backFollowOffset"))
 check("🚫 跟手帧必须是裸赋值（过动画事务 = 页面落在手指后面）",
       dockView.contains("backFollowOffset = dx")
         && !dockView.contains("withAnimation(Motion.page) { backFollowOffset = dx }")
@@ -302,18 +310,27 @@ check("🚫 手势壳不许再接 onBack（页头返回按钮那条直连 onBack
 //   系统 interactive pop 的两页是**同向一起走**的 —— 被压住的上一页并不静止，它从左侧 30% 屏宽处
 //   滑回 0（视差），移动页左缘还有一道投影把两页分开。只动移动页（首页静止、被「揭开」）
 //   观感是「一张纸盖回去」，不是 pop —— 这正是本条要钉的形态。
-check("首页视差挂载点 = 会话首页整页 offset（恰好一处；不跟手恒 0，残留值落不到别的路径）",
-      dockView.components(separatedBy: ".offset(x: backFollowLive ? ChatEdgeBackKit.homeOffset(follow: backFollowOffset, width: DockOrbOverlay.keyWindowWidth) : 0)").count - 1 == 1)
+check("首页视差挂载点 = 会话首页整页 HomeParallaxOffset（恰好一处；不跟手恒 0，残留值落不到别的路径）",
+      dockView.components(separatedBy: ".modifier(HomeParallaxOffset(follow: follow))").count - 1 == 1
+        && dockView.contains("ChatEdgeBackKit.homeOffset(follow: follow.offset,"))
 check("移动页左缘投影在场（系统 pop 的两页分隔：渐变条，不是整页 .shadow —— 后者每帧离屏栅格化）",
-      dockView.contains(".overlay(alignment: .leading) { chatBackEdgeShadow }")
-        && dockView.contains("LinearGradient(colors: [Color.black.opacity(0.18 * backFollowProgress), .clear]")
-        && !dockView.contains(".shadow(color: .black.opacity(0.18 * backFollowProgress)"))
+      dockView.contains("LinearGradient(colors: [Color.black.opacity(0.18 * progress), .clear]")
+        && !dockView.contains(".shadow(color: .black.opacity(0.18 * progress)"))
 // 🚨 v4.0.148（审查 P1）：投影必须挂在 `.offset` **内层** —— `.offset` 是渲染位移、不改布局框，
 //   后挂的 overlay 按未位移的框对齐 ⇒ 条钉在屏幕左缘 0…16pt、移动页左缘反而没投影，返回收尾
 //   0.4s 里首页已全屏、投影最浓 → 屏左留一条暗带。只断「两条都存在」= 假绿（本仓最典型的
 //   「护栏钉住写法、钉不住行为」）→ 这里断**先后顺序**。
-let moveOffset = dockView.range(of: ".offset(x: backFollowLive ? backFollowOffset : 0)")
-let edgeShadow = dockView.range(of: ".overlay(alignment: .leading) { chatBackEdgeShadow }")
+let moveOffset = dockView.range(of: ".offset(x: follow.live ? follow.offset : 0)")
+// v4.0.148（审查 P2）：锚「紧跟 if follow.live 的那一处 overlay」，不是文件里第一处通用写法。
+func movePageEdgeShadowRange(_ s: String) -> Range<String.Index>? {
+    var cursor = s.startIndex
+    while let r = s.range(of: ".overlay(alignment: .leading) {", range: cursor..<s.endIndex) {
+        if s[r.upperBound...].prefix(160).contains("if follow.live {") { return r }
+        cursor = r.upperBound
+    }
+    return nil
+}
+let edgeShadow = movePageEdgeShadowRange(dockView)
 check("移动页投影挂在 .offset 内层（overlay 在 offset **之前**；后挂 = 投影钉死在屏左缘）",
       moveOffset != nil && edgeShadow != nil && edgeShadow!.upperBound <= moveOffset!.lowerBound)
 // 🚨 v4.0.117（用户 2026-10-15 真机拍板「滑动返回聊天主页的扩散就是太快，再慢一点」）：**曲线分家**。

@@ -75,12 +75,28 @@ struct DockTabView: View {
     //   松手：位移过半（或甩动预测终点过半）→ 收敛到返回，否则回弹归位。
     // 为什么是两个状态位（而不是只用一个 offset）：跟手要的就是「两页同框」那一帧 ——
     //   `backFollowLive` 管首页作为**垫底页**在不在场，`backFollowOffset` 管对话页被推走多远。
+    /// v4.0.149（用户 2026-10-22「滑动返回慢一点、不要那么生硬，优化掉帧」）：
+    /// 🚨 逐帧状态**必须**装在这个 @Observable 里，不能再直接用 `@State`。
+    /// 旧写法 `@State var backFollowOffset` 每帧一写 → **DockTabView.body 每帧整棵重算** →
+    /// 传给 SessionsView / ChatView 的闭包参数（onOpenSession / onBackFollow…）每帧都是新值 →
+    /// 两个整页的 body 跟着每帧重算（ChatView 的 LazyVStack 要 diff 三百行、首页要重排卡片）
+    /// = 「跟手一拖就掉帧」的根。放进 @Observable 后只有读 `offset` 的两个小修饰器每帧重算
+    /// （HomeParallaxOffset / ChatPageBackMotion），本页 body 只在 `live` 翻转时重算（进出各一次）。
+    @State private var follow = BackFollowMotionState()
     /// 对话页的跟手横移（pt）。0 = 常态；>0 = 跟手/收敛中。
-    /// ⚠️ 跟手帧必须**裸赋值**（不许进动画事务），只有收敛 / 回弹才走 `Motion.page`。
-    @State private var backFollowOffset: CGFloat = 0
+    /// ⚠️ 跟手帧必须**裸赋值**（不许进动画事务），只有收敛 / 回弹才走动画令牌。
+    /// ⚠️ **别在 body 里读它**（读 = 把逐帧依赖拉回整页 body，掉帧立刻复发）；body 侧走下面的修饰器。
+    private var backFollowOffset: CGFloat {
+        get { follow.offset }
+        nonmutating set { follow.offset = newValue }
+    }
     /// 跟手/收敛期间首页要作为**垫底页**在场（滑开对话页露出来的就是它）。
     /// 与 `showSessionHome` 分开：回弹收敛跑完之前不能卸，否则位移中途底下会空一下（露渐变垫底）。
-    @State private var backFollowLive = false
+    /// body 里读它是**有意**的：每次手势只翻转两次（进/出），不是逐帧状态。
+    private var backFollowLive: Bool {
+        get { follow.live }
+        nonmutating set { follow.live = newValue }
+    }
     /// 收敛代次（与 `chatZoomEntry` 同款 seq 手法）：0.34s 窗口内再起手势 / 连甩不许互踩收尾。
     @State private var backFollowSeq = 0
     /// v4.0.82：dock 顺序串（4 档 rawValue 的排列）—— 设置 → 通用 →「Dock 栏」写，这里读。
@@ -360,7 +376,7 @@ struct DockTabView: View {
                         // 与移动页 1:1 位移叠成视差；只动移动页读作「一张纸盖回去」，不是 pop。
                         // 位移真值在 Core/ChatEdgeBackKit.homeOffset（p=0 → -0.3 宽、p=1 → 0），
                         // 几何上两页右/左缘全程相接（推导见该函数注释）→ 不会露出垫底渐变。
-                        .offset(x: backFollowLive ? ChatEdgeBackKit.homeOffset(follow: backFollowOffset, width: DockOrbOverlay.keyWindowWidth) : 0)
+                        .modifier(HomeParallaxOffset(follow: follow))
                         .transition(.asymmetric(insertion: .identity, removal: .move(edge: .leading)))
                 }
                 // v4.0.116：返回方向改圆形扩散后，对话页**离场不再右滑**（`.identity` 瞬时移出）——
@@ -392,13 +408,12 @@ struct DockTabView: View {
                         // 🚨 v4.0.148（审查 P1）：投影必须挂在 `.offset` **内层**。
                         // `.offset` 是渲染位移、不改布局框 —— 后挂的 overlay 按**未位移**的框对齐，
                         // 于是条钉在屏幕左缘 0…16pt（压在首页上），移动页左缘反而没投影；且完成
-                        // 返回的 0.4s 收尾里 backFollowLive 仍为 true、p→1 投影最浓（0.18），首页已
+                        // 返回的 0.62s 收尾里 backFollowLive 仍为 true、p→1 投影最浓（0.18），首页已
                         // 全屏 → 屏左会留一条 16pt 暗带。顺序 = overlay 先（跟页走）、offset 后。
                         // 🚨 v4.0.148：系统 pop 里移动页左缘有一道投影把两页分开（用户点名要对齐那个形制）。
                         // 用 16pt 渐变条、不用 `.shadow`：整页投影每帧离屏栅格化，是跟手掉帧的经典成因；
                         // 明度随进度 p 淡入 —— 起手第一帧就挂一道硬阴影会被读作「闪一下」。
-                        .overlay(alignment: .leading) { chatBackEdgeShadow }
-                        .offset(x: backFollowLive ? backFollowOffset : 0)
+                        .modifier(ChatPageBackMotion(follow: follow))
                         .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .identity))
                 }
             }
@@ -456,7 +471,7 @@ struct DockTabView: View {
     /// 把跟手状态整个收掉：位移归 0 + 卸垫底页 + 作废在途的收尾任务（seq 递增）。
     /// 为什么必须有这条兜底：跟手状态原本只有「正常抬手」一个出口，手势被打断（`onEnded` 不来：
     /// 来电 / 通知 / 进后台 / 视图被摘下）时会残留 —— 残留 = 对话页停在半路 + 首页一直当垫底页；
-    /// 且「点会话进对话页」这条路若不清，0.34s 收敛窗口里的那次点击会被收尾任务覆盖回去。
+    /// 且「点会话进对话页」这条路若不清，0.62s 收敛窗口里的那次点击会被收尾任务覆盖回去。
     /// 手势侧的对称兜底在 ChatEdgeBackModifier（换手势就重过门 + 收回上一轮）。
     private func resetBackFollow() {
         backFollowSeq &+= 1
@@ -464,32 +479,13 @@ struct DockTabView: View {
         backFollowLive = false
     }
 
-    /// v4.0.148：跟手进度 0…1（移动页右移距离 ÷ 屏宽）—— 左缘投影的浓淡用它。
-    /// 视差那边不读它（真值在 ChatEdgeBackKit.homeOffset 里按同一比例算，视图里不建第二套比例）。
-    private var backFollowProgress: CGFloat {
-        let width = DockOrbOverlay.keyWindowWidth
-        guard width > 0 else { return 0 }
-        return min(max(backFollowOffset / width, 0), 1)
-    }
-
-    /// v4.0.148：移动页左缘的投影条（系统 interactive pop 同款，把两页分开）。
-    /// 只在跟手 / 收敛期间在场 —— 常态 `backFollowLive == false` 整块不渲染，零成本。
-    /// ⚠️ 别换成 `.shadow(...)`：整页投影每帧离屏栅格化，跟手时必掉帧（16pt 渐变条是同一观感的最便宜画法）。
-    @ViewBuilder
-    private var chatBackEdgeShadow: some View {
-        if backFollowLive {
-            LinearGradient(colors: [Color.black.opacity(0.18 * backFollowProgress), .clear],
-                           startPoint: .leading,
-                           endPoint: .trailing)
-                .frame(width: 16)
-                .allowsHitTesting(false)
-        }
-    }
+    // v4.0.149：跟手进度 / 左缘投影条已搬进 ChatPageBackMotion（逐帧只重算那个小修饰器）；
+    // 计算口径一字未改（p = offset ÷ 屏宽，0.18 封顶，16pt 渐变条），别在这里重建第二套。
 
     /// 跟手一帧：位移**裸写**（零动画事务 —— 过动画页面就落在手指后面），并让首页作为垫底页在场
     /// （下一帧就是「两页同框」：对话页被推右、首页从左侧露出来）。
     /// ⚠️ 每次递增 `backFollowSeq`：新一轮跟手必须作废上一轮收敛的收尾任务
-    ///（否则 0.34s 窗口内再甩一把，旧任务回来把位移/垫底页清掉 = 页面跳回原位）。
+    ///（否则 0.62s 窗口内再甩一把，旧任务回来把位移/垫底页清掉 = 页面跳回原位）。
     private func backFollow(_ dx: CGFloat) {
         backFollowSeq &+= 1
         if !backFollowLive { backFollowLive = true }
@@ -499,16 +495,21 @@ struct DockTabView: View {
     /// 松手：`complete` = 越过阈值（位移过半 / 甩动预测过半）→ 收敛到返回；否则回弹归位。
     /// 两条都要**等动画跑完**再收尾：回弹要在位移归 0 之后才卸垫底页（否则中途露垫底），
     /// 完成要等对话页整个滑出屏才切态（否则切态那一帧会被看见）。
-    /// 延迟取 0.4s（`Motion.page` 是 .smooth 0.34，留一点裕量；早了会切在半路上）。
+    /// 延迟取 `Motion.sessionBackSettleWait`（时长 + 裕量；早了会切在半路上；v4.0.149 前是 0.4s/0.34）。
     private func backFollowEnd(complete: Bool) {
         backFollowSeq &+= 1
         let mySeq = backFollowSeq
         let width = DockOrbOverlay.keyWindowWidth
         if complete {
-            // 收敛：位移继续走完剩下的路（同 `Motion.page`，与两态切换同一时序口径）
-            withAnimation(Motion.page) { backFollowOffset = width }
+            // 收敛：位移继续走完剩下的路。
+            // 🚨 v4.0.149（用户 2026-10-22「滑动返回慢一点，不要那么生硬」）：这条**换专用令牌**
+            // `sessionBackSettle`（.spring 0.52，软着陆、无回弹），不再借用 `Motion.page`(.smooth 0.34)——
+            // 0.34 是「切态」的时长，用在一次整屏滑出上读作「嗖一下被推走」，且 .smooth 收尾是硬停，
+            // 手指刚离开页面就刹住 = 生硬。返回手势这条链独占，别顺手改回 page（动的是别处在用的令牌）。
+            withAnimation(Motion.sessionBackSettle) { backFollowOffset = width }
             Task { @MainActor in
-                try? await Task.sleep(for: .seconds(0.4))
+                // 等动画跑完再切态：等待从 Motion.sessionBackSettleWait 派生（时长 + 裕量，且「关」档自动收短）
+                try? await Task.sleep(for: .seconds(Motion.sessionBackSettleWait))
                 guard mySeq == backFollowSeq else { return }
                 // 首页此刻**已经在屏上**（跟手铺开的那一帧就是它）→ 只翻状态，不写圆心（= 不播扩散）
                 showSessionHome = true
@@ -522,10 +523,12 @@ struct DockTabView: View {
                 }
             }
         } else {
-            // 回弹：归位（同 `Motion.page`）
-            withAnimation(Motion.page) { backFollowOffset = 0 }
+            // 回弹：归位（v4.0.149 起同上换 `sessionBackSettle` —— 回弹与收敛必须同一枚令牌，
+            // 两种手感混用会让「过阈值/没过阈值」读起来像两套交互）
+            withAnimation(Motion.sessionBackSettle) { backFollowOffset = 0 }
             Task { @MainActor in
-                try? await Task.sleep(for: .seconds(0.4))
+                // 回弹要在位移归 0 之后才卸垫底页 → 与收敛同一等待口径（Motion.sessionBackSettleWait）
+                try? await Task.sleep(for: .seconds(Motion.sessionBackSettleWait))
                 guard mySeq == backFollowSeq else { return }
                 // 对话页此时已完全盖住首页 → 卸掉这层垫底页（不可见）
                 backFollowLive = false
@@ -1308,6 +1311,72 @@ private struct SessionHomeRevealModifier: ViewModifier {
             // 别顺手改回 pageReveal，那样返回又会「刷一下扫完」（用户 2026-10-15 真机口径）。
             withAnimation(Motion.sessionBackReveal) { revealRadius = Motion.pageRevealMaxRadius }
         }
+    }
+}
+
+// v4.0.149（用户 2026-10-22「滑动返回慢一点、不要那么生硬，优化掉帧」）：左缘跟手返回的**逐帧状态**。
+//
+// 🚨 为什么单独一个 @Observable（别再退回 @State）：
+// 跟手时 offset 每帧都在变。旧实现是 DockTabView 上的 `@State var backFollowOffset` —— 每帧一写就把
+// **整个 DockTabView.body** 标记失效，而那条 body 里有 TabView + 两个整页 + dock + 悬浮球：
+//   · 传给 `SessionsView(onOpenSession:showHero:onAskAI:launchRise:isBackdrop:)` 的闭包每帧都是新值
+//     → 会话首页 body 每帧重算（列表分区 / hero 玻璃卡 / 卡片材质全部重排重采样）；
+//   · 传给 `ChatView(onBackToHome:onBackFollow:onBackFollowEnd:)` 的闭包同理 → 消息页 body 每帧重算
+//     （LazyVStack 要 diff 几百行 + 输入栏材质）。
+// 实测口径就是「一拖就掉帧，慢拖尤其明显」。装进 @Observable 后：读 `offset` 的只有两个小修饰器，
+// 它们重算不牵动任何整页 body；本页 body 只在 `live` 翻转（进/出跟手各一次）时重算。
+@MainActor
+@Observable
+final class BackFollowMotionState {
+    // v4.0.148 审查：与仓内同类（AuthStore/ChatStore）同口径标 @MainActor——逐帧写状态，
+    // 漏标即 nonisolated，将来谁把一次赋值挪进后台 Task 就是数据竞争且编译通过。
+    /// 跟手/收敛/回弹在途（= 首页作为垫底页在场、位移生效）
+    var live = false
+    /// 对话页被推走的距离（pt）；跟手帧**裸赋值**，只有收敛/回弹过动画令牌
+    var offset: CGFloat = 0
+}
+
+/// 首页的视差位移（系统 interactive pop 里被压住那页同向滑回）。
+/// 🚨 位移真值只在 `ChatEdgeBackKit.homeOffset` 一处（纯函数，真值表可编）—— 这里只负责「谁每帧重算」。
+/// 常态恒 0：不跟手时零成本（offset 修饰器不产生额外合成层）。
+private struct HomeParallaxOffset: ViewModifier {
+    let follow: BackFollowMotionState
+
+    func body(content: Content) -> some View {
+        content.offset(x: follow.live
+                       ? ChatEdgeBackKit.homeOffset(follow: follow.offset,
+                                                    width: DockOrbOverlay.keyWindowWidth)
+                       : 0)
+    }
+}
+
+/// 对话页：左缘投影条（把两页分开）+ 整页跟手位移，**合在一个修饰器**里保证顺序。
+/// 🚨 顺序铁律：overlay 必须在 `.offset` **内层**。`.offset` 是渲染位移、不改布局框 ——
+/// 后挂的 overlay 会按未位移的框对齐，条就钉在屏幕左缘、页左缘反而没有投影
+/// （v4.0.148 审查 P1 就是这条，别再拆成两个调用）。
+/// ⚠️ 投影别换 `.shadow(...)`：整页投影每帧离屏栅格化，跟手必掉帧（16pt 渐变条是最便宜的同一观感）。
+private struct ChatPageBackMotion: ViewModifier {
+    let follow: BackFollowMotionState
+
+    /// 跟手进度 0…1（移动页右移距离 ÷ 屏宽）—— 投影浓淡用它，与视差同一个比例口径
+    private var progress: CGFloat {
+        let width = DockOrbOverlay.keyWindowWidth
+        guard width > 0 else { return 0 }
+        return min(max(follow.offset / width, 0), 1)
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .overlay(alignment: .leading) {
+                if follow.live {
+                    LinearGradient(colors: [Color.black.opacity(0.18 * progress), .clear],
+                                   startPoint: .leading,
+                                   endPoint: .trailing)
+                        .frame(width: 16)
+                        .allowsHitTesting(false)
+                }
+            }
+            .offset(x: follow.live ? follow.offset : 0)
     }
 }
 

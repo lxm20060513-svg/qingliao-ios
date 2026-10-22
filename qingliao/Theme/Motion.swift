@@ -104,6 +104,27 @@ enum Motion {
         tuned(EffectsLevel.current.isRich ? .smooth(duration: 0.46) : .smooth(duration: 0.32))
     }
 
+    /// v4.0.149（用户 2026-10-22「聊天页滑动返回聊天首页动画慢一点，不要那么生硬」）：**左缘跟手返回的收尾**专用。
+    /// 管两处，必须同一枚：松手收敛（位移走完剩下的路）与未过阈值回弹（归位）。
+    /// 为什么分家：此前借用 `Motion.page`（.smooth 0.34）—— 那是「切态」的时长口径，用在一次整屏滑出上
+    /// 读作「嗖一下被推走」；且 .smooth 收尾是硬停，手指刚离屏页面就刹住 = 用户说的「生硬」。
+    /// 这条 = .spring 0.52（bounce 0）—— 比 .smooth 慢一拍，且弹簧的落地段是渐渐减速的「软着陆」，
+    /// 不是 .smooth 那种到点即停。**bounce 必须 0**：回弹那条（位移 → 0）若有回弹会越过原位再荡回来，
+    /// 观感是「页面抖一下」；收敛那条（→ 屏宽）越界虽在屏外，但弹簧收尾会长于 0.52，切态可能切在余波里。
+    /// ⚠️ 时长/等待都从下面两个常量派生（v4.0.148 审查：原先 0.62 在两处 sleep 里各写一份字面量，
+    /// 调手感时必漏一处 → 切态切在半路，且预检与 CI 都查不出来）。
+    /// ⚠️ 别改回 `Motion.page`，也别去动 `page` 本身（进对话页 / 底栏两态都在用，顺手改 = 误伤在用动效）。
+    /// 页头返回按钮（`backToSessionHome`）仍用 `Motion.page`：那是点按的离散动作、没有手指可跟，口径不同。
+    static let sessionBackSettleDuration: Double = 0.52
+
+    /// 切态等待 = 动画时长 + 裕量。「关」档 `tuned` 已退化成 0.001s 线性，
+    /// 等待必须一起收短，否则整页瞬移完还要白等 0.6s 才翻状态。
+    static var sessionBackSettleWait: Double {
+        EffectsLevel.current.isOff ? 0.05 : sessionBackSettleDuration + 0.10
+    }
+
+    static var sessionBackSettle: Animation { tuned(.spring(duration: sessionBackSettleDuration, bounce: 0)) }
+
     /// 🚨 v4.0.117（用户 2026-10-15 真机反馈「滑动返回聊天主页的扩散**就是太快**」）：**返回那条链单独放慢**。
     /// 口径（v4.0.120 起）：圆扩散只留两处 —— **滑动返回**（对话页 → 会话首页，`SessionHomeRevealModifier`）
     /// 与**启动页**（`launchReveal`）；底栏切页已改定向滑入（`pageEnterSlide`），不再走扩散。

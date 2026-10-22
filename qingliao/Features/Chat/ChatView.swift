@@ -212,6 +212,12 @@ struct ChatView: View {
     @State private var visibleMessagesCache: [MessageRowItem] = []
     // v3.0.86 fix：是否贴底（onScrollGeometryChange 实时维护）——流式自动滚底仅贴底时生效
     @State private var scrollPinState = ChatScrollPinState.pinnedAtBottom
+    // v4.0.148：「进会话落点」序号——见 landOnLatest()。每次进会话/冷启动自增，
+    // 旧序号的重试滚动自动作废（切走后不再往旧目标上滚）。
+    @State private var landingSeq = 0
+    // v4.0.148：本视图已为哪个会话落过底。TabView 子页切回本 tab 会**重触发 onAppear**，
+    // 没有这条判据时用户正在读历史、切一次 tab 就被拽回底部（`landOnLatest` 还会把贴底态硬置回）。
+    @State private var landedSessionId: String?
     // v4.0.34：消息列表滚动容器的可视高度（GeometryReader 测量）——内容不满一屏时
     // 列表以它为 minHeight。
     // 🚨 v4.0.54：对齐口径由 `.bottom`（贴底）改为 **`.top`** —— 新会话第一条气泡在最上方，
@@ -3813,6 +3819,43 @@ struct ChatView: View {
             .padding(.vertical, Spacing.xs)
     }
 
+    /// v4.0.148（用户 2026-10-22 报「每次进去聊天都要从头滑到最后」）：进会话/冷启动必须落在**最新一条**。
+    /// 两个真实失效点，跟贴底逻辑不是一回事：
+    /// ① **冷启动**：ChatStore 在 ChatView 首帧之前就把消息装好了 → `onChange(of: chat.messages.count)`
+    ///    一次都不触发（onChange 只认「挂载之后的变化」）→ 停在列表顶部；
+    /// ② **切会话**：count 变化那一帧 LazyVStack 还没按新数据布局，`scrollTo(last.id)` 找不到行
+    ///    → 静默 no-op（同族坑见技能 §6「目标 id 必须取自当前渲染的那个集合」）。
+    /// 做法 = 「带序号的重试滚动」：进会话时发一个序号，然后在几个时间点各滚一次，直到布局稳定；
+    /// 序号变了（又切了会话）旧重试立刻作废。只滚 0.8s 窗口内的几次，不长期钉住；
+    /// 首拍无条件滚（保证「进会话必落底」），此后若用户已主动上翻（贴底态被几何回调翻成 unpinned）
+    /// 就放掉剩余重试 —— 与同文件流式滚底那条同口径，别把人从历史里拽回来。
+    private static let landRetryDelays: [Double] = [0, 0.06, 0.18, 0.4, 0.8]
+
+    private func landOnLatest(proxy: ScrollViewProxy? = nil) {
+        landingSeq &+= 1
+        let seq = landingSeq
+        landedSessionId = chat.sessionId
+        scrollPinState = .pinnedAtBottom
+        // 🚨 基准时间只取一次：链式 `deadline: .now() + delay` 的 `.now()` 是在**上一拍触发时**求值的，
+        // 5 拍实测会累计成 0 / 0.06 / 0.24 / 0.64 / 1.44s（比标称的 0.8s 窗口晚一倍）。
+        landRetry(seq: seq, delays: Self.landRetryDelays, proxy: proxy, base: .now())
+    }
+
+    private func landRetry(seq: Int, delays: [Double], proxy: ScrollViewProxy?, base: DispatchTime) {
+        guard let delay = delays.first else { return }
+        let rest = Array(delays.dropFirst())
+        DispatchQueue.main.asyncAfter(deadline: base + delay) {
+            guard seq == landingSeq else { return }              // 已切走/又进了一次 → 本次作废
+            // 首拍无条件；后续各拍只在仍贴底时补滚（用户上翻过就别抢他的位置）
+            guard delay == 0 || scrollPinState.pinned else { return }
+            // proxy 可能还没拿到（本会话的 ScrollView 尚未 onAppear）→ 不中止，下一拍再试
+            if let p = proxy ?? scrollProxyRef, !chat.messages.isEmpty {
+                scrollBottom(p, animated: false)
+            }
+            landRetry(seq: seq, delays: rest, proxy: proxy, base: base)
+        }
+    }
+
     /// v3.0.86 fix：滚底可关内层动画——流式高频 delta 下 withAnimation 每帧重启互相打断，
     /// 流式路径用 animated: false（贴底滚动瞬时完成）；消息 append（用户发送）保留轻动画
     private func scrollBottom(_ proxy: ScrollViewProxy, animated: Bool = true) {
@@ -5415,7 +5458,15 @@ extension ChatView {
             // v2.0.86h：Dock 滑动隐藏已删除（从未生效，手动开关替代）
             // v2.0.43：搜索定位——滚动到命中消息并高亮 2 秒
             // v3.9.58c：proxy 写回 @State（引用块跳转用）；onAppear 只跑一次，不参与 body 重算
-            .onAppear { scrollProxyRef = proxy }
+            // v4.0.148：冷启动时消息在首帧前已装好（count 不变 → onChange 不触发）→ 这里补一次落底。
+            // 用传入的 proxy 而不是刚写的 @State（同一次调用里读 @State 不稳）。
+            .onAppear {
+                scrollProxyRef = proxy
+                // 🚨 v4.0.148：切回本 tab 也会重触发 onAppear —— 同一会话只落底一次，
+                // 否则用户停在历史里读、切一次 tab 就被拽回底部（换会话由 sessionId 比对放行）。
+                guard landedSessionId != chat.sessionId else { return }
+                landOnLatest(proxy: proxy)
+            }
             .onChange(of: chat.highlightTarget?.content) { _, _ in
                 guard let t = chat.highlightTarget,
                       let idx = chat.indexOfMessage(role: t.role, contentPrefix: t.content) else { return }
@@ -5503,12 +5554,14 @@ extension ChatView {
     @MainActor
     private func applyMessageListScroll3<C: View>(to content: C, proxy: ScrollViewProxy) -> some View {
         content
-            .onChange(of: chat.messages.count) {
+            .onChange(of: chat.messages.count) { oldCount, _ in
                 // v4.0.37：append（自己发出 / 回答落库）本来就意味着「要跟着看」——把贴底态一并复位。
                 // 否则上一轮遗留的 unpinned 会让随后整段流式的自动滚底全部熄火（真机「贴底没效果」的一支）。
                 // 不加新行为：此处原本就无条件滚底，复位只是让随后的 delta 不再被旧态挡住。
                 scrollPinState = .pinnedAtBottom
                 scrollBottom(proxy)
+                // v4.0.148：0 → N（冷启动异步载入最近会话）这一帧布局也没落地 → 补一次带重试的落底
+                if oldCount == 0 { landOnLatest(proxy: proxy) }
             }
             .onChange(of: displayLimit) { _, _ in
                 refreshVisibleMessages()
@@ -5576,6 +5629,9 @@ extension ChatView {
                 // 前台由既有 probeRemoteBusy（6s 内）→ adoptRemote 无缝接回显示。不撤会双轮询抢流。
                 BackgroundStreamRunner.shared.retractIfRunning(sessionId: chat.sessionId)
                 refreshVisibleMessages()
+                // v4.0.148：切会话必落在最新一条（见 landOnLatest）——count 变化那一帧
+                // LazyVStack 尚未布局，既有 scrollBottom 会静默 no-op，这里补带重试的落底。
+                landOnLatest()
                 // v3.9.80：工具进度四件套走单一入口复位（原先这里手写三行，漏了 v3.9.80 新增的 toolSeq
                 // → 摘要行会把上一会话的步数当成本会话的「实际步数」；详见 StreamClient.resetToolProgress）
                 stream.resetToolProgress()
