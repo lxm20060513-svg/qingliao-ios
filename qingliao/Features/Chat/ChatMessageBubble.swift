@@ -406,7 +406,7 @@ struct MessageBubble: View {
                                 .overlay {
                                     if !isHighlighted {
                                         RoundedRectangle(cornerRadius: Radius.field, style: .continuous)
-                                            .fill(EnvironmentGradient.cardGlassFill(scheme))
+                                            .fill(EnvironmentGradient.cardGlassFillDense(scheme))
                                     }
                                 }
                                 .overlay {
@@ -1183,7 +1183,7 @@ struct MessageBubble: View {
                 .overlay {
                     if !isHighlighted {
                         RoundedRectangle(cornerRadius: Radius.field, style: .continuous)
-                            .fill(EnvironmentGradient.cardGlassFill(scheme))
+                            .fill(EnvironmentGradient.cardGlassFillDense(scheme))
                     }
                 }
                 .overlay {

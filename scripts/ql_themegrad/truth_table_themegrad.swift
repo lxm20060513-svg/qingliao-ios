@@ -183,8 +183,9 @@ let themeSrc = src("qingliao/Theme/EnvironmentGradient.swift")
 check("⑤ 主题源可读", !themeSrc.isEmpty)
 // v4.0.81 方案3：卡底口径整块换玻璃面（cardGlassFill）。断言**意图不变** —— 深色卡面必须是
 // 「专门调过的暗调色」，不是把浅色白面掉透明度糊上去；只把取值跟到新真源（dark = 30/30/40 @0.62）。
-check("⑤ 深色卡面走专门暗调（不是简单调透明度；cardGlassFill dark = 30/30/40 @0.62）",
-      themeSrc.contains("Color(red: 30 / 255, green: 30 / 255, blue: 40 / 255).opacity(0.62)"))
+// v4.0.153：用户「整个 UI 缺少玻璃感」→ 叠层减薄，深色档 0.62→0.50（仍是专门暗调色，不是拿浅色降透明度）
+check("⑤ 深色卡面走专门暗调（不是简单调透明度；cardGlassFill dark = 30/30/40 @0.50）",
+      themeSrc.contains("Color(red: 30 / 255, green: 30 / 255, blue: 40 / 255).opacity(0.50)"))
 check("⑤ 页底三团光晕齐（桃粉/天蓝/薄荷各一团）",
       occ(themeSrc, "GlowBlob(tint:") == 3)
 // 🚨 原写法 `!themeSrc.contains("opacity: 0.4")` 是弱断言（把 0.38 改成 0.42/0.55/0.9 照样绿）。
@@ -379,11 +380,20 @@ check("⑨ 旧光晕浓度不许回潮（.35/.38、.35/.34、.30/.36 那三档�
       && !envSrc.contains("? 0.30 : 0.36"))
 let lgSrc9 = src("qingliao/Theme/LiquidGlass.swift")
 let lgClean9 = stripCommentLines(lgSrc9)
-check("⑨ 卡面出口 = GlassEdgeSurface（材质 + 叠层 + 1pt 渐变厚边 + 顶部内高光）",
+// v4.0.153：厚边 1→1.2pt，并新增「内侧暗边」层（外亮内暗 = 玻璃厚度）
+check("⑨ 卡面出口 = GlassEdgeSurface（材质 + 叠层 + 1.2pt 渐变厚边 + 内侧暗边 + 顶部内高光）",
       lgClean9.contains("struct GlassEdgeSurface")
       && lgSrc9.contains("shape.fill(.ultraThinMaterial)")
-      && lgSrc9.contains("strokeBorder(EnvironmentGradient.cardEdgeGradient(scheme), lineWidth: 1)")
-      && lgSrc9.contains("strokeBorder(EnvironmentGradient.cardTopHighlight(scheme), lineWidth: 1)"))
+      && lgSrc9.contains("strokeBorder(EnvironmentGradient.cardEdgeGradient(scheme), lineWidth: 1.2)")
+      && lgSrc9.contains("strokeBorder(EnvironmentGradient.cardInnerShade(scheme), lineWidth: 1)")
+      && lgSrc9.contains("strokeBorder(EnvironmentGradient.cardTopHighlight(scheme), lineWidth: 1.2)"))
+check("⑨ 列表卡叠层走主题真源（常规 / dense 两档，调用点不许另写白度）",
+      lgSrc9.contains("EnvironmentGradient.cardGlassFill(scheme)")
+      && lgSrc9.contains("EnvironmentGradient.cardGlassFillDense(scheme)")
+      && lgSrc9.contains("var dense: Bool = false"))
+check("⑨ 会议纪要页底走内容层环境渐变（不再整页 glassEffect = 玻璃叠玻璃）",
+      src("qingliao/Features/Chat/MeetingMinutesView.swift").contains("EnvironmentGlowLayers(scheme: colorScheme)")
+      && !src("qingliao/Features/Chat/MeetingMinutesView.swift").contains(".glassPageBackground()"))
 check("⑨ 三个卡修饰符全走该出口（pastelCard / pastelFill / dashboardCard）",
       lgClean9.contains(".modifier(GlassEdgeSurface(cornerRadius: cornerRadius))")
       && lgClean9.contains("fill: true, edge: stroke, shadow: false")

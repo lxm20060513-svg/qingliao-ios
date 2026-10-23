@@ -26,22 +26,40 @@ struct GlassCard: ViewModifier {
 // v2.0.87g：设置页密集列表卡改回毛玻璃（glassEffect 在密集卡上透出背景光斑显脏，
 // 单卡场景（看板 GlassCard）保留 glassEffect；列表用低调 material 保证文字可读）
 // v2.0.87ac：浅色下去 thinMaterial 灰蒙板 → 白底 0.85（用户反馈灰色蒙板）
+// v4.0.152 → v4.0.153（iOS 27 对齐 + 用户「整个 UI 缺少玻璃感」）：
+//   浅色从「纯白 0.85 实底」改为「material + 主题叠层」——白度不再由本文件定，
+//   统一走 `EnvironmentGradient.cardGlassFill`（常规）/ `cardGlassFillDense`（气泡内），全站一个透光度。
+//   material 垫底仍防 v2.0.87g 那次的「灰蒙板」；要更实就传 `dense: true`，别改回纯白实底。
 struct GlassListCard: ViewModifier {
+    /// v4.0.153：气泡内 / 密集小卡传 true → 走更实一档（`cardGlassFillDense`），
+    /// 否则会和承载它的气泡玻璃融成一片、只剩一条细边（审查指出的玻璃叠玻璃问题）。
+    var dense: Bool = false
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    private var shape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: Radius.card, style: .continuous)   // v3.9.19：卡片圆角统一 16（原 14）
+    }
+
     func body(content: Content) -> some View {
         content
-            .background(
-                scheme == .dark
-                    ? AnyShapeStyle(.ultraThinMaterial)
-                    : AnyShapeStyle(Color.white.opacity(0.85)),
-                in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous)   // v3.9.19：卡片圆角统一 16（原 14）
-            )
+            .background {
+                shape.fill(.ultraThinMaterial)
+                    .overlay {
+                        // v4.0.153：叠层**只认主题真源**（常规 / 密集两档），不在调用点写死第二个白度；
+                        // 系统开「降低透明度」时换不透明实底（与 GlassEdgeSurface 同一条无障碍口径）。
+                        shape.fill(reduceTransparency
+                                   ? AnyShapeStyle(Color(uiColor: .secondarySystemGroupedBackground))
+                                   : AnyShapeStyle(dense
+                                                   ? EnvironmentGradient.cardGlassFillDense(scheme)
+                                                   : EnvironmentGradient.cardGlassFill(scheme)))
+                    }
+            }
             // v3.4.21：分组容器 0.8pt 浅描边（追平门锁卡/PinCard/SessionRow 全站卡片规范）
             .overlay(
-                RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
-                    .strokeBorder(Tint.line(scheme), lineWidth: 0.8)   // v3.9.19：深浅描边统一走 Tint.line
+                shape.strokeBorder(Tint.line(scheme), lineWidth: 0.8)   // v3.9.19：深浅描边统一走 Tint.line
             )
-            .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+            .clipShape(shape)
     }
 }
 
@@ -113,8 +131,9 @@ struct DashboardCardStyle: ViewModifier {
 // 实色灰白。铺在**弹窗**那层系统材质上等于盖了块白板，把弹窗材质完全遮死（用户 2026-09-21：
 // 「所有卡片不要用白色背景，用半透明毛玻璃背景，16 的圆角」）。
 // 这里只换背景那一层：卡形/描边/圆角/两层柔影与 `dashboardCard()` 逐字同参，
-// 材质取 `.ultraThinMaterial`（真半透明，透出弹窗底色），**不是** `GlassListCard` 浅色档那种
-// `Color.white.opacity(0.85)`（用户明确不要白底）。
+// 材质取 `.ultraThinMaterial`（真半透明，透出弹窗底色）。v4.0.153 起 `GlassListCard` 也统一到
+// 「material + 主题叠层真源」（常规 / dense 两档），两者不再靠「一个实白一个材质」区分 ——
+// 弹窗内要更薄时选 `SheetFrostCard`，气泡内要更实选 `glassListCard(dense: true)`。
 // ⚠️ 与 v3.9.23/v3.9.24 那条红线不冲突：那条说的是**弹窗自身**不要铺背景盖住系统材质；
 //    本修饰器只作用在弹窗内部的卡片上，弹窗根层依旧一个 background 都不加。
 
@@ -403,12 +422,20 @@ struct GlassEdgeSurface: ViewModifier {
             }
             .overlay {
                 if edge {
-                    shape.strokeBorder(EnvironmentGradient.cardEdgeGradient(scheme), lineWidth: 1)
+                    // v4.0.153：厚边 1 → 1.2pt（玻璃感的立体骨架）
+                    shape.strokeBorder(EnvironmentGradient.cardEdgeGradient(scheme), lineWidth: 1.2)
                 }
             }
             .overlay {
                 if edge {
-                    shape.strokeBorder(EnvironmentGradient.cardTopHighlight(scheme), lineWidth: 1)
+                    // v4.0.153：内侧暗边（外亮内暗 = 玻璃厚度），贴外亮边往内 1.2pt
+                    shape.strokeBorder(EnvironmentGradient.cardInnerShade(scheme), lineWidth: 1)
+                        .padding(1.2)
+                }
+            }
+            .overlay {
+                if edge {
+                    shape.strokeBorder(EnvironmentGradient.cardTopHighlight(scheme), lineWidth: 1.2)
                 }
             }
             .clipShape(shape)

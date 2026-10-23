@@ -18,6 +18,8 @@ import SwiftUI
 struct MeetingMinutesView: View {
 
     @Environment(\.dismiss) private var dismiss
+    /// v4.0.152：整页玻璃底退场后，页底改用全站同款环境渐变（需要感知深浅色）
+    @Environment(\.colorScheme) private var colorScheme
 
     /// 设备端转写器（与聊天页/语音对话页同一个类；本页只读 liveText 之外的发布态）
     @StateObject private var liveSpeech = LiveSpeechTranscriber()
@@ -92,7 +94,14 @@ struct MeetingMinutesView: View {
             content
             actions
         }
-        .glassPageBackground()
+        // v4.0.152（iOS 27 对齐）：整页 `glassEffect` 叠在 `systemBackground` 上 = 玻璃叠玻璃，
+        // 27 的玻璃更浊，这层会让页内内容失去折射源、观感发灰。
+        // ⚠️ 本页是 fullScreenCover，**没有** sheet 的系统材质可盖 —— 别照这条理由去改真正的 sheet 页。
+        // 改为全站页面同款内容层环境渐变（与设置页 / 会话首页同一条真源），不再整页铺玻璃。
+        // ignoresSafeArea 由 EnvironmentGlowLayers 自己挂在 GeometryReader 上（v4.0.70），外层不再重复挂。
+        .background {
+            EnvironmentGlowLayers(scheme: colorScheme)
+        }
         // 录音/整理中不许手滑划走（要退就点右上角 ✕，那条路会把文字留下）
         .interactiveDismissDisabled(phase == .recording || phase == .summarizing)
         .onAppear {

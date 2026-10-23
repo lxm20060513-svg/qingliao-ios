@@ -65,7 +65,7 @@ struct AgentActionCard: View {
             resultArea
         }
         .padding(Spacing.lg)
-        .glassListCard()
+        .glassListCard(dense: true)   // v4.0.153：渲染在 AI 气泡内部，走更实一档免得与气泡玻璃融成一片
         .task {
             // v4.0.100：流式临时气泡里的卡一律不动作 —— 回执无处可落（见 streamingHost）。
             // 不认回执、不自动跑，等回复落库后卡片重建再走正常路径。

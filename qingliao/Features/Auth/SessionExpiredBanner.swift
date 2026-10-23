@@ -64,7 +64,7 @@ struct SessionExpiredBanner: View {
         }
         .padding(.horizontal, Spacing.xxl)
         .padding(.vertical, Spacing.lg)
-        .glassListCard()   // 与列表卡同款（浅色白底 0.85 / 深色 ultraThinMaterial）
+        .glassListCard()   // 与列表卡同款（浅色 material + 白 0.72 / 深色 ultraThinMaterial）
         .padding(.horizontal, Spacing.xxl)
         .padding(.top, Spacing.md)
     }
