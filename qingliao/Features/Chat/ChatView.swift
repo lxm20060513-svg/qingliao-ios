@@ -87,7 +87,11 @@ struct ChatView: View {
     /// ② 不许改回 `@State var inputText`（同上，且真值表会红）。
     var inputText: String {
         get { composerDraft.text }
-        set { composerDraft.text = newValue }
+        // 🚨 必须写 `nonmutating set`：View 的方法/body 都在 nonmutating 语义下，
+        // 普通计算属性的 set 默认要求 mutating self → CI Archive 报
+        // `cannot assign to property: 'self' is immutable`（v4.0.151 CI #807 实踩）。
+        // `@State` 的 wrappedValue setter 本来就是 nonmutating，所以旧写法不需要这行。
+        nonmutating set { composerDraft.text = newValue }
     }
     @FocusState var inputFocus: Bool
     @State var sentOK = false

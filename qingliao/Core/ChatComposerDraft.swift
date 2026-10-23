@@ -12,12 +12,16 @@ import Observation
 /// 换成 `@Observable` 引用类型之后，观察粒度收窄到**真正读了 `text` 的视图**
 /// （只有 `ChatInputBar`），打字不再连坐消息列表与整页 chrome。
 ///
-/// 🚨 两条红线（改这个文件之前先看）：
+/// 🚨 三条红线（改这个文件之前先看）：
 ///   ① **别改回 `@State String`**：ql_draft 真值表钉着「正文不是 @State 字符串」。
 ///   ② **`ChatView.body` 里不许读 `text`**：读了 = 整页又跟着每次按键失效，本类白搭。
 ///      所有要由正文派生的展示值（如斜杠命令面板的前缀）一律下放到 `ChatInputBar`
 ///      自己从 `text` binding 派生（它读 = 它自己重绘，页级视图不动）。
-@Observable @MainActor
+///   ③ **别加 `@MainActor`**：ChatView 上的非隔离计算属性 / Binding 闭包要读写 `text`，
+///      加了就是 CI Archive 的 `main actor-isolated property can not be referenced
+///      from a nonisolated context`（本仓 StreamClient / AuthStore 同样是不带 @MainActor 的
+///      @Observable，照它们写）。写入口本来就全在 MainActor 路径上，不需要这层注解。
+@Observable
 final class ChatComposerDraft {
     var text: String = ""
 }
