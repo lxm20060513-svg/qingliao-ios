@@ -1139,7 +1139,8 @@ struct SessionsView: View {
                     tagStore.toggle(t, on: s.id)
                 } label: {
                     let has = tagStore.tags(for: s.id).contains(t)
-                    Label(has ? "\(t)  ✓" : t, systemImage: has ? "checkmark.circle.fill" : "circle")
+                    // v4.0.152：选中态只由图标表达（titleAndIcon 生效后文字里的 ✓ 会变成双勾）
+                    Label(t, systemImage: has ? "checkmark.circle.fill" : "circle")
                 }
             }
             Divider()
@@ -1206,7 +1207,13 @@ struct SessionsView: View {
         // 硬换成 .anchorLongPressMenu 会把「移动到分类」整条丢掉（宁留系统样式，不许丢功能）。
         // 另：本行菜单被 scripts/ql_fixed_session 与 scripts/ql_sessions 的真值表钉着（固定会话不给
         // 删除/改名/归档、清空入口可见），换写法要同步改护栏，收益不抵风险。
-        .contextMenu { sessionRowMenu(s) }
+        // v4.0.152（iOS 27 SDK 对齐）：27 SDK 起系统菜单默认隐藏 symbol 图标 →
+        // 这四项都是「对象/概念类」（置顶/收藏/归档/重命名），显式要回图标，
+        // 与自绘 anchorLongPressMenu 的多彩图标口径保持一致。
+        .contextMenu {
+            sessionRowMenu(s)
+                .labelStyle(.titleAndIcon)
+        }
         // v4.1.x：右滑归档（leading 边）——本地状态，会话不删、消息不动，只从主列表隐藏。
         // 已归档的会话（归档箱视图里）同一位置变成「取消归档」。
         .swipeActions(edge: .leading, allowsFullSwipe: true) {

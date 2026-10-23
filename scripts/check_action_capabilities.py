@@ -327,8 +327,12 @@ check('权限页不再把「邮件正文」写进「只能跳转打开」（与�
 # 问题卡：卡口径是「一直留着」，长按卡头必须有清理入口，否则 AI 已超时退出的追问卡永远删不掉
 qcard = read('qingliao/Features/Chat/ChatQuestionCard.swift')
 bub = read('qingliao/Features/Chat/ChatMessageBubble.swift')
+# v4.0.152：菜单改成多行以挂 labelStyle（iOS 27 SDK 默认隐藏 symbol 图标）。
+# 断言必须钉在**同一个 contextMenu 块内**：三个全局字面量各自在场 ≠ 这个位置挂的是这个菜单。
+_qs = qcard.find('.contextMenu {')
+_qblock = qcard[_qs:_qs + 200] if _qs >= 0 else ''
 check('问题卡卡头挂了最小菜单（复制题干 / 删除）',
-      '.contextMenu { questionCardMenu }' in qcard and 'questionCardMenu' in qcard)
+      _qs >= 0 and 'questionCardMenu' in _qblock and '.labelStyle(.titleAndIcon)' in _qblock)
 check('宿主把删除入口传进问题卡（漏 = 菜单里的删除项走不到 onDelete）',
       'ChatQuestionCard(message: message, onAnswer: onAnswerQuestion, onDelete: onDelete)' in bub)
 check('作答失败要出声（卡上写出原因 + 回退待答，不许静默停成「已回答」）',

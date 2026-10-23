@@ -25,10 +25,14 @@ enum ChatInputBarLayout {
     /// 落地形态 = 收进本 enum 做单一真源，四处（玻璃 in: / 聚焦蓝边 / 常态白边 / 流光）
     /// 全部引用它，仍是「不散落魔法数」；将来若要回 16 档只改这一处。
     static let containerCornerRadius: CGFloat = 26
-    /// v4.0.141 磨砂底白雾档位（用户「增加磨砂质感」）——与 dock「方案 A 磨砂」同一档（浅 0.16 / 深 0.06）。
+    /// v4.0.141 磨砂底白雾档位（用户「增加磨砂质感」）。
     /// 垫在液态玻璃**下**的 ultraThinMaterial 上，把材质从「灰玻璃」提亮成奶白磨砂；深色模式雾更小，免得发灰。
-    static let frostHazeLight: Double = 0.16
-    static let frostHazeDark: Double = 0.06
+    /// v4.0.152（iOS 27 对齐）：27 的系统玻璃本身更浊、信息穿透更少 → 白雾降一档（0.16→0.10 / 0.06→0.04），
+    /// 否则「系统玻璃 + 磨砂材质 + 高白雾」三层叠起来会发白像实心卡片。磨砂本体（material）保留不动。
+    /// ⚠️ 自此**不再与 DockPagingBar 同档**（用户要求滑动模式保持原样，那边仍是 0.16/0.06）；
+    ///    别再把这句写回「与 dock 同一档」，否则下次改一边就会两侧不一致。
+    static let frostHazeLight: Double = 0.10
+    static let frostHazeDark: Double = 0.04
     /// 第一层（消息输入层）最小高度
     static let messageRowMinHeight: CGFloat = 42
     /// 第二层（工具层）最小高度
@@ -734,7 +738,7 @@ extension ChatInputBar {
             // 之前只有 `.glassEffect(.regular)` 一层液态玻璃 —— 它透的是背后的消息流/图片，观感是「清水玻璃」。
             // 磨砂要的是「背后的东西被糊掉、只剩色块」，所以在玻璃**下**垫一层 ultraThinMaterial
             // （系统材质自带高斯模糊 + 半透明底），玻璃折射的就不再是文字而是这层材质；
-            // 再叠一层淡白雾提亮（浅 frostHazeLight 0.16 / 深 frostHazeDark 0.06，与 dock「方案 A 磨砂」同档），
+            // 再叠一层淡白雾提亮（档位见 ChatInputBarLayout.frostHaze*；v4.0.152 起与 dock 分开取值），
             // 深色模式雾更小避免发灰。形状仍走 containerCornerRadius 单一真源，不新增第二份几何。
             .background {
                 RoundedRectangle(cornerRadius: ChatInputBarLayout.containerCornerRadius, style: .continuous)

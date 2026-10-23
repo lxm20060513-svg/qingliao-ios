@@ -443,6 +443,8 @@ struct MemoryView: View {
                                             .font(.system(size: Typography.subhead))
                                             .foregroundStyle(Color.accentColor)
                                     }
+                                    // v4.0.152（iOS 27 SDK 对齐）：状态菜单靠图标区分启用/暂停/归档，显式保留。
+                                    .labelStyle(.titleAndIcon)
                                     .accessibilityLabel("修改这条记忆的状态")
                                     // v3.9.40（#19）：就地编辑（原只能删了再加，会掉到列表末尾）
                                     Button {

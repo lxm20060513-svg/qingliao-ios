@@ -298,12 +298,12 @@ check("磨砂底在玻璃**下**（background 块出现在 .a11yGlass 之前，�
           let gl = glassChromeCode.range(of: ".a11yGlass(") else { return false }
     return bg.lowerBound < gl.lowerBound
 }())
-check("磨砂白雾走 Layout 常量（浅 0.16 / 深 0.06，不散落魔法数）",
+check("磨砂白雾走 Layout 常量（浅 0.10 / 深 0.04，不散落魔法数）",
       glassChromeCode.contains("ChatInputBarLayout.frostHazeDark")
       && glassChromeCode.contains("ChatInputBarLayout.frostHazeLight")
       && glassChromeCode.contains("scheme == .dark")
-      && inputBarSrc.contains("static let frostHazeLight: Double = 0.16")
-      && inputBarSrc.contains("static let frostHazeDark: Double = 0.06"))
+      && inputBarSrc.contains("static let frostHazeLight: Double = 0.10")
+      && inputBarSrc.contains("static let frostHazeDark: Double = 0.04"))
 check("磨砂底折在折叠组内，未内联回 fullInputBar（防 demangler 栈溢出）", {
     // fullInputBar 函数体 = applyInputBarFrameChrome 之前那一段；磨砂只能出现在折叠组里
     let scope = norm(inputBarFoldScope(inputBarSrc) ?? "")

@@ -236,6 +236,18 @@ struct DockTabView: View {
     /// 默认关：不动老用户的原生 tab bar 观感；开了才走 page 样式。
     @AppStorage("qingliao_dock_paging") private var dockPaging = false
 
+    /// v4.0.152（iOS 27 SDK）：`TabView` 现在**强制** selection 指向可见 tab，
+    /// 指向被隐藏的档位可能直接崩（27 Release Notes, 164516837）。
+    /// 现有兜底是 `onChange(of: dockRenderKey)` 事后纠正 + 深链时先 `forcedTabs.insert`，
+    /// 但 `.id(dockRenderKey)` 重建与 onChange 之间存在一帧窗口 → 这里在**取值处**再归一一次：
+    /// 渲染用的 selection 永远落在 `dockRenderTabs` 内，写入照旧落到 `selected`。
+    private var dockSelection: Binding<DockTab> {
+        Binding(
+            get: { dockRenderTabs.contains(selected) ? selected : (dockRenderTabs.first ?? .settings) },
+            set: { selected = $0 }
+        )
+    }
+
     @ViewBuilder
     private var dockTabContainer: some View {
         if dockPaging {
@@ -243,7 +255,7 @@ struct DockTabView: View {
             //    否则「开了滑动就没导航栏」（旧版 v3.0.63 也是自绘 dock）。
             // 对话页（!showSessionHome）不给 dock：那一页底下是输入栏，dock 会压住它。
             ZStack(alignment: .bottom) {
-                TabView(selection: $selected) {
+                TabView(selection: dockSelection) {
                     ForEach(dockRenderTabs, id: \.self) { tab in
                         dockPage(tab)
                     }
@@ -284,7 +296,7 @@ struct DockTabView: View {
             }
             .animation(Motion.snap, value: dockShown)
         } else {
-            TabView(selection: $selected) {
+            TabView(selection: dockSelection) {
                 // v4.0.82：dock 档位改为**数据驱动**（顺序可调 + 可隐藏；设置 → 通用 →「Dock 栏」）。
                 // 原来静态四块（聊天/生活/看板/设置）一字未改地搬进了 `dockPage(_:)`，只是改成按
                 // `dockRenderTabs` 渲染 —— 档序与显隐由 DockLayoutKit 定，本文件不再写死。
@@ -865,6 +877,10 @@ struct DockTabView: View {
             //    本来就在会话首页的直接同步弹（没有这次写入）。
             if !onChatHome {
                 skipBurstOnce()
+                // v4.0.152：与 applyRoute 末尾同口径 —— 「聊天」被用户隐藏时也要临时插回渲染。
+                // 否则 dockSelection 会把渲染值 clamp 到别的档，而 settledTab / isActive 仍读 .chat
+                // → 没有任何页活着（列表不 load、轮询不跑）。这条 early return 分支原先漏了。
+                if !dockRenderTabs.contains(.chat) { forcedTabs.insert(.chat) }
                 selected = .chat
                 showSessionHome = true
                 Task { @MainActor in

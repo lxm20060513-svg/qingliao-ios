@@ -591,6 +591,8 @@ private struct FilesManagerRow: View {
                         .frame(width: 32, height: 32)
                         .contentShape(Rectangle())
                 }
+                // v4.0.152（iOS 27 SDK 对齐）：27 起菜单 symbol 图标默认隐藏 → 显式要回。
+                .labelStyle(.titleAndIcon)
             }
         }
         .padding(.horizontal, Spacing.xxl)
@@ -863,6 +865,8 @@ struct HistorySheet: View {
                                 // v4.0.102：锚点采集 —— 全部清除的确认浮层从这个「⋯」按钮的位置长出
                                 .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { clearAnchor = $0 }
                         }
+                        // v4.0.152（iOS 27 SDK 对齐）：显式保留「全选 / 删除所选 / 全部清除」的图标。
+                        .labelStyle(.titleAndIcon)
                     } else {
                         // v3.9.35：刷新改回系统裸按钮——与「完成」同款系统玻璃胶囊
                         Button("刷新") { Task { await load() } }

@@ -25,10 +25,14 @@ concurrency:
 
 jobs:
   build-ipa:
-    # v2.0.53：改回 macos-latest（Xcode 26，xcodegen 生成格式兼容）。
-    # 之前 0 steps 失败其实是 private 仓库额度耗尽，不是 runner 故障；
-    # macos-14 是 Xcode 15.4 读不了 xcodegen 2.45 生成的项目（Unable to read project）
-    runs-on: macos-latest
+    # v4.0.152：切到 Xcode 27（iOS 27 SDK）——UI 全面对齐 iOS 27 玻璃主题的前提。
+    # 系统组件外观由**构建 SDK**决定；macos-latest 目前是 macOS 26 + SDK 26.5，编不出 27 观感。
+    # xcode-27 是 arm64 专属镜像（2026-10-15 GA），brew/xcodegen 流程不变。
+    # ⚠️ 27 SDK 会引入一批「按链接 SDK 生效」的行为变化（菜单 symbol 图标默认隐藏等），本版已同批适配；
+    #    回退到 26 SDK 需把这里改回 macos-latest，并回滚那批适配。
+    runs-on: xcode-27
+    # v4.0.152：新镜像加一道可观测的失败边界（正常全流程 15-20 min）。
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@v4

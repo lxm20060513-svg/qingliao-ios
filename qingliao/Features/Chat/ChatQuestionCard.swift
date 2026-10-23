@@ -221,10 +221,15 @@ struct ChatQuestionCard: View {
             }
         }
         .accessibilityElement(children: .combine)
-        // v4.0.105：此处**故意保留系统 .contextMenu**（用户同日拍板保留；且
-        // scripts/check_action_capabilities.py:311 就钉着 `'.contextMenu { questionCardMenu }' 在场` ——
-        // 换成锚定胶囊菜单会让该护栏转红，属故意不换，不是漏改）。
-        .contextMenu { questionCardMenu }
+        // v4.0.105：此处**故意保留系统 .contextMenu**（用户同日拍板保留）。
+        // 护栏见 scripts/check_action_capabilities.py 的「问题卡卡头挂了最小菜单」一条
+        // （v4.0.152 起断言形态 = 同一个 contextMenu 块内含 questionCardMenu + labelStyle）。
+        // v4.0.152（iOS 27 SDK 对齐）：27 SDK 起系统菜单默认隐藏 symbol 图标 →
+        // 「复制题干 / 删除」是动作类，但这两项图标帮助识别（且与全站菜单口径一致），显式保留。
+        .contextMenu {
+            questionCardMenu
+                .labelStyle(.titleAndIcon)
+        }
     }
 
     /// 长按卡头的菜单：只给「复制题干」与「删除」。

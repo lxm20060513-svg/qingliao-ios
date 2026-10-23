@@ -35,17 +35,21 @@ enum EnvironmentGradient {
 
     /// 1pt **渐变厚边**（稿 gradbd：135° 左上高光 → 右下渐隐）——方案3 的视觉主角，
     /// 有了它卡才有「厚度」；浅色下缘收到黑 0.06 收边界，深色下缘几乎全透（靠影撑）。
+    /// v4.0.152（iOS 27 对齐）：浅色起点 0.95→0.85 —— 它是卡面最亮的一圈，27 系统玻璃整体更亮，
+    /// 不压这一档会比 tab bar 还刺眼（顶部内高光已同批降档，两者必须一起降才不互相打架）。
     static func cardEdgeGradient(_ scheme: ColorScheme) -> LinearGradient {
         scheme == .dark
             ? LinearGradient(colors: [Color.white.opacity(0.30), Color.white.opacity(0.02)],
                              startPoint: .topLeading, endPoint: .bottomTrailing)
-            : LinearGradient(colors: [Color.white.opacity(0.95), Color.black.opacity(0.06)],
+            : LinearGradient(colors: [Color.white.opacity(0.85), Color.black.opacity(0.06)],
                              startPoint: .topLeading, endPoint: .bottomTrailing)
     }
 
     /// 顶部**内高光**（稿 inset 0 1px 0）：只亮上缘，纵向 22% 处归零 —— 玻璃「光从上打下来」的暗示。
+    /// v4.0.152（iOS 27 对齐）：27 的系统玻璃整体更亮、边缘更立体 → 自绘卡上缘高光同步压低一档
+    /// （浅 0.60→0.50 / 深 0.10→0.08），否则卡顶会比系统 tab bar 更抢眼、显得「过曝」。
     static func cardTopHighlight(_ scheme: ColorScheme) -> LinearGradient {
-        LinearGradient(colors: [Color.white.opacity(scheme == .dark ? 0.10 : 0.60), .clear],
+        LinearGradient(colors: [Color.white.opacity(scheme == .dark ? 0.08 : 0.50), .clear],
                        startPoint: .top, endPoint: UnitPoint(x: 0.5, y: 0.22))
     }
 

@@ -700,6 +700,8 @@ struct WorkspaceView: View {
                     .frame(width: 30, height: 30)
                     .contentShape(Rectangle())
             }
+            // v4.0.152（iOS 27 SDK 对齐）：删除项的垃圾桶图标显式保留。
+            .labelStyle(.titleAndIcon)
             .buttonStyle(.plain)
         }
     }
