@@ -247,35 +247,46 @@ check("面板 overlay 挂在具名修饰器组内（改链只改这里的口径�
 check("⚠️ 必须 `.top` 对齐：用 `.bottom` 时单条面板会落进输入栏内约 18pt 压住输入框行（独立审查实测）",
       !glowBody.contains(".overlay(alignment: .bottom)"))
 
-check("新增三参数追加在 onToggleAutoRead 之后（实参序 = 声明序）",
+// v4.0.151（长会话打字卡顿根治）：`slashPanelVisible` / `slashPanelPrefix` **不再是入参** ——
+// 它们由 ChatView 读 `inputText` 算好后传进来，那让正文成了页级 @State 的读取点：每敲一键
+// 整个聊天页（消息列表 + 全部浮层 + 二十多条 onChange）都重建，会话越长越卡（真机「键盘按半天
+// 没反应」）。现在改成 ChatInputBar 自己从 `text` binding 派生 → 只有输入栏这一小块重绘。
+check("点选回调紧随 onToggleAutoRead（实参序 = 声明序）",
       orderedPair(inputbar, after: "var onToggleAutoRead: () -> Void = {}",
-                  before: "var slashPanelVisible: Bool = false")
-      && orderedPair(inputbar, after: "var slashPanelVisible: Bool = false",
-                     before: "var slashPanelPrefix: String = \"\"")
-      && orderedPair(inputbar, after: "var slashPanelPrefix: String = \"\"",
-                     before: "var onPickSlash: (SlashCommand) -> Void = { _ in }"))
+                  before: "var onPickSlash: (SlashCommand) -> Void = { _ in }"))
+check("反向：两个斜杠面板参数不许再加回入参（加回 = 打字卡顿复发）",
+      !inputbar.contains("var slashPanelVisible: Bool = false")
+      && !inputbar.contains("var slashPanelPrefix: String = \"\""))
+check("正向：可见性/前缀是输入栏**自有**计算属性（从 text 派生）",
+      inputbar.contains("private var slashPanelPrefix: String {")
+      && inputbar.contains("private var slashPanelVisible: Bool { !slashPanelPrefix.isEmpty }"))
 
 guard let callBody = closureBody(cv, from: "autoReadIcon: \"speaker.wave.2.fill\",",
                                  to: ".id(chat.sessionId)") else {
     check("哨兵：能取到 ChatInputBar 调用点片段", false); exit(1)
 }
 check("哨兵：调用点片段非空", callBody.count > 100)
-check("调用点按同序传三个新参数（实参序 = 声明序，CI 才过）",
-      orderedPair(callBody, after: "slashPanelVisible: slashPanelVisible,",
-                  before: "slashPanelPrefix: slashPanelPrefix,")
-      && orderedPair(callBody, after: "slashPanelPrefix: slashPanelPrefix,",
-                     before: "onPickSlash:"))
+check("调用点只传点选回调（可见性/前缀不再过页级）",
+      orderedPair(callBody, after: "onToggleAutoRead: { toggleAutoRead() },",
+                  before: "onPickSlash:")
+      && !callBody.contains("slashPanelVisible: slashPanelVisible,")
+      && !callBody.contains("slashPanelPrefix: slashPanelPrefix,"))
 
 // MARK: - E. 触发口径 + 点选填入
 
-guard let prefixBody = closureBody(cv, from: "private var slashPanelPrefix: String {",
-                                   to: "private func pickSlashCommand") else {
-    check("哨兵：能取到 slashPanelPrefix 片段", false); exit(1)
+guard let prefixBody = closureBody(inputbar, from: "private var slashPanelPrefix: String {",
+                                   to: "private var slashCommandLayer") else {
+    check("哨兵：能取到输入栏 slashPanelPrefix 片段", false); exit(1)
 }
+check("哨兵：前缀片段非空且覆盖可见性判定",
+      prefixBody.count > 100 && prefixBody.contains("slashPanelVisible"))
 check("触发口径走 SlashParser.panelPrefix（单一真源）",
-      prefixBody.contains("SlashParser.panelPrefix(inputText)"))
+      prefixBody.contains("let current = text")
+      && prefixBody.contains("SlashParser.panelPrefix(current)"))
 check("语音态不渲染面板", prefixBody.contains("guard !voiceMode"))
-check("不主动收/弹键盘（这里不碰 inputFocus）", !prefixBody.contains("inputFocus"))
+check("不主动收/弹键盘（这里不碰 focused）", !prefixBody.contains("focused"))
+check("⚠️ 页级视图不再读正文算面板（读 = 每次按键重建整页 = 长会话打字卡顿）",
+      !cv.contains("slashPanelPrefix") && !cv.contains("SlashParser.panelPrefix(inputText)"))
 
 guard let pickBody = closureBody(cv, from: "private func pickSlashCommand(_ cmd: SlashCommand) {",
                                  to: "private func runSlashCommand") else {

@@ -131,13 +131,17 @@ struct ChatInputBar: View {
     var autoReadIcon: String = ""
     var autoReadOn: Bool = false
     var onToggleAutoRead: () -> Void = {}
-    /// #3 斜杠命令面板：可见性 + 当前前缀（含 `/`）+ 点选回调，由 ChatView 以 inputText/voiceMode 驱动。
+    /// #3 斜杠命令面板：点选回调。
     /// ⚠️ 面板挂在 `.overlay` **常驻层级**、只改 opacity/offset —— 绝不用 `if slashPanelVisible { … }`
     ///   把面板插进输入栏 VStack 子节点：那会改 TextField 父级/兄弟集合 → 键盘弹一下又收回（老坑，见
     ///   fullInputBar / toolLayerExpanded 注释）。真值表 ql_slash 钉住「必须 overlay 常驻」。
     /// ⚠️ 追加在 `onToggleAutoRead` 之后：调用点走成员初始化器且按声明序传参，插在中间会错位。
-    var slashPanelVisible: Bool = false
-    var slashPanelPrefix: String = ""
+    ///
+    /// 🚨 v4.0.151（长会话打字卡顿根治）：原先这里是 `slashPanelVisible` / `slashPanelPrefix`
+    /// 两个**入参**（由 ChatView 读 `inputText` 算好后传进来）。那让正文成了页级 `@State` 的
+    /// 读取点 → 每敲一键整个聊天页（消息列表 + 全部浮层 + 二十多条 onChange）都重建，
+    /// 会话越长越卡。现在改成**本视图自己从 `text` binding 派生**（见下面两个计算属性）：
+    /// 正文变化只让这一小块重绘，页级视图不动。**别再把它们改回入参**（真值表 ql_slash 钉着）。
     var onPickSlash: (SlashCommand) -> Void = { _ in }
     // v3.4.29：发送动作图标弹一下（symbolEffect 驱动，无自定义动画开销）
     // v3.9.42：同一个 tick 兼作发送键关键帧的 trigger（原来另有一个 sendScale + 两段 withAnimation）
@@ -816,6 +820,19 @@ extension ChatInputBar {
             // 用 .bottom 时宿主底边减位移，单条（44pt）会落进输入栏内约 18pt 压住输入框行（独立审查实测）。
             .overlay(alignment: .top) { slashCommandLayer }
     }
+
+    /// 斜杠面板当前前缀（含 `/`）——**本视图自己从 `text` 派生**（v4.0.151，见上）。
+    /// 触发口径单一真源 = `SlashParser.panelPrefix`（以 `/` 开头且不含空白）；语音态不渲染面板。
+    /// 不主动收/弹键盘：这里只读状态，不碰 `focused`。
+    /// ⚠️ 第一行那个 `text` 读取是**故意的无条件读**：它让本视图（而不是整个聊天页）订阅正文变化。
+    ///    删了它，且刚好在语音分支里，就没有视图订阅正文 → TextField 打字不上屏。
+    private var slashPanelPrefix: String {
+        let current = text
+        guard !voiceMode else { return "" }
+        return SlashParser.panelPrefix(current) ?? ""
+    }
+    /// 面板是否可见（空前缀 = 收起）
+    private var slashPanelVisible: Bool { !slashPanelPrefix.isEmpty }
 
     /// #3 斜杠命令面板层：`overlay` **常驻**（不在任何 `if` 分支里），靠 opacity/offset 显隐。
     /// 高度按匹配条数算（`SlashCommandPanel.height`，上限 200 滚动），底边贴在输入栏上缘之上

@@ -100,13 +100,27 @@ ck("写入口必须 internal：private 跨文件不可见，语音文件就只�
    !chatView.contains("private func setInputText("))
 ck("打字即时落盘：binding 的 set 走同一个写入口", chatView.contains("set: { newValue in setInputText(newValue) }"))
 
-// 直写白名单：整个 Features/Chat 目录里 `inputText = ` 只许这 5 处
+// 直写白名单：整个 Features/Chat 目录里 `inputText = ` 只许这 4 处
+// v4.0.151：声明那一处随「@State String → @Observable 载体」一并消失（见本节末尾三条正向断言）
 let directWrites = hits(chatAll, "inputText = ")
-ck("Chat 全目录直写 inputText 恰好 5 处（声明 / onAsk 点即发 / setInputText 体内 / 冷启动恢复 / 切会话恢复），实得 \(directWrites)",
-   directWrites == 5)
+ck("Chat 全目录直写 inputText 恰好 4 处（onAsk 点即发 / setInputText 体内 / 冷启动恢复 / 切会话恢复），实得 \(directWrites)",
+   directWrites == 4)
 ck("白名单①：onAsk「点一下就发」保持直写（立即发送，不落草稿）", chatAll.contains("inputText = q"))
 let blankWrites = hits(chatAll, "inputText = \"\"")
-ck("反向：inputText = \"\" 只剩声明那一处（清空一律过写入口），实得 \(blankWrites)", blankWrites == 1)
+ck("反向：inputText = \"\" 一处都没有（清空一律过写入口），实得 \(blankWrites)", blankWrites == 0)
+// v4.0.151（长会话打字卡顿根治）：正文状态从 `@State String` 换成 @Observable 载体 ——
+// 旧写法下每敲一键 SwiftUI 都重建整个聊天页（消息列表 + 全部浮层 + 二十多条 onChange），
+// 会话越长越卡（用户真机「键盘按半天没反应」）。下面正反各钉一条，防有人「顺手改回 @State」。
+ck("正文是 @Observable 载体（ChatView 持有 @State private var composerDraft）",
+   chatView.contains("@State private var composerDraft = ChatComposerDraft()"))
+ck("正文对外仍是 inputText（读写点零改动），且不再是 @State 字符串",
+   chatView.contains("var inputText: String {") && chatView.contains("get { composerDraft.text }")
+   && !chatView.contains("@State var inputText"))
+ck("⚠️ 页级 body 不许读正文派生内容（读了 = 每次按键重建整页 = 打字卡顿复发）",
+   !chatView.contains("SlashParser.panelPrefix(inputText)"))
+ck("载体文件在场且只有一处 var text（单一真源）",
+   read("qingliao/Core/ChatComposerDraft.swift").contains("final class ChatComposerDraft")
+   && hits(read("qingliao/Core/ChatComposerDraft.swift"), "var text: String = \"\"") == 1)
 ck("反向：语音文件（ChatViewVoice）直写 0 处 —— P1 的复发点", hits(voiceSrc, "inputText = ") == 0)
 ck("语音两处都走写入口（exitVoiceMode 定稿 + onTextChange 中间结果）",
    hits(voiceSrc, "setInputText(") == 2 && voiceSrc.contains("setInputText(text)"))

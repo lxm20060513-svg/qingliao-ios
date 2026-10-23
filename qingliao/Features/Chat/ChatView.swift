@@ -77,7 +77,18 @@ struct ChatView: View {
     @State var clipboardAutoHide: Task<Void, Never>?
     @Environment(\.scenePhase) var scenePhase
 
-    @State var inputText = ""
+    /// v4.0.151（长会话打字卡顿根治）：正文状态从 `@State String` 换成 `@Observable` 引用。
+    /// 原因见 `Core/ChatComposerDraft.swift` 头注释 —— 旧写法下**每敲一键都重建整个聊天页**
+    /// （消息列表 + 全部浮层 + 二十多条 onChange），会话越长越卡，真机就是「键盘按半天没反应」。
+    @State private var composerDraft = ChatComposerDraft()
+    /// 输入框正文。**属性名保持不变**：语音定稿 / 快捷指令 / 切会话 / 发送 / 草稿回填
+    /// 这些读写点全部零改动（ql_draft 真值表按原名钉着）。
+    /// ⚠️ 两条红线：① `body` 里不许读它（读了整页又会跟着每次按键失效，本修复白做）
+    /// ② 不许改回 `@State var inputText`（同上，且真值表会红）。
+    var inputText: String {
+        get { composerDraft.text }
+        set { composerDraft.text = newValue }
+    }
     @FocusState var inputFocus: Bool
     @State var sentOK = false
     @State var serverOnline: Bool?   // 服务器连接状态（真实绿点）
@@ -668,14 +679,10 @@ struct ChatView: View {
 
     // MARK: - #3 斜杠命令层（命令解析真源在 Core/SlashCommands.swift）
 
-    /// 面板是否可见 / 当前前缀（含 `/`）。
-    /// 触发口径 **单一真源** = `SlashParser.panelPrefix`（以 `/` 开头且不含空白）；语音态不渲染面板。
-    /// 不主动收/弹键盘：这里只读状态，不碰 `inputFocus`。
-    private var slashPanelPrefix: String {
-        guard !voiceMode else { return "" }
-        return SlashParser.panelPrefix(inputText) ?? ""
-    }
-    private var slashPanelVisible: Bool { !slashPanelPrefix.isEmpty }
+    // 🚨 v4.0.151：`slashPanelPrefix` / `slashPanelVisible` 已**从本文件移走** ——
+    // 它们要读 `inputText`，而 body 里读正文会让整页跟着每次按键重建（长会话打字卡顿根因）。
+    // 现由 `ChatInputBar` 自己从 `text` binding 派生（见其 `slashPanelPrefix` 计算属性），
+    // 页级视图只传「点选回调」。真值表 ql_slash 已同批翻新，别在这里加回来。
 
     /// 面板点选：只**填入**命令文本（无参补 `/xxx`、带参补 `/记一笔 `），执行仍走 send() 的唯一拦截口。
     private func pickSlashCommand(_ cmd: SlashCommand) {
@@ -855,10 +862,10 @@ struct ChatView: View {
                     autoReadIcon: "speaker.wave.2.fill",
                     autoReadOn: autoReadReply,
                     onToggleAutoRead: { toggleAutoRead() },
-                    // #3 斜杠命令面板（overlay 常驻层）：可见性/前缀/点选回调
+                    // #3 斜杠命令面板（overlay 常驻层）：只传点选回调。
+                    // v4.0.151：可见性/前缀不再由本页计算（那要读 inputText → 每敲一键整页重建 =
+                    // 长会话打字卡顿根因），已下放到 ChatInputBar 自己从 text binding 派生。
                     // ⚠️ 实参序必须 = ChatInputBar 存储属性声明序（追加在 onToggleAutoRead 之后）
-                    slashPanelVisible: slashPanelVisible,
-                    slashPanelPrefix: slashPanelPrefix,
                     onPickSlash: { pickSlashCommand($0) })
                     // v2.0.129：球态输入框 —— 绑定会话 id，切会话重建复位（展开态在切会话后回球态）
                     .id(chat.sessionId)
