@@ -408,7 +408,7 @@ struct DockTabView: View {
                         // 🚨 v4.0.148（审查 P1）：投影必须挂在 `.offset` **内层**。
                         // `.offset` 是渲染位移、不改布局框 —— 后挂的 overlay 按**未位移**的框对齐，
                         // 于是条钉在屏幕左缘 0…16pt（压在首页上），移动页左缘反而没投影；且完成
-                        // 返回的 0.62s 收尾里 backFollowLive 仍为 true、p→1 投影最浓（0.18），首页已
+                        // 返回的收尾窗口（`sessionBackSettleWait`）里 backFollowLive 仍为 true、p→1 投影最浓（0.18），首页已
                         // 全屏 → 屏左会留一条 16pt 暗带。顺序 = overlay 先（跟页走）、offset 后。
                         // 🚨 v4.0.148：系统 pop 里移动页左缘有一道投影把两页分开（用户点名要对齐那个形制）。
                         // 用 16pt 渐变条、不用 `.shadow`：整页投影每帧离屏栅格化，是跟手掉帧的经典成因；
@@ -471,7 +471,7 @@ struct DockTabView: View {
     /// 把跟手状态整个收掉：位移归 0 + 卸垫底页 + 作废在途的收尾任务（seq 递增）。
     /// 为什么必须有这条兜底：跟手状态原本只有「正常抬手」一个出口，手势被打断（`onEnded` 不来：
     /// 来电 / 通知 / 进后台 / 视图被摘下）时会残留 —— 残留 = 对话页停在半路 + 首页一直当垫底页；
-    /// 且「点会话进对话页」这条路若不清，0.62s 收敛窗口里的那次点击会被收尾任务覆盖回去。
+    /// 且「点会话进对话页」这条路若不清，收尾窗口里的那次点击会被收尾任务覆盖回去。
     /// 手势侧的对称兜底在 ChatEdgeBackModifier（换手势就重过门 + 收回上一轮）。
     private func resetBackFollow() {
         backFollowSeq &+= 1
@@ -485,7 +485,7 @@ struct DockTabView: View {
     /// 跟手一帧：位移**裸写**（零动画事务 —— 过动画页面就落在手指后面），并让首页作为垫底页在场
     /// （下一帧就是「两页同框」：对话页被推右、首页从左侧露出来）。
     /// ⚠️ 每次递增 `backFollowSeq`：新一轮跟手必须作废上一轮收敛的收尾任务
-    ///（否则 0.62s 窗口内再甩一把，旧任务回来把位移/垫底页清掉 = 页面跳回原位）。
+    ///（否则收尾窗口内再甩一把，旧任务回来把位移/垫底页清掉 = 页面跳回原位）。
     private func backFollow(_ dx: CGFloat) {
         backFollowSeq &+= 1
         if !backFollowLive { backFollowLive = true }
@@ -503,7 +503,7 @@ struct DockTabView: View {
         if complete {
             // 收敛：位移继续走完剩下的路。
             // 🚨 v4.0.149（用户 2026-10-22「滑动返回慢一点，不要那么生硬」）：这条**换专用令牌**
-            // `sessionBackSettle`（.spring 0.52，软着陆、无回弹），不再借用 `Motion.page`(.smooth 0.34)——
+            // `sessionBackSettle`（.spring 0.32，软着陆、无回弹），不再借用 `Motion.page`(.smooth 0.34)——
             // 0.34 是「切态」的时长，用在一次整屏滑出上读作「嗖一下被推走」，且 .smooth 收尾是硬停，
             // 手指刚离开页面就刹住 = 生硬。返回手势这条链独占，别顺手改回 page（动的是别处在用的令牌）。
             withAnimation(Motion.sessionBackSettle) { backFollowOffset = width }

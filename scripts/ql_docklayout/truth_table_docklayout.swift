@@ -274,10 +274,22 @@ check("🚫 逐帧位移不许再回 @State / 不许在 body 里直读（每帧�
       !dockView.contains("@State private var backFollowOffset")
         && !dockView.contains("offset(x: backFollowLive ? backFollowOffset")
         && dockView.contains("final class BackFollowMotionState"))
-check("跟手收敛 / 回弹各一处、都走返回专用令牌 Motion.sessionBackSettle（慢而软，同一枚不许分家）",
+check("跟手收敛 / 回弹各一处、都走返回专用令牌 Motion.sessionBackSettle（软着陆、同一枚不许分家）",
       dockView.contains("withAnimation(Motion.sessionBackSettle) { backFollowOffset = width }")
         && dockView.contains("withAnimation(Motion.sessionBackSettle) { backFollowOffset = 0 }")
         && !dockView.contains("withAnimation(Motion.page) { backFollowOffset"))
+// 🚨 v4.0.151（用户 2026-10-23「滑动返回首页的速度改成跟滑动/tap 切换一样的速度就行，现在的有点慢了」）：
+//   速度口径 = **与底栏切页同速**（`pageEnterSlide` 标准档 0.32）。手感口径不变 = `.spring(bounce: 0)` 软着陆
+//   （v4.0.149 已确认 `.smooth` 硬停读作「生硬」，不许为了调速度退回去）。
+//   为什么要钉：这两个数（0.52 旧值 / 0.32 目标值）都是裸字面量，改错了没有任何编译期信号，
+//   且表里其它断言只看「走没走这枚令牌」—— 令牌内部变多慢都照样绿（= 零鉴别力）。
+//   复用上面（第 232 行附近）已有的 `motionSrc`，别再声明第二份（顶层重复声明 = 整表编译失败）。
+check("返回收尾速度 = 切页同速 0.32（旧 0.52「慢一点」口径已作废）",
+      motionSrc.contains("static let sessionBackSettleDuration: Double = 0.32")
+        && !motionSrc.contains("static let sessionBackSettleDuration: Double = 0.52"))
+check("返回收尾仍是 spring 软着陆（不许为了调速度退回 .smooth 硬停）",
+      motionSrc.contains("tuned(.spring(duration: sessionBackSettleDuration, bounce: 0))")
+        && !motionSrc.contains("tuned(.smooth(duration: sessionBackSettleDuration))"))
 check("🚫 跟手帧必须是裸赋值（过动画事务 = 页面落在手指后面）",
       dockView.contains("backFollowOffset = dx")
         && !dockView.contains("withAnimation(Motion.page) { backFollowOffset = dx }")
