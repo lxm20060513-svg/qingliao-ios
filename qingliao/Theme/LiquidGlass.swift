@@ -321,8 +321,9 @@ extension View {
     func glassCard(cornerRadius: CGFloat = 16) -> some View {
         modifier(GlassCard(cornerRadius: cornerRadius))
     }
-    func glassListCard() -> some View {
-        modifier(GlassListCard())
+    /// v4.0.153：`dense: true` = 气泡内 / 密集小卡（更实一档，避免与承载气泡的玻璃融成一片）
+    func glassListCard(dense: Bool = false) -> some View {
+        modifier(GlassListCard(dense: dense))
     }
     /// v4.0.0：整页玻璃底（设置页用）。
     /// 做法与意图卡（`.glassEffect(.regular)`）**同一口径**，但铺满全页：
