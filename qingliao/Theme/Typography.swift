@@ -31,15 +31,28 @@ enum Typography {
     /// 次要说明文字
     static let caption: CGFloat = 11
     /// 列表次要文字 / 标签
-    static let subhead: CGFloat = 13
+    ///
+    /// v4.0.150（承接 v4.0.61「借鉴 iOS 原生风格」，用户 2026-10-23 拍板扩档）：
+    /// subhead 与 title 也接入 Dynamic Type —— 此前只有正文跟随，用户调大系统字体时标题层级会塌
+    /// （正文涨到 17、subhead 仍 13，层级反转）。
+    ///
+    /// ⚠️ **胶囊不吃这一档**：`PillSize.topBar` 改用 `pillLabel`（固定 13）——胶囊宽高按固定字号量过，
+    ///    跟随缩放会截字/撑高顶栏。列表行高多为自适应，不受影响；`DashboardCards`(88) /
+    ///    `DockerSheet`(96) 这类写死卡高需真机看是否两行溢出。
+    static var subhead: CGFloat {
+        min(UIFontMetrics(forTextStyle: .subheadline).scaledValue(for: 13), 15)
+    }
+    /// 胶囊标签专用固定档（**不跟随** Dynamic Type）
+    ///
+    /// v4.0.150：原本 `PillSize.topBar` 直接读 subhead，subhead 动态化后必须拆出固定值，
+    /// 否则「关闭 / 编辑 / 完成」这类顶栏胶囊会随系统字号变宽、顶掉旁边的标题与按钮。
+    static let pillLabel: CGFloat = 13
     /// 正文
     ///
     /// v4.0.61（用户 2026-10-05 拍板「借鉴 iOS 原生风格」第①条）：**正文字号跟随系统「文字大小」**
     /// （Dynamic Type）。做法是 UIFontMetrics 按 `.body` 档缩放同一个数值 —— 字重/字距/层级全不变，
     /// 只让大小跟系统走；系统没调过时返回值恰好是 15，观感零变化（所以这不是"重排"，是"接管"）。
     ///
-    /// ⚠️ **只放正文一类跟随**：胶囊（`PillSize` 走 subhead/tiny）、栏目标题、卡片数值都**保持固定** ——
-    ///    胶囊宽度、列表行高都按固定字号量过，跟随缩放会截字/撑高。
     /// ⚠️ 上限 = `title`(17)，不再用 +40%（v4.0.61 审查意见 5）：
     ///    21 会反超卡片数值(17) 与弹窗标题(20)，层级反转；且本仓大量卡片高度写死，撑爆风险高。
     /// ⚠️ 未做缓存（审查意见 4b）：加缓存需读全局 trait（`UIApplication.shared…`/@MainActor），
@@ -48,7 +61,11 @@ enum Typography {
         min(UIFontMetrics(forTextStyle: .body).scaledValue(for: 15), 17)
     }
     /// 小标题 / 卡片数值
-    static let title: CGFloat = 17
+    ///
+    /// v4.0.150：上限 19，仍低于 `headline`(20)，保证「卡片数值 < 弹窗标题」的层级不被反超。
+    static var title: CGFloat {
+        min(UIFontMetrics(forTextStyle: .headline).scaledValue(for: 17), 19)
+    }
     /// 卡片 / 弹窗标题
     static let headline: CGFloat = 20
     /// 大数字 / 突出标题

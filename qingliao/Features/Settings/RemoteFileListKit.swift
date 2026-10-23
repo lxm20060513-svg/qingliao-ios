@@ -75,23 +75,34 @@ struct RemoteRefreshFailedNotice: View {
 }
 
 /// 空态：tray 图标 + 主/副文案（`subtitle` 可带 \n，居中）
+///
+/// v4.0.150：外壳换成系统 `ContentUnavailableView`（布局/无障碍语义/大字体自适应），
+/// **卡面与字号口径原样保留** —— 这个空态长在 `pastelCard()` 里，直接上系统默认字号（title2）
+/// 会比同屏的卡片标题还大，所以 label/description 都显式给了本仓的 body/caption 档。
 struct RemoteEmptyView: View {
     let title: String
     let subtitle: String
     var body: some View {
-        VStack(spacing: Spacing.md) {
-            Image(systemName: "tray")
-                .font(.system(size: Typography.display))
-                .foregroundStyle(.tertiary)
-            Text(title)
-                .font(.system(size: Typography.body, weight: .medium))
-            Text(subtitle)
-                .font(.system(size: Typography.caption))
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
+        ContentUnavailableView {
+            Label {
+                Text(title)
+                    .font(.system(size: Typography.body, weight: .medium))
+                    .foregroundStyle(.primary)
+            } icon: {
+                Image(systemName: "tray")
+                    .font(.system(size: Typography.title, weight: .light))
+                    .foregroundStyle(.tertiary)
+            }
+        } description: {
+            if !subtitle.isEmpty {
+                Text(subtitle)
+                    .font(.system(size: Typography.caption))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 30)
+        .padding(.vertical, 10)
         .padding(.horizontal, Spacing.xxl)
         .pastelCard()
     }

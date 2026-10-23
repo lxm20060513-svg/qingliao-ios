@@ -27,7 +27,7 @@ enum PillSize {
         case .page: return Typography.tiny
         // v3.9.22：用户反馈「完成/关闭/编辑」这类顶栏胶囊**文字**太小（10pt）
         // ——注意诉求是文字小，不是胶囊大：所以只提字号并略放宽横向，高度仍保持紧凑
-        case .topBar: return Typography.subhead
+        case .topBar: return Typography.pillLabel
         case .primary: return Typography.body
         }
     }
