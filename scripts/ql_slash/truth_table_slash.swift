@@ -202,8 +202,9 @@ check("⚠️ 路径类问句（token 里还有斜杠）→ 不是命令（直�
 
 // MARK: - D. 输入栏：overlay 常驻层（绝不用 if 插 VStack 子节点）
 
-check("⚠️ 面板挂 `.overlay(alignment:)` 常驻层",
-      inputbar.contains(".overlay(alignment: .top) { slashCommandLayer }"))
+check("⚠️ 面板挂 `.overlay(alignment:)` 常驻层（v4.0.156 起内容是 SlashPanelLayer 叶子视图）",
+      inputbar.contains(".overlay(alignment: .top) {")
+      && inputbar.contains("SlashPanelLayer(text: $text, voiceMode: voiceMode, onPickSlash: onPickSlash)"))
 check("反向：不得用 if 命令模式插节点（那会改 TextField 父级 → 键盘抖动）",
       !inputbar.contains("if slashPanelVisible") && !inputbar.contains("if slashPanelPrefix"))
 
@@ -243,7 +244,8 @@ guard let glowBody = closureBody(inputbar, from: "private func applyInputBarGlow
 }
 check("哨兵：玻璃光晕组片段非空", glowBody.count > 120)
 check("面板 overlay 挂在具名修饰器组内（改链只改这里的口径）",
-      glowBody.contains(".overlay(alignment: .top) { slashCommandLayer }"))
+      glowBody.contains(".overlay(alignment: .top) {")
+      && glowBody.contains("SlashPanelLayer(text: $text"))
 check("⚠️ 必须 `.top` 对齐：用 `.bottom` 时单条面板会落进输入栏内约 18pt 压住输入框行（独立审查实测）",
       !glowBody.contains(".overlay(alignment: .bottom)"))
 

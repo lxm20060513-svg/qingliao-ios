@@ -284,6 +284,33 @@ struct ScrollPinTruthTable {
                 && !chatView.contains("proxy.scrollTo(\"streaming\""))
         check("B7 不满一屏用的容器高度仍在测量",
               chatView.contains("chatListViewportH = h"))
+        // 🚨 v4.0.156（键盘一弹就卡 / 长会话才卡）：键盘动画期间 viewport 与输入区高度
+        // 会**逐帧**回调。直接写 @State = 整页每帧重算（长会话可见气泡多 → 掉帧）。
+        // 必须走 Task 去抖；把直接赋值拼回去时本断言必须为红（下面 B7c 是它的反向自证）。
+        let measureNorm = chatView.split(whereSeparator: { $0.isWhitespace }).joined()
+        // P0 护栏（独立审查 2026-10-24）：每次回调必须**先 cancel 在途任务、再判等**——
+        // 反过来（guard 命中就 return）会让 A→B→A 快速弹收时旧任务写回过期高度且无人纠正。
+        let cancelBeforeGuard: (String, String, String) -> Bool = { src, cancel, guardMark in
+            guard let a = src.range(of: cancel), let b = src.range(of: guardMark) else { return false }
+            return a.lowerBound < b.lowerBound
+        }
+        let debouncedMeasure: (String) -> Bool = { src in
+            src.contains("viewportMeasure.task=Task{@MainActorin")
+                && src.contains("composerMeasure.task=Task{@MainActorin")
+                && src.contains("composerMeasure.last=h")
+                && src.contains("viewportMeasure.last=h")
+                && cancelBeforeGuard(src, "composerMeasure.task?.cancel()", "guardabs(h-composerOverlayH)")
+                && cancelBeforeGuard(src, "viewportMeasure.task?.cancel()", "guardabs(h-chatListViewportH)")
+                && !src.contains("action:{_,hinchatListViewportH=h}")
+                && !src.contains("action:{hinifabs(h-composerOverlayH)>0.5{composerOverlayH=h}}")
+        }
+        check("B7b 两个布局测量都走去抖，且 cancel 在 guard 之前（键盘动画期间不逐帧写 @State）",
+              debouncedMeasure(measureNorm))
+        // 反向自证：把旧的「回调里直接赋值」形态拼回去 → B7b 必须为红（护栏有检测力）
+        let revertedMeasure = measureNorm + "action:{_,hinchatListViewportH=h}"
+            + "action:{hinifabs(h-composerOverlayH)>0.5{composerOverlayH=h}}"
+        check("B7c 反向自证：直接赋值形态复活 → B7b 必红",
+              !debouncedMeasure(revertedMeasure), negative: true)
         // 🚨 v4.0.54（用户 2026-10-05：「第一条气泡就是在最上，后面的气泡不断往上挤」）：
         // 不满一屏时的对齐口径由 `.bottom`（微信式贴底、最新气泡紧贴输入框）翻成 **`.top`**
         // （首条气泡落在屏幕最上、后面的依次往下堆、排满一屏后往上翻）。这里把它钉死，

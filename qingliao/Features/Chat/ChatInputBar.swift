@@ -153,15 +153,8 @@ struct ChatInputBar: View {
     /// v3.9.42：「减弱动态效果」→ 不给关键帧喂新 trigger，发送反馈只剩图标 symbolEffect
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    // 发送按钮配色三态：语音模式=Siri 彩、空文本=淡灰、有字=蓝紫渐变
-    // v3.4.25：+第四态——上下文使用率超 80% 时有字状态变橙（轻提醒，不阻断发送）
-    // v4.0.67：有字态换主题蓝→紫（EnvironmentGradient.userBubbleColors，与用户气泡同源）
-    private var sendColors: [Color] {
-        if voiceMode { return [.blue, .indigo, .pink] }
-        if text.isEmpty { return [Color(uiColor: .systemGray4), Color(uiColor: .systemGray3)] }
-        if contextUsage > 0.8 { return [.orange, .yellow.opacity(0.9)] }
-        return EnvironmentGradient.userBubbleColors(scheme)
-    }
+    // 发送按钮配色已下沉到 `SendKeyTintLayer`（v4.0.156）——它自己读正文，
+    // 本视图 body 不再因为每次按键重算三层玻璃。
 
     // 发送触发：一次 tick 同时驱动图标弹动与按钮关键帧（长按转文字路径不走这里，不弹反馈）
     private func fireSend() {
@@ -550,36 +543,15 @@ struct ChatInputBar: View {
                             onLongPressInput(pressKeyboardUp)
                         }
                 )
-                .overlay {
-                    if text.isEmpty {
-                        if transcribing {
-                            // v2.0.100：转写中动画（waveform 图标 + 文字脉冲）
-                            HStack(spacing: 6) {
-                                Image(systemName: "waveform")
-                                    .font(.system(size: Typography.subhead))
-                                    .symbolEffect(.pulse)
-                                Text("语音转换中…")
-                                    .font(.system(size: Typography.body))
-                            }
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .allowsHitTesting(false)
-                        } else {
-                            Text("输入消息...")
-                                .font(.system(size: Typography.body))
-                                .foregroundStyle(.secondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .allowsHitTesting(false)
-                        }
-                    }
-                }
+                // 🚨 v4.0.156（打字每键仍卡）：占位符下沉到独立子视图 —— `text.isEmpty` 原本在
+                // 本视图 body 求值链上，每敲一键都会让整个输入栏（三层玻璃 + 阴影 + 工具行）重算。
+                // 现在只有这层小视图读正文，输入栏玻璃层不再参与每次按键的重绘。
+                .overlay { ComposerPlaceholderLayer(text: $text, transcribing: transcribing) }
         }
     }
 
-    /// v4.1.x：⚡能不能点——有实打实的文字（纯空白不算）才让插话。
-    private var canInterjectNow: Bool {
-        InterjectPolicy.canTapBolt(text: text)
-    }
+    /// v4.1.x：⚡插话键已下沉到 `InterjectKeyLayer`（v4.0.156）——可点判据要读正文，
+    /// 留在本视图 body 里会让整栏每键重算。
 
     /// 右侧那一族：停止（流式时）+ 发送/转写按钮——v3.9.50 从 `fullInputBar` 拆出的纯拆分。
     /// 内部 `HStack(spacing: 8)` 与外层行距同参 → 拆前拆后视觉零差异。
@@ -589,19 +561,7 @@ struct ChatInputBar: View {
             // 别的会话在跑时不长这个键）。点它 = 暂停在跑的那条流 + 本条立刻抢答；不点就是排队。
             // 无文字时置灰不可点（插话总得有话说）。
             if streaming, let onInterject {
-                Button(action: onInterject) {
-                    Image(systemName: "bolt.fill")
-                        .font(.system(size: Typography.subhead, weight: .bold))
-                        .foregroundStyle(.white)
-                        .frame(width: 32, height: 32)
-                        // 橙胶囊（与停止红胶囊/发送胶囊同形，只换色 —— 用户喜欢多彩，不并成单色系）
-                        .background(Color.orange.opacity(canInterjectNow ? 0.9 : 0.35), in: Capsule())
-                }
-                .buttonStyle(PressStyle())
-                .disabled(!canInterjectNow)
-                // 命中区 44×44（视觉 32×32、间距零变化，与停止/发送键同口径）
-                .hitArea44(h: 6, v: 6)
-                .accessibilityLabel("插话：暂停当前回答，先答这句")
+                InterjectKeyLayer(text: $text, action: onInterject)
             }
             // v2.0.88：AI 回答中也可继续发送（消息排队，答完自动逐条回）；
             // 停止按钮独立保留（取消当前回答 + 清空队列）
@@ -689,13 +649,8 @@ struct ChatInputBar: View {
                         )
                 }
             }
-            .background(
-                // v3.4.19：三态配色（语音=Siri 彩/空=淡灰/有字=蓝紫），渐变过渡动画
-                LinearGradient(colors: sendColors,
-                               startPoint: .topLeading, endPoint: .bottomTrailing),
-                in: Capsule()
-            )
-            .animation(Motion.snap, value: sendColors)
+            // 🚨 v4.0.156：配色下沉到独立子视图（它自己读正文），输入栏 body 不再因每次按键重算
+            .background { SendKeyTintLayer(text: $text, voiceMode: voiceMode, contextUsage: contextUsage) }
         }
     }
 }
@@ -822,35 +777,46 @@ extension ChatInputBar {
             // 上对齐（**不是** .bottom）：overlay 自身高度=面板高度，按 .top 锚在宿主顶边后上移
             // 「面板高 + 间距」，底边就恒等于宿主顶边 − 间距 —— 与宿主高度、与匹配条数无关。
             // 用 .bottom 时宿主底边减位移，单条（44pt）会落进输入栏内约 18pt 压住输入框行（独立审查实测）。
-            .overlay(alignment: .top) { slashCommandLayer }
+            .overlay(alignment: .top) {
+                // 🚨 v4.0.156：面板层自己读正文（叶子视图）——输入栏 body 的求值链不再订阅 `text`，
+                // 每次按键只让面板这一小块重绘。位置/尺寸/显隐/动画逐点不变。
+                SlashPanelLayer(text: $text, voiceMode: voiceMode, onPickSlash: onPickSlash)
+            }
     }
 
-    /// 斜杠面板当前前缀（含 `/`）——**本视图自己从 `text` 派生**（v4.0.151，见上）。
-    /// 触发口径单一真源 = `SlashParser.panelPrefix`（以 `/` 开头且不含空白）；语音态不渲染面板。
-    /// 不主动收/弹键盘：这里只读状态，不碰 `focused`。
-    /// ⚠️ 第一行那个 `text` 读取是**故意的无条件读**：它让本视图（而不是整个聊天页）订阅正文变化。
-    ///    删了它，且刚好在语音分支里，就没有视图订阅正文 → TextField 打字不上屏。
-    private var slashPanelPrefix: String {
-        let current = text
-        guard !voiceMode else { return "" }
-        return SlashParser.panelPrefix(current) ?? ""
-    }
-    /// 面板是否可见（空前缀 = 收起）
-    private var slashPanelVisible: Bool { !slashPanelPrefix.isEmpty }
+    /// v4.0.156：斜杠面板层（从 ChatInputBar 本体下沉）。
+    /// 原来 `slashPanelPrefix` 是 ChatInputBar 的计算属性，经 `.overlay` → `applyInputBarGlowChrome`
+    /// 让输入栏每次按键的求值链都读一次正文；下沉到独立 struct 后，ChatInputBar.body 只传 Binding。
+    /// ⚠️ `overlay` 必须**常驻**（不用 `if` 插 VStack 子节点）——那会改 TextField 父级 → 键盘抖动。
+    private struct SlashPanelLayer: View {
+        @Binding var text: String
+        var voiceMode: Bool
+        var onPickSlash: (SlashCommand) -> Void
 
-    /// #3 斜杠命令面板层：`overlay` **常驻**（不在任何 `if` 分支里），靠 opacity/offset 显隐。
-    /// 高度按匹配条数算（`SlashCommandPanel.height`，上限 200 滚动），底边贴在输入栏上缘之上
-    /// （`offset` 负值 = 往上移）。隐藏态只淡出、不下树 —— 输入栏结构恒定，键盘零抖动。
-    @ViewBuilder
-    private var slashCommandLayer: some View {
-        let count = SlashParser.matches(prefix: slashPanelPrefix).count
-        SlashCommandPanel(prefix: slashPanelPrefix, onPick: onPickSlash)
-            .opacity(slashPanelVisible ? 1 : 0)
-            .offset(y: slashPanelVisible
-                    ? -(SlashCommandPanel.height(itemCount: count) + Spacing.md)
-                    : -Spacing.md)
-            .allowsHitTesting(slashPanelVisible)
-            .animation(Motion.snap, value: slashPanelVisible)
+        /// 当前前缀（含 `/`）——触发口径单一真源 = `SlashParser.panelPrefix`；语音态不渲染面板。
+        private var slashPanelPrefix: String {
+            let current = text
+            guard !voiceMode else { return "" }
+            return SlashParser.panelPrefix(current) ?? ""
+        }
+        /// 面板是否可见（空前缀 = 收起）
+        private var slashPanelVisible: Bool { !slashPanelPrefix.isEmpty }
+
+        /// `overlay` **常驻**（不在任何 `if` 分支里），靠 opacity/offset 显隐。
+        /// 高度按匹配条数算（`SlashCommandPanel.height`，上限 200 滚动），底边贴在输入栏上缘之上。
+        @ViewBuilder
+        private var slashCommandLayer: some View {
+            let count = SlashParser.matches(prefix: slashPanelPrefix).count
+            SlashCommandPanel(prefix: slashPanelPrefix, onPick: onPickSlash)
+                .opacity(slashPanelVisible ? 1 : 0)
+                .offset(y: slashPanelVisible
+                        ? -(SlashCommandPanel.height(itemCount: count) + Spacing.md)
+                        : -Spacing.md)
+                .allowsHitTesting(slashPanelVisible)
+                .animation(Motion.snap, value: slashPanelVisible)
+        }
+
+        var body: some View { slashCommandLayer }
     }
 
     @MainActor
@@ -930,6 +896,95 @@ private struct RecordingLevelDot: View {
                     .allowsHitTesting(false)
             }
         }
+    }
+}
+
+
+// MARK: - v4.0.156 输入栏叶子视图（正文只在这几处读，输入栏 body 不再随每次按键重算）
+//
+// 背景：v4.0.151 把正文从 `ChatView` 的 @State 挪进 `ChatComposerDraft`，重绘范围从「整页」
+// 缩到「输入栏」。但真机 4.0.155 仍报「键盘开着敲字、字出得慢、按键迟滞」——因为输入栏
+// **自身的 body** 仍在读正文：占位符的 `text.isEmpty`、发送键的 `sendColors`、插话键的
+// `canInterjectNow`。这三处让每敲一键都重算整条 `ChatInputBar.body`，其中包含
+// ultraThinMaterial + 白雾 + glassEffect 三层玻璃、14pt 阴影、工具行与斜杠面板。
+//
+// 改法：把「读正文」下沉到这三个零尺寸/小面积的叶子视图。输入栏 body 只传 Binding（不读值），
+// 每次按键只重算叶子，玻璃层与工具行不参与。**视觉、布局、点击行为逐点不变。**
+// ⚠️ 别把 `text.isEmpty` / 配色 / 插话判据搬回 `ChatInputBar` 的计算属性——那就退回每键全栏重算。
+
+/// 占位符层（原 `textArea` 的 `.overlay` 内容）
+private struct ComposerPlaceholderLayer: View {
+    @Binding var text: String
+    var transcribing: Bool
+
+    var body: some View {
+        if text.isEmpty {
+            if transcribing {
+                // v2.0.100：转写中动画（waveform 图标 + 文字脉冲）
+                HStack(spacing: 6) {
+                    Image(systemName: "waveform")
+                        .font(.system(size: Typography.subhead))
+                        .symbolEffect(.pulse)
+                    Text("语音转换中…")
+                        .font(.system(size: Typography.body))
+                }
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .allowsHitTesting(false)
+            } else {
+                Text("输入消息...")
+                    .font(.system(size: Typography.body))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .allowsHitTesting(false)
+            }
+        }
+    }
+}
+
+/// 发送键配色层（原 `sendColors` + `.background(LinearGradient…)`）
+/// 三态：语音模式=Siri 彩、空文本=淡灰、有字=蓝紫渐变；有字且上下文 >80% 变橙提醒。
+private struct SendKeyTintLayer: View {
+    @Binding var text: String
+    var voiceMode: Bool
+    var contextUsage: Double
+    @Environment(\.colorScheme) private var scheme
+
+    private var colors: [Color] {
+        if voiceMode { return [.blue, .indigo, .pink] }
+        if text.isEmpty { return [Color(uiColor: .systemGray4), Color(uiColor: .systemGray3)] }
+        if contextUsage > 0.8 { return [.orange, .yellow.opacity(0.9)] }
+        return EnvironmentGradient.userBubbleColors(scheme)
+    }
+
+    var body: some View {
+        Capsule()
+            .fill(LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing))
+            .animation(Motion.snap, value: colors)
+    }
+}
+
+/// ⚡插话键（原 `trailingButtons` 里的内联 Button）
+private struct InterjectKeyLayer: View {
+    @Binding var text: String
+    var action: () -> Void
+
+    private var enabled: Bool { InterjectPolicy.canTapBolt(text: text) }
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "bolt.fill")
+                .font(.system(size: Typography.subhead, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 32, height: 32)
+                // 橙胶囊（与停止红胶囊/发送胶囊同形，只换色 —— 用户喜欢多彩，不并成单色系）
+                .background(Color.orange.opacity(enabled ? 0.9 : 0.35), in: Capsule())
+        }
+        .buttonStyle(PressStyle())
+        .disabled(!enabled)
+        // 命中区 44×44（视觉 32×32、间距零变化，与停止/发送键同口径）
+        .hitArea44(h: 6, v: 6)
+        .accessibilityLabel("插话：暂停当前回答，先答这句")
     }
 }
 

@@ -212,8 +212,35 @@ check("textArea 不在任何 if 分支里（恒渲染，重建即掉键盘）",
 // 录音态上屏文本。只钉 TextField 会漏掉后两者——占位符与输入文字换行后错位最扎眼。
 check("第一层消息文本显式靠左（TextField multilineTextAlignment .leading）",
       inputBarSrc.contains(".multilineTextAlignment(.leading)"))
+// v4.0.156：占位符已下沉到 `ComposerPlaceholderLayer`（叶子视图自己读正文，输入栏 body 不再每键重算），
+// 缩进层级随之变化 → 断言改为「按顺序取占位符块再核对三行修饰器」，不再钉死缩进（语义强度不变：
+// 少任意一行、或顺序变了都会红）。
+let placeholderBlock: String = {
+    guard let r = inputBarSrc.range(of: "Text(\"输入消息...\")") else { return "" }
+    return String(inputBarSrc[r.lowerBound...].prefix(400))
+}()
 check("占位符 overlay 靠左（frame(maxWidth: .infinity, alignment: .leading)）",
-      inputBarSrc.contains("Text(\"输入消息...\")\n                                .font(.system(size: Typography.body))\n                                .foregroundStyle(.secondary)\n                                .frame(maxWidth: .infinity, alignment: .leading)"))
+      placeholderBlock.contains(".font(.system(size: Typography.body))")
+      && placeholderBlock.contains(".foregroundStyle(.secondary)")
+      && placeholderBlock.contains(".frame(maxWidth: .infinity, alignment: .leading)")
+      && placeholderBlock.contains(".allowsHitTesting(false)"))
+// v4.0.156（键盘开着敲字仍迟滞）：正文读取必须留在叶子视图里 —— 输入栏 body 链
+// （textArea / trailingButtons）只要再读一次 text，每敲一键就会重算整条输入栏
+// （ultraThinMaterial + 白雾 + glassEffect 三层玻璃 + 阴影 + 工具行）。
+let inputBarBodyOnly: String = {
+    guard let a = inputBarSrc.range(of: "struct ChatInputBar: View {") else { return "" }
+    let tail = inputBarSrc[a.lowerBound...]
+    if let b = tail.range(of: "// MARK: - v4.0.156") { return String(tail[..<b.lowerBound]) }
+    return String(tail)
+}()
+check("正文读取已下沉：占位符/发送键配色/插话判据都不许再放回输入栏 body",
+      !inputBarBodyOnly.isEmpty
+      && !inputBarBodyOnly.contains("if text.isEmpty {")
+      && !inputBarBodyOnly.contains("private var sendColors")
+      && !inputBarBodyOnly.contains("private var canInterjectNow")
+      && inputBarSrc.contains("ComposerPlaceholderLayer(text: $text")
+      && inputBarSrc.contains("SendKeyTintLayer(text: $text")
+      && inputBarSrc.contains("InterjectKeyLayer(text: $text"))
 check("录音态上屏文本也靠左（与输入态同侧，切换不错位）",
       inputBarSrc.contains(".foregroundStyle(recordingText.isEmpty ? Color.secondary : Color.primary)\n                        // v3.9.62：与 TextField 的 `.multilineTextAlignment(.leading)` 同侧\n                        .multilineTextAlignment(.leading)"))
 check("第一层没有残留 .center 对齐（非 leading 的居中口径清零）",

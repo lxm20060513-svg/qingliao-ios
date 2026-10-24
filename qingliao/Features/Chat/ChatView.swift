@@ -28,6 +28,18 @@ private struct ChatScrollSnapshot: Equatable {
 }
 
 
+/// v4.0.156：布局测量去抖盒。
+///
+/// 为什么不是 `@State var task: Task<…>?`：`@State` 的**存储属性每次赋值都是一次视图失效**，
+/// 键盘动画期间逐帧赋值 = 逐帧让 `ChatView.body` 重算，与直接写测量值同样贵。
+/// 盒子是引用类型，改 `task` / `last` 只是改对象字段，不触发 Observation。
+/// 读取与写入全部在 MainActor 路径上（View body / 布局回调 / Task @MainActor）。
+private final class LayoutMeasureBox {
+    var task: Task<Void, Never>?
+    /// 最近一次回调给的原始值（去抖写回时取它，而不是任务创建时捕获的旧值）
+    var last: CGFloat = 0
+}
+
 struct ChatView: View {
     @Environment(AuthStore.self) var auth
     @Environment(ChatStore.self) var chat
@@ -253,6 +265,16 @@ struct ChatView: View {
     /// 上拉指示器的落位都读它。初始 94 = 收起态（安全区 34 + 呼吸 10 + 输入栏 50），
     /// 首帧未测量前也不会把最后一条压在栏下。
     @State private var composerOverlayH: CGFloat = 94
+    // 🚨 v4.0.156（键盘一弹就卡 / 长会话才卡）：上面两个测量值在键盘动画期间会**逐帧**变化。
+    // 原来每个回调帧都直接写 @State → 整个 `ChatView.body` 每帧重算一次（消息列表 + 全部浮层 +
+    // 二十多条修饰器），键盘 0.25s 动画就是十几轮；会话越长、可见气泡越多，掉帧越明显。
+    // 现在写入走「引用盒 + 150ms 去抖」：盒内字段不参与 Observation（把任务句柄放 @State 存储属性
+    // 里本身每帧赋值也会让 body 失效），去抖后只写一次最终值。
+    // ⚠️ 每次回调必须**先 cancel 再判等**——否则快速弹收（A→B→A）时旧任务会写回过期值且无人纠正。
+    @State private var composerMeasure = LayoutMeasureBox()
+    @State private var viewportMeasure = LayoutMeasureBox()
+    /// 测量去抖窗口（单一真源）
+    private static let layoutMeasureDebounce: Duration = .milliseconds(150)
     /// v3.9.78：欢迎页宠物的「抚摸」反应触发器（轻点自增 → PetAvatar 播一次 ≤1.2s 反应）
     @State private var petPat = 0
     /// v3.9.78：宠物在屏幕上的真实中心（长按弹菜单时当锚点用，胶囊从宠物身上绽放）
@@ -2023,8 +2045,19 @@ struct ChatView: View {
         .padding(.bottom, (kb.isVisible ? 0 : DockOrbOverlay.keyWindowSafeBottom) + Spacing.xs)
         // v4.0.139：实测输入区总高（含上面的安全区 padding）→ 消息流底部留白 +
         // 收起态 ≈94 / 聚焦展开 ≈140，都由布局真实算出，不写死机型。
+        // 🚨 v4.0.156：写入走去抖（见 viewportMeasureTask 声明处注释）——键盘动画期间本回调
+        // 逐帧触发，直接赋值会让 `ChatView.body` 每帧重算，长会话就是「键盘一弹就卡」。
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { h in
-            if abs(h - composerOverlayH) > 0.5 { composerOverlayH = h }
+            // 先记最新值 + 撤销在途任务（顺序不能反：guard 之后再 cancel 会漏掉 A→B→A 的旧任务）
+            composerMeasure.last = h
+            composerMeasure.task?.cancel()
+            guard abs(h - composerOverlayH) > 0.5 else { return }
+            composerMeasure.task = Task { @MainActor in
+                try? await Task.sleep(for: Self.layoutMeasureDebounce)
+                guard !Task.isCancelled else { return }
+                let target = composerMeasure.last
+                if abs(target - composerOverlayH) > 0.5 { composerOverlayH = target }
+            }
         }
         // v4.0.138（用户 2026-10-21「滑动模式下输入框下方的蒙板没去掉」）：
         // **整条柔纱渐变删除**（v4.0.133 不透明垫层 → v4.0.134 白边消缝 → v4.0.136 柔纱 0.3/0.65
@@ -5584,7 +5617,19 @@ extension ChatView {
             .onScrollGeometryChange(for: CGFloat.self) { geo in
                 geo.containerSize.height
             } action: { _, h in
-                chatListViewportH = h
+                // 🚨 v4.0.156：键盘动画期间 containerSize 逐帧变 —— 直接写 @State 会让整页每帧重算。
+                // 与 composerOverlayH 同一套去抖：只记最终值，动画中间帧不触发视图失效。
+                viewportMeasure.last = h
+                viewportMeasure.task?.cancel()
+                // 首测（初始 0 = 还没量过）立即落地，否则首次 150ms 内 minHeight 少算一屏
+                if chatListViewportH == 0 { chatListViewportH = h; return }
+                guard abs(h - chatListViewportH) > 0.5 else { return }
+                viewportMeasure.task = Task { @MainActor in
+                    try? await Task.sleep(for: Self.layoutMeasureDebounce)
+                    guard !Task.isCancelled else { return }
+                    let target = viewportMeasure.last
+                    if abs(target - chatListViewportH) > 0.5 { chatListViewportH = target }
+                }
             }
             // v2.0.135：ScrollView 是 UIKit 桥接视图，其区域点击不冒泡到 ZStack 根手势
             // （v2.0.112b 把 onTapGesture 移到 ZStack 后，有消息时点空白收键盘失效，用户复报）
