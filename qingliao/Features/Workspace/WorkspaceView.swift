@@ -379,14 +379,17 @@ struct WorkspaceView: View {
     private func startActivePolling() {
         activeTimer?.invalidate()
         let t = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { _ in
-            Task { @MainActor in
-                activeTasks = await auth.fetchActiveTasks()
-            }
+            Task { @MainActor in await refreshActiveTasks() }
         }
         activeTimer = t
-        Task { @MainActor in
-            activeTasks = await auth.fetchActiveTasks()
-        }
+        Task { @MainActor in await refreshActiveTasks() }
+    }
+
+    /// v4.0.155：**内容没变就不写 @State**。旧写法每 2s 无条件赋值 → 整页 body 重算
+    /// （产物库行非懒容器时代尤其贵：每行重算 sizeText/modifiedText，每次新建 DateFormatter）。
+    private func refreshActiveTasks() async {
+        let next = await auth.fetchActiveTasks()
+        if next != activeTasks { activeTasks = next }
     }
 
     private func stopActivePolling() {
@@ -514,7 +517,10 @@ struct WorkspaceView: View {
                 emptyHint
             }
         } else {
-            VStack(spacing: Spacing.sm) {
+            // v4.0.155（流畅度审查）：换 LazyVStack —— 产物目录可能有几十上百个条目，
+            // 每行都是「下载原图 → 下采样 → 缩略图」，非懒容器会在进目录那一帧把**所有行**
+            // 一次性实例化并各自发起下载（无并发闸），主线程与内存同时被打满。
+            LazyVStack(spacing: Spacing.sm) {
                 if !atRootLevel { backRow }
                 ForEach(visibleDirs) { d in dirRow(d) }
                 ForEach(visibleFiles) { f in artifactRow(f) }

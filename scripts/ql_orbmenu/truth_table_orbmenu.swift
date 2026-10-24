@@ -45,7 +45,8 @@ let sessionsSrc = src("Features/Sessions/SessionsView.swift")
 let petAvatarSrc = src("Features/Chat/PetAvatar.swift")
 check("前提：PetAvatar 内部仍是 allowsHitTesting(false)（所以宿主必须自己铺命中层）",
       petAvatarSrc.contains(".allowsHitTesting(false)"))
-let heroAnchor = sessionsSrc.range(of: "PetAvatar(size: 96, state: .idle, patTrigger: heroPat)")
+// v4.0.155：英雄宠物已下沉到 SessionsHeroPet，patTrigger 改读它自己的 @State patCount
+let heroAnchor = sessionsSrc.range(of: "PetAvatar(size: 96, state: .idle, patTrigger: patCount)")
 let heroPetBlock = heroAnchor.map { String(sessionsSrc[$0.lowerBound...].prefix(2000)) } ?? ""
 check("聊天首页宠物自带命中层（缺它 = 长按/轻点全哑）",
       !heroPetBlock.isEmpty && heroPetBlock.contains("contentShape(Rectangle())"))
@@ -67,7 +68,7 @@ check("聊天页 header 宠物只有轻点（拍板 2：不许接长按、不许
       && !headerPetBlock.contains(".qingliaoOrbMenuFromPet"))
 
 check("长按宠物那条通知的锚点尺寸口径一致（两处都是 96，菜单几何按它算）",
-      sessionsSrc.contains("OrbPetAnchor(center: heroPetCenter, size: 96)")
+      sessionsSrc.contains("OrbPetAnchor(center: center, size: 96)")
       && chatViewSrc.contains("OrbPetAnchor(center: petGlobalCenter, size: 96)"))
 
 // ── 0. 球心几何单一真源（命中圈 / 菜单弧心 / 可见球必须同源） ─────

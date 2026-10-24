@@ -606,7 +606,19 @@ struct MessageBubble: View {
     /// → 长会话上下滑动与打字整页卡。折叠条见 `longTextFoldBar`。
     @ViewBuilder
     private var bubbleAITextBody: some View {
-        let paras = Self.splitParagraphs(shownContent, streaming: streamingText, lineMode: streamingText)
+        // 🚨 v4.0.155（流畅度审查·流式重灾区）：**长回答流式期不再「一行一个气泡」**。
+        // 旧行为：lineMode 把每个换行都拆成独立气泡 —— 一份 100 行的回答 = 100 个子视图，
+        // 而打字机每 48ms tick 一次、父 body 一跑所有子 body 都要重算（markdown 缓存查表 ×100），
+        // 末行还在每帧做一次全量解析。真机 400~800ms 卡顿栈里的 RenderBox/AttributeGraph 就是它。
+        // 现在：流式期行数 > 12 时收成**单个**流式块（MessageBlockView 的 streaming 分支本身按
+        // 尾部 3000 字窗口渲染，每帧排版成本恒定）；≤12 行的短回答（含 💭/🔧 行）保持原有逐行小气泡。
+        // 落库后 streamingText=false，仍按空行拆段落，观感与改动前一致。
+        let liveLines = streamingText ? Self.lineCount(shownContent) : 0
+        let paras: [String] = streamingText
+            ? (liveLines <= Self.maxStreamingLineBubbles
+                ? Self.splitParagraphs(shownContent, streaming: true, lineMode: true)
+                : [shownContent])
+            : Self.splitParagraphs(shownContent, streaming: false, lineMode: false)
         VStack(alignment: .leading, spacing: 6) {
             if paras.count > 1 {
                 // 多气泡：每个段落一个独立气泡（贴左，头像在本气泡外右下角）
@@ -958,6 +970,12 @@ struct MessageBubble: View {
     /// 几百个气泡（见 bubbleAITextBody 注释）—— 折叠后行内气泡数回到个位数。
     private static let longTextCollapseThreshold = 3000
     private static let longTextPreviewChars = 1500
+    /// v4.0.155：流式期「逐行小气泡」的行数上限。超过就收成单个流式块（否则每 tick 重算 N 个视图）
+    private static let maxStreamingLineBubbles = 12
+    /// 数换行（UTF-8 扫一遍，零分配）。用 `components` 会为每行分配一个 String，正是要避免的。
+    private static func lineCount(_ s: String) -> Int {
+        s.utf8.reduce(1) { $1 == 0x0A ? $0 + 1 : $0 }
+    }
     @State private var expandedLongText = false
 
     private var isLongTextCollapsed: Bool {

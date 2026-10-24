@@ -184,12 +184,21 @@ enum RemoteFiles {
     }
 
     /// 修改时间文本（本地时区；脏值给占位而不是 1970 或崩）
-    static func modifiedText(_ ts: Int) -> String {
-        guard ts > 0 else { return "—" }
+    /// v4.0.155：DateFormatter 提为共享实例（每次 new 一个 = ICU 规则装载，0.1~1ms/个；
+    /// 文件列表每行每次 body 求值都调它，2s 轮询 × N 行就是每秒几十次）。
+    /// `DateFormatter` 非线程安全 → 用锁串行；本函数只做一次极小格式化，锁竞争可忽略。
+    private static let modifiedFormatter: DateFormatter = {
         let f = DateFormatter()
         f.locale = Locale(identifier: "zh_CN")
         f.dateFormat = "yyyy-MM-dd HH:mm"
-        return f.string(from: Date(timeIntervalSince1970: TimeInterval(ts)))
+        return f
+    }()
+    private static let modifiedFormatterLock = NSLock()
+    static func modifiedText(_ ts: Int) -> String {
+        guard ts > 0 else { return "—" }
+        modifiedFormatterLock.lock()
+        defer { modifiedFormatterLock.unlock() }
+        return modifiedFormatter.string(from: Date(timeIntervalSince1970: TimeInterval(ts)))
     }
 
     /// 计数文本（list 响应的 dir_count / file_count）

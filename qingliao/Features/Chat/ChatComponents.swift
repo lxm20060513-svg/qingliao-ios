@@ -1073,9 +1073,11 @@ struct SessionCardView: View {
         }
     }
 
+    /// v4.0.155：共享 formatter（原实现每次 body 求值 new 一个）
+    private static let headerDateFmt: DateFormatter = {
+        let f = DateFormatter(); f.dateFormat = "yyyy年M月d日 HH:mm"; return f
+    }()
     private var formattedDate: String {
-        let f = DateFormatter()
-        f.dateFormat = "yyyy年M月d日 HH:mm"
-        return f.string(from: Date())
+        Self.headerDateFmt.string(from: Date())
     }
 }

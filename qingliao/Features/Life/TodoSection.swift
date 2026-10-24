@@ -890,7 +890,9 @@ private struct TodoExpandList: View {
     private var hasCompleted: Bool { items.contains { $0.done } }
 
     var body: some View {
-        VStack(spacing: 8) {
+        // v4.0.155（流畅度审查）：换 LazyVStack —— 这个展开列表是生活页 ScrollView 的一行，
+        // 普通 VStack 会让「整行 = N 条卡」在滚到它时一次性布局 N 张 material 玻璃卡。
+        LazyVStack(spacing: 8) {
             ForEach(Array(items.enumerated()), id: \.element.id) { idx, item in
                 Button {
                     onToggle(item)

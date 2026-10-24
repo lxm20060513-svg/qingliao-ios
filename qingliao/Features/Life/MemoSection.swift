@@ -689,14 +689,26 @@ private struct MemoStackCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             ZStack(alignment: .top) {
-                ForEach(Array(shown.enumerated()), id: \.element.id) { idx, item in
-                    card(item, depth: idx)
-                        // 最新一条（idx 0）在最下、完整露出；越往后越往上，只露顶部一条
-                        .offset(y: CGFloat(shown.count - 1 - idx) * step)
-                        .zIndex(Double(shown.count - idx))
+                if expanded {
+                    // v4.0.155（流畅度审查）：展开态每张卡互不重叠（step = 卡高 100 + 缝 12），
+                    // 换 LazyVStack —— 旧写法 100 条备忘 = 100 张 ultraThinMaterial 卡 + 100 个
+                    // zIndex 合成层，一次性全建全布局；懒容器只建滚到视口内的那几张。
+                    LazyVStack(spacing: MemoStackMetrics.openGap) {
+                        ForEach(Array(items.enumerated()), id: \.element.id) { idx, item in
+                            card(item, depth: idx)
+                        }
+                    }
+                } else {
+                    ForEach(Array(shown.enumerated()), id: \.element.id) { idx, item in
+                        card(item, depth: idx)
+                            // 最新一条（idx 0）在最下、完整露出；越往后越往上，只露顶部一条
+                            .offset(y: CGFloat(shown.count - 1 - idx) * step)
+                            .zIndex(Double(shown.count - idx))
+                    }
                 }
             }
-            .frame(height: stackHeight, alignment: .top)
+            // 展开态交给 LazyVStack 自然高度（固定高度会让懒布局失去意义）；收起态仍是叠卡定高
+            .frame(height: expanded ? nil : stackHeight, alignment: .top)
 
             // 批量操作：原来在「全部备忘」浮层顶栏（浮层入口退休后挪到卡下，与待办卡同位置）
             if expanded, items.count > 1 {

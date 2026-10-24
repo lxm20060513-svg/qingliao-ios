@@ -84,9 +84,9 @@ struct SessionsView: View {
     // v3.4.29：新建会话图标弹一下
     @State private var plusBounceTick = 0
     // v4.0.81 首页头状态（v4.0.81：卡通机器人 / 每日一言 / 卡片弹窗宿主）
-    @State private var heroPat = 0
+    // v4.0.155：英雄宠物自己的「抚摸次数 / 屏幕中心」下沉到 SessionsHeroPet（原 heroPat / heroPetCenter
+    // 是 2100 行本页的 @State，滚动时每帧写一次 → 整页 body 每帧重算）。
     @State private var heroQuote = WelcomeQuotes.pick()
-    @State private var heroPetCenter: CGPoint = .zero
     @State private var heroWeather = false
     @State private var heroReminder = false
     @State private var heroMemo = false
@@ -677,7 +677,8 @@ struct SessionsView: View {
     /// 与聊天页欢迎区同源，差别只在本页把「首页」摆在会话列表顶部。
     /// Q1=3 带来的硬约束：球没了，快捷入口只剩「长按宠物」，所以这里的宠物**必须**接回那条锚点通知，
     /// 且**自带锚点**（不走 ChatView 应答那条来路 —— 本页 ChatView 根本不在树上，发了会哑火）。
-    /// v4.0.83：「报告宠物锚点 + 一声长按触感」—— 与 `ChatView.replyOrbMenuAnchor` 同款。
+    /// v4.0.83：「报告宠物锚点 + 一声长按触感」—— 与 `ChatView.replyOrbMenuAnchor` 同款（v4.0.155 起随宠物
+    /// 一起下沉到 `SessionsHeroPet`，本页不再持有该状态）。
     /// 两边发的是**同一条**通知 `.qingliaoOpenOrbMenuAtPet`，dock 侧合流到同一个消费点（`openMenuAtPetAnchor`），
     /// 动作分发不复制。
     /// ⚠️ 前提订正：移动端布局里本页（`showSessionHome == true`）与 `ChatView` 是 `.chat` tag 下的
@@ -685,78 +686,14 @@ struct SessionsView: View {
     /// `OrbPetAnchorRegistry.consumePendingRequest()` 的先到先得因此是**纵深防御**（不是常规去重手段）；
     /// iPad 分栏分支（DockTabView:189）用 `showHero` 默认 false 渲染本页，那里压根没有宠物。
     /// 别按「两页同时挂树」这个错误前提去改逻辑。
-    private func replyOrbMenuAnchor(center: CGPoint) {
-        Haptics.press()       // 与长按宠物同一触感（不是 .tap）
-        NotificationCenter.default.post(
-            name: .qingliaoOpenOrbMenuAtPet,
-            object: nil,
-            userInfo: OrbPetAnchor(center: center, size: 96).userInfo)
-    }
 
     @ViewBuilder
     private var homeHero: some View {
         VStack(spacing: Spacing.lg) {
-            PetAvatar(size: 96, state: .idle, patTrigger: heroPat)
-                .frame(width: 96, height: 96)
-                // 🚨 v4.0.82 修（真机报「长按卡通宠物触发快捷菜单失效」）：PetAvatar **内部**是
-                // `.allowsHitTesting(false)`（宠物只是画出来的像素，不接收触摸；见 PetAvatar 源里那一行）
-                // → 外层若不自己铺命中层，轻点与长按**全部收不到**，宠物等于装饰画。
-                // v4.0.81 新写本页时漏了这一步（ChatView 那只一直有，见其「透明扩边 overlay」口径）——
-                // 球已从 dock 移除，长按宠物是快捷菜单**唯一**入口，漏这一层 = 入口彻底消失。
-                .overlay {
-                    // 同 ChatView 口径：走动位移会溢出 96×96 框，横向各扩 18pt 兜住（纵向颠步仅 3pt，不扩）
-                    Color.clear
-                        .frame(width: 96 + 18 * 2, height: 96)
-                        .contentShape(Rectangle())
-                }
-                .contentShape(Rectangle())   // 本体 96×96 也命中（双保险，同 ChatView）
-                .onGeometryChange(for: CGPoint.self) { proxy in
-                    let r = proxy.frame(in: .global)
-                    return CGPoint(x: r.midX, y: r.midY)
-                } action: { heroPetCenter = $0 }
-                // v4.0.82：改成与 ChatView 欢迎页宠物**完全同款**的手势（ExclusiveGesture）——
-                // 原来分开挂 onTapGesture + onLongPressGesture，长按抬手会补认一次 tap
-                //（v2.0.107 在 ChatView 实踩过：键盘被多聚焦一次），两处口径统一。
-                // 触感也从 .tap() 改成 .press()（与长按智慧球 / 长按欢迎页宠物同一触感，用户要的是「明显」）。
-                .gesture(
-                    ExclusiveGesture(
-                        LongPressGesture(minimumDuration: 0.45).onEnded { _ in
-                            guard heroPetCenter != .zero else { return }
-                            Haptics.press()
-                            NotificationCenter.default.post(name: .qingliaoOrbMenuFromPet,
-                                                            object: nil,
-                                                            userInfo: OrbPetAnchor(center: heroPetCenter, size: 96).userInfo)
-                        },
-                        TapGesture().onEnded {
-                            heroPat += 1
-                            Haptics.tap()
-                        }
-                    )
-                )
-                .accessibilityLabel("轻点抚摸，长按打开快捷菜单")
-                // v4.0.117：启动页入场第 2 块（宠物）。
-                // ⚠️ 挂在链尾：上面 .onGeometryChange 量到的 heroPetCenter 是布局位置，
-                //    入场那 2s 内本块若有 ≤18pt 偏移只影响长按菜单的锚点精度，不影响命中判定。
-                .launchRiseBlock(2, shown: launchRise)
-                // v4.0.83（用户 2026-10-09：「打开快捷菜单弹出的画面要等同于长按聊天首页卡通宠物」）：
-                // 本页宠物也承担**锚点应答**。为什么是这里：会话页（聊天首页）的宠物在**首页头**里常驻 ——
-                // 不像聊天页欢迎页只在空会话时才渲染。所以「打开轻聊快捷菜单」这类 App 外入口把落点改到本页后，
-                // 锚点**必然**拿得到（原来落到聊天页，会话有消息时只能退回底部栏锚点，胶囊从屏幕底部朝上冒 ——
-                // 用户报的「布局偏出屏幕」就是那个画面）。
-                // 去重靠 OrbPetAnchorRegistry.consumePendingRequest()（先到先得：后到的应答者拿到 false 直接返回）
-                // → 与聊天页欢迎页宠物同时挂树时不会双弹菜单、不会双震。
-                .onReceive(NotificationCenter.default.publisher(for: .qingliaoRequestPetAnchor)) { _ in
-                    guard heroPetCenter != .zero, OrbPetAnchorRegistry.consumePendingRequest() else { return }
-                    replyOrbMenuAnchor(center: heroPetCenter)
-                }
-                .onChange(of: heroPetCenter) { _, center in
-                    // 补发：请求发出时本视图还没挂树（刚切到本页）→ 那次请求没人听，这里中心刚就位时补上。
-                    // ⚠️ 顺序同 ChatView：`center != .zero` 必须写在 `publish()` 前面 —— publish 先消费后返回，
-                    //    中心为零也被消费掉就再没人应答了（快捷指令彻底静默）。
-                    if center != .zero, OrbPetAnchorRegistry.publish() {
-                        replyOrbMenuAnchor(center: center)
-                    }
-                }
+            // v4.0.155：宠物整块抽成独立子视图 —— 它自己的几何/抚摸状态不再写在 2100 行的本页上。
+            // 旧写法 `onGeometryChange { heroPetCenter = $0 }` 挂在 List 行里：滚动时宠物每帧移动，
+            // 每帧写本页 @State → 整页 body 每帧重算（与本文件摘掉 ScrollPosition 同一个坑，换名复现）。
+            SessionsHeroPet(launchRise: launchRise)
             Text(heroQuote)
                 .font(.system(size: Typography.title, weight: .semibold))
                 .foregroundStyle(.primary)
@@ -1030,7 +967,9 @@ struct SessionsView: View {
     /// 只看 id 会把「上一次跑过的那个会话」永久标成进行中。
     /// v4.1.x 多会话并行：后台跑流器里在跑的会话集合（多个可同时「进行中」）
     private var backgroundRunningIDs: Set<String> {
-        Set(BackgroundStreamRunner.shared.running.keys)
+        // v4.0.155：读 runningIds（只在增删会话时变），**绝不许**读 `BackgroundStreamRunner.shared.running`
+        // —— 那是每个流式 chunk 都会改写的字典，读它 = 整页每 0.15s 重算一次。
+        BackgroundStreamRunner.shared.runningIds
     }
 
     /// ⚠️ 2026-09-30（发布前审查拦下）：它原先写成 `runningSessionID: String?` 计算属性，却引用了
@@ -1359,12 +1298,14 @@ struct SessionsView: View {
         do {
             let j = try await auth.json("/api/sessions/list")
             let raw = (j["sessions"] as? [Any] ?? [])
-            // 最新 → 最旧
-            sessions = raw.compactMap { ChatSession.parse($0 as? [String: Any] ?? [:]) }
-                .sorted { ($0.lastTime ?? 0) > ($1.lastTime ?? 0) }
+            // v4.0.155（流畅度审查）：解析 + 排序挪出主线程。
+            // 会话全量（100 会话 × 每会话 50 条 ≈ 1.6MB）的 `ChatSession.parse` 是纯 CPU，
+            // 旧写法整段压在主线程上，正好落在「返回首页 / 切 tab」的转场帧里。
+            let parsed = await Self.parseSessionList(raw)
+            sessions = parsed
             sessionsFromNetwork = true
-            // v3.4.x：联网成功写缓存（下次冷启动秒显）
-            saveToSessionCache(raw)
+            // v3.4.x：联网成功写缓存（下次冷启动秒显）—— 编码/落盘同样在后台，且内容没变就不重写
+            saveToSessionCache(raw, snapshot: parsed)
             // v2.0.65：同步未读红点
             chat.syncUnread(from: sessions, currentId: chat.sessionId)
         } catch {
@@ -1419,6 +1360,24 @@ struct SessionsView: View {
         snapshotLock.unlock()
     }
 
+    /// v4.0.155：原始会话 JSON 的跨并发域载体（`[Any]` 非 Sendable）。
+    /// 盒内内容交接后只读，`@unchecked Sendable` 安全（同 AuthStore.JSONBox 的口径）。
+    private final class RawSessionsBox: @unchecked Sendable {
+        let raw: [Any]
+        init(_ raw: [Any]) { self.raw = raw }
+    }
+
+    /// 解析 + 排序（最新 → 最旧）。纯 CPU，**必须在后台**：会话全量可达 100×50 条，
+    /// 主线程解析一次就是几十毫秒，正好压在返回首页的转场帧上。
+    static func parseSessionList(_ raw: [Any]) async -> [ChatSession] {
+        let box = RawSessionsBox(raw)
+        return await Task.detached(priority: .userInitiated) {
+            box.raw.compactMap { val in
+                ChatSession.parse(val as? [String: Any] ?? [:])
+            }.sorted { ($0.lastTime ?? 0) > ($1.lastTime ?? 0) }
+        }.value
+    }
+
     /// 读本地缓存：从上次成功拉取的原始 JSON 还原会话列表。
     /// 失败/无缓存一律静默返回，不影响正常联网加载。（v3.9.28：云端模式已移除）
     private func loadFromSessionCache() {
@@ -1434,18 +1393,28 @@ struct SessionsView: View {
     }
 
     /// 写缓存：限制最近 100 个会话、每个会话消息截断最近 50 条，控制 UserDefaults 体积。
-    private func saveToSessionCache(_ raw: [Any]) {
-        let limited: [Any] = Array(raw.prefix(100)).map { s -> Any in
-            guard var d = s as? [String: Any] else { return s }
-            if var msgs = d["messages"] as? [Any], msgs.count > 50 {
-                d["messages"] = Array(msgs.suffix(50))
+    ///
+    /// v4.0.155：整段（切片 + JSON 编码 1.6MB + plist 落盘）移到后台；**内容没变就不写**。
+    /// 旧写法在主线程同步 `JSONSerialization.data` + `UserDefaults.set`（cfprefsd XPC + plist
+    /// 落盘），且每次刷新都无条件重写一遍同样的内容 —— 是「返回首页一顿」的第二个固定成本。
+    private func saveToSessionCache(_ raw: [Any], snapshot: [ChatSession]) {
+        let box = RawSessionsBox(raw)
+        let snap = snapshot
+        let key = Self.sessionCacheKey
+        Task.detached(priority: .utility) {
+            let limited: [Any] = Array(box.raw.prefix(100)).map { s -> Any in
+                guard var d = s as? [String: Any] else { return s }
+                if var msgs = d["messages"] as? [Any], msgs.count > 50 {
+                    d["messages"] = Array(msgs.suffix(50))
+                }
+                return d
             }
-            return d
-        }
-        if let data = try? JSONSerialization.data(withJSONObject: limited) {
-            UserDefaults.standard.set(data, forKey: Self.sessionCacheKey)
+            guard let data = try? JSONSerialization.data(withJSONObject: limited) else { return }
+            // 同内容重写 = 纯浪费（1.6MB plist + XPC 往返）。比对放后台，代价只有一次 memcmp。
+            if UserDefaults.standard.data(forKey: key) == data { return }
+            UserDefaults.standard.set(data, forKey: key)
             // v4.0.115：同步刷新内存快照 —— 下次返回首页直接命中，不必把刚存进去的 JSON 再解一遍
-            Self.setSnapshot(sessions)
+            Self.setSnapshot(snap)
         }
     }
 
@@ -2097,4 +2066,104 @@ struct FixedChannelCard: View {
     private var accessibilityText: Text {
         Text(unread > 0 ? "\(session.title)，\(purpose)，\(unread) 条未读" : "\(session.title)，\(purpose)")
     }
+}
+
+// MARK: - v4.0.155 首页头宠物（从 SessionsView 下沉）
+
+/// 会话页首页头那只宠物：几何、抚摸次数、锚点应答全部收在本视图里。
+///
+/// 为什么必须单独成 View：它挂在 `List` 的一行里，滚动时每帧都在移动。旧写法把
+/// `.onGeometryChange { heroPetCenter = $0 }` 写回 **SessionsView 的 @State** ——
+/// 2100 行页面因此每帧整体重算（排序 ×4 + 全部可见行 + List diff）。本文件的
+/// ScrollPosition 摘除（见 bodyCore 注释）是同一个坑，换了个属性名又长回来了。
+///
+/// 现在坐标存在 `PetFrameBox`（普通引用类型，**不在 Observation 里**）：每帧写它不会让任何
+/// body 失效，手势/锚点应答发生时再按需读取最新值。
+private final class PetFrameBox {
+    var rect: CGRect = .zero
+}
+
+private struct SessionsHeroPet: View {
+    let launchRise: Bool
+
+    @State private var patCount = 0
+    @State private var box = PetFrameBox()
+    /// 中心首次就位（只翻一次）——用于「请求先到、宠物后进树」的补发锚点
+    @State private var centerReady = false
+
+    var body: some View {
+        PetAvatar(size: 96, state: .idle, patTrigger: patCount)
+            .frame(width: 96, height: 96)
+            // 🚨 v4.0.82 修（真机报「长按卡通宠物触发快捷菜单失效」）：PetAvatar **内部**是
+            // `.allowsHitTesting(false)`（宠物只是画出来的像素，不接收触摸；见 PetAvatar 源里那一行）
+            // → 外层若不自己铺命中层，轻点与长按**全部收不到**，宠物等于装饰画。
+            // 球已从 dock 移除，长按宠物是快捷菜单**唯一**入口，漏这一层 = 入口彻底消失。
+            .overlay {
+                // 同 ChatView 口径：走动位移会溢出 96×96 框，横向各扩 18pt 兜住（纵向颠步仅 3pt，不扩）
+                Color.clear
+                    .frame(width: 96 + 18 * 2, height: 96)
+                    .contentShape(Rectangle())
+            }
+            .contentShape(Rectangle())   // 本体 96×96 也命中（双保险，同 ChatView）
+            .onGeometryChange(for: CGRect.self) { proxy in
+                proxy.frame(in: .global)
+            } action: { r in
+                // 写普通引用类型：不触发 Observation → 滚动帧零失效
+                box.rect = r
+                if !centerReady, r != .zero { centerReady = true }   // 只翻一次
+            }
+            // v4.0.82：与 ChatView 欢迎页宠物**完全同款**的手势（ExclusiveGesture）——
+            // 分开挂 onTapGesture + onLongPressGesture 时，长按抬手会补认一次 tap。
+            .gesture(
+                ExclusiveGesture(
+                    LongPressGesture(minimumDuration: 0.45).onEnded { _ in
+                        let c = box.rect.center
+                        guard c != .zero else { return }
+                        // 长按 = 「请打开快捷菜单，锚点在这里」→ .qingliaoOrbMenuFromPet
+                        // （与 ChatView 欢迎页宠物同一条通知；别和下面的「应答锚点请求」混用）
+                        Haptics.press()
+                        NotificationCenter.default.post(
+                            name: .qingliaoOrbMenuFromPet,
+                            object: nil,
+                            userInfo: OrbPetAnchor(center: c, size: 96).userInfo)
+                    },
+                    TapGesture().onEnded {
+                        patCount += 1
+                        Haptics.tap()
+                    }
+                )
+            )
+            .accessibilityLabel("轻点抚摸，长按打开快捷菜单")
+            // v4.0.117：启动页入场第 2 块（宠物）。
+            .launchRiseBlock(2, shown: launchRise)
+            // v4.0.83：本页宠物承担**锚点应答**（App 外入口「打开轻聊快捷菜单」的落点）。
+            // 去重靠 OrbPetAnchorRegistry.consumePendingRequest()：先到先得，后到的应答者拿到 false 直接返回。
+            .onReceive(NotificationCenter.default.publisher(for: .qingliaoRequestPetAnchor)) { _ in
+                let c = box.rect.center
+                guard c != .zero, OrbPetAnchorRegistry.consumePendingRequest() else { return }
+                openOrbMenu(center: c)
+            }
+            .onChange(of: centerReady) { _, ready in
+                // 补发：请求发出时本视图还没挂树（刚切到本页）→ 那次请求没人听，这里中心刚就位时补上。
+                // ⚠️ 顺序同 ChatView：`center != .zero` 必须写在 `publish()` 前面 —— publish 先消费后返回，
+                //    中心为零也被消费掉就再没人应答了（快捷指令彻底静默）。
+                let c = box.rect.center
+                if ready, c != .zero, OrbPetAnchorRegistry.publish() {
+                    openOrbMenu(center: c)
+                }
+            }
+    }
+
+    /// 「报告宠物锚点 + 一声长按触感」—— 与 `ChatView.replyOrbMenuAnchor` 同款。
+    private func openOrbMenu(center: CGPoint) {
+        Haptics.press()       // 与长按宠物同一触感（不是 .tap）
+        NotificationCenter.default.post(
+            name: .qingliaoOpenOrbMenuAtPet,
+            object: nil,
+            userInfo: OrbPetAnchor(center: center, size: 96).userInfo)
+    }
+}
+
+private extension CGRect {
+    var center: CGPoint { CGPoint(x: midX, y: midY) }
 }

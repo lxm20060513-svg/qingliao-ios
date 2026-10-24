@@ -152,6 +152,29 @@ enum DiagnosticsStore {
         read(historyPath()).sorted { $0.ts > $1.ts }   // 最新在前
     }
 
+    /// 异步入队（v4.0.155）：整段读-改-写**全部在 ioQueue 上跑，调用方零阻塞**。
+    ///
+    /// 为什么必须有它：卡顿上报走的是「主线程刚恢复 → 记一条 → 补传」，而 `enqueue` 的
+    /// `ioQueue.sync` 是**阻塞调用方**的 —— 主线程要同步做 2 次整包读盘+解码（pending ≤50 条、
+    /// 每条 stack ≤4000 字 ≈ 200KB）+ 2 次重编码 + 2 次原子写。刚卡完的主线程当场再卡一次，
+    /// 甚至可能自己越过 400ms 阈值被记成新卡顿（自证式假阳性）。看门狗两条上报路径改走本方法。
+    static func enqueueAsync(_ event: DiagEvent) {
+        ioQueue.async {
+            var pending = readUnlocked(pendingPath()).filter { $0.id != event.id }
+            pending.append(event)
+            _ = writeUnlocked(capKeeping(event, in: pending,
+                                         limit: DiagnosticsPayload.maxPendingEvents),
+                              to: pendingPath())
+
+            var history = readUnlocked(historyPath()).filter { $0.id != event.id }
+            history.append(event)
+            _ = writeUnlocked(capKeeping(event, in: history,
+                                         limit: DiagnosticsPayload.maxHistoryEvents),
+                              to: historyPath())
+            notifyQueueChanged()
+        }
+    }
+
     /// 入队（同时写本地历史）。同 id 去重；两端都做上限裁剪（丢最旧）。
     @discardableResult
     static func enqueue(_ event: DiagEvent) -> DiagEvent {
@@ -279,5 +302,12 @@ enum DiagnosticsStore {
     static func recordHang(durationMs: Int, stack: String) -> DiagEvent {
         enqueue(DiagnosticsPayload.makeHangEvent(durationMs: durationMs, stack: stack,
                                                  env: env()))
+    }
+
+    /// 卡顿（异步入队，v4.0.155）：看门狗专用 —— 上报永远发生在「主线程刚卡完」的时刻，
+    /// 这条路径绝不能再同步做整包读改写盘。语义与 `recordHang` 完全一致，只是不阻塞调用方。
+    static func recordHangAsync(durationMs: Int, stack: String) {
+        enqueueAsync(DiagnosticsPayload.makeHangEvent(durationMs: durationMs, stack: stack,
+                                                      env: env()))
     }
 }

@@ -248,8 +248,11 @@ struct ScrollPinTruthTable {
         check("B4 旧形态内联 atBottom 表达式已清除",
               !chatView.contains("return geo.contentSize.height <= geo.containerSize.height"),
               negative: true)
-        check("B5 流式滚底仍以贴底位为闸（pinned 闸读 @State 的 Bool）",
-              chatView.contains("guard scrollPinned else { return }"))
+        // v4.0.155：闸门下沉到 StreamScrollFollower —— 语义不变（仍读 @State 的 Bool），
+        // 但字面量随观察点一起搬走了；这里同时钉「闭包确实接到 scrollPinned」。
+        check("B5 流式滚底仍以贴底位为闸（pinned 闸经 StreamScrollFollower 的 isPinned 闭包读 @State Bool）",
+              chatView.contains("guard isPinned() else { return }")
+              && chatView.contains("StreamScrollFollower(isPinned: { scrollPinned }"))
         // 🚨 v4.0.154（长会话滑动卡顿根治）：逐帧 baseline **不许**进 @State。
         // 旧形态 `@State var scrollPinState: ChatScrollPinState` 的 baseline 贴底时逐帧跟随 offset
         // → 每帧一次视图失效 → 整页（300 行 LazyVStack + 全部浮层）每帧重算，滑动/打字全卡。
@@ -327,8 +330,26 @@ struct ScrollPinTruthTable {
         let squashed = chatView.split(whereSeparator: { $0.isWhitespace }).joined()
         check("B9 滚底守卫与渲染条件同源（thisSessionStreaming || remoteBusy 才滚 streaming 行）",
               squashed.contains("ifthisSessionStreaming||remoteBusy{proxy.scrollTo(streamingAnchorID,anchor:.bottom)"))
-        check("B10 流式滚底延后一拍（防上一帧几何），且延迟段内二次判定贴底",
-              squashed.contains("DispatchQueue.main.async{guardscrollPinnedelse{return}scrollBottom(proxy,animated:false)}"))
+        // v4.0.155：观察点从 ChatView.body 下沉到 StreamScrollFollower（否则 body 依赖打字机
+        // 平滑层 → 每 48ms 整页重算）。B10 的口径随之翻新：**结构 + 时序**两条都要钉住。
+        func b10Holds(_ src: String) -> Bool {
+            src.contains("structStreamScrollFollower:View")
+                && src.contains("DispatchQueue.main.async{guardisPinned()else{return}scrollToBottom(false)}")
+        }
+        check("B10 流式滚底：观察点收在 StreamScrollFollower + 延后一拍且延迟段内二次判定贴底",
+              b10Holds(squashed))
+        // 反向自证：把这条 onChange 写回 ChatView.body（旧形态）→ B10 必红
+        let squashedInlineOnChange = """
+        .onChange(of: stream.displayContent) { _ in
+            guard scrollPinned else { return }
+            DispatchQueue.main.async {
+                guard scrollPinned else { return }
+                scrollBottom(proxy, animated: false)
+            }
+        }
+        """.split(whereSeparator: { $0.isWhitespace }).joined()
+        check("B10b 反向自证：onChange 退回 ChatView.body 内联 → B10 必红",
+              !b10Holds(squashedInlineOnChange), negative: true)
         check("B11 append（自己发出 / 回答落库）时复位贴底态——旧 unpinned 不得熄火整段流式",
               squashed.contains("pinTracker.state=.pinnedAtBottom"))
         // 反向自证：旧形态拼回 → B9/B10 必红
@@ -340,7 +361,7 @@ struct ScrollPinTruthTable {
         let squashedOldStream = "onChange(of: stream.content) { guard scrollPinState.pinned else { return } scrollBottom(proxy, animated: false) }"
             .split(whereSeparator: { $0.isWhitespace }).joined()
         check("B13 反向自证：流式滚底退回「同帧直滚」→ B10 必红",
-              !squashedOldStream.contains("DispatchQueue.main.async{guardscrollPinnedelse{return}scrollBottom(proxy,animated:false)}"),
+              !b10Holds(squashedOldStream),
               negative: true)
 
         // v4.0.40：滚底信号源必须与渲染信号同源（stream.displayContent），否则滚完又被下一 tick 撑高。

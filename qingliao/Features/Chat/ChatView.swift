@@ -27,6 +27,7 @@ private struct ChatScrollSnapshot: Equatable {
     let containerH: CGFloat
 }
 
+
 struct ChatView: View {
     @Environment(AuthStore.self) var auth
     @Environment(ChatStore.self) var chat
@@ -5618,24 +5619,16 @@ extension ChatView {
                 refreshVisibleMessages()
             }
             // v3.0.86 fix：流式内容变化仅在用户贴底时自动滚底（scrollPinState 由下方
-            // onScrollGeometryChange 实时维护）——上翻阅读历史不再被 delta 拽回；无动画防高频打断
-            // 🚨 v4.0.40（2026-10-04 用户再报「流式时最新气泡始终沉在输入框下面」）——本次改的是
-            // **信号源**，不是时序：
-            //   · 渲染（气泡高度）由打字机平滑层 stream.displayContent 驱动，每 48ms 一 tick；
-            //   · 旧写法滚底挂在 stream.content 上，那只在 poll 落字时变（约 0.15s 一次）→ 两个信号源
-            //     不同源：每滚一次底，随后 48~150ms 内气泡又长高 1~3 行，逐 tick 累加出来的观感就是
-            //     「最新几行永远差一截、沉到输入栏下面」。v4.0.36/37/38 三版都在调时序/判定
-            //     （累计回滚量、延后一拍），没碰过「滚底信号 ≠ 渲染信号」这个根。
-            // 现在滚底与渲染同源：displayContent 每变一次就滚一次，两者节拍一致。
-            // 同理别退回 stream.content —— 源级护栏 ql_scrollpin B14 钉住这条。
-            .onChange(of: stream.displayContent) { _, _ in
-                guard scrollPinned else { return }
-                // v4.0.37：延到下一拍、几何更新后再滚（同一帧内容刚长高、布局尚未落地）。
-                // 延迟窗口内用户若上翻，第二道 pinned 判定会把这次滚动放掉，不把人拽回去。
-                DispatchQueue.main.async {
-                    guard scrollPinned else { return }
-                    scrollBottom(proxy, animated: false)
-                }
+            // onScrollGeometryChange 实时维护）——上翻阅读历史不再被 delta 拽回；无动画防高频打断。
+            // 🚨 v4.0.40（2026-10-04 用户再报「流式时最新气泡始终沉在输入框下面」）——信号源必须是
+            // **渲染信号** stream.displayContent（与打字机同源），别退回 stream.content。
+            // 🚨 v4.0.155（流畅度审查）：观察点**下沉到 StreamScrollFollower**。原来这条 onChange
+            // 直接写在 ChatView.body 里 → body 注册了对 smoothedContent 的依赖 → 平滑层每 48ms
+            // 写一次 → 整个 ChatView.body（LazyVStack 300 行 + 全部浮层）每秒重算 20 次。
+            // 现在失效范围只剩那个零尺寸子视图，滚底动作仍由宿主闭包执行，语义/时序逐字不变。
+            .background {
+                StreamScrollFollower(isPinned: { scrollPinned },
+                                     scrollToBottom: { animated in scrollBottom(proxy, animated: animated) })
             }
     }
 
@@ -6012,4 +6005,32 @@ final class ChatBubbleAnchorStore {
     private init() {}
     func set(_ id: String, _ rect: CGRect) { frames[id] = rect }
     func rect(for id: String) -> CGRect? { frames[id] }
+}
+
+/// v4.0.155：打字机滚底观察者（零尺寸、不参与布局）。
+///
+/// 为什么必须单独成 View：`.onChange(of: stream.displayContent)` 一旦写在 `ChatView.body` 里，
+/// body 就注册了对打字机平滑层（每 48ms 写一次的 `smoothedContent`）的依赖 →
+/// **整个 6000 行 ChatView.body 每秒重算 20 次**（LazyVStack 300 行 + 全部浮层跟着 diff；
+/// 真机卡顿栈里那一串 `SwiftUICore / AttributeGraph / RenderBox` 就是它）。
+/// 收进本视图后失效范围只剩这一个 Color.clear 节点，滚底动作仍由宿主闭包执行，时序逐字不变。
+private struct StreamScrollFollower: View {
+    @Environment(StreamClient.self) private var stream
+    /// 贴底判据（读宿主 @State；只有 pinned 翻转才会重建本视图）
+    let isPinned: () -> Bool
+    let scrollToBottom: (_ animated: Bool) -> Void
+
+    var body: some View {
+        Color.clear
+            .frame(width: 0, height: 0)
+            .onChange(of: stream.displayContent) { _, _ in
+                guard isPinned() else { return }
+                // v4.0.37：延到下一拍、几何更新后再滚（同一帧内容刚长高、布局尚未落地）。
+                // 延迟窗口内用户若上翻，第二道 pinned 判定会把这次滚动放掉，不把人拽回去。
+                DispatchQueue.main.async {
+                    guard isPinned() else { return }
+                    scrollToBottom(false)
+                }
+            }
+    }
 }

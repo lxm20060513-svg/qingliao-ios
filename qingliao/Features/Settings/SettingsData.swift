@@ -384,7 +384,14 @@ struct FilesManagerSheet: View {
         defer { busyText = nil }
         guard let data = await download(e) else { return }
         if kind == .image {
-            guard let img = UIImage(data: data) else {
+            // v4.0.155（流畅度审查）：解码挪出主线程。
+            // `UIImage(data:)` 是**惰性**的，但首帧渲染时会同步解码整张位图；4000px 照片实测
+            // 150~600ms 全在主线程 → 点开图片那一下就是「卡死」感。这里先解成 UIImage（后台），
+            // 只跨线程搬引用；盒子的 @unchecked Sendable 与 ImageCache 的既有做法一致。
+            let decoded = await Task.detached(priority: .userInitiated) {
+                UIImageBox(UIImage(data: data))
+            }.image
+            guard let img = decoded else {
                 await MainActor.run { Haptics.error() }
                 alertText = "图片解码失败，文件可能已损坏"
                 return
@@ -1067,4 +1074,10 @@ struct HomeShortcutSheet: View {
         .disabled(!on && full)
         .accessibilityLabel("\(a.title) 桌面快捷方式")
     }
+}
+
+/// v4.0.155：跨并发域搬运 UIImage（UIKit 类型非 Sendable）。图像只读，交接后不再修改。
+private final class UIImageBox: @unchecked Sendable {
+    let image: UIImage?
+    init(_ image: UIImage?) { self.image = image }
 }

@@ -371,7 +371,7 @@ check("v4.0.81 合并 tab：深链「会话」落到聊天首页（.sessions →
       && !dockSrc.contains("private var orbInDock"))
 check("v4.0.81 首页头：会话页顶部三件都是既有真源（PetAvatar / WelcomeQuotes / HomeCardsGrid），且 showHero 默认关",
       sessionsSrc.contains("var showHero: Bool = false")
-      && sessionsSrc.contains("PetAvatar(size: 96, state: .idle, patTrigger: heroPat)")
+      && sessionsSrc.contains("PetAvatar(size: 96, state: .idle, patTrigger: patCount)")
       && sessionsSrc.contains("WelcomeQuotes.pick()")
       && sessionsSrc.contains("HomeCardsGrid(")
       && sessionsSrc.contains("showHero {"))

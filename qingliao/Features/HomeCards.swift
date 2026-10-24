@@ -370,11 +370,16 @@ final class HomeCardData {
     }
 
     /// 后端日期是 "%Y-%m-%d %H:%M"（本地时区，见 mail_api.py list_messages）
-    static func parseMailDate(_ s: String) -> Date? {
+    /// v4.0.155：解析器提为共享实例 —— 邮件卡每行每次 body 求值都调它，
+    /// 每 new 一个 DateFormatter 都要装载一遍 ICU 规则（0.1~1ms）。只在主线程用，无需加锁。
+    private static let mailDateParser: DateFormatter = {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd HH:mm"
         f.locale = Locale(identifier: "en_US_POSIX")
-        return f.date(from: s)
+        return f
+    }()
+    static func parseMailDate(_ s: String) -> Date? {
+        mailDateParser.date(from: s)
     }
 
     static func relative(_ d: Date, now: Date = Date()) -> String {
@@ -900,11 +905,16 @@ struct HomeCardFace: View {
     }
 
     /// 副标题口径（⚠️ 恒单行，见本文件顶部注释；相对时间/文案放不下会被截断）
+    /// v4.0.155：两种格式预建共享（原来每行每次 body 求值都 new 两个 DateFormatter）
+    private static let sameDayTimeFmt: DateFormatter = {
+        let f = DateFormatter(); f.dateFormat = "HH:mm"; return f
+    }()
+    private static let crossDayTimeFmt: DateFormatter = {
+        let f = DateFormatter(); f.dateFormat = "MM-dd HH:mm"; return f
+    }()
     private func reminderTimeText(_ d: Date) -> String {
         let sameDay = Calendar.current.isDate(d, inSameDayAs: Date())
-        let fmt = DateFormatter()
-        fmt.dateFormat = sameDay ? "HH:mm" : "MM-dd HH:mm"
-        return fmt.string(from: d)
+        return (sameDay ? Self.sameDayTimeFmt : Self.crossDayTimeFmt).string(from: d)
     }
 
     private var subtitle: String {

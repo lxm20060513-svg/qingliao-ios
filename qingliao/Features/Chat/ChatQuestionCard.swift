@@ -411,15 +411,19 @@ struct ChatQuestionCard: View {
     /// 相对时间（卡头右上角）：只做「刚刚 / N 分钟前 / N 小时前 / N 天前」四档，
     /// 超过 7 天退回日期——不引第三方、不依赖会话列表那套 relativeTime（它带"昨天"等口语档，
     /// 与卡片这种短标签口径不同）。
+    private static let olderDayFmt: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "zh_CN")
+        f.dateFormat = "M月d日"
+        return f
+    }()
     static func relativeTime(_ seconds: Int) -> String {
         let diff = Int(Date().timeIntervalSince1970) - seconds
         if diff < 60 { return "刚刚" }
         if diff < 3600 { return "\(diff / 60) 分钟前" }
         if diff < 86400 { return "\(diff / 3600) 小时前" }
         if diff < 86400 * 7 { return "\(diff / 86400) 天前" }
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "zh_CN")
-        f.dateFormat = "M月d日"
-        return f.string(from: Date(timeIntervalSince1970: TimeInterval(seconds)))
+        // v4.0.155：共享 formatter（原来 >7 天分支每张卡每次求值都 new 一个）
+        return Self.olderDayFmt.string(from: Date(timeIntervalSince1970: TimeInterval(seconds)))
     }
 }

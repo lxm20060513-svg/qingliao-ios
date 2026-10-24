@@ -107,6 +107,10 @@ final class HangWatchdog: @unchecked Sendable {
     private var samplingBurstId: UInt64 = 0
     private var pendingReportMs = 0
     private var pendingReportBurstId: UInt64 = 0
+    /// v4.0.155：移交时刻。主线程移交后、监控线程写回前，**这一段的样本不能丢**（见 afterWaiting）
+    private var pendingReportAtNs: UInt64 = 0
+    /// 移交认领期限：采样本身约 150ms，1.5s 还没被认领就说明监控线程出问题了，此时才允许空栈兜底
+    private static let handoffDeadlineNs: UInt64 = 1_500_000_000
     /// v3.9.10：完全死锁兜底是否已上报（一段繁忙只报一次；繁忙段结束时复位）
     private var deadlockReported = false
     /// v3.9.10：连续繁忙超过该时长仍未恢复 → 判定「主线程不会回来了」，由监控线程直接入队
@@ -201,6 +205,7 @@ final class HangWatchdog: @unchecked Sendable {
         samplingBurstId = 0
         pendingReportMs = 0
         pendingReportBurstId = 0
+        pendingReportAtNs = 0
         burstEndNs = 0
         endedBurstId = 0
         lock.unlock()
@@ -216,14 +221,26 @@ final class HangWatchdog: @unchecked Sendable {
             lock.lock()
             busySinceNs = now
             sampledThisBurst = false
-            samples = []
             burstId &+= 1          // 新一段开始（旧样本即便后到也不会被认领）
             deadlockReported = false
+            // 🚨 v4.0.155（卡顿 100% 拿不到真栈的根因）：移交在途时**既不许清样本、也不许当孤儿上报**。
+            //   旧写法无条件 `samples = []` + 空栈兜底 → 主线程刚恢复的下一拍（毫秒级）就把监控线程
+            //   150ms 后才写回的真栈整段扔掉，并抢先用 samples: [] 上报一条 rounds=0。
+            //   这就是 1221 条上报里 135 条有栈、其余全是「恢复点栈」的机制。
+            let handoffInFlight = pendingReportMs > 0
+                && sampling
+                && samplingBurstId == pendingReportBurstId
+                && pendingReportAtNs != 0
+                && (now &- pendingReportAtNs) < Self.handoffDeadlineNs
+            if !handoffInFlight { samples = [] }
             // 上一段遗留的「移交上报」：若监控线程的写回没赶上宽限窗口，这里用空栈兜底上报 ——
             // 宁可栈不完整，也不能把这条卡顿整条丢掉（下一段的写回不会认领它了）。
-            let orphanMs = pendingReportMs
-            pendingReportMs = 0
-            pendingReportBurstId = 0
+            let orphanMs = handoffInFlight ? 0 : pendingReportMs
+            if !handoffInFlight {
+                pendingReportMs = 0
+                pendingReportBurstId = 0
+                pendingReportAtNs = 0
+            }
             lock.unlock()
             if orphanMs > 0 {
                 let stack = renderReport(durationMs: orphanMs, samples: [], crumbs: [])
@@ -268,6 +285,7 @@ final class HangWatchdog: @unchecked Sendable {
             if handOffToMonitor {
                 pendingReportMs = Int(busy / 1_000_000)
                 pendingReportBurstId = burstId
+                pendingReportAtNs = now
             }
             lock.unlock()
             // applicationState 必须主线程读（observer 回调即在主线程）
@@ -310,7 +328,8 @@ final class HangWatchdog: @unchecked Sendable {
     private func report(durationMs: Int, stack: String) {
         Task { @MainActor in
             DiagnosticsEnv.refresh()
-            DiagnosticsStore.recordHang(durationMs: durationMs, stack: stack)
+            // v4.0.155：异步入队（旧写法在刚恢复的主线程上同步读改写 200KB JSON，卡顿之后再卡一次）
+            DiagnosticsStore.recordHangAsync(durationMs: durationMs, stack: stack)
             await DiagnosticsUploader.flushPending()
         }
     }
@@ -378,6 +397,7 @@ final class HangWatchdog: @unchecked Sendable {
         if pendingReportMs > 0 && pendingReportBurstId != sampledBurst {
             pendingReportMs = 0
             pendingReportBurstId = 0
+            pendingReportAtNs = 0
         }
         // 主线程把这条卡顿的上报移交了过来（它结算时样本还没写回）→ 由监控线程带真栈补报
         var handoffMs = 0
@@ -385,6 +405,7 @@ final class HangWatchdog: @unchecked Sendable {
             handoffMs = pendingReportMs
             pendingReportMs = 0
             pendingReportBurstId = 0
+            pendingReportAtNs = 0
         }
         sampling = false
         lock.unlock()
@@ -429,7 +450,7 @@ final class HangWatchdog: @unchecked Sendable {
 
         let ms = Int((now2 &- busyStart) / 1_000_000)
         let stack = renderReport(durationMs: ms, samples: got, crumbs: crumbs)
-        DiagnosticsStore.recordHang(durationMs: ms, stack: stack)
+        DiagnosticsStore.recordHangAsync(durationMs: ms, stack: stack)
         NSLog("[DIAG] 主线程疑似完全死锁 \(ms)ms（采样 \(got.count) 条）已入离线队列，下次启动补传")
     }
 

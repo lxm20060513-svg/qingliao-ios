@@ -1,4 +1,47 @@
 import Foundation
+
+// MARK: - v4.0.155 非隔离 JSON 编解码
+//
+// ⚠️ 必须写在**文件级**：AuthStore 是 @MainActor 类，写在类里的 `static let` / 嵌套类型都会继承
+// 主线程隔离 —— 那样 `nonisolated static func` 引用它们反而报 “main actor-isolated static
+// property can not be referenced from a nonisolated context”（本地 -parse 查不出，CI 才炸）。
+
+/// 跨并发域的结果盒：`JSONSerialization` 的产物是 `[String: Any]` / `Any`（非 Sendable），
+/// 直接从后台 continuation 返回会触发 Swift 6 的 sending 检查。盒内容交接后只读，
+/// 因此 `@unchecked Sendable` 是安全的（同仓图像回调的既有做法）。
+private final class JSONBox: @unchecked Sendable {
+    let object: Any?
+    init(_ object: Any?) { self.object = object }
+}
+
+/// 串行编解码队列：顺序确定、不制造线程爆炸
+private let qlJSONQueue = DispatchQueue(label: "qingliao.auth.json", qos: .userInitiated)
+
+/// 主线程不再做整包 JSON 解码。
+///
+/// AuthStore 整体 `@MainActor` → 旧实现的 `JSONSerialization.jsonObject` 全部落在主线程。
+/// 会话全量列表（/api/sessions/list，1.6MB 级）、/api/memory/list、工作台 pending 等
+/// 一次就是几十毫秒，正好压在切页/返回首页的转场帧上。
+private func qlDecodeJSONObject(_ data: Data) async -> Any? {
+    await withCheckedContinuation { (cont: CheckedContinuation<JSONBox, Never>) in
+        qlJSONQueue.async {
+            cont.resume(returning: JSONBox(try? JSONSerialization.jsonObject(with: data)))
+        }
+    }.object
+}
+
+/// 主线程不再做整包 JSON 编码（消息落库 payload 含 base64 图片，可达数 MB）
+private func qlEncodeJSONBody(_ body: [String: Any]) async -> Data? {
+    let box = JSONBox(body)
+    return await withCheckedContinuation { (cont: CheckedContinuation<Data?, Never>) in
+        qlJSONQueue.async {
+            guard let obj = box.object, JSONSerialization.isValidJSONObject(obj) else {
+                cont.resume(returning: nil); return
+            }
+            cont.resume(returning: try? JSONSerialization.data(withJSONObject: obj))
+        }
+    }
+}
 import Observation
 import Security
 
@@ -241,8 +284,8 @@ final class AuthStore {
         var headers: [String: String] = [:]
         if let body {
             headers["Content-Type"] = "application/json"
-            bodyData = JSONSerialization.isValidJSONObject(body)
-                ? (try? JSONSerialization.data(withJSONObject: body)) : nil
+            // v4.0.155：整包编码挪出主线程（消息落库 payload 含 base64 图片，数 MB 级）
+            bodyData = await qlEncodeJSONBody(body)
         } else {
             bodyData = nil
         }
@@ -469,7 +512,7 @@ final class AuthStore {
     func json(_ path: String, method: String = "GET", body: [String: Any]? = nil,
               timeout: TimeInterval? = nil) async throws -> [String: Any] {
         let (data, _) = try await request(path, method: method, body: body, timeout: timeout)
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+        guard let json = await qlDecodeJSONObject(data) as? [String: Any] else {
             throw APIError.badJSON
         }
         return json
@@ -478,7 +521,7 @@ final class AuthStore {
     /// 便捷：JSON 请求 → 数组
     func jsonArray(_ path: String, method: String = "GET", body: [String: Any]? = nil) async throws -> [Any] {
         let (data, _) = try await request(path, method: method, body: body)
-        guard let arr = try? JSONSerialization.jsonObject(with: data) as? [Any] else {
+        guard let arr = await qlDecodeJSONObject(data) as? [Any] else {
             throw APIError.badJSON
         }
         return arr
@@ -730,7 +773,9 @@ final class AuthStore {
     /// v3.4.23 任务中心：进行中任务
     /// v3.4.25：路径改用 /api/agent/tasks/active——16666(lucky) 反代只放行 /api/agent 前缀，
     /// 原 /api/tasks 前缀被 lucky 404，App 主链路（https://域名:16666）拉不到任务中心
-    struct ActiveTask: Identifiable {
+    /// v4.0.155：`Equatable` —— 工作台 2s 轮询先比对再赋值，内容没变就不写 @State
+    /// （否则每 2s 一次整页 body 重算，产物库每行还会重建 DateFormatter）。
+    struct ActiveTask: Identifiable, Equatable {
         let id: String          // jobId
         let kind: String        // stream / bg
         let title: String

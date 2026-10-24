@@ -40,7 +40,25 @@ final class BackgroundStreamRunner {
     }
 
     /// sessionId -> 在跑条目（会话列表角标真源）
-    private(set) var running: [String: Entry] = [:]
+    ///
+    /// 🚨 v4.0.155（流畅度审查）：**字典本体必须对 Observation 隐身**。
+    /// 旧写法 `private(set) var running` 是 @Observable 存储属性，而轮询每个 chunk 都会
+    /// `running[sid]?.content += c` → 每 0.15s 触发一次 withMutation → 读过 `running` 的
+    /// 会话列表整页重算（2100 行 + 4 遍排序 + 全列表 diff）。列表其实只关心「哪些会话在跑」。
+    /// 现在拆成两层：条目内容放 `@ObservationIgnored` 的私有字典（改动不产生任何失效），
+    /// 对外只暴露 `runningIds`（仅在新增/移除时写一次）。
+    @ObservationIgnored private var runningStore: [String: Entry] = [:]
+    /// 在跑的会话 id 集合 —— 视图层**只许读这个**（观测面 = 增删，不是每个 chunk）
+    private(set) var runningIds: Set<String> = []
+
+    var running: [String: Entry] {
+        get { runningStore }
+        set {
+            runningStore = newValue
+            let ids = Set(newValue.keys)
+            if ids != runningIds { runningIds = ids }
+        }
+    }
 
     private var tasks: [String: Task<Void, Never>] = [:]
 

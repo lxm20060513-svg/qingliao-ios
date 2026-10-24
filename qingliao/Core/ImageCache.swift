@@ -37,9 +37,9 @@ func imageDecodeTier(displayWidthPT: CGFloat, scale: CGFloat = 3) -> Int {
     return imageDecodeTiers.last!
 }
 
-/// v3.4.25：大图的档位化缓存 key（原始 key + 档位后缀）；小图(<100KB)仍用原始 key，路径保持不变
+/// 大图的档位化缓存 key —— v4.0.155 起统一走 `dataURLMemoKey`（O(1) 指纹，不复制整串）。
 private func tieredCacheKey(_ urlStr: String, tier: Int) -> NSString {
-    (urlStr + "|v3425px" + String(tier)) as NSString
+    dataURLMemoKey(urlStr, tier: tier)
 }
 
 /// v3.4.25：ImageIO 下采样解码——CGImageSourceCreateThumbnailAtIndex 直接解出 ≤maxPixelSize 的位图，
@@ -65,14 +65,40 @@ private func decodedImageCost(_ img: UIImage, fallback: Int) -> Int {
     return fallback
 }
 
+/// O(1) 指纹键（v4.0.155）：缓存 key 不再拼整串 base64。
+///
+/// 旧实现 `tieredCacheKey` 做 `urlStr + "|v3425px" + tier` —— 每次 body 求值都要
+/// **复制整串**（一条 1MB 的 data URL 就是 1MB 分配 + memcpy），再用它查缓存。
+/// 新 key 只取「UTF-8 字节数 + 首尾 48 字符哈希」，与正文长度无关（O(1)）。
+/// 内存缓存随进程失效，key 换代没有持久化兼容问题。
+private func dataURLMemoKey(_ urlStr: String, tier: Int) -> NSString {
+    let len = urlStr.utf8.count          // base64 是 ASCII：utf8.count 与字符数一致，且是 O(1)
+    let head = urlStr.prefix(48).hashValue
+    let tail = urlStr.suffix(48).hashValue
+    return "\(len)|\(head)|\(tail)|\(tier)" as NSString
+}
+
 /// 解码 dataURL 图片（base64），带 NSCache 缓存（主线程调用）
 /// v3.0.x fix：大图片解码移到后台队列（NSCache 读写仍在主线程）
 /// v3.4.25：可选 displayWidthPT——传入气泡显示宽度且数据 ≥100KB 时，按 512/1024 档位下采样解码
 /// （ImageIO 缩略图）并以档位 key 缓存；小图(<100KB)与未传宽度的调用（导出/分享/大图查看等需全分辨率）
 /// 路径保持不变：全尺寸解码 + 原始 key。
+/// 🚨 v4.0.155（流畅度审查）：**缓存查询必须在 base64 解码之前**。旧顺序是「先
+/// `Data(base64Encoded:)` 再查缓存」——命中也要把整串解码分配一遍，图片多的会话每帧几十毫秒白烧。
+/// 现在先按指纹探两档 key（传了显示宽度才会用到档位 key），命中就直接返回，零解码零分配。
 @MainActor
 func dataURLImage(_ urlStr: String, displayWidthPT: CGFloat? = nil) -> UIImage? {
     guard !urlStr.isEmpty else { return nil }
+    // ① 先探缓存（解码前，零分配）：档位 key（有显示宽度时）+ 小图原始档 key
+    if let w = displayWidthPT {
+        if let img = imageCache.object(forKey: dataURLMemoKey(urlStr, tier: imageDecodeTier(displayWidthPT: w))) {
+            return img
+        }
+    }
+    if let img = imageCache.object(forKey: dataURLMemoKey(urlStr, tier: 0)) {
+        return img
+    }
+    // ② 未命中才解码
     // v2.0.102：动态匹配 data URL 前缀（png/heic 等非 jpeg 也被正确截断；纯 base64 原样解码）
     var b64 = urlStr
     if let comma = urlStr.firstIndex(of: ","),
@@ -80,7 +106,7 @@ func dataURLImage(_ urlStr: String, displayWidthPT: CGFloat? = nil) -> UIImage? 
         b64 = String(urlStr[urlStr.index(after: comma)...])
     }
     guard let imgData = Data(base64Encoded: b64, options: .ignoreUnknownCharacters) else { return nil }
-    // v3.4.25：小图(<100KB)与未指定显示宽度的调用 → 走原路径（全尺寸解码、原始 key，与旧缓存条目共享）
+    // v3.4.25：小图(<100KB)与未指定显示宽度的调用 → 走原路径（全尺寸解码、原始 key）
     let width = displayWidthPT
     let useTier: Bool
     let tier: Int
@@ -91,11 +117,7 @@ func dataURLImage(_ urlStr: String, displayWidthPT: CGFloat? = nil) -> UIImage? 
         tier = 0
         useTier = false
     }
-    let key: NSString = useTier ? tieredCacheKey(urlStr, tier: tier) : (urlStr as NSString)
-    // 缓存命中直接返回（零开销）
-    if let img = imageCache.object(forKey: key) {
-        return img
-    }
+    let key = dataURLMemoKey(urlStr, tier: useTier ? tier : 0)
     let decoded: UIImage?
     if useTier {
         decoded = downsampledImage(imgData, maxPixelSize: tier)

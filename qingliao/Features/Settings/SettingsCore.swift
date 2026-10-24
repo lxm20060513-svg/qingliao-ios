@@ -24,6 +24,8 @@ struct SettingsView: View {
     /// extension 不许含存储属性，Archive 报 "extensions must not contain stored
     /// properties" + "declared inside an extension cannot have a wrapper"（-parse 查不出）。
     @AppStorage(Haptics.enabledKey) private var hapticsOn = true
+    /// v4.0.155：设置页加载去重闸（存储属性必须在 struct 主体，见上方 extension 警告）
+    @State private var loadingAllSettingsData = false
 
     // v4.0.10（用户：「在设置里增加可以关掉首页快捷卡片功能」）：首页快捷卡片总开关。
     // 与聊天页绑同一个键（Core/HomeCardStore.enabledKey）→ 那边立刻跟着变。
@@ -403,13 +405,11 @@ struct SettingsView: View {
                 .scrollContentBackground(.hidden)
         }
         // v2.0.102：切回设置页刷新计数（密码管理/记忆增删后行尾数字即时更新，原只有 .task 首刷）
-        .onAppear { Task { await loadCounts() } }
-        .task {
-            await loadCounts()
-            await loadLocalStatus()   // v-review fix：进入设置页即以后端 /api/local/status 校准本地模型开关
-            await loadTypesafeRouting()   // v3.9.56：进设置页即读后端真实路由开关/熔断状态
-            await loadTypesafeModel()     // v4.0.87：一并读判定模型配置（自定义模型三项）
-        }
+        // v4.0.155（流畅度审查）：onAppear 与 .task 曾各跑一遍 loadCounts → 首次进页实际发 11 次
+        // 串行往返、其中 4 次完全重复；四条加载链之间也是顺序 await。现在统一走 loadAllSettingsData()：
+        // 重入去重 + 四条链并发（网络等待重叠），顺序与结果口径不变。
+        .onAppear { Task { await loadAllSettingsData() } }
+        .task { await loadAllSettingsData() }
     }
 
     /// v4.0.82：Dock 栏设置（顺序 / 隐藏）的弹出宿主。
@@ -1127,6 +1127,22 @@ extension SettingsView {
     }
 
     /// v2.0.102：加载凭据/记忆计数（设置页行尾显示）
+    /// v4.0.155：设置页首刷/重进的**唯一**入口 —— 去重 + 四条链并发。
+    ///
+    /// 旧形态：`.onAppear` 起一条 Task 跑 loadCounts，同帧 `.task` 又跑一遍 loadCounts 再接
+    /// loadLocalStatus → loadTypesafeRouting → loadTypesafeModel，四段串行 await。冷启动实测
+    /// 11 次串行往返（4 次完全重复），全部压在进页那一帧之后，行尾数字逐段跳变。
+    func loadAllSettingsData() async {
+        guard !loadingAllSettingsData else { return }
+        loadingAllSettingsData = true
+        defer { loadingAllSettingsData = false }
+        async let counts: Void = loadCounts()
+        async let local: Void = loadLocalStatus()
+        async let routing: Void = loadTypesafeRouting()
+        async let model: Void = loadTypesafeModel()
+        _ = await (counts, local, routing, model)
+    }
+
     func loadCounts() async {
         if let j = try? await auth.json("/api/secrets") {
             secretCount = (j["secrets"] as? [Any])?.count ?? 0
