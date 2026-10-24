@@ -851,6 +851,20 @@ check("档位弹窗仍是锚定浮层、且由 ChatView 的菜单层持有（v4.
       && chatMenuLayerSrc.contains("func openReasoning(at anchor: CGRect)")
       && !chatViewSrc.contains(".confirmationDialog(\"模型思考档位\""))
 
+// ── v4.0.158（用户 2026-10-25 选方案②·内容滑入）────────────────────────────
+// 掉帧红线不变：玻璃胶囊本体几何恒定（position 落到固定点、无 scaleEffect）；
+// 动感加在**内容层** —— 图标+文字从下方 8pt 升到位，逐颗 30ms 错峰。
+// reveal 必须晚一帧置位：在 onAppear 同一事务里裸写会被首帧合并，胶囊的隐式动画整段不播
+// （现象＝用户 157 报的「一点动画都没了」）。
+let anchorMenuSrc = src("Features/Chat/AnchorMenuOverlay.swift")
+check("锚定菜单入场：玻璃不动、内容 8pt 滑入 + reveal 晚一帧置位（v4.0.158）",
+      anchorMenuSrc.contains(".offset(y: reduceMotion || reveal ? 0 : 8)")
+      && anchorMenuSrc.contains("DispatchQueue.main.async { reveal = true }")
+      && anchorMenuSrc.contains("Motion.anchorMenu.delay(Double(r * cols + c) * 0.03)"))
+check("锚定菜单入场：玻璃本体不挂几何动画（position 恒定落点，无 y: reduceMotion 分支）",
+      anchorMenuSrc.contains(".position(x: ox + menuW / 2, y: oy + menuH / 2)")
+      && !anchorMenuSrc.contains("y: reduceMotion ? oy + menuH / 2"))
+
 // ── v4.0.36 朗读胶囊迁入工具层（用户：胶囊移动到对话框展开态底部模型思考档位旁边，
 //            图标风格对齐模型思考档位胶囊） ──
 // ① 输入栏侧：autoReadButton 挂 toolRow（紧挨思考档位之后）、图标风格**逐值对齐** reasoningButton、

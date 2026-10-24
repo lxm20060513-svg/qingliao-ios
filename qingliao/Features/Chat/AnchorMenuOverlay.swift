@@ -56,7 +56,7 @@ struct AnchorMenuOverlay: View {
     @State private var shown = false
     /// v4.0.157：整屏轻纱的独立相位（只透明度、短促淡入；不与面板同一条弹簧）
     @State private var scrimOn = false
-    /// v4.0.157：胶囊的**入场**相位（只置 true、带 20ms 逐颗错峰）。
+    /// v4.0.157：胶囊的**入场**相位（只置 true、逐颗错峰；v4.0.158 起 30ms）。
     /// 与 `shown` 分开的理由：退场必须快且齐 —— 每颗胶囊若挂着自己的 0.38s+错峰 spring，
     /// 父层 0.18s 就卸载 → 淡到一半整块消失。现在退场只走面板 `shown` 的一次淡出。
     @State private var reveal = false
@@ -184,7 +184,10 @@ struct AnchorMenuOverlay: View {
                     // 罩短促淡入，面板走令牌弹簧但**只动透明度**（几何恒在落点）。
                     withAnimation(Motion.menuScrim) { scrimOn = true }
                     withAnimation(Motion.anchorMenu) { shown = true }
-                    reveal = true   // 逐颗错峰由 pill 自己的 .animation(value: reveal) 带
+                    // v4.0.158：`reveal` **必须晚一帧**再置 —— 在 onAppear 的同一事务里裸写会被
+                    // 首帧合并，胶囊上的隐式 .animation 不播（现象＝「啪一下出现」）。
+                    // 下一帧置位保证有前一个 reveal=false 的渲染帧，逐颗错峰才真的看得见。
+                    DispatchQueue.main.async { reveal = true }   // 逐颗错峰由 pill 自己的 .animation(value: reveal) 带
                 }
             }
         }
@@ -236,13 +239,15 @@ struct AnchorMenuOverlay: View {
                     VStack(alignment: .leading, spacing: Self.pillGap) {
                         ForEach(Array(column.enumerated()), id: \.element.id) { r, item in
                             pill(item, width: colWidth)
-                                // v4.0.157：**原地淡入**（按行 20ms 错峰保留「逐颗浮现」的节奏）。
-                                // 🚨 不许加回 scaleEffect / offset / position 动画：玻璃几何一动就每帧
-                                //    重新采样背后内容 = 用户实报的「三点菜单弹出卡顿严重」。
+                                // v4.0.157：**原地淡入**（按行错峰保留「逐颗浮现」的节奏）。
+                                // v4.0.158（用户 2026-10-25 选方案②）：玻璃仍然不动，改成**内容滑入**——
+                                //    胶囊内的图标+文字从下方 8pt 升到位（见 pill 里的 .offset）。
+                                // 🚨 不许给玻璃本体加 scaleEffect / offset / position 动画：玻璃几何一动
+                                //    就每帧重新采样背后内容 = 用户实报的「三点菜单弹出卡顿严重」。
                                 // 相位与 `shown` 分开（见 reveal 注释）：退场不能带这里的 spring+错峰。
                                 .opacity(reveal ? 1 : 0)
                                 .animation(reduceMotion ? nil
-                                           : Motion.anchorMenu.delay(Double(r * cols + c) * 0.02),
+                                           : Motion.anchorMenu.delay(Double(r * cols + c) * 0.03),
                                            value: reveal)
                         }
                     }
@@ -272,6 +277,11 @@ struct AnchorMenuOverlay: View {
                     .minimumScaleFactor(0.85)
                 Spacer(minLength: 0)
             }
+            // v4.0.158（用户 2026-10-25 选方案②·内容滑入）：**只有图标+文字这一坨**从下方 8pt
+            // 升到位；玻璃胶囊本体几何恒定（opacity 由外层 reveal 驱动）。
+            // 胶囊高 42、内容行高 ≈18 → 垂直余量 12pt，8pt 位移不会露出胶囊边界。
+            // 🚨 别把这个 offset 挪到 glassEffect 之后那层 —— 那就变成玻璃本体在动，长会话掉帧。
+            .offset(y: reduceMotion || reveal ? 0 : 8)
             .padding(.horizontal, Spacing.xl)
             .frame(width: width, height: Self.pillHeight, alignment: .leading)
             // 玻璃挂在 padding 之后（OrbQuickMenu / dock 胶囊同口径）；可点元素必须 .regular.interactive()

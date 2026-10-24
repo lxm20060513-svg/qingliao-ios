@@ -358,14 +358,14 @@ struct OrbQuickMenuLayer: View {
     /// 全仓口径一致：LoginView、欢迎页宠物（PetAvatar）都读同一环境值，本层别自己发明开关。
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    /// 单颗胶囊入场动画：正常运行按 index 错峰 20ms（**只驱动透明度**）；减弱动态效果下退化瞬时
+    /// 单颗胶囊入场动画：正常运行按 index 错峰 30ms（**只驱动透明度 + 内容位移**）；减弱动态效果下退化瞬时
     ///
     /// 🚨 v4.0.157（用户 2026-10-24「三点菜单弹出动效卡顿严重」连带对齐）：胶囊**原地淡入**，
     /// 不再「从球心弹射落位」。每颗都是真液态玻璃，position/scale 一动画就每帧重新采样背后整页；
-    /// 错峰节奏保留（20ms，与 AnchorMenuOverlay 同一口径），观感仍是「逐颗浮现」。
+    /// v4.0.158（用户选方案②）：玻璃仍不动，改成胶囊内的图标+文字从下方 8pt 滑入（见 pillVisual）。
     private func pillAnimation(index: Int) -> Animation {
         reduceMotion ? Motion.tap
-                     : Motion.anchorMenu.delay(Double(index) * 0.02)
+                     : Motion.anchorMenu.delay(Double(index) * 0.03)
     }
 
     var body: some View {
@@ -514,6 +514,10 @@ struct OrbQuickMenuLayer: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.85)
         }
+        // v4.0.158（用户 2026-10-25 选方案②·内容滑入）：**只有图标+文字**从下方 8pt 升到位，
+        // 玻璃胶囊本体仍恒定在落点。胶囊内上下各有 lg(10pt) 内边距，8pt 位移不会露出边界。
+        // 🚨 别把这个 offset 挪到 a11yGlass 之后那层 —— 那就是玻璃在动，长会话掉帧复发。
+        .offset(y: reduceMotion || shown ? 0 : 8)
         // 🚨 v3.9.77 用户：「这个截图的 6 个胶囊也大小统一一下」。
         // 原来视觉层**没有固定宽度** —— 宽度随「图标 + 文字 + padding」自适应，而六颗图标各不同
         // （plus.bubble.fill / brain.head.profile / checklist / text.viewfinder / waveform.circle.fill / mic.fill），
@@ -533,10 +537,10 @@ struct OrbQuickMenuLayer: View {
         .a11yGlass(.regular.interactive(), in: Capsule(),
                    stroke: Color.white.opacity(scheme == .dark ? 0.22 : 0.12))
         .shadow(color: Color.black.opacity(0.12), radius: 10, y: 4)
-        // v4.0.157：位置恒定在落点、只淡入 —— 不再 scaleEffect/position 动画（玻璃几何一动就掉帧）
+        // v4.0.157/158：玻璃位置恒定在落点、只淡入；内容从下方 8pt 滑入（不再 scaleEffect/position 动画）
         .opacity(shown ? 1 : 0)
         .position(p)
-        // 错峰浮现：按 index 延迟 20ms（0 下左 → 1 上左 → 2 上右 → 3 下右，落点见 OrbQuickMenuLayout）
+        // 错峰浮现：按 index 延迟 30ms（0 下左 → 1 上左 → 2 上右 → 3 下右，落点见 OrbQuickMenuLayout）
         .animation(pillAnimation(index: index), value: shown)
         .allowsHitTesting(false)   // 🚨 v3.9.76：视觉层不许吃事件（命中全交给下面的固定层）
     }

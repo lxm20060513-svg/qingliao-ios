@@ -152,12 +152,15 @@ check("遮罩 = 全屏半透明模糊（ultraThinMaterial 铺满安全区）",
 check("旧的纯色黑纱已清零（无模糊、没铺满的形态）",
       !stripCommentLines(orbMenuSrc).contains("Color.black.opacity(shown ? 0.12 : 0)"))
 // 🚨 v4.0.157（用户 2026-10-24「三点菜单弹出动效卡顿严重」连带对齐）：入场从「从球心弹射落位」
-//   改为**原地淡入 + 20ms 错峰**。原因不是审美：每颗胶囊都是真液态玻璃，position/scale 一动画就
+//   改为**原地淡入 + 错峰**。原因不是审美：每颗胶囊都是真液态玻璃，position/scale 一动画就
 //   每帧重新采样背后整页（长会话直接掉帧）。几何恒定在落点，只动透明度 —— 下面两条负断言防回退。
-check("绽放动效 = 原地淡入 + 20ms 错峰（几何恒定，不再从球心弹射）",
+// v4.0.158（用户 2026-10-25 选方案②·内容滑入）：玻璃仍不动，胶囊内图标+文字从下方 8pt 升到位。
+check("绽放动效 = 原地淡入 + 30ms 错峰（几何恒定，不再从球心弹射）",
       orbMenuSrc.contains(".position(p)")
-      && orbMenuSrc.contains(".delay(Double(index) * 0.02)")
+      && orbMenuSrc.contains(".delay(Double(index) * 0.03)")
       && stripCommentLines(orbMenuSrc).contains(".opacity(shown ? 1 : 0)"))
+check("玻璃不动、内容滑入：胶囊内容层挂 8pt 起点位移（v4.0.158 方案②）",
+      stripCommentLines(orbMenuSrc).contains(".offset(y: reduceMotion || shown ? 0 : 8)"))
 check("入场不再给玻璃胶囊挂几何动画（scaleEffect / 位置插值 必须为 0）",
       !stripCommentLines(orbMenuSrc).contains(".scaleEffect(reduceMotion ? 1 : (shown ? 1 : 0.3))")
       && !stripCommentLines(orbMenuSrc).contains(".position(reduceMotion ? p : (shown ? p : ballCenter))"))

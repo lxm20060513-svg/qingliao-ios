@@ -9,7 +9,8 @@ import SwiftUI
 /// 口径（v4.0.129 用户拍板：**回到更早那版「胶囊毛玻璃 dock」**，液态玻璃那套试验全部作废）：
 ///   · 档序/显隐**只读 DockLayoutKit 的结论**（`tabs` 由 DockTabView 的 dockRenderTabs 传入），
 ///     本文件不写死任何档位 —— 与系统 tab bar 那条路同源，顺序改了这里跟着变。
-///   · 底材 = `Capsule().fill(.ultraThinMaterial)` 白毛玻璃 + **自绘玻璃层**
+///   · 底材 = `Capsule().fill(.thinMaterial)` 磨砂 + **自绘玻璃层**
+///     （v4.0.158 由 `.ultraThinMaterial` 加厚一档，见 `glassBody`），
 ///     （上方白色高光渐变 + 上沿 1pt 镜面描边），不把彩调吸进来、也不会压灰。
 ///     🚨 别换回 `.glassEffect()`：v4.0.128 实测整条比周围卡片灰一档，用户两次报「颜色不协调」。
 ///     🚨 别退回「逐颗 Button 各加 glassEffect」：渲染成 5 个独立玻璃圆、整条 dock 条消失
@@ -47,8 +48,11 @@ struct DockPagingBar: View {
     /// v4.0.131（用户 2026-10-20：「dock 太靠上了，下移一点」）：原值是 `4`，
     /// 胶囊下沿 = 安全区底(34) + 4 ≈ 距屏幕底 38pt，真机观感「悬在半空」。
     /// 改 `-8` 后胶囊下沿距屏幕底 ≈ 26pt，仍在 home indicator 上方，不压可点区。
-    /// 🚨 纵向落点只认这一个常量：别再另加 `.offset(y:)`（两个位移真源必然漂移）。
-    static let bottomGap: CGFloat = -8
+    /// v4.0.158（用户 2026-10-25「滑动模式的 dock 位置稍微下移一点点」）：`-8` → `-12`，
+    /// 胶囊下沿距屏幕底 ≈ 22pt；仍在 home indicator（距底 ≈8–13pt）之上，不压手势区。
+    /// 🚨 再往下压之前先确认没进 home indicator 的拖拽热区；纵向落点只认这一个常量，
+    /// 别再另加 `.offset(y:)`（两个位移真源必然漂移）。
+    static let bottomGap: CGFloat = -12
 
     /// 单格**理想**宽（v4.0.148：dock 条长度自适应档数 —— 用户 2026-10-22
     /// 「滑动模式下 dock 条长度没有根据 tab 数量减少而自适应缩短」）。
@@ -171,13 +175,18 @@ struct DockPagingBar: View {
     /// v4.0.132「方案 A · 磨砂」：**均匀薄雾**，与 v4.0.131 玻璃四层的分界 ——
     ///   · 删「上 0.24 白 → 中透 → 底冷蓝」的面层渐变（上亮下透 = 立体感来源，磨砂不要）；
     ///   · 删顶部 20% 折射亮线（plusLighter 高光沿 = 「玻璃感」来源，磨砂不要）；
-    ///   · 只留材质 + 一层**均匀**白雾：浅色白 0.16，深色白 0.06 —— 把材质调匀成一整片哑光，
-    ///     不引灰（白雾只加在白系上）、不碰 glassEffect 红线（🚨 v4.0.128 两次「颜色不协调」）。
+    ///   · 只留材质 + 一层**均匀**白雾。
+    /// v4.0.158（用户 2026-10-25「dock 做得更有磨砂质感一点」）：材质由 `.ultraThinMaterial`
+    ///   加厚到 `.thinMaterial` —— 同一族里模糊半径更大、雾面更实，读作「磨砂」而不是「一层淡玻璃」；
+    ///   白雾随之减量（浅色 0.16→0.08、深色 0.06→0.05，材质本身已更白，再叠会发死白）；
+    ///   背景层再压一档饱和度（0.92）收掉背后渐变彩度，哑光感才立得住。
+    /// 🚨 仍然不碰 `.glassEffect()`：v4.0.128 实测整条比周围卡片灰一档，用户两次报「颜色不协调」。
     private var glassBody: some View {
         ZStack {
-            Capsule().fill(.ultraThinMaterial)
-            Capsule().fill(.white.opacity(scheme == .dark ? 0.06 : 0.16))
+            Capsule().fill(.thinMaterial)
+            Capsule().fill(.white.opacity(scheme == .dark ? 0.05 : 0.08))
         }
+        .saturation(0.92)
     }
 
     /// 边缘：0.8pt **单色**淡描边（浅色黑 0.08 / 深色白 0.14）——
