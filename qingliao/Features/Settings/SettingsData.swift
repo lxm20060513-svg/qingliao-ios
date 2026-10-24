@@ -388,10 +388,12 @@ struct FilesManagerSheet: View {
             // `UIImage(data:)` 是**惰性**的，但首帧渲染时会同步解码整张位图；4000px 照片实测
             // 150~600ms 全在主线程 → 点开图片那一下就是「卡死」感。这里先解成 UIImage（后台），
             // 只跨线程搬引用；盒子的 @unchecked Sendable 与 ImageCache 的既有做法一致。
-            let decoded = await Task.detached(priority: .userInitiated) {
+            // ⚠️ 必须 `.value` 取任务结果：`Task.detached { … }.image` 会被解析成对 Task 取成员，
+            // CI 报 `reference to member 'image' cannot be resolved without a contextual type`。
+            let box = await Task.detached(priority: .userInitiated) {
                 UIImageBox(UIImage(data: data))
-            }.image
-            guard let img = decoded else {
+            }.value
+            guard let img = box.image else {
                 await MainActor.run { Haptics.error() }
                 alertText = "图片解码失败，文件可能已损坏"
                 return

@@ -1353,7 +1353,11 @@ struct SessionsView: View {
     }
 
     /// 刷新进程内快照（加载/保存路径专用）
-    private static func setSnapshot(_ s: [ChatSession]) {
+    /// v4.0.155：必须 `nonisolated` —— View 里 update 侧是从 `Task.detached` 调进来的，
+    /// 而 static 方法默认继承 @MainActor（CI 报 main actor-isolated static method cannot be called
+    /// from outside of the actor）。它只碰 `snapshotMemo`/`snapshotLock` 两个 nonisolated(unsafe) 静态量 + NSLock，
+    /// 本身就是线程安全的。
+    nonisolated private static func setSnapshot(_ s: [ChatSession]) {
         snapshotLock.lock()
         snapshotMemo = s
         snapshotLoaded = true
