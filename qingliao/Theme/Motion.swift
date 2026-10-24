@@ -84,7 +84,13 @@ enum Motion {
     static var enter: Animation { tuned(.spring(response: 0.20, dampingFraction: 0.72)) }
 
     /// v4.0.76：锚定菜单入场（AnchorMenuOverlay 专用，审查意见：入场动画走 Motion 真源不裸写 spring）
+    /// v4.0.157：**只驱动透明度**（胶囊原地淡入）。别再拿它驱动位置/缩放 —— 面板里每颗都是真液态玻璃，
+    /// 几何一动画就每帧重新采样背后整页，长会话直接掉帧（用户 2026-10-24 实报「三点菜单弹出卡顿严重」）。
     static var anchorMenu: Animation { tuned(.spring(response: 0.38, dampingFraction: 0.78)) }
+
+    /// v4.0.157：锚定菜单 / 智慧球菜单的**整屏轻纱**相位（短促 easeOut）。
+    /// 与 `anchorMenu`（面板）拆开：罩要「先糊上」、面板随后浮现；两者都只动透明度。
+    static var menuScrim: Animation { tuned(.easeOut(duration: 0.18)) }
 
     // 🚨 v4.0.106：v4.0.105 给长按菜单加的那组「微缩 → 抬起」令牌**已整体移除**
     //（`menuLift` / `pressDown` / `pressScale` / `liftScale` / `liftRise`）。

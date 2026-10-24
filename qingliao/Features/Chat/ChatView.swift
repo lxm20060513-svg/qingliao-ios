@@ -121,11 +121,11 @@ struct ChatView: View {
     @State var viewerPayload: ImageViewPayload?
     // v3.9.17：AI 生成物 QuickLook 预览的本地文件（下载落临时目录后交给 QuickLook）
     @State var quickLookURL: URL?
-    @State var showMoreMenu = false
-    /// v4.0.76：三点菜单锚定弹出——「更多」按钮的全局 frame（AnchorMenuOverlay 弹出位置）
-    @State var moreMenuAnchor: CGRect = .zero
-    /// v4.0.81：长按气泡/文字段的锚定菜单目标（锚点由 ChatBubbleAnchorStore 量好，见该类型注释）
-    @State var bubbleMenuTarget: ChatBubbleMenuTarget?
+    /// v4.0.157：三个锚定菜单（三点 / 思考档位 / 长按气泡）的开合状态从本页 `@State` 搬进
+    /// `@Observable` —— 原来它们就在 body 里读，点一下菜单 = 整页 6k 行 body 重算（真机「先顿一下」）。
+    /// 现在 body 只把引用交给 `ChatAnchorMenuLayer`，失效范围只剩那个浮层节点。
+    /// 🚨 **别在 body 里读 `chatMenu.*`**（读 = 重新挂上整页依赖）；写入点不受限。
+    @State var chatMenu = ChatMenuState()
     /// v4.0.81：返回「会话列表」（只有 iPhone 上「聊天」tab 的首页宿主会传 —— 那一 tab 现在
     /// 把会话列表与聊天页合成一页，需要有路回列表；iPad 双栏 / 其它入口不传即完全不渲染返回键）。
     /// v4.0.116：回调曾带**返回位置**当圆形扩散的圆心；🚨 v4.0.122（用户 2026-10-18 拍板
@@ -357,9 +357,7 @@ struct ChatView: View {
     @State private var lastAutoReadKey = ""
     /// v3.9.9 收口：用户主动「停止生成」（输入栏 / 灵动岛）→ 本轮不自动朗读（别把残句念一遍）
     @State private var suppressAutoReadOnce = false
-    @State private var showReasoningPicker = false
-    /// v4.0.76：思考档位菜单锚定弹出——输入栏「思考档位」胶囊的全局 frame
-    @State private var reasoningAnchor: CGRect = .zero
+    /// v4.0.157：思考档位菜单的开合与锚点已搬进 `ChatMenuState`（见文件头注释；原来是两个 @State）
     /// v4.0.31：header 中央宠物的「回答完成」庆祝触发器（本会话流结束那一刻 +1，v4.0.27 口径回归）
     @State private var petCelebrate = 0
     /// v3.9.48：输入栏展开态右下角的模型快选面板
@@ -594,9 +592,10 @@ struct ChatView: View {
                 showTaskCenter = true
             },
             HeaderPillGroup.Item(id: "more", systemName: "ellipsis.circle", a11y: "更多",
-                                 anchorOut: { moreMenuAnchor = $0 }) {
+                                 anchorOut: { chatMenu.moreAnchor = $0 }) {
                 // v4.0.76：菜单从三点按钮处弹出（锚定浮层替代居中 confirmationDialog）
-                showMoreMenu = true
+                // v4.0.157：走 openMore（互斥真源：先清另两个），写入不触发本页 body 重算
+                chatMenu.openMore(at: chatMenu.moreAnchor)
             },
         ]
     }
@@ -627,7 +626,7 @@ struct ChatView: View {
 
     /// v4.0.76：锚定菜单动作分发（与原 chatActionDialogContent 各 Button 体逐条等价搬运）
     private func handleChatActionMenuPick(_ item: AnchorMenuItem) {
-        showMoreMenu = false
+        chatMenu.showMore = false
         switch item.id {
         case "export":
             showExportSheet = true
@@ -911,8 +910,9 @@ struct ChatView: View {
                     // v4.0.27：模型思考档位胶囊迁入工具层（附件/相机旁）——传展示值不传枚举
                     reasoningLevelIcon: reasoningLevel.symbol,
                     reasoningLevelTitle: reasoningLevel.title,
-                    onPickReasoning: { showReasoningPicker = true },
-                    onReasoningAnchor: { reasoningAnchor = $0 },   // v4.0.76：锚定菜单锚点
+                    // v4.0.157：开合状态收进 ChatMenuState（写入不连坐本页 body）
+                    onPickReasoning: { chatMenu.openReasoning(at: chatMenu.reasoningAnchor) },
+                    onReasoningAnchor: { chatMenu.reasoningAnchor = $0 },   // v4.0.76：锚定菜单锚点
                     // v4.0.36：朗读胶囊同样迁入工具层（紧挨思考档位）——同一套「传展示值 + 回调」
                     // ⚠️ 实参序必须 = ChatInputBar 存储属性声明序（autoReadIcon 声明在 onPickReasoning 之后）
                     autoReadIcon: "speaker.wave.2.fill",
@@ -1309,43 +1309,33 @@ struct ChatView: View {
         }
     }
 
-    /// v4.0.77：聊天页的两个锚定菜单浮层（三点操作菜单 / 思考档位）。
-    /// 两者互斥（各自按钮点开时另一个必已被收起），同挂一处便于与其它页「对齐」——四个调用点
-    /// 都用同一个 AnchorMenuOverlay（胶囊规格见该文件），这里只管挂载层级。
+    /// v4.0.77：聊天页的三个锚定菜单浮层（三点操作 / 思考档位 / 长按气泡）。
+    /// v4.0.157：**本体搬进 `ChatAnchorMenuLayer`**（读 `ChatMenuState`）——原先在这里直接读
+    /// `showMoreMenu / showReasoningPicker / bubbleMenuTarget`，等于让整个 ChatView.body 挂在
+    /// 菜单开合上（点一下 = 6k 行 body + 300 行 LazyVStack 全量重算）。这里只留挂载点。
     @ViewBuilder
     private var chatAnchorMenuLayer: some View {
-        // 思考档位：从输入栏档位胶囊处弹出、点空白收回
-        if showReasoningPicker {
-            AnchorMenuOverlay(anchorFrame: reasoningAnchor,
-                              items: ReasoningLevel.allCases.map { lv in
-                                  AnchorMenuItem(id: lv.rawValue,
-                                                 title: "\(lv == reasoningLevel ? "✓ " : "")\(lv.title) · \(lv.detail)",
-                                                 icon: lv.symbol,
-                                                 color: lv == reasoningLevel ? .accentColor : .primary)
-                              },
-                              title: "模型思考档位",
-                              onPick: { item in
-                                  reasoningLevelRaw = item.id
-                                  showReasoningPicker = false
-                              },
-                              onClose: { showReasoningPicker = false })
-        }
-        // 聊天操作菜单：从三点按钮处弹出、点空白收回
-        if showMoreMenu {
-            AnchorMenuOverlay(anchorFrame: moreMenuAnchor,
-                              items: chatActionMenuItems,
-                              title: "上下文：约 \(chat.contextInfo.tokens) tokens · \(chat.contextInfo.count) 条",
-                              onPick: { handleChatActionMenuPick($0) },
-                              onClose: { showMoreMenu = false })
-        }
-        // v4.0.81：长按气泡 → 锚定胶囊菜单（与三点菜单同一浮层组件、同一挂载点）
-        if let t = bubbleMenuTarget {
-            AnchorMenuOverlay(anchorFrame: t.anchor,
-                              items: bubbleMenuItems(for: t.message, text: t.text),
-                              title: t.message.isUser ? "你的消息" : "AI 回复",
-                              onPick: { handleBubbleMenuPick($0, message: t.message, text: t.text) },
-                              onClose: { bubbleMenuTarget = nil })
-        }
+        ChatAnchorMenuLayer(
+            menu: chatMenu,
+            moreItems: { chatActionMenuItems },
+            moreTitle: { "上下文：约 \(chat.contextInfo.tokens) tokens · \(chat.contextInfo.count) 条" },
+            reasoningItems: {
+                ReasoningLevel.allCases.map { lv in
+                    AnchorMenuItem(id: lv.rawValue,
+                                   title: "\(lv == reasoningLevel ? "✓ " : "")\(lv.title) · \(lv.detail)",
+                                   icon: lv.symbol,
+                                   color: lv == reasoningLevel ? .accentColor : .primary)
+                }
+            },
+            bubbleItems: { msg, text in bubbleMenuItems(for: msg, text: text) },
+            onMorePick: { handleChatActionMenuPick($0) },
+            onReasoningPick: { item in
+                reasoningLevelRaw = item.id
+                chatMenu.showReasoning = false
+            },
+            onBubblePick: { item, msg, text in
+                handleBubbleMenuPick(item, message: msg, text: text)
+            })
     }
 
     /// v4.0.51c：行为型深层修饰器下沉背景层（.background 不影响布局）
@@ -3017,11 +3007,10 @@ struct ChatView: View {
     /// chatMessageBubble 上挂的 onGeometryChange）——所以同一会话里每段文字/图片各有自己的位置。
     /// 与另两个锚定浮层互斥（同屏只允许一个锚定菜单，开新的先清旧的）。
     func openBubbleMenu(for msg: ChatMessage, text: String) {
-        showMoreMenu = false
-        showReasoningPicker = false
-        let anchor = ChatBubbleAnchorStore.shared.rect(for: msg.id) ?? moreMenuAnchor
+        let anchor = ChatBubbleAnchorStore.shared.rect(for: msg.id) ?? chatMenu.moreAnchor
         Haptics.tap()
-        bubbleMenuTarget = ChatBubbleMenuTarget(id: msg.id, anchor: anchor, text: text, message: msg)
+        // v4.0.157：openBubble 内部清另两个标志（互斥真源），别再逐处手写
+        chatMenu.openBubble(ChatBubbleMenuTarget(id: msg.id, anchor: anchor, text: text, message: msg))
     }
 
     /// v4.0.81：长按菜单**单一真源** —— 此前入口散在 6 处 `.contextMenu` + 5 处 `.textSelection` 里，
@@ -3068,7 +3057,7 @@ struct ChatView: View {
     /// v4.0.81：长按菜单动作分发 —— 每个 case 与原先对应气泡菜单里那个 Button 的 body 逐条等价
     /// （搬运，不改行为；文案/触感沿用原实现：复制走 UIPasteboard + Haptics.success()）。
     private func handleBubbleMenuPick(_ item: AnchorMenuItem, message msg: ChatMessage, text: String) {
-        bubbleMenuTarget = nil
+        chatMenu.bubble = nil
         switch item.id {
         case "copy":
             UIPasteboard.general.string = text

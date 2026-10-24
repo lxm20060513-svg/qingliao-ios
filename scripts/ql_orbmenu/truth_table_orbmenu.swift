@@ -151,15 +151,22 @@ check("遮罩 = 全屏半透明模糊（ultraThinMaterial 铺满安全区）",
       orbMenuSrc.contains("Rectangle().fill(.ultraThinMaterial)") && orbMenuSrc.contains(".ignoresSafeArea()"))
 check("旧的纯色黑纱已清零（无模糊、没铺满的形态）",
       !stripCommentLines(orbMenuSrc).contains("Color.black.opacity(shown ? 0.12 : 0)"))
-check("绽放动效 = 从球心弹射（initial 位置 = 球心）+ 错峰入场",
-      orbMenuSrc.contains(".position(reduceMotion ? p : (shown ? p : ballCenter))")
-      && orbMenuSrc.contains(".delay(Double(index) * 0.05)"))
+// 🚨 v4.0.157（用户 2026-10-24「三点菜单弹出动效卡顿严重」连带对齐）：入场从「从球心弹射落位」
+//   改为**原地淡入 + 20ms 错峰**。原因不是审美：每颗胶囊都是真液态玻璃，position/scale 一动画就
+//   每帧重新采样背后整页（长会话直接掉帧）。几何恒定在落点，只动透明度 —— 下面两条负断言防回退。
+check("绽放动效 = 原地淡入 + 20ms 错峰（几何恒定，不再从球心弹射）",
+      orbMenuSrc.contains(".position(p)")
+      && orbMenuSrc.contains(".delay(Double(index) * 0.02)")
+      && stripCommentLines(orbMenuSrc).contains(".opacity(shown ? 1 : 0)"))
+check("入场不再给玻璃胶囊挂几何动画（scaleEffect / 位置插值 必须为 0）",
+      !stripCommentLines(orbMenuSrc).contains(".scaleEffect(reduceMotion ? 1 : (shown ? 1 : 0.3))")
+      && !stripCommentLines(orbMenuSrc).contains(".position(reduceMotion ? p : (shown ? p : ballCenter))"))
 check("球心光晕（C 元素）在位", orbMenuSrc.contains("RadialGradient"))
 check("减弱动态效果：读系统 accessibilityReduceMotion（全仓环境值口径，别自造开关）",
       orbMenuSrc.contains("@Environment(\\.accessibilityReduceMotion)"))
-check("减弱动态效果：胶囊原地淡入（不做从球心弹射落位）",
+check("减弱动态效果：胶囊走瞬时节奏（不做位移/缩放入场）",
       orbMenuSrc.contains("reduceMotion ? Motion.tap")
-      && orbMenuSrc.contains(".position(reduceMotion ? p : (shown ? p : ballCenter))"))
+      && !stripCommentLines(orbMenuSrc).contains(".position(reduceMotion ? p : (shown ? p : ballCenter))"))
 check("减弱动态效果：装饰性扩散环不渲染", orbMenuSrc.contains("if !reduceMotion {"))
 
 // ── 4. 视觉层不抢事件（穿透铁律不被破坏） ─────────────────────

@@ -1944,8 +1944,12 @@ cnt2=$(grep -cF 'static let panelEnterRise: CGFloat = 24' qingliao/Theme/Motion.
 cnt=$(grep -cF 'scaleEffect(panelOn ? 1 : Motion.panelEnterScale)' qingliao/Features/Life/MemoGlassOverlay.swift | tr -d ' ')
 cnt2=$(grep -cF 'offset(y: panelOn ? 0 : Motion.panelEnterRise)' qingliao/Features/Life/MemoGlassOverlay.swift | tr -d ' ')
 { [ "$cnt" -eq 1 ] && [ "$cnt2" -eq 1 ]; } || { echo "❌ 第 11 项：备忘录浮层未引用几何真源（缩放 $cnt / 位移 $cnt2）—— 别回写字面量 0.94 / 24"; fail=1; }
+# v4.0.157：智慧球菜单的罩改短促相位 `Motion.menuScrim`（玻璃胶囊入场改为原地淡入的同一轮性能整改）。
+#   语义没变（罩仍是独立相位、先于面板），只是不再吃 flow 的 0.28s 全屏材质淡入。
+cnt=$(grep -cF 'withAnimation(Motion.menuScrim) { scrimOn = true }' qingliao/Features/OrbQuickMenu.swift | tr -d ' ')
+[ "$cnt" -eq 1 ] || { echo "❌ 第 11 项：智慧球菜单的背景罩未拆相位（实得 $cnt，应为 Motion.menuScrim 独立相位）"; fail=1; }
 cnt=$(grep -cF 'withAnimation(Motion.flow) { scrimOn = true }' qingliao/Features/OrbQuickMenu.swift | tr -d ' ')
-[ "$cnt" -eq 1 ] || { echo "❌ 第 11 项：智慧球菜单的背景罩未拆相位（实得 $cnt，应与识别浮层同序）"; fail=1; }
+[ "$cnt" -eq 0 ] || { echo "❌ v4.0.157 回退：智慧球菜单的罩又回到 flow 长淡入（实得 $cnt）—— 见 Motion.menuScrim 注释"; fail=1; }
 # 负断言：本菜单是**球心锚定型** —— 套 panelEnterRise 会让胶囊脱开锚点（豁免口径写在 Motion.swift）
 # ⚠️ 必须先剥注释再 grep：本文件注释里**刻意**写着 `Motion.panelEnterRise` 讲豁免口径，
 #    裸 grep 会被自己的注释判红（第 84 段的 scrollDepth 踩过同一个坑）。

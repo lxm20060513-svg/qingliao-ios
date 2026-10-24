@@ -52,7 +52,14 @@ struct AnchorMenuOverlay: View {
     /// 连带移除：`ChatView.bubbleLiftPreview` / `ChatBubbleMenuTarget.preview` /
     /// `AnchorMenuPresenter.Request.preview` / `Motion.menuLift·pressDown·pressScale·liftScale·liftRise`。
 
+    /// v4.0.157：面板（含每颗胶囊）的**透明度相位**
     @State private var shown = false
+    /// v4.0.157：整屏轻纱的独立相位（只透明度、短促淡入；不与面板同一条弹簧）
+    @State private var scrimOn = false
+    /// v4.0.157：胶囊的**入场**相位（只置 true、带 20ms 逐颗错峰）。
+    /// 与 `shown` 分开的理由：退场必须快且齐 —— 每颗胶囊若挂着自己的 0.38s+错峰 spring，
+    /// 父层 0.18s 就卸载 → 淡到一半整块消失。现在退场只走面板 `shown` 的一次淡出。
+    @State private var reveal = false
     @Environment(\.colorScheme) private var scheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -153,38 +160,44 @@ struct AnchorMenuOverlay: View {
                     Color.black.opacity(Self.scrimDim)
                 }
                 .ignoresSafeArea()
-                .opacity(shown ? 1 : 0)
+                .opacity(scrimOn ? 1 : 0)
                 .contentShape(Rectangle())
                 .onTapGesture(perform: close)
 
                 menuPanel(cols: cols, colWidth: colW)
+                    // 退场相位：整块一起淡出（0.18s），胶囊不再各自 spring
+                    .opacity(shown ? 1 : 0)
                     .frame(width: menuW)
-                    .position(x: ox + menuW / 2,
-                              y: reduceMotion ? oy + menuH / 2
-                                              : (shown ? oy + menuH / 2
-                                                       : anchorY(inBelow: below)))
+                    // 🚨 v4.0.157：**位置恒定在落点**，不再从锚点滑过来 —— 面板里每颗都是真液态玻璃，
+                    //    position 一动画 = 每帧重新采样背后整页（长会话直接掉帧，用户实报「弹出卡顿严重」）。
+                    //    入场只走透明度，见 onAppear / pill 的 opacity 相位。
+                    .position(x: ox + menuW / 2, y: oy + menuH / 2)
             }
             .onAppear {
                 if reduceMotion {
                     // 减动效：直接落终态（菜单在屏），不播逐颗错峰
                     shown = true
+                    scrimOn = true
+                    reveal = true
                 } else {
+                    // 罩与面板拆两个相位（同 OrbQuickMenu / MemoGlassOverlay 的「罩先糊上、面板后到」）：
+                    // 罩短促淡入，面板走令牌弹簧但**只动透明度**（几何恒在落点）。
+                    withAnimation(Motion.menuScrim) { scrimOn = true }
                     withAnimation(Motion.anchorMenu) { shown = true }
+                    reveal = true   // 逐颗错峰由 pill 自己的 .animation(value: reveal) 带
                 }
             }
         }
     }
 
-    /// 收起方向：从锚点缩回（below 时回锚点下方点，朝上时回锚点上方点）
-    /// 注意：本函数在 body 的 GeometryReader 闭包内被调用，用的 localAnchor 同一套换算——
-    /// 这里收的是 global 原值，仅为动画起点误差 ±几 pt 可接受；如需精确可把 localAnchor 透传进来。
-    private func anchorY(inBelow below: Bool) -> CGFloat {
-        below ? anchorFrame.maxY + 4 : anchorFrame.minY - 4
-    }
-
     private func close() {
-        // v4.0.106：只有菜单一层（抬起预览已移除），收起就是 shown 归零
-        withAnimation(Motion.settle) { shown = false }
+        // v4.0.106：只有菜单一层（抬起预览已移除），收起就是 shown / scrimOn 归零
+        // v4.0.157：两个相位同一支短曲线（0.18s）——与下面 onClose 的卸载时机对齐，
+        //   面板淡完正好撤掉；胶囊不再各自 spring（见 reveal 注释）。
+        withAnimation(Motion.menuScrim) {
+            shown = false
+            scrimOn = false
+        }
         // 等收场动画播完再卸载（视图卸载由父层 isPresented 控制，这里只报出去）
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) { onClose() }
     }
@@ -223,14 +236,14 @@ struct AnchorMenuOverlay: View {
                     VStack(alignment: .leading, spacing: Self.pillGap) {
                         ForEach(Array(column.enumerated()), id: \.element.id) { r, item in
                             pill(item, width: colWidth)
-                                // 错峰绽放（与 OrbQuickMenu 同款观感：从锚点侧逐颗落位）
-                                // 顺序按「行」数：同一行的左右两颗几乎同时落位
-                                .opacity(shown ? 1 : 0)
-                                .scaleEffect(shown ? 1 : 0.92, anchor: .top)
+                                // v4.0.157：**原地淡入**（按行 20ms 错峰保留「逐颗浮现」的节奏）。
+                                // 🚨 不许加回 scaleEffect / offset / position 动画：玻璃几何一动就每帧
+                                //    重新采样背后内容 = 用户实报的「三点菜单弹出卡顿严重」。
+                                // 相位与 `shown` 分开（见 reveal 注释）：退场不能带这里的 spring+错峰。
+                                .opacity(reveal ? 1 : 0)
                                 .animation(reduceMotion ? nil
-                                           : .spring(response: 0.36, dampingFraction: 0.8)
-                                                .delay(Double(r * cols + c) * 0.03),
-                                           value: shown)
+                                           : Motion.anchorMenu.delay(Double(r * cols + c) * 0.02),
+                                           value: reveal)
                         }
                     }
                 }

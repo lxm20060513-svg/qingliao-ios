@@ -343,10 +343,11 @@ struct OrbQuickMenuLayer: View {
     var onClose: () -> Void
 
     @State private var shown = false
-    /// 第 11 项整改（用户 2026-10-18「模糊罩用 Motion.flow」）：**罩单独一个相位**。
+    /// 第 11 项整改（用户 2026-10-18）：**罩单独一个相位**。
     /// 原实现罩与胶囊共用 `shown`（注释写的是「不新增状态源」），结果罩和面板同一条 emerge 曲线，
-    /// 读作「一起弹出来」；备忘录那套是「罩先缓慢糊上（flow），面板慢半拍浮起（emerge）」。
-    /// 拆相位只多这一个布尔，不动 `shown` 的既有语义（胶囊弹射、光晕、锚点形象仍看 `shown`）。
+    /// 读作「一起弹出来」；拆开后是「罩先糊上、面板慢半拍浮现」。
+    /// v4.0.157：罩的曲线由 `Motion.flow`(0.28) 改 `Motion.menuScrim`(0.18 easeOut) —— 见 onAppear。
+    /// 不动 `shown` 的既有语义（光晕、锚点形象、胶囊透明度仍看 `shown`）。
     @State private var scrimOn = false
     /// v3.9.76（用户实测）：「点击胶囊有时候要点击好几次才跳转」。
     /// 一旦有一次点击真的被识别，就锁死——否则连点会起多个 0.16s 延迟任务，
@@ -357,10 +358,14 @@ struct OrbQuickMenuLayer: View {
     /// 全仓口径一致：LoginView、欢迎页宠物（PetAvatar）都读同一环境值，本层别自己发明开关。
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    /// 单颗胶囊入场动画：正常运行按 index 错峰 50ms；减弱动态效果下退化为瞬时节奏（只留透明度过渡）
+    /// 单颗胶囊入场动画：正常运行按 index 错峰 20ms（**只驱动透明度**）；减弱动态效果下退化瞬时
+    ///
+    /// 🚨 v4.0.157（用户 2026-10-24「三点菜单弹出动效卡顿严重」连带对齐）：胶囊**原地淡入**，
+    /// 不再「从球心弹射落位」。每颗都是真液态玻璃，position/scale 一动画就每帧重新采样背后整页；
+    /// 错峰节奏保留（20ms，与 AnchorMenuOverlay 同一口径），观感仍是「逐颗浮现」。
     private func pillAnimation(index: Int) -> Animation {
         reduceMotion ? Motion.tap
-                     : .spring(response: 0.45, dampingFraction: 0.68).delay(Double(index) * 0.05)
+                     : Motion.anchorMenu.delay(Double(index) * 0.02)
     }
 
     var body: some View {
@@ -377,7 +382,7 @@ struct OrbQuickMenuLayer: View {
                 Color.black.opacity(0.10)      // 压暗一档，让胶囊与文字在模糊底上更立得住
             }
             .ignoresSafeArea()
-            .opacity(scrimOn ? 1 : 0)          // 第 11 项：罩走自己的相位（Motion.flow，见 onAppear / dismissAnimated）
+            .opacity(scrimOn ? 1 : 0)          // 第 11 项：罩走自己的相位（v4.0.157 起 = Motion.menuScrim，见 onAppear / dismissAnimated）
             .contentShape(Rectangle())
             .onTapGesture(perform: dismissAnimated)
 
@@ -391,14 +396,16 @@ struct OrbQuickMenuLayer: View {
         }
         .onAppear {
             if reduceMotion { shown = true; scrimOn = true }   // 减弱动态效果：不做弹簧入场，直接落位淡入
-            // 第 11 项：入场曲线改用 `Motion.emerge` 令牌（与备忘录浮层同一支曲线）；
-            // 模糊罩另行走 `Motion.flow`（缓慢糊上，比面板慢半拍到位）—— 与 MemoGlassOverlay 同序。
-            // ⚠️ 几何豁免：本菜单的重心是智慧球，胶囊自锚点弹射，强套备忘录那套
-            // `Motion.panelEnterRise`（24pt 上浮）会脱开球心，故**只保留缩放语义、位移豁免**
-            // （豁免点在 check_swift.sh「第 105 组」有断言）。
+            // 第 11 项：面板入场走 `Motion.emerge` 令牌；模糊罩另走一支（短促淡入）。
+            // 🚨 v4.0.157：胶囊**几何恒定**在 OrbQuickMenuLayout 落点，只做透明度淡入 ——
+            //    原先的「自锚点弹射 + 缩放」已整体删除（真液态玻璃挂几何动画 = 每帧重采样背后整页）。
+            //    所以备忘录那套 `Motion.panelEnterRise` 依然**不套**：不是「豁免缩放」，是根本没有几何入场了。
+            //    回退护栏在 check_swift.sh 第 105 组与 ql_orbmenu 真值表（scale/位置插值必须为 0）。
             else {
                 withAnimation(Motion.emerge) { shown = true }
-                withAnimation(Motion.flow) { scrimOn = true }
+                // v4.0.157：罩改短促淡入（同 AnchorMenuOverlay）——0.28 的全屏材质淡入在长会话里
+                // 与胶囊入场叠帧；0.18 的 easeOut 读不出差别，但少一半的重采样窗口。
+                withAnimation(Motion.menuScrim) { scrimOn = true }
             }
         }
     }
@@ -526,12 +533,10 @@ struct OrbQuickMenuLayer: View {
         .a11yGlass(.regular.interactive(), in: Capsule(),
                    stroke: Color.white.opacity(scheme == .dark ? 0.22 : 0.12))
         .shadow(color: Color.black.opacity(0.12), radius: 10, y: 4)
-        // 减弱动态效果：不做「从球心弹射落位」，原地淡入（位置/缩放都取终态）
-        .scaleEffect(reduceMotion ? 1 : (shown ? 1 : 0.3))
+        // v4.0.157：位置恒定在落点、只淡入 —— 不再 scaleEffect/position 动画（玻璃几何一动就掉帧）
         .opacity(shown ? 1 : 0)
-        .position(reduceMotion ? p : (shown ? p : ballCenter))
-        // 错峰绽放：按 index 延迟 50ms（0 下左 → 1 上左 → 2 上右 → 3 下右，落点见 OrbQuickMenuLayout）；
-        // reduceMotion 下走 pillAnimation 的退化分支
+        .position(p)
+        // 错峰浮现：按 index 延迟 20ms（0 下左 → 1 上左 → 2 上右 → 3 下右，落点见 OrbQuickMenuLayout）
         .animation(pillAnimation(index: index), value: shown)
         .allowsHitTesting(false)   // 🚨 v3.9.76：视觉层不许吃事件（命中全交给下面的固定层）
     }
@@ -559,8 +564,9 @@ struct OrbQuickMenuLayer: View {
 
     private func dismissAnimated() {
         withAnimation(Motion.snap) { shown = false }
-        // 第 11 项：罩按自己的相位收（flow），与面板的 snap 分开——收场与入场同一套序
-        withAnimation(Motion.flow) { scrimOn = false }
+        // 第 11 项：罩按自己的相位收，与面板的 snap 分开——收场与入场同一套序
+        // v4.0.157：收场同样走 menuScrim（与入场同一支）
+        withAnimation(Motion.menuScrim) { scrimOn = false }
         Task { try? await Task.sleep(for: .seconds(0.16)); onClose() }
     }
 }

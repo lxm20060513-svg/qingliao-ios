@@ -55,6 +55,9 @@ func src(_ path: String) -> String {
 
 let inputBarSrc = src("Features/Chat/ChatInputBar.swift")
 let chatViewSrc = src("Features/Chat/ChatView.swift")
+/// v4.0.157：聊天页三个锚定菜单的本体搬到独立层（ChatMenuState + ChatAnchorMenuLayer）——
+/// 目的是让菜单开合不再连坐 ChatView.body；断言随之落到新文件，但口径不变（同一浮层组件、同一挂载点）。
+let chatMenuLayerSrc = src("Features/Chat/ChatAnchorMenuLayer.swift")
 
 // ── 源护栏：非空 ─────────────────────────────────────────────
 check("ChatInputBar.swift 源可读", !inputBarSrc.isEmpty)
@@ -823,7 +826,7 @@ check("调用点传展示值 + 回调（实参序 = 声明序：recordingLevel �
       {
           guard let a = chatViewSrc.range(of: "reasoningLevelIcon: reasoningLevel.symbol"),
                 let b = chatViewSrc.range(of: "reasoningLevelTitle: reasoningLevel.title"),
-                let c = chatViewSrc.range(of: "onPickReasoning: { showReasoningPicker = true }"),
+                let c = chatViewSrc.range(of: "onPickReasoning: { chatMenu.openReasoning(at: chatMenu.reasoningAnchor) }"),
                 let d = chatViewSrc.range(of: "recordingLevel: { liveSpeech.currentInputLevel() }")
           else { return false }
           // ⚠️ v4.0.28 修正（存量假红）：旧断言要求 recordingLevel 排在 **最后**，与 ChatInputBar
@@ -836,9 +839,16 @@ check("调用点传展示值 + 回调（实参序 = 声明序：recordingLevel �
 check("header 旧思考胶囊清零（reasoningPill / localReasoningPill 不复存在）",
       !chatViewSrc.contains("private var reasoningPill: some View")
       && !chatViewSrc.contains("localReasoningPill"))
-check("档位弹窗仍由 ChatView 持有（v4.0.76 起锚定浮层，非 confirmationDialog）",
-      chatViewSrc.contains("if showReasoningPicker")
-      && chatViewSrc.contains("AnchorMenuOverlay(anchorFrame: reasoningAnchor")
+check("档位弹窗仍是锚定浮层、且由 ChatView 的菜单层持有（v4.0.76 形态 / v4.0.157 搬家后不连坐 body）",
+      chatMenuLayerSrc.contains("if menu.showReasoning")
+      && chatMenuLayerSrc.contains("AnchorMenuOverlay(anchorFrame: menu.reasoningAnchor")
+      && chatViewSrc.contains("@State var chatMenu = ChatMenuState()")
+      && chatViewSrc.contains(".overlay { chatAnchorMenuLayer }")
+      && !chatViewSrc.contains("private var showReasoningPicker")
+      // v4.0.157：互斥真源在 ChatMenuState 的 open* 入口 —— 三个开菜单点不许再直接置 true
+      && !chatViewSrc.contains("chatMenu.showMore = true")
+      && !chatViewSrc.contains("chatMenu.showReasoning = true")
+      && chatMenuLayerSrc.contains("func openReasoning(at anchor: CGRect)")
       && !chatViewSrc.contains(".confirmationDialog(\"模型思考档位\""))
 
 // ── v4.0.36 朗读胶囊迁入工具层（用户：胶囊移动到对话框展开态底部模型思考档位旁边，
@@ -881,7 +891,7 @@ check("朗读胶囊只此两处（声明 + 挂载，不许有第二个挂点）"
       inputBarSrc.components(separatedBy: "autoReadButton").count - 1 == 2)
 check("调用点传展示值 + 回调（实参序 = 声明序：onPickReasoning 之后紧跟 autoReadIcon/On/onToggle）",
       {
-          guard let c = chatViewSrc.range(of: "onPickReasoning: { showReasoningPicker = true }"),
+          guard let c = chatViewSrc.range(of: "onPickReasoning: { chatMenu.openReasoning(at: chatMenu.reasoningAnchor) }"),
                 let i = chatViewSrc.range(of: "autoReadIcon: \"speaker.wave.2.fill\""),
                 let o = chatViewSrc.range(of: "autoReadOn: autoReadReply"),
                 let t = chatViewSrc.range(of: "onToggleAutoRead: { toggleAutoRead() }")
