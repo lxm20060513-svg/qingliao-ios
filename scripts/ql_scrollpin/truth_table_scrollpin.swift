@@ -248,12 +248,28 @@ struct ScrollPinTruthTable {
         check("B4 旧形态内联 atBottom 表达式已清除",
               !chatView.contains("return geo.contentSize.height <= geo.containerSize.height"),
               negative: true)
-        check("B5 流式滚底仍以贴底位为闸（guard scrollPinState.pinned）",
-              chatView.contains("guard scrollPinState.pinned else { return }"))
-        check("B5b 🚨 状态是带基准的结构（不是一个 Bool）；单帧参数 prevOffset 形态已清零",
-              chatView.contains("scrollPinState = ChatScrollPin.next(state: scrollPinState")
-                && chatView.contains("@State private var scrollPinState = ChatScrollPinState.pinnedAtBottom")
-                && !chatView.contains("prevOffset:"))
+        check("B5 流式滚底仍以贴底位为闸（pinned 闸读 @State 的 Bool）",
+              chatView.contains("guard scrollPinned else { return }"))
+        // 🚨 v4.0.154（长会话滑动卡顿根治）：逐帧 baseline **不许**进 @State。
+        // 旧形态 `@State var scrollPinState: ChatScrollPinState` 的 baseline 贴底时逐帧跟随 offset
+        // → 每帧一次视图失效 → 整页（300 行 LazyVStack + 全部浮层）每帧重算，滑动/打字全卡。
+        // 现在只有 Bool（pinned）进 @State，逐帧推进落在非观察载体 ChatScrollPinTracker 里。
+        // 判定式抽成闭包：正例与反向自证共用（表内纪律，别写成"替换后不含原串"的恒真自证）。
+        let b5bHolds: (String) -> Bool = { src in
+            src.contains("@State private var scrollPinned = true")
+                && src.contains("@State private var pinTracker = ChatScrollPinTracker()")
+                && src.contains("pinTracker.state = next")
+                && !src.contains("@State private var scrollPinState")
+                && !src.contains("prevOffset:")
+        }
+        check("B5b 🚨 逐帧 baseline 不进 @State：pinned 是 Bool + 状态载体是 ChatScrollPinTracker",
+              b5bHolds(chatView))
+        check("B5c 只有 pinned 翻转才写 @State（baseline 变化不得触发视图失效）",
+              chatView.contains("if next.pinned != scrollPinned { scrollPinned = next.pinned }"))
+        // 反向自证：把「baseline 进 @State」的旧形态拼回去 → B5b 必须为红（护栏有检测力）
+        let revertedPinState = chatView + "\n@State private var scrollPinState = ChatScrollPinState.pinnedAtBottom\n"
+        check("B5d 反向自证：旧 @State scrollPinState 形态复活 → B5b 必红",
+              !b5bHolds(revertedPinState), negative: true)
         // v4.0.39：滚底锚点 id 改成走单一真源 streamingAnchorID（带 startSeq 后缀，
         // 让三点行每轮强制重建、浮现必播）。断言跟着迁到新真源，并加钉「三处同源」——
         // id 字符串曾散在 .id ×2 + scrollTo ×1，改一处忘另两处 → 贴底静默失效。
@@ -312,9 +328,9 @@ struct ScrollPinTruthTable {
         check("B9 滚底守卫与渲染条件同源（thisSessionStreaming || remoteBusy 才滚 streaming 行）",
               squashed.contains("ifthisSessionStreaming||remoteBusy{proxy.scrollTo(streamingAnchorID,anchor:.bottom)"))
         check("B10 流式滚底延后一拍（防上一帧几何），且延迟段内二次判定贴底",
-              squashed.contains("DispatchQueue.main.async{guardscrollPinState.pinnedelse{return}scrollBottom(proxy,animated:false)}"))
+              squashed.contains("DispatchQueue.main.async{guardscrollPinnedelse{return}scrollBottom(proxy,animated:false)}"))
         check("B11 append（自己发出 / 回答落库）时复位贴底态——旧 unpinned 不得熄火整段流式",
-              squashed.contains("scrollPinState=.pinnedAtBottom"))
+              squashed.contains("pinTracker.state=.pinnedAtBottom"))
         // 反向自证：旧形态拼回 → B9/B10 必红
         let squashedOldGuard = "if thisSessionStreaming { proxy.scrollTo(streamingAnchorID, anchor: .bottom) } else if let last = chat.messages.last { }"
             .split(whereSeparator: { $0.isWhitespace }).joined()
@@ -324,7 +340,7 @@ struct ScrollPinTruthTable {
         let squashedOldStream = "onChange(of: stream.content) { guard scrollPinState.pinned else { return } scrollBottom(proxy, animated: false) }"
             .split(whereSeparator: { $0.isWhitespace }).joined()
         check("B13 反向自证：流式滚底退回「同帧直滚」→ B10 必红",
-              !squashedOldStream.contains("DispatchQueue.main.async{guardscrollPinState.pinnedelse{return}scrollBottom(proxy,animated:false)}"),
+              !squashedOldStream.contains("DispatchQueue.main.async{guardscrollPinnedelse{return}scrollBottom(proxy,animated:false)}"),
               negative: true)
 
         // v4.0.40：滚底信号源必须与渲染信号同源（stream.displayContent），否则滚完又被下一 tick 撑高。
@@ -374,13 +390,13 @@ struct ScrollPinTruthTable {
         //    保证「进会话必落底」）；② 链式 `deadline: .now() + delay` 的 now 在上一拍触发时才求值 →
         //    5 拍实际累计到 1.44s，必须有单一基准 `base`。
         func b19Holds(_ src: String) -> Bool {
-            src.contains("guarddelay==0||scrollPinState.pinnedelse{return}")
+            src.contains("guarddelay==0||scrollPinnedelse{return}")
                 && src.contains("deadline:base+delay")
         }
         check("B19 落底重试：首拍无条件、后续各拍只在仍贴底时补滚；且时限用单一基准 time",
               b19Holds(squashed))
         let squashedNoPinGate = squashed
-            .replacingOccurrences(of: "guarddelay==0||scrollPinState.pinnedelse{return}", with: "")
+            .replacingOccurrences(of: "guarddelay==0||scrollPinnedelse{return}", with: "")
             .replacingOccurrences(of: "deadline:base+delay", with: "deadline:.now()+delay")
         check("B20 反向自证：去掉贴底闸 / 退回链式 .now() → B19 必红",
               !b19Holds(squashedNoPinGate),

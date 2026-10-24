@@ -107,7 +107,8 @@ struct MessageBlockView: View {
     /// v3.0.43：改走 MarkdownRenderer.renderCached 全局缓存（跨 cell 生命周期——LazyVStack
     /// 滚动离屏销毁 cell 后 @State 丢失，若重新全量解析超长文本=主线程卡死；全局缓存命中即免）
     private func cachedRender(_ text: String) -> NSAttributedString {
-        let key = "\(text.hashValue)|\(fontSize)"
+        // v4.0.154：key 用「长度 + 首尾指纹」，不再对整个正文算 hashValue（长文本 O(n)/次）
+        let key = "\(messageId)|\(text.count)|\(text.prefix(32).hashValue)|\(text.suffix(32).hashValue)|\(fontSize)"
         if key != cachedKey || cachedAttr == nil {
             cachedKey = key
             cachedAttr = MarkdownRenderer.renderCached(text, baseSize: CGFloat(fontSize))
@@ -120,7 +121,9 @@ struct MessageBlockView: View {
     /// v3.0.41：AttributedString 本体缓存（key 未变直接复用，跳过转换）
     /// v3.0.43：走 renderCachedAttr 全局双缓存（跨 cell 生命周期，滚动重建不重复转换）
     private func cachedRenderText(_ text: String) -> AttributedString {
-        let key = "\(text.hashValue)|\(fontSize)"
+        // v4.0.154：与 cachedRender 同一 key 口径（两者共享 cachedKey/cachedAttrStr，
+        // 两边算法不一致会互相判 miss → 同一段文本反复渲染）
+        let key = "\(messageId)|\(text.count)|\(text.prefix(32).hashValue)|\(text.suffix(32).hashValue)|\(fontSize)"
         if key != cachedKey || cachedAttrStr == nil {
             cachedKey = key
             cachedAttrStr = MarkdownRenderer.renderCachedAttr(text, baseSize: CGFloat(fontSize))

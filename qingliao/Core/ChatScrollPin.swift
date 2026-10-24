@@ -40,6 +40,21 @@ struct ChatScrollPinState: Equatable {
     static let unpinned = ChatScrollPinState(pinned: false, baseline: 0)
 }
 
+/// 贴底状态的**非观察载体**（v4.0.154 性能根治）。
+///
+/// 为什么不直接用 `@State var scrollPinState: ChatScrollPinState`：
+/// 该类状态里的 `baseline` 每帧都跟着 offset 变（贴底时 `baseline = offset`），
+/// 写成 `@State` 就是**每帧一次视图失效** —— ChatView.body 连带整份 LazyVStack
+/// （最多 300 行、每行还带千字气泡）每帧重算，长会话滑动/打字必然卡。
+///
+/// 现在只有「pinned 翻转」（用户离开/回到贴底）才写 `@State` 触发一次失效；
+/// baseline 的逐帧推进落在本类里，SwiftUI 完全看不到。
+/// ⚠️ 必须用 `@State` 持有本类实例（不能 `private let`）：View 是 struct，
+/// 每次 body 重算都会新建一个 `let` 实例，baseline 永远归零 → 累计回滚判据失效。
+final class ChatScrollPinTracker {
+    var state: ChatScrollPinState = .pinnedAtBottom
+}
+
 enum ChatScrollPin {
 
     /// 贴底判定容差（pt）。与 v3.0.86 以来的口径一致：差 8pt 以内都算到底。

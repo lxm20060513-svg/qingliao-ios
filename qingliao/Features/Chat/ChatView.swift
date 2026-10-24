@@ -155,6 +155,9 @@ struct ChatView: View {
     // v3.9.58c：「上次任务未完」横幅——标记存在但不在当前会话（自动恢复被归属校验跳过）时显示
     @State var pendingResumeInfo: (sessionId: String, taskId: String, ageMinutes: Int)?
     @State var showCompressingAlert = false  // v3.0.81：AI 摘要压缩中
+    // v4.0.154：手动压缩结果提示（压没压成都要说一句话——旧实现静默 false 是「压缩失效」体感根源）
+    @State var showCompressReport = false
+    @State var compressReportText = ""
     @State var pendingSend: (text: String, imageData: String?)?
     @State var showAttachmentMenu = false
     // v2.0.96：Hermes 捷径面板（官方斜杠命令）
@@ -226,7 +229,14 @@ struct ChatView: View {
     // 避免每帧 stream.delta 触发 body 重建 O(visible) 数组
     @State private var visibleMessagesCache: [MessageRowItem] = []
     // v3.0.86 fix：是否贴底（onScrollGeometryChange 实时维护）——流式自动滚底仅贴底时生效
-    @State private var scrollPinState = ChatScrollPinState.pinnedAtBottom
+    // 🚨 v4.0.154（长会话滑动卡顿根治）：**只有 Bool 进 @State**。
+    //   原写法把整个 ChatScrollPinState 放进 @State，而它的 `baseline` 贴底时逐帧跟随 offset
+    //   → 每帧一次 @State 写入（值不等）→ ChatView.body 每帧重算（300 行 LazyVStack + 全部浮层）
+    //   → 长会话上下滑动/打字全卡。逐帧的 baseline 现在落在 ChatScrollPinTracker（非观察类）里，
+    //   只有 pinned 翻转才写下面这个 Bool（一次失效）。
+    //   ⚠️ 别把 baseline 挪回来（真值表 ql_scrollpin 与 body 性能都靠这条）。
+    @State private var scrollPinned = true
+    @State private var pinTracker = ChatScrollPinTracker()
     // v4.0.148：「进会话落点」序号——见 landOnLatest()。每次进会话/冷启动自增，
     // 旧序号的重试滚动自动作废（切走后不再往旧目标上滚）。
     @State private var landingSeq = 0
@@ -573,12 +583,19 @@ struct ChatView: View {
     /// 抽成独立 @ViewBuilder 属性给 type-checker 更小的表达式单元。
     /// v4.0.76：改**数据驱动**（AnchorMenuOverlay 吃 [AnchorMenuItem]）——顺序/文案与原
     /// dialog 一一对应；「取消」由浮层「点空白收回」取代，不再单列。
+    /// v4.0.154：体量文案（压缩结果/用量提示共用）——142576 → "14.3 万字"
+    static func charCountText(_ n: Int) -> String {
+        if n >= 10_000 { return String(format: "%.1f 万字", Double(n) / 10_000) }
+        if n >= 1_000 { return String(format: "%.1f 千字", Double(n) / 1_000) }
+        return "\(n) 字"
+    }
+
     private var chatActionMenuItems: [AnchorMenuItem] {
         [
             AnchorMenuItem(id: "export", title: "导出会话记录", icon: "square.and.arrow.up.on.square", color: .blue),
             AnchorMenuItem(id: "shareCard", title: "分享会话卡片", icon: "photo.on.rectangle", color: .blue),
             AnchorMenuItem(id: "multiSelect", title: "多选合并发送", icon: "checkmark.circle", color: .teal),
-            AnchorMenuItem(id: "compress", title: "压缩上下文（保留最近 20 条）", icon: "arrow.down.right.and.arrow.up.left", color: .orange),
+            AnchorMenuItem(id: "compress", title: "压缩上下文（按体量，约 1 万字）", icon: "arrow.down.right.and.arrow.up.left", color: .orange),
             AnchorMenuItem(id: "summarize", title: "AI 总结会话", icon: "text.badge.starlight", color: .indigo),
             AnchorMenuItem(id: "toc", title: "章节列表", icon: "list.bullet", color: .teal),
             AnchorMenuItem(id: "clear", title: "清空本会话消息", icon: "trash", destructive: true),
@@ -603,10 +620,22 @@ struct ChatView: View {
                 withAnimation(Motion.snap) { selectMode = true }
             }
         case "compress":
-            // v2.0.43：上下文信息并入 dialog message（不再是空 action 按钮）
-            if chat.compressContext() {
-                Task { await chat.saveToServer(auth: auth) }
+            // v4.0.154：按体量压缩（旧口径「保留最近 20 条」对「20 条 / 14 万字」这种会话
+            // 直接静默返回 false → 用户点了没反应）。现在无论压没压成，**都必须给一句反馈**。
+            if let outcome = chat.compressContextReporting() {
+                if outcome.didCompress {
+                    compressReportText = "已压缩："
+                        + "\(outcome.beforeCount) 条 / \(Self.charCountText(outcome.beforeChars)) → "
+                        + "\(outcome.afterCount) 条 / \(Self.charCountText(outcome.afterChars))"
+                    Task { await chat.saveToServer(auth: auth) }
+                } else {
+                    compressReportText = "当前 \(outcome.beforeCount) 条 / \(Self.charCountText(outcome.beforeChars))，"
+                        + "已在 \(Self.charCountText(ContextBudget.defaultCharacterBudget)) 预算内，无需压缩。"
+                }
+            } else {
+                compressReportText = "消息太少（\(chat.messages.count) 条），没有可压缩的内容。"
             }
+            showCompressReport = true
         case "summarize":
             // v2.0.116：AI 总结会话（走正常流式，AI 回复要点总结）
             summarizeSession()
@@ -3846,7 +3875,8 @@ struct ChatView: View {
         landingSeq &+= 1
         let seq = landingSeq
         landedSessionId = chat.sessionId
-        scrollPinState = .pinnedAtBottom
+        pinTracker.state = .pinnedAtBottom
+        scrollPinned = true
         // 🚨 基准时间只取一次：链式 `deadline: .now() + delay` 的 `.now()` 是在**上一拍触发时**求值的，
         // 5 拍实测会累计成 0 / 0.06 / 0.24 / 0.64 / 1.44s（比标称的 0.8s 窗口晚一倍）。
         landRetry(seq: seq, delays: Self.landRetryDelays, proxy: proxy, base: .now())
@@ -3858,7 +3888,7 @@ struct ChatView: View {
         DispatchQueue.main.asyncAfter(deadline: base + delay) {
             guard seq == landingSeq else { return }              // 已切走/又进了一次 → 本次作废
             // 首拍无条件；后续各拍只在仍贴底时补滚（用户上翻过就别抢他的位置）
-            guard delay == 0 || scrollPinState.pinned else { return }
+            guard delay == 0 || scrollPinned else { return }
             // proxy 可能还没拿到（本会话的 ScrollView 尚未 onAppear）→ 不中止，下一拍再试
             if let p = proxy ?? scrollProxyRef, !chat.messages.isEmpty {
                 scrollBottom(p, animated: false)
@@ -5539,10 +5569,14 @@ extension ChatView {
                                    contentH: geo.contentSize.height,
                                    containerH: geo.containerSize.height)
             } action: { _, new in
-                scrollPinState = ChatScrollPin.next(state: scrollPinState,
-                                                    offset: new.offset,
-                                                    contentH: new.contentH,
-                                                    containerH: new.containerH)
+                // 🚨 v4.0.154：逐帧推进只落在非观察载体里（pinTracker），
+                // **只有 pinned 翻转**才写 @State —— 否则 baseline 每帧都变 = 每帧整页重算。
+                let next = ChatScrollPin.next(state: pinTracker.state,
+                                              offset: new.offset,
+                                              contentH: new.contentH,
+                                              containerH: new.containerH)
+                pinTracker.state = next
+                if next.pinned != scrollPinned { scrollPinned = next.pinned }
             }
             // v4.0.34：测量滚动容器可视高度——列表 minHeight 用它实现「不满屏也贴底」
             //（onScrollGeometryChange 首次挂载即回调一次初始值；键盘弹出容器变矮也自动更新）
@@ -5574,7 +5608,8 @@ extension ChatView {
                 // v4.0.37：append（自己发出 / 回答落库）本来就意味着「要跟着看」——把贴底态一并复位。
                 // 否则上一轮遗留的 unpinned 会让随后整段流式的自动滚底全部熄火（真机「贴底没效果」的一支）。
                 // 不加新行为：此处原本就无条件滚底，复位只是让随后的 delta 不再被旧态挡住。
-                scrollPinState = .pinnedAtBottom
+                pinTracker.state = .pinnedAtBottom
+                scrollPinned = true
                 scrollBottom(proxy)
                 // v4.0.148：0 → N（冷启动异步载入最近会话）这一帧布局也没落地 → 补一次带重试的落底
                 if oldCount == 0 { landOnLatest(proxy: proxy) }
@@ -5594,11 +5629,11 @@ extension ChatView {
             // 现在滚底与渲染同源：displayContent 每变一次就滚一次，两者节拍一致。
             // 同理别退回 stream.content —— 源级护栏 ql_scrollpin B14 钉住这条。
             .onChange(of: stream.displayContent) { _, _ in
-                guard scrollPinState.pinned else { return }
+                guard scrollPinned else { return }
                 // v4.0.37：延到下一拍、几何更新后再滚（同一帧内容刚长高、布局尚未落地）。
                 // 延迟窗口内用户若上翻，第二道 pinned 判定会把这次滚动放掉，不把人拽回去。
                 DispatchQueue.main.async {
-                    guard scrollPinState.pinned else { return }
+                    guard scrollPinned else { return }
                     scrollBottom(proxy, animated: false)
                 }
             }
@@ -5809,13 +5844,19 @@ extension ChatView {
                 }
                 Button("取消", role: .cancel) { pendingSend = nil }
             } message: {
-                Text("当前会话已 \(chat.messages.count) 条消息，继续发送可能接近模型上下文上限。压缩后仅保留最近 20 条（早期内容替换为摘要标记）。")
+                Text("当前会话已 \(chat.messages.count) 条消息，继续发送可能接近模型上下文上限。压缩后按体量保留约 1 万字（早期内容替换为摘要标记）。")
             }
             // v3.0.81：AI 摘要压缩中提示
             .alert("正在压缩上下文", isPresented: $showCompressingAlert) {
                 // 无按钮，自动消失
             } message: {
                 Text("AI 正在总结历史消息，请稍候...")
+            }
+            // v4.0.154：手动压缩结果（压没压成都给明确一句，不再静默）
+            .alert("上下文压缩", isPresented: $showCompressReport) {
+                Button("好") { showCompressReport = false }
+            } message: {
+                Text(compressReportText)
             }
             // v2.0.36：图片大图查看器（v2.0.62 相册翻页）
             .quickLookPreview($quickLookURL)   // v3.9.17：AI 生成物（PDF/表格/文本）预览

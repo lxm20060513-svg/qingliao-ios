@@ -600,28 +600,25 @@ struct MessageBubble: View {
     }
 
     /// AI 消息正文（多气泡段落 / 整块渲染）
+    /// 🚨 v4.0.154（长会话卡顿根治 ③）：正文先过 `shownContent`（超长默认折叠）。
+    /// 原实现直接吃 `displayContent`：一条 13 万字的 AI 回复会被 `splitParagraphs` 按空行
+    /// 拆成**几百个小气泡**，而 LazyVStack 只懒加载"行"、行内几百个气泡全部同时渲染
+    /// → 长会话上下滑动与打字整页卡。折叠条见 `longTextFoldBar`。
     @ViewBuilder
     private var bubbleAITextBody: some View {
-        // v3.0.51：AI 长回复多气泡段落流式——按空行拆段，每段独立气泡，
-        // 完成段落稳定可读、末尾段落持续流式（用户感知持续在动）
-        // v4.0 fix：流式中跳过拆分（缓存全 miss → 白算 O(n)）
-        // v3.6.5：流式中按「换行」拆行级小气泡（💭心跳/🔧工具行各自独立蹦出）——
-        // splitParagraphs 新增 lineMode：流式中按单换行拆，代价 O(n) 但流式内容短（<10KB）
-        let paras = Self.splitParagraphs(displayContent, streaming: streamingText, lineMode: streamingText)
-        if paras.count > 1 {
-            // 多气泡：每个段落一个独立气泡（贴左，头像在本气泡外右下角）
-            VStack(alignment: .leading, spacing: 6) {
+        let paras = Self.splitParagraphs(shownContent, streaming: streamingText, lineMode: streamingText)
+        VStack(alignment: .leading, spacing: 6) {
+            if paras.count > 1 {
+                // 多气泡：每个段落一个独立气泡（贴左，头像在本气泡外右下角）
                 ForEach(Array(paras.enumerated()), id: \.offset) { idx, para in
                     aiParagraphBubble(para,
                                       isLast: idx == paras.count - 1,
                                       streaming: streamingText)
                         .transition(.opacity)
                 }
-            }
-        } else {
-            // 单段落 → 完整渲染（v3.1.1：去除超长回复折叠/省略号，全文可见）
-            VStack(alignment: .leading, spacing: 6) {
-                    ForEach(0..<contentBlocks.count, id: \.self) { i in
+            } else {
+                // 单段落 → 完整渲染（v3.1.1：去除超长回复折叠/省略号，全文可见）
+                ForEach(0..<contentBlocks.count, id: \.self) { i in
                         MessageBlockView(block: contentBlocks[i],
                                         messageId: message.id,   // v4.0.100：动作卡回执写回这条消息
                                         streamingHost: streamingText,   // v4.0.100：流式临时气泡没有归宿 → 动作卡不给可点胶囊
@@ -646,8 +643,44 @@ struct MessageBubble: View {
                                         useSwiftUIText: true,
                                         streaming: streamingText,   // v3.0.41 性能：流式中纯 Text 渲染（跳过 markdown 解析）
                                         onLongPressMenu: onLongPressMenu)   // v4.0.81：长按段 → 锚定胶囊菜单
+                }
+            }
+            longTextFoldBar
+        }
+    }
+
+    /// v4.0.154：超长回复折叠条（折叠态给「展开全文 / 全屏阅读」，展开态给「收起」）
+    @ViewBuilder
+    private var longTextFoldBar: some View {
+        if isLongTextCollapsed {
+            HStack(spacing: Spacing.sm) {
+                Button {
+                    withAnimation(Motion.settle) { expandedLongText = true }
+                } label: {
+                    Label("展开全文（\(displayContent.count) 字）", systemImage: "chevron.down.circle")
+                }
+                if let onRead {
+                    Button {
+                        onRead(displayContent)
+                    } label: {
+                        Label("全屏阅读", systemImage: "book")
                     }
                 }
+            }
+            .font(.system(size: Typography.caption, weight: .medium))
+            .foregroundStyle(Color.accentColor)
+            .buttonStyle(.plain)
+            .padding(.top, Spacing.xxs)
+        } else if expandedLongText && !streamingText && displayContent.count > Self.longTextCollapseThreshold {
+            Button {
+                withAnimation(Motion.settle) { expandedLongText = false }
+            } label: {
+                Label("收起", systemImage: "chevron.up.circle")
+            }
+            .font(.system(size: Typography.caption, weight: .medium))
+            .foregroundStyle(Color.accentColor)
+            .buttonStyle(.plain)
+            .padding(.top, Spacing.xxs)
         }
     }
 
@@ -918,8 +951,30 @@ struct MessageBubble: View {
         return false
     }
 
+    // MARK: - v4.0.154 超长回复折叠
+
+    /// 超过这个字数（AI/落库消息）默认折叠，只显示前 1500 字 + 展开入口。
+    /// 为什么是 3000：正常一两屏的回答不会被折；而「一条 13 万字」这类会把列表行内拆成
+    /// 几百个气泡（见 bubbleAITextBody 注释）—— 折叠后行内气泡数回到个位数。
+    private static let longTextCollapseThreshold = 3000
+    private static let longTextPreviewChars = 1500
+    @State private var expandedLongText = false
+
+    private var isLongTextCollapsed: Bool {
+        !streamingText && !expandedLongText && displayContent.count > Self.longTextCollapseThreshold
+    }
+
+    /// 折叠态的展示正文：按空行 / 换行边界截断（避免切在代码块或 ql-card 围栏中间）
+    private var shownContent: String {
+        guard isLongTextCollapsed else { return displayContent }
+        let head = String(displayContent.prefix(Self.longTextPreviewChars))
+        if let r = head.range(of: "\n\n", options: .backwards) { return String(head[..<r.lowerBound]) }
+        if let r = head.range(of: "\n", options: .backwards) { return String(head[..<r.lowerBound]) }
+        return head
+    }
+
     private var contentBlocks: [MessageContentBlock] {
-        Self.blocksCached(for: displayContent, serverURL: serverURL, streaming: streamingText)
+        Self.blocksCached(for: shownContent, serverURL: serverURL, streaming: streamingText)
     }
 
     /// 按段落(空行 \n\n)拆分——跳过 ``` 代码块内部空行，代码块整体不拆
@@ -959,8 +1014,10 @@ struct MessageBubble: View {
     }
 
     /// v3.0.x：blocks 缓存（key = content+serverURL+streaming 三元组哈希）
+    /// v4.0.154：key 不再对整个正文取 `hashValue`（长文本每帧 O(n) 哈希）——
+    /// 用「字符数 + 首尾 48 字符指纹」，同样是 O(1) 量级，碰撞条件（同长度且首尾全同）实际不存在。
     private static func blocksCached(for text: String, serverURL: String, streaming: Bool) -> [MessageContentBlock] {
-        let key = "\(text.hashValue)|\(serverURL)|\(streaming)"
+        let key = "\(text.count)|\(text.prefix(48).hashValue)|\(text.suffix(48).hashValue)|\(serverURL)|\(streaming)"
         if let cached = _blocksCache[key] { return cached }
         let result = blocks(for: text, serverURL: serverURL, streaming: streaming)
         if _blocksCache.count > 200 { _blocksCache.removeAll() }

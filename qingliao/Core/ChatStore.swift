@@ -29,7 +29,20 @@ final class ChatStore {
     var isFixedSession: Bool { isDeliverySession || isProactiveSession }
 
     var sessionId: String
-    var messages: [ChatMessage] = []
+    var messages: [ChatMessage] = [] {
+        // v4.0.154（长会话卡顿根治 ②）：上下文用量改为**随消息变更维护一次**。
+        // 原实现 contextInfo 是计算属性，每次读都 `reduce` 全量消息 —— 而它在聊天页 body 里
+        // 被读 4 次（输入栏 usage + 用量条 3 处），长会话一帧就是 4 次全量字符扫描
+        // （中文 String.count 还是 O(n) grapheme 遍历）。现在 body 读的是 O(1) 缓存。
+        didSet { refreshContextStats() }
+    }
+    /// 上下文用量缓存（tokens 近似 = 字符数/4 + 每条 3；count = 条数）。
+    /// ⚠️ 只由 messages 的 didSet 维护，别在别处手改 —— 改漏一处就是「用量条永远不更新」。
+    @ObservationIgnored private var contextStats: (tokens: Int, count: Int) = (0, 0)
+    private func refreshContextStats() {
+        let chars = messages.reduce(0) { $0 + $1.content.count }
+        contextStats = (chars / 4 + messages.count * 3, messages.count)
+    }
     /// v4.0.71：**就地改字段**的消息变更计数（作答 / 失败回退 / 回执 / 过期 / 主动反馈 / 追问候选…）。
     ///
     /// 为什么需要：聊天页消息列表吃的是 `visibleMessagesCache`（`ChatMessage` 的**快照**数组），
@@ -1591,22 +1604,52 @@ final class ChatStore {
     var highlightTarget: (role: String, content: String)?
 
     /// 上下文估算（近似 token = 字符数/4 + 消息数基础开销）
+    /// v4.0.154：读 didSet 维护的缓存（O(1)）；原实现每次调用都全量扫描消息正文。
     var contextInfo: (tokens: Int, count: Int) {
-        let chars = messages.reduce(0) { $0 + $1.content.count }
-        return (chars / 4 + messages.count * 3, messages.count)
+        contextStats
     }
 
-    /// 压缩上下文：保留最近 20 条，更早的消息替换为一条占位标记
-    /// （本地压缩不调 AI 摘要，立省 token；需要摘要可让 AI 从占位标记处续聊）
+    /// 压缩上下文：**按体量**保留（v4.0.154 起，不再是「保留最近 20 条」的纯条数口径）
+    /// - 从最新往前累计字符，超过 `budget` 就停（至少保留 `ContextBudget.minKeep` 条）
+    /// - 且条数不超过 `keepLast`（旧口径的上界保留，防短消息会话被保留过多）
+    /// - 返回 true = 真的压掉了内容；false = 无可压缩 / 无需压缩（调用方**必须给用户反馈**，
+    ///   别像旧实现那样静默返回 —— 那正是「点了压缩没反应」的根因）
+    @discardableResult
     func compressContext(keepLast: Int = 20) -> Bool {
-        guard messages.count > keepLast + 1 else { return false }
-        let dropped = messages.count - keepLast
+        (compressContextReporting(keepLast: keepLast)?.didCompress) ?? false
+    }
+
+    /// 上下文压缩的前后统计（手动菜单用它给用户看「压掉了多少」）
+    struct ContextCompressOutcome {
+        var didCompress: Bool
+        var beforeCount: Int
+        var afterCount: Int
+        var beforeChars: Int
+        var afterChars: Int
+    }
+
+    /// 按预算压缩并返回前后统计。返回 nil = 条数太少（连 minKeep 都不到），没有可压的。
+    func compressContextReporting(keepLast: Int = 20,
+                                  budget: Int = ContextBudget.defaultCharacterBudget) -> ContextCompressOutcome? {
+        let before = messages.count
+        guard before > ContextBudget.minKeep else { return nil }
+        let counts = messages.map { $0.content.count }
+        let beforeChars = counts.reduce(0, +)
+        let keep = Swift.min(ContextBudget.keepCount(charCounts: counts, budget: budget), keepLast)
+        guard keep < before else {
+            return ContextCompressOutcome(didCompress: false, beforeCount: before, afterCount: before,
+                                          beforeChars: beforeChars, afterChars: beforeChars)
+        }
+        let dropped = before - keep
         let firstUser = SessionAutoName.fallbackTitle(messages.first { $0.isUser }?.content ?? "")
-        let marker = ChatMessage(role: "system", content: "（已压缩上下文：早期对话共 \(dropped) 条已省略，首条主题：\(firstUser)）",
+        let marker = ChatMessage(role: "system",
+                                 content: "（已压缩上下文：早期对话共 \(dropped) 条已省略，首条主题：\(firstUser)）",
                                  timestamp: messages.first?.timestamp)
         messages.removeFirst(dropped)
         messages.insert(marker, at: 0)
-        return true
+        let afterChars = messages.reduce(0) { $0 + $1.content.count }
+        return ContextCompressOutcome(didCompress: true, beforeCount: before, afterCount: messages.count,
+                                      beforeChars: beforeChars, afterChars: afterChars)
     }
 
     /// AI 摘要压缩：用 AI 总结旧消息，替换为一条摘要，保留最近 keepLast 条

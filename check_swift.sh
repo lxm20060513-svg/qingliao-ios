@@ -1035,6 +1035,12 @@ echo "=== 63. 聊天页贴底推进真值表（v4.0.36 · 流式气泡不往上�
 run_unit6 /tmp/test_scrollpin scripts/ql_scrollpin/truth_table_scrollpin.swift qingliao/Core/ChatScrollPin.swift | tee /tmp/tt_scrollpin.log
 grep -q '0 失败' /tmp/tt_scrollpin.log || fail=1
 
+echo "=== 63b. 上下文压缩按体量真值表（v4.0.154 · ContextBudget）==="
+# 口径：手动压缩从「保留最近 20 条」改成「按字符预算从最新往回累计」。
+# 旧口径对「20 条 / 14 万字（单条 13 万字）」的会话直接静默返回 false = 用户实报的「压缩失效」。
+run_unit6 /tmp/test_contextbudget scripts/ql_contextbudget/truth_table_contextbudget.swift qingliao/Core/ContextBudget.swift | tee /tmp/tt_contextbudget.log
+grep -q '0 失败' /tmp/tt_contextbudget.log || fail=1
+
 echo "=== 64. 任务中心结构化步骤真值表（v4.0.37 · plan[]）==="
 # 口径（OpenMuse 借鉴⑧）：任务中心原先进度只有一行拼出来的字符串，看不出「几步 / 到哪步 / 每步多久」。
 # 后端 /api/agent/tasks/active 的流式任务补 plan[] + planSeq（复用 toolSpans/toolSeq 埋点，零新增采集），
