@@ -31,8 +31,11 @@ private func qlDecodeJSONObject(_ data: Data) async -> Any? {
 }
 
 /// 主线程不再做整包 JSON 编码（消息落库 payload 含 base64 图片，可达数 MB）
-private func qlEncodeJSONBody(_ body: [String: Any]) async -> Data? {
-    let box = JSONBox(body)
+///
+/// ⚠️ 入参必须是 **已装箱的 `JSONBox`**，不能直接收 `[String: Any]`：
+/// 参数是「@MainActor 调用方 → nonisolated async 函数」的跨域传递，收裸字典时 CI 报
+/// `sending 'body' risks causing data races`（本地 -parse 全绿）。装箱在同域内构造、盒本身 Sendable。
+private func qlEncodeJSONBody(_ box: JSONBox) async -> Data? {
     return await withCheckedContinuation { (cont: CheckedContinuation<Data?, Never>) in
         qlJSONQueue.async {
             guard let obj = box.object, JSONSerialization.isValidJSONObject(obj) else {
@@ -285,7 +288,7 @@ final class AuthStore {
         if let body {
             headers["Content-Type"] = "application/json"
             // v4.0.155：整包编码挪出主线程（消息落库 payload 含 base64 图片，数 MB 级）
-            bodyData = await qlEncodeJSONBody(body)
+            bodyData = await qlEncodeJSONBody(JSONBox(body))
         } else {
             bodyData = nil
         }
