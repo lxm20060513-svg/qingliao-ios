@@ -158,6 +158,16 @@ struct DockTabView: View {
     /// 返回首页专用：`showSessionHome` 一翻真 → 先置 false（SessionsView 当 backdrop 不刷），
     /// 340ms 后置真才允许 `load()`（否则列表 diff 正好砸在圆扩散的前半段）。
     @State private var homeSettled = true
+    /// v4.0.159（用户 2026-10-25「聊天内容多的时候滑动返回明显迟钝，起手慢半拍」）：
+    /// 首页**预热在场**。病根（代码取证）：首页原来只在跟手第一帧才插入
+    /// （`if showSessionHome || backFollowLive`）—— 那一帧同时要 ① 构建整页 SessionsView
+    ///（hero 玻璃卡 + List + 二十多条弹窗修饰器）② 让液态玻璃 tab bar 出现 ③ 才轮到位移；
+    /// 而且 `live` 一翻转就让 **DockTabView.body 整体重算** → ChatView 收到的闭包参数全变 →
+    /// 6k 行 body + 300 行 LazyVStack 跟着重算（消息越多越贵）= 实测的「内容多就慢半拍」。
+    /// 现在：进对话页转场落定后把首页预热挂载（垫在完全不透明的对话页底下，看不见、不 load），
+    /// 跟手起手那一帧零构建；body 也不再读跟手状态（见 ChatTabBarVisibility / ⑲f2 护栏）。
+    /// 返回落定后清回 false → 下次进对话页仍走原来的「列表左滑出」入场（动画一字未改）。
+    @State private var homePrewarmed = false
 
     // v4.0.81：槽位的智能球连同 `orbInDock` 判据整块移除（用户口径 Q1=3：球的入口只留长按宠物）。
     // 菜单/识别/录音三个浮层的**兜底锚点**仍按 dock 槽位几何算，故保留槽位数与聊天槽位序号。
@@ -289,12 +299,13 @@ struct DockTabView: View {
                 // 🚨 别为了「防压内容」加回任何底部 inset/让位带：那等于回到白带；要加就让位
                 //   加到**各页滚动内容的 padding** 里（现状就是这么做的）。
 
-                if dockShown {
-                    DockPagingBar(selected: $selected, tabs: dockRenderTabs)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
+                // v4.0.159：dock 显隐下沉进子视图 —— body 不再读跟手状态（起手第一帧整页重算 = 慢半拍）。
+                DockPagingBarSlot(follow: follow,
+                                  showSessionHome: showSessionHome,
+                                  keyboard: kb,
+                                  tabs: dockRenderTabs,
+                                  selected: $selected)
             }
-            .animation(Motion.snap, value: dockShown)
         } else {
             TabView(selection: dockSelection) {
                 // v4.0.82：dock 档位改为**数据驱动**（顺序可调 + 可隐藏；设置 → 通用 →「Dock 栏」）。
@@ -308,11 +319,8 @@ struct DockTabView: View {
         }
     }
 
-    /// page 模式下 dock 是否在场：与系统 tab bar 的显隐口径一致（对话页 / 跟手垫底期间不显示）。
-    /// v4.0.133：会话首页键盘弹出时也藏（搜索框聚焦 → 底栏让位给键盘）；跟手返回不受键盘抑制。
-    private var dockShown: Bool {
-        (showSessionHome && !kb.isVisible) || backFollowLive
-    }
+    // v4.0.159：原 `dockShown` 计算属性整块搬进 DockPagingBarSlot —— body 不许再读跟手状态
+    //（读了，跟手第一帧就整棵重算，ChatView 的 6k 行 body + 300 行 LazyVStack 跟着重算 = 慢半拍）。
 
     // MARK: - v3.6.2 聊天 tab（两态，见 chatTab）
 
@@ -350,7 +358,9 @@ struct DockTabView: View {
             // 两页的在场条件各自独立：首页 = `showSessionHome`（常态）**或** `backFollowLive`（跟手垫底页），
             // 对话页 = `!showSessionHome`（跟手中它就在场，只是被位移推出屏外）。
             ZStack {
-                if showSessionHome || backFollowLive {
+                // v4.0.159：首页预热常驻（见 homePrewarmed 注释）—— 跟手起手不再现场建整页。
+                // 口径不变：两态仍是 ZStack 双页同框，首页在「正式首页 / 预热垫底」两种在场下都在树上。
+                if showSessionHome || homePrewarmed {
                     // 实参序 = 声明序（onOpenSession → showHero → onAskAI），CI 参数序检查才过
                     // 🚨 v4.0.122：进对话页**必须**先 `resetBackFollow()` —— 跟手/回弹窗口里首页是垫底页、
                     // 完全可点：这一下点击若不清跟手状态，0.4s 后那个收尾任务会把 `showSessionHome` 翻回 true
@@ -362,7 +372,9 @@ struct DockTabView: View {
                                  // v4.0.124：只有「跟手垫底」这一种在场不是正式首页 → 不触发 load 重活
                                  // v4.0.125：返回扩散未落定（!homeSettled）也不刷 —— 列表 diff 砸在扩散帧里是
                                  // 「返回首页掉帧」的另一半（前半是 clipShape 裁剪本身）。
-                                 isBackdrop: (backFollowLive && !showSessionHome) || !homeSettled)
+                                 // v4.0.159：等价改写（showSessionHome 为真时旧式第一项恒假）——
+                                 // 关键是 body 不再读跟手状态：读了，起手第一帧就整页重算 = 慢半拍。
+                                 isBackdrop: !showSessionHome || !homeSettled)
                         // v4.0.114（用户「聊天详情手势滑动返回过渡太生硬」）：返回时列表从**左边**滑回来
                         // （进入聊天时它反向滑向左边）—— 与下面聊天的移向凑成 push/pop 的观感。
                         // 此前两态都是默认的交叉淡化 + Motion.tap(0.12)，读作「啪一下闪过去」。
@@ -436,7 +448,8 @@ struct DockTabView: View {
             .modifier(TransitionSettleModifier(selected: $selected,
                                                settled: $settledTab,
                                                showSessionHome: $showSessionHome,
-                                               homeSettled: $homeSettled))
+                                               homeSettled: $homeSettled,
+                                               homePrewarmed: $homePrewarmed))
             .chatZoomEntry(selected: $selected, order: dockRenderTabs,
                            skipFirstEntry: !launchRise)
             // v4.0.124（用户 2026-10-19「聊天页详情页隐藏 dock」「滑动返回更顺」）：
@@ -445,7 +458,9 @@ struct DockTabView: View {
             // 隐藏后这段合成开销直接消失。iPad 双栏不隐藏（会话与对话同屏）。
             // v4.0.133（用户 2026-10-20「键盘弹出 dock 都不隐藏」）：会话首页搜索聚焦（键盘在场）时
             // 底栏一并藏掉，收键盘即回来；跟手返回（backFollowLive）不受键盘抑制，v4.0.124 口径原样保留。
-            .toolbar((showSessionHome && !kb.isVisible) || backFollowLive ? .visible : .hidden, for: .tabBar)
+            .modifier(ChatTabBarVisibility(follow: follow,
+                                           showSessionHome: showSessionHome,
+                                           keyboard: kb))
             .tag(DockTab.chat)
             .tabItem { Label(DockTab.chat.title, systemImage: DockTab.chat.icon) }
         }
@@ -500,6 +515,9 @@ struct DockTabView: View {
     ///（否则收尾窗口内再甩一把，旧任务回来把位移/垫底页清掉 = 页面跳回原位）。
     private func backFollow(_ dx: CGFloat) {
         backFollowSeq &+= 1
+        // v4.0.159：预热还没就绪（进对话页 0.4s 内就回滑的极端情况）→ 这一帧补挂首页。
+        // 宁可这一次仍付建页成本，也绝不能让左侧露出垫底渐变（那是 v4.0.122 治过的断层）。
+        if !homePrewarmed { homePrewarmed = true }
         if !backFollowLive { backFollowLive = true }
         backFollowOffset = dx
     }
@@ -1007,6 +1025,8 @@ private struct TransitionSettleModifier: ViewModifier {
     @Binding var settled: DockTab?
     @Binding var showSessionHome: Bool
     @Binding var homeSettled: Bool
+    /// v4.0.159：首页预热在场（进对话页落定后置真 / 返回落定后清假）
+    @Binding var homePrewarmed: Bool
     /// 切页位移 Motion.pageEnterSlide 是 0.28s，留 60ms 余量
     private let settleDelay: Duration = .milliseconds(340)
 
@@ -1025,12 +1045,28 @@ private struct TransitionSettleModifier: ViewModifier {
                 }
             }
             .onChange(of: showSessionHome) { _, home in
-                guard home else { return }
+                guard home else {
+                    // v4.0.159：进对话页那一刻先摘掉预热页 —— 否则「返回后 340ms 内再点进会话」时
+                    //   预热标志还没清，首页原地不动、`removal: .move(edge: .leading)` 不播（左滑出入场丢失）。
+                    //   摘掉后与本版之前逐字一致：先左滑出，390ms 后再把新实例预热挂上。
+                    if homePrewarmed { homePrewarmed = false }
+                    // v4.0.159（起手慢半拍）：进对话页 —— **转场落定之后**才预热首页。
+                    // 不放在转场头几帧：那一刻正在播「列表左滑出 + 聊天右滑入」，塞一次建页会掉帧。
+                    // 落定后对话页已静止，这份构建成本落在空转时刻，用户感知不到。
+                    Task { @MainActor in
+                        try? await Task.sleep(for: settleDelay + .milliseconds(50))
+                        if !showSessionHome { homePrewarmed = true }
+                    }
+                    return
+                }
                 homeSettled = false
                 Task { @MainActor in
                     try? await Task.sleep(for: settleDelay)
                     // 直接赋值（别写成 `if showSessionHome { ... }` —— check_swift 的 ⑲g 护栏按行首匹配，会误判成退回 if/else 单页结构）
                     homeSettled = showSessionHome
+                    // v4.0.159：返回已落定 → 清预热标志。首页此刻由 showSessionHome 支撑在场；
+                    // 下次进对话页要重新走 removal（左滑出）入场 —— 常驻就演不出那个动画了。
+                    homePrewarmed = false
                 }
             }
     }
@@ -1296,13 +1332,20 @@ private struct SessionHomeRevealModifier: ViewModifier {
                     RevealHoleMask(center: localCenter, radius: revealRadius)
                 }
             }
-            .onAppear {
-                // 🚨 取走即清空：先绑局部变量再判 nil（别在 guard 里探一次、后面再取一次）
-                guard let c = pendingCenter else { return }
-                pendingCenter = nil
-                revealCenter = c
-                enter()
-            }
+            .onAppear { consumePendingCenter() }
+            // v4.0.159：首页改成「进对话页后预热常驻」（见 DockTabView.homePrewarmed）之后，
+            // 页头返回按钮那条**不会再触发 onAppear**（实例早就在树上）→ 圆心必须靠这条 onChange 消费，
+            // 否则「点页头返回」的圆扩散会静默不播（手势那条本来就不写圆心，不受影响）。
+            .onChange(of: pendingCenter) { _, _ in consumePendingCenter() }
+    }
+
+    /// 取走即清空：先绑局部变量再判 nil（别在 guard 里探一次、后面再取一次）。
+    /// v4.0.159 起两条入口共用（onAppear = 首次创建；onChange = 预热常驻后的页头返回按钮）。
+    private func consumePendingCenter() {
+        guard let c = pendingCenter else { return }
+        pendingCenter = nil
+        revealCenter = c
+        enter()
     }
 
     /// window 坐标 → 本页局部坐标（与 TabTransitionModifier / ChatZoomEntryModifier 逐字一致）
@@ -1393,6 +1436,48 @@ private struct ChatPageBackMotion: ViewModifier {
                 }
             }
             .offset(x: follow.live ? follow.offset : 0)
+    }
+}
+
+// v4.0.159（用户 2026-10-25「聊天内容多的时候滑动返回明显迟钝，起手慢半拍」）：系统 tab bar 显隐下沉。
+// 🚨 抽出来的唯一目的：把 `follow.live` 的读取**挪出 DockTabView.body**。body 只要读跟手状态，
+//   起手第一帧就得整棵重算 —— 而它会把 ChatView 的闭包实参全部换新值 → ChatView.body 重算
+//   （6k 行 + LazyVStack 300 行 diff），消息越多越慢，正是用户说的「内容多就慢半拍」。
+// 口径与 v4.0.133 逐字一致：首页在前台且键盘没起 → 显示；跟手一开始 → 显示（底栏跟着露出）。
+private struct ChatTabBarVisibility: ViewModifier {
+    let follow: BackFollowMotionState
+    let showSessionHome: Bool
+    let keyboard: KeyboardObserver
+
+    private var shown: Bool { (showSessionHome && !keyboard.isVisible) || follow.live }
+
+    func body(content: Content) -> some View {
+        content.toolbar(shown ? .visible : .hidden, for: .tabBar)
+    }
+}
+
+/// v4.0.159：page 模式自绘 dock 的槽位（原 `if dockShown { … }` 直接写在 dockTabContainer 里）。
+/// 同 ChatTabBarVisibility：读跟手状态的一律下沉，body 保持零逐帧依赖。
+private struct DockPagingBarSlot: View {
+    let follow: BackFollowMotionState
+    let showSessionHome: Bool
+    let keyboard: KeyboardObserver
+    let tabs: [DockTab]
+    @Binding var selected: DockTab
+
+    private var dockShown: Bool { (showSessionHome && !keyboard.isVisible) || follow.live }
+
+    var body: some View {
+        ZStack(alignment: .bottom) {
+            if dockShown {
+                DockPagingBar(selected: $selected, tabs: tabs)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        // 🚨 必须撑满外层容器（透明，空白区不参与 hit-test）：`.move(edge: .bottom)` 的位移距离
+        //   = 容器高度。不撑满就只剩 dock 自身高度（62pt），滑入距离/速度与原「全屏 ZStack 直接子级」那版不一致。
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+        .animation(Motion.snap, value: dockShown)
     }
 }
 

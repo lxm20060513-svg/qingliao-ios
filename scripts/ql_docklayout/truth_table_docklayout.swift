@@ -295,7 +295,28 @@ check("🚫 跟手帧必须是裸赋值（过动画事务 = 页面落在手指�
         && !dockView.contains("withAnimation(Motion.page) { backFollowOffset = dx }")
         && !dockView.contains("withAnimation(Motion.tap) { backFollowOffset"))
 check("🚫 两态不许退回 if/else 单页结构（跟手要的就是「两页同框」那一帧）",
-      dockView.contains("if showSessionHome || backFollowLive {"))
+      dockView.contains("if showSessionHome || homePrewarmed {"))
+// v4.0.159（用户 2026-10-25「聊天内容多的时候滑动返回明显迟钝，起手慢半拍」）：
+//   起手第一帧原来是「首页插入 + tab bar 出现 + 位移」三件事同帧；而且 live 翻转会让 DockTabView.body
+//   整棵重算 → ChatView 的闭包实参全换新值 → ChatView.body 重算（6k 行 + LazyVStack 300 行 diff）。
+//   消息越多越慢 —— 正是用户说的「内容多才慢半拍」。治法是「首页预热常驻」+「body 零跟手依赖」。
+check("v4.0.159 首页预热：常驻垫底页 + 返回落定后清标志（下次进对话页仍走左滑出入场）",
+      dockView.contains("@State private var homePrewarmed = false")
+        && dockView.contains("if showSessionHome || homePrewarmed {")
+        && dockView.contains("if !homePrewarmed { homePrewarmed = true }")
+        && dockView.contains("homePrewarmed = false"))
+let chatTabSeg = String((dockView.components(separatedBy: "private var chatTab: some View").last ?? "")
+    .components(separatedBy: "原 clearOrbNotice").first ?? "")
+/// 注释行不算（chatTab 头注里要引用旧口径名）—— 只数真代码。
+let chatTabCode = chatTabSeg.split(separator: "\n")
+    .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+    .joined(separator: "\n")
+check("起手链路切片取到（空了下面那条就是空真）", chatTabSeg.count > 2000)
+check("🚫 起手零构建：chatTab 段不许读跟手状态（读了 = 跟手第一帧整页重算 = 慢半拍）",
+      !chatTabCode.contains("backFollowLive") && !chatTabCode.contains("follow.live"))
+check("v4.0.159 首页扩散圆心：预热常驻后改由 onChange 消费（否则页头返回的圆扩散静默不播）",
+      dockView.contains(".onChange(of: pendingCenter) { _, _ in consumePendingCenter() }")
+        && dockView.contains("private func consumePendingCenter()"))
 check("跟手有记忆性：认领后本轮不再逐帧过门（否则手指一偏 |dy| 变大 → 位移归 0 = 手底下抖回去）",
       readSource("Features/Chat/ChatView.swift").contains("@State private var claimedStart: CGPoint? = nil")
         && readSource("Features/Chat/ChatView.swift").contains("if claimedStart == nil {"))
@@ -496,10 +517,14 @@ check("首页视差不许在两页间撕缝：p 全程 0…1 时 首页右缘 �
 // v4.0.133（用户 2026-10-20「键盘弹出 dock 都不隐藏」）：会话首页键盘在场时底栏一并藏掉；
 // 键盘抑制只门首页（showSessionHome），不许门 backFollowLive（跟手一开始就要底栏回来）。
 check("对话页隐藏 tab bar；跟手一开始就恢复（首页正露出，底栏跟着出现才是微信观感）；首页键盘在场时也藏",
-      dockView.contains(".toolbar((showSessionHome && !kb.isVisible) || backFollowLive ? .visible : .hidden, for: .tabBar)")
-        && !dockView.contains("showSessionHome || backFollowLive ? .visible"))
-check("page 模式自绘 dock 同口径：dockShown 键盘抑制只门首页、不门跟手",
-      dockView.contains("private var dockShown: Bool {\n        (showSessionHome && !kb.isVisible) || backFollowLive\n    }"))
+      dockView.contains(".modifier(ChatTabBarVisibility(follow: follow,")
+        && dockView.contains("private struct ChatTabBarVisibility: ViewModifier")
+        && dockView.contains("(showSessionHome && !keyboard.isVisible) || follow.live")
+        && !chatTabSeg.contains(".toolbar((showSessionHome"))
+check("page 模式自绘 dock 同口径：下沉 DockPagingBarSlot（键盘抑制只门首页、不门跟手）",
+      dockView.contains("DockPagingBarSlot(follow: follow,")
+        && dockView.contains("private struct DockPagingBarSlot: View")
+        && dockView.contains("private var dockShown: Bool { (showSessionHome && !keyboard.isVisible) || follow.live }"))
 // v4.0.133（用户 2026-10-20「dock 背面被白色填满，能不能一条 dock 悬浮」）：删 paging 分支的
 // 底部让位带 —— 它把页面 frame 截在 dock 上沿，玻璃后面只剩空底 = 白带。悬浮 = 内容从胶囊
 // 底下滚过；防压最后一项靠**各页滚动内容自带的 ≥78pt 底 padding**（见 DockTabView 内注释）。
@@ -529,8 +554,23 @@ check("垫底页不触发 load（.task / .onAppear 双闸），收敛回首页�
       && sessionsView.contains(".task { if !isBackdrop { await load() } }")
       && sessionsView.contains("if !isBackdrop { Task { await load() } }")
       && sessionsView.contains(".onChange(of: isBackdrop)"))
-check("isBackdrop 只在「跟手垫底」或「返回扩散未落定」时为真（正式首页落定后必须 false —— 否则首页会永不刷新）",
-      dockView.contains("isBackdrop: (backFollowLive && !showSessionHome) || !homeSettled)"))
+check("isBackdrop 只在「首页不在前台 / 还没落定」时为真（正式首页落定后必须 false —— 否则首页会永不刷新）",
+      dockView.contains("isBackdrop: !showSessionHome || !homeSettled)")
+        && !dockView.contains("isBackdrop: (backFollowLive && !showSessionHome)"))
+// v4.0.159（首页预热常驻）：垫底态不许抢锚点 —— 两条入口都要门控（只门 .onReceive 那条，
+//   预热挂载时 centerReady 翻真仍会让屏外的宠物抢答）；宠物必须真的拿到 isBackdrop 参数。
+check("v4.0.159 预热垫底态不抢锚点：HeroPet 拿到 isBackdrop，且 .onReceive / onChange(centerReady) 两条路都门控",
+      sessionsView.contains("SessionsHeroPet(launchRise: launchRise, isBackdrop: isBackdrop)")
+        && sessionsView.contains("let isBackdrop: Bool")
+        && sessionsView.contains(".onChange(of: centerReady) { _, ready in")
+        && sessionsView.contains("guard !isBackdrop else { return }"))
+// v4.0.159：工具条条件必须落在 ToolbarItemGroup 内部。修饰器层 if/else 会让被包裹的整页身份
+//   每次进出对话页翻一次 → 返回那帧 .task/.onAppear 重跑（load 打 2~3 次）、左滑出入场被硬切。
+check("v4.0.159 键盘「完成」工具条结构稳定（条件只进 ToolbarItemGroup，修饰器层不做 if/else 分支）",
+      sessionsView.contains("ToolbarItemGroup(placement: .keyboard) {\n                if enabled {")
+        && !sessionsView.contains("if enabled {\n            content.toolbar {"))
+check("v4.0.159 dock 槽位撑满容器（move(edge:.bottom) 位移距离 = 容器高；不撑满会改变滑入观感）",
+      dockView.contains(".frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)"))
 // v4.0.125（用户 2026-10-19「tap 之间切换还是卡顿掉帧 / 聊天返回首页还是掉帧，从源头优化」）：
 // 转场优先 —— 渲染跟着 selected 立即走，数据刷新必须等 settledTab 落定（340ms）。
 // 缺任何一条都退回「动画与 load 抢同一帧」的老病。

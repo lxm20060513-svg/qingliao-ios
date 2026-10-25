@@ -1539,8 +1539,19 @@ cnt=$(grep -cF 'withAnimation(Motion.sessionBackSettle) { backFollowOffset = 0 }
   || { echo "❌ 回退⑲c：松手**回弹**应归 0、且与收敛同一枚 Motion.sessionBackSettle（恰好一处，实得 $cnt）"; fail=1; }
 ck "回退⑲d：跟手帧必须是**裸赋值**（每帧贴手指；过动画事务就落在手指后面）" 'backFollowOffset = dx' "$DT"
 ckNot "回退⑲e：跟手帧不许进 withAnimation（回退⑲e 守的就是本次病根：页面不跟手）" 'withAnimation\(Motion\.(page|tap)\) \{ backFollowOffset = dx' "$DT"
-ck "回退⑲f：两态是 ZStack **双页同框**（跟手要「首页作为垫底页在场」那一帧）" 'if showSessionHome \|\| backFollowLive \{' "$DT"
+ck "回退⑲f：两态是 ZStack **双页同框**（跟手要「首页作为垫底页在场」那一帧；v4.0.159 起由预热垫底页承担）" 'if showSessionHome \|\| homePrewarmed \{' "$DT"
 ckNot "回退⑲g：不许退回 if/else 单页结构（位移一开左侧露出的是渐变垫底 = 断层）" '^[[:space:]]*if showSessionHome \{' "$DT"
+# 🚨 v4.0.159（用户 2026-10-25「聊天内容多的时候滑动返回明显迟钝，起手慢半拍」）：
+#   起手第一帧原来是「首页插入 + tab bar 出现 + 位移」三件事同帧；更贵的是 live 一翻转 → DockTabView.body
+#   整棵重算 → ChatView 的闭包实参全换新值 → 6k 行 body + 300 行 LazyVStack 跟着重算（消息越多越慢）。
+#   口令：chatTab 这一段 body 里一次都不许读跟手状态 —— 读的人必须是那两个下沉修饰器。
+seg=$(sed -n '/private var chatTab: some View/,/原 clearOrbNotice/p' "$DT")
+# 切片自证：锚点被删/改名时 sed 会打到 EOF 或取到极短段 → 下面那条会假绿/假红，长度门槛先卡一道。
+[ ${#seg} -gt 2000 ] || { echo "❌ 回退⑲f2：chatTab 切片取空/过短（${#seg} 字符）—— 锚点失效，这条断言不算数"; fail=1; }
+# 注释行不算（chatTab 头注里要引用旧口径名）：先剔掉整行注释再数。
+cnt=$(printf '%s\n' "$seg" | grep -vE '^[[:space:]]*//' | grep -cE 'backFollowLive|backFollowOffset|follow\.(live|offset)' || true)
+[ "$cnt" -eq 0 ] || { echo "❌ 回退⑲f2：chatTab body 里读了跟手状态（$cnt 处）—— 跟手第一帧会整页重算 = 慢半拍"; fail=1; }
+ck "回退⑲f3：首页预热（起手零构建）+ 返回落定清标志" 'if !homePrewarmed { homePrewarmed = true }' "$DT"
 ckNot "回退⑲h：手势那条不许再拿抬手位置当扩散圆心（跟手不等抬手；圆心只剩页头按钮那条）" 'onBack\(value\.location\)' qingliao/Features/Chat/ChatView.swift
 ckNot "回退⑲i：不许在 end 帧直接跳转（抬手才认 = 不跟手，老 shouldGoBack 病根）" 'ChatEdgeBackKit\.shouldGoBack' qingliao/Features/Chat/ChatView.swift
 cnt=$(grep -cF 'ChatEdgeBackKit.isBackStart(x: value.startLocation.x)' qingliao/Features/Chat/ChatView.swift); [ "$cnt" -eq 1 ] \

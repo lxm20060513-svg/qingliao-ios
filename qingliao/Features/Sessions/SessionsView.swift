@@ -162,6 +162,9 @@ struct SessionsView: View {
             if !isBackdrop { Task { await load() } }
         }
         // v4.0.124：垫底页 → 正式首页（跟手收敛完成）补一次刷新，数据由这一次补齐。
+        // v4.0.159：首页从本版起会**预热常驻**在对话页底下，但它是「每次进对话页卸载、转场落定后
+        //   重新挂一份新的」——所以搜索词/归档箱/键盘焦点这些 @State 每次返回都是新实例的默认值，
+        //   呈现复位与旧版（靠重建）逐字等价，这里不必补复位逻辑；只需要照旧补刷数据。
         .onChange(of: isBackdrop) { _, backdrop in
             if !backdrop { Task { await load() } }
         }
@@ -170,12 +173,10 @@ struct SessionsView: View {
             scheduleRemoteSearch(newValue)
         }
         // v2.0.78：搜索键盘完成按钮
-        .toolbar {
-            ToolbarItemGroup(placement: .keyboard) {
-                Spacer()
-                Button("完成") { focused = false }
-            }
-        }
+        // v4.0.159：首页自本版起会作为「预热垫底页」常驻在对话页底下（见 DockTabView.homePrewarmed）
+        // —— 工具条必须门控，否则在对话页打字时键盘上方会多出一条首页的「完成」。
+        .modifier(SessionsSearchKeyboardToolbar(enabled: !isBackdrop,
+                                                onDone: { focused = false }))
     }
 
     private var bodyChrome: some View {
@@ -693,7 +694,7 @@ struct SessionsView: View {
             // v4.0.155：宠物整块抽成独立子视图 —— 它自己的几何/抚摸状态不再写在 2100 行的本页上。
             // 旧写法 `onGeometryChange { heroPetCenter = $0 }` 挂在 List 行里：滚动时宠物每帧移动，
             // 每帧写本页 @State → 整页 body 每帧重算（与本文件摘掉 ScrollPosition 同一个坑，换名复现）。
-            SessionsHeroPet(launchRise: launchRise)
+            SessionsHeroPet(launchRise: launchRise, isBackdrop: isBackdrop)
             Text(heroQuote)
                 .font(.system(size: Typography.title, weight: .semibold))
                 .foregroundStyle(.primary)
@@ -2089,6 +2090,9 @@ private final class PetFrameBox {
 
 private struct SessionsHeroPet: View {
     let launchRise: Bool
+    /// v4.0.159：首页会作为「预热垫底页」常驻在对话页底下（见 DockTabView.homePrewarmed）。
+    /// 垫底态不参与锚点应答 —— 否则外部「打开快捷菜单」会由这份看不见的首页抢答。
+    let isBackdrop: Bool
 
     @State private var patCount = 0
     @State private var box = PetFrameBox()
@@ -2143,11 +2147,18 @@ private struct SessionsHeroPet: View {
             // v4.0.83：本页宠物承担**锚点应答**（App 外入口「打开轻聊快捷菜单」的落点）。
             // 去重靠 OrbPetAnchorRegistry.consumePendingRequest()：先到先得，后到的应答者拿到 false 直接返回。
             .onReceive(NotificationCenter.default.publisher(for: .qingliaoRequestPetAnchor)) { _ in
+                // v4.0.159：预热垫底态不参与锚点应答 —— 否则在对话页里，外部「打开快捷菜单」
+                // 会由这份看不见的首页抢答，菜单锚到屏外的宠物位置上。
+                guard !isBackdrop else { return }
                 let c = box.rect.center
                 guard c != .zero, OrbPetAnchorRegistry.consumePendingRequest() else { return }
                 openOrbMenu(center: c)
             }
             .onChange(of: centerReady) { _, ready in
+                // v4.0.159：垫底态同样不许补发（与上面 .onReceive 同一条口径）——
+                //   预热挂载时 centerReady 必翻一次，此处若不门控，屏外的宠物会抢答并锚到屏外坐标。
+                //   不在这里 consume：pending 留给 OrbQuickMenu 的超时兜底（返回首页后仍可应答）。
+                guard !isBackdrop else { return }
                 // 补发：请求发出时本视图还没挂树（刚切到本页）→ 那次请求没人听，这里中心刚就位时补上。
                 // ⚠️ 顺序同 ChatView：`center != .zero` 必须写在 `publish()` 前面 —— publish 先消费后返回，
                 //    中心为零也被消费掉就再没人应答了（快捷指令彻底静默）。
@@ -2170,4 +2181,28 @@ private struct SessionsHeroPet: View {
 
 private extension CGRect {
     var center: CGPoint { CGPoint(x: midX, y: midY) }
+}
+
+
+/// v4.0.159：搜索「完成」键盘工具条 —— **只在首页真正在前台时挂**。
+/// 首页从本版起会作为「预热垫底页」常驻在对话页底下（见 DockTabView.homePrewarmed），
+/// 不门控的话对话页打字时键盘上方会多出一条凭空出现的「完成」。
+private struct SessionsSearchKeyboardToolbar: ViewModifier {
+    let enabled: Bool
+    let onDone: () -> Void
+
+    // 🚨 结构必须稳定：别在**修饰器层**用 `if enabled { content.toolbar{…} } else { content }` 分支
+    //    —— 那会让被包裹的整棵 SessionsView 身份每次进出对话页翻一次（body 内容销毁重建）：
+    //    返回首页那帧 `.task`/`.onAppear` 会重跑（load 打 2~3 次），左滑出入场也可能被硬切成瞬移。
+    //    条件只放进 ToolbarItemGroup 内部（ToolbarContentBuilder 支持条件项），toolbar 本身常挂。
+    func body(content: Content) -> some View {
+        content.toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                if enabled {
+                    Spacer()
+                    Button("完成") { onDone() }
+                }
+            }
+        }
+    }
 }
