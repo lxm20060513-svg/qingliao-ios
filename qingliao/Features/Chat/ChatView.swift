@@ -538,7 +538,7 @@ struct ChatView: View {
     private func autoReadLatestReply() {
         // 抑制标记**只在真正要念时才消费**：原来无条件清掉，生成期来一个 🔔 进度气泡（isPush）
         // 就把标记吃掉，用户停止后落库的残句又会被念出来（只读审查抓到的回归）。
-        guard autoReadReply, !suppressAutoReadOnce else { return }
+        guard autoReadReply || SpeechManager.shared.callForceRead, !suppressAutoReadOnce else { return }
         // v4.0.x 流式分段朗读：本条已在流式期间由分段队列逐段朗读 → 落库边沿整段朗读跳过
         //（guard 后置：suppressAutoReadOnce 的消费语义不受影响）。
         if stream.hasStreamingSpeech { return }
@@ -582,9 +582,14 @@ struct ChatView: View {
         HeaderPillGroup(items: chatHeaderItems)
     }
 
-    /// v4.1.x：聊天页页头图标项（合并成一颗胶囊用）——任务中心（有未完成任务时带红点）+ 更多
+    /// v4.1.x：聊天页页头图标项（合并成一颗胶囊用）——打电话给 Hermes + 任务中心（有未完成任务时带红点）+ 更多
     private var chatHeaderItems: [HeaderPillGroup.Item] {
         [
+            HeaderPillGroup.Item(id: "call",
+                                 systemName: "phone.fill",
+                                 a11y: "打电话给 Hermes") {
+                NotificationCenter.default.post(name: .qingliaoOpenCall, object: nil)
+            },
             HeaderPillGroup.Item(id: "tasks",
                                  systemName: "list.bullet.circle",
                                  a11y: "任务中心",

@@ -136,7 +136,8 @@ check("通知名已注册（定义在 ChatAppDelegate.swift，不在 ChatView.sw
 check("v4.0.86 防回归：新建会话/语音输入胶囊先落对话页（ChatView 必须在树）",
       dockSrc.contains("if selected != .chat || showSessionHome {") )
 check("v4.0.86 防回归：语音对话/会话纪要同样收 showSessionHome（全念与纪要卡的接收方都在 ChatView）",
-      dockSrc.contains("showSessionHome = false\n            showVoiceDialog = true")
+      dockSrc.contains("showSessionHome = false")
+      && dockSrc.contains("milliseconds(60)")   // 切页时通话页延后一拍拉起
       // v4.0.115：纪要那条搬进 openMinutesPage 了（工作台工具格是第二个入口，两个入口共用一份实现），
       // 故「先切页」的判据改为钉那份实现被调用（实现体内部的先后次序由 ql_docklayout Ⓝ′ 钉）。
       && dockSrc.contains("openMinutesPage()"))
@@ -897,9 +898,10 @@ check("语音页不自己判「该不该发」（只执行 engine 给的动作�
       voiceSrc.contains("perform(engine.handle("))
 check("语音页发送走 .qingliaoTaskSend（与键盘发送同一条流）",
       voiceSrc.contains("NotificationCenter.default.post(name: .qingliaoTaskSend, object: text)"))
-check("语音页临时打开自动朗读并在退出还原（全念复用 + 不偷改用户设置）",
-      voiceSrc.contains("autoReadBefore = autoReadReply")
-      && voiceSrc.contains("if let before = autoReadBefore { autoReadReply = before }"))
+check("语音页用进程内 callForceRead 实现全念（退出还原，不写 UserDefaults）",
+      voiceSrc.contains("SpeechManager.shared.callForceRead = true")
+      && voiceSrc.contains("SpeechManager.shared.callForceRead = false")
+      && !voiceSrc.contains("@AppStorage(\"qingliao_auto_read_reply\")"))
 check("语音页观察 speakingID 做半双工（念的时候停麦）",
       voiceSrc.contains(".onChange(of: speech.speakingID)"))
 check("语音页保持纯 SwiftUI（import UIKit 会让本机无法预检）",
@@ -992,10 +994,12 @@ check("语音页发送时同步停麦（Action.sendNow 语义 = 发出 + 停麦�
       voiceSendSlice.contains("await closeMic()"))
 check("语音页发完仍走既有 .qingliaoTaskSend 通道",
       voiceSendSlice.contains("NotificationCenter.default.post(name: .qingliaoTaskSend"))
-let voiceCase5 = between(dockSrc, "case 5:   // 语音对话", "default:")
-check("语音对话入口切片取到（切片空了本条就是空真）", !voiceCase5.isEmpty)
-check("语音对话入口先切聊天页（否则通知落空 = 消息静默消失）",
+let voiceCase5 = between(dockSrc, "case 5:", "default:")
+check("打电话入口切片取到（切片空了本条就是空真）", !voiceCase5.isEmpty)
+check("打电话入口先切聊天页（否则通知落空 = 消息静默消失）",
       voiceCase5.contains("selected = .chat"))
+check("切页时通话页延后一拍拉起（同批改 selected 会被 onChange 收掉）",
+      voiceCase5.contains("milliseconds(60)"))
 // ⚠️ 停麦判据含 isPreparing：isRunning 直到起麦那刻才 true，准备期（首次权限框 / 下模型）用户
 //    完全可能点退出 —— 只看 isRunning 会 return，随后 start() 跑完在页面消失后开麦 → 残余收音。
 let voiceCloseMic = between(voiceSrc, "private func closeMic() async {", "private func toggleMode")
@@ -1008,6 +1012,47 @@ check("降级文案带真实原因（不支持设备端识别的机型不能只�
       voiceSrc.contains("liveSpeech.lastError ?? "))
 check("准备期文案（这段时间不能显示「聆听中」）",
       voiceSrc.contains("正在准备语音模型"))
+
+// ── ⑨⁙ v4.1.x 打电话给 Hermes（App 内通话 + 全双工打断）─────────────
+// 口径：大脑仍是 Hermes（走既有 .qingliaoTaskSend），不是第三方电话 AI；
+// 全双工只在 CallAudioSession 激活成功时开启，失败自动降级半双工。
+let callAudioSrc = src("Core/CallAudioSession.swift")
+let micCallSrc = src("Core/LiveSpeechTranscriber.swift")
+let speechCallSrc = src("Core/SpeechManager.swift")
+check("通话音频会话独立成文件（唯一会话所有者）", !callAudioSrc.isEmpty)
+check("通话会话 = playAndRecord + voiceChat（全双工回声消除的唯一前提）",
+      callAudioSrc.contains(".playAndRecord") && callAudioSrc.contains(".voiceChat"))
+check("录音器有 policy 闸门：call 模式不再自己调 .record / 不再恢复 .playback",
+      micCallSrc.contains("enum LiveSpeechAudioPolicy") && micCallSrc.contains("if audioPolicy == .standard"))
+check("旧 .standard 实例的收尾也认通话标志（不能停掉通话会话）",
+      micCallSrc.contains("audioPolicy == .standard && !SpeechManager.shared.callAudioActive"))
+check("朗读器不抢会话：callAudioActive 时跳过 .playback",
+      speechCallSrc.contains("if callAudioActive { return }"))
+check("朗读器停会话只剩一个出口，且带通话闸门（4 处收尾都走它）",
+      stripCommentLines(speechCallSrc).components(separatedBy: "setActive(false").count - 1 == 1
+      && stripCommentLines(speechCallSrc).contains("guard !callAudioActive else { return }"))
+check("通话页有静音 / 免提 / 挂断三键 + 通话计时",
+      voiceSrc.contains("label: \"挂断\"") && voiceSrc.contains("private var timerText"))
+check("全双工默认开、页内可关、失败自动降级半双工",
+      voiceSrc.contains("fullDuplexPref") && voiceSrc.contains("duplexAvailable = false"))
+check("回声闸门在引擎里（不是 UI 自己猜）",
+      src("Core/VoiceDialogEngine.swift").contains("CallEchoGate.userPart"))
+check("聊天页 header 有电话入口 + 通知单一定义 + dock 消费",
+      chatViewSrc.contains("a11y: \"打电话给 Hermes\"")
+      && chatDelegateSrc.contains("static let qingliaoOpenCall")
+      && dockSrc.contains("for: .qingliaoOpenCall"))
+check("智慧球菜单 id=5 改「打电话」", orbMenuSrc.contains("title: \"打电话\""))
+check("通话收尾按 finishSeq 判（不观察不可靠的 isStreaming）",
+      voiceSrc.contains("stream.finishSeq > turnBaseFinishSeq")
+      && !voiceSrc.contains(".onChange(of: stream.isStreaming)"))
+check("通话会话按 owner 收尾（旧页面不能误关新通话）",
+      callAudioSrc.contains("func deactivate(owner:") && callAudioSrc.contains("self.owner != owner")
+      && !callAudioSrc.contains("generation"))
+check("续段事件只在轮内发（finishSeq == turnBaseFinishSeq）",
+      voiceSrc.contains("stream.finishSeq == turnBaseFinishSeq")
+      && voiceSrc.contains("engine.handle(.speechSegmentStarted)"))
+check("回声闸门不拿末尾词判回声（防吞真实插话）",
+      !stripCommentLines(src("Core/VoiceDialogEngine.swift")).contains("suffix(30)"))
 
 // ── ⑩ v3.9.77 界面口径（用户 2026-09-25 装机后报的 4 条）────────────────────
 // 这四条都不是「审美偏好」，而是**可回退的具体口径**，所以逐条钉住。
@@ -1272,7 +1317,7 @@ check("core 里正文改走 replyText（不再是裸 Text(displayText) + 裁切�
 check("正文走 ScrollView + 定高上限（长文可读、不外扩挤走底栏）",
       replySlice.contains("ScrollView(") && replySlice.contains(".frame(maxHeight: Self.replyMaxHeight)"))
 check("正文区高度上限走常量（≈8 行），不写魔法数",
-      voiceClean.contains("private static let replyMaxHeight: CGFloat = 220"))
+      voiceClean.contains("private static let replyMaxHeight: CGFloat = 160"))
 check("逐字增长时自动贴底（新念出来的字始终在眼前）",
       replySlice.contains("proxy.scrollTo(Self.replyBottomAnchor, anchor: .bottom)")
       && replySlice.contains(".onChange(of: displayText)")
@@ -1295,11 +1340,13 @@ check("顶栏改 ZStack 承载（标题不再夹在两个宽度不等的胶囊�
       voiceHeaderSlice.contains("ZStack {"))
 check("标题吃满屏宽 → 恒在屏幕中线（不随两侧胶囊宽窄漂移）",
       voiceHeaderSlice.contains(".frame(maxWidth: .infinity)"))
-check("标题文案不变", voiceHeaderSlice.contains("Text(\"语音对话\")"))
-check("退出胶囊与右侧同款（accent：蓝字 + 蓝描边，不再走中性灰）",
-      voiceHeaderSlice.contains("Text(\"退出\").pill(.topBar, tone: .accent)"))
-check("右侧模式胶囊仍在（顶栏没被改坏）",
-      voiceHeaderSlice.contains("Text(engine.mode == .auto ? \"自动发送 · 开\" : \"自动发送 · 关\")"))
+check("标题文案 = 通话对象 Hermes", voiceHeaderSlice.contains("Text(\"Hermes\")"))
+check("收起胶囊与右侧同款（accent：蓝字 + 蓝描边，不再走中性灰）",
+      voiceHeaderSlice.contains("Text(\"收起\").pill(.topBar, tone: .accent)"))
+check("右侧免打断胶囊仍在（顶栏没被改坏）",
+      voiceHeaderSlice.contains("Text(duplexLabel).pill(.topBar, tone: engine.fullDuplex ? .accent : .neutral)"))
+check("通话计时在顶栏（秒表走独立 callTimer，不占 0.25s 判停 ticker）",
+      voiceHeaderSlice.contains("Text(timerText)") && voiceSrc.contains("Timer.publish(every: 1"))
 
 // ── 11. v3.9.78 浮层卡片口径（用户 2026-09-25：圆角加大 + 背景改模糊半透明，随后「同口径也推到其它弹窗」）──
 // 由头：聊天页那张意图动作卡在他眼里「圆角小 + 背景像实心白卡」→ 出三候选稿（16+玻璃 / 22+玻璃 / 22+更透）

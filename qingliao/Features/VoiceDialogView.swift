@@ -1,5 +1,6 @@
 import SwiftUI
 import Combine
+import AVFoundation
 
 // MARK: - v3.9.76 语音对话全屏页（用户拍板：方案 C 涟漪玻璃 · 深色科幻 · 全念）
 //
@@ -19,12 +20,23 @@ import Combine
 // 半双工：AI 念的时候关麦（判断在 engine，本页照做）。想打断 → 点「打断」，
 //   SpeechManager 停止 → speakingID 归 nil → engine 收到 speechEnded → 自动续听，无需额外分支。
 //
+// v4.1.x 通话态（用户要「打电话给 Hermes」）：
+//   · **不是 PSTN 电话**：Hermes 原生 telephony 底层是 Twilio/Vapi，官方不支持呼出中国大陆；
+//     这里做的是 App 内通话页 —— 大脑仍是 Hermes 本体（sendCore），复用 ASR/TTS，零外部通话费。
+//   · 全双工会话由 CallAudioSession 独占（.playAndRecord + .voiceChat）；本页是全仓唯一
+//     允许 engine.fullDuplex = true 的调用方，其余语音路径保持半双工。
+//   · 插话 = 停朗读 + 停流 + 把用户那截设为草稿（回声闸门在 engine，UI 不自己判）。
+//   · 收起 = 结束通话（本版没有后台通话条 / 锁屏通话，挂断与收起同一条退出路径）。
+//
 // 本机没有 Xcode/模拟器 → 这一页的手感（涟漪节奏、收音启停时机）**只能装机看**，
 // 本机能保证的只有状态机（scripts/test_voice_dialog.swift）与形态护栏（ql_orbmenu 真值表）。
 
 struct VoiceDialogView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(ChatStore.self) private var chat
+    /// 插话要真的停掉在跑的回复（只停朗读 = 旧答案继续写进会话，用户会以为没打断）
+    @Environment(StreamClient.self) private var stream
+    @Environment(AuthStore.self) private var auth
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var colorScheme
     /// v3.9.77：跟随系统明暗（用户要求「界面对应系统 UI」）。只用来调柔光/涟漪强度，
@@ -42,14 +54,41 @@ struct VoiceDialogView: View {
     /// 逐字进度的**独立**观察对象（v3.9.77 复审修）：不观察 SpeechManager 自身的高频 @Published，
     /// 那会把整片聊天列表按 12.5Hz 连坐重绘（见 `SpokenProgress` 注释）。
     @ObservedObject private var spokenProgress = SpeechManager.shared.progress
-    @AppStorage("qingliao_auto_read_reply") private var autoReadReply = false
 
     @State private var engine = VoiceDialogEngine()
     @State private var ripple = false
     @State private var voiceError: String?
-    /// 进入前的自动朗读设置（退出必须还原：本页为了「全念」临时打开它，
-    /// 不还原就是**悄悄改了用户的全局设置**，下次在聊天页也会突然开始念）
-    @State private var autoReadBefore: Bool?
+
+    // MARK: v4.1.x 通话态
+    /// 通话计时（秒）。只在通话页本地，不进全局。
+    @State private var callSeconds = 0
+    /// 麦克风静音（只影响本页，停止收音但保留通话）
+    @State private var muted = false
+    /// 免提（扬声器）开关；会话不可用时由 CallAudioSession 兜底
+    @State private var speakerOn = true
+    /// 本机是否成功激活了全双工会话（false = 自动降级半双工）
+    @State private var duplexAvailable = true
+    /// 切换全双工时的互斥锁：切会话要先停麦再开麦，连点会抢音频会话
+    @State private var duplexSwitching = false
+    /// 全双工偏好：默认开、页内可关、跨通话保留
+    @AppStorage("qingliao_call_full_duplex") private var fullDuplexPref = true
+    /// 本页激活的通话会话 token；退出时只关自己那份，不能误关用户刚重进的新通话
+    @State private var pageID = UUID()
+    /// 本轮发送时的收尾序号基准：`stream.finishSeq > base` = 这一轮已经收尾。
+    /// 不用 `isStreaming` 判收尾 —— 本仓 StreamClient 明确写了同帧续发会吞掉它的边沿。
+    @State private var turnBaseFinishSeq = 0
+    /// 麦克风操作串行链：open/close/restart 各自起 Task 会互相取消，
+    /// 短回复时「念完重开」与「开始念重开」叠在一起 → openMic 被 isRunning 挡掉 → 死麦。
+    @State private var micTask: Task<Void, Never>?
+    /// 「念完了」去抖：流式分段朗读的段间 speakingID 会短暂归 nil，
+    /// 不能当成整轮结束（否则剩余段朗读时麦克风开着，AI 会把自己的话录成用户输入）。
+    @State private var speechEndTask: Task<Void, Never>?
+    /// 收音看门狗：listening 状态下麦没开超过 1.2s 就补一次 openMic（死麦自愈）。
+    @State private var micDownSince: Date?
+    /// 正在退出：挡住排队中的 openMic，避免页面消失后麦克风才打开（残余收音）。
+    @State private var isClosing = false
+    /// 通话秒表（与 0.25s 判停 ticker 分开：一个走引擎、一个只画 UI）
+    @State private var callTimer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     /// ⚠️ 必须放 @State：宿主 DockTabView 的 body 会因 dockBarHeight / stream 等状态不断重绘，
     /// 而 View 是值类型——写成 `private let` 的话每次重建都换一个新 publisher，`onReceive` 跟着重新订阅，
@@ -79,56 +118,173 @@ struct VoiceDialogView: View {
             .padding(.bottom, Spacing.xxl)
         }
         .onAppear {
-            autoReadBefore = autoReadReply
-            autoReadReply = true              // 「全念」：临时打开，退出还原
+            // 「全念」用进程内开关，不写 UserDefaults（进程被杀也不会把用户设置永久改开）。
+            SpeechManager.shared.callForceRead = true
+            pageID = UUID()
+            turnBaseFinishSeq = stream.finishSeq
             if !reduceMotion { ripple = true }
+            callSeconds = 0
+            muted = false
+            voiceError = nil
+            isClosing = false
+            startCallAudio()
             perform(engine.handle(.start))
         }
         .onDisappear {
-            // ⚠️ 还原设置用**同步**写：放进 Task 会晚一帧，用户可能已经看到聊天页在念了。
-            if let before = autoReadBefore { autoReadReply = before }
-            // 退出时必须停朗读：本页把「全念」临时打开了，用户点退出时 AI 可能正在念，
-            // 不停就会「明明关了自动朗读还在响」（聊天页对这条有既定口径）。
+            // 同步交还「全念」开关，聊天页立刻按用户原设置走。
+            SpeechManager.shared.callForceRead = false
+            // 退出时必须停朗读：用户点退出时 AI 可能正在念。
             SpeechManager.shared.stop()
-            Task { @MainActor in perform(engine.handle(.stop)) }
+            isClosing = true
+            speechEndTask?.cancel()
+            speechEndTask = nil
+            micTask?.cancel()
+            micTask = nil
+            let owner = pageID
+            // 先停麦收尾，再交还会话：顺序反了会让录音引擎在已切走的会话上收尾。
+            Task { @MainActor in
+                _ = engine.handle(.stop)
+                await closeMic()
+                // 只关自己这通电话：用户快速重进时 owner 已换，旧收尾不能关掉新会话。
+                if CallAudioSession.shared.owner == owner {
+                    SpeechManager.shared.callAudioActive = false
+                    CallAudioSession.shared.deactivate(owner: owner)
+                }
+            }
         }
         .onReceive(ticker) { _ in
             perform(engine.handle(.tick(Date())))
+            recoverMicIfNeeded()
+        }
+        .onReceive(callTimer) { _ in
+            guard engine.phase != .ended else { return }
+            callSeconds += 1
         }
         .onChange(of: liveSpeech.liveText) { _, text in
-            perform(engine.handle(.heard(text)))
+            // 全双工：朗读期间也要吃转写，先过引擎的回声闸门再决定是不是插话。
+            if engine.phase == .speaking {
+                let spoken = String(spokenProgress.text.prefix(spokenProgress.charCount))
+                perform(engine.handle(.heardDuringSpeech(text, spoken: spoken)))
+            } else if engine.fullDuplex, spokenProgress.charCount > 0 {
+                // 插话后继续收音：带**当前**已念全文，剥掉停止朗读前残余的那点回声。
+                let spoken = String(spokenProgress.text.prefix(spokenProgress.charCount))
+                perform(engine.handle(.heardWithSpoken(text, spoken: spoken)))
+            } else {
+                perform(engine.handle(.heard(text)))
+            }
         }
         .onChange(of: speech.speakingID) { _, id in
-            perform(engine.handle(id == nil ? .speechEnded : .speechStarted))
+            if id == nil {
+                scheduleSpeechEnd()
+            } else {
+                speechEndTask?.cancel()
+                // 分段朗读的下一段：只有「这一轮还在生成」才按续段处理，
+                // 手动点气泡/推送朗读仍走普通 speechStarted（会被 waiting 挡掉）。
+                if engine.fullDuplex, engine.phase == .listening,
+                   stream.finishSeq == turnBaseFinishSeq {
+                    perform(engine.handle(.speechSegmentStarted))
+                } else {
+                    perform(engine.handle(.speechStarted))
+                }
+            }
+        }
+        .onChange(of: stream.finishSeq) { _, _ in
+            // 收尾序号只增，不会像 isStreaming 那样被同帧续发吞掉。
+            if speech.speakingID == nil { scheduleSpeechEnd() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.interruptionNotification)) { note in
+            guard let info = note.userInfo,
+                  let raw = info[AVAudioSessionInterruptionTypeKey] as? UInt,
+                  let type = AVAudioSession.InterruptionType(rawValue: raw),
+                  type == .ended else { return }
+            // 来电/Siri 结束后把通话会话与麦克风接回来（否则页面看着在通话、其实全哑）。
+            Task { @MainActor in
+                guard !isClosing else { return }
+                // 正在念的时候被打断：先把这一轮收尾；TTS 已恢复（speakingID 非空）就保持 speaking，
+                // 半双工下绝不能在这时开麦。
+                if engine.phase == .speaking {
+                    guard speech.speakingID == nil else { return }
+                    perform(engine.handle(.speechEnded))
+                }
+                guard engine.phase == .listening else { return }
+                guard engine.fullDuplex else {
+                    // 半双工没有 CallAudioSession，直接重开麦即可
+                    enqueueMic { await restartMic() }
+                    return
+                }
+                guard CallAudioSession.shared.activate(owner: pageID) else {
+                    // 恢复不了全双工就降级，别让整通电话静音
+                    engine.fullDuplex = false
+                    SpeechManager.shared.callAudioActive = false
+                    duplexAvailable = false
+                    voiceError = "通话被系统打断后未能恢复免打断，已用半双工"
+                    enqueueMic { await restartMic() }
+                    return
+                }
+                SpeechManager.shared.callAudioActive = true
+                enqueueMic { await restartMic() }
+            }
         }
     }
 
-    // MARK: 顶栏（退出 / 标题 / 模式）
+    /// 「一轮念完」去抖：分段朗读的段间 speakingID 会归 nil，但 LLM 还在生成下一段。
+    /// 350ms 内没有新段、且流已结束，才算整轮结束（回到 listening 并重开麦）。
+    private func scheduleSpeechEnd() {
+        speechEndTask?.cancel()
+        guard speech.speakingID == nil, stream.finishSeq > turnBaseFinishSeq else { return }
+        speechEndTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(350))
+            guard !Task.isCancelled, speech.speakingID == nil,
+                  stream.finishSeq > turnBaseFinishSeq else { return }
+            perform(engine.handle(.speechEnded))
+        }
+    }
 
-    // v3.9.78（用户 2026-09-25 装机报）：「语音对话四个字居中，退出胶囊同步改成右边胶囊样式」
-    //   · 居中的真因：原来是 HStack[退出, Spacer, 标题, Spacer, 自动发送] —— 双 Spacer 只在**两侧等宽**时
-    //     才把标题顶到屏幕中线，而「退出」比「自动发送 · 开」窄一大截 → 标题实际偏左。
-    //     改法 = ZStack：标题自己吃屏宽居中，两个胶囊叠在上层各贴一边（互不干扰、都可点）。
-    //   · 退出胶囊原来走 `.neutral`（灰底黑字），与右侧不一致 → 同步成 `.accent`（蓝字 + 蓝描边，与右侧同款）。
+    // MARK: 顶栏（收起 / 通话对象 / 免打断）
+
     private var header: some View {
         ZStack {
-            Text("语音对话")
-                .font(.system(size: Typography.headline, weight: .semibold))
-                .foregroundStyle(.primary)
-                .frame(maxWidth: .infinity)          // 吃满屏宽 → 标题恒在屏幕中线（不随两侧胶囊宽窄漂移）
+            VStack(spacing: 2) {
+                Text("Hermes")
+                    .font(.system(size: Typography.headline, weight: .semibold))
+                    .foregroundStyle(.primary)
+                HStack(spacing: 5) {
+                    Circle()
+                        .fill(engine.phase == .ended ? Color.secondary : Color.green)
+                        .frame(width: 6, height: 6)
+                    Text(timerText)
+                        .font(.system(size: Typography.caption, weight: .medium))
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                    Text("· 正在通话")
+                        .font(.system(size: Typography.caption))
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            .frame(maxWidth: .infinity)          // 吃满屏宽 → 标题恒在屏幕中线（不随两侧胶囊宽窄漂移）
             HStack {
                 Button { close() } label: {
-                    Text("退出").pill(.topBar, tone: .accent)
+                    Text("收起").pill(.topBar, tone: .accent)
                 }
                 Spacer(minLength: 0)
-                Button { toggleMode() } label: {
-                    Text(engine.mode == .auto ? "自动发送 · 开" : "自动发送 · 关")
-                        .pill(.topBar, tone: engine.mode == .auto ? .accent : .neutral)
+                Button { toggleFullDuplex() } label: {
+                    Text(duplexLabel).pill(.topBar, tone: engine.fullDuplex ? .accent : .neutral)
                 }
-                .accessibilityLabel(engine.mode == .auto ? "自动发送已开启，停顿两秒自动发出" : "自动发送已关闭，说完点发送")
+                .disabled(engine.phase == .speaking || engine.phase == .sending
+                          || !duplexAvailable || duplexSwitching)
+                .accessibilityLabel(engine.fullDuplex ? "免打断已开启，可以直接说话打断" : "免打断已关闭，点「打断」才能插话")
             }
         }
         .padding(.top, Spacing.lg)
+    }
+
+    private var timerText: String {
+        String(format: "%02d:%02d", callSeconds / 60, callSeconds % 60)
+    }
+
+    private var duplexLabel: String {
+        if !duplexAvailable { return "半双工" }
+        return engine.fullDuplex ? "免打断 · 开" : "免打断 · 关"
     }
 
     // MARK: 核心视觉（方案 C：中心柔光 + 三层扩散涟漪）
@@ -162,7 +318,7 @@ struct VoiceDialogView: View {
                     .frame(width: 86, height: 86)
                     .shadow(color: Color.accentColor.opacity(0.55), radius: 28)
             }
-            .frame(height: 260)
+            .frame(height: 240)
             .allowsHitTesting(false)          // 纯视觉，不吃触摸
 
             VStack(spacing: Spacing.md) {
@@ -180,26 +336,91 @@ struct VoiceDialogView: View {
         }
     }
 
-    // MARK: 底部（声波 + 操作）
+    // MARK: 底部（声波 + 通话控件）
 
     private var bottomBar: some View {
         VStack(spacing: Spacing.xl) {
             waveBars
-            HStack(spacing: Spacing.xl) {
+            Text(bottomHint)
+                .font(.system(size: Typography.caption))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+            HStack(spacing: 26) {
+                callButton(icon: muted ? "mic.slash.fill" : "mic.fill",
+                           label: muted ? "已静音" : "静音",
+                           active: muted) { toggleMute() }
+                callButton(icon: speakerOn ? "speaker.wave.2.fill" : "speaker.slash.fill",
+                           label: speakerOn ? "免提" : "听筒",
+                           active: speakerOn, enabled: engine.fullDuplex) { toggleSpeaker() }
+                callButton(icon: "phone.down.fill", label: "挂断", danger: true) { close() }
+            }
+            HStack(spacing: Spacing.lg) {
+                Button { toggleMode() } label: {
+                    Text(engine.mode == .auto ? "自动发送 · 开" : "自动发送 · 关")
+                        .pill(.topBar, tone: .neutral)
+                }
+                .accessibilityLabel(engine.mode == .auto ? "自动发送已开启，停顿两秒自动发出" : "自动发送已关闭，说完点发送")
                 if engine.phase == .speaking {
-                    Button { SpeechManager.shared.stop() } label: {
-                        Text("打断").pill(.primary, tone: .neutral)
+                    Button { interruptReply() } label: {
+                        Text("打断").pill(.topBar, tone: .accent)
                     }
                 } else {
                     Button { perform(engine.handle(.send)) } label: {
-                        Text("发送").pill(.primary, tone: .accent)
+                        Text("发送").pill(.topBar, tone: .accent)
                     }
                     .disabled(engine.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
-            Text(engine.mode == .auto ? "停顿 2 秒自动发送 · 也可直接点「发送」" : "说完点「发送」")
-                .font(.system(size: Typography.caption))
+        }
+    }
+
+    /// 通话圆键：静音 / 免提 / 挂断。玻璃圆底 + 图标 + 11pt 说明。
+    @ViewBuilder
+    private func callButton(icon: String, label: String,
+                            active: Bool = false, danger: Bool = false,
+                            enabled: Bool = true,
+                            action: @escaping () -> Void) -> some View {
+        VStack(spacing: Spacing.sm) {
+            Button(action: action) {
+                Image(systemName: icon)
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(danger ? Color.white : (active ? Color.accentColor : Color.primary))
+                    .frame(width: 62, height: 62)
+                    .background {
+                        if danger {
+                            Circle().fill(Color.red)
+                        } else {
+                            Circle().fill(.ultraThinMaterial)
+                        }
+                    }
+                    .overlay {
+                        Circle().strokeBorder(danger ? Color.clear : Color.primary.opacity(0.10),
+                                              lineWidth: 0.8)
+                    }
+            }
+            .buttonStyle(.plain)
+            .disabled(!enabled)
+            .opacity(enabled ? 1 : 0.38)
+            .accessibilityLabel(label)
+            Text(label)
+                .font(.system(size: Typography.tiny))
                 .foregroundStyle(.secondary)
+        }
+    }
+
+    private var bottomHint: String {
+        if liveSpeech.isPreparing { return "正在准备语音模型…" }
+        switch engine.phase {
+        case .listening:
+            return engine.draft.isEmpty ? "请说话，停顿 2 秒自动发送" : "说完停顿 2 秒，或点「发送」"
+        case .sending:
+            return "Hermes 正在想…"
+        case .speaking:
+            return engine.fullDuplex ? "可以直接说话打断" : "点「打断」可随时插话"
+        case .idle:
+            return "正在接通…"
+        case .ended:
+            return "通话已结束"
         }
     }
 
@@ -241,7 +462,7 @@ struct VoiceDialogView: View {
                     lineWidth: 1.3)
             }
         }
-        .frame(height: 96)
+        .frame(height: 76)
         .allowsHitTesting(false)
     }
 
@@ -270,11 +491,11 @@ struct VoiceDialogView: View {
         // 这段时间显示「聆听中」会让用户对着没开的麦克风说话 → 静默失败。
         if liveSpeech.isPreparing { return "正在准备语音模型…" }
         switch engine.phase {
-        case .listening: return "聆听中 · 第 " + String(engine.rounds + 1) + " 轮"
-        case .sending:   return "AI 正在回复…"
-        case .speaking:  return "AI 应答 · 朗读中（全念）"
-        case .idle:      return "准备中…"
-        case .ended:     return "已结束"
+        case .listening: return "正在通话 · 第 " + String(engine.rounds + 1) + " 轮"
+        case .sending:   return "Hermes 正在想…"
+        case .speaking:  return "Hermes 正在说…"
+        case .idle:      return "正在接通…"
+        case .ended:     return "已挂断"
         }
     }
 
@@ -283,14 +504,14 @@ struct VoiceDialogView: View {
         case .listening:
             return engine.draft.isEmpty ? "我在听…" : engine.draft
         case .sending:
-            return "已发出，等 AI 回复"
+            return "已发出，等 Hermes 回复"
         case .speaking:
             // v3.9.77：文字跟着语音**逐字**吐出来（系统引擎精确回调 / 云端按播放位置估算，
             // 数据源见 SpeechManager 的独立发布箱 `progress`：text + charCount）。已念部分为空时先给摘要占位。
             let spoken = String(spokenProgress.text.prefix(spokenProgress.charCount))
-            return spoken.isEmpty ? (latestReplyExcerpt ?? "AI 正在组织答案") : spoken
+            return spoken.isEmpty ? (latestReplyExcerpt ?? "Hermes 正在组织答案") : spoken
         case .idle, .ended:
-            return latestReplyExcerpt ?? "AI 正在组织答案"
+            return latestReplyExcerpt ?? "Hermes 正在组织答案"
         }
     }
 
@@ -347,7 +568,7 @@ struct VoiceDialogView: View {
 
     /// 正文区高度上限（≈8 行 @17pt + 行距 6）：852 屏上 260 波形 + 顶栏 + 底栏之后仍有富余；
     /// 更小的屏幕上 ScrollView 会自己收缩，不挤走底栏。
-    private static let replyMaxHeight: CGFloat = 220
+    private static let replyMaxHeight: CGFloat = 160
     /// 自动贴底用的锚点 id（正文整块一个 id：内容在末尾增长，锚到它的底边即「最新一行」）
     private static let replyBottomAnchor = "voice_reply_bottom"
 
@@ -376,25 +597,146 @@ struct VoiceDialogView: View {
             // ⚠️ 发送的同时**立刻停麦**（`Action.sendNow` 的语义就是「发出 + 停麦」）：
             //   发送到朗读开始之间（最长 25 秒）开着麦没意义，而且停麦的音频会话收尾
             //   `setActive(false)` 会和朗读起播抢时序，把刚开口的念读掐掉。
-            Task { @MainActor in await closeMic() }
+            enqueueMic { await closeMic() }
+            turnBaseFinishSeq = stream.finishSeq   // 本轮收尾基准（finishSeq 只增）
             NotificationCenter.default.post(name: .qingliaoTaskSend, object: text)
         case .openMic:
-            Task { @MainActor in await openMic() }
+            enqueueMic { await openMic() }
         case .closeMic:
-            Task { @MainActor in await closeMic() }
+            enqueueMic { await closeMic() }
+        case .restartMic:
+            enqueueMic { await restartMic() }
+        case .interruptAndListen:
+            // 全双工插话：停朗读 + 停掉在跑的回复，麦克风保持开着
+            // （引擎已把 phase 切回 listening、草稿已就位）。
+            Haptics.press()
+            interruptReply()
         }
     }
 
+    /// 麦克风操作串行链：同一时刻只允许一个 open/close/restart 在跑。
+    /// 直接给每个 action 起独立 Task 时，短回复的「开始念重开」与「念完重开」会互相
+    /// cancel；被挡掉的 openMic 会让麦克风永久关着（UI 还显示在通话）。
+    private func enqueueMic(_ op: @escaping @MainActor () async -> Void) {
+        let prev = micTask
+        micTask = Task { @MainActor in
+            await prev?.value
+            guard !Task.isCancelled else { return }
+            await op()
+        }
+    }
+
+    /// 死麦自愈：listening 状态下麦没开超过 1.2s 就补一次。
+    /// 只在没有真实错误（权限/机型不支持）时重试，避免每 1.2s 弹一次错。
+    private func recoverMicIfNeeded() {
+        guard engine.phase == .listening, !muted, !isClosing, liveSpeech.lastError == nil,
+              !liveSpeech.isRunning, !liveSpeech.isPreparing else {
+            micDownSince = nil
+            return
+        }
+        if micDownSince == nil {
+            micDownSince = Date()
+            return
+        }
+        guard let since = micDownSince, Date().timeIntervalSince(since) > 1.2 else { return }
+        micDownSince = nil
+        enqueueMic { await openMic() }
+    }
+
     private func openMic() async {
+        // 静音期间任何 openMic 都不得开麦（引擎在换轮时会持续发 openMic）
+        guard !muted, !isClosing else { return }
         guard !liveSpeech.isRunning, !liveSpeech.isPreparing else { return }
-        let started = await liveSpeech.start(baseline: "")
+        let started = await liveSpeech.start(baseline: "",
+                                             policy: SpeechManager.shared.callAudioActive ? .call : .standard)
         if started {
             voiceError = nil
         } else {
             // 没权限 / 被占用 / 机型不支持设备端识别：必须出声，且**带上真实原因**——
             // 只说「没打开」会让不支持该能力的机型反复「退出重进」永远不成功。
-            voiceError = liveSpeech.lastError ?? "麦克风没打开（检查权限后点「退出」重进）"
+            voiceError = liveSpeech.lastError ?? "麦克风没打开（检查权限后点「收起」重进）"
             Haptics.error()
+        }
+    }
+
+    /// 全双工换轮：先停麦再立刻开麦，清空上一轮混进来的 AI 朗读缓冲。
+    private func restartMic() async {
+        guard !muted else { return }
+        await closeMic()
+        await openMic()
+    }
+
+    /// 进入通话：优先激活全双工会话；失败（老机型/路由占用）自动降级半双工。
+    private func startCallAudio() {
+        engine.fullDuplex = false
+        duplexAvailable = true
+        guard fullDuplexPref else {
+            SpeechManager.shared.callAudioActive = false
+            CallAudioSession.shared.deactivate(owner: pageID)
+            return
+        }
+        guard CallAudioSession.shared.activate(owner: pageID) else {
+            duplexAvailable = false
+            SpeechManager.shared.callAudioActive = false
+            speakerOn = true
+            voiceError = "本机未启用免打断，已用半双工通话"
+            return
+        }
+        SpeechManager.shared.callAudioActive = true
+        engine.fullDuplex = true
+        speakerOn = CallAudioSession.shared.speakerOn
+    }
+
+    private func toggleMute() {
+        Haptics.tap()
+        muted.toggle()
+        let nowMuted = muted
+        enqueueMic {
+            if nowMuted {
+                await closeMic()
+            } else {
+                await restartMic()
+            }
+        }
+    }
+
+    private func toggleSpeaker() {
+        Haptics.tap()
+        CallAudioSession.shared.setSpeaker(!speakerOn)
+        speakerOn = CallAudioSession.shared.speakerOn
+    }
+
+    /// 免打断开/关：只在收音态可切（朗读/等待态切换会抢音频会话，稳定优先）。
+    /// ⚠️ 顺序不能反：先按**当前**策略停麦收尾，再换会话，最后按**新**策略开麦。
+    /// 反过来（先 activate 再 restartMic）会让 `.standard` 的 teardown 把刚激活的通话会话停掉。
+    private func toggleFullDuplex() {
+        guard duplexAvailable, !duplexSwitching else { return }
+        Haptics.tap()
+        duplexSwitching = true
+        enqueueMic {
+            defer { duplexSwitching = false }
+            if engine.fullDuplex {
+                await closeMic()                       // .call 收尾：不动会话
+                engine.fullDuplex = false
+                fullDuplexPref = false
+                SpeechManager.shared.callAudioActive = false
+                CallAudioSession.shared.deactivate(owner: pageID)
+                await openMic()                        // .standard 重新起麦
+            } else {
+                await closeMic()                       // .standard 收尾：会停会话
+                guard CallAudioSession.shared.activate(owner: pageID) else {
+                    duplexAvailable = false
+                    Haptics.error()
+                    voiceError = "本机未启用免打断，继续用半双工"
+                    await openMic()                    // 退回半双工也要能说
+                    return
+                }
+                fullDuplexPref = true
+                SpeechManager.shared.callAudioActive = true
+                engine.fullDuplex = true
+                speakerOn = CallAudioSession.shared.speakerOn
+                await openMic()                        // .call 重新起麦
+            }
         }
     }
 
@@ -413,8 +755,19 @@ struct VoiceDialogView: View {
         Haptics.tap()
     }
 
+    /// 打断当前这一轮：停朗读 + 停掉在跑的回复 + 清排队消息。
+    /// 复用灵动岛「停止生成」那条通知的语义（ChatView 在接收端会置 suppressAutoReadOnce 并清队列），
+    /// 否则停流后残句还会被自动朗读一遍。
+    private func interruptReply() {
+        SpeechManager.shared.stop()
+        NotificationCenter.default.post(name: LiveActivityActionBridge.clearPendingQueueNotification, object: nil)
+        stream.stop(auth: auth)
+    }
+
     private func close() {
-        perform(engine.handle(.stop))
+        // 只改状态，收尾统一交给 onDisappear 单路执行（避免 close + onDisappear 双路 closeMic）。
+        isClosing = true
+        _ = engine.handle(.stop)
         dismiss()
     }
 }

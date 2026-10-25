@@ -6,7 +6,8 @@ import Foundation
 //   ① **两稿**：`ViewThatFits(in: .vertical)` 在位 —— 稿 1 = 内容自然高度，稿 2 = `ScrollView` + 上限。
 //   ② **两稿顺序**：稿 1 必须是「无 ScrollView」的自然高度那一稿。**调换 = 短回复又白撑** ——
 //      v3.9.78 那版就是这个病：贪婪 `ScrollView` 吃掉提案给它的全部高度，只说两三句也占满 220pt。
-//   ③ **上限不被悄悄抬高/删掉**：`replyMaxHeight` 仍是 `static let = 220`（长文上限的单一真源）。
+//   ③ **上限不被悄悄抬高/删掉**：`replyMaxHeight` 仍是 `static let = 160`（长文上限的单一真源；
+//      v4.1.x 通话页加了静音/免提/挂断三键，正文上限从 220 收到 160 腾出控件高度）。
 //   ④ **贴底机制仍挂在 `ViewThatFits` 外层**（挂到可滚动那一稿里，切换稿件时会丢）。
 //   ⑤ 两稿**共用同一 `replyTextBody`**（内容只写一处，防两稿漂移）+ 不退回 `.lineLimit(`（v3.9.78 红线）。
 //
@@ -71,8 +72,8 @@ check("稿 2 的上限 = .frame(maxHeight: Self.replyMaxHeight)（不写死数�
 check("两稿共用同一 replyTextBody（区段内 2 处引用 + 文件内有定义）—— 防两稿内容漂移",
       replyRegion.components(separatedBy: "replyTextBody").count - 1 >= 2
       && viewSrc.contains("private var replyTextBody: some View {"))
-check("上限真值未被抬高/删掉：replyMaxHeight 仍是 private static let = 220",
-      viewSrc.contains("private static let replyMaxHeight: CGFloat = 220"))
+check("上限真值未被抬高/删掉：replyMaxHeight 仍是 private static let = 160",
+      viewSrc.contains("private static let replyMaxHeight: CGFloat = 160"))
 
 // ── 5. 贴底机制仍在，且挂在 ViewThatFits **外层** ────────────────────
 check("贴底机制在位：.onChange(of: displayText) + scrollTo(…, anchor: .bottom) 都在区段内",

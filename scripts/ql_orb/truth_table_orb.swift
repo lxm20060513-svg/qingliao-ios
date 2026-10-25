@@ -395,8 +395,8 @@ check("收法 = 先清 FocusState 让输入栏缩回第一层，再 60ms UIKit �
       dismissSlice.contains("inputFocus = false")
       && dismissSlice.contains("try? await Task.sleep(for: .seconds(0.06))")
       && dismissSlice.contains("UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),"))
-check("语音入口没丢：菜单里仍有「语音输入」+「语音对话」",
-      menuSrc.contains("title: \"语音输入\"") && menuSrc.contains("title: \"语音对话\""))
+check("语音入口没丢：菜单里仍有「语音输入」+「打电话」",
+      menuSrc.contains("title: \"语音输入\"") && menuSrc.contains("title: \"打电话\""))
 check("宠物锚点打包/解包成对（NSValue 包 CGPoint，尺寸随包带）",
       menuSrc.contains("var userInfo: [String: Any] { [\"center\": NSValue(cgPoint: center), \"size\": size] }")
       && menuSrc.contains("init?(userInfo: [AnyHashable: Any]?)"))

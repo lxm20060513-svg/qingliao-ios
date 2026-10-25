@@ -749,19 +749,29 @@ struct DockTabView: View {
         case 4:   // AI 识别（v3.9.76）
             // 菜单层与识别浮层同挂 dock overlay：不先收菜单就是两层同时吃触摸（收口已提到函数开头）
             showIdentify = true
-        case 5:   // 语音对话（v3.9.76）
+        case 5:   // 打电话给 Hermes（v4.1.x，原「语音对话」；v3.9.76）
             // 与速记弹窗是两种 presentation：同时挂会互相顶掉（收口已提到函数开头）
             // 🚨 必须先让聊天页进视图树（与 case 2/4 同款闸）：本页的两条命脉都挂在 ChatView 上 ——
             //   「发送」走 `.qingliaoTaskSend`（ChatView.sendCore 是唯一接收方），
             //   「全念」走 ChatView 的 assistantLandedToken（自动朗读的触发点）。
             //   两者都只在 ChatView **在视图树里**才生效；而智慧球在任意 tab 都在，
             //   用户在会话/看板/生活页长按球进来说话，不切页就会「消息静默消失 + 一句也不念」。
-            if selected != .chat || showSessionHome { skipBurstOnce() }
+            let switching = selected != .chat || showSessionHome
+            if switching { skipBurstOnce() }
             selected = .chat
             // v4.0.86：从会话首页进来也要切到对话页（showSessionHome=false）——
             // 全念/发送两条命脉都挂在 ChatView 上，停着首页=ChatView 不在树（同 case 0/2 根因）。
             showSessionHome = false
-            showVoiceDialog = true
+            if switching {
+                // 同批改 selected + showVoiceDialog 会被 onChange(selected) 里的
+                // `if showVoiceDialog { showVoiceDialog = false }` 吞掉 → 推下一拍再拉页。
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(60))
+                    showVoiceDialog = true
+                }
+            } else {
+                showVoiceDialog = true
+            }
         case 6:   // 会话纪要（v4.0.x 新胶囊）
             // v4.0.115：口径与实现收进 openMinutesPage（工作台工具格是第二个入口，两个入口共用一份）。
             openMinutesPage()
@@ -1838,6 +1848,23 @@ extension DockTabView {
                 // 已在聊天页就别跳过烟花（与 case 0/2/4 同一条理由：白置标志会吞掉紧接着的真点击烟花）
                 if selected != .chat { skipBurstOnce() }
                 selected = .chat
+            }
+            // v4.1.x：聊天页 header「打电话给 Hermes」—— 与长按球 case 5 同一套前置：
+            // 先把聊天页切进视图树（发送/全念两条命脉都挂在 ChatView 上），再拉起通话页。
+            .onReceive(NotificationCenter.default.publisher(for: .qingliaoOpenCall)) { _ in
+                let switching = selected != .chat || showSessionHome
+                if switching { skipBurstOnce() }
+                selected = .chat
+                showSessionHome = false
+                if switching {
+                    // 同批改 selected + showVoiceDialog 会被 onChange(selected) 收页吞掉。
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(60))
+                        showVoiceDialog = true
+                    }
+                } else {
+                    showVoiceDialog = true
+                }
             }
             // v4.0.x：快捷指令 / Siri 的「打开轻聊…」动作（intent 走前台模式 + 进程内投递到这一层）。
             // 🚨 这段**必须**是独立 ViewModifier，不能在 body 巨型链上直接挂两个带闭包的修饰符：

@@ -129,6 +129,109 @@ _ = sd.handle(.tick(at(2.0)), now: at(2.0))          // → sending
 check("等回复时退出 → 关麦 + ended",
       sd.handle(.stop, now: at(3.0)) == .closeMic && sd.phase == .ended)
 
+// ── ⑬ 全双工：朗读期间插话（v4.1.x 打电话）─────────────────────
+var fd = VoiceDialogEngine()
+fd.fullDuplex = true
+_ = fd.handle(.start, now: t0)
+_ = fd.handle(.heard("帮我查一下"), now: t0)
+_ = fd.handle(.tick(at(2.0)), now: at(2.0))          // → sending
+check("全双工：开始朗读时重开麦清缓冲（不是只 openMic）",
+      fd.handle(.speechStarted, now: at(3.0)) == .restartMic && fd.phase == .speaking)
+check("全双工：AI 自己的话被回声闸门丢弃",
+      fd.handle(.heardDuringSpeech("今天收盘六十八块", spoken: "今天收盘六十八块四"),
+                now: at(3.4)) == .none
+      && fd.draft.isEmpty && fd.phase == .speaking)
+check("全双工：用户插话 → 停朗读并进入收音",
+      fd.handle(.heardDuringSpeech("等等先别说了", spoken: "今天收盘六十八块四"),
+                now: at(4.0)) == .interruptAndListen
+      && fd.phase == .listening && fd.draft == "等等先别说了")
+check("全双工：插话后继续说话仍剥掉 AI 前缀",
+      fd.handle(.heard("今天收盘六十八块四等等先别说了再说一句"),
+                now: at(4.4)) == .none
+      && fd.draft == "等等先别说了再说一句")
+check("全双工：带当前已念全文时能剥掉残余朗读",
+      fd.handle(.heardWithSpoken("今天收盘六十八块四毛二等等先别说了",
+                                spoken: "今天收盘六十八块四毛二"),
+                now: at(4.5)) == .none
+      && fd.draft == "等等先别说了")
+check("全双工：插话 1.9 秒还不发",
+      fd.handle(.tick(at(5.9)), now: at(5.9)) == .none)
+check("全双工：插话满 2 秒自动发",
+      fd.handle(.tick(at(6.5)), now: at(6.5)) == .sendNow("等等先别说了"))
+check("全双工：下一轮朗读仍重开麦、念完再重开麦清缓冲",
+      fd.handle(.speechStarted, now: at(7.0)) == .restartMic
+      && fd.handle(.speechEnded, now: at(9.0)) == .restartMic
+      && fd.rounds == 1)
+check("全双工：迟到的下一段起播仍能接管（不丢段、不裸麦）",
+      fd.handle(.speechSegmentStarted, now: at(10.0)) == .restartMic
+      && fd.phase == .speaking)
+
+// 收音态普通 speechStarted（手动朗读/推送朗读）不能推进阶段；只有续段事件才行
+var fs = VoiceDialogEngine()
+fs.fullDuplex = true
+_ = fs.handle(.start, now: t0)
+check("全双工：收音态普通 speechStarted 不推进（防手动/推送朗读误判）",
+      fs.handle(.speechStarted, now: at(1.0)) == .none && fs.phase == .listening)
+check("全双工：只有 speechSegmentStarted 才接管续段",
+      fs.handle(.speechSegmentStarted, now: at(1.1)) == .restartMic
+      && fs.phase == .speaking)
+
+// 全双工防误触：起播噪声 / 少字语气词都不能打断正常回答
+var fn = VoiceDialogEngine()
+fn.fullDuplex = true
+_ = fn.handle(.start, now: t0)
+_ = fn.handle(.heard("你好"), now: t0)
+_ = fn.handle(.tick(at(2.0)), now: at(2.0))
+_ = fn.handle(.speechStarted, now: at(3.0))
+check("全双工：TTS 还没念出字时，噪声不算插话",
+      fn.handle(.heardDuringSpeech("嗯", spoken: ""), now: at(3.2)) == .none
+      && fn.phase == .speaking)
+check("全双工：1~2 个字的语气词不打断",
+      fn.handle(.heardDuringSpeech("停", spoken: "今天收盘六十八块四"),
+                now: at(3.3)) == .none
+      && fn.phase == .speaking)
+check("全双工：3 个字以上才允许插话",
+      fn.handle(.heardDuringSpeech("停一下", spoken: "今天收盘六十八块四"),
+                now: at(3.4)) == .interruptAndListen
+      && fn.phase == .listening)
+check("结束幂等：第二次 stop 不再重复关麦",
+      fn.handle(.stop, now: at(4.0)) == .closeMic
+      && fn.handle(.stop, now: at(4.1)) == .none)
+
+// 半双工必须保持原口径：朗读期间听到的内容一律丢弃
+var hd = VoiceDialogEngine()
+_ = hd.handle(.start, now: t0)
+_ = hd.handle(.heard("半双工这句"), now: t0)
+_ = hd.handle(.tick(at(2.0)), now: at(2.0))
+_ = hd.handle(.speechStarted, now: at(3.0))
+check("半双工：朗读期间听到内容仍被丢弃（不能改成插话）",
+      hd.handle(.heardDuringSpeech("插话", spoken: "")) == .none
+      && hd.draft.isEmpty && hd.phase == .speaking)
+check("半双工：念完仍然只开麦（不重开清缓冲）",
+      hd.handle(.speechEnded, now: at(5.0)) == .openMic)
+
+// 回声闸门（纯函数）
+check("回声闸门：已念文本的开头 → 回声",
+      CallEchoGate.isEcho("今天收盘六十八块", spoken: "今天收盘六十八块四毛二"))
+check("回声闸门：只听到已念文本的尾巴也算回声（麦开晚了 / 数字被改写）",
+      CallEchoGate.isEcho("八块四", spoken: "今天收盘六十八块四毛二"))
+check("回声闸门：中间词重合不算回声（真实插话：别订机票）",
+      !CallEchoGate.isEcho("别订机票", spoken: "我现在帮你订机票"))
+check("回声闸门：标点空格不影响判定",
+      CallEchoGate.isEcho("今天收盘 六十八块四！", spoken: "今天收盘六十八块四毛二"))
+check("回声闸门：真插话不判回声",
+      !CallEchoGate.isEcho("等等先别说了", spoken: "今天收盘六十八块四毛二"))
+check("回声闸门：已念文本还是空时不拦（还没开口就插话）",
+      !CallEchoGate.isEcho("等一下", spoken: ""))
+check("回声剥离：AI 前缀 + 用户插话 → 只留用户那截",
+      CallEchoGate.userPart("今天收盘六十八块四等等先别说了",
+                            spoken: "今天收盘六十八块四毛二") == "等等先别说了")
+check("回声剥离：纯用户话原样保留",
+      CallEchoGate.userPart("等等先别说了", spoken: "今天收盘六十八块四毛二") == "等等先别说了")
+check("回声剥离：整段回声 → 空串",
+      CallEchoGate.userPart("今天收盘六十八块四毛二",
+                            spoken: "今天收盘六十八块四毛二").isEmpty)
+
 if fail == 0 {
     print("🎉 语音对话轮次真值表全部通过（\(pass) 条）")
 } else {

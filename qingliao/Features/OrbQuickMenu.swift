@@ -50,7 +50,7 @@ struct OrbQuickAction: Identifiable {
         OrbQuickAction(id: 3, title: "今日待办", icon: "checklist", color: .orange),
         // 中排（v3.9.76 的「上排」——抬视线才用 → 「看」与「说」两个入口 + 原语音输入）
         OrbQuickAction(id: 4, title: "AI 识别", icon: "text.viewfinder", color: .teal),
-        OrbQuickAction(id: 5, title: "语音对话", icon: "waveform.circle.fill", color: .indigo),
+        OrbQuickAction(id: 5, title: "打电话", icon: "phone.fill", color: .green),
         OrbQuickAction(id: 2, title: "语音输入", icon: "mic.fill", color: .pink),
         // 最上排（v4.0.x 新增，2 颗**居中**：列 ∓0.5 → x = 球心 ∓59）
         // 图标取 SF Symbols 里既有的「清单卡」与「取景器」形态，与上两排同一套细线风格

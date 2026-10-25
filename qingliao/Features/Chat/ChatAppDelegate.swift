@@ -30,6 +30,9 @@ extension Notification.Name {
     // v4.0.1：分享接收（ShareIntake，在 Core 层摸不到 DockTabView 的 selected）投递前，
     // 先请宿主把聊天页切进视图树 —— 载荷的落点全是 ChatView 挂的 onReceive，人不在就落空。
     static let qingliaoOpenChat = Notification.Name("qingliao_open_chat")
+    // v4.1.x：聊天页 header 的「打电话给 Hermes」入口 —— ChatView 摸不到 DockTabView 的
+    // showVoiceDialog，用通知请宿主切到聊天页并拉起通话页（与 .qingliaoOrbVoiceInput 同风格）。
+    static let qingliaoOpenCall = Notification.Name("qingliao_open_call")
 }
 
 // MARK: - v2.0.60 通知点击直达会话（AppDelegate 捕获通知点击 → 存 sessionId）

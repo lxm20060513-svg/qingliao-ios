@@ -184,6 +184,15 @@ private final class AudioTapFeeder: @unchecked Sendable {
 // MARK: - 转写器
 
 /// 设备端实时语音转写（边说边出字；音频不出设备）
+/// 音频会话策略（v4.1.x 通话全双工）
+/// - `.standard`：录音自己管会话（`.record` → 收尾恢复 `.playback`），现有语音输入/语音对话走这条。
+/// - `.call`：会话由 `CallAudioSession` 全程持有（`.playAndRecord + .voiceChat`），本类
+///   只挂 tap，**不许再改类别**，收尾也不许停用会话。
+enum LiveSpeechAudioPolicy: Equatable {
+    case standard
+    case call
+}
+
 @MainActor
 final class LiveSpeechTranscriber: ObservableObject {
     /// 当前完整文本（= 进入语音模式前输入框内容 + 已定稿 + 正在识别的 volatile 尾巴）
@@ -253,6 +262,8 @@ final class LiveSpeechTranscriber: ObservableObject {
     private var stopTask: Task<String, Never>?
 
     private var baseline = ""        // 进入语音模式前输入框已有内容
+    /// v4.1.x：本次录音的音频会话归属（见 LiveSpeechAudioPolicy）。
+    private var audioPolicy: LiveSpeechAudioPolicy = .standard
     private var finalizedText = ""   // 已定稿分段
     private var volatileText = ""    // 正在识别的尾段（会被后续结果替换）
 
@@ -333,9 +344,10 @@ final class LiveSpeechTranscriber: ObservableObject {
 
     /// 开始实时转写
     /// - Parameter baseline: 进入语音模式时输入框已有内容（实时文本会接在它后面）
+    /// - Parameter policy: 音频会话归属。通话页传 `.call`，其余一律默认 `.standard`。
     /// - Returns: 是否成功启动
     @discardableResult
-    func start(baseline: String) async -> Bool {
+    func start(baseline: String, policy: LiveSpeechAudioPolicy = .standard) async -> Bool {
         // ⚠️ 准备期必须挡住重入：首次要下模型（数秒~数十秒），期间用户再长按一次会走第二次 start()，
         // 而 AVFoundation 规定**一个 bus 只能挂一个 tap**（官方文档），第二次 installTap 会抛异常。
         // isRunning 直到最后才置 true，所以这里必须同时看 isPreparing。
@@ -348,6 +360,9 @@ final class LiveSpeechTranscriber: ObservableObject {
             return false
         }
         cancelRequested = false
+        // 通话页持有 .playAndRecord + .voiceChat 期间，**任何**转写器都不许再切类别
+        // （聊天页语音输入 / 会议纪要的实例默认都是 .standard，光靠调用方传 policy 挡不住）。
+        audioPolicy = SpeechManager.shared.callAudioActive ? .call : policy
         isPreparing = true
         defer { isPreparing = false }
         self.baseline = baseline
@@ -414,9 +429,13 @@ final class LiveSpeechTranscriber: ObservableObject {
 
             // 音频会话：沿用旧 VoiceRecorder 的最简基线（.record + .default）——
             // v3.0.85 引入 .voiceChat 后卡死、v3.1.4 的 .playAndRecord 也有问题，这里不再尝试那些
-            let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.record, mode: .default)
-            try session.setActive(true)
+            // v4.1.x：只有 `.call` 策略例外——通话页已由 CallAudioSession 激活
+            // `.playAndRecord + .voiceChat` 并全程持有，这里**不许再改类别**。
+            if audioPolicy == .standard {
+                let session = AVAudioSession.sharedInstance()
+                try session.setCategory(.record, mode: .default)
+                try session.setActive(true)
+            }
 
             let input = engine.inputNode
             let inputFormat = input.outputFormat(forBus: 0)
@@ -611,9 +630,12 @@ final class LiveSpeechTranscriber: ObservableObject {
         if engine.isRunning { engine.stop() }
         feeder.invalidate()
         analyzer = nil
-        let session = AVAudioSession.sharedInstance()
-        try? session.setCategory(.playback, mode: .default)
-        try? session.setActive(false, options: .notifyOthersOnDeactivation)
+        if audioPolicy == .standard && !SpeechManager.shared.callAudioActive {
+            let session = AVAudioSession.sharedInstance()
+            try? session.setCategory(.playback, mode: .default)
+            try? session.setActive(false, options: .notifyOthersOnDeactivation)
+        }
+        audioPolicy = .standard
         isRunning = false
     }
 }

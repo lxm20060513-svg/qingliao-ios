@@ -142,6 +142,7 @@ final class StreamClient {
     /// `hasStreamingSpeech` = 当前已由分段队列接管（防落库边沿重复整段朗读）。
     static var streamTTSInbox: Bool {
         UserDefaults.standard.bool(forKey: "qingliao_auto_read_reply")
+            || SpeechManager.shared.callForceRead
     }
 
     /// v4.0.120：**本流已被撤销/关掉的条目**——差集之外的第二道闸门。

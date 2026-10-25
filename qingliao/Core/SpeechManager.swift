@@ -46,6 +46,13 @@ final class SpeechManager: NSObject, ObservableObject, AVSpeechSynthesizerDelega
                            AVAudioPlayerDelegate {
     static let shared = SpeechManager()
     @Published var speakingID: String?
+    /// v4.1.x 通话全双工：为 true 时**不许再切音频类别**（会话由 CallAudioSession 持有）。
+    /// 由通话页在进入/退出时置位；其余路径默认 false，行为完全不变。
+    var callAudioActive = false
+    /// v4.1.x：通话页的「全念」开关（进程内，不写 UserDefaults）。
+    /// 之前通话页直接改 `@AppStorage("qingliao_auto_read_reply")`，进程被杀就来不及还原，
+    /// 用户关掉的自动朗读会永久变开 —— 现在只在本进程内生效。
+    var callForceRead = false
     /// v3.5.x：本次朗读是否降级到系统语音（云端 TTS 不可用——如额度用尽 429）。
     /// 用于气泡上显示「系统」小字，避免用户以为「朗读没反应/没声音」。
     @Published private(set) var cloudDegraded = false
@@ -234,7 +241,8 @@ final class SpeechManager: NSObject, ObservableObject, AVSpeechSynthesizerDelega
         if player?.isPlaying == true {
             player?.stop()
             // 打断播放中的云端音频 → 一并停用会话（否则 playback 会话残留）
-            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+            // v4.1.x：统一走 releasePlaybackSession（通话全双工下它自己会跳过）。
+            releasePlaybackSession()
         }
         player = nil
         speakingID = nil
@@ -316,9 +324,21 @@ final class SpeechManager: NSObject, ObservableObject, AVSpeechSynthesizerDelega
     /// （speakingID 已置位）却听不到任何声音，即线上报的「TTS 播放无声音」。.playback 类别无视静音
     /// 拨片，两套引擎都先走这里，回退路径也一定出声。
     private func activatePlaybackSession() {
+        // v4.1.x：通话全双工期间会话归 CallAudioSession 管（.playAndRecord + .voiceChat），
+        // 这里再切 .playback 会把录音掐掉 → 直接沿用现有会话。
+        if callAudioActive { return }
         let session = AVAudioSession.sharedInstance()
         try? session.setCategory(.playback, mode: .default)
         try? session.setActive(true)
+    }
+
+    /// v4.1.x：释放朗读会话的**唯一出口**。通话全双工期间会话归 CallAudioSession 管，
+    /// 任何一处朗读收尾（stop / 系统播毕 / 云端播毕 / ticker 判死）都不许 setActive(false)——
+    /// 否则麦克风被静默掐断，而 `.call` 模式的录音器不会再 setActive(true)，
+    /// 真机表现就是「AI 念完这一轮后，再说话没反应」。
+    private func releasePlaybackSession() {
+        guard !callAudioActive else { return }
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 
     // MARK: - 系统引擎（原逻辑）
@@ -737,7 +757,8 @@ final class SpeechManager: NSObject, ObservableObject, AVSpeechSynthesizerDelega
                         self.streamCloudSegmentFinished()
                     }
                     // v3.5.x：系统语音播毕也回收播放会话（与云端播毕路径对齐，不长期占用音频焦点）
-                    try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+                    // v4.1.x：走统一出口（通话中跳过）。
+                    self.releasePlaybackSession()
                 }
             }
         }
@@ -766,7 +787,7 @@ final class SpeechManager: NSObject, ObservableObject, AVSpeechSynthesizerDelega
             // 只看 player，而 player 刚被置 nil，于是它 0.08s 一拍一直空转到进程结束（单例，永不回收）。
             self.stopCloudTicker()
             self.progress.charCount = self.progress.text.count   // 收尾补足到全文，否则永远差最后一字
-            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+            self.releasePlaybackSession()                        // v4.1.x：通话中跳过（会话归通话页）
         }
     }
 }
@@ -822,7 +843,7 @@ extension SpeechManager {
                         PetSpeechDrive.shared.clear()   // v4.0.39：判死收尾同样要闭嘴
                         // v4.0.x 流式分段朗读：判死收尾即放行 FIFO 下一段（与自然播完同口径）
                         self.streamCloudSegmentFinished()
-                        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+                        self.releasePlaybackSession()   // v4.1.x：通话中跳过（会话归通话页）
                     }
                     return
                 }
