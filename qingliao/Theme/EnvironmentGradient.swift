@@ -32,9 +32,7 @@ enum EnvironmentGradient {
     ///   减薄后 ultraThinMaterial 的模糊 + 页底三团光晕会透成色块，才有「玻璃后面有东西」的观感。
     ///   ⚠️ 可读性底线：文字仍在 material 之上；若真机觉得字发飘，只回调这一个数（0.38→0.44）。
     static func cardGlassFill(_ scheme: ColorScheme) -> Color {
-        scheme == .dark
-            ? Color(red: 30 / 255, green: 30 / 255, blue: 40 / 255).opacity(0.50)
-            : Color.white.opacity(0.38)
+        Glass27.fill(scheme)   // v4.0.161：数值收进 Glass27（iOS 27 口径唯一调参面板）
     }
 
     /// v4.0.153：**密集 / 气泡 / 气泡内卡**共用的「实一档」白度。
@@ -42,9 +40,7 @@ enum EnvironmentGradient {
     /// （常规 0.38 会与气泡玻璃融成一片，边界只剩 0.8pt 细线）。
     /// 档位仍收在主题层 —— 调用点只能选档（`dense: true/false`），不许再写死第二个白度数字。
     static func cardGlassFillDense(_ scheme: ColorScheme) -> Color {
-        scheme == .dark
-            ? Color(red: 30 / 255, green: 30 / 255, blue: 40 / 255).opacity(0.60)
-            : Color.white.opacity(0.55)
+        Glass27.denseFill(scheme)   // v4.0.161：同上一处，只选档不写数
     }
 
     /// 1pt **渐变厚边**（稿 gradbd：135° 左上高光 → 右下渐隐）——方案3 的视觉主角，
@@ -54,32 +50,25 @@ enum EnvironmentGradient {
     ///   用户反馈整站「没有玻璃」，根因就是这圈边不够亮、卡浮不起来。厚边是自绘玻璃**唯一**的立体来源，
     ///   27 的玻璃更亮，自绘卡必须跟着亮，否则和系统控件不是一套语言。
     static func cardEdgeGradient(_ scheme: ColorScheme) -> LinearGradient {
-        scheme == .dark
-            ? LinearGradient(colors: [Color.white.opacity(0.40), Color.white.opacity(0.03)],
-                             startPoint: .topLeading, endPoint: .bottomTrailing)
-            : LinearGradient(colors: [Color.white.opacity(0.98), Color.black.opacity(0.10)],
-                             startPoint: .topLeading, endPoint: .bottomTrailing)
+        Glass27.edge(scheme)
     }
 
     /// 顶部**内高光**（稿 inset 0 1px 0）：只亮上缘，纵向 30% 处归零 —— 玻璃「光从上打下来」的暗示。
     /// v4.0.152 曾压到 0.50 / 0.08；v4.0.153（用户「玻璃感加回来」）加回并更强（浅 0.72 / 深 0.14），
     ///   衰减点 22%→30%：高光带更宽才像玻璃的**漫反射**，窄条只会像一道描边。
     static func cardTopHighlight(_ scheme: ColorScheme) -> LinearGradient {
-        LinearGradient(colors: [Color.white.opacity(scheme == .dark ? 0.14 : 0.72), .clear],
-                       startPoint: .top, endPoint: UnitPoint(x: 0.5, y: 0.30))
+        Glass27.topHighlight(scheme)
     }
 
     /// v4.0.153：卡面**内侧暗边**（贴外圈亮边再往里 1.2pt）——「外亮内暗」才有玻璃厚度，
     /// 只有一圈亮边时会像贴纸/描边。浅色很轻（0.08），深色靠它收住卡面（0.30）。
     static func cardInnerShade(_ scheme: ColorScheme) -> Color {
-        scheme == .dark ? Color.black.opacity(0.30) : Color.black.opacity(0.08)
+        Glass27.innerShade(scheme)
     }
 
     /// 玻璃卡柔影（稿 cardshadow 0 8px 22px）：浅 黑 0.10 / 深 黑 0.60（深色提亮页底后必须加重影才浮得起来）。
     static func cardShadow(scheme: ColorScheme) -> (color: Color, radius: CGFloat, y: CGFloat) {
-        scheme == .dark
-            ? (Color.black.opacity(0.60), 22, 8)
-            : (Color.black.opacity(0.10), 22, 8)
+        Glass27.shadow(scheme)
     }
 
     /// 页底兜底色（稿 page）：浅 #FAFAFC（微偏冷中性，不是纯白）/ 深 #12121A（提亮带色，不是纯黑）。

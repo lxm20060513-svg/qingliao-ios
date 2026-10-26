@@ -184,8 +184,18 @@ check("⑤ 主题源可读", !themeSrc.isEmpty)
 // v4.0.81 方案3：卡底口径整块换玻璃面（cardGlassFill）。断言**意图不变** —— 深色卡面必须是
 // 「专门调过的暗调色」，不是把浅色白面掉透明度糊上去；只把取值跟到新真源（dark = 30/30/40 @0.62）。
 // v4.0.153：用户「整个 UI 缺少玻璃感」→ 叠层减薄，深色档 0.62→0.50（仍是专门暗调色，不是拿浅色降透明度）
-check("⑤ 深色卡面走专门暗调（不是简单调透明度；cardGlassFill dark = 30/30/40 @0.50）",
-      themeSrc.contains("Color(red: 30 / 255, green: 30 / 255, blue: 40 / 255).opacity(0.50)"))
+// 🔁 v4.0.161（iOS 27 口径）：数值整块搬进 `Theme/Glass27.swift`（唯一调参面板），EnvironmentGradient 只转发。
+//    深色 30,30,40@0.50 → 44,44,58@0.50 —— iOS 27 深色玻璃整体更亮，自绘卡不提亮就跟系统控件不是一套语言。
+//    ⚠️ 本条断言的**意图不变**（深色必须是专门调的暗调色、不是浅色降透明度），只是换了真源文件与新取值。
+let glass27Src = src("qingliao/Theme/Glass27.swift")
+check("⑤ 卡面数值唯一真源存在（Theme/Glass27.swift 可读）", !glass27Src.isEmpty)
+check("⑤ 深色卡面走专门暗调（不是简单调透明度；Glass27 dark = 44/44/58 @0.50）",
+      glass27Src.contains("Color(red: 44 / 255, green: 44 / 255, blue: 58 / 255).opacity(0.50)"))
+check("⑤ EnvironmentGradient 只转发 Glass27（卡面色值不许再写死在语义层）",
+      stripCommentLines(themeSrc).contains("Glass27.fill(scheme)")
+      && stripCommentLines(themeSrc).contains("Glass27.edge(scheme)")
+      && stripCommentLines(themeSrc).contains("Glass27.shadow(scheme)")
+      && !stripCommentLines(themeSrc).contains("Color(red: 30 / 255, green: 30 / 255, blue: 40 / 255)"))
 check("⑤ 页底三团光晕齐（桃粉/天蓝/薄荷各一团）",
       occ(themeSrc, "GlowBlob(tint:") == 3)
 // 🚨 原写法 `!themeSrc.contains("opacity: 0.4")` 是弱断言（把 0.38 改成 0.42/0.55/0.9 照样绿）。
