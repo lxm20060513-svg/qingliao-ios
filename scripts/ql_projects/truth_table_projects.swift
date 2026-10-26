@@ -145,8 +145,8 @@ check("产物行：图片走 ArtifactThumbnail，其余仍走图标 badge",
       && ws.contains("badge(iconName(f.name), tint: .accentColor)"))
 check("产物行不自己写扩展名表（单一真源 RemoteFiles.imageExts）",
       !ws.contains("\"png\", \"jpg\"") && !ws.contains("case \"heic\""))
-check("缩略图走 auth.downloadFile（自动带 X-Auth-Token / WiFi·蜂窝分流）",
-      thumbSrc.contains("try await auth.downloadFile(path)"))
+check("缩略图走 auth.downloadFile（自动带 X-Auth-Token / WiFi·蜂窝直连，自动路径关 relay 免弹窗）",
+      thumbSrc.contains("try await auth.downloadFile(path, allowRelay: false)"))
 check("🚫 不用 AsyncImage 拼下载口（塞不进 header = 真机全灰）",
       !thumbSrc.contains("AsyncImage") && !thumbSrc.contains("/api/files/download"))
 // v4.0.149：缩略图改成 ImageIO 增量解码（原口径是 UIImage(data:) 全量解码后再缩，注释写着

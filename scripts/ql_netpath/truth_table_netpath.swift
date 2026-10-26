@@ -49,7 +49,7 @@ func body(_ text: String, from sig: String) -> String {
 }
 
 // ── ② downloadFile：蜂窝必须直连优先（本表核心） ───────────────
-let dl = body(auth, from: "func downloadFile(_ path: String) async throws -> (Data, Int) {")
+let dl = body(auth, from: "func downloadFile(_ path: String, allowRelay: Bool = true) async throws -> (Data, Int) {")
 check("② downloadFile 函数体切出来了（切不出 = 下面断言全是空真）", dl.count > 200)
 check("② 蜂窝分支先走直连 relay.directRequest（CFStream，免授权弹窗）",
       dl.contains("relay.directRequest("))
@@ -66,6 +66,25 @@ check("② 假 401 走**直连重试一次**，不降级 relay 弹窗（v4.0.60 
 check("② WiFi 分支仍走 directHTTP（别把 WiFi 也拖下水）",
       dl.contains("guard NetworkMonitor.shared.isCellular else")
       && dl.contains("directHTTP(method: \"GET\""))
+
+// ── ②b 自动路径闸门 allowRelay（v4.0.162：切到工作台必弹登录框的根因） ──────
+// 自动路径 = 页面一出现就自己跑的下载（产物缩略图/后台预取）。它们若降级 relay，
+// 每张图弹一次 ASWAS 系统授权窗 → 用户看到「每次切到工作台都弹登录框」。
+check("② 缺省仍允许 relay（用户主动点的下载/预览行为不变）",
+      auth.contains("func downloadFile(_ path: String, allowRelay: Bool = true)"))
+check("② 闸门在 relay.relay 之前（挪到后面 = 弹完窗再判，等于没拦）",
+      dl.range(of: "guard allowRelay else") != nil
+      && dl.range(of: "relay.relay(") != nil
+      && dl.range(of: "guard allowRelay else")!.lowerBound < dl.range(of: "relay.relay(")!.lowerBound)
+check("② 关掉 relay 时如实失败（不许静默返回空 Data 当成功）",
+      dl.contains("if let directError { throw directError }")
+      && dl.contains("throw result.1 > 0 ? APIError.server(result.1) : APIError.badResponse"))
+check("② 真 401 走统一收敛点（markSessionExpired），自动路径不会「永远空图且无横幅」",
+      dl.contains("markSessionExpired()") && dl.contains("throw APIError.unauthorized")
+      && dl.range(of: "markSessionExpired()")!.lowerBound < dl.range(of: "relay.relay(")!.lowerBound)
+let thumb = code(src("qingliao/Features/Workspace/ArtifactThumbnail.swift"))
+check("② 产物缩略图（自动路径）显式关 relay",
+      thumb.contains("downloadFile(path, allowRelay: false)"))
 
 // ── ③ relay 的性质没被误解（它不是直连） ────────────────────────
 check("③ relay 仍走 ASWAS（弹窗通道），没被悄悄改成直连",

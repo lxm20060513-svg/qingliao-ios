@@ -6,8 +6,12 @@ import ImageIO
 /// 用户 2026-10-21：「顺便给产物库加图片缩略图（现在只有文件名）」。
 ///
 /// 为什么不用系统那套纯 URL 图片加载：产物库下载口要 `X-Auth-Token`，它塞不进自定义 header。
-/// 统一走 `auth.downloadFile`（WiFi 直连 / 蜂窝 relay 自适应、自动带 token、自签证书兜底）——
-/// 和 FilesManagerKit 的预览、聊天气泡下载同一条通路，不再另开一套。
+/// 统一走 `auth.downloadFile(allowRelay: false)`（WiFi 直连 / 蜂窝 CFStream 直连、自动带 token、自签证书兜底）——
+/// 和 FilesManagerKit / 云盘浏览器的「用户主动点开」下载同一条底层通路，但**网络策略不同**：
+/// 那两处缺省 `allowRelay: true`（点了就值得弹一次窗），本组件是自动路径，必须关掉。
+/// 🚨 **必须 allowRelay: false**（v4.0.162）：缩略图是「页面一出现就自己跑」的自动路径，
+/// 蜂窝下直连不通时若降级 relay = 每张图弹一次系统授权窗（用户实报「每次切到工作台都弹登录框」）。
+/// 自动路径失败就显示占位图，等连 WiFi / 重进页面再取。
 ///
 /// 三条口径（真值表钉死）：
 /// 1. **只给图片**：调用方用 `RemoteFiles.imageExts` 判定，非图片仍走图标 `badge`；
@@ -61,7 +65,7 @@ struct ArtifactThumbnail: View {
         }
         guard !path.isEmpty else { failed = true; return }
         do {
-            let (data, code) = try await auth.downloadFile(path)
+            let (data, code) = try await auth.downloadFile(path, allowRelay: false)
             guard (200..<300).contains(code), let thumb = Self.downsample(data, to: size * 3) else {
                 failed = true
                 return

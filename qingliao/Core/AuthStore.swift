@@ -442,7 +442,11 @@ final class AuthStore {
     /// 后果：蜂窝下「下载 / 预览」必然表现成「弹窗 → 慢 → 失败」，同一台手机切 WiFi 立刻正常
     /// （WiFi 走 directHTTP）。relay 通道历史记录里也被判定「只产弹窗不产结果」
     /// （约 37h nginx 日志中 relay 载荷请求 0 条）。v4.0.60 统一网络口径时漏了本方法。
-    func downloadFile(_ path: String) async throws -> (Data, Int) {
+    /// - Parameter allowRelay: **自动路径必须传 false**（产物缩略图、后台预取这类「页面一出现就自己跑」的下载）。
+    ///   relay = ASWebAuthenticationSession，每次调用必弹系统授权窗；自动路径弹窗纯扰民
+    ///   （v4.0.60「自动/后台路径不弹窗」口径；v4.0.162 用户实报「每次切到工作台都弹登录框」= 产物缩略图
+    ///   在蜂窝下逐个降级 relay 导致）。用户主动点的下载/预览保持缺省 true。
+    func downloadFile(_ path: String, allowRelay: Bool = true) async throws -> (Data, Int) {
         guard NetworkMonitor.shared.isCellular else {
             return try await directHTTP(method: "GET", path: path,
                                         headers: ["X-Auth-Token": token], body: nil)
@@ -464,6 +468,18 @@ final class AuthStore {
             }
         }
         if directError == nil, (200..<300).contains(result.1) { return result }
+        // 真 401（假 401 已在上一步直连重试过）→ 走全局统一收敛点，别让自动路径静默失败到「永远空图」
+        // （口径同 request() / pushSnapshot：置 sessionExpired 让横幅出来，token 留给 logout() 清）
+        if directError == nil, result.1 == 401 {
+            markSessionExpired()
+            throw APIError.unauthorized
+        }
+        // 🚨 闸门必须在 relay.relay 之前：自动路径直连失败就如实失败，调用方降级成占位图/跳过。
+        guard allowRelay else {
+            if let directError { throw directError }
+            // result.1 可能为 0（CFStream 响应缺状态行时 StreamHTTPClient 不抛错、直接回 0）
+            throw result.1 > 0 ? APIError.server(result.1) : APIError.badResponse
+        }
         // 直连真不通才降级 relay：下载/预览是用户主动点的，弹一次窗可接受（写操作同性质）
         return try await relay.relay(method: "GET", path: path, headers: headers,
                                      body: nil, timeout: 30)
