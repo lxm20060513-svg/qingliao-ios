@@ -704,6 +704,12 @@ extension ChatInputBar {
                                                       ? ChatInputBarLayout.frostHazeDark
                                                       : ChatInputBarLayout.frostHazeLight))
                     }
+                    // v4.0.163（iOS 27 P1）：顶部内高光带（纵向 30% 归零）。垫在内容**下面**而不是盖上去，
+                    // 否则 0.72 白会糊掉占位符顶部一行字。
+                    .overlay {
+                        RoundedRectangle(cornerRadius: ChatInputBarLayout.containerCornerRadius, style: .continuous)
+                            .fill(Glass27.topHighlight(scheme))
+                    }
             }
             // v2.0.87e：原生液态玻璃输入栏（iOS 26+）
             // v3.9.62：玻璃形状 Capsule → 14pt 档圆角矩形（Radius.field，输入框档）。
@@ -720,6 +726,19 @@ extension ChatInputBar {
             // v4.0.61：走无障碍玻璃出口（容器本体无描边 —— 聚焦蓝边是下面独立的 overlay，保持不动）
             .a11yGlass(.regular, in: RoundedRectangle(cornerRadius: ChatInputBarLayout.containerCornerRadius, style: .continuous),
                        stroke: .clear)
+            // v4.0.163（iOS 27 P1）：27 靠**边线**起形，不再靠投影 —— 1.2pt 上亮下暗渐变边，
+            // 再内缩 1.2pt 补一条 0.8pt 内侧暗边（外亮内暗才有厚度）。两条都是静态描边，无逐帧重绘。
+            .overlay {
+                RoundedRectangle(cornerRadius: ChatInputBarLayout.containerCornerRadius, style: .continuous)
+                    .strokeBorder(Glass27.edge(scheme), lineWidth: Glass27.edgeWidth)
+                    .allowsHitTesting(false)
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: ChatInputBarLayout.containerCornerRadius, style: .continuous)
+                    .strokeBorder(Glass27.innerShade(scheme), lineWidth: 0.8)
+                    .padding(Glass27.edgeWidth)
+                    .allowsHitTesting(false)
+            }
             // v3.4.20：聚焦态光晕——输入框获得焦点时边缘亮起淡蓝细描边（0.8pt 与全站描边同参），失焦淡出。
             // 静态描边（非每帧重绘），无 shadow 叠加，不触碰 v3.2.3 渲染卡死红线。
             .overlay {

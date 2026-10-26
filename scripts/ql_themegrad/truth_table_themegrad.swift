@@ -423,5 +423,53 @@ check("⑨ 旧淡彩真源清零（Features 下 pastelCardStyle / pastelShadow �
       oldPastel.isEmpty
       && !envClean.contains("func pastelCardStyle") && !envClean.contains("func pastelShadow"))
 
+// MARK: - ⑩ iOS 27 P1 结构层（v4.0.163：dock / 页头 / 输入栏三件同批）
+
+let dockBarSrc = stripCommentLines(src("qingliao/Features/DockPagingBar.swift"))
+let inputChromeSrc = stripCommentLines(src("qingliao/Features/Chat/ChatInputBar.swift"))
+let headerSrc = stripCommentLines(src("qingliao/Theme/LiquidGlass.swift"))
+let wsSrc = stripCommentLines(src("qingliao/Features/Workspace/WorkspaceView.swift"))
+let lifeSrc = stripCommentLines(src("qingliao/Features/Life/LifeView.swift"))
+let dashSrc = stripCommentLines(src("qingliao/Features/Dashboard/DashboardView.swift"))
+
+check("⑩ 条状件影单源：Glass27.barShadow = r8/y3（浅 0.13 / 深 0.50）",
+      glass27Src.contains("(Color.black.opacity(0.50), 8, 3)")
+      && glass27Src.contains("(Color.black.opacity(0.13), 8, 3)"))
+check("⑩ 选中底按 27 变深：浅 0.28 / 深 0.40（退回 0.12 = 26 的形）",
+      glass27Src.contains("scheme == .dark ? 0.40 : 0.28")
+      && !dockBarSrc.contains("Color.accentColor.opacity(0.12)"))
+check("⑩ 页头收窄字号与进/出双阈值收在 Glass27（20pt / 60 / 8），页面里不许散写魔法数",
+      glass27Src.contains("static let compactTitleSize: CGFloat = 20")
+      && glass27Src.contains("static let compactEnterOffset: CGFloat = 60")
+      && glass27Src.contains("static let compactExitOffset: CGFloat = 8")
+      && !wsSrc.contains("y > 60") && !lifeSrc.contains("y > 60") && !dashSrc.contains("y > 60"))
+
+check("⑩ dock 边线走 27 口径（1.2pt 渐变边 + 内缩内侧暗边），旧 0.8 单色描边清零",
+      dockBarSrc.contains("Glass27.edge(scheme), lineWidth: Glass27.edgeWidth")
+      && dockBarSrc.contains("Glass27.innerShade(scheme), lineWidth: 0.8")
+      && !dockBarSrc.contains("Color.white.opacity(0.14) : Color.black.opacity(0.08)"))
+check("⑩ dock 选中胶囊走单源 + 补 0.8pt 同色细线",
+      dockBarSrc.contains("Glass27.tabSelectionFill(scheme)")
+      && dockBarSrc.contains("Glass27.tabSelectionStroke(scheme), lineWidth: 0.8"))
+check("⑩ 输入栏 27 三件齐：渐变边 / 内侧暗边 / 顶部高光（高光垫在内容下，不许盖字）",
+      inputChromeSrc.contains("Glass27.edge(scheme), lineWidth: Glass27.edgeWidth")
+      && inputChromeSrc.contains("Glass27.innerShade(scheme), lineWidth: 0.8")
+      && inputChromeSrc.components(separatedBy: "Glass27.topHighlight(scheme)").count - 1 == 1)
+check("⑩ PageHeader 有 compact 档且默认 false（不传的页面逐字不变）",
+      headerSrc.contains("var compact: Bool = false")
+      && headerSrc.contains("compact ? Glass27.compactTitleSize : Typography.titleXL")
+      && headerSrc.contains("if let subtitle, !compact"))
+check("⑩ 三个 safeAreaBar 宿主都接了收窄驱动（缺一页 = 那页永远展开）",
+      wsSrc.contains("compact: headerCompact") && wsSrc.contains("onScrollGeometryChange")
+      && lifeSrc.contains("compact: headerCompact") && lifeSrc.contains("onScrollGeometryChange")
+      && dashSrc.contains("compact: headerCompact") && dashSrc.contains("onScrollGeometryChange"))
+check("⑩ 收窄投影取三档 Int（滞回）；裸 offset 每帧回调、单阈值会自激，两种都不许",
+      wsSrc.contains("onScrollGeometryChange(for: Int.self)")
+      && lifeSrc.contains("onScrollGeometryChange(for: Int.self)")
+      && dashSrc.contains("onScrollGeometryChange(for: Int.self)")
+      && !wsSrc.contains("onScrollGeometryChange(for: CGFloat.self)")
+      && !lifeSrc.contains("onScrollGeometryChange(for: CGFloat.self)")
+      && !dashSrc.contains("onScrollGeometryChange(for: CGFloat.self)"))
+
 print("通过 \(passCount) / 失败 \(failCount)")
 if failCount > 0 { exit(1) }

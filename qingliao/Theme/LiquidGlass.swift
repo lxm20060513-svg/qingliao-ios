@@ -493,12 +493,16 @@ struct PageHeader: View {
     var statusColor: Color = .green
     // v3.5.1：AI 正在输入态（微信式）——subtitle 位置显示「AI 正在输入…」+ 三点呼吸，替代状态点
     var busy: Bool = false
+    /// v4.0.163（iOS 27 P1）：滚动收窄档。true 时标题降到 20pt、副标题让位、底部收一条 0.5pt 细线。
+    /// 只由宿主的滚动几何驱动（见各 tab 页的 onScrollGeometryChange），默认 false 时与旧版逐字一致。
+    var compact: Bool = false
 
     /// 显式 init：避免复杂调用处 memberwise init 推断导致类型检查超时
     init(title: String, subtitle: String? = nil, trailing: AnyView? = nil,
          leading: AnyView? = nil,
          centerView: AnyView? = nil,
-         showStatus: Bool = false, statusColor: Color = .green, busy: Bool = false) {
+         showStatus: Bool = false, statusColor: Color = .green, busy: Bool = false,
+         compact: Bool = false) {
         self.title = title
         self.leading = leading
         self.subtitle = subtitle
@@ -507,6 +511,7 @@ struct PageHeader: View {
         self.showStatus = showStatus
         self.statusColor = statusColor
         self.busy = busy
+        self.compact = compact
     }
 
     var body: some View {
@@ -517,12 +522,14 @@ struct PageHeader: View {
                     Spacer().frame(width: 6)   // v4.0.81：返回键与标题的固定间距（不靠 HStack 默认 spacing）
                 }
                 Text(title)
-                    .font(.system(size: Typography.titleXL, weight: .bold))
+                    .font(.system(size: compact ? Glass27.compactTitleSize : Typography.titleXL, weight: .bold))
                     .accessibilityAddTraits(.isHeader)   // v3.9.19：VoiceOver 转子按标题跳转
+                    // 收窄只改字号，不改字重/颜色：切换一瞬不闪，滚动停下也不抖。
+                    .animation(nil, value: compact)
                 Spacer()
                 if let trailing { trailing }
             }
-            if let subtitle {
+            if let subtitle, !compact {
                 HStack(spacing: 5) {
                     if busy {
                         // v3.5.1：AI 正在输入（三点呼吸，仅 opacity 动画——守 v3.2.3 渲染红线）
@@ -538,7 +545,16 @@ struct PageHeader: View {
         }
         .padding(.horizontal, Spacing.pageInset)
         .padding(.top, Spacing.sm)
-        .padding(.bottom, Spacing.md)
+        .padding(.bottom, compact ? Spacing.sm : Spacing.md)
+        // 收窄档补一条 0.5pt 底边线：27 的页头靠边线起形，光收字号在浅色页底上仍然「没有形」。
+        .overlay(alignment: .bottom) {
+            if compact {
+                Rectangle()
+                    .fill(Color.primary.opacity(0.10))
+                    .frame(height: 0.5)
+                    .allowsHitTesting(false)
+            }
+        }
         // v4.0.31：标题行正中的宠物（纯叠加，不参与布局、不改 header 高度）
         .overlay(alignment: .center) {
             if let centerView { centerView }

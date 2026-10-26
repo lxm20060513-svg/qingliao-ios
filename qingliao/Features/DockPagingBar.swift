@@ -133,7 +133,11 @@ struct DockPagingBar: View {
                 .background {
                     if selected == tab {
                         Capsule()
-                            .fill(Color.accentColor.opacity(0.12))
+                            .fill(Glass27.tabSelectionFill(scheme))
+                            // v4.0.163：0.8pt 同色细线定形（27 选中底变深后，只靠淡底读不出边界）。
+                            .overlay {
+                                Capsule().strokeBorder(Glass27.tabSelectionStroke(scheme), lineWidth: 0.8)
+                            }
                             // v4.0.133（用户「dock 上的 tap 跟着页面滑动时候有点生硬」）：
                             // 胶囊用 matchedGeometry 在新旧档位间**整块滑过去**；点按路径外层
                             // withAnimation(Motion.page) 驱动，跟手滑页路径由下面 HStack 的
@@ -162,7 +166,9 @@ struct DockPagingBar: View {
         .clipShape(Capsule())
         .overlay { glassEdge }
         // v4.0.132：双层影收成**单层柔影**（磨砂方案 A：浮起来即可，不再追求玻璃的「厚度感」）
-        .shadow(color: .black.opacity(scheme == .dark ? 0.32 : 0.10), radius: 16, x: 0, y: 6)
+        // v4.0.163（iOS 27 P1）：r16/y6 → r8/y3（Glass27.barShadow），影只负责「离页底一点」，
+        // 起形交给上面那圈边线；半径不跟着收，条状件在 27 的明确边线旁边会像糊了一层雾。
+        .shadow(color: barShadow.color, radius: barShadow.radius, x: 0, y: barShadow.y)
         .frame(height: 62)
         .padding(.horizontal, Self.outerPadding)
         .padding(.bottom, Self.bottomGap)
@@ -189,13 +195,21 @@ struct DockPagingBar: View {
         .saturation(0.92)
     }
 
-    /// 边缘：0.8pt **单色**淡描边（浅色黑 0.08 / 深色白 0.14）——
-    /// 只负责把磨砂条从近白页底上勾出来，不再做三段渐变的「倒角厚度」。
+    /// 边缘：v4.0.163 起按 27 口径**靠边线起形** —— 1.2pt 上亮下暗渐变边 + 内缩 1.2pt 的内侧暗边，
+    /// 取代 26 那版 0.8pt 单色淡描边（只把条从近白页底上勾出来，起不到「有形」的作用）。
+    /// 条状件影的单源出口（避免一处挂三遍函数调用；取值在 Glass27）。
+    private var barShadow: (color: Color, radius: CGFloat, y: CGFloat) { Glass27.barShadow(scheme) }
+
     private var glassEdge: some View {
-        Capsule().strokeBorder(
-            scheme == .dark ? Color.white.opacity(0.14) : Color.black.opacity(0.08),
-            lineWidth: 0.8
-        )
+        // v4.0.163（iOS 27 P1）：0.8pt 单色描边 → 1.2pt 上亮下暗渐变边 + 内缩 1.2pt 的内侧暗边。
+        // 27 靠边线起形，磨砂条保留（用户 2026-10-25 定的「磨砂」不退回玻璃），只把边做明确。
+        Capsule()
+            .strokeBorder(Glass27.edge(scheme), lineWidth: Glass27.edgeWidth)
+            .overlay {
+                Capsule()
+                    .strokeBorder(Glass27.innerShade(scheme), lineWidth: 0.8)
+                    .padding(Glass27.edgeWidth)
+            }
     }
 }
 

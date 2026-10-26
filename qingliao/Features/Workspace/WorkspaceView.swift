@@ -69,6 +69,8 @@ struct WorkspaceView: View {
     @Environment(ChatStore.self) private var chat
     /// 页底环境渐变用（与生活 / 看板页同款：浅深各一套，`EnvironmentGlowLayers` 自带兜底色）
     @Environment(\.colorScheme) private var colorSchemeEnv
+    /// v4.0.163（iOS 27 P1）：页头滚动收窄开关，由 body 里的滚动几何驱动（只在跨阈值时翻）。
+    @State private var headerCompact = false
 
     /// 产物根别名（后端 `QL_EXTRA_ROOTS` 的别名，勿改成绝对路径）
     /// v4.0.114（用户「AI 生产的其他产物也要加到产物里」）：**单根 → 双根**。
@@ -236,9 +238,20 @@ struct WorkspaceView: View {
         // 页头：挂系统 `safeAreaBar`（滚动时内容在页头下沿走系统级模糊/渐隐），与生活页 / 看板页同款。
         // 口径见文件头「视觉口径」第 1 条；自绘标题行已整块退役，别再往滚动内容里塞回一行标题。
         // v4.0.109：右上「任务中心」胶囊已删（用户要求）——`PageHeader` 的 trailing 传空即可，别补别的按钮。
+        // v4.0.163（iOS 27 P1）：滚动几何驱动页头收窄。
+        // 🚨 投影取 **三档 Int**，不是裸 offset 的 Bool：收窄会让页头变矮、滚动区 inset 跟着缩，
+        //    裸阈值会在「收起 → offset 回落 → 又展开」之间自激（滚动停下时标题来回跳）。
+        //    60 以上收、8 以下才放，中间 8~60 保持现状 —— 天然滞回，且只在跨档时写一次 @State。
+        .onScrollGeometryChange(for: Int.self) { geo in
+            let y = geo.contentOffset.y
+            return y > Glass27.compactEnterOffset ? 2 : (y < Glass27.compactExitOffset ? 0 : 1)
+        } action: { _, zone in
+            if zone == 2 { headerCompact = true } else if zone == 0 { headerCompact = false }
+        }
         .safeAreaBar(edge: .top) {
             PageHeader(title: "工作台",
-                       subtitle: "AI 替我干的活 · 产物 \(visibleFiles.count) 个")
+                       subtitle: "AI 替我干的活 · 产物 \(visibleFiles.count) 个",
+                       compact: headerCompact)
         }
         // 页底：与聊天 / 会话 / 生活 / 看板 / 设置五页同源同法。纯视觉层：垫在整页最底层、
         // 卡片玻璃透出彩底；不改布局、不拦手势。

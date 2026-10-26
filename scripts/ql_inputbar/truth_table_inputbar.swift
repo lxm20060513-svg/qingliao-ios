@@ -170,8 +170,10 @@ check("圆角常量 20 → 26（v4.0.136 悬浮胶囊，明确数值规格，不
       inputBarSrc.contains("static let containerCornerRadius: CGFloat = 26"))
 // v4.0.141：磨砂底 + 白雾 overlay 也走同一常量 → 4 → **6**（仍是"一处常量、不散落魔法数"的口径，
 // 只把计数跟着新几何一起抬，别把它当回退）。
-check("六处同形全部引用 containerCornerRadius（玻璃/蓝边/白边/流光 + 磨砂底/白雾）",
-      inputBarSrc.components(separatedBy: "cornerRadius: ChatInputBarLayout.containerCornerRadius").count - 1 == 6)
+// v4.0.163（iOS 27 P1）：27 边线起形 → 再加三件同形 overlay（顶部高光带 + 1.2pt 渐变边 + 内缩内侧暗边）→ **9**。
+// 计数抬档的原因是「又多了两个同形件」，不是常量被复制；魔法数一个没进调用点。
+check("九处同形全部引用 containerCornerRadius（玻璃/蓝边/白边/流光 + 磨砂底/白雾 + 27 高光/渐变边/内侧暗边）",
+      inputBarSrc.components(separatedBy: "cornerRadius: ChatInputBarLayout.containerCornerRadius").count - 1 == 9)
 // 平坦段断言与算式镜像统一放在第 5 节（flatTopCollapsedMirror / flatTopMirror）——
 // 顶层代码顺序执行，此处引用后面的 let 会「cannot find ... in scope」。
 
@@ -361,8 +363,8 @@ check("流光旧形态清零：流光本体不用 Capsule().fill(",
       !inputBarSrc.contains("Capsule().fill("))
 // 四处同盘互证：玻璃/聚焦蓝边/常态白边/流光使用同一个圆角常量，四处计数都 > 0
 // v3.9.65：四处引用从 Radius.card 换成 containerCornerRadius，计数口径同步换串。
-check("六处同形：容器圆弧全部引用 containerCornerRadius（玻璃/蓝边/白边/流光 + 磨砂底/白雾，v4.0.141）",
-      inputBarSrc.components(separatedBy: "cornerRadius: ChatInputBarLayout.containerCornerRadius").count - 1 == 6)
+check("九处同形：容器圆弧全部引用 containerCornerRadius（玻璃/蓝边/白边/流光 + 磨砂底/白雾 + 27 高光/渐变边/内侧暗边）",
+      inputBarSrc.components(separatedBy: "cornerRadius: ChatInputBarLayout.containerCornerRadius").count - 1 == 9)
 // 排除式：fullInputBar 体内不得再出现容器级 Capsule。
 // ⚠️ 只排除「容器形态」串：发送/停止/附件钮的 `in: Capsule()` 是按钮级胶囊，属既定口径不动。
 check("fullInputBar 及折叠分组内没有容器级 Capsule 描边/玻璃（按钮级 in: Capsule() 不在此列）",

@@ -22,6 +22,8 @@ struct LifeView: View {
 
     @State private var life = LifeCardsData()
     @State private var lifeLoading = false
+    /// v4.0.163（iOS 27 P1）：页头滚动收窄（同工作台页，滚动几何在 body 里驱动）。
+    @State private var headerCompact = false
     /// v4.0.69（用户报「博客资讯的刷新胶囊点击无法强制刷新」）：排队中的「用户点刷新」标记。
     /// 与 `loadLife(queued:)` 配套 —— 在途时点击不再被静默丢弃，而是排队补发；这个标记防重复排队叠请求。
     @State private var freshQueued = false
@@ -144,8 +146,18 @@ struct LifeView: View {
             // 而不是「自绘头 + 内容在下面硬切」。系统会替它处理安全区与边缘效果。
             // ⚠️ 本页是**唯一试点**：会话/看板等页暂不动，真机看过观感合适再推广；
             //    不合适就整段回退 —— 删掉这个 .safeAreaBar 块、在 VStack 第一行恢复 PageHeader(...) 即可。
+            // v4.0.163（iOS 27 P1）：滚动几何驱动页头收窄。
+            // 🚨 投影取 **三档 Int**，不是裸 offset 的 Bool：收窄会让页头变矮、滚动区 inset 跟着缩，
+            //    裸阈值会在「收起 → offset 回落 → 又展开」之间自激（滚动停下时标题来回跳）。
+            //    60 以上收、8 以下才放，中间 8~60 保持现状 —— 天然滞回，且只在跨档时写一次 @State。
+            .onScrollGeometryChange(for: Int.self) { geo in
+                let y = geo.contentOffset.y
+                return y > Glass27.compactEnterOffset ? 2 : (y < Glass27.compactExitOffset ? 0 : 1)
+            } action: { _, zone in
+                if zone == 2 { headerCompact = true } else if zone == 0 { headerCompact = false }
+            }
             .safeAreaBar(edge: .top) {
-                PageHeader(title: "生活", subtitle: "行情 · 资讯 · 快递 · 价格")
+                PageHeader(title: "生活", subtitle: "行情 · 资讯 · 快递 · 价格", compact: headerCompact)
             }
         }
         // 🚨 v4.0.77：备忘录三个毛玻璃浮层挂**整页最外层**（用户实报「点卡片只在现有卡片大小内弹，

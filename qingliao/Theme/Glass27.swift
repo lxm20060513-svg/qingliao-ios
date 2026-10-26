@@ -79,4 +79,34 @@ enum Glass27 {
             ? (Color.black.opacity(0.48), 18, 6)
             : (Color.black.opacity(0.07), 18, 6)
     }
+
+    // MARK: - ⑥ 条状件（dock 条 / 输入栏）
+
+    /// 条比卡片更贴：半径收到 8、y 3。27 靠边线起形，条状件再挂 r18 会糊成一团雾。
+    static func barShadow(_ scheme: ColorScheme) -> (color: Color, radius: CGFloat, y: CGFloat) {
+        scheme == .dark
+            ? (Color.black.opacity(0.50), 8, 3)
+            : (Color.black.opacity(0.13), 8, 3)
+    }
+
+    /// tab / dock 选中底：27 起**选中底变深**（浅 0.12 → 0.28 / 深 0.22 → 0.40），
+    /// 再补 0.8pt 同色细线定形 —— 只靠淡底在 27 的明确边线旁边会读作「没选中」。
+    static func tabSelectionFill(_ scheme: ColorScheme) -> Color {
+        Color.accentColor.opacity(scheme == .dark ? 0.40 : 0.28)
+    }
+
+    static func tabSelectionStroke(_ scheme: ColorScheme) -> Color {
+        Color.accentColor.opacity(scheme == .dark ? 0.42 : 0.26)
+    }
+
+    // MARK: - ⑦ 页头滚动收窄
+
+    /// 滚动过阈值后标题 24 → 20、副标题让位（对应系统 toolbarMinimizeBehavior 的观感）。
+    static let compactTitleSize: CGFloat = 20
+
+    /// 进/出双阈值（滞回）：60 以上收、8 以下才放，中间 8~60 保持现状。
+    /// 🚨 不能只用一个阈值：收窄会把页头变矮、滚动区 inset 跟着缩，单阈值会在
+    ///    「收起 → offset 回落 → 又展开」之间自激（滚动停下时标题来回跳）。
+    static let compactEnterOffset: CGFloat = 60
+    static let compactExitOffset: CGFloat = 8
 }

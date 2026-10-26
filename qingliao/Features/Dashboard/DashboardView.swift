@@ -25,6 +25,8 @@ struct DashboardView: View {
     @Environment(\.horizontalSizeClass) private var hSizeBoard
 
     @State private var nas = NASStatus()
+    /// v4.0.163（iOS 27 P1）：页头滚动收窄（同工作台 / 生活页，滚动几何在 body 里驱动）。
+    @State private var headerCompact = false
     // v3.0.36：模型使用量栏（/api/nas/providers-usage）
     @State private var providerUsages: [ProviderUsage] = []
     @State private var usageError = ""
@@ -158,6 +160,16 @@ struct DashboardView: View {
             // v4.0.62：滚边玻璃（`safeAreaBar`）推广 —— 页头从 VStack 第一行改挂在滚动视图上，
             // 滚动时内容在页头下沿走系统级模糊/渐隐（同生活页 v4.0.61 试点形态，逐字同款）。
             // 回退：删掉本块、在 VStack 第一行恢复 PageHeader(...) 即可。
+            // v4.0.163（iOS 27 P1）：滚动几何驱动页头收窄。
+            // 🚨 投影取 **三档 Int**，不是裸 offset 的 Bool：收窄会让页头变矮、滚动区 inset 跟着缩，
+            //    裸阈值会在「收起 → offset 回落 → 又展开」之间自激（滚动停下时标题来回跳）。
+            //    60 以上收、8 以下才放，中间 8~60 保持现状 —— 天然滞回，且只在跨档时写一次 @State。
+            .onScrollGeometryChange(for: Int.self) { geo in
+                let y = geo.contentOffset.y
+                return y > Glass27.compactEnterOffset ? 2 : (y < Glass27.compactExitOffset ? 0 : 1)
+            } action: { _, zone in
+                if zone == 2 { headerCompact = true } else if zone == 0 { headerCompact = false }
+            }
             .safeAreaBar(edge: .top) {
                 // v2.0.87u：右上角天气（小图标 + 温度）
                 // v3.9.25：本地模式此前点徽章**完全没反应**（纯展示），本次补入口 → 天气弹窗
@@ -171,7 +183,8 @@ struct DashboardView: View {
                             .buttonStyle(PressStyle(scale: 0.94))
                             .matchedTransitionSource(id: DashboardSheet.weather.id, in: sheetZoomNS)   // v3.9.25：徽章 → 天气弹窗 zoom
                             .accessibilityLabel("查看天气")
-                           ))
+                           ),
+                           compact: headerCompact)
             }
             .modifier(DashboardScrollChrome(host: self))
             .modifier(DashboardDialogChrome(host: self))
