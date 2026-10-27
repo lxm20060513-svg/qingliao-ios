@@ -1,4 +1,16 @@
 import SwiftUI
+import Observation
+
+/// v4.0.166：看板栏目拖动会话（@Observable）。
+/// 为什么不用 View 的 @State：拖动时 offsetY 每帧变一次，@State 会让**整页 body**（12 张玻璃卡）
+/// 每帧重算。搬进独立对象后，`.offset(y: s.card == card ? s.offsetY : 0)` 的三元短路让
+/// **只有被拖那张卡**依赖 offsetY，其余卡每帧零重算（card 变化时各失效一次，属必要）。
+@MainActor
+@Observable
+final class DashboardDragSession {
+    var card: BoardCard?
+    var offsetY: CGFloat = 0
+}
 
 // MARK: - 看板页（智能家居 2x3 可控制 + NAS 2x3 + 磁盘弹出式）
 
@@ -58,8 +70,8 @@ struct DashboardView: View {
     @AppStorage(BoardCardStore.hiddenKey) private var hiddenCardsRaw = ""
     @State private var showCardEditor = false
     // v4.0.20：长按拖动排序的在途状态（落位几何全在 BoardCardOrder，这里只存 UI 状态）
-    @State private var dragCard: BoardCard?                         // 正在被拖的栏目（nil = 没在拖）
-    @State private var dragOffsetY: CGFloat = 0                     // 拖拽中的竖直位移（视觉反馈）
+    // v4.0.166：拖动状态搬进 @Observable（见 DashboardDragSession 注释）
+    @State private var dragSession = DashboardDragSession()
     @State private var sectionHeights: [BoardCard: CGFloat] = [:]   // 各栏目实测高度（落位几何要用）
 
     /// 完整顺序（含被隐藏的栏目）。归一化口径收在 BoardCardOrder.resolve（真值表直接编它）。
@@ -1261,7 +1273,7 @@ struct DashboardView: View {
             Spacer(minLength: 0)
             Image(systemName: "line.3.horizontal")
                 .font(.system(size: Typography.caption, weight: .semibold))
-                .foregroundStyle(dragCard == card ? Color.accentColor : Color.secondary.opacity(0.5))
+                .foregroundStyle(dragSession.card == card ? Color.accentColor : Color.secondary.opacity(0.5))
         }
         .padding(.top, Spacing.sm)
         .contentShape(Rectangle())   // 整行都可长按（不只盯着那两个字）
@@ -1277,18 +1289,18 @@ struct DashboardView: View {
             .sequenced(before: DragGesture(minimumDistance: 2))
             .onChanged { value in
                 guard case .second(true, let drag) = value else { return }
-                if dragCard != card {
-                    withAnimation(Motion.snap) { dragCard = card; dragOffsetY = 0 }
+                if dragSession.card != card {
+                    withAnimation(Motion.snap) { dragSession.card = card; dragSession.offsetY = 0 }
                     Haptics.tap()
                 }
-                dragOffsetY = drag?.translation.height ?? 0
+                dragSession.offsetY = drag?.translation.height ?? 0
             }
             .onEnded { value in
-                guard dragCard == card else { dragCard = nil; dragOffsetY = 0; return }
+                guard dragSession.card == card else { dragSession.card = nil; dragSession.offsetY = 0; return }
                 var dy: CGFloat = 0
                 if case .second(true, let drag?) = value { dy = drag.translation.height }
-                dragCard = nil
-                dragOffsetY = 0
+                dragSession.card = nil
+                dragSession.offsetY = 0
                 // 手指按住没动（位移 < 阈值）→ 不算拖动，松手不换位
                 guard BoardCardOrder.isRealDrag(dx: 0, dy: Double(dy)),
                       let from = visibleCards.firstIndex(of: card) else { return }
@@ -1582,10 +1594,11 @@ extension DashboardView {
                     sectionHeights[card] = h
                 }
             }
-            .offset(y: dragCard == card ? dragOffsetY : 0)
-            .scaleEffect(dragCard == card ? 1.01 : 1)
-            .shadow(color: .black.opacity(dragCard == card ? 0.16 : 0), radius: 14, y: 6)
-            .zIndex(dragCard == card ? 1 : 0)
+            // 🚨 只有被拖那张卡会读到 offsetY（三元短路），其余卡每帧不失效 —— 别把 offsetY 提成局部常量
+            .offset(y: dragSession.card == card ? dragSession.offsetY : 0)
+            .scaleEffect(dragSession.card == card ? 1.01 : 1)
+            .shadow(color: .black.opacity(dragSession.card == card ? 0.16 : 0), radius: 14, y: 6)
+            .zIndex(dragSession.card == card ? 1 : 0)
     }
 
     @MainActor

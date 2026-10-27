@@ -1,4 +1,5 @@
 import SwiftUI
+import Observation
 import QuickLook
 import CoreLocation
 import PhotosUI
@@ -172,7 +173,7 @@ struct ChatView: View {
     @State var showCompressReport = false
     @State var compressReportText = ""
     @State var pendingSend: (text: String, imageData: String?)?
-    @State var showAttachmentMenu = false
+    @State private var attachPanel = AttachmentPanelState()
     // v2.0.96：Hermes 捷径面板（官方斜杠命令）
     @State var showHermesShortcut = false
     // v4.0.x：浏览器实时画面弹窗（watch 直播）
@@ -865,10 +866,10 @@ struct ChatView: View {
                      interjectNote: interjectNote,
                      onPickAttachment: {
                          // v3.9.30：面板=大块浮现 → 展开走 emerge（带轻微回弹）；收起保持 settle 不带回弹
-                         if showAttachmentMenu {
-                             withAnimation(Motion.settle) { showAttachmentMenu = false }
+                         if attachPanel.isOpen {
+                             withAnimation(Motion.settle) { attachPanel.isOpen = false }
                          } else {
-                             withAnimation(Motion.emerge) { showAttachmentMenu = true }
+                             withAnimation(Motion.emerge) { attachPanel.isOpen = true }
                          }
                      },
                      onCamera: {
@@ -1010,7 +1011,12 @@ struct ChatView: View {
     /// v2.0.96b：发牌弹出效果（每个按钮依次从底部弹出 + 回弹）
     @ViewBuilder
     private var attachmentMenuBar: some View {
-        if showAttachmentMenu {
+        AttachmentPanelSlot(state: attachPanel) { attachmentPanelContent }
+    }
+
+    /// 面板本体：不含 if（可见性由 Slot 读 isOpen 决定）
+    @ViewBuilder
+    private var attachmentPanelContent: some View {
             HStack(spacing: 26) {
                 menuButton("photo.on.rectangle", "图片", Color.blue, idx: 0) { showPhotoPicker = true }
                 menuButton("doc.fill", "文件", Color.indigo, idx: 1) { showFileImporter = true }
@@ -1028,7 +1034,6 @@ struct ChatView: View {
                 .strokeBorder(Color.white.opacity(Tint.subtle), lineWidth: 0.8))
             .padding(.horizontal, Spacing.xl)
             .transition(.move(edge: .bottom).combined(with: .opacity))
-        }
     }
 
     /// 引用回复条（发送后自动清除）
@@ -1469,7 +1474,7 @@ struct ChatView: View {
         .sheet(isPresented: $showQuickPrompts) {
             AnyView(QuickPromptSheet(onPick: { prompt in
                 setInputText(prompt)
-                showAttachmentMenu = false
+                attachPanel.isOpen = false
             }, includeKB: true)   // v3.9.28：知识库恒显示（原按云端/本地分流，云端已移除）
             .presentationDetents([.medium, .large])
             )
@@ -1515,7 +1520,7 @@ struct ChatView: View {
         .sheet(isPresented: $showHermesShortcut) {
             AnyView(HermesShortcutSheet { cmd in
                 setInputText(cmd)
-                showAttachmentMenu = false
+                attachPanel.isOpen = false
             }
             .presentationDetents([.medium, .large])
             .scrollContentBackground(.hidden)
@@ -5459,7 +5464,7 @@ struct ChatView: View {
                             action: @escaping () -> Void) -> some View {
         DealAttachmentButton(icon: icon, name: name, color: color, idx: idx,
                              onPick: {
-                                 withAnimation(Motion.settle) { showAttachmentMenu = false }   // v3.9.0：令牌收口
+                                 withAnimation(Motion.settle) { attachPanel.isOpen = false }   // v3.9.0：令牌收口
                                  action()
                              })
     }
@@ -6076,3 +6081,27 @@ private struct StreamScrollFollower: View {
             }
     }
 }
+
+// MARK: - v4.0.166 附件面板状态（放在文件末尾：ql_typestack ③″ 以「第一个 var body」切段，
+// 放文件顶部会让切片从本组件的 body 起、把 ChatView.body 的 51 条链算进来 → 假红）
+
+/// v4.0.166：附件面板开合状态（@Observable 独立对象）。
+/// 为什么不用 ChatView 的 @State：@State 一写就让**持有它的 ChatView.body** 整页重算
+/// （消息列表 + 全部浮层 + 二十多条 onChange），长会话展开面板会卡一下。
+/// 现在只有 `AttachmentPanelSlot` 读 isOpen，写入只失效那一层。
+@Observable
+private final class AttachmentPanelState {
+    var isOpen = false
+}
+
+/// v4.0.166：附件面板槽位 —— 读 `isOpen` 的只有这一层。
+/// ChatView.body 不读该状态，展开/收起只让本槽位重算，不再让整页（消息列表 + 全部浮层）重算。
+private struct AttachmentPanelSlot<Content: View>: View {
+    let state: AttachmentPanelState
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        if state.isOpen { content() }
+    }
+}
+

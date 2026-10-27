@@ -226,9 +226,17 @@ check("每块栏目量高：onGeometryChange 排在 .offset 之前",
       dashFlat.contains(".onGeometryChange(for:CGFloat.self){$0.size.height}action:{hin")
         || dashFlat.contains("sectionHeights[card]=h"))
 check("🚨 拖动中视觉反馈：位移 + 放大 + 阴影三件（别只位移）",
-      dashFlat.contains(".offset(y:dragCard==card?dragOffsetY:0)")
-        && dashFlat.contains(".scaleEffect(dragCard==card?1.01:1)")
-        && dashFlat.contains(".shadow(color:.black.opacity(dragCard==card?0.16:0),radius:14,y:6)"))
+      dashFlat.contains(".offset(y:dragSession.card==card?dragSession.offsetY:0)")
+        && dashFlat.contains(".scaleEffect(dragSession.card==card?1.01:1)")
+        && dashFlat.contains(".shadow(color:.black.opacity(dragSession.card==card?0.16:0),radius:14,y:6)"))
+// v4.0.166：拖动位移必须留在 @Observable 会话里（三元短路 → 只有被拖卡每帧重算）。
+// 回退成 View 的 @State(dragOffsetY) = 拖动时 12 张玻璃卡逐帧整页重算，且编译与其它断言全绿。
+check("🚨 拖动位移不进 View 的 @State（@Observable 会话 + 三元短路）",
+      dashFlat.contains("finalclassDashboardDragSession")
+        && !stripCommentLines(dash).contains("@State private var dragOffsetY"))
+check("拖动会话持有 card + offsetY（单一真源，不许退回两个 @State）",
+      flat(fnBody("final class DashboardDragSession", stripCommentLines(dash))).contains("varcard:BoardCard?")
+        && flat(fnBody("final class DashboardDragSession", stripCommentLines(dash))).contains("varoffsetY:CGFloat=0"))
 check("拖拽手势 = 长按 + 拖动序列手势，门槛取常量",
       dashFlat.contains("LongPressGesture(minimumDuration:BoardCardOrder.longPressSeconds)")
         && dashFlat.contains(".sequenced(before:DragGesture(minimumDistance:2))"))
