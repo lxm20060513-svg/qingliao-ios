@@ -1628,11 +1628,18 @@ struct SessionRow: View {
         return [palettes[idx][0].opacity(0.75), palettes[idx][1].opacity(0.55)]
     }
 
-    /// 6 个语义图标（纯视觉映射，非关键词解析——hash 稳定即可）
-    private var avatarIcon: String {
-        let icons = ["bubble.left.fill", "text.bubble.fill", "chevron.left.forwardslash.chevron.right",
-                     "sparkles", "lightbulb.fill", "book.fill"]
-        return icons[abs(avatarHash >> 3) % icons.count]
+    /// v4.0.164（用户 2026-10-27「每条会话头像改为文字，跟进行中的项目类似」）：
+    /// 头像正文 = **会话标题首字**（与工作台「进行项目」的文字头像同一口径：首字 + 稳定配色）。
+    /// 为什么换掉原来的 6 个语义图标：图标只有 6 种，会话一多整列长得一模一样，扫视定位不了；
+    /// 首字来自用户自己起的标题 / 首条消息，一眼就能认出是哪条。
+    /// 取字规则：跳过开头空白与标点/符号，取第一个「字母或数字」；纯表情/符号标题退回首个字符。
+    private var avatarText: String {
+        let t = session.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if t.isEmpty { return "新" }
+        if let c = t.first(where: { $0.isLetter || $0.isNumber }) {
+            return String(c).uppercased()
+        }
+        return String(t.prefix(1))
     }
 
     private var avatarHash: Int {
@@ -1649,9 +1656,12 @@ struct SessionRow: View {
                 RoundedRectangle(cornerRadius: Radius.inset, style: .continuous)
                     .fill(LinearGradient(colors: avatarColors,
                                          startPoint: .topLeading, endPoint: .bottomTrailing))
-                Image(systemName: avatarIcon)
-                    .font(.system(size: Typography.body, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.92))
+                // v4.0.164：首字头像（原来这里是 SF Symbol —— 6 个图标无法区分会话）
+                Text(avatarText)
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.95))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
             }
             .frame(width: 38, height: 38)
 

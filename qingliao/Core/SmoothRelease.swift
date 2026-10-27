@@ -25,6 +25,14 @@ enum SmoothRelease {
         backlog > 60 ? 4 : (backlog > 20 ? 2 : 1)
     }
 
+    /// v4.0.164：单 tick 释放步长（**UTF-8 字节口径**）。
+    /// 为什么另开一个字节口径：平滑层的积压现在存在 `pendingRelease` 字符串里，
+    /// `utf8.count` 是 O(1)，而 `String.count` 要遍历字素（13 万字 ≈2.8ms，20 次/秒就是主线程杀手）。
+    /// 档位与字符口径等价换算：汉字 3 字节 → 60 字节 ≈ 20 字、180 字节 ≈ 60 字（与 `step(backlog:)` 同档）。
+    static func step(backlogBytes: Int) -> Int {
+        backlogBytes > 180 ? 4 : (backlogBytes > 60 ? 2 : 1)
+    }
+
     /// 本 tick 应显示的前缀长度（字符口径，与 String.count 一致）
     static func nextLength(smoothedCount: Int, contentCount: Int) -> Int {
         guard smoothedCount < contentCount else { return smoothedCount }

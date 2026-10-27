@@ -1993,5 +1993,13 @@ case "$IFCHAIN" in
   *) echo "❌ 修饰符挂在 if/else 语句上（SwiftUI 编译不过，只有 Archive 报）→ 收进 @ViewBuilder 计算属性："; echo "$IFCHAIN"; fail=1 ;;
 esac
 
+echo "=== 107. 流式/打字卡顿真值表（v4.0.164 · 每 tick 代价 O(全文) → O(增量/固定窗口)）==="
+# 真机取证（4.0.163 的 dSYM 符号化）：卡顿栈落在 StreamClient.startSmooth（String.distance / count / prefix）
+# 与 PetAvatar.body / PetPainter.drawDot。本表钉死五条不再回退的实现形状：
+#   ① displayContent 命中缓存（无标记时连 contains 都不做）  ② 平滑层整数游标 + 尾部增量
+#   ③ ChatView 不再读 stream.content（只在空↔非空翻转时失效） ④ 流式气泡只处理尾部窗口  ⑤ 光晕 15fps
+run_unit6 /tmp/test_streamperf scripts/ql_streamperf/truth_table_streamperf.swift | tee /tmp/tt_streamperf.log
+grep -q '失败 0' /tmp/tt_streamperf.log || fail=1   # 本表输出是「通过 N / 失败 0」（口径与其它表不同，别再照抄 '0 失败'）
+
 [ $fail -eq 0 ] || { echo "❌ 有护栏失守"; exit 1; }
 exit 0

@@ -92,10 +92,20 @@ check("SessionRow 有 running 参数（默认 false = 老调用点不受影响�
 check("右列存在 running 分支（} else if running {）", row.contains("} else if running {"))
 check("RunningDot() 在 running 分支里被用上", row.contains("RunningDot()"))
 
+// ── 5b. 会话头像 = 标题首字（v4.0.164，用户 2026-10-27：与工作台「进行项目」的文字头像同口径）
+//     换掉原来的「8 色 × 6 图标」：图标只有 6 种，会话一多整列长得一样，扫视定位不了。
+let avatarBody = slice(row, "private var avatarText: String {", "private var avatarHash: Int")
+check("头像首字切片非空", !avatarBody.isEmpty)
+check("头像渲染 Text(avatarText)", row.contains("Text(avatarText)"))
+check("头像不再用 SF Symbol（avatarIcon 已删除）", !row.contains("avatarIcon"))
+check("首字跳过标点/符号（取字母或数字）", avatarBody.contains("$0.isLetter || $0.isNumber"))
+check("空标题有兜底字", avatarBody.contains("return \"新\""))
+check("头像字号够大（16pt bold，38pt 方块里单字居中可读）", row.contains(".font(.system(size: 16, weight: .bold))"))
+
 let checkIdx = row.range(of: "checkmark.circle.fill")?.lowerBound
 let runningIdx = row.range(of: "} else if running {")?.lowerBound
-// ⚠️ 不能用裸 "chevron.right" 当锚：头像图标表里那串 "chevron.left.forwardslash.chevron.right"
-//    本身就含这个子串（会命中最前面那个假锚）。必须锚到真正的右列箭头。
+// ⚠️ 用带 Image(systemName:) 的完整字面量当锚（v4.0.164 起头像已不是 SF Symbol，
+//    但仍保留完整锚，避免以后别处再出现裸 "chevron.right" 时命中假锚）。
 let chevronIdx = row.range(of: "Image(systemName: \"chevron.right\")")?.lowerBound
 check("多选勾选圈分支仍在（编辑模式不许被标识顶掉）", checkIdx != nil)
 check("running 分支排在多选勾选**之后**（编辑态优先）",

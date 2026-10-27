@@ -126,9 +126,12 @@ let growWrites = sNoComment.components(separatedBy: "contentGrowAt =").count
 // / v4.1.x detachLocally 移交后台跑流器时清零）+ 1
 check("静默锚点赋值点齐（期望 8，实际 \(growWrites)）—— 漏一处 = 静默永远 0 秒", growWrites == 8)
 check("start() 新流清零锚点", sNoComment.contains("contentGrowAt = 0"))
-let pollWrite = sNoComment.contains("content += c") &&
-    sNoComment.range(of: "content \\+= c(?:\\s*\\n\\s*contentGrowAt =)", options: .regularExpression) != nil
-check("poll 追加内容后刷新锚点（漏了 → 静默永远 0 秒）", pollWrite)
+// v4.0.164：poll 的 `content += c` 收口成 `appendContent(c)`（追加时同步维护字符数游标与脏标记），
+// 语义不变：**追加之后必须紧跟锚点刷新**。断言跟着换成新字面量，并把「不许退回裸 += c」也钉住。
+let pollWrite = sNoComment.contains("appendContent(c)") &&
+    !sNoComment.contains("content += c") &&
+    sNoComment.range(of: "appendContent\\(c\\)(?:\\s*\\n\\s*contentGrowAt =)", options: .regularExpression) != nil
+check("poll 追加内容后刷新锚点（漏了 → 静默永远 0 秒；v4.0.164 起走 appendContent(c)）", pollWrite)
 
 // ── 2b. 聊天页**不再渲染**这行小字（2026-10-11 用户真机口径反转）────────────────
 // 用户原话（配截图，红圈就点在那行「工具：运行代码」上）：「这个工具运行代码的小字…不需要了」。

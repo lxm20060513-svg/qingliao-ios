@@ -424,7 +424,8 @@ struct ChatView: View {
     /// 云端流 / 服务器兜底探针只有「忙 / 闲」两态 → 一律按「思考中」展示，不假装精确。
     private var liveActivityPhase: String {
         guard aiBusy else { return QingliaoActivityAttributes.Phase.done.rawValue }
-        let localStreaming = thisSessionStreaming && !stream.content.isEmpty
+        // v4.0.164：读 hasContent（只在空↔非空翻转时变），不读 content（每段增量都变 → 整页频繁失效）
+        let localStreaming = thisSessionStreaming && stream.hasContent
         return localStreaming ? QingliaoActivityAttributes.Phase.streaming.rawValue
                               : QingliaoActivityAttributes.Phase.thinking.rawValue
     }
@@ -3689,7 +3690,7 @@ struct ChatView: View {
                         // 顺序变成「工具调用胶囊 → 思考小字 → 三点气泡/流式气泡」。
                         if (thisSessionStreaming || remoteBusy),
                            !stream.streamReasoning.isEmpty,
-                           (!thisSessionStreaming || stream.content.isEmpty) {
+                           (!thisSessionStreaming || !stream.hasContent) {
                             ReasoningPeekRow(text: stream.streamReasoning)
                         }
                         // v3.9.39 A1：按会话收窄——stream 是 App 级单例，本仓另四处
@@ -3710,7 +3711,7 @@ struct ChatView: View {
                             // 于是「本地流式且有内容」时全程只显示三点、整段回答到收尾才蹦出来；
                             // 首帧（content 为空）与纯 remoteBusy 反而去渲染 streamingBubble（拿残留内容当本轮 = 串话）。
                             // 口径：**有真内容才渲染内容**；无内容（首帧）与纯 remoteBusy 一律三点。
-                            if !thisSessionStreaming || stream.content.isEmpty {
+                            if !thisSessionStreaming || !stream.hasContent {
                                 // 思考中动画（三点跳动，气泡加大版）
                                 // v3.0.15：恢复 v3.0.12 之前的原始三点动画（思考球 orbits 粒子已移除，改由输出头像承担粒子球）
                                 // v3.0.18：思考期头像也改为粒子球（38pt，用户要求全程粒子球头像）

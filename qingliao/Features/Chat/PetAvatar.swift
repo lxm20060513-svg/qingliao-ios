@@ -387,7 +387,11 @@ struct PetAvatar: View {
             t = now
             guard animate, !Task.isCancelled else { return }
             dotHaloPhase = (dotHaloPhase + dt / period).truncatingRemainder(dividingBy: 1)
-            try? await Task.sleep(for: .milliseconds(33))   // ≈30fps，与眨眼同档
+            // v4.0.164：30fps → **15fps**。光晕是 3.6s 一个往返的慢闪，15fps 视觉上无差别；
+            // 而每次 tick 都整只 Canvas 重绘（drawDot 里 4 层 blur + 多个渐变），真机看门狗抓到
+            // PetPainter.drawDot / PetAvatar.body 连续繁忙 1.3~1.5s 的样本（与打字迟滞同段）。
+            // 减半重绘频次 = 把这块主线程占用直接砍一半，观感零变化。
+            try? await Task.sleep(for: .milliseconds(66))   // ≈15fps
         }
     }
 

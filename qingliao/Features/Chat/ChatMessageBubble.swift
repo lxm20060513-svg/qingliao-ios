@@ -614,8 +614,13 @@ struct MessageBubble: View {
         // 尾部 3000 字窗口渲染，每帧排版成本恒定）；≤12 行的短回答（含 💭/🔧 行）保持原有逐行小气泡。
         // 落库后 streamingText=false，仍按空行拆段落，观感与改动前一致。
         let liveLines = streamingText ? Self.lineCount(shownContent) : 0
+        // 🚨 v4.0.164：窗口被截过 ⇒ 一律走**单块**（MessageBlockView 内部本来只画尾部 3000 字）。
+        // 否则「≤12 行但 >4000 字」的长行回答会走行模式，而行模式按段落渲染**不截断**——
+        // 于是开头几行在流式期凭空消失（旧实现全量显示），用户回看会以为正文被吞。
+        // 判据用 utf8.count：native String 上 O(1)，不引入新的全文遍历。
+        let windowed = streamingText && shownContent.utf8.count < displayContent.utf8.count
         let paras: [String] = streamingText
-            ? (liveLines <= Self.maxStreamingLineBubbles
+            ? (liveLines <= Self.maxStreamingLineBubbles && !windowed
                 ? Self.splitParagraphs(shownContent, streaming: true, lineMode: true)
                 : [shownContent])
             : Self.splitParagraphs(shownContent, streaming: false, lineMode: false)
@@ -973,8 +978,14 @@ struct MessageBubble: View {
     /// v4.0.155：流式期「逐行小气泡」的行数上限。超过就收成单个流式块（否则每 tick 重算 N 个视图）
     private static let maxStreamingLineBubbles = 12
     /// 数换行（UTF-8 扫一遍，零分配）。用 `components` 会为每行分配一个 String，正是要避免的。
+    /// v4.0.164：只用来判「是否超过 maxStreamingLineBubbles」，数到上限+1 就返回（长回答不再全量扫）。
     private static func lineCount(_ s: String) -> Int {
-        s.utf8.reduce(1) { $1 == 0x0A ? $0 + 1 : $0 }
+        var n = 1
+        for b in s.utf8 where b == 0x0A {
+            n += 1
+            if n > maxStreamingLineBubbles { break }
+        }
+        return n
     }
     @State private var expandedLongText = false
 
@@ -982,8 +993,37 @@ struct MessageBubble: View {
         !streamingText && !expandedLongText && displayContent.count > Self.longTextCollapseThreshold
     }
 
-    /// 折叠态的展示正文：按空行 / 换行边界截断（避免切在代码块或 ql-card 围栏中间）
+    /// v4.0.164：流式期只处理**尾部窗口**。
+    /// 渲染层（MessageBlockView 的 streaming 分支）本来就只画末尾 3000 字，但外层 `lineCount`、
+    /// `blocksCached` 的 key（`text.count`）与整篇分段仍在扫全文 → 每 48ms tick 一次 O(全文)。
+    /// 回答越长越慢，正是用户报的「字越多、打字越迟钝」的主干之一（真机栈：startSmooth + RenderBox）。
+    /// 这里先截尾：流式期每 tick 的工作量变成恒定 O(4000)，观感不变（本来就只看得到尾部）。
+    /// 短于窗口的回答 suffix 直接返回全文，零行为变化。
+    private static let streamingTailChars = 4000
+
     private var shownContent: String {
+        if streamingText {
+            var window = String(displayContent.suffix(Self.streamingTailChars))
+            // 尽量从整行开始（避免半行 markdown），但不把窗口切得太短
+            if window.count >= Self.streamingTailChars, let nl = window.firstIndex(of: "\n") {
+                let cut = window.index(after: nl)
+                if cut < window.endIndex { window = String(window[cut...]) }
+            }
+            // 🚨 窗口起点可能落在 ``` 块**内部**（超长 ql-card / 代码块的围栏已滚出窗口）：
+            // 此时尾巴里只剩闭合并排的 JSON 正文，会被当普通文字刷在气泡里（v4.0.77「卡片不显示、
+            // 显示一串代码」的同款观感）。判据 = 窗口内围栏数为奇数 ⇒ 起点在半块里；
+            // 处置 = 从窗口内第一个围栏之后起切（那是本块的闭合行），至少不展示原始 JSON。
+            let fences = window.components(separatedBy: "```").count - 1
+            if fences % 2 == 1, let f = window.range(of: "```") {
+                let rest = window[f.upperBound...]
+                if let nl = rest.firstIndex(of: "\n") {
+                    window = String(rest[rest.index(after: nl)...])
+                } else {
+                    window = String(rest)
+                }
+            }
+            return window
+        }
         guard isLongTextCollapsed else { return displayContent }
         let head = String(displayContent.prefix(Self.longTextPreviewChars))
         if let r = head.range(of: "\n\n", options: .backwards) { return String(head[..<r.lowerBound]) }
@@ -1207,9 +1247,12 @@ struct MessageBubble: View {
     /// v3.0.x：复用缓存版 splitParagraphs
     /// v4.0 fix：流式中跳过拆分（splitParagraphs streaming 参数）
     private var isMultiBubbleAI: Bool {
-        !message.isUser && message.imageDataURL == nil
-            // v3.7.0：与渲染同源（displayContent）——否则含历史进度行的消息会"按多气泡留白、却渲单气泡"
-            && Self.splitParagraphs(displayContent, streaming: streamingText, lineMode: streamingText).count > 1
+        guard !message.isUser, message.imageDataURL == nil else { return false }
+        // 🚨 v4.0.164：流式期原来每 tick 对**全文** `components(separatedBy:)`（13 万字 ≈ 每 48ms 一次），
+        // 只为回答「是不是多气泡」。改用与渲染分支同源的提前退出行数判定（O(前 13 行)）。
+        if streamingText { return Self.lineCount(displayContent) > 1 }
+        // v3.7.0：与渲染同源（displayContent）——否则含历史进度行的消息会"按多气泡留白、却渲单气泡"
+        return Self.splitParagraphs(displayContent, streaming: false, lineMode: false).count > 1
     }
 
     /// v3.0.51：多气泡的单个段落气泡——每段独立圆角底 + maxWidth 366（贴左）

@@ -13,7 +13,19 @@ import UIKit   // v3.0.81：beginBackgroundTask 延长后台存活
 @MainActor
 @Observable
 final class StreamClient {
-    var content = ""          // 累计全文
+    // 🚨 v4.0.164（长回答流式卡顿根治）：content 的写入只做一件事 —— 标脏派生缓存。
+    /// 背景（真机栈铁证）：`displayContent` 原来**每次访问**都跑 `contains("[[browser_live:")`（O(n)），
+    /// 而流式气泡每 48ms 就要读一次、下游 `lineCount` / `blocksCached` 的 key / 分段又各扫一遍全文 →
+    /// 一条 13 万字回答等于让主线程 ×20 次/秒满负荷（看门狗抓到 500~2000ms 连续繁忙段，
+    /// 栈位于 StreamClient.startSmooth 与 SwiftUICore 渲染），用户感知就是「字越多、键盘打字越迟钝」。
+    /// 现在：写入零成本标脏，首次读才重算并缓存；字符数用 O(1) 游标维护（见 `appendContent` / `replaceContent`）。
+    private(set) var content = "" { didSet { displayCacheValid = false } }
+    /// 🚨 v4.0.164：本轮是否已有正文（**只在 空↔非空 翻转**时变）。
+    /// 为什么加它：`ChatView.body` 里有两处 `stream.content.isEmpty`（思考气泡/气泡内层判定）——
+    /// 读 `content` 等于把**整个聊天页 body** 挂到「每来一段增量就失效」上（有内容后 0.15s 一次），
+    /// 长会话里一次全页重算就是几十毫秒，正好压在键盘输入上。
+    /// 换成这个 Bool 后：只在首个 token 落地的瞬间失效一次，之后每段增量都不再连坐整页。
+    private(set) var hasContent = false
     /// v4.0.x：收口为 private(set)——全仓只有本文件这几处写它（3 处开跑 + finish 一处收尾），外面一律只读。
     /// 开放写权限时，「新增一个跨文件开跑点却忘了自增 startSeq」是编译期查不出的漏边沿；
     /// 收口后这种写法直接编译不过，护栏只扫单文件的盲区也随之消失。
@@ -229,17 +241,70 @@ final class StreamClient {
     // v3.4.20：打字机平滑释放——content 是真实全文（落库/恢复逻辑不受影响），
     // UI 读 smoothedContent：定时器每 tick 从 content 追加一小段，观感从"整段跳变"变"逐字流"。
     // 注意：streamingBubble 渲染、落库(upsertAssistant)读的仍是 content——平滑层只在展示端。
-    var smoothedContent = ""
+    var smoothedContent = "" { didSet { displayCacheValid = false } }
     private var smoothTask: Task<Void, Never>?
+
+    // MARK: - v4.0.164 派生缓存（全部 @ObservationIgnored：getter 里写它们不能再触发观察，否则自我失效/死循环）
+    /// 已显示内容的缓存放这里：`displayContent` 每次读都返回它，O(1)。
+    @ObservationIgnored private var displayCacheValid = false
+    @ObservationIgnored private var displayCached = ""
+    /// 尚未上屏的尾部正文。平滑层每 tick 从它**整串**里取前几个字符。
+    /// 🚨 为什么不是「两个整数游标」：delta 是按**码点**切的（后端 offset 语义），而
+    /// `String.count` 是**字素簇**且不可加 —— 「👍」+「🏽」两个 delta 各算 1 字，合起来却只有 1 个字素。
+    /// 用字符计数相加会把它算大 → 取尾部时把已显示的字符重放一遍（正文里出现重复字），
+    /// emoji / 组合重音 / 家庭 emoji 能稳定复现。这里改成「攒一段未上屏的字符串」，切片一律按字素走，
+    /// 不再需要任何字符计数，代价只有一次 memmove（几 KB 级）。
+    @ObservationIgnored private var pendingRelease = ""
+    /// content 里是否「可能」含 [[browser_live:…]] 标记。false = displayContent 连一次全文 contains 都不做。
+    /// 追加时只看新增片段（O(增量)）；整体替换时置 true（保守，首次读扫一次后即缓存）。
+    @ObservationIgnored private var contentMayContainMarker = false
+
+    /// 追加增量（poll 主路径）：只数新尾部，O(增量)。
+    /// 为什么不做 `content.count`：中文是字素遍历，5 万字 ≈1ms、13 万字 ≈2.7ms，×20 次/秒就是主线程杀手。
+    private func appendContent(_ delta: String) {
+        guard !delta.isEmpty else { return }
+        content += delta
+        pendingRelease += delta
+        if !hasContent { hasContent = true }   // 只在首次翻转时触发一次 UI 失效
+        if !contentMayContainMarker {
+            // 只看新增片段 + 尾部 20 字（标记本身 15 字，留余量）：防「标记正好被切在两个增量之间」
+            // 时漏判 → 标记原文漏进气泡（v4.0.77 那个 bug 的显示形态）。成本 O(增量+20)。
+            contentMayContainMarker = delta.contains("[[browser_live:")
+                || content.suffix(20).contains("[[browser_live:")
+        }
+    }
+
+    /// 整体替换（开跑/恢复/换任务/接管）：这些路径本来就扫全文，顺便校准标记存在性。
+    private func replaceContent(_ s: String) {
+        content = s
+        pendingRelease = s
+        // 🚨 整体替换 = 换了内容（换任务 / 续流 / 接管服务端在途任务）：已上屏的旧前缀不再属于本轮，
+        // 必须一起清掉。否则气泡保留旧任务正文、再从新内容中间接上（新旧混拼），收尾才被纠正。
+        if smoothTask != nil { smoothedContent = "" }
+        hasContent = !s.isEmpty
+        // 一整篇扫一次（这些路径本来就要 O(n) 扫全文算 offset）—— 之后每 tick 都会命中缓存，
+        // 不会再像旧实现那样「每次访问 displayContent 都 contains 一遍」。
+        contentMayContainMarker = s.contains("[[browser_live:")
+    }
 
     /// UI 渲染应读取的内容——平滑层激活（smoothTask 在跑）时=smoothedContent，
     /// 否则（云端路径/已收尾）=content 全文。兜底永不为空，落库/恢复零影响。
     var displayContent: String {
+        // 🚨 v4.0.164：**必须无条件读一次** smoothTask 选中的那个可观察属性，再判缓存。
+        // 读它 = 向 Observation 登记依赖；若缓存命中时提前 return、一次都不读，
+        // 下一次 smoothedContent 变化就找不到本视图来失效 → 流式文字停在最后一帧。
+        // （这类 bug 编译器、-parse、真值表全沉默，只有真机看得见，别「优化」掉这次读。）
         let raw = smoothTask != nil ? smoothedContent : content
+        // 命中缓存直接返回（流式期每 tick 被读多次，过去每次都扫全文）。
+        if displayCacheValid { return displayCached }
         // v4.0.77：流式期就把 [[browser_live:…]] 标记挡掉（带 contains 便宜门控）。
         // 4.0.75/76 只在**落库**时剥，长任务里那行标记会顶在气泡里挂很久 ——
         // 用户实报「卡片不显示，显示一串代码」的现场就是这行字。
-        return ChatStore.strippingBrowserLiveMarker(raw)
+        // v4.0.164：门控上移到 content 级别（追加时逐段判断）—— 无标记时不重复扫全文。
+        let value = contentMayContainMarker ? ChatStore.strippingBrowserLiveMarker(raw) : raw
+        displayCached = value
+        displayCacheValid = true
+        return value
     }
 
     /// v3.9.39（C）：按 **Unicode 码点**计长度，和后端切片单位对齐。
@@ -270,25 +335,31 @@ final class StreamClient {
     private func startSmooth() {
         smoothTask?.cancel()
         smoothedContent = ""
+        pendingRelease = content
         smoothTask = Task { [weak self] in
             while let self, !Task.isCancelled {
-                if self.isDone && self.smoothedContent.count >= self.content.count { break }
-                if self.smoothedContent.count < self.content.count {
-                    // 每次 tick 释放 1-3 个字符（追赶积压时加速）
-                    // 🚨 v4.0.23 根治「流式气泡空白 / 思考气泡一有工具调用就被空气泡顶掉」：
-                    //    原实现在**自己的副本**上做切片（`let s = smoothedContent` + `s[..<idx]`），
-                    //    空串起步时 `index(_:offsetBy:limitedBy:)` 恒返回 nil → 落到 `?? s.endIndex`
-                    //    → 每 tick 都切出空串、smoothedContent 永远停在 ""：平滑层自 v3.4.20 起从未吐过字，
-                    //    流式期间 displayContent 恒空，直到收尾 stopSmooth 才一次性补齐全文。
-                    //    推进算法已抽成纯函数 SmoothRelease（Core/SmoothRelease.swift，带真值表单测）。
-                    let target = SmoothRelease.nextLength(smoothedCount: self.smoothedContent.count,
-                                                          contentCount: self.content.count)
-                    self.smoothedContent = String(self.content.prefix(target))
+                // 🚨 v4.0.164：原来每 tick 做 3 次 O(全文)（two `.count` + `String(prefix)`），
+                // 5 万字 ≈1.1ms、13 万字 ≈2.9ms —— 20 次/秒就把主线程吃掉一大块。
+                //   现在：`utf8.count` 在 native String 上是 **O(1)**，只用来判「还有没有没上屏的字」
+                //   与积压档位；真正切片按 Character 走 pendingRelease（字素安全、与全文长度无关）。
+                let backlogBytes = self.pendingRelease.utf8.count
+                if self.isDone && backlogBytes == 0 { break }
+                if backlogBytes > 0 {
+                    let step = SmoothRelease.step(backlogBytes: backlogBytes)
+                    let chunk = self.pendingRelease.prefix(step)   // O(step)，自动钳到实际长度
+                    if !chunk.isEmpty {
+                        self.smoothedContent += chunk
+                        // removeFirst(k) 是剩余字节的一次 memmove（几 KB 级，微秒量级）
+                        self.pendingRelease.removeFirst(chunk.count)
+                    }
                 }
                 try? await Task.sleep(for: .milliseconds(48))   // v3.0.41 红线：50ms 级节流（高频全树重建曾卡死）
             }
             // 收尾：确保完整（done 后剩余部分一次性补齐）
-            if let self { self.smoothedContent = self.content }
+            if let self {
+                self.smoothedContent = self.content
+                self.pendingRelease = ""
+            }
         }
     }
 
@@ -296,6 +367,7 @@ final class StreamClient {
         smoothTask?.cancel()
         smoothTask = nil
         smoothedContent = content
+        pendingRelease = ""
     }
 
     /// 启动流式请求。
@@ -324,7 +396,7 @@ final class StreamClient {
         // v4.1.x：新流尚未拿到 id —— 必须清空，否则「起流失败」与「上一轮成功的流」分不开
         //（插话失败要据此静默退排队，不能靠残留的旧 id 误判成「已起来了」）
         taskId = ""
-        content = ""
+        replaceContent("")
         contentGrowAt = 0     // v3.9.81：新流重置静默锚点（还没吐字 → 文案是「工具：…/思考中」）
         resetToolProgress()   // v3.9.80：工具四件套统一复位（原先这里手写四行，别处漏写）
         offset = 0
@@ -434,7 +506,7 @@ final class StreamClient {
         stopSmooth()
         endBgTask()
         onFinished = nil   // 关键：吞掉收尾回调（runner 负责落库）
-        content = ""; contentGrowAt = 0; offset = 0
+        replaceContent(""); contentGrowAt = 0; offset = 0
         failCount = 0; idleStreak = 0; backoff = 0.5
         recoverTried = false; recoverFailTried = false
         resetToolProgress()
@@ -598,7 +670,7 @@ final class StreamClient {
                 // v3.9.39（C）：增量长度按码点累加——后端把 offset 当 Python 下标切内容，
                 // 用 `c.count`（字素簇）会让 offset 恒落后，重复尾部随流累积（见 codePointCount）
                 offset += Self.codePointCount(c)
-                content += c
+                appendContent(c)
                 contentGrowAt = Date().timeIntervalSince1970   // v3.9.81：有新增 → 静默归零重算
                 idleStreak = 0
                 if interval != 0.15 { interval = 0.15 }   // 有内容时 0.15s 高频轮询（接近逐字）
@@ -730,13 +802,13 @@ final class StreamClient {
                     // 同一任务：磁盘兜底内容可能比本地多最后一段（节流写盘延迟），取较长者续上
                     // v3.9.39（C）：比较也用码点，守住不变式 `offset == codePointCount(content)`
                     if Self.codePointCount(rContent) > offset {
-                        content = rContent
+                        replaceContent(rContent)
                         contentGrowAt = Date().timeIntervalSince1970   // v3.9.81：接回来的内容视作刚增长
                         offset = Self.codePointCount(rContent)
                     }
                 } else {
                     // 换成了另一条在途任务：内容整体属于新任务，必须整体替换（防止新旧前缀混拼）
-                    content = rContent
+                    replaceContent(rContent)
                     contentGrowAt = Date().timeIntervalSince1970   // v3.9.81（同上）
                     offset = Self.codePointCount(rContent)
                 }
@@ -920,7 +992,7 @@ final class StreamClient {
         }
         taskId = tid
         offset = (d["offset"] as? Int) ?? 0
-        content = (d["content"] as? String) ?? ""
+        replaceContent((d["content"] as? String) ?? "")
         contentGrowAt = Date().timeIntervalSince1970   // v3.9.81：恢复出的内容视作刚增长（静默从 0 起走）
         recoverTried = false
         recoverFailTried = false   // 与 start()/adoptRemote 同口径：接回的任务重新享有兜底
@@ -958,7 +1030,7 @@ final class StreamClient {
         generation += 1
         pendingUserMsgId = nil
         taskId = tid
-        content = initial
+        replaceContent(initial)
         contentGrowAt = Date().timeIntervalSince1970   // v3.9.81：接管时点作静默锚点
         // v3.9.39（C）：初值同样按码点，否则第一条增量就会把 initial 的尾巴重复拉一遍
         offset = Self.codePointCount(initial)

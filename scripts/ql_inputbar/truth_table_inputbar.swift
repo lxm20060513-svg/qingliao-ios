@@ -770,11 +770,11 @@ let bubbleCond: String = {
 check("🚨 思考气泡条件与 aiBusy 对齐（含 remoteBusy，否则「气泡压根不出现」）",
       bubbleCond.contains("if thisSessionStreaming || remoteBusy {"))
 check("🚨 气泡内层条件必须取反（无内容/纯 remoteBusy 走三点）",
-      bubbleCond.contains("if !thisSessionStreaming || stream.content.isEmpty {"))
+      bubbleCond.contains("if !thisSessionStreaming || !stream.hasContent {"))
 // 防再写反（发布前审查实抓，2026-09-30）：光断言「条件存在」是**假护栏**——条件写反过一次，
 // 症状是「本地流式全程三点、整段回答到收尾才蹦出来」。这里改断言**分支体归属**：
 let bubbleIfBody: String = {
-    guard let a = bubbleCond.range(of: "if !thisSessionStreaming || stream.content.isEmpty {") else { return "" }
+    guard let a = bubbleCond.range(of: "if !thisSessionStreaming || !stream.hasContent {") else { return "" }
     let tail = String(bubbleCond[a.lowerBound...])
     guard let b = tail.range(of: "} else {") else { return "" }
     return String(tail[..<b.lowerBound])
