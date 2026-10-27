@@ -1778,7 +1778,9 @@ struct ChatView: View {
                   keepDetail: true,
                   thinkingFaceOverride: .sleepy,
                   alertFaceOverride: .calm,
-                  celebrateFace: .happy)
+                  celebrateFace: .happy,
+                  // v4.0.165：打字期间暂停宠物环境动画（光晕 Canvas 逐帧重绘是 GPU 大头）
+                  pauseAmbient: kb.isVisible)
     }
 
     /// v4.0.31：header 宠物的出错信号 —— 本会话这轮生成失败（非可重试错误），与欢迎页 alert 同源判定

@@ -19,6 +19,9 @@ import ImageIO
 ///    原图**不解码**——v4.0.149 修：此前写的是 `UIImage(data:)` 全量解码再缩，注释说「不进内存」与事实相反，
 ///    产物库里几十 MB 的图一多就会把 App 撑爆；
 /// 3. **进程内缓存**：滚动/进出目录不重复下载（NSCache 自动回收）。
+/// 4. **失败负缓存**（v4.0.165）：同一路径在 TTL（60s）内不再重试。蜂窝下直连不通时，
+///    每次进工作台/翻目录都会对这一批图重跑超时，滚动发涩还费电（4.0.162 审查遗留）；
+///    TTL 到期自动重试，所以连上 WiFi / 过一会儿回来仍会补图，不是永久放弃。
 struct ArtifactThumbnail: View {
     /// 产物相对路径（形如 `artifacts/2026-10-21/xxx.png`）——与文件下载接口同口径
     let path: String
@@ -30,6 +33,10 @@ struct ArtifactThumbnail: View {
     @State private var failed = false
 
     @MainActor private static let cache = NSCache<NSString, UIImage>()
+    /// 失败负缓存：path → 失败时刻（unix 秒）。NSCache 自动回收，不占长期内存
+    @MainActor private static let failureCache = NSCache<NSString, NSNumber>()
+    /// 失败后多久允许重试（秒）。太短等于没缓存，太长会让「连上 WiFi 回来」迟迟不补图
+    @MainActor private static let failureTTL: TimeInterval = 60
 
     var body: some View {
         Group {
@@ -64,17 +71,35 @@ struct ArtifactThumbnail: View {
             return
         }
         guard !path.isEmpty else { failed = true; return }
+        // 负缓存命中：TTL 内不再发起下载（失败态已由占位图表达）
+        if Self.recentlyFailed(path) {
+            failed = true
+            return
+        }
         do {
             let (data, code) = try await auth.downloadFile(path, allowRelay: false)
             guard (200..<300).contains(code), let thumb = Self.downsample(data, to: size * 3) else {
+                Self.markFailed(path)
                 failed = true
                 return
             }
             Self.cache.setObject(thumb, forKey: path as NSString)
+            Self.failureCache.removeObject(forKey: path as NSString)
             image = thumb
         } catch {
+            Self.markFailed(path)
             failed = true
         }
+    }
+
+    /// TTL 内是否刚失败过（失败可能是网络瞬断，到期必须允许重试）
+    @MainActor private static func recentlyFailed(_ path: String) -> Bool {
+        guard let ts = failureCache.object(forKey: path as NSString)?.doubleValue else { return false }
+        return Date().timeIntervalSince1970 - ts < failureTTL
+    }
+
+    @MainActor private static func markFailed(_ path: String) {
+        failureCache.setObject(NSNumber(value: Date().timeIntervalSince1970), forKey: path as NSString)
     }
 
     /// 从**原始字节**直接解出缩略图（最长边 px）。走 ImageIO 增量解码：不产生全尺寸位图，

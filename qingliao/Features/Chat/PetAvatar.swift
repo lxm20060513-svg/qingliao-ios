@@ -112,6 +112,12 @@ struct PetAvatar: View {
     /// 庆祝（celebrateTrigger 触发）时画的脸。nil = 不换脸只播动作。
     /// header 宠物传 .happy（开心脸配庆祝动作），播完自动落回用户所选常态表情。
     var celebrateFace: PetFace? = nil
+    /// v4.0.165：宿主「正在打字」时暂停环境动画（呼吸 / 眨眼 / 黑洞球光晕逐帧重绘）。
+    /// 为什么：黑洞球光晕每 tick 整只 Canvas 重绘（drawDot 四层 blur），长会话打字时与输入栏
+    /// 重绘抢 GPU（4.0.164 真机栈 = RenderBox + usleep + IOGPU，主线程在等渲染完成）。
+    /// 打字期间静止、松手/收键盘立刻恢复；默认 false 时既有调用点逐字不变。
+    /// ⚠️ 尾随追加（memberwise init 实参序 = 声明序，插在中间会改既有调用点的参数顺序）。
+    var pauseAmbient: Bool = false
 
     /// 是否允许动：设置「关闭」否；「减弱」+ 系统或设置任一要求减弱否；后台否
     private var motionAllowed: Bool {
@@ -122,7 +128,8 @@ struct PetAvatar: View {
         }
     }
 
-    private var animate: Bool { motionAllowed && scenePhase == .active }
+    /// v4.0.165：pauseAmbient 一并计入 —— 打字期间停呼吸/眨眼/光晕循环（`.task(id: animate)` 全组同停）
+    private var animate: Bool { motionAllowed && scenePhase == .active && !pauseAmbient }
 
     /// 有效状态：抚摸反应优先（一次性），其次传入的状态
     private var effectiveState: PetState { patting ? .patting : state }

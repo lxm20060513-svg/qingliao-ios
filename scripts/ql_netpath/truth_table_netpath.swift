@@ -85,6 +85,16 @@ check("② 真 401 走统一收敛点（markSessionExpired），自动路径不�
 let thumb = code(src("qingliao/Features/Workspace/ArtifactThumbnail.swift"))
 check("② 产物缩略图（自动路径）显式关 relay",
       thumb.contains("downloadFile(path, allowRelay: false)"))
+// ②c 失败负缓存（v4.0.165）：自动路径失败后不许每次进页面重跑一遍超时
+check("② 缩略图有失败负缓存，且 TTL 到期可重试（不是永久放弃）",
+      thumb.contains("failureCache") && thumb.contains("failureTTL: TimeInterval = 60")
+      && thumb.contains("if Self.recentlyFailed(path)"))
+check("② 负缓存只拦「下载前」，成功必须清掉标记（否则修好也不补图）",
+      thumb.range(of: "Self.recentlyFailed(path)")!.lowerBound
+      < thumb.range(of: "downloadFile(path, allowRelay: false)")!.lowerBound
+      && thumb.contains("Self.failureCache.removeObject(forKey: path as NSString)"))
+check("② 下载失败/解码失败都要落标记（只标 catch 会漏「200 但不是图片」）",
+      thumb.components(separatedBy: "Self.markFailed(path)").count - 1 >= 2)
 
 // ── ③ relay 的性质没被误解（它不是直连） ────────────────────────
 check("③ relay 仍走 ASWAS（弹窗通道），没被悄悄改成直连",
