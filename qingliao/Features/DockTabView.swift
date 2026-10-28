@@ -1487,7 +1487,8 @@ private struct DockPagingBarSlot: View {
         // 🚨 必须撑满外层容器（透明，空白区不参与 hit-test）：`.move(edge: .bottom)` 的位移距离
         //   = 容器高度。不撑满就只剩 dock 自身高度（62pt），滑入距离/速度与原「全屏 ZStack 直接子级」那版不一致。
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-        .animation(Motion.snap, value: dockShown)
+        // v4.0.167：显隐动画 snap(0.2s) → dockReveal 中速弹簧（用户「隐藏/弹出太生硬」；令牌见 Motion.dockReveal）
+        .animation(Motion.dockReveal, value: dockShown)
     }
 }
 

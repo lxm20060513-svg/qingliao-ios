@@ -39,8 +39,14 @@ enum Motion {
 
     /// tab 切换、气泡展开、行状态变化
     // 🚨 审查 P1：snap 原先是唯一没套 `tuned` 的令牌，而它有 70+ 调用点（tab 切换 / 码档切换 /
-    // 列表行增删）→ 「关」档下这些照旧播动效，档位的承诺就不成立。补包后全仓 14 枚令牌一致。
+    // 列表行增删）→ 「关」档下这些照旧播动效，档位的承诺就不成立。补包后全仓每枚动画令牌都套 `tuned`。
     static var snap: Animation { tuned(.snappy(duration: 0.20)) }
+
+    /// v4.0.167：滑动模式 dock 显隐（自绘分页下沉/浮出）专用 —— snap(0.2s) 对「整条 62pt 大件」
+    /// 太硬（用户 2026-10-28「dock 隐藏和弹出增加过渡动效，不要像现在这么生硬」）：换中速弹簧，
+    /// 浮出带一点柔弹、下沉干净收尾。只用于 DockPagingBarSlot 的显隐，别挪作小控件动画。
+    /// 用 response+dampingFraction 原始形式（非 .snappy/.smooth 家族写法）是为精准复刻调好的手感，勿「统一写法」时顺手改掉。
+    static var dockReveal: Animation { tuned(.spring(response: 0.38, dampingFraction: 0.84)) }
 
     /// 整页横移（会话首页 ↔ 对话页双态切换，v4.0.114）。
     ///

@@ -4087,6 +4087,8 @@ struct ChatView: View {
         // ⚠️ 必须在任何 `sendCore` / SendQueue / `SpeechManager.stop()` 之前 —— 命令一旦进发送链路
         //    就会被当普通消息发给模型（后端 api_server 端点零命令分发，见方案 §一）。
         if let (cmd, arg) = SlashParser.parse(inputText) {
+            // v4.0.167 诊断：命令层命中即记（配合 fireSend 的 [SEND]，定位「命令发不出」卡在哪层）
+            NSLog("[SEND] slash hit cmd=\(cmd?.rawValue ?? "(unregistered)") arg-len=\(arg.count)")
             if let cmd {
                 setInputText("", clearingDraft: true)
                 runSlashCommand(cmd, arg: arg)

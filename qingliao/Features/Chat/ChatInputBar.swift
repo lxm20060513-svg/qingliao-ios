@@ -158,6 +158,9 @@ struct ChatInputBar: View {
 
     // 发送触发：一次 tick 同时驱动图标弹动与按钮关键帧（长按转文字路径不走这里，不弹反馈）
     private func fireSend() {
+        // v4.0.167 诊断：用户报「打 /new 这类命令点发送无反应」——先钉「手势层到底有没有进来」。
+        // 若真机日志里连这行都没有 = 点按没到手势层（命中/手势问题）；有 = 往 ChatView.send() 查。
+        NSLog("[SEND] fireSend len=\(text.count) slash=\(text.hasPrefix("/") ? "1" : "0")")
         sendBounceTick += 1
         Haptics.tap()   // v3.4.25：统一触感——发送 = 轻点
         onSend()
