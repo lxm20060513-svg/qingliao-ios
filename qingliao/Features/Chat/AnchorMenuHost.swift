@@ -95,7 +95,8 @@ struct AnchorLongPressMenuModifier: ViewModifier {
     /// 写全局 store 会让整页 body 反复失效（v3.9.x 同源教训，见 ChatView 的 ChatBubbleAnchorStore 注释）。
     @State private var rect: CGRect = .zero
 
-    /// 长按最短时长：**与聊天页气泡长按（`bubbleLongPress`）完全同款 0.42s** —— 全 app 一个手感
+    /// 长按最短时长：0.42s（**与聊天页气泡已无耦合** —— v4.0.168 起聊天页走系统 `.contextMenu`，
+    /// 这里只是本组件的自有手感；全 app 各入口观感一致仍是目标）
     /// （用户口径「覆盖到 app 全局相同行为」，手感也在其中；系统 `.contextMenu` 约 0.42~0.5s）。
     private let minimumDuration: Double = 0.42
 

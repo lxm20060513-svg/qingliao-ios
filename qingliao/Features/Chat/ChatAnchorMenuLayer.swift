@@ -20,7 +20,8 @@
 import SwiftUI
 import Observation
 
-/// 聊天页三个锚定菜单的开合 / 锚点（三者互斥：开一个前先清其余）
+/// 聊天页两个锚定菜单的开合 / 锚点（互斥：开一个前先清另一个）。
+/// v4.0.168：长按气泡的菜单改回系统 `.contextMenu`（由气泡自己呈现）→ 这里的 `bubble` 档整体退役。
 @Observable @MainActor
 final class ChatMenuState {
     /// 三点「更多」菜单（锚点 = 页头更多按钮的全局 frame）
@@ -29,9 +30,6 @@ final class ChatMenuState {
     /// 输入栏「思考档位」菜单（锚点 = 档位胶囊的全局 frame）
     var showReasoning = false
     var reasoningAnchor: CGRect = .zero
-    /// 长按气泡 / 文字段的菜单目标（锚点由 ChatBubbleAnchorStore 量好）
-    var bubble: ChatBubbleMenuTarget?
-
     // MARK: 互斥入口（**唯一真源**）
     //
     // 为什么不能只靠层里的 if-else：那只是「渲染兜底」——两个标志同时为真时它只画一个，
@@ -40,29 +38,20 @@ final class ChatMenuState {
 
     func openMore(at anchor: CGRect) {
         showReasoning = false
-        bubble = nil
         moreAnchor = anchor
         showMore = true
     }
 
     func openReasoning(at anchor: CGRect) {
         showMore = false
-        bubble = nil
         reasoningAnchor = anchor
         showReasoning = true
     }
 
-    func openBubble(_ target: ChatBubbleMenuTarget) {
-        showMore = false
-        showReasoning = false
-        bubble = target
-    }
-
-    /// 关掉全部（长按新气泡前先清场用；比逐个置 false 少漏一处）
+    /// 关掉全部（两个标志一起清；比逐个置 false 少漏一处）
     func closeAll() {
         showMore = false
         showReasoning = false
-        bubble = nil
     }
 }
 
@@ -79,11 +68,8 @@ struct ChatAnchorMenuLayer: View {
     let moreTitle: () -> String
     /// 思考档位项（**闭包**：模型列表 + 当前档位只在菜单真开着时才算）
     let reasoningItems: () -> [AnchorMenuItem]
-    /// 长按菜单项（依赖被长按的那条消息 → 开菜单时才算）
-    let bubbleItems: (ChatMessage, String) -> [AnchorMenuItem]
     let onMorePick: (AnchorMenuItem) -> Void
     let onReasoningPick: (AnchorMenuItem) -> Void
-    let onBubblePick: (AnchorMenuItem, ChatMessage, String) -> Void
 
     var body: some View {
         // 渲染兜底：同屏只画一个（互斥的**真源**在 ChatMenuState 的 open* 入口，那里会清零其余两个）
@@ -99,12 +85,6 @@ struct ChatAnchorMenuLayer: View {
                               title: moreTitle(),
                               onPick: onMorePick,
                               onClose: { menu.showMore = false })
-        } else if let t = menu.bubble {
-            AnchorMenuOverlay(anchorFrame: t.anchor,
-                              items: bubbleItems(t.message, t.text),
-                              title: t.message.isUser ? "你的消息" : "AI 回复",
-                              onPick: { onBubblePick($0, t.message, t.text) },
-                              onClose: { menu.bubble = nil })
         }
     }
 }

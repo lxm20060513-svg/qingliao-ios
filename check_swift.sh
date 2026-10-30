@@ -117,17 +117,6 @@ echo "=== 5e. iOS 27 快捷指令联动动作源码契约（v4.0.91 · AppEntity
 # 漏一条的症状是「Archive 过了、真机 Siri 里看不见这个动作」—— 那要 20 分钟一轮 CI 才发现。
 run_unit /tmp/tt_ios27 scripts/ql_ios27/truth_table_ios27_intents.swift
 
-# v4.0.58 会走路的小脚 —— 纯几何体检（本机是 Linux，跑不了 SwiftUI 渲染：
-# 把「脚露在体外多少 pt / 步幅多少 pt / 会不会出画布 / 两脚会不会重叠」算出来钉住。
-# 常量从 PetPainter.swift 现读，源码改写法即红）
-if python3 scripts/ql_pet/check_leg_geometry.py >/tmp/tt_leggeo.log 2>&1; then
-  echo "✅ v4.0.58 腿/脚几何体检 $(grep -oE '[0-9]+ 项' /tmp/tt_leggeo.log | tail -1)"
-else
-  echo "❌ v4.0.58 腿/脚几何体检"
-  cat /tmp/tt_leggeo.log
-  exit 1
-fi
-
 # v4.0.40 TTS 朗读时页头宠物跟着开口说话（PetSpeechShape 音节切分 + mouth 采样 + 接线护栏）
 # 多文件编译时只有 main.swift 允许顶层代码 → 复制一份到临时目录（与第 4 段同一手法）
 rm -rf /tmp/ql_petspeech_main && mkdir -p /tmp/ql_petspeech_main

@@ -63,9 +63,6 @@ struct MessageBlockView: View {
     var onTodo: ((String) -> Void)? = nil
     // v4.0.25：存为长期目标（长按菜单）——传当前段落/选中文字
     var onGoal: ((String) -> Void)? = nil
-    // v3.9.32：定时提醒（长按菜单）——传当前段落文字作为提醒内容
-    // 主代理接线后（ChatView 传 onRemind）走调用方；未接线时本视图自己弹 QuickReminderSheet（兜底，见 requestRemind）
-    var onRemind: ((String) -> Void)? = nil
     // v2.0.128：AI 图片点击打开大图（传图片 URL/data URL）
     var onImageTap: (String) -> Void = { _ in }
     // v3.9.17：AI 生成物点击预览（传 文件 URL, 显示名）
@@ -82,17 +79,12 @@ struct MessageBlockView: View {
     var useSwiftUIText = false
     // v3.0.41 性能：流式输出中超长文本渲染优化——纯 Text 渲染（跳过 markdown 解析/AttributedString 转换）
     var streaming: Bool = false
-    /// v4.0.81：长按本段 → 交由宿主弹出**锚定胶囊菜单**（与右上角三点菜单同一组件）。
+    /// v4.0.168：长按本段 → **系统原生菜单**（iOS 27 玻璃菜单）。
     /// 传本段纯文本（旧段级菜单口径不变：大爆炸/钉一钉/存备忘录/待办/目标/提醒我/全屏阅读
-    /// 都吃这段文字）；nil = 不挂手势（动作卡刻意无菜单）。
-    /// ⚠️ 声明序铁律：本参数排在最末，调用点也传在最末（见技能 swiftui-param-order）。
-    var onLongPressMenu: ((String) -> Void)? = nil
-
-    /// 本段的长按动作（nil = 不挂手势）。用 `bubbleLongPress` 挂：整块替换 6 处 `.contextMenu`。
-    private var longPressAction: (() -> Void)? {
-        guard let onLongPressMenu else { return nil }
-        return { onLongPressMenu(blockPlainText) }
-    }
+    /// 都吃这段文字）；nil = 不挂菜单（动作卡刻意无菜单）。
+    /// ⚠️ 声明序铁律：这两个参数排在最末，调用点也按序传（见技能 swiftui-param-order）。
+    var menuItems: ((String) -> [AnchorMenuItem])? = nil
+    var onMenuPick: ((AnchorMenuItem, String) -> Void)? = nil
 
     // v3.0.2 性能：缓存 markdown 渲染结果——流式每段更新 parent.messages 会触发子视图重算，
     // 若每次 body 都 MarkdownRenderer.render() 重新解析，长文本/流式下是滚动+更新卡顿主因。
@@ -145,128 +137,10 @@ struct MessageBlockView: View {
         }
     }
 
-    /// 代码块/表格共用的 SwiftUI 长按菜单（与原气泡级菜单项一致）
-    @ViewBuilder
-    private var bubbleMenu: some View {
-        Button {
-            onCopy()
-        } label: {
-            Label { Text("复制") } icon: { Image(uiImage: MenuIconTile.small("doc.on.doc", .blue)) }
-        }
-        Button {
-            onQuote()
-        } label: {
-            Label { Text("引用") } icon: { Image(uiImage: MenuIconTile.small("quote.opening", .blue)) }
-        }
-        Button {
-            onShare()
-        } label: {
-            Label { Text("分享") } icon: { Image(uiImage: MenuIconTile.small("square.and.arrow.up", .blue)) }
-        }
-        // v3.3.0：多选合并转发入口
-        Button {
-            onMultiSelect()
-        } label: {
-            Label { Text("多选") } icon: { Image(uiImage: MenuIconTile.small("checkmark.circle", .teal)) }
-        }
-        Button {
-            onBigBang(blockPlainText)
-        } label: {
-            Label { Text("大爆炸") } icon: { Image(uiImage: MenuIconTile.small("burst", .teal)) }
-        }
-        // v3.9.86：长回复阅读（半屏 sheet 放大 + 章节大纲）——传当前段落文字
-        if let onRead = onRead {
-            Button {
-                onRead(blockPlainText)
-            } label: {
-                Label { Text("全屏阅读") } icon: { Image(uiImage: MenuIconTile.small("text.book.closed", .teal)) }
-            }
-        }
-        if let onRegenerate {
-            Button {
-                onRegenerate()
-            } label: {
-                Label { Text("重新生成") } icon: { Image(uiImage: MenuIconTile.small("arrow.clockwise", .orange)) }
-            }
-        }
-        if let onWithdraw {
-            Button {
-                onWithdraw()
-            } label: {
-                Label { Text("撤回") } icon: { Image(uiImage: MenuIconTile.small("arrow.uturn.backward", .orange)) }
-            }
-        }
-        // v3.0.74：钉一钉（钉到看板）——传当前段落文字
-        if let onPin {
-            Button {
-                onPin(blockPlainText)
-            } label: {
-                Label { Text("钉一钉") } icon: { Image(uiImage: MenuIconTile.small("pin", .indigo)) }
-            }
-        }
-        // v3.7.0：加入备忘录——传当前段落文字
-        if let onMemo {
-            Button {
-                onMemo(blockPlainText)
-            } label: {
-                Label { Text("存备忘录") } icon: { Image(uiImage: MenuIconTile.small("note.text", .purple)) }
-            }
-        }
-        // v3.9.35：加入待办——传当前段落文字
-        if let onTodo {
-            Button {
-                onTodo(blockPlainText)
-            } label: {
-                Label { Text("加入待办") } icon: { Image(uiImage: MenuIconTile.small("checklist", .purple)) }
-            }
-        }
-        // v4.0.25：存为长期目标——把这段内容直接建成长期目标（首行当标题、后端自动拆步骤）
-        if let onGoal {
-            Button {
-                onGoal(blockPlainText)
-            } label: {
-                Label { Text("存为长期目标") } icon: { Image(uiImage: MenuIconTile.small("target", .purple)) }
-            }
-        }
-        // v3.9.32：提醒我——一句话定时提醒（本地 UNCalendarNotificationTrigger，App 关了也响）
-        Button {
-            requestRemind()
-        } label: {
-            Label { Text("提醒我") } icon: { Image(uiImage: MenuIconTile.small("bell.badge", .orange)) }
-        }
-        Button(role: .destructive) {
-            onDelete()
-        } label: {
-            Label { Text("删除") } icon: { Image(uiImage: MenuIconTile.small("trash", .red)) }
-        }
-    }
-
-    // v3.9.32：提醒我（长按菜单）——兜底 sheet 状态
-    @State private var showReminderSheet = false
-    @State private var reminderSeed = ""
-
+    // v4.0.168：v3.9.32 的「提醒我兜底 sheet」随长按菜单改系统 `.contextMenu` 一并退役 ——
+    // 「提醒我」只走 ChatView.bubbleMenuItems → handleBubbleMenuPick（单一真源）。
     var body: some View {
         blockContent
-            .sheet(isPresented: $showReminderSheet) {
-                QuickReminderSheet(presetText: reminderSeed)
-                    .anchorMenuHost()   // v4.0.105：sheet 内长按站点需要本层宿主（根层 zIndex 4 画不到 sheet 之上）
-                    .presentationDetents([.medium, .large])
-            }
-    }
-
-    /// 长按菜单「提醒我」：优先交给调用方（ChatView 接线后走屏幕级 sheet，更稳）；
-    /// 未接线时本视图自己弹一张（兜底——功能不因少一行接线而失效）。
-    private func requestRemind() {
-        if let onRemind {
-            onRemind(blockPlainText)
-            return
-        }
-        // 上下文菜单收起需要一点时间：立刻置 true 会和菜单退场动画打架被吞掉（实测现象＝点了没反应）
-        Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(350))
-            reminderSeed = QuickReminderParser.seedText(from: blockPlainText)
-            showReminderSheet = true
-        }
     }
 
     @ViewBuilder
@@ -290,7 +164,7 @@ struct MessageBlockView: View {
                         .lineSpacing(aiLineSpacing)
                         // v4.0.81：长按 → 锚定胶囊菜单（原 `.textSelection(.enabled)` 与系统编辑菜单退役：
                         // 用户口径「所有长按菜单都要对齐」）
-                        .bubbleLongPress(longPressAction)
+                        .bubbleContextMenu(items: menuItems, text: blockPlainText, onPick: onMenuPick)
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 } else {
@@ -299,7 +173,7 @@ struct MessageBlockView: View {
                         .lineSpacing(aiLineSpacing)
                         // v4.0.81：长按 → 锚定胶囊菜单（原 `.textSelection(.enabled)` 与系统编辑菜单退役：
                         // 用户口径「所有长按菜单都要对齐」）
-                        .bubbleLongPress(longPressAction)
+                        .bubbleContextMenu(items: menuItems, text: blockPlainText, onPick: onMenuPick)
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -311,7 +185,7 @@ struct MessageBlockView: View {
                 Text(cachedRenderText(text))
                     .font(.system(size: CGFloat(fontSize)))
                     .lineSpacing(aiLineSpacing)
-                    .bubbleLongPress(longPressAction)
+                    .bubbleContextMenu(items: menuItems, text: blockPlainText, onPick: onMenuPick)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .environment(\.openURL, OpenURLAction { url in
@@ -342,23 +216,24 @@ struct MessageBlockView: View {
                     onMultiSelect: onMultiSelect,
                     onMemo: onMemo,
                     onGoal: onGoal,
-                    // v4.0.81：超长文本(>6000字)也换「长按 → 锚定胶囊菜单」（弃原生编辑菜单）
-                    interactionEnabled: false,
-                    // v4.0.82：长按挂在 UITextView 本层（同上：纯渲染视图命中不到外层手势）
-                    onLongPress: longPressAction
+                    // v4.0.168：超长文本(>6000字)仍用 UITextView 渲染（性能），
+                    // 但长按菜单改由**外层**系统 `.contextMenu` 接管 → 本视图退化为纯渲染。
+                    interactionEnabled: false
                 )
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())   // 纯渲染 UIKit 视图不参与命中 → 用整块矩形兜住长按
+                .bubbleContextMenu(items: menuItems, text: blockPlainText, onPick: onMenuPick)
             }
         case .image(let url):
             // v2.0.128：AI 直接发图 —— URL 用 AsyncImage，data URL 本地解码；点击打开大图
             AIImageView(url: url)
                 .onTapGesture { onImageTap(url) }
-                .bubbleLongPress(longPressAction)
+                .bubbleContextMenu(items: menuItems, text: blockPlainText, onPick: onMenuPick)
         case .file(let url, let name):
             // v3.9.17：AI 生成物（后端 /api/stream/media 已放开 pdf/md/csv/txt/json/log）
             // 拆成独立小 View —— 这个 switch 所在的 ViewBuilder 已很深，内联塞卡片易触发 type-check 超时
             AIFileCard(name: name) { onFileTap(url, name) }
-                .bubbleLongPress(longPressAction)
+                .bubbleContextMenu(items: menuItems, text: blockPlainText, onPick: onMenuPick)
         case .code(let text, let lang):
             // v2.0.36：代码块加复制按钮（右上角）；v3.4.x 语法高亮（已知语言按 token 着色）
             VStack(alignment: .leading, spacing: 6) {
@@ -392,39 +267,21 @@ struct MessageBlockView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Color.black.opacity(0.06))
             .clipShape(RoundedRectangle(cornerRadius: Radius.icon, style: .continuous))
-            .bubbleLongPress(longPressAction)
+            .bubbleContextMenu(items: menuItems, text: blockPlainText, onPick: onMenuPick)
         case .table(let rows):
             // v2.0.87d：markdown 表格渲染（表头加粗 + 斑马纹 + 横向滚动）
             MarkdownTableView(rows: rows)
-                .bubbleLongPress(longPressAction)
+                .bubbleContextMenu(items: menuItems, text: blockPlainText, onPick: onMenuPick)
         case .agentCard(let card):
             // v3.5.0：Agent 结果卡片（```ql-card 围栏）——单卡玻璃 + 0.8pt 描边，长按菜单同其他段
             AgentResultCard(card: card, onContinueStep: onContinueStep, onCardSubmit: onCardSubmit,
                             cardSeed: messageId)   // v4.0.104（#25）：回执按消息隔离，防跨卡误判已提交
-                .bubbleLongPress(longPressAction)
+                .bubbleContextMenu(items: menuItems, text: blockPlainText, onPick: onMenuPick)
         case .action(let action):
             // v3.9.95：AI 本地动作卡（```ql-action 围栏）
             // 刻意**不给** contextMenu：动作卡上的长按菜单会出现"复制 JSON"这类无意义项，
             // 且用户可能从菜单误以为能撤销 —— 撤销只走卡片上那个 5 秒胶囊。
             AgentActionCard(action: action, messageId: messageId, streamingHost: streamingHost)
-        }
-    }
-}
-
-// MARK: - v4.0.81 长按 → 锚定胶囊菜单（替代 .contextMenu）
-
-/// 把「长按气泡/文字段 → 弹出右上角三点菜单同款胶囊」收敛成一个挂法。
-/// - 传 nil = **不挂手势**（动作卡刻意无菜单；同时保证 `onLongPressMenu` 未接线时行为不变）
-/// - 0.42s / 22pt：比系统 contextMenu 略短，且允许小幅移动（滚动/横滑仍能接管 → 不挡列表滑动）
-/// 设计记录：整块替换 6 处 `.contextMenu { bubbleMenu }` 与 5 处 `.textSelection(.enabled)`；
-/// 手势只挂一层（嵌套会双份触发，代码块那处已收在外层容器）。
-extension View {
-    @ViewBuilder
-    func bubbleLongPress(_ action: (() -> Void)?) -> some View {
-        if let action {
-            onLongPressGesture(minimumDuration: 0.42, maximumDistance: 22, perform: action)
-        } else {
-            self
         }
     }
 }

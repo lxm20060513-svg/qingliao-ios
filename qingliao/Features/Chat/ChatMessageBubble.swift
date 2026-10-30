@@ -159,16 +159,11 @@ struct MessageBubble: View {
     /// ⚠️ 声明序铁律：本参数必须排在 streamingText **之后** —— StreamingBubbleView 的调用点
     ///    是按声明序传标签实参（streamingAvatar: → streamingText: → 本参数），挪位即编译失败。
     var streamingSweep: Bool = false
-    /// v4.0.81：长按气泡（文字 / 图片 / 文件卡 / 代码块 / 表格 / agent 卡）→ 交由宿主 ChatView
-    /// 弹出**锚定胶囊菜单**（与右上角三点菜单同一组件、同一排布）。传整条消息文本。
-    /// ⚠️ 声明序铁律：本参数排在最末，调用点也传在最末（见技能 swiftui-param-order）。
-    var onLongPressMenu: ((String) -> Void)? = nil
-
-    /// 卡片区的长按动作（nil = 不挂手势）。`displayContent` 与渲染一致（老消息不含进度行）。
-    private var longPressAction: (() -> Void)? {
-        guard let onLongPressMenu else { return nil }
-        return { onLongPressMenu(displayContent) }
-    }
+    /// v4.0.168：长按气泡（文字 / 图片 / 文件卡 / 代码块 / 表格 / agent 卡）→ **系统原生菜单**
+    /// （iOS 27 玻璃菜单，内容由宿主 ChatView 的 bubbleMenuItems 单一真源生成）。
+    /// ⚠️ 声明序铁律：这两个参数排在最末，调用点也按序传（见技能 swiftui-param-order）。
+    var menuItems: ((String) -> [AnchorMenuItem])? = nil
+    var onMenuPick: ((AnchorMenuItem, String) -> Void)? = nil
     // v2.0.38：聊天字体大小（设置页可调，实时生效）
     @AppStorage("qingliao_font_size") private var fontSize = 15.0   // v2.0.87r：默认15号
     // v2.0.128：AI 输出行高（设置页滑条，实时生效）
@@ -196,7 +191,7 @@ struct MessageBubble: View {
     /// v2.0.125：撤回条件（自己的消息 + 10 秒内 + 未撤回 + 未失败），菜单项按此显隐
     private var canWithdraw: Bool { Self.canWithdraw(message) }
 
-    /// v4.0.81（审查修）：撤回条件提成**静态判据** —— 长按菜单（ChatView.bubbleMenuItems）与气泡按钮
+    /// 撤回条件提成**静态判据** —— 长按菜单（ChatView.bubbleMenuItems）与气泡按钮
     /// 共用同一份口径，免得新菜单漏守卫（同一批就漏过一次：对 AI 回复也能点「撤回」）。
     static func canWithdraw(_ message: ChatMessage) -> Bool {
         if message.isUser, !message.withdrawn, !message.failed,
@@ -534,7 +529,7 @@ struct MessageBubble: View {
                     .clipShape(RoundedRectangle(cornerRadius: Radius.inset, style: .continuous))
                     .zoomSource(id: message.id, ns: zoomNS)   // v3.4.29：zoom 转场源
                     .onTapGesture { onImageTap() }
-                    .bubbleLongPress(longPressAction)
+                    .bubbleContextMenu(items: menuItems, text: displayContent, onPick: onMenuPick)
             } else if let uiImg = dataURLImage(img, displayWidthPT: AdaptiveLayout.chatImageMax(hSize)) {
                 // v3.4.25：传气泡显示宽度 → ≥100KB 大图按 512/1024 档位下采样解码（内存不随原图像素放大）
                 Image(uiImage: uiImg)
@@ -546,7 +541,7 @@ struct MessageBubble: View {
                     // v2.0.36：点击查看大图
                     .onTapGesture { onImageTap() }
                     // v2.0.125：图片长按菜单（原气泡级菜单移到这里，不抢占文字长按）
-                    .bubbleLongPress(longPressAction)
+                    .bubbleContextMenu(items: menuItems, text: displayContent, onPick: onMenuPick)
             }
         }
     }
@@ -570,7 +565,7 @@ struct MessageBubble: View {
         if let file = parseFileMessage(message.content) {
             FileMessageCard(file: file)
                 // v2.0.125：文件卡片长按菜单（原气泡级菜单移到这里）
-                .bubbleLongPress(longPressAction)
+                .bubbleContextMenu(items: menuItems, text: displayContent, onPick: onMenuPick)
         } else {
             // v2.0.125：UITextView 渲染 —— 长按弹菜单（复制/引用/分享/大爆炸/选择文本/撤回/删除）
             SelectableTextLabel(
@@ -591,11 +586,11 @@ struct MessageBubble: View {
                 onMultiSelect: onMultiSelect,
                 onMemo: onMemo,
                 onGoal: onGoal,
-                // v4.0.81：用户文字气泡也换「长按 → 锚定胶囊菜单」（弃 UITextView 原生编辑菜单 + 拖动选中）
-                interactionEnabled: false,
-                // v4.0.82：长按必须挂在 UITextView 本层（纯渲染视图退出命中测试，外层 SwiftUI 手势收不到）
-                onLongPress: longPressAction
+                // v4.0.168：用户文字气泡同样走**外层系统原生菜单**（UITextView 纯渲染）
+                interactionEnabled: false
             )
+            .contentShape(Rectangle())   // 纯渲染 UIKit 视图不参与命中 → 用整块矩形兜住长按
+            .bubbleContextMenu(items: menuItems, text: displayContent, onPick: onMenuPick)
         }
     }
 
@@ -651,7 +646,6 @@ struct MessageBubble: View {
                                         onMemo: onMemo,
                                         onTodo: onTodo,
                                         onGoal: onGoal,
-                                        onRemind: onRemind,
                                         onImageTap: { url in onAIImageTap(url) },   // v2.0.128：AI 图片点击打开大图
                                         onFileTap: { url, name in onFileTap(url, name) },   // v3.9.17：AI 生成物预览
                                         onMultiSelect: onMultiSelect,   // v3.3.0：多选合并转发
@@ -659,7 +653,8 @@ struct MessageBubble: View {
                                         onCardSubmit: onCardSubmit,   // v4.0.104（#25）：表单卡提交回传
                                         useSwiftUIText: true,
                                         streaming: streamingText,   // v3.0.41 性能：流式中纯 Text 渲染（跳过 markdown 解析）
-                                        onLongPressMenu: onLongPressMenu)   // v4.0.81：长按段 → 锚定胶囊菜单
+                                        menuItems: menuItems,   // v4.0.168：长按段 → 系统原生菜单
+                                        onMenuPick: onMenuPick)
                 }
             }
             longTextFoldBar
@@ -1279,7 +1274,6 @@ struct MessageBubble: View {
                                 onMemo: onMemo,
                                 onTodo: onTodo,
                                 onGoal: onGoal,
-                                onRemind: onRemind,
                                 onImageTap: { url in onAIImageTap(url) },
                                 onFileTap: { url, name in onFileTap(url, name) },   // v3.9.17：AI 生成物预览
                                 onMultiSelect: onMultiSelect,   // v3.3.0：多选合并转发
@@ -1287,7 +1281,8 @@ struct MessageBubble: View {
                                 onCardSubmit: onCardSubmit,   // v4.0.104（#25）：表单卡提交回传
                                 useSwiftUIText: true,
                                 streaming: false,
-                                onLongPressMenu: onLongPressMenu)   // v4.0.81：长按段 → 锚定胶囊菜单
+                                menuItems: menuItems,   // v4.0.168：长按段 → 系统原生菜单
+                                onMenuPick: onMenuPick)
             }
         }
         .padding(.horizontal, Spacing.xl)

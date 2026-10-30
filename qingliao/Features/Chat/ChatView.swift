@@ -1320,7 +1320,8 @@ struct ChatView: View {
         }
     }
 
-    /// v4.0.77：聊天页的三个锚定菜单浮层（三点操作 / 思考档位 / 长按气泡）。
+    /// v4.0.77：聊天页的锚定菜单浮层（三点操作 / 思考档位）。
+    /// v4.0.168：长按气泡改为系统原生菜单，不再走这里。
     /// v4.0.157：**本体搬进 `ChatAnchorMenuLayer`**（读 `ChatMenuState`）——原先在这里直接读
     /// `showMoreMenu / showReasoningPicker / bubbleMenuTarget`，等于让整个 ChatView.body 挂在
     /// 菜单开合上（点一下 = 6k 行 body + 300 行 LazyVStack 全量重算）。这里只留挂载点。
@@ -1338,14 +1339,10 @@ struct ChatView: View {
                                    color: lv == reasoningLevel ? .accentColor : .primary)
                 }
             },
-            bubbleItems: { msg, text in bubbleMenuItems(for: msg, text: text) },
             onMorePick: { handleChatActionMenuPick($0) },
             onReasoningPick: { item in
                 reasoningLevelRaw = item.id
                 chatMenu.showReasoning = false
-            },
-            onBubblePick: { item, msg, text in
-                handleBubbleMenuPick(item, message: msg, text: text)
             })
     }
 
@@ -3014,20 +3011,10 @@ struct ChatView: View {
             .matchedTransitionSource(id: "bb-" + entry.msg.id, in: zoomNS)   // v3.9.1：独立 id 空间——气泡内图片用的是 msg.id，同 id 会让 zoom 取源不确定
     }
 
-    // MARK: - v4.0.81 长按气泡 → 锚定胶囊菜单（单一真源）
+    // MARK: - 长按气泡 → 系统原生菜单（内容单一真源）
 
-    /// 打开「长按」锚定菜单。锚点取该条气泡**最近一次布局**的全局 frame（行级量测，见
-    /// chatMessageBubble 上挂的 onGeometryChange）——所以同一会话里每段文字/图片各有自己的位置。
-    /// 与另两个锚定浮层互斥（同屏只允许一个锚定菜单，开新的先清旧的）。
-    func openBubbleMenu(for msg: ChatMessage, text: String) {
-        let anchor = ChatBubbleAnchorStore.shared.rect(for: msg.id) ?? chatMenu.moreAnchor
-        Haptics.tap()
-        // v4.0.157：openBubble 内部清另两个标志（互斥真源），别再逐处手写
-        chatMenu.openBubble(ChatBubbleMenuTarget(id: msg.id, anchor: anchor, text: text, message: msg))
-    }
-
-    /// v4.0.81：长按菜单**单一真源** —— 此前入口散在 6 处 `.contextMenu` + 5 处 `.textSelection` 里，
-    /// 各套顺序/文案还不一致（用户口径：所有长按菜单都对齐三点菜单的胶囊形态）。
+    /// v4.0.81 起的**单一真源**（v4.0.168 只把呈现层从自绘胶囊换回系统 `.contextMenu`，本表不动）——
+    /// 此前入口散在 6 处 `.contextMenu` + 5 处 `.textSelection` 里，各套顺序/文案还不一致。
     /// 图标与配色逐条取自原两套菜单（不自造 SF Symbol 名，避免符号不存在），顺序 = 复制/地图/引用/分享/
     /// 多选/大爆炸/全屏阅读/钉一钉/备忘录/待办/目标/提醒/重新生成/编辑/撤回/删除。
     /// 动作卡（plan 卡 / 问题卡 / 工具步骤卡）刻意**不挂**长按菜单 —— 卡自带操作按钮，加了会打架。
@@ -3070,7 +3057,6 @@ struct ChatView: View {
     /// v4.0.81：长按菜单动作分发 —— 每个 case 与原先对应气泡菜单里那个 Button 的 body 逐条等价
     /// （搬运，不改行为；文案/触感沿用原实现：复制走 UIPasteboard + Haptics.success()）。
     private func handleBubbleMenuPick(_ item: AnchorMenuItem, message msg: ChatMessage, text: String) {
-        chatMenu.bubble = nil
         switch item.id {
         case "copy":
             UIPasteboard.general.string = text
@@ -3233,15 +3219,12 @@ struct ChatView: View {
             //（后端按采纳/忽略比自适应抬降置信度阈值 = 主动 Agent 唯一的学习信号）
             Task { await inbox.sendProactiveFeedback(messageId: msg.id,
                                                       proactiveId: pid, verdict: verdict) }
-        } onLongPressMenu: { text in
-            // v4.0.81：长按（文字/图片/文件卡/代码块/表格/agent 卡）→ 右上角三点菜单同款胶囊
-            // v4.0.106：内容不再「微缩 → 抬起」（用户真机拍板只留背景模糊 + 胶囊菜单）
-            openBubbleMenu(for: msg, text: text)
-        }
-        // v4.0.81：行级锚点。存**引用类型** store 不写 @State —— 滚动每帧都会刷新，
-        // 写 @State 会让整页 body 反复失效（v3.9.x 同源教训）。
-        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { rect in
-            ChatBubbleAnchorStore.shared.set(msg.id, rect)
+        } menuItems: { text in
+            // v4.0.168：长按（文字/图片/文件卡/代码块/表格/agent 卡）→ **系统原生菜单**
+            //（菜单内容仍由下面的 bubbleMenuItems 单一真源生成）
+            bubbleMenuItems(for: msg, text: text)
+        } onMenuPick: { item, text in
+            handleBubbleMenuPick(item, message: msg, text: text)
         }
     }
 
@@ -6031,29 +6014,6 @@ extension ChatView {
             .transition(.opacity.combined(with: .scale(scale: 0.97)))   // v3.9.30：欢迎页浮现过渡
     }
 
-}
-
-// MARK: - v4.0.81 长按菜单的锚定目标与锚点台账
-
-/// 长按某个气泡行时弹出的锚定菜单目标（值类型，塞进 @State 触发一次重绘即可）。
-struct ChatBubbleMenuTarget {
-    let id: String
-    /// 该气泡行的全局 frame（菜单按它定位；取不到时回落到三点菜单锚点）
-    let anchor: CGRect
-    /// 该行要操作的文本（整条气泡 / 选中那一段 / 代码正文，由气泡侧传入）
-    let text: String
-    let message: ChatMessage
-}
-
-/// 气泡行级锚点台账。**故意不是 ObservableObject**：滚动时每帧都会刷新 frame，
-/// 写进 @State 会让整页 body 反复失效（同源教训见 ChatView「滚动容器可视高度」注释）。
-@MainActor   // v4.0.81（CI 修）：`static let shared` 在 Swift 6 严格并发下要求类型 Sendable 或隔离到 MainActor
-final class ChatBubbleAnchorStore {
-    static let shared = ChatBubbleAnchorStore()
-    private var frames: [String: CGRect] = [:]
-    private init() {}
-    func set(_ id: String, _ rect: CGRect) { frames[id] = rect }
-    func rect(for id: String) -> CGRect? { frames[id] }
 }
 
 /// v4.0.155：打字机滚底观察者（零尺寸、不参与布局）。

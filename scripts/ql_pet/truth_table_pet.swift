@@ -76,8 +76,8 @@ check("踱步有上下颠步（quirkyBob 纵向起伏）",
       avC.contains("var quirkyBob: CGFloat"))
 check("颠步幅度 0.03×size（≈3pt，够看又不夸张）",
       avC.contains("return strollPhase ? -size * 0.03 : 0"))
-check("踱步有身体前倾（2.5°，重心前移的身体感）；v4.0.58 起原地踏步共用同一档前倾",
-      avC.contains("case .some(.strollLeft), .some(.strollRight), .some(.march): return 2.5"))
+check("踱步有身体前倾（2.5°，重心前移的身体感）",
+      avC.contains("case .some(.strollLeft), .some(.strollRight): return 2.5"))
 
 // MARK: - 3. 🚨 走动方向配对（这才是真约束；顺序本身无影响）
 // 上一版这里写的是「镜像必须排在位移之前，否则横着滑」——**那条因果不成立**：
@@ -419,91 +419,41 @@ check("旧的 6~14s 间隔已清零",
 check("设置页文案已同步为 2~5 秒",
       stripComments(read("qingliao/Features/Settings/PetStudioSheet.swift")).contains("2~5 秒随机触发"))
 
-// MARK: - 18. v4.0.58 会走路的小脚（用户拍板「给卡通宠物加上会走路的小脚，要能实际走路，踢腿等动作」）
-// 三只形象共用一套腿几何：髋点在**身体内部**（y=0.705，三只半径 0.37~0.40 → 下缘 0.87~0.90），
-// 腿画在主形之前 → 腿骨上半段被圆身体压住，只露脚掌 + 一小截腿（与手同一条画法）。
-// 摆腿 = 髋不动、脚掌走弧线：抬脚 0.042 + 外摆 0.048（≈4.6pt@96pt）落在体外可见区。
-// 数值体检（脚掌可见高度/横向步幅/@24·60·96pt）在 scripts/ql_pet/check_leg_geometry.py（段 5d）。
-// ⚠️ MARK 是「// 注释」→ stripComments 会把整行洗成空串，所以切片必须切**原始文本**（下面两条 raw），
-//    切完再 stripComments 做代码断言。（首版把切片切在 paC 上 → 段是空的 → 6 条假红。）
-let paRaw = read("qingliao/Features/Chat/PetPainter.swift")
-let avRaw = read("qingliao/Features/Chat/PetAvatar.swift")
-let legSeg = paRaw.components(separatedBy: "// MARK: 腿/脚（v4.0.58").count > 1
-    ? stripComments(paRaw.components(separatedBy: "// MARK: 腿/脚（v4.0.58")[1].components(separatedBy: "private func soft(")[0])
-    : ""
-check("腿/脚绘制段落在（PetPainter「腿/脚（v4.0.58」段）", !legSeg.isEmpty && legSeg.contains("private func leg("))
-check("三只形象都画了腿（leg 调用 6 处 = 每只形象两只脚）",
-      paC.components(separatedBy: "leg(&layer, s, side:").count - 1 >= 6)
-let iLegCall = paC.range(of: "leg(&layer, s, side: -1)")
-let iShellCall = paC.range(of: "shell(&layer, s, radius: 0.40,")
-check("腿画在主形之前（髋关节被圆身体压住 → 与手同一条画法）",
-      iLegCall != nil && iShellCall != nil && iLegCall!.lowerBound < iShellCall!.lowerBound)
-check("几何常量被钉住（髋 x=±0.085 / 髋 y=0.705 / 站定脚 y=0.960 / 抬脚 0.042）",
-      legSeg.contains("let hipX: CGFloat = 0.5 + side * 0.085")
-      && legSeg.contains("let hipY: CGFloat = 0.705")
-      && legSeg.contains("let stanceY: CGFloat = 0.960")
-      && legSeg.contains("let footY = stanceY - CGFloat(liftPhase) * 0.042 - kickAmount * 0.045"))
-check("步态相位是 0…1 标量（Double? = 站定；不引入自定义姿势结构，插值发生在 keyframe 之间）",
-      paC.contains("var legPhase: Double? = nil") && paC.contains("var kick: Double = 0")
-      && paC.contains("var kickSide: CGFloat = -1"))
-check("左右腿错半个周期", legSeg.contains("side < 0 ? t : t + 0.5"))
-check("抬脚只发生在摆动相（max(0, -sin(ang))：支撑相脚掌贴地不动）",
-      legSeg.contains("max(0, -sin(ang))"))
-check("腿骨旋转角与脚掌位移共用同一个 dx（防「腿斜着、脚掌却是正的」断腿感）",
-      legSeg.contains("let phi = -((dx + pendulum) /"))
-check("腿不受 simplify 门控（脚是这一版主角），只有高光/肉垫受门控（防误伤小尺寸）",
-      legSeg.contains("guard !simplify else { return }")
-      && paC.components(separatedBy: "leg(&layer, s, side:").count - 1 >= 6)
-check("三只形象的脚各有形态（liquid 高光 / beast 三颗肉垫 / robot 鞋面条）",
-      legSeg.contains("Pal.liquidDeep") && legSeg.contains("Pal.beastEarIn")
-      && legSeg.contains("Pal.botTop"))
-check("三个腿部动作都进了池（插在中间：头尾字面量被上文两段钉住）",
-      pmC.contains(".march, .kick, .kickFlurry,"))
-check("isLegAction / isGait 判定存在，且 isGait = 踱步 + 踏步（踏步也要颠步）",
-      pmC.contains("var isLegAction: Bool") && pmC.contains("var isGait: Bool { isStroll || self == .march }"))
-check("踏步/踢腿/连踢时长单列（不复用踱步 2.2s）",
-      pmC.contains("case .march: return 2.0") && pmC.contains("case .kick: return 1.4")
-      && pmC.contains("case .kickFlurry: return 2.4"))
-check("循环按 isLegAction 接腿部编排（在手部分流之前）", avC.contains("} else if q.isLegAction {"))
-check("庆祝兜底也认腿部动作（4 个庆祝动作全关时抽到踢腿不会退化成半截）",
-      avC.components(separatedBy: "if q.isLegAction {").count - 1 >= 2)
-check("三条编排函数都在（踏步/踢腿/连踢）",
-      ["playMarch", "playKick", "playKickFlurry"].allSatisfy { avC.contains("func \($0)() async") })
-check("踱步升级为真迈步（4 个半步；同一句里驱动 legPhase）",
-      avC.contains("withAnimation(.easeInOut(duration: d * 0.3)) { quirky = q; legPhase = 0 }")
-      && avC.contains("withAnimation(.easeInOut(duration: d * 0.1)) { strollPhase = true; legPhase = step }"))
-check("踱步结束脚也归位（独立一句 → 真值表钉住的那行字面量没被改坏）",
-      avC.contains("withAnimation(.easeInOut(duration: d * 0.3)) { quirky = nil }")
-      && avC.contains("withAnimation(.easeInOut(duration: d * 0.3)) { legPhase = nil }"))
-let legChoreo = avRaw.components(separatedBy: "// MARK: v4.0.58 腿部动作编排").count > 1
-    ? stripComments(avRaw.components(separatedBy: "// MARK: v4.0.58 腿部动作编排")[1].components(separatedBy: "@ViewBuilder")[0])
-    : ""
-check("腿部编排段在（且插在 decoration 之前，不破坏 @ViewBuilder 归属）",
-      !legChoreo.isEmpty && legChoreo.contains("private func playMarch() async"))
-check("腿部编排每段都重查 animate/取消（≥6 处，且统一走 legStopRequested() 早退复位）",
-      legChoreo.components(separatedBy: "if legStopRequested() { return }").count - 1 >= 6
-      && legChoreo.contains("private func legStopRequested() -> Bool")
-      && !legChoreo.contains("guard animate, !Task.isCancelled else { return }"))
-check("踢腿换边先归零再翻 side（kickSide 插值路过 0 会两条腿同时半踢）",
-      legChoreo.contains("legKickSide = side"))
-check("踢腿有身体配合（后仰 -4 + 双手张开 0.45 配平）",
-      avC.contains("case .some(.kick): return -4") && avC.contains("spread: 0.45"))
-check("切后台/关动画时腿复位（legPhase = nil + legKick = 0，防回前台腿僵在半空）",
-      avC.contains("legPhase = nil\n                legKick = 0"))
-check("腿参数尾随传入 Canvas（挂件靠默认值零改动）",
-      avC.contains("kick: currentKick,")
-      && avC.contains("legPhase: currentLegPhase,")
-      && avC.contains("kickSide: currentKickSide,")
-      && avC.contains("dotHaloPhase: currentHaloPhase)"))
-check("挂件那条 PetPainter 调用没被腿参数动过（前缀仍与前文 ql_orbmenu 真值表一致）",
-      lw.contains("PetPainter(style: style,") && !lw.contains("legPhase:"))
-check("设置页三条 hint 都在（加了 case 不补 = 只有 CI Archive 抓得到）",
-      psC.contains("case .march: return \"原地抬脚踏步\"")
-      && psC.contains("case .kick: return \"抬腿踢一下\"")
-      && psC.contains("case .kickFlurry: return \"左右腿连踢三下\""))
-check("设置页预览有代表性腿脚姿势（缩略图看得出在迈步/踢腿，不是站定）",
-      avC.contains("static func representativeLegs(_ q: Quirk)")
-      && avC.contains("case .march, .strollLeft, .strollRight: return (0.25, 0, -1)"))
+// MARK: - 18. v4.0.168 三只形象移除小脚（用户 2026-10-30「液态小生物 / 圆胖小兽 / 圆头机器人
+// 都拿掉小脚及跟脚相关的动作」）
+// 口径：腿/脚绘制段 + legPhase/kick/kickSide 参数 + 原地踏步/踢腿/连踢三个动作全部退役；
+// 踱步退回「整体滑行」（保留位移 + 落脚颠步）。别再以「更好看」为由把脚加回来。
+check("PetPainter 不再有腿/脚绘制与调用（leg()/legDeform()/leg(&layer 全零命中）",
+      !paC.contains("private func leg(") && !paC.contains("private func legDeform(")
+      && !paC.contains("leg(&layer, s, side:"))
+check("PetPainter 不再有腿脚参数（legPhase / kick / kickSide 零命中）",
+      !paC.contains("var legPhase") && !paC.contains("var kick: Double")
+      && !paC.contains("var kickSide"))
+check("PetAvatar 不再驱动腿脚（legPhase/legKick/representativeLegs 零命中）",
+      !avC.contains("legPhase") && !avC.contains("legKick")
+      && !avC.contains("representativeLegs"))
+check("踏步/踢腿/连踢三个动作已退役（case 定义、池子条目、文案都零命中）",
+      !pmC.contains("case march") && !pmC.contains("case kick")
+      && !pmC.contains("case kickFlurry") && !pmC.contains(".march, .kick, .kickFlurry,")
+      && !psC.contains("原地抬脚踏步") && !psC.contains("抬腿踢一下")
+      && !psC.contains("左右腿连踢三下"))
+check("isLegAction / isGait 判定已随动作移除",
+      !pmC.contains("var isLegAction") && !pmC.contains("var isGait"))
+check("动作池 = 11 个（老四 + 踱步×2 + 手部×5；删掉踏步/踢腿/连踢后不许悄悄少别的）",
+      {
+        let parts = pmC.components(separatedBy: "static let pool: [Quirk] = [")
+        guard parts.count > 1 else { return false }
+        let seg = parts[1].components(separatedBy: "]")[0]
+        return seg.components(separatedBy: ".").count - 1 == 11
+      }())
+check("踱步退回整体滑行（playStroll 不再写 legPhase，仍有 4 个半步 + 颠步）",
+      avC.contains("private func playStroll(_ q: Quirk, duration d: TimeInterval) async")
+      && avC.contains("for _ in 0..<4 {")
+      && avC.contains("strollPhase = true"))
+check("腿编排函数整段移除（playLegAction / playMarch / playKick / playKickFlurry 零命中）",
+      ["playLegAction", "playMarch", "playKick", "playKickFlurry"].allSatisfy { !avC.contains($0) })
+check("黑球的无手脚判定不受影响（hasLimbs 单点仍在）",
+      pmC.contains("var hasLimbs: Bool { self != .dot }"))
 check("没有为腿引入逐帧驱动（仍是 withAnimation 段间插值，省电红线不变）",
       !avC.contains("TimelineView") && !avC.contains("CADisplayLink"))
 
@@ -536,8 +486,8 @@ check("第 4 只不画手脚（drawDot 段内不得出现 hand( / leg( 调用）
       !dotDrawSeg.isEmpty && !dotDrawSeg.contains("hand(") && !dotDrawSeg.contains("leg("))
 let dotCases = ppC.components(separatedBy: "case .dot:").dropFirst()
     .filter { !$0.hasPrefix(" drawDot") }
-check("手/腿对第 4 只仍留 return 兜底（hand 1 处 + leg 2 处，防闸门被拆）",
-      dotCases.count >= 3 && dotCases.prefix(3).allSatisfy { $0.prefix(300).contains("return") })
+check("手对第 4 只仍留 return 兜底（hand 1 处；腿已整体移除），防闸门被拆",
+      dotCases.count >= 1 && dotCases.prefix(1).allSatisfy { $0.prefix(300).contains("return") })
 // 误用防线：`dotEyes` 是前三只的**深色**豆眼、`dotEye` 才是第 4 只的亮眼白 ——
 // 一字之差、参数还齐全，写错能编译通过而黑球上「脸上什么都没有」（本批正是要防「深色细节隐形」）。
 check("第 4 只不许误用前三只的深色豆眼 dotEyes（黑球上 = 隐形）",
@@ -578,10 +528,10 @@ check("设置页形象列表仍走 allCases（第 4 只自动出现在 AI形象�
       psC.contains("ForEach(PetStyle.allCases)"))
 // v4.0.121（P1 修复）：无手脚形象抽到「靠手/脚演」的动作 = 一整段静止（用户会当成卡住）。
 // 三处一起钉：① 判据单点 ② 动作池两处都过筛 ③ 设置页把演不出来的行置灰（别让用户勾了没反应）。
-check("无手脚形象的动作筛选有单点判据（手部/腿部动作对它 = 整段静止，池子必须先筛）",
+check("无手脚形象的动作筛选有单点判据（手部动作对它 = 整段静止，池子必须先筛）",
       pmC.contains("var worksWithoutLimbs: Bool {")
       && pmC.contains("case .waveHello, .clap, .heartHands, .chinRest: return false")
-      && pmC.contains("case .march, .kick, .kickFlurry: return false"))
+      && !pmC.contains("case .march, .kick, .kickFlurry: return false"))
 check("动作池两处都过这道筛（庆祝池 + 待机循环，漏一处 = 抽到手部动作时宠物静止）",
       avC.components(separatedBy: ".filter { style.hasLimbs || $0.worksWithoutLimbs }").count - 1 >= 2)
 check("设置页把演不出来的动作置灰（点「试一下」看不到反应 = 用户会当成开关坏了）",

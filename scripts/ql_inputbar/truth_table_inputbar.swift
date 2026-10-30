@@ -841,6 +841,24 @@ check("调用点传展示值 + 回调（实参序 = 声明序：recordingLevel �
 check("header 旧思考胶囊清零（reasoningPill / localReasoningPill 不复存在）",
       !chatViewSrc.contains("private var reasoningPill: some View")
       && !chatViewSrc.contains("localReasoningPill"))
+// ── v4.0.168（用户 2026-10-30「聊天页长按菜单改回 iOS27 原生菜单弹窗」）──
+// 长按气泡从自绘锚定胶囊回到系统 `.contextMenu`。钉住三件，防回退：
+// ① 系统菜单挂法在（bubbleContextMenu 修饰器 + 各段挂点）② 自绘 bubble 档零残留
+// ③ 菜单内容仍走 ChatView.bubbleMenuItems 单一真源（不许在视图里另写一份菜单）
+check("聊天页长按走系统原生菜单（bubbleContextMenu 修饰器 + 段级挂点在场）",
+      {
+        let c = src("Features/Chat/ChatComponents.swift")
+        let menu = src("Features/Chat/BubbleContextMenu.swift")
+        return menu.contains("func bubbleContextMenu(items: ((String) -> [AnchorMenuItem])?,")
+            && c.components(separatedBy: ".bubbleContextMenu(items: menuItems, text: blockPlainText, onPick: onMenuPick)").count - 1 >= 9
+      }())
+check("长按自绘胶囊档已退役（ChatAnchorMenuLayer 无 bubble 分支 / ChatView 无 openBubbleMenu）",
+      !chatMenuLayerSrc.contains("menu.bubble") && !chatViewSrc.contains("openBubbleMenu")
+      && !chatViewSrc.contains("ChatBubbleAnchorStore"))
+check("系统菜单内容仍由 ChatView.bubbleMenuItems 单一真源生成（菜单项不许各写一套）",
+      chatViewSrc.contains("bubbleMenuItems(for: msg, text: text)")
+      && chatViewSrc.contains("handleBubbleMenuPick(item, message: msg, text: text)"))
+
 check("档位弹窗仍是锚定浮层、且由 ChatView 的菜单层持有（v4.0.76 形态 / v4.0.157 搬家后不连坐 body）",
       chatMenuLayerSrc.contains("if menu.showReasoning")
       && chatMenuLayerSrc.contains("AnchorMenuOverlay(anchorFrame: menu.reasoningAnchor")
